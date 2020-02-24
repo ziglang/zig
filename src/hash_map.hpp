@@ -19,7 +19,7 @@ public:
         init_capacity(capacity);
     }
     void deinit(void) {
-        free(_entries);
+        heap::c_allocator.deallocate(_entries, _capacity);
     }
 
     struct Entry {
@@ -57,7 +57,7 @@ public:
                 if (old_entry->used)
                     internal_put(old_entry->key, old_entry->value);
             }
-            free(old_entries);
+            heap::c_allocator.deallocate(old_entries, old_capacity);
         }
     }
 
@@ -164,7 +164,7 @@ private:
 
     void init_capacity(int capacity) {
         _capacity = capacity;
-        _entries = allocate<Entry>(_capacity);
+        _entries = heap::c_allocator.allocate<Entry>(_capacity);
         _size = 0;
         _max_distance_from_start_index = 0;
         for (int i = 0; i < _capacity; i += 1) {

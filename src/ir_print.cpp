@@ -590,11 +590,6 @@ static void ir_print_const_value(CodeGen *g, FILE *f, ZigValue *const_val) {
 static void ir_print_other_inst_gen(IrPrintGen *irp, IrInstGen *inst) {
     if (inst == nullptr) {
         fprintf(irp->f, "(null)");
-        return;
-    }
-
-    if (inst->value->special != ConstValSpecialRuntime) {
-        ir_print_const_value(irp->codegen, irp->f, inst->value);
     } else {
         ir_print_var_gen(irp, inst);
     }

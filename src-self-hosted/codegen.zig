@@ -31,7 +31,7 @@ pub async fn renderToLlvm(comp: *Compilation, fn_val: *Value.Fn, code: *ir.Code)
     llvm.SetTarget(module, comp.llvm_triple.toSliceConst());
     llvm.SetDataLayout(module, comp.target_layout_str);
 
-    if (util.getObjectFormat(comp.target) == .coff) {
+    if (comp.target.getObjectFormat() == .coff) {
         llvm.AddModuleCodeViewFlag(module);
     } else {
         llvm.AddModuleDebugInfoFlag(module);

@@ -8,19 +8,18 @@ const std = @import("../std.zig");
 fn ok(comptime s: []const u8) void {
     std.testing.expect(std.json.validate(s));
 
-    var mem_buffer: [1024 * 20]u8 = undefined;
-    const allocator = &std.heap.FixedBufferAllocator.init(&mem_buffer).allocator;
-    var p = std.json.Parser.init(allocator, false);
+    var p = std.json.Parser.init(std.testing.allocator, false);
+    defer p.deinit();
 
-    _ = p.parse(s) catch unreachable;
+    var tree = p.parse(s) catch unreachable;
+    defer tree.deinit();
 }
 
 fn err(comptime s: []const u8) void {
     std.testing.expect(!std.json.validate(s));
 
-    var mem_buffer: [1024 * 20]u8 = undefined;
-    const allocator = &std.heap.FixedBufferAllocator.init(&mem_buffer).allocator;
-    var p = std.json.Parser.init(allocator, false);
+    var p = std.json.Parser.init(std.testing.allocator, false);
+    defer p.deinit();
 
     if (p.parse(s)) |_| {
         unreachable;
@@ -30,9 +29,8 @@ fn err(comptime s: []const u8) void {
 fn utf8Error(comptime s: []const u8) void {
     std.testing.expect(!std.json.validate(s));
 
-    var mem_buffer: [1024 * 20]u8 = undefined;
-    const allocator = &std.heap.FixedBufferAllocator.init(&mem_buffer).allocator;
-    var p = std.json.Parser.init(allocator, false);
+    var p = std.json.Parser.init(std.testing.allocator, false);
+    defer p.deinit();
 
     if (p.parse(s)) |_| {
         unreachable;
@@ -44,19 +42,18 @@ fn utf8Error(comptime s: []const u8) void {
 fn any(comptime s: []const u8) void {
     _ = std.json.validate(s);
 
-    var mem_buffer: [1024 * 20]u8 = undefined;
-    const allocator = &std.heap.FixedBufferAllocator.init(&mem_buffer).allocator;
-    var p = std.json.Parser.init(allocator, false);
+    var p = std.json.Parser.init(std.testing.allocator, false);
+    defer p.deinit();
 
-    _ = p.parse(s) catch {};
+    var tree = p.parse(s) catch return;
+    defer tree.deinit();
 }
 
 fn anyStreamingErrNonStreaming(comptime s: []const u8) void {
     _ = std.json.validate(s);
 
-    var mem_buffer: [1024 * 20]u8 = undefined;
-    const allocator = &std.heap.FixedBufferAllocator.init(&mem_buffer).allocator;
-    var p = std.json.Parser.init(allocator, false);
+    var p = std.json.Parser.init(std.testing.allocator, false);
+    defer p.deinit();
 
     if (p.parse(s)) |_| {
         unreachable;

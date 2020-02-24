@@ -76,7 +76,7 @@ pub fn link(comp: *Compilation) !void {
         std.debug.warn("\n", .{});
     }
 
-    const extern_ofmt = toExternObjectFormatType(util.getObjectFormat(comp.target));
+    const extern_ofmt = toExternObjectFormatType(comp.target.getObjectFormat());
     const args_slice = ctx.args.toSlice();
 
     {
@@ -128,7 +128,7 @@ fn toExternObjectFormatType(ofmt: ObjectFormat) c.ZigLLVM_ObjectFormatType {
 }
 
 fn constructLinkerArgs(ctx: *Context) !void {
-    switch (util.getObjectFormat(ctx.comp.target)) {
+    switch (ctx.comp.target.getObjectFormat()) {
         .unknown => unreachable,
         .coff => return constructLinkerArgsCoff(ctx),
         .elf => return constructLinkerArgsElf(ctx),

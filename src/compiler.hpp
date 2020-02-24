@@ -12,7 +12,6 @@
 #include "error.hpp"
 
 Error get_compiler_id(Buf **result);
-Buf *get_self_dynamic_linker_path(void);
 Buf *get_self_libc_path(void);
 
 Buf *get_zig_lib_dir(void);

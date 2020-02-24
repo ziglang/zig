@@ -584,10 +584,16 @@ fn renderExpression(
                 },
 
                 .Try,
-                .Await,
                 .Cancel,
                 .Resume,
                 => {
+                    try renderToken(tree, stream, prefix_op_node.op_token, indent, start_col, Space.Space);
+                },
+
+                .Await => |await_info| {
+                    if (await_info.noasync_token) |tok| {
+                        try renderToken(tree, stream, tok, indent, start_col, Space.Space);
+                    }
                     try renderToken(tree, stream, prefix_op_node.op_token, indent, start_col, Space.Space);
                 },
             }
@@ -1224,6 +1230,8 @@ fn renderExpression(
                     const space_after_decl: Space = if (it.peek() == null) .Newline else .Space;
                     try renderContainerDecl(allocator, stream, tree, new_indent, start_col, decl.*, space_after_decl);
                 }
+
+                try stream.writeByteNTimes(' ', indent);
             } else {
                 // All the declarations on the same line
                 try renderToken(tree, stream, container_decl.lbrace_token, indent, start_col, .Space); // {
@@ -1388,6 +1396,7 @@ fn renderExpression(
                     try renderToken(tree, stream, extern_export_inline_token, indent, start_col, Space.Space); // extern/export
                 } else {
                     cc_rewrite_str = ".C";
+                    fn_proto.lib_name = null;
                 }
             }
 

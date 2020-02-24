@@ -147,7 +147,7 @@ static void ast_invalid_token_error(ParseContext *pc, Token *token) {
 }
 
 static AstNode *ast_create_node_no_line_info(ParseContext *pc, NodeType type) {
-    AstNode *node = allocate<AstNode>(1, "AstNode");
+    AstNode *node = heap::c_allocator.create<AstNode>();
     node->type = type;
     node->owner = pc->owner;
     return node;
@@ -689,6 +689,9 @@ static AstNode *ast_parse_top_level_decl(ParseContext *pc, VisibMod visib_mod, B
 
             AstNode *res = fn_proto;
             if (body != nullptr) {
+                if (fn_proto->data.fn_proto.is_extern) {
+                    ast_error(pc, first, "extern functions have no body");
+                }
                 res = ast_create_node_copy_line_info(pc, NodeTypeFnDef, fn_proto);
                 res->data.fn_def.fn_proto = fn_proto;
                 res->data.fn_def.body = body;
@@ -806,7 +809,7 @@ static AstNode *ast_parse_fn_proto(ParseContext *pc) {
         if (param_decl->data.param_decl.is_var_args)
             res->data.fn_proto.is_var_args = true;
         if (i != params.length - 1 && res->data.fn_proto.is_var_args)
-            ast_error(pc, first, "Function prototype have varargs as a none last paramter.");
+            ast_error(pc, first, "Function prototype have varargs as a none last parameter.");
     }
     return res;
 }
@@ -1966,7 +1969,7 @@ static AsmOutput *ast_parse_asm_output_item(ParseContext *pc) {
 
     expect_token(pc, TokenIdRParen);
 
-    AsmOutput *res = allocate<AsmOutput>(1);
+    AsmOutput *res = heap::c_allocator.create<AsmOutput>();
     res->asm_symbolic_name = token_buf(sym_name);
     res->constraint = token_buf(str);
     res->variable_name = token_buf(var_name);
@@ -2003,7 +2006,7 @@ static AsmInput *ast_parse_asm_input_item(ParseContext *pc) {
     AstNode *expr = ast_expect(pc, ast_parse_expr);
     expect_token(pc, TokenIdRParen);
 
-    AsmInput *res = allocate<AsmInput>(1);
+    AsmInput *res = heap::c_allocator.create<AsmInput>();
     res->asm_symbolic_name = token_buf(sym_name);
     res->constraint = token_buf(constraint);
     res->expr = expr;
@@ -2596,10 +2599,14 @@ static AstNode *ast_parse_prefix_op(ParseContext *pc) {
         return res;
     }
 
+    Token *noasync_token = eat_token_if(pc, TokenIdKeywordNoAsync);
     Token *await = eat_token_if(pc, TokenIdKeywordAwait);
     if (await != nullptr) {
         AstNode *res = ast_create_node(pc, NodeTypeAwaitExpr, await);
+        res->data.await_expr.noasync_token = noasync_token;
         return res;
+    } else if (noasync_token != nullptr) {
+        put_back_token(pc);
     }
 
     return nullptr;

@@ -18,7 +18,6 @@
 #include "bigfloat.hpp"
 #include "target.hpp"
 #include "tokenizer.hpp"
-#include "libc_installation.hpp"
 
 struct AstNode;
 struct ZigFn;
@@ -370,10 +369,20 @@ enum LazyValueId {
     LazyValueIdFnType,
     LazyValueIdErrUnionType,
     LazyValueIdArrayType,
+    LazyValueIdTypeInfoDecls,
 };
 
 struct LazyValue {
     LazyValueId id;
+};
+
+struct LazyValueTypeInfoDecls {
+    LazyValue base;
+
+    IrAnalyze *ira;
+
+    ScopeDecls *decls_scope;
+    IrInst *source_instr;
 };
 
 struct LazyValueAlignOf {
@@ -1139,6 +1148,7 @@ struct AstNodeErrorType {
 };
 
 struct AstNodeAwaitExpr {
+    Token *noasync_token;
     AstNode *expr;
 };
 
@@ -1956,12 +1966,6 @@ enum CodeModel {
     CodeModelLarge,
 };
 
-enum EmitFileType {
-    EmitFileTypeBinary,
-    EmitFileTypeAssembly,
-    EmitFileTypeLLVMIr,
-};
-
 struct LinkLib {
     Buf *name;
     Buf *path;
@@ -2000,6 +2004,9 @@ struct CFile {
 
 // When adding fields, check if they should be added to the hash computation in build_with_cache
 struct CodeGen {
+    // arena allocator destroyed just prior to codegen emit
+    heap::ArenaAllocator *pass1_arena;
+
     //////////////////////////// Runtime State
     LLVMModuleRef module;
     ZigList<ErrorMsg*> errors;
@@ -2129,13 +2136,15 @@ struct CodeGen {
 
     Buf llvm_triple_str;
     Buf global_asm;
-    Buf output_file_path;
     Buf o_file_output_path;
+    Buf bin_file_output_path;
+    Buf asm_file_output_path;
+    Buf llvm_ir_file_output_path;
     Buf *cache_dir;
     // As an input parameter, mutually exclusive with enable_cache. But it gets
     // populated in codegen_build_and_link.
     Buf *output_dir;
-    Buf **libc_include_dir_list;
+    const char **libc_include_dir_list;
     size_t libc_include_dir_len;
 
     Buf *zig_c_headers_dir; // Cannot be overridden; derived from zig_lib_dir.
@@ -2175,7 +2184,9 @@ struct CodeGen {
     bool is_big_endian;
     bool have_c_main;
     bool have_winmain;
+    bool have_wwinmain;
     bool have_winmain_crt_startup;
+    bool have_wwinmain_crt_startup;
     bool have_dllmain_crt_startup;
     bool have_err_ret_tracing;
     bool link_eh_frame_hdr;
@@ -2214,14 +2225,13 @@ struct CodeGen {
     ZigList<const char *> lib_dirs;
     ZigList<const char *> framework_dirs;
 
-    ZigLibCInstallation *libc;
+    Stage2LibCInstallation *libc;
 
     size_t version_major;
     size_t version_minor;
     size_t version_patch;
     const char *linker_script;
 
-    EmitFileType emit_file_type;
     BuildMode build_mode;
     OutType out_type;
     const ZigTarget *zig_target;
@@ -2243,7 +2253,10 @@ struct CodeGen {
     bool function_sections;
     bool enable_dump_analysis;
     bool enable_doc_generation;
-    bool disable_bin_generation;
+    bool emit_bin;
+    bool emit_asm;
+    bool emit_llvm_ir;
+    bool test_is_evented;
     CodeModel code_model;
 
     Buf *mmacosx_version_min;
@@ -2277,7 +2290,6 @@ struct ZigVar {
     Scope *parent_scope;
     Scope *child_scope;
     LLVMValueRef param_value_ref;
-    IrExecutableSrc *owner_exec;
 
     Buf *section_name;
 
@@ -2489,6 +2501,9 @@ struct ScopeExpr {
     size_t children_len;
 
     MemoizedBool need_spill;
+    // This is a hack. I apologize for this, I need this to work so that I
+    // can make progress on other fronts. I'll pay off this tech debt eventually.
+    bool spill_harder;
 };
 
 // synchronized with code in define_builtin_compile_vars
@@ -4492,6 +4507,7 @@ struct IrInstSrcAwait {
 
     IrInstSrc *frame;
     ResultLoc *result_loc;
+    bool is_noasync;
 };
 
 struct IrInstGenAwait {
@@ -4500,6 +4516,7 @@ struct IrInstGenAwait {
     IrInstGen *frame;
     IrInstGen *result_loc;
     ZigFn *target_fn;
+    bool is_noasync;
 };
 
 struct IrInstSrcResume {

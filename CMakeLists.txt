@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 2.8.5)
 
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "Debug" CACHE STRING
-        "Choose the type of build, options are: Debug Release RelWithDebInfo MinSizeRel." FORCE)
+        "Choose the type of build, options are: None Debug Release RelWithDebInfo MinSizeRel." FORCE)
 endif()
 
 if(NOT CMAKE_INSTALL_PREFIX)
@@ -434,11 +434,11 @@ find_package(Threads)
 # CMake doesn't let us create an empty executable, so we hang on to this one separately.
 set(ZIG_MAIN_SRC "${CMAKE_SOURCE_DIR}/src/main.cpp")
 
-# This is our shim which will be replaced by libuserland written in Zig.
-set(ZIG0_SHIM_SRC "${CMAKE_SOURCE_DIR}/src/userland.cpp")
+# This is our shim which will be replaced by libstage2 written in Zig.
+set(ZIG0_SHIM_SRC "${CMAKE_SOURCE_DIR}/src/stage2.cpp")
 
 if(ZIG_ENABLE_MEM_PROFILE)
-    set(ZIG_SOURCES_MEM_PROFILE "${CMAKE_SOURCE_DIR}/src/memory_profiling.cpp")
+    set(ZIG_SOURCES_MEM_PROFILE "${CMAKE_SOURCE_DIR}/src/mem_profile.cpp")
 endif()
 
 set(ZIG_SOURCES
@@ -454,10 +454,11 @@ set(ZIG_SOURCES
     "${CMAKE_SOURCE_DIR}/src/errmsg.cpp"
     "${CMAKE_SOURCE_DIR}/src/error.cpp"
     "${CMAKE_SOURCE_DIR}/src/glibc.cpp"
+    "${CMAKE_SOURCE_DIR}/src/heap.cpp"
     "${CMAKE_SOURCE_DIR}/src/ir.cpp"
     "${CMAKE_SOURCE_DIR}/src/ir_print.cpp"
-    "${CMAKE_SOURCE_DIR}/src/libc_installation.cpp"
     "${CMAKE_SOURCE_DIR}/src/link.cpp"
+    "${CMAKE_SOURCE_DIR}/src/mem.cpp"
     "${CMAKE_SOURCE_DIR}/src/os.cpp"
     "${CMAKE_SOURCE_DIR}/src/parser.cpp"
     "${CMAKE_SOURCE_DIR}/src/range_set.cpp"
@@ -564,12 +565,12 @@ set_target_properties(opt_c_util PROPERTIES
     COMPILE_FLAGS "${OPTIMIZED_C_FLAGS}"
 )
 
-add_library(compiler STATIC ${ZIG_SOURCES})
-set_target_properties(compiler PROPERTIES
+add_library(zigcompiler STATIC ${ZIG_SOURCES})
+set_target_properties(zigcompiler PROPERTIES
     COMPILE_FLAGS ${EXE_CFLAGS}
     LINK_FLAGS ${EXE_LDFLAGS}
 )
-target_link_libraries(compiler LINK_PUBLIC
+target_link_libraries(zigcompiler LINK_PUBLIC
     zig_cpp
     opt_c_util
     ${SOFTFLOAT_LIBRARIES}
@@ -579,15 +580,15 @@ target_link_libraries(compiler LINK_PUBLIC
     ${CMAKE_THREAD_LIBS_INIT}
 )
 if(NOT MSVC)
-    target_link_libraries(compiler LINK_PUBLIC ${LIBXML2})
+    target_link_libraries(zigcompiler LINK_PUBLIC ${LIBXML2})
 endif()
 
 if(ZIG_DIA_GUIDS_LIB)
-    target_link_libraries(compiler LINK_PUBLIC ${ZIG_DIA_GUIDS_LIB})
+    target_link_libraries(zigcompiler LINK_PUBLIC ${ZIG_DIA_GUIDS_LIB})
 endif()
 
 if(MSVC OR MINGW)
-    target_link_libraries(compiler LINK_PUBLIC version)
+    target_link_libraries(zigcompiler LINK_PUBLIC version)
 endif()
 
 add_executable(zig0 "${ZIG_MAIN_SRC}" "${ZIG0_SHIM_SRC}")
@@ -595,40 +596,43 @@ set_target_properties(zig0 PROPERTIES
     COMPILE_FLAGS ${EXE_CFLAGS}
     LINK_FLAGS ${EXE_LDFLAGS}
 )
-target_link_libraries(zig0 compiler)
+target_link_libraries(zig0 zigcompiler)
 
 if(MSVC)
-    set(LIBUSERLAND "${CMAKE_BINARY_DIR}/userland.lib")
+    set(LIBSTAGE2 "${CMAKE_BINARY_DIR}/zigstage2.lib")
 else()
-    set(LIBUSERLAND "${CMAKE_BINARY_DIR}/libuserland.a")
+    set(LIBSTAGE2 "${CMAKE_BINARY_DIR}/libzigstage2.a")
 endif()
 if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
-    set(LIBUSERLAND_RELEASE_MODE "false")
+    set(LIBSTAGE2_RELEASE_ARG "")
 else()
-    set(LIBUSERLAND_RELEASE_MODE "true")
+    set(LIBSTAGE2_RELEASE_ARG --release-fast --strip)
+endif()
+if(WIN32)
+    set(LIBSTAGE2_WINDOWS_ARGS "-lntdll")
+else()
+    set(LIBSTAGE2_WINDOWS_ARGS "")
 endif()
 
-set(BUILD_LIBUSERLAND_ARGS "build"
+set(BUILD_LIBSTAGE2_ARGS "build-lib"
+    "src-self-hosted/stage2.zig"
+    -mcpu=baseline
+    --name zigstage2
     --override-lib-dir "${CMAKE_SOURCE_DIR}/lib"
-    "-Doutput-dir=${CMAKE_BINARY_DIR}"
-    "-Drelease=${LIBUSERLAND_RELEASE_MODE}"
-    "-Dlib-files-only"
-    --prefix "${CMAKE_INSTALL_PREFIX}"
-    libuserland
+    --cache on
+    --output-dir "${CMAKE_BINARY_DIR}"
+    ${LIBSTAGE2_RELEASE_ARG}
+    --disable-gen-h
+    --bundle-compiler-rt
+    -fPIC
+    -lc
+    ${LIBSTAGE2_WINDOWS_ARGS}
 )
 
-# When using Visual Studio build system generator we default to libuserland install.
-if(MSVC)
-    set(ZIG_SKIP_INSTALL_LIB_FILES off CACHE BOOL "Disable copying lib/ files to install prefix")
-    if(NOT ZIG_SKIP_INSTALL_LIB_FILES)
-        set(BUILD_LIBUSERLAND_ARGS ${BUILD_LIBUSERLAND_ARGS} install)
-    endif()
-endif()
-
-add_custom_target(zig_build_libuserland ALL
-    COMMAND zig0 ${BUILD_LIBUSERLAND_ARGS}
+add_custom_target(zig_build_libstage2 ALL
+    COMMAND zig0 ${BUILD_LIBSTAGE2_ARGS}
     DEPENDS zig0
-    BYPRODUCTS "${LIBUSERLAND}"
+    BYPRODUCTS "${LIBSTAGE2}"
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
 )
 add_executable(zig "${ZIG_MAIN_SRC}")
@@ -637,22 +641,40 @@ set_target_properties(zig PROPERTIES
     COMPILE_FLAGS ${EXE_CFLAGS}
     LINK_FLAGS ${EXE_LDFLAGS}
 )
-target_link_libraries(zig compiler "${LIBUSERLAND}")
+target_link_libraries(zig zigcompiler "${LIBSTAGE2}")
 if(MSVC)
   target_link_libraries(zig ntdll.lib)
 elseif(MINGW) 
   target_link_libraries(zig ntdll)
 endif()
-add_dependencies(zig zig_build_libuserland)
+add_dependencies(zig zig_build_libstage2)
 
 install(TARGETS zig DESTINATION bin)
 
-# CODE has no effect with Visual Studio build system generator.
-if(NOT MSVC)
-    get_target_property(zig0_BINARY_DIR zig0 BINARY_DIR)
-    install(CODE "set(zig0_EXE \"${zig0_BINARY_DIR}/zig0\")")
-    install(CODE "set(INSTALL_LIBUSERLAND_ARGS \"${BUILD_LIBUSERLAND_ARGS}\" install)")
-    install(CODE "set(BUILD_LIBUSERLAND_ARGS \"${BUILD_LIBUSERLAND_ARGS}\")")
+set(ZIG_INSTALL_ARGS "build"
+    --override-lib-dir "${CMAKE_SOURCE_DIR}/lib"
+    "-Dlib-files-only"
+    --prefix "${CMAKE_INSTALL_PREFIX}"
+    install
+)
+
+# CODE has no effect with Visual Studio build system generator, therefore
+# when using Visual Studio build system generator we resort to running
+# `zig build install` during the build phase.
+if(MSVC)
+    set(ZIG_SKIP_INSTALL_LIB_FILES off CACHE BOOL
+        "Windows-only: Disable copying lib/ files to install prefix during the build phase")
+    if(NOT ZIG_SKIP_INSTALL_LIB_FILES)
+        add_custom_target(zig_install_lib_files ALL
+            COMMAND zig ${ZIG_INSTALL_ARGS}
+            DEPENDS zig
+            WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+        )
+    endif()
+else()
+    get_target_property(zig_BINARY_DIR zig BINARY_DIR)
+    install(CODE "set(zig_EXE \"${zig_BINARY_DIR}/zig\")")
+    install(CODE "set(ZIG_INSTALL_ARGS \"${ZIG_INSTALL_ARGS}\")")
     install(CODE "set(CMAKE_SOURCE_DIR \"${CMAKE_SOURCE_DIR}\")")
     install(SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/cmake/install.cmake)
 endif()

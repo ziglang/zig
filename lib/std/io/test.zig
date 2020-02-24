@@ -5,15 +5,13 @@ const meta = std.meta;
 const trait = std.trait;
 const DefaultPrng = std.rand.DefaultPrng;
 const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 const expectError = std.testing.expectError;
 const mem = std.mem;
 const fs = std.fs;
 const File = std.fs.File;
 
 test "write a file, read it, then delete it" {
-    var raw_bytes: [200 * 1024]u8 = undefined;
-    var allocator = &std.heap.FixedBufferAllocator.init(raw_bytes[0..]).allocator;
-
     const cwd = fs.cwd();
 
     var data: [1024]u8 = undefined;
@@ -47,14 +45,14 @@ test "write a file, read it, then delete it" {
         defer file.close();
 
         const file_size = try file.getEndPos();
-        const expected_file_size = "begin".len + data.len + "end".len;
-        expect(file_size == expected_file_size);
+        const expected_file_size: u64 = "begin".len + data.len + "end".len;
+        expectEqual(expected_file_size, file_size);
 
         var file_in_stream = file.inStream();
         var buf_stream = io.BufferedInStream(File.ReadError).init(&file_in_stream.stream);
         const st = &buf_stream.stream;
-        const contents = try st.readAllAlloc(allocator, 2 * 1024);
-        defer allocator.free(contents);
+        const contents = try st.readAllAlloc(std.testing.allocator, 2 * 1024);
+        defer std.testing.allocator.free(contents);
 
         expect(mem.eql(u8, contents[0.."begin".len], "begin"));
         expect(mem.eql(u8, contents["begin".len .. contents.len - "end".len], &data));
@@ -64,10 +62,8 @@ test "write a file, read it, then delete it" {
 }
 
 test "BufferOutStream" {
-    var bytes: [100]u8 = undefined;
-    var allocator = &std.heap.FixedBufferAllocator.init(bytes[0..]).allocator;
-
-    var buffer = try std.Buffer.initSize(allocator, 0);
+    var buffer = try std.Buffer.initSize(std.testing.allocator, 0);
+    defer buffer.deinit();
     var buf_stream = &std.io.BufferOutStream.init(&buffer).stream;
 
     const x: i32 = 42;
@@ -98,12 +94,12 @@ test "SliceInStream" {
 test "PeekStream" {
     const bytes = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8 };
     var ss = io.SliceInStream.init(&bytes);
-    var ps = io.PeekStream(2, io.SliceInStream.Error).init(&ss.stream);
+    var ps = io.PeekStream(.{ .Static = 2 }, io.SliceInStream.Error).init(&ss.stream);
 
     var dest: [4]u8 = undefined;
 
-    ps.putBackByte(9);
-    ps.putBackByte(10);
+    try ps.putBackByte(9);
+    try ps.putBackByte(10);
 
     var read = try ps.stream.read(dest[0..4]);
     expect(read == 4);
@@ -119,8 +115,8 @@ test "PeekStream" {
     expect(read == 2);
     expect(mem.eql(u8, dest[0..2], bytes[6..8]));
 
-    ps.putBackByte(11);
-    ps.putBackByte(12);
+    try ps.putBackByte(11);
+    try ps.putBackByte(12);
 
     read = try ps.stream.read(dest[0..4]);
     expect(read == 2);

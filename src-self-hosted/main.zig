@@ -724,7 +724,7 @@ async fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtErro
         if (try held.value.put(file_path, {})) |_| return;
     }
 
-    const source_code = event.fs.readFile(
+    const source_code = fs.cwd().readFileAlloc(
         fmt.allocator,
         file_path,
         max_src_size,

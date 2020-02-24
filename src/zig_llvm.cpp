@@ -161,17 +161,32 @@ unsigned ZigLLVMDataLayoutGetProgramAddressSpace(LLVMTargetDataRef TD) {
 }
 
 bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMModuleRef module_ref,
-        const char *filename, ZigLLVM_EmitOutputType output_type, char **error_message, bool is_debug,
-        bool is_small, bool time_report)
+        char **error_message, bool is_debug,
+        bool is_small, bool time_report,
+        const char *asm_filename, const char *bin_filename, const char *llvm_ir_filename)
 {
     TimePassesIsEnabled = time_report;
 
-    std::error_code EC;
-    raw_fd_ostream dest(filename, EC, sys::fs::F_None);
-    if (EC) {
-        *error_message = strdup((const char *)StringRef(EC.message()).bytes_begin());
-        return true;
+    raw_fd_ostream *dest_asm = nullptr;
+    raw_fd_ostream *dest_bin = nullptr;
+
+    if (asm_filename) {
+        std::error_code EC;
+        dest_asm = new(std::nothrow) raw_fd_ostream(asm_filename, EC, sys::fs::F_None);
+        if (EC) {
+            *error_message = strdup((const char *)StringRef(EC.message()).bytes_begin());
+            return true;
+        }
     }
+    if (bin_filename) {
+        std::error_code EC;
+        dest_bin = new(std::nothrow) raw_fd_ostream(bin_filename, EC, sys::fs::F_None);
+        if (EC) {
+            *error_message = strdup((const char *)StringRef(EC.message()).bytes_begin());
+            return true;
+        }
+    }
+
     TargetMachine* target_machine = reinterpret_cast<TargetMachine*>(targ_machine_ref);
     target_machine->setO0WantsFastISel(true);
 
@@ -222,49 +237,51 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
     }
     PMBuilder->populateFunctionPassManager(FPM);
 
-    // Set up the per-module pass manager.
-    legacy::PassManager MPM;
-    MPM.add(createTargetTransformInfoWrapperPass(target_machine->getTargetIRAnalysis()));
-    PMBuilder->populateModulePassManager(MPM);
+    {
+        // Set up the per-module pass manager.
+        legacy::PassManager MPM;
+        MPM.add(createTargetTransformInfoWrapperPass(target_machine->getTargetIRAnalysis()));
+        PMBuilder->populateModulePassManager(MPM);
 
-    // Set output pass.
-    TargetMachine::CodeGenFileType ft;
-    if (output_type != ZigLLVM_EmitLLVMIr) {
-        switch (output_type) {
-            case ZigLLVM_EmitAssembly:
-                ft = TargetMachine::CGFT_AssemblyFile;
-                break;
-            case ZigLLVM_EmitBinary:
-                ft = TargetMachine::CGFT_ObjectFile;
-                break;
-            default:
-                abort();
+        // Set output passes.
+        if (dest_bin) {
+            if (target_machine->addPassesToEmitFile(MPM, *dest_bin, nullptr, TargetMachine::CGFT_ObjectFile)) {
+                *error_message = strdup("TargetMachine can't emit an object file");
+                return true;
+            }
+        }
+        if (dest_asm) {
+            if (target_machine->addPassesToEmitFile(MPM, *dest_asm, nullptr, TargetMachine::CGFT_AssemblyFile)) {
+                *error_message = strdup("TargetMachine can't emit an assembly file");
+                return true;
+            }
         }
 
-        if (target_machine->addPassesToEmitFile(MPM, dest, nullptr, ft)) {
-            *error_message = strdup("TargetMachine can't emit a file of this type");
-            return true;
+        // run per function optimization passes
+        FPM.doInitialization();
+        for (Function &F : *module)
+        if (!F.isDeclaration())
+            FPM.run(F);
+        FPM.doFinalization();
+
+        MPM.run(*module);
+
+        if (llvm_ir_filename) {
+            if (LLVMPrintModuleToFile(module_ref, llvm_ir_filename, error_message)) {
+                return true;
+            }
         }
-    }
 
-    // run per function optimization passes
-    FPM.doInitialization();
-    for (Function &F : *module)
-      if (!F.isDeclaration())
-        FPM.run(F);
-    FPM.doFinalization();
-
-    MPM.run(*module);
-
-    if (output_type == ZigLLVM_EmitLLVMIr) {
-        if (LLVMPrintModuleToFile(module_ref, filename, error_message)) {
-            return true;
+        if (time_report) {
+            TimerGroup::printAll(errs());
         }
+
+        // MPM goes out of scope and writes to the out streams
     }
 
-    if (time_report) {
-        TimerGroup::printAll(errs());
-    }
+    delete dest_asm;
+    delete dest_bin;
+
     return false;
 }
 
@@ -789,7 +806,7 @@ const char *ZigLLVMGetEnvironmentTypeName(ZigLLVM_EnvironmentType env_type) {
     return (const char*)Triple::getEnvironmentTypeName((Triple::EnvironmentType)env_type).bytes_begin();
 }
 
-void ZigLLVMGetNativeTarget(ZigLLVM_ArchType *arch_type, ZigLLVM_SubArchType *sub_arch_type,
+void ZigLLVMGetNativeTarget(ZigLLVM_ArchType *arch_type,
         ZigLLVM_VendorType *vendor_type, ZigLLVM_OSType *os_type, ZigLLVM_EnvironmentType *environ_type,
         ZigLLVM_ObjectFormatType *oformat)
 {
@@ -797,75 +814,12 @@ void ZigLLVMGetNativeTarget(ZigLLVM_ArchType *arch_type, ZigLLVM_SubArchType *su
     Triple triple(Triple::normalize(native_triple));
 
     *arch_type = (ZigLLVM_ArchType)triple.getArch();
-    *sub_arch_type = (ZigLLVM_SubArchType)triple.getSubArch();
     *vendor_type = (ZigLLVM_VendorType)triple.getVendor();
     *os_type = (ZigLLVM_OSType)triple.getOS();
     *environ_type = (ZigLLVM_EnvironmentType)triple.getEnvironment();
     *oformat = (ZigLLVM_ObjectFormatType)triple.getObjectFormat();
 
     free(native_triple);
-}
-
-const char *ZigLLVMGetSubArchTypeName(ZigLLVM_SubArchType sub_arch) {
-    switch (sub_arch) {
-        case ZigLLVM_NoSubArch:
-            return "";
-        case ZigLLVM_ARMSubArch_v8_5a:
-            return "v8.5a";
-        case ZigLLVM_ARMSubArch_v8_4a:
-            return "v8.4a";
-        case ZigLLVM_ARMSubArch_v8_3a:
-            return "v8.3a";
-        case ZigLLVM_ARMSubArch_v8_2a:
-            return "v8.2a";
-        case ZigLLVM_ARMSubArch_v8_1a:
-            return "v8.1a";
-        case ZigLLVM_ARMSubArch_v8:
-            return "v8a";
-        case ZigLLVM_ARMSubArch_v8r:
-            return "v8r";
-        case ZigLLVM_ARMSubArch_v8m_baseline:
-            return "v8m.base";
-        case ZigLLVM_ARMSubArch_v8m_mainline:
-            return "v8m.main";
-        case ZigLLVM_ARMSubArch_v8_1m_mainline:
-            return "v8.1m.main";
-        case ZigLLVM_ARMSubArch_v7:
-            return "v7a";
-        case ZigLLVM_ARMSubArch_v7em:
-            return "v7em";
-        case ZigLLVM_ARMSubArch_v7m:
-            return "v7m";
-        case ZigLLVM_ARMSubArch_v7s:
-            return "v7s";
-        case ZigLLVM_ARMSubArch_v7k:
-            return "v7k";
-        case ZigLLVM_ARMSubArch_v7ve:
-            return "v7ve";
-        case ZigLLVM_ARMSubArch_v6:
-            return "v6";
-        case ZigLLVM_ARMSubArch_v6m:
-            return "v6m";
-        case ZigLLVM_ARMSubArch_v6k:
-            return "v6k";
-        case ZigLLVM_ARMSubArch_v6t2:
-            return "v6t2";
-        case ZigLLVM_ARMSubArch_v5:
-            return "v5";
-        case ZigLLVM_ARMSubArch_v5te:
-            return "v5te";
-        case ZigLLVM_ARMSubArch_v4t:
-            return "v4t";
-        case ZigLLVM_KalimbaSubArch_v3:
-            return "v3";
-        case ZigLLVM_KalimbaSubArch_v4:
-            return "v4";
-        case ZigLLVM_KalimbaSubArch_v5:
-            return "v5";
-        case ZigLLVM_MipsSubArch_r6:
-            return "r6";
-    }
-    abort();
 }
 
 void ZigLLVMAddModuleDebugInfoFlag(LLVMModuleRef module) {
@@ -1200,35 +1154,6 @@ static_assert((Triple::ArchType)ZigLLVM_wasm64 == Triple::wasm64, "");
 static_assert((Triple::ArchType)ZigLLVM_renderscript32 == Triple::renderscript32, "");
 static_assert((Triple::ArchType)ZigLLVM_renderscript64 == Triple::renderscript64, "");
 static_assert((Triple::ArchType)ZigLLVM_LastArchType == Triple::LastArchType, "");
-
-static_assert((Triple::SubArchType)ZigLLVM_NoSubArch == Triple::NoSubArch, "");
-static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v8_4a == Triple::ARMSubArch_v8_4a, "");
-static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v8_3a == Triple::ARMSubArch_v8_3a, "");
-static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v8_2a == Triple::ARMSubArch_v8_2a, "");
-static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v8_1a == Triple::ARMSubArch_v8_1a, "");
-static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v8 == Triple::ARMSubArch_v8, "");
-static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v8r == Triple::ARMSubArch_v8r, "");
-static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v8m_baseline == Triple::ARMSubArch_v8m_baseline, "");
-static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v8m_mainline == Triple::ARMSubArch_v8m_mainline, "");
-static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v8_1m_mainline == Triple::ARMSubArch_v8_1m_mainline, "");
-static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v7 == Triple::ARMSubArch_v7, "");
-static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v7em == Triple::ARMSubArch_v7em, "");
-static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v7m == Triple::ARMSubArch_v7m, "");
-static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v7s == Triple::ARMSubArch_v7s, "");
-static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v7k == Triple::ARMSubArch_v7k, "");
-static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v7ve == Triple::ARMSubArch_v7ve, "");
-static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v6 == Triple::ARMSubArch_v6, "");
-static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v6m == Triple::ARMSubArch_v6m, "");
-static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v6k == Triple::ARMSubArch_v6k, "");
-static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v6t2 == Triple::ARMSubArch_v6t2, "");
-static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v5 == Triple::ARMSubArch_v5, "");
-static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v5te == Triple::ARMSubArch_v5te, "");
-static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v4t == Triple::ARMSubArch_v4t, "");
-static_assert((Triple::SubArchType)ZigLLVM_KalimbaSubArch_v3 == Triple::KalimbaSubArch_v3, "");
-static_assert((Triple::SubArchType)ZigLLVM_KalimbaSubArch_v4 == Triple::KalimbaSubArch_v4, "");
-static_assert((Triple::SubArchType)ZigLLVM_KalimbaSubArch_v5 == Triple::KalimbaSubArch_v5, "");
-static_assert((Triple::SubArchType)ZigLLVM_KalimbaSubArch_v5 == Triple::KalimbaSubArch_v5, "");
-static_assert((Triple::SubArchType)ZigLLVM_MipsSubArch_r6 == Triple::MipsSubArch_r6, "");
 
 static_assert((Triple::VendorType)ZigLLVM_UnknownVendor == Triple::UnknownVendor, "");
 static_assert((Triple::VendorType)ZigLLVM_Apple == Triple::Apple, "");

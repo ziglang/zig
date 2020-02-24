@@ -5,6 +5,66 @@ const mem = std.mem;
 const math = std.math;
 const builtin = @import("builtin");
 
+pub fn binarySearch(comptime T: type, key: T, items: []const T, comptime compareFn: fn (lhs: T, rhs: T) math.Order) ?usize {
+    if (items.len < 1)
+        return null;
+
+    var left: usize = 0;
+    var right: usize = items.len - 1;
+
+    while (left <= right) {
+        // Avoid overflowing in the midpoint calculation
+        const mid = left + (right - left) / 2;
+        // Compare the key with the midpoint element
+        switch (compareFn(key, items[mid])) {
+            .eq => return mid,
+            .gt => left = mid + 1,
+            .lt => right = mid - 1,
+        }
+    }
+
+    return null;
+}
+
+test "std.sort.binarySearch" {
+    const S = struct {
+        fn order_u32(lhs: u32, rhs: u32) math.Order {
+            return math.order(lhs, rhs);
+        }
+        fn order_i32(lhs: i32, rhs: i32) math.Order {
+            return math.order(lhs, rhs);
+        }
+    };
+    testing.expectEqual(
+        @as(?usize, null),
+        binarySearch(u32, 1, &[_]u32{}, S.order_u32),
+    );
+    testing.expectEqual(
+        @as(?usize, 0),
+        binarySearch(u32, 1, &[_]u32{1}, S.order_u32),
+    );
+    testing.expectEqual(
+        @as(?usize, null),
+        binarySearch(u32, 1, &[_]u32{0}, S.order_u32),
+    );
+    testing.expectEqual(
+        @as(?usize, 4),
+        binarySearch(u32, 5, &[_]u32{ 1, 2, 3, 4, 5 }, S.order_u32),
+    );
+    testing.expectEqual(
+        @as(?usize, 0),
+        binarySearch(u32, 2, &[_]u32{ 2, 4, 8, 16, 32, 64 }, S.order_u32),
+    );
+    testing.expectEqual(
+        @as(?usize, 1),
+        binarySearch(i32, -4, &[_]i32{ -7, -4, 0, 9, 10 }, S.order_i32),
+    );
+    testing.expectEqual(
+        @as(?usize, 3),
+        binarySearch(i32, 98, &[_]i32{ -100, -25, 2, 98, 99, 100 }, S.order_i32),
+    );
+}
+
 /// Stable in-place sort. O(n) best case, O(pow(n, 2)) worst case. O(1) memory (no allocator required).
 pub fn insertionSort(comptime T: type, items: []T, lessThan: fn (lhs: T, rhs: T) bool) void {
     var i: usize = 1;
@@ -1160,16 +1220,16 @@ test "sort fuzz testing" {
     const test_case_count = 10;
     var i: usize = 0;
     while (i < test_case_count) : (i += 1) {
-        fuzzTest(&prng.random);
+        try fuzzTest(&prng.random);
     }
 }
 
 var fixed_buffer_mem: [100 * 1024]u8 = undefined;
 
-fn fuzzTest(rng: *std.rand.Random) void {
+fn fuzzTest(rng: *std.rand.Random) !void {
     const array_size = rng.range(usize, 0, 1000);
-    var fixed_allocator = std.heap.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
-    var array = fixed_allocator.allocator.alloc(IdAndValue, array_size) catch unreachable;
+    var array = try testing.allocator.alloc(IdAndValue, array_size);
+    defer testing.allocator.free(array);
     // populate with random data
     for (array) |*item, index| {
         item.id = index;

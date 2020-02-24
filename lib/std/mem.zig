@@ -233,7 +233,7 @@ pub const Allocator = struct {
     pub fn free(self: *Allocator, memory: var) void {
         const Slice = @typeInfo(@TypeOf(memory)).Pointer;
         const bytes = @sliceToBytes(memory);
-        const bytes_len = bytes.len + @boolToInt(Slice.sentinel != null);
+        const bytes_len = bytes.len + if (Slice.sentinel != null) @sizeOf(Slice.child) else 0;
         if (bytes_len == 0) return;
         const non_const_ptr = @intToPtr([*]u8, @ptrToInt(bytes.ptr));
         @memset(non_const_ptr, undefined, bytes_len);
@@ -406,11 +406,19 @@ pub fn allEqual(comptime T: type, slice: []const T, scalar: T) bool {
     return true;
 }
 
-/// Copies ::m to newly allocated memory. Caller is responsible to free it.
+/// Copies `m` to newly allocated memory. Caller owns the memory.
 pub fn dupe(allocator: *Allocator, comptime T: type, m: []const T) ![]T {
     const new_buf = try allocator.alloc(T, m.len);
     copy(T, new_buf, m);
     return new_buf;
+}
+
+/// Copies `m` to newly allocated memory, with a null-terminated element. Caller owns the memory.
+pub fn dupeZ(allocator: *Allocator, comptime T: type, m: []const T) ![:0]T {
+    const new_buf = try allocator.alloc(T, m.len + 1);
+    copy(T, new_buf, m);
+    new_buf[m.len] = 0;
+    return new_buf[0..m.len :0];
 }
 
 /// Remove values from the beginning of a slice.
@@ -1030,11 +1038,21 @@ pub fn join(allocator: *Allocator, separator: []const u8, slices: []const []cons
 }
 
 test "mem.join" {
-    var buf: [1024]u8 = undefined;
-    const a = &std.heap.FixedBufferAllocator.init(&buf).allocator;
-    testing.expect(eql(u8, try join(a, ",", &[_][]const u8{ "a", "b", "c" }), "a,b,c"));
-    testing.expect(eql(u8, try join(a, ",", &[_][]const u8{"a"}), "a"));
-    testing.expect(eql(u8, try join(a, ",", &[_][]const u8{ "a", "", "b", "", "c" }), "a,,b,,c"));
+    {
+        const str = try join(testing.allocator, ",", &[_][]const u8{ "a", "b", "c" });
+        defer testing.allocator.free(str);
+        testing.expect(eql(u8, str, "a,b,c"));
+    }
+    {
+        const str = try join(testing.allocator, ",", &[_][]const u8{"a"});
+        defer testing.allocator.free(str);
+        testing.expect(eql(u8, str, "a"));
+    }
+    {
+        const str = try join(testing.allocator, ",", &[_][]const u8{ "a", "", "b", "", "c" });
+        defer testing.allocator.free(str);
+        testing.expect(eql(u8, str, "a,,b,,c"));
+    }
 }
 
 /// Copies each T from slices into a new slice that exactly holds all the elements.
@@ -1063,15 +1081,21 @@ pub fn concat(allocator: *Allocator, comptime T: type, slices: []const []const T
 }
 
 test "concat" {
-    var buf: [1024]u8 = undefined;
-    const a = &std.heap.FixedBufferAllocator.init(&buf).allocator;
-    testing.expect(eql(u8, try concat(a, u8, &[_][]const u8{ "abc", "def", "ghi" }), "abcdefghi"));
-    testing.expect(eql(u32, try concat(a, u32, &[_][]const u32{
-        &[_]u32{ 0, 1 },
-        &[_]u32{ 2, 3, 4 },
-        &[_]u32{},
-        &[_]u32{5},
-    }), &[_]u32{ 0, 1, 2, 3, 4, 5 }));
+    {
+        const str = try concat(testing.allocator, u8, &[_][]const u8{ "abc", "def", "ghi" });
+        defer testing.allocator.free(str);
+        testing.expect(eql(u8, str, "abcdefghi"));
+    }
+    {
+        const str = try concat(testing.allocator, u32, &[_][]const u32{
+            &[_]u32{ 0, 1 },
+            &[_]u32{ 2, 3, 4 },
+            &[_]u32{},
+            &[_]u32{5},
+        });
+        defer testing.allocator.free(str);
+        testing.expect(eql(u32, str, &[_]u32{ 0, 1, 2, 3, 4, 5 }));
+    }
 }
 
 test "testStringEquality" {

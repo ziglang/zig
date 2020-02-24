@@ -1,3 +1,12 @@
+test "zig fmt: noasync await" {
+    try testCanonical(
+        \\fn foo() void {
+        \\    x = noasync await y;
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: trailing comma in container declaration" {
     try testCanonical(
         \\const X = struct { foo: i32 };
@@ -5,6 +14,16 @@ test "zig fmt: trailing comma in container declaration" {
         \\const X = struct { foo: i32 = 1, bar: i32 = 2 };
         \\const X = struct { foo: i32 align(4), bar: i32 align(4) };
         \\const X = struct { foo: i32 align(4) = 1, bar: i32 align(4) = 2 };
+        \\
+    );
+    try testCanonical(
+        \\test "" {
+        \\    comptime {
+        \\        const X = struct {
+        \\            x: i32
+        \\        };
+        \\    }
+        \\}
         \\
     );
     try testTransform(
@@ -73,10 +92,12 @@ test "zig fmt: convert extern/nakedcc/stdcallcc into callconv(...)" {
         \\nakedcc fn foo1() void {}
         \\stdcallcc fn foo2() void {}
         \\extern fn foo3() void {}
+        \\extern "mylib" fn foo4() void {}
     ,
         \\fn foo1() callconv(.Naked) void {}
         \\fn foo2() callconv(.Stdcall) void {}
         \\fn foo3() callconv(.C) void {}
+        \\fn foo4() callconv(.C) void {}
         \\
     );
 }
@@ -2876,8 +2897,7 @@ fn testCanonical(source: []const u8) !void {
 }
 
 fn testError(source: []const u8) !void {
-    var fixed_allocator = std.heap.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
-    const tree = try std.zig.parse(&fixed_allocator.allocator, source);
+    const tree = try std.zig.parse(std.testing.allocator, source);
     defer tree.deinit();
 
     std.testing.expect(tree.errors.len != 0);

@@ -89,16 +89,14 @@ pub fn joinPosix(allocator: *Allocator, paths: []const []const u8) ![]u8 {
 }
 
 fn testJoinWindows(paths: []const []const u8, expected: []const u8) void {
-    var buf: [1024]u8 = undefined;
-    const a = &std.heap.FixedBufferAllocator.init(&buf).allocator;
-    const actual = joinWindows(a, paths) catch @panic("fail");
+    const actual = joinWindows(testing.allocator, paths) catch @panic("fail");
+    defer testing.allocator.free(actual);
     testing.expectEqualSlices(u8, expected, actual);
 }
 
 fn testJoinPosix(paths: []const []const u8, expected: []const u8) void {
-    var buf: [1024]u8 = undefined;
-    const a = &std.heap.FixedBufferAllocator.init(&buf).allocator;
-    const actual = joinPosix(a, paths) catch @panic("fail");
+    const actual = joinPosix(testing.allocator, paths) catch @panic("fail");
+    defer testing.allocator.free(actual);
     testing.expectEqualSlices(u8, expected, actual);
 }
 
@@ -146,72 +144,51 @@ pub fn isAbsolute(path: []const u8) bool {
     }
 }
 
-pub fn isAbsoluteW(path_w: [*:0]const u16) bool {
-    if (path_w[0] == '/')
-        return true;
-
-    if (path_w[0] == '\\') {
-        return true;
-    }
-    if (path_w[0] == 0 or path_w[1] == 0 or path_w[2] == 0) {
+fn isAbsoluteWindowsImpl(comptime T: type, path: []const T) bool {
+    if (path.len < 1)
         return false;
-    }
-    if (path_w[1] == ':') {
-        if (path_w[2] == '/')
-            return true;
-        if (path_w[2] == '\\')
-            return true;
-    }
-    return false;
-}
 
-pub fn isAbsoluteWindows(path: []const u8) bool {
     if (path[0] == '/')
         return true;
 
-    if (path[0] == '\\') {
+    if (path[0] == '\\')
         return true;
-    }
-    if (path.len < 3) {
+
+    if (path.len < 3)
         return false;
-    }
+
     if (path[1] == ':') {
         if (path[2] == '/')
             return true;
         if (path[2] == '\\')
             return true;
     }
+
     return false;
+}
+
+pub fn isAbsoluteWindows(path: []const u8) bool {
+    return isAbsoluteWindowsImpl(u8, path);
+}
+
+pub fn isAbsoluteWindowsW(path_w: [*:0]const u16) bool {
+    return isAbsoluteWindowsImpl(u16, mem.toSliceConst(u16, path_w));
 }
 
 pub fn isAbsoluteWindowsC(path_c: [*:0]const u8) bool {
-    if (path_c[0] == '/')
-        return true;
-
-    if (path_c[0] == '\\') {
-        return true;
-    }
-    if (path_c[0] == 0 or path_c[1] == 0 or path_c[2] == 0) {
-        return false;
-    }
-    if (path_c[1] == ':') {
-        if (path_c[2] == '/')
-            return true;
-        if (path_c[2] == '\\')
-            return true;
-    }
-    return false;
+    return isAbsoluteWindowsImpl(u8, mem.toSliceConst(u8, path_c));
 }
 
 pub fn isAbsolutePosix(path: []const u8) bool {
-    return path[0] == sep_posix;
+    return path.len > 0 and path[0] == sep_posix;
 }
 
 pub fn isAbsolutePosixC(path_c: [*:0]const u8) bool {
-    return path_c[0] == sep_posix;
+    return isAbsolutePosix(mem.toSliceConst(u8, path_c));
 }
 
 test "isAbsoluteWindows" {
+    testIsAbsoluteWindows("", false);
     testIsAbsoluteWindows("/", true);
     testIsAbsoluteWindows("//", true);
     testIsAbsoluteWindows("//server", true);
@@ -234,6 +211,7 @@ test "isAbsoluteWindows" {
 }
 
 test "isAbsolutePosix" {
+    testIsAbsolutePosix("", false);
     testIsAbsolutePosix("/home/foo", true);
     testIsAbsolutePosix("/home/foo/..", true);
     testIsAbsolutePosix("bar/", false);

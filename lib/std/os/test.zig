@@ -29,7 +29,7 @@ test "makePath, put some files in it, deleteTree" {
 
 test "access file" {
     try fs.makePath(a, "os_test_tmp");
-    if (File.access("os_test_tmp" ++ fs.path.sep_str ++ "file.txt")) |ok| {
+    if (fs.cwd().access("os_test_tmp" ++ fs.path.sep_str ++ "file.txt", .{})) |ok| {
         @panic("expected error");
     } else |err| {
         expect(err == error.FileNotFound);
@@ -95,8 +95,6 @@ test "cpu count" {
 }
 
 test "AtomicFile" {
-    var buffer: [1024]u8 = undefined;
-    const allocator = &std.heap.FixedBufferAllocator.init(buffer[0..]).allocator;
     const test_out_file = "tmp_atomic_file_test_dest.txt";
     const test_content =
         \\ hello!
@@ -108,7 +106,8 @@ test "AtomicFile" {
         try af.file.write(test_content);
         try af.finish();
     }
-    const content = try io.readFileAlloc(allocator, test_out_file);
+    const content = try io.readFileAlloc(testing.allocator, test_out_file);
+    defer testing.allocator.free(content);
     expect(mem.eql(u8, content, test_content));
 
     try fs.cwd().deleteFile(test_out_file);
@@ -166,16 +165,19 @@ test "sigaltstack" {
 // analyzed
 const dl_phdr_info = if (@hasDecl(os, "dl_phdr_info")) os.dl_phdr_info else c_void;
 
-fn iter_fn(info: *dl_phdr_info, size: usize, data: ?*usize) callconv(.C) i32 {
-    if (builtin.os == .windows or builtin.os == .wasi or builtin.os == .macosx)
-        return 0;
+const IterFnError = error{
+    MissingPtLoadSegment,
+    MissingLoad,
+    BadElfMagic,
+    FailedConsistencyCheck,
+};
 
-    var counter = data.?;
+fn iter_fn(info: *dl_phdr_info, size: usize, counter: *usize) IterFnError!void {
     // Count how many libraries are loaded
     counter.* += @as(usize, 1);
 
     // The image should contain at least a PT_LOAD segment
-    if (info.dlpi_phnum < 1) return -1;
+    if (info.dlpi_phnum < 1) return error.MissingPtLoadSegment;
 
     // Quick & dirty validation of the phdr pointers, make sure we're not
     // pointing to some random gibberish
@@ -190,17 +192,15 @@ fn iter_fn(info: *dl_phdr_info, size: usize, data: ?*usize) callconv(.C) i32 {
         // Find the ELF header
         const elf_header = @intToPtr(*elf.Ehdr, reloc_addr - phdr.p_offset);
         // Validate the magic
-        if (!mem.eql(u8, elf_header.e_ident[0..4], "\x7fELF")) return -1;
+        if (!mem.eql(u8, elf_header.e_ident[0..4], "\x7fELF")) return error.BadElfMagic;
         // Consistency check
-        if (elf_header.e_phnum != info.dlpi_phnum) return -1;
+        if (elf_header.e_phnum != info.dlpi_phnum) return error.FailedConsistencyCheck;
 
         found_load = true;
         break;
     }
 
-    if (!found_load) return -1;
-
-    return 42;
+    if (!found_load) return error.MissingLoad;
 }
 
 test "dl_iterate_phdr" {
@@ -208,7 +208,7 @@ test "dl_iterate_phdr" {
         return error.SkipZigTest;
 
     var counter: usize = 0;
-    expect(os.dl_iterate_phdr(usize, iter_fn, &counter) != 0);
+    try os.dl_iterate_phdr(&counter, IterFnError, iter_fn);
     expect(counter != 0);
 }
 
@@ -255,4 +255,107 @@ test "memfd_create" {
     const bytes_read = try std.os.read(fd, &buf);
     expect(bytes_read == 4);
     expect(mem.eql(u8, buf[0..4], "test"));
+}
+
+test "mmap" {
+    if (builtin.os == .windows)
+        return error.SkipZigTest;
+
+    // Simple mmap() call with non page-aligned size
+    {
+        const data = try os.mmap(
+            null,
+            1234,
+            os.PROT_READ | os.PROT_WRITE,
+            os.MAP_ANONYMOUS | os.MAP_PRIVATE,
+            -1,
+            0,
+        );
+        defer os.munmap(data);
+
+        testing.expectEqual(@as(usize, 1234), data.len);
+
+        // By definition the data returned by mmap is zero-filled
+        testing.expect(mem.eql(u8, data, &[_]u8{0x00} ** 1234));
+
+        // Make sure the memory is writeable as requested
+        std.mem.set(u8, data, 0x55);
+        testing.expect(mem.eql(u8, data, &[_]u8{0x55} ** 1234));
+    }
+
+    const test_out_file = "os_tmp_test";
+    // Must be a multiple of 4096 so that the test works with mmap2
+    const alloc_size = 8 * 4096;
+
+    // Create a file used for testing mmap() calls with a file descriptor
+    {
+        const file = try fs.cwd().createFile(test_out_file, .{});
+        defer file.close();
+
+        var out_stream = file.outStream();
+        const stream = &out_stream.stream;
+
+        var i: u32 = 0;
+        while (i < alloc_size / @sizeOf(u32)) : (i += 1) {
+            try stream.writeIntNative(u32, i);
+        }
+    }
+
+    // Map the whole file
+    {
+        const file = try fs.cwd().openFile(test_out_file, .{});
+        defer file.close();
+
+        const data = try os.mmap(
+            null,
+            alloc_size,
+            os.PROT_READ,
+            os.MAP_PRIVATE,
+            file.handle,
+            0,
+        );
+        defer os.munmap(data);
+
+        var mem_stream = io.SliceInStream.init(data);
+        const stream = &mem_stream.stream;
+
+        var i: u32 = 0;
+        while (i < alloc_size / @sizeOf(u32)) : (i += 1) {
+            testing.expectEqual(i, try stream.readIntNative(u32));
+        }
+    }
+
+    // Map the upper half of the file
+    {
+        const file = try fs.cwd().openFile(test_out_file, .{});
+        defer file.close();
+
+        const data = try os.mmap(
+            null,
+            alloc_size / 2,
+            os.PROT_READ,
+            os.MAP_PRIVATE,
+            file.handle,
+            alloc_size / 2,
+        );
+        defer os.munmap(data);
+
+        var mem_stream = io.SliceInStream.init(data);
+        const stream = &mem_stream.stream;
+
+        var i: u32 = alloc_size / 2 / @sizeOf(u32);
+        while (i < alloc_size / @sizeOf(u32)) : (i += 1) {
+            testing.expectEqual(i, try stream.readIntNative(u32));
+        }
+    }
+
+    try fs.cwd().deleteFile(test_out_file);
+}
+
+test "getenv" {
+    if (builtin.os == .windows) {
+        expect(os.getenvW(&[_:0]u16{ 'B', 'O', 'G', 'U', 'S', 0x11, 0x22, 0x33, 0x44, 0x55 }) == null);
+    } else {
+        expect(os.getenvZ("BOGUSDOESNOTEXISTENVVAR") == null);
+    }
 }

@@ -3,10 +3,91 @@ const builtin = @import("builtin");
 const Target = @import("std").Target;
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
-    cases.addTest("dependency loop in top-level decl with @TypeInfo",
-        \\export const foo = @typeInfo(@This());
+    cases.addTest("slice to pointer conversion mismatch",
+        \\pub fn bytesAsSlice(bytes: var) [*]align(1) const u16 {
+        \\    return @ptrCast([*]align(1) const u16, bytes.ptr)[0..1];
+        \\}
+        \\test "bytesAsSlice" {
+        \\    const bytes = [_]u8{ 0xDE, 0xAD, 0xBE, 0xEF };
+        \\    const slice = bytesAsSlice(bytes[0..]);
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:2:54: error: expected type '[*]align(1) const u16', found '[]align(1) const u16'",
+    });
+
+    cases.addTest("access invalid @typeInfo decl",
+        \\const A = B;
+        \\test "Crash" {
+        \\    _ = @typeInfo(@This()).Struct.decls[0];
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:1:11: error: use of undeclared identifier 'B'",
+    });
+
+    cases.addTest("reject extern function definitions with body",
+        \\extern "c" fn definitelyNotInLibC(a: i32, b: i32) i32 {
+        \\    return a + b;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:1:1: error: extern functions have no body",
+    });
+
+    cases.addTest("duplicate field in anonymous struct literal",
+        \\export fn entry() void {
+        \\    const anon = .{
+        \\        .inner = .{
+        \\            .a = .{
+        \\                .something = "text",
+        \\            },
+        \\            .a = .{},
+        \\        },
+        \\    };
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:7:13: error: duplicate field",
+        "tmp.zig:4:13: note: other field here",
+    });
+
+    cases.addTest("type mismatch in C prototype with varargs",
+        \\const fn_ty = ?fn ([*c]u8, ...) callconv(.C) void;
+        \\extern fn fn_decl(fmt: [*:0]u8, ...) void;
+        \\
+        \\export fn main() void {
+        \\    const x: fn_ty = fn_decl;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:5:22: error: expected type 'fn([*c]u8, ...) callconv(.C) void', found 'fn([*:0]u8, ...) callconv(.C) void'",
+    });
+
+    cases.addTest("dependency loop in top-level decl with @TypeInfo when accessing the decls",
+        \\export const foo = @typeInfo(@This()).Struct.decls;
     , &[_][]const u8{
         "tmp.zig:1:20: error: dependency loop detected",
+        "tmp.zig:1:45: note: referenced here",
+    });
+
+    cases.add("function call assigned to incorrect type",
+        \\export fn entry() void {
+        \\    var arr: [4]f32 = undefined;
+        \\    arr = concat();
+        \\}
+        \\fn concat() [16]f32 {
+        \\    return [1]f32{0}**16;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:3:17: error: expected type '[4]f32', found '[16]f32'",
+    });
+
+    cases.add("generic function call assigned to incorrect type",
+        \\pub export fn entry() void {
+        \\    var res: []i32 = undefined;
+        \\    res = myAlloc(i32);
+        \\}
+        \\fn myAlloc(comptime arg: type) anyerror!arg{
+        \\    unreachable;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:3:18: error: expected type '[]i32', found 'anyerror!i32",
     });
 
     cases.addTest("non-exhaustive enums",
@@ -281,8 +362,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         });
         tc.target = Target{
             .Cross = .{
-                .arch = .wasm32,
-                .cpu_features = Target.Arch.wasm32.getBaselineCpuFeatures(),
+                .cpu = Target.Cpu.baseline(.wasm32),
                 .os = .wasi,
                 .abi = .none,
             },
@@ -683,8 +763,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         });
         tc.target = Target{
             .Cross = .{
-                .arch = .x86_64,
-                .cpu_features = Target.Arch.x86_64.getBaselineCpuFeatures(),
+                .cpu = Target.Cpu.baseline(.x86_64),
                 .os = .linux,
                 .abi = .gnu,
             },
@@ -1293,24 +1372,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     , &[_][]const u8{
         "tmp.zig:1:13: error: struct 'Foo' depends on itself",
         "tmp.zig:8:28: note: referenced here",
-    });
-
-    cases.add("@typeInfo causing depend on itself compile error",
-        \\const start = struct {
-        \\    fn crash() bug() {
-        \\        return bug;
-        \\    }
-        \\};
-        \\fn bug() void {
-        \\    _ = @typeInfo(start).Struct;
-        \\}
-        \\export fn entry() void {
-        \\    var boom = start.crash();
-        \\}
-    , &[_][]const u8{
-        "tmp.zig:7:9: error: dependency loop detected",
-        "tmp.zig:2:19: note: referenced here",
-        "tmp.zig:10:21: note: referenced here",
     });
 
     cases.add("enum field value references enum",
@@ -5266,25 +5327,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
     , &[_][]const u8{
         "tmp.zig:2:30: error: cannot set section of local variable 'foo'",
-    });
-
-    cases.add("returning address of local variable - simple",
-        \\export fn foo() *i32 {
-        \\    var a: i32 = undefined;
-        \\    return &a;
-        \\}
-    , &[_][]const u8{
-        "tmp.zig:3:13: error: function returns address of local variable",
-    });
-
-    cases.add("returning address of local variable - phi",
-        \\export fn foo(c: bool) *i32 {
-        \\    var a: i32 = undefined;
-        \\    var b: i32 = undefined;
-        \\    return if (c) &a else &b;
-        \\}
-    , &[_][]const u8{
-        "tmp.zig:4:12: error: function returns address of local variable",
     });
 
     cases.add("inner struct member shadowing outer struct member",

@@ -64,22 +64,19 @@ pub fn build(b: *Builder) !void {
     try configureStage2(b, test_stage2, ctx);
     try configureStage2(b, exe, ctx);
 
-    addLibUserlandStep(b, mode);
-
     const skip_release = b.option(bool, "skip-release", "Main test suite skips release builds") orelse false;
     const skip_release_small = b.option(bool, "skip-release-small", "Main test suite skips release-small builds") orelse skip_release;
     const skip_release_fast = b.option(bool, "skip-release-fast", "Main test suite skips release-fast builds") orelse skip_release;
     const skip_release_safe = b.option(bool, "skip-release-safe", "Main test suite skips release-safe builds") orelse skip_release;
     const skip_non_native = b.option(bool, "skip-non-native", "Main test suite skips non-native builds") orelse false;
     const skip_libc = b.option(bool, "skip-libc", "Main test suite skips tests that link libc") orelse false;
-    const skip_self_hosted = b.option(bool, "skip-self-hosted", "Main test suite skips building self hosted compiler") orelse false;
-    if (!skip_self_hosted and builtin.os == .linux) {
-        // TODO evented I/O other OS's
+    const skip_self_hosted = (b.option(bool, "skip-self-hosted", "Main test suite skips building self hosted compiler") orelse false) or true; // TODO evented I/O good enough that this passes everywhere
+    if (!skip_self_hosted) {
         test_step.dependOn(&exe.step);
     }
 
     const only_install_lib_files = b.option(bool, "lib-files-only", "Only install library files") orelse false;
-    if (!only_install_lib_files) {
+    if (!only_install_lib_files and !skip_self_hosted) {
         b.default_step.dependOn(&exe.step);
         exe.install();
     }
@@ -176,7 +173,7 @@ fn dependOnLib(b: *Builder, lib_exe_obj: var, dep: LibraryDep) void {
 }
 
 fn fileExists(filename: []const u8) !bool {
-    fs.File.access(filename) catch |err| switch (err) {
+    fs.cwd().access(filename, .{}) catch |err| switch (err) {
         error.FileNotFound => return false,
         else => return err,
     };
@@ -367,28 +364,3 @@ const Context = struct {
     dia_guids_lib: []const u8,
     llvm: LibraryDep,
 };
-
-fn addLibUserlandStep(b: *Builder, mode: builtin.Mode) void {
-    const artifact = b.addStaticLibrary("userland", "src-self-hosted/stage1.zig");
-    artifact.disable_gen_h = true;
-    artifact.bundle_compiler_rt = true;
-    artifact.setTarget(builtin.arch, builtin.os, builtin.abi);
-    artifact.setBuildMode(mode);
-    artifact.force_pic = true;
-    if (mode != .Debug) {
-        artifact.strip = true;
-    }
-    artifact.linkSystemLibrary("c");
-    if (builtin.os == .windows) {
-        artifact.linkSystemLibrary("ntdll");
-    }
-    const libuserland_step = b.step("libuserland", "Build the userland compiler library for use in stage1");
-    libuserland_step.dependOn(&artifact.step);
-
-    const output_dir = b.option(
-        []const u8,
-        "output-dir",
-        "For libuserland step, where to put the output",
-    ) orelse return;
-    artifact.setOutputDir(output_dir);
-}

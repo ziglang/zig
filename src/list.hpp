@@ -13,7 +13,7 @@
 template<typename T>
 struct ZigList {
     void deinit() {
-        deallocate(items, capacity);
+        heap::c_allocator.deallocate(items, capacity);
     }
     void append(const T& item) {
         ensure_capacity(length + 1);
@@ -70,7 +70,7 @@ struct ZigList {
             better_capacity = better_capacity * 5 / 2 + 8;
         } while (better_capacity < new_capacity);
 
-        items = reallocate_nonzero(items, capacity, better_capacity);
+        items = heap::c_allocator.reallocate_nonzero(items, capacity, better_capacity);
         capacity = better_capacity;
     }
 
@@ -91,5 +91,3 @@ struct ZigList {
 };
 
 #endif
-
-

@@ -99,7 +99,7 @@ void err_msg_add_note(ErrorMsg *parent, ErrorMsg *note) {
 ErrorMsg *err_msg_create_with_offset(Buf *path, size_t line, size_t column, size_t offset,
         const char *source, Buf *msg)
 {
-    ErrorMsg *err_msg = allocate<ErrorMsg>(1);
+    ErrorMsg *err_msg = heap::c_allocator.create<ErrorMsg>();
     err_msg->path = path;
     err_msg->line_start = line;
     err_msg->column_start = column;
@@ -138,7 +138,7 @@ ErrorMsg *err_msg_create_with_offset(Buf *path, size_t line, size_t column, size
 ErrorMsg *err_msg_create_with_line(Buf *path, size_t line, size_t column,
         Buf *source, ZigList<size_t> *line_offsets, Buf *msg)
 {
-    ErrorMsg *err_msg = allocate<ErrorMsg>(1);
+    ErrorMsg *err_msg = heap::c_allocator.create<ErrorMsg>();
     err_msg->path = path;
     err_msg->line_start = line;
     err_msg->column_start = column;

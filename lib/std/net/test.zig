@@ -67,10 +67,8 @@ test "resolve DNS" {
         // DNS resolution not implemented on Windows yet.
         return error.SkipZigTest;
     }
-    var buf: [1000 * 10]u8 = undefined;
-    const a = &std.heap.FixedBufferAllocator.init(&buf).allocator;
 
-    const address_list = net.getAddressList(a, "example.com", 80) catch |err| switch (err) {
+    const address_list = net.getAddressList(testing.allocator, "example.com", 80) catch |err| switch (err) {
         // The tests are required to work even when there is no Internet connection,
         // so some of these errors we must accept and skip the test.
         error.UnknownHostName => return error.SkipZigTest,
@@ -81,17 +79,15 @@ test "resolve DNS" {
 }
 
 test "listen on a port, send bytes, receive bytes" {
+    if (!std.io.is_async) return error.SkipZigTest;
+
     if (std.builtin.os != .linux) {
         // TODO build abstractions for other operating systems
         return error.SkipZigTest;
     }
-    if (std.io.mode != .evented) {
-        // TODO add ability to run tests in non-blocking I/O mode
-        return error.SkipZigTest;
-    }
 
     // TODO doing this at comptime crashed the compiler
-    const localhost = net.Address.parseIp("127.0.0.1", 0);
+    const localhost = try net.Address.parseIp("127.0.0.1", 0);
 
     var server = net.StreamServer.init(net.StreamServer.Options{});
     defer server.deinit();

@@ -55,20 +55,18 @@ const test_targets = blk: {
         TestTarget{
             .target = Target{
                 .Cross = CrossTarget{
+                    .cpu = Target.Cpu.baseline(.x86_64),
                     .os = .linux,
-                    .arch = .x86_64,
                     .abi = .none,
-                    .cpu_features = Target.Arch.x86_64.getBaselineCpuFeatures(),
                 },
             },
         },
         TestTarget{
             .target = Target{
                 .Cross = CrossTarget{
+                    .cpu = Target.Cpu.baseline(.x86_64),
                     .os = .linux,
-                    .arch = .x86_64,
                     .abi = .gnu,
-                    .cpu_features = Target.Arch.x86_64.getBaselineCpuFeatures(),
                 },
             },
             .link_libc = true,
@@ -76,9 +74,8 @@ const test_targets = blk: {
         TestTarget{
             .target = Target{
                 .Cross = CrossTarget{
+                    .cpu = Target.Cpu.baseline(.x86_64),
                     .os = .linux,
-                    .arch = .x86_64,
-                    .cpu_features = Target.Arch.x86_64.getBaselineCpuFeatures(),
                     .abi = .musl,
                 },
             },
@@ -88,9 +85,8 @@ const test_targets = blk: {
         TestTarget{
             .target = Target{
                 .Cross = CrossTarget{
+                    .cpu = Target.Cpu.baseline(.i386),
                     .os = .linux,
-                    .arch = .i386,
-                    .cpu_features = Target.Arch.i386.getBaselineCpuFeatures(),
                     .abi = .none,
                 },
             },
@@ -98,9 +94,8 @@ const test_targets = blk: {
         TestTarget{
             .target = Target{
                 .Cross = CrossTarget{
+                    .cpu = Target.Cpu.baseline(.i386),
                     .os = .linux,
-                    .arch = .i386,
-                    .cpu_features = Target.Arch.i386.getBaselineCpuFeatures(),
                     .abi = .musl,
                 },
             },
@@ -110,9 +105,8 @@ const test_targets = blk: {
         TestTarget{
             .target = Target{
                 .Cross = CrossTarget{
+                    .cpu = Target.Cpu.baseline(.aarch64),
                     .os = .linux,
-                    .arch = Target.Arch{ .aarch64 = .v8a },
-                    .cpu_features = (Target.Arch{ .aarch64 = .v8a }).getBaselineCpuFeatures(),
                     .abi = .none,
                 },
             },
@@ -120,9 +114,8 @@ const test_targets = blk: {
         TestTarget{
             .target = Target{
                 .Cross = CrossTarget{
+                    .cpu = Target.Cpu.baseline(.aarch64),
                     .os = .linux,
-                    .arch = Target.Arch{ .aarch64 = .v8a },
-                    .cpu_features = (Target.Arch{ .aarch64 = .v8a }).getBaselineCpuFeatures(),
                     .abi = .musl,
                 },
             },
@@ -131,9 +124,8 @@ const test_targets = blk: {
         TestTarget{
             .target = Target{
                 .Cross = CrossTarget{
+                    .cpu = Target.Cpu.baseline(.aarch64),
                     .os = .linux,
-                    .arch = Target.Arch{ .aarch64 = .v8a },
-                    .cpu_features = (Target.Arch{ .aarch64 = .v8a }).getBaselineCpuFeatures(),
                     .abi = .gnu,
                 },
             },
@@ -141,45 +133,32 @@ const test_targets = blk: {
         },
 
         TestTarget{
-            .target = Target{
-                .Cross = CrossTarget{
-                    .os = .linux,
-                    .arch = Target.Arch{ .arm = .v8a },
-                    .cpu_features = (Target.Arch{ .arm = .v8a }).getBaselineCpuFeatures(),
-                    .abi = .none,
-                },
-            },
+            .target = Target.parse(.{
+                .arch_os_abi = "arm-linux-none",
+                .cpu_features = "generic+v8a",
+            }) catch unreachable,
         },
         TestTarget{
-            .target = Target{
-                .Cross = CrossTarget{
-                    .os = .linux,
-                    .arch = Target.Arch{ .arm = .v8a },
-                    .cpu_features = (Target.Arch{ .arm = .v8a }).getBaselineCpuFeatures(),
-                    .abi = .musleabihf,
-                },
-            },
+            .target = Target.parse(.{
+                .arch_os_abi = "arm-linux-musleabihf",
+                .cpu_features = "generic+v8a",
+            }) catch unreachable,
             .link_libc = true,
         },
         // TODO https://github.com/ziglang/zig/issues/3287
         //TestTarget{
-        //    .target = Target{
-        //        .Cross = CrossTarget{
-        //            .os = .linux,
-        //            .arch = Target.Arch{ .arm = .v8a },
-        //            .cpu_features = (Target.Arch{ .arm = .v8a }).getBaselineCpuFeatures(),
-        //            .abi = .gnueabihf,
-        //        },
-        //    },
+        //    .target = Target.parse(.{
+        //        .arch_os_abi = "arm-linux-gnueabihf",
+        //        .cpu_features = "generic+v8a",
+        //    }) catch unreachable,
         //    .link_libc = true,
         //},
 
         TestTarget{
             .target = Target{
                 .Cross = CrossTarget{
+                    .cpu = Target.Cpu.baseline(.mipsel),
                     .os = .linux,
-                    .arch = .mipsel,
-                    .cpu_features = Target.Arch.mipsel.getBaselineCpuFeatures(),
                     .abi = .none,
                 },
             },
@@ -187,9 +166,8 @@ const test_targets = blk: {
         TestTarget{
             .target = Target{
                 .Cross = CrossTarget{
+                    .cpu = Target.Cpu.baseline(.mipsel),
                     .os = .linux,
-                    .arch = .mipsel,
-                    .cpu_features = Target.Arch.mipsel.getBaselineCpuFeatures(),
                     .abi = .musl,
                 },
             },
@@ -199,9 +177,8 @@ const test_targets = blk: {
         TestTarget{
             .target = Target{
                 .Cross = CrossTarget{
+                    .cpu = Target.Cpu.baseline(.x86_64),
                     .os = .macosx,
-                    .arch = .x86_64,
-                    .cpu_features = Target.Arch.x86_64.getBaselineCpuFeatures(),
                     .abi = .gnu,
                 },
             },
@@ -212,9 +189,8 @@ const test_targets = blk: {
         TestTarget{
             .target = Target{
                 .Cross = CrossTarget{
+                    .cpu = Target.Cpu.baseline(.i386),
                     .os = .windows,
-                    .arch = .i386,
-                    .cpu_features = Target.Arch.i386.getBaselineCpuFeatures(),
                     .abi = .msvc,
                 },
             },
@@ -223,9 +199,8 @@ const test_targets = blk: {
         TestTarget{
             .target = Target{
                 .Cross = CrossTarget{
+                    .cpu = Target.Cpu.baseline(.x86_64),
                     .os = .windows,
-                    .arch = .x86_64,
-                    .cpu_features = Target.Arch.x86_64.getBaselineCpuFeatures(),
                     .abi = .msvc,
                 },
             },
@@ -234,9 +209,8 @@ const test_targets = blk: {
         TestTarget{
             .target = Target{
                 .Cross = CrossTarget{
+                    .cpu = Target.Cpu.baseline(.i386),
                     .os = .windows,
-                    .arch = .i386,
-                    .cpu_features = Target.Arch.i386.getBaselineCpuFeatures(),
                     .abi = .gnu,
                 },
             },
@@ -246,9 +220,8 @@ const test_targets = blk: {
         TestTarget{
             .target = Target{
                 .Cross = CrossTarget{
+                    .cpu = Target.Cpu.baseline(.x86_64),
                     .os = .windows,
-                    .arch = .x86_64,
-                    .cpu_features = Target.Arch.x86_64.getBaselineCpuFeatures(),
                     .abi = .gnu,
                 },
             },
@@ -476,7 +449,7 @@ pub fn addPkgTests(
         const ArchTag = @TagType(builtin.Arch);
         if (test_target.disable_native and
             test_target.target.getOs() == builtin.os and
-            @as(ArchTag, test_target.target.getArch()) == @as(ArchTag, builtin.arch))
+            test_target.target.getArch() == builtin.arch)
         {
             continue;
         }
@@ -677,8 +650,10 @@ pub const StackTracesContext = struct {
             const got: []const u8 = got_result: {
                 var buf = try Buffer.initSize(b.allocator, 0);
                 defer buf.deinit();
-                var bytes = stderr.toSliceConst();
-                if (bytes.len != 0 and bytes[bytes.len - 1] == '\n') bytes = bytes[0 .. bytes.len - 1];
+                const bytes = if (stderr.endsWith("\n"))
+                    stderr.toSliceConst()[0 .. stderr.len() - 1]
+                else
+                    stderr.toSliceConst()[0..stderr.len()];
                 var it = mem.separate(bytes, "\n");
                 process_lines: while (it.next()) |line| {
                     if (line.len == 0) continue;

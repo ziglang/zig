@@ -1564,7 +1564,9 @@ pub const Node = struct {
         pub const Op = union(enum) {
             AddressOf,
             ArrayType: ArrayInfo,
-            Await,
+            Await: struct {
+                noasync_token: ?TokenIndex = null,
+            },
             BitNot,
             BoolNot,
             Cancel,
@@ -2181,10 +2183,10 @@ pub const Node = struct {
         pub fn iterate(self: *Asm, index: usize) ?*Node {
             var i = index;
 
-            if (i < self.outputs.len) return &self.outputs.at(index).*.base;
+            if (i < self.outputs.len) return &self.outputs.at(i).*.base;
             i -= self.outputs.len;
 
-            if (i < self.inputs.len) return &self.inputs.at(index).*.base;
+            if (i < self.inputs.len) return &self.inputs.at(i).*.base;
             i -= self.inputs.len;
 
             return null;

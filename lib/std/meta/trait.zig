@@ -7,17 +7,11 @@ const warn = debug.warn;
 
 const meta = @import("../meta.zig");
 
-//This is necessary if we want to return generic functions directly because of how the
-// the type erasure works. see:  #1375
-fn traitFnWorkaround(comptime T: type) bool {
-    return false;
-}
-
-pub const TraitFn = @TypeOf(traitFnWorkaround);
+pub const TraitFn = fn (type) bool;
 
 //////Trait generators
 
-//Need TraitList because compiler can't do varargs at comptime yet
+// TODO convert to tuples when #4335 is done
 pub const TraitList = []const TraitFn;
 pub fn multiTrait(comptime traits: TraitList) TraitFn {
     const Closure = struct {
@@ -60,8 +54,7 @@ pub fn hasFn(comptime name: []const u8) TraitFn {
             if (!comptime isContainer(T)) return false;
             if (!comptime @hasDecl(T, name)) return false;
             const DeclType = @TypeOf(@field(T, name));
-            const decl_type_id = @typeId(DeclType);
-            return decl_type_id == builtin.TypeId.Fn;
+            return @typeId(DeclType) == .Fn;
         }
     };
     return Closure.trait;
@@ -80,11 +73,10 @@ test "std.meta.trait.hasFn" {
 pub fn hasField(comptime name: []const u8) TraitFn {
     const Closure = struct {
         pub fn trait(comptime T: type) bool {
-            const info = @typeInfo(T);
-            const fields = switch (info) {
-                builtin.TypeId.Struct => |s| s.fields,
-                builtin.TypeId.Union => |u| u.fields,
-                builtin.TypeId.Enum => |e| e.fields,
+            const fields = switch (@typeInfo(T)) {
+                .Struct => |s| s.fields,
+                .Union => |u| u.fields,
+                .Enum => |e| e.fields,
                 else => return false,
             };
 
@@ -120,11 +112,11 @@ pub fn is(comptime id: builtin.TypeId) TraitFn {
 }
 
 test "std.meta.trait.is" {
-    testing.expect(is(builtin.TypeId.Int)(u8));
-    testing.expect(!is(builtin.TypeId.Int)(f32));
-    testing.expect(is(builtin.TypeId.Pointer)(*u8));
-    testing.expect(is(builtin.TypeId.Void)(void));
-    testing.expect(!is(builtin.TypeId.Optional)(anyerror));
+    testing.expect(is(.Int)(u8));
+    testing.expect(!is(.Int)(f32));
+    testing.expect(is(.Pointer)(*u8));
+    testing.expect(is(.Void)(void));
+    testing.expect(!is(.Optional)(anyerror));
 }
 
 pub fn isPtrTo(comptime id: builtin.TypeId) TraitFn {
@@ -138,9 +130,9 @@ pub fn isPtrTo(comptime id: builtin.TypeId) TraitFn {
 }
 
 test "std.meta.trait.isPtrTo" {
-    testing.expect(!isPtrTo(builtin.TypeId.Struct)(struct {}));
-    testing.expect(isPtrTo(builtin.TypeId.Struct)(*struct {}));
-    testing.expect(!isPtrTo(builtin.TypeId.Struct)(**struct {}));
+    testing.expect(!isPtrTo(.Struct)(struct {}));
+    testing.expect(isPtrTo(.Struct)(*struct {}));
+    testing.expect(!isPtrTo(.Struct)(**struct {}));
 }
 
 ///////////Strait trait Fns
@@ -149,12 +141,10 @@ test "std.meta.trait.isPtrTo" {
 // Somewhat limited since we can't apply this logic to normal variables, fields, or
 //  Fns yet. Should be isExternType?
 pub fn isExtern(comptime T: type) bool {
-    const Extern = builtin.TypeInfo.ContainerLayout.Extern;
-    const info = @typeInfo(T);
-    return switch (info) {
-        builtin.TypeId.Struct => |s| s.layout == Extern,
-        builtin.TypeId.Union => |u| u.layout == Extern,
-        builtin.TypeId.Enum => |e| e.layout == Extern,
+    return switch (@typeInfo(T)) {
+        .Struct => |s| s.layout == .Extern,
+        .Union => |u| u.layout == .Extern,
+        .Enum => |e| e.layout == .Extern,
         else => false,
     };
 }
@@ -169,12 +159,10 @@ test "std.meta.trait.isExtern" {
 }
 
 pub fn isPacked(comptime T: type) bool {
-    const Packed = builtin.TypeInfo.ContainerLayout.Packed;
-    const info = @typeInfo(T);
-    return switch (info) {
-        builtin.TypeId.Struct => |s| s.layout == Packed,
-        builtin.TypeId.Union => |u| u.layout == Packed,
-        builtin.TypeId.Enum => |e| e.layout == Packed,
+    return switch (@typeInfo(T)) {
+        .Struct => |s| s.layout == .Packed,
+        .Union => |u| u.layout == .Packed,
+        .Enum => |e| e.layout == .Packed,
         else => false,
     };
 }
@@ -189,8 +177,8 @@ test "std.meta.trait.isPacked" {
 }
 
 pub fn isUnsignedInt(comptime T: type) bool {
-    return switch (@typeId(T)) {
-        builtin.TypeId.Int => !@typeInfo(T).Int.is_signed,
+    return switch (@typeInfo(T)) {
+        .Int => |i| !i.is_signed,
         else => false,
     };
 }
@@ -203,9 +191,9 @@ test "isUnsignedInt" {
 }
 
 pub fn isSignedInt(comptime T: type) bool {
-    return switch (@typeId(T)) {
-        builtin.TypeId.ComptimeInt => true,
-        builtin.TypeId.Int => @typeInfo(T).Int.is_signed,
+    return switch (@typeInfo(T)) {
+        .ComptimeInt => true,
+        .Int => |i| i.is_signed,
         else => false,
     };
 }
@@ -218,9 +206,8 @@ test "isSignedInt" {
 }
 
 pub fn isSingleItemPtr(comptime T: type) bool {
-    if (comptime is(builtin.TypeId.Pointer)(T)) {
-        const info = @typeInfo(T);
-        return info.Pointer.size == builtin.TypeInfo.Pointer.Size.One;
+    if (comptime is(.Pointer)(T)) {
+        return @typeInfo(T).Pointer.size == .One;
     }
     return false;
 }
@@ -233,9 +220,8 @@ test "std.meta.trait.isSingleItemPtr" {
 }
 
 pub fn isManyItemPtr(comptime T: type) bool {
-    if (comptime is(builtin.TypeId.Pointer)(T)) {
-        const info = @typeInfo(T);
-        return info.Pointer.size == builtin.TypeInfo.Pointer.Size.Many;
+    if (comptime is(.Pointer)(T)) {
+        return @typeInfo(T).Pointer.size == .Many;
     }
     return false;
 }
@@ -249,9 +235,8 @@ test "std.meta.trait.isManyItemPtr" {
 }
 
 pub fn isSlice(comptime T: type) bool {
-    if (comptime is(builtin.TypeId.Pointer)(T)) {
-        const info = @typeInfo(T);
-        return info.Pointer.size == builtin.TypeInfo.Pointer.Size.Slice;
+    if (comptime is(.Pointer)(T)) {
+        return @typeInfo(T).Pointer.size == .Slice;
     }
     return false;
 }
@@ -264,15 +249,13 @@ test "std.meta.trait.isSlice" {
 }
 
 pub fn isIndexable(comptime T: type) bool {
-    if (comptime is(builtin.TypeId.Pointer)(T)) {
-        const info = @typeInfo(T);
-        if (info.Pointer.size == builtin.TypeInfo.Pointer.Size.One) {
-            if (comptime is(builtin.TypeId.Array)(meta.Child(T))) return true;
-            return false;
+    if (comptime is(.Pointer)(T)) {
+        if (@typeInfo(T).Pointer.size == .One) {
+            return (comptime is(.Array)(meta.Child(T)));
         }
         return true;
     }
-    return comptime is(builtin.TypeId.Array)(T);
+    return comptime is(.Array)(T);
 }
 
 test "std.meta.trait.isIndexable" {
@@ -287,7 +270,7 @@ test "std.meta.trait.isIndexable" {
 
 pub fn isNumber(comptime T: type) bool {
     return switch (@typeId(T)) {
-        builtin.TypeId.Int, builtin.TypeId.Float, builtin.TypeId.ComptimeInt, builtin.TypeId.ComptimeFloat => true,
+        .Int, .Float, .ComptimeInt, .ComptimeFloat => true,
         else => false,
     };
 }
@@ -307,9 +290,8 @@ test "std.meta.trait.isNumber" {
 }
 
 pub fn isConstPtr(comptime T: type) bool {
-    if (!comptime is(builtin.TypeId.Pointer)(T)) return false;
-    const info = @typeInfo(T);
-    return info.Pointer.is_const;
+    if (!comptime is(.Pointer)(T)) return false;
+    return @typeInfo(T).Pointer.is_const;
 }
 
 test "std.meta.trait.isConstPtr" {
@@ -322,11 +304,8 @@ test "std.meta.trait.isConstPtr" {
 }
 
 pub fn isContainer(comptime T: type) bool {
-    const info = @typeInfo(T);
-    return switch (info) {
-        builtin.TypeId.Struct => true,
-        builtin.TypeId.Union => true,
-        builtin.TypeId.Enum => true,
+    return switch (@typeId(T)) {
+        .Struct, .Union, .Enum => true,
         else => false,
     };
 }

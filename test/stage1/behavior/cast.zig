@@ -768,3 +768,30 @@ test "variable initialization uses result locations properly with regards to the
     const x: i32 = if (b) 1 else 2;
     expect(x == 1);
 }
+
+test "cast between [*c]T and ?[*:0]T on fn parameter" {
+    const S = struct {
+        const Handler = ?extern fn ([*c]const u8) void;
+        fn addCallback(handler: Handler) void {}
+
+        fn myCallback(cstr: ?[*:0]const u8) callconv(.C) void {}
+
+        fn doTheTest() void {
+            addCallback(myCallback);
+        }
+    };
+    S.doTheTest();
+}
+
+test "cast between C pointer with different but compatible types" {
+    const S = struct {
+        fn foo(arg: [*]c_ushort) u16 {
+            return arg[0];
+        }
+        fn doTheTest() void {
+            var x = [_]u16{ 4, 2, 1, 3 };
+            expect(foo(@ptrCast([*]u16, &x)) == 4);
+        }
+    };
+    S.doTheTest();
+}

@@ -1,5 +1,5 @@
-const builtin = @import("builtin");
 const std = @import("std.zig");
+const builtin = std.builtin;
 const os = std.os;
 const fs = std.fs;
 const BufMap = std.BufMap;
@@ -27,26 +27,20 @@ pub fn getCwdAlloc(allocator: *Allocator) ![]u8 {
 }
 
 test "getCwdAlloc" {
-    // at least call it so it gets compiled
-    var buf: [1000]u8 = undefined;
-    const allocator = &std.heap.FixedBufferAllocator.init(&buf).allocator;
-    _ = getCwdAlloc(allocator) catch undefined;
+    const cwd = try getCwdAlloc(testing.allocator);
+    testing.allocator.free(cwd);
 }
 
-/// Caller must free result when done.
-/// TODO make this go through libc when we have it
+/// Caller owns resulting `BufMap`.
 pub fn getEnvMap(allocator: *Allocator) !BufMap {
     var result = BufMap.init(allocator);
     errdefer result.deinit();
 
     if (builtin.os == .windows) {
-        const ptr = try os.windows.GetEnvironmentStringsW();
-        defer os.windows.FreeEnvironmentStringsW(ptr);
+        const ptr = os.windows.peb().ProcessParameters.Environment;
 
         var i: usize = 0;
-        while (true) {
-            if (ptr[i] == 0) return result;
-
+        while (ptr[i] != 0) {
             const key_start = i;
 
             while (ptr[i] != 0 and ptr[i] != '=') : (i += 1) {}
@@ -66,6 +60,7 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
 
             try result.setMove(key, value);
         }
+        return result;
     } else if (builtin.os == .wasi) {
         var environ_count: usize = undefined;
         var environ_buf_size: usize = undefined;
@@ -97,15 +92,29 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
             }
         }
         return result;
-    } else {
-        for (os.environ) |ptr| {
+    } else if (builtin.link_libc) {
+        var ptr = std.c.environ;
+        while (ptr.*) |line| : (ptr += 1) {
             var line_i: usize = 0;
-            while (ptr[line_i] != 0 and ptr[line_i] != '=') : (line_i += 1) {}
-            const key = ptr[0..line_i];
+            while (line[line_i] != 0 and line[line_i] != '=') : (line_i += 1) {}
+            const key = line[0..line_i];
 
             var end_i: usize = line_i;
-            while (ptr[end_i] != 0) : (end_i += 1) {}
-            const value = ptr[line_i + 1 .. end_i];
+            while (line[end_i] != 0) : (end_i += 1) {}
+            const value = line[line_i + 1 .. end_i];
+
+            try result.set(key, value);
+        }
+        return result;
+    } else {
+        for (os.environ) |line| {
+            var line_i: usize = 0;
+            while (line[line_i] != 0 and line[line_i] != '=') : (line_i += 1) {}
+            const key = line[0..line_i];
+
+            var end_i: usize = line_i;
+            while (line[end_i] != 0) : (end_i += 1) {}
+            const value = line[line_i + 1 .. end_i];
 
             try result.set(key, value);
         }
@@ -127,37 +136,20 @@ pub const GetEnvVarOwnedError = error{
 };
 
 /// Caller must free returned memory.
-/// TODO make this go through libc when we have it
 pub fn getEnvVarOwned(allocator: *mem.Allocator, key: []const u8) GetEnvVarOwnedError![]u8 {
     if (builtin.os == .windows) {
-        const key_with_null = try std.unicode.utf8ToUtf16LeWithNull(allocator, key);
-        defer allocator.free(key_with_null);
+        const result_w = blk: {
+            const key_w = try std.unicode.utf8ToUtf16LeWithNull(allocator, key);
+            defer allocator.free(key_w);
 
-        var buf = try allocator.alloc(u16, 256);
-        defer allocator.free(buf);
-
-        while (true) {
-            const windows_buf_len = math.cast(os.windows.DWORD, buf.len) catch return error.OutOfMemory;
-            const result = os.windows.GetEnvironmentVariableW(
-                key_with_null.ptr,
-                buf.ptr,
-                windows_buf_len,
-            ) catch |err| switch (err) {
-                error.Unexpected => return error.EnvironmentVariableNotFound,
-                else => |e| return e,
-            };
-            if (result > buf.len) {
-                buf = try allocator.realloc(buf, result);
-                continue;
-            }
-
-            return std.unicode.utf16leToUtf8Alloc(allocator, buf[0..result]) catch |err| switch (err) {
-                error.DanglingSurrogateHalf => return error.InvalidUtf8,
-                error.ExpectedSecondSurrogateHalf => return error.InvalidUtf8,
-                error.UnexpectedSecondSurrogateHalf => return error.InvalidUtf8,
-                else => |e| return e,
-            };
-        }
+            break :blk std.os.getenvW(key_w) orelse return error.EnvironmentVariableNotFound;
+        };
+        return std.unicode.utf16leToUtf8Alloc(allocator, result_w) catch |err| switch (err) {
+            error.DanglingSurrogateHalf => return error.InvalidUtf8,
+            error.ExpectedSecondSurrogateHalf => return error.InvalidUtf8,
+            error.UnexpectedSecondSurrogateHalf => return error.InvalidUtf8,
+            else => |e| return e,
+        };
     } else {
         const result = os.getenv(key) orelse return error.EnvironmentVariableNotFound;
         return mem.dupe(allocator, u8, result);
@@ -613,5 +605,61 @@ pub fn getBaseAddress() usize {
         },
         .windows => return @ptrToInt(os.windows.kernel32.GetModuleHandleW(null)),
         else => @compileError("Unsupported OS"),
+    }
+}
+
+/// Caller owns the result value and each inner slice.
+pub fn getSelfExeSharedLibPaths(allocator: *Allocator) error{OutOfMemory}![][:0]u8 {
+    switch (builtin.link_mode) {
+        .Static => return &[_][:0]u8{},
+        .Dynamic => {},
+    }
+    const List = std.ArrayList([:0]u8);
+    switch (builtin.os) {
+        .linux,
+        .freebsd,
+        .netbsd,
+        .dragonfly,
+        => {
+            var paths = List.init(allocator);
+            errdefer {
+                const slice = paths.toOwnedSlice();
+                for (slice) |item| {
+                    allocator.free(item);
+                }
+                allocator.free(slice);
+            }
+            try os.dl_iterate_phdr(&paths, error{OutOfMemory}, struct {
+                fn callback(info: *os.dl_phdr_info, size: usize, list: *List) !void {
+                    const name = info.dlpi_name orelse return;
+                    if (name[0] == '/') {
+                        const item = try mem.dupeZ(list.allocator, u8, mem.toSliceConst(u8, name));
+                        errdefer list.allocator.free(item);
+                        try list.append(item);
+                    }
+                }
+            }.callback);
+            return paths.toOwnedSlice();
+        },
+        .macosx, .ios, .watchos, .tvos => {
+            var paths = List.init(allocator);
+            errdefer {
+                const slice = paths.toOwnedSlice();
+                for (slice) |item| {
+                    allocator.free(item);
+                }
+                allocator.free(slice);
+            }
+            const img_count = std.c._dyld_image_count();
+            var i: u32 = 0;
+            while (i < img_count) : (i += 1) {
+                const name = std.c._dyld_get_image_name(i);
+                const item = try mem.dupeZ(allocator, u8, mem.toSliceConst(u8, name));
+                errdefer allocator.free(item);
+                try paths.append(item);
+            }
+            return paths.toOwnedSlice();
+        },
+        else => @compileError("getSelfExeSharedLibPaths unimplemented for this target"),
     }
 }

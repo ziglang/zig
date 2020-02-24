@@ -1,5 +1,6 @@
 const std = @import("std");
 const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 const mem = std.mem;
 
 test "continue in for loop" {
@@ -141,4 +142,31 @@ test "for with null and T peer types and inferred result location type" {
     };
     S.doTheTest(&[_]u8{ 1, 2 });
     comptime S.doTheTest(&[_]u8{ 1, 2 });
+}
+
+test "for copies its payload" {
+    const S = struct {
+        fn doTheTest() void {
+            var x = [_]usize{ 1, 2, 3 };
+            for (x) |value, i| {
+                // Modify the original array
+                x[i] += 99;
+                expectEqual(value, i + 1);
+            }
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "for on slice with allowzero ptr" {
+    const S = struct {
+        fn doTheTest(slice: []u8) void {
+            var ptr = @ptrCast([*]allowzero u8, slice.ptr)[0..slice.len];
+            for (ptr) |x, i| expect(x == i + 1);
+            for (ptr) |*x, i| expect(x.* == i + 1);
+        }
+    };
+    S.doTheTest(&[_]u8{ 1, 2, 3, 4 });
+    comptime S.doTheTest(&[_]u8{ 1, 2, 3, 4 });
 }

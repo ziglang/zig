@@ -5,7 +5,7 @@
  * See http://opensource.org/licenses/MIT
  */
 
-#include "userland.h"
+#include "stage2.h"
 #include "cache_hash.hpp"
 #include "all_types.hpp"
 #include "buffer.hpp"
