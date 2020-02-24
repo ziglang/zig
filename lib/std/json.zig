@@ -2390,7 +2390,7 @@ pub fn stringify(
     unreachable;
 }
 
-fn teststringify(expected: []const u8, value: var) !void {
+fn teststringify(expected: []const u8, value: var, options: StringifyOptions) !void {
     const ValidationOutStream = struct {
         const Self = @This();
         pub const OutStream = std.io.OutStream(*Self, Error, write);
@@ -2442,55 +2442,55 @@ fn teststringify(expected: []const u8, value: var) !void {
     };
 
     var vos = ValidationOutStream.init(expected);
-    try stringify(value, StringifyOptions{}, vos.outStream());
+    try stringify(value, options, vos.outStream());
     if (vos.expected_remaining.len > 0) return error.NotEnoughData;
 }
 
 test "stringify basic types" {
-    try teststringify("false", false);
-    try teststringify("true", true);
-    try teststringify("null", @as(?u8, null));
-    try teststringify("null", @as(?*u32, null));
-    try teststringify("42", 42);
-    try teststringify("4.2e+01", 42.0);
-    try teststringify("42", @as(u8, 42));
-    try teststringify("42", @as(u128, 42));
-    try teststringify("4.2e+01", @as(f32, 42));
-    try teststringify("4.2e+01", @as(f64, 42));
+    try teststringify("false", false, StringifyOptions{});
+    try teststringify("true", true, StringifyOptions{});
+    try teststringify("null", @as(?u8, null), StringifyOptions{});
+    try teststringify("null", @as(?*u32, null), StringifyOptions{});
+    try teststringify("42", 42, StringifyOptions{});
+    try teststringify("4.2e+01", 42.0, StringifyOptions{});
+    try teststringify("42", @as(u8, 42), StringifyOptions{});
+    try teststringify("42", @as(u128, 42), StringifyOptions{});
+    try teststringify("4.2e+01", @as(f32, 42), StringifyOptions{});
+    try teststringify("4.2e+01", @as(f64, 42), StringifyOptions{});
 }
 
 test "stringify string" {
-    try teststringify("\"hello\"", "hello");
-    try teststringify("\"with\\nescapes\\r\"", "with\nescapes\r");
-    try teststringify("\"with unicode\\u0001\"", "with unicode\u{1}");
-    try teststringify("\"with unicode\\u0080\"", "with unicode\u{80}");
-    try teststringify("\"with unicode\\u00ff\"", "with unicode\u{FF}");
-    try teststringify("\"with unicode\\u0100\"", "with unicode\u{100}");
-    try teststringify("\"with unicode\\u0800\"", "with unicode\u{800}");
-    try teststringify("\"with unicode\\u8000\"", "with unicode\u{8000}");
-    try teststringify("\"with unicode\\ud799\"", "with unicode\u{D799}");
-    try teststringify("\"with unicode\\ud800\\udc00\"", "with unicode\u{10000}");
-    try teststringify("\"with unicode\\udbff\\udfff\"", "with unicode\u{10FFFF}");
+    try teststringify("\"hello\"", "hello", StringifyOptions{});
+    try teststringify("\"with\\nescapes\\r\"", "with\nescapes\r", StringifyOptions{});
+    try teststringify("\"with unicode\\u0001\"", "with unicode\u{1}", StringifyOptions{});
+    try teststringify("\"with unicode\\u0080\"", "with unicode\u{80}", StringifyOptions{});
+    try teststringify("\"with unicode\\u00ff\"", "with unicode\u{FF}", StringifyOptions{});
+    try teststringify("\"with unicode\\u0100\"", "with unicode\u{100}", StringifyOptions{});
+    try teststringify("\"with unicode\\u0800\"", "with unicode\u{800}", StringifyOptions{});
+    try teststringify("\"with unicode\\u8000\"", "with unicode\u{8000}", StringifyOptions{});
+    try teststringify("\"with unicode\\ud799\"", "with unicode\u{D799}", StringifyOptions{});
+    try teststringify("\"with unicode\\ud800\\udc00\"", "with unicode\u{10000}", StringifyOptions{});
+    try teststringify("\"with unicode\\udbff\\udfff\"", "with unicode\u{10FFFF}", StringifyOptions{});
 }
 
 test "stringify tagged unions" {
     try teststringify("42", union(enum) {
         Foo: u32,
         Bar: bool,
-    }{ .Foo = 42 });
+    }{ .Foo = 42 }, StringifyOptions{});
 }
 
 test "stringify struct" {
     try teststringify("{\"foo\":42}", struct {
         foo: u32,
-    }{ .foo = 42 });
+    }{ .foo = 42 }, StringifyOptions{});
 }
 
 test "stringify struct with void field" {
     try teststringify("{\"foo\":42}", struct {
         foo: u32,
         bar: void = {},
-    }{ .foo = 42 });
+    }{ .foo = 42 }, StringifyOptions{});
 }
 
 test "stringify array of structs" {
@@ -2501,7 +2501,7 @@ test "stringify array of structs" {
         MyStruct{ .foo = 42 },
         MyStruct{ .foo = 100 },
         MyStruct{ .foo = 1000 },
-    });
+    }, StringifyOptions{});
 }
 
 test "stringify struct with custom stringifier" {
@@ -2517,5 +2517,5 @@ test "stringify struct with custom stringifier" {
             try stringify(42, options, out_stream);
             try out_stream.writeAll("]");
         }
-    }{ .foo = 42 });
+    }{ .foo = 42 }, StringifyOptions{});
 }
