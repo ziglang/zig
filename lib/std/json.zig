@@ -1233,6 +1233,57 @@ pub const Value = union(enum) {
     Array: Array,
     Object: ObjectMap,
 
+    pub fn jsonStringify(
+        value: @This(),
+        options: StringifyOptions,
+        out_stream: var,
+    ) @TypeOf(out_stream).Error!void {
+        switch (value) {
+            .Null => try out_stream.writeAll("null"),
+            .Bool => |inner| try stringify(inner, options, out_stream),
+            .Integer => |inner| try stringify(inner, options, out_stream),
+            .Float => |inner| try stringify(inner, options, out_stream),
+            .String => |inner| try stringify(inner, options, out_stream),
+            .Array => |inner| try stringify(inner.span(), options, out_stream),
+            .Object => |inner| {
+                try out_stream.writeByte('{');
+                var field_output = false;
+                var child_options = options;
+                if (child_options.whitespace) |*child_whitespace| {
+                    child_whitespace.indent_level += 1;
+                }
+                var it = inner.iterator();
+                while (it.next()) |entry| {
+                    if (!field_output) {
+                        field_output = true;
+                    } else {
+                        try out_stream.writeByte(',');
+                    }
+                    if (child_options.whitespace) |child_whitespace| {
+                        try out_stream.writeByte('\n');
+                        try child_whitespace.outputIndent(out_stream);
+                    }
+
+                    try stringify(entry.key, options, out_stream);
+                    try out_stream.writeByte(':');
+                    if (child_options.whitespace) |child_whitespace| {
+                        if (child_whitespace.separator) {
+                            try out_stream.writeByte(' ');
+                        }
+                    }
+                    try stringify(entry.value, child_options, out_stream);
+                }
+                if (field_output) {
+                    if (options.whitespace) |whitespace| {
+                        try out_stream.writeByte('\n');
+                        try whitespace.outputIndent(out_stream);
+                    }
+                }
+                try out_stream.writeByte('}');
+            },
+        }
+    }
+
     pub fn dump(self: Value) void {
         var held = std.debug.getStderrMutex().acquire();
         defer held.release();
@@ -1269,6 +1320,60 @@ pub const Value = union(enum) {
         try w.emitJson(self);
     }
 };
+
+test "Value.jsonStringify" {
+    {
+        var buffer: [10]u8 = undefined;
+        var fbs = std.io.fixedBufferStream(&buffer);
+        try @as(Value, .Null).jsonStringify(.{}, fbs.outStream());
+        testing.expectEqualSlices(u8, fbs.getWritten(), "null");
+    }
+    {
+        var buffer: [10]u8 = undefined;
+        var fbs = std.io.fixedBufferStream(&buffer);
+        try (Value{ .Bool = true }).jsonStringify(.{}, fbs.outStream());
+        testing.expectEqualSlices(u8, fbs.getWritten(), "true");
+    }
+    {
+        var buffer: [10]u8 = undefined;
+        var fbs = std.io.fixedBufferStream(&buffer);
+        try (Value{ .Integer = 42 }).jsonStringify(.{}, fbs.outStream());
+        testing.expectEqualSlices(u8, fbs.getWritten(), "42");
+    }
+    {
+        var buffer: [10]u8 = undefined;
+        var fbs = std.io.fixedBufferStream(&buffer);
+        try (Value{ .Float = 42 }).jsonStringify(.{}, fbs.outStream());
+        testing.expectEqualSlices(u8, fbs.getWritten(), "4.2e+01");
+    }
+    {
+        var buffer: [10]u8 = undefined;
+        var fbs = std.io.fixedBufferStream(&buffer);
+        try (Value{ .String = "weeee" }).jsonStringify(.{}, fbs.outStream());
+        testing.expectEqualSlices(u8, fbs.getWritten(), "\"weeee\"");
+    }
+    {
+        var buffer: [10]u8 = undefined;
+        var fbs = std.io.fixedBufferStream(&buffer);
+        try (Value{
+            .Array = Array.fromOwnedSlice(undefined, &[_]Value{
+                .{ .Integer = 1 },
+                .{ .Integer = 2 },
+                .{ .Integer = 3 },
+            }),
+        }).jsonStringify(.{}, fbs.outStream());
+        testing.expectEqualSlices(u8, fbs.getWritten(), "[1,2,3]");
+    }
+    {
+        var buffer: [10]u8 = undefined;
+        var fbs = std.io.fixedBufferStream(&buffer);
+        var obj = ObjectMap.init(testing.allocator);
+        defer obj.deinit();
+        try obj.putNoClobber("a", .{ .String = "b" });
+        try (Value{ .Object = obj }).jsonStringify(.{}, fbs.outStream());
+        testing.expectEqualSlices(u8, fbs.getWritten(), "{\"a\":\"b\"}");
+    }
+}
 
 pub const ParseOptions = struct {
     allocator: ?*Allocator = null,
