@@ -430,7 +430,7 @@ pub fn argsAlloc(allocator: *mem.Allocator) ![][]u8 {
     const buf = try allocator.alignedAlloc(u8, @alignOf([]u8), total_bytes);
     errdefer allocator.free(buf);
 
-    const result_slice_list = @bytesToSlice([]u8, buf[0..slice_list_bytes]);
+    const result_slice_list = mem.bytesAsSlice([]u8, buf[0..slice_list_bytes]);
     const result_contents = buf[slice_list_bytes..];
     mem.copy(u8, result_contents, contents_slice);
 

@@ -307,10 +307,6 @@ const char* ir_inst_src_type_str(IrInstSrcId id) {
             return "SrcAddImplicitReturnType";
         case IrInstSrcIdErrSetCast:
             return "SrcErrSetCast";
-        case IrInstSrcIdToBytes:
-            return "SrcToBytes";
-        case IrInstSrcIdFromBytes:
-            return "SrcFromBytes";
         case IrInstSrcIdCheckRuntimeScope:
             return "SrcCheckRuntimeScope";
         case IrInstSrcIdHasDecl:
@@ -383,8 +379,6 @@ const char* ir_inst_gen_type_str(IrInstGenId id) {
             return "GenReturn";
         case IrInstGenIdCast:
             return "GenCast";
-        case IrInstGenIdResizeSlice:
-            return "GenResizeSlice";
         case IrInstGenIdUnreachable:
             return "GenUnreachable";
         case IrInstGenIdAsm:
@@ -1644,20 +1638,6 @@ static void ir_print_err_set_cast(IrPrintSrc *irp, IrInstSrcErrSetCast *instruct
     fprintf(irp->f, ")");
 }
 
-static void ir_print_from_bytes(IrPrintSrc *irp, IrInstSrcFromBytes *instruction) {
-    fprintf(irp->f, "@bytesToSlice(");
-    ir_print_other_inst_src(irp, instruction->dest_child_type);
-    fprintf(irp->f, ", ");
-    ir_print_other_inst_src(irp, instruction->target);
-    fprintf(irp->f, ")");
-}
-
-static void ir_print_to_bytes(IrPrintSrc *irp, IrInstSrcToBytes *instruction) {
-    fprintf(irp->f, "@sliceToBytes(");
-    ir_print_other_inst_src(irp, instruction->target);
-    fprintf(irp->f, ")");
-}
-
 static void ir_print_int_to_float(IrPrintSrc *irp, IrInstSrcIntToFloat *instruction) {
     fprintf(irp->f, "@intToFloat(");
     ir_print_other_inst_src(irp, instruction->dest_type);
@@ -2140,13 +2120,6 @@ static void ir_print_assert_non_null(IrPrintGen *irp, IrInstGenAssertNonNull *in
     fprintf(irp->f, "AssertNonNull(");
     ir_print_other_inst_gen(irp, instruction->target);
     fprintf(irp->f, ")");
-}
-
-static void ir_print_resize_slice(IrPrintGen *irp, IrInstGenResizeSlice *instruction) {
-    fprintf(irp->f, "@resizeSlice(");
-    ir_print_other_inst_gen(irp, instruction->operand);
-    fprintf(irp->f, ")result=");
-    ir_print_other_inst_gen(irp, instruction->result_loc);
 }
 
 static void ir_print_alloca_src(IrPrintSrc *irp, IrInstSrcAlloca *instruction) {
@@ -2793,12 +2766,6 @@ static void ir_print_inst_src(IrPrintSrc *irp, IrInstSrc *instruction, bool trai
         case IrInstSrcIdErrSetCast:
             ir_print_err_set_cast(irp, (IrInstSrcErrSetCast *)instruction);
             break;
-        case IrInstSrcIdFromBytes:
-            ir_print_from_bytes(irp, (IrInstSrcFromBytes *)instruction);
-            break;
-        case IrInstSrcIdToBytes:
-            ir_print_to_bytes(irp, (IrInstSrcToBytes *)instruction);
-            break;
         case IrInstSrcIdIntToFloat:
             ir_print_int_to_float(irp, (IrInstSrcIntToFloat *)instruction);
             break;
@@ -3272,9 +3239,6 @@ static void ir_print_inst_gen(IrPrintGen *irp, IrInstGen *instruction, bool trai
             break;
         case IrInstGenIdAssertNonNull:
             ir_print_assert_non_null(irp, (IrInstGenAssertNonNull *)instruction);
-            break;
-        case IrInstGenIdResizeSlice:
-            ir_print_resize_slice(irp, (IrInstGenResizeSlice *)instruction);
             break;
         case IrInstGenIdAlloca:
             ir_print_alloca_gen(irp, (IrInstGenAlloca *)instruction);

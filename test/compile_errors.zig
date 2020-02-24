@@ -4745,16 +4745,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:1:15: error: comptime parameter not allowed in function with calling convention 'C'",
     });
 
-    cases.add("convert fixed size array to slice with invalid size",
-        \\export fn f() void {
-        \\    var array: [5]u8 = undefined;
-        \\    var foo = @bytesToSlice(u32, &array)[0];
-        \\}
-    , &[_][]const u8{
-        "tmp.zig:3:15: error: unable to convert [5]u8 to []align(1) u32: size mismatch",
-        "tmp.zig:3:29: note: u32 has size 4; remaining bytes: 1",
-    });
-
     cases.add("non-pure function returns type",
         \\var a: u32 = 0;
         \\pub fn List(comptime T: type) type {

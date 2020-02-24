@@ -24,11 +24,11 @@ pub const State = struct {
     const Self = @This();
 
     pub fn toSlice(self: *Self) []u8 {
-        return @sliceToBytes(self.data[0..]);
+        return mem.sliceAsBytes(self.data[0..]);
     }
 
     pub fn toSliceConst(self: *Self) []const u8 {
-        return @sliceToBytes(self.data[0..]);
+        return mem.sliceAsBytes(self.data[0..]);
     }
 
     pub fn permute(self: *Self) void {

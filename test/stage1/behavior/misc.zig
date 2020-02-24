@@ -3,7 +3,6 @@ const expect = std.testing.expect;
 const expectEqualSlices = std.testing.expectEqualSlices;
 const mem = std.mem;
 const builtin = @import("builtin");
-const maxInt = std.math.maxInt;
 
 // normal comment
 
@@ -375,26 +374,6 @@ test "string concatenation" {
     }
     expect(a[len] == 0);
     expect(b[len] == 0);
-}
-
-test "cast slice to u8 slice" {
-    expect(@sizeOf(i32) == 4);
-    var big_thing_array = [_]i32{ 1, 2, 3, 4 };
-    const big_thing_slice: []i32 = big_thing_array[0..];
-    const bytes = @sliceToBytes(big_thing_slice);
-    expect(bytes.len == 4 * 4);
-    bytes[4] = 0;
-    bytes[5] = 0;
-    bytes[6] = 0;
-    bytes[7] = 0;
-    expect(big_thing_slice[1] == 0);
-    const big_thing_again = @bytesToSlice(i32, bytes);
-    expect(big_thing_again[2] == 3);
-    big_thing_again[2] = -1;
-    expect(bytes[8] == maxInt(u8));
-    expect(bytes[9] == maxInt(u8));
-    expect(bytes[10] == maxInt(u8));
-    expect(bytes[11] == maxInt(u8));
 }
 
 test "pointer to void return type" {
