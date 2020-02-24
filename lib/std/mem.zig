@@ -331,14 +331,7 @@ pub fn zeroes(comptime T: type) T {
             }
             return array;
         },
-        .Vector => |info| {
-            var vector: T = undefined;
-            for (vector) |*element| {
-                *element = zeroes(info.child);
-            }
-            return vector;
-        },
-        .ErrorUnion, .ErrorSet, .Union, .Fn, .BoundFn, .Type, .NoReturn, .Undefined, .Opaque, .Frame, .AnyFrame,  => {
+        .Vector, .ErrorUnion, .ErrorSet, .Union, .Fn, .BoundFn, .Type, .NoReturn, .Undefined, .Opaque, .Frame, .AnyFrame,  => {
             @compileError("Can't set a "++ @typeName(T) ++" to zero.");
         },
     }
