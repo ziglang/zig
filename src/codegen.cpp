@@ -8152,9 +8152,6 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdMemset, "memset", 3);
     create_builtin_fn(g, BuiltinFnIdSizeof, "sizeOf", 1);
     create_builtin_fn(g, BuiltinFnIdAlignOf, "alignOf", 1);
-    create_builtin_fn(g, BuiltinFnIdMemberCount, "memberCount", 1);
-    create_builtin_fn(g, BuiltinFnIdMemberType, "memberType", 2);
-    create_builtin_fn(g, BuiltinFnIdMemberName, "memberName", 2);
     create_builtin_fn(g, BuiltinFnIdField, "field", 2);
     create_builtin_fn(g, BuiltinFnIdTypeInfo, "typeInfo", 1);
     create_builtin_fn(g, BuiltinFnIdType, "Type", 1);
@@ -8231,7 +8228,6 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdMulAdd, "mulAdd", 4);
     create_builtin_fn(g, BuiltinFnIdNewStackCall, "newStackCall", SIZE_MAX);
     create_builtin_fn(g, BuiltinFnIdAsyncCall, "asyncCall", SIZE_MAX);
-    create_builtin_fn(g, BuiltinFnIdTypeId, "typeId", 1);
     create_builtin_fn(g, BuiltinFnIdShlExact, "shlExact", 2);
     create_builtin_fn(g, BuiltinFnIdShrExact, "shrExact", 2);
     create_builtin_fn(g, BuiltinFnIdSetEvalBranchQuota, "setEvalBranchQuota", 1);

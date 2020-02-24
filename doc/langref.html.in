@@ -2810,14 +2810,10 @@ test "@TagType" {
     assert(@TagType(Small) == u2);
 }
 
-// @memberCount tells how many fields an enum has:
-test "@memberCount" {
-    assert(@memberCount(Small) == 4);
-}
-
-// @memberName tells the name of a field in an enum:
-test "@memberName" {
-    assert(mem.eql(u8, @memberName(Small, 1), "Two"));
+// @typeInfo tells us the field count and the fields name:
+test "@typeInfo" {
+    assert(@typeInfo(Small).Enum.fields.len == 4);
+    assert(mem.eql(u8, @typeInfo(Small).Enum.fields[0].name, "Two"));
 }
 
 // @tagName gives a []const u8 representation of an enum value:
@@ -2825,7 +2821,7 @@ test "@tagName" {
     assert(mem.eql(u8, @tagName(Small.Three), "Three"));
 }
       {#code_end#}
-      {#see_also|@memberName|@memberCount|@tagName|@sizeOf#}
+      {#see_also|@typeInfo|@tagName|@sizeOf#}
 
       {#header_open|extern enum#}
       <p>
@@ -6816,7 +6812,7 @@ async fn func(y: *i32) void {
       Asserts that {#syntax#}@sizeOf(@TypeOf(value)) == @sizeOf(DestType){#endsyntax#}.
       </p>
       <p>
-      Asserts that {#syntax#}@typeId(DestType) != @import("builtin").TypeId.Pointer{#endsyntax#}. Use {#syntax#}@ptrCast{#endsyntax#} or {#syntax#}@intToPtr{#endsyntax#} if you need this.
+      Asserts that {#syntax#}@typeInfo(DestType) != .Pointer{#endsyntax#}. Use {#syntax#}@ptrCast{#endsyntax#} or {#syntax#}@intToPtr{#endsyntax#} if you need this.
       </p>
       <p>
       Can be used for these things for example:
@@ -7269,7 +7265,7 @@ test "main" {
       <p>
       Floored division. Rounds toward negative infinity. For unsigned integers it is
       the same as {#syntax#}numerator / denominator{#endsyntax#}. Caller guarantees {#syntax#}denominator != 0{#endsyntax#} and
-              {#syntax#}!(@typeId(T) == builtin.TypeId.Int and T.is_signed and numerator == std.math.minInt(T) and denominator == -1){#endsyntax#}.
+              {#syntax#}!(@typeInfo(T) == .Int and T.is_signed and numerator == std.math.minInt(T) and denominator == -1){#endsyntax#}.
       </p>
       <ul>
           <li>{#syntax#}@divFloor(-5, 3) == -2{#endsyntax#}</li>
@@ -7283,7 +7279,7 @@ test "main" {
       <p>
       Truncated division. Rounds toward zero. For unsigned integers it is
       the same as {#syntax#}numerator / denominator{#endsyntax#}. Caller guarantees {#syntax#}denominator != 0{#endsyntax#} and
-              {#syntax#}!(@typeId(T) == builtin.TypeId.Int and T.is_signed and numerator == std.math.minInt(T) and denominator == -1){#endsyntax#}.
+              {#syntax#}!(@typeInfo(T) == .Int and T.is_signed and numerator == std.math.minInt(T) and denominator == -1){#endsyntax#}.
       </p>
       <ul>
           <li>{#syntax#}@divTrunc(-5, 3) == -1{#endsyntax#}</li>
@@ -7677,33 +7673,6 @@ test "@hasDecl" {
       <p>
       Deprecated. Use {#link|@Type#}.
       </p>
-      {#header_close#}
-
-      {#header_open|@memberCount#}
-      <pre>{#syntax#}@memberCount(comptime T: type) comptime_int{#endsyntax#}</pre>
-      <p>
-      This function returns the number of members in a struct, enum, or union type.
-      </p>
-      <p>
-      The result is a compile time constant.
-      </p>
-      <p>
-      It does not include functions, variables, or constants.
-      </p>
-      {#header_close#}
-      {#header_open|@memberName#}
-      <pre>{#syntax#}@memberName(comptime T: type, comptime index: usize) [N]u8{#endsyntax#}</pre>
-      <p>Returns the field name of a struct, union, or enum.</p>
-      <p>
-      The result is a compile time constant.
-      </p>
-      <p>
-      It does not include functions, variables, or constants.
-      </p>
-      {#header_close#}
-      {#header_open|@memberType#}
-      <pre>{#syntax#}@memberType(comptime T: type, comptime index: usize) type{#endsyntax#}</pre>
-      <p>Returns the field type of a struct or union.</p>
       {#header_close#}
 
       {#header_open|@memcpy#}
@@ -8401,43 +8370,6 @@ test "integer truncation" {
           <li>{#link|struct#}</li>
       </ul>
       {#header_close#}
-
-      {#header_open|@typeId#}
-      <pre>{#syntax#}@typeId(comptime T: type) @import("builtin").TypeId{#endsyntax#}</pre>
-      <p>
-      Returns which kind of type something is. Possible values:
-      </p>
-      {#code_begin|syntax#}
-pub const TypeId = enum {
-    Type,
-    Void,
-    Bool,
-    NoReturn,
-    Int,
-    Float,
-    Pointer,
-    Array,
-    Struct,
-    ComptimeFloat,
-    ComptimeInt,
-    Undefined,
-    Null,
-    Optional,
-    ErrorUnion,
-    ErrorSet,
-    Enum,
-    Union,
-    Fn,
-    BoundFn,
-    Opaque,
-    Frame,
-    AnyFrame,
-    Vector,
-    EnumLiteral,
-};
-      {#code_end#}
-      {#header_close#}
-
       {#header_open|@typeInfo#}
       <pre>{#syntax#}@typeInfo(comptime T: type) @import("std").builtin.TypeInfo{#endsyntax#}</pre>
       <p>
