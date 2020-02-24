@@ -279,15 +279,69 @@ pub fn set(comptime T: type, dest: []T, value: T) void {
 /// Zero initializes the type.
 /// This can be used to zero initialize a C-struct.
 pub fn zeroes(comptime T: type) T {
-    if (@sizeOf(T) == 0) return T{};
-
-    if (comptime meta.containerLayout(T) != .Extern) {
-        @compileError("TODO: Currently this only works for extern types");
+    switch (@typeInfo(T)) {
+        .ComptimeInt, .Int, .ComptimeFloat, .Float => {
+            return @as(T, 0);
+        },
+        .Enum, .EnumLiteral => {
+            return @intToEnum(T, 0);
+        },
+        .Void => {
+            return {};
+        },
+        .Bool => {
+            return false;
+        },
+        .Optional, .Null => {
+            return null;
+        },
+        .Struct => {
+            if (@sizeOf(T) == 0) return T{};
+            if (comptime meta.containerLayout(T) == .Extern) {
+                var item: T = undefined;
+                @memset(@ptrCast([*]u8, &item), 0, @sizeOf(T));
+                return item;
+            } else {
+                var structure: T = undefined;
+                comptime var field_i = 0;
+                inline while (field_i < @memberCount(T)) : (field_i += 1) {
+                    @field(structure, @memberName(T, field_i)) = zeroes(@TypeOf(@field(structure, @memberName(T, field_i))));
+                }
+                return structure;
+            }
+        },
+        .Pointer => |ptr_info| {
+            if (ptr_info.is_allowzero) {
+                return null;
+            } else {
+                switch (ptr_info.size) {
+                    .Slice => {
+                        return &[_]ptr_info.child{};
+                    },
+                    .One, .Many, .C => {
+                        @compileError("Can't set a non nullable pointer to zero.");
+                    },
+                }
+            }
+        },
+        .Array => |info| {
+            var array: T = undefined;
+            for (array) |*element| {
+                element.* = zeroes(info.child);
+            }
+            return array;
+        },
+        .Vector => |info| {
+            var vector: T = undefined;
+            for (vector) |*element| {
+                *element = zeroes(info.child);
+            }
+            return vector;
+        },
+        .ErrorUnion, .ErrorSet, .Union, .Fn, .BoundFn, .Type, .NoReturn, .Undefined, .Opaque, .Frame, .AnyFrame,  => {
+            @compileError("Can't set a "++ @typeName(T) ++" to zero.");
+        },
     }
-
-    var item: T = undefined;
-    @memset(@ptrCast([*]u8, &item), 0, @sizeOf(T));
-    return item;
 }
 
 test "mem.zeroes" {
@@ -301,6 +355,60 @@ test "mem.zeroes" {
 
     testing.expect(a.x == 0);
     testing.expect(a.y == 10);
+
+    const ZigStruct = struct {
+        const IntegralTypes = struct {
+            integer_0: i0,
+            integer_8: i8,
+            integer_16: i16,
+            integer_32: i32,
+            integer_64: i64,
+            integer_128: i128,
+            unsigned_0: u0,
+            unsigned_8: u8,
+            unsigned_16: u16,
+            unsigned_32: u32,
+            unsigned_64: u64,
+            unsigned_128: u128,
+
+            float_32: f32,
+            float_64: f64,
+        };
+
+        integral_types: IntegralTypes,
+
+        const Pointers = struct {
+            optional: ?*u8,
+            slice: []u8,
+        };
+        pointers: Pointers,
+
+        array: [2]u32,
+        optional_int: ?u8,
+        empty: void,
+    };
+
+    const b = zeroes(ZigStruct);
+    testing.expectEqual(@as(i8, 0), b.integral_types.integer_0);
+    testing.expectEqual(@as(i8, 0), b.integral_types.integer_8);
+    testing.expectEqual(@as(i16, 0), b.integral_types.integer_16);
+    testing.expectEqual(@as(i32, 0), b.integral_types.integer_32);
+    testing.expectEqual(@as(i64, 0), b.integral_types.integer_64);
+    testing.expectEqual(@as(i128, 0), b.integral_types.integer_128);
+    testing.expectEqual(@as(u8, 0), b.integral_types.unsigned_0);
+    testing.expectEqual(@as(u8, 0), b.integral_types.unsigned_8);
+    testing.expectEqual(@as(u16, 0), b.integral_types.unsigned_16);
+    testing.expectEqual(@as(u32, 0), b.integral_types.unsigned_32);
+    testing.expectEqual(@as(u64, 0), b.integral_types.unsigned_64);
+    testing.expectEqual(@as(u128, 0), b.integral_types.unsigned_128);
+    testing.expectEqual(@as(f32, 0), b.integral_types.float_32);
+    testing.expectEqual(@as(f64, 0), b.integral_types.float_64);
+    testing.expectEqual(@as(?*u8, null), b.pointers.optional);
+    testing.expectEqual(@as([]u8, &[_]u8{}), b.pointers.slice);
+    for (b.array) |e| {
+        testing.expectEqual(@as(u32, 0), e);
+    }
+    testing.expectEqual(@as(?u8, null), b.optional_int);
 }
 
 pub fn secureZero(comptime T: type, s: []T) void {
