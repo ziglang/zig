@@ -1898,10 +1898,10 @@ pub const LibExeObjStep = struct {
         }
 
         switch (self.build_mode) {
-            builtin.Mode.Debug => {},
-            builtin.Mode.ReleaseSafe => zig_args.append("--release-safe") catch unreachable,
-            builtin.Mode.ReleaseFast => zig_args.append("--release-fast") catch unreachable,
-            builtin.Mode.ReleaseSmall => zig_args.append("--release-small") catch unreachable,
+            .Debug => {},
+            .ReleaseSafe => zig_args.append("--release-safe") catch unreachable,
+            .ReleaseFast => zig_args.append("--release-fast") catch unreachable,
+            .ReleaseSmall => zig_args.append("--release-small") catch unreachable,
         }
 
         try zig_args.append("--cache-dir");

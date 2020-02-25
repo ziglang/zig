@@ -25,7 +25,7 @@ const twords = extern union {
     all: i128,
     s: S,
 
-    const S = if (builtin.endian == builtin.Endian.Little)
+    const S = if (builtin.endian == .Little)
         struct {
             low: i64,
             high: i64,

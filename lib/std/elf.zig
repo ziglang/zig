@@ -370,8 +370,8 @@ pub const Elf = struct {
         };
 
         elf.endian = switch (try in.readByte()) {
-            1 => builtin.Endian.Little,
-            2 => builtin.Endian.Big,
+            1 => .Little,
+            2 => .Big,
             else => return error.InvalidFormat,
         };
 

@@ -10,7 +10,7 @@ const Wyhash = std.hash.Wyhash;
 const Allocator = mem.Allocator;
 const builtin = @import("builtin");
 
-const want_modification_safety = builtin.mode != builtin.Mode.ReleaseFast;
+const want_modification_safety = builtin.mode != .ReleaseFast;
 const debug_u32 = if (want_modification_safety) u32 else void;
 
 pub fn AutoHashMap(comptime K: type, comptime V: type) type {

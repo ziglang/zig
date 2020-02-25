@@ -63,15 +63,11 @@ pub fn expectEqual(expected: var, actual: @TypeOf(expected)) void {
 
         .Pointer => |pointer| {
             switch (pointer.size) {
-                .One,
-                .Many,
-                .C,
-                => {
+                .One, .Many, .C => {
                     if (actual != expected) {
                         std.debug.panic("expected {*}, found {*}", .{ expected, actual });
                     }
                 },
-
                 .Slice => {
                     if (actual.ptr != expected.ptr) {
                         std.debug.panic("expected slice ptr {}, found {}", .{ expected.ptr, actual.ptr });

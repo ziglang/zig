@@ -11,7 +11,7 @@ pub const CityHash32 = struct {
     fn fetch32(ptr: [*]const u8) u32 {
         var v: u32 = undefined;
         @memcpy(@ptrCast([*]u8, &v), ptr, 4);
-        if (builtin.endian == builtin.Endian.Big)
+        if (builtin.endian == .Big)
             return @byteSwap(u32, v);
         return v;
     }
@@ -174,7 +174,7 @@ pub const CityHash64 = struct {
     fn fetch32(ptr: [*]const u8) u32 {
         var v: u32 = undefined;
         @memcpy(@ptrCast([*]u8, &v), ptr, 4);
-        if (builtin.endian == builtin.Endian.Big)
+        if (builtin.endian == .Big)
             return @byteSwap(u32, v);
         return v;
     }
@@ -182,7 +182,7 @@ pub const CityHash64 = struct {
     fn fetch64(ptr: [*]const u8) u64 {
         var v: u64 = undefined;
         @memcpy(@ptrCast([*]u8, &v), ptr, 8);
-        if (builtin.endian == builtin.Endian.Big)
+        if (builtin.endian == .Big)
             return @byteSwap(u64, v);
         return v;
     }
@@ -369,7 +369,7 @@ fn SMHasherTest(comptime hash_fn: var, comptime hashbits: u32) u32 {
         key[i] = @intCast(u8, i);
 
         var h = hash_fn(key[0..i], 256 - i);
-        if (builtin.endian == builtin.Endian.Big)
+        if (builtin.endian == .Big)
             h = @byteSwap(@TypeOf(h), h);
         @memcpy(@ptrCast([*]u8, &hashes[i * hashbytes]), @ptrCast([*]u8, &h), hashbytes);
     }

@@ -637,12 +637,12 @@ test "mem.indexOf" {
 pub fn readVarInt(comptime ReturnType: type, bytes: []const u8, endian: builtin.Endian) ReturnType {
     var result: ReturnType = 0;
     switch (endian) {
-        builtin.Endian.Big => {
+        .Big => {
             for (bytes) |b| {
                 result = (result << 8) | b;
             }
         },
-        builtin.Endian.Little => {
+        .Little => {
             const ShiftType = math.Log2Int(ReturnType);
             for (bytes) |b, index| {
                 result = result | (@as(ReturnType, b) << @intCast(ShiftType, index * 8));
@@ -670,13 +670,13 @@ pub fn readIntForeign(comptime T: type, bytes: *const [@divExact(T.bit_count, 8)
 }
 
 pub const readIntLittle = switch (builtin.endian) {
-    builtin.Endian.Little => readIntNative,
-    builtin.Endian.Big => readIntForeign,
+    .Little => readIntNative,
+    .Big => readIntForeign,
 };
 
 pub const readIntBig = switch (builtin.endian) {
-    builtin.Endian.Little => readIntForeign,
-    builtin.Endian.Big => readIntNative,
+    .Little => readIntForeign,
+    .Big => readIntNative,
 };
 
 /// Asserts that bytes.len >= T.bit_count / 8. Reads the integer starting from index 0
@@ -700,13 +700,13 @@ pub fn readIntSliceForeign(comptime T: type, bytes: []const u8) T {
 }
 
 pub const readIntSliceLittle = switch (builtin.endian) {
-    builtin.Endian.Little => readIntSliceNative,
-    builtin.Endian.Big => readIntSliceForeign,
+    .Little => readIntSliceNative,
+    .Big => readIntSliceForeign,
 };
 
 pub const readIntSliceBig = switch (builtin.endian) {
-    builtin.Endian.Little => readIntSliceForeign,
-    builtin.Endian.Big => readIntSliceNative,
+    .Little => readIntSliceForeign,
+    .Big => readIntSliceNative,
 };
 
 /// Reads an integer from memory with bit count specified by T.
@@ -783,13 +783,13 @@ pub fn writeIntForeign(comptime T: type, buf: *[@divExact(T.bit_count, 8)]u8, va
 }
 
 pub const writeIntLittle = switch (builtin.endian) {
-    builtin.Endian.Little => writeIntNative,
-    builtin.Endian.Big => writeIntForeign,
+    .Little => writeIntNative,
+    .Big => writeIntForeign,
 };
 
 pub const writeIntBig = switch (builtin.endian) {
-    builtin.Endian.Little => writeIntForeign,
-    builtin.Endian.Big => writeIntNative,
+    .Little => writeIntForeign,
+    .Big => writeIntNative,
 };
 
 /// Writes an integer to memory, storing it in twos-complement.
@@ -841,13 +841,13 @@ pub fn writeIntSliceBig(comptime T: type, buffer: []u8, value: T) void {
 }
 
 pub const writeIntSliceNative = switch (builtin.endian) {
-    builtin.Endian.Little => writeIntSliceLittle,
-    builtin.Endian.Big => writeIntSliceBig,
+    .Little => writeIntSliceLittle,
+    .Big => writeIntSliceBig,
 };
 
 pub const writeIntSliceForeign = switch (builtin.endian) {
-    builtin.Endian.Little => writeIntSliceBig,
-    builtin.Endian.Big => writeIntSliceLittle,
+    .Little => writeIntSliceBig,
+    .Big => writeIntSliceLittle,
 };
 
 /// Writes a twos-complement integer to memory, with the specified endianness.
@@ -858,10 +858,10 @@ pub const writeIntSliceForeign = switch (builtin.endian) {
 /// use writeInt instead.
 pub fn writeIntSlice(comptime T: type, buffer: []u8, value: T, endian: builtin.Endian) void {
     comptime assert(T.bit_count % 8 == 0);
-    switch (endian) {
-        builtin.Endian.Little => return writeIntSliceLittle(T, buffer, value),
-        builtin.Endian.Big => return writeIntSliceBig(T, buffer, value),
-    }
+    return switch (endian) {
+        .Little => writeIntSliceLittle(T, buffer, value),
+        .Big => writeIntSliceBig(T, buffer, value),
+    };
 }
 
 test "writeIntBig and writeIntLittle" {
@@ -1397,54 +1397,54 @@ test "rotate" {
 /// Converts a little-endian integer to host endianness.
 pub fn littleToNative(comptime T: type, x: T) T {
     return switch (builtin.endian) {
-        builtin.Endian.Little => x,
-        builtin.Endian.Big => @byteSwap(T, x),
+        .Little => x,
+        .Big => @byteSwap(T, x),
     };
 }
 
 /// Converts a big-endian integer to host endianness.
 pub fn bigToNative(comptime T: type, x: T) T {
     return switch (builtin.endian) {
-        builtin.Endian.Little => @byteSwap(T, x),
-        builtin.Endian.Big => x,
+        .Little => @byteSwap(T, x),
+        .Big => x,
     };
 }
 
 /// Converts an integer from specified endianness to host endianness.
 pub fn toNative(comptime T: type, x: T, endianness_of_x: builtin.Endian) T {
     return switch (endianness_of_x) {
-        builtin.Endian.Little => littleToNative(T, x),
-        builtin.Endian.Big => bigToNative(T, x),
+        .Little => littleToNative(T, x),
+        .Big => bigToNative(T, x),
     };
 }
 
 /// Converts an integer which has host endianness to the desired endianness.
 pub fn nativeTo(comptime T: type, x: T, desired_endianness: builtin.Endian) T {
     return switch (desired_endianness) {
-        builtin.Endian.Little => nativeToLittle(T, x),
-        builtin.Endian.Big => nativeToBig(T, x),
+        .Little => nativeToLittle(T, x),
+        .Big => nativeToBig(T, x),
     };
 }
 
 /// Converts an integer which has host endianness to little endian.
 pub fn nativeToLittle(comptime T: type, x: T) T {
     return switch (builtin.endian) {
-        builtin.Endian.Little => x,
-        builtin.Endian.Big => @byteSwap(T, x),
+        .Little => x,
+        .Big => @byteSwap(T, x),
     };
 }
 
 /// Converts an integer which has host endianness to big endian.
 pub fn nativeToBig(comptime T: type, x: T) T {
     return switch (builtin.endian) {
-        builtin.Endian.Little => @byteSwap(T, x),
-        builtin.Endian.Big => x,
+        .Little => @byteSwap(T, x),
+        .Big => x,
     };
 }
 
 fn AsBytesReturnType(comptime P: type) type {
     if (comptime !trait.isSingleItemPtr(P))
-        @compileError("expected single item " ++ "pointer, passed " ++ @typeName(P));
+        @compileError("expected single item pointer, passed " ++ @typeName(P));
 
     const size = @as(usize, @sizeOf(meta.Child(P)));
     const alignment = comptime meta.alignment(P);
@@ -1469,8 +1469,8 @@ pub fn asBytes(ptr: var) AsBytesReturnType(@TypeOf(ptr)) {
 test "asBytes" {
     const deadbeef = @as(u32, 0xDEADBEEF);
     const deadbeef_bytes = switch (builtin.endian) {
-        builtin.Endian.Big => "\xDE\xAD\xBE\xEF",
-        builtin.Endian.Little => "\xEF\xBE\xAD\xDE",
+        .Big => "\xDE\xAD\xBE\xEF",
+        .Little => "\xEF\xBE\xAD\xDE",
     };
 
     testing.expect(eql(u8, asBytes(&deadbeef), deadbeef_bytes));
@@ -1508,21 +1508,21 @@ pub fn toBytes(value: var) [@sizeOf(@TypeOf(value))]u8 {
 test "toBytes" {
     var my_bytes = toBytes(@as(u32, 0x12345678));
     switch (builtin.endian) {
-        builtin.Endian.Big => testing.expect(eql(u8, &my_bytes, "\x12\x34\x56\x78")),
-        builtin.Endian.Little => testing.expect(eql(u8, &my_bytes, "\x78\x56\x34\x12")),
+        .Big => testing.expect(eql(u8, &my_bytes, "\x12\x34\x56\x78")),
+        .Little => testing.expect(eql(u8, &my_bytes, "\x78\x56\x34\x12")),
     }
 
     my_bytes[0] = '\x99';
     switch (builtin.endian) {
-        builtin.Endian.Big => testing.expect(eql(u8, &my_bytes, "\x99\x34\x56\x78")),
-        builtin.Endian.Little => testing.expect(eql(u8, &my_bytes, "\x99\x56\x34\x12")),
+        .Big => testing.expect(eql(u8, &my_bytes, "\x99\x34\x56\x78")),
+        .Little => testing.expect(eql(u8, &my_bytes, "\x99\x56\x34\x12")),
     }
 }
 
 fn BytesAsValueReturnType(comptime T: type, comptime B: type) type {
     const size = @as(usize, @sizeOf(T));
 
-    if (comptime !trait.is(builtin.TypeId.Pointer)(B) or
+    if (comptime !trait.is(.Pointer)(B) or
         (meta.Child(B) != [size]u8 and meta.Child(B) != [size:0]u8))
     {
         @compileError("expected *[N]u8 " ++ ", passed " ++ @typeName(B));
@@ -1542,15 +1542,15 @@ pub fn bytesAsValue(comptime T: type, bytes: var) BytesAsValueReturnType(T, @Typ
 test "bytesAsValue" {
     const deadbeef = @as(u32, 0xDEADBEEF);
     const deadbeef_bytes = switch (builtin.endian) {
-        builtin.Endian.Big => "\xDE\xAD\xBE\xEF",
-        builtin.Endian.Little => "\xEF\xBE\xAD\xDE",
+        .Big => "\xDE\xAD\xBE\xEF",
+        .Little => "\xEF\xBE\xAD\xDE",
     };
 
     testing.expect(deadbeef == bytesAsValue(u32, deadbeef_bytes).*);
 
     var codeface_bytes: [4]u8 = switch (builtin.endian) {
-        builtin.Endian.Big => "\xC0\xDE\xFA\xCE",
-        builtin.Endian.Little => "\xCE\xFA\xDE\xC0",
+        .Big => "\xC0\xDE\xFA\xCE",
+        .Little => "\xCE\xFA\xDE\xC0",
     }.*;
     var codeface = bytesAsValue(u32, &codeface_bytes);
     testing.expect(codeface.* == 0xC0DEFACE);
@@ -1583,8 +1583,8 @@ pub fn bytesToValue(comptime T: type, bytes: var) T {
 }
 test "bytesToValue" {
     const deadbeef_bytes = switch (builtin.endian) {
-        builtin.Endian.Big => "\xDE\xAD\xBE\xEF",
-        builtin.Endian.Little => "\xEF\xBE\xAD\xDE",
+        .Big => "\xDE\xAD\xBE\xEF",
+        .Little => "\xEF\xBE\xAD\xDE",
     };
 
     const deadbeef = bytesToValue(u32, deadbeef_bytes);
