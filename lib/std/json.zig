@@ -1239,7 +1239,7 @@ pub const Value = union(enum) {
         out_stream: var,
     ) @TypeOf(out_stream).Error!void {
         switch (value) {
-            .Null => try out_stream.writeAll("null"),
+            .Null => try stringify(null, options, out_stream),
             .Bool => |inner| try stringify(inner, options, out_stream),
             .Integer => |inner| try stringify(inner, options, out_stream),
             .Float => |inner| try stringify(inner, options, out_stream),
@@ -2414,11 +2414,14 @@ pub fn stringify(
         .Bool => {
             return out_stream.writeAll(if (value) "true" else "false");
         },
+        .Null => {
+            return out_stream.writeAll("null");
+        },
         .Optional => {
             if (value) |payload| {
                 return try stringify(payload, options, out_stream);
             } else {
-                return out_stream.writeAll("null");
+                return try stringify(null, options, out_stream);
             }
         },
         .Enum => {
