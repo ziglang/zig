@@ -1,6 +1,7 @@
 const std = @import("std");
 const expect = std.testing.expect;
 const expectEqualSlices = std.testing.expectEqualSlices;
+const expectEqual = std.testing.expectEqual;
 const mem = std.mem;
 
 const x = @intToPtr([*]i32, 0x1000)[0..0x500];
@@ -96,4 +97,21 @@ test "obtaining a null terminated slice" {
     // ptr2 is a null-terminated slice
     comptime expect(@TypeOf(ptr2) == [:0]u8);
     comptime expect(@TypeOf(ptr2[0..2]) == []u8);
+}
+
+test "empty array to slice" {
+    const S = struct {
+        fn doTheTest() void {
+            const empty: []align(16) u8 = &[_]u8{};
+            const align_1: []align(1) u8 = empty;
+            const align_4: []align(4) u8 = empty;
+            const align_16: []align(16) u8 = empty;
+            expectEqual(1, @typeInfo(@TypeOf(align_1)).Pointer.alignment);
+            expectEqual(4, @typeInfo(@TypeOf(align_4)).Pointer.alignment);
+            expectEqual(16, @typeInfo(@TypeOf(align_16)).Pointer.alignment);
+        }
+    };
+
+    S.doTheTest();
+    comptime S.doTheTest();
 }
