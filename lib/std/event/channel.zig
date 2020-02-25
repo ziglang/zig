@@ -273,7 +273,7 @@ test "std.event.Channel" {
     if (builtin.single_threaded) return error.SkipZigTest;
 
     // https://github.com/ziglang/zig/issues/3251
-    if (builtin.os == .freebsd) return error.SkipZigTest;
+    if (builtin.os.tag == .freebsd) return error.SkipZigTest;
 
     var channel: Channel(i32) = undefined;
     channel.init(&[0]i32{});

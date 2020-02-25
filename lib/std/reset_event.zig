@@ -16,7 +16,7 @@ pub const ResetEvent = struct {
 
     pub const OsEvent = if (builtin.single_threaded)
         DebugEvent
-    else if (builtin.link_libc and builtin.os != .windows and builtin.os != .linux)
+    else if (builtin.link_libc and builtin.os.tag != .windows and builtin.os.tag != .linux)
         PosixEvent
     else
         AtomicEvent;
@@ -106,7 +106,7 @@ const PosixEvent = struct {
     fn deinit(self: *PosixEvent) void {
         // on dragonfly, *destroy() functions can return EINVAL
         // for statically initialized pthread structures
-        const err = if (builtin.os == .dragonfly) os.EINVAL else 0;
+        const err = if (builtin.os.tag == .dragonfly) os.EINVAL else 0;
 
         const retm = c.pthread_mutex_destroy(&self.mutex);
         assert(retm == 0 or retm == err);
@@ -215,7 +215,7 @@ const AtomicEvent = struct {
         }
     }
 
-    pub const Futex = switch (builtin.os) {
+    pub const Futex = switch (builtin.os.tag) {
         .windows => WindowsFutex,
         .linux => LinuxFutex,
         else => SpinFutex,

@@ -17,9 +17,9 @@ const TailQueue = std.TailQueue;
 const maxInt = std.math.maxInt;
 
 pub const ChildProcess = struct {
-    pid: if (builtin.os == .windows) void else i32,
-    handle: if (builtin.os == .windows) windows.HANDLE else void,
-    thread_handle: if (builtin.os == .windows) windows.HANDLE else void,
+    pid: if (builtin.os.tag == .windows) void else i32,
+    handle: if (builtin.os.tag == .windows) windows.HANDLE else void,
+    thread_handle: if (builtin.os.tag == .windows) windows.HANDLE else void,
 
     allocator: *mem.Allocator,
 
@@ -39,15 +39,15 @@ pub const ChildProcess = struct {
     stderr_behavior: StdIo,
 
     /// Set to change the user id when spawning the child process.
-    uid: if (builtin.os == .windows) void else ?u32,
+    uid: if (builtin.os.tag == .windows) void else ?u32,
 
     /// Set to change the group id when spawning the child process.
-    gid: if (builtin.os == .windows) void else ?u32,
+    gid: if (builtin.os.tag == .windows) void else ?u32,
 
     /// Set to change the current working directory when spawning the child process.
     cwd: ?[]const u8,
 
-    err_pipe: if (builtin.os == .windows) void else [2]os.fd_t,
+    err_pipe: if (builtin.os.tag == .windows) void else [2]os.fd_t,
 
     expand_arg0: Arg0Expand,
 
@@ -96,8 +96,8 @@ pub const ChildProcess = struct {
             .term = null,
             .env_map = null,
             .cwd = null,
-            .uid = if (builtin.os == .windows) {} else null,
-            .gid = if (builtin.os == .windows) {} else null,
+            .uid = if (builtin.os.tag == .windows) {} else null,
+            .gid = if (builtin.os.tag == .windows) {} else null,
             .stdin = null,
             .stdout = null,
             .stderr = null,
@@ -118,7 +118,7 @@ pub const ChildProcess = struct {
 
     /// On success must call `kill` or `wait`.
     pub fn spawn(self: *ChildProcess) SpawnError!void {
-        if (builtin.os == .windows) {
+        if (builtin.os.tag == .windows) {
             return self.spawnWindows();
         } else {
             return self.spawnPosix();
@@ -132,7 +132,7 @@ pub const ChildProcess = struct {
 
     /// Forcibly terminates child process and then cleans up all resources.
     pub fn kill(self: *ChildProcess) !Term {
-        if (builtin.os == .windows) {
+        if (builtin.os.tag == .windows) {
             return self.killWindows(1);
         } else {
             return self.killPosix();
@@ -162,7 +162,7 @@ pub const ChildProcess = struct {
 
     /// Blocks until child process terminates and then cleans up all resources.
     pub fn wait(self: *ChildProcess) !Term {
-        if (builtin.os == .windows) {
+        if (builtin.os.tag == .windows) {
             return self.waitWindows();
         } else {
             return self.waitPosix();
@@ -307,7 +307,7 @@ pub const ChildProcess = struct {
     fn cleanupAfterWait(self: *ChildProcess, status: u32) !Term {
         defer destroyPipe(self.err_pipe);
 
-        if (builtin.os == .linux) {
+        if (builtin.os.tag == .linux) {
             var fd = [1]std.os.pollfd{std.os.pollfd{
                 .fd = self.err_pipe[0],
                 .events = std.os.POLLIN,
@@ -402,7 +402,7 @@ pub const ChildProcess = struct {
         // This pipe is used to communicate errors between the time of fork
         // and execve from the child process to the parent process.
         const err_pipe = blk: {
-            if (builtin.os == .linux) {
+            if (builtin.os.tag == .linux) {
                 const fd = try os.eventfd(0, 0);
                 // There's no distinction between the readable and the writeable
                 // end with eventfd

@@ -1,6 +1,5 @@
 const std = @import("std");
 const expect = std.testing.expect;
-const builtin = @import("builtin");
 
 test "@byteSwap integers" {
     const ByteSwapIntTest = struct {
@@ -41,10 +40,10 @@ test "@byteSwap integers" {
 
 test "@byteSwap vectors" {
     // https://github.com/ziglang/zig/issues/3563
-    if (builtin.os == .dragonfly) return error.SkipZigTest;
+    if (std.Target.current.os.tag == .dragonfly) return error.SkipZigTest;
 
     // https://github.com/ziglang/zig/issues/3317
-    if (builtin.arch == .mipsel) return error.SkipZigTest;
+    if (std.Target.current.cpu.arch == .mipsel) return error.SkipZigTest;
 
     const ByteSwapVectorTest = struct {
         fn run() void {

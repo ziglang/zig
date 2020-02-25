@@ -56,7 +56,7 @@ pub const system = if (@hasDecl(root, "os") and root.os != @This())
     root.os.system
 else if (builtin.link_libc)
     std.c
-else switch (builtin.os) {
+else switch (builtin.os.tag) {
     .macosx, .ios, .watchos, .tvos => darwin,
     .freebsd => freebsd,
     .linux => linux,
@@ -93,10 +93,10 @@ pub const errno = system.getErrno;
 /// must call `fsync` before `close`.
 /// Note: The Zig standard library does not support POSIX thread cancellation.
 pub fn close(fd: fd_t) void {
-    if (builtin.os == .windows) {
+    if (builtin.os.tag == .windows) {
         return windows.CloseHandle(fd);
     }
-    if (builtin.os == .wasi) {
+    if (builtin.os.tag == .wasi) {
         _ = wasi.fd_close(fd);
     }
     if (comptime std.Target.current.isDarwin()) {
@@ -121,12 +121,12 @@ pub const GetRandomError = OpenError;
 /// appropriate OS-specific library call. Otherwise it uses the zig standard
 /// library implementation.
 pub fn getrandom(buffer: []u8) GetRandomError!void {
-    if (builtin.os == .windows) {
+    if (builtin.os.tag == .windows) {
         return windows.RtlGenRandom(buffer);
     }
-    if (builtin.os == .linux or builtin.os == .freebsd) {
+    if (builtin.os.tag == .linux or builtin.os.tag == .freebsd) {
         var buf = buffer;
-        const use_c = builtin.os != .linux or
+        const use_c = builtin.os.tag != .linux or
             std.c.versionCheck(builtin.Version{ .major = 2, .minor = 25, .patch = 0 }).ok;
 
         while (buf.len != 0) {
@@ -153,7 +153,7 @@ pub fn getrandom(buffer: []u8) GetRandomError!void {
         }
         return;
     }
-    if (builtin.os == .wasi) {
+    if (builtin.os.tag == .wasi) {
         switch (wasi.random_get(buffer.ptr, buffer.len)) {
             0 => return,
             else => |err| return unexpectedErrno(err),
@@ -188,13 +188,13 @@ pub fn abort() noreturn {
     // MSVCRT abort() sometimes opens a popup window which is undesirable, so
     // even when linking libc on Windows we use our own abort implementation.
     // See https://github.com/ziglang/zig/issues/2071 for more details.
-    if (builtin.os == .windows) {
+    if (builtin.os.tag == .windows) {
         if (builtin.mode == .Debug) {
             @breakpoint();
         }
         windows.kernel32.ExitProcess(3);
     }
-    if (!builtin.link_libc and builtin.os == .linux) {
+    if (!builtin.link_libc and builtin.os.tag == .linux) {
         raise(SIGABRT) catch {};
 
         // TODO the rest of the implementation of abort() from musl libc here
@@ -202,10 +202,10 @@ pub fn abort() noreturn {
         raise(SIGKILL) catch {};
         exit(127);
     }
-    if (builtin.os == .uefi) {
+    if (builtin.os.tag == .uefi) {
         exit(0); // TODO choose appropriate exit code
     }
-    if (builtin.os == .wasi) {
+    if (builtin.os.tag == .wasi) {
         @breakpoint();
         exit(1);
     }
@@ -223,7 +223,7 @@ pub fn raise(sig: u8) RaiseError!void {
         }
     }
 
-    if (builtin.os == .linux) {
+    if (builtin.os.tag == .linux) {
         var set: linux.sigset_t = undefined;
         // block application signals
         _ = linux.sigprocmask(SIG_BLOCK, &linux.app_mask, &set);
@@ -260,16 +260,16 @@ pub fn exit(status: u8) noreturn {
     if (builtin.link_libc) {
         system.exit(status);
     }
-    if (builtin.os == .windows) {
+    if (builtin.os.tag == .windows) {
         windows.kernel32.ExitProcess(status);
     }
-    if (builtin.os == .wasi) {
+    if (builtin.os.tag == .wasi) {
         wasi.proc_exit(status);
     }
-    if (builtin.os == .linux and !builtin.single_threaded) {
+    if (builtin.os.tag == .linux and !builtin.single_threaded) {
         linux.exit_group(status);
     }
-    if (builtin.os == .uefi) {
+    if (builtin.os.tag == .uefi) {
         // exit() is only avaliable if exitBootServices() has not been called yet.
         // This call to exit should not fail, so we don't care about its return value.
         if (uefi.system_table.boot_services) |bs| {
@@ -299,11 +299,11 @@ pub const ReadError = error{
 /// If the application has a global event loop enabled, EAGAIN is handled
 /// via the event loop. Otherwise EAGAIN results in error.WouldBlock.
 pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
-    if (builtin.os == .windows) {
+    if (builtin.os.tag == .windows) {
         return windows.ReadFile(fd, buf, null);
     }
 
-    if (builtin.os == .wasi and !builtin.link_libc) {
+    if (builtin.os.tag == .wasi and !builtin.link_libc) {
         const iovs = [1]iovec{iovec{
             .iov_base = buf.ptr,
             .iov_len = buf.len,
@@ -352,7 +352,7 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
 /// * Windows
 /// On these systems, the read races with concurrent writes to the same file descriptor.
 pub fn readv(fd: fd_t, iov: []const iovec) ReadError!usize {
-    if (builtin.os == .windows) {
+    if (builtin.os.tag == .windows) {
         // TODO batch these into parallel requests
         var off: usize = 0;
         var iov_i: usize = 0;
@@ -406,7 +406,7 @@ pub fn readv(fd: fd_t, iov: []const iovec) ReadError!usize {
 /// On Windows, if the application has a global event loop enabled, I/O Completion Ports are
 /// used to perform the I/O. `error.WouldBlock` is not possible on Windows.
 pub fn pread(fd: fd_t, buf: []u8, offset: u64) ReadError!usize {
-    if (builtin.os == .windows) {
+    if (builtin.os.tag == .windows) {
         return windows.ReadFile(fd, buf, offset);
     }
 
@@ -493,7 +493,7 @@ pub fn preadv(fd: fd_t, iov: []const iovec, offset: u64) ReadError!usize {
         }
     }
 
-    if (builtin.os == .windows) {
+    if (builtin.os.tag == .windows) {
         // TODO batch these into parallel requests
         var off: usize = 0;
         var iov_i: usize = 0;
@@ -557,11 +557,11 @@ pub const WriteError = error{
 /// If the application has a global event loop enabled, EAGAIN is handled
 /// via the event loop. Otherwise EAGAIN results in error.WouldBlock.
 pub fn write(fd: fd_t, bytes: []const u8) WriteError!void {
-    if (builtin.os == .windows) {
+    if (builtin.os.tag == .windows) {
         return windows.WriteFile(fd, bytes, null);
     }
 
-    if (builtin.os == .wasi and !builtin.link_libc) {
+    if (builtin.os.tag == .wasi and !builtin.link_libc) {
         const ciovs = [1]iovec_const{iovec_const{
             .iov_base = bytes.ptr,
             .iov_len = bytes.len,
@@ -1129,7 +1129,7 @@ pub fn getenv(key: []const u8) ?[]const u8 {
         }
         return null;
     }
-    if (builtin.os == .windows) {
+    if (builtin.os.tag == .windows) {
         @compileError("std.os.getenv is unavailable for Windows because environment string is in WTF-16 format. See std.process.getEnvVarOwned for cross-platform API or std.os.getenvW for Windows-specific API.");
     }
     // TODO see https://github.com/ziglang/zig/issues/4524
@@ -1158,7 +1158,7 @@ pub fn getenvZ(key: [*:0]const u8) ?[]const u8 {
         const value = system.getenv(key) orelse return null;
         return mem.toSliceConst(u8, value);
     }
-    if (builtin.os == .windows) {
+    if (builtin.os.tag == .windows) {
         @compileError("std.os.getenvZ is unavailable for Windows because environment string is in WTF-16 format. See std.process.getEnvVarOwned for cross-platform API or std.os.getenvW for Windows-specific API.");
     }
     return getenv(mem.toSliceConst(u8, key));
@@ -1167,7 +1167,7 @@ pub fn getenvZ(key: [*:0]const u8) ?[]const u8 {
 /// Windows-only. Get an environment variable with a null-terminated, WTF-16 encoded name.
 /// See also `getenv`.
 pub fn getenvW(key: [*:0]const u16) ?[:0]const u16 {
-    if (builtin.os != .windows) {
+    if (builtin.os.tag != .windows) {
         @compileError("std.os.getenvW is a Windows-only API");
     }
     const key_slice = mem.toSliceConst(u16, key);
@@ -1199,7 +1199,7 @@ pub const GetCwdError = error{
 
 /// The result is a slice of out_buffer, indexed from 0.
 pub fn getcwd(out_buffer: []u8) GetCwdError![]u8 {
-    if (builtin.os == .windows) {
+    if (builtin.os.tag == .windows) {
         return windows.GetCurrentDirectory(out_buffer);
     }
 
@@ -1240,7 +1240,7 @@ pub const SymLinkError = error{
 /// If `sym_link_path` exists, it will not be overwritten.
 /// See also `symlinkC` and `symlinkW`.
 pub fn symlink(target_path: []const u8, sym_link_path: []const u8) SymLinkError!void {
-    if (builtin.os == .windows) {
+    if (builtin.os.tag == .windows) {
         const target_path_w = try windows.sliceToPrefixedFileW(target_path);
         const sym_link_path_w = try windows.sliceToPrefixedFileW(sym_link_path);
         return windows.CreateSymbolicLinkW(&sym_link_path_w, &target_path_w, 0);
@@ -1254,7 +1254,7 @@ pub fn symlink(target_path: []const u8, sym_link_path: []const u8) SymLinkError!
 /// This is the same as `symlink` except the parameters are null-terminated pointers.
 /// See also `symlink`.
 pub fn symlinkC(target_path: [*:0]const u8, sym_link_path: [*:0]const u8) SymLinkError!void {
-    if (builtin.os == .windows) {
+    if (builtin.os.tag == .windows) {
         const target_path_w = try windows.cStrToPrefixedFileW(target_path);
         const sym_link_path_w = try windows.cStrToPrefixedFileW(sym_link_path);
         return windows.CreateSymbolicLinkW(&sym_link_path_w, &target_path_w, 0);
@@ -1329,7 +1329,7 @@ pub const UnlinkError = error{
 /// Delete a name and possibly the file it refers to.
 /// See also `unlinkC`.
 pub fn unlink(file_path: []const u8) UnlinkError!void {
-    if (builtin.os == .windows) {
+    if (builtin.os.tag == .windows) {
         const file_path_w = try windows.sliceToPrefixedFileW(file_path);
         return windows.DeleteFileW(&file_path_w);
     } else {
@@ -1340,7 +1340,7 @@ pub fn unlink(file_path: []const u8) UnlinkError!void {
 
 /// Same as `unlink` except the parameter is a null terminated UTF8-encoded string.
 pub fn unlinkC(file_path: [*:0]const u8) UnlinkError!void {
-    if (builtin.os == .windows) {
+    if (builtin.os.tag == .windows) {
         const file_path_w = try windows.cStrToPrefixedFileW(file_path);
         return windows.DeleteFileW(&file_path_w);
     }
@@ -1372,7 +1372,7 @@ pub const UnlinkatError = UnlinkError || error{
 /// Asserts that the path parameter has no null bytes.
 pub fn unlinkat(dirfd: fd_t, file_path: []const u8, flags: u32) UnlinkatError!void {
     if (std.debug.runtime_safety) for (file_path) |byte| assert(byte != 0);
-    if (builtin.os == .windows) {
+    if (builtin.os.tag == .windows) {
         const file_path_w = try windows.sliceToPrefixedFileW(file_path);
         return unlinkatW(dirfd, &file_path_w, flags);
     }
@@ -1382,7 +1382,7 @@ pub fn unlinkat(dirfd: fd_t, file_path: []const u8, flags: u32) UnlinkatError!vo
 
 /// Same as `unlinkat` but `file_path` is a null-terminated string.
 pub fn unlinkatC(dirfd: fd_t, file_path_c: [*:0]const u8, flags: u32) UnlinkatError!void {
-    if (builtin.os == .windows) {
+    if (builtin.os.tag == .windows) {
         const file_path_w = try windows.cStrToPrefixedFileW(file_path_c);
         return unlinkatW(dirfd, &file_path_w, flags);
     }
@@ -1493,7 +1493,7 @@ const RenameError = error{
 
 /// Change the name or location of a file.
 pub fn rename(old_path: []const u8, new_path: []const u8) RenameError!void {
-    if (builtin.os == .windows) {
+    if (builtin.os.tag == .windows) {
         const old_path_w = try windows.sliceToPrefixedFileW(old_path);
         const new_path_w = try windows.sliceToPrefixedFileW(new_path);
         return renameW(&old_path_w, &new_path_w);
@@ -1506,7 +1506,7 @@ pub fn rename(old_path: []const u8, new_path: []const u8) RenameError!void {
 
 /// Same as `rename` except the parameters are null-terminated byte arrays.
 pub fn renameC(old_path: [*:0]const u8, new_path: [*:0]const u8) RenameError!void {
-    if (builtin.os == .windows) {
+    if (builtin.os.tag == .windows) {
         const old_path_w = try windows.cStrToPrefixedFileW(old_path);
         const new_path_w = try windows.cStrToPrefixedFileW(new_path);
         return renameW(&old_path_w, &new_path_w);
@@ -1561,7 +1561,7 @@ pub const MakeDirError = error{
 /// Create a directory.
 /// `mode` is ignored on Windows.
 pub fn mkdir(dir_path: []const u8, mode: u32) MakeDirError!void {
-    if (builtin.os == .windows) {
+    if (builtin.os.tag == .windows) {
         const dir_path_w = try windows.sliceToPrefixedFileW(dir_path);
         return windows.CreateDirectoryW(&dir_path_w, null);
     } else {
@@ -1572,7 +1572,7 @@ pub fn mkdir(dir_path: []const u8, mode: u32) MakeDirError!void {
 
 /// Same as `mkdir` but the parameter is a null-terminated UTF8-encoded string.
 pub fn mkdirC(dir_path: [*:0]const u8, mode: u32) MakeDirError!void {
-    if (builtin.os == .windows) {
+    if (builtin.os.tag == .windows) {
         const dir_path_w = try windows.cStrToPrefixedFileW(dir_path);
         return windows.CreateDirectoryW(&dir_path_w, null);
     }
@@ -1611,7 +1611,7 @@ pub const DeleteDirError = error{
 
 /// Deletes an empty directory.
 pub fn rmdir(dir_path: []const u8) DeleteDirError!void {
-    if (builtin.os == .windows) {
+    if (builtin.os.tag == .windows) {
         const dir_path_w = try windows.sliceToPrefixedFileW(dir_path);
         return windows.RemoveDirectoryW(&dir_path_w);
     } else {
@@ -1622,7 +1622,7 @@ pub fn rmdir(dir_path: []const u8) DeleteDirError!void {
 
 /// Same as `rmdir` except the parameter is null-terminated.
 pub fn rmdirC(dir_path: [*:0]const u8) DeleteDirError!void {
-    if (builtin.os == .windows) {
+    if (builtin.os.tag == .windows) {
         const dir_path_w = try windows.cStrToPrefixedFileW(dir_path);
         return windows.RemoveDirectoryW(&dir_path_w);
     }
@@ -1658,7 +1658,7 @@ pub const ChangeCurDirError = error{
 /// Changes the current working directory of the calling process.
 /// `dir_path` is recommended to be a UTF-8 encoded string.
 pub fn chdir(dir_path: []const u8) ChangeCurDirError!void {
-    if (builtin.os == .windows) {
+    if (builtin.os.tag == .windows) {
         const dir_path_w = try windows.sliceToPrefixedFileW(dir_path);
         @compileError("TODO implement chdir for Windows");
     } else {
@@ -1669,7 +1669,7 @@ pub fn chdir(dir_path: []const u8) ChangeCurDirError!void {
 
 /// Same as `chdir` except the parameter is null-terminated.
 pub fn chdirC(dir_path: [*:0]const u8) ChangeCurDirError!void {
-    if (builtin.os == .windows) {
+    if (builtin.os.tag == .windows) {
         const dir_path_w = try windows.cStrToPrefixedFileW(dir_path);
         @compileError("TODO implement chdir for Windows");
     }
@@ -1700,7 +1700,7 @@ pub const ReadLinkError = error{
 /// Read value of a symbolic link.
 /// The return value is a slice of `out_buffer` from index 0.
 pub fn readlink(file_path: []const u8, out_buffer: []u8) ReadLinkError![]u8 {
-    if (builtin.os == .windows) {
+    if (builtin.os.tag == .windows) {
         const file_path_w = try windows.sliceToPrefixedFileW(file_path);
         @compileError("TODO implement readlink for Windows");
     } else {
@@ -1711,7 +1711,7 @@ pub fn readlink(file_path: []const u8, out_buffer: []u8) ReadLinkError![]u8 {
 
 /// Same as `readlink` except `file_path` is null-terminated.
 pub fn readlinkC(file_path: [*:0]const u8, out_buffer: []u8) ReadLinkError![]u8 {
-    if (builtin.os == .windows) {
+    if (builtin.os.tag == .windows) {
         const file_path_w = try windows.cStrToPrefixedFileW(file_path);
         @compileError("TODO implement readlink for Windows");
     }
@@ -1732,7 +1732,7 @@ pub fn readlinkC(file_path: [*:0]const u8, out_buffer: []u8) ReadLinkError![]u8 
 }
 
 pub fn readlinkatC(dirfd: fd_t, file_path: [*:0]const u8, out_buffer: []u8) ReadLinkError![]u8 {
-    if (builtin.os == .windows) {
+    if (builtin.os.tag == .windows) {
         const file_path_w = try windows.cStrToPrefixedFileW(file_path);
         @compileError("TODO implement readlink for Windows");
     }
@@ -1800,7 +1800,7 @@ pub fn setregid(rgid: u32, egid: u32) SetIdError!void {
 
 /// Test whether a file descriptor refers to a terminal.
 pub fn isatty(handle: fd_t) bool {
-    if (builtin.os == .windows) {
+    if (builtin.os.tag == .windows) {
         if (isCygwinPty(handle))
             return true;
 
@@ -1810,7 +1810,7 @@ pub fn isatty(handle: fd_t) bool {
     if (builtin.link_libc) {
         return system.isatty(handle) != 0;
     }
-    if (builtin.os == .wasi) {
+    if (builtin.os.tag == .wasi) {
         var statbuf: fdstat_t = undefined;
         const err = system.fd_fdstat_get(handle, &statbuf);
         if (err != 0) {
@@ -1828,7 +1828,7 @@ pub fn isatty(handle: fd_t) bool {
 
         return true;
     }
-    if (builtin.os == .linux) {
+    if (builtin.os.tag == .linux) {
         var wsz: linux.winsize = undefined;
         return linux.syscall3(linux.SYS_ioctl, @bitCast(usize, @as(isize, handle)), linux.TIOCGWINSZ, @ptrToInt(&wsz)) == 0;
     }
@@ -1836,7 +1836,7 @@ pub fn isatty(handle: fd_t) bool {
 }
 
 pub fn isCygwinPty(handle: fd_t) bool {
-    if (builtin.os != .windows) return false;
+    if (builtin.os.tag != .windows) return false;
 
     const size = @sizeOf(windows.FILE_NAME_INFO);
     var name_info_bytes align(@alignOf(windows.FILE_NAME_INFO)) = [_]u8{0} ** (size + windows.MAX_PATH);
@@ -2589,7 +2589,7 @@ pub const AccessError = error{
 /// check user's permissions for a file
 /// TODO currently this assumes `mode` is `F_OK` on Windows.
 pub fn access(path: []const u8, mode: u32) AccessError!void {
-    if (builtin.os == .windows) {
+    if (builtin.os.tag == .windows) {
         const path_w = try windows.sliceToPrefixedFileW(path);
         _ = try windows.GetFileAttributesW(&path_w);
         return;
@@ -2603,7 +2603,7 @@ pub const accessC = accessZ;
 
 /// Same as `access` except `path` is null-terminated.
 pub fn accessZ(path: [*:0]const u8, mode: u32) AccessError!void {
-    if (builtin.os == .windows) {
+    if (builtin.os.tag == .windows) {
         const path_w = try windows.cStrToPrefixedFileW(path);
         _ = try windows.GetFileAttributesW(&path_w);
         return;
@@ -2644,7 +2644,7 @@ pub fn accessW(path: [*:0]const u16, mode: u32) windows.GetFileAttributesError!v
 /// Check user's permissions for a file, based on an open directory handle.
 /// TODO currently this ignores `mode` and `flags` on Windows.
 pub fn faccessat(dirfd: fd_t, path: []const u8, mode: u32, flags: u32) AccessError!void {
-    if (builtin.os == .windows) {
+    if (builtin.os.tag == .windows) {
         const path_w = try windows.sliceToPrefixedFileW(path);
         return faccessatW(dirfd, &path_w, mode, flags);
     }
@@ -2654,7 +2654,7 @@ pub fn faccessat(dirfd: fd_t, path: []const u8, mode: u32, flags: u32) AccessErr
 
 /// Same as `faccessat` except the path parameter is null-terminated.
 pub fn faccessatZ(dirfd: fd_t, path: [*:0]const u8, mode: u32, flags: u32) AccessError!void {
-    if (builtin.os == .windows) {
+    if (builtin.os.tag == .windows) {
         const path_w = try windows.cStrToPrefixedFileW(path);
         return faccessatW(dirfd, &path_w, mode, flags);
     }
@@ -2811,7 +2811,7 @@ pub const SeekError = error{Unseekable} || UnexpectedError;
 
 /// Repositions read/write file offset relative to the beginning.
 pub fn lseek_SET(fd: fd_t, offset: u64) SeekError!void {
-    if (builtin.os == .linux and !builtin.link_libc and @sizeOf(usize) == 4) {
+    if (builtin.os.tag == .linux and !builtin.link_libc and @sizeOf(usize) == 4) {
         var result: u64 = undefined;
         switch (errno(system.llseek(fd, offset, &result, SEEK_SET))) {
             0 => return,
@@ -2823,7 +2823,7 @@ pub fn lseek_SET(fd: fd_t, offset: u64) SeekError!void {
             else => |err| return unexpectedErrno(err),
         }
     }
-    if (builtin.os == .windows) {
+    if (builtin.os.tag == .windows) {
         return windows.SetFilePointerEx_BEGIN(fd, offset);
     }
     const ipos = @bitCast(i64, offset); // the OS treats this as unsigned
@@ -2840,7 +2840,7 @@ pub fn lseek_SET(fd: fd_t, offset: u64) SeekError!void {
 
 /// Repositions read/write file offset relative to the current offset.
 pub fn lseek_CUR(fd: fd_t, offset: i64) SeekError!void {
-    if (builtin.os == .linux and !builtin.link_libc and @sizeOf(usize) == 4) {
+    if (builtin.os.tag == .linux and !builtin.link_libc and @sizeOf(usize) == 4) {
         var result: u64 = undefined;
         switch (errno(system.llseek(fd, @bitCast(u64, offset), &result, SEEK_CUR))) {
             0 => return,
@@ -2852,7 +2852,7 @@ pub fn lseek_CUR(fd: fd_t, offset: i64) SeekError!void {
             else => |err| return unexpectedErrno(err),
         }
     }
-    if (builtin.os == .windows) {
+    if (builtin.os.tag == .windows) {
         return windows.SetFilePointerEx_CURRENT(fd, offset);
     }
     switch (errno(system.lseek(fd, offset, SEEK_CUR))) {
@@ -2868,7 +2868,7 @@ pub fn lseek_CUR(fd: fd_t, offset: i64) SeekError!void {
 
 /// Repositions read/write file offset relative to the end.
 pub fn lseek_END(fd: fd_t, offset: i64) SeekError!void {
-    if (builtin.os == .linux and !builtin.link_libc and @sizeOf(usize) == 4) {
+    if (builtin.os.tag == .linux and !builtin.link_libc and @sizeOf(usize) == 4) {
         var result: u64 = undefined;
         switch (errno(system.llseek(fd, @bitCast(u64, offset), &result, SEEK_END))) {
             0 => return,
@@ -2880,7 +2880,7 @@ pub fn lseek_END(fd: fd_t, offset: i64) SeekError!void {
             else => |err| return unexpectedErrno(err),
         }
     }
-    if (builtin.os == .windows) {
+    if (builtin.os.tag == .windows) {
         return windows.SetFilePointerEx_END(fd, offset);
     }
     switch (errno(system.lseek(fd, offset, SEEK_END))) {
@@ -2896,7 +2896,7 @@ pub fn lseek_END(fd: fd_t, offset: i64) SeekError!void {
 
 /// Returns the read/write file offset relative to the beginning.
 pub fn lseek_CUR_get(fd: fd_t) SeekError!u64 {
-    if (builtin.os == .linux and !builtin.link_libc and @sizeOf(usize) == 4) {
+    if (builtin.os.tag == .linux and !builtin.link_libc and @sizeOf(usize) == 4) {
         var result: u64 = undefined;
         switch (errno(system.llseek(fd, 0, &result, SEEK_CUR))) {
             0 => return result,
@@ -2908,7 +2908,7 @@ pub fn lseek_CUR_get(fd: fd_t) SeekError!u64 {
             else => |err| return unexpectedErrno(err),
         }
     }
-    if (builtin.os == .windows) {
+    if (builtin.os.tag == .windows) {
         return windows.SetFilePointerEx_CURRENT_get(fd);
     }
     const rc = system.lseek(fd, 0, SEEK_CUR);
@@ -2957,7 +2957,7 @@ pub const RealPathError = error{
 /// The return value is a slice of `out_buffer`, but not necessarily from the beginning.
 /// See also `realpathC` and `realpathW`.
 pub fn realpath(pathname: []const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
-    if (builtin.os == .windows) {
+    if (builtin.os.tag == .windows) {
         const pathname_w = try windows.sliceToPrefixedFileW(pathname);
         return realpathW(&pathname_w, out_buffer);
     }
@@ -2967,11 +2967,11 @@ pub fn realpath(pathname: []const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealPathE
 
 /// Same as `realpath` except `pathname` is null-terminated.
 pub fn realpathC(pathname: [*:0]const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
-    if (builtin.os == .windows) {
+    if (builtin.os.tag == .windows) {
         const pathname_w = try windows.cStrToPrefixedFileW(pathname);
         return realpathW(&pathname_w, out_buffer);
     }
-    if (builtin.os == .linux and !builtin.link_libc) {
+    if (builtin.os.tag == .linux and !builtin.link_libc) {
         const fd = try openC(pathname, linux.O_PATH | linux.O_NONBLOCK | linux.O_CLOEXEC, 0);
         defer close(fd);
 
@@ -3121,7 +3121,7 @@ pub fn dl_iterate_phdr(
 pub const ClockGetTimeError = error{UnsupportedClock} || UnexpectedError;
 
 pub fn clock_gettime(clk_id: i32, tp: *timespec) ClockGetTimeError!void {
-    if (comptime std.Target.current.getOs() == .wasi) {
+    if (std.Target.current.os.tag == .wasi) {
         var ts: timestamp_t = undefined;
         switch (system.clock_time_get(@bitCast(u32, clk_id), 1, &ts)) {
             0 => {
@@ -3144,7 +3144,7 @@ pub fn clock_gettime(clk_id: i32, tp: *timespec) ClockGetTimeError!void {
 }
 
 pub fn clock_getres(clk_id: i32, res: *timespec) ClockGetTimeError!void {
-    if (comptime std.Target.current.getOs() == .wasi) {
+    if (std.Target.current.os.tag == .wasi) {
         var ts: timestamp_t = undefined;
         switch (system.clock_res_get(@bitCast(u32, clk_id), &ts)) {
             0 => res.* = .{
@@ -3222,7 +3222,7 @@ pub const SigaltstackError = error{
 } || UnexpectedError;
 
 pub fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) SigaltstackError!void {
-    if (builtin.os == .windows or builtin.os == .uefi or builtin.os == .wasi)
+    if (builtin.os.tag == .windows or builtin.os.tag == .uefi or builtin.os.tag == .wasi)
         @compileError("std.os.sigaltstack not available for this target");
 
     switch (errno(system.sigaltstack(ss, old_ss))) {
@@ -3294,7 +3294,7 @@ pub fn gethostname(name_buffer: *[HOST_NAME_MAX]u8) GetHostNameError![]u8 {
             else => |err| return unexpectedErrno(err),
         }
     }
-    if (builtin.os == .linux) {
+    if (builtin.os.tag == .linux) {
         var uts: utsname = undefined;
         switch (errno(system.uname(&uts))) {
             0 => {
@@ -3611,7 +3611,7 @@ pub const SchedYieldError = error{
 };
 
 pub fn sched_yield() SchedYieldError!void {
-    if (builtin.os == .windows) {
+    if (builtin.os.tag == .windows) {
         // The return value has to do with how many other threads there are; it is not
         // an error condition on Windows.
         _ = windows.kernel32.SwitchToThread();

@@ -971,9 +971,9 @@ pub const Builder = struct {
 };
 
 test "builder.findProgram compiles" {
-    // TODO: uncomment and fix the leak
-    // const builder = try Builder.create(std.testing.allocator, "zig", "zig-cache", "zig-cache");
-    const builder = try Builder.create(std.heap.page_allocator, "zig", "zig-cache", "zig-cache");
+    var buf: [1000]u8 = undefined;
+    var fba = std.heap.FixedBufferAllocator.init(&buf);
+    const builder = try Builder.create(&fba.allocator, "zig", "zig-cache", "zig-cache");
     defer builder.destroy();
     _ = builder.findProgram(&[_][]const u8{}, &[_][]const u8{}) catch null;
 }
@@ -981,11 +981,37 @@ test "builder.findProgram compiles" {
 /// Deprecated. Use `builtin.Version`.
 pub const Version = builtin.Version;
 
-/// Deprecated. Use `std.Target.Cross`.
-pub const CrossTarget = std.Target.Cross;
-
 /// Deprecated. Use `std.Target`.
-pub const Target = std.Target;
+pub const CrossTarget = std.Target;
+
+/// Wraps `std.Target` so that it can be annotated as "the native target" or an explicitly specified target.
+pub const Target = union(enum) {
+    Native,
+    Cross: std.Target,
+
+    pub fn getTarget(self: Target) std.Target {
+        return switch (self) {
+            .Native => std.Target.current,
+            .Cross => |t| t,
+        };
+    }
+
+    pub fn getOs(self: Target) std.Target.Os.Tag {
+        return self.getTarget().os.tag;
+    }
+
+    pub fn getCpu(self: Target) std.Target.Cpu {
+        return self.getTarget().cpu;
+    }
+
+    pub fn getAbi(self: Target) std.Target.Abi {
+        return self.getTarget().abi;
+    }
+
+    pub fn getArch(self: Target) std.Target.Cpu.Arch {
+        return self.getCpu().arch;
+    }
+};
 
 pub const Pkg = struct {
     name: []const u8,

@@ -110,6 +110,8 @@ const Error = extern enum {
     WindowsSdkNotFound,
     UnknownDynamicLinkerPath,
     TargetHasNoDynamicLinker,
+    InvalidAbiVersion,
+    InvalidOperatingSystemVersion,
 };
 
 const FILE = std.c.FILE;
@@ -633,11 +635,11 @@ export fn stage2_cmd_targets(zig_triple: [*:0]const u8) c_int {
 
 fn cmdTargets(zig_triple: [*:0]const u8) !void {
     var target = try Target.parse(.{ .arch_os_abi = mem.toSliceConst(u8, zig_triple) });
-    target.Cross.cpu = blk: {
+    target.cpu = blk: {
         const llvm = @import("llvm.zig");
         const llvm_cpu_name = llvm.GetHostCPUName();
         const llvm_cpu_features = llvm.GetNativeFeatures();
-        break :blk try detectNativeCpuWithLLVM(target.getArch(), llvm_cpu_name, llvm_cpu_features);
+        break :blk try detectNativeCpuWithLLVM(target.cpu.arch, llvm_cpu_name, llvm_cpu_features);
     };
     return @import("print_targets.zig").cmdTargets(
         std.heap.c_allocator,
@@ -662,6 +664,14 @@ export fn stage2_target_parse(
         error.MissingArchitecture => return .MissingArchitecture,
         error.InvalidLlvmCpuFeaturesFormat => return .InvalidLlvmCpuFeaturesFormat,
         error.UnexpectedExtraField => return .SemanticAnalyzeFail,
+        error.InvalidAbiVersion => return .InvalidAbiVersion,
+        error.InvalidOperatingSystemVersion => return .InvalidOperatingSystemVersion,
+        error.FileSystem => return .FileSystem,
+        error.SymLinkLoop => return .SymLinkLoop,
+        error.SystemResources => return .SystemResources,
+        error.ProcessFdQuotaExceeded => return .ProcessFdQuotaExceeded,
+        error.SystemFdQuotaExceeded => return .SystemFdQuotaExceeded,
+        error.DeviceBusy => return .DeviceBusy,
     };
     return .None;
 }
@@ -671,106 +681,46 @@ fn stage2TargetParse(
     zig_triple_oz: ?[*:0]const u8,
     mcpu_oz: ?[*:0]const u8,
 ) !void {
-    const target: Target = if (zig_triple_oz) |zig_triple_z| blk: {
+    const target: std.build.Target = if (zig_triple_oz) |zig_triple_z| blk: {
         const zig_triple = mem.toSliceConst(u8, zig_triple_z);
         const mcpu = if (mcpu_oz) |mcpu_z| mem.toSliceConst(u8, mcpu_z) else "baseline";
         var diags: std.Target.ParseOptions.Diagnostics = .{};
-        break :blk Target.parse(.{
-            .arch_os_abi = zig_triple,
-            .cpu_features = mcpu,
-            .diagnostics = &diags,
-        }) catch |err| switch (err) {
-            error.UnknownCpu => {
-                std.debug.warn("Unknown CPU: '{}'\nAvailable CPUs for architecture '{}':\n", .{
-                    diags.cpu_name.?,
-                    @tagName(diags.arch.?),
-                });
-                for (diags.arch.?.allCpuModels()) |cpu| {
-                    std.debug.warn(" {}\n", .{cpu.name});
-                }
-                process.exit(1);
+        break :blk std.build.Target{
+            .Cross = Target.parse(.{
+                .arch_os_abi = zig_triple,
+                .cpu_features = mcpu,
+                .diagnostics = &diags,
+            }) catch |err| switch (err) {
+                error.UnknownCpu => {
+                    std.debug.warn("Unknown CPU: '{}'\nAvailable CPUs for architecture '{}':\n", .{
+                        diags.cpu_name.?,
+                        @tagName(diags.arch.?),
+                    });
+                    for (diags.arch.?.allCpuModels()) |cpu| {
+                        std.debug.warn(" {}\n", .{cpu.name});
+                    }
+                    process.exit(1);
+                },
+                error.UnknownCpuFeature => {
+                    std.debug.warn(
+                        \\Unknown CPU feature: '{}'
+                        \\Available CPU features for architecture '{}':
+                        \\
+                    , .{
+                        diags.unknown_feature_name,
+                        @tagName(diags.arch.?),
+                    });
+                    for (diags.arch.?.allFeaturesList()) |feature| {
+                        std.debug.warn(" {}: {}\n", .{ feature.name, feature.description });
+                    }
+                    process.exit(1);
+                },
+                else => |e| return e,
             },
-            error.UnknownCpuFeature => {
-                std.debug.warn(
-                    \\Unknown CPU feature: '{}'
-                    \\Available CPU features for architecture '{}':
-                    \\
-                , .{
-                    diags.unknown_feature_name,
-                    @tagName(diags.arch.?),
-                });
-                for (diags.arch.?.allFeaturesList()) |feature| {
-                    std.debug.warn(" {}: {}\n", .{ feature.name, feature.description });
-                }
-                process.exit(1);
-            },
-            else => |e| return e,
         };
-    } else Target.Native;
+    } else std.build.Target.Native;
 
     try stage1_target.fromTarget(target);
-}
-
-fn initStage1TargetCpuFeatures(stage1_target: *Stage2Target, cpu: Target.Cpu) !void {
-    const allocator = std.heap.c_allocator;
-    const cache_hash = try std.fmt.allocPrint0(allocator, "{}\n{}", .{
-        cpu.model.name,
-        cpu.features.asBytes(),
-    });
-    errdefer allocator.free(cache_hash);
-
-    const generic_arch_name = cpu.arch.genericName();
-    var builtin_str_buffer = try std.Buffer.allocPrint(allocator,
-        \\Cpu{{
-        \\    .arch = .{},
-        \\    .model = &Target.{}.cpu.{},
-        \\    .features = Target.{}.featureSet(&[_]Target.{}.Feature{{
-        \\
-    , .{
-        @tagName(cpu.arch),
-        generic_arch_name,
-        cpu.model.name,
-        generic_arch_name,
-        generic_arch_name,
-    });
-    defer builtin_str_buffer.deinit();
-
-    var llvm_features_buffer = try std.Buffer.initSize(allocator, 0);
-    defer llvm_features_buffer.deinit();
-
-    for (cpu.arch.allFeaturesList()) |feature, index_usize| {
-        const index = @intCast(Target.Cpu.Feature.Set.Index, index_usize);
-        const is_enabled = cpu.features.isEnabled(index);
-
-        if (feature.llvm_name) |llvm_name| {
-            const plus_or_minus = "-+"[@boolToInt(is_enabled)];
-            try llvm_features_buffer.appendByte(plus_or_minus);
-            try llvm_features_buffer.append(llvm_name);
-            try llvm_features_buffer.append(",");
-        }
-
-        if (is_enabled) {
-            // TODO some kind of "zig identifier escape" function rather than
-            // unconditionally using @"" syntax
-            try builtin_str_buffer.append("        .@\"");
-            try builtin_str_buffer.append(feature.name);
-            try builtin_str_buffer.append("\",\n");
-        }
-    }
-
-    try builtin_str_buffer.append(
-        \\    }),
-        \\};
-        \\
-    );
-
-    assert(mem.endsWith(u8, llvm_features_buffer.toSliceConst(), ","));
-    llvm_features_buffer.shrink(llvm_features_buffer.len() - 1);
-
-    stage1_target.llvm_cpu_name = if (cpu.model.llvm_name) |s| s.ptr else null;
-    stage1_target.llvm_cpu_features = llvm_features_buffer.toOwnedSlice().ptr;
-    stage1_target.builtin_str = builtin_str_buffer.toOwnedSlice().ptr;
-    stage1_target.cache_hash = cache_hash.ptr;
 }
 
 // ABI warning
@@ -952,10 +902,13 @@ const Stage2Target = extern struct {
 
     llvm_cpu_name: ?[*:0]const u8,
     llvm_cpu_features: ?[*:0]const u8,
-    builtin_str: ?[*:0]const u8,
+    cpu_builtin_str: ?[*:0]const u8,
     cache_hash: ?[*:0]const u8,
+    os_builtin_str: ?[*:0]const u8,
 
-    fn toTarget(in_target: Stage2Target) Target {
+    dynamic_linker: ?[*:0]const u8,
+
+    fn toTarget(in_target: Stage2Target) std.build.Target {
         if (in_target.is_native) return .Native;
 
         const in_arch = in_target.arch - 1; // skip over ZigLLVM_UnknownArch
@@ -965,38 +918,243 @@ const Stage2Target = extern struct {
         return .{
             .Cross = .{
                 .cpu = Target.Cpu.baseline(enumInt(Target.Cpu.Arch, in_arch)),
-                .os = enumInt(Target.Os, in_os),
+                .os = Target.Os.defaultVersionRange(enumInt(Target.Os.Tag, in_os)),
                 .abi = enumInt(Target.Abi, in_abi),
             },
         };
     }
 
-    fn fromTarget(self: *Stage2Target, target: Target) !void {
-        const cpu = switch (target) {
+    fn fromTarget(self: *Stage2Target, build_target: std.build.Target) !void {
+        const allocator = std.heap.c_allocator;
+        var dynamic_linker: ?[*:0]u8 = null;
+        const target = switch (build_target) {
             .Native => blk: {
-                // TODO self-host CPU model and feature detection instead of relying on LLVM
+                const info = try std.zig.system.NativeTargetInfo.detect(std.heap.c_allocator);
+                if (info.dynamic_linker) |dl| {
+                    dynamic_linker = dl.ptr;
+                }
+
+                // TODO we want to just use info.target but implementing CPU model & feature detection is todo
+                // so here we rely on LLVM
                 const llvm = @import("llvm.zig");
                 const llvm_cpu_name = llvm.GetHostCPUName();
                 const llvm_cpu_features = llvm.GetNativeFeatures();
-                break :blk try detectNativeCpuWithLLVM(target.getArch(), llvm_cpu_name, llvm_cpu_features);
+                const arch = std.Target.current.cpu.arch;
+                var t = info.target;
+                t.cpu = try detectNativeCpuWithLLVM(arch, llvm_cpu_name, llvm_cpu_features);
+                break :blk t;
             },
-            .Cross => target.getCpu(),
+            .Cross => |t| t,
         };
+
+        var cache_hash = try std.Buffer.allocPrint(allocator, "{}\n{}\n", .{
+            target.cpu.model.name,
+            target.cpu.features.asBytes(),
+        });
+        defer cache_hash.deinit();
+
+        const generic_arch_name = target.cpu.arch.genericName();
+        var cpu_builtin_str_buffer = try std.Buffer.allocPrint(allocator,
+            \\Cpu{{
+            \\    .arch = .{},
+            \\    .model = &Target.{}.cpu.{},
+            \\    .features = Target.{}.featureSet(&[_]Target.{}.Feature{{
+            \\
+        , .{
+            @tagName(target.cpu.arch),
+            generic_arch_name,
+            target.cpu.model.name,
+            generic_arch_name,
+            generic_arch_name,
+        });
+        defer cpu_builtin_str_buffer.deinit();
+
+        var llvm_features_buffer = try std.Buffer.initSize(allocator, 0);
+        defer llvm_features_buffer.deinit();
+
+        for (target.cpu.arch.allFeaturesList()) |feature, index_usize| {
+            const index = @intCast(Target.Cpu.Feature.Set.Index, index_usize);
+            const is_enabled = target.cpu.features.isEnabled(index);
+
+            if (feature.llvm_name) |llvm_name| {
+                const plus_or_minus = "-+"[@boolToInt(is_enabled)];
+                try llvm_features_buffer.appendByte(plus_or_minus);
+                try llvm_features_buffer.append(llvm_name);
+                try llvm_features_buffer.append(",");
+            }
+
+            if (is_enabled) {
+                // TODO some kind of "zig identifier escape" function rather than
+                // unconditionally using @"" syntax
+                try cpu_builtin_str_buffer.append("        .@\"");
+                try cpu_builtin_str_buffer.append(feature.name);
+                try cpu_builtin_str_buffer.append("\",\n");
+            }
+        }
+
+        try cpu_builtin_str_buffer.append(
+            \\    }),
+            \\};
+            \\
+        );
+
+        assert(mem.endsWith(u8, llvm_features_buffer.toSliceConst(), ","));
+        llvm_features_buffer.shrink(llvm_features_buffer.len() - 1);
+
+        var os_builtin_str_buffer = try std.Buffer.allocPrint(allocator,
+            \\Os{{
+            \\    .tag = .{},
+            \\    .version_range = .{{
+        , .{@tagName(target.os.tag)});
+        defer os_builtin_str_buffer.deinit();
+
+        // We'll re-use the OS version range builtin string for the cache hash.
+        const os_builtin_str_ver_start_index = os_builtin_str_buffer.len();
+
+        @setEvalBranchQuota(2000);
+        switch (target.os.tag) {
+            .freestanding,
+            .ananas,
+            .cloudabi,
+            .dragonfly,
+            .fuchsia,
+            .ios,
+            .kfreebsd,
+            .lv2,
+            .solaris,
+            .haiku,
+            .minix,
+            .rtems,
+            .nacl,
+            .cnk,
+            .aix,
+            .cuda,
+            .nvcl,
+            .amdhsa,
+            .ps4,
+            .elfiamcu,
+            .tvos,
+            .watchos,
+            .mesa3d,
+            .contiki,
+            .amdpal,
+            .hermit,
+            .hurd,
+            .wasi,
+            .emscripten,
+            .uefi,
+            .other,
+            => try os_builtin_str_buffer.append(" .none = {} }\n"),
+
+            .freebsd,
+            .macosx,
+            .netbsd,
+            .openbsd,
+            => try os_builtin_str_buffer.print(
+                \\.semver = .{{
+                \\        .min = .{{
+                \\            .major = {},
+                \\            .minor = {},
+                \\            .patch = {},
+                \\        }},
+                \\        .max = .{{
+                \\            .major = {},
+                \\            .minor = {},
+                \\            .patch = {},
+                \\        }},
+                \\    }}}},
+            , .{
+                target.os.version_range.semver.min.major,
+                target.os.version_range.semver.min.minor,
+                target.os.version_range.semver.min.patch,
+
+                target.os.version_range.semver.max.major,
+                target.os.version_range.semver.max.minor,
+                target.os.version_range.semver.max.patch,
+            }),
+
+            .linux => try os_builtin_str_buffer.print(
+                \\.linux = .{{
+                \\        .range = .{{
+                \\            .min = .{{
+                \\                .major = {},
+                \\                .minor = {},
+                \\                .patch = {},
+                \\            }},
+                \\            .max = .{{
+                \\                .major = {},
+                \\                .minor = {},
+                \\                .patch = {},
+                \\            }},
+                \\        }},
+                \\        .glibc = .{{
+                \\            .major = {},
+                \\            .minor = {},
+                \\            .patch = {},
+                \\        }},
+                \\    }}}},
+                \\
+            , .{
+                target.os.version_range.linux.range.min.major,
+                target.os.version_range.linux.range.min.minor,
+                target.os.version_range.linux.range.min.patch,
+
+                target.os.version_range.linux.range.max.major,
+                target.os.version_range.linux.range.max.minor,
+                target.os.version_range.linux.range.max.patch,
+
+                target.os.version_range.linux.glibc.major,
+                target.os.version_range.linux.glibc.minor,
+                target.os.version_range.linux.glibc.patch,
+            }),
+
+            .windows => try os_builtin_str_buffer.print(
+                \\.semver = .{{
+                \\        .min = .{},
+                \\        .max = .{},
+                \\    }}}},
+            , .{
+                @tagName(target.os.version_range.windows.min),
+                @tagName(target.os.version_range.windows.max),
+            }),
+        }
+        try os_builtin_str_buffer.append("};\n");
+
+        try cache_hash.append(
+            os_builtin_str_buffer.toSlice()[os_builtin_str_ver_start_index..os_builtin_str_buffer.len()],
+        );
+
+        const glibc_version = if (target.isGnuLibC()) blk: {
+            const stage1_glibc = try std.heap.c_allocator.create(Stage2GLibCVersion);
+            const stage2_glibc = target.os.version_range.linux.glibc;
+            stage1_glibc.* = .{
+                .major = stage2_glibc.major,
+                .minor = stage2_glibc.minor,
+                .patch = stage2_glibc.patch,
+            };
+            break :blk stage1_glibc;
+        } else null;
+
         self.* = .{
-            .arch = @enumToInt(target.getArch()) + 1, // skip over ZigLLVM_UnknownArch
+            .arch = @enumToInt(target.cpu.arch) + 1, // skip over ZigLLVM_UnknownArch
             .vendor = 0,
-            .os = @enumToInt(target.getOs()),
-            .abi = @enumToInt(target.getAbi()),
-            .llvm_cpu_name = null,
-            .llvm_cpu_features = null,
-            .builtin_str = null,
-            .cache_hash = null,
-            .is_native = target == .Native,
-            .glibc_version = null,
+            .os = @enumToInt(target.os.tag),
+            .abi = @enumToInt(target.abi),
+            .llvm_cpu_name = if (target.cpu.model.llvm_name) |s| s.ptr else null,
+            .llvm_cpu_features = llvm_features_buffer.toOwnedSlice().ptr,
+            .cpu_builtin_str = cpu_builtin_str_buffer.toOwnedSlice().ptr,
+            .os_builtin_str = os_builtin_str_buffer.toOwnedSlice().ptr,
+            .cache_hash = cache_hash.toOwnedSlice().ptr,
+            .is_native = build_target == .Native,
+            .glibc_version = glibc_version,
+            .dynamic_linker = dynamic_linker,
         };
-        try initStage1TargetCpuFeatures(self, cpu);
     }
 };
+
+fn enumInt(comptime Enum: type, int: c_int) Enum {
+    return @intToEnum(Enum, @intCast(@TagType(Enum), int));
+}
 
 // ABI warning
 const Stage2GLibCVersion = extern struct {
@@ -1004,26 +1162,6 @@ const Stage2GLibCVersion = extern struct {
     minor: u32,
     patch: u32,
 };
-
-// ABI warning
-export fn stage2_detect_dynamic_linker(in_target: *const Stage2Target, out_ptr: *[*:0]u8, out_len: *usize) Error {
-    const target = in_target.toTarget();
-    const result = @import("introspect.zig").detectDynamicLinker(
-        std.heap.c_allocator,
-        target,
-    ) catch |err| switch (err) {
-        error.OutOfMemory => return .OutOfMemory,
-        error.UnknownDynamicLinkerPath => return .UnknownDynamicLinkerPath,
-        error.TargetHasNoDynamicLinker => return .TargetHasNoDynamicLinker,
-    };
-    out_ptr.* = result.ptr;
-    out_len.* = result.len;
-    return .None;
-}
-
-fn enumInt(comptime Enum: type, int: c_int) Enum {
-    return @intToEnum(Enum, @intCast(@TagType(Enum), int));
-}
 
 // ABI warning
 const Stage2NativePaths = extern struct {

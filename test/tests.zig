@@ -31,7 +31,7 @@ pub const RunTranslatedCContext = @import("src/run_translated_c.zig").RunTransla
 pub const CompareOutputContext = @import("src/compare_output.zig").CompareOutputContext;
 
 const TestTarget = struct {
-    target: Target = .Native,
+    target: build.Target = .Native,
     mode: builtin.Mode = .Debug,
     link_libc: bool = false,
     single_threaded: bool = false,

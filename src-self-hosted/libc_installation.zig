@@ -99,27 +99,27 @@ pub const LibCInstallation = struct {
             return error.ParseError;
         }
         if (self.crt_dir == null and !is_darwin) {
-            try stderr.print("crt_dir may not be empty for {}\n", .{@tagName(Target.current.getOs())});
+            try stderr.print("crt_dir may not be empty for {}\n", .{@tagName(Target.current.os.tag)});
             return error.ParseError;
         }
         if (self.static_crt_dir == null and is_windows and is_gnu) {
             try stderr.print("static_crt_dir may not be empty for {}-{}\n", .{
-                @tagName(Target.current.getOs()),
-                @tagName(Target.current.getAbi()),
+                @tagName(Target.current.os.tag),
+                @tagName(Target.current.abi),
             });
             return error.ParseError;
         }
         if (self.msvc_lib_dir == null and is_windows and !is_gnu) {
             try stderr.print("msvc_lib_dir may not be empty for {}-{}\n", .{
-                @tagName(Target.current.getOs()),
-                @tagName(Target.current.getAbi()),
+                @tagName(Target.current.os.tag),
+                @tagName(Target.current.abi),
             });
             return error.ParseError;
         }
         if (self.kernel32_lib_dir == null and is_windows and !is_gnu) {
             try stderr.print("kernel32_lib_dir may not be empty for {}-{}\n", .{
-                @tagName(Target.current.getOs()),
-                @tagName(Target.current.getAbi()),
+                @tagName(Target.current.os.tag),
+                @tagName(Target.current.abi),
             });
             return error.ParseError;
         }
@@ -614,104 +614,6 @@ fn printVerboseInvocation(
     if (stderr) |s| {
         std.debug.warn("Output:\n==========\n{}\n==========\n", .{s});
     }
-}
-
-/// Caller owns returned memory.
-pub fn detectNativeDynamicLinker(allocator: *Allocator) error{
-    OutOfMemory,
-    TargetHasNoDynamicLinker,
-    UnknownDynamicLinkerPath,
-}![:0]u8 {
-    if (!comptime Target.current.hasDynamicLinker()) {
-        return error.TargetHasNoDynamicLinker;
-    }
-
-    // The current target's ABI cannot be relied on for this. For example, we may build the zig
-    // compiler for target riscv64-linux-musl and provide a tarball for users to download.
-    // A user could then run that zig compiler on riscv64-linux-gnu. This use case is well-defined
-    // and supported by Zig. But that means that we must detect the system ABI here rather than
-    // relying on `std.Target.current`.
-
-    const LdInfo = struct {
-        ld_path: []u8,
-        abi: Target.Abi,
-    };
-    var ld_info_list = std.ArrayList(LdInfo).init(allocator);
-    defer {
-        for (ld_info_list.toSlice()) |ld_info| allocator.free(ld_info.ld_path);
-        ld_info_list.deinit();
-    }
-
-    const all_abis = comptime blk: {
-        const fields = std.meta.fields(Target.Abi);
-        var array: [fields.len]Target.Abi = undefined;
-        inline for (fields) |field, i| {
-            array[i] = @field(Target.Abi, field.name);
-        }
-        break :blk array;
-    };
-    for (all_abis) |abi| {
-        // This may be a nonsensical parameter. We detect this with error.UnknownDynamicLinkerPath and
-        // skip adding it to `ld_info_list`.
-        const target: Target = .{
-            .Cross = .{
-                .cpu = Target.Cpu.baseline(Target.current.getArch()),
-                .os = Target.current.getOs(),
-                .abi = abi,
-            },
-        };
-        const standard_ld_path = target.getStandardDynamicLinkerPath(allocator) catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
-            error.UnknownDynamicLinkerPath, error.TargetHasNoDynamicLinker => continue,
-        };
-        errdefer allocator.free(standard_ld_path);
-        try ld_info_list.append(.{
-            .ld_path = standard_ld_path,
-            .abi = abi,
-        });
-    }
-
-    // Best case scenario: the zig compiler is dynamically linked, and we can iterate
-    // over our own shared objects and find a dynamic linker.
-    {
-        const lib_paths = try std.process.getSelfExeSharedLibPaths(allocator);
-        defer allocator.free(lib_paths);
-
-        // This is O(N^M) but typical case here is N=2 and M=10.
-        for (lib_paths) |lib_path| {
-            for (ld_info_list.toSlice()) |ld_info| {
-                const standard_ld_basename = fs.path.basename(ld_info.ld_path);
-                if (std.mem.endsWith(u8, lib_path, standard_ld_basename)) {
-                    return std.mem.dupeZ(allocator, u8, lib_path);
-                }
-            }
-        }
-    }
-
-    // If Zig is statically linked, such as via distributed binary static builds, the above
-    // trick won't work. What are we left with? Try to run the system C compiler and get
-    // it to tell us the dynamic linker path.
-    // TODO: instead of this, look at the shared libs of /usr/bin/env.
-    for (ld_info_list.toSlice()) |ld_info| {
-        const standard_ld_basename = fs.path.basename(ld_info.ld_path);
-
-        const full_ld_path = ccPrintFileName(.{
-            .allocator = allocator,
-            .search_basename = standard_ld_basename,
-            .want_dirname = .full_path,
-        }) catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
-            error.LibCRuntimeNotFound,
-            error.CCompilerExitCode,
-            error.CCompilerCrashed,
-            error.UnableToSpawnCCompiler,
-            => continue,
-        };
-        return full_ld_path;
-    }
-
-    // Finally, we fall back on the standard path.
-    return Target.current.getStandardDynamicLinkerPath(allocator);
 }
 
 const Search = struct {

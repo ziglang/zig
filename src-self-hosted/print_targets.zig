@@ -124,7 +124,7 @@ pub fn cmdTargets(
 
     try jws.objectField("os");
     try jws.beginArray();
-    inline for (@typeInfo(Target.Os).Enum.fields) |field| {
+    inline for (@typeInfo(Target.Os.Tag).Enum.fields) |field| {
         try jws.arrayElem();
         try jws.emitString(field.name);
     }
@@ -201,16 +201,16 @@ pub fn cmdTargets(
         try jws.objectField("cpu");
         try jws.beginObject();
         try jws.objectField("arch");
-        try jws.emitString(@tagName(native_target.getArch()));
+        try jws.emitString(@tagName(native_target.cpu.arch));
 
         try jws.objectField("name");
-        const cpu = native_target.getCpu();
+        const cpu = native_target.cpu;
         try jws.emitString(cpu.model.name);
 
         {
             try jws.objectField("features");
             try jws.beginArray();
-            for (native_target.getArch().allFeaturesList()) |feature, i_usize| {
+            for (native_target.cpu.arch.allFeaturesList()) |feature, i_usize| {
                 const index = @intCast(Target.Cpu.Feature.Set.Index, i_usize);
                 if (cpu.features.isEnabled(index)) {
                     try jws.arrayElem();
@@ -222,9 +222,9 @@ pub fn cmdTargets(
         try jws.endObject();
     }
     try jws.objectField("os");
-    try jws.emitString(@tagName(native_target.getOs()));
+    try jws.emitString(@tagName(native_target.os.tag));
     try jws.objectField("abi");
-    try jws.emitString(@tagName(native_target.getAbi()));
+    try jws.emitString(@tagName(native_target.abi));
     // TODO implement native glibc version detection in self-hosted
     try jws.endObject();
 

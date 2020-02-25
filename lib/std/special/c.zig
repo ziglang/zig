@@ -17,7 +17,7 @@ const is_msvc = switch (builtin.abi) {
     .msvc => true,
     else => false,
 };
-const is_freestanding = switch (builtin.os) {
+const is_freestanding = switch (builtin.os.tag) {
     .freestanding => true,
     else => false,
 };
@@ -81,7 +81,7 @@ pub fn panic(msg: []const u8, error_return_trace: ?*builtin.StackTrace) noreturn
         @setCold(true);
         std.debug.panic("{}", .{msg});
     }
-    if (builtin.os != .freestanding and builtin.os != .other) {
+    if (builtin.os.tag != .freestanding and builtin.os.tag != .other) {
         std.os.abort();
     }
     while (true) {}
@@ -178,11 +178,11 @@ test "test_bcmp" {
 comptime {
     if (builtin.mode != builtin.Mode.ReleaseFast and
         builtin.mode != builtin.Mode.ReleaseSmall and
-        builtin.os != builtin.Os.windows)
+        builtin.os.tag != .windows)
     {
         @export(__stack_chk_fail, .{ .name = "__stack_chk_fail" });
     }
-    if (builtin.os == builtin.Os.linux) {
+    if (builtin.os.tag == .linux) {
         @export(clone, .{ .name = "clone" });
     }
 }

@@ -89,8 +89,7 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  --single-threaded            source may assume it is only used single-threaded\n"
         "  -dynamic                     create a shared library (.so; .dll; .dylib)\n"
         "  --strip                      exclude debug symbols\n"
-        "  -target [name]               <arch><sub>-<os>-<abi> see the targets command\n"
-        "  -target-glibc [version]      target a specific glibc version (default: 2.17)\n"
+        "  -target [name]               <arch>-<os>-<abi> see the targets command\n"
         "  --verbose-tokenize           enable compiler debug output for tokenization\n"
         "  --verbose-ast                enable compiler debug output for AST parsing\n"
         "  --verbose-link               enable compiler debug output for linking\n"
@@ -419,7 +418,6 @@ static int main0(int argc, char **argv) {
     const char *mios_version_min = nullptr;
     const char *linker_script = nullptr;
     Buf *version_script = nullptr;
-    const char *target_glibc = nullptr;
     ZigList<const char *> rpath_list = {0};
     bool each_lib_rpath = false;
     ZigList<const char *> objects = {0};
@@ -853,8 +851,6 @@ static int main0(int argc, char **argv) {
                     linker_script = argv[i];
                 } else if (strcmp(arg, "--version-script") == 0) {
                     version_script = buf_create_from_str(argv[i]); 
-                } else if (strcmp(arg, "-target-glibc") == 0) {
-                    target_glibc = argv[i];
                 } else if (strcmp(arg, "-rpath") == 0) {
                     rpath_list.append(argv[i]);
                 } else if (strcmp(arg, "--test-filter") == 0) {
@@ -980,29 +976,6 @@ static int main0(int argc, char **argv) {
     if ((err = target_parse_triple(&target, target_string, mcpu))) {
         fprintf(stderr, "invalid target: %s\n"
                 "See `%s targets` to display valid targets.\n", err_str(err), arg0);
-        return print_error_usage(arg0);
-    }
-    if (target_is_glibc(&target)) {
-        target.glibc_version = heap::c_allocator.create<ZigGLibCVersion>();
-
-        if (target_glibc != nullptr) {
-            if ((err = target_parse_glibc_version(target.glibc_version, target_glibc))) {
-                fprintf(stderr, "invalid glibc version '%s': %s\n", target_glibc, err_str(err));
-                return print_error_usage(arg0);
-            }
-        } else {
-            target_init_default_glibc_version(&target);
-#if defined(ZIG_OS_LINUX)
-            if (target.is_native) {
-                // TODO self-host glibc version detection, and then this logic can go away
-                if ((err = glibc_detect_native_version(target.glibc_version))) {
-                    // Fall back to the default version.
-                }
-            }
-#endif
-        }
-    } else if (target_glibc != nullptr) {
-        fprintf(stderr, "'%s' is not a glibc-compatible target", target_string);
         return print_error_usage(arg0);
     }
 

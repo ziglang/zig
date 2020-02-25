@@ -1,5 +1,5 @@
-const builtin = @import("builtin");
 const std = @import("std");
+const builtin = std.builtin;
 const page_size = std.mem.page_size;
 
 pub const tokenizer = @import("c/tokenizer.zig");
@@ -10,7 +10,7 @@ pub const ast = @import("c/ast.zig");
 
 pub usingnamespace @import("os/bits.zig");
 
-pub usingnamespace switch (builtin.os) {
+pub usingnamespace switch (std.Target.current.os.tag) {
     .linux => @import("c/linux.zig"),
     .windows => @import("c/windows.zig"),
     .macosx, .ios, .tvos, .watchos => @import("c/darwin.zig"),
@@ -46,17 +46,16 @@ pub fn versionCheck(glibc_version: builtin.Version) type {
     return struct {
         pub const ok = blk: {
             if (!builtin.link_libc) break :blk false;
-            switch (builtin.abi) {
-                .musl, .musleabi, .musleabihf => break :blk true,
-                .gnu, .gnuabin32, .gnuabi64, .gnueabi, .gnueabihf, .gnux32 => {
-                    const ver = builtin.glibc_version orelse break :blk false;
-                    if (ver.major < glibc_version.major) break :blk false;
-                    if (ver.major > glibc_version.major) break :blk true;
-                    if (ver.minor < glibc_version.minor) break :blk false;
-                    if (ver.minor > glibc_version.minor) break :blk true;
-                    break :blk ver.patch >= glibc_version.patch;
-                },
-                else => break :blk false,
+            if (std.Target.current.abi.isMusl()) break :blk true;
+            if (std.Target.current.isGnuLibC()) {
+                const ver = std.Target.current.os.version_range.linux.glibc;
+                const order = ver.order(glibc_version);
+                break :blk switch (order) {
+                    .gt, .eq => true,
+                    .lt => false,
+                };
+            } else {
+                break :blk false;
             }
         };
     };

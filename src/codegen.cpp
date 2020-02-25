@@ -4483,7 +4483,7 @@ static LLVMValueRef ir_render_union_field_ptr(CodeGen *g, IrExecutableGen *execu
 
     if (!type_has_bits(field->type_entry)) {
         ZigType *tag_type = union_type->data.unionation.tag_type;
-        if (!instruction->initializing || !type_has_bits(tag_type))
+        if (!instruction->initializing || tag_type == nullptr || !type_has_bits(tag_type))
             return nullptr;
 
         // The field has no bits but we still have to change the discriminant
@@ -8543,25 +8543,24 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     buf_appendf(contents, "pub const link_mode = LinkMode.%s;\n", link_type);
     buf_appendf(contents, "pub const is_test = %s;\n", bool_to_str(g->is_test_build));
     buf_appendf(contents, "pub const single_threaded = %s;\n", bool_to_str(g->is_single_threaded));
-    buf_appendf(contents, "pub const os = Os.%s;\n", cur_os);
+    buf_append_str(contents, "/// Deprecated: use `std.Target.cpu.arch`\n");
     buf_appendf(contents, "pub const arch = Arch.%s;\n", cur_arch);
     buf_appendf(contents, "pub const abi = Abi.%s;\n", cur_abi);
     {
         buf_append_str(contents, "pub const cpu: Cpu = ");
-        if (g->zig_target->builtin_str != nullptr) {
-            buf_append_str(contents, g->zig_target->builtin_str);
+        if (g->zig_target->cpu_builtin_str != nullptr) {
+            buf_append_str(contents, g->zig_target->cpu_builtin_str);
         } else {
-            buf_append_str(contents, "Target.Cpu.baseline(arch);\n");
+            buf_appendf(contents, "Target.Cpu.baseline(.%s);\n", cur_arch);
         }
     }
-    if (g->libc_link_lib != nullptr && g->zig_target->glibc_version != nullptr) {
-        buf_appendf(contents,
-            "pub const glibc_version: ?Version = Version{.major = %d, .minor = %d, .patch = %d};\n",
-                g->zig_target->glibc_version->major,
-                g->zig_target->glibc_version->minor,
-                g->zig_target->glibc_version->patch);
-    } else {
-        buf_appendf(contents, "pub const glibc_version: ?Version = null;\n");
+    {
+        buf_append_str(contents, "pub const os = ");
+        if (g->zig_target->os_builtin_str != nullptr) {
+            buf_append_str(contents, g->zig_target->os_builtin_str);
+        } else {
+            buf_appendf(contents, "Target.Os.defaultVersionRange(.%s);\n", cur_os);
+        }
     }
     buf_appendf(contents, "pub const object_format = ObjectFormat.%s;\n", cur_obj_fmt);
     buf_appendf(contents, "pub const mode = %s;\n", build_mode_to_str(g->build_mode));
@@ -8867,8 +8866,6 @@ static void init(CodeGen *g) {
 }
 
 static void detect_dynamic_linker(CodeGen *g) {
-    Error err;
-
     if (g->dynamic_linker_path != nullptr)
         return;
     if (!g->have_dynamic_link)
@@ -8876,16 +8873,9 @@ static void detect_dynamic_linker(CodeGen *g) {
     if (g->out_type == OutTypeObj || (g->out_type == OutTypeLib && !g->is_dynamic))
         return;
 
-    char *dynamic_linker_ptr;
-    size_t dynamic_linker_len;
-    if ((err = stage2_detect_dynamic_linker(g->zig_target, &dynamic_linker_ptr, &dynamic_linker_len))) {
-        if (err == ErrorTargetHasNoDynamicLinker) return;
-        fprintf(stderr, "Unable to detect dynamic linker: %s\n", err_str(err));
-        exit(1);
+    if (g->zig_target->dynamic_linker != nullptr) {
+        g->dynamic_linker_path = buf_create_from_str(g->zig_target->dynamic_linker);
     }
-    g->dynamic_linker_path = buf_create_from_mem(dynamic_linker_ptr, dynamic_linker_len);
-    // Skips heap::c_allocator because the memory is allocated by stage2 library.
-    free(dynamic_linker_ptr);
 }
 
 static void detect_libc(CodeGen *g) {

@@ -1,18 +1,10 @@
-// Introspection and determination of system libraries needed by zig.
+//! Introspection and determination of system libraries needed by zig.
 
 const std = @import("std");
 const mem = std.mem;
 const fs = std.fs;
 
 const warn = std.debug.warn;
-
-pub fn detectDynamicLinker(allocator: *mem.Allocator, target: std.Target) ![:0]u8 {
-    if (target == .Native) {
-        return @import("libc_installation.zig").detectNativeDynamicLinker(allocator);
-    } else {
-        return target.getStandardDynamicLinkerPath(allocator);
-    }
-}
 
 /// Caller must free result
 pub fn testZigInstallPrefix(allocator: *mem.Allocator, test_path: []const u8) ![]u8 {

@@ -411,7 +411,7 @@ pub const Version = struct {
         }
     };
 
-    pub fn order(lhs: Version, rhs: version) std.math.Order {
+    pub fn order(lhs: Version, rhs: Version) std.math.Order {
         if (lhs.major < rhs.major) return .lt;
         if (lhs.major > rhs.major) return .gt;
         if (lhs.minor < rhs.minor) return .lt;
@@ -504,7 +504,7 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace) noreturn
         root.os.panic(msg, error_return_trace);
         unreachable;
     }
-    switch (os) {
+    switch (os.tag) {
         .freestanding => {
             while (true) {
                 @breakpoint();

@@ -9,14 +9,14 @@ const assert = std.debug.assert;
 pub const Thread = struct {
     data: Data,
 
-    pub const use_pthreads = builtin.os != .windows and builtin.link_libc;
+    pub const use_pthreads = builtin.os.tag != .windows and builtin.link_libc;
 
     /// Represents a kernel thread handle.
     /// May be an integer or a pointer depending on the platform.
     /// On Linux and POSIX, this is the same as Id.
     pub const Handle = if (use_pthreads)
         c.pthread_t
-    else switch (builtin.os) {
+    else switch (builtin.os.tag) {
         .linux => i32,
         .windows => windows.HANDLE,
         else => void,
@@ -25,7 +25,7 @@ pub const Thread = struct {
     /// Represents a unique ID per thread.
     /// May be an integer or pointer depending on the platform.
     /// On Linux and POSIX, this is the same as Handle.
-    pub const Id = switch (builtin.os) {
+    pub const Id = switch (builtin.os.tag) {
         .windows => windows.DWORD,
         else => Handle,
     };
@@ -35,7 +35,7 @@ pub const Thread = struct {
             handle: Thread.Handle,
             memory: []align(mem.page_size) u8,
         }
-    else switch (builtin.os) {
+    else switch (builtin.os.tag) {
         .linux => struct {
             handle: Thread.Handle,
             memory: []align(mem.page_size) u8,
@@ -55,7 +55,7 @@ pub const Thread = struct {
         if (use_pthreads) {
             return c.pthread_self();
         } else
-            return switch (builtin.os) {
+            return switch (builtin.os.tag) {
             .linux => os.linux.gettid(),
             .windows => windows.kernel32.GetCurrentThreadId(),
             else => @compileError("Unsupported OS"),
@@ -83,7 +83,7 @@ pub const Thread = struct {
                 else => unreachable,
             }
             os.munmap(self.data.memory);
-        } else switch (builtin.os) {
+        } else switch (builtin.os.tag) {
             .linux => {
                 while (true) {
                     const pid_value = @atomicLoad(i32, &self.data.handle, .SeqCst);
@@ -150,7 +150,7 @@ pub const Thread = struct {
         const Context = @TypeOf(context);
         comptime assert(@typeInfo(@TypeOf(startFn)).Fn.args[0].arg_type.? == Context);
 
-        if (builtin.os == builtin.Os.windows) {
+        if (builtin.os.tag == .windows) {
             const WinThread = struct {
                 const OuterContext = struct {
                     thread: Thread,
@@ -309,7 +309,7 @@ pub const Thread = struct {
                 os.EINVAL => unreachable,
                 else => return os.unexpectedErrno(@intCast(usize, err)),
             }
-        } else if (builtin.os == .linux) {
+        } else if (builtin.os.tag == .linux) {
             var flags: u32 = os.CLONE_VM | os.CLONE_FS | os.CLONE_FILES | os.CLONE_SIGHAND |
                 os.CLONE_THREAD | os.CLONE_SYSVSEM | os.CLONE_PARENT_SETTID | os.CLONE_CHILD_CLEARTID |
                 os.CLONE_DETACHED;
@@ -369,11 +369,11 @@ pub const Thread = struct {
     };
 
     pub fn cpuCount() CpuCountError!usize {
-        if (builtin.os == .linux) {
+        if (builtin.os.tag == .linux) {
             const cpu_set = try os.sched_getaffinity(0);
             return @as(usize, os.CPU_COUNT(cpu_set)); // TODO should not need this usize cast
         }
-        if (builtin.os == .windows) {
+        if (builtin.os.tag == .windows) {
             var system_info: windows.SYSTEM_INFO = undefined;
             windows.kernel32.GetSystemInfo(&system_info);
             return @intCast(usize, system_info.dwNumberOfProcessors);

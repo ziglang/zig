@@ -100,13 +100,11 @@ Error stage2_target_parse(struct ZigTarget *target, const char *zig_triple, cons
         if (mcpu == nullptr) {
             target->llvm_cpu_name = ZigLLVMGetHostCPUName();
             target->llvm_cpu_features = ZigLLVMGetNativeFeatures();
-            target->builtin_str = "Target.Cpu.baseline(arch);\n";
             target->cache_hash = "native\n\n";
         } else if (strcmp(mcpu, "baseline") == 0) {
             target->is_native = false;
             target->llvm_cpu_name = "";
             target->llvm_cpu_features = "";
-            target->builtin_str = "Target.Cpu.baseline(arch);\n";
             target->cache_hash = "baseline\n\n";
         } else {
             const char *msg = "stage0 can't handle CPU/features in the target";
@@ -148,7 +146,6 @@ Error stage2_target_parse(struct ZigTarget *target, const char *zig_triple, cons
             const char *msg = "stage0 can't handle CPU/features in the target";
             stage2_panic(msg, strlen(msg));
         }
-        target->builtin_str = "Target.Cpu.baseline(arch);\n";
         target->cache_hash = "\n\n";
     }
 
@@ -183,11 +180,6 @@ enum Error stage2_libc_render(struct Stage2LibCInstallation *self, FILE *file) {
 
 enum Error stage2_libc_find_native(struct Stage2LibCInstallation *libc) {
     const char *msg = "stage0 called stage2_libc_find_native";
-    stage2_panic(msg, strlen(msg));
-}
-
-enum Error stage2_detect_dynamic_linker(const struct ZigTarget *target, char **out_ptr, size_t *out_len) {
-    const char *msg = "stage0 called stage2_detect_dynamic_linker";
     stage2_panic(msg, strlen(msg));
 }
 

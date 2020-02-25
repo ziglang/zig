@@ -103,6 +103,8 @@ enum Error {
     ErrorWindowsSdkNotFound,
     ErrorUnknownDynamicLinkerPath,
     ErrorTargetHasNoDynamicLinker,
+    ErrorInvalidAbiVersion,
+    ErrorInvalidOperatingSystemVersion,
 };
 
 // ABI warning
@@ -290,13 +292,11 @@ struct ZigTarget {
 
     const char *llvm_cpu_name;
     const char *llvm_cpu_features;
-    const char *builtin_str;
+    const char *cpu_builtin_str;
     const char *cache_hash;
+    const char *os_builtin_str;
+    const char *dynamic_linker;
 };
-
-// ABI warning
-ZIG_EXTERN_C enum Error stage2_detect_dynamic_linker(const struct ZigTarget *target,
-        char **out_ptr, size_t *out_len);
 
 // ABI warning
 ZIG_EXTERN_C enum Error stage2_target_parse(struct ZigTarget *target, const char *zig_triple, const char *mcpu);

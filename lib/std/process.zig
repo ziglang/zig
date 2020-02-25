@@ -36,7 +36,7 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
     var result = BufMap.init(allocator);
     errdefer result.deinit();
 
-    if (builtin.os == .windows) {
+    if (builtin.os.tag == .windows) {
         const ptr = os.windows.peb().ProcessParameters.Environment;
 
         var i: usize = 0;
@@ -61,7 +61,7 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
             try result.setMove(key, value);
         }
         return result;
-    } else if (builtin.os == .wasi) {
+    } else if (builtin.os.tag == .wasi) {
         var environ_count: usize = undefined;
         var environ_buf_size: usize = undefined;
 
@@ -137,7 +137,7 @@ pub const GetEnvVarOwnedError = error{
 
 /// Caller must free returned memory.
 pub fn getEnvVarOwned(allocator: *mem.Allocator, key: []const u8) GetEnvVarOwnedError![]u8 {
-    if (builtin.os == .windows) {
+    if (builtin.os.tag == .windows) {
         const result_w = blk: {
             const key_w = try std.unicode.utf8ToUtf16LeWithNull(allocator, key);
             defer allocator.free(key_w);
@@ -338,12 +338,12 @@ pub const ArgIteratorWindows = struct {
 };
 
 pub const ArgIterator = struct {
-    const InnerType = if (builtin.os == .windows) ArgIteratorWindows else ArgIteratorPosix;
+    const InnerType = if (builtin.os.tag == .windows) ArgIteratorWindows else ArgIteratorPosix;
 
     inner: InnerType,
 
     pub fn init() ArgIterator {
-        if (builtin.os == .wasi) {
+        if (builtin.os.tag == .wasi) {
             // TODO: Figure out a compatible interface accomodating WASI
             @compileError("ArgIterator is not yet supported in WASI. Use argsAlloc and argsFree instead.");
         }
@@ -355,7 +355,7 @@ pub const ArgIterator = struct {
 
     /// You must free the returned memory when done.
     pub fn next(self: *ArgIterator, allocator: *Allocator) ?(NextError![]u8) {
-        if (builtin.os == .windows) {
+        if (builtin.os.tag == .windows) {
             return self.inner.next(allocator);
         } else {
             return mem.dupe(allocator, u8, self.inner.next() orelse return null);
@@ -380,7 +380,7 @@ pub fn args() ArgIterator {
 
 /// Caller must call argsFree on result.
 pub fn argsAlloc(allocator: *mem.Allocator) ![][]u8 {
-    if (builtin.os == .wasi) {
+    if (builtin.os.tag == .wasi) {
         var count: usize = undefined;
         var buf_size: usize = undefined;
 
@@ -445,7 +445,7 @@ pub fn argsAlloc(allocator: *mem.Allocator) ![][]u8 {
 }
 
 pub fn argsFree(allocator: *mem.Allocator, args_alloc: []const []u8) void {
-    if (builtin.os == .wasi) {
+    if (builtin.os.tag == .wasi) {
         const last_item = args_alloc[args_alloc.len - 1];
         const last_byte_addr = @ptrToInt(last_item.ptr) + last_item.len + 1; // null terminated
         const first_item_ptr = args_alloc[0].ptr;
@@ -498,7 +498,7 @@ pub const UserInfo = struct {
 
 /// POSIX function which gets a uid from username.
 pub fn getUserInfo(name: []const u8) !UserInfo {
-    return switch (builtin.os) {
+    return switch (builtin.os.tag) {
         .linux, .macosx, .watchos, .tvos, .ios, .freebsd, .netbsd => posixGetUserInfo(name),
         else => @compileError("Unsupported OS"),
     };
@@ -591,7 +591,7 @@ pub fn posixGetUserInfo(name: []const u8) !UserInfo {
 }
 
 pub fn getBaseAddress() usize {
-    switch (builtin.os) {
+    switch (builtin.os.tag) {
         .linux => {
             const base = os.system.getauxval(std.elf.AT_BASE);
             if (base != 0) {
@@ -615,7 +615,7 @@ pub fn getSelfExeSharedLibPaths(allocator: *Allocator) error{OutOfMemory}![][:0]
         .Dynamic => {},
     }
     const List = std.ArrayList([:0]u8);
-    switch (builtin.os) {
+    switch (builtin.os.tag) {
         .linux,
         .freebsd,
         .netbsd,
