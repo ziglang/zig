@@ -12588,13 +12588,22 @@ static IrInstGen *ir_resolve_ptr_of_array_to_slice(IrAnalyze *ira, IrInst* sourc
 {
     Error err;
 
-    if ((err = type_resolve(ira->codegen, array_ptr->value->type->data.pointer.child_type,
-                    ResolveStatusAlignmentKnown)))
-    {
+    assert(array_ptr->value->type->id == ZigTypeIdPointer);
+
+    if ((err = type_resolve(ira->codegen, array_ptr->value->type, ResolveStatusAlignmentKnown))) {
         return ira->codegen->invalid_inst_gen;
     }
 
-    wanted_type = adjust_slice_align(ira->codegen, wanted_type, get_ptr_align(ira->codegen, array_ptr->value->type));
+    assert(array_ptr->value->type->data.pointer.child_type->id == ZigTypeIdArray);
+
+    const size_t array_len = array_ptr->value->type->data.pointer.child_type->data.array.len;
+
+    // A zero-sized array can always be casted irregardless of the destination
+    // alignment
+    if (array_len != 0) {
+        wanted_type = adjust_slice_align(ira->codegen, wanted_type,
+            get_ptr_align(ira->codegen, array_ptr->value->type));
+    }
 
     if (instr_is_comptime(array_ptr)) {
         ZigValue *array_ptr_val = ir_resolve_const(ira, array_ptr, UndefBad);
