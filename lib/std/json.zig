@@ -2357,13 +2357,22 @@ pub const StringifyOptions = struct {
     /// Controls the whitespace emitted
     whitespace: ?Whitespace = null,
 
-    /// Should '/' be escaped in strings?
-    escape_solidus: bool = false,
+    /// Should []u8 be serialised as a string? or an array?
+    pub const StringOptions = union(enum) {
+        Array,
 
-    /// Should unicode characters be escaped in strings?
-    escape_unicode: bool = false,
+        /// String output options
+        const StringOutputOptions = struct {
+            /// Should '/' be escaped in strings?
+            escape_solidus: bool = false,
 
-    // TODO: allow picking if []u8 is string or array?
+            /// Should unicode characters be escaped in strings?
+            escape_unicode: bool = false,
+        };
+        String: StringOutputOptions,
+    };
+
+    string: StringOptions = StringOptions{ .String = .{} },
 };
 
 fn outputUnicodeEscape(
@@ -2490,7 +2499,7 @@ pub fn stringify(
             },
             // TODO: .Many when there is a sentinel (waiting for https://github.com/ziglang/zig/pull/3972)
             .Slice => {
-                if (ptr_info.child == u8 and std.unicode.utf8ValidateSlice(value)) {
+                if (ptr_info.child == u8 and options.string == .String and std.unicode.utf8ValidateSlice(value)) {
                     try out_stream.writeByte('\"');
                     var i: usize = 0;
                     while (i < value.len) : (i += 1) {
@@ -2502,7 +2511,7 @@ pub fn stringify(
                             '\"' => try out_stream.writeAll("\\\""),
                             // solidus is optional to escape
                             '/' => {
-                                if (options.escape_solidus) {
+                                if (options.string.String.escape_solidus) {
                                     try out_stream.writeAll("\\/");
                                 } else {
                                     try out_stream.writeByte('\\');
@@ -2518,7 +2527,7 @@ pub fn stringify(
                             else => {
                                 const ulen = std.unicode.utf8ByteSequenceLength(value[i]) catch unreachable;
                                 // control characters (only things left with 1 byte length) should always be printed as unicode escapes
-                                if (ulen == 1 or options.escape_unicode) {
+                                if (ulen == 1 or options.string.String.escape_unicode) {
                                     const codepoint = std.unicode.utf8Decode(value[i .. i + ulen]) catch unreachable;
                                     try outputUnicodeEscape(codepoint, out_stream);
                                 } else {
@@ -2636,25 +2645,25 @@ test "stringify basic types" {
 test "stringify string" {
     try teststringify("\"hello\"", "hello", StringifyOptions{});
     try teststringify("\"with\\nescapes\\r\"", "with\nescapes\r", StringifyOptions{});
-    try teststringify("\"with\\nescapes\\r\"", "with\nescapes\r", StringifyOptions{ .escape_unicode = true });
+    try teststringify("\"with\\nescapes\\r\"", "with\nescapes\r", StringifyOptions{ .string = .{ .String = .{ .escape_unicode = true } } });
     try teststringify("\"with unicode\\u0001\"", "with unicode\u{1}", StringifyOptions{});
-    try teststringify("\"with unicode\\u0001\"", "with unicode\u{1}", StringifyOptions{ .escape_unicode = true });
+    try teststringify("\"with unicode\\u0001\"", "with unicode\u{1}", StringifyOptions{ .string = .{ .String = .{ .escape_unicode = true } } });
     try teststringify("\"with unicode\u{80}\"", "with unicode\u{80}", StringifyOptions{});
-    try teststringify("\"with unicode\\u0080\"", "with unicode\u{80}", StringifyOptions{ .escape_unicode = true });
+    try teststringify("\"with unicode\\u0080\"", "with unicode\u{80}", StringifyOptions{ .string = .{ .String = .{ .escape_unicode = true } } });
     try teststringify("\"with unicode\u{FF}\"", "with unicode\u{FF}", StringifyOptions{});
-    try teststringify("\"with unicode\\u00ff\"", "with unicode\u{FF}", StringifyOptions{ .escape_unicode = true });
+    try teststringify("\"with unicode\\u00ff\"", "with unicode\u{FF}", StringifyOptions{ .string = .{ .String = .{ .escape_unicode = true } } });
     try teststringify("\"with unicode\u{100}\"", "with unicode\u{100}", StringifyOptions{});
-    try teststringify("\"with unicode\\u0100\"", "with unicode\u{100}", StringifyOptions{ .escape_unicode = true });
+    try teststringify("\"with unicode\\u0100\"", "with unicode\u{100}", StringifyOptions{ .string = .{ .String = .{ .escape_unicode = true } } });
     try teststringify("\"with unicode\u{800}\"", "with unicode\u{800}", StringifyOptions{});
-    try teststringify("\"with unicode\\u0800\"", "with unicode\u{800}", StringifyOptions{ .escape_unicode = true });
+    try teststringify("\"with unicode\\u0800\"", "with unicode\u{800}", StringifyOptions{ .string = .{ .String = .{ .escape_unicode = true } } });
     try teststringify("\"with unicode\u{8000}\"", "with unicode\u{8000}", StringifyOptions{});
-    try teststringify("\"with unicode\\u8000\"", "with unicode\u{8000}", StringifyOptions{ .escape_unicode = true });
+    try teststringify("\"with unicode\\u8000\"", "with unicode\u{8000}", StringifyOptions{ .string = .{ .String = .{ .escape_unicode = true } } });
     try teststringify("\"with unicode\u{D799}\"", "with unicode\u{D799}", StringifyOptions{});
-    try teststringify("\"with unicode\\ud799\"", "with unicode\u{D799}", StringifyOptions{ .escape_unicode = true });
+    try teststringify("\"with unicode\\ud799\"", "with unicode\u{D799}", StringifyOptions{ .string = .{ .String = .{ .escape_unicode = true } } });
     try teststringify("\"with unicode\u{10000}\"", "with unicode\u{10000}", StringifyOptions{});
-    try teststringify("\"with unicode\\ud800\\udc00\"", "with unicode\u{10000}", StringifyOptions{ .escape_unicode = true });
+    try teststringify("\"with unicode\\ud800\\udc00\"", "with unicode\u{10000}", StringifyOptions{ .string = .{ .String = .{ .escape_unicode = true } } });
     try teststringify("\"with unicode\u{10FFFF}\"", "with unicode\u{10FFFF}", StringifyOptions{});
-    try teststringify("\"with unicode\\udbff\\udfff\"", "with unicode\u{10FFFF}", StringifyOptions{ .escape_unicode = true });
+    try teststringify("\"with unicode\\udbff\\udfff\"", "with unicode\u{10FFFF}", StringifyOptions{ .string = .{ .String = .{ .escape_unicode = true } } });
 }
 
 test "stringify tagged unions" {
