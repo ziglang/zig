@@ -3329,9 +3329,21 @@ static LLVMValueRef ir_render_int_to_enum(CodeGen *g, IrExecutableGen *executabl
         LLVMBasicBlockRef ok_value_block = LLVMAppendBasicBlock(g->cur_fn_val, "OkValue");
         size_t field_count = wanted_type->data.enumeration.src_field_count;
         LLVMValueRef switch_instr = LLVMBuildSwitch(g->builder, tag_int_value, bad_value_block, field_count);
+
+        HashMap<BigInt, Buf *, bigint_hash, bigint_eql> occupied_tag_values = {};
+        occupied_tag_values.init(field_count);
+
         for (size_t field_i = 0; field_i < field_count; field_i += 1) {
+            TypeEnumField *type_enum_field = &wanted_type->data.enumeration.fields[field_i];
+            
+            Buf *name = type_enum_field->name;
+            auto entry = occupied_tag_values.put_unique(type_enum_field->value, name);
+            if (entry != nullptr) {
+                continue;
+            }
+
             LLVMValueRef this_tag_int_value = bigint_to_llvm_const(get_llvm_type(g, tag_int_type),
-                    &wanted_type->data.enumeration.fields[field_i].value);
+                    &type_enum_field->value);
             LLVMAddCase(switch_instr, this_tag_int_value, ok_value_block);
         }
         LLVMPositionBuilderAtEnd(g->builder, bad_value_block);
