@@ -1,6 +1,6 @@
 const tests = @import("tests.zig");
-const builtin = @import("builtin");
-const Target = @import("std").Target;
+const std = @import("std");
+const Target = std.Target;
 
 pub fn addCases(cases: *tests.TranslateCContext) void {
     cases.add("macro line continuation",
@@ -665,7 +665,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
-    if (builtin.os != builtin.Os.windows) {
+    if (Target.current.os.tag != .windows) {
         // Windows treats this as an enum with type c_int
         cases.add("big negative enum init values when C ABI supports long long enums",
             \\enum EnumWithInits {
@@ -1064,7 +1064,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
-    if (builtin.os != builtin.Os.windows) {
+    if (Target.current.os.tag != .windows) {
         // sysv_abi not currently supported on windows
         cases.add("Macro qualified functions",
             \\void __attribute__((sysv_abi)) foo(void);
@@ -1093,10 +1093,10 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const fn1 = ?fn (u8) callconv(.C) void;
     });
 
-    cases.addWithTarget("Calling convention", tests.Target{
+    cases.addWithTarget("Calling convention", .{
         .Cross = .{
             .cpu = Target.Cpu.baseline(.i386),
-            .os = .linux,
+            .os = Target.Os.defaultVersionRange(.linux),
             .abi = .none,
         },
     },
@@ -1113,10 +1113,12 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub fn foo5(a: [*c]f32) callconv(.Thiscall) void;
     });
 
-    cases.addWithTarget("Calling convention", Target.parse(.{
-        .arch_os_abi = "arm-linux-none",
-        .cpu_features = "generic+v8_5a",
-    }) catch unreachable,
+    cases.addWithTarget("Calling convention", .{
+        .Cross = Target.parse(.{
+            .arch_os_abi = "arm-linux-none",
+            .cpu_features = "generic+v8_5a",
+        }) catch unreachable,
+    },
         \\void __attribute__((pcs("aapcs"))) foo1(float *a);
         \\void __attribute__((pcs("aapcs-vfp"))) foo2(float *a);
     , &[_][]const u8{
@@ -1124,10 +1126,12 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub fn foo2(a: [*c]f32) callconv(.AAPCSVFP) void;
     });
 
-    cases.addWithTarget("Calling convention", Target.parse(.{
-        .arch_os_abi = "aarch64-linux-none",
-        .cpu_features = "generic+v8_5a",
-    }) catch unreachable,
+    cases.addWithTarget("Calling convention", .{
+        .Cross = Target.parse(.{
+            .arch_os_abi = "aarch64-linux-none",
+            .cpu_features = "generic+v8_5a",
+        }) catch unreachable,
+    },
         \\void __attribute__((aarch64_vector_pcs)) foo1(float *a);
     , &[_][]const u8{
         \\pub fn foo1(a: [*c]f32) callconv(.Vectorcall) void;
@@ -1596,7 +1600,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
-    if (builtin.os != .windows) {
+    if (Target.current.os.tag != .windows) {
         // When clang uses the <arch>-windows-none triple it behaves as MSVC and
         // interprets the inner `struct Bar` as an anonymous structure
         cases.add("type referenced struct",

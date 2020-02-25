@@ -53,6 +53,13 @@ pub const Target = struct {
             emscripten,
             uefi,
             other,
+
+            pub fn isDarwin(tag: Tag) bool {
+                return switch (tag) {
+                    .ios, .macosx, .watchos, .tvos => true,
+                    else => false,
+                };
+            }
         };
 
         /// Based on NTDDI version constants from
@@ -921,7 +928,7 @@ pub const Target = struct {
     }
 
     /// Returned slice must be freed by the caller.
-    pub fn vcpkgTriplet(allocator: *mem.Allocator, target: Target, linkage: std.build.VcpkgLinkage) ![]const u8 {
+    pub fn vcpkgTriplet(target: Target, allocator: *mem.Allocator, linkage: std.build.VcpkgLinkage) ![]const u8 {
         const arch = switch (target.cpu.arch) {
             .i386 => "x86",
             .x86_64 => "x64",
@@ -958,14 +965,6 @@ pub const Target = struct {
         // TODO is there anything else worthy of the description that is not
         // already captured in the triple?
         return self.zigTriple(allocator);
-    }
-
-    pub fn zigTripleNoSubArch(self: Target, allocator: *mem.Allocator) ![]u8 {
-        return std.fmt.allocPrint(allocator, "{}-{}-{}", .{
-            @tagName(self.cpu.arch),
-            @tagName(self.os.tag),
-            @tagName(self.abi),
-        });
     }
 
     pub fn linuxTriple(self: Target, allocator: *mem.Allocator) ![]u8 {
@@ -1111,11 +1110,11 @@ pub const Target = struct {
     }
 
     pub fn exeFileExt(self: Target) []const u8 {
-        if (self.isWindows()) {
+        if (self.os.tag == .windows) {
             return ".exe";
-        } else if (self.isUefi()) {
+        } else if (self.os.tag == .uefi) {
             return ".efi";
-        } else if (self.isWasm()) {
+        } else if (self.cpu.arch.isWasm()) {
             return ".wasm";
         } else {
             return "";
@@ -1123,7 +1122,7 @@ pub const Target = struct {
     }
 
     pub fn staticLibSuffix(self: Target) []const u8 {
-        if (self.isWasm()) {
+        if (self.cpu.arch.isWasm()) {
             return ".wasm";
         }
         switch (self.abi) {
@@ -1143,7 +1142,7 @@ pub const Target = struct {
     }
 
     pub fn libPrefix(self: Target) []const u8 {
-        if (self.isWasm()) {
+        if (self.cpu.arch.isWasm()) {
             return "";
         }
         switch (self.abi) {
@@ -1153,19 +1152,19 @@ pub const Target = struct {
     }
 
     pub fn getObjectFormat(self: Target) ObjectFormat {
-        if (self.isWindows() or self.isUefi()) {
+        if (self.os.tag == .windows or self.os.tag == .uefi) {
             return .coff;
         } else if (self.isDarwin()) {
             return .macho;
         }
-        if (self.isWasm()) {
+        if (self.cpu.arch.isWasm()) {
             return .wasm;
         }
         return .elf;
     }
 
     pub fn isMinGW(self: Target) bool {
-        return self.isWindows() and self.isGnu();
+        return self.os.tag == .windows and self.isGnu();
     }
 
     pub fn isGnu(self: Target) bool {
@@ -1176,44 +1175,9 @@ pub const Target = struct {
         return self.abi.isMusl();
     }
 
-    pub fn isDarwin(self: Target) bool {
-        return switch (self.os.tag) {
-            .ios, .macosx, .watchos, .tvos => true,
-            else => false,
-        };
-    }
-
-    pub fn isWindows(self: Target) bool {
-        return switch (self.os.tag) {
-            .windows => true,
-            else => false,
-        };
-    }
-
-    pub fn isLinux(self: Target) bool {
-        return switch (self.os.tag) {
-            .linux => true,
-            else => false,
-        };
-    }
-
     pub fn isAndroid(self: Target) bool {
         return switch (self.abi) {
             .android => true,
-            else => false,
-        };
-    }
-
-    pub fn isDragonFlyBSD(self: Target) bool {
-        return switch (self.os.tag) {
-            .dragonfly => true,
-            else => false,
-        };
-    }
-
-    pub fn isUefi(self: Target) bool {
-        return switch (self.os.tag) {
-            .uefi => true,
             else => false,
         };
     }
@@ -1222,18 +1186,8 @@ pub const Target = struct {
         return self.cpu.arch.isWasm();
     }
 
-    pub fn isFreeBSD(self: Target) bool {
-        return switch (self.os.tag) {
-            .freebsd => true,
-            else => false,
-        };
-    }
-
-    pub fn isNetBSD(self: Target) bool {
-        return switch (self.os.tag) {
-            .netbsd => true,
-            else => false,
-        };
+    pub fn isDarwin(self: Target) bool {
+        return self.os.tag.isDarwin();
     }
 
     pub fn isGnuLibC(self: Target) bool {
@@ -1241,11 +1195,11 @@ pub const Target = struct {
     }
 
     pub fn wantSharedLibSymLinks(self: Target) bool {
-        return !self.isWindows();
+        return self.os.tag != .windows;
     }
 
     pub fn osRequiresLibC(self: Target) bool {
-        return self.isDarwin() or self.isFreeBSD() or self.isNetBSD();
+        return self.isDarwin() or self.os.tag == .freebsd or self.os.tag == .netbsd;
     }
 
     pub fn getArchPtrBitWidth(self: Target) u32 {
@@ -1309,7 +1263,7 @@ pub const Target = struct {
     }
 
     pub fn supportsNewStackCall(self: Target) bool {
-        return !self.isWasm();
+        return !self.cpu.arch.isWasm();
     }
 
     pub const Executor = union(enum) {
@@ -1321,8 +1275,6 @@ pub const Target = struct {
     };
 
     pub fn getExternalExecutor(self: Target) Executor {
-        if (@as(@TagType(Target), self) == .Native) return .native;
-
         // If the target OS matches the host OS, we can use QEMU to emulate a foreign architecture.
         if (self.os.tag == builtin.os.tag) {
             return switch (self.cpu.arch) {
@@ -1347,22 +1299,18 @@ pub const Target = struct {
             };
         }
 
-        if (self.isWindows()) {
-            switch (self.getArchPtrBitWidth()) {
+        switch (self.os.tag) {
+            .windows => switch (self.getArchPtrBitWidth()) {
                 32 => return Executor{ .wine = "wine" },
                 64 => return Executor{ .wine = "wine64" },
                 else => return .unavailable,
-            }
-        }
-
-        if (self.os == .wasi) {
-            switch (self.getArchPtrBitWidth()) {
+            },
+            .wasi => switch (self.getArchPtrBitWidth()) {
                 32 => return Executor{ .wasmtime = "wasmtime" },
                 else => return .unavailable,
-            }
+            },
+            else => return .unavailable,
         }
-
-        return .unavailable;
     }
 
     pub const FloatAbi = enum {
@@ -1566,12 +1514,12 @@ test "Target.parse" {
 
         std.testing.expect(target.cpu.arch == .aarch64);
         std.testing.expect(target.os.tag == .linux);
-        std.testing.expect(target.os.version_range.linux.min.major == 3);
-        std.testing.expect(target.os.version_range.linux.min.minor == 10);
-        std.testing.expect(target.os.version_range.linux.min.patch == 0);
-        std.testing.expect(target.os.version_range.linux.max.major == 4);
-        std.testing.expect(target.os.version_range.linux.max.minor == 4);
-        std.testing.expect(target.os.version_range.linux.max.patch == 1);
+        std.testing.expect(target.os.version_range.linux.range.min.major == 3);
+        std.testing.expect(target.os.version_range.linux.range.min.minor == 10);
+        std.testing.expect(target.os.version_range.linux.range.min.patch == 0);
+        std.testing.expect(target.os.version_range.linux.range.max.major == 4);
+        std.testing.expect(target.os.version_range.linux.range.max.minor == 4);
+        std.testing.expect(target.os.version_range.linux.range.max.patch == 1);
         std.testing.expect(target.os.version_range.linux.glibc.major == 2);
         std.testing.expect(target.os.version_range.linux.glibc.minor == 27);
         std.testing.expect(target.os.version_range.linux.glibc.patch == 0);

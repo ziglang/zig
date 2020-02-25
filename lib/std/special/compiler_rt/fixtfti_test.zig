@@ -11,7 +11,7 @@ fn test__fixtfti(a: f128, expected: i128) void {
 }
 
 test "fixtfti" {
-    if (@import("std").Target.current.isWindows()) {
+    if (@import("std").Target.current.os.tag == .windows) {
         // TODO https://github.com/ziglang/zig/issues/508
         return error.SkipZigTest;
     }

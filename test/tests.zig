@@ -1,16 +1,15 @@
 const std = @import("std");
+const builtin = std.builtin;
 const debug = std.debug;
 const warn = debug.warn;
 const build = std.build;
 pub const Target = build.Target;
-pub const CrossTarget = build.CrossTarget;
 const Buffer = std.Buffer;
 const io = std.io;
 const fs = std.fs;
 const mem = std.mem;
 const fmt = std.fmt;
 const ArrayList = std.ArrayList;
-const builtin = @import("builtin");
 const Mode = builtin.Mode;
 const LibExeObjStep = build.LibExeObjStep;
 
@@ -54,18 +53,18 @@ const test_targets = blk: {
 
         TestTarget{
             .target = Target{
-                .Cross = CrossTarget{
-                    .cpu = Target.Cpu.baseline(.x86_64),
-                    .os = Target.Os.defaultVersionRange(.linux),
+                .Cross = .{
+                    .cpu = std.Target.Cpu.baseline(.x86_64),
+                    .os = std.Target.Os.defaultVersionRange(.linux),
                     .abi = .none,
                 },
             },
         },
         TestTarget{
             .target = Target{
-                .Cross = CrossTarget{
-                    .cpu = Target.Cpu.baseline(.x86_64),
-                    .os = Target.Os.defaultVersionRange(.linux),
+                .Cross = .{
+                    .cpu = std.Target.Cpu.baseline(.x86_64),
+                    .os = std.Target.Os.defaultVersionRange(.linux),
                     .abi = .gnu,
                 },
             },
@@ -73,9 +72,9 @@ const test_targets = blk: {
         },
         TestTarget{
             .target = Target{
-                .Cross = CrossTarget{
-                    .cpu = Target.Cpu.baseline(.x86_64),
-                    .os = Target.Os.defaultVersionRange(.linux),
+                .Cross = .{
+                    .cpu = std.Target.Cpu.baseline(.x86_64),
+                    .os = std.Target.Os.defaultVersionRange(.linux),
                     .abi = .musl,
                 },
             },
@@ -84,18 +83,18 @@ const test_targets = blk: {
 
         TestTarget{
             .target = Target{
-                .Cross = CrossTarget{
-                    .cpu = Target.Cpu.baseline(.i386),
-                    .os = Target.Os.defaultVersionRange(.linux),
+                .Cross = .{
+                    .cpu = std.Target.Cpu.baseline(.i386),
+                    .os = std.Target.Os.defaultVersionRange(.linux),
                     .abi = .none,
                 },
             },
         },
         TestTarget{
             .target = Target{
-                .Cross = CrossTarget{
-                    .cpu = Target.Cpu.baseline(.i386),
-                    .os = Target.Os.defaultVersionRange(.linux),
+                .Cross = .{
+                    .cpu = std.Target.Cpu.baseline(.i386),
+                    .os = std.Target.Os.defaultVersionRange(.linux),
                     .abi = .musl,
                 },
             },
@@ -104,18 +103,18 @@ const test_targets = blk: {
 
         TestTarget{
             .target = Target{
-                .Cross = CrossTarget{
-                    .cpu = Target.Cpu.baseline(.aarch64),
-                    .os = Target.Os.defaultVersionRange(.linux),
+                .Cross = .{
+                    .cpu = std.Target.Cpu.baseline(.aarch64),
+                    .os = std.Target.Os.defaultVersionRange(.linux),
                     .abi = .none,
                 },
             },
         },
         TestTarget{
             .target = Target{
-                .Cross = CrossTarget{
-                    .cpu = Target.Cpu.baseline(.aarch64),
-                    .os = Target.Os.defaultVersionRange(.linux),
+                .Cross = .{
+                    .cpu = std.Target.Cpu.baseline(.aarch64),
+                    .os = std.Target.Os.defaultVersionRange(.linux),
                     .abi = .musl,
                 },
             },
@@ -123,9 +122,9 @@ const test_targets = blk: {
         },
         TestTarget{
             .target = Target{
-                .Cross = CrossTarget{
-                    .cpu = Target.Cpu.baseline(.aarch64),
-                    .os = Target.Os.defaultVersionRange(.linux),
+                .Cross = .{
+                    .cpu = std.Target.Cpu.baseline(.aarch64),
+                    .os = std.Target.Os.defaultVersionRange(.linux),
                     .abi = .gnu,
                 },
             },
@@ -133,21 +132,25 @@ const test_targets = blk: {
         },
 
         TestTarget{
-            .target = Target.parse(.{
-                .arch_os_abi = "arm-linux-none",
-                .cpu_features = "generic+v8a",
-            }) catch unreachable,
+            .target = .{
+                .Cross = std.Target.parse(.{
+                    .arch_os_abi = "arm-linux-none",
+                    .cpu_features = "generic+v8a",
+                }) catch unreachable,
+            },
         },
         TestTarget{
-            .target = Target.parse(.{
-                .arch_os_abi = "arm-linux-musleabihf",
-                .cpu_features = "generic+v8a",
-            }) catch unreachable,
+            .target = .{
+                .Cross = std.Target.parse(.{
+                    .arch_os_abi = "arm-linux-musleabihf",
+                    .cpu_features = "generic+v8a",
+                }) catch unreachable,
+            },
             .link_libc = true,
         },
         // TODO https://github.com/ziglang/zig/issues/3287
         //TestTarget{
-        //    .target = Target.parse(.{
+        //    .target = std.Target.parse(.{
         //        .arch_os_abi = "arm-linux-gnueabihf",
         //        .cpu_features = "generic+v8a",
         //    }) catch unreachable,
@@ -156,18 +159,18 @@ const test_targets = blk: {
 
         TestTarget{
             .target = Target{
-                .Cross = CrossTarget{
-                    .cpu = Target.Cpu.baseline(.mipsel),
-                    .os = Target.Os.defaultVersionRange(.linux),
+                .Cross = .{
+                    .cpu = std.Target.Cpu.baseline(.mipsel),
+                    .os = std.Target.Os.defaultVersionRange(.linux),
                     .abi = .none,
                 },
             },
         },
         TestTarget{
             .target = Target{
-                .Cross = CrossTarget{
-                    .cpu = Target.Cpu.baseline(.mipsel),
-                    .os = Target.Os.defaultVersionRange(.linux),
+                .Cross = .{
+                    .cpu = std.Target.Cpu.baseline(.mipsel),
+                    .os = std.Target.Os.defaultVersionRange(.linux),
                     .abi = .musl,
                 },
             },
@@ -176,9 +179,9 @@ const test_targets = blk: {
 
         TestTarget{
             .target = Target{
-                .Cross = CrossTarget{
-                    .cpu = Target.Cpu.baseline(.x86_64),
-                    .os = Target.Os.defaultVersionRange(.macosx),
+                .Cross = .{
+                    .cpu = std.Target.Cpu.baseline(.x86_64),
+                    .os = std.Target.Os.defaultVersionRange(.macosx),
                     .abi = .gnu,
                 },
             },
@@ -188,9 +191,9 @@ const test_targets = blk: {
 
         TestTarget{
             .target = Target{
-                .Cross = CrossTarget{
-                    .cpu = Target.Cpu.baseline(.i386),
-                    .os = Target.Os.defaultVersionRange(.windows),
+                .Cross = .{
+                    .cpu = std.Target.Cpu.baseline(.i386),
+                    .os = std.Target.Os.defaultVersionRange(.windows),
                     .abi = .msvc,
                 },
             },
@@ -198,9 +201,9 @@ const test_targets = blk: {
 
         TestTarget{
             .target = Target{
-                .Cross = CrossTarget{
-                    .cpu = Target.Cpu.baseline(.x86_64),
-                    .os = Target.Os.defaultVersionRange(.windows),
+                .Cross = .{
+                    .cpu = std.Target.Cpu.baseline(.x86_64),
+                    .os = std.Target.Os.defaultVersionRange(.windows),
                     .abi = .msvc,
                 },
             },
@@ -208,9 +211,9 @@ const test_targets = blk: {
 
         TestTarget{
             .target = Target{
-                .Cross = CrossTarget{
-                    .cpu = Target.Cpu.baseline(.i386),
-                    .os = Target.Os.defaultVersionRange(.windows),
+                .Cross = .{
+                    .cpu = std.Target.Cpu.baseline(.i386),
+                    .os = std.Target.Os.defaultVersionRange(.windows),
                     .abi = .gnu,
                 },
             },
@@ -219,9 +222,9 @@ const test_targets = blk: {
 
         TestTarget{
             .target = Target{
-                .Cross = CrossTarget{
-                    .cpu = Target.Cpu.baseline(.x86_64),
-                    .os = Target.Os.defaultVersionRange(.windows),
+                .Cross = .{
+                    .cpu = std.Target.Cpu.baseline(.x86_64),
+                    .os = std.Target.Os.defaultVersionRange(.windows),
                     .abi = .gnu,
                 },
             },
@@ -438,7 +441,7 @@ pub fn addPkgTests(
         if (skip_libc and test_target.link_libc)
             continue;
 
-        if (test_target.link_libc and test_target.target.osRequiresLibC()) {
+        if (test_target.link_libc and test_target.target.getTarget().osRequiresLibC()) {
             // This would be a redundant test.
             continue;
         }
@@ -448,8 +451,8 @@ pub fn addPkgTests(
 
         const ArchTag = @TagType(builtin.Arch);
         if (test_target.disable_native and
-            test_target.target.getOs() == builtin.os and
-            test_target.target.getArch() == builtin.arch)
+            test_target.target.getOs() == std.Target.current.os.tag and
+            test_target.target.getArch() == std.Target.current.cpu.arch)
         {
             continue;
         }
@@ -459,7 +462,7 @@ pub fn addPkgTests(
         } else false;
         if (!want_this_mode) continue;
 
-        const libc_prefix = if (test_target.target.osRequiresLibC())
+        const libc_prefix = if (test_target.target.getTarget().osRequiresLibC())
             ""
         else if (test_target.link_libc)
             "c"
@@ -469,7 +472,7 @@ pub fn addPkgTests(
         const triple_prefix = if (test_target.target == .Native)
             @as([]const u8, "native")
         else
-            test_target.target.zigTripleNoSubArch(b.allocator) catch unreachable;
+            test_target.target.zigTriple(b.allocator) catch unreachable;
 
         const these_tests = b.addTest(root_src);
         const single_threaded_txt = if (test_target.single_threaded) "single" else "multi";
@@ -660,7 +663,7 @@ pub const StackTracesContext = struct {
                     const delims = [_][]const u8{ ":", ":", ":", " in " };
                     var marks = [_]usize{0} ** 4;
                     // offset search past `[drive]:` on windows
-                    var pos: usize = if (builtin.os == .windows) 2 else 0;
+                    var pos: usize = if (std.Target.current.os.tag == .windows) 2 else 0;
                     for (delims) |delim, i| {
                         marks[i] = mem.indexOfPos(u8, line, pos, delim) orelse {
                             try buf.append(line);

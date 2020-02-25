@@ -1,5 +1,4 @@
 const tests = @import("tests.zig");
-const builtin = @import("builtin");
 const Target = @import("std").Target;
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
@@ -387,10 +386,10 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         , &[_][]const u8{
             "tmp.zig:3:5: error: target arch 'wasm32' does not support calling with a new stack",
         });
-        tc.target = Target{
+        tc.target = tests.Target{
             .Cross = .{
                 .cpu = Target.Cpu.baseline(.wasm32),
-                .os = .wasi,
+                .os = Target.Os.defaultVersionRange(.wasi),
                 .abi = .none,
             },
         };
@@ -788,10 +787,10 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         , &[_][]const u8{
             "tmp.zig:2:14: error: could not find 'foo' in the inputs or outputs",
         });
-        tc.target = Target{
+        tc.target = tests.Target{
             .Cross = .{
                 .cpu = Target.Cpu.baseline(.x86_64),
-                .os = .linux,
+                .os = Target.Os.defaultVersionRange(.linux),
                 .abi = .gnu,
             },
         };
@@ -1453,7 +1452,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:2:18: error: invalid operands to binary expression: 'error{A}' and 'error{B}'",
     });
 
-    if (builtin.os == builtin.Os.linux) {
+    if (Target.current.os.tag == .linux) {
         cases.addTest("implicit dependency on libc",
             \\extern "c" fn exit(u8) void;
             \\export fn entry() void {

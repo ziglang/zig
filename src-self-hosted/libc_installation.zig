@@ -7,11 +7,7 @@ const Allocator = std.mem.Allocator;
 const Batch = std.event.Batch;
 
 const is_darwin = Target.current.isDarwin();
-const is_windows = Target.current.isWindows();
-const is_freebsd = Target.current.isFreeBSD();
-const is_netbsd = Target.current.isNetBSD();
-const is_linux = Target.current.isLinux();
-const is_dragonfly = Target.current.isDragonFlyBSD();
+const is_windows = Target.current.os.tag == .windows;
 const is_gnu = Target.current.isGnu();
 
 usingnamespace @import("windows_sdk.zig");
@@ -216,10 +212,10 @@ pub const LibCInstallation = struct {
                 var batch = Batch(FindError!void, 2, .auto_async).init();
                 errdefer batch.wait() catch {};
                 batch.add(&async self.findNativeIncludeDirPosix(args));
-                if (is_freebsd or is_netbsd) {
-                    self.crt_dir = try std.mem.dupeZ(args.allocator, u8, "/usr/lib");
-                } else if (is_linux or is_dragonfly) {
-                    batch.add(&async self.findNativeCrtDirPosix(args));
+                switch (Target.current.os.tag) {
+                    .freebsd, .netbsd => self.crt_dir = try std.mem.dupeZ(args.allocator, u8, "/usr/lib"),
+                    .linux, .dragonfly => batch.add(&async self.findNativeCrtDirPosix(args)),
+                    else => {},
                 }
                 break :blk batch.wait();
             };

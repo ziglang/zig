@@ -971,7 +971,7 @@ pub const Builder = struct {
 };
 
 test "builder.findProgram compiles" {
-    var buf: [1000]u8 = undefined;
+    var buf: [50000]u8 = undefined;
     var fba = std.heap.FixedBufferAllocator.init(&buf);
     const builder = try Builder.create(&fba.allocator, "zig", "zig-cache", "zig-cache");
     defer builder.destroy();
@@ -1010,6 +1010,77 @@ pub const Target = union(enum) {
 
     pub fn getArch(self: Target) std.Target.Cpu.Arch {
         return self.getCpu().arch;
+    }
+
+    pub fn isFreeBSD(self: Target) bool {
+        return self.getTarget().os.tag == .freebsd;
+    }
+
+    pub fn isDarwin(self: Target) bool {
+        return self.getTarget().os.tag.isDarwin();
+    }
+
+    pub fn isNetBSD(self: Target) bool {
+        return self.getTarget().os.tag == .netbsd;
+    }
+
+    pub fn isUefi(self: Target) bool {
+        return self.getTarget().os.tag == .uefi;
+    }
+
+    pub fn isDragonFlyBSD(self: Target) bool {
+        return self.getTarget().os.tag == .dragonfly;
+    }
+
+    pub fn isLinux(self: Target) bool {
+        return self.getTarget().os.tag == .linux;
+    }
+
+    pub fn isWindows(self: Target) bool {
+        return self.getTarget().os.tag == .windows;
+    }
+
+    pub fn oFileExt(self: Target) []const u8 {
+        return self.getTarget().oFileExt();
+    }
+
+    pub fn exeFileExt(self: Target) []const u8 {
+        return self.getTarget().exeFileExt();
+    }
+
+    pub fn staticLibSuffix(self: Target) []const u8 {
+        return self.getTarget().staticLibSuffix();
+    }
+
+    pub fn libPrefix(self: Target) []const u8 {
+        return self.getTarget().libPrefix();
+    }
+
+    pub fn zigTriple(self: Target, allocator: *mem.Allocator) ![]u8 {
+        return self.getTarget().zigTriple(allocator);
+    }
+
+    pub fn linuxTriple(self: Target, allocator: *mem.Allocator) ![]u8 {
+        return self.getTarget().linuxTriple(allocator);
+    }
+
+    pub fn wantSharedLibSymLinks(self: Target) bool {
+        return self.getTarget().wantSharedLibSymLinks();
+    }
+
+    pub fn vcpkgTriplet(self: Target, allocator: *mem.Allocator, linkage: std.build.VcpkgLinkage) ![]const u8 {
+        return self.getTarget().vcpkgTriplet(allocator, linkage);
+    }
+
+    pub fn getExternalExecutor(self: Target) std.Target.Executor {
+        switch (self) {
+            .Native => return .native,
+            .Cross => |t| return t.getExternalExecutor(),
+        }
+    }
+
+    pub fn isGnuLibC(self: Target) bool {
+        return self.getTarget().isGnuLibC();
     }
 };
 
@@ -1718,7 +1789,7 @@ pub const LibExeObjStep = struct {
             .NotFound => return error.VcpkgNotFound,
             .Found => |root| {
                 const allocator = self.builder.allocator;
-                const triplet = try Target.vcpkgTriplet(allocator, self.target, linkage);
+                const triplet = try self.target.vcpkgTriplet(allocator, linkage);
                 defer self.builder.allocator.free(triplet);
 
                 const include_path = try fs.path.join(allocator, &[_][]const u8{ root, "installed", triplet, "include" });
@@ -1944,7 +2015,7 @@ pub const LibExeObjStep = struct {
                 if (populated_cpu_features.eql(cross.cpu.features)) {
                     // The CPU name alone is sufficient.
                     // If it is the baseline CPU, no command line args are required.
-                    if (cross.cpu.model != Target.Cpu.baseline(self.target.getArch()).model) {
+                    if (cross.cpu.model != std.Target.Cpu.baseline(self.target.getArch()).model) {
                         try zig_args.append("-mcpu");
                         try zig_args.append(cross.cpu.model.name);
                     }
@@ -1953,7 +2024,7 @@ pub const LibExeObjStep = struct {
                     try mcpu_buffer.append(cross.cpu.model.name);
 
                     for (all_features) |feature, i_usize| {
-                        const i = @intCast(Target.Cpu.Feature.Set.Index, i_usize);
+                        const i = @intCast(std.Target.Cpu.Feature.Set.Index, i_usize);
                         const in_cpu_set = populated_cpu_features.isEnabled(i);
                         const in_actual_set = cross.cpu.features.isEnabled(i);
                         if (in_cpu_set and !in_actual_set) {
@@ -2001,7 +2072,7 @@ pub const LibExeObjStep = struct {
         } else switch (self.target.getExternalExecutor()) {
             .native, .unavailable => {},
             .qemu => |bin_name| if (self.enable_qemu) qemu: {
-                const need_cross_glibc = self.target.isGnu() and self.target.isLinux() and self.is_linking_libc;
+                const need_cross_glibc = self.target.isGnuLibC() and self.is_linking_libc;
                 const glibc_dir_arg = if (need_cross_glibc)
                     self.glibc_multi_install_dir orelse break :qemu
                 else

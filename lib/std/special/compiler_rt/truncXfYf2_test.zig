@@ -151,7 +151,7 @@ fn test__trunctfsf2(a: f128, expected: u32) void {
 }
 
 test "trunctfsf2" {
-    if (@import("std").Target.current.isWindows()) {
+    if (@import("std").Target.current.os.tag == .windows) {
         // TODO https://github.com/ziglang/zig/issues/508
         return error.SkipZigTest;
     }
@@ -190,7 +190,7 @@ fn test__trunctfdf2(a: f128, expected: u64) void {
 }
 
 test "trunctfdf2" {
-    if (@import("std").Target.current.isWindows()) {
+    if (@import("std").Target.current.os.tag == .windows) {
         // TODO https://github.com/ziglang/zig/issues/508
         return error.SkipZigTest;
     }

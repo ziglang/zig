@@ -14,7 +14,7 @@ pub const TranslateCStep = struct {
     source: build.FileSource,
     output_dir: ?[]const u8,
     out_basename: []const u8,
-    target: std.Target = .Native,
+    target: build.Target = .Native,
 
     pub fn create(builder: *Builder, source: build.FileSource) *TranslateCStep {
         const self = builder.allocator.create(TranslateCStep) catch unreachable;
@@ -39,7 +39,7 @@ pub const TranslateCStep = struct {
         ) catch unreachable;
     }
 
-    pub fn setTarget(self: *TranslateCStep, target: std.Target) void {
+    pub fn setTarget(self: *TranslateCStep, target: build.Target) void {
         self.target = target;
     }
 

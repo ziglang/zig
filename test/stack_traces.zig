@@ -1,4 +1,3 @@
-const builtin = @import("builtin");
 const std = @import("std");
 const os = std.os;
 const tests = @import("tests.zig");
@@ -43,32 +42,32 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
         \\}
     ;
 
-    switch (builtin.os) {
+    switch (builtin.os.tag) {
         .freebsd => {
             cases.addCase(
                 "return",
                 source_return,
                 [_][]const u8{
                 // debug
-                    \\error: TheSkyIsFalling
+                \\error: TheSkyIsFalling
                     \\source.zig:4:5: [address] in main (test)
                     \\    return error.TheSkyIsFalling;
                     \\    ^
                     \\
                 ,
                 // release-safe
-                    \\error: TheSkyIsFalling
+                \\error: TheSkyIsFalling
                     \\source.zig:4:5: [address] in std.start.main (test)
                     \\    return error.TheSkyIsFalling;
                     \\    ^
                     \\
                 ,
                 // release-fast
-                    \\error: TheSkyIsFalling
+                \\error: TheSkyIsFalling
                     \\
                 ,
                 // release-small
-                    \\error: TheSkyIsFalling
+                \\error: TheSkyIsFalling
                     \\
                 },
             );
@@ -77,7 +76,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
                 source_try_return,
                 [_][]const u8{
                 // debug
-                    \\error: TheSkyIsFalling
+                \\error: TheSkyIsFalling
                     \\source.zig:4:5: [address] in foo (test)
                     \\    return error.TheSkyIsFalling;
                     \\    ^
@@ -87,7 +86,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
                     \\
                 ,
                 // release-safe
-                    \\error: TheSkyIsFalling
+                \\error: TheSkyIsFalling
                     \\source.zig:4:5: [address] in std.start.main (test)
                     \\    return error.TheSkyIsFalling;
                     \\    ^
@@ -97,11 +96,11 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
                     \\
                 ,
                 // release-fast
-                    \\error: TheSkyIsFalling
+                \\error: TheSkyIsFalling
                     \\
                 ,
                 // release-small
-                    \\error: TheSkyIsFalling
+                \\error: TheSkyIsFalling
                     \\
                 },
             );
@@ -110,7 +109,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
                 source_try_try_return_return,
                 [_][]const u8{
                 // debug
-                    \\error: TheSkyIsFalling
+                \\error: TheSkyIsFalling
                     \\source.zig:12:5: [address] in make_error (test)
                     \\    return error.TheSkyIsFalling;
                     \\    ^
@@ -126,7 +125,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
                     \\
                 ,
                 // release-safe
-                    \\error: TheSkyIsFalling
+                \\error: TheSkyIsFalling
                     \\source.zig:12:5: [address] in std.start.main (test)
                     \\    return error.TheSkyIsFalling;
                     \\    ^
@@ -142,11 +141,11 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
                     \\
                 ,
                 // release-fast
-                    \\error: TheSkyIsFalling
+                \\error: TheSkyIsFalling
                     \\
                 ,
                 // release-small
-                    \\error: TheSkyIsFalling
+                \\error: TheSkyIsFalling
                     \\
                 },
             );
@@ -157,25 +156,25 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
                 source_return,
                 [_][]const u8{
                 // debug
-                    \\error: TheSkyIsFalling
+                \\error: TheSkyIsFalling
                     \\source.zig:4:5: [address] in main (test)
                     \\    return error.TheSkyIsFalling;
                     \\    ^
                     \\
                 ,
                 // release-safe
-                    \\error: TheSkyIsFalling
+                \\error: TheSkyIsFalling
                     \\source.zig:4:5: [address] in std.start.posixCallMainAndExit (test)
                     \\    return error.TheSkyIsFalling;
                     \\    ^
                     \\
                 ,
                 // release-fast
-                    \\error: TheSkyIsFalling
+                \\error: TheSkyIsFalling
                     \\
                 ,
                 // release-small
-                    \\error: TheSkyIsFalling
+                \\error: TheSkyIsFalling
                     \\
                 },
             );
@@ -184,7 +183,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
                 source_try_return,
                 [_][]const u8{
                 // debug
-                    \\error: TheSkyIsFalling
+                \\error: TheSkyIsFalling
                     \\source.zig:4:5: [address] in foo (test)
                     \\    return error.TheSkyIsFalling;
                     \\    ^
@@ -194,7 +193,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
                     \\
                 ,
                 // release-safe
-                    \\error: TheSkyIsFalling
+                \\error: TheSkyIsFalling
                     \\source.zig:4:5: [address] in std.start.posixCallMainAndExit (test)
                     \\    return error.TheSkyIsFalling;
                     \\    ^
@@ -204,11 +203,11 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
                     \\
                 ,
                 // release-fast
-                    \\error: TheSkyIsFalling
+                \\error: TheSkyIsFalling
                     \\
                 ,
                 // release-small
-                    \\error: TheSkyIsFalling
+                \\error: TheSkyIsFalling
                     \\
                 },
             );
@@ -217,7 +216,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
                 source_try_try_return_return,
                 [_][]const u8{
                 // debug
-                    \\error: TheSkyIsFalling
+                \\error: TheSkyIsFalling
                     \\source.zig:12:5: [address] in make_error (test)
                     \\    return error.TheSkyIsFalling;
                     \\    ^
@@ -233,7 +232,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
                     \\
                 ,
                 // release-safe
-                    \\error: TheSkyIsFalling
+                \\error: TheSkyIsFalling
                     \\source.zig:12:5: [address] in std.start.posixCallMainAndExit (test)
                     \\    return error.TheSkyIsFalling;
                     \\    ^
@@ -249,11 +248,11 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
                     \\
                 ,
                 // release-fast
-                    \\error: TheSkyIsFalling
+                \\error: TheSkyIsFalling
                     \\
                 ,
                 // release-small
-                    \\error: TheSkyIsFalling
+                \\error: TheSkyIsFalling
                     \\
                 },
             );
@@ -278,11 +277,11 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
                     \\
                 ,
                 // release-fast
-                    \\error: TheSkyIsFalling
+                \\error: TheSkyIsFalling
                     \\
                 ,
                 // release-small
-                    \\error: TheSkyIsFalling
+                \\error: TheSkyIsFalling
                     \\
                 },
             );
@@ -311,11 +310,11 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
                     \\
                 ,
                 // release-fast
-                    \\error: TheSkyIsFalling
+                \\error: TheSkyIsFalling
                     \\
                 ,
                 // release-small
-                    \\error: TheSkyIsFalling
+                \\error: TheSkyIsFalling
                     \\
                 },
             );
@@ -356,11 +355,11 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
                     \\
                 ,
                 // release-fast
-                    \\error: TheSkyIsFalling
+                \\error: TheSkyIsFalling
                     \\
                 ,
                 // release-small
-                    \\error: TheSkyIsFalling
+                \\error: TheSkyIsFalling
                     \\
                 },
             );
@@ -371,7 +370,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
                 source_return,
                 [_][]const u8{
                 // debug
-                    \\error: TheSkyIsFalling
+                \\error: TheSkyIsFalling
                     \\source.zig:4:5: [address] in main (test.obj)
                     \\    return error.TheSkyIsFalling;
                     \\    ^
@@ -381,11 +380,11 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
                 // --disabled-- results in segmenetation fault
                 "",
                 // release-fast
-                    \\error: TheSkyIsFalling
+                \\error: TheSkyIsFalling
                     \\
                 ,
                 // release-small
-                    \\error: TheSkyIsFalling
+                \\error: TheSkyIsFalling
                     \\
                 },
             );
@@ -407,11 +406,11 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
                 // --disabled-- results in segmenetation fault
                 "",
                 // release-fast
-                    \\error: TheSkyIsFalling
+                \\error: TheSkyIsFalling
                     \\
                 ,
                 // release-small
-                    \\error: TheSkyIsFalling
+                \\error: TheSkyIsFalling
                     \\
                 },
             );
@@ -439,11 +438,11 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
                 // --disabled-- results in segmenetation fault
                 "",
                 // release-fast
-                    \\error: TheSkyIsFalling
+                \\error: TheSkyIsFalling
                     \\
                 ,
                 // release-small
-                    \\error: TheSkyIsFalling
+                \\error: TheSkyIsFalling
                     \\
                 },
             );

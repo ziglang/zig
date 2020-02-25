@@ -650,7 +650,7 @@ pub fn writev(fd: fd_t, iov: []const iovec_const) WriteError!void {
 /// On Windows, if the application has a global event loop enabled, I/O Completion Ports are
 /// used to perform the I/O. `error.WouldBlock` is not possible on Windows.
 pub fn pwrite(fd: fd_t, bytes: []const u8, offset: u64) WriteError!void {
-    if (comptime std.Target.current.isWindows()) {
+    if (std.Target.current.os.tag == .windows) {
         return windows.WriteFile(fd, bytes, offset);
     }
 
@@ -739,7 +739,7 @@ pub fn pwritev(fd: fd_t, iov: []const iovec_const, offset: u64) WriteError!void 
         }
     }
 
-    if (comptime std.Target.current.isWindows()) {
+    if (std.Target.current.os.tag == .windows) {
         var off = offset;
         for (iov) |item| {
             try pwrite(fd, item.iov_base[0..item.iov_len], off);

@@ -19,7 +19,7 @@ pub const TranslateCContext = struct {
         sources: ArrayList(SourceFile),
         expected_lines: ArrayList([]const u8),
         allow_warnings: bool,
-        target: std.Target = .Native,
+        target: build.Target = .Native,
 
         const SourceFile = struct {
             filename: []const u8,
@@ -75,7 +75,7 @@ pub const TranslateCContext = struct {
     pub fn addWithTarget(
         self: *TranslateCContext,
         name: []const u8,
-        target: std.Target,
+        target: build.Target,
         source: []const u8,
         expected_lines: []const []const u8,
     ) void {
