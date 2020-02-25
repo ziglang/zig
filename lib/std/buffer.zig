@@ -149,13 +149,7 @@ pub const Buffer = struct {
     }
 
     pub fn print(self: *Buffer, comptime fmt: []const u8, args: var) !void {
-        try std.fmt.format(
-            self,
-            @typeInfo(@TypeOf(Buffer.append)).Fn.return_type.?.ErrorSet,
-            Buffer.append,
-            fmt,
-            args,
-        );
+        return std.fmt.format(self, error{OutOfMemory}, Buffer.append, fmt, args);
     }
 };
 
