@@ -1,3 +1,12 @@
+test "zig fmt: noasync await" {
+    try testCanonical(
+        \\fn foo() void {
+        \\    x = noasync await y;
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: trailing comma in container declaration" {
     try testCanonical(
         \\const X = struct { foo: i32 };
@@ -83,10 +92,12 @@ test "zig fmt: convert extern/nakedcc/stdcallcc into callconv(...)" {
         \\nakedcc fn foo1() void {}
         \\stdcallcc fn foo2() void {}
         \\extern fn foo3() void {}
+        \\extern "mylib" fn foo4() void {}
     ,
         \\fn foo1() callconv(.Naked) void {}
         \\fn foo2() callconv(.Stdcall) void {}
         \\fn foo3() callconv(.C) void {}
+        \\fn foo4() callconv(.C) void {}
         \\
     );
 }
@@ -1399,7 +1410,7 @@ test "zig fmt: same-line comment after non-block if expression" {
 test "zig fmt: same-line comment on comptime expression" {
     try testCanonical(
         \\test "" {
-        \\    comptime assert(@typeId(T) == builtin.TypeId.Int); // must pass an integer to absInt
+        \\    comptime assert(@typeInfo(T) == .Int); // must pass an integer to absInt
         \\}
         \\
     );

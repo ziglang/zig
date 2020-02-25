@@ -1187,7 +1187,7 @@ pub const RTL_USER_PROCESS_PARAMETERS = extern struct {
     DllPath: UNICODE_STRING,
     ImagePathName: UNICODE_STRING,
     CommandLine: UNICODE_STRING,
-    Environment: [*]WCHAR,
+    Environment: [*:0]WCHAR,
     dwX: ULONG,
     dwY: ULONG,
     dwXSize: ULONG,

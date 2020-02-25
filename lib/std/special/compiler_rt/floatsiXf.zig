@@ -5,8 +5,8 @@ const maxInt = std.math.maxInt;
 fn floatsiXf(comptime T: type, a: i32) T {
     @setRuntimeSafety(builtin.is_test);
 
-    const Z = @IntType(false, T.bit_count);
-    const S = @IntType(false, T.bit_count - @clz(Z, @as(Z, T.bit_count) - 1));
+    const Z = std.meta.IntType(false, T.bit_count);
+    const S = std.meta.IntType(false, T.bit_count - @clz(Z, @as(Z, T.bit_count) - 1));
 
     if (a == 0) {
         return @as(T, 0.0);

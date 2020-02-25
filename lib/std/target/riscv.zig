@@ -1,5 +1,6 @@
 const std = @import("../std.zig");
-const Cpu = std.Target.Cpu;
+const CpuFeature = std.Target.Cpu.Feature;
+const CpuModel = std.Target.Cpu.Model;
 
 pub const Feature = enum {
     @"64bit",
@@ -44,12 +45,12 @@ pub const Feature = enum {
     rvc_hints,
 };
 
-pub usingnamespace Cpu.Feature.feature_set_fns(Feature);
+pub usingnamespace CpuFeature.feature_set_fns(Feature);
 
 pub const all_features = blk: {
     const len = @typeInfo(Feature).Enum.fields.len;
-    std.debug.assert(len <= Cpu.Feature.Set.needed_bit_count);
-    var result: [len]Cpu.Feature = undefined;
+    std.debug.assert(len <= CpuFeature.Set.needed_bit_count);
+    var result: [len]CpuFeature = undefined;
     result[@enumToInt(Feature.@"64bit")] = .{
         .llvm_name = "64bit",
         .description = "Implements RV64",
@@ -261,7 +262,7 @@ pub const all_features = blk: {
 };
 
 pub const cpu = struct {
-    pub const baseline_rv32 = Cpu{
+    pub const baseline_rv32 = CpuModel{
         .name = "baseline_rv32",
         .llvm_name = null,
         .features = featureSet(&[_]Feature{
@@ -273,7 +274,7 @@ pub const cpu = struct {
         }),
     };
 
-    pub const baseline_rv64 = Cpu{
+    pub const baseline_rv64 = CpuModel{
         .name = "baseline_rv64",
         .llvm_name = null,
         .features = featureSet(&[_]Feature{
@@ -286,14 +287,14 @@ pub const cpu = struct {
         }),
     };
 
-    pub const generic_rv32 = Cpu{
+    pub const generic_rv32 = CpuModel{
         .name = "generic_rv32",
         .llvm_name = null,
         .features = featureSet(&[_]Feature{
             .rvc_hints,
         }),
     };
-    pub const generic_rv64 = Cpu{
+    pub const generic_rv64 = CpuModel{
         .name = "generic_rv64",
         .llvm_name = null,
         .features = featureSet(&[_]Feature{
@@ -306,7 +307,7 @@ pub const cpu = struct {
 /// All riscv CPUs, sorted alphabetically by name.
 /// TODO: Replace this with usage of `std.meta.declList`. It does work, but stage1
 /// compiler has inefficient memory and CPU usage, affecting build times.
-pub const all_cpus = &[_]*const Cpu{
+pub const all_cpus = &[_]*const CpuModel{
     &cpu.baseline_rv32,
     &cpu.baseline_rv64,
     &cpu.generic_rv32,

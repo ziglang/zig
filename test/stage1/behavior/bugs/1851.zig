@@ -13,7 +13,7 @@ test "allocation and looping over 3-byte integer" {
     x[0] = 0xFFFFFF;
     x[1] = 0xFFFFFF;
 
-    const bytes = @sliceToBytes(x);
+    const bytes = std.mem.sliceAsBytes(x);
     expect(@TypeOf(bytes) == []align(4) u8);
     expect(bytes.len == 8);
 

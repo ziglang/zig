@@ -113,37 +113,14 @@ pub fn cmdTargets(
     try jws.beginObject();
 
     try jws.objectField("arch");
-    try jws.beginObject();
+    try jws.beginArray();
     {
-        inline for (@typeInfo(Target.Arch).Union.fields) |field| {
-            try jws.objectField(field.name);
-            if (field.field_type == void) {
-                try jws.emitNull();
-            } else {
-                try jws.emitString(@typeName(field.field_type));
-            }
-        }
-    }
-    try jws.endObject();
-
-    try jws.objectField("subArch");
-    try jws.beginObject();
-    const sub_arch_list = [_]type{
-        Target.Arch.Arm32,
-        Target.Arch.Arm64,
-        Target.Arch.Kalimba,
-        Target.Arch.Mips,
-    };
-    inline for (sub_arch_list) |SubArch| {
-        try jws.objectField(@typeName(SubArch));
-        try jws.beginArray();
-        inline for (@typeInfo(SubArch).Enum.fields) |field| {
+        inline for (@typeInfo(Target.Cpu.Arch).Enum.fields) |field| {
             try jws.arrayElem();
             try jws.emitString(field.name);
         }
-        try jws.endArray();
     }
-    try jws.endObject();
+    try jws.endArray();
 
     try jws.objectField("os");
     try jws.beginArray();
@@ -179,15 +156,15 @@ pub fn cmdTargets(
 
     try jws.objectField("cpus");
     try jws.beginObject();
-    inline for (@typeInfo(Target.Arch).Union.fields) |field| {
+    inline for (@typeInfo(Target.Cpu.Arch).Enum.fields) |field| {
         try jws.objectField(field.name);
         try jws.beginObject();
-        const arch = @unionInit(Target.Arch, field.name, undefined);
-        for (arch.allCpus()) |cpu| {
-            try jws.objectField(cpu.name);
+        const arch = @field(Target.Cpu.Arch, field.name);
+        for (arch.allCpuModels()) |model| {
+            try jws.objectField(model.name);
             try jws.beginArray();
             for (arch.allFeaturesList()) |feature, i| {
-                if (cpu.features.isEnabled(@intCast(u8, i))) {
+                if (model.features.isEnabled(@intCast(u8, i))) {
                     try jws.arrayElem();
                     try jws.emitString(feature.name);
                 }
@@ -200,10 +177,10 @@ pub fn cmdTargets(
 
     try jws.objectField("cpuFeatures");
     try jws.beginObject();
-    inline for (@typeInfo(Target.Arch).Union.fields) |field| {
+    inline for (@typeInfo(Target.Cpu.Arch).Enum.fields) |field| {
         try jws.objectField(field.name);
         try jws.beginArray();
-        const arch = @unionInit(Target.Arch, field.name, undefined);
+        const arch = @field(Target.Cpu.Arch, field.name);
         for (arch.allFeaturesList()) |feature| {
             try jws.arrayElem();
             try jws.emitString(feature.name);
@@ -220,27 +197,34 @@ pub fn cmdTargets(
         try jws.objectField("triple");
         try jws.emitString(triple);
     }
-    try jws.objectField("arch");
-    try jws.emitString(@tagName(native_target.getArch()));
+    {
+        try jws.objectField("cpu");
+        try jws.beginObject();
+        try jws.objectField("arch");
+        try jws.emitString(@tagName(native_target.getArch()));
+
+        try jws.objectField("name");
+        const cpu = native_target.getCpu();
+        try jws.emitString(cpu.model.name);
+
+        {
+            try jws.objectField("features");
+            try jws.beginArray();
+            for (native_target.getArch().allFeaturesList()) |feature, i_usize| {
+                const index = @intCast(Target.Cpu.Feature.Set.Index, i_usize);
+                if (cpu.features.isEnabled(index)) {
+                    try jws.arrayElem();
+                    try jws.emitString(feature.name);
+                }
+            }
+            try jws.endArray();
+        }
+        try jws.endObject();
+    }
     try jws.objectField("os");
     try jws.emitString(@tagName(native_target.getOs()));
     try jws.objectField("abi");
     try jws.emitString(@tagName(native_target.getAbi()));
-    try jws.objectField("cpuName");
-    const cpu_features = native_target.getCpuFeatures();
-    try jws.emitString(cpu_features.cpu.name);
-    {
-        try jws.objectField("cpuFeatures");
-        try jws.beginArray();
-        for (native_target.getArch().allFeaturesList()) |feature, i_usize| {
-            const index = @intCast(Target.Cpu.Feature.Set.Index, i_usize);
-            if (cpu_features.features.isEnabled(index)) {
-                try jws.arrayElem();
-                try jws.emitString(feature.name);
-            }
-        }
-        try jws.endArray();
-    }
     // TODO implement native glibc version detection in self-hosted
     try jws.endObject();
 

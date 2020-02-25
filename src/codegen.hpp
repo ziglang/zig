@@ -11,23 +11,21 @@
 #include "parser.hpp"
 #include "errmsg.hpp"
 #include "target.hpp"
-#include "libc_installation.hpp"
-#include "userland.h"
+#include "stage2.h"
 
 #include <stdio.h>
 
 CodeGen *codegen_create(Buf *main_pkg_path, Buf *root_src_path, const ZigTarget *target,
     OutType out_type, BuildMode build_mode, Buf *zig_lib_dir,
-    ZigLibCInstallation *libc, Buf *cache_dir, bool is_test_build, Stage2ProgressNode *progress_node);
+    Stage2LibCInstallation *libc, Buf *cache_dir, bool is_test_build, Stage2ProgressNode *progress_node);
 
 CodeGen *create_child_codegen(CodeGen *parent_gen, Buf *root_src_path, OutType out_type,
-        ZigLibCInstallation *libc, const char *name, Stage2ProgressNode *progress_node);
+        Stage2LibCInstallation *libc, const char *name, Stage2ProgressNode *progress_node);
 
 void codegen_set_clang_argv(CodeGen *codegen, const char **args, size_t len);
 void codegen_set_llvm_argv(CodeGen *codegen, const char **args, size_t len);
 void codegen_set_each_lib_rpath(CodeGen *codegen, bool each_lib_rpath);
 
-void codegen_set_emit_file_type(CodeGen *g, EmitFileType emit_file_type);
 void codegen_set_strip(CodeGen *codegen, bool strip);
 void codegen_set_errmsg_color(CodeGen *codegen, ErrColor err_color);
 void codegen_set_out_name(CodeGen *codegen, Buf *out_name);

@@ -1,6 +1,7 @@
 const std = @import("std");
 const expect = std.testing.expect;
 const expectError = std.testing.expectError;
+const expectEqual = std.testing.expectEqual;
 
 test "switch with numbers" {
     testSwitchWithNumbers(13);
@@ -490,6 +491,27 @@ test "switch on error set with single else" {
         }
     };
 
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "while copies its payload" {
+    const S = struct {
+        fn doTheTest() void {
+            var tmp: union(enum) {
+                A: u8,
+                B: u32,
+            } = .{ .A = 42 };
+            switch (tmp) {
+                .A => |value| {
+                    // Modify the original union
+                    tmp = .{ .B = 0x10101010 };
+                    expectEqual(@as(u8, 42), value);
+                },
+                else => unreachable,
+            }
+        }
+    };
     S.doTheTest();
     comptime S.doTheTest();
 }

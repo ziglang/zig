@@ -1,5 +1,4 @@
 const std = @import("../std.zig");
-const builtin = @import("builtin");
 const assert = std.debug.assert;
 const mem = std.mem;
 const ast = std.zig.ast;
@@ -14,7 +13,7 @@ pub const Error = error{
 
 /// Returns whether anything changed
 pub fn render(allocator: *mem.Allocator, stream: var, tree: *ast.Tree) (@TypeOf(stream).Child.Error || Error)!bool {
-    comptime assert(@typeId(@TypeOf(stream)) == builtin.TypeId.Pointer);
+    comptime assert(@typeInfo(@TypeOf(stream)) == .Pointer);
 
     var anything_changed: bool = false;
 
@@ -584,10 +583,16 @@ fn renderExpression(
                 },
 
                 .Try,
-                .Await,
                 .Cancel,
                 .Resume,
                 => {
+                    try renderToken(tree, stream, prefix_op_node.op_token, indent, start_col, Space.Space);
+                },
+
+                .Await => |await_info| {
+                    if (await_info.noasync_token) |tok| {
+                        try renderToken(tree, stream, tok, indent, start_col, Space.Space);
+                    }
                     try renderToken(tree, stream, prefix_op_node.op_token, indent, start_col, Space.Space);
                 },
             }
@@ -1390,6 +1395,7 @@ fn renderExpression(
                     try renderToken(tree, stream, extern_export_inline_token, indent, start_col, Space.Space); // extern/export
                 } else {
                     cc_rewrite_str = ".C";
+                    fn_proto.lib_name = null;
                 }
             }
 

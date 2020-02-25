@@ -1,5 +1,6 @@
 const std = @import("../std.zig");
-const Cpu = std.Target.Cpu;
+const CpuFeature = std.Target.Cpu.Feature;
+const CpuModel = std.Target.Cpu.Model;
 
 pub const Feature = enum {
     ptx32,
@@ -29,12 +30,12 @@ pub const Feature = enum {
     sm_75,
 };
 
-pub usingnamespace Cpu.Feature.feature_set_fns(Feature);
+pub usingnamespace CpuFeature.feature_set_fns(Feature);
 
 pub const all_features = blk: {
     const len = @typeInfo(Feature).Enum.fields.len;
-    std.debug.assert(len <= Cpu.Feature.Set.needed_bit_count);
-    var result: [len]Cpu.Feature = undefined;
+    std.debug.assert(len <= CpuFeature.Set.needed_bit_count);
+    var result: [len]CpuFeature = undefined;
     result[@enumToInt(Feature.ptx32)] = .{
         .llvm_name = "ptx32",
         .description = "Use PTX version 3.2",
@@ -169,28 +170,28 @@ pub const all_features = blk: {
 };
 
 pub const cpu = struct {
-    pub const sm_20 = Cpu{
+    pub const sm_20 = CpuModel{
         .name = "sm_20",
         .llvm_name = "sm_20",
         .features = featureSet(&[_]Feature{
             .sm_20,
         }),
     };
-    pub const sm_21 = Cpu{
+    pub const sm_21 = CpuModel{
         .name = "sm_21",
         .llvm_name = "sm_21",
         .features = featureSet(&[_]Feature{
             .sm_21,
         }),
     };
-    pub const sm_30 = Cpu{
+    pub const sm_30 = CpuModel{
         .name = "sm_30",
         .llvm_name = "sm_30",
         .features = featureSet(&[_]Feature{
             .sm_30,
         }),
     };
-    pub const sm_32 = Cpu{
+    pub const sm_32 = CpuModel{
         .name = "sm_32",
         .llvm_name = "sm_32",
         .features = featureSet(&[_]Feature{
@@ -198,14 +199,14 @@ pub const cpu = struct {
             .sm_32,
         }),
     };
-    pub const sm_35 = Cpu{
+    pub const sm_35 = CpuModel{
         .name = "sm_35",
         .llvm_name = "sm_35",
         .features = featureSet(&[_]Feature{
             .sm_35,
         }),
     };
-    pub const sm_37 = Cpu{
+    pub const sm_37 = CpuModel{
         .name = "sm_37",
         .llvm_name = "sm_37",
         .features = featureSet(&[_]Feature{
@@ -213,7 +214,7 @@ pub const cpu = struct {
             .sm_37,
         }),
     };
-    pub const sm_50 = Cpu{
+    pub const sm_50 = CpuModel{
         .name = "sm_50",
         .llvm_name = "sm_50",
         .features = featureSet(&[_]Feature{
@@ -221,7 +222,7 @@ pub const cpu = struct {
             .sm_50,
         }),
     };
-    pub const sm_52 = Cpu{
+    pub const sm_52 = CpuModel{
         .name = "sm_52",
         .llvm_name = "sm_52",
         .features = featureSet(&[_]Feature{
@@ -229,7 +230,7 @@ pub const cpu = struct {
             .sm_52,
         }),
     };
-    pub const sm_53 = Cpu{
+    pub const sm_53 = CpuModel{
         .name = "sm_53",
         .llvm_name = "sm_53",
         .features = featureSet(&[_]Feature{
@@ -237,7 +238,7 @@ pub const cpu = struct {
             .sm_53,
         }),
     };
-    pub const sm_60 = Cpu{
+    pub const sm_60 = CpuModel{
         .name = "sm_60",
         .llvm_name = "sm_60",
         .features = featureSet(&[_]Feature{
@@ -245,7 +246,7 @@ pub const cpu = struct {
             .sm_60,
         }),
     };
-    pub const sm_61 = Cpu{
+    pub const sm_61 = CpuModel{
         .name = "sm_61",
         .llvm_name = "sm_61",
         .features = featureSet(&[_]Feature{
@@ -253,7 +254,7 @@ pub const cpu = struct {
             .sm_61,
         }),
     };
-    pub const sm_62 = Cpu{
+    pub const sm_62 = CpuModel{
         .name = "sm_62",
         .llvm_name = "sm_62",
         .features = featureSet(&[_]Feature{
@@ -261,7 +262,7 @@ pub const cpu = struct {
             .sm_62,
         }),
     };
-    pub const sm_70 = Cpu{
+    pub const sm_70 = CpuModel{
         .name = "sm_70",
         .llvm_name = "sm_70",
         .features = featureSet(&[_]Feature{
@@ -269,7 +270,7 @@ pub const cpu = struct {
             .sm_70,
         }),
     };
-    pub const sm_72 = Cpu{
+    pub const sm_72 = CpuModel{
         .name = "sm_72",
         .llvm_name = "sm_72",
         .features = featureSet(&[_]Feature{
@@ -277,7 +278,7 @@ pub const cpu = struct {
             .sm_72,
         }),
     };
-    pub const sm_75 = Cpu{
+    pub const sm_75 = CpuModel{
         .name = "sm_75",
         .llvm_name = "sm_75",
         .features = featureSet(&[_]Feature{
@@ -290,7 +291,7 @@ pub const cpu = struct {
 /// All nvptx CPUs, sorted alphabetically by name.
 /// TODO: Replace this with usage of `std.meta.declList`. It does work, but stage1
 /// compiler has inefficient memory and CPU usage, affecting build times.
-pub const all_cpus = &[_]*const Cpu{
+pub const all_cpus = &[_]*const CpuModel{
     &cpu.sm_20,
     &cpu.sm_21,
     &cpu.sm_30,

@@ -654,8 +654,8 @@ test "call method with comptime pass-by-non-copying-value self parameter" {
     expect(b == 2);
 }
 
-test "@tagName of @typeId" {
-    const str = @tagName(@typeId(u8));
+test "@tagName of @typeInfo" {
+    const str = @tagName(@typeInfo(u8));
     expect(std.mem.eql(u8, str, "Int"));
 }
 
@@ -709,16 +709,6 @@ test "bit shift a u1" {
     var x: u1 = 1;
     var y = x << 0;
     expect(y == 1);
-}
-
-test "@bytesToslice on a packed struct" {
-    const F = packed struct {
-        a: u8,
-    };
-
-    var b = [1]u8{9};
-    var f = @bytesToSlice(F, &b);
-    expect(f[0].a == 9);
 }
 
 test "comptime pointer cast array and then slice" {

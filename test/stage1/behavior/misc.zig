@@ -3,7 +3,6 @@ const expect = std.testing.expect;
 const expectEqualSlices = std.testing.expectEqualSlices;
 const mem = std.mem;
 const builtin = @import("builtin");
-const maxInt = std.math.maxInt;
 
 // normal comment
 
@@ -23,35 +22,6 @@ fn disabledExternFn() callconv(.C) void {}
 
 test "call disabled extern fn" {
     disabledExternFn();
-}
-
-test "@IntType builtin" {
-    expect(@IntType(true, 8) == i8);
-    expect(@IntType(true, 16) == i16);
-    expect(@IntType(true, 32) == i32);
-    expect(@IntType(true, 64) == i64);
-
-    expect(@IntType(false, 8) == u8);
-    expect(@IntType(false, 16) == u16);
-    expect(@IntType(false, 32) == u32);
-    expect(@IntType(false, 64) == u64);
-
-    expect(i8.bit_count == 8);
-    expect(i16.bit_count == 16);
-    expect(i32.bit_count == 32);
-    expect(i64.bit_count == 64);
-
-    expect(i8.is_signed);
-    expect(i16.is_signed);
-    expect(i32.is_signed);
-    expect(i64.is_signed);
-    expect(isize.is_signed);
-
-    expect(!u8.is_signed);
-    expect(!u16.is_signed);
-    expect(!u32.is_signed);
-    expect(!u64.is_signed);
-    expect(!usize.is_signed);
 }
 
 test "floating point primitive bit counts" {
@@ -377,26 +347,6 @@ test "string concatenation" {
     expect(b[len] == 0);
 }
 
-test "cast slice to u8 slice" {
-    expect(@sizeOf(i32) == 4);
-    var big_thing_array = [_]i32{ 1, 2, 3, 4 };
-    const big_thing_slice: []i32 = big_thing_array[0..];
-    const bytes = @sliceToBytes(big_thing_slice);
-    expect(bytes.len == 4 * 4);
-    bytes[4] = 0;
-    bytes[5] = 0;
-    bytes[6] = 0;
-    bytes[7] = 0;
-    expect(big_thing_slice[1] == 0);
-    const big_thing_again = @bytesToSlice(i32, bytes);
-    expect(big_thing_again[2] == 3);
-    big_thing_again[2] = -1;
-    expect(bytes[8] == maxInt(u8));
-    expect(bytes[9] == maxInt(u8));
-    expect(bytes[10] == maxInt(u8));
-    expect(bytes[11] == maxInt(u8));
-}
-
 test "pointer to void return type" {
     testPointerToVoidReturnType() catch unreachable;
 }
@@ -428,7 +378,6 @@ fn testArray2DConstDoublePtr(ptr: *const f32) void {
     expect(ptr2[1] == 2.0);
 }
 
-const Tid = builtin.TypeId;
 const AStruct = struct {
     x: i32,
 };
@@ -444,40 +393,6 @@ const AUnion = union {
     One: void,
     Two: void,
 };
-
-test "@typeId" {
-    comptime {
-        expect(@typeId(type) == Tid.Type);
-        expect(@typeId(void) == Tid.Void);
-        expect(@typeId(bool) == Tid.Bool);
-        expect(@typeId(noreturn) == Tid.NoReturn);
-        expect(@typeId(i8) == Tid.Int);
-        expect(@typeId(u8) == Tid.Int);
-        expect(@typeId(i64) == Tid.Int);
-        expect(@typeId(u64) == Tid.Int);
-        expect(@typeId(f32) == Tid.Float);
-        expect(@typeId(f64) == Tid.Float);
-        expect(@typeId(*f32) == Tid.Pointer);
-        expect(@typeId([2]u8) == Tid.Array);
-        expect(@typeId(AStruct) == Tid.Struct);
-        expect(@typeId(@TypeOf(1)) == Tid.ComptimeInt);
-        expect(@typeId(@TypeOf(1.0)) == Tid.ComptimeFloat);
-        expect(@typeId(@TypeOf(undefined)) == Tid.Undefined);
-        expect(@typeId(@TypeOf(null)) == Tid.Null);
-        expect(@typeId(?i32) == Tid.Optional);
-        expect(@typeId(anyerror!i32) == Tid.ErrorUnion);
-        expect(@typeId(anyerror) == Tid.ErrorSet);
-        expect(@typeId(AnEnum) == Tid.Enum);
-        expect(@typeId(@TypeOf(AUnionEnum.One)) == Tid.Enum);
-        expect(@typeId(AUnionEnum) == Tid.Union);
-        expect(@typeId(AUnion) == Tid.Union);
-        expect(@typeId(fn () void) == Tid.Fn);
-        expect(@typeId(@TypeOf(builtin)) == Tid.Type);
-        // TODO bound fn
-        // TODO arg tuple
-        // TODO opaque
-    }
-}
 
 test "@typeName" {
     const Struct = struct {};

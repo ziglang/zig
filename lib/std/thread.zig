@@ -148,7 +148,7 @@ pub const Thread = struct {
         const default_stack_size = 16 * 1024 * 1024;
 
         const Context = @TypeOf(context);
-        comptime assert(@ArgType(@TypeOf(startFn), 0) == Context);
+        comptime assert(@typeInfo(@TypeOf(startFn)).Fn.args[0].arg_type.? == Context);
 
         if (builtin.os == builtin.Os.windows) {
             const WinThread = struct {
@@ -158,7 +158,7 @@ pub const Thread = struct {
                 };
                 fn threadMain(raw_arg: windows.LPVOID) callconv(.C) windows.DWORD {
                     const arg = if (@sizeOf(Context) == 0) {} else @ptrCast(*Context, @alignCast(@alignOf(Context), raw_arg)).*;
-                    switch (@typeId(@TypeOf(startFn).ReturnType)) {
+                    switch (@typeInfo(@TypeOf(startFn).ReturnType)) {
                         .Int => {
                             return startFn(arg);
                         },
@@ -201,7 +201,7 @@ pub const Thread = struct {
             fn linuxThreadMain(ctx_addr: usize) callconv(.C) u8 {
                 const arg = if (@sizeOf(Context) == 0) {} else @intToPtr(*const Context, ctx_addr).*;
 
-                switch (@typeId(@TypeOf(startFn).ReturnType)) {
+                switch (@typeInfo(@TypeOf(startFn).ReturnType)) {
                     .Int => {
                         return startFn(arg);
                     },

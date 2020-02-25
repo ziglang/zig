@@ -1150,6 +1150,7 @@ Error type_val_resolve_zero_bits(CodeGen *g, ZigValue *type_val, ZigType *parent
         case LazyValueIdInvalid:
         case LazyValueIdAlignOf:
         case LazyValueIdSizeOf:
+        case LazyValueIdTypeInfoDecls:
             zig_unreachable();
         case LazyValueIdPtrType: {
             LazyValuePtrType *lazy_ptr_type = reinterpret_cast<LazyValuePtrType *>(type_val->data.x_lazy);
@@ -1209,6 +1210,7 @@ Error type_val_resolve_is_opaque_type(CodeGen *g, ZigValue *type_val, bool *is_o
         case LazyValueIdInvalid:
         case LazyValueIdAlignOf:
         case LazyValueIdSizeOf:
+        case LazyValueIdTypeInfoDecls:
             zig_unreachable();
         case LazyValueIdSliceType:
         case LazyValueIdPtrType:
@@ -1230,6 +1232,7 @@ static ReqCompTime type_val_resolve_requires_comptime(CodeGen *g, ZigValue *type
         case LazyValueIdInvalid:
         case LazyValueIdAlignOf:
         case LazyValueIdSizeOf:
+        case LazyValueIdTypeInfoDecls:
             zig_unreachable();
         case LazyValueIdSliceType: {
             LazyValueSliceType *lazy_slice_type = reinterpret_cast<LazyValueSliceType *>(type_val->data.x_lazy);
@@ -1303,6 +1306,7 @@ start_over:
         case LazyValueIdInvalid:
         case LazyValueIdAlignOf:
         case LazyValueIdSizeOf:
+        case LazyValueIdTypeInfoDecls:
             zig_unreachable();
         case LazyValueIdSliceType: {
             LazyValueSliceType *lazy_slice_type = reinterpret_cast<LazyValueSliceType *>(type_val->data.x_lazy);
@@ -1370,6 +1374,7 @@ Error type_val_resolve_abi_align(CodeGen *g, AstNode *source_node, ZigValue *typ
         case LazyValueIdInvalid:
         case LazyValueIdAlignOf:
         case LazyValueIdSizeOf:
+        case LazyValueIdTypeInfoDecls:
             zig_unreachable();
         case LazyValueIdSliceType:
         case LazyValueIdPtrType:
@@ -1412,6 +1417,7 @@ static OnePossibleValue type_val_resolve_has_one_possible_value(CodeGen *g, ZigV
         case LazyValueIdInvalid:
         case LazyValueIdAlignOf:
         case LazyValueIdSizeOf:
+        case LazyValueIdTypeInfoDecls:
             zig_unreachable();
         case LazyValueIdSliceType: // it has the len field
         case LazyValueIdOptType: // it has the optional bit
@@ -4710,8 +4716,7 @@ static void analyze_fn_async(CodeGen *g, ZigFn *fn, bool resolve_frame) {
     }
     for (size_t i = 0; i < fn->await_list.length; i += 1) {
         IrInstGenAwait *await = fn->await_list.at(i);
-        // TODO If this is a noasync await, it doesn't count
-        // https://github.com/ziglang/zig/issues/3157
+        if (await->is_noasync) continue;
         switch (analyze_callee_async(g, fn, await->target_fn, await->base.base.source_node, must_not_be_async,
                     CallModifierNone))
         {
@@ -6315,8 +6320,9 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
     // The funtion call result of foo() must be spilled.
     for (size_t i = 0; i < fn->await_list.length; i += 1) {
         IrInstGenAwait *await = fn->await_list.at(i);
-        // TODO If this is a noasync await, it doesn't suspend
-        // https://github.com/ziglang/zig/issues/3157
+        if (await->is_noasync) {
+            continue;
+        }
         if (await->base.value->special != ConstValSpecialRuntime) {
             // Known at comptime. No spill, no suspend.
             continue;

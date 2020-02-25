@@ -60,31 +60,6 @@ pub const File = struct {
         mode: Mode = default_mode,
     };
 
-    /// Test for the existence of `path`.
-    /// `path` is UTF8-encoded.
-    /// In general it is recommended to avoid this function. For example,
-    /// instead of testing if a file exists and then opening it, just
-    /// open it and handle the error for file not found.
-    /// TODO: deprecate this and move it to `std.fs.Dir`.
-    /// TODO: integrate with async I/O
-    pub fn access(path: []const u8) !void {
-        return os.access(path, os.F_OK);
-    }
-
-    /// Same as `access` except the parameter is null-terminated.
-    /// TODO: deprecate this and move it to `std.fs.Dir`.
-    /// TODO: integrate with async I/O
-    pub fn accessC(path: [*:0]const u8) !void {
-        return os.accessC(path, os.F_OK);
-    }
-
-    /// Same as `access` except the parameter is null-terminated UTF16LE-encoded.
-    /// TODO: deprecate this and move it to `std.fs.Dir`.
-    /// TODO: integrate with async I/O
-    pub fn accessW(path: [*:0]const u16) !void {
-        return os.accessW(path, os.F_OK);
-    }
-
     /// Upon success, the stream is in an uninitialized state. To continue using it,
     /// you must use the open() function.
     pub fn close(self: File) void {

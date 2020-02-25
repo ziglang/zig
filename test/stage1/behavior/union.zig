@@ -531,7 +531,7 @@ var glbl: Foo1 = undefined;
 
 test "global union with single field is correctly initialized" {
     glbl = Foo1{
-        .f = @memberType(Foo1, 0){ .x = 123 },
+        .f = @typeInfo(Foo1).Union.fields[0].field_type{ .x = 123 },
     };
     expect(glbl.f.x == 123);
 }

@@ -1,4 +1,5 @@
-const expect = @import("std").testing.expect;
+const std = @import("std");
+const expect = std.testing.expect;
 
 test "while loop" {
     var i: i32 = 0;
@@ -270,4 +271,19 @@ test "while error 2 break statements and an else" {
     };
     S.entry(true, false);
     comptime S.entry(true, false);
+}
+
+test "while copies its payload" {
+    const S = struct {
+        fn doTheTest() void {
+            var tmp: ?i32 = 10;
+            while (tmp) |value| {
+                // Modify the original variable
+                tmp = null;
+                expect(value == 10);
+            }
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
 }

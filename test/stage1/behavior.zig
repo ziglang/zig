@@ -38,6 +38,7 @@ comptime {
     _ = @import("behavior/bugs/3112.zig");
     _ = @import("behavior/bugs/3367.zig");
     _ = @import("behavior/bugs/3384.zig");
+    _ = @import("behavior/bugs/3586.zig");
     _ = @import("behavior/bugs/3742.zig");
     _ = @import("behavior/bugs/394.zig");
     _ = @import("behavior/bugs/421.zig");
@@ -91,7 +92,6 @@ comptime {
     _ = @import("behavior/shuffle.zig");
     _ = @import("behavior/sizeof_and_typeof.zig");
     _ = @import("behavior/slice.zig");
-    _ = @import("behavior/slicetobytes.zig");
     _ = @import("behavior/struct.zig");
     _ = @import("behavior/struct_contains_null_ptr_itself.zig");
     _ = @import("behavior/struct_contains_slice_of_itself.zig");

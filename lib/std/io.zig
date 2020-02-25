@@ -121,76 +121,37 @@ pub fn BufferedInStreamCustom(comptime buffer_size: usize, comptime Error: type)
 
         unbuffered_in_stream: *Stream,
 
-        buffer: [buffer_size]u8,
-        start_index: usize,
-        end_index: usize,
+        const FifoType = std.fifo.LinearFifo(u8, std.fifo.LinearFifoBufferType{ .Static = buffer_size });
+        fifo: FifoType,
 
         pub fn init(unbuffered_in_stream: *Stream) Self {
             return Self{
                 .unbuffered_in_stream = unbuffered_in_stream,
-                .buffer = undefined,
-
-                // Initialize these two fields to buffer_size so that
-                // in `readFn` we treat the state as being able to read
-                // more from the unbuffered stream. If we set them to 0
-                // and 0, the code would think we already hit EOF.
-                .start_index = buffer_size,
-                .end_index = buffer_size,
-
+                .fifo = FifoType.init(),
                 .stream = Stream{ .readFn = readFn },
             };
         }
 
         fn readFn(in_stream: *Stream, dest: []u8) !usize {
             const self = @fieldParentPtr(Self, "stream", in_stream);
-
-            // Hot path for one byte reads
-            if (dest.len == 1 and self.end_index > self.start_index) {
-                dest[0] = self.buffer[self.start_index];
-                self.start_index += 1;
-                return 1;
-            }
-
             var dest_index: usize = 0;
-            while (true) {
-                const dest_space = dest.len - dest_index;
-                if (dest_space == 0) {
-                    return dest_index;
-                }
-                const amt_buffered = self.end_index - self.start_index;
-                if (amt_buffered == 0) {
-                    assert(self.end_index <= buffer_size);
-                    // Make sure the last read actually gave us some data
-                    if (self.end_index == 0) {
+            while (dest_index < dest.len) {
+                const written = self.fifo.read(dest[dest_index..]);
+                if (written == 0) {
+                    // fifo empty, fill it
+                    const writable = self.fifo.writableSlice(0);
+                    assert(writable.len > 0);
+                    const n = try self.unbuffered_in_stream.read(writable);
+                    if (n == 0) {
                         // reading from the unbuffered stream returned nothing
                         // so we have nothing left to read.
                         return dest_index;
                     }
-                    // we can read more data from the unbuffered stream
-                    if (dest_space < buffer_size) {
-                        self.start_index = 0;
-                        self.end_index = try self.unbuffered_in_stream.read(self.buffer[0..]);
-
-                        // Shortcut
-                        if (self.end_index >= dest_space) {
-                            mem.copy(u8, dest[dest_index..], self.buffer[0..dest_space]);
-                            self.start_index = dest_space;
-                            return dest.len;
-                        }
-                    } else {
-                        // asking for so much data that buffering is actually less efficient.
-                        // forward the request directly to the unbuffered stream
-                        const amt_read = try self.unbuffered_in_stream.read(dest[dest_index..]);
-                        return dest_index + amt_read;
-                    }
+                    self.fifo.update(n);
                 }
-
-                const copy_amount = math.min(dest_space, amt_buffered);
-                const copy_end_index = self.start_index + copy_amount;
-                mem.copy(u8, dest[dest_index..], self.buffer[self.start_index..copy_end_index]);
-                self.start_index = copy_end_index;
-                dest_index += copy_amount;
+                dest_index += written;
             }
+            return dest.len;
         }
     };
 }
@@ -235,7 +196,7 @@ test "io.BufferedInStream" {
 
 /// Creates a stream which supports 'un-reading' data, so that it can be read again.
 /// This makes look-ahead style parsing much easier.
-pub fn PeekStream(comptime buffer_size: usize, comptime InStreamError: type) type {
+pub fn PeekStream(comptime buffer_type: std.fifo.LinearFifoBufferType, comptime InStreamError: type) type {
     return struct {
         const Self = @This();
         pub const Error = InStreamError;
@@ -244,57 +205,57 @@ pub fn PeekStream(comptime buffer_size: usize, comptime InStreamError: type) typ
         stream: Stream,
         base: *Stream,
 
-        // Right now the look-ahead space is statically allocated, but a version with dynamic allocation
-        // is not too difficult to derive from this.
-        buffer: [buffer_size]u8,
-        index: usize,
-        at_end: bool,
+        const FifoType = std.fifo.LinearFifo(u8, buffer_type);
+        fifo: FifoType,
 
-        pub fn init(base: *Stream) Self {
-            return Self{
-                .base = base,
-                .buffer = undefined,
-                .index = 0,
-                .at_end = false,
-                .stream = Stream{ .readFn = readFn },
-            };
+        pub usingnamespace switch (buffer_type) {
+            .Static => struct {
+                pub fn init(base: *Stream) Self {
+                    return .{
+                        .base = base,
+                        .fifo = FifoType.init(),
+                        .stream = Stream{ .readFn = readFn },
+                    };
+                }
+            },
+            .Slice => struct {
+                pub fn init(base: *Stream, buf: []u8) Self {
+                    return .{
+                        .base = base,
+                        .fifo = FifoType.init(buf),
+                        .stream = Stream{ .readFn = readFn },
+                    };
+                }
+            },
+            .Dynamic => struct {
+                pub fn init(base: *Stream, allocator: *mem.Allocator) Self {
+                    return .{
+                        .base = base,
+                        .fifo = FifoType.init(allocator),
+                        .stream = Stream{ .readFn = readFn },
+                    };
+                }
+            },
+        };
+
+        pub fn putBackByte(self: *Self, byte: u8) !void {
+            try self.putBack(&[_]u8{byte});
         }
 
-        pub fn putBackByte(self: *Self, byte: u8) void {
-            self.buffer[self.index] = byte;
-            self.index += 1;
-        }
-
-        pub fn putBack(self: *Self, bytes: []const u8) void {
-            var pos = bytes.len;
-            while (pos != 0) {
-                pos -= 1;
-                self.putBackByte(bytes[pos]);
-            }
+        pub fn putBack(self: *Self, bytes: []const u8) !void {
+            try self.fifo.unget(bytes);
         }
 
         fn readFn(in_stream: *Stream, dest: []u8) Error!usize {
             const self = @fieldParentPtr(Self, "stream", in_stream);
 
             // copy over anything putBack()'d
-            var pos: usize = 0;
-            while (pos < dest.len and self.index != 0) {
-                dest[pos] = self.buffer[self.index - 1];
-                self.index -= 1;
-                pos += 1;
-            }
-
-            if (pos == dest.len or self.at_end) {
-                return pos;
-            }
+            var dest_index = self.fifo.read(dest);
+            if (dest_index == dest.len) return dest_index;
 
             // ask the backing stream for more
-            const left = dest.len - pos;
-            const read = try self.base.read(dest[pos..]);
-            assert(read <= left);
-
-            self.at_end = (read < left);
-            return pos + read;
+            dest_index += try self.base.read(dest[dest_index..]);
+            return dest_index;
         }
     };
 }
@@ -376,7 +337,7 @@ pub fn BitInStream(endian: builtin.Endian, comptime Error: type) type {
                 assert(u_bit_count >= bits);
                 break :bc if (u_bit_count <= u8_bit_count) u8_bit_count else u_bit_count;
             };
-            const Buf = @IntType(false, buf_bit_count);
+            const Buf = std.meta.IntType(false, buf_bit_count);
             const BufShift = math.Log2Int(Buf);
 
             out_bits.* = @as(usize, 0);
@@ -607,52 +568,33 @@ pub fn BufferedOutStreamCustom(comptime buffer_size: usize, comptime OutStreamEr
 
         unbuffered_out_stream: *Stream,
 
-        buffer: [buffer_size]u8,
-        index: usize,
+        const FifoType = std.fifo.LinearFifo(u8, std.fifo.LinearFifoBufferType{ .Static = buffer_size });
+        fifo: FifoType,
 
         pub fn init(unbuffered_out_stream: *Stream) Self {
             return Self{
                 .unbuffered_out_stream = unbuffered_out_stream,
-                .buffer = undefined,
-                .index = 0,
+                .fifo = FifoType.init(),
                 .stream = Stream{ .writeFn = writeFn },
             };
         }
 
         pub fn flush(self: *Self) !void {
-            try self.unbuffered_out_stream.write(self.buffer[0..self.index]);
-            self.index = 0;
+            while (true) {
+                const slice = self.fifo.readableSlice(0);
+                if (slice.len == 0) break;
+                try self.unbuffered_out_stream.write(slice);
+                self.fifo.discard(slice.len);
+            }
         }
 
         fn writeFn(out_stream: *Stream, bytes: []const u8) Error!void {
             const self = @fieldParentPtr(Self, "stream", out_stream);
-
-            if (bytes.len == 1) {
-                // This is not required logic but a shorter path
-                // for single byte writes
-                self.buffer[self.index] = bytes[0];
-                self.index += 1;
-                if (self.index == buffer_size) {
-                    try self.flush();
-                }
-                return;
-            } else if (bytes.len >= self.buffer.len) {
+            if (bytes.len >= self.fifo.writableLength()) {
                 try self.flush();
                 return self.unbuffered_out_stream.write(bytes);
             }
-            var src_index: usize = 0;
-
-            while (src_index < bytes.len) {
-                const dest_space_left = self.buffer.len - self.index;
-                const copy_amt = math.min(dest_space_left, bytes.len - src_index);
-                mem.copy(u8, self.buffer[self.index..], bytes[src_index .. src_index + copy_amt]);
-                self.index += copy_amt;
-                assert(self.index <= self.buffer.len);
-                if (self.index == self.buffer.len) {
-                    try self.flush();
-                }
-                src_index += copy_amt;
-            }
+            self.fifo.writeAssumeCapacity(bytes);
         }
     };
 }
@@ -717,7 +659,7 @@ pub fn BitOutStream(endian: builtin.Endian, comptime Error: type) type {
                 assert(u_bit_count >= bits);
                 break :bc if (u_bit_count <= u8_bit_count) u8_bit_count else u_bit_count;
             };
-            const Buf = @IntType(false, buf_bit_count);
+            const Buf = std.meta.IntType(false, buf_bit_count);
             const BufShift = math.Log2Int(Buf);
 
             const buf_value = @intCast(Buf, value);
@@ -848,73 +790,6 @@ pub const BufferedAtomicFile = struct {
     }
 };
 
-pub fn readLine(buf: *std.Buffer) ![]u8 {
-    var stdin_stream = getStdIn().inStream();
-    return readLineFrom(&stdin_stream.stream, buf);
-}
-
-/// Reads all characters until the next newline into buf, and returns
-/// a slice of the characters read (excluding the newline character(s)).
-pub fn readLineFrom(stream: var, buf: *std.Buffer) ![]u8 {
-    const start = buf.len();
-    while (true) {
-        const byte = try stream.readByte();
-        switch (byte) {
-            '\r' => {
-                // trash the following \n
-                _ = try stream.readByte();
-                return buf.toSlice()[start..];
-            },
-            '\n' => return buf.toSlice()[start..],
-            else => try buf.appendByte(byte),
-        }
-    }
-}
-
-test "io.readLineFrom" {
-    var buf = try std.Buffer.initSize(testing.allocator, 0);
-    defer buf.deinit();
-    var mem_stream = SliceInStream.init(
-        \\Line 1
-        \\Line 22
-        \\Line 333
-    );
-    const stream = &mem_stream.stream;
-
-    testing.expectEqualSlices(u8, "Line 1", try readLineFrom(stream, &buf));
-    testing.expectEqualSlices(u8, "Line 22", try readLineFrom(stream, &buf));
-    testing.expectError(error.EndOfStream, readLineFrom(stream, &buf));
-    testing.expectEqualSlices(u8, "Line 1Line 22Line 333", buf.toSlice());
-}
-
-pub fn readLineSlice(slice: []u8) ![]u8 {
-    var stdin_stream = getStdIn().inStream();
-    return readLineSliceFrom(&stdin_stream.stream, slice);
-}
-
-/// Reads all characters until the next newline into slice, and returns
-/// a slice of the characters read (excluding the newline character(s)).
-pub fn readLineSliceFrom(stream: var, slice: []u8) ![]u8 {
-    // We cannot use Buffer.fromOwnedSlice, as it wants to append a null byte
-    // after taking ownership, which would always require an allocation.
-    var buf = std.Buffer{ .list = std.ArrayList(u8).fromOwnedSlice(testing.failing_allocator, slice) };
-    try buf.resize(0);
-    return try readLineFrom(stream, &buf);
-}
-
-test "io.readLineSliceFrom" {
-    var buf: [7]u8 = undefined;
-    var mem_stream = SliceInStream.init(
-        \\Line 1
-        \\Line 22
-        \\Line 333
-    );
-    const stream = &mem_stream.stream;
-
-    testing.expectEqualSlices(u8, "Line 1", try readLineSliceFrom(stream, buf[0..]));
-    testing.expectError(error.OutOfMemory, readLineSliceFrom(stream, buf[0..]));
-}
-
 pub const Packing = enum {
     /// Pack data to byte alignment
     Byte,
@@ -956,12 +831,12 @@ pub fn Deserializer(comptime endian: builtin.Endian, comptime packing: Packing, 
 
         //@BUG: inferred error issue. See: #1386
         fn deserializeInt(self: *Self, comptime T: type) (Error || error{EndOfStream})!T {
-            comptime assert(trait.is(builtin.TypeId.Int)(T) or trait.is(builtin.TypeId.Float)(T));
+            comptime assert(trait.is(.Int)(T) or trait.is(.Float)(T));
 
             const u8_bit_count = 8;
             const t_bit_count = comptime meta.bitCount(T);
 
-            const U = @IntType(false, t_bit_count);
+            const U = std.meta.IntType(false, t_bit_count);
             const Log2U = math.Log2Int(U);
             const int_size = (U.bit_count + 7) / 8;
 
@@ -976,7 +851,7 @@ pub fn Deserializer(comptime endian: builtin.Endian, comptime packing: Packing, 
 
             if (int_size == 1) {
                 if (t_bit_count == 8) return @bitCast(T, buffer[0]);
-                const PossiblySignedByte = @IntType(T.is_signed, 8);
+                const PossiblySignedByte = std.meta.IntType(T.is_signed, 8);
                 return @truncate(T, @bitCast(PossiblySignedByte, buffer[0]));
             }
 
@@ -1005,9 +880,9 @@ pub fn Deserializer(comptime endian: builtin.Endian, comptime packing: Packing, 
         /// Deserializes data into the type pointed to by `ptr`
         pub fn deserializeInto(self: *Self, ptr: var) !void {
             const T = @TypeOf(ptr);
-            comptime assert(trait.is(builtin.TypeId.Pointer)(T));
+            comptime assert(trait.is(.Pointer)(T));
 
-            if (comptime trait.isSlice(T) or comptime trait.isPtrTo(builtin.TypeId.Array)(T)) {
+            if (comptime trait.isSlice(T) or comptime trait.isPtrTo(.Array)(T)) {
                 for (ptr) |*v|
                     try self.deserializeInto(v);
                 return;
@@ -1016,7 +891,7 @@ pub fn Deserializer(comptime endian: builtin.Endian, comptime packing: Packing, 
             comptime assert(trait.isSingleItemPtr(T));
 
             const C = comptime meta.Child(T);
-            const child_type_id = @typeId(C);
+            const child_type_id = @typeInfo(C);
 
             //custom deserializer: fn(self: *Self, deserializer: var) !void
             if (comptime trait.hasFn("deserialize")(C)) return C.deserialize(ptr, self);
@@ -1027,10 +902,10 @@ pub fn Deserializer(comptime endian: builtin.Endian, comptime packing: Packing, 
             }
 
             switch (child_type_id) {
-                builtin.TypeId.Void => return,
-                builtin.TypeId.Bool => ptr.* = (try self.deserializeInt(u1)) > 0,
-                builtin.TypeId.Float, builtin.TypeId.Int => ptr.* = try self.deserializeInt(C),
-                builtin.TypeId.Struct => {
+                .Void => return,
+                .Bool => ptr.* = (try self.deserializeInt(u1)) > 0,
+                .Float, .Int => ptr.* = try self.deserializeInt(C),
+                .Struct => {
                     const info = @typeInfo(C).Struct;
 
                     inline for (info.fields) |*field_info| {
@@ -1040,7 +915,7 @@ pub fn Deserializer(comptime endian: builtin.Endian, comptime packing: Packing, 
                         if (FieldType == void or FieldType == u0) continue;
 
                         //it doesn't make any sense to read pointers
-                        if (comptime trait.is(builtin.TypeId.Pointer)(FieldType)) {
+                        if (comptime trait.is(.Pointer)(FieldType)) {
                             @compileError("Will not " ++ "read field " ++ name ++ " of struct " ++
                                 @typeName(C) ++ " because it " ++ "is of pointer-type " ++
                                 @typeName(FieldType) ++ ".");
@@ -1049,7 +924,7 @@ pub fn Deserializer(comptime endian: builtin.Endian, comptime packing: Packing, 
                         try self.deserializeInto(&@field(ptr, name));
                     }
                 },
-                builtin.TypeId.Union => {
+                .Union => {
                     const info = @typeInfo(C).Union;
                     if (info.tag_type) |TagType| {
                         //we avoid duplicate iteration over the enum tags
@@ -1073,7 +948,7 @@ pub fn Deserializer(comptime endian: builtin.Endian, comptime packing: Packing, 
                     @compileError("Cannot meaningfully deserialize " ++ @typeName(C) ++
                         " because it is an untagged union. Use a custom deserialize().");
                 },
-                builtin.TypeId.Optional => {
+                .Optional => {
                     const OC = comptime meta.Child(C);
                     const exists = (try self.deserializeInt(u1)) > 0;
                     if (!exists) {
@@ -1085,7 +960,7 @@ pub fn Deserializer(comptime endian: builtin.Endian, comptime packing: Packing, 
                     const val_ptr = &ptr.*.?;
                     try self.deserializeInto(val_ptr);
                 },
-                builtin.TypeId.Enum => {
+                .Enum => {
                     var value = try self.deserializeInt(@TagType(C));
                     ptr.* = try meta.intToEnum(C, value);
                 },
@@ -1134,12 +1009,12 @@ pub fn Serializer(comptime endian: builtin.Endian, comptime packing: Packing, co
 
         fn serializeInt(self: *Self, value: var) Error!void {
             const T = @TypeOf(value);
-            comptime assert(trait.is(builtin.TypeId.Int)(T) or trait.is(builtin.TypeId.Float)(T));
+            comptime assert(trait.is(.Int)(T) or trait.is(.Float)(T));
 
             const t_bit_count = comptime meta.bitCount(T);
             const u8_bit_count = comptime meta.bitCount(u8);
 
-            const U = @IntType(false, t_bit_count);
+            const U = std.meta.IntType(false, t_bit_count);
             const Log2U = math.Log2Int(U);
             const int_size = (U.bit_count + 7) / 8;
 
@@ -1183,11 +1058,11 @@ pub fn Serializer(comptime endian: builtin.Endian, comptime packing: Packing, co
                 return;
             }
 
-            switch (@typeId(T)) {
-                builtin.TypeId.Void => return,
-                builtin.TypeId.Bool => try self.serializeInt(@as(u1, @boolToInt(value))),
-                builtin.TypeId.Float, builtin.TypeId.Int => try self.serializeInt(value),
-                builtin.TypeId.Struct => {
+            switch (@typeInfo(T)) {
+                .Void => return,
+                .Bool => try self.serializeInt(@as(u1, @boolToInt(value))),
+                .Float, .Int => try self.serializeInt(value),
+                .Struct => {
                     const info = @typeInfo(T);
 
                     inline for (info.Struct.fields) |*field_info| {
@@ -1197,7 +1072,7 @@ pub fn Serializer(comptime endian: builtin.Endian, comptime packing: Packing, co
                         if (FieldType == void or FieldType == u0) continue;
 
                         //It doesn't make sense to write pointers
-                        if (comptime trait.is(builtin.TypeId.Pointer)(FieldType)) {
+                        if (comptime trait.is(.Pointer)(FieldType)) {
                             @compileError("Will not " ++ "serialize field " ++ name ++
                                 " of struct " ++ @typeName(T) ++ " because it " ++
                                 "is of pointer-type " ++ @typeName(FieldType) ++ ".");
@@ -1205,7 +1080,7 @@ pub fn Serializer(comptime endian: builtin.Endian, comptime packing: Packing, co
                         try self.serialize(@field(value, name));
                     }
                 },
-                builtin.TypeId.Union => {
+                .Union => {
                     const info = @typeInfo(T).Union;
                     if (info.tag_type) |TagType| {
                         const active_tag = meta.activeTag(value);
@@ -1226,7 +1101,7 @@ pub fn Serializer(comptime endian: builtin.Endian, comptime packing: Packing, co
                     @compileError("Cannot meaningfully serialize " ++ @typeName(T) ++
                         " because it is an untagged union. Use a custom serialize().");
                 },
-                builtin.TypeId.Optional => {
+                .Optional => {
                     if (value == null) {
                         try self.serializeInt(@as(u1, @boolToInt(false)));
                         return;
@@ -1237,10 +1112,10 @@ pub fn Serializer(comptime endian: builtin.Endian, comptime packing: Packing, co
                     const val_ptr = &value.?;
                     try self.serialize(val_ptr.*);
                 },
-                builtin.TypeId.Enum => {
+                .Enum => {
                     try self.serializeInt(@enumToInt(value));
                 },
-                else => @compileError("Cannot serialize " ++ @tagName(@typeId(T)) ++ " types (unimplemented)."),
+                else => @compileError("Cannot serialize " ++ @tagName(@typeInfo(T)) ++ " types (unimplemented)."),
             }
         }
     };

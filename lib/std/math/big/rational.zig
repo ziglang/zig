@@ -1,13 +1,10 @@
 const std = @import("../../std.zig");
-const builtin = @import("builtin");
 const debug = std.debug;
 const math = std.math;
 const mem = std.mem;
 const testing = std.testing;
 const Allocator = mem.Allocator;
 const ArrayList = std.ArrayList;
-
-const TypeId = builtin.TypeId;
 
 const bn = @import("int.zig");
 const Limb = bn.Limb;
@@ -129,9 +126,9 @@ pub const Rational = struct {
     /// completely represent the provided float.
     pub fn setFloat(self: *Rational, comptime T: type, f: T) !void {
         // Translated from golang.go/src/math/big/rat.go.
-        debug.assert(@typeId(T) == builtin.TypeId.Float);
+        debug.assert(@typeInfo(T) == .Float);
 
-        const UnsignedIntType = @IntType(false, T.bit_count);
+        const UnsignedIntType = std.meta.IntType(false, T.bit_count);
         const f_bits = @bitCast(UnsignedIntType, f);
 
         const exponent_bits = math.floatExponentBits(T);
@@ -187,10 +184,10 @@ pub const Rational = struct {
     pub fn toFloat(self: Rational, comptime T: type) !T {
         // Translated from golang.go/src/math/big/rat.go.
         // TODO: Indicate whether the result is not exact.
-        debug.assert(@typeId(T) == builtin.TypeId.Float);
+        debug.assert(@typeInfo(T) == .Float);
 
         const fsize = T.bit_count;
-        const BitReprType = @IntType(false, T.bit_count);
+        const BitReprType = std.meta.IntType(false, T.bit_count);
 
         const msize = math.floatMantissaBits(T);
         const msize1 = msize + 1;
@@ -465,7 +462,7 @@ pub const Rational = struct {
     }
 };
 
-const SignedDoubleLimb = @IntType(true, DoubleLimb.bit_count);
+const SignedDoubleLimb = std.meta.IntType(true, DoubleLimb.bit_count);
 
 fn gcd(rma: *Int, x: Int, y: Int) !void {
     rma.assertWritable();
@@ -653,7 +650,7 @@ test "big.rational gcd one large" {
 }
 
 fn extractLowBits(a: Int, comptime T: type) T {
-    testing.expect(@typeId(T) == builtin.TypeId.Int);
+    testing.expect(@typeInfo(T) == .Int);
 
     if (T.bit_count <= Limb.bit_count) {
         return @truncate(T, a.limbs[0]);

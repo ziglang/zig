@@ -34,38 +34,21 @@ release/bin/zig build test-behavior
 # release/bin/zig build test-std
 
 release/bin/zig build test-compiler-rt
-
-# This test is disabled because it triggers "out of memory" on the sr.ht CI service.
-# See https://github.com/ziglang/zig/issues/3210
-# release/bin/zig build test-compare-output
-
-# This test is disabled because it triggers "out of memory" on the sr.ht CI service.
-# See https://github.com/ziglang/zig/issues/3210
-# release/bin/zig build test-standalone
-
+release/bin/zig build test-compare-output
+release/bin/zig build test-standalone
 release/bin/zig build test-stack-traces
 release/bin/zig build test-cli
 release/bin/zig build test-asm-link
 release/bin/zig build test-runtime-safety
-
-# This test is disabled because it triggers "out of memory" on the sr.ht CI service.
-# See https://github.com/ziglang/zig/issues/3210
-# release/bin/zig build test-translate-c
-
+release/bin/zig build test-translate-c
+release/bin/zig build test-run-translated-c
 release/bin/zig build test-gen-h
-
-# This test is disabled because it triggers "out of memory" on the sr.ht CI service.
-# See https://github.com/ziglang/zig/issues/3210
-# release/bin/zig build test-compile-errors
-
-# This test is disabled because it triggers "out of memory" on the sr.ht CI service.
-# See https://github.com/ziglang/zig/issues/3210
-# release/bin/zig build docs
+release/bin/zig build test-compile-errors
+release/bin/zig build docs
 
 if [ -f ~/.s3cfg ]; then
   mv ../LICENSE release/
-  # Enable when `release/bin/zig build docs` passes without "out of memory" or failures
-  #mv ../zig-cache/langref.html release/
+  mv ../zig-cache/langref.html release/
   mv release/bin/zig release/
   rmdir release/bin
 

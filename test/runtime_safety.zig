@@ -553,15 +553,16 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     );
 
     cases.addRuntimeSafety("cast []u8 to bigger slice of wrong size",
-        \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
-        \\    @import("std").os.exit(126);
+        \\const std = @import("std");
+        \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    std.os.exit(126);
         \\}
         \\pub fn main() !void {
         \\    const x = widenSlice(&[_]u8{1, 2, 3, 4, 5});
         \\    if (x.len == 0) return error.Whatever;
         \\}
         \\fn widenSlice(slice: []align(1) const u8) []align(1) const i32 {
-        \\    return @bytesToSlice(i32, slice);
+        \\    return std.mem.bytesAsSlice(i32, slice);
         \\}
     );
 
@@ -656,17 +657,18 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     );
 
     cases.addRuntimeSafety("@alignCast misaligned",
-        \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
-        \\    @import("std").os.exit(126);
+        \\const std = @import("std");
+        \\pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+        \\    std.os.exit(126);
         \\}
         \\pub fn main() !void {
         \\    var array align(4) = [_]u32{0x11111111, 0x11111111};
-        \\    const bytes = @sliceToBytes(array[0..]);
+        \\    const bytes = std.mem.sliceAsBytes(array[0..]);
         \\    if (foo(bytes) != 0x11111111) return error.Wrong;
         \\}
         \\fn foo(bytes: []u8) u32 {
         \\    const slice4 = bytes[1..5];
-        \\    const int_slice = @bytesToSlice(u32, @alignCast(4, slice4));
+        \\    const int_slice = std.mem.bytesAsSlice(u32, @alignCast(4, slice4));
         \\    return int_slice[0];
         \\}
     );

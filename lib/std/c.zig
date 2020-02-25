@@ -62,6 +62,8 @@ pub fn versionCheck(glibc_version: builtin.Version) type {
     };
 }
 
+pub extern "c" var environ: [*:null]?[*:0]u8;
+
 pub extern "c" fn fopen(filename: [*:0]const u8, modes: [*:0]const u8) ?*FILE;
 pub extern "c" fn fclose(stream: *FILE) c_int;
 pub extern "c" fn fwrite(ptr: [*]const u8, size_of_type: usize, item_count: usize, stream: *FILE) usize;
@@ -96,6 +98,7 @@ pub extern "c" fn getcwd(buf: [*]u8, size: usize) ?[*]u8;
 pub extern "c" fn waitpid(pid: c_int, stat_loc: *c_uint, options: c_uint) c_int;
 pub extern "c" fn fork() c_int;
 pub extern "c" fn access(path: [*:0]const u8, mode: c_uint) c_int;
+pub extern "c" fn faccessat(dirfd: fd_t, path: [*:0]const u8, mode: c_uint, flags: c_uint) c_int;
 pub extern "c" fn pipe(fds: *[2]fd_t) c_int;
 pub extern "c" fn pipe2(fds: *[2]fd_t, flags: u32) c_int;
 pub extern "c" fn mkdir(path: [*:0]const u8, mode: c_uint) c_int;

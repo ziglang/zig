@@ -689,6 +689,9 @@ static AstNode *ast_parse_top_level_decl(ParseContext *pc, VisibMod visib_mod, B
 
             AstNode *res = fn_proto;
             if (body != nullptr) {
+                if (fn_proto->data.fn_proto.is_extern) {
+                    ast_error(pc, first, "extern functions have no body");
+                }
                 res = ast_create_node_copy_line_info(pc, NodeTypeFnDef, fn_proto);
                 res->data.fn_def.fn_proto = fn_proto;
                 res->data.fn_def.body = body;
@@ -2596,10 +2599,14 @@ static AstNode *ast_parse_prefix_op(ParseContext *pc) {
         return res;
     }
 
+    Token *noasync_token = eat_token_if(pc, TokenIdKeywordNoAsync);
     Token *await = eat_token_if(pc, TokenIdKeywordAwait);
     if (await != nullptr) {
         AstNode *res = ast_create_node(pc, NodeTypeAwaitExpr, await);
+        res->data.await_expr.noasync_token = noasync_token;
         return res;
+    } else if (noasync_token != nullptr) {
+        put_back_token(pc);
     }
 
     return nullptr;

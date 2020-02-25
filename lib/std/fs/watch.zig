@@ -26,7 +26,7 @@ fn eqlString(a: []const u16, b: []const u16) bool {
 }
 
 fn hashString(s: []const u16) u32 {
-    return @truncate(u32, std.hash.Wyhash.hash(0, @sliceToBytes(s)));
+    return @truncate(u32, std.hash.Wyhash.hash(0, mem.sliceAsBytes(s)));
 }
 
 const WatchEventError = error{

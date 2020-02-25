@@ -116,10 +116,8 @@ Error glibc_load_metadata(ZigGLibCAbi **out_result, Buf *zig_lib_dir, bool verbo
                     assert(opt_abi.is_some);
 
 
-                    err = target_parse_archsub(&target->arch, &target->sub_arch,
-                            (char*)opt_arch.value.ptr, opt_arch.value.len);
-                    // there's no sub arch so we might get an error, but the arch is still populated
-                    assert(err == ErrorNone || err == ErrorUnknownArchitecture);
+                    err = target_parse_arch(&target->arch, (char*)opt_arch.value.ptr, opt_arch.value.len);
+                    assert(err == ErrorNone);
 
                     target->os = OsLinux;
 

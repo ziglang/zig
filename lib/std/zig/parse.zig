@@ -1129,7 +1129,7 @@ fn parseErrorUnionExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*No
 ///      / KEYWORD_noasync PrimaryTypeExpr SuffixOp* FnCallArguments
 ///      / PrimaryTypeExpr (SuffixOp / FnCallArguments)*
 fn parseSuffixExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
-    var maybe_async = eatAnnotatedToken(it, .Keyword_async) orelse eatAnnotatedToken(it, .Keyword_noasync);
+    const maybe_async = eatAnnotatedToken(it, .Keyword_async) orelse eatAnnotatedToken(it, .Keyword_noasync);
     if (maybe_async) |async_token| {
         const token_fn = eatToken(it, .Keyword_fn);
         if (async_token.ptr.id == .Keyword_async and token_fn != null) {
@@ -2179,7 +2179,19 @@ fn parsePrefixOp(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
         .MinusPercent => ops{ .NegationWrap = {} },
         .Ampersand => ops{ .AddressOf = {} },
         .Keyword_try => ops{ .Try = {} },
-        .Keyword_await => ops{ .Await = {} },
+        .Keyword_await => ops{ .Await = .{} },
+        .Keyword_noasync => if (eatToken(it, .Keyword_await)) |await_tok| {
+            const node = try arena.create(Node.PrefixOp);
+            node.* = Node.PrefixOp{
+                .op_token = await_tok,
+                .op = .{ .Await = .{ .noasync_token = token.index } },
+                .rhs = undefined, // set by caller
+            };
+            return &node.base;
+        } else {
+            putBackToken(it, token.index);
+            return null;
+        },
         else => {
             putBackToken(it, token.index);
             return null;

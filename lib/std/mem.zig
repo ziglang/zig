@@ -132,7 +132,7 @@ pub const Allocator = struct {
             // their own frame with @Frame(func).
             return @intToPtr([*]T, @ptrToInt(byte_slice.ptr))[0..n];
         } else {
-            return @bytesToSlice(T, @alignCast(a, byte_slice));
+            return mem.bytesAsSlice(T, @alignCast(a, byte_slice));
         }
     }
 
@@ -173,7 +173,7 @@ pub const Allocator = struct {
             return @as([*]align(new_alignment) T, undefined)[0..0];
         }
 
-        const old_byte_slice = @sliceToBytes(old_mem);
+        const old_byte_slice = mem.sliceAsBytes(old_mem);
         const byte_count = math.mul(usize, @sizeOf(T), new_n) catch return Error.OutOfMemory;
         // Note: can't set shrunk memory to undefined as memory shouldn't be modified on realloc failure
         const byte_slice = try self.reallocFn(self, old_byte_slice, Slice.alignment, byte_count, new_alignment);
@@ -181,7 +181,7 @@ pub const Allocator = struct {
         if (new_n > old_mem.len) {
             @memset(byte_slice.ptr + old_byte_slice.len, undefined, byte_slice.len - old_byte_slice.len);
         }
-        return @bytesToSlice(T, @alignCast(new_alignment, byte_slice));
+        return mem.bytesAsSlice(T, @alignCast(new_alignment, byte_slice));
     }
 
     /// Prefer calling realloc to shrink if you can tolerate failure, such as
@@ -221,18 +221,18 @@ pub const Allocator = struct {
         // new_n <= old_mem.len and the multiplication didn't overflow for that operation.
         const byte_count = @sizeOf(T) * new_n;
 
-        const old_byte_slice = @sliceToBytes(old_mem);
+        const old_byte_slice = mem.sliceAsBytes(old_mem);
         @memset(old_byte_slice.ptr + byte_count, undefined, old_byte_slice.len - byte_count);
         const byte_slice = self.shrinkFn(self, old_byte_slice, Slice.alignment, byte_count, new_alignment);
         assert(byte_slice.len == byte_count);
-        return @bytesToSlice(T, @alignCast(new_alignment, byte_slice));
+        return mem.bytesAsSlice(T, @alignCast(new_alignment, byte_slice));
     }
 
     /// Free an array allocated with `alloc`. To free a single item,
     /// see `destroy`.
     pub fn free(self: *Allocator, memory: var) void {
         const Slice = @typeInfo(@TypeOf(memory)).Pointer;
-        const bytes = @sliceToBytes(memory);
+        const bytes = mem.sliceAsBytes(memory);
         const bytes_len = bytes.len + if (Slice.sentinel != null) @sizeOf(Slice.child) else 0;
         if (bytes_len == 0) return;
         const non_const_ptr = @intToPtr([*]u8, @ptrToInt(bytes.ptr));
@@ -276,18 +276,67 @@ pub fn set(comptime T: type, dest: []T, value: T) void {
         d.* = value;
 }
 
+/// Generally, Zig users are encouraged to explicitly initialize all fields of a struct explicitly rather than using this function.
+/// However, it is recognized that there are sometimes use cases for initializing all fields to a "zero" value. For example, when
+/// interfacing with a C API where this practice is more common and relied upon. If you are performing code review and see this
+/// function used, examine closely - it may be a code smell.
 /// Zero initializes the type.
-/// This can be used to zero initialize a C-struct.
+/// This can be used to zero initialize a any type for which it makes sense. Structs will be initialized recursively.
 pub fn zeroes(comptime T: type) T {
-    if (@sizeOf(T) == 0) return T{};
-
-    if (comptime meta.containerLayout(T) != .Extern) {
-        @compileError("TODO: Currently this only works for extern types");
+    switch (@typeInfo(T)) {
+        .ComptimeInt, .Int, .ComptimeFloat, .Float => {
+            return @as(T, 0);
+        },
+        .Enum, .EnumLiteral => {
+            return @intToEnum(T, 0);
+        },
+        .Void => {
+            return {};
+        },
+        .Bool => {
+            return false;
+        },
+        .Optional, .Null => {
+            return null;
+        },
+        .Struct => |struct_info| {
+            if (@sizeOf(T) == 0) return T{};
+            if (comptime meta.containerLayout(T) == .Extern) {
+                var item: T = undefined;
+                @memset(@ptrCast([*]u8, &item), 0, @sizeOf(T));
+                return item;
+            } else {
+                var structure: T = undefined;
+                inline for (struct_info.fields) |field| {
+                    @field(structure, field.name) = zeroes(@TypeOf(@field(structure, field.name)));
+                }
+                return structure;
+            }
+        },
+        .Pointer => |ptr_info| {
+            switch (ptr_info.size) {
+                .Slice => {
+                    return &[_]ptr_info.child{};
+                },
+                .C => {
+                    return null;
+                },
+                .One, .Many => {
+                    @compileError("Can't set a non nullable pointer to zero.");
+                },
+            }
+        },
+        .Array => |info| {
+            var array: T = undefined;
+            for (array) |*element| {
+                element.* = zeroes(info.child);
+            }
+            return array;
+        },
+        .Vector, .ErrorUnion, .ErrorSet, .Union, .Fn, .BoundFn, .Type, .NoReturn, .Undefined, .Opaque, .Frame, .AnyFrame,  => {
+            @compileError("Can't set a "++ @typeName(T) ++" to zero.");
+        },
     }
-
-    var item: T = undefined;
-    @memset(@ptrCast([*]u8, &item), 0, @sizeOf(T));
-    return item;
 }
 
 test "mem.zeroes" {
@@ -301,6 +350,62 @@ test "mem.zeroes" {
 
     testing.expect(a.x == 0);
     testing.expect(a.y == 10);
+
+    const ZigStruct = struct {
+        const IntegralTypes = struct {
+            integer_0: i0,
+            integer_8: i8,
+            integer_16: i16,
+            integer_32: i32,
+            integer_64: i64,
+            integer_128: i128,
+            unsigned_0: u0,
+            unsigned_8: u8,
+            unsigned_16: u16,
+            unsigned_32: u32,
+            unsigned_64: u64,
+            unsigned_128: u128,
+
+            float_32: f32,
+            float_64: f64,
+        };
+
+        integral_types: IntegralTypes,
+
+        const Pointers = struct {
+            optional: ?*u8,
+            c_pointer: [*c]u8,
+            slice: []u8,
+        };
+        pointers: Pointers,
+
+        array: [2]u32,
+        optional_int: ?u8,
+        empty: void,
+    };
+
+    const b = zeroes(ZigStruct);
+    testing.expectEqual(@as(i8, 0), b.integral_types.integer_0);
+    testing.expectEqual(@as(i8, 0), b.integral_types.integer_8);
+    testing.expectEqual(@as(i16, 0), b.integral_types.integer_16);
+    testing.expectEqual(@as(i32, 0), b.integral_types.integer_32);
+    testing.expectEqual(@as(i64, 0), b.integral_types.integer_64);
+    testing.expectEqual(@as(i128, 0), b.integral_types.integer_128);
+    testing.expectEqual(@as(u8, 0), b.integral_types.unsigned_0);
+    testing.expectEqual(@as(u8, 0), b.integral_types.unsigned_8);
+    testing.expectEqual(@as(u16, 0), b.integral_types.unsigned_16);
+    testing.expectEqual(@as(u32, 0), b.integral_types.unsigned_32);
+    testing.expectEqual(@as(u64, 0), b.integral_types.unsigned_64);
+    testing.expectEqual(@as(u128, 0), b.integral_types.unsigned_128);
+    testing.expectEqual(@as(f32, 0), b.integral_types.float_32);
+    testing.expectEqual(@as(f64, 0), b.integral_types.float_64);
+    testing.expectEqual(@as(?*u8, null), b.pointers.optional);
+    testing.expectEqual(@as([*c]u8, null), b.pointers.c_pointer);
+    testing.expectEqual(@as([]u8, &[_]u8{}), b.pointers.slice);
+    for (b.array) |e| {
+        testing.expectEqual(@as(u32, 0), e);
+    }
+    testing.expectEqual(@as(?u8, null), b.optional_int);
 }
 
 pub fn secureZero(comptime T: type, s: []T) void {
@@ -387,11 +492,19 @@ pub fn allEqual(comptime T: type, slice: []const T, scalar: T) bool {
     return true;
 }
 
-/// Copies ::m to newly allocated memory. Caller is responsible to free it.
+/// Copies `m` to newly allocated memory. Caller owns the memory.
 pub fn dupe(allocator: *Allocator, comptime T: type, m: []const T) ![]T {
     const new_buf = try allocator.alloc(T, m.len);
     copy(T, new_buf, m);
     return new_buf;
+}
+
+/// Copies `m` to newly allocated memory, with a null-terminated element. Caller owns the memory.
+pub fn dupeZ(allocator: *Allocator, comptime T: type, m: []const T) ![:0]T {
+    const new_buf = try allocator.alloc(T, m.len + 1);
+    copy(T, new_buf, m);
+    new_buf[m.len] = 0;
+    return new_buf[0..m.len :0];
 }
 
 /// Remove values from the beginning of a slice.
@@ -700,7 +813,7 @@ pub fn writeIntSliceLittle(comptime T: type, buffer: []u8, value: T) void {
     assert(buffer.len >= @divExact(T.bit_count, 8));
 
     // TODO I want to call writeIntLittle here but comptime eval facilities aren't good enough
-    const uint = @IntType(false, T.bit_count);
+    const uint = std.meta.IntType(false, T.bit_count);
     var bits = @truncate(uint, value);
     for (buffer) |*b| {
         b.* = @truncate(u8, bits);
@@ -717,7 +830,7 @@ pub fn writeIntSliceBig(comptime T: type, buffer: []u8, value: T) void {
     assert(buffer.len >= @divExact(T.bit_count, 8));
 
     // TODO I want to call writeIntBig here but comptime eval facilities aren't good enough
-    const uint = @IntType(false, T.bit_count);
+    const uint = std.meta.IntType(false, T.bit_count);
     var bits = @truncate(uint, value);
     var index: usize = buffer.len;
     while (index != 0) {
@@ -1476,6 +1589,162 @@ test "bytesToValue" {
 
     const deadbeef = bytesToValue(u32, deadbeef_bytes);
     testing.expect(deadbeef == @as(u32, 0xDEADBEEF));
+}
+
+//TODO copy also is_volatile, etc. I tried to use @typeInfo, modify child type, use @Type, but ran into issues.
+fn BytesAsSliceReturnType(comptime T: type, comptime bytesType: type) type {
+    if (!(trait.isSlice(bytesType) and meta.Child(bytesType) == u8) and !(trait.isPtrTo(.Array)(bytesType) and meta.Child(meta.Child(bytesType)) == u8)) {
+        @compileError("expected []u8 or *[_]u8, passed " ++ @typeName(bytesType));
+    }
+
+    if (trait.isPtrTo(.Array)(bytesType) and @typeInfo(meta.Child(bytesType)).Array.len % @sizeOf(T) != 0) {
+        @compileError("number of bytes in " ++ @typeName(bytesType) ++ " is not divisible by size of " ++ @typeName(T));
+    }
+
+    const alignment = meta.alignment(bytesType);
+
+    return if (trait.isConstPtr(bytesType)) []align(alignment) const T else []align(alignment) T;
+}
+
+pub fn bytesAsSlice(comptime T: type, bytes: var) BytesAsSliceReturnType(T, @TypeOf(bytes)) {
+    const bytesSlice = if (comptime trait.isPtrTo(.Array)(@TypeOf(bytes))) bytes[0..] else bytes;
+
+    // let's not give an undefined pointer to @ptrCast
+    // it may be equal to zero and fail a null check
+    if (bytesSlice.len == 0) {
+        return &[0]T{};
+    }
+
+    const bytesType = @TypeOf(bytesSlice);
+    const alignment = comptime meta.alignment(bytesType);
+
+    const castTarget = if (comptime trait.isConstPtr(bytesType)) [*]align(alignment) const T else [*]align(alignment) T;
+
+    return @ptrCast(castTarget, bytesSlice.ptr)[0..@divExact(bytes.len, @sizeOf(T))];
+}
+
+test "bytesAsSlice" {
+    const bytes = [_]u8{ 0xDE, 0xAD, 0xBE, 0xEF };
+    const slice = bytesAsSlice(u16, bytes[0..]);
+    testing.expect(slice.len == 2);
+    testing.expect(bigToNative(u16, slice[0]) == 0xDEAD);
+    testing.expect(bigToNative(u16, slice[1]) == 0xBEEF);
+}
+
+test "bytesAsSlice keeps pointer alignment" {
+    var bytes = [_]u8{ 0x01, 0x02, 0x03, 0x04 };
+    const numbers = bytesAsSlice(u32, bytes[0..]);
+    comptime testing.expect(@TypeOf(numbers) == []align(@alignOf(@TypeOf(bytes))) u32);
+}
+
+test "bytesAsSlice on a packed struct" {
+    const F = packed struct {
+        a: u8,
+    };
+
+    var b = [1]u8{9};
+    var f = bytesAsSlice(F, &b);
+    testing.expect(f[0].a == 9);
+}
+
+test "bytesAsSlice with specified alignment" {
+    var bytes align(4) = [_]u8{
+        0x33,
+        0x33,
+        0x33,
+        0x33,
+    };
+    const slice: []u32 = std.mem.bytesAsSlice(u32, bytes[0..]);
+    testing.expect(slice[0] == 0x33333333);
+}
+
+//TODO copy also is_volatile, etc. I tried to use @typeInfo, modify child type, use @Type, but ran into issues.
+fn SliceAsBytesReturnType(comptime sliceType: type) type {
+    if (!trait.isSlice(sliceType) and !trait.isPtrTo(.Array)(sliceType)) {
+        @compileError("expected []T or *[_]T, passed " ++ @typeName(sliceType));
+    }
+
+    const alignment = meta.alignment(sliceType);
+
+    return if (trait.isConstPtr(sliceType)) []align(alignment) const u8 else []align(alignment) u8;
+}
+
+pub fn sliceAsBytes(slice: var) SliceAsBytesReturnType(@TypeOf(slice)) {
+    const actualSlice = if (comptime trait.isPtrTo(.Array)(@TypeOf(slice))) slice[0..] else slice;
+
+    // let's not give an undefined pointer to @ptrCast
+    // it may be equal to zero and fail a null check
+    if (actualSlice.len == 0) {
+        return &[0]u8{};
+    }
+
+    const sliceType = @TypeOf(actualSlice);
+    const alignment = comptime meta.alignment(sliceType);
+
+    const castTarget = if (comptime trait.isConstPtr(sliceType)) [*]align(alignment) const u8 else [*]align(alignment) u8;
+
+    return @ptrCast(castTarget, actualSlice.ptr)[0 .. actualSlice.len * @sizeOf(comptime meta.Child(sliceType))];
+}
+
+test "sliceAsBytes" {
+    const bytes = [_]u16{ 0xDEAD, 0xBEEF };
+    const slice = sliceAsBytes(bytes[0..]);
+    testing.expect(slice.len == 4);
+    testing.expect(eql(u8, slice, switch (builtin.endian) {
+        .Big => "\xDE\xAD\xBE\xEF",
+        .Little => "\xAD\xDE\xEF\xBE",
+    }));
+}
+
+test "sliceAsBytes packed struct at runtime and comptime" {
+    const Foo = packed struct {
+        a: u4,
+        b: u4,
+    };
+    const S = struct {
+        fn doTheTest() void {
+            var foo: Foo = undefined;
+            var slice = sliceAsBytes(@as(*[1]Foo, &foo)[0..1]);
+            slice[0] = 0x13;
+            switch (builtin.endian) {
+                .Big => {
+                    testing.expect(foo.a == 0x1);
+                    testing.expect(foo.b == 0x3);
+                },
+                .Little => {
+                    testing.expect(foo.a == 0x3);
+                    testing.expect(foo.b == 0x1);
+                },
+            }
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "sliceAsBytes and bytesAsSlice back" {
+    testing.expect(@sizeOf(i32) == 4);
+
+    var big_thing_array = [_]i32{ 1, 2, 3, 4 };
+    const big_thing_slice: []i32 = big_thing_array[0..];
+
+    const bytes = sliceAsBytes(big_thing_slice);
+    testing.expect(bytes.len == 4 * 4);
+
+    bytes[4] = 0;
+    bytes[5] = 0;
+    bytes[6] = 0;
+    bytes[7] = 0;
+    testing.expect(big_thing_slice[1] == 0);
+
+    const big_thing_again = bytesAsSlice(i32, bytes);
+    testing.expect(big_thing_again[2] == 3);
+
+    big_thing_again[2] = -1;
+    testing.expect(bytes[8] == math.maxInt(u8));
+    testing.expect(bytes[9] == math.maxInt(u8));
+    testing.expect(bytes[10] == math.maxInt(u8));
+    testing.expect(bytes[11] == math.maxInt(u8));
 }
 
 fn SubArrayPtrReturnType(comptime T: type, comptime length: usize) type {

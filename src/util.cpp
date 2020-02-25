@@ -6,7 +6,7 @@
  */
 
 #include "util.hpp"
-#include "userland.h"
+#include "stage2.h"
 
 #include <stdio.h>
 #include <stdarg.h>

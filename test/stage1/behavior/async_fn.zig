@@ -334,7 +334,7 @@ test "async fn with inferred error set" {
             var frame: [1]@Frame(middle) = undefined;
             var fn_ptr = middle;
             var result: @TypeOf(fn_ptr).ReturnType.ErrorSet!void = undefined;
-            _ = @asyncCall(@sliceToBytes(frame[0..]), &result, fn_ptr);
+            _ = @asyncCall(std.mem.sliceAsBytes(frame[0..]), &result, fn_ptr);
             resume global_frame;
             std.testing.expectError(error.Fail, result);
         }
@@ -954,7 +954,7 @@ test "@asyncCall with comptime-known function, but not awaited directly" {
         fn doTheTest() void {
             var frame: [1]@Frame(middle) = undefined;
             var result: @TypeOf(middle).ReturnType.ErrorSet!void = undefined;
-            _ = @asyncCall(@sliceToBytes(frame[0..]), &result, middle);
+            _ = @asyncCall(std.mem.sliceAsBytes(frame[0..]), &result, middle);
             resume global_frame;
             std.testing.expectError(error.Fail, result);
         }
@@ -1480,4 +1480,54 @@ test "handle defer interfering with return value spill" {
         }
     };
     S.doTheTest();
+}
+
+test "take address of temporary async frame" {
+    const S = struct {
+        var global_frame: anyframe = undefined;
+        var finished = false;
+
+        fn doTheTest() void {
+            _ = async asyncDoTheTest();
+            resume global_frame;
+            expect(finished);
+        }
+
+        fn asyncDoTheTest() void {
+            expect(finishIt(&async foo(10)) == 1245);
+            finished = true;
+        }
+
+        fn foo(arg: i32) i32 {
+            global_frame = @frame();
+            suspend;
+            return arg + 1234;
+        }
+
+        fn finishIt(frame: anyframe->i32) i32 {
+            return (await frame) + 1;
+        }
+    };
+    S.doTheTest();
+}
+
+test "noasync await" {
+    const S = struct {
+        var finished = false;
+
+        fn doTheTest() void {
+            var frame = async foo(false);
+            expect(noasync await frame == 42);
+            finished = true;
+        }
+
+        fn foo(want_suspend: bool) i32 {
+            if (want_suspend) {
+                suspend;
+            }
+            return 42;
+        }
+    };
+    S.doTheTest();
+    expect(S.finished);
 }
