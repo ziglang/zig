@@ -362,43 +362,6 @@ bool eql_glibc_target(const ZigTarget *a, const ZigTarget *b) {
         a->abi == b->abi;
 }
 
-#ifdef ZIG_OS_LINUX
-#include <unistd.h>
-Error glibc_detect_native_version(ZigGLibCVersion *glibc_ver) {
-    Buf *self_libc_path = get_self_libc_path();
-    if (self_libc_path == nullptr) {
-        // TODO There is still more we could do to detect the native glibc version. For example,
-        // we could look at the ELF file of `/usr/bin/env`, find `libc.so.6`, and then `readlink`
-        // to find out the glibc version. This is relevant for the static zig builds distributed
-        // on the download page, since the above detection based on zig's own dynamic linking
-        // will not work.
-
-        return ErrorUnknownABI;
-    }
-    Buf *link_name = buf_alloc();
-    buf_resize(link_name, 4096);
-    ssize_t amt = readlink(buf_ptr(self_libc_path), buf_ptr(link_name), buf_len(link_name));
-    if (amt == -1) {
-        return ErrorUnknownABI;
-    }
-    buf_resize(link_name, amt);
-    if (!buf_starts_with_str(link_name, "libc-") || !buf_ends_with_str(link_name, ".so")) {
-        return ErrorUnknownABI;
-    }
-    // example: "libc-2.3.4.so"
-    // example: "libc-2.27.so"
-    buf_resize(link_name, buf_len(link_name) - 3); // chop off ".so"
-    glibc_ver->major = 2;
-    glibc_ver->minor = 0;
-    glibc_ver->patch = 0;
-    return target_parse_glibc_version(glibc_ver, buf_ptr(link_name) + 5);
-}
-#else
-Error glibc_detect_native_version(ZigGLibCVersion *glibc_ver) {
-    return ErrorUnknownABI;
-}
-#endif
-
 size_t glibc_lib_count(void) {
     return array_length(glibc_libs);
 }
