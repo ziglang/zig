@@ -3,6 +3,15 @@ const builtin = @import("builtin");
 const Target = @import("std").Target;
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.addTest("@ptrToInt with pointer to zero-sized type",
+        \\export fn entry() void {
+        \\    var pointer: ?*u0 = null;
+        \\    var x = @ptrToInt(pointer);
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:3:23: error: pointer to size 0 type has no address",
+    });
+
     cases.addTest("slice to pointer conversion mismatch",
         \\pub fn bytesAsSlice(bytes: var) [*]align(1) const u16 {
         \\    return @ptrCast([*]align(1) const u16, bytes.ptr)[0..1];
