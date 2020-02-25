@@ -2,8 +2,8 @@ const builtin = @import("builtin");
 const is_test = builtin.is_test;
 
 const low = switch (builtin.endian) {
-    builtin.Endian.Big => 1,
-    builtin.Endian.Little => 0,
+    .Big => 1,
+    .Little => 0,
 };
 const high = 1 - low;
 

@@ -348,11 +348,11 @@ pub fn BitInStream(endian: builtin.Endian, comptime Error: type) type {
                 const n = if (self.bit_count >= bits) @intCast(u3, bits) else self.bit_count;
                 const shift = u7_bit_count - n;
                 switch (endian) {
-                    builtin.Endian.Big => {
+                    .Big => {
                         out_buffer = @as(Buf, self.bit_buffer >> shift);
                         self.bit_buffer <<= n;
                     },
-                    builtin.Endian.Little => {
+                    .Little => {
                         const value = (self.bit_buffer << shift) >> shift;
                         out_buffer = @as(Buf, value);
                         self.bit_buffer >>= n;
@@ -376,7 +376,7 @@ pub fn BitInStream(endian: builtin.Endian, comptime Error: type) type {
                 };
 
                 switch (endian) {
-                    builtin.Endian.Big => {
+                    .Big => {
                         if (n >= u8_bit_count) {
                             out_buffer <<= @intCast(u3, u8_bit_count - 1);
                             out_buffer <<= 1;
@@ -392,7 +392,7 @@ pub fn BitInStream(endian: builtin.Endian, comptime Error: type) type {
                         self.bit_buffer = @truncate(u7, next_byte << @intCast(u3, n - 1));
                         self.bit_count = shift;
                     },
-                    builtin.Endian.Little => {
+                    .Little => {
                         if (n >= u8_bit_count) {
                             out_buffer |= @as(Buf, next_byte) << @intCast(BufShift, out_bits.*);
                             out_bits.* += u8_bit_count;
@@ -666,8 +666,8 @@ pub fn BitOutStream(endian: builtin.Endian, comptime Error: type) type {
 
             const high_byte_shift = @intCast(BufShift, buf_bit_count - u8_bit_count);
             var in_buffer = switch (endian) {
-                builtin.Endian.Big => buf_value << @intCast(BufShift, buf_bit_count - bits),
-                builtin.Endian.Little => buf_value,
+                .Big => buf_value << @intCast(BufShift, buf_bit_count - bits),
+                .Little => buf_value,
             };
             var in_bits = bits;
 
@@ -675,13 +675,13 @@ pub fn BitOutStream(endian: builtin.Endian, comptime Error: type) type {
                 const bits_remaining = u8_bit_count - self.bit_count;
                 const n = @intCast(u3, if (bits_remaining > bits) bits else bits_remaining);
                 switch (endian) {
-                    builtin.Endian.Big => {
+                    .Big => {
                         const shift = @intCast(BufShift, high_byte_shift + self.bit_count);
                         const v = @intCast(u8, in_buffer >> shift);
                         self.bit_buffer |= v;
                         in_buffer <<= n;
                     },
-                    builtin.Endian.Little => {
+                    .Little => {
                         const v = @truncate(u8, in_buffer) << @intCast(u3, self.bit_count);
                         self.bit_buffer |= v;
                         in_buffer >>= n;
@@ -701,13 +701,13 @@ pub fn BitOutStream(endian: builtin.Endian, comptime Error: type) type {
             //copy bytes until we can't fill one anymore, then leave the rest in bit_buffer
             while (in_bits >= u8_bit_count) {
                 switch (endian) {
-                    builtin.Endian.Big => {
+                    .Big => {
                         const v = @intCast(u8, in_buffer >> high_byte_shift);
                         try self.out_stream.writeByte(v);
                         in_buffer <<= @intCast(u3, u8_bit_count - 1);
                         in_buffer <<= 1;
                     },
-                    builtin.Endian.Little => {
+                    .Little => {
                         const v = @truncate(u8, in_buffer);
                         try self.out_stream.writeByte(v);
                         in_buffer >>= @intCast(u3, u8_bit_count - 1);
@@ -720,8 +720,8 @@ pub fn BitOutStream(endian: builtin.Endian, comptime Error: type) type {
             if (in_bits > 0) {
                 self.bit_count = @intCast(u4, in_bits);
                 self.bit_buffer = switch (endian) {
-                    builtin.Endian.Big => @truncate(u8, in_buffer >> high_byte_shift),
-                    builtin.Endian.Little => @truncate(u8, in_buffer),
+                    .Big => @truncate(u8, in_buffer >> high_byte_shift),
+                    .Little => @truncate(u8, in_buffer),
                 };
             }
         }
@@ -858,10 +858,10 @@ pub fn Deserializer(comptime endian: builtin.Endian, comptime packing: Packing, 
             var result = @as(U, 0);
             for (buffer) |byte, i| {
                 switch (endian) {
-                    builtin.Endian.Big => {
+                    .Big => {
                         result = (result << u8_bit_count) | byte;
                     },
-                    builtin.Endian.Little => {
+                    .Little => {
                         result |= @as(U, byte) << @intCast(Log2U, u8_bit_count * i);
                     },
                 }
