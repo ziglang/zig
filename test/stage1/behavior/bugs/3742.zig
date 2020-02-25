@@ -17,7 +17,7 @@ pub const GET = struct {
 };
 
 pub fn isCommand(comptime T: type) bool {
-    const tid = @typeId(T);
+    const tid = @typeInfo(T);
     return (tid == .Struct or tid == .Enum or tid == .Union) and
         @hasDecl(T, "Redis") and @hasDecl(T.Redis, "Command");
 }

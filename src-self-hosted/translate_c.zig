@@ -5381,15 +5381,15 @@ fn parseCPrimaryExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8, 
                 return error.ParseError;
             }
 
-            //if (@typeId(@TypeOf(x)) == .Pointer)
+            //if (@typeInfo(@TypeOf(x)) == .Pointer)
             //    @ptrCast(dest, x)
-            //else if (@typeId(@TypeOf(x)) == .Integer)
+            //else if (@typeInfo(@TypeOf(x)) == .Integer)
             //    @intToPtr(dest, x)
             //else
             //    @as(dest, x)
 
             const if_1 = try transCreateNodeIf(c);
-            const type_id_1 = try transCreateNodeBuiltinFnCall(c, "@typeId");
+            const type_id_1 = try transCreateNodeBuiltinFnCall(c, "@typeInfo");
             const type_of_1 = try transCreateNodeBuiltinFnCall(c, "@TypeOf");
             try type_id_1.params.push(&type_of_1.base);
             try type_of_1.params.push(node_to_cast);
@@ -5416,7 +5416,7 @@ fn parseCPrimaryExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8, 
             if_1.@"else" = else_1;
 
             const if_2 = try transCreateNodeIf(c);
-            const type_id_2 = try transCreateNodeBuiltinFnCall(c, "@typeId");
+            const type_id_2 = try transCreateNodeBuiltinFnCall(c, "@typeInfo");
             const type_of_2 = try transCreateNodeBuiltinFnCall(c, "@TypeOf");
             try type_id_2.params.push(&type_of_2.base);
             try type_of_2.params.push(node_to_cast);

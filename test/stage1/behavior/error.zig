@@ -3,7 +3,6 @@ const expect = std.testing.expect;
 const expectError = std.testing.expectError;
 const expectEqual = std.testing.expectEqual;
 const mem = std.mem;
-const builtin = @import("builtin");
 
 pub fn foo() anyerror!i32 {
     const x = try bar();
@@ -84,8 +83,8 @@ test "error union type " {
 fn testErrorUnionType() void {
     const x: anyerror!i32 = 1234;
     if (x) |value| expect(value == 1234) else |_| unreachable;
-    expect(@typeId(@TypeOf(x)) == builtin.TypeId.ErrorUnion);
-    expect(@typeId(@TypeOf(x).ErrorSet) == builtin.TypeId.ErrorSet);
+    expect(@typeInfo(@TypeOf(x)) == .ErrorUnion);
+    expect(@typeInfo(@TypeOf(x).ErrorSet) == .ErrorSet);
     expect(@TypeOf(x).ErrorSet == anyerror);
 }
 
@@ -100,7 +99,7 @@ const MyErrSet = error{
 };
 
 fn testErrorSetType() void {
-    expect(@memberCount(MyErrSet) == 2);
+    expect(@typeInfo(MyErrSet).ErrorSet.?.len == 2);
 
     const a: MyErrSet!i32 = 5678;
     const b: MyErrSet!i32 = MyErrSet.OutOfMemory;

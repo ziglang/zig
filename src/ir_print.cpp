@@ -179,8 +179,6 @@ const char* ir_inst_src_type_str(IrInstSrcId id) {
             return "SrcFloatToInt";
         case IrInstSrcIdBoolToInt:
             return "SrcBoolToInt";
-        case IrInstSrcIdIntType:
-            return "SrcIntType";
         case IrInstSrcIdVectorType:
             return "SrcVectorType";
         case IrInstSrcIdBoolNot:
@@ -191,12 +189,6 @@ const char* ir_inst_src_type_str(IrInstSrcId id) {
             return "SrcMemcpy";
         case IrInstSrcIdSlice:
             return "SrcSlice";
-        case IrInstSrcIdMemberCount:
-            return "SrcMemberCount";
-        case IrInstSrcIdMemberType:
-            return "SrcMemberType";
-        case IrInstSrcIdMemberName:
-            return "SrcMemberName";
         case IrInstSrcIdBreakpoint:
             return "SrcBreakpoint";
         case IrInstSrcIdReturnAddress:
@@ -269,8 +261,6 @@ const char* ir_inst_src_type_str(IrInstSrcId id) {
             return "SrcType";
         case IrInstSrcIdHasField:
             return "SrcHasField";
-        case IrInstSrcIdTypeId:
-            return "SrcTypeId";
         case IrInstSrcIdSetEvalBranchQuota:
             return "SrcSetEvalBranchQuota";
         case IrInstSrcIdPtrType:
@@ -1660,14 +1650,6 @@ static void ir_print_bool_to_int(IrPrintSrc *irp, IrInstSrcBoolToInt *instructio
     fprintf(irp->f, ")");
 }
 
-static void ir_print_int_type(IrPrintSrc *irp, IrInstSrcIntType *instruction) {
-    fprintf(irp->f, "@IntType(");
-    ir_print_other_inst_src(irp, instruction->is_signed);
-    fprintf(irp->f, ", ");
-    ir_print_other_inst_src(irp, instruction->bit_count);
-    fprintf(irp->f, ")");
-}
-
 static void ir_print_vector_type(IrPrintSrc *irp, IrInstSrcVectorType *instruction) {
     fprintf(irp->f, "@Vector(");
     ir_print_other_inst_src(irp, instruction->len);
@@ -1782,28 +1764,6 @@ static void ir_print_slice_gen(IrPrintGen *irp, IrInstGenSlice *instruction) {
         ir_print_other_inst_gen(irp, instruction->end);
     fprintf(irp->f, "]result=");
     ir_print_other_inst_gen(irp, instruction->result_loc);
-}
-
-static void ir_print_member_count(IrPrintSrc *irp, IrInstSrcMemberCount *instruction) {
-    fprintf(irp->f, "@memberCount(");
-    ir_print_other_inst_src(irp, instruction->container);
-    fprintf(irp->f, ")");
-}
-
-static void ir_print_member_type(IrPrintSrc *irp, IrInstSrcMemberType *instruction) {
-    fprintf(irp->f, "@memberType(");
-    ir_print_other_inst_src(irp, instruction->container_type);
-    fprintf(irp->f, ", ");
-    ir_print_other_inst_src(irp, instruction->member_index);
-    fprintf(irp->f, ")");
-}
-
-static void ir_print_member_name(IrPrintSrc *irp, IrInstSrcMemberName *instruction) {
-    fprintf(irp->f, "@memberName(");
-    ir_print_other_inst_src(irp, instruction->container_type);
-    fprintf(irp->f, ", ");
-    ir_print_other_inst_src(irp, instruction->member_index);
-    fprintf(irp->f, ")");
 }
 
 static void ir_print_breakpoint(IrPrintSrc *irp, IrInstSrcBreakpoint *instruction) {
@@ -2276,12 +2236,6 @@ static void ir_print_has_field(IrPrintSrc *irp, IrInstSrcHasField *instruction) 
     ir_print_other_inst_src(irp, instruction->container_type);
     fprintf(irp->f, ",");
     ir_print_other_inst_src(irp, instruction->field_name);
-    fprintf(irp->f, ")");
-}
-
-static void ir_print_type_id(IrPrintSrc *irp, IrInstSrcTypeId *instruction) {
-    fprintf(irp->f, "@typeId(");
-    ir_print_other_inst_src(irp, instruction->type_value);
     fprintf(irp->f, ")");
 }
 
@@ -2775,9 +2729,6 @@ static void ir_print_inst_src(IrPrintSrc *irp, IrInstSrc *instruction, bool trai
         case IrInstSrcIdBoolToInt:
             ir_print_bool_to_int(irp, (IrInstSrcBoolToInt *)instruction);
             break;
-        case IrInstSrcIdIntType:
-            ir_print_int_type(irp, (IrInstSrcIntType *)instruction);
-            break;
         case IrInstSrcIdVectorType:
             ir_print_vector_type(irp, (IrInstSrcVectorType *)instruction);
             break;
@@ -2798,15 +2749,6 @@ static void ir_print_inst_src(IrPrintSrc *irp, IrInstSrc *instruction, bool trai
             break;
         case IrInstSrcIdSlice:
             ir_print_slice_src(irp, (IrInstSrcSlice *)instruction);
-            break;
-        case IrInstSrcIdMemberCount:
-            ir_print_member_count(irp, (IrInstSrcMemberCount *)instruction);
-            break;
-        case IrInstSrcIdMemberType:
-            ir_print_member_type(irp, (IrInstSrcMemberType *)instruction);
-            break;
-        case IrInstSrcIdMemberName:
-            ir_print_member_name(irp, (IrInstSrcMemberName *)instruction);
             break;
         case IrInstSrcIdBreakpoint:
             ir_print_breakpoint(irp, (IrInstSrcBreakpoint *)instruction);
@@ -2906,9 +2848,6 @@ static void ir_print_inst_src(IrPrintSrc *irp, IrInstSrc *instruction, bool trai
             break;
         case IrInstSrcIdHasField:
             ir_print_has_field(irp, (IrInstSrcHasField *)instruction);
-            break;
-        case IrInstSrcIdTypeId:
-            ir_print_type_id(irp, (IrInstSrcTypeId *)instruction);
             break;
         case IrInstSrcIdSetEvalBranchQuota:
             ir_print_set_eval_branch_quota(irp, (IrInstSrcSetEvalBranchQuota *)instruction);

@@ -536,9 +536,8 @@ test "intToEnum with error return" {
 pub const IntToEnumError = error{InvalidEnumTag};
 
 pub fn intToEnum(comptime Tag: type, tag_int: var) IntToEnumError!Tag {
-    comptime var i = 0;
-    inline while (i != @memberCount(Tag)) : (i += 1) {
-        const this_tag_value = @field(Tag, @memberName(Tag, i));
+    inline for (@typeInfo(Tag).Enum.fields) |f| {
+        const this_tag_value = @field(Tag, f.name);
         if (tag_int == @enumToInt(this_tag_value)) {
             return this_tag_value;
         }
@@ -580,4 +579,13 @@ pub fn declList(comptime Namespace: type, comptime Decl: type) []const *const De
         std.sort.sort(*const Decl, &array, S.declNameLessThan);
         return &array;
     }
+}
+
+pub fn IntType(comptime is_signed: bool, comptime bit_count: u16) type {
+    return @Type(TypeInfo{
+        .Int = .{
+            .is_signed = is_signed,
+            .bits = bit_count,
+        },
+    });
 }

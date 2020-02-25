@@ -1,5 +1,4 @@
 const std = @import("../std.zig");
-const builtin = @import("builtin");
 const assert = std.debug.assert;
 const mem = std.mem;
 const ast = std.zig.ast;
@@ -14,7 +13,7 @@ pub const Error = error{
 
 /// Returns whether anything changed
 pub fn render(allocator: *mem.Allocator, stream: var, tree: *ast.Tree) (@TypeOf(stream).Child.Error || Error)!bool {
-    comptime assert(@typeId(@TypeOf(stream)) == builtin.TypeId.Pointer);
+    comptime assert(@typeInfo(@TypeOf(stream)) == .Pointer);
 
     var anything_changed: bool = false;
 

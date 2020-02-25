@@ -82,7 +82,7 @@ pub fn format(
     comptime fmt: []const u8,
     args: var,
 ) Errors!void {
-    const ArgSetType = @IntType(false, 32);
+    const ArgSetType = u32;
     if (@typeInfo(@TypeOf(args)) != .Struct) {
         @compileError("Expected tuple or struct argument, found " ++ @typeName(@TypeOf(args)));
     }
@@ -405,7 +405,7 @@ pub fn formatType(
                 try format(context, Errors, output, "@{x}", .{@ptrToInt(&value)});
             }
         },
-        .Struct => {
+        .Struct => |StructT| {
             if (comptime std.meta.trait.hasFn("format")(T)) {
                 return value.format(fmt, options, context, Errors, output);
             }
@@ -416,27 +416,28 @@ pub fn formatType(
             }
             comptime var field_i = 0;
             try output(context, "{");
-            inline while (field_i < @memberCount(T)) : (field_i += 1) {
+            inline for (StructT.fields) |f| {
                 if (field_i == 0) {
                     try output(context, " .");
                 } else {
                     try output(context, ", .");
                 }
-                try output(context, @memberName(T, field_i));
+                try output(context, f.name);
                 try output(context, " = ");
-                try formatType(@field(value, @memberName(T, field_i)), fmt, options, context, Errors, output, max_depth - 1);
+                try formatType(@field(value, f.name), fmt, options, context, Errors, output, max_depth - 1);
+                field_i += 1;
             }
             try output(context, " }");
         },
         .Pointer => |ptr_info| switch (ptr_info.size) {
             .One => switch (@typeInfo(ptr_info.child)) {
-                builtin.TypeId.Array => |info| {
+                .Array => |info| {
                     if (info.child == u8) {
                         return formatText(value, fmt, options, context, Errors, output);
                     }
                     return format(context, Errors, output, "{}@{x}", .{ @typeName(T.Child), @ptrToInt(value) });
                 },
-                builtin.TypeId.Enum, builtin.TypeId.Union, builtin.TypeId.Struct => {
+                .Enum, .Union, .Struct => {
                     return formatType(value.*, fmt, options, context, Errors, output, max_depth);
                 },
                 else => return format(context, Errors, output, "{}@{x}", .{ @typeName(T.Child), @ptrToInt(value) }),
@@ -509,7 +510,7 @@ fn formatValue(
     }
 
     const T = @TypeOf(value);
-    switch (@typeId(T)) {
+    switch (@typeInfo(T)) {
         .Float => return formatFloatValue(value, fmt, options, context, Errors, output),
         .Int, .ComptimeInt => return formatIntValue(value, fmt, options, context, Errors, output),
         .Bool => return output(context, if (value) "true" else "false"),
@@ -943,7 +944,7 @@ fn formatIntSigned(
         .fill = options.fill,
     };
 
-    const uint = @IntType(false, @TypeOf(value).bit_count);
+    const uint = std.meta.IntType(false, @TypeOf(value).bit_count);
     if (value < 0) {
         const minus_sign: u8 = '-';
         try output(context, @as(*const [1]u8, &minus_sign)[0..]);
@@ -971,7 +972,7 @@ fn formatIntUnsigned(
     assert(base >= 2);
     var buf: [math.max(@TypeOf(value).bit_count, 1)]u8 = undefined;
     const min_int_bits = comptime math.max(@TypeOf(value).bit_count, @TypeOf(base).bit_count);
-    const MinInt = @IntType(@TypeOf(value).is_signed, min_int_bits);
+    const MinInt = std.meta.IntType(@TypeOf(value).is_signed, min_int_bits);
     var a: MinInt = value;
     var index: usize = buf.len;
 

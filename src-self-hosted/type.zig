@@ -1042,7 +1042,7 @@ fn hashAny(x: var, comptime seed: u64) u32 {
     switch (@typeInfo(@TypeOf(x))) {
         .Int => |info| {
             comptime var rng = comptime std.rand.DefaultPrng.init(seed);
-            const unsigned_x = @bitCast(@IntType(false, info.bits), x);
+            const unsigned_x = @bitCast(std.meta.IntType(false, info.bits), x);
             if (info.bits <= 32) {
                 return @as(u32, unsigned_x) *% comptime rng.random.scalar(u32);
             } else {
