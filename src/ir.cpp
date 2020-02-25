@@ -14,6 +14,7 @@
 #include "range_set.hpp"
 #include "softfloat.hpp"
 #include "util.hpp"
+#include "mem_list.hpp"
 
 #include <errno.h>
 
@@ -28,6 +29,9 @@ struct IrBuilderGen {
     CodeGen *codegen;
     IrExecutableGen *exec;
     IrBasicBlockGen *current_basic_block;
+
+    // track for immediate post-analysis destruction
+    mem::List<IrInstGenConst *> constants;
 };
 
 struct IrAnalyze {
@@ -725,6 +729,10 @@ static void ira_ref(IrAnalyze *ira) {
 static void ira_deref(IrAnalyze *ira) {
     if (ira->ref_count > 1) {
         ira->ref_count -= 1;
+
+        // immediate destruction of dangling IrInstGenConst is not possible
+        // free tracking memory because it will never be used
+        ira->new_irb.constants.deinit(&heap::c_allocator);
         return;
     }
     assert(ira->ref_count != 0);
@@ -742,6 +750,15 @@ static void ira_deref(IrAnalyze *ira) {
     heap::c_allocator.destroy(ira->old_irb.exec);
     ira->src_implicit_return_type_list.deinit();
     ira->resume_stack.deinit();
+
+    // destroy dangling IrInstGenConst
+    for (size_t i = 0; i < ira->new_irb.constants.length; i += 1) {
+        auto constant = ira->new_irb.constants.items[i];
+        if (constant->base.base.ref_count == 0 && !ir_inst_gen_has_side_effects(&constant->base))
+            destroy_instruction_gen(&constant->base);
+    }
+    ira->new_irb.constants.deinit(&heap::c_allocator);
+
     heap::c_allocator.destroy(ira);
 }
 
@@ -12493,12 +12510,14 @@ static IrInstGen *ir_const(IrAnalyze *ira, IrInst *inst, ZigType *ty) {
     IrInstGen *new_instruction = &const_instruction->base;
     new_instruction->value->type = ty;
     new_instruction->value->special = ConstValSpecialStatic;
+    ira->new_irb.constants.append(&heap::c_allocator, const_instruction);
     return new_instruction;
 }
 
 static IrInstGen *ir_const_noval(IrAnalyze *ira, IrInst *old_instruction) {
     IrInstGenConst *const_instruction = ir_create_inst_noval<IrInstGenConst>(&ira->new_irb,
             old_instruction->scope, old_instruction->source_node);
+    ira->new_irb.constants.append(&heap::c_allocator, const_instruction);
     return &const_instruction->base;
 }
 

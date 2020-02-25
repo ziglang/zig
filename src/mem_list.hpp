@@ -14,11 +14,14 @@ namespace mem {
 
 template<typename T>
 struct List {
-    void deinit(Allocator& allocator) {
-        allocator.deallocate<T>(items, capacity);
+    void deinit(Allocator *allocator) {
+        allocator->deallocate<T>(items, capacity);
+        items = nullptr;
+        length = 0;
+        capacity = 0;
     }
 
-    void append(Allocator& allocator, const T& item) {
+    void append(Allocator *allocator, const T& item) {
         ensure_capacity(allocator, length + 1);
         items[length++] = item;
     }
@@ -57,7 +60,7 @@ struct List {
         return items[length - 1];
     }
 
-    void resize(Allocator& allocator, size_t new_length) {
+    void resize(Allocator *allocator, size_t new_length) {
         assert(new_length != SIZE_MAX);
         ensure_capacity(allocator, new_length);
         length = new_length;
@@ -67,7 +70,7 @@ struct List {
         length = 0;
     }
 
-    void ensure_capacity(Allocator& allocator, size_t new_capacity) {
+    void ensure_capacity(Allocator *allocator, size_t new_capacity) {
         if (capacity >= new_capacity)
             return;
 
@@ -76,7 +79,7 @@ struct List {
             better_capacity = better_capacity * 5 / 2 + 8;
         } while (better_capacity < new_capacity);
 
-        items = allocator.reallocate_nonzero<T>(items, capacity, better_capacity);
+        items = allocator->reallocate_nonzero<T>(items, capacity, better_capacity);
         capacity = better_capacity;
     }
 
