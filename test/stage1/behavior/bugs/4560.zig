@@ -17,7 +17,7 @@ const S = struct {
     a: u32,
     b: Map,
 
-    const Map = std.StringHashMap(*S);
+    const Map = StringHashMap(*S);
 };
 
 pub fn StringHashMap(comptime V: type) type {
