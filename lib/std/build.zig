@@ -525,7 +525,7 @@ pub const Builder = struct {
     pub const StandardTargetOptionsArgs = struct {
         whitelist: ?[]const CrossTarget = null,
 
-        default_target: CrossTarget = .{},
+        default_target: CrossTarget = CrossTarget{},
     };
 
     /// Exposes standard `zig build` options for choosing a target.
@@ -533,12 +533,12 @@ pub const Builder = struct {
         const triple = self.option(
             []const u8,
             "target",
-            "The Arch, OS, and ABI to build for.",
+            "The CPU architecture, OS, and ABI to build for.",
         ) orelse return args.default_target;
 
         // TODO add cpu and features as part of the target triple
 
-        var diags: std.Target.ParseOptions.Diagnostics = .{};
+        var diags: CrossTarget.ParseOptions.Diagnostics = .{};
         const selected_target = CrossTarget.parse(.{
             .arch_os_abi = triple,
             .diagnostics = &diags,
@@ -567,7 +567,21 @@ pub const Builder = struct {
                 }
                 process.exit(1);
             },
-            else => |e| return e,
+            error.UnknownOperatingSystem => {
+                std.debug.warn(
+                    \\Unknown OS: '{}'
+                    \\Available operating systems:
+                    \\
+                , .{diags.os_name});
+                inline for (std.meta.fields(std.Target.Os.Tag)) |field| {
+                    std.debug.warn(" {}\n", .{field.name});
+                }
+                process.exit(1);
+            },
+            else => |e| {
+                std.debug.warn("Unable to parse target '{}': {}\n", .{ triple, @errorName(e) });
+                process.exit(1);
+            },
         };
 
         const selected_canonicalized_triple = selected_target.zigTriple(self.allocator) catch unreachable;
@@ -585,7 +599,7 @@ pub const Builder = struct {
             });
             for (list) |t| {
                 const t_triple = t.zigTriple(self.allocator) catch unreachable;
-                std.debug.warn(" {}\n", t_triple);
+                std.debug.warn(" {}\n", .{t_triple});
             }
             // TODO instead of process exit, return error and have a zig build flag implemented by
             // the build runner that turns process exits into error return traces
