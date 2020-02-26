@@ -668,6 +668,7 @@ export fn stage2_target_parse(
         error.ProcessFdQuotaExceeded => return .ProcessFdQuotaExceeded,
         error.SystemFdQuotaExceeded => return .SystemFdQuotaExceeded,
         error.DeviceBusy => return .DeviceBusy,
+        error.UnknownDynamicLinkerPath => return .UnknownDynamicLinkerPath,
     };
     return .None;
 }
@@ -1137,6 +1138,7 @@ fn enumInt(comptime Enum: type, int: c_int) Enum {
 /// TODO self-host this function
 fn crossTargetToTarget(cross_target: CrossTarget, dynamic_linker_ptr: *?[*:0]u8) !Target {
     var adjusted_target = cross_target.toTarget();
+    var have_native_dl = false;
     if (cross_target.cpu_arch == null or cross_target.os_tag == null) {
         const detected_info = try std.zig.system.NativeTargetInfo.detect(std.heap.c_allocator);
         if (cross_target.cpu_arch == null) {
@@ -1155,6 +1157,7 @@ fn crossTargetToTarget(cross_target: CrossTarget, dynamic_linker_ptr: *?[*:0]u8)
             adjusted_target.os = detected_info.target.os;
 
             if (detected_info.dynamic_linker) |dl| {
+                have_native_dl = true;
                 dynamic_linker_ptr.* = dl.ptr;
             }
             if (cross_target.abi == null) {
@@ -1163,6 +1166,14 @@ fn crossTargetToTarget(cross_target: CrossTarget, dynamic_linker_ptr: *?[*:0]u8)
         } else if (cross_target.abi == null) {
             adjusted_target.abi = Target.Abi.default(adjusted_target.cpu.arch, adjusted_target.os);
         }
+    }
+    if (!have_native_dl) {
+        dynamic_linker_ptr.* = adjusted_target.getStandardDynamicLinkerPath(
+            std.heap.c_allocator,
+        ) catch |err| switch (err) {
+            error.TargetHasNoDynamicLinker => null,
+            else => |e| return e,
+        };
     }
     return adjusted_target;
 }
