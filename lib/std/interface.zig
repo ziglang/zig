@@ -59,7 +59,7 @@ pub const Storage = struct {
                 @compileError("NonOwning storage expected a 1-tuple in initialization.");
             }
 
-            return .{
+            return NonOwning{
                 .erased_ptr = makeSelfPtr(args.@"0"),
             };
         }
@@ -85,7 +85,7 @@ pub const Storage = struct {
             var mem = try args.@"1".create(AllocT);
             mem.* = args.@"0";
 
-            return .{
+            return Owning{
                 .allocator = args.@"1",
                 .erased_ptr = makeSelfPtr(mem),
             };
@@ -195,10 +195,61 @@ fn make_vtable(comptime VTableT: type, comptime ImplT: type) VTableT {
     return vtable;
 }
 
-// TODO: See https://github.com/ziglang/zig/issues/4564
+// TODO: https://github.com/ziglang/zig/issues/4564
 fn _workaround() error{WORKAROUND}!void {}
 
+fn ReplaceSelfTypeWith(comptime Base: type, comptime With: type) type {}
+
+fn checkVtableType(comptime VTableT: type) void {
+    if (comptime !trait.is(.Struct)(VTableT)) {
+        @compileError("VTable type " ++ @typeName(VTableT) ++ " must be a struct.");
+    }
+
+    for (std.meta.declarations(VTableT)) |decl| {
+        switch (decl.data) {
+            .Fn => @compileError("VTable type defines method '" ++ decl.name ++ "'."),
+            .Type, .Var => {},
+        }
+    }
+
+    for (std.meta.fields(VTableT)) |field| {
+        // @compileLog(field.name);
+        var field_type = field.field_type;
+
+        if (trait.is(.Optional)(field_type)) {
+            field_type = std.meta.Child(field_type);
+        }
+
+        if (!trait.is(.Fn)(field_type)) {
+            @compileError("VTable type defines non function field '" ++ field.name ++ "'.");
+        }
+
+        const type_info = @typeInfo(field_type);
+
+        if (type_info.Fn.is_generic) {
+            @compileError("Virtual function '" ++ field.name ++ "' cannot be generic.");
+        }
+
+        // TODO: What calling conventions should be allowed?
+        switch (type_info.Fn.calling_convention) {
+            .Unspecified, .Async => {},
+            else => @compileError("Virtual function's  '" ++ field.name ++ "' calling convention is not default or async."),
+        }
+
+        if (type_info.Fn.args.len == 0) {
+            @compileError("Virtual function '" ++ field.name ++ "' must have at least one argument.");
+        }
+
+        const arg_type = type_info.Fn.args[0].arg_type.?;
+        if (arg_type != SelfType and arg_type != *SelfType and arg_type != *const SelfType) {
+            @compileError("Virtual function's '" ++ field.name ++ "' must be SelfType, *SelfType or *const SelfType");
+        }
+    }
+}
+
 pub fn Interface(comptime VTableT: type, comptime StorageT: type) type {
+    comptime checkVtableType(VTableT);
+
     return struct {
         vtable_ptr: *const VTableT,
         storage: StorageT,
@@ -207,34 +258,41 @@ pub fn Interface(comptime VTableT: type, comptime StorageT: type) type {
 
         pub fn init(args: var) !Self {
             const ImplType = PtrChildOrSelf(@TypeOf(args.@"0"));
+            // TODO: https://github.com/ziglang/zig/issues/4564
+            try _workaround();
 
-            const storage = StorageT.init(args);
-            const initCanError = comptime trait.is(.ErrorUnion)(@TypeOf(storage));
-
-            // TODO: See https://github.com/ziglang/zig/issues/4564
-            if (!initCanError) try _workaround();
-
-            return Self {
+            return Self{
                 .vtable_ptr = &comptime make_vtable(VTableT, ImplType),
-                .storage = if (initCanError) try storage else storage,
+                .storage = try StorageT.init(args),
             };
         }
 
         pub fn initWithVTable(vtable_ptr: *const VTableT, args: var) !Self {
-            const storage = StorageT.init(args);
-            const initCanError = comptime trait.is(.ErrorUnion)(@TypeOf(storage));
-
-            // TODO: See https://github.com/ziglang/zig/issues/4564
-            if (!initCanError) try _workaround();
+            // TODO: https://github.com/ziglang/zig/issues/4564
+            try _workaround();
 
             return .{
                 .vtable_ptr = vtable_ptr,
-                .storage = if (initCanError) try storage else storage,
+                .storage = try StorageT.init(args),
             };
         }
 
         pub fn call(self: Self, comptime name: []u8, args: var) VTableReturnType(VTableT, name) {
+            comptime var is_optional = true;
+            comptime assert(vtableHasMethod(VTableT, name, &is_optional));
 
+            const fn_ptr = if (is_optional) blk: {
+                const val = @field(self.vtable_ptr, name);
+                if (val) |v| break :blk v;
+                return null;
+            } else @field(slef.vtable, name);
+
+            const self_ptr = self.storage.getSelfPtr();
+            return @call(.{}, fn_ptr, args);
+        }
+
+        pub fn deinit(self: Self) void {
+            self.storage.deinit();
         }
     };
 }
