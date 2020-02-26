@@ -1151,7 +1151,16 @@ pub const Target = struct {
                 .mipsel,
                 .mips64,
                 .mips64el,
-                => return error.UnknownDynamicLinkerPath,
+                => {
+                    const lib_suffix = switch (self.abi) {
+                        .gnuabin32, .gnux32 => "32",
+                        .gnuabi64 => "64",
+                        else => "",
+                    };
+                    const is_nan_2008 = mips.featureSetHas(self.cpu.features, .nan2008);
+                    const loader = if (is_nan_2008) "ld-linux-mipsn8.so.1" else "ld.so.1";
+                    return std.fmt.allocPrint0(a, "/lib{}/{}", .{ lib_suffix, loader });
+                },
 
                 .powerpc => return mem.dupeZ(a, u8, "/lib/ld.so.1"),
                 .powerpc64, .powerpc64le => return mem.dupeZ(a, u8, "/lib64/ld64.so.2"),
