@@ -383,7 +383,7 @@ pub const CrossTarget = struct {
     pub fn getAbi(self: CrossTarget) Target.Abi {
         if (self.abi) |abi| return abi;
 
-        if (self.isNativeOs()) {
+        if (self.os_tag == null) {
             // This works when doing `zig build` because Zig generates a build executable using
             // native CPU model & features. However this will not be accurate otherwise, and
             // will need to be integrated with `std.zig.system.NativeTargetInfo.detect`.
@@ -441,21 +441,11 @@ pub const CrossTarget = struct {
         return Target.libPrefix_cpu_arch_abi(self.getCpuArch(), self.getAbi());
     }
 
-    pub fn isNativeCpu(self: CrossTarget) bool {
-        return self.cpu_arch == null and self.cpu_model == null and
-            self.cpu_features_sub.isEmpty() and self.cpu_features_add.isEmpty();
-    }
-
-    pub fn isNativeOs(self: CrossTarget) bool {
-        return self.os_tag == null and self.os_version_min == null and self.os_version_max == null;
-    }
-
-    pub fn isNativeAbi(self: CrossTarget) bool {
-        return self.abi == null and self.glibc_version == null;
-    }
-
     pub fn isNative(self: CrossTarget) bool {
-        return self.isNativeCpu() and self.isNativeOs() and self.isNativeAbi();
+        return self.cpu_arch == null and self.cpu_model == null and
+            self.cpu_features_sub.isEmpty() and self.cpu_features_add.isEmpty() and
+            self.os_tag == null and self.os_version_min == null and self.os_version_max == null and
+            self.abi == null;
     }
 
     pub fn zigTriple(self: CrossTarget, allocator: *mem.Allocator) error{OutOfMemory}![:0]u8 {
@@ -463,7 +453,7 @@ pub const CrossTarget = struct {
             return mem.dupeZ(allocator, u8, "native");
         }
 
-        const arch_name = if (self.isNativeCpu()) "native" else @tagName(self.getCpuArch());
+        const arch_name = if (self.cpu_arch) |arch| @tagName(arch) else "native";
         const os_name = if (self.os_tag) |os_tag| @tagName(os_tag) else "native";
 
         var result = try std.Buffer.allocPrint(allocator, "{}-{}", .{ arch_name, os_name });
@@ -557,12 +547,20 @@ pub const CrossTarget = struct {
         unavailable,
     };
 
+    /// Note that even a `CrossTarget` which returns `false` for `isNative` could still be natively executed.
+    /// For example `-target arm-native` running on an aarch64 host.
     pub fn getExternalExecutor(self: CrossTarget) Executor {
-        const os_tag = self.getOsTag();
         const cpu_arch = self.getCpuArch();
+        const os_tag = self.getOsTag();
+        const os_match = os_tag == Target.current.os.tag;
 
-        // If the target OS matches the host OS, we can use QEMU to emulate a foreign architecture.
-        if (os_tag == Target.current.os.tag) {
+        // If the OS matches, and the CPU arch matches, the binary is considered native.
+        if (self.os_tag == null and cpu_arch == Target.current.cpu.arch) {
+            return .native;
+        }
+
+        // If the OS matches, we can use QEMU to emulate a foreign architecture.
+        if (os_match) {
             return switch (cpu_arch) {
                 .aarch64 => Executor{ .qemu = "qemu-aarch64" },
                 .aarch64_be => Executor{ .qemu = "qemu-aarch64_be" },

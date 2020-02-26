@@ -42,7 +42,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
         \\}
     ;
 
-    switch (builtin.os.tag) {
+    switch (std.Target.current.os.tag) {
         .freebsd => {
             cases.addCase(
                 "return",

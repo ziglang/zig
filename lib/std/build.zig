@@ -1141,7 +1141,7 @@ pub const LibExeObjStep = struct {
     out_pdb_filename: []const u8,
     packages: ArrayList(Pkg),
     build_options_contents: std.Buffer,
-    system_linker_hack: bool,
+    system_linker_hack: bool = false,
 
     object_src: []const u8,
 
@@ -1273,7 +1273,6 @@ pub const LibExeObjStep = struct {
             .object_src = undefined,
             .build_options_contents = std.Buffer.initSize(builder.allocator, 0) catch unreachable,
             .c_std = Builder.CStd.C99,
-            .system_linker_hack = false,
             .override_lib_dir = null,
             .main_pkg_path = null,
             .exec_cmd_args = null,

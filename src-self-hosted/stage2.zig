@@ -1137,9 +1137,9 @@ fn enumInt(comptime Enum: type, int: c_int) Enum {
 /// TODO self-host this function
 fn crossTargetToTarget(cross_target: CrossTarget, dynamic_linker_ptr: *?[*:0]u8) !Target {
     var adjusted_target = cross_target.toTarget();
-    if (cross_target.isNativeCpu() or cross_target.isNativeOs()) {
+    if (cross_target.cpu_arch == null or cross_target.os_tag == null) {
         const detected_info = try std.zig.system.NativeTargetInfo.detect(std.heap.c_allocator);
-        if (cross_target.isNativeCpu()) {
+        if (cross_target.cpu_arch == null) {
             adjusted_target.cpu = detected_info.target.cpu;
 
             // TODO We want to just use detected_info.target but implementing
@@ -1151,7 +1151,7 @@ fn crossTargetToTarget(cross_target: CrossTarget, dynamic_linker_ptr: *?[*:0]u8)
             const arch = std.Target.current.cpu.arch;
             adjusted_target.cpu = try detectNativeCpuWithLLVM(arch, llvm_cpu_name, llvm_cpu_features);
         }
-        if (cross_target.isNativeOs()) {
+        if (cross_target.os_tag == null) {
             adjusted_target.os = detected_info.target.os;
 
             if (detected_info.dynamic_linker) |dl| {
