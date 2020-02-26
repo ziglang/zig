@@ -2,9 +2,9 @@ const std = @import("std");
 const expect = std.testing.expect;
 
 fn ShardedTable(comptime Key: type, comptime mask_bit_count: comptime_int, comptime V: type) type {
-    expect(Key == @IntType(false, Key.bit_count));
+    expect(Key == std.meta.IntType(false, Key.bit_count));
     expect(Key.bit_count >= mask_bit_count);
-    const ShardKey = @IntType(false, mask_bit_count);
+    const ShardKey = std.meta.IntType(false, mask_bit_count);
     const shift_amount = Key.bit_count - ShardKey.bit_count;
     return struct {
         const Self = @This();

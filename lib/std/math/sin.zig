@@ -45,7 +45,7 @@ const pi4c = 2.69515142907905952645E-15;
 const m4pi = 1.273239544735162542821171882678754627704620361328125;
 
 fn sin_(comptime T: type, x_: T) T {
-    const I = @IntType(true, T.bit_count);
+    const I = std.meta.IntType(true, T.bit_count);
 
     var x = x_;
     if (x == 0 or math.isNan(x)) {

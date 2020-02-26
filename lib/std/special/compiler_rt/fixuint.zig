@@ -10,7 +10,7 @@ pub fn fixuint(comptime fp_t: type, comptime fixuint_t: type, a: fp_t) fixuint_t
         f128 => u128,
         else => unreachable,
     };
-    const srep_t = @IntType(true, rep_t.bit_count);
+    const srep_t = @import("std").meta.IntType(true, rep_t.bit_count);
     const significandBits = switch (fp_t) {
         f32 => 23,
         f64 => 52,

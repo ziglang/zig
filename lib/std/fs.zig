@@ -96,7 +96,6 @@ pub fn updateFile(source_path: []const u8, dest_path: []const u8) !PrevStatus {
 /// atime, and mode of the source file so that the next call to `updateFile` will not need a copy.
 /// Returns the previous status of the file before updating.
 /// If any of the directories do not exist for dest_path, they are created.
-/// TODO https://github.com/ziglang/zig/issues/2885
 pub fn updateFileMode(source_path: []const u8, dest_path: []const u8, mode: ?File.Mode) !PrevStatus {
     const my_cwd = cwd();
 
@@ -818,6 +817,13 @@ pub const Dir = struct {
     ) File.OpenError!File {
         const w = os.windows;
 
+        if (sub_path_w[0] == '.' and sub_path_w[1] == 0) {
+            return error.IsDir;
+        }
+        if (sub_path_w[0] == '.' and sub_path_w[1] == '.' and sub_path_w[2] == 0) {
+            return error.IsDir;
+        }
+
         var result = File{
             .handle = undefined,
             .io_mode = .blocking,
@@ -839,12 +845,6 @@ pub const Dir = struct {
             .SecurityDescriptor = null,
             .SecurityQualityOfService = null,
         };
-        if (sub_path_w[0] == '.' and sub_path_w[1] == 0) {
-            return error.IsDir;
-        }
-        if (sub_path_w[0] == '.' and sub_path_w[1] == '.' and sub_path_w[2] == 0) {
-            return error.IsDir;
-        }
         var io: w.IO_STATUS_BLOCK = undefined;
         const rc = w.ntdll.NtCreateFile(
             &result.handle,
@@ -864,6 +864,7 @@ pub const Dir = struct {
             .OBJECT_NAME_INVALID => unreachable,
             .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
             .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
+            .NO_MEDIA_IN_DEVICE => return error.NoDevice,
             .INVALID_PARAMETER => unreachable,
             .SHARING_VIOLATION => return error.SharingViolation,
             .ACCESS_DENIED => return error.AccessDenied,
@@ -1322,6 +1323,50 @@ pub const Dir = struct {
         var file = try self.createFile(sub_path, .{});
         defer file.close();
         try file.write(data);
+    }
+
+    pub const AccessError = os.AccessError;
+
+    /// Test accessing `path`.
+    /// `path` is UTF8-encoded.
+    /// Be careful of Time-Of-Check-Time-Of-Use race conditions when using this function.
+    /// For example, instead of testing if a file exists and then opening it, just
+    /// open it and handle the error for file not found.
+    pub fn access(self: Dir, sub_path: []const u8, flags: File.OpenFlags) AccessError!void {
+        if (builtin.os == .windows) {
+            const sub_path_w = try os.windows.sliceToPrefixedFileW(sub_path);
+            return self.accessW(&sub_path_w, flags);
+        }
+        const path_c = try os.toPosixPath(sub_path);
+        return self.accessZ(&path_c, flags);
+    }
+
+    /// Same as `access` except the path parameter is null-terminated.
+    pub fn accessZ(self: Dir, sub_path: [*:0]const u8, flags: File.OpenFlags) AccessError!void {
+        if (builtin.os == .windows) {
+            const sub_path_w = try os.windows.cStrToPrefixedFileW(sub_path);
+            return self.accessW(&sub_path_w, flags);
+        }
+        const os_mode = if (flags.write and flags.read)
+            @as(u32, os.R_OK | os.W_OK)
+        else if (flags.write)
+            @as(u32, os.W_OK)
+        else
+            @as(u32, os.F_OK);
+        const result = if (need_async_thread)
+            std.event.Loop.instance.?.faccessatZ(self.fd, sub_path, os_mode)
+        else
+            os.faccessatZ(self.fd, sub_path, os_mode, 0);
+        return result;
+    }
+
+    /// Same as `access` except asserts the target OS is Windows and the path parameter is
+    /// * WTF-16 encoded
+    /// * null-terminated
+    /// * NtDll prefixed
+    /// TODO currently this ignores `flags`.
+    pub fn accessW(self: Dir, sub_path_w: [*:0]const u16, flags: File.OpenFlags) AccessError!void {
+        return os.faccessatW(self.fd, sub_path_w, 0, 0);
     }
 };
 

@@ -2,7 +2,7 @@ const std = @import("std");
 const testing = std.testing;
 
 pub fn readULEB128(comptime T: type, in_stream: var) !T {
-    const ShiftT = @IntType(false, std.math.log2(T.bit_count));
+    const ShiftT = std.meta.IntType(false, std.math.log2(T.bit_count));
 
     var result: T = 0;
     var shift: usize = 0;
@@ -27,7 +27,7 @@ pub fn readULEB128(comptime T: type, in_stream: var) !T {
 }
 
 pub fn readULEB128Mem(comptime T: type, ptr: *[*]const u8) !T {
-    const ShiftT = @IntType(false, std.math.log2(T.bit_count));
+    const ShiftT = std.meta.IntType(false, std.math.log2(T.bit_count));
 
     var result: T = 0;
     var shift: usize = 0;
@@ -55,8 +55,8 @@ pub fn readULEB128Mem(comptime T: type, ptr: *[*]const u8) !T {
 }
 
 pub fn readILEB128(comptime T: type, in_stream: var) !T {
-    const UT = @IntType(false, T.bit_count);
-    const ShiftT = @IntType(false, std.math.log2(T.bit_count));
+    const UT = std.meta.IntType(false, T.bit_count);
+    const ShiftT = std.meta.IntType(false, std.math.log2(T.bit_count));
 
     var result: UT = 0;
     var shift: usize = 0;
@@ -87,8 +87,8 @@ pub fn readILEB128(comptime T: type, in_stream: var) !T {
 }
 
 pub fn readILEB128Mem(comptime T: type, ptr: *[*]const u8) !T {
-    const UT = @IntType(false, T.bit_count);
-    const ShiftT = @IntType(false, std.math.log2(T.bit_count));
+    const UT = std.meta.IntType(false, T.bit_count);
+    const ShiftT = std.meta.IntType(false, std.math.log2(T.bit_count));
 
     var result: UT = 0;
     var shift: usize = 0;

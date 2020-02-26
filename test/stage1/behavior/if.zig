@@ -1,4 +1,6 @@
-const expect = @import("std").testing.expect;
+const std = @import("std");
+const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 
 test "if statements" {
     shouldBeEqual(1, 1);
@@ -89,4 +91,19 @@ test "if prongs cast to expected type instead of peer type resolution" {
     };
     S.doTheTest(false);
     comptime S.doTheTest(false);
+}
+
+test "while copies its payload" {
+    const S = struct {
+        fn doTheTest() void {
+            var tmp: ?i32 = 10;
+            if (tmp) |value| {
+                // Modify the original variable
+                tmp = null;
+                expectEqual(@as(i32, 10), value);
+            } else unreachable;
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
 }

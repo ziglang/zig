@@ -243,7 +243,7 @@ pub const Utf16LeIterator = struct {
 
     pub fn init(s: []const u16) Utf16LeIterator {
         return Utf16LeIterator{
-            .bytes = @sliceToBytes(s),
+            .bytes = mem.sliceAsBytes(s),
             .i = 0,
         };
     }
@@ -496,7 +496,7 @@ pub fn utf16leToUtf8(utf8: []u8, utf16le: []const u16) !usize {
 
 test "utf16leToUtf8" {
     var utf16le: [2]u16 = undefined;
-    const utf16le_as_bytes = @sliceToBytes(utf16le[0..]);
+    const utf16le_as_bytes = mem.sliceAsBytes(utf16le[0..]);
 
     {
         mem.writeIntSliceLittle(u16, utf16le_as_bytes[0..], 'A');
@@ -606,12 +606,12 @@ test "utf8ToUtf16Le" {
     {
         const length = try utf8ToUtf16Le(utf16le[0..], "𐐷");
         testing.expectEqual(@as(usize, 2), length);
-        testing.expectEqualSlices(u8, "\x01\xd8\x37\xdc", @sliceToBytes(utf16le[0..]));
+        testing.expectEqualSlices(u8, "\x01\xd8\x37\xdc", mem.sliceAsBytes(utf16le[0..]));
     }
     {
         const length = try utf8ToUtf16Le(utf16le[0..], "\u{10FFFF}");
         testing.expectEqual(@as(usize, 2), length);
-        testing.expectEqualSlices(u8, "\xff\xdb\xff\xdf", @sliceToBytes(utf16le[0..]));
+        testing.expectEqualSlices(u8, "\xff\xdb\xff\xdf", mem.sliceAsBytes(utf16le[0..]));
     }
 }
 
@@ -619,13 +619,13 @@ test "utf8ToUtf16LeWithNull" {
     {
         const utf16 = try utf8ToUtf16LeWithNull(testing.allocator, "𐐷");
         defer testing.allocator.free(utf16);
-        testing.expectEqualSlices(u8, "\x01\xd8\x37\xdc", @sliceToBytes(utf16[0..]));
+        testing.expectEqualSlices(u8, "\x01\xd8\x37\xdc", mem.sliceAsBytes(utf16[0..]));
         testing.expect(utf16[2] == 0);
     }
     {
         const utf16 = try utf8ToUtf16LeWithNull(testing.allocator, "\u{10FFFF}");
         defer testing.allocator.free(utf16);
-        testing.expectEqualSlices(u8, "\xff\xdb\xff\xdf", @sliceToBytes(utf16[0..]));
+        testing.expectEqualSlices(u8, "\xff\xdb\xff\xdf", mem.sliceAsBytes(utf16[0..]));
         testing.expect(utf16[2] == 0);
     }
 }

@@ -93,7 +93,7 @@ pub fn hash(hasher: var, key: var, comptime strat: HashStrategy) void {
         // TODO Check if the situation is better after #561 is resolved.
         .Int => @call(.{ .modifier = .always_inline }, hasher.update, .{std.mem.asBytes(&key)}),
 
-        .Float => |info| hash(hasher, @bitCast(@IntType(false, info.bits), key), strat),
+        .Float => |info| hash(hasher, @bitCast(std.meta.IntType(false, info.bits), key), strat),
 
         .Bool => hash(hasher, @boolToInt(key), strat),
         .Enum => hash(hasher, @enumToInt(key), strat),

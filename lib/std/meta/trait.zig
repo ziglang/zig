@@ -1,5 +1,5 @@
 const std = @import("../std.zig");
-const builtin = @import("builtin");
+const builtin = std.builtin;
 const mem = std.mem;
 const debug = std.debug;
 const testing = std.testing;
@@ -54,7 +54,7 @@ pub fn hasFn(comptime name: []const u8) TraitFn {
             if (!comptime isContainer(T)) return false;
             if (!comptime @hasDecl(T, name)) return false;
             const DeclType = @TypeOf(@field(T, name));
-            return @typeId(DeclType) == .Fn;
+            return @typeInfo(DeclType) == .Fn;
         }
     };
     return Closure.trait;
@@ -105,7 +105,7 @@ test "std.meta.trait.hasField" {
 pub fn is(comptime id: builtin.TypeId) TraitFn {
     const Closure = struct {
         pub fn trait(comptime T: type) bool {
-            return id == @typeId(T);
+            return id == @typeInfo(T);
         }
     };
     return Closure.trait;
@@ -123,7 +123,7 @@ pub fn isPtrTo(comptime id: builtin.TypeId) TraitFn {
     const Closure = struct {
         pub fn trait(comptime T: type) bool {
             if (!comptime isSingleItemPtr(T)) return false;
-            return id == @typeId(meta.Child(T));
+            return id == @typeInfo(meta.Child(T));
         }
     };
     return Closure.trait;
@@ -133,6 +133,22 @@ test "std.meta.trait.isPtrTo" {
     testing.expect(!isPtrTo(.Struct)(struct {}));
     testing.expect(isPtrTo(.Struct)(*struct {}));
     testing.expect(!isPtrTo(.Struct)(**struct {}));
+}
+
+pub fn isSliceOf(comptime id: builtin.TypeId) TraitFn {
+    const Closure = struct {
+        pub fn trait(comptime T: type) bool {
+            if (!comptime isSlice(T)) return false;
+            return id == @typeInfo(meta.Child(T));
+        }
+    };
+    return Closure.trait;
+}
+
+test "std.meta.trait.isSliceOf" {
+    testing.expect(!isSliceOf(.Struct)(struct {}));
+    testing.expect(isSliceOf(.Struct)([]struct {}));
+    testing.expect(!isSliceOf(.Struct)([][]struct {}));
 }
 
 ///////////Strait trait Fns
@@ -269,7 +285,7 @@ test "std.meta.trait.isIndexable" {
 }
 
 pub fn isNumber(comptime T: type) bool {
-    return switch (@typeId(T)) {
+    return switch (@typeInfo(T)) {
         .Int, .Float, .ComptimeInt, .ComptimeFloat => true,
         else => false,
     };
@@ -304,7 +320,7 @@ test "std.meta.trait.isConstPtr" {
 }
 
 pub fn isContainer(comptime T: type) bool {
-    return switch (@typeId(T)) {
+    return switch (@typeInfo(T)) {
         .Struct, .Union, .Enum => true,
         else => false,
     };

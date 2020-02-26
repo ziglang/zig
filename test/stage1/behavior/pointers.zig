@@ -318,3 +318,15 @@ test "pointer arithmetic affects the alignment" {
         expect(@typeInfo(@TypeOf(ptr4)).Pointer.alignment == 4);
     }
 }
+
+test "@ptrToInt on null optional at comptime" {
+    {
+        const pointer = @intToPtr(?*u8, 0x000);
+        const x = @ptrToInt(pointer);
+        comptime expect(0 == @ptrToInt(pointer));
+    }
+    {
+        const pointer = @intToPtr(?*u8, 0xf00);
+        comptime expect(0xf00 == @ptrToInt(pointer));
+    }
+}

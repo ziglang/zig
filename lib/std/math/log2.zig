@@ -7,8 +7,6 @@
 const std = @import("../std.zig");
 const math = std.math;
 const expect = std.testing.expect;
-const builtin = @import("builtin");
-const TypeId = builtin.TypeId;
 const maxInt = std.math.maxInt;
 
 /// Returns the base-2 logarithm of x.
@@ -20,18 +18,18 @@ const maxInt = std.math.maxInt;
 ///  - log2(nan)   = nan
 pub fn log2(x: var) @TypeOf(x) {
     const T = @TypeOf(x);
-    switch (@typeId(T)) {
-        TypeId.ComptimeFloat => {
+    switch (@typeInfo(T)) {
+        .ComptimeFloat => {
             return @as(comptime_float, log2_64(x));
         },
-        TypeId.Float => {
+        .Float => {
             return switch (T) {
                 f32 => log2_32(x),
                 f64 => log2_64(x),
                 else => @compileError("log2 not implemented for " ++ @typeName(T)),
             };
         },
-        TypeId.ComptimeInt => comptime {
+        .ComptimeInt => comptime {
             var result = 0;
             var x_shifted = x;
             while (b: {
@@ -40,7 +38,7 @@ pub fn log2(x: var) @TypeOf(x) {
             }) : (result += 1) {}
             return result;
         },
-        TypeId.Int => {
+        .Int => {
             return math.log2_int(T, x);
         },
         else => @compileError("log2 not implemented for " ++ @typeName(T)),

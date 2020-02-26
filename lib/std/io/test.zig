@@ -5,6 +5,7 @@ const meta = std.meta;
 const trait = std.trait;
 const DefaultPrng = std.rand.DefaultPrng;
 const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 const expectError = std.testing.expectError;
 const mem = std.mem;
 const fs = std.fs;
@@ -44,8 +45,8 @@ test "write a file, read it, then delete it" {
         defer file.close();
 
         const file_size = try file.getEndPos();
-        const expected_file_size = "begin".len + data.len + "end".len;
-        expect(file_size == expected_file_size);
+        const expected_file_size: u64 = "begin".len + data.len + "end".len;
+        expectEqual(expected_file_size, file_size);
 
         var file_in_stream = file.inStream();
         var buf_stream = io.BufferedInStream(File.ReadError).init(&file_in_stream.stream);
@@ -93,12 +94,12 @@ test "SliceInStream" {
 test "PeekStream" {
     const bytes = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8 };
     var ss = io.SliceInStream.init(&bytes);
-    var ps = io.PeekStream(2, io.SliceInStream.Error).init(&ss.stream);
+    var ps = io.PeekStream(.{ .Static = 2 }, io.SliceInStream.Error).init(&ss.stream);
 
     var dest: [4]u8 = undefined;
 
-    ps.putBackByte(9);
-    ps.putBackByte(10);
+    try ps.putBackByte(9);
+    try ps.putBackByte(10);
 
     var read = try ps.stream.read(dest[0..4]);
     expect(read == 4);
@@ -114,8 +115,8 @@ test "PeekStream" {
     expect(read == 2);
     expect(mem.eql(u8, dest[0..2], bytes[6..8]));
 
-    ps.putBackByte(11);
-    ps.putBackByte(12);
+    try ps.putBackByte(11);
+    try ps.putBackByte(12);
 
     read = try ps.stream.read(dest[0..4]);
     expect(read == 2);
@@ -317,6 +318,7 @@ test "BitStreams with File Stream" {
 }
 
 fn testIntSerializerDeserializer(comptime endian: builtin.Endian, comptime packing: io.Packing) !void {
+    @setEvalBranchQuota(1500);
     //@NOTE: if this test is taking too long, reduce the maximum tested bitsize
     const max_test_bitsize = 128;
 
@@ -340,8 +342,8 @@ fn testIntSerializerDeserializer(comptime endian: builtin.Endian, comptime packi
 
     comptime var i = 0;
     inline while (i <= max_test_bitsize) : (i += 1) {
-        const U = @IntType(false, i);
-        const S = @IntType(true, i);
+        const U = std.meta.IntType(false, i);
+        const S = std.meta.IntType(true, i);
         try serializer.serializeInt(@as(U, i));
         if (i != 0) try serializer.serializeInt(@as(S, -1)) else try serializer.serialize(@as(S, 0));
     }
@@ -349,8 +351,8 @@ fn testIntSerializerDeserializer(comptime endian: builtin.Endian, comptime packi
 
     i = 0;
     inline while (i <= max_test_bitsize) : (i += 1) {
-        const U = @IntType(false, i);
-        const S = @IntType(true, i);
+        const U = std.meta.IntType(false, i);
+        const S = std.meta.IntType(true, i);
         const x = try deserializer.deserializeInt(U);
         const y = try deserializer.deserializeInt(S);
         expect(x == @as(U, i));

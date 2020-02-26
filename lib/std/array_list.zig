@@ -188,6 +188,14 @@ pub fn AlignedArrayList(comptime T: type, comptime alignment: ?u29) type {
             self.len += items.len;
         }
 
+        /// Append a value to the list `n` times. Allocates more memory
+        /// as necessary.
+        pub fn appendNTimes(self: *Self, value: T, n: usize) !void {
+            const old_len = self.len;
+            try self.resize(self.len + n);
+            mem.set(T, self.items[old_len..self.len], value);
+        }
+
         /// Adjust the list's length to `new_len`. Doesn't initialize
         /// added items if any.
         pub fn resize(self: *Self, new_len: usize) !void {
@@ -309,6 +317,23 @@ test "std.ArrayList.basic" {
 
     testing.expect(list.pop() == 42);
     testing.expect(list.pop() == 33);
+}
+
+test "std.ArrayList.appendNTimes" {
+    var list = ArrayList(i32).init(testing.allocator);
+    defer list.deinit();
+
+    try list.appendNTimes(2, 10);
+    testing.expectEqual(@as(usize, 10), list.len);
+    for (list.toSlice()) |element| {
+        testing.expectEqual(@as(i32, 2), element);
+    }
+}
+
+test "std.ArrayList.appendNTimes with failing allocator" {
+    var list = ArrayList(i32).init(testing.failing_allocator);
+    defer list.deinit();
+    testing.expectError(error.OutOfMemory, list.appendNTimes(2, 10));
 }
 
 test "std.ArrayList.orderedRemove" {

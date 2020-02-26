@@ -152,7 +152,7 @@ pub fn setThreadPointer(addr: usize) void {
                 : [addr] "r" (addr)
             );
         },
-        .arm => |arm| {
+        .arm => {
             const rc = std.os.linux.syscall1(std.os.linux.SYS_set_tls, addr);
             assert(rc == 0);
         },

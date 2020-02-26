@@ -92,7 +92,7 @@ void Profile::print_report(FILE *file) {
         auto entry = it.next();
         if (!entry)
             break;
-        list.append(heap::bootstrap_allocator, &entry->value);
+        list.append(&heap::bootstrap_allocator, &entry->value);
     }
 
     qsort(list.items, list.length, sizeof(const Entry *), entry_compare);
@@ -143,7 +143,7 @@ void Profile::print_report(FILE *file) {
     fprintf(file, "\n  Total calls alloc: %zu, dealloc: %zu, remain: %zu\n",
         total_calls_alloc, total_calls_dealloc, (total_calls_alloc - total_calls_dealloc));
 
-    list.deinit(heap::bootstrap_allocator);
+    list.deinit(&heap::bootstrap_allocator);
 }
 
 uint32_t Profile::usage_hash(UsageKey key) {

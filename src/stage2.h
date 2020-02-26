@@ -5,12 +5,14 @@
  * See http://opensource.org/licenses/MIT
  */
 
-#ifndef ZIG_USERLAND_H
-#define ZIG_USERLAND_H
+#ifndef ZIG_STAGE2_H
+#define ZIG_STAGE2_H
 
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
+
+#include "zig_llvm.h"
 
 #ifdef __cplusplus
 #define ZIG_EXTERN_C extern "C"
@@ -25,7 +27,7 @@
 #endif
 
 // ABI warning: the types and declarations in this file must match both those in
-// userland.cpp and src-self-hosted/stage1.zig.
+// stage2.cpp and src-self-hosted/stage2.zig.
 
 // ABI warning
 enum Error {
@@ -79,11 +81,28 @@ enum Error {
     ErrorIsAsync,
     ErrorImportOutsidePkgPath,
     ErrorUnknownCpu,
-    ErrorUnknownSubArchitecture,
     ErrorUnknownCpuFeature,
     ErrorInvalidCpuFeatures,
     ErrorInvalidLlvmCpuFeaturesFormat,
     ErrorUnknownApplicationBinaryInterface,
+    ErrorASTUnitFailure,
+    ErrorBadPathName,
+    ErrorSymLinkLoop,
+    ErrorProcessFdQuotaExceeded,
+    ErrorSystemFdQuotaExceeded,
+    ErrorNoDevice,
+    ErrorDeviceBusy,
+    ErrorUnableToSpawnCCompiler,
+    ErrorCCompilerExitCode,
+    ErrorCCompilerCrashed,
+    ErrorCCompilerCannotFindHeaders,
+    ErrorLibCRuntimeNotFound,
+    ErrorLibCStdLibHeaderNotFound,
+    ErrorLibCKernel32LibNotFound,
+    ErrorUnsupportedArchitecture,
+    ErrorWindowsSdkNotFound,
+    ErrorUnknownDynamicLinkerPath,
+    ErrorTargetHasNoDynamicLinker,
 };
 
 // ABI warning
@@ -181,28 +200,120 @@ ZIG_EXTERN_C void stage2_progress_update_node(Stage2ProgressNode *node,
         size_t completed_count, size_t estimated_total_items);
 
 // ABI warning
-struct Stage2CpuFeatures;
-
-// ABI warning
-ZIG_EXTERN_C Error stage2_cpu_features_parse(struct Stage2CpuFeatures **result,
-        const char *zig_triple, const char *cpu_name, const char *cpu_features);
-
-// ABI warning
-ZIG_EXTERN_C const char *stage2_cpu_features_get_llvm_cpu(const struct Stage2CpuFeatures *cpu_features);
-
-// ABI warning
-ZIG_EXTERN_C const char *stage2_cpu_features_get_llvm_features(const struct Stage2CpuFeatures *cpu_features);
-
-// ABI warning
-ZIG_EXTERN_C void stage2_cpu_features_get_builtin_str(const struct Stage2CpuFeatures *cpu_features,
-        const char **ptr, size_t *len);
-
-// ABI warning
-ZIG_EXTERN_C void stage2_cpu_features_get_cache_hash(const struct Stage2CpuFeatures *cpu_features,
-        const char **ptr, size_t *len);
-
-// ABI warning
 ZIG_EXTERN_C int stage2_cmd_targets(const char *zig_triple);
 
+// ABI warning
+struct Stage2LibCInstallation {
+    const char *include_dir;
+    size_t include_dir_len;
+    const char *sys_include_dir;
+    size_t sys_include_dir_len;
+    const char *crt_dir;
+    size_t crt_dir_len;
+    const char *static_crt_dir;
+    size_t static_crt_dir_len;
+    const char *msvc_lib_dir;
+    size_t msvc_lib_dir_len;
+    const char *kernel32_lib_dir;
+    size_t kernel32_lib_dir_len;
+};
+
+// ABI warning
+ZIG_EXTERN_C enum Error stage2_libc_parse(struct Stage2LibCInstallation *libc, const char *libc_file);
+// ABI warning
+ZIG_EXTERN_C enum Error stage2_libc_render(struct Stage2LibCInstallation *self, FILE *file);
+// ABI warning
+ZIG_EXTERN_C enum Error stage2_libc_find_native(struct Stage2LibCInstallation *libc);
+
+// ABI warning
+// Synchronize with target.cpp::os_list
+enum Os {
+    OsFreestanding,
+    OsAnanas,
+    OsCloudABI,
+    OsDragonFly,
+    OsFreeBSD,
+    OsFuchsia,
+    OsIOS,
+    OsKFreeBSD,
+    OsLinux,
+    OsLv2,        // PS3
+    OsMacOSX,
+    OsNetBSD,
+    OsOpenBSD,
+    OsSolaris,
+    OsWindows,
+    OsHaiku,
+    OsMinix,
+    OsRTEMS,
+    OsNaCl,       // Native Client
+    OsCNK,        // BG/P Compute-Node Kernel
+    OsAIX,
+    OsCUDA,       // NVIDIA CUDA
+    OsNVCL,       // NVIDIA OpenCL
+    OsAMDHSA,     // AMD HSA Runtime
+    OsPS4,
+    OsELFIAMCU,
+    OsTvOS,       // Apple tvOS
+    OsWatchOS,    // Apple watchOS
+    OsMesa3D,
+    OsContiki,
+    OsAMDPAL,
+    OsHermitCore,
+    OsHurd,
+    OsWASI,
+    OsEmscripten,
+    OsUefi,
+    OsOther,
+};
+
+// ABI warning
+struct ZigGLibCVersion {
+    uint32_t major; // always 2
+    uint32_t minor;
+    uint32_t patch;
+};
+
+struct Stage2TargetData;
+
+// ABI warning
+struct ZigTarget {
+    enum ZigLLVM_ArchType arch;
+    enum ZigLLVM_VendorType vendor;
+
+    enum ZigLLVM_EnvironmentType abi;
+    Os os;
+
+    bool is_native;
+
+    struct ZigGLibCVersion *glibc_version; // null means default
+
+    const char *llvm_cpu_name;
+    const char *llvm_cpu_features;
+    const char *builtin_str;
+    const char *cache_hash;
+};
+
+// ABI warning
+ZIG_EXTERN_C enum Error stage2_detect_dynamic_linker(const struct ZigTarget *target,
+        char **out_ptr, size_t *out_len);
+
+// ABI warning
+ZIG_EXTERN_C enum Error stage2_target_parse(struct ZigTarget *target, const char *zig_triple, const char *mcpu);
+
+
+// ABI warning
+struct Stage2NativePaths {
+    const char **include_dirs_ptr;
+    size_t include_dirs_len;
+    const char **lib_dirs_ptr;
+    size_t lib_dirs_len;
+    const char **rpaths_ptr;
+    size_t rpaths_len;
+    const char **warnings_ptr;
+    size_t warnings_len;
+};
+// ABI warning
+ZIG_EXTERN_C enum Error stage2_detect_native_paths(struct Stage2NativePaths *native_paths);
 
 #endif

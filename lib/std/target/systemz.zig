@@ -1,5 +1,6 @@
 const std = @import("../std.zig");
-const Cpu = std.Target.Cpu;
+const CpuFeature = std.Target.Cpu.Feature;
+const CpuModel = std.Target.Cpu.Model;
 
 pub const Feature = enum {
     deflate_conversion,
@@ -39,12 +40,12 @@ pub const Feature = enum {
     vector_packed_decimal_enhancement,
 };
 
-pub usingnamespace Cpu.Feature.feature_set_fns(Feature);
+pub usingnamespace CpuFeature.feature_set_fns(Feature);
 
 pub const all_features = blk: {
     const len = @typeInfo(Feature).Enum.fields.len;
-    std.debug.assert(len <= Cpu.Feature.Set.needed_bit_count);
-    var result: [len]Cpu.Feature = undefined;
+    std.debug.assert(len <= CpuFeature.Set.needed_bit_count);
+    var result: [len]CpuFeature = undefined;
     result[@enumToInt(Feature.deflate_conversion)] = .{
         .llvm_name = "deflate-conversion",
         .description = "Assume that the deflate-conversion facility is installed",
@@ -229,7 +230,7 @@ pub const all_features = blk: {
 };
 
 pub const cpu = struct {
-    pub const arch10 = Cpu{
+    pub const arch10 = CpuModel{
         .name = "arch10",
         .llvm_name = "arch10",
         .features = featureSet(&[_]Feature{
@@ -252,7 +253,7 @@ pub const cpu = struct {
             .transactional_execution,
         }),
     };
-    pub const arch11 = Cpu{
+    pub const arch11 = CpuModel{
         .name = "arch11",
         .llvm_name = "arch11",
         .features = featureSet(&[_]Feature{
@@ -280,7 +281,7 @@ pub const cpu = struct {
             .vector,
         }),
     };
-    pub const arch12 = Cpu{
+    pub const arch12 = CpuModel{
         .name = "arch12",
         .llvm_name = "arch12",
         .features = featureSet(&[_]Feature{
@@ -315,7 +316,7 @@ pub const cpu = struct {
             .vector_packed_decimal,
         }),
     };
-    pub const arch13 = Cpu{
+    pub const arch13 = CpuModel{
         .name = "arch13",
         .llvm_name = "arch13",
         .features = featureSet(&[_]Feature{
@@ -356,12 +357,12 @@ pub const cpu = struct {
             .vector_packed_decimal_enhancement,
         }),
     };
-    pub const arch8 = Cpu{
+    pub const arch8 = CpuModel{
         .name = "arch8",
         .llvm_name = "arch8",
         .features = featureSet(&[_]Feature{}),
     };
-    pub const arch9 = Cpu{
+    pub const arch9 = CpuModel{
         .name = "arch9",
         .llvm_name = "arch9",
         .features = featureSet(&[_]Feature{
@@ -377,17 +378,17 @@ pub const cpu = struct {
             .reset_reference_bits_multiple,
         }),
     };
-    pub const generic = Cpu{
+    pub const generic = CpuModel{
         .name = "generic",
         .llvm_name = "generic",
         .features = featureSet(&[_]Feature{}),
     };
-    pub const z10 = Cpu{
+    pub const z10 = CpuModel{
         .name = "z10",
         .llvm_name = "z10",
         .features = featureSet(&[_]Feature{}),
     };
-    pub const z13 = Cpu{
+    pub const z13 = CpuModel{
         .name = "z13",
         .llvm_name = "z13",
         .features = featureSet(&[_]Feature{
@@ -415,7 +416,7 @@ pub const cpu = struct {
             .vector,
         }),
     };
-    pub const z14 = Cpu{
+    pub const z14 = CpuModel{
         .name = "z14",
         .llvm_name = "z14",
         .features = featureSet(&[_]Feature{
@@ -450,7 +451,7 @@ pub const cpu = struct {
             .vector_packed_decimal,
         }),
     };
-    pub const z196 = Cpu{
+    pub const z196 = CpuModel{
         .name = "z196",
         .llvm_name = "z196",
         .features = featureSet(&[_]Feature{
@@ -466,7 +467,7 @@ pub const cpu = struct {
             .reset_reference_bits_multiple,
         }),
     };
-    pub const zEC12 = Cpu{
+    pub const zEC12 = CpuModel{
         .name = "zEC12",
         .llvm_name = "zEC12",
         .features = featureSet(&[_]Feature{
@@ -494,7 +495,7 @@ pub const cpu = struct {
 /// All systemz CPUs, sorted alphabetically by name.
 /// TODO: Replace this with usage of `std.meta.declList`. It does work, but stage1
 /// compiler has inefficient memory and CPU usage, affecting build times.
-pub const all_cpus = &[_]*const Cpu{
+pub const all_cpus = &[_]*const CpuModel{
     &cpu.arch10,
     &cpu.arch11,
     &cpu.arch12,

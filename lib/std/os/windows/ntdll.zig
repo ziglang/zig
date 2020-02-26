@@ -8,6 +8,12 @@ pub extern "NtDll" fn NtQueryInformationFile(
     Length: ULONG,
     FileInformationClass: FILE_INFORMATION_CLASS,
 ) callconv(.Stdcall) NTSTATUS;
+
+pub extern "NtDll" fn NtQueryAttributesFile(
+    ObjectAttributes: *OBJECT_ATTRIBUTES,
+    FileAttributes: *FILE_BASIC_INFORMATION,
+) callconv(.Stdcall) NTSTATUS;
+
 pub extern "NtDll" fn NtCreateFile(
     FileHandle: *HANDLE,
     DesiredAccess: ACCESS_MASK,

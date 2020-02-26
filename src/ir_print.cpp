@@ -179,8 +179,6 @@ const char* ir_inst_src_type_str(IrInstSrcId id) {
             return "SrcFloatToInt";
         case IrInstSrcIdBoolToInt:
             return "SrcBoolToInt";
-        case IrInstSrcIdIntType:
-            return "SrcIntType";
         case IrInstSrcIdVectorType:
             return "SrcVectorType";
         case IrInstSrcIdBoolNot:
@@ -191,12 +189,6 @@ const char* ir_inst_src_type_str(IrInstSrcId id) {
             return "SrcMemcpy";
         case IrInstSrcIdSlice:
             return "SrcSlice";
-        case IrInstSrcIdMemberCount:
-            return "SrcMemberCount";
-        case IrInstSrcIdMemberType:
-            return "SrcMemberType";
-        case IrInstSrcIdMemberName:
-            return "SrcMemberName";
         case IrInstSrcIdBreakpoint:
             return "SrcBreakpoint";
         case IrInstSrcIdReturnAddress:
@@ -269,8 +261,6 @@ const char* ir_inst_src_type_str(IrInstSrcId id) {
             return "SrcType";
         case IrInstSrcIdHasField:
             return "SrcHasField";
-        case IrInstSrcIdTypeId:
-            return "SrcTypeId";
         case IrInstSrcIdSetEvalBranchQuota:
             return "SrcSetEvalBranchQuota";
         case IrInstSrcIdPtrType:
@@ -307,10 +297,6 @@ const char* ir_inst_src_type_str(IrInstSrcId id) {
             return "SrcAddImplicitReturnType";
         case IrInstSrcIdErrSetCast:
             return "SrcErrSetCast";
-        case IrInstSrcIdToBytes:
-            return "SrcToBytes";
-        case IrInstSrcIdFromBytes:
-            return "SrcFromBytes";
         case IrInstSrcIdCheckRuntimeScope:
             return "SrcCheckRuntimeScope";
         case IrInstSrcIdHasDecl:
@@ -383,8 +369,6 @@ const char* ir_inst_gen_type_str(IrInstGenId id) {
             return "GenReturn";
         case IrInstGenIdCast:
             return "GenCast";
-        case IrInstGenIdResizeSlice:
-            return "GenResizeSlice";
         case IrInstGenIdUnreachable:
             return "GenUnreachable";
         case IrInstGenIdAsm:
@@ -590,11 +574,6 @@ static void ir_print_const_value(CodeGen *g, FILE *f, ZigValue *const_val) {
 static void ir_print_other_inst_gen(IrPrintGen *irp, IrInstGen *inst) {
     if (inst == nullptr) {
         fprintf(irp->f, "(null)");
-        return;
-    }
-
-    if (inst->value->special != ConstValSpecialRuntime) {
-        ir_print_const_value(irp->codegen, irp->f, inst->value);
     } else {
         ir_print_var_gen(irp, inst);
     }
@@ -1649,20 +1628,6 @@ static void ir_print_err_set_cast(IrPrintSrc *irp, IrInstSrcErrSetCast *instruct
     fprintf(irp->f, ")");
 }
 
-static void ir_print_from_bytes(IrPrintSrc *irp, IrInstSrcFromBytes *instruction) {
-    fprintf(irp->f, "@bytesToSlice(");
-    ir_print_other_inst_src(irp, instruction->dest_child_type);
-    fprintf(irp->f, ", ");
-    ir_print_other_inst_src(irp, instruction->target);
-    fprintf(irp->f, ")");
-}
-
-static void ir_print_to_bytes(IrPrintSrc *irp, IrInstSrcToBytes *instruction) {
-    fprintf(irp->f, "@sliceToBytes(");
-    ir_print_other_inst_src(irp, instruction->target);
-    fprintf(irp->f, ")");
-}
-
 static void ir_print_int_to_float(IrPrintSrc *irp, IrInstSrcIntToFloat *instruction) {
     fprintf(irp->f, "@intToFloat(");
     ir_print_other_inst_src(irp, instruction->dest_type);
@@ -1682,14 +1647,6 @@ static void ir_print_float_to_int(IrPrintSrc *irp, IrInstSrcFloatToInt *instruct
 static void ir_print_bool_to_int(IrPrintSrc *irp, IrInstSrcBoolToInt *instruction) {
     fprintf(irp->f, "@boolToInt(");
     ir_print_other_inst_src(irp, instruction->target);
-    fprintf(irp->f, ")");
-}
-
-static void ir_print_int_type(IrPrintSrc *irp, IrInstSrcIntType *instruction) {
-    fprintf(irp->f, "@IntType(");
-    ir_print_other_inst_src(irp, instruction->is_signed);
-    fprintf(irp->f, ", ");
-    ir_print_other_inst_src(irp, instruction->bit_count);
     fprintf(irp->f, ")");
 }
 
@@ -1807,28 +1764,6 @@ static void ir_print_slice_gen(IrPrintGen *irp, IrInstGenSlice *instruction) {
         ir_print_other_inst_gen(irp, instruction->end);
     fprintf(irp->f, "]result=");
     ir_print_other_inst_gen(irp, instruction->result_loc);
-}
-
-static void ir_print_member_count(IrPrintSrc *irp, IrInstSrcMemberCount *instruction) {
-    fprintf(irp->f, "@memberCount(");
-    ir_print_other_inst_src(irp, instruction->container);
-    fprintf(irp->f, ")");
-}
-
-static void ir_print_member_type(IrPrintSrc *irp, IrInstSrcMemberType *instruction) {
-    fprintf(irp->f, "@memberType(");
-    ir_print_other_inst_src(irp, instruction->container_type);
-    fprintf(irp->f, ", ");
-    ir_print_other_inst_src(irp, instruction->member_index);
-    fprintf(irp->f, ")");
-}
-
-static void ir_print_member_name(IrPrintSrc *irp, IrInstSrcMemberName *instruction) {
-    fprintf(irp->f, "@memberName(");
-    ir_print_other_inst_src(irp, instruction->container_type);
-    fprintf(irp->f, ", ");
-    ir_print_other_inst_src(irp, instruction->member_index);
-    fprintf(irp->f, ")");
 }
 
 static void ir_print_breakpoint(IrPrintSrc *irp, IrInstSrcBreakpoint *instruction) {
@@ -2147,13 +2082,6 @@ static void ir_print_assert_non_null(IrPrintGen *irp, IrInstGenAssertNonNull *in
     fprintf(irp->f, ")");
 }
 
-static void ir_print_resize_slice(IrPrintGen *irp, IrInstGenResizeSlice *instruction) {
-    fprintf(irp->f, "@resizeSlice(");
-    ir_print_other_inst_gen(irp, instruction->operand);
-    fprintf(irp->f, ")result=");
-    ir_print_other_inst_gen(irp, instruction->result_loc);
-}
-
 static void ir_print_alloca_src(IrPrintSrc *irp, IrInstSrcAlloca *instruction) {
     fprintf(irp->f, "Alloca(align=");
     ir_print_other_inst_src(irp, instruction->align);
@@ -2308,12 +2236,6 @@ static void ir_print_has_field(IrPrintSrc *irp, IrInstSrcHasField *instruction) 
     ir_print_other_inst_src(irp, instruction->container_type);
     fprintf(irp->f, ",");
     ir_print_other_inst_src(irp, instruction->field_name);
-    fprintf(irp->f, ")");
-}
-
-static void ir_print_type_id(IrPrintSrc *irp, IrInstSrcTypeId *instruction) {
-    fprintf(irp->f, "@typeId(");
-    ir_print_other_inst_src(irp, instruction->type_value);
     fprintf(irp->f, ")");
 }
 
@@ -2798,12 +2720,6 @@ static void ir_print_inst_src(IrPrintSrc *irp, IrInstSrc *instruction, bool trai
         case IrInstSrcIdErrSetCast:
             ir_print_err_set_cast(irp, (IrInstSrcErrSetCast *)instruction);
             break;
-        case IrInstSrcIdFromBytes:
-            ir_print_from_bytes(irp, (IrInstSrcFromBytes *)instruction);
-            break;
-        case IrInstSrcIdToBytes:
-            ir_print_to_bytes(irp, (IrInstSrcToBytes *)instruction);
-            break;
         case IrInstSrcIdIntToFloat:
             ir_print_int_to_float(irp, (IrInstSrcIntToFloat *)instruction);
             break;
@@ -2812,9 +2728,6 @@ static void ir_print_inst_src(IrPrintSrc *irp, IrInstSrc *instruction, bool trai
             break;
         case IrInstSrcIdBoolToInt:
             ir_print_bool_to_int(irp, (IrInstSrcBoolToInt *)instruction);
-            break;
-        case IrInstSrcIdIntType:
-            ir_print_int_type(irp, (IrInstSrcIntType *)instruction);
             break;
         case IrInstSrcIdVectorType:
             ir_print_vector_type(irp, (IrInstSrcVectorType *)instruction);
@@ -2836,15 +2749,6 @@ static void ir_print_inst_src(IrPrintSrc *irp, IrInstSrc *instruction, bool trai
             break;
         case IrInstSrcIdSlice:
             ir_print_slice_src(irp, (IrInstSrcSlice *)instruction);
-            break;
-        case IrInstSrcIdMemberCount:
-            ir_print_member_count(irp, (IrInstSrcMemberCount *)instruction);
-            break;
-        case IrInstSrcIdMemberType:
-            ir_print_member_type(irp, (IrInstSrcMemberType *)instruction);
-            break;
-        case IrInstSrcIdMemberName:
-            ir_print_member_name(irp, (IrInstSrcMemberName *)instruction);
             break;
         case IrInstSrcIdBreakpoint:
             ir_print_breakpoint(irp, (IrInstSrcBreakpoint *)instruction);
@@ -2944,9 +2848,6 @@ static void ir_print_inst_src(IrPrintSrc *irp, IrInstSrc *instruction, bool trai
             break;
         case IrInstSrcIdHasField:
             ir_print_has_field(irp, (IrInstSrcHasField *)instruction);
-            break;
-        case IrInstSrcIdTypeId:
-            ir_print_type_id(irp, (IrInstSrcTypeId *)instruction);
             break;
         case IrInstSrcIdSetEvalBranchQuota:
             ir_print_set_eval_branch_quota(irp, (IrInstSrcSetEvalBranchQuota *)instruction);
@@ -3277,9 +3178,6 @@ static void ir_print_inst_gen(IrPrintGen *irp, IrInstGen *instruction, bool trai
             break;
         case IrInstGenIdAssertNonNull:
             ir_print_assert_non_null(irp, (IrInstGenAssertNonNull *)instruction);
-            break;
-        case IrInstGenIdResizeSlice:
-            ir_print_resize_slice(irp, (IrInstGenResizeSlice *)instruction);
             break;
         case IrInstGenIdAlloca:
             ir_print_alloca_gen(irp, (IrInstGenAlloca *)instruction);

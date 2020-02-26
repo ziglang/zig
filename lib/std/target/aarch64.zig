@@ -1,14 +1,8 @@
 const std = @import("../std.zig");
-const Cpu = std.Target.Cpu;
+const CpuFeature = std.Target.Cpu.Feature;
+const CpuModel = std.Target.Cpu.Model;
 
 pub const Feature = enum {
-    a35,
-    a53,
-    a55,
-    a57,
-    a72,
-    a73,
-    a75,
     a76,
     aes,
     aggressive_fma,
@@ -40,11 +34,7 @@ pub const Feature = enum {
     dit,
     dotprod,
     exynos_cheap_as_move,
-    exynosm1,
-    exynosm2,
-    exynosm3,
     exynosm4,
-    falkor,
     fmi,
     force_32bit_jump_tables,
     fp_armv8,
@@ -58,7 +48,6 @@ pub const Feature = enum {
     fuse_csel,
     fuse_literals,
     jsconv,
-    kryo,
     lor,
     lse,
     lsl_fast,
@@ -103,7 +92,6 @@ pub const Feature = enum {
     reserve_x6,
     reserve_x7,
     reserve_x9,
-    saphira,
     sb,
     sel2,
     sha2,
@@ -122,17 +110,11 @@ pub const Feature = enum {
     sve2_bitperm,
     sve2_sha3,
     sve2_sm4,
-    thunderx,
-    thunderx2t99,
-    thunderxt81,
-    thunderxt83,
-    thunderxt88,
     tlb_rmi,
     tpidr_el1,
     tpidr_el2,
     tpidr_el3,
     tracev8_4,
-    tsv110,
     uaops,
     use_aa,
     use_postra_scheduler,
@@ -151,120 +133,20 @@ pub const Feature = enum {
     zcz_gp,
 };
 
-pub usingnamespace Cpu.Feature.feature_set_fns(Feature);
+pub usingnamespace CpuFeature.feature_set_fns(Feature);
 
 pub const all_features = blk: {
     @setEvalBranchQuota(2000);
     const len = @typeInfo(Feature).Enum.fields.len;
-    std.debug.assert(len <= Cpu.Feature.Set.needed_bit_count);
-    var result: [len]Cpu.Feature = undefined;
-    result[@enumToInt(Feature.a35)] = .{
-        .llvm_name = "a35",
-        .description = "Cortex-A35 ARM processors",
-        .dependencies = featureSet(&[_]Feature{
-            .crc,
-            .crypto,
-            .fp_armv8,
-            .neon,
-            .perfmon,
-        }),
-    };
-    result[@enumToInt(Feature.a53)] = .{
-        .llvm_name = "a53",
-        .description = "Cortex-A53 ARM processors",
-        .dependencies = featureSet(&[_]Feature{
-            .balance_fp_ops,
-            .crc,
-            .crypto,
-            .custom_cheap_as_move,
-            .fp_armv8,
-            .fuse_aes,
-            .neon,
-            .perfmon,
-            .use_aa,
-            .use_postra_scheduler,
-        }),
-    };
-    result[@enumToInt(Feature.a55)] = .{
-        .llvm_name = "a55",
-        .description = "Cortex-A55 ARM processors",
-        .dependencies = featureSet(&[_]Feature{
-            .crypto,
-            .dotprod,
-            .fp_armv8,
-            .fullfp16,
-            .fuse_aes,
-            .neon,
-            .perfmon,
-            .rcpc,
-            .v8_2a,
-        }),
-    };
-    result[@enumToInt(Feature.a57)] = .{
-        .llvm_name = "a57",
-        .description = "Cortex-A57 ARM processors",
-        .dependencies = featureSet(&[_]Feature{
-            .balance_fp_ops,
-            .crc,
-            .crypto,
-            .custom_cheap_as_move,
-            .fp_armv8,
-            .fuse_aes,
-            .fuse_literals,
-            .neon,
-            .perfmon,
-            .predictable_select_expensive,
-            .use_postra_scheduler,
-        }),
-    };
-    result[@enumToInt(Feature.a72)] = .{
-        .llvm_name = "a72",
-        .description = "Cortex-A72 ARM processors",
-        .dependencies = featureSet(&[_]Feature{
-            .crc,
-            .crypto,
-            .fp_armv8,
-            .fuse_aes,
-            .neon,
-            .perfmon,
-        }),
-    };
-    result[@enumToInt(Feature.a73)] = .{
-        .llvm_name = "a73",
-        .description = "Cortex-A73 ARM processors",
-        .dependencies = featureSet(&[_]Feature{
-            .crc,
-            .crypto,
-            .fp_armv8,
-            .fuse_aes,
-            .neon,
-            .perfmon,
-        }),
-    };
-    result[@enumToInt(Feature.a75)] = .{
-        .llvm_name = "a75",
-        .description = "Cortex-A75 ARM processors",
-        .dependencies = featureSet(&[_]Feature{
-            .crypto,
-            .dotprod,
-            .fp_armv8,
-            .fullfp16,
-            .fuse_aes,
-            .neon,
-            .perfmon,
-            .rcpc,
-            .v8_2a,
-        }),
-    };
+    std.debug.assert(len <= CpuFeature.Set.needed_bit_count);
+    var result: [len]CpuFeature = undefined;
     result[@enumToInt(Feature.a76)] = .{
         .llvm_name = "a76",
         .description = "Cortex-A76 ARM processors",
         .dependencies = featureSet(&[_]Feature{
             .crypto,
             .dotprod,
-            .fp_armv8,
             .fullfp16,
-            .neon,
             .rcpc,
             .ssbs,
             .v8_2a,
@@ -412,11 +294,10 @@ pub const all_features = blk: {
             .arith_cbz_fusion,
             .crypto,
             .disable_latency_sched_heuristic,
-            .fp_armv8,
             .fuse_aes,
             .fuse_crypto_eor,
-            .neon,
             .perfmon,
+            .v8a,
             .zcm,
             .zcz,
             .zcz_fp_workaround,
@@ -444,58 +325,6 @@ pub const all_features = blk: {
             .custom_cheap_as_move,
         }),
     };
-    result[@enumToInt(Feature.exynosm1)] = .{
-        .llvm_name = "exynosm1",
-        .description = "Samsung Exynos-M1 processors",
-        .dependencies = featureSet(&[_]Feature{
-            .crc,
-            .crypto,
-            .exynos_cheap_as_move,
-            .force_32bit_jump_tables,
-            .fuse_aes,
-            .perfmon,
-            .slow_misaligned_128store,
-            .slow_paired_128,
-            .use_postra_scheduler,
-            .use_reciprocal_square_root,
-            .zcz_fp,
-        }),
-    };
-    result[@enumToInt(Feature.exynosm2)] = .{
-        .llvm_name = "exynosm2",
-        .description = "Samsung Exynos-M2 processors",
-        .dependencies = featureSet(&[_]Feature{
-            .crc,
-            .crypto,
-            .exynos_cheap_as_move,
-            .force_32bit_jump_tables,
-            .fuse_aes,
-            .perfmon,
-            .slow_misaligned_128store,
-            .slow_paired_128,
-            .use_postra_scheduler,
-            .zcz_fp,
-        }),
-    };
-    result[@enumToInt(Feature.exynosm3)] = .{
-        .llvm_name = "exynosm3",
-        .description = "Samsung Exynos-M3 processors",
-        .dependencies = featureSet(&[_]Feature{
-            .crc,
-            .crypto,
-            .exynos_cheap_as_move,
-            .force_32bit_jump_tables,
-            .fuse_address,
-            .fuse_aes,
-            .fuse_csel,
-            .fuse_literals,
-            .lsl_fast,
-            .perfmon,
-            .predictable_select_expensive,
-            .use_postra_scheduler,
-            .zcz_fp,
-        }),
-    };
     result[@enumToInt(Feature.exynosm4)] = .{
         .llvm_name = "exynosm4",
         .description = "Samsung Exynos-M4 processors",
@@ -516,24 +345,6 @@ pub const all_features = blk: {
             .perfmon,
             .use_postra_scheduler,
             .v8_2a,
-            .zcz,
-        }),
-    };
-    result[@enumToInt(Feature.falkor)] = .{
-        .llvm_name = "falkor",
-        .description = "Qualcomm Falkor processors",
-        .dependencies = featureSet(&[_]Feature{
-            .crc,
-            .crypto,
-            .custom_cheap_as_move,
-            .fp_armv8,
-            .lsl_fast,
-            .neon,
-            .perfmon,
-            .predictable_select_expensive,
-            .rdm,
-            .slow_strqro_store,
-            .use_postra_scheduler,
             .zcz,
         }),
     };
@@ -606,22 +417,6 @@ pub const all_features = blk: {
         .description = "Enable v8.3-A JavaScript FP conversion enchancement",
         .dependencies = featureSet(&[_]Feature{
             .fp_armv8,
-        }),
-    };
-    result[@enumToInt(Feature.kryo)] = .{
-        .llvm_name = "kryo",
-        .description = "Qualcomm Kryo processors",
-        .dependencies = featureSet(&[_]Feature{
-            .crc,
-            .crypto,
-            .custom_cheap_as_move,
-            .fp_armv8,
-            .lsl_fast,
-            .neon,
-            .perfmon,
-            .predictable_select_expensive,
-            .use_postra_scheduler,
-            .zcz,
         }),
     };
     result[@enumToInt(Feature.lor)] = .{
@@ -852,23 +647,6 @@ pub const all_features = blk: {
         .description = "Reserve X9, making it unavailable as a GPR",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@enumToInt(Feature.saphira)] = .{
-        .llvm_name = "saphira",
-        .description = "Qualcomm Saphira processors",
-        .dependencies = featureSet(&[_]Feature{
-            .crypto,
-            .custom_cheap_as_move,
-            .fp_armv8,
-            .lsl_fast,
-            .neon,
-            .perfmon,
-            .predictable_select_expensive,
-            .spe,
-            .use_postra_scheduler,
-            .v8_4a,
-            .zcz,
-        }),
-    };
     result[@enumToInt(Feature.sb)] = .{
         .llvm_name = "sb",
         .description = "Enable v8.5 Speculation Barrier",
@@ -979,74 +757,6 @@ pub const all_features = blk: {
             .sve2,
         }),
     };
-    result[@enumToInt(Feature.thunderx)] = .{
-        .llvm_name = "thunderx",
-        .description = "Cavium ThunderX processors",
-        .dependencies = featureSet(&[_]Feature{
-            .crc,
-            .crypto,
-            .fp_armv8,
-            .neon,
-            .perfmon,
-            .predictable_select_expensive,
-            .use_postra_scheduler,
-        }),
-    };
-    result[@enumToInt(Feature.thunderx2t99)] = .{
-        .llvm_name = "thunderx2t99",
-        .description = "Cavium ThunderX2 processors",
-        .dependencies = featureSet(&[_]Feature{
-            .aggressive_fma,
-            .arith_bcc_fusion,
-            .crc,
-            .crypto,
-            .fp_armv8,
-            .lse,
-            .neon,
-            .predictable_select_expensive,
-            .use_postra_scheduler,
-            .v8_1a,
-        }),
-    };
-    result[@enumToInt(Feature.thunderxt81)] = .{
-        .llvm_name = "thunderxt81",
-        .description = "Cavium ThunderX processors",
-        .dependencies = featureSet(&[_]Feature{
-            .crc,
-            .crypto,
-            .fp_armv8,
-            .neon,
-            .perfmon,
-            .predictable_select_expensive,
-            .use_postra_scheduler,
-        }),
-    };
-    result[@enumToInt(Feature.thunderxt83)] = .{
-        .llvm_name = "thunderxt83",
-        .description = "Cavium ThunderX processors",
-        .dependencies = featureSet(&[_]Feature{
-            .crc,
-            .crypto,
-            .fp_armv8,
-            .neon,
-            .perfmon,
-            .predictable_select_expensive,
-            .use_postra_scheduler,
-        }),
-    };
-    result[@enumToInt(Feature.thunderxt88)] = .{
-        .llvm_name = "thunderxt88",
-        .description = "Cavium ThunderX processors",
-        .dependencies = featureSet(&[_]Feature{
-            .crc,
-            .crypto,
-            .fp_armv8,
-            .neon,
-            .perfmon,
-            .predictable_select_expensive,
-            .use_postra_scheduler,
-        }),
-    };
     result[@enumToInt(Feature.tlb_rmi)] = .{
         .llvm_name = "tlb-rmi",
         .description = "Enable v8.4-A TLB Range and Maintenance Instructions",
@@ -1071,24 +781,6 @@ pub const all_features = blk: {
         .llvm_name = "tracev8.4",
         .description = "Enable v8.4-A Trace extension",
         .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@enumToInt(Feature.tsv110)] = .{
-        .llvm_name = "tsv110",
-        .description = "HiSilicon TS-V110 processors",
-        .dependencies = featureSet(&[_]Feature{
-            .crypto,
-            .custom_cheap_as_move,
-            .dotprod,
-            .fp_armv8,
-            .fp16fml,
-            .fullfp16,
-            .fuse_aes,
-            .neon,
-            .perfmon,
-            .spe,
-            .use_postra_scheduler,
-            .v8_2a,
-        }),
     };
     result[@enumToInt(Feature.uaops)] = .{
         .llvm_name = "uaops",
@@ -1229,190 +921,325 @@ pub const all_features = blk: {
 };
 
 pub const cpu = struct {
-    pub const apple_latest = Cpu{
+    pub const apple_latest = CpuModel{
         .name = "apple_latest",
         .llvm_name = "apple-latest",
         .features = featureSet(&[_]Feature{
             .cyclone,
         }),
     };
-    pub const cortex_a35 = Cpu{
+    pub const cortex_a35 = CpuModel{
         .name = "cortex_a35",
         .llvm_name = "cortex-a35",
         .features = featureSet(&[_]Feature{
-            .a35,
+            .crc,
+            .crypto,
+            .perfmon,
+            .v8a,
         }),
     };
-    pub const cortex_a53 = Cpu{
+    pub const cortex_a53 = CpuModel{
         .name = "cortex_a53",
         .llvm_name = "cortex-a53",
         .features = featureSet(&[_]Feature{
-            .a53,
+            .balance_fp_ops,
+            .crc,
+            .crypto,
+            .custom_cheap_as_move,
+            .fuse_aes,
+            .perfmon,
+            .use_aa,
+            .use_postra_scheduler,
+            .v8a,
         }),
     };
-    pub const cortex_a55 = Cpu{
+    pub const cortex_a55 = CpuModel{
         .name = "cortex_a55",
         .llvm_name = "cortex-a55",
         .features = featureSet(&[_]Feature{
-            .a55,
+            .crypto,
+            .dotprod,
+            .fullfp16,
+            .fuse_aes,
+            .perfmon,
+            .rcpc,
+            .v8_2a,
         }),
     };
-    pub const cortex_a57 = Cpu{
+    pub const cortex_a57 = CpuModel{
         .name = "cortex_a57",
         .llvm_name = "cortex-a57",
         .features = featureSet(&[_]Feature{
-            .a57,
+            .balance_fp_ops,
+            .crc,
+            .crypto,
+            .custom_cheap_as_move,
+            .fuse_aes,
+            .fuse_literals,
+            .perfmon,
+            .predictable_select_expensive,
+            .use_postra_scheduler,
+            .v8a,
         }),
     };
-    pub const cortex_a72 = Cpu{
+    pub const cortex_a72 = CpuModel{
         .name = "cortex_a72",
         .llvm_name = "cortex-a72",
         .features = featureSet(&[_]Feature{
-            .a72,
+            .crc,
+            .crypto,
+            .fuse_aes,
+            .perfmon,
+            .v8a,
         }),
     };
-    pub const cortex_a73 = Cpu{
+    pub const cortex_a73 = CpuModel{
         .name = "cortex_a73",
         .llvm_name = "cortex-a73",
         .features = featureSet(&[_]Feature{
-            .a73,
+            .crc,
+            .crypto,
+            .fuse_aes,
+            .perfmon,
+            .v8a,
         }),
     };
-    pub const cortex_a75 = Cpu{
+    pub const cortex_a75 = CpuModel{
         .name = "cortex_a75",
         .llvm_name = "cortex-a75",
         .features = featureSet(&[_]Feature{
-            .a75,
+            .crypto,
+            .dotprod,
+            .fullfp16,
+            .fuse_aes,
+            .perfmon,
+            .rcpc,
+            .v8_2a,
         }),
     };
-    pub const cortex_a76 = Cpu{
+    pub const cortex_a76 = CpuModel{
         .name = "cortex_a76",
         .llvm_name = "cortex-a76",
         .features = featureSet(&[_]Feature{
             .a76,
         }),
     };
-    pub const cortex_a76ae = Cpu{
+    pub const cortex_a76ae = CpuModel{
         .name = "cortex_a76ae",
         .llvm_name = "cortex-a76ae",
         .features = featureSet(&[_]Feature{
             .a76,
         }),
     };
-    pub const cyclone = Cpu{
+    pub const cyclone = CpuModel{
         .name = "cyclone",
         .llvm_name = "cyclone",
         .features = featureSet(&[_]Feature{
             .cyclone,
         }),
     };
-    pub const exynos_m1 = Cpu{
+    pub const exynos_m1 = CpuModel{
         .name = "exynos_m1",
         .llvm_name = "exynos-m1",
         .features = featureSet(&[_]Feature{
-            .exynosm1,
+            .crc,
+            .crypto,
+            .exynos_cheap_as_move,
+            .force_32bit_jump_tables,
+            .fuse_aes,
+            .perfmon,
+            .slow_misaligned_128store,
+            .slow_paired_128,
+            .use_postra_scheduler,
+            .use_reciprocal_square_root,
+            .v8a,
+            .zcz_fp,
         }),
     };
-    pub const exynos_m2 = Cpu{
+    pub const exynos_m2 = CpuModel{
         .name = "exynos_m2",
         .llvm_name = "exynos-m2",
         .features = featureSet(&[_]Feature{
-            .exynosm2,
+            .crc,
+            .crypto,
+            .exynos_cheap_as_move,
+            .force_32bit_jump_tables,
+            .fuse_aes,
+            .perfmon,
+            .slow_misaligned_128store,
+            .slow_paired_128,
+            .use_postra_scheduler,
+            .v8a,
+            .zcz_fp,
         }),
     };
-    pub const exynos_m3 = Cpu{
+    pub const exynos_m3 = CpuModel{
         .name = "exynos_m3",
         .llvm_name = "exynos-m3",
         .features = featureSet(&[_]Feature{
-            .exynosm3,
+            .crc,
+            .crypto,
+            .exynos_cheap_as_move,
+            .force_32bit_jump_tables,
+            .fuse_address,
+            .fuse_aes,
+            .fuse_csel,
+            .fuse_literals,
+            .lsl_fast,
+            .perfmon,
+            .predictable_select_expensive,
+            .use_postra_scheduler,
+            .v8a,
+            .zcz_fp,
         }),
     };
-    pub const exynos_m4 = Cpu{
+    pub const exynos_m4 = CpuModel{
         .name = "exynos_m4",
         .llvm_name = "exynos-m4",
         .features = featureSet(&[_]Feature{
             .exynosm4,
         }),
     };
-    pub const exynos_m5 = Cpu{
+    pub const exynos_m5 = CpuModel{
         .name = "exynos_m5",
         .llvm_name = "exynos-m5",
         .features = featureSet(&[_]Feature{
             .exynosm4,
         }),
     };
-    pub const falkor = Cpu{
+    pub const falkor = CpuModel{
         .name = "falkor",
         .llvm_name = "falkor",
         .features = featureSet(&[_]Feature{
-            .falkor,
+            .crc,
+            .crypto,
+            .custom_cheap_as_move,
+            .lsl_fast,
+            .perfmon,
+            .predictable_select_expensive,
+            .rdm,
+            .slow_strqro_store,
+            .use_postra_scheduler,
+            .v8a,
+            .zcz,
         }),
     };
-    pub const generic = Cpu{
+    pub const generic = CpuModel{
         .name = "generic",
         .llvm_name = "generic",
         .features = featureSet(&[_]Feature{
-            .fp_armv8,
             .fuse_aes,
-            .neon,
             .perfmon,
             .use_postra_scheduler,
+            .v8a,
         }),
     };
-    pub const kryo = Cpu{
+    pub const kryo = CpuModel{
         .name = "kryo",
         .llvm_name = "kryo",
         .features = featureSet(&[_]Feature{
-            .kryo,
+            .crc,
+            .crypto,
+            .custom_cheap_as_move,
+            .lsl_fast,
+            .perfmon,
+            .predictable_select_expensive,
+            .use_postra_scheduler,
+            .zcz,
+            .v8a,
         }),
     };
-    pub const saphira = Cpu{
+    pub const saphira = CpuModel{
         .name = "saphira",
         .llvm_name = "saphira",
         .features = featureSet(&[_]Feature{
-            .saphira,
+            .crypto,
+            .custom_cheap_as_move,
+            .lsl_fast,
+            .perfmon,
+            .predictable_select_expensive,
+            .spe,
+            .use_postra_scheduler,
+            .v8_4a,
+            .zcz,
         }),
     };
-    pub const thunderx = Cpu{
+    pub const thunderx = CpuModel{
         .name = "thunderx",
         .llvm_name = "thunderx",
         .features = featureSet(&[_]Feature{
-            .thunderx,
+            .crc,
+            .crypto,
+            .perfmon,
+            .predictable_select_expensive,
+            .use_postra_scheduler,
+            .v8a,
         }),
     };
-    pub const thunderx2t99 = Cpu{
+    pub const thunderx2t99 = CpuModel{
         .name = "thunderx2t99",
         .llvm_name = "thunderx2t99",
         .features = featureSet(&[_]Feature{
-            .thunderx2t99,
+            .aggressive_fma,
+            .arith_bcc_fusion,
+            .crc,
+            .crypto,
+            .lse,
+            .predictable_select_expensive,
+            .use_postra_scheduler,
+            .v8_1a,
         }),
     };
-    pub const thunderxt81 = Cpu{
+    pub const thunderxt81 = CpuModel{
         .name = "thunderxt81",
         .llvm_name = "thunderxt81",
         .features = featureSet(&[_]Feature{
-            .thunderxt81,
+            .crc,
+            .crypto,
+            .perfmon,
+            .predictable_select_expensive,
+            .use_postra_scheduler,
+            .v8a,
         }),
     };
-    pub const thunderxt83 = Cpu{
+    pub const thunderxt83 = CpuModel{
         .name = "thunderxt83",
         .llvm_name = "thunderxt83",
         .features = featureSet(&[_]Feature{
-            .thunderxt83,
+            .crc,
+            .crypto,
+            .perfmon,
+            .predictable_select_expensive,
+            .use_postra_scheduler,
+            .v8a,
         }),
     };
-    pub const thunderxt88 = Cpu{
+    pub const thunderxt88 = CpuModel{
         .name = "thunderxt88",
         .llvm_name = "thunderxt88",
         .features = featureSet(&[_]Feature{
-            .thunderxt88,
+            .crc,
+            .crypto,
+            .perfmon,
+            .predictable_select_expensive,
+            .use_postra_scheduler,
+            .v8a,
         }),
     };
-    pub const tsv110 = Cpu{
+    pub const tsv110 = CpuModel{
         .name = "tsv110",
         .llvm_name = "tsv110",
         .features = featureSet(&[_]Feature{
-            .tsv110,
+            .crypto,
+            .custom_cheap_as_move,
+            .dotprod,
+            .fp16fml,
+            .fullfp16,
+            .fuse_aes,
+            .perfmon,
+            .spe,
+            .use_postra_scheduler,
+            .v8_2a,
         }),
     };
 };
@@ -1420,7 +1247,7 @@ pub const cpu = struct {
 /// All aarch64 CPUs, sorted alphabetically by name.
 /// TODO: Replace this with usage of `std.meta.declList`. It does work, but stage1
 /// compiler has inefficient memory and CPU usage, affecting build times.
-pub const all_cpus = &[_]*const Cpu{
+pub const all_cpus = &[_]*const CpuModel{
     &cpu.apple_latest,
     &cpu.cortex_a35,
     &cpu.cortex_a53,

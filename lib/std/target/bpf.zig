@@ -1,5 +1,6 @@
 const std = @import("../std.zig");
-const Cpu = std.Target.Cpu;
+const CpuFeature = std.Target.Cpu.Feature;
+const CpuModel = std.Target.Cpu.Model;
 
 pub const Feature = enum {
     alu32,
@@ -7,12 +8,12 @@ pub const Feature = enum {
     dwarfris,
 };
 
-pub usingnamespace Cpu.Feature.feature_set_fns(Feature);
+pub usingnamespace CpuFeature.feature_set_fns(Feature);
 
 pub const all_features = blk: {
     const len = @typeInfo(Feature).Enum.fields.len;
-    std.debug.assert(len <= Cpu.Feature.Set.needed_bit_count);
-    var result: [len]Cpu.Feature = undefined;
+    std.debug.assert(len <= CpuFeature.Set.needed_bit_count);
+    var result: [len]CpuFeature = undefined;
     result[@enumToInt(Feature.alu32)] = .{
         .llvm_name = "alu32",
         .description = "Enable ALU32 instructions",
@@ -37,27 +38,27 @@ pub const all_features = blk: {
 };
 
 pub const cpu = struct {
-    pub const generic = Cpu{
+    pub const generic = CpuModel{
         .name = "generic",
         .llvm_name = "generic",
         .features = featureSet(&[_]Feature{}),
     };
-    pub const probe = Cpu{
+    pub const probe = CpuModel{
         .name = "probe",
         .llvm_name = "probe",
         .features = featureSet(&[_]Feature{}),
     };
-    pub const v1 = Cpu{
+    pub const v1 = CpuModel{
         .name = "v1",
         .llvm_name = "v1",
         .features = featureSet(&[_]Feature{}),
     };
-    pub const v2 = Cpu{
+    pub const v2 = CpuModel{
         .name = "v2",
         .llvm_name = "v2",
         .features = featureSet(&[_]Feature{}),
     };
-    pub const v3 = Cpu{
+    pub const v3 = CpuModel{
         .name = "v3",
         .llvm_name = "v3",
         .features = featureSet(&[_]Feature{}),
@@ -67,7 +68,7 @@ pub const cpu = struct {
 /// All bpf CPUs, sorted alphabetically by name.
 /// TODO: Replace this with usage of `std.meta.declList`. It does work, but stage1
 /// compiler has inefficient memory and CPU usage, affecting build times.
-pub const all_cpus = &[_]*const Cpu{
+pub const all_cpus = &[_]*const CpuModel{
     &cpu.generic,
     &cpu.probe,
     &cpu.v1,

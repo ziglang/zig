@@ -147,6 +147,10 @@ pub const Buffer = struct {
         try self.resize(m.len);
         mem.copy(u8, self.list.toSlice(), m);
     }
+
+    pub fn print(self: *Buffer, comptime fmt: []const u8, args: var) !void {
+        return std.fmt.format(self, error{OutOfMemory}, Buffer.append, fmt, args);
+    }
 };
 
 test "simple Buffer" {
@@ -189,4 +193,12 @@ test "Buffer.initCapacity" {
     testing.expect(buf.len() == 5);
     testing.expect(buf.capacity() == old_cap);
     testing.expect(mem.eql(u8, buf.toSliceConst(), "hello"));
+}
+
+test "Buffer.print" {
+    var buf = try Buffer.init(testing.allocator, "");
+    defer buf.deinit();
+
+    try buf.print("Hello {} the {}", .{ 2, "world" });
+    testing.expect(buf.eql("Hello 2 the world"));
 }

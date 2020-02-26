@@ -270,7 +270,7 @@ fn testBinaryNot(x: u16) void {
 }
 
 test "small int addition" {
-    var x: @IntType(false, 2) = 0;
+    var x: u2 = 0;
     expect(x == 0);
 
     x += 1;
