@@ -10,6 +10,7 @@ const Allocator = mem.Allocator;
 const ArrayList = std.ArrayList;
 const Buffer = std.Buffer;
 const Target = std.Target;
+const CrossTarget = std.zig.CrossTarget;
 const self_hosted_main = @import("main.zig");
 const errmsg = @import("errmsg.zig");
 const DepTokenizer = @import("dep_tokenizer.zig").Tokenizer;
@@ -87,7 +88,7 @@ const Error = extern enum {
     NotLazy,
     IsAsync,
     ImportOutsidePkgPath,
-    UnknownCpu,
+    UnknownCpuModel,
     UnknownCpuFeature,
     InvalidCpuFeatures,
     InvalidLlvmCpuFeaturesFormat,
@@ -634,13 +635,9 @@ export fn stage2_cmd_targets(zig_triple: [*:0]const u8) c_int {
 }
 
 fn cmdTargets(zig_triple: [*:0]const u8) !void {
-    var target = try Target.parse(.{ .arch_os_abi = mem.toSliceConst(u8, zig_triple) });
-    target.cpu = blk: {
-        const llvm = @import("llvm.zig");
-        const llvm_cpu_name = llvm.GetHostCPUName();
-        const llvm_cpu_features = llvm.GetNativeFeatures();
-        break :blk try detectNativeCpuWithLLVM(target.cpu.arch, llvm_cpu_name, llvm_cpu_features);
-    };
+    var cross_target = try CrossTarget.parse(.{ .arch_os_abi = mem.toSliceConst(u8, zig_triple) });
+    var dynamic_linker: ?[*:0]u8 = null;
+    const target = try crossTargetToTarget(cross_target, &dynamic_linker);
     return @import("print_targets.zig").cmdTargets(
         std.heap.c_allocator,
         &[0][]u8{},
@@ -661,7 +658,6 @@ export fn stage2_target_parse(
         error.UnknownOperatingSystem => return .UnknownOperatingSystem,
         error.UnknownApplicationBinaryInterface => return .UnknownApplicationBinaryInterface,
         error.MissingOperatingSystem => return .MissingOperatingSystem,
-        error.MissingArchitecture => return .MissingArchitecture,
         error.InvalidLlvmCpuFeaturesFormat => return .InvalidLlvmCpuFeaturesFormat,
         error.UnexpectedExtraField => return .SemanticAnalyzeFail,
         error.InvalidAbiVersion => return .InvalidAbiVersion,
@@ -681,44 +677,42 @@ fn stage2TargetParse(
     zig_triple_oz: ?[*:0]const u8,
     mcpu_oz: ?[*:0]const u8,
 ) !void {
-    const target: std.build.Target = if (zig_triple_oz) |zig_triple_z| blk: {
+    const target: CrossTarget = if (zig_triple_oz) |zig_triple_z| blk: {
         const zig_triple = mem.toSliceConst(u8, zig_triple_z);
         const mcpu = if (mcpu_oz) |mcpu_z| mem.toSliceConst(u8, mcpu_z) else "baseline";
-        var diags: std.Target.ParseOptions.Diagnostics = .{};
-        break :blk std.build.Target{
-            .Cross = Target.parse(.{
-                .arch_os_abi = zig_triple,
-                .cpu_features = mcpu,
-                .diagnostics = &diags,
-            }) catch |err| switch (err) {
-                error.UnknownCpu => {
-                    std.debug.warn("Unknown CPU: '{}'\nAvailable CPUs for architecture '{}':\n", .{
-                        diags.cpu_name.?,
-                        @tagName(diags.arch.?),
-                    });
-                    for (diags.arch.?.allCpuModels()) |cpu| {
-                        std.debug.warn(" {}\n", .{cpu.name});
-                    }
-                    process.exit(1);
-                },
-                error.UnknownCpuFeature => {
-                    std.debug.warn(
-                        \\Unknown CPU feature: '{}'
-                        \\Available CPU features for architecture '{}':
-                        \\
-                    , .{
-                        diags.unknown_feature_name,
-                        @tagName(diags.arch.?),
-                    });
-                    for (diags.arch.?.allFeaturesList()) |feature| {
-                        std.debug.warn(" {}: {}\n", .{ feature.name, feature.description });
-                    }
-                    process.exit(1);
-                },
-                else => |e| return e,
+        var diags: CrossTarget.ParseOptions.Diagnostics = .{};
+        break :blk CrossTarget.parse(.{
+            .arch_os_abi = zig_triple,
+            .cpu_features = mcpu,
+            .diagnostics = &diags,
+        }) catch |err| switch (err) {
+            error.UnknownCpuModel => {
+                std.debug.warn("Unknown CPU: '{}'\nAvailable CPUs for architecture '{}':\n", .{
+                    diags.cpu_name.?,
+                    @tagName(diags.arch.?),
+                });
+                for (diags.arch.?.allCpuModels()) |cpu| {
+                    std.debug.warn(" {}\n", .{cpu.name});
+                }
+                process.exit(1);
             },
+            error.UnknownCpuFeature => {
+                std.debug.warn(
+                    \\Unknown CPU feature: '{}'
+                    \\Available CPU features for architecture '{}':
+                    \\
+                , .{
+                    diags.unknown_feature_name,
+                    @tagName(diags.arch.?),
+                });
+                for (diags.arch.?.allFeaturesList()) |feature| {
+                    std.debug.warn(" {}: {}\n", .{ feature.name, feature.description });
+                }
+                process.exit(1);
+            },
+            else => |e| return e,
         };
-    } else std.build.Target.Native;
+    } else .{};
 
     try stage1_target.fromTarget(target);
 }
@@ -908,8 +902,8 @@ const Stage2Target = extern struct {
 
     dynamic_linker: ?[*:0]const u8,
 
-    fn toTarget(in_target: Stage2Target) std.build.Target {
-        if (in_target.is_native) return .Native;
+    fn toTarget(in_target: Stage2Target) CrossTarget {
+        if (in_target.is_native) return .{};
 
         const in_arch = in_target.arch - 1; // skip over ZigLLVM_UnknownArch
         const in_os = in_target.os;
@@ -924,28 +918,11 @@ const Stage2Target = extern struct {
         };
     }
 
-    fn fromTarget(self: *Stage2Target, build_target: std.build.Target) !void {
+    fn fromTarget(self: *Stage2Target, cross_target: CrossTarget) !void {
         const allocator = std.heap.c_allocator;
-        var dynamic_linker: ?[*:0]u8 = null;
-        const target = switch (build_target) {
-            .Native => blk: {
-                const info = try std.zig.system.NativeTargetInfo.detect(std.heap.c_allocator);
-                if (info.dynamic_linker) |dl| {
-                    dynamic_linker = dl.ptr;
-                }
 
-                // TODO we want to just use info.target but implementing CPU model & feature detection is todo
-                // so here we rely on LLVM
-                const llvm = @import("llvm.zig");
-                const llvm_cpu_name = llvm.GetHostCPUName();
-                const llvm_cpu_features = llvm.GetNativeFeatures();
-                const arch = std.Target.current.cpu.arch;
-                var t = info.target;
-                t.cpu = try detectNativeCpuWithLLVM(arch, llvm_cpu_name, llvm_cpu_features);
-                break :blk t;
-            },
-            .Cross => |t| t,
-        };
+        var dynamic_linker: ?[*:0]u8 = null;
+        const target = try crossTargetToTarget(cross_target, &dynamic_linker);
 
         var cache_hash = try std.Buffer.allocPrint(allocator, "{}\n{}\n", .{
             target.cpu.model.name,
@@ -1145,7 +1122,7 @@ const Stage2Target = extern struct {
             .cpu_builtin_str = cpu_builtin_str_buffer.toOwnedSlice().ptr,
             .os_builtin_str = os_builtin_str_buffer.toOwnedSlice().ptr,
             .cache_hash = cache_hash.toOwnedSlice().ptr,
-            .is_native = build_target == .Native,
+            .is_native = cross_target.isNative(),
             .glibc_version = glibc_version,
             .dynamic_linker = dynamic_linker,
         };
@@ -1154,6 +1131,40 @@ const Stage2Target = extern struct {
 
 fn enumInt(comptime Enum: type, int: c_int) Enum {
     return @intToEnum(Enum, @intCast(@TagType(Enum), int));
+}
+
+/// TODO move dynamic linker to be part of the target
+/// TODO self-host this function
+fn crossTargetToTarget(cross_target: CrossTarget, dynamic_linker_ptr: *?[*:0]u8) !Target {
+    var adjusted_target = cross_target.toTarget();
+    if (cross_target.isNativeCpu() or cross_target.isNativeOs()) {
+        const detected_info = try std.zig.system.NativeTargetInfo.detect(std.heap.c_allocator);
+        if (cross_target.isNativeCpu()) {
+            adjusted_target.cpu = detected_info.target.cpu;
+
+            // TODO We want to just use detected_info.target but implementing
+            // CPU model & feature detection is todo so here we rely on LLVM.
+            // There is another occurrence of this; search for detectNativeCpuWithLLVM.
+            const llvm = @import("llvm.zig");
+            const llvm_cpu_name = llvm.GetHostCPUName();
+            const llvm_cpu_features = llvm.GetNativeFeatures();
+            const arch = std.Target.current.cpu.arch;
+            adjusted_target.cpu = try detectNativeCpuWithLLVM(arch, llvm_cpu_name, llvm_cpu_features);
+        }
+        if (cross_target.isNativeOs()) {
+            adjusted_target.os = detected_info.target.os;
+
+            if (detected_info.dynamic_linker) |dl| {
+                dynamic_linker_ptr.* = dl.ptr;
+            }
+            if (cross_target.abi == null) {
+                adjusted_target.abi = detected_info.target.abi;
+            }
+        } else if (cross_target.abi == null) {
+            adjusted_target.abi = Target.Abi.default(adjusted_target.cpu.arch, adjusted_target.os);
+        }
+    }
+    return adjusted_target;
 }
 
 // ABI warning

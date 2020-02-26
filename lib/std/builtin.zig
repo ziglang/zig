@@ -429,6 +429,29 @@ pub const Version = struct {
             .patch = try std.fmt.parseInt(u32, it.next() orelse "0", 10),
         };
     }
+
+    pub fn format(
+        self: Version,
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        context: var,
+        comptime Error: type,
+        comptime output: fn (@TypeOf(context), []const u8) Error!void,
+    ) Error!void {
+        if (fmt.len == 0) {
+            if (self.patch == 0) {
+                if (self.minor == 0) {
+                    return std.fmt.format(context, Error, output, "{}", .{self.major});
+                } else {
+                    return std.fmt.format(context, Error, output, "{}.{}", .{ self.major, self.minor });
+                }
+            } else {
+                return std.fmt.format(context, Error, output, "{}.{}.{}", .{ self.major, self.minor, self.patch });
+            }
+        } else {
+            @compileError("Unknown format string: '" ++ fmt ++ "'");
+        }
+    }
 };
 
 /// This data structure is used by the Zig language code generation and

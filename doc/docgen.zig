@@ -10,8 +10,8 @@ const testing = std.testing;
 
 const max_doc_file_size = 10 * 1024 * 1024;
 
-const exe_ext = @as(std.build.Target, std.build.Target.Native).exeFileExt();
-const obj_ext = @as(std.build.Target, std.build.Target.Native).oFileExt();
+const exe_ext = @as(std.zig.CrossTarget, .{}).exeFileExt();
+const obj_ext = @as(std.zig.CrossTarget, .{}).oFileExt();
 const tmp_dir_name = "docgen_tmp";
 const test_out_path = tmp_dir_name ++ fs.path.sep_str ++ "test" ++ exe_ext;
 

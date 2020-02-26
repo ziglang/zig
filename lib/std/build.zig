@@ -1,5 +1,5 @@
 const std = @import("std.zig");
-const builtin = @import("builtin");
+const builtin = std.builtin;
 const io = std.io;
 const fs = std.fs;
 const mem = std.mem;
@@ -15,6 +15,7 @@ const BufSet = std.BufSet;
 const BufMap = std.BufMap;
 const fmt_lib = std.fmt;
 const File = std.fs.File;
+const CrossTarget = std.zig.CrossTarget;
 
 pub const FmtStep = @import("build/fmt.zig").FmtStep;
 pub const TranslateCStep = @import("build/translate_c.zig").TranslateCStep;
@@ -521,24 +522,77 @@ pub const Builder = struct {
         return mode;
     }
 
-    /// Exposes standard `zig build` options for choosing a target. Pass `null` to support all targets.
-    pub fn standardTargetOptions(self: *Builder, supported_targets: ?[]const Target) Target {
-        if (supported_targets) |target_list| {
-            // TODO detect multiple args and emit an error message
-            // there's probably a better way to collect the target
-            for (target_list) |targ| {
-                const targ_str = targ.zigTriple(self.allocator) catch unreachable;
-                const targ_desc = targ.allocDescription(self.allocator) catch unreachable;
-                const this_targ_opt = self.option(bool, targ_str, targ_desc) orelse false;
-                if (this_targ_opt) {
-                    return targ;
+    pub const StandardTargetOptionsArgs = struct {
+        whitelist: ?[]const CrossTarget = null,
+
+        default_target: CrossTarget = .{},
+    };
+
+    /// Exposes standard `zig build` options for choosing a target.
+    pub fn standardTargetOptions(self: *Builder, args: StandardTargetOptionsArgs) CrossTarget {
+        const triple = self.option(
+            []const u8,
+            "target",
+            "The Arch, OS, and ABI to build for.",
+        ) orelse return args.default_target;
+
+        // TODO add cpu and features as part of the target triple
+
+        var diags: std.Target.ParseOptions.Diagnostics = .{};
+        const selected_target = CrossTarget.parse(.{
+            .arch_os_abi = triple,
+            .diagnostics = &diags,
+        }) catch |err| switch (err) {
+            error.UnknownCpuModel => {
+                std.debug.warn("Unknown CPU: '{}'\nAvailable CPUs for architecture '{}':\n", .{
+                    diags.cpu_name.?,
+                    @tagName(diags.arch.?),
+                });
+                for (diags.arch.?.allCpuModels()) |cpu| {
+                    std.debug.warn(" {}\n", .{cpu.name});
+                }
+                process.exit(1);
+            },
+            error.UnknownCpuFeature => {
+                std.debug.warn(
+                    \\Unknown CPU feature: '{}'
+                    \\Available CPU features for architecture '{}':
+                    \\
+                , .{
+                    diags.unknown_feature_name,
+                    @tagName(diags.arch.?),
+                });
+                for (diags.arch.?.allFeaturesList()) |feature| {
+                    std.debug.warn(" {}: {}\n", .{ feature.name, feature.description });
+                }
+                process.exit(1);
+            },
+            else => |e| return e,
+        };
+
+        const selected_canonicalized_triple = selected_target.zigTriple(self.allocator) catch unreachable;
+
+        if (args.whitelist) |list| whitelist_check: {
+            // Make sure it's a match of one of the list.
+            for (list) |t| {
+                const t_triple = t.zigTriple(self.allocator) catch unreachable;
+                if (mem.eql(u8, t_triple, selected_canonicalized_triple)) {
+                    break :whitelist_check;
                 }
             }
-            return Target.Native;
-        } else {
-            const target_str = self.option([]const u8, "target", "the target to build for") orelse return Target.Native;
-            return Target.parse(.{ .arch_os_abi = target_str }) catch unreachable; // TODO better error message for bad target
+            std.debug.warn("Chosen target '{}' does not match one of the supported targets:\n", .{
+                selected_canonicalized_triple,
+            });
+            for (list) |t| {
+                const t_triple = t.zigTriple(self.allocator) catch unreachable;
+                std.debug.warn(" {}\n", t_triple);
+            }
+            // TODO instead of process exit, return error and have a zig build flag implemented by
+            // the build runner that turns process exits into error return traces
+            process.exit(1);
         }
+
+        return selected_target;
     }
 
     pub fn addUserInputOption(self: *Builder, name: []const u8, value: []const u8) !bool {
@@ -796,7 +850,7 @@ pub const Builder = struct {
 
     pub fn findProgram(self: *Builder, names: []const []const u8, paths: []const []const u8) ![]const u8 {
         // TODO report error for ambiguous situations
-        const exe_extension = (Target{ .Native = {} }).exeFileExt();
+        const exe_extension = @as(CrossTarget, .{}).exeFileExt();
         for (self.search_prefixes.toSliceConst()) |search_prefix| {
             for (names) |name| {
                 if (fs.path.isAbsolute(name)) {
@@ -978,111 +1032,11 @@ test "builder.findProgram compiles" {
     _ = builder.findProgram(&[_][]const u8{}, &[_][]const u8{}) catch null;
 }
 
-/// Deprecated. Use `builtin.Version`.
+/// Deprecated. Use `std.builtin.Version`.
 pub const Version = builtin.Version;
 
-/// Deprecated. Use `std.Target`.
-pub const CrossTarget = std.Target;
-
-/// Wraps `std.Target` so that it can be annotated as "the native target" or an explicitly specified target.
-pub const Target = union(enum) {
-    Native,
-    Cross: std.Target,
-
-    pub fn getTarget(self: Target) std.Target {
-        return switch (self) {
-            .Native => std.Target.current,
-            .Cross => |t| t,
-        };
-    }
-
-    pub fn getOs(self: Target) std.Target.Os.Tag {
-        return self.getTarget().os.tag;
-    }
-
-    pub fn getCpu(self: Target) std.Target.Cpu {
-        return self.getTarget().cpu;
-    }
-
-    pub fn getAbi(self: Target) std.Target.Abi {
-        return self.getTarget().abi;
-    }
-
-    pub fn getArch(self: Target) std.Target.Cpu.Arch {
-        return self.getCpu().arch;
-    }
-
-    pub fn isFreeBSD(self: Target) bool {
-        return self.getTarget().os.tag == .freebsd;
-    }
-
-    pub fn isDarwin(self: Target) bool {
-        return self.getTarget().os.tag.isDarwin();
-    }
-
-    pub fn isNetBSD(self: Target) bool {
-        return self.getTarget().os.tag == .netbsd;
-    }
-
-    pub fn isUefi(self: Target) bool {
-        return self.getTarget().os.tag == .uefi;
-    }
-
-    pub fn isDragonFlyBSD(self: Target) bool {
-        return self.getTarget().os.tag == .dragonfly;
-    }
-
-    pub fn isLinux(self: Target) bool {
-        return self.getTarget().os.tag == .linux;
-    }
-
-    pub fn isWindows(self: Target) bool {
-        return self.getTarget().os.tag == .windows;
-    }
-
-    pub fn oFileExt(self: Target) []const u8 {
-        return self.getTarget().oFileExt();
-    }
-
-    pub fn exeFileExt(self: Target) []const u8 {
-        return self.getTarget().exeFileExt();
-    }
-
-    pub fn staticLibSuffix(self: Target) []const u8 {
-        return self.getTarget().staticLibSuffix();
-    }
-
-    pub fn libPrefix(self: Target) []const u8 {
-        return self.getTarget().libPrefix();
-    }
-
-    pub fn zigTriple(self: Target, allocator: *mem.Allocator) ![]u8 {
-        return self.getTarget().zigTriple(allocator);
-    }
-
-    pub fn linuxTriple(self: Target, allocator: *mem.Allocator) ![]u8 {
-        return self.getTarget().linuxTriple(allocator);
-    }
-
-    pub fn wantSharedLibSymLinks(self: Target) bool {
-        return self.getTarget().wantSharedLibSymLinks();
-    }
-
-    pub fn vcpkgTriplet(self: Target, allocator: *mem.Allocator, linkage: std.build.VcpkgLinkage) ![]const u8 {
-        return self.getTarget().vcpkgTriplet(allocator, linkage);
-    }
-
-    pub fn getExternalExecutor(self: Target) std.Target.Executor {
-        switch (self) {
-            .Native => return .native,
-            .Cross => |t| return t.getExternalExecutor(),
-        }
-    }
-
-    pub fn isGnuLibC(self: Target) bool {
-        return self.getTarget().isGnuLibC();
-    }
-};
+/// Deprecated. Use `std.zig.CrossTarget`.
+pub const Target = std.zig.CrossTarget;
 
 pub const Pkg = struct {
     name: []const u8,
@@ -1135,7 +1089,7 @@ pub const LibExeObjStep = struct {
     step: Step,
     builder: *Builder,
     name: []const u8,
-    target: Target,
+    target: CrossTarget = CrossTarget{},
     linker_script: ?[]const u8 = null,
     version_script: ?[]const u8 = null,
     out_filename: []const u8,
@@ -1188,7 +1142,6 @@ pub const LibExeObjStep = struct {
     install_step: ?*InstallArtifactStep,
 
     libc_file: ?[]const u8 = null,
-    target_glibc: ?Version = null,
 
     valgrind_support: ?bool = null,
 
@@ -1288,7 +1241,6 @@ pub const LibExeObjStep = struct {
             .kind = kind,
             .root_src = root_src,
             .name = name,
-            .target = Target.Native,
             .frameworks = BufSet.init(builder.allocator),
             .step = Step.init(name, builder.allocator, make),
             .version = ver,
@@ -1379,34 +1331,9 @@ pub const LibExeObjStep = struct {
         }
     }
 
-    /// Deprecated. Use `setTheTarget`.
-    pub fn setTarget(
-        self: *LibExeObjStep,
-        target_arch: builtin.Arch,
-        target_os: builtin.Os,
-        target_abi: builtin.Abi,
-    ) void {
-        return self.setTheTarget(Target{
-            .Cross = CrossTarget{
-                .arch = target_arch,
-                .os = target_os,
-                .abi = target_abi,
-                .cpu_features = target_arch.getBaselineCpuFeatures(),
-            },
-        });
-    }
-
-    pub fn setTheTarget(self: *LibExeObjStep, target: Target) void {
+    pub fn setTarget(self: *LibExeObjStep, target: CrossTarget) void {
         self.target = target;
         self.computeOutFileNames();
-    }
-
-    pub fn setTargetGLibC(self: *LibExeObjStep, major: u32, minor: u32, patch: u32) void {
-        self.target_glibc = Version{
-            .major = major,
-            .minor = minor,
-            .patch = patch,
-        };
     }
 
     pub fn setOutputDir(self: *LibExeObjStep, dir: []const u8) void {
@@ -2002,47 +1929,41 @@ pub const LibExeObjStep = struct {
             try zig_args.append(@tagName(self.code_model));
         }
 
-        switch (self.target) {
-            .Native => {},
-            .Cross => |cross| {
-                try zig_args.append("-target");
-                try zig_args.append(self.target.zigTriple(builder.allocator) catch unreachable);
+        if (!self.target.isNative()) {
+            try zig_args.append("-target");
+            try zig_args.append(try self.target.zigTriple(builder.allocator));
 
-                const all_features = self.target.getArch().allFeaturesList();
-                var populated_cpu_features = cross.cpu.model.features;
-                populated_cpu_features.populateDependencies(all_features);
+            // TODO this logic can disappear if cpu model + features becomes part of the target triple
+            const cross = self.target.toTarget();
+            const all_features = cross.cpu.arch.allFeaturesList();
+            var populated_cpu_features = cross.cpu.model.features;
+            populated_cpu_features.populateDependencies(all_features);
 
-                if (populated_cpu_features.eql(cross.cpu.features)) {
-                    // The CPU name alone is sufficient.
-                    // If it is the baseline CPU, no command line args are required.
-                    if (cross.cpu.model != std.Target.Cpu.baseline(self.target.getArch()).model) {
-                        try zig_args.append("-mcpu");
-                        try zig_args.append(cross.cpu.model.name);
-                    }
-                } else {
-                    var mcpu_buffer = try std.Buffer.init(builder.allocator, "-mcpu=");
-                    try mcpu_buffer.append(cross.cpu.model.name);
-
-                    for (all_features) |feature, i_usize| {
-                        const i = @intCast(std.Target.Cpu.Feature.Set.Index, i_usize);
-                        const in_cpu_set = populated_cpu_features.isEnabled(i);
-                        const in_actual_set = cross.cpu.features.isEnabled(i);
-                        if (in_cpu_set and !in_actual_set) {
-                            try mcpu_buffer.appendByte('-');
-                            try mcpu_buffer.append(feature.name);
-                        } else if (!in_cpu_set and in_actual_set) {
-                            try mcpu_buffer.appendByte('+');
-                            try mcpu_buffer.append(feature.name);
-                        }
-                    }
-                    try zig_args.append(mcpu_buffer.toSliceConst());
+            if (populated_cpu_features.eql(cross.cpu.features)) {
+                // The CPU name alone is sufficient.
+                // If it is the baseline CPU, no command line args are required.
+                if (cross.cpu.model != std.Target.Cpu.baseline(cross.cpu.arch).model) {
+                    try zig_args.append("-mcpu");
+                    try zig_args.append(cross.cpu.model.name);
                 }
-            },
-        }
+            } else {
+                var mcpu_buffer = try std.Buffer.init(builder.allocator, "-mcpu=");
+                try mcpu_buffer.append(cross.cpu.model.name);
 
-        if (self.target_glibc) |ver| {
-            try zig_args.append("-target-glibc");
-            try zig_args.append(builder.fmt("{}.{}.{}", .{ ver.major, ver.minor, ver.patch }));
+                for (all_features) |feature, i_usize| {
+                    const i = @intCast(std.Target.Cpu.Feature.Set.Index, i_usize);
+                    const in_cpu_set = populated_cpu_features.isEnabled(i);
+                    const in_actual_set = cross.cpu.features.isEnabled(i);
+                    if (in_cpu_set and !in_actual_set) {
+                        try mcpu_buffer.appendByte('-');
+                        try mcpu_buffer.append(feature.name);
+                    } else if (!in_cpu_set and in_actual_set) {
+                        try mcpu_buffer.appendByte('+');
+                        try mcpu_buffer.append(feature.name);
+                    }
+                }
+                try zig_args.append(mcpu_buffer.toSliceConst());
+            }
         }
 
         if (self.linker_script) |linker_script| {
@@ -2517,10 +2438,7 @@ const VcpkgRootStatus = enum {
     Found,
 };
 
-pub const VcpkgLinkage = enum {
-    Static,
-    Dynamic,
-};
+pub const VcpkgLinkage = std.builtin.LinkMode;
 
 pub const InstallDir = enum {
     Prefix,

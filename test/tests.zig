@@ -3,7 +3,7 @@ const builtin = std.builtin;
 const debug = std.debug;
 const warn = debug.warn;
 const build = std.build;
-pub const Target = build.Target;
+const CrossTarget = std.zig.CrossTarget;
 const Buffer = std.Buffer;
 const io = std.io;
 const fs = std.fs;
@@ -30,7 +30,7 @@ pub const RunTranslatedCContext = @import("src/run_translated_c.zig").RunTransla
 pub const CompareOutputContext = @import("src/compare_output.zig").CompareOutputContext;
 
 const TestTarget = struct {
-    target: build.Target = .Native,
+    target: CrossTarget = @as(CrossTarget, .{}),
     mode: builtin.Mode = .Debug,
     link_libc: bool = false,
     single_threaded: bool = false,
@@ -52,105 +52,85 @@ const test_targets = blk: {
         },
 
         TestTarget{
-            .target = Target{
-                .Cross = .{
-                    .cpu = std.Target.Cpu.baseline(.x86_64),
-                    .os = std.Target.Os.defaultVersionRange(.linux),
-                    .abi = .none,
-                },
+            .target = .{
+                .cpu_arch = .x86_64,
+                .os_tag = .linux,
+                .abi = .none,
             },
         },
         TestTarget{
-            .target = Target{
-                .Cross = .{
-                    .cpu = std.Target.Cpu.baseline(.x86_64),
-                    .os = std.Target.Os.defaultVersionRange(.linux),
-                    .abi = .gnu,
-                },
+            .target = .{
+                .cpu_arch = .x86_64,
+                .os_tag = .linux,
+                .abi = .gnu,
             },
             .link_libc = true,
         },
         TestTarget{
-            .target = Target{
-                .Cross = .{
-                    .cpu = std.Target.Cpu.baseline(.x86_64),
-                    .os = std.Target.Os.defaultVersionRange(.linux),
-                    .abi = .musl,
-                },
-            },
-            .link_libc = true,
-        },
-
-        TestTarget{
-            .target = Target{
-                .Cross = .{
-                    .cpu = std.Target.Cpu.baseline(.i386),
-                    .os = std.Target.Os.defaultVersionRange(.linux),
-                    .abi = .none,
-                },
-            },
-        },
-        TestTarget{
-            .target = Target{
-                .Cross = .{
-                    .cpu = std.Target.Cpu.baseline(.i386),
-                    .os = std.Target.Os.defaultVersionRange(.linux),
-                    .abi = .musl,
-                },
-            },
-            .link_libc = true,
-        },
-
-        TestTarget{
-            .target = Target{
-                .Cross = .{
-                    .cpu = std.Target.Cpu.baseline(.aarch64),
-                    .os = std.Target.Os.defaultVersionRange(.linux),
-                    .abi = .none,
-                },
-            },
-        },
-        TestTarget{
-            .target = Target{
-                .Cross = .{
-                    .cpu = std.Target.Cpu.baseline(.aarch64),
-                    .os = std.Target.Os.defaultVersionRange(.linux),
-                    .abi = .musl,
-                },
-            },
-            .link_libc = true,
-        },
-        TestTarget{
-            .target = Target{
-                .Cross = .{
-                    .cpu = std.Target.Cpu.baseline(.aarch64),
-                    .os = std.Target.Os.defaultVersionRange(.linux),
-                    .abi = .gnu,
-                },
+            .target = .{
+                .cpu_arch = .x86_64,
+                .os_tag = .linux,
+                .abi = .musl,
             },
             .link_libc = true,
         },
 
         TestTarget{
             .target = .{
-                .Cross = std.Target.parse(.{
-                    .arch_os_abi = "arm-linux-none",
-                    .cpu_features = "generic+v8a",
-                }) catch unreachable,
+                .cpu_arch = .i386,
+                .os_tag = .linux,
+                .abi = .none,
             },
         },
         TestTarget{
             .target = .{
-                .Cross = std.Target.parse(.{
-                    .arch_os_abi = "arm-linux-musleabihf",
-                    .cpu_features = "generic+v8a",
-                }) catch unreachable,
+                .cpu_arch = .i386,
+                .os_tag = .linux,
+                .abi = .musl,
             },
+            .link_libc = true,
+        },
+
+        TestTarget{
+            .target = .{
+                .cpu_arch = .aarch64,
+                .os_tag = .linux,
+                .abi = .none,
+            },
+        },
+        TestTarget{
+            .target = .{
+                .cpu_arch = .aarch64,
+                .os_tag = .linux,
+                .abi = .musl,
+            },
+            .link_libc = true,
+        },
+        TestTarget{
+            .target = .{
+                .cpu_arch = .aarch64,
+                .os_tag = .linux,
+                .abi = .gnu,
+            },
+            .link_libc = true,
+        },
+
+        TestTarget{
+            .target = CrossTarget.parse(.{
+                .arch_os_abi = "arm-linux-none",
+                .cpu_features = "generic+v8a",
+            }) catch unreachable,
+        },
+        TestTarget{
+            .target = CrossTarget.parse(.{
+                .arch_os_abi = "arm-linux-musleabihf",
+                .cpu_features = "generic+v8a",
+            }) catch unreachable,
             .link_libc = true,
         },
         // TODO https://github.com/ziglang/zig/issues/3287
         //TestTarget{
-        //    .target = std.Target.parse(.{
+        //    .target = CrossTarget.parse(.{
         //        .arch_os_abi = "arm-linux-gnueabihf",
         //        .cpu_features = "generic+v8a",
         //    }) catch unreachable,
@@ -158,75 +138,61 @@ const test_targets = blk: {
         //},
 
         TestTarget{
-            .target = Target{
-                .Cross = .{
-                    .cpu = std.Target.Cpu.baseline(.mipsel),
-                    .os = std.Target.Os.defaultVersionRange(.linux),
-                    .abi = .none,
-                },
+            .target = .{
+                .cpu_arch = .mipsel,
+                .os_tag = .linux,
+                .abi = .none,
             },
         },
         TestTarget{
-            .target = Target{
-                .Cross = .{
-                    .cpu = std.Target.Cpu.baseline(.mipsel),
-                    .os = std.Target.Os.defaultVersionRange(.linux),
-                    .abi = .musl,
-                },
+            .target = .{
+                .cpu_arch = .mipsel,
+                .os_tag = .linux,
+                .abi = .musl,
             },
             .link_libc = true,
         },
 
         TestTarget{
-            .target = Target{
-                .Cross = .{
-                    .cpu = std.Target.Cpu.baseline(.x86_64),
-                    .os = std.Target.Os.defaultVersionRange(.macosx),
-                    .abi = .gnu,
-                },
+            .target = .{
+                .cpu_arch = .x86_64,
+                .os_tag = .macosx,
+                .abi = .gnu,
             },
             // TODO https://github.com/ziglang/zig/issues/3295
             .disable_native = true,
         },
 
         TestTarget{
-            .target = Target{
-                .Cross = .{
-                    .cpu = std.Target.Cpu.baseline(.i386),
-                    .os = std.Target.Os.defaultVersionRange(.windows),
-                    .abi = .msvc,
-                },
+            .target = .{
+                .cpu_arch = .i386,
+                .os_tag = .windows,
+                .abi = .msvc,
             },
         },
 
         TestTarget{
-            .target = Target{
-                .Cross = .{
-                    .cpu = std.Target.Cpu.baseline(.x86_64),
-                    .os = std.Target.Os.defaultVersionRange(.windows),
-                    .abi = .msvc,
-                },
+            .target = .{
+                .cpu_arch = .x86_64,
+                .os_tag = .windows,
+                .abi = .msvc,
             },
         },
 
         TestTarget{
-            .target = Target{
-                .Cross = .{
-                    .cpu = std.Target.Cpu.baseline(.i386),
-                    .os = std.Target.Os.defaultVersionRange(.windows),
-                    .abi = .gnu,
-                },
+            .target = .{
+                .cpu_arch = .i386,
+                .os_tag = .windows,
+                .abi = .gnu,
             },
             .link_libc = true,
         },
 
         TestTarget{
-            .target = Target{
-                .Cross = .{
-                    .cpu = std.Target.Cpu.baseline(.x86_64),
-                    .os = std.Target.Os.defaultVersionRange(.windows),
-                    .abi = .gnu,
-                },
+            .target = .{
+                .cpu_arch = .x86_64,
+                .os_tag = .windows,
+                .abi = .gnu,
             },
             .link_libc = true,
         },
@@ -435,13 +401,13 @@ pub fn addPkgTests(
     const step = b.step(b.fmt("test-{}", .{name}), desc);
 
     for (test_targets) |test_target| {
-        if (skip_non_native and test_target.target != .Native)
+        if (skip_non_native and !test_target.target.isNative())
             continue;
 
         if (skip_libc and test_target.link_libc)
             continue;
 
-        if (test_target.link_libc and test_target.target.getTarget().osRequiresLibC()) {
+        if (test_target.link_libc and test_target.target.getOs().requiresLibC()) {
             // This would be a redundant test.
             continue;
         }
@@ -451,8 +417,8 @@ pub fn addPkgTests(
 
         const ArchTag = @TagType(builtin.Arch);
         if (test_target.disable_native and
-            test_target.target.getOs() == std.Target.current.os.tag and
-            test_target.target.getArch() == std.Target.current.cpu.arch)
+            test_target.target.getOsTag() == std.Target.current.os.tag and
+            test_target.target.getCpuArch() == std.Target.current.cpu.arch)
         {
             continue;
         }
@@ -462,17 +428,14 @@ pub fn addPkgTests(
         } else false;
         if (!want_this_mode) continue;
 
-        const libc_prefix = if (test_target.target.getTarget().osRequiresLibC())
+        const libc_prefix = if (test_target.target.getOs().requiresLibC())
             ""
         else if (test_target.link_libc)
             "c"
         else
             "bare";
 
-        const triple_prefix = if (test_target.target == .Native)
-            @as([]const u8, "native")
-        else
-            test_target.target.zigTriple(b.allocator) catch unreachable;
+        const triple_prefix = test_target.target.zigTriple(b.allocator) catch unreachable;
 
         const these_tests = b.addTest(root_src);
         const single_threaded_txt = if (test_target.single_threaded) "single" else "multi";
@@ -486,7 +449,7 @@ pub fn addPkgTests(
         these_tests.single_threaded = test_target.single_threaded;
         these_tests.setFilter(test_filter);
         these_tests.setBuildMode(test_target.mode);
-        these_tests.setTheTarget(test_target.target);
+        these_tests.setTarget(test_target.target);
         if (test_target.link_libc) {
             these_tests.linkSystemLibrary("c");
         }
@@ -716,7 +679,7 @@ pub const CompileErrorContext = struct {
         link_libc: bool,
         is_exe: bool,
         is_test: bool,
-        target: Target = .Native,
+        target: CrossTarget = CrossTarget{},
 
         const SourceFile = struct {
             filename: []const u8,
@@ -808,12 +771,9 @@ pub const CompileErrorContext = struct {
             zig_args.append("--output-dir") catch unreachable;
             zig_args.append(b.pathFromRoot(b.cache_root)) catch unreachable;
 
-            switch (self.case.target) {
-                .Native => {},
-                .Cross => {
-                    try zig_args.append("-target");
-                    try zig_args.append(try self.case.target.zigTriple(b.allocator));
-                },
+            if (!self.case.target.isNative()) {
+                try zig_args.append("-target");
+                try zig_args.append(try self.case.target.zigTriple(b.allocator));
             }
 
             switch (self.build_mode) {

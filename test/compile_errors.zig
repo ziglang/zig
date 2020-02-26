@@ -1,5 +1,5 @@
 const tests = @import("tests.zig");
-const Target = @import("std").Target;
+const std = @import("std");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.addTest("type mismatch with tuple concatenation",
@@ -386,12 +386,10 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         , &[_][]const u8{
             "tmp.zig:3:5: error: target arch 'wasm32' does not support calling with a new stack",
         });
-        tc.target = tests.Target{
-            .Cross = .{
-                .cpu = Target.Cpu.baseline(.wasm32),
-                .os = Target.Os.defaultVersionRange(.wasi),
-                .abi = .none,
-            },
+        tc.target = std.zig.CrossTarget{
+            .cpu_arch = .wasm32,
+            .os_tag = .wasi,
+            .abi = .none,
         };
         break :x tc;
     });
@@ -787,12 +785,10 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         , &[_][]const u8{
             "tmp.zig:2:14: error: could not find 'foo' in the inputs or outputs",
         });
-        tc.target = tests.Target{
-            .Cross = .{
-                .cpu = Target.Cpu.baseline(.x86_64),
-                .os = Target.Os.defaultVersionRange(.linux),
-                .abi = .gnu,
-            },
+        tc.target = std.zig.CrossTarget{
+            .cpu_arch = .x86_64,
+            .os_tag = .linux,
+            .abi = .gnu,
         };
         break :x tc;
     });
@@ -1452,7 +1448,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:2:18: error: invalid operands to binary expression: 'error{A}' and 'error{B}'",
     });
 
-    if (Target.current.os.tag == .linux) {
+    if (std.Target.current.os.tag == .linux) {
         cases.addTest("implicit dependency on libc",
             \\extern "c" fn exit(u8) void;
             \\export fn entry() void {

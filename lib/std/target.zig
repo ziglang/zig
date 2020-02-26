@@ -60,6 +60,16 @@ pub const Target = struct {
                     else => false,
                 };
             }
+
+            pub fn dynamicLibSuffix(tag: Tag) [:0]const u8 {
+                if (tag.isDarwin()) {
+                    return ".dylib";
+                }
+                switch (tag) {
+                    .windows => return ".dll",
+                    else => return ".so",
+                }
+            }
         };
 
         /// Based on NTDDI version constants from
@@ -210,64 +220,31 @@ pub const Target = struct {
             }
         };
 
-        pub fn parse(text: []const u8) !Os {
-            var it = mem.separate(text, ".");
-            const os_name = it.next().?;
-            const tag = std.meta.stringToEnum(Tag, os_name) orelse return error.UnknownOperatingSystem;
-            const version_text = it.rest();
-            const S = struct {
-                fn parseNone(s: []const u8) !void {
-                    if (s.len != 0) return error.InvalidOperatingSystemVersion;
-                }
-                fn parseSemVer(s: []const u8, d_range: Version.Range) !Version.Range {
-                    if (s.len == 0) return d_range;
-                    var range_it = mem.separate(s, "...");
-
-                    const min_text = range_it.next().?;
-                    const min_ver = Version.parse(min_text) catch |err| switch (err) {
-                        error.Overflow => return error.InvalidOperatingSystemVersion,
-                        error.InvalidCharacter => return error.InvalidOperatingSystemVersion,
-                        error.InvalidVersion => return error.InvalidOperatingSystemVersion,
-                    };
-
-                    const max_text = range_it.next() orelse return Version.Range{
-                        .min = min_ver,
-                        .max = d_range.max,
-                    };
-                    const max_ver = Version.parse(max_text) catch |err| switch (err) {
-                        error.Overflow => return error.InvalidOperatingSystemVersion,
-                        error.InvalidCharacter => return error.InvalidOperatingSystemVersion,
-                        error.InvalidVersion => return error.InvalidOperatingSystemVersion,
-                    };
-
-                    return Version.Range{ .min = min_ver, .max = max_ver };
-                }
-                fn parseWindows(s: []const u8, d_range: WindowsVersion.Range) !WindowsVersion.Range {
-                    if (s.len == 0) return d_range;
-                    var range_it = mem.separate(s, "...");
-
-                    const min_text = range_it.next().?;
-                    const min_ver = std.meta.stringToEnum(WindowsVersion, min_text) orelse
-                        return error.InvalidOperatingSystemVersion;
-
-                    const max_text = range_it.next() orelse return WindowsVersion.Range{
-                        .min = min_ver,
-                        .max = d_range.max,
-                    };
-                    const max_ver = std.meta.stringToEnum(WindowsVersion, max_text) orelse
-                        return error.InvalidOperatingSystemVersion;
-
-                    return WindowsVersion.Range{ .min = min_ver, .max = max_ver };
-                }
+        pub fn defaultVersionRange(tag: Tag) Os {
+            return .{
+                .tag = tag,
+                .version_range = VersionRange.default(tag),
             };
-            const d_range = VersionRange.default(tag);
-            switch (tag) {
+        }
+
+        pub fn requiresLibC(os: Os) bool {
+            return switch (os.tag) {
+                .freebsd,
+                .netbsd,
+                .macosx,
+                .ios,
+                .tvos,
+                .watchos,
+                .dragonfly,
+                .openbsd,
+                => true,
+
+                .linux,
+                .windows,
                 .freestanding,
                 .ananas,
                 .cloudabi,
-                .dragonfly,
                 .fuchsia,
-                .ios,
                 .kfreebsd,
                 .lv2,
                 .solaris,
@@ -282,8 +259,6 @@ pub const Target = struct {
                 .amdhsa,
                 .ps4,
                 .elfiamcu,
-                .tvos,
-                .watchos,
                 .mesa3d,
                 .contiki,
                 .amdpal,
@@ -293,41 +268,7 @@ pub const Target = struct {
                 .emscripten,
                 .uefi,
                 .other,
-                => return Os{
-                    .tag = tag,
-                    .version_range = .{ .none = try S.parseNone(version_text) },
-                },
-
-                .freebsd,
-                .macosx,
-                .netbsd,
-                .openbsd,
-                => return Os{
-                    .tag = tag,
-                    .version_range = .{ .semver = try S.parseSemVer(version_text, d_range.semver) },
-                },
-
-                .linux => return Os{
-                    .tag = tag,
-                    .version_range = .{
-                        .linux = .{
-                            .range = try S.parseSemVer(version_text, d_range.linux.range),
-                            .glibc = d_range.linux.glibc,
-                        },
-                    },
-                },
-
-                .windows => return Os{
-                    .tag = tag,
-                    .version_range = .{ .windows = try S.parseWindows(version_text, d_range.windows) },
-                },
-            }
-        }
-
-        pub fn defaultVersionRange(tag: Tag) Os {
-            return .{
-                .tag = tag,
-                .version_range = VersionRange.default(tag),
+                => false,
             };
         }
     };
@@ -434,6 +375,13 @@ pub const Target = struct {
                 else => false,
             };
         }
+
+        pub fn oFileExt(abi: Abi) [:0]const u8 {
+            return switch (abi) {
+                .msvc => ".obj",
+                else => ".o",
+            };
+        }
     };
 
     pub const ObjectFormat = enum {
@@ -500,6 +448,12 @@ pub const Target = struct {
                     return Set{ .ints = [1]usize{0} ** usize_count };
                 }
 
+                pub fn isEmpty(set: Set) bool {
+                    return for (set.ints) |x| {
+                        if (x != 0) break false;
+                    } else true;
+                }
+
                 pub fn isEnabled(set: Set, arch_feature_index: Index) bool {
                     const usize_index = arch_feature_index / @bitSizeOf(usize);
                     const bit_index = @intCast(ShiftInt, arch_feature_index % @bitSizeOf(usize));
@@ -524,6 +478,15 @@ pub const Target = struct {
                     const usize_index = arch_feature_index / @bitSizeOf(usize);
                     const bit_index = @intCast(ShiftInt, arch_feature_index % @bitSizeOf(usize));
                     set.ints[usize_index] &= ~(@as(usize, 1) << bit_index);
+                }
+
+                /// Removes the specified feature but not its dependents.
+                pub fn removeFeatureSet(set: *Set, other_set: Set) void {
+                    // TODO should be able to use binary not on @Vector type.
+                    // https://github.com/ziglang/zig/issues/903
+                    for (set.ints) |*int, i| {
+                        int.* &= ~other_set.ints[i];
+                    }
                 }
 
                 pub fn populateDependencies(set: *Set, all_features_list: []const Cpu.Feature) void {
@@ -663,7 +626,7 @@ pub const Target = struct {
                         return cpu;
                     }
                 }
-                return error.UnknownCpu;
+                return error.UnknownCpuModel;
             }
 
             pub fn toElfMachine(arch: Arch) std.elf.EM {
@@ -779,6 +742,66 @@ pub const Target = struct {
                 };
             }
 
+            pub fn ptrBitWidth(arch: Arch) u32 {
+                switch (arch) {
+                    .avr,
+                    .msp430,
+                    => return 16,
+
+                    .arc,
+                    .arm,
+                    .armeb,
+                    .hexagon,
+                    .le32,
+                    .mips,
+                    .mipsel,
+                    .powerpc,
+                    .r600,
+                    .riscv32,
+                    .sparc,
+                    .sparcel,
+                    .tce,
+                    .tcele,
+                    .thumb,
+                    .thumbeb,
+                    .i386,
+                    .xcore,
+                    .nvptx,
+                    .amdil,
+                    .hsail,
+                    .spir,
+                    .kalimba,
+                    .shave,
+                    .lanai,
+                    .wasm32,
+                    .renderscript32,
+                    .aarch64_32,
+                    => return 32,
+
+                    .aarch64,
+                    .aarch64_be,
+                    .mips64,
+                    .mips64el,
+                    .powerpc64,
+                    .powerpc64le,
+                    .riscv64,
+                    .x86_64,
+                    .nvptx64,
+                    .le64,
+                    .amdil64,
+                    .hsail64,
+                    .spir64,
+                    .wasm64,
+                    .renderscript64,
+                    .amdgcn,
+                    .bpfel,
+                    .bpfeb,
+                    .sparcv9,
+                    .s390x,
+                    => return 64,
+                }
+            }
+
             /// Returns a name that matches the lib/std/target/* directory name.
             pub fn genericName(arch: Arch) []const u8 {
                 return switch (arch) {
@@ -846,16 +869,6 @@ pub const Target = struct {
                     else => &[0]*const Model{},
                 };
             }
-
-            pub fn parse(text: []const u8) !Arch {
-                const info = @typeInfo(Arch);
-                inline for (info.Enum.fields) |field| {
-                    if (mem.eql(u8, text, field.name)) {
-                        return @as(Arch, @field(Arch, field.name));
-                    }
-                }
-                return error.UnknownArchitecture;
-            }
         };
 
         pub const Model = struct {
@@ -872,41 +885,44 @@ pub const Target = struct {
                     .features = features,
                 };
             }
+
+            pub fn baseline(arch: Arch) *const Model {
+                const S = struct {
+                    const generic_model = Model{
+                        .name = "generic",
+                        .llvm_name = null,
+                        .features = Cpu.Feature.Set.empty,
+                    };
+                };
+                return switch (arch) {
+                    .arm, .armeb, .thumb, .thumbeb => &arm.cpu.baseline,
+                    .aarch64, .aarch64_be, .aarch64_32 => &aarch64.cpu.generic,
+                    .avr => &avr.cpu.avr1,
+                    .bpfel, .bpfeb => &bpf.cpu.generic,
+                    .hexagon => &hexagon.cpu.generic,
+                    .mips, .mipsel => &mips.cpu.mips32,
+                    .mips64, .mips64el => &mips.cpu.mips64,
+                    .msp430 => &msp430.cpu.generic,
+                    .powerpc, .powerpc64, .powerpc64le => &powerpc.cpu.generic,
+                    .amdgcn => &amdgpu.cpu.generic,
+                    .riscv32 => &riscv.cpu.baseline_rv32,
+                    .riscv64 => &riscv.cpu.baseline_rv64,
+                    .sparc, .sparcv9, .sparcel => &sparc.cpu.generic,
+                    .s390x => &systemz.cpu.generic,
+                    .i386 => &x86.cpu.pentium4,
+                    .x86_64 => &x86.cpu.x86_64,
+                    .nvptx, .nvptx64 => &nvptx.cpu.sm_20,
+                    .wasm32, .wasm64 => &wasm.cpu.generic,
+
+                    else => &S.generic_model,
+                };
+            }
         };
 
         /// The "default" set of CPU features for cross-compiling. A conservative set
         /// of features that is expected to be supported on most available hardware.
         pub fn baseline(arch: Arch) Cpu {
-            const S = struct {
-                const generic_model = Model{
-                    .name = "generic",
-                    .llvm_name = null,
-                    .features = Cpu.Feature.Set.empty,
-                };
-            };
-            const model = switch (arch) {
-                .arm, .armeb, .thumb, .thumbeb => &arm.cpu.baseline,
-                .aarch64, .aarch64_be, .aarch64_32 => &aarch64.cpu.generic,
-                .avr => &avr.cpu.avr1,
-                .bpfel, .bpfeb => &bpf.cpu.generic,
-                .hexagon => &hexagon.cpu.generic,
-                .mips, .mipsel => &mips.cpu.mips32,
-                .mips64, .mips64el => &mips.cpu.mips64,
-                .msp430 => &msp430.cpu.generic,
-                .powerpc, .powerpc64, .powerpc64le => &powerpc.cpu.generic,
-                .amdgcn => &amdgpu.cpu.generic,
-                .riscv32 => &riscv.cpu.baseline_rv32,
-                .riscv64 => &riscv.cpu.baseline_rv64,
-                .sparc, .sparcv9, .sparcel => &sparc.cpu.generic,
-                .s390x => &systemz.cpu.generic,
-                .i386 => &x86.cpu.pentium4,
-                .x86_64 => &x86.cpu.x86_64,
-                .nvptx, .nvptx64 => &nvptx.cpu.sm_20,
-                .wasm32, .wasm64 => &wasm.cpu.generic,
-
-                else => &S.generic_model,
-            };
-            return model.toCpu(arch);
+            return Model.baseline(arch).toCpu(arch);
         }
     };
 
@@ -918,237 +934,68 @@ pub const Target = struct {
 
     pub const stack_align = 16;
 
-    /// TODO add OS version ranges and glibc version
-    pub fn zigTriple(self: Target, allocator: *mem.Allocator) ![]u8 {
-        return std.fmt.allocPrint(allocator, "{}-{}-{}", .{
-            @tagName(self.cpu.arch),
-            @tagName(self.os.tag),
-            @tagName(self.abi),
-        });
+    pub fn zigTriple(self: Target, allocator: *mem.Allocator) ![:0]u8 {
+        return std.zig.CrossTarget.fromTarget(self).zigTriple(allocator);
     }
 
-    /// Returned slice must be freed by the caller.
-    pub fn vcpkgTriplet(target: Target, allocator: *mem.Allocator, linkage: std.build.VcpkgLinkage) ![]const u8 {
-        const arch = switch (target.cpu.arch) {
-            .i386 => "x86",
-            .x86_64 => "x64",
+    pub fn linuxTripleSimple(allocator: *mem.Allocator, cpu_arch: Cpu.Arch, os_tag: Os.Tag, abi: Abi) ![:0]u8 {
+        return std.fmt.allocPrint0(allocator, "{}-{}-{}", .{ @tagName(cpu_arch), @tagName(os_tag), @tagName(abi) });
+    }
 
-            .arm,
-            .armeb,
-            .thumb,
-            .thumbeb,
-            .aarch64_32,
-            => "arm",
+    pub fn linuxTriple(self: Target, allocator: *mem.Allocator) ![:0]u8 {
+        return linuxTripleSimple(allocator, self.cpu.arch, self.os.tag, self.abi);
+    }
 
-            .aarch64,
-            .aarch64_be,
-            => "arm64",
+    pub fn oFileExt(self: Target) [:0]const u8 {
+        return self.abi.oFileExt();
+    }
 
-            else => return error.VcpkgNoSuchArchitecture,
-        };
-
-        const os = switch (target.os) {
-            .windows => "windows",
-            .linux => "linux",
-            .macosx => "macos",
-            else => return error.VcpkgNoSuchOs,
-        };
-
-        if (linkage == .Static) {
-            return try mem.join(allocator, "-", &[_][]const u8{ arch, os, "static" });
-        } else {
-            return try mem.join(allocator, "-", &[_][]const u8{ arch, os });
+    pub fn exeFileExtSimple(cpu_arch: Cpu.Arch, os_tag: Os.Tag) [:0]const u8 {
+        switch (os_tag) {
+            .windows => return ".exe",
+            .uefi => return ".efi",
+            else => if (cpu_arch.isWasm()) {
+                return ".wasm";
+            } else {
+                return "";
+            },
         }
     }
 
-    pub fn allocDescription(self: Target, allocator: *mem.Allocator) ![]u8 {
-        // TODO is there anything else worthy of the description that is not
-        // already captured in the triple?
-        return self.zigTriple(allocator);
+    pub fn exeFileExt(self: Target) [:0]const u8 {
+        return exeFileExtSimple(self.cpu.arch, self.os.tag);
     }
 
-    pub fn linuxTriple(self: Target, allocator: *mem.Allocator) ![]u8 {
-        return std.fmt.allocPrint(allocator, "{}-{}-{}", .{
-            @tagName(self.cpu.arch),
-            @tagName(self.os.tag),
-            @tagName(self.abi),
-        });
-    }
-
-    pub const ParseOptions = struct {
-        /// This is sometimes called a "triple". It looks roughly like this:
-        ///     riscv64-linux-gnu
-        /// The fields are, respectively:
-        /// * CPU Architecture
-        /// * Operating System
-        /// * C ABI (optional)
-        arch_os_abi: []const u8,
-
-        /// Looks like "name+a+b-c-d+e", where "name" is a CPU Model name, "a", "b", and "e"
-        /// are examples of CPU features to add to the set, and "c" and "d" are examples of CPU features
-        /// to remove from the set.
-        cpu_features: []const u8 = "baseline",
-
-        /// If this is provided, the function will populate some information about parsing failures,
-        /// so that user-friendly error messages can be delivered.
-        diagnostics: ?*Diagnostics = null,
-
-        pub const Diagnostics = struct {
-            /// If the architecture was determined, this will be populated.
-            arch: ?Cpu.Arch = null,
-
-            /// If the OS was determined, this will be populated.
-            os: ?Os = null,
-
-            /// If the ABI was determined, this will be populated.
-            abi: ?Abi = null,
-
-            /// If the CPU name was determined, this will be populated.
-            cpu_name: ?[]const u8 = null,
-
-            /// If error.UnknownCpuFeature is returned, this will be populated.
-            unknown_feature_name: ?[]const u8 = null,
-        };
-    };
-
-    pub fn parse(args: ParseOptions) !Target {
-        var dummy_diags: ParseOptions.Diagnostics = undefined;
-        var diags = args.diagnostics orelse &dummy_diags;
-
-        var it = mem.separate(args.arch_os_abi, "-");
-        const arch_name = it.next() orelse return error.MissingArchitecture;
-        const arch = try Cpu.Arch.parse(arch_name);
-        diags.arch = arch;
-
-        const os_name = it.next() orelse return error.MissingOperatingSystem;
-        var os = try Os.parse(os_name);
-        diags.os = os;
-
-        const opt_abi_text = it.next();
-        const abi = if (opt_abi_text) |abi_text| blk: {
-            var abi_it = mem.separate(abi_text, ".");
-            const abi = std.meta.stringToEnum(Abi, abi_it.next().?) orelse
-                return error.UnknownApplicationBinaryInterface;
-            const abi_ver_text = abi_it.rest();
-            if (abi_ver_text.len != 0) {
-                if (os.tag == .linux and abi.isGnu()) {
-                    os.version_range.linux.glibc = Version.parse(abi_ver_text) catch |err| switch (err) {
-                        error.Overflow => return error.InvalidAbiVersion,
-                        error.InvalidCharacter => return error.InvalidAbiVersion,
-                        error.InvalidVersion => return error.InvalidAbiVersion,
-                    };
-                } else {
-                    return error.InvalidAbiVersion;
-                }
-            }
-            break :blk abi;
-        } else Abi.default(arch, os);
-        diags.abi = abi;
-
-        if (it.next() != null) return error.UnexpectedExtraField;
-
-        const all_features = arch.allFeaturesList();
-        var index: usize = 0;
-        while (index < args.cpu_features.len and
-            args.cpu_features[index] != '+' and
-            args.cpu_features[index] != '-')
-        {
-            index += 1;
-        }
-        const cpu_name = args.cpu_features[0..index];
-        diags.cpu_name = cpu_name;
-
-        const cpu: Cpu = if (mem.eql(u8, cpu_name, "baseline")) Cpu.baseline(arch) else blk: {
-            const cpu_model = try arch.parseCpuModel(cpu_name);
-
-            var set = cpu_model.features;
-            while (index < args.cpu_features.len) {
-                const op = args.cpu_features[index];
-                index += 1;
-                const start = index;
-                while (index < args.cpu_features.len and
-                    args.cpu_features[index] != '+' and
-                    args.cpu_features[index] != '-')
-                {
-                    index += 1;
-                }
-                const feature_name = args.cpu_features[start..index];
-                for (all_features) |feature, feat_index_usize| {
-                    const feat_index = @intCast(Cpu.Feature.Set.Index, feat_index_usize);
-                    if (mem.eql(u8, feature_name, feature.name)) {
-                        switch (op) {
-                            '+' => set.addFeature(feat_index),
-                            '-' => set.removeFeature(feat_index),
-                            else => unreachable,
-                        }
-                        break;
-                    }
-                } else {
-                    diags.unknown_feature_name = feature_name;
-                    return error.UnknownCpuFeature;
-                }
-            }
-            set.populateDependencies(all_features);
-            break :blk .{
-                .arch = arch,
-                .model = cpu_model,
-                .features = set,
-            };
-        };
-        return Target{
-            .cpu = cpu,
-            .os = os,
-            .abi = abi,
-        };
-    }
-
-    pub fn oFileExt(self: Target) []const u8 {
-        return switch (self.abi) {
-            .msvc => ".obj",
-            else => ".o",
-        };
-    }
-
-    pub fn exeFileExt(self: Target) []const u8 {
-        if (self.os.tag == .windows) {
-            return ".exe";
-        } else if (self.os.tag == .uefi) {
-            return ".efi";
-        } else if (self.cpu.arch.isWasm()) {
-            return ".wasm";
-        } else {
-            return "";
-        }
-    }
-
-    pub fn staticLibSuffix(self: Target) []const u8 {
-        if (self.cpu.arch.isWasm()) {
+    pub fn staticLibSuffix_cpu_arch_abi(cpu_arch: Cpu.Arch, abi: Abi) [:0]const u8 {
+        if (cpu_arch.isWasm()) {
             return ".wasm";
         }
-        switch (self.abi) {
+        switch (abi) {
             .msvc => return ".lib",
             else => return ".a",
         }
     }
 
-    pub fn dynamicLibSuffix(self: Target) []const u8 {
-        if (self.isDarwin()) {
-            return ".dylib";
-        }
-        switch (self.os) {
-            .windows => return ".dll",
-            else => return ".so",
-        }
+    pub fn staticLibSuffix(self: Target) [:0]const u8 {
+        return staticLibSuffix_cpu_arch_abi(self.cpu.arch, self.abi);
     }
 
-    pub fn libPrefix(self: Target) []const u8 {
-        if (self.cpu.arch.isWasm()) {
+    pub fn dynamicLibSuffix(self: Target) [:0]const u8 {
+        return self.os.tag.dynamicLibSuffix();
+    }
+
+    pub fn libPrefix_cpu_arch_abi(cpu_arch: Cpu.Arch, abi: Abi) [:0]const u8 {
+        if (cpu_arch.isWasm()) {
             return "";
         }
-        switch (self.abi) {
+        switch (abi) {
             .msvc => return "",
             else => return "lib",
         }
+    }
+
+    pub fn libPrefix(self: Target) [:0]const u8 {
+        return libPrefix_cpu_arch_abi(self.cpu.arch, self.abi);
     }
 
     pub fn getObjectFormat(self: Target) ObjectFormat {
@@ -1190,127 +1037,16 @@ pub const Target = struct {
         return self.os.tag.isDarwin();
     }
 
+    pub fn isGnuLibC_os_tag_abi(os_tag: Os.Tag, abi: Abi) bool {
+        return os_tag == .linux and abi.isGnu();
+    }
+
     pub fn isGnuLibC(self: Target) bool {
-        return self.os.tag == .linux and self.abi.isGnu();
-    }
-
-    pub fn wantSharedLibSymLinks(self: Target) bool {
-        return self.os.tag != .windows;
-    }
-
-    pub fn osRequiresLibC(self: Target) bool {
-        return self.isDarwin() or self.os.tag == .freebsd or self.os.tag == .netbsd;
-    }
-
-    pub fn getArchPtrBitWidth(self: Target) u32 {
-        switch (self.cpu.arch) {
-            .avr,
-            .msp430,
-            => return 16,
-
-            .arc,
-            .arm,
-            .armeb,
-            .hexagon,
-            .le32,
-            .mips,
-            .mipsel,
-            .powerpc,
-            .r600,
-            .riscv32,
-            .sparc,
-            .sparcel,
-            .tce,
-            .tcele,
-            .thumb,
-            .thumbeb,
-            .i386,
-            .xcore,
-            .nvptx,
-            .amdil,
-            .hsail,
-            .spir,
-            .kalimba,
-            .shave,
-            .lanai,
-            .wasm32,
-            .renderscript32,
-            .aarch64_32,
-            => return 32,
-
-            .aarch64,
-            .aarch64_be,
-            .mips64,
-            .mips64el,
-            .powerpc64,
-            .powerpc64le,
-            .riscv64,
-            .x86_64,
-            .nvptx64,
-            .le64,
-            .amdil64,
-            .hsail64,
-            .spir64,
-            .wasm64,
-            .renderscript64,
-            .amdgcn,
-            .bpfel,
-            .bpfeb,
-            .sparcv9,
-            .s390x,
-            => return 64,
-        }
+        return isGnuLibC_os_tag_abi(self.os.tag, self.abi);
     }
 
     pub fn supportsNewStackCall(self: Target) bool {
         return !self.cpu.arch.isWasm();
-    }
-
-    pub const Executor = union(enum) {
-        native,
-        qemu: []const u8,
-        wine: []const u8,
-        wasmtime: []const u8,
-        unavailable,
-    };
-
-    pub fn getExternalExecutor(self: Target) Executor {
-        // If the target OS matches the host OS, we can use QEMU to emulate a foreign architecture.
-        if (self.os.tag == builtin.os.tag) {
-            return switch (self.cpu.arch) {
-                .aarch64 => Executor{ .qemu = "qemu-aarch64" },
-                .aarch64_be => Executor{ .qemu = "qemu-aarch64_be" },
-                .arm => Executor{ .qemu = "qemu-arm" },
-                .armeb => Executor{ .qemu = "qemu-armeb" },
-                .i386 => Executor{ .qemu = "qemu-i386" },
-                .mips => Executor{ .qemu = "qemu-mips" },
-                .mipsel => Executor{ .qemu = "qemu-mipsel" },
-                .mips64 => Executor{ .qemu = "qemu-mips64" },
-                .mips64el => Executor{ .qemu = "qemu-mips64el" },
-                .powerpc => Executor{ .qemu = "qemu-ppc" },
-                .powerpc64 => Executor{ .qemu = "qemu-ppc64" },
-                .powerpc64le => Executor{ .qemu = "qemu-ppc64le" },
-                .riscv32 => Executor{ .qemu = "qemu-riscv32" },
-                .riscv64 => Executor{ .qemu = "qemu-riscv64" },
-                .s390x => Executor{ .qemu = "qemu-s390x" },
-                .sparc => Executor{ .qemu = "qemu-sparc" },
-                .x86_64 => Executor{ .qemu = "qemu-x86_64" },
-                else => return .unavailable,
-            };
-        }
-
-        switch (self.os.tag) {
-            .windows => switch (self.getArchPtrBitWidth()) {
-                32 => return Executor{ .wine = "wine" },
-                64 => return Executor{ .wine = "wine64" },
-                else => return .unavailable,
-            },
-            .wasi => switch (self.getArchPtrBitWidth()) {
-                32 => return Executor{ .wasmtime = "wasmtime" },
-                else => return .unavailable,
-            },
-            else => return .unavailable,
-        }
     }
 
     pub const FloatAbi = enum {
@@ -1359,7 +1095,7 @@ pub const Target = struct {
     }![:0]u8 {
         const a = allocator;
         if (self.isAndroid()) {
-            return mem.dupeZ(a, u8, if (self.getArchPtrBitWidth() == 64)
+            return mem.dupeZ(a, u8, if (self.cpu.arch.ptrBitWidth() == 64)
                 "/system/bin/linker64"
             else
                 "/system/bin/linker");
@@ -1477,52 +1213,3 @@ pub const Target = struct {
         }
     }
 };
-
-test "Target.parse" {
-    {
-        const target = try Target.parse(.{
-            .arch_os_abi = "x86_64-linux-gnu",
-            .cpu_features = "x86_64-sse-sse2-avx-cx8",
-        });
-
-        std.testing.expect(target.os.tag == .linux);
-        std.testing.expect(target.abi == .gnu);
-        std.testing.expect(target.cpu.arch == .x86_64);
-        std.testing.expect(!Target.x86.featureSetHas(target.cpu.features, .sse));
-        std.testing.expect(!Target.x86.featureSetHas(target.cpu.features, .avx));
-        std.testing.expect(!Target.x86.featureSetHas(target.cpu.features, .cx8));
-        std.testing.expect(Target.x86.featureSetHas(target.cpu.features, .cmov));
-        std.testing.expect(Target.x86.featureSetHas(target.cpu.features, .fxsr));
-    }
-    {
-        const target = try Target.parse(.{
-            .arch_os_abi = "arm-linux-musleabihf",
-            .cpu_features = "generic+v8a",
-        });
-
-        std.testing.expect(target.os.tag == .linux);
-        std.testing.expect(target.abi == .musleabihf);
-        std.testing.expect(target.cpu.arch == .arm);
-        std.testing.expect(target.cpu.model == &Target.arm.cpu.generic);
-        std.testing.expect(Target.arm.featureSetHas(target.cpu.features, .v8a));
-    }
-    {
-        const target = try Target.parse(.{
-            .arch_os_abi = "aarch64-linux.3.10...4.4.1-gnu.2.27",
-            .cpu_features = "generic+v8a",
-        });
-
-        std.testing.expect(target.cpu.arch == .aarch64);
-        std.testing.expect(target.os.tag == .linux);
-        std.testing.expect(target.os.version_range.linux.range.min.major == 3);
-        std.testing.expect(target.os.version_range.linux.range.min.minor == 10);
-        std.testing.expect(target.os.version_range.linux.range.min.patch == 0);
-        std.testing.expect(target.os.version_range.linux.range.max.major == 4);
-        std.testing.expect(target.os.version_range.linux.range.max.minor == 4);
-        std.testing.expect(target.os.version_range.linux.range.max.patch == 1);
-        std.testing.expect(target.os.version_range.linux.glibc.major == 2);
-        std.testing.expect(target.os.version_range.linux.glibc.minor == 27);
-        std.testing.expect(target.os.version_range.linux.glibc.patch == 0);
-        std.testing.expect(target.abi == .gnu);
-    }
-}
