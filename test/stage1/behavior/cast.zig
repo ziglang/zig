@@ -491,6 +491,17 @@ test "@intToEnum passed a comptime_int to an enum with one item" {
     expect(x == E.A);
 }
 
+test "@intToEnum runtime to  an extern enum with duplicate values" {
+    const E = extern enum(u8) {
+        A = 1,
+        B = 1,
+    };
+    var a: u8 = 1;
+    var x = @intToEnum(E, a);
+    expect(x == E.A);
+    expect(x == E.B);
+}
+
 test "@intCast to u0 and use the result" {
     const S = struct {
         fn doTheTest(zero: u1, one: u1, bigzero: i32) void {
