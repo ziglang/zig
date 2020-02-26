@@ -23190,12 +23190,15 @@ static IrInstGen *ir_analyze_instruction_enum_tag_name(IrAnalyze *ira, IrInstSrc
     if (instr_is_comptime(target)) {
         if ((err = type_resolve(ira->codegen, target->value->type, ResolveStatusZeroBitsKnown)))
             return ira->codegen->invalid_inst_gen;
-        if (target->value->type->data.enumeration.non_exhaustive) {
-            ir_add_error(ira, &instruction->base.base,
-                buf_sprintf("TODO @tagName on non-exhaustive enum https://github.com/ziglang/zig/issues/3991"));
+        TypeEnumField *field = find_enum_field_by_tag(target->value->type, &target->value->data.x_bigint);
+        if (field == nullptr) {
+            Buf *int_buf = buf_alloc();
+            bigint_append_buf(int_buf, &target->value->data.x_bigint, 10);
+
+            ir_add_error(ira, &target->base,
+                buf_sprintf("no tag by value %s", buf_ptr(int_buf)));
             return ira->codegen->invalid_inst_gen;
         }
-        TypeEnumField *field = find_enum_field_by_tag(target->value->type, &target->value->data.x_bigint);
         ZigValue *array_val = create_const_str_lit(ira->codegen, field->name)->data.x_ptr.data.ref.pointee;
         IrInstGen *result = ir_const(ira, &instruction->base.base, nullptr);
         init_const_slice(ira->codegen, result->value, array_val, 0, buf_len(field->name), true);

@@ -3,6 +3,15 @@ const builtin = @import("builtin");
 const Target = @import("std").Target;
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.addTest("@tagName on invalid value of non-exhaustive enum",
+        \\test "enum" {
+        \\    const E = enum(u8) {A, B, _};
+        \\    _ = @tagName(@intToEnum(E, 5));
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:3:18: error: no tag by value 5",
+    });
+
     cases.addTest("@ptrToInt with pointer to zero-sized type",
         \\export fn entry() void {
         \\    var pointer: ?*u0 = null;

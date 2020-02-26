@@ -198,7 +198,17 @@ test "@tagName" {
     comptime expect(mem.eql(u8, testEnumTagNameBare(BareNumber.Three), "Three"));
 }
 
-fn testEnumTagNameBare(n: BareNumber) []const u8 {
+test "@tagName extern enum with duplicates" {
+    expect(mem.eql(u8, testEnumTagNameBare(ExternDuplicates.B), "A"));
+    comptime expect(mem.eql(u8, testEnumTagNameBare(ExternDuplicates.B), "A"));
+}
+
+test "@tagName non-exhaustive enum" {
+    expect(mem.eql(u8, testEnumTagNameBare(NonExhaustive.B), "B"));
+    comptime expect(mem.eql(u8, testEnumTagNameBare(NonExhaustive.B), "B"));
+}
+
+fn testEnumTagNameBare(n: var) []const u8 {
     return @tagName(n);
 }
 
@@ -206,6 +216,17 @@ const BareNumber = enum {
     One,
     Two,
     Three,
+};
+
+const ExternDuplicates = extern enum(u8) {
+    A = 1,
+    B = 1,
+};
+
+const NonExhaustive = enum(u8) {
+    A,
+    B,
+    _,
 };
 
 test "enum alignment" {

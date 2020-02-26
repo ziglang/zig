@@ -414,10 +414,9 @@ pub fn formatType(
             if (max_depth == 0) {
                 return output(context, "{ ... }");
             }
-            comptime var field_i = 0;
             try output(context, "{");
-            inline for (StructT.fields) |f| {
-                if (field_i == 0) {
+            inline for (StructT.fields) |f, i| {
+                if (i == 0) {
                     try output(context, " .");
                 } else {
                     try output(context, ", .");
@@ -425,7 +424,6 @@ pub fn formatType(
                 try output(context, f.name);
                 try output(context, " = ");
                 try formatType(@field(value, f.name), fmt, options, context, Errors, output, max_depth - 1);
-                field_i += 1;
             }
             try output(context, " }");
         },

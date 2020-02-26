@@ -1803,7 +1803,7 @@ pub const Builder = struct {
 
         // Look at the params and ref() other instructions
         inline for (@typeInfo(I.Params).Struct.fields) |f| {
-            switch (f.fiedl_type) {
+            switch (f.field_type) {
                 *Inst => @field(inst.params, f.name).ref(self),
                 *BasicBlock => @field(inst.params, f.name).ref(self),
                 ?*Inst => if (@field(inst.params, f.name)) |other| other.ref(self),
