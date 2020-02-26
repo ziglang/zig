@@ -2734,16 +2734,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:5:5: error: else prong required when switching on type 'anyerror'",
     });
 
-    cases.add("inferred error set with no returned error",
-        \\export fn entry() void {
-        \\    foo() catch unreachable;
-        \\}
-        \\fn foo() !void {
-        \\}
-    , &[_][]const u8{
-        "tmp.zig:4:11: error: function with inferred error set must return at least one possible error",
-    });
-
     cases.add("error not handled in switch",
         \\export fn entry() void {
         \\    foo(452) catch |err| switch (err) {
