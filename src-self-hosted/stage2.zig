@@ -679,7 +679,7 @@ fn stage2TargetParse(
 ) !void {
     const target: CrossTarget = if (zig_triple_oz) |zig_triple_z| blk: {
         const zig_triple = mem.toSliceConst(u8, zig_triple_z);
-        const mcpu = if (mcpu_oz) |mcpu_z| mem.toSliceConst(u8, mcpu_z) else "baseline";
+        const mcpu = if (mcpu_oz) |mcpu_z| mem.toSliceConst(u8, mcpu_z) else null;
         var diags: CrossTarget.ParseOptions.Diagnostics = .{};
         break :blk CrossTarget.parse(.{
             .arch_os_abi = zig_triple,

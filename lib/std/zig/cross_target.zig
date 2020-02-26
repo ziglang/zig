@@ -177,6 +177,9 @@ pub const CrossTarget = struct {
             /// If the architecture was determined, this will be populated.
             arch: ?Target.Cpu.Arch = null,
 
+            /// If the OS name was determined, this will be populated.
+            os_name: ?[]const u8 = null,
+
             /// If the OS tag was determined, this will be populated.
             os_tag: ?Target.Os.Tag = null,
 
@@ -219,6 +222,7 @@ pub const CrossTarget = struct {
             var abi_it = mem.separate(abi_text, ".");
             const abi = std.meta.stringToEnum(Target.Abi, abi_it.next().?) orelse
                 return error.UnknownApplicationBinaryInterface;
+            result.abi = abi;
             diags.abi = abi;
 
             const abi_ver_text = abi_it.rest();
@@ -614,6 +618,7 @@ pub const CrossTarget = struct {
     fn parseOs(result: *CrossTarget, diags: *ParseOptions.Diagnostics, text: []const u8) !void {
         var it = mem.separate(text, ".");
         const os_name = it.next().?;
+        diags.os_name = os_name;
         const os_is_native = mem.eql(u8, os_name, "native");
         if (!os_is_native) {
             result.os_tag = std.meta.stringToEnum(Target.Os.Tag, os_name) orelse
@@ -702,6 +707,16 @@ pub const CrossTarget = struct {
 };
 
 test "CrossTarget.parse" {
+    {
+        const cross_target = try CrossTarget.parse(.{ .arch_os_abi = "native" });
+
+        std.testing.expect(cross_target.cpu_arch == null);
+        std.testing.expect(cross_target.isNative());
+
+        const text = try cross_target.zigTriple(std.testing.allocator);
+        defer std.testing.allocator.free(text);
+        std.testing.expectEqualSlices(u8, "native", text);
+    }
     {
         const cross_target = try CrossTarget.parse(.{
             .arch_os_abi = "x86_64-linux-gnu",
