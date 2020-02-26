@@ -1,7 +1,5 @@
-const std = @import("std");
-const builtin = std.builtin;
-const expect = std.testing.expect;
-const expectEqual = std.testing.expectEqual;
+const builtin = @import("builtin");
+const expect = @import("std").testing.expect;
 
 test "@sizeOf and @TypeOf" {
     const y: @TypeOf(x) = 120;
@@ -136,32 +134,4 @@ test "@bitSizeOf" {
     expect(@bitSizeOf(packed struct {
         a: u2
     }) == 2);
-}
-
-test "@sizeOf comparison against zero" {
-    const S0 = struct {
-        f: *@This(),
-    };
-    const U0 = union {
-        f: *@This(),
-    };
-    const S = struct {
-        fn doTheTest(comptime T: type, comptime result: bool) void {
-            expectEqual(result, @sizeOf(T) > 0);
-        }
-    };
-    // Zero-sized type
-    S.doTheTest(u0, false);
-    S.doTheTest(*u0, false);
-    // Non byte-sized type
-    S.doTheTest(u1, true);
-    S.doTheTest(*u1, true);
-    // Regular type
-    S.doTheTest(u8, true);
-    S.doTheTest(*u8, true);
-    S.doTheTest(f32, true);
-    S.doTheTest(*f32, true);
-    // Container with ptr pointing to themselves
-    S.doTheTest(S0, true);
-    S.doTheTest(U0, true);
 }

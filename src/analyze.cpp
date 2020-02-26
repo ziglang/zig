@@ -1132,9 +1132,10 @@ Error type_val_resolve_zero_bits(CodeGen *g, ZigValue *type_val, ZigType *parent
     if (type_val->special != ConstValSpecialLazy) {
         assert(type_val->special == ConstValSpecialStatic);
         if ((type_val->data.x_type->id == ZigTypeIdStruct &&
-             type_val->data.x_type->data.structure.resolve_loop_flag_zero_bits) ||
+            type_val->data.x_type->data.structure.resolve_loop_flag_zero_bits) ||
             (type_val->data.x_type->id == ZigTypeIdUnion &&
-             type_val->data.x_type->data.unionation.resolve_loop_flag_zero_bits))
+             type_val->data.x_type->data.unionation.resolve_loop_flag_zero_bits) ||
+            type_val->data.x_type->id == ZigTypeIdPointer)
         {
             // Does a struct/union which contains a pointer field to itself have bits? Yes.
             *is_zero_bits = false;
