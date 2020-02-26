@@ -5,6 +5,7 @@ const mem = std.mem;
 
 /// Contains all the same data as `Target`, additionally introducing the concept of "the native target".
 /// The purpose of this abstraction is to provide meaningful and unsurprising defaults.
+/// This struct does reference any resources and it is copyable.
 pub const CrossTarget = struct {
     /// `null` means native.
     cpu_arch: ?Target.Cpu.Arch = null,
@@ -554,9 +555,13 @@ pub const CrossTarget = struct {
         const os_tag = self.getOsTag();
         const os_match = os_tag == Target.current.os.tag;
 
-        // If the OS matches, and the CPU arch matches, the binary is considered native.
-        if (self.os_tag == null and cpu_arch == Target.current.cpu.arch) {
-            return .native;
+        // If the OS and CPU arch match, the binary can be considered native.
+        if (os_match and cpu_arch == Target.current.cpu.arch) {
+            // However, we also need to verify that the dynamic linker path is valid.
+            // TODO Until that is implemented, we prevent returning `.native` when the OS is non-native.
+            if (self.os_tag == null) {
+                return .native;
+            }
         }
 
         // If the OS matches, we can use QEMU to emulate a foreign architecture.
