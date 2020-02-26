@@ -811,22 +811,22 @@ pub fn openElfDebugInfo(allocator: *mem.Allocator, elf_file_path: []const u8) !M
     const mapped_mem = try mapWholeFile(elf_file_path);
 
     var seekable_stream = io.SliceSeekableInStream.init(mapped_mem);
-    var efile = try elf.Elf.openStream(
+    var efile = try noasync elf.Elf.openStream(
         allocator,
         @ptrCast(*DW.DwarfSeekableStream, &seekable_stream.seekable_stream),
         @ptrCast(*DW.DwarfInStream, &seekable_stream.stream),
     );
-    defer efile.close();
+    defer noasync efile.close();
 
-    const debug_info = (try efile.findSection(".debug_info")) orelse
+    const debug_info = (try noasync efile.findSection(".debug_info")) orelse
         return error.MissingDebugInfo;
-    const debug_abbrev = (try efile.findSection(".debug_abbrev")) orelse
+    const debug_abbrev = (try noasync efile.findSection(".debug_abbrev")) orelse
         return error.MissingDebugInfo;
-    const debug_str = (try efile.findSection(".debug_str")) orelse
+    const debug_str = (try noasync efile.findSection(".debug_str")) orelse
         return error.MissingDebugInfo;
-    const debug_line = (try efile.findSection(".debug_line")) orelse
+    const debug_line = (try noasync efile.findSection(".debug_line")) orelse
         return error.MissingDebugInfo;
-    const opt_debug_ranges = try efile.findSection(".debug_ranges");
+    const opt_debug_ranges = try noasync efile.findSection(".debug_ranges");
 
     var di = DW.DwarfInfo{
         .endian = efile.endian,
@@ -840,7 +840,7 @@ pub fn openElfDebugInfo(allocator: *mem.Allocator, elf_file_path: []const u8) !M
             null,
     };
 
-    try DW.openDwarfDebugInfo(&di, allocator);
+    try noasync DW.openDwarfDebugInfo(&di, allocator);
 
     return ModuleDebugInfo{
         .base_address = undefined,
@@ -983,8 +983,8 @@ const MachoSymbol = struct {
 };
 
 fn mapWholeFile(path: []const u8) ![]const u8 {
-    const file = try fs.openFileAbsolute(path, .{});
-    defer file.close();
+    const file = try noasync fs.openFileAbsolute(path, .{ .always_blocking = true });
+    defer noasync file.close();
 
     const file_len = try math.cast(usize, try file.getEndPos());
     const mapped_mem = try os.mmap(
@@ -1565,14 +1565,14 @@ pub const ModuleDebugInfo = switch (builtin.os) {
             // Translate the VA into an address into this object
             const relocated_address = address - self.base_address;
 
-            if (self.dwarf.findCompileUnit(relocated_address)) |compile_unit| {
+            if (noasync self.dwarf.findCompileUnit(relocated_address)) |compile_unit| {
                 return SymbolInfo{
-                    .symbol_name = self.dwarf.getSymbolName(relocated_address) orelse "???",
+                    .symbol_name = noasync self.dwarf.getSymbolName(relocated_address) orelse "???",
                     .compile_unit_name = compile_unit.die.getAttrString(&self.dwarf, DW.AT_name) catch |err| switch (err) {
                         error.MissingDebugInfo, error.InvalidDebugInfo => "???",
                         else => return err,
                     },
-                    .line_info = self.dwarf.getLineNumberInfo(compile_unit.*, relocated_address) catch |err| switch (err) {
+                    .line_info = noasync self.dwarf.getLineNumberInfo(compile_unit.*, relocated_address) catch |err| switch (err) {
                         error.MissingDebugInfo, error.InvalidDebugInfo => null,
                         else => return err,
                     },

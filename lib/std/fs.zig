@@ -731,11 +731,18 @@ pub const Dir = struct {
             @as(u32, os.O_WRONLY)
         else
             @as(u32, os.O_RDONLY);
-        const fd = if (need_async_thread)
+        const fd = if (need_async_thread and !flags.always_blocking)
             try std.event.Loop.instance.?.openatZ(self.fd, sub_path, os_flags, 0)
         else
             try os.openatC(self.fd, sub_path, os_flags, 0);
-        return File{ .handle = fd, .io_mode = .blocking };
+        return File{
+            .handle = fd,
+            .io_mode = .blocking,
+            .async_block_allowed = if (flags.always_blocking)
+                File.async_block_allowed_yes
+            else
+                File.async_block_allowed_no,
+        };
     }
 
     /// Same as `openFile` but Windows-only and the path parameter is
