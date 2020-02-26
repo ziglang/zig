@@ -1131,18 +1131,26 @@ Error type_val_resolve_zero_bits(CodeGen *g, ZigValue *type_val, ZigType *parent
     Error err;
     if (type_val->special != ConstValSpecialLazy) {
         assert(type_val->special == ConstValSpecialStatic);
-        if ((type_val->data.x_type->id == ZigTypeIdStruct &&
-            type_val->data.x_type->data.structure.resolve_loop_flag_zero_bits) ||
-            (type_val->data.x_type->id == ZigTypeIdUnion &&
-             type_val->data.x_type->data.unionation.resolve_loop_flag_zero_bits) ||
-            type_val->data.x_type->id == ZigTypeIdPointer)
+
+        // Self-referencing types via pointers are allowed and have non-zero size
+        ZigType *ty = type_val->data.x_type;
+        while (ty->id == ZigTypeIdPointer &&
+               !ty->data.unionation.resolve_loop_flag_zero_bits)
         {
-            // Does a struct/union which contains a pointer field to itself have bits? Yes.
+            ty = ty->data.pointer.child_type;
+        }
+
+        if ((ty->id == ZigTypeIdStruct && ty->data.structure.resolve_loop_flag_zero_bits) ||
+            (ty->id == ZigTypeIdUnion && ty->data.unionation.resolve_loop_flag_zero_bits) ||
+            (ty->id == ZigTypeIdPointer && ty->data.pointer.resolve_loop_flag_zero_bits))
+        {
             *is_zero_bits = false;
             return ErrorNone;
         }
+
         if ((err = type_resolve(g, type_val->data.x_type, ResolveStatusZeroBitsKnown)))
             return err;
+
         *is_zero_bits = (type_val->data.x_type->abi_size == 0);
         return ErrorNone;
     }
