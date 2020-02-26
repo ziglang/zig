@@ -3346,6 +3346,7 @@ static LLVMValueRef ir_render_int_to_enum(CodeGen *g, IrExecutableGen *executabl
                     &type_enum_field->value);
             LLVMAddCase(switch_instr, this_tag_int_value, ok_value_block);
         }
+        occupied_tag_values.deinit();
         LLVMPositionBuilderAtEnd(g->builder, bad_value_block);
         gen_safety_crash(g, PanicMsgIdBadEnumValue);
 
@@ -5084,6 +5085,7 @@ static LLVMValueRef get_enum_tag_name_function(CodeGen *g, ZigType *enum_type) {
         LLVMPositionBuilderAtEnd(g->builder, return_block);
         LLVMBuildRet(g->builder, slice_global);
     }
+    occupied_tag_values.deinit();
 
     LLVMPositionBuilderAtEnd(g->builder, bad_value_block);
     if (g->build_mode == BuildModeDebug || g->build_mode == BuildModeSafeRelease) {
