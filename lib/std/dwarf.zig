@@ -417,9 +417,9 @@ pub const DwarfInfo = struct {
         var s = io.SliceSeekableInStream.init(di.debug_info);
         var this_unit_offset: u64 = 0;
 
-        while (true) {
+        while (this_unit_offset < try s.seekable_stream.getEndPos()) {
             s.seekable_stream.seekTo(this_unit_offset) catch |err| switch (err) {
-                error.EndOfStream => return,
+                error.EndOfStream => unreachable,
                 else => return err,
             };
 
@@ -445,6 +445,8 @@ pub const DwarfInfo = struct {
 
             while ((try s.seekable_stream.getPos()) < next_unit_pos) {
                 const die_obj = (try di.parseDie(&s.stream, abbrev_table, is_64)) orelse continue;
+                defer die_obj.attrs.deinit();
+
                 const after_die_offset = try s.seekable_stream.getPos();
 
                 switch (die_obj.tag_id) {
@@ -520,9 +522,9 @@ pub const DwarfInfo = struct {
         var s = io.SliceSeekableInStream.init(di.debug_info);
         var this_unit_offset: u64 = 0;
 
-        while (true) {
+        while (this_unit_offset < try s.seekable_stream.getEndPos()) {
             s.seekable_stream.seekTo(this_unit_offset) catch |err| switch (err) {
-                error.EndOfStream => return,
+                error.EndOfStream => unreachable,
                 else => return err,
             };
 
