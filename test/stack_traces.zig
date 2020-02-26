@@ -282,16 +282,16 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
                     \\source.zig:10:8: [address] in main (test)
                     \\    foo();
                     \\       ^
-                    \\start.zig:247:29: [address] in std.start.posixCallMainAndExit (test)
+                    \\start.zig:253:29: [address] in std.start.posixCallMainAndExit (test)
                     \\            return root.main();
                     \\                            ^
-                    \\start.zig:114:5: [address] in std.start._start (test)
+                    \\start.zig:120:5: [address] in std.start._start (test)
                     \\    @call(.{ .modifier = .never_inline }, posixCallMainAndExit, .{});
                     \\    ^
                     \\
                 ,
                 // release-safe
-                \\start.zig:114:5: [address] in std.start._start (test)
+                \\start.zig:120:5: [address] in std.start._start (test)
                     \\    @call(.{ .modifier = .never_inline }, posixCallMainAndExit, .{});
                     \\    ^
                     \\

@@ -177,9 +177,8 @@ const test_targets = blk: {
         TestTarget{
             .target = Target{
                 .Cross = CrossTarget{
+                    .cpu = Target.Cpu.baseline(.riscv64),
                     .os = .linux,
-                    .arch = .riscv64,
-                    .cpu_features = Target.Arch.riscv64.getBaselineCpuFeatures(),
                     .abi = .none,
                 },
             },
@@ -189,9 +188,8 @@ const test_targets = blk: {
         //TestTarget{
         //    .target = Target{
         //        .Cross = CrossTarget{
+        //            .cpu = Target.Cpu.baseline(.riscv64),
         //            .os = .linux,
-        //            .arch = .riscv64,
-        //            .cpu_features = Target.Arch.riscv64.getBaselineCpuFeatures(),
         //            .abi = .musl,
         //        },
         //    },
@@ -202,9 +200,8 @@ const test_targets = blk: {
         //TestTarget{
         //    .target = Target{
         //        .Cross = CrossTarget{
+        //            .cpu = Target.Cpu.baseline(.riscv64),
         //            .os = .linux,
-        //            .arch = .riscv64,
-        //            .cpu_features = Target.Arch.riscv64.getBaselineCpuFeatures(),
         //            .abi = .gnu,
         //        },
         //    },
