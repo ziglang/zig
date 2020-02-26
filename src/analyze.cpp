@@ -1771,6 +1771,19 @@ Error type_allowed_in_extern(CodeGen *g, ZigType *type_entry, bool *result) {
     zig_unreachable();
 }
 
+ZigType *get_empty_err_set_type(CodeGen *g) {
+    ZigType *empty_err_set_type = new_type_table_entry(ZigTypeIdErrorSet);
+    empty_err_set_type->data.error_set.err_count = 0;
+    empty_err_set_type->data.error_set.errors = nullptr;
+    empty_err_set_type->data.error_set.infer_fn = nullptr;
+    empty_err_set_type->data.error_set.incomplete = false;
+    empty_err_set_type->size_in_bits = g->builtin_types.entry_global_error_set->size_in_bits;
+    empty_err_set_type->abi_align = g->builtin_types.entry_global_error_set->abi_align;
+    empty_err_set_type->abi_size = g->builtin_types.entry_global_error_set->abi_size;
+
+    return empty_err_set_type;
+}
+
 ZigType *get_auto_err_set_type(CodeGen *g, ZigFn *fn_entry) {
     ZigType *err_set_type = new_type_table_entry(ZigTypeIdErrorSet);
     buf_resize(&err_set_type->name, 0);
@@ -4776,6 +4789,8 @@ static void analyze_fn_ir(CodeGen *g, ZigFn *fn, AstNode *return_type_node) {
                 inferred_err_set_type = fn->src_implicit_return_type;
             } else if (fn->src_implicit_return_type->id == ZigTypeIdErrorUnion) {
                 inferred_err_set_type = fn->src_implicit_return_type->data.error_union.err_set_type;
+            } else if (fn->src_implicit_return_type->id == ZigTypeIdVoid) {
+                inferred_err_set_type = get_empty_err_set_type(g);
             } else {
                 add_node_error(g, return_type_node,
                         buf_sprintf("function with inferred error set must return at least one possible error"));

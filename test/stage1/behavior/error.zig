@@ -441,3 +441,9 @@ test "error payload type is correctly resolved" {
 
     expectEqual(MyIntWrapper{ .x = 42 }, try MyIntWrapper.create());
 }
+
+fn foo() !void {}
+
+test "allow inferred error sets to be empty" {
+    foo() catch |err| switch (err) {};
+}
