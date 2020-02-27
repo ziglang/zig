@@ -73,7 +73,7 @@ pub const SliceSeekableInStream = struct {
     fn seekToFn(in_stream: *SeekableInStream, pos: u64) SeekError!void {
         const self = @fieldParentPtr(Self, "seekable_stream", in_stream);
         const usize_pos = @intCast(usize, pos);
-        if (usize_pos >= self.slice.len) return error.EndOfStream;
+        if (usize_pos > self.slice.len) return error.EndOfStream;
         self.pos = usize_pos;
     }
 
@@ -86,7 +86,7 @@ pub const SliceSeekableInStream = struct {
             self.pos -= abs_amt;
         } else {
             const usize_amt = @intCast(usize, amt);
-            if (self.pos + usize_amt >= self.slice.len) return error.EndOfStream;
+            if (self.pos + usize_amt > self.slice.len) return error.EndOfStream;
             self.pos += usize_amt;
         }
     }

@@ -3329,11 +3329,24 @@ static LLVMValueRef ir_render_int_to_enum(CodeGen *g, IrExecutableGen *executabl
         LLVMBasicBlockRef ok_value_block = LLVMAppendBasicBlock(g->cur_fn_val, "OkValue");
         size_t field_count = wanted_type->data.enumeration.src_field_count;
         LLVMValueRef switch_instr = LLVMBuildSwitch(g->builder, tag_int_value, bad_value_block, field_count);
+
+        HashMap<BigInt, Buf *, bigint_hash, bigint_eql> occupied_tag_values = {};
+        occupied_tag_values.init(field_count);
+
         for (size_t field_i = 0; field_i < field_count; field_i += 1) {
+            TypeEnumField *type_enum_field = &wanted_type->data.enumeration.fields[field_i];
+            
+            Buf *name = type_enum_field->name;
+            auto entry = occupied_tag_values.put_unique(type_enum_field->value, name);
+            if (entry != nullptr) {
+                continue;
+            }
+
             LLVMValueRef this_tag_int_value = bigint_to_llvm_const(get_llvm_type(g, tag_int_type),
-                    &wanted_type->data.enumeration.fields[field_i].value);
+                    &type_enum_field->value);
             LLVMAddCase(switch_instr, this_tag_int_value, ok_value_block);
         }
+        occupied_tag_values.deinit();
         LLVMPositionBuilderAtEnd(g->builder, bad_value_block);
         gen_safety_crash(g, PanicMsgIdBadEnumValue);
 
@@ -5031,8 +5044,18 @@ static LLVMValueRef get_enum_tag_name_function(CodeGen *g, ZigType *enum_type) {
         LLVMConstNull(usize->llvm_type),
     };
 
+    HashMap<BigInt, Buf *, bigint_hash, bigint_eql> occupied_tag_values = {};
+    occupied_tag_values.init(field_count);
+
     for (size_t field_i = 0; field_i < field_count; field_i += 1) {
-        Buf *name = enum_type->data.enumeration.fields[field_i].name;
+        TypeEnumField *type_enum_field = &enum_type->data.enumeration.fields[field_i];
+        
+        Buf *name = type_enum_field->name;
+        auto entry = occupied_tag_values.put_unique(type_enum_field->value, name);
+        if (entry != nullptr) {
+            continue;
+        }
+
         LLVMValueRef str_init = LLVMConstString(buf_ptr(name), (unsigned)buf_len(name), true);
         LLVMValueRef str_global = LLVMAddGlobal(g->module, LLVMTypeOf(str_init), "");
         LLVMSetInitializer(str_global, str_init);
@@ -5062,6 +5085,7 @@ static LLVMValueRef get_enum_tag_name_function(CodeGen *g, ZigType *enum_type) {
         LLVMPositionBuilderAtEnd(g->builder, return_block);
         LLVMBuildRet(g->builder, slice_global);
     }
+    occupied_tag_values.deinit();
 
     LLVMPositionBuilderAtEnd(g->builder, bad_value_block);
     if (g->build_mode == BuildModeDebug || g->build_mode == BuildModeSafeRelease) {
@@ -5086,11 +5110,6 @@ static LLVMValueRef ir_render_enum_tag_name(CodeGen *g, IrExecutableGen *executa
 {
     ZigType *enum_type = instruction->target->value->type;
     assert(enum_type->id == ZigTypeIdEnum);
-    if (enum_type->data.enumeration.non_exhaustive) {
-        add_node_error(g, instruction->base.base.source_node,
-            buf_sprintf("TODO @tagName on non-exhaustive enum https://github.com/ziglang/zig/issues/3991"));
-        codegen_report_errors_and_exit(g);
-    }
 
     LLVMValueRef enum_name_function = get_enum_tag_name_function(g, enum_type);
 

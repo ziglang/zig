@@ -20,7 +20,7 @@ pub const File = struct {
     /// or, more specifically, whether the I/O is blocking.
     io_mode: io.Mode,
 
-    /// Even when std.io.mode is async, it is still sometimes desirable to perform blocking I/O, although
+    /// Even when 'std.io.mode' is async, it is still sometimes desirable to perform blocking I/O, although
     /// not by default. For example, when printing a stack trace to stderr.
     async_block_allowed: @TypeOf(async_block_allowed_no) = async_block_allowed_no,
 
@@ -40,6 +40,11 @@ pub const File = struct {
     pub const OpenFlags = struct {
         read: bool = true,
         write: bool = false,
+
+        /// This prevents `O_NONBLOCK` from being passed even if `std.io.is_async`.
+        /// It allows the use of `noasync` when calling functions related to opening
+        /// the file, reading, and writing.
+        always_blocking: bool = false,
     };
 
     /// TODO https://github.com/ziglang/zig/issues/3802

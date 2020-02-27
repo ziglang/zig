@@ -1131,18 +1131,26 @@ Error type_val_resolve_zero_bits(CodeGen *g, ZigValue *type_val, ZigType *parent
     Error err;
     if (type_val->special != ConstValSpecialLazy) {
         assert(type_val->special == ConstValSpecialStatic);
-        if ((type_val->data.x_type->id == ZigTypeIdStruct &&
-            type_val->data.x_type->data.structure.resolve_loop_flag_zero_bits) ||
-            (type_val->data.x_type->id == ZigTypeIdUnion &&
-             type_val->data.x_type->data.unionation.resolve_loop_flag_zero_bits) ||
-            type_val->data.x_type->id == ZigTypeIdPointer)
+
+        // Self-referencing types via pointers are allowed and have non-zero size
+        ZigType *ty = type_val->data.x_type;
+        while (ty->id == ZigTypeIdPointer &&
+               !ty->data.unionation.resolve_loop_flag_zero_bits)
         {
-            // Does a struct/union which contains a pointer field to itself have bits? Yes.
+            ty = ty->data.pointer.child_type;
+        }
+
+        if ((ty->id == ZigTypeIdStruct && ty->data.structure.resolve_loop_flag_zero_bits) ||
+            (ty->id == ZigTypeIdUnion && ty->data.unionation.resolve_loop_flag_zero_bits) ||
+            (ty->id == ZigTypeIdPointer && ty->data.pointer.resolve_loop_flag_zero_bits))
+        {
             *is_zero_bits = false;
             return ErrorNone;
         }
+
         if ((err = type_resolve(g, type_val->data.x_type, ResolveStatusZeroBitsKnown)))
             return err;
+
         *is_zero_bits = (type_val->data.x_type->abi_size == 0);
         return ErrorNone;
     }
@@ -4763,38 +4771,41 @@ static void analyze_fn_ir(CodeGen *g, ZigFn *fn, AstNode *return_type_node) {
         if (return_err_set_type->data.error_set.infer_fn != nullptr &&
             return_err_set_type->data.error_set.incomplete)
         {
-            ZigType *inferred_err_set_type;
+            // The inferred error set type is null if the function doesn't
+            // return any error
+            ZigType *inferred_err_set_type = nullptr;
+
             if (fn->src_implicit_return_type->id == ZigTypeIdErrorSet) {
                 inferred_err_set_type = fn->src_implicit_return_type;
             } else if (fn->src_implicit_return_type->id == ZigTypeIdErrorUnion) {
                 inferred_err_set_type = fn->src_implicit_return_type->data.error_union.err_set_type;
-            } else {
-                add_node_error(g, return_type_node,
-                        buf_sprintf("function with inferred error set must return at least one possible error"));
-                fn->anal_state = FnAnalStateInvalid;
-                return;
             }
 
-            if (inferred_err_set_type->data.error_set.infer_fn != nullptr &&
-                inferred_err_set_type->data.error_set.incomplete)
-            {
-                if (!resolve_inferred_error_set(g, inferred_err_set_type, return_type_node)) {
-                    fn->anal_state = FnAnalStateInvalid;
-                    return;
-                }
-            }
-
-            return_err_set_type->data.error_set.incomplete = false;
-            if (type_is_global_error_set(inferred_err_set_type)) {
-                return_err_set_type->data.error_set.err_count = UINT32_MAX;
-            } else {
-                return_err_set_type->data.error_set.err_count = inferred_err_set_type->data.error_set.err_count;
-                if (inferred_err_set_type->data.error_set.err_count > 0) {
-                    return_err_set_type->data.error_set.errors = heap::c_allocator.allocate<ErrorTableEntry *>(inferred_err_set_type->data.error_set.err_count);
-                    for (uint32_t i = 0; i < inferred_err_set_type->data.error_set.err_count; i += 1) {
-                        return_err_set_type->data.error_set.errors[i] = inferred_err_set_type->data.error_set.errors[i];
+            if (inferred_err_set_type != nullptr) {
+                if (inferred_err_set_type->data.error_set.infer_fn != nullptr &&
+                    inferred_err_set_type->data.error_set.incomplete)
+                {
+                    if (!resolve_inferred_error_set(g, inferred_err_set_type, return_type_node)) {
+                        fn->anal_state = FnAnalStateInvalid;
+                        return;
                     }
                 }
+
+                return_err_set_type->data.error_set.incomplete = false;
+                if (type_is_global_error_set(inferred_err_set_type)) {
+                    return_err_set_type->data.error_set.err_count = UINT32_MAX;
+                } else {
+                    return_err_set_type->data.error_set.err_count = inferred_err_set_type->data.error_set.err_count;
+                    if (inferred_err_set_type->data.error_set.err_count > 0) {
+                        return_err_set_type->data.error_set.errors = heap::c_allocator.allocate<ErrorTableEntry *>(inferred_err_set_type->data.error_set.err_count);
+                        for (uint32_t i = 0; i < inferred_err_set_type->data.error_set.err_count; i += 1) {
+                            return_err_set_type->data.error_set.errors[i] = inferred_err_set_type->data.error_set.errors[i];
+                        }
+                    }
+                }
+            } else {
+                return_err_set_type->data.error_set.incomplete = false;
+                return_err_set_type->data.error_set.err_count = 0;
             }
         }
     }

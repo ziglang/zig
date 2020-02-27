@@ -1509,7 +1509,7 @@ pub const cpu = struct {
         .name = "baseline",
         .llvm_name = "generic",
         .features = featureSet(&[_]Feature{
-            .v6m,
+            .v7a,
         }),
     };
     pub const cortex_a12 = CpuModel{
