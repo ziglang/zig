@@ -27,6 +27,14 @@ fn selfPtrAs(self: *SelfType, comptime T: type) *T {
     }
 }
 
+fn constSelfPtrAs(self: *const SelfType, comptime T: type) *const T {
+    if (@sizeOf(T) > 0) {
+        return @alignCast(@alignOf(T), @ptrCast(*const align(1) T, self));
+    } else {
+        return undefined;
+    }
+}
+
 pub const Storage = struct {
     pub const NonOwning = struct {
         erased_ptr: *SelfType,
@@ -143,8 +151,8 @@ pub const Storage = struct {
 
             pub fn getSelfPtr(self: Self) *SelfType {
                 return switch (self.data) {
-                    .Inline => |i| i.get_self_ptr(),
-                    .Owning => |o| o.get_self_ptr(),
+                    .Inline => |i| i.getSelfPtr(),
+                    .Owning => |o| o.getSelfPtr(),
                 };
             }
 
@@ -192,6 +200,8 @@ fn getFunctionFromImpl(comptime name: []const u8, comptime FnT: type, comptime I
                     }
 
                     const Return = @typeInfo(FnT).Fn.return_type orelse noreturn;
+                    const CurrSelfType = @typeInfo(FnT).Fn.args[0].arg_type.?;
+                    const is_const = CurrSelfType == *const SelfType;
 
                     // If our virtual function is async and the candidate is not, it's ok.
                     // However, if the virutal function is not async and the candidate is, it's not ok.
@@ -205,43 +215,49 @@ fn getFunctionFromImpl(comptime name: []const u8, comptime FnT: type, comptime I
                     // use arg[0] in @call.
                     return switch (args.len) {
                         1 => struct {
-                            fn impl(self_ptr: *SelfType) Return {
-                                const f = @field(selfPtrAs(self_ptr, ImplT), name);
+                            fn impl(self_ptr: CurrSelfType) Return {
+                                const self = if (is_const) constSelfPtrAs(self_ptr, ImplT) else selfPtrAs(self_ptr, ImplT);
+                                const f = @field(self, name);
 
                                 return @call(if (our_cc == .Async) .{ .modifier = .async_kw } else .{ .modifier = .always_inline }, f, .{});
                             }
                         }.impl,
                         2 => struct {
-                            fn impl(self_ptr: *SelfType, arg: args[1].arg_type.?) Return {
-                                const f = @field(selfPtrAs(self_ptr, ImplT), name);
+                            fn impl(self_ptr: CurrSelfType, arg: args[1].arg_type.?) Return {
+                                const self = if (is_const) constSelfPtrAs(self_ptr, ImplT) else selfPtrAs(self_ptr, ImplT);
+                                const f = @field(self, name);
 
                                 return @call(if (our_cc == .Async) .{ .modifier = .async_kw } else .{ .modifier = .always_inline }, f, .{arg});
                             }
                         }.impl,
                         3 => struct {
-                            fn impl(self_ptr: *SelfType, arg1: args[1].arg_type.?, arg2: args[2].arg_type.?) Return {
-                                const f = @field(selfPtrAs(self_ptr, ImplT), name);
+                            fn impl(self_ptr: CurrSelfType, arg1: args[1].arg_type.?, arg2: args[2].arg_type.?) Return {
+                                const self = if (is_const) constSelfPtrAs(self_ptr, ImplT) else selfPtrAs(self_ptr, ImplT);
+                                const f = @field(self, name);
 
                                 return @call(if (our_cc == .Async) .{ .modifier = .async_kw } else .{ .modifier = .always_inline }, f, .{ arg1, arg2 });
                             }
                         }.impl,
                         4 => struct {
-                            fn impl(self_ptr: *SelfType, arg1: args[1].arg_type.?, arg2: args[2].arg_type.?, arg3: args[3].arg_type.?) Return {
-                                const f = @field(selfPtrAs(self_ptr, ImplT), name);
+                            fn impl(self_ptr: CurrSelfType, arg1: args[1].arg_type.?, arg2: args[2].arg_type.?, arg3: args[3].arg_type.?) Return {
+                                const self = if (is_const) constSelfPtrAs(self_ptr, ImplT) else selfPtrAs(self_ptr, ImplT);
+                                const f = @field(self, name);
 
                                 return @call(if (our_cc == .Async) .{ .modifier = .async_kw } else .{ .modifier = .always_inline }, f, .{ arg1, arg2, arg3 });
                             }
                         }.impl,
                         5 => struct {
-                            fn impl(self_ptr: *SelfType, arg1: args[1].arg_type.?, arg2: args[2].arg_type.?, arg3: args[3].arg_type.?, arg4: args[4].arg_type.?) Return {
-                                const f = @field(selfPtrAs(self_ptr, ImplT), name);
+                            fn impl(self_ptr: CurrSelfType, arg1: args[1].arg_type.?, arg2: args[2].arg_type.?, arg3: args[3].arg_type.?, arg4: args[4].arg_type.?) Return {
+                                const self = if (is_const) constSelfPtrAs(self_ptr, ImplT) else selfPtrAs(self_ptr, ImplT);
+                                const f = @field(self, name);
 
                                 return @call(if (our_cc == .Async) .{ .modifier = .async_kw } else .{ .modifier = .always_inline }, f, .{ arg1, arg2, arg3, arg4 });
                             }
                         }.impl,
                         6 => struct {
-                            fn impl(self_ptr: *SelfType, arg1: args[1].arg_type.?, arg2: args[2].arg_type.?, arg3: args[3].arg_type.?, arg4: args[4].arg_type.?, arg5: args[5].arg_type.?) Return {
-                                const f = @field(selfPtrAs(self_ptr, ImplT), name);
+                            fn impl(self_ptr: CurrSelfType, arg1: args[1].arg_type.?, arg2: args[2].arg_type.?, arg3: args[3].arg_type.?, arg4: args[4].arg_type.?, arg5: args[5].arg_type.?) Return {
+                                const self = if (is_const) constSelfPtrAs(self_ptr, ImplT) else selfPtrAs(self_ptr, ImplT);
+                                const f = @field(self, name);
 
                                 return @call(if (our_cc == .Async) .{ .modifier = .async_kw } else .{ .modifier = .always_inline }, f, .{ arg1, arg2, arg3, arg4, arg5 });
                             }
@@ -251,7 +267,8 @@ fn getFunctionFromImpl(comptime name: []const u8, comptime FnT: type, comptime I
 
                     // return struct {
                     //     fn impl(self_ptr: *SelfType, args: var) Return {
-                    //         const f = @field(selfPtrAs(self_ptr, ImplT), name);
+                    //         const self = if (is_const) constSelfPtrAs(self_ptr, ImplT) else selfPtrAs(self_ptr, ImplT);
+                    //         const f = @field(self, name);
 
                     //         return @call(if (our_cc == .Async) .{ .modifier = .async_kw } else .{ .modifier = .always_inline }, f, args);
                     //     }
@@ -441,8 +458,10 @@ const Fooer = Interface(struct {
 const TestFooer = struct {
     state: usize,
 
-    fn foo(self: TestFooer) usize {
-        return self.state;
+    fn foo(self: *TestFooer) usize {
+        const tmp = self.state;
+        self.state += 1;
+        return tmp;
     }
 };
 
@@ -463,3 +482,4 @@ test "Comptime non owning simple interface" {
         assert(fooer.call("foo", .{}) == 101);
     }
 }
+
