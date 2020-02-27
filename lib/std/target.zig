@@ -1207,6 +1207,31 @@ pub const Target = struct {
                 => return error.UnknownDynamicLinkerPath,
             },
 
+            .ananas,
+            .cloudabi,
+            .fuchsia,
+            .kfreebsd,
+            .lv2,
+            .openbsd,
+            .solaris,
+            .haiku,
+            .minix,
+            .rtems,
+            .nacl,
+            .cnk,
+            .aix,
+            .cuda,
+            .nvcl,
+            .amdhsa,
+            .ps4,
+            .elfiamcu,
+            .mesa3d,
+            .contiki,
+            .amdpal,
+            .hermit,
+            .hurd,
+            => return error.UnknownDynamicLinkerPath,
+
             .freestanding,
             .ios,
             .tvos,
@@ -1216,9 +1241,8 @@ pub const Target = struct {
             .windows,
             .emscripten,
             .other,
+            .wasi,
             => return error.TargetHasNoDynamicLinker,
-
-            else => return error.UnknownDynamicLinkerPath,
         }
     }
 };
