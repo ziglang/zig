@@ -39,7 +39,7 @@ pub const Storage = struct {
     pub const NonOwning = struct {
         erased_ptr: *SelfType,
 
-        pub fn init(args: var) error{}!NonOwning {
+        pub fn init(args: var) !NonOwning {
             if (args.len != 1) {
                 @compileError("NonOwning storage expected a 1-tuple in initialization.");
             }
@@ -91,7 +91,7 @@ pub const Storage = struct {
 
             mem: [size]u8,
 
-            pub fn init(args: var) error{}!Self {
+            pub fn init(args: var) !Self {
                 if (args.len != 1) {
                     @compileError("Inline storage expected a 1-tuple in initialization.");
                 }
@@ -308,9 +308,6 @@ fn makeVTable(comptime VTableT: type, comptime ImplT: type) VTableT {
     return vtable;
 }
 
-// TODO: https://github.com/ziglang/zig/issues/4564
-fn _workaround() error{WORKAROUND}!void {}
-
 fn checkVtableType(comptime VTableT: type) void {
     if (comptime !trait.is(.Struct)(VTableT)) {
         @compileError("VTable type " ++ @typeName(VTableT) ++ " must be a struct.");
@@ -394,8 +391,6 @@ pub fn Interface(comptime VTableT: type, comptime StorageT: type) type {
 
         pub fn init(args: var) !Self {
             const ImplType = PtrChildOrSelf(@TypeOf(args.@"0"));
-            // TODO: https://github.com/ziglang/zig/issues/4564
-            try _workaround();
 
             return Self{
                 .vtable_ptr = &comptime makeVTable(VTableT, ImplType),
@@ -404,9 +399,6 @@ pub fn Interface(comptime VTableT: type, comptime StorageT: type) type {
         }
 
         pub fn initWithVTable(vtable_ptr: *const VTableT, args: var) !Self {
-            // TODO: https://github.com/ziglang/zig/issues/4564
-            try _workaround();
-
             return .{
                 .vtable_ptr = vtable_ptr,
                 .storage = try StorageT.init(args),
