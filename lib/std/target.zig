@@ -1084,65 +1084,59 @@ pub const Target = struct {
         }
     }
 
-    /// Caller owns returned memory.
-    pub fn getStandardDynamicLinkerPath(
-        self: Target,
-        allocator: *mem.Allocator,
-    ) error{
-        OutOfMemory,
-        UnknownDynamicLinkerPath,
-        TargetHasNoDynamicLinker,
-    }![:0]u8 {
-        const a = allocator;
+    /// The result will be a slice of `buffer`, pointing at position 0.
+    /// A return value of `null` means the concept of a dynamic linker is not meaningful for that target.
+    pub fn standardDynamicLinkerPath(self: Target, buffer: *[255]u8) ?[]u8 {
+        const S = struct {
+            fn print(b: *[255]u8, comptime fmt: []const u8, args: var) []u8 {
+                return std.fmt.bufPrint(b, fmt, args) catch unreachable;
+            }
+            fn copy(b: *[255]u8, s: []const u8) []u8 {
+                mem.copy(u8, b, s);
+                return b[0..s.len];
+            }
+        };
+        const print = S.print;
+        const copy = S.copy;
+
         if (self.isAndroid()) {
-            return mem.dupeZ(a, u8, if (self.cpu.arch.ptrBitWidth() == 64)
-                "/system/bin/linker64"
-            else
-                "/system/bin/linker");
+            const suffix = if (self.cpu.arch.ptrBitWidth() == 64) "64" else "";
+            return print(buffer, "/system/bin/linker{}", .{suffix});
         }
 
         if (self.isMusl()) {
-            var result = try std.Buffer.init(allocator, "/lib/ld-musl-");
-            defer result.deinit();
-
-            var is_arm = false;
-            switch (self.cpu.arch) {
-                .arm, .thumb => {
-                    try result.append("arm");
-                    is_arm = true;
-                },
-                .armeb, .thumbeb => {
-                    try result.append("armeb");
-                    is_arm = true;
-                },
-                else => |arch| try result.append(@tagName(arch)),
-            }
-            if (is_arm and self.getFloatAbi() == .hard) {
-                try result.append("hf");
-            }
-            try result.append(".so.1");
-            return result.toOwnedSlice();
+            const is_arm = switch (self.cpu.arch) {
+                .arm, .armeb, .thumb, .thumbeb => true,
+                else => false,
+            };
+            const arch_part = switch (self.cpu.arch) {
+                .arm, .thumb => "arm",
+                .armeb, .thumbeb => "armeb",
+                else => |arch| @tagName(arch),
+            };
+            const arch_suffix = if (is_arm and self.getFloatAbi() == .hard) "hf" else "";
+            return print(buffer, "/lib/ld-musl-{}{}.so.1", .{ arch_part, arch_suffix });
         }
 
         switch (self.os.tag) {
-            .freebsd => return mem.dupeZ(a, u8, "/libexec/ld-elf.so.1"),
-            .netbsd => return mem.dupeZ(a, u8, "/libexec/ld.elf_so"),
-            .dragonfly => return mem.dupeZ(a, u8, "/libexec/ld-elf.so.2"),
+            .freebsd => return copy(buffer, "/libexec/ld-elf.so.1"),
+            .netbsd => return copy(buffer, "/libexec/ld.elf_so"),
+            .dragonfly => return copy(buffer, "/libexec/ld-elf.so.2"),
             .linux => switch (self.cpu.arch) {
                 .i386,
                 .sparc,
                 .sparcel,
-                => return mem.dupeZ(a, u8, "/lib/ld-linux.so.2"),
+                => return copy(buffer, "/lib/ld-linux.so.2"),
 
-                .aarch64 => return mem.dupeZ(a, u8, "/lib/ld-linux-aarch64.so.1"),
-                .aarch64_be => return mem.dupeZ(a, u8, "/lib/ld-linux-aarch64_be.so.1"),
-                .aarch64_32 => return mem.dupeZ(a, u8, "/lib/ld-linux-aarch64_32.so.1"),
+                .aarch64 => return copy(buffer, "/lib/ld-linux-aarch64.so.1"),
+                .aarch64_be => return copy(buffer, "/lib/ld-linux-aarch64_be.so.1"),
+                .aarch64_32 => return copy(buffer, "/lib/ld-linux-aarch64_32.so.1"),
 
                 .arm,
                 .armeb,
                 .thumb,
                 .thumbeb,
-                => return mem.dupeZ(a, u8, switch (self.getFloatAbi()) {
+                => return copy(buffer, switch (self.getFloatAbi()) {
                     .hard => "/lib/ld-linux-armhf.so.3",
                     else => "/lib/ld-linux.so.3",
                 }),
@@ -1159,29 +1153,35 @@ pub const Target = struct {
                     };
                     const is_nan_2008 = mips.featureSetHas(self.cpu.features, .nan2008);
                     const loader = if (is_nan_2008) "ld-linux-mipsn8.so.1" else "ld.so.1";
-                    return std.fmt.allocPrint0(a, "/lib{}/{}", .{ lib_suffix, loader });
+                    return print(buffer, "/lib{}/{}", .{ lib_suffix, loader });
                 },
 
-                .powerpc => return mem.dupeZ(a, u8, "/lib/ld.so.1"),
-                .powerpc64, .powerpc64le => return mem.dupeZ(a, u8, "/lib64/ld64.so.2"),
-                .s390x => return mem.dupeZ(a, u8, "/lib64/ld64.so.1"),
-                .sparcv9 => return mem.dupeZ(a, u8, "/lib64/ld-linux.so.2"),
-                .x86_64 => return mem.dupeZ(a, u8, switch (self.abi) {
+                .powerpc => return copy(buffer, "/lib/ld.so.1"),
+                .powerpc64, .powerpc64le => return copy(buffer, "/lib64/ld64.so.2"),
+                .s390x => return copy(buffer, "/lib64/ld64.so.1"),
+                .sparcv9 => return copy(buffer, "/lib64/ld-linux.so.2"),
+                .x86_64 => return copy(buffer, switch (self.abi) {
                     .gnux32 => "/libx32/ld-linux-x32.so.2",
                     else => "/lib64/ld-linux-x86-64.so.2",
                 }),
 
-                .riscv32 => return mem.dupeZ(a, u8, "/lib/ld-linux-riscv32-ilp32.so.1"),
-                .riscv64 => return mem.dupeZ(a, u8, "/lib/ld-linux-riscv64-lp64.so.1"),
+                .riscv32 => return copy(buffer, "/lib/ld-linux-riscv32-ilp32.so.1"),
+                .riscv64 => return copy(buffer, "/lib/ld-linux-riscv64-lp64.so.1"),
 
+                // Architectures in this list have been verified as not having a standard
+                // dynamic linker path.
                 .wasm32,
                 .wasm64,
-                => return error.TargetHasNoDynamicLinker,
-
-                .arc,
-                .avr,
                 .bpfel,
                 .bpfeb,
+                .nvptx,
+                .nvptx64,
+                => return null,
+
+                // TODO go over each item in this list and either move it to the above list, or
+                // implement the standard dynamic linker path code for it.
+                .arc,
+                .avr,
                 .hexagon,
                 .msp430,
                 .r600,
@@ -1189,8 +1189,6 @@ pub const Target = struct {
                 .tce,
                 .tcele,
                 .xcore,
-                .nvptx,
-                .nvptx64,
                 .le32,
                 .le64,
                 .amdil,
@@ -1204,9 +1202,25 @@ pub const Target = struct {
                 .lanai,
                 .renderscript32,
                 .renderscript64,
-                => return error.UnknownDynamicLinkerPath,
+                => return null,
             },
 
+            // Operating systems in this list have been verified as not having a standard
+            // dynamic linker path.
+            .freestanding,
+            .ios,
+            .tvos,
+            .watchos,
+            .macosx,
+            .uefi,
+            .windows,
+            .emscripten,
+            .other,
+            .wasi,
+            => return null,
+
+            // TODO go over each item in this list and either move it to the above list, or
+            // implement the standard dynamic linker path code for it.
             .ananas,
             .cloudabi,
             .fuchsia,
@@ -1230,19 +1244,7 @@ pub const Target = struct {
             .amdpal,
             .hermit,
             .hurd,
-            => return error.UnknownDynamicLinkerPath,
-
-            .freestanding,
-            .ios,
-            .tvos,
-            .watchos,
-            .macosx,
-            .uefi,
-            .windows,
-            .emscripten,
-            .other,
-            .wasi,
-            => return error.TargetHasNoDynamicLinker,
+            => return null,
         }
     }
 };

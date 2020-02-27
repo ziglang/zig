@@ -167,7 +167,15 @@ pub const NativePaths = struct {
 
 pub const NativeTargetInfo = struct {
     target: Target,
-    dynamic_linker: ?[:0]u8,
+
+    /// Contains the memory used to store the dynamic linker path. This field should
+    /// not be used directly. See `dynamicLinker` and `setDynamicLinker`. This field
+    /// exists so that this API requires no allocator.
+    dynamic_linker_buffer: [255]u8 = undefined,
+
+    /// Used to construct the dynamic linker path. This field should not be used
+    /// directly. See `dynamicLinker` and `setDynamicLinker`.
+    dynamic_linker_max: ?u8 = null,
 
     pub const DetectError = error{
         OutOfMemory,
@@ -181,6 +189,7 @@ pub const NativeTargetInfo = struct {
 
     /// Detects the native CPU model & features, operating system & version, and C ABI & dynamic linker.
     /// On Linux, this is additionally responsible for detecting the native glibc version when applicable.
+    /// TODO Remove the allocator requirement from this.
     pub fn detect(allocator: *Allocator) DetectError!NativeTargetInfo {
         const arch = Target.current.cpu.arch;
         const os_tag = Target.current.os.tag;
@@ -188,8 +197,7 @@ pub const NativeTargetInfo = struct {
         // TODO Detect native CPU model & features. Until that is implemented we hard code baseline.
         const cpu = Target.Cpu.baseline(arch);
 
-        // TODO Detect native operating system version. Until that is implemented we use the minimum version
-        // of the default range.
+        // TODO Detect native operating system version. Until that is implemented we use the default range.
         const os = Target.Os.defaultVersionRange(os_tag);
 
         return detectAbiAndDynamicLinker(allocator, cpu, os);
@@ -199,6 +207,21 @@ pub const NativeTargetInfo = struct {
     pub fn deinit(self: *NativeTargetInfo, allocator: *Allocator) void {
         if (self.dynamic_linker) |dl| allocator.free(dl);
         self.* = undefined;
+    }
+
+    /// The returned memory has the same lifetime as the `NativeTargetInfo`.
+    pub fn dynamicLinker(self: *const NativeTargetInfo) ?[]const u8 {
+        const m = self.dynamic_linker_max orelse return null;
+        return self.dynamic_linker_buffer[0 .. m + 1];
+    }
+
+    pub fn setDynamicLinker(self: *NativeTargetInfo, dl_or_null: ?[]const u8) void {
+        if (dl_or_null) |dl| {
+            mem.copy(u8, &self.dynamic_linker_buffer, dl);
+            self.dynamic_linker_max = @intCast(u8, dl.len - 1);
+        } else {
+            self.dynamic_linker_max = null;
+        }
     }
 
     /// First we attempt to use the executable's own binary. If it is dynamically
@@ -245,10 +268,11 @@ pub const NativeTargetInfo = struct {
                 .os = os,
                 .abi = abi,
             };
-            const standard_ld_path = target.getStandardDynamicLinkerPath(allocator) catch |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
-                error.UnknownDynamicLinkerPath, error.TargetHasNoDynamicLinker => continue,
-            };
+            var buf: [255]u8 = undefined;
+            const standard_ld_path = if (target.standardDynamicLinkerPath(&buf)) |s|
+                try mem.dupe(allocator, u8, s)
+            else
+                continue;
             errdefer allocator.free(standard_ld_path);
             try ld_info_list.append(.{
                 .ld_path = standard_ld_path,
@@ -294,28 +318,29 @@ pub const NativeTargetInfo = struct {
                 }
             }
 
-            return NativeTargetInfo{
+            var result: NativeTargetInfo = .{
                 .target = .{
                     .cpu = cpu,
                     .os = os_adjusted,
                     .abi = found_ld_info.abi,
                 },
-                .dynamic_linker = try mem.dupeZ(allocator, u8, found_ld_path),
             };
+            result.setDynamicLinker(found_ld_path);
+            return result;
         }
 
         // If Zig is statically linked, such as via distributed binary static builds, the above
         // trick won't work. The next thing we fall back to is the same thing, but for /usr/bin/env.
         // Since that path is hard-coded into the shebang line of many portable scripts, it's a
         // reasonably reliable path to check for.
-        return abiAndDynamicLinkerFromUsrBinEnv(allocator, cpu, os) catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
-            error.FileSystem => return error.FileSystem,
-            error.SystemResources => return error.SystemResources,
-            error.SymLinkLoop => return error.SymLinkLoop,
-            error.ProcessFdQuotaExceeded => return error.ProcessFdQuotaExceeded,
-            error.SystemFdQuotaExceeded => return error.SystemFdQuotaExceeded,
-            error.DeviceBusy => return error.DeviceBusy,
+        return abiAndDynamicLinkerFromUsrBinEnv(cpu, os) catch |err| switch (err) {
+            error.FileSystem,
+            error.SystemResources,
+            error.SymLinkLoop,
+            error.ProcessFdQuotaExceeded,
+            error.SystemFdQuotaExceeded,
+            error.DeviceBusy,
+            => |e| return e,
 
             error.UnableToReadElfFile,
             error.ElfNotADynamicExecutable,
@@ -327,6 +352,8 @@ pub const NativeTargetInfo = struct {
             error.InvalidElfMagic,
             error.UsrBinEnvNotAvailable,
             error.Unexpected,
+            error.UnexpectedEndOfFile,
+            error.NameTooLong,
             // Finally, we fall back on the standard path.
             => defaultAbiAndDynamicLinker(allocator, cpu, os),
         };
@@ -362,11 +389,7 @@ pub const NativeTargetInfo = struct {
         };
     }
 
-    fn abiAndDynamicLinkerFromUsrBinEnv(
-        allocator: *Allocator,
-        cpu: Target.Cpu,
-        os: Target.Os,
-    ) !NativeTargetInfo {
+    fn abiAndDynamicLinkerFromUsrBinEnv(cpu: Target.Cpu, os: Target.Os) !NativeTargetInfo {
         const env_file = std.fs.openFileAbsoluteC("/usr/bin/env", .{}) catch |err| switch (err) {
             error.NoSpaceLeft => unreachable,
             error.NameTooLong => unreachable,
@@ -409,6 +432,14 @@ pub const NativeTargetInfo = struct {
         const phnum = elfInt(is_64, need_bswap, hdr32.e_phnum, hdr64.e_phnum);
         const shstrndx = elfInt(is_64, need_bswap, hdr32.e_shstrndx, hdr64.e_shstrndx);
 
+        var result: NativeTargetInfo = .{
+            .target = .{
+                .cpu = cpu,
+                .os = os,
+                .abi = Target.Abi.default(cpu.arch, os),
+            },
+        };
+
         const ph_total_size = std.math.mul(u32, phentsize, phnum) catch |err| switch (err) {
             error.Overflow => return error.InvalidElfProgramHeaders,
         };
@@ -430,7 +461,22 @@ pub const NativeTargetInfo = struct {
                 const p_type = elfInt(is_64, need_bswap, ph32.p_type, ph64.p_type);
                 switch (p_type) {
                     elf.PT_INTERP => {
-                        std.debug.warn("found PT_INTERP\n", .{});
+                        const p_offset = elfInt(is_64, need_bswap, ph32.p_offset, ph64.p_offset);
+                        const p_filesz = elfInt(is_64, need_bswap, ph32.p_filesz, ph64.p_filesz);
+                        var interp_buf: [255]u8 = undefined;
+                        if (p_filesz > interp_buf.len) return error.NameTooLong;
+                        var read_offset: usize = 0;
+                        while (true) {
+                            const len = try wrapRead(env_file.pread(
+                                interp_buf[read_offset .. p_filesz - read_offset],
+                                p_offset + read_offset,
+                            ));
+                            if (len == 0) return error.UnexpectedEndOfFile;
+                            read_offset += len;
+                            if (read_offset == p_filesz) break;
+                        }
+                        // PT_INTERP includes a null byte in p_filesz.
+                        result.setDynamicLinker(interp_buf[0 .. p_filesz - 1]);
                     },
                     elf.PT_DYNAMIC => {
                         std.debug.warn("found PT_DYNAMIC\n", .{});
@@ -440,7 +486,7 @@ pub const NativeTargetInfo = struct {
             }
         }
 
-        return error.OutOfMemory; // TODO
+        return result;
     }
 
     fn wrapRead(res: std.os.ReadError!usize) !usize {
@@ -457,18 +503,17 @@ pub const NativeTargetInfo = struct {
     }
 
     fn defaultAbiAndDynamicLinker(allocator: *Allocator, cpu: Target.Cpu, os: Target.Os) !NativeTargetInfo {
-        const target: Target = .{
-            .cpu = cpu,
-            .os = os,
-            .abi = Target.Abi.default(cpu.arch, os),
-        };
-        return @as(NativeTargetInfo, .{
-            .target = target,
-            .dynamic_linker = target.getStandardDynamicLinkerPath(allocator) catch |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
-                error.UnknownDynamicLinkerPath, error.TargetHasNoDynamicLinker => null,
+        var result: NativeTargetInfo = .{
+            .target = .{
+                .cpu = cpu,
+                .os = os,
+                .abi = Target.Abi.default(cpu.arch, os),
             },
-        });
+        };
+        if (result.target.standardDynamicLinkerPath(&result.dynamic_linker_buffer)) |s| {
+            result.dynamic_linker_max = @intCast(u8, s.len - 1);
+        }
+        return result;
     }
 };
 

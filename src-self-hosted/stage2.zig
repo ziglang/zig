@@ -1157,9 +1157,9 @@ fn crossTargetToTarget(cross_target: CrossTarget, dynamic_linker_ptr: *?[*:0]u8)
         if (cross_target.os_tag == null) {
             adjusted_target.os = detected_info.target.os;
 
-            if (detected_info.dynamic_linker) |dl| {
+            if (detected_info.dynamicLinker()) |dl| {
                 have_native_dl = true;
-                dynamic_linker_ptr.* = dl.ptr;
+                dynamic_linker_ptr.* = try mem.dupeZ(std.heap.c_allocator, u8, dl);
             }
             if (cross_target.abi == null) {
                 adjusted_target.abi = detected_info.target.abi;
@@ -1169,13 +1169,11 @@ fn crossTargetToTarget(cross_target: CrossTarget, dynamic_linker_ptr: *?[*:0]u8)
         }
     }
     if (!have_native_dl) {
-        dynamic_linker_ptr.* = adjusted_target.getStandardDynamicLinkerPath(
-            std.heap.c_allocator,
-        ) catch |err| switch (err) {
-            error.TargetHasNoDynamicLinker => null,
-            error.UnknownDynamicLinkerPath => null,
-            else => |e| return e,
-        };
+        var buf: [255]u8 = undefined;
+        dynamic_linker_ptr.* = if (adjusted_target.standardDynamicLinkerPath(&buf)) |s|
+            try mem.dupeZ(std.heap.c_allocator, u8, s)
+        else
+            null;
     }
     return adjusted_target;
 }
