@@ -500,7 +500,9 @@ test "Owning interface with optional function - runtime" {
             return self.state * a + b;
         }
 
-        fn otherFn(self: *Self, new_state: usize) anyerror!void {
+        // Note that our return type need only coerce to the virtual function's
+        // return type.
+        fn otherFn(self: *Self, new_state: usize) void {
             self.state = new_state;
         }
     };
