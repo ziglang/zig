@@ -1,5 +1,5 @@
-const builtin = @import("builtin");
 const std = @import("std");
+const builtin = std.builtin;
 const io = std.io;
 const fs = std.fs;
 const process = std.process;
@@ -521,7 +521,7 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
                         return parseError(tokenizer, code_kind_tok, "unrecognized code kind: {}", .{code_kind_str});
                     }
 
-                    var mode = builtin.Mode.Debug;
+                    var mode: builtin.Mode = .Debug;
                     var link_objects = std.ArrayList([]const u8).init(allocator);
                     defer link_objects.deinit();
                     var target_str: ?[]const u8 = null;
@@ -533,9 +533,9 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
                         const end_code_tag = try eatToken(tokenizer, Token.Id.TagContent);
                         const end_tag_name = tokenizer.buffer[end_code_tag.start..end_code_tag.end];
                         if (mem.eql(u8, end_tag_name, "code_release_fast")) {
-                            mode = builtin.Mode.ReleaseFast;
+                            mode = .ReleaseFast;
                         } else if (mem.eql(u8, end_tag_name, "code_release_safe")) {
-                            mode = builtin.Mode.ReleaseSafe;
+                            mode = .ReleaseSafe;
                         } else if (mem.eql(u8, end_tag_name, "code_link_object")) {
                             _ = try eatToken(tokenizer, Token.Id.Separator);
                             const obj_tok = try eatToken(tokenizer, Token.Id.TagContent);
@@ -1001,30 +1001,30 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
 
     for (toc.nodes) |node| {
         switch (node) {
-            Node.Content => |data| {
+            .Content => |data| {
                 try out.write(data);
             },
-            Node.Link => |info| {
+            .Link => |info| {
                 if (!toc.urls.contains(info.url)) {
                     return parseError(tokenizer, info.token, "url not found: {}", .{info.url});
                 }
                 try out.print("<a href=\"#{}\">{}</a>", .{ info.url, info.name });
             },
-            Node.Nav => {
+            .Nav => {
                 try out.write(toc.toc);
             },
-            Node.Builtin => |tok| {
+            .Builtin => |tok| {
                 try out.write("<pre>");
                 try tokenizeAndPrintRaw(tokenizer, out, tok, builtin_code);
                 try out.write("</pre>");
             },
-            Node.HeaderOpen => |info| {
+            .HeaderOpen => |info| {
                 try out.print(
                     "<h{} id=\"{}\"><a href=\"#toc-{}\">{}</a> <a class=\"hdr\" href=\"#{}\">§</a></h{}>\n",
                     .{ info.n, info.url, info.url, info.name, info.url, info.n },
                 );
             },
-            Node.SeeAlso => |items| {
+            .SeeAlso => |items| {
                 try out.write("<p>See also:</p><ul>\n");
                 for (items) |item| {
                     const url = try urlize(allocator, item.name);
@@ -1035,10 +1035,10 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                 }
                 try out.write("</ul>\n");
             },
-            Node.Syntax => |content_tok| {
+            .Syntax => |content_tok| {
                 try tokenizeAndPrint(tokenizer, out, content_tok);
             },
-            Node.Code => |code| {
+            .Code => |code| {
                 code_progress_index += 1;
                 warn("docgen example code {}/{}...", .{ code_progress_index, tokenizer.code_node_count });
 
@@ -1075,16 +1075,16 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                         });
                         try out.print("<pre><code class=\"shell\">$ zig build-exe {}.zig", .{code.name});
                         switch (code.mode) {
-                            builtin.Mode.Debug => {},
-                            builtin.Mode.ReleaseSafe => {
+                            .Debug => {},
+                            .ReleaseSafe => {
                                 try build_args.append("--release-safe");
                                 try out.print(" --release-safe", .{});
                             },
-                            builtin.Mode.ReleaseFast => {
+                            .ReleaseFast => {
                                 try build_args.append("--release-fast");
                                 try out.print(" --release-fast", .{});
                             },
-                            builtin.Mode.ReleaseSmall => {
+                            .ReleaseSmall => {
                                 try build_args.append("--release-small");
                                 try out.print(" --release-small", .{});
                             },
@@ -1142,13 +1142,14 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             try out.print("\n{}</code></pre>\n", .{colored_stderr});
                             break :code_block;
                         }
-                        const exec_result = exec(allocator, &env_map, build_args.toSliceConst()) catch return parseError(tokenizer, code.source_token, "example failed to compile", .{});
+                        const exec_result = exec(allocator, &env_map, build_args.toSliceConst()) catch
+                            return parseError(tokenizer, code.source_token, "example failed to compile", .{});
 
                         if (code.target_str) |triple| {
-                            if (mem.startsWith(u8, triple, "wasm32") or
+                            if ((mem.startsWith(u8, triple, "wasm32") or
                                 mem.startsWith(u8, triple, "riscv64-linux") or
-                                mem.startsWith(u8, triple, "x86_64-linux") and
-                                (builtin.os != .linux or builtin.arch != .x86_64))
+                                mem.startsWith(u8, triple, "x86_64-linux")) and
+                                (std.Target.current.os.tag != .linux or std.Target.current.cpu.arch != .x86_64))
                             {
                                 // skip execution
                                 try out.print("</code></pre>\n", .{});
@@ -1207,16 +1208,16 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                         });
                         try out.print("<pre><code class=\"shell\">$ zig test {}.zig", .{code.name});
                         switch (code.mode) {
-                            builtin.Mode.Debug => {},
-                            builtin.Mode.ReleaseSafe => {
+                            .Debug => {},
+                            .ReleaseSafe => {
                                 try test_args.append("--release-safe");
                                 try out.print(" --release-safe", .{});
                             },
-                            builtin.Mode.ReleaseFast => {
+                            .ReleaseFast => {
                                 try test_args.append("--release-fast");
                                 try out.print(" --release-fast", .{});
                             },
-                            builtin.Mode.ReleaseSmall => {
+                            .ReleaseSmall => {
                                 try test_args.append("--release-small");
                                 try out.print(" --release-small", .{});
                             },
@@ -1249,16 +1250,16 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                         });
                         try out.print("<pre><code class=\"shell\">$ zig test {}.zig", .{code.name});
                         switch (code.mode) {
-                            builtin.Mode.Debug => {},
-                            builtin.Mode.ReleaseSafe => {
+                            .Debug => {},
+                            .ReleaseSafe => {
                                 try test_args.append("--release-safe");
                                 try out.print(" --release-safe", .{});
                             },
-                            builtin.Mode.ReleaseFast => {
+                            .ReleaseFast => {
                                 try test_args.append("--release-fast");
                                 try out.print(" --release-fast", .{});
                             },
-                            builtin.Mode.ReleaseSmall => {
+                            .ReleaseSmall => {
                                 try test_args.append("--release-small");
                                 try out.print(" --release-small", .{});
                             },
@@ -1306,16 +1307,16 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                         });
                         var mode_arg: []const u8 = "";
                         switch (code.mode) {
-                            builtin.Mode.Debug => {},
-                            builtin.Mode.ReleaseSafe => {
+                            .Debug => {},
+                            .ReleaseSafe => {
                                 try test_args.append("--release-safe");
                                 mode_arg = " --release-safe";
                             },
-                            builtin.Mode.ReleaseFast => {
+                            .ReleaseFast => {
                                 try test_args.append("--release-fast");
                                 mode_arg = " --release-fast";
                             },
-                            builtin.Mode.ReleaseSmall => {
+                            .ReleaseSmall => {
                                 try test_args.append("--release-small");
                                 mode_arg = " --release-small";
                             },
@@ -1386,20 +1387,20 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                         }
 
                         switch (code.mode) {
-                            builtin.Mode.Debug => {},
-                            builtin.Mode.ReleaseSafe => {
+                            .Debug => {},
+                            .ReleaseSafe => {
                                 try build_args.append("--release-safe");
                                 if (!code.is_inline) {
                                     try out.print(" --release-safe", .{});
                                 }
                             },
-                            builtin.Mode.ReleaseFast => {
+                            .ReleaseFast => {
                                 try build_args.append("--release-fast");
                                 if (!code.is_inline) {
                                     try out.print(" --release-fast", .{});
                                 }
                             },
-                            builtin.Mode.ReleaseSmall => {
+                            .ReleaseSmall => {
                                 try build_args.append("--release-small");
                                 if (!code.is_inline) {
                                     try out.print(" --release-small", .{});
@@ -1461,16 +1462,16 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                         });
                         try out.print("<pre><code class=\"shell\">$ zig build-lib {}.zig", .{code.name});
                         switch (code.mode) {
-                            builtin.Mode.Debug => {},
-                            builtin.Mode.ReleaseSafe => {
+                            .Debug => {},
+                            .ReleaseSafe => {
                                 try test_args.append("--release-safe");
                                 try out.print(" --release-safe", .{});
                             },
-                            builtin.Mode.ReleaseFast => {
+                            .ReleaseFast => {
                                 try test_args.append("--release-fast");
                                 try out.print(" --release-fast", .{});
                             },
-                            builtin.Mode.ReleaseSmall => {
+                            .ReleaseSmall => {
                                 try test_args.append("--release-small");
                                 try out.print(" --release-small", .{});
                             },
