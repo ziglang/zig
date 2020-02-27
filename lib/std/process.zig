@@ -609,6 +609,10 @@ pub fn getBaseAddress() usize {
 }
 
 /// Caller owns the result value and each inner slice.
+/// TODO Remove the `Allocator` requirement from this API, which will remove the `Allocator`
+/// requirement from `std.zig.system.NativeTargetInfo.detect`. Most likely this will require
+/// introducing a new, lower-level function which takes a callback function, and then this
+/// function which takes an allocator can exist on top of it.
 pub fn getSelfExeSharedLibPaths(allocator: *Allocator) error{OutOfMemory}![][:0]u8 {
     switch (builtin.link_mode) {
         .Static => return &[_][:0]u8{},

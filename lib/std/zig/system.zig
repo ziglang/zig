@@ -189,7 +189,9 @@ pub const NativeTargetInfo = struct {
 
     /// Detects the native CPU model & features, operating system & version, and C ABI & dynamic linker.
     /// On Linux, this is additionally responsible for detecting the native glibc version when applicable.
-    /// TODO Remove the allocator requirement from this.
+    /// Any resources this function allocates are released before returning, and so there is no
+    /// deinitialization method.
+    /// TODO Remove the Allocator requirement from this function.
     pub fn detect(allocator: *Allocator) DetectError!NativeTargetInfo {
         const arch = Target.current.cpu.arch;
         const os_tag = Target.current.os.tag;
@@ -203,15 +205,9 @@ pub const NativeTargetInfo = struct {
         return detectAbiAndDynamicLinker(allocator, cpu, os);
     }
 
-    /// Must be the same `Allocator` passed to `detect`.
-    pub fn deinit(self: *NativeTargetInfo, allocator: *Allocator) void {
-        if (self.dynamic_linker) |dl| allocator.free(dl);
-        self.* = undefined;
-    }
-
     /// The returned memory has the same lifetime as the `NativeTargetInfo`.
     pub fn dynamicLinker(self: *const NativeTargetInfo) ?[]const u8 {
-        const m = self.dynamic_linker_max orelse return null;
+        const m: usize = self.dynamic_linker_max orelse return null;
         return self.dynamic_linker_buffer[0 .. m + 1];
     }
 
@@ -228,13 +224,14 @@ pub const NativeTargetInfo = struct {
     /// linked, then it should answer both the C ABI question and the dynamic linker question.
     /// If it is statically linked, then we try /usr/bin/env. If that does not provide the answer, then
     /// we fall back to the defaults.
+    /// TODO Remove the Allocator requirement from this function.
     fn detectAbiAndDynamicLinker(
         allocator: *Allocator,
         cpu: Target.Cpu,
         os: Target.Os,
     ) DetectError!NativeTargetInfo {
         if (!comptime Target.current.hasDynamicLinker()) {
-            return defaultAbiAndDynamicLinker(allocator, cpu, os);
+            return defaultAbiAndDynamicLinker(cpu, os);
         }
         // The current target's ABI cannot be relied on for this. For example, we may build the zig
         // compiler for target riscv64-linux-musl and provide a tarball for users to download.
@@ -242,15 +239,15 @@ pub const NativeTargetInfo = struct {
         // and supported by Zig. But that means that we must detect the system ABI here rather than
         // relying on `Target.current`.
         const LdInfo = struct {
-            ld_path: []u8,
+            ld_path_buffer: [255]u8,
+            ld_path_max: u8,
             abi: Target.Abi,
-        };
-        var ld_info_list = std.ArrayList(LdInfo).init(allocator);
-        defer {
-            for (ld_info_list.toSlice()) |ld_info| allocator.free(ld_info.ld_path);
-            ld_info_list.deinit();
-        }
 
+            pub fn ldPath(self: *const @This()) []const u8 {
+                const m: usize = self.ld_path_max;
+                return self.ld_path_buffer[0 .. m + 1];
+            }
+        };
         const all_abis = comptime blk: {
             assert(@enumToInt(Target.Abi.none) == 0);
             const fields = std.meta.fields(Target.Abi)[1..];
@@ -260,6 +257,9 @@ pub const NativeTargetInfo = struct {
             }
             break :blk array;
         };
+        var ld_info_list_buffer: [all_abis.len]LdInfo = undefined;
+        var ld_info_list_len: usize = 0;
+
         for (all_abis) |abi| {
             // This may be a nonsensical parameter. We detect this with error.UnknownDynamicLinkerPath and
             // skip adding it to `ld_info_list`.
@@ -268,17 +268,17 @@ pub const NativeTargetInfo = struct {
                 .os = os,
                 .abi = abi,
             };
-            var buf: [255]u8 = undefined;
-            const standard_ld_path = if (target.standardDynamicLinkerPath(&buf)) |s|
-                try mem.dupe(allocator, u8, s)
-            else
-                continue;
-            errdefer allocator.free(standard_ld_path);
-            try ld_info_list.append(.{
-                .ld_path = standard_ld_path,
+            const ld_info = &ld_info_list_buffer[ld_info_list_len];
+            ld_info_list_len += 1;
+
+            ld_info.* = .{
+                .ld_path_buffer = undefined,
+                .ld_path_max = undefined,
                 .abi = abi,
-            });
+            };
+            ld_info.ld_path_max = target.standardDynamicLinkerPath(&ld_info.ld_path_buffer) orelse continue;
         }
+        const ld_info_list = ld_info_list_buffer[0..ld_info_list_len];
 
         // Best case scenario: the executable is dynamically linked, and we can iterate
         // over our own shared objects and find a dynamic linker.
@@ -292,8 +292,8 @@ pub const NativeTargetInfo = struct {
             // Look for dynamic linker.
             // This is O(N^M) but typical case here is N=2 and M=10.
             find_ld: for (lib_paths) |lib_path| {
-                for (ld_info_list.toSlice()) |ld_info| {
-                    const standard_ld_basename = fs.path.basename(ld_info.ld_path);
+                for (ld_info_list) |ld_info| {
+                    const standard_ld_basename = fs.path.basename(ld_info.ldPath());
                     if (std.mem.endsWith(u8, lib_path, standard_ld_basename)) {
                         found_ld_info = ld_info;
                         found_ld_path = lib_path;
@@ -355,7 +355,7 @@ pub const NativeTargetInfo = struct {
             error.UnexpectedEndOfFile,
             error.NameTooLong,
             // Finally, we fall back on the standard path.
-            => defaultAbiAndDynamicLinker(allocator, cpu, os),
+            => defaultAbiAndDynamicLinker(cpu, os),
         };
     }
 
@@ -502,7 +502,7 @@ pub const NativeTargetInfo = struct {
         };
     }
 
-    fn defaultAbiAndDynamicLinker(allocator: *Allocator, cpu: Target.Cpu, os: Target.Os) !NativeTargetInfo {
+    fn defaultAbiAndDynamicLinker(cpu: Target.Cpu, os: Target.Os) !NativeTargetInfo {
         var result: NativeTargetInfo = .{
             .target = .{
                 .cpu = cpu,
@@ -510,9 +510,7 @@ pub const NativeTargetInfo = struct {
                 .abi = Target.Abi.default(cpu.arch, os),
             },
         };
-        if (result.target.standardDynamicLinkerPath(&result.dynamic_linker_buffer)) |s| {
-            result.dynamic_linker_max = @intCast(u8, s.len - 1);
-        }
+        result.dynamic_linker_max = result.target.standardDynamicLinkerPath(&result.dynamic_linker_buffer);
         return result;
     }
 };

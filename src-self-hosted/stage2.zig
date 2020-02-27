@@ -1170,8 +1170,8 @@ fn crossTargetToTarget(cross_target: CrossTarget, dynamic_linker_ptr: *?[*:0]u8)
     }
     if (!have_native_dl) {
         var buf: [255]u8 = undefined;
-        dynamic_linker_ptr.* = if (adjusted_target.standardDynamicLinkerPath(&buf)) |s|
-            try mem.dupeZ(std.heap.c_allocator, u8, s)
+        dynamic_linker_ptr.* = if (adjusted_target.standardDynamicLinkerPath(&buf)) |m|
+            try mem.dupeZ(std.heap.c_allocator, u8, buf[0 .. @as(usize, m) + 1])
         else
             null;
     }

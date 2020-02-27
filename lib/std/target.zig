@@ -1084,16 +1084,16 @@ pub const Target = struct {
         }
     }
 
-    /// The result will be a slice of `buffer`, pointing at position 0.
+    /// The result will be a byte index *pointing at the final byte*. In other words, length minus one.
     /// A return value of `null` means the concept of a dynamic linker is not meaningful for that target.
-    pub fn standardDynamicLinkerPath(self: Target, buffer: *[255]u8) ?[]u8 {
+    pub fn standardDynamicLinkerPath(self: Target, buffer: *[255]u8) ?u8 {
         const S = struct {
-            fn print(b: *[255]u8, comptime fmt: []const u8, args: var) []u8 {
-                return std.fmt.bufPrint(b, fmt, args) catch unreachable;
+            fn print(b: *[255]u8, comptime fmt: []const u8, args: var) u8 {
+                return @intCast(u8, (std.fmt.bufPrint(b, fmt, args) catch unreachable).len - 1);
             }
-            fn copy(b: *[255]u8, s: []const u8) []u8 {
+            fn copy(b: *[255]u8, s: []const u8) u8 {
                 mem.copy(u8, b, s);
-                return b[0..s.len];
+                return @intCast(u8, s.len - 1);
             }
         };
         const print = S.print;
