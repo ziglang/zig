@@ -29,27 +29,6 @@ fn selfPtrAs(self: *SelfType, comptime T: type) *T {
     }
 }
 
-test "SelfType ptr runtime" {
-    var i: usize = 10;
-    var erased = makeSelfPtr(&i);
-
-    assert(&i == selfPtrAs(erased, usize));
-}
-
-test "SelfType ptr comptime" {
-    comptime {
-        var b = false;
-        var erased = makeSelfPtr(&b);
-
-        assert(&b == selfPtrAs(erased, bool));
-    }
-}
-
-// TODO: Check if I should pass by Self or *const Self by default.
-// TODO: Only allow const declarations + function pointer fields in vtable types.
-// TODO: If deinit in vtable, check if it has an errorset (only allow void return) and pass it
-// to the interface's deinit.
-
 pub const Storage = struct {
     pub const NonOwning = struct {
         erased_ptr: *SelfType,
@@ -189,16 +168,97 @@ fn PtrChildOrSelf(comptime T: type) type {
     return T;
 }
 
-fn make_vtable(comptime VTableT: type, comptime ImplT: type) VTableT {
+// If we are async and candidate is not, it's ok.
+// If we are not async and candidate is, it's not ok.
+fn getFunctionFromImpl(comptime name: []const u8, comptime FnT: type, comptime ImplT: type) ?FnT {
+    const our_cc = @typeInfo(FnT).Fn.calling_convention;
+
+    // Find the candidate in the implementation type.
+    for (std.meta.declarations(ImplT)) |decl| {
+        if (std.mem.eql(u8, name, decl.name)) {
+            switch (decl.data) {
+                .Fn => |fn_decl| {
+                    const args = @typeInfo(fn_decl.fn_type).Fn.args;
+
+                    if (args.len == 0) {
+                        return null;
+                    }
+
+                    const arg0_type = args[0].arg_type.?;
+                    if (arg0_type != ImplT and arg0_type != *ImplT and arg0_type != *const ImplT) {
+                        return null;
+                    }
+
+                    const candidate_cc = @typeInfo(fn_decl.fn_type).Fn.calling_convention;
+                    switch (candidate_cc) {
+                        .Async, .Unspecified => {},
+                        else => return null,
+                    }
+
+                    const Return = @typeInfo(FnT).Fn.return_type.?;
+
+                    // If our virtual function is async and the candidate is not, it's ok.
+                    // However, if the virutal function is not async and the candidate is, it's not ok.
+                    switch (our_cc) {
+                        .Unspecified => if (candidate_cc == .Async) return null,
+                        else => {},
+                    }
+
+                    // TODO: Is there some way to not make a different closure for every argument length?
+                    // Ideally, we would somehow pass 1-tuple with the argument pack from Interface.call and
+                    // use arg[0] in @call.
+                    return struct {
+                        fn impl(self_ptr: *SelfType, arg: args[1].arg_type.?) Return {
+                            const f = @field(selfPtrAs(self_ptr, ImplT), name);
+
+                            return @call(if (our_cc == .Async) .{ .modifier = .async_kw } else .{}, f, .{arg});
+                        }
+                    }.impl;
+
+                    // return struct {
+                    //     fn impl(self_ptr: *SelfType, args: var) Return {
+                    //         const f = @field(selfPtrAs(self_ptr, ImplT), name);
+
+                    //         return @call(if (our_cc == .Async) .{.modifier = .async_kw} else .{}, f, args);
+                    //     }
+                    // }.impl;
+                },
+                else => return null,
+            }
+        }
+    }
+
+    return null;
+}
+
+fn makeVTable(comptime VTableT: type, comptime ImplT: type) VTableT {
+    if (comptime !trait.isContainer(ImplT)) {
+        @compileError("Type '" ++ @typeName(ImplT) ++ "' must be a container to implement interface.");
+    }
     var vtable: VTableT = undefined;
-    // TODO: Implementation
+
+    for (std.meta.fields(VTableT)) |field| {
+        var fn_type = field.field_type;
+        const is_optional = trait.is(.Optional)(fn_type);
+        if (is_optional) {
+            fn_type = std.meta.Child(fn_type);
+        }
+
+        const candidate = comptime getFunctionFromImpl(field.name, fn_type, ImplT);
+        if (candidate == null and !is_optional) {
+            @compileError("Type '" ++ @typeName(ImplT) ++ "' does not implement non optional function '" ++ field.name ++ "'.");
+        } else if (!is_optional) {
+            @field(vtable, field.name) = candidate.?;
+        } else {
+            @field(vtable, field.name) = candidate;
+        }
+    }
+
     return vtable;
 }
 
 // TODO: https://github.com/ziglang/zig/issues/4564
 fn _workaround() error{WORKAROUND}!void {}
-
-fn ReplaceSelfTypeWith(comptime Base: type, comptime With: type) type {}
 
 fn checkVtableType(comptime VTableT: type) void {
     if (comptime !trait.is(.Struct)(VTableT)) {
@@ -213,7 +273,6 @@ fn checkVtableType(comptime VTableT: type) void {
     }
 
     for (std.meta.fields(VTableT)) |field| {
-        // @compileLog(field.name);
         var field_type = field.field_type;
 
         if (trait.is(.Optional)(field_type)) {
@@ -230,7 +289,6 @@ fn checkVtableType(comptime VTableT: type) void {
             @compileError("Virtual function '" ++ field.name ++ "' cannot be generic.");
         }
 
-        // TODO: What calling conventions should be allowed?
         switch (type_info.Fn.calling_convention) {
             .Unspecified, .Async => {},
             else => @compileError("Virtual function's  '" ++ field.name ++ "' calling convention is not default or async."),
@@ -245,6 +303,33 @@ fn checkVtableType(comptime VTableT: type) void {
             @compileError("Virtual function's '" ++ field.name ++ "' must be SelfType, *SelfType or *const SelfType");
         }
     }
+}
+
+fn vtableHasMethod(comptime VTableT: type, comptime name: []const u8, is_optional: *bool) bool {
+    for (std.meta.fields(VTableT)) |field| {
+        if (std.mem.eql(u8, name, field.name)) {
+            is_optional.* = trait.is(.Optional)(field.field_type);
+            return true;
+        }
+    }
+
+    return false;
+}
+
+fn VTableReturnType(comptime VTableT: type, comptime name: []const u8) type {
+    for (std.meta.fields(VTableT)) |field| {
+        if (std.mem.eql(u8, name, field.name)) {
+            const is_optional = trait.is(.Optional)(field.field_type);
+            // TODO: Do I need to do smth different for async?
+            if (is_optional) {
+                return ?@typeInfo(std.meta.Child(field.field_type)).Fn.return_type.?;
+            }
+
+            return @typeInfo(field.field_type).Fn.return_type.?;
+        }
+    }
+
+    @compileError("VTable type '" ++ @typeName(VTableT) ++ "' has no virtual function '" ++ name ++ "'.");
 }
 
 pub fn Interface(comptime VTableT: type, comptime StorageT: type) type {
@@ -262,7 +347,7 @@ pub fn Interface(comptime VTableT: type, comptime StorageT: type) type {
             try _workaround();
 
             return Self{
-                .vtable_ptr = &comptime make_vtable(VTableT, ImplType),
+                .vtable_ptr = &comptime makeVTable(VTableT, ImplType),
                 .storage = try StorageT.init(args),
             };
         }
@@ -277,7 +362,7 @@ pub fn Interface(comptime VTableT: type, comptime StorageT: type) type {
             };
         }
 
-        pub fn call(self: Self, comptime name: []u8, args: var) VTableReturnType(VTableT, name) {
+        pub fn call(self: Self, comptime name: []const u8, args: var) VTableReturnType(VTableT, name) {
             comptime var is_optional = true;
             comptime assert(vtableHasMethod(VTableT, name, &is_optional));
 
@@ -285,14 +370,32 @@ pub fn Interface(comptime VTableT: type, comptime StorageT: type) type {
                 const val = @field(self.vtable_ptr, name);
                 if (val) |v| break :blk v;
                 return null;
-            } else @field(slef.vtable, name);
+            } else @field(self.vtable_ptr, name);
 
             const self_ptr = self.storage.getSelfPtr();
-            return @call(.{}, fn_ptr, args);
+            const new_args = .{self_ptr};
+
+            return @call(.{}, fn_ptr, new_args ++ args);
         }
 
         pub fn deinit(self: Self) void {
             self.storage.deinit();
         }
     };
+}
+
+test "SelfType ptr runtime" {
+    var i: usize = 10;
+    var erased = makeSelfPtr(&i);
+
+    assert(&i == selfPtrAs(erased, usize));
+}
+
+test "SelfType ptr comptime" {
+    comptime {
+        var b = false;
+        var erased = makeSelfPtr(&b);
+
+        assert(&b == selfPtrAs(erased, bool));
+    }
 }
