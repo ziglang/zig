@@ -1039,9 +1039,10 @@ pub const Builder = struct {
 };
 
 test "builder.findProgram compiles" {
-    var buf: [50000]u8 = undefined;
-    var fba = std.heap.FixedBufferAllocator.init(&buf);
-    const builder = try Builder.create(&fba.allocator, "zig", "zig-cache", "zig-cache");
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const builder = try Builder.create(&arena.allocator, "zig", "zig-cache", "zig-cache");
     defer builder.destroy();
     _ = builder.findProgram(&[_][]const u8{}, &[_][]const u8{}) catch null;
 }
