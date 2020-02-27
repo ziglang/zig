@@ -668,7 +668,6 @@ export fn stage2_target_parse(
         error.ProcessFdQuotaExceeded => return .ProcessFdQuotaExceeded,
         error.SystemFdQuotaExceeded => return .SystemFdQuotaExceeded,
         error.DeviceBusy => return .DeviceBusy,
-        error.UnknownDynamicLinkerPath => return .UnknownDynamicLinkerPath,
     };
     return .None;
 }
@@ -1174,6 +1173,7 @@ fn crossTargetToTarget(cross_target: CrossTarget, dynamic_linker_ptr: *?[*:0]u8)
             std.heap.c_allocator,
         ) catch |err| switch (err) {
             error.TargetHasNoDynamicLinker => null,
+            error.UnknownDynamicLinkerPath => null,
             else => |e| return e,
         };
     }
