@@ -2,10 +2,7 @@ const std = @import("std");
 const builtin = std.builtin;
 const is_test = builtin.is_test;
 
-const is_gnu = switch (builtin.abi) {
-    .gnu, .gnuabin32, .gnuabi64, .gnueabi, .gnueabihf, .gnux32 => true,
-    else => false,
-};
+const is_gnu = std.Target.current.abi.isGnu();
 const is_mingw = builtin.os.tag == .windows and is_gnu;
 
 comptime {
@@ -289,7 +286,7 @@ comptime {
             else => {},
         }
     } else {
-        if (std.Target.current.isGnuLibC()) {
+        if (std.Target.current.isGnuLibC() and builtin.link_libc) {
             @export(__stack_chk_guard, .{ .name = "__stack_chk_guard", .linkage = linkage });
         }
         @export(@import("compiler_rt/divti3.zig").__divti3, .{ .name = "__divti3", .linkage = linkage });
