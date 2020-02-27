@@ -965,7 +965,8 @@ const nan = std.math.nan(f128);
           but you can switch to {#syntax#}Optimized{#endsyntax#} mode on a per-block basis:</p>
       {#code_begin|obj|foo#}
       {#code_release_fast#}
-const builtin = @import("builtin");
+const std = @import("std");
+const builtin = std.builtin;
 const big = @as(f64, 1 << 40);
 
 export fn foo_strict(x: f64) f64 {
@@ -2063,15 +2064,15 @@ test "pointer child type" {
       alignment of the underlying type, it can be omitted from the type:
       </p>
       {#code_begin|test#}
-const assert = @import("std").debug.assert;
-const builtin = @import("builtin");
+const std = @import("std");
+const assert = std.debug.assert;
 
 test "variable alignment" {
     var x: i32 = 1234;
     const align_of_i32 = @alignOf(@TypeOf(x));
     assert(@TypeOf(&x) == *i32);
     assert(*i32 == *align(align_of_i32) i32);
-    if (builtin.arch == builtin.Arch.x86_64) {
+    if (std.Target.current.cpu.arch == .x86_64) {
         assert((*i32).alignment == 4);
     }
 }
@@ -2474,7 +2475,7 @@ test "default struct initialization fields" {
       </p>
       {#code_begin|test#}
 const std = @import("std");
-const builtin = @import("builtin");
+const builtin = std.builtin;
 const assert = std.debug.assert;
 
 const Full = packed struct {
@@ -3204,8 +3205,8 @@ test "separate scopes" {
 
       {#header_open|switch#}
       {#code_begin|test|switch#}
-const assert = @import("std").debug.assert;
-const builtin = @import("builtin");
+const std = @import("std");
+const assert = std.debug.assert;
 
 test "switch simple" {
     const a: u64 = 10;
@@ -3249,16 +3250,16 @@ test "switch simple" {
 }
 
 // Switch expressions can be used outside a function:
-const os_msg = switch (builtin.os) {
-    builtin.Os.linux => "we found a linux user",
+const os_msg = switch (std.Target.current.os.tag) {
+    .linux => "we found a linux user",
     else => "not a linux user",
 };
 
 // Inside a function, switch statements implicitly are compile-time
 // evaluated if the target expression is compile-time known.
 test "switch inside function" {
-    switch (builtin.os) {
-        builtin.Os.fuchsia => {
+    switch (std.Target.current.os.tag) {
+        .fuchsia => {
             // On an OS other than fuchsia, block is not even analyzed,
             // so this compile error is not triggered.
             // On fuchsia this compile error would be triggered.
@@ -7364,8 +7365,6 @@ test "main" {
       the {#syntax#}export{#endsyntax#} keyword used on a function:
       </p>
       {#code_begin|obj#}
-const builtin = @import("builtin");
-
 comptime {
     @export(internalName, .{ .name = "foo", .linkage = .Strong });
 }
@@ -9397,7 +9396,7 @@ const separator = if (builtin.os == builtin.Os.windows) '\\' else '/';
       </p>
       {#code_begin|test|detect_test#}
 const std = @import("std");
-const builtin = @import("builtin");
+const builtin = std.builtin;
 const assert = std.debug.assert;
 
 test "builtin.is_test" {
@@ -9715,7 +9714,8 @@ WebAssembly.instantiate(typedArray, {
     <pre><code>$ node test.js
 The result is 3</code></pre>
       {#header_open|WASI#}
-      <p>Zig's support for WebAssembly System Interface (WASI) is under active development. Example of using the standard library and reading command line arguments:</p>
+      <p>Zig's support for WebAssembly System Interface (WASI) is under active development.
+      Example of using the standard library and reading command line arguments:</p>
       {#code_begin|exe|wasi#}
       {#target_wasi#}
 const std = @import("std");

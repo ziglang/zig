@@ -1146,10 +1146,10 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             return parseError(tokenizer, code.source_token, "example failed to compile", .{});
 
                         if (code.target_str) |triple| {
-                            if ((mem.startsWith(u8, triple, "wasm32") or
+                            if (mem.startsWith(u8, triple, "wasm32") or
                                 mem.startsWith(u8, triple, "riscv64-linux") or
-                                mem.startsWith(u8, triple, "x86_64-linux")) and
-                                (std.Target.current.os.tag != .linux or std.Target.current.cpu.arch != .x86_64))
+                                (mem.startsWith(u8, triple, "x86_64-linux") and
+                                std.Target.current.os.tag != .linux or std.Target.current.cpu.arch != .x86_64))
                             {
                                 // skip execution
                                 try out.print("</code></pre>\n", .{});
