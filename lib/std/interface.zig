@@ -58,7 +58,8 @@ pub const Storage = struct {
 
     pub const Owning = struct {
         allocator: *Allocator,
-        erased_ptr: *SelfType,
+        mem: []u8,
+        alignment: u29,
 
         pub fn init(args: var) !Owning {
             if (args.len != 2) {
@@ -67,21 +68,26 @@ pub const Storage = struct {
 
             const AllocT = @TypeOf(args.@"0");
 
-            var mem = try args.@"1".create(AllocT);
-            mem.* = args.@"0";
+            var obj = try args.@"1".create(AllocT);
+            obj.* = args.@"0";
 
             return Owning{
                 .allocator = args.@"1",
-                .erased_ptr = makeSelfPtr(mem),
+                .mem = std.mem.toBytes(obj)[0..],
+                .alignment = @alignOf(AllocT),
             };
         }
 
         pub fn getSelfPtr(self: Owning) *SelfType {
-            return self.erased_ptr;
+            return makeSelfPtr(&self.mem[0]);
         }
 
         pub fn deinit(self: Owning) void {
-            self.allocator.destroy(selfPtrAs(self.erased_ptr, u8));
+            // We manually call into the allocator's shrink function.
+            // 'destroy' and 'shrink' just use the pointer type to get alignment,
+            // while  'alignedShrink' requires a comptime alignment.
+            const result = self.allocator.shrinkFn(self.allocator, self.mem, self.alignment, 0, 1);
+            assert(result.len == 0);
         }
     };
 
@@ -122,7 +128,7 @@ pub const Storage = struct {
 
             // TODO: Pack this tightly with an extern union?
             // Check resulting size of this union.
-            data: union {
+            data: union(enum) {
                 Inline: Inline(size),
                 Owning: Owning,
             },
@@ -427,6 +433,8 @@ pub fn Interface(comptime VTableT: type, comptime StorageT: type) type {
     };
 }
 
+var testing_allocator = &std.testing.allocator_instance.allocator;
+
 test "SelfType ptr runtime" {
     var i: usize = 10;
     var erased = makeSelfPtr(&i);
@@ -457,7 +465,7 @@ const TestFooer = struct {
     }
 };
 
-test "Runtime non owning simple interface" {
+test "Simple NonOwning interface - runtime" {
     var f = TestFooer{ .state = 42 };
     var fooer = try Fooer.init(.{&f});
     defer fooer.deinit();
@@ -466,7 +474,7 @@ test "Runtime non owning simple interface" {
     assert(fooer.call("foo", .{}) == 43);
 }
 
-test "Comptime non owning simple interface" {
+test "Simple NonOwning interface - comptime" {
     comptime {
         var f = TestFooer{ .state = 101 };
         var fooer = try Fooer.init(.{&f});
@@ -475,4 +483,37 @@ test "Comptime non owning simple interface" {
         assert(fooer.call("foo", .{}) == 101);
         assert(fooer.call("foo", .{}) == 102);
     }
+}
+
+const TestOwningIface = Interface(struct {
+    someFn: ?fn (*const SelfType, usize, usize) usize,
+    otherFn: fn (*SelfType, usize) anyerror!void,
+}, Storage.Owning);
+
+test "Owning interface with optional function - runtime" {
+    const TestStruct = struct {
+        const Self = @This();
+
+        state: usize,
+
+        fn someFn(self: Self, a: usize, b: usize) usize {
+            return self.state * a + b;
+        }
+
+        fn otherFn(self: *Self, new_state: usize) anyerror!void {
+            self.state = new_state;
+        }
+    };
+
+    var iface_instance = try TestOwningIface.init(.{ TestStruct{ .state = 0 }, testing_allocator });
+    defer iface_instance.deinit();
+
+    // TODO: This errors with "cannot assign to constant"
+    // try iface_instance.call("otherFn", .{100});
+    // Workaround:
+    var a: usize = 100;
+    try iface_instance.call("otherFn", .{a});
+    a = 0;
+    var b: usize = 42;
+    assert(iface_instance.call("someFn", .{a, b}).? == 42);
 }
