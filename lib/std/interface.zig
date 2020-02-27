@@ -6,8 +6,6 @@ const assert = std.debug.assert;
 pub const SelfType = @OpaqueType();
 
 fn makeSelfPtr(ptr: var) *SelfType {
-    const t_i = @typeInfo(@TypeOf(ptr));
-
     if (comptime !trait.isSingleItemPtr(@TypeOf(ptr))) {
         @compileError("SelfType pointer initialization expects pointer parameter.");
     }
