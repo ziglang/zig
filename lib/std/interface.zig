@@ -195,7 +195,7 @@ fn getFunctionFromImpl(comptime name: []const u8, comptime FnT: type, comptime I
                         else => return null,
                     }
 
-                    const Return = @typeInfo(FnT).Fn.return_type.?;
+                    const Return = @typeInfo(FnT).Fn.return_type orelse noreturn;
 
                     // If our virtual function is async and the candidate is not, it's ok.
                     // However, if the virutal function is not async and the candidate is, it's not ok.
@@ -207,19 +207,57 @@ fn getFunctionFromImpl(comptime name: []const u8, comptime FnT: type, comptime I
                     // TODO: Is there some way to not make a different closure for every argument length?
                     // Ideally, we would somehow pass 1-tuple with the argument pack from Interface.call and
                     // use arg[0] in @call.
-                    return struct {
-                        fn impl(self_ptr: *SelfType, arg: args[1].arg_type.?) Return {
-                            const f = @field(selfPtrAs(self_ptr, ImplT), name);
+                    return switch (args.len) {
+                        1 => struct {
+                            fn impl(self_ptr: *SelfType) Return {
+                                const f = @field(selfPtrAs(self_ptr, ImplT), name);
 
-                            return @call(if (our_cc == .Async) .{ .modifier = .async_kw } else .{}, f, .{arg});
-                        }
-                    }.impl;
+                                return @call(if (our_cc == .Async) .{ .modifier = .async_kw } else .{ .modifier = .always_inline }, f, .{});
+                            }
+                        }.impl,
+                        2 => struct {
+                            fn impl(self_ptr: *SelfType, arg: args[1].arg_type.?) Return {
+                                const f = @field(selfPtrAs(self_ptr, ImplT), name);
+
+                                return @call(if (our_cc == .Async) .{ .modifier = .async_kw } else .{ .modifier = .always_inline }, f, .{arg});
+                            }
+                        }.impl,
+                        3 => struct {
+                            fn impl(self_ptr: *SelfType, arg1: args[1].arg_type.?, arg2: args[2].arg_type.?) Return {
+                                const f = @field(selfPtrAs(self_ptr, ImplT), name);
+
+                                return @call(if (our_cc == .Async) .{ .modifier = .async_kw } else .{ .modifier = .always_inline }, f, .{ arg1, arg2 });
+                            }
+                        }.impl,
+                        4 => struct {
+                            fn impl(self_ptr: *SelfType, arg1: args[1].arg_type.?, arg2: args[2].arg_type.?, arg3: args[3].arg_type.?) Return {
+                                const f = @field(selfPtrAs(self_ptr, ImplT), name);
+
+                                return @call(if (our_cc == .Async) .{ .modifier = .async_kw } else .{ .modifier = .always_inline }, f, .{ arg1, arg2, arg3 });
+                            }
+                        }.impl,
+                        5 => struct {
+                            fn impl(self_ptr: *SelfType, arg1: args[1].arg_type.?, arg2: args[2].arg_type.?, arg3: args[3].arg_type.?, arg4: args[4].arg_type.?) Return {
+                                const f = @field(selfPtrAs(self_ptr, ImplT), name);
+
+                                return @call(if (our_cc == .Async) .{ .modifier = .async_kw } else .{ .modifier = .always_inline }, f, .{ arg1, arg2, arg3, arg4 });
+                            }
+                        }.impl,
+                        6 => struct {
+                            fn impl(self_ptr: *SelfType, arg1: args[1].arg_type.?, arg2: args[2].arg_type.?, arg3: args[3].arg_type.?, arg4: args[4].arg_type.?, arg5: args[5].arg_type.?) Return {
+                                const f = @field(selfPtrAs(self_ptr, ImplT), name);
+
+                                return @call(if (our_cc == .Async) .{ .modifier = .async_kw } else .{ .modifier = .always_inline }, f, .{ arg1, arg2, arg3, arg4, arg5 });
+                            }
+                        }.impl,
+                        else => @compileError("Unsupported number of arguments, please provide a manually written vtable."),
+                    };
 
                     // return struct {
                     //     fn impl(self_ptr: *SelfType, args: var) Return {
                     //         const f = @field(selfPtrAs(self_ptr, ImplT), name);
 
-                    //         return @call(if (our_cc == .Async) .{.modifier = .async_kw} else .{}, f, args);
+                    //         return @call(if (our_cc == .Async) .{ .modifier = .async_kw } else .{ .modifier = .always_inline }, f, args);
                     //     }
                     // }.impl;
                 },
@@ -325,7 +363,7 @@ fn VTableReturnType(comptime VTableT: type, comptime name: []const u8) type {
                 return ?@typeInfo(std.meta.Child(field.field_type)).Fn.return_type.?;
             }
 
-            return @typeInfo(field.field_type).Fn.return_type.?;
+            return @typeInfo(field.field_type).Fn.return_type orelse noreturn;
         }
     }
 
