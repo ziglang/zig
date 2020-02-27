@@ -29,7 +29,7 @@ fn selfPtrAs(self: *SelfType, comptime T: type) *T {
 
 fn constSelfPtrAs(self: *const SelfType, comptime T: type) *const T {
     if (@sizeOf(T) > 0) {
-        return @alignCast(@alignOf(T), @ptrCast(*const align(1) T, self));
+        return @alignCast(@alignOf(T), @ptrCast(*align(1) const T, self));
     } else {
         return undefined;
     }
@@ -143,7 +143,7 @@ pub const Storage = struct {
                 } else {
                     return .{
                         .data = {
-                            .Inline = Inline(size).init(.{args.@"0"});
+                            .Inline = try Inline(size).init(.{args.@"0"});
                         },
                     };
                 }
@@ -466,20 +466,21 @@ const TestFooer = struct {
 };
 
 test "Runtime non owning simple interface" {
-    var f = TestFooer { .state = 42 };
+    var f = TestFooer{ .state = 42 };
     var fooer = try Fooer.init(.{&f});
     defer fooer.deinit();
 
     assert(fooer.call("foo", .{}) == 42);
+    assert(fooer.call("foo", .{}) == 43);
 }
 
 test "Comptime non owning simple interface" {
     comptime {
-        var f = TestFooer { .state = 101 };
+        var f = TestFooer{ .state = 101 };
         var fooer = try Fooer.init(.{&f});
         defer fooer.deinit();
 
         assert(fooer.call("foo", .{}) == 101);
+        assert(fooer.call("foo", .{}) == 102);
     }
 }
-
