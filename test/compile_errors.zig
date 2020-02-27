@@ -3,6 +3,15 @@ const builtin = @import("builtin");
 const Target = @import("std").Target;
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.addTest("type mismatch with tuple concatenation",
+        \\export fn entry() void {
+        \\    var x = .{};
+        \\    x = x ++ .{ 1, 2, 3 };
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:3:11: error: expected type 'struct:2:14', found 'struct:3:11'",
+    });
+
     cases.addTest("@tagName on invalid value of non-exhaustive enum",
         \\test "enum" {
         \\    const E = enum(u8) {A, B, _};
