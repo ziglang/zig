@@ -14875,19 +14875,19 @@ static IrInstGen *ir_analyze_cast(IrAnalyze *ira, IrInst *source_instr,
 
     // cast from inferred struct type to array, union, or struct
     if (is_anon_container(actual_type)) {
-        AstNode *decl_node = actual_type->data.structure.decl_node;
-        ir_assert(decl_node->type == NodeTypeContainerInitExpr, source_instr);
-        ContainerInitKind init_kind = decl_node->data.container_init_expr.kind;
-        uint32_t field_count = actual_type->data.structure.src_field_count;
-        if (wanted_type->id == ZigTypeIdArray && (init_kind == ContainerInitKindArray || field_count == 0) &&
+        const bool is_array_init =
+            actual_type->data.structure.special == StructSpecialInferredTuple;
+        const uint32_t field_count = actual_type->data.structure.src_field_count;
+
+        if (wanted_type->id == ZigTypeIdArray && (is_array_init || field_count == 0) &&
             wanted_type->data.array.len == field_count)
         {
             return ir_analyze_struct_literal_to_array(ira, source_instr, value, wanted_type);
         } else if (wanted_type->id == ZigTypeIdStruct &&
-                (init_kind == ContainerInitKindStruct || field_count == 0))
+                (!is_array_init || field_count == 0))
         {
             return ir_analyze_struct_literal_to_struct(ira, source_instr, value, wanted_type);
-        } else if (wanted_type->id == ZigTypeIdUnion && init_kind == ContainerInitKindStruct && field_count == 1) {
+        } else if (wanted_type->id == ZigTypeIdUnion && !is_array_init && field_count == 1) {
             return ir_analyze_struct_literal_to_union(ira, source_instr, value, wanted_type);
         }
     }
