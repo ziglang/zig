@@ -168,8 +168,6 @@ fn PtrChildOrSelf(comptime T: type) type {
     return T;
 }
 
-// If we are async and candidate is not, it's ok.
-// If we are not async and candidate is, it's not ok.
 fn getFunctionFromImpl(comptime name: []const u8, comptime FnT: type, comptime ImplT: type) ?FnT {
     const our_cc = @typeInfo(FnT).Fn.calling_convention;
 
@@ -337,8 +335,8 @@ fn checkVtableType(comptime VTableT: type) void {
         }
 
         const arg_type = type_info.Fn.args[0].arg_type.?;
-        if (arg_type != SelfType and arg_type != *SelfType and arg_type != *const SelfType) {
-            @compileError("Virtual function's '" ++ field.name ++ "' must be SelfType, *SelfType or *const SelfType");
+        if (arg_type != *SelfType and arg_type != *const SelfType) {
+            @compileError("Virtual function's '" ++ field.name ++ "' first argument must be *SelfType or *const SelfType");
         }
     }
 }
@@ -435,5 +433,35 @@ test "SelfType ptr comptime" {
         var erased = makeSelfPtr(&b);
 
         assert(&b == selfPtrAs(erased, bool));
+    }
+}
+
+const Fooer = Interface(struct {
+    foo: fn (*SelfType) usize,
+}, Storage.NonOwning);
+
+const TestFooer = struct {
+    state: usize,
+
+    fn foo(self: TestFooer) usize {
+        return self.state;
+    }
+};
+
+test "Runtime non owning simple interface" {
+    var f = TestFooer { .state = 42 };
+    var fooer = try Fooer.init(.{&f});
+    defer fooer.deinit();
+
+    assert(fooer.call("foo", .{}) == 42);
+}
+
+test "Comptime non owning simple interface" {
+    comptime {
+        var f = TestFooer { .state = 101 };
+        var fooer = try Fooer.init(.{&f});
+        defer fooer.deinit();
+
+        assert(fooer.call("foo", .{}) == 101);
     }
 }
