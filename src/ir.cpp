@@ -17841,6 +17841,7 @@ static IrInstGen *ir_analyze_instruction_export(IrAnalyze *ira, IrInstSrcExport 
             }
         } break;
         case ZigTypeIdInt:
+            want_var_export = true;
             break;
         case ZigTypeIdVoid:
         case ZigTypeIdBool:
