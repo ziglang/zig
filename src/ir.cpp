@@ -16961,8 +16961,6 @@ static IrInstGen *ir_analyze_tuple_cat(IrAnalyze *ira, IrInst* source_instr,
     new_type->data.structure.special = StructSpecialInferredTuple;
     new_type->data.structure.resolve_status = ResolveStatusBeingInferred;
 
-    bool is_comptime = ir_should_inline(ira->old_irb.exec, source_instr->scope);
-
     IrInstGen *new_struct_ptr = ir_resolve_result(ira, source_instr, no_result_loc(),
             new_type, nullptr, false, true);
     uint32_t new_field_count = op1_field_count + op2_field_count;
