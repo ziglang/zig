@@ -216,9 +216,7 @@ fn getFunctionFromImpl(comptime name: []const u8, comptime FnT: type, comptime I
                         else => {},
                     }
 
-                    // TODO: Is there some way to not make a different closure for every argument length?
-                    // Ideally, we would somehow pass 1-tuple with the argument pack from Interface.call and
-                    // use arg[0] in @call.
+                    // TODO: Make this less hacky somehow?
                     return switch (args.len) {
                         1 => struct {
                             fn impl(self_ptr: CurrSelfType) Return {
@@ -270,15 +268,6 @@ fn getFunctionFromImpl(comptime name: []const u8, comptime FnT: type, comptime I
                         }.impl,
                         else => @compileError("Unsupported number of arguments, please provide a manually written vtable."),
                     };
-
-                    // return struct {
-                    //     fn impl(self_ptr: *SelfType, args: var) Return {
-                    //         const self = if (is_const) constSelfPtrAs(self_ptr, ImplT) else selfPtrAs(self_ptr, ImplT);
-                    //         const f = @field(self, name);
-
-                    //         return @call(if (our_cc == .Async) .{ .modifier = .async_kw } else .{ .modifier = .always_inline }, f, args);
-                    //     }
-                    // }.impl;
                 },
                 else => return null,
             }
@@ -510,7 +499,7 @@ test "Owning interface with optional function - runtime" {
     var iface_instance = try TestOwningIface.init(.{ TestStruct{ .state = 0 }, testing_allocator });
     defer iface_instance.deinit();
 
-    // TODO: This errors with "cannot assign to constant"
+    // TODO: Pass arguments directly after https://github.com/ziglang/zig/issues/4571 is closed (current PR: https://github.com/ziglang/zig/pull/4573)
     // try iface_instance.call("otherFn", .{100});
     // Workaround:
     var a: usize = 100;
