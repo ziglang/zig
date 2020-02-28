@@ -3267,7 +3267,6 @@ struct IrInstSrcContainerInitList {
 struct IrInstSrcContainerInitFieldsField {
     Buf *name;
     AstNode *source_node;
-    TypeStructField *type_struct_field;
     IrInstSrc *result_loc;
 };
 
