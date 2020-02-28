@@ -1152,44 +1152,24 @@ fn enumInt(comptime Enum: type, int: c_int) Enum {
     return @intToEnum(Enum, @intCast(@TagType(Enum), int));
 }
 
-/// TODO move dynamic linker to be part of the target
-/// TODO self-host this function
 fn crossTargetToTarget(cross_target: CrossTarget, dynamic_linker_ptr: *?[*:0]u8) !Target {
-    var adjusted_target = cross_target.toTarget();
-    var have_native_dl = false;
-    if (cross_target.cpu_arch == null or cross_target.os_tag == null) {
-        const detected_info = try std.zig.system.NativeTargetInfo.detect(std.heap.c_allocator);
-        if (cross_target.cpu_arch == null) {
-            adjusted_target.cpu = detected_info.target.cpu;
-
-            // TODO We want to just use detected_info.target but implementing
-            // CPU model & feature detection is todo so here we rely on LLVM.
-            // There is another occurrence of this; search for detectNativeCpuWithLLVM.
-            const llvm = @import("llvm.zig");
-            const llvm_cpu_name = llvm.GetHostCPUName();
-            const llvm_cpu_features = llvm.GetNativeFeatures();
-            const arch = std.Target.current.cpu.arch;
-            adjusted_target.cpu = try detectNativeCpuWithLLVM(arch, llvm_cpu_name, llvm_cpu_features);
-        }
-        if (cross_target.os_tag == null) {
-            adjusted_target.os = detected_info.target.os;
-
-            if (detected_info.dynamic_linker.get()) |dl| {
-                have_native_dl = true;
-                dynamic_linker_ptr.* = try mem.dupeZ(std.heap.c_allocator, u8, dl);
-            }
-            if (cross_target.abi == null) {
-                adjusted_target.abi = detected_info.target.abi;
-            }
-        } else if (cross_target.abi == null) {
-            adjusted_target.abi = Target.Abi.default(adjusted_target.cpu.arch, adjusted_target.os);
-        }
+    var info = try std.zig.system.NativeTargetInfo.detect(std.heap.c_allocator, cross_target);
+    if (cross_target.cpu_arch == null or cross_target.cpu_model == null) {
+        // TODO We want to just use detected_info.target but implementing
+        // CPU model & feature detection is todo so here we rely on LLVM.
+        const llvm = @import("llvm.zig");
+        const llvm_cpu_name = llvm.GetHostCPUName();
+        const llvm_cpu_features = llvm.GetNativeFeatures();
+        const arch = std.Target.current.cpu.arch;
+        info.target.cpu = try detectNativeCpuWithLLVM(arch, llvm_cpu_name, llvm_cpu_features);
+        cross_target.updateCpuFeatures(&info.target.cpu.features);
     }
-    if (!have_native_dl) {
-        const dl = adjusted_target.standardDynamicLinkerPath();
-        dynamic_linker_ptr.* = if (dl.get()) |s| try mem.dupeZ(std.heap.c_allocator, u8, s) else null;
+    if (info.dynamic_linker.get()) |dl| {
+        dynamic_linker_ptr.* = try mem.dupeZ(std.heap.c_allocator, u8, dl);
+    } else {
+        dynamic_linker_ptr.* = null;
     }
-    return adjusted_target;
+    return info.target;
 }
 
 // ABI warning

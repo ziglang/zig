@@ -7,6 +7,7 @@ const ArrayList = std.ArrayList;
 const assert = std.debug.assert;
 const process = std.process;
 const Target = std.Target;
+const CrossTarget = std.zig.CrossTarget;
 
 const is_windows = Target.current.os.tag == .windows;
 
@@ -182,37 +183,87 @@ pub const NativeTargetInfo = struct {
         DeviceBusy,
     };
 
-    /// Detects the native CPU model & features, operating system & version, and C ABI & dynamic linker.
-    /// On Linux, this is additionally responsible for detecting the native glibc version when applicable.
+    /// Given a `CrossTarget`, which specifies in detail which parts of the target should be detected
+    /// natively, which should be standard or default, and which are provided explicitly, this function
+    /// resolves the native components by detecting the native system, and then resolves standard/default parts
+    /// relative to that.
     /// Any resources this function allocates are released before returning, and so there is no
     /// deinitialization method.
     /// TODO Remove the Allocator requirement from this function.
-    pub fn detect(allocator: *Allocator) DetectError!NativeTargetInfo {
-        const arch = Target.current.cpu.arch;
-        const os_tag = Target.current.os.tag;
-
-        // TODO Detect native CPU model & features. Until that is implemented we hard code baseline.
-        const cpu = Target.Cpu.baseline(arch);
-
-        // TODO Detect native operating system version. Until that is implemented we use the default range.
-        var os = Target.Os.defaultVersionRange(os_tag);
-        switch (Target.current.os.tag) {
-            .linux => {
-                const uts = std.os.uname();
-                const release = mem.toSliceConst(u8, @ptrCast([*:0]const u8, &uts.release));
-                if (std.builtin.Version.parse(release)) |ver| {
-                    os.version_range.linux.range.min = ver;
-                    os.version_range.linux.range.max = ver;
-                } else |err| switch (err) {
-                    error.Overflow => {},
-                    error.InvalidCharacter => {},
-                    error.InvalidVersion => {},
+    pub fn detect(allocator: *Allocator, cross_target: CrossTarget) DetectError!NativeTargetInfo {
+        const cpu = blk: {
+            if (cross_target.cpu_arch) |arch| {
+                if (cross_target.cpu_model) |model| {
+                    var adjusted_model = model.toCpu(arch);
+                    cross_target.updateCpuFeatures(&adjusted_model.features);
+                    break :blk adjusted_model;
+                } else {
+                    // TODO Detect native CPU model. Until that is implemented we use baseline.
+                    var adjusted_baseline = Target.Cpu.baseline(arch);
+                    cross_target.updateCpuFeatures(&adjusted_baseline.features);
+                    break :blk adjusted_baseline;
                 }
-            },
-            else => {},
+            } else {
+                assert(cross_target.cpu_model == null);
+                // TODO Detect native CPU model & features. Until that is implemented we use baseline.
+                var adjusted_baseline = Target.Cpu.baseline(Target.current.cpu.arch);
+                cross_target.updateCpuFeatures(&adjusted_baseline.features);
+                break :blk adjusted_baseline;
+            }
+        };
+
+        var os = Target.Os.defaultVersionRange(cross_target.getOsTag());
+        if (cross_target.os_tag == null) {
+            switch (Target.current.os.tag) {
+                .linux => {
+                    const uts = std.os.uname();
+                    const release = mem.toSliceConst(u8, @ptrCast([*:0]const u8, &uts.release));
+                    if (std.builtin.Version.parse(release)) |ver| {
+                        os.version_range.linux.range.min = ver;
+                        os.version_range.linux.range.max = ver;
+                    } else |err| switch (err) {
+                        error.Overflow => {},
+                        error.InvalidCharacter => {},
+                        error.InvalidVersion => {},
+                    }
+                },
+                .windows => {
+                    // TODO Detect native operating system version.
+                },
+                .macosx => {
+                    // TODO Detect native operating system version.
+                },
+                .freebsd => {
+                    // TODO Detect native operating system version.
+                },
+                else => {},
+            }
         }
 
-        return detectAbiAndDynamicLinker(allocator, cpu, os);
+        if (cross_target.os_version_min) |min| switch (min) {
+            .none => {},
+            .semver => |semver| switch (cross_target.getOsTag()) {
+                .linux => os.version_range.linux.range.min = semver,
+                else => os.version_range.semver.min = semver,
+            },
+            .windows => |win_ver| os.version_range.windows.min = win_ver,
+        };
+
+        if (cross_target.os_version_max) |max| switch (max) {
+            .none => {},
+            .semver => |semver| switch (cross_target.getOsTag()) {
+                .linux => os.version_range.linux.range.max = semver,
+                else => os.version_range.semver.max = semver,
+            },
+            .windows => |win_ver| os.version_range.windows.max = win_ver,
+        };
+
+        if (cross_target.glibc_version) |glibc| {
+            assert(cross_target.isGnuLibC());
+            os.version_range.linux.glibc = glibc;
+        }
+
+        return detectAbiAndDynamicLinker(allocator, cpu, os, cross_target);
     }
 
     /// First we attempt to use the executable's own binary. If it is dynamically
@@ -224,9 +275,14 @@ pub const NativeTargetInfo = struct {
         allocator: *Allocator,
         cpu: Target.Cpu,
         os: Target.Os,
+        cross_target: CrossTarget,
     ) DetectError!NativeTargetInfo {
-        if (!comptime Target.current.hasDynamicLinker()) {
-            return defaultAbiAndDynamicLinker(cpu, os);
+        const native_target_has_ld = comptime Target.current.hasDynamicLinker();
+        const is_linux = Target.current.os.tag == .linux;
+        const have_all_info = cross_target.dynamic_linker.get() != null and
+            cross_target.abi != null and (!is_linux or cross_target.abi.?.isGnu());
+        if (!native_target_has_ld or have_all_info) {
+            return defaultAbiAndDynamicLinker(cpu, os, cross_target);
         }
         // The current target's ABI cannot be relied on for this. For example, we may build the zig
         // compiler for target riscv64-linux-musl and provide a tarball for users to download.
@@ -264,6 +320,13 @@ pub const NativeTargetInfo = struct {
         }
         const ld_info_list = ld_info_list_buffer[0..ld_info_list_len];
 
+        if (cross_target.dynamic_linker.get()) |explicit_ld| {
+            const explicit_ld_basename = fs.path.basename(explicit_ld);
+            for (ld_info_list) |ld_info| {
+                const standard_ld_basename = fs.path.basename(ld_info.ld.get().?);
+            }
+        }
+
         // Best case scenario: the executable is dynamically linked, and we can iterate
         // over our own shared objects and find a dynamic linker.
         self_exe: {
@@ -288,7 +351,9 @@ pub const NativeTargetInfo = struct {
 
             // Look for glibc version.
             var os_adjusted = os;
-            if (Target.current.os.tag == .linux and found_ld_info.abi.isGnu()) {
+            if (Target.current.os.tag == .linux and found_ld_info.abi.isGnu() and
+                cross_target.glibc_version == null)
+            {
                 for (lib_paths) |lib_path| {
                     if (std.mem.endsWith(u8, lib_path, glibc_so_basename)) {
                         os_adjusted.version_range.linux.glibc = glibcVerFromSO(lib_path) catch |err| switch (err) {
@@ -306,9 +371,12 @@ pub const NativeTargetInfo = struct {
                 .target = .{
                     .cpu = cpu,
                     .os = os_adjusted,
-                    .abi = found_ld_info.abi,
+                    .abi = cross_target.abi orelse found_ld_info.abi,
                 },
-                .dynamic_linker = DynamicLinker.init(found_ld_path),
+                .dynamic_linker = if (cross_target.dynamic_linker.get() == null)
+                    DynamicLinker.init(found_ld_path)
+                else
+                    cross_target.dynamic_linker,
             };
             return result;
         }
@@ -317,7 +385,7 @@ pub const NativeTargetInfo = struct {
         // trick won't work. The next thing we fall back to is the same thing, but for /usr/bin/env.
         // Since that path is hard-coded into the shebang line of many portable scripts, it's a
         // reasonably reliable path to check for.
-        return abiAndDynamicLinkerFromUsrBinEnv(cpu, os, ld_info_list) catch |err| switch (err) {
+        return abiAndDynamicLinkerFromUsrBinEnv(cpu, os, ld_info_list, cross_target) catch |err| switch (err) {
             error.FileSystem,
             error.SystemResources,
             error.SymLinkLoop,
@@ -337,7 +405,7 @@ pub const NativeTargetInfo = struct {
             error.UnexpectedEndOfFile,
             error.NameTooLong,
             // Finally, we fall back on the standard path.
-            => defaultAbiAndDynamicLinker(cpu, os),
+            => defaultAbiAndDynamicLinker(cpu, os, cross_target),
         };
     }
 
@@ -379,6 +447,7 @@ pub const NativeTargetInfo = struct {
         cpu: Target.Cpu,
         os: Target.Os,
         ld_info_list: []const LdInfo,
+        cross_target: CrossTarget,
     ) !NativeTargetInfo {
         const env_file = std.fs.openFileAbsoluteC("/usr/bin/env", .{}) catch |err| switch (err) {
             error.NoSpaceLeft => unreachable,
@@ -424,10 +493,12 @@ pub const NativeTargetInfo = struct {
             .target = .{
                 .cpu = cpu,
                 .os = os,
-                .abi = Target.Abi.default(cpu.arch, os),
+                .abi = cross_target.abi orelse Target.Abi.default(cpu.arch, os),
             },
+            .dynamic_linker = cross_target.dynamic_linker,
         };
         var rpath_offset: ?u64 = null; // Found inside PT_DYNAMIC
+        const look_for_ld = cross_target.dynamic_linker.get() == null;
 
         var ph_buf: [16 * @sizeOf(elf.Elf64_Phdr)]u8 align(@alignOf(elf.Elf64_Phdr)) = undefined;
         if (phentsize > @sizeOf(elf.Elf64_Phdr)) return error.InvalidElfFile;
@@ -448,7 +519,7 @@ pub const NativeTargetInfo = struct {
                 const ph64 = @ptrCast(*elf.Elf64_Phdr, @alignCast(@alignOf(elf.Elf64_Phdr), &ph_buf[ph_buf_i]));
                 const p_type = elfInt(is_64, need_bswap, ph32.p_type, ph64.p_type);
                 switch (p_type) {
-                    elf.PT_INTERP => {
+                    elf.PT_INTERP => if (look_for_ld) {
                         const p_offset = elfInt(is_64, need_bswap, ph32.p_offset, ph64.p_offset);
                         const p_filesz = elfInt(is_64, need_bswap, ph32.p_filesz, ph64.p_filesz);
                         if (p_filesz > result.dynamic_linker.buffer.len) return error.NameTooLong;
@@ -470,7 +541,9 @@ pub const NativeTargetInfo = struct {
                         }
                     },
                     // We only need this for detecting glibc version.
-                    elf.PT_DYNAMIC => if (Target.current.os.tag == .linux and result.target.isGnuLibC()) {
+                    elf.PT_DYNAMIC => if (Target.current.os.tag == .linux and result.target.isGnuLibC() and
+                        cross_target.glibc_version == null)
+                    {
                         var dyn_off = elfInt(is_64, need_bswap, ph32.p_offset, ph64.p_offset);
                         const p_filesz = elfInt(is_64, need_bswap, ph32.p_filesz, ph64.p_filesz);
                         const dyn_size: u64 = if (is_64) @sizeOf(elf.Elf64_Dyn) else @sizeOf(elf.Elf32_Dyn);
@@ -515,7 +588,7 @@ pub const NativeTargetInfo = struct {
             }
         }
 
-        if (Target.current.os.tag == .linux and result.target.isGnuLibC()) {
+        if (Target.current.os.tag == .linux and result.target.isGnuLibC() and cross_target.glibc_version == null) {
             if (rpath_offset) |rpoff| {
                 const shstrndx = elfInt(is_64, need_bswap, hdr32.e_shstrndx, hdr64.e_shstrndx);
 
@@ -657,15 +730,18 @@ pub const NativeTargetInfo = struct {
         return i;
     }
 
-    fn defaultAbiAndDynamicLinker(cpu: Target.Cpu, os: Target.Os) !NativeTargetInfo {
+    fn defaultAbiAndDynamicLinker(cpu: Target.Cpu, os: Target.Os, cross_target: CrossTarget) !NativeTargetInfo {
         const target: Target = .{
             .cpu = cpu,
             .os = os,
-            .abi = Target.Abi.default(cpu.arch, os),
+            .abi = cross_target.abi orelse Target.Abi.default(cpu.arch, os),
         };
         return NativeTargetInfo{
             .target = target,
-            .dynamic_linker = target.standardDynamicLinkerPath(),
+            .dynamic_linker = if (cross_target.dynamic_linker.get() == null)
+                target.standardDynamicLinkerPath()
+            else
+                cross_target.dynamic_linker,
         };
     }
 

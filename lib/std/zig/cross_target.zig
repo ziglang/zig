@@ -7,19 +7,17 @@ const mem = std.mem;
 /// The purpose of this abstraction is to provide meaningful and unsurprising defaults.
 /// This struct does reference any resources and it is copyable.
 pub const CrossTarget = struct {
-    /// `null` means native.
+    /// `null` means native. If this is `null` then `cpu_model` must be `null`.
     cpu_arch: ?Target.Cpu.Arch = null,
 
-    /// If `cpu_arch` is native, `null` means native. Otherwise it means baseline.
+    /// `null` means native.
     /// If this is non-null, `cpu_arch` must be specified.
     cpu_model: ?*const Target.Cpu.Model = null,
 
     /// Sparse set of CPU features to add to the set from `cpu_model`.
-    /// If this is non-empty, `cpu_arch` must be specified.
     cpu_features_add: Target.Cpu.Feature.Set = Target.Cpu.Feature.Set.empty,
 
     /// Sparse set of CPU features to remove from the set from `cpu_model`.
-    /// If this is non-empty, `cpu_arch` must be specified.
     cpu_features_sub: Target.Cpu.Feature.Set = Target.Cpu.Feature.Set.empty,
 
     /// `null` means native.
@@ -33,12 +31,12 @@ pub const CrossTarget = struct {
     /// When `os_tag` is native, `null` means equal to the native OS version.
     os_version_max: ?OsVersion = null,
 
-    /// `null` means the native C ABI, if `os_tag` is native, otherwise it means the default C ABI.
-    abi: ?Target.Abi = null,
-
     /// `null` means default when cross compiling, or native when os_tag is native.
     /// If `isGnuLibC()` is `false`, this must be `null` and is ignored.
     glibc_version: ?SemVer = null,
+
+    /// `null` means the native C ABI, if `os_tag` is native, otherwise it means the default C ABI.
+    abi: ?Target.Abi = null,
 
     /// When `os_tag` is `null`, then `null` means native. Otherwise it means the standard path
     /// based on the `os_tag`.
@@ -146,6 +144,7 @@ pub const CrossTarget = struct {
         }
     }
 
+    /// TODO deprecated, use `std.zig.system.NativeTargetInfo.detect`.
     pub fn toTarget(self: CrossTarget) Target {
         return .{
             .cpu = self.getCpu(),
@@ -307,6 +306,7 @@ pub const CrossTarget = struct {
         return result;
     }
 
+    /// TODO deprecated, use `std.zig.system.NativeTargetInfo.detect`.
     pub fn getCpu(self: CrossTarget) Target.Cpu {
         if (self.cpu_arch) |arch| {
             if (self.cpu_model) |model| {
@@ -342,6 +342,7 @@ pub const CrossTarget = struct {
         return self.getCpu().features;
     }
 
+    /// TODO deprecated, use `std.zig.system.NativeTargetInfo.detect`.
     pub fn getOs(self: CrossTarget) Target.Os {
         // `Target.current.os` works when doing `zig build` because Zig generates a build executable using
         // native OS version range. However this will not be accurate otherwise, and
@@ -378,6 +379,7 @@ pub const CrossTarget = struct {
         return self.os_tag orelse Target.current.os.tag;
     }
 
+    /// TODO deprecated, use `std.zig.system.NativeTargetInfo.detect`.
     pub fn getOsVersionMin(self: CrossTarget) OsVersion {
         if (self.os_version_min) |version_min| return version_min;
         var tmp: CrossTarget = undefined;
@@ -385,6 +387,7 @@ pub const CrossTarget = struct {
         return tmp.os_version_min.?;
     }
 
+    /// TODO deprecated, use `std.zig.system.NativeTargetInfo.detect`.
     pub fn getOsVersionMax(self: CrossTarget) OsVersion {
         if (self.os_version_max) |version_max| return version_max;
         var tmp: CrossTarget = undefined;
@@ -392,6 +395,7 @@ pub const CrossTarget = struct {
         return tmp.os_version_max.?;
     }
 
+    /// TODO deprecated, use `std.zig.system.NativeTargetInfo.detect`.
     pub fn getAbi(self: CrossTarget) Target.Abi {
         if (self.abi) |abi| return abi;
 
