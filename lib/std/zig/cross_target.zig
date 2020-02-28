@@ -7,11 +7,10 @@ const mem = std.mem;
 /// The purpose of this abstraction is to provide meaningful and unsurprising defaults.
 /// This struct does reference any resources and it is copyable.
 pub const CrossTarget = struct {
-    /// `null` means native. If this is `null` then `cpu_model` must be `null`.
+    /// `null` means native.
     cpu_arch: ?Target.Cpu.Arch = null,
 
-    /// `null` means native. If this is non-null, `cpu_arch` must be specified.
-    cpu_model: ?*const Target.Cpu.Model = null,
+    cpu_model: CpuModel = CpuModel.determined_by_cpu_arch,
 
     /// Sparse set of CPU features to add to the set from `cpu_model`.
     cpu_features_add: Target.Cpu.Feature.Set = Target.Cpu.Feature.Set.empty,
@@ -41,6 +40,20 @@ pub const CrossTarget = struct {
     /// based on the `os_tag`.
     dynamic_linker: DynamicLinker = DynamicLinker{},
 
+    pub const CpuModel = union(enum) {
+        /// Always native
+        native,
+
+        /// Always baseline
+        baseline,
+
+        /// If CPU Architecture is native, then the CPU model will be native. Otherwise,
+        /// it will be baseline.
+        determined_by_cpu_arch,
+
+        explicit: *const Target.Cpu.Model,
+    };
+
     pub const OsVersion = union(enum) {
         none: void,
         semver: SemVer,
@@ -54,7 +67,7 @@ pub const CrossTarget = struct {
     pub fn fromTarget(target: Target) CrossTarget {
         var result: CrossTarget = .{
             .cpu_arch = target.cpu.arch,
-            .cpu_model = target.cpu.model,
+            .cpu_model = .{ .explicit = target.cpu.model },
             .os_tag = target.os.tag,
             .os_version_min = undefined,
             .os_version_max = undefined,
@@ -266,11 +279,11 @@ pub const CrossTarget = struct {
             const add_set = &result.cpu_features_add;
             const sub_set = &result.cpu_features_sub;
             if (mem.eql(u8, cpu_name, "native")) {
-                result.cpu_model = null;
+                result.cpu_model = .native;
             } else if (mem.eql(u8, cpu_name, "baseline")) {
-                result.cpu_model = Target.Cpu.Model.baseline(arch);
+                result.cpu_model = .baseline;
             } else {
-                result.cpu_model = try arch.parseCpuModel(cpu_name);
+                result.cpu_model = .{ .explicit = try arch.parseCpuModel(cpu_name) };
             }
 
             while (index < cpu_features.len) {
@@ -300,10 +313,6 @@ pub const CrossTarget = struct {
                     return error.UnknownCpuFeature;
                 }
             }
-        } else if (arch_is_native) {
-            result.cpu_model = null;
-        } else {
-            result.cpu_model = Target.Cpu.Model.baseline(arch);
         }
 
         return result;
@@ -311,24 +320,33 @@ pub const CrossTarget = struct {
 
     /// TODO deprecated, use `std.zig.system.NativeTargetInfo.detect`.
     pub fn getCpu(self: CrossTarget) Target.Cpu {
-        if (self.cpu_arch) |arch| {
-            if (self.cpu_model) |model| {
-                var adjusted_model = model.toCpu(arch);
-                self.updateCpuFeatures(&adjusted_model.features);
-                return adjusted_model;
-            } else {
-                var adjusted_baseline = Target.Cpu.baseline(arch);
+        switch (self.cpu_model) {
+            .native => {
+                // This works when doing `zig build` because Zig generates a build executable using
+                // native CPU model & features. However this will not be accurate otherwise, and
+                // will need to be integrated with `std.zig.system.NativeTargetInfo.detect`.
+                return Target.current.cpu;
+            },
+            .baseline => {
+                var adjusted_baseline = Target.Cpu.baseline(self.getCpuArch());
                 self.updateCpuFeatures(&adjusted_baseline.features);
                 return adjusted_baseline;
-            }
-        } else {
-            assert(self.cpu_model == null);
-            assert(self.cpu_features_sub.isEmpty());
-            assert(self.cpu_features_add.isEmpty());
-            // This works when doing `zig build` because Zig generates a build executable using
-            // native CPU model & features. However this will not be accurate otherwise, and
-            // will need to be integrated with `std.zig.system.NativeTargetInfo.detect`.
-            return Target.current.cpu;
+            },
+            .determined_by_cpu_arch => if (self.cpu_arch == null) {
+                // This works when doing `zig build` because Zig generates a build executable using
+                // native CPU model & features. However this will not be accurate otherwise, and
+                // will need to be integrated with `std.zig.system.NativeTargetInfo.detect`.
+                return Target.current.cpu;
+            } else {
+                var adjusted_baseline = Target.Cpu.baseline(self.getCpuArch());
+                self.updateCpuFeatures(&adjusted_baseline.features);
+                return adjusted_baseline;
+            },
+            .explicit => |model| {
+                var adjusted_model = model.toCpu(self.getCpuArch());
+                self.updateCpuFeatures(&adjusted_model.features);
+                return adjusted_model;
+            },
         }
     }
 
@@ -461,7 +479,8 @@ pub const CrossTarget = struct {
     }
 
     pub fn isNative(self: CrossTarget) bool {
-        return self.cpu_arch == null and self.cpu_model == null and
+        return self.cpu_arch == null and
+            (self.cpu_model == .native or self.cpu_model == .determined_by_cpu_arch) and
             self.cpu_features_sub.isEmpty() and self.cpu_features_add.isEmpty() and
             self.os_tag == null and self.os_version_min == null and self.os_version_max == null and
             self.abi == null and self.dynamic_linker.get() == null;

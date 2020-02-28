@@ -191,18 +191,18 @@ pub const NativeTargetInfo = struct {
     /// deinitialization method.
     /// TODO Remove the Allocator requirement from this function.
     pub fn detect(allocator: *Allocator, cross_target: CrossTarget) DetectError!NativeTargetInfo {
-        const cpu = blk: {
-            const arch = cross_target.getCpuArch();
-            if (cross_target.cpu_model) |model| {
-                var adjusted_model = model.toCpu(arch);
+        const cpu = switch (cross_target.cpu_model) {
+            .native => detectNativeCpuAndFeatures(cross_target),
+            .baseline => baselineCpuAndFeatures(cross_target),
+            .determined_by_cpu_arch => if (cross_target.cpu_arch == null)
+                detectNativeCpuAndFeatures(cross_target)
+            else
+                baselineCpuAndFeatures(cross_target),
+            .explicit => |model| blk: {
+                var adjusted_model = model.toCpu(cross_target.getCpuArch());
                 cross_target.updateCpuFeatures(&adjusted_model.features);
                 break :blk adjusted_model;
-            } else {
-                // TODO Detect native CPU model & features. Until that is implemented we use baseline.
-                var adjusted_baseline = Target.Cpu.baseline(arch);
-                cross_target.updateCpuFeatures(&adjusted_baseline.features);
-                break :blk adjusted_baseline;
-            }
+            },
         };
 
         var os = Target.Os.defaultVersionRange(cross_target.getOsTag());
@@ -757,5 +757,16 @@ pub const NativeTargetInfo = struct {
                 return int_32;
             }
         }
+    }
+
+    fn detectNativeCpuAndFeatures(cross_target: CrossTarget) Target.Cpu {
+        // TODO Detect native CPU model & features. Until that is implemented we use baseline.
+        return baselineCpuAndFeatures(cross_target);
+    }
+
+    fn baselineCpuAndFeatures(cross_target: CrossTarget) Target.Cpu {
+        var adjusted_baseline = Target.Cpu.baseline(cross_target.getCpuArch());
+        cross_target.updateCpuFeatures(&adjusted_baseline.features);
+        return adjusted_baseline;
     }
 };
