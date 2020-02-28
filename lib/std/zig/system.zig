@@ -274,7 +274,8 @@ pub const NativeTargetInfo = struct {
         const is_linux = Target.current.os.tag == .linux;
         const have_all_info = cross_target.dynamic_linker.get() != null and
             cross_target.abi != null and (!is_linux or cross_target.abi.?.isGnu());
-        if (!native_target_has_ld or have_all_info) {
+        const os_is_non_native = cross_target.os_tag != null;
+        if (!native_target_has_ld or have_all_info or os_is_non_native) {
             return defaultAbiAndDynamicLinker(cpu, os, cross_target);
         }
         // The current target's ABI cannot be relied on for this. For example, we may build the zig
