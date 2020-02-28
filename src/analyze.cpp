@@ -5401,6 +5401,8 @@ bool generic_fn_type_id_eql(GenericFnTypeId *a, GenericFnTypeId *b) {
 
 static bool can_mutate_comptime_var_state(ZigValue *value) {
     assert(value != nullptr);
+    if (value->special == ConstValSpecialUndef)
+        return false;
     switch (value->type->id) {
         case ZigTypeIdInvalid:
             zig_unreachable();
@@ -6701,8 +6703,16 @@ bool const_values_equal_ptr(ZigValue *a, ZigValue *b) {
 }
 
 static bool const_values_equal_array(CodeGen *g, ZigValue *a, ZigValue *b, size_t len) {
-    assert(a->data.x_array.special != ConstArraySpecialUndef);
-    assert(b->data.x_array.special != ConstArraySpecialUndef);
+    if (a->data.x_array.special == ConstArraySpecialUndef &&
+        b->data.x_array.special == ConstArraySpecialUndef)
+    {
+        return true;
+    }
+    if (a->data.x_array.special == ConstArraySpecialUndef ||
+        b->data.x_array.special == ConstArraySpecialUndef)
+    {
+        return false;
+    }
     if (a->data.x_array.special == ConstArraySpecialBuf &&
         b->data.x_array.special == ConstArraySpecialBuf)
     {
@@ -9390,13 +9400,24 @@ void copy_const_val(CodeGen *g, ZigValue *dest, ZigValue *src) {
             dest->data.x_struct.fields[i]->parent.data.p_struct.field_index = i;
         }
     } else if (dest->type->id == ZigTypeIdArray) {
-        if (dest->data.x_array.special == ConstArraySpecialNone) {
-            dest->data.x_array.data.s_none.elements = g->pass1_arena->allocate<ZigValue>(dest->type->data.array.len);
-            for (uint64_t i = 0; i < dest->type->data.array.len; i += 1) {
-                copy_const_val(g, &dest->data.x_array.data.s_none.elements[i], &src->data.x_array.data.s_none.elements[i]);
-                dest->data.x_array.data.s_none.elements[i].parent.id = ConstParentIdArray;
-                dest->data.x_array.data.s_none.elements[i].parent.data.p_array.array_val = dest;
-                dest->data.x_array.data.s_none.elements[i].parent.data.p_array.elem_index = i;
+        switch (dest->data.x_array.special) {
+            case ConstArraySpecialNone: {
+                dest->data.x_array.data.s_none.elements = g->pass1_arena->allocate<ZigValue>(dest->type->data.array.len);
+                for (uint64_t i = 0; i < dest->type->data.array.len; i += 1) {
+                    copy_const_val(g, &dest->data.x_array.data.s_none.elements[i], &src->data.x_array.data.s_none.elements[i]);
+                    dest->data.x_array.data.s_none.elements[i].parent.id = ConstParentIdArray;
+                    dest->data.x_array.data.s_none.elements[i].parent.data.p_array.array_val = dest;
+                    dest->data.x_array.data.s_none.elements[i].parent.data.p_array.elem_index = i;
+                }
+                break;
+            }
+            case ConstArraySpecialUndef: {
+                // Nothing to copy; the above memcpy did everything we needed.
+                break;
+            }
+            case ConstArraySpecialBuf: {
+                dest->data.x_array.data.s_buf = buf_create_from_buf(src->data.x_array.data.s_buf);
+                break;
             }
         }
     } else if (type_has_optional_repr(dest->type) && dest->data.x_optional != nullptr) {
