@@ -125,6 +125,7 @@ pub extern "c" fn sysctlnametomib(name: [*:0]const u8, mibp: ?*c_int, sizep: ?*u
 pub extern "c" fn tcgetattr(fd: fd_t, termios_p: *termios) c_int;
 pub extern "c" fn tcsetattr(fd: fd_t, optional_action: TCSA, termios_p: *const termios) c_int;
 pub extern "c" fn fcntl(fd: fd_t, cmd: c_int, ...) c_int;
+pub extern "c" fn uname(buf: *utsname) c_int;
 
 pub extern "c" fn gethostname(name: [*]u8, len: usize) c_int;
 pub extern "c" fn bind(socket: fd_t, address: ?*const sockaddr, address_len: socklen_t) c_int;

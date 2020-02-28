@@ -3295,20 +3295,22 @@ pub fn gethostname(name_buffer: *[HOST_NAME_MAX]u8) GetHostNameError![]u8 {
         }
     }
     if (builtin.os.tag == .linux) {
-        var uts: utsname = undefined;
-        switch (errno(system.uname(&uts))) {
-            0 => {
-                const hostname = mem.toSlice(u8, @ptrCast([*:0]u8, &uts.nodename));
-                mem.copy(u8, name_buffer, hostname);
-                return name_buffer[0..hostname.len];
-            },
-            EFAULT => unreachable,
-            EPERM => return error.PermissionDenied,
-            else => |err| return unexpectedErrno(err),
-        }
+        const uts = uname();
+        const hostname = mem.toSliceConst(u8, @ptrCast([*:0]const u8, &uts.nodename));
+        mem.copy(u8, name_buffer, hostname);
+        return name_buffer[0..hostname.len];
     }
 
     @compileError("TODO implement gethostname for this OS");
+}
+
+pub fn uname() utsname {
+    var uts: utsname = undefined;
+    switch (errno(system.uname(&uts))) {
+        0 => return uts,
+        EFAULT => unreachable,
+        else => unreachable,
+    }
 }
 
 pub fn res_mkquery(

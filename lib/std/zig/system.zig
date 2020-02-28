@@ -200,7 +200,22 @@ pub const NativeTargetInfo = struct {
         const cpu = Target.Cpu.baseline(arch);
 
         // TODO Detect native operating system version. Until that is implemented we use the default range.
-        const os = Target.Os.defaultVersionRange(os_tag);
+        var os = Target.Os.defaultVersionRange(os_tag);
+        switch (Target.current.os.tag) {
+            .linux => {
+                const uts = std.os.uname();
+                const release = mem.toSliceConst(u8, @ptrCast([*:0]const u8, &uts.release));
+                if (std.builtin.Version.parse(release)) |ver| {
+                    os.version_range.linux.range.min = ver;
+                    os.version_range.linux.range.max = ver;
+                } else |err| switch (err) {
+                    error.Overflow => {},
+                    error.InvalidCharacter => {},
+                    error.InvalidVersion => {},
+                }
+            },
+            else => {},
+        }
 
         return detectAbiAndDynamicLinker(allocator, cpu, os);
     }
