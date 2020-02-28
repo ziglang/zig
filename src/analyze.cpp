@@ -1135,7 +1135,7 @@ Error type_val_resolve_zero_bits(CodeGen *g, ZigValue *type_val, ZigType *parent
         // Self-referencing types via pointers are allowed and have non-zero size
         ZigType *ty = type_val->data.x_type;
         while (ty->id == ZigTypeIdPointer &&
-               !ty->data.unionation.resolve_loop_flag_zero_bits)
+               !ty->data.pointer.resolve_loop_flag_zero_bits)
         {
             ty = ty->data.pointer.child_type;
         }
