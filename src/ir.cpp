@@ -17035,8 +17035,10 @@ static IrInstGen *ir_analyze_tuple_cat(IrAnalyze *ira, IrInst* source_instr,
                 continue;
             }
             IrInstGen *deref = ir_get_deref(ira, &elem_result_loc->base, elem_result_loc, nullptr);
-            elem_result_loc->value->special = ConstValSpecialRuntime;
-            ir_analyze_store_ptr(ira, &elem_result_loc->base, elem_result_loc, deref, false);
+            if (!type_requires_comptime(ira->codegen, elem_result_loc->value->type->data.pointer.child_type)) {
+                elem_result_loc->value->special = ConstValSpecialRuntime;
+            }
+            ir_analyze_store_ptr(ira, &elem_result_loc->base, elem_result_loc, deref, true);
         }
     }
     IrInstGen *result = ir_get_deref(ira, source_instr, new_struct_ptr, nullptr);
@@ -18925,7 +18927,10 @@ static IrInstGen *ir_analyze_store_ptr(IrAnalyze *ira, IrInst* source_instr,
     }
 
     if (ptr->value->type->data.pointer.is_const && !allow_write_through_const) {
-        ir_add_error(ira, source_instr, buf_sprintf("cannot assign to constant"));
+        // @TODO
+        fprintf(stderr, "store ptr\n");
+        ptr->src();
+        ir_add_error(ira, source_instr, buf_sprintf("cannot assign to constant [FOO]"));
         return ira->codegen->invalid_inst_gen;
     }
 
@@ -23079,8 +23084,11 @@ static IrInstGen *ir_analyze_instruction_container_init_list(IrAnalyze *ira,
         }
     }
 
+    const_ptrs.deinit();
+
     IrInstGen *result = ir_get_deref(ira, &instruction->base.base, result_loc, nullptr);
-    if (instr_is_comptime(result))
+    // If the result is a tuple, we are allowed to use ConstValSpecialRuntime fields.
+    if (instr_is_comptime(result) || is_tuple(container_type))
         return result;
 
     if (is_comptime) {
