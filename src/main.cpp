@@ -500,7 +500,10 @@ static int main0(int argc, char **argv) {
         os_path_join(get_zig_special_dir(zig_lib_dir), buf_create_from_str("build_runner.zig"), build_runner_path);
 
         ZigTarget target;
-        get_native_target(&target);
+        if ((err = target_parse_triple(&target, "native", nullptr))) {
+            fprintf(stderr, "Unable to get native target: %s\n", err_str(err));
+            return EXIT_FAILURE;
+        }
 
         Buf *build_file_buf = buf_create_from_str((build_file != nullptr) ? build_file : "build.zig");
         Buf build_file_abs = os_path_resolve(&build_file_buf, 1);
@@ -1337,7 +1340,10 @@ static int main0(int argc, char **argv) {
                 return main_exit(root_progress_node, EXIT_SUCCESS);
             } else if (cmd == CmdTest) {
                 ZigTarget native;
-                get_native_target(&native);
+                if ((err = target_parse_triple(&native, "native", nullptr))) {
+                    fprintf(stderr, "Unable to get native target: %s\n", err_str(err));
+                    return EXIT_FAILURE;
+                }
 
                 g->enable_cache = get_cache_opt(enable_cache, output_dir == nullptr);
                 codegen_build_and_link(g);

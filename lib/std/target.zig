@@ -1215,8 +1215,8 @@ pub const Target = struct {
             .uefi,
             .windows,
             .emscripten,
-            .other,
             .wasi,
+            .other,
             => return null,
 
             // TODO go over each item in this list and either move it to the above list, or

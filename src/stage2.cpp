@@ -91,6 +91,106 @@ void stage2_progress_complete_one(Stage2ProgressNode *node) {}
 void stage2_progress_disable_tty(Stage2Progress *progress) {}
 void stage2_progress_update_node(Stage2ProgressNode *node, size_t completed_count, size_t estimated_total_items){}
 
+static Os get_zig_os_type(ZigLLVM_OSType os_type) {
+    switch (os_type) {
+        case ZigLLVM_UnknownOS:
+            return OsFreestanding;
+        case ZigLLVM_Ananas:
+            return OsAnanas;
+        case ZigLLVM_CloudABI:
+            return OsCloudABI;
+        case ZigLLVM_DragonFly:
+            return OsDragonFly;
+        case ZigLLVM_FreeBSD:
+            return OsFreeBSD;
+        case ZigLLVM_Fuchsia:
+            return OsFuchsia;
+        case ZigLLVM_IOS:
+            return OsIOS;
+        case ZigLLVM_KFreeBSD:
+            return OsKFreeBSD;
+        case ZigLLVM_Linux:
+            return OsLinux;
+        case ZigLLVM_Lv2:
+            return OsLv2;
+        case ZigLLVM_Darwin:
+        case ZigLLVM_MacOSX:
+            return OsMacOSX;
+        case ZigLLVM_NetBSD:
+            return OsNetBSD;
+        case ZigLLVM_OpenBSD:
+            return OsOpenBSD;
+        case ZigLLVM_Solaris:
+            return OsSolaris;
+        case ZigLLVM_Win32:
+            return OsWindows;
+        case ZigLLVM_Haiku:
+            return OsHaiku;
+        case ZigLLVM_Minix:
+            return OsMinix;
+        case ZigLLVM_RTEMS:
+            return OsRTEMS;
+        case ZigLLVM_NaCl:
+            return OsNaCl;
+        case ZigLLVM_CNK:
+            return OsCNK;
+        case ZigLLVM_AIX:
+            return OsAIX;
+        case ZigLLVM_CUDA:
+            return OsCUDA;
+        case ZigLLVM_NVCL:
+            return OsNVCL;
+        case ZigLLVM_AMDHSA:
+            return OsAMDHSA;
+        case ZigLLVM_PS4:
+            return OsPS4;
+        case ZigLLVM_ELFIAMCU:
+            return OsELFIAMCU;
+        case ZigLLVM_TvOS:
+            return OsTvOS;
+        case ZigLLVM_WatchOS:
+            return OsWatchOS;
+        case ZigLLVM_Mesa3D:
+            return OsMesa3D;
+        case ZigLLVM_Contiki:
+            return OsContiki;
+        case ZigLLVM_AMDPAL:
+            return OsAMDPAL;
+        case ZigLLVM_HermitCore:
+            return OsHermitCore;
+        case ZigLLVM_Hurd:
+            return OsHurd;
+        case ZigLLVM_WASI:
+            return OsWASI;
+        case ZigLLVM_Emscripten:
+            return OsEmscripten;
+    }
+    zig_unreachable();
+}
+
+static void get_native_target(ZigTarget *target) {
+    // first zero initialize
+    *target = {};
+
+    ZigLLVM_OSType os_type;
+    ZigLLVM_ObjectFormatType oformat; // ignored; based on arch/os
+    ZigLLVMGetNativeTarget(
+            &target->arch,
+            &target->vendor,
+            &os_type,
+            &target->abi,
+            &oformat);
+    target->os = get_zig_os_type(os_type);
+    target->is_native = true;
+    if (target->abi == ZigLLVM_UnknownEnvironment) {
+        target->abi = target_default_abi(target->arch, target->os);
+    }
+    if (target_is_glibc(target)) {
+        target->glibc_version = heap::c_allocator.create<ZigGLibCVersion>();
+        target_init_default_glibc_version(target);
+    }
+}
+
 Error stage2_target_parse(struct ZigTarget *target, const char *zig_triple, const char *mcpu) {
     Error err;
 
