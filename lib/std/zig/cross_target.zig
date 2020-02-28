@@ -10,8 +10,7 @@ pub const CrossTarget = struct {
     /// `null` means native. If this is `null` then `cpu_model` must be `null`.
     cpu_arch: ?Target.Cpu.Arch = null,
 
-    /// `null` means native.
-    /// If this is non-null, `cpu_arch` must be specified.
+    /// `null` means native. If this is non-null, `cpu_arch` must be specified.
     cpu_model: ?*const Target.Cpu.Model = null,
 
     /// Sparse set of CPU features to add to the set from `cpu_model`.
@@ -301,6 +300,10 @@ pub const CrossTarget = struct {
                     return error.UnknownCpuFeature;
                 }
             }
+        } else if (arch_is_native) {
+            result.cpu_model = null;
+        } else {
+            result.cpu_model = Target.Cpu.Model.baseline(arch);
         }
 
         return result;
@@ -725,6 +728,15 @@ pub const CrossTarget = struct {
 };
 
 test "CrossTarget.parse" {
+    {
+        const cross_target = try CrossTarget.parse(.{
+            .arch_os_abi = "aarch64-linux",
+            .cpu_features = "native",
+        });
+
+        std.testing.expect(cross_target.cpu_arch.? == .aarch64);
+        std.testing.expect(cross_target.cpu_model == null);
+    }
     {
         const cross_target = try CrossTarget.parse(.{ .arch_os_abi = "native" });
 

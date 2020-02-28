@@ -1163,6 +1163,7 @@ fn crossTargetToTarget(cross_target: CrossTarget, dynamic_linker_ptr: *?[*:0]u8)
         const arch = std.Target.current.cpu.arch;
         info.target.cpu = try detectNativeCpuWithLLVM(arch, llvm_cpu_name, llvm_cpu_features);
         cross_target.updateCpuFeatures(&info.target.cpu.features);
+        info.target.cpu.arch = cross_target.getCpuArch();
     }
     if (info.dynamic_linker.get()) |dl| {
         dynamic_linker_ptr.* = try mem.dupeZ(std.heap.c_allocator, u8, dl);

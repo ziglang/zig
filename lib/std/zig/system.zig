@@ -192,21 +192,14 @@ pub const NativeTargetInfo = struct {
     /// TODO Remove the Allocator requirement from this function.
     pub fn detect(allocator: *Allocator, cross_target: CrossTarget) DetectError!NativeTargetInfo {
         const cpu = blk: {
-            if (cross_target.cpu_arch) |arch| {
-                if (cross_target.cpu_model) |model| {
-                    var adjusted_model = model.toCpu(arch);
-                    cross_target.updateCpuFeatures(&adjusted_model.features);
-                    break :blk adjusted_model;
-                } else {
-                    // TODO Detect native CPU model. Until that is implemented we use baseline.
-                    var adjusted_baseline = Target.Cpu.baseline(arch);
-                    cross_target.updateCpuFeatures(&adjusted_baseline.features);
-                    break :blk adjusted_baseline;
-                }
+            const arch = cross_target.getCpuArch();
+            if (cross_target.cpu_model) |model| {
+                var adjusted_model = model.toCpu(arch);
+                cross_target.updateCpuFeatures(&adjusted_model.features);
+                break :blk adjusted_model;
             } else {
-                assert(cross_target.cpu_model == null);
                 // TODO Detect native CPU model & features. Until that is implemented we use baseline.
-                var adjusted_baseline = Target.Cpu.baseline(Target.current.cpu.arch);
+                var adjusted_baseline = Target.Cpu.baseline(arch);
                 cross_target.updateCpuFeatures(&adjusted_baseline.features);
                 break :blk adjusted_baseline;
             }
