@@ -17037,15 +17037,6 @@ static IrInstGen *ir_analyze_tuple_cat(IrAnalyze *ira, IrInst* source_instr,
         }
     }
     IrInstGen *result = ir_get_deref(ira, source_instr, new_struct_ptr, nullptr);
-    if (instr_is_comptime(result))
-        return result;
-
-    if (is_comptime) {
-        ir_add_error(ira, &first_non_const_instruction->base,
-            buf_sprintf("unable to evaluate constant expression"));
-        return ira->codegen->invalid_inst_gen;
-    }
-
     return result;
 }
 
@@ -18906,10 +18897,7 @@ static IrInstGen *ir_analyze_store_ptr(IrAnalyze *ira, IrInst* source_instr,
     }
 
     if (ptr->value->type->data.pointer.is_const && !allow_write_through_const) {
-        // @TODO
-        fprintf(stderr, "store ptr\n");
-        ptr->src();
-        ir_add_error(ira, source_instr, buf_sprintf("cannot assign to constant [FOO]"));
+        ir_add_error(ira, source_instr, buf_sprintf("cannot assign to constant"));
         return ira->codegen->invalid_inst_gen;
     }
 
@@ -23050,7 +23038,7 @@ static IrInstGen *ir_analyze_instruction_container_init_list(IrAnalyze *ira,
     const_ptrs.deinit();
 
     IrInstGen *result = ir_get_deref(ira, &instruction->base.base, result_loc, nullptr);
-    // If the result is a tuple, we are allowed to use ConstValSpecialRuntime fields.
+    // If the result is a tuple, we are allowed to return a struct that uses ConstValSpecialRuntime fields at comptime.
     if (instr_is_comptime(result) || is_tuple(container_type))
         return result;
 
