@@ -82,12 +82,12 @@ pub fn linkmap_iterator(phdrs: []elf.Phdr) !LinkMap.Iterator {
         for (dyn_table) |*dyn| {
             switch (dyn.d_tag) {
                 elf.DT_DEBUG => {
-                    const r_debug = @intToPtr(*RDebug, dyn.d_un.d_ptr);
+                    const r_debug = @intToPtr(*RDebug, dyn.d_val);
                     if (r_debug.r_version != 1) return error.InvalidExe;
                     break :init r_debug.r_map;
                 },
                 elf.DT_PLTGOT => {
-                    const got_table = @intToPtr([*]usize, dyn.d_un.d_ptr);
+                    const got_table = @intToPtr([*]usize, dyn.d_val);
                     // The address to the link_map structure is stored in the
                     // second slot
                     break :init @intToPtr(?*LinkMap, got_table[1]);

@@ -708,17 +708,11 @@ pub const Elf64_Rela = extern struct {
 };
 pub const Elf32_Dyn = extern struct {
     d_tag: Elf32_Sword,
-    d_un: extern union {
-        d_val: Elf32_Word,
-        d_ptr: Elf32_Addr,
-    },
+    d_val: Elf32_Addr,
 };
 pub const Elf64_Dyn = extern struct {
     d_tag: Elf64_Sxword,
-    d_un: extern union {
-        d_val: Elf64_Xword,
-        d_ptr: Elf64_Addr,
-    },
+    d_val: Elf64_Addr,
 };
 pub const Elf32_Verdef = extern struct {
     vd_version: Elf32_Half,
