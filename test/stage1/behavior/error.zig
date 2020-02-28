@@ -441,3 +441,24 @@ test "error payload type is correctly resolved" {
 
     expectEqual(MyIntWrapper{ .x = 42 }, try MyIntWrapper.create());
 }
+
+test "implicit casts between error union payloads" {
+    {
+        var a: anyerror!i16 = -3;
+        var b: anyerror!i16 = @as(i8, -3);
+        var c: anyerror!i32 = a;
+        expectEqual(@as(i16, -3), try a);
+        expectEqual(@as(i16, -3), try b);
+        expectEqual(@as(i32, -3), try c);
+    }
+    {
+        var a: error{a}!u32 = @as(u8, 10);
+        var b: error{a}!u64 = a;
+        var c: error{ a, b }!u64 = b;
+        var d: anyerror!u48 = a;
+        expectEqual(@as(u32, 10), try a);
+        expectEqual(@as(u64, 10), try b);
+        expectEqual(@as(u64, 10), try c);
+        expectEqual(@as(u48, 10), try d);
+    }
+}

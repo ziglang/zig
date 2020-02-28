@@ -14792,6 +14792,9 @@ static IrInstGen *ir_analyze_cast(IrAnalyze *ira, IrInst *source_instr,
     {
         ZigType *slice_ptr_type = resolve_struct_field_type(ira->codegen,
                 actual_type->data.structure.fields[slice_ptr_index]);
+        if (slice_ptr_type == nullptr)
+            return ira->codegen->invalid_inst_gen;
+
         if (types_match_const_cast_only(ira, wanted_type->data.pointer.child_type,
                 slice_ptr_type->data.pointer.child_type, source_node,
                 !wanted_type->data.pointer.is_const).id == ConstCastResultIdOk &&
@@ -14802,6 +14805,8 @@ static IrInstGen *ir_analyze_cast(IrAnalyze *ira, IrInst *source_instr,
         {
             TypeStructField *ptr_field = actual_type->data.structure.fields[slice_ptr_index];
             IrInstGen *slice_ptr = ir_analyze_struct_value_field_value(ira, source_instr, value, ptr_field);
+            if (type_is_invalid(slice_ptr->value->type))
+                return ira->codegen->invalid_inst_gen;
             return ir_implicit_cast2(ira, source_instr, slice_ptr, wanted_type);
         }
     }
@@ -14913,6 +14918,28 @@ static IrInstGen *ir_analyze_cast(IrAnalyze *ira, IrInst *source_instr,
         if (type_is_invalid(cast1->value->type))
             return ira->codegen->invalid_inst_gen;
         return ir_implicit_cast2(ira, source_instr, cast1, wanted_type);
+    }
+
+    // E1!T to E2!U, where T implicitly casts to U and E1 and E2 are compatible
+    if (wanted_type->id == ZigTypeIdErrorUnion && actual_type->id == ZigTypeIdErrorUnion) {
+        // Overwrite the previous const_cast_result so that the error message
+        // correctly points out if the two error sets are not compatible
+        if ((const_cast_result = types_match_const_cast_only(ira, wanted_type->data.error_union.err_set_type,
+            actual_type->data.error_union.err_set_type, source_node, false)).id == ConstCastResultIdOk)
+        {
+            IrInstGen *error_union_ptr = ir_get_ref(ira, source_instr, value, true, false);
+
+            IrInstGen *unwrapped_err_ptr = ir_analyze_unwrap_error_payload(ira, source_instr,
+                error_union_ptr, false, true);
+            if (type_is_invalid(unwrapped_err_ptr->value->type))
+                return ira->codegen->invalid_inst_gen;
+
+            IrInstGen *payload_val = ir_get_deref(ira, source_instr, unwrapped_err_ptr, nullptr);
+            if (type_is_invalid(payload_val->value->type))
+                return ira->codegen->invalid_inst_gen;
+
+            return ir_implicit_cast2(ira, source_instr, payload_val, wanted_type);
+        }
     }
 
     ErrorMsg *parent_msg = ir_add_error_node(ira, source_instr->source_node,

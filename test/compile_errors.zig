@@ -12,6 +12,16 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:3:11: error: expected type 'struct:2:14', found 'struct:3:11'",
     });
 
+    cases.addTest("implicit payload conversion between incompatible error sets",
+        \\export fn entry() void {
+        \\    var x: anyerror!u16 = @as(u8, 2);
+        \\    var y: error{a}!u32 = x;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:3:27: error: expected type 'error:3:12!u32', found 'anyerror!u16'",
+        "tmp.zig:3:27: note: cannot cast global error set into smaller set",
+    });
+
     cases.addTest("@tagName on invalid value of non-exhaustive enum",
         \\test "enum" {
         \\    const E = enum(u8) {A, B, _};
@@ -2887,7 +2897,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
     , &[_][]const u8{
         "tmp.zig:3:35: error: expected type 'SmallErrorSet!i32', found 'anyerror!i32'",
-        "tmp.zig:3:35: note: error set 'anyerror' cannot cast into error set 'SmallErrorSet'",
         "tmp.zig:3:35: note: cannot cast global error set into smaller set",
     });
 
