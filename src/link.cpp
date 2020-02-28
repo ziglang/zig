@@ -1751,9 +1751,9 @@ static void construct_linker_job_elf(LinkJob *lj) {
         }
 
         if (g->have_dynamic_link && (is_dyn_lib || g->out_type == OutTypeExe)) {
-            assert(g->dynamic_linker_path != nullptr);
+            assert(g->zig_target->dynamic_linker != nullptr);
             lj->args.append("-dynamic-linker");
-            lj->args.append(buf_ptr(g->dynamic_linker_path));
+            lj->args.append(g->zig_target->dynamic_linker);
         }
     }
 

@@ -401,7 +401,7 @@ static int main0(int argc, char **argv) {
     bool link_eh_frame_hdr = false;
     ErrColor color = ErrColorAuto;
     CacheOpt enable_cache = CacheOptAuto;
-    Buf *dynamic_linker = nullptr;
+    const char *dynamic_linker = nullptr;
     const char *libc_txt = nullptr;
     ZigList<const char *> clang_argv = {0};
     ZigList<const char *> lib_dirs = {0};
@@ -496,7 +496,7 @@ static int main0(int argc, char **argv) {
         os_path_join(get_zig_special_dir(zig_lib_dir), buf_create_from_str("build_runner.zig"), build_runner_path);
 
         ZigTarget target;
-        if ((err = target_parse_triple(&target, "native", nullptr))) {
+        if ((err = target_parse_triple(&target, "native", nullptr, nullptr))) {
             fprintf(stderr, "Unable to get native target: %s\n", err_str(err));
             return EXIT_FAILURE;
         }
@@ -766,7 +766,7 @@ static int main0(int argc, char **argv) {
                 } else if (strcmp(arg, "--name") == 0) {
                     out_name = argv[i];
                 } else if (strcmp(arg, "--dynamic-linker") == 0) {
-                    dynamic_linker = buf_create_from_str(argv[i]);
+                    dynamic_linker = argv[i];
                 } else if (strcmp(arg, "--libc") == 0) {
                     libc_txt = argv[i];
                 } else if (strcmp(arg, "-D") == 0) {
@@ -968,7 +968,7 @@ static int main0(int argc, char **argv) {
     init_all_targets();
 
     ZigTarget target;
-    if ((err = target_parse_triple(&target, target_string, mcpu))) {
+    if ((err = target_parse_triple(&target, target_string, mcpu, dynamic_linker))) {
         fprintf(stderr, "invalid target: %s\n"
                 "See `%s targets` to display valid targets.\n", err_str(err), arg0);
         return print_error_usage(arg0);
@@ -1193,7 +1193,6 @@ static int main0(int argc, char **argv) {
 
             codegen_set_strip(g, strip);
             g->is_dynamic = is_dynamic;
-            g->dynamic_linker_path = dynamic_linker;
             g->verbose_tokenize = verbose_tokenize;
             g->verbose_ast = verbose_ast;
             g->verbose_link = verbose_link;
@@ -1320,7 +1319,7 @@ static int main0(int argc, char **argv) {
                 return main_exit(root_progress_node, EXIT_SUCCESS);
             } else if (cmd == CmdTest) {
                 ZigTarget native;
-                if ((err = target_parse_triple(&native, "native", nullptr))) {
+                if ((err = target_parse_triple(&native, "native", nullptr, nullptr))) {
                     fprintf(stderr, "Unable to get native target: %s\n", err_str(err));
                     return EXIT_FAILURE;
                 }

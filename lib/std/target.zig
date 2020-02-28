@@ -1099,16 +1099,52 @@ pub const Target = struct {
         }
     }
 
+    pub const DynamicLinker = struct {
+        /// Contains the memory used to store the dynamic linker path. This field should
+        /// not be used directly. See `get` and `set`. This field exists so that this API requires no allocator.
+        buffer: [255]u8 = undefined,
+
+        /// Used to construct the dynamic linker path. This field should not be used
+        /// directly. See `get` and `set`.
+        max_byte: ?u8 = null,
+
+        /// Asserts that the length is less than or equal to 255 bytes.
+        pub fn init(dl_or_null: ?[]const u8) DynamicLinker {
+            var result: DynamicLinker = undefined;
+            result.set(dl_or_null);
+            return result;
+        }
+
+        /// The returned memory has the same lifetime as the `DynamicLinker`.
+        pub fn get(self: *const DynamicLinker) ?[]const u8 {
+            const m: usize = self.max_byte orelse return null;
+            return self.buffer[0 .. m + 1];
+        }
+
+        /// Asserts that the length is less than or equal to 255 bytes.
+        pub fn set(self: *DynamicLinker, dl_or_null: ?[]const u8) void {
+            if (dl_or_null) |dl| {
+                mem.copy(u8, &self.buffer, dl);
+                self.max_byte = @intCast(u8, dl.len - 1);
+            } else {
+                self.max_byte = null;
+            }
+        }
+    };
+
     /// The result will be a byte index *pointing at the final byte*. In other words, length minus one.
     /// A return value of `null` means the concept of a dynamic linker is not meaningful for that target.
-    pub fn standardDynamicLinkerPath(self: Target, buffer: *[255]u8) ?u8 {
+    pub fn standardDynamicLinkerPath(self: Target) DynamicLinker {
+        var result: DynamicLinker = .{};
         const S = struct {
-            fn print(b: *[255]u8, comptime fmt: []const u8, args: var) u8 {
-                return @intCast(u8, (std.fmt.bufPrint(b, fmt, args) catch unreachable).len - 1);
+            fn print(r: *DynamicLinker, comptime fmt: []const u8, args: var) DynamicLinker {
+                r.max_byte = @intCast(u8, (std.fmt.bufPrint(&r.buffer, fmt, args) catch unreachable).len - 1);
+                return r.*;
             }
-            fn copy(b: *[255]u8, s: []const u8) u8 {
-                mem.copy(u8, b, s);
-                return @intCast(u8, s.len - 1);
+            fn copy(r: *DynamicLinker, s: []const u8) DynamicLinker {
+                mem.copy(u8, &r.buffer, s);
+                r.max_byte = @intCast(u8, s.len - 1);
+                return r.*;
             }
         };
         const print = S.print;
@@ -1116,7 +1152,7 @@ pub const Target = struct {
 
         if (self.isAndroid()) {
             const suffix = if (self.cpu.arch.ptrBitWidth() == 64) "64" else "";
-            return print(buffer, "/system/bin/linker{}", .{suffix});
+            return print(&result, "/system/bin/linker{}", .{suffix});
         }
 
         if (self.isMusl()) {
@@ -1130,28 +1166,28 @@ pub const Target = struct {
                 else => |arch| @tagName(arch),
             };
             const arch_suffix = if (is_arm and self.getFloatAbi() == .hard) "hf" else "";
-            return print(buffer, "/lib/ld-musl-{}{}.so.1", .{ arch_part, arch_suffix });
+            return print(&result, "/lib/ld-musl-{}{}.so.1", .{ arch_part, arch_suffix });
         }
 
         switch (self.os.tag) {
-            .freebsd => return copy(buffer, "/libexec/ld-elf.so.1"),
-            .netbsd => return copy(buffer, "/libexec/ld.elf_so"),
-            .dragonfly => return copy(buffer, "/libexec/ld-elf.so.2"),
+            .freebsd => return copy(&result, "/libexec/ld-elf.so.1"),
+            .netbsd => return copy(&result, "/libexec/ld.elf_so"),
+            .dragonfly => return copy(&result, "/libexec/ld-elf.so.2"),
             .linux => switch (self.cpu.arch) {
                 .i386,
                 .sparc,
                 .sparcel,
-                => return copy(buffer, "/lib/ld-linux.so.2"),
+                => return copy(&result, "/lib/ld-linux.so.2"),
 
-                .aarch64 => return copy(buffer, "/lib/ld-linux-aarch64.so.1"),
-                .aarch64_be => return copy(buffer, "/lib/ld-linux-aarch64_be.so.1"),
-                .aarch64_32 => return copy(buffer, "/lib/ld-linux-aarch64_32.so.1"),
+                .aarch64 => return copy(&result, "/lib/ld-linux-aarch64.so.1"),
+                .aarch64_be => return copy(&result, "/lib/ld-linux-aarch64_be.so.1"),
+                .aarch64_32 => return copy(&result, "/lib/ld-linux-aarch64_32.so.1"),
 
                 .arm,
                 .armeb,
                 .thumb,
                 .thumbeb,
-                => return copy(buffer, switch (self.getFloatAbi()) {
+                => return copy(&result, switch (self.getFloatAbi()) {
                     .hard => "/lib/ld-linux-armhf.so.3",
                     else => "/lib/ld-linux.so.3",
                 }),
@@ -1168,20 +1204,20 @@ pub const Target = struct {
                     };
                     const is_nan_2008 = mips.featureSetHas(self.cpu.features, .nan2008);
                     const loader = if (is_nan_2008) "ld-linux-mipsn8.so.1" else "ld.so.1";
-                    return print(buffer, "/lib{}/{}", .{ lib_suffix, loader });
+                    return print(&result, "/lib{}/{}", .{ lib_suffix, loader });
                 },
 
-                .powerpc => return copy(buffer, "/lib/ld.so.1"),
-                .powerpc64, .powerpc64le => return copy(buffer, "/lib64/ld64.so.2"),
-                .s390x => return copy(buffer, "/lib64/ld64.so.1"),
-                .sparcv9 => return copy(buffer, "/lib64/ld-linux.so.2"),
-                .x86_64 => return copy(buffer, switch (self.abi) {
+                .powerpc => return copy(&result, "/lib/ld.so.1"),
+                .powerpc64, .powerpc64le => return copy(&result, "/lib64/ld64.so.2"),
+                .s390x => return copy(&result, "/lib64/ld64.so.1"),
+                .sparcv9 => return copy(&result, "/lib64/ld-linux.so.2"),
+                .x86_64 => return copy(&result, switch (self.abi) {
                     .gnux32 => "/libx32/ld-linux-x32.so.2",
                     else => "/lib64/ld-linux-x86-64.so.2",
                 }),
 
-                .riscv32 => return copy(buffer, "/lib/ld-linux-riscv32-ilp32.so.1"),
-                .riscv64 => return copy(buffer, "/lib/ld-linux-riscv64-lp64.so.1"),
+                .riscv32 => return copy(&result, "/lib/ld-linux-riscv32-ilp32.so.1"),
+                .riscv64 => return copy(&result, "/lib/ld-linux-riscv64-lp64.so.1"),
 
                 // Architectures in this list have been verified as not having a standard
                 // dynamic linker path.
@@ -1191,7 +1227,7 @@ pub const Target = struct {
                 .bpfeb,
                 .nvptx,
                 .nvptx64,
-                => return null,
+                => return result,
 
                 // TODO go over each item in this list and either move it to the above list, or
                 // implement the standard dynamic linker path code for it.
@@ -1217,7 +1253,7 @@ pub const Target = struct {
                 .lanai,
                 .renderscript32,
                 .renderscript64,
-                => return null,
+                => return result,
             },
 
             // Operating systems in this list have been verified as not having a standard
@@ -1232,7 +1268,7 @@ pub const Target = struct {
             .emscripten,
             .wasi,
             .other,
-            => return null,
+            => return result,
 
             // TODO go over each item in this list and either move it to the above list, or
             // implement the standard dynamic linker path code for it.
@@ -1259,7 +1295,7 @@ pub const Target = struct {
             .amdpal,
             .hermit,
             .hurd,
-            => return null,
+            => return result,
         }
     }
 };

@@ -2255,7 +2255,6 @@ struct CodeGen {
     Buf *test_name_prefix;
     Buf *zig_lib_dir;
     Buf *zig_std_dir;
-    Buf *dynamic_linker_path;
     Buf *version_script_path;
 
     const char **llvm_argv;

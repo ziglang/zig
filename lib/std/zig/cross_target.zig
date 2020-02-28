@@ -40,6 +40,10 @@ pub const CrossTarget = struct {
     /// If `isGnuLibC()` is `false`, this must be `null` and is ignored.
     glibc_version: ?SemVer = null,
 
+    /// When `os_tag` is `null`, then `null` means native. Otherwise it means the standard path
+    /// based on the `os_tag`.
+    dynamic_linker: DynamicLinker = DynamicLinker{},
+
     pub const OsVersion = union(enum) {
         none: void,
         semver: SemVer,
@@ -47,6 +51,8 @@ pub const CrossTarget = struct {
     };
 
     pub const SemVer = std.builtin.Version;
+
+    pub const DynamicLinker = Target.DynamicLinker;
 
     pub fn fromTarget(target: Target) CrossTarget {
         var result: CrossTarget = .{
@@ -170,6 +176,10 @@ pub const CrossTarget = struct {
         /// parsed CPU Architecture. If native, then this will be "native". Otherwise, it will be "baseline".
         cpu_features: ?[]const u8 = null,
 
+        /// Absolute path to dynamic linker, to override the default, which is either a natively
+        /// detected path, or a standard path.
+        dynamic_linker: ?[]const u8 = null,
+
         /// If this is provided, the function will populate some information about parsing failures,
         /// so that user-friendly error messages can be delivered.
         diagnostics: ?*Diagnostics = null,
@@ -199,8 +209,9 @@ pub const CrossTarget = struct {
         var dummy_diags: ParseOptions.Diagnostics = undefined;
         const diags = args.diagnostics orelse &dummy_diags;
 
-        // Start with everything initialized to default values.
-        var result: CrossTarget = .{};
+        var result: CrossTarget = .{
+            .dynamic_linker = DynamicLinker.init(args.dynamic_linker),
+        };
 
         var it = mem.separate(args.arch_os_abi, "-");
         const arch_name = it.next().?;
@@ -446,7 +457,7 @@ pub const CrossTarget = struct {
         return self.cpu_arch == null and self.cpu_model == null and
             self.cpu_features_sub.isEmpty() and self.cpu_features_add.isEmpty() and
             self.os_tag == null and self.os_version_min == null and self.os_version_max == null and
-            self.abi == null;
+            self.abi == null and self.dynamic_linker.get() == null;
     }
 
     pub fn zigTriple(self: CrossTarget, allocator: *mem.Allocator) error{OutOfMemory}![:0]u8 {

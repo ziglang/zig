@@ -8832,19 +8832,6 @@ static void init(CodeGen *g) {
     }
 }
 
-static void detect_dynamic_linker(CodeGen *g) {
-    if (g->dynamic_linker_path != nullptr)
-        return;
-    if (!g->have_dynamic_link)
-        return;
-    if (g->out_type == OutTypeObj || (g->out_type == OutTypeLib && !g->is_dynamic))
-        return;
-
-    if (g->zig_target->dynamic_linker != nullptr) {
-        g->dynamic_linker_path = buf_create_from_str(g->zig_target->dynamic_linker);
-    }
-}
-
 static void detect_libc(CodeGen *g) {
     Error err;
 
@@ -10285,6 +10272,9 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
         cache_int(ch, g->zig_target->glibc_or_darwin_version->minor);
         cache_int(ch, g->zig_target->glibc_or_darwin_version->patch);
     }
+    if (g->zig_target->dynamic_linker != nullptr) {
+        cache_str(ch, g->zig_target->dynamic_linker);
+    }
     cache_int(ch, detect_subsystem(g));
     cache_bool(ch, g->strip_debug_symbols);
     cache_bool(ch, g->is_test_build);
@@ -10325,7 +10315,6 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
         cache_str(ch, g->libc->msvc_lib_dir);
         cache_str(ch, g->libc->kernel32_lib_dir);
     }
-    cache_buf_opt(ch, g->dynamic_linker_path);
     cache_buf_opt(ch, g->version_script_path);
 
     // gen_c_objects appends objects to g->link_objects which we want to include in the hash
@@ -10422,7 +10411,6 @@ void codegen_build_and_link(CodeGen *g) {
     g->have_err_ret_tracing = detect_err_ret_tracing(g);
     g->have_sanitize_c = detect_sanitize_c(g);
     detect_libc(g);
-    detect_dynamic_linker(g);
 
     Buf digest = BUF_INIT;
     if (g->enable_cache) {
@@ -10619,7 +10607,6 @@ CodeGen *create_child_codegen(CodeGen *parent_gen, Buf *root_src_path, OutType o
     child_gen->verbose_cc = parent_gen->verbose_cc;
     child_gen->verbose_llvm_cpu_features = parent_gen->verbose_llvm_cpu_features;
     child_gen->llvm_argv = parent_gen->llvm_argv;
-    child_gen->dynamic_linker_path = parent_gen->dynamic_linker_path;
 
     codegen_set_strip(child_gen, parent_gen->strip_debug_symbols);
     child_gen->want_pic = parent_gen->have_pic ? WantPICEnabled : WantPICDisabled;

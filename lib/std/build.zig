@@ -1177,8 +1177,6 @@ pub const LibExeObjStep = struct {
     /// that contains the path `aarch64-linux-gnu/lib/ld-linux-aarch64.so.1`.
     glibc_multi_install_dir: ?[]const u8 = null,
 
-    dynamic_linker: ?[]const u8 = null,
-
     /// Position Independent Code
     force_pic: ?bool = null,
 
@@ -1978,16 +1976,16 @@ pub const LibExeObjStep = struct {
                 }
                 try zig_args.append(mcpu_buffer.toSliceConst());
             }
+
+            if (self.target.dynamic_linker.get()) |dynamic_linker| {
+                try zig_args.append("--dynamic-linker");
+                try zig_args.append(dynamic_linker);
+            }
         }
 
         if (self.linker_script) |linker_script| {
             zig_args.append("--linker-script") catch unreachable;
             zig_args.append(builder.pathFromRoot(linker_script)) catch unreachable;
-        }
-
-        if (self.dynamic_linker) |dynamic_linker| {
-            try zig_args.append("--dynamic-linker");
-            try zig_args.append(dynamic_linker);
         }
 
         if (self.version_script) |version_script| {

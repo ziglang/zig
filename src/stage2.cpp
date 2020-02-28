@@ -191,7 +191,9 @@ static void get_native_target(ZigTarget *target) {
     }
 }
 
-Error stage2_target_parse(struct ZigTarget *target, const char *zig_triple, const char *mcpu) {
+Error stage2_target_parse(struct ZigTarget *target, const char *zig_triple, const char *mcpu,
+        const char *dynamic_linker)
+{
     Error err;
 
     if (zig_triple == nullptr) {
@@ -249,6 +251,9 @@ Error stage2_target_parse(struct ZigTarget *target, const char *zig_triple, cons
         target->cache_hash = "\n\n";
     }
 
+    if (dynamic_linker != nullptr) {
+        target->dynamic_linker = dynamic_linker;
+    }
     return ErrorNone;
 }
 

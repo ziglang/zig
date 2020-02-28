@@ -651,8 +651,9 @@ export fn stage2_target_parse(
     target: *Stage2Target,
     zig_triple: ?[*:0]const u8,
     mcpu: ?[*:0]const u8,
+    dynamic_linker: ?[*:0]const u8,
 ) Error {
-    stage2TargetParse(target, zig_triple, mcpu) catch |err| switch (err) {
+    stage2TargetParse(target, zig_triple, mcpu, dynamic_linker) catch |err| switch (err) {
         error.OutOfMemory => return .OutOfMemory,
         error.UnknownArchitecture => return .UnknownArchitecture,
         error.UnknownOperatingSystem => return .UnknownOperatingSystem,
@@ -676,14 +677,17 @@ fn stage2TargetParse(
     stage1_target: *Stage2Target,
     zig_triple_oz: ?[*:0]const u8,
     mcpu_oz: ?[*:0]const u8,
+    dynamic_linker_oz: ?[*:0]const u8,
 ) !void {
     const target: CrossTarget = if (zig_triple_oz) |zig_triple_z| blk: {
         const zig_triple = mem.toSliceConst(u8, zig_triple_z);
         const mcpu = if (mcpu_oz) |mcpu_z| mem.toSliceConst(u8, mcpu_z) else null;
+        const dynamic_linker = if (dynamic_linker_oz) |dl_z| mem.toSliceConst(u8, dl_z) else null;
         var diags: CrossTarget.ParseOptions.Diagnostics = .{};
         break :blk CrossTarget.parse(.{
             .arch_os_abi = zig_triple,
             .cpu_features = mcpu,
+            .dynamic_linker = dynamic_linker,
             .diagnostics = &diags,
         }) catch |err| switch (err) {
             error.UnknownCpuModel => {
@@ -1170,7 +1174,7 @@ fn crossTargetToTarget(cross_target: CrossTarget, dynamic_linker_ptr: *?[*:0]u8)
         if (cross_target.os_tag == null) {
             adjusted_target.os = detected_info.target.os;
 
-            if (detected_info.dynamicLinker()) |dl| {
+            if (detected_info.dynamic_linker.get()) |dl| {
                 have_native_dl = true;
                 dynamic_linker_ptr.* = try mem.dupeZ(std.heap.c_allocator, u8, dl);
             }
@@ -1182,11 +1186,8 @@ fn crossTargetToTarget(cross_target: CrossTarget, dynamic_linker_ptr: *?[*:0]u8)
         }
     }
     if (!have_native_dl) {
-        var buf: [255]u8 = undefined;
-        dynamic_linker_ptr.* = if (adjusted_target.standardDynamicLinkerPath(&buf)) |m|
-            try mem.dupeZ(std.heap.c_allocator, u8, buf[0 .. @as(usize, m) + 1])
-        else
-            null;
+        const dl = adjusted_target.standardDynamicLinkerPath();
+        dynamic_linker_ptr.* = if (dl.get()) |s| try mem.dupeZ(std.heap.c_allocator, u8, s) else null;
     }
     return adjusted_target;
 }

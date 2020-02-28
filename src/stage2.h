@@ -298,7 +298,8 @@ struct ZigTarget {
 };
 
 // ABI warning
-ZIG_EXTERN_C enum Error stage2_target_parse(struct ZigTarget *target, const char *zig_triple, const char *mcpu);
+ZIG_EXTERN_C enum Error stage2_target_parse(struct ZigTarget *target, const char *zig_triple, const char *mcpu,
+        const char *dynamic_linker);
 
 
 // ABI warning

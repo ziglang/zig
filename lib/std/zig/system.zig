@@ -168,14 +168,9 @@ pub const NativePaths = struct {
 pub const NativeTargetInfo = struct {
     target: Target,
 
-    /// Contains the memory used to store the dynamic linker path. This field should
-    /// not be used directly. See `dynamicLinker` and `setDynamicLinker`. This field
-    /// exists so that this API requires no allocator.
-    dynamic_linker_buffer: [255]u8 = undefined,
+    dynamic_linker: DynamicLinker = DynamicLinker{},
 
-    /// Used to construct the dynamic linker path. This field should not be used
-    /// directly. See `dynamicLinker` and `setDynamicLinker`.
-    dynamic_linker_max: ?u8 = null,
+    pub const DynamicLinker = Target.DynamicLinker;
 
     pub const DetectError = error{
         OutOfMemory,
@@ -220,21 +215,6 @@ pub const NativeTargetInfo = struct {
         return detectAbiAndDynamicLinker(allocator, cpu, os);
     }
 
-    /// The returned memory has the same lifetime as the `NativeTargetInfo`.
-    pub fn dynamicLinker(self: *const NativeTargetInfo) ?[]const u8 {
-        const m: usize = self.dynamic_linker_max orelse return null;
-        return self.dynamic_linker_buffer[0 .. m + 1];
-    }
-
-    pub fn setDynamicLinker(self: *NativeTargetInfo, dl_or_null: ?[]const u8) void {
-        if (dl_or_null) |dl| {
-            mem.copy(u8, &self.dynamic_linker_buffer, dl);
-            self.dynamic_linker_max = @intCast(u8, dl.len - 1);
-        } else {
-            self.dynamic_linker_max = null;
-        }
-    }
-
     /// First we attempt to use the executable's own binary. If it is dynamically
     /// linked, then it should answer both the C ABI question and the dynamic linker question.
     /// If it is statically linked, then we try /usr/bin/env. If that does not provide the answer, then
@@ -273,15 +253,14 @@ pub const NativeTargetInfo = struct {
                 .os = os,
                 .abi = abi,
             };
-            const ld_info = &ld_info_list_buffer[ld_info_list_len];
-            ld_info_list_len += 1;
+            const ld = target.standardDynamicLinkerPath();
+            if (ld.get() == null) continue;
 
-            ld_info.* = .{
-                .ld_path_buffer = undefined,
-                .ld_path_max = undefined,
+            ld_info_list_buffer[ld_info_list_len] = .{
+                .ld = ld,
                 .abi = abi,
             };
-            ld_info.ld_path_max = target.standardDynamicLinkerPath(&ld_info.ld_path_buffer) orelse continue;
+            ld_info_list_len += 1;
         }
         const ld_info_list = ld_info_list_buffer[0..ld_info_list_len];
 
@@ -298,7 +277,7 @@ pub const NativeTargetInfo = struct {
             // This is O(N^M) but typical case here is N=2 and M=10.
             find_ld: for (lib_paths) |lib_path| {
                 for (ld_info_list) |ld_info| {
-                    const standard_ld_basename = fs.path.basename(ld_info.ldPath());
+                    const standard_ld_basename = fs.path.basename(ld_info.ld.get().?);
                     if (std.mem.endsWith(u8, lib_path, standard_ld_basename)) {
                         found_ld_info = ld_info;
                         found_ld_path = lib_path;
@@ -329,8 +308,8 @@ pub const NativeTargetInfo = struct {
                     .os = os_adjusted,
                     .abi = found_ld_info.abi,
                 },
+                .dynamic_linker = DynamicLinker.init(found_ld_path),
             };
-            result.setDynamicLinker(found_ld_path);
             return result;
         }
 
@@ -472,18 +451,18 @@ pub const NativeTargetInfo = struct {
                     elf.PT_INTERP => {
                         const p_offset = elfInt(is_64, need_bswap, ph32.p_offset, ph64.p_offset);
                         const p_filesz = elfInt(is_64, need_bswap, ph32.p_filesz, ph64.p_filesz);
-                        if (p_filesz > result.dynamic_linker_buffer.len) return error.NameTooLong;
-                        _ = try preadFull(env_file, result.dynamic_linker_buffer[0..p_filesz], p_offset, p_filesz);
+                        if (p_filesz > result.dynamic_linker.buffer.len) return error.NameTooLong;
+                        _ = try preadFull(env_file, result.dynamic_linker.buffer[0..p_filesz], p_offset, p_filesz);
                         // PT_INTERP includes a null byte in p_filesz.
                         const len = p_filesz - 1;
-                        // dynamic_linker_max is "max", not "len".
-                        // We know it will fit in u8 because we check against dynamic_linker_buffer.len above.
-                        result.dynamic_linker_max = @intCast(u8, len - 1);
+                        // dynamic_linker.max_byte is "max", not "len".
+                        // We know it will fit in u8 because we check against dynamic_linker.buffer.len above.
+                        result.dynamic_linker.max_byte = @intCast(u8, len - 1);
 
                         // Use it to determine ABI.
-                        const full_ld_path = result.dynamic_linker_buffer[0..len];
+                        const full_ld_path = result.dynamic_linker.buffer[0..len];
                         for (ld_info_list) |ld_info| {
-                            const standard_ld_basename = fs.path.basename(ld_info.ldPath());
+                            const standard_ld_basename = fs.path.basename(ld_info.ld.get().?);
                             if (std.mem.endsWith(u8, full_ld_path, standard_ld_basename)) {
                                 result.target.abi = ld_info.abi;
                                 break;
@@ -679,26 +658,20 @@ pub const NativeTargetInfo = struct {
     }
 
     fn defaultAbiAndDynamicLinker(cpu: Target.Cpu, os: Target.Os) !NativeTargetInfo {
-        var result: NativeTargetInfo = .{
-            .target = .{
-                .cpu = cpu,
-                .os = os,
-                .abi = Target.Abi.default(cpu.arch, os),
-            },
+        const target: Target = .{
+            .cpu = cpu,
+            .os = os,
+            .abi = Target.Abi.default(cpu.arch, os),
         };
-        result.dynamic_linker_max = result.target.standardDynamicLinkerPath(&result.dynamic_linker_buffer);
-        return result;
+        return NativeTargetInfo{
+            .target = target,
+            .dynamic_linker = target.standardDynamicLinkerPath(),
+        };
     }
 
     const LdInfo = struct {
-        ld_path_buffer: [255]u8,
-        ld_path_max: u8,
+        ld: DynamicLinker,
         abi: Target.Abi,
-
-        pub fn ldPath(self: *const LdInfo) []const u8 {
-            const m: usize = self.ld_path_max;
-            return self.ld_path_buffer[0 .. m + 1];
-        }
     };
 
     fn elfInt(is_64: bool, need_bswap: bool, int_32: var, int_64: var) @TypeOf(int_64) {

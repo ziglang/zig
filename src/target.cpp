@@ -410,8 +410,8 @@ Error target_parse_abi(ZigLLVM_EnvironmentType *out_abi, const char *abi_ptr, si
     return ErrorUnknownABI;
 }
 
-Error target_parse_triple(ZigTarget *target, const char *triple, const char *mcpu) {
-    return stage2_target_parse(target, triple, mcpu);
+Error target_parse_triple(ZigTarget *target, const char *triple, const char *mcpu, const char *dynamic_linker) {
+    return stage2_target_parse(target, triple, mcpu, dynamic_linker);
 }
 
 const char *target_arch_name(ZigLLVM_ArchType arch) {
