@@ -32,31 +32,6 @@ enum ResumeId {
     ResumeIdCall,
 };
 
-static void init_darwin_native(CodeGen *g) {
-    char *osx_target = getenv("MACOSX_DEPLOYMENT_TARGET");
-    char *ios_target = getenv("IPHONEOS_DEPLOYMENT_TARGET");
-
-    // Allow conflicts among OSX and iOS, but choose the default platform.
-    if (osx_target && ios_target) {
-        if (g->zig_target->arch == ZigLLVM_arm ||
-            g->zig_target->arch == ZigLLVM_aarch64 ||
-            g->zig_target->arch == ZigLLVM_thumb)
-        {
-            osx_target = nullptr;
-        } else {
-            ios_target = nullptr;
-        }
-    }
-
-    if (osx_target) {
-        g->mmacosx_version_min = buf_create_from_str(osx_target);
-    } else if (ios_target) {
-        g->mios_version_min = buf_create_from_str(ios_target);
-    } else if (g->zig_target->os != OsIOS) {
-        g->mmacosx_version_min = buf_create_from_str("10.14");
-    }
-}
-
 static ZigPackage *new_package(const char *root_src_dir, const char *root_src_path, const char *pkg_path) {
     ZigPackage *entry = heap::c_allocator.create<ZigPackage>();
     entry->package_table.init(4);
@@ -158,14 +133,6 @@ void codegen_add_forbidden_lib(CodeGen *codegen, Buf *lib) {
 
 void codegen_add_framework(CodeGen *g, const char *framework) {
     g->darwin_frameworks.append(buf_create_from_str(framework));
-}
-
-void codegen_set_mmacosx_version_min(CodeGen *g, Buf *mmacosx_version_min) {
-    g->mmacosx_version_min = mmacosx_version_min;
-}
-
-void codegen_set_mios_version_min(CodeGen *g, Buf *mios_version_min) {
-    g->mios_version_min = mios_version_min;
 }
 
 void codegen_set_rdynamic(CodeGen *g, bool rdynamic) {
@@ -8655,10 +8622,10 @@ static Error define_builtin_compile_vars(CodeGen *g) {
     if (g->zig_target->cache_hash != nullptr) {
         cache_str(&cache_hash, g->zig_target->cache_hash);
     }
-    if (g->zig_target->glibc_version != nullptr) {
-        cache_int(&cache_hash, g->zig_target->glibc_version->major);
-        cache_int(&cache_hash, g->zig_target->glibc_version->minor);
-        cache_int(&cache_hash, g->zig_target->glibc_version->patch);
+    if (g->zig_target->glibc_or_darwin_version != nullptr) {
+        cache_int(&cache_hash, g->zig_target->glibc_or_darwin_version->major);
+        cache_int(&cache_hash, g->zig_target->glibc_or_darwin_version->minor);
+        cache_int(&cache_hash, g->zig_target->glibc_or_darwin_version->patch);
     }
     cache_bool(&cache_hash, g->have_err_ret_tracing);
     cache_bool(&cache_hash, g->libc_link_lib != nullptr);
@@ -10313,10 +10280,10 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     if (g->zig_target->cache_hash != nullptr) {
         cache_str(ch, g->zig_target->cache_hash);
     }
-    if (g->zig_target->glibc_version != nullptr) {
-        cache_int(ch, g->zig_target->glibc_version->major);
-        cache_int(ch, g->zig_target->glibc_version->minor);
-        cache_int(ch, g->zig_target->glibc_version->patch);
+    if (g->zig_target->glibc_or_darwin_version != nullptr) {
+        cache_int(ch, g->zig_target->glibc_or_darwin_version->major);
+        cache_int(ch, g->zig_target->glibc_or_darwin_version->minor);
+        cache_int(ch, g->zig_target->glibc_or_darwin_version->patch);
     }
     cache_int(ch, detect_subsystem(g));
     cache_bool(ch, g->strip_debug_symbols);
@@ -10344,8 +10311,6 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     cache_bool(ch, g->emit_bin);
     cache_bool(ch, g->emit_llvm_ir);
     cache_bool(ch, g->emit_asm);
-    cache_buf_opt(ch, g->mmacosx_version_min);
-    cache_buf_opt(ch, g->mios_version_min);
     cache_usize(ch, g->version_major);
     cache_usize(ch, g->version_minor);
     cache_usize(ch, g->version_patch);
@@ -10662,9 +10627,6 @@ CodeGen *create_child_codegen(CodeGen *parent_gen, Buf *root_src_path, OutType o
 
     codegen_set_errmsg_color(child_gen, parent_gen->err_color);
 
-    codegen_set_mmacosx_version_min(child_gen, parent_gen->mmacosx_version_min);
-    codegen_set_mios_version_min(child_gen, parent_gen->mios_version_min);
-
     child_gen->enable_cache = true;
 
     return child_gen;
@@ -10772,11 +10734,6 @@ CodeGen *codegen_create(Buf *main_pkg_path, Buf *root_src_path, const ZigTarget 
         g->each_lib_rpath = false;
     } else {
         g->each_lib_rpath = true;
-
-        if (target_os_is_darwin(g->zig_target->os)) {
-            init_darwin_native(g);
-        }
-
     }
 
     if (target_os_requires_libc(g->zig_target->os)) {

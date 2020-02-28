@@ -92,7 +92,7 @@ fn testZigInitLib(zig_exe: []const u8, dir_path: []const u8) !void {
 fn testZigInitExe(zig_exe: []const u8, dir_path: []const u8) !void {
     _ = try exec(dir_path, &[_][]const u8{ zig_exe, "init-exe" });
     const run_result = try exec(dir_path, &[_][]const u8{ zig_exe, "build", "run" });
-    testing.expect(std.mem.eql(u8, run_result.stderr, "All your base are belong to us.\n"));
+    testing.expect(std.mem.eql(u8, run_result.stderr, "All your codebase are belong to us.\n"));
 }
 
 fn testGodboltApi(zig_exe: []const u8, dir_path: []const u8) anyerror!void {

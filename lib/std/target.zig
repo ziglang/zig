@@ -147,7 +147,6 @@ pub const Target = struct {
                     .cloudabi,
                     .dragonfly,
                     .fuchsia,
-                    .ios,
                     .kfreebsd,
                     .lv2,
                     .solaris,
@@ -162,8 +161,6 @@ pub const Target = struct {
                     .amdhsa,
                     .ps4,
                     .elfiamcu,
-                    .tvos,
-                    .watchos,
                     .mesa3d,
                     .contiki,
                     .amdpal,
@@ -185,6 +182,24 @@ pub const Target = struct {
                         .semver = .{
                             .min = .{ .major = 10, .minor = 13 },
                             .max = .{ .major = 10, .minor = 15, .patch = 3 },
+                        },
+                    },
+                    .ios => return .{
+                        .semver = .{
+                            .min = .{ .major = 12, .minor = 0 },
+                            .max = .{ .major = 13, .minor = 4, .patch = 0 },
+                        },
+                    },
+                    .watchos => return .{
+                        .semver = .{
+                            .min = .{ .major = 6, .minor = 0 },
+                            .max = .{ .major = 6, .minor = 2, .patch = 0 },
+                        },
+                    },
+                    .tvos => return .{
+                        .semver = .{
+                            .min = .{ .major = 13, .minor = 0 },
+                            .max = .{ .major = 13, .minor = 4, .patch = 0 },
                         },
                     },
                     .netbsd => return .{

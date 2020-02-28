@@ -347,7 +347,7 @@ const char *target_abi_name(ZigLLVM_EnvironmentType abi) {
     return ZigLLVMGetEnvironmentTypeName(abi);
 }
 
-Error target_parse_glibc_version(ZigGLibCVersion *glibc_ver, const char *text) {
+Error target_parse_glibc_version(Stage2SemVer *glibc_ver, const char *text) {
     glibc_ver->major = 2;
     glibc_ver->minor = 0;
     glibc_ver->patch = 0;
@@ -371,7 +371,7 @@ Error target_parse_glibc_version(ZigGLibCVersion *glibc_ver, const char *text) {
 }
 
 void target_init_default_glibc_version(ZigTarget *target) {
-    *target->glibc_version = {2, 17, 0};
+    *target->glibc_or_darwin_version = {2, 17, 0};
 }
 
 Error target_parse_arch(ZigLLVM_ArchType *out_arch, const char *arch_ptr, size_t arch_len) {

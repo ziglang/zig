@@ -2250,8 +2250,6 @@ struct CodeGen {
     bool test_is_evented;
     CodeModel code_model;
 
-    Buf *mmacosx_version_min;
-    Buf *mios_version_min;
     Buf *root_out_name;
     Buf *test_filter;
     Buf *test_name_prefix;

@@ -892,7 +892,7 @@ const Stage2Target = extern struct {
 
     is_native: bool,
 
-    glibc_version: ?*Stage2GLibCVersion, // null means default
+    glibc_or_darwin_version: ?*Stage2SemVer,
 
     llvm_cpu_name: ?[*:0]const u8,
     llvm_cpu_features: ?[*:0]const u8,
@@ -1103,16 +1103,29 @@ const Stage2Target = extern struct {
             os_builtin_str_buffer.toSlice()[os_builtin_str_ver_start_index..os_builtin_str_buffer.len()],
         );
 
-        const glibc_version = if (target.isGnuLibC()) blk: {
-            const stage1_glibc = try std.heap.c_allocator.create(Stage2GLibCVersion);
-            const stage2_glibc = target.os.version_range.linux.glibc;
-            stage1_glibc.* = .{
-                .major = stage2_glibc.major,
-                .minor = stage2_glibc.minor,
-                .patch = stage2_glibc.patch,
-            };
-            break :blk stage1_glibc;
-        } else null;
+        const glibc_or_darwin_version = blk: {
+            if (target.isGnuLibC()) {
+                const stage1_glibc = try std.heap.c_allocator.create(Stage2SemVer);
+                const stage2_glibc = target.os.version_range.linux.glibc;
+                stage1_glibc.* = .{
+                    .major = stage2_glibc.major,
+                    .minor = stage2_glibc.minor,
+                    .patch = stage2_glibc.patch,
+                };
+                break :blk stage1_glibc;
+            } else if (target.isDarwin()) {
+                const stage1_semver = try std.heap.c_allocator.create(Stage2SemVer);
+                const stage2_semver = target.os.version_range.semver.min;
+                stage1_semver.* = .{
+                    .major = stage2_semver.major,
+                    .minor = stage2_semver.minor,
+                    .patch = stage2_semver.patch,
+                };
+                break :blk stage1_semver;
+            } else {
+                break :blk null;
+            }
+        };
 
         self.* = .{
             .arch = @enumToInt(target.cpu.arch) + 1, // skip over ZigLLVM_UnknownArch
@@ -1125,7 +1138,7 @@ const Stage2Target = extern struct {
             .os_builtin_str = os_builtin_str_buffer.toOwnedSlice().ptr,
             .cache_hash = cache_hash.toOwnedSlice().ptr,
             .is_native = cross_target.isNative(),
-            .glibc_version = glibc_version,
+            .glibc_or_darwin_version = glibc_or_darwin_version,
             .dynamic_linker = dynamic_linker,
         };
     }
@@ -1179,7 +1192,7 @@ fn crossTargetToTarget(cross_target: CrossTarget, dynamic_linker_ptr: *?[*:0]u8)
 }
 
 // ABI warning
-const Stage2GLibCVersion = extern struct {
+const Stage2SemVer = extern struct {
     major: u32,
     minor: u32,
     patch: u32,

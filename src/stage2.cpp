@@ -186,7 +186,7 @@ static void get_native_target(ZigTarget *target) {
         target->abi = target_default_abi(target->arch, target->os);
     }
     if (target_is_glibc(target)) {
-        target->glibc_version = heap::c_allocator.create<ZigGLibCVersion>();
+        target->glibc_or_darwin_version = heap::c_allocator.create<Stage2SemVer>();
         target_init_default_glibc_version(target);
     }
 }

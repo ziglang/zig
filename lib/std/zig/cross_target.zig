@@ -88,7 +88,6 @@ pub const CrossTarget = struct {
             .cloudabi,
             .dragonfly,
             .fuchsia,
-            .ios,
             .kfreebsd,
             .lv2,
             .solaris,
@@ -103,8 +102,6 @@ pub const CrossTarget = struct {
             .amdhsa,
             .ps4,
             .elfiamcu,
-            .tvos,
-            .watchos,
             .mesa3d,
             .contiki,
             .amdpal,
@@ -121,8 +118,11 @@ pub const CrossTarget = struct {
 
             .freebsd,
             .macosx,
+            .ios,
             .netbsd,
             .openbsd,
+            .tvos,
+            .watchos,
             => {
                 self.os_version_min = .{ .semver = os.version_range.semver.min };
                 self.os_version_max = .{ .semver = os.version_range.semver.max };

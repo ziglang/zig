@@ -46,7 +46,7 @@ Error target_parse_arch(ZigLLVM_ArchType *arch, const char *arch_ptr, size_t arc
 Error target_parse_os(Os *os, const char *os_ptr, size_t os_len);
 Error target_parse_abi(ZigLLVM_EnvironmentType *abi, const char *abi_ptr, size_t abi_len);
 
-Error target_parse_glibc_version(ZigGLibCVersion *out, const char *text);
+Error target_parse_glibc_version(Stage2SemVer *out, const char *text);
 void target_init_default_glibc_version(ZigTarget *target);
 
 size_t target_arch_count(void);

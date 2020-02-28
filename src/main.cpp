@@ -127,8 +127,6 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  --subsystem [subsystem]      (windows) /SUBSYSTEM:<subsystem> to the linker\n"
         "  -F[dir]                      (darwin) add search path for frameworks\n"
         "  -framework [name]            (darwin) link against framework\n"
-        "  -mios-version-min [ver]      (darwin) set iOS deployment target\n"
-        "  -mmacosx-version-min [ver]   (darwin) set Mac OS X deployment target\n"
         "  --ver-major [ver]            dynamic library semver major version\n"
         "  --ver-minor [ver]            dynamic library semver minor version\n"
         "  --ver-patch [ver]            dynamic library semver patch version\n"
@@ -414,8 +412,6 @@ static int main0(int argc, char **argv) {
     bool have_libc = false;
     const char *target_string = nullptr;
     bool rdynamic = false;
-    const char *mmacosx_version_min = nullptr;
-    const char *mios_version_min = nullptr;
     const char *linker_script = nullptr;
     Buf *version_script = nullptr;
     ZigList<const char *> rpath_list = {0};
@@ -844,10 +840,6 @@ static int main0(int argc, char **argv) {
                     cache_dir = argv[i];
                 } else if (strcmp(arg, "-target") == 0) {
                     target_string = argv[i];
-                } else if (strcmp(arg, "-mmacosx-version-min") == 0) {
-                    mmacosx_version_min = argv[i];
-                } else if (strcmp(arg, "-mios-version-min") == 0) {
-                    mios_version_min = argv[i];
                 } else if (strcmp(arg, "-framework") == 0) {
                     frameworks.append(argv[i]);
                 } else if (strcmp(arg, "--linker-script") == 0) {
@@ -1240,18 +1232,6 @@ static int main0(int argc, char **argv) {
             }
 
             codegen_set_rdynamic(g, rdynamic);
-            if (mmacosx_version_min && mios_version_min) {
-                fprintf(stderr, "-mmacosx-version-min and -mios-version-min options not allowed together\n");
-                return main_exit(root_progress_node, EXIT_FAILURE);
-            }
-
-            if (mmacosx_version_min) {
-                codegen_set_mmacosx_version_min(g, buf_create_from_str(mmacosx_version_min));
-            }
-
-            if (mios_version_min) {
-                codegen_set_mios_version_min(g, buf_create_from_str(mios_version_min));
-            }
 
             if (test_filter) {
                 codegen_set_test_filter(g, buf_create_from_str(test_filter));

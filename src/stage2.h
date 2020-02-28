@@ -270,13 +270,11 @@ enum Os {
 };
 
 // ABI warning
-struct ZigGLibCVersion {
-    uint32_t major; // always 2
+struct Stage2SemVer {
+    uint32_t major;
     uint32_t minor;
     uint32_t patch;
 };
-
-struct Stage2TargetData;
 
 // ABI warning
 struct ZigTarget {
@@ -288,7 +286,8 @@ struct ZigTarget {
 
     bool is_native;
 
-    struct ZigGLibCVersion *glibc_version; // null means default
+    // null means default. this is double-purposed to be darwin min version
+    struct Stage2SemVer *glibc_or_darwin_version;
 
     const char *llvm_cpu_name;
     const char *llvm_cpu_features;

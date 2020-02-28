@@ -32,7 +32,7 @@ struct ZigGLibCAbi {
     Buf *abi_txt_path;
     Buf *vers_txt_path;
     Buf *fns_txt_path;
-    ZigList<ZigGLibCVersion> all_versions;
+    ZigList<Stage2SemVer> all_versions;
     ZigList<ZigGLibCFn> all_functions;
     // The value is a pointer to all_functions.length items and each item is an index
     // into all_functions.
