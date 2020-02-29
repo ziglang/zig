@@ -349,16 +349,6 @@ pub const Elf = struct {
     program_headers: []ProgramHeader,
     allocator: *mem.Allocator,
 
-    /// Call close when done.
-    pub fn openPath(allocator: *mem.Allocator, path: []const u8) !Elf {
-        @compileError("TODO implement");
-    }
-
-    /// Call close when done.
-    pub fn openFile(allocator: *mem.Allocator, file: File) !Elf {
-        @compileError("TODO implement");
-    }
-
     pub fn openStream(
         allocator: *mem.Allocator,
         seekable_stream: *io.SeekableStream(anyerror, anyerror),
@@ -554,6 +544,21 @@ pub const Elf = struct {
 };
 
 pub const EI_NIDENT = 16;
+
+pub const EI_CLASS = 4;
+pub const ELFCLASSNONE = 0;
+pub const ELFCLASS32 = 1;
+pub const ELFCLASS64 = 2;
+pub const ELFCLASSNUM = 3;
+
+pub const EI_DATA = 5;
+pub const ELFDATANONE = 0;
+pub const ELFDATA2LSB = 1;
+pub const ELFDATA2MSB = 2;
+pub const ELFDATANUM = 3;
+
+pub const EI_VERSION = 6;
+
 pub const Elf32_Half = u16;
 pub const Elf64_Half = u16;
 pub const Elf32_Word = u32;
@@ -703,17 +708,11 @@ pub const Elf64_Rela = extern struct {
 };
 pub const Elf32_Dyn = extern struct {
     d_tag: Elf32_Sword,
-    d_un: extern union {
-        d_val: Elf32_Word,
-        d_ptr: Elf32_Addr,
-    },
+    d_val: Elf32_Addr,
 };
 pub const Elf64_Dyn = extern struct {
     d_tag: Elf64_Sxword,
-    d_un: extern union {
-        d_val: Elf64_Xword,
-        d_ptr: Elf64_Addr,
-    },
+    d_val: Elf64_Addr,
 };
 pub const Elf32_Verdef = extern struct {
     vd_version: Elf32_Half,

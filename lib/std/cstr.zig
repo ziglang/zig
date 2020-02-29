@@ -4,8 +4,8 @@ const debug = std.debug;
 const mem = std.mem;
 const testing = std.testing;
 
-pub const line_sep = switch (builtin.os) {
-    builtin.Os.windows => "\r\n",
+pub const line_sep = switch (builtin.os.tag) {
+    .windows => "\r\n",
     else => "\n",
 };
 

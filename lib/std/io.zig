@@ -35,7 +35,7 @@ else
 pub const is_async = mode != .blocking;
 
 fn getStdOutHandle() os.fd_t {
-    if (builtin.os == .windows) {
+    if (builtin.os.tag == .windows) {
         return os.windows.peb().ProcessParameters.hStdOutput;
     }
 
@@ -54,7 +54,7 @@ pub fn getStdOut() File {
 }
 
 fn getStdErrHandle() os.fd_t {
-    if (builtin.os == .windows) {
+    if (builtin.os.tag == .windows) {
         return os.windows.peb().ProcessParameters.hStdError;
     }
 
@@ -74,7 +74,7 @@ pub fn getStdErr() File {
 }
 
 fn getStdInHandle() os.fd_t {
-    if (builtin.os == .windows) {
+    if (builtin.os.tag == .windows) {
         return os.windows.peb().ProcessParameters.hStdInput;
     }
 

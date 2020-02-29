@@ -1050,7 +1050,7 @@ pub const struct_ZigClangExprEvalResult = extern struct {
 
 pub const struct_ZigClangAPValue = extern struct {
     Kind: ZigClangAPValueKind,
-    Data: if (builtin.os == .windows and builtin.abi == .msvc) [52]u8 else [68]u8,
+    Data: if (builtin.os.tag == .windows and builtin.abi == .msvc) [52]u8 else [68]u8,
 };
 pub extern fn ZigClangVarDecl_getTypeSourceInfo_getType(self: *const struct_ZigClangVarDecl) struct_ZigClangQualType;
 

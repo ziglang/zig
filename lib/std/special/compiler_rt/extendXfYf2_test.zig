@@ -90,7 +90,7 @@ test "extendhfsf2" {
     test__extendhfsf2(0x7f00, 0x7fe00000); // sNaN
     // On x86 the NaN becomes quiet because the return is pushed on the x87
     // stack due to ABI requirements
-    if (builtin.arch != .i386 and builtin.os == .windows)
+    if (builtin.arch != .i386 and builtin.os.tag == .windows)
         test__extendhfsf2(0x7c01, 0x7f802000); // sNaN
 
     test__extendhfsf2(0, 0); // 0

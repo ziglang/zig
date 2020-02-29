@@ -1,61 +1,291 @@
 const std = @import("std.zig");
 const mem = std.mem;
 const builtin = std.builtin;
+const Version = std.builtin.Version;
 
 /// TODO Nearly all the functions in this namespace would be
 /// better off if https://github.com/ziglang/zig/issues/425
 /// was solved.
-pub const Target = union(enum) {
-    Native: void,
-    Cross: Cross,
+pub const Target = struct {
+    cpu: Cpu,
+    os: Os,
+    abi: Abi,
 
-    pub const Os = enum {
-        freestanding,
-        ananas,
-        cloudabi,
-        dragonfly,
-        freebsd,
-        fuchsia,
-        ios,
-        kfreebsd,
-        linux,
-        lv2,
-        macosx,
-        netbsd,
-        openbsd,
-        solaris,
-        windows,
-        haiku,
-        minix,
-        rtems,
-        nacl,
-        cnk,
-        aix,
-        cuda,
-        nvcl,
-        amdhsa,
-        ps4,
-        elfiamcu,
-        tvos,
-        watchos,
-        mesa3d,
-        contiki,
-        amdpal,
-        hermit,
-        hurd,
-        wasi,
-        emscripten,
-        uefi,
-        other,
+    pub const Os = struct {
+        tag: Tag,
+        version_range: VersionRange,
 
-        pub fn parse(text: []const u8) !Os {
-            const info = @typeInfo(Os);
-            inline for (info.Enum.fields) |field| {
-                if (mem.eql(u8, text, field.name)) {
-                    return @field(Os, field.name);
+        pub const Tag = enum {
+            freestanding,
+            ananas,
+            cloudabi,
+            dragonfly,
+            freebsd,
+            fuchsia,
+            ios,
+            kfreebsd,
+            linux,
+            lv2,
+            macosx,
+            netbsd,
+            openbsd,
+            solaris,
+            windows,
+            haiku,
+            minix,
+            rtems,
+            nacl,
+            cnk,
+            aix,
+            cuda,
+            nvcl,
+            amdhsa,
+            ps4,
+            elfiamcu,
+            tvos,
+            watchos,
+            mesa3d,
+            contiki,
+            amdpal,
+            hermit,
+            hurd,
+            wasi,
+            emscripten,
+            uefi,
+            other,
+
+            pub fn isDarwin(tag: Tag) bool {
+                return switch (tag) {
+                    .ios, .macosx, .watchos, .tvos => true,
+                    else => false,
+                };
+            }
+
+            pub fn dynamicLibSuffix(tag: Tag) [:0]const u8 {
+                if (tag.isDarwin()) {
+                    return ".dylib";
+                }
+                switch (tag) {
+                    .windows => return ".dll",
+                    else => return ".so",
                 }
             }
-            return error.UnknownOperatingSystem;
+        };
+
+        /// Based on NTDDI version constants from
+        /// https://docs.microsoft.com/en-us/cpp/porting/modifying-winver-and-win32-winnt
+        pub const WindowsVersion = enum(u32) {
+            nt4 = 0x04000000,
+            win2k = 0x05000000,
+            xp = 0x05010000,
+            ws2003 = 0x05020000,
+            vista = 0x06000000,
+            win7 = 0x06010000,
+            win8 = 0x06020000,
+            win8_1 = 0x06030000,
+            win10 = 0x0A000000,
+            win10_th2 = 0x0A000001,
+            win10_rs1 = 0x0A000002,
+            win10_rs2 = 0x0A000003,
+            win10_rs3 = 0x0A000004,
+            win10_rs4 = 0x0A000005,
+            win10_rs5 = 0x0A000006,
+            win10_19h1 = 0x0A000007,
+            _,
+
+            pub const Range = struct {
+                min: WindowsVersion,
+                max: WindowsVersion,
+
+                pub fn includesVersion(self: Range, ver: WindowsVersion) bool {
+                    return @enumToInt(ver) >= @enumToInt(self.min) and @enumToInt(ver) <= @enumToInt(self.max);
+                }
+            };
+        };
+
+        pub const LinuxVersionRange = struct {
+            range: Version.Range,
+            glibc: Version,
+
+            pub fn includesVersion(self: LinuxVersionRange, ver: Version) bool {
+                return self.range.includesVersion(ver);
+            }
+        };
+
+        /// The version ranges here represent the minimum OS version to be supported
+        /// and the maximum OS version to be supported. The default values represent
+        /// the range that the Zig Standard Library bases its abstractions on.
+        ///
+        /// The minimum version of the range is the main setting to tweak for a target.
+        /// Usually, the maximum target OS version will remain the default, which is
+        /// the latest released version of the OS.
+        ///
+        /// To test at compile time if the target is guaranteed to support a given OS feature,
+        /// one should check that the minimum version of the range is greater than or equal to
+        /// the version the feature was introduced in.
+        ///
+        /// To test at compile time if the target certainly will not support a given OS feature,
+        /// one should check that the maximum version of the range is less than the version the
+        /// feature was introduced in.
+        ///
+        /// If neither of these cases apply, a runtime check should be used to determine if the
+        /// target supports a given OS feature.
+        ///
+        /// Binaries built with a given maximum version will continue to function on newer operating system
+        /// versions. However, such a binary may not take full advantage of the newer operating system APIs.
+        pub const VersionRange = union {
+            none: void,
+            semver: Version.Range,
+            linux: LinuxVersionRange,
+            windows: WindowsVersion.Range,
+
+            /// The default `VersionRange` represents the range that the Zig Standard Library
+            /// bases its abstractions on.
+            pub fn default(tag: Tag) VersionRange {
+                switch (tag) {
+                    .freestanding,
+                    .ananas,
+                    .cloudabi,
+                    .dragonfly,
+                    .fuchsia,
+                    .kfreebsd,
+                    .lv2,
+                    .solaris,
+                    .haiku,
+                    .minix,
+                    .rtems,
+                    .nacl,
+                    .cnk,
+                    .aix,
+                    .cuda,
+                    .nvcl,
+                    .amdhsa,
+                    .ps4,
+                    .elfiamcu,
+                    .mesa3d,
+                    .contiki,
+                    .amdpal,
+                    .hermit,
+                    .hurd,
+                    .wasi,
+                    .emscripten,
+                    .uefi,
+                    .other,
+                    => return .{ .none = {} },
+
+                    .freebsd => return .{
+                        .semver = Version.Range{
+                            .min = .{ .major = 12, .minor = 0 },
+                            .max = .{ .major = 12, .minor = 1 },
+                        },
+                    },
+                    .macosx => return .{
+                        .semver = .{
+                            .min = .{ .major = 10, .minor = 13 },
+                            .max = .{ .major = 10, .minor = 15, .patch = 3 },
+                        },
+                    },
+                    .ios => return .{
+                        .semver = .{
+                            .min = .{ .major = 12, .minor = 0 },
+                            .max = .{ .major = 13, .minor = 4, .patch = 0 },
+                        },
+                    },
+                    .watchos => return .{
+                        .semver = .{
+                            .min = .{ .major = 6, .minor = 0 },
+                            .max = .{ .major = 6, .minor = 2, .patch = 0 },
+                        },
+                    },
+                    .tvos => return .{
+                        .semver = .{
+                            .min = .{ .major = 13, .minor = 0 },
+                            .max = .{ .major = 13, .minor = 4, .patch = 0 },
+                        },
+                    },
+                    .netbsd => return .{
+                        .semver = .{
+                            .min = .{ .major = 8, .minor = 0 },
+                            .max = .{ .major = 9, .minor = 0 },
+                        },
+                    },
+                    .openbsd => return .{
+                        .semver = .{
+                            .min = .{ .major = 6, .minor = 6 },
+                            .max = .{ .major = 6, .minor = 6 },
+                        },
+                    },
+
+                    .linux => return .{
+                        .linux = .{
+                            .range = .{
+                                .min = .{ .major = 3, .minor = 16 },
+                                .max = .{ .major = 5, .minor = 5, .patch = 5 },
+                            },
+                            .glibc = .{ .major = 2, .minor = 17 },
+                        },
+                    },
+
+                    .windows => return .{
+                        .windows = .{
+                            .min = .win8_1,
+                            .max = .win10_19h1,
+                        },
+                    },
+                }
+            }
+        };
+
+        pub fn defaultVersionRange(tag: Tag) Os {
+            return .{
+                .tag = tag,
+                .version_range = VersionRange.default(tag),
+            };
+        }
+
+        pub fn requiresLibC(os: Os) bool {
+            return switch (os.tag) {
+                .freebsd,
+                .netbsd,
+                .macosx,
+                .ios,
+                .tvos,
+                .watchos,
+                .dragonfly,
+                .openbsd,
+                => true,
+
+                .linux,
+                .windows,
+                .freestanding,
+                .ananas,
+                .cloudabi,
+                .fuchsia,
+                .kfreebsd,
+                .lv2,
+                .solaris,
+                .haiku,
+                .minix,
+                .rtems,
+                .nacl,
+                .cnk,
+                .aix,
+                .cuda,
+                .nvcl,
+                .amdhsa,
+                .ps4,
+                .elfiamcu,
+                .mesa3d,
+                .contiki,
+                .amdpal,
+                .hermit,
+                .hurd,
+                .wasi,
+                .emscripten,
+                .uefi,
+                .other,
+                => false,
+            };
         }
     };
 
@@ -100,11 +330,10 @@ pub const Target = union(enum) {
         macabi,
 
         pub fn default(arch: Cpu.Arch, target_os: Os) Abi {
-            switch (arch) {
-                .wasm32, .wasm64 => return .musl,
-                else => {},
+            if (arch.isWasm()) {
+                return .musl;
             }
-            switch (target_os) {
+            switch (target_os.tag) {
                 .freestanding,
                 .ananas,
                 .cloudabi,
@@ -149,14 +378,25 @@ pub const Target = union(enum) {
             }
         }
 
-        pub fn parse(text: []const u8) !Abi {
-            const info = @typeInfo(Abi);
-            inline for (info.Enum.fields) |field| {
-                if (mem.eql(u8, text, field.name)) {
-                    return @field(Abi, field.name);
-                }
-            }
-            return error.UnknownApplicationBinaryInterface;
+        pub fn isGnu(abi: Abi) bool {
+            return switch (abi) {
+                .gnu, .gnuabin32, .gnuabi64, .gnueabi, .gnueabihf, .gnux32 => true,
+                else => false,
+            };
+        }
+
+        pub fn isMusl(abi: Abi) bool {
+            return switch (abi) {
+                .musl, .musleabi, .musleabihf => true,
+                else => false,
+            };
+        }
+
+        pub fn oFileExt(abi: Abi) [:0]const u8 {
+            return switch (abi) {
+                .msvc => ".obj",
+                else => ".o",
+            };
         }
     };
 
@@ -177,12 +417,6 @@ pub const Target = union(enum) {
         EfiBootServiceDriver,
         EfiRom,
         EfiRuntimeDriver,
-    };
-
-    pub const Cross = struct {
-        cpu: Cpu,
-        os: Os,
-        abi: Abi,
     };
 
     pub const Cpu = struct {
@@ -230,6 +464,12 @@ pub const Target = union(enum) {
                     return Set{ .ints = [1]usize{0} ** usize_count };
                 }
 
+                pub fn isEmpty(set: Set) bool {
+                    return for (set.ints) |x| {
+                        if (x != 0) break false;
+                    } else true;
+                }
+
                 pub fn isEnabled(set: Set, arch_feature_index: Index) bool {
                     const usize_index = arch_feature_index / @bitSizeOf(usize);
                     const bit_index = @intCast(ShiftInt, arch_feature_index % @bitSizeOf(usize));
@@ -254,6 +494,15 @@ pub const Target = union(enum) {
                     const usize_index = arch_feature_index / @bitSizeOf(usize);
                     const bit_index = @intCast(ShiftInt, arch_feature_index % @bitSizeOf(usize));
                     set.ints[usize_index] &= ~(@as(usize, 1) << bit_index);
+                }
+
+                /// Removes the specified feature but not its dependents.
+                pub fn removeFeatureSet(set: *Set, other_set: Set) void {
+                    // TODO should be able to use binary not on @Vector type.
+                    // https://github.com/ziglang/zig/issues/903
+                    for (set.ints) |*int, i| {
+                        int.* &= ~other_set.ints[i];
+                    }
                 }
 
                 pub fn populateDependencies(set: *Set, all_features_list: []const Cpu.Feature) void {
@@ -393,7 +642,7 @@ pub const Target = union(enum) {
                         return cpu;
                     }
                 }
-                return error.UnknownCpu;
+                return error.UnknownCpuModel;
             }
 
             pub fn toElfMachine(arch: Arch) std.elf.EM {
@@ -509,6 +758,66 @@ pub const Target = union(enum) {
                 };
             }
 
+            pub fn ptrBitWidth(arch: Arch) u32 {
+                switch (arch) {
+                    .avr,
+                    .msp430,
+                    => return 16,
+
+                    .arc,
+                    .arm,
+                    .armeb,
+                    .hexagon,
+                    .le32,
+                    .mips,
+                    .mipsel,
+                    .powerpc,
+                    .r600,
+                    .riscv32,
+                    .sparc,
+                    .sparcel,
+                    .tce,
+                    .tcele,
+                    .thumb,
+                    .thumbeb,
+                    .i386,
+                    .xcore,
+                    .nvptx,
+                    .amdil,
+                    .hsail,
+                    .spir,
+                    .kalimba,
+                    .shave,
+                    .lanai,
+                    .wasm32,
+                    .renderscript32,
+                    .aarch64_32,
+                    => return 32,
+
+                    .aarch64,
+                    .aarch64_be,
+                    .mips64,
+                    .mips64el,
+                    .powerpc64,
+                    .powerpc64le,
+                    .riscv64,
+                    .x86_64,
+                    .nvptx64,
+                    .le64,
+                    .amdil64,
+                    .hsail64,
+                    .spir64,
+                    .wasm64,
+                    .renderscript64,
+                    .amdgcn,
+                    .bpfel,
+                    .bpfeb,
+                    .sparcv9,
+                    .s390x,
+                    => return 64,
+                }
+            }
+
             /// Returns a name that matches the lib/std/target/* directory name.
             pub fn genericName(arch: Arch) []const u8 {
                 return switch (arch) {
@@ -576,16 +885,6 @@ pub const Target = union(enum) {
                     else => &[0]*const Model{},
                 };
             }
-
-            pub fn parse(text: []const u8) !Arch {
-                const info = @typeInfo(Arch);
-                inline for (info.Enum.fields) |field| {
-                    if (mem.eql(u8, text, field.name)) {
-                        return @as(Arch, @field(Arch, field.name));
-                    }
-                }
-                return error.UnknownArchitecture;
-            }
         };
 
         pub const Model = struct {
@@ -602,524 +901,168 @@ pub const Target = union(enum) {
                     .features = features,
                 };
             }
+
+            pub fn baseline(arch: Arch) *const Model {
+                const S = struct {
+                    const generic_model = Model{
+                        .name = "generic",
+                        .llvm_name = null,
+                        .features = Cpu.Feature.Set.empty,
+                    };
+                };
+                return switch (arch) {
+                    .arm, .armeb, .thumb, .thumbeb => &arm.cpu.baseline,
+                    .aarch64, .aarch64_be, .aarch64_32 => &aarch64.cpu.generic,
+                    .avr => &avr.cpu.avr1,
+                    .bpfel, .bpfeb => &bpf.cpu.generic,
+                    .hexagon => &hexagon.cpu.generic,
+                    .mips, .mipsel => &mips.cpu.mips32,
+                    .mips64, .mips64el => &mips.cpu.mips64,
+                    .msp430 => &msp430.cpu.generic,
+                    .powerpc, .powerpc64, .powerpc64le => &powerpc.cpu.generic,
+                    .amdgcn => &amdgpu.cpu.generic,
+                    .riscv32 => &riscv.cpu.baseline_rv32,
+                    .riscv64 => &riscv.cpu.baseline_rv64,
+                    .sparc, .sparcv9, .sparcel => &sparc.cpu.generic,
+                    .s390x => &systemz.cpu.generic,
+                    .i386 => &x86.cpu.pentium4,
+                    .x86_64 => &x86.cpu.x86_64,
+                    .nvptx, .nvptx64 => &nvptx.cpu.sm_20,
+                    .wasm32, .wasm64 => &wasm.cpu.generic,
+
+                    else => &S.generic_model,
+                };
+            }
         };
 
         /// The "default" set of CPU features for cross-compiling. A conservative set
         /// of features that is expected to be supported on most available hardware.
         pub fn baseline(arch: Arch) Cpu {
-            const S = struct {
-                const generic_model = Model{
-                    .name = "generic",
-                    .llvm_name = null,
-                    .features = Cpu.Feature.Set.empty,
-                };
-            };
-            const model = switch (arch) {
-                .arm, .armeb, .thumb, .thumbeb => &arm.cpu.baseline,
-                .aarch64, .aarch64_be, .aarch64_32 => &aarch64.cpu.generic,
-                .avr => &avr.cpu.avr1,
-                .bpfel, .bpfeb => &bpf.cpu.generic,
-                .hexagon => &hexagon.cpu.generic,
-                .mips, .mipsel => &mips.cpu.mips32,
-                .mips64, .mips64el => &mips.cpu.mips64,
-                .msp430 => &msp430.cpu.generic,
-                .powerpc, .powerpc64, .powerpc64le => &powerpc.cpu.generic,
-                .amdgcn => &amdgpu.cpu.generic,
-                .riscv32 => &riscv.cpu.baseline_rv32,
-                .riscv64 => &riscv.cpu.baseline_rv64,
-                .sparc, .sparcv9, .sparcel => &sparc.cpu.generic,
-                .s390x => &systemz.cpu.generic,
-                .i386 => &x86.cpu.pentium4,
-                .x86_64 => &x86.cpu.x86_64,
-                .nvptx, .nvptx64 => &nvptx.cpu.sm_20,
-                .wasm32, .wasm64 => &wasm.cpu.generic,
-
-                else => &S.generic_model,
-            };
-            return model.toCpu(arch);
+            return Model.baseline(arch).toCpu(arch);
         }
     };
 
     pub const current = Target{
-        .Cross = Cross{
-            .cpu = builtin.cpu,
-            .os = builtin.os,
-            .abi = builtin.abi,
-        },
+        .cpu = builtin.cpu,
+        .os = builtin.os,
+        .abi = builtin.abi,
     };
 
     pub const stack_align = 16;
 
-    pub fn zigTriple(self: Target, allocator: *mem.Allocator) ![]u8 {
-        return std.fmt.allocPrint(allocator, "{}-{}-{}", .{
-            @tagName(self.getArch()),
-            @tagName(self.getOs()),
-            @tagName(self.getAbi()),
-        });
+    pub fn zigTriple(self: Target, allocator: *mem.Allocator) ![:0]u8 {
+        return std.zig.CrossTarget.fromTarget(self).zigTriple(allocator);
     }
 
-    /// Returned slice must be freed by the caller.
-    pub fn vcpkgTriplet(allocator: *mem.Allocator, target: Target, linkage: std.build.VcpkgLinkage) ![]const u8 {
-        const arch = switch (target.getArch()) {
-            .i386 => "x86",
-            .x86_64 => "x64",
+    pub fn linuxTripleSimple(allocator: *mem.Allocator, cpu_arch: Cpu.Arch, os_tag: Os.Tag, abi: Abi) ![:0]u8 {
+        return std.fmt.allocPrint0(allocator, "{}-{}-{}", .{ @tagName(cpu_arch), @tagName(os_tag), @tagName(abi) });
+    }
 
-            .arm,
-            .armeb,
-            .thumb,
-            .thumbeb,
-            .aarch64_32,
-            => "arm",
+    pub fn linuxTriple(self: Target, allocator: *mem.Allocator) ![:0]u8 {
+        return linuxTripleSimple(allocator, self.cpu.arch, self.os.tag, self.abi);
+    }
 
-            .aarch64,
-            .aarch64_be,
-            => "arm64",
+    pub fn oFileExt(self: Target) [:0]const u8 {
+        return self.abi.oFileExt();
+    }
 
-            else => return error.VcpkgNoSuchArchitecture,
-        };
-
-        const os = switch (target.getOs()) {
-            .windows => "windows",
-            .linux => "linux",
-            .macosx => "macos",
-            else => return error.VcpkgNoSuchOs,
-        };
-
-        if (linkage == .Static) {
-            return try mem.join(allocator, "-", &[_][]const u8{ arch, os, "static" });
-        } else {
-            return try mem.join(allocator, "-", &[_][]const u8{ arch, os });
+    pub fn exeFileExtSimple(cpu_arch: Cpu.Arch, os_tag: Os.Tag) [:0]const u8 {
+        switch (os_tag) {
+            .windows => return ".exe",
+            .uefi => return ".efi",
+            else => if (cpu_arch.isWasm()) {
+                return ".wasm";
+            } else {
+                return "";
+            },
         }
     }
 
-    pub fn allocDescription(self: Target, allocator: *mem.Allocator) ![]u8 {
-        // TODO is there anything else worthy of the description that is not
-        // already captured in the triple?
-        return self.zigTriple(allocator);
+    pub fn exeFileExt(self: Target) [:0]const u8 {
+        return exeFileExtSimple(self.cpu.arch, self.os.tag);
     }
 
-    pub fn zigTripleNoSubArch(self: Target, allocator: *mem.Allocator) ![]u8 {
-        return std.fmt.allocPrint(allocator, "{}-{}-{}", .{
-            @tagName(self.getArch()),
-            @tagName(self.getOs()),
-            @tagName(self.getAbi()),
-        });
-    }
-
-    pub fn linuxTriple(self: Target, allocator: *mem.Allocator) ![]u8 {
-        return std.fmt.allocPrint(allocator, "{}-{}-{}", .{
-            @tagName(self.getArch()),
-            @tagName(self.getOs()),
-            @tagName(self.getAbi()),
-        });
-    }
-
-    pub const ParseOptions = struct {
-        /// This is sometimes called a "triple". It looks roughly like this:
-        ///     riscv64-linux-gnu
-        /// The fields are, respectively:
-        /// * CPU Architecture
-        /// * Operating System
-        /// * C ABI (optional)
-        arch_os_abi: []const u8,
-
-        /// Looks like "name+a+b-c-d+e", where "name" is a CPU Model name, "a", "b", and "e"
-        /// are examples of CPU features to add to the set, and "c" and "d" are examples of CPU features
-        /// to remove from the set.
-        cpu_features: []const u8 = "baseline",
-
-        /// If this is provided, the function will populate some information about parsing failures,
-        /// so that user-friendly error messages can be delivered.
-        diagnostics: ?*Diagnostics = null,
-
-        pub const Diagnostics = struct {
-            /// If the architecture was determined, this will be populated.
-            arch: ?Cpu.Arch = null,
-
-            /// If the OS was determined, this will be populated.
-            os: ?Os = null,
-
-            /// If the ABI was determined, this will be populated.
-            abi: ?Abi = null,
-
-            /// If the CPU name was determined, this will be populated.
-            cpu_name: ?[]const u8 = null,
-
-            /// If error.UnknownCpuFeature is returned, this will be populated.
-            unknown_feature_name: ?[]const u8 = null,
-        };
-    };
-
-    pub fn parse(args: ParseOptions) !Target {
-        var dummy_diags: ParseOptions.Diagnostics = undefined;
-        var diags = args.diagnostics orelse &dummy_diags;
-
-        var it = mem.separate(args.arch_os_abi, "-");
-        const arch_name = it.next() orelse return error.MissingArchitecture;
-        const arch = try Cpu.Arch.parse(arch_name);
-        diags.arch = arch;
-
-        const os_name = it.next() orelse return error.MissingOperatingSystem;
-        const os = try Os.parse(os_name);
-        diags.os = os;
-
-        const abi_name = it.next();
-        const abi = if (abi_name) |n| try Abi.parse(n) else Abi.default(arch, os);
-        diags.abi = abi;
-
-        if (it.next() != null) return error.UnexpectedExtraField;
-
-        const all_features = arch.allFeaturesList();
-        var index: usize = 0;
-        while (index < args.cpu_features.len and
-            args.cpu_features[index] != '+' and
-            args.cpu_features[index] != '-')
-        {
-            index += 1;
-        }
-        const cpu_name = args.cpu_features[0..index];
-        diags.cpu_name = cpu_name;
-
-        const cpu: Cpu = if (mem.eql(u8, cpu_name, "baseline")) Cpu.baseline(arch) else blk: {
-            const cpu_model = try arch.parseCpuModel(cpu_name);
-
-            var set = cpu_model.features;
-            while (index < args.cpu_features.len) {
-                const op = args.cpu_features[index];
-                index += 1;
-                const start = index;
-                while (index < args.cpu_features.len and
-                    args.cpu_features[index] != '+' and
-                    args.cpu_features[index] != '-')
-                {
-                    index += 1;
-                }
-                const feature_name = args.cpu_features[start..index];
-                for (all_features) |feature, feat_index_usize| {
-                    const feat_index = @intCast(Cpu.Feature.Set.Index, feat_index_usize);
-                    if (mem.eql(u8, feature_name, feature.name)) {
-                        switch (op) {
-                            '+' => set.addFeature(feat_index),
-                            '-' => set.removeFeature(feat_index),
-                            else => unreachable,
-                        }
-                        break;
-                    }
-                } else {
-                    diags.unknown_feature_name = feature_name;
-                    return error.UnknownCpuFeature;
-                }
-            }
-            set.populateDependencies(all_features);
-            break :blk .{
-                .arch = arch,
-                .model = cpu_model,
-                .features = set,
-            };
-        };
-        var cross = Cross{
-            .cpu = cpu,
-            .os = os,
-            .abi = abi,
-        };
-        return Target{ .Cross = cross };
-    }
-
-    pub fn oFileExt(self: Target) []const u8 {
-        return switch (self.getAbi()) {
-            .msvc => ".obj",
-            else => ".o",
-        };
-    }
-
-    pub fn exeFileExt(self: Target) []const u8 {
-        if (self.isWindows()) {
-            return ".exe";
-        } else if (self.isUefi()) {
-            return ".efi";
-        } else if (self.isWasm()) {
-            return ".wasm";
-        } else {
-            return "";
-        }
-    }
-
-    pub fn staticLibSuffix(self: Target) []const u8 {
-        if (self.isWasm()) {
+    pub fn staticLibSuffix_cpu_arch_abi(cpu_arch: Cpu.Arch, abi: Abi) [:0]const u8 {
+        if (cpu_arch.isWasm()) {
             return ".wasm";
         }
-        switch (self.getAbi()) {
+        switch (abi) {
             .msvc => return ".lib",
             else => return ".a",
         }
     }
 
-    pub fn dynamicLibSuffix(self: Target) []const u8 {
-        if (self.isDarwin()) {
-            return ".dylib";
-        }
-        switch (self.getOs()) {
-            .windows => return ".dll",
-            else => return ".so",
-        }
+    pub fn staticLibSuffix(self: Target) [:0]const u8 {
+        return staticLibSuffix_cpu_arch_abi(self.cpu.arch, self.abi);
     }
 
-    pub fn libPrefix(self: Target) []const u8 {
-        if (self.isWasm()) {
+    pub fn dynamicLibSuffix(self: Target) [:0]const u8 {
+        return self.os.tag.dynamicLibSuffix();
+    }
+
+    pub fn libPrefix_cpu_arch_abi(cpu_arch: Cpu.Arch, abi: Abi) [:0]const u8 {
+        if (cpu_arch.isWasm()) {
             return "";
         }
-        switch (self.getAbi()) {
+        switch (abi) {
             .msvc => return "",
             else => return "lib",
         }
     }
 
-    pub fn getOs(self: Target) Os {
-        return switch (self) {
-            .Native => builtin.os,
-            .Cross => |t| t.os,
-        };
-    }
-
-    pub fn getCpu(self: Target) Cpu {
-        return switch (self) {
-            .Native => builtin.cpu,
-            .Cross => |cross| cross.cpu,
-        };
-    }
-
-    pub fn getArch(self: Target) Cpu.Arch {
-        return self.getCpu().arch;
-    }
-
-    pub fn getAbi(self: Target) Abi {
-        switch (self) {
-            .Native => return builtin.abi,
-            .Cross => |t| return t.abi,
-        }
+    pub fn libPrefix(self: Target) [:0]const u8 {
+        return libPrefix_cpu_arch_abi(self.cpu.arch, self.abi);
     }
 
     pub fn getObjectFormat(self: Target) ObjectFormat {
-        switch (self) {
-            .Native => return @import("builtin").object_format,
-            .Cross => blk: {
-                if (self.isWindows() or self.isUefi()) {
-                    return .coff;
-                } else if (self.isDarwin()) {
-                    return .macho;
-                }
-                if (self.isWasm()) {
-                    return .wasm;
-                }
-                return .elf;
-            },
+        if (self.os.tag == .windows or self.os.tag == .uefi) {
+            return .coff;
+        } else if (self.isDarwin()) {
+            return .macho;
         }
+        if (self.cpu.arch.isWasm()) {
+            return .wasm;
+        }
+        return .elf;
     }
 
     pub fn isMinGW(self: Target) bool {
-        return self.isWindows() and self.isGnu();
+        return self.os.tag == .windows and self.isGnu();
     }
 
     pub fn isGnu(self: Target) bool {
-        return switch (self.getAbi()) {
-            .gnu, .gnuabin32, .gnuabi64, .gnueabi, .gnueabihf, .gnux32 => true,
-            else => false,
-        };
+        return self.abi.isGnu();
     }
 
     pub fn isMusl(self: Target) bool {
-        return switch (self.getAbi()) {
-            .musl, .musleabi, .musleabihf => true,
-            else => false,
-        };
-    }
-
-    pub fn isDarwin(self: Target) bool {
-        return switch (self.getOs()) {
-            .ios, .macosx, .watchos, .tvos => true,
-            else => false,
-        };
-    }
-
-    pub fn isWindows(self: Target) bool {
-        return switch (self.getOs()) {
-            .windows => true,
-            else => false,
-        };
-    }
-
-    pub fn isLinux(self: Target) bool {
-        return switch (self.getOs()) {
-            .linux => true,
-            else => false,
-        };
+        return self.abi.isMusl();
     }
 
     pub fn isAndroid(self: Target) bool {
-        return switch (self.getAbi()) {
+        return switch (self.abi) {
             .android => true,
             else => false,
         };
     }
 
-    pub fn isDragonFlyBSD(self: Target) bool {
-        return switch (self.getOs()) {
-            .dragonfly => true,
-            else => false,
-        };
-    }
-
-    pub fn isUefi(self: Target) bool {
-        return switch (self.getOs()) {
-            .uefi => true,
-            else => false,
-        };
-    }
-
     pub fn isWasm(self: Target) bool {
-        return switch (self.getArch()) {
-            .wasm32, .wasm64 => true,
-            else => false,
-        };
+        return self.cpu.arch.isWasm();
     }
 
-    pub fn isFreeBSD(self: Target) bool {
-        return switch (self.getOs()) {
-            .freebsd => true,
-            else => false,
-        };
+    pub fn isDarwin(self: Target) bool {
+        return self.os.tag.isDarwin();
     }
 
-    pub fn isNetBSD(self: Target) bool {
-        return switch (self.getOs()) {
-            .netbsd => true,
-            else => false,
-        };
+    pub fn isGnuLibC_os_tag_abi(os_tag: Os.Tag, abi: Abi) bool {
+        return os_tag == .linux and abi.isGnu();
     }
 
-    pub fn wantSharedLibSymLinks(self: Target) bool {
-        return !self.isWindows();
-    }
-
-    pub fn osRequiresLibC(self: Target) bool {
-        return self.isDarwin() or self.isFreeBSD() or self.isNetBSD();
-    }
-
-    pub fn getArchPtrBitWidth(self: Target) u32 {
-        switch (self.getArch()) {
-            .avr,
-            .msp430,
-            => return 16,
-
-            .arc,
-            .arm,
-            .armeb,
-            .hexagon,
-            .le32,
-            .mips,
-            .mipsel,
-            .powerpc,
-            .r600,
-            .riscv32,
-            .sparc,
-            .sparcel,
-            .tce,
-            .tcele,
-            .thumb,
-            .thumbeb,
-            .i386,
-            .xcore,
-            .nvptx,
-            .amdil,
-            .hsail,
-            .spir,
-            .kalimba,
-            .shave,
-            .lanai,
-            .wasm32,
-            .renderscript32,
-            .aarch64_32,
-            => return 32,
-
-            .aarch64,
-            .aarch64_be,
-            .mips64,
-            .mips64el,
-            .powerpc64,
-            .powerpc64le,
-            .riscv64,
-            .x86_64,
-            .nvptx64,
-            .le64,
-            .amdil64,
-            .hsail64,
-            .spir64,
-            .wasm64,
-            .renderscript64,
-            .amdgcn,
-            .bpfel,
-            .bpfeb,
-            .sparcv9,
-            .s390x,
-            => return 64,
-        }
+    pub fn isGnuLibC(self: Target) bool {
+        return isGnuLibC_os_tag_abi(self.os.tag, self.abi);
     }
 
     pub fn supportsNewStackCall(self: Target) bool {
-        return !self.isWasm();
-    }
-
-    pub const Executor = union(enum) {
-        native,
-        qemu: []const u8,
-        wine: []const u8,
-        wasmtime: []const u8,
-        unavailable,
-    };
-
-    pub fn getExternalExecutor(self: Target) Executor {
-        if (@as(@TagType(Target), self) == .Native) return .native;
-
-        // If the target OS matches the host OS, we can use QEMU to emulate a foreign architecture.
-        if (self.getOs() == builtin.os) {
-            return switch (self.getArch()) {
-                .aarch64 => Executor{ .qemu = "qemu-aarch64" },
-                .aarch64_be => Executor{ .qemu = "qemu-aarch64_be" },
-                .arm => Executor{ .qemu = "qemu-arm" },
-                .armeb => Executor{ .qemu = "qemu-armeb" },
-                .i386 => Executor{ .qemu = "qemu-i386" },
-                .mips => Executor{ .qemu = "qemu-mips" },
-                .mipsel => Executor{ .qemu = "qemu-mipsel" },
-                .mips64 => Executor{ .qemu = "qemu-mips64" },
-                .mips64el => Executor{ .qemu = "qemu-mips64el" },
-                .powerpc => Executor{ .qemu = "qemu-ppc" },
-                .powerpc64 => Executor{ .qemu = "qemu-ppc64" },
-                .powerpc64le => Executor{ .qemu = "qemu-ppc64le" },
-                .riscv32 => Executor{ .qemu = "qemu-riscv32" },
-                .riscv64 => Executor{ .qemu = "qemu-riscv64" },
-                .s390x => Executor{ .qemu = "qemu-s390x" },
-                .sparc => Executor{ .qemu = "qemu-sparc" },
-                .x86_64 => Executor{ .qemu = "qemu-x86_64" },
-                else => return .unavailable,
-            };
-        }
-
-        if (self.isWindows()) {
-            switch (self.getArchPtrBitWidth()) {
-                32 => return Executor{ .wine = "wine" },
-                64 => return Executor{ .wine = "wine64" },
-                else => return .unavailable,
-            }
-        }
-
-        if (self.getOs() == .wasi) {
-            switch (self.getArchPtrBitWidth()) {
-                32 => return Executor{ .wasmtime = "wasmtime" },
-                else => return .unavailable,
-            }
-        }
-
-        return .unavailable;
+        return !self.cpu.arch.isWasm();
     }
 
     pub const FloatAbi = enum {
@@ -1129,7 +1072,7 @@ pub const Target = union(enum) {
     };
 
     pub fn getFloatAbi(self: Target) FloatAbi {
-        return switch (self.getAbi()) {
+        return switch (self.abi) {
             .gnueabihf,
             .eabihf,
             .musleabihf,
@@ -1139,13 +1082,10 @@ pub const Target = union(enum) {
     }
 
     pub fn hasDynamicLinker(self: Target) bool {
-        switch (self.getArch()) {
-            .wasm32,
-            .wasm64,
-            => return false,
-            else => {},
+        if (self.cpu.arch.isWasm()) {
+            return false;
         }
-        switch (self.getOs()) {
+        switch (self.os.tag) {
             .freestanding,
             .ios,
             .tvos,
@@ -1160,65 +1100,95 @@ pub const Target = union(enum) {
         }
     }
 
-    /// Caller owns returned memory.
-    pub fn getStandardDynamicLinkerPath(
-        self: Target,
-        allocator: *mem.Allocator,
-    ) error{
-        OutOfMemory,
-        UnknownDynamicLinkerPath,
-        TargetHasNoDynamicLinker,
-    }![:0]u8 {
-        const a = allocator;
+    pub const DynamicLinker = struct {
+        /// Contains the memory used to store the dynamic linker path. This field should
+        /// not be used directly. See `get` and `set`. This field exists so that this API requires no allocator.
+        buffer: [255]u8 = undefined,
+
+        /// Used to construct the dynamic linker path. This field should not be used
+        /// directly. See `get` and `set`.
+        max_byte: ?u8 = null,
+
+        /// Asserts that the length is less than or equal to 255 bytes.
+        pub fn init(dl_or_null: ?[]const u8) DynamicLinker {
+            var result: DynamicLinker = undefined;
+            result.set(dl_or_null);
+            return result;
+        }
+
+        /// The returned memory has the same lifetime as the `DynamicLinker`.
+        pub fn get(self: *const DynamicLinker) ?[]const u8 {
+            const m: usize = self.max_byte orelse return null;
+            return self.buffer[0 .. m + 1];
+        }
+
+        /// Asserts that the length is less than or equal to 255 bytes.
+        pub fn set(self: *DynamicLinker, dl_or_null: ?[]const u8) void {
+            if (dl_or_null) |dl| {
+                mem.copy(u8, &self.buffer, dl);
+                self.max_byte = @intCast(u8, dl.len - 1);
+            } else {
+                self.max_byte = null;
+            }
+        }
+    };
+
+    /// The result will be a byte index *pointing at the final byte*. In other words, length minus one.
+    /// A return value of `null` means the concept of a dynamic linker is not meaningful for that target.
+    pub fn standardDynamicLinkerPath(self: Target) DynamicLinker {
+        var result: DynamicLinker = .{};
+        const S = struct {
+            fn print(r: *DynamicLinker, comptime fmt: []const u8, args: var) DynamicLinker {
+                r.max_byte = @intCast(u8, (std.fmt.bufPrint(&r.buffer, fmt, args) catch unreachable).len - 1);
+                return r.*;
+            }
+            fn copy(r: *DynamicLinker, s: []const u8) DynamicLinker {
+                mem.copy(u8, &r.buffer, s);
+                r.max_byte = @intCast(u8, s.len - 1);
+                return r.*;
+            }
+        };
+        const print = S.print;
+        const copy = S.copy;
+
         if (self.isAndroid()) {
-            return mem.dupeZ(a, u8, if (self.getArchPtrBitWidth() == 64)
-                "/system/bin/linker64"
-            else
-                "/system/bin/linker");
+            const suffix = if (self.cpu.arch.ptrBitWidth() == 64) "64" else "";
+            return print(&result, "/system/bin/linker{}", .{suffix});
         }
 
         if (self.isMusl()) {
-            var result = try std.Buffer.init(allocator, "/lib/ld-musl-");
-            defer result.deinit();
-
-            var is_arm = false;
-            switch (self.getArch()) {
-                .arm, .thumb => {
-                    try result.append("arm");
-                    is_arm = true;
-                },
-                .armeb, .thumbeb => {
-                    try result.append("armeb");
-                    is_arm = true;
-                },
-                else => |arch| try result.append(@tagName(arch)),
-            }
-            if (is_arm and self.getFloatAbi() == .hard) {
-                try result.append("hf");
-            }
-            try result.append(".so.1");
-            return result.toOwnedSlice();
+            const is_arm = switch (self.cpu.arch) {
+                .arm, .armeb, .thumb, .thumbeb => true,
+                else => false,
+            };
+            const arch_part = switch (self.cpu.arch) {
+                .arm, .thumb => "arm",
+                .armeb, .thumbeb => "armeb",
+                else => |arch| @tagName(arch),
+            };
+            const arch_suffix = if (is_arm and self.getFloatAbi() == .hard) "hf" else "";
+            return print(&result, "/lib/ld-musl-{}{}.so.1", .{ arch_part, arch_suffix });
         }
 
-        switch (self.getOs()) {
-            .freebsd => return mem.dupeZ(a, u8, "/libexec/ld-elf.so.1"),
-            .netbsd => return mem.dupeZ(a, u8, "/libexec/ld.elf_so"),
-            .dragonfly => return mem.dupeZ(a, u8, "/libexec/ld-elf.so.2"),
-            .linux => switch (self.getArch()) {
+        switch (self.os.tag) {
+            .freebsd => return copy(&result, "/libexec/ld-elf.so.1"),
+            .netbsd => return copy(&result, "/libexec/ld.elf_so"),
+            .dragonfly => return copy(&result, "/libexec/ld-elf.so.2"),
+            .linux => switch (self.cpu.arch) {
                 .i386,
                 .sparc,
                 .sparcel,
-                => return mem.dupeZ(a, u8, "/lib/ld-linux.so.2"),
+                => return copy(&result, "/lib/ld-linux.so.2"),
 
-                .aarch64 => return mem.dupeZ(a, u8, "/lib/ld-linux-aarch64.so.1"),
-                .aarch64_be => return mem.dupeZ(a, u8, "/lib/ld-linux-aarch64_be.so.1"),
-                .aarch64_32 => return mem.dupeZ(a, u8, "/lib/ld-linux-aarch64_32.so.1"),
+                .aarch64 => return copy(&result, "/lib/ld-linux-aarch64.so.1"),
+                .aarch64_be => return copy(&result, "/lib/ld-linux-aarch64_be.so.1"),
+                .aarch64_32 => return copy(&result, "/lib/ld-linux-aarch64_32.so.1"),
 
                 .arm,
                 .armeb,
                 .thumb,
                 .thumbeb,
-                => return mem.dupeZ(a, u8, switch (self.getFloatAbi()) {
+                => return copy(&result, switch (self.getFloatAbi()) {
                     .hard => "/lib/ld-linux-armhf.so.3",
                     else => "/lib/ld-linux.so.3",
                 }),
@@ -1227,28 +1197,43 @@ pub const Target = union(enum) {
                 .mipsel,
                 .mips64,
                 .mips64el,
-                => return error.UnknownDynamicLinkerPath,
+                => {
+                    const lib_suffix = switch (self.abi) {
+                        .gnuabin32, .gnux32 => "32",
+                        .gnuabi64 => "64",
+                        else => "",
+                    };
+                    const is_nan_2008 = mips.featureSetHas(self.cpu.features, .nan2008);
+                    const loader = if (is_nan_2008) "ld-linux-mipsn8.so.1" else "ld.so.1";
+                    return print(&result, "/lib{}/{}", .{ lib_suffix, loader });
+                },
 
-                .powerpc => return mem.dupeZ(a, u8, "/lib/ld.so.1"),
-                .powerpc64, .powerpc64le => return mem.dupeZ(a, u8, "/lib64/ld64.so.2"),
-                .s390x => return mem.dupeZ(a, u8, "/lib64/ld64.so.1"),
-                .sparcv9 => return mem.dupeZ(a, u8, "/lib64/ld-linux.so.2"),
-                .x86_64 => return mem.dupeZ(a, u8, switch (self.getAbi()) {
+                .powerpc => return copy(&result, "/lib/ld.so.1"),
+                .powerpc64, .powerpc64le => return copy(&result, "/lib64/ld64.so.2"),
+                .s390x => return copy(&result, "/lib64/ld64.so.1"),
+                .sparcv9 => return copy(&result, "/lib64/ld-linux.so.2"),
+                .x86_64 => return copy(&result, switch (self.abi) {
                     .gnux32 => "/libx32/ld-linux-x32.so.2",
                     else => "/lib64/ld-linux-x86-64.so.2",
                 }),
 
-                .riscv32 => return mem.dupeZ(a, u8, "/lib/ld-linux-riscv32-ilp32.so.1"),
-                .riscv64 => return mem.dupeZ(a, u8, "/lib/ld-linux-riscv64-lp64.so.1"),
+                .riscv32 => return copy(&result, "/lib/ld-linux-riscv32-ilp32.so.1"),
+                .riscv64 => return copy(&result, "/lib/ld-linux-riscv64-lp64.so.1"),
 
+                // Architectures in this list have been verified as not having a standard
+                // dynamic linker path.
                 .wasm32,
                 .wasm64,
-                => return error.TargetHasNoDynamicLinker,
-
-                .arc,
-                .avr,
                 .bpfel,
                 .bpfeb,
+                .nvptx,
+                .nvptx64,
+                => return result,
+
+                // TODO go over each item in this list and either move it to the above list, or
+                // implement the standard dynamic linker path code for it.
+                .arc,
+                .avr,
                 .hexagon,
                 .msp430,
                 .r600,
@@ -1256,8 +1241,6 @@ pub const Target = union(enum) {
                 .tce,
                 .tcele,
                 .xcore,
-                .nvptx,
-                .nvptx64,
                 .le32,
                 .le64,
                 .amdil,
@@ -1271,9 +1254,11 @@ pub const Target = union(enum) {
                 .lanai,
                 .renderscript32,
                 .renderscript64,
-                => return error.UnknownDynamicLinkerPath,
+                => return result,
             },
 
+            // Operating systems in this list have been verified as not having a standard
+            // dynamic linker path.
             .freestanding,
             .ios,
             .tvos,
@@ -1282,40 +1267,36 @@ pub const Target = union(enum) {
             .uefi,
             .windows,
             .emscripten,
+            .wasi,
             .other,
-            => return error.TargetHasNoDynamicLinker,
+            => return result,
 
-            else => return error.UnknownDynamicLinkerPath,
+            // TODO go over each item in this list and either move it to the above list, or
+            // implement the standard dynamic linker path code for it.
+            .ananas,
+            .cloudabi,
+            .fuchsia,
+            .kfreebsd,
+            .lv2,
+            .openbsd,
+            .solaris,
+            .haiku,
+            .minix,
+            .rtems,
+            .nacl,
+            .cnk,
+            .aix,
+            .cuda,
+            .nvcl,
+            .amdhsa,
+            .ps4,
+            .elfiamcu,
+            .mesa3d,
+            .contiki,
+            .amdpal,
+            .hermit,
+            .hurd,
+            => return result,
         }
     }
 };
-
-test "Target.parse" {
-    {
-        const target = (try Target.parse(.{
-            .arch_os_abi = "x86_64-linux-gnu",
-            .cpu_features = "x86_64-sse-sse2-avx-cx8",
-        })).Cross;
-
-        std.testing.expect(target.os == .linux);
-        std.testing.expect(target.abi == .gnu);
-        std.testing.expect(target.cpu.arch == .x86_64);
-        std.testing.expect(!Target.x86.featureSetHas(target.cpu.features, .sse));
-        std.testing.expect(!Target.x86.featureSetHas(target.cpu.features, .avx));
-        std.testing.expect(!Target.x86.featureSetHas(target.cpu.features, .cx8));
-        std.testing.expect(Target.x86.featureSetHas(target.cpu.features, .cmov));
-        std.testing.expect(Target.x86.featureSetHas(target.cpu.features, .fxsr));
-    }
-    {
-        const target = (try Target.parse(.{
-            .arch_os_abi = "arm-linux-musleabihf",
-            .cpu_features = "generic+v8a",
-        })).Cross;
-
-        std.testing.expect(target.os == .linux);
-        std.testing.expect(target.abi == .musleabihf);
-        std.testing.expect(target.cpu.arch == .arm);
-        std.testing.expect(target.cpu.model == &Target.arm.cpu.generic);
-        std.testing.expect(Target.arm.featureSetHas(target.cpu.features, .v8a));
-    }
-}

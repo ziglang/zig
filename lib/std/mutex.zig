@@ -73,7 +73,7 @@ pub const Mutex = if (builtin.single_threaded)
             return self.tryAcquire() orelse @panic("deadlock detected");
         }
     }
-else if (builtin.os == .windows)
+else if (builtin.os.tag == .windows)
 // https://locklessinc.com/articles/keyed_events/
     extern union {
         locked: u8,
@@ -161,7 +161,7 @@ else if (builtin.os == .windows)
             }
         };
     }
-else if (builtin.link_libc or builtin.os == .linux)
+else if (builtin.link_libc or builtin.os.tag == .linux)
 // stack-based version of https://github.com/Amanieu/parking_lot/blob/master/core/src/word_lock.rs
     struct {
         state: usize,

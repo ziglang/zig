@@ -41,12 +41,12 @@ enum CIntType {
     CIntTypeCount,
 };
 
-Error target_parse_triple(ZigTarget *target, const char *triple, const char *mcpu);
+Error target_parse_triple(ZigTarget *target, const char *triple, const char *mcpu, const char *dynamic_linker);
 Error target_parse_arch(ZigLLVM_ArchType *arch, const char *arch_ptr, size_t arch_len);
 Error target_parse_os(Os *os, const char *os_ptr, size_t os_len);
 Error target_parse_abi(ZigLLVM_EnvironmentType *abi, const char *abi_ptr, size_t abi_len);
 
-Error target_parse_glibc_version(ZigGLibCVersion *out, const char *text);
+Error target_parse_glibc_version(Stage2SemVer *out, const char *text);
 void target_init_default_glibc_version(ZigTarget *target);
 
 size_t target_arch_count(void);
@@ -73,7 +73,6 @@ ZigLLVM_ObjectFormatType target_oformat_enum(size_t index);
 const char *target_oformat_name(ZigLLVM_ObjectFormatType oformat);
 ZigLLVM_ObjectFormatType target_object_format(const ZigTarget *target);
 
-void get_native_target(ZigTarget *target);
 void target_triple_llvm(Buf *triple, const ZigTarget *target);
 void target_triple_zig(Buf *triple, const ZigTarget *target);
 

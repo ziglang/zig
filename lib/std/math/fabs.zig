@@ -95,7 +95,7 @@ test "math.fabs64.special" {
 }
 
 test "math.fabs128.special" {
-    if (std.Target.current.isWindows()) {
+    if (std.Target.current.os.tag == .windows) {
         // TODO https://github.com/ziglang/zig/issues/508
         return error.SkipZigTest;
     }

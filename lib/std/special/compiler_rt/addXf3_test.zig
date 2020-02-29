@@ -31,7 +31,7 @@ fn test__addtf3(a: f128, b: f128, expected_hi: u64, expected_lo: u64) void {
 }
 
 test "addtf3" {
-    if (@import("std").Target.current.isWindows()) {
+    if (@import("std").Target.current.os.tag == .windows) {
         // TODO https://github.com/ziglang/zig/issues/508
         return error.SkipZigTest;
     }
@@ -75,7 +75,7 @@ fn test__subtf3(a: f128, b: f128, expected_hi: u64, expected_lo: u64) void {
 }
 
 test "subtf3" {
-    if (@import("std").Target.current.isWindows()) {
+    if (@import("std").Target.current.os.tag == .windows) {
         // TODO https://github.com/ziglang/zig/issues/508
         return error.SkipZigTest;
     }

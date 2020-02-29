@@ -3963,7 +3963,7 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var, bool allow_lazy) {
 
     // TODO more validation for types that can't be used for export/extern variables
     ZigType *implicit_type = nullptr;
-    if (explicit_type != nullptr && explicit_type->id == ZigTypeIdInvalid) {
+    if (explicit_type != nullptr && type_is_invalid(explicit_type)) {
         implicit_type = explicit_type;
     } else if (var_decl->expr) {
         init_value = analyze_const_value(g, tld_var->base.parent_scope, var_decl->expr, explicit_type,
@@ -5401,6 +5401,8 @@ bool generic_fn_type_id_eql(GenericFnTypeId *a, GenericFnTypeId *b) {
 
 static bool can_mutate_comptime_var_state(ZigValue *value) {
     assert(value != nullptr);
+    if (value->special == ConstValSpecialUndef)
+        return false;
     switch (value->type->id) {
         case ZigTypeIdInvalid:
             zig_unreachable();
@@ -6734,8 +6736,6 @@ static bool const_values_equal_array(CodeGen *g, ZigValue *a, ZigValue *b, size_
 
 bool const_values_equal(CodeGen *g, ZigValue *a, ZigValue *b) {
     if (a->type->id != b->type->id) return false;
-    assert(a->special == ConstValSpecialStatic);
-    assert(b->special == ConstValSpecialStatic);
     if (a->type == b->type) {
         switch (type_has_one_possible_value(g, a->type)) {
             case OnePossibleValueInvalid:
@@ -6746,6 +6746,11 @@ bool const_values_equal(CodeGen *g, ZigValue *a, ZigValue *b) {
                 return true;
         }
     }
+    if (a->special == ConstValSpecialUndef || b->special == ConstValSpecialUndef) {
+        return a->special == b->special;
+    }
+    assert(a->special == ConstValSpecialStatic);
+    assert(b->special == ConstValSpecialStatic);
     switch (a->type->id) {
         case ZigTypeIdOpaque:
             zig_unreachable();
@@ -8729,7 +8734,6 @@ static void resolve_llvm_types_optional(CodeGen *g, ZigType *type, ResolveStatus
         if (ResolveStatusLLVMFwdDecl >= wanted_resolve_status) return;
     }
 
-    LLVMTypeRef child_llvm_type = get_llvm_type(g, child_type);
     ZigLLVMDIType *child_llvm_di_type = get_llvm_di_type(g, child_type);
     if (type->data.maybe.resolve_status >= wanted_resolve_status) return;
 
@@ -8739,35 +8743,28 @@ static void resolve_llvm_types_optional(CodeGen *g, ZigType *type, ResolveStatus
     };
     LLVMStructSetBody(type->llvm_type, elem_types, 2, false);
 
-    uint64_t val_debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, child_llvm_type);
-    uint64_t val_debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, child_llvm_type);
-    uint64_t val_offset_in_bits = 8*LLVMOffsetOfElement(g->target_data_ref, type->llvm_type, 0);
+    uint64_t val_offset_in_bits = 8*LLVMOffsetOfElement(g->target_data_ref, type->llvm_type, maybe_child_index);
+    uint64_t maybe_offset_in_bits = 8*LLVMOffsetOfElement(g->target_data_ref, type->llvm_type, maybe_null_index);
 
-    uint64_t maybe_debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, bool_llvm_type);
-    uint64_t maybe_debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, bool_llvm_type);
-    uint64_t maybe_offset_in_bits = 8*LLVMOffsetOfElement(g->target_data_ref, type->llvm_type, 1);
-
-    uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, type->llvm_type);
-    uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, type->llvm_type);
-
-    ZigLLVMDIType *di_element_types[] = {
+    ZigLLVMDIType *di_element_types[2];
+    di_element_types[maybe_child_index] =
         ZigLLVMCreateDebugMemberType(g->dbuilder, ZigLLVMTypeToScope(type->llvm_di_type),
                 "val", di_file, line,
-                val_debug_size_in_bits,
-                val_debug_align_in_bits,
+                8 * child_type->abi_size,
+                8 * child_type->abi_align,
                 val_offset_in_bits,
-                ZigLLVM_DIFlags_Zero, child_llvm_di_type),
+                ZigLLVM_DIFlags_Zero, child_llvm_di_type);
+    di_element_types[maybe_null_index] = 
         ZigLLVMCreateDebugMemberType(g->dbuilder, ZigLLVMTypeToScope(type->llvm_di_type),
                 "maybe", di_file, line,
-                maybe_debug_size_in_bits,
-                maybe_debug_align_in_bits,
+                8*g->builtin_types.entry_bool->abi_size,
+                8*g->builtin_types.entry_bool->abi_align,
                 maybe_offset_in_bits,
-                ZigLLVM_DIFlags_Zero, bool_llvm_di_type),
-    };
+                ZigLLVM_DIFlags_Zero, bool_llvm_di_type);
     ZigLLVMDIType *replacement_di_type = ZigLLVMCreateDebugStructType(g->dbuilder,
             compile_unit_scope,
             buf_ptr(&type->name),
-            di_file, line, debug_size_in_bits, debug_align_in_bits, ZigLLVM_DIFlags_Zero,
+            di_file, line, 8 * type->abi_size, 8 * type->abi_align, ZigLLVM_DIFlags_Zero,
             nullptr, di_element_types, 2, 0, nullptr, "");
 
     ZigLLVMReplaceTemporary(g->dbuilder, type->llvm_di_type, replacement_di_type);

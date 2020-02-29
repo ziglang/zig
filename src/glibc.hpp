@@ -32,7 +32,7 @@ struct ZigGLibCAbi {
     Buf *abi_txt_path;
     Buf *vers_txt_path;
     Buf *fns_txt_path;
-    ZigList<ZigGLibCVersion> all_versions;
+    ZigList<Stage2SemVer> all_versions;
     ZigList<ZigGLibCFn> all_functions;
     // The value is a pointer to all_functions.length items and each item is an index
     // into all_functions.
@@ -42,9 +42,6 @@ struct ZigGLibCAbi {
 Error glibc_load_metadata(ZigGLibCAbi **out_result, Buf *zig_lib_dir, bool verbose);
 Error glibc_build_dummies_and_maps(CodeGen *codegen, const ZigGLibCAbi *glibc_abi, const ZigTarget *target,
         Buf **out_dir, bool verbose, Stage2ProgressNode *progress_node);
-
-// returns ErrorUnknownABI when glibc is not the native libc
-Error glibc_detect_native_version(ZigGLibCVersion *glibc_ver);
 
 size_t glibc_lib_count(void);
 const ZigGLibCLib *glibc_lib_enum(size_t index);

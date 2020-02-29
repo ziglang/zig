@@ -89,8 +89,7 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  --single-threaded            source may assume it is only used single-threaded\n"
         "  -dynamic                     create a shared library (.so; .dll; .dylib)\n"
         "  --strip                      exclude debug symbols\n"
-        "  -target [name]               <arch><sub>-<os>-<abi> see the targets command\n"
-        "  -target-glibc [version]      target a specific glibc version (default: 2.17)\n"
+        "  -target [name]               <arch>-<os>-<abi> see the targets command\n"
         "  --verbose-tokenize           enable compiler debug output for tokenization\n"
         "  --verbose-ast                enable compiler debug output for AST parsing\n"
         "  --verbose-link               enable compiler debug output for linking\n"
@@ -128,8 +127,6 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  --subsystem [subsystem]      (windows) /SUBSYSTEM:<subsystem> to the linker\n"
         "  -F[dir]                      (darwin) add search path for frameworks\n"
         "  -framework [name]            (darwin) link against framework\n"
-        "  -mios-version-min [ver]      (darwin) set iOS deployment target\n"
-        "  -mmacosx-version-min [ver]   (darwin) set Mac OS X deployment target\n"
         "  --ver-major [ver]            dynamic library semver major version\n"
         "  --ver-minor [ver]            dynamic library semver minor version\n"
         "  --ver-patch [ver]            dynamic library semver patch version\n"
@@ -404,7 +401,7 @@ static int main0(int argc, char **argv) {
     bool link_eh_frame_hdr = false;
     ErrColor color = ErrColorAuto;
     CacheOpt enable_cache = CacheOptAuto;
-    Buf *dynamic_linker = nullptr;
+    const char *dynamic_linker = nullptr;
     const char *libc_txt = nullptr;
     ZigList<const char *> clang_argv = {0};
     ZigList<const char *> lib_dirs = {0};
@@ -415,11 +412,8 @@ static int main0(int argc, char **argv) {
     bool have_libc = false;
     const char *target_string = nullptr;
     bool rdynamic = false;
-    const char *mmacosx_version_min = nullptr;
-    const char *mios_version_min = nullptr;
     const char *linker_script = nullptr;
     Buf *version_script = nullptr;
-    const char *target_glibc = nullptr;
     ZigList<const char *> rpath_list = {0};
     bool each_lib_rpath = false;
     ZigList<const char *> objects = {0};
@@ -502,7 +496,10 @@ static int main0(int argc, char **argv) {
         os_path_join(get_zig_special_dir(zig_lib_dir), buf_create_from_str("build_runner.zig"), build_runner_path);
 
         ZigTarget target;
-        get_native_target(&target);
+        if ((err = target_parse_triple(&target, "native", nullptr, nullptr))) {
+            fprintf(stderr, "Unable to get native target: %s\n", err_str(err));
+            return EXIT_FAILURE;
+        }
 
         Buf *build_file_buf = buf_create_from_str((build_file != nullptr) ? build_file : "build.zig");
         Buf build_file_abs = os_path_resolve(&build_file_buf, 1);
@@ -769,7 +766,7 @@ static int main0(int argc, char **argv) {
                 } else if (strcmp(arg, "--name") == 0) {
                     out_name = argv[i];
                 } else if (strcmp(arg, "--dynamic-linker") == 0) {
-                    dynamic_linker = buf_create_from_str(argv[i]);
+                    dynamic_linker = argv[i];
                 } else if (strcmp(arg, "--libc") == 0) {
                     libc_txt = argv[i];
                 } else if (strcmp(arg, "-D") == 0) {
@@ -843,18 +840,12 @@ static int main0(int argc, char **argv) {
                     cache_dir = argv[i];
                 } else if (strcmp(arg, "-target") == 0) {
                     target_string = argv[i];
-                } else if (strcmp(arg, "-mmacosx-version-min") == 0) {
-                    mmacosx_version_min = argv[i];
-                } else if (strcmp(arg, "-mios-version-min") == 0) {
-                    mios_version_min = argv[i];
                 } else if (strcmp(arg, "-framework") == 0) {
                     frameworks.append(argv[i]);
                 } else if (strcmp(arg, "--linker-script") == 0) {
                     linker_script = argv[i];
                 } else if (strcmp(arg, "--version-script") == 0) {
                     version_script = buf_create_from_str(argv[i]); 
-                } else if (strcmp(arg, "-target-glibc") == 0) {
-                    target_glibc = argv[i];
                 } else if (strcmp(arg, "-rpath") == 0) {
                     rpath_list.append(argv[i]);
                 } else if (strcmp(arg, "--test-filter") == 0) {
@@ -977,32 +968,9 @@ static int main0(int argc, char **argv) {
     init_all_targets();
 
     ZigTarget target;
-    if ((err = target_parse_triple(&target, target_string, mcpu))) {
+    if ((err = target_parse_triple(&target, target_string, mcpu, dynamic_linker))) {
         fprintf(stderr, "invalid target: %s\n"
                 "See `%s targets` to display valid targets.\n", err_str(err), arg0);
-        return print_error_usage(arg0);
-    }
-    if (target_is_glibc(&target)) {
-        target.glibc_version = heap::c_allocator.create<ZigGLibCVersion>();
-
-        if (target_glibc != nullptr) {
-            if ((err = target_parse_glibc_version(target.glibc_version, target_glibc))) {
-                fprintf(stderr, "invalid glibc version '%s': %s\n", target_glibc, err_str(err));
-                return print_error_usage(arg0);
-            }
-        } else {
-            target_init_default_glibc_version(&target);
-#if defined(ZIG_OS_LINUX)
-            if (target.is_native) {
-                // TODO self-host glibc version detection, and then this logic can go away
-                if ((err = glibc_detect_native_version(target.glibc_version))) {
-                    // Fall back to the default version.
-                }
-            }
-#endif
-        }
-    } else if (target_glibc != nullptr) {
-        fprintf(stderr, "'%s' is not a glibc-compatible target", target_string);
         return print_error_usage(arg0);
     }
 
@@ -1225,7 +1193,6 @@ static int main0(int argc, char **argv) {
 
             codegen_set_strip(g, strip);
             g->is_dynamic = is_dynamic;
-            g->dynamic_linker_path = dynamic_linker;
             g->verbose_tokenize = verbose_tokenize;
             g->verbose_ast = verbose_ast;
             g->verbose_link = verbose_link;
@@ -1264,18 +1231,6 @@ static int main0(int argc, char **argv) {
             }
 
             codegen_set_rdynamic(g, rdynamic);
-            if (mmacosx_version_min && mios_version_min) {
-                fprintf(stderr, "-mmacosx-version-min and -mios-version-min options not allowed together\n");
-                return main_exit(root_progress_node, EXIT_FAILURE);
-            }
-
-            if (mmacosx_version_min) {
-                codegen_set_mmacosx_version_min(g, buf_create_from_str(mmacosx_version_min));
-            }
-
-            if (mios_version_min) {
-                codegen_set_mios_version_min(g, buf_create_from_str(mios_version_min));
-            }
 
             if (test_filter) {
                 codegen_set_test_filter(g, buf_create_from_str(test_filter));
@@ -1364,7 +1319,10 @@ static int main0(int argc, char **argv) {
                 return main_exit(root_progress_node, EXIT_SUCCESS);
             } else if (cmd == CmdTest) {
                 ZigTarget native;
-                get_native_target(&native);
+                if ((err = target_parse_triple(&native, "native", nullptr, nullptr))) {
+                    fprintf(stderr, "Unable to get native target: %s\n", err_str(err));
+                    return EXIT_FAILURE;
+                }
 
                 g->enable_cache = get_cache_opt(enable_cache, output_dir == nullptr);
                 codegen_build_and_link(g);
