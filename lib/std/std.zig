@@ -38,6 +38,7 @@ pub const elf = @import("elf.zig");
 pub const event = @import("event.zig");
 pub const fifo = @import("fifo.zig");
 pub const fmt = @import("fmt.zig");
+pub const fmtstream = @import("fmtstream.zig");
 pub const fs = @import("fs.zig");
 pub const hash = @import("hash.zig");
 pub const hash_map = @import("hash_map.zig");
