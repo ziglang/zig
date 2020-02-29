@@ -382,7 +382,7 @@ pub const Thread = struct {
         var count_len: usize = @sizeOf(c_int);
         const name = if (comptime std.Target.current.isDarwin()) "hw.logicalcpu" else "hw.ncpu";
         os.sysctlbynameC(name, &count, &count_len, null, 0) catch |err| switch (err) {
-            error.NameTooLong => unreachable,
+            error.NameTooLong, error.UnknownName => unreachable,
             else => |e| return e,
         };
         return @intCast(usize, count);
