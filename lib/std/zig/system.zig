@@ -181,6 +181,7 @@ pub const NativeTargetInfo = struct {
         ProcessFdQuotaExceeded,
         SystemFdQuotaExceeded,
         DeviceBusy,
+        Unexpected,
     };
 
     /// Given a `CrossTarget`, which specifies in detail which parts of the target should be detected
@@ -221,7 +222,44 @@ pub const NativeTargetInfo = struct {
                     }
                 },
                 .windows => {
-                    // TODO Detect native operating system version.
+                    var version_info: std.os.windows.RTL_OSVERSIONINFOW = undefined;
+                    version_info.dwOSVersionInfoSize = @sizeOf(@TypeOf(version_info));
+
+                    const rc = std.os.windows.ntdll.RtlGetVersion(&version_info);
+                    switch (rc) {
+                        .SUCCESS => {},
+                        else => return std.os.windows.unexpectedStatus(rc),
+                    }
+
+                    // Starting from the system infos build a NTDDI-like version
+                    // constant whose format is:
+                    //   B0 B1 B2 B3
+                    //   `---` `` ``--> Sub-version (Starting from Windows 10 onwards)
+                    //     \    `--> Service pack (Always zero in the constants defined)
+                    //      `--> OS version (Major & minor)
+                    const os_ver: u16 = //
+                        @intCast(u16, version_info.dwMajorVersion & 0xff) << 8 |
+                        @intCast(u16, version_info.dwMinorVersion & 0xff);
+                    const sp_ver: u8 = 0;
+                    const sub_ver: u8 = if (os_ver >= 0xA000) subver: {
+                        // There's no other way to obtain this info beside
+                        // checking the build number against a known set of
+                        // values
+                        for ([_]u32{
+                            10240, 10586, 14393, 15063, 16299, 17134, 17763,
+                            18362, 18363,
+                        }) |build, i| {
+                            if (version_info.dwBuildNumber < build)
+                                break :subver @truncate(u8, i);
+                        }
+                        // Unknown subversion, the OS is too new...
+                        break :subver 0;
+                    } else 0;
+
+                    const version: u32 = @as(u32, os_ver) << 16 | @as(u32, sp_ver) << 8 | sub_ver;
+
+                    os.version_range.windows.max = @intToEnum(Target.Os.WindowsVersion, version);
+                    os.version_range.windows.min = @intToEnum(Target.Os.WindowsVersion, version);
                 },
                 .macosx => {
                     // TODO Detect native operating system version.
