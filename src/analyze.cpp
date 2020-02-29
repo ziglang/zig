@@ -6734,8 +6734,6 @@ static bool const_values_equal_array(CodeGen *g, ZigValue *a, ZigValue *b, size_
 
 bool const_values_equal(CodeGen *g, ZigValue *a, ZigValue *b) {
     if (a->type->id != b->type->id) return false;
-    assert(a->special == ConstValSpecialStatic);
-    assert(b->special == ConstValSpecialStatic);
     if (a->type == b->type) {
         switch (type_has_one_possible_value(g, a->type)) {
             case OnePossibleValueInvalid:
@@ -6746,6 +6744,11 @@ bool const_values_equal(CodeGen *g, ZigValue *a, ZigValue *b) {
                 return true;
         }
     }
+    if (a->special == ConstValSpecialUndef || b->special == ConstValSpecialUndef) {
+        return a->special == b->special;
+    }
+    assert(a->special == ConstValSpecialStatic);
+    assert(b->special == ConstValSpecialStatic);
     switch (a->type->id) {
         case ZigTypeIdOpaque:
             zig_unreachable();
