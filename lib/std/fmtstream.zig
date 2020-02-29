@@ -325,6 +325,10 @@ pub fn formatType(
     }
 
     const T = @TypeOf(value);
+    if (comptime std.meta.trait.hasFn("format")(T)) {
+        return try value.format(fmt, options, out_stream);
+    }
+
     switch (@typeInfo(T)) {
         .ComptimeInt, .Int, .Float => {
             return formatValue(value, fmt, options, out_stream);
@@ -354,10 +358,6 @@ pub fn formatType(
             return out_stream.writeAll(@errorName(value));
         },
         .Enum => |enumInfo| {
-            if (comptime std.meta.trait.hasFn("format")(T)) {
-                return value.format(fmt, options, out_stream);
-            }
-
             try out_stream.writeAll(@typeName(T));
             if (enumInfo.is_exhaustive) {
                 try out_stream.writeAll(".");
@@ -370,10 +370,6 @@ pub fn formatType(
             }
         },
         .Union => {
-            if (comptime std.meta.trait.hasFn("format")(T)) {
-                return value.format(fmt, options, out_stream);
-            }
-
             try out_stream.writeAll(@typeName(T));
             if (max_depth == 0) {
                 return out_stream.writeAll("{ ... }");
@@ -394,10 +390,6 @@ pub fn formatType(
             }
         },
         .Struct => |StructT| {
-            if (comptime std.meta.trait.hasFn("format")(T)) {
-                return value.format(fmt, options, out_stream);
-            }
-
             try out_stream.writeAll(@typeName(T));
             if (max_depth == 0) {
                 return out_stream.writeAll("{ ... }");
