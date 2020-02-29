@@ -1083,6 +1083,8 @@ pub fn bufPrint(buf: []u8, comptime fmt: []const u8, args: var) BufPrintError![]
     format(fbs.outStream(), fmt, args) catch |err| switch (err) {
         error.NoSpaceLeft => return error.BufferTooSmall,
     };
+    //TODO: should we change one of these return signatures?
+    //return fbs.getWritten();
     return buf[0..fbs.pos];
 }
 
@@ -1195,18 +1197,15 @@ test "buffer" {
         var buf1: [32]u8 = undefined;
         var fbs = std.io.fixedBufferStream(&buf1);
         try formatType(1234, "", FormatOptions{}, fbs.outStream(), default_max_depth);
-        var res = buf1[0..fbs.pos];
-        std.testing.expect(mem.eql(u8, res, "1234"));
+        std.testing.expect(mem.eql(u8, fbs.getWritten(), "1234"));
 
-        try fbs.seekTo(0);
+        fbs.reset();
         try formatType('a', "c", FormatOptions{}, fbs.outStream(), default_max_depth);
-        res = buf1[0..fbs.pos];
-        std.testing.expect(mem.eql(u8, res, "a"));
+        std.testing.expect(mem.eql(u8, fbs.getWritten(), "a"));
 
-        try fbs.seekTo(0);
+        fbs.reset();
         try formatType(0b1100, "b", FormatOptions{}, fbs.outStream(), default_max_depth);
-        res = buf1[0..fbs.pos];
-        std.testing.expect(mem.eql(u8, res, "1100"));
+        std.testing.expect(mem.eql(u8, fbs.getWritten(), "1100"));
     }
 }
 
@@ -1583,78 +1582,73 @@ test "formatIntValue with comptime_int" {
     var buf: [20]u8 = undefined;
     var fbs = std.io.fixedBufferStream(&buf);
     try formatIntValue(value, "", FormatOptions{}, fbs.outStream());
-    std.testing.expect(mem.eql(u8, buf[0..fbs.pos], "123456789123456789"));
+    std.testing.expect(mem.eql(u8, fbs.getWritten(), "123456789123456789"));
 }
 
-// test "formatType max_depth" {
-//     const Vec2 = struct {
-//         const SelfType = @This();
-//         x: f32,
-//         y: f32,
+test "formatType max_depth" {
+    const Vec2 = struct {
+        const SelfType = @This();
+        x: f32,
+        y: f32,
 
-//         pub fn format(
-//             self: SelfType,
-//             comptime fmt: []const u8,
-//             options: FormatOptions,
-//             context: var,
-//             comptime Errors: type,
-//             comptime output: fn (@TypeOf(context), []const u8) !void,
-//         ) !void {
-//             if (fmt.len == 0) {
-//                 return std.fmtstream.format(out_stream, "({d:.3},{d:.3})", .{ self.x, self.y });
-//             } else {
-//                 @compileError("Unknown format string: '" ++ fmt ++ "'");
-//             }
-//         }
-//     };
-//     const E = enum {
-//         One,
-//         Two,
-//         Three,
-//     };
-//     const TU = union(enum) {
-//         const SelfType = @This();
-//         float: f32,
-//         int: u32,
-//         ptr: ?*SelfType,
-//     };
-//     const S = struct {
-//         const SelfType = @This();
-//         a: ?*SelfType,
-//         tu: TU,
-//         e: E,
-//         vec: Vec2,
-//     };
+        pub fn format(
+            self: SelfType,
+            comptime fmt: []const u8,
+            options: FormatOptions,
+            out_stream: var,
+        ) !void {
+            if (fmt.len == 0) {
+                return std.fmtstream.format(out_stream, "({d:.3},{d:.3})", .{ self.x, self.y });
+            } else {
+                @compileError("Unknown format string: '" ++ fmt ++ "'");
+            }
+        }
+    };
+    const E = enum {
+        One,
+        Two,
+        Three,
+    };
+    const TU = union(enum) {
+        const SelfType = @This();
+        float: f32,
+        int: u32,
+        ptr: ?*SelfType,
+    };
+    const S = struct {
+        const SelfType = @This();
+        a: ?*SelfType,
+        tu: TU,
+        e: E,
+        vec: Vec2,
+    };
 
-//     var inst = S{
-//         .a = null,
-//         .tu = TU{ .ptr = null },
-//         .e = E.Two,
-//         .vec = Vec2{ .x = 10.2, .y = 2.22 },
-//     };
-//     inst.a = &inst;
-//     inst.tu.ptr = &inst.tu;
+    var inst = S{
+        .a = null,
+        .tu = TU{ .ptr = null },
+        .e = E.Two,
+        .vec = Vec2{ .x = 10.2, .y = 2.22 },
+    };
+    inst.a = &inst;
+    inst.tu.ptr = &inst.tu;
 
-//     var buf0 = std.ArrayList(u8).init(std.testing.allocator);
-//     defer buf0.deinit();
-//     try formatType(inst, "", FormatOptions{}, &buf0, @TypeOf(std.ArrayList(u8).appendSlice).ReturnType.ErrorSet, std.ArrayList(u8).appendSlice, 0);
-//     std.testing.expect(mem.eql(u8, buf0.toSlice(), "S{ ... }"));
+    var buf: [1000]u8 = undefined;
+    var fbs = std.io.fixedBufferStream(&buf);
+    try formatType(inst, "", FormatOptions{}, fbs.outStream(), 0);
+    std.testing.expect(mem.eql(u8, fbs.getWritten(), "S{ ... }"));
 
-//     var buf1 = std.ArrayList(u8).init(std.testing.allocator);
-//     defer buf1.deinit();
-//     try formatType(inst, "", FormatOptions{}, &buf1, @TypeOf(std.ArrayList(u8).appendSlice).ReturnType.ErrorSet, std.ArrayList(u8).appendSlice, 1);
-//     std.testing.expect(mem.eql(u8, buf1.toSlice(), "S{ .a = S{ ... }, .tu = TU{ ... }, .e = E.Two, .vec = (10.200,2.220) }"));
+    fbs.reset();
+    try formatType(inst, "", FormatOptions{}, fbs.outStream(), 1);
+    std.testing.expect(mem.eql(u8, fbs.getWritten(), "S{ .a = S{ ... }, .tu = TU{ ... }, .e = E.Two, .vec = (10.200,2.220) }"));
 
-//     var buf2 = std.ArrayList(u8).init(std.testing.allocator);
-//     defer buf2.deinit();
-//     try formatType(inst, "", FormatOptions{}, &buf2, @TypeOf(std.ArrayList(u8).appendSlice).ReturnType.ErrorSet, std.ArrayList(u8).appendSlice, 2);
-//     std.testing.expect(mem.eql(u8, buf2.toSlice(), "S{ .a = S{ .a = S{ ... }, .tu = TU{ ... }, .e = E.Two, .vec = (10.200,2.220) }, .tu = TU{ .ptr = TU{ ... } }, .e = E.Two, .vec = (10.200,2.220) }"));
+    fbs.reset();
+    try formatType(inst, "", FormatOptions{}, fbs.outStream(), 2);
+    std.testing.expect(mem.eql(u8, fbs.getWritten(), "S{ .a = S{ .a = S{ ... }, .tu = TU{ ... }, .e = E.Two, .vec = (10.200,2.220) }, .tu = TU{ .ptr = TU{ ... } }, .e = E.Two, .vec = (10.200,2.220) }"));
 
-//     var buf3 = std.ArrayList(u8).init(std.testing.allocator);
-//     defer buf3.deinit();
-//     try formatType(inst, "", FormatOptions{}, &buf3, @TypeOf(std.ArrayList(u8).appendSlice).ReturnType.ErrorSet, std.ArrayList(u8).appendSlice, 3);
-//     std.testing.expect(mem.eql(u8, buf3.toSlice(), "S{ .a = S{ .a = S{ .a = S{ ... }, .tu = TU{ ... }, .e = E.Two, .vec = (10.200,2.220) }, .tu = TU{ .ptr = TU{ ... } }, .e = E.Two, .vec = (10.200,2.220) }, .tu = TU{ .ptr = TU{ .ptr = TU{ ... } } }, .e = E.Two, .vec = (10.200,2.220) }"));
-// }
+    fbs.reset();
+    try formatType(inst, "", FormatOptions{}, fbs.outStream(), 3);
+    std.testing.expect(mem.eql(u8, fbs.getWritten(), "S{ .a = S{ .a = S{ .a = S{ ... }, .tu = TU{ ... }, .e = E.Two, .vec = (10.200,2.220) }, .tu = TU{ .ptr = TU{ ... } }, .e = E.Two, .vec = (10.200,2.220) }, .tu = TU{ .ptr = TU{ .ptr = TU{ ... } } }, .e = E.Two, .vec = (10.200,2.220) }"));
+}
 
 test "positional" {
     try testFmt("2 1 0", "{2} {1} {0}", .{ @as(usize, 0), @as(usize, 1), @as(usize, 2) });
