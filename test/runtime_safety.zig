@@ -745,4 +745,17 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    (await p) catch unreachable;
         \\}
     );
+
+    // Slicing a C pointer returns a non-allowzero slice, thus we need to emit
+    // a safety check to ensure the pointer is not null.
+    cases.addRuntimeSafety("slicing null C pointer",
+        \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+        \\    @import("std").os.exit(126);
+        \\}
+        \\
+        \\pub fn main() void {
+        \\    var ptr: [*c]const u32 = null;
+        \\    var slice = ptr[0..3];
+        \\}
+    );
 }

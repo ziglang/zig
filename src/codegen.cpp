@@ -973,7 +973,7 @@ static Buf *panic_msg_buf(PanicMsgId msg_id) {
         case PanicMsgIdExactDivisionRemainder:
             return buf_create_from_str("exact division produced remainder");
         case PanicMsgIdUnwrapOptionalFail:
-            return buf_create_from_str("attempt to unwrap null");
+            return buf_create_from_str("attempt to use null value");
         case PanicMsgIdUnreachable:
             return buf_create_from_str("reached unreachable code");
         case PanicMsgIdInvalidErrorCode:
