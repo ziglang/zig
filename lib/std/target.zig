@@ -1014,16 +1014,20 @@ pub const Target = struct {
         return libPrefix_cpu_arch_abi(self.cpu.arch, self.abi);
     }
 
-    pub fn getObjectFormat(self: Target) ObjectFormat {
-        if (self.os.tag == .windows or self.os.tag == .uefi) {
+    pub fn getObjectFormatSimple(os_tag: Os.Tag, cpu_arch: Cpu.Arch) ObjectFormat {
+        if (os_tag == .windows or os_tag == .uefi) {
             return .coff;
-        } else if (self.isDarwin()) {
+        } else if (os_tag.isDarwin()) {
             return .macho;
         }
-        if (self.cpu.arch.isWasm()) {
+        if (cpu_arch.isWasm()) {
             return .wasm;
         }
         return .elf;
+    }
+
+    pub fn getObjectFormat(self: Target) ObjectFormat {
+        return getObjectFormatSimple(self.os.tag, self.cpu.arch);
     }
 
     pub fn isMinGW(self: Target) bool {

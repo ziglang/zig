@@ -645,6 +645,10 @@ pub const CrossTarget = struct {
         self.glibc_version = SemVer{ .major = major, .minor = minor, .patch = patch };
     }
 
+    pub fn getObjectFormat(self: CrossTarget) ObjectFormat {
+        return Target.getObjectFormatSimple(self.getOsTag(), self.getCpuArch());
+    }
+
     fn updateCpuFeatures(self: CrossTarget, set: *Target.Cpu.Feature.Set) void {
         set.removeFeatureSet(self.cpu_features_sub);
         set.addFeatureSet(self.cpu_features_add);
