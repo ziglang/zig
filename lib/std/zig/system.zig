@@ -225,7 +225,7 @@ pub const NativeTargetInfo = struct {
                 },
                 .macosx => {
                     var product_version: [32]u8 = undefined;
-                    var size: usize = @sizeOf(@TypeOf(product_version));
+                    var size: usize = product_version.len;
 
                     // The osproductversion sysctl was introduced first with
                     // High Sierra, thankfully that's also the baseline that Zig
