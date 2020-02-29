@@ -1088,25 +1088,23 @@ pub fn bufPrint(buf: []u8, comptime fmt: []const u8, args: var) BufPrintError![]
     return buf[0..fbs.pos];
 }
 
-// pub const AllocPrintError = error{OutOfMemory};
+pub const AllocPrintError = error{OutOfMemory};
 
-// pub fn allocPrint(allocator: *mem.Allocator, comptime fmt: []const u8, args: var) AllocPrintError![]u8 {
-//     var size: usize = 0;
-//     format(&size, error{}, countSize, fmt, args) catch |err| switch (err) {};
-//     const buf = try allocator.alloc(u8, size);
-//     return bufPrint(buf, fmt, args) catch |err| switch (err) {
-//         error.BufferTooSmall => unreachable, // we just counted the size above
-//     };
-// }
+pub fn allocPrint(allocator: *mem.Allocator, comptime fmt: []const u8, args: var) AllocPrintError![]u8 {
+    // Count the characters we need to preallocate
+    var counting_stream = std.io.countingOutStream(std.io.null_out_stream);
+    format(counting_stream.outStream(), fmt, args) catch |err| switch (err) {};
 
-// fn countSize(size: *usize, bytes: []const u8) (error{}!void) {
-//     size.* += bytes.len;
-// }
+    const buf = try allocator.alloc(u8, counting_stream.bytes_written);
+    return bufPrint(buf, fmt, args) catch |err| switch (err) {
+        error.BufferTooSmall => unreachable, // we just counted the size above
+    };
+}
 
-// pub fn allocPrint0(allocator: *mem.Allocator, comptime fmt: []const u8, args: var) AllocPrintError![:0]u8 {
-//     const result = try allocPrint(allocator, fmt ++ "\x00", args);
-//     return result[0 .. result.len - 1 :0];
-// }
+pub fn allocPrint0(allocator: *mem.Allocator, comptime fmt: []const u8, args: var) AllocPrintError![:0]u8 {
+    const result = try allocPrint(allocator, fmt ++ "\x00", args);
+    return result[0 .. result.len - 1 :0];
+}
 
 test "bufPrintInt" {
     var buffer: [100]u8 = undefined;
