@@ -316,7 +316,7 @@ pub fn formatType(
     options: FormatOptions,
     out_stream: var,
     max_depth: usize,
-) !void {
+) @TypeOf(out_stream).Error!void {
     if (comptime std.mem.eql(u8, fmt, "*")) {
         try out_stream.writeAll(@typeName(@TypeOf(value).Child));
         try out_stream.writeAll("@");
@@ -1472,19 +1472,19 @@ test "enum" {
     try testFmt("E.Two", "{}", .{inst});
 }
 
-// test "struct.self-referential" {
-//     const S = struct {
-//         const SelfType = @This();
-//         a: ?*SelfType,
-//     };
+test "struct.self-referential" {
+    const S = struct {
+        const SelfType = @This();
+        a: ?*SelfType,
+    };
 
-//     var inst = S{
-//         .a = null,
-//     };
-//     inst.a = &inst;
+    var inst = S{
+        .a = null,
+    };
+    inst.a = &inst;
 
-//     try testFmt("S{ .a = S{ .a = S{ .a = S{ ... } } } }", "{}", .{inst});
-// }
+    try testFmt("S{ .a = S{ .a = S{ .a = S{ ... } } } }", "{}", .{inst});
+}
 
 test "struct.zero-size" {
     const A = struct {
