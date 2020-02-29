@@ -1133,8 +1133,6 @@ pub const Target = struct {
         }
     };
 
-    /// The result will be a byte index *pointing at the final byte*. In other words, length minus one.
-    /// A return value of `null` means the concept of a dynamic linker is not meaningful for that target.
     pub fn standardDynamicLinkerPath(self: Target) DynamicLinker {
         var result: DynamicLinker = .{};
         const S = struct {
