@@ -181,7 +181,6 @@ pub const NativeTargetInfo = struct {
         ProcessFdQuotaExceeded,
         SystemFdQuotaExceeded,
         DeviceBusy,
-        Unexpected,
     };
 
     /// Given a `CrossTarget`, which specifies in detail which parts of the target should be detected
@@ -225,10 +224,9 @@ pub const NativeTargetInfo = struct {
                     var version_info: std.os.windows.RTL_OSVERSIONINFOW = undefined;
                     version_info.dwOSVersionInfoSize = @sizeOf(@TypeOf(version_info));
 
-                    const rc = std.os.windows.ntdll.RtlGetVersion(&version_info);
-                    switch (rc) {
+                    switch (std.os.windows.ntdll.RtlGetVersion(&version_info)) {
                         .SUCCESS => {},
-                        else => return std.os.windows.unexpectedStatus(rc),
+                        else => unreachable,
                     }
 
                     // Starting from the system infos build a NTDDI-like version
@@ -245,15 +243,16 @@ pub const NativeTargetInfo = struct {
                         // There's no other way to obtain this info beside
                         // checking the build number against a known set of
                         // values
-                        for ([_]u32{
+                        const known_build_numbers = [_]u32{
                             10240, 10586, 14393, 15063, 16299, 17134, 17763,
                             18362, 18363,
-                        }) |build, i| {
+                        };
+                        for (known_build_numbers) |build, i| {
                             if (version_info.dwBuildNumber < build)
                                 break :subver @truncate(u8, i);
                         }
                         // Unknown subversion, the OS is too new...
-                        break :subver 0;
+                        break :subver @truncate(u8, known_build_numbers.len);
                     } else 0;
 
                     const version: u32 = @as(u32, os_ver) << 16 | @as(u32, sp_ver) << 8 | sub_ver;
