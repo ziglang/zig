@@ -241,7 +241,7 @@ pub const InstallRawStep = struct {
         const self = @fieldParentPtr(Self, "step", step);
         const builder = self.builder;
 
-        if (self.artifact.target.getObjectFormat() != .elf) {
+        if (self.artifact.target.toTarget().getObjectFormat() != .elf) {
             warn("InstallRawStep only works with ELF format.\n", .{});
             return error.InvalidObjectFormat;
         }
