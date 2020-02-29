@@ -1074,28 +1074,17 @@ fn digitToChar(digit: u8, uppercase: bool) u8 {
     };
 }
 
-// const BufPrintContext = struct {
-//     remaining: []u8,
-// };
-
-// fn bufPrintWrite(context: *BufPrintContext, bytes: []const u8) !void {
-//     if (context.remaining.len < bytes.len) {
-//         mem.copy(u8, context.remaining, bytes[0..context.remaining.len]);
-//         return error.BufferTooSmall;
-//     }
-//     mem.copy(u8, context.remaining, bytes);
-//     context.remaining = context.remaining[bytes.len..];
-// }
-
-// pub const BufPrintError = error{
-//     /// As much as possible was written to the buffer, but it was too small to fit all the printed bytes.
-//     BufferTooSmall,
-// };
-// pub fn bufPrint(buf: []u8, comptime fmt: []const u8, args: var) BufPrintError![]u8 {
-//     var context = BufPrintContext{ .remaining = buf };
-//     try format(&context, BufPrintError, bufPrintWrite, fmt, args);
-//     return buf[0 .. buf.len - context.remaining.len];
-// }
+pub const BufPrintError = error{
+    /// As much as possible was written to the buffer, but it was too small to fit all the printed bytes.
+    BufferTooSmall,
+};
+pub fn bufPrint(buf: []u8, comptime fmt: []const u8, args: var) BufPrintError![]u8 {
+    var os = std.io.SliceOutStream.init(buf);
+    format(&os.stream, fmt, args) catch |err| switch (err) {
+        error.OutOfMemory => return error.BufferTooSmall,
+    };
+    return buf[0..os.pos];
+}
 
 // pub const AllocPrintError = error{OutOfMemory};
 
@@ -1514,29 +1503,29 @@ fn bufPrintIntToSlice(buf: []u8, value: var, base: u8, uppercase: bool, options:
 //     try testFmt("B{ .a = A{ }, .c = 0 }", "{}", .{b});
 // }
 
-// test "bytes.hex" {
-//     const some_bytes = "\xCA\xFE\xBA\xBE";
-//     try testFmt("lowercase: cafebabe\n", "lowercase: {x}\n", .{some_bytes});
-//     try testFmt("uppercase: CAFEBABE\n", "uppercase: {X}\n", .{some_bytes});
-//     //Test Slices
-//     try testFmt("uppercase: CAFE\n", "uppercase: {X}\n", .{some_bytes[0..2]});
-//     try testFmt("lowercase: babe\n", "lowercase: {x}\n", .{some_bytes[2..]});
-//     const bytes_with_zeros = "\x00\x0E\xBA\xBE";
-//     try testFmt("lowercase: 000ebabe\n", "lowercase: {x}\n", .{bytes_with_zeros});
-// }
+test "bytes.hex" {
+    const some_bytes = "\xCA\xFE\xBA\xBE";
+    try testFmt("lowercase: cafebabe\n", "lowercase: {x}\n", .{some_bytes});
+    try testFmt("uppercase: CAFEBABE\n", "uppercase: {X}\n", .{some_bytes});
+    //Test Slices
+    try testFmt("uppercase: CAFE\n", "uppercase: {X}\n", .{some_bytes[0..2]});
+    try testFmt("lowercase: babe\n", "lowercase: {x}\n", .{some_bytes[2..]});
+    const bytes_with_zeros = "\x00\x0E\xBA\xBE";
+    try testFmt("lowercase: 000ebabe\n", "lowercase: {x}\n", .{bytes_with_zeros});
+}
 
-// fn testFmt(expected: []const u8, comptime template: []const u8, args: var) !void {
-//     var buf: [100]u8 = undefined;
-//     const result = try bufPrint(buf[0..], template, args);
-//     if (mem.eql(u8, result, expected)) return;
+fn testFmt(expected: []const u8, comptime template: []const u8, args: var) !void {
+    var buf: [100]u8 = undefined;
+    const result = try bufPrint(buf[0..], template, args);
+    if (mem.eql(u8, result, expected)) return;
 
-//     std.debug.warn("\n====== expected this output: =========\n", .{});
-//     std.debug.warn("{}", .{expected});
-//     std.debug.warn("\n======== instead found this: =========\n", .{});
-//     std.debug.warn("{}", .{result});
-//     std.debug.warn("\n======================================\n", .{});
-//     return error.TestFailed;
-// }
+    std.debug.warn("\n====== expected this output: =========\n", .{});
+    std.debug.warn("{}", .{expected});
+    std.debug.warn("\n======== instead found this: =========\n", .{});
+    std.debug.warn("{}", .{result});
+    std.debug.warn("\n======================================\n", .{});
+    return error.TestFailed;
+}
 
 // pub fn trim(buf: []const u8) []const u8 {
 //     var start: usize = 0;
