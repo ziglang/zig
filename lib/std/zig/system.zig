@@ -239,7 +239,7 @@ pub const NativeTargetInfo = struct {
                         @intCast(u16, version_info.dwMajorVersion & 0xff) << 8 |
                         @intCast(u16, version_info.dwMinorVersion & 0xff);
                     const sp_ver: u8 = 0;
-                    const sub_ver: u8 = if (os_ver >= 0xA000) subver: {
+                    const sub_ver: u8 = if (os_ver >= 0x0A00) subver: {
                         // There's no other way to obtain this info beside
                         // checking the build number against a known set of
                         // values
@@ -247,12 +247,12 @@ pub const NativeTargetInfo = struct {
                             10240, 10586, 14393, 15063, 16299, 17134, 17763,
                             18362, 18363,
                         };
+                        var last_idx: usize = 0;
                         for (known_build_numbers) |build, i| {
-                            if (version_info.dwBuildNumber < build)
-                                break :subver @truncate(u8, i);
+                            if (version_info.dwBuildNumber >= build)
+                                last_idx = i;
                         }
-                        // Unknown subversion, the OS is too new...
-                        break :subver @truncate(u8, known_build_numbers.len);
+                        break :subver @truncate(u8, last_idx);
                     } else 0;
 
                     const version: u32 = @as(u32, os_ver) << 16 | @as(u32, sp_ver) << 8 | sub_ver;
