@@ -972,20 +972,9 @@ fn formatIntUnsigned(
 }
 
 pub fn formatIntBuf(out_buf: []u8, value: var, base: u8, uppercase: bool, options: FormatOptions) usize {
-    var context = FormatIntBuf{
-        .out_buf = out_buf,
-        .index = 0,
-    };
-    formatInt(value, base, uppercase, options, &context, error{}, formatIntCallback) catch unreachable;
-    return context.index;
-}
-const FormatIntBuf = struct {
-    out_buf: []u8,
-    index: usize,
-};
-fn formatIntCallback(context: *FormatIntBuf, bytes: []const u8) (error{}!void) {
-    mem.copy(u8, context.out_buf[context.index..], bytes);
-    context.index += bytes.len;
+    var fbs = std.io.fixedBufferStream(out_buf);
+    formatInt(value, base, uppercase, options, fbs.outStream()) catch unreachable;
+    return fbs.pos;
 }
 
 pub fn parseInt(comptime T: type, buf: []const u8, radix: u8) !T {
@@ -1085,48 +1074,48 @@ fn digitToChar(digit: u8, uppercase: bool) u8 {
     };
 }
 
-const BufPrintContext = struct {
-    remaining: []u8,
-};
+// const BufPrintContext = struct {
+//     remaining: []u8,
+// };
 
-fn bufPrintWrite(context: *BufPrintContext, bytes: []const u8) !void {
-    if (context.remaining.len < bytes.len) {
-        mem.copy(u8, context.remaining, bytes[0..context.remaining.len]);
-        return error.BufferTooSmall;
-    }
-    mem.copy(u8, context.remaining, bytes);
-    context.remaining = context.remaining[bytes.len..];
-}
+// fn bufPrintWrite(context: *BufPrintContext, bytes: []const u8) !void {
+//     if (context.remaining.len < bytes.len) {
+//         mem.copy(u8, context.remaining, bytes[0..context.remaining.len]);
+//         return error.BufferTooSmall;
+//     }
+//     mem.copy(u8, context.remaining, bytes);
+//     context.remaining = context.remaining[bytes.len..];
+// }
 
-pub const BufPrintError = error{
-    /// As much as possible was written to the buffer, but it was too small to fit all the printed bytes.
-    BufferTooSmall,
-};
-pub fn bufPrint(buf: []u8, comptime fmt: []const u8, args: var) BufPrintError![]u8 {
-    var context = BufPrintContext{ .remaining = buf };
-    try format(&context, BufPrintError, bufPrintWrite, fmt, args);
-    return buf[0 .. buf.len - context.remaining.len];
-}
+// pub const BufPrintError = error{
+//     /// As much as possible was written to the buffer, but it was too small to fit all the printed bytes.
+//     BufferTooSmall,
+// };
+// pub fn bufPrint(buf: []u8, comptime fmt: []const u8, args: var) BufPrintError![]u8 {
+//     var context = BufPrintContext{ .remaining = buf };
+//     try format(&context, BufPrintError, bufPrintWrite, fmt, args);
+//     return buf[0 .. buf.len - context.remaining.len];
+// }
 
-pub const AllocPrintError = error{OutOfMemory};
+// pub const AllocPrintError = error{OutOfMemory};
 
-pub fn allocPrint(allocator: *mem.Allocator, comptime fmt: []const u8, args: var) AllocPrintError![]u8 {
-    var size: usize = 0;
-    format(&size, error{}, countSize, fmt, args) catch |err| switch (err) {};
-    const buf = try allocator.alloc(u8, size);
-    return bufPrint(buf, fmt, args) catch |err| switch (err) {
-        error.BufferTooSmall => unreachable, // we just counted the size above
-    };
-}
+// pub fn allocPrint(allocator: *mem.Allocator, comptime fmt: []const u8, args: var) AllocPrintError![]u8 {
+//     var size: usize = 0;
+//     format(&size, error{}, countSize, fmt, args) catch |err| switch (err) {};
+//     const buf = try allocator.alloc(u8, size);
+//     return bufPrint(buf, fmt, args) catch |err| switch (err) {
+//         error.BufferTooSmall => unreachable, // we just counted the size above
+//     };
+// }
 
-fn countSize(size: *usize, bytes: []const u8) (error{}!void) {
-    size.* += bytes.len;
-}
+// fn countSize(size: *usize, bytes: []const u8) (error{}!void) {
+//     size.* += bytes.len;
+// }
 
-pub fn allocPrint0(allocator: *mem.Allocator, comptime fmt: []const u8, args: var) AllocPrintError![:0]u8 {
-    const result = try allocPrint(allocator, fmt ++ "\x00", args);
-    return result[0 .. result.len - 1 :0];
-}
+// pub fn allocPrint0(allocator: *mem.Allocator, comptime fmt: []const u8, args: var) AllocPrintError![:0]u8 {
+//     const result = try allocPrint(allocator, fmt ++ "\x00", args);
+//     return result[0 .. result.len - 1 :0];
+// }
 
 test "bufPrintInt" {
     var buffer: [100]u8 = undefined;
@@ -1153,566 +1142,566 @@ fn bufPrintIntToSlice(buf: []u8, value: var, base: u8, uppercase: bool, options:
     return buf[0..formatIntBuf(buf, value, base, uppercase, options)];
 }
 
-test "parse u64 digit too big" {
-    _ = parseUnsigned(u64, "123a", 10) catch |err| {
-        if (err == error.InvalidCharacter) return;
-        unreachable;
-    };
-    unreachable;
-}
-
-test "parse unsigned comptime" {
-    comptime {
-        std.testing.expect((try parseUnsigned(usize, "2", 10)) == 2);
-    }
-}
-
-test "optional" {
-    {
-        const value: ?i32 = 1234;
-        try testFmt("optional: 1234\n", "optional: {}\n", .{value});
-    }
-    {
-        const value: ?i32 = null;
-        try testFmt("optional: null\n", "optional: {}\n", .{value});
-    }
-}
-
-test "error" {
-    {
-        const value: anyerror!i32 = 1234;
-        try testFmt("error union: 1234\n", "error union: {}\n", .{value});
-    }
-    {
-        const value: anyerror!i32 = error.InvalidChar;
-        try testFmt("error union: error.InvalidChar\n", "error union: {}\n", .{value});
-    }
-}
-
-test "int.small" {
-    {
-        const value: u3 = 0b101;
-        try testFmt("u3: 5\n", "u3: {}\n", .{value});
-    }
-}
-
-test "int.specifier" {
-    {
-        const value: u8 = 'a';
-        try testFmt("u8: a\n", "u8: {c}\n", .{value});
-    }
-    {
-        const value: u8 = 0b1100;
-        try testFmt("u8: 0b1100\n", "u8: 0b{b}\n", .{value});
-    }
-}
-
-test "int.padded" {
-    try testFmt("u8: '   1'", "u8: '{:4}'", .{@as(u8, 1)});
-    try testFmt("u8: 'xxx1'", "u8: '{:x<4}'", .{@as(u8, 1)});
-}
-
-test "buffer" {
-    {
-        var buf1: [32]u8 = undefined;
-        var context = BufPrintContext{ .remaining = buf1[0..] };
-        try formatType(1234, "", FormatOptions{}, &context, error{BufferTooSmall}, bufPrintWrite, default_max_depth);
-        var res = buf1[0 .. buf1.len - context.remaining.len];
-        std.testing.expect(mem.eql(u8, res, "1234"));
-
-        context = BufPrintContext{ .remaining = buf1[0..] };
-        try formatType('a', "c", FormatOptions{}, &context, error{BufferTooSmall}, bufPrintWrite, default_max_depth);
-        res = buf1[0 .. buf1.len - context.remaining.len];
-        std.testing.expect(mem.eql(u8, res, "a"));
-
-        context = BufPrintContext{ .remaining = buf1[0..] };
-        try formatType(0b1100, "b", FormatOptions{}, &context, error{BufferTooSmall}, bufPrintWrite, default_max_depth);
-        res = buf1[0 .. buf1.len - context.remaining.len];
-        std.testing.expect(mem.eql(u8, res, "1100"));
-    }
-}
-
-test "array" {
-    {
-        const value: [3]u8 = "abc".*;
-        try testFmt("array: abc\n", "array: {}\n", .{value});
-        try testFmt("array: abc\n", "array: {}\n", .{&value});
-
-        var buf: [100]u8 = undefined;
-        try testFmt(
-            try bufPrint(buf[0..], "array: [3]u8@{x}\n", .{@ptrToInt(&value)}),
-            "array: {*}\n",
-            .{&value},
-        );
-    }
-}
-
-test "slice" {
-    {
-        const value: []const u8 = "abc";
-        try testFmt("slice: abc\n", "slice: {}\n", .{value});
-    }
-    {
-        const value = @intToPtr([*]align(1) const []const u8, 0xdeadbeef)[0..0];
-        try testFmt("slice: []const u8@deadbeef\n", "slice: {}\n", .{value});
-    }
-
-    try testFmt("buf: Test \n", "buf: {s:5}\n", .{"Test"});
-    try testFmt("buf: Test\n Other text", "buf: {s}\n Other text", .{"Test"});
-}
-
-test "pointer" {
-    {
-        const value = @intToPtr(*align(1) i32, 0xdeadbeef);
-        try testFmt("pointer: i32@deadbeef\n", "pointer: {}\n", .{value});
-        try testFmt("pointer: i32@deadbeef\n", "pointer: {*}\n", .{value});
-    }
-    {
-        const value = @intToPtr(fn () void, 0xdeadbeef);
-        try testFmt("pointer: fn() void@deadbeef\n", "pointer: {}\n", .{value});
-    }
-    {
-        const value = @intToPtr(fn () void, 0xdeadbeef);
-        try testFmt("pointer: fn() void@deadbeef\n", "pointer: {}\n", .{value});
-    }
-}
-
-test "cstr" {
-    try testFmt(
-        "cstr: Test C\n",
-        "cstr: {s}\n",
-        .{@ptrCast([*c]const u8, "Test C")},
-    );
-    try testFmt(
-        "cstr: Test C    \n",
-        "cstr: {s:10}\n",
-        .{@ptrCast([*c]const u8, "Test C")},
-    );
-}
-
-test "filesize" {
-    try testFmt("file size: 63MiB\n", "file size: {Bi}\n", .{@as(usize, 63 * 1024 * 1024)});
-    try testFmt("file size: 66.06MB\n", "file size: {B:.2}\n", .{@as(usize, 63 * 1024 * 1024)});
-}
-
-test "struct" {
-    {
-        const Struct = struct {
-            field: u8,
-        };
-        const value = Struct{ .field = 42 };
-        try testFmt("struct: Struct{ .field = 42 }\n", "struct: {}\n", .{value});
-        try testFmt("struct: Struct{ .field = 42 }\n", "struct: {}\n", .{&value});
-    }
-    {
-        const Struct = struct {
-            a: u0,
-            b: u1,
-        };
-        const value = Struct{ .a = 0, .b = 1 };
-        try testFmt("struct: Struct{ .a = 0, .b = 1 }\n", "struct: {}\n", .{value});
-    }
-}
-
-test "enum" {
-    const Enum = enum {
-        One,
-        Two,
-    };
-    const value = Enum.Two;
-    try testFmt("enum: Enum.Two\n", "enum: {}\n", .{value});
-    try testFmt("enum: Enum.Two\n", "enum: {}\n", .{&value});
-}
-
-test "non-exhaustive enum" {
-    const Enum = enum(u16) {
-        One = 0x000f,
-        Two = 0xbeef,
-        _,
-    };
-    try testFmt("enum: Enum(15)\n", "enum: {}\n", .{Enum.One});
-    try testFmt("enum: Enum(48879)\n", "enum: {}\n", .{Enum.Two});
-    try testFmt("enum: Enum(4660)\n", "enum: {}\n", .{@intToEnum(Enum, 0x1234)});
-    try testFmt("enum: Enum(f)\n", "enum: {x}\n", .{Enum.One});
-    try testFmt("enum: Enum(beef)\n", "enum: {x}\n", .{Enum.Two});
-    try testFmt("enum: Enum(1234)\n", "enum: {x}\n", .{@intToEnum(Enum, 0x1234)});
-}
-
-test "float.scientific" {
-    try testFmt("f32: 1.34000003e+00", "f32: {e}", .{@as(f32, 1.34)});
-    try testFmt("f32: 1.23400001e+01", "f32: {e}", .{@as(f32, 12.34)});
-    try testFmt("f64: -1.234e+11", "f64: {e}", .{@as(f64, -12.34e10)});
-    try testFmt("f64: 9.99996e-40", "f64: {e}", .{@as(f64, 9.999960e-40)});
-}
-
-test "float.scientific.precision" {
-    try testFmt("f64: 1.40971e-42", "f64: {e:.5}", .{@as(f64, 1.409706e-42)});
-    try testFmt("f64: 1.00000e-09", "f64: {e:.5}", .{@as(f64, @bitCast(f32, @as(u32, 814313563)))});
-    try testFmt("f64: 7.81250e-03", "f64: {e:.5}", .{@as(f64, @bitCast(f32, @as(u32, 1006632960)))});
-    // libc rounds 1.000005e+05 to 1.00000e+05 but zig does 1.00001e+05.
-    // In fact, libc doesn't round a lot of 5 cases up when one past the precision point.
-    try testFmt("f64: 1.00001e+05", "f64: {e:.5}", .{@as(f64, @bitCast(f32, @as(u32, 1203982400)))});
-}
-
-test "float.special" {
-    try testFmt("f64: nan", "f64: {}", .{math.nan_f64});
-    // negative nan is not defined by IEE 754,
-    // and ARM thus normalizes it to positive nan
-    if (builtin.arch != builtin.Arch.arm) {
-        try testFmt("f64: -nan", "f64: {}", .{-math.nan_f64});
-    }
-    try testFmt("f64: inf", "f64: {}", .{math.inf_f64});
-    try testFmt("f64: -inf", "f64: {}", .{-math.inf_f64});
-}
-
-test "float.decimal" {
-    try testFmt("f64: 152314000000000000000000000000", "f64: {d}", .{@as(f64, 1.52314e+29)});
-    try testFmt("f32: 0", "f32: {d}", .{@as(f32, 0.0)});
-    try testFmt("f32: 1.1", "f32: {d:.1}", .{@as(f32, 1.1234)});
-    try testFmt("f32: 1234.57", "f32: {d:.2}", .{@as(f32, 1234.567)});
-    // -11.1234 is converted to f64 -11.12339... internally (errol3() function takes f64).
-    // -11.12339... is rounded back up to -11.1234
-    try testFmt("f32: -11.1234", "f32: {d:.4}", .{@as(f32, -11.1234)});
-    try testFmt("f32: 91.12345", "f32: {d:.5}", .{@as(f32, 91.12345)});
-    try testFmt("f64: 91.1234567890", "f64: {d:.10}", .{@as(f64, 91.12345678901235)});
-    try testFmt("f64: 0.00000", "f64: {d:.5}", .{@as(f64, 0.0)});
-    try testFmt("f64: 6", "f64: {d:.0}", .{@as(f64, 5.700)});
-    try testFmt("f64: 10.0", "f64: {d:.1}", .{@as(f64, 9.999)});
-    try testFmt("f64: 1.000", "f64: {d:.3}", .{@as(f64, 1.0)});
-    try testFmt("f64: 0.00030000", "f64: {d:.8}", .{@as(f64, 0.0003)});
-    try testFmt("f64: 0.00000", "f64: {d:.5}", .{@as(f64, 1.40130e-45)});
-    try testFmt("f64: 0.00000", "f64: {d:.5}", .{@as(f64, 9.999960e-40)});
-}
-
-test "float.libc.sanity" {
-    try testFmt("f64: 0.00001", "f64: {d:.5}", .{@as(f64, @bitCast(f32, @as(u32, 916964781)))});
-    try testFmt("f64: 0.00001", "f64: {d:.5}", .{@as(f64, @bitCast(f32, @as(u32, 925353389)))});
-    try testFmt("f64: 0.10000", "f64: {d:.5}", .{@as(f64, @bitCast(f32, @as(u32, 1036831278)))});
-    try testFmt("f64: 1.00000", "f64: {d:.5}", .{@as(f64, @bitCast(f32, @as(u32, 1065353133)))});
-    try testFmt("f64: 10.00000", "f64: {d:.5}", .{@as(f64, @bitCast(f32, @as(u32, 1092616192)))});
-
-    // libc differences
-    //
-    // This is 0.015625 exactly according to gdb. We thus round down,
-    // however glibc rounds up for some reason. This occurs for all
-    // floats of the form x.yyyy25 on a precision point.
-    try testFmt("f64: 0.01563", "f64: {d:.5}", .{@as(f64, @bitCast(f32, @as(u32, 1015021568)))});
-    // errol3 rounds to ... 630 but libc rounds to ...632. Grisu3
-    // also rounds to 630 so I'm inclined to believe libc is not
-    // optimal here.
-    try testFmt("f64: 18014400656965630.00000", "f64: {d:.5}", .{@as(f64, @bitCast(f32, @as(u32, 1518338049)))});
-}
-
-test "custom" {
-    const Vec2 = struct {
-        const SelfType = @This();
-        x: f32,
-        y: f32,
-
-        pub fn format(
-            self: SelfType,
-            comptime fmt: []const u8,
-            options: FormatOptions,
-            context: var,
-            comptime Errors: type,
-            comptime output: fn (@TypeOf(context), []const u8) !void,
-        ) !void {
-            if (fmt.len == 0 or comptime std.mem.eql(u8, fmt, "p")) {
-                return std.fmtstream.format(out_stream, "({d:.3},{d:.3})", .{ self.x, self.y });
-            } else if (comptime std.mem.eql(u8, fmt, "d")) {
-                return std.fmtstream.format(out_stream, "{d:.3}x{d:.3}", .{ self.x, self.y });
-            } else {
-                @compileError("Unknown format character: '" ++ fmt ++ "'");
-            }
-        }
-    };
-
-    var buf1: [32]u8 = undefined;
-    var value = Vec2{
-        .x = 10.2,
-        .y = 2.22,
-    };
-    try testFmt("point: (10.200,2.220)\n", "point: {}\n", .{&value});
-    try testFmt("dim: 10.200x2.220\n", "dim: {d}\n", .{&value});
-
-    // same thing but not passing a pointer
-    try testFmt("point: (10.200,2.220)\n", "point: {}\n", .{value});
-    try testFmt("dim: 10.200x2.220\n", "dim: {d}\n", .{value});
-}
-
-test "struct" {
-    const S = struct {
-        a: u32,
-        b: anyerror,
-    };
-
-    const inst = S{
-        .a = 456,
-        .b = error.Unused,
-    };
-
-    try testFmt("S{ .a = 456, .b = error.Unused }", "{}", .{inst});
-}
-
-test "union" {
-    const TU = union(enum) {
-        float: f32,
-        int: u32,
-    };
-
-    const UU = union {
-        float: f32,
-        int: u32,
-    };
-
-    const EU = extern union {
-        float: f32,
-        int: u32,
-    };
-
-    const tu_inst = TU{ .int = 123 };
-    const uu_inst = UU{ .int = 456 };
-    const eu_inst = EU{ .float = 321.123 };
-
-    try testFmt("TU{ .int = 123 }", "{}", .{tu_inst});
-
-    var buf: [100]u8 = undefined;
-    const uu_result = try bufPrint(buf[0..], "{}", .{uu_inst});
-    std.testing.expect(mem.eql(u8, uu_result[0..3], "UU@"));
-
-    const eu_result = try bufPrint(buf[0..], "{}", .{eu_inst});
-    std.testing.expect(mem.eql(u8, uu_result[0..3], "EU@"));
-}
-
-test "enum" {
-    const E = enum {
-        One,
-        Two,
-        Three,
-    };
-
-    const inst = E.Two;
-
-    try testFmt("E.Two", "{}", .{inst});
-}
-
-test "struct.self-referential" {
-    const S = struct {
-        const SelfType = @This();
-        a: ?*SelfType,
-    };
-
-    var inst = S{
-        .a = null,
-    };
-    inst.a = &inst;
-
-    try testFmt("S{ .a = S{ .a = S{ .a = S{ ... } } } }", "{}", .{inst});
-}
-
-test "struct.zero-size" {
-    const A = struct {
-        fn foo() void {}
-    };
-    const B = struct {
-        a: A,
-        c: i32,
-    };
-
-    const a = A{};
-    const b = B{ .a = a, .c = 0 };
-
-    try testFmt("B{ .a = A{ }, .c = 0 }", "{}", .{b});
-}
-
-test "bytes.hex" {
-    const some_bytes = "\xCA\xFE\xBA\xBE";
-    try testFmt("lowercase: cafebabe\n", "lowercase: {x}\n", .{some_bytes});
-    try testFmt("uppercase: CAFEBABE\n", "uppercase: {X}\n", .{some_bytes});
-    //Test Slices
-    try testFmt("uppercase: CAFE\n", "uppercase: {X}\n", .{some_bytes[0..2]});
-    try testFmt("lowercase: babe\n", "lowercase: {x}\n", .{some_bytes[2..]});
-    const bytes_with_zeros = "\x00\x0E\xBA\xBE";
-    try testFmt("lowercase: 000ebabe\n", "lowercase: {x}\n", .{bytes_with_zeros});
-}
-
-fn testFmt(expected: []const u8, comptime template: []const u8, args: var) !void {
-    var buf: [100]u8 = undefined;
-    const result = try bufPrint(buf[0..], template, args);
-    if (mem.eql(u8, result, expected)) return;
-
-    std.debug.warn("\n====== expected this output: =========\n", .{});
-    std.debug.warn("{}", .{expected});
-    std.debug.warn("\n======== instead found this: =========\n", .{});
-    std.debug.warn("{}", .{result});
-    std.debug.warn("\n======================================\n", .{});
-    return error.TestFailed;
-}
-
-pub fn trim(buf: []const u8) []const u8 {
-    var start: usize = 0;
-    while (start < buf.len and isWhiteSpace(buf[start])) : (start += 1) {}
-
-    var end: usize = buf.len;
-    while (true) {
-        if (end > start) {
-            const new_end = end - 1;
-            if (isWhiteSpace(buf[new_end])) {
-                end = new_end;
-                continue;
-            }
-        }
-        break;
-    }
-    return buf[start..end];
-}
-
-test "trim" {
-    std.testing.expect(mem.eql(u8, "abc", trim("\n  abc  \t")));
-    std.testing.expect(mem.eql(u8, "", trim("   ")));
-    std.testing.expect(mem.eql(u8, "", trim("")));
-    std.testing.expect(mem.eql(u8, "abc", trim(" abc")));
-    std.testing.expect(mem.eql(u8, "abc", trim("abc ")));
-}
-
-pub fn isWhiteSpace(byte: u8) bool {
-    return switch (byte) {
-        ' ', '\t', '\n', '\r' => true,
-        else => false,
-    };
-}
-
-pub fn hexToBytes(out: []u8, input: []const u8) !void {
-    if (out.len * 2 < input.len)
-        return error.InvalidLength;
-
-    var in_i: usize = 0;
-    while (in_i != input.len) : (in_i += 2) {
-        const hi = try charToDigit(input[in_i], 16);
-        const lo = try charToDigit(input[in_i + 1], 16);
-        out[in_i / 2] = (hi << 4) | lo;
-    }
-}
-
-test "hexToBytes" {
-    const test_hex_str = "909A312BB12ED1F819B3521AC4C1E896F2160507FFC1C8381E3B07BB16BD1706";
-    var pb: [32]u8 = undefined;
-    try hexToBytes(pb[0..], test_hex_str);
-    try testFmt(test_hex_str, "{X}", .{pb});
-}
-
-test "formatIntValue with comptime_int" {
-    const value: comptime_int = 123456789123456789;
-
-    var buf = std.ArrayList(u8).init(std.testing.allocator);
-    defer buf.deinit();
-    try formatIntValue(value, "", FormatOptions{}, &buf, @TypeOf(std.ArrayList(u8).appendSlice).ReturnType.ErrorSet, std.ArrayList(u8).appendSlice);
-    std.testing.expect(mem.eql(u8, buf.toSliceConst(), "123456789123456789"));
-}
-
-test "formatType max_depth" {
-    const Vec2 = struct {
-        const SelfType = @This();
-        x: f32,
-        y: f32,
-
-        pub fn format(
-            self: SelfType,
-            comptime fmt: []const u8,
-            options: FormatOptions,
-            context: var,
-            comptime Errors: type,
-            comptime output: fn (@TypeOf(context), []const u8) !void,
-        ) !void {
-            if (fmt.len == 0) {
-                return std.fmtstream.format(out_stream, "({d:.3},{d:.3})", .{ self.x, self.y });
-            } else {
-                @compileError("Unknown format string: '" ++ fmt ++ "'");
-            }
-        }
-    };
-    const E = enum {
-        One,
-        Two,
-        Three,
-    };
-    const TU = union(enum) {
-        const SelfType = @This();
-        float: f32,
-        int: u32,
-        ptr: ?*SelfType,
-    };
-    const S = struct {
-        const SelfType = @This();
-        a: ?*SelfType,
-        tu: TU,
-        e: E,
-        vec: Vec2,
-    };
-
-    var inst = S{
-        .a = null,
-        .tu = TU{ .ptr = null },
-        .e = E.Two,
-        .vec = Vec2{ .x = 10.2, .y = 2.22 },
-    };
-    inst.a = &inst;
-    inst.tu.ptr = &inst.tu;
-
-    var buf0 = std.ArrayList(u8).init(std.testing.allocator);
-    defer buf0.deinit();
-    try formatType(inst, "", FormatOptions{}, &buf0, @TypeOf(std.ArrayList(u8).appendSlice).ReturnType.ErrorSet, std.ArrayList(u8).appendSlice, 0);
-    std.testing.expect(mem.eql(u8, buf0.toSlice(), "S{ ... }"));
-
-    var buf1 = std.ArrayList(u8).init(std.testing.allocator);
-    defer buf1.deinit();
-    try formatType(inst, "", FormatOptions{}, &buf1, @TypeOf(std.ArrayList(u8).appendSlice).ReturnType.ErrorSet, std.ArrayList(u8).appendSlice, 1);
-    std.testing.expect(mem.eql(u8, buf1.toSlice(), "S{ .a = S{ ... }, .tu = TU{ ... }, .e = E.Two, .vec = (10.200,2.220) }"));
-
-    var buf2 = std.ArrayList(u8).init(std.testing.allocator);
-    defer buf2.deinit();
-    try formatType(inst, "", FormatOptions{}, &buf2, @TypeOf(std.ArrayList(u8).appendSlice).ReturnType.ErrorSet, std.ArrayList(u8).appendSlice, 2);
-    std.testing.expect(mem.eql(u8, buf2.toSlice(), "S{ .a = S{ .a = S{ ... }, .tu = TU{ ... }, .e = E.Two, .vec = (10.200,2.220) }, .tu = TU{ .ptr = TU{ ... } }, .e = E.Two, .vec = (10.200,2.220) }"));
-
-    var buf3 = std.ArrayList(u8).init(std.testing.allocator);
-    defer buf3.deinit();
-    try formatType(inst, "", FormatOptions{}, &buf3, @TypeOf(std.ArrayList(u8).appendSlice).ReturnType.ErrorSet, std.ArrayList(u8).appendSlice, 3);
-    std.testing.expect(mem.eql(u8, buf3.toSlice(), "S{ .a = S{ .a = S{ .a = S{ ... }, .tu = TU{ ... }, .e = E.Two, .vec = (10.200,2.220) }, .tu = TU{ .ptr = TU{ ... } }, .e = E.Two, .vec = (10.200,2.220) }, .tu = TU{ .ptr = TU{ .ptr = TU{ ... } } }, .e = E.Two, .vec = (10.200,2.220) }"));
-}
-
-test "positional" {
-    try testFmt("2 1 0", "{2} {1} {0}", .{ @as(usize, 0), @as(usize, 1), @as(usize, 2) });
-    try testFmt("2 1 0", "{2} {1} {}", .{ @as(usize, 0), @as(usize, 1), @as(usize, 2) });
-    try testFmt("0 0", "{0} {0}", .{@as(usize, 0)});
-    try testFmt("0 1", "{} {1}", .{ @as(usize, 0), @as(usize, 1) });
-    try testFmt("1 0 0 1", "{1} {} {0} {}", .{ @as(usize, 0), @as(usize, 1) });
-}
-
-test "positional with specifier" {
-    try testFmt("10.0", "{0d:.1}", .{@as(f64, 9.999)});
-}
-
-test "positional/alignment/width/precision" {
-    try testFmt("10.0", "{0d: >3.1}", .{@as(f64, 9.999)});
-}
-
-test "vector" {
-    // https://github.com/ziglang/zig/issues/3317
-    if (builtin.arch == .mipsel) return error.SkipZigTest;
-
-    const vbool: @Vector(4, bool) = [_]bool{ true, false, true, false };
-    const vi64: @Vector(4, i64) = [_]i64{ -2, -1, 0, 1 };
-    const vu64: @Vector(4, u64) = [_]u64{ 1000, 2000, 3000, 4000 };
-
-    try testFmt("{ true, false, true, false }", "{}", .{vbool});
-    try testFmt("{ -2, -1, 0, 1 }", "{}", .{vi64});
-    try testFmt("{ -   2, -   1, +   0, +   1 }", "{d:5}", .{vi64});
-    try testFmt("{ 1000, 2000, 3000, 4000 }", "{}", .{vu64});
-    try testFmt("{ 3e8, 7d0, bb8, fa0 }", "{x}", .{vu64});
-    try testFmt("{ 1kB, 2kB, 3kB, 4kB }", "{B}", .{vu64});
-    try testFmt("{ 1000B, 1.953125KiB, 2.9296875KiB, 3.90625KiB }", "{Bi}", .{vu64});
-}
-
-test "enum-literal" {
-    try testFmt(".hello_world", "{}", .{.hello_world});
-}
+// test "parse u64 digit too big" {
+//     _ = parseUnsigned(u64, "123a", 10) catch |err| {
+//         if (err == error.InvalidCharacter) return;
+//         unreachable;
+//     };
+//     unreachable;
+// }
+
+// test "parse unsigned comptime" {
+//     comptime {
+//         std.testing.expect((try parseUnsigned(usize, "2", 10)) == 2);
+//     }
+// }
+
+// test "optional" {
+//     {
+//         const value: ?i32 = 1234;
+//         try testFmt("optional: 1234\n", "optional: {}\n", .{value});
+//     }
+//     {
+//         const value: ?i32 = null;
+//         try testFmt("optional: null\n", "optional: {}\n", .{value});
+//     }
+// }
+
+// test "error" {
+//     {
+//         const value: anyerror!i32 = 1234;
+//         try testFmt("error union: 1234\n", "error union: {}\n", .{value});
+//     }
+//     {
+//         const value: anyerror!i32 = error.InvalidChar;
+//         try testFmt("error union: error.InvalidChar\n", "error union: {}\n", .{value});
+//     }
+// }
+
+// test "int.small" {
+//     {
+//         const value: u3 = 0b101;
+//         try testFmt("u3: 5\n", "u3: {}\n", .{value});
+//     }
+// }
+
+// test "int.specifier" {
+//     {
+//         const value: u8 = 'a';
+//         try testFmt("u8: a\n", "u8: {c}\n", .{value});
+//     }
+//     {
+//         const value: u8 = 0b1100;
+//         try testFmt("u8: 0b1100\n", "u8: 0b{b}\n", .{value});
+//     }
+// }
+
+// test "int.padded" {
+//     try testFmt("u8: '   1'", "u8: '{:4}'", .{@as(u8, 1)});
+//     try testFmt("u8: 'xxx1'", "u8: '{:x<4}'", .{@as(u8, 1)});
+// }
+
+// test "buffer" {
+//     {
+//         var buf1: [32]u8 = undefined;
+//         var context = BufPrintContext{ .remaining = buf1[0..] };
+//         try formatType(1234, "", FormatOptions{}, &context, error{BufferTooSmall}, bufPrintWrite, default_max_depth);
+//         var res = buf1[0 .. buf1.len - context.remaining.len];
+//         std.testing.expect(mem.eql(u8, res, "1234"));
+
+//         context = BufPrintContext{ .remaining = buf1[0..] };
+//         try formatType('a', "c", FormatOptions{}, &context, error{BufferTooSmall}, bufPrintWrite, default_max_depth);
+//         res = buf1[0 .. buf1.len - context.remaining.len];
+//         std.testing.expect(mem.eql(u8, res, "a"));
+
+//         context = BufPrintContext{ .remaining = buf1[0..] };
+//         try formatType(0b1100, "b", FormatOptions{}, &context, error{BufferTooSmall}, bufPrintWrite, default_max_depth);
+//         res = buf1[0 .. buf1.len - context.remaining.len];
+//         std.testing.expect(mem.eql(u8, res, "1100"));
+//     }
+// }
+
+// test "array" {
+//     {
+//         const value: [3]u8 = "abc".*;
+//         try testFmt("array: abc\n", "array: {}\n", .{value});
+//         try testFmt("array: abc\n", "array: {}\n", .{&value});
+
+//         var buf: [100]u8 = undefined;
+//         try testFmt(
+//             try bufPrint(buf[0..], "array: [3]u8@{x}\n", .{@ptrToInt(&value)}),
+//             "array: {*}\n",
+//             .{&value},
+//         );
+//     }
+// }
+
+// test "slice" {
+//     {
+//         const value: []const u8 = "abc";
+//         try testFmt("slice: abc\n", "slice: {}\n", .{value});
+//     }
+//     {
+//         const value = @intToPtr([*]align(1) const []const u8, 0xdeadbeef)[0..0];
+//         try testFmt("slice: []const u8@deadbeef\n", "slice: {}\n", .{value});
+//     }
+
+//     try testFmt("buf: Test \n", "buf: {s:5}\n", .{"Test"});
+//     try testFmt("buf: Test\n Other text", "buf: {s}\n Other text", .{"Test"});
+// }
+
+// test "pointer" {
+//     {
+//         const value = @intToPtr(*align(1) i32, 0xdeadbeef);
+//         try testFmt("pointer: i32@deadbeef\n", "pointer: {}\n", .{value});
+//         try testFmt("pointer: i32@deadbeef\n", "pointer: {*}\n", .{value});
+//     }
+//     {
+//         const value = @intToPtr(fn () void, 0xdeadbeef);
+//         try testFmt("pointer: fn() void@deadbeef\n", "pointer: {}\n", .{value});
+//     }
+//     {
+//         const value = @intToPtr(fn () void, 0xdeadbeef);
+//         try testFmt("pointer: fn() void@deadbeef\n", "pointer: {}\n", .{value});
+//     }
+// }
+
+// test "cstr" {
+//     try testFmt(
+//         "cstr: Test C\n",
+//         "cstr: {s}\n",
+//         .{@ptrCast([*c]const u8, "Test C")},
+//     );
+//     try testFmt(
+//         "cstr: Test C    \n",
+//         "cstr: {s:10}\n",
+//         .{@ptrCast([*c]const u8, "Test C")},
+//     );
+// }
+
+// test "filesize" {
+//     try testFmt("file size: 63MiB\n", "file size: {Bi}\n", .{@as(usize, 63 * 1024 * 1024)});
+//     try testFmt("file size: 66.06MB\n", "file size: {B:.2}\n", .{@as(usize, 63 * 1024 * 1024)});
+// }
+
+// test "struct" {
+//     {
+//         const Struct = struct {
+//             field: u8,
+//         };
+//         const value = Struct{ .field = 42 };
+//         try testFmt("struct: Struct{ .field = 42 }\n", "struct: {}\n", .{value});
+//         try testFmt("struct: Struct{ .field = 42 }\n", "struct: {}\n", .{&value});
+//     }
+//     {
+//         const Struct = struct {
+//             a: u0,
+//             b: u1,
+//         };
+//         const value = Struct{ .a = 0, .b = 1 };
+//         try testFmt("struct: Struct{ .a = 0, .b = 1 }\n", "struct: {}\n", .{value});
+//     }
+// }
+
+// test "enum" {
+//     const Enum = enum {
+//         One,
+//         Two,
+//     };
+//     const value = Enum.Two;
+//     try testFmt("enum: Enum.Two\n", "enum: {}\n", .{value});
+//     try testFmt("enum: Enum.Two\n", "enum: {}\n", .{&value});
+// }
+
+// test "non-exhaustive enum" {
+//     const Enum = enum(u16) {
+//         One = 0x000f,
+//         Two = 0xbeef,
+//         _,
+//     };
+//     try testFmt("enum: Enum(15)\n", "enum: {}\n", .{Enum.One});
+//     try testFmt("enum: Enum(48879)\n", "enum: {}\n", .{Enum.Two});
+//     try testFmt("enum: Enum(4660)\n", "enum: {}\n", .{@intToEnum(Enum, 0x1234)});
+//     try testFmt("enum: Enum(f)\n", "enum: {x}\n", .{Enum.One});
+//     try testFmt("enum: Enum(beef)\n", "enum: {x}\n", .{Enum.Two});
+//     try testFmt("enum: Enum(1234)\n", "enum: {x}\n", .{@intToEnum(Enum, 0x1234)});
+// }
+
+// test "float.scientific" {
+//     try testFmt("f32: 1.34000003e+00", "f32: {e}", .{@as(f32, 1.34)});
+//     try testFmt("f32: 1.23400001e+01", "f32: {e}", .{@as(f32, 12.34)});
+//     try testFmt("f64: -1.234e+11", "f64: {e}", .{@as(f64, -12.34e10)});
+//     try testFmt("f64: 9.99996e-40", "f64: {e}", .{@as(f64, 9.999960e-40)});
+// }
+
+// test "float.scientific.precision" {
+//     try testFmt("f64: 1.40971e-42", "f64: {e:.5}", .{@as(f64, 1.409706e-42)});
+//     try testFmt("f64: 1.00000e-09", "f64: {e:.5}", .{@as(f64, @bitCast(f32, @as(u32, 814313563)))});
+//     try testFmt("f64: 7.81250e-03", "f64: {e:.5}", .{@as(f64, @bitCast(f32, @as(u32, 1006632960)))});
+//     // libc rounds 1.000005e+05 to 1.00000e+05 but zig does 1.00001e+05.
+//     // In fact, libc doesn't round a lot of 5 cases up when one past the precision point.
+//     try testFmt("f64: 1.00001e+05", "f64: {e:.5}", .{@as(f64, @bitCast(f32, @as(u32, 1203982400)))});
+// }
+
+// test "float.special" {
+//     try testFmt("f64: nan", "f64: {}", .{math.nan_f64});
+//     // negative nan is not defined by IEE 754,
+//     // and ARM thus normalizes it to positive nan
+//     if (builtin.arch != builtin.Arch.arm) {
+//         try testFmt("f64: -nan", "f64: {}", .{-math.nan_f64});
+//     }
+//     try testFmt("f64: inf", "f64: {}", .{math.inf_f64});
+//     try testFmt("f64: -inf", "f64: {}", .{-math.inf_f64});
+// }
+
+// test "float.decimal" {
+//     try testFmt("f64: 152314000000000000000000000000", "f64: {d}", .{@as(f64, 1.52314e+29)});
+//     try testFmt("f32: 0", "f32: {d}", .{@as(f32, 0.0)});
+//     try testFmt("f32: 1.1", "f32: {d:.1}", .{@as(f32, 1.1234)});
+//     try testFmt("f32: 1234.57", "f32: {d:.2}", .{@as(f32, 1234.567)});
+//     // -11.1234 is converted to f64 -11.12339... internally (errol3() function takes f64).
+//     // -11.12339... is rounded back up to -11.1234
+//     try testFmt("f32: -11.1234", "f32: {d:.4}", .{@as(f32, -11.1234)});
+//     try testFmt("f32: 91.12345", "f32: {d:.5}", .{@as(f32, 91.12345)});
+//     try testFmt("f64: 91.1234567890", "f64: {d:.10}", .{@as(f64, 91.12345678901235)});
+//     try testFmt("f64: 0.00000", "f64: {d:.5}", .{@as(f64, 0.0)});
+//     try testFmt("f64: 6", "f64: {d:.0}", .{@as(f64, 5.700)});
+//     try testFmt("f64: 10.0", "f64: {d:.1}", .{@as(f64, 9.999)});
+//     try testFmt("f64: 1.000", "f64: {d:.3}", .{@as(f64, 1.0)});
+//     try testFmt("f64: 0.00030000", "f64: {d:.8}", .{@as(f64, 0.0003)});
+//     try testFmt("f64: 0.00000", "f64: {d:.5}", .{@as(f64, 1.40130e-45)});
+//     try testFmt("f64: 0.00000", "f64: {d:.5}", .{@as(f64, 9.999960e-40)});
+// }
+
+// test "float.libc.sanity" {
+//     try testFmt("f64: 0.00001", "f64: {d:.5}", .{@as(f64, @bitCast(f32, @as(u32, 916964781)))});
+//     try testFmt("f64: 0.00001", "f64: {d:.5}", .{@as(f64, @bitCast(f32, @as(u32, 925353389)))});
+//     try testFmt("f64: 0.10000", "f64: {d:.5}", .{@as(f64, @bitCast(f32, @as(u32, 1036831278)))});
+//     try testFmt("f64: 1.00000", "f64: {d:.5}", .{@as(f64, @bitCast(f32, @as(u32, 1065353133)))});
+//     try testFmt("f64: 10.00000", "f64: {d:.5}", .{@as(f64, @bitCast(f32, @as(u32, 1092616192)))});
+
+//     // libc differences
+//     //
+//     // This is 0.015625 exactly according to gdb. We thus round down,
+//     // however glibc rounds up for some reason. This occurs for all
+//     // floats of the form x.yyyy25 on a precision point.
+//     try testFmt("f64: 0.01563", "f64: {d:.5}", .{@as(f64, @bitCast(f32, @as(u32, 1015021568)))});
+//     // errol3 rounds to ... 630 but libc rounds to ...632. Grisu3
+//     // also rounds to 630 so I'm inclined to believe libc is not
+//     // optimal here.
+//     try testFmt("f64: 18014400656965630.00000", "f64: {d:.5}", .{@as(f64, @bitCast(f32, @as(u32, 1518338049)))});
+// }
+
+// test "custom" {
+//     const Vec2 = struct {
+//         const SelfType = @This();
+//         x: f32,
+//         y: f32,
+
+//         pub fn format(
+//             self: SelfType,
+//             comptime fmt: []const u8,
+//             options: FormatOptions,
+//             context: var,
+//             comptime Errors: type,
+//             comptime output: fn (@TypeOf(context), []const u8) !void,
+//         ) !void {
+//             if (fmt.len == 0 or comptime std.mem.eql(u8, fmt, "p")) {
+//                 return std.fmtstream.format(out_stream, "({d:.3},{d:.3})", .{ self.x, self.y });
+//             } else if (comptime std.mem.eql(u8, fmt, "d")) {
+//                 return std.fmtstream.format(out_stream, "{d:.3}x{d:.3}", .{ self.x, self.y });
+//             } else {
+//                 @compileError("Unknown format character: '" ++ fmt ++ "'");
+//             }
+//         }
+//     };
+
+//     var buf1: [32]u8 = undefined;
+//     var value = Vec2{
+//         .x = 10.2,
+//         .y = 2.22,
+//     };
+//     try testFmt("point: (10.200,2.220)\n", "point: {}\n", .{&value});
+//     try testFmt("dim: 10.200x2.220\n", "dim: {d}\n", .{&value});
+
+//     // same thing but not passing a pointer
+//     try testFmt("point: (10.200,2.220)\n", "point: {}\n", .{value});
+//     try testFmt("dim: 10.200x2.220\n", "dim: {d}\n", .{value});
+// }
+
+// test "struct" {
+//     const S = struct {
+//         a: u32,
+//         b: anyerror,
+//     };
+
+//     const inst = S{
+//         .a = 456,
+//         .b = error.Unused,
+//     };
+
+//     try testFmt("S{ .a = 456, .b = error.Unused }", "{}", .{inst});
+// }
+
+// test "union" {
+//     const TU = union(enum) {
+//         float: f32,
+//         int: u32,
+//     };
+
+//     const UU = union {
+//         float: f32,
+//         int: u32,
+//     };
+
+//     const EU = extern union {
+//         float: f32,
+//         int: u32,
+//     };
+
+//     const tu_inst = TU{ .int = 123 };
+//     const uu_inst = UU{ .int = 456 };
+//     const eu_inst = EU{ .float = 321.123 };
+
+//     try testFmt("TU{ .int = 123 }", "{}", .{tu_inst});
+
+//     var buf: [100]u8 = undefined;
+//     const uu_result = try bufPrint(buf[0..], "{}", .{uu_inst});
+//     std.testing.expect(mem.eql(u8, uu_result[0..3], "UU@"));
+
+//     const eu_result = try bufPrint(buf[0..], "{}", .{eu_inst});
+//     std.testing.expect(mem.eql(u8, uu_result[0..3], "EU@"));
+// }
+
+// test "enum" {
+//     const E = enum {
+//         One,
+//         Two,
+//         Three,
+//     };
+
+//     const inst = E.Two;
+
+//     try testFmt("E.Two", "{}", .{inst});
+// }
+
+// test "struct.self-referential" {
+//     const S = struct {
+//         const SelfType = @This();
+//         a: ?*SelfType,
+//     };
+
+//     var inst = S{
+//         .a = null,
+//     };
+//     inst.a = &inst;
+
+//     try testFmt("S{ .a = S{ .a = S{ .a = S{ ... } } } }", "{}", .{inst});
+// }
+
+// test "struct.zero-size" {
+//     const A = struct {
+//         fn foo() void {}
+//     };
+//     const B = struct {
+//         a: A,
+//         c: i32,
+//     };
+
+//     const a = A{};
+//     const b = B{ .a = a, .c = 0 };
+
+//     try testFmt("B{ .a = A{ }, .c = 0 }", "{}", .{b});
+// }
+
+// test "bytes.hex" {
+//     const some_bytes = "\xCA\xFE\xBA\xBE";
+//     try testFmt("lowercase: cafebabe\n", "lowercase: {x}\n", .{some_bytes});
+//     try testFmt("uppercase: CAFEBABE\n", "uppercase: {X}\n", .{some_bytes});
+//     //Test Slices
+//     try testFmt("uppercase: CAFE\n", "uppercase: {X}\n", .{some_bytes[0..2]});
+//     try testFmt("lowercase: babe\n", "lowercase: {x}\n", .{some_bytes[2..]});
+//     const bytes_with_zeros = "\x00\x0E\xBA\xBE";
+//     try testFmt("lowercase: 000ebabe\n", "lowercase: {x}\n", .{bytes_with_zeros});
+// }
+
+// fn testFmt(expected: []const u8, comptime template: []const u8, args: var) !void {
+//     var buf: [100]u8 = undefined;
+//     const result = try bufPrint(buf[0..], template, args);
+//     if (mem.eql(u8, result, expected)) return;
+
+//     std.debug.warn("\n====== expected this output: =========\n", .{});
+//     std.debug.warn("{}", .{expected});
+//     std.debug.warn("\n======== instead found this: =========\n", .{});
+//     std.debug.warn("{}", .{result});
+//     std.debug.warn("\n======================================\n", .{});
+//     return error.TestFailed;
+// }
+
+// pub fn trim(buf: []const u8) []const u8 {
+//     var start: usize = 0;
+//     while (start < buf.len and isWhiteSpace(buf[start])) : (start += 1) {}
+
+//     var end: usize = buf.len;
+//     while (true) {
+//         if (end > start) {
+//             const new_end = end - 1;
+//             if (isWhiteSpace(buf[new_end])) {
+//                 end = new_end;
+//                 continue;
+//             }
+//         }
+//         break;
+//     }
+//     return buf[start..end];
+// }
+
+// test "trim" {
+//     std.testing.expect(mem.eql(u8, "abc", trim("\n  abc  \t")));
+//     std.testing.expect(mem.eql(u8, "", trim("   ")));
+//     std.testing.expect(mem.eql(u8, "", trim("")));
+//     std.testing.expect(mem.eql(u8, "abc", trim(" abc")));
+//     std.testing.expect(mem.eql(u8, "abc", trim("abc ")));
+// }
+
+// pub fn isWhiteSpace(byte: u8) bool {
+//     return switch (byte) {
+//         ' ', '\t', '\n', '\r' => true,
+//         else => false,
+//     };
+// }
+
+// pub fn hexToBytes(out: []u8, input: []const u8) !void {
+//     if (out.len * 2 < input.len)
+//         return error.InvalidLength;
+
+//     var in_i: usize = 0;
+//     while (in_i != input.len) : (in_i += 2) {
+//         const hi = try charToDigit(input[in_i], 16);
+//         const lo = try charToDigit(input[in_i + 1], 16);
+//         out[in_i / 2] = (hi << 4) | lo;
+//     }
+// }
+
+// test "hexToBytes" {
+//     const test_hex_str = "909A312BB12ED1F819B3521AC4C1E896F2160507FFC1C8381E3B07BB16BD1706";
+//     var pb: [32]u8 = undefined;
+//     try hexToBytes(pb[0..], test_hex_str);
+//     try testFmt(test_hex_str, "{X}", .{pb});
+// }
+
+// test "formatIntValue with comptime_int" {
+//     const value: comptime_int = 123456789123456789;
+
+//     var buf = std.ArrayList(u8).init(std.testing.allocator);
+//     defer buf.deinit();
+//     try formatIntValue(value, "", FormatOptions{}, &buf, @TypeOf(std.ArrayList(u8).appendSlice).ReturnType.ErrorSet, std.ArrayList(u8).appendSlice);
+//     std.testing.expect(mem.eql(u8, buf.toSliceConst(), "123456789123456789"));
+// }
+
+// test "formatType max_depth" {
+//     const Vec2 = struct {
+//         const SelfType = @This();
+//         x: f32,
+//         y: f32,
+
+//         pub fn format(
+//             self: SelfType,
+//             comptime fmt: []const u8,
+//             options: FormatOptions,
+//             context: var,
+//             comptime Errors: type,
+//             comptime output: fn (@TypeOf(context), []const u8) !void,
+//         ) !void {
+//             if (fmt.len == 0) {
+//                 return std.fmtstream.format(out_stream, "({d:.3},{d:.3})", .{ self.x, self.y });
+//             } else {
+//                 @compileError("Unknown format string: '" ++ fmt ++ "'");
+//             }
+//         }
+//     };
+//     const E = enum {
+//         One,
+//         Two,
+//         Three,
+//     };
+//     const TU = union(enum) {
+//         const SelfType = @This();
+//         float: f32,
+//         int: u32,
+//         ptr: ?*SelfType,
+//     };
+//     const S = struct {
+//         const SelfType = @This();
+//         a: ?*SelfType,
+//         tu: TU,
+//         e: E,
+//         vec: Vec2,
+//     };
+
+//     var inst = S{
+//         .a = null,
+//         .tu = TU{ .ptr = null },
+//         .e = E.Two,
+//         .vec = Vec2{ .x = 10.2, .y = 2.22 },
+//     };
+//     inst.a = &inst;
+//     inst.tu.ptr = &inst.tu;
+
+//     var buf0 = std.ArrayList(u8).init(std.testing.allocator);
+//     defer buf0.deinit();
+//     try formatType(inst, "", FormatOptions{}, &buf0, @TypeOf(std.ArrayList(u8).appendSlice).ReturnType.ErrorSet, std.ArrayList(u8).appendSlice, 0);
+//     std.testing.expect(mem.eql(u8, buf0.toSlice(), "S{ ... }"));
+
+//     var buf1 = std.ArrayList(u8).init(std.testing.allocator);
+//     defer buf1.deinit();
+//     try formatType(inst, "", FormatOptions{}, &buf1, @TypeOf(std.ArrayList(u8).appendSlice).ReturnType.ErrorSet, std.ArrayList(u8).appendSlice, 1);
+//     std.testing.expect(mem.eql(u8, buf1.toSlice(), "S{ .a = S{ ... }, .tu = TU{ ... }, .e = E.Two, .vec = (10.200,2.220) }"));
+
+//     var buf2 = std.ArrayList(u8).init(std.testing.allocator);
+//     defer buf2.deinit();
+//     try formatType(inst, "", FormatOptions{}, &buf2, @TypeOf(std.ArrayList(u8).appendSlice).ReturnType.ErrorSet, std.ArrayList(u8).appendSlice, 2);
+//     std.testing.expect(mem.eql(u8, buf2.toSlice(), "S{ .a = S{ .a = S{ ... }, .tu = TU{ ... }, .e = E.Two, .vec = (10.200,2.220) }, .tu = TU{ .ptr = TU{ ... } }, .e = E.Two, .vec = (10.200,2.220) }"));
+
+//     var buf3 = std.ArrayList(u8).init(std.testing.allocator);
+//     defer buf3.deinit();
+//     try formatType(inst, "", FormatOptions{}, &buf3, @TypeOf(std.ArrayList(u8).appendSlice).ReturnType.ErrorSet, std.ArrayList(u8).appendSlice, 3);
+//     std.testing.expect(mem.eql(u8, buf3.toSlice(), "S{ .a = S{ .a = S{ .a = S{ ... }, .tu = TU{ ... }, .e = E.Two, .vec = (10.200,2.220) }, .tu = TU{ .ptr = TU{ ... } }, .e = E.Two, .vec = (10.200,2.220) }, .tu = TU{ .ptr = TU{ .ptr = TU{ ... } } }, .e = E.Two, .vec = (10.200,2.220) }"));
+// }
+
+// test "positional" {
+//     try testFmt("2 1 0", "{2} {1} {0}", .{ @as(usize, 0), @as(usize, 1), @as(usize, 2) });
+//     try testFmt("2 1 0", "{2} {1} {}", .{ @as(usize, 0), @as(usize, 1), @as(usize, 2) });
+//     try testFmt("0 0", "{0} {0}", .{@as(usize, 0)});
+//     try testFmt("0 1", "{} {1}", .{ @as(usize, 0), @as(usize, 1) });
+//     try testFmt("1 0 0 1", "{1} {} {0} {}", .{ @as(usize, 0), @as(usize, 1) });
+// }
+
+// test "positional with specifier" {
+//     try testFmt("10.0", "{0d:.1}", .{@as(f64, 9.999)});
+// }
+
+// test "positional/alignment/width/precision" {
+//     try testFmt("10.0", "{0d: >3.1}", .{@as(f64, 9.999)});
+// }
+
+// test "vector" {
+//     // https://github.com/ziglang/zig/issues/3317
+//     if (builtin.arch == .mipsel) return error.SkipZigTest;
+
+//     const vbool: @Vector(4, bool) = [_]bool{ true, false, true, false };
+//     const vi64: @Vector(4, i64) = [_]i64{ -2, -1, 0, 1 };
+//     const vu64: @Vector(4, u64) = [_]u64{ 1000, 2000, 3000, 4000 };
+
+//     try testFmt("{ true, false, true, false }", "{}", .{vbool});
+//     try testFmt("{ -2, -1, 0, 1 }", "{}", .{vi64});
+//     try testFmt("{ -   2, -   1, +   0, +   1 }", "{d:5}", .{vi64});
+//     try testFmt("{ 1000, 2000, 3000, 4000 }", "{}", .{vu64});
+//     try testFmt("{ 3e8, 7d0, bb8, fa0 }", "{x}", .{vu64});
+//     try testFmt("{ 1kB, 2kB, 3kB, 4kB }", "{B}", .{vu64});
+//     try testFmt("{ 1000B, 1.953125KiB, 2.9296875KiB, 3.90625KiB }", "{Bi}", .{vu64});
+// }
+
+// test "enum-literal" {
+//     try testFmt(".hello_world", "{}", .{.hello_world});
+// }
