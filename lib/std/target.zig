@@ -91,6 +91,7 @@ pub const Target = struct {
             win10_rs4 = 0x0A000005,
             win10_rs5 = 0x0A000006,
             win10_19h1 = 0x0A000007,
+            _,
 
             pub const Range = struct {
                 min: WindowsVersion,
