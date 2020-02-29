@@ -2764,6 +2764,7 @@ pub const SysCtlError = error{
     PermissionDenied,
     SystemResources,
     NameTooLong,
+    UnknownName,
 } || UnexpectedError;
 
 pub fn sysctl(
@@ -2779,6 +2780,7 @@ pub fn sysctl(
         EFAULT => unreachable,
         EPERM => return error.PermissionDenied,
         ENOMEM => return error.SystemResources,
+        ENOENT => return error.UnknownName,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -2795,6 +2797,7 @@ pub fn sysctlbynameC(
         EFAULT => unreachable,
         EPERM => return error.PermissionDenied,
         ENOMEM => return error.SystemResources,
+        ENOENT => return error.UnknownName,
         else => |err| return unexpectedErrno(err),
     }
 }
