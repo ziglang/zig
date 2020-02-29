@@ -483,7 +483,7 @@ pub const CrossTarget = struct {
             (self.cpu_model == .native or self.cpu_model == .determined_by_cpu_arch) and
             self.cpu_features_sub.isEmpty() and self.cpu_features_add.isEmpty() and
             self.os_tag == null and self.os_version_min == null and self.os_version_max == null and
-            self.abi == null and self.dynamic_linker.get() == null;
+            self.abi == null and self.dynamic_linker.get() == null and self.glibc_version == null;
     }
 
     pub fn zigTriple(self: CrossTarget, allocator: *mem.Allocator) error{OutOfMemory}![:0]u8 {
@@ -514,13 +514,10 @@ pub const CrossTarget = struct {
             }
         }
 
-        if (self.abi) |abi| {
+        if (self.glibc_version) |v| {
+            try result.print("-{}.{}", .{ @tagName(self.getAbi()), v });
+        } else if (self.abi) |abi| {
             try result.print("-{}", .{@tagName(abi)});
-            if (self.glibc_version) |v| {
-                try result.print(".{}", .{v});
-            }
-        } else {
-            assert(self.glibc_version == null);
         }
 
         return result.toOwnedSlice();
@@ -643,7 +640,7 @@ pub const CrossTarget = struct {
         return Target.isGnuLibC_os_tag_abi(self.getOsTag(), self.getAbi());
     }
 
-    pub fn setGnuLibCVersion(self: CrossTarget, major: u32, minor: u32, patch: u32) void {
+    pub fn setGnuLibCVersion(self: *CrossTarget, major: u32, minor: u32, patch: u32) void {
         assert(self.isGnuLibC());
         self.glibc_version = SemVer{ .major = major, .minor = minor, .patch = patch };
     }
@@ -747,6 +744,14 @@ pub const CrossTarget = struct {
 };
 
 test "CrossTarget.parse" {
+    if (Target.current.isGnuLibC()) {
+        var cross_target = try CrossTarget.parse(.{});
+        cross_target.setGnuLibCVersion(2, 1, 1);
+
+        const text = try cross_target.zigTriple(std.testing.allocator);
+        defer std.testing.allocator.free(text);
+        std.testing.expectEqualSlices(u8, "native-native-gnu.2.1.1", text);
+    }
     {
         const cross_target = try CrossTarget.parse(.{
             .arch_os_abi = "aarch64-linux",
