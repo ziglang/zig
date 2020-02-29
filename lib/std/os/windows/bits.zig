@@ -1312,11 +1312,37 @@ pub const PEB = extern struct {
     CloudFileFlags: ULONG,
 };
 
-// TODO: https://www.geoffchappell.com/studies/windows/win32/ntdll/structs/peb_ldr_data.htm
+/// The `PEB_LDR_DATA` structure is the main record of what modules are loaded in a process.
+/// It is essentially the head of three double-linked lists of `LDR_DATA_TABLE_ENTRY` structures which each represent one loaded module.
+///
+/// Microsoft documentation of this is incomplete, the fields here are taken from various resources including:
+///  - https://www.geoffchappell.com/studies/windows/win32/ntdll/structs/peb_ldr_data.htm
 pub const PEB_LDR_DATA = extern struct {
-    Reserved1: [8]BYTE,
-    Reserved2: [3]PVOID,
+    // Versions: 3.51 and higher
+    /// The size in bytes of the structure
+    Length: ULONG,
+
+    /// TRUE if the structure is prepared.
+    Initialized: BOOLEAN,
+
+    SsHandle: PVOID,
+    InLoadOrderModuleList: LIST_ENTRY,
     InMemoryOrderModuleList: LIST_ENTRY,
+    InInitializationOrderModuleList: LIST_ENTRY,
+
+    // Versions: 5.1 and higher
+
+    /// No known use of this field is known in Windows 8 and higher.
+    EntryInProgress: PVOID,
+
+    // Versions: 6.0 from Windows Vista SP1, and higher
+    ShutdownInProgress: BOOLEAN,
+
+    /// Though ShutdownThreadId is declared as a HANDLE,
+    /// it is indeed the thread ID as suggested by its name.
+    /// It is picked up from the UniqueThread member of the CLIENT_ID in the
+    /// TEB of the thread that asks to terminate the process.
+    ShutdownThreadId: HANDLE,
 };
 
 pub const RTL_USER_PROCESS_PARAMETERS = extern struct {
