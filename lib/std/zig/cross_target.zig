@@ -754,7 +754,7 @@ test "CrossTarget.parse" {
         });
 
         std.testing.expect(cross_target.cpu_arch.? == .aarch64);
-        std.testing.expect(cross_target.cpu_model == null);
+        std.testing.expect(cross_target.cpu_model == .native);
     }
     {
         const cross_target = try CrossTarget.parse(.{ .arch_os_abi = "native" });
