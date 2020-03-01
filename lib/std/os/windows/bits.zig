@@ -1493,3 +1493,16 @@ pub const PSAPI_WS_WATCH_INFORMATION_EX = extern struct {
     Flags: ULONG_PTR,
 };
 pub const PPSAPI_WS_WATCH_INFORMATION_EX = *PSAPI_WS_WATCH_INFORMATION_EX;
+
+pub const OSVERSIONINFOW = extern struct {
+    dwOSVersionInfoSize: ULONG,
+    dwMajorVersion: ULONG,
+    dwMinorVersion: ULONG,
+    dwBuildNumber: ULONG,
+    dwPlatformId: ULONG,
+    szCSDVersion: [128]WCHAR,
+};
+pub const POSVERSIONINFOW = *OSVERSIONINFOW;
+pub const LPOSVERSIONINFOW = *OSVERSIONINFOW;
+pub const RTL_OSVERSIONINFOW = OSVERSIONINFOW;
+pub const PRTL_OSVERSIONINFOW = *RTL_OSVERSIONINFOW;
