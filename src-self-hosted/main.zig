@@ -792,7 +792,7 @@ async fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtErro
 }
 
 fn cmdVersion(allocator: *Allocator, args: []const []const u8) !void {
-    try stdout.print("{}\n", .{std.mem.toSliceConst(u8, c.ZIG_VERSION_STRING)});
+    try stdout.print("{}\n", .{c.ZIG_VERSION_STRING});
 }
 
 fn cmdHelp(allocator: *Allocator, args: []const []const u8) !void {
@@ -863,12 +863,12 @@ fn cmdInternalBuildInfo(allocator: *Allocator, args: []const []const u8) !void {
         \\ZIG_DIA_GUIDS_LIB    {}
         \\
     , .{
-        std.mem.toSliceConst(u8, c.ZIG_CMAKE_BINARY_DIR),
-        std.mem.toSliceConst(u8, c.ZIG_CXX_COMPILER),
-        std.mem.toSliceConst(u8, c.ZIG_LLD_INCLUDE_PATH),
-        std.mem.toSliceConst(u8, c.ZIG_LLD_LIBRARIES),
-        std.mem.toSliceConst(u8, c.ZIG_LLVM_CONFIG_EXE),
-        std.mem.toSliceConst(u8, c.ZIG_DIA_GUIDS_LIB),
+        c.ZIG_CMAKE_BINARY_DIR,
+        c.ZIG_CXX_COMPILER,
+        c.ZIG_LLD_INCLUDE_PATH,
+        c.ZIG_LLD_LIBRARIES,
+        c.ZIG_LLVM_CONFIG_EXE,
+        c.ZIG_DIA_GUIDS_LIB,
     });
 }
 

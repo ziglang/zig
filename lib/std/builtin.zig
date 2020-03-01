@@ -185,6 +185,7 @@ pub const TypeInfo = union(enum) {
         child: type,
         is_allowzero: bool,
 
+        /// This field is an optional type.
         /// The type of the sentinel is the element type of the pointer, which is
         /// the value of the `child` field in this struct. However there is no way
         /// to refer to that type here, so we use `var`.
@@ -206,6 +207,7 @@ pub const TypeInfo = union(enum) {
         len: comptime_int,
         child: type,
 
+        /// This field is an optional type.
         /// The type of the sentinel is the element type of the array, which is
         /// the value of the `child` field in this struct. However there is no way
         /// to refer to that type here, so we use `var`.

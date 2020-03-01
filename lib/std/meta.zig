@@ -115,6 +115,32 @@ test "std.meta.Child" {
     testing.expect(Child(?u8) == u8);
 }
 
+/// Given a type with a sentinel e.g. `[:0]u8`, returns the sentinel
+pub fn Sentinel(comptime T: type) Child(T) {
+    // comptime asserts that ptr has a sentinel
+    switch (@typeInfo(T)) {
+        .Array => |arrayInfo| {
+            return comptime arrayInfo.sentinel.?;
+        },
+        .Pointer => |ptrInfo| {
+            switch (ptrInfo.size) {
+                .Many, .Slice => {
+                    return comptime ptrInfo.sentinel.?;
+                },
+                else => {},
+            }
+        },
+        else => {},
+    }
+    @compileError("not a sentinel type, found '" ++ @typeName(T) ++ "'");
+}
+
+test "std.meta.Sentinel" {
+    testing.expectEqual(@as(u8, 0), Sentinel([:0]u8));
+    testing.expectEqual(@as(u8, 0), Sentinel([*:0]u8));
+    testing.expectEqual(@as(u8, 0), Sentinel([5:0]u8));
+}
+
 pub fn containerLayout(comptime T: type) TypeInfo.ContainerLayout {
     return switch (@typeInfo(T)) {
         .Struct => |info| info.layout,

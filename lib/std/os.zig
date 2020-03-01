@@ -1095,7 +1095,7 @@ pub fn createNullDelimitedEnvMap(allocator: *mem.Allocator, env_map: *const std.
 
 pub fn freeNullDelimitedEnvMap(allocator: *mem.Allocator, envp_buf: []?[*:0]u8) void {
     for (envp_buf) |env| {
-        const env_buf = if (env) |ptr| ptr[0 .. mem.len(u8, ptr) + 1] else break;
+        const env_buf = if (env) |ptr| ptr[0 .. mem.len(ptr) + 1] else break;
         allocator.free(env_buf);
     }
     allocator.free(envp_buf);

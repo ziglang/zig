@@ -47,7 +47,7 @@ fn strcmp(s1: [*:0]const u8, s2: [*:0]const u8) callconv(.C) c_int {
 }
 
 fn strlen(s: [*:0]const u8) callconv(.C) usize {
-    return std.mem.len(u8, s);
+    return std.mem.len(s);
 }
 
 fn strncmp(_l: [*:0]const u8, _r: [*:0]const u8, _n: usize) callconv(.C) c_int {

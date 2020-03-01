@@ -28,7 +28,7 @@ test "cstr fns" {
 
 fn testCStrFnsImpl() void {
     testing.expect(cmp("aoeu", "aoez") == -1);
-    testing.expect(mem.len(u8, "123456789") == 9);
+    testing.expect(mem.len("123456789") == 9);
 }
 
 /// Returns a mutable, null-terminated slice with the same length as `slice`.
