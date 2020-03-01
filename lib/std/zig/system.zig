@@ -232,7 +232,7 @@ pub const NativeTargetInfo = struct {
                     // supports
                     std.os.sysctlbynameC(
                         "kern.osproductversion",
-                        &product_version[0],
+                        &product_version,
                         &size,
                         null,
                         0,
@@ -241,7 +241,8 @@ pub const NativeTargetInfo = struct {
                         else => unreachable,
                     };
 
-                    if (std.builtin.Version.parse(product_version[0..size])) |ver| {
+                    const string_version = product_version[0 .. size - 1 :0];
+                    if (std.builtin.Version.parse(string_version)) |ver| {
                         os.version_range.semver.min = ver;
                         os.version_range.semver.max = ver;
                     } else |err| switch (err) {
