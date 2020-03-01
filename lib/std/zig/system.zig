@@ -224,7 +224,31 @@ pub const NativeTargetInfo = struct {
                     // TODO Detect native operating system version.
                 },
                 .macosx => {
-                    // TODO Detect native operating system version.
+                    var product_version: [32]u8 = undefined;
+                    var size: usize = product_version.len;
+
+                    // The osproductversion sysctl was introduced first with
+                    // High Sierra, thankfully that's also the baseline that Zig
+                    // supports
+                    std.os.sysctlbynameC(
+                        "kern.osproductversion",
+                        &product_version[0],
+                        &size,
+                        null,
+                        0,
+                    ) catch |err| switch (err) {
+                        error.UnknownName => unreachable,
+                        else => unreachable,
+                    };
+
+                    if (std.builtin.Version.parse(product_version[0..size])) |ver| {
+                        os.version_range.semver.min = ver;
+                        os.version_range.semver.max = ver;
+                    } else |err| switch (err) {
+                        error.Overflow => {},
+                        error.InvalidCharacter => {},
+                        error.InvalidVersion => {},
+                    }
                 },
                 .freebsd => {
                     // TODO Detect native operating system version.
