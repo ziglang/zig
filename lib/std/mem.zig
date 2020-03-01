@@ -482,27 +482,21 @@ pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
     return true;
 }
 
-/// Deprecated. Use `length` or `indexOfSentinel`.
-pub fn len(comptime T: type, ptr: [*:0]const T) usize {
-    var count: usize = 0;
-    while (ptr[count] != 0) : (count += 1) {}
-    return count;
-}
-
 /// Deprecated. Use `span`.
 pub fn toSliceConst(comptime T: type, ptr: [*:0]const T) [:0]const T {
-    return ptr[0..len(T, ptr) :0];
+    return ptr[0..len(ptr) :0];
 }
 
 /// Deprecated. Use `span`.
 pub fn toSlice(comptime T: type, ptr: [*:0]T) [:0]T {
-    return ptr[0..len(T, ptr) :0];
+    return ptr[0..len(ptr) :0];
 }
 
 /// Takes a pointer to an array, a sentinel-terminated pointer, or a slice, and
 /// returns a slice. If there is a sentinel on the input type, there will be a
 /// sentinel on the output type. The constness of the output type matches
-/// the constness of the input type. `[*c]` pointers are assumed to be 0-terminated.
+/// the constness of the input type. `[*c]` pointers are assumed to be 0-terminated,
+/// and assumed to not allow null.
 pub fn Span(comptime T: type) type {
     var ptr_info = @typeInfo(T).Pointer;
     switch (ptr_info.size) {
@@ -515,6 +509,7 @@ pub fn Span(comptime T: type) type {
         },
         .C => {
             ptr_info.sentinel = 0;
+            ptr_info.is_allowzero = false;
         },
         .Many, .Slice => {},
     }
@@ -541,7 +536,7 @@ test "Span" {
 /// the constness of the input type.
 pub fn span(ptr: var) Span(@TypeOf(ptr)) {
     const Result = Span(@TypeOf(ptr));
-    const l = length(ptr);
+    const l = len(ptr);
     if (@typeInfo(Result).Pointer.sentinel) |s| {
         return ptr[0..l :s];
     } else {
@@ -558,7 +553,7 @@ test "span" {
 
 /// Takes a pointer to an array, an array, a sentinel-terminated pointer,
 /// or a slice, and returns the length.
-pub fn length(ptr: var) usize {
+pub fn len(ptr: var) usize {
     return switch (@typeInfo(@TypeOf(ptr))) {
         .Array => |info| info.len,
         .Pointer => |info| switch (info.size) {
@@ -577,16 +572,16 @@ pub fn length(ptr: var) usize {
     };
 }
 
-test "length" {
-    testing.expect(length("aoeu") == 4);
+test "len" {
+    testing.expect(len("aoeu") == 4);
 
     {
         var array: [5]u16 = [_]u16{ 1, 2, 3, 4, 5 };
-        testing.expect(length(&array) == 5);
-        testing.expect(length(array[0..3]) == 3);
+        testing.expect(len(&array) == 5);
+        testing.expect(len(array[0..3]) == 3);
         array[2] = 0;
         const ptr = array[0..2 :0].ptr;
-        testing.expect(length(ptr) == 2);
+        testing.expect(len(ptr) == 2);
     }
 }
 
@@ -1867,8 +1862,13 @@ fn SubArrayPtrReturnType(comptime T: type, comptime length: usize) type {
     return *[length]meta.Child(meta.Child(T));
 }
 
-///Given a pointer to an array, returns a pointer to a portion of that array, preserving constness.
-pub fn subArrayPtr(ptr: var, comptime start: usize, comptime length: usize) SubArrayPtrReturnType(@TypeOf(ptr), length) {
+/// Given a pointer to an array, returns a pointer to a portion of that array, preserving constness.
+/// TODO this will be obsoleted by https://github.com/ziglang/zig/issues/863
+pub fn subArrayPtr(
+    ptr: var,
+    comptime start: usize,
+    comptime length: usize,
+) SubArrayPtrReturnType(@TypeOf(ptr), length) {
     assert(start + length <= ptr.*.len);
 
     const ReturnType = SubArrayPtrReturnType(@TypeOf(ptr), length);

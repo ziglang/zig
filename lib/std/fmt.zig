@@ -442,13 +442,11 @@ pub fn formatType(
             },
             .Many, .C => {
                 if (ptr_info.sentinel) |sentinel| {
-                    const slice = mem.pointerToSlice([:sentinel]const ptr_info.child, value);
-                    return formatType(slice, fmt, options, context, Errors, output, max_depth);
+                    return formatType(mem.span(value), fmt, options, context, Errors, output, max_depth);
                 }
                 if (ptr_info.child == u8) {
                     if (fmt.len > 0 and fmt[0] == 's') {
-                        const slice = mem.pointerToSlice([:0]const u8, @as([*:0]const u8, value));
-                        return formatText(slice, fmt, options, context, Errors, output);
+                        return formatText(mem.span(value), fmt, options, context, Errors, output);
                     }
                 }
                 return format(context, Errors, output, "{}@{x}", .{ @typeName(T.Child), @ptrToInt(value) });
