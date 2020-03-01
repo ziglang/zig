@@ -16988,7 +16988,6 @@ static IrInstGen *ir_analyze_tuple_cat(IrAnalyze *ira, IrInst* source_instr,
         return ira->codegen->invalid_inst_gen;
 
     ZigList<IrInstGen *> const_ptrs = {};
-    IrInstGen *first_non_const_instruction = nullptr;
     for (uint32_t i = 0; i < new_field_count; i += 1) {
         TypeStructField *dst_field = new_type->data.structure.fields[i];
         IrInstGen *src_struct_op;
@@ -17010,8 +17009,6 @@ static IrInstGen *ir_analyze_tuple_cat(IrAnalyze *ira, IrInst* source_instr,
             return ira->codegen->invalid_inst_gen;
         if (instr_is_comptime(field_value)) {
             const_ptrs.append(dest_ptr);
-        } else {
-            first_non_const_instruction = field_value;
         }
         IrInstGen *store_ptr_inst = ir_analyze_store_ptr(ira, source_instr, dest_ptr, field_value,
                 true);
