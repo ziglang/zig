@@ -481,13 +481,30 @@ pub const NativeTargetInfo = struct {
         };
     }
 
+    pub const AbiAndDynamicLinkerFromFileError = error{
+        FileSystem,
+        SystemResources,
+        SymLinkLoop,
+        ProcessFdQuotaExceeded,
+        SystemFdQuotaExceeded,
+        UnableToReadElfFile,
+        InvalidElfClass,
+        InvalidElfVersion,
+        InvalidElfEndian,
+        InvalidElfFile,
+        InvalidElfMagic,
+        Unexpected,
+        UnexpectedEndOfFile,
+        NameTooLong,
+    };
+
     pub fn abiAndDynamicLinkerFromFile(
         file: fs.File,
         cpu: Target.Cpu,
         os: Target.Os,
         ld_info_list: []const LdInfo,
         cross_target: CrossTarget,
-    ) !NativeTargetInfo {
+    ) AbiAndDynamicLinkerFromFileError!NativeTargetInfo {
         var hdr_buf: [@sizeOf(elf.Elf64_Ehdr)]u8 align(@alignOf(elf.Elf64_Ehdr)) = undefined;
         _ = try preadFull(file, &hdr_buf, 0, hdr_buf.len);
         const hdr32 = @ptrCast(*elf.Elf32_Ehdr, &hdr_buf);
