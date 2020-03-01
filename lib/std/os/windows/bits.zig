@@ -23,6 +23,7 @@ pub const BOOL = c_int;
 pub const BOOLEAN = BYTE;
 pub const BYTE = u8;
 pub const CHAR = u8;
+pub const UCHAR = u8;
 pub const FLOAT = f32;
 pub const HANDLE = *c_void;
 pub const HCRYPTPROV = ULONG_PTR;
@@ -54,6 +55,7 @@ pub const WORD = u16;
 pub const DWORD = u32;
 pub const DWORD64 = u64;
 pub const LARGE_INTEGER = i64;
+pub const ULARGE_INTEGER = u64;
 pub const USHORT = u16;
 pub const SHORT = i16;
 pub const ULONG = u32;
@@ -1145,32 +1147,202 @@ pub const UNICODE_STRING = extern struct {
     Buffer: [*]WCHAR,
 };
 
+const ACTIVATION_CONTEXT_DATA = @OpaqueType();
+const ASSEMBLY_STORAGE_MAP = @OpaqueType();
+const FLS_CALLBACK_INFO = @OpaqueType();
+const RTL_BITMAP = @OpaqueType();
+pub const PRTL_BITMAP = *RTL_BITMAP;
+const KAFFINITY = usize;
+
+/// Process Environment Block
+/// Microsoft documentation of this is incomplete, the fields here are taken from various resources including:
+///  - https://github.com/wine-mirror/wine/blob/1aff1e6a370ee8c0213a0fd4b220d121da8527aa/include/winternl.h#L269
+///  - https://www.geoffchappell.com/studies/windows/win32/ntdll/structs/peb/index.htm
 pub const PEB = extern struct {
-    Reserved1: [2]BYTE,
-    BeingDebugged: BYTE,
-    Reserved2: [1]BYTE,
-    Reserved3: [2]PVOID,
+    // Versions: All
+    InheritedAddressSpace: BOOLEAN,
+
+    // Versions: 3.51+
+    ReadImageFileExecOptions: BOOLEAN,
+    BeingDebugged: BOOLEAN,
+
+    // Versions: 5.2+ (previously was padding)
+    BitField: UCHAR,
+
+    // Versions: all
+    Mutant: HANDLE,
+    ImageBaseAddress: HMODULE,
     Ldr: *PEB_LDR_DATA,
     ProcessParameters: *RTL_USER_PROCESS_PARAMETERS,
-    Reserved4: [3]PVOID,
+    SubSystemData: PVOID,
+    ProcessHeap: HANDLE,
+
+    // Versions: 5.1+
+    FastPebLock: *RTL_CRITICAL_SECTION,
+
+    // Versions: 5.2+
     AtlThunkSListPtr: PVOID,
-    Reserved5: PVOID,
-    Reserved6: ULONG,
-    Reserved7: PVOID,
-    Reserved8: ULONG,
+    IFEOKey: PVOID,
+
+    // Versions: 6.0+
+
+    /// https://www.geoffchappell.com/studies/windows/win32/ntdll/structs/peb/crossprocessflags.htm
+    CrossProcessFlags: ULONG,
+
+    // Versions: 6.0+
+    union1: extern union {
+        KernelCallbackTable: PVOID,
+        UserSharedInfoPtr: PVOID,
+    },
+
+    // Versions: 5.1+
+    SystemReserved: ULONG,
+
+    // Versions: 5.1, (not 5.2, not 6.0), 6.1+
     AtlThunkSListPtr32: ULONG,
-    Reserved9: [45]PVOID,
-    Reserved10: [96]BYTE,
-    PostProcessInitRoutine: PPS_POST_PROCESS_INIT_ROUTINE,
-    Reserved11: [128]BYTE,
-    Reserved12: [1]PVOID,
+
+    // Versions: 6.1+
+    ApiSetMap: PVOID,
+
+    // Versions: all
+    TlsExpansionCounter: ULONG,
+    // note: there is padding here on 64 bit
+    TlsBitmap: PRTL_BITMAP,
+    TlsBitmapBits: [2]ULONG,
+    ReadOnlySharedMemoryBase: PVOID,
+
+    // Versions: 1703+
+    SharedData: PVOID,
+
+    // Versions: all
+    ReadOnlyStaticServerData: *PVOID,
+    AnsiCodePageData: PVOID,
+    OemCodePageData: PVOID,
+    UnicodeCaseTableData: PVOID,
+
+    // Versions: 3.51+
+    NumberOfProcessors: ULONG,
+    NtGlobalFlag: ULONG,
+
+    // Versions: all
+    CriticalSectionTimeout: LARGE_INTEGER,
+
+    // End of Original PEB size
+
+    // Fields appended in 3.51:
+    HeapSegmentReserve: ULONG_PTR,
+    HeapSegmentCommit: ULONG_PTR,
+    HeapDeCommitTotalFreeThreshold: ULONG_PTR,
+    HeapDeCommitFreeBlockThreshold: ULONG_PTR,
+    NumberOfHeaps: ULONG,
+    MaximumNumberOfHeaps: ULONG,
+    ProcessHeaps: *PVOID,
+
+    // Fields appended in 4.0:
+    GdiSharedHandleTable: PVOID,
+    ProcessStarterHelper: PVOID,
+    GdiDCAttributeList: ULONG,
+    // note: there is padding here on 64 bit
+    LoaderLock: *RTL_CRITICAL_SECTION,
+    OSMajorVersion: ULONG,
+    OSMinorVersion: ULONG,
+    OSBuildNumber: USHORT,
+    OSCSDVersion: USHORT,
+    OSPlatformId: ULONG,
+    ImageSubSystem: ULONG,
+    ImageSubSystemMajorVersion: ULONG,
+    ImageSubSystemMinorVersion: ULONG,
+    // note: there is padding here on 64 bit
+    ActiveProcessAffinityMask: KAFFINITY,
+    GdiHandleBuffer: [switch (@sizeOf(usize)) {
+        4 => 0x22,
+        8 => 0x3C,
+        else => unreachable,
+    }]ULONG,
+
+    // Fields appended in 5.0 (Windows 2000):
+    PostProcessInitRoutine: PVOID,
+    TlsExpansionBitmap: PRTL_BITMAP,
+    TlsExpansionBitmapBits: [32]ULONG,
     SessionId: ULONG,
+    // note: there is padding here on 64 bit
+    // Versions: 5.1+
+    AppCompatFlags: ULARGE_INTEGER,
+    AppCompatFlagsUser: ULARGE_INTEGER,
+    ShimData: PVOID,
+    // Versions: 5.0+
+    AppCompatInfo: PVOID,
+    CSDVersion: UNICODE_STRING,
+
+    // Fields appended in 5.1 (Windows XP):
+    ActivationContextData: *const ACTIVATION_CONTEXT_DATA,
+    ProcessAssemblyStorageMap: *ASSEMBLY_STORAGE_MAP,
+    SystemDefaultActivationData: *const ACTIVATION_CONTEXT_DATA,
+    SystemAssemblyStorageMap: *ASSEMBLY_STORAGE_MAP,
+    MinimumStackCommit: ULONG_PTR,
+
+    // Fields appended in 5.2 (Windows Server 2003):
+    FlsCallback: *FLS_CALLBACK_INFO,
+    FlsListHead: LIST_ENTRY,
+    FlsBitmap: PRTL_BITMAP,
+    FlsBitmapBits: [4]ULONG,
+    FlsHighIndex: ULONG,
+
+    // Fields appended in 6.0 (Windows Vista):
+    WerRegistrationData: PVOID,
+    WerShipAssertPtr: PVOID,
+
+    // Fields appended in 6.1 (Windows 7):
+    pUnused: PVOID, // previously pContextData
+    pImageHeaderHash: PVOID,
+
+    /// TODO: https://www.geoffchappell.com/studies/windows/win32/ntdll/structs/peb/tracingflags.htm
+    TracingFlags: ULONG,
+
+    // Fields appended in 6.2 (Windows 8):
+    CsrServerReadOnlySharedMemoryBase: ULONGLONG,
+
+    // Fields appended in 1511:
+    TppWorkerpListLock: ULONG,
+    TppWorkerpList: LIST_ENTRY,
+    WaitOnAddressHashTable: [0x80]PVOID,
+
+    // Fields appended in 1709:
+    TelemetryCoverageHeader: PVOID,
+    CloudFileFlags: ULONG,
 };
 
+/// The `PEB_LDR_DATA` structure is the main record of what modules are loaded in a process.
+/// It is essentially the head of three double-linked lists of `LDR_DATA_TABLE_ENTRY` structures which each represent one loaded module.
+///
+/// Microsoft documentation of this is incomplete, the fields here are taken from various resources including:
+///  - https://www.geoffchappell.com/studies/windows/win32/ntdll/structs/peb_ldr_data.htm
 pub const PEB_LDR_DATA = extern struct {
-    Reserved1: [8]BYTE,
-    Reserved2: [3]PVOID,
+    // Versions: 3.51 and higher
+    /// The size in bytes of the structure
+    Length: ULONG,
+
+    /// TRUE if the structure is prepared.
+    Initialized: BOOLEAN,
+
+    SsHandle: PVOID,
+    InLoadOrderModuleList: LIST_ENTRY,
     InMemoryOrderModuleList: LIST_ENTRY,
+    InInitializationOrderModuleList: LIST_ENTRY,
+
+    // Versions: 5.1 and higher
+
+    /// No known use of this field is known in Windows 8 and higher.
+    EntryInProgress: PVOID,
+
+    // Versions: 6.0 from Windows Vista SP1, and higher
+    ShutdownInProgress: BOOLEAN,
+
+    /// Though ShutdownThreadId is declared as a HANDLE,
+    /// it is indeed the thread ID as suggested by its name.
+    /// It is picked up from the UniqueThread member of the CLIENT_ID in the
+    /// TEB of the thread that asks to terminate the process.
+    ShutdownThreadId: HANDLE,
 };
 
 pub const RTL_USER_PROCESS_PARAMETERS = extern struct {
