@@ -189,6 +189,22 @@ pub fn AlignedArrayList(comptime T: type, comptime alignment: ?u29) type {
             self.len += items.len;
         }
 
+        pub usingnamespace if (T == u8)
+            struct {
+                /// Same as `append` except it returns the number of bytes written, which is always the same
+                /// as `m.len`. The purpose of this function existing is to match `std.io.OutStream` API.
+                fn appendWrite(self: *Self, m: []const u8) !usize {
+                    try self.appendSlice(m);
+                    return m.len;
+                }
+
+                pub fn outStream(self: *Self) std.io.OutStream(*Self, error{OutOfMemory}, appendWrite) {
+                    return .{ .context = self };
+                }
+            }
+        else
+            struct {};
+
         /// Append a value to the list `n` times. Allocates more memory
         /// as necessary.
         pub fn appendNTimes(self: *Self, value: T, n: usize) !void {
@@ -478,4 +494,15 @@ test "std.ArrayList: ArrayList(T) of struct T" {
     defer root.sub_items.deinit();
     try root.sub_items.append(Item{ .integer = 42, .sub_items = ArrayList(Item).init(testing.allocator) });
     testing.expect(root.sub_items.items[0].integer == 42);
+}
+
+test "std.ArrayList(u8) implements outStream" {
+    var buffer = ArrayList(u8).init(std.testing.allocator);
+    defer buffer.deinit();
+
+    const x: i32 = 42;
+    const y: i32 = 1234;
+    try buffer.outStream().print("x: {}\ny: {}\n", .{ x, y });
+
+    testing.expectEqualSlices(u8, "x: 42\ny: 1234\n", buffer.span());
 }
