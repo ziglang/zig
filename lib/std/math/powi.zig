@@ -25,7 +25,7 @@ pub fn powi(comptime T: type, x: T, y: T) (error{
 }!T) {
     const info = @typeInfo(T);
 
-    comptime assert(@typeInfo(T) == builtin.TypeId.Int);
+    comptime assert(@typeInfo(T) == .Int);
 
     //  powi(x, +-0)   = 1 for any x
     if (y == 0 or y == -0) {

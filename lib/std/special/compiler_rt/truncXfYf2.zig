@@ -1,23 +1,23 @@
 const std = @import("std");
 
 pub fn __truncsfhf2(a: f32) callconv(.C) u16 {
-    return @bitCast(u16, truncXfYf2(f16, f32, a));
+    return @bitCast(u16, @call(.{ .modifier = .always_inline }, truncXfYf2, .{ f16, f32, a }));
 }
 
 pub fn __truncdfhf2(a: f64) callconv(.C) u16 {
-    return @bitCast(u16, truncXfYf2(f16, f64, a));
+    return @bitCast(u16, @call(.{ .modifier = .always_inline }, truncXfYf2, .{ f16, f64, a }));
 }
 
 pub fn __trunctfsf2(a: f128) callconv(.C) f32 {
-    return truncXfYf2(f32, f128, a);
+    return @call(.{ .modifier = .always_inline }, truncXfYf2, .{ f32, f128, a });
 }
 
 pub fn __trunctfdf2(a: f128) callconv(.C) f64 {
-    return truncXfYf2(f64, f128, a);
+    return @call(.{ .modifier = .always_inline }, truncXfYf2, .{ f64, f128, a });
 }
 
 pub fn __truncdfsf2(a: f64) callconv(.C) f32 {
-    return truncXfYf2(f32, f64, a);
+    return @call(.{ .modifier = .always_inline }, truncXfYf2, .{ f32, f64, a });
 }
 
 pub fn __aeabi_d2f(a: f64) callconv(.AAPCS) f32 {
@@ -35,7 +35,7 @@ pub fn __aeabi_f2h(a: f32) callconv(.AAPCS) u16 {
     return @call(.{ .modifier = .always_inline }, __truncsfhf2, .{a});
 }
 
-inline fn truncXfYf2(comptime dst_t: type, comptime src_t: type, a: src_t) dst_t {
+fn truncXfYf2(comptime dst_t: type, comptime src_t: type, a: src_t) dst_t {
     const src_rep_t = std.meta.IntType(false, @typeInfo(src_t).Float.bits);
     const dst_rep_t = std.meta.IntType(false, @typeInfo(dst_t).Float.bits);
     const srcSigBits = std.math.floatMantissaBits(src_t);

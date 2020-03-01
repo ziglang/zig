@@ -1,5 +1,3 @@
-const builtin = @import("builtin");
-const TypeId = builtin.TypeId;
 const std = @import("std.zig");
 
 pub const LeakCountAllocator = @import("testing/leak_count_allocator.zig").LeakCountAllocator;
@@ -65,16 +63,12 @@ pub fn expectEqual(expected: var, actual: @TypeOf(expected)) void {
 
         .Pointer => |pointer| {
             switch (pointer.size) {
-                builtin.TypeInfo.Pointer.Size.One,
-                builtin.TypeInfo.Pointer.Size.Many,
-                builtin.TypeInfo.Pointer.Size.C,
-                => {
+                .One, .Many, .C => {
                     if (actual != expected) {
                         std.debug.panic("expected {*}, found {*}", .{ expected, actual });
                     }
                 },
-
-                builtin.TypeInfo.Pointer.Size.Slice => {
+                .Slice => {
                     if (actual.ptr != expected.ptr) {
                         std.debug.panic("expected slice ptr {}, found {}", .{ expected.ptr, actual.ptr });
                     }

@@ -1751,9 +1751,9 @@ static void construct_linker_job_elf(LinkJob *lj) {
         }
 
         if (g->have_dynamic_link && (is_dyn_lib || g->out_type == OutTypeExe)) {
-            assert(g->dynamic_linker_path != nullptr);
+            assert(g->zig_target->dynamic_linker != nullptr);
             lj->args.append("-dynamic-linker");
-            lj->args.append(buf_ptr(g->dynamic_linker_path));
+            lj->args.append(g->zig_target->dynamic_linker);
         }
     }
 
@@ -2371,99 +2371,6 @@ static void construct_linker_job_coff(LinkJob *lj) {
     }
 }
 
-
-// Parse (([0-9]+)(.([0-9]+)(.([0-9]+)?))?)? and return the
-// grouped values as integers. Numbers which are not provided are set to 0.
-// return true if the entire string was parsed (9.2), or all groups were
-// parsed (10.3.5extrastuff).
-static bool darwin_get_release_version(const char *str, int *major, int *minor, int *micro, bool *had_extra) {
-    *had_extra = false;
-
-    *major = 0;
-    *minor = 0;
-    *micro = 0;
-
-    if (*str == '\0')
-        return false;
-
-    char *end;
-    *major = (int)strtol(str, &end, 10);
-    if (*str != '\0' && *end == '\0')
-        return true;
-    if (*end != '.')
-        return false;
-
-    str = end + 1;
-    *minor = (int)strtol(str, &end, 10);
-    if (*str != '\0' && *end == '\0')
-        return true;
-    if (*end != '.')
-        return false;
-
-    str = end + 1;
-    *micro = (int)strtol(str, &end, 10);
-    if (*str != '\0' && *end == '\0')
-        return true;
-    if (str == end)
-        return false;
-    *had_extra = true;
-    return true;
-}
-
-enum DarwinPlatformKind {
-    MacOS,
-    IPhoneOS,
-    IPhoneOSSimulator,
-};
-
-struct DarwinPlatform {
-    DarwinPlatformKind kind;
-    int major;
-    int minor;
-    int micro;
-};
-
-static void get_darwin_platform(LinkJob *lj, DarwinPlatform *platform) {
-    CodeGen *g = lj->codegen;
-
-    if (g->mmacosx_version_min) {
-        platform->kind = MacOS;
-    } else if (g->mios_version_min) {
-        platform->kind = IPhoneOS;
-    } else if (g->zig_target->os == OsMacOSX) {
-        platform->kind = MacOS;
-        g->mmacosx_version_min = buf_create_from_str("10.14");
-    } else {
-        zig_panic("unable to infer -mmacosx-version-min or -mios-version-min");
-    }
-
-    bool had_extra;
-    if (platform->kind == MacOS) {
-        if (!darwin_get_release_version(buf_ptr(g->mmacosx_version_min),
-                    &platform->major, &platform->minor, &platform->micro, &had_extra) ||
-                had_extra || platform->major != 10 || platform->minor >= 100 || platform->micro >= 100)
-        {
-            zig_panic("invalid -mmacosx-version-min");
-        }
-    } else if (platform->kind == IPhoneOS) {
-        if (!darwin_get_release_version(buf_ptr(g->mios_version_min),
-                    &platform->major, &platform->minor, &platform->micro, &had_extra) ||
-                had_extra || platform->major >= 10 || platform->minor >= 100 || platform->micro >= 100)
-        {
-            zig_panic("invalid -mios-version-min");
-        }
-    } else {
-        zig_unreachable();
-    }
-
-    if (platform->kind == IPhoneOS &&
-        (g->zig_target->arch == ZigLLVM_x86 ||
-         g->zig_target->arch == ZigLLVM_x86_64))
-    {
-        platform->kind = IPhoneOSSimulator;
-    }
-}
-
 static void construct_linker_job_macho(LinkJob *lj) {
     CodeGen *g = lj->codegen;
 
@@ -2507,25 +2414,25 @@ static void construct_linker_job_macho(LinkJob *lj) {
     lj->args.append("-arch");
     lj->args.append(get_darwin_arch_string(g->zig_target));
 
-    DarwinPlatform platform;
-    get_darwin_platform(lj, &platform);
-    switch (platform.kind) {
-        case MacOS:
+    if (g->zig_target->glibc_or_darwin_version != nullptr) {
+        if (g->zig_target->os == OsMacOSX) {
             lj->args.append("-macosx_version_min");
-            break;
-        case IPhoneOS:
-            lj->args.append("-iphoneos_version_min");
-            break;
-        case IPhoneOSSimulator:
-            lj->args.append("-ios_simulator_version_min");
-            break;
+        } else if (g->zig_target->os == OsIOS) {
+            if (g->zig_target->arch == ZigLLVM_x86 || g->zig_target->arch == ZigLLVM_x86_64) {
+                lj->args.append("-ios_simulator_version_min");
+            } else {
+                lj->args.append("-iphoneos_version_min");
+            }
+        }
+        Buf *version_string = buf_sprintf("%d.%d.%d",
+            g->zig_target->glibc_or_darwin_version->major,
+            g->zig_target->glibc_or_darwin_version->minor,
+            g->zig_target->glibc_or_darwin_version->patch);
+        lj->args.append(buf_ptr(version_string));
+
+        lj->args.append("-sdk_version");
+        lj->args.append(buf_ptr(version_string));
     }
-    Buf *version_string = buf_sprintf("%d.%d.%d", platform.major, platform.minor, platform.micro);
-    lj->args.append(buf_ptr(version_string));
-
-    lj->args.append("-sdk_version");
-    lj->args.append(buf_ptr(version_string));
-
 
     if (g->out_type == OutTypeExe) {
         lj->args.append("-pie");

@@ -25,13 +25,13 @@ pub fn hashPointer(hasher: var, key: var, comptime strat: HashStrategy) void {
     const info = @typeInfo(@TypeOf(key));
 
     switch (info.Pointer.size) {
-        builtin.TypeInfo.Pointer.Size.One => switch (strat) {
+        .One => switch (strat) {
             .Shallow => hash(hasher, @ptrToInt(key), .Shallow),
             .Deep => hash(hasher, key.*, .Shallow),
             .DeepRecursive => hash(hasher, key.*, .DeepRecursive),
         },
 
-        builtin.TypeInfo.Pointer.Size.Slice => switch (strat) {
+        .Slice => switch (strat) {
             .Shallow => {
                 hashPointer(hasher, key.ptr, .Shallow);
                 hash(hasher, key.len, .Shallow);
@@ -40,9 +40,7 @@ pub fn hashPointer(hasher: var, key: var, comptime strat: HashStrategy) void {
             .DeepRecursive => hashArray(hasher, key, .DeepRecursive),
         },
 
-        builtin.TypeInfo.Pointer.Size.Many,
-        builtin.TypeInfo.Pointer.Size.C,
-        => switch (strat) {
+        .Many, .C, => switch (strat) {
             .Shallow => hash(hasher, @ptrToInt(key), .Shallow),
             else => @compileError(
                 \\ unknown-length pointers and C pointers cannot be hashed deeply.

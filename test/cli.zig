@@ -1,5 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const testing = std.testing;
 const process = std.process;
 const fs = std.fs;
@@ -93,11 +92,11 @@ fn testZigInitLib(zig_exe: []const u8, dir_path: []const u8) !void {
 fn testZigInitExe(zig_exe: []const u8, dir_path: []const u8) !void {
     _ = try exec(dir_path, &[_][]const u8{ zig_exe, "init-exe" });
     const run_result = try exec(dir_path, &[_][]const u8{ zig_exe, "build", "run" });
-    testing.expect(std.mem.eql(u8, run_result.stderr, "All your base are belong to us.\n"));
+    testing.expect(std.mem.eql(u8, run_result.stderr, "All your codebase are belong to us.\n"));
 }
 
 fn testGodboltApi(zig_exe: []const u8, dir_path: []const u8) anyerror!void {
-    if (builtin.os != .linux or builtin.arch != .x86_64) return;
+    if (std.Target.current.os.tag != .linux or std.Target.current.cpu.arch != .x86_64) return;
 
     const example_zig_path = try fs.path.join(a, &[_][]const u8{ dir_path, "example.zig" });
     const example_s_path = try fs.path.join(a, &[_][]const u8{ dir_path, "example.s" });

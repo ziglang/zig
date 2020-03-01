@@ -6,11 +6,8 @@ pub const parseStringLiteral = @import("zig/parse_string_literal.zig").parseStri
 pub const render = @import("zig/render.zig").render;
 pub const ast = @import("zig/ast.zig");
 pub const system = @import("zig/system.zig");
+pub const CrossTarget = @import("zig/cross_target.zig").CrossTarget;
 
-test "std.zig tests" {
-    _ = @import("zig/ast.zig");
-    _ = @import("zig/parse.zig");
-    _ = @import("zig/render.zig");
-    _ = @import("zig/tokenizer.zig");
-    _ = @import("zig/parse_string_literal.zig");
+test "" {
+    @import("std").meta.refAllDecls(@This());
 }

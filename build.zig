@@ -298,7 +298,7 @@ fn configureStage2(b: *Builder, exe: var, ctx: Context) !void {
     }
     dependOnLib(b, exe, ctx.llvm);
 
-    if (exe.target.getOs() == .linux) {
+    if (exe.target.getOsTag() == .linux) {
         try addCxxKnownPath(b, ctx, exe, "libstdc++.a",
             \\Unable to determine path to libstdc++.a
             \\On Fedora, install libstdc++-static and try again.

@@ -44,7 +44,7 @@ fn makeNaN128(rand: u64) f128 {
     return float_result;
 }
 test "multf3" {
-    if (@import("std").Target.current.isWindows()) {
+    if (@import("std").Target.current.os.tag == .windows) {
         // TODO https://github.com/ziglang/zig/issues/508
         return error.SkipZigTest;
     }

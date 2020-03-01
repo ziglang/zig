@@ -16,7 +16,7 @@ pub fn isSignalNan(x: var) bool {
 }
 
 test "math.isNan" {
-    if (std.Target.current.isWindows()) {
+    if (std.Target.current.os.tag == .windows) {
         // TODO https://github.com/ziglang/zig/issues/508
         return error.SkipZigTest;
     }

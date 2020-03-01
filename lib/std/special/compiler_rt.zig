@@ -1,11 +1,9 @@
-const builtin = @import("builtin");
+const std = @import("std");
+const builtin = std.builtin;
 const is_test = builtin.is_test;
 
-const is_gnu = switch (builtin.abi) {
-    .gnu, .gnuabin32, .gnuabi64, .gnueabi, .gnueabihf, .gnux32 => true,
-    else => false,
-};
-const is_mingw = builtin.os == .windows and is_gnu;
+const is_gnu = std.Target.current.abi.isGnu();
+const is_mingw = builtin.os.tag == .windows and is_gnu;
 
 comptime {
     const linkage = if (is_test) builtin.GlobalLinkage.Internal else builtin.GlobalLinkage.Weak;
@@ -180,7 +178,7 @@ comptime {
         @export(@import("compiler_rt/arm.zig").__aeabi_memclr, .{ .name = "__aeabi_memclr4", .linkage = linkage });
         @export(@import("compiler_rt/arm.zig").__aeabi_memclr, .{ .name = "__aeabi_memclr8", .linkage = linkage });
 
-        if (builtin.os == .linux) {
+        if (builtin.os.tag == .linux) {
             @export(@import("compiler_rt/arm.zig").__aeabi_read_tp, .{ .name = "__aeabi_read_tp", .linkage = linkage });
         }
 
@@ -250,7 +248,7 @@ comptime {
         @export(@import("compiler_rt/aullrem.zig")._aullrem, .{ .name = "\x01__aullrem", .linkage = strong_linkage });
     }
 
-    if (builtin.os == .windows) {
+    if (builtin.os.tag == .windows) {
         // Default stack-probe functions emitted by LLVM
         if (is_mingw) {
             @export(@import("compiler_rt/stack_probe.zig")._chkstk, .{ .name = "_alloca", .linkage = strong_linkage });
@@ -288,7 +286,7 @@ comptime {
             else => {},
         }
     } else {
-        if (builtin.glibc_version != null) {
+        if (std.Target.current.isGnuLibC() and builtin.link_libc) {
             @export(__stack_chk_guard, .{ .name = "__stack_chk_guard", .linkage = linkage });
         }
         @export(@import("compiler_rt/divti3.zig").__divti3, .{ .name = "__divti3", .linkage = linkage });
@@ -307,7 +305,7 @@ comptime {
 pub fn panic(msg: []const u8, error_return_trace: ?*builtin.StackTrace) noreturn {
     @setCold(true);
     if (is_test) {
-        @import("std").debug.panic("{}", .{msg});
+        std.debug.panic("{}", .{msg});
     } else {
         unreachable;
     }

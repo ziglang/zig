@@ -1,4 +1,3 @@
-const builtin = @import("builtin");
 const std = @import("std");
 const os = std.os;
 const tests = @import("tests.zig");
@@ -131,8 +130,8 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     , "Hello, world!\n  12  12 a\n");
 
     cases.addC("number literals",
-        \\const builtin = @import("builtin");
-        \\const is_windows = builtin.os == builtin.Os.windows;
+        \\const std = @import("std");
+        \\const is_windows = std.Target.current.os.tag == .windows;
         \\const c = @cImport({
         \\    if (is_windows) {
         \\        // See https://github.com/ziglang/zig/issues/515
@@ -306,8 +305,8 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     , "");
 
     cases.addC("casting between float and integer types",
-        \\const builtin = @import("builtin");
-        \\const is_windows = builtin.os == builtin.Os.windows;
+        \\const std = @import("std");
+        \\const is_windows = std.Target.current.os.tag == .windows;
         \\const c = @cImport({
         \\    if (is_windows) {
         \\        // See https://github.com/ziglang/zig/issues/515

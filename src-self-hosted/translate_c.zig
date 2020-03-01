@@ -4849,7 +4849,7 @@ fn transPreprocessorEntities(c: *Context, unit: *ZigClangASTUnit) Error!void {
                 }
 
                 const begin_c = ZigClangSourceManager_getCharacterData(c.source_manager, begin_loc);
-                const slice = begin_c[0..mem.len(u8, begin_c)];
+                const slice = begin_c[0..mem.len(begin_c)];
 
                 tok_list.shrink(0);
                 var tokenizer = std.c.Tokenizer{
