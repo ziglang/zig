@@ -65,15 +65,9 @@ pub const Buffer = struct {
     }
 
     pub fn allocPrint(allocator: *Allocator, comptime format: []const u8, args: var) !Buffer {
-        const countSize = struct {
-            fn countSize(size: *usize, bytes: []const u8) (error{}!void) {
-                size.* += bytes.len;
-            }
-        }.countSize;
-        var size: usize = 0;
-        std.fmt.format(&size, error{}, countSize, format, args) catch |err| switch (err) {};
+        const size = std.fmtstream.count(format, args);
         var self = try Buffer.initSize(allocator, size);
-        assert((std.fmt.bufPrint(self.list.items, format, args) catch unreachable).len == size);
+        assert((std.fmtstream.bufPrint(self.list.items, format, args) catch unreachable).len == size);
         return self;
     }
 
@@ -155,7 +149,7 @@ pub const Buffer = struct {
     }
 
     pub fn print(self: *Buffer, comptime fmt: []const u8, args: var) !void {
-        return std.fmt.format(self, error{OutOfMemory}, Buffer.append, fmt, args);
+        return self.outStream().print(fmt, args);
     }
 
     pub fn outStream(self: *Buffer) std.io.OutStream(*Buffer, error{OutOfMemory}, appendWrite) {
