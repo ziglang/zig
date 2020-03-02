@@ -2702,7 +2702,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    return if (x > y) x else y;
         \\}
     });
-    cases.add("",
+    cases.add("Preserve macro names for integer literals",
         \\#define foo 1
         \\int bar(void) {
         \\    return foo;
