@@ -2710,7 +2710,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\const foo = 1;
     ,
-        \\pub export fn potato() c_int {
+        \\pub export fn bar() c_int {
         \\    return foo;
         \\}
     });
