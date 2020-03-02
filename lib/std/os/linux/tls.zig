@@ -122,7 +122,7 @@ pub fn setThreadPointer(addr: usize) void {
                 .seg_not_present = 0,
                 .useable = 1,
             };
-            const rc = std.os.linux.syscall1(std.os.linux.SYS_set_thread_area, @ptrToInt(&user_desc));
+            const rc = std.os.linux.syscall1(.set_thread_area, @ptrToInt(&user_desc));
             assert(rc == 0);
 
             const gdt_entry_number = user_desc.entry_number;
@@ -135,7 +135,7 @@ pub fn setThreadPointer(addr: usize) void {
             );
         },
         .x86_64 => {
-            const rc = std.os.linux.syscall2(std.os.linux.SYS_arch_prctl, std.os.linux.ARCH_SET_FS, addr);
+            const rc = std.os.linux.syscall2(.arch_prctl, std.os.linux.ARCH_SET_FS, addr);
             assert(rc == 0);
         },
         .aarch64 => {
@@ -146,7 +146,7 @@ pub fn setThreadPointer(addr: usize) void {
             );
         },
         .arm => {
-            const rc = std.os.linux.syscall1(std.os.linux.SYS_set_tls, addr);
+            const rc = std.os.linux.syscall1(.set_tls, addr);
             assert(rc == 0);
         },
         .riscv64 => {
@@ -157,7 +157,7 @@ pub fn setThreadPointer(addr: usize) void {
             );
         },
         .mipsel => {
-            const rc = std.os.linux.syscall1(std.os.linux.SYS_set_thread_area, addr);
+            const rc = std.os.linux.syscall1(.set_thread_area, addr);
             assert(rc == 0);
         },
         else => @compileError("Unsupported architecture"),
