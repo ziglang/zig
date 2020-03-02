@@ -1500,6 +1500,12 @@ const char* ZigClangSourceManager_getCharacterData(const ZigClangSourceManager *
     return reinterpret_cast<const clang::SourceManager *>(self)->getCharacterData(bitcast(SL));
 }
 
+bool ZigClangSourceManager_isMacroBodyExpansion(const ZigClangSourceManager *self, ZigClangSourceLocation SL)
+{
+    return reinterpret_cast<const clang::SourceManager *>(self)->isMacroBodyExpansion(bitcast(SL));
+}
+
+
 ZigClangQualType ZigClangASTContext_getPointerType(const ZigClangASTContext* self, ZigClangQualType T) {
     return bitcast(reinterpret_cast<const clang::ASTContext *>(self)->getPointerType(bitcast(T)));
 }

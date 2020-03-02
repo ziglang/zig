@@ -1618,6 +1618,12 @@ fn transIntegerLiteral(
         return revertAndWarn(rp, error.UnsupportedTranslation, loc, "invalid integer literal", .{});
     }
 
+    const source_loc = ZigClangIntegerLiteral_getBeginLoc(expr);
+    const is_macro_body_expansion = ZigClangSourceManager_isMacroBodyExpansion(rp.c.source_manager, source_loc);
+    if (is_macro_body_expansion) {
+        return transCreateNodeIdentifier(rp.c, "foo"); // TODO: "foo" should be the macro name
+    }
+
     if (suppress_as == .no_as) {
         const int_lit_node = try transCreateNodeAPInt(rp.c, ZigClangAPValue_getInt(&eval_result.Val));
         return maybeSuppressResult(rp, scope, result_used, int_lit_node);

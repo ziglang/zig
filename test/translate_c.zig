@@ -2702,4 +2702,16 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    return if (x > y) x else y;
         \\}
     });
+    cases.add("",
+        \\#define foo 1
+        \\int bar(void) {
+        \\    return foo;
+        \\}
+    , &[_][]const u8{
+        \\const foo = 1;
+    ,
+        \\pub export fn potato() c_int {
+        \\    return foo;
+        \\}
+    });
 }

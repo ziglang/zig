@@ -829,6 +829,8 @@ ZIG_EXTERN_C unsigned ZigClangSourceManager_getSpellingColumnNumber(const struct
         struct ZigClangSourceLocation Loc);
 ZIG_EXTERN_C const char* ZigClangSourceManager_getCharacterData(const struct ZigClangSourceManager *,
         struct ZigClangSourceLocation SL);
+ZIG_EXTERN_C bool ZigClangSourceManager_isMacroBodyExpansion(const struct ZigClangSourceManager *,
+        struct ZigClangSourceLocation SL);
 
 ZIG_EXTERN_C struct ZigClangQualType ZigClangASTContext_getPointerType(const struct ZigClangASTContext*, struct ZigClangQualType T);
 
