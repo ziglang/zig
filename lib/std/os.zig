@@ -1185,7 +1185,7 @@ pub fn getenvW(key: [*:0]const u16) ?[:0]const u16 {
         while (ptr[i] != 0) : (i += 1) {}
         const this_value = ptr[value_start..i :0];
 
-        if (mem.eql(u16, key_slice, this_key)) return this_value;
+        if (std.ascii.eqlIgnoreCase(mem.sliceAsBytes(key_slice), mem.sliceAsBytes(this_key))) return this_value;
 
         i += 1; // skip over null byte
     }
