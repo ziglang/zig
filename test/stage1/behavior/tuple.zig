@@ -24,6 +24,6 @@ test "tuple initialization with structure initializer and constant expression" {
 
     const tuple_with_struct = .{ TestStruct{ .state = 42 }, 0 };
     expect(tuple_with_struct.len == 2);
-    expect(tuple_with_struct.@"0".state == 42);
-    expect(tuple_with_struct.@"1" == 0);
+    expect(tuple_with_struct[0].state == 42);
+    expect(tuple_with_struct[1] == 0);
 }
