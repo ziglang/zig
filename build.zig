@@ -227,20 +227,15 @@ fn findLLVM(b: *Builder, llvm_config_exe: []const u8) !LibraryDep {
         while (it.next()) |lib_arg| {
             if (mem.startsWith(u8, lib_arg, "-l")) {
                 try result.system_libs.append(lib_arg[2..]);
-            } else if (fs.path.isAbsolute(lib_arg)) {
-                if (mem.endsWith(u8, lib_arg, "libz.so")) {
-                    // llvm-config version 10 started giving an absolute path to zlib as
-                    // a shared object, which fails to deal with rpaths correctly. Here
-                    // we change it to a normal -lz
-                    try result.system_libs.append("z");
-                } else {
-                    try result.libs.append(lib_arg);
-                }
             } else {
-                if (mem.endsWith(u8, lib_arg, ".lib")) {
-                    lib_arg = lib_arg[0 .. lib_arg.len - 4];
+                if (fs.path.isAbsolute(lib_arg)) {
+                    try result.libs.append(lib_arg);
+                } else {
+                    if (mem.endsWith(u8, lib_arg, ".lib")) {
+                        lib_arg = lib_arg[0 .. lib_arg.len - 4];
+                    }
+                    try result.system_libs.append(lib_arg);
                 }
-                try result.system_libs.append(lib_arg);
             }
         }
     }
