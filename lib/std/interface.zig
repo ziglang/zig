@@ -1,5 +1,5 @@
 const std = @import("std.zig");
-const Allocator = std.mem.Allocator;
+const mem = std.mem;
 const trait = std.meta.trait;
 const assert = std.debug.assert;
 
@@ -57,7 +57,7 @@ pub const Storage = struct {
     };
 
     pub const Owning = struct {
-        allocator: *Allocator,
+        allocator: *mem.Allocator,
         mem: []u8,
         alignment: u29,
 
@@ -73,7 +73,7 @@ pub const Storage = struct {
 
             return Owning{
                 .allocator = args[1],
-                .mem = std.mem.toBytes(obj)[0..],
+                .mem = std.mem.asBytes(obj)[0..],
                 .alignment = @alignOf(AllocT),
             };
         }
@@ -114,7 +114,7 @@ pub const Storage = struct {
                 return self;
             }
 
-            pub fn getSelfPtr(self: Self) *SelfType {
+            pub fn getSelfPtr(self: *Self) *SelfType {
                 return makeSelfPtr(&self.mem[0]);
             }
 
@@ -126,8 +126,6 @@ pub const Storage = struct {
         return struct {
             const Self = @This();
 
-            // TODO: Pack this tightly with an extern union?
-            // Check resulting size of this union.
             data: union(enum) {
                 Inline: Inline(size),
                 Owning: Owning,
@@ -140,25 +138,25 @@ pub const Storage = struct {
 
                 const ImplSize = @sizeOf(@TypeOf(args[0]));
 
-                if (ImpleSize > size) {
-                    return .{
-                        .data = {
-                            .Owning = try Owning.init(args);
+                if (ImplSize > size) {
+                    return Self{
+                        .data = .{
+                            .Owning = try Owning.init(args),
                         },
                     };
                 } else {
-                    return .{
-                        .data = {
-                            .Inline = try Inline(size).init(.{args[0]});
+                    return Self{
+                        .data = .{
+                            .Inline = try Inline(size).init(.{args[0]}),
                         },
                     };
                 }
             }
 
-            pub fn getSelfPtr(self: Self) *SelfType {
+            pub fn getSelfPtr(self: *Self) *SelfType {
                 return switch (self.data) {
-                    .Inline => |i| i.getSelfPtr(),
-                    .Owning => |o| o.getSelfPtr(),
+                    .Inline => |*i| i.getSelfPtr(),
+                    .Owning => |*o| o.getSelfPtr(),
                 };
             }
 
@@ -492,7 +490,8 @@ test "Owning interface with optional function" {
                 }
             };
 
-            // TODO: Not passing an explicit comptime first argument will crash compiler, see #4597, remove comptime when fixed
+            // TODO: Not passing an explicit comptime first argument will crash compiler, remove comptime when fixed
+            // See https://github.com/ziglang/zig/issues/4597
             var iface_instance = try TestOwningIface.init(.{ comptime TestStruct{ .state = 0 }, std.testing.allocator });
             defer iface_instance.deinit();
 
@@ -503,9 +502,154 @@ test "Owning interface with optional function" {
             try iface_instance.call("otherFn", .{a});
             a = 0;
             var b: usize = 42;
-            assert(iface_instance.call("someFn", .{a, b}).? == 42);
+            assert(iface_instance.call("someFn", .{ a, b }).? == 42);
         }
     };
 
     try OwningOptionalFuncTest.run();
+}
+
+test "Inline, InlineOrOwning storage types" {
+    const InlineStorageTypesTest = struct {
+        fn run() !void {
+            const object = [_]u8{'A'} ** 16;
+            comptime assert(@sizeOf(@TypeOf(object)) == 16);
+
+            var store1 = try Storage.Inline(32).init(.{object});
+            defer store1.deinit();
+
+            const new_obj_ptr_1 = selfPtrAs(store1.getSelfPtr(), [16]u8);
+            assert(new_obj_ptr_1 != &object);
+            assert(new_obj_ptr_1[8] == 'A');
+
+            // This will error when we are in the comptime call if the object
+            // does not fit in storage since we cannot call into *mem.Allocator at comptime.
+            var store2 = try Storage.InlineOrOwning(16).init(.{ object, std.testing.allocator });
+            defer store2.deinit();
+
+            const new_obj_ptr_2 = selfPtrAs(store2.getSelfPtr(), [16]u8);
+            assert(new_obj_ptr_2 != &object and new_obj_ptr_2 != new_obj_ptr_1);
+            assert(new_obj_ptr_1[15] == 'A');
+        }
+    };
+
+    try InlineStorageTypesTest.run();
+    comptime try InlineStorageTypesTest.run();
+
+    const AllocatingInlineOrOwningStorageTest = struct {
+        fn run() !void {
+            const object = [_]u64{ 0, 1, 2, 3 } ** 8;
+
+            var store = try Storage.InlineOrOwning(64).init(.{ object, std.testing.allocator });
+            defer store.deinit();
+
+            const new_obj_ptr = selfPtrAs(store.getSelfPtr(), @TypeOf(object));
+            assert(new_obj_ptr != &object);
+            assert(new_obj_ptr[0] == 0 and new_obj_ptr[5] == 1 and new_obj_ptr[10] == 2);
+        }
+    };
+
+    try AllocatingInlineOrOwningStorageTest.run();
+}
+
+test "Allocator interface example" {
+    const Allocator = struct {
+        const Self = @This();
+        pub const Error = error{OutOfMemory};
+
+        const IFace = Interface(struct {
+            reallocFn: fn (*SelfType, []u8, u29, usize, u29) Error![]u8,
+            shrinkFn: fn (*SelfType, []u8, u29, usize, u29) []u8,
+        }, Storage.NonOwning);
+
+        iface: IFace,
+
+        pub fn init(impl_ptr: var) Self {
+            return .{
+                .iface = try IFace.init(.{impl_ptr}),
+            };
+        }
+
+        pub fn create(self: Self, comptime T: type) Error!*T {
+            if (@sizeOf(T) == 0) return &(T{});
+            const slice = try self.alloc(T, 1);
+            return &slice[0];
+        }
+
+        pub fn alloc(self: Self, comptime T: type, n: usize) Error![]T {
+            return self.alignedAlloc(T, null, n);
+        }
+
+        pub fn alignedAlloc(self: Self, comptime T: type, comptime alignment: ?u29, n: usize) Error![]align(alignment orelse @alignOf(T)) T {
+            const a = if (alignment) |a| blk: {
+                if (a == @alignOf(T)) return alignedAlloc(self, T, null, n);
+                break :blk a;
+            } else @alignOf(T);
+
+            if (n == 0) {
+                return @as([*]align(a) T, undefined)[0..0];
+            }
+
+            const byte_count = std.math.mul(usize, @sizeOf(T), n) catch return Error.OutOfMemory;
+
+            // TODO: Workaround for https://github.com/ziglang/zig/issues/4571 like above
+            var pack_1: []u8 = &[0]u8{};
+            var pack_2: u29 = undefined;
+            var pack_3 = byte_count;
+            var pack_4: u29 = a;
+            const byte_slice = try self.iface.call("reallocFn", .{ pack_1, pack_2, pack_3, pack_4 });
+
+            assert(byte_slice.len == byte_count);
+            @memset(byte_slice.ptr, undefined, byte_slice.len);
+            if (alignment == null) {
+                return @intToPtr([*]T, @ptrToInt(byte_slice.ptr))[0..n];
+            } else {
+                return mem.bytesAsSlice(T, @alignCast(a, byte_slice));
+            }
+        }
+
+        pub fn destroy(self: Self, ptr: var) void {
+            const T = @TypeOf(ptr).Child;
+            if (@sizeOf(T) == 0) return;
+            const non_const_ptr = @intToPtr([*]u8, @ptrToInt(ptr));
+
+            // TODO: Workaround for https://github.com/ziglang/zig/issues/4571 like above
+            var pack_1 = non_const_ptr[0..@sizeOf(T)];
+            var pack_2: u29 = @alignOf(T);
+            var pack_3: usize = 0;
+            var pack_4: u29 = 1;
+            const shrink_result = self.iface.call("shrinkFn", .{ pack_1, pack_2, pack_3, pack_4 });
+            assert(shrink_result.len == 0);
+        }
+
+        // ETC...
+    };
+
+    // Allocator-compatible wrapper for *mem.Allocator
+    const WrappingAllocator = struct {
+        const Self = @This();
+
+        allocator: *mem.Allocator,
+
+        pub fn init(allocator: *mem.Allocator) Self {
+            return .{
+                .allocator = allocator,
+            };
+        }
+
+        // Implement interface Allocator.
+        pub fn reallocFn(self: Self, old_mem: []u8, old_alignment: u29, new_byte_count: usize, new_alignment: u29) ![]u8 {
+            return self.allocator.reallocFn(self.allocator, old_mem, old_alignment, new_byte_count, new_alignment);
+        }
+
+        pub fn shrinkFn(self: Self, old_mem: []u8, old_alignment: u29, new_byte_count: usize, new_alignment: u29) []u8 {
+            return self.allocator.shrinkFn(self.allocator, old_mem, old_alignment, new_byte_count, new_alignment);
+        }
+    };
+
+    var wrapping_alloc = WrappingAllocator.init(std.testing.allocator);
+    const alloc = Allocator.init(&wrapping_alloc);
+
+    const some_mem = try alloc.create(u64);
+    defer alloc.destroy(some_mem);
 }
