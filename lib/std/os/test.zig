@@ -45,6 +45,10 @@ fn testThreadIdFn(thread_id: *Thread.Id) void {
 }
 
 test "sendfile" {
+    if (std.Target.current.cpu.arch == .mipsel) {
+        // https://github.com/ziglang/zig/issues/4615
+        return error.SkipZigTest;
+    }
     try fs.makePath(a, "os_test_tmp");
     defer fs.deleteTree("os_test_tmp") catch {};
 
