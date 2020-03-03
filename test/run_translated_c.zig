@@ -195,4 +195,22 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\  return 0;
         \\}
     , "");
+
+    cases.add("cast from pointer to opaque type to struct",
+        \\#include <stdio.h>
+        \\typedef struct
+        \\{
+        \\    int i;
+        \\}
+        \\StructType,*StructPtrType;
+        \\
+        \\typedef struct OpaqueStruct OpaqueStructTypedef;
+        \\#define Macro(opaquePtr) 	(((StructPtrType)(opaquePtr))->i)
+        \\int main(int argc, char **argv) {
+        \\  StructType localStruct = {88};
+        \\  OpaqueStructTypedef *opaquePtrToLocal = &localStruct;
+        \\  printf("%d!\n", Macro(opaquePtrToLocal));
+        \\  return 0;
+        \\}
+    , "88!\n");
 }
