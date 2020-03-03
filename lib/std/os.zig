@@ -1539,12 +1539,13 @@ pub const MakeDirError = error{
     ReadOnlyFileSystem,
     InvalidUtf8,
     BadPathName,
+    NoDevice,
 } || UnexpectedError;
 
 pub fn mkdirat(dir_fd: fd_t, sub_dir_path: []const u8, mode: u32) MakeDirError!void {
-    if (builtin.os == .windows) {
+    if (builtin.os.tag == .windows) {
         const sub_dir_path_w = try windows.sliceToPrefixedFileW(sub_dir_path);
-        @compileError("TODO implement mkdirat for Windows");
+        return mkdiratW(dir_fd, &sub_dir_path_w, mode);
     } else {
         const sub_dir_path_c = try toPosixPath(sub_dir_path);
         return mkdiratC(dir_fd, &sub_dir_path_c, mode);
@@ -1552,9 +1553,9 @@ pub fn mkdirat(dir_fd: fd_t, sub_dir_path: []const u8, mode: u32) MakeDirError!v
 }
 
 pub fn mkdiratC(dir_fd: fd_t, sub_dir_path: [*:0]const u8, mode: u32) MakeDirError!void {
-    if (builtin.os == .windows) {
+    if (builtin.os.tag == .windows) {
         const sub_dir_path_w = try windows.cStrToPrefixedFileW(sub_dir_path);
-        @compileError("TODO implement mkdiratC for Windows");
+        return mkdiratW(dir_fd, &sub_dir_path_w, mode);
     }
     switch (errno(system.mkdirat(dir_fd, sub_dir_path, mode))) {
         0 => return,
@@ -1576,23 +1577,31 @@ pub fn mkdiratC(dir_fd: fd_t, sub_dir_path: [*:0]const u8, mode: u32) MakeDirErr
     }
 }
 
+pub fn mkdiratW(dir_fd: fd_t, sub_path_w: [*:0]const u16, mode: u32) MakeDirError!void {
+    const sub_dir_handle = try windows.CreateDirectoryW(dir_fd, sub_path_w, null);
+    windows.CloseHandle(sub_dir_handle);
+}
+
 /// Create a directory.
 /// `mode` is ignored on Windows.
 pub fn mkdir(dir_path: []const u8, mode: u32) MakeDirError!void {
     if (builtin.os.tag == .windows) {
-        const dir_path_w = try windows.sliceToPrefixedFileW(dir_path);
-        return windows.CreateDirectoryW(&dir_path_w, null);
+        const sub_dir_handle = try windows.CreateDirectory(null, dir_path, null);
+        windows.CloseHandle(sub_dir_handle);
+        return;
     } else {
         const dir_path_c = try toPosixPath(dir_path);
-        return mkdirC(&dir_path_c, mode);
+        return mkdirZ(&dir_path_c, mode);
     }
 }
 
 /// Same as `mkdir` but the parameter is a null-terminated UTF8-encoded string.
-pub fn mkdirC(dir_path: [*:0]const u8, mode: u32) MakeDirError!void {
+pub fn mkdirZ(dir_path: [*:0]const u8, mode: u32) MakeDirError!void {
     if (builtin.os.tag == .windows) {
         const dir_path_w = try windows.cStrToPrefixedFileW(dir_path);
-        return windows.CreateDirectoryW(&dir_path_w, null);
+        const sub_dir_handle = try windows.CreateDirectoryW(null, &dir_path_w, null);
+        windows.CloseHandle(sub_dir_handle);
+        return;
     }
     switch (errno(system.mkdir(dir_path, mode))) {
         0 => return,
@@ -1705,7 +1714,13 @@ pub fn chdirC(dir_path: [*:0]const u8) ChangeCurDirError!void {
     }
 }
 
-pub fn fchdir(dirfd: fd_t) ChangeCurDirError!void {
+pub const FchdirError = error{
+    AccessDenied,
+    NotDir,
+    FileSystem,
+} || UnexpectedError;
+
+pub fn fchdir(dirfd: fd_t) FchdirError!void {
     while (true) {
         switch (errno(system.fchdir(dirfd))) {
             0 => return,
@@ -3564,12 +3579,12 @@ fn count_iovec_bytes(iovs: []const iovec_const) usize {
 }
 
 /// Transfer data between file descriptors, with optional headers and trailers.
-/// Returns the number of bytes written. This will be zero if `in_offset` falls beyond the end of the file.
+/// Returns the number of bytes written, which can be zero.
 ///
-/// The `sendfile` call copies `count` bytes from one file descriptor to another. When possible,
+/// The `sendfile` call copies `in_len` bytes from one file descriptor to another. When possible,
 /// this is done within the operating system kernel, which can provide better performance
 /// characteristics than transferring data from kernel to user space and back, such as with
-/// `read` and `write` calls. When `count` is `0`, it means to copy until the end of the input file has been
+/// `read` and `write` calls. When `in_len` is `0`, it means to copy until the end of the input file has been
 /// reached. Note, however, that partial writes are still possible in this case.
 ///
 /// `in_fd` must be a file descriptor opened for reading, and `out_fd` must be a file descriptor
@@ -3578,7 +3593,8 @@ fn count_iovec_bytes(iovs: []const iovec_const) usize {
 /// atomicity guarantees no longer apply.
 ///
 /// Copying begins reading at `in_offset`. The input file descriptor seek position is ignored and not updated.
-/// If the output file descriptor has a seek position, it is updated as bytes are written.
+/// If the output file descriptor has a seek position, it is updated as bytes are written. When
+/// `in_offset` is past the end of the input file, it successfully reads 0 bytes.
 ///
 /// `flags` has different meanings per operating system; refer to the respective man pages.
 ///
@@ -3599,7 +3615,7 @@ pub fn sendfile(
     out_fd: fd_t,
     in_fd: fd_t,
     in_offset: u64,
-    count: usize,
+    in_len: u64,
     headers: []const iovec_const,
     trailers: []const iovec_const,
     flags: u32,
@@ -3608,9 +3624,15 @@ pub fn sendfile(
     var total_written: usize = 0;
 
     // Prevents EOVERFLOW.
+    const size_t = @Type(std.builtin.TypeInfo{
+        .Int = .{
+            .is_signed = false,
+            .bits = @typeInfo(usize).Int.bits - 1,
+        },
+    });
     const max_count = switch (std.Target.current.os.tag) {
         .linux => 0x7ffff000,
-        else => math.maxInt(isize),
+        else => math.maxInt(size_t),
     };
 
     switch (std.Target.current.os.tag) {
@@ -3630,7 +3652,7 @@ pub fn sendfile(
             }
 
             // Here we match BSD behavior, making a zero count value send as many bytes as possible.
-            const adjusted_count = if (count == 0) max_count else math.min(count, max_count);
+            const adjusted_count = if (in_len == 0) max_count else math.min(in_len, @as(size_t, max_count));
 
             while (true) {
                 var offset: off_t = @bitCast(off_t, in_offset);
@@ -3639,10 +3661,10 @@ pub fn sendfile(
                     0 => {
                         const amt = @bitCast(usize, rc);
                         total_written += amt;
-                        if (count == 0 and amt == 0) {
+                        if (in_len == 0 and amt == 0) {
                             // We have detected EOF from `in_fd`.
                             break;
-                        } else if (amt < count) {
+                        } else if (amt < in_len) {
                             return total_written;
                         } else {
                             break;
@@ -3708,7 +3730,7 @@ pub fn sendfile(
                 hdtr = &hdtr_data;
             }
 
-            const adjusted_count = math.min(count, max_count);
+            const adjusted_count = math.min(in_len, max_count);
 
             while (true) {
                 var sbytes: off_t = undefined;
@@ -3786,7 +3808,7 @@ pub fn sendfile(
                 hdtr = &hdtr_data;
             }
 
-            const adjusted_count = math.min(count, @as(u63, max_count));
+            const adjusted_count = math.min(in_len, @as(u63, max_count));
 
             while (true) {
                 var sbytes: off_t = adjusted_count;
@@ -3840,10 +3862,10 @@ pub fn sendfile(
     rw: {
         var buf: [8 * 4096]u8 = undefined;
         // Here we match BSD behavior, making a zero count value send as many bytes as possible.
-        const adjusted_count = if (count == 0) buf.len else math.min(buf.len, count);
+        const adjusted_count = if (in_len == 0) buf.len else math.min(buf.len, in_len);
         const amt_read = try pread(in_fd, buf[0..adjusted_count], in_offset);
         if (amt_read == 0) {
-            if (count == 0) {
+            if (in_len == 0) {
                 // We have detected EOF from `in_fd`.
                 break :rw;
             } else {
@@ -3852,7 +3874,7 @@ pub fn sendfile(
         }
         const amt_written = try write(out_fd, buf[0..amt_read]);
         total_written += amt_written;
-        if (amt_written < count or count == 0) return total_written;
+        if (amt_written < in_len or in_len == 0) return total_written;
     }
 
     if (trailers.len != 0) {
