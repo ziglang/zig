@@ -56,9 +56,9 @@ pub extern "c" fn host_get_clock_service(host: host_t, clock_id: clock_id_t, clo
 pub extern "c" fn mach_port_deallocate(task: ipc_space_t, name: mach_port_name_t) kern_return_t;
 
 pub const sf_hdtr = extern struct {
-    headers: [*]iovec_const,
+    headers: [*]const iovec_const,
     hdr_cnt: c_int,
-    trailers: [*]iovec_const,
+    trailers: [*]const iovec_const,
     trl_cnt: c_int,
 };
 
