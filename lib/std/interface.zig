@@ -110,7 +110,9 @@ pub const Storage = struct {
 
                 var self: Self = undefined;
 
-                std.mem.copy(u8, self.mem[0..], @ptrCast([*]const u8, &args[0])[0..ImplSize]);
+                if (ImplSize > 0) {
+                    std.mem.copy(u8, self.mem[0..], @ptrCast([*]const u8, &args[0])[0..ImplSize]);
+                }
                 return self;
             }
 
@@ -178,6 +180,33 @@ fn PtrChildOrSelf(comptime T: type) type {
     return T;
 }
 
+const GenCallType = enum {
+    BothAsync,
+    BothBlocking,
+    AsyncCallsBlocking,
+    BlockingCallsAsync,
+};
+
+fn makeCall(
+    comptime name: []const u8,
+    comptime CurrSelfType: type,
+    comptime Return: type,
+    comptime ImplT: type,
+    comptime call_type: GenCallType,
+    self_ptr: CurrSelfType,
+    args: var,
+) Return {
+    const is_const = CurrSelfType == *const SelfType;
+    const self = if (is_const) constSelfPtrAs(self_ptr, ImplT) else selfPtrAs(self_ptr, ImplT);
+    const fptr = @field(self, name);
+
+    return switch (call_type) {
+        .BothBlocking, .BothAsync => @call(.{ .modifier = .always_inline }, fptr, args),
+        .AsyncCallsBlocking => @call(.{ .modifier = .async_kw }, fptr, args),
+        else => @compileError("TODO"),
+    };
+}
+
 fn getFunctionFromImpl(comptime name: []const u8, comptime FnT: type, comptime ImplT: type) ?FnT {
     const our_cc = @typeInfo(FnT).Fn.calling_convention;
 
@@ -205,63 +234,43 @@ fn getFunctionFromImpl(comptime name: []const u8, comptime FnT: type, comptime I
 
                     const Return = @typeInfo(FnT).Fn.return_type orelse noreturn;
                     const CurrSelfType = @typeInfo(FnT).Fn.args[0].arg_type.?;
-                    const is_const = CurrSelfType == *const SelfType;
 
-                    // If our virtual function is async and the candidate is not, it's ok.
-                    // However, if the virutal function is not async and the candidate is, it's not ok.
-                    switch (our_cc) {
-                        .Unspecified => if (candidate_cc == .Async) return null,
-                        else => {},
-                    }
+                    const call_type: GenCallType = switch (our_cc) {
+                        .Async => if (candidate_cc == .Async) .BothAsync else .AsyncCallsBlocking,
+                        .Unspecified => if (candidate_cc == .Unspecified) .BothBlocking else .BlockingCallsAsync,
+                        else => unreachable,
+                    };
 
                     // TODO: Make this less hacky somehow?
                     return switch (args.len) {
                         1 => struct {
                             fn impl(self_ptr: CurrSelfType) Return {
-                                const self = if (is_const) constSelfPtrAs(self_ptr, ImplT) else selfPtrAs(self_ptr, ImplT);
-                                const f = @field(self, name);
-
-                                return @call(if (our_cc == .Async) .{ .modifier = .async_kw } else .{ .modifier = .always_inline }, f, .{});
+                                return @call(.{ .modifier = .always_inline }, makeCall, .{ name, CurrSelfType, Return, ImplT, call_type, self_ptr, .{} });
                             }
                         }.impl,
                         2 => struct {
                             fn impl(self_ptr: CurrSelfType, arg: args[1].arg_type.?) Return {
-                                const self = if (is_const) constSelfPtrAs(self_ptr, ImplT) else selfPtrAs(self_ptr, ImplT);
-                                const f = @field(self, name);
-
-                                return @call(if (our_cc == .Async) .{ .modifier = .async_kw } else .{ .modifier = .always_inline }, f, .{arg});
+                                return @call(.{ .modifier = .always_inline }, makeCall, .{ name, CurrSelfType, Return, ImplT, call_type, self_ptr, .{arg} });
                             }
                         }.impl,
                         3 => struct {
                             fn impl(self_ptr: CurrSelfType, arg1: args[1].arg_type.?, arg2: args[2].arg_type.?) Return {
-                                const self = if (is_const) constSelfPtrAs(self_ptr, ImplT) else selfPtrAs(self_ptr, ImplT);
-                                const f = @field(self, name);
-
-                                return @call(if (our_cc == .Async) .{ .modifier = .async_kw } else .{ .modifier = .always_inline }, f, .{ arg1, arg2 });
+                                return @call(.{ .modifier = .always_inline }, makeCall, .{ name, CurrSelfType, Return, ImplT, call_type, self_ptr, .{ arg1, arg2 } });
                             }
                         }.impl,
                         4 => struct {
                             fn impl(self_ptr: CurrSelfType, arg1: args[1].arg_type.?, arg2: args[2].arg_type.?, arg3: args[3].arg_type.?) Return {
-                                const self = if (is_const) constSelfPtrAs(self_ptr, ImplT) else selfPtrAs(self_ptr, ImplT);
-                                const f = @field(self, name);
-
-                                return @call(if (our_cc == .Async) .{ .modifier = .async_kw } else .{ .modifier = .always_inline }, f, .{ arg1, arg2, arg3 });
+                                return @call(.{ .modifier = .always_inline }, makeCall, .{ name, CurrSelfType, Return, ImplT, call_type, self_ptr, .{ arg1, arg2, arg3 } });
                             }
                         }.impl,
                         5 => struct {
                             fn impl(self_ptr: CurrSelfType, arg1: args[1].arg_type.?, arg2: args[2].arg_type.?, arg3: args[3].arg_type.?, arg4: args[4].arg_type.?) Return {
-                                const self = if (is_const) constSelfPtrAs(self_ptr, ImplT) else selfPtrAs(self_ptr, ImplT);
-                                const f = @field(self, name);
-
-                                return @call(if (our_cc == .Async) .{ .modifier = .async_kw } else .{ .modifier = .always_inline }, f, .{ arg1, arg2, arg3, arg4 });
+                                return @call(.{ .modifier = .always_inline }, makeCall, .{ name, CurrSelfType, Return, ImplT, call_type, self_ptr, .{ arg1, arg2, arg3, arg4 } });
                             }
                         }.impl,
                         6 => struct {
                             fn impl(self_ptr: CurrSelfType, arg1: args[1].arg_type.?, arg2: args[2].arg_type.?, arg3: args[3].arg_type.?, arg4: args[4].arg_type.?, arg5: args[5].arg_type.?) Return {
-                                const self = if (is_const) constSelfPtrAs(self_ptr, ImplT) else selfPtrAs(self_ptr, ImplT);
-                                const f = @field(self, name);
-
-                                return @call(if (our_cc == .Async) .{ .modifier = .async_kw } else .{ .modifier = .always_inline }, f, .{ arg1, arg2, arg3, arg4, arg5 });
+                                return @call(.{ .modifier = .always_inline }, makeCall, .{ name, CurrSelfType, Return, ImplT, call_type, self_ptr, .{ arg1, arg2, arg3, arg4, arg5 } });
                             }
                         }.impl,
                         else => @compileError("Unsupported number of arguments, please provide a manually written vtable."),
@@ -346,10 +355,11 @@ fn checkVtableType(comptime VTableT: type) void {
     }
 }
 
-fn vtableHasMethod(comptime VTableT: type, comptime name: []const u8, is_optional: *bool) bool {
+fn vtableHasMethod(comptime VTableT: type, comptime name: []const u8, is_optional: *bool, is_async: *bool) bool {
     for (std.meta.fields(VTableT)) |field| {
         if (std.mem.eql(u8, name, field.name)) {
             is_optional.* = trait.is(.Optional)(field.field_type);
+            is_async.* = @typeInfo(if(is_optional.*) std.meta.Child(field.field_type) else field.field_type).Fn.calling_convention == .Async;
             return true;
         }
     }
@@ -361,12 +371,22 @@ fn VTableReturnType(comptime VTableT: type, comptime name: []const u8) type {
     for (std.meta.fields(VTableT)) |field| {
         if (std.mem.eql(u8, name, field.name)) {
             const is_optional = trait.is(.Optional)(field.field_type);
-            // TODO: Do I need to do smth different for async?
-            if (is_optional) {
-                return ?@typeInfo(std.meta.Child(field.field_type)).Fn.return_type.?;
+            const is_async = @typeInfo(if(is_optional) std.meta.Child(field.field_type) else field.field_type).Fn.calling_convention == .Async;
+
+            var fn_ret_type = (if(is_optional)
+                @typeInfo(std.meta.Child(field.field_type)).Fn.return_type
+            else
+                @typeInfo(field.field_type).Fn.return_type) orelse noreturn;
+
+            if (is_async) {
+                fn_ret_type = anyframe->fn_ret_type;
             }
 
-            return @typeInfo(field.field_type).Fn.return_type orelse noreturn;
+            if (is_optional) {
+                return ?fn_ret_type;
+            }
+
+            return fn_ret_type;
         }
     }
 
@@ -375,6 +395,11 @@ fn VTableReturnType(comptime VTableT: type, comptime name: []const u8) type {
 
 pub fn Interface(comptime VTableT: type, comptime StorageT: type) type {
     comptime checkVtableType(VTableT);
+
+    const stack_size: usize = if (@hasDecl(VTableT, "async_call_stack_size"))
+        VTableT.async_call_stack_size
+    else
+        1 * 1024 * 1024;
 
     return struct {
         vtable_ptr: *const VTableT,
@@ -398,9 +423,10 @@ pub fn Interface(comptime VTableT: type, comptime StorageT: type) type {
             };
         }
 
-        pub fn call(self: Self, comptime name: []const u8, args: var) VTableReturnType(VTableT, name) {
+        pub fn call(self: *Self, comptime name: []const u8, args: var) VTableReturnType(VTableT, name) {
             comptime var is_optional = true;
-            comptime assert(vtableHasMethod(VTableT, name, &is_optional));
+            comptime var is_async = true;
+            comptime assert(vtableHasMethod(VTableT, name, &is_optional, &is_async));
 
             const fn_ptr = if (is_optional) blk: {
                 const val = @field(self.vtable_ptr, name);
@@ -411,7 +437,18 @@ pub fn Interface(comptime VTableT: type, comptime StorageT: type) type {
             const self_ptr = self.storage.getSelfPtr();
             const new_args = .{self_ptr};
 
-            return @call(.{}, fn_ptr, new_args ++ args);
+            if (!is_async) {
+                return @call(.{}, fn_ptr, new_args ++ args);
+            } else {
+                var stack_frame: [stack_size]u8 align(std.Target.stack_align) = undefined;
+                // return @asyncCall(&stack_frame, {}, fn_ptr, new_args ++ args);
+
+                // For now, only work for for zero arg functions
+                if (args.len != 0) {
+                    @compileError("TODO: @asyncCall should take an argument tuple pack instead of varargs");
+                }
+                return @asyncCall(&stack_frame, {}, fn_ptr, self_ptr);
+            }
         }
 
         pub fn deinit(self: Self) void {
@@ -570,17 +607,17 @@ test "Allocator interface example" {
             };
         }
 
-        pub fn create(self: Self, comptime T: type) Error!*T {
+        pub fn create(self: *Self, comptime T: type) Error!*T {
             if (@sizeOf(T) == 0) return &(T{});
             const slice = try self.alloc(T, 1);
             return &slice[0];
         }
 
-        pub fn alloc(self: Self, comptime T: type, n: usize) Error![]T {
+        pub fn alloc(self: *Self, comptime T: type, n: usize) Error![]T {
             return self.alignedAlloc(T, null, n);
         }
 
-        pub fn alignedAlloc(self: Self, comptime T: type, comptime alignment: ?u29, n: usize) Error![]align(alignment orelse @alignOf(T)) T {
+        pub fn alignedAlloc(self: *Self, comptime T: type, comptime alignment: ?u29, n: usize) Error![]align(alignment orelse @alignOf(T)) T {
             const a = if (alignment) |a| blk: {
                 if (a == @alignOf(T)) return alignedAlloc(self, T, null, n);
                 break :blk a;
@@ -608,7 +645,7 @@ test "Allocator interface example" {
             }
         }
 
-        pub fn destroy(self: Self, ptr: var) void {
+        pub fn destroy(self: *Self, ptr: var) void {
             const T = @TypeOf(ptr).Child;
             if (@sizeOf(T) == 0) return;
             const non_const_ptr = @intToPtr([*]u8, @ptrToInt(ptr));
@@ -648,8 +685,30 @@ test "Allocator interface example" {
     };
 
     var wrapping_alloc = WrappingAllocator.init(std.testing.allocator);
-    const alloc = Allocator.init(&wrapping_alloc);
+    var alloc = Allocator.init(&wrapping_alloc);
 
     const some_mem = try alloc.create(u64);
     defer alloc.destroy(some_mem);
+}
+
+pub const io_mode = .evented;
+
+test "Interface with async function implemented with an async function" {
+    const AsyncIFace = Interface(struct {
+        foo: async fn (*SelfType) void,
+    }, Storage.Inline(32));
+
+    const Impl = struct {
+        const Self = @This();
+
+        state: usize,
+
+        async fn foo(self: *Self) void {
+            suspend;
+            self.state += 1;
+        }
+    };
+
+    var instance = try AsyncIFace.init(.{Impl{ .state = 0 }});
+    _ = async instance.call("foo", .{});
 }
