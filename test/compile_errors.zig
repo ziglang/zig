@@ -1,8 +1,34 @@
 const tests = @import("tests.zig");
-const builtin = @import("builtin");
-const Target = @import("std").Target;
+const std = @import("std");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.addTest("type mismatch with tuple concatenation",
+        \\export fn entry() void {
+        \\    var x = .{};
+        \\    x = x ++ .{ 1, 2, 3 };
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:3:11: error: expected type 'struct:2:14', found 'struct:3:11'",
+    });
+
+    cases.addTest("@tagName on invalid value of non-exhaustive enum",
+        \\test "enum" {
+        \\    const E = enum(u8) {A, B, _};
+        \\    _ = @tagName(@intToEnum(E, 5));
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:3:18: error: no tag by value 5",
+    });
+
+    cases.addTest("@ptrToInt with pointer to zero-sized type",
+        \\export fn entry() void {
+        \\    var pointer: ?*u0 = null;
+        \\    var x = @ptrToInt(pointer);
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:3:23: error: pointer to size 0 type has no address",
+    });
+
     cases.addTest("slice to pointer conversion mismatch",
         \\pub fn bytesAsSlice(bytes: var) [*]align(1) const u16 {
         \\    return @ptrCast([*]align(1) const u16, bytes.ptr)[0..1];
@@ -360,12 +386,10 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         , &[_][]const u8{
             "tmp.zig:3:5: error: target arch 'wasm32' does not support calling with a new stack",
         });
-        tc.target = Target{
-            .Cross = .{
-                .cpu = Target.Cpu.baseline(.wasm32),
-                .os = .wasi,
-                .abi = .none,
-            },
+        tc.target = std.zig.CrossTarget{
+            .cpu_arch = .wasm32,
+            .os_tag = .wasi,
+            .abi = .none,
         };
         break :x tc;
     });
@@ -761,12 +785,10 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         , &[_][]const u8{
             "tmp.zig:2:14: error: could not find 'foo' in the inputs or outputs",
         });
-        tc.target = Target{
-            .Cross = .{
-                .cpu = Target.Cpu.baseline(.x86_64),
-                .os = .linux,
-                .abi = .gnu,
-            },
+        tc.target = std.zig.CrossTarget{
+            .cpu_arch = .x86_64,
+            .os_tag = .linux,
+            .abi = .gnu,
         };
         break :x tc;
     });
@@ -1426,7 +1448,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:2:18: error: invalid operands to binary expression: 'error{A}' and 'error{B}'",
     });
 
-    if (builtin.os == builtin.Os.linux) {
+    if (std.Target.current.os.tag == .linux) {
         cases.addTest("implicit dependency on libc",
             \\extern "c" fn exit(u8) void;
             \\export fn entry() void {
@@ -2714,16 +2736,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
     , &[_][]const u8{
         "tmp.zig:5:5: error: else prong required when switching on type 'anyerror'",
-    });
-
-    cases.add("inferred error set with no returned error",
-        \\export fn entry() void {
-        \\    foo() catch unreachable;
-        \\}
-        \\fn foo() !void {
-        \\}
-    , &[_][]const u8{
-        "tmp.zig:4:11: error: function with inferred error set must return at least one possible error",
     });
 
     cases.add("error not handled in switch",

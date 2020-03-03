@@ -36,7 +36,7 @@ fn cShrink(self: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new
 /// Thread-safe and lock-free.
 pub const page_allocator = if (std.Target.current.isWasm())
     &wasm_page_allocator_state
-else if (std.Target.current.getOs() == .freestanding)
+else if (std.Target.current.os.tag == .freestanding)
     root.os.heap.page_allocator
 else
     &page_allocator_state;
@@ -57,7 +57,7 @@ const PageAllocator = struct {
     fn alloc(allocator: *Allocator, n: usize, alignment: u29) error{OutOfMemory}![]u8 {
         if (n == 0) return &[0]u8{};
 
-        if (builtin.os == .windows) {
+        if (builtin.os.tag == .windows) {
             const w = os.windows;
 
             // Although officially it's at least aligned to page boundary,
@@ -143,7 +143,7 @@ const PageAllocator = struct {
 
     fn shrink(allocator: *Allocator, old_mem_unaligned: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
         const old_mem = @alignCast(mem.page_size, old_mem_unaligned);
-        if (builtin.os == .windows) {
+        if (builtin.os.tag == .windows) {
             const w = os.windows;
             if (new_size == 0) {
                 // From the docs:
@@ -183,7 +183,7 @@ const PageAllocator = struct {
 
     fn realloc(allocator: *Allocator, old_mem_unaligned: []u8, old_align: u29, new_size: usize, new_align: u29) ![]u8 {
         const old_mem = @alignCast(mem.page_size, old_mem_unaligned);
-        if (builtin.os == .windows) {
+        if (builtin.os.tag == .windows) {
             if (old_mem.len == 0) {
                 return alloc(allocator, new_size, new_align);
             }
@@ -412,7 +412,7 @@ const WasmPageAllocator = struct {
     }
 };
 
-pub const HeapAllocator = switch (builtin.os) {
+pub const HeapAllocator = switch (builtin.os.tag) {
     .windows => struct {
         allocator: Allocator,
         heap_handle: ?HeapHandle,
@@ -855,7 +855,7 @@ test "PageAllocator" {
         try testAllocatorAlignedShrink(allocator);
     }
 
-    if (builtin.os == .windows) {
+    if (builtin.os.tag == .windows) {
         // Trying really large alignment. As mentionned in the implementation,
         // VirtualAlloc returns 64K aligned addresses. We want to make sure
         // PageAllocator works beyond that, as it's not tested by
@@ -868,7 +868,7 @@ test "PageAllocator" {
 }
 
 test "HeapAllocator" {
-    if (builtin.os == .windows) {
+    if (builtin.os.tag == .windows) {
         var heap_allocator = HeapAllocator.init();
         defer heap_allocator.deinit();
 

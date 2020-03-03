@@ -53,7 +53,7 @@ test "std.Thread.getCurrentId" {
     thread.wait();
     if (Thread.use_pthreads) {
         expect(thread_current_id == thread_id);
-    } else if (builtin.os == .windows) {
+    } else if (builtin.os.tag == .windows) {
         expect(Thread.getCurrentId() != thread_current_id);
     } else {
         // If the thread completes very quickly, then thread_id can be 0. See the
@@ -151,7 +151,7 @@ test "realpath" {
 }
 
 test "sigaltstack" {
-    if (builtin.os == .windows or builtin.os == .wasi) return error.SkipZigTest;
+    if (builtin.os.tag == .windows or builtin.os.tag == .wasi) return error.SkipZigTest;
 
     var st: os.stack_t = undefined;
     try os.sigaltstack(null, &st);
@@ -204,7 +204,7 @@ fn iter_fn(info: *dl_phdr_info, size: usize, counter: *usize) IterFnError!void {
 }
 
 test "dl_iterate_phdr" {
-    if (builtin.os == .windows or builtin.os == .wasi or builtin.os == .macosx)
+    if (builtin.os.tag == .windows or builtin.os.tag == .wasi or builtin.os.tag == .macosx)
         return error.SkipZigTest;
 
     var counter: usize = 0;
@@ -213,7 +213,7 @@ test "dl_iterate_phdr" {
 }
 
 test "gethostname" {
-    if (builtin.os == .windows)
+    if (builtin.os.tag == .windows)
         return error.SkipZigTest;
 
     var buf: [os.HOST_NAME_MAX]u8 = undefined;
@@ -222,7 +222,7 @@ test "gethostname" {
 }
 
 test "pipe" {
-    if (builtin.os == .windows)
+    if (builtin.os.tag == .windows)
         return error.SkipZigTest;
 
     var fds = try os.pipe();
@@ -241,7 +241,7 @@ test "argsAlloc" {
 
 test "memfd_create" {
     // memfd_create is linux specific.
-    if (builtin.os != .linux) return error.SkipZigTest;
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
     const fd = std.os.memfd_create("test", 0) catch |err| switch (err) {
         // Related: https://github.com/ziglang/zig/issues/4019
         error.SystemOutdated => return error.SkipZigTest,
@@ -258,7 +258,7 @@ test "memfd_create" {
 }
 
 test "mmap" {
-    if (builtin.os == .windows)
+    if (builtin.os.tag == .windows)
         return error.SkipZigTest;
 
     // Simple mmap() call with non page-aligned size
@@ -353,7 +353,7 @@ test "mmap" {
 }
 
 test "getenv" {
-    if (builtin.os == .windows) {
+    if (builtin.os.tag == .windows) {
         expect(os.getenvW(&[_:0]u16{ 'B', 'O', 'G', 'U', 'S', 0x11, 0x22, 0x33, 0x44, 0x55 }) == null);
     } else {
         expect(os.getenvZ("BOGUSDOESNOTEXISTENVVAR") == null);

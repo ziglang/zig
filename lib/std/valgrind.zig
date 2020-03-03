@@ -8,7 +8,7 @@ pub fn doClientRequest(default: usize, request: usize, a1: usize, a2: usize, a3:
     }
 
     switch (builtin.arch) {
-        builtin.Arch.i386 => {
+        .i386 => {
             return asm volatile (
                 \\ roll $3,  %%edi ; roll $13, %%edi
                 \\ roll $29, %%edi ; roll $19, %%edi
@@ -19,7 +19,7 @@ pub fn doClientRequest(default: usize, request: usize, a1: usize, a2: usize, a3:
                 : "cc", "memory"
             );
         },
-        builtin.Arch.x86_64 => {
+        .x86_64 => {
             return asm volatile (
                 \\ rolq $3,  %%rdi ; rolq $13, %%rdi
                 \\ rolq $61, %%rdi ; rolq $51, %%rdi

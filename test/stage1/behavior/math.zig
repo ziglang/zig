@@ -525,7 +525,7 @@ test "comptime_int xor" {
 }
 
 test "f128" {
-    if (std.Target.current.isWindows()) {
+    if (std.Target.current.os.tag == .windows) {
         // TODO https://github.com/ziglang/zig/issues/508
         return error.SkipZigTest;
     }
@@ -619,10 +619,6 @@ test "vector integer addition" {
 }
 
 test "NaN comparison" {
-    if (std.Target.current.isWindows()) {
-        // TODO https://github.com/ziglang/zig/issues/508
-        return error.SkipZigTest;
-    }
     testNanEqNan(f16);
     testNanEqNan(f32);
     testNanEqNan(f64);

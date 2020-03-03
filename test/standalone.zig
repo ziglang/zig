@@ -18,10 +18,10 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
     cases.addBuildFile("test/standalone/use_alias/build.zig");
     cases.addBuildFile("test/standalone/brace_expansion/build.zig");
     cases.addBuildFile("test/standalone/empty_env/build.zig");
-    if (std.Target.current.getOs() != .wasi) {
+    if (std.Target.current.os.tag != .wasi) {
         cases.addBuildFile("test/standalone/load_dynamic_library/build.zig");
     }
-    if (std.Target.current.getArch() == .x86_64) { // TODO add C ABI support for other architectures
+    if (std.Target.current.cpu.arch == .x86_64) { // TODO add C ABI support for other architectures
         cases.addBuildFile("test/stage1/c_abi/build.zig");
     }
 }

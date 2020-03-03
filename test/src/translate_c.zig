@@ -7,6 +7,7 @@ const fmt = std.fmt;
 const mem = std.mem;
 const fs = std.fs;
 const warn = std.debug.warn;
+const CrossTarget = std.zig.CrossTarget;
 
 pub const TranslateCContext = struct {
     b: *build.Builder,
@@ -19,7 +20,7 @@ pub const TranslateCContext = struct {
         sources: ArrayList(SourceFile),
         expected_lines: ArrayList([]const u8),
         allow_warnings: bool,
-        target: std.Target = .Native,
+        target: CrossTarget = CrossTarget{},
 
         const SourceFile = struct {
             filename: []const u8,
@@ -75,7 +76,7 @@ pub const TranslateCContext = struct {
     pub fn addWithTarget(
         self: *TranslateCContext,
         name: []const u8,
-        target: std.Target,
+        target: CrossTarget,
         source: []const u8,
         expected_lines: []const []const u8,
     ) void {

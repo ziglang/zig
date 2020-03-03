@@ -807,3 +807,28 @@ test "return 0 from function that has u0 return type" {
         }
     }
 }
+
+test "two comptime calls with array default initialized to undefined" {
+    const S = struct {
+        const CrossTarget = struct {
+            dynamic_linker: DynamicLinker = DynamicLinker{},
+
+            pub fn parse() void {
+                var result: CrossTarget = .{ };
+                result.getCpuArch();
+            }
+
+            pub fn getCpuArch(self: CrossTarget) void { }
+        };
+
+        const DynamicLinker = struct {
+            buffer: [255]u8 = undefined,
+        };
+
+    };
+
+    comptime {
+        S.CrossTarget.parse();
+        S.CrossTarget.parse();
+    }
+}

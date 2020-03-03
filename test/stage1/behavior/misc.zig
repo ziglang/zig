@@ -335,7 +335,7 @@ test "string concatenation" {
     comptime expect(@TypeOf(a) == *const [12:0]u8);
     comptime expect(@TypeOf(b) == *const [12:0]u8);
 
-    const len = mem.len(u8, b);
+    const len = mem.len(b);
     const len_with_null = len + 1;
     {
         var i: u32 = 0;

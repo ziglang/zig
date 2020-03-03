@@ -1070,7 +1070,7 @@ pub fn tcsetattr(fd: fd_t, optional_action: TCSA, termios_p: *const termios) usi
 }
 
 test "" {
-    if (builtin.os == .linux) {
+    if (builtin.os.tag == .linux) {
         _ = @import("linux/test.zig");
     }
 }

@@ -2249,14 +2249,11 @@ struct CodeGen {
     bool test_is_evented;
     CodeModel code_model;
 
-    Buf *mmacosx_version_min;
-    Buf *mios_version_min;
     Buf *root_out_name;
     Buf *test_filter;
     Buf *test_name_prefix;
     Buf *zig_lib_dir;
     Buf *zig_std_dir;
-    Buf *dynamic_linker_path;
     Buf *version_script_path;
 
     const char **llvm_argv;
@@ -3266,7 +3263,6 @@ struct IrInstSrcContainerInitList {
 struct IrInstSrcContainerInitFieldsField {
     Buf *name;
     AstNode *source_node;
-    TypeStructField *type_struct_field;
     IrInstSrc *result_loc;
 };
 

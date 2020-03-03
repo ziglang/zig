@@ -7,6 +7,7 @@ const LibExeObjStep = build.LibExeObjStep;
 const CheckFileStep = build.CheckFileStep;
 const fs = std.fs;
 const mem = std.mem;
+const CrossTarget = std.zig.CrossTarget;
 
 pub const TranslateCStep = struct {
     step: Step,
@@ -14,7 +15,7 @@ pub const TranslateCStep = struct {
     source: build.FileSource,
     output_dir: ?[]const u8,
     out_basename: []const u8,
-    target: std.Target = .Native,
+    target: CrossTarget = CrossTarget{},
 
     pub fn create(builder: *Builder, source: build.FileSource) *TranslateCStep {
         const self = builder.allocator.create(TranslateCStep) catch unreachable;
@@ -39,7 +40,7 @@ pub const TranslateCStep = struct {
         ) catch unreachable;
     }
 
-    pub fn setTarget(self: *TranslateCStep, target: std.Target) void {
+    pub fn setTarget(self: *TranslateCStep, target: CrossTarget) void {
         self.target = target;
     }
 
@@ -63,12 +64,9 @@ pub const TranslateCStep = struct {
         try argv_list.append("--cache");
         try argv_list.append("on");
 
-        switch (self.target) {
-            .Native => {},
-            .Cross => {
-                try argv_list.append("-target");
-                try argv_list.append(try self.target.zigTriple(self.builder.allocator));
-            },
+        if (!self.target.isNative()) {
+            try argv_list.append("-target");
+            try argv_list.append(try self.target.zigTriple(self.builder.allocator));
         }
 
         try argv_list.append(self.source.getPath(self.builder));

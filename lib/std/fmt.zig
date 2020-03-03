@@ -414,10 +414,9 @@ pub fn formatType(
             if (max_depth == 0) {
                 return output(context, "{ ... }");
             }
-            comptime var field_i = 0;
             try output(context, "{");
-            inline for (StructT.fields) |f| {
-                if (field_i == 0) {
+            inline for (StructT.fields) |f, i| {
+                if (i == 0) {
                     try output(context, " .");
                 } else {
                     try output(context, ", .");
@@ -425,7 +424,6 @@ pub fn formatType(
                 try output(context, f.name);
                 try output(context, " = ");
                 try formatType(@field(value, f.name), fmt, options, context, Errors, output, max_depth - 1);
-                field_i += 1;
             }
             try output(context, " }");
         },
@@ -443,10 +441,12 @@ pub fn formatType(
                 else => return format(context, Errors, output, "{}@{x}", .{ @typeName(T.Child), @ptrToInt(value) }),
             },
             .Many, .C => {
+                if (ptr_info.sentinel) |sentinel| {
+                    return formatType(mem.span(value), fmt, options, context, Errors, output, max_depth);
+                }
                 if (ptr_info.child == u8) {
                     if (fmt.len > 0 and fmt[0] == 's') {
-                        const len = mem.len(u8, value);
-                        return formatText(value[0..len], fmt, options, context, Errors, output);
+                        return formatText(mem.span(value), fmt, options, context, Errors, output);
                     }
                 }
                 return format(context, Errors, output, "{}@{x}", .{ @typeName(T.Child), @ptrToInt(value) });

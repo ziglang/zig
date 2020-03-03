@@ -82,7 +82,7 @@ pub const RunStep = struct {
 
         var key: []const u8 = undefined;
         var prev_path: ?[]const u8 = undefined;
-        if (builtin.os == .windows) {
+        if (builtin.os.tag == .windows) {
             key = "Path";
             prev_path = env_map.get(key);
             if (prev_path == null) {

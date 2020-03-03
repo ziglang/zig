@@ -593,7 +593,7 @@ test "PackedInt(Array/Slice)Endian" {
 // after this one is not mapped and will cause a segfault if we
 // don't account for the bounds.
 test "PackedIntArray at end of available memory" {
-    switch (builtin.os) {
+    switch (builtin.os.tag) {
         .linux, .macosx, .ios, .freebsd, .netbsd, .windows => {},
         else => return,
     }
@@ -612,7 +612,7 @@ test "PackedIntArray at end of available memory" {
 }
 
 test "PackedIntSlice at end of available memory" {
-    switch (builtin.os) {
+    switch (builtin.os.tag) {
         .linux, .macosx, .ios, .freebsd, .netbsd, .windows => {},
         else => return,
     }

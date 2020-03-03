@@ -515,7 +515,7 @@ const DarwinPlatform = struct {
                 break :blk ver;
             },
             .None => blk: {
-                assert(comp.target.getOs() == .macosx);
+                assert(comp.target.os.tag == .macosx);
                 result.kind = .MacOS;
                 break :blk "10.14";
             },
@@ -534,7 +534,7 @@ const DarwinPlatform = struct {
         }
 
         if (result.kind == .IPhoneOS) {
-            switch (comp.target.getArch()) {
+            switch (comp.target.cpu.arch) {
                 .i386,
                 .x86_64,
                 => result.kind = .IPhoneOSSimulator,

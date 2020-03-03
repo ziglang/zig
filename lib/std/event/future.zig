@@ -86,7 +86,7 @@ test "std.event.Future" {
     // https://github.com/ziglang/zig/issues/1908
     if (builtin.single_threaded) return error.SkipZigTest;
     // https://github.com/ziglang/zig/issues/3251
-    if (builtin.os == .freebsd) return error.SkipZigTest;
+    if (builtin.os.tag == .freebsd) return error.SkipZigTest;
     // TODO provide a way to run tests in evented I/O mode
     if (!std.io.is_async) return error.SkipZigTest;
 
