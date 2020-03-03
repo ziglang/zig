@@ -14,7 +14,15 @@ pub const sf_hdtr = extern struct {
     trailers: [*]iovec_const,
     trl_cnt: c_int,
 };
-pub extern "c" fn sendfile(fd: c_int, s: c_int, offset: u64, nbytes: usize, sf_hdtr: ?*sf_hdtr, sbytes: ?*u64, flags: c_int) c_int;
+pub extern "c" fn sendfile(
+    out_fd: fd_t,
+    in_fd: fd_t,
+    offset: ?*off_t,
+    nbytes: usize,
+    sf_hdtr: ?*sf_hdtr,
+    sbytes: ?*off_t,
+    flags: u32,
+) c_int;
 
 pub const dl_iterate_phdr_callback = extern fn (info: *dl_phdr_info, size: usize, data: ?*c_void) c_int;
 pub extern "c" fn dl_iterate_phdr(callback: dl_iterate_phdr_callback, data: ?*c_void) c_int;

@@ -228,63 +228,169 @@ pub const File = struct {
     }
 
     pub const ReadError = os.ReadError;
+    pub const PReadError = os.PReadError;
 
     pub fn read(self: File, buffer: []u8) ReadError!usize {
         if (need_async_thread and self.io_mode == .blocking and !self.async_block_allowed) {
             return std.event.Loop.instance.?.read(self.handle, buffer);
+        } else {
+            return os.read(self.handle, buffer);
         }
-        return os.read(self.handle, buffer);
     }
 
-    pub fn pread(self: File, buffer: []u8, offset: u64) ReadError!usize {
-        if (need_async_thread and self.io_mode == .blocking and !self.async_block_allowed) {
-            return std.event.Loop.instance.?.pread(self.handle, buffer);
+    pub fn readAll(self: File, buffer: []u8) ReadError!void {
+        var index: usize = 0;
+        while (index < buffer.len) {
+            index += try self.read(buffer[index..]);
         }
-        return os.pread(self.handle, buffer, offset);
+    }
+
+    pub fn pread(self: File, buffer: []u8, offset: u64) PReadError!usize {
+        if (need_async_thread and self.io_mode == .blocking and !self.async_block_allowed) {
+            return std.event.Loop.instance.?.pread(self.handle, buffer, offset);
+        } else {
+            return os.pread(self.handle, buffer, offset);
+        }
+    }
+
+    pub fn preadAll(self: File, buffer: []u8, offset: u64) PReadError!void {
+        var index: usize = 0;
+        while (index < buffer.len) {
+            index += try self.pread(buffer[index..], offset + index);
+        }
     }
 
     pub fn readv(self: File, iovecs: []const os.iovec) ReadError!usize {
         if (need_async_thread and self.io_mode == .blocking and !self.async_block_allowed) {
             return std.event.Loop.instance.?.readv(self.handle, iovecs);
+        } else {
+            return os.readv(self.handle, iovecs);
         }
-        return os.readv(self.handle, iovecs);
     }
 
-    pub fn preadv(self: File, iovecs: []const os.iovec, offset: u64) ReadError!usize {
+    /// The `iovecs` parameter is mutable because this function needs to mutate the fields in
+    /// order to handle partial reads from the underlying OS layer.
+    pub fn readvAll(self: File, iovecs: []os.iovec) ReadError!void {
+        var i: usize = 0;
+        while (true) {
+            var amt = try self.readv(iovecs[i..]);
+            while (amt >= iovecs[i].iov_len) {
+                amt -= iovecs[i].iov_len;
+                i += 1;
+                if (i >= iovecs.len) return;
+            }
+            iovecs[i].iov_base += amt;
+            iovecs[i].iov_len -= amt;
+        }
+    }
+
+    pub fn preadv(self: File, iovecs: []const os.iovec, offset: u64) PReadError!usize {
         if (need_async_thread and self.io_mode == .blocking and !self.async_block_allowed) {
             return std.event.Loop.instance.?.preadv(self.handle, iovecs, offset);
+        } else {
+            return os.preadv(self.handle, iovecs, offset);
         }
-        return os.preadv(self.handle, iovecs, offset);
+    }
+
+    /// The `iovecs` parameter is mutable because this function needs to mutate the fields in
+    /// order to handle partial reads from the underlying OS layer.
+    pub fn preadvAll(self: File, iovecs: []const os.iovec, offset: u64) PReadError!void {
+        var i: usize = 0;
+        var off: usize = 0;
+        while (true) {
+            var amt = try self.preadv(iovecs[i..], offset + off);
+            off += amt;
+            while (amt >= iovecs[i].iov_len) {
+                amt -= iovecs[i].iov_len;
+                i += 1;
+                if (i >= iovecs.len) return;
+            }
+            iovecs[i].iov_base += amt;
+            iovecs[i].iov_len -= amt;
+        }
     }
 
     pub const WriteError = os.WriteError;
+    pub const PWriteError = os.PWriteError;
 
-    pub fn write(self: File, bytes: []const u8) WriteError!void {
+    pub fn write(self: File, bytes: []const u8) WriteError!usize {
         if (need_async_thread and self.io_mode == .blocking and !self.async_block_allowed) {
             return std.event.Loop.instance.?.write(self.handle, bytes);
+        } else {
+            return os.write(self.handle, bytes);
         }
-        return os.write(self.handle, bytes);
     }
 
-    pub fn pwrite(self: File, bytes: []const u8, offset: u64) WriteError!void {
+    pub fn writeAll(self: File, bytes: []const u8) WriteError!void {
+        var index: usize = 0;
+        while (index < bytes.len) {
+            index += try self.write(bytes[index..]);
+        }
+    }
+
+    pub fn pwrite(self: File, bytes: []const u8, offset: u64) PWriteError!usize {
         if (need_async_thread and self.io_mode == .blocking and !self.async_block_allowed) {
             return std.event.Loop.instance.?.pwrite(self.handle, bytes, offset);
+        } else {
+            return os.pwrite(self.handle, bytes, offset);
         }
-        return os.pwrite(self.handle, bytes, offset);
     }
 
-    pub fn writev(self: File, iovecs: []const os.iovec_const) WriteError!void {
+    pub fn pwriteAll(self: File, bytes: []const u8, offset: u64) PWriteError!void {
+        var index: usize = 0;
+        while (index < bytes.len) {
+            index += try self.pwrite(bytes[index..], offset + index);
+        }
+    }
+
+    pub fn writev(self: File, iovecs: []const os.iovec_const) WriteError!usize {
         if (need_async_thread and self.io_mode == .blocking and !self.async_block_allowed) {
             return std.event.Loop.instance.?.writev(self.handle, iovecs);
+        } else {
+            return os.writev(self.handle, iovecs);
         }
-        return os.writev(self.handle, iovecs);
     }
 
-    pub fn pwritev(self: File, iovecs: []const os.iovec_const, offset: usize) WriteError!void {
-        if (need_async_thread and self.io_mode == .blocking and !self.async_block_allowed) {
-            return std.event.Loop.instance.?.pwritev(self.handle, iovecs);
+    /// The `iovecs` parameter is mutable because this function needs to mutate the fields in
+    /// order to handle partial writes from the underlying OS layer.
+    pub fn writevAll(self: File, iovecs: []os.iovec_const) WriteError!void {
+        var i: usize = 0;
+        while (true) {
+            var amt = try self.writev(iovecs[i..]);
+            while (amt >= iovecs[i].iov_len) {
+                amt -= iovecs[i].iov_len;
+                i += 1;
+                if (i >= iovecs.len) return;
+            }
+            iovecs[i].iov_base += amt;
+            iovecs[i].iov_len -= amt;
         }
-        return os.pwritev(self.handle, iovecs);
+    }
+
+    pub fn pwritev(self: File, iovecs: []os.iovec_const, offset: usize) PWriteError!usize {
+        if (need_async_thread and self.io_mode == .blocking and !self.async_block_allowed) {
+            return std.event.Loop.instance.?.pwritev(self.handle, iovecs, offset);
+        } else {
+            return os.pwritev(self.handle, iovecs, offset);
+        }
+    }
+
+    /// The `iovecs` parameter is mutable because this function needs to mutate the fields in
+    /// order to handle partial writes from the underlying OS layer.
+    pub fn pwritevAll(self: File, iovecs: []os.iovec_const, offset: usize) PWriteError!void {
+        var i: usize = 0;
+        var off: usize = 0;
+        while (true) {
+            var amt = try self.pwritev(iovecs[i..], offset + off);
+            off += amt;
+            while (amt >= iovecs[i].iov_len) {
+                amt -= iovecs[i].iov_len;
+                i += 1;
+                if (i >= iovecs.len) return;
+            }
+            iovecs[i].iov_base += amt;
+            iovecs[i].iov_len -= amt;
+        }
     }
 
     pub fn inStream(file: File) InStream {
@@ -335,7 +441,7 @@ pub const File = struct {
         pub const Error = WriteError;
         pub const Stream = io.OutStream(Error);
 
-        fn writeFn(out_stream: *Stream, bytes: []const u8) Error!void {
+        fn writeFn(out_stream: *Stream, bytes: []const u8) Error!usize {
             const self = @fieldParentPtr(OutStream, "stream", out_stream);
             return self.file.write(bytes);
         }

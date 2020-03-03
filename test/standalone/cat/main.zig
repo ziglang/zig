@@ -42,6 +42,7 @@ fn usage(exe: []const u8) !void {
     return error.Invalid;
 }
 
+// TODO use copy_file_range
 fn cat_file(stdout: fs.File, file: fs.File) !void {
     var buf: [1024 * 4]u8 = undefined;
 
@@ -55,7 +56,7 @@ fn cat_file(stdout: fs.File, file: fs.File) !void {
             break;
         }
 
-        stdout.write(buf[0..bytes_read]) catch |err| {
+        stdout.writeAll(buf[0..bytes_read]) catch |err| {
             warn("Unable to write to stdout: {}\n", .{@errorName(err)});
             return err;
         };

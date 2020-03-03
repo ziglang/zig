@@ -82,6 +82,7 @@ pub const SYS_pread64 = 67;
 pub const SYS_pwrite64 = 68;
 pub const SYS_preadv = 69;
 pub const SYS_pwritev = 70;
+pub const SYS_sendfile = 71;
 pub const SYS_pselect6 = 72;
 pub const SYS_ppoll = 73;
 pub const SYS_signalfd4 = 74;

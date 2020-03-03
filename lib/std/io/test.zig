@@ -134,13 +134,13 @@ test "SliceOutStream" {
     try ss.stream.write("world");
     expect(mem.eql(u8, ss.getWritten(), "Helloworld"));
 
-    expectError(error.OutOfSpace, ss.stream.write("!"));
+    expectError(error.OutOfMemory, ss.stream.write("!"));
     expect(mem.eql(u8, ss.getWritten(), "Helloworld"));
 
     ss.reset();
     expect(ss.getWritten().len == 0);
 
-    expectError(error.OutOfSpace, ss.stream.write("Hello world!"));
+    expectError(error.OutOfMemory, ss.stream.write("Hello world!"));
     expect(mem.eql(u8, ss.getWritten(), "Hello worl"));
 }
 
@@ -617,7 +617,7 @@ test "File seek ops" {
         fs.cwd().deleteFile(tmp_file_name) catch {};
     }
 
-    try file.write(&([_]u8{0x55} ** 8192));
+    try file.writeAll(&([_]u8{0x55} ** 8192));
 
     // Seek to the end
     try file.seekFromEnd(0);

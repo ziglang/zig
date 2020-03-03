@@ -236,7 +236,8 @@ pub const Loop = struct {
                 var extra_thread_index: usize = 0;
                 errdefer {
                     // writing 8 bytes to an eventfd cannot fail
-                    noasync os.write(self.os_data.final_eventfd, &wakeup_bytes) catch unreachable;
+                    const amt = noasync os.write(self.os_data.final_eventfd, &wakeup_bytes) catch unreachable;
+                    assert(amt == wakeup_bytes.len);
                     while (extra_thread_index != 0) {
                         extra_thread_index -= 1;
                         self.extra_threads[extra_thread_index].wait();
@@ -682,7 +683,8 @@ pub const Loop = struct {
                 .linux => {
                     self.posixFsRequest(&self.os_data.fs_end_request);
                     // writing 8 bytes to an eventfd cannot fail
-                    noasync os.write(self.os_data.final_eventfd, &wakeup_bytes) catch unreachable;
+                    const amt = noasync os.write(self.os_data.final_eventfd, &wakeup_bytes) catch unreachable;
+                    assert(amt == wakeup_bytes.len);
                     return;
                 },
                 .macosx, .freebsd, .netbsd, .dragonfly => {
@@ -831,7 +833,7 @@ pub const Loop = struct {
 
     /// Performs an async `os.write` using a separate thread.
     /// `fd` must block and not return EAGAIN.
-    pub fn write(self: *Loop, fd: os.fd_t, bytes: []const u8) os.WriteError!void {
+    pub fn write(self: *Loop, fd: os.fd_t, bytes: []const u8) os.WriteError!usize {
         var req_node = Request.Node{
             .data = .{
                 .msg = .{
@@ -852,7 +854,7 @@ pub const Loop = struct {
 
     /// Performs an async `os.writev` using a separate thread.
     /// `fd` must block and not return EAGAIN.
-    pub fn writev(self: *Loop, fd: os.fd_t, iov: []const os.iovec_const) os.WriteError!void {
+    pub fn writev(self: *Loop, fd: os.fd_t, iov: []const os.iovec_const) os.WriteError!usize {
         var req_node = Request.Node{
             .data = .{
                 .msg = .{
@@ -873,7 +875,7 @@ pub const Loop = struct {
 
     /// Performs an async `os.pwritev` using a separate thread.
     /// `fd` must block and not return EAGAIN.
-    pub fn pwritev(self: *Loop, fd: os.fd_t, iov: []const os.iovec_const, offset: u64) os.WriteError!void {
+    pub fn pwritev(self: *Loop, fd: os.fd_t, iov: []const os.iovec_const, offset: u64) os.WriteError!usize {
         var req_node = Request.Node{
             .data = .{
                 .msg = .{
@@ -1137,7 +1139,7 @@ pub const Loop = struct {
             pub const Write = struct {
                 fd: os.fd_t,
                 bytes: []const u8,
-                result: Error!void,
+                result: Error!usize,
 
                 pub const Error = os.WriteError;
             };
@@ -1145,7 +1147,7 @@ pub const Loop = struct {
             pub const WriteV = struct {
                 fd: os.fd_t,
                 iov: []const os.iovec_const,
-                result: Error!void,
+                result: Error!usize,
 
                 pub const Error = os.WriteError;
             };
@@ -1154,9 +1156,9 @@ pub const Loop = struct {
                 fd: os.fd_t,
                 iov: []const os.iovec_const,
                 offset: usize,
-                result: Error!void,
+                result: Error!usize,
 
-                pub const Error = os.WriteError;
+                pub const Error = os.PWriteError;
             };
 
             pub const PReadV = struct {
@@ -1165,7 +1167,7 @@ pub const Loop = struct {
                 offset: usize,
                 result: Error!usize,
 
-                pub const Error = os.ReadError;
+                pub const Error = os.PReadError;
             };
 
             pub const Open = struct {

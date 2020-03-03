@@ -20,10 +20,10 @@ pub const COutStream = struct {
         };
     }
 
-    fn writeFn(out_stream: *Stream, bytes: []const u8) Error!void {
+    fn writeFn(out_stream: *Stream, bytes: []const u8) Error!usize {
         const self = @fieldParentPtr(COutStream, "stream", out_stream);
         const amt_written = std.c.fwrite(bytes.ptr, 1, bytes.len, self.c_file);
-        if (amt_written == bytes.len) return;
+        if (amt_written >= 0) return amt_written;
         switch (std.c._errno().*) {
             0 => unreachable,
             os.EINVAL => unreachable,

@@ -316,8 +316,19 @@ pub fn symlinkat(existing: [*:0]const u8, newfd: i32, newpath: [*:0]const u8) us
     return syscall3(SYS_symlinkat, @ptrToInt(existing), @bitCast(usize, @as(isize, newfd)), @ptrToInt(newpath));
 }
 
-pub fn pread(fd: i32, buf: [*]u8, count: usize, offset: usize) usize {
-    return syscall4(SYS_pread, @bitCast(usize, @as(isize, fd)), @ptrToInt(buf), count, offset);
+pub fn pread(fd: i32, buf: [*]u8, count: usize, offset: u64) usize {
+    if (@hasDecl(@This(), "SYS_pread64")) {
+        return syscall5(
+            SYS_pread64,
+            @bitCast(usize, @as(isize, fd)),
+            @ptrToInt(buf),
+            count,
+            @truncate(usize, offset),
+            @truncate(usize, offset >> 32),
+        );
+    } else {
+        return syscall4(SYS_pread, @bitCast(usize, @as(isize, fd)), @ptrToInt(buf), count, offset);
+    }
 }
 
 pub fn access(path: [*:0]const u8, mode: u32) usize {
@@ -846,11 +857,23 @@ pub fn sendto(fd: i32, buf: [*]const u8, len: usize, flags: u32, addr: ?*const s
     return syscall6(SYS_sendto, @bitCast(usize, @as(isize, fd)), @ptrToInt(buf), len, flags, @ptrToInt(addr), @intCast(usize, alen));
 }
 
-pub fn sendfile(outfd: i32, infd: i32, offset: ?*u64, count: usize) usize {
+pub fn sendfile(outfd: i32, infd: i32, offset: ?*i64, count: usize) usize {
     if (@hasDecl(@This(), "SYS_sendfile64")) {
-        return syscall4(SYS_sendfile64, @bitCast(usize, @as(isize, outfd)), @bitCast(usize, @as(isize, infd)), @ptrToInt(offset), count);
+        return syscall4(
+            SYS_sendfile64,
+            @bitCast(usize, @as(isize, outfd)),
+            @bitCast(usize, @as(isize, infd)),
+            @ptrToInt(offset),
+            count,
+        );
     } else {
-        return syscall4(SYS_sendfile, @bitCast(usize, @as(isize, outfd)), @bitCast(usize, @as(isize, infd)), @ptrToInt(offset), count);
+        return syscall4(
+            SYS_sendfile,
+            @bitCast(usize, @as(isize, outfd)),
+            @bitCast(usize, @as(isize, infd)),
+            @ptrToInt(offset),
+            count,
+        );
     }
 }
 

@@ -142,7 +142,7 @@ pub extern "c" fn sendto(
     buf: *const c_void,
     len: usize,
     flags: u32,
-    dest_addr: *const sockaddr,
+    dest_addr: ?*const sockaddr,
     addrlen: socklen_t,
 ) isize;
 
