@@ -16,7 +16,7 @@ const AtomicRmwOp = builtin.AtomicRmwOp;
 const AtomicOrder = builtin.AtomicOrder;
 
 test "makePath, put some files in it, deleteTree" {
-    try fs.makePath(a, "os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c");
+    try fs.cwd().makePath("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c");
     try io.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c" ++ fs.path.sep_str ++ "file.txt", "nonsense");
     try io.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "file2.txt", "blah");
     try fs.deleteTree("os_test_tmp");
@@ -28,7 +28,7 @@ test "makePath, put some files in it, deleteTree" {
 }
 
 test "access file" {
-    try fs.makePath(a, "os_test_tmp");
+    try fs.cwd().makePath("os_test_tmp");
     if (fs.cwd().access("os_test_tmp" ++ fs.path.sep_str ++ "file.txt", .{})) |ok| {
         @panic("expected error");
     } else |err| {
@@ -45,7 +45,7 @@ fn testThreadIdFn(thread_id: *Thread.Id) void {
 }
 
 test "sendfile" {
-    try fs.makePath(a, "os_test_tmp");
+    try fs.cwd().makePath("os_test_tmp");
     defer fs.deleteTree("os_test_tmp") catch {};
 
     var dir = try fs.cwd().openDirList("os_test_tmp");
@@ -74,7 +74,9 @@ test "sendfile" {
 
     const header1 = "header1\n";
     const header2 = "second header\n";
-    var headers = [_]os.iovec_const{
+    const trailer1 = "trailer1\n";
+    const trailer2 = "second trailer\n";
+    var hdtr = [_]os.iovec_const{
         .{
             .iov_base = header1,
             .iov_len = header1.len,
@@ -83,11 +85,6 @@ test "sendfile" {
             .iov_base = header2,
             .iov_len = header2.len,
         },
-    };
-
-    const trailer1 = "trailer1\n";
-    const trailer2 = "second trailer\n";
-    var trailers = [_]os.iovec_const{
         .{
             .iov_base = trailer1,
             .iov_len = trailer1.len,
@@ -99,57 +96,14 @@ test "sendfile" {
     };
 
     var written_buf: [header1.len + header2.len + 10 + trailer1.len + trailer2.len]u8 = undefined;
-    try sendfileAll(dest_file.handle, src_file.handle, 1, 10, &headers, &trailers, 0);
-
+    try dest_file.writeFileAll(src_file, .{
+        .in_offset = 1,
+        .in_len = 10,
+        .headers_and_trailers = &hdtr,
+        .header_count = 2,
+    });
     try dest_file.preadAll(&written_buf, 0);
     expect(mem.eql(u8, &written_buf, "header1\nsecond header\nine1\nsecontrailer1\nsecond trailer\n"));
-}
-
-fn sendfileAll(
-    out_fd: os.fd_t,
-    in_fd: os.fd_t,
-    offset: u64,
-    count: usize,
-    headers: []os.iovec_const,
-    trailers: []os.iovec_const,
-    flags: u32,
-) os.SendFileError!void {
-    var amt: usize = undefined;
-    hdrs: {
-        var i: usize = 0;
-        while (i < headers.len) {
-            amt = try os.sendfile(out_fd, in_fd, offset, count, headers[i..], trailers, flags);
-            while (amt >= headers[i].iov_len) {
-                amt -= headers[i].iov_len;
-                i += 1;
-                if (i >= headers.len) break :hdrs;
-            }
-            headers[i].iov_base += amt;
-            headers[i].iov_len -= amt;
-        }
-    }
-    var off = amt;
-    while (off < count) {
-        amt = try os.sendfile(out_fd, in_fd, offset + off, count - off, &[0]os.iovec_const{}, trailers, flags);
-        off += amt;
-    }
-    amt = off - count;
-    var i: usize = 0;
-    while (i < trailers.len) {
-        while (amt >= headers[i].iov_len) {
-            amt -= trailers[i].iov_len;
-            i += 1;
-            if (i >= trailers.len) return;
-        }
-        trailers[i].iov_base += amt;
-        trailers[i].iov_len -= amt;
-        if (std.Target.current.os.tag == .windows) {
-            amt = try os.writev(out_fd, trailers[i..]);
-        } else {
-            // Here we must use send because it's the only way to give the flags.
-            amt = try os.send(out_fd, trailers[i].iov_base[0..trailers[i].iov_len], flags);
-        }
-    }
 }
 
 test "std.Thread.getCurrentId" {
