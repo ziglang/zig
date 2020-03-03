@@ -3605,11 +3605,11 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add("array access of non array",
         \\export fn f() void {
         \\    var bad : bool = undefined;
-        \\    bad[bad] = bad[bad];
+        \\    bad[0] = bad[0];
         \\}
         \\export fn g() void {
         \\    var bad : bool = undefined;
-        \\    _ = bad[bad];
+        \\    _ = bad[0];
         \\}
     , &[_][]const u8{
         "tmp.zig:3:8: error: array access of non-array type 'bool'",
