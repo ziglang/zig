@@ -16,3 +16,14 @@ test "tuple concatenation" {
     S.doTheTest();
     comptime S.doTheTest();
 }
+
+test "tuple initialization with structure initializer and constant expression" {
+    const TestStruct = struct {
+        state: u8,
+    };
+
+    const tuple_with_struct = .{ TestStruct{ .state = 42 }, 0 };
+    expect(tuple_with_struct.len == 2);
+    expect(tuple_with_struct.@"0".state == 42);
+    expect(tuple_with_struct.@"1" == 0);
+}

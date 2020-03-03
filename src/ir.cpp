@@ -18458,15 +18458,6 @@ static IrInstGen *ir_resolve_result(IrAnalyze *ira, IrInst *suspend_source_instr
             field->type_val = create_const_type(ira->codegen, field->type_entry);
             field->src_index = old_field_count;
             field->decl_node = value ? value->base.source_node : suspend_source_instr->source_node;
-            if (value && instr_is_comptime(value)) {
-                ZigValue *val = ir_resolve_const(ira, value, UndefOk);
-                if (!val)
-                    return ira->codegen->invalid_inst_gen;
-                field->is_comptime = true;
-                field->init_val = ira->codegen->pass1_arena->create<ZigValue>();
-                copy_const_val(ira->codegen, field->init_val, val);
-                return result_loc;
-            }
 
             ZigType *struct_ptr_type = get_pointer_to_type(ira->codegen, isf->inferred_struct_type, false);
             if (instr_is_comptime(result_loc)) {
@@ -18494,6 +18485,16 @@ static IrInstGen *ir_resolve_result(IrAnalyze *ira, IrInst *suspend_source_instr
                     field_val->parent.data.p_struct.struct_val = struct_val;
                     field_val->parent.data.p_struct.field_index = old_field_count;
                 }
+            }
+
+            if (value && instr_is_comptime(value)) {
+                ZigValue *val = ir_resolve_const(ira, value, UndefOk);
+                if (!val)
+                    return ira->codegen->invalid_inst_gen;
+                field->is_comptime = true;
+                field->init_val = ira->codegen->pass1_arena->create<ZigValue>();
+                copy_const_val(ira->codegen, field->init_val, val);
+                return result_loc;
             }
         }
 
