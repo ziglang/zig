@@ -6,7 +6,7 @@
 //   provide `rename` when only the `renameat` syscall exists.
 // * Does not support POSIX thread cancellation.
 const std = @import("../std.zig");
-const builtin = @import("builtin");
+const builtin = std.builtin;
 const assert = std.debug.assert;
 const maxInt = std.math.maxInt;
 const elf = std.elf;
@@ -42,9 +42,9 @@ pub fn getauxval(index: usize) usize {
 // Some architectures require 64bit parameters for some syscalls to be passed in
 // even-aligned register pair
 const require_aligned_register_pair = //
-    comptime builtin.arch.isMIPS() or
-    comptime builtin.arch.isARM() or
-    comptime builtin.arch.isThumb();
+    std.Target.current.cpu.arch.isMIPS() or
+    std.Target.current.cpu.arch.isARM() or
+    std.Target.current.cpu.arch.isThumb();
 
 /// Get the errno from a syscall return value, or 0 for no error.
 pub fn getErrno(r: usize) u12 {
