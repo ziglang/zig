@@ -1,5 +1,7 @@
 const std = @import("std");
-const expect = std.testing.expect;
+const testing = std.testing;
+const expect = testing.expect;
+const expectEqual = testing.expectEqual;
 
 test "tuple concatenation" {
     const S = struct {
@@ -9,8 +11,31 @@ test "tuple concatenation" {
             var x = .{a};
             var y = .{b};
             var c = x ++ y;
-            expect(c[0] == 1);
-            expect(c[1] == 2);
+            expectEqual(@as(i32, 1), c[0]);
+            expectEqual(@as(i32, 2), c[1]);
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "tuple multiplication" {
+    const S = struct {
+        fn doTheTest() void {
+            {
+                const t = .{} ** 4;
+                expectEqual(0, @typeInfo(@TypeOf(t)).Struct.fields.len);
+            }
+            {
+                const t = .{'a'} ** 4;
+                expectEqual(4, @typeInfo(@TypeOf(t)).Struct.fields.len);
+                inline for (t) |x| expectEqual('a', x);
+            }
+            {
+                const t = .{ 1, 2, 3 } ** 4;
+                expectEqual(12, @typeInfo(@TypeOf(t)).Struct.fields.len);
+                inline for (t) |x, i| expectEqual(1 + i % 3, x);
+            }
         }
     };
     S.doTheTest();
