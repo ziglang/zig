@@ -45,7 +45,7 @@ pub const Storage = struct {
             }
 
             return NonOwning{
-                .erased_ptr = makeSelfPtr(args.@"0"),
+                .erased_ptr = makeSelfPtr(args[0]),
             };
         }
 
@@ -66,13 +66,13 @@ pub const Storage = struct {
                 @compileError("Owning storage expected a 2-tuple in initialization.");
             }
 
-            const AllocT = @TypeOf(args.@"0");
+            const AllocT = @TypeOf(args[0]);
 
-            var obj = try args.@"1".create(AllocT);
-            obj.* = args.@"0";
+            var obj = try args[1].create(AllocT);
+            obj.* = args[0];
 
             return Owning{
-                .allocator = args.@"1",
+                .allocator = args[1],
                 .mem = std.mem.toBytes(obj)[0..],
                 .alignment = @alignOf(AllocT),
             };
@@ -102,7 +102,7 @@ pub const Storage = struct {
                     @compileError("Inline storage expected a 1-tuple in initialization.");
                 }
 
-                const ImplSize = @sizeOf(@TypeOf(args.@"0"));
+                const ImplSize = @sizeOf(@TypeOf(args[0]));
 
                 if (ImplSize > size) {
                     @compileError("Type does not fit in inline storage.");
@@ -110,7 +110,7 @@ pub const Storage = struct {
 
                 var self: Self = undefined;
 
-                std.mem.copy(u8, self.mem[0..], @ptrCast([*]const u8, &args.@"0")[0..ImplSize]);
+                std.mem.copy(u8, self.mem[0..], @ptrCast([*]const u8, &args[0])[0..ImplSize]);
                 return self;
             }
 
@@ -138,7 +138,7 @@ pub const Storage = struct {
                     @compileError("InlineOrOwning storage expected a 2-tuple in initialization.");
                 }
 
-                const ImplSize = @sizeOf(@TypeOf(args.@"0"));
+                const ImplSize = @sizeOf(@TypeOf(args[0]));
 
                 if (ImpleSize > size) {
                     return .{
@@ -149,7 +149,7 @@ pub const Storage = struct {
                 } else {
                     return .{
                         .data = {
-                            .Inline = try Inline(size).init(.{args.@"0"});
+                            .Inline = try Inline(size).init(.{args[0]});
                         },
                     };
                 }
@@ -422,89 +422,90 @@ pub fn Interface(comptime VTableT: type, comptime StorageT: type) type {
     };
 }
 
-var testing_allocator = &std.testing.allocator_instance.allocator;
+test "SelfType pointer erasure" {
+    const SelfTypeTest = struct {
+        fn run() void {
+            var i: usize = 10;
+            var erased = makeSelfPtr(&i);
 
-test "SelfType ptr runtime" {
-    var i: usize = 10;
-    var erased = makeSelfPtr(&i);
-
-    assert(&i == selfPtrAs(erased, usize));
-}
-
-test "SelfType ptr comptime" {
-    comptime {
-        var b = false;
-        var erased = makeSelfPtr(&b);
-
-        assert(&b == selfPtrAs(erased, bool));
-    }
-}
-
-const Fooer = Interface(struct {
-    foo: fn (*SelfType) usize,
-}, Storage.NonOwning);
-
-const TestFooer = struct {
-    state: usize,
-
-    fn foo(self: *TestFooer) usize {
-        const tmp = self.state;
-        self.state += 1;
-        return tmp;
-    }
-};
-
-test "Simple NonOwning interface - runtime" {
-    var f = TestFooer{ .state = 42 };
-    var fooer = try Fooer.init(.{&f});
-    defer fooer.deinit();
-
-    assert(fooer.call("foo", .{}) == 42);
-    assert(fooer.call("foo", .{}) == 43);
-}
-
-test "Simple NonOwning interface - comptime" {
-    comptime {
-        var f = TestFooer{ .state = 101 };
-        var fooer = try Fooer.init(.{&f});
-        defer fooer.deinit();
-
-        assert(fooer.call("foo", .{}) == 101);
-        assert(fooer.call("foo", .{}) == 102);
-    }
-}
-
-const TestOwningIface = Interface(struct {
-    someFn: ?fn (*const SelfType, usize, usize) usize,
-    otherFn: fn (*SelfType, usize) anyerror!void,
-}, Storage.Owning);
-
-test "Owning interface with optional function - runtime" {
-    const TestStruct = struct {
-        const Self = @This();
-
-        state: usize,
-
-        fn someFn(self: Self, a: usize, b: usize) usize {
-            return self.state * a + b;
-        }
-
-        // Note that our return type need only coerce to the virtual function's
-        // return type.
-        fn otherFn(self: *Self, new_state: usize) void {
-            self.state = new_state;
+            assert(&i == selfPtrAs(erased, usize));
         }
     };
 
-    var iface_instance = try TestOwningIface.init(.{ TestStruct{ .state = 0 }, testing_allocator });
-    defer iface_instance.deinit();
+    SelfTypeTest.run();
+    comptime SelfTypeTest.run();
+}
 
-    // TODO: Pass arguments directly after https://github.com/ziglang/zig/issues/4571 is closed (current PR: https://github.com/ziglang/zig/pull/4573)
-    // try iface_instance.call("otherFn", .{100});
-    // Workaround:
-    var a: usize = 100;
-    try iface_instance.call("otherFn", .{a});
-    a = 0;
-    var b: usize = 42;
-    assert(iface_instance.call("someFn", .{a, b}).? == 42);
+test "Simple NonOwning interface" {
+    const NonOwningTest = struct {
+        fn run() !void {
+            const Fooer = Interface(struct {
+                foo: fn (*SelfType) usize,
+            }, Storage.NonOwning);
+
+            const TestFooer = struct {
+                const Self = @This();
+
+                state: usize,
+
+                fn foo(self: *Self) usize {
+                    const tmp = self.state;
+                    self.state += 1;
+                    return tmp;
+                }
+            };
+
+            var f = TestFooer{ .state = 42 };
+            var fooer = try Fooer.init(.{&f});
+            defer fooer.deinit();
+
+            assert(fooer.call("foo", .{}) == 42);
+            assert(fooer.call("foo", .{}) == 43);
+        }
+    };
+
+    try NonOwningTest.run();
+    comptime try NonOwningTest.run();
+}
+
+test "Owning interface with optional function" {
+    const OwningOptionalFuncTest = struct {
+        fn run() !void {
+            const TestOwningIface = Interface(struct {
+                someFn: ?fn (*const SelfType, usize, usize) usize,
+                otherFn: fn (*SelfType, usize) anyerror!void,
+            }, Storage.Owning);
+
+            const TestStruct = struct {
+                const Self = @This();
+
+                state: usize,
+
+                fn someFn(self: Self, a: usize, b: usize) usize {
+                    return self.state * a + b;
+                }
+
+                // Note that our return type need only coerce to the virtual function's
+                // return type.
+                fn otherFn(self: *Self, new_state: usize) void {
+                    self.state = new_state;
+                }
+            };
+
+            // TODO: Not passing an explicit comptime first argument will crash compiler, see #4597, remove comptime when fixed
+            var iface_instance = try TestOwningIface.init(.{ comptime TestStruct{ .state = 0 }, std.testing.allocator });
+            defer iface_instance.deinit();
+
+            // TODO: Pass arguments directly after https://github.com/ziglang/zig/issues/4571 is closed (current PR: https://github.com/ziglang/zig/pull/4573)
+            // try iface_instance.call("otherFn", .{100});
+            // Workaround:
+            var a: usize = 100;
+            try iface_instance.call("otherFn", .{a});
+            a = 0;
+            var b: usize = 42;
+            assert(iface_instance.call("someFn", .{a, b}).? == 42);
+        }
+    };
+
+    try OwningOptionalFuncTest.run();
 }
