@@ -50,7 +50,7 @@ pub fn main() !void {
     var tokenizer = Tokenizer.init(in_file_name, input_file_bytes);
     var toc = try genToc(allocator, &tokenizer);
 
-    try fs.makePath(allocator, tmp_dir_name);
+    try fs.cwd().makePath(tmp_dir_name);
     defer fs.deleteTree(tmp_dir_name) catch {};
 
     try genHtml(allocator, &tokenizer, &toc, &buffered_out_stream.stream, zig_exe);
