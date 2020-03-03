@@ -10392,6 +10392,61 @@ static void resolve_out_paths(CodeGen *g) {
     }
 }
 
+static void output_type_information(CodeGen *g) {
+    if (g->enable_dump_analysis) {
+        const char *analysis_json_filename = buf_ptr(buf_sprintf("%s" OS_SEP "%s-analysis.json",
+                    buf_ptr(g->output_dir), buf_ptr(g->root_out_name)));
+        FILE *f = fopen(analysis_json_filename, "wb");
+        if (f == nullptr) {
+            fprintf(stderr, "Unable to open '%s': %s\n", analysis_json_filename, strerror(errno));
+            exit(1);
+        }
+        zig_print_analysis_dump(g, f, " ", "\n");
+        if (fclose(f) != 0) {
+            fprintf(stderr, "Unable to write '%s': %s\n", analysis_json_filename, strerror(errno));
+            exit(1);
+        }
+    }
+    if (g->enable_doc_generation) {
+        Error err;
+        Buf *doc_dir_path = buf_sprintf("%s" OS_SEP "docs", buf_ptr(g->output_dir));
+        if ((err = os_make_path(doc_dir_path))) {
+            fprintf(stderr, "Unable to create directory %s: %s\n", buf_ptr(doc_dir_path), err_str(err));
+            exit(1);
+        }
+        Buf *index_html_src_path = buf_sprintf("%s" OS_SEP "special" OS_SEP "docs" OS_SEP "index.html",
+                buf_ptr(g->zig_std_dir));
+        Buf *index_html_dest_path = buf_sprintf("%s" OS_SEP "index.html", buf_ptr(doc_dir_path));
+        Buf *main_js_src_path = buf_sprintf("%s" OS_SEP "special" OS_SEP "docs" OS_SEP "main.js",
+                buf_ptr(g->zig_std_dir));
+        Buf *main_js_dest_path = buf_sprintf("%s" OS_SEP "main.js", buf_ptr(doc_dir_path));
+
+        if ((err = os_copy_file(index_html_src_path, index_html_dest_path))) {
+            fprintf(stderr, "Unable to copy %s to %s: %s\n", buf_ptr(index_html_src_path),
+                    buf_ptr(index_html_dest_path), err_str(err));
+            exit(1);
+        }
+        if ((err = os_copy_file(main_js_src_path, main_js_dest_path))) {
+            fprintf(stderr, "Unable to copy %s to %s: %s\n", buf_ptr(main_js_src_path),
+                    buf_ptr(main_js_dest_path), err_str(err));
+            exit(1);
+        }
+        const char *data_js_filename = buf_ptr(buf_sprintf("%s" OS_SEP "data.js", buf_ptr(doc_dir_path)));
+        FILE *f = fopen(data_js_filename, "wb");
+        if (f == nullptr) {
+            fprintf(stderr, "Unable to open '%s': %s\n", data_js_filename, strerror(errno));
+            exit(1);
+        }
+        fprintf(f, "zigAnalysis=");
+        zig_print_analysis_dump(g, f, "", "");
+        fprintf(f, ";");
+        if (fclose(f) != 0) {
+            fprintf(stderr, "Unable to write '%s': %s\n", data_js_filename, strerror(errno));
+            exit(1);
+        }
+    }
+}
+
 void codegen_build_and_link(CodeGen *g) {
     Error err;
     assert(g->out_type != OutTypeUnknown);
@@ -10466,6 +10521,10 @@ void codegen_build_and_link(CodeGen *g) {
         }
         resolve_out_paths(g);
 
+        if (g->enable_dump_analysis || g->enable_doc_generation) {
+            output_type_information(g);
+        }
+
         if (need_llvm_module(g)) {
             codegen_add_time_event(g, "Code Generation");
             {
@@ -10491,57 +10550,6 @@ void codegen_build_and_link(CodeGen *g) {
                             progress_name, strlen(progress_name), 0));
                 }
                 gen_h_file(g);
-            }
-        }
-        if (g->enable_dump_analysis) {
-            const char *analysis_json_filename = buf_ptr(buf_sprintf("%s" OS_SEP "%s-analysis.json",
-                        buf_ptr(g->output_dir), buf_ptr(g->root_out_name)));
-            FILE *f = fopen(analysis_json_filename, "wb");
-            if (f == nullptr) {
-                fprintf(stderr, "Unable to open '%s': %s\n", analysis_json_filename, strerror(errno));
-                exit(1);
-            }
-            zig_print_analysis_dump(g, f, " ", "\n");
-            if (fclose(f) != 0) {
-                fprintf(stderr, "Unable to write '%s': %s\n", analysis_json_filename, strerror(errno));
-                exit(1);
-            }
-        }
-        if (g->enable_doc_generation) {
-            Buf *doc_dir_path = buf_sprintf("%s" OS_SEP "docs", buf_ptr(g->output_dir));
-            if ((err = os_make_path(doc_dir_path))) {
-                fprintf(stderr, "Unable to create directory %s: %s\n", buf_ptr(doc_dir_path), err_str(err));
-                exit(1);
-            }
-            Buf *index_html_src_path = buf_sprintf("%s" OS_SEP "special" OS_SEP "docs" OS_SEP "index.html",
-                    buf_ptr(g->zig_std_dir));
-            Buf *index_html_dest_path = buf_sprintf("%s" OS_SEP "index.html", buf_ptr(doc_dir_path));
-            Buf *main_js_src_path = buf_sprintf("%s" OS_SEP "special" OS_SEP "docs" OS_SEP "main.js",
-                    buf_ptr(g->zig_std_dir));
-            Buf *main_js_dest_path = buf_sprintf("%s" OS_SEP "main.js", buf_ptr(doc_dir_path));
-
-            if ((err = os_copy_file(index_html_src_path, index_html_dest_path))) {
-                fprintf(stderr, "Unable to copy %s to %s: %s\n", buf_ptr(index_html_src_path),
-                        buf_ptr(index_html_dest_path), err_str(err));
-                exit(1);
-            }
-            if ((err = os_copy_file(main_js_src_path, main_js_dest_path))) {
-                fprintf(stderr, "Unable to copy %s to %s: %s\n", buf_ptr(main_js_src_path),
-                        buf_ptr(main_js_dest_path), err_str(err));
-                exit(1);
-            }
-            const char *data_js_filename = buf_ptr(buf_sprintf("%s" OS_SEP "data.js", buf_ptr(doc_dir_path)));
-            FILE *f = fopen(data_js_filename, "wb");
-            if (f == nullptr) {
-                fprintf(stderr, "Unable to open '%s': %s\n", data_js_filename, strerror(errno));
-                exit(1);
-            }
-            fprintf(f, "zigAnalysis=");
-            zig_print_analysis_dump(g, f, "", "");
-            fprintf(f, ";");
-            if (fclose(f) != 0) {
-                fprintf(stderr, "Unable to write '%s': %s\n", data_js_filename, strerror(errno));
-                exit(1);
             }
         }
 
