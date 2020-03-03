@@ -153,7 +153,7 @@ pub fn updateFileMode(source_path: []const u8, dest_path: []const u8, mode: ?Fil
     var buf: [mem.page_size * 6]u8 = undefined;
     while (true) {
         const amt = try in_stream.readFull(buf[0..]);
-        try atomic_file.file.write(buf[0..amt]);
+        try atomic_file.file.writeAll(buf[0..amt]);
         if (amt != buf.len) {
             try atomic_file.file.updateTimes(src_stat.atime, src_stat.mtime);
             try atomic_file.finish();
@@ -1329,7 +1329,7 @@ pub const Dir = struct {
     pub fn writeFile(self: Dir, sub_path: []const u8, data: []const u8) !void {
         var file = try self.createFile(sub_path, .{});
         defer file.close();
-        try file.write(data);
+        try file.writeAll(data);
     }
 
     pub const AccessError = os.AccessError;
