@@ -3818,12 +3818,14 @@ pub fn sendfile(
                 switch (err) {
                     0 => return amt,
 
-                    EBADF => unreachable, // Always a race condition.
                     EFAULT => unreachable, // Segmentation fault.
                     EINVAL => unreachable,
                     ENOTCONN => unreachable, // `out_fd` is an unconnected socket.
 
-                    ENOTSUP, ENOTSOCK, ENOSYS => break :sf,
+                    // On macOS version 10.14.6, I observed Darwin return EBADF when
+                    // using sendfile on a valid open file descriptor of a file
+                    // system file.
+                    ENOTSUP, ENOTSOCK, ENOSYS, EBADF => break :sf,
 
                     EINTR => if (amt != 0) return amt else continue,
 
