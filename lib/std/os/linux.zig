@@ -39,6 +39,13 @@ pub fn getauxval(index: usize) usize {
     return 0;
 }
 
+// Some architectures require 64bit parameters for some syscalls to be passed in
+// even-aligned register pair
+const require_aligned_register_pair = //
+    comptime builtin.arch.isMIPS() or
+    comptime builtin.arch.isARM() or
+    comptime builtin.arch.isThumb();
+
 /// Get the errno from a syscall return value, or 0 for no error.
 pub fn getErrno(r: usize) u12 {
     const signed_r = @bitCast(isize, r);
@@ -318,14 +325,26 @@ pub fn symlinkat(existing: [*:0]const u8, newfd: i32, newpath: [*:0]const u8) us
 
 pub fn pread(fd: i32, buf: [*]u8, count: usize, offset: u64) usize {
     if (@hasDecl(@This(), "SYS_pread64")) {
-        return syscall5(
-            SYS_pread64,
-            @bitCast(usize, @as(isize, fd)),
-            @ptrToInt(buf),
-            count,
-            @truncate(usize, offset),
-            @truncate(usize, offset >> 32),
-        );
+        if (require_aligned_register_pair) {
+            return syscall6(
+                SYS_pread64,
+                @bitCast(usize, @as(isize, fd)),
+                @ptrToInt(buf),
+                count,
+                0,
+                @truncate(usize, offset),
+                @truncate(usize, offset >> 32),
+            );
+        } else {
+            return syscall5(
+                SYS_pread64,
+                @bitCast(usize, @as(isize, fd)),
+                @ptrToInt(buf),
+                count,
+                @truncate(usize, offset),
+                @truncate(usize, offset >> 32),
+            );
+        }
     } else {
         return syscall4(SYS_pread, @bitCast(usize, @as(isize, fd)), @ptrToInt(buf), count, offset);
     }
@@ -344,7 +363,7 @@ pub fn faccessat(dirfd: i32, path: [*:0]const u8, mode: u32, flags: u32) usize {
 }
 
 pub fn pipe(fd: *[2]i32) usize {
-    if (builtin.arch == .mipsel) {
+    if (comptime builtin.arch.isMIPS()) {
         return syscall_pipe(fd);
     } else if (@hasDecl(@This(), "SYS_pipe")) {
         return syscall1(SYS_pipe, @ptrToInt(fd));
