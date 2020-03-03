@@ -29,7 +29,7 @@ pub fn render(allocator: *mem.Allocator, stream: var, tree: *ast.Tree) (@TypeOf(
         source_index: usize,
         source: []const u8,
 
-        fn write(iface_stream: *Stream, bytes: []const u8) StreamError!void {
+        fn write(iface_stream: *Stream, bytes: []const u8) StreamError!usize {
             const self = @fieldParentPtr(MyStream, "stream", iface_stream);
 
             if (!self.anything_changed_ptr.*) {
@@ -45,7 +45,7 @@ pub fn render(allocator: *mem.Allocator, stream: var, tree: *ast.Tree) (@TypeOf(
                 }
             }
 
-            try self.child_stream.write(bytes);
+            return self.child_stream.writeOnce(bytes);
         }
     };
     var my_stream = MyStream{
@@ -2443,14 +2443,15 @@ const FindByteOutStream = struct {
         };
     }
 
-    fn writeFn(out_stream: *Stream, bytes: []const u8) Error!void {
+    fn writeFn(out_stream: *Stream, bytes: []const u8) Error!usize {
         const self = @fieldParentPtr(Self, "stream", out_stream);
-        if (self.byte_found) return;
+        if (self.byte_found) return bytes.len;
         self.byte_found = blk: {
             for (bytes) |b|
                 if (b == self.byte) break :blk true;
             break :blk false;
         };
+        return bytes.len;
     }
 };
 

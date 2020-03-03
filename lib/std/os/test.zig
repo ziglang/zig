@@ -44,6 +44,114 @@ fn testThreadIdFn(thread_id: *Thread.Id) void {
     thread_id.* = Thread.getCurrentId();
 }
 
+test "sendfile" {
+    try fs.makePath(a, "os_test_tmp");
+    defer fs.deleteTree("os_test_tmp") catch {};
+
+    var dir = try fs.cwd().openDirList("os_test_tmp");
+    defer dir.close();
+
+    const line1 = "line1\n";
+    const line2 = "second line\n";
+    var vecs = [_]os.iovec_const{
+        .{
+            .iov_base = line1,
+            .iov_len = line1.len,
+        },
+        .{
+            .iov_base = line2,
+            .iov_len = line2.len,
+        },
+    };
+
+    var src_file = try dir.createFileC("sendfile1.txt", .{ .read = true });
+    defer src_file.close();
+
+    try src_file.writevAll(&vecs);
+
+    var dest_file = try dir.createFileC("sendfile2.txt", .{ .read = true });
+    defer dest_file.close();
+
+    const header1 = "header1\n";
+    const header2 = "second header\n";
+    var headers = [_]os.iovec_const{
+        .{
+            .iov_base = header1,
+            .iov_len = header1.len,
+        },
+        .{
+            .iov_base = header2,
+            .iov_len = header2.len,
+        },
+    };
+
+    const trailer1 = "trailer1\n";
+    const trailer2 = "second trailer\n";
+    var trailers = [_]os.iovec_const{
+        .{
+            .iov_base = trailer1,
+            .iov_len = trailer1.len,
+        },
+        .{
+            .iov_base = trailer2,
+            .iov_len = trailer2.len,
+        },
+    };
+
+    var written_buf: [header1.len + header2.len + 10 + trailer1.len + trailer2.len]u8 = undefined;
+    try sendfileAll(dest_file.handle, src_file.handle, 1, 10, &headers, &trailers, 0);
+
+    try dest_file.preadAll(&written_buf, 0);
+    expect(mem.eql(u8, &written_buf, "header1\nsecond header\nine1\nsecontrailer1\nsecond trailer\n"));
+}
+
+fn sendfileAll(
+    out_fd: os.fd_t,
+    in_fd: os.fd_t,
+    offset: u64,
+    count: usize,
+    headers: []os.iovec_const,
+    trailers: []os.iovec_const,
+    flags: u32,
+) os.SendFileError!void {
+    var amt: usize = undefined;
+    hdrs: {
+        var i: usize = 0;
+        while (i < headers.len) {
+            amt = try os.sendfile(out_fd, in_fd, offset, count, headers[i..], trailers, flags);
+            while (amt >= headers[i].iov_len) {
+                amt -= headers[i].iov_len;
+                i += 1;
+                if (i >= headers.len) break :hdrs;
+            }
+            headers[i].iov_base += amt;
+            headers[i].iov_len -= amt;
+        }
+    }
+    var off = amt;
+    while (off < count) {
+        amt = try os.sendfile(out_fd, in_fd, offset + off, count - off, &[0]os.iovec_const{}, trailers, flags);
+        off += amt;
+    }
+    amt = off - count;
+    var i: usize = 0;
+    while (i < trailers.len) {
+        while (amt >= headers[i].iov_len) {
+            amt -= trailers[i].iov_len;
+            i += 1;
+            if (i >= trailers.len) return;
+        }
+        trailers[i].iov_base += amt;
+        trailers[i].iov_len -= amt;
+        if (std.Target.current.os.tag == .windows) {
+            amt = try os.writev(out_fd, trailers[i..]);
+        } else {
+            // Here we must use send because it's the only way to give the flags.
+            amt = try os.send(out_fd, trailers[i].iov_base[0..trailers[i].iov_len], flags);
+        }
+    }
+}
+
 test "std.Thread.getCurrentId" {
     if (builtin.single_threaded) return error.SkipZigTest;
 
@@ -103,7 +211,7 @@ test "AtomicFile" {
     {
         var af = try fs.AtomicFile.init(test_out_file, File.default_mode);
         defer af.deinit();
-        try af.file.write(test_content);
+        try af.file.writeAll(test_content);
         try af.finish();
     }
     const content = try io.readFileAlloc(testing.allocator, test_out_file);
@@ -226,7 +334,7 @@ test "pipe" {
         return error.SkipZigTest;
 
     var fds = try os.pipe();
-    try os.write(fds[1], "hello");
+    expect((try os.write(fds[1], "hello")) == 5);
     var buf: [16]u8 = undefined;
     expect((try os.read(fds[0], buf[0..])) == 5);
     testing.expectEqualSlices(u8, buf[0..5], "hello");
@@ -248,7 +356,7 @@ test "memfd_create" {
         else => |e| return e,
     };
     defer std.os.close(fd);
-    try std.os.write(fd, "test");
+    expect((try std.os.write(fd, "test")) == 4);
     try std.os.lseek_SET(fd, 0);
 
     var buf: [10]u8 = undefined;

@@ -437,10 +437,11 @@ pub fn BitInStream(endian: builtin.Endian, comptime Error: type) type {
     };
 }
 
-/// This is a simple OutStream that writes to a fixed buffer, and returns an error
-/// when it runs out of space.
+/// This is a simple OutStream that writes to a fixed buffer. If the returned number
+/// of bytes written is less than requested, the buffer is full.
+/// Returns error.OutOfMemory when no bytes would be written.
 pub const SliceOutStream = struct {
-    pub const Error = error{OutOfSpace};
+    pub const Error = error{OutOfMemory};
     pub const Stream = OutStream(Error);
 
     stream: Stream,
@@ -464,8 +465,10 @@ pub const SliceOutStream = struct {
         self.pos = 0;
     }
 
-    fn writeFn(out_stream: *Stream, bytes: []const u8) Error!void {
+    fn writeFn(out_stream: *Stream, bytes: []const u8) Error!usize {
         const self = @fieldParentPtr(SliceOutStream, "stream", out_stream);
+
+        if (bytes.len == 0) return 0;
 
         assert(self.pos <= self.slice.len);
 
@@ -477,9 +480,9 @@ pub const SliceOutStream = struct {
         std.mem.copy(u8, self.slice[self.pos .. self.pos + n], bytes[0..n]);
         self.pos += n;
 
-        if (n < bytes.len) {
-            return Error.OutOfSpace;
-        }
+        if (n == 0) return error.OutOfMemory;
+
+        return n;
     }
 };
 
@@ -508,7 +511,9 @@ pub const NullOutStream = struct {
         };
     }
 
-    fn writeFn(out_stream: *Stream, bytes: []const u8) Error!void {}
+    fn writeFn(out_stream: *Stream, bytes: []const u8) Error!usize {
+        return bytes.len;
+    }
 };
 
 test "io.NullOutStream" {
@@ -536,10 +541,11 @@ pub fn CountingOutStream(comptime OutStreamError: type) type {
             };
         }
 
-        fn writeFn(out_stream: *Stream, bytes: []const u8) OutStreamError!void {
+        fn writeFn(out_stream: *Stream, bytes: []const u8) OutStreamError!usize {
             const self = @fieldParentPtr(Self, "stream", out_stream);
             try self.child_stream.write(bytes);
             self.bytes_written += bytes.len;
+            return bytes.len;
         }
     };
 }
@@ -588,13 +594,14 @@ pub fn BufferedOutStreamCustom(comptime buffer_size: usize, comptime OutStreamEr
             }
         }
 
-        fn writeFn(out_stream: *Stream, bytes: []const u8) Error!void {
+        fn writeFn(out_stream: *Stream, bytes: []const u8) Error!usize {
             const self = @fieldParentPtr(Self, "stream", out_stream);
             if (bytes.len >= self.fifo.writableLength()) {
                 try self.flush();
-                return self.unbuffered_out_stream.write(bytes);
+                return self.unbuffered_out_stream.writeOnce(bytes);
             }
             self.fifo.writeAssumeCapacity(bytes);
+            return bytes.len;
         }
     };
 }
@@ -614,9 +621,10 @@ pub const BufferOutStream = struct {
         };
     }
 
-    fn writeFn(out_stream: *Stream, bytes: []const u8) !void {
+    fn writeFn(out_stream: *Stream, bytes: []const u8) !usize {
         const self = @fieldParentPtr(BufferOutStream, "stream", out_stream);
-        return self.buffer.append(bytes);
+        try self.buffer.append(bytes);
+        return bytes.len;
     }
 };
 
@@ -734,17 +742,17 @@ pub fn BitOutStream(endian: builtin.Endian, comptime Error: type) type {
             self.bit_count = 0;
         }
 
-        pub fn write(self_stream: *Stream, buffer: []const u8) Error!void {
+        pub fn write(self_stream: *Stream, buffer: []const u8) Error!usize {
             var self = @fieldParentPtr(Self, "stream", self_stream);
 
-            //@NOTE: I'm not sure this is a good idea, maybe flushBits should be forced
+            // TODO: I'm not sure this is a good idea, maybe flushBits should be forced
             if (self.bit_count > 0) {
                 for (buffer) |b, i|
                     try self.writeBits(b, u8_bit_count);
-                return;
+                return buffer.len;
             }
 
-            return self.out_stream.write(buffer);
+            return self.out_stream.writeOnce(buffer);
         }
     };
 }
