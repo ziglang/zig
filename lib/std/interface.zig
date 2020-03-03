@@ -637,7 +637,7 @@ test "Allocator interface example" {
             };
         }
 
-        // Implement interface Allocator.
+        // Implement Allocator interface.
         pub fn reallocFn(self: Self, old_mem: []u8, old_alignment: u29, new_byte_count: usize, new_alignment: u29) ![]u8 {
             return self.allocator.reallocFn(self.allocator, old_mem, old_alignment, new_byte_count, new_alignment);
         }
