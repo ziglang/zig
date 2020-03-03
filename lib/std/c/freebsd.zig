@@ -9,9 +9,9 @@ pub extern "c" fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
 pub extern "c" fn getrandom(buf_ptr: [*]u8, buf_len: usize, flags: c_uint) isize;
 
 pub const sf_hdtr = extern struct {
-    headers: [*]iovec_const,
+    headers: [*]const iovec_const,
     hdr_cnt: c_int,
-    trailers: [*]iovec_const,
+    trailers: [*]const iovec_const,
     trl_cnt: c_int,
 };
 pub extern "c" fn sendfile(
