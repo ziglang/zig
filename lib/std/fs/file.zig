@@ -271,6 +271,8 @@ pub const File = struct {
     /// The `iovecs` parameter is mutable because this function needs to mutate the fields in
     /// order to handle partial reads from the underlying OS layer.
     pub fn readvAll(self: File, iovecs: []os.iovec) ReadError!void {
+        if (iovecs.len == 0) return;
+
         var i: usize = 0;
         while (true) {
             var amt = try self.readv(iovecs[i..]);
@@ -295,6 +297,8 @@ pub const File = struct {
     /// The `iovecs` parameter is mutable because this function needs to mutate the fields in
     /// order to handle partial reads from the underlying OS layer.
     pub fn preadvAll(self: File, iovecs: []const os.iovec, offset: u64) PReadError!void {
+        if (iovecs.len == 0) return;
+
         var i: usize = 0;
         var off: usize = 0;
         while (true) {
@@ -354,6 +358,8 @@ pub const File = struct {
     /// The `iovecs` parameter is mutable because this function needs to mutate the fields in
     /// order to handle partial writes from the underlying OS layer.
     pub fn writevAll(self: File, iovecs: []os.iovec_const) WriteError!void {
+        if (iovecs.len == 0) return;
+
         var i: usize = 0;
         while (true) {
             var amt = try self.writev(iovecs[i..]);
@@ -378,6 +384,8 @@ pub const File = struct {
     /// The `iovecs` parameter is mutable because this function needs to mutate the fields in
     /// order to handle partial writes from the underlying OS layer.
     pub fn pwritevAll(self: File, iovecs: []os.iovec_const, offset: usize) PWriteError!void {
+        if (iovecs.len == 0) return;
+
         var i: usize = 0;
         var off: usize = 0;
         while (true) {
@@ -390,6 +398,89 @@ pub const File = struct {
             }
             iovecs[i].iov_base += amt;
             iovecs[i].iov_len -= amt;
+        }
+    }
+
+    pub const WriteFileOptions = struct {
+        in_offset: u64 = 0,
+
+        /// `null` means the entire file. `0` means no bytes from the file.
+        /// When this is `null`, trailers must be sent in a separate writev() call
+        /// due to a flaw in the BSD sendfile API. Other operating systems, such as
+        /// Linux, already do this anyway due to API limitations.
+        /// If the size of the source file is known, passing the size here will save one syscall.
+        in_len: ?u64 = null,
+
+        headers_and_trailers: []os.iovec_const = &[0]os.iovec_const{},
+
+        /// The trailer count is inferred from `headers_and_trailers.len - header_count`
+        header_count: usize = 0,
+    };
+
+    pub const WriteFileError = os.SendFileError;
+
+    /// TODO integrate with async I/O
+    pub fn writeFileAll(self: File, in_file: File, args: WriteFileOptions) WriteFileError!void {
+        const count = blk: {
+            if (args.in_len) |l| {
+                if (l == 0) {
+                    return self.writevAll(args.headers_and_trailers);
+                } else {
+                    break :blk l;
+                }
+            } else {
+                break :blk 0;
+            }
+        };
+        const headers = args.headers_and_trailers[0..args.header_count];
+        const trailers = args.headers_and_trailers[args.header_count..];
+        const zero_iovec = &[0]os.iovec_const{};
+        // When reading the whole file, we cannot put the trailers in the sendfile() syscall,
+        // because we have no way to determine whether a partial write is past the end of the file or not.
+        const trls = if (count == 0) zero_iovec else trailers;
+        const offset = args.in_offset;
+        const out_fd = self.handle;
+        const in_fd = in_file.handle;
+        const flags = 0;
+        var amt: usize = 0;
+        hdrs: {
+            var i: usize = 0;
+            while (i < headers.len) {
+                amt = try os.sendfile(out_fd, in_fd, offset, count, headers[i..], trls, flags);
+                while (amt >= headers[i].iov_len) {
+                    amt -= headers[i].iov_len;
+                    i += 1;
+                    if (i >= headers.len) break :hdrs;
+                }
+                headers[i].iov_base += amt;
+                headers[i].iov_len -= amt;
+            }
+        }
+        if (count == 0) {
+            var off: u64 = amt;
+            while (true) {
+                amt = try os.sendfile(out_fd, in_fd, offset + off, 0, zero_iovec, zero_iovec, flags);
+                if (amt == 0) break;
+                off += amt;
+            }
+        } else {
+            var off: u64 = amt;
+            while (off < count) {
+                amt = try os.sendfile(out_fd, in_fd, offset + off, count - off, zero_iovec, trailers, flags);
+                off += amt;
+            }
+            amt = @intCast(usize, off - count);
+        }
+        var i: usize = 0;
+        while (i < trailers.len) {
+            while (amt >= headers[i].iov_len) {
+                amt -= trailers[i].iov_len;
+                i += 1;
+                if (i >= trailers.len) return;
+            }
+            trailers[i].iov_base += amt;
+            trailers[i].iov_len -= amt;
+            amt = try os.writev(self.handle, trailers[i..]);
         }
     }
 

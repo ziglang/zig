@@ -123,47 +123,21 @@ pub fn updateFileMode(source_path: []const u8, dest_path: []const u8, mode: ?Fil
     }
     const actual_mode = mode orelse src_stat.mode;
 
-    // TODO this logic could be made more efficient by calling makePath, once
-    // that API does not require an allocator
-    var atomic_file = make_atomic_file: while (true) {
-        const af = AtomicFile.init(dest_path, actual_mode) catch |err| switch (err) {
-            error.FileNotFound => {
-                var p = dest_path;
-                while (path.dirname(p)) |dirname| {
-                    makeDir(dirname) catch |e| switch (e) {
-                        error.FileNotFound => {
-                            p = dirname;
-                            continue;
-                        },
-                        else => return e,
-                    };
-                    continue :make_atomic_file;
-                } else {
-                    return err;
-                }
-            },
-            else => |e| return e,
-        };
-        break af;
-    } else unreachable;
+    if (path.dirname(dest_path)) |dirname| {
+        try cwd().makePath(dirname);
+    }
+
+    var atomic_file = try AtomicFile.init(dest_path, actual_mode);
     defer atomic_file.deinit();
 
-    const in_stream = &src_file.inStream().stream;
-
-    var buf: [mem.page_size * 6]u8 = undefined;
-    while (true) {
-        const amt = try in_stream.readFull(buf[0..]);
-        try atomic_file.file.writeAll(buf[0..amt]);
-        if (amt != buf.len) {
-            try atomic_file.file.updateTimes(src_stat.atime, src_stat.mtime);
-            try atomic_file.finish();
-            return PrevStatus.stale;
-        }
-    }
+    try atomic_file.file.writeFileAll(src_file, .{ .in_len = src_stat.size });
+    try atomic_file.file.updateTimes(src_stat.atime, src_stat.mtime);
+    try atomic_file.finish();
+    return PrevStatus.stale;
 }
 
-/// Guaranteed to be atomic. However until https://patchwork.kernel.org/patch/9636735/ is
-/// merged and readily available,
+/// Guaranteed to be atomic.
+/// On Linux, until https://patchwork.kernel.org/patch/9636735/ is merged and readily available,
 /// there is a possibility of power loss or application termination leaving temporary files present
 /// in the same directory as dest_path.
 /// Destination file will have the same mode as the source file.
@@ -207,6 +181,9 @@ pub fn copyFileMode(source_path: []const u8, dest_path: []const u8, mode: File.M
     }
 }
 
+/// TODO update this API to avoid a getrandom syscall for every operation. It
+/// should accept a random interface.
+/// TODO rework this to integrate with Dir
 pub const AtomicFile = struct {
     file: File,
     tmp_path_buf: [MAX_PATH_BYTES]u8,
@@ -268,33 +245,42 @@ pub const AtomicFile = struct {
 
     pub fn finish(self: *AtomicFile) !void {
         assert(!self.finished);
-        self.file.close();
-        self.finished = true;
-        if (builtin.os.tag == .windows) {
+        if (std.Target.current.os.tag == .windows) {
             const dest_path_w = try os.windows.sliceToPrefixedFileW(self.dest_path);
             const tmp_path_w = try os.windows.cStrToPrefixedFileW(@ptrCast([*:0]u8, &self.tmp_path_buf));
+            self.file.close();
+            self.finished = true;
             return os.renameW(&tmp_path_w, &dest_path_w);
+        } else {
+            const dest_path_c = try os.toPosixPath(self.dest_path);
+            self.file.close();
+            self.finished = true;
+            return os.renameC(@ptrCast([*:0]u8, &self.tmp_path_buf), &dest_path_c);
         }
-        const dest_path_c = try os.toPosixPath(self.dest_path);
-        return os.renameC(@ptrCast([*:0]u8, &self.tmp_path_buf), &dest_path_c);
     }
 };
 
 const default_new_dir_mode = 0o755;
 
-/// Create a new directory.
-pub fn makeDir(dir_path: []const u8) !void {
-    return os.mkdir(dir_path, default_new_dir_mode);
+/// Create a new directory, based on an absolute path.
+/// Asserts that the path is absolute. See `Dir.makeDir` for a function that operates
+/// on both absolute and relative paths.
+pub fn makeDirAbsolute(absolute_path: []const u8) !void {
+    assert(path.isAbsoluteC(absolute_path));
+    return os.mkdir(absolute_path, default_new_dir_mode);
 }
 
-/// Same as `makeDir` except the parameter is a null-terminated UTF8-encoded string.
-pub fn makeDirC(dir_path: [*:0]const u8) !void {
-    return os.mkdirC(dir_path, default_new_dir_mode);
+/// Same as `makeDirAbsolute` except the parameter is a null-terminated UTF8-encoded string.
+pub fn makeDirAbsoluteZ(absolute_path_z: [*:0]const u8) !void {
+    assert(path.isAbsoluteC(absolute_path_z));
+    return os.mkdirZ(absolute_path_z, default_new_dir_mode);
 }
 
-/// Same as `makeDir` except the parameter is a null-terminated UTF16LE-encoded string.
-pub fn makeDirW(dir_path: [*:0]const u16) !void {
-    return os.mkdirW(dir_path, default_new_dir_mode);
+/// Same as `makeDirAbsolute` except the parameter is a null-terminated WTF-16 encoded string.
+pub fn makeDirAbsoluteW(absolute_path_w: [*:0]const u16) !void {
+    assert(path.isAbsoluteWindowsW(absolute_path_w));
+    const handle = try os.windows.CreateDirectoryW(null, absolute_path_w, null);
+    os.windows.CloseHandle(handle);
 }
 
 /// Returns `error.DirNotEmpty` if the directory is not empty.
@@ -847,8 +833,13 @@ pub const Dir = struct {
         try os.mkdirat(self.fd, sub_path, default_new_dir_mode);
     }
 
-    pub fn makeDirC(self: Dir, sub_path: [*:0]const u8) !void {
+    pub fn makeDirZ(self: Dir, sub_path: [*:0]const u8) !void {
         try os.mkdiratC(self.fd, sub_path, default_new_dir_mode);
+    }
+
+    pub fn makeDirW(self: Dir, sub_path: [*:0]const u16) !void {
+        const handle = try os.windows.CreateDirectoryW(self.fd, sub_path, null);
+        os.windows.CloseHandle(handle);
     }
 
     /// Calls makeDir recursively to make an entire path. Returns success if the path
@@ -885,7 +876,14 @@ pub const Dir = struct {
         }
     }
 
-    pub fn changeTo(self: Dir) !void {
+    /// Changes the current working directory to the open directory handle.
+    /// This modifies global state and can have surprising effects in multi-
+    /// threaded applications. Most applications and especially libraries should
+    /// not call this function as a general rule, however it can have use cases
+    /// in, for example, implementing a shell, or child process execution.
+    /// Not all targets support this. For example, WASI does not have the concept
+    /// of a current working directory.
+    pub fn setAsCwd(self: Dir) !void {
         try os.fchdir(self.fd);
     }
 
