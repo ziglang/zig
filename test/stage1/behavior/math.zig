@@ -525,10 +525,6 @@ test "comptime_int xor" {
 }
 
 test "f128" {
-    if (std.Target.current.os.tag == .windows) {
-        // TODO https://github.com/ziglang/zig/issues/508
-        return error.SkipZigTest;
-    }
     test_f128();
     comptime test_f128();
 }
