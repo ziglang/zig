@@ -3714,11 +3714,12 @@ pub fn sendfile(
                 hdtr = &hdtr_data;
             }
 
-            const adjusted_count = math.min(count, max_count);
+            const adjusted_count = math.min(count, @as(u63, max_count));
 
             while (true) {
                 var sbytes: off_t = adjusted_count;
-                const err = errno(system.sendfile(out_fd, in_fd, in_offset, &sbytes, hdtr, flags));
+                const signed_offset = @bitCast(i64, in_offset);
+                const err = errno(system.sendfile(out_fd, in_fd, signed_offset, &sbytes, hdtr, flags));
                 const amt = @bitCast(usize, sbytes);
                 switch (err) {
                     0 => return amt,
@@ -3745,7 +3746,7 @@ pub fn sendfile(
                     EPIPE => return error.BrokenPipe,
 
                     else => {
-                        _ = unexpectedErrno(err);
+                        const discard = unexpectedErrno(err);
                         if (amt != 0) {
                             return amt;
                         } else {
