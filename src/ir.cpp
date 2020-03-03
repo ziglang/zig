@@ -5910,10 +5910,18 @@ static IrInstSrc *ir_gen_array_access(IrBuilderSrc *irb, Scope *scope, AstNode *
     if (array_ref_instruction == irb->codegen->invalid_inst_src)
         return array_ref_instruction;
 
+    // Create an usize-typed result location to hold the subscript value, this
+    // makes it possible for the compiler to infer the subscript expression type
+    // if needed
+    IrInstSrc *usize_type_inst = ir_build_const_type(irb, scope, node, irb->codegen->builtin_types.entry_usize);
+    ResultLocCast *result_loc_cast = ir_build_cast_result_loc(irb, usize_type_inst, no_result_loc());
+
     AstNode *subscript_node = node->data.array_access_expr.subscript;
-    IrInstSrc *subscript_instruction = ir_gen_node(irb, subscript_node, scope);
-    if (subscript_instruction == irb->codegen->invalid_inst_src)
-        return subscript_instruction;
+    IrInstSrc *subscript_value = ir_gen_node_extra(irb, subscript_node, scope, LValNone, &result_loc_cast->base);
+    if (subscript_value == irb->codegen->invalid_inst_src)
+        return irb->codegen->invalid_inst_src;
+
+    IrInstSrc *subscript_instruction = ir_build_implicit_cast(irb, scope, subscript_node, subscript_value, result_loc_cast);
 
     IrInstSrc *ptr_instruction = ir_build_elem_ptr(irb, scope, node, array_ref_instruction,
             subscript_instruction, true, PtrLenSingle, nullptr);

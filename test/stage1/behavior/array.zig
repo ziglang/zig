@@ -1,6 +1,8 @@
 const std = @import("std");
-const expect = std.testing.expect;
+const testing = std.testing;
 const mem = std.mem;
+const expect = testing.expect;
+const expectEqual = testing.expectEqual;
 
 test "arrays" {
     var array: [5]u32 = undefined;
@@ -355,6 +357,20 @@ test "access the null element of a null terminated array" {
             comptime expect(array[4] == 0);
             var len: usize = 4;
             expect(array[len] == 0);
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "type deduction for array subscript expression" {
+    const S = struct {
+        fn doTheTest() void {
+            var array = [_]u8{ 0x55, 0xAA };
+            var v0 = true;
+            expectEqual(@as(u8, 0xAA), array[if (v0) 1 else 0]);
+            var v1 = false;
+            expectEqual(@as(u8, 0x55), array[if (v1) 1 else 0]);
         }
     };
     S.doTheTest();
