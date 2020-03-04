@@ -18442,12 +18442,14 @@ static IrInstGen *ir_resolve_result(IrAnalyze *ira, IrInst *suspend_source_instr
         IrInstGen *casted_ptr;
         if (isf->already_resolved) {
             field = find_struct_type_field(isf->inferred_struct_type, isf->field_name);
-
-            // We overwrite the inferred struct's type so that the new result can be written successfully.
+            // If the value originates from another node than the original value's we overwrite the inferred struct's
+            // type so that the new result can be written successfully.
             // The duplicate field will be detected and reported in 'ir_analyze_container_init_fields'
-            field->type_entry = value_type;
-            field->type_val = create_const_type(ira->codegen, field->type_entry);
-
+            AstNode *decl_node = value ? value->base.source_node : suspend_source_instr->source_node;
+            if (decl_node != field->decl_node) {
+                field->type_entry = value_type;
+                field->type_val = create_const_type(ira->codegen, field->type_entry);
+            }
             casted_ptr = result_loc;
         } else {
             isf->already_resolved = true;
