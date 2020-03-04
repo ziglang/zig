@@ -11,7 +11,6 @@
 // You'll then have to manually update Zig source repo with these new files.
 
 const std = @import("std");
-const builtin = std.builtin;
 const Arch = std.Target.Cpu.Arch;
 const Abi = std.Target.Abi;
 const OsTag = std.Target.Os.Tag;
