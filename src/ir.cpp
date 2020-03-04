@@ -16966,8 +16966,6 @@ static IrInstGen *ir_analyze_tuple_cat(IrAnalyze *ira, IrInst* source_instr,
     new_type->data.structure.special = StructSpecialInferredTuple;
     new_type->data.structure.resolve_status = ResolveStatusBeingInferred;
 
-    bool is_comptime = ir_should_inline(ira->old_irb.exec, source_instr->scope);
-
     IrInstGen *new_struct_ptr = ir_resolve_result(ira, source_instr, no_result_loc(),
             new_type, nullptr, false, true);
     uint32_t new_field_count = op1_field_count + op2_field_count;
@@ -16995,7 +16993,6 @@ static IrInstGen *ir_analyze_tuple_cat(IrAnalyze *ira, IrInst* source_instr,
         return ira->codegen->invalid_inst_gen;
 
     ZigList<IrInstGen *> const_ptrs = {};
-    IrInstGen *first_non_const_instruction = nullptr;
     for (uint32_t i = 0; i < new_field_count; i += 1) {
         TypeStructField *dst_field = new_type->data.structure.fields[i];
         IrInstGen *src_struct_op;
@@ -17017,8 +17014,6 @@ static IrInstGen *ir_analyze_tuple_cat(IrAnalyze *ira, IrInst* source_instr,
             return ira->codegen->invalid_inst_gen;
         if (instr_is_comptime(field_value)) {
             const_ptrs.append(dest_ptr);
-        } else {
-            first_non_const_instruction = field_value;
         }
         IrInstGen *store_ptr_inst = ir_analyze_store_ptr(ira, source_instr, dest_ptr, field_value,
                 true);
@@ -17035,20 +17030,13 @@ static IrInstGen *ir_analyze_tuple_cat(IrAnalyze *ira, IrInst* source_instr,
                 continue;
             }
             IrInstGen *deref = ir_get_deref(ira, &elem_result_loc->base, elem_result_loc, nullptr);
-            elem_result_loc->value->special = ConstValSpecialRuntime;
-            ir_analyze_store_ptr(ira, &elem_result_loc->base, elem_result_loc, deref, false);
+            if (!type_requires_comptime(ira->codegen, elem_result_loc->value->type->data.pointer.child_type)) {
+                elem_result_loc->value->special = ConstValSpecialRuntime;
+            }
+            ir_analyze_store_ptr(ira, &elem_result_loc->base, elem_result_loc, deref, true);
         }
     }
     IrInstGen *result = ir_get_deref(ira, source_instr, new_struct_ptr, nullptr);
-    if (instr_is_comptime(result))
-        return result;
-
-    if (is_comptime) {
-        ir_add_error(ira, &first_non_const_instruction->base,
-            buf_sprintf("unable to evaluate constant expression"));
-        return ira->codegen->invalid_inst_gen;
-    }
-
     return result;
 }
 
@@ -23065,8 +23053,11 @@ static IrInstGen *ir_analyze_instruction_container_init_list(IrAnalyze *ira,
         }
     }
 
+    const_ptrs.deinit();
+
     IrInstGen *result = ir_get_deref(ira, &instruction->base.base, result_loc, nullptr);
-    if (instr_is_comptime(result))
+    // If the result is a tuple, we are allowed to return a struct that uses ConstValSpecialRuntime fields at comptime.
+    if (instr_is_comptime(result) || is_tuple(container_type))
         return result;
 
     if (is_comptime) {
