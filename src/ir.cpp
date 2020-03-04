@@ -2766,9 +2766,24 @@ static IrInstGen *ir_build_load_ptr_gen(IrAnalyze *ira, IrInst *source_instructi
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_typeof(IrBuilderSrc *irb, Scope *scope, AstNode *source_node, IrInstSrc *value) {
+static IrInstSrc *ir_build_typeof_n(IrBuilderSrc *irb, Scope *scope, AstNode *source_node,
+        IrInstSrc **values, size_t value_count)
+{
+    assert(value_count >= 2);
+
     IrInstSrcTypeOf *instruction = ir_build_instruction<IrInstSrcTypeOf>(irb, scope, source_node);
-    instruction->value = value;
+    instruction->value.list = values;
+    instruction->value_count = value_count;
+
+    for (size_t i = 0; i < value_count; i++)
+        ir_ref_instruction(values[i], irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstSrc *ir_build_typeof_1(IrBuilderSrc *irb, Scope *scope, AstNode *source_node, IrInstSrc *value) {
+    IrInstSrcTypeOf *instruction = ir_build_instruction<IrInstSrcTypeOf>(irb, scope, source_node);
+    instruction->value.scalar = value;
 
     ir_ref_instruction(value, irb->current_basic_block);
 
@@ -6043,7 +6058,7 @@ static IrInstSrc *ir_gen_fn_call_with_args(IrBuilderSrc *irb, Scope *scope, AstN
     if (fn_ref == irb->codegen->invalid_inst_src)
         return fn_ref;
 
-    IrInstSrc *fn_type = ir_build_typeof(irb, scope, source_node, fn_ref);
+    IrInstSrc *fn_type = ir_build_typeof_1(irb, scope, source_node, fn_ref);
 
     IrInstSrc **args = heap::c_allocator.allocate<IrInstSrc*>(args_len);
     for (size_t i = 0; i < args_len; i += 1) {
@@ -6104,12 +6119,33 @@ static IrInstSrc *ir_gen_builtin_fn_call(IrBuilderSrc *irb, Scope *scope, AstNod
             {
                 Scope *sub_scope = create_typeof_scope(irb->codegen, node, scope);
 
-                AstNode *arg_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg = ir_gen_node(irb, arg_node, sub_scope);
-                if (arg == irb->codegen->invalid_inst_src)
-                    return arg;
+                size_t arg_count = node->data.fn_call_expr.params.length;
 
-                IrInstSrc *type_of = ir_build_typeof(irb, scope, node, arg);
+                IrInstSrc *type_of;
+
+                if (arg_count == 0) {
+                    add_node_error(irb->codegen, node,
+                        buf_sprintf("expected at least 1 argument, found 0"));
+                    return irb->codegen->invalid_inst_src;
+                } else if (arg_count == 1) {
+                    AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                    IrInstSrc *arg0_value = ir_gen_node(irb, arg0_node, sub_scope);
+                    if (arg0_value == irb->codegen->invalid_inst_src)
+                        return arg0_value;
+
+                    type_of = ir_build_typeof_1(irb, scope, node, arg0_value);
+                } else {
+                    IrInstSrc **args = heap::c_allocator.allocate<IrInstSrc*>(arg_count);
+                    for (size_t i = 0; i < arg_count; i += 1) {
+                        AstNode *arg_node = node->data.fn_call_expr.params.at(i);
+                        IrInstSrc *arg = ir_gen_node(irb, arg_node, sub_scope);
+                        if (arg == irb->codegen->invalid_inst_src)
+                            return irb->codegen->invalid_inst_src;
+                        args[i] = arg;
+                    }
+
+                    type_of = ir_build_typeof_n(irb, scope, node, args, arg_count);
+                }
                 return ir_lval_wrap(irb, scope, type_of, lval, result_loc);
             }
         case BuiltinFnIdSetCold:
@@ -21662,10 +21698,31 @@ static IrInstGen *ir_analyze_instruction_load_ptr(IrAnalyze *ira, IrInstSrcLoadP
 }
 
 static IrInstGen *ir_analyze_instruction_typeof(IrAnalyze *ira, IrInstSrcTypeOf *typeof_instruction) {
-    IrInstGen *expr_value = typeof_instruction->value->child;
-    ZigType *type_entry = expr_value->value->type;
+    ZigType *type_entry;
+
+    const size_t value_count = typeof_instruction->value_count;
+
+    // Fast path for the common case of TypeOf with a single argument
+    if (value_count < 2) {
+        type_entry = typeof_instruction->value.scalar->child->value->type;
+    } else {
+        IrInstGen **args = heap::c_allocator.allocate<IrInstGen*>(value_count);
+        for (size_t i = 0; i < value_count; i += 1) {
+            IrInstGen *value = typeof_instruction->value.list[i]->child;
+            if (type_is_invalid(value->value->type))
+                return ira->codegen->invalid_inst_gen;
+            args[i] = value;
+        }
+
+        type_entry = ir_resolve_peer_types(ira, typeof_instruction->base.base.source_node,
+            nullptr, args, value_count);
+
+        heap::c_allocator.deallocate(args, value_count);
+    }
+
     if (type_is_invalid(type_entry))
         return ira->codegen->invalid_inst_gen;
+
     return ir_const_type(ira, &typeof_instruction->base.base, type_entry);
 }
 
