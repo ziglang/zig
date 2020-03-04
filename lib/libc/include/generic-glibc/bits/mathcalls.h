@@ -1,5 +1,5 @@
 /* Prototype declarations for math functions; helper file for <math.h>.
-   Copyright (C) 1996-2019 Free Software Foundation, Inc.
+   Copyright (C) 1996-2020 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -14,7 +14,7 @@
 
    You should have received a copy of the GNU Lesser General Public
    License along with the GNU C Library; if not, see
-   <http://www.gnu.org/licenses/>.  */
+   <https://www.gnu.org/licenses/>.  */
 
 /* NOTE: Because of the special way this file is used by <math.h>, this
    file must NOT be protected from multiple inclusion as header files
@@ -109,7 +109,7 @@ __MATHCALL (log10,, (_Mdouble_ __x));
 /* Break VALUE into integral and fractional parts.  */
 __MATHCALL (modf,, (_Mdouble_ __x, _Mdouble_ *__iptr)) __nonnull ((2));
 
-#if __GLIBC_USE (IEC_60559_FUNCS_EXT)
+#if __GLIBC_USE (IEC_60559_FUNCS_EXT_C2X)
 /* Compute exponent to base ten.  */
 __MATHCALL (exp10,, (_Mdouble_ __x));
 #endif
@@ -261,7 +261,7 @@ __MATHCALL (nextafter,, (_Mdouble_ __x, _Mdouble_ __y));
 __MATHCALL (nexttoward,, (_Mdouble_ __x, long double __y));
 # endif
 
-# if __GLIBC_USE (IEC_60559_BFP_EXT) || __MATH_DECLARING_FLOATN
+# if __GLIBC_USE (IEC_60559_BFP_EXT_C2X) || __MATH_DECLARING_FLOATN
 /* Return X - epsilon.  */
 __MATHCALL (nextdown,, (_Mdouble_ __x));
 /* Return X + epsilon.  */
@@ -280,7 +280,7 @@ __MATHCALL (scalbn,, (_Mdouble_ __x, int __n));
 __MATHDECL (int,ilogb,, (_Mdouble_ __x));
 #endif
 
-#if __GLIBC_USE (IEC_60559_BFP_EXT) || __MATH_DECLARING_FLOATN
+#if __GLIBC_USE (IEC_60559_BFP_EXT_C2X) || __MATH_DECLARING_FLOATN
 /* Like ilogb, but returning long int.  */
 __MATHDECL (long int, llogb,, (_Mdouble_ __x));
 #endif
@@ -335,7 +335,7 @@ __MATHCALLX (fmin,, (_Mdouble_ __x, _Mdouble_ __y), (__const__));
 __MATHCALL (fma,, (_Mdouble_ __x, _Mdouble_ __y, _Mdouble_ __z));
 #endif /* Use ISO C99.  */
 
-#if __GLIBC_USE (IEC_60559_BFP_EXT) || __MATH_DECLARING_FLOATN
+#if __GLIBC_USE (IEC_60559_BFP_EXT_C2X) || __MATH_DECLARING_FLOATN
 /* Round X to nearest integer value, rounding halfway cases to even.  */
 __MATHCALLX (roundeven,, (_Mdouble_ __x), (__const__));
 
@@ -367,16 +367,20 @@ __MATHCALLX (fmaxmag,, (_Mdouble_ __x, _Mdouble_ __y), (__const__));
 /* Return value with minimum magnitude.  */
 __MATHCALLX (fminmag,, (_Mdouble_ __x, _Mdouble_ __y), (__const__));
 
-/* Total order operation.  */
-__MATHDECL_1 (int, totalorder,, (_Mdouble_ __x, _Mdouble_ __y))
-     __attribute__ ((__const__));
-
-/* Total order operation on absolute values.  */
-__MATHDECL_1 (int, totalordermag,, (_Mdouble_ __x, _Mdouble_ __y))
-     __attribute__ ((__const__));
-
 /* Canonicalize floating-point representation.  */
 __MATHDECL_1 (int, canonicalize,, (_Mdouble_ *__cx, const _Mdouble_ *__x));
+#endif
+
+#if __GLIBC_USE (IEC_60559_BFP_EXT) || __MATH_DECLARING_FLOATN
+/* Total order operation.  */
+__MATHDECL_1 (int, totalorder,, (const _Mdouble_ *__x,
+				 const _Mdouble_ *__y))
+     __attribute_pure__;
+
+/* Total order operation on absolute values.  */
+__MATHDECL_1 (int, totalordermag,, (const _Mdouble_ *__x,
+				    const _Mdouble_ *__y))
+     __attribute_pure__;
 
 /* Get NaN payload.  */
 __MATHCALL (getpayload,, (const _Mdouble_ *__x));

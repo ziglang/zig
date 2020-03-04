@@ -1,11 +1,11 @@
 /* Generated at libc build time from syscall list.  */
-/* The system call list corresponds to kernel 5.2.  */
+/* The system call list corresponds to kernel 5.4.  */
 
 #ifndef _SYSCALL_H
 # error "Never use <bits/syscall.h> directly; include <sys/syscall.h> instead."
 #endif
 
-#define __GLIBC_LINUX_VERSION_CODE 328192
+#define __GLIBC_LINUX_VERSION_CODE 328704
 
 #ifdef __NR_FAST_atomic_update
 # define SYS_FAST_atomic_update __NR_FAST_atomic_update
@@ -205,6 +205,10 @@
 
 #ifdef __NR_clone2
 # define SYS_clone2 __NR_clone2
+#endif
+
+#ifdef __NR_clone3
+# define SYS_clone3 __NR_clone3
 #endif
 
 #ifdef __NR_close
@@ -1545,6 +1549,10 @@
 
 #ifdef __NR_personality
 # define SYS_personality __NR_personality
+#endif
+
+#ifdef __NR_pidfd_open
+# define SYS_pidfd_open __NR_pidfd_open
 #endif
 
 #ifdef __NR_pidfd_send_signal
