@@ -1,4 +1,4 @@
-/* Copyright (C) 2010-2019 Free Software Foundation, Inc.
+/* Copyright (C) 2010-2020 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
    Contributed by Maxim Kuvyrkov <maxim@codesourcery.com>, 2010.
 
@@ -14,12 +14,12 @@
 
    You should have received a copy of the GNU Lesser General Public
    License along with the GNU C Library.  If not, see
-   <http://www.gnu.org/licenses/>.  */
+   <https://www.gnu.org/licenses/>.  */
 
 #ifndef _BITS_PTHREADTYPES_ARCH_H
 #define _BITS_PTHREADTYPES_ARCH_H	1
 
-#include <endian.h>
+#include <bits/endian.h>
 
 #define __SIZEOF_PTHREAD_ATTR_T 36
 #define __SIZEOF_PTHREAD_MUTEX_T 24
@@ -31,33 +31,7 @@
 #define __SIZEOF_PTHREAD_BARRIER_T 20
 #define __SIZEOF_PTHREAD_BARRIERATTR_T 4
 
-/* Data structure for mutex handling. */
-#define __PTHREAD_COMPAT_PADDING_MID
-#define __PTHREAD_COMPAT_PADDING_END
-#define __PTHREAD_MUTEX_LOCK_ELISION    0
-#define __PTHREAD_MUTEX_NUSERS_AFTER_KIND  1
-#define __PTHREAD_MUTEX_USE_UNION          1
-
 #define __LOCK_ALIGNMENT __attribute__ ((__aligned__ (4)))
 #define __ONCE_ALIGNMENT __attribute__ ((__aligned__ (4)))
-
-struct __pthread_rwlock_arch_t
-{
-  unsigned int __readers  __attribute__ ((__aligned__ (4)));
-  unsigned int __writers;
-  unsigned int __wrphase_futex;
-  unsigned int __writers_futex;
-  unsigned int __pad3;
-  unsigned int __pad4;
-  unsigned char __pad1;
-  unsigned char __pad2;
-  unsigned char __shared;
-  /* FLAGS must stay at this position in the structure to maintain
-     binary compatibility.  */
-  unsigned char __flags;
-  int __cur_writer;
-};
-
-#define __PTHREAD_RWLOCK_ELISION_EXTRA 0
 
 #endif	/* bits/pthreadtypes.h */

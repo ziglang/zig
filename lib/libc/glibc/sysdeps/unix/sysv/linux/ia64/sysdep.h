@@ -1,4 +1,4 @@
-/* Copyright (C) 1999-2019 Free Software Foundation, Inc.
+/* Copyright (C) 1999-2020 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
    Written by Jes Sorensen, <Jes.Sorensen@cern.ch>, April 1999.
    Based on code originally written by David Mosberger-Tang
@@ -15,7 +15,7 @@
 
    You should have received a copy of the GNU Lesser General Public
    License along with the GNU C Library; if not, see
-   <http://www.gnu.org/licenses/>.  */
+   <https://www.gnu.org/licenses/>.  */
 
 #ifndef _LINUX_IA64_SYSDEP_H
 #define _LINUX_IA64_SYSDEP_H 1
@@ -25,6 +25,7 @@
 #include <sysdeps/ia64/sysdep.h>
 #include <dl-sysdep.h>
 #include <tls.h>
+#include <asm/break.h>
 
 /* In order to get __set_errno() definition in INLINE_SYSCALL.  */
 #ifndef __ASSEMBLER__
@@ -44,16 +45,6 @@
    so we have to redefine the `SYS_ify' macro here.  */
 #undef SYS_ify
 #define SYS_ify(syscall_name)	__NR_##syscall_name
-
-/* This is a kludge to make syscalls.list find these under the names
-   pread and pwrite, since some kernel headers define those names
-   and some define the *64 names for the same system calls.  */
-#if !defined __NR_pread && defined __NR_pread64
-# define __NR_pread __NR_pread64
-#endif
-#if !defined __NR_pwrite && defined __NR_pwrite64
-# define __NR_pwrite __NR_pwrite64
-#endif
 
 /* This is to help the old kernel headers where __NR_semtimedop is not
    available.  */
@@ -115,7 +106,7 @@
 
 #define DO_CALL_VIA_BREAK(num)			\
 	mov r15=num;				\
-	break __BREAK_SYSCALL
+	break __IA64_BREAK_SYSCALL
 
 #ifdef IA64_USE_NEW_STUB
 # ifdef SHARED
@@ -229,7 +220,7 @@
     register long _r15 asm ("r15") = name;			\
     long _retval;						\
     LOAD_REGS_##nr						\
-    __asm __volatile (BREAK_INSN (__BREAK_SYSCALL)		\
+    __asm __volatile (BREAK_INSN (__IA64_BREAK_SYSCALL)		\
 		      : "=r" (_r8), "=r" (_r10), "=r" (_r15)	\
 			ASM_OUTARGS_##nr			\
 		      : "2" (_r15) ASM_ARGS_##nr		\

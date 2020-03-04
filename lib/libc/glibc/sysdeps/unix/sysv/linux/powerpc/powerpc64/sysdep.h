@@ -1,4 +1,4 @@
-/* Copyright (C) 1992-2019 Free Software Foundation, Inc.
+/* Copyright (C) 1992-2020 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -13,16 +13,14 @@
 
    You should have received a copy of the GNU Lesser General Public
    License along with the GNU C Library; if not, see
-   <http://www.gnu.org/licenses/>.  */
+   <https://www.gnu.org/licenses/>.  */
 
 /* Alan Modra <amodra@bigpond.net.au> rewrote the INLINE_SYSCALL macro */
 
 #ifndef _LINUX_POWERPC_SYSDEP_H
 #define _LINUX_POWERPC_SYSDEP_H 1
 
-/* Always enable vsyscalls on powerpc64 */
-#define ALWAYS_USE_VSYSCALL 1
-
+#include <sysdeps/unix/sysv/linux/powerpc/sysdep.h>
 #include <sysdeps/unix/sysv/linux/sysdep.h>
 #include <sysdeps/unix/powerpc/sysdep.h>
 #include <tls.h>
@@ -46,27 +44,6 @@
 # define ASM_SIZE_DIRECTIVE(name) .size name,.-name
 
 #endif /* __ASSEMBLER__ */
-
-/* This version is for internal uses when there is no desire
-   to set errno */
-#define INTERNAL_VSYSCALL_NO_SYSCALL_FALLBACK(name, err, type, nr, args...)   \
-  ({									      \
-    type sc_ret = ENOSYS;						      \
-									      \
-    __typeof (__vdso_##name) vdsop = __vdso_##name;			      \
-    PTR_DEMANGLE (vdsop);						      \
-    if (vdsop != NULL)							      \
-      sc_ret =								      \
-        INTERNAL_VSYSCALL_CALL_TYPE (vdsop, err, type, nr, ##args);	      \
-    else								      \
-      err = 1 << 28;							      \
-    sc_ret;								      \
-  })
-
-/* List of system calls which are supported as vsyscalls.  */
-#define HAVE_CLOCK_GETRES_VSYSCALL	1
-#define HAVE_CLOCK_GETTIME_VSYSCALL	1
-#define HAVE_GETCPU_VSYSCALL		1
 
 /* Define a macro which expands inline into the wrapper code for a system
    call. This use is for internal calls that do not need to handle errors
@@ -101,10 +78,9 @@
 #define INTERNAL_VSYSCALL_CALL(funcptr, err, nr, args...)		\
   INTERNAL_VSYSCALL_CALL_TYPE(funcptr, err, long int, nr, args)
 
-#undef INLINE_SYSCALL
-
 /* This version is for kernels that implement system calls that
    behave like function calls as far as register saving.  */
+#undef INLINE_SYSCALL
 #define INLINE_SYSCALL(name, nr, args...)				\
   ({									\
     INTERNAL_SYSCALL_DECL (sc_err);					\

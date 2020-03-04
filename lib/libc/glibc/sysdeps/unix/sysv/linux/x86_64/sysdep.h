@@ -1,4 +1,4 @@
-/* Copyright (C) 2001-2019 Free Software Foundation, Inc.
+/* Copyright (C) 2001-2020 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -13,13 +13,10 @@
 
    You should have received a copy of the GNU Lesser General Public
    License along with the GNU C Library; if not, see
-   <http://www.gnu.org/licenses/>.  */
+   <https://www.gnu.org/licenses/>.  */
 
 #ifndef _LINUX_X86_64_SYSDEP_H
 #define _LINUX_X86_64_SYSDEP_H 1
-
-/* Always enable vsyscalls on x86_64 */
-#define ALWAYS_USE_VSYSCALL 1
 
 /* There is some commonality.  */
 #include <sysdeps/unix/sysv/linux/sysdep.h>
@@ -35,16 +32,6 @@
    so we have to redefine the `SYS_ify' macro here.  */
 #undef SYS_ify
 #define SYS_ify(syscall_name)	__NR_##syscall_name
-
-/* This is a kludge to make syscalls.list find these under the names
-   pread and pwrite, since some kernel headers define those names
-   and some define the *64 names for the same system calls.  */
-#if !defined __NR_pread && defined __NR_pread64
-# define __NR_pread __NR_pread64
-#endif
-#if !defined __NR_pwrite && defined __NR_pwrite64
-# define __NR_pwrite __NR_pwrite64
-#endif
 
 /* This is to help the old kernel headers where __NR_semtimedop is not
    available.  */
@@ -373,10 +360,15 @@
 # undef INTERNAL_SYSCALL_ERRNO
 # define INTERNAL_SYSCALL_ERRNO(val, err)	(-(val))
 
+# define VDSO_NAME  "LINUX_2.6"
+# define VDSO_HASH  61765110
+
 /* List of system calls which are supported as vsyscalls.  */
-# define HAVE_CLOCK_GETTIME_VSYSCALL    1
-# define HAVE_GETTIMEOFDAY_VSYSCALL     1
-# define HAVE_GETCPU_VSYSCALL		1
+# define HAVE_CLOCK_GETTIME64_VSYSCALL  "__vdso_clock_gettime"
+# define HAVE_GETTIMEOFDAY_VSYSCALL     "__vdso_gettimeofday"
+# define HAVE_TIME_VSYSCALL             "__vdso_time"
+# define HAVE_GETCPU_VSYSCALL		"__vdso_getcpu"
+# define HAVE_CLOCK_GETRES64_VSYSCALL   "__vdso_clock_getres"
 
 # define SINGLE_THREAD_BY_GLOBAL		1
 

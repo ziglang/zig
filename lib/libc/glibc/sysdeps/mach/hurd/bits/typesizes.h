@@ -1,5 +1,5 @@
 /* bits/typesizes.h -- underlying types for *_t.  Hurd version.
-   Copyright (C) 2002-2019 Free Software Foundation, Inc.
+   Copyright (C) 2002-2020 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -14,7 +14,7 @@
 
    You should have received a copy of the GNU Lesser General Public
    License along with the GNU C Library; if not, see
-   <http://www.gnu.org/licenses/>.  */
+   <https://www.gnu.org/licenses/>.  */
 
 #ifndef _BITS_TYPES_H
 # error "Never include <bits/typesizes.h> directly; use <sys/types.h> instead."
@@ -63,6 +63,10 @@
 
 /* Number of descriptors that can fit in an `fd_set'.  */
 #define	__FD_SETSIZE		256
+
+/* Tell the libc code that fsblkcnt_t, fsblkcnt64_t, fsfilcnt_t and
+   fsfilcnt64_t are not the same type for all ABI purposes.  */
+# define __STATFS_MATCHES_STATFS64  0
 
 
 #endif /* bits/typesizes.h */

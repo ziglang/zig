@@ -202,9 +202,12 @@ libc_hidden_proto (____strtoll_l_internal)
 libc_hidden_proto (____strtoul_l_internal)
 libc_hidden_proto (____strtoull_l_internal)
 
+#include <bits/floatn.h>
 libc_hidden_proto (strtof)
 libc_hidden_proto (strtod)
+#if __LONG_DOUBLE_USES_FLOAT128 == 0
 libc_hidden_proto (strtold)
+#endif
 libc_hidden_proto (strtol)
 libc_hidden_proto (strtoll)
 libc_hidden_proto (strtoul)

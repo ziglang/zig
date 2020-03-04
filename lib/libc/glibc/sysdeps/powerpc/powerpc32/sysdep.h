@@ -1,5 +1,5 @@
 /* Assembly macros for 32-bit PowerPC.
-   Copyright (C) 1999-2019 Free Software Foundation, Inc.
+   Copyright (C) 1999-2020 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -14,7 +14,7 @@
 
    You should have received a copy of the GNU Lesser General Public
    License along with the GNU C Library; if not, see
-   <http://www.gnu.org/licenses/>.  */
+   <https://www.gnu.org/licenses/>.  */
 
 #include <sysdeps/powerpc/sysdep.h>
 
@@ -156,5 +156,31 @@ GOT_LABEL:			;					      \
 
 /* Label in text section.  */
 #define C_TEXT(name) name
+
+/* Read the value of member from rtld_global_ro.  */
+#ifdef PIC
+# ifdef SHARED
+#  if IS_IN (rtld)
+/* Inside ld.so we use the local alias to avoid runtime GOT
+   relocations.  */
+#   define __GLRO(rOUT, rGOT, member, offset)				\
+	lwz     rOUT,_rtld_local_ro@got(rGOT);				\
+	lwz     rOUT,offset(rOUT)
+#  else
+#   define __GLRO(rOUT, rGOT, member, offset)				\
+	lwz     rOUT,_rtld_global_ro@got(rGOT);				\
+	lwz     rOUT,offset(rOUT)
+#  endif
+# else
+#  define __GLRO(rOUT, rGOT, member, offset)				\
+	lwz     rOUT,member@got(rGOT);					\
+	lwz     rOUT,0(rOUT)
+# endif
+#else
+/* Position-dependent code does not require access to the GOT.  */
+# define __GLRO(rOUT, rGOT, member, offset)				\
+	lis     rOUT,(member+LOWORD)@ha;					\
+	lwz     rOUT,(member+LOWORD)@l(rOUT)
+#endif	/* PIC */
 
 #endif	/* __ASSEMBLER__ */

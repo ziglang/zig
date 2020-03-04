@@ -1,4 +1,4 @@
-/* Copyright (C) 1992-2019 Free Software Foundation, Inc.
+/* Copyright (C) 1992-2020 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
    Contributed by Ulrich Drepper, <drepper@gnu.org>, August 1995.
 
@@ -14,13 +14,10 @@
 
    You should have received a copy of the GNU Lesser General Public
    License along with the GNU C Library; if not, see
-   <http://www.gnu.org/licenses/>.  */
+   <https://www.gnu.org/licenses/>.  */
 
 #ifndef _LINUX_I386_SYSDEP_H
 #define _LINUX_I386_SYSDEP_H 1
-
-/* Always enable vsyscalls on i386 */
-#define ALWAYS_USE_VSYSCALL 1
 
 /* There is some commonality.  */
 #include <sysdeps/unix/sysv/linux/sysdep.h>
@@ -312,9 +309,15 @@ struct libc_do_syscall_args
 #define INLINE_SYSCALL_ERROR_RETURN_VALUE(resultvar) \
   __syscall_error (-(resultvar))
 
+# define VDSO_NAME  "LINUX_2.6"
+# define VDSO_HASH  61765110
+
 /* List of system calls which are supported as vsyscalls.  */
-# define HAVE_CLOCK_GETTIME_VSYSCALL    1
-# define HAVE_GETTIMEOFDAY_VSYSCALL     1
+# define HAVE_CLOCK_GETTIME_VSYSCALL    "__vdso_clock_gettime"
+# define HAVE_CLOCK_GETTIME64_VSYSCALL  "__vdso_clock_gettime64"
+# define HAVE_GETTIMEOFDAY_VSYSCALL     "__vdso_gettimeofday"
+# define HAVE_TIME_VSYSCALL             "__vdso_time"
+# define HAVE_CLOCK_GETRES_VSYSCALL     "__vdso_clock_getres"
 
 /* Define a macro which expands inline into the wrapper code for a system
    call.  This use is for internal calls that do not need to handle errors
