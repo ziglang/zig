@@ -14,13 +14,13 @@ pub fn OutStream(comptime WriteError: type) type {
         const Self = @This();
         pub const Error = WriteError;
         pub const WriteFn = if (std.io.is_async)
-            async fn (self: *Self, bytes: []const u8) Error!void
+            async fn (self: *Self, bytes: []const u8) Error!usize
         else
-            fn (self: *Self, bytes: []const u8) Error!void;
+            fn (self: *Self, bytes: []const u8) Error!usize;
 
         writeFn: WriteFn,
 
-        pub fn write(self: *Self, bytes: []const u8) Error!void {
+        pub fn writeOnce(self: *Self, bytes: []const u8) Error!usize {
             if (std.io.is_async) {
                 // Let's not be writing 0xaa in safe modes for upwards of 4 MiB for every stream write.
                 @setRuntimeSafety(false);
@@ -28,6 +28,13 @@ pub fn OutStream(comptime WriteError: type) type {
                 return await @asyncCall(&stack_frame, {}, self.writeFn, self, bytes);
             } else {
                 return self.writeFn(self, bytes);
+            }
+        }
+
+        pub fn write(self: *Self, bytes: []const u8) Error!void {
+            var index: usize = 0;
+            while (index != bytes.len) {
+                index += try self.writeOnce(bytes[index..]);
             }
         }
 

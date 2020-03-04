@@ -298,6 +298,11 @@ pub const ReadError = error{
 /// buf.len. If 0 bytes were read, that means EOF.
 /// If the application has a global event loop enabled, EAGAIN is handled
 /// via the event loop. Otherwise EAGAIN results in error.WouldBlock.
+///
+/// Linux has a limit on how many bytes may be transferred in one `read` call, which is `0x7ffff000`
+/// on both 64-bit and 32-bit systems. This is due to using a signed C int as the return value, as
+/// well as stuffing the errno codes into the last `4096` values. This is noted on the `read` man page.
+/// For POSIX the limit is `math.maxInt(isize)`.
 pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
     if (builtin.os.tag == .windows) {
         return windows.ReadFile(fd, buf, null);
@@ -316,8 +321,15 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
         }
     }
 
+    // Prevents EINVAL.
+    const max_count = switch (std.Target.current.os.tag) {
+        .linux => 0x7ffff000,
+        else => math.maxInt(isize),
+    };
+    const adjusted_len = math.min(max_count, buf.len);
+
     while (true) {
-        const rc = system.read(fd, buf.ptr, buf.len);
+        const rc = system.read(fd, buf.ptr, adjusted_len);
         switch (errno(rc)) {
             0 => return @intCast(usize, rc),
             EINTR => continue,
@@ -352,32 +364,18 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
 /// * Windows
 /// On these systems, the read races with concurrent writes to the same file descriptor.
 pub fn readv(fd: fd_t, iov: []const iovec) ReadError!usize {
-    if (builtin.os.tag == .windows) {
-        // TODO batch these into parallel requests
-        var off: usize = 0;
-        var iov_i: usize = 0;
-        var inner_off: usize = 0;
-        while (true) {
-            const v = iov[iov_i];
-            const amt_read = try read(fd, v.iov_base[inner_off .. v.iov_len - inner_off]);
-            off += amt_read;
-            inner_off += amt_read;
-            if (inner_off == v.len) {
-                iov_i += 1;
-                inner_off = 0;
-                if (iov_i == iov.len) {
-                    return off;
-                }
-            }
-            if (amt_read == 0) return off; // EOF
-        } else unreachable; // TODO https://github.com/ziglang/zig/issues/707
+    if (std.Target.current.os.tag == .windows) {
+        // TODO does Windows have a way to read an io vector?
+        if (iov.len == 0) return @as(usize, 0);
+        const first = iov[0];
+        return read(fd, first.iov_base[0..first.iov_len]);
     }
 
     while (true) {
         // TODO handle the case when iov_len is too large and get rid of this @intCast
-        const rc = system.readv(fd, iov.ptr, @intCast(u32, iov.len));
+        const rc = system.readv(fd, iov.ptr, iov_count);
         switch (errno(rc)) {
-            0 => return @bitCast(usize, rc),
+            0 => return @intCast(usize, rc),
             EINTR => continue,
             EINVAL => unreachable,
             EFAULT => unreachable,
@@ -397,6 +395,8 @@ pub fn readv(fd: fd_t, iov: []const iovec) ReadError!usize {
     }
 }
 
+pub const PReadError = ReadError || error{Unseekable};
+
 /// Number of bytes read is returned. Upon reading end-of-file, zero is returned.
 ///
 /// Retries when interrupted by a signal.
@@ -405,7 +405,7 @@ pub fn readv(fd: fd_t, iov: []const iovec) ReadError!usize {
 /// via the event loop. Otherwise EAGAIN results in `error.WouldBlock`.
 /// On Windows, if the application has a global event loop enabled, I/O Completion Ports are
 /// used to perform the I/O. `error.WouldBlock` is not possible on Windows.
-pub fn pread(fd: fd_t, buf: []u8, offset: u64) ReadError!usize {
+pub fn pread(fd: fd_t, buf: []u8, offset: u64) PReadError!usize {
     if (builtin.os.tag == .windows) {
         return windows.ReadFile(fd, buf, offset);
     }
@@ -429,6 +429,9 @@ pub fn pread(fd: fd_t, buf: []u8, offset: u64) ReadError!usize {
             ENOBUFS => return error.SystemResources,
             ENOMEM => return error.SystemResources,
             ECONNRESET => return error.ConnectionResetByPeer,
+            ENXIO => return error.Unseekable,
+            ESPIPE => return error.Unseekable,
+            EOVERFLOW => return error.Unseekable,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -448,75 +451,23 @@ pub fn pread(fd: fd_t, buf: []u8, offset: u64) ReadError!usize {
 /// * Darwin
 /// * Windows
 /// On these systems, the read races with concurrent writes to the same file descriptor.
-pub fn preadv(fd: fd_t, iov: []const iovec, offset: u64) ReadError!usize {
-    if (comptime std.Target.current.isDarwin()) {
-        // Darwin does not have preadv but it does have pread.
-        var off: usize = 0;
-        var iov_i: usize = 0;
-        var inner_off: usize = 0;
-        while (true) {
-            const v = iov[iov_i];
-            const rc = darwin.pread(fd, v.iov_base + inner_off, v.iov_len - inner_off, offset + off);
-            const err = darwin.getErrno(rc);
-            switch (err) {
-                0 => {
-                    const amt_read = @bitCast(usize, rc);
-                    off += amt_read;
-                    inner_off += amt_read;
-                    if (inner_off == v.iov_len) {
-                        iov_i += 1;
-                        inner_off = 0;
-                        if (iov_i == iov.len) {
-                            return off;
-                        }
-                    }
-                    if (rc == 0) return off; // EOF
-                    continue;
-                },
-                EINTR => continue,
-                EINVAL => unreachable,
-                EFAULT => unreachable,
-                ESPIPE => unreachable, // fd is not seekable
-                EAGAIN => if (std.event.Loop.instance) |loop| {
-                    loop.waitUntilFdReadable(fd);
-                    continue;
-                } else {
-                    return error.WouldBlock;
-                },
-                EBADF => unreachable, // always a race condition
-                EIO => return error.InputOutput,
-                EISDIR => return error.IsDir,
-                ENOBUFS => return error.SystemResources,
-                ENOMEM => return error.SystemResources,
-                else => return unexpectedErrno(err),
-            }
-        }
+pub fn preadv(fd: fd_t, iov: []const iovec, offset: u64) PReadError!usize {
+    const have_pread_but_not_preadv = switch (std.Target.current.os.tag) {
+        .windows, .macosx, .ios, .watchos, .tvos => true,
+        else => false,
+    };
+    if (have_pread_but_not_preadv) {
+        // We could loop here; but proper usage of `preadv` must handle partial reads anyway.
+        // So we simply read into the first vector only.
+        if (iov.len == 0) return @as(usize, 0);
+        const first = iov[0];
+        return pread(fd, first.iov_base[0..first.iov_len], offset);
     }
 
-    if (builtin.os.tag == .windows) {
-        // TODO batch these into parallel requests
-        var off: usize = 0;
-        var iov_i: usize = 0;
-        var inner_off: usize = 0;
-        while (true) {
-            const v = iov[iov_i];
-            const amt_read = try pread(fd, v.iov_base[inner_off .. v.iov_len - inner_off], offset + off);
-            off += amt_read;
-            inner_off += amt_read;
-            if (inner_off == v.len) {
-                iov_i += 1;
-                inner_off = 0;
-                if (iov_i == iov.len) {
-                    return off;
-                }
-            }
-            if (amt_read == 0) return off; // EOF
-        } else unreachable; // TODO https://github.com/ziglang/zig/issues/707
-    }
+    const iov_count = math.cast(u31, iov.len) catch math.maxInt(u31);
 
     while (true) {
-        // TODO handle the case when iov_len is too large and get rid of this @intCast
-        const rc = system.preadv(fd, iov.ptr, @intCast(u32, iov.len), offset);
+        const rc = system.preadv(fd, iov.ptr, iov_count, offset);
         switch (errno(rc)) {
             0 => return @bitCast(usize, rc),
             EINTR => continue,
@@ -533,6 +484,9 @@ pub fn preadv(fd: fd_t, iov: []const iovec, offset: u64) ReadError!usize {
             EISDIR => return error.IsDir,
             ENOBUFS => return error.SystemResources,
             ENOMEM => return error.SystemResources,
+            ENXIO => return error.Unseekable,
+            ESPIPE => return error.Unseekable,
+            EOVERFLOW => return error.Unseekable,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -553,10 +507,28 @@ pub const WriteError = error{
     WouldBlock,
 } || UnexpectedError;
 
-/// Write to a file descriptor. Keeps trying if it gets interrupted.
-/// If the application has a global event loop enabled, EAGAIN is handled
-/// via the event loop. Otherwise EAGAIN results in error.WouldBlock.
-pub fn write(fd: fd_t, bytes: []const u8) WriteError!void {
+/// Write to a file descriptor.
+/// Retries when interrupted by a signal.
+/// Returns the number of bytes written. If nonzero bytes were supplied, this will be nonzero.
+///
+/// Note that a successful write() may transfer fewer than count bytes.  Such partial  writes  can
+/// occur  for  various reasons; for example, because there was insufficient space on the disk
+/// device to write all of the requested bytes, or because a blocked write() to a socket,  pipe,  or
+/// similar  was  interrupted by a signal handler after it had transferred some, but before it had
+/// transferred all of the requested bytes.  In the event of a partial write, the caller can  make
+/// another  write() call to transfer the remaining bytes.  The subsequent call will either
+/// transfer further bytes or may result in an error (e.g., if the disk is now full).
+///
+/// For POSIX systems, if the application has a global event loop enabled, EAGAIN is handled
+/// via the event loop. Otherwise EAGAIN results in `error.WouldBlock`.
+/// On Windows, if the application has a global event loop enabled, I/O Completion Ports are
+/// used to perform the I/O. `error.WouldBlock` is not possible on Windows.
+///
+/// Linux has a limit on how many bytes may be transferred in one `write` call, which is `0x7ffff000`
+/// on both 64-bit and 32-bit systems. This is due to using a signed C int as the return value, as
+/// well as stuffing the errno codes into the last `4096` values. This is noted on the `write` man page.
+/// The corresponding POSIX limit is `math.maxInt(isize)`.
+pub fn write(fd: fd_t, bytes: []const u8) WriteError!usize {
     if (builtin.os.tag == .windows) {
         return windows.WriteFile(fd, bytes, null);
     }
@@ -568,26 +540,21 @@ pub fn write(fd: fd_t, bytes: []const u8) WriteError!void {
         }};
         var nwritten: usize = undefined;
         switch (wasi.fd_write(fd, &ciovs, ciovs.len, &nwritten)) {
-            0 => return,
+            0 => return nwritten,
             else => |err| return unexpectedErrno(err),
         }
     }
 
-    // Linux can return EINVAL when write amount is > 0x7ffff000
-    // See https://github.com/ziglang/zig/pull/743#issuecomment-363165856
-    // TODO audit this. Shawn Landden says that this is not actually true.
-    // if this logic should stay, move it to std.os.linux
-    const max_bytes_len = 0x7ffff000;
+    const max_count = switch (std.Target.current.os.tag) {
+        .linux => 0x7ffff000,
+        else => math.maxInt(isize),
+    };
+    const adjusted_len = math.min(max_count, bytes.len);
 
-    var index: usize = 0;
-    while (index < bytes.len) {
-        const amt_to_write = math.min(bytes.len - index, @as(usize, max_bytes_len));
-        const rc = system.write(fd, bytes.ptr + index, amt_to_write);
+    while (true) {
+        const rc = system.write(fd, bytes.ptr, adjusted_len);
         switch (errno(rc)) {
-            0 => {
-                index += @intCast(usize, rc);
-                continue;
-            },
+            0 => return @intCast(usize, rc),
             EINTR => continue,
             EINVAL => unreachable,
             EFAULT => unreachable,
@@ -611,14 +578,36 @@ pub fn write(fd: fd_t, bytes: []const u8) WriteError!void {
 }
 
 /// Write multiple buffers to a file descriptor.
-/// If the application has a global event loop enabled, EAGAIN is handled
-/// via the event loop. Otherwise EAGAIN results in error.WouldBlock.
-pub fn writev(fd: fd_t, iov: []const iovec_const) WriteError!void {
+/// Retries when interrupted by a signal.
+/// Returns the number of bytes written. If nonzero bytes were supplied, this will be nonzero.
+///
+/// Note that a successful write() may transfer fewer bytes than supplied.  Such partial  writes  can
+/// occur  for  various reasons; for example, because there was insufficient space on the disk
+/// device to write all of the requested bytes, or because a blocked write() to a socket,  pipe,  or
+/// similar  was  interrupted by a signal handler after it had transferred some, but before it had
+/// transferred all of the requested bytes.  In the event of a partial write, the caller can  make
+/// another  write() call to transfer the remaining bytes.  The subsequent call will either
+/// transfer further bytes or may result in an error (e.g., if the disk is now full).
+///
+/// For POSIX systems, if the application has a global event loop enabled, EAGAIN is handled
+/// via the event loop. Otherwise EAGAIN results in `error.WouldBlock`.
+/// On Windows, if the application has a global event loop enabled, I/O Completion Ports are
+/// used to perform the I/O. `error.WouldBlock` is not possible on Windows.
+///
+/// If `iov.len` is larger than will fit in a `u31`, a partial write will occur.
+pub fn writev(fd: fd_t, iov: []const iovec_const) WriteError!usize {
+    if (std.Target.current.os.tag == .windows) {
+        // TODO does Windows have a way to write an io vector?
+        if (iov.len == 0) return @as(usize, 0);
+        const first = iov[0];
+        return write(fd, first.iov_base[0..first.iov_len]);
+    }
+
+    const iov_count = math.cast(u31, iov.len) catch math.maxInt(u31);
     while (true) {
-        // TODO handle the case when iov_len is too large and get rid of this @intCast
-        const rc = system.writev(fd, iov.ptr, @intCast(u32, iov.len));
+        const rc = system.writev(fd, iov.ptr, iov_count);
         switch (errno(rc)) {
-            0 => return,
+            0 => return @intCast(usize, rc),
             EINTR => continue,
             EINVAL => unreachable,
             EFAULT => unreachable,
@@ -641,23 +630,45 @@ pub fn writev(fd: fd_t, iov: []const iovec_const) WriteError!void {
     }
 }
 
+pub const PWriteError = WriteError || error{Unseekable};
+
 /// Write to a file descriptor, with a position offset.
-///
 /// Retries when interrupted by a signal.
+/// Returns the number of bytes written. If nonzero bytes were supplied, this will be nonzero.
+///
+/// Note that a successful write() may transfer fewer bytes than supplied.  Such partial  writes  can
+/// occur  for  various reasons; for example, because there was insufficient space on the disk
+/// device to write all of the requested bytes, or because a blocked write() to a socket,  pipe,  or
+/// similar  was  interrupted by a signal handler after it had transferred some, but before it had
+/// transferred all of the requested bytes.  In the event of a partial write, the caller can  make
+/// another  write() call to transfer the remaining bytes.  The subsequent call will either
+/// transfer further bytes or may result in an error (e.g., if the disk is now full).
 ///
 /// For POSIX systems, if the application has a global event loop enabled, EAGAIN is handled
 /// via the event loop. Otherwise EAGAIN results in `error.WouldBlock`.
 /// On Windows, if the application has a global event loop enabled, I/O Completion Ports are
 /// used to perform the I/O. `error.WouldBlock` is not possible on Windows.
-pub fn pwrite(fd: fd_t, bytes: []const u8, offset: u64) WriteError!void {
+///
+/// Linux has a limit on how many bytes may be transferred in one `pwrite` call, which is `0x7ffff000`
+/// on both 64-bit and 32-bit systems. This is due to using a signed C int as the return value, as
+/// well as stuffing the errno codes into the last `4096` values. This is noted on the `write` man page.
+/// The corresponding POSIX limit is `math.maxInt(isize)`.
+pub fn pwrite(fd: fd_t, bytes: []const u8, offset: u64) PWriteError!usize {
     if (std.Target.current.os.tag == .windows) {
         return windows.WriteFile(fd, bytes, offset);
     }
 
+    // Prevent EINVAL.
+    const max_count = switch (std.Target.current.os.tag) {
+        .linux => 0x7ffff000,
+        else => math.maxInt(isize),
+    };
+    const adjusted_len = math.min(max_count, bytes.len);
+
     while (true) {
-        const rc = system.pwrite(fd, bytes.ptr, bytes.len, offset);
+        const rc = system.pwrite(fd, bytes.ptr, adjusted_len, offset);
         switch (errno(rc)) {
-            0 => return,
+            0 => return @intCast(usize, rc),
             EINTR => continue,
             EINVAL => unreachable,
             EFAULT => unreachable,
@@ -675,84 +686,54 @@ pub fn pwrite(fd: fd_t, bytes: []const u8, offset: u64) WriteError!void {
             ENOSPC => return error.NoSpaceLeft,
             EPERM => return error.AccessDenied,
             EPIPE => return error.BrokenPipe,
+            ENXIO => return error.Unseekable,
+            ESPIPE => return error.Unseekable,
+            EOVERFLOW => return error.Unseekable,
             else => |err| return unexpectedErrno(err),
         }
     }
 }
 
 /// Write multiple buffers to a file descriptor, with a position offset.
-///
 /// Retries when interrupted by a signal.
+/// Returns the number of bytes written. If nonzero bytes were supplied, this will be nonzero.
+///
+/// Note that a successful write() may transfer fewer than count bytes.  Such partial  writes  can
+/// occur  for  various reasons; for example, because there was insufficient space on the disk
+/// device to write all of the requested bytes, or because a blocked write() to a socket,  pipe,  or
+/// similar  was  interrupted by a signal handler after it had transferred some, but before it had
+/// transferred all of the requested bytes.  In the event of a partial write, the caller can  make
+/// another  write() call to transfer the remaining bytes.  The subsequent call will either
+/// transfer further bytes or may result in an error (e.g., if the disk is now full).
 ///
 /// If the application has a global event loop enabled, EAGAIN is handled
 /// via the event loop. Otherwise EAGAIN results in `error.WouldBlock`.
 ///
-/// This operation is non-atomic on the following systems:
+/// The following systems do not have this syscall, and will return partial writes if more than one
+/// vector is provided:
 /// * Darwin
 /// * Windows
-/// On these systems, the write races with concurrent writes to the same file descriptor, and
-/// the file can be in a partially written state when an error occurs.
-pub fn pwritev(fd: fd_t, iov: []const iovec_const, offset: u64) WriteError!void {
-    if (comptime std.Target.current.isDarwin()) {
-        // Darwin does not have pwritev but it does have pwrite.
-        var off: usize = 0;
-        var iov_i: usize = 0;
-        var inner_off: usize = 0;
-        while (true) {
-            const v = iov[iov_i];
-            const rc = darwin.pwrite(fd, v.iov_base + inner_off, v.iov_len - inner_off, offset + off);
-            const err = darwin.getErrno(rc);
-            switch (err) {
-                0 => {
-                    const amt_written = @bitCast(usize, rc);
-                    off += amt_written;
-                    inner_off += amt_written;
-                    if (inner_off == v.iov_len) {
-                        iov_i += 1;
-                        inner_off = 0;
-                        if (iov_i == iov.len) {
-                            return;
-                        }
-                    }
-                    continue;
-                },
-                EINTR => continue,
-                ESPIPE => unreachable, // `fd` is not seekable.
-                EINVAL => unreachable,
-                EFAULT => unreachable,
-                EAGAIN => if (std.event.Loop.instance) |loop| {
-                    loop.waitUntilFdWritable(fd);
-                    continue;
-                } else {
-                    return error.WouldBlock;
-                },
-                EBADF => unreachable, // Always a race condition.
-                EDESTADDRREQ => unreachable, // `connect` was never called.
-                EDQUOT => return error.DiskQuota,
-                EFBIG => return error.FileTooBig,
-                EIO => return error.InputOutput,
-                ENOSPC => return error.NoSpaceLeft,
-                EPERM => return error.AccessDenied,
-                EPIPE => return error.BrokenPipe,
-                else => return unexpectedErrno(err),
-            }
-        }
+///
+/// If `iov.len` is larger than will fit in a `u31`, a partial write will occur.
+pub fn pwritev(fd: fd_t, iov: []const iovec_const, offset: u64) PWriteError!usize {
+    const have_pwrite_but_not_pwritev = switch (std.Target.current.os.tag) {
+        .windows, .macosx, .ios, .watchos, .tvos => true,
+        else => false,
+    };
+
+    if (have_pwrite_but_not_pwritev) {
+        // We could loop here; but proper usage of `pwritev` must handle partial writes anyway.
+        // So we simply write the first vector only.
+        if (iov.len == 0) return @as(usize, 0);
+        const first = iov[0];
+        return pwrite(fd, first.iov_base[0..first.iov_len], offset);
     }
 
-    if (std.Target.current.os.tag == .windows) {
-        var off = offset;
-        for (iov) |item| {
-            try pwrite(fd, item.iov_base[0..item.iov_len], off);
-            off += buf.len;
-        }
-        return;
-    }
-
+    const iov_count = math.cast(u31, iov.len) catch math.maxInt(u31);
     while (true) {
-        // TODO handle the case when iov_len is too large and get rid of this @intCast
-        const rc = system.pwritev(fd, iov.ptr, @intCast(u32, iov.len), offset);
+        const rc = system.pwritev(fd, iov.ptr, iov_count, offset);
         switch (errno(rc)) {
-            0 => return,
+            0 => return @intCast(usize, rc),
             EINTR => continue,
             EINVAL => unreachable,
             EFAULT => unreachable,
@@ -770,6 +751,9 @@ pub fn pwritev(fd: fd_t, iov: []const iovec_const, offset: u64) WriteError!void 
             ENOSPC => return error.NoSpaceLeft,
             EPERM => return error.AccessDenied,
             EPIPE => return error.BrokenPipe,
+            ENXIO => return error.Unseekable,
+            ESPIPE => return error.Unseekable,
+            EOVERFLOW => return error.Unseekable,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -1371,7 +1355,6 @@ pub const UnlinkatError = UnlinkError || error{
 /// Delete a file name and possibly the file it refers to, based on an open directory handle.
 /// Asserts that the path parameter has no null bytes.
 pub fn unlinkat(dirfd: fd_t, file_path: []const u8, flags: u32) UnlinkatError!void {
-    if (std.debug.runtime_safety) for (file_path) |byte| assert(byte != 0);
     if (builtin.os.tag == .windows) {
         const file_path_w = try windows.sliceToPrefixedFileW(file_path);
         return unlinkatW(dirfd, &file_path_w, flags);
@@ -1438,7 +1421,7 @@ pub fn unlinkatW(dirfd: fd_t, sub_path_w: [*:0]const u16, flags: u32) UnlinkatEr
 
     var attr = w.OBJECT_ATTRIBUTES{
         .Length = @sizeOf(w.OBJECT_ATTRIBUTES),
-        .RootDirectory = dirfd,
+        .RootDirectory = if (std.fs.path.isAbsoluteWindowsW(sub_path_w)) null else dirfd,
         .Attributes = 0, // Note we do not use OBJ_CASE_INSENSITIVE here.
         .ObjectName = &nt_name,
         .SecurityDescriptor = null,
@@ -1556,25 +1539,69 @@ pub const MakeDirError = error{
     ReadOnlyFileSystem,
     InvalidUtf8,
     BadPathName,
+    NoDevice,
 } || UnexpectedError;
+
+pub fn mkdirat(dir_fd: fd_t, sub_dir_path: []const u8, mode: u32) MakeDirError!void {
+    if (builtin.os.tag == .windows) {
+        const sub_dir_path_w = try windows.sliceToPrefixedFileW(sub_dir_path);
+        return mkdiratW(dir_fd, &sub_dir_path_w, mode);
+    } else {
+        const sub_dir_path_c = try toPosixPath(sub_dir_path);
+        return mkdiratC(dir_fd, &sub_dir_path_c, mode);
+    }
+}
+
+pub fn mkdiratC(dir_fd: fd_t, sub_dir_path: [*:0]const u8, mode: u32) MakeDirError!void {
+    if (builtin.os.tag == .windows) {
+        const sub_dir_path_w = try windows.cStrToPrefixedFileW(sub_dir_path);
+        return mkdiratW(dir_fd, &sub_dir_path_w, mode);
+    }
+    switch (errno(system.mkdirat(dir_fd, sub_dir_path, mode))) {
+        0 => return,
+        EACCES => return error.AccessDenied,
+        EBADF => unreachable,
+        EPERM => return error.AccessDenied,
+        EDQUOT => return error.DiskQuota,
+        EEXIST => return error.PathAlreadyExists,
+        EFAULT => unreachable,
+        ELOOP => return error.SymLinkLoop,
+        EMLINK => return error.LinkQuotaExceeded,
+        ENAMETOOLONG => return error.NameTooLong,
+        ENOENT => return error.FileNotFound,
+        ENOMEM => return error.SystemResources,
+        ENOSPC => return error.NoSpaceLeft,
+        ENOTDIR => return error.NotDir,
+        EROFS => return error.ReadOnlyFileSystem,
+        else => |err| return unexpectedErrno(err),
+    }
+}
+
+pub fn mkdiratW(dir_fd: fd_t, sub_path_w: [*:0]const u16, mode: u32) MakeDirError!void {
+    const sub_dir_handle = try windows.CreateDirectoryW(dir_fd, sub_path_w, null);
+    windows.CloseHandle(sub_dir_handle);
+}
 
 /// Create a directory.
 /// `mode` is ignored on Windows.
 pub fn mkdir(dir_path: []const u8, mode: u32) MakeDirError!void {
     if (builtin.os.tag == .windows) {
-        const dir_path_w = try windows.sliceToPrefixedFileW(dir_path);
-        return windows.CreateDirectoryW(&dir_path_w, null);
+        const sub_dir_handle = try windows.CreateDirectory(null, dir_path, null);
+        windows.CloseHandle(sub_dir_handle);
+        return;
     } else {
         const dir_path_c = try toPosixPath(dir_path);
-        return mkdirC(&dir_path_c, mode);
+        return mkdirZ(&dir_path_c, mode);
     }
 }
 
 /// Same as `mkdir` but the parameter is a null-terminated UTF8-encoded string.
-pub fn mkdirC(dir_path: [*:0]const u8, mode: u32) MakeDirError!void {
+pub fn mkdirZ(dir_path: [*:0]const u8, mode: u32) MakeDirError!void {
     if (builtin.os.tag == .windows) {
         const dir_path_w = try windows.cStrToPrefixedFileW(dir_path);
-        return windows.CreateDirectoryW(&dir_path_w, null);
+        const sub_dir_handle = try windows.CreateDirectoryW(null, &dir_path_w, null);
+        windows.CloseHandle(sub_dir_handle);
+        return;
     }
     switch (errno(system.mkdir(dir_path, mode))) {
         0 => return,
@@ -1684,6 +1711,26 @@ pub fn chdirC(dir_path: [*:0]const u8) ChangeCurDirError!void {
         ENOMEM => return error.SystemResources,
         ENOTDIR => return error.NotDir,
         else => |err| return unexpectedErrno(err),
+    }
+}
+
+pub const FchdirError = error{
+    AccessDenied,
+    NotDir,
+    FileSystem,
+} || UnexpectedError;
+
+pub fn fchdir(dirfd: fd_t) FchdirError!void {
+    while (true) {
+        switch (errno(system.fchdir(dirfd))) {
+            0 => return,
+            EACCES => return error.AccessDenied,
+            EBADF => unreachable,
+            ENOTDIR => return error.NotDir,
+            EINTR => continue,
+            EIO => return error.FileSystem,
+            else => |err| return unexpectedErrno(err),
+        }
     }
 }
 
@@ -2334,6 +2381,29 @@ pub fn fstat(fd: fd_t) FStatError!Stat {
         EBADF => unreachable, // Always a race condition.
         ENOMEM => return error.SystemResources,
         EACCES => return error.AccessDenied,
+        else => |err| return unexpectedErrno(err),
+    }
+}
+
+const FStatAtError = FStatError || error{NameTooLong};
+
+pub fn fstatat(dirfd: fd_t, pathname: []const u8, flags: u32) FStatAtError![]Stat {
+    const pathname_c = try toPosixPath(pathname);
+    return fstatatC(dirfd, &pathname_c, flags);
+}
+
+pub fn fstatatC(dirfd: fd_t, pathname: [*:0]const u8, flags: u32) FStatAtError!Stat {
+    var stat: Stat = undefined;
+    switch (errno(system.fstatat(dirfd, pathname, &stat, flags))) {
+        0 => return stat,
+        EINVAL => unreachable,
+        EBADF => unreachable, // Always a race condition.
+        ENOMEM => return error.SystemResources,
+        EACCES => return error.AccessDenied,
+        EFAULT => unreachable,
+        ENAMETOOLONG => return error.NameTooLong,
+        ENOENT => return error.FileNotFound,
+        ENOTDIR => return error.FileNotFound,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -3185,6 +3255,7 @@ pub fn sched_getaffinity(pid: pid_t) SchedGetAffinityError!cpu_set_t {
 /// Used to convert a slice to a null terminated slice on the stack.
 /// TODO https://github.com/ziglang/zig/issues/287
 pub fn toPosixPath(file_path: []const u8) ![PATH_MAX - 1:0]u8 {
+    if (std.debug.runtime_safety) assert(std.mem.indexOfScalar(u8, file_path, 0) == null);
     var path_with_null: [PATH_MAX - 1:0]u8 = undefined;
     // >= rather than > to make room for the null byte
     if (file_path.len >= PATH_MAX) return error.NameTooLong;
@@ -3389,7 +3460,6 @@ pub const SendError = error{
 
     /// The  socket  type requires that message be sent atomically, and the size of the message
     /// to be sent made this impossible. The message is not transmitted.
-    ///
     MessageTooBig,
 
     /// The output queue for a network interface was full.  This generally indicates  that  the
@@ -3496,6 +3566,324 @@ pub fn send(
     flags: u32,
 ) SendError!usize {
     return sendto(sockfd, buf, flags, null, 0);
+}
+
+pub const SendFileError = PReadError || WriteError || SendError;
+
+fn count_iovec_bytes(iovs: []const iovec_const) usize {
+    var count: usize = 0;
+    for (iovs) |iov| {
+        count += iov.iov_len;
+    }
+    return count;
+}
+
+/// Transfer data between file descriptors, with optional headers and trailers.
+/// Returns the number of bytes written, which can be zero.
+///
+/// The `sendfile` call copies `in_len` bytes from one file descriptor to another. When possible,
+/// this is done within the operating system kernel, which can provide better performance
+/// characteristics than transferring data from kernel to user space and back, such as with
+/// `read` and `write` calls. When `in_len` is `0`, it means to copy until the end of the input file has been
+/// reached. Note, however, that partial writes are still possible in this case.
+///
+/// `in_fd` must be a file descriptor opened for reading, and `out_fd` must be a file descriptor
+/// opened for writing. They may be any kind of file descriptor; however, if `in_fd` is not a regular
+/// file system file, it may cause this function to fall back to calling `read` and `write`, in which case
+/// atomicity guarantees no longer apply.
+///
+/// Copying begins reading at `in_offset`. The input file descriptor seek position is ignored and not updated.
+/// If the output file descriptor has a seek position, it is updated as bytes are written. When
+/// `in_offset` is past the end of the input file, it successfully reads 0 bytes.
+///
+/// `flags` has different meanings per operating system; refer to the respective man pages.
+///
+/// These systems support atomically sending everything, including headers and trailers:
+/// * macOS
+/// * FreeBSD
+///
+/// These systems support in-kernel data copying, but headers and trailers are not sent atomically:
+/// * Linux
+///
+/// Other systems fall back to calling `read` / `write`.
+///
+/// Linux has a limit on how many bytes may be transferred in one `sendfile` call, which is `0x7ffff000`
+/// on both 64-bit and 32-bit systems. This is due to using a signed C int as the return value, as
+/// well as stuffing the errno codes into the last `4096` values. This is cited on the `sendfile` man page.
+/// The corresponding POSIX limit on this is `math.maxInt(isize)`.
+pub fn sendfile(
+    out_fd: fd_t,
+    in_fd: fd_t,
+    in_offset: u64,
+    in_len: u64,
+    headers: []const iovec_const,
+    trailers: []const iovec_const,
+    flags: u32,
+) SendFileError!usize {
+    var header_done = false;
+    var total_written: usize = 0;
+
+    // Prevents EOVERFLOW.
+    const size_t = @Type(std.builtin.TypeInfo{
+        .Int = .{
+            .is_signed = false,
+            .bits = @typeInfo(usize).Int.bits - 1,
+        },
+    });
+    const max_count = switch (std.Target.current.os.tag) {
+        .linux => 0x7ffff000,
+        else => math.maxInt(size_t),
+    };
+
+    switch (std.Target.current.os.tag) {
+        .linux => sf: {
+            // sendfile() first appeared in Linux 2.2, glibc 2.1.
+            const call_sf = comptime if (builtin.link_libc)
+                std.c.versionCheck(.{ .major = 2, .minor = 1 }).ok
+            else
+                std.Target.current.os.version_range.linux.range.max.order(.{ .major = 2, .minor = 2 }) != .lt;
+            if (!call_sf) break :sf;
+
+            if (headers.len != 0) {
+                const amt = try writev(out_fd, headers);
+                total_written += amt;
+                if (amt < count_iovec_bytes(headers)) return total_written;
+                header_done = true;
+            }
+
+            // Here we match BSD behavior, making a zero count value send as many bytes as possible.
+            const adjusted_count = if (in_len == 0) max_count else math.min(in_len, @as(size_t, max_count));
+
+            while (true) {
+                var offset: off_t = @bitCast(off_t, in_offset);
+                const rc = system.sendfile(out_fd, in_fd, &offset, adjusted_count);
+                switch (errno(rc)) {
+                    0 => {
+                        const amt = @bitCast(usize, rc);
+                        total_written += amt;
+                        if (in_len == 0 and amt == 0) {
+                            // We have detected EOF from `in_fd`.
+                            break;
+                        } else if (amt < in_len) {
+                            return total_written;
+                        } else {
+                            break;
+                        }
+                    },
+
+                    EBADF => unreachable, // Always a race condition.
+                    EFAULT => unreachable, // Segmentation fault.
+                    EOVERFLOW => unreachable, // We avoid passing too large of a `count`.
+                    ENOTCONN => unreachable, // `out_fd` is an unconnected socket.
+
+                    EINVAL, ENOSYS => {
+                        // EINVAL could be any of the following situations:
+                        // * Descriptor is not valid or locked
+                        // * an mmap(2)-like operation is  not  available  for in_fd
+                        // * count is negative
+                        // * out_fd has the O_APPEND flag set
+                        // Because of the "mmap(2)-like operation" possibility, we fall back to doing read/write
+                        // manually, the same as ENOSYS.
+                        break :sf;
+                    },
+                    EAGAIN => if (std.event.Loop.instance) |loop| {
+                        loop.waitUntilFdWritable(out_fd);
+                        continue;
+                    } else {
+                        return error.WouldBlock;
+                    },
+                    EIO => return error.InputOutput,
+                    EPIPE => return error.BrokenPipe,
+                    ENOMEM => return error.SystemResources,
+                    ENXIO => return error.Unseekable,
+                    ESPIPE => return error.Unseekable,
+                    else => |err| {
+                        const discard = unexpectedErrno(err);
+                        break :sf;
+                    },
+                }
+            }
+
+            if (trailers.len != 0) {
+                total_written += try writev(out_fd, trailers);
+            }
+
+            return total_written;
+        },
+        .freebsd => sf: {
+            var hdtr_data: std.c.sf_hdtr = undefined;
+            var hdtr: ?*std.c.sf_hdtr = null;
+            if (headers.len != 0 or trailers.len != 0) {
+                // Here we carefully avoid `@intCast` by returning partial writes when
+                // too many io vectors are provided.
+                const hdr_cnt = math.cast(u31, headers.len) catch math.maxInt(u31);
+                if (headers.len > hdr_cnt) return writev(out_fd, headers);
+
+                const trl_cnt = math.cast(u31, trailers.len) catch math.maxInt(u31);
+
+                hdtr_data = std.c.sf_hdtr{
+                    .headers = headers.ptr,
+                    .hdr_cnt = hdr_cnt,
+                    .trailers = trailers.ptr,
+                    .trl_cnt = trl_cnt,
+                };
+                hdtr = &hdtr_data;
+            }
+
+            const adjusted_count = math.min(in_len, max_count);
+
+            while (true) {
+                var sbytes: off_t = undefined;
+                const err = errno(system.sendfile(out_fd, in_fd, in_offset, adjusted_count, hdtr, &sbytes, flags));
+                const amt = @bitCast(usize, sbytes);
+                switch (err) {
+                    0 => return amt,
+
+                    EBADF => unreachable, // Always a race condition.
+                    EFAULT => unreachable, // Segmentation fault.
+                    ENOTCONN => unreachable, // `out_fd` is an unconnected socket.
+
+                    EINVAL, EOPNOTSUPP, ENOTSOCK, ENOSYS => {
+                        // EINVAL could be any of the following situations:
+                        // * The fd argument is not a regular file.
+                        // * The s argument is not a SOCK_STREAM type socket.
+                        // * The offset argument is negative.
+                        // Because of some of these possibilities, we fall back to doing read/write
+                        // manually, the same as ENOSYS.
+                        break :sf;
+                    },
+
+                    EINTR => if (amt != 0) return amt else continue,
+
+                    EAGAIN => if (amt != 0) {
+                        return amt;
+                    } else if (std.event.Loop.instance) |loop| {
+                        loop.waitUntilFdWritable(out_fd);
+                        continue;
+                    } else {
+                        return error.WouldBlock;
+                    },
+
+                    EBUSY => if (amt != 0) {
+                        return amt;
+                    } else if (std.event.Loop.instance) |loop| {
+                        loop.waitUntilFdReadable(in_fd);
+                        continue;
+                    } else {
+                        return error.WouldBlock;
+                    },
+
+                    EIO => return error.InputOutput,
+                    ENOBUFS => return error.SystemResources,
+                    EPIPE => return error.BrokenPipe,
+
+                    else => {
+                        const discard = unexpectedErrno(err);
+                        if (amt != 0) {
+                            return amt;
+                        } else {
+                            break :sf;
+                        }
+                    },
+                }
+            }
+        },
+        .macosx, .ios, .tvos, .watchos => sf: {
+            var hdtr_data: std.c.sf_hdtr = undefined;
+            var hdtr: ?*std.c.sf_hdtr = null;
+            if (headers.len != 0 or trailers.len != 0) {
+                // Here we carefully avoid `@intCast` by returning partial writes when
+                // too many io vectors are provided.
+                const hdr_cnt = math.cast(u31, headers.len) catch math.maxInt(u31);
+                if (headers.len > hdr_cnt) return writev(out_fd, headers);
+
+                const trl_cnt = math.cast(u31, trailers.len) catch math.maxInt(u31);
+
+                hdtr_data = std.c.sf_hdtr{
+                    .headers = headers.ptr,
+                    .hdr_cnt = hdr_cnt,
+                    .trailers = trailers.ptr,
+                    .trl_cnt = trl_cnt,
+                };
+                hdtr = &hdtr_data;
+            }
+
+            const adjusted_count = math.min(in_len, @as(u63, max_count));
+
+            while (true) {
+                var sbytes: off_t = adjusted_count;
+                const signed_offset = @bitCast(i64, in_offset);
+                const err = errno(system.sendfile(out_fd, in_fd, signed_offset, &sbytes, hdtr, flags));
+                const amt = @bitCast(usize, sbytes);
+                switch (err) {
+                    0 => return amt,
+
+                    EFAULT => unreachable, // Segmentation fault.
+                    EINVAL => unreachable,
+                    ENOTCONN => unreachable, // `out_fd` is an unconnected socket.
+
+                    // On macOS version 10.14.6, I observed Darwin return EBADF when
+                    // using sendfile on a valid open file descriptor of a file
+                    // system file.
+                    ENOTSUP, ENOTSOCK, ENOSYS, EBADF => break :sf,
+
+                    EINTR => if (amt != 0) return amt else continue,
+
+                    EAGAIN => if (amt != 0) {
+                        return amt;
+                    } else if (std.event.Loop.instance) |loop| {
+                        loop.waitUntilFdWritable(out_fd);
+                        continue;
+                    } else {
+                        return error.WouldBlock;
+                    },
+
+                    EIO => return error.InputOutput,
+                    EPIPE => return error.BrokenPipe,
+
+                    else => {
+                        const discard = unexpectedErrno(err);
+                        if (amt != 0) {
+                            return amt;
+                        } else {
+                            break :sf;
+                        }
+                    },
+                }
+            }
+        },
+        else => {}, // fall back to read/write
+    }
+
+    if (headers.len != 0 and !header_done) {
+        const amt = try writev(out_fd, headers);
+        total_written += amt;
+        if (amt < count_iovec_bytes(headers)) return total_written;
+    }
+
+    rw: {
+        var buf: [8 * 4096]u8 = undefined;
+        // Here we match BSD behavior, making a zero count value send as many bytes as possible.
+        const adjusted_count = if (in_len == 0) buf.len else math.min(buf.len, in_len);
+        const amt_read = try pread(in_fd, buf[0..adjusted_count], in_offset);
+        if (amt_read == 0) {
+            if (in_len == 0) {
+                // We have detected EOF from `in_fd`.
+                break :rw;
+            } else {
+                return total_written;
+            }
+        }
+        const amt_written = try write(out_fd, buf[0..amt_read]);
+        total_written += amt_written;
+        if (amt_written < in_len or in_len == 0) return total_written;
+    }
+
+    if (trailers.len != 0) {
+        total_written += try writev(out_fd, trailers);
+    }
+
+    return total_written;
 }
 
 pub const PollError = error{

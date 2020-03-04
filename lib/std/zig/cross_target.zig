@@ -355,8 +355,10 @@ pub const CrossTarget = struct {
     }
 
     pub fn getCpuModel(self: CrossTarget) *const Target.Cpu.Model {
-        if (self.cpu_model) |cpu_model| return cpu_model;
-        return self.getCpu().model;
+        return switch (self.cpu_model) {
+            .explicit => |cpu_model| cpu_model,
+            else => self.getCpu().model,
+        };
     }
 
     pub fn getCpuFeatures(self: CrossTarget) Target.Cpu.Feature.Set {
@@ -645,7 +647,7 @@ pub const CrossTarget = struct {
         self.glibc_version = SemVer{ .major = major, .minor = minor, .patch = patch };
     }
 
-    pub fn getObjectFormat(self: CrossTarget) ObjectFormat {
+    pub fn getObjectFormat(self: CrossTarget) Target.ObjectFormat {
         return Target.getObjectFormatSimple(self.getOsTag(), self.getCpuArch());
     }
 

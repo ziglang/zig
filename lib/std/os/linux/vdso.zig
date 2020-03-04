@@ -22,7 +22,11 @@ pub fn lookup(vername: []const u8, name: []const u8) usize {
         }) {
             const this_ph = @intToPtr(*elf.Phdr, ph_addr);
             switch (this_ph.p_type) {
-                elf.PT_LOAD => base = vdso_addr + this_ph.p_offset - this_ph.p_vaddr,
+                // On WSL1 as well as older kernels, the VDSO ELF image is pre-linked in the upper half 
+                // of the memory space (e.g. p_vaddr = 0xffffffffff700000 on WSL1).
+                // Wrapping operations are used on this line as well as subsequent calculations relative to base
+                // (lines 47, 78) to ensure no overflow check is tripped.
+                elf.PT_LOAD => base = vdso_addr +% this_ph.p_offset -% this_ph.p_vaddr,
                 elf.PT_DYNAMIC => maybe_dynv = @intToPtr([*]usize, vdso_addr + this_ph.p_offset),
                 else => {},
             }
@@ -40,7 +44,7 @@ pub fn lookup(vername: []const u8, name: []const u8) usize {
     {
         var i: usize = 0;
         while (dynv[i] != 0) : (i += 2) {
-            const p = base + dynv[i + 1];
+            const p = base +% dynv[i + 1];
             switch (dynv[i]) {
                 elf.DT_STRTAB => maybe_strings = @intToPtr([*]u8, p),
                 elf.DT_SYMTAB => maybe_syms = @intToPtr([*]elf.Sym, p),
@@ -71,7 +75,7 @@ pub fn lookup(vername: []const u8, name: []const u8) usize {
             if (!checkver(maybe_verdef.?, versym[i], vername, strings))
                 continue;
         }
-        return base + syms[i].st_value;
+        return base +% syms[i].st_value;
     }
 
     return 0;

@@ -618,11 +618,10 @@ test "write a file, watch it, write it again" {
     // TODO re-enable this test
     if (true) return error.SkipZigTest;
 
-    const allocator = std.heap.page_allocator;
-
-    try os.makePath(allocator, test_tmp_dir);
+    try fs.cwd().makePath(test_tmp_dir);
     defer os.deleteTree(test_tmp_dir) catch {};
 
+    const allocator = std.heap.page_allocator;
     return testFsWatch(&allocator);
 }
 

@@ -926,6 +926,9 @@ pub const ESOCKTNOSUPPORT = 44;
 /// Operation not supported
 pub const ENOTSUP = 45;
 
+/// Operation not supported. Alias of `ENOTSUP`.
+pub const EOPNOTSUPP = ENOTSUP;
+
 /// Protocol family not supported
 pub const EPFNOSUPPORT = 46;
 

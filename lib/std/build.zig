@@ -763,7 +763,7 @@ pub const Builder = struct {
     }
 
     pub fn makePath(self: *Builder, path: []const u8) !void {
-        fs.makePath(self.allocator, self.pathFromRoot(path)) catch |err| {
+        fs.cwd().makePath(self.pathFromRoot(path)) catch |err| {
             warn("Unable to create path {}: {}\n", .{ path, @errorName(err) });
             return err;
         };
@@ -2311,7 +2311,7 @@ pub const InstallDirStep = struct {
             const rel_path = entry.path[full_src_dir.len + 1 ..];
             const dest_path = try fs.path.join(self.builder.allocator, &[_][]const u8{ dest_prefix, rel_path });
             switch (entry.kind) {
-                .Directory => try fs.makePath(self.builder.allocator, dest_path),
+                .Directory => try fs.cwd().makePath(dest_path),
                 .File => try self.builder.updateFile(entry.path, dest_path),
                 else => continue,
             }
