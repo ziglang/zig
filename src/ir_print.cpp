@@ -1118,7 +1118,7 @@ static void ir_print_vector_store_elem(IrPrintGen *irp, IrInstGenVectorStoreElem
 
 static void ir_print_typeof(IrPrintSrc *irp, IrInstSrcTypeOf *instruction) {
     fprintf(irp->f, "@TypeOf(");
-    ir_print_other_inst_src(irp, instruction->value);
+    // ir_print_other_inst_src(irp, instruction->value);
     fprintf(irp->f, ")");
 }
 
