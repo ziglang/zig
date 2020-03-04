@@ -14,7 +14,7 @@
 
    You should have received a copy of the GNU Lesser General Public
    License along with the GNU C Library.  If not, see
-   <http://www.gnu.org/licenses/>.  */
+   <https://www.gnu.org/licenses/>.  */
 
 #ifndef _LINUX_RISCV_SYSDEP_H
 #define _LINUX_RISCV_SYSDEP_H 1
@@ -121,11 +121,14 @@
 
 #ifndef __ASSEMBLER__
 
+# define VDSO_NAME  "LINUX_4.15"
+# define VDSO_HASH  182943605
+
 /* List of system calls which are supported as vsyscalls.  */
-# define HAVE_CLOCK_GETRES_VSYSCALL	1
-# define HAVE_CLOCK_GETTIME_VSYSCALL	1
-# define HAVE_GETTIMEOFDAY_VSYSCALL	1
-# define HAVE_GETCPU_VSYSCALL		1
+# define HAVE_CLOCK_GETRES64_VSYSCALL	"__vdso_clock_getres"
+# define HAVE_CLOCK_GETTIME64_VSYSCALL	"__vdso_clock_gettime"
+# define HAVE_GETTIMEOFDAY_VSYSCALL	"__vdso_gettimeofday"
+# define HAVE_GETCPU_VSYSCALL		"__vdso_getcpu"
 
 /* Define a macro which expands into the inline wrapper code for a system
    call.  */

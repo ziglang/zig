@@ -1,6 +1,6 @@
 /* Set flags signalling availability of kernel features based on given
    kernel version number.
-   Copyright (C) 1999-2019 Free Software Foundation, Inc.
+   Copyright (C) 1999-2020 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -15,7 +15,7 @@
 
    You should have received a copy of the GNU Lesser General Public
    License along with the GNU C Library.  If not, see
-   <http://www.gnu.org/licenses/>.  */
+   <https://www.gnu.org/licenses/>.  */
 
 #include <sgidefs.h>
 
@@ -31,8 +31,12 @@
    pairs to start with an even-number register.  */
 #if _MIPS_SIM == _ABIO32
 # define __ASSUME_ALIGNED_REGISTER_PAIRS	1
-/* mips32 only supports ipc syscall.  */
-# undef __ASSUME_DIRECT_SYSVIPC_SYSCALLS
+/* mips32 only supports ipc syscall before 5.1.  */
+# if __LINUX_KERNEL_VERSION < 0x050100
+#  undef __ASSUME_DIRECT_SYSVIPC_SYSCALLS
+#  undef __ASSUME_SYSVIPC_DEFAULT_IPC_64
+# else
+# endif
 
 /* The o32 MIPS fadvise64 syscall behaves as fadvise64_64.  */
 # define __ASSUME_FADVISE64_AS_64_64		1
@@ -40,6 +44,8 @@
 /* mips32 support wire-up network syscalls.  */
 # define __ASSUME_RECV_SYSCALL		1
 # define __ASSUME_SEND_SYSCALL		1
+#else
+# undef __ASSUME_SYSVIPC_DEFAULT_IPC_64
 #endif
 
 /* Define that mips64-n32 is a ILP32 ABI to set the correct interface to

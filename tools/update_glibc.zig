@@ -1,5 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const fs = std.fs;
 const fmt = std.fmt;
 const assert = std.debug.assert;
@@ -11,8 +10,8 @@ const AbiList = struct {
     path: []const u8,
 };
 const ZigTarget = struct {
-    arch: @TagType(builtin.Arch),
-    abi: builtin.Abi,
+    arch: std.Target.Cpu.Arch,
+    abi: std.Target.Abi,
 };
 
 const lib_names = [_][]const u8{
@@ -27,18 +26,18 @@ const lib_names = [_][]const u8{
 // n64/n32 are hardcoded elsewhere, based on .gnuabi64/.gnuabin32
 const abi_lists = [_]AbiList{
     AbiList{
-        .targets = [_]ZigTarget{
+        .targets = &[_]ZigTarget{
             ZigTarget{ .arch = .aarch64, .abi = .gnu },
             ZigTarget{ .arch = .aarch64_be, .abi = .gnu },
         },
         .path = "aarch64",
     },
     AbiList{
-        .targets = [_]ZigTarget{ZigTarget{ .arch = .s390x, .abi = .gnu }},
+        .targets = &[_]ZigTarget{ZigTarget{ .arch = .s390x, .abi = .gnu }},
         .path = "s390/s390-64",
     },
     AbiList{
-        .targets = [_]ZigTarget{
+        .targets = &[_]ZigTarget{
             ZigTarget{ .arch = .arm, .abi = .gnueabi },
             ZigTarget{ .arch = .armeb, .abi = .gnueabi },
             ZigTarget{ .arch = .arm, .abi = .gnueabihf },
@@ -47,66 +46,66 @@ const abi_lists = [_]AbiList{
         .path = "arm",
     },
     AbiList{
-        .targets = [_]ZigTarget{
+        .targets = &[_]ZigTarget{
             ZigTarget{ .arch = .sparc, .abi = .gnu },
             ZigTarget{ .arch = .sparcel, .abi = .gnu },
         },
         .path = "sparc/sparc32",
     },
     AbiList{
-        .targets = [_]ZigTarget{ZigTarget{ .arch = .sparcv9, .abi = .gnu }},
+        .targets = &[_]ZigTarget{ZigTarget{ .arch = .sparcv9, .abi = .gnu }},
         .path = "sparc/sparc64",
     },
     AbiList{
-        .targets = [_]ZigTarget{
+        .targets = &[_]ZigTarget{
             ZigTarget{ .arch = .mips64el, .abi = .gnuabi64 },
             ZigTarget{ .arch = .mips64, .abi = .gnuabi64 },
         },
         .path = "mips/mips64",
     },
     AbiList{
-        .targets = [_]ZigTarget{
+        .targets = &[_]ZigTarget{
             ZigTarget{ .arch = .mips64el, .abi = .gnuabin32 },
             ZigTarget{ .arch = .mips64, .abi = .gnuabin32 },
         },
         .path = "mips/mips64",
     },
     AbiList{
-        .targets = [_]ZigTarget{
+        .targets = &[_]ZigTarget{
             ZigTarget{ .arch = .mipsel, .abi = .gnueabihf },
             ZigTarget{ .arch = .mips, .abi = .gnueabihf },
         },
         .path = "mips/mips32",
     },
     AbiList{
-        .targets = [_]ZigTarget{
+        .targets = &[_]ZigTarget{
             ZigTarget{ .arch = .mipsel, .abi = .gnueabi },
             ZigTarget{ .arch = .mips, .abi = .gnueabi },
         },
         .path = "mips/mips32",
     },
     AbiList{
-        .targets = [_]ZigTarget{ZigTarget{ .arch = .x86_64, .abi = .gnu }},
+        .targets = &[_]ZigTarget{ZigTarget{ .arch = .x86_64, .abi = .gnu }},
         .path = "x86_64/64",
     },
     AbiList{
-        .targets = [_]ZigTarget{ZigTarget{ .arch = .x86_64, .abi = .gnux32 }},
+        .targets = &[_]ZigTarget{ZigTarget{ .arch = .x86_64, .abi = .gnux32 }},
         .path = "x86_64/x32",
     },
     AbiList{
-        .targets = [_]ZigTarget{ZigTarget{ .arch = .i386, .abi = .gnu }},
+        .targets = &[_]ZigTarget{ZigTarget{ .arch = .i386, .abi = .gnu }},
         .path = "i386",
     },
     AbiList{
-        .targets = [_]ZigTarget{ZigTarget{ .arch = .powerpc64le, .abi = .gnu }},
+        .targets = &[_]ZigTarget{ZigTarget{ .arch = .powerpc64le, .abi = .gnu }},
         .path = "powerpc/powerpc64/le",
     },
     AbiList{
-        .targets = [_]ZigTarget{ZigTarget{ .arch = .powerpc64, .abi = .gnu }},
+        .targets = &[_]ZigTarget{ZigTarget{ .arch = .powerpc64, .abi = .gnu }},
         .path = "powerpc/powerpc64/be",
     },
     AbiList{
-        .targets = [_]ZigTarget{
+        .targets = &[_]ZigTarget{
             ZigTarget{ .arch = .powerpc, .abi = .gnueabi },
             ZigTarget{ .arch = .powerpc, .abi = .gnueabihf },
         },
@@ -137,8 +136,8 @@ pub fn main() !void {
     const in_glibc_dir = args[1]; // path to the unzipped tarball of glibc, e.g. ~/downloads/glibc-2.25
     const zig_src_dir = args[2]; // path to the source checkout of zig, lib dir, e.g. ~/zig-src/lib
 
-    const prefix = try fs.path.join(allocator, [_][]const u8{ in_glibc_dir, "sysdeps", "unix", "sysv", "linux" });
-    const glibc_out_dir = try fs.path.join(allocator, [_][]const u8{ zig_src_dir, "libc", "glibc" });
+    const prefix = try fs.path.join(allocator, &[_][]const u8{ in_glibc_dir, "sysdeps", "unix", "sysv", "linux" });
+    const glibc_out_dir = try fs.path.join(allocator, &[_][]const u8{ zig_src_dir, "libc", "glibc" });
 
     var global_fn_set = std.StringHashMap(Function).init(allocator);
     var global_ver_set = std.StringHashMap(usize).init(allocator);
@@ -158,26 +157,30 @@ pub fn main() !void {
             const basename = try fmt.allocPrint(allocator, "lib{}.abilist", .{lib_name});
             const abi_list_filename = blk: {
                 if (abi_list.targets[0].abi == .gnuabi64 and std.mem.eql(u8, lib_name, "c")) {
-                    break :blk try fs.path.join(allocator, [_][]const u8{ prefix, abi_list.path, "n64", basename });
+                    break :blk try fs.path.join(allocator, &[_][]const u8{ prefix, abi_list.path, "n64", basename });
                 } else if (abi_list.targets[0].abi == .gnuabin32 and std.mem.eql(u8, lib_name, "c")) {
-                    break :blk try fs.path.join(allocator, [_][]const u8{ prefix, abi_list.path, "n32", basename });
+                    break :blk try fs.path.join(allocator, &[_][]const u8{ prefix, abi_list.path, "n32", basename });
                 } else if (abi_list.targets[0].arch != .arm and
                     abi_list.targets[0].abi == .gnueabihf and
                     (std.mem.eql(u8, lib_name, "c") or
                     (std.mem.eql(u8, lib_name, "m") and abi_list.targets[0].arch == .powerpc)))
                 {
-                    break :blk try fs.path.join(allocator, [_][]const u8{ prefix, abi_list.path, "fpu", basename });
+                    break :blk try fs.path.join(allocator, &[_][]const u8{ prefix, abi_list.path, "fpu", basename });
                 } else if (abi_list.targets[0].arch != .arm and
                     abi_list.targets[0].abi == .gnueabi and
                     (std.mem.eql(u8, lib_name, "c") or
                     (std.mem.eql(u8, lib_name, "m") and abi_list.targets[0].arch == .powerpc)))
                 {
-                    break :blk try fs.path.join(allocator, [_][]const u8{ prefix, abi_list.path, "nofpu", basename });
+                    break :blk try fs.path.join(allocator, &[_][]const u8{ prefix, abi_list.path, "nofpu", basename });
+                } else if (abi_list.targets[0].arch == .arm) {
+                    break :blk try fs.path.join(allocator, &[_][]const u8{ prefix, abi_list.path, "le", basename });
+                } else if (abi_list.targets[0].arch == .armeb) {
+                    break :blk try fs.path.join(allocator, &[_][]const u8{ prefix, abi_list.path, "be", basename });
                 }
-                break :blk try fs.path.join(allocator, [_][]const u8{ prefix, abi_list.path, basename });
+                break :blk try fs.path.join(allocator, &[_][]const u8{ prefix, abi_list.path, basename });
             };
             const contents = std.io.readFileAlloc(allocator, abi_list_filename) catch |err| {
-                std.debug.warn("unable to open {}: {}\n", .{abi_list_filename, err});
+                std.debug.warn("unable to open {}: {}\n", .{ abi_list_filename, err });
                 std.process.exit(1);
             };
             var lines_it = std.mem.tokenize(contents, "\n");
@@ -228,8 +231,8 @@ pub fn main() !void {
         break :blk list.toSliceConst();
     };
     {
-        const vers_txt_path = try fs.path.join(allocator, [_][]const u8{ glibc_out_dir, "vers.txt" });
-        const vers_txt_file = try fs.File.openWrite(vers_txt_path);
+        const vers_txt_path = try fs.path.join(allocator, &[_][]const u8{ glibc_out_dir, "vers.txt" });
+        const vers_txt_file = try fs.cwd().createFile(vers_txt_path, .{});
         defer vers_txt_file.close();
         var buffered = std.io.BufferedOutStream(fs.File.WriteError).init(&vers_txt_file.outStream().stream);
         const vers_txt = &buffered.stream;
@@ -240,15 +243,15 @@ pub fn main() !void {
         try buffered.flush();
     }
     {
-        const fns_txt_path = try fs.path.join(allocator, [_][]const u8{ glibc_out_dir, "fns.txt" });
-        const fns_txt_file = try fs.File.openWrite(fns_txt_path);
+        const fns_txt_path = try fs.path.join(allocator, &[_][]const u8{ glibc_out_dir, "fns.txt" });
+        const fns_txt_file = try fs.cwd().createFile(fns_txt_path, .{});
         defer fns_txt_file.close();
         var buffered = std.io.BufferedOutStream(fs.File.WriteError).init(&fns_txt_file.outStream().stream);
         const fns_txt = &buffered.stream;
         for (global_fn_list) |name, i| {
             const kv = global_fn_set.get(name).?;
             kv.value.index = i;
-            try fns_txt.print("{} {}\n", .{name, kv.value.lib});
+            try fns_txt.print("{} {}\n", .{ name, kv.value.lib });
         }
         try buffered.flush();
     }
@@ -271,8 +274,8 @@ pub fn main() !void {
     }
 
     {
-        const abilist_txt_path = try fs.path.join(allocator, [_][]const u8{ glibc_out_dir, "abi.txt" });
-        const abilist_txt_file = try fs.File.openWrite(abilist_txt_path);
+        const abilist_txt_path = try fs.path.join(allocator, &[_][]const u8{ glibc_out_dir, "abi.txt" });
+        const abilist_txt_file = try fs.cwd().createFile(abilist_txt_path, .{});
         defer abilist_txt_file.close();
         var buffered = std.io.BufferedOutStream(fs.File.WriteError).init(&abilist_txt_file.outStream().stream);
         const abilist_txt = &buffered.stream;
@@ -282,7 +285,7 @@ pub fn main() !void {
             const fn_vers_list = &target_functions.get(@ptrToInt(abi_list)).?.value.fn_vers_list;
             for (abi_list.targets) |target, it_i| {
                 if (it_i != 0) try abilist_txt.writeByte(' ');
-                try abilist_txt.print("{}-linux-{}", .{@tagName(target.arch), @tagName(target.abi)});
+                try abilist_txt.print("{}-linux-{}", .{ @tagName(target.arch), @tagName(target.abi) });
             }
             try abilist_txt.writeByte('\n');
             // next, each line implicitly corresponds to a function
@@ -304,7 +307,7 @@ pub fn main() !void {
 }
 
 pub fn strCmpLessThan(a: []const u8, b: []const u8) bool {
-    return std.mem.compare(u8, a, b) == .LessThan;
+    return std.mem.order(u8, a, b) == .lt;
 }
 
 pub fn versionLessThan(a: []const u8, b: []const u8) bool {

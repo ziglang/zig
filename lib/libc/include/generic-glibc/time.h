@@ -1,4 +1,4 @@
-/* Copyright (C) 1991-2019 Free Software Foundation, Inc.
+/* Copyright (C) 1991-2020 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -13,7 +13,7 @@
 
    You should have received a copy of the GNU Lesser General Public
    License along with the GNU C Library; if not, see
-   <http://www.gnu.org/licenses/>.  */
+   <https://www.gnu.org/licenses/>.  */
 
 /*
  *	ISO C99 Standard: 7.23 Date and time	<time.h>
@@ -122,7 +122,7 @@ extern struct tm *gmtime (const time_t *__timer) __THROW;
    of *TIMER in the local timezone.  */
 extern struct tm *localtime (const time_t *__timer) __THROW;
 
-#ifdef __USE_POSIX
+#if defined __USE_POSIX || __GLIBC_USE (ISOC2X)
 /* Return the `struct tm' representation of *TIMER in UTC,
    using *TP to store the result.  */
 extern struct tm *gmtime_r (const time_t *__restrict __timer,
@@ -132,7 +132,7 @@ extern struct tm *gmtime_r (const time_t *__restrict __timer,
    using *TP to store the result.  */
 extern struct tm *localtime_r (const time_t *__restrict __timer,
 			       struct tm *__restrict __tp) __THROW;
-#endif	/* POSIX */
+#endif	/* POSIX || C2X */
 
 /* Return a string of the form "Day Mon dd hh:mm:ss yyyy\n"
    that is the representation of TP in this format.  */
@@ -141,7 +141,7 @@ extern char *asctime (const struct tm *__tp) __THROW;
 /* Equivalent to `asctime (localtime (timer))'.  */
 extern char *ctime (const time_t *__timer) __THROW;
 
-#ifdef __USE_POSIX
+#if defined __USE_POSIX || __GLIBC_USE (ISOC2X)
 /* Reentrant versions of the above functions.  */
 
 /* Return in BUF a string of the form "Day Mon dd hh:mm:ss yyyy\n"
@@ -152,7 +152,7 @@ extern char *asctime_r (const struct tm *__restrict __tp,
 /* Equivalent to `asctime_r (localtime_r (timer, *TMP*), buf)'.  */
 extern char *ctime_r (const time_t *__restrict __timer,
 		      char *__restrict __buf) __THROW;
-#endif	/* POSIX */
+#endif	/* POSIX || C2X */
 
 
 /* Defined in localtime.c.  */
@@ -173,12 +173,6 @@ extern void tzset (void) __THROW;
 #if defined __USE_MISC || defined __USE_XOPEN
 extern int daylight;
 extern long int timezone;
-#endif
-
-#ifdef __USE_MISC
-/* Set the system time to *WHEN.
-   This call is restricted to the superuser.  */
-extern int stime (const time_t *__when) __THROW;
 #endif
 
 

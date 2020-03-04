@@ -11,10 +11,9 @@
 // You'll then have to manually update Zig source repo with these new files.
 
 const std = @import("std");
-const builtin = @import("builtin");
-const Arch = builtin.Arch;
-const Abi = builtin.Abi;
-const Os = builtin.Os;
+const Arch = std.Target.Cpu.Arch;
+const Abi = std.Target.Abi;
+const OsTag = std.Target.Os.Tag;
 const assert = std.debug.assert;
 
 const LibCTarget = struct {
@@ -29,12 +28,12 @@ const MultiArch = union(enum) {
     mips,
     mips64,
     powerpc64,
-    specific: @TagType(Arch),
+    specific: Arch,
 
     fn eql(a: MultiArch, b: MultiArch) bool {
         if (@enumToInt(a) != @enumToInt(b))
             return false;
-        if (@TagType(MultiArch)(a) != .specific)
+        if (a != .specific)
             return true;
         return a.specific == b.specific;
     }
@@ -221,7 +220,7 @@ const musl_targets = [_]LibCTarget{
 
 const DestTarget = struct {
     arch: MultiArch,
-    os: Os,
+    os: OsTag,
     abi: Abi,
 
     fn hash(a: DestTarget) u32 {
@@ -305,8 +304,8 @@ pub fn main() !void {
     // TODO compiler crashed when I wrote this the canonical way
     var libc_targets: []const LibCTarget = undefined;
     switch (vendor) {
-        .musl => libc_targets = musl_targets,
-        .glibc => libc_targets = glibc_targets,
+        .musl => libc_targets = &musl_targets,
+        .glibc => libc_targets = &glibc_targets,
     }
 
     var path_table = PathTable.init(allocator);
@@ -340,15 +339,17 @@ pub fn main() !void {
             try dir_stack.append(target_include_dir);
 
             while (dir_stack.popOrNull()) |full_dir_name| {
-                var dir = std.fs.Dir.cwd().openDirList(full_dir_name) catch |err| switch (err) {
+                var dir = std.fs.cwd().openDirList(full_dir_name) catch |err| switch (err) {
                     error.FileNotFound => continue :search,
                     error.AccessDenied => continue :search,
                     else => return err,
                 };
                 defer dir.close();
 
-                while (try dir.next()) |entry| {
-                    const full_path = try std.fs.path.join(allocator, [_][]const u8{ full_dir_name, entry.name });
+                var dir_it = dir.iterate();
+
+                while (try dir_it.next()) |entry| {
+                    const full_path = try std.fs.path.join(allocator, &[_][]const u8{ full_dir_name, entry.name });
                     switch (entry.kind) {
                         .Directory => try dir_stack.append(full_path),
                         .File => {
@@ -396,8 +397,8 @@ pub fn main() !void {
             std.debug.warn("warning: libc target not found: {}\n", .{libc_target.name});
         }
     }
-    std.debug.warn("summary: {Bi:2} could be reduced to {Bi:2}\n", .{total_bytes, total_bytes - max_bytes_saved});
-    try std.fs.makePath(allocator, out_dir);
+    std.debug.warn("summary: {Bi:2} could be reduced to {Bi:2}\n", .{ total_bytes, total_bytes - max_bytes_saved });
+    try std.fs.cwd().makePath(out_dir);
 
     var missed_opportunity_bytes: usize = 0;
     // iterate path_table. for each path, put all the hashes into a list. sort by hit_count.
@@ -417,15 +418,15 @@ pub fn main() !void {
         var best_contents = contents_list.popOrNull().?;
         if (best_contents.hit_count > 1) {
             // worth it to make it generic
-            const full_path = try std.fs.path.join(allocator, [_][]const u8{ out_dir, generic_name, path_kv.key });
-            try std.fs.makePath(allocator, std.fs.path.dirname(full_path).?);
+            const full_path = try std.fs.path.join(allocator, &[_][]const u8{ out_dir, generic_name, path_kv.key });
+            try std.fs.cwd().makePath(std.fs.path.dirname(full_path).?);
             try std.io.writeFile(full_path, best_contents.bytes);
             best_contents.is_generic = true;
             while (contents_list.popOrNull()) |contender| {
                 if (contender.hit_count > 1) {
                     const this_missed_bytes = contender.hit_count * contender.bytes.len;
                     missed_opportunity_bytes += this_missed_bytes;
-                    std.debug.warn("Missed opportunity ({Bi:2}): {}\n", .{this_missed_bytes, path_kv.key});
+                    std.debug.warn("Missed opportunity ({Bi:2}): {}\n", .{ this_missed_bytes, path_kv.key });
                 } else break;
             }
         }
@@ -444,8 +445,8 @@ pub fn main() !void {
                 @tagName(dest_target.os),
                 @tagName(dest_target.abi),
             });
-            const full_path = try std.fs.path.join(allocator, [_][]const u8{ out_dir, out_subpath, path_kv.key });
-            try std.fs.makePath(allocator, std.fs.path.dirname(full_path).?);
+            const full_path = try std.fs.path.join(allocator, &[_][]const u8{ out_dir, out_subpath, path_kv.key });
+            try std.fs.cwd().makePath(std.fs.path.dirname(full_path).?);
             try std.io.writeFile(full_path, contents.bytes);
         }
     }

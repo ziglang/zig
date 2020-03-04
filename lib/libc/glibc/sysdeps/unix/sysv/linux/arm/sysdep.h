@@ -1,4 +1,4 @@
-/* Copyright (C) 1992-2019 Free Software Foundation, Inc.
+/* Copyright (C) 1992-2020 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
    Contributed by Ulrich Drepper, <drepper@gnu.ai.mit.edu>, August 1995.
    ARM changes by Philip Blundell, <pjb27@cam.ac.uk>, May 1997.
@@ -15,13 +15,10 @@
 
    You should have received a copy of the GNU Lesser General Public
    License along with the GNU C Library.  If not, see
-   <http://www.gnu.org/licenses/>.  */
+   <https://www.gnu.org/licenses/>.  */
 
 #ifndef _LINUX_ARM_SYSDEP_H
 #define _LINUX_ARM_SYSDEP_H 1
-
-/* Always enable vsyscalls on arm */
-#define ALWAYS_USE_VSYSCALL 1
 
 /* There is some commonality.  */
 #include <sysdeps/unix/sysv/linux/sysdep.h>
@@ -380,10 +377,6 @@ __local_syscall_error:						\
 #define INTERNAL_SYSCALL(name, err, nr, args...)		\
 	INTERNAL_SYSCALL_RAW(SYS_ify(name), err, nr, args)
 
-#undef INTERNAL_SYSCALL_ARM
-#define INTERNAL_SYSCALL_ARM(name, err, nr, args...)		\
-	INTERNAL_SYSCALL_RAW(__ARM_NR_##name, err, nr, args)
-
 #undef INTERNAL_SYSCALL_ERROR_P
 #define INTERNAL_SYSCALL_ERROR_P(val, err) \
   ((unsigned int) (val) >= 0xfffff001u)
@@ -391,9 +384,13 @@ __local_syscall_error:						\
 #undef INTERNAL_SYSCALL_ERRNO
 #define INTERNAL_SYSCALL_ERRNO(val, err)	(-(val))
 
+#define VDSO_NAME  "LINUX_2.6"
+#define VDSO_HASH  61765110
+
 /* List of system calls which are supported as vsyscalls.  */
-#define HAVE_CLOCK_GETTIME_VSYSCALL	1
-#define HAVE_GETTIMEOFDAY_VSYSCALL	1
+#define HAVE_CLOCK_GETTIME_VSYSCALL	"__vdso_clock_gettime"
+#define HAVE_CLOCK_GETTIME64_VSYSCALL	"__vdso_clock_gettime64"
+#define HAVE_GETTIMEOFDAY_VSYSCALL	"__vdso_gettimeofday"
 
 #define LOAD_ARGS_0()
 #define ASM_ARGS_0

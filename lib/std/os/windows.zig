@@ -337,7 +337,7 @@ pub fn GetQueuedCompletionStatus(
 }
 
 pub fn CloseHandle(hObject: HANDLE) void {
-    assert(kernel32.CloseHandle(hObject) != 0);
+    assert(ntdll.NtClose(hObject) == .SUCCESS);
 }
 
 pub fn FindClose(hFindFile: HANDLE) void {
@@ -424,7 +424,7 @@ pub const WriteFileError = error{
     Unexpected,
 };
 
-pub fn WriteFile(handle: HANDLE, bytes: []const u8, offset: ?u64) WriteFileError!void {
+pub fn WriteFile(handle: HANDLE, bytes: []const u8, offset: ?u64) WriteFileError!usize {
     if (std.event.Loop.instance) |loop| {
         // TODO support async WriteFile with no offset
         const off = offset.?;
@@ -445,8 +445,8 @@ pub fn WriteFile(handle: HANDLE, bytes: []const u8, offset: ?u64) WriteFileError
         _ = CreateIoCompletionPort(fd, loop.os_data.io_port, undefined, undefined);
         loop.beginOneEvent();
         suspend {
-            // TODO replace this @intCast with a loop that writes all the bytes
-            _ = kernel32.WriteFile(fd, bytes.ptr, @intCast(windows.DWORD, bytes.len), null, &resume_node.base.overlapped);
+            const adjusted_len = math.cast(windows.DWORD, bytes.len) catch maxInt(windows.DWORD);
+            _ = kernel32.WriteFile(fd, bytes.ptr, adjusted_len, null, &resume_node.base.overlapped);
         }
         var bytes_transferred: windows.DWORD = undefined;
         if (kernel32.GetOverlappedResult(fd, &resume_node.base.overlapped, &bytes_transferred, FALSE) == 0) {
@@ -460,6 +460,7 @@ pub fn WriteFile(handle: HANDLE, bytes: []const u8, offset: ?u64) WriteFileError
                 else => |err| return windows.unexpectedError(err),
             }
         }
+        return bytes_transferred;
     } else {
         var bytes_written: DWORD = undefined;
         var overlapped_data: OVERLAPPED = undefined;
@@ -473,18 +474,19 @@ pub fn WriteFile(handle: HANDLE, bytes: []const u8, offset: ?u64) WriteFileError
             };
             break :blk &overlapped_data;
         } else null;
-        // TODO replace this @intCast with a loop that writes all the bytes
-        if (kernel32.WriteFile(handle, bytes.ptr, @intCast(u32, bytes.len), &bytes_written, overlapped) == 0) {
+        const adjusted_len = math.cast(u32, bytes.len) catch maxInt(u32);
+        if (kernel32.WriteFile(handle, bytes.ptr, adjusted_len, &bytes_written, overlapped) == 0) {
             switch (kernel32.GetLastError()) {
                 .INVALID_USER_BUFFER => return error.SystemResources,
                 .NOT_ENOUGH_MEMORY => return error.SystemResources,
                 .OPERATION_ABORTED => return error.OperationAborted,
                 .NOT_ENOUGH_QUOTA => return error.SystemResources,
-                .IO_PENDING => unreachable, // this function is for blocking files only
+                .IO_PENDING => unreachable,
                 .BROKEN_PIPE => return error.BrokenPipe,
                 else => |err| return unexpectedError(err),
             }
         }
+        return bytes_written;
     }
 }
 
@@ -584,23 +586,74 @@ pub fn MoveFileExW(old_path: [*:0]const u16, new_path: [*:0]const u16, flags: DW
 }
 
 pub const CreateDirectoryError = error{
+    NameTooLong,
     PathAlreadyExists,
     FileNotFound,
+    NoDevice,
+    AccessDenied,
     Unexpected,
 };
 
-pub fn CreateDirectory(pathname: []const u8, attrs: ?*SECURITY_ATTRIBUTES) CreateDirectoryError!void {
+/// Returns an open directory handle which the caller is responsible for closing with `CloseHandle`.
+pub fn CreateDirectory(dir: ?HANDLE, pathname: []const u8, sa: ?*SECURITY_ATTRIBUTES) CreateDirectoryError!HANDLE {
     const pathname_w = try sliceToPrefixedFileW(pathname);
-    return CreateDirectoryW(&pathname_w, attrs);
+    return CreateDirectoryW(dir, &pathname_w, sa);
 }
 
-pub fn CreateDirectoryW(pathname: [*:0]const u16, attrs: ?*SECURITY_ATTRIBUTES) CreateDirectoryError!void {
-    if (kernel32.CreateDirectoryW(pathname, attrs) == 0) {
-        switch (kernel32.GetLastError()) {
-            .ALREADY_EXISTS => return error.PathAlreadyExists,
-            .PATH_NOT_FOUND => return error.FileNotFound,
-            else => |err| return unexpectedError(err),
-        }
+/// Same as `CreateDirectory` except takes a WTF-16 encoded path.
+pub fn CreateDirectoryW(
+    dir: ?HANDLE,
+    sub_path_w: [*:0]const u16,
+    sa: ?*SECURITY_ATTRIBUTES,
+) CreateDirectoryError!HANDLE {
+    const path_len_bytes = math.cast(u16, mem.toSliceConst(u16, sub_path_w).len * 2) catch |err| switch (err) {
+        error.Overflow => return error.NameTooLong,
+    };
+    var nt_name = UNICODE_STRING{
+        .Length = path_len_bytes,
+        .MaximumLength = path_len_bytes,
+        .Buffer = @intToPtr([*]u16, @ptrToInt(sub_path_w)),
+    };
+
+    if (sub_path_w[0] == '.' and sub_path_w[1] == 0) {
+        // Windows does not recognize this, but it does work with empty string.
+        nt_name.Length = 0;
+    }
+
+    var attr = OBJECT_ATTRIBUTES{
+        .Length = @sizeOf(OBJECT_ATTRIBUTES),
+        .RootDirectory = if (std.fs.path.isAbsoluteWindowsW(sub_path_w)) null else dir,
+        .Attributes = 0, // Note we do not use OBJ_CASE_INSENSITIVE here.
+        .ObjectName = &nt_name,
+        .SecurityDescriptor = if (sa) |ptr| ptr.lpSecurityDescriptor else null,
+        .SecurityQualityOfService = null,
+    };
+    var io: IO_STATUS_BLOCK = undefined;
+    var result_handle: HANDLE = undefined;
+    const rc = ntdll.NtCreateFile(
+        &result_handle,
+        GENERIC_READ | SYNCHRONIZE,
+        &attr,
+        &io,
+        null,
+        FILE_ATTRIBUTE_NORMAL,
+        FILE_SHARE_READ,
+        FILE_CREATE,
+        FILE_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT,
+        null,
+        0,
+    );
+    switch (rc) {
+        .SUCCESS => return result_handle,
+        .OBJECT_NAME_INVALID => unreachable,
+        .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
+        .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
+        .NO_MEDIA_IN_DEVICE => return error.NoDevice,
+        .INVALID_PARAMETER => unreachable,
+        .ACCESS_DENIED => return error.AccessDenied,
+        .OBJECT_PATH_SYNTAX_BAD => unreachable,
+        .OBJECT_NAME_COLLISION => return error.PathAlreadyExists,
+        else => return unexpectedStatus(rc),
     }
 }
 

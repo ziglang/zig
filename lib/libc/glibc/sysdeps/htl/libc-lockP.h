@@ -1,5 +1,5 @@
 /* Private libc-internal interface for mutex locks.
-   Copyright (C) 2015-2019 Free Software Foundation, Inc.
+   Copyright (C) 2015-2020 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -14,7 +14,7 @@
 
    You should have received a copy of the GNU Lesser General Public
    License along with the GNU C Library; see the file COPYING.LIB.  If
-   not, see <http://www.gnu.org/licenses/>.  */
+   not, see <https://www.gnu.org/licenses/>.  */
 
 #ifndef _BITS_LIBC_LOCKP_H
 #define _BITS_LIBC_LOCKP_H 1
@@ -111,6 +111,8 @@ extern int __pthread_rwlock_unlock (pthread_rwlock_t *__rwlock);
 
 extern int __pthread_key_create (pthread_key_t *__key,
 				 void (*__destr_function) (void *));
+
+extern int __pthread_key_delete (pthread_key_t __key);
 
 extern int __pthread_setspecific (pthread_key_t __key,
 				  const void *__pointer);
