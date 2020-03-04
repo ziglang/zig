@@ -663,11 +663,14 @@ pub const Dir = struct {
             return self.openFileW(&path_w, flags);
         }
         const path_c = try os.toPosixPath(sub_path);
-        return self.openFileC(&path_c, flags);
+        return self.openFileZ(&path_c, flags);
     }
 
+    /// Deprecated; use `openFileZ`.
+    pub const openFileC = openFileZ;
+
     /// Same as `openFile` but the path parameter is null-terminated.
-    pub fn openFileC(self: Dir, sub_path: [*:0]const u8, flags: File.OpenFlags) File.OpenError!File {
+    pub fn openFileZ(self: Dir, sub_path: [*:0]const u8, flags: File.OpenFlags) File.OpenError!File {
         if (builtin.os.tag == .windows) {
             const path_w = try os.windows.cStrToPrefixedFileW(sub_path);
             return self.openFileW(&path_w, flags);
@@ -753,9 +756,9 @@ pub const Dir = struct {
         return self.openFile(sub_path, .{});
     }
 
-    /// Deprecated; call `openFileC` directly.
+    /// Deprecated; call `openFileZ` directly.
     pub fn openReadC(self: Dir, sub_path: [*:0]const u8) File.OpenError!File {
-        return self.openFileC(sub_path, .{});
+        return self.openFileZ(sub_path, .{});
     }
 
     /// Deprecated; call `openFileW` directly.
@@ -1403,7 +1406,7 @@ pub fn openFileAbsolute(absolute_path: []const u8, flags: File.OpenFlags) File.O
 /// Same as `openFileAbsolute` but the path parameter is null-terminated.
 pub fn openFileAbsoluteC(absolute_path_c: [*:0]const u8, flags: File.OpenFlags) File.OpenError!File {
     assert(path.isAbsoluteC(absolute_path_c));
-    return cwd().openFileC(absolute_path_c, flags);
+    return cwd().openFileZ(absolute_path_c, flags);
 }
 
 /// Same as `openFileAbsolute` but the path parameter is WTF-16 encoded.

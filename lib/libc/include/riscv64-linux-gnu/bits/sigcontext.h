@@ -1,5 +1,5 @@
 /* Machine-dependent signal context structure for Linux.  RISC-V version.
-   Copyright (C) 1996-2019 Free Software Foundation, Inc.  This file is part of the GNU C Library.
+   Copyright (C) 1996-2020 Free Software Foundation, Inc.  This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
    modify it under the terms of the GNU Lesser General Public
@@ -13,7 +13,7 @@
 
    You should have received a copy of the GNU Lesser General Public
    License along with the GNU C Library.  If not, see
-   <http://www.gnu.org/licenses/>.  */
+   <https://www.gnu.org/licenses/>.  */
 
 #ifndef _BITS_SIGCONTEXT_H
 #define _BITS_SIGCONTEXT_H 1

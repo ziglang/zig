@@ -1,5 +1,5 @@
 /* Definitions for core files and libthread_db.  Generic Linux version.
-   Copyright (C) 1996-2019 Free Software Foundation, Inc.
+   Copyright (C) 1996-2020 Free Software Foundation, Inc.
 
    This file is part of the GNU C Library.
 
@@ -15,7 +15,7 @@
 
    You should have received a copy of the GNU Lesser General Public
    License along with the GNU C Library; if not, see
-   <http://www.gnu.org/licenses/>.  */
+   <https://www.gnu.org/licenses/>.  */
 
 #ifndef _SYS_PROCFS_H
 #define _SYS_PROCFS_H	1

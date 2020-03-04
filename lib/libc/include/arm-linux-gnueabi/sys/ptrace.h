@@ -1,5 +1,5 @@
 /* `ptrace' debugger support interface.  Linux/ARM version.
-   Copyright (C) 1996-2019 Free Software Foundation, Inc.
+   Copyright (C) 1996-2020 Free Software Foundation, Inc.
 
    This file is part of the GNU C Library.
 
@@ -196,8 +196,12 @@ enum __ptrace_request
 #define PTRACE_SECCOMP_GET_FILTER PTRACE_SECCOMP_GET_FILTER
 
   /* Get seccomp BPF filter metadata.  */
-  PTRACE_SECCOMP_GET_METADATA = 0x420d
+  PTRACE_SECCOMP_GET_METADATA = 0x420d,
 #define PTRACE_SECCOMP_GET_METADATA PTRACE_SECCOMP_GET_METADATA
+
+  /* Get information about system call.  */
+  PTRACE_GET_SYSCALL_INFO = 0x420e
+#define PTRACE_GET_SYSCALL_INFO PTRACE_GET_SYSCALL_INFO
 };
 
 
