@@ -18442,6 +18442,12 @@ static IrInstGen *ir_resolve_result(IrAnalyze *ira, IrInst *suspend_source_instr
         IrInstGen *casted_ptr;
         if (isf->already_resolved) {
             field = find_struct_type_field(isf->inferred_struct_type, isf->field_name);
+
+            // We overwrite the inferred struct's type so that the new result can be written successfully.
+            // The duplicate field will be detected and reported in 'ir_analyze_container_init_fields'
+            field->type_entry = value_type;
+            field->type_val = create_const_type(ira->codegen, field->type_entry);
+
             casted_ptr = result_loc;
         } else {
             isf->already_resolved = true;
@@ -22902,6 +22908,9 @@ static IrInstGen *ir_analyze_container_init_fields(IrAnalyze *ira, IrInst *sourc
             first_non_const_instruction = result_loc;
         }
     }
+
+    heap::c_allocator.deallocate(field_assign_nodes, actual_field_count);
+
     if (any_missing)
         return ira->codegen->invalid_inst_gen;
 
@@ -22916,6 +22925,8 @@ static IrInstGen *ir_analyze_container_init_fields(IrAnalyze *ira, IrInst *sourc
             }
         }
     }
+
+    const_ptrs.deinit();
 
     IrInstGen *result = ir_get_deref(ira, source_instr, result_loc, nullptr);
 
