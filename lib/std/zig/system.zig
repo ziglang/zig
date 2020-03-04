@@ -844,8 +844,20 @@ pub const NativeTargetInfo = struct {
     }
 
     fn detectNativeCpuAndFeatures(cross_target: CrossTarget) Target.Cpu {
-        // TODO Detect native CPU model & features. Until that is implemented we use baseline.
-        return baselineCpuAndFeatures(cross_target);
+
+        var baseline = baselineCpuAndFeatures(cross_target);
+
+        switch(Target.current.cpu.arch) {
+            .x86_64, .i386 => {
+                const x86_detection = @import("system/x86.zig");
+                x86_detection.detectNativeCpuAndFeatures(&baseline);
+                return baseline;
+            },
+            else => {
+                // // TODO Detect native CPU model & features. Until that is implemented we use baseline.
+                return baseline;
+            }
+        }
     }
 
     fn baselineCpuAndFeatures(cross_target: CrossTarget) Target.Cpu {
