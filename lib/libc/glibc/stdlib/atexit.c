@@ -1,4 +1,4 @@
-/* Copyright (C) 1991-2019 Free Software Foundation, Inc.
+/* Copyright (C) 1991-2020 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -30,7 +30,7 @@
 
    You should have received a copy of the GNU Lesser General Public
    License along with the GNU C Library; if not, see
-   <http://www.gnu.org/licenses/>.  */
+   <https://www.gnu.org/licenses/>.  */
 
 extern int __cxa_atexit (void (*func) (void *), void *arg, void *d);
 libc_hidden_proto (__cxa_atexit);

@@ -1,4 +1,4 @@
-/* Copyright (C) 2002-2019 Free Software Foundation, Inc.
+/* Copyright (C) 2002-2020 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
    Contributed by Ulrich Drepper <drepper@redhat.com>, 2002.
 
@@ -31,17 +31,16 @@
 
    You should have received a copy of the GNU Lesser General Public
    License along with the GNU C Library; if not, see
-   <http://www.gnu.org/licenses/>.  */
+   <https://www.gnu.org/licenses/>.  */
 
 extern int __pthread_atfork (void (*prepare) (void), void (*parent) (void),
-			     void (*child) (void));
+                            void (*child) (void));
 extern int __register_atfork (void (*__prepare) (void),
-			      void (*__parent) (void),
-			      void (*__child) (void),
-			      void *dso_handle);
+                             void (*__parent) (void),
+                             void (*__child) (void),
+                             void *dso_handle);
 libc_hidden_proto (__register_atfork)
 extern void *__dso_handle __attribute__ ((__visibility__ ("hidden")));
-
 
 /* Hide the symbol so that no definition but the one locally in the
    executable or DSO is used.  */

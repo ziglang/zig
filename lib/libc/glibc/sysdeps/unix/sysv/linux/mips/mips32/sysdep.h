@@ -1,4 +1,4 @@
-/* Copyright (C) 2000-2019 Free Software Foundation, Inc.
+/* Copyright (C) 2000-2020 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -13,15 +13,13 @@
 
    You should have received a copy of the GNU Lesser General Public
    License along with the GNU C Library.  If not, see
-   <http://www.gnu.org/licenses/>.  */
+   <https://www.gnu.org/licenses/>.  */
 
 #ifndef _LINUX_MIPS_MIPS32_SYSDEP_H
 #define _LINUX_MIPS_MIPS32_SYSDEP_H 1
 
-/* Always enable vsyscalls on mips32.  */
-#define ALWAYS_USE_VSYSCALL 1
-
 /* There is some commonality.  */
+#include <sysdeps/unix/sysv/linux/mips/sysdep.h>
 #include <sysdeps/unix/sysv/linux/sysdep.h>
 #include <sysdeps/unix/mips/mips32/sysdep.h>
 
@@ -348,24 +346,13 @@ libc_hidden_proto (__mips_syscall7, nomips16)
 	_sc_ret.reg.v0;							\
 })
 
-#define __SYSCALL_CLOBBERS "$1", "$3", "$8", "$9", "$10", "$11", "$12", "$13", \
-	"$14", "$15", "$24", "$25", "hi", "lo", "memory"
-
-/* Standard MIPS syscalls have an error flag, and return a positive errno
-   when the error flag is set. Emulate this behaviour for vsyscalls so that
-   the INTERNAL_SYSCALL_{ERROR_P,ERRNO} macros work correctly.  */
-#define INTERNAL_VSYSCALL_CALL(funcptr, err, nr, args...)		\
-  ({									\
-    long _ret = funcptr (args);						\
-    err = ((unsigned long) (_ret) >= (unsigned long) -4095L);		\
-    if (err)								\
-      _ret = -_ret;							\
-    _ret;								\
-  })
-
-/* List of system calls which are supported as vsyscalls.  */
-#define HAVE_CLOCK_GETTIME_VSYSCALL	1
-#define HAVE_GETTIMEOFDAY_VSYSCALL	1
+#if __mips_isa_rev >= 6
+# define __SYSCALL_CLOBBERS "$1", "$3", "$8", "$9", "$10", "$11", "$12", "$13", \
+	 "$14", "$15", "$24", "$25", "memory"
+#else
+# define __SYSCALL_CLOBBERS "$1", "$3", "$8", "$9", "$10", "$11", "$12", "$13", \
+	 "$14", "$15", "$24", "$25", "hi", "lo", "memory"
+#endif
 
 #endif /* __ASSEMBLER__ */
 

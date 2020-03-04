@@ -1,6 +1,6 @@
 /* Set flags signalling availability of kernel features based on given
    kernel version number.
-   Copyright (C) 2010-2019 Free Software Foundation, Inc.
+   Copyright (C) 2010-2020 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -15,7 +15,7 @@
 
    You should have received a copy of the GNU Lesser General Public
    License along with the GNU C Library.  If not, see
-   <http://www.gnu.org/licenses/>.  */
+   <https://www.gnu.org/licenses/>.  */
 
 #ifndef _KERNEL_FEATURES_H
 #define _KERNEL_FEATURES_H 1
@@ -26,11 +26,6 @@
 #if __LINUX_KERNEL_VERSION < 0x050100
 # undef __ASSUME_STATFS64
 # define __ASSUME_STATFS64 0
-#endif
-
-/* Alpha used to define SysV ipc shmat syscall with a different name.  */
-#ifndef __NR_shmat
-# define __NR_shmat __NR_osf_shmat
 #endif
 
 #define __ASSUME_RECV_SYSCALL	1
@@ -51,5 +46,8 @@
 # undef __ASSUME_MLOCK2
 # undef __ASSUME_STATX
 #endif
+
+/* Alpha requires old sysvipc even being a 64-bit architecture.  */
+#undef __ASSUME_SYSVIPC_DEFAULT_IPC_64
 
 #endif /* _KERNEL_FEATURES_H */

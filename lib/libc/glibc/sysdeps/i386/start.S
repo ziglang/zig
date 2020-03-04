@@ -1,5 +1,5 @@
 /* Startup code compliant to the ELF i386 ABI.
-   Copyright (C) 1995-2019 Free Software Foundation, Inc.
+   Copyright (C) 1995-2020 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -31,7 +31,7 @@
 
    You should have received a copy of the GNU Lesser General Public
    License along with the GNU C Library; if not, see
-   <http://www.gnu.org/licenses/>.  */
+   <https://www.gnu.org/licenses/>.  */
 
 /* This is the canonical entry point, usually the first thing in the text
    segment.  The SVR4/i386 ABI (pages 3-31, 3-32) says that when the entry

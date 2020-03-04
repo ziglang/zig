@@ -1,4 +1,4 @@
-/* Copyright (C) 2010-2019 Free Software Foundation, Inc.
+/* Copyright (C) 2010-2020 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -13,7 +13,7 @@
 
    You should have received a copy of the GNU Lesser General Public
    License along with the GNU C Library.  If not, see
-   <http://www.gnu.org/licenses/>.  */
+   <https://www.gnu.org/licenses/>.  */
 
 #ifndef _LINUX_M68K_COLDFIRE_SYSDEP_H
 #define _LINUX_M68K_COLDFIRE_SYSDEP_H 1
