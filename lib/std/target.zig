@@ -146,7 +146,6 @@ pub const Target = struct {
                     .freestanding,
                     .ananas,
                     .cloudabi,
-                    .dragonfly,
                     .fuchsia,
                     .kfreebsd,
                     .lv2,
@@ -213,6 +212,12 @@ pub const Target = struct {
                         .semver = .{
                             .min = .{ .major = 6, .minor = 6 },
                             .max = .{ .major = 6, .minor = 6 },
+                        },
+                    },
+                    .dragonfly => return .{
+                        .semver = .{
+                            .min = .{ .major = 5, .minor = 8 },
+                            .max = .{ .major = 5, .minor = 8 },
                         },
                     },
 
