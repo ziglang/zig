@@ -79,6 +79,7 @@
 #define TCP_INQ			 36 /* Notify bytes available to read
 				       as a cmsg on read.  */
 #define TCP_CM_INQ		 TCP_INQ
+#define TCP_TX_DELAY		 37 /* Delay outgoing packets by XX usec.  */
 
 #define TCP_REPAIR_ON		 1
 #define TCP_REPAIR_OFF		 0

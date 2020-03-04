@@ -1,5 +1,5 @@
 /* `ptrace' debugger support interface.  Linux/S390 version.
-   Copyright (C) 2000-2019 Free Software Foundation, Inc.
+   Copyright (C) 2000-2020 Free Software Foundation, Inc.
    Contributed by Denis Joseph Barrow (djbarrow@de.ibm.com).
    This file is part of the GNU C Library.
 
@@ -15,7 +15,7 @@
 
    You should have received a copy of the GNU Lesser General Public
    License along with the GNU C Library; if not, see
-   <http://www.gnu.org/licenses/>.  */
+   <https://www.gnu.org/licenses/>.  */
 
 #ifndef _SYS_PTRACE_H
 #define _SYS_PTRACE_H	1
@@ -79,6 +79,11 @@ __BEGIN_DECLS
 # undef PTRACE_EVENT_SECCOMP
 # undef PTRACE_EVENT_STOP
 # undef PTRACE_PEEKSIGINFO_SHARED
+# undef PTRACE_GET_SYSCALL_INFO
+# undef PTRACE_SYSCALL_INFO_NONE
+# undef PTRACE_SYSCALL_INFO_ENTRY
+# undef PTRACE_SYSCALL_INFO_EXIT
+# undef PTRACE_SYSCALL_INFO_SECCOMP
 #endif
 /* Type of the REQUEST argument to `ptrace.'  */
 enum __ptrace_request
@@ -197,6 +202,10 @@ enum __ptrace_request
   /* Get seccomp BPF filter metadata.  */
   PTRACE_SECCOMP_GET_METADATA = 0x420d,
 #define PTRACE_SECCOMP_GET_METADATA PTRACE_SECCOMP_GET_METADATA
+
+  /* Get information about system call.  */
+  PTRACE_GET_SYSCALL_INFO = 0x420e,
+#define PTRACE_GET_SYSCALL_INFO PTRACE_GET_SYSCALL_INFO
 
   PTRACE_PEEKUSR_AREA = 0x5000,
 #define PTRACE_PEEKUSR_AREA PTRACE_PEEKUSR_AREA
