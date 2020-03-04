@@ -36,6 +36,26 @@ fn constSelfPtrAs(self: *const SelfType, comptime T: type) *const T {
 }
 
 pub const Storage = struct {
+    pub const Comptime = struct {
+        obj: var,
+
+        pub fn init(args: var) !Comptime {
+            if (args.len != 1) {
+                @compileError("Comptime storage expected a 1-tuple in initialization.");
+            }
+
+            return Comptime {
+                .obj = args[0],
+            };
+        }
+
+        pub fn getSelfPtr(self: *Comptime) *SelfType {
+            return &self.obj;
+        }
+
+        pub fn deinit(self: Comptime) void {}
+    };
+
     pub const NonOwning = struct {
         erased_ptr: *SelfType,
 
@@ -498,6 +518,25 @@ test "Simple NonOwning interface" {
 
     try NonOwningTest.run();
     comptime try NonOwningTest.run();
+}
+
+test "Comptime only interface" {
+    const TestIFace = Interface(struct {
+        foo: fn (*SelfType, u8) u8,
+    }, Storage.Comptime);
+
+    const TestType = struct {
+        const Self = @This();
+
+        state: u8,
+
+        fn foo(self: Self, a: u8) u8 {
+            return self.state + a;
+        }
+    };
+
+    comptime var iface = try TestIFace.init(.{ TestType{ .state=0 } });
+    assert(iface.call("foo", .{42}) == 42);
 }
 
 test "Owning interface with optional function" {
