@@ -8,13 +8,32 @@ const warn = std.debug.warn;
 
 /// Caller must free result
 pub fn testZigInstallPrefix(allocator: *mem.Allocator, test_path: []const u8) ![]u8 {
-    const test_zig_dir = try fs.path.join(allocator, &[_][]const u8{ test_path, "lib", "zig" });
+    {
+        const test_zig_dir = try fs.path.join(allocator, &[_][]const u8{ test_path, "lib", "zig" });
+        errdefer allocator.free(test_zig_dir);
+
+        const test_index_file = try fs.path.join(allocator, &[_][]const u8{ test_zig_dir, "std", "std.zig" });
+        defer allocator.free(test_index_file);
+
+        if (fs.cwd().openFile(test_index_file, .{})) |file| {
+            file.close();
+            return test_zig_dir;
+        } else |err| switch (err) {
+            error.FileNotFound => {
+                allocator.free(test_zig_dir);
+            },
+            else => |e| return e,
+        }
+    }
+
+    // Also try without "zig"
+    const test_zig_dir = try fs.path.join(allocator, &[_][]const u8{ test_path, "lib" });
     errdefer allocator.free(test_zig_dir);
 
     const test_index_file = try fs.path.join(allocator, &[_][]const u8{ test_zig_dir, "std", "std.zig" });
     defer allocator.free(test_index_file);
 
-    var file = try fs.cwd().openRead(test_index_file);
+    const file = try fs.cwd().openFile(test_index_file, .{});
     file.close();
 
     return test_zig_dir;
