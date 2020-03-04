@@ -8371,12 +8371,14 @@ test "integer truncation" {
       {#header_close#}
 
       {#header_open|@TypeOf#}
-      <pre>{#syntax#}@TypeOf(expression) type{#endsyntax#}</pre>
+      <pre>{#syntax#}@TypeOf(...) type{#endsyntax#}</pre>
       <p>
-      This function returns a compile-time constant, which is the type of the
-      expression passed as an argument. The expression is evaluated.
+      {#syntax#}@TypeOf{#endsyntax#} is a special builtin function that takes any (nonzero) number of expressions
+      as parameters and returns the type of the result, using {#link|Peer Type Resolution#}.
       </p>
-      <p>{#syntax#}@TypeOf{#endsyntax#} guarantees no run-time side-effects within the expression:</p>
+      <p>
+      The expressions are evaluated, however they are guaranteed to have no <em>runtime</em> side-effects:
+      </p>
       {#code_begin|test#}
 const std = @import("std");
 const assert = std.debug.assert;
