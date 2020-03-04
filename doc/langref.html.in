@@ -6019,13 +6019,16 @@ pub fn printf(self: *OutStream, arg0: i32, arg1: []const u8) !void {
       </p>
       {#code_begin|syntax#}
 pub fn printValue(self: *OutStream, value: var) !void {
-    const T = @TypeOf(value);
-    if (@isInteger(T)) {
-        return self.printInt(T, value);
-    } else if (@isFloat(T)) {
-        return self.printFloat(T, value);
-    } else {
-        @compileError("Unable to print type '" ++ @typeName(T) ++ "'");
+    switch (@typeInfo(@TypeOf(value))) {
+        .Int => {
+            return self.printInt(T, value);
+        },
+        .Float => {
+            return self.printFloat(T, value);
+        },
+        else => {
+            @compileError("Unable to print type '" ++ @typeName(T) ++ "'");
+        },
     }
 }
       {#code_end#}
