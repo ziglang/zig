@@ -786,3 +786,10 @@ test "cast between C pointer with different but compatible types" {
     };
     S.doTheTest();
 }
+
+var global_struct: struct { f0: usize } = undefined;
+
+test "assignment to optional pointer result loc" {
+    var foo: struct { ptr: ?*c_void } = .{ .ptr = &global_struct };
+    expect(foo.ptr.? == @ptrCast(*c_void, &global_struct));
+}
