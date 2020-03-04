@@ -172,6 +172,10 @@ pub fn main() !void {
                     (std.mem.eql(u8, lib_name, "m") and abi_list.targets[0].arch == .powerpc)))
                 {
                     break :blk try fs.path.join(allocator, &[_][]const u8{ prefix, abi_list.path, "nofpu", basename });
+                } else if (abi_list.targets[0].arch == .arm) {
+                    break :blk try fs.path.join(allocator, &[_][]const u8{ prefix, abi_list.path, "le", basename });
+                } else if (abi_list.targets[0].arch == .armeb) {
+                    break :blk try fs.path.join(allocator, &[_][]const u8{ prefix, abi_list.path, "be", basename });
                 }
                 break :blk try fs.path.join(allocator, &[_][]const u8{ prefix, abi_list.path, basename });
             };
