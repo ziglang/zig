@@ -23,6 +23,8 @@ __MINGW_USYMBOL(ilogbl):
 	andb    %ah, %dh
 	cmpb    $0x05, %dh
 	je      1f		/* Is +-Inf, jump.  */
+	cmpb    $0x01, %dh
+	je      1f		/* Is NaN, jump.  */
 
 	fxtract
 	pushq	%rax
@@ -48,6 +50,8 @@ __MINGW_USYMBOL(ilogbl):
 	andb    %ah, %dh
 	cmpb    $0x05, %dh
 	je      1f		/* Is +-Inf, jump.  */
+	cmpb    $0x01, %dh
+	je      1f		/* Is NaN, jump.  */
 
 	fxtract
 	pushl	%eax

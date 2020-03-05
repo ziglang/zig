@@ -5,6 +5,15 @@
  */
 #include "cephes_mconf.h"
 
+#if defined(_ARM_) || defined(__arm__) || defined(_ARM64_) || defined(__aarch64__)
+#include <math.h>
+
+long double coshl(long double x)
+{
+  return cosh(x);
+}
+#else
+
 #ifndef _SET_ERRNO
 #define _SET_ERRNO(x)
 #endif
@@ -21,7 +30,7 @@ long double coshl(long double x)
   else if (x_class == FP_INFINITE)
     {
        errno = ERANGE;
-       return x;
+       return INFINITY;
     }
   x = fabsl (x);
   if (x > (MAXLOGL + LOGE2L))
@@ -43,3 +52,4 @@ long double coshl(long double x)
   y = 0.5L * (y + 1.0L / y);
   return y;
 }
+#endif

@@ -82,6 +82,8 @@ float __tgammaf_r( float x, int* sgngamf)
 		return (x);
 #endif
 #endif
+	if (x == 0.0)
+		return copysignf(HUGE_VALF, x);
 
 	*sgngamf = 1;
 	negative = 0;
@@ -96,8 +98,8 @@ float __tgammaf_r( float x, int* sgngamf)
 gsing:
 			_SET_ERRNO(EDOM);
 			mtherr("tgammaf", SING);
-#ifdef INFINITIES
-			return (INFINITYF);
+#ifdef NANS
+			return (NAN);
 #else
 			return (MAXNUMF);
 #endif

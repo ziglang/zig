@@ -1,4 +1,3 @@
-#define MINGW_HAS_SECURE_API 1
 #include <windows.h>
 #include <malloc.h>
 #include <errno.h>

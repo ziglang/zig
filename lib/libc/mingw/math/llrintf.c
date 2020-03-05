@@ -19,8 +19,23 @@ long long llrintf (float x)
     retval = (long long)ceilf(x);
   else if (mode == FE_TOWARDZERO)
     retval = x >= 0 ? (long long)floorf(x) : (long long)ceilf(x);
-  else
-    retval = x >= 0 ? (long long)floorf(x + 0.5) : (long long)ceilf(x - 0.5);
+  else {
+    // Break `x` into integral and fractional parts.
+    float intg, frac;
+    frac = modff(x, &intg);
+    frac = fabsf(frac);
+    // Convert the truncated integral part to an integer.
+    retval = intg;
+    if (frac < 0.5) {
+      // Round towards zero.
+    } else if (frac > 0.5) {
+      // Round towards infinities.
+      retval += signbit(x) ? -1 : 1;
+    } else {
+      // Round to the nearest even number.
+      retval += retval % 2;
+    }
+  }
 #endif
   return retval;
 }

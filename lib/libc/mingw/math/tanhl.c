@@ -8,6 +8,15 @@
 #define _SET_ERRNO(x)
 #endif
 
+#if defined(_ARM_) || defined(__arm__) || defined(_ARM64_) || defined(__aarch64__)
+#include <math.h>
+
+long double tanhl(long double x)
+{
+  return tanh(x);
+}
+#else
+
 #ifdef UNK
 static uLD P[] = {
   { { -6.8473739392677100872869E-5L } },
@@ -89,4 +98,4 @@ long double tanhl(long double x)
   }
   return (z);
 }
-
+#endif

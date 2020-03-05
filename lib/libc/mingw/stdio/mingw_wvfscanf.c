@@ -42,6 +42,8 @@
  EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+#define __LARGE_MBSTATE_T
+
 #include <limits.h>
 #include <stddef.h>
 #include <stdarg.h>
@@ -104,13 +106,19 @@ get_va_nth (va_list argp, unsigned int n)
 }
 
 static void
-optimize_alloc (int do_realloc, char **p, size_t sz, size_t need_sz, size_t typ_sz)
+optimize_alloc (char **p, char *end, size_t alloc_sz)
 {
+  size_t need_sz;
   char *h;
 
-  if (!do_realloc || sz == need_sz || !p || *p == NULL)
+  if (!p || !*p)
     return;
-  if ((h = (char *) realloc (*p, need_sz * typ_sz)) != NULL)
+
+  need_sz = end - *p;
+  if (need_sz == alloc_sz)
+    return;
+
+  if ((h = (char *) realloc (*p, need_sz)) != NULL)
     *p = h;
 }
 
@@ -237,7 +245,7 @@ release_ptrs (struct gcollect **pt, wchar_t **wbuf)
 static int
 cleanup_return (int rval, struct gcollect **pfree, char **strp, wchar_t **wbuf)
 {
-  if (rval == WEOF)
+  if (rval == EOF)
       release_ptrs (pfree, wbuf);
   else
     {
@@ -331,7 +339,7 @@ __mingw_swformat (_IFP *s, const wchar_t *format, va_list argp)
   if (!s || s->fp == NULL || !format)
     {
       errno = EINVAL;
-      return WEOF;
+      return EOF;
     }
 
   memset (&state, 0, sizeof(state));
@@ -351,7 +359,7 @@ __mingw_swformat (_IFP *s, const wchar_t *format, va_list argp)
 	  else
 	    {
 	      if ((c = in_ch (s, &read_in)) == WEOF)
-		return cleanup_return ((!rval ? WEOF : rval), &gcollect, pstr, &wbuf);
+		return cleanup_return ((!rval ? EOF : rval), &gcollect, pstr, &wbuf);
 
 	      if (ignore_ws)
 		{
@@ -361,7 +369,7 @@ __mingw_swformat (_IFP *s, const wchar_t *format, va_list argp)
 		      do
 			{
 			  if ((c = in_ch (s, &read_in)) == WEOF)
-			    return cleanup_return ((!rval ? WEOF : rval), &gcollect, pstr, &wbuf);
+			    return cleanup_return ((!rval ? EOF : rval), &gcollect, pstr, &wbuf);
 			}
 		      while (iswspace (c));
 		    }
@@ -515,7 +523,7 @@ __mingw_swformat (_IFP *s, const wchar_t *format, va_list argp)
 	  do
 	    {
 	      if ((c == WEOF || (c = in_ch (s, &read_in)) == WEOF) && errno == EINTR)
-		return cleanup_return ((!rval ? WEOF : rval), &gcollect, pstr, &wbuf);
+		return cleanup_return ((!rval ? EOF : rval), &gcollect, pstr, &wbuf);
 	    }
 	  while (iswspace (c));
 
@@ -540,7 +548,7 @@ __mingw_swformat (_IFP *s, const wchar_t *format, va_list argp)
 	{
 	case '%':
 	  if ((c = in_ch (s, &read_in)) == WEOF)
-	    return cleanup_return ((!rval ? WEOF : rval), &gcollect, pstr, &wbuf);
+	    return cleanup_return ((!rval ? EOF : rval), &gcollect, pstr, &wbuf);
 	  if (c != fc)
 	    {
 	      back_ch (c, s, &read_in, 1);
@@ -581,7 +589,7 @@ __mingw_swformat (_IFP *s, const wchar_t *format, va_list argp)
 		    return cleanup_return (rval, &gcollect, pstr, &wbuf);
 		  str_sz = 100;
 		  if ((str = *pstr = (char *) malloc (100)) == NULL)
-		    return cleanup_return (((flags & USE_POSIX_ALLOC) != 0 ? WEOF : rval), &gcollect, pstr, &wbuf);
+		    return cleanup_return (((flags & USE_POSIX_ALLOC) != 0 ? EOF : rval), &gcollect, pstr, &wbuf);
 		  gcollect = resize_gcollect (gcollect);
 		  gcollect->ptrs[gcollect->count++] = pstr;
 		}
@@ -596,7 +604,7 @@ __mingw_swformat (_IFP *s, const wchar_t *format, va_list argp)
 		}
 	    }
 	  if ((c = in_ch (s, &read_in)) == WEOF)
-	    return cleanup_return ((!rval ? WEOF : rval), &gcollect, pstr, &wbuf);
+	    return cleanup_return ((!rval ? EOF : rval), &gcollect, pstr, &wbuf);
 
 	  memset (&state, 0, sizeof (state));
 
@@ -613,7 +621,7 @@ __mingw_swformat (_IFP *s, const wchar_t *format, va_list argp)
 		  if (!nstr)
 		    {
 		      release_ptrs (&gcollect, &wbuf);
-		      return WEOF;
+		      return EOF;
 		    }
 		  *pstr = nstr;
 		  str = nstr + str_len;
@@ -622,14 +630,14 @@ __mingw_swformat (_IFP *s, const wchar_t *format, va_list argp)
 
 	      n = wcrtomb ((flags & IS_SUPPRESSED) == 0 ? str : NULL, c, &state);
 	      if (n == (size_t) -1LL)
-		return cleanup_return ((!rval ? WEOF : rval), &gcollect, pstr, &wbuf);
+		return cleanup_return ((!rval ? EOF : rval), &gcollect, pstr, &wbuf);
 	      str += n;
 	    }
 	  while (--width > 0 && (c = in_ch (s, &read_in)) != WEOF);
 
 	  if ((flags & IS_SUPPRESSED) == 0)
 	    {
-	      optimize_alloc ((flags & IS_ALLOC_USED) != 0, pstr, str_sz, (str - *pstr), sizeof (char));
+	      optimize_alloc (pstr, str, str_sz);
 	      pstr = NULL;
 	      ++rval;
 	    }
@@ -654,7 +662,7 @@ __mingw_swformat (_IFP *s, const wchar_t *format, va_list argp)
 		  str_sz = (width > 1024 ? 1024 : width);
 		  *pstr = (char *) malloc (str_sz * sizeof (wchar_t));
 		  if ((wstr = (wchar_t *) *pstr) == NULL)
-		    return cleanup_return (((flags & USE_POSIX_ALLOC) != 0 ? WEOF : rval), &gcollect, pstr, &wbuf);
+		    return cleanup_return (((flags & USE_POSIX_ALLOC) != 0 ? EOF : rval), &gcollect, pstr, &wbuf);
 
 		  if ((wstr = (wchar_t *) *pstr) != NULL)
 		    {
@@ -674,7 +682,7 @@ __mingw_swformat (_IFP *s, const wchar_t *format, va_list argp)
 	    }
 
 	  if ((c = in_ch (s, &read_in)) == WEOF)
-	    return cleanup_return ((!rval ? WEOF : rval), &gcollect, pstr, &wbuf);
+	    return cleanup_return ((!rval ? EOF : rval), &gcollect, pstr, &wbuf);
 
 	  if ((flags & IS_SUPPRESSED) == 0)
 	    {
@@ -691,7 +699,7 @@ __mingw_swformat (_IFP *s, const wchar_t *format, va_list argp)
 		      if (!wstr)
 			{
 			  release_ptrs (&gcollect, &wbuf);
-			  return WEOF;
+			  return EOF;
 			}
 		      *pstr = (char *) wstr;
 		      wstr += str_sz;
@@ -708,7 +716,7 @@ __mingw_swformat (_IFP *s, const wchar_t *format, va_list argp)
 
 	  if ((flags & IS_SUPPRESSED) == 0)
 	    {
-	      optimize_alloc ((flags & IS_ALLOC_USED) != 0, pstr, str_sz, (wstr - (wchar_t *) *pstr), sizeof (wchar_t));
+	      optimize_alloc (pstr, (char *) wstr, str_sz * sizeof (wchar_t));
 	      pstr = NULL;
 	      ++rval;
 	    }
@@ -728,7 +736,7 @@ __mingw_swformat (_IFP *s, const wchar_t *format, va_list argp)
 		    return cleanup_return (rval, &gcollect, pstr, &wbuf);
 		  str_sz = 100;
 		  if ((str = *pstr = (char *) malloc (100)) == NULL)
-		    return cleanup_return (((flags & USE_POSIX_ALLOC) != 0 ? WEOF : rval), &gcollect, pstr, &wbuf);
+		    return cleanup_return (((flags & USE_POSIX_ALLOC) != 0 ? EOF : rval), &gcollect, pstr, &wbuf);
 		  gcollect = resize_gcollect (gcollect);
 		  gcollect->ptrs[gcollect->count++] = pstr;
 		}
@@ -744,7 +752,7 @@ __mingw_swformat (_IFP *s, const wchar_t *format, va_list argp)
 	    }
 
 	  if ((c = in_ch (s, &read_in)) == WEOF)
-	    return cleanup_return ((!rval ? WEOF : rval), &gcollect, pstr, &wbuf);
+	    return cleanup_return ((!rval ? EOF : rval), &gcollect, pstr, &wbuf);
 
 	  memset (&state, 0, sizeof (state));
 
@@ -774,7 +782,7 @@ __mingw_swformat (_IFP *s, const wchar_t *format, va_list argp)
 			    pstr = NULL;
 			    ++rval;
 			  }
-			return cleanup_return (((flags & USE_POSIX_ALLOC) != 0 ? WEOF : rval), &gcollect, pstr, &wbuf);
+			return cleanup_return (((flags & USE_POSIX_ALLOC) != 0 ? EOF : rval), &gcollect, pstr, &wbuf);
 		      }
 		    *pstr = nstr;
 		    str = nstr + str_len;
@@ -810,7 +818,7 @@ __mingw_swformat (_IFP *s, const wchar_t *format, va_list argp)
 			  pstr = NULL;
 			  ++rval;
 			}
-		      return cleanup_return (((flags & USE_POSIX_ALLOC) != 0 ? WEOF : rval), &gcollect, pstr, &wbuf);
+		      return cleanup_return (((flags & USE_POSIX_ALLOC) != 0 ? EOF : rval), &gcollect, pstr, &wbuf);
 		    }
 		  *pstr = nstr;
 		  str = nstr + str_len;
@@ -824,7 +832,7 @@ __mingw_swformat (_IFP *s, const wchar_t *format, va_list argp)
 	      }
 	      *str++ = 0;
 
-	      optimize_alloc ((flags & IS_ALLOC_USED) != 0, pstr, str_sz, (str - *pstr), sizeof (char));
+	      optimize_alloc (pstr, str, str_sz);
 	      pstr = NULL;
 	      ++rval;
 	    }
@@ -845,7 +853,7 @@ __mingw_swformat (_IFP *s, const wchar_t *format, va_list argp)
 		  str_sz = 100;
 		  *pstr = (char *) malloc (100 * sizeof (wchar_t));
 		  if ((wstr = (wchar_t *) *pstr) == NULL)
-		    return cleanup_return (((flags & USE_POSIX_ALLOC) != 0 ? WEOF : rval), &gcollect, pstr, &wbuf);
+		    return cleanup_return (((flags & USE_POSIX_ALLOC) != 0 ? EOF : rval), &gcollect, pstr, &wbuf);
 		  gcollect = resize_gcollect (gcollect);
 		  gcollect->ptrs[gcollect->count++] = pstr;
 		}
@@ -860,7 +868,7 @@ __mingw_swformat (_IFP *s, const wchar_t *format, va_list argp)
 		}
 	    }
 	  if ((c = in_ch (s, &read_in)) == WEOF)
-	    return cleanup_return ((!rval ? WEOF : rval), &gcollect, pstr, &wbuf);
+	    return cleanup_return ((!rval ? EOF : rval), &gcollect, pstr, &wbuf);
 
 	  do
 	    {
@@ -889,7 +897,7 @@ __mingw_swformat (_IFP *s, const wchar_t *format, va_list argp)
 			      pstr = NULL;
 			      ++rval;
 			    }
-			  return cleanup_return (((flags & USE_POSIX_ALLOC) != 0 ? WEOF : rval), &gcollect, pstr, &wbuf);
+			  return cleanup_return (((flags & USE_POSIX_ALLOC) != 0 ? EOF : rval), &gcollect, pstr, &wbuf);
 			}
 		      *pstr = (char *) wstr;
 		      wstr += str_sz;
@@ -903,7 +911,7 @@ __mingw_swformat (_IFP *s, const wchar_t *format, va_list argp)
 	    {
 	      *wstr++ = 0;
 
-	      optimize_alloc ((flags & IS_ALLOC_USED) != 0, pstr, str_sz, (wstr - (wchar_t *) *pstr), sizeof (wchar_t));
+	      optimize_alloc (pstr, (char *) wstr, str_sz * sizeof (wchar_t));
 	      pstr = NULL;
 	      ++rval;
 	    }
@@ -943,7 +951,7 @@ __mingw_swformat (_IFP *s, const wchar_t *format, va_list argp)
 	    }
 
 	  if ((c = in_ch (s, &read_in)) == WEOF)
-	    return cleanup_return ((!rval ? WEOF : rval), &gcollect, pstr, &wbuf);
+	    return cleanup_return ((!rval ? EOF : rval), &gcollect, pstr, &wbuf);
 
 	  if (c == '+' || c == '-')
 	    {
@@ -1084,7 +1092,7 @@ __mingw_swformat (_IFP *s, const wchar_t *format, va_list argp)
 	  if (width > 0)
 	    --width;
 	  if ((c = in_ch (s, &read_in)) == WEOF)
-	    return cleanup_return ((!rval ? WEOF : rval), &gcollect, pstr, &wbuf);
+	    return cleanup_return ((!rval ? EOF : rval), &gcollect, pstr, &wbuf);
 
 	  seen_dot = seen_exp = 0;
 	  is_neg = (c == '-' ? 1 : 0);
@@ -1296,7 +1304,7 @@ __mingw_swformat (_IFP *s, const wchar_t *format, va_list argp)
 		      str_sz = 100;
 		      *pstr = (char *) malloc (100 * sizeof (wchar_t));
 		      if ((wstr = (wchar_t *) *pstr) == NULL)
-			return cleanup_return (((flags & USE_POSIX_ALLOC) != 0 ? WEOF : rval), &gcollect, pstr, &wbuf);
+			return cleanup_return (((flags & USE_POSIX_ALLOC) != 0 ? EOF : rval), &gcollect, pstr, &wbuf);
 
 		      gcollect = resize_gcollect (gcollect);
 		      gcollect->ptrs[gcollect->count++] = pstr;
@@ -1326,7 +1334,7 @@ __mingw_swformat (_IFP *s, const wchar_t *format, va_list argp)
 		    return cleanup_return (rval, &gcollect, pstr, &wbuf);
 		  str_sz = 100;
 		  if ((str = *pstr = (char *) malloc (100)) == NULL)
-		    return cleanup_return (((flags & USE_POSIX_ALLOC) != 0 ? WEOF : rval), &gcollect, pstr, &wbuf);
+		    return cleanup_return (((flags & USE_POSIX_ALLOC) != 0 ? EOF : rval), &gcollect, pstr, &wbuf);
 		  gcollect = resize_gcollect (gcollect);
 		  gcollect->ptrs[gcollect->count++] = pstr;
 		}
@@ -1364,7 +1372,7 @@ __mingw_swformat (_IFP *s, const wchar_t *format, va_list argp)
 	      read_in_sv = read_in;
 
 	      if ((c = in_ch (s, &read_in)) == WEOF)
-		return cleanup_return ((!rval ? WEOF : rval), &gcollect, pstr, &wbuf);
+		return cleanup_return ((!rval ? EOF : rval), &gcollect, pstr, &wbuf);
 
 	      do
 		{
@@ -1432,7 +1440,7 @@ __mingw_swformat (_IFP *s, const wchar_t *format, va_list argp)
 				  pstr = NULL;
 				  ++rval;
 				}
-			      return cleanup_return (((flags & USE_POSIX_ALLOC) != 0 ? WEOF : rval), &gcollect, pstr, &wbuf);
+			      return cleanup_return (((flags & USE_POSIX_ALLOC) != 0 ? EOF : rval), &gcollect, pstr, &wbuf);
 			    }
 			  *pstr = (char *) wstr;
 			  wstr += str_sz;
@@ -1449,7 +1457,7 @@ __mingw_swformat (_IFP *s, const wchar_t *format, va_list argp)
 		{
 		  *wstr++ = 0;
 
-		  optimize_alloc ((flags & IS_ALLOC_USED) != 0, pstr, str_sz, (wstr - (wchar_t *) *pstr), sizeof (wchar_t));
+		  optimize_alloc (pstr, (char *) wstr, str_sz * sizeof (wchar_t));
 		  pstr = NULL;
 		  ++rval;
 		}
@@ -1459,7 +1467,7 @@ __mingw_swformat (_IFP *s, const wchar_t *format, va_list argp)
 	      read_in_sv = read_in;
 
 	      if ((c = in_ch (s, &read_in)) == WEOF)
-		return cleanup_return ((!rval ? WEOF : rval), &gcollect, pstr, &wbuf);
+		return cleanup_return ((!rval ? EOF : rval), &gcollect, pstr, &wbuf);
 
 	      memset (&state, 0, sizeof (state));
 
@@ -1529,7 +1537,7 @@ __mingw_swformat (_IFP *s, const wchar_t *format, va_list argp)
 				  pstr = NULL;
 				  ++rval;
 				}
-			      return cleanup_return (((flags & USE_POSIX_ALLOC) != 0 ? WEOF : rval), &gcollect, pstr, &wbuf);
+			      return cleanup_return (((flags & USE_POSIX_ALLOC) != 0 ? EOF : rval), &gcollect, pstr, &wbuf);
 			    }
 			  *pstr = nstr;
 			  str = nstr + str_len;
@@ -1567,7 +1575,7 @@ __mingw_swformat (_IFP *s, const wchar_t *format, va_list argp)
 			      pstr = NULL;
 			      ++rval;
 			    }
-			  return cleanup_return (((flags & USE_POSIX_ALLOC) != 0 ? WEOF : rval), &gcollect, pstr, &wbuf);
+			  return cleanup_return (((flags & USE_POSIX_ALLOC) != 0 ? EOF : rval), &gcollect, pstr, &wbuf);
 			}
 		      *pstr = nstr;
 		      str = nstr + str_len;
@@ -1581,7 +1589,7 @@ __mingw_swformat (_IFP *s, const wchar_t *format, va_list argp)
 		  }
 		  *str++ = 0;
 
-		  optimize_alloc ((flags & IS_ALLOC_USED) != 0, pstr, str_sz, (str - *pstr), sizeof (char));
+		  optimize_alloc (pstr, str, str_sz);
 		  pstr = NULL;
 		  ++rval;
 		}

@@ -121,9 +121,13 @@ __FLT_ABI(pow) (__FLT_TYPE x, __FLT_TYPE y)
     return __FLT_CST(1.0);
   else if (x_class == FP_NAN || y_class == FP_NAN)
     {
-      rslt = (signbit(x) ? -__FLT_NAN : __FLT_NAN);
-      __FLT_RPT_DOMAIN ("pow", x, y, rslt);
-      return rslt;
+      if (x_class == FP_NAN) {
+        __FLT_RPT_DOMAIN ("pow", x, y, x);
+        return x;
+      } else {
+        __FLT_RPT_DOMAIN ("pow", x, y, y);
+        return y;
+      }
     }
   else if (x_class == FP_ZERO)
     {

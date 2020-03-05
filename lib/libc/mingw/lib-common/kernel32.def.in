@@ -26,6 +26,14 @@ AdjustCalendarDate
 AllocConsole
 AllocateUserPhysicalPages
 AllocateUserPhysicalPagesNuma
+AppPolicyGetClrCompat
+AppPolicyGetCreateFileAccess
+AppPolicyGetLifecycleManagement
+AppPolicyGetMediaFoundationCodecLoading
+AppPolicyGetProcessTerminationMethod
+AppPolicyGetShowDeveloperDiagnostic
+AppPolicyGetThreadInitializationType
+AppPolicyGetWindowingModel
 AppXGetOSMaxVersionTested
 ApplicationRecoveryFinished
 ApplicationRecoveryInProgress
@@ -88,12 +96,14 @@ BasepFreeAppCompatData
 BasepGetAppCompatData
 BasepGetComputerNameFromNtPath
 BasepGetExeArchType
+BasepInitAppCompatData
 BasepIsProcessAllowed
 BasepMapModuleHandle
 BasepNotifyLoadStringResource
 BasepPostSuccessAppXExtension
 BasepProcessInvalidImage
 BasepQueryAppCompat
+BasepQueryModuleChpeSettings
 BasepReleaseAppXContext
 BasepReleaseSxsCreateProcessUtilityStruct
 BasepReportFault
@@ -136,6 +146,7 @@ CloseHandle
 ClosePackageInfo
 ClosePrivateNamespace
 CloseProfileUserMapping
+ClosePseudoConsole
 CloseState
 CloseThreadpool
 CloseThreadpoolCleanupGroup
@@ -186,6 +197,7 @@ CreateDirectoryExW
 CreateDirectoryTransactedA
 CreateDirectoryTransactedW
 CreateDirectoryW
+CreateEnclave
 CreateEventA
 CreateEventExA
 CreateEventExW
@@ -224,10 +236,12 @@ CreatePipe
 CreatePrivateNamespaceA
 CreatePrivateNamespaceW
 CreateProcessA
+CreateProcessAsUserA
 CreateProcessAsUserW
 CreateProcessInternalA
 CreateProcessInternalW
 CreateProcessW
+CreatePseudoConsole
 CreateRemoteThread
 CreateRemoteThreadEx
 CreateSemaphoreA
@@ -309,6 +323,7 @@ EndUpdateResourceW
 EnterCriticalSection
 F_X64(EnterUmsSchedulingMode)
 EnterSynchronizationBarrier
+EnterUmsSchedulingMode
 EnumCalendarInfoA
 EnumCalendarInfoExA
 EnumCalendarInfoExEx
@@ -337,6 +352,7 @@ EnumSystemCodePagesA
 EnumSystemCodePagesW
 EnumSystemFirmwareTables
 EnumSystemGeoID
+EnumSystemGeoNames
 EnumSystemLanguageGroupsA
 EnumSystemLanguageGroupsW
 EnumSystemLocalesA
@@ -432,6 +448,7 @@ FreeEnvironmentStringsW
 FreeLibrary
 FreeLibraryAndExitThread
 FreeLibraryWhenCallbackReturns
+FreeMemoryJobObject
 FreeResource
 FreeUserPhysicalPages
 GenerateConsoleCtrlEvent
@@ -558,6 +575,8 @@ GetDiskFreeSpaceA
 GetDiskFreeSpaceExA
 GetDiskFreeSpaceExW
 GetDiskFreeSpaceW
+GetDiskSpaceInformationA
+GetDiskSpaceInformationW
 GetDllDirectoryA
 GetDllDirectoryW
 GetDriveTypeA
@@ -566,6 +585,7 @@ GetDurationFormat
 GetDurationFormatEx
 GetDynamicTimeZoneInformation
 GetEnabledExtendedFeatures
+GetEnabledXStateFeatures
 GetEncryptedFileVersionExt
 GetEnvironmentStrings
 GetEnvironmentStringsA
@@ -608,6 +628,7 @@ GetFullPathNameTransactedW
 GetFullPathNameW
 GetGeoInfoA
 GetGeoInfoW
+GetGeoInfoEx
 GetHandleInformation
 GetLargePageMinimum
 GetLargestConsoleWindowSize
@@ -693,7 +714,9 @@ GetPrivateProfileStructA
 GetPrivateProfileStructW
 GetProcAddress
 GetProcessAffinityMask
+GetProcessDefaultCpuSets
 GetProcessDEPPolicy
+GetProcessDefaultCpuSets
 GetProcessGroupAffinity
 GetProcessHandleCount
 GetProcessHeap
@@ -733,6 +756,7 @@ GetStringTypeExA
 GetStringTypeExW
 GetStringTypeW
 GetSystemAppDataKey
+GetSystemCpuSetInformation
 GetSystemDEPPolicy
 GetSystemDefaultLCID
 GetSystemDefaultLangID
@@ -763,6 +787,7 @@ GetTempFileNameW
 GetTempPathA
 GetTempPathW
 GetThreadContext
+GetThreadDescription
 GetThreadErrorMode
 GetThreadGroupAffinity
 GetThreadIOPendingFlag
@@ -773,6 +798,7 @@ GetThreadLocale
 GetThreadPreferredUILanguages
 GetThreadPriority
 GetThreadPriorityBoost
+GetThreadSelectedCpuSets
 GetThreadSelectorEntry
 GetThreadTimes
 GetThreadUILanguage
@@ -787,6 +813,8 @@ GetTimeZoneInformation
 GetTimeZoneInformationForYear
 GetUILanguageInfo
 F_X64(GetUmsCompletionListEvent)
+GetUmsSystemThreadInformation
+GetUserDefaultGeoName
 GetUserDefaultLCID
 GetUserDefaultLangID
 GetUserDefaultLocaleName
@@ -809,6 +837,7 @@ GetVolumePathNamesForVolumeNameW
 GetWindowsDirectoryA
 GetWindowsDirectoryW
 GetWriteWatch
+GetXStateFeaturesMask
 GlobalAddAtomA
 GlobalAddAtomExA
 GlobalAddAtomExW
@@ -859,17 +888,17 @@ IdnToAscii
 IdnToNameprepUnicode
 IdnToUnicode
 InitAtomTable
-InitializeConditionVariable
-InitializeCriticalSection
 InitOnceBeginInitialize
 InitOnceComplete
 InitOnceExecuteOnce
 InitOnceInitialize
 InitializeConditionVariable
 InitializeContext
+InitializeContext2
 InitializeCriticalSection
 InitializeCriticalSectionAndSpinCount
 InitializeCriticalSectionEx
+InitializeEnclave
 InitializeExtendedContext
 InitializeProcThreadAttributeList
 InitializeSListHead
@@ -895,6 +924,7 @@ IsCalendarLeapYear
 IsDBCSLeadByte
 IsDBCSLeadByteEx
 IsDebuggerPresent
+IsEnclaveTypeSupported
 IsNLSDefinedString
 IsNativeVhdBoot
 IsNormalizedString
@@ -912,7 +942,9 @@ IsValidLocale
 IsValidUILanguage
 IsValidLocaleName
 IsValidNLSVersion
+IsWow64GuestMachineSupported
 IsWow64Process
+IsWow64Process2
 K32EmptyWorkingSet
 K32EnumDeviceDrivers
 K32EnumPageFilesA
@@ -958,6 +990,7 @@ LZStart
 LeaveCriticalSection
 LeaveCriticalSectionWhenCallbackReturns
 LoadAppInitDlls
+LoadEnclaveData
 LoadLibraryA
 LoadLibraryExA
 LoadLibraryExW
@@ -970,6 +1003,7 @@ LoadStringBaseW
 LocalAlloc
 LocalCompact
 LocalFileTimeToFileTime
+LocalFileTimeToLocalSystemTime
 LocalFlags
 LocalFree
 LocalHandle
@@ -977,10 +1011,12 @@ LocalLock
 LocalReAlloc
 LocalShrink
 LocalSize
+LocalSystemTimeToLocalFileTime
 LocalUnlock
 LocaleNameToLCID
 LocateExtendedFeature
 LocateLegacyContext
+LocateXStateFeature
 LockFile
 LockFileEx
 LockResource
@@ -1099,11 +1135,13 @@ QueryFullProcessImageNameW
 QueryIdleProcessorCycleTime
 QueryIdleProcessorCycleTimeEx
 QueryInformationJobObject
+QueryIoRateControlInformationJobObject
 QueryMemoryResourceNotification
 QueryPerformanceCounter
 QueryPerformanceFrequency
 QueryProcessAffinityUpdateMode
 QueryProcessCycleTime
+QueryProtectedPolicy
 QueryThreadCycleTime
 QueryThreadProfiling
 QueryThreadpoolStackInformation
@@ -1116,6 +1154,8 @@ QuirkGetDataWorker
 QuirkIsEnabled2Worker
 QuirkIsEnabled3Worker
 QuirkIsEnabledForPackage2Worker
+QuirkIsEnabledForPackage3Worker
+QuirkIsEnabledForPackage4Worker
 QuirkIsEnabledForPackageWorker
 QuirkIsEnabledForProcessWorker
 QuirkIsEnabledWorker
@@ -1135,12 +1175,14 @@ ReadConsoleOutputCharacterA
 ReadConsoleOutputCharacterW
 ReadConsoleOutputW
 ReadConsoleW
+ReadDirectoryChangesExW
 ReadDirectoryChangesW
 ReadFile
 ReadFileEx
 ReadFileScatter
 ReadProcessMemory
 ReadThreadProfilingData
+ReclaimVirtualMemory
 ;
 ; MSDN says these functions are exported
 ; from advapi32.dll. Commented out for
@@ -1231,6 +1273,7 @@ RequestDeviceWakeup
 RequestWakeupLatency
 ResetEvent
 ResetWriteWatch
+ResizePseudoConsole
 ResolveDelayLoadedAPI
 ResolveDelayLoadsFromDll
 ResolveLocaleName
@@ -1346,6 +1389,7 @@ SetFirmwareEnvironmentVariableW
 SetHandleCount
 SetHandleInformation
 SetInformationJobObject
+SetIoRateControlInformationJobObject
 SetLastConsoleEventActive
 SetLastError
 SetLocalPrimaryComputerNameA
@@ -1361,6 +1405,7 @@ SetPriorityClass
 SetProcessAffinityMask
 SetProcessAffinityUpdateMode
 SetProcessDEPPolicy
+SetProcessDefaultCpuSets
 SetProcessInformation
 SetProcessMitigationPolicy
 SetProcessPreferredUILanguages
@@ -1368,6 +1413,7 @@ SetProcessPriorityBoost
 SetProcessShutdownParameters
 SetProcessWorkingSetSize
 SetProcessWorkingSetSizeEx
+SetProtectedPolicy
 SetSearchPathMode
 SetStdHandle
 SetStdHandleEx
@@ -1380,6 +1426,7 @@ SetTapePosition
 SetTermsrvAppInstallMode
 SetThreadAffinityMask
 SetThreadContext
+SetThreadDescription
 SetThreadErrorMode
 SetThreadExecutionState
 SetThreadGroupAffinity
@@ -1390,6 +1437,7 @@ SetThreadLocale
 SetThreadPreferredUILanguages
 SetThreadPriority
 SetThreadPriorityBoost
+SetThreadSelectedCpuSets
 SetThreadStackGuarantee
 SetThreadToken
 SetThreadUILanguage
@@ -1405,6 +1453,7 @@ SetTimerQueueTimer
 F_X64(SetUmsThreadInformation)
 SetUnhandledExceptionFilter
 SetUserGeoID
+SetUserGeoName
 SetVDMCurrentDirectories
 SetVolumeLabelA
 SetVolumeLabelW
@@ -1413,6 +1462,7 @@ SetVolumeMountPointW
 SetVolumeMountPointWStub
 SetWaitableTimer
 SetWaitableTimerEx
+SetXStateFeaturesMask
 SetupComm
 ShowConsoleCursor
 SignalObjectAndWait
@@ -1507,6 +1557,7 @@ VirtualUnlock
 WTSGetActiveConsoleSessionId
 WaitCommEvent
 WaitForDebugEvent
+WaitForDebugEventEx
 WaitForMultipleObjects
 WaitForMultipleObjectsEx
 WaitForSingleObject
@@ -1523,6 +1574,11 @@ WakeByAddressSingle
 WakeByAddressAll
 WakeConditionVariable
 WerGetFlags
+WerGetFlagsWorker
+WerRegisterAdditionalProcess
+WerRegisterAppLocalDump
+WerRegisterCustomMetadata
+WerRegisterExcludedMemoryBlock
 WerRegisterFile
 WerRegisterFileWorker
 WerRegisterMemoryBlock
@@ -1530,6 +1586,11 @@ WerRegisterMemoryBlockWorker
 WerRegisterRuntimeExceptionModule
 WerRegisterRuntimeExceptionModuleWorker
 WerSetFlags
+WerSetFlagsWorker
+WerUnregisterAdditionalProcess
+WerUnregisterAppLocalDump
+WerUnregisterCustomMetadata
+WerUnregisterExcludedMemoryBlock
 WerUnregisterFile
 WerUnregisterFileWorker
 WerUnregisterMemoryBlock
@@ -1583,7 +1644,8 @@ WriteProfileStringW
 WriteTapemark
 ZombifyActCtx
 ZombifyActCtxWorker
-__C_specific_handler
+F_X64(__C_specific_handler)
+F_ARM32(__C_specific_handler)
 F_ARM32(__chkstk)
 F_X64(__misaligned_access)
 _hread
@@ -1613,6 +1675,17 @@ lstrcpynW
 lstrlen
 lstrlenA
 lstrlenW
+;
+; MSDN says these functions are exported
+; from winmm.dll. Commented out for
+; compatibility with older versions of
+; Windows.
+;
+;timeBeginPeriod
+;timeEndPeriod
+;timeGetDevCaps
+;timeGetSystemTime
+;timeGetTime
 uaw_lstrcmpW
 uaw_lstrcmpiW
 uaw_lstrlenW

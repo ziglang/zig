@@ -52,7 +52,7 @@ float __lgammaf_r(float x, int* sgngamf)
 
 #ifdef INFINITIES
 	if (!isfinite(x))
-		return (x);
+		return (INFINITY);
 #endif
 
 	if (x < 0.0)
