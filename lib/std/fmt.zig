@@ -943,19 +943,17 @@ fn formatIntSigned(
         .precision = options.precision,
         .fill = options.fill,
     };
-
-    const uint = std.meta.IntType(false, @TypeOf(value).bit_count);
+    const bit_count = @typeInfo(@TypeOf(value)).Int.bits;
+    const Uint = std.meta.IntType(false, bit_count);
     if (value < 0) {
-        const minus_sign: u8 = '-';
-        try output(context, @as(*const [1]u8, &minus_sign)[0..]);
-        const new_value = @intCast(uint, -(value + 1)) + 1;
+        try output(context, "-");
+        const new_value = ~@bitCast(Uint, value +% -1);
         return formatIntUnsigned(new_value, base, uppercase, new_options, context, Errors, output);
     } else if (options.width == null or options.width.? == 0) {
-        return formatIntUnsigned(@intCast(uint, value), base, uppercase, options, context, Errors, output);
+        return formatIntUnsigned(@intCast(Uint, value), base, uppercase, options, context, Errors, output);
     } else {
-        const plus_sign: u8 = '+';
-        try output(context, @as(*const [1]u8, &plus_sign)[0..]);
-        const new_value = @intCast(uint, value);
+        try output(context, "+");
+        const new_value = @intCast(Uint, value);
         return formatIntUnsigned(new_value, base, uppercase, new_options, context, Errors, output);
     }
 }
@@ -1165,6 +1163,8 @@ pub fn allocPrint0(allocator: *mem.Allocator, comptime fmt: []const u8, args: va
 test "bufPrintInt" {
     var buffer: [100]u8 = undefined;
     const buf = buffer[0..];
+
+    std.testing.expectEqualSlices(u8, "-1", bufPrintIntToSlice(buf, @as(i1, -1), 10, false, FormatOptions{}));
 
     std.testing.expectEqualSlices(u8, "-101111000110000101001110", bufPrintIntToSlice(buf, @as(i32, -12345678), 2, false, FormatOptions{}));
     std.testing.expectEqualSlices(u8, "-12345678", bufPrintIntToSlice(buf, @as(i32, -12345678), 10, false, FormatOptions{}));
