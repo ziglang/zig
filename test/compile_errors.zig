@@ -6539,8 +6539,22 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return error.InvalidValue;
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:18: error: opaque return type 'FooType' not allowed",
-        "tmp.zig:1:1: note: declared here",
+        "tmp.zig:2:18: error: return type 'FooType' not allowed",
+        "tmp.zig:1:1: note: type declared here",
+    });
+
+    cases.add("generic function returning opaque type",
+        \\const FooType = @OpaqueType();
+        \\fn generic(comptime T: type) !T {
+        \\    return undefined;
+        \\}
+        \\export fn bar() void {
+        \\    _ = generic(FooType);
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:6:16: error: call to generic function with return type 'FooType' not allowed",
+        "tmp.zig:2:1: note: function declared here",
+        "tmp.zig:1:1: note: type declared here",
     });
 
     cases.add( // fixed bug #2032

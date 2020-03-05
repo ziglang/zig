@@ -1955,29 +1955,14 @@ static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_sc
         return g->builtin_types.entry_invalid;
     }
 
-    switch (specified_return_type->id) {
-        case ZigTypeIdInvalid:
-            zig_unreachable();
-
-        case ZigTypeIdUndefined:
-        case ZigTypeIdNull:
-            add_node_error(g, fn_proto->return_type,
-                buf_sprintf("return type '%s' not allowed", buf_ptr(&specified_return_type->name)));
-            return g->builtin_types.entry_invalid;
-
-        case ZigTypeIdOpaque:
-        {
-            ErrorMsg* msg = add_node_error(g, fn_proto->return_type,
-                buf_sprintf("opaque return type '%s' not allowed", buf_ptr(&specified_return_type->name)));
-            Tld *tld = find_decl(g, &fn_entry->fndef_scope->base, &specified_return_type->name);
-            if (tld != nullptr) {
-                add_error_note(g, msg, tld->source_node, buf_sprintf("declared here"));
-            }
-            return g->builtin_types.entry_invalid;
+    if(!is_valid_return_type(specified_return_type)){
+        ErrorMsg* msg = add_node_error(g, fn_proto->return_type,
+            buf_sprintf("return type '%s' not allowed", buf_ptr(&specified_return_type->name)));
+        Tld *tld = find_decl(g, &fn_entry->fndef_scope->base, &specified_return_type->name);
+        if (tld != nullptr) {
+            add_error_note(g, msg, tld->source_node, buf_sprintf("type declared here"));
         }
-
-        default:
-            break;
+        return g->builtin_types.entry_invalid;
     }
 
     if (fn_proto->auto_err_set) {
@@ -2047,6 +2032,19 @@ static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_sc
     }
 
     return get_fn_type(g, &fn_type_id);
+}
+
+bool is_valid_return_type(ZigType* type) {
+    switch (type->id) {
+        case ZigTypeIdInvalid:
+        case ZigTypeIdUndefined:
+        case ZigTypeIdNull:
+        case ZigTypeIdOpaque:
+            return false;
+        default:
+            return true;
+    }
+    zig_unreachable();
 }
 
 bool type_is_invalid(ZigType *type_entry) {
