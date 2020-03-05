@@ -104,7 +104,6 @@ ZigVar *add_variable(CodeGen *g, AstNode *source_node, Scope *parent_scope, Buf 
 ZigType *analyze_type_expr(CodeGen *g, Scope *scope, AstNode *node);
 void append_namespace_qualification(CodeGen *g, Buf *buf, ZigType *container_type);
 ZigFn *create_fn(CodeGen *g, AstNode *proto_node);
-ZigFn *create_fn_raw(CodeGen *g, FnInline inline_value);
 void init_fn_type_id(FnTypeId *fn_type_id, AstNode *proto_node, CallingConvention cc, size_t param_count_alloc);
 AstNode *get_param_decl_node(ZigFn *fn_entry, size_t index);
 Error ATTRIBUTE_MUST_USE type_resolve(CodeGen *g, ZigType *type_entry, ResolveStatus status);
