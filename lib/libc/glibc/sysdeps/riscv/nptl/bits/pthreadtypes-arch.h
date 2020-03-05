@@ -1,5 +1,5 @@
 /* Machine-specific pthread type layouts.  RISC-V version.
-   Copyright (C) 2011-2019 Free Software Foundation, Inc.
+   Copyright (C) 2011-2020 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -14,12 +14,12 @@
 
    You should have received a copy of the GNU Lesser General Public
    License along with the GNU C Library.  If not, see
-   <http://www.gnu.org/licenses/>.  */
+   <https://www.gnu.org/licenses/>.  */
 
 #ifndef _BITS_PTHREADTYPES_ARCH_H
 #define _BITS_PTHREADTYPES_ARCH_H	1
 
-#include <endian.h>
+#include <bits/endian.h>
 
 #if __riscv_xlen == 64
 # define __SIZEOF_PTHREAD_ATTR_T 		56
@@ -35,34 +35,7 @@
 # error "rv32i-based systems are not supported"
 #endif
 
-#define __PTHREAD_COMPAT_PADDING_MID
-#define __PTHREAD_COMPAT_PADDING_END
-#define __PTHREAD_MUTEX_LOCK_ELISION		0
-#define __PTHREAD_MUTEX_USE_UNION	 	0
-#define __PTHREAD_MUTEX_NUSERS_AFTER_KIND	0
-
 #define __LOCK_ALIGNMENT
 #define __ONCE_ALIGNMENT
-
-/* There is a lot of padding in this structure.  While it's not strictly
-   necessary on RISC-V, we're going to leave it in to be on the safe side in
-   case it's needed in the future.  Most other architectures have the padding,
-   so this gives us the same extensibility as everyone else has.  */
-struct __pthread_rwlock_arch_t
-{
-  unsigned int __readers;
-  unsigned int __writers;
-  unsigned int __wrphase_futex;
-  unsigned int __writers_futex;
-  unsigned int __pad3;
-  unsigned int __pad4;
-  int __cur_writer;
-  int __shared;
-  unsigned long int __pad1;
-  unsigned long int __pad2;
-  unsigned int __flags;
-};
-
-#define __PTHREAD_RWLOCK_ELISION_EXTRA 		0
 
 #endif	/* bits/pthreadtypes.h */

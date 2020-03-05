@@ -293,7 +293,7 @@ test "math.min" {
     }
 }
 
-pub fn max(x: var, y: var) @TypeOf(x + y) {
+pub fn max(x: var, y: var) @TypeOf(x, y) {
     return if (x > y) x else y;
 }
 

@@ -1,4 +1,4 @@
-/* Copyright (C) 1992-2019 Free Software Foundation, Inc.
+/* Copyright (C) 1992-2020 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
    Contributed by Ulrich Drepper, <drepper@gnu.ai.mit.edu>, August 1995.
 
@@ -14,7 +14,7 @@
 
    You should have received a copy of the GNU Lesser General Public
    License along with the GNU C Library.  If not, see
-   <http://www.gnu.org/licenses/>.  */
+   <https://www.gnu.org/licenses/>.  */
 
 #ifndef _LINUX_ALPHA_SYSDEP_H
 #define _LINUX_ALPHA_SYSDEP_H 1
@@ -36,41 +36,6 @@
    so we have to redefine the `SYS_ify' macro here.  */
 #undef SYS_ify
 #define SYS_ify(syscall_name)	__NR_##syscall_name
-
-/* Define some aliases to make automatic syscall generation work
-   properly.  The SYS_* variants are for the benefit of the files in
-   sysdeps/unix.  */
-#define __NR_getpid	__NR_getxpid
-#define __NR_getuid	__NR_getxuid
-#define __NR_getgid	__NR_getxgid
-#define SYS_getpid	__NR_getxpid
-#define SYS_getuid	__NR_getxuid
-#define SYS_getgid	__NR_getxgid
-
-/*
- * Some syscalls no Linux program should know about:
- */
-#define __NR_osf_sigprocmask	 48
-#ifndef __NR_osf_shmat
-# define __NR_osf_shmat		209
-#endif
-#define __NR_osf_getsysinfo	256
-#define __NR_osf_setsysinfo	257
-
-/* Help old kernel headers where particular syscalls are not available.  */
-#ifndef __NR_semtimedop
-# define __NR_semtimedop	423
-#endif
-
-/* This is a kludge to make syscalls.list find these under the names
-   pread and pwrite, since some kernel headers define those names
-   and some define the *64 names for the same system calls.  */
-#if !defined __NR_pread && defined __NR_pread64
-# define __NR_pread __NR_pread64
-#endif
-#if !defined __NR_pwrite && defined __NR_pwrite64
-# define __NR_pwrite __NR_pwrite64
-#endif
 
 #define SINGLE_THREAD_BY_GLOBAL 1
 

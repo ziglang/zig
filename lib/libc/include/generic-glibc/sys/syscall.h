@@ -1,4 +1,4 @@
-/* Copyright (C) 1995-2019 Free Software Foundation, Inc.
+/* Copyright (C) 1995-2020 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -13,7 +13,7 @@
 
    You should have received a copy of the GNU Lesser General Public
    License along with the GNU C Library; if not, see
-   <http://www.gnu.org/licenses/>.  */
+   <https://www.gnu.org/licenses/>.  */
 
 #ifndef _SYSCALL_H
 #define _SYSCALL_H	1
@@ -23,12 +23,9 @@
    from the kernel sources.  */
 #include <asm/unistd.h>
 
-#ifndef _LIBC
-/* The Linux kernel header file defines macros `__NR_<name>', but some
-   programs expect the traditional form `SYS_<name>'.  So in building libc
-   we scan the kernel's list and produce <bits/syscall.h> with macros for
-   all the `SYS_' names.  */
-# include <bits/syscall.h>
-#endif
+/* The Linux kernel header file defines macros __NR_*, but some
+   programs expect the traditional form SYS_*.  <bits/syscall.h>
+   defines SYS_* macros for __NR_* macros of known names.  */
+#include <bits/syscall.h>
 
 #endif

@@ -1,5 +1,5 @@
 /* bits/typesizes.h -- underlying types for *_t.  For the generic Linux ABI.
-   Copyright (C) 2011-2019 Free Software Foundation, Inc.
+   Copyright (C) 2011-2020 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
    Contributed by Chris Metcalf <cmetcalf@tilera.com>, 2011.
 
@@ -15,7 +15,7 @@
 
    You should have received a copy of the GNU Lesser General Public
    License along with the GNU C Library.  If not, see
-   <http://www.gnu.org/licenses/>.  */
+   <https://www.gnu.org/licenses/>.  */
 
 #ifndef _BITS_TYPES_H
 # error "Never include <bits/typesizes.h> directly; use <sys/types.h> instead."
@@ -73,10 +73,14 @@
 
 /* And for __rlim_t and __rlim64_t.  */
 # define __RLIM_T_MATCHES_RLIM64_T	1
+
+/* And for fsblkcnt_t, fsblkcnt64_t, fsfilcnt_t and fsfilcnt64_t.  */
+# define __STATFS_MATCHES_STATFS64  1
 #else
 # define __RLIM_T_MATCHES_RLIM64_T	0
-#endif
 
+# define __STATFS_MATCHES_STATFS64  0
+#endif
 /* Number of descriptors that can fit in an `fd_set'.  */
 #define	__FD_SETSIZE		1024
 

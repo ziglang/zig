@@ -1,4 +1,4 @@
-/* Copyright (C) 1991-2019 Free Software Foundation, Inc.
+/* Copyright (C) 1991-2020 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -13,7 +13,7 @@
 
    You should have received a copy of the GNU Lesser General Public
    License along with the GNU C Library; if not, see
-   <http://www.gnu.org/licenses/>.  */
+   <https://www.gnu.org/licenses/>.  */
 
 #ifndef	_FEATURES_H
 #define	_FEATURES_H	1
@@ -24,6 +24,7 @@
    __STRICT_ANSI__	ISO Standard C.
    _ISOC99_SOURCE	Extensions to ISO C89 from ISO C99.
    _ISOC11_SOURCE	Extensions to ISO C99 from ISO C11.
+   _ISOC2X_SOURCE	Extensions to ISO C99 from ISO C2X.
    __STDC_WANT_LIB_EXT2__
 			Extensions to ISO C99 from TR 27431-2:2010.
    __STDC_WANT_IEC_60559_BFP_EXT__
@@ -139,6 +140,7 @@
 #undef	__USE_GNU
 #undef	__USE_FORTIFY_LEVEL
 #undef	__KERNEL_STRICT_NAMES
+#undef	__GLIBC_USE_ISOC2X
 #undef	__GLIBC_USE_DEPRECATED_GETS
 #undef	__GLIBC_USE_DEPRECATED_SCANF
 
@@ -195,6 +197,8 @@
 # define _ISOC99_SOURCE	1
 # undef  _ISOC11_SOURCE
 # define _ISOC11_SOURCE	1
+# undef  _ISOC2X_SOURCE
+# define _ISOC2X_SOURCE	1
 # undef  _POSIX_SOURCE
 # define _POSIX_SOURCE	1
 # undef  _POSIX_C_SOURCE
@@ -216,26 +220,37 @@
 #if (defined _DEFAULT_SOURCE					\
      || (!defined __STRICT_ANSI__				\
 	 && !defined _ISOC99_SOURCE && !defined _ISOC11_SOURCE	\
+	 && !defined _ISOC2X_SOURCE				\
 	 && !defined _POSIX_SOURCE && !defined _POSIX_C_SOURCE	\
 	 && !defined _XOPEN_SOURCE))
 # undef  _DEFAULT_SOURCE
 # define _DEFAULT_SOURCE	1
 #endif
 
+/* This is to enable the ISO C2X extension.  */
+#if (defined _ISOC2X_SOURCE \
+     || (defined __STDC_VERSION__ && __STDC_VERSION__ > 201710L))
+# define __GLIBC_USE_ISOC2X	1
+#else
+# define __GLIBC_USE_ISOC2X	0
+#endif
+
 /* This is to enable the ISO C11 extension.  */
-#if (defined _ISOC11_SOURCE \
+#if (defined _ISOC11_SOURCE || defined _ISOC2X_SOURCE \
      || (defined __STDC_VERSION__ && __STDC_VERSION__ >= 201112L))
 # define __USE_ISOC11	1
 #endif
 
 /* This is to enable the ISO C99 extension.  */
-#if (defined _ISOC99_SOURCE || defined _ISOC11_SOURCE \
+#if (defined _ISOC99_SOURCE || defined _ISOC11_SOURCE			\
+     || defined _ISOC2X_SOURCE						\
      || (defined __STDC_VERSION__ && __STDC_VERSION__ >= 199901L))
 # define __USE_ISOC99	1
 #endif
 
 /* This is to enable the ISO C90 Amendment 1:1995 extension.  */
-#if (defined _ISOC99_SOURCE || defined _ISOC11_SOURCE \
+#if (defined _ISOC99_SOURCE || defined _ISOC11_SOURCE			\
+     || defined _ISOC2X_SOURCE						\
      || (defined __STDC_VERSION__ && __STDC_VERSION__ >= 199409L))
 # define __USE_ISOC95	1
 #endif
@@ -439,7 +454,7 @@
 /* Major and minor version number of the GNU C library package.  Use
    these macros to test for features in specific releases.  */
 #define	__GLIBC__	2
-#define	__GLIBC_MINOR__	30
+#define	__GLIBC_MINOR__	31
 
 #define __GLIBC_PREREQ(maj, min) \
 	((__GLIBC__ << 16) + __GLIBC_MINOR__ >= ((maj) << 16) + (min))

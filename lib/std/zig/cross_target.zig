@@ -102,7 +102,6 @@ pub const CrossTarget = struct {
             .freestanding,
             .ananas,
             .cloudabi,
-            .dragonfly,
             .fuchsia,
             .kfreebsd,
             .lv2,
@@ -135,10 +134,11 @@ pub const CrossTarget = struct {
             .freebsd,
             .macosx,
             .ios,
-            .netbsd,
-            .openbsd,
             .tvos,
             .watchos,
+            .netbsd,
+            .openbsd,
+            .dragonfly,
             => {
                 self.os_version_min = .{ .semver = os.version_range.semver.min };
                 self.os_version_max = .{ .semver = os.version_range.semver.max };
@@ -677,9 +677,7 @@ pub const CrossTarget = struct {
             .freestanding,
             .ananas,
             .cloudabi,
-            .dragonfly,
             .fuchsia,
-            .ios,
             .kfreebsd,
             .lv2,
             .solaris,
@@ -694,8 +692,6 @@ pub const CrossTarget = struct {
             .amdhsa,
             .ps4,
             .elfiamcu,
-            .tvos,
-            .watchos,
             .mesa3d,
             .contiki,
             .amdpal,
@@ -709,9 +705,13 @@ pub const CrossTarget = struct {
 
             .freebsd,
             .macosx,
+            .ios,
+            .tvos,
+            .watchos,
             .netbsd,
             .openbsd,
             .linux,
+            .dragonfly,
             => {
                 var range_it = mem.separate(version_text, "...");
 

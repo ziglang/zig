@@ -1,4 +1,4 @@
-/* Copyright (C) 2005-2019 Free Software Foundation, Inc.
+/* Copyright (C) 2005-2020 Free Software Foundation, Inc.
 
    This file is part of the GNU C Library.
 
@@ -14,13 +14,10 @@
 
    You should have received a copy of the GNU Lesser General Public
    License along with the GNU C Library; if not, see
-   <http://www.gnu.org/licenses/>.  */
+   <https://www.gnu.org/licenses/>.  */
 
 #ifndef _LINUX_AARCH64_SYSDEP_H
 #define _LINUX_AARCH64_SYSDEP_H 1
-
-/* Always enable vsyscalls on aarch64 */
-#define ALWAYS_USE_VSYSCALL 1
 
 #include <sysdeps/unix/sysdep.h>
 #include <sysdeps/aarch64/sysdep.h>
@@ -154,11 +151,18 @@
 
 #else /* not __ASSEMBLER__ */
 
+# ifdef __LP64__
+#  define VDSO_NAME  "LINUX_2.6.39"
+#  define VDSO_HASH  123718537
+# else
+#  define VDSO_NAME  "LINUX_4.9"
+#  define VDSO_HASH  61765625
+# endif
 
 /* List of system calls which are supported as vsyscalls.  */
-# define HAVE_CLOCK_GETRES_VSYSCALL	1
-# define HAVE_CLOCK_GETTIME_VSYSCALL	1
-# define HAVE_GETTIMEOFDAY_VSYSCALL	1
+# define HAVE_CLOCK_GETRES64_VSYSCALL	"__kernel_clock_getres"
+# define HAVE_CLOCK_GETTIME64_VSYSCALL	"__kernel_clock_gettime"
+# define HAVE_GETTIMEOFDAY_VSYSCALL	"__kernel_gettimeofday"
 
 /* Previously AArch64 used the generic version without the libc_hidden_def
    which lead in a non existent __send symbol in libc.so.  */

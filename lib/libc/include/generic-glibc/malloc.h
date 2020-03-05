@@ -1,5 +1,5 @@
 /* Prototypes and definition for malloc implementation.
-   Copyright (C) 1996-2019 Free Software Foundation, Inc.
+   Copyright (C) 1996-2020 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -14,7 +14,7 @@
 
    You should have received a copy of the GNU Lesser General Public
    License along with the GNU C Library; if not, see
-   <http://www.gnu.org/licenses/>.  */
+   <https://www.gnu.org/licenses/>.  */
 
 #ifndef _MALLOC_H
 #define _MALLOC_H 1
@@ -71,8 +71,7 @@ extern void *valloc (size_t __size) __THROW __attribute_malloc__
 
 /* Equivalent to valloc(minimum-page-that-holds(n)), that is, round up
    __size to nearest pagesize. */
-extern void *pvalloc (size_t __size) __THROW __attribute_malloc__
-     __attribute_alloc_size__ ((1)) __wur;
+extern void *pvalloc (size_t __size) __THROW __attribute_malloc__ __wur;
 
 /* Underlying allocation function; successive calls should return
    contiguous pieces of memory.  */

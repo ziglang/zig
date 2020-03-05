@@ -2,6 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Documentation - Zig</title>
     <link rel="icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAgklEQVR4AWMYWuD7EllJIM4G4g4g5oIJ/odhOJ8wToOxSTXgNxDHoeiBMfA4+wGShjyYOCkG/IGqWQziEzYAoUAeiF9D5U+DxEg14DRU7jWIT5IBIOdCxf+A+CQZAAoopEB7QJwBCBwHiip8UYmRdrAlDpIMgApwQZNnNii5Dq0MBgCxxycBnwEd+wAAAABJRU5ErkJggg==">
     <style>
@@ -25,6 +26,8 @@
         --search-sh-color: rgba(0, 0, 0, 0.18);
         --help-sh-color: rgba(0, 0, 0, 0.75);
       }
+      
+      html, body { margin: 0; padding:0; height: 100%; }
 
       a {
         text-decoration: none;
@@ -69,6 +72,7 @@
         max-width: 15vw;
         min-width: 9.5rem;
         overflow: auto;
+        -webkit-overflow-scrolling: touch;
         overflow-wrap: break-word;
         flex-shrink: 0;
         flex-grow: 0;
@@ -79,6 +83,7 @@
       .flex-right {
         display: flex;
         overflow: auto;
+        -webkit-overflow-scrolling: touch;
         flex-grow: 1;
         flex-shrink: 1;
         
@@ -175,6 +180,8 @@
         border-bottom-color: var(--tx-color);
         outline: none;
         transition: border-bottom-color 0.35s, background 0.35s, box-shadow 0.35s;
+        border-radius: 0;
+        -webkit-appearance: none;
       }
       
       .docs .search:focus {
@@ -258,12 +265,12 @@
         font-weight: bold;
       }
       
-      #listFnExamples {
+      .examples {
         list-style-type: none;
         margin: 0;
         padding: 0;
       }
-      #listFnExamples li {
+      .examples li {
         padding: 0.5em 0;
         white-space: nowrap;
         overflow-x: auto;
@@ -435,6 +442,76 @@
         }
         
       }
+
+      @media only screen and (max-width: 750px) {
+        .canvas {
+          overflow: auto;
+        }
+        .flex-main {
+          flex-direction: column;
+          display: block;
+        }
+        .sidebar {
+          min-width: calc(100vw - 2.8rem);
+          padding-left: 1.4rem;
+          padding-right: 1.4rem;
+        }
+        .logo {
+          max-width: 6.5rem;
+        }
+        .flex-main > .flex-filler {
+          display: none;
+        }
+        .flex-main > .flex-right > .flex-filler {
+          display: none;
+        }
+        .flex-main > .flex-right > .wrap {
+          max-width: 100vw;
+        }
+        .flex-main > .flex-right > .wrap > .docs {
+          padding-right: 1.4rem;
+          background: transparent;
+        }
+        .packages {
+          display: flex;
+          flex-wrap: wrap;
+        }
+        .table-container table {
+          display: flex;
+          flex-direction: column;
+        }
+        .table-container tr {
+          display: flex;
+          flex-direction: column;
+        }
+        .examples {
+          overflow-x: scroll;
+          -webkit-overflow-scrolling: touch;
+          max-width: 100vw;
+          margin-left: -1.4rem;
+          margin-right: -1.4rem;
+        }
+        .examples li {
+          width: max-content;
+          padding-left: 1.4rem;
+          padding-right: 1.4rem;
+        }
+        .mobile-scroll-container {
+          overflow-x: scroll;
+          -webkit-overflow-scrolling: touch;
+          margin-left: -1.4rem;
+          margin-right: -1.4rem;
+          max-width: 100vw;
+        }
+        .mobile-scroll-container > .scroll-item {
+          margin-left: 1.4rem;
+          margin-right: 1.4rem;
+          box-sizing: border-box;
+          width: max-content;
+          display: inline-block;
+          min-width: calc(100% - 2.8rem);
+        }
+      }
     </style>
   </head>
   <body class="canvas">
@@ -471,7 +548,7 @@
             <p id="status">Loading...</p>
             <div id="sectNav" class="hidden"><ul id="listNav"></ul></div>
             <div id="fnProto" class="hidden">
-              <pre id="fnProtoCode"></pre>
+              <div class="mobile-scroll-container"><pre id="fnProtoCode" class="scroll-item"></pre></div>
             </div>
             <h1 id="hdrName" class="hidden"></h1>
             <div id="fnNoExamples" class="hidden">
@@ -518,21 +595,27 @@
             </div>
             <div id="sectGlobalVars" class="hidden">
               <h2>Global Variables</h2>
-              <table>
-                <tbody id="listGlobalVars"></tbody>
-              </table>
+              <div class="table-container">
+                <table>
+                  <tbody id="listGlobalVars"></tbody>
+                </table>
+              </div>
             </div>
             <div id="sectFns" class="hidden">
               <h2>Functions</h2>
-              <table>
-                <tbody id="listFns"></tbody>
-              </table>
+              <div class="table-container">
+                <table>
+                  <tbody id="listFns"></tbody>
+                </table>
+              </div>
             </div>
             <div id="sectValues" class="hidden">
               <h2>Values</h2>
-              <table>
-                <tbody id="listValues"></tbody>
-              </table>
+              <div class="table-container">
+                <table>
+                  <tbody id="listValues"></tbody>
+                </table>
+              </div>
             </div>
             <div id="sectErrSets" class="hidden">
               <h2>Error Sets</h2>
@@ -540,7 +623,7 @@
             </div>
             <div id="fnExamples" class="hidden">
               <h2>Examples</h2>
-              <ul id="listFnExamples"></ul>
+              <ul id="listFnExamples" class="examples"></ul>
             </div>
           </section>
         </div>

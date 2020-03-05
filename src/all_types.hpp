@@ -3286,7 +3286,11 @@ struct IrInstGenUnreachable {
 struct IrInstSrcTypeOf {
     IrInstSrc base;
 
-    IrInstSrc *value;
+    union {
+        IrInstSrc *scalar; // value_count == 1
+        IrInstSrc **list; // value_count > 1
+    } value;
+    size_t value_count;
 };
 
 struct IrInstSrcSetCold {
