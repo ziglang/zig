@@ -8,7 +8,7 @@
 #define _INC_MINGW_SECAPI
 
 /* http://msdn.microsoft.com/en-us/library/ms175759%28v=VS.100%29.aspx */
-#if defined(__cplusplus) && (MINGW_HAS_SECURE_API == 1)
+#if defined(__cplusplus)
 #ifndef _CRT_SECURE_CPP_OVERLOAD_SECURE_NAMES
 #define _CRT_SECURE_CPP_OVERLOAD_SECURE_NAMES 1         /* default to 1 */
 #endif /*_CRT_SECURE_CPP_OVERLOAD_SECURE_NAMES*/
@@ -36,7 +36,7 @@
 #define _CRT_SECURE_CPP_OVERLOAD_STANDARD_NAMES 0
 #define _CRT_SECURE_CPP_OVERLOAD_STANDARD_NAMES_COUNT 0
 #define _CRT_SECURE_CPP_OVERLOAD_STANDARD_NAMES_MEMORY 0
-#endif /*defined(__cplusplus) && (MINGW_HAS_SECURE_API == 1)*/
+#endif /*defined(__cplusplus)*/
 
 #define __MINGW_CRT_NAME_CONCAT2(sym) ::sym##_s
 

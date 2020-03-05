@@ -847,14 +847,14 @@ extern "C" {
 #define RtlEncryptMemory SystemFunction040
 #define RtlDecryptMemory SystemFunction041
 
-  BOOLEAN RtlGenRandom(PVOID RandomBuffer,ULONG RandomBufferLength);
+  BOOLEAN WINAPI RtlGenRandom(PVOID RandomBuffer,ULONG RandomBufferLength);
 
 #define RTL_ENCRYPT_MEMORY_SIZE 8
 #define RTL_ENCRYPT_OPTION_CROSS_PROCESS 0x01
 #define RTL_ENCRYPT_OPTION_SAME_LOGON 0x02
 
-  NTSTATUS RtlEncryptMemory(PVOID Memory,ULONG MemorySize,ULONG OptionFlags);
-  NTSTATUS RtlDecryptMemory(PVOID Memory,ULONG MemorySize,ULONG OptionFlags);
+  NTSTATUS WINAPI RtlEncryptMemory(PVOID Memory,ULONG MemorySize,ULONG OptionFlags);
+  NTSTATUS WINAPI RtlDecryptMemory(PVOID Memory,ULONG MemorySize,ULONG OptionFlags);
 
 #define KERBEROS_VERSION 5
 #define KERBEROS_REVISION 6

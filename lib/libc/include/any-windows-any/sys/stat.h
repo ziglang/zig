@@ -172,7 +172,7 @@ extern "C" {
 
 #if !defined (RC_INVOKED) && !defined (NO_OLDNAMES)
 int __cdecl fstat(int _Desc,struct stat *_Stat);
-#if __MSVCRT_VERSION__ >= 0x1400
+#ifdef _UCRT
   __mingw_ovr int __cdecl stat(const char *_Filename,struct stat *_Stat)
   {
     return _stat(_Filename, (struct _stat *)_Stat);

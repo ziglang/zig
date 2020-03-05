@@ -323,7 +323,7 @@ DECLARE_INTERFACE_(IDirect3DRM2,IUnknown)
 #define IDirect3DRM2_EnumerateObjects(p,a,b)                       (p)->EnumerateObjects(a,b)
 #define IDirect3DRM2_Load(p,a,b,c,d,e,f,g,h,i,j)                   (p)->Load(a,b,c,d,e,f,g,h,i,j)
 #define IDirect3DRM2_Tick(p,a)                                     (p)->Tick(a)
-#define IDirect3DRM2_CreateProgressiveMesh(p,a)                    (p)->CreateProgressiveMesh(p,a)
+#define IDirect3DRM2_CreateProgressiveMesh(p,a)                    (p)->CreateProgressiveMesh(a)
 #endif
 
 /*****************************************************************************
@@ -435,7 +435,7 @@ DECLARE_INTERFACE_(IDirect3DRM3,IUnknown)
 #define IDirect3DRM3_CreateProgressiveMesh(p,a)                    (p)->lpVtbl->CreateProgressiveMesh(p,a)
 #define IDirect3DRM3_RegisterClient(p,a,b)                         (p)->lpVtbl->RegisterClient(p,a,b)
 #define IDirect3DRM3_UnregisterClient(p,a)                         (p)->lpVtbl->UnregisterClient(p,a)
-#define IDirect3DRM3_CreateClippedVisual(p,ab)                     (p)->lpVtbl->CreateClippedVisual(p,a,b)
+#define IDirect3DRM3_CreateClippedVisual(p,a,b)                    (p)->lpVtbl->CreateClippedVisual(p,a,b)
 #define IDirect3DRM3_SetOptions(p,a)                               (p)->lpVtbl->SetOptions(p,a)
 #define IDirect3DRM3_GetOptions(p,a)                               (p)->lpVtbl->GetOptions(p,a)
 #else
@@ -476,12 +476,12 @@ DECLARE_INTERFACE_(IDirect3DRM3,IUnknown)
 #define IDirect3DRM3_EnumerateObjects(p,a,b)                       (p)->EnumerateObjects(a,b)
 #define IDirect3DRM3_Load(p,a,b,c,d,e,f,g,h,i,j)                   (p)->Load(a,b,c,d,e,f,g,h,i,j)
 #define IDirect3DRM3_Tick(p,a)                                     (p)->Tick(a)
-#define IDirect3DRM3_CreateProgressiveMesh(p,a)                    (p)->CreateProgressiveMesh(p,a)
-#define IDirect3DRM3_RegisterClient(p,a,b)                         (p)->RegisterClient(p,a,b)
-#define IDirect3DRM3_UnregisterClient(p,a)                         (p)->UnregisterClient(p,a)
-#define IDirect3DRM3_CreateClippedVisual(p,ab)                     (p)->CreateClippedVisual(p,a,b)
-#define IDirect3DRM3_SetOptions(p,a)                               (p)->SetOptions(p,a)
-#define IDirect3DRM3_GetOptions(p,a)                               (p)->GetOptions(p,a)
+#define IDirect3DRM3_CreateProgressiveMesh(p,a)                    (p)->CreateProgressiveMesh(a)
+#define IDirect3DRM3_RegisterClient(p,a,b)                         (p)->RegisterClient(a,b)
+#define IDirect3DRM3_UnregisterClient(p,a)                         (p)->UnregisterClient(a)
+#define IDirect3DRM3_CreateClippedVisual(p,a,b)                    (p)->CreateClippedVisual(a,b)
+#define IDirect3DRM3_SetOptions(p,a)                               (p)->SetOptions(a)
+#define IDirect3DRM3_GetOptions(p,a)                               (p)->GetOptions(a)
 #endif
 
 #define D3DRM_OK                        DD_OK

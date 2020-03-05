@@ -88,43 +88,7 @@ typedef struct sockaddr SOCKADDR;
 #define DPNA_VALUE_SERIALPROVIDER_A         "SERIAL"
 
 /* And now the same thing but as Unicode strings */
-#if defined(__GNUC__)
-
-# define DPNA_HEADER                   (const WCHAR []){ 'x','-','d','i','r','e','c','t','p','l','a','y',':','/',0 }
-# define DPNA_KEY_APPLICATION_INSTANCE (const WCHAR []){ 'a','p','p','l','i','c','a','t','i','o','n','i','n','s','t','a','n','c','e',0 }
-# define DPNA_KEY_BAUD                 (const WCHAR []){ 'b','a','u','d',0 }
-# define DPNA_KEY_DEVICE               (const WCHAR []){ 'd','e','v','i','c','e',0 }
-# define DPNA_KEY_FLOWCONTROL          (const WCHAR []){ 'f','l','o','w','c','o','n','t','r','o','l',0 }
-# define DPNA_KEY_HOSTNAME             (const WCHAR []){ 'h','o','s','t','n','a','m','e',0 }
-# define DPNA_KEY_NAMEINFO             (const WCHAR []){ 'n','a','m','e','i','n','f','o',0 }
-# define DPNA_KEY_PARITY               (const WCHAR []){ 'p','a','r','i','t','y',0 }
-# define DPNA_KEY_PHONENUMBER          (const WCHAR []){ 'p','h','o','n','e','n','u','m','b','e','r',0 }
-# define DPNA_KEY_PORT                 (const WCHAR []){ 'p','o','r','t',0 }
-# define DPNA_KEY_PROCESSOR            (const WCHAR []){ 'p','r','o','c','e','s','s','o','r',0 }
-# define DPNA_KEY_PROGRAM              (const WCHAR []){ 'p','r','o','g','r','a','m',0 }
-# define DPNA_KEY_PROVIDER             (const WCHAR []){ 'p','r','o','v','i','d','e','r',0 }
-# define DPNA_KEY_SCOPE                (const WCHAR []){ 's','c','o','p','e',0 }
-# define DPNA_KEY_STOPBITS             (const WCHAR []){ 's','t','o','p','b','i','t','s',0 }
-# define DPNA_KEY_TRAVERSALMODE        (const WCHAR []){ 't','r','a','v','e','r','s','a','l','m','o','d','e',0 }
-# define DPNA_STOP_BITS_ONE            (const WCHAR []){ '1',0 }
-# define DPNA_STOP_BITS_ONE_FIVE       (const WCHAR []){ '1','.','5',0 }
-# define DPNA_STOP_BITS_TWO            (const WCHAR []){ '2',0 }
-# define DPNA_PARITY_NONE              (const WCHAR []){ 'N','O','N','E',0 }
-# define DPNA_PARITY_EVEN              (const WCHAR []){ 'E','V','E','N',0 }
-# define DPNA_PARITY_ODD               (const WCHAR []){ 'O','D','D',0 }
-# define DPNA_PARITY_MARK              (const WCHAR []){ 'M','A','R','K',0 }
-# define DPNA_PARITY_SPACE             (const WCHAR []){ 'S','P','A','C','E',0 }
-# define DPNA_FLOW_CONTROL_NONE        (const WCHAR []){ 'N','O','N','E',0 }
-# define DPNA_FLOW_CONTROL_XONXOFF     (const WCHAR []){ 'X','O','N','X','O','F','F',0 }
-# define DPNA_FLOW_CONTROL_RTS         (const WCHAR []){ 'R','T','S',0 }
-# define DPNA_FLOW_CONTROL_DTR         (const WCHAR []){ 'D','T','R',0 }
-# define DPNA_FLOW_CONTROL_RTSDTR      (const WCHAR []){ 'R','T','S','D','T','R',0 }
-# define DPNA_VALUE_TCPIPPROVIDER      (const WCHAR []){ 'I','P',0 }
-# define DPNA_VALUE_IPXPROVIDER        (const WCHAR []){ 'I','P','X',0 }
-# define DPNA_VALUE_MODEMPROVIDER      (const WCHAR []){ 'M','O','D','E','M',0 }
-# define DPNA_VALUE_SERIALPROVIDER     (const WCHAR []){ 'S','E','R','I','A','L',0 }
-
-#elif defined(_MSC_VER)
+#if defined(_MSC_VER) || defined(__MINGW32__)
 
 # define DPNA_HEADER                   L"x-directplay:/"
 # define DPNA_KEY_APPLICATION_INSTANCE L"applicationinstance"
