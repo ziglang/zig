@@ -3,8 +3,15 @@
 set -x
 set -e
 
-sudo pkg update -f
-yes | sudo pkg install cmake py27-s3cmd wget curl jq
+# The following line can be removed as soon as FreeBSD fixes
+# their packaging glitch. If not fixed by March 15, 2020
+# there is something wrong. Should be fixed much sooner.
+# note: this will cause some complaints when running
+# pkg commands but let's ignore them.
+sudo rm /usr/local/etc/pkg/repos/FreeBSD.conf
+
+sudo pkg update -fq
+sudo pkg install -y cmake py27-s3cmd wget curl jq
 
 ZIGDIR="$(pwd)"
 CACHE_BASENAME="llvm+clang-9.0.0-freebsd-x86_64-release"
