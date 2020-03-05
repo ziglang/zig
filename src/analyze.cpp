@@ -6111,7 +6111,7 @@ ZigValue **realloc_const_vals_ptrs(CodeGen *g, ZigValue **ptr, size_t old_count,
     assert(new_count >= old_count);
 
     size_t new_item_count = new_count - old_count;
-    ZigValue **result = g->pass1_arena->reallocate(ptr, old_count, new_count);
+    ZigValue **result = heap::c_allocator.reallocate(ptr, old_count, new_count);
     ZigValue *vals = g->pass1_arena->allocate<ZigValue>(new_item_count);
     for (size_t i = old_count; i < new_count; i += 1) {
         result[i] = &vals[i - old_count];
