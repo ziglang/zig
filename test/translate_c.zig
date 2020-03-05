@@ -3,6 +3,28 @@ const std = @import("std");
 const CrossTarget = std.zig.CrossTarget;
 
 pub fn addCases(cases: *tests.TranslateCContext) void {
+    cases.add("macro comma operator",
+        \\#define foo (foo, bar)
+        \\#define bar(x) (x, 3, 4, 5 * 6, baz(1, 2), 2, baz(1,2))
+    , &[_][]const u8{
+        \\pub const foo = blk: {
+        \\    _ = foo;
+        \\    break :blk bar;
+        \\};
+    ,
+        \\pub inline fn bar(x: var) @TypeOf(baz(1, 2)) {
+        \\    return blk: {
+        \\        _ = x;
+        \\        _ = 3;
+        \\        _ = 4;
+        \\        _ = 5 * 6;
+        \\        _ = baz(1, 2);
+        \\        _ = 2;
+        \\        break :blk baz(1, 2);
+        \\    };
+        \\}
+    });
+
     cases.add("macro line continuation",
         \\#define FOO -\
         \\BAR
