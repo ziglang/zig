@@ -4874,7 +4874,7 @@ fn transPreprocessorEntities(c: *Context, unit: *ZigClangASTUnit) Error!void {
 
                 var tok_it = tok_list.iterator(0);
                 const first_tok = tok_it.next().?;
-                assert(first_tok.id == .Identifier and mem.eql(u8, slice[first_tok.start..first_tok.end], name));
+                assert(mem.eql(u8, slice[first_tok.start..first_tok.end], name));
 
                 var macro_fn = false;
                 const next = tok_it.peek().?;
@@ -5038,7 +5038,14 @@ fn transMacroFnDefine(c: *Context, it: *CTokenList.Iterator, source: []const u8,
             .{last.id},
         );
     _ = try appendToken(c, .Semicolon, ";");
-    try type_of.params.push(expr);
+    const type_of_arg = if (expr.id != .Block) expr else blk: {
+        const blk = @fieldParentPtr(ast.Node.Block, "base", expr);
+        const blk_last = blk.statements.at(blk.statements.len - 1).*;
+        std.debug.assert(blk_last.id == .ControlFlowExpression);
+        const br = @fieldParentPtr(ast.Node.ControlFlowExpression, "base", blk_last);
+        break :blk br.rhs.?;
+    };
+    try type_of.params.push(type_of_arg);
     return_expr.rhs = expr;
 
     block.rbrace = try appendToken(c, .RBrace, "}");
@@ -5072,6 +5079,39 @@ fn parseCExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8, source_
             if_node.@"else" = try transCreateNodeElse(c);
             if_node.@"else".?.body = try parseCPrimaryExpr(c, it, source, source_loc, scope);
             return &if_node.base;
+        },
+        .Comma => {
+            _ = try appendToken(c, .Semicolon, ";");
+            const block_scope = try Scope.Block.init(c, scope, "blk");
+            block_scope.block_node = try transCreateNodeBlock(c, block_scope.label);
+
+            var last = node;
+            while (true) {
+                // suppress result
+                const lhs = try transCreateNodeIdentifier(c, "_");
+                const op_token = try appendToken(c, .Equal, "=");
+                const op_node = try c.a().create(ast.Node.InfixOp);
+                op_node.* = .{
+                    .op_token = op_token,
+                    .lhs = lhs,
+                    .op = .Assign,
+                    .rhs = last,
+                };
+                try block_scope.block_node.statements.push(&op_node.base);
+
+                last = try parseCPrefixOpExpr(c, it, source, source_loc, scope);
+                _ = try appendToken(c, .Semicolon, ";");
+                if (it.next().?.id != .Comma) {
+                    _ = it.prev();
+                    break;
+                }
+            }
+
+            const break_node = try transCreateNodeBreak(c, block_scope.label);
+            break_node.rhs = last;
+            try block_scope.block_node.statements.push(&break_node.base);
+            block_scope.block_node.rbrace = try appendToken(c, .RBrace, "}");
+            return &block_scope.block_node.base;
         },
         else => {
             _ = it.prev();
