@@ -1084,22 +1084,7 @@ pub fn SetFileTime(
 }
 
 pub fn peb() *PEB {
-    switch (builtin.arch) {
-        .i386 => {
-            return asm (
-                \\ mov %%fs:0x18, %[ptr]
-                \\ mov %%ds:0x30(%[ptr]), %[ptr]
-                : [ptr] "=r" (-> *PEB)
-            );
-        },
-        .x86_64 => {
-            return asm (
-                \\ mov %%gs:0x60, %[ptr]
-                : [ptr] "=r" (-> *PEB)
-            );
-        },
-        else => @compileError("unsupported architecture"),
-    }
+    return ntdll.NtCurrentTeb().ProcessEnvironmentBlock;
 }
 
 /// A file time is a 64-bit value that represents the number of 100-nanosecond
