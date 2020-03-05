@@ -25,6 +25,15 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
+    cases.add("macro keyword define",
+        \\#define foo 1
+        \\#define inline 2
+    , &[_][]const u8{
+        \\pub const foo = 1;
+    ,
+        \\pub const @"inline" = 2;
+    });
+
     cases.add("macro line continuation",
         \\#define FOO -\
         \\BAR

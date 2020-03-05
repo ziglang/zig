@@ -4874,7 +4874,7 @@ fn transPreprocessorEntities(c: *Context, unit: *ZigClangASTUnit) Error!void {
 
                 var tok_it = tok_list.iterator(0);
                 const first_tok = tok_it.next().?;
-                assert(first_tok.id == .Identifier and mem.eql(u8, slice[first_tok.start..first_tok.end], name));
+                assert(mem.eql(u8, slice[first_tok.start..first_tok.end], name));
 
                 var macro_fn = false;
                 const next = tok_it.peek().?;
