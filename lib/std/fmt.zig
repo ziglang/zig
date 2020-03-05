@@ -491,6 +491,13 @@ pub fn formatType(
             return format(context, Errors, output, "{}@{x}", .{ @typeName(T), @ptrToInt(value) });
         },
         .Type => return output(context, @typeName(T)),
+        .EnumLiteral => {
+            const name = @tagName(value);
+            var buffer: [name.len + 1]u8 = undefined;
+            buffer[0] = '.';
+            std.mem.copy(u8, buffer[1..], name);
+            return formatType(buffer, fmt, options, context, Errors, output, max_depth);
+        },
         else => @compileError("Unable to format type '" ++ @typeName(T) ++ "'"),
     }
 }
@@ -1743,4 +1750,8 @@ test "vector" {
     try testFmt("{ 3e8, 7d0, bb8, fa0 }", "{x}", .{vu64});
     try testFmt("{ 1kB, 2kB, 3kB, 4kB }", "{B}", .{vu64});
     try testFmt("{ 1000B, 1.953125KiB, 2.9296875KiB, 3.90625KiB }", "{Bi}", .{vu64});
+}
+
+test "enum-literal" {
+    try testFmt(".hello_world", "{}", .{.hello_world});
 }
