@@ -697,18 +697,11 @@ pub fn absCast(x: var) switch(@typeInfo(@TypeOf(x))) {
 }
 
 test "math.absCast" {
-    testing.expect(absCast(@as(i1, -1)) == 1);
-
-    testing.expect(absCast(@as(i32, -999)) == 999);
-    testing.expect(@TypeOf(absCast(@as(i32, -999))) == u32);
-
-    testing.expect(absCast(@as(i32, 999)) == 999);
-    testing.expect(@TypeOf(absCast(@as(i32, 999))) == u32);
-
-    testing.expect(absCast(@as(i32, minInt(i32))) == -minInt(i32));
-    testing.expect(@TypeOf(absCast(@as(i32, minInt(i32)))) == u32);
-
-    testing.expect(absCast(-999) == 999);
+    testing.expectEqual(@as(u1, 1), absCast(@as(i1, -1)));
+    testing.expectEqual(@as(u32, 999), absCast(@as(i32, -999)));
+    testing.expectEqual(@as(u32, 999), absCast(@as(i32, 999)));
+    testing.expectEqual(@as(u32, -minInt(i32)), absCast(@as(i32, minInt(i32))));
+    testing.expectEqual(999, absCast(-999));
 }
 
 /// Returns the negation of the integer parameter.
