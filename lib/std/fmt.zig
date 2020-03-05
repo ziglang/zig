@@ -1165,19 +1165,20 @@ pub fn allocPrint0(allocator: *mem.Allocator, comptime fmt: []const u8, args: va
 test "bufPrintInt" {
     var buffer: [100]u8 = undefined;
     const buf = buffer[0..];
-    std.testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(i32, -12345678), 2, false, FormatOptions{}), "-101111000110000101001110"));
-    std.testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(i32, -12345678), 10, false, FormatOptions{}), "-12345678"));
-    std.testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(i32, -12345678), 16, false, FormatOptions{}), "-bc614e"));
-    std.testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(i32, -12345678), 16, true, FormatOptions{}), "-BC614E"));
 
-    std.testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(u32, 12345678), 10, true, FormatOptions{}), "12345678"));
+    std.testing.expectEqualSlices(u8, "-101111000110000101001110", bufPrintIntToSlice(buf, @as(i32, -12345678), 2, false, FormatOptions{}));
+    std.testing.expectEqualSlices(u8, "-12345678", bufPrintIntToSlice(buf, @as(i32, -12345678), 10, false, FormatOptions{}));
+    std.testing.expectEqualSlices(u8, "-bc614e", bufPrintIntToSlice(buf, @as(i32, -12345678), 16, false, FormatOptions{}));
+    std.testing.expectEqualSlices(u8, "-BC614E", bufPrintIntToSlice(buf, @as(i32, -12345678), 16, true, FormatOptions{}));
 
-    std.testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(u32, 666), 10, false, FormatOptions{ .width = 6 }), "   666"));
-    std.testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(u32, 0x1234), 16, false, FormatOptions{ .width = 6 }), "  1234"));
-    std.testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(u32, 0x1234), 16, false, FormatOptions{ .width = 1 }), "1234"));
+    std.testing.expectEqualSlices(u8, "12345678", bufPrintIntToSlice(buf, @as(u32, 12345678), 10, true, FormatOptions{}));
 
-    std.testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(i32, 42), 10, false, FormatOptions{ .width = 3 }), "+42"));
-    std.testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(i32, -42), 10, false, FormatOptions{ .width = 3 }), "-42"));
+    std.testing.expectEqualSlices(u8, "   666", bufPrintIntToSlice(buf, @as(u32, 666), 10, false, FormatOptions{ .width = 6 }));
+    std.testing.expectEqualSlices(u8, "  1234", bufPrintIntToSlice(buf, @as(u32, 0x1234), 16, false, FormatOptions{ .width = 6 }));
+    std.testing.expectEqualSlices(u8, "1234", bufPrintIntToSlice(buf, @as(u32, 0x1234), 16, false, FormatOptions{ .width = 1 }));
+
+    std.testing.expectEqualSlices(u8, "+42", bufPrintIntToSlice(buf, @as(i32, 42), 10, false, FormatOptions{ .width = 3 }));
+    std.testing.expectEqualSlices(u8, "-42", bufPrintIntToSlice(buf, @as(i32, -42), 10, false, FormatOptions{ .width = 3 }));
 }
 
 fn bufPrintIntToSlice(buf: []u8, value: var, base: u8, uppercase: bool, options: FormatOptions) []u8 {
