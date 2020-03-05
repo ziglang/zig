@@ -41,6 +41,26 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const FOO = -BAR;
     });
 
+    cases.add("struct with atomic field",
+        \\struct arcan_shmif_cont {
+        \\        struct arcan_shmif_page* addr;
+        \\};
+        \\struct arcan_shmif_page {
+        \\        volatile _Atomic int abufused[12];
+        \\};
+    , &[_][]const u8{
+        \\pub const struct_arcan_shmif_page = //
+    ,
+        \\warning: unsupported type: 'Atomic'
+        \\    @OpaqueType(); // 
+    ,
+        \\ warning: struct demoted to opaque type - unable to translate type of field abufused
+    , // TODO should be `addr: *struct_arcan_shmif_page`
+        \\pub const struct_arcan_shmif_cont = extern struct {
+        \\    addr: [*c]struct_arcan_shmif_page,
+        \\};
+    });
+
     cases.add("function prototype translated as optional",
         \\typedef void (*fnptr_ty)(void);
         \\typedef __attribute__((cdecl)) void (*fnptr_attr_ty)(void);

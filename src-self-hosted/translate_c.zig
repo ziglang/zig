@@ -810,8 +810,10 @@ fn transRecordDecl(c: *Context, record_decl: *const ZigClangRecordDecl) Error!?*
             _ = try appendToken(c, .Colon, ":");
             const field_type = transQualType(rp, ZigClangFieldDecl_getType(field_decl), field_loc) catch |err| switch (err) {
                 error.UnsupportedType => {
-                    try failDecl(c, record_loc, name, "unable to translate {} member type", .{container_kind_name});
-                    return null;
+                    const opaque = try transCreateNodeOpaqueType(c);
+                    semicolon = try appendToken(c, .Semicolon, ";");
+                    try emitWarning(c, record_loc, "{} demoted to opaque type - unable to translate type of field {}", .{ container_kind_name, raw_name });
+                    break :blk opaque;
                 },
                 else => |e| return e,
             };
