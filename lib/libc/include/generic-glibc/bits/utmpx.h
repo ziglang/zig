@@ -1,5 +1,5 @@
 /* Structures and definitions for the user accounting database.  GNU version.
-   Copyright (C) 1997-2019 Free Software Foundation, Inc.
+   Copyright (C) 1997-2020 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -14,7 +14,7 @@
 
    You should have received a copy of the GNU Lesser General Public
    License along with the GNU C Library; if not, see
-   <http://www.gnu.org/licenses/>.  */
+   <https://www.gnu.org/licenses/>.  */
 
 #ifndef _UTMPX_H
 # error "Never include <bits/utmpx.h> directly; use <utmpx.h> instead."
@@ -56,10 +56,14 @@ struct utmpx
 {
   short int ut_type;		/* Type of login.  */
   __pid_t ut_pid;		/* Process ID of login process.  */
-  char ut_line[__UT_LINESIZE];	/* Devicename.  */
-  char ut_id[4];		/* Inittab ID. */
-  char ut_user[__UT_NAMESIZE];	/* Username.  */
-  char ut_host[__UT_HOSTSIZE];	/* Hostname for remote login.  */
+  char ut_line[__UT_LINESIZE]
+    __attribute_nonstring__;	/* Devicename.  */
+  char ut_id[4]
+    __attribute_nonstring__;	/* Inittab ID.  */
+  char ut_user[__UT_NAMESIZE]
+    __attribute_nonstring__;	/* Username.  */
+  char ut_host[__UT_HOSTSIZE]
+    __attribute_nonstring__;	/* Hostname for remote login.  */
   struct __exit_status ut_exit;	/* Exit status of a process marked
 				   as DEAD_PROCESS.  */
 

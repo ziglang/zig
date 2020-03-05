@@ -1,4 +1,4 @@
-/* Copyright (C) 1991-2019 Free Software Foundation, Inc.
+/* Copyright (C) 1991-2020 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -13,7 +13,7 @@
 
    You should have received a copy of the GNU Lesser General Public
    License along with the GNU C Library; if not, see
-   <http://www.gnu.org/licenses/>.  */
+   <https://www.gnu.org/licenses/>.  */
 
 /*
  *	ISO C99 Standard: 7.10/5.2.4.2.1 Sizes of integer types	<limits.h>
@@ -142,7 +142,7 @@
 /* The integer width macros are not defined by GCC's <limits.h> before
    GCC 7, or if _GNU_SOURCE rather than
    __STDC_WANT_IEC_60559_BFP_EXT__ is used to enable this feature.  */
-#if __GLIBC_USE (IEC_60559_BFP_EXT)
+#if __GLIBC_USE (IEC_60559_BFP_EXT_C2X)
 # ifndef CHAR_WIDTH
 #  define CHAR_WIDTH 8
 # endif

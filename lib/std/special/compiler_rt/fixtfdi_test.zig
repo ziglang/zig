@@ -11,7 +11,7 @@ fn test__fixtfdi(a: f128, expected: i64) void {
 }
 
 test "fixtfdi" {
-    if (@import("std").Target.current.isWindows()) {
+    if (@import("std").Target.current.os.tag == .windows) {
         // TODO https://github.com/ziglang/zig/issues/508
         return error.SkipZigTest;
     }

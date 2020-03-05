@@ -1,8 +1,34 @@
 const tests = @import("tests.zig");
-const builtin = @import("builtin");
-const Target = @import("std").Target;
+const std = @import("std");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.addTest("@TypeOf with no arguments",
+        \\export fn entry() void {
+        \\    _ = @TypeOf();
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:2:9: error: expected at least 1 argument, found 0",
+    });
+
+    cases.addTest("@TypeOf with incompatible arguments",
+        \\export fn entry() void {
+        \\    var var_1: f32 = undefined;
+        \\    var var_2: u32 = undefined;
+        \\    _ = @TypeOf(var_1, var_2);
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:4:9: error: incompatible types: 'f32' and 'u32'",
+    });
+
+    cases.addTest("type mismatch with tuple concatenation",
+        \\export fn entry() void {
+        \\    var x = .{};
+        \\    x = x ++ .{ 1, 2, 3 };
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:3:11: error: expected type 'struct:2:14', found 'struct:3:11'",
+    });
+
     cases.addTest("@tagName on invalid value of non-exhaustive enum",
         \\test "enum" {
         \\    const E = enum(u8) {A, B, _};
@@ -378,12 +404,10 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         , &[_][]const u8{
             "tmp.zig:3:5: error: target arch 'wasm32' does not support calling with a new stack",
         });
-        tc.target = Target{
-            .Cross = .{
-                .cpu = Target.Cpu.baseline(.wasm32),
-                .os = .wasi,
-                .abi = .none,
-            },
+        tc.target = std.zig.CrossTarget{
+            .cpu_arch = .wasm32,
+            .os_tag = .wasi,
+            .abi = .none,
         };
         break :x tc;
     });
@@ -779,12 +803,10 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         , &[_][]const u8{
             "tmp.zig:2:14: error: could not find 'foo' in the inputs or outputs",
         });
-        tc.target = Target{
-            .Cross = .{
-                .cpu = Target.Cpu.baseline(.x86_64),
-                .os = .linux,
-                .abi = .gnu,
-            },
+        tc.target = std.zig.CrossTarget{
+            .cpu_arch = .x86_64,
+            .os_tag = .linux,
+            .abi = .gnu,
         };
         break :x tc;
     });
@@ -1444,7 +1466,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:2:18: error: invalid operands to binary expression: 'error{A}' and 'error{B}'",
     });
 
-    if (builtin.os == builtin.Os.linux) {
+    if (std.Target.current.os.tag == .linux) {
         cases.addTest("implicit dependency on libc",
             \\extern "c" fn exit(u8) void;
             \\export fn entry() void {

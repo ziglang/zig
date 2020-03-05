@@ -1,4 +1,5 @@
 const std = @import("std.zig");
+const builtin = std.builtin;
 const math = std.math;
 const mem = std.mem;
 const io = std.io;
@@ -11,7 +12,6 @@ const macho = std.macho;
 const coff = std.coff;
 const pdb = std.pdb;
 const ArrayList = std.ArrayList;
-const builtin = @import("builtin");
 const root = @import("root");
 const maxInt = std.math.maxInt;
 const File = std.fs.File;
@@ -101,7 +101,7 @@ pub fn detectTTYConfig() TTY.Config {
     } else |_| {
         if (stderr_file.supportsAnsiEscapeCodes()) {
             return .escape_codes;
-        } else if (builtin.os == .windows and stderr_file.isTty()) {
+        } else if (builtin.os.tag == .windows and stderr_file.isTty()) {
             return .windows_api;
         } else {
             return .no_color;
@@ -155,7 +155,7 @@ pub fn dumpStackTraceFromBase(bp: usize, ip: usize) void {
 /// chopping off the irrelevant frames and shifting so that the returned addresses pointer
 /// equals the passed in addresses pointer.
 pub fn captureStackTrace(first_address: ?usize, stack_trace: *builtin.StackTrace) void {
-    if (builtin.os == .windows) {
+    if (builtin.os.tag == .windows) {
         const addrs = stack_trace.instruction_addresses;
         const u32_addrs_len = @intCast(u32, addrs.len);
         const first_addr = first_address orelse {
@@ -231,7 +231,7 @@ pub fn assert(ok: bool) void {
 pub fn panic(comptime format: []const u8, args: var) noreturn {
     @setCold(true);
     // TODO: remove conditional once wasi / LLVM defines __builtin_return_address
-    const first_trace_addr = if (builtin.os == .wasi) null else @returnAddress();
+    const first_trace_addr = if (builtin.os.tag == .wasi) null else @returnAddress();
     panicExtra(null, first_trace_addr, format, args);
 }
 
@@ -361,7 +361,7 @@ pub fn writeCurrentStackTrace(
     tty_config: TTY.Config,
     start_addr: ?usize,
 ) !void {
-    if (builtin.os == .windows) {
+    if (builtin.os.tag == .windows) {
         return writeCurrentStackTraceWindows(out_stream, debug_info, tty_config, start_addr);
     }
     var it = StackIterator.init(start_addr, null);
@@ -418,7 +418,7 @@ pub const TTY = struct {
                     .Dim => noasync out_stream.write(DIM) catch return,
                     .Reset => noasync out_stream.write(RESET) catch return,
                 },
-                .windows_api => if (builtin.os == .windows) {
+                .windows_api => if (builtin.os.tag == .windows) {
                     const S = struct {
                         var attrs: windows.WORD = undefined;
                         var init_attrs = false;
@@ -617,7 +617,7 @@ pub fn openSelfDebugInfo(allocator: *mem.Allocator) anyerror!DebugInfo {
     if (@hasDecl(root, "os") and @hasDecl(root.os, "debug") and @hasDecl(root.os.debug, "openSelfDebugInfo")) {
         return noasync root.os.debug.openSelfDebugInfo(allocator);
     }
-    switch (builtin.os) {
+    switch (builtin.os.tag) {
         .linux,
         .freebsd,
         .macosx,
@@ -1019,7 +1019,7 @@ pub const DebugInfo = struct {
     pub fn getModuleForAddress(self: *DebugInfo, address: usize) !*ModuleDebugInfo {
         if (comptime std.Target.current.isDarwin())
             return self.lookupModuleDyld(address)
-        else if (builtin.os == .windows)
+        else if (builtin.os.tag == .windows)
             return self.lookupModuleWin32(address)
         else
             return self.lookupModuleDl(address);
@@ -1242,7 +1242,7 @@ const SymbolInfo = struct {
     }
 };
 
-pub const ModuleDebugInfo = switch (builtin.os) {
+pub const ModuleDebugInfo = switch (builtin.os.tag) {
     .macosx, .ios, .watchos, .tvos => struct {
         base_address: usize,
         mapped_memory: []const u8,
@@ -1602,7 +1602,7 @@ fn getDebugInfoAllocator() *mem.Allocator {
 }
 
 /// Whether or not the current target can print useful debug information when a segfault occurs.
-pub const have_segfault_handling_support = builtin.os == .linux or builtin.os == .windows;
+pub const have_segfault_handling_support = builtin.os.tag == .linux or builtin.os.tag == .windows;
 pub const enable_segfault_handler: bool = if (@hasDecl(root, "enable_segfault_handler"))
     root.enable_segfault_handler
 else
@@ -1621,7 +1621,7 @@ pub fn attachSegfaultHandler() void {
     if (!have_segfault_handling_support) {
         @compileError("segfault handler not supported for this target");
     }
-    if (builtin.os == .windows) {
+    if (builtin.os.tag == .windows) {
         windows_segfault_handle = windows.kernel32.AddVectoredExceptionHandler(0, handleSegfaultWindows);
         return;
     }
@@ -1637,7 +1637,7 @@ pub fn attachSegfaultHandler() void {
 }
 
 fn resetSegfaultHandler() void {
-    if (builtin.os == .windows) {
+    if (builtin.os.tag == .windows) {
         if (windows_segfault_handle) |handle| {
             assert(windows.kernel32.RemoveVectoredExceptionHandler(handle) != 0);
             windows_segfault_handle = null;

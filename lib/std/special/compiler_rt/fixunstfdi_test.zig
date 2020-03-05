@@ -7,7 +7,7 @@ fn test__fixunstfdi(a: f128, expected: u64) void {
 }
 
 test "fixunstfdi" {
-    if (@import("std").Target.current.isWindows()) {
+    if (@import("std").Target.current.os.tag == .windows) {
         // TODO https://github.com/ziglang/zig/issues/508
         return error.SkipZigTest;
     }

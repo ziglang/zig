@@ -44,14 +44,20 @@ ZigType *get_bound_fn_type(CodeGen *g, ZigFn *fn_entry);
 ZigType *get_opaque_type(CodeGen *g, Scope *scope, AstNode *source_node, const char *full_name, Buf *bare_name);
 ZigType *get_test_fn_type(CodeGen *g);
 ZigType *get_any_frame_type(CodeGen *g, ZigType *result_type);
-bool handle_is_ptr(ZigType *type_entry);
+bool handle_is_ptr(CodeGen *g, ZigType *type_entry);
 
-bool type_has_bits(ZigType *type_entry);
+bool type_has_bits(CodeGen *g, ZigType *type_entry);
 Error type_has_bits2(CodeGen *g, ZigType *type_entry, bool *result);
 
 Error type_allowed_in_extern(CodeGen *g, ZigType *type_entry, bool *result);
 bool ptr_allows_addr_zero(ZigType *ptr_type);
-bool type_is_nonnull_ptr(ZigType *type);
+
+// Deprecated, use `type_is_nonnull_ptr2`
+bool type_is_nonnull_ptr(CodeGen *g, ZigType *type);
+Error type_is_nonnull_ptr2(CodeGen *g, ZigType *type, bool *result);
+
+ZigType *get_codegen_ptr_type_bail(CodeGen *g, ZigType *type);
+Error get_codegen_ptr_type(CodeGen *g, ZigType *type, ZigType **result);
 
 enum SourceKind {
     SourceKindRoot,
@@ -68,7 +74,6 @@ Tld *find_container_decl(CodeGen *g, ScopeDecls *decls_scope, Buf *name);
 void resolve_top_level_decl(CodeGen *g, Tld *tld, AstNode *source_node, bool allow_lazy);
 
 ZigType *get_src_ptr_type(ZigType *type);
-ZigType *get_codegen_ptr_type(ZigType *type);
 uint32_t get_ptr_align(CodeGen *g, ZigType *type);
 bool get_ptr_const(ZigType *type);
 ZigType *validate_var_type(CodeGen *g, AstNode *source_node, ZigType *type_entry);
@@ -87,7 +92,7 @@ TypeUnionField *find_union_field_by_tag(ZigType *type_entry, const BigInt *tag);
 bool is_ref(ZigType *type_entry);
 bool is_array_ref(ZigType *type_entry);
 bool is_container_ref(ZigType *type_entry);
-bool is_valid_vector_elem_type(ZigType *elem_type);
+Error is_valid_vector_elem_type(CodeGen *g, ZigType *elem_type, bool *result);
 void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node);
 ZigFn *scope_fn_entry(Scope *scope);
 ZigPackage *scope_package(Scope *scope);
@@ -223,7 +228,8 @@ Error ATTRIBUTE_MUST_USE file_fetch(CodeGen *g, Buf *resolved_path, Buf *content
 
 void walk_function_params(CodeGen *g, ZigType *fn_type, FnWalk *fn_walk);
 X64CABIClass type_c_abi_x86_64_class(CodeGen *g, ZigType *ty);
-bool type_is_c_abi_int(CodeGen *g, ZigType *ty);
+bool type_is_c_abi_int_bail(CodeGen *g, ZigType *ty);
+Error type_is_c_abi_int(CodeGen *g, ZigType *ty, bool *result);
 bool want_first_arg_sret(CodeGen *g, FnTypeId *fn_type_id);
 const char *container_string(ContainerKind kind);
 

@@ -35,7 +35,7 @@ else
 pub const is_async = mode != .blocking;
 
 fn getStdOutHandle() os.fd_t {
-    if (builtin.os == .windows) {
+    if (builtin.os.tag == .windows) {
         return os.windows.peb().ProcessParameters.hStdOutput;
     }
 
@@ -54,7 +54,7 @@ pub fn getStdOut() File {
 }
 
 fn getStdErrHandle() os.fd_t {
-    if (builtin.os == .windows) {
+    if (builtin.os.tag == .windows) {
         return os.windows.peb().ProcessParameters.hStdError;
     }
 
@@ -74,7 +74,7 @@ pub fn getStdErr() File {
 }
 
 fn getStdInHandle() os.fd_t {
-    if (builtin.os == .windows) {
+    if (builtin.os.tag == .windows) {
         return os.windows.peb().ProcessParameters.hStdInput;
     }
 
@@ -348,11 +348,11 @@ pub fn BitInStream(endian: builtin.Endian, comptime Error: type) type {
                 const n = if (self.bit_count >= bits) @intCast(u3, bits) else self.bit_count;
                 const shift = u7_bit_count - n;
                 switch (endian) {
-                    builtin.Endian.Big => {
+                    .Big => {
                         out_buffer = @as(Buf, self.bit_buffer >> shift);
                         self.bit_buffer <<= n;
                     },
-                    builtin.Endian.Little => {
+                    .Little => {
                         const value = (self.bit_buffer << shift) >> shift;
                         out_buffer = @as(Buf, value);
                         self.bit_buffer >>= n;
@@ -376,7 +376,7 @@ pub fn BitInStream(endian: builtin.Endian, comptime Error: type) type {
                 };
 
                 switch (endian) {
-                    builtin.Endian.Big => {
+                    .Big => {
                         if (n >= u8_bit_count) {
                             out_buffer <<= @intCast(u3, u8_bit_count - 1);
                             out_buffer <<= 1;
@@ -392,7 +392,7 @@ pub fn BitInStream(endian: builtin.Endian, comptime Error: type) type {
                         self.bit_buffer = @truncate(u7, next_byte << @intCast(u3, n - 1));
                         self.bit_count = shift;
                     },
-                    builtin.Endian.Little => {
+                    .Little => {
                         if (n >= u8_bit_count) {
                             out_buffer |= @as(Buf, next_byte) << @intCast(BufShift, out_bits.*);
                             out_bits.* += u8_bit_count;
@@ -437,10 +437,11 @@ pub fn BitInStream(endian: builtin.Endian, comptime Error: type) type {
     };
 }
 
-/// This is a simple OutStream that writes to a fixed buffer, and returns an error
-/// when it runs out of space.
+/// This is a simple OutStream that writes to a fixed buffer. If the returned number
+/// of bytes written is less than requested, the buffer is full.
+/// Returns error.OutOfMemory when no bytes would be written.
 pub const SliceOutStream = struct {
-    pub const Error = error{OutOfSpace};
+    pub const Error = error{OutOfMemory};
     pub const Stream = OutStream(Error);
 
     stream: Stream,
@@ -464,8 +465,10 @@ pub const SliceOutStream = struct {
         self.pos = 0;
     }
 
-    fn writeFn(out_stream: *Stream, bytes: []const u8) Error!void {
+    fn writeFn(out_stream: *Stream, bytes: []const u8) Error!usize {
         const self = @fieldParentPtr(SliceOutStream, "stream", out_stream);
+
+        if (bytes.len == 0) return 0;
 
         assert(self.pos <= self.slice.len);
 
@@ -477,9 +480,9 @@ pub const SliceOutStream = struct {
         std.mem.copy(u8, self.slice[self.pos .. self.pos + n], bytes[0..n]);
         self.pos += n;
 
-        if (n < bytes.len) {
-            return Error.OutOfSpace;
-        }
+        if (n == 0) return error.OutOfMemory;
+
+        return n;
     }
 };
 
@@ -508,7 +511,9 @@ pub const NullOutStream = struct {
         };
     }
 
-    fn writeFn(out_stream: *Stream, bytes: []const u8) Error!void {}
+    fn writeFn(out_stream: *Stream, bytes: []const u8) Error!usize {
+        return bytes.len;
+    }
 };
 
 test "io.NullOutStream" {
@@ -536,10 +541,11 @@ pub fn CountingOutStream(comptime OutStreamError: type) type {
             };
         }
 
-        fn writeFn(out_stream: *Stream, bytes: []const u8) OutStreamError!void {
+        fn writeFn(out_stream: *Stream, bytes: []const u8) OutStreamError!usize {
             const self = @fieldParentPtr(Self, "stream", out_stream);
             try self.child_stream.write(bytes);
             self.bytes_written += bytes.len;
+            return bytes.len;
         }
     };
 }
@@ -588,13 +594,14 @@ pub fn BufferedOutStreamCustom(comptime buffer_size: usize, comptime OutStreamEr
             }
         }
 
-        fn writeFn(out_stream: *Stream, bytes: []const u8) Error!void {
+        fn writeFn(out_stream: *Stream, bytes: []const u8) Error!usize {
             const self = @fieldParentPtr(Self, "stream", out_stream);
             if (bytes.len >= self.fifo.writableLength()) {
                 try self.flush();
-                return self.unbuffered_out_stream.write(bytes);
+                return self.unbuffered_out_stream.writeOnce(bytes);
             }
             self.fifo.writeAssumeCapacity(bytes);
+            return bytes.len;
         }
     };
 }
@@ -614,9 +621,10 @@ pub const BufferOutStream = struct {
         };
     }
 
-    fn writeFn(out_stream: *Stream, bytes: []const u8) !void {
+    fn writeFn(out_stream: *Stream, bytes: []const u8) !usize {
         const self = @fieldParentPtr(BufferOutStream, "stream", out_stream);
-        return self.buffer.append(bytes);
+        try self.buffer.append(bytes);
+        return bytes.len;
     }
 };
 
@@ -666,8 +674,8 @@ pub fn BitOutStream(endian: builtin.Endian, comptime Error: type) type {
 
             const high_byte_shift = @intCast(BufShift, buf_bit_count - u8_bit_count);
             var in_buffer = switch (endian) {
-                builtin.Endian.Big => buf_value << @intCast(BufShift, buf_bit_count - bits),
-                builtin.Endian.Little => buf_value,
+                .Big => buf_value << @intCast(BufShift, buf_bit_count - bits),
+                .Little => buf_value,
             };
             var in_bits = bits;
 
@@ -675,13 +683,13 @@ pub fn BitOutStream(endian: builtin.Endian, comptime Error: type) type {
                 const bits_remaining = u8_bit_count - self.bit_count;
                 const n = @intCast(u3, if (bits_remaining > bits) bits else bits_remaining);
                 switch (endian) {
-                    builtin.Endian.Big => {
+                    .Big => {
                         const shift = @intCast(BufShift, high_byte_shift + self.bit_count);
                         const v = @intCast(u8, in_buffer >> shift);
                         self.bit_buffer |= v;
                         in_buffer <<= n;
                     },
-                    builtin.Endian.Little => {
+                    .Little => {
                         const v = @truncate(u8, in_buffer) << @intCast(u3, self.bit_count);
                         self.bit_buffer |= v;
                         in_buffer >>= n;
@@ -701,13 +709,13 @@ pub fn BitOutStream(endian: builtin.Endian, comptime Error: type) type {
             //copy bytes until we can't fill one anymore, then leave the rest in bit_buffer
             while (in_bits >= u8_bit_count) {
                 switch (endian) {
-                    builtin.Endian.Big => {
+                    .Big => {
                         const v = @intCast(u8, in_buffer >> high_byte_shift);
                         try self.out_stream.writeByte(v);
                         in_buffer <<= @intCast(u3, u8_bit_count - 1);
                         in_buffer <<= 1;
                     },
-                    builtin.Endian.Little => {
+                    .Little => {
                         const v = @truncate(u8, in_buffer);
                         try self.out_stream.writeByte(v);
                         in_buffer >>= @intCast(u3, u8_bit_count - 1);
@@ -720,8 +728,8 @@ pub fn BitOutStream(endian: builtin.Endian, comptime Error: type) type {
             if (in_bits > 0) {
                 self.bit_count = @intCast(u4, in_bits);
                 self.bit_buffer = switch (endian) {
-                    builtin.Endian.Big => @truncate(u8, in_buffer >> high_byte_shift),
-                    builtin.Endian.Little => @truncate(u8, in_buffer),
+                    .Big => @truncate(u8, in_buffer >> high_byte_shift),
+                    .Little => @truncate(u8, in_buffer),
                 };
             }
         }
@@ -734,17 +742,17 @@ pub fn BitOutStream(endian: builtin.Endian, comptime Error: type) type {
             self.bit_count = 0;
         }
 
-        pub fn write(self_stream: *Stream, buffer: []const u8) Error!void {
+        pub fn write(self_stream: *Stream, buffer: []const u8) Error!usize {
             var self = @fieldParentPtr(Self, "stream", self_stream);
 
-            //@NOTE: I'm not sure this is a good idea, maybe flushBits should be forced
+            // TODO: I'm not sure this is a good idea, maybe flushBits should be forced
             if (self.bit_count > 0) {
                 for (buffer) |b, i|
                     try self.writeBits(b, u8_bit_count);
-                return;
+                return buffer.len;
             }
 
-            return self.out_stream.write(buffer);
+            return self.out_stream.writeOnce(buffer);
         }
     };
 }
@@ -858,10 +866,10 @@ pub fn Deserializer(comptime endian: builtin.Endian, comptime packing: Packing, 
             var result = @as(U, 0);
             for (buffer) |byte, i| {
                 switch (endian) {
-                    builtin.Endian.Big => {
+                    .Big => {
                         result = (result << u8_bit_count) | byte;
                     },
-                    builtin.Endian.Little => {
+                    .Little => {
                         result |= @as(U, byte) << @intCast(Log2U, u8_bit_count * i);
                     },
                 }

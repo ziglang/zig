@@ -352,7 +352,7 @@ pub const Address = extern union {
                     unreachable;
                 }
 
-                const path_len = std.mem.len(u8, @ptrCast([*:0]const u8, &self.un.path));
+                const path_len = std.mem.len(@ptrCast([*:0]const u8, &self.un.path));
                 return @intCast(os.socklen_t, @sizeOf(os.sockaddr_un) - self.un.path.len + path_len);
             },
             else => unreachable,
@@ -501,7 +501,7 @@ pub fn getAddressList(allocator: *mem.Allocator, name: []const u8, port: u16) !*
 
         return result;
     }
-    if (builtin.os == .linux) {
+    if (builtin.os.tag == .linux) {
         const flags = std.c.AI_NUMERICSERV;
         const family = os.AF_UNSPEC;
         var lookup_addrs = std.ArrayList(LookupAddr).init(allocator);

@@ -441,10 +441,12 @@ pub fn formatType(
                 else => return format(context, Errors, output, "{}@{x}", .{ @typeName(T.Child), @ptrToInt(value) }),
             },
             .Many, .C => {
+                if (ptr_info.sentinel) |sentinel| {
+                    return formatType(mem.span(value), fmt, options, context, Errors, output, max_depth);
+                }
                 if (ptr_info.child == u8) {
                     if (fmt.len > 0 and fmt[0] == 's') {
-                        const len = mem.len(u8, value);
-                        return formatText(value[0..len], fmt, options, context, Errors, output);
+                        return formatText(mem.span(value), fmt, options, context, Errors, output);
                     }
                 }
                 return format(context, Errors, output, "{}@{x}", .{ @typeName(T.Child), @ptrToInt(value) });

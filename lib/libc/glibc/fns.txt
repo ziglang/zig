@@ -2734,6 +2734,7 @@ pthread_barrierattr_getpshared pthread
 pthread_barrierattr_init pthread
 pthread_barrierattr_setpshared pthread
 pthread_cancel pthread
+pthread_clockjoin_np pthread
 pthread_cond_broadcast c
 pthread_cond_clockwait pthread
 pthread_cond_destroy c

@@ -43,6 +43,17 @@ test "C pointer" {
     expectEqualSlices(u8, "kjdhfkjdhf", slice);
 }
 
+test "C pointer slice access" {
+    var buf: [10]u32 = [1]u32{42} ** 10;
+    const c_ptr = @ptrCast([*c]const u32, &buf);
+
+    comptime expectEqual([]const u32, @TypeOf(c_ptr[0..1]));
+
+    for (c_ptr[0..5]) |*cl| {
+        expectEqual(@as(u32, 42), cl.*);
+    }
+}
+
 fn sliceSum(comptime q: []const u8) i32 {
     comptime var result = 0;
     inline for (q) |item| {

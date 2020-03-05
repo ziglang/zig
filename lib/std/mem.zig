@@ -333,8 +333,20 @@ pub fn zeroes(comptime T: type) T {
             }
             return array;
         },
-        .Vector, .ErrorUnion, .ErrorSet, .Union, .Fn, .BoundFn, .Type, .NoReturn, .Undefined, .Opaque, .Frame, .AnyFrame,  => {
-            @compileError("Can't set a "++ @typeName(T) ++" to zero.");
+        .Vector,
+        .ErrorUnion,
+        .ErrorSet,
+        .Union,
+        .Fn,
+        .BoundFn,
+        .Type,
+        .NoReturn,
+        .Undefined,
+        .Opaque,
+        .Frame,
+        .AnyFrame,
+        => {
+            @compileError("Can't set a " ++ @typeName(T) ++ " to zero.");
         },
     }
 }
@@ -470,18 +482,115 @@ pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
     return true;
 }
 
-pub fn len(comptime T: type, ptr: [*:0]const T) usize {
-    var count: usize = 0;
-    while (ptr[count] != 0) : (count += 1) {}
-    return count;
-}
-
+/// Deprecated. Use `span`.
 pub fn toSliceConst(comptime T: type, ptr: [*:0]const T) [:0]const T {
-    return ptr[0..len(T, ptr) :0];
+    return ptr[0..len(ptr) :0];
 }
 
+/// Deprecated. Use `span`.
 pub fn toSlice(comptime T: type, ptr: [*:0]T) [:0]T {
-    return ptr[0..len(T, ptr) :0];
+    return ptr[0..len(ptr) :0];
+}
+
+/// Takes a pointer to an array, a sentinel-terminated pointer, or a slice, and
+/// returns a slice. If there is a sentinel on the input type, there will be a
+/// sentinel on the output type. The constness of the output type matches
+/// the constness of the input type. `[*c]` pointers are assumed to be 0-terminated,
+/// and assumed to not allow null.
+pub fn Span(comptime T: type) type {
+    var ptr_info = @typeInfo(T).Pointer;
+    switch (ptr_info.size) {
+        .One => switch (@typeInfo(ptr_info.child)) {
+            .Array => |info| {
+                ptr_info.child = info.child;
+                ptr_info.sentinel = info.sentinel;
+            },
+            else => @compileError("invalid type given to std.mem.Span"),
+        },
+        .C => {
+            ptr_info.sentinel = 0;
+            ptr_info.is_allowzero = false;
+        },
+        .Many, .Slice => {},
+    }
+    ptr_info.size = .Slice;
+    return @Type(std.builtin.TypeInfo{ .Pointer = ptr_info });
+}
+
+test "Span" {
+    testing.expect(Span(*[5]u16) == []u16);
+    testing.expect(Span(*const [5]u16) == []const u16);
+    testing.expect(Span([]u16) == []u16);
+    testing.expect(Span([]const u8) == []const u8);
+    testing.expect(Span([:1]u16) == [:1]u16);
+    testing.expect(Span([:1]const u8) == [:1]const u8);
+    testing.expect(Span([*:1]u16) == [:1]u16);
+    testing.expect(Span([*:1]const u8) == [:1]const u8);
+    testing.expect(Span([*c]u16) == [:0]u16);
+    testing.expect(Span([*c]const u8) == [:0]const u8);
+}
+
+/// Takes a pointer to an array, a sentinel-terminated pointer, or a slice, and
+/// returns a slice. If there is a sentinel on the input type, there will be a
+/// sentinel on the output type. The constness of the output type matches
+/// the constness of the input type.
+pub fn span(ptr: var) Span(@TypeOf(ptr)) {
+    const Result = Span(@TypeOf(ptr));
+    const l = len(ptr);
+    if (@typeInfo(Result).Pointer.sentinel) |s| {
+        return ptr[0..l :s];
+    } else {
+        return ptr[0..l];
+    }
+}
+
+test "span" {
+    var array: [5]u16 = [_]u16{ 1, 2, 3, 4, 5 };
+    const ptr = array[0..2 :3].ptr;
+    testing.expect(eql(u16, span(ptr), &[_]u16{ 1, 2 }));
+    testing.expect(eql(u16, span(&array), &[_]u16{ 1, 2, 3, 4, 5 }));
+}
+
+/// Takes a pointer to an array, an array, a sentinel-terminated pointer,
+/// or a slice, and returns the length.
+pub fn len(ptr: var) usize {
+    return switch (@typeInfo(@TypeOf(ptr))) {
+        .Array => |info| info.len,
+        .Pointer => |info| switch (info.size) {
+            .One => switch (@typeInfo(info.child)) {
+                .Array => |x| x.len,
+                else => @compileError("invalid type given to std.mem.length"),
+            },
+            .Many => if (info.sentinel) |sentinel|
+                indexOfSentinel(info.child, sentinel, ptr)
+            else
+                @compileError("length of pointer with no sentinel"),
+            .C => indexOfSentinel(info.child, 0, ptr),
+            .Slice => ptr.len,
+        },
+        else => @compileError("invalid type given to std.mem.length"),
+    };
+}
+
+test "len" {
+    testing.expect(len("aoeu") == 4);
+
+    {
+        var array: [5]u16 = [_]u16{ 1, 2, 3, 4, 5 };
+        testing.expect(len(&array) == 5);
+        testing.expect(len(array[0..3]) == 3);
+        array[2] = 0;
+        const ptr = array[0..2 :0].ptr;
+        testing.expect(len(ptr) == 2);
+    }
+}
+
+pub fn indexOfSentinel(comptime Elem: type, comptime sentinel: Elem, ptr: [*:sentinel]const Elem) usize {
+    var i: usize = 0;
+    while (ptr[i] != sentinel) {
+        i += 1;
+    }
+    return i;
 }
 
 /// Returns true if all elements in a slice are equal to the scalar value provided
@@ -637,12 +746,12 @@ test "mem.indexOf" {
 pub fn readVarInt(comptime ReturnType: type, bytes: []const u8, endian: builtin.Endian) ReturnType {
     var result: ReturnType = 0;
     switch (endian) {
-        builtin.Endian.Big => {
+        .Big => {
             for (bytes) |b| {
                 result = (result << 8) | b;
             }
         },
-        builtin.Endian.Little => {
+        .Little => {
             const ShiftType = math.Log2Int(ReturnType);
             for (bytes) |b, index| {
                 result = result | (@as(ReturnType, b) << @intCast(ShiftType, index * 8));
@@ -670,13 +779,13 @@ pub fn readIntForeign(comptime T: type, bytes: *const [@divExact(T.bit_count, 8)
 }
 
 pub const readIntLittle = switch (builtin.endian) {
-    builtin.Endian.Little => readIntNative,
-    builtin.Endian.Big => readIntForeign,
+    .Little => readIntNative,
+    .Big => readIntForeign,
 };
 
 pub const readIntBig = switch (builtin.endian) {
-    builtin.Endian.Little => readIntForeign,
-    builtin.Endian.Big => readIntNative,
+    .Little => readIntForeign,
+    .Big => readIntNative,
 };
 
 /// Asserts that bytes.len >= T.bit_count / 8. Reads the integer starting from index 0
@@ -700,13 +809,13 @@ pub fn readIntSliceForeign(comptime T: type, bytes: []const u8) T {
 }
 
 pub const readIntSliceLittle = switch (builtin.endian) {
-    builtin.Endian.Little => readIntSliceNative,
-    builtin.Endian.Big => readIntSliceForeign,
+    .Little => readIntSliceNative,
+    .Big => readIntSliceForeign,
 };
 
 pub const readIntSliceBig = switch (builtin.endian) {
-    builtin.Endian.Little => readIntSliceForeign,
-    builtin.Endian.Big => readIntSliceNative,
+    .Little => readIntSliceForeign,
+    .Big => readIntSliceNative,
 };
 
 /// Reads an integer from memory with bit count specified by T.
@@ -783,13 +892,13 @@ pub fn writeIntForeign(comptime T: type, buf: *[@divExact(T.bit_count, 8)]u8, va
 }
 
 pub const writeIntLittle = switch (builtin.endian) {
-    builtin.Endian.Little => writeIntNative,
-    builtin.Endian.Big => writeIntForeign,
+    .Little => writeIntNative,
+    .Big => writeIntForeign,
 };
 
 pub const writeIntBig = switch (builtin.endian) {
-    builtin.Endian.Little => writeIntForeign,
-    builtin.Endian.Big => writeIntNative,
+    .Little => writeIntForeign,
+    .Big => writeIntNative,
 };
 
 /// Writes an integer to memory, storing it in twos-complement.
@@ -841,13 +950,13 @@ pub fn writeIntSliceBig(comptime T: type, buffer: []u8, value: T) void {
 }
 
 pub const writeIntSliceNative = switch (builtin.endian) {
-    builtin.Endian.Little => writeIntSliceLittle,
-    builtin.Endian.Big => writeIntSliceBig,
+    .Little => writeIntSliceLittle,
+    .Big => writeIntSliceBig,
 };
 
 pub const writeIntSliceForeign = switch (builtin.endian) {
-    builtin.Endian.Little => writeIntSliceBig,
-    builtin.Endian.Big => writeIntSliceLittle,
+    .Little => writeIntSliceBig,
+    .Big => writeIntSliceLittle,
 };
 
 /// Writes a twos-complement integer to memory, with the specified endianness.
@@ -858,10 +967,10 @@ pub const writeIntSliceForeign = switch (builtin.endian) {
 /// use writeInt instead.
 pub fn writeIntSlice(comptime T: type, buffer: []u8, value: T, endian: builtin.Endian) void {
     comptime assert(T.bit_count % 8 == 0);
-    switch (endian) {
-        builtin.Endian.Little => return writeIntSliceLittle(T, buffer, value),
-        builtin.Endian.Big => return writeIntSliceBig(T, buffer, value),
-    }
+    return switch (endian) {
+        .Little => writeIntSliceLittle(T, buffer, value),
+        .Big => writeIntSliceBig(T, buffer, value),
+    };
 }
 
 test "writeIntBig and writeIntLittle" {
@@ -1397,54 +1506,54 @@ test "rotate" {
 /// Converts a little-endian integer to host endianness.
 pub fn littleToNative(comptime T: type, x: T) T {
     return switch (builtin.endian) {
-        builtin.Endian.Little => x,
-        builtin.Endian.Big => @byteSwap(T, x),
+        .Little => x,
+        .Big => @byteSwap(T, x),
     };
 }
 
 /// Converts a big-endian integer to host endianness.
 pub fn bigToNative(comptime T: type, x: T) T {
     return switch (builtin.endian) {
-        builtin.Endian.Little => @byteSwap(T, x),
-        builtin.Endian.Big => x,
+        .Little => @byteSwap(T, x),
+        .Big => x,
     };
 }
 
 /// Converts an integer from specified endianness to host endianness.
 pub fn toNative(comptime T: type, x: T, endianness_of_x: builtin.Endian) T {
     return switch (endianness_of_x) {
-        builtin.Endian.Little => littleToNative(T, x),
-        builtin.Endian.Big => bigToNative(T, x),
+        .Little => littleToNative(T, x),
+        .Big => bigToNative(T, x),
     };
 }
 
 /// Converts an integer which has host endianness to the desired endianness.
 pub fn nativeTo(comptime T: type, x: T, desired_endianness: builtin.Endian) T {
     return switch (desired_endianness) {
-        builtin.Endian.Little => nativeToLittle(T, x),
-        builtin.Endian.Big => nativeToBig(T, x),
+        .Little => nativeToLittle(T, x),
+        .Big => nativeToBig(T, x),
     };
 }
 
 /// Converts an integer which has host endianness to little endian.
 pub fn nativeToLittle(comptime T: type, x: T) T {
     return switch (builtin.endian) {
-        builtin.Endian.Little => x,
-        builtin.Endian.Big => @byteSwap(T, x),
+        .Little => x,
+        .Big => @byteSwap(T, x),
     };
 }
 
 /// Converts an integer which has host endianness to big endian.
 pub fn nativeToBig(comptime T: type, x: T) T {
     return switch (builtin.endian) {
-        builtin.Endian.Little => @byteSwap(T, x),
-        builtin.Endian.Big => x,
+        .Little => @byteSwap(T, x),
+        .Big => x,
     };
 }
 
 fn AsBytesReturnType(comptime P: type) type {
     if (comptime !trait.isSingleItemPtr(P))
-        @compileError("expected single item " ++ "pointer, passed " ++ @typeName(P));
+        @compileError("expected single item pointer, passed " ++ @typeName(P));
 
     const size = @as(usize, @sizeOf(meta.Child(P)));
     const alignment = comptime meta.alignment(P);
@@ -1469,8 +1578,8 @@ pub fn asBytes(ptr: var) AsBytesReturnType(@TypeOf(ptr)) {
 test "asBytes" {
     const deadbeef = @as(u32, 0xDEADBEEF);
     const deadbeef_bytes = switch (builtin.endian) {
-        builtin.Endian.Big => "\xDE\xAD\xBE\xEF",
-        builtin.Endian.Little => "\xEF\xBE\xAD\xDE",
+        .Big => "\xDE\xAD\xBE\xEF",
+        .Little => "\xEF\xBE\xAD\xDE",
     };
 
     testing.expect(eql(u8, asBytes(&deadbeef), deadbeef_bytes));
@@ -1508,21 +1617,21 @@ pub fn toBytes(value: var) [@sizeOf(@TypeOf(value))]u8 {
 test "toBytes" {
     var my_bytes = toBytes(@as(u32, 0x12345678));
     switch (builtin.endian) {
-        builtin.Endian.Big => testing.expect(eql(u8, &my_bytes, "\x12\x34\x56\x78")),
-        builtin.Endian.Little => testing.expect(eql(u8, &my_bytes, "\x78\x56\x34\x12")),
+        .Big => testing.expect(eql(u8, &my_bytes, "\x12\x34\x56\x78")),
+        .Little => testing.expect(eql(u8, &my_bytes, "\x78\x56\x34\x12")),
     }
 
     my_bytes[0] = '\x99';
     switch (builtin.endian) {
-        builtin.Endian.Big => testing.expect(eql(u8, &my_bytes, "\x99\x34\x56\x78")),
-        builtin.Endian.Little => testing.expect(eql(u8, &my_bytes, "\x99\x56\x34\x12")),
+        .Big => testing.expect(eql(u8, &my_bytes, "\x99\x34\x56\x78")),
+        .Little => testing.expect(eql(u8, &my_bytes, "\x99\x56\x34\x12")),
     }
 }
 
 fn BytesAsValueReturnType(comptime T: type, comptime B: type) type {
     const size = @as(usize, @sizeOf(T));
 
-    if (comptime !trait.is(builtin.TypeId.Pointer)(B) or
+    if (comptime !trait.is(.Pointer)(B) or
         (meta.Child(B) != [size]u8 and meta.Child(B) != [size:0]u8))
     {
         @compileError("expected *[N]u8 " ++ ", passed " ++ @typeName(B));
@@ -1542,15 +1651,15 @@ pub fn bytesAsValue(comptime T: type, bytes: var) BytesAsValueReturnType(T, @Typ
 test "bytesAsValue" {
     const deadbeef = @as(u32, 0xDEADBEEF);
     const deadbeef_bytes = switch (builtin.endian) {
-        builtin.Endian.Big => "\xDE\xAD\xBE\xEF",
-        builtin.Endian.Little => "\xEF\xBE\xAD\xDE",
+        .Big => "\xDE\xAD\xBE\xEF",
+        .Little => "\xEF\xBE\xAD\xDE",
     };
 
     testing.expect(deadbeef == bytesAsValue(u32, deadbeef_bytes).*);
 
     var codeface_bytes: [4]u8 = switch (builtin.endian) {
-        builtin.Endian.Big => "\xC0\xDE\xFA\xCE",
-        builtin.Endian.Little => "\xCE\xFA\xDE\xC0",
+        .Big => "\xC0\xDE\xFA\xCE",
+        .Little => "\xCE\xFA\xDE\xC0",
     }.*;
     var codeface = bytesAsValue(u32, &codeface_bytes);
     testing.expect(codeface.* == 0xC0DEFACE);
@@ -1583,8 +1692,8 @@ pub fn bytesToValue(comptime T: type, bytes: var) T {
 }
 test "bytesToValue" {
     const deadbeef_bytes = switch (builtin.endian) {
-        builtin.Endian.Big => "\xDE\xAD\xBE\xEF",
-        builtin.Endian.Little => "\xEF\xBE\xAD\xDE",
+        .Big => "\xDE\xAD\xBE\xEF",
+        .Little => "\xEF\xBE\xAD\xDE",
     };
 
     const deadbeef = bytesToValue(u32, deadbeef_bytes);
@@ -1753,8 +1862,13 @@ fn SubArrayPtrReturnType(comptime T: type, comptime length: usize) type {
     return *[length]meta.Child(meta.Child(T));
 }
 
-///Given a pointer to an array, returns a pointer to a portion of that array, preserving constness.
-pub fn subArrayPtr(ptr: var, comptime start: usize, comptime length: usize) SubArrayPtrReturnType(@TypeOf(ptr), length) {
+/// Given a pointer to an array, returns a pointer to a portion of that array, preserving constness.
+/// TODO this will be obsoleted by https://github.com/ziglang/zig/issues/863
+pub fn subArrayPtr(
+    ptr: var,
+    comptime start: usize,
+    comptime length: usize,
+) SubArrayPtrReturnType(@TypeOf(ptr), length) {
     assert(start + length <= ptr.*.len);
 
     const ReturnType = SubArrayPtrReturnType(@TypeOf(ptr), length);

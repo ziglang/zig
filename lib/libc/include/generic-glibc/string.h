@@ -1,4 +1,4 @@
-/* Copyright (C) 1991-2019 Free Software Foundation, Inc.
+/* Copyright (C) 1991-2020 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -13,7 +13,7 @@
 
    You should have received a copy of the GNU Lesser General Public
    License along with the GNU C Library; if not, see
-   <http://www.gnu.org/licenses/>.  */
+   <https://www.gnu.org/licenses/>.  */
 
 /*
  *	ISO C99 Standard: 7.21 String handling	<string.h>
@@ -33,7 +33,8 @@ __BEGIN_DECLS
 #include <stddef.h>
 
 /* Tell the caller that we provide correct C++ prototypes.  */
-#if defined __cplusplus && __GNUC_PREREQ (4, 4)
+#if defined __cplusplus && (__GNUC_PREREQ (4, 4) \
+			    || __glibc_clang_prereq (3, 5))
 # define __CORRECT_ISO_CPP_STRING_H_PROTO
 #endif
 
@@ -49,7 +50,7 @@ extern void *memmove (void *__dest, const void *__src, size_t __n)
 /* Copy no more than N bytes of SRC to DEST, stopping when C is found.
    Return the position in DEST one byte past where C was copied,
    or NULL if C was not found in the first N bytes of SRC.  */
-#if defined __USE_MISC || defined __USE_XOPEN
+#if defined __USE_MISC || defined __USE_XOPEN || __GLIBC_USE (ISOC2X)
 extern void *memccpy (void *__restrict __dest, const void *__restrict __src,
 		      int __c, size_t __n)
      __THROW __nonnull ((1, 2));
@@ -161,7 +162,7 @@ extern size_t strxfrm_l (char *__dest, const char *__src, size_t __n,
 #endif
 
 #if (defined __USE_XOPEN_EXTENDED || defined __USE_XOPEN2K8	\
-     || __GLIBC_USE (LIB_EXT2))
+     || __GLIBC_USE (LIB_EXT2) || __GLIBC_USE (ISOC2X))
 /* Duplicate S, returning an identical malloc'd string.  */
 extern char *strdup (const char *__s)
      __THROW __attribute_malloc__ __nonnull ((1));
@@ -170,7 +171,7 @@ extern char *strdup (const char *__s)
 /* Return a malloc'd copy of at most N bytes of STRING.  The
    resultant string is terminated even if no null terminator
    appears before STRING[N].  */
-#if defined __USE_XOPEN2K8 || __GLIBC_USE (LIB_EXT2)
+#if defined __USE_XOPEN2K8 || __GLIBC_USE (LIB_EXT2) || __GLIBC_USE (ISOC2X)
 extern char *strndup (const char *__string, size_t __n)
      __THROW __attribute_malloc__ __nonnull ((1));
 #endif

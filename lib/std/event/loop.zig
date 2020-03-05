@@ -34,7 +34,7 @@ pub const Loop = struct {
         handle: anyframe,
         overlapped: Overlapped,
 
-        pub const overlapped_init = switch (builtin.os) {
+        pub const overlapped_init = switch (builtin.os.tag) {
             .windows => windows.OVERLAPPED{
                 .Internal = 0,
                 .InternalHigh = 0,
@@ -52,7 +52,7 @@ pub const Loop = struct {
             EventFd,
         };
 
-        pub const EventFd = switch (builtin.os) {
+        pub const EventFd = switch (builtin.os.tag) {
             .macosx, .freebsd, .netbsd, .dragonfly => KEventFd,
             .linux => struct {
                 base: ResumeNode,
@@ -71,7 +71,7 @@ pub const Loop = struct {
             kevent: os.Kevent,
         };
 
-        pub const Basic = switch (builtin.os) {
+        pub const Basic = switch (builtin.os.tag) {
             .macosx, .freebsd, .netbsd, .dragonfly => KEventBasic,
             .linux => struct {
                 base: ResumeNode,
@@ -173,7 +173,7 @@ pub const Loop = struct {
     const wakeup_bytes = [_]u8{0x1} ** 8;
 
     fn initOsData(self: *Loop, extra_thread_count: usize) InitOsDataError!void {
-        switch (builtin.os) {
+        switch (builtin.os.tag) {
             .linux => {
                 self.os_data.fs_queue = std.atomic.Queue(Request).init();
                 self.os_data.fs_queue_item = 0;
@@ -236,7 +236,8 @@ pub const Loop = struct {
                 var extra_thread_index: usize = 0;
                 errdefer {
                     // writing 8 bytes to an eventfd cannot fail
-                    noasync os.write(self.os_data.final_eventfd, &wakeup_bytes) catch unreachable;
+                    const amt = noasync os.write(self.os_data.final_eventfd, &wakeup_bytes) catch unreachable;
+                    assert(amt == wakeup_bytes.len);
                     while (extra_thread_index != 0) {
                         extra_thread_index -= 1;
                         self.extra_threads[extra_thread_index].wait();
@@ -404,7 +405,7 @@ pub const Loop = struct {
     }
 
     fn deinitOsData(self: *Loop) void {
-        switch (builtin.os) {
+        switch (builtin.os.tag) {
             .linux => {
                 noasync os.close(self.os_data.final_eventfd);
                 while (self.available_eventfd_resume_nodes.pop()) |node| noasync os.close(node.data.eventfd);
@@ -568,7 +569,7 @@ pub const Loop = struct {
             };
             const eventfd_node = &resume_stack_node.data;
             eventfd_node.base.handle = next_tick_node.data;
-            switch (builtin.os) {
+            switch (builtin.os.tag) {
                 .macosx, .freebsd, .netbsd, .dragonfly => {
                     const kevent_array = @as(*const [1]os.Kevent, &eventfd_node.kevent);
                     const empty_kevs = &[0]os.Kevent{};
@@ -628,7 +629,7 @@ pub const Loop = struct {
 
         self.workerRun();
 
-        switch (builtin.os) {
+        switch (builtin.os.tag) {
             .linux,
             .macosx,
             .freebsd,
@@ -678,11 +679,12 @@ pub const Loop = struct {
         const prev = @atomicRmw(usize, &self.pending_event_count, AtomicRmwOp.Sub, 1, AtomicOrder.SeqCst);
         if (prev == 1) {
             // cause all the threads to stop
-            switch (builtin.os) {
+            switch (builtin.os.tag) {
                 .linux => {
                     self.posixFsRequest(&self.os_data.fs_end_request);
                     // writing 8 bytes to an eventfd cannot fail
-                    noasync os.write(self.os_data.final_eventfd, &wakeup_bytes) catch unreachable;
+                    const amt = noasync os.write(self.os_data.final_eventfd, &wakeup_bytes) catch unreachable;
+                    assert(amt == wakeup_bytes.len);
                     return;
                 },
                 .macosx, .freebsd, .netbsd, .dragonfly => {
@@ -831,7 +833,7 @@ pub const Loop = struct {
 
     /// Performs an async `os.write` using a separate thread.
     /// `fd` must block and not return EAGAIN.
-    pub fn write(self: *Loop, fd: os.fd_t, bytes: []const u8) os.WriteError!void {
+    pub fn write(self: *Loop, fd: os.fd_t, bytes: []const u8) os.WriteError!usize {
         var req_node = Request.Node{
             .data = .{
                 .msg = .{
@@ -852,7 +854,7 @@ pub const Loop = struct {
 
     /// Performs an async `os.writev` using a separate thread.
     /// `fd` must block and not return EAGAIN.
-    pub fn writev(self: *Loop, fd: os.fd_t, iov: []const os.iovec_const) os.WriteError!void {
+    pub fn writev(self: *Loop, fd: os.fd_t, iov: []const os.iovec_const) os.WriteError!usize {
         var req_node = Request.Node{
             .data = .{
                 .msg = .{
@@ -873,7 +875,7 @@ pub const Loop = struct {
 
     /// Performs an async `os.pwritev` using a separate thread.
     /// `fd` must block and not return EAGAIN.
-    pub fn pwritev(self: *Loop, fd: os.fd_t, iov: []const os.iovec_const, offset: u64) os.WriteError!void {
+    pub fn pwritev(self: *Loop, fd: os.fd_t, iov: []const os.iovec_const, offset: u64) os.WriteError!usize {
         var req_node = Request.Node{
             .data = .{
                 .msg = .{
@@ -902,7 +904,7 @@ pub const Loop = struct {
                 self.finishOneEvent();
             }
 
-            switch (builtin.os) {
+            switch (builtin.os.tag) {
                 .linux => {
                     // only process 1 event so we don't steal from other threads
                     var events: [1]os.linux.epoll_event = undefined;
@@ -989,7 +991,7 @@ pub const Loop = struct {
     fn posixFsRequest(self: *Loop, request_node: *Request.Node) void {
         self.beginOneEvent(); // finished in posixFsRun after processing the msg
         self.os_data.fs_queue.put(request_node);
-        switch (builtin.os) {
+        switch (builtin.os.tag) {
             .macosx, .freebsd, .netbsd, .dragonfly => {
                 const fs_kevs = @as(*const [1]os.Kevent, &self.os_data.fs_kevent_wake);
                 const empty_kevs = &[0]os.Kevent{};
@@ -1018,7 +1020,7 @@ pub const Loop = struct {
     // https://github.com/ziglang/zig/issues/3157
     fn posixFsRun(self: *Loop) void {
         while (true) {
-            if (builtin.os == .linux) {
+            if (builtin.os.tag == .linux) {
                 @atomicStore(i32, &self.os_data.fs_queue_item, 0, .SeqCst);
             }
             while (self.os_data.fs_queue.get()) |node| {
@@ -1053,7 +1055,7 @@ pub const Loop = struct {
                 }
                 self.finishOneEvent();
             }
-            switch (builtin.os) {
+            switch (builtin.os.tag) {
                 .linux => {
                     const rc = os.linux.futex_wait(&self.os_data.fs_queue_item, os.linux.FUTEX_WAIT, 0, null);
                     switch (os.linux.getErrno(rc)) {
@@ -1071,7 +1073,7 @@ pub const Loop = struct {
         }
     }
 
-    const OsData = switch (builtin.os) {
+    const OsData = switch (builtin.os.tag) {
         .linux => LinuxOsData,
         .macosx, .freebsd, .netbsd, .dragonfly => KEventData,
         .windows => struct {
@@ -1137,7 +1139,7 @@ pub const Loop = struct {
             pub const Write = struct {
                 fd: os.fd_t,
                 bytes: []const u8,
-                result: Error!void,
+                result: Error!usize,
 
                 pub const Error = os.WriteError;
             };
@@ -1145,7 +1147,7 @@ pub const Loop = struct {
             pub const WriteV = struct {
                 fd: os.fd_t,
                 iov: []const os.iovec_const,
-                result: Error!void,
+                result: Error!usize,
 
                 pub const Error = os.WriteError;
             };
@@ -1154,9 +1156,9 @@ pub const Loop = struct {
                 fd: os.fd_t,
                 iov: []const os.iovec_const,
                 offset: usize,
-                result: Error!void,
+                result: Error!usize,
 
-                pub const Error = os.WriteError;
+                pub const Error = os.PWriteError;
             };
 
             pub const PReadV = struct {
@@ -1165,7 +1167,7 @@ pub const Loop = struct {
                 offset: usize,
                 result: Error!usize,
 
-                pub const Error = os.ReadError;
+                pub const Error = os.PReadError;
             };
 
             pub const Open = struct {

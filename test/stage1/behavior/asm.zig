@@ -1,9 +1,10 @@
 const std = @import("std");
-const config = @import("builtin");
 const expect = std.testing.expect;
 
+const is_x86_64_linux = std.Target.current.cpu.arch == .x86_64 and std.Target.current.os.tag == .linux;
+
 comptime {
-    if (config.arch == config.Arch.x86_64 and config.os == config.Os.linux) {
+    if (is_x86_64_linux) {
         asm (
             \\.globl this_is_my_alias;
             \\.type this_is_my_alias, @function;
@@ -13,7 +14,7 @@ comptime {
 }
 
 test "module level assembly" {
-    if (config.arch == config.Arch.x86_64 and config.os == config.Os.linux) {
+    if (is_x86_64_linux) {
         expect(this_is_my_alias() == 1234);
     }
 }

@@ -1,5 +1,5 @@
 /* Definitions for POSIX memory map interface.  Linux generic version.
-   Copyright (C) 2001-2019 Free Software Foundation, Inc.
+   Copyright (C) 2001-2020 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -14,7 +14,7 @@
 
    You should have received a copy of the GNU Lesser General Public
    License along with the GNU C Library; if not, see
-   <http://www.gnu.org/licenses/>.  */
+   <https://www.gnu.org/licenses/>.  */
 
 #ifndef _SYS_MMAN_H
 # error "Never use <bits/mman-linux.h> directly; include <sys/mman.h> instead."
@@ -87,6 +87,8 @@
 # define MADV_DODUMP	  17	/* Clear the MADV_DONTDUMP flag.  */
 # define MADV_WIPEONFORK  18	/* Zero memory on fork, child only.  */
 # define MADV_KEEPONFORK  19	/* Undo MADV_WIPEONFORK.  */
+# define MADV_COLD        20	/* Deactivate these pages.  */
+# define MADV_PAGEOUT     21	/* Reclaim these pages.  */
 # define MADV_HWPOISON	  100	/* Poison a page for testing.  */
 #endif
 

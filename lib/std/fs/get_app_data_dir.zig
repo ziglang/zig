@@ -13,7 +13,7 @@ pub const GetAppDataDirError = error{
 /// Caller owns returned memory.
 /// TODO determine if we can remove the allocator requirement
 pub fn getAppDataDir(allocator: *mem.Allocator, appname: []const u8) GetAppDataDirError![]u8 {
-    switch (builtin.os) {
+    switch (builtin.os.tag) {
         .windows => {
             var dir_path_ptr: [*:0]u16 = undefined;
             switch (os.windows.shell32.SHGetKnownFolderPath(

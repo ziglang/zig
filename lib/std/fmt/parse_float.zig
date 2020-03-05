@@ -382,7 +382,7 @@ pub fn parseFloat(comptime T: type, s: []const u8) !T {
 }
 
 test "fmt.parseFloat" {
-    if (std.Target.current.isWindows()) {
+    if (std.Target.current.os.tag == .windows) {
         // TODO https://github.com/ziglang/zig/issues/508
         return error.SkipZigTest;
     }

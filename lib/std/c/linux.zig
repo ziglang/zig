@@ -82,6 +82,13 @@ pub extern "c" fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
 
 pub extern "c" fn memfd_create(name: [*:0]const u8, flags: c_uint) c_int;
 
+pub extern "c" fn sendfile(
+    out_fd: fd_t,
+    in_fd: fd_t,
+    offset: ?*off_t,
+    count: usize,
+) isize;
+
 pub const pthread_attr_t = extern struct {
     __size: [56]u8,
     __align: c_long,
@@ -94,7 +101,7 @@ pub const pthread_cond_t = extern struct {
     size: [__SIZEOF_PTHREAD_COND_T]u8 align(@alignOf(usize)) = [_]u8{0} ** __SIZEOF_PTHREAD_COND_T,
 };
 const __SIZEOF_PTHREAD_COND_T = 48;
-const __SIZEOF_PTHREAD_MUTEX_T = if (builtin.os == .fuchsia) 40 else switch (builtin.abi) {
+const __SIZEOF_PTHREAD_MUTEX_T = if (builtin.os.tag == .fuchsia) 40 else switch (builtin.abi) {
     .musl, .musleabi, .musleabihf => if (@sizeOf(usize) == 8) 40 else 24,
     .gnu, .gnuabin32, .gnuabi64, .gnueabi, .gnueabihf, .gnux32 => switch (builtin.arch) {
         .aarch64 => 48,

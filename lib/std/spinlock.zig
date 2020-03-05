@@ -46,7 +46,7 @@ pub const SpinLock = struct {
         // and yielding for 380-410 iterations was found to be
         // a nice sweet spot. Posix systems on the other hand,
         // especially linux, perform better by yielding the thread.
-        switch (builtin.os) {
+        switch (builtin.os.tag) {
             .windows => loopHint(400),
             else => std.os.sched_yield() catch loopHint(1),
         }

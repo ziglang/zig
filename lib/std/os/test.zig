@@ -16,7 +16,7 @@ const AtomicRmwOp = builtin.AtomicRmwOp;
 const AtomicOrder = builtin.AtomicOrder;
 
 test "makePath, put some files in it, deleteTree" {
-    try fs.makePath(a, "os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c");
+    try fs.cwd().makePath("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c");
     try io.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c" ++ fs.path.sep_str ++ "file.txt", "nonsense");
     try io.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "file2.txt", "blah");
     try fs.deleteTree("os_test_tmp");
@@ -28,7 +28,7 @@ test "makePath, put some files in it, deleteTree" {
 }
 
 test "access file" {
-    try fs.makePath(a, "os_test_tmp");
+    try fs.cwd().makePath("os_test_tmp");
     if (fs.cwd().access("os_test_tmp" ++ fs.path.sep_str ++ "file.txt", .{})) |ok| {
         @panic("expected error");
     } else |err| {
@@ -44,6 +44,68 @@ fn testThreadIdFn(thread_id: *Thread.Id) void {
     thread_id.* = Thread.getCurrentId();
 }
 
+test "sendfile" {
+    try fs.cwd().makePath("os_test_tmp");
+    defer fs.deleteTree("os_test_tmp") catch {};
+
+    var dir = try fs.cwd().openDirList("os_test_tmp");
+    defer dir.close();
+
+    const line1 = "line1\n";
+    const line2 = "second line\n";
+    var vecs = [_]os.iovec_const{
+        .{
+            .iov_base = line1,
+            .iov_len = line1.len,
+        },
+        .{
+            .iov_base = line2,
+            .iov_len = line2.len,
+        },
+    };
+
+    var src_file = try dir.createFileC("sendfile1.txt", .{ .read = true });
+    defer src_file.close();
+
+    try src_file.writevAll(&vecs);
+
+    var dest_file = try dir.createFileC("sendfile2.txt", .{ .read = true });
+    defer dest_file.close();
+
+    const header1 = "header1\n";
+    const header2 = "second header\n";
+    const trailer1 = "trailer1\n";
+    const trailer2 = "second trailer\n";
+    var hdtr = [_]os.iovec_const{
+        .{
+            .iov_base = header1,
+            .iov_len = header1.len,
+        },
+        .{
+            .iov_base = header2,
+            .iov_len = header2.len,
+        },
+        .{
+            .iov_base = trailer1,
+            .iov_len = trailer1.len,
+        },
+        .{
+            .iov_base = trailer2,
+            .iov_len = trailer2.len,
+        },
+    };
+
+    var written_buf: [header1.len + header2.len + 10 + trailer1.len + trailer2.len]u8 = undefined;
+    try dest_file.writeFileAll(src_file, .{
+        .in_offset = 1,
+        .in_len = 10,
+        .headers_and_trailers = &hdtr,
+        .header_count = 2,
+    });
+    try dest_file.preadAll(&written_buf, 0);
+    expect(mem.eql(u8, &written_buf, "header1\nsecond header\nine1\nsecontrailer1\nsecond trailer\n"));
+}
+
 test "std.Thread.getCurrentId" {
     if (builtin.single_threaded) return error.SkipZigTest;
 
@@ -53,7 +115,7 @@ test "std.Thread.getCurrentId" {
     thread.wait();
     if (Thread.use_pthreads) {
         expect(thread_current_id == thread_id);
-    } else if (builtin.os == .windows) {
+    } else if (builtin.os.tag == .windows) {
         expect(Thread.getCurrentId() != thread_current_id);
     } else {
         // If the thread completes very quickly, then thread_id can be 0. See the
@@ -103,7 +165,7 @@ test "AtomicFile" {
     {
         var af = try fs.AtomicFile.init(test_out_file, File.default_mode);
         defer af.deinit();
-        try af.file.write(test_content);
+        try af.file.writeAll(test_content);
         try af.finish();
     }
     const content = try io.readFileAlloc(testing.allocator, test_out_file);
@@ -151,7 +213,7 @@ test "realpath" {
 }
 
 test "sigaltstack" {
-    if (builtin.os == .windows or builtin.os == .wasi) return error.SkipZigTest;
+    if (builtin.os.tag == .windows or builtin.os.tag == .wasi) return error.SkipZigTest;
 
     var st: os.stack_t = undefined;
     try os.sigaltstack(null, &st);
@@ -204,7 +266,7 @@ fn iter_fn(info: *dl_phdr_info, size: usize, counter: *usize) IterFnError!void {
 }
 
 test "dl_iterate_phdr" {
-    if (builtin.os == .windows or builtin.os == .wasi or builtin.os == .macosx)
+    if (builtin.os.tag == .windows or builtin.os.tag == .wasi or builtin.os.tag == .macosx)
         return error.SkipZigTest;
 
     var counter: usize = 0;
@@ -213,7 +275,7 @@ test "dl_iterate_phdr" {
 }
 
 test "gethostname" {
-    if (builtin.os == .windows)
+    if (builtin.os.tag == .windows)
         return error.SkipZigTest;
 
     var buf: [os.HOST_NAME_MAX]u8 = undefined;
@@ -222,11 +284,11 @@ test "gethostname" {
 }
 
 test "pipe" {
-    if (builtin.os == .windows)
+    if (builtin.os.tag == .windows)
         return error.SkipZigTest;
 
     var fds = try os.pipe();
-    try os.write(fds[1], "hello");
+    expect((try os.write(fds[1], "hello")) == 5);
     var buf: [16]u8 = undefined;
     expect((try os.read(fds[0], buf[0..])) == 5);
     testing.expectEqualSlices(u8, buf[0..5], "hello");
@@ -241,14 +303,14 @@ test "argsAlloc" {
 
 test "memfd_create" {
     // memfd_create is linux specific.
-    if (builtin.os != .linux) return error.SkipZigTest;
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
     const fd = std.os.memfd_create("test", 0) catch |err| switch (err) {
         // Related: https://github.com/ziglang/zig/issues/4019
         error.SystemOutdated => return error.SkipZigTest,
         else => |e| return e,
     };
     defer std.os.close(fd);
-    try std.os.write(fd, "test");
+    expect((try std.os.write(fd, "test")) == 4);
     try std.os.lseek_SET(fd, 0);
 
     var buf: [10]u8 = undefined;
@@ -258,7 +320,7 @@ test "memfd_create" {
 }
 
 test "mmap" {
-    if (builtin.os == .windows)
+    if (builtin.os.tag == .windows)
         return error.SkipZigTest;
 
     // Simple mmap() call with non page-aligned size
@@ -353,7 +415,7 @@ test "mmap" {
 }
 
 test "getenv" {
-    if (builtin.os == .windows) {
+    if (builtin.os.tag == .windows) {
         expect(os.getenvW(&[_:0]u16{ 'B', 'O', 'G', 'U', 'S', 0x11, 0x22, 0x33, 0x44, 0x55 }) == null);
     } else {
         expect(os.getenvZ("BOGUSDOESNOTEXISTENVVAR") == null);

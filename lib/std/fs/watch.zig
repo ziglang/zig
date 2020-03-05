@@ -42,7 +42,7 @@ pub fn Watch(comptime V: type) type {
         os_data: OsData,
         allocator: *Allocator,
 
-        const OsData = switch (builtin.os) {
+        const OsData = switch (builtin.os.tag) {
             // TODO https://github.com/ziglang/zig/issues/3778
             .macosx, .freebsd, .netbsd, .dragonfly => KqOsData,
             .linux => LinuxOsData,
@@ -121,7 +121,7 @@ pub fn Watch(comptime V: type) type {
             const self = try allocator.create(Self);
             errdefer allocator.destroy(self);
 
-            switch (builtin.os) {
+            switch (builtin.os.tag) {
                 .linux => {
                     const inotify_fd = try os.inotify_init1(os.linux.IN_NONBLOCK | os.linux.IN_CLOEXEC);
                     errdefer os.close(inotify_fd);
@@ -172,7 +172,7 @@ pub fn Watch(comptime V: type) type {
 
         /// All addFile calls and removeFile calls must have completed.
         pub fn deinit(self: *Self) void {
-            switch (builtin.os) {
+            switch (builtin.os.tag) {
                 .macosx, .freebsd, .netbsd, .dragonfly => {
                     // TODO we need to cancel the frames before destroying the lock
                     self.os_data.table_lock.deinit();
@@ -223,7 +223,7 @@ pub fn Watch(comptime V: type) type {
         }
 
         pub fn addFile(self: *Self, file_path: []const u8, value: V) !?V {
-            switch (builtin.os) {
+            switch (builtin.os.tag) {
                 .macosx, .freebsd, .netbsd, .dragonfly => return addFileKEvent(self, file_path, value),
                 .linux => return addFileLinux(self, file_path, value),
                 .windows => return addFileWindows(self, file_path, value),
@@ -618,11 +618,10 @@ test "write a file, watch it, write it again" {
     // TODO re-enable this test
     if (true) return error.SkipZigTest;
 
-    const allocator = std.heap.page_allocator;
-
-    try os.makePath(allocator, test_tmp_dir);
+    try fs.cwd().makePath(test_tmp_dir);
     defer os.deleteTree(test_tmp_dir) catch {};
 
+    const allocator = std.heap.page_allocator;
     return testFsWatch(&allocator);
 }
 

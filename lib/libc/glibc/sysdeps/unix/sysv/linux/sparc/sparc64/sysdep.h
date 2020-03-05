@@ -1,4 +1,4 @@
-/* Copyright (C) 1997-2019 Free Software Foundation, Inc.
+/* Copyright (C) 1997-2020 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
    Contributed by Richard Henderson <richard@gnu.ai.mit.edu>, 1997.
 
@@ -14,7 +14,7 @@
 
    You should have received a copy of the GNU Lesser General Public
    License along with the GNU C Library; if not, see
-   <http://www.gnu.org/licenses/>.  */
+   <https://www.gnu.org/licenses/>.  */
 
 #ifndef _LINUX_SPARC64_SYSDEP_H
 #define _LINUX_SPARC64_SYSDEP_H 1
@@ -28,16 +28,6 @@
 
 #undef SYS_ify
 #define SYS_ify(syscall_name) __NR_##syscall_name
-
-/* This is a kludge to make syscalls.list find these under the names
-   pread and pwrite, since some kernel headers define those names
-   and some define the *64 names for the same system calls.  */
-#if !defined __NR_pread && defined __NR_pread64
-# define __NR_pread __NR_pread64
-#endif
-#if !defined __NR_pwrite && defined __NR_pwrite64
-# define __NR_pwrite __NR_pwrite64
-#endif
 
 #ifdef __ASSEMBLER__
 

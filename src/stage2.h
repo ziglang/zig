@@ -103,6 +103,8 @@ enum Error {
     ErrorWindowsSdkNotFound,
     ErrorUnknownDynamicLinkerPath,
     ErrorTargetHasNoDynamicLinker,
+    ErrorInvalidAbiVersion,
+    ErrorInvalidOperatingSystemVersion,
 };
 
 // ABI warning
@@ -268,13 +270,11 @@ enum Os {
 };
 
 // ABI warning
-struct ZigGLibCVersion {
-    uint32_t major; // always 2
+struct Stage2SemVer {
+    uint32_t major;
     uint32_t minor;
     uint32_t patch;
 };
-
-struct Stage2TargetData;
 
 // ABI warning
 struct ZigTarget {
@@ -286,20 +286,20 @@ struct ZigTarget {
 
     bool is_native;
 
-    struct ZigGLibCVersion *glibc_version; // null means default
+    // null means default. this is double-purposed to be darwin min version
+    struct Stage2SemVer *glibc_or_darwin_version;
 
     const char *llvm_cpu_name;
     const char *llvm_cpu_features;
-    const char *builtin_str;
+    const char *cpu_builtin_str;
     const char *cache_hash;
+    const char *os_builtin_str;
+    const char *dynamic_linker;
 };
 
 // ABI warning
-ZIG_EXTERN_C enum Error stage2_detect_dynamic_linker(const struct ZigTarget *target,
-        char **out_ptr, size_t *out_len);
-
-// ABI warning
-ZIG_EXTERN_C enum Error stage2_target_parse(struct ZigTarget *target, const char *zig_triple, const char *mcpu);
+ZIG_EXTERN_C enum Error stage2_target_parse(struct ZigTarget *target, const char *zig_triple, const char *mcpu,
+        const char *dynamic_linker);
 
 
 // ABI warning

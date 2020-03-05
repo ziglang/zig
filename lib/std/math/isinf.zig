@@ -74,7 +74,7 @@ pub fn isNegativeInf(x: var) bool {
 }
 
 test "math.isInf" {
-    if (std.Target.current.isWindows()) {
+    if (std.Target.current.os.tag == .windows) {
         // TODO https://github.com/ziglang/zig/issues/508
         return error.SkipZigTest;
     }
@@ -97,7 +97,7 @@ test "math.isInf" {
 }
 
 test "math.isPositiveInf" {
-    if (std.Target.current.isWindows()) {
+    if (std.Target.current.os.tag == .windows) {
         // TODO https://github.com/ziglang/zig/issues/508
         return error.SkipZigTest;
     }
@@ -120,7 +120,7 @@ test "math.isPositiveInf" {
 }
 
 test "math.isNegativeInf" {
-    if (std.Target.current.isWindows()) {
+    if (std.Target.current.os.tag == .windows) {
         // TODO https://github.com/ziglang/zig/issues/508
         return error.SkipZigTest;
     }

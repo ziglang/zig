@@ -1,4 +1,4 @@
-/* Copyright (C) 2004-2019 Free Software Foundation, Inc.
+/* Copyright (C) 2004-2020 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -13,7 +13,7 @@
 
    You should have received a copy of the GNU Lesser General Public
    License along with the GNU C Library.  If not, see
-   <http://www.gnu.org/licenses/>.  */
+   <https://www.gnu.org/licenses/>.  */
 
 #ifndef _FENV_H
 # error "Never use <bits/fenv.h> directly; include <fenv.h> instead."
@@ -81,7 +81,7 @@ fenv_t;
 # define FE_NOMASK_ENV  ((const fenv_t *) -2)
 #endif
 
-#if __GLIBC_USE (IEC_60559_BFP_EXT)
+#if __GLIBC_USE (IEC_60559_BFP_EXT_C2X)
 /* Type representing floating-point control modes.  */
 typedef unsigned int femode_t;
 

@@ -168,7 +168,7 @@ fn usage() void {
 }
 
 fn mode(comptime x: comptime_int) comptime_int {
-    return if (builtin.mode == builtin.Mode.Debug) x / 64 else x;
+    return if (builtin.mode == .Debug) x / 64 else x;
 }
 
 pub fn main() !void {

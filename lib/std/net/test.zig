@@ -63,7 +63,7 @@ test "parse and render IPv4 addresses" {
 }
 
 test "resolve DNS" {
-    if (std.builtin.os == .windows) {
+    if (std.builtin.os.tag == .windows) {
         // DNS resolution not implemented on Windows yet.
         return error.SkipZigTest;
     }
@@ -81,7 +81,7 @@ test "resolve DNS" {
 test "listen on a port, send bytes, receive bytes" {
     if (!std.io.is_async) return error.SkipZigTest;
 
-    if (std.builtin.os != .linux) {
+    if (std.builtin.os.tag != .linux) {
         // TODO build abstractions for other operating systems
         return error.SkipZigTest;
     }
