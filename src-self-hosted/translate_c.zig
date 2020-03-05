@@ -609,7 +609,8 @@ fn visitVarDecl(c: *Context, var_decl: *const ZigClangVarDecl) Error!void {
         else
             try transCreateNodeUndefinedLiteral(c);
     } else if (storage_class != .Extern) {
-        return failDecl(c, var_decl_loc, checked_name, "non-extern variable has no initializer", .{});
+        eq_tok = try appendToken(c, .Equal, "=");
+        init_node = try transCreateNodeTypeIdentifier(c, "undefined");
     }
 
     const linksection_expr = blk: {
