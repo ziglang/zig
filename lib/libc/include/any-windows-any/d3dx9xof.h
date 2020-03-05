@@ -50,7 +50,7 @@ typedef struct _D3DXF_FILELOADRESOURCE
 
 typedef struct _D3DXF_FILELOADMEMORY
 {
-    void *lpMemory;
+    const void *lpMemory;
     SIZE_T dSize;
 } D3DXF_FILELOADMEMORY;
 

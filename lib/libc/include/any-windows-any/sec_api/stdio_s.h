@@ -8,8 +8,6 @@
 
 #include <stdio.h>
 
-#if defined(MINGW_HAS_SECURE_API)
-
 #if defined(__LIBMSVCRT__)
 /* When building mingw-w64, this should be blank.  */
 #define _SECIMP
@@ -29,7 +27,7 @@ extern "C" {
 
   size_t __cdecl fread_s(void *_DstBuf,size_t _DstSize,size_t _ElementSize,size_t _Count,FILE *_File);
 
-#if __MSVCRT_VERSION__ >= 0x1400
+#ifdef _UCRT
   int __cdecl __stdio_common_vsprintf_s(unsigned __int64 _Options, char *_Str, size_t _Len, const char *_Format, _locale_t _Locale, va_list _ArgList);
   int __cdecl __stdio_common_vsprintf_p(unsigned __int64 _Options, char *_Str, size_t _Len, const char *_Format, _locale_t _Locale, va_list _ArgList);
   int __cdecl __stdio_common_vsnprintf_s(unsigned __int64 _Options, char *_Str, size_t _Len, size_t _MaxCount, const char *_Format, _locale_t _Locale, va_list _ArgList);
@@ -467,7 +465,7 @@ extern "C" {
     __builtin_va_end(_ArgList);
     return _Ret;
   }
-#else /* __MSVCRT_VERSION__ >= 0x1400 */
+#else /* _UCRT */
   int __cdecl fprintf_s(FILE *_File,const char *_Format,...);
   _CRTIMP int __cdecl _fscanf_s_l(FILE *_File,const char *_Format,_locale_t _Locale,...);
   int __cdecl printf_s(const char *_Format,...);
@@ -532,7 +530,7 @@ extern "C" {
   _CRTIMP int __cdecl _snprintf_c_l(char *_DstBuf,size_t _MaxCount,const char *_Format,_locale_t _Locale,...);
   _CRTIMP int __cdecl _vsnprintf_l(char *_DstBuf,size_t _MaxCount,const char *_Format,_locale_t _Locale,va_list _ArgList);
   _CRTIMP int __cdecl _vsnprintf_c_l(char *_DstBuf,size_t _MaxCount,const char *,_locale_t _Locale,va_list _ArgList);
-#endif /* __MSVCRT_VERSION__ < 0x1400 */
+#endif /* !_UCRT */
 
   __DEFINE_CPP_OVERLOAD_SECURE_FUNC_0_3(int,vsnprintf_s,char,_DstBuf,size_t,_MaxCount,const char*,_Format,va_list,_ArgList)
   __DEFINE_CPP_OVERLOAD_SECURE_FUNC_0_3(int,_vsnprintf_s,char,_DstBuf,size_t,_MaxCount,const char*,_Format,va_list,_ArgList)
@@ -555,7 +553,7 @@ extern "C" {
   _CRTIMP wchar_t *__cdecl _getws_s(wchar_t *_Str,size_t _SizeInWords);
   __DEFINE_CPP_OVERLOAD_SECURE_FUNC_0_0(wchar_t*,_getws_s,wchar_t,_DstBuf)
 
-#if __MSVCRT_VERSION__ >= 0x1400
+#ifdef _UCRT
   int __cdecl __stdio_common_vswprintf_s(unsigned __int64 _Options, wchar_t *_Str, size_t _Len, const wchar_t *_Format, _locale_t _Locale, va_list _ArgList);
   int __cdecl __stdio_common_vsnwprintf_s(unsigned __int64 _Options, wchar_t *_Str, size_t _Len, size_t _MaxCount, const wchar_t *_Format, _locale_t _Locale, va_list _ArgList);
   int __cdecl __stdio_common_vfwprintf_s(unsigned __int64 _Options, FILE *_File, const wchar_t *_Format, _locale_t _Locale, va_list _ArgList);
@@ -735,7 +733,7 @@ extern "C" {
     __builtin_va_end(_ArgList);
     return _Ret;
   }
-#else /* __MSVCRT_VERSION__ >= 0x1400 */
+#else /* _UCRT */
   int __cdecl fwprintf_s(FILE *_File,const wchar_t *_Format,...);
   int __cdecl wprintf_s(const wchar_t *_Format,...);
   int __cdecl vfwprintf_s(FILE *_File,const wchar_t *_Format,va_list _ArgList);
@@ -764,7 +762,7 @@ extern "C" {
   _CRTIMP int __cdecl _snwscanf_s(const wchar_t *_Src,size_t _MaxCount,const wchar_t *_Format,...);
   _CRTIMP int __cdecl _snwscanf_s_l(const wchar_t *_Src,size_t _MaxCount,const wchar_t *_Format,_locale_t _Locale,...);
   _CRTIMP int __cdecl _wscanf_s_l(const wchar_t *_Format,_locale_t _Locale,...);
-#endif /* __MSVCRT_VERSION__ < 0x1400 */
+#endif /* !_UCRT */
 
   __DEFINE_CPP_OVERLOAD_SECURE_FUNC_0_2(int, vswprintf_s, wchar_t, _Dst, const wchar_t*, _Format, va_list, _ArgList)
   __DEFINE_CPP_OVERLOAD_SECURE_FUNC_0_1_ARGLIST(int,swprintf_s,vswprintf_s,wchar_t,_Dst,const wchar_t*,_Format)
@@ -777,7 +775,7 @@ extern "C" {
   _CRTIMP errno_t __cdecl _wtmpnam_s(wchar_t *_DstBuf,size_t _SizeInWords);
   __DEFINE_CPP_OVERLOAD_SECURE_FUNC_0_0(errno_t,_wtmpnam_s,wchar_t,_DstBuf)
 
-#if __MSVCRT_VERSION__ < 0x1400
+#ifndef _UCRT
   _CRTIMP int __cdecl _fwprintf_p(FILE *_File,const wchar_t *_Format,...);
   _CRTIMP int __cdecl _wprintf_p(const wchar_t *_Format,...);
   _CRTIMP int __cdecl _vfwprintf_p(FILE *_File,const wchar_t *_Format,va_list _ArgList);
@@ -810,7 +808,7 @@ extern "C" {
   _CRTIMP int __cdecl _swscanf_l(const wchar_t *_Src,const wchar_t *_Format,_locale_t _Locale,...);
   _CRTIMP int __cdecl _snwscanf_l(const wchar_t *_Src,size_t _MaxCount,const wchar_t *_Format,_locale_t _Locale,...);
   _CRTIMP int __cdecl _wscanf_l(const wchar_t *_Format,_locale_t _Locale,...);
-#endif /* __MSVCRT_VERSION__ < 0x1400 */
+#endif /* !_UCRT */
 
 #endif /* _WSTDIO_S_DEFINED */
 #endif /* _STDIO_S_DEFINED */
@@ -819,6 +817,5 @@ extern "C" {
 
 #ifdef __cplusplus
 }
-#endif
 #endif
 #endif

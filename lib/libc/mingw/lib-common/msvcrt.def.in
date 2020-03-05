@@ -226,7 +226,8 @@ _CrtSetReportHook
 _CrtSetReportHook2
 _CrtSetReportMode
 #endif
-_CxxThrowException
+F_I386(_CxxThrowException@8)
+F_NON_I386(_CxxThrowException)
 F_I386(_EH_prolog)
 _Getdays
 _Getmonths
@@ -245,7 +246,7 @@ F_I386(__CxxCallUnwindDtor)
 F_I386(__CxxCallUnwindVecDtor)
 F_I386(__CxxDetectRethrow)
 F_I386(__CxxExceptionFilter)
-__CxxFrameHandler
+F_X86_ANY(__CxxFrameHandler)
 F_ARM_ANY(__CxxFrameHandler3)
 F_I386(__CxxLongjmpUnwind)
 F_I386(__CxxQueryExceptionSize)
@@ -259,9 +260,13 @@ __STRINGTOLD
 F_NON_I386(___lc_codepage_func)
 ___lc_collate_cp_func
 ___lc_handle_func
-___mb_cur_max_func
-___setlc_active_func
-___unguarded_readlc_active_add_func
+; ___mb_cur_max_func exists (on all archs) since XP. Earlier, this function
+; was never used, but the __mb_cur_max data symbol was accessed instead.
+; For i386 we provide this function as a statically linked helper, that uses
+; __mb_cur_max, to avoid forcing a dependency on XP here.
+F_NON_I386(___mb_cur_max_func)
+F_X86_ANY(___setlc_active_func)
+F_X86_ANY(___unguarded_readlc_active_add_func)
 __argc DATA
 __argv DATA
 __badioinfo DATA
@@ -284,8 +289,8 @@ __isascii
 __iscsym
 __iscsymf
 F_I386(__lc_clike)
-__lc_codepage DATA
-__lc_collate_cp DATA
+F_X86_ANY(__lc_codepage DATA)
+F_X86_ANY(__lc_collate_cp DATA)
 __lc_handle DATA
 __lconv_init
 __mb_cur_max DATA
@@ -327,16 +332,16 @@ __pxcptinfoptrs
 F_I386(__security_error_handler)
 __set_app_type
 F_I386(__set_buffer_overrun_handler)
-__setlc_active DATA
+F_X86_ANY(__setlc_active DATA)
 __setusermatherr
 F_ARM_ANY(__strncnt)
-__threadhandle
-__threadid
+F_X86_ANY(__threadhandle)
+F_X86_ANY(__threadid)
 __toascii
 __uncaught_exception
 __unDName
 __unDNameEx
-__unguarded_readlc_active DATA
+F_X86_ANY(__unguarded_readlc_active DATA)
 __wargv DATA
 __wcserror
 F_NON_I386(__wcserror_s)
@@ -376,7 +381,7 @@ F_ARM_ANY(_aligned_offset_realloc_dbg)
 _aligned_realloc
 F_ARM_ANY(_aligned_realloc_dbg)
 _amsg_exit
-_assert DATA
+_assert
 _atodbl
 _atodbl_l
 _atof_l
@@ -387,7 +392,7 @@ _atoi_l
 _atol_l
 _atoldbl
 F_NON_I386(_atoldbl_l)
-_beep
+F_X86_ANY(_beep)
 _beginthread
 _beginthreadex
 _c_exit
@@ -428,7 +433,7 @@ _cputs
 _cputws
 F_I386(_CRT_RTC_INIT)
 _creat
-_create_locale
+F_ARM_ANY(_create_locale)
 F_ARM32(_crtAssertBusy)
 F_ARM32(_crtBreakAlloc)
 F_ARM32(_crtDbgFlag)
@@ -453,10 +458,10 @@ _cwscanf
 _cwscanf_l
 _cwscanf_s
 _cwscanf_s_l
-_dstbias DATA
+F_X86_ANY(_dstbias DATA)
 F_ARM_ANY(_daylight DATA)
-F_ARM_ANY(_difftime32)
-F_ARM_ANY(_difftime64)
+_difftime32 F_I386(== difftime)
+_difftime64
 _dup
 _dup2
 _ecvt
@@ -520,7 +525,7 @@ _fprintf_s_l
 _fputchar
 _fputwchar
 F_ARM_ANY(_free_dbg)
-_free_locale
+F_ARM_ANY(_free_locale)
 F_ARM_ANY(_freea)
 F_NON_I386(_fscanf_l)
 F_NON_I386(_fscanf_s_l)
@@ -532,7 +537,8 @@ _fstat64
 _fstati64
 F64(_fstat64i32 == _fstat)
 _ftime
-F_ARM_ANY(_ftime32)
+F_I386(_ftime32 == _ftime)
+F_NON_I386(_ftime32)
 _ftime32_s
 _ftime64
 _ftime64_s
@@ -542,7 +548,8 @@ F_I386(_ftol)
 _fullpath
 F_ARM_ANY(_fullpath_dbg)
 _futime
-F_ARM_ANY(_futime32)
+F_I386(_futime32 == _futime)
+F_NON_I386(_futime32)
 _futime64
 _fwprintf_l
 _fwprintf_p
@@ -558,10 +565,10 @@ F_ARM_ANY(_get_environ)
 F_ARM_ANY(_get_errno)
 F_ARM_ANY(_get_fileinfo)
 F_ARM_ANY(_get_fmode)
-_get_heap_handle
+F_X86_ANY(_get_heap_handle)
 _get_osfhandle
 ;_get_output_format provided by emu
-_get_sbh_threshold
+F_X86_ANY(_get_sbh_threshold)
 F_ARM_ANY(_get_wenviron)
 _getch
 _getche
@@ -570,25 +577,25 @@ _getdcwd
 _getdiskfree
 _getdllprocaddr
 _getdrive
-_getdrives
+F_X86_ANY(_getdrives)
 _getmaxstdio
 _getmbcp
-_getpid
-_getsystime
+F_X86_ANY(_getpid)
+F_X86_ANY(_getsystime)
 _getw
 _getwch
 _getwche
-_getws
+F_X86_ANY(_getws)
 F_I386(_global_unwind2)
 _gmtime32 F_I386(== gmtime)
 ; _gmtime32_s replaced by emu
 _gmtime64
 ; _gmtime64_s replaced by emu
-_heapadd
+F_X86_ANY(_heapadd)
 _heapchk
 _heapmin
-_heapset
-_heapused
+F_X86_ANY(_heapset)
+F_X86_ANY(_heapused)
 _heapwalk
 _hypot
 F_NON_I386(_hypotf)
@@ -698,7 +705,7 @@ _j1
 _jn
 _kbhit
 _lfind
-_loaddll
+F_X86_ANY(_loaddll)
 F_NON_I386(_lfind_s)
 F_X64(_local_unwind)
 F_I386(_local_unwind2)
@@ -868,9 +875,8 @@ _memicmp
 _memicmp_l
 _mkdir
 _mkgmtime
-F_I386(_mkgmtime32)
-F_ARM_ANY(_mkgmtime32)
-F_NON_I386(_mkgmtime64)
+_mkgmtime32
+_mkgmtime64
 _mktemp
 ; _mktemp_s replaced by emu
 F_I386(_mktime32 == mktime)
@@ -883,7 +889,7 @@ F_X64(_nextafterf)
 _onexit
 _open
 _open_osfhandle
-_osplatform DATA
+F_X86_ANY(_osplatform DATA)
 _osver DATA
 F_I386(_outp)
 F_I386(_outpd)
@@ -941,19 +947,19 @@ F_ARM_ANY(_set_fileinfo)
 F_ARM_ANY(_set_fmode)
 ; Does not seem to present even on Win7 msvcrt
 ;_set_purecall_handler
-_set_sbh_threshold
+F_X86_ANY(_set_sbh_threshold)
 ; _set_output_format provided by emu
 F_I386(_set_SSE2_enable)
 F_I386(_set_security_error_handler)
-_seterrormode
+F_X86_ANY(_seterrormode)
 _setjmp
 F_I386(_setjmp3)
 F_NON_I386(_setjmpex)
-_setmaxstdio
+F_X86_ANY(_setmaxstdio)
 _setmbcp
 _setmode
-_setsystime
-_sleep
+F_X86_ANY(_setsystime)
+F_X86_ANY(_sleep)
 _snprintf
 _snprintf_c
 _snprintf_c_l
@@ -1074,10 +1080,11 @@ _umask
 _ungetch
 _ungetwch
 _unlink
-_unloaddll
+F_X86_ANY(_unloaddll)
 _unlock
 _utime
-F_ARM_ANY(_utime32)
+F_I386(_utime32 == _utime)
+F_NON_I386(_utime32)
 _utime64
 _vcprintf
 _vcprintf_l
@@ -1138,7 +1145,7 @@ _waccess
 ; _waccess_s Replaced by emu
 _wasctime
 ; _wasctime_s Replaced by emu
-F_ARM_ANY(_wassert)
+F_NON_I386(_wassert)
 _wchdir
 _wchmod
 _wcmdln DATA
@@ -1227,7 +1234,7 @@ _wgetenv_s
 _winmajor DATA
 _winminor DATA
 _winput_s
-_winver DATA
+F_X86_ANY(_winver DATA)
 _wmakepath
 _wmakepath_s
 _wmkdir
@@ -1289,7 +1296,8 @@ _wtol
 _wtol_l
 _wunlink
 _wutime
-F_ARM_ANY(_wutime32)
+F_I386(_wutime32 == _wutime)
+F_NON_I386(_wutime32)
 _wutime64
 _y0
 _y1
@@ -1298,14 +1306,18 @@ abort
 abs
 acos
 F_NON_I386(acosf F_X86_ANY(DATA))
+F_ARM_ANY(acosl == acos)
 asctime
 ; asctime_s replaced by emu
 asin
 F_NON_I386(asinf F_X86_ANY(DATA))
+F_ARM_ANY(asinl == asin)
 atan
 atan2 F_X86_ANY(DATA)
 F_NON_I386(atan2f F_X86_ANY(DATA))
+F_ARM_ANY(atan2l == atan2)
 F_NON_I386(atanf F_X86_ANY(DATA))
+F_ARM_ANY(atanl == atan)
 atexit DATA
 atof
 atoi
@@ -1314,13 +1326,15 @@ bsearch
 bsearch_s
 F_ARM_ANY(btowc)
 calloc
-ceil DATA
-F_NON_I386(ceilf DATA)
+ceil F_X86_ANY(DATA)
+F_NON_I386(ceilf F_X86_ANY(DATA))
+F_ARM_ANY(ceill == ceil)
 clearerr
 clearerr_s
 clock
 cos F_X86_ANY(DATA)
 F_NON_I386(cosf F_X86_ANY(DATA))
+F_ARM_ANY(cosl == cos)
 cosh
 F_NON_I386(coshf DATA)
 ctime
@@ -1329,6 +1343,7 @@ div
 exit
 exp F_X86_ANY(DATA)
 F_NON_I386(expf F_X86_ANY(DATA))
+F_ARM_ANY(expl == exp)
 fabs DATA
 F_ARM_ANY(fabsf)
 fclose
@@ -1340,10 +1355,12 @@ fgetpos
 fgets
 fgetwc
 fgetws
-floor DATA
-F_NON_I386(floorf DATA)
+floor F_X86_ANY(DATA)
+F_NON_I386(floorf F_X86_ANY(DATA))
+F_ARM_ANY(floorl == floor)
 fmod F_X86_ANY(DATA)
 F_NON_I386(fmodf F_X86_ANY(DATA))
+F_ARM_ANY(fmodl == fmod)
 fopen
 fopen_s
 fprintf
@@ -1356,8 +1373,7 @@ fread
 free
 freopen
 freopen_s
-; If we implement frexp, we can set it to DATA only.
-frexp
+frexp DATA
 fscanf
 fscanf_s
 fseek
@@ -1373,7 +1389,7 @@ getc
 getchar
 getenv
 getenv_s
-gets
+F_X86_ANY(gets)
 getwc
 getwchar
 gmtime
@@ -1411,8 +1427,9 @@ localtime
 log F_X86_ANY(DATA)
 log10
 F_NON_I386(log10f F_X86_ANY(DATA))
+F_ARM_ANY(log10l == log10)
 F_NON_I386(logf F_X86_ANY(DATA))
-F_ARM_ANY(longjmp)
+F_ARM_ANY(logl == log)
 malloc
 mblen
 F_ARM_ANY(mbrlen)
@@ -1434,8 +1451,8 @@ mktime
 modf DATA
 F_NON_I386(modff DATA)
 perror
-pow F_X86_ANY(DATA)
-F_NON_I386(powf F_X86_ANY(DATA))
+pow DATA
+F_NON_I386(powf DATA)
 printf
 printf_s
 putc
@@ -1461,6 +1478,7 @@ setvbuf
 signal
 sin F_X86_ANY(DATA)
 F_NON_I386(sinf F_X86_ANY(DATA))
+F_ARM_ANY(sinl == sin)
 ; if we implement sinh, we can set it DATA only.
 sinh
 F_NON_I386(sinhf DATA)
@@ -1506,6 +1524,7 @@ swscanf_s
 system
 tan
 F_NON_I386(tanf F_X86_ANY(DATA))
+F_ARM_ANY(tanl == tan)
 ; if we implement tanh, we can set it to DATA only.
 tanh
 F_ARM_ANY(tanhf)

@@ -137,13 +137,10 @@ mbsrtowcs (wchar_t* __restrict__ dst,  const char ** __restrict__ src,
   else
     {
       wchar_t byte_bucket = 0;
-      while ((ret = __mbrtowc_cp (&byte_bucket, *src, mb_max,
+      while ((ret = __mbrtowc_cp (&byte_bucket, *src + n, mb_max,
 				     internal_ps, cp, mb_max))
 		  > 0)
-	{
-	  *src += ret;
-	  n += ret;
-	}
+	n += ret;
     }
   return n;
 }

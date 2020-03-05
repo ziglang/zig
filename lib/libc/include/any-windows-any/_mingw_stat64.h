@@ -4,7 +4,7 @@
 #define _fstat _fstat32
 #define _stat _stat32
 #define _wstat _wstat32
-#if __MSVCRT_VERSION__ >= 0x1400
+#ifdef _UCRT
 #define _fstati64 _fstat32i64
 #define _stati64 _stat32i64
 #define _wstati64 _wstat32i64

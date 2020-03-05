@@ -20,13 +20,113 @@
 
 typedef HANDLE HTHEME;
 
+#if (NTDDI_VERSION >= NTDDI_VISTA)
+#define MAX_THEMECOLOR 64
+#define MAX_THEMESIZE 64
+#endif
+
 #if (NTDDI_VERSION >= NTDDI_WIN7)
 THEMEAPI_(WINBOOL) BeginPanningFeedback(HWND hwnd);
 THEMEAPI_(WINBOOL) UpdatePanningFeedback(HWND hwnd,LONG lTotalOverpanOffsetX,LONG lTotalOverpanOffsetY,WINBOOL fInInertia);
 THEMEAPI_(WINBOOL) EndPanningFeedback(HWND hwnd,WINBOOL fAnimateBack);
 #endif
 
-#if _WIN32_WINNT >= 0x0600
+#if (NTDDI_VERSION >= NTDDI_WIN8)
+
+typedef enum TA_PROPERTY {
+    TAP_FLAGS,
+    TAP_TRANSFORMCOUNT,
+    TAP_STAGGERDELAY,
+    TAP_STAGGERDELAYCAP,
+    TAP_STAGGERDELAYFACTOR,
+    TAP_ZORDER,
+} TA_PROPERTY;
+
+typedef enum TA_PROPERTY_FLAG {
+    TAPF_NONE = 0x0,
+    TAPF_HASSTAGGER = 0x1,
+    TAPF_ISRTLAWARE = 0x2,
+    TAPF_ALLOWCOLLECTION = 0x4,
+    TAPF_HASBACKGROUND = 0x8,
+    TAPF_HASPERSPECTIVE = 0x10,
+} TA_PROPERTY_FLAG;
+
+THEMEAPI GetThemeAnimationProperty(HTHEME hTheme, int iStoryboardId, int iTargetId, TA_PROPERTY eProperty, VOID *pvProperty, DWORD cbSize, DWORD *pcbSizeOut);
+
+typedef enum TA_TRANSFORM_TYPE {
+    TATT_TRANSLATE_2D,
+    TATT_SCALE_2D,
+    TATT_OPACITY,
+    TATT_CLIP,
+} TA_TRANSFORM_TYPE;
+
+typedef enum TA_TRANSFORM_FLAG {
+    TATF_NONE = 0x0,
+    TATF_TARGETVALUES_USER = 0x1,
+    TATF_HASINITIALVALUES = 0x2,
+    TATF_HASORIGINVALUES = 0x4,
+} TA_TRANSFORM_FLAG;
+
+typedef struct TA_TRANSFORM {
+    TA_TRANSFORM_TYPE eTransformType;
+    DWORD dwTimingFunctionId;
+    DWORD dwStartTime;
+    DWORD dwDurationTime;
+    TA_TRANSFORM_FLAG eFlags;
+} TA_TRANSFORM, *PTA_TRANSFORM;
+
+typedef struct TA_TRANSFORM_2D {
+    TA_TRANSFORM header;
+    float rX;
+    float rY;
+    float rInitialX;
+    float rInitialY;
+    float rOriginX;
+    float rOriginY;
+} TA_TRANSFORM_2D, *PTA_TRANSFORM_2D;
+
+typedef struct TA_TRANSFORM_OPACITY {
+    TA_TRANSFORM header;
+    float rOpacity;
+    float rInitialOpacity;
+} TA_TRANSFORM_OPACITY, *PTA_TRANSFORM_OPACITY;
+
+typedef struct TA_TRANSFORM_CLIP {
+    TA_TRANSFORM header;
+    float rLeft;
+    float rTop;
+    float rRight;
+    float rBottom;
+    float rInitialLeft;
+    float rInitialTop;
+    float rInitialRight;
+    float rInitialBottom;
+} TA_TRANSFORM_CLIP, *PTA_TRANSFORM_CLIP;
+
+THEMEAPI GetThemeAnimationTransform(HTHEME hTheme, int iStoryboardId, int iTargetId, DWORD dwTransformIndex, TA_TRANSFORM *pTransform, DWORD cbSize, DWORD *pcbSizeOut);
+
+typedef enum TA_TIMINGFUNCTION_TYPE {
+    TTFT_UNDEFINED,
+    TTFT_CUBIC_BEZIER,
+} TA_TIMINGFUNCTION_TYPE;
+
+typedef struct TA_TIMINGFUNCTION {
+    TA_TIMINGFUNCTION_TYPE eTimingFunctionType;
+} TA_TIMINGFUNCTION, *PTA_TIMINGFUNCTION;
+
+typedef struct TA_CUBIC_BEZIER {
+    TA_TIMINGFUNCTION header;
+    float rX0;
+    float rY0;
+    float rX1;
+    float rY1;
+} TA_CUBIC_BEZIER, *PTA_CUBIC_BEZIER;
+
+THEMEAPI GetThemeTimingFunction(HTHEME hTheme, int iTimingFunctionId, TA_TIMINGFUNCTION *pTimingFunction, DWORD cbSize, DWORD *pcbSizeOut);
+
+#endif
+
+#if (NTDDI_VERSION >= NTDDI_VISTA)
 
 #define GBF_DIRECT 0x00000001
 #define GBF_COPY 0x00000002
@@ -39,8 +139,13 @@ THEMEAPI GetThemeTransitionDuration(HTHEME hTheme,int iPartId,int iStateIdFrom,i
 DECLARE_HANDLE(HPAINTBUFFER);
 
 typedef enum _BP_BUFFERFORMAT {
-    BPBF_COMPATIBLEBITMAP, BPBF_DIB, BPBF_TOPDOWNDIB, BPBF_TOPDOWNMONODIB
+    BPBF_COMPATIBLEBITMAP,
+    BPBF_DIB,
+    BPBF_TOPDOWNDIB,
+    BPBF_TOPDOWNMONODIB
 } BP_BUFFERFORMAT;
+
+#define BPBF_COMPOSITED BPBF_TOPDOWNDIB
 
 #define BPPF_ERASE     0x00000001
 #define BPPF_NOCLIP    0x00000002
@@ -61,13 +166,17 @@ THEMEAPI_(HDC) GetBufferedPaintDC(HPAINTBUFFER hBufferedPaint);
 THEMEAPI_(HRESULT) GetBufferedPaintBits(HPAINTBUFFER hBufferedPaint,RGBQUAD **ppbBuffer,int *pcxRow);
 THEMEAPI_(HRESULT) BufferedPaintClear(HPAINTBUFFER hBufferedPaint,const RECT *prc);
 THEMEAPI_(HRESULT) BufferedPaintSetAlpha(HPAINTBUFFER hBufferedPaint,const RECT *prc,BYTE alpha);
+#define BufferedPaintMakeOpaque(hBufferedPaint, prc) BufferedPaintSetAlpha(hBufferedPaint, prc, 255)
 THEMEAPI_(HRESULT) BufferedPaintInit(VOID);
 THEMEAPI_(HRESULT) BufferedPaintUnInit(VOID);
 
 DECLARE_HANDLE(HANIMATIONBUFFER);
 
 typedef enum _BP_ANIMATIONSTYLE {
-    BPAS_NONE, BPAS_LINEAR, BPAS_CUBIC, BPAS_SINE
+    BPAS_NONE,
+    BPAS_LINEAR,
+    BPAS_CUBIC,
+    BPAS_SINE
 } BP_ANIMATIONSTYLE;
 
 typedef struct _BP_ANIMATIONPARAMS {
@@ -87,7 +196,7 @@ typedef enum WINDOWTHEMEATTRIBUTETYPE {
     WTA_NONCLIENT = 1 
 } WINDOWTHEMEATTRIBUTETYPE;
 
-typedef struct WTA_OPTIONS {
+typedef struct _WTA_OPTIONS {
     DWORD dwFlags;
     DWORD dwMask;
 } WTA_OPTIONS, *PWTA_OPTIONS;
@@ -110,21 +219,20 @@ static __inline HRESULT SetWindowThemeNonClientAttributes(HWND hwnd,DWORD dwMask
 
 THEMEAPI_(HTHEME) OpenThemeData(HWND hwnd,LPCWSTR pszClassList);
 
-#if (_WIN32_WINNT >= 0x0600)
 #define OTD_FORCE_RECT_SIZING 0x00000001
 #define OTD_NONCLIENT 0x00000002
 #define OTD_VALIDBITS (OTD_FORCE_RECT_SIZING | OTD_NONCLIENT)
+THEMEAPI_(HTHEME) OpenThemeDataForDpi(HWND hwnd, LPCWSTR pszClassList, UINT dpi);
 THEMEAPI_(HTHEME) OpenThemeDataEx(HWND hwnd,LPCWSTR pszClassList,DWORD dwFlags);
-#endif
-
 THEMEAPI CloseThemeData(HTHEME hTheme);
 THEMEAPI DrawThemeBackground(HTHEME hTheme,HDC hdc,int iPartId,int iStateId,const RECT *pRect,const RECT *pClipRect);
 
-#define DTT_GRAYED 0x1
+#define DTT_GRAYED 0x00000001
+#define DTT_FLAGS2VALIDBITS DTT_GRAYED
 
 THEMEAPI DrawThemeText(HTHEME hTheme,HDC hdc,int iPartId,int iStateId,LPCWSTR pszText,int iCharCount,DWORD dwTextFlags,DWORD dwTextFlags2,const RECT *pRect);
 
-#if (_WIN32_WINNT >= 0x0600)
+#if (NTDDI_VERSION >= NTDDI_VISTA)
 
 #define DTT_TEXTCOLOR (__MSABI_LONG(1U) << 0)
 #define DTT_BORDERCOLOR (__MSABI_LONG(1U) << 1)
@@ -170,7 +278,9 @@ THEMEAPI GetThemeBackgroundContentRect(HTHEME hTheme,HDC hdc,int iPartId,int iSt
 THEMEAPI GetThemeBackgroundExtent(HTHEME hTheme,HDC hdc,int iPartId,int iStateId,const RECT *pContentRect,RECT *pExtentRect);
 
 typedef enum THEMESIZE {
-  TS_MIN,TS_TRUE,TS_DRAW
+    TS_MIN,
+    TS_TRUE,
+    TS_DRAW
 } THEMESIZE;
 
 THEMEAPI GetThemePartSize(HTHEME hTheme,HDC hdc,int iPartId,int iStateId,RECT *prc,enum THEMESIZE eSize,SIZE *psz);
@@ -215,7 +325,7 @@ typedef struct _MARGINS {
 
 THEMEAPI GetThemeMargins(HTHEME hTheme,HDC hdc,int iPartId,int iStateId,int iPropId,RECT *prc,MARGINS *pMargins);
 
-#if (_WIN32_WINNT >= 0x0600)
+#if (NTDDI_VERSION >= NTDDI_VISTA)
 #define MAX_INTLIST_COUNT 402
 #else
 #define MAX_INTLIST_COUNT 10
@@ -229,7 +339,11 @@ typedef struct _INTLIST {
 THEMEAPI GetThemeIntList(HTHEME hTheme,int iPartId,int iStateId,int iPropId,INTLIST *pIntList);
 
 typedef enum PROPERTYORIGIN {
-  PO_STATE,PO_PART,PO_CLASS,PO_GLOBAL,PO_NOTFOUND
+    PO_STATE,
+    PO_PART,
+    PO_CLASS,
+    PO_GLOBAL,
+    PO_NOTFOUND
 } PROPERTYORIGIN;
 
 THEMEAPI GetThemePropertyOrigin(HTHEME hTheme,int iPartId,int iStateId,int iPropId,enum PROPERTYORIGIN *pOrigin);
@@ -250,7 +364,7 @@ THEMEAPI_(HTHEME) GetWindowTheme(HWND hwnd);
 #define ETDT_ENABLE 0x00000002
 #define ETDT_USETABTEXTURE 0x00000004
 #define ETDT_ENABLETAB (ETDT_ENABLE | ETDT_USETABTEXTURE)
-#if (_WIN32_WINNT >= 0x0600)
+#if (NTDDI_VERSION >= NTDDI_VISTA)
 #define ETDT_USEAEROWIZARDTABTEXTURE 0x00000008
 #define ETDT_ENABLEAEROWIZARDTAB (ETDT_ENABLE | ETDT_USEAEROWIZARDTABTEXTURE)
 #define ETDT_VALIDBITS (ETDT_DISABLE | ETDT_ENABLE | ETDT_USETABTEXTURE | ETDT_USEAEROWIZARDTABTEXTURE)
@@ -262,8 +376,9 @@ THEMEAPI_(WINBOOL) IsThemeDialogTextureEnabled(HWND hwnd);
 #define STAP_ALLOW_NONCLIENT (1 << 0)
 #define STAP_ALLOW_CONTROLS (1 << 1)
 #define STAP_ALLOW_WEBCONTENT (1 << 2)
+#define STAP_VALIDBITS (STAP_ALLOW_NONCLIENT | STAP_ALLOW_CONTROLS | STAP_ALLOW_WEBCONTENT)
 
-THEMEAPI_(DWORD) GetThemeAppProperties();
+THEMEAPI_(DWORD) GetThemeAppProperties(VOID);
 THEMEAPI_(void) SetThemeAppProperties(DWORD dwFlags);
 THEMEAPI GetCurrentThemeName(LPWSTR pszThemeFileName,int cchMaxNameChars,LPWSTR pszColorBuff,int cchMaxColorChars,LPWSTR pszSizeBuff,int cchMaxSizeChars);
 
@@ -275,7 +390,7 @@ THEMEAPI GetCurrentThemeName(LPWSTR pszThemeFileName,int cchMaxNameChars,LPWSTR 
 THEMEAPI GetThemeDocumentationProperty(LPCWSTR pszThemeName,LPCWSTR pszPropertyName,LPWSTR pszValueBuff,int cchMaxValChars);
 THEMEAPI DrawThemeParentBackground(HWND hwnd,HDC hdc,RECT *prc);
 
-#if (_WIN32_WINNT >= 0x0600)
+#if (NTDDI_VERSION >= NTDDI_VISTA)
 #define DTPB_WINDOWDC 0x00000001
 #define DTPB_USECTLCOLORSTATIC 0x00000002
 #define DTPB_USEERASEBKGND 0x00000004

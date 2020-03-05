@@ -9,12 +9,12 @@ int
 __isnanl (long double _x)
 {
 #if defined(__x86_64__) || defined(_AMD64_)
-  __mingw_fp_types_t ld;
+  __mingw_ldbl_type_t ld;
   int xx, signexp;
 
-  ld.ld = &_x;
-  signexp = (ld.ldt->lh.sign_exponent & 0x7fff) << 1;
-  xx = (int) (ld.ldt->lh.low | (ld.ldt->lh.high & 0x7fffffffu)); /* explicit */
+  ld.x = _x;
+  signexp = (ld.lh.sign_exponent & 0x7fff) << 1;
+  xx = (int) (ld.lh.low | (ld.lh.high & 0x7fffffffu)); /* explicit */
   signexp |= (unsigned int) (xx | (-xx)) >> 31;
   signexp = 0xfffe - signexp;
   return (int) ((unsigned int) signexp) >> 16;

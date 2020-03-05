@@ -283,5 +283,26 @@ DECLARE_INTERFACE_IID_(IDCompositionDevice,IUnknown,"c37ea93a-e7aa-450d-b16f-974
 __CRT_UUID_DECL(IDCompositionDevice,0xc37ea93a,0xe7aa,0x450d,0xb1,0x6f,0x97,0x46,0xcb,0x04,0x07,0xf3);
 #endif
 
+STDAPI DCompositionCreateDevice(IDXGIDevice *dxgiDevice, REFIID iid, void **dcompositionDevice);
+
+#if (_WIN32_WINNT >= 0x0603)
+
+STDAPI DCompositionCreateDevice2(IUnknown *renderingDevice, REFIID iid, void **dcompositionDevice);
+
+#endif
+
+#if (_WIN32_WINNT >= 0x0A00)
+
+STDAPI DCompositionCreateDevice3(IUnknown *renderingDevice, REFIID iid, void **dcompositionDevice);
+
+#endif
+
+STDAPI DCompositionCreateSurfaceHandle(DWORD desiredAccess, SECURITY_ATTRIBUTES *securityAttributes, HANDLE *surfaceHandle);
+
+STDAPI DCompositionAttachMouseWheelToHwnd(IDCompositionVisual* visual, HWND hwnd, BOOL enable);
+
+STDAPI DCompositionAttachMouseDragToHwnd(IDCompositionVisual* visual, HWND hwnd, BOOL enable);
+
+
 #endif
 #endif /* _DCOMP_H_ */

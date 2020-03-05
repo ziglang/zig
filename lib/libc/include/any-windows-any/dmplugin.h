@@ -102,11 +102,8 @@ typedef LONG MUSIC_TIME;
 /*****************************************************************************
  * Enumerations
  */
-/* typedef definitions */
-typedef enum enumDMUS_TRACKF_FLAGS DMUS_TRACKF_FLAGS;
-
-/* actual enumerations */
-enum enumDMUS_TRACKF_FLAGS {
+typedef enum enumDMUS_TRACKF_FLAGS
+{
 	DMUS_TRACKF_SEEK       = 0x001,
 	DMUS_TRACKF_LOOP       = 0x002,
 	DMUS_TRACKF_START      = 0x004,
@@ -118,7 +115,7 @@ enum enumDMUS_TRACKF_FLAGS {
 	DMUS_TRACKF_STOP       = 0x100,
 	DMUS_TRACKF_RECOMPOSE  = 0x200,
 	DMUS_TRACKF_CLOCK      = 0x400,
-};
+} DMUS_TRACKF_FLAGS;
 
 /*****************************************************************************
  * IDirectMusicTool interface

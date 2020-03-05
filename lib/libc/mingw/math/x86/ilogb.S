@@ -45,9 +45,7 @@ ilogb (double x)
   if (hx < 0x7ff00000)
     return (hx >> 20) - 1023;
   lx = hlp.lh.low;
-  if (((hx ^ 0x7ff00000) | lx) == 0)
-    return 0x7fffffff;
-  return 0x80000000;
+  return 0x7fffffff;
 } */
         subq    $24, %rsp
         .seh_stackalloc 24
@@ -80,13 +78,7 @@ ilogb (double x)
 .L2:
         cmpl    $2146435071, %edx
         jle     .L13
-        movsd   %xmm0, 8(%rsp)
-        movq    8(%rsp), %rax
-        xorl    $2146435072, %edx
-        orl     %eax, %edx
-        cmpl    $1, %edx
-        sbbl    %eax, %eax
-        addl    $-2147483648, %eax
+        movl    $2147483647, %eax
 .L3:
         addq    $24, %rsp
         ret
@@ -126,6 +118,8 @@ ilogb (double x)
 	andb    %ah, %dh
 	cmpb    $0x05, %dh
 	je      1f		/* Is +-Inf, jump.  */
+	cmpb    $0x01, %dh
+	je      1f		/* Is NaN, jump.  */
 
 	fxtract
 	pushl	%eax

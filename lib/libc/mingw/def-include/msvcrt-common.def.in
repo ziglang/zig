@@ -1,3 +1,5 @@
+#include "func.def.in"
+
 #define ADD_UNDERSCORE(symbol) symbol == _ ## symbol
 #define ADD_DOUBLE_UNDERSCORE(symbol) symbol == __ ## symbol
 
@@ -44,7 +46,13 @@ ADD_UNDERSCORE(gcvt)
 ADD_UNDERSCORE(getch)
 ADD_UNDERSCORE(getche)
 ADD_UNDERSCORE(getcwd)
+#ifdef UCRTBASE
+; ucrtbase.dll has got _getpid for all archs
 ADD_UNDERSCORE(getpid)
+#elif !defined(NO_GETPID_ALIAS)
+; msvcrt.dll for arm/arm64 lacks _getpid
+F_X86_ANY(ADD_UNDERSCORE(getpid))
+#endif
 ADD_UNDERSCORE(getw)
 ADD_UNDERSCORE(heapwalk)
 ADD_UNDERSCORE(isatty)
@@ -131,6 +139,8 @@ ADD_UNDERSCORE(hypot)
 ;logb
 ADD_UNDERSCORE(nextafter)
 
+longjmp
+
 #ifndef UCRTBASE
 _daylight DATA
 _timezone DATA
@@ -140,6 +150,4 @@ ADD_UNDERSCORE(timezone)
 ADD_UNDERSCORE(tzname)
 
 ADD_UNDERSCORE(vsnprintf_s)
-
-longjmp DATA
 #endif

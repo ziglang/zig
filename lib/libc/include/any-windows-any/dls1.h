@@ -99,104 +99,89 @@
 /*****************************************************************************
  * Structures
  */
-/* typedef definitions */
-typedef struct _DLSID          DLSID,          *LPDLSID;
-typedef struct _DLSVERSION     DLSVERSION,     *LPDLSVERSION;
-typedef struct _CONNECTION     CONNECTION,     *LPCONNECTION;
-typedef struct _CONNECTIONLIST CONNECTIONLIST, *LPCONNECTIONLIST;
-typedef struct _RGNRANGE       RGNRANGE,       *LPRGNRANGE;
-typedef struct _MIDILOCALE     MIDILOCALE,     *LPMIDILOCALE;
-typedef struct _RGNHEADER      RGNHEADER,      *LPRGNHEADER;
-typedef struct _INSTHEADER     INSTHEADER,     *LPINSTHEADER;
-typedef struct _DLSHEADER      DLSHEADER,      *LPDLSHEADER;
-typedef struct _WAVELINK       WAVELINK,       *LPWAVELINK;
-typedef struct _POOLCUE        POOLCUE,        *LPPOOLCUE;
-typedef struct _POOLTABLE      POOLTABLE,      *LPPOOLTABLE;
-typedef struct _rwsmp          WSMPL,          *LPWSMPL;
-typedef struct _rloop          WLOOP,          *LPWLOOP;
 
 /* actual structures */
-struct _DLSID {
+typedef struct _DLSID {
 	ULONG  ulData1;
 	USHORT usData2;
 	USHORT usData3;
 	BYTE   abData4[8];
-};
+} DLSID, *LPDLSID;
 
-struct _DLSVERSION {
+typedef struct _DLSVERSION {
 	DWORD dwVersionMS;
 	DWORD dwVersionLS;
-};
+} DLSVERSION, *LPDLSVERSION;
 
-struct _CONNECTION {
+typedef struct _CONNECTION {
 	USHORT usSource;
 	USHORT usControl;
 	USHORT usDestination;
 	USHORT usTransform;
 	LONG   lScale;
-};
+} CONNECTION, *LPCONNECTION;
 
-struct _CONNECTIONLIST {
+typedef struct _CONNECTIONLIST {
 	ULONG cbSize;
 	ULONG cConnections;
-};
+} CONNECTIONLIST, *LPCONNECTIONLIST;
 
-struct _RGNRANGE {
+typedef struct _RGNRANGE {
 	USHORT usLow;
 	USHORT usHigh;
-};
+} RGNRANGE, *LPRGNRANGE;
 
-struct _MIDILOCALE {
+typedef struct _MIDILOCALE {
 	ULONG ulBank;
 	ULONG ulInstrument;
-};
+} MIDILOCALE, *LPMIDILOCALE;
 
-struct _RGNHEADER {
+typedef struct _RGNHEADER {
 	RGNRANGE RangeKey;
 	RGNRANGE RangeVelocity;
 	USHORT   fusOptions;
 	USHORT   usKeyGroup;
-};
+} RGNHEADER, *LPRGNHEADER;
 
-struct _INSTHEADER {
+typedef struct _INSTHEADER {
 	ULONG      cRegions;
 	MIDILOCALE Locale;
-};
+} INSTHEADER, *LPINSTHEADER;
 
-struct _DLSHEADER {
+typedef struct _DLSHEADER {
 	ULONG cInstruments;
-};
+} DLSHEADER, *LPDLSHEADER;
 
-struct _WAVELINK {
+typedef struct _WAVELINK {
 	USHORT fusOptions;
 	USHORT usPhaseGroup;
 	ULONG  ulChannel;
 	ULONG  ulTableIndex;
-};
+} WAVELINK, *LPWAVELINK;
 
-struct _POOLCUE { 
+typedef struct _POOLCUE {
 	ULONG ulOffset;
-};
+} POOLCUE, *LPPOOLCUE;
 
-struct _POOLTABLE {
+typedef struct _POOLTABLE {
 	ULONG cbSize;
 	ULONG cCues;
-};
+} POOLTABLE, *LPPOOLTABLE;
 
-struct _rwsmp {
+typedef struct _rwsmp {
 	ULONG  cbSize;
 	USHORT usUnityNote;
 	SHORT  sFineTune;
 	LONG   lAttenuation;
 	ULONG  fulOptions;
 	ULONG  cSampleLoops;
-};
+} WSMPL, *LPWSMPL;
 
-struct _rloop {
+typedef struct _rloop {
 	ULONG cbSize;
 	ULONG ulType;
 	ULONG ulStart;
 	ULONG ulLength;
-};
+} WLOOP, *LPWLOOP;
 
 #endif /* __WINE_INCLUDE_DLS1_H */

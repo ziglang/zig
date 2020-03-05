@@ -24,8 +24,8 @@ logbf (float x)
       return (float)-1.0 / fabsf (x);
     if (v >= 0x7f800000)
       return x * x;
-    if ((v >>= 23) == 0) /* IEEE 754 logb */
-      return -126.0;
+    if ((v >>= 23) == 0)
+      return -127.0 - (__builtin_clzl(hlp.val & 0x7fffff) - 9);
     return (float) (v - 127);
 #else
   float res = 0.0F;

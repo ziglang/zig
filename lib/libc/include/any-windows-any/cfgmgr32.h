@@ -10,6 +10,7 @@
 #include <cfg.h>
 #include <guiddef.h>
 #include <apisetcconv.h>
+#include <devpropdef.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -835,6 +836,10 @@ extern "C" {
 #define CM_Get_DevInst_Custom_PropertyA CM_Get_DevNode_Custom_PropertyA
 #define CM_Get_DevInst_Custom_Property_ExW CM_Get_DevNode_Custom_Property_ExW
 #define CM_Get_DevInst_Custom_Property_ExA CM_Get_DevNode_Custom_Property_ExA
+  CMAPI CONFIGRET WINAPI CM_Get_DevNode_PropertyW(DEVINST dnDevInst, const DEVPROPKEY *PropertyKey, DEVPROPTYPE *PropertyType, PBYTE PropertyBuffer, PULONG PropertyBufferSize, ULONG ulFlags);
+#ifdef UNICODE
+#define CM_Get_DevNode_Property CM_Get_DevNode_PropertyW
+#endif
   CMAPI CONFIGRET WINAPI CM_Get_DevNode_Status(PULONG pulStatus,PULONG pulProblemNumber,DEVINST dnDevInst,ULONG ulFlags);
   CMAPI CONFIGRET WINAPI CM_Get_DevNode_Status_Ex(PULONG pulStatus,PULONG pulProblemNumber,DEVINST dnDevInst,ULONG ulFlags,HMACHINE hMachine);
 #define CM_Get_DevInst_Status CM_Get_DevNode_Status
