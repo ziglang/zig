@@ -1,7 +1,10 @@
 const std = @import("std.zig");
 const mem = std.mem;
 const trait = std.meta.trait;
+
 const assert = std.debug.assert;
+const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 
 pub const SelfType = @OpaqueType();
 
@@ -47,7 +50,7 @@ pub const Storage = struct {
 
             var obj = args[0];
 
-            return Comptime {
+            return Comptime{
                 .erased_ptr = makeSelfPtr(&obj),
                 .ImplType = @TypeOf(args[0]),
             };
@@ -225,8 +228,9 @@ fn makeCall(
     const fptr = @field(self, name);
 
     return switch (call_type) {
-        .BothBlocking, .AsyncCallsBlocking, .BothAsync => @call(.{ .modifier = .always_inline }, fptr, args),
-        else => @compileError("TODO"),
+        .BothBlocking => @call(.{ .modifier = .always_inline }, fptr, args),
+        .AsyncCallsBlocking, .BothAsync => await @call(.{ .modifier = .async_kw }, fptr, args),
+        .BlockingCallsAsync => @compileError("Trying to implement blocking virtual function " ++ name ++ " with async implementation."),
     };
 }
 
@@ -394,16 +398,11 @@ fn VTableReturnType(comptime VTableT: type, comptime name: []const u8) type {
     for (std.meta.fields(VTableT)) |field| {
         if (std.mem.eql(u8, name, field.name)) {
             const is_optional = trait.is(.Optional)(field.field_type);
-            const is_async = @typeInfo(if (is_optional) std.meta.Child(field.field_type) else field.field_type).Fn.calling_convention == .Async;
 
             var fn_ret_type = (if (is_optional)
                 @typeInfo(std.meta.Child(field.field_type)).Fn.return_type
             else
                 @typeInfo(field.field_type).Fn.return_type) orelse noreturn;
-
-            if (is_async) {
-                fn_ret_type = anyframe->fn_ret_type;
-            }
 
             if (is_optional) {
                 return ?fn_ret_type;
@@ -465,10 +464,14 @@ pub fn Interface(comptime VTableT: type, comptime StorageT: type) type {
             } else {
                 var stack_frame: [stack_size]u8 align(std.Target.stack_align) = undefined;
                 // For now, only work for for zero arg functions
-                if (args.len != 0) {
-                    @compileError("TODO: @asyncCall should take an argument tuple pack instead of varargs");
+                if (args.len != 0 and args.len != 1) {
+                    @compileError("TODO: @asyncCall should take an argument tuple pack instead of varargs (see #4621)");
                 }
-                return @asyncCall(&stack_frame, {}, fn_ptr, self_ptr);
+
+                if (args.len == 0)
+                    return await @asyncCall(&stack_frame, {}, fn_ptr, self_ptr);
+
+                return await @asyncCall(&stack_frame, {}, fn_ptr, self_ptr, args[0]);
             }
         }
 
@@ -484,7 +487,7 @@ test "SelfType pointer erasure" {
             var i: usize = 10;
             var erased = makeSelfPtr(&i);
 
-            assert(&i == selfPtrAs(erased, usize));
+            expectEqual(&i, selfPtrAs(erased, usize));
         }
     };
 
@@ -515,8 +518,8 @@ test "Simple NonOwning interface" {
             var fooer = try Fooer.init(.{&f});
             defer fooer.deinit();
 
-            assert(fooer.call("foo", .{}) == 42);
-            assert(fooer.call("foo", .{}) == 43);
+            expectEqual(@as(usize, 42), fooer.call("foo", .{}));
+            expectEqual(@as(usize, 43), fooer.call("foo", .{}));
         }
     };
 
@@ -539,8 +542,8 @@ test "Comptime only interface" {
         }
     };
 
-    comptime var iface = try TestIFace.init(.{ TestType{ .state=0 } });
-    assert(iface.call("foo", .{42}) == 42);
+    comptime var iface = try TestIFace.init(.{TestType{ .state = 0 }});
+    expectEqual(@as(u8, 42), iface.call("foo", .{42}));
 }
 
 test "Owning interface with optional function" {
@@ -573,7 +576,7 @@ test "Owning interface with optional function" {
             defer iface_instance.deinit();
 
             try iface_instance.call("otherFn", .{100});
-            assert(iface_instance.call("someFn", .{ 0, 42 }).? == 42);
+            expectEqual(@as(usize, 42), iface_instance.call("someFn", .{ 0, 42 }).?);
         }
     };
 
@@ -584,14 +587,14 @@ test "Inline, InlineOrOwning storage types" {
     const InlineStorageTypesTest = struct {
         fn run() !void {
             const object = [_]u8{'A'} ** 16;
-            comptime assert(@sizeOf(@TypeOf(object)) == 16);
+            comptime expectEqual(16, @sizeOf(@TypeOf(object)));
 
             var store1 = try Storage.Inline(32).init(.{object});
             defer store1.deinit();
 
             const new_obj_ptr_1 = selfPtrAs(store1.getSelfPtr(), [16]u8);
-            assert(new_obj_ptr_1 != &object);
-            assert(new_obj_ptr_1[8] == 'A');
+            expect(new_obj_ptr_1 != &object);
+            expectEqual(@as(u8, 'A'), new_obj_ptr_1[8]);
 
             // This will error when we are in the comptime call if the object
             // does not fit in storage since we cannot call into *mem.Allocator at comptime.
@@ -599,8 +602,8 @@ test "Inline, InlineOrOwning storage types" {
             defer store2.deinit();
 
             const new_obj_ptr_2 = selfPtrAs(store2.getSelfPtr(), [16]u8);
-            assert(new_obj_ptr_2 != &object and new_obj_ptr_2 != new_obj_ptr_1);
-            assert(new_obj_ptr_1[15] == 'A');
+            expect(new_obj_ptr_2 != &object and new_obj_ptr_2 != new_obj_ptr_1);
+            expectEqual(@as(u8, 'A'), new_obj_ptr_1[15]);
         }
     };
 
@@ -615,8 +618,8 @@ test "Inline, InlineOrOwning storage types" {
             defer store.deinit();
 
             const new_obj_ptr = selfPtrAs(store.getSelfPtr(), @TypeOf(object));
-            assert(new_obj_ptr != &object);
-            assert(new_obj_ptr[0] == 0 and new_obj_ptr[5] == 1 and new_obj_ptr[10] == 2);
+            expect(new_obj_ptr != &object);
+            expect(new_obj_ptr[0] == 0 and new_obj_ptr[5] == 1 and new_obj_ptr[10] == 2);
         }
     };
 
@@ -713,8 +716,10 @@ test "Allocator interface example" {
     defer alloc.destroy(some_mem);
 }
 
-test "Interface with async function implemented with an async function" {
+test "Interface with virtual async function implemented by an async function" {
     const AsyncIFace = Interface(struct {
+        const async_call_stack_size = 1024;
+
         foo: async fn (*SelfType) void,
     }, Storage.NonOwning);
 
@@ -722,8 +727,13 @@ test "Interface with async function implemented with an async function" {
         const Self = @This();
 
         state: usize,
+        frame: anyframe = undefined,
 
-        async fn foo(self: *Self) void {
+        fn foo(self: *Self) void {
+            suspend {
+                self.frame = @frame();
+            }
+            self.state += 1;
             suspend;
             self.state += 1;
         }
@@ -731,10 +741,34 @@ test "Interface with async function implemented with an async function" {
 
     var i = Impl{ .state = 0 };
     var instance = try AsyncIFace.init(.{&i});
-    var frame = async instance.call("foo", .{});
+    _ = async instance.call("foo", .{});
 
-    assert(i.state == 0);
-    // TODO: Fix async function generation and calling.
-    // resume frame;
-    // assert(i.state == 1);
+    expectEqual(@as(usize, 0), i.state);
+    resume i.frame;
+    expectEqual(@as(usize, 1), i.state);
+    resume i.frame;
+    expectEqual(@as(usize, 2), i.state);
+}
+
+test "Interface with virtual async function implemented by a blocking function" {
+    const AsyncIFace = Interface(struct {
+        readBytes: async fn (*SelfType, []u8) anyerror!void,
+    }, Storage.Inline(8));
+
+    const Impl = struct {
+        const Self = @This();
+
+        fn readBytes(self: Self, outBuf: []u8) void {
+            for (outBuf) |*c| {
+                c.* = 3;
+            }
+        }
+    };
+
+    var instance = try AsyncIFace.init(.{Impl{}});
+
+    var buf: [256]u8 = undefined;
+    try await async instance.call("readBytes", .{buf[0..]});
+
+    expectEqual([_]u8{3} ** 256, buf);
 }
