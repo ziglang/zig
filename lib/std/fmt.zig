@@ -947,7 +947,7 @@ fn formatIntSigned(
     const Uint = std.meta.IntType(false, bit_count);
     if (value < 0) {
         try output(context, "-");
-        const new_value = ~@bitCast(Uint, value +% -1);
+        const new_value = math.absCast(value);
         return formatIntUnsigned(new_value, base, uppercase, new_options, context, Errors, output);
     } else if (options.width == null or options.width.? == 0) {
         return formatIntUnsigned(@intCast(Uint, value), base, uppercase, options, context, Errors, output);
