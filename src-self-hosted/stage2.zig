@@ -1154,8 +1154,7 @@ fn enumInt(comptime Enum: type, int: c_int) Enum {
 
 fn crossTargetToTarget(cross_target: CrossTarget, dynamic_linker_ptr: *?[*:0]u8) !Target {
     var info = try std.zig.system.NativeTargetInfo.detect(std.heap.c_allocator, cross_target);
-    if ((cross_target.cpu_arch == null or cross_target.cpu_model == .native) and
-        (Target.current.cpu.arch != .i386 and Target.current.cpu.arch != .x86_64)) {
+    if ((cross_target.cpu_arch == null or cross_target.cpu_model == .native) and !info.cpu_detected) {
         // TODO We want to just use detected_info.target but implementing
         // CPU model & feature detection is todo so here we rely on LLVM.
         const llvm = @import("llvm.zig");

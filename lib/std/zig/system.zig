@@ -171,6 +171,8 @@ pub const NativeTargetInfo = struct {
 
     dynamic_linker: DynamicLinker = DynamicLinker{},
 
+    cpu_detected: bool = false,
+
     pub const DynamicLinker = Target.DynamicLinker;
 
     pub const DetectError = error{
@@ -191,6 +193,9 @@ pub const NativeTargetInfo = struct {
     /// deinitialization method.
     /// TODO Remove the Allocator requirement from this function.
     pub fn detect(allocator: *Allocator, cross_target: CrossTarget) DetectError!NativeTargetInfo {
+
+        var cpu_detected = true;
+
         const cpu = switch (cross_target.cpu_model) {
             .native => detectNativeCpuAndFeatures(cross_target),
             .baseline => baselineCpuAndFeatures(cross_target),
@@ -203,6 +208,11 @@ pub const NativeTargetInfo = struct {
                 cross_target.updateCpuFeatures(&adjusted_model.features);
                 break :blk adjusted_model;
             },
+        } orelse backup_cpu_detection: {
+
+            // Temporarily use LLVM's cpu info as a backup
+            cpu_detected = false;
+            break :backup_cpu_detection baselineCpuAndFeatures(cross_target);
         };
 
         var os = Target.Os.defaultVersionRange(cross_target.getOsTag());
@@ -318,7 +328,9 @@ pub const NativeTargetInfo = struct {
             os.version_range.linux.glibc = glibc;
         }
 
-        return detectAbiAndDynamicLinker(allocator, cpu, os, cross_target);
+        var target = try detectAbiAndDynamicLinker(allocator, cpu, os, cross_target);
+        target.cpu_detected = cpu_detected;
+        return target;
     }
 
     /// First we attempt to use the executable's own binary. If it is dynamically
@@ -843,19 +855,15 @@ pub const NativeTargetInfo = struct {
         }
     }
 
-    fn detectNativeCpuAndFeatures(cross_target: CrossTarget) Target.Cpu {
-
-        var baseline = baselineCpuAndFeatures(cross_target);
+    fn detectNativeCpuAndFeatures(cross_target: CrossTarget) ?Target.Cpu {
 
         switch(Target.current.cpu.arch) {
             .x86_64, .i386 => {
-                const x86_detection = @import("system/x86.zig");
-                x86_detection.detectNativeCpuAndFeatures(&baseline);
-                return baseline;
+                return @import("system/x86.zig").detectNativeCpuAndFeatures(cross_target);
             },
             else => {
-                // // TODO Detect native CPU model & features. Until that is implemented we use baseline.
-                return baseline;
+                // TODO flesh out CPU detection for more than just x86.
+                return null;
             }
         }
     }
