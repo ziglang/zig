@@ -348,7 +348,7 @@ test "std.atomic.Queue dump" {
     fbs.reset();
     try queue.dumpToStream(fbs.outStream());
 
-    var expected = try std.fmtstream.bufPrint(expected_buffer[0..],
+    var expected = try std.fmt.bufPrint(expected_buffer[0..],
         \\head: 0x{x}=1
         \\ (null)
         \\tail: 0x{x}=1
@@ -368,7 +368,7 @@ test "std.atomic.Queue dump" {
     fbs.reset();
     try queue.dumpToStream(fbs.outStream());
 
-    expected = try std.fmtstream.bufPrint(expected_buffer[0..],
+    expected = try std.fmt.bufPrint(expected_buffer[0..],
         \\head: 0x{x}=1
         \\ 0x{x}=2
         \\  (null)

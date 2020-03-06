@@ -2257,10 +2257,10 @@ pub fn stringify(
     const T = @TypeOf(value);
     switch (@typeInfo(T)) {
         .Float, .ComptimeFloat => {
-            return std.fmtstream.formatFloatScientific(value, std.fmtstream.FormatOptions{}, out_stream);
+            return std.fmt.formatFloatScientific(value, std.fmt.FormatOptions{}, out_stream);
         },
         .Int, .ComptimeInt => {
-            return std.fmtstream.formatIntValue(value, "", std.fmtstream.FormatOptions{}, out_stream);
+            return std.fmt.formatIntValue(value, "", std.fmt.FormatOptions{}, out_stream);
         },
         .Bool => {
             return out_stream.writeAll(if (value) "true" else "false");
@@ -2350,16 +2350,16 @@ pub fn stringify(
                                     // then it may be represented as a six-character sequence: a reverse solidus, followed
                                     // by the lowercase letter u, followed by four hexadecimal digits that encode the character's code point.
                                     try out_stream.writeAll("\\u");
-                                    try std.fmtstream.formatIntValue(codepoint, "x", std.fmtstream.FormatOptions{ .width = 4, .fill = '0' }, out_stream);
+                                    try std.fmt.formatIntValue(codepoint, "x", std.fmt.FormatOptions{ .width = 4, .fill = '0' }, out_stream);
                                 } else {
                                     // To escape an extended character that is not in the Basic Multilingual Plane,
                                     // the character is represented as a 12-character sequence, encoding the UTF-16 surrogate pair.
                                     const high = @intCast(u16, (codepoint - 0x10000) >> 10) + 0xD800;
                                     const low = @intCast(u16, codepoint & 0x3FF) + 0xDC00;
                                     try out_stream.writeAll("\\u");
-                                    try std.fmtstream.formatIntValue(high, "x", std.fmtstream.FormatOptions{ .width = 4, .fill = '0' }, out_stream);
+                                    try std.fmt.formatIntValue(high, "x", std.fmt.FormatOptions{ .width = 4, .fill = '0' }, out_stream);
                                     try out_stream.writeAll("\\u");
-                                    try std.fmtstream.formatIntValue(low, "x", std.fmtstream.FormatOptions{ .width = 4, .fill = '0' }, out_stream);
+                                    try std.fmt.formatIntValue(low, "x", std.fmt.FormatOptions{ .width = 4, .fill = '0' }, out_stream);
                                 }
                                 i += ulen - 1;
                             },

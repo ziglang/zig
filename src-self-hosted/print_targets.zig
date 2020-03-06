@@ -138,7 +138,7 @@ pub fn cmdTargets(
     for (available_glibcs) |glibc| {
         try jws.arrayElem();
 
-        const tmp = try std.fmtstream.allocPrint(allocator, "{}", .{glibc});
+        const tmp = try std.fmt.allocPrint(allocator, "{}", .{glibc});
         defer allocator.free(tmp);
         try jws.emitString(tmp);
     }

@@ -8,7 +8,7 @@ const Buffer = std.Buffer;
 const io = std.io;
 const fs = std.fs;
 const mem = std.mem;
-const fmtstream = std.fmtstream;
+const fmt = std.fmt;
 const ArrayList = std.ArrayList;
 const Mode = builtin.Mode;
 const LibExeObjStep = build.LibExeObjStep;
@@ -484,7 +484,7 @@ pub const StackTracesContext = struct {
             const expect_for_mode = expect[@enumToInt(mode)];
             if (expect_for_mode.len == 0) continue;
 
-            const annotated_case_name = fmtstream.allocPrint(self.b.allocator, "{} {} ({})", .{
+            const annotated_case_name = fmt.allocPrint(self.b.allocator, "{} {} ({})", .{
                 "stack-trace",
                 name,
                 @tagName(mode),
@@ -943,7 +943,7 @@ pub const CompileErrorContext = struct {
     pub fn addCase(self: *CompileErrorContext, case: *const TestCase) void {
         const b = self.b;
 
-        const annotated_case_name = fmtstream.allocPrint(self.b.allocator, "compile-error {}", .{
+        const annotated_case_name = fmt.allocPrint(self.b.allocator, "compile-error {}", .{
             case.name,
         }) catch unreachable;
         if (self.test_filter) |filter| {
@@ -1009,7 +1009,7 @@ pub const StandaloneContext = struct {
         const b = self.b;
 
         for (self.modes) |mode| {
-            const annotated_case_name = fmtstream.allocPrint(self.b.allocator, "build {} ({})", .{
+            const annotated_case_name = fmt.allocPrint(self.b.allocator, "build {} ({})", .{
                 root_src,
                 @tagName(mode),
             }) catch unreachable;
@@ -1152,7 +1152,7 @@ pub const GenHContext = struct {
         const b = self.b;
 
         const mode = builtin.Mode.Debug;
-        const annotated_case_name = fmtstream.allocPrint(self.b.allocator, "gen-h {} ({})", .{ case.name, @tagName(mode) }) catch unreachable;
+        const annotated_case_name = fmt.allocPrint(self.b.allocator, "gen-h {} ({})", .{ case.name, @tagName(mode) }) catch unreachable;
         if (self.test_filter) |filter| {
             if (mem.indexOf(u8, annotated_case_name, filter) == null) return;
         }

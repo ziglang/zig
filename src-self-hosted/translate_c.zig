@@ -89,7 +89,7 @@ const Scope = struct {
             var proposed_name = name;
             while (scope.contains(proposed_name)) {
                 scope.mangle_count += 1;
-                proposed_name = try std.fmtstream.allocPrint(c.a(), "{}_{}", .{ name, scope.mangle_count });
+                proposed_name = try std.fmt.allocPrint(c.a(), "{}_{}", .{ name, scope.mangle_count });
             }
             try scope.variables.push(.{ .name = name, .alias = proposed_name });
             return proposed_name;
@@ -246,7 +246,7 @@ pub const Context = struct {
 
         const line = ZigClangSourceManager_getSpellingLineNumber(c.source_manager, spelling_loc);
         const column = ZigClangSourceManager_getSpellingColumnNumber(c.source_manager, spelling_loc);
-        return std.fmtstream.allocPrint(c.a(), "{}:{}:{}", .{ filename, line, column });
+        return std.fmt.allocPrint(c.a(), "{}:{}:{}", .{ filename, line, column });
     }
 };
 
@@ -516,7 +516,7 @@ fn visitFnDecl(c: *Context, fn_decl: *const ZigClangFunctionDecl) Error!void {
 
         const arg_name = blk: {
             const param_prefix = if (is_const) "" else "arg_";
-            const bare_arg_name = try std.fmtstream.allocPrint(c.a(), "{}{}", .{ param_prefix, mangled_param_name });
+            const bare_arg_name = try std.fmt.allocPrint(c.a(), "{}{}", .{ param_prefix, mangled_param_name });
             break :blk try block_scope.makeMangledName(c, bare_arg_name);
         };
 
@@ -560,7 +560,7 @@ fn visitVarDecl(c: *Context, var_decl: *const ZigClangVarDecl) Error!void {
 
     // TODO https://github.com/ziglang/zig/issues/3756
     // TODO https://github.com/ziglang/zig/issues/1802
-    const checked_name = if (isZigPrimitiveType(var_name)) try std.fmtstream.allocPrint(c.a(), "{}_{}", .{var_name, c.getMangle()}) else var_name;
+    const checked_name = if (isZigPrimitiveType(var_name)) try std.fmt.allocPrint(c.a(), "{}_{}", .{ var_name, c.getMangle() }) else var_name;
     const var_decl_loc = ZigClangVarDecl_getLocation(var_decl);
 
     const qual_type = ZigClangVarDecl_getTypeSourceInfo_getType(var_decl);
@@ -620,7 +620,7 @@ fn visitVarDecl(c: *Context, var_decl: *const ZigClangVarDecl) Error!void {
             _ = try appendToken(rp.c, .LParen, "(");
             const expr = try transCreateNodeStringLiteral(
                 rp.c,
-                try std.fmtstream.allocPrint(rp.c.a(), "\"{}\"", .{str_ptr[0..str_len]}),
+                try std.fmt.allocPrint(rp.c.a(), "\"{}\"", .{str_ptr[0..str_len]}),
             );
             _ = try appendToken(rp.c, .RParen, ")");
 
@@ -677,7 +677,7 @@ fn transTypeDef(c: *Context, typedef_decl: *const ZigClangTypedefNameDecl, top_l
 
     // TODO https://github.com/ziglang/zig/issues/3756
     // TODO https://github.com/ziglang/zig/issues/1802
-    const checked_name = if (isZigPrimitiveType(typedef_name)) try std.fmtstream.allocPrint(c.a(), "{}_{}", .{typedef_name, c.getMangle()}) else typedef_name;
+    const checked_name = if (isZigPrimitiveType(typedef_name)) try std.fmt.allocPrint(c.a(), "{}_{}", .{ typedef_name, c.getMangle() }) else typedef_name;
 
     if (mem.eql(u8, checked_name, "uint8_t"))
         return transTypeDefAsBuiltin(c, typedef_decl, "u8")
@@ -738,7 +738,7 @@ fn transRecordDecl(c: *Context, record_decl: *const ZigClangRecordDecl) Error!?*
     // Record declarations such as `struct {...} x` have no name but they're not
     // anonymous hence here isAnonymousStructOrUnion is not needed
     if (bare_name.len == 0) {
-        bare_name = try std.fmtstream.allocPrint(c.a(), "unnamed_{}", .{c.getMangle()});
+        bare_name = try std.fmt.allocPrint(c.a(), "unnamed_{}", .{c.getMangle()});
         is_unnamed = true;
     }
 
@@ -755,7 +755,7 @@ fn transRecordDecl(c: *Context, record_decl: *const ZigClangRecordDecl) Error!?*
         return null;
     }
 
-    const name = try std.fmtstream.allocPrint(c.a(), "{}_{}", .{ container_kind_name, bare_name });
+    const name = try std.fmt.allocPrint(c.a(), "{}_{}", .{ container_kind_name, bare_name });
     _ = try c.decl_table.put(@ptrToInt(ZigClangRecordDecl_getCanonicalDecl(record_decl)), name);
 
     const node = try transCreateNodeVarDecl(c, !is_unnamed, true, name);
@@ -812,7 +812,7 @@ fn transRecordDecl(c: *Context, record_decl: *const ZigClangRecordDecl) Error!?*
             var is_anon = false;
             var raw_name = try c.str(ZigClangNamedDecl_getName_bytes_begin(@ptrCast(*const ZigClangNamedDecl, field_decl)));
             if (ZigClangFieldDecl_isAnonymousStructOrUnion(field_decl)) {
-                raw_name = try std.fmtstream.allocPrint(c.a(), "unnamed_{}", .{c.getMangle()});
+                raw_name = try std.fmt.allocPrint(c.a(), "unnamed_{}", .{c.getMangle()});
                 is_anon = true;
             }
             const field_name = try appendIdentifier(c, raw_name);
@@ -882,11 +882,11 @@ fn transEnumDecl(c: *Context, enum_decl: *const ZigClangEnumDecl) Error!?*ast.No
     var bare_name = try c.str(ZigClangNamedDecl_getName_bytes_begin(@ptrCast(*const ZigClangNamedDecl, enum_decl)));
     var is_unnamed = false;
     if (bare_name.len == 0) {
-        bare_name = try std.fmtstream.allocPrint(c.a(), "unnamed_{}", .{c.getMangle()});
+        bare_name = try std.fmt.allocPrint(c.a(), "unnamed_{}", .{c.getMangle()});
         is_unnamed = true;
     }
 
-    const name = try std.fmtstream.allocPrint(c.a(), "enum_{}", .{bare_name});
+    const name = try std.fmt.allocPrint(c.a(), "enum_{}", .{bare_name});
     _ = try c.decl_table.put(@ptrToInt(ZigClangEnumDecl_getCanonicalDecl(enum_decl)), name);
     const node = try transCreateNodeVarDecl(c, !is_unnamed, true, name);
     node.eq_token = try appendToken(c, .Equal, "=");
@@ -1754,9 +1754,9 @@ fn escapeChar(c: u8, char_buf: *[4]u8) []const u8 {
             // Handle the remaining escapes Zig doesn't support by turning them
             // into their respective hex representation
             if (std.ascii.isCntrl(c))
-                return std.fmtstream.bufPrint(char_buf[0..], "\\x{x:0<2}", .{c}) catch unreachable
+                return std.fmt.bufPrint(char_buf[0..], "\\x{x:0<2}", .{c}) catch unreachable
             else
-                return std.fmtstream.bufPrint(char_buf[0..], "{c}", .{c}) catch unreachable;
+                return std.fmt.bufPrint(char_buf[0..], "{c}", .{c}) catch unreachable;
         },
     };
 }
@@ -2436,7 +2436,7 @@ fn transCase(
 ) TransError!*ast.Node {
     const block_scope = scope.findBlockScope(rp.c) catch unreachable;
     const switch_scope = scope.getSwitch();
-    const label = try std.fmtstream.allocPrint(rp.c.a(), "__case_{}", .{switch_scope.cases.len - @boolToInt(switch_scope.has_default)});
+    const label = try std.fmt.allocPrint(rp.c.a(), "__case_{}", .{switch_scope.cases.len - @boolToInt(switch_scope.has_default)});
     _ = try appendToken(rp.c, .Semicolon, ";");
 
     const expr = if (ZigClangCaseStmt_getRHS(stmt)) |rhs| blk: {
@@ -4607,7 +4607,7 @@ fn finishTransFnProto(
                 _ = try appendToken(rp.c, .LParen, "(");
                 const expr = try transCreateNodeStringLiteral(
                     rp.c,
-                    try std.fmtstream.allocPrint(rp.c.a(), "\"{}\"", .{str_ptr[0..str_len]}),
+                    try std.fmt.allocPrint(rp.c.a(), "\"{}\"", .{str_ptr[0..str_len]}),
                 );
                 _ = try appendToken(rp.c, .RParen, ")");
 
@@ -4866,7 +4866,7 @@ fn transPreprocessorEntities(c: *Context, unit: *ZigClangASTUnit) Error!void {
                 const name = try c.str(raw_name);
                 // TODO https://github.com/ziglang/zig/issues/3756
                 // TODO https://github.com/ziglang/zig/issues/1802
-                const mangled_name = if (isZigPrimitiveType(name)) try std.fmtstream.allocPrint(c.a(), "{}_{}", .{name, c.getMangle()}) else name;
+                const mangled_name = if (isZigPrimitiveType(name)) try std.fmt.allocPrint(c.a(), "{}_{}", .{ name, c.getMangle() }) else name;
                 if (scope.containsNow(mangled_name)) {
                     continue;
                 }
@@ -5151,11 +5151,11 @@ fn parseCNumLit(c: *Context, tok: *CToken, source: []const u8, source_loc: ZigCl
             switch (lit_bytes[1]) {
                 '0'...'7' => {
                     // Octal
-                    lit_bytes = try std.fmtstream.allocPrint(c.a(), "0o{}", .{lit_bytes});
+                    lit_bytes = try std.fmt.allocPrint(c.a(), "0o{}", .{lit_bytes});
                 },
                 'X' => {
                     // Hexadecimal with capital X, valid in C but not in Zig
-                    lit_bytes = try std.fmtstream.allocPrint(c.a(), "0x{}", .{lit_bytes[2..]});
+                    lit_bytes = try std.fmt.allocPrint(c.a(), "0x{}", .{lit_bytes[2..]});
                 },
                 else => {},
             }
@@ -5186,7 +5186,7 @@ fn parseCNumLit(c: *Context, tok: *CToken, source: []const u8, source_loc: ZigCl
         return &cast_node.base;
     } else if (tok.id == .FloatLiteral) {
         if (lit_bytes[0] == '.')
-            lit_bytes = try std.fmtstream.allocPrint(c.a(), "0{}", .{lit_bytes});
+            lit_bytes = try std.fmt.allocPrint(c.a(), "0{}", .{lit_bytes});
         if (tok.id.FloatLiteral == .None) {
             return transCreateNodeFloat(c, lit_bytes);
         }
@@ -5319,7 +5319,7 @@ fn zigifyEscapeSequences(ctx: *Context, source_bytes: []const u8, name: []const 
                         num += c - 'A' + 10;
                     },
                     else => {
-                        i += std.fmtstream.formatIntBuf(bytes[i..], num, 16, false, std.fmtstream.FormatOptions{ .fill = '0', .width = 2 });
+                        i += std.fmt.formatIntBuf(bytes[i..], num, 16, false, std.fmt.FormatOptions{ .fill = '0', .width = 2 });
                         num = 0;
                         if (c == '\\')
                             state = .Escape
@@ -5345,7 +5345,7 @@ fn zigifyEscapeSequences(ctx: *Context, source_bytes: []const u8, name: []const 
                     };
                     num += c - '0';
                 } else {
-                    i += std.fmtstream.formatIntBuf(bytes[i..], num, 16, false, std.fmtstream.FormatOptions{ .fill = '0', .width = 2 });
+                    i += std.fmt.formatIntBuf(bytes[i..], num, 16, false, std.fmt.FormatOptions{ .fill = '0', .width = 2 });
                     num = 0;
                     count = 0;
                     if (c == '\\')
@@ -5359,7 +5359,7 @@ fn zigifyEscapeSequences(ctx: *Context, source_bytes: []const u8, name: []const 
         }
     }
     if (state == .Hex or state == .Octal)
-        i += std.fmtstream.formatIntBuf(bytes[i..], num, 16, false, std.fmtstream.FormatOptions{ .fill = '0', .width = 2 });
+        i += std.fmt.formatIntBuf(bytes[i..], num, 16, false, std.fmt.FormatOptions{ .fill = '0', .width = 2 });
     return bytes[0..i];
 }
 

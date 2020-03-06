@@ -65,11 +65,11 @@ pub const Buffer = struct {
     }
 
     pub fn allocPrint(allocator: *Allocator, comptime format: []const u8, args: var) !Buffer {
-        const size = std.fmtstream.count(format, args) catch |err| switch (err) {
+        const size = std.fmt.count(format, args) catch |err| switch (err) {
             error.Overflow => return error.OutOfMemory,
         };
         var self = try Buffer.initSize(allocator, size);
-        assert((std.fmtstream.bufPrint(self.list.items, format, args) catch unreachable).len == size);
+        assert((std.fmt.bufPrint(self.list.items, format, args) catch unreachable).len == size);
         return self;
     }
 

@@ -1,6 +1,6 @@
 const expect = @import("std").testing.expect;
 const mem = @import("std").mem;
-const fmtstream = @import("std").fmtstream;
+const fmt = @import("std").fmt;
 
 const ET = union(enum) {
     SINT: i32,
@@ -8,8 +8,8 @@ const ET = union(enum) {
 
     pub fn print(a: *const ET, buf: []u8) anyerror!usize {
         return switch (a.*) {
-            ET.SINT => |x| fmtstream.formatIntBuf(buf, x, 10, false, fmtstream.FormatOptions{}),
-            ET.UINT => |x| fmtstream.formatIntBuf(buf, x, 10, false, fmtstream.FormatOptions{}),
+            ET.SINT => |x| fmt.formatIntBuf(buf, x, 10, false, fmt.FormatOptions{}),
+            ET.UINT => |x| fmt.formatIntBuf(buf, x, 10, false, fmt.FormatOptions{}),
         };
     }
 };

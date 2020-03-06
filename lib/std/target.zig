@@ -972,7 +972,7 @@ pub const Target = struct {
     }
 
     pub fn linuxTripleSimple(allocator: *mem.Allocator, cpu_arch: Cpu.Arch, os_tag: Os.Tag, abi: Abi) ![:0]u8 {
-        return std.fmtstream.allocPrint0(allocator, "{}-{}-{}", .{ @tagName(cpu_arch), @tagName(os_tag), @tagName(abi) });
+        return std.fmt.allocPrint0(allocator, "{}-{}-{}", .{ @tagName(cpu_arch), @tagName(os_tag), @tagName(abi) });
     }
 
     pub fn linuxTriple(self: Target, allocator: *mem.Allocator) ![:0]u8 {
@@ -1158,7 +1158,7 @@ pub const Target = struct {
         var result: DynamicLinker = .{};
         const S = struct {
             fn print(r: *DynamicLinker, comptime fmt: []const u8, args: var) DynamicLinker {
-                r.max_byte = @intCast(u8, (std.fmtstream.bufPrint(&r.buffer, fmt, args) catch unreachable).len - 1);
+                r.max_byte = @intCast(u8, (std.fmt.bufPrint(&r.buffer, fmt, args) catch unreachable).len - 1);
                 return r.*;
             }
             fn copy(r: *DynamicLinker, s: []const u8) DynamicLinker {

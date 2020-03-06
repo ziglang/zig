@@ -296,13 +296,13 @@ fn constructLinkerArgsCoff(ctx: *Context) !void {
 
     const is_library = ctx.comp.kind == .Lib;
 
-    const out_arg = try std.fmtstream.allocPrint(&ctx.arena.allocator, "-OUT:{}\x00", .{ctx.out_file_path.toSliceConst()});
+    const out_arg = try std.fmt.allocPrint(&ctx.arena.allocator, "-OUT:{}\x00", .{ctx.out_file_path.toSliceConst()});
     try ctx.args.append(@ptrCast([*:0]const u8, out_arg.ptr));
 
     if (ctx.comp.haveLibC()) {
-        try ctx.args.append(@ptrCast([*:0]const u8, (try std.fmtstream.allocPrint(&ctx.arena.allocator, "-LIBPATH:{}\x00", .{ctx.libc.msvc_lib_dir.?})).ptr));
-        try ctx.args.append(@ptrCast([*:0]const u8, (try std.fmtstream.allocPrint(&ctx.arena.allocator, "-LIBPATH:{}\x00", .{ctx.libc.kernel32_lib_dir.?})).ptr));
-        try ctx.args.append(@ptrCast([*:0]const u8, (try std.fmtstream.allocPrint(&ctx.arena.allocator, "-LIBPATH:{}\x00", .{ctx.libc.lib_dir.?})).ptr));
+        try ctx.args.append(@ptrCast([*:0]const u8, (try std.fmt.allocPrint(&ctx.arena.allocator, "-LIBPATH:{}\x00", .{ctx.libc.msvc_lib_dir.?})).ptr));
+        try ctx.args.append(@ptrCast([*:0]const u8, (try std.fmt.allocPrint(&ctx.arena.allocator, "-LIBPATH:{}\x00", .{ctx.libc.kernel32_lib_dir.?})).ptr));
+        try ctx.args.append(@ptrCast([*:0]const u8, (try std.fmt.allocPrint(&ctx.arena.allocator, "-LIBPATH:{}\x00", .{ctx.libc.lib_dir.?})).ptr));
     }
 
     if (ctx.link_in_crt) {
@@ -310,20 +310,20 @@ fn constructLinkerArgsCoff(ctx: *Context) !void {
         const d_str = if (ctx.comp.build_mode == .Debug) "d" else "";
 
         if (ctx.comp.is_static) {
-            const cmt_lib_name = try std.fmtstream.allocPrint(&ctx.arena.allocator, "libcmt{}.lib\x00", .{d_str});
+            const cmt_lib_name = try std.fmt.allocPrint(&ctx.arena.allocator, "libcmt{}.lib\x00", .{d_str});
             try ctx.args.append(@ptrCast([*:0]const u8, cmt_lib_name.ptr));
         } else {
-            const msvcrt_lib_name = try std.fmtstream.allocPrint(&ctx.arena.allocator, "msvcrt{}.lib\x00", .{d_str});
+            const msvcrt_lib_name = try std.fmt.allocPrint(&ctx.arena.allocator, "msvcrt{}.lib\x00", .{d_str});
             try ctx.args.append(@ptrCast([*:0]const u8, msvcrt_lib_name.ptr));
         }
 
-        const vcruntime_lib_name = try std.fmtstream.allocPrint(&ctx.arena.allocator, "{}vcruntime{}.lib\x00", .{
+        const vcruntime_lib_name = try std.fmt.allocPrint(&ctx.arena.allocator, "{}vcruntime{}.lib\x00", .{
             lib_str,
             d_str,
         });
         try ctx.args.append(@ptrCast([*:0]const u8, vcruntime_lib_name.ptr));
 
-        const crt_lib_name = try std.fmtstream.allocPrint(&ctx.arena.allocator, "{}ucrt{}.lib\x00", .{ lib_str, d_str });
+        const crt_lib_name = try std.fmt.allocPrint(&ctx.arena.allocator, "{}ucrt{}.lib\x00", .{ lib_str, d_str });
         try ctx.args.append(@ptrCast([*:0]const u8, crt_lib_name.ptr));
 
         // Visual C++ 2015 Conformance Changes
@@ -383,7 +383,7 @@ fn constructLinkerArgsMachO(ctx: *Context) !void {
         .IPhoneOS => try ctx.args.append("-iphoneos_version_min"),
         .IPhoneOSSimulator => try ctx.args.append("-ios_simulator_version_min"),
     }
-    const ver_str = try std.fmtstream.allocPrint(&ctx.arena.allocator, "{}.{}.{}\x00", .{
+    const ver_str = try std.fmt.allocPrint(&ctx.arena.allocator, "{}.{}.{}\x00", .{
         platform.major,
         platform.minor,
         platform.micro,
@@ -445,7 +445,7 @@ fn constructLinkerArgsMachO(ctx: *Context) !void {
                 try ctx.args.append("-lSystem");
             } else {
                 if (mem.indexOfScalar(u8, lib.name, '/') == null) {
-                    const arg = try std.fmtstream.allocPrint(&ctx.arena.allocator, "-l{}\x00", .{lib.name});
+                    const arg = try std.fmt.allocPrint(&ctx.arena.allocator, "-l{}\x00", .{lib.name});
                     try ctx.args.append(@ptrCast([*:0]const u8, arg.ptr));
                 } else {
                     const arg = try std.cstr.addNullByte(&ctx.arena.allocator, lib.name);

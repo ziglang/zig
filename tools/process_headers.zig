@@ -299,7 +299,7 @@ pub fn main() !void {
         std.debug.warn("unrecognized C ABI: {}\n", .{abi_name});
         usageAndExit(args[0]);
     };
-    const generic_name = try std.fmtstream.allocPrint(allocator, "generic-{}", .{abi_name});
+    const generic_name = try std.fmt.allocPrint(allocator, "generic-{}", .{abi_name});
 
     // TODO compiler crashed when I wrote this the canonical way
     var libc_targets: []const LibCTarget = undefined;
@@ -440,7 +440,7 @@ pub fn main() !void {
                 .specific => |a| @tagName(a),
                 else => @tagName(dest_target.arch),
             };
-            const out_subpath = try std.fmtstream.allocPrint(allocator, "{}-{}-{}", .{
+            const out_subpath = try std.fmt.allocPrint(allocator, "{}-{}-{}", .{
                 arch_name,
                 @tagName(dest_target.os),
                 @tagName(dest_target.abi),

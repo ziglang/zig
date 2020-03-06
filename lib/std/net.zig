@@ -268,14 +268,14 @@ pub const Address = extern union {
     pub fn format(
         self: Address,
         comptime fmt: []const u8,
-        options: std.fmtstream.FormatOptions,
+        options: std.fmt.FormatOptions,
         out_stream: var,
     ) !void {
         switch (self.any.family) {
             os.AF_INET => {
                 const port = mem.bigToNative(u16, self.in.port);
                 const bytes = @ptrCast(*const [4]u8, &self.in.addr);
-                try std.fmtstream.format(out_stream, "{}.{}.{}.{}:{}", .{
+                try std.fmt.format(out_stream, "{}.{}.{}.{}:{}", .{
                     bytes[0],
                     bytes[1],
                     bytes[2],
@@ -286,7 +286,7 @@ pub const Address = extern union {
             os.AF_INET6 => {
                 const port = mem.bigToNative(u16, self.in6.port);
                 if (mem.eql(u8, self.in6.addr[0..12], &[_]u8{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff })) {
-                    try std.fmtstream.format(out_stream, "[::ffff:{}.{}.{}.{}]:{}", .{
+                    try std.fmt.format(out_stream, "[::ffff:{}.{}.{}.{}]:{}", .{
                         self.in6.addr[12],
                         self.in6.addr[13],
                         self.in6.addr[14],
@@ -317,19 +317,19 @@ pub const Address = extern union {
                         }
                         continue;
                     }
-                    try std.fmtstream.format(out_stream, "{x}", .{native_endian_parts[i]});
+                    try std.fmt.format(out_stream, "{x}", .{native_endian_parts[i]});
                     if (i != native_endian_parts.len - 1) {
                         try out_stream.writeAll(":");
                     }
                 }
-                try std.fmtstream.format(out_stream, "]:{}", .{port});
+                try std.fmt.format(out_stream, "]:{}", .{port});
             },
             os.AF_UNIX => {
                 if (!has_unix_sockets) {
                     unreachable;
                 }
 
-                try std.fmtstream.format(out_stream, "{}", .{&self.un.path});
+                try std.fmt.format(out_stream, "{}", .{&self.un.path});
             },
             else => unreachable,
         }
@@ -438,7 +438,7 @@ pub fn getAddressList(allocator: *mem.Allocator, name: []const u8, port: u16) !*
         const name_c = try std.cstr.addNullByte(allocator, name);
         defer allocator.free(name_c);
 
-        const port_c = try std.fmtstream.allocPrint(allocator, "{}\x00", .{port});
+        const port_c = try std.fmt.allocPrint(allocator, "{}\x00", .{port});
         defer allocator.free(port_c);
 
         const hints = os.addrinfo{

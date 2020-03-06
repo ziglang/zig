@@ -518,7 +518,7 @@ pub const Int = struct {
     pub fn format(
         self: Int,
         comptime fmt: []const u8,
-        options: std.fmtstream.FormatOptions,
+        options: std.fmt.FormatOptions,
         out_stream: var,
     ) FmtError!void {
         self.assertWritable();

@@ -349,7 +349,7 @@ pub const Headers = struct {
     pub fn format(
         self: Self,
         comptime fmt: []const u8,
-        options: std.fmtstream.FormatOptions,
+        options: std.fmt.FormatOptions,
         out_stream: var,
     ) !void {
         for (self.toSlice()) |entry| {
@@ -591,5 +591,5 @@ test "Headers.format" {
         \\foo: bar
         \\cookie: somevalue
         \\
-    , try std.fmtstream.bufPrint(buf[0..], "{}", .{h}));
+    , try std.fmt.bufPrint(buf[0..], "{}", .{h}));
 }

@@ -27,11 +27,11 @@ pub const Guid = extern struct {
     pub fn format(
         self: @This(),
         comptime f: []const u8,
-        options: std.fmtstream.FormatOptions,
+        options: std.fmt.FormatOptions,
         out_stream: var,
     ) Errors!void {
         if (f.len == 0) {
-            return std.fmtstream.format(out_stream, "{x:0>8}-{x:0>4}-{x:0>4}-{x:0>2}{x:0>2}-{x:0>12}", .{
+            return std.fmt.format(out_stream, "{x:0>8}-{x:0>4}-{x:0>4}-{x:0>2}{x:0>2}-{x:0>12}", .{
                 self.time_low,
                 self.time_mid,
                 self.time_high_and_version,

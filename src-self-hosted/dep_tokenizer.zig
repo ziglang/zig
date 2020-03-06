@@ -893,7 +893,7 @@ fn printSection(out: var, label: []const u8, bytes: []const u8) !void {
 
 fn printLabel(out: var, label: []const u8, bytes: []const u8) !void {
     var buf: [80]u8 = undefined;
-    var text = try std.fmtstream.bufPrint(buf[0..], "{} {} bytes ", .{ label, bytes.len });
+    var text = try std.fmt.bufPrint(buf[0..], "{} {} bytes ", .{ label, bytes.len });
     try out.write(text);
     var i: usize = text.len;
     const end = 79;
@@ -979,13 +979,13 @@ fn hexDump16(out: var, offset: usize, bytes: []const u8) !void {
 
 fn printDecValue(out: var, value: u64, width: u8) !void {
     var buffer: [20]u8 = undefined;
-    const len = std.fmtstream.formatIntBuf(buffer[0..], value, 10, false, width);
+    const len = std.fmt.formatIntBuf(buffer[0..], value, 10, false, width);
     try out.write(buffer[0..len]);
 }
 
 fn printHexValue(out: var, value: u64, width: u8) !void {
     var buffer: [16]u8 = undefined;
-    const len = std.fmtstream.formatIntBuf(buffer[0..], value, 16, false, width);
+    const len = std.fmt.formatIntBuf(buffer[0..], value, 16, false, width);
     try out.write(buffer[0..len]);
 }
 

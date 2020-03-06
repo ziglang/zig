@@ -2,7 +2,7 @@ const root = @import("@build");
 const std = @import("std");
 const builtin = @import("builtin");
 const io = std.io;
-const fmtstream = std.fmtstream;
+const fmt = std.fmt;
 const Builder = std.build.Builder;
 const mem = std.mem;
 const process = std.process;
@@ -153,7 +153,7 @@ fn usage(builder: *Builder, already_ran_build: bool, out_stream: var) !void {
     const allocator = builder.allocator;
     for (builder.top_level_steps.toSliceConst()) |top_level_step| {
         const name = if (&top_level_step.step == builder.default_step)
-            try fmtstream.allocPrint(allocator, "{} (default)", .{top_level_step.step.name})
+            try fmt.allocPrint(allocator, "{} (default)", .{top_level_step.step.name})
         else
             top_level_step.step.name;
         try out_stream.print("  {s:22} {}\n", .{ name, top_level_step.description });
@@ -175,7 +175,7 @@ fn usage(builder: *Builder, already_ran_build: bool, out_stream: var) !void {
         try out_stream.print("  (none)\n", .{});
     } else {
         for (builder.available_options_list.toSliceConst()) |option| {
-            const name = try fmtstream.allocPrint(allocator, "  -D{}=[{}]", .{
+            const name = try fmt.allocPrint(allocator, "  -D{}=[{}]", .{
                 option.name,
                 Builder.typeIdName(option.type_id),
             });
