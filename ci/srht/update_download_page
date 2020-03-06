@@ -21,10 +21,7 @@ curl --fail -I "$AARCH64_LINUX_JSON_URL" >/dev/null || exit 0
 curl --fail -I "$X86_64_LINUX_JSON_URL" >/dev/null || exit 0
 curl --fail -I "$X86_64_WINDOWS_JSON_URL" >/dev/null || exit 0
 curl --fail -I "$X86_64_MACOS_JSON_URL" >/dev/null || exit 0
-
-# FreeBSD is dealing with some weird upstream bug right now
-# https://bugs.freebsd.org/bugzilla/show_bug.cgi?id=244549
-#curl --fail -I "$X86_64_FREEBSD_JSON_URL" >/dev/null || exit 0
+curl --fail -I "$X86_64_FREEBSD_JSON_URL" >/dev/null || exit 0
 
 # Without --user, this gave me:
 # ERROR: Could not install packages due to an EnvironmentError: [Errno 13] Permission denied
@@ -66,12 +63,10 @@ export AARCH64_LINUX_TARBALL="$(echo "$AARCH64_LINUX_JSON" | jq .tarball -r)"
 export AARCH64_LINUX_BYTESIZE="$(echo "$AARCH64_LINUX_JSON" | jq .size -r)"
 export AARCH64_LINUX_SHASUM="$(echo "$AARCH64_LINUX_JSON" | jq .shasum -r)"
 
-# FreeBSD is dealing with some weird upstream bug right now
-# https://bugs.freebsd.org/bugzilla/show_bug.cgi?id=244549
-#X86_64_FREEBSD_JSON=$(curl --fail "$X86_64_FREEBSD_JSON_URL" || exit 1)
-#export X86_64_FREEBSD_TARBALL="$(echo "$X86_64_FREEBSD_JSON" | jq .tarball -r)"
-#export X86_64_FREEBSD_BYTESIZE="$(echo "$X86_64_FREEBSD_JSON" | jq .size -r)"
-#export X86_64_FREEBSD_SHASUM="$(echo "$X86_64_FREEBSD_JSON" | jq .shasum -r)"
+X86_64_FREEBSD_JSON=$(curl --fail "$X86_64_FREEBSD_JSON_URL" || exit 1)
+export X86_64_FREEBSD_TARBALL="$(echo "$X86_64_FREEBSD_JSON" | jq .tarball -r)"
+export X86_64_FREEBSD_BYTESIZE="$(echo "$X86_64_FREEBSD_JSON" | jq .size -r)"
+export X86_64_FREEBSD_SHASUM="$(echo "$X86_64_FREEBSD_JSON" | jq .shasum -r)"
 
 git clone https://github.com/ziglang/www.ziglang.org --depth 1
 cd www.ziglang.org
