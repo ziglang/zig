@@ -16,7 +16,6 @@ pub extern "NtDll" fn NtQueryInformationFile(
     Length: ULONG,
     FileInformationClass: FILE_INFORMATION_CLASS,
 ) callconv(.Stdcall) NTSTATUS;
-pub extern "NtDll" fn NtCurrentTeb() callconv(.Stdcall) *TEB;
 
 pub extern "NtDll" fn NtQueryAttributesFile(
     ObjectAttributes: *OBJECT_ATTRIBUTES,
