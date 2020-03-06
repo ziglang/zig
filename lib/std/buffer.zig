@@ -81,12 +81,18 @@ pub const Buffer = struct {
         self.list.deinit();
     }
 
-    pub fn toSlice(self: Buffer) [:0]u8 {
-        return self.list.toSlice()[0..self.len() :0];
+    pub fn span(self: var) @TypeOf(self.list.items[0 .. self.list.len - 1 :0]) {
+        return self.list.span()[0..self.len() :0];
     }
 
+    /// Deprecated: use `span`
+    pub fn toSlice(self: Buffer) [:0]u8 {
+        return self.span();
+    }
+
+    /// Deprecated: use `span`
     pub fn toSliceConst(self: Buffer) [:0]const u8 {
-        return self.list.toSliceConst()[0..self.len() :0];
+        return self.span();
     }
 
     pub fn shrink(self: *Buffer, new_len: usize) void {
@@ -133,7 +139,7 @@ pub const Buffer = struct {
 
     pub fn startsWith(self: Buffer, m: []const u8) bool {
         if (self.len() < m.len) return false;
-        return self.list.startsWith(m);
+        return mem.eql(u8, self.list.items[0..m.len], m);
     }
 
     pub fn endsWith(self: Buffer, m: []const u8) bool {

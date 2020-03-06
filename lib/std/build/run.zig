@@ -170,7 +170,9 @@ pub const RunStep = struct {
 
         // TODO need to poll to read these streams to prevent a deadlock (or rely on evented I/O).
 
-        var stdout: []const u8 = undefined;
+        var stdout: ?[]const u8 = null;
+        defer if (stdout) |s| self.builder.allocator.free(s);
+
         switch (self.stdout_action) {
             .expect_exact, .expect_matches => {
                 var stdout_file_in_stream = child.stdout.?.inStream();
@@ -178,12 +180,10 @@ pub const RunStep = struct {
             },
             .inherit, .ignore => {},
         }
-        defer switch (self.stdout_action) {
-            .expect_exact, .expect_matches => self.builder.allocator.free(stdout),
-            .inherit, .ignore => {},
-        };
 
-        var stderr: []const u8 = undefined;
+        var stderr: ?[]const u8 = null;
+        defer if (stderr) |s| self.builder.allocator.free(s);
+
         switch (self.stderr_action) {
             .expect_exact, .expect_matches => {
                 var stderr_file_in_stream = child.stderr.?.inStream();
@@ -191,10 +191,6 @@ pub const RunStep = struct {
             },
             .inherit, .ignore => {},
         }
-        defer switch (self.stderr_action) {
-            .expect_exact, .expect_matches => self.builder.allocator.free(stderr),
-            .inherit, .ignore => {},
-        };
 
         const term = child.wait() catch |err| {
             warn("Unable to spawn {}: {}\n", .{ argv[0], @errorName(err) });
@@ -222,7 +218,7 @@ pub const RunStep = struct {
         switch (self.stderr_action) {
             .inherit, .ignore => {},
             .expect_exact => |expected_bytes| {
-                if (!mem.eql(u8, expected_bytes, stderr)) {
+                if (!mem.eql(u8, expected_bytes, stderr.?)) {
                     warn(
                         \\
                         \\========= Expected this stderr: =========
@@ -230,13 +226,13 @@ pub const RunStep = struct {
                         \\========= But found: ====================
                         \\{}
                         \\
-                    , .{ expected_bytes, stderr });
+                    , .{ expected_bytes, stderr.? });
                     printCmd(cwd, argv);
                     return error.TestFailed;
                 }
             },
             .expect_matches => |matches| for (matches) |match| {
-                if (mem.indexOf(u8, stderr, match) == null) {
+                if (mem.indexOf(u8, stderr.?, match) == null) {
                     warn(
                         \\
                         \\========= Expected to find in stderr: =========
@@ -244,7 +240,7 @@ pub const RunStep = struct {
                         \\========= But stderr does not contain it: =====
                         \\{}
                         \\
-                    , .{ match, stderr });
+                    , .{ match, stderr.? });
                     printCmd(cwd, argv);
                     return error.TestFailed;
                 }
@@ -254,7 +250,7 @@ pub const RunStep = struct {
         switch (self.stdout_action) {
             .inherit, .ignore => {},
             .expect_exact => |expected_bytes| {
-                if (!mem.eql(u8, expected_bytes, stdout)) {
+                if (!mem.eql(u8, expected_bytes, stdout.?)) {
                     warn(
                         \\
                         \\========= Expected this stdout: =========
@@ -262,13 +258,13 @@ pub const RunStep = struct {
                         \\========= But found: ====================
                         \\{}
                         \\
-                    , .{ expected_bytes, stdout });
+                    , .{ expected_bytes, stdout.? });
                     printCmd(cwd, argv);
                     return error.TestFailed;
                 }
             },
             .expect_matches => |matches| for (matches) |match| {
-                if (mem.indexOf(u8, stdout, match) == null) {
+                if (mem.indexOf(u8, stdout.?, match) == null) {
                     warn(
                         \\
                         \\========= Expected to find in stdout: =========
@@ -276,7 +272,7 @@ pub const RunStep = struct {
                         \\========= But stdout does not contain it: =====
                         \\{}
                         \\
-                    , .{ match, stdout });
+                    , .{ match, stdout.? });
                     printCmd(cwd, argv);
                     return error.TestFailed;
                 }
