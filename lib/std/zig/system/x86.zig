@@ -10,70 +10,66 @@ fn setFeature(cpu: *Target.Cpu, feature: Target.x86.Feature, enabled: bool) void
     else cpu.features.removeFeature(idx);
 }
 
-fn hasFeature(cpu: *Target.Cpu, feature: Target.x86.Feature) bool {
-    const idx = @as(Target.Cpu.Feature.Set.Index, @enumToInt(feature));
-    return cpu.features.isEnabled(idx);
-}
-
 inline fn bit(input: u32, offset: u5) bool {
     return (input >> offset) & 1 != 0;
 }
 
-pub fn detectNativeCpuAndFeatures(cpu: *Target.Cpu) void {
+pub fn detectNativeCpuAndFeatures(cross_target: CrossTarget) Target.Cpu {
 
-    defer {
-        // Whenever we find a model, add that model's featureset.
-        cpu.features.addFeatureSet(cpu.model.features);
-    }
+    var arch = cross_target.getCpuArch();
 
-    // When we can't identify a specific model,
-    // we guess based on processor features.
-    // This seems to be the accepted standard.
+    var cpu = Target.Cpu {
+        .arch = arch,
+        .model = Target.Cpu.Model.baseline(arch),
+        .features = Target.Cpu.Feature.Set.empty,
+    };
 
-    detectNativeFeatures(cpu);
+    detectNativeFeatures(&cpu, cross_target.getOsTag());
 
     var leaf = cpuid(0, 0);
     const max_leaf = leaf.eax;
     const vendor = leaf.ebx;
-    if(max_leaf < 1) {
-        cpu.model = &Target.x86.cpu.generic;
-        return;
-    }
 
-    leaf = cpuid(0x1, 0);
+    if(max_leaf > 0) {
 
-    const brand_id = leaf.ebx & 0xff;
-    var family: u32 = 0;
-    var model: u32 = 0;
+        leaf = cpuid(0x1, 0);
 
-    { // Detect model and family
-        family = (leaf.eax >> 8) & 0xf;
-        model = (leaf.eax >> 4) & 0xf;
-        if (family == 6 or family == 0xf) {
-            if (family == 0xf) {
-                family += (leaf.eax >> 20) & 0xff;
+        const brand_id = leaf.ebx & 0xff;
+        var family: u32 = 0;
+        var model: u32 = 0;
+
+        { // Detect model and family
+            family = (leaf.eax >> 8) & 0xf;
+            model = (leaf.eax >> 4) & 0xf;
+            if (family == 6 or family == 0xf) {
+                if (family == 0xf) {
+                    family += (leaf.eax >> 20) & 0xff;
+                }
+                model += ((leaf.eax >> 16) & 0xf) << 4;
             }
-            model += ((leaf.eax >> 16) & 0xf) << 4;
+        }
+
+        switch(vendor) {
+            0x756e6547 => {
+                detectIntelProcessor(&cpu, family, model, brand_id);
+            },
+            0x68747541 => {
+                detectAMDProcessor(&cpu, family, model);
+            },
+            else => {},
         }
     }
 
-    switch(vendor) {
-        0x756e6547 => {
-            detectIntelProcessor(cpu, family, model, brand_id);
-        },
-        0x68747541 => {
-            detectAMDProcessor(cpu, family, model);
-        },
-        else => {
-            cpu.model = &Target.x86.cpu.generic;
-        },
-    }
+    var model_features = cpu.model.features;
+    model_features.populateDependencies(cpu.arch.allFeaturesList());
+    cpu.features.addFeatureSet(model_features);
+
+    return cpu;
 
 }
 
 fn detectIntelProcessor(cpu: *Target.Cpu, family: u32, model: u32, brand_id: u32) void {
     if (brand_id != 0) {
-        cpu.model = &Target.x86.cpu.generic;
         return;
     }
     switch(family) {
@@ -86,7 +82,7 @@ fn detectIntelProcessor(cpu: *Target.Cpu, family: u32, model: u32, brand_id: u32
             return;
         },
         5 => {
-            if(hasFeature(cpu, .mmx)) {
+            if(Target.x86.featureSetHas(cpu.features, .mmx)) {
                 cpu.model = &Target.x86.cpu.pentium_mmx;
                 return;
             }
@@ -152,10 +148,10 @@ fn detectIntelProcessor(cpu: *Target.Cpu, family: u32, model: u32, brand_id: u32
                     return;
                 },
                 0x55 => {
-                    if(hasFeature(cpu, .avx512bf16)) {
+                    if(Target.x86.featureSetHas(cpu.features, .avx512bf16)) {
                         cpu.model = &Target.x86.cpu.cooperlake;
                         return;
-                    } else if(hasFeature(cpu, .avx512vnni)) {
+                    } else if(Target.x86.featureSetHas(cpu.features, .avx512vnni)) {
                         cpu.model = &Target.x86.cpu.cascadelake;
                         return;
                     } else {
@@ -204,114 +200,18 @@ fn detectIntelProcessor(cpu: *Target.Cpu, family: u32, model: u32, brand_id: u32
                     return;
                 },
                 else => {
-                    // Unknown, try to guess.
-                    // TODO detect tigerlake host
-                    if(hasFeature(cpu, .avx512vp2intersect)) {
-                        // TODO no tigerlake entry in Target.x86.cpu
-                        //cpu.model = &Target.x86.cpu.tigerlake;
-                        cpu.model = &Target.x86.cpu.nehalem;
-                        return;
-                    }
-                    if(hasFeature(cpu, .avx512vbmi2)) {
-                        cpu.model = &Target.x86.cpu.icelake_client;
-                        return;
-                    }
-                    if(hasFeature(cpu, .avx512vbmi)) {
-                        cpu.model = &Target.x86.cpu.cannonlake;
-                        return;
-                    }
-                    if(hasFeature(cpu, .avx512bf16)) {
-                        cpu.model = &Target.x86.cpu.cooperlake;
-                        return;
-                    }
-                    if(hasFeature(cpu, .avx512vnni)) {
-                        cpu.model = &Target.x86.cpu.cascadelake;
-                        return;
-                    }
-                    if(hasFeature(cpu, .avx512vl)) {
-                        cpu.model = &Target.x86.cpu.skylake_avx512;
-                        return;
-                    }
-                    if(hasFeature(cpu, .avx512er)) {
-                        cpu.model = &Target.x86.cpu.knl;
-                        return;
-                    }
-                    if(hasFeature(cpu, .clflushopt)) {
-                        if(hasFeature(cpu, .sha)) {
-                            cpu.model = &Target.x86.cpu.goldmont;
-                            return;
-                        } else {
-                            cpu.model = &Target.x86.cpu.skylake;
-                            return;
-                        }
-                    }
-                    if(hasFeature(cpu, .adx)) {
-                        cpu.model = &Target.x86.cpu.broadwell;
-                        return;
-                    }
-                    if(hasFeature(cpu, .avx2)) {
-                        cpu.model = &Target.x86.cpu.haswell;
-                        return;
-                    }
-                    if(hasFeature(cpu, .avx)) {
-                        cpu.model = &Target.x86.cpu.sandybridge;
-                        return;
-                    }
-                    if(hasFeature(cpu, .sse4_2)) {
-                        if(hasFeature(cpu, .movbe)) {
-                            cpu.model = &Target.x86.cpu.silvermont;
-                            return;
-                        } else {
-                            cpu.model = &Target.x86.cpu.nehalem;
-                            return;
-                        }
-                    }
-                    if(hasFeature(cpu, .sse4_1)) {
-                        cpu.model = &Target.x86.cpu.penryn;
-                        return;
-                    }
-                    if(hasFeature(cpu, .sse3)) {
-                        if(hasFeature(cpu, .movbe)) {
-                            cpu.model = &Target.x86.cpu.bonnell;
-                            return;
-                        } else {
-                            cpu.model = &Target.x86.cpu.core2;
-                            return;
-                        }
-                    }
-
-                    if(hasFeature(cpu, .@"64bit")) {
-                        cpu.model = &Target.x86.cpu.core2;
-                        return;
-                    }
-
-                    if(hasFeature(cpu, .sse3)) {
-                        cpu.model = &Target.x86.cpu.yonah;
-                        return;
-                    }
-                    if(hasFeature(cpu, .sse2)) {
-                        cpu.model = &Target.x86.cpu.pentium_m;
-                        return;
-                    }
-                    if(hasFeature(cpu, .sse)) {
-                        cpu.model = &Target.x86.cpu.pentium3;
-                        return;
-                    }
-                    if(hasFeature(cpu, .mmx)) {
-                        cpu.model = &Target.x86.cpu.pentium2;
-                        return;
-                    }
-                    cpu.model = &Target.x86.cpu.pentiumpro;
+                    // Unknown CPU.
+                    // Default to baseline x86_64 or i386 cpu.
                     return;
                 },
             }
         },
         15 => {
-            if(hasFeature(cpu, .@"64bit")) {
+            if(Target.x86.featureSetHas(cpu.features, .@"64bit")) {
                 cpu.model = &Target.x86.cpu.nocona;
                 return;
             }
-            if(hasFeature(cpu, .sse3)) {
+            if(Target.x86.featureSetHas(cpu.features, .sse3)) {
                 cpu.model = &Target.x86.cpu.prescott;
                 return;
             }
@@ -319,7 +219,8 @@ fn detectIntelProcessor(cpu: *Target.Cpu, family: u32, model: u32, brand_id: u32
             return;
         },
         else => {
-            cpu.model = &Target.x86.cpu.generic;
+            // Unknown CPU.
+            // Default to baseline x86_64 or i386 cpu.
             return;
         }
     }
@@ -358,7 +259,7 @@ fn detectAMDProcessor(cpu: *Target.Cpu, family: u32, model: u32) void {
             return;
         },
         6 => {
-            if(hasFeature(cpu, .sse)) {
+            if(Target.x86.featureSetHas(cpu.features, .sse)) {
                 cpu.model = &Target.x86.cpu.athlon_xp;
                 return;
             }
@@ -366,7 +267,7 @@ fn detectAMDProcessor(cpu: *Target.Cpu, family: u32, model: u32) void {
             return;
         },
         15 => {
-            if(hasFeature(cpu, .sse3)) {
+            if(Target.x86.featureSetHas(cpu.features, .sse3)) {
                 cpu.model = &Target.x86.cpu.k8_sse3;
                 return;
             }
@@ -410,13 +311,12 @@ fn detectAMDProcessor(cpu: *Target.Cpu, family: u32, model: u32) void {
             return;
         },
         else => {
-            cpu.model = &Target.x86.cpu.generic;
             return;
         }
     }
 }
 
-fn detectNativeFeatures(cpu: *Target.Cpu) void {
+fn detectNativeFeatures(cpu: *Target.Cpu, os_type: Target.Os.Tag) void {
 
     var leaf = cpuid(0, 0);
 
@@ -442,23 +342,42 @@ fn detectNativeFeatures(cpu: *Target.Cpu) void {
     setFeature(cpu, .aes,    bit(leaf.ecx, 25));
     setFeature(cpu, .rdrnd,  bit(leaf.ecx, 30));
 
-    const has_avx_save = bit(leaf.ecx, 27) and
-                         bit(leaf.ecx, 28) and
-                         ((leaf.eax & 0x6) == 0x6);
+    leaf.eax = getXCR0();
+
+    const has_avx = bit(leaf.ecx, 27) and
+                    bit(leaf.ecx, 28) and
+                    ((leaf.eax & 0x6) == 0x6);
+
+    // LLVM approaches avx512_save by hardcoding it to true on Darwin,
+    // because the kernel saves the context even if the bit is not set.
+    // https://github.com/llvm/llvm-project/blob/bca373f73fc82728a8335e7d6cd164e8747139ec/llvm/lib/Support/Host.cpp#L1378
+    //
+    // Google approaches this by using a different series of checks and flags,
+    // and this may report the feature more accurately on a technically correct
+    // but ultimately less useful level.
+    // https://github.com/google/cpu_features/blob/b5c271c53759b2b15ff91df19bd0b32f2966e275/src/cpuinfo_x86.c#L113
+    // (called from https://github.com/google/cpu_features/blob/b5c271c53759b2b15ff91df19bd0b32f2966e275/src/cpuinfo_x86.c#L1052)
+    //
+    // Right now, we use LLVM's approach, because even if the target doesn't support
+    // the feature, the kernel should provide the same functionality transparently,
+    // so the implementation details don't make a difference.
+    // That said, this flag impacts other CPU features' availability,
+    // so until we can verify that this doesn't come with side affects,
+    // we'll say TODO verify this.
 
     // Darwin lazily saves the AVX512 context on first use: trust that the OS will
-    // save the AVX512 context if we use AVX512 instructions, even the bit is not
+    // save the AVX512 context if we use AVX512 instructions, even if the bit is not
     // set right now.
-    const has_avx512_save = switch(Target.current.isDarwin()) {
+    const has_avx512_save = switch(os_type.isDarwin()) {
         true  => true,
-        false => has_avx_save and ((leaf.eax & 0xE0) == 0xE0),
+        false => has_avx and ((leaf.eax & 0xE0) == 0xE0),
     };
 
-    setFeature(cpu, .avx,    has_avx_save);
-    setFeature(cpu, .fma,    has_avx_save and bit(leaf.ecx, 12));
+    setFeature(cpu, .avx,    has_avx);
+    setFeature(cpu, .fma,    has_avx and bit(leaf.ecx, 12));
     // Only enable XSAVE if OS has enabled support for saving YMM state.
-    setFeature(cpu, .xsave,  has_avx_save and bit(leaf.ecx, 26));
-    setFeature(cpu, .f16c,   has_avx_save and bit(leaf.ecx, 29));
+    setFeature(cpu, .xsave,  has_avx and bit(leaf.ecx, 26));
+    setFeature(cpu, .f16c,   has_avx and bit(leaf.ecx, 29));
 
     leaf = cpuid(0x80000000, 0);
     const max_ext_level = leaf.eax;
@@ -469,9 +388,9 @@ fn detectNativeFeatures(cpu: *Target.Cpu) void {
         setFeature(cpu, .lzcnt,     bit(leaf.ecx,  5));
         setFeature(cpu, .sse4a,     bit(leaf.ecx,  6));
         setFeature(cpu, .prfchw,    bit(leaf.ecx,  8));
-        setFeature(cpu, .xop,       bit(leaf.ecx, 11) and has_avx_save);
+        setFeature(cpu, .xop,       bit(leaf.ecx, 11) and has_avx);
         setFeature(cpu, .lwp,       bit(leaf.ecx, 15));
-        setFeature(cpu, .fma4,      bit(leaf.ecx, 16) and has_avx_save);
+        setFeature(cpu, .fma4,      bit(leaf.ecx, 16) and has_avx);
         setFeature(cpu, .tbm,       bit(leaf.ecx, 21));
         setFeature(cpu, .mwaitx,    bit(leaf.ecx, 29));
         setFeature(cpu, .@"64bit",  bit(leaf.edx, 29));
@@ -486,7 +405,7 @@ fn detectNativeFeatures(cpu: *Target.Cpu) void {
 
     // Misc. memory-related features.
     if(max_ext_level >= 0x80000008) {
-        leaf = cpuid(80000008, 0);
+        leaf = cpuid(0x80000008, 0);
         setFeature(cpu, .clzero,   bit(leaf.ebx, 0));
         setFeature(cpu, .wbnoinvd, bit(leaf.ebx, 9));
     } else {
@@ -495,14 +414,14 @@ fn detectNativeFeatures(cpu: *Target.Cpu) void {
         }
     }
 
-    if(max_level >= 7) {
+    if(max_level >= 0x7) {
         leaf = cpuid(0x7, 0);
 
         setFeature(cpu, .fsgsbase,        bit(leaf.ebx,  0));
         setFeature(cpu, .sgx,             bit(leaf.ebx,  2));
         setFeature(cpu, .bmi,             bit(leaf.ebx,  3));
         // AVX2 is only supported if we have the OS save support from AVX.
-        setFeature(cpu, .avx2,            bit(leaf.ebx,  5) and has_avx_save);
+        setFeature(cpu, .avx2,            bit(leaf.ebx,  5) and has_avx);
         setFeature(cpu, .bmi2,            bit(leaf.ebx,  8));
         setFeature(cpu, .invpcid,         bit(leaf.ebx, 10));
         setFeature(cpu, .rtm,             bit(leaf.ebx, 11));
@@ -528,8 +447,8 @@ fn detectNativeFeatures(cpu: *Target.Cpu) void {
         setFeature(cpu, .avx512vbmi2,        bit(leaf.ecx,  6) and has_avx512_save);
         setFeature(cpu, .shstk,              bit(leaf.ecx,  7));
         setFeature(cpu, .gfni,               bit(leaf.ecx,  8));
-        setFeature(cpu, .vaes,               bit(leaf.ecx,  9) and has_avx_save);
-        setFeature(cpu, .vpclmulqdq,         bit(leaf.ecx, 10) and has_avx_save);
+        setFeature(cpu, .vaes,               bit(leaf.ecx,  9) and has_avx);
+        setFeature(cpu, .vpclmulqdq,         bit(leaf.ecx, 10) and has_avx);
         setFeature(cpu, .avx512vnni,         bit(leaf.ecx, 11) and has_avx512_save);
         setFeature(cpu, .avx512bitalg,       bit(leaf.ecx, 12) and has_avx512_save);
         setFeature(cpu, .avx512vpopcntdq,    bit(leaf.ecx, 14) and has_avx512_save);
@@ -580,7 +499,7 @@ fn detectNativeFeatures(cpu: *Target.Cpu) void {
         }
     }
 
-    if(max_level >= 0xD and has_avx_save) {
+    if(max_level >= 0xD and has_avx) {
         leaf = cpuid(0xD, 0x1);
         // Only enable XSAVE if OS has enabled support for saving YMM state.
         setFeature(cpu, .xsaveopt, bit(leaf.eax, 0));
