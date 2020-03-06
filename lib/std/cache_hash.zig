@@ -130,9 +130,14 @@ pub const CacheHash = struct {
         // TODO: Open file with a file lock
         self.manifest_file = try cwd.createFile(self.manifest_file_path.?, .{ .read = true, .truncate = false });
 
+        // create a buffer instead of using readAllAlloc
+        // See: https://github.com/ziglang/zig/issues/4656
+        var file_buffer = try Buffer.initCapacity(self.alloc, 16 * 1024);
+        defer file_buffer.deinit();
+
         // TODO: Figure out a good max value?
-        const file_contents = try self.manifest_file.?.inStream().stream.readAllAlloc(self.alloc, 16 * 1024);
-        defer self.alloc.free(file_contents);
+        try self.manifest_file.?.inStream().stream.readAllBuffer(&file_buffer, 16 * 1024);
+        const file_contents = file_buffer.toSliceConst();
 
         const input_file_count = self.files.len;
         var any_file_changed = false;
@@ -165,7 +170,6 @@ pub const CacheHash = struct {
             if (cache_hash_file.path != null and !mem.eql(u8, file_path, cache_hash_file.path.?)) {
                 return error.InvalidFormat;
             }
-            cache_hash_file.path = try mem.dupe(self.alloc, u8, file_path);
 
             const this_file = cwd.openFile(cache_hash_file.path.?, .{ .read = true }) catch {
                 self.manifest_file.?.close();
@@ -299,4 +303,46 @@ fn hash_file(alloc: *Allocator, bin_digest: []u8, handle: *const File) !void {
     blake3.update(contents);
 
     blake3.final(bin_digest);
+}
+
+test "cache file and the recall it" {
+    const cwd = fs.cwd();
+
+    const temp_manifest_dir = "temp_manifest_dir";
+
+    try cwd.writeFile("test.txt", "Hello, world!\n");
+
+    var digest1 = try ArrayList(u8).initCapacity(testing.allocator, 32);
+    defer digest1.deinit();
+    var digest2 = try ArrayList(u8).initCapacity(testing.allocator, 32);
+    defer digest2.deinit();
+
+    {
+        var ch = try CacheHash.init(testing.allocator, temp_manifest_dir);
+        defer ch.release();
+
+        try ch.cache(@as(u16, 1234));
+        try ch.cache_buf("1234");
+        try ch.cache_file("test.txt");
+
+        // There should be nothing in the cache
+        debug.assert((try ch.hit(&digest1)) == false);
+
+        try ch.final(&digest1);
+    }
+    {
+        var ch = try CacheHash.init(testing.allocator, temp_manifest_dir);
+        defer ch.release();
+
+        try ch.cache(@as(u16, 1234));
+        try ch.cache_buf("1234");
+        try ch.cache_file("test.txt");
+
+        // Cache hit! We just "built" the same file
+        debug.assert((try ch.hit(&digest2)) == true);
+    }
+
+    debug.assert(mem.eql(u8, digest1.toSlice(), digest2.toSlice()));
+
+    try cwd.deleteTree(temp_manifest_dir);
 }
