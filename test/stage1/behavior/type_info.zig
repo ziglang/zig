@@ -386,3 +386,8 @@ test "@typeInfo does not force declarations into existence" {
     };
     comptime expect(@typeInfo(S).Struct.fields.len == 1);
 }
+
+test "defaut value for a var-typed field" {
+    const S = struct { x: var };
+    expect(@typeInfo(S).Struct.fields[0].default_value == null);
+}

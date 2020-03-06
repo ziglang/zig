@@ -649,11 +649,22 @@ ZigType *get_pointer_to_type(CodeGen *g, ZigType *child_type, bool is_const) {
 }
 
 ZigType *get_optional_type(CodeGen *g, ZigType *child_type) {
+    ZigType *result = get_optional_type2(g, child_type);
+    if (result == nullptr) {
+        codegen_report_errors_and_exit(g);
+    }
+    return result;
+}
+
+ZigType *get_optional_type2(CodeGen *g, ZigType *child_type) {
     if (child_type->optional_parent != nullptr) {
         return child_type->optional_parent;
     }
 
-    assert(type_is_resolved(child_type, ResolveStatusSizeKnown));
+    Error err;
+    if ((err = type_resolve(g, child_type, ResolveStatusSizeKnown))) {
+        return nullptr;
+    }
 
     ZigType *entry = new_type_table_entry(ZigTypeIdOptional);
 

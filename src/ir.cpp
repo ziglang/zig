@@ -24339,7 +24339,8 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
 
                     // default_value: var
                     inner_fields[3]->special = ConstValSpecialStatic;
-                    inner_fields[3]->type = get_optional_type(ira->codegen, struct_field->type_entry);
+                    inner_fields[3]->type = get_optional_type2(ira->codegen, struct_field->type_entry);
+                    if (inner_fields[3]->type == nullptr) return ErrorSemanticAnalyzeFail;
                     memoize_field_init_val(ira->codegen, type_entry, struct_field);
                     set_optional_payload(inner_fields[3], struct_field->init_val);
 
