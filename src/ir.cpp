@@ -25048,9 +25048,7 @@ static IrInstGen *ir_analyze_instruction_embed_file(IrAnalyze *ira, IrInstSrcEmb
         }
     }
 
-    ZigType *result_type = get_array_type(ira->codegen,
-            ira->codegen->builtin_types.entry_u8, buf_len(file_contents), nullptr);
-    IrInstGen *result = ir_const(ira, &instruction->base.base, result_type);
+    IrInstGen *result = ir_const(ira, &instruction->base.base, nullptr);
     init_const_str_lit(ira->codegen, result->value, file_contents);
     return result;
 }
