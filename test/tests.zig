@@ -566,14 +566,13 @@ pub const StackTracesContext = struct {
             }
             child.spawn() catch |err| debug.panic("Unable to spawn {}: {}\n", .{ full_exe_path, @errorName(err) });
 
-            var stdout = Buffer.initNull(b.allocator);
-            var stderr = Buffer.initNull(b.allocator);
-
             var stdout_file_in_stream = child.stdout.?.inStream();
             var stderr_file_in_stream = child.stderr.?.inStream();
 
-            stdout_file_in_stream.stream.readAllBuffer(&stdout, max_stdout_size) catch unreachable;
-            stderr_file_in_stream.stream.readAllBuffer(&stderr, max_stdout_size) catch unreachable;
+            const stdout = stdout_file_in_stream.stream.readAllAlloc(b.allocator, max_stdout_size) catch unreachable;
+            defer b.allocator.free(stdout);
+            const stderr = stderr_file_in_stream.stream.readAllAlloc(b.allocator, max_stdout_size) catch unreachable;
+            defer b.allocator.free(stderr);
 
             const term = child.wait() catch |err| {
                 debug.panic("Unable to spawn {}: {}\n", .{ full_exe_path, @errorName(err) });
@@ -616,11 +615,8 @@ pub const StackTracesContext = struct {
             const got: []const u8 = got_result: {
                 var buf = try Buffer.initSize(b.allocator, 0);
                 defer buf.deinit();
-                const bytes = if (stderr.endsWith("\n"))
-                    stderr.toSliceConst()[0 .. stderr.len() - 1]
-                else
-                    stderr.toSliceConst()[0..stderr.len()];
-                var it = mem.separate(bytes, "\n");
+                if (stderr.len != 0 and stderr[stderr.len - 1] == '\n') stderr = stderr[0 .. stderr.len - 1];
+                var it = mem.separate(stderr, "\n");
                 process_lines: while (it.next()) |line| {
                     if (line.len == 0) continue;
                     const delims = [_][]const u8{ ":", ":", ":", " in " };

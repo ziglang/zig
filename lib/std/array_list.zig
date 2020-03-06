@@ -5,10 +5,8 @@ const testing = std.testing;
 const mem = std.mem;
 const Allocator = mem.Allocator;
 
-/// List of items.
-///
-/// This is a wrapper around an array of T values. Initialize with
-/// `init`.
+/// A contiguous, growable list of items in memory.
+/// This is a wrapper around an array of T values. Initialize with `init`.
 pub fn ArrayList(comptime T: type) type {
     return AlignedArrayList(T, null);
 }
@@ -22,7 +20,7 @@ pub fn AlignedArrayList(comptime T: type, comptime alignment: ?u29) type {
     return struct {
         const Self = @This();
 
-        /// Use toSlice instead of slicing this directly, because if you don't
+        /// Use `span` instead of slicing this directly, because if you don't
         /// specify the end position of the slice, this will potentially give
         /// you uninitialized memory.
         items: Slice,
@@ -56,34 +54,37 @@ pub fn AlignedArrayList(comptime T: type, comptime alignment: ?u29) type {
 
         /// Return contents as a slice. Only valid while the list
         /// doesn't change size.
+        pub fn span(self: var) @TypeOf(self.items[0..self.len]) {
+            return self.items[0..self.len];
+        }
+
+        /// Deprecated: use `span`.
         pub fn toSlice(self: Self) Slice {
-            return self.items[0..self.len];
+            return self.span();
         }
 
-        /// Return list as const slice. Only valid while the list
-        /// doesn't change size.
+        /// Deprecated: use `span`.
         pub fn toSliceConst(self: Self) SliceConst {
-            return self.items[0..self.len];
+            return self.span();
         }
 
-        /// Safely access index i of the list.
+        /// Deprecated: use `span()[i]`.
         pub fn at(self: Self, i: usize) T {
-            return self.toSliceConst()[i];
+            return self.span()[i];
         }
 
-        /// Safely access ptr to index i of the list.
+        /// Deprecated: use `&span()[i]`.
         pub fn ptrAt(self: Self, i: usize) *T {
-            return &self.toSlice()[i];
+            return &self.span()[i];
         }
 
-        /// Sets the value at index `i`, or returns `error.OutOfBounds` if
-        /// the index is not in range.
+        /// Deprecated: use `if (i >= list.len) return error.OutOfBounds else span()[i] = item`.
         pub fn setOrError(self: Self, i: usize, item: T) !void {
             if (i >= self.len) return error.OutOfBounds;
             self.items[i] = item;
         }
 
-        /// Sets the value at index `i`, asserting that the value is in range.
+        /// Deprecated: use `list.span()[i] = item`.
         pub fn set(self: *Self, i: usize, item: T) void {
             assert(i < self.len);
             self.items[i] = item;
@@ -124,18 +125,18 @@ pub fn AlignedArrayList(comptime T: type, comptime alignment: ?u29) type {
             self.items[n] = item;
         }
 
-        /// Insert slice `items` at index `n`. Moves
-        /// `list[n .. list.len]` to make room.
-        pub fn insertSlice(self: *Self, n: usize, items: SliceConst) !void {
+        /// Insert slice `items` at index `i`. Moves
+        /// `list[i .. list.len]` to make room.
+        /// This operation is O(N).
+        pub fn insertSlice(self: *Self, i: usize, items: SliceConst) !void {
             try self.ensureCapacity(self.len + items.len);
             self.len += items.len;
 
-            mem.copyBackwards(T, self.items[n + items.len .. self.len], self.items[n .. self.len - items.len]);
-            mem.copy(T, self.items[n .. n + items.len], items);
+            mem.copyBackwards(T, self.items[i + items.len .. self.len], self.items[i .. self.len - items.len]);
+            mem.copy(T, self.items[i .. i + items.len], items);
         }
 
-        /// Extend the list by 1 element. Allocates more memory as
-        /// necessary.
+        /// Extend the list by 1 element. Allocates more memory as necessary.
         pub fn append(self: *Self, item: T) !void {
             const new_item_ptr = try self.addOne();
             new_item_ptr.* = item;
@@ -148,8 +149,9 @@ pub fn AlignedArrayList(comptime T: type, comptime alignment: ?u29) type {
             new_item_ptr.* = item;
         }
 
-        /// Remove the element at index `i` from the list and return
-        /// its value. Asserts the array has at least one item.
+        /// Remove the element at index `i` from the list and return its value.
+        /// Asserts the array has at least one item.
+        /// This operation is O(N).
         pub fn orderedRemove(self: *Self, i: usize) T {
             const newlen = self.len - 1;
             if (newlen == i) return self.pop();
@@ -163,18 +165,17 @@ pub fn AlignedArrayList(comptime T: type, comptime alignment: ?u29) type {
 
         /// Removes the element at the specified index and returns it.
         /// The empty slot is filled from the end of the list.
+        /// This operation is O(1).
         pub fn swapRemove(self: *Self, i: usize) T {
             if (self.len - 1 == i) return self.pop();
 
-            const slice = self.toSlice();
+            const slice = self.span();
             const old_item = slice[i];
             slice[i] = self.pop();
             return old_item;
         }
 
-        /// Removes the element at the specified index and returns it
-        /// or an error.OutOfBounds is returned. If no error then
-        /// the empty slot is filled from the end of the list.
+        /// Deprecated: use `if (i >= list.len) return error.OutOfBounds else list.swapRemove(i)`.
         pub fn swapRemoveOrError(self: *Self, i: usize) !T {
             if (i >= self.len) return error.OutOfBounds;
             return self.swapRemove(i);
@@ -204,6 +205,7 @@ pub fn AlignedArrayList(comptime T: type, comptime alignment: ?u29) type {
         }
 
         /// Reduce allocated capacity to `new_len`.
+        /// Invalidates element pointers.
         pub fn shrink(self: *Self, new_len: usize) void {
             assert(new_len <= self.len);
             self.len = new_len;
@@ -222,13 +224,24 @@ pub fn AlignedArrayList(comptime T: type, comptime alignment: ?u29) type {
             self.items = try self.allocator.realloc(self.items, better_capacity);
         }
 
+        /// Increases the array's length to match the full capacity that is already allocated.
+        /// The new elements have `undefined` values. This operation does not invalidate any
+        /// element pointers.
+        pub fn expandToCapacity(self: *Self) void {
+            self.len = self.items.len;
+        }
+
         /// Increase length by 1, returning pointer to the new item.
+        /// The returned pointer becomes invalid when the list is resized.
         pub fn addOne(self: *Self) !*T {
             const new_length = self.len + 1;
             try self.ensureCapacity(new_length);
             return self.addOneAssumeCapacity();
         }
 
+        /// Increase length by 1, returning pointer to the new item.
+        /// Asserts that there is already space for the new item without allocating more.
+        /// The returned pointer becomes invalid when the list is resized.
         pub fn addOneAssumeCapacity(self: *Self) *T {
             assert(self.len < self.capacity());
             const result = &self.items[self.len];
@@ -236,14 +249,15 @@ pub fn AlignedArrayList(comptime T: type, comptime alignment: ?u29) type {
             return result;
         }
 
-        /// Remove and return the last element from the list. Asserts
-        /// the list has at least one item.
+        /// Remove and return the last element from the list.
+        /// Asserts the list has at least one item.
         pub fn pop(self: *Self) T {
             self.len -= 1;
             return self.items[self.len];
         }
 
-        /// Like `pop` but returns `null` if empty.
+        /// Remove and return the last element from the list.
+        /// If the list is empty, returns `null`.
         pub fn popOrNull(self: *Self) ?T {
             if (self.len == 0) return null;
             return self.pop();
@@ -287,7 +301,7 @@ test "std.ArrayList.basic" {
         }
     }
 
-    for (list.toSlice()) |v, i| {
+    for (list.span()) |v, i| {
         testing.expect(v == @intCast(i32, i + 1));
     }
 
@@ -325,7 +339,7 @@ test "std.ArrayList.appendNTimes" {
 
     try list.appendNTimes(2, 10);
     testing.expectEqual(@as(usize, 10), list.len);
-    for (list.toSlice()) |element| {
+    for (list.span()) |element| {
         testing.expectEqual(@as(i32, 2), element);
     }
 }
