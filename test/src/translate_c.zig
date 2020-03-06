@@ -3,7 +3,7 @@
 const std = @import("std");
 const build = std.build;
 const ArrayList = std.ArrayList;
-const fmt = std.fmt;
+const fmtstream = std.fmtstream;
 const mem = std.mem;
 const fs = std.fs;
 const warn = std.debug.warn;
@@ -99,7 +99,7 @@ pub const TranslateCContext = struct {
         const b = self.b;
 
         const translate_c_cmd = "translate-c";
-        const annotated_case_name = fmt.allocPrint(self.b.allocator, "{} {}", .{ translate_c_cmd, case.name }) catch unreachable;
+        const annotated_case_name = fmtstream.allocPrint(self.b.allocator, "{} {}", .{ translate_c_cmd, case.name }) catch unreachable;
         if (self.test_filter) |filter| {
             if (mem.indexOf(u8, annotated_case_name, filter) == null) return;
         }

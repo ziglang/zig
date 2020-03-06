@@ -130,11 +130,11 @@ pub const Progress = struct {
         var end: usize = 0;
         if (self.columns_written > 0) {
             // restore cursor position
-            end += (std.fmt.bufPrint(self.output_buffer[end..], "\x1b[{}D", .{self.columns_written}) catch unreachable).len;
+            end += (std.fmtstream.bufPrint(self.output_buffer[end..], "\x1b[{}D", .{self.columns_written}) catch unreachable).len;
             self.columns_written = 0;
 
             // clear rest of line
-            end += (std.fmt.bufPrint(self.output_buffer[end..], "\x1b[0K", .{}) catch unreachable).len;
+            end += (std.fmtstream.bufPrint(self.output_buffer[end..], "\x1b[0K", .{}) catch unreachable).len;
         }
 
         if (!self.done) {
@@ -185,7 +185,7 @@ pub const Progress = struct {
     }
 
     fn bufWrite(self: *Progress, end: *usize, comptime format: []const u8, args: var) void {
-        if (std.fmt.bufPrint(self.output_buffer[end.*..], format, args)) |written| {
+        if (std.fmtstream.bufPrint(self.output_buffer[end.*..], format, args)) |written| {
             const amt = written.len;
             end.* += amt;
             self.columns_written += amt;

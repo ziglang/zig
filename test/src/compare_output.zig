@@ -4,7 +4,7 @@ const std = @import("std");
 const builtin = std.builtin;
 const build = std.build;
 const ArrayList = std.ArrayList;
-const fmt = std.fmt;
+const fmtstream = std.fmtstream;
 const mem = std.mem;
 const fs = std.fs;
 const warn = std.debug.warn;
@@ -97,7 +97,7 @@ pub const CompareOutputContext = struct {
 
         switch (case.special) {
             Special.Asm => {
-                const annotated_case_name = fmt.allocPrint(self.b.allocator, "assemble-and-link {}", .{
+                const annotated_case_name = fmtstream.allocPrint(self.b.allocator, "assemble-and-link {}", .{
                     case.name,
                 }) catch unreachable;
                 if (self.test_filter) |filter| {
@@ -116,7 +116,7 @@ pub const CompareOutputContext = struct {
             },
             Special.None => {
                 for (self.modes) |mode| {
-                    const annotated_case_name = fmt.allocPrint(self.b.allocator, "{} {} ({})", .{
+                    const annotated_case_name = fmtstream.allocPrint(self.b.allocator, "{} {} ({})", .{
                         "compare-output",
                         case.name,
                         @tagName(mode),
@@ -141,7 +141,7 @@ pub const CompareOutputContext = struct {
                 }
             },
             Special.RuntimeSafety => {
-                const annotated_case_name = fmt.allocPrint(self.b.allocator, "safety {}", .{case.name}) catch unreachable;
+                const annotated_case_name = fmtstream.allocPrint(self.b.allocator, "safety {}", .{case.name}) catch unreachable;
                 if (self.test_filter) |filter| {
                     if (mem.indexOf(u8, annotated_case_name, filter) == null) return;
                 }

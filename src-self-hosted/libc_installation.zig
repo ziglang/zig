@@ -543,7 +543,7 @@ fn ccPrintFileName(args: CCPrintFileNameOptions) ![:0]u8 {
     const allocator = args.allocator;
 
     const cc_exe = std.os.getenvZ("CC") orelse default_cc_exe;
-    const arg1 = try std.fmt.allocPrint(allocator, "-print-file-name={}", .{args.search_basename});
+    const arg1 = try std.fmtstream.allocPrint(allocator, "-print-file-name={}", .{args.search_basename});
     defer allocator.free(arg1);
     const argv = [_][]const u8{ cc_exe, arg1 };
 

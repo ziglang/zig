@@ -573,7 +573,7 @@ pub const CrossTarget = struct {
             .Dynamic => "",
         };
 
-        return std.fmt.allocPrint0(allocator, "{}-{}{}", .{ arch, os, static_suffix });
+        return std.fmtstream.allocPrint0(allocator, "{}-{}{}", .{ arch, os, static_suffix });
     }
 
     pub const Executor = union(enum) {

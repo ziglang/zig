@@ -130,7 +130,7 @@ pub const NativePaths = struct {
     }
 
     pub fn addIncludeDirFmt(self: *NativePaths, comptime fmt: []const u8, args: var) !void {
-        const item = try std.fmt.allocPrint0(self.include_dirs.allocator, fmt, args);
+        const item = try std.fmtstream.allocPrint0(self.include_dirs.allocator, fmt, args);
         errdefer self.include_dirs.allocator.free(item);
         try self.include_dirs.append(item);
     }
@@ -140,7 +140,7 @@ pub const NativePaths = struct {
     }
 
     pub fn addLibDirFmt(self: *NativePaths, comptime fmt: []const u8, args: var) !void {
-        const item = try std.fmt.allocPrint0(self.lib_dirs.allocator, fmt, args);
+        const item = try std.fmtstream.allocPrint0(self.lib_dirs.allocator, fmt, args);
         errdefer self.lib_dirs.allocator.free(item);
         try self.lib_dirs.append(item);
     }
@@ -150,7 +150,7 @@ pub const NativePaths = struct {
     }
 
     pub fn addWarningFmt(self: *NativePaths, comptime fmt: []const u8, args: var) !void {
-        const item = try std.fmt.allocPrint0(self.warnings.allocator, fmt, args);
+        const item = try std.fmtstream.allocPrint0(self.warnings.allocator, fmt, args);
         errdefer self.warnings.allocator.free(item);
         try self.warnings.append(item);
     }

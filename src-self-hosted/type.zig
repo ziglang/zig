@@ -581,7 +581,7 @@ pub const Type = struct {
             errdefer comp.gpa().destroy(self);
 
             const u_or_i = "ui"[@boolToInt(key.is_signed)];
-            const name = try std.fmt.allocPrint(comp.gpa(), "{c}{}", .{ u_or_i, key.bit_count });
+            const name = try std.fmtstream.allocPrint(comp.gpa(), "{c}{}", .{ u_or_i, key.bit_count });
             errdefer comp.gpa().free(name);
 
             self.base.init(comp, .Int, name);
@@ -764,13 +764,13 @@ pub const Type = struct {
                 .Non => "",
             };
             const name = switch (self.key.alignment) {
-                .Abi => try std.fmt.allocPrint(comp.gpa(), "{}{}{}{}", .{
+                .Abi => try std.fmtstream.allocPrint(comp.gpa(), "{}{}{}{}", .{
                     size_str,
                     mut_str,
                     vol_str,
                     self.key.child_type.name,
                 }),
-                .Override => |alignment| try std.fmt.allocPrint(comp.gpa(), "{}align<{}> {}{}{}", .{
+                .Override => |alignment| try std.fmtstream.allocPrint(comp.gpa(), "{}align<{}> {}{}{}", .{
                     size_str,
                     alignment,
                     mut_str,
@@ -845,7 +845,7 @@ pub const Type = struct {
             };
             errdefer comp.gpa().destroy(self);
 
-            const name = try std.fmt.allocPrint(comp.gpa(), "[{}]{}", .{ key.len, key.elem_type.name });
+            const name = try std.fmtstream.allocPrint(comp.gpa(), "[{}]{}", .{ key.len, key.elem_type.name });
             errdefer comp.gpa().free(name);
 
             self.base.init(comp, .Array, name);
