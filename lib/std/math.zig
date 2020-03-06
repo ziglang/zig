@@ -293,7 +293,25 @@ test "math.min" {
     }
 }
 
-pub fn max(x: var, y: var) @TypeOf(x, y) {
+/// Given two types, returns the largest one
+pub fn Max(comptime A: type, comptime B: type) type {
+    switch (@typeInfo(A)) {
+        .Int => |a_info| switch (@typeInfo(B)) {
+            .Int => |b_info| if (!a_info.is_signed and !b_info.is_signed) {
+                if (a_info.bits > b_info.bits) {
+                    return A;
+                } else {
+                    return B;
+                }
+            },
+            else => {},
+        },
+        else => {},
+    }
+    return @TypeOf(@as(A, 0) + @as(B, 0));
+}
+
+pub fn max(x: var, y: var) Max(@TypeOf(x), @TypeOf(y)) {
     return if (x > y) x else y;
 }
 
