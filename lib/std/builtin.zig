@@ -426,29 +426,27 @@ pub const Version = struct {
     pub fn parse(text: []const u8) !Version {
         var it = std.mem.separate(text, ".");
         return Version{
-            .major = try std.fmt.parseInt(u32, it.next() orelse return error.InvalidVersion, 10),
-            .minor = try std.fmt.parseInt(u32, it.next() orelse "0", 10),
-            .patch = try std.fmt.parseInt(u32, it.next() orelse "0", 10),
+            .major = try std.fmtstream.parseInt(u32, it.next() orelse return error.InvalidVersion, 10),
+            .minor = try std.fmtstream.parseInt(u32, it.next() orelse "0", 10),
+            .patch = try std.fmtstream.parseInt(u32, it.next() orelse "0", 10),
         };
     }
 
     pub fn format(
         self: Version,
         comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        context: var,
-        comptime Error: type,
-        comptime output: fn (@TypeOf(context), []const u8) Error!void,
-    ) Error!void {
+        options: std.fmtstream.FormatOptions,
+        out_stream: var,
+    ) !void {
         if (fmt.len == 0) {
             if (self.patch == 0) {
                 if (self.minor == 0) {
-                    return std.fmt.format(context, Error, output, "{}", .{self.major});
+                    return std.fmtstream.format(out_stream, "{}", .{self.major});
                 } else {
-                    return std.fmt.format(context, Error, output, "{}.{}", .{ self.major, self.minor });
+                    return std.fmtstream.format(out_stream, "{}.{}", .{ self.major, self.minor });
                 }
             } else {
-                return std.fmt.format(context, Error, output, "{}.{}.{}", .{ self.major, self.minor, self.patch });
+                return std.fmtstream.format(out_stream, "{}.{}.{}", .{ self.major, self.minor, self.patch });
             }
         } else {
             @compileError("Unknown format string: '" ++ fmt ++ "'");
