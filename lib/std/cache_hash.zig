@@ -64,13 +64,26 @@ pub const CacheHash = struct {
     pub fn cache_buf(self: *@This(), val: []const u8) !void {
         debug.assert(self.manifest_file_path == null);
 
-        var temp_buffer = try self.alloc.alloc(u8, val.len + 1);
-        defer self.alloc.free(temp_buffer);
+        self.blake3.update(val);
+    }
 
-        mem.copy(u8, temp_buffer, val);
-        temp_buffer[val.len] = 0;
+    pub fn cache(self: *@This(), val: var) !void {
+        debug.assert(self.manifest_file_path == null);
 
-        self.blake3.update(temp_buffer);
+        const val_type = @TypeOf(val);
+        switch (@typeInfo(val_type)) {
+            .Int => |int_info| if (int_info.bits != 0 and int_info.bits % 8 == 0) {
+                const buf_len = @divExact(int_info.bits, 8);
+                var buf: [buf_len]u8 = undefined;
+                mem.writeIntNative(val_type, &buf, val);
+                self.blake3.update(&buf);
+            } else {
+                @compileError("Unsupported integer size. Please use a multiple of 8, manually convert to a u8 slice.");
+            },
+            else => @compileError("Unsupported type"),
+        }
+
+        self.blake3.update(&[_]u8{0});
     }
 
     pub fn cache_file(self: *@This(), file_path: []const u8) !void {
@@ -286,44 +299,4 @@ fn hash_file(alloc: *Allocator, bin_digest: []u8, handle: *const File) !void {
     blake3.update(contents);
 
     blake3.final(bin_digest);
-}
-
-test "see if imported" {
-    const cwd = fs.cwd();
-
-    const temp_manifest_dir = "temp_manifest_dir";
-
-    try cwd.writeFile("test.txt", "Hello, world!\n");
-
-    var digest1 = try ArrayList(u8).initCapacity(testing.allocator, 32);
-    defer digest1.deinit();
-    var digest2 = try ArrayList(u8).initCapacity(testing.allocator, 32);
-    defer digest2.deinit();
-
-    {
-        var ch = try CacheHash.init(testing.allocator, temp_manifest_dir);
-        defer ch.release();
-
-        try ch.cache_buf("1234");
-        try ch.cache_file("test.txt");
-
-        // There should be nothing in the cache
-        debug.assert((try ch.hit(&digest1)) == false);
-
-        try ch.final(&digest1);
-    }
-    {
-        var ch = try CacheHash.init(testing.allocator, temp_manifest_dir);
-        defer ch.release();
-
-        try ch.cache_buf("1234");
-        try ch.cache_file("test.txt");
-
-        // Cache hit! We just "built" the same file
-        debug.assert((try ch.hit(&digest2)) == true);
-    }
-
-    debug.assert(mem.eql(u8, digest1.toSlice(), digest2.toSlice()));
-
-    try cwd.deleteTree(temp_manifest_dir);
 }
