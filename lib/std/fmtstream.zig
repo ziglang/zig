@@ -1081,16 +1081,20 @@ pub fn bufPrint(buf: []u8, comptime fmt: []const u8, args: var) BufPrintError![]
 }
 
 // Count the characters needed for format. Useful for preallocating memory
-pub fn count(comptime fmt: []const u8, args: var) usize {
+pub fn count(comptime fmt: []const u8, args: var) !usize {
     var counting_stream = std.io.countingOutStream(std.io.null_out_stream);
     format(counting_stream.outStream(), fmt, args) catch |err| switch (err) {};
-    return counting_stream.bytes_written;
+    return std.math.cast(usize, counting_stream.bytes_written);
 }
 
 pub const AllocPrintError = error{OutOfMemory};
 
 pub fn allocPrint(allocator: *mem.Allocator, comptime fmt: []const u8, args: var) AllocPrintError![]u8 {
-    const buf = try allocator.alloc(u8, count(fmt, args));
+    const size = count(fmt, args) catch |err| switch (err) {
+        // Output too long. Can't possibly allocate enough memory to display it.
+        error.Overflow => return error.OutOfMemory,
+    };
+    const buf = try allocator.alloc(u8, size);
     return bufPrint(buf, fmt, args) catch |err| switch (err) {
         error.BufferTooSmall => unreachable, // we just counted the size above
     };
