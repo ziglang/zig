@@ -7281,11 +7281,13 @@ test "main" {
       {#see_also|@divFloor|@divExact#}
       {#header_close#}
       {#header_open|@embedFile#}
-      <pre>{#syntax#}@embedFile(comptime path: []const u8) [X]u8{#endsyntax#}</pre>
+      <pre>{#syntax#}@embedFile(comptime path: []const u8) *const [X:0]u8{#endsyntax#}</pre>
       <p>
-      This function returns a compile time constant fixed-size array with length
-      equal to the byte count of the file given by {#syntax#}path{#endsyntax#}. The contents of the array
-      are the contents of the file.
+      This function returns a compile time constant pointer to null-terminated,
+      fixed-size array with length equal to the byte count of the file given by
+      {#syntax#}path{#endsyntax#}. The contents of the array are the contents of the file.
+      This is equivalent to a {#link|string literal|String Literals and Character Literals#}
+      with the file contents.
       </p>
       <p>
       {#syntax#}path{#endsyntax#} is absolute or relative to the current file, just like {#syntax#}@import{#endsyntax#}.
