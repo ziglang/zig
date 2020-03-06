@@ -1154,6 +1154,19 @@ const RTL_BITMAP = @OpaqueType();
 pub const PRTL_BITMAP = *RTL_BITMAP;
 const KAFFINITY = usize;
 
+pub const TEB = extern struct {
+    Reserved1: [12]PVOID,
+    ProcessEnvironmentBlock: *PEB,
+    Reserved2: [399]PVOID,
+    Reserved3: [1952]u8,
+    TlsSlots: [64]PVOID,
+    Reserved4: [8]u8,
+    Reserved5: [26]PVOID,
+    ReservedForOle: PVOID,
+    Reserved6: [4]PVOID,
+    TlsExpansionSlots: PVOID,
+};
+
 /// Process Environment Block
 /// Microsoft documentation of this is incomplete, the fields here are taken from various resources including:
 ///  - https://github.com/wine-mirror/wine/blob/1aff1e6a370ee8c0213a0fd4b220d121da8527aa/include/winternl.h#L269
