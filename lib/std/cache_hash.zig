@@ -61,13 +61,14 @@ pub const CacheHash = struct {
         };
     }
 
-    pub fn cache_buf(self: *@This(), val: []const u8) !void {
+    pub fn cache_buf(self: *@This(), val: []const u8) void {
         debug.assert(self.manifest_file_path == null);
 
         self.blake3.update(val);
+        self.blake3.update(&[_]u8{0});
     }
 
-    pub fn cache(self: *@This(), val: var) !void {
+    pub fn cache(self: *@This(), val: var) void {
         debug.assert(self.manifest_file_path == null);
 
         const val_type = @TypeOf(val);
@@ -76,14 +77,17 @@ pub const CacheHash = struct {
                 const buf_len = @divExact(int_info.bits, 8);
                 var buf: [buf_len]u8 = undefined;
                 mem.writeIntNative(val_type, &buf, val);
-                self.blake3.update(&buf);
+                self.cache_buf(&buf);
             } else {
                 @compileError("Unsupported integer size. Please use a multiple of 8, manually convert to a u8 slice.");
             },
+            .Bool => {
+                var buf: [1]u8 = undefined;
+                buf[0] = if (val) 1 else 0;
+                self.blake3.update(&buf);
+            },
             else => @compileError("Unsupported type"),
         }
-
-        self.blake3.update(&[_]u8{0});
     }
 
     pub fn cache_file(self: *@This(), file_path: []const u8) !void {
@@ -92,7 +96,7 @@ pub const CacheHash = struct {
         var cache_hash_file = try self.files.addOne();
         cache_hash_file.path = try fs.path.resolve(self.alloc, &[_][]const u8{file_path});
 
-        try self.cache_buf(cache_hash_file.path.?);
+        self.cache_buf(cache_hash_file.path.?);
     }
 
     pub fn hit(self: *@This(), out_digest: *ArrayList(u8)) !bool {
@@ -321,8 +325,9 @@ test "cache file and the recall it" {
         var ch = try CacheHash.init(testing.allocator, temp_manifest_dir);
         defer ch.release();
 
-        try ch.cache(@as(u16, 1234));
-        try ch.cache_buf("1234");
+        ch.cache(true);
+        ch.cache(@as(u16, 1234));
+        ch.cache_buf("1234");
         try ch.cache_file("test.txt");
 
         // There should be nothing in the cache
@@ -334,8 +339,9 @@ test "cache file and the recall it" {
         var ch = try CacheHash.init(testing.allocator, temp_manifest_dir);
         defer ch.release();
 
-        try ch.cache(@as(u16, 1234));
-        try ch.cache_buf("1234");
+        ch.cache(true);
+        ch.cache(@as(u16, 1234));
+        ch.cache_buf("1234");
         try ch.cache_file("test.txt");
 
         // Cache hit! We just "built" the same file
