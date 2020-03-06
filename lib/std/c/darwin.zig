@@ -63,8 +63,8 @@ pub const sf_hdtr = extern struct {
 };
 
 pub extern "c" fn sendfile(
-    out_fd: fd_t,
     in_fd: fd_t,
+    out_fd: fd_t,
     offset: off_t,
     len: *off_t,
     sf_hdtr: ?*sf_hdtr,
