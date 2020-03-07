@@ -66,24 +66,38 @@ pub const CacheHash = struct {
         self.blake3.update(&[_]u8{0});
     }
 
+    pub fn addBool(self: *@This(), val: bool) void {
+        debug.assert(self.manifest_file == null);
+        self.blake3.update(&[_]u8{@boolToInt(val)});
+    }
+
+    pub fn addInt(self: *@This(), val: var) void {
+        debug.assert(self.manifest_file == null);
+
+        switch (@typeInfo(@TypeOf(val))) {
+            .Int => |int_info| {
+                if (int_info.bits == 0 or int_info.bits % 8 != 0) {
+                    @compileError("Unsupported integer size. Please use a multiple of 8, manually convert to a u8 slice.");
+                }
+
+                const buf_len = @divExact(int_info.bits, 8);
+                var buf: [buf_len]u8 = undefined;
+                mem.writeIntNative(@TypeOf(val), &buf, val);
+                self.addSlice(&buf);
+
+                self.blake3.update(&[_]u8{0});
+            },
+            else => @compileError("Type must be an integer."),
+        }
+    }
+
     pub fn add(self: *@This(), val: var) void {
         debug.assert(self.manifest_file == null);
 
         const val_type = @TypeOf(val);
         switch (@typeInfo(val_type)) {
-            .Int => |int_info| if (int_info.bits != 0 and int_info.bits % 8 == 0) {
-                const buf_len = @divExact(int_info.bits, 8);
-                var buf: [buf_len]u8 = undefined;
-                mem.writeIntNative(val_type, &buf, val);
-                self.addSlice(&buf);
-            } else {
-                @compileError("Unsupported integer size. Please use a multiple of 8, manually convert to a u8 slice.");
-            },
-            .Bool => {
-                var buf: [1]u8 = undefined;
-                buf[0] = if (val) 1 else 0;
-                self.blake3.update(&buf);
-            },
+            .Int => self.addInt(val),
+            .Bool => self.addBool(val),
             else => @compileError("Unsupported type"),
         }
     }
