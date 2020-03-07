@@ -378,7 +378,7 @@ static_assert((clang::Type::TypeClass)ZigClangType_ExtVector == clang::Type::Ext
 
 // Detect additions to the enum
 void ZigClang_detect_enum_StmtClass(clang::Stmt::StmtClass x) {
-    switch (x) {
+    switch (static_cast<ZigClangStmtClass>(x)) {
         case ZigClangStmt_NoStmtClass:
         case ZigClangStmt_GCCAsmStmtClass:
         case ZigClangStmt_MSAsmStmtClass:
