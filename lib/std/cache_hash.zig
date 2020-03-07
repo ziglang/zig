@@ -14,7 +14,7 @@ const base64_encoder = fs.base64_encoder;
 const base64_decoder = fs.base64_decoder;
 const BIN_DIGEST_LEN = 32;
 
-pub const CacheHashFile = struct {
+pub const File = struct {
     path: ?[]const u8,
     stat: fs.File.Stat,
     file_handle: os.fd_t,
@@ -41,7 +41,7 @@ pub const CacheHash = struct {
     manifest_file: ?fs.File,
     manifest_dirty: bool,
     force_check_manifest: bool,
-    files: ArrayList(CacheHashFile),
+    files: ArrayList(File),
     b64_digest: ArrayList(u8),
 
     pub fn init(alloc: *Allocator, manifest_dir_path: []const u8) !@This() {
@@ -53,7 +53,7 @@ pub const CacheHash = struct {
             .manifest_file = null,
             .manifest_dirty = false,
             .force_check_manifest = false,
-            .files = ArrayList(CacheHashFile).init(alloc),
+            .files = ArrayList(File).init(alloc),
             .b64_digest = ArrayList(u8).init(alloc),
         };
     }
@@ -147,7 +147,7 @@ pub const CacheHash = struct {
         while (line_iter.next()) |line| {
             defer idx += 1;
 
-            var cache_hash_file: *CacheHashFile = undefined;
+            var cache_hash_file: *File = undefined;
             if (idx < input_file_count) {
                 cache_hash_file = self.files.ptrAt(idx);
             } else {
@@ -230,7 +230,7 @@ pub const CacheHash = struct {
         return true;
     }
 
-    pub fn populate_file_hash(self: *@This(), cache_hash_file: *CacheHashFile) !void {
+    pub fn populate_file_hash(self: *@This(), cache_hash_file: *File) !void {
         debug.assert(cache_hash_file.path != null);
 
         const this_file = try fs.cwd().openFile(cache_hash_file.path.?, .{});
