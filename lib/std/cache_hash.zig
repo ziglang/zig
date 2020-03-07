@@ -36,8 +36,7 @@ pub const File = struct {
 pub const CacheHash = struct {
     alloc: *Allocator,
     blake3: Blake3,
-    manifest_dir: []const u8,
-    manifest_file_path: ?[]const u8,
+    manifest_dir: fs.Dir,
     manifest_file: ?fs.File,
     manifest_dirty: bool,
     force_check_manifest: bool,
@@ -45,11 +44,13 @@ pub const CacheHash = struct {
     b64_digest: ArrayList(u8),
 
     pub fn init(alloc: *Allocator, manifest_dir_path: []const u8) !@This() {
+        try fs.cwd().makePath(manifest_dir_path);
+        const manifest_dir = try fs.cwd().openDirTraverse(manifest_dir_path);
+
         return CacheHash{
             .alloc = alloc,
             .blake3 = Blake3.init(),
-            .manifest_dir = manifest_dir_path,
-            .manifest_file_path = null,
+            .manifest_dir = manifest_dir,
             .manifest_file = null,
             .manifest_dirty = false,
             .force_check_manifest = false,
@@ -59,14 +60,14 @@ pub const CacheHash = struct {
     }
 
     pub fn cache_buf(self: *@This(), val: []const u8) void {
-        debug.assert(self.manifest_file_path == null);
+        debug.assert(self.manifest_file == null);
 
         self.blake3.update(val);
         self.blake3.update(&[_]u8{0});
     }
 
     pub fn cache(self: *@This(), val: var) void {
-        debug.assert(self.manifest_file_path == null);
+        debug.assert(self.manifest_file == null);
 
         const val_type = @TypeOf(val);
         switch (@typeInfo(val_type)) {
@@ -88,7 +89,7 @@ pub const CacheHash = struct {
     }
 
     pub fn cache_file(self: *@This(), file_path: []const u8) !void {
-        debug.assert(self.manifest_file_path == null);
+        debug.assert(self.manifest_file == null);
 
         var cache_hash_file = try self.files.addOne();
         cache_hash_file.path = try fs.path.resolve(self.alloc, &[_][]const u8{file_path});
@@ -97,7 +98,7 @@ pub const CacheHash = struct {
     }
 
     pub fn hit(self: *@This(), out_digest: *ArrayList(u8)) !bool {
-        debug.assert(self.manifest_file_path == null);
+        debug.assert(self.manifest_file == null);
 
         var bin_digest: [BIN_DIGEST_LEN]u8 = undefined;
         self.blake3.final(&bin_digest);
@@ -116,20 +117,11 @@ pub const CacheHash = struct {
         self.blake3.update(&bin_digest);
 
         {
-            const manifest_file_path_slice = try fs.path.join(self.alloc, &[_][]const u8{ self.manifest_dir, self.b64_digest.toSlice() });
-            var path_buf = ArrayList(u8).fromOwnedSlice(self.alloc, manifest_file_path_slice);
-            defer path_buf.deinit();
-            try path_buf.appendSlice(".txt");
+            const manifest_file_path = try fmt.allocPrint(self.alloc, "{}.txt", .{self.b64_digest.toSlice()});
+            defer self.alloc.free(manifest_file_path);
 
-            self.manifest_file_path = path_buf.toOwnedSlice();
+            self.manifest_file = try self.manifest_dir.createFile(manifest_file_path, .{ .read = true, .truncate = false });
         }
-
-        const cwd = fs.cwd();
-
-        try cwd.makePath(self.manifest_dir);
-
-        // TODO: Open file with a file lock
-        self.manifest_file = try cwd.createFile(self.manifest_file_path.?, .{ .read = true, .truncate = false });
 
         // create a buffer instead of using readAllAlloc
         // See: https://github.com/ziglang/zig/issues/4656
@@ -172,7 +164,7 @@ pub const CacheHash = struct {
                 return error.InvalidFormat;
             }
 
-            const this_file = cwd.openFile(cache_hash_file.path.?, .{ .read = true }) catch {
+            const this_file = fs.cwd().openFile(cache_hash_file.path.?, .{ .read = true }) catch {
                 self.manifest_file.?.close();
                 self.manifest_file = null;
                 return error.CacheUnavailable;
@@ -245,7 +237,7 @@ pub const CacheHash = struct {
     }
 
     pub fn final(self: *@This(), out_digest: *ArrayList(u8)) !void {
-        debug.assert(self.manifest_file_path != null);
+        debug.assert(self.manifest_file != null);
 
         var bin_digest: [BIN_DIGEST_LEN]u8 = undefined;
         self.blake3.final(&bin_digest);
@@ -256,7 +248,7 @@ pub const CacheHash = struct {
     }
 
     pub fn write_manifest(self: *@This()) !void {
-        debug.assert(self.manifest_file_path != null);
+        debug.assert(self.manifest_file != null);
 
         const OUT_DIGEST_LEN = base64.Base64Encoder.calcSize(BIN_DIGEST_LEN);
         var encoded_digest = try Buffer.initSize(self.alloc, OUT_DIGEST_LEN);
@@ -274,23 +266,21 @@ pub const CacheHash = struct {
     }
 
     pub fn release(self: *@This()) void {
-        debug.assert(self.manifest_file_path != null);
+        debug.assert(self.manifest_file != null);
 
         if (self.manifest_dirty) {
             self.write_manifest() catch |err| {
-                debug.warn("Unable to write cache file '{}': {}\n", .{ self.manifest_file_path, err });
+                debug.warn("Unable to write cache file '{}': {}\n", .{ self.b64_digest, err });
             };
         }
 
         self.manifest_file.?.close();
-        if (self.manifest_file_path) |owned_slice| {
-            self.alloc.free(owned_slice);
-        }
         for (self.files.toSlice()) |*file| {
             file.deinit(self.alloc);
         }
         self.files.deinit();
         self.b64_digest.deinit();
+        self.manifest_dir.close();
     }
 };
 
