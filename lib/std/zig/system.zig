@@ -171,7 +171,10 @@ pub const NativeTargetInfo = struct {
 
     dynamic_linker: DynamicLinker = DynamicLinker{},
 
-    cpu_detected: bool = false,
+    /// Only some architectures have CPU detection implemented. This field reveals whether
+    /// CPU detection actually occurred. When this is `true` it means that the reported
+    /// CPU is baseline only because of a missing implementation for that architecture.
+    cpu_detection_unimplemented: bool = false,
 
     pub const DynamicLinker = Target.DynamicLinker;
 
@@ -193,28 +196,6 @@ pub const NativeTargetInfo = struct {
     /// deinitialization method.
     /// TODO Remove the Allocator requirement from this function.
     pub fn detect(allocator: *Allocator, cross_target: CrossTarget) DetectError!NativeTargetInfo {
-
-        var cpu_detected = true;
-
-        const cpu = switch (cross_target.cpu_model) {
-            .native => detectNativeCpuAndFeatures(cross_target),
-            .baseline => baselineCpuAndFeatures(cross_target),
-            .determined_by_cpu_arch => if (cross_target.cpu_arch == null)
-                detectNativeCpuAndFeatures(cross_target)
-            else
-                baselineCpuAndFeatures(cross_target),
-            .explicit => |model| blk: {
-                var adjusted_model = model.toCpu(cross_target.getCpuArch());
-                cross_target.updateCpuFeatures(&adjusted_model.features);
-                break :blk adjusted_model;
-            },
-        } orelse backup_cpu_detection: {
-
-            // Temporarily use LLVM's cpu info as a backup
-            cpu_detected = false;
-            break :backup_cpu_detection baselineCpuAndFeatures(cross_target);
-        };
-
         var os = Target.Os.defaultVersionRange(cross_target.getOsTag());
         if (cross_target.os_tag == null) {
             switch (Target.current.os.tag) {
@@ -299,9 +280,12 @@ pub const NativeTargetInfo = struct {
                     }
                 },
                 .freebsd => {
-                    // TODO Detect native operating system version.
+                    // Unimplemented, fall back to default.
+                    // https://github.com/ziglang/zig/issues/4582
                 },
-                else => {},
+                else => {
+                    // Unimplemented, fall back to default version range.
+                },
             }
         }
 
@@ -328,8 +312,31 @@ pub const NativeTargetInfo = struct {
             os.version_range.linux.glibc = glibc;
         }
 
+        var cpu_detection_unimplemented = false;
+
+        // Until https://github.com/ziglang/zig/issues/4592 is implemented (support detecting the
+        // native CPU architecture as being different than the current target), we use this:
+        const cpu_arch = cross_target.getCpuArch();
+
+        const cpu = switch (cross_target.cpu_model) {
+            .native => detectNativeCpuAndFeatures(cpu_arch, os, cross_target),
+            .baseline => baselineCpuAndFeatures(cpu_arch, cross_target),
+            .determined_by_cpu_arch => if (cross_target.cpu_arch == null)
+                detectNativeCpuAndFeatures(cpu_arch, os, cross_target)
+            else
+                baselineCpuAndFeatures(cpu_arch, cross_target),
+            .explicit => |model| blk: {
+                var adjusted_model = model.toCpu(cpu_arch);
+                cross_target.updateCpuFeatures(&adjusted_model.features);
+                break :blk adjusted_model;
+            },
+        } orelse backup_cpu_detection: {
+            cpu_detection_unimplemented = true;
+            break :backup_cpu_detection baselineCpuAndFeatures(cpu_arch, cross_target);
+        };
+
         var target = try detectAbiAndDynamicLinker(allocator, cpu, os, cross_target);
-        target.cpu_detected = cpu_detected;
+        target.cpu_detection_unimplemented = cpu_detection_unimplemented;
         return target;
     }
 
@@ -855,21 +862,21 @@ pub const NativeTargetInfo = struct {
         }
     }
 
-    fn detectNativeCpuAndFeatures(cross_target: CrossTarget) ?Target.Cpu {
-
-        switch(Target.current.cpu.arch) {
+    fn detectNativeCpuAndFeatures(cpu_arch: Target.Cpu.Arch, os: Target.Os, cross_target: CrossTarget) ?Target.Cpu {
+        switch (cpu_arch) {
             .x86_64, .i386 => {
-                return @import("system/x86.zig").detectNativeCpuAndFeatures(cross_target);
+                return @import("system/x86.zig").detectNativeCpuAndFeatures(cpu_arch, os, cross_target);
             },
             else => {
-                // TODO flesh out CPU detection for more than just x86.
+                // This architecture does not have CPU model & feature detection yet.
+                // See https://github.com/ziglang/zig/issues/4591
                 return null;
-            }
+            },
         }
     }
 
-    fn baselineCpuAndFeatures(cross_target: CrossTarget) Target.Cpu {
-        var adjusted_baseline = Target.Cpu.baseline(cross_target.getCpuArch());
+    fn baselineCpuAndFeatures(cpu_arch: Target.Cpu.Arch, cross_target: CrossTarget) Target.Cpu {
+        var adjusted_baseline = Target.Cpu.baseline(cpu_arch);
         cross_target.updateCpuFeatures(&adjusted_baseline.features);
         return adjusted_baseline;
     }
