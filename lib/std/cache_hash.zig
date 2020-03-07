@@ -271,14 +271,13 @@ pub const CacheHash = struct {
     pub fn write_manifest(self: *@This()) !void {
         debug.assert(self.manifest_file != null);
 
-        var encoded_digest = try Buffer.initSize(self.alloc, BASE64_DIGEST_LEN);
-        defer encoded_digest.deinit();
+        var encoded_digest: [BASE64_DIGEST_LEN]u8 = undefined;
         var contents = try Buffer.init(self.alloc, "");
         defer contents.deinit();
 
         for (self.files.toSlice()) |file| {
-            base64_encoder.encode(encoded_digest.toSlice(), &file.bin_digest);
-            try contents.print("{} {} {} {}\n", .{ file.file_handle, file.stat.mtime, encoded_digest.toSlice(), file.path });
+            base64_encoder.encode(encoded_digest[0..], &file.bin_digest);
+            try contents.print("{} {} {} {}\n", .{ file.file_handle, file.stat.mtime, encoded_digest[0..], file.path });
         }
 
         try self.manifest_file.?.seekTo(0);
