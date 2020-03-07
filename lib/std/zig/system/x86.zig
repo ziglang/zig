@@ -30,18 +30,15 @@ pub fn detectNativeCpuAndFeatures(arch: Target.Cpu.Arch, os: Target.Os, cross_ta
         leaf = cpuid(0x1, 0);
 
         const brand_id = leaf.ebx & 0xff;
-        var family: u32 = 0;
-        var model: u32 = 0;
 
-        { // Detect model and family
-            family = (leaf.eax >> 8) & 0xf;
-            model = (leaf.eax >> 4) & 0xf;
-            if (family == 6 or family == 0xf) {
-                if (family == 0xf) {
-                    family += (leaf.eax >> 20) & 0xff;
-                }
-                model += ((leaf.eax >> 16) & 0xf) << 4;
+        // Detect model and family
+        var family = (leaf.eax >> 8) & 0xf;
+        var model = (leaf.eax >> 4) & 0xf;
+        if (family == 6 or family == 0xf) {
+            if (family == 0xf) {
+                family += (leaf.eax >> 20) & 0xff;
             }
+            model += ((leaf.eax >> 16) & 0xf) << 4;
         }
 
         // Now we detect the model.
@@ -330,11 +327,11 @@ fn detectNativeFeatures(cpu: *Target.Cpu, os_tag: Target.Os.Tag) void {
     setFeature(cpu, .aes, bit(leaf.ecx, 25));
     setFeature(cpu, .rdrnd, bit(leaf.ecx, 30));
 
-    leaf.eax = getXCR0();
-
-    const has_avx = bit(leaf.ecx, 27) and
+    // If the CPU supports XSAVE/XRESTORE (bit 27) and AVX (bit 28) also check
+    // if the AVX registers are saved & restored on context switch
+    const has_avx_save = bit(leaf.ecx, 27) and
         bit(leaf.ecx, 28) and
-        ((leaf.eax & 0x6) == 0x6);
+        ((getXCR0() & 0x6) == 0x6);
 
     // LLVM approaches avx512_save by hardcoding it to true on Darwin,
     // because the kernel saves the context even if the bit is not set.
@@ -358,14 +355,14 @@ fn detectNativeFeatures(cpu: *Target.Cpu, os_tag: Target.Os.Tag) void {
     // set right now.
     const has_avx512_save = switch (os_tag.isDarwin()) {
         true => true,
-        false => has_avx and ((leaf.eax & 0xE0) == 0xE0),
+        false => has_avx_save and ((leaf.eax & 0xE0) == 0xE0),
     };
 
-    setFeature(cpu, .avx, has_avx);
-    setFeature(cpu, .fma, has_avx and bit(leaf.ecx, 12));
+    setFeature(cpu, .avx, has_avx_save);
+    setFeature(cpu, .fma, has_avx_save and bit(leaf.ecx, 12));
     // Only enable XSAVE if OS has enabled support for saving YMM state.
-    setFeature(cpu, .xsave, has_avx and bit(leaf.ecx, 26));
-    setFeature(cpu, .f16c, has_avx and bit(leaf.ecx, 29));
+    setFeature(cpu, .xsave, has_avx_save and bit(leaf.ecx, 26));
+    setFeature(cpu, .f16c, has_avx_save and bit(leaf.ecx, 29));
 
     leaf = cpuid(0x80000000, 0);
     const max_ext_level = leaf.eax;
@@ -376,9 +373,9 @@ fn detectNativeFeatures(cpu: *Target.Cpu, os_tag: Target.Os.Tag) void {
         setFeature(cpu, .lzcnt, bit(leaf.ecx, 5));
         setFeature(cpu, .sse4a, bit(leaf.ecx, 6));
         setFeature(cpu, .prfchw, bit(leaf.ecx, 8));
-        setFeature(cpu, .xop, bit(leaf.ecx, 11) and has_avx);
+        setFeature(cpu, .xop, bit(leaf.ecx, 11) and has_avx_save);
         setFeature(cpu, .lwp, bit(leaf.ecx, 15));
-        setFeature(cpu, .fma4, bit(leaf.ecx, 16) and has_avx);
+        setFeature(cpu, .fma4, bit(leaf.ecx, 16) and has_avx_save);
         setFeature(cpu, .tbm, bit(leaf.ecx, 21));
         setFeature(cpu, .mwaitx, bit(leaf.ecx, 29));
         setFeature(cpu, .@"64bit", bit(leaf.edx, 29));
@@ -409,7 +406,7 @@ fn detectNativeFeatures(cpu: *Target.Cpu, os_tag: Target.Os.Tag) void {
         setFeature(cpu, .sgx, bit(leaf.ebx, 2));
         setFeature(cpu, .bmi, bit(leaf.ebx, 3));
         // AVX2 is only supported if we have the OS save support from AVX.
-        setFeature(cpu, .avx2, bit(leaf.ebx, 5) and has_avx);
+        setFeature(cpu, .avx2, bit(leaf.ebx, 5) and has_avx_save);
         setFeature(cpu, .bmi2, bit(leaf.ebx, 8));
         setFeature(cpu, .invpcid, bit(leaf.ebx, 10));
         setFeature(cpu, .rtm, bit(leaf.ebx, 11));
@@ -435,8 +432,8 @@ fn detectNativeFeatures(cpu: *Target.Cpu, os_tag: Target.Os.Tag) void {
         setFeature(cpu, .avx512vbmi2, bit(leaf.ecx, 6) and has_avx512_save);
         setFeature(cpu, .shstk, bit(leaf.ecx, 7));
         setFeature(cpu, .gfni, bit(leaf.ecx, 8));
-        setFeature(cpu, .vaes, bit(leaf.ecx, 9) and has_avx);
-        setFeature(cpu, .vpclmulqdq, bit(leaf.ecx, 10) and has_avx);
+        setFeature(cpu, .vaes, bit(leaf.ecx, 9) and has_avx_save);
+        setFeature(cpu, .vpclmulqdq, bit(leaf.ecx, 10) and has_avx_save);
         setFeature(cpu, .avx512vnni, bit(leaf.ecx, 11) and has_avx512_save);
         setFeature(cpu, .avx512bitalg, bit(leaf.ecx, 12) and has_avx512_save);
         setFeature(cpu, .avx512vpopcntdq, bit(leaf.ecx, 14) and has_avx512_save);
@@ -487,7 +484,7 @@ fn detectNativeFeatures(cpu: *Target.Cpu, os_tag: Target.Os.Tag) void {
         }
     }
 
-    if (max_level >= 0xD and has_avx) {
+    if (max_level >= 0xD and has_avx_save) {
         leaf = cpuid(0xD, 0x1);
         // Only enable XSAVE if OS has enabled support for saving YMM state.
         setFeature(cpu, .xsaveopt, bit(leaf.eax, 0));
@@ -518,20 +515,19 @@ fn cpuid(leaf_id: u32, subid: u32) CpuidLeaf {
     // Workaround for https://github.com/ziglang/zig/issues/215
     // Inline assembly in zig only supports one output,
     // so we pass a pointer to the struct.
-    var cpuid_leaf = CpuidLeaf{ .eax = 0, .ebx = 0, .ecx = 0, .edx = 0 };
-    const leaf_ptr = &cpuid_leaf;
+    var cpuid_leaf: CpuidLeaf = undefined;
 
     // valid for both x86 and x86_64
     asm volatile (
         \\ cpuid
-        \\ movl %%eax, (%[leaf_ptr])
+        \\ movl %%eax, 0(%[leaf_ptr])
         \\ movl %%ebx, 4(%[leaf_ptr])
         \\ movl %%ecx, 8(%[leaf_ptr])
         \\ movl %%edx, 12(%[leaf_ptr])
         :
         : [leaf_id] "{eax}" (leaf_id),
           [subid] "{ecx}" (subid),
-          [leaf_ptr] "r" (leaf_ptr)
+          [leaf_ptr] "r" (&cpuid_leaf)
         : "eax", "ebx", "ecx", "edx"
     );
     return cpuid_leaf;
@@ -539,11 +535,11 @@ fn cpuid(leaf_id: u32, subid: u32) CpuidLeaf {
 
 // Read control register 0 (XCR0). Used to detect features such as AVX.
 fn getXCR0() u32 {
-    return asm (
-        \\ .byte 0x0F, 0x01, 0xD0
+    return asm volatile (
+        \\ xor %%ecx, %%ecx
+        \\ xgetbv
         : [ret] "={eax}" (-> u32)
-        : [number] "{eax}" (@as(u32, 0)),
-          [number] "{edx}" (@as(u32, 0)),
-          [number] "{ecx}" (@as(u32, 0))
+        :
+        : "eax", "edx", "ecx"
     );
 }
