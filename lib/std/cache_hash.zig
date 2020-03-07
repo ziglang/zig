@@ -98,6 +98,21 @@ pub const CacheHash = struct {
         switch (@typeInfo(val_type)) {
             .Int => self.addInt(val),
             .Bool => self.addBool(val),
+            .Array => |array_info| if (array_info.child == u8) {
+                self.addSlice(val[0..]);
+            } else {
+                @compileError("Unsupported array type");
+            },
+            .Pointer => |ptr_info| switch (ptr_info.size) {
+                .Slice => if (ptr_info.child == u8) {
+                    self.addSlice(val);
+                },
+                .One => self.add(val.*),
+                else => {
+                    @compileLog("Pointer type: ", ptr_info.size, ptr_info.child);
+                    @compileError("Unsupported pointer type");
+                },
+            },
             else => @compileError("Unsupported type"),
         }
     }
@@ -328,7 +343,7 @@ test "cache file and the recall it" {
 
         ch.add(true);
         ch.add(@as(u16, 1234));
-        ch.addSlice("1234");
+        ch.add("1234");
         try ch.cache_file("test.txt");
 
         // There should be nothing in the cache
@@ -342,7 +357,7 @@ test "cache file and the recall it" {
 
         ch.add(true);
         ch.add(@as(u16, 1234));
-        ch.addSlice("1234");
+        ch.add("1234");
         try ch.cache_file("test.txt");
 
         // Cache hit! We just "built" the same file
