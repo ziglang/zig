@@ -266,7 +266,7 @@ const default_new_dir_mode = 0o755;
 /// Asserts that the path is absolute. See `Dir.makeDir` for a function that operates
 /// on both absolute and relative paths.
 pub fn makeDirAbsolute(absolute_path: []const u8) !void {
-    assert(path.isAbsoluteC(absolute_path));
+    assert(path.isAbsolute(absolute_path));
     return os.mkdir(absolute_path, default_new_dir_mode);
 }
 
@@ -1669,6 +1669,8 @@ pub fn realpathAlloc(allocator: *Allocator, pathname: []const u8) ![]u8 {
 }
 
 test "" {
+    _ = makeDirAbsolute;
+    _ = makeDirAbsoluteZ;
     _ = @import("fs/path.zig");
     _ = @import("fs/file.zig");
     _ = @import("fs/get_app_data_dir.zig");
