@@ -12,7 +12,7 @@ const os = @import("os.zig");
 
 const base64_encoder = fs.base64_encoder;
 const base64_decoder = fs.base64_decoder;
-const BIN_DIGEST_LEN = 32;
+const BIN_DIGEST_LEN = 48;
 const BASE64_DIGEST_LEN = base64.Base64Encoder.calcSize(BIN_DIGEST_LEN);
 
 pub const File = struct {
@@ -203,7 +203,7 @@ pub const CacheHash = struct {
 
                 // TODO: check for problematic timestamp
 
-                var actual_digest: [32]u8 = undefined;
+                var actual_digest: [BIN_DIGEST_LEN]u8 = undefined;
                 try hash_file(self.alloc, &actual_digest, &this_file);
 
                 if (!mem.eql(u8, &cache_hash_file.bin_digest, &actual_digest)) {
