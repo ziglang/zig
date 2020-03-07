@@ -149,14 +149,9 @@ pub const CacheHash = struct {
             self.manifest_file = try self.manifest_dir.createFile(manifest_file_path, .{ .read = true, .truncate = false });
         }
 
-        // create a buffer instead of using readAllAlloc
-        // See: https://github.com/ziglang/zig/issues/4656
-        var file_buffer = try Buffer.initCapacity(self.alloc, 16 * 1024);
-        defer file_buffer.deinit();
-
         // TODO: Figure out a good max value?
-        try self.manifest_file.?.inStream().stream.readAllBuffer(&file_buffer, 16 * 1024);
-        const file_contents = file_buffer.toSliceConst();
+        const file_contents = try self.manifest_file.?.inStream().stream.readAllAlloc(self.alloc, 16 * 1024);
+        defer self.alloc.free(file_contents);
 
         const input_file_count = self.files.len;
         var any_file_changed = false;
