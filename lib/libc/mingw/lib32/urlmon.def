@@ -5,24 +5,10 @@
 ;
 LIBRARY "urlmon.dll"
 EXPORTS
-ord_100@16 @100
-ord_101 @101
-ord_102 @102
-ord_103@8 @103
-ord_104@24 @104
-ord_105@12 @105
-ord_106@4 @106
-ord_107@8 @107
-ord_108 @108
 AsyncGetClassBits@44
 AsyncInstallDistributionUnit@36
-ord_111@8 @111
-ord_112@8 @112
-ord_113@8 @113
-ord_114 @114
-ord_115@4 @115
-ord_116@8 @116
 BindAsyncMoniker@20
+CAuthenticateHostUI_CreateInstance@12
 CDLGetLongPathNameA@12
 CDLGetLongPathNameW@12
 CORPolicyProvider@4
@@ -36,6 +22,8 @@ CoInternetCompareUrl@12
 CoInternetCreateSecurityManager@12
 CoInternetCreateZoneManager@12
 CoInternetFeatureSettingsChanged
+CoInternetGetMobileBrowserAppCompatMode@4
+CoInternetGetMobileBrowserForceDesktopMode@4
 CoInternetGetProtocolFlags@12
 CoInternetGetSecurityUrl@16
 CoInternetGetSecurityUrlEx@16
@@ -48,6 +36,8 @@ CoInternetParseIUri@28
 CoInternetParseUrl@28
 CoInternetQueryInfo@28
 CoInternetSetFeatureEnabled@12
+CoInternetSetMobileBrowserAppCompatMode@4
+CoInternetSetMobileBrowserForceDesktopMode@4
 CompareSecurityIds@20
 CompatFlagsFromClsid@12
 CopyBindInfo@8
@@ -65,6 +55,7 @@ CreateUriPriv@32
 CreateUriWithFragment@20
 Extract@8
 FaultInIEFeature@16
+FileBearsMarkOfTheWeb@8
 FindMediaType@8
 FindMediaTypeClass@16
 FindMimeFromData@32
@@ -82,12 +73,14 @@ GetPropertyFromName@8
 GetPropertyName@4
 GetSoftwareUpdateInfo@8
 GetUrlmonThreadNotificationHwnd@0
+GetZoneFromAlternateDataStreamEx@8
 HlinkGoBack@4
 HlinkGoForward@4
 HlinkNavigateMoniker@8
 HlinkNavigateString@8
 HlinkSimpleNavigateToMoniker@32
 HlinkSimpleNavigateToString@32
+IEGetUserPrivateNamespaceName@0
 IEDllLoader@8
 IEInstallScope@4
 IntlPercentEncodeNormalize@16
@@ -108,10 +101,13 @@ RegisterBindStatusCallback@16
 RegisterFormatEnumerator@12
 RegisterMediaTypeClass@20
 RegisterMediaTypes@12
+RegisterWebPlatformPermanentSecurityManager@4
 ReleaseBindInfo@4
 ResetUrlmonLanguageData@0
+RestrictHTTP2@4
 RevokeBindStatusCallback@8
 RevokeFormatEnumerator@8
+SetAccessForIEAppContainer@12
 SetSoftwareUpdateAdvertisementState@16
 ShouldDisplayPunycodeForUri@4
 ShouldShowIntranetWarningSecband@4
@@ -128,103 +124,11 @@ URLOpenPullStreamA@16
 URLOpenPullStreamW@16
 URLOpenStreamA@16
 URLOpenStreamW@16
+UnregisterWebPlatformPermanentSecurityManager@0
 UrlMkBuildVersion
 UrlMkGetSessionOption@20
 UrlMkSetSessionOption@16
+UrlmonCleanupCurrentThread@0
 WriteHitLogging@4
 ZonesReInit@4
-ord_304@28 @304
-ord_305@12 @305
-ord_306@4 @306
-ord_307@20 @307
-ord_308@4 @308
-ord_309@4 @309
-ord_310@12 @310
-ord_311@12 @311
-ord_312@4 @312
-ord_313@8 @313
-ord_314@4 @314
-ord_315@8 @315
-ord_316@8 @316
-ord_318@8 @318
-ord_319@8 @319
-ord_320@12 @320
-ord_321@8 @321
 IECompatLogCSSFix@12
-ord_323@12 @323
-ord_324 @324
-; ord_395 @395 Couldn't determine function argument count. Function doesn't return. 
-ord_400@8 @400
-ord_401@4 @401
-ord_403@4 @403
-ord_404 @404
-ord_406 @406
-ord_407 @407
-ord_408@8 @408
-ord_409@8 @409
-ord_410@8 @410
-ord_411@8 @411
-ord_412@8 @412
-ord_413@8 @413
-ord_414@8 @414
-ord_415@8 @415
-ord_416@12 @416
-ord_417@12 @417
-ord_420@24 @420
-ord_421@8 @421
-; ord_422 @422 Check!!! forwards to CloseHandle in KERNEL32.dll (ordinal 82)
-ord_423@16 @423
-ord_430 @430
-ord_431@4 @431
-ord_432@8 @432
-ord_433@4 @433
-ord_434@12 @434
-ord_435@12 @435
-ord_436@8 @436
-ord_437@8 @437
-ord_438@24 @438
-ord_439@4 @439
-ord_440@4 @440
-ord_441@16 @441
-ord_442@8 @442
-ord_443@8 @443
-ord_444@12 @444
-ord_445@8 @445
-ord_446@4 @446
-ord_447@4 @447
-ord_448@4 @448
-ord_449@4 @449
-ord_450@4 @450
-ord_451@4 @451
-ord_452@8 @452
-ord_453@8 @453
-ord_454@8 @454
-ord_455 @455
-ord_456 @456
-ord_457@4 @457
-ord_458 @458
-ord_460@4 @460
-ord_461@8 @461
-ord_462@20 @462
-ord_463@20 @463
-ord_470@4 @470
-ord_471 @471
-ord_473@4 @473
-ord_474@16 @474
-ord_475@16 @475
-ord_476@16 @476
-ord_477@16 @477
-ord_478@32 @478
-ord_479@32 @479
-ord_480@36 @480
-ord_481@36 @481
-ord_482@12 @482
-ord_483@28 @483
-ord_484@8 @484
-ord_485@8 @485
-ord_486@8 @486
-ord_487@4 @487
-ord_488 @488
-ord_489@16 @489
-ord_490@44 @490
-ord_491@4 @491

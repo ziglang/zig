@@ -140,16 +140,6 @@ extern "C" {
     } lh;
   } __mingw_ldbl_type_t;
 
-  typedef union __mingw_fp_types_t
-  {
-    long double *ld;
-    double *d;
-    float *f;
-    __mingw_ldbl_type_t *ldt;
-    __mingw_dbl_type_t *dt;
-    __mingw_flt_type_t *ft;
-  } __mingw_fp_types_t;
-
 #endif
 
 #ifndef _HUGE
@@ -273,7 +263,7 @@ extern "C" {
   };
 #endif
 
-  double __cdecl _cabs(struct _complex _ComplexA); /* Overriden to use our cabs.  */
+  double __cdecl _cabs(struct _complex _ComplexA); /* Overridden to use our cabs.  */
   double __cdecl _hypot(double _X,double _Y);
   _CRTIMP double __cdecl _j0(double _X);
   _CRTIMP double __cdecl _j1(double _X);
@@ -411,20 +401,20 @@ typedef long double double_t;
 #ifndef __CRT__NO_INLINE
   __CRT_INLINE int __cdecl __fpclassifyl (long double x) {
 #if defined(__x86_64__) || defined(_AMD64_)
-    __mingw_fp_types_t hlp;
+    __mingw_ldbl_type_t hlp;
     unsigned int e;
-    hlp.ld = &x;
-    e = hlp.ldt->lh.sign_exponent & 0x7fff;
+    hlp.x = x;
+    e = hlp.lh.sign_exponent & 0x7fff;
     if (!e)
       {
-        unsigned int h = hlp.ldt->lh.high;
-        if (!(hlp.ldt->lh.low | h))
+        unsigned int h = hlp.lh.high;
+        if (!(hlp.lh.low | h))
           return FP_ZERO;
         else if (!(h & 0x80000000))
           return FP_SUBNORMAL;
       }
     else if (e == 0x7fff)
-      return (((hlp.ldt->lh.high & 0x7fffffff) | hlp.ldt->lh.low) == 0 ?
+      return (((hlp.lh.high & 0x7fffffff) | hlp.lh.low) == 0 ?
               FP_INFINITE : FP_NAN);
     return FP_NORMAL;
 #elif defined(__arm__) || defined(_ARM_) || defined(__aarch64__) || defined(_ARM64_)
@@ -437,12 +427,12 @@ typedef long double double_t;
   }
   __CRT_INLINE int __cdecl __fpclassify (double x) {
 #if defined(__x86_64__) || defined(_AMD64_) || defined(__arm__) || defined(_ARM_) || defined(__aarch64__) || defined(_ARM64_)
-    __mingw_fp_types_t hlp;
+    __mingw_dbl_type_t hlp;
     unsigned int l, h;
 
-    hlp.d = &x;
-    h = hlp.ldt->lh.high;
-    l = hlp.ldt->lh.low | (h & 0xfffff);
+    hlp.x = x;
+    h = hlp.lh.high;
+    l = hlp.lh.low | (h & 0xfffff);
     h &= 0x7ff00000;
     if ((h | l) == 0)
       return FP_ZERO;
@@ -459,16 +449,16 @@ typedef long double double_t;
   }
   __CRT_INLINE int __cdecl __fpclassifyf (float x) {
 #if defined(__x86_64__) || defined(_AMD64_) || defined(__arm__) || defined(_ARM_) || defined(__aarch64__) || defined(_ARM64_)
-    __mingw_fp_types_t hlp;
+    __mingw_flt_type_t hlp;
 
-    hlp.f = &x;
-    hlp.ft->val &= 0x7fffffff;
-    if (hlp.ft->val == 0)
+    hlp.x = x;
+    hlp.val &= 0x7fffffff;
+    if (hlp.val == 0)
       return FP_ZERO;
-    if (hlp.ft->val < 0x800000)
+    if (hlp.val < 0x800000)
       return FP_SUBNORMAL;
-    if (hlp.ft->val >= 0x7f800000)
-      return (hlp.ft->val > 0x7f800000 ? FP_NAN : FP_INFINITE);
+    if (hlp.val >= 0x7f800000)
+      return (hlp.val > 0x7f800000 ? FP_NAN : FP_INFINITE);
     return FP_NORMAL;
 #elif defined(__i386__) || defined(_X86_)
     unsigned short sw;
@@ -525,12 +515,12 @@ __mingw_choose_expr (                                         \
   __CRT_INLINE int __cdecl __isnan (double _x)
   {
 #if defined(__x86_64__) || defined(_AMD64_) || defined(__arm__) || defined(_ARM_) || defined(__aarch64__) || defined(_ARM64_)
-    __mingw_fp_types_t hlp;
+    __mingw_dbl_type_t hlp;
     int l, h;
 
-    hlp.d = &_x;
-    l = hlp.dt->lh.low;
-    h = hlp.dt->lh.high & 0x7fffffff;
+    hlp.x = _x;
+    l = hlp.lh.low;
+    h = hlp.lh.high & 0x7fffffff;
     h |= (unsigned int) (l | -l) >> 31;
     h = 0x7ff00000 - h;
     return (int) ((unsigned int) h) >> 31;
@@ -546,11 +536,11 @@ __mingw_choose_expr (                                         \
   __CRT_INLINE int __cdecl __isnanf (float _x)
   {
 #if defined(__x86_64__) || defined(_AMD64_) || defined(__arm__) || defined(_ARM_) || defined(__aarch64__) || defined(_ARM64_)
-    __mingw_fp_types_t hlp;
+    __mingw_flt_type_t hlp;
     int i;
     
-    hlp.f = &_x;
-    i = hlp.ft->val & 0x7fffffff;
+    hlp.x = _x;
+    i = hlp.val & 0x7fffffff;
     i = 0x7f800000 - i;
     return (int) (((unsigned int) i) >> 31);
 #elif defined(__i386__) || defined(_X86_)
@@ -565,12 +555,12 @@ __mingw_choose_expr (                                         \
   __CRT_INLINE int __cdecl __isnanl (long double _x)
   {
 #if defined(__x86_64__) || defined(_AMD64_)
-    __mingw_fp_types_t ld;
+    __mingw_ldbl_type_t ld;
     int xx, signexp;
 
-    ld.ld = &_x;
-    signexp = (ld.ldt->lh.sign_exponent & 0x7fff) << 1;
-    xx = (int) (ld.ldt->lh.low | (ld.ldt->lh.high & 0x7fffffffu)); /* explicit */
+    ld.x = _x;
+    signexp = (ld.lh.sign_exponent & 0x7fff) << 1;
+    xx = (int) (ld.lh.low | (ld.lh.high & 0x7fffffffu)); /* explicit */
     signexp |= (unsigned int) (xx | (-xx)) >> 31;
     signexp = 0xfffe - signexp;
     return (int) ((unsigned int) signexp) >> 16;
@@ -610,10 +600,10 @@ __mingw_choose_expr (                                         \
 #ifndef __CRT__NO_INLINE
   __CRT_INLINE int __cdecl __signbit (double x) {
 #if defined(__x86_64__) || defined(_AMD64_) || defined(__arm__) || defined(_ARM_) || defined(__aarch64__) || defined(_ARM64_)
-    __mingw_fp_types_t hlp;
+    __mingw_dbl_type_t hlp;
 
-    hlp.d = &x;
-    return ((hlp.dt->lh.high & 0x80000000) != 0);
+    hlp.x = x;
+    return ((hlp.lh.high & 0x80000000) != 0);
 #elif defined(__i386__) || defined(_X86_)
     unsigned short stw;
     __asm__ __volatile__ ( "fxam; fstsw %%ax;": "=a" (stw) : "t" (x));
@@ -623,9 +613,9 @@ __mingw_choose_expr (                                         \
 
   __CRT_INLINE int __cdecl __signbitf (float x) {
 #if defined(__x86_64__) || defined(_AMD64_) || defined(__arm__) || defined(_ARM_) || defined(__aarch64__) || defined(_ARM64_)
-    __mingw_fp_types_t hlp;
-    hlp.f = &x;
-    return ((hlp.ft->val & 0x80000000) != 0);
+    __mingw_flt_type_t hlp;
+    hlp.x = x;
+    return ((hlp.val & 0x80000000) != 0);
 #elif defined(__i386__) || defined(_X86_)
     unsigned short stw;
     __asm__ __volatile__ ("fxam; fstsw %%ax;": "=a" (stw) : "t" (x));
@@ -635,9 +625,9 @@ __mingw_choose_expr (                                         \
 
   __CRT_INLINE int __cdecl __signbitl (long double x) {
 #if defined(__x86_64__) || defined(_AMD64_)
-    __mingw_fp_types_t ld;
-    ld.ld = &x;
-    return ((ld.ldt->lh.sign_exponent & 0x8000) != 0);
+    __mingw_ldbl_type_t ld;
+    ld.x = x;
+    return ((ld.lh.sign_exponent & 0x8000) != 0);
 #elif defined(__arm__) || defined(_ARM_) || defined(__aarch64__) || defined(_ARM64_)
     return __signbit(x);
 #elif defined(__i386__) || defined(_X86_)
@@ -744,7 +734,7 @@ __mingw_choose_expr (                                         \
 
 /* 7.12.6.5 */
 #define FP_ILOGB0 ((int)0x80000000)
-#define FP_ILOGBNAN ((int)0x80000000)
+#define FP_ILOGBNAN ((int)0x7fffffff)
   extern int __cdecl ilogb (double);
   extern int __cdecl ilogbf (float);
   extern int __cdecl ilogbl (long double);
@@ -789,18 +779,20 @@ __mingw_choose_expr (                                         \
   __CRT_INLINE double __cdecl logb (double x)
   {
 #if defined(__x86_64__) || defined(_AMD64_) || defined(__arm__) || defined(_ARM_) || defined(__aarch64__) || defined(_ARM64_)
-  __mingw_fp_types_t hlp;
+  __mingw_dbl_type_t hlp;
   int lx, hx;
 
-  hlp.d = &x;
-  lx = hlp.dt->lh.low;
-  hx = hlp.dt->lh.high & 0x7fffffff; /* high |x| */
+  hlp.x = x;
+  lx = hlp.lh.low;
+  hx = hlp.lh.high & 0x7fffffff; /* high |x| */
   if ((hx | lx) == 0)
     return -1.0 / fabs (x);
   if (hx >= 0x7ff00000)
     return x * x;
-  if ((hx >>= 20) == 0) /* IEEE 754 logb */
-    return -1022.0;
+  if ((hx >>= 20) == 0) {
+    unsigned long long mantissa = hlp.val & 0xfffffffffffffULL;
+    return -1023.0 - (__builtin_clzll(mantissa) - 12);
+  }
   return (double) (hx - 1023);
 #elif defined(__i386__) || defined(_X86_)
     double res = 0.0;
@@ -814,16 +806,16 @@ __mingw_choose_expr (                                         \
   {
 #if defined(__x86_64__) || defined(_AMD64_) || defined(__arm__) || defined(_ARM_) || defined(__aarch64__) || defined(_ARM64_)
     int v;
-    __mingw_fp_types_t hlp;
+    __mingw_flt_type_t hlp;
 
-    hlp.f = &x;
-    v = hlp.ft->val & 0x7fffffff;                     /* high |x| */
+    hlp.x = x;
+    v = hlp.val & 0x7fffffff;                     /* high |x| */
     if (!v)
       return (float)-1.0 / fabsf (x);
     if (v >= 0x7f800000)
     return x * x;
-  if ((v >>= 23) == 0) /* IEEE 754 logb */
-    return -126.0;
+    if ((v >>= 23) == 0)
+      return -127.0 - (__builtin_clzl(hlp.val & 0x7fffff) - 9);
   return (float) (v - 127);
 #elif defined(__i386__) || defined(_X86_)
     float res = 0.0F;
@@ -836,18 +828,20 @@ __mingw_choose_expr (                                         \
   __CRT_INLINE long double __cdecl logbl (long double x)
   {
 #if defined(__arm__) || defined(_ARM_) || defined(__aarch64__) || defined(_ARM64_)
-  __mingw_fp_types_t hlp;
+  __mingw_ldbl_type_t hlp;
   int lx, hx;
 
-  hlp.d = &x;
-  lx = hlp.dt->lh.low;
-  hx = hlp.dt->lh.high & 0x7fffffff; /* high |x| */
+  hlp.x = x;
+  lx = hlp.lh.low;
+  hx = hlp.lh.high & 0x7fffffff; /* high |x| */
   if ((hx | lx) == 0)
     return -1.0 / fabs (x);
   if (hx >= 0x7ff00000)
     return x * x;
-  if ((hx >>= 20) == 0) /* IEEE 754 logb */
-    return -1022.0;
+  if ((hx >>= 20) == 0) {
+    unsigned long long mantissa = hlp.val & 0xfffffffffffffULL;
+    return -1023.0 - (__builtin_clzll(mantissa) - 12);
+  }
   return (double) (hx - 1023);
 #elif defined(__x86_64__) || defined(_AMD64_) || defined(__i386__) || defined(_X86_)
     long double res = 0.0l;

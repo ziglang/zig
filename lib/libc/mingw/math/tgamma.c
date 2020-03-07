@@ -168,6 +168,9 @@ double __tgamma_r(double x, int *sgngam)
 		return (x);
 #endif
 #endif
+	if (x == 0.0)
+		return copysign(HUGE_VAL, x);
+
 	q = fabs(x);
 
 	if (q > 33.0)
@@ -180,8 +183,8 @@ double __tgamma_r(double x, int *sgngam)
 gsing:
 				_SET_ERRNO(EDOM);
 				mtherr("tgamma", SING);
-#ifdef INFINITIES
-				return (INFINITY);
+#ifdef NANS
+				return (NAN);
 #else
 				return (MAXNUM);
 #endif

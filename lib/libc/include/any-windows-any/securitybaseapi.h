@@ -183,6 +183,11 @@ extern "C" {
 #endif
 #endif
 
+#if _WIN32_WINNT >= 0x0A00
+  WINADVAPI LONG WINAPI CveEventWrite (PCWSTR CveId, PCWSTR AdditionalDetails);
+  WINADVAPI WINBOOL WINAPI DeriveCapabilitySidsFromName(LPCWSTR CapName, PSID** CapabilityGroupSids, DWORD* CapabilityGroupSidCount, PSID** CapabilitySids, DWORD* CapabilitySidCount);
+#endif
+
 #ifdef __cplusplus
 }
 #endif

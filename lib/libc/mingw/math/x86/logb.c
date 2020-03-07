@@ -25,8 +25,10 @@ logb (double x)
     return -1.0 / fabs (x);
   if (hx >= 0x7ff00000)
     return x * x;
-  if ((hx >>= 20) == 0) /* IEEE 754 logb */
-    return -1022.0;
+  if ((hx >>= 20) == 0) {
+    unsigned long long mantissa = hlp.val & 0xfffffffffffffULL;
+    return -1023.0 - (__builtin_clzll(mantissa) - 12);
+  }
   return (double) (hx - 1023);
 #else
   double res = 0.0;

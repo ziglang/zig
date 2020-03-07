@@ -105,6 +105,29 @@ test "@TypeOf() has no runtime side effects" {
     expect(data == 0);
 }
 
+test "@TypeOf() with multiple arguments" {
+    {
+        var var_1: u32 = undefined;
+        var var_2: u8 = undefined;
+        var var_3: u64 = undefined;
+        comptime expect(@TypeOf(var_1, var_2, var_3) == u64);
+    }
+    {
+        var var_1: f16 = undefined;
+        var var_2: f32 = undefined;
+        var var_3: f64 = undefined;
+        comptime expect(@TypeOf(var_1, var_2, var_3) == f64);
+    }
+    {
+        var var_1: u16 = undefined;
+        comptime expect(@TypeOf(var_1, 0xffff) == u16);
+    }
+    {
+        var var_1: f32 = undefined;
+        comptime expect(@TypeOf(var_1, 3.1415) == f32);
+    }
+}
+
 test "branching logic inside @TypeOf" {
     const S = struct {
         var data: i32 = 0;

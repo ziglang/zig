@@ -2,8 +2,8 @@ LIBRARY "RPCRT4.dll"
 EXPORTS
 CreateProxyFromTypeInfo
 CreateStubFromTypeInfo
-I_RpcFixTransferSyntax
 I_RpcBindingInqCurrentModifiedId
+I_RpcFixTransferSyntax
 I_RpcFwThisIsTheManager
 I_RpcInitFwImports
 I_RpcInitHttpImports
@@ -83,12 +83,15 @@ I_RpcFilterDCOMActivation
 I_RpcFree
 I_RpcFreeBuffer
 I_RpcFreePipeBuffer
+I_RpcFreeSystemHandle
+I_RpcFreeSystemHandleCollection
 I_RpcGetBuffer
 I_RpcGetBufferWithObject
 I_RpcGetCurrentCallHandle
 I_RpcGetDefaultSD
 I_RpcGetExtendedError
 I_RpcGetPortAllocationData
+I_RpcGetSystemHandle
 I_RpcIfInqTransferSyntaxes
 I_RpcLogEvent
 I_RpcMapWin32Status
@@ -127,6 +130,8 @@ I_RpcServerRegisterForwardFunction
 I_RpcServerSetAddressChangeFn
 I_RpcServerStartService
 I_RpcServerSubscribeForDisconnectNotification
+I_RpcServerSubscribeForDisconnectNotification2
+I_RpcServerUnsubscribeForDisconnectNotification
 I_RpcServerUseProtseq2A
 I_RpcServerUseProtseq2W
 I_RpcServerUseProtseqEp2A
@@ -134,8 +139,10 @@ I_RpcServerUseProtseqEp2W
 I_RpcSessionStrictContextHandle
 I_RpcSetAsyncHandle
 I_RpcSetDCOMAppId
+I_RpcSetSystemHandle
 I_RpcSsDontSerializeContext
 I_RpcSystemFunction001
+I_RpcSystemHandleTypeSpecificWork
 I_RpcTransConnectionAllocatePacket
 I_RpcTransConnectionFreePacket
 I_RpcTransConnectionReallocPacket
@@ -445,6 +452,7 @@ RpcIfIdVectorFree
 RpcIfInqId
 RpcImpersonateClient
 RpcImpersonateClient2
+RpcImpersonateClientContainer
 RpcInitializeAsyncHandle
 RpcMgmtEnableIdleCleanup
 RpcMgmtEpEltInqBegin
@@ -479,11 +487,13 @@ RpcProtseqVectorFreeA
 RpcProtseqVectorFreeW
 RpcRaiseException
 RpcRegisterAsyncInfo
+RpcRevertContainerImpersonation
 RpcRevertToSelf
 RpcRevertToSelfEx
 RpcServerCompleteSecurityCallback
 RpcServerInqBindingHandle
 RpcServerInqBindings
+RpcServerInqBindingsEx
 RpcServerInqCallAttributesA
 RpcServerInqCallAttributesW
 RpcServerInqDefaultPrincNameA
@@ -571,7 +581,3 @@ UuidHash
 UuidIsNil
 UuidToStringA
 UuidToStringW
-pfnFreeRoutines DATA
-pfnMarshallRoutines DATA
-pfnSizeRoutines DATA
-pfnUnmarshallRoutines DATA

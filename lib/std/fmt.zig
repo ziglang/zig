@@ -491,6 +491,13 @@ pub fn formatType(
             return format(context, Errors, output, "{}@{x}", .{ @typeName(T), @ptrToInt(value) });
         },
         .Type => return output(context, @typeName(T)),
+        .EnumLiteral => {
+            const name = @tagName(value);
+            var buffer: [name.len + 1]u8 = undefined;
+            buffer[0] = '.';
+            std.mem.copy(u8, buffer[1..], name);
+            return formatType(buffer, fmt, options, context, Errors, output, max_depth);
+        },
         else => @compileError("Unable to format type '" ++ @typeName(T) ++ "'"),
     }
 }
@@ -943,19 +950,17 @@ fn formatIntSigned(
         .precision = options.precision,
         .fill = options.fill,
     };
-
-    const uint = std.meta.IntType(false, @TypeOf(value).bit_count);
+    const bit_count = @typeInfo(@TypeOf(value)).Int.bits;
+    const Uint = std.meta.IntType(false, bit_count);
     if (value < 0) {
-        const minus_sign: u8 = '-';
-        try output(context, @as(*const [1]u8, &minus_sign)[0..]);
-        const new_value = @intCast(uint, -(value + 1)) + 1;
+        try output(context, "-");
+        const new_value = math.absCast(value);
         return formatIntUnsigned(new_value, base, uppercase, new_options, context, Errors, output);
     } else if (options.width == null or options.width.? == 0) {
-        return formatIntUnsigned(@intCast(uint, value), base, uppercase, options, context, Errors, output);
+        return formatIntUnsigned(@intCast(Uint, value), base, uppercase, options, context, Errors, output);
     } else {
-        const plus_sign: u8 = '+';
-        try output(context, @as(*const [1]u8, &plus_sign)[0..]);
-        const new_value = @intCast(uint, value);
+        try output(context, "+");
+        const new_value = @intCast(Uint, value);
         return formatIntUnsigned(new_value, base, uppercase, new_options, context, Errors, output);
     }
 }
@@ -1165,19 +1170,22 @@ pub fn allocPrint0(allocator: *mem.Allocator, comptime fmt: []const u8, args: va
 test "bufPrintInt" {
     var buffer: [100]u8 = undefined;
     const buf = buffer[0..];
-    std.testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(i32, -12345678), 2, false, FormatOptions{}), "-101111000110000101001110"));
-    std.testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(i32, -12345678), 10, false, FormatOptions{}), "-12345678"));
-    std.testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(i32, -12345678), 16, false, FormatOptions{}), "-bc614e"));
-    std.testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(i32, -12345678), 16, true, FormatOptions{}), "-BC614E"));
 
-    std.testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(u32, 12345678), 10, true, FormatOptions{}), "12345678"));
+    std.testing.expectEqualSlices(u8, "-1", bufPrintIntToSlice(buf, @as(i1, -1), 10, false, FormatOptions{}));
 
-    std.testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(u32, 666), 10, false, FormatOptions{ .width = 6 }), "   666"));
-    std.testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(u32, 0x1234), 16, false, FormatOptions{ .width = 6 }), "  1234"));
-    std.testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(u32, 0x1234), 16, false, FormatOptions{ .width = 1 }), "1234"));
+    std.testing.expectEqualSlices(u8, "-101111000110000101001110", bufPrintIntToSlice(buf, @as(i32, -12345678), 2, false, FormatOptions{}));
+    std.testing.expectEqualSlices(u8, "-12345678", bufPrintIntToSlice(buf, @as(i32, -12345678), 10, false, FormatOptions{}));
+    std.testing.expectEqualSlices(u8, "-bc614e", bufPrintIntToSlice(buf, @as(i32, -12345678), 16, false, FormatOptions{}));
+    std.testing.expectEqualSlices(u8, "-BC614E", bufPrintIntToSlice(buf, @as(i32, -12345678), 16, true, FormatOptions{}));
 
-    std.testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(i32, 42), 10, false, FormatOptions{ .width = 3 }), "+42"));
-    std.testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(i32, -42), 10, false, FormatOptions{ .width = 3 }), "-42"));
+    std.testing.expectEqualSlices(u8, "12345678", bufPrintIntToSlice(buf, @as(u32, 12345678), 10, true, FormatOptions{}));
+
+    std.testing.expectEqualSlices(u8, "   666", bufPrintIntToSlice(buf, @as(u32, 666), 10, false, FormatOptions{ .width = 6 }));
+    std.testing.expectEqualSlices(u8, "  1234", bufPrintIntToSlice(buf, @as(u32, 0x1234), 16, false, FormatOptions{ .width = 6 }));
+    std.testing.expectEqualSlices(u8, "1234", bufPrintIntToSlice(buf, @as(u32, 0x1234), 16, false, FormatOptions{ .width = 1 }));
+
+    std.testing.expectEqualSlices(u8, "+42", bufPrintIntToSlice(buf, @as(i32, 42), 10, false, FormatOptions{ .width = 3 }));
+    std.testing.expectEqualSlices(u8, "-42", bufPrintIntToSlice(buf, @as(i32, -42), 10, false, FormatOptions{ .width = 3 }));
 }
 
 fn bufPrintIntToSlice(buf: []u8, value: var, base: u8, uppercase: bool, options: FormatOptions) []u8 {
@@ -1635,10 +1643,10 @@ test "hexToBytes" {
 test "formatIntValue with comptime_int" {
     const value: comptime_int = 123456789123456789;
 
-    var buf = try std.Buffer.init(std.testing.allocator, "");
+    var buf = std.ArrayList(u8).init(std.testing.allocator);
     defer buf.deinit();
-    try formatIntValue(value, "", FormatOptions{}, &buf, @TypeOf(std.Buffer.append).ReturnType.ErrorSet, std.Buffer.append);
-    std.testing.expect(mem.eql(u8, buf.toSlice(), "123456789123456789"));
+    try formatIntValue(value, "", FormatOptions{}, &buf, @TypeOf(std.ArrayList(u8).appendSlice).ReturnType.ErrorSet, std.ArrayList(u8).appendSlice);
+    std.testing.expect(mem.eql(u8, buf.toSliceConst(), "123456789123456789"));
 }
 
 test "formatType max_depth" {
@@ -1690,24 +1698,24 @@ test "formatType max_depth" {
     inst.a = &inst;
     inst.tu.ptr = &inst.tu;
 
-    var buf0 = try std.Buffer.init(std.testing.allocator, "");
+    var buf0 = std.ArrayList(u8).init(std.testing.allocator);
     defer buf0.deinit();
-    try formatType(inst, "", FormatOptions{}, &buf0, @TypeOf(std.Buffer.append).ReturnType.ErrorSet, std.Buffer.append, 0);
+    try formatType(inst, "", FormatOptions{}, &buf0, @TypeOf(std.ArrayList(u8).appendSlice).ReturnType.ErrorSet, std.ArrayList(u8).appendSlice, 0);
     std.testing.expect(mem.eql(u8, buf0.toSlice(), "S{ ... }"));
 
-    var buf1 = try std.Buffer.init(std.testing.allocator, "");
+    var buf1 = std.ArrayList(u8).init(std.testing.allocator);
     defer buf1.deinit();
-    try formatType(inst, "", FormatOptions{}, &buf1, @TypeOf(std.Buffer.append).ReturnType.ErrorSet, std.Buffer.append, 1);
+    try formatType(inst, "", FormatOptions{}, &buf1, @TypeOf(std.ArrayList(u8).appendSlice).ReturnType.ErrorSet, std.ArrayList(u8).appendSlice, 1);
     std.testing.expect(mem.eql(u8, buf1.toSlice(), "S{ .a = S{ ... }, .tu = TU{ ... }, .e = E.Two, .vec = (10.200,2.220) }"));
 
-    var buf2 = try std.Buffer.init(std.testing.allocator, "");
+    var buf2 = std.ArrayList(u8).init(std.testing.allocator);
     defer buf2.deinit();
-    try formatType(inst, "", FormatOptions{}, &buf2, @TypeOf(std.Buffer.append).ReturnType.ErrorSet, std.Buffer.append, 2);
+    try formatType(inst, "", FormatOptions{}, &buf2, @TypeOf(std.ArrayList(u8).appendSlice).ReturnType.ErrorSet, std.ArrayList(u8).appendSlice, 2);
     std.testing.expect(mem.eql(u8, buf2.toSlice(), "S{ .a = S{ .a = S{ ... }, .tu = TU{ ... }, .e = E.Two, .vec = (10.200,2.220) }, .tu = TU{ .ptr = TU{ ... } }, .e = E.Two, .vec = (10.200,2.220) }"));
 
-    var buf3 = try std.Buffer.init(std.testing.allocator, "");
+    var buf3 = std.ArrayList(u8).init(std.testing.allocator);
     defer buf3.deinit();
-    try formatType(inst, "", FormatOptions{}, &buf3, @TypeOf(std.Buffer.append).ReturnType.ErrorSet, std.Buffer.append, 3);
+    try formatType(inst, "", FormatOptions{}, &buf3, @TypeOf(std.ArrayList(u8).appendSlice).ReturnType.ErrorSet, std.ArrayList(u8).appendSlice, 3);
     std.testing.expect(mem.eql(u8, buf3.toSlice(), "S{ .a = S{ .a = S{ .a = S{ ... }, .tu = TU{ ... }, .e = E.Two, .vec = (10.200,2.220) }, .tu = TU{ .ptr = TU{ ... } }, .e = E.Two, .vec = (10.200,2.220) }, .tu = TU{ .ptr = TU{ .ptr = TU{ ... } } }, .e = E.Two, .vec = (10.200,2.220) }"));
 }
 
@@ -1748,4 +1756,8 @@ test "vector" {
     try testFmt("{ 3e8, 7d0, bb8, fa0 }", "{x}", .{vu64});
     try testFmt("{ 1kB, 2kB, 3kB, 4kB }", "{B}", .{vu64});
     try testFmt("{ 1000B, 1.953125KiB, 2.9296875KiB, 3.90625KiB }", "{Bi}", .{vu64});
+}
+
+test "enum-literal" {
+    try testFmt(".hello_world", "{}", .{.hello_world});
 }

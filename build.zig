@@ -6,7 +6,6 @@ const BufMap = std.BufMap;
 const warn = std.debug.warn;
 const mem = std.mem;
 const ArrayList = std.ArrayList;
-const Buffer = std.Buffer;
 const io = std.io;
 const fs = std.fs;
 const InstallDirectoryOptions = std.build.InstallDirectoryOptions;

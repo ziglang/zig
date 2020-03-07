@@ -20,11 +20,11 @@ extern "C" {
     ULONG_PTR Internal;
     ULONG_PTR InternalHigh;
     __C89_NAMELESS union {
-      struct {
-	DWORD Offset;
-	DWORD OffsetHigh;
-      } DUMMYSTRUCTNAME;
-      PVOID Pointer;
+        struct {
+            DWORD Offset;
+            DWORD OffsetHigh;
+        } DUMMYSTRUCTNAME;
+        PVOID Pointer;
     } DUMMYUNIONNAME;
     HANDLE hEvent;
   } OVERLAPPED, *LPOVERLAPPED;
@@ -69,6 +69,11 @@ extern "C" {
     DWORD dwReserved1;
     CHAR cFileName[MAX_PATH];
     CHAR cAlternateFileName[14];
+#ifdef _MAC
+    DWORD dwFileType;
+    DWORD dwCreatorType;
+    WORD  wFinderFlags;
+#endif
   } WIN32_FIND_DATAA, *PWIN32_FIND_DATAA, *LPWIN32_FIND_DATAA;
 
   typedef struct _WIN32_FIND_DATAW {
@@ -82,12 +87,18 @@ extern "C" {
     DWORD dwReserved1;
     WCHAR cFileName[MAX_PATH];
     WCHAR cAlternateFileName[14];
+#ifdef _MAC
+    DWORD dwFileType;
+    DWORD dwCreatorType;
+    WORD  wFinderFlags;
+#endif
   } WIN32_FIND_DATAW, *PWIN32_FIND_DATAW, *LPWIN32_FIND_DATAW;
 
   __MINGW_TYPEDEF_AW(WIN32_FIND_DATA)
   __MINGW_TYPEDEF_AW(PWIN32_FIND_DATA)
   __MINGW_TYPEDEF_AW(LPWIN32_FIND_DATA)
 
+#if _WIN32_WINNT >= 0x0400
   typedef enum _FINDEX_INFO_LEVELS {
     FindExInfoStandard,
     FindExInfoBasic,
@@ -96,6 +107,9 @@ extern "C" {
 
 #define FIND_FIRST_EX_CASE_SENSITIVE 0x00000001
 #define FIND_FIRST_EX_LARGE_FETCH 0x00000002
+#if NTDDI_VERSION >= 0x0A000005
+#define FIND_FIRST_EX_ON_DISK_ENTRIES_ONLY  0x00000004
+#endif
 
   typedef enum _FINDEX_SEARCH_OPS {
     FindExSearchNameMatch,
@@ -103,6 +117,16 @@ extern "C" {
     FindExSearchLimitToDevices,
     FindExSearchMaxSearchOp
   } FINDEX_SEARCH_OPS;
+#endif
+
+#if _WIN32_WINNT >= 0x0400
+#if NTDDI_VERSION >= 0x0A000004
+  typedef enum _READ_DIRECTORY_NOTIFY_INFORMATION_CLASS {
+    ReadDirectoryNotifyInformation = 1,
+    ReadDirectoryNotifyExtendedInformation = 2
+  } READ_DIRECTORY_NOTIFY_INFORMATION_CLASS, *PREAD_DIRECTORY_NOTIFY_INFORMATION_CLASS;
+#endif
+#endif
 
   typedef enum _GET_FILEEX_INFO_LEVELS {
     GetFileExInfoStandard,
@@ -134,6 +158,12 @@ extern "C" {
     FileIdExtdDirectoryInfo,
     FileIdExtdDirectoryRestartInfo,
 #endif
+#if _WIN32_WINNT >= 0x0A000002
+    FileDispositionInfoEx,
+    FileRenameInfoEx,
+#endif
+    FileCaseSensitiveInfo,
+    FileNormalizedNameInfo,
     MaximumFileInfoByHandleClass
   } FILE_INFO_BY_HANDLE_CLASS, *PFILE_INFO_BY_HANDLE_CLASS;
 #endif
@@ -157,22 +187,23 @@ extern "C" {
     BYTE iRegionIndex;
     WORD wFlags;
     __C89_NAMELESS union {
-      struct {
-	HANDLE hMem;
-	DWORD dwReserved[3];
-      } Block;
-      struct {
-	DWORD dwCommittedSize;
-	DWORD dwUnCommittedSize;
-	LPVOID lpFirstBlock;
-	LPVOID lpLastBlock;
-      } Region;
+        struct {
+            HANDLE hMem;
+            DWORD dwReserved[3];
+        } Block;
+        struct {
+            DWORD dwCommittedSize;
+            DWORD dwUnCommittedSize;
+            LPVOID lpFirstBlock;
+            LPVOID lpLastBlock;
+        } Region;
     } DUMMYUNIONNAME;
   } PROCESS_HEAP_ENTRY,*LPPROCESS_HEAP_ENTRY,*PPROCESS_HEAP_ENTRY;
 
 #define PROCESS_HEAP_REGION 0x1
 #define PROCESS_HEAP_UNCOMMITTED_RANGE 0x2
 #define PROCESS_HEAP_ENTRY_BUSY 0x4
+#define PROCESS_HEAP_SEG_ALLOC 0x8
 #define PROCESS_HEAP_ENTRY_MOVEABLE 0x10
 #define PROCESS_HEAP_ENTRY_DDESHARE 0x20
 
@@ -180,13 +211,13 @@ extern "C" {
     ULONG Version;
     DWORD Flags;
     union {
-      struct {
-	HMODULE LocalizedReasonModule;
-	ULONG LocalizedReasonId;
-	ULONG ReasonStringCount;
-	LPWSTR *ReasonStrings;
-      } Detailed;
-      LPWSTR SimpleReasonString;
+        struct {
+            HMODULE LocalizedReasonModule;
+            ULONG LocalizedReasonId;
+            ULONG ReasonStringCount;
+            LPWSTR *ReasonStrings;
+        } Detailed;
+        LPWSTR SimpleReasonString;
     } Reason;
   } REASON_CONTEXT, *PREASON_CONTEXT;
 
@@ -202,6 +233,9 @@ extern "C" {
 
   typedef DWORD (WINAPI *PTHREAD_START_ROUTINE) (LPVOID lpThreadParameter);
   typedef PTHREAD_START_ROUTINE LPTHREAD_START_ROUTINE;
+
+  typedef LPVOID (WINAPI *PENCLAVE_ROUTINE) (LPVOID lpThreadParameter);
+  typedef PENCLAVE_ROUTINE LPENCLAVE_ROUTINE;
 
   typedef struct _EXCEPTION_DEBUG_INFO {
     EXCEPTION_RECORD ExceptionRecord;
@@ -326,6 +360,8 @@ extern "C" {
 
 #define LMEM_DISCARDED 0x4000
 #define LMEM_LOCKCOUNT 0xff
+
+#define NUMA_NO_PREFERRED_NODE ((DWORD) -1)
 
 #ifdef __cplusplus
 }

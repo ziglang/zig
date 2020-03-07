@@ -149,6 +149,7 @@ CreateProcessWithTokenW
 CreateRestrictedToken
 CreateServiceA
 CreateServiceW
+CreateServiceEx
 CreateTraceInstanceId
 CreateWellKnownSid
 CredBackupCredentials
@@ -235,6 +236,7 @@ CryptSignHashA
 CryptSignHashW
 CryptVerifySignatureA
 CryptVerifySignatureW
+CveEventWrite
 DecryptFileA
 DecryptFileW
 DeleteAce
@@ -519,6 +521,7 @@ NotifyChangeEventLog
 NotifyServiceStatusChange
 NotifyServiceStatusChangeA
 NotifyServiceStatusChangeW
+NpGetUserName
 ObjectCloseAuditAlarmA
 ObjectCloseAuditAlarmW
 ObjectDeleteAuditAlarmA
@@ -581,6 +584,7 @@ ProcessIdleTasksW
 ProcessTrace
 QueryAllTracesA
 QueryAllTracesW
+QueryLocalUserServiceName
 QueryRecoveryAgentsOnEncryptedFile
 QuerySecurityAccessMask
 QueryServiceConfig2A
@@ -595,6 +599,9 @@ QueryServiceStatus
 QueryServiceStatusEx
 QueryTraceA
 QueryTraceW
+QueryTraceProcessingHandle
+QueryUserServiceName
+QueryUserServiceNameForContext
 QueryUsersOnEncryptedFile
 ReadEncryptedFileRaw
 ReadEventLogA
@@ -694,6 +701,8 @@ RegisterWaitChainCOMCallback
 RemoteRegEnumKeyWrapper
 RemoteRegEnumValueWrapper
 RemoteRegQueryInfoKeyWrapper
+RemoteRegQueryMultipleValues2Wrapper
+RemoteRegQueryMultipleValuesWrapper
 RemoteRegQueryValueWrapper
 RemoveTraceCallback
 RemoveUsersFromEncryptedFile

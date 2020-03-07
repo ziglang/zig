@@ -6,6 +6,15 @@
 #include "cephes_mconf.h"
 #include <errno.h>
 
+#if defined(_ARM_) || defined(__arm__) || defined(_ARM64_) || defined(__aarch64__)
+#include <math.h>
+
+long double sinhl(long double x)
+{
+  return sinh(x);
+}
+#else
+
 #ifdef UNK
 static uLD P[] = {
   { { 1.7550769032975377032681E-6L } },
@@ -97,4 +106,4 @@ long double sinhl(long double x)
   a *= a;
   return (x + x * a * (polevll(a,P,3)/polevll(a,Q,4)));
 }
-
+#endif

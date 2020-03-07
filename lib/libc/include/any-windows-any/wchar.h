@@ -6,10 +6,10 @@
 #ifndef _INC_WCHAR
 #define _INC_WCHAR
 
-#include <crtdefs.h>
-#include <_mingw_print_push.h>
+#include <corecrt.h>
+#include <corecrt_wstdlib.h>
 
-#if defined (__USE_MINGW_ANSI_STDIO) && ((__USE_MINGW_ANSI_STDIO + 0) != 0) && !defined (__USE_MINGW_STRTOX)
+#if __USE_MINGW_ANSI_STDIO && !defined (__USE_MINGW_STRTOX)
 #define __USE_MINGW_STRTOX 1
 #endif
 
@@ -168,7 +168,7 @@ extern FILE (* __MINGW_IMP_SYMBOL(_iob))[];	/* A pointer to an array of FILE */
 #ifdef _MSVCRT_
 #define __pctype_func() (_pctype)
 #else
-#if __MSVCRT_VERSION__ >= 0x1400
+#ifdef _UCRT
   _CRTIMP unsigned short* __pctype_func(void);
 #else
 #define __pctype_func() (* __MINGW_IMP_SYMBOL(_pctype))
@@ -180,7 +180,7 @@ extern FILE (* __MINGW_IMP_SYMBOL(_iob))[];	/* A pointer to an array of FILE */
 #ifdef _MSVCRT_
   extern unsigned short *_pctype;
 #else
-#if __MSVCRT_VERSION__ >= 0x1400
+#ifdef _UCRT
 #define _pctype (__pctype_func())
 #else
   extern unsigned short ** __MINGW_IMP_SYMBOL(_pctype);
@@ -234,7 +234,7 @@ extern FILE (* __MINGW_IMP_SYMBOL(_iob))[];	/* A pointer to an array of FILE */
 #define _LEADBYTE 0x8000
 #define _ALPHA (0x0100|_UPPER|_LOWER)
 
-#if !defined(_UCRTBASE_STDIO_DEFINED) && __MSVCRT_VERSION__ >= 0x1400
+#if !defined(_UCRTBASE_STDIO_DEFINED) && defined(_UCRT)
 #define _UCRTBASE_STDIO_DEFINED
 
 #define UCRTBASE_PRINTF_LEGACY_VSPRINTF_NULL_TERMINATION (0x0001)
@@ -247,12 +247,13 @@ extern FILE (* __MINGW_IMP_SYMBOL(_iob))[];	/* A pointer to an array of FILE */
 #define UCRTBASE_SCANF_LEGACY_WIDE_SPECIFIERS            (0x0002)
 #define UCRTBASE_SCANF_LEGACY_MSVCRT_COMPATIBILITY       (0x0004)
 
-// Default wide printfs and scanfs to the standard mode
+// Default wide printfs and scanfs to the legacy wide mode. Only code built
+// with -D__USE_MINGW_ANSI_STDIO=1 will expect the standard behaviour.
 #ifndef UCRTBASE_PRINTF_DEFAULT_WIDE
-#define UCRTBASE_PRINTF_DEFAULT_WIDE 0
+#define UCRTBASE_PRINTF_DEFAULT_WIDE UCRTBASE_PRINTF_LEGACY_WIDE_SPECIFIERS
 #endif
 #ifndef UCRTBASE_SCANF_DEFAULT_WIDE
-#define UCRTBASE_SCANF_DEFAULT_WIDE 0
+#define UCRTBASE_SCANF_DEFAULT_WIDE UCRTBASE_SCANF_LEGACY_WIDE_SPECIFIERS
 #endif
 #endif
 
@@ -497,7 +498,7 @@ extern FILE (* __MINGW_IMP_SYMBOL(_iob))[];	/* A pointer to an array of FILE */
 /* __attribute__((__format__ (gnu_wprintf, 2, 0))) */ __MINGW_ATTRIB_NONNULL(2)
   int __cdecl __mingw_vswprintf(wchar_t * __restrict__ , const wchar_t * __restrict__ ,va_list);
 
-#if __MSVCRT_VERSION__ >= 0x1400
+#ifdef _UCRT
   int __cdecl __stdio_common_vswprintf(unsigned __int64 options, wchar_t *str, size_t len, const wchar_t *format, _locale_t locale, va_list valist);
   int __cdecl __stdio_common_vfwprintf(unsigned __int64 options, FILE *file, const wchar_t *format, _locale_t locale, va_list valist);
   int __cdecl __stdio_common_vswscanf(unsigned __int64 options, const wchar_t *input, size_t length, const wchar_t *format, _locale_t locale, va_list valist);
@@ -637,7 +638,7 @@ int vsnwprintf (wchar_t *__stream, size_t __n, const wchar_t *__format, __builti
 /* #endif */ /* __NO_ISOCEXT */
 #else /* !__USE_MINGW_ANSI_STDIO */
 
-#if __MSVCRT_VERSION__ >= 0x1400
+#ifdef _UCRT
   __mingw_ovr
   int __cdecl fwscanf(FILE * __restrict__ _File,const wchar_t * __restrict__ _Format,...) __MINGW_ATTRIB_DEPRECATED_SEC_WARN
   {
@@ -754,7 +755,7 @@ int vsnwprintf (wchar_t *__stream, size_t __n, const wchar_t *__format, __builti
   int __cdecl wprintf(const wchar_t * __restrict__ _Format,...);
   int __cdecl vfwprintf(FILE * __restrict__ _File,const wchar_t * __restrict__ _Format,va_list _ArgList);
   int __cdecl vwprintf(const wchar_t * __restrict__ _Format,va_list _ArgList);
-#endif /* __MSVCRT_VERSION__ >= 0x1400 */
+#endif /* _UCRT */
 #endif /* __USE_MINGW_ANSI_STDIO */
 
 
@@ -782,7 +783,7 @@ int vsnwprintf (wchar_t *__stream, size_t __n, const wchar_t *__format, __builti
   _CRTIMP wchar_t *__cdecl _getws(wchar_t *_String) __MINGW_ATTRIB_DEPRECATED_SEC_WARN;
   _CRTIMP int __cdecl _putws(const wchar_t *_Str);
 
-#if __MSVCRT_VERSION__ >= 0x1400
+#ifdef _UCRT
   __mingw_ovr
   int __cdecl _scwprintf(const wchar_t * __restrict__ _Format,...)
   {
@@ -809,7 +810,7 @@ int vsnwprintf (wchar_t *__stream, size_t __n, const wchar_t *__format, __builti
     return __stdio_common_vswprintf(UCRTBASE_PRINTF_DEFAULT_WIDE | UCRTBASE_PRINTF_LEGACY_VSPRINTF_NULL_TERMINATION, _Dest, _Count, _Format, NULL, _Args);
   }
 
-#if !defined (__USE_MINGW_ANSI_STDIO) || __USE_MINGW_ANSI_STDIO == 0
+#if __USE_MINGW_ANSI_STDIO == 0
   __mingw_ovr
   int snwprintf (wchar_t * __restrict__ s, size_t n, const wchar_t * __restrict__ format, ...)
   {
@@ -837,7 +838,7 @@ int vsnwprintf (wchar_t *__stream, size_t __n, const wchar_t *__format, __builti
 
 #ifndef __NO_ISOCEXT  /* externs in libmingwex.a */
 
-#if !defined (__USE_MINGW_ANSI_STDIO) || __USE_MINGW_ANSI_STDIO == 0
+#if __USE_MINGW_ANSI_STDIO == 0
 #pragma push_macro("snwprintf")
 #pragma push_macro("vsnwprintf")
 # undef snwprintf
@@ -863,12 +864,12 @@ int vsnwprintf (wchar_t *__stream, size_t __n, const wchar_t *__format, __builti
 #pragma pop_macro ("snwprintf")
 #endif
 
-#endif /* __MSVCRT_VERSION__ >= 0x1400 */
+#endif /* _UCRT */
 
 #endif /* _WSTDIO_DEFINED */
 
 
-#if __MSVCRT_VERSION__ >= 0x1400
+#ifdef _UCRT
   int __cdecl __stdio_common_vswprintf_p(unsigned __int64 _Options, wchar_t *_Str, size_t _Len, const wchar_t *_Format, _locale_t _Locale, va_list _ArgList);
   int __cdecl __stdio_common_vfwprintf_p(unsigned __int64 _Options, FILE *_File, const wchar_t *_Format, _locale_t _Locale, va_list _ArgList);
 
@@ -1141,7 +1142,7 @@ int vsnwprintf (wchar_t *__stream, size_t __n, const wchar_t *__format, __builti
     __builtin_va_end(_ArgList);
     return _Ret;
   }
-#else /* __MSVCRT_VERSION__ >= 0x1400 */
+#else /* _UCRT */
   _CRTIMP int __cdecl _fwprintf_p(FILE * __restrict__ _File,const wchar_t * __restrict__ _Format,...);
   _CRTIMP int __cdecl _wprintf_p(const wchar_t * __restrict__ _Format,...);
   _CRTIMP int __cdecl _vfwprintf_p(FILE * __restrict__ _File,const wchar_t * __restrict__ _Format,va_list _ArgList);
@@ -1172,7 +1173,7 @@ int vsnwprintf (wchar_t *__stream, size_t __n, const wchar_t *__format, __builti
   _CRTIMP int __cdecl __swprintf_l(wchar_t * __restrict__ _Dest,const wchar_t * __restrict__ _Format,_locale_t _Plocinfo,...) __MINGW_ATTRIB_DEPRECATED_SEC_WARN;
   _CRTIMP int __cdecl _vswprintf_l(wchar_t * __restrict__ _Dest,size_t _MaxCount,const wchar_t * __restrict__ _Format,_locale_t _Locale,va_list _ArgList) __MINGW_ATTRIB_DEPRECATED_SEC_WARN;
   _CRTIMP int __cdecl __vswprintf_l(wchar_t * __restrict__ _Dest,const wchar_t * __restrict__ _Format,_locale_t _Plocinfo,va_list _Args) __MINGW_ATTRIB_DEPRECATED_SEC_WARN;
-#endif /* __MSVCRT_VERSION__ < 0x1400 */
+#endif /* !_UCRT */
 
 #ifndef RC_INVOKED
 #include <swprintf.inl>
@@ -1186,7 +1187,7 @@ int vsnwprintf (wchar_t *__stream, size_t __n, const wchar_t *__format, __builti
 #endif
 
   _CRTIMP wchar_t *__cdecl _wtempnam(const wchar_t *_Directory,const wchar_t *_FilePrefix);
-#if __MSVCRT_VERSION__ < 0x1400
+#ifndef _UCRT
   _CRTIMP int __cdecl _vscwprintf(const wchar_t * __restrict__ _Format,va_list _ArgList);
   _CRTIMP int __cdecl _vscwprintf_l(const wchar_t * __restrict__ _Format,_locale_t _Locale,va_list _ArgList);
   _CRTIMP int __cdecl _fwscanf_l(FILE * __restrict__ _File,const wchar_t * __restrict__ _Format,_locale_t _Locale,...) __MINGW_ATTRIB_DEPRECATED_SEC_WARN;
@@ -1194,7 +1195,7 @@ int vsnwprintf (wchar_t *__stream, size_t __n, const wchar_t *__format, __builti
   _CRTIMP int __cdecl _snwscanf(const wchar_t * __restrict__ _Src,size_t _MaxCount,const wchar_t * __restrict__ _Format,...);
   _CRTIMP int __cdecl _snwscanf_l(const wchar_t * __restrict__ _Src,size_t _MaxCount,const wchar_t * __restrict__ _Format,_locale_t _Locale,...);
   _CRTIMP int __cdecl _wscanf_l(const wchar_t * __restrict__ _Format,_locale_t _Locale,...) __MINGW_ATTRIB_DEPRECATED_SEC_WARN;
-#endif /* __MSVCRT_VERSION__ < 0x1400 */
+#endif /* !_UCRT */
   _CRTIMP FILE *__cdecl _wfdopen(int _FileHandle ,const wchar_t *_Mode);
   _CRTIMP FILE *__cdecl _wfopen(const wchar_t * __restrict__ _Filename,const wchar_t * __restrict__ _Mode) __MINGW_ATTRIB_DEPRECATED_SEC_WARN;
   _CRTIMP FILE *__cdecl _wfreopen(const wchar_t * __restrict__ _Filename,const wchar_t * __restrict__ _Mode,FILE * __restrict__ _OldFile) __MINGW_ATTRIB_DEPRECATED_SEC_WARN;
@@ -1413,7 +1414,15 @@ int vsnwprintf (wchar_t *__stream, size_t __n, const wchar_t *__format, __builti
 
 #endif
 
+#if defined(_UCRT) || defined(__LARGE_MBSTATE_T)
+  typedef struct _Mbstatet {
+    unsigned long _Wchar;
+    unsigned short _Byte, _State;
+  } _Mbstatet;
+  typedef _Mbstatet mbstate_t;
+#else
   typedef int mbstate_t;
+#endif
   typedef wchar_t _Wint_t;
 
   wint_t __cdecl btowc(int);
@@ -1432,7 +1441,12 @@ int vsnwprintf (wchar_t *__stream, size_t __n, const wchar_t *__format, __builti
   wchar_t * __cdecl wmempcpy (wchar_t *_Dst, const wchar_t *_Src, size_t _Size);
   wchar_t *__cdecl wmemmove(wchar_t *s1, const wchar_t *s2, size_t n) __MINGW_ATTRIB_DEPRECATED_SEC_WARN;
   int __cdecl fwide(FILE *stream,int mode);
+#if defined(_UCRT) || defined(__LARGE_MBSTATE_T)
+  /* With UCRT, mbsinit is only available as inline. */
+  __mingw_static_ovr int __cdecl mbsinit(const mbstate_t *_P) { return (!_P || _P->_Wchar == 0); }
+#else
   int __cdecl mbsinit(const mbstate_t *ps);
+#endif
   __MINGW_EXTENSION long long __cdecl wcstoll(const wchar_t * __restrict__ nptr,wchar_t ** __restrict__ endptr, int base);
   __MINGW_EXTENSION unsigned long long __cdecl wcstoull(const wchar_t * __restrict__ nptr,wchar_t ** __restrict__ endptr, int base);
 #endif /* __NO_ISOCEXT */
@@ -1441,7 +1455,9 @@ int vsnwprintf (wchar_t *__stream, size_t __n, const wchar_t *__format, __builti
   void *__cdecl memcpy(void * __restrict__ _Dst,const void * __restrict__ _Src,size_t _MaxCount) __MINGW_ATTRIB_DEPRECATED_SEC_WARN;
 #ifndef __CRT__NO_INLINE
   __CRT_INLINE int __cdecl fwide(FILE *_F,int _M) { (void)_F; return (_M); }
+#if !defined(_UCRT) && !defined(__LARGE_MBSTATE_T)
   __CRT_INLINE int __cdecl mbsinit(const mbstate_t *_P) { return (!_P || *_P==0); }
+#endif
   __CRT_INLINE _CONST_RETURN wchar_t *__cdecl wmemchr(const wchar_t *_S,wchar_t _C,size_t _N) {
     if (_S) {
       for ( ; 0 < _N; ++_S, --_N)
@@ -1522,8 +1538,6 @@ void __cdecl __mingw_str_free(void *ptr);
 #pragma pack(pop)
 
 #include <sec_api/wchar_s.h>
-
-#include <_mingw_print_pop.h>
 
 #endif /* _INC_WCHAR */
 

@@ -27,7 +27,7 @@ pub const Cpu = std.Target.Cpu;
 /// On non-Windows targets, this is `null`.
 pub const subsystem: ?SubSystem = blk: {
     if (@hasDecl(@This(), "explicit_subsystem")) break :blk explicit_subsystem;
-    switch (os) {
+    switch (os.tag) {
         .windows => {
             if (is_test) {
                 break :blk SubSystem.Console;
@@ -406,9 +406,9 @@ pub const Version = struct {
         min: Version,
         max: Version,
 
-        pub fn includesVersion(self: LinuxVersionRange, ver: Version) bool {
-            if (self.min.compare(ver) == .gt) return false;
-            if (self.max.compare(ver) == .lt) return false;
+        pub fn includesVersion(self: Range, ver: Version) bool {
+            if (self.min.order(ver) == .gt) return false;
+            if (self.max.order(ver) == .lt) return false;
             return true;
         }
     };

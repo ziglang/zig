@@ -41,6 +41,12 @@ enum DWRITE_TEXT_ANTIALIAS_MODE
     DWRITE_TEXT_ANTIALIAS_MODE_GRAYSCALE
 };
 
+enum DWRITE_VERTICAL_GLYPH_ORIENTATION
+{
+    DWRITE_VERTICAL_GLYPH_ORIENTATION_DEFAULT,
+    DWRITE_VERTICAL_GLYPH_ORIENTATION_STACKED
+};
+
 struct DWRITE_CARET_METRICS {
     INT16 slopeRise;
     INT16 slopeRun;
@@ -52,7 +58,23 @@ struct DWRITE_UNICODE_RANGE {
     UINT32 last;
 };
 
-struct DWRITE_FONT_METRICS1 : public DWRITE_FONT_METRICS {
+struct DWRITE_FONT_METRICS1
+#ifdef __cplusplus
+    : public DWRITE_FONT_METRICS
+#endif
+{
+#ifndef __cplusplus
+    UINT16 designUnitsPerEm;
+    UINT16 ascent;
+    UINT16 descent;
+    INT16 lineGap;
+    UINT16 capHeight;
+    UINT16 xHeight;
+    INT16 underlinePosition;
+    UINT16 underlineThickness;
+    INT16 strikethroughPosition;
+    UINT16 strikethroughThickness;
+#endif
     INT16 glyphBoxLeft;
     INT16 glyphBoxTop;
     INT16 glyphBoxRight;
@@ -65,7 +87,7 @@ struct DWRITE_FONT_METRICS1 : public DWRITE_FONT_METRICS {
     INT16 superscriptPositionY;
     INT16 superscriptSizeX;
     INT16 superscriptSizeY;
-    BOOL hasTypographicMetrics;
+    WINBOOL hasTypographicMetrics;
 };
 
 struct DWRITE_SCRIPT_PROPERTIES
@@ -152,7 +174,65 @@ union DWRITE_PANOSE {
 };
 
 #undef  INTERFACE
-#define INTERFACE IDWriteFontCollection
+#define INTERFACE IDWriteFont1
+DECLARE_INTERFACE_(IDWriteFont1,IDWriteFont)
+{
+    BEGIN_INTERFACE
+
+#ifndef __cplusplus
+    /* IUnknown methods */
+    STDMETHOD(QueryInterface)(THIS_ REFIID riid, void **ppvObject) PURE;
+    STDMETHOD_(ULONG, AddRef)(THIS) PURE;
+    STDMETHOD_(ULONG, Release)(THIS) PURE;
+
+    /* IDWriteFont methods */
+    STDMETHOD(GetFontFamily)(THIS_
+        IDWriteFontFamily **fontFamily) PURE;
+
+    STDMETHOD_(DWRITE_FONT_WEIGHT, GetWeight)(THIS) PURE;
+    STDMETHOD_(DWRITE_FONT_STRETCH, GetStretch)(THIS) PURE;
+    STDMETHOD_(DWRITE_FONT_STYLE, GetStyle)(THIS) PURE;
+    STDMETHOD_(WINBOOL, IsSymbolFont)(THIS) PURE;
+
+    STDMETHOD(GetFaceNames)(THIS_
+        IDWriteLocalizedStrings **names) PURE;
+
+    STDMETHOD(GetInformationalStrings)(THIS_
+        DWRITE_INFORMATIONAL_STRING_ID informationalStringID,
+        IDWriteLocalizedStrings **informationalStrings,
+        WINBOOL *exists) PURE;
+
+    STDMETHOD_(DWRITE_FONT_SIMULATIONS, GetSimulations)(THIS) PURE;
+
+    STDMETHOD_(void, GetMetrics)(THIS_
+        DWRITE_FONT_METRICS *fontMetrics) PURE;
+
+    STDMETHOD(HasCharacter)(THIS_
+        UINT32 unicodeValue,
+        WINBOOL *exists) PURE;
+
+    STDMETHOD(CreateFontFace)(THIS_
+        IDWriteFontFace **fontFace) PURE;
+#endif
+
+    STDMETHOD_(void, GetMetrics)(THIS_
+        DWRITE_FONT_METRICS1 *fontMetrics) PURE;
+
+    STDMETHOD_(void, GetPanose)(THIS_
+        DWRITE_PANOSE *panose) PURE;
+
+    STDMETHOD(GetUnicodeRanges)(THIS_
+        UINT32 maxCount,
+        DWRITE_UNICODE_RANGE *ranges,
+        UINT32 *actualCount) PURE;
+
+    END_INTERFACE
+};
+
+__CRT_UUID_DECL(IDWriteFont1, 0xacd16696,0x8c14,0x4f5d,0x87,0x7e,0xfe,0x3f,0xc1,0xd3,0x27,0x38);
+
+#undef  INTERFACE
+#define INTERFACE IDWriteFontFace1
 DECLARE_INTERFACE_(IDWriteFontFace1, IDWriteFontFace)
 {
     BEGIN_INTERFACE
@@ -282,9 +362,101 @@ DECLARE_INTERFACE_(IDWriteRenderingParams1,IDWriteRenderingParams)
 
 __CRT_UUID_DECL(IDWriteRenderingParams1, 0x94413cf4,0xa6fc,0x4248,0x8b,0x50,0x66,0x74,0x34,0x8f,0xca,0xd3)
 
-interface IDWriteTextAnalysisSource1;
-interface IDWriteTextAnalysisSink1;
-interface IDWriteRenderingParams1;
+#undef  INTERFACE
+#define INTERFACE IDWriteTextAnalysisSource1
+DECLARE_INTERFACE_(IDWriteTextAnalysisSource1,IDWriteTextAnalysisSource)
+{
+    BEGIN_INTERFACE
+
+#ifndef __cplusplus
+    /* IUnknown methods */
+    STDMETHOD(QueryInterface)(THIS_ REFIID riid, void **ppvObject) PURE;
+    STDMETHOD_(ULONG, AddRef)(THIS) PURE;
+    STDMETHOD_(ULONG, Release)(THIS) PURE;
+
+    /* IDWriteTextAnalysisSource methods */
+    STDMETHOD(GetTextAtPosition)(THIS_
+        UINT32 textPosition,
+        WCHAR const **textString,
+        UINT32 *textLength) PURE;
+
+    STDMETHOD(GetTextBeforePosition)(THIS_
+        UINT32 textPosition,
+        WCHAR const **textString,
+        UINT32 *textLength) PURE;
+
+    STDMETHOD_(DWRITE_READING_DIRECTION, GetParagraphReadingDirection)(THIS) PURE;
+
+    STDMETHOD(GetLocaleName)(THIS_
+        UINT32 textPosition,
+        UINT32 *textLength,
+        WCHAR const **localeName) PURE;
+
+    STDMETHOD(GetNumberSubstitution)(THIS_
+        UINT32 textPosition,
+        UINT32 *textLength,
+        IDWriteNumberSubstitution **numberSubstitution) PURE;
+#endif
+
+    STDMETHOD(GetVerticalGlyphOrientation)(THIS_
+        UINT32 textPosition,
+        UINT32 *textLength,
+        DWRITE_VERTICAL_GLYPH_ORIENTATION *orientation,
+        UINT8 *bidiLevel) PURE;
+
+    END_INTERFACE
+};
+
+__CRT_UUID_DECL(IDWriteTextAnalysisSource1, 0x639cfad8,0x0fb4,0x4b21,0xa5,0x8a,0x06,0x79,0x20,0x12,0x00,0x09);
+
+#undef  INTERFACE
+#define INTERFACE IDWriteTextAnalysisSink1
+DECLARE_INTERFACE_(IDWriteTextAnalysisSink1,IDWriteTextAnalysisSink)
+{
+    BEGIN_INTERFACE
+
+#ifndef __cplusplus
+    /* IUnknown methods */
+    STDMETHOD(QueryInterface)(THIS_ REFIID riid, void **ppvObject) PURE;
+    STDMETHOD_(ULONG, AddRef)(THIS) PURE;
+    STDMETHOD_(ULONG, Release)(THIS) PURE;
+
+    /* IDWriteTextAnalysisSink methods */
+    STDMETHOD(SetScriptAnalysis)(THIS_
+            UINT32 textPosition,
+            UINT32 textLength,
+            DWRITE_SCRIPT_ANALYSIS const *scriptAnalysis) PURE;
+
+    STDMETHOD(SetLineBreakpoints)(THIS_
+            UINT32 textPosition,
+            UINT32 textLength,
+            DWRITE_LINE_BREAKPOINT const *lineBreakpoints) PURE;
+
+    STDMETHOD(SetBidiLevel)(THIS_
+            UINT32 textPosition,
+            UINT32 textLength,
+            UINT8 explicitLevel,
+            UINT8 resolvedLevel) PURE;
+
+    STDMETHOD(SetNumberSubstitution)(THIS_
+            UINT32 textPosition,
+            UINT32 textLength,
+            IDWriteNumberSubstitution *numberSubstitution) PURE;
+#endif
+
+    /* IDWriteTextAnalysisSink1 methods */
+    STDMETHOD(SetGlyphOrientation)(THIS_
+            UINT32 textPosition,
+            UINT32 textLength,
+            DWRITE_GLYPH_ORIENTATION_ANGLE angle,
+            UINT8 adjustedBidilevel,
+            WINBOOL isSideways,
+            WINBOOL isRtl) PURE;
+
+    END_INTERFACE
+};
+
+__CRT_UUID_DECL(IDWriteTextAnalysisSink1, 0xb0d941a0,0x85e7,0x4d8b,0x9f,0xd3,0x5c,0xed,0x99,0x34,0x48,0x2a);
 
 #undef  INTERFACE
 #define INTERFACE IDWriteTextAnalyzer1
@@ -484,6 +656,232 @@ DECLARE_INTERFACE_(IDWriteTextAnalyzer1,IDWriteTextAnalyzer)
 };
 
 __CRT_UUID_DECL(IDWriteTextAnalyzer1, 0x80dad800,0xe21f,0x4e83,0x4e,0xce,0xbf,0xcc,0xe5,0x00,0xdb,0x7c);
+
+#undef  INTERFACE
+#define INTERFACE IDWriteTextLayout1
+DECLARE_INTERFACE_(IDWriteTextLayout1,IDWriteTextLayout)
+{
+    BEGIN_INTERFACE
+
+#ifndef __cplusplus
+    /* IUnknown methods */
+    STDMETHOD(QueryInterface)(THIS_ REFIID riid, void **ppvObject) PURE;
+    STDMETHOD_(ULONG, AddRef)(THIS) PURE;
+    STDMETHOD_(ULONG, Release)(THIS) PURE;
+
+    /* IDWriteTextFormat methods */
+    STDMETHOD(SetTextAlignment)(THIS_
+            DWRITE_TEXT_ALIGNMENT textAlignment) PURE;
+    STDMETHOD(SetParagraphAlignment)(THIS_
+            DWRITE_PARAGRAPH_ALIGNMENT paragraphAlignment) PURE;
+    STDMETHOD(SetWordWrapping)(THIS_
+            DWRITE_WORD_WRAPPING wordWrapping) PURE;
+    STDMETHOD(SetReadingDirection)(THIS_
+            DWRITE_READING_DIRECTION readingDirection) PURE;
+    STDMETHOD(SetFlowDirection)(THIS_
+            DWRITE_FLOW_DIRECTION flowDirection) PURE;
+    STDMETHOD(SetIncrementalTabStop)(THIS_
+            FLOAT incrementalTabStop) PURE;
+    STDMETHOD(SetTrimming)(THIS_
+            DWRITE_TRIMMING const *trimmingOptions,
+            IDWriteInlineObject *trimmingSign) PURE;
+    STDMETHOD(SetLineSpacing)(THIS_
+            DWRITE_LINE_SPACING_METHOD lineSpacingMethod,
+            FLOAT lineSpacing,
+            FLOAT baseline) PURE;
+    STDMETHOD_(DWRITE_TEXT_ALIGNMENT, GetTextAlignment)(THIS) PURE;
+    STDMETHOD_(DWRITE_PARAGRAPH_ALIGNMENT, GetParagraphAlignment)(THIS) PURE;
+    STDMETHOD_(DWRITE_WORD_WRAPPING, GetWordWrapping)(THIS) PURE;
+    STDMETHOD_(DWRITE_READING_DIRECTION, GetReadingDirection)(THIS) PURE;
+    STDMETHOD_(DWRITE_FLOW_DIRECTION, GetFlowDirection)(THIS) PURE;
+    STDMETHOD_(FLOAT, GetIncrementalTabStop)(THIS) PURE;
+    STDMETHOD(GetTrimming)(THIS_
+            DWRITE_TRIMMING* trimmingOptions,
+            IDWriteInlineObject **trimmingSign) PURE;
+    STDMETHOD(GetLineSpacing)(THIS_
+            DWRITE_LINE_SPACING_METHOD *lineSpacingMethod,
+            FLOAT *lineSpacing,
+            FLOAT *baseline) PURE;
+    STDMETHOD(GetFontCollection)(THIS_
+            IDWriteFontCollection **fontCollection) PURE;
+    STDMETHOD_(UINT32, GetFontFamilyNameLength)(THIS) PURE;
+    STDMETHOD(GetFontFamilyName)(THIS_
+            WCHAR *fontFamilyName,
+            UINT32 nameSize) PURE;
+    STDMETHOD_(DWRITE_FONT_WEIGHT, GetFontWeight)(THIS) PURE;
+    STDMETHOD_(DWRITE_FONT_STYLE, GetFontStyle)(THIS) PURE;
+    STDMETHOD_(DWRITE_FONT_STRETCH, GetFontStretch)(THIS) PURE;
+    STDMETHOD_(FLOAT, GetFontSize)(THIS) PURE;
+    STDMETHOD_(UINT32, GetLocaleNameLength)(THIS) PURE;
+    STDMETHOD(GetLocaleName)(THIS_
+            WCHAR *localeName,
+            UINT32 nameSize) PURE;
+
+    /* IDWriteTextLayout methods */
+    STDMETHOD(SetMaxWidth)(THIS_
+            FLOAT maxWidth) PURE;
+    STDMETHOD(SetMaxHeight)(THIS_
+            FLOAT maxHeight) PURE;
+    STDMETHOD(SetFontCollection)(THIS_
+            IDWriteFontCollection *fontCollection,
+            DWRITE_TEXT_RANGE textRange) PURE;
+    STDMETHOD(SetFontFamilyName)(THIS_
+            WCHAR const *fontFamilyName,
+            DWRITE_TEXT_RANGE textRange) PURE;
+    STDMETHOD(SetFontWeight)(THIS_
+            DWRITE_FONT_WEIGHT fontWeight,
+            DWRITE_TEXT_RANGE textRange) PURE;
+    STDMETHOD(SetFontStyle)(THIS_
+            DWRITE_FONT_STYLE fontStyle,
+            DWRITE_TEXT_RANGE textRange) PURE;
+    STDMETHOD(SetFontStretch)(THIS_
+            DWRITE_FONT_STRETCH fontStretch,
+            DWRITE_TEXT_RANGE textRange) PURE;
+    STDMETHOD(SetFontSize)(THIS_
+            FLOAT fontSize,
+            DWRITE_TEXT_RANGE textRange) PURE;
+    STDMETHOD(SetUnderline)(THIS_
+            WINBOOL hasUnderline,
+            DWRITE_TEXT_RANGE textRange) PURE;
+    STDMETHOD(SetStrikethrough)(THIS_
+            WINBOOL hasStrikethrough,
+            DWRITE_TEXT_RANGE textRange) PURE;
+    STDMETHOD(SetDrawingEffect)(THIS_
+            IUnknown *drawingEffect,
+            DWRITE_TEXT_RANGE textRange) PURE;
+    STDMETHOD(SetInlineObject)(THIS_
+            IDWriteInlineObject *inlineObject,
+            DWRITE_TEXT_RANGE textRange) PURE;
+    STDMETHOD(SetTypography)(THIS_
+            IDWriteTypography *typography,
+            DWRITE_TEXT_RANGE textRange) PURE;
+    STDMETHOD(SetLocaleName)(THIS_
+            WCHAR const *localeName,
+            DWRITE_TEXT_RANGE textRange) PURE;
+    STDMETHOD_(FLOAT, GetMaxWidth)(THIS) PURE;
+    STDMETHOD_(FLOAT, GetMaxHeight)(THIS) PURE;
+    STDMETHOD(GetFontCollection)(THIS_
+            UINT32 currentPosition,
+            IDWriteFontCollection** fontCollection,
+            DWRITE_TEXT_RANGE *textRange __MINGW_DEF_ARG_VAL(NULL)) PURE;
+    STDMETHOD(GetFontFamilyNameLength)(THIS_
+            UINT32 currentPosition,
+            UINT32 *nameLength,
+            DWRITE_TEXT_RANGE *textRange __MINGW_DEF_ARG_VAL(NULL)) PURE;
+    STDMETHOD(GetFontFamilyName)(THIS_
+            UINT32 currentPosition,
+            WCHAR *fontFamilyName,
+            UINT32 nameSize,
+            DWRITE_TEXT_RANGE *textRange __MINGW_DEF_ARG_VAL(NULL)) PURE;
+    STDMETHOD(GetFontWeight)(THIS_
+            UINT32 currentPosition,
+            DWRITE_FONT_WEIGHT *fontWeight,
+            DWRITE_TEXT_RANGE* textRange __MINGW_DEF_ARG_VAL(NULL)) PURE;
+    STDMETHOD(GetFontStyle)(THIS_
+            UINT32 currentPosition,
+            DWRITE_FONT_STYLE *fontStyle,
+            DWRITE_TEXT_RANGE *textRange __MINGW_DEF_ARG_VAL(NULL)) PURE;
+    STDMETHOD(GetFontStretch)(THIS_
+            UINT32 currentPosition,
+            DWRITE_FONT_STRETCH* fontStretch,
+            DWRITE_TEXT_RANGE *textRange __MINGW_DEF_ARG_VAL(NULL)) PURE;
+    STDMETHOD(GetFontSize)(THIS_
+            UINT32 currentPosition,
+            FLOAT *fontSize,
+            DWRITE_TEXT_RANGE *textRange __MINGW_DEF_ARG_VAL(NULL)) PURE;
+    STDMETHOD(GetUnderline)(THIS_
+            UINT32 currentPosition,
+            WINBOOL *hasUnderline,
+            DWRITE_TEXT_RANGE *textRange __MINGW_DEF_ARG_VAL(NULL)) PURE;
+    STDMETHOD(GetStrikethrough)(THIS_
+            UINT32 currentPosition,
+            WINBOOL *hasStrikethrough,
+            DWRITE_TEXT_RANGE *textRange __MINGW_DEF_ARG_VAL(NULL)) PURE;
+    STDMETHOD(GetDrawingEffect)(THIS_
+            UINT32 currentPosition,
+            IUnknown **drawingEffect,
+            DWRITE_TEXT_RANGE *textRange __MINGW_DEF_ARG_VAL(NULL)) PURE;
+    STDMETHOD(GetInlineObject)(THIS_
+            UINT32 currentPosition,
+            IDWriteInlineObject **inlineObject,
+            DWRITE_TEXT_RANGE *textRange __MINGW_DEF_ARG_VAL(NULL)) PURE;
+    STDMETHOD(GetTypography)(THIS_
+            UINT32 currentPosition,
+            IDWriteTypography **typography,
+            DWRITE_TEXT_RANGE *textRange __MINGW_DEF_ARG_VAL(NULL)) PURE;
+    STDMETHOD(GetLocaleNameLength)(THIS_
+            UINT32 currentPosition,
+            UINT32 *nameLength,
+            DWRITE_TEXT_RANGE *textRange __MINGW_DEF_ARG_VAL(NULL)) PURE;
+    STDMETHOD(GetLocaleName)(THIS_
+            UINT32 currentPosition,
+            WCHAR *localeName,
+            UINT32 nameSize,
+            DWRITE_TEXT_RANGE *textRange __MINGW_DEF_ARG_VAL(NULL)) PURE;
+    STDMETHOD(Draw)(THIS_
+            void *clientDrawingContext,
+            IDWriteTextRenderer *renderer,
+            FLOAT originX,
+            FLOAT originY) PURE;
+    STDMETHOD(GetLineMetrics)(THIS_
+            DWRITE_LINE_METRICS *lineMetrics,
+            UINT32 maxLineCount,
+            UINT32 *actualLineCount) PURE;
+    STDMETHOD(GetMetrics)(THIS_
+            DWRITE_TEXT_METRICS *textMetrics) PURE;
+    STDMETHOD(GetOverhangMetrics)(THIS_
+            DWRITE_OVERHANG_METRICS *overhangs) PURE;
+    STDMETHOD(GetClusterMetrics)(THIS_
+            DWRITE_CLUSTER_METRICS *clusterMetrics,
+            UINT32 maxClusterCount,
+            UINT32 *actualClusterCount) PURE;
+    STDMETHOD(DetermineMinWidth)(THIS_
+            FLOAT *minWidth) PURE;
+    STDMETHOD(HitTestPoint)(THIS_
+            FLOAT pointX,
+            FLOAT pointY,
+            WINBOOL *isTrailingHit,
+            WINBOOL *isInside,
+            DWRITE_HIT_TEST_METRICS *hitTestMetrics) PURE;
+    STDMETHOD(HitTestTextPosition)(THIS_
+            UINT32 textPosition,
+            WINBOOL isTrailingHit,
+            FLOAT *pointX,
+            FLOAT *pointY,
+            DWRITE_HIT_TEST_METRICS *hitTestMetrics) PURE;
+    STDMETHOD(HitTestTextRange)(THIS_
+            UINT32 textPosition,
+            UINT32 textLength,
+            FLOAT originX,
+            FLOAT originY,
+            DWRITE_HIT_TEST_METRICS *hitTestMetrics,
+            UINT32 maxHitTestMetricsCount,
+            UINT32 *actualHitTestMetricsCount) PURE;
+#endif
+
+    /* IDWriteTextLayout1 methods */
+    STDMETHOD(SetPairKerning)(THIS_
+            WINBOOL isPairKerningEnabled,
+            DWRITE_TEXT_RANGE textRange) PURE;
+    STDMETHOD(GetPairKerning)(THIS_
+            UINT32 position,
+            WINBOOL *isPairKerningEnabled,
+            DWRITE_TEXT_RANGE *textRange __MINGW_DEF_ARG_VAL(NULL)) PURE;
+    STDMETHOD(SetCharacterSpacing)(THIS_
+            FLOAT leadingSpacing,
+            FLOAT trailingSpacing,
+            FLOAT minimumAdvance,
+            DWRITE_TEXT_RANGE textRange) PURE;
+    STDMETHOD(GetCharacterSpacing)(THIS_
+            FLOAT *leadingSpacing,
+            FLOAT *trailingSpacing,
+            FLOAT *minimumAdvance,
+            DWRITE_TEXT_RANGE *textRange __MINGW_DEF_ARG_VAL(NULL)) PURE;
+
+    END_INTERFACE
+};
+
+__CRT_UUID_DECL(IDWriteTextLayout1, 0x9064d822,0x80a7,0x465c,0xa9,0x86,0xdf,0x65,0xf7,0x8b,0x8f,0xeb)
 
 #undef  INTERFACE
 #define INTERFACE IDWriteFactory1

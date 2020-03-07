@@ -56,6 +56,8 @@ __FLT_ABI(log) (__FLT_TYPE x)
       __FLT_RPT_ERANGE ("log", x, 0.0, -__FLT_HUGE_VAL, 1);
       return -__FLT_HUGE_VAL;
     }
+  else if (x_class == FP_NAN)
+    return x;
   else if (signbit (x))
     {
       __FLT_RPT_DOMAIN ("log", x, 0.0, __FLT_NAN);
@@ -63,7 +65,5 @@ __FLT_ABI(log) (__FLT_TYPE x)
     }
   else if (x_class == FP_INFINITE)
     return __FLT_HUGE_VAL;
-  else if (x_class == FP_NAN)
-    return __FLT_NAN;
   return (__FLT_TYPE) __logl_internal ((long double) x);
 }

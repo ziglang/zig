@@ -1083,23 +1083,26 @@ pub fn SetFileTime(
     }
 }
 
+pub fn teb() *TEB {
+    return switch (builtin.arch) {
+        .i386 => asm volatile (
+            \\ movl %%fs:0x18, %[ptr]
+            : [ptr] "=r" (-> *TEB)
+        ),
+        .x86_64 => asm volatile (
+            \\ movq %%gs:0x30, %[ptr]
+            : [ptr] "=r" (-> *TEB)
+        ),
+        .aarch64 => asm volatile (
+            \\ mov %[ptr], x18
+            : [ptr] "=r" (-> *TEB)
+        ),
+        else => @compileError("unsupported arch"),
+    };
+}
+
 pub fn peb() *PEB {
-    switch (builtin.arch) {
-        .i386 => {
-            return asm (
-                \\ mov %%fs:0x18, %[ptr]
-                \\ mov %%ds:0x30(%[ptr]), %[ptr]
-                : [ptr] "=r" (-> *PEB)
-            );
-        },
-        .x86_64 => {
-            return asm (
-                \\ mov %%gs:0x60, %[ptr]
-                : [ptr] "=r" (-> *PEB)
-            );
-        },
-        else => @compileError("unsupported architecture"),
-    }
+    return teb().ProcessEnvironmentBlock;
 }
 
 /// A file time is a 64-bit value that represents the number of 100-nanosecond

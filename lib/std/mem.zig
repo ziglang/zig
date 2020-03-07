@@ -1780,10 +1780,11 @@ fn SliceAsBytesReturnType(comptime sliceType: type) type {
 
 pub fn sliceAsBytes(slice: var) SliceAsBytesReturnType(@TypeOf(slice)) {
     const actualSlice = if (comptime trait.isPtrTo(.Array)(@TypeOf(slice))) slice[0..] else slice;
+    const actualSliceTypeInfo = @typeInfo(@TypeOf(actualSlice)).Pointer;
 
     // let's not give an undefined pointer to @ptrCast
     // it may be equal to zero and fail a null check
-    if (actualSlice.len == 0) {
+    if (actualSlice.len == 0 and actualSliceTypeInfo.sentinel == null) {
         return &[0]u8{};
     }
 
@@ -1803,6 +1804,12 @@ test "sliceAsBytes" {
         .Big => "\xDE\xAD\xBE\xEF",
         .Little => "\xAD\xDE\xEF\xBE",
     }));
+}
+
+test "sliceAsBytes with sentinel slice" {
+    const empty_string:[:0]const u8 = "";
+    const bytes = sliceAsBytes(empty_string);
+    testing.expect(bytes.len == 0);
 }
 
 test "sliceAsBytes packed struct at runtime and comptime" {
@@ -1940,4 +1947,9 @@ test "isAligned" {
     testing.expect(isAligned(4, 1));
     testing.expect(!isAligned(4, 8));
     testing.expect(!isAligned(4, 16));
+}
+
+test "freeing empty string with null-terminated sentinel" {
+    const empty_string = try dupeZ(testing.allocator, u8, "");
+    testing.allocator.free(empty_string);
 }

@@ -285,6 +285,8 @@ extern "C" {
 
 #define __encoded_pointer
 
+#define _Post_equals_last_error_
+
 #ifndef __fallthrough
 #define __fallthrough
 #endif

@@ -9,7 +9,19 @@
 #include <windef.h>
 
 #ifndef NT_SUCCESS
-#define NT_SUCCESS(status)	((NTSTATUS) (status) >= 0)
+#define NT_SUCCESS(status) ((NTSTATUS) (status) >= 0)
+#endif
+
+#ifndef NT_INFORMATION
+#define NT_INFORMATION(Status) ((((ULONG)(Status)) >> 30) == 1)
+#endif
+
+#ifndef NT_WARNING
+#define NT_WARNING(Status) ((((ULONG)(Status)) >> 30) == 2)
+#endif
+
+#ifndef NT_ERROR
+#define NT_ERROR(Status) ((((ULONG)(Status)) >> 30) == 3)
 #endif
 
 #ifndef DEVICE_TYPE
@@ -143,17 +155,66 @@ typedef struct _RTL_USER_PROCESS_PARAMETERS {
 #endif
 
 /* Values for the Attributes member */
- #define OBJ_INHERIT             0x00000002
- #define OBJ_PERMANENT           0x00000010
- #define OBJ_EXCLUSIVE           0x00000020
- #define OBJ_CASE_INSENSITIVE    0x00000040
- #define OBJ_OPENIF              0x00000080
- #define OBJ_OPENLINK            0x00000100
- #define OBJ_KERNEL_HANDLE       0x00000200
- #define OBJ_FORCE_ACCESS_CHECK  0x00000400
- #define OBJ_VALID_ATTRIBUTES    0x000007F2
+#define OBJ_INHERIT 0x00000002L
+#define OBJ_PERMANENT 0x00000010L
+#define OBJ_EXCLUSIVE 0x00000020L
+#define OBJ_CASE_INSENSITIVE 0x00000040L
+#define OBJ_OPENIF 0x00000080L
+#define OBJ_OPENLINK 0x00000100L
+#define OBJ_KERNEL_HANDLE 0x00000200L
+#define OBJ_FORCE_ACCESS_CHECK 0x00000400L
+#define OBJ_IGNORE_IMPERSONATED_DEVICEMAP 0x00000800L
+#define OBJ_DONT_REPARSE 0x00001000L
+#define OBJ_VALID_ATTRIBUTES 0x00001FF2L
+
+/* Define the create disposition values */
+#define FILE_SUPERSEDE 0x00000000
+#define FILE_OPEN 0x00000001
+#define FILE_CREATE 0x00000002
+#define FILE_OPEN_IF 0x00000003
+#define FILE_OVERWRITE 0x00000004
+#define FILE_OVERWRITE_IF 0x00000005
+#define FILE_MAXIMUM_DISPOSITION 0x00000005
+
+/* Define the create/open option flags */
+#define FILE_DIRECTORY_FILE 0x00000001
+#define FILE_WRITE_THROUGH 0x00000002
+#define FILE_SEQUENTIAL_ONLY 0x00000004
+#define FILE_NO_INTERMEDIATE_BUFFERING 0x00000008
+#define FILE_SYNCHRONOUS_IO_ALERT 0x00000010
+#define FILE_SYNCHRONOUS_IO_NONALERT 0x00000020
+#define FILE_NON_DIRECTORY_FILE 0x00000040
+#define FILE_CREATE_TREE_CONNECTION 0x00000080
+#define FILE_COMPLETE_IF_OPLOCKED 0x00000100
+#define FILE_NO_EA_KNOWLEDGE 0x00000200
+#define FILE_OPEN_REMOTE_INSTANCE 0x00000400
+#define FILE_RANDOM_ACCESS 0x00000800
+#define FILE_DELETE_ON_CLOSE 0x00001000
+#define FILE_OPEN_BY_FILE_ID 0x00002000
+#define FILE_OPEN_FOR_BACKUP_INTENT 0x00004000
+#define FILE_NO_COMPRESSION 0x00008000
+#if (_WIN32_WINNT >= _WIN32_WINNT_WIN7)
+#define FILE_OPEN_REQUIRING_OPLOCK 0x00010000
+#endif
+#define FILE_RESERVE_OPFILTER 0x00100000
+#define FILE_OPEN_REPARSE_POINT 0x00200000
+#define FILE_OPEN_NO_RECALL 0x00400000
+#define FILE_OPEN_FOR_FREE_SPACE_QUERY 0x00800000
+#define FILE_VALID_OPTION_FLAGS 0x00ffffff
+#define FILE_VALID_PIPE_OPTION_FLAGS 0x00000032
+#define FILE_VALID_MAILSLOT_OPTION_FLAGS 0x00000032
+#define FILE_VALID_SET_FLAGS 0x00000036
+
+/* Define the I/O status information return values for NtCreateFile/NtOpenFile */
+#define FILE_SUPERSEDED 0x00000000
+#define FILE_OPENED 0x00000001
+#define FILE_CREATED 0x00000002
+#define FILE_OVERWRITTEN 0x00000003
+#define FILE_EXISTS 0x00000004
+#define FILE_DOES_NOT_EXIST 0x00000005
 
  /* Helper Macro */
+#ifndef InitializeObjectAttributes
  #define InitializeObjectAttributes(p,n,a,r,s) { \
    (p)->Length = sizeof(OBJECT_ATTRIBUTES); \
    (p)->RootDirectory = (r); \
@@ -162,6 +223,7 @@ typedef struct _RTL_USER_PROCESS_PARAMETERS {
    (p)->SecurityDescriptor = (s); \
    (p)->SecurityQualityOfService = NULL; \
  }
+#endif
 
   typedef struct _OBJECT_DATA_INFORMATION {
     BOOLEAN InheritHandle;
@@ -697,6 +759,18 @@ typedef struct _RTL_USER_PROCESS_PARAMETERS {
     IO_COUNTERS IoCounters;
   } SYSTEM_PROCESS_INFORMATION,*PSYSTEM_PROCESS_INFORMATION;
 
+  typedef struct _SYSTEM_THREAD_INFORMATION {
+    LARGE_INTEGER Reserved1[3];
+    ULONG Reserved2;
+    PVOID StartAddress;
+    CLIENT_ID ClientId;
+    KPRIORITY Priority;
+    LONG BasePriority;
+    ULONG Reserved3;
+    ULONG ThreadState;
+    ULONG WaitReason;
+  } SYSTEM_THREAD_INFORMATION, *PSYSTEM_THREAD_INFORMATION;
+
   typedef struct _SYSTEM_REGISTRY_QUOTA_INFORMATION {
     ULONG RegistryQuotaAllowed;
     ULONG RegistryQuotaUsed;
@@ -822,6 +896,11 @@ typedef struct _RTL_USER_PROCESS_PARAMETERS {
     BYTE Reserved1[24];
   } SYSTEM_INTERRUPT_INFORMATION,*PSYSTEM_INTERRUPT_INFORMATION;
 
+  typedef struct _SYSTEM_POLICY_INFORMATION {
+    PVOID Reserved1[2];
+    ULONG Reserved2[3];
+  } SYSTEM_POLICY_INFORMATION, *PSYSTEM_POLICY_INFORMATION;
+
   typedef struct _SYSTEM_HANDLE_ENTRY {
     ULONG OwnerPid;
     BYTE ObjectType;
@@ -843,6 +922,19 @@ typedef struct _RTL_USER_PROCESS_PARAMETERS {
     ULONG PeakUsed;
     UNICODE_STRING FileName;
   } SYSTEM_PAGEFILE_INFORMATION, *PSYSTEM_PAGEFILE_INFORMATION;
+
+  typedef struct _PUBLIC_OBJECT_BASIC_INFORMATION {
+    ULONG Attributes;
+    ACCESS_MASK GrantedAccess;
+    ULONG HandleCount;
+    ULONG PointerCount;
+    ULONG Reserved[10];
+  } PUBLIC_OBJECT_BASIC_INFORMATION, *PPUBLIC_OBJECT_BASIC_INFORMATION;
+
+  typedef struct __PUBLIC_OBJECT_TYPE_INFORMATION {
+    UNICODE_STRING TypeName;
+    ULONG Reserved[22];
+  } PUBLIC_OBJECT_TYPE_INFORMATION, *PPUBLIC_OBJECT_TYPE_INFORMATION;
 
   typedef enum _PROCESSINFOCLASS {
     ProcessBasicInformation,
@@ -920,6 +1012,26 @@ typedef struct _RTL_USER_PROCESS_PARAMETERS {
      ThreadHideFromDebugger
   } THREADINFOCLASS;
 
+#define CODEINTEGRITY_OPTION_ENABLED 0x01
+#define CODEINTEGRITY_OPTION_TESTSIGN 0x02
+#define CODEINTEGRITY_OPTION_UMCI_ENABLED 0x04
+#define CODEINTEGRITY_OPTION_UMCI_AUDITMODE_ENABLED 0x08
+#define CODEINTEGRITY_OPTION_UMCI_EXCLUSIONPATHS_ENABLED 0x10
+#define CODEINTEGRITY_OPTION_TEST_BUILD 0x20
+#define CODEINTEGRITY_OPTION_PREPRODUCTION_BUILD 0x40
+#define CODEINTEGRITY_OPTION_DEBUGMODE_ENABLED 0x80
+#define CODEINTEGRITY_OPTION_FLIGHT_BUILD 0x100
+#define CODEINTEGRITY_OPTION_FLIGHTING_ENABLED 0x200
+#define CODEINTEGRITY_OPTION_HVCI_KMCI_ENABLED 0x400
+#define CODEINTEGRITY_OPTION_HVCI_KMCI_AUDITMODE_ENABLED 0x800
+#define CODEINTEGRITY_OPTION_HVCI_KMCI_STRICTMODE_ENABLED 0x1000
+#define CODEINTEGRITY_OPTION_HVCI_IUM_ENABLED 0x2000
+
+  typedef struct _SYSTEM_CODEINTEGRITY_INFORMATION {
+    ULONG Length;
+    ULONG CodeIntegrityOptions;
+  } SYSTEM_CODEINTEGRITY_INFORMATION, *PSYSTEM_CODEINTEGRITY_INFORMATION;
+
   typedef enum _SYSTEM_INFORMATION_CLASS {
     SystemBasicInformation = 0,
     SystemProcessorInformation = 1,
@@ -943,15 +1055,38 @@ typedef struct _RTL_USER_PROCESS_PARAMETERS {
     ObjectDataInformation
  } OBJECT_INFORMATION_CLASS, *POBJECT_INFORMATION_CLASS;
 
+#if (_WIN32_WINNT >= 0x0501)
 #define INTERNAL_TS_ACTIVE_CONSOLE_ID (*((volatile ULONG*)(0x7ffe02d8)))
+#endif
 
 #define RtlMoveMemory(Destination,Source,Length) memmove((Destination),(Source),(Length))
 #define RtlFillMemory(Destination,Length,Fill) memset((Destination),(Fill),(Length))
 #define RtlZeroMemory(Destination,Length) memset((Destination),0,(Length))
 
+  typedef struct _KEY_VALUE_ENTRY {
+    PUNICODE_STRING ValueName;
+    ULONG DataLength;
+    ULONG DataOffset;
+    ULONG Type;
+  } KEY_VALUE_ENTRY, *PKEY_VALUE_ENTRY;
+
+  typedef enum _KEY_SET_INFORMATION_CLASS {
+    KeyWriteTimeInformation,
+    KeyWow64FlagsInformation,
+    KeyControlFlagsInformation,
+    KeySetVirtualizationInformation,
+    KeySetDebugInformation,
+    KeySetHandleTagsInformation,
+    MaxKeySetInfoClass
+  } KEY_SET_INFORMATION_CLASS;
+
   NTSTATUS NTAPI NtClose(HANDLE Handle);
   NTSTATUS NTAPI NtCreateFile(PHANDLE FileHandle,ACCESS_MASK DesiredAccess,POBJECT_ATTRIBUTES ObjectAttributes,PIO_STATUS_BLOCK IoStatusBlock,PLARGE_INTEGER AllocationSize,ULONG FileAttributes,ULONG ShareAccess,ULONG CreateDisposition,ULONG CreateOptions,PVOID EaBuffer,ULONG EaLength);
   NTSTATUS NTAPI NtOpenFile(PHANDLE FileHandle,ACCESS_MASK DesiredAccess,POBJECT_ATTRIBUTES ObjectAttributes,PIO_STATUS_BLOCK IoStatusBlock,ULONG ShareAccess,ULONG OpenOptions);
+  NTSTATUS NTAPI NtRenameKey(HANDLE KeyHandle, PUNICODE_STRING NewName);
+  NTSTATUS NTAPI NtNotifyChangeMultipleKeys(HANDLE MasterKeyHandle, ULONG Count, OBJECT_ATTRIBUTES SubordinateObjects[], HANDLE Event, PIO_APC_ROUTINE ApcRoutine, PVOID ApcContext, PIO_STATUS_BLOCK IoStatusBlock, ULONG CompletionFilter, BOOLEAN WatchTree, PVOID Buffer, ULONG BufferSize, BOOLEAN Asynchronous);
+  NTSTATUS NTAPI NtQueryMultipleValueKey(HANDLE KeyHandle, PKEY_VALUE_ENTRY ValueEntries, ULONG EntryCount, PVOID ValueBuffer, PULONG BufferLength, PULONG RequiredBufferLength);
+  NTSTATUS NTAPI NtSetInformationKey(HANDLE KeyHandle, KEY_SET_INFORMATION_CLASS KeySetInformationClass, PVOID KeySetInformation, ULONG KeySetInformationLength);
   NTSTATUS NTAPI NtFsControlFile(HANDLE FileHandle,HANDLE Event,PIO_APC_ROUTINE ApcRoutine,PVOID ApcContext,PIO_STATUS_BLOCK IoStatusBlock,ULONG IoControlCode,PVOID InputBuffer,ULONG InputBufferLength,PVOID OutputBuffer,ULONG OutputBufferLength);
   NTSTATUS NTAPI NtDeviceIoControlFile(HANDLE FileHandle,HANDLE Event,PIO_APC_ROUTINE ApcRoutine,PVOID ApcContext,PIO_STATUS_BLOCK IoStatusBlock,ULONG IoControlCode,PVOID InputBuffer,ULONG InputBufferLength,PVOID OutputBuffer,ULONG OutputBufferLength);
   NTSTATUS NTAPI NtWaitForSingleObject(HANDLE Handle,BOOLEAN Alertable,PLARGE_INTEGER Timeout);
@@ -973,7 +1108,9 @@ typedef struct _RTL_USER_PROCESS_PARAMETERS {
   VOID NTAPI RtlFreeUnicodeString(PUNICODE_STRING UnicodeString);
   VOID NTAPI RtlFreeOemString(POEM_STRING OemString);
   VOID NTAPI RtlInitString (PSTRING DestinationString,PCSZ SourceString);
+  NTSTATUS NTAPI RtlInitStringEx(PSTRING DestinationString, PCSZ SourceString);
   VOID NTAPI RtlInitAnsiString(PANSI_STRING DestinationString,PCSZ SourceString);
+  NTSTATUS NTAPI RtlInitAnsiStringEx(PANSI_STRING DestinationString, PCSZ SourceString);
   VOID NTAPI RtlInitUnicodeString(PUNICODE_STRING DestinationString,PCWSTR SourceString);
   NTSTATUS NTAPI RtlAnsiStringToUnicodeString(PUNICODE_STRING DestinationString,PCANSI_STRING SourceString,BOOLEAN AllocateDestinationString);
   NTSTATUS NTAPI RtlUnicodeStringToAnsiString(PANSI_STRING DestinationString,PCUNICODE_STRING SourceString,BOOLEAN AllocateDestinationString);

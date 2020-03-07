@@ -15,9 +15,9 @@ pub const sf_hdtr = extern struct {
     trl_cnt: c_int,
 };
 pub extern "c" fn sendfile(
-    out_fd: fd_t,
     in_fd: fd_t,
-    offset: ?*off_t,
+    out_fd: fd_t,
+    offset: off_t,
     nbytes: usize,
     sf_hdtr: ?*sf_hdtr,
     sbytes: ?*off_t,

@@ -121,7 +121,7 @@ extern "C" {
   DWORD WINAPI WNetConnectionDialog(HWND hwnd,DWORD dwType);
   DWORD WINAPI WNetDisconnectDialog(HWND hwnd,DWORD dwType);
 #if (_WIN32_WINNT >= _WIN32_WINNT_LONGHORN)
-  DWORD WINAPI WNetRestoreSingleConnectionW(HWND hwndParent, LPCWSTR lpDevice, BOOL fUseUI);
+  DWORD WINAPI WNetRestoreSingleConnectionW(HWND hwndParent, LPCWSTR lpDevice, WINBOOL fUseUI);
 #else
   DWORD WINAPI WNetRestoreConnectionW(HWND hwndParent,LPCWSTR lpDevice);
 #endif

@@ -293,7 +293,7 @@ test "math.min" {
     }
 }
 
-pub fn max(x: var, y: var) @TypeOf(x + y) {
+pub fn max(x: var, y: var) @TypeOf(x, y) {
     return if (x > y) x else y;
 }
 
@@ -670,33 +670,38 @@ fn testRem() void {
 
 /// Returns the absolute value of the integer parameter.
 /// Result is an unsigned integer.
-pub fn absCast(x: var) t: {
-    if (@TypeOf(x) == comptime_int) {
-        break :t comptime_int;
-    } else {
-        break :t std.meta.IntType(false, @TypeOf(x).bit_count);
+pub fn absCast(x: var) switch(@typeInfo(@TypeOf(x))) {
+        .ComptimeInt => comptime_int,
+        .Int => |intInfo| std.meta.IntType(false, intInfo.bits),
+        else => @compileError("absCast only accepts integers"),
     }
-} {
-    if (@TypeOf(x) == comptime_int) {
-        return if (x < 0) -x else x;
+{
+    switch(@typeInfo(@TypeOf(x))) {
+        .ComptimeInt => {
+            if (x < 0) {
+                return -x;
+            } else {
+                return x;
+            }
+        },
+        .Int => |intInfo| {
+            const Uint = std.meta.IntType(false, intInfo.bits);
+            if (x < 0) {
+                return ~@bitCast(Uint, x +% -1);
+            } else {
+                return @intCast(Uint, x);
+            }
+        },
+        else => unreachable,
     }
-    const uint = std.meta.IntType(false, @TypeOf(x).bit_count);
-    if (x >= 0) return @intCast(uint, x);
-
-    return @intCast(uint, -(x + 1)) + 1;
 }
 
 test "math.absCast" {
-    testing.expect(absCast(@as(i32, -999)) == 999);
-    testing.expect(@TypeOf(absCast(@as(i32, -999))) == u32);
-
-    testing.expect(absCast(@as(i32, 999)) == 999);
-    testing.expect(@TypeOf(absCast(@as(i32, 999))) == u32);
-
-    testing.expect(absCast(@as(i32, minInt(i32))) == -minInt(i32));
-    testing.expect(@TypeOf(absCast(@as(i32, minInt(i32)))) == u32);
-
-    testing.expect(absCast(-999) == 999);
+    testing.expectEqual(@as(u1, 1), absCast(@as(i1, -1)));
+    testing.expectEqual(@as(u32, 999), absCast(@as(i32, -999)));
+    testing.expectEqual(@as(u32, 999), absCast(@as(i32, 999)));
+    testing.expectEqual(@as(u32, -minInt(i32)), absCast(@as(i32, minInt(i32))));
+    testing.expectEqual(999, absCast(-999));
 }
 
 /// Returns the negation of the integer parameter.

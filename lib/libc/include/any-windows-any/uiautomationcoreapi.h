@@ -59,6 +59,7 @@ WINBOOL WINAPI UiaPatternRelease(HUIAPATTERNOBJECT hobj);
 HRESULT WINAPI UiaRaiseAutomationEvent(IRawElementProviderSimple *provider, EVENTID id);
 LRESULT WINAPI UiaReturnRawElementProvider(HWND hwnd, WPARAM wParam, LPARAM lParam, IRawElementProviderSimple *elprov);
 WINBOOL WINAPI UiaTextRangeRelease(HUIATEXTRANGE hobj);
+HRESULT WINAPI UiaHostProviderFromHwnd(HWND hwnd, IRawElementProviderSimple **elprov);
 
 #ifdef __cplusplus
 }

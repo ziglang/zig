@@ -102,7 +102,7 @@ pub extern "kernel32" fn GetFileAttributesW(lpFileName: [*]const WCHAR) callconv
 
 pub extern "kernel32" fn GetModuleFileNameW(hModule: ?HMODULE, lpFilename: [*]u16, nSize: DWORD) callconv(.Stdcall) DWORD;
 
-pub extern "kernel32" fn GetModuleHandleW(lpModuleName: ?[*]const WCHAR) callconv(.Stdcall) HMODULE;
+pub extern "kernel32" fn GetModuleHandleW(lpModuleName: ?[*]const WCHAR) callconv(.Stdcall) ?HMODULE;
 
 pub extern "kernel32" fn GetLastError() callconv(.Stdcall) Win32Error;
 

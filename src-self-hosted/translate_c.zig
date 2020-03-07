@@ -609,7 +609,8 @@ fn visitVarDecl(c: *Context, var_decl: *const ZigClangVarDecl) Error!void {
         else
             try transCreateNodeUndefinedLiteral(c);
     } else if (storage_class != .Extern) {
-        return failDecl(c, var_decl_loc, checked_name, "non-extern variable has no initializer", .{});
+        eq_tok = try appendToken(c, .Equal, "=");
+        init_node = try transCreateNodeIdentifierUnchecked(c, "undefined");
     }
 
     const linksection_expr = blk: {
@@ -810,8 +811,10 @@ fn transRecordDecl(c: *Context, record_decl: *const ZigClangRecordDecl) Error!?*
             _ = try appendToken(c, .Colon, ":");
             const field_type = transQualType(rp, ZigClangFieldDecl_getType(field_decl), field_loc) catch |err| switch (err) {
                 error.UnsupportedType => {
-                    try failDecl(c, record_loc, name, "unable to translate {} member type", .{container_kind_name});
-                    return null;
+                    const opaque = try transCreateNodeOpaqueType(c);
+                    semicolon = try appendToken(c, .Semicolon, ";");
+                    try emitWarning(c, record_loc, "{} demoted to opaque type - unable to translate type of field {}", .{ container_kind_name, raw_name });
+                    break :blk opaque;
                 },
                 else => |e| return e,
             };
@@ -2234,6 +2237,7 @@ fn transWhileLoop(
         .id = .Loop,
     };
     while_node.body = try transStmt(rp, &loop_scope, ZigClangWhileStmt_getBody(stmt), .unused, .r_value);
+    _ = try appendToken(rp.c, .Semicolon, ";");
     return &while_node.base;
 }
 
@@ -2343,8 +2347,10 @@ fn transForLoop(
         try block_scope.?.block_node.statements.push(&while_node.base);
         block_scope.?.block_node.rbrace = try appendToken(rp.c, .RBrace, "}");
         return &block_scope.?.block_node.base;
-    } else
+    } else {
+        _ = try appendToken(rp.c, .Semicolon, ";");
         return &while_node.base;
+    }
 }
 
 fn transSwitch(
@@ -4812,7 +4818,7 @@ fn transCreateNodeIdentifier(c: *Context, name: []const u8) !*ast.Node {
     return &identifier.base;
 }
 
-fn transCreateNodeTypeIdentifier(c: *Context, name: []const u8) !*ast.Node {
+fn transCreateNodeIdentifierUnchecked(c: *Context, name: []const u8) !*ast.Node {
     const token_index = try appendTokenFmt(c, .Identifier, "{}", .{name});
     const identifier = try c.a().create(ast.Node.Identifier);
     identifier.* = .{
@@ -4875,7 +4881,7 @@ fn transPreprocessorEntities(c: *Context, unit: *ZigClangASTUnit) Error!void {
 
                 var tok_it = tok_list.iterator(0);
                 const first_tok = tok_it.next().?;
-                assert(first_tok.id == .Identifier and mem.eql(u8, slice[first_tok.start..first_tok.end], name));
+                assert(mem.eql(u8, slice[first_tok.start..first_tok.end], name));
 
                 var macro_fn = false;
                 const next = tok_it.peek().?;
@@ -5039,7 +5045,14 @@ fn transMacroFnDefine(c: *Context, it: *CTokenList.Iterator, source: []const u8,
             .{last.id},
         );
     _ = try appendToken(c, .Semicolon, ";");
-    try type_of.params.push(expr);
+    const type_of_arg = if (expr.id != .Block) expr else blk: {
+        const blk = @fieldParentPtr(ast.Node.Block, "base", expr);
+        const blk_last = blk.statements.at(blk.statements.len - 1).*;
+        std.debug.assert(blk_last.id == .ControlFlowExpression);
+        const br = @fieldParentPtr(ast.Node.ControlFlowExpression, "base", blk_last);
+        break :blk br.rhs.?;
+    };
+    try type_of.params.push(type_of_arg);
     return_expr.rhs = expr;
 
     block.rbrace = try appendToken(c, .RBrace, "}");
@@ -5073,6 +5086,39 @@ fn parseCExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8, source_
             if_node.@"else" = try transCreateNodeElse(c);
             if_node.@"else".?.body = try parseCPrimaryExpr(c, it, source, source_loc, scope);
             return &if_node.base;
+        },
+        .Comma => {
+            _ = try appendToken(c, .Semicolon, ";");
+            const block_scope = try Scope.Block.init(c, scope, "blk");
+            block_scope.block_node = try transCreateNodeBlock(c, block_scope.label);
+
+            var last = node;
+            while (true) {
+                // suppress result
+                const lhs = try transCreateNodeIdentifier(c, "_");
+                const op_token = try appendToken(c, .Equal, "=");
+                const op_node = try c.a().create(ast.Node.InfixOp);
+                op_node.* = .{
+                    .op_token = op_token,
+                    .lhs = lhs,
+                    .op = .Assign,
+                    .rhs = last,
+                };
+                try block_scope.block_node.statements.push(&op_node.base);
+
+                last = try parseCPrefixOpExpr(c, it, source, source_loc, scope);
+                _ = try appendToken(c, .Semicolon, ";");
+                if (it.next().?.id != .Comma) {
+                    _ = it.prev();
+                    break;
+                }
+            }
+
+            const break_node = try transCreateNodeBreak(c, block_scope.label);
+            break_node.rhs = last;
+            try block_scope.block_node.statements.push(&break_node.base);
+            block_scope.block_node.rbrace = try appendToken(c, .RBrace, "}");
+            return &block_scope.block_node.base;
         },
         else => {
             _ = it.prev();
@@ -5326,15 +5372,15 @@ fn parseCPrimaryExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8, 
             return parseCNumLit(c, tok, source, source_loc);
         },
         // eventually this will be replaced by std.c.parse which will handle these correctly
-        .Keyword_void => return transCreateNodeTypeIdentifier(c, "c_void"),
-        .Keyword_bool => return transCreateNodeTypeIdentifier(c, "bool"),
-        .Keyword_double => return transCreateNodeTypeIdentifier(c, "f64"),
-        .Keyword_long => return transCreateNodeTypeIdentifier(c, "c_long"),
-        .Keyword_int => return transCreateNodeTypeIdentifier(c, "c_int"),
-        .Keyword_float => return transCreateNodeTypeIdentifier(c, "f32"),
-        .Keyword_short => return transCreateNodeTypeIdentifier(c, "c_short"),
-        .Keyword_char => return transCreateNodeTypeIdentifier(c, "c_char"),
-        .Keyword_unsigned => return transCreateNodeTypeIdentifier(c, "c_uint"),
+        .Keyword_void => return transCreateNodeIdentifierUnchecked(c, "c_void"),
+        .Keyword_bool => return transCreateNodeIdentifierUnchecked(c, "bool"),
+        .Keyword_double => return transCreateNodeIdentifierUnchecked(c, "f64"),
+        .Keyword_long => return transCreateNodeIdentifierUnchecked(c, "c_long"),
+        .Keyword_int => return transCreateNodeIdentifierUnchecked(c, "c_int"),
+        .Keyword_float => return transCreateNodeIdentifierUnchecked(c, "f32"),
+        .Keyword_short => return transCreateNodeIdentifierUnchecked(c, "c_short"),
+        .Keyword_char => return transCreateNodeIdentifierUnchecked(c, "c_char"),
+        .Keyword_unsigned => return transCreateNodeIdentifierUnchecked(c, "c_uint"),
         .Identifier => {
             const mangled_name = scope.getAlias(source[tok.start..tok.end]);
             return transCreateNodeIdentifier(c, mangled_name);
@@ -5382,12 +5428,15 @@ fn parseCPrimaryExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8, 
                 return error.ParseError;
             }
 
-            //if (@typeInfo(@TypeOf(x)) == .Pointer)
-            //    @ptrCast(dest, x)
+            // TODO: It might be nice if we only did the alignCasting for opaque types
+            //(  if (@typeInfo(@TypeOf(x)) == .Pointer)
+            //    @ptrCast(dest, @alignCast(@alignOf(dest.Child), x))
             //else if (@typeInfo(@TypeOf(x)) == .Integer)
             //    @intToPtr(dest, x)
             //else
-            //    @as(dest, x)
+            //    @as(dest, x) )
+
+            const group_lparen = try appendToken(c, .LParen, "(");
 
             const if_1 = try transCreateNodeIf(c);
             const type_id_1 = try transCreateNodeBuiltinFnCall(c, "@typeInfo");
@@ -5407,9 +5456,30 @@ fn parseCPrimaryExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8, 
             if_1.condition = &cmp_1.base;
             _ = try appendToken(c, .RParen, ")");
 
+            const period_tok = try appendToken(c, .Period, ".");
+            const child_ident = try transCreateNodeIdentifier(c, "Child");
+            const inner_node_child = try c.a().create(ast.Node.InfixOp);
+            inner_node_child.* = .{
+                .op_token = period_tok,
+                .lhs = inner_node,
+                .op = .Period,
+                .rhs = child_ident,
+            };
+
+            const align_of = try transCreateNodeBuiltinFnCall(c, "@alignOf");
+            try align_of.params.push(&inner_node_child.base);
+            align_of.rparen_token = try appendToken(c, .RParen, ")");
+            // hack to get zig fmt to render a comma in builtin calls
+            _ = try appendToken(c, .Comma, ",");
+
+            const align_cast = try transCreateNodeBuiltinFnCall(c, "@alignCast");
+            try align_cast.params.push(&align_of.base);
+            try align_cast.params.push(node_to_cast);
+            align_cast.rparen_token = try appendToken(c, .RParen, ")");
+
             const ptr_cast = try transCreateNodeBuiltinFnCall(c, "@ptrCast");
             try ptr_cast.params.push(inner_node);
-            try ptr_cast.params.push(node_to_cast);
+            try ptr_cast.params.push(&align_cast.base);
             ptr_cast.rparen_token = try appendToken(c, .RParen, ")");
             if_1.body = &ptr_cast.base;
 
@@ -5450,7 +5520,14 @@ fn parseCPrimaryExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8, 
             as.rparen_token = try appendToken(c, .RParen, ")");
             else_2.body = &as.base;
 
-            return &if_1.base;
+            const group_rparen = try appendToken(c, .RParen, ")");
+            const grouped_expr = try c.a().create(ast.Node.GroupedExpression);
+            grouped_expr.* = .{
+                .lparen = group_lparen,
+                .expr = &if_1.base,
+                .rparen = group_rparen,
+            };
+            return &grouped_expr.base;
         },
         else => {
             const first_tok = it.list.at(0);
@@ -5470,6 +5547,8 @@ fn parseCSuffixOpExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8,
     var node = try parseCPrimaryExpr(c, it, source, source_loc, scope);
     while (true) {
         const tok = it.next().?;
+        var op_token: ast.TokenIndex = undefined;
+        var op_id: ast.Node.InfixOp.Op = undefined;
         switch (tok.id) {
             .Period => {
                 const name_tok = it.next().?;
@@ -5486,6 +5565,7 @@ fn parseCSuffixOpExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8,
                 }
 
                 node = try transCreateNodeFieldAccess(c, node, source[name_tok.start..name_tok.end]);
+                continue;
             },
             .Arrow => {
                 const name_tok = it.next().?;
@@ -5500,9 +5580,9 @@ fn parseCSuffixOpExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8,
                     );
                     return error.ParseError;
                 }
-
                 const deref = try transCreateNodePtrDeref(c, node);
                 node = try transCreateNodeFieldAccess(c, deref, source[name_tok.start..name_tok.end]);
+                continue;
             },
             .Asterisk => {
                 if (it.peek().?.id == .RParen) {
@@ -5526,161 +5606,57 @@ fn parseCSuffixOpExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8,
                     return &ptr.base;
                 } else {
                     // expr * expr
-                    const op_token = try appendToken(c, .Asterisk, "*");
-                    const rhs = try parseCPrimaryExpr(c, it, source, source_loc, scope);
-                    const mul_node = try c.a().create(ast.Node.InfixOp);
-                    mul_node.* = .{
-                        .op_token = op_token,
-                        .lhs = node,
-                        .op = .BitShiftLeft,
-                        .rhs = rhs,
-                    };
-                    node = &mul_node.base;
+                    op_token = try appendToken(c, .Asterisk, "*");
+                    op_id = .BitShiftLeft;
                 }
             },
             .AngleBracketAngleBracketLeft => {
-                const op_token = try appendToken(c, .AngleBracketAngleBracketLeft, "<<");
-                const rhs = try parseCPrefixOpExpr(c, it, source, source_loc, scope);
-                const bitshift_node = try c.a().create(ast.Node.InfixOp);
-                bitshift_node.* = .{
-                    .op_token = op_token,
-                    .lhs = node,
-                    .op = .BitShiftLeft,
-                    .rhs = rhs,
-                };
-                node = &bitshift_node.base;
+                op_token = try appendToken(c, .AngleBracketAngleBracketLeft, "<<");
+                op_id = .BitShiftLeft;
             },
             .AngleBracketAngleBracketRight => {
-                const op_token = try appendToken(c, .AngleBracketAngleBracketRight, ">>");
-                const rhs = try parseCPrefixOpExpr(c, it, source, source_loc, scope);
-                const bitshift_node = try c.a().create(ast.Node.InfixOp);
-                bitshift_node.* = .{
-                    .op_token = op_token,
-                    .lhs = node,
-                    .op = .BitShiftRight,
-                    .rhs = rhs,
-                };
-                node = &bitshift_node.base;
+                op_token = try appendToken(c, .AngleBracketAngleBracketRight, ">>");
+                op_id = .BitShiftRight;
             },
             .Pipe => {
-                const op_token = try appendToken(c, .Pipe, "|");
-                const rhs = try parseCPrefixOpExpr(c, it, source, source_loc, scope);
-                const or_node = try c.a().create(ast.Node.InfixOp);
-                or_node.* = .{
-                    .op_token = op_token,
-                    .lhs = node,
-                    .op = .BitOr,
-                    .rhs = rhs,
-                };
-                node = &or_node.base;
+                op_token = try appendToken(c, .Pipe, "|");
+                op_id = .BitOr;
             },
             .Ampersand => {
-                const op_token = try appendToken(c, .Ampersand, "&");
-                const rhs = try parseCPrefixOpExpr(c, it, source, source_loc, scope);
-                const bitand_node = try c.a().create(ast.Node.InfixOp);
-                bitand_node.* = .{
-                    .op_token = op_token,
-                    .lhs = node,
-                    .op = .BitAnd,
-                    .rhs = rhs,
-                };
-                node = &bitand_node.base;
+                op_token = try appendToken(c, .Ampersand, "&");
+                op_id = .BitAnd;
             },
             .Plus => {
-                const op_token = try appendToken(c, .Plus, "+");
-                const rhs = try parseCPrefixOpExpr(c, it, source, source_loc, scope);
-                const add_node = try c.a().create(ast.Node.InfixOp);
-                add_node.* = .{
-                    .op_token = op_token,
-                    .lhs = node,
-                    .op = .Add,
-                    .rhs = rhs,
-                };
-                node = &add_node.base;
+                op_token = try appendToken(c, .Plus, "+");
+                op_id = .Add;
             },
             .Minus => {
-                const op_token = try appendToken(c, .Minus, "-");
-                const rhs = try parseCPrefixOpExpr(c, it, source, source_loc, scope);
-                const sub_node = try c.a().create(ast.Node.InfixOp);
-                sub_node.* = .{
-                    .op_token = op_token,
-                    .lhs = node,
-                    .op = .Sub,
-                    .rhs = rhs,
-                };
-                node = &sub_node.base;
+                op_token = try appendToken(c, .Minus, "-");
+                op_id = .Sub;
             },
             .AmpersandAmpersand => {
-                const op_token = try appendToken(c, .Keyword_and, "and");
-                const rhs = try parseCPrefixOpExpr(c, it, source, source_loc, scope);
-                const and_node = try c.a().create(ast.Node.InfixOp);
-                and_node.* = .{
-                    .op_token = op_token,
-                    .lhs = node,
-                    .op = .BoolAnd,
-                    .rhs = rhs,
-                };
-                node = &and_node.base;
+                op_token = try appendToken(c, .Keyword_and, "and");
+                op_id = .BoolAnd;
             },
             .PipePipe => {
-                const op_token = try appendToken(c, .Keyword_or, "or");
-                const rhs = try parseCPrefixOpExpr(c, it, source, source_loc, scope);
-                const or_node = try c.a().create(ast.Node.InfixOp);
-                or_node.* = .{
-                    .op_token = op_token,
-                    .lhs = node,
-                    .op = .BoolOr,
-                    .rhs = rhs,
-                };
-                node = &or_node.base;
+                op_token = try appendToken(c, .Keyword_or, "or");
+                op_id = .BoolOr;
             },
             .AngleBracketRight => {
-                const op_token = try appendToken(c, .AngleBracketRight, ">");
-                const rhs = try parseCPrefixOpExpr(c, it, source, source_loc, scope);
-                const and_node = try c.a().create(ast.Node.InfixOp);
-                and_node.* = .{
-                    .op_token = op_token,
-                    .lhs = node,
-                    .op = .GreaterThan,
-                    .rhs = rhs,
-                };
-                node = &and_node.base;
+                op_token = try appendToken(c, .AngleBracketRight, ">");
+                op_id = .GreaterThan;
             },
             .AngleBracketRightEqual => {
-                const op_token = try appendToken(c, .AngleBracketRightEqual, ">=");
-                const rhs = try parseCPrefixOpExpr(c, it, source, source_loc, scope);
-                const and_node = try c.a().create(ast.Node.InfixOp);
-                and_node.* = .{
-                    .op_token = op_token,
-                    .lhs = node,
-                    .op = .GreaterOrEqual,
-                    .rhs = rhs,
-                };
-                node = &and_node.base;
+                op_token = try appendToken(c, .AngleBracketRightEqual, ">=");
+                op_id = .GreaterOrEqual;
             },
             .AngleBracketLeft => {
-                const op_token = try appendToken(c, .AngleBracketLeft, "<");
-                const rhs = try parseCPrefixOpExpr(c, it, source, source_loc, scope);
-                const and_node = try c.a().create(ast.Node.InfixOp);
-                and_node.* = .{
-                    .op_token = op_token,
-                    .lhs = node,
-                    .op = .LessThan,
-                    .rhs = rhs,
-                };
-                node = &and_node.base;
+                op_token = try appendToken(c, .AngleBracketLeft, "<");
+                op_id = .LessThan;
             },
             .AngleBracketLeftEqual => {
-                const op_token = try appendToken(c, .AngleBracketLeftEqual, "<=");
-                const rhs = try parseCPrefixOpExpr(c, it, source, source_loc, scope);
-                const and_node = try c.a().create(ast.Node.InfixOp);
-                and_node.* = .{
-                    .op_token = op_token,
-                    .lhs = node,
-                    .op = .LessOrEqual,
-                    .rhs = rhs,
-                };
-                node = &and_node.base;
+                op_token = try appendToken(c, .AngleBracketLeftEqual, "<=");
+                op_id = .LessOrEqual;
             },
             .LBracket => {
                 const arr_node = try transCreateNodeArrayAccess(c, node);
@@ -5698,6 +5674,7 @@ fn parseCSuffixOpExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8,
                     );
                     return error.ParseError;
                 }
+                continue;
             },
             .LParen => {
                 const call_node = try transCreateNodeFnCall(c, node);
@@ -5723,12 +5700,39 @@ fn parseCSuffixOpExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8,
                 }
                 call_node.rtoken = try appendToken(c, .RParen, ")");
                 node = &call_node.base;
+                continue;
+            },
+            .BangEqual => {
+                op_token = try appendToken(c, .BangEqual, "!=");
+                op_id = .BangEqual;
+            },
+            .EqualEqual => {
+                op_token = try appendToken(c, .EqualEqual, "==");
+                op_id = .EqualEqual;
+            },
+            .Slash => {
+                // unsigned/float division uses the operator
+                op_id = .Div;
+                op_token = try appendToken(c, .Slash, "/");
+            },
+            .Percent => {
+                // unsigned/float division uses the operator
+                op_id = .Mod;
+                op_token = try appendToken(c, .Percent, "%");
             },
             else => {
                 _ = it.prev();
                 return node;
             },
         }
+        const op_node = try c.a().create(ast.Node.InfixOp);
+        op_node.* = .{
+            .op_token = op_token,
+            .lhs = node,
+            .op = op_id,
+            .rhs = try parseCPrefixOpExpr(c, it, source, source_loc, scope),
+        };
+        node = &op_node.base;
     }
 }
 
@@ -5746,14 +5750,20 @@ fn parseCPrefixOpExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8,
             node.rhs = try parseCPrefixOpExpr(c, it, source, source_loc, scope);
             return &node.base;
         },
+        .Plus => return try parseCPrefixOpExpr(c, it, source, source_loc, scope),
         .Tilde => {
             const node = try transCreateNodePrefixOp(c, .BitNot, .Tilde, "~");
             node.rhs = try parseCPrefixOpExpr(c, it, source, source_loc, scope);
             return &node.base;
         },
         .Asterisk => {
-            const prefix_op_expr = try parseCPrefixOpExpr(c, it, source, source_loc, scope);
-            return try transCreateNodePtrDeref(c, prefix_op_expr);
+            const node = try parseCPrefixOpExpr(c, it, source, source_loc, scope);
+            return try transCreateNodePtrDeref(c, node);
+        },
+        .Ampersand => {
+            const node = try transCreateNodePrefixOp(c, .AddressOf, .Ampersand, "&");
+            node.rhs = try parseCPrefixOpExpr(c, it, source, source_loc, scope);
+            return &node.base;
         },
         else => {
             _ = it.prev();

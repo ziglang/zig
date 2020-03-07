@@ -3734,7 +3734,8 @@ pub fn sendfile(
 
             while (true) {
                 var sbytes: off_t = undefined;
-                const err = errno(system.sendfile(out_fd, in_fd, in_offset, adjusted_count, hdtr, &sbytes, flags));
+                const offset = @bitCast(off_t, in_offset);
+                const err = errno(system.sendfile(in_fd, out_fd, offset, adjusted_count, hdtr, &sbytes, flags));
                 const amt = @bitCast(usize, sbytes);
                 switch (err) {
                     0 => return amt,
@@ -3813,19 +3814,17 @@ pub fn sendfile(
             while (true) {
                 var sbytes: off_t = adjusted_count;
                 const signed_offset = @bitCast(i64, in_offset);
-                const err = errno(system.sendfile(out_fd, in_fd, signed_offset, &sbytes, hdtr, flags));
+                const err = errno(system.sendfile(in_fd, out_fd, signed_offset, &sbytes, hdtr, flags));
                 const amt = @bitCast(usize, sbytes);
                 switch (err) {
                     0 => return amt,
 
+                    EBADF => unreachable, // Always a race condition.
                     EFAULT => unreachable, // Segmentation fault.
                     EINVAL => unreachable,
                     ENOTCONN => unreachable, // `out_fd` is an unconnected socket.
 
-                    // On macOS version 10.14.6, I observed Darwin return EBADF when
-                    // using sendfile on a valid open file descriptor of a file
-                    // system file.
-                    ENOTSUP, ENOTSOCK, ENOSYS, EBADF => break :sf,
+                    ENOTSUP, ENOTSOCK, ENOSYS => break :sf,
 
                     EINTR => if (amt != 0) return amt else continue,
 
