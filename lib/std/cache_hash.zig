@@ -117,7 +117,7 @@ pub const CacheHash = struct {
         }
     }
 
-    pub fn cache_file(self: *@This(), file_path: []const u8) !void {
+    pub fn addFile(self: *@This(), file_path: []const u8) !void {
         debug.assert(self.manifest_file == null);
 
         var cache_hash_file = try self.files.addOne();
@@ -344,7 +344,7 @@ test "cache file and the recall it" {
         ch.add(true);
         ch.add(@as(u16, 1234));
         ch.add("1234");
-        try ch.cache_file("test.txt");
+        try ch.addFile("test.txt");
 
         // There should be nothing in the cache
         debug.assert((try ch.hit(&digest1)) == false);
@@ -358,7 +358,7 @@ test "cache file and the recall it" {
         ch.add(true);
         ch.add(@as(u16, 1234));
         ch.add("1234");
-        try ch.cache_file("test.txt");
+        try ch.addFile("test.txt");
 
         // Cache hit! We just "built" the same file
         debug.assert((try ch.hit(&digest2)) == true);
