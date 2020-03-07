@@ -11,10 +11,8 @@ const Allocator = mem.Allocator;
 const Buffer = @import("buffer.zig").Buffer;
 const os = @import("os.zig");
 
-const base64_alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-const base64_pad_char = '=';
-const encoder = base64.Base64Encoder.init(base64_alphabet, base64_pad_char);
-const decoder = base64.Base64Decoder.init(base64_alphabet, base64_pad_char);
+const base64_encoder = fs.base64_encoder;
+const base64_decoder = fs.base64_decoder;
 const BIN_DIGEST_LEN = 32;
 
 pub const CacheHashFile = struct {
@@ -107,7 +105,7 @@ pub const CacheHash = struct {
 
         const OUT_DIGEST_LEN = base64.Base64Encoder.calcSize(BIN_DIGEST_LEN);
         try self.b64_digest.resize(OUT_DIGEST_LEN);
-        encoder.encode(self.b64_digest.toSlice(), &bin_digest);
+        base64_encoder.encode(self.b64_digest.toSlice(), &bin_digest);
 
         if (self.files.toSlice().len == 0 and !self.force_check_manifest) {
             try out_digest.resize(OUT_DIGEST_LEN);
@@ -166,7 +164,7 @@ pub const CacheHash = struct {
 
             cache_hash_file.file_handle = fmt.parseInt(os.fd_t, file_handle_str, 10) catch return error.InvalidFormat;
             cache_hash_file.stat.mtime = fmt.parseInt(i64, mtime_nsec_str, 10) catch return error.InvalidFormat;
-            decoder.decode(&cache_hash_file.bin_digest, digest_str) catch return error.InvalidFormat;
+            base64_decoder.decode(&cache_hash_file.bin_digest, digest_str) catch return error.InvalidFormat;
 
             if (file_path.len == 0) {
                 return error.InvalidFormat;
@@ -255,7 +253,7 @@ pub const CacheHash = struct {
 
         const OUT_DIGEST_LEN = base64.Base64Encoder.calcSize(BIN_DIGEST_LEN);
         try out_digest.resize(OUT_DIGEST_LEN);
-        encoder.encode(out_digest.toSlice(), &bin_digest);
+        base64_encoder.encode(out_digest.toSlice(), &bin_digest);
     }
 
     pub fn write_manifest(self: *@This()) !void {
@@ -268,7 +266,7 @@ pub const CacheHash = struct {
         defer contents.deinit();
 
         for (self.files.toSlice()) |file| {
-            encoder.encode(encoded_digest.toSlice(), &file.bin_digest);
+            base64_encoder.encode(encoded_digest.toSlice(), &file.bin_digest);
             try contents.print("{} {} {} {}\n", .{ file.file_handle, file.stat.mtime, encoded_digest.toSlice(), file.path });
         }
 
