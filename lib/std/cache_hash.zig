@@ -59,14 +59,14 @@ pub const CacheHash = struct {
         };
     }
 
-    pub fn cache_buf(self: *@This(), val: []const u8) void {
+    pub fn addSlice(self: *@This(), val: []const u8) void {
         debug.assert(self.manifest_file == null);
 
         self.blake3.update(val);
         self.blake3.update(&[_]u8{0});
     }
 
-    pub fn cache(self: *@This(), val: var) void {
+    pub fn add(self: *@This(), val: var) void {
         debug.assert(self.manifest_file == null);
 
         const val_type = @TypeOf(val);
@@ -75,7 +75,7 @@ pub const CacheHash = struct {
                 const buf_len = @divExact(int_info.bits, 8);
                 var buf: [buf_len]u8 = undefined;
                 mem.writeIntNative(val_type, &buf, val);
-                self.cache_buf(&buf);
+                self.addSlice(&buf);
             } else {
                 @compileError("Unsupported integer size. Please use a multiple of 8, manually convert to a u8 slice.");
             },
@@ -94,7 +94,7 @@ pub const CacheHash = struct {
         var cache_hash_file = try self.files.addOne();
         cache_hash_file.path = try fs.path.resolve(self.alloc, &[_][]const u8{file_path});
 
-        self.cache_buf(cache_hash_file.path.?);
+        self.addSlice(cache_hash_file.path.?);
     }
 
     pub fn hit(self: *@This(), out_digest: *ArrayList(u8)) !bool {
@@ -312,9 +312,9 @@ test "cache file and the recall it" {
         var ch = try CacheHash.init(testing.allocator, temp_manifest_dir);
         defer ch.release();
 
-        ch.cache(true);
-        ch.cache(@as(u16, 1234));
-        ch.cache_buf("1234");
+        ch.add(true);
+        ch.add(@as(u16, 1234));
+        ch.addSlice("1234");
         try ch.cache_file("test.txt");
 
         // There should be nothing in the cache
@@ -326,9 +326,9 @@ test "cache file and the recall it" {
         var ch = try CacheHash.init(testing.allocator, temp_manifest_dir);
         defer ch.release();
 
-        ch.cache(true);
-        ch.cache(@as(u16, 1234));
-        ch.cache_buf("1234");
+        ch.add(true);
+        ch.add(@as(u16, 1234));
+        ch.addSlice("1234");
         try ch.cache_file("test.txt");
 
         // Cache hit! We just "built" the same file
