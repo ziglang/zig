@@ -3,6 +3,22 @@ const std = @import("std");
 const CrossTarget = std.zig.CrossTarget;
 
 pub fn addCases(cases: *tests.TranslateCContext) void {
+    cases.add("nested loops without blocks",
+        \\void foo() {
+        \\    while (0) while (0) {}
+        \\    for (;;) while (0);
+        \\    for (;;) do {} while (0);
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() void {
+        \\    while (@as(c_int, 0) != 0) while (@as(c_int, 0) != 0) {};
+        \\    while (true) while (@as(c_int, 0) != 0) {};
+        \\    while (true) while (true) {
+        \\        if (!(@as(c_int, 0) != 0)) break;
+        \\    };
+        \\}
+    });
+
     cases.add("macro comma operator",
         \\#define foo (foo, bar)
         \\#define bar(x) (&x, +3, 4 == 4, 5 * 6, baz(1, 2), 2 % 2, baz(1,2))
@@ -14,7 +30,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     ,
         \\pub inline fn bar(x: var) @TypeOf(baz(1, 2)) {
         \\    return blk: {
-        \\        _ = &(x);
+        \\        _ = &x;
         \\        _ = 3;
         \\        _ = 4 == 4;
         \\        _ = 5 * 6;
@@ -1993,7 +2009,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     ,
         \\pub const DOT = a.b;
     ,
-        \\pub const ARROW = (a).*.b;
+        \\pub const ARROW = a.*.b;
     });
 
     cases.add("array access",
@@ -2762,12 +2778,11 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
         \\*_XPrivDisplay;
         \\typedef struct _XDisplay Display;
-        \\#define DefaultScreen(dpy) 	(((_XPrivDisplay)(dpy))->default_screen)
+        \\#define DefaultScreen(dpy) (((_XPrivDisplay)(dpy))->default_screen)
         \\
     , &[_][]const u8{
         \\pub inline fn DefaultScreen(dpy: var) @TypeOf((if (@typeInfo(@TypeOf(dpy)) == .Pointer) @ptrCast(_XPrivDisplay, @alignCast(@alignOf(_XPrivDisplay.Child), dpy)) else if (@typeInfo(@TypeOf(dpy)) == .Int) @intToPtr(_XPrivDisplay, dpy) else @as(_XPrivDisplay, dpy)).*.default_screen) {
         \\    return (if (@typeInfo(@TypeOf(dpy)) == .Pointer) @ptrCast(_XPrivDisplay, @alignCast(@alignOf(_XPrivDisplay.Child), dpy)) else if (@typeInfo(@TypeOf(dpy)) == .Int) @intToPtr(_XPrivDisplay, dpy) else @as(_XPrivDisplay, dpy)).*.default_screen;
         \\}
     });
-
 }
