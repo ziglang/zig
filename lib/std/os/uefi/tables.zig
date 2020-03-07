@@ -1,3 +1,4 @@
+pub const AllocateType = @import("tables/boot_services.zig").AllocateType;
 pub const BootServices = @import("tables/boot_services.zig").BootServices;
 pub const ConfigurationTable = @import("tables/configuration_table.zig").ConfigurationTable;
 pub const global_variable align(8) = @import("tables/runtime_services.zig").global_variable;

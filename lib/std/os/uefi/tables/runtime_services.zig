@@ -28,7 +28,7 @@ pub const RuntimeServices = extern struct {
     getVariable: extern fn ([*:0]const u16, *align(8) const Guid, ?*u32, *usize, ?*c_void) usize,
 
     /// Enumerates the current variable names.
-    getNextVariableName: extern fn (*usize, [*]u16, *align(8) Guid) usize,
+    getNextVariableName: extern fn (*usize, [*:0]u16, *align(8) Guid) usize,
 
     /// Sets the value of a variable.
     setVariable: extern fn ([*:0]const u16, *align(8) const Guid, u32, usize, *c_void) usize,
