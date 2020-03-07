@@ -29,7 +29,10 @@ pub fn parseStringLiteral(
     try list.ensureCapacity(slice.len - 1);
 
     var state = State.Start;
-    for (slice) |b, index| {
+    var index: usize = 0;
+    while (index < slice.len) : (index += 1) {
+        const b = slice[index];
+
         switch (state) {
             State.Start => switch (b) {
                 '\\' => state = State.Backslash,
@@ -41,9 +44,6 @@ pub fn parseStringLiteral(
                 else => try list.append(b),
             },
             State.Backslash => switch (b) {
-                'x' => @panic("TODO"),
-                'u' => @panic("TODO"),
-                'U' => @panic("TODO"),
                 'n' => {
                     try list.append('\n');
                     state = State.Start;
@@ -63,6 +63,37 @@ pub fn parseStringLiteral(
                 '"' => {
                     try list.append('"');
                     state = State.Start;
+                },
+                'x', 'X' => {
+                    const index_continue = index + 3;
+                    if (slice.len >= index_continue)
+                        if (std.fmt.parseUnsigned(u8, slice[index + 1 .. index_continue], 16)) |char| {
+                            try list.append(char);
+                            state = State.Start;
+                            index = index_continue - 1; // loop-header increments again
+                            continue;
+                        } else |_| {};
+
+                    bad_index.* = index;
+                    return error.InvalidCharacter;
+                },
+                'u', 'U' => {
+                    if (slice.len > index + 2) // don't just want the braces but sth inside them
+                        if (slice[index + 1] == '{')
+                            if (std.mem.indexOfScalarPos(u8, slice[0..std.math.min(index + 9, slice.len)], index + 3, '}')) |index_end| {
+                                const hex_str = slice[index + 2 .. index_end];
+                                if (std.fmt.parseUnsigned(u32, hex_str, 16)) |uint| {
+                                    if (uint <= 0x10ffff) {
+                                        try list.appendSlice(std.mem.toBytes(uint)[0..]);
+                                        state = State.Start;
+                                        index = index_end; // loop-header increments
+                                        continue;
+                                    }
+                                } else |_| {}
+                            };
+
+                    bad_index.* = index;
+                    return error.InvalidCharacter;
                 },
                 else => {
                     bad_index.* = index;
