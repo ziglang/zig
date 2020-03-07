@@ -519,38 +519,21 @@ fn cpuid(leaf_id: u32, subid: u32) CpuidLeaf {
     // Inline assembly in zig only supports one output,
     // so we pass a pointer to the struct.
     var cpuid_leaf = CpuidLeaf{ .eax = 0, .ebx = 0, .ecx = 0, .edx = 0 };
-    var leaf_ptr = &cpuid_leaf;
-    switch (Target.current.cpu.arch) {
-        .i386 => {
-            _ = asm volatile (
-                \\ cpuid
-                \\ movl %%eax, (%%edi)
-                \\ movl %%ebx, 4(%%edi)
-                \\ movl %%ecx, 8(%%edi)
-                \\ movl %%edx, 12(%%edi)
-                :
-                : [leaf_id] "{eax}" (leaf_id),
-                  [subid] "{ecx}" (subid),
-                  [leaf_ptr] "{edi}" (leaf_ptr)
-                : "eax", "ebx", "ecx", "edx"
-            );
-        },
-        .x86_64 => {
-            _ = asm volatile (
-                \\ cpuid
-                \\ movl %%eax, (%%rdi)
-                \\ movl %%ebx, 4(%%rdi)
-                \\ movl %%ecx, 8(%%rdi)
-                \\ movl %%edx, 12(%%rdi)
-                :
-                : [leaf_id] "{eax}" (leaf_id),
-                  [subid] "{ecx}" (subid),
-                  [leaf_ptr] "{rdi}" (leaf_ptr)
-                : "eax", "ebx", "ecx", "edx"
-            );
-        },
-        else => unreachable,
-    }
+    const leaf_ptr = &cpuid_leaf;
+
+    // valid for both x86 and x86_64
+    asm volatile (
+        \\ cpuid
+        \\ movl %%eax, (%[leaf_ptr])
+        \\ movl %%ebx, 4(%[leaf_ptr])
+        \\ movl %%ecx, 8(%[leaf_ptr])
+        \\ movl %%edx, 12(%[leaf_ptr])
+        :
+        : [leaf_id] "{eax}" (leaf_id),
+          [subid] "{ecx}" (subid),
+          [leaf_ptr] "r" (leaf_ptr)
+        : "eax", "ebx", "ecx", "edx"
+    );
     return cpuid_leaf;
 }
 
