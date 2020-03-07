@@ -863,7 +863,10 @@ pub const NativeTargetInfo = struct {
     }
 
     fn detectNativeCpuAndFeatures(cpu_arch: Target.Cpu.Arch, os: Target.Os, cross_target: CrossTarget) ?Target.Cpu {
-        switch (cpu_arch) {
+        // Here we switch on a comptime value rather than `cpu_arch`. This is valid because `cpu_arch`,
+        // although it is a runtime value, is guaranteed to be one of the architectures in the set
+        // of the respective switch prong.
+        switch (std.Target.current.cpu.arch) {
             .x86_64, .i386 => {
                 return @import("system/x86.zig").detectNativeCpuAndFeatures(cpu_arch, os, cross_target);
             },
