@@ -13,6 +13,7 @@ const os = @import("os.zig");
 const base64_encoder = fs.base64_encoder;
 const base64_decoder = fs.base64_decoder;
 const BIN_DIGEST_LEN = 32;
+const BASE64_DIGEST_LEN = base64.Base64Encoder.calcSize(BIN_DIGEST_LEN);
 
 pub const File = struct {
     path: ?[]const u8,
@@ -41,7 +42,7 @@ pub const CacheHash = struct {
     manifest_dirty: bool,
     force_check_manifest: bool,
     files: ArrayList(File),
-    b64_digest: ArrayList(u8),
+    b64_digest: [BASE64_DIGEST_LEN]u8,
 
     pub fn init(alloc: *Allocator, manifest_dir_path: []const u8) !@This() {
         try fs.cwd().makePath(manifest_dir_path);
@@ -55,7 +56,7 @@ pub const CacheHash = struct {
             .manifest_dirty = false,
             .force_check_manifest = false,
             .files = ArrayList(File).init(alloc),
-            .b64_digest = ArrayList(u8).init(alloc),
+            .b64_digest = undefined,
         };
     }
 
@@ -126,27 +127,23 @@ pub const CacheHash = struct {
         self.addSlice(cache_hash_file.path.?);
     }
 
-    pub fn hit(self: *@This(), out_digest: *ArrayList(u8)) !bool {
+    pub fn hit(self: *@This()) !?[BASE64_DIGEST_LEN]u8 {
         debug.assert(self.manifest_file == null);
 
         var bin_digest: [BIN_DIGEST_LEN]u8 = undefined;
         self.blake3.final(&bin_digest);
 
-        const OUT_DIGEST_LEN = base64.Base64Encoder.calcSize(BIN_DIGEST_LEN);
-        try self.b64_digest.resize(OUT_DIGEST_LEN);
-        base64_encoder.encode(self.b64_digest.toSlice(), &bin_digest);
+        base64_encoder.encode(self.b64_digest[0..], &bin_digest);
 
         if (self.files.toSlice().len == 0 and !self.force_check_manifest) {
-            try out_digest.resize(OUT_DIGEST_LEN);
-            mem.copy(u8, out_digest.toSlice(), self.b64_digest.toSlice());
-            return true;
+            return self.b64_digest;
         }
 
         self.blake3 = Blake3.init();
         self.blake3.update(&bin_digest);
 
         {
-            const manifest_file_path = try fmt.allocPrint(self.alloc, "{}.txt", .{self.b64_digest.toSlice()});
+            const manifest_file_path = try fmt.allocPrint(self.alloc, "{}.txt", .{self.b64_digest});
             defer self.alloc.free(manifest_file_path);
 
             self.manifest_file = try self.manifest_dir.createFile(manifest_file_path, .{ .read = true, .truncate = false });
@@ -231,7 +228,7 @@ pub const CacheHash = struct {
             for (self.files.toSlice()) |file| {
                 self.blake3.update(&file.bin_digest);
             }
-            return false;
+            return null;
         }
 
         if (idx < input_file_count or idx == 0) {
@@ -244,11 +241,10 @@ pub const CacheHash = struct {
                     return error.CacheUnavailable;
                 };
             }
-            return false;
+            return null;
         }
 
-        try self.final(out_digest);
-        return true;
+        return try self.final();
     }
 
     pub fn populate_file_hash(self: *@This(), cache_hash_file: *File) !void {
@@ -265,22 +261,22 @@ pub const CacheHash = struct {
         self.blake3.update(&cache_hash_file.bin_digest);
     }
 
-    pub fn final(self: *@This(), out_digest: *ArrayList(u8)) !void {
+    pub fn final(self: *@This()) ![BASE64_DIGEST_LEN]u8 {
         debug.assert(self.manifest_file != null);
 
         var bin_digest: [BIN_DIGEST_LEN]u8 = undefined;
         self.blake3.final(&bin_digest);
 
-        const OUT_DIGEST_LEN = base64.Base64Encoder.calcSize(BIN_DIGEST_LEN);
-        try out_digest.resize(OUT_DIGEST_LEN);
-        base64_encoder.encode(out_digest.toSlice(), &bin_digest);
+        var out_digest: [BASE64_DIGEST_LEN]u8 = undefined;
+        base64_encoder.encode(&out_digest, &bin_digest);
+
+        return out_digest;
     }
 
     pub fn write_manifest(self: *@This()) !void {
         debug.assert(self.manifest_file != null);
 
-        const OUT_DIGEST_LEN = base64.Base64Encoder.calcSize(BIN_DIGEST_LEN);
-        var encoded_digest = try Buffer.initSize(self.alloc, OUT_DIGEST_LEN);
+        var encoded_digest = try Buffer.initSize(self.alloc, BASE64_DIGEST_LEN);
         defer encoded_digest.deinit();
         var contents = try Buffer.init(self.alloc, "");
         defer contents.deinit();
@@ -308,7 +304,6 @@ pub const CacheHash = struct {
             file.deinit(self.alloc);
         }
         self.files.deinit();
-        self.b64_digest.deinit();
         self.manifest_dir.close();
     }
 };
@@ -332,10 +327,8 @@ test "cache file and the recall it" {
 
     try cwd.writeFile("test.txt", "Hello, world!\n");
 
-    var digest1 = try ArrayList(u8).initCapacity(testing.allocator, 32);
-    defer digest1.deinit();
-    var digest2 = try ArrayList(u8).initCapacity(testing.allocator, 32);
-    defer digest2.deinit();
+    var digest1: [BASE64_DIGEST_LEN]u8 = undefined;
+    var digest2: [BASE64_DIGEST_LEN]u8 = undefined;
 
     {
         var ch = try CacheHash.init(testing.allocator, temp_manifest_dir);
@@ -347,9 +340,9 @@ test "cache file and the recall it" {
         try ch.addFile("test.txt");
 
         // There should be nothing in the cache
-        debug.assert((try ch.hit(&digest1)) == false);
+        debug.assert((try ch.hit()) == null);
 
-        try ch.final(&digest1);
+        digest1 = try ch.final();
     }
     {
         var ch = try CacheHash.init(testing.allocator, temp_manifest_dir);
@@ -361,10 +354,10 @@ test "cache file and the recall it" {
         try ch.addFile("test.txt");
 
         // Cache hit! We just "built" the same file
-        debug.assert((try ch.hit(&digest2)) == true);
+        digest2 = (try ch.hit()).?;
     }
 
-    debug.assert(mem.eql(u8, digest1.toSlice(), digest2.toSlice()));
+    debug.assert(mem.eql(u8, digest1[0..], digest2[0..]));
 
     try cwd.deleteTree(temp_manifest_dir);
 }
