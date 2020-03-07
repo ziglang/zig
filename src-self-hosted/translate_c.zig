@@ -5519,12 +5519,12 @@ fn parseCPrimaryExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8, 
                 return error.ParseError;
             }
 
-            //if (@typeInfo(@TypeOf(x)) == .Pointer)
-            //    @ptrCast(dest, x)
-            //else if (@typeInfo(@TypeOf(x)) == .Int and @typeInfo(dest) == .Pointer)
+            //(  if (@typeInfo(@TypeOf(x)) == .Pointer)
+            //    @ptrCast(dest, @alignCast(@alignOf(dest.Child), x))
+            //else if (@typeInfo(@TypeOf(x)) == .Integer and @typeInfo(dest) == .Pointer))
             //    @intToPtr(dest, x)
             //else
-            //    @as(dest, x)
+            //    @as(dest, x) )
 
             const lparen = try appendToken(c, .LParen, "(");
 
@@ -5546,9 +5546,30 @@ fn parseCPrimaryExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8, 
             if_1.condition = &cmp_1.base;
             _ = try appendToken(c, .RParen, ")");
 
+            const period_tok = try appendToken(c, .Period, ".");
+            const child_ident = try transCreateNodeIdentifier(c, "Child");
+            const inner_node_child = try c.a().create(ast.Node.InfixOp);
+            inner_node_child.* = .{
+                .op_token = period_tok,
+                .lhs = inner_node,
+                .op = .Period,
+                .rhs = child_ident,
+            };
+
+            const align_of = try transCreateNodeBuiltinFnCall(c, "@alignOf");
+            try align_of.params.push(&inner_node_child.base);
+            align_of.rparen_token = try appendToken(c, .RParen, ")");
+            // hack to get zig fmt to render a comma in builtin calls
+            _ = try appendToken(c, .Comma, ",");
+
+            const align_cast = try transCreateNodeBuiltinFnCall(c, "@alignCast");
+            try align_cast.params.push(&align_of.base);
+            try align_cast.params.push(node_to_cast);
+            align_cast.rparen_token = try appendToken(c, .RParen, ")");
+
             const ptr_cast = try transCreateNodeBuiltinFnCall(c, "@ptrCast");
             try ptr_cast.params.push(inner_node);
-            try ptr_cast.params.push(node_to_cast);
+            try ptr_cast.params.push(&align_cast.base);
             ptr_cast.rparen_token = try appendToken(c, .RParen, ")");
             if_1.body = &ptr_cast.base;
 
