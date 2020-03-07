@@ -55,6 +55,12 @@ pub const base64_encoder = base64.Base64Encoder.init(
     base64.standard_pad_char,
 );
 
+/// Base64, replacing the standard `+/` with `-_` so that it can be used in a file name on any filesystem.
+pub const base64_decoder = base64.Base64Decoder.init(
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_",
+    base64.standard_pad_char,
+);
+
 /// Whether or not async file system syscalls need a dedicated thread because the operating
 /// system does not support non-blocking I/O on the file system.
 pub const need_async_thread = std.io.is_async and switch (builtin.os.tag) {
