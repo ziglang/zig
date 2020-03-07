@@ -1,6 +1,5 @@
 const Blake3 = @import("crypto.zig").Blake3;
 const fs = @import("fs.zig");
-const File = fs.File;
 const base64 = @import("base64.zig");
 const ArrayList = @import("array_list.zig").ArrayList;
 const debug = @import("debug.zig");
@@ -39,7 +38,7 @@ pub const CacheHash = struct {
     blake3: Blake3,
     manifest_dir: []const u8,
     manifest_file_path: ?[]const u8,
-    manifest_file: ?File,
+    manifest_file: ?fs.File,
     manifest_dirty: bool,
     force_check_manifest: bool,
     files: ArrayList(CacheHashFile),
@@ -295,7 +294,7 @@ pub const CacheHash = struct {
     }
 };
 
-fn hash_file(alloc: *Allocator, bin_digest: []u8, handle: *const File) !void {
+fn hash_file(alloc: *Allocator, bin_digest: []u8, handle: *const fs.File) !void {
     var blake3 = Blake3.init();
     var in_stream = handle.inStream().stream;
 
