@@ -68,6 +68,7 @@ pub fn parseStringLiteral(
                     state = State.Start;
                 },
                 'x' => {
+                    // TODO: add tests for this. this first iteration was just to improve upon a @panic("TODO")
                     const index_continue = index + 3;
                     if (slice.len >= index_continue)
                         if (std.fmt.parseUnsigned(u8, slice[index + 1 .. index_continue], 16)) |char| {
@@ -81,6 +82,7 @@ pub fn parseStringLiteral(
                     return error.InvalidCharacter;
                 },
                 'u' => {
+                    // TODO: add tests for this. this first iteration was just to improve upon a @panic("TODO")
                     if (slice.len > index + 2 and slice[index + 1] == '{')
                         if (std.mem.indexOfScalarPos(u8, slice[0..std.math.min(index + 9, slice.len)], index + 3, '}')) |index_end| {
                             const hex_str = slice[index + 2 .. index_end];
