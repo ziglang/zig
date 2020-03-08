@@ -3,6 +3,31 @@ const std = @import("std");
 const CrossTarget = std.zig.CrossTarget;
 
 pub fn addCases(cases: *tests.TranslateCContext) void {
+    cases.add("structs with VLAs are rejected",
+        \\struct foo { int x; int y[]; };
+        \\struct bar { int x; int y[0]; };
+    , &[_][]const u8{
+        \\pub const struct_foo = @OpaqueType();
+    ,
+        \\pub const struct_bar = @OpaqueType();
+    });
+
+    cases.add("nested loops without blocks",
+        \\void foo() {
+        \\    while (0) while (0) {}
+        \\    for (;;) while (0);
+        \\    for (;;) do {} while (0);
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() void {
+        \\    while (@as(c_int, 0) != 0) while (@as(c_int, 0) != 0) {};
+        \\    while (true) while (@as(c_int, 0) != 0) {};
+        \\    while (true) while (true) {
+        \\        if (!(@as(c_int, 0) != 0)) break;
+        \\    };
+        \\}
+    });
+
     cases.add("macro comma operator",
         \\#define foo (foo, bar)
         \\#define bar(x) (&x, +3, 4 == 4, 5 * 6, baz(1, 2), 2 % 2, baz(1,2))
@@ -14,7 +39,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     ,
         \\pub inline fn bar(x: var) @TypeOf(baz(1, 2)) {
         \\    return blk: {
-        \\        _ = &(x);
+        \\        _ = &x;
         \\        _ = 3;
         \\        _ = 4 == 4;
         \\        _ = 5 * 6;
@@ -1404,7 +1429,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     cases.add("macro pointer cast",
         \\#define NRF_GPIO ((NRF_GPIO_Type *) NRF_GPIO_BASE)
     , &[_][]const u8{
-        \\pub const NRF_GPIO = if (@typeInfo(@TypeOf(NRF_GPIO_BASE)) == .Pointer) @ptrCast([*c]NRF_GPIO_Type, NRF_GPIO_BASE) else if (@typeInfo(@TypeOf(NRF_GPIO_BASE)) == .Int) @intToPtr([*c]NRF_GPIO_Type, NRF_GPIO_BASE) else @as([*c]NRF_GPIO_Type, NRF_GPIO_BASE);
+        \\pub const NRF_GPIO = (if (@typeInfo(@TypeOf(NRF_GPIO_BASE)) == .Pointer) @ptrCast([*c]NRF_GPIO_Type, NRF_GPIO_BASE) else if (@typeInfo(@TypeOf(NRF_GPIO_BASE)) == .Int) @intToPtr([*c]NRF_GPIO_Type, NRF_GPIO_BASE) else @as([*c]NRF_GPIO_Type, NRF_GPIO_BASE));
     });
 
     cases.add("basic macro function",
@@ -1993,7 +2018,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     ,
         \\pub const DOT = a.b;
     ,
-        \\pub const ARROW = (a).*.b;
+        \\pub const ARROW = a.*.b;
     });
 
     cases.add("array access",
@@ -2588,11 +2613,11 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\#define FOO(bar) baz((void *)(baz))
         \\#define BAR (void*) a
     , &[_][]const u8{
-        \\pub inline fn FOO(bar: var) @TypeOf(baz(if (@typeInfo(@TypeOf(baz)) == .Pointer) @ptrCast(*c_void, baz) else if (@typeInfo(@TypeOf(baz)) == .Int) @intToPtr(*c_void, baz) else @as(*c_void, baz))) {
-        \\    return baz(if (@typeInfo(@TypeOf(baz)) == .Pointer) @ptrCast(*c_void, baz) else if (@typeInfo(@TypeOf(baz)) == .Int) @intToPtr(*c_void, baz) else @as(*c_void, baz));
+        \\pub inline fn FOO(bar: var) @TypeOf(baz((if (@typeInfo(@TypeOf(baz)) == .Pointer) @ptrCast(*c_void, baz) else if (@typeInfo(@TypeOf(baz)) == .Int) @intToPtr(*c_void, baz) else @as(*c_void, baz)))) {
+        \\    return baz((if (@typeInfo(@TypeOf(baz)) == .Pointer) @ptrCast(*c_void, baz) else if (@typeInfo(@TypeOf(baz)) == .Int) @intToPtr(*c_void, baz) else @as(*c_void, baz)));
         \\}
     ,
-        \\pub const BAR = if (@typeInfo(@TypeOf(a)) == .Pointer) @ptrCast(*c_void, a) else if (@typeInfo(@TypeOf(a)) == .Int) @intToPtr(*c_void, a) else @as(*c_void, a);
+        \\pub const BAR = (if (@typeInfo(@TypeOf(a)) == .Pointer) @ptrCast(*c_void, a) else if (@typeInfo(@TypeOf(a)) == .Int) @intToPtr(*c_void, a) else @as(*c_void, a));
     });
 
     cases.add("macro conditional operator",

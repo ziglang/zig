@@ -793,11 +793,19 @@ fn transRecordDecl(c: *Context, record_decl: *const ZigClangRecordDecl) Error!?*
         while (ZigClangRecordDecl_field_iterator_neq(it, end_it)) : (it = ZigClangRecordDecl_field_iterator_next(it)) {
             const field_decl = ZigClangRecordDecl_field_iterator_deref(it);
             const field_loc = ZigClangFieldDecl_getLocation(field_decl);
+            const field_qt = ZigClangFieldDecl_getType(field_decl);
 
             if (ZigClangFieldDecl_isBitField(field_decl)) {
                 const opaque = try transCreateNodeOpaqueType(c);
                 semicolon = try appendToken(c, .Semicolon, ";");
                 try emitWarning(c, field_loc, "{} demoted to opaque type - has bitfield", .{container_kind_name});
+                break :blk opaque;
+            }
+
+            if (ZigClangType_isIncompleteOrZeroLengthArrayType(qualTypeCanon(field_qt), c.clang_context)) {
+                const opaque = try transCreateNodeOpaqueType(c);
+                semicolon = try appendToken(c, .Semicolon, ";");
+                try emitWarning(c, field_loc, "{} demoted to opaque type - has variable length array", .{container_kind_name});
                 break :blk opaque;
             }
 
@@ -809,7 +817,7 @@ fn transRecordDecl(c: *Context, record_decl: *const ZigClangRecordDecl) Error!?*
             }
             const field_name = try appendIdentifier(c, raw_name);
             _ = try appendToken(c, .Colon, ":");
-            const field_type = transQualType(rp, ZigClangFieldDecl_getType(field_decl), field_loc) catch |err| switch (err) {
+            const field_type = transQualType(rp, field_qt, field_loc) catch |err| switch (err) {
                 error.UnsupportedType => {
                     const opaque = try transCreateNodeOpaqueType(c);
                     semicolon = try appendToken(c, .Semicolon, ";");
@@ -2237,6 +2245,7 @@ fn transWhileLoop(
         .id = .Loop,
     };
     while_node.body = try transStmt(rp, &loop_scope, ZigClangWhileStmt_getBody(stmt), .unused, .r_value);
+    _ = try appendToken(rp.c, .Semicolon, ";");
     return &while_node.base;
 }
 
@@ -2346,8 +2355,10 @@ fn transForLoop(
         try block_scope.?.block_node.statements.push(&while_node.base);
         block_scope.?.block_node.rbrace = try appendToken(rp.c, .RBrace, "}");
         return &block_scope.?.block_node.base;
-    } else
+    } else {
+        _ = try appendToken(rp.c, .Semicolon, ";");
         return &while_node.base;
+    }
 }
 
 fn transSwitch(
@@ -5431,6 +5442,8 @@ fn parseCPrimaryExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8, 
             //else
             //    @as(dest, x)
 
+            const lparen = try appendToken(c, .LParen, "(");
+
             const if_1 = try transCreateNodeIf(c);
             const type_id_1 = try transCreateNodeBuiltinFnCall(c, "@typeInfo");
             const type_of_1 = try transCreateNodeBuiltinFnCall(c, "@TypeOf");
@@ -5492,7 +5505,13 @@ fn parseCPrimaryExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8, 
             as.rparen_token = try appendToken(c, .RParen, ")");
             else_2.body = &as.base;
 
-            return &if_1.base;
+            const group_node = try c.a().create(ast.Node.GroupedExpression);
+            group_node.* = .{
+                .lparen = lparen,
+                .expr = &if_1.base,
+                .rparen = try appendToken(c, .RParen, ")"),
+            };
+            return &group_node.base;
         },
         else => {
             const first_tok = it.list.at(0);
@@ -5545,14 +5564,7 @@ fn parseCSuffixOpExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8,
                     );
                     return error.ParseError;
                 }
-                // deref is often used together with casts so we group the lhs expression
-                const group = try c.a().create(ast.Node.GroupedExpression);
-                group.* = .{
-                    .lparen = try appendToken(c, .LParen, "("),
-                    .expr = node,
-                    .rparen = try appendToken(c, .RParen, ")"),
-                };
-                const deref = try transCreateNodePtrDeref(c, &group.base);
+                const deref = try transCreateNodePtrDeref(c, node);
                 node = try transCreateNodeFieldAccess(c, deref, source[name_tok.start..name_tok.end]);
                 continue;
             },
@@ -5596,7 +5608,7 @@ fn parseCSuffixOpExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8,
             },
             .Ampersand => {
                 op_token = try appendToken(c, .Ampersand, "&");
-                op_id .BitAnd;
+                op_id = .BitAnd;
             },
             .Plus => {
                 op_token = try appendToken(c, .Plus, "+");
@@ -5604,7 +5616,7 @@ fn parseCSuffixOpExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8,
             },
             .Minus => {
                 op_token = try appendToken(c, .Minus, "-");
-                op_id .Sub;
+                op_id = .Sub;
             },
             .AmpersandAmpersand => {
                 op_token = try appendToken(c, .Keyword_and, "and");
@@ -5676,19 +5688,17 @@ fn parseCSuffixOpExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8,
             },
             .BangEqual => {
                 op_token = try appendToken(c, .BangEqual, "!=");
-                op_id =  .BangEqual;
+                op_id = .BangEqual;
             },
             .EqualEqual => {
                 op_token = try appendToken(c, .EqualEqual, "==");
                 op_id = .EqualEqual;
             },
             .Slash => {
-                // unsigned/float division uses the operator
                 op_id = .Div;
                 op_token = try appendToken(c, .Slash, "/");
             },
             .Percent => {
-                // unsigned/float division uses the operator
                 op_id = .Mod;
                 op_token = try appendToken(c, .Percent, "%");
             },
@@ -5729,25 +5739,12 @@ fn parseCPrefixOpExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8,
             return &node.base;
         },
         .Asterisk => {
-            // deref is often used together with casts so we group the lhs expression
-            const group = try c.a().create(ast.Node.GroupedExpression);
-            group.* = .{
-                .lparen = try appendToken(c, .LParen, "("),
-                .expr = try parseCPrefixOpExpr(c, it, source, source_loc, scope),
-                .rparen = try appendToken(c, .RParen, ")"),
-            };
-            return try transCreateNodePtrDeref(c, &group.base);
+            const node = try parseCPrefixOpExpr(c, it, source, source_loc, scope);
+            return try transCreateNodePtrDeref(c, node);
         },
         .Ampersand => {
-            // address of is often used together with casts so we group the rhs expression
             const node = try transCreateNodePrefixOp(c, .AddressOf, .Ampersand, "&");
-            const group = try c.a().create(ast.Node.GroupedExpression);
-            group.* = .{
-                .lparen = try appendToken(c, .LParen, "("),
-                .expr = try parseCPrefixOpExpr(c, it, source, source_loc, scope),
-                .rparen = try appendToken(c, .RParen, ")"),
-            };
-            node.rhs = &group.base;
+            node.rhs = try parseCPrefixOpExpr(c, it, source, source_loc, scope);
             return &node.base;
         },
         else => {

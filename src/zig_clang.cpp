@@ -1881,6 +1881,26 @@ bool ZigClangType_isRecordType(const ZigClangType *self) {
     return casted->isRecordType();
 }
 
+bool ZigClangType_isIncompleteOrZeroLengthArrayType(const ZigClangQualType *self,
+        const struct ZigClangASTContext *ctx)
+{
+    auto casted_ctx = reinterpret_cast<const clang::ASTContext *>(ctx);
+    auto casted = reinterpret_cast<const clang::QualType *>(self);
+    auto casted_type = reinterpret_cast<const clang::Type *>(self);
+    if (casted_type->isIncompleteArrayType())
+        return true;
+
+    clang::QualType elem_type = *casted;   
+    while (const clang::ConstantArrayType *ArrayT = casted_ctx->getAsConstantArrayType(elem_type)) {
+        if (ArrayT->getSize() == 0)
+            return true;
+
+        elem_type = ArrayT->getElementType();
+    }
+
+    return false;
+}
+
 bool ZigClangType_isConstantArrayType(const ZigClangType *self) {
     auto casted = reinterpret_cast<const clang::Type *>(self);
     return casted->isConstantArrayType();
