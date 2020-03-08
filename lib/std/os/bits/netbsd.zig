@@ -1,9 +1,12 @@
 const std = @import("../../std.zig");
 const maxInt = std.math.maxInt;
 
-pub const fd_t = c_int;
-pub const pid_t = c_int;
-pub const mode_t = c_uint;
+pub const fd_t = i32;
+pub const pid_t = i32;
+pub const mode_t = u32;
+pub const ino_t = u64;
+pub const off_t = i64;
+pub const socklen_t = u32;
 
 /// Renamed from `kevent` to `Kevent` to avoid conflict with function name.
 pub const Kevent = extern struct {
@@ -67,9 +70,6 @@ pub const msghdr_const = extern struct {
     /// flags on received message
     msg_flags: i32,
 };
-
-pub const off_t = i64;
-pub const ino_t = u64;
 
 /// Renamed to Stat to not conflict with the stat function.
 /// atime, mtime, and ctime have functions to return `timespec`,
@@ -815,6 +815,23 @@ pub fn S_ISSOCK(m: u32) bool {
 pub fn S_IWHT(m: u32) bool {
     return m & S_IFMT == S_IFWHT;
 }
+
+/// Magic value that specify the use of the current working directory
+/// to determine the target of relative file paths in the openat() and
+/// similar syscalls.
+pub const AT_FDCWD = -100;
+
+/// Check access using effective user and group ID
+pub const AT_EACCESS = 0x0100;
+
+/// Do not follow symbolic links
+pub const AT_SYMLINK_NOFOLLOW = 0x0200;
+
+/// Follow symbolic link
+pub const AT_SYMLINK_FOLLOW = 0x0400;
+
+/// Remove directory instead of file
+pub const AT_REMOVEDIR = 0x0800;
 
 pub const HOST_NAME_MAX = 255;
 

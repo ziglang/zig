@@ -2542,6 +2542,17 @@ pub fn fstat(fd: fd_t) FStatError!Stat {
         }
     }
 
+    if (std.Target.current.os.tag == .netbsd) {
+        switch (errno(system.__fstat50(fd, &stat))) {
+            0 => return stat,
+            EINVAL => unreachable,
+            EBADF => unreachable, // Always a race condition.
+            ENOMEM => return error.SystemResources,
+            EACCES => return error.AccessDenied,
+            else => |err| return unexpectedErrno(err),
+        }
+    }
+
     switch (errno(system.fstat(fd, &stat))) {
         0 => return stat,
         EINVAL => unreachable,
@@ -3401,6 +3412,16 @@ pub fn clock_gettime(clk_id: i32, tp: *timespec) ClockGetTimeError!void {
         }
         return;
     }
+
+    if (std.Target.current.os.tag == .netbsd) {
+        switch (errno(system.__clock_gettime50(clk_id, tp))) {
+            0 => return,
+            EFAULT => unreachable,
+            EINVAL => return error.UnsupportedClock,
+            else => |err| return unexpectedErrno(err),
+        }
+    }
+
     switch (errno(system.clock_gettime(clk_id, tp))) {
         0 => return,
         EFAULT => unreachable,
@@ -3421,6 +3442,15 @@ pub fn clock_getres(clk_id: i32, res: *timespec) ClockGetTimeError!void {
             else => |err| return unexpectedErrno(err),
         }
         return;
+    }
+
+    if (std.Target.current.os.tag == .netbsd) {
+        switch (errno(system.__clock_getres50(clk_id, res))) {
+            0 => return,
+            EFAULT => unreachable,
+            EINVAL => return error.UnsupportedClock,
+            else => |err| return unexpectedErrno(err),
+        }
     }
 
     switch (errno(system.clock_getres(clk_id, res))) {

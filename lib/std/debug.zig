@@ -654,6 +654,8 @@ pub fn openSelfDebugInfo(allocator: *mem.Allocator) anyerror!DebugInfo {
         switch (builtin.os.tag) {
             .linux,
             .freebsd,
+            .netbsd,
+            .dragonfly,
             .macosx,
             .windows,
             => return DebugInfo.init(allocator),
