@@ -68,7 +68,7 @@ pub fn parseStringLiteral(
                     state = State.Start;
                 },
                 'x' => {
-                    // TODO: add tests for this. this first iteration was just to improve upon a @panic("TODO")
+                    // TODO: add more/better/broader tests for this.
                     const index_continue = index + 3;
                     if (slice.len >= index_continue)
                         if (std.fmt.parseUnsigned(u8, slice[index + 1 .. index_continue], 16)) |char| {
@@ -82,7 +82,7 @@ pub fn parseStringLiteral(
                     return error.InvalidCharacter;
                 },
                 'u' => {
-                    // TODO: add tests for this. this first iteration was just to improve upon a @panic("TODO")
+                    // TODO: add more/better/broader tests for this.
                     if (slice.len > index + 2 and slice[index + 1] == '{')
                         if (std.mem.indexOfScalarPos(u8, slice[0..std.math.min(index + 9, slice.len)], index + 3, '}')) |index_end| {
                             const hex_str = slice[index + 2 .. index_end];
@@ -108,4 +108,18 @@ pub fn parseStringLiteral(
         }
     }
     unreachable;
+}
+
+test "parseStringLiteral" {
+    const expect = std.testing.expect;
+    const eql = std.mem.eql;
+
+    var fixed_buf_mem: [1024]u8 = undefined;
+    var fixed_buf_alloc = std.heap.FixedBufferAllocator.init(fixed_buf_mem[0..]);
+    var alloc = &fixed_buf_alloc.allocator;
+    var bi: usize = undefined; // bad_index
+
+    expect(eql(u8, "foo", try parseStringLiteral(alloc, "\"foo\"", &bi)));
+    expect(eql(u8, "foo", try parseStringLiteral(alloc, "\"f\x6f\x6f\"", &bi)));
+    expect(eql(u8, "f💯", try parseStringLiteral(alloc, "\"f\u{1f4af}\"", &bi)));
 }
