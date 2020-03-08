@@ -19,13 +19,12 @@ pub fn parseStringLiteral(
     bytes: []const u8,
     bad_index: *usize, // populated if error.InvalidCharacter is returned
 ) ParseStringLiteralError![]u8 {
-    const first_index = 1;
-    assert(bytes.len != 0 and bytes[bytes.len - 1] == '"');
+    assert(bytes.len >= 2 and bytes[0] == '"' and bytes[bytes.len - 1] == '"');
 
     var list = std.ArrayList(u8).init(allocator);
     errdefer list.deinit();
 
-    const slice = bytes[first_index..];
+    const slice = bytes[1..];
     try list.ensureCapacity(slice.len - 1);
 
     var state = State.Start;
