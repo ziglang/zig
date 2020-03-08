@@ -5424,15 +5424,12 @@ fn parseCPrimaryExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8, 
                 return error.ParseError;
             }
 
-            // TODO: It might be nice if we only did the alignCasting for opaque types
-            //(  if (@typeInfo(@TypeOf(x)) == .Pointer)
-            //    @ptrCast(dest, @alignCast(@alignOf(dest.Child), x))
+            //if (@typeInfo(@TypeOf(x)) == .Pointer)
+            //    @ptrCast(dest, x)
             //else if (@typeInfo(@TypeOf(x)) == .Integer)
             //    @intToPtr(dest, x)
             //else
-            //    @as(dest, x) )
-
-            const group_lparen = try appendToken(c, .LParen, "(");
+            //    @as(dest, x)
 
             const if_1 = try transCreateNodeIf(c);
             const type_id_1 = try transCreateNodeBuiltinFnCall(c, "@typeInfo");
@@ -5452,30 +5449,9 @@ fn parseCPrimaryExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8, 
             if_1.condition = &cmp_1.base;
             _ = try appendToken(c, .RParen, ")");
 
-            const period_tok = try appendToken(c, .Period, ".");
-            const child_ident = try transCreateNodeIdentifier(c, "Child");
-            const inner_node_child = try c.a().create(ast.Node.InfixOp);
-            inner_node_child.* = .{
-                .op_token = period_tok,
-                .lhs = inner_node,
-                .op = .Period,
-                .rhs = child_ident,
-            };
-
-            const align_of = try transCreateNodeBuiltinFnCall(c, "@alignOf");
-            try align_of.params.push(&inner_node_child.base);
-            align_of.rparen_token = try appendToken(c, .RParen, ")");
-            // hack to get zig fmt to render a comma in builtin calls
-            _ = try appendToken(c, .Comma, ",");
-
-            const align_cast = try transCreateNodeBuiltinFnCall(c, "@alignCast");
-            try align_cast.params.push(&align_of.base);
-            try align_cast.params.push(node_to_cast);
-            align_cast.rparen_token = try appendToken(c, .RParen, ")");
-
             const ptr_cast = try transCreateNodeBuiltinFnCall(c, "@ptrCast");
             try ptr_cast.params.push(inner_node);
-            try ptr_cast.params.push(&align_cast.base);
+            try ptr_cast.params.push(node_to_cast);
             ptr_cast.rparen_token = try appendToken(c, .RParen, ")");
             if_1.body = &ptr_cast.base;
 
@@ -5516,14 +5492,7 @@ fn parseCPrimaryExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8, 
             as.rparen_token = try appendToken(c, .RParen, ")");
             else_2.body = &as.base;
 
-            const group_rparen = try appendToken(c, .RParen, ")");
-            const grouped_expr = try c.a().create(ast.Node.GroupedExpression);
-            grouped_expr.* = .{
-                .lparen = group_lparen,
-                .expr = &if_1.base,
-                .rparen = group_rparen,
-            };
-            return &grouped_expr.base;
+            return &if_1.base;
         },
         else => {
             const first_tok = it.list.at(0);
