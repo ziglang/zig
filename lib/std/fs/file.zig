@@ -28,6 +28,10 @@ pub const File = struct {
     pub const async_block_allowed_no = if (io.is_async) false else {};
 
     pub const Mode = os.mode_t;
+    pub const INode = switch (builtin.os.tag) {
+        .windows => os.windows.LARGE_INTEGER,
+        else => u64,
+    };
 
     pub const default_mode = switch (builtin.os.tag) {
         .windows => 0,
@@ -145,6 +149,7 @@ pub const File = struct {
     }
 
     pub const Stat = struct {
+        inode: INode,
         size: u64,
         mode: Mode,
 
@@ -174,6 +179,7 @@ pub const File = struct {
                 else => return windows.unexpectedStatus(rc),
             }
             return Stat{
+                .inode = info.InternalInformation.IndexNumber,
                 .size = @bitCast(u64, info.StandardInformation.EndOfFile),
                 .mode = 0,
                 .atime = windows.fromSysTime(info.BasicInformation.LastAccessTime),
@@ -187,6 +193,7 @@ pub const File = struct {
         const mtime = st.mtime();
         const ctime = st.ctime();
         return Stat{
+            .inode = st.ino,
             .size = @bitCast(u64, st.size),
             .mode = st.mode,
             .atime = @as(i64, atime.tv_sec) * std.time.ns_per_s + atime.tv_nsec,
