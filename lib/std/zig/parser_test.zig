@@ -2953,7 +2953,7 @@ fn testParse(source: []const u8, allocator: *mem.Allocator, anything_changed: *b
         return error.ParseError;
     }
 
-    var buffer = try std.Buffer.initSize(allocator, 0);
+    var buffer = std.ArrayList(u8).init(allocator);
     errdefer buffer.deinit();
 
     anything_changed.* = try std.zig.render(allocator, buffer.outStream(), tree);

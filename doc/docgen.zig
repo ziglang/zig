@@ -321,7 +321,7 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
     var last_action = Action.Open;
     var last_columns: ?u8 = null;
 
-    var toc_buf = try std.Buffer.initSize(allocator, 0);
+    var toc_buf = std.ArrayList(u8).init(allocator);
     defer toc_buf.deinit();
 
     var toc = toc_buf.outStream();
@@ -607,7 +607,7 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
 }
 
 fn urlize(allocator: *mem.Allocator, input: []const u8) ![]u8 {
-    var buf = try std.Buffer.initSize(allocator, 0);
+    var buf = std.ArrayList(u8).init(allocator);
     defer buf.deinit();
 
     const out = buf.outStream();
@@ -626,7 +626,7 @@ fn urlize(allocator: *mem.Allocator, input: []const u8) ![]u8 {
 }
 
 fn escapeHtml(allocator: *mem.Allocator, input: []const u8) ![]u8 {
-    var buf = try std.Buffer.initSize(allocator, 0);
+    var buf = std.ArrayList(u8).init(allocator);
     defer buf.deinit();
 
     const out = buf.outStream();
@@ -672,7 +672,7 @@ test "term color" {
 }
 
 fn termColor(allocator: *mem.Allocator, input: []const u8) ![]u8 {
-    var buf = try std.Buffer.initSize(allocator, 0);
+    var buf = std.ArrayList(u8).init(allocator);
     defer buf.deinit();
 
     var out = buf.outStream();
