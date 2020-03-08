@@ -41,6 +41,15 @@ pub const File = struct {
         read: bool = true,
         write: bool = false,
 
+        /// Open the file with exclusive access. If `write` is true, then the file is opened with an
+        /// exclusive lock, meaning that no other processes can read or write to the file. Otherwise
+        /// the file is opened with a shared lock, allowing the other processes to read from the
+        /// file, but not to write to the file.
+        ///
+        /// Note that the lock is only advisory on Linux. This means that a process that does not
+        /// respect the locking API can still read and write to the file, despite the lock.
+        lock: bool = false,
+
         /// This prevents `O_NONBLOCK` from being passed even if `std.io.is_async`.
         /// It allows the use of `noasync` when calling functions related to opening
         /// the file, reading, and writing.
