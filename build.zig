@@ -32,6 +32,20 @@ pub fn build(b: *Builder) !void {
     const docs_step = b.step("docs", "Build documentation");
     docs_step.dependOn(&docgen_cmd.step);
 
+    // option to generate docs for stdlib
+    // pulled from https://github.com/kristoff-it/zig-okredis
+    const build_stddocs = b.addSystemCommand(&[_][]const u8{
+        b.zig_exe,
+        "test",
+        "lib/std/std.zig",
+        "-femit-docs",
+        "-fno-emit-bin",
+        "--output-dir",
+        ".",
+    });
+    const stddoc_step = b.step("stddocs", "Build documentation for std.zig");
+    stddoc_step.dependOn(&build_stddocs.step);
+
     const test_step = b.step("test", "Run all the tests");
 
     // find the stage0 build artifacts because we're going to re-use config.h and zig_cpp library
