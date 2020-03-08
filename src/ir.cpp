@@ -9014,7 +9014,7 @@ static IrInstSrc *ir_gen_switch_expr(IrBuilderSrc *irb, Scope *scope, AstNode *n
                     return irb->codegen->invalid_inst_src;
                 }
                 else_prong = prong_node;
-            } else if (prong_item_count == 1 && 
+            } else if (prong_item_count == 1 &&
                     prong_node->data.switch_prong.items.at(0)->type == NodeTypeSymbol &&
                     buf_eql_str(prong_node->data.switch_prong.items.at(0)->data.symbol_expr.symbol, "_")) {
                 if (underscore_prong) {
@@ -26068,7 +26068,7 @@ static IrInstGen *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstSrcSlice *i
             if (array_type->data.pointer.ptr_len == PtrLenC) {
                 array_type = adjust_ptr_len(ira->codegen, array_type, PtrLenUnknown);
 
-                // C pointers are allowzero by default.  
+                // C pointers are allowzero by default.
                 // However, we want to be able to slice them without generating an allowzero slice (see issue #4401).
                 // To achieve this, we generate a runtime safety check and make the slice type non-allowzero.
                 if (array_type->data.pointer.allow_zero) {
@@ -26363,7 +26363,7 @@ static IrInstGen *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstSrcSlice *i
 
         if (type_is_invalid(ptr_val->value->type))
             return ira->codegen->invalid_inst_gen;
-    
+
         ir_build_assert_non_null(ira, &instruction->base.base, ptr_val);
     }
 
@@ -30246,7 +30246,7 @@ static Error ir_resolve_lazy_raw(AstNode *source_node, ZigValue *val) {
                     return ErrorSemanticAnalyzeFail;
                 } else if (elem_type->id == ZigTypeIdOpaque) {
                     ir_add_error(ira, &lazy_ptr_type->elem_type->base,
-                            buf_sprintf("C pointers cannot point opaque types"));
+                            buf_sprintf("C pointers cannot point to opaque types"));
                     return ErrorSemanticAnalyzeFail;
                 } else if (lazy_ptr_type->is_allowzero) {
                     ir_add_error(ira, &lazy_ptr_type->elem_type->base,

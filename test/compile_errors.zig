@@ -1592,7 +1592,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var y: [*c]c_void = x;
         \\}
     , &[_][]const u8{
-        "tmp.zig:3:16: error: C pointers cannot point opaque types",
+        "tmp.zig:3:16: error: C pointers cannot point to opaque types",
     });
 
     cases.add("directly embedding opaque type in struct and union",
