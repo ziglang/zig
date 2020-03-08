@@ -28,8 +28,13 @@ pub const File = struct {
     pub const async_block_allowed_no = if (io.is_async) false else {};
 
     pub const Mode = os.mode_t;
+
+    /// The type that is used to represent the inode/file index number. On windows this is a
+    /// LARGE_INTEGER (i64), and on linux this is a u64.
     pub const INode = switch (builtin.os.tag) {
         .windows => os.windows.LARGE_INTEGER,
+        // TODO: Handle possibility of 128 bit numbers? ReFS on windows server 2012 uses a 128 bit file
+        // index. See https://docs.microsoft.com/en-us/windows/win32/api/fileapi/ns-fileapi-by_handle_file_information
         else => u64,
     };
 
@@ -149,7 +154,16 @@ pub const File = struct {
     }
 
     pub const Stat = struct {
+        /// A number that the system uses to point to the file metadata. This number is not guaranteed to be
+        /// unique across time, as some file systems may reuse an inode after it's file has been deleted.
+        /// Some systems may change the inode of a file over time.
+        ///
+        /// On Linux, the inode _is_ structure that stores the metadata, and the inode _number_ is what
+        /// you see here: the index number of the inode.
+        ///
+        /// The FileIndex on Windows is similar. It is a number for a file that is unique to each filesystem.
         inode: INode,
+
         size: u64,
         mode: Mode,
 
