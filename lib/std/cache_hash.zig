@@ -319,9 +319,10 @@ fn hash_file(alloc: *Allocator, bin_digest: []u8, handle: *const fs.File) !void 
 test "cache file and the recall it" {
     const cwd = fs.cwd();
 
+    const temp_file = "test.txt";
     const temp_manifest_dir = "temp_manifest_dir";
 
-    try cwd.writeFile("test.txt", "Hello, world!\n");
+    try cwd.writeFile(temp_file, "Hello, world!\n");
 
     var digest1: [BASE64_DIGEST_LEN]u8 = undefined;
     var digest2: [BASE64_DIGEST_LEN]u8 = undefined;
@@ -356,4 +357,5 @@ test "cache file and the recall it" {
     debug.assert(mem.eql(u8, digest1[0..], digest2[0..]));
 
     try cwd.deleteTree(temp_manifest_dir);
+    try cwd.deleteFile(temp_file);
 }
