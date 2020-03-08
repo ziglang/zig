@@ -2,6 +2,12 @@ const std = @import("std");
 const Target = std.Target;
 const CrossTarget = std.zig.CrossTarget;
 
+const XCR0_XMM = 0x02;
+const XCR0_YMM = 0x04;
+const XCR0_MASKREG = 0x20;
+const XCR0_ZMM0_15 = 0x40;
+const XCR0_ZMM16_31 = 0x80;
+
 fn setFeature(cpu: *Target.Cpu, feature: Target.x86.Feature, enabled: bool) void {
     const idx = @as(Target.Cpu.Feature.Set.Index, @enumToInt(feature));
 
@@ -10,6 +16,10 @@ fn setFeature(cpu: *Target.Cpu, feature: Target.x86.Feature, enabled: bool) void
 
 inline fn bit(input: u32, offset: u5) bool {
     return (input >> offset) & 1 != 0;
+}
+
+inline fn hasMask(input: u32, mask: u32) bool {
+    return (input & mask) == mask;
 }
 
 pub fn detectNativeCpuAndFeatures(arch: Target.Cpu.Arch, os: Target.Os, cross_target: CrossTarget) Target.Cpu {
@@ -310,7 +320,6 @@ fn detectNativeFeatures(cpu: *Target.Cpu, os_tag: Target.Os.Tag) void {
     leaf = cpuid(1, 0);
 
     setFeature(cpu, .cx8, bit(leaf.edx, 8));
-    setFeature(cpu, .cx8, bit(leaf.edx, 8));
     setFeature(cpu, .cmov, bit(leaf.edx, 15));
     setFeature(cpu, .mmx, bit(leaf.edx, 23));
     setFeature(cpu, .fxsr, bit(leaf.edx, 24));
@@ -327,11 +336,13 @@ fn detectNativeFeatures(cpu: *Target.Cpu, os_tag: Target.Os.Tag) void {
     setFeature(cpu, .aes, bit(leaf.ecx, 25));
     setFeature(cpu, .rdrnd, bit(leaf.ecx, 30));
 
-    // If the CPU supports XSAVE/XRESTORE (bit 27) and AVX (bit 28) also check
-    // if the AVX registers are saved & restored on context switch
-    const has_avx_save = bit(leaf.ecx, 27) and
-        bit(leaf.ecx, 28) and
-        ((getXCR0() & 0x6) == 0x6);
+    const has_xsave = bit(leaf.ecx, 27);
+    const has_avx = bit(leaf.ecx, 28);
+
+    // Make sure not to call xgetbv if xsave is not supported
+    const xcr0_eax = if (has_xsave and has_avx) getXCR0() else 0;
+
+    const has_avx_save = hasMask(xcr0_eax, XCR0_XMM | XCR0_YMM);
 
     // LLVM approaches avx512_save by hardcoding it to true on Darwin,
     // because the kernel saves the context even if the bit is not set.
@@ -355,7 +366,7 @@ fn detectNativeFeatures(cpu: *Target.Cpu, os_tag: Target.Os.Tag) void {
     // set right now.
     const has_avx512_save = switch (os_tag.isDarwin()) {
         true => true,
-        false => has_avx_save and ((leaf.eax & 0xE0) == 0xE0),
+        false => hasMask(xcr0_eax, XCR0_MASKREG | XCR0_ZMM0_15 | XCR0_ZMM16_31),
     };
 
     setFeature(cpu, .avx, has_avx_save);
@@ -530,6 +541,7 @@ fn cpuid(leaf_id: u32, subid: u32) CpuidLeaf {
           [leaf_ptr] "r" (&cpuid_leaf)
         : "eax", "ebx", "ecx", "edx"
     );
+
     return cpuid_leaf;
 }
 
