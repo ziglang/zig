@@ -523,6 +523,12 @@ pub const panic: PanicFn = if (@hasDecl(root, "panic")) root.panic else default_
 
 /// This function is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
+///
+/// On all platforms except for freestanding, WASI, and UEFI, this function
+/// captures a stack trace and prints it to stderr.
+///
+/// std.debug.panicExtra handles capturing a stack trace and printing messages
+/// and is called for every platform except for the platforms mentioned above.
 pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace) noreturn {
     @setCold(true);
     if (@hasDecl(root, "os") and @hasDecl(root.os, "panic")) {
