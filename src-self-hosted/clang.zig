@@ -812,6 +812,7 @@ pub extern fn ZigClangType_getPointeeType(self: ?*const struct_ZigClangType) str
 pub extern fn ZigClangType_isVoidType(self: ?*const struct_ZigClangType) bool;
 pub extern fn ZigClangType_isConstantArrayType(self: ?*const struct_ZigClangType) bool;
 pub extern fn ZigClangType_isRecordType(self: ?*const struct_ZigClangType) bool;
+pub extern fn ZigClangType_isIncompleteOrZeroLengthArrayType(self: ?*const struct_ZigClangType, *const ZigClangASTContext) bool;
 pub extern fn ZigClangType_isArrayType(self: ?*const struct_ZigClangType) bool;
 pub extern fn ZigClangType_isBooleanType(self: ?*const struct_ZigClangType) bool;
 pub extern fn ZigClangType_getTypeClassName(self: *const struct_ZigClangType) [*:0]const u8;

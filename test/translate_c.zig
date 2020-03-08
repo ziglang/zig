@@ -3,6 +3,15 @@ const std = @import("std");
 const CrossTarget = std.zig.CrossTarget;
 
 pub fn addCases(cases: *tests.TranslateCContext) void {
+    cases.add("structs with VLAs are rejected",
+        \\struct foo { int x; int y[]; };
+        \\struct bar { int x; int y[0]; };
+    , &[_][]const u8{
+        \\pub const struct_foo = @OpaqueType();
+    ,
+        \\pub const struct_bar = @OpaqueType();
+    });
+
     cases.add("nested loops without blocks",
         \\void foo() {
         \\    while (0) while (0) {}
