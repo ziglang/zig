@@ -1161,9 +1161,6 @@ Error os_update_file(Buf *src_path, Buf *dst_path) {
         fclose(dst_libc_file);
         return err;
     }
-    if (fflush(src_libc_file) == -1) {
-        return ErrorUnexpected;
-    }
     if (fflush(dst_libc_file) == -1) {
         return ErrorUnexpected;
     }
