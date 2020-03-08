@@ -591,6 +591,8 @@ pub const CreateDirectoryError = error{
     FileNotFound,
     NoDevice,
     AccessDenied,
+    InvalidUtf8,
+    BadPathName,
     Unexpected,
 };
 
