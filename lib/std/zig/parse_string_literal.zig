@@ -114,12 +114,12 @@ test "parseStringLiteral" {
     const expect = std.testing.expect;
     const eql = std.mem.eql;
 
-    var fixed_buf_mem: [1024]u8 = undefined;
+    var fixed_buf_mem: [32]u8 = undefined;
     var fixed_buf_alloc = std.heap.FixedBufferAllocator.init(fixed_buf_mem[0..]);
     var alloc = &fixed_buf_alloc.allocator;
-    var bi: usize = undefined; // bad_index
+    var bad_index: usize = undefined;
 
-    expect(eql(u8, "foo", try parseStringLiteral(alloc, "\"foo\"", &bi)));
-    expect(eql(u8, "foo", try parseStringLiteral(alloc, "\"f\x6f\x6f\"", &bi)));
-    expect(eql(u8, "f💯", try parseStringLiteral(alloc, "\"f\u{1f4af}\"", &bi)));
+    expect(eql(u8, "foo", try parseStringLiteral(alloc, "\"foo\"", &bad_index)));
+    expect(eql(u8, "foo", try parseStringLiteral(alloc, "\"f\x6f\x6f\"", &bad_index)));
+    expect(eql(u8, "f💯", try parseStringLiteral(alloc, "\"f\u{1f4af}\"", &bad_index)));
 }
