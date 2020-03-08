@@ -1799,7 +1799,9 @@ static void construct_linker_job_elf(LinkJob *lj) {
                 lj->args.append("-lm");
             }
 
-            if (g->zig_target->os == OsFreeBSD) {
+            if (g->zig_target->os == OsFreeBSD ||
+                g->zig_target->os == OsNetBSD)
+            {
                 lj->args.append("-lpthread");
             }
         } else if (target_is_glibc(g->zig_target)) {
