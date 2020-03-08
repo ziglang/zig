@@ -18,7 +18,6 @@ const BASE64_DIGEST_LEN = base64.Base64Encoder.calcSize(BIN_DIGEST_LEN);
 pub const File = struct {
     path: ?[]const u8,
     stat: fs.File.Stat,
-    file_handle: os.fd_t,
     bin_digest: [BIN_DIGEST_LEN]u8,
     contents: ?[]const u8,
 
@@ -169,12 +168,10 @@ pub const CacheHash = struct {
             }
 
             var iter = mem.tokenize(line, " ");
-            const file_handle_str = iter.next() orelse return error.InvalidFormat;
             const mtime_nsec_str = iter.next() orelse return error.InvalidFormat;
             const digest_str = iter.next() orelse return error.InvalidFormat;
             const file_path = iter.rest();
 
-            cache_hash_file.file_handle = fmt.parseInt(os.fd_t, file_handle_str, 10) catch return error.InvalidFormat;
             cache_hash_file.stat.mtime = fmt.parseInt(i64, mtime_nsec_str, 10) catch return error.InvalidFormat;
             base64_decoder.decode(&cache_hash_file.bin_digest, digest_str) catch return error.InvalidFormat;
 
@@ -191,10 +188,15 @@ pub const CacheHash = struct {
                 return error.CacheUnavailable;
             };
             defer this_file.close();
-            cache_hash_file.stat = try this_file.stat();
-            // TODO: check mtime
-            if (false) {} else {
+
+            const actual_stat = try this_file.stat();
+            const mtime_matches = actual_stat.mtime == cache_hash_file.stat.mtime;
+
+            // TODO: check inode
+            if (!mtime_matches) {
                 self.manifest_dirty = true;
+
+                cache_hash_file.stat = actual_stat;
 
                 // TODO: check for problematic timestamp
 
@@ -277,7 +279,7 @@ pub const CacheHash = struct {
 
         for (self.files.toSlice()) |file| {
             base64_encoder.encode(encoded_digest[0..], &file.bin_digest);
-            try contents.print("{} {} {} {}\n", .{ file.file_handle, file.stat.mtime, encoded_digest[0..], file.path });
+            try contents.print("{} {} {}\n", .{ file.stat.mtime, encoded_digest[0..], file.path });
         }
 
         try self.manifest_file.?.seekTo(0);
