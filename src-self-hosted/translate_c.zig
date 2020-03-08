@@ -2237,7 +2237,6 @@ fn transWhileLoop(
         .id = .Loop,
     };
     while_node.body = try transStmt(rp, &loop_scope, ZigClangWhileStmt_getBody(stmt), .unused, .r_value);
-    _ = try appendToken(rp.c, .Semicolon, ";");
     return &while_node.base;
 }
 
@@ -2347,10 +2346,8 @@ fn transForLoop(
         try block_scope.?.block_node.statements.push(&while_node.base);
         block_scope.?.block_node.rbrace = try appendToken(rp.c, .RBrace, "}");
         return &block_scope.?.block_node.base;
-    } else {
-        _ = try appendToken(rp.c, .Semicolon, ";");
+    } else
         return &while_node.base;
-    }
 }
 
 fn transSwitch(
@@ -5579,7 +5576,14 @@ fn parseCSuffixOpExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8,
                     );
                     return error.ParseError;
                 }
-                const deref = try transCreateNodePtrDeref(c, node);
+                // deref is often used together with casts so we group the lhs expression
+                const group = try c.a().create(ast.Node.GroupedExpression);
+                group.* = .{
+                    .lparen = try appendToken(c, .LParen, "("),
+                    .expr = node,
+                    .rparen = try appendToken(c, .RParen, ")"),
+                };
+                const deref = try transCreateNodePtrDeref(c, &group.base);
                 node = try transCreateNodeFieldAccess(c, deref, source[name_tok.start..name_tok.end]);
                 continue;
             },
@@ -5623,7 +5627,7 @@ fn parseCSuffixOpExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8,
             },
             .Ampersand => {
                 op_token = try appendToken(c, .Ampersand, "&");
-                op_id = .BitAnd;
+                op_id .BitAnd;
             },
             .Plus => {
                 op_token = try appendToken(c, .Plus, "+");
@@ -5631,7 +5635,7 @@ fn parseCSuffixOpExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8,
             },
             .Minus => {
                 op_token = try appendToken(c, .Minus, "-");
-                op_id = .Sub;
+                op_id .Sub;
             },
             .AmpersandAmpersand => {
                 op_token = try appendToken(c, .Keyword_and, "and");
@@ -5703,7 +5707,7 @@ fn parseCSuffixOpExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8,
             },
             .BangEqual => {
                 op_token = try appendToken(c, .BangEqual, "!=");
-                op_id = .BangEqual;
+                op_id =  .BangEqual;
             },
             .EqualEqual => {
                 op_token = try appendToken(c, .EqualEqual, "==");
@@ -5756,12 +5760,25 @@ fn parseCPrefixOpExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8,
             return &node.base;
         },
         .Asterisk => {
-            const node = try parseCPrefixOpExpr(c, it, source, source_loc, scope);
-            return try transCreateNodePtrDeref(c, node);
+            // deref is often used together with casts so we group the lhs expression
+            const group = try c.a().create(ast.Node.GroupedExpression);
+            group.* = .{
+                .lparen = try appendToken(c, .LParen, "("),
+                .expr = try parseCPrefixOpExpr(c, it, source, source_loc, scope),
+                .rparen = try appendToken(c, .RParen, ")"),
+            };
+            return try transCreateNodePtrDeref(c, &group.base);
         },
         .Ampersand => {
+            // address of is often used together with casts so we group the rhs expression
             const node = try transCreateNodePrefixOp(c, .AddressOf, .Ampersand, "&");
-            node.rhs = try parseCPrefixOpExpr(c, it, source, source_loc, scope);
+            const group = try c.a().create(ast.Node.GroupedExpression);
+            group.* = .{
+                .lparen = try appendToken(c, .LParen, "("),
+                .expr = try parseCPrefixOpExpr(c, it, source, source_loc, scope),
+                .rparen = try appendToken(c, .RParen, ")"),
+            };
+            node.rhs = &group.base;
             return &node.base;
         },
         else => {
