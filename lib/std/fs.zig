@@ -1365,7 +1365,7 @@ pub const Dir = struct {
         else
             @as(u32, os.F_OK);
         const result = if (need_async_thread)
-            std.event.Loop.instance.?.faccessatZ(self.fd, sub_path, os_mode)
+            std.event.Loop.instance.?.faccessatZ(self.fd, sub_path, os_mode, 0)
         else
             os.faccessatZ(self.fd, sub_path, os_mode, 0);
         return result;
