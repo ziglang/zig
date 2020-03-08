@@ -30246,7 +30246,7 @@ static Error ir_resolve_lazy_raw(AstNode *source_node, ZigValue *val) {
                     return ErrorSemanticAnalyzeFail;
                 } else if (elem_type->id == ZigTypeIdOpaque) {
                     ir_add_error(ira, &lazy_ptr_type->elem_type->base,
-                            buf_sprintf("C pointers cannot point opaque types"));
+                            buf_sprintf("C pointers cannot point to opaque types"));
                     return ErrorSemanticAnalyzeFail;
                 } else if (lazy_ptr_type->is_allowzero) {
                     ir_add_error(ira, &lazy_ptr_type->elem_type->base,
