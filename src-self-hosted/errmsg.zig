@@ -158,7 +158,7 @@ pub const Msg = struct {
         parse_error: *const ast.Error,
     ) !*Msg {
         const loc_token = parse_error.loc();
-        var text_buf = try std.Buffer.initSize(comp.gpa(), 0);
+        var text_buf = std.ArrayList(u8).init(comp.gpa());
         defer text_buf.deinit();
 
         const realpath_copy = try mem.dupe(comp.gpa(), u8, tree_scope.root().realpath);
@@ -197,7 +197,7 @@ pub const Msg = struct {
         realpath: []const u8,
     ) !*Msg {
         const loc_token = parse_error.loc();
-        var text_buf = try std.Buffer.initSize(allocator, 0);
+        var text_buf = std.ArrayList(u8).init(allocator);
         defer text_buf.deinit();
 
         const realpath_copy = try mem.dupe(allocator, u8, realpath);
