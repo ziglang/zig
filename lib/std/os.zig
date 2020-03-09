@@ -1140,6 +1140,14 @@ pub fn freeNullDelimitedEnvMap(allocator: *mem.Allocator, envp_buf: []?[*:0]u8) 
     allocator.free(envp_buf);
 }
 
+/// Attempts to get lock the file, blocking if the file is locked.
+pub fn fcntlFlockBlocking(fd: fd_t, flock_p: *flock) OpenError!void {
+    const rc = system.fcntlFlock(fd, F_SETLKW, flock_p);
+    if (rc < 0) {
+        std.debug.panic("fcntl error: {}\n", .{rc});
+    }
+}
+
 /// Get an environment variable.
 /// See also `getenvZ`.
 pub fn getenv(key: []const u8) ?[]const u8 {

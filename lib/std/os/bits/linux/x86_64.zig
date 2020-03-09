@@ -456,6 +456,18 @@ pub const REG_TRAPNO = 20;
 pub const REG_OLDMASK = 21;
 pub const REG_CR2 = 22;
 
+pub const F_RDLCK = 0;
+pub const F_WRLCK = 1;
+pub const F_UNLCK = 2;
+
+pub const flock = extern struct {
+    lock_type: i16,
+    whence: i16,
+    start: off_t,
+    len: off_t,
+    pid: pid_t,
+};
+
 pub const msghdr = extern struct {
     msg_name: ?*sockaddr,
     msg_namelen: socklen_t,

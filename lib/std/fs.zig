@@ -677,6 +677,20 @@ pub const Dir = struct {
             try std.event.Loop.instance.?.openatZ(self.fd, sub_path, os_flags, 0)
         else
             try os.openatC(self.fd, sub_path, os_flags, 0);
+
+        var locked = false;
+        if (flags.lock) {
+            // TODO: integrate async I/O
+            try os.fcntlFlockBlocking(fd, &os.flock{
+                .lock_type = if (flags.write) os.F_WRLCK else os.F_RDLCK,
+                .whence = os.SEEK_SET,
+                .start = 0,
+                .len = 0,
+                .pid = 0,
+            });
+            locked = true;
+        }
+
         return File{
             .handle = fd,
             .io_mode = .blocking,
