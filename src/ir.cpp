@@ -19342,7 +19342,7 @@ static IrInstGen *ir_analyze_fn_call(IrAnalyze *ira, IrInst* source_instr,
 
             if(!is_valid_return_type(specified_return_type)){
                 ErrorMsg *msg = ir_add_error(ira, source_instr,
-                    buf_sprintf("call to generic function with return type '%s' not allowed", buf_ptr(&specified_return_type->name)));
+                    buf_sprintf("call to generic function with %s return type '%s' not allowed", type_id_name(specified_return_type->id), buf_ptr(&specified_return_type->name)));
                 add_error_note(ira->codegen, msg, fn_proto_node, buf_sprintf("function declared here"));
 
                 Tld *tld = find_decl(ira->codegen, &fn_entry->fndef_scope->base, &specified_return_type->name);

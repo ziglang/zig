@@ -1957,7 +1957,7 @@ static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_sc
 
     if(!is_valid_return_type(specified_return_type)){
         ErrorMsg* msg = add_node_error(g, fn_proto->return_type,
-            buf_sprintf("return type '%s' not allowed", buf_ptr(&specified_return_type->name)));
+            buf_sprintf("%s return type '%s' not allowed", type_id_name(specified_return_type->id), buf_ptr(&specified_return_type->name)));
         Tld *tld = find_decl(g, &fn_entry->fndef_scope->base, &specified_return_type->name);
         if (tld != nullptr) {
             add_error_note(g, msg, tld->source_node, buf_sprintf("type declared here"));
