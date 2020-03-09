@@ -105,3 +105,6 @@ pub const TimeCapabilities = extern struct {
     /// If true, a time set operation clears the device's time below the resolution level.
     sets_to_zero: bool,
 };
+
+/// File Handle as specified in the EFI Shell Spec
+pub const FileHandle = *@OpaqueType();

@@ -87,3 +87,5 @@ pub const HIIPopupType = @import("protocols/hii_popup_protocol.zig").HIIPopupTyp
 pub const HIIPopupSelection = @import("protocols/hii_popup_protocol.zig").HIIPopupSelection;
 
 pub const RNGProtocol = @import("protocols/rng_protocol.zig").RNGProtocol;
+
+pub const ShellParametersProtocol = @import("protocols/shell_parameters_protocol.zig").ShellParametersProtocol;
