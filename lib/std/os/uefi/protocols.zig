@@ -1,7 +1,15 @@
 pub const LoadedImageProtocol = @import("protocols/loaded_image_protocol.zig").LoadedImageProtocol;
 pub const loaded_image_device_path_protocol_guid = @import("protocols/loaded_image_protocol.zig").loaded_image_device_path_protocol_guid;
 
+pub const AcpiDevicePath = @import("protocols/device_path_protocol.zig").AcpiDevicePath;
+pub const BiosBootSpecificationDevicePath = @import("protocols/device_path_protocol.zig").BiosBootSpecificationDevicePath;
+pub const DevicePath = @import("protocols/device_path_protocol.zig").DevicePath;
 pub const DevicePathProtocol = @import("protocols/device_path_protocol.zig").DevicePathProtocol;
+pub const DevicePathType = @import("protocols/device_path_protocol.zig").DevicePathType;
+pub const EndDevicePath = @import("protocols/device_path_protocol.zig").EndDevicePath;
+pub const HardwareDevicePath = @import("protocols/device_path_protocol.zig").HardwareDevicePath;
+pub const MediaDevicePath = @import("protocols/device_path_protocol.zig").MediaDevicePath;
+pub const MessagingDevicePath = @import("protocols/device_path_protocol.zig").MessagingDevicePath;
 
 pub const SimpleFileSystemProtocol = @import("protocols/simple_file_system_protocol.zig").SimpleFileSystemProtocol;
 pub const FileProtocol = @import("protocols/file_protocol.zig").FileProtocol;
