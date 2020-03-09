@@ -5479,18 +5479,20 @@ fn parseCPrimaryExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8, 
         .LParen => {
             const inner_node = try parseCExpr(c, it, source, source_loc, scope);
 
-            if (it.next().?.id != .RParen) {
+            const next_id = it.next().?.id;
+            if (next_id != .RParen) {
                 const first_tok = it.list.at(0);
                 try failDecl(
                     c,
                     source_loc,
                     source[first_tok.start..first_tok.end],
-                    "unable to translate C expr: expected ')'' here",
-                    .{},
+                    "unable to translate C expr: expected ')'' instead got: {}",
+                    .{@tagName(next_id)},
                 );
                 return error.ParseError;
             }
             var saw_l_paren = false;
+            var saw_integer_literal = false;
             switch (it.peek().?.id) {
                 // (type)(to_cast)
                 .LParen => {
@@ -5499,6 +5501,10 @@ fn parseCPrimaryExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8, 
                 },
                 // (type)identifier
                 .Identifier => {},
+                // (type)integer
+                .IntegerLiteral => {
+                    saw_integer_literal = true;
+                },
                 else => return inner_node,
             }
 
@@ -5517,6 +5523,15 @@ fn parseCPrimaryExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8, 
                     .{},
                 );
                 return error.ParseError;
+            }
+
+            if (saw_integer_literal) {
+                // @intToPtr(dest, x)
+                const int_to_ptr = try transCreateNodeBuiltinFnCall(c, "@intToPtr");
+                try int_to_ptr.params.push(inner_node);
+                try int_to_ptr.params.push(node_to_cast);
+                int_to_ptr.rparen_token = try appendToken(c, .RParen, ")");
+                return &int_to_ptr.base;
             }
 
             //(  if (@typeInfo(@TypeOf(x)) == .Pointer)
@@ -5750,19 +5765,24 @@ fn parseCSuffixOpExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8,
                     // hack to get zig fmt to render a comma in builtin calls
                     _ = try appendToken(c, .Comma, ",");
 
-                    const ptr_kind = blk: {
-                        // * token
-                        _ = it.prev();
-                        // last token of `node`
-                        const prev_id = it.prev().?.id;
-                        _ = it.next();
-                        _ = it.next();
-                        break :blk if (prev_id == .Keyword_void) .Asterisk else Token.Id.Identifier;
-                    };
+                    // * token
+                    _ = it.prev();
+                    // last token of `node`
+                    const prev_id = it.prev().?.id;
+                    _ = it.next();
+                    _ = it.next();
 
-                    const ptr = try transCreateNodePtrType(c, false, false, ptr_kind);
-                    ptr.rhs = node;
-                    return &ptr.base;
+                    if (prev_id == .Keyword_void) {
+                        const ptr = try transCreateNodePtrType(c, false, false, .Asterisk);
+                        ptr.rhs = node;
+                        const optional_node = try transCreateNodePrefixOp(c, .OptionalType, .QuestionMark, "?");
+                        optional_node.rhs = &ptr.base;
+                        return &optional_node.base;
+                    } else {
+                        const ptr = try transCreateNodePtrType(c, false, false, Token.Id.Identifier);
+                        ptr.rhs = node;
+                        return &ptr.base;
+                    }
                 } else {
                     // expr * expr
                     op_token = try appendToken(c, .Asterisk, "*");

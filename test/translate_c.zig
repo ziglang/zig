@@ -2668,11 +2668,11 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\#define FOO(bar) baz((void *)(baz))
         \\#define BAR (void*) a
     , &[_][]const u8{
-        \\pub inline fn FOO(bar: var) @TypeOf(baz((if (@typeInfo(@TypeOf(baz)) == .Pointer) @ptrCast(*c_void, @alignCast(@alignOf(*c_void.Child), baz)) else if (@typeInfo(@TypeOf(baz)) == .Int and @typeInfo(*c_void) == .Pointer) @intToPtr(*c_void, baz) else @as(*c_void, baz)))) {
-        \\    return baz((if (@typeInfo(@TypeOf(baz)) == .Pointer) @ptrCast(*c_void, @alignCast(@alignOf(*c_void.Child), baz)) else if (@typeInfo(@TypeOf(baz)) == .Int and @typeInfo(*c_void) == .Pointer) @intToPtr(*c_void, baz) else @as(*c_void, baz)));
+        \\pub inline fn FOO(bar: var) @TypeOf(baz((if (@typeInfo(@TypeOf(baz)) == .Pointer) @ptrCast(?*c_void, @alignCast(@alignOf(?*c_void.Child), baz)) else if (@typeInfo(@TypeOf(baz)) == .Int and @typeInfo(?*c_void) == .Pointer) @intToPtr(?*c_void, baz) else @as(?*c_void, baz)))) {
+        \\    return baz((if (@typeInfo(@TypeOf(baz)) == .Pointer) @ptrCast(?*c_void, @alignCast(@alignOf(?*c_void.Child), baz)) else if (@typeInfo(@TypeOf(baz)) == .Int and @typeInfo(?*c_void) == .Pointer) @intToPtr(?*c_void, baz) else @as(?*c_void, baz)));
         \\}
     ,
-        \\pub const BAR = (if (@typeInfo(@TypeOf(a)) == .Pointer) @ptrCast(*c_void, @alignCast(@alignOf(*c_void.Child), a)) else if (@typeInfo(@TypeOf(a)) == .Int and @typeInfo(*c_void) == .Pointer) @intToPtr(*c_void, a) else @as(*c_void, a));
+        \\pub const BAR = (if (@typeInfo(@TypeOf(a)) == .Pointer) @ptrCast(?*c_void, @alignCast(@alignOf(?*c_void.Child), a)) else if (@typeInfo(@TypeOf(a)) == .Int and @typeInfo(?*c_void) == .Pointer) @intToPtr(?*c_void, a) else @as(?*c_void, a));
     });
 
     cases.add("macro conditional operator",
@@ -2893,5 +2893,21 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub inline fn DefaultScreen(dpy: var) @TypeOf((if (@typeInfo(@TypeOf(dpy)) == .Pointer) @ptrCast(_XPrivDisplay, @alignCast(@alignOf(_XPrivDisplay.Child), dpy)) else if (@typeInfo(@TypeOf(dpy)) == .Int and @typeInfo(_XPrivDisplay) == .Pointer) @intToPtr(_XPrivDisplay, dpy) else @as(_XPrivDisplay, dpy)).*.default_screen) {
         \\    return (if (@typeInfo(@TypeOf(dpy)) == .Pointer) @ptrCast(_XPrivDisplay, @alignCast(@alignOf(_XPrivDisplay.Child), dpy)) else if (@typeInfo(@TypeOf(dpy)) == .Int and @typeInfo(_XPrivDisplay) == .Pointer) @intToPtr(_XPrivDisplay, dpy) else @as(_XPrivDisplay, dpy)).*.default_screen;
         \\}
+    });
+
+    cases.add("Cast from integer literals to poiter",
+        \\#define NULL ((void*)0)
+        \\#define GPIO_0_MEM_MAP ((unsigned*)0x8000)
+        \\#define GPIO_1_MEM_MAP ((unsigned*)0x8004)
+        \\#define GPIO_2_MEM_MAP ((unsigned*)0x8008)
+        \\
+    , &[_][]const u8{
+        \\pub const NULL = @intToPtr(?*c_void, 0);
+    ,
+        \\pub const GPIO_0_MEM_MAP = @intToPtr([*c]c_uint, 0x8000);
+    ,
+        \\pub const GPIO_1_MEM_MAP = @intToPtr([*c]c_uint, 0x8004);
+    ,
+        \\pub const GPIO_2_MEM_MAP = @intToPtr([*c]c_uint, 0x8008);
     });
 }
