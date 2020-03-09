@@ -15569,14 +15569,14 @@ static Error lazy_cmp_zero(CodeGen *codegen, AstNode *source_node, ZigValue *val
                     LazyValueAlignOf *lazy_align_of = reinterpret_cast<LazyValueAlignOf *>(val->data.x_lazy);
                     IrAnalyze *ira = lazy_align_of->ira;
 
-                    uint32_t abi_align;
-                    if ((err = type_val_resolve_abi_align(ira->codegen, source_node, lazy_align_of->target_type->value,
-                        &abi_align)))
+                    bool is_zero_bits;
+                    if ((err = type_val_resolve_zero_bits(ira->codegen, lazy_align_of->target_type->value,
+                                    nullptr, nullptr, &is_zero_bits)))
                     {
                         return err;
                     }
 
-                    *result = (abi_align == 0) ? CmpEQ : CmpGT;
+                    *result = is_zero_bits ? CmpEQ : CmpGT;
                     return ErrorNone;
                 }
                 case LazyValueIdSizeOf: {
