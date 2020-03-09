@@ -714,35 +714,22 @@ fn renderExpression(
                 .node => |node| tree.nextToken(node.lastToken()),
             };
 
-            if (exprs.len == 0) {
-                switch (lhs) {
-                    .dot => |dot| try renderToken(tree, ais, dot, Space.None),
-                    .node => |node| try renderExpression(allocator, ais, tree, node, Space.None),
-                }
-
-                {
-                    ais.pushIndent();
-                    defer ais.popIndent();
-                    try renderToken(tree, ais, lbrace, Space.None);
-                }
-
-                return renderToken(tree, ais, rtoken, space);
-            }
-            if (exprs.len == 1 and tree.token_ids[exprs[0].*.lastToken() + 1] == .RBrace) {
-                const expr = exprs[0];
-
-                switch (lhs) {
-                    .dot => |dot| try renderToken(tree, ais, dot, Space.None),
-                    .node => |node| try renderExpression(allocator, ais, tree, node, Space.None),
-                }
-                try renderToken(tree, ais, lbrace, Space.None);
-                try renderExpression(allocator, ais, tree, expr, Space.None);
-                return renderToken(tree, ais, rtoken, space);
-            }
-
             switch (lhs) {
                 .dot => |dot| try renderToken(tree, ais, dot, Space.None),
                 .node => |node| try renderExpression(allocator, ais, tree, node, Space.None),
+            }
+
+            if (exprs.len == 0) {
+                try renderToken(tree, ais, lbrace, Space.None);
+                return renderToken(tree, ais, rtoken, space);
+            }
+
+            if (exprs.len == 1 and exprs[0].tag != .MultilineStringLiteral and tree.token_ids[exprs[0].*.lastToken() + 1] == .RBrace) {
+                const expr = exprs[0];
+
+                try renderToken(tree, ais, lbrace, Space.None);
+                try renderExpression(allocator, ais, tree, expr, Space.None);
+                return renderToken(tree, ais, rtoken, space);
             }
 
             // scan to find row size
@@ -763,11 +750,7 @@ fn renderExpression(
                         var expr_widths = widths[0 .. widths.len - row_size];
                         var column_widths = widths[widths.len - row_size ..];
 
-                        // Null stream for counting the printed length of each expression
-                        var counting_stream = std.io.countingOutStream(std.io.null_out_stream);
-                        var auto_indenting_stream = std.io.autoIndentingStream(indent_delta, counting_stream.writer());
-
-                        // Find next row with trailing comment (if any) to end the current section then
+                        // Find next row with trailing comment (if any) to end the current section
                         var section_end = sec_end: {
                             var this_line_first_expr: usize = 0;
                             var this_line_size = rowSize(tree, row_exprs, rtoken, true);
@@ -779,12 +762,15 @@ fn renderExpression(
                                     this_line_first_expr = i;
                                     this_line_size = rowSize(tree, row_exprs[this_line_first_expr..], rtoken, true);
                                 }
-                                if (expr.lastToken() + 2 < tree.token_ids.len) {
-                                    if (tree.token_ids[expr.lastToken() + 1] == .Comma and
-                                        tree.token_ids[expr.lastToken() + 2] == .LineComment and
-                                        tree.tokensOnSameLine(expr.lastToken(), expr.lastToken() + 2))
+
+                                const maybe_comma = expr.lastToken() + 1;
+                                const maybe_comment = expr.lastToken() + 2;
+                                if (maybe_comment < tree.token_ids.len) {
+                                    if (tree.token_ids[maybe_comma] == .Comma and
+                                        tree.token_ids[maybe_comment] == .LineComment and
+                                        tree.tokensOnSameLine(expr.lastToken(), maybe_comment))
                                     {
-                                        var comment_token_loc = tree.token_locs[expr.lastToken() + 2];
+                                        var comment_token_loc = tree.token_locs[maybe_comment];
                                         const comment_is_empty = mem.trimRight(u8, tree.tokenSliceLoc(comment_token_loc), " ").len == 2;
                                         if (!comment_is_empty) {
                                             // Found row ending in comment
@@ -799,18 +785,56 @@ fn renderExpression(
 
                         const section_exprs = row_exprs[0..section_end];
 
+                        // Null stream for counting the printed length of each expression
+                        var line_find_stream = std.io.findByteOutStream('\n', std.io.null_out_stream);
+                        var counting_stream = std.io.countingOutStream(line_find_stream.writer());
+                        var auto_indenting_stream = std.io.autoIndentingStream(indent_delta, counting_stream.writer());
+
                         // Calculate size of columns in current section
+                        var c: usize = 0;
+                        var single_line = true;
                         for (section_exprs) |expr, i| {
-                            counting_stream.bytes_written = 0;
-                            try renderExpression(allocator, &auto_indenting_stream, tree, expr, Space.None);
-                            const width = @intCast(usize, counting_stream.bytes_written);
-                            const col = i % row_size;
-                            column_widths[col] = std.math.max(column_widths[col], width);
-                            expr_widths[i] = width;
+                            if (i + 1 < section_exprs.len) {
+                                counting_stream.bytes_written = 0;
+                                line_find_stream.byte_found = false;
+                                try renderExpression(allocator, &auto_indenting_stream, tree, expr, Space.None);
+                                const width = @intCast(usize, counting_stream.bytes_written);
+                                expr_widths[i] = width;
+
+                                if (!line_find_stream.byte_found) {
+                                    const col = c % row_size;
+                                    column_widths[col] = std.math.max(column_widths[col], width);
+
+                                    const expr_last_token = expr.*.lastToken() + 1;
+                                    const next_expr = section_exprs[i + 1];
+                                    const loc = tree.tokenLocation(tree.token_locs[expr_last_token].start, next_expr.*.firstToken());
+                                    if (loc.line == 0) {
+                                        c += 1;
+                                    } else {
+                                        single_line = false;
+                                        c = 0;
+                                    }
+                                } else {
+                                    single_line = false;
+                                    c = 0;
+                                }
+                            } else {
+                                counting_stream.bytes_written = 0;
+                                try renderExpression(allocator, &auto_indenting_stream, tree, expr, Space.None);
+                                const width = @intCast(usize, counting_stream.bytes_written);
+                                expr_widths[i] = width;
+
+                                if (!line_find_stream.byte_found) {
+                                    const col = c % row_size;
+                                    column_widths[col] = std.math.max(column_widths[col], width);
+                                }
+                                break;
+                            }
                         }
 
                         // Render exprs in current section
-                        var col: usize = 1;
+                        c = 0;
+                        var last_col_index: usize = row_size - 1;
                         for (section_exprs) |expr, i| {
                             if (i + 1 < section_exprs.len) {
                                 const next_expr = section_exprs[i + 1];
@@ -818,23 +842,28 @@ fn renderExpression(
 
                                 const comma = tree.nextToken(expr.*.lastToken());
 
-                                if (col != row_size) {
+                                if (c != last_col_index) {
+                                    line_find_stream.byte_found = false;
+                                    try renderExpression(allocator, &auto_indenting_stream, tree, expr, Space.None);
+                                    try renderExpression(allocator, &auto_indenting_stream, tree, next_expr, Space.None);
+                                    if (!line_find_stream.byte_found) {
+                                        // Neither the current or next expression is multiline
+                                        try renderToken(tree, ais, comma, Space.Space); // ,
+                                        assert(column_widths[c % row_size] >= expr_widths[i]);
+                                        const padding = column_widths[c % row_size] - expr_widths[i];
+                                        try ais.writer().writeByteNTimes(' ', padding);
+
+                                        c += 1;
+                                        continue;
+                                    }
+                                }
+                                if (single_line) {
                                     try renderToken(tree, ais, comma, Space.Space); // ,
-
-                                    const padding = column_widths[i % row_size] - expr_widths[i];
-                                    try ais.writer().writeByteNTimes(' ', padding);
-
-                                    col += 1;
                                     continue;
                                 }
-                                col = 1;
 
-                                if (tree.token_ids[tree.nextToken(comma)] != .MultilineStringLiteralLine) {
-                                    try renderToken(tree, ais, comma, Space.Newline); // ,
-                                } else {
-                                    try renderToken(tree, ais, comma, Space.None); // ,
-                                }
-
+                                c = 0;
+                                try renderToken(tree, ais, comma, Space.Newline); // ,
                                 try renderExtraNewline(tree, ais, next_expr);
                             } else {
                                 const maybe_comma = tree.nextToken(expr.*.lastToken());
@@ -2594,13 +2623,13 @@ fn rowSize(tree: *ast.Tree, exprs: []*ast.Node, rtoken: ast.TokenIndex, force: b
     for (exprs) |expr, i| {
         if (i + 1 < exprs.len) {
             const expr_last_token = expr.lastToken() + 1;
-            const loc = tree.tokenLocation(tree.token_locs[expr_last_token].end, exprs[i + 1].firstToken());
+            const loc = tree.tokenLocation(tree.token_locs[expr_last_token].start, exprs[i + 1].firstToken());
             if (loc.line != 0) return count;
             count += 1;
         } else {
             if (force) return count;
             const expr_last_token = expr.lastToken();
-            const loc = tree.tokenLocation(tree.token_locs[expr_last_token].end, rtoken);
+            const loc = tree.tokenLocation(tree.token_locs[expr_last_token].start, rtoken);
             if (loc.line == 0) {
                 // all on one line
                 const src_has_trailing_comma = trailblk: {

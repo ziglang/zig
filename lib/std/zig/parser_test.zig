@@ -3484,6 +3484,65 @@ test "zig fmt: allow trailing line comments to do manual array formatting" {
     );
 }
 
+test "zig fmt: multiline string literals should play nice with array initializers" {
+    try testCanonical(
+        \\fn main() void {
+        \\    var a = .{.{.{.{.{.{.{.{
+        \\        0,
+        \\    }}}}}}}};
+        \\    myFunc(.{
+        \\        "aaaaaaa",                           "bbbbbb",                            "ccccc",
+        \\        "dddd",                              ("eee"),                             ("fff"),
+        \\        ("gggg"),
+        \\        // Line comment
+        \\        \\Multiline String Literals can be quite long
+        \\        ,
+        \\        \\Multiline String Literals can be quite long
+        \\        \\Multiline String Literals can be quite long
+        \\        ,
+        \\        \\Multiline String Literals can be quite long
+        \\        \\Multiline String Literals can be quite long
+        \\        \\Multiline String Literals can be quite long
+        \\        \\Multiline String Literals can be quite long
+        \\        ,
+        \\        (
+        \\            \\Multiline String Literals can be quite long
+        \\        ),
+        \\        .{
+        \\            \\xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+        \\            \\xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+        \\            \\xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+        \\        },
+        \\        .{(
+        \\            \\xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+        \\        )},
+        \\        .{ "xxxxxxx", "xxx", (
+        \\            \\ xxx
+        \\        ), "xxx", "xxx" },
+        \\        .{ "xxxxxxx", "xxx", "xxx", "xxx" }, .{ "xxxxxxx", "xxx", "xxx", "xxx" },
+        \\        "aaaaaaa", "bbbbbb", "ccccc", // -
+        \\        "dddd",    ("eee"),  ("fff"),
+        \\        .{
+        \\            "xxx",            "xxx",
+        \\            (
+        \\                \\ xxx
+        \\            ),
+        \\            "xxxxxxxxxxxxxx", "xxx",
+        \\        },
+        \\        .{
+        \\            (
+        \\                \\xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+        \\            ),
+        \\            \\xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+        \\        },
+        \\        \\xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+        \\        \\xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+        \\    });
+        \\}
+        \\
+    );
+}
+
 const std = @import("std");
 const mem = std.mem;
 const warn = std.debug.warn;
