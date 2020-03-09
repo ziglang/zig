@@ -687,6 +687,7 @@ static ZigLLVMDIScope *get_di_scope(CodeGen *g, Scope *scope) {
         case ScopeIdLoop:
         case ScopeIdSuspend:
         case ScopeIdCompTime:
+        case ScopeIdNoAsync:
         case ScopeIdRuntime:
         case ScopeIdTypeOf:
         case ScopeIdExpr:
@@ -3934,6 +3935,7 @@ static void render_async_var_decls(CodeGen *g, Scope *scope) {
             case ScopeIdLoop:
             case ScopeIdSuspend:
             case ScopeIdCompTime:
+            case ScopeIdNoAsync:
             case ScopeIdRuntime:
             case ScopeIdTypeOf:
             case ScopeIdExpr:

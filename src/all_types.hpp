@@ -2330,6 +2330,7 @@ enum ScopeId {
     ScopeIdRuntime,
     ScopeIdTypeOf,
     ScopeIdExpr,
+    ScopeIdNoAsync,
 };
 
 struct Scope {
@@ -2462,6 +2463,11 @@ struct ScopeCompTime {
     Scope base;
 };
 
+// This scope is created for a noasync expression.
+// NodeTypeNoAsync
+struct ScopeNoAsync {
+    Scope base;
+};
 
 // This scope is created for a function definition.
 // NodeTypeFnDef
