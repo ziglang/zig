@@ -1081,7 +1081,6 @@ pub const Node = struct {
 
     pub const Noasync = struct {
         base: Node = Node{ .id = .Noasync },
-        doc_comments: ?*DocComment,
         noasync_token: TokenIndex,
         expr: *Node,
 

@@ -876,6 +876,7 @@ static AstNode *ast_parse_container_field(ParseContext *pc) {
 // Statement
 //     <- KEYWORD_comptime? VarDecl
 //      / KEYWORD_comptime BlockExprStatement
+//      / KEYWORD_noasync BlockExprStatement
 //      / KEYWORD_suspend (SEMICOLON / BlockExprStatement)
 //      / KEYWORD_defer BlockExprStatement
 //      / KEYWORD_errdefer BlockExprStatement
@@ -896,6 +897,14 @@ static AstNode *ast_parse_statement(ParseContext *pc) {
         AstNode *statement = ast_expect(pc, ast_parse_block_expr_statement);
         AstNode *res = ast_create_node(pc, NodeTypeCompTime, comptime);
         res->data.comptime_expr.expr = statement;
+        return res;
+    }
+
+    Token *noasync = eat_token_if(pc, TokenIdKeywordNoAsync);
+    if (noasync != nullptr) {
+        AstNode *statement = ast_expect(pc, ast_parse_block_expr_statement);
+        AstNode *res = ast_create_node(pc, NodeTypeNoAsync, noasync);
+        res->data.noasync_expr.expr = statement;
         return res;
     }
 

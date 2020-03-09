@@ -462,6 +462,7 @@ fn parseContainerField(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*No
 /// Statement
 ///     <- KEYWORD_comptime? VarDecl
 ///      / KEYWORD_comptime BlockExprStatement
+///      / KEYWORD_noasync BlockExprStatement
 ///      / KEYWORD_suspend (SEMICOLON / BlockExprStatement)
 ///      / KEYWORD_defer BlockExprStatement
 ///      / KEYWORD_errdefer BlockExprStatement
@@ -488,6 +489,19 @@ fn parseStatement(arena: *Allocator, it: *TokenIterator, tree: *Tree) Error!?*No
         node.* = Node.Comptime{
             .doc_comments = null,
             .comptime_token = token,
+            .expr = block_expr,
+        };
+        return &node.base;
+    }
+
+    if (eatToken(it, .Keyword_noasync)) |noasync_token| {
+        const block_expr = try expectNode(arena, it, tree, parseBlockExprStatement, .{
+            .ExpectedBlockOrAssignment = .{ .token = it.index },
+        });
+
+        const node = try arena.create(Node.Noasync);
+        node.* = .{
+            .noasync_token = noasync_token,
             .expr = block_expr,
         };
         return &node.base;
@@ -898,7 +912,6 @@ fn parsePrimaryExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node 
         });
         const node = try arena.create(Node.Noasync);
         node.* = .{
-            .doc_comments = null,
             .noasync_token = token,
             .expr = expr_node,
         };
@@ -1280,7 +1293,6 @@ fn parsePrimaryTypeExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*N
         const expr = (try parseTypeExpr(arena, it, tree)) orelse return null;
         const node = try arena.create(Node.Noasync);
         node.* = .{
-            .doc_comments = null,
             .noasync_token = token,
             .expr = expr,
         };
