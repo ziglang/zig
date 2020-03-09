@@ -390,6 +390,12 @@ fn renderExpression(
             try renderToken(tree, stream, comptime_node.comptime_token, indent, start_col, Space.Space);
             return renderExpression(allocator, stream, tree, indent, start_col, comptime_node.expr, space);
         },
+        .Noasync => {
+            const noasync_node = @fieldParentPtr(ast.Node.Noasync, "base", base);
+
+            try renderToken(tree, stream, noasync_node.noasync_token, indent, start_col, Space.Space);
+            return renderExpression(allocator, stream, tree, indent, start_col, noasync_node.expr, space);
+        },
 
         .Suspend => {
             const suspend_node = @fieldParentPtr(ast.Node.Suspend, "base", base);
@@ -590,9 +596,6 @@ fn renderExpression(
                 },
 
                 .Await => |await_info| {
-                    if (await_info.noasync_token) |tok| {
-                        try renderToken(tree, stream, tok, indent, start_col, Space.Space);
-                    }
                     try renderToken(tree, stream, prefix_op_node.op_token, indent, start_col, Space.Space);
                 },
             }

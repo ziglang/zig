@@ -431,6 +431,7 @@ pub const Node = struct {
         ContainerDecl,
         Asm,
         Comptime,
+        Noasync,
         Block,
 
         // Misc
@@ -1078,6 +1079,29 @@ pub const Node = struct {
         }
     };
 
+    pub const Noasync = struct {
+        base: Node = Node{ .id = .Noasync },
+        noasync_token: TokenIndex,
+        expr: *Node,
+
+        pub fn iterate(self: *Noasync, index: usize) ?*Node {
+            var i = index;
+
+            if (i < 1) return self.expr;
+            i -= 1;
+
+            return null;
+        }
+
+        pub fn firstToken(self: *const Noasync) TokenIndex {
+            return self.noasync_token;
+        }
+
+        pub fn lastToken(self: *const Noasync) TokenIndex {
+            return self.expr.lastToken();
+        }
+    };
+
     pub const Payload = struct {
         base: Node = Node{ .id = .Payload },
         lpipe: TokenIndex,
@@ -1560,9 +1584,7 @@ pub const Node = struct {
         pub const Op = union(enum) {
             AddressOf,
             ArrayType: ArrayInfo,
-            Await: struct {
-                noasync_token: ?TokenIndex = null,
-            },
+            Await,
             BitNot,
             BoolNot,
             Cancel,

@@ -462,6 +462,7 @@ fn parseContainerField(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*No
 /// Statement
 ///     <- KEYWORD_comptime? VarDecl
 ///      / KEYWORD_comptime BlockExprStatement
+///      / KEYWORD_noasync BlockExprStatement
 ///      / KEYWORD_suspend (SEMICOLON / BlockExprStatement)
 ///      / KEYWORD_defer BlockExprStatement
 ///      / KEYWORD_errdefer BlockExprStatement
@@ -488,6 +489,19 @@ fn parseStatement(arena: *Allocator, it: *TokenIterator, tree: *Tree) Error!?*No
         node.* = Node.Comptime{
             .doc_comments = null,
             .comptime_token = token,
+            .expr = block_expr,
+        };
+        return &node.base;
+    }
+
+    if (eatToken(it, .Keyword_noasync)) |noasync_token| {
+        const block_expr = try expectNode(arena, it, tree, parseBlockExprStatement, .{
+            .ExpectedBlockOrAssignment = .{ .token = it.index },
+        });
+
+        const node = try arena.create(Node.Noasync);
+        node.* = .{
+            .noasync_token = noasync_token,
             .expr = block_expr,
         };
         return &node.base;
@@ -856,6 +870,7 @@ fn parsePrefixExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 ///      / IfExpr
 ///      / KEYWORD_break BreakLabel? Expr?
 ///      / KEYWORD_comptime Expr
+///      / KEYWORD_noasync Expr
 ///      / KEYWORD_continue BreakLabel?
 ///      / KEYWORD_resume Expr
 ///      / KEYWORD_return Expr?
@@ -870,7 +885,7 @@ fn parsePrimaryExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node 
         const label = try parseBreakLabel(arena, it, tree);
         const expr_node = try parseExpr(arena, it, tree);
         const node = try arena.create(Node.ControlFlowExpression);
-        node.* = Node.ControlFlowExpression{
+        node.* = .{
             .ltoken = token,
             .kind = Node.ControlFlowExpression.Kind{ .Break = label },
             .rhs = expr_node,
@@ -883,9 +898,21 @@ fn parsePrimaryExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node 
             .ExpectedExpr = AstError.ExpectedExpr{ .token = it.index },
         });
         const node = try arena.create(Node.Comptime);
-        node.* = Node.Comptime{
+        node.* = .{
             .doc_comments = null,
             .comptime_token = token,
+            .expr = expr_node,
+        };
+        return &node.base;
+    }
+
+    if (eatToken(it, .Keyword_noasync)) |token| {
+        const expr_node = try expectNode(arena, it, tree, parseExpr, AstError{
+            .ExpectedExpr = AstError.ExpectedExpr{ .token = it.index },
+        });
+        const node = try arena.create(Node.Noasync);
+        node.* = .{
+            .noasync_token = token,
             .expr = expr_node,
         };
         return &node.base;
@@ -894,7 +921,7 @@ fn parsePrimaryExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node 
     if (eatToken(it, .Keyword_continue)) |token| {
         const label = try parseBreakLabel(arena, it, tree);
         const node = try arena.create(Node.ControlFlowExpression);
-        node.* = Node.ControlFlowExpression{
+        node.* = .{
             .ltoken = token,
             .kind = Node.ControlFlowExpression.Kind{ .Continue = label },
             .rhs = null,
@@ -907,7 +934,7 @@ fn parsePrimaryExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node 
             .ExpectedExpr = AstError.ExpectedExpr{ .token = it.index },
         });
         const node = try arena.create(Node.PrefixOp);
-        node.* = Node.PrefixOp{
+        node.* = .{
             .op_token = token,
             .op = Node.PrefixOp.Op.Resume,
             .rhs = expr_node,
@@ -918,7 +945,7 @@ fn parsePrimaryExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node 
     if (eatToken(it, .Keyword_return)) |token| {
         const expr_node = try parseExpr(arena, it, tree);
         const node = try arena.create(Node.ControlFlowExpression);
-        node.* = Node.ControlFlowExpression{
+        node.* = .{
             .ltoken = token,
             .kind = Node.ControlFlowExpression.Kind.Return,
             .rhs = expr_node,
@@ -1126,19 +1153,18 @@ fn parseErrorUnionExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*No
 
 /// SuffixExpr
 ///     <- KEYWORD_async PrimaryTypeExpr SuffixOp* FnCallArguments
-///      / KEYWORD_noasync PrimaryTypeExpr SuffixOp* FnCallArguments
 ///      / PrimaryTypeExpr (SuffixOp / FnCallArguments)*
 fn parseSuffixExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
-    const maybe_async = eatAnnotatedToken(it, .Keyword_async) orelse eatAnnotatedToken(it, .Keyword_noasync);
+    const maybe_async = eatToken(it, .Keyword_async);
     if (maybe_async) |async_token| {
         const token_fn = eatToken(it, .Keyword_fn);
-        if (async_token.ptr.id == .Keyword_async and token_fn != null) {
+        if (token_fn != null) {
             // HACK: If we see the keyword `fn`, then we assume that
             //       we are parsing an async fn proto, and not a call.
             //       We therefore put back all tokens consumed by the async
             //       prefix...
             putBackToken(it, token_fn.?);
-            putBackToken(it, async_token.index);
+            putBackToken(it, async_token);
             return parsePrimaryTypeExpr(arena, it, tree);
         }
         // TODO: Implement hack for parsing `async fn ...` in ast_parse_suffix_expr
@@ -1167,7 +1193,7 @@ fn parseSuffixExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
             .op = Node.SuffixOp.Op{
                 .Call = Node.SuffixOp.Op.Call{
                     .params = params.list,
-                    .async_token = async_token.index,
+                    .async_token = async_token,
                 },
             },
             .rtoken = params.rparen,
@@ -1224,6 +1250,7 @@ fn parseSuffixExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 ///      / IfTypeExpr
 ///      / INTEGER
 ///      / KEYWORD_comptime TypeExpr
+///      / KEYWORD_noasync TypeExpr
 ///      / KEYWORD_error DOT IDENTIFIER
 ///      / KEYWORD_false
 ///      / KEYWORD_null
@@ -1255,9 +1282,18 @@ fn parsePrimaryTypeExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*N
     if (eatToken(it, .Keyword_comptime)) |token| {
         const expr = (try parseTypeExpr(arena, it, tree)) orelse return null;
         const node = try arena.create(Node.Comptime);
-        node.* = Node.Comptime{
+        node.* = .{
             .doc_comments = null,
             .comptime_token = token,
+            .expr = expr,
+        };
+        return &node.base;
+    }
+    if (eatToken(it, .Keyword_noasync)) |token| {
+        const expr = (try parseTypeExpr(arena, it, tree)) orelse return null;
+        const node = try arena.create(Node.Noasync);
+        node.* = .{
+            .noasync_token = token,
             .expr = expr,
         };
         return &node.base;
@@ -1269,7 +1305,7 @@ fn parsePrimaryTypeExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*N
         });
         const global_error_set = try createLiteral(arena, Node.ErrorType, token);
         const node = try arena.create(Node.InfixOp);
-        node.* = Node.InfixOp{
+        node.* = .{
             .op_token = period,
             .lhs = global_error_set,
             .op = Node.InfixOp.Op.Period,
@@ -1281,7 +1317,7 @@ fn parsePrimaryTypeExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*N
     if (eatToken(it, .Keyword_null)) |token| return createLiteral(arena, Node.NullLiteral, token);
     if (eatToken(it, .Keyword_anyframe)) |token| {
         const node = try arena.create(Node.AnyFrameType);
-        node.* = Node.AnyFrameType{
+        node.* = .{
             .anyframe_token = token,
             .result = null,
         };
@@ -2180,18 +2216,6 @@ fn parsePrefixOp(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
         .Ampersand => ops{ .AddressOf = {} },
         .Keyword_try => ops{ .Try = {} },
         .Keyword_await => ops{ .Await = .{} },
-        .Keyword_noasync => if (eatToken(it, .Keyword_await)) |await_tok| {
-            const node = try arena.create(Node.PrefixOp);
-            node.* = Node.PrefixOp{
-                .op_token = await_tok,
-                .op = .{ .Await = .{ .noasync_token = token.index } },
-                .rhs = undefined, // set by caller
-            };
-            return &node.base;
-        } else {
-            putBackToken(it, token.index);
-            return null;
-        },
         else => {
             putBackToken(it, token.index);
             return null;

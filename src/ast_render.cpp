@@ -220,6 +220,8 @@ static const char *node_type_str(NodeType node_type) {
             return "SwitchRange";
         case NodeTypeCompTime:
             return "CompTime";
+        case NodeTypeNoAsync:
+            return "NoAsync";
         case NodeTypeBreak:
             return "Break";
         case NodeTypeContinue:
@@ -1089,6 +1091,12 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
             {
                 fprintf(ar->f, "comptime ");
                 render_node_grouped(ar, node->data.comptime_expr.expr);
+                break;
+            }
+        case NodeTypeNoAsync:
+            {
+                fprintf(ar->f, "noasync ");
+                render_node_grouped(ar, node->data.noasync_expr.expr);
                 break;
             }
         case NodeTypeForExpr:

@@ -106,6 +106,7 @@ static ScopeExpr *find_expr_scope(Scope *scope) {
             case ScopeIdDecls:
             case ScopeIdFnDef:
             case ScopeIdCompTime:
+            case ScopeIdNoAsync:
             case ScopeIdVarDecl:
             case ScopeIdCImport:
             case ScopeIdSuspend:
@@ -223,6 +224,12 @@ ScopeFnDef *create_fndef_scope(CodeGen *g, AstNode *node, Scope *parent, ZigFn *
 Scope *create_comptime_scope(CodeGen *g, AstNode *node, Scope *parent) {
     ScopeCompTime *scope = heap::c_allocator.create<ScopeCompTime>();
     init_scope(g, &scope->base, ScopeIdCompTime, node, parent);
+    return &scope->base;
+}
+
+Scope *create_noasync_scope(CodeGen *g, AstNode *node, Scope *parent) {
+    ScopeNoAsync *scope = heap::c_allocator.create<ScopeNoAsync>();
+    init_scope(g, &scope->base, ScopeIdNoAsync, node, parent);
     return &scope->base;
 }
 
@@ -3755,6 +3762,7 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
         case NodeTypeCompTime:
             preview_comptime_decl(g, node, decls_scope);
             break;
+        case NodeTypeNoAsync:
         case NodeTypeParamDecl:
         case NodeTypeReturnExpr:
         case NodeTypeDefer:
@@ -6176,6 +6184,7 @@ static void mark_suspension_point(Scope *scope) {
             case ScopeIdDecls:
             case ScopeIdFnDef:
             case ScopeIdCompTime:
+            case ScopeIdNoAsync:
             case ScopeIdCImport:
             case ScopeIdSuspend:
             case ScopeIdTypeOf:

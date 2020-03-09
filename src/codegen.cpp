@@ -687,6 +687,7 @@ static ZigLLVMDIScope *get_di_scope(CodeGen *g, Scope *scope) {
         case ScopeIdLoop:
         case ScopeIdSuspend:
         case ScopeIdCompTime:
+        case ScopeIdNoAsync:
         case ScopeIdRuntime:
         case ScopeIdTypeOf:
         case ScopeIdExpr:
@@ -968,7 +969,7 @@ static Buf *panic_msg_buf(PanicMsgId msg_id) {
         case PanicMsgIdResumedFnPendingAwait:
             return buf_create_from_str("resumed an async function which can only be awaited");
         case PanicMsgIdBadNoAsyncCall:
-            return buf_create_from_str("async function called with noasync suspended");
+            return buf_create_from_str("async function called in noasync scope suspended");
         case PanicMsgIdResumeNotSuspendedFn:
             return buf_create_from_str("resumed a non-suspended function");
         case PanicMsgIdBadSentinel:
@@ -3934,6 +3935,7 @@ static void render_async_var_decls(CodeGen *g, Scope *scope) {
             case ScopeIdLoop:
             case ScopeIdSuspend:
             case ScopeIdCompTime:
+            case ScopeIdNoAsync:
             case ScopeIdRuntime:
             case ScopeIdTypeOf:
             case ScopeIdExpr:

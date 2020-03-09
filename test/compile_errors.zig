@@ -2,6 +2,21 @@ const tests = @import("tests.zig");
 const std = @import("std");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.addTest("combination of noasync and async",
+        \\export fn entry() void {
+        \\    noasync {
+        \\        const bar = async foo();
+        \\        suspend;
+        \\        resume bar;
+        \\    }
+        \\}
+        \\fn foo() void {}
+    , &[_][]const u8{
+        "tmp.zig:3:21: error: async call in noasync scope",
+        "tmp.zig:4:9: error: suspend in noasync scope",
+        "tmp.zig:5:9: error: resume in noasync scope",
+    });
+
     cases.addTest("@TypeOf with no arguments",
         \\export fn entry() void {
         \\    _ = @TypeOf();

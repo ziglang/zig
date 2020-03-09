@@ -651,6 +651,7 @@ enum NodeType {
     NodeTypeSwitchProng,
     NodeTypeSwitchRange,
     NodeTypeCompTime,
+    NodeTypeNoAsync,
     NodeTypeBreak,
     NodeTypeContinue,
     NodeTypeAsmExpr,
@@ -991,6 +992,10 @@ struct AstNodeCompTime {
     AstNode *expr;
 };
 
+struct AstNodeNoAsync {
+    AstNode *expr;
+};
+
 struct AsmOutput {
     Buf *asm_symbolic_name;
     Buf *constraint;
@@ -1148,7 +1153,6 @@ struct AstNodeErrorType {
 };
 
 struct AstNodeAwaitExpr {
-    Token *noasync_token;
     AstNode *expr;
 };
 
@@ -1199,6 +1203,7 @@ struct AstNode {
         AstNodeSwitchProng switch_prong;
         AstNodeSwitchRange switch_range;
         AstNodeCompTime comptime_expr;
+        AstNodeNoAsync noasync_expr;
         AstNodeAsmExpr asm_expr;
         AstNodeFieldAccessExpr field_access_expr;
         AstNodePtrDerefExpr ptr_deref_expr;
@@ -2325,6 +2330,7 @@ enum ScopeId {
     ScopeIdRuntime,
     ScopeIdTypeOf,
     ScopeIdExpr,
+    ScopeIdNoAsync,
 };
 
 struct Scope {
@@ -2457,6 +2463,11 @@ struct ScopeCompTime {
     Scope base;
 };
 
+// This scope is created for a noasync expression.
+// NodeTypeNoAsync
+struct ScopeNoAsync {
+    Scope base;
+};
 
 // This scope is created for a function definition.
 // NodeTypeFnDef
