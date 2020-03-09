@@ -198,6 +198,7 @@ size_t type_id_index(ZigType *entry);
 ZigType *get_generic_fn_type(CodeGen *g, FnTypeId *fn_type_id);
 LinkLib *create_link_lib(Buf *name);
 LinkLib *add_link_lib(CodeGen *codegen, Buf *lib);
+bool optional_value_is_null(ZigValue *val);
 
 uint32_t get_abi_alignment(CodeGen *g, ZigType *type_entry);
 ZigType *get_align_amt_type(CodeGen *g);

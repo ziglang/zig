@@ -15478,23 +15478,6 @@ static bool resolve_cmp_op_id(IrBinOp op_id, Cmp cmp) {
     }
 }
 
-static bool optional_value_is_null(ZigValue *val) {
-    assert(val->special == ConstValSpecialStatic);
-    if (get_src_ptr_type(val->type) != nullptr) {
-        if (val->data.x_ptr.special == ConstPtrSpecialNull) {
-            return true;
-        } else if (val->data.x_ptr.special == ConstPtrSpecialHardCodedAddr) {
-            return val->data.x_ptr.data.hard_coded_addr.addr == 0;
-        } else {
-            return false;
-        }
-    } else if (is_opt_err_set(val->type)) {
-        return val->data.x_err_set == nullptr;
-    } else {
-        return val->data.x_optional == nullptr;
-    }
-}
-
 static void set_optional_value_to_null(ZigValue *val) {
     assert(val->special == ConstValSpecialStatic);
     if (val->type->id == ZigTypeIdNull) return; // nothing to do
@@ -17594,7 +17577,14 @@ static IrInstGen *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstSrcDeclV
 
     ZigValue *init_val = nullptr;
     if (instr_is_comptime(var_ptr) && var_ptr->value->data.x_ptr.mut != ConstPtrMutRuntimeVar) {
-        init_val = const_ptr_pointee(ira, ira->codegen, var_ptr->value, decl_var_instruction->base.base.source_node);
+        ZigValue *ptr_val = ir_resolve_const(ira, var_ptr, UndefBad);
+        if (ptr_val == nullptr)
+            return ira->codegen->invalid_inst_gen;
+
+        init_val = const_ptr_pointee(ira, ira->codegen, ptr_val, decl_var_instruction->base.base.source_node);
+        if (init_val == nullptr)
+            return ira->codegen->invalid_inst_gen;
+
         if (is_comptime_var) {
             if (var->gen_is_const) {
                 var->const_value = init_val;

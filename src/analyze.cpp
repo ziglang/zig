@@ -5797,6 +5797,7 @@ ZigValue *get_the_one_possible_value(CodeGen *g, ZigType *type_entry) {
     ZigValue *result = g->pass1_arena->create<ZigValue>();
     result->type = type_entry;
     result->special = ConstValSpecialStatic;
+
     if (result->type->id == ZigTypeIdStruct) {
         // The fields array cannot be left unpopulated
         const ZigType *struct_type = result->type;
@@ -5807,6 +5808,22 @@ ZigValue *get_the_one_possible_value(CodeGen *g, ZigType *type_entry) {
             ZigType *field_type = resolve_struct_field_type(g, field);
             assert(field_type != nullptr);
             result->data.x_struct.fields[i] = get_the_one_possible_value(g, field_type);
+        }
+    } else if (result->type->id == ZigTypeIdArray) {
+        // The elements array cannot be left unpopulated
+        ZigType *array_type = result->type;
+        ZigType *elem_type = array_type->data.array.child_type;
+        ZigValue *sentinel_value = array_type->data.array.sentinel;
+        const size_t elem_count = array_type->data.array.len + (sentinel_value != nullptr);
+
+        result->data.x_array.data.s_none.elements = g->pass1_arena->allocate<ZigValue>(elem_count);
+        for (size_t i = 0; i < elem_count; i += 1) {
+            ZigValue *elem_val = &result->data.x_array.data.s_none.elements[i];
+            copy_const_val(g, elem_val, get_the_one_possible_value(g, elem_type));
+        }
+        if (sentinel_value != nullptr) {
+            ZigValue *last_elem_val = &result->data.x_array.data.s_none.elements[elem_count - 1];
+            copy_const_val(g, last_elem_val, sentinel_value);
         }
     } else if (result->type->id == ZigTypeIdPointer) {
         result->data.x_ptr.special = ConstPtrSpecialRef;
@@ -9534,6 +9551,23 @@ void copy_const_val(CodeGen *g, ZigValue *dest, ZigValue *src) {
         copy_const_val(g, dest->data.x_optional, src->data.x_optional);
         dest->data.x_optional->parent.id = ConstParentIdOptionalPayload;
         dest->data.x_optional->parent.data.p_optional_payload.optional_val = dest;
+    }
+}
+
+bool optional_value_is_null(ZigValue *val) {
+    assert(val->special == ConstValSpecialStatic);
+    if (get_src_ptr_type(val->type) != nullptr) {
+        if (val->data.x_ptr.special == ConstPtrSpecialNull) {
+            return true;
+        } else if (val->data.x_ptr.special == ConstPtrSpecialHardCodedAddr) {
+            return val->data.x_ptr.data.hard_coded_addr.addr == 0;
+        } else {
+            return false;
+        }
+    } else if (is_opt_err_set(val->type)) {
+        return val->data.x_err_set == nullptr;
+    } else {
+        return val->data.x_optional == nullptr;
     }
 }
 

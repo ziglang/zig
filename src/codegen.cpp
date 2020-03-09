@@ -6902,8 +6902,18 @@ check: switch (const_val->special) {
         case ZigTypeIdOptional:
             {
                 ZigType *child_type = type_entry->data.maybe.child_type;
+
                 if (get_src_ptr_type(type_entry) != nullptr) {
-                    return gen_const_val_ptr(g, const_val, name);
+                    bool has_bits;
+                    if ((err = type_has_bits2(g, child_type, &has_bits)))
+                        codegen_report_errors_and_exit(g);
+
+                    if (has_bits)
+                        return gen_const_val_ptr(g, const_val, name);
+
+                    // No bits, treat this value as a boolean
+                    const unsigned bool_val = optional_value_is_null(const_val) ? 0 : 1;
+                    return LLVMConstInt(LLVMInt1Type(), bool_val, false);
                 } else if (child_type->id == ZigTypeIdErrorSet) {
                     return gen_const_val_err_set(g, const_val, name);
                 } else if (!type_has_bits(g, child_type)) {
