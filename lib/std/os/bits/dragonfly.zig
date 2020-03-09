@@ -138,8 +138,10 @@ pub const MAP_SIZEALIGN = 262144;
 
 pub const PATH_MAX = 1024;
 
+pub const ino_t = c_ulong;
+
 pub const Stat = extern struct {
-    ino: c_ulong,
+    ino: ino_t,
     nlink: c_uint,
     dev: c_uint,
     mode: c_ushort,

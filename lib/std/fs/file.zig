@@ -145,6 +145,16 @@ pub const File = struct {
     }
 
     pub const Stat = struct {
+        /// A number that the system uses to point to the file metadata. This number is not guaranteed to be
+        /// unique across time, as some file systems may reuse an inode after it's file has been deleted.
+        /// Some systems may change the inode of a file over time.
+        ///
+        /// On Linux, the inode _is_ structure that stores the metadata, and the inode _number_ is what
+        /// you see here: the index number of the inode.
+        ///
+        /// The FileIndex on Windows is similar. It is a number for a file that is unique to each filesystem.
+        inode: os.ino_t,
+
         size: u64,
         mode: Mode,
 
@@ -174,6 +184,7 @@ pub const File = struct {
                 else => return windows.unexpectedStatus(rc),
             }
             return Stat{
+                .inode = info.InternalInformation.IndexNumber,
                 .size = @bitCast(u64, info.StandardInformation.EndOfFile),
                 .mode = 0,
                 .atime = windows.fromSysTime(info.BasicInformation.LastAccessTime),
@@ -187,6 +198,7 @@ pub const File = struct {
         const mtime = st.mtime();
         const ctime = st.ctime();
         return Stat{
+            .inode = st.ino,
             .size = @bitCast(u64, st.size),
             .mode = st.mode,
             .atime = @as(i64, atime.tv_sec) * std.time.ns_per_s + atime.tv_nsec,
