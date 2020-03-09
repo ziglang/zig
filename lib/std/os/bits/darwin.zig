@@ -53,6 +53,7 @@ pub const mach_timebase_info_data = extern struct {
 };
 
 pub const off_t = i64;
+pub const ino_t = u64;
 
 /// Renamed to Stat to not conflict with the stat function.
 /// atime, mtime, and ctime have functions to return `timespec`,
@@ -64,7 +65,7 @@ pub const Stat = extern struct {
     dev: i32,
     mode: u16,
     nlink: u16,
-    ino: u64,
+    ino: ino_t,
     uid: u32,
     gid: u32,
     rdev: i32,

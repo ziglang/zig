@@ -35,7 +35,7 @@ pub const File = struct {
         .windows => os.windows.LARGE_INTEGER,
         // TODO: Handle possibility of 128 bit numbers? ReFS on windows server 2012 uses a 128 bit file
         // index. See https://docs.microsoft.com/en-us/windows/win32/api/fileapi/ns-fileapi-by_handle_file_information
-        else => u64,
+        else => os.ino_t,
     };
 
     pub const default_mode = switch (builtin.os.tag) {
