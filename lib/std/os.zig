@@ -3077,7 +3077,7 @@ pub fn realpathW(pathname: [*:0]const u16, out_buffer: *[MAX_PATH_BYTES]u8) Real
         windows.FILE_SHARE_READ,
         null,
         windows.OPEN_EXISTING,
-        windows.FILE_ATTRIBUTE_NORMAL,
+        windows.FILE_FLAG_BACKUP_SEMANTICS,
         null,
     );
     defer windows.CloseHandle(h_file);
