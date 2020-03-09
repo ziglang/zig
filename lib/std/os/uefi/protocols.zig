@@ -1,4 +1,5 @@
 pub const LoadedImageProtocol = @import("protocols/loaded_image_protocol.zig").LoadedImageProtocol;
+pub const loaded_image_device_path_protocol_guid = @import("protocols/loaded_image_protocol.zig").loaded_image_device_path_protocol_guid;
 
 pub const DevicePathProtocol = @import("protocols/device_path_protocol.zig").DevicePathProtocol;
 
