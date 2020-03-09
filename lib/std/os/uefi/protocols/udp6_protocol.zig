@@ -1,6 +1,7 @@
 const uefi = @import("std").os.uefi;
 const Guid = uefi.Guid;
 const Event = uefi.Event;
+const Status = uefi.Status;
 const Time = uefi.Time;
 const Ip6ModeData = uefi.protocols.Ip6ModeData;
 const Ip6Address = uefi.protocols.Ip6Address;
@@ -8,39 +9,39 @@ const ManagedNetworkConfigData = uefi.protocols.ManagedNetworkConfigData;
 const SimpleNetworkMode = uefi.protocols.SimpleNetworkMode;
 
 pub const Udp6Protocol = extern struct {
-    _get_mode_data: extern fn (*const Udp6Protocol, ?*Udp6ConfigData, ?*Ip6ModeData, ?*ManagedNetworkConfigData, ?*SimpleNetworkMode) usize,
-    _configure: extern fn (*const Udp6Protocol, ?*const Udp6ConfigData) usize,
-    _groups: extern fn (*const Udp6Protocol, bool, ?*const Ip6Address) usize,
-    _transmit: extern fn (*const Udp6Protocol, *Udp6CompletionToken) usize,
-    _receive: extern fn (*const Udp6Protocol, *Udp6CompletionToken) usize,
-    _cancel: extern fn (*const Udp6Protocol, ?*Udp6CompletionToken) usize,
-    _poll: extern fn (*const Udp6Protocol) usize,
+    _get_mode_data: extern fn (*const Udp6Protocol, ?*Udp6ConfigData, ?*Ip6ModeData, ?*ManagedNetworkConfigData, ?*SimpleNetworkMode) Status,
+    _configure: extern fn (*const Udp6Protocol, ?*const Udp6ConfigData) Status,
+    _groups: extern fn (*const Udp6Protocol, bool, ?*const Ip6Address) Status,
+    _transmit: extern fn (*const Udp6Protocol, *Udp6CompletionToken) Status,
+    _receive: extern fn (*const Udp6Protocol, *Udp6CompletionToken) Status,
+    _cancel: extern fn (*const Udp6Protocol, ?*Udp6CompletionToken) Status,
+    _poll: extern fn (*const Udp6Protocol) Status,
 
-    pub fn getModeData(self: *const Udp6Protocol, udp6_config_data: ?*Udp6ConfigData, ip6_mode_data: ?*Ip6ModeData, mnp_config_data: ?*ManagedNetworkConfigData, snp_mode_data: ?*SimpleNetworkMode) usize {
+    pub fn getModeData(self: *const Udp6Protocol, udp6_config_data: ?*Udp6ConfigData, ip6_mode_data: ?*Ip6ModeData, mnp_config_data: ?*ManagedNetworkConfigData, snp_mode_data: ?*SimpleNetworkMode) Status {
         return self._get_mode_data(self, udp6_config_data, ip6_mode_data, mnp_config_data, snp_mode_data);
     }
 
-    pub fn configure(self: *const Udp6Protocol, udp6_config_data: ?*const Udp6ConfigData) usize {
+    pub fn configure(self: *const Udp6Protocol, udp6_config_data: ?*const Udp6ConfigData) Status {
         return self._configure(self, udp6_config_data);
     }
 
-    pub fn groups(self: *const Udp6Protocol, join_flag: bool, multicast_address: ?*const Ip6Address) usize {
+    pub fn groups(self: *const Udp6Protocol, join_flag: bool, multicast_address: ?*const Ip6Address) Status {
         return self._groups(self, join_flag, multicast_address);
     }
 
-    pub fn transmit(self: *const Udp6Protocol, token: *Udp6CompletionToken) usize {
+    pub fn transmit(self: *const Udp6Protocol, token: *Udp6CompletionToken) Status {
         return self._transmit(self, token);
     }
 
-    pub fn receive(self: *const Udp6Protocol, token: *Udp6CompletionToken) usize {
+    pub fn receive(self: *const Udp6Protocol, token: *Udp6CompletionToken) Status {
         return self._receive(self, token);
     }
 
-    pub fn cancel(self: *const Udp6Protocol, token: ?*Udp6CompletionToken) usize {
+    pub fn cancel(self: *const Udp6Protocol, token: ?*Udp6CompletionToken) Status {
         return self._cancel(self, token);
     }
 
-    pub fn poll(self: *const Udp6Protocol) usize {
+    pub fn poll(self: *const Udp6Protocol) Status {
         return self._poll(self);
     }
 
@@ -70,7 +71,7 @@ pub const Udp6ConfigData = extern struct {
 
 pub const Udp6CompletionToken = extern struct {
     event: Event,
-    status: usize,
+    Status: usize,
     packet: extern union {
         RxData: *Udp6ReceiveData,
         TxData: *Udp6TransmitData,

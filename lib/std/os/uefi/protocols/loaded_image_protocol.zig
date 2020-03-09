@@ -1,6 +1,7 @@
 const uefi = @import("std").os.uefi;
 const Guid = uefi.Guid;
 const Handle = uefi.Handle;
+const Status = uefi.Status;
 const SystemTable = uefi.tables.SystemTable;
 const MemoryType = uefi.tables.MemoryType;
 const DevicePathProtocol = uefi.protocols.DevicePathProtocol;
@@ -18,10 +19,10 @@ pub const LoadedImageProtocol = extern struct {
     image_size: u64,
     image_code_type: MemoryType,
     image_data_type: MemoryType,
-    _unload: extern fn (*const LoadedImageProtocol, Handle) usize,
+    _unload: extern fn (*const LoadedImageProtocol, Handle) Status,
 
     /// Unloads an image from memory.
-    pub fn unload(self: *const LoadedImageProtocol, handle: Handle) usize {
+    pub fn unload(self: *const LoadedImageProtocol, handle: Handle) Status {
         return self._unload(self, handle);
     }
 

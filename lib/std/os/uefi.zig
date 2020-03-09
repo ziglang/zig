@@ -2,7 +2,7 @@
 pub const protocols = @import("uefi/protocols.zig");
 
 /// Status codes returned by EFI interfaces
-pub const status = @import("uefi/status.zig");
+pub const Status = @import("uefi/status.zig").Status;
 pub const tables = @import("uefi/tables.zig");
 
 const fmt = @import("std").fmt;

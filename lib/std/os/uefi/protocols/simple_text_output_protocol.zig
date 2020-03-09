@@ -1,61 +1,62 @@
 const uefi = @import("std").os.uefi;
 const Guid = uefi.Guid;
+const Status = uefi.Status;
 
 /// Character output devices
 pub const SimpleTextOutputProtocol = extern struct {
-    _reset: extern fn (*const SimpleTextOutputProtocol, bool) usize,
-    _output_string: extern fn (*const SimpleTextOutputProtocol, [*:0]const u16) usize,
-    _test_string: extern fn (*const SimpleTextOutputProtocol, [*:0]const u16) usize,
-    _query_mode: extern fn (*const SimpleTextOutputProtocol, usize, *usize, *usize) usize,
-    _set_mode: extern fn (*const SimpleTextOutputProtocol, usize) usize,
-    _set_attribute: extern fn (*const SimpleTextOutputProtocol, usize) usize,
-    _clear_screen: extern fn (*const SimpleTextOutputProtocol) usize,
-    _set_cursor_position: extern fn (*const SimpleTextOutputProtocol, usize, usize) usize,
-    _enable_cursor: extern fn (*const SimpleTextOutputProtocol, bool) usize,
+    _reset: extern fn (*const SimpleTextOutputProtocol, bool) Status,
+    _output_string: extern fn (*const SimpleTextOutputProtocol, [*:0]const u16) Status,
+    _test_string: extern fn (*const SimpleTextOutputProtocol, [*:0]const u16) Status,
+    _query_mode: extern fn (*const SimpleTextOutputProtocol, usize, *usize, *usize) Status,
+    _set_mode: extern fn (*const SimpleTextOutputProtocol, usize) Status,
+    _set_attribute: extern fn (*const SimpleTextOutputProtocol, usize) Status,
+    _clear_screen: extern fn (*const SimpleTextOutputProtocol) Status,
+    _set_cursor_position: extern fn (*const SimpleTextOutputProtocol, usize, usize) Status,
+    _enable_cursor: extern fn (*const SimpleTextOutputProtocol, bool) Status,
     mode: *SimpleTextOutputMode,
 
     /// Resets the text output device hardware.
-    pub fn reset(self: *const SimpleTextOutputProtocol, verify: bool) usize {
+    pub fn reset(self: *const SimpleTextOutputProtocol, verify: bool) Status {
         return self._reset(self, verify);
     }
 
     /// Writes a string to the output device.
-    pub fn outputString(self: *const SimpleTextOutputProtocol, msg: [*:0]const u16) usize {
+    pub fn outputString(self: *const SimpleTextOutputProtocol, msg: [*:0]const u16) Status {
         return self._output_string(self, msg);
     }
 
     /// Verifies that all characters in a string can be output to the target device.
-    pub fn testString(self: *const SimpleTextOutputProtocol, msg: [*:0]const u16) usize {
+    pub fn testString(self: *const SimpleTextOutputProtocol, msg: [*:0]const u16) Status {
         return self._test_string(self, msg);
     }
 
     /// Returns information for an available text mode that the output device(s) supports.
-    pub fn queryMode(self: *const SimpleTextOutputProtocol, mode_number: usize, columns: *usize, rows: *usize) usize {
+    pub fn queryMode(self: *const SimpleTextOutputProtocol, mode_number: usize, columns: *usize, rows: *usize) Status {
         return self._query_mode(self, mode_number, columns, rows);
     }
 
     /// Sets the output device(s) to a specified mode.
-    pub fn setMode(self: *const SimpleTextOutputProtocol, mode_number: usize) usize {
+    pub fn setMode(self: *const SimpleTextOutputProtocol, mode_number: usize) Status {
         return self._set_mode(self, mode_number);
     }
 
     /// Sets the background and foreground colors for the outputString() and clearScreen() functions.
-    pub fn setAttribute(self: *const SimpleTextOutputProtocol, attribute: usize) usize {
+    pub fn setAttribute(self: *const SimpleTextOutputProtocol, attribute: usize) Status {
         return self._set_attribute(self, attribute);
     }
 
     /// Clears the output device(s) display to the currently selected background color.
-    pub fn clearScreen(self: *const SimpleTextOutputProtocol) usize {
+    pub fn clearScreen(self: *const SimpleTextOutputProtocol) Status {
         return self._clear_screen(self);
     }
 
     /// Sets the current coordinates of the cursor position.
-    pub fn setCursorPosition(self: *const SimpleTextOutputProtocol, column: usize, row: usize) usize {
+    pub fn setCursorPosition(self: *const SimpleTextOutputProtocol, column: usize, row: usize) Status {
         return self._set_cursor_position(self, column, row);
     }
 
     /// Makes the cursor visible or invisible.
-    pub fn enableCursor(self: *const SimpleTextOutputProtocol, visible: bool) usize {
+    pub fn enableCursor(self: *const SimpleTextOutputProtocol, visible: bool) Status {
         return self._enable_cursor(self, visible);
     }
 

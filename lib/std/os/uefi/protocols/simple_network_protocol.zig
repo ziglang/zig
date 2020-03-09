@@ -1,87 +1,88 @@
 const uefi = @import("std").os.uefi;
 const Event = uefi.Event;
 const Guid = uefi.Guid;
+const Status = uefi.Status;
 
 pub const SimpleNetworkProtocol = extern struct {
     revision: u64,
-    _start: extern fn (*const SimpleNetworkProtocol) usize,
-    _stop: extern fn (*const SimpleNetworkProtocol) usize,
-    _initialize: extern fn (*const SimpleNetworkProtocol, usize, usize) usize,
-    _reset: extern fn (*const SimpleNetworkProtocol, bool) usize,
-    _shutdown: extern fn (*const SimpleNetworkProtocol) usize,
-    _receive_filters: extern fn (*const SimpleNetworkProtocol, SimpleNetworkReceiveFilter, SimpleNetworkReceiveFilter, bool, usize, ?[*]const MacAddress) usize,
-    _station_address: extern fn (*const SimpleNetworkProtocol, bool, ?*const MacAddress) usize,
-    _statistics: extern fn (*const SimpleNetworkProtocol, bool, ?*usize, ?*NetworkStatistics) usize,
-    _mcast_ip_to_mac: extern fn (*const SimpleNetworkProtocol, bool, *const c_void, *MacAddress) usize,
-    _nvdata: extern fn (*const SimpleNetworkProtocol, bool, usize, usize, [*]u8) usize,
-    _get_status: extern fn (*const SimpleNetworkProtocol, *SimpleNetworkInterruptStatus, ?*?[*]u8) usize,
-    _transmit: extern fn (*const SimpleNetworkProtocol, usize, usize, [*]const u8, ?*const MacAddress, ?*const MacAddress, ?*const u16) usize,
-    _receive: extern fn (*const SimpleNetworkProtocol, ?*usize, *usize, [*]u8, ?*MacAddress, ?*MacAddress, ?*u16) usize,
+    _start: extern fn (*const SimpleNetworkProtocol) Status,
+    _stop: extern fn (*const SimpleNetworkProtocol) Status,
+    _initialize: extern fn (*const SimpleNetworkProtocol, usize, usize) Status,
+    _reset: extern fn (*const SimpleNetworkProtocol, bool) Status,
+    _shutdown: extern fn (*const SimpleNetworkProtocol) Status,
+    _receive_filters: extern fn (*const SimpleNetworkProtocol, SimpleNetworkReceiveFilter, SimpleNetworkReceiveFilter, bool, usize, ?[*]const MacAddress) Status,
+    _station_address: extern fn (*const SimpleNetworkProtocol, bool, ?*const MacAddress) Status,
+    _statistics: extern fn (*const SimpleNetworkProtocol, bool, ?*usize, ?*NetworkStatistics) Status,
+    _mcast_ip_to_mac: extern fn (*const SimpleNetworkProtocol, bool, *const c_void, *MacAddress) Status,
+    _nvdata: extern fn (*const SimpleNetworkProtocol, bool, usize, usize, [*]u8) Status,
+    _get_status: extern fn (*const SimpleNetworkProtocol, *SimpleNetworkInterruptStatus, ?*?[*]u8) Status,
+    _transmit: extern fn (*const SimpleNetworkProtocol, usize, usize, [*]const u8, ?*const MacAddress, ?*const MacAddress, ?*const u16) Status,
+    _receive: extern fn (*const SimpleNetworkProtocol, ?*usize, *usize, [*]u8, ?*MacAddress, ?*MacAddress, ?*u16) Status,
     wait_for_packet: Event,
     mode: *SimpleNetworkMode,
 
     /// Changes the state of a network interface from "stopped" to "started".
-    pub fn start(self: *const SimpleNetworkProtocol) usize {
+    pub fn start(self: *const SimpleNetworkProtocol) Status {
         return self._start(self);
     }
 
     /// Changes the state of a network interface from "started" to "stopped".
-    pub fn stop(self: *const SimpleNetworkProtocol) usize {
+    pub fn stop(self: *const SimpleNetworkProtocol) Status {
         return self._stop(self);
     }
 
     /// Resets a network adapter and allocates the transmit and receive buffers required by the network interface.
-    pub fn initialize(self: *const SimpleNetworkProtocol, extra_rx_buffer_size: usize, extra_tx_buffer_size: usize) usize {
+    pub fn initialize(self: *const SimpleNetworkProtocol, extra_rx_buffer_size: usize, extra_tx_buffer_size: usize) Status {
         return self._initialize(self, extra_rx_buffer_size, extra_tx_buffer_size);
     }
 
     /// Resets a network adapter and reinitializes it with the parameters that were provided in the previous call to initialize().
-    pub fn reset(self: *const SimpleNetworkProtocol, extended_verification: bool) usize {
+    pub fn reset(self: *const SimpleNetworkProtocol, extended_verification: bool) Status {
         return self._reset(self, extended_verification);
     }
 
     /// Resets a network adapter and leaves it in a state that is safe for another driver to initialize.
-    pub fn shutdown(self: *const SimpleNetworkProtocol) usize {
+    pub fn shutdown(self: *const SimpleNetworkProtocol) Status {
         return self._shutdown(self);
     }
 
     /// Manages the multicast receive filters of a network interface.
-    pub fn receiveFilters(self: *const SimpleNetworkProtocol, enable: SimpleNetworkReceiveFilter, disable: SimpleNetworkReceiveFilter, reset_mcast_filter: bool, mcast_filter_cnt: usize, mcast_filter: ?[*]const MacAddress) usize {
+    pub fn receiveFilters(self: *const SimpleNetworkProtocol, enable: SimpleNetworkReceiveFilter, disable: SimpleNetworkReceiveFilter, reset_mcast_filter: bool, mcast_filter_cnt: usize, mcast_filter: ?[*]const MacAddress) Status {
         return self._receive_filters(self, enable, disable, reset_mcast_filter, mcast_filter_cnt, mcast_filter);
     }
 
     /// Modifies or resets the current station address, if supported.
-    pub fn stationAddress(self: *const SimpleNetworkProtocol, reset: bool, new: ?*const MacAddress) usize {
+    pub fn stationAddress(self: *const SimpleNetworkProtocol, reset: bool, new: ?*const MacAddress) Status {
         return self._station_address(self, reset, new);
     }
 
     /// Resets or collects the statistics on a network interface.
-    pub fn statistics(self: *const SimpleNetworkProtocol, reset_: bool, statistics_size: ?*usize, statistics_table: ?*NetworkStatistics) usize {
+    pub fn statistics(self: *const SimpleNetworkProtocol, reset_: bool, statistics_size: ?*usize, statistics_table: ?*NetworkStatistics) Status {
         return self._statistics(self, reset_, statistics_size, statistics_table);
     }
 
     /// Converts a multicast IP address to a multicast HW MAC address.
-    pub fn mcastIpToMac(self: *const SimpleNetworkProtocol, ipv6: bool, ip: *const c_void, mac: *MacAddress) usize {
+    pub fn mcastIpToMac(self: *const SimpleNetworkProtocol, ipv6: bool, ip: *const c_void, mac: *MacAddress) Status {
         return self._mcast_ip_to_mac(self, ipv6, ip, mac);
     }
 
     /// Performs read and write operations on the NVRAM device attached to a network interface.
-    pub fn nvdata(self: *const SimpleNetworkProtocol, read_write: bool, offset: usize, buffer_size: usize, buffer: [*]u8) usize {
+    pub fn nvdata(self: *const SimpleNetworkProtocol, read_write: bool, offset: usize, buffer_size: usize, buffer: [*]u8) Status {
         return self._nvdata(self, read_write, offset, buffer_size, buffer);
     }
 
     /// Reads the current interrupt status and recycled transmit buffer status from a network interface.
-    pub fn getStatus(self: *const SimpleNetworkProtocol, interrupt_status: *SimpleNetworkInterruptStatus, tx_buf: ?*?[*]u8) usize {
+    pub fn getStatus(self: *const SimpleNetworkProtocol, interrupt_status: *SimpleNetworkInterruptStatus, tx_buf: ?*?[*]u8) Status {
         return self._get_status(self, interrupt_status, tx_buf);
     }
 
     /// Places a packet in the transmit queue of a network interface.
-    pub fn transmit(self: *const SimpleNetworkProtocol, header_size: usize, buffer_size: usize, buffer: [*]const u8, src_addr: ?*const MacAddress, dest_addr: ?*const MacAddress, protocol: ?*const u16) usize {
+    pub fn transmit(self: *const SimpleNetworkProtocol, header_size: usize, buffer_size: usize, buffer: [*]const u8, src_addr: ?*const MacAddress, dest_addr: ?*const MacAddress, protocol: ?*const u16) Status {
         return self._transmit(self, header_size, buffer_size, buffer, src_addr, dest_addr, protocol);
     }
 
     /// Receives a packet from a network interface.
-    pub fn receive(self: *const SimpleNetworkProtocol, header_size: ?*usize, buffer_size: *usize, buffer: [*]u8, src_addr: ?*MacAddress, dest_addr: ?*MacAddress, protocol: ?*u16) usize {
+    pub fn receive(self: *const SimpleNetworkProtocol, header_size: ?*usize, buffer_size: *usize, buffer: [*]u8, src_addr: ?*MacAddress, dest_addr: ?*MacAddress, protocol: ?*u16) Status {
         return self._receive(self, header_size, buffer_size, buffer, src_addr, dest_addr, protocol);
     }
 
