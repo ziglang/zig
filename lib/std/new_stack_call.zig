@@ -29,12 +29,11 @@ pub fn newStackCall(buf: []u8, comptime func: var, args: var) @typeInfo(@TypeOf(
 
         fn call(result_ptr: usize, args_ptr: usize, old_sp: usize) callconv(.C) usize {
             const typed_args: ArgsType = if (isArgs0bit) undefined else @intToPtr(*ArgsType, args_ptr).*;
-            if (isRet0bit) {
-                if (isNoreturn) {
-                    @call(.{}, func, typed_args);
-                } else {
-                    _ = @call(.{}, func, typed_args);
-                }
+            if (isNoreturn) {
+                @call(.{}, func, typed_args);
+                unreachable;
+            } else if (isRet0bit) {
+                _ = @call(.{}, func, typed_args);
             } else {
                 @intToPtr(*ReturnType, result_ptr).* = @call(.{}, func, typed_args);
             }
@@ -49,23 +48,39 @@ pub fn newStackCall(buf: []u8, comptime func: var, args: var) @typeInfo(@TypeOf(
     const result_ptr: usize = if (isRet0bit) undefined else @ptrToInt(&result);
     const args_ptr: usize = if (isArgs0bit) undefined else @ptrToInt(&args);
 
-    asm volatile (
-        comptime fmt(
-            \\ movq %%rsp, %%rdx
-            \\ movq %%rax, %%rsp
-            \\ callq {}
-            \\ movq %%rax, %%rsp
-        , .{name})
-        :
-        : [stack_ptr] "{rax}" (stack_ptr),
-          [result_ptr] "{rdi}" (result_ptr),
-          [args_ptr] "{rsi}" (args_ptr),
-        : "rbp", "rax", "rdi", "rsi", "rdx", "rcx", "r8", "r9", "r10", "r11", "memory",
-    );
-
     if (isNoreturn) {
+        asm volatile (
+            comptime fmt(
+                \\ movq %%rax, %%rsp
+                \\ callq {}
+                \\ ud2
+            , .{name})
+            :
+            : [stack_ptr] "{rax}" (stack_ptr),
+              [args_ptr] "{rsi}" (args_ptr),
+            : "rdi", "rsi", "rdx",
+              "rcx", "r8", "r9",
+              "rax", "rbp",
+              "r10", "r11", "memory",
+        );
         unreachable;
     } else {
+        asm volatile (
+            comptime fmt(
+                \\ movq %%rsp, %%rdx
+                \\ movq %%rax, %%rsp
+                \\ callq {}
+                \\ movq %%rax, %%rsp
+            , .{name})
+            :
+            : [stack_ptr] "{rax}" (stack_ptr),
+              [result_ptr] "{rdi}" (result_ptr),
+              [args_ptr] "{rsi}" (args_ptr),
+            : "rdi", "rsi", "rdx",
+              "rcx", "r8", "r9",
+              "rax", "rbp",
+              "r10", "r11", "memory",
+        );
         return result;
     }
 }
