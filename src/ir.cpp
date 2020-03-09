@@ -15565,9 +15565,20 @@ static Error lazy_cmp_zero(CodeGen *codegen, AstNode *source_node, ZigValue *val
             switch (val->data.x_lazy->id) {
                 case LazyValueIdInvalid:
                     zig_unreachable();
-                case LazyValueIdAlignOf:
-                    *result = CmpGT;
+                case LazyValueIdAlignOf: {
+                    LazyValueAlignOf *lazy_align_of = reinterpret_cast<LazyValueAlignOf *>(val->data.x_lazy);
+                    IrAnalyze *ira = lazy_align_of->ira;
+
+                    bool is_zero_bits;
+                    if ((err = type_val_resolve_zero_bits(ira->codegen, lazy_align_of->target_type->value,
+                                    nullptr, nullptr, &is_zero_bits)))
+                    {
+                        return err;
+                    }
+
+                    *result = is_zero_bits ? CmpEQ : CmpGT;
                     return ErrorNone;
+                }
                 case LazyValueIdSizeOf: {
                     LazyValueSizeOf *lazy_size_of = reinterpret_cast<LazyValueSizeOf *>(val->data.x_lazy);
                     IrAnalyze *ira = lazy_size_of->ira;
