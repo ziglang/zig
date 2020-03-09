@@ -969,7 +969,7 @@ static Buf *panic_msg_buf(PanicMsgId msg_id) {
         case PanicMsgIdResumedFnPendingAwait:
             return buf_create_from_str("resumed an async function which can only be awaited");
         case PanicMsgIdBadNoAsyncCall:
-            return buf_create_from_str("async function called with noasync suspended");
+            return buf_create_from_str("async function called in noasync scope suspended");
         case PanicMsgIdResumeNotSuspendedFn:
             return buf_create_from_str("resumed a non-suspended function");
         case PanicMsgIdBadSentinel:

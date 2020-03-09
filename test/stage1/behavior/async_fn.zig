@@ -1531,3 +1531,19 @@ test "noasync await" {
     S.doTheTest();
     expect(S.finished);
 }
+
+test "noasync on function calls" {
+    const S0 = struct {
+        b: i32 = 42,
+    };
+    const S1 = struct {
+        fn c() S0 {
+            return S0{};
+        }
+        fn d() !S0 {
+            return S0{};
+        }
+    };
+    expectEqual(@as(i32, 42), noasync S1.c().b);
+    expectEqual(@as(i32, 42), (try noasync S1.d()).b);
+}
