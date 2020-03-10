@@ -19392,6 +19392,19 @@ static IrInstGen *ir_analyze_fn_call(IrAnalyze *ira, IrInst* source_instr,
             ZigType *specified_return_type = ir_analyze_type_expr(ira, impl_fn->child_scope, return_type_node);
             if (type_is_invalid(specified_return_type))
                 return ira->codegen->invalid_inst_gen;
+
+            if(!is_valid_return_type(specified_return_type)){
+                ErrorMsg *msg = ir_add_error(ira, source_instr,
+                    buf_sprintf("call to generic function with %s return type '%s' not allowed", type_id_name(specified_return_type->id), buf_ptr(&specified_return_type->name)));
+                add_error_note(ira->codegen, msg, fn_proto_node, buf_sprintf("function declared here"));
+
+                Tld *tld = find_decl(ira->codegen, &fn_entry->fndef_scope->base, &specified_return_type->name);
+                if (tld != nullptr) {
+                    add_error_note(ira->codegen, msg, tld->source_node, buf_sprintf("type declared here"));
+                }
+                return ira->codegen->invalid_inst_gen;
+            }
+
             if (fn_proto_node->data.fn_proto.auto_err_set) {
                 ZigType *inferred_err_set_type = get_auto_err_set_type(ira->codegen, impl_fn);
                 if ((err = type_resolve(ira->codegen, specified_return_type, ResolveStatusSizeKnown)))

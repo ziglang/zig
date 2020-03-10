@@ -6558,9 +6558,41 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\export fn bar() !FooType {
         \\    return error.InvalidValue;
         \\}
+        \\export fn bav() !@TypeOf(null) {
+        \\    return error.InvalidValue;
+        \\}
+        \\export fn baz() !@TypeOf(undefined) {
+        \\    return error.InvalidValue;
+        \\}
     , &[_][]const u8{
-        "tmp.zig:2:18: error: opaque return type 'FooType' not allowed",
-        "tmp.zig:1:1: note: declared here",
+        "tmp.zig:2:18: error: Opaque return type 'FooType' not allowed",
+        "tmp.zig:1:1: note: type declared here",
+        "tmp.zig:5:18: error: Null return type '(null)' not allowed",
+        "tmp.zig:8:18: error: Undefined return type '(undefined)' not allowed",
+    });
+
+    cases.add("generic function returning opaque type",
+        \\const FooType = @OpaqueType();
+        \\fn generic(comptime T: type) !T {
+        \\    return undefined;
+        \\}
+        \\export fn bar() void {
+        \\    _ = generic(FooType);
+        \\}
+        \\export fn bav() void {
+        \\    _ = generic(@TypeOf(null));
+        \\}
+        \\export fn baz() void {
+        \\    _ = generic(@TypeOf(undefined));
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:6:16: error: call to generic function with Opaque return type 'FooType' not allowed",
+        "tmp.zig:2:1: note: function declared here",
+        "tmp.zig:1:1: note: type declared here",
+        "tmp.zig:9:16: error: call to generic function with Null return type '(null)' not allowed",
+        "tmp.zig:2:1: note: function declared here",
+        "tmp.zig:12:16: error: call to generic function with Undefined return type '(undefined)' not allowed",
+        "tmp.zig:2:1: note: function declared here",
     });
 
     cases.add( // fixed bug #2032
