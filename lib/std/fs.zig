@@ -708,7 +708,12 @@ pub const Dir = struct {
         const access_mask = w.SYNCHRONIZE |
             (if (flags.read) @as(u32, w.GENERIC_READ) else 0) |
             (if (flags.write) @as(u32, w.GENERIC_WRITE) else 0);
-        return self.openFileWindows(sub_path_w, access_mask, w.FILE_OPEN);
+        const share_access = if (flags.lock)
+            w.FILE_SHARE_DELETE |
+                (if (flags.write) @as(os.windows.ULONG, 0) else w.FILE_SHARE_READ)
+        else
+            null;
+        return self.openFileWindows(sub_path_w, access_mask, share_access, w.FILE_OPEN);
     }
 
     /// Creates, opens, or overwrites a file with write access.
@@ -753,7 +758,7 @@ pub const Dir = struct {
             @as(u32, w.FILE_OVERWRITE_IF)
         else
             @as(u32, w.FILE_OPEN_IF);
-        return self.openFileWindows(sub_path_w, access_mask, creation);
+        return self.openFileWindows(sub_path_w, access_mask, null, creation);
     }
 
     /// Deprecated; call `openFile` directly.
@@ -775,65 +780,80 @@ pub const Dir = struct {
         self: Dir,
         sub_path_w: [*:0]const u16,
         access_mask: os.windows.ACCESS_MASK,
+        share_access_opt: ?os.windows.ULONG,
         creation: os.windows.ULONG,
     ) File.OpenError!File {
-        const w = os.windows;
+        var delay: usize = 1;
+        while (true) {
+            const w = os.windows;
 
-        if (sub_path_w[0] == '.' and sub_path_w[1] == 0) {
-            return error.IsDir;
-        }
-        if (sub_path_w[0] == '.' and sub_path_w[1] == '.' and sub_path_w[2] == 0) {
-            return error.IsDir;
-        }
+            if (sub_path_w[0] == '.' and sub_path_w[1] == 0) {
+                return error.IsDir;
+            }
+            if (sub_path_w[0] == '.' and sub_path_w[1] == '.' and sub_path_w[2] == 0) {
+                return error.IsDir;
+            }
 
-        var result = File{
-            .handle = undefined,
-            .io_mode = .blocking,
-        };
+            var result = File{
+                .handle = undefined,
+                .io_mode = .blocking,
+            };
 
-        const path_len_bytes = math.cast(u16, mem.toSliceConst(u16, sub_path_w).len * 2) catch |err| switch (err) {
-            error.Overflow => return error.NameTooLong,
-        };
-        var nt_name = w.UNICODE_STRING{
-            .Length = path_len_bytes,
-            .MaximumLength = path_len_bytes,
-            .Buffer = @intToPtr([*]u16, @ptrToInt(sub_path_w)),
-        };
-        var attr = w.OBJECT_ATTRIBUTES{
-            .Length = @sizeOf(w.OBJECT_ATTRIBUTES),
-            .RootDirectory = if (path.isAbsoluteWindowsW(sub_path_w)) null else self.fd,
-            .Attributes = 0, // Note we do not use OBJ_CASE_INSENSITIVE here.
-            .ObjectName = &nt_name,
-            .SecurityDescriptor = null,
-            .SecurityQualityOfService = null,
-        };
-        var io: w.IO_STATUS_BLOCK = undefined;
-        const rc = w.ntdll.NtCreateFile(
-            &result.handle,
-            access_mask,
-            &attr,
-            &io,
-            null,
-            w.FILE_ATTRIBUTE_NORMAL,
-            w.FILE_SHARE_WRITE | w.FILE_SHARE_READ | w.FILE_SHARE_DELETE,
-            creation,
-            w.FILE_NON_DIRECTORY_FILE | w.FILE_SYNCHRONOUS_IO_NONALERT,
-            null,
-            0,
-        );
-        switch (rc) {
-            .SUCCESS => return result,
-            .OBJECT_NAME_INVALID => unreachable,
-            .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
-            .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
-            .NO_MEDIA_IN_DEVICE => return error.NoDevice,
-            .INVALID_PARAMETER => unreachable,
-            .SHARING_VIOLATION => return error.SharingViolation,
-            .ACCESS_DENIED => return error.AccessDenied,
-            .PIPE_BUSY => return error.PipeBusy,
-            .OBJECT_PATH_SYNTAX_BAD => unreachable,
-            .OBJECT_NAME_COLLISION => return error.PathAlreadyExists,
-            else => return w.unexpectedStatus(rc),
+            const path_len_bytes = math.cast(u16, mem.toSliceConst(u16, sub_path_w).len * 2) catch |err| switch (err) {
+                error.Overflow => return error.NameTooLong,
+            };
+            var nt_name = w.UNICODE_STRING{
+                .Length = path_len_bytes,
+                .MaximumLength = path_len_bytes,
+                .Buffer = @intToPtr([*]u16, @ptrToInt(sub_path_w)),
+            };
+            var attr = w.OBJECT_ATTRIBUTES{
+                .Length = @sizeOf(w.OBJECT_ATTRIBUTES),
+                .RootDirectory = if (path.isAbsoluteWindowsW(sub_path_w)) null else self.fd,
+                .Attributes = 0, // Note we do not use OBJ_CASE_INSENSITIVE here.
+                .ObjectName = &nt_name,
+                .SecurityDescriptor = null,
+                .SecurityQualityOfService = null,
+            };
+            var io: w.IO_STATUS_BLOCK = undefined;
+            const share_access = share_access_opt orelse w.FILE_SHARE_WRITE | w.FILE_SHARE_READ | w.FILE_SHARE_DELETE;
+            const rc = w.ntdll.NtCreateFile(
+                &result.handle,
+                access_mask,
+                &attr,
+                &io,
+                null,
+                w.FILE_ATTRIBUTE_NORMAL,
+                share_access,
+                creation,
+                w.FILE_NON_DIRECTORY_FILE | w.FILE_SYNCHRONOUS_IO_NONALERT,
+                null,
+                0,
+            );
+            switch (rc) {
+                .SUCCESS => return result,
+                .OBJECT_NAME_INVALID => unreachable,
+                .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
+                .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
+                .NO_MEDIA_IN_DEVICE => return error.NoDevice,
+                .INVALID_PARAMETER => unreachable,
+                .SHARING_VIOLATION => {
+                    // TODO: check if async or blocking
+                    //return error.SharingViolation
+                    // Sleep so we don't consume a ton of CPU waiting to get lock on file
+                    std.time.sleep(delay);
+                    // Increase sleep time as long as it is less than 5 seconds
+                    if (delay < 5 * std.time.ns_per_s) {
+                        delay *= 2;
+                    }
+                    continue;
+                },
+                .ACCESS_DENIED => return error.AccessDenied,
+                .PIPE_BUSY => return error.PipeBusy,
+                .OBJECT_PATH_SYNTAX_BAD => unreachable,
+                .OBJECT_NAME_COLLISION => return error.PathAlreadyExists,
+                else => return w.unexpectedStatus(rc),
+            }
         }
     }
 

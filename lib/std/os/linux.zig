@@ -219,7 +219,7 @@ pub fn mmap(address: ?[*]u8, length: usize, prot: usize, flags: u32, fd: i32, of
     }
 }
 
-pub fn fcntlFlock(fd: fd_t, cmd: i32, flock_p: *flock) usize {
+pub fn fcntl(fd: fd_t, cmd: i32, flock_p: *const c_void) usize {
     return syscall3(SYS_fcntl, @bitCast(usize, @as(isize, fd)), @bitCast(usize, @as(isize, cmd)), @ptrToInt(flock_p));
 }
 

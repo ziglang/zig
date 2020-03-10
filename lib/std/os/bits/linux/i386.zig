@@ -8,6 +8,7 @@ const iovec = linux.iovec;
 const iovec_const = linux.iovec_const;
 const uid_t = linux.uid_t;
 const gid_t = linux.gid_t;
+const pid_t = linux.pid_t;
 const stack_t = linux.stack_t;
 const sigset_t = linux.sigset_t;
 

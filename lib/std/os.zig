@@ -1141,8 +1141,8 @@ pub fn freeNullDelimitedEnvMap(allocator: *mem.Allocator, envp_buf: []?[*:0]u8) 
 }
 
 /// Attempts to get lock the file, blocking if the file is locked.
-pub fn fcntlFlockBlocking(fd: fd_t, flock_p: *flock) OpenError!void {
-    const rc = system.fcntlFlock(fd, F_SETLKW, flock_p);
+pub fn fcntlFlockBlocking(fd: fd_t, flock_p: *const flock) OpenError!void {
+    const rc = system.fcntl(fd, F_SETLKW, flock_p);
     if (rc < 0) {
         std.debug.panic("fcntl error: {}\n", .{rc});
     }
