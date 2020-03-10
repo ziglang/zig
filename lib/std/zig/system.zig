@@ -201,8 +201,15 @@ pub const NativeTargetInfo = struct {
             switch (Target.current.os.tag) {
                 .linux => {
                     const uts = std.os.uname();
-                    const release = mem.toSliceConst(u8, @ptrCast([*:0]const u8, &uts.release));
-                    if (std.builtin.Version.parse(release)) |ver| {
+                    const release = mem.toSliceConst(u8, &uts.release);
+                    // The release field may have several other fields after the
+                    // kernel version
+                    const kernel_version = if (mem.indexOfScalar(u8, release, '-')) |pos|
+                        release[0..pos]
+                    else
+                        release;
+
+                    if (std.builtin.Version.parse(kernel_version)) |ver| {
                         os.version_range.linux.range.min = ver;
                         os.version_range.linux.range.max = ver;
                     } else |err| switch (err) {
