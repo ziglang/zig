@@ -825,8 +825,15 @@ pub fn openElfDebugInfo(allocator: *mem.Allocator, elf_file_path: []const u8) !M
 
         const shoff = hdr.e_shoff;
         const str_section_off = shoff + @as(u64, hdr.e_shentsize) * @as(u64, hdr.e_shstrndx);
-        const header_strings = mapped_mem[str_section_off..str_section_off + hdr.e_shentsize];
-        const shdrs = @ptrCast([*]const elf.Shdr, @alignCast(@alignOf(elf.Shdr), &mapped_mem[shoff]))[0..hdr.e_shnum];
+        const str_shdr = @ptrCast(
+            *const elf.Shdr,
+            @alignCast(@alignOf(elf.Shdr), &mapped_mem[str_section_off]),
+        );
+        const header_strings = mapped_mem[str_shdr.sh_offset .. str_shdr.sh_offset + str_shdr.sh_size];
+        const shdrs = @ptrCast(
+            [*]const elf.Shdr,
+            @alignCast(@alignOf(elf.Shdr), &mapped_mem[shoff]),
+        )[0..hdr.e_shnum];
 
         var opt_debug_info: ?[]const u8 = null;
         var opt_debug_abbrev: ?[]const u8 = null;

@@ -164,6 +164,5 @@ test "FixedBufferStream input" {
     testing.expect(read == 3);
     testing.expect(mem.eql(u8, dest[0..3], bytes[4..7]));
 
-    read = try fbs.inStream().read(dest[0..4]);
-    testing.expect(read == 0);
+    testing.expectError(error.EndOfStream, fbs.inStream().read(dest[0..4]));
 }
