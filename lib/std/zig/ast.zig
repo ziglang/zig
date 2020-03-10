@@ -500,67 +500,71 @@ pub const Node = struct {
         var n = base;
         while (true) {
             switch (n.id) {
-                Id.Root,
-                Id.ContainerField,
-                Id.ParamDecl,
-                Id.Block,
-                Id.Payload,
-                Id.PointerPayload,
-                Id.PointerIndexPayload,
-                Id.Switch,
-                Id.SwitchCase,
-                Id.SwitchElse,
-                Id.FieldInitializer,
-                Id.DocComment,
-                Id.TestDecl,
+                .Root,
+                .ContainerField,
+                .ParamDecl,
+                .Block,
+                .Payload,
+                .PointerPayload,
+                .PointerIndexPayload,
+                .Switch,
+                .SwitchCase,
+                .SwitchElse,
+                .FieldInitializer,
+                .DocComment,
+                .TestDecl,
                 => return false,
-                Id.While => {
+                .While => {
                     const while_node = @fieldParentPtr(While, "base", n);
                     if (while_node.@"else") |@"else"| {
                         n = &@"else".base;
                         continue;
                     }
 
-                    return while_node.body.id != Id.Block;
+                    return while_node.body.id != .Block;
                 },
-                Id.For => {
+                .For => {
                     const for_node = @fieldParentPtr(For, "base", n);
                     if (for_node.@"else") |@"else"| {
                         n = &@"else".base;
                         continue;
                     }
 
-                    return for_node.body.id != Id.Block;
+                    return for_node.body.id != .Block;
                 },
-                Id.If => {
+                .If => {
                     const if_node = @fieldParentPtr(If, "base", n);
                     if (if_node.@"else") |@"else"| {
                         n = &@"else".base;
                         continue;
                     }
 
-                    return if_node.body.id != Id.Block;
+                    return if_node.body.id != .Block;
                 },
-                Id.Else => {
+                .Else => {
                     const else_node = @fieldParentPtr(Else, "base", n);
                     n = else_node.body;
                     continue;
                 },
-                Id.Defer => {
+                .Defer => {
                     const defer_node = @fieldParentPtr(Defer, "base", n);
-                    return defer_node.expr.id != Id.Block;
+                    return defer_node.expr.id != .Block;
                 },
-                Id.Comptime => {
+                .Comptime => {
                     const comptime_node = @fieldParentPtr(Comptime, "base", n);
-                    return comptime_node.expr.id != Id.Block;
+                    return comptime_node.expr.id != .Block;
                 },
-                Id.Suspend => {
+                .Suspend => {
                     const suspend_node = @fieldParentPtr(Suspend, "base", n);
                     if (suspend_node.body) |body| {
-                        return body.id != Id.Block;
+                        return body.id != .Block;
                     }
 
                     return true;
+                },
+                .Noasync => {
+                    const noasync_node = @fieldParentPtr(Noasync, "base", n);
+                    return noasync_node.expr.id != .Block;
                 },
                 else => return true,
             }

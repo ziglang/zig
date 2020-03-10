@@ -1,3 +1,14 @@
+test "zig fmt: noasync block" {
+    try testCanonical(
+        \\pub fn main() anyerror!void {
+        \\    noasync {
+        \\        var foo: Foo = .{ .bar = 42 };
+        \\    }
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: noasync await" {
     try testCanonical(
         \\fn foo() void {
