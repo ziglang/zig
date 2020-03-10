@@ -93,10 +93,46 @@ pub fn getStdIn() File {
 }
 
 pub const SeekableStream = @import("io/seekable_stream.zig").SeekableStream;
-pub const SliceSeekableInStream = @import("io/seekable_stream.zig").SliceSeekableInStream;
-pub const COutStream = @import("io/c_out_stream.zig").COutStream;
 pub const InStream = @import("io/in_stream.zig").InStream;
 pub const OutStream = @import("io/out_stream.zig").OutStream;
+pub const FixedBufferInStream = @import("io/fixed_buffer_stream.zig").FixedBufferInStream;
+pub const BufferedAtomicFile = @import("io/buffered_atomic_file.zig").BufferedAtomicFile;
+
+pub const BufferedOutStream = @import("io/buffered_out_stream.zig").BufferedOutStream;
+pub const BufferedOutStreamCustom = @import("io/buffered_out_stream.zig").BufferedOutStreamCustom;
+pub const bufferedOutStream = @import("io/buffered_out_stream.zig").bufferedOutStream;
+
+pub const CountingOutStream = @import("io/counting_out_stream.zig").CountingOutStream;
+
+pub fn fixedBufferStream(bytes: []const u8) FixedBufferInStream {
+    return (FixedBufferInStream{ .bytes = bytes, .pos = 0 });
+}
+
+pub fn cOutStream(c_file: *std.c.FILE) COutStream {
+    return .{ .context = c_file };
+}
+
+pub const COutStream = OutStream(*std.c.FILE, std.fs.File.WriteError, cOutStreamWrite);
+
+pub fn cOutStreamWrite(c_file: *std.c.FILE, bytes: []const u8) std.fs.File.WriteError!usize {
+    const amt_written = std.c.fwrite(bytes.ptr, 1, bytes.len, c_file);
+    if (amt_written >= 0) return amt_written;
+    switch (std.c._errno().*) {
+        0 => unreachable,
+        os.EINVAL => unreachable,
+        os.EFAULT => unreachable,
+        os.EAGAIN => unreachable, // this is a blocking API
+        os.EBADF => unreachable, // always a race condition
+        os.EDESTADDRREQ => unreachable, // connect was never called
+        os.EDQUOT => return error.DiskQuota,
+        os.EFBIG => return error.FileTooBig,
+        os.EIO => return error.InputOutput,
+        os.ENOSPC => return error.NoSpaceLeft,
+        os.EPERM => return error.AccessDenied,
+        os.EPIPE => return error.BrokenPipe,
+        else => |err| return os.unexpectedErrno(@intCast(usize, err)),
+    }
+}
 
 /// Deprecated; use `std.fs.Dir.writeFile`.
 pub fn writeFile(path: []const u8, data: []const u8) !void {
@@ -495,138 +531,17 @@ test "io.SliceOutStream" {
     testing.expectEqualSlices(u8, "HelloWorld!", slice_stream.getWritten());
 }
 
-var null_out_stream_state = NullOutStream.init();
-pub const null_out_stream = &null_out_stream_state.stream;
-
 /// An OutStream that doesn't write to anything.
-pub const NullOutStream = struct {
-    pub const Error = error{};
-    pub const Stream = OutStream(Error);
+pub const null_out_stream = @as(NullOutStream, .{ .context = {} });
 
-    stream: Stream,
-
-    pub fn init() NullOutStream {
-        return NullOutStream{
-            .stream = Stream{ .writeFn = writeFn },
-        };
-    }
-
-    fn writeFn(out_stream: *Stream, bytes: []const u8) Error!usize {
-        return bytes.len;
-    }
-};
-
-test "io.NullOutStream" {
-    var null_stream = NullOutStream.init();
-    const stream = &null_stream.stream;
-    stream.write("yay" ** 10000) catch unreachable;
+const NullOutStream = OutStream(void, error{}, dummyWrite);
+fn dummyWrite(context: void, data: []const u8) error{}!usize {
+    return data.len;
 }
 
-/// An OutStream that counts how many bytes has been written to it.
-pub fn CountingOutStream(comptime OutStreamError: type) type {
-    return struct {
-        const Self = @This();
-        pub const Stream = OutStream(Error);
-        pub const Error = OutStreamError;
-
-        stream: Stream,
-        bytes_written: u64,
-        child_stream: *Stream,
-
-        pub fn init(child_stream: *Stream) Self {
-            return Self{
-                .stream = Stream{ .writeFn = writeFn },
-                .bytes_written = 0,
-                .child_stream = child_stream,
-            };
-        }
-
-        fn writeFn(out_stream: *Stream, bytes: []const u8) OutStreamError!usize {
-            const self = @fieldParentPtr(Self, "stream", out_stream);
-            try self.child_stream.write(bytes);
-            self.bytes_written += bytes.len;
-            return bytes.len;
-        }
-    };
+test "null_out_stream" {
+    null_out_stream.writeAll("yay" ** 1000) catch |err| switch (err) {};
 }
-
-test "io.CountingOutStream" {
-    var null_stream = NullOutStream.init();
-    var counting_stream = CountingOutStream(NullOutStream.Error).init(&null_stream.stream);
-    const stream = &counting_stream.stream;
-
-    const bytes = "yay" ** 10000;
-    stream.write(bytes) catch unreachable;
-    testing.expect(counting_stream.bytes_written == bytes.len);
-}
-
-pub fn BufferedOutStream(comptime Error: type) type {
-    return BufferedOutStreamCustom(mem.page_size, Error);
-}
-
-pub fn BufferedOutStreamCustom(comptime buffer_size: usize, comptime OutStreamError: type) type {
-    return struct {
-        const Self = @This();
-        pub const Stream = OutStream(Error);
-        pub const Error = OutStreamError;
-
-        stream: Stream,
-
-        unbuffered_out_stream: *Stream,
-
-        const FifoType = std.fifo.LinearFifo(u8, std.fifo.LinearFifoBufferType{ .Static = buffer_size });
-        fifo: FifoType,
-
-        pub fn init(unbuffered_out_stream: *Stream) Self {
-            return Self{
-                .unbuffered_out_stream = unbuffered_out_stream,
-                .fifo = FifoType.init(),
-                .stream = Stream{ .writeFn = writeFn },
-            };
-        }
-
-        pub fn flush(self: *Self) !void {
-            while (true) {
-                const slice = self.fifo.readableSlice(0);
-                if (slice.len == 0) break;
-                try self.unbuffered_out_stream.write(slice);
-                self.fifo.discard(slice.len);
-            }
-        }
-
-        fn writeFn(out_stream: *Stream, bytes: []const u8) Error!usize {
-            const self = @fieldParentPtr(Self, "stream", out_stream);
-            if (bytes.len >= self.fifo.writableLength()) {
-                try self.flush();
-                return self.unbuffered_out_stream.writeOnce(bytes);
-            }
-            self.fifo.writeAssumeCapacity(bytes);
-            return bytes.len;
-        }
-    };
-}
-
-/// Implementation of OutStream trait for Buffer
-pub const BufferOutStream = struct {
-    buffer: *Buffer,
-    stream: Stream,
-
-    pub const Error = error{OutOfMemory};
-    pub const Stream = OutStream(Error);
-
-    pub fn init(buffer: *Buffer) BufferOutStream {
-        return BufferOutStream{
-            .buffer = buffer,
-            .stream = Stream{ .writeFn = writeFn },
-        };
-    }
-
-    fn writeFn(out_stream: *Stream, bytes: []const u8) !usize {
-        const self = @fieldParentPtr(BufferOutStream, "stream", out_stream);
-        try self.buffer.append(bytes);
-        return bytes.len;
-    }
-};
 
 /// Creates a stream which allows for writing bit fields to another stream
 pub fn BitOutStream(endian: builtin.Endian, comptime Error: type) type {
@@ -752,51 +667,10 @@ pub fn BitOutStream(endian: builtin.Endian, comptime Error: type) type {
                 return buffer.len;
             }
 
-            return self.out_stream.writeOnce(buffer);
+            return self.out_stream.write(buffer);
         }
     };
 }
-
-pub const BufferedAtomicFile = struct {
-    atomic_file: fs.AtomicFile,
-    file_stream: File.OutStream,
-    buffered_stream: BufferedOutStream(File.WriteError),
-    allocator: *mem.Allocator,
-
-    pub fn create(allocator: *mem.Allocator, dest_path: []const u8) !*BufferedAtomicFile {
-        // TODO with well defined copy elision we don't need this allocation
-        var self = try allocator.create(BufferedAtomicFile);
-        self.* = BufferedAtomicFile{
-            .atomic_file = undefined,
-            .file_stream = undefined,
-            .buffered_stream = undefined,
-            .allocator = allocator,
-        };
-        errdefer allocator.destroy(self);
-
-        self.atomic_file = try fs.AtomicFile.init(dest_path, File.default_mode);
-        errdefer self.atomic_file.deinit();
-
-        self.file_stream = self.atomic_file.file.outStream();
-        self.buffered_stream = BufferedOutStream(File.WriteError).init(&self.file_stream.stream);
-        return self;
-    }
-
-    /// always call destroy, even after successful finish()
-    pub fn destroy(self: *BufferedAtomicFile) void {
-        self.atomic_file.deinit();
-        self.allocator.destroy(self);
-    }
-
-    pub fn finish(self: *BufferedAtomicFile) !void {
-        try self.buffered_stream.flush();
-        try self.atomic_file.finish();
-    }
-
-    pub fn stream(self: *BufferedAtomicFile) *OutStream(File.WriteError) {
-        return &self.buffered_stream.stream;
-    }
-};
 
 pub const Packing = enum {
     /// Pack data to byte alignment
@@ -1129,8 +1003,9 @@ pub fn Serializer(comptime endian: builtin.Endian, comptime packing: Packing, co
     };
 }
 
-test "import io tests" {
+test "" {
     comptime {
         _ = @import("io/test.zig");
     }
+    std.meta.refAllDecls(@This());
 }

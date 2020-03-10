@@ -221,9 +221,9 @@ pub const ChildProcess = struct {
         var stderr_file_in_stream = child.stderr.?.inStream();
 
         // TODO need to poll to read these streams to prevent a deadlock (or rely on evented I/O).
-        const stdout = try stdout_file_in_stream.stream.readAllAlloc(args.allocator, args.max_output_bytes);
+        const stdout = try stdout_file_in_stream.readAllAlloc(args.allocator, args.max_output_bytes);
         errdefer args.allocator.free(stdout);
-        const stderr = try stderr_file_in_stream.stream.readAllAlloc(args.allocator, args.max_output_bytes);
+        const stderr = try stderr_file_in_stream.readAllAlloc(args.allocator, args.max_output_bytes);
         errdefer args.allocator.free(stderr);
 
         return ExecResult{
@@ -857,8 +857,7 @@ fn writeIntFd(fd: i32, value: ErrInt) !void {
         .io_mode = .blocking,
         .async_block_allowed = File.async_block_allowed_yes,
     };
-    const stream = &file.outStream().stream;
-    stream.writeIntNative(u64, @intCast(u64, value)) catch return error.SystemResources;
+    file.outStream().writeIntNative(u64, @intCast(u64, value)) catch return error.SystemResources;
 }
 
 fn readIntFd(fd: i32) !ErrInt {
@@ -867,8 +866,7 @@ fn readIntFd(fd: i32) !ErrInt {
         .io_mode = .blocking,
         .async_block_allowed = File.async_block_allowed_yes,
     };
-    const stream = &file.inStream().stream;
-    return @intCast(ErrInt, stream.readIntNative(u64) catch return error.SystemResources);
+    return @intCast(ErrInt, file.inStream().readIntNative(u64) catch return error.SystemResources);
 }
 
 /// Caller must free result.

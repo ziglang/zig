@@ -38,7 +38,7 @@ pub const LibCInstallation = struct {
     pub fn parse(
         allocator: *Allocator,
         libc_file: []const u8,
-        stderr: *std.io.OutStream(fs.File.WriteError),
+        stderr: var,
     ) !LibCInstallation {
         var self: LibCInstallation = .{};
 
@@ -123,7 +123,7 @@ pub const LibCInstallation = struct {
         return self;
     }
 
-    pub fn render(self: LibCInstallation, out: *std.io.OutStream(fs.File.WriteError)) !void {
+    pub fn render(self: LibCInstallation, out: var) !void {
         @setEvalBranchQuota(4000);
         const include_dir = self.include_dir orelse "";
         const sys_include_dir = self.sys_include_dir orelse "";

@@ -157,6 +157,17 @@ pub const Buffer = struct {
     pub fn print(self: *Buffer, comptime fmt: []const u8, args: var) !void {
         return std.fmt.format(self, error{OutOfMemory}, Buffer.append, fmt, args);
     }
+
+    pub fn outStream(self: *Buffer) std.io.OutStream(*Buffer, error{OutOfMemory}, appendWrite) {
+        return .{ .context = self };
+    }
+
+    /// Same as `append` except it returns the number of bytes written, which is always the same
+    /// as `m.len`. The purpose of this function existing is to match `std.io.OutStream` API.
+    pub fn appendWrite(self: *Buffer, m: []const u8) !usize {
+        try self.append(m);
+        return m.len;
+    }
 };
 
 test "simple Buffer" {

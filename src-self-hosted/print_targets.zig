@@ -52,7 +52,7 @@ const available_libcs = [_][]const u8{
     "sparc-linux-gnu",
     "sparcv9-linux-gnu",
     "wasm32-freestanding-musl",
-    "x86_64-linux-gnu (native)",
+    "x86_64-linux-gnu",
     "x86_64-linux-gnux32",
     "x86_64-linux-musl",
     "x86_64-windows-gnu",
@@ -61,7 +61,8 @@ const available_libcs = [_][]const u8{
 pub fn cmdTargets(
     allocator: *Allocator,
     args: []const []const u8,
-    stdout: *io.OutStream(fs.File.WriteError),
+    /// Output stream
+    stdout: var,
     native_target: Target,
 ) !void {
     const available_glibcs = blk: {
@@ -92,9 +93,9 @@ pub fn cmdTargets(
     };
     defer allocator.free(available_glibcs);
 
-    const BOS = io.BufferedOutStream(fs.File.WriteError);
-    var bos = BOS.init(stdout);
-    var jws = std.json.WriteStream(BOS.Stream, 6).init(&bos.stream);
+    var bos = io.bufferedOutStream(4096, stdout);
+    const bos_stream = bos.outStream();
+    var jws = std.json.WriteStream(@TypeOf(bos_stream), 6).init(bos_stream);
 
     try jws.beginObject();
 
@@ -219,6 +220,6 @@ pub fn cmdTargets(
 
     try jws.endObject();
 
-    try bos.stream.writeByte('\n');
+    try bos_stream.writeByte('\n');
     return bos.flush();
 }

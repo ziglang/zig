@@ -632,11 +632,7 @@ const MsfStream = struct {
     blocks: []u32 = undefined,
     block_size: u32 = undefined,
 
-    /// Implementation of InStream trait for Pdb.MsfStream
-    stream: Stream = undefined,
-
     pub const Error = @TypeOf(read).ReturnType.ErrorSet;
-    pub const Stream = io.InStream(Error);
 
     fn init(block_size: u32, file: File, blocks: []u32) MsfStream {
         const stream = MsfStream{
@@ -644,7 +640,6 @@ const MsfStream = struct {
             .pos = 0,
             .blocks = blocks,
             .block_size = block_size,
-            .stream = Stream{ .readFn = readFn },
         };
 
         return stream;
@@ -715,8 +710,7 @@ const MsfStream = struct {
         return block * self.block_size + offset;
     }
 
-    fn readFn(in_stream: *Stream, buffer: []u8) Error!usize {
-        const self = @fieldParentPtr(MsfStream, "stream", in_stream);
-        return self.read(buffer);
+    fn inStream(self: *MsfStream) std.io.InStream(*MsfStream, Error, read) {
+        return .{ .context = self };
     }
 };

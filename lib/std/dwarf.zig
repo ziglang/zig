@@ -11,9 +11,6 @@ const ArrayList = std.ArrayList;
 
 usingnamespace @import("dwarf_bits.zig");
 
-pub const DwarfSeekableStream = io.SeekableStream(anyerror, anyerror);
-pub const DwarfInStream = io.InStream(anyerror);
-
 const PcRange = struct {
     start: u64,
     end: u64,
@@ -239,7 +236,7 @@ const LineNumberProgram = struct {
     }
 };
 
-fn readInitialLength(comptime E: type, in_stream: *io.InStream(E), is_64: *bool) !u64 {
+fn readInitialLength(in_stream: var, is_64: *bool) !u64 {
     const first_32_bits = try in_stream.readIntLittle(u32);
     is_64.* = (first_32_bits == 0xffffffff);
     if (is_64.*) {
@@ -414,40 +411,42 @@ pub const DwarfInfo = struct {
     }
 
     fn scanAllFunctions(di: *DwarfInfo) !void {
-        var s = io.SliceSeekableInStream.init(di.debug_info);
+        var stream = io.fixedBufferStream(di.debug_info);
+        const in = &stream.inStream();
+        const seekable = &stream.seekableStream();
         var this_unit_offset: u64 = 0;
 
-        while (this_unit_offset < try s.seekable_stream.getEndPos()) {
-            s.seekable_stream.seekTo(this_unit_offset) catch |err| switch (err) {
+        while (this_unit_offset < try seekable.getEndPos()) {
+            seekable.seekTo(this_unit_offset) catch |err| switch (err) {
                 error.EndOfStream => unreachable,
                 else => return err,
             };
 
             var is_64: bool = undefined;
-            const unit_length = try readInitialLength(@TypeOf(s.stream.readFn).ReturnType.ErrorSet, &s.stream, &is_64);
+            const unit_length = try readInitialLength(in, &is_64);
             if (unit_length == 0) return;
             const next_offset = unit_length + (if (is_64) @as(usize, 12) else @as(usize, 4));
 
-            const version = try s.stream.readInt(u16, di.endian);
+            const version = try in.readInt(u16, di.endian);
             if (version < 2 or version > 5) return error.InvalidDebugInfo;
 
-            const debug_abbrev_offset = if (is_64) try s.stream.readInt(u64, di.endian) else try s.stream.readInt(u32, di.endian);
+            const debug_abbrev_offset = if (is_64) try in.readInt(u64, di.endian) else try in.readInt(u32, di.endian);
 
-            const address_size = try s.stream.readByte();
+            const address_size = try in.readByte();
             if (address_size != @sizeOf(usize)) return error.InvalidDebugInfo;
 
-            const compile_unit_pos = try s.seekable_stream.getPos();
+            const compile_unit_pos = try seekable.getPos();
             const abbrev_table = try di.getAbbrevTable(debug_abbrev_offset);
 
-            try s.seekable_stream.seekTo(compile_unit_pos);
+            try seekable.seekTo(compile_unit_pos);
 
             const next_unit_pos = this_unit_offset + next_offset;
 
-            while ((try s.seekable_stream.getPos()) < next_unit_pos) {
-                const die_obj = (try di.parseDie(&s.stream, abbrev_table, is_64)) orelse continue;
+            while ((try seekable.getPos()) < next_unit_pos) {
+                const die_obj = (try di.parseDie(in, abbrev_table, is_64)) orelse continue;
                 defer die_obj.attrs.deinit();
 
-                const after_die_offset = try s.seekable_stream.getPos();
+                const after_die_offset = try seekable.getPos();
 
                 switch (die_obj.tag_id) {
                     TAG_subprogram, TAG_inlined_subroutine, TAG_subroutine, TAG_entry_point => {
@@ -463,14 +462,14 @@ pub const DwarfInfo = struct {
                                     // Follow the DIE it points to and repeat
                                     const ref_offset = try this_die_obj.getAttrRef(AT_abstract_origin);
                                     if (ref_offset > next_offset) return error.InvalidDebugInfo;
-                                    try s.seekable_stream.seekTo(this_unit_offset + ref_offset);
-                                    this_die_obj = (try di.parseDie(&s.stream, abbrev_table, is_64)) orelse return error.InvalidDebugInfo;
+                                    try seekable.seekTo(this_unit_offset + ref_offset);
+                                    this_die_obj = (try di.parseDie(in, abbrev_table, is_64)) orelse return error.InvalidDebugInfo;
                                 } else if (this_die_obj.getAttr(AT_specification)) |ref| {
                                     // Follow the DIE it points to and repeat
                                     const ref_offset = try this_die_obj.getAttrRef(AT_specification);
                                     if (ref_offset > next_offset) return error.InvalidDebugInfo;
-                                    try s.seekable_stream.seekTo(this_unit_offset + ref_offset);
-                                    this_die_obj = (try di.parseDie(&s.stream, abbrev_table, is_64)) orelse return error.InvalidDebugInfo;
+                                    try seekable.seekTo(this_unit_offset + ref_offset);
+                                    this_die_obj = (try di.parseDie(in, abbrev_table, is_64)) orelse return error.InvalidDebugInfo;
                                 } else {
                                     break :x null;
                                 }
@@ -511,7 +510,7 @@ pub const DwarfInfo = struct {
                     else => {},
                 }
 
-                try s.seekable_stream.seekTo(after_die_offset);
+                try seekable.seekTo(after_die_offset);
             }
 
             this_unit_offset += next_offset;
@@ -519,35 +518,37 @@ pub const DwarfInfo = struct {
     }
 
     fn scanAllCompileUnits(di: *DwarfInfo) !void {
-        var s = io.SliceSeekableInStream.init(di.debug_info);
+        var stream = io.fixedBufferStream(di.debug_info);
+        const in = &stream.inStream();
+        const seekable = &stream.seekableStream();
         var this_unit_offset: u64 = 0;
 
-        while (this_unit_offset < try s.seekable_stream.getEndPos()) {
-            s.seekable_stream.seekTo(this_unit_offset) catch |err| switch (err) {
+        while (this_unit_offset < try seekable.getEndPos()) {
+            seekable.seekTo(this_unit_offset) catch |err| switch (err) {
                 error.EndOfStream => unreachable,
                 else => return err,
             };
 
             var is_64: bool = undefined;
-            const unit_length = try readInitialLength(@TypeOf(s.stream.readFn).ReturnType.ErrorSet, &s.stream, &is_64);
+            const unit_length = try readInitialLength(in, &is_64);
             if (unit_length == 0) return;
             const next_offset = unit_length + (if (is_64) @as(usize, 12) else @as(usize, 4));
 
-            const version = try s.stream.readInt(u16, di.endian);
+            const version = try in.readInt(u16, di.endian);
             if (version < 2 or version > 5) return error.InvalidDebugInfo;
 
-            const debug_abbrev_offset = if (is_64) try s.stream.readInt(u64, di.endian) else try s.stream.readInt(u32, di.endian);
+            const debug_abbrev_offset = if (is_64) try in.readInt(u64, di.endian) else try in.readInt(u32, di.endian);
 
-            const address_size = try s.stream.readByte();
+            const address_size = try in.readByte();
             if (address_size != @sizeOf(usize)) return error.InvalidDebugInfo;
 
-            const compile_unit_pos = try s.seekable_stream.getPos();
+            const compile_unit_pos = try seekable.getPos();
             const abbrev_table = try di.getAbbrevTable(debug_abbrev_offset);
 
-            try s.seekable_stream.seekTo(compile_unit_pos);
+            try seekable.seekTo(compile_unit_pos);
 
             const compile_unit_die = try di.allocator().create(Die);
-            compile_unit_die.* = (try di.parseDie(&s.stream, abbrev_table, is_64)) orelse return error.InvalidDebugInfo;
+            compile_unit_die.* = (try di.parseDie(in, abbrev_table, is_64)) orelse return error.InvalidDebugInfo;
 
             if (compile_unit_die.tag_id != TAG_compile_unit) return error.InvalidDebugInfo;
 
@@ -593,7 +594,9 @@ pub const DwarfInfo = struct {
             }
             if (di.debug_ranges) |debug_ranges| {
                 if (compile_unit.die.getAttrSecOffset(AT_ranges)) |ranges_offset| {
-                    var s = io.SliceSeekableInStream.init(debug_ranges);
+                    var stream = io.fixedBufferStream(debug_ranges);
+                    const in = &stream.inStream();
+                    const seekable = &stream.seekableStream();
 
                     // All the addresses in the list are relative to the value
                     // specified by DW_AT_low_pc or to some other value encoded
@@ -604,11 +607,11 @@ pub const DwarfInfo = struct {
                         else => return err,
                     };
 
-                    try s.seekable_stream.seekTo(ranges_offset);
+                    try seekable.seekTo(ranges_offset);
 
                     while (true) {
-                        const begin_addr = try s.stream.readIntLittle(usize);
-                        const end_addr = try s.stream.readIntLittle(usize);
+                        const begin_addr = try in.readIntLittle(usize);
+                        const end_addr = try in.readIntLittle(usize);
                         if (begin_addr == 0 and end_addr == 0) {
                             break;
                         }
@@ -646,25 +649,27 @@ pub const DwarfInfo = struct {
     }
 
     fn parseAbbrevTable(di: *DwarfInfo, offset: u64) !AbbrevTable {
-        var s = io.SliceSeekableInStream.init(di.debug_abbrev);
+        var stream = io.fixedBufferStream(di.debug_abbrev);
+        const in = &stream.inStream();
+        const seekable = &stream.seekableStream();
 
-        try s.seekable_stream.seekTo(offset);
+        try seekable.seekTo(offset);
         var result = AbbrevTable.init(di.allocator());
         errdefer result.deinit();
         while (true) {
-            const abbrev_code = try leb.readULEB128(u64, &s.stream);
+            const abbrev_code = try leb.readULEB128(u64, in);
             if (abbrev_code == 0) return result;
             try result.append(AbbrevTableEntry{
                 .abbrev_code = abbrev_code,
-                .tag_id = try leb.readULEB128(u64, &s.stream),
-                .has_children = (try s.stream.readByte()) == CHILDREN_yes,
+                .tag_id = try leb.readULEB128(u64, in),
+                .has_children = (try in.readByte()) == CHILDREN_yes,
                 .attrs = ArrayList(AbbrevAttr).init(di.allocator()),
             });
             const attrs = &result.items[result.len - 1].attrs;
 
             while (true) {
-                const attr_id = try leb.readULEB128(u64, &s.stream);
-                const form_id = try leb.readULEB128(u64, &s.stream);
+                const attr_id = try leb.readULEB128(u64, in);
+                const form_id = try leb.readULEB128(u64, in);
                 if (attr_id == 0 and form_id == 0) break;
                 try attrs.append(AbbrevAttr{
                     .attr_id = attr_id,
@@ -695,42 +700,44 @@ pub const DwarfInfo = struct {
     }
 
     fn getLineNumberInfo(di: *DwarfInfo, compile_unit: CompileUnit, target_address: usize) !debug.LineInfo {
-        var s = io.SliceSeekableInStream.init(di.debug_line);
+        var stream = io.fixedBufferStream(di.debug_line);
+        const in = &stream.inStream();
+        const seekable = &stream.seekableStream();
 
         const compile_unit_cwd = try compile_unit.die.getAttrString(di, AT_comp_dir);
         const line_info_offset = try compile_unit.die.getAttrSecOffset(AT_stmt_list);
 
-        try s.seekable_stream.seekTo(line_info_offset);
+        try seekable.seekTo(line_info_offset);
 
         var is_64: bool = undefined;
-        const unit_length = try readInitialLength(@TypeOf(s.stream.readFn).ReturnType.ErrorSet, &s.stream, &is_64);
+        const unit_length = try readInitialLength(in, &is_64);
         if (unit_length == 0) {
             return error.MissingDebugInfo;
         }
         const next_offset = unit_length + (if (is_64) @as(usize, 12) else @as(usize, 4));
 
-        const version = try s.stream.readInt(u16, di.endian);
+        const version = try in.readInt(u16, di.endian);
         // TODO support 3 and 5
         if (version != 2 and version != 4) return error.InvalidDebugInfo;
 
-        const prologue_length = if (is_64) try s.stream.readInt(u64, di.endian) else try s.stream.readInt(u32, di.endian);
-        const prog_start_offset = (try s.seekable_stream.getPos()) + prologue_length;
+        const prologue_length = if (is_64) try in.readInt(u64, di.endian) else try in.readInt(u32, di.endian);
+        const prog_start_offset = (try seekable.getPos()) + prologue_length;
 
-        const minimum_instruction_length = try s.stream.readByte();
+        const minimum_instruction_length = try in.readByte();
         if (minimum_instruction_length == 0) return error.InvalidDebugInfo;
 
         if (version >= 4) {
             // maximum_operations_per_instruction
-            _ = try s.stream.readByte();
+            _ = try in.readByte();
         }
 
-        const default_is_stmt = (try s.stream.readByte()) != 0;
-        const line_base = try s.stream.readByteSigned();
+        const default_is_stmt = (try in.readByte()) != 0;
+        const line_base = try in.readByteSigned();
 
-        const line_range = try s.stream.readByte();
+        const line_range = try in.readByte();
         if (line_range == 0) return error.InvalidDebugInfo;
 
-        const opcode_base = try s.stream.readByte();
+        const opcode_base = try in.readByte();
 
         const standard_opcode_lengths = try di.allocator().alloc(u8, opcode_base - 1);
         defer di.allocator().free(standard_opcode_lengths);
@@ -738,14 +745,14 @@ pub const DwarfInfo = struct {
         {
             var i: usize = 0;
             while (i < opcode_base - 1) : (i += 1) {
-                standard_opcode_lengths[i] = try s.stream.readByte();
+                standard_opcode_lengths[i] = try in.readByte();
             }
         }
 
         var include_directories = ArrayList([]const u8).init(di.allocator());
         try include_directories.append(compile_unit_cwd);
         while (true) {
-            const dir = try s.stream.readUntilDelimiterAlloc(di.allocator(), 0, math.maxInt(usize));
+            const dir = try in.readUntilDelimiterAlloc(di.allocator(), 0, math.maxInt(usize));
             if (dir.len == 0) break;
             try include_directories.append(dir);
         }
@@ -754,11 +761,11 @@ pub const DwarfInfo = struct {
         var prog = LineNumberProgram.init(default_is_stmt, include_directories.toSliceConst(), &file_entries, target_address);
 
         while (true) {
-            const file_name = try s.stream.readUntilDelimiterAlloc(di.allocator(), 0, math.maxInt(usize));
+            const file_name = try in.readUntilDelimiterAlloc(di.allocator(), 0, math.maxInt(usize));
             if (file_name.len == 0) break;
-            const dir_index = try leb.readULEB128(usize, &s.stream);
-            const mtime = try leb.readULEB128(usize, &s.stream);
-            const len_bytes = try leb.readULEB128(usize, &s.stream);
+            const dir_index = try leb.readULEB128(usize, in);
+            const mtime = try leb.readULEB128(usize, in);
+            const len_bytes = try leb.readULEB128(usize, in);
             try file_entries.append(FileEntry{
                 .file_name = file_name,
                 .dir_index = dir_index,
@@ -767,17 +774,17 @@ pub const DwarfInfo = struct {
             });
         }
 
-        try s.seekable_stream.seekTo(prog_start_offset);
+        try seekable.seekTo(prog_start_offset);
 
         const next_unit_pos = line_info_offset + next_offset;
 
-        while ((try s.seekable_stream.getPos()) < next_unit_pos) {
-            const opcode = try s.stream.readByte();
+        while ((try seekable.getPos()) < next_unit_pos) {
+            const opcode = try in.readByte();
 
             if (opcode == LNS_extended_op) {
-                const op_size = try leb.readULEB128(u64, &s.stream);
+                const op_size = try leb.readULEB128(u64, in);
                 if (op_size < 1) return error.InvalidDebugInfo;
-                var sub_op = try s.stream.readByte();
+                var sub_op = try in.readByte();
                 switch (sub_op) {
                     LNE_end_sequence => {
                         prog.end_sequence = true;
@@ -785,14 +792,14 @@ pub const DwarfInfo = struct {
                         prog.reset();
                     },
                     LNE_set_address => {
-                        const addr = try s.stream.readInt(usize, di.endian);
+                        const addr = try in.readInt(usize, di.endian);
                         prog.address = addr;
                     },
                     LNE_define_file => {
-                        const file_name = try s.stream.readUntilDelimiterAlloc(di.allocator(), 0, math.maxInt(usize));
-                        const dir_index = try leb.readULEB128(usize, &s.stream);
-                        const mtime = try leb.readULEB128(usize, &s.stream);
-                        const len_bytes = try leb.readULEB128(usize, &s.stream);
+                        const file_name = try in.readUntilDelimiterAlloc(di.allocator(), 0, math.maxInt(usize));
+                        const dir_index = try leb.readULEB128(usize, in);
+                        const mtime = try leb.readULEB128(usize, in);
+                        const len_bytes = try leb.readULEB128(usize, in);
                         try file_entries.append(FileEntry{
                             .file_name = file_name,
                             .dir_index = dir_index,
@@ -802,7 +809,7 @@ pub const DwarfInfo = struct {
                     },
                     else => {
                         const fwd_amt = math.cast(isize, op_size - 1) catch return error.InvalidDebugInfo;
-                        try s.seekable_stream.seekBy(fwd_amt);
+                        try seekable.seekBy(fwd_amt);
                     },
                 }
             } else if (opcode >= opcode_base) {
@@ -821,19 +828,19 @@ pub const DwarfInfo = struct {
                         prog.basic_block = false;
                     },
                     LNS_advance_pc => {
-                        const arg = try leb.readULEB128(usize, &s.stream);
+                        const arg = try leb.readULEB128(usize, in);
                         prog.address += arg * minimum_instruction_length;
                     },
                     LNS_advance_line => {
-                        const arg = try leb.readILEB128(i64, &s.stream);
+                        const arg = try leb.readILEB128(i64, in);
                         prog.line += arg;
                     },
                     LNS_set_file => {
-                        const arg = try leb.readULEB128(usize, &s.stream);
+                        const arg = try leb.readULEB128(usize, in);
                         prog.file = arg;
                     },
                     LNS_set_column => {
-                        const arg = try leb.readULEB128(u64, &s.stream);
+                        const arg = try leb.readULEB128(u64, in);
                         prog.column = arg;
                     },
                     LNS_negate_stmt => {
@@ -847,14 +854,14 @@ pub const DwarfInfo = struct {
                         prog.address += inc_addr;
                     },
                     LNS_fixed_advance_pc => {
-                        const arg = try s.stream.readInt(u16, di.endian);
+                        const arg = try in.readInt(u16, di.endian);
                         prog.address += arg;
                     },
                     LNS_set_prologue_end => {},
                     else => {
                         if (opcode - 1 >= standard_opcode_lengths.len) return error.InvalidDebugInfo;
                         const len_bytes = standard_opcode_lengths[opcode - 1];
-                        try s.seekable_stream.seekBy(len_bytes);
+                        try seekable.seekBy(len_bytes);
                     },
                 }
             }

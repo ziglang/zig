@@ -1150,7 +1150,7 @@ pub const Dir = struct {
         const buf = try allocator.alignedAlloc(u8, A, size);
         errdefer allocator.free(buf);
 
-        try file.inStream().stream.readNoEof(buf);
+        try file.inStream().readNoEof(buf);
         return buf;
     }
 
