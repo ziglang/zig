@@ -688,7 +688,7 @@ pub const Dir = struct {
             flock.l_start = 0;
             flock.l_len = 0;
             flock.l_pid = 0;
-            try os.fcntlFlockBlocking(fd, &flock);
+            try os.fcntlFlock(fd, .SetLockBlocking, &flock);
             locked = true;
         }
 

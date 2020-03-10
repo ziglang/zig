@@ -1140,9 +1140,22 @@ pub fn freeNullDelimitedEnvMap(allocator: *mem.Allocator, envp_buf: []?[*:0]u8) 
     allocator.free(envp_buf);
 }
 
+pub const LockCmd = enum {
+    GetLock,
+    SetLock,
+    SetLockBlocking,
+};
+
 /// Attempts to get lock the file, blocking if the file is locked.
-pub fn fcntlFlockBlocking(fd: fd_t, flock_p: *const Flock) OpenError!void {
-    const rc = system.fcntl(fd, F_SETLKW, flock_p);
+pub fn fcntlFlock(fd: fd_t, lock_cmd: LockCmd, flock_p: *const Flock) OpenError!void {
+    const cmd: i32 = cmdval: {
+        switch (lock_cmd) {
+            .GetLock => break :cmdval F_GETLK,
+            .SetLock => break :cmdval F_SETLK,
+            .SetLockBlocking => break :cmdval F_SETLKW,
+        }
+    };
+    const rc = system.fcntl(fd, cmd, flock_p);
     if (rc < 0) {
         std.debug.panic("fcntl error: {}\n", .{rc});
     }
