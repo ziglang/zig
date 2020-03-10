@@ -1,9 +1,11 @@
 const std = @import("../std.zig");
 const io = std.io;
 const testing = std.testing;
+const mem = std.mem;
+const assert = std.debug.assert;
 
-/// This turns a slice into an `io.OutStream`, `io.InStream`, or `io.SeekableStream`.
-/// If the supplied slice is const, then `io.OutStream` is not available.
+/// This turns a byte buffer into an `io.OutStream`, `io.InStream`, or `io.SeekableStream`.
+/// If the supplied byte buffer is const, then `io.OutStream` is not available.
 pub fn FixedBufferStream(comptime Buffer: type) type {
     return struct {
         /// `Buffer` is either a `[]u8` or `[]const u8`.
@@ -46,7 +48,7 @@ pub fn FixedBufferStream(comptime Buffer: type) type {
             const size = std.math.min(dest.len, self.buffer.len - self.pos);
             const end = self.pos + size;
 
-            std.mem.copy(u8, dest[0..size], self.buffer[self.pos..end]);
+            mem.copy(u8, dest[0..size], self.buffer[self.pos..end]);
             self.pos = end;
 
             if (size == 0) return error.EndOfStream;
@@ -65,7 +67,7 @@ pub fn FixedBufferStream(comptime Buffer: type) type {
             else
                 self.buffer.len - self.pos;
 
-            std.mem.copy(u8, self.buffer[self.pos .. self.pos + n], bytes[0..n]);
+            mem.copy(u8, self.buffer[self.pos .. self.pos + n], bytes[0..n]);
             self.pos += n;
 
             if (n == 0) return error.OutOfMemory;
@@ -100,7 +102,7 @@ pub fn FixedBufferStream(comptime Buffer: type) type {
         }
 
         pub fn getWritten(self: Self) []const u8 {
-            return self.slice[0..self.pos];
+            return self.buffer[0..self.pos];
         }
 
         pub fn reset(self: *Self) void {
@@ -110,20 +112,58 @@ pub fn FixedBufferStream(comptime Buffer: type) type {
 }
 
 pub fn fixedBufferStream(buffer: var) FixedBufferStream(NonSentinelSpan(@TypeOf(buffer))) {
-    return .{ .buffer = std.mem.span(buffer), .pos = 0 };
+    return .{ .buffer = mem.span(buffer), .pos = 0 };
 }
 
 fn NonSentinelSpan(comptime T: type) type {
-    var ptr_info = @typeInfo(std.mem.Span(T)).Pointer;
+    var ptr_info = @typeInfo(mem.Span(T)).Pointer;
     ptr_info.sentinel = null;
     return @Type(std.builtin.TypeInfo{ .Pointer = ptr_info });
 }
 
-test "FixedBufferStream" {
+test "FixedBufferStream output" {
     var buf: [255]u8 = undefined;
     var fbs = fixedBufferStream(&buf);
     const stream = fbs.outStream();
 
     try stream.print("{}{}!", .{ "Hello", "World" });
     testing.expectEqualSlices(u8, "HelloWorld!", fbs.getWritten());
+}
+
+test "FixedBufferStream output 2" {
+    var buffer: [10]u8 = undefined;
+    var fbs = fixedBufferStream(&buffer);
+
+    try fbs.outStream().writeAll("Hello");
+    testing.expect(mem.eql(u8, fbs.getWritten(), "Hello"));
+
+    try fbs.outStream().writeAll("world");
+    testing.expect(mem.eql(u8, fbs.getWritten(), "Helloworld"));
+
+    testing.expectError(error.OutOfMemory, fbs.outStream().writeAll("!"));
+    testing.expect(mem.eql(u8, fbs.getWritten(), "Helloworld"));
+
+    fbs.reset();
+    testing.expect(fbs.getWritten().len == 0);
+
+    testing.expectError(error.OutOfMemory, fbs.outStream().writeAll("Hello world!"));
+    testing.expect(mem.eql(u8, fbs.getWritten(), "Hello worl"));
+}
+
+test "FixedBufferStream input" {
+    const bytes = [_]u8{ 1, 2, 3, 4, 5, 6, 7 };
+    var fbs = fixedBufferStream(&bytes);
+
+    var dest: [4]u8 = undefined;
+
+    var read = try fbs.inStream().read(dest[0..4]);
+    testing.expect(read == 4);
+    testing.expect(mem.eql(u8, dest[0..4], bytes[0..4]));
+
+    read = try fbs.inStream().read(dest[0..4]);
+    testing.expect(read == 3);
+    testing.expect(mem.eql(u8, dest[0..3], bytes[4..7]));
+
+    read = try fbs.inStream().read(dest[0..4]);
+    testing.expect(read == 0);
 }

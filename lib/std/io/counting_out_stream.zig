@@ -1,5 +1,6 @@
 const std = @import("../std.zig");
 const io = std.io;
+const testing = std.testing;
 
 /// An OutStream that counts how many bytes has been written to it.
 pub fn CountingOutStream(comptime OutStreamType: type) type {
@@ -11,13 +12,6 @@ pub fn CountingOutStream(comptime OutStreamType: type) type {
         pub const OutStream = io.OutStream(*Self, Error, write);
 
         const Self = @This();
-
-        pub fn init(child_stream: OutStreamType) Self {
-            return Self{
-                .bytes_written = 0,
-                .child_stream = child_stream,
-            };
-        }
 
         pub fn write(self: *Self, bytes: []const u8) Error!usize {
             const amt = try self.child_stream.write(bytes);
@@ -31,12 +25,15 @@ pub fn CountingOutStream(comptime OutStreamType: type) type {
     };
 }
 
-test "io.CountingOutStream" {
-    var counting_stream = CountingOutStream(NullOutStream.Error).init(std.io.null_out_stream);
-    const stream = &counting_stream.stream;
-
-    const bytes = "yay" ** 10000;
-    stream.write(bytes) catch unreachable;
-    testing.expect(counting_stream.bytes_written == bytes.len);
+pub fn countingOutStream(child_stream: var) CountingOutStream(@TypeOf(child_stream)) {
+    return .{ .bytes_written = 0, .child_stream = child_stream };
 }
 
+test "io.CountingOutStream" {
+    var counting_stream = countingOutStream(std.io.null_out_stream);
+    const stream = counting_stream.outStream();
+
+    const bytes = "yay" ** 100;
+    stream.writeAll(bytes) catch unreachable;
+    testing.expect(counting_stream.bytes_written == bytes.len);
+}

@@ -219,3 +219,15 @@ test "Buffer.print" {
     try buf.print("Hello {} the {}", .{ 2, "world" });
     testing.expect(buf.eql("Hello 2 the world"));
 }
+
+test "Buffer.outStream" {
+    var buffer = try Buffer.initSize(testing.allocator, 0);
+    defer buffer.deinit();
+    const buf_stream = buffer.outStream();
+
+    const x: i32 = 42;
+    const y: i32 = 1234;
+    try buf_stream.print("x: {}\ny: {}\n", .{ x, y });
+
+    testing.expect(mem.eql(u8, buffer.toSlice(), "x: 42\ny: 1234\n"));
+}

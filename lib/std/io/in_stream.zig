@@ -273,8 +273,7 @@ pub fn InStream(
 
 test "InStream" {
     var buf = "a\x02".*;
-    var slice_stream = std.io.SliceInStream.init(&buf);
-    const in_stream = &slice_stream.stream;
+    const in_stream = std.io.fixedBufferStream(&buf).inStream();
     testing.expect((try in_stream.readByte()) == 'a');
     testing.expect((try in_stream.readEnum(enum(u8) {
         a = 0,

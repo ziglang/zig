@@ -10,6 +10,7 @@ const mem = std.mem;
 const maxInt = std.math.maxInt;
 
 pub const WriteStream = @import("json/write_stream.zig").WriteStream;
+pub const writeStream = @import("json/write_stream.zig").writeStream;
 
 const StringEscapes = union(enum) {
     None,
@@ -2109,7 +2110,7 @@ test "write json then parse it" {
 
     var fixed_buffer_stream = std.io.fixedBufferStream(&out_buffer);
     const out_stream = fixed_buffer_stream.outStream();
-    var jw = WriteStream(@TypeOf(out_stream).Child, 4).init(out_stream);
+    var jw = writeStream(out_stream, 4);
 
     try jw.beginObject();
 
@@ -2140,7 +2141,7 @@ test "write json then parse it" {
 
     var parser = Parser.init(testing.allocator, false);
     defer parser.deinit();
-    var tree = try parser.parse(slice_out_stream.getWritten());
+    var tree = try parser.parse(fixed_buffer_stream.getWritten());
     defer tree.deinit();
 
     testing.expect(tree.root.Object.get("f").?.value.Bool == false);

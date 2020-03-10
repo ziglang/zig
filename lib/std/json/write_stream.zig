@@ -249,15 +249,22 @@ pub fn WriteStream(comptime OutStream: type, comptime max_depth: usize) type {
     };
 }
 
+pub fn writeStream(
+    out_stream: var,
+    comptime max_depth: usize,
+) WriteStream(@TypeOf(out_stream), max_depth) {
+    return WriteStream(@TypeOf(out_stream), max_depth).init(out_stream);
+}
+
 test "json write stream" {
     var out_buf: [1024]u8 = undefined;
-    var slice_stream = std.io.SliceOutStream.init(&out_buf);
-    const out = &slice_stream.stream;
+    var slice_stream = std.io.fixedBufferStream(&out_buf);
+    const out = slice_stream.outStream();
 
     var arena_allocator = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_allocator.deinit();
 
-    var w = std.json.WriteStream(@TypeOf(out).Child, 10).init(out);
+    var w = std.json.writeStream(out, 10);
     try w.emitJson(try getJson(&arena_allocator.allocator));
 
     const result = slice_stream.getWritten();

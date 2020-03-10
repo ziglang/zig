@@ -903,7 +903,7 @@ fn renderExpression(
                         var column_widths = widths[widths.len - row_size ..];
 
                         // Null stream for counting the printed length of each expression
-                        var counting_stream = std.io.CountingOutStream(@TypeOf(std.io.null_out_stream)).init(std.io.null_out_stream);
+                        var counting_stream = std.io.countingOutStream(std.io.null_out_stream);
 
                         var it = exprs.iterator(0);
                         var i: usize = 0;
