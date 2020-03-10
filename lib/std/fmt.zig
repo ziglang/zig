@@ -364,8 +364,14 @@ pub fn formatType(
             if (enumInfo.is_exhaustive) {
                 has_name = true;
             } else {
-                // TODO: when @tagName works on exhaustive enums print known enum strings
                 has_name = false;
+                // Use @tagName only if value is one of known fields
+                inline for (enumInfo.fields) |enumField| {
+                    if (@enumToInt(value) == enumField.value) {
+                        has_name = true;
+                        break;
+                    }
+                }
             }
 
             var use_name = has_name;
@@ -1335,8 +1341,8 @@ test "non-exhaustive enum" {
         Two = 0xbeef,
         _,
     };
-    try testFmt("enum: Enum(15)\n", "enum: {}\n", .{Enum.One});
-    try testFmt("enum: Enum(48879)\n", "enum: {}\n", .{Enum.Two});
+    try testFmt("enum: Enum.One\n", "enum: {}\n", .{Enum.One});
+    try testFmt("enum: Enum.Two\n", "enum: {}\n", .{Enum.Two});
     try testFmt("enum: Enum(4660)\n", "enum: {}\n", .{@intToEnum(Enum, 0x1234)});
     try testFmt("enum: Enum(f)\n", "enum: {x}\n", .{Enum.One});
     try testFmt("enum: Enum(beef)\n", "enum: {x}\n", .{Enum.Two});
