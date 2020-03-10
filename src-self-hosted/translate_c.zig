@@ -560,7 +560,7 @@ fn visitVarDecl(c: *Context, var_decl: *const ZigClangVarDecl) Error!void {
 
     // TODO https://github.com/ziglang/zig/issues/3756
     // TODO https://github.com/ziglang/zig/issues/1802
-    const checked_name = if (isZigPrimitiveType(var_name)) try std.fmt.allocPrint(c.a(), "_{}", .{var_name}) else var_name;
+    const checked_name = if (isZigPrimitiveType(var_name)) try std.fmt.allocPrint(c.a(), "{}_{}", .{var_name, c.getMangle()}) else var_name;
     const var_decl_loc = ZigClangVarDecl_getLocation(var_decl);
 
     const qual_type = ZigClangVarDecl_getTypeSourceInfo_getType(var_decl);
@@ -632,7 +632,7 @@ fn visitVarDecl(c: *Context, var_decl: *const ZigClangVarDecl) Error!void {
     const align_expr = blk: {
         const alignment = ZigClangVarDecl_getAlignedAttribute(var_decl, rp.c.clang_context);
         if (alignment != 0) {
-            _ = try appendToken(rp.c, .Keyword_linksection, "align");
+            _ = try appendToken(rp.c, .Keyword_align, "align");
             _ = try appendToken(rp.c, .LParen, "(");
             // Clang reports the alignment in bits
             const expr = try transCreateNodeInt(rp.c, alignment / 8);
@@ -677,7 +677,7 @@ fn transTypeDef(c: *Context, typedef_decl: *const ZigClangTypedefNameDecl, top_l
 
     // TODO https://github.com/ziglang/zig/issues/3756
     // TODO https://github.com/ziglang/zig/issues/1802
-    const checked_name = if (isZigPrimitiveType(typedef_name)) try std.fmt.allocPrint(c.a(), "_{}", .{typedef_name}) else typedef_name;
+    const checked_name = if (isZigPrimitiveType(typedef_name)) try std.fmt.allocPrint(c.a(), "{}_{}", .{typedef_name, c.getMangle()}) else typedef_name;
 
     if (mem.eql(u8, checked_name, "uint8_t"))
         return transTypeDefAsBuiltin(c, typedef_decl, "u8")
@@ -827,6 +827,20 @@ fn transRecordDecl(c: *Context, record_decl: *const ZigClangRecordDecl) Error!?*
                 else => |e| return e,
             };
 
+            const align_expr = blk: {
+                const alignment = ZigClangFieldDecl_getAlignedAttribute(field_decl, rp.c.clang_context);
+                if (alignment != 0) {
+                    _ = try appendToken(rp.c, .Keyword_align, "align");
+                    _ = try appendToken(rp.c, .LParen, "(");
+                    // Clang reports the alignment in bits
+                    const expr = try transCreateNodeInt(rp.c, alignment / 8);
+                    _ = try appendToken(rp.c, .RParen, ")");
+
+                    break :blk expr;
+                }
+                break :blk null;
+            };
+
             const field_node = try c.a().create(ast.Node.ContainerField);
             field_node.* = .{
                 .doc_comments = null,
@@ -834,7 +848,7 @@ fn transRecordDecl(c: *Context, record_decl: *const ZigClangRecordDecl) Error!?*
                 .name_token = field_name,
                 .type_expr = field_type,
                 .value_expr = null,
-                .align_expr = null,
+                .align_expr = align_expr,
             };
 
             if (is_anon) {
@@ -4607,7 +4621,7 @@ fn finishTransFnProto(
         if (fn_decl) |decl| {
             const alignment = ZigClangFunctionDecl_getAlignedAttribute(decl, rp.c.clang_context);
             if (alignment != 0) {
-                _ = try appendToken(rp.c, .Keyword_linksection, "align");
+                _ = try appendToken(rp.c, .Keyword_align, "align");
                 _ = try appendToken(rp.c, .LParen, "(");
                 // Clang reports the alignment in bits
                 const expr = try transCreateNodeInt(rp.c, alignment / 8);
@@ -4857,7 +4871,7 @@ fn transPreprocessorEntities(c: *Context, unit: *ZigClangASTUnit) Error!void {
                 const name = try c.str(raw_name);
                 // TODO https://github.com/ziglang/zig/issues/3756
                 // TODO https://github.com/ziglang/zig/issues/1802
-                const mangled_name = if (isZigPrimitiveType(name)) try std.fmt.allocPrint(c.a(), "_{}", .{name}) else name;
+                const mangled_name = if (isZigPrimitiveType(name)) try std.fmt.allocPrint(c.a(), "{}_{}", .{name, c.getMangle()}) else name;
                 if (scope.containsNow(mangled_name)) {
                     continue;
                 }
@@ -5437,7 +5451,7 @@ fn parseCPrimaryExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8, 
 
             //if (@typeInfo(@TypeOf(x)) == .Pointer)
             //    @ptrCast(dest, x)
-            //else if (@typeInfo(@TypeOf(x)) == .Integer)
+            //else if (@typeInfo(@TypeOf(x)) == .Int and @typeInfo(dest) == .Pointer)
             //    @intToPtr(dest, x)
             //else
             //    @as(dest, x)
@@ -5487,6 +5501,25 @@ fn parseCPrimaryExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8, 
                 .rhs = try transCreateNodeEnumLiteral(c, "Int"),
             };
             if_2.condition = &cmp_2.base;
+            const cmp_4 = try c.a().create(ast.Node.InfixOp);
+            cmp_4.* = .{
+                .op_token = try appendToken(c, .Keyword_and, "and"),
+                .lhs = &cmp_2.base,
+                .op = .BoolAnd,
+                .rhs = undefined,
+            };
+            const type_id_3 = try transCreateNodeBuiltinFnCall(c, "@typeInfo");
+            try type_id_3.params.push(inner_node);
+            type_id_3.rparen_token = try appendToken(c, .LParen, ")");
+            const cmp_3 = try c.a().create(ast.Node.InfixOp);
+            cmp_3.* = .{
+                .op_token = try appendToken(c, .EqualEqual, "=="),
+                .lhs = &type_id_3.base,
+                .op = .EqualEqual,
+                .rhs = try transCreateNodeEnumLiteral(c, "Pointer"),
+            };
+            cmp_4.rhs = &cmp_3.base;
+            if_2.condition = &cmp_4.base;
             else_1.body = &if_2.base;
             _ = try appendToken(c, .RParen, ")");
 
