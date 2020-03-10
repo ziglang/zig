@@ -16648,36 +16648,34 @@ static IrInstGen *ir_analyze_bit_shift(IrAnalyze *ira, IrInstSrcBinOp *bin_op_in
             return ira->codegen->invalid_inst_gen;
         }
     } else {
+        assert(op1->value->type->data.integral.bit_count > 0);
         ZigType *shift_amt_type = get_smallest_unsigned_int_type(ira->codegen,
-                op1->value->type->data.integral.bit_count - 1);
-        if (bin_op_instruction->op_id == IrBinOpBitShiftLeftLossy &&
-            op2->value->type->id == ZigTypeIdComptimeInt) {
-
-            ZigValue *op2_val = ir_resolve_const(ira, op2, UndefBad);
-            if (op2_val == nullptr)
-                return ira->codegen->invalid_inst_gen;
-            if (!bigint_fits_in_bits(&op2_val->data.x_bigint,
-                                     shift_amt_type->data.integral.bit_count,
-                                     op2_val->data.x_bigint.is_negative)) {
-                Buf *val_buf = buf_alloc();
-                bigint_append_buf(val_buf, &op2_val->data.x_bigint, 10);
-                ErrorMsg* msg = ir_add_error(ira,
-                    &bin_op_instruction->base.base,
-                    buf_sprintf("RHS of shift is too large for LHS type"));
-                add_error_note(
-                    ira->codegen,
-                    msg,
-                    op2->base.source_node,
-                    buf_sprintf("value %s cannot fit into type %s",
-                        buf_ptr(val_buf),
-                        buf_ptr(&shift_amt_type->name)));
-                return ira->codegen->invalid_inst_gen;
-            }
-        }
+            op1->value->type->data.integral.bit_count - 1);
 
         casted_op2 = ir_implicit_cast(ira, op2, shift_amt_type);
         if (type_is_invalid(casted_op2->value->type))
             return ira->codegen->invalid_inst_gen;
+
+        if (instr_is_comptime(casted_op2)) {
+            ZigValue *op2_val = ir_resolve_const(ira, casted_op2, UndefBad);
+            if (op2_val == nullptr)
+                return ira->codegen->invalid_inst_gen;
+
+            BigInt bit_count_value = {0};
+            bigint_init_unsigned(&bit_count_value, op1->value->type->data.integral.bit_count);
+
+            if (bigint_cmp(&op2_val->data.x_bigint, &bit_count_value) != CmpLT) {
+                ErrorMsg* msg = ir_add_error(ira,
+                    &bin_op_instruction->base.base,
+                    buf_sprintf("RHS of shift is too large for LHS type"));
+                add_error_note(ira->codegen, msg, op1->base.source_node,
+                    buf_sprintf("type %s has only %u bits",
+                        buf_ptr(&op1->value->type->name),
+                        op1->value->type->data.integral.bit_count));
+
+                return ira->codegen->invalid_inst_gen;
+            }
+        }
     }
 
     if (instr_is_comptime(op1) && instr_is_comptime(casted_op2)) {
