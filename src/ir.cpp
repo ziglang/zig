@@ -28357,6 +28357,8 @@ static ZigType *ir_resolve_atomic_operand_type(IrAnalyze *ira, IrInstGen *op) {
                     max_atomic_bits, (uint32_t) operand_type->data.floating.bit_count));
             return ira->codegen->builtin_types.entry_invalid;
         }
+    } else if (operand_type->id == ZigTypeIdBool) {
+        // will be treated as u8
     } else {
         Error err;
         ZigType *operand_ptr_type;
@@ -28396,6 +28398,10 @@ static IrInstGen *ir_analyze_instruction_atomic_rmw(IrAnalyze *ira, IrInstSrcAto
     if (operand_type->id == ZigTypeIdEnum && op != AtomicRmwOp_xchg) {
         ir_add_error(ira, &instruction->op->base,
             buf_sprintf("@atomicRmw on enum only works with .Xchg"));
+        return ira->codegen->invalid_inst_gen;
+    } else if (operand_type->id == ZigTypeIdBool && op != AtomicRmwOp_xchg) {
+        ir_add_error(ira, &instruction->op->base,
+            buf_sprintf("@atomicRmw on bool only works with .Xchg"));
         return ira->codegen->invalid_inst_gen;
     } else if (operand_type->id == ZigTypeIdFloat && op > AtomicRmwOp_sub) {
         ir_add_error(ira, &instruction->op->base,

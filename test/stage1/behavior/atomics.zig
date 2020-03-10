@@ -161,3 +161,13 @@ fn testAtomicRmwFloat() void {
     _ = @atomicRmw(f32, &x, .Sub, 2, .SeqCst);
     expect(x == 4);
 }
+
+test "atomics with bool" {
+    var x = false;
+    @atomicStore(bool, &x, true, .SeqCst);
+    expect(x == true);
+    expect(@atomicLoad(bool, &x, .SeqCst) == true);
+    expect(@atomicRmw(bool, &x, .Xchg, false, .SeqCst) == true);
+    expect(@cmpxchgStrong(bool, &x, false, true, .SeqCst, .SeqCst) == null);
+    expect(@cmpxchgStrong(bool, &x, false, true, .SeqCst, .SeqCst).? == true);
+}
