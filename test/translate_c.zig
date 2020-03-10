@@ -1601,7 +1601,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     cases.add("shadowing primitive types",
         \\unsigned anyerror = 2;
     , &[_][]const u8{
-        \\pub export var _anyerror: c_uint = @bitCast(c_uint, @as(c_int, 2));
+        \\pub export var anyerror_1: c_uint = @bitCast(c_uint, @as(c_int, 2));
     });
 
     cases.add("floats",
