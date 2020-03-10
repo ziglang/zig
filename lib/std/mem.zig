@@ -105,6 +105,20 @@ pub const Allocator = struct {
         return self.alignedAlloc(T, null, n);
     }
 
+    /// Allocates an array of `n + 1` items of type `T` and sets the first `n`
+    /// items to `undefined` and the last item to `sentinel`. Depending on the
+    /// Allocator implementation, it may be required to call `free` once the
+    /// memory is no longer needed, to avoid a resource leak. If the
+    /// `Allocator` implementation is unknown, then correct code will
+    /// call `free` when done.
+    ///
+    /// For allocating a single item, see `create`.
+    pub fn allocSentinel(self: *Allocator, comptime Elem: type, n: usize, comptime sentinel: Elem) Error![:sentinel]Elem {
+        var ptr = try self.alloc(Elem, n + 1);
+        ptr[n] = sentinel;
+        return ptr[0 .. n :sentinel];
+    }
+
     pub fn alignedAlloc(
         self: *Allocator,
         comptime T: type,
