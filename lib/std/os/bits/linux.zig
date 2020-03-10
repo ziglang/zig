@@ -1296,12 +1296,12 @@ pub const io_uring_files_update = struct {
 };
 
 pub const utsname = extern struct {
-    sysname: [65]u8,
-    nodename: [65]u8,
-    release: [65]u8,
-    version: [65]u8,
-    machine: [65]u8,
-    domainname: [65]u8,
+    sysname: [64:0]u8,
+    nodename: [64:0]u8,
+    release: [64:0]u8,
+    version: [64:0]u8,
+    machine: [64:0]u8,
+    domainname: [64:0]u8,
 };
 pub const HOST_NAME_MAX = 64;
 
