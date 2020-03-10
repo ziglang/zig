@@ -177,7 +177,7 @@ pub const Progress = struct {
     pub fn log(self: *Progress, comptime format: []const u8, args: var) void {
         const file = self.terminal orelse return;
         self.refresh();
-        file.outStream().stream.print(format, args) catch {
+        file.outStream().print(format, args) catch {
             self.terminal = null;
             return;
         };

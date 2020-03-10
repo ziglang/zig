@@ -2107,8 +2107,8 @@ test "import more json tests" {
 test "write json then parse it" {
     var out_buffer: [1000]u8 = undefined;
 
-    var slice_out_stream = std.io.SliceOutStream.init(&out_buffer);
-    const out_stream = &slice_out_stream.stream;
+    var fixed_buffer_stream = std.io.fixedBufferStream(&out_buffer);
+    const out_stream = fixed_buffer_stream.outStream();
     var jw = WriteStream(@TypeOf(out_stream).Child, 4).init(out_stream);
 
     try jw.beginObject();

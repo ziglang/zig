@@ -10,7 +10,7 @@ pub const BufferedAtomicFile = struct {
     allocator: *mem.Allocator,
 
     pub const buffer_size = 4096;
-    pub const BufferedOutStream = std.io.BufferedOutStreamCustom(buffer_size, File.OutStream);
+    pub const BufferedOutStream = std.io.BufferedOutStream(buffer_size, File.OutStream);
     pub const OutStream = std.io.OutStream(*BufferedOutStream, BufferedOutStream.Error, BufferedOutStream.write);
 
     /// TODO when https://github.com/ziglang/zig/issues/2761 is solved
@@ -29,7 +29,7 @@ pub const BufferedAtomicFile = struct {
         errdefer self.atomic_file.deinit();
 
         self.file_stream = self.atomic_file.file.outStream();
-        self.buffered_stream = std.io.bufferedOutStream(buffer_size, self.file_stream);
+        self.buffered_stream = .{ .unbuffered_out_stream = self.file_stream };
         return self;
     }
 

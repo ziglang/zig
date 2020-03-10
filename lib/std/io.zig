@@ -95,18 +95,18 @@ pub fn getStdIn() File {
 pub const SeekableStream = @import("io/seekable_stream.zig").SeekableStream;
 pub const InStream = @import("io/in_stream.zig").InStream;
 pub const OutStream = @import("io/out_stream.zig").OutStream;
-pub const FixedBufferInStream = @import("io/fixed_buffer_stream.zig").FixedBufferInStream;
 pub const BufferedAtomicFile = @import("io/buffered_atomic_file.zig").BufferedAtomicFile;
 
 pub const BufferedOutStream = @import("io/buffered_out_stream.zig").BufferedOutStream;
-pub const BufferedOutStreamCustom = @import("io/buffered_out_stream.zig").BufferedOutStreamCustom;
 pub const bufferedOutStream = @import("io/buffered_out_stream.zig").bufferedOutStream;
 
-pub const CountingOutStream = @import("io/counting_out_stream.zig").CountingOutStream;
+pub const BufferedInStream = @import("io/buffered_in_stream.zig").BufferedInStream;
+pub const bufferedInStream = @import("io/buffered_in_stream.zig").bufferedInStream;
 
-pub fn fixedBufferStream(bytes: []const u8) FixedBufferInStream {
-    return (FixedBufferInStream{ .bytes = bytes, .pos = 0 });
-}
+pub const FixedBufferStream = @import("io/fixed_buffer_stream.zig").FixedBufferStream;
+pub const fixedBufferStream = @import("io/fixed_buffer_stream.zig").fixedBufferStream;
+
+pub const CountingOutStream = @import("io/counting_out_stream.zig").CountingOutStream;
 
 pub fn cOutStream(c_file: *std.c.FILE) COutStream {
     return .{ .context = c_file };
@@ -142,92 +142,6 @@ pub fn writeFile(path: []const u8, data: []const u8) !void {
 /// Deprecated; use `std.fs.Dir.readFileAlloc`.
 pub fn readFileAlloc(allocator: *mem.Allocator, path: []const u8) ![]u8 {
     return fs.cwd().readFileAlloc(allocator, path, math.maxInt(usize));
-}
-
-pub fn BufferedInStream(comptime Error: type) type {
-    return BufferedInStreamCustom(mem.page_size, Error);
-}
-
-pub fn BufferedInStreamCustom(comptime buffer_size: usize, comptime Error: type) type {
-    return struct {
-        const Self = @This();
-        const Stream = InStream(Error);
-
-        stream: Stream,
-
-        unbuffered_in_stream: *Stream,
-
-        const FifoType = std.fifo.LinearFifo(u8, std.fifo.LinearFifoBufferType{ .Static = buffer_size });
-        fifo: FifoType,
-
-        pub fn init(unbuffered_in_stream: *Stream) Self {
-            return Self{
-                .unbuffered_in_stream = unbuffered_in_stream,
-                .fifo = FifoType.init(),
-                .stream = Stream{ .readFn = readFn },
-            };
-        }
-
-        fn readFn(in_stream: *Stream, dest: []u8) !usize {
-            const self = @fieldParentPtr(Self, "stream", in_stream);
-            var dest_index: usize = 0;
-            while (dest_index < dest.len) {
-                const written = self.fifo.read(dest[dest_index..]);
-                if (written == 0) {
-                    // fifo empty, fill it
-                    const writable = self.fifo.writableSlice(0);
-                    assert(writable.len > 0);
-                    const n = try self.unbuffered_in_stream.read(writable);
-                    if (n == 0) {
-                        // reading from the unbuffered stream returned nothing
-                        // so we have nothing left to read.
-                        return dest_index;
-                    }
-                    self.fifo.update(n);
-                }
-                dest_index += written;
-            }
-            return dest.len;
-        }
-    };
-}
-
-test "io.BufferedInStream" {
-    const OneByteReadInStream = struct {
-        const Error = error{NoError};
-        const Stream = InStream(Error);
-
-        stream: Stream,
-        str: []const u8,
-        curr: usize,
-
-        fn init(str: []const u8) @This() {
-            return @This(){
-                .stream = Stream{ .readFn = readFn },
-                .str = str,
-                .curr = 0,
-            };
-        }
-
-        fn readFn(in_stream: *Stream, dest: []u8) Error!usize {
-            const self = @fieldParentPtr(@This(), "stream", in_stream);
-            if (self.str.len <= self.curr or dest.len == 0)
-                return 0;
-
-            dest[0] = self.str[self.curr];
-            self.curr += 1;
-            return 1;
-        }
-    };
-
-    const str = "This is a test";
-    var one_byte_stream = OneByteReadInStream.init(str);
-    var buf_in_stream = BufferedInStream(OneByteReadInStream.Error).init(&one_byte_stream.stream);
-    const stream = &buf_in_stream.stream;
-
-    const res = try stream.readAllAlloc(testing.allocator, str.len + 1);
-    defer testing.allocator.free(res);
-    testing.expectEqualSlices(u8, str, res);
 }
 
 /// Creates a stream which supports 'un-reading' data, so that it can be read again.
@@ -471,64 +385,6 @@ pub fn BitInStream(endian: builtin.Endian, comptime Error: type) type {
             return self.in_stream.read(buffer);
         }
     };
-}
-
-/// This is a simple OutStream that writes to a fixed buffer. If the returned number
-/// of bytes written is less than requested, the buffer is full.
-/// Returns error.OutOfMemory when no bytes would be written.
-pub const SliceOutStream = struct {
-    pub const Error = error{OutOfMemory};
-    pub const Stream = OutStream(Error);
-
-    stream: Stream,
-
-    pos: usize,
-    slice: []u8,
-
-    pub fn init(slice: []u8) SliceOutStream {
-        return SliceOutStream{
-            .slice = slice,
-            .pos = 0,
-            .stream = Stream{ .writeFn = writeFn },
-        };
-    }
-
-    pub fn getWritten(self: *const SliceOutStream) []const u8 {
-        return self.slice[0..self.pos];
-    }
-
-    pub fn reset(self: *SliceOutStream) void {
-        self.pos = 0;
-    }
-
-    fn writeFn(out_stream: *Stream, bytes: []const u8) Error!usize {
-        const self = @fieldParentPtr(SliceOutStream, "stream", out_stream);
-
-        if (bytes.len == 0) return 0;
-
-        assert(self.pos <= self.slice.len);
-
-        const n = if (self.pos + bytes.len <= self.slice.len)
-            bytes.len
-        else
-            self.slice.len - self.pos;
-
-        std.mem.copy(u8, self.slice[self.pos .. self.pos + n], bytes[0..n]);
-        self.pos += n;
-
-        if (n == 0) return error.OutOfMemory;
-
-        return n;
-    }
-};
-
-test "io.SliceOutStream" {
-    var buf: [255]u8 = undefined;
-    var slice_stream = SliceOutStream.init(buf[0..]);
-    const stream = &slice_stream.stream;
-
-    try stream.print("{}{}!", .{ "Hello", "World" });
-    testing.expectEqualSlices(u8, "HelloWorld!", slice_stream.getWritten());
 }
 
 /// An OutStream that doesn't write to anything.

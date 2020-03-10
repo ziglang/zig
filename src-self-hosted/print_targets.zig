@@ -93,7 +93,7 @@ pub fn cmdTargets(
     };
     defer allocator.free(available_glibcs);
 
-    var bos = io.bufferedOutStream(4096, stdout);
+    var bos = io.bufferedOutStream(stdout);
     const bos_stream = bos.outStream();
     var jws = std.json.WriteStream(@TypeOf(bos_stream), 6).init(bos_stream);
 
