@@ -120,8 +120,10 @@ test "std.event.Group" {
     // https://github.com/ziglang/zig/issues/1908
     if (builtin.single_threaded) return error.SkipZigTest;
 
-    // TODO provide a way to run tests in evented I/O mode
     if (!std.io.is_async) return error.SkipZigTest;
+
+    // TODO this file has bit-rotted. repair it
+    if (true) return error.SkipZigTest;
 
     const handle = async testGroup(std.heap.page_allocator);
 }

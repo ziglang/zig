@@ -964,7 +964,9 @@ fn openMachODebugInfo(allocator: *mem.Allocator, macho_file_path: []const u8) !M
 }
 
 fn printLineFromFileAnyOs(out_stream: var, line_info: LineInfo) !void {
-    var f = try fs.cwd().openFile(line_info.file_name, .{});
+    // Need this to always block even in async I/O mode, because this could potentially
+    // be called from e.g. the event loop code crashing.
+    var f = try fs.cwd().openFile(line_info.file_name, .{ .always_blocking = true });
     defer f.close();
     // TODO fstat and make sure that the file has the correct size
 
