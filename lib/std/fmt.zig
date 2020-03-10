@@ -359,11 +359,28 @@ pub fn formatType(
         },
         .Enum => |enumInfo| {
             try out_stream.writeAll(@typeName(T));
+
+            var has_name: bool = undefined;
             if (enumInfo.is_exhaustive) {
+                has_name = true;
+            } else {
+                // TODO: when @tagName works on exhaustive enums print known enum strings
+                has_name = false;
+            }
+
+            var use_name = has_name;
+            if (comptime std.mem.eql(u8, fmt, "x") or
+                comptime std.mem.eql(u8, fmt, "X") or
+                comptime std.mem.eql(u8, fmt, "d") or
+                comptime std.mem.eql(u8, fmt, "b"))
+            {
+                use_name = false;
+            }
+
+            if (use_name) {
                 try out_stream.writeAll(".");
                 try out_stream.writeAll(@tagName(value));
             } else {
-                // TODO: when @tagName works on exhaustive enums print known enum strings
                 try out_stream.writeAll("(");
                 try formatType(@enumToInt(value), fmt, options, out_stream, max_depth);
                 try out_stream.writeAll(")");
@@ -1308,6 +1325,8 @@ test "enum" {
     const value = Enum.Two;
     try testFmt("enum: Enum.Two\n", "enum: {}\n", .{value});
     try testFmt("enum: Enum.Two\n", "enum: {}\n", .{&value});
+    try testFmt("enum: Enum(0)\n", "enum: {x}\n", .{Enum.One});
+    try testFmt("enum: Enum(1)\n", "enum: {X}\n", .{Enum.Two});
 }
 
 test "non-exhaustive enum" {
@@ -1321,6 +1340,7 @@ test "non-exhaustive enum" {
     try testFmt("enum: Enum(4660)\n", "enum: {}\n", .{@intToEnum(Enum, 0x1234)});
     try testFmt("enum: Enum(f)\n", "enum: {x}\n", .{Enum.One});
     try testFmt("enum: Enum(beef)\n", "enum: {x}\n", .{Enum.Two});
+    try testFmt("enum: Enum(BEEF)\n", "enum: {X}\n", .{Enum.Two});
     try testFmt("enum: Enum(1234)\n", "enum: {x}\n", .{@intToEnum(Enum, 0x1234)});
 }
 
