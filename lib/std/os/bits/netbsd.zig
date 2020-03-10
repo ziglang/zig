@@ -22,6 +22,14 @@ pub const dl_phdr_info = extern struct {
     dlpi_phnum: u16,
 };
 
+pub const Flock = extern struct {
+    start: off_t,
+    len: off_t,
+    pid: pid_t,
+    lock_type: i16,
+    whence: i16,
+};
+
 pub const msghdr = extern struct {
     /// optional address
     msg_name: ?*sockaddr,
@@ -311,6 +319,10 @@ pub const F_SETOWN = 6;
 pub const F_GETLK = 7;
 pub const F_SETLK = 8;
 pub const F_SETLKW = 9;
+
+pub const F_RDLCK = 1;
+pub const F_WRLCK = 3;
+pub const F_UNLCK = 2;
 
 pub const SEEK_SET = 0;
 pub const SEEK_CUR = 1;

@@ -460,12 +460,12 @@ pub const F_RDLCK = 0;
 pub const F_WRLCK = 1;
 pub const F_UNLCK = 2;
 
-pub const flock = extern struct {
-    lock_type: i16,
-    whence: i16,
-    start: off_t,
-    len: off_t,
-    pid: pid_t,
+pub const Flock = extern struct {
+    l_type: i16,
+    l_whence: i16,
+    l_start: off_t,
+    l_len: off_t,
+    l_pid: pid_t,
 };
 
 pub const msghdr = extern struct {

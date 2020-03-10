@@ -681,13 +681,14 @@ pub const Dir = struct {
         var locked = false;
         if (flags.lock) {
             // TODO: integrate async I/O
-            try os.fcntlFlockBlocking(fd, &os.flock{
-                .lock_type = if (flags.write) os.F_WRLCK else os.F_RDLCK,
-                .whence = os.SEEK_SET,
-                .start = 0,
-                .len = 0,
-                .pid = 0,
-            });
+            // mem.zeroes is used here because flock's structure can vary across architectures and systems
+            var flock = mem.zeroes(os.Flock);
+            flock.l_type = if (flags.write) os.F_WRLCK else os.F_RDLCK;
+            flock.l_whence = os.SEEK_SET;
+            flock.l_start = 0;
+            flock.l_len = 0;
+            flock.l_pid = 0;
+            try os.fcntlFlockBlocking(fd, &flock);
             locked = true;
         }
 
