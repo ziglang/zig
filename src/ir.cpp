@@ -28397,15 +28397,15 @@ static IrInstGen *ir_analyze_instruction_atomic_rmw(IrAnalyze *ira, IrInstSrcAto
 
     if (operand_type->id == ZigTypeIdEnum && op != AtomicRmwOp_xchg) {
         ir_add_error(ira, &instruction->op->base,
-            buf_sprintf("@atomicRmw on enum only works with .Xchg"));
+            buf_sprintf("@atomicRmw with enum only allowed with .Xchg"));
         return ira->codegen->invalid_inst_gen;
     } else if (operand_type->id == ZigTypeIdBool && op != AtomicRmwOp_xchg) {
         ir_add_error(ira, &instruction->op->base,
-            buf_sprintf("@atomicRmw on bool only works with .Xchg"));
+            buf_sprintf("@atomicRmw with bool only allowed with .Xchg"));
         return ira->codegen->invalid_inst_gen;
     } else if (operand_type->id == ZigTypeIdFloat && op > AtomicRmwOp_sub) {
         ir_add_error(ira, &instruction->op->base,
-            buf_sprintf("@atomicRmw with float only works with .Xchg, .Add and .Sub"));
+            buf_sprintf("@atomicRmw with float only allowed with .Xchg, .Add and .Sub"));
         return ira->codegen->invalid_inst_gen;
     }
 
