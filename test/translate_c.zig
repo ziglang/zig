@@ -3,6 +3,16 @@ const std = @import("std");
 const CrossTarget = std.zig.CrossTarget;
 
 pub fn addCases(cases: *tests.TranslateCContext) void {
+    cases.add("struct with aligned fields",
+        \\struct foo {
+        \\    __attribute__((aligned(1))) short bar;
+        \\};
+    , &[_][]const u8{
+        \\pub const struct_foo = extern struct {
+        \\    bar: c_short align(1),
+        \\};
+    });
+
     cases.add("structs with VLAs are rejected",
         \\struct foo { int x; int y[]; };
         \\struct bar { int x; int y[0]; };

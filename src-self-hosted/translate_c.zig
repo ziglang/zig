@@ -632,7 +632,7 @@ fn visitVarDecl(c: *Context, var_decl: *const ZigClangVarDecl) Error!void {
     const align_expr = blk: {
         const alignment = ZigClangVarDecl_getAlignedAttribute(var_decl, rp.c.clang_context);
         if (alignment != 0) {
-            _ = try appendToken(rp.c, .Keyword_linksection, "align");
+            _ = try appendToken(rp.c, .Keyword_align, "align");
             _ = try appendToken(rp.c, .LParen, "(");
             // Clang reports the alignment in bits
             const expr = try transCreateNodeInt(rp.c, alignment / 8);
@@ -827,6 +827,20 @@ fn transRecordDecl(c: *Context, record_decl: *const ZigClangRecordDecl) Error!?*
                 else => |e| return e,
             };
 
+            const align_expr = blk: {
+                const alignment = ZigClangFieldDecl_getAlignedAttribute(field_decl, rp.c.clang_context);
+                if (alignment != 0) {
+                    _ = try appendToken(rp.c, .Keyword_align, "align");
+                    _ = try appendToken(rp.c, .LParen, "(");
+                    // Clang reports the alignment in bits
+                    const expr = try transCreateNodeInt(rp.c, alignment / 8);
+                    _ = try appendToken(rp.c, .RParen, ")");
+
+                    break :blk expr;
+                }
+                break :blk null;
+            };
+
             const field_node = try c.a().create(ast.Node.ContainerField);
             field_node.* = .{
                 .doc_comments = null,
@@ -834,7 +848,7 @@ fn transRecordDecl(c: *Context, record_decl: *const ZigClangRecordDecl) Error!?*
                 .name_token = field_name,
                 .type_expr = field_type,
                 .value_expr = null,
-                .align_expr = null,
+                .align_expr = align_expr,
             };
 
             if (is_anon) {
@@ -4607,7 +4621,7 @@ fn finishTransFnProto(
         if (fn_decl) |decl| {
             const alignment = ZigClangFunctionDecl_getAlignedAttribute(decl, rp.c.clang_context);
             if (alignment != 0) {
-                _ = try appendToken(rp.c, .Keyword_linksection, "align");
+                _ = try appendToken(rp.c, .Keyword_align, "align");
                 _ = try appendToken(rp.c, .LParen, "(");
                 // Clang reports the alignment in bits
                 const expr = try transCreateNodeInt(rp.c, alignment / 8);

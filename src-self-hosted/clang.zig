@@ -765,6 +765,7 @@ pub extern fn ZigClangTagDecl_isThisDeclarationADefinition(self: *const ZigClang
 pub extern fn ZigClangEnumType_getDecl(record_ty: ?*const struct_ZigClangEnumType) *const struct_ZigClangEnumDecl;
 pub extern fn ZigClangRecordDecl_getCanonicalDecl(record_decl: ?*const struct_ZigClangRecordDecl) ?*const struct_ZigClangTagDecl;
 pub extern fn ZigClangFieldDecl_getCanonicalDecl(field_decl: ?*const struct_ZigClangFieldDecl) ?*const struct_ZigClangFieldDecl;
+pub extern fn ZigClangFieldDecl_getAlignedAttribute(field_decl: ?*const struct_ZigClangFieldDecl, *const ZigClangASTContext) c_uint;
 pub extern fn ZigClangEnumDecl_getCanonicalDecl(self: ?*const struct_ZigClangEnumDecl) ?*const struct_ZigClangTagDecl;
 pub extern fn ZigClangTypedefNameDecl_getCanonicalDecl(self: ?*const struct_ZigClangTypedefNameDecl) ?*const struct_ZigClangTypedefNameDecl;
 pub extern fn ZigClangFunctionDecl_getCanonicalDecl(self: ?*const struct_ZigClangFunctionDecl) ?*const struct_ZigClangFunctionDecl;
