@@ -69,6 +69,12 @@ pub const File = struct {
         /// `error.FileAlreadyExists` to be returned.
         exclusive: bool = false,
 
+        /// Prevent other files from accessing this file while this process has it is open.
+        ///
+        /// Note that the lock is only advisory on Linux. This means that a process that does not
+        /// respect the locking API can still read and write to the file, despite the lock.
+        lock: bool = false,
+
         /// For POSIX systems this is the file system mode the file will
         /// be created with.
         mode: Mode = default_mode,

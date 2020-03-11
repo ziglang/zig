@@ -744,6 +744,19 @@ pub const Dir = struct {
             try std.event.Loop.instance.?.openatZ(self.fd, sub_path_c, os_flags, flags.mode)
         else
             try os.openatC(self.fd, sub_path_c, os_flags, flags.mode);
+
+        if (flags.lock) {
+            // TODO: integrate async I/O
+            // mem.zeroes is used here because flock's structure can vary across architectures and systems
+            var flock = mem.zeroes(os.Flock);
+            flock.l_type = os.F_WRLCK;
+            flock.l_whence = os.SEEK_SET;
+            flock.l_start = 0;
+            flock.l_len = 0;
+            flock.l_pid = 0;
+            try os.fcntlFlock(fd, .SetLockBlocking, &flock);
+        }
+
         return File{ .handle = fd, .io_mode = .blocking };
     }
 
@@ -759,7 +772,12 @@ pub const Dir = struct {
             @as(u32, w.FILE_OVERWRITE_IF)
         else
             @as(u32, w.FILE_OPEN_IF);
-        return self.openFileWindows(sub_path_w, access_mask, null, creation);
+
+        const share_access = if (flags.lock)
+            @as(os.windows.ULONG, w.FILE_SHARE_DELETE)
+        else
+            null;
+        return self.openFileWindows(sub_path_w, access_mask, share_access, creation);
     }
 
     /// Deprecated; call `openFile` directly.
