@@ -5225,12 +5225,12 @@ static LLVMValueRef ir_render_cmpxchg(CodeGen *g, IrExecutableGen *executable, I
     LLVMValueRef new_val = ir_llvm_value(g, instruction->new_value);
 
     ZigType *operand_type = instruction->new_value->value->type;
-    if (operand_type->id == ZigTypeIdBool) {
-        // treat bool as u8
+    if (instruction->actual_type != nullptr) {
+        // operand needs widening and truncating
         ptr_val = LLVMBuildBitCast(g->builder, ptr_val,
-            LLVMPointerType(g->builtin_types.entry_u8->llvm_type, 0), "");
-        cmp_val = LLVMConstZExt(cmp_val, g->builtin_types.entry_u8->llvm_type);
-        new_val = LLVMConstZExt(new_val, g->builtin_types.entry_u8->llvm_type);
+            LLVMPointerType(get_llvm_type(g, instruction->actual_type), 0), "");
+        cmp_val = LLVMConstZExt(cmp_val, get_llvm_type(g, instruction->actual_type));
+        new_val = LLVMConstZExt(new_val, get_llvm_type(g, instruction->actual_type));
     }
 
     LLVMAtomicOrdering success_order = to_LLVMAtomicOrdering(instruction->success_order);
@@ -5245,8 +5245,8 @@ static LLVMValueRef ir_render_cmpxchg(CodeGen *g, IrExecutableGen *executable, I
 
     if (!handle_is_ptr(g, optional_type)) {
         LLVMValueRef payload_val = LLVMBuildExtractValue(g->builder, result_val, 0, "");
-        if (operand_type->id == ZigTypeIdBool) {
-            payload_val = LLVMBuildTrunc(g->builder, payload_val, g->builtin_types.entry_bool->llvm_type, "");
+        if (instruction->actual_type != nullptr) {
+            payload_val = LLVMBuildTrunc(g->builder, payload_val, get_llvm_type(g, operand_type), "");
         }
         LLVMValueRef success_bit = LLVMBuildExtractValue(g->builder, result_val, 1, "");
         return LLVMBuildSelect(g->builder, success_bit, LLVMConstNull(get_llvm_type(g, child_type)), payload_val, "");
@@ -5262,8 +5262,8 @@ static LLVMValueRef ir_render_cmpxchg(CodeGen *g, IrExecutableGen *executable, I
     ir_assert(type_has_bits(g, child_type), &instruction->base);
 
     LLVMValueRef payload_val = LLVMBuildExtractValue(g->builder, result_val, 0, "");
-    if (operand_type->id == ZigTypeIdBool) {
-        payload_val = LLVMBuildTrunc(g->builder, payload_val, g->builtin_types.entry_bool->llvm_type, "");
+    if (instruction->actual_type != nullptr) {
+        payload_val = LLVMBuildTrunc(g->builder, payload_val, get_llvm_type(g, operand_type), "");
     }
     LLVMValueRef val_ptr = LLVMBuildStructGEP(g->builder, result_loc, maybe_child_index, "");
     gen_assign_raw(g, val_ptr, get_pointer_to_type(g, child_type, false), payload_val);
@@ -5842,14 +5842,14 @@ static LLVMValueRef ir_render_atomic_rmw(CodeGen *g, IrExecutableGen *executable
     LLVMValueRef ptr = ir_llvm_value(g, instruction->ptr);
     LLVMValueRef operand = ir_llvm_value(g, instruction->operand);
 
-    if (operand_type->id == ZigTypeIdBool) {
-        // treat bool as u8
+    if (instruction->actual_type != nullptr) {
+        // operand needs widening and truncating
         LLVMValueRef casted_ptr = LLVMBuildBitCast(g->builder, ptr,
-            LLVMPointerType(g->builtin_types.entry_u8->llvm_type, 0), "");
-        LLVMValueRef casted_operand = LLVMBuildPtrToInt(g->builder, operand, g->builtin_types.entry_u8->llvm_type, "");
+            LLVMPointerType(get_llvm_type(g, instruction->actual_type), 0), "");
+        LLVMValueRef casted_operand = LLVMBuildPtrToInt(g->builder, operand, get_llvm_type(g, instruction->actual_type), "");
         LLVMValueRef uncasted_result = ZigLLVMBuildAtomicRMW(g->builder, op, casted_ptr, casted_operand, ordering,
                 g->is_single_threaded);
-        return LLVMBuildTrunc(g->builder, uncasted_result, g->builtin_types.entry_bool->llvm_type, "");
+        return LLVMBuildTrunc(g->builder, uncasted_result, get_llvm_type(g, operand_type), "");
     }
 
     if (get_codegen_ptr_type_bail(g, operand_type) == nullptr) {
@@ -5872,13 +5872,13 @@ static LLVMValueRef ir_render_atomic_load(CodeGen *g, IrExecutableGen *executabl
     LLVMValueRef ptr = ir_llvm_value(g, instruction->ptr);
 
     ZigType *operand_type = instruction->ptr->value->type->data.pointer.child_type;
-    if (operand_type->id == ZigTypeIdBool) {
-        // treat bool as u8
+    if (instruction->actual_type != nullptr) {
+        // operand needs widening and truncating
         ptr = LLVMBuildBitCast(g->builder, ptr,
-                LLVMPointerType(g->builtin_types.entry_u8->llvm_type, 0), "");
+                LLVMPointerType(get_llvm_type(g, instruction->actual_type), 0), "");
         LLVMValueRef load_inst = gen_load(g, ptr, instruction->ptr->value->type, "");
         LLVMSetOrdering(load_inst, ordering);
-        return LLVMBuildTrunc(g->builder, load_inst, g->builtin_types.entry_bool->llvm_type, "");
+        return LLVMBuildTrunc(g->builder, load_inst, get_llvm_type(g, operand_type), "");
     }
     LLVMValueRef load_inst = gen_load(g, ptr, instruction->ptr->value->type, "");
     LLVMSetOrdering(load_inst, ordering);
@@ -5892,12 +5892,11 @@ static LLVMValueRef ir_render_atomic_store(CodeGen *g, IrExecutableGen *executab
     LLVMValueRef ptr = ir_llvm_value(g, instruction->ptr);
     LLVMValueRef value = ir_llvm_value(g, instruction->value);
 
-    ZigType *operand_type = instruction->value->value->type;
-    if (operand_type->id == ZigTypeIdBool) {
-        // treat bool as u8
+    if (instruction->actual_type != nullptr) {
+        // operand needs widening and truncating
         ptr = LLVMBuildBitCast(g->builder, ptr,
-                LLVMPointerType(g->builtin_types.entry_u8->llvm_type, 0), "");
-        value = LLVMConstZExt(value, g->builtin_types.entry_u8->llvm_type);
+                LLVMPointerType(get_llvm_type(g, instruction->actual_type), 0), "");
+        value = LLVMConstZExt(value, get_llvm_type(g, instruction->actual_type));
     }
     LLVMValueRef store_inst = gen_store(g, value, ptr, instruction->ptr->value->type);
     LLVMSetOrdering(store_inst, ordering);
