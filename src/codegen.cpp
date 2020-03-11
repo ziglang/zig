@@ -5229,8 +5229,8 @@ static LLVMValueRef ir_render_cmpxchg(CodeGen *g, IrExecutableGen *executable, I
         // operand needs widening and truncating
         ptr_val = LLVMBuildBitCast(g->builder, ptr_val,
             LLVMPointerType(get_llvm_type(g, instruction->actual_type), 0), "");
-        cmp_val = LLVMConstZExt(cmp_val, get_llvm_type(g, instruction->actual_type));
-        new_val = LLVMConstZExt(new_val, get_llvm_type(g, instruction->actual_type));
+        cmp_val = LLVMBuildZExt(g->builder, cmp_val, get_llvm_type(g, instruction->actual_type), "");
+        new_val = LLVMBuildZExt(g->builder, new_val, get_llvm_type(g, instruction->actual_type), "");
     }
 
     LLVMAtomicOrdering success_order = to_LLVMAtomicOrdering(instruction->success_order);
@@ -5846,7 +5846,7 @@ static LLVMValueRef ir_render_atomic_rmw(CodeGen *g, IrExecutableGen *executable
         // operand needs widening and truncating
         LLVMValueRef casted_ptr = LLVMBuildBitCast(g->builder, ptr,
             LLVMPointerType(get_llvm_type(g, instruction->actual_type), 0), "");
-        LLVMValueRef casted_operand = LLVMBuildPtrToInt(g->builder, operand, get_llvm_type(g, instruction->actual_type), "");
+        LLVMValueRef casted_operand = LLVMBuildZExt(g->builder, operand, get_llvm_type(g, instruction->actual_type), "");
         LLVMValueRef uncasted_result = ZigLLVMBuildAtomicRMW(g->builder, op, casted_ptr, casted_operand, ordering,
                 g->is_single_threaded);
         return LLVMBuildTrunc(g->builder, uncasted_result, get_llvm_type(g, operand_type), "");
@@ -5893,10 +5893,10 @@ static LLVMValueRef ir_render_atomic_store(CodeGen *g, IrExecutableGen *executab
     LLVMValueRef value = ir_llvm_value(g, instruction->value);
 
     if (instruction->actual_type != nullptr) {
-        // operand needs widening and truncating
+        // operand needs widening
         ptr = LLVMBuildBitCast(g->builder, ptr,
                 LLVMPointerType(get_llvm_type(g, instruction->actual_type), 0), "");
-        value = LLVMConstZExt(value, get_llvm_type(g, instruction->actual_type));
+        value = LLVMBuildZExt(g->builder, value, get_llvm_type(g, instruction->actual_type), "");
     }
     LLVMValueRef store_inst = gen_store(g, value, ptr, instruction->ptr->value->type);
     LLVMSetOrdering(store_inst, ordering);

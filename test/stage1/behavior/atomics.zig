@@ -167,7 +167,7 @@ fn testAtomicRmwFloat() void {
 
 test "atomics with different types" {
     testAtomicsWithType(bool, true, false);
-    inline for (.{ u1, i5, u33 }) |T| {
+    inline for (.{ u1, i5, u15 }) |T| {
         var x: T = 0;
         testAtomicsWithType(T, 0, 1);
     }
@@ -175,8 +175,7 @@ test "atomics with different types" {
     testAtomicsWithType(i0, 0, 0);
 }
 
-// a and b souldn't need to be comptime
-fn testAtomicsWithType(comptime T: type, comptime a: T, comptime b: T) void {
+fn testAtomicsWithType(comptime T: type, a: T, b: T) void {
     var x: T = b;
     @atomicStore(T, &x, a, .SeqCst);
     expect(x == a);

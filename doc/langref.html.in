@@ -6728,17 +6728,8 @@ async fn func(y: *i32) void {
       This builtin function atomically dereferences a pointer and returns the value.
       </p>
       <p>
-      {#syntax#}T{#endsyntax#} must be a pointer type, a {#syntax#}bool{#endsyntax#}, a float,
-      an integer whose bit count meets these requirements:
-      </p>
-      <ul>
-          <li>At least 8</li>
-          <li>At most the same as usize</li>
-          <li>Power of 2</li>
-      </ul> or an enum with a valid integer tag type.
-      <p>
-      TODO right now bool is not accepted. Also I think we could make non powers of 2 work fine, maybe
-      we can remove this restriction
+      {#syntax#}T{#endsyntax#} must be a {#syntax#}bool{#endsyntax#}, a float,
+      an integer or an enum.
       </p>
       {#header_close#}
       {#header_open|@atomicRmw#}
@@ -6747,17 +6738,8 @@ async fn func(y: *i32) void {
       This builtin function atomically modifies memory and then returns the previous value.
       </p>
       <p>
-      {#syntax#}T{#endsyntax#} must be a pointer type, a {#syntax#}bool{#endsyntax#},
-      or an integer whose bit count meets these requirements:
-      </p>
-      <ul>
-          <li>At least 8</li>
-          <li>At most the same as usize</li>
-          <li>Power of 2</li>
-      </ul>
-      <p>
-      TODO right now bool is not accepted. Also I think we could make non powers of 2 work fine, maybe
-      we can remove this restriction
+      {#syntax#}T{#endsyntax#} must be a {#syntax#}bool{#endsyntax#}, a float,
+      an integer or an enum.
       </p>
       <p>
       Supported operations:
@@ -6782,17 +6764,8 @@ async fn func(y: *i32) void {
       This builtin function atomically stores a value.
       </p>
       <p>
-      {#syntax#}T{#endsyntax#} must be a pointer type, a {#syntax#}bool{#endsyntax#}, a float,
-      an integer whose bit count meets these requirements:
-      </p>
-      <ul>
-          <li>At least 8</li>
-          <li>At most the same as usize</li>
-          <li>Power of 2</li>
-      </ul> or an enum with a valid integer tag type.
-      <p>
-      TODO right now bool is not accepted. Also I think we could make non powers of 2 work fine, maybe
-      we can remove this restriction
+      {#syntax#}T{#endsyntax#} must be a {#syntax#}bool{#endsyntax#}, a float,
+      an integer or an enum.
       </p>
       {#header_close#}
       {#header_open|@bitCast#}
@@ -7108,7 +7081,8 @@ fn cmpxchgStrongButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_v
       more efficiently in machine instructions.
       </p>
       <p>
-      {#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("builtin").AtomicOrder{#endsyntax#}.
+      {#syntax#}T{#endsyntax#} must be a {#syntax#}bool{#endsyntax#}, a float,
+      an integer or an enum.
       </p>
       <p>{#syntax#}@TypeOf(ptr).alignment{#endsyntax#} must be {#syntax#}>= @sizeOf(T).{#endsyntax#}</p>
       {#see_also|Compile Variables|cmpxchgWeak#}
@@ -7136,7 +7110,8 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       However if you need a stronger guarantee, use {#link|@cmpxchgStrong#}.
       </p>
       <p>
-      {#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("builtin").AtomicOrder{#endsyntax#}.
+      {#syntax#}T{#endsyntax#} must be a {#syntax#}bool{#endsyntax#}, a float,
+      an integer or an enum.
       </p>
       <p>{#syntax#}@TypeOf(ptr).alignment{#endsyntax#} must be {#syntax#}>= @sizeOf(T).{#endsyntax#}</p>
       {#see_also|Compile Variables|cmpxchgStrong#}
