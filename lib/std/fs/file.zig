@@ -250,11 +250,16 @@ pub const File = struct {
         }
     }
 
-    pub fn readAll(self: File, buffer: []u8) ReadError!void {
+    /// Returns the number of bytes read. If the number read is smaller than `buffer.len`, it
+    /// means the file reached the end. Reaching the end of a file is not an error condition.
+    pub fn readAll(self: File, buffer: []u8) ReadError!usize {
         var index: usize = 0;
-        while (index < buffer.len) {
-            index += try self.read(buffer[index..]);
+        while (index != buffer.len) {
+            const amt = try self.read(buffer[index..]);
+            if (amt == 0) break;
+            index += amt;
         }
+        return index;
     }
 
     pub fn pread(self: File, buffer: []u8, offset: u64) PReadError!usize {
@@ -265,11 +270,16 @@ pub const File = struct {
         }
     }
 
-    pub fn preadAll(self: File, buffer: []u8, offset: u64) PReadError!void {
+    /// Returns the number of bytes read. If the number read is smaller than `buffer.len`, it
+    /// means the file reached the end. Reaching the end of a file is not an error condition.
+    pub fn preadAll(self: File, buffer: []u8, offset: u64) PReadError!usize {
         var index: usize = 0;
-        while (index < buffer.len) {
-            index += try self.pread(buffer[index..], offset + index);
+        while (index != buffer.len) {
+            const amt = try self.pread(buffer[index..], offset + index);
+            if (amt == 0) break;
+            index += amt;
         }
+        return index;
     }
 
     pub fn readv(self: File, iovecs: []const os.iovec) ReadError!usize {
@@ -280,19 +290,27 @@ pub const File = struct {
         }
     }
 
+    /// Returns the number of bytes read. If the number read is smaller than the total bytes
+    /// from all the buffers, it means the file reached the end. Reaching the end of a file
+    /// is not an error condition.
     /// The `iovecs` parameter is mutable because this function needs to mutate the fields in
     /// order to handle partial reads from the underlying OS layer.
-    pub fn readvAll(self: File, iovecs: []os.iovec) ReadError!void {
+    pub fn readvAll(self: File, iovecs: []os.iovec) ReadError!usize {
         if (iovecs.len == 0) return;
 
         var i: usize = 0;
+        var off: usize = 0;
         while (true) {
             var amt = try self.readv(iovecs[i..]);
+            var eof = amt == 0;
+            off += amt;
             while (amt >= iovecs[i].iov_len) {
                 amt -= iovecs[i].iov_len;
                 i += 1;
-                if (i >= iovecs.len) return;
+                if (i >= iovecs.len) return off;
+                eof = false;
             }
+            if (eof) return off;
             iovecs[i].iov_base += amt;
             iovecs[i].iov_len -= amt;
         }
@@ -306,6 +324,9 @@ pub const File = struct {
         }
     }
 
+    /// Returns the number of bytes read. If the number read is smaller than the total bytes
+    /// from all the buffers, it means the file reached the end. Reaching the end of a file
+    /// is not an error condition.
     /// The `iovecs` parameter is mutable because this function needs to mutate the fields in
     /// order to handle partial reads from the underlying OS layer.
     pub fn preadvAll(self: File, iovecs: []const os.iovec, offset: u64) PReadError!void {
@@ -315,12 +336,15 @@ pub const File = struct {
         var off: usize = 0;
         while (true) {
             var amt = try self.preadv(iovecs[i..], offset + off);
+            var eof = amt == 0;
             off += amt;
             while (amt >= iovecs[i].iov_len) {
                 amt -= iovecs[i].iov_len;
                 i += 1;
-                if (i >= iovecs.len) return;
+                if (i >= iovecs.len) return off;
+                eof = false;
             }
+            if (eof) return off;
             iovecs[i].iov_base += amt;
             iovecs[i].iov_len -= amt;
         }

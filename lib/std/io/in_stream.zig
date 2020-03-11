@@ -28,10 +28,7 @@ pub fn InStream(
             return readFn(self.context, buffer);
         }
 
-        /// Deprecated: use `readAll`.
-        pub const readFull = readAll;
-
-        /// Returns the number of bytes read. If the number read is smaller than buf.len, it
+        /// Returns the number of bytes read. If the number read is smaller than `buffer.len`, it
         /// means the stream reached the end. Reaching the end of a stream is not an error
         /// condition.
         pub fn readAll(self: Self, buffer: []u8) Error!usize {
