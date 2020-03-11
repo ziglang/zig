@@ -407,6 +407,7 @@ pub fn ReadFile(in_hFile: HANDLE, buffer: []u8, offset: ?u64) ReadFileError!usiz
                 switch (kernel32.GetLastError()) {
                     .OPERATION_ABORTED => continue,
                     .BROKEN_PIPE => return index,
+                    .HANDLE_EOF => return index,
                     else => |err| return unexpectedError(err),
                 }
             }

@@ -96,6 +96,7 @@ pub fn updateFile(source_path: []const u8, dest_path: []const u8) !PrevStatus {
 /// atime, and mode of the source file so that the next call to `updateFile` will not need a copy.
 /// Returns the previous status of the file before updating.
 /// If any of the directories do not exist for dest_path, they are created.
+/// TODO rework this to integrate with Dir
 pub fn updateFileMode(source_path: []const u8, dest_path: []const u8, mode: ?File.Mode) !PrevStatus {
     const my_cwd = cwd();
 
@@ -141,29 +142,25 @@ pub fn updateFileMode(source_path: []const u8, dest_path: []const u8, mode: ?Fil
 /// there is a possibility of power loss or application termination leaving temporary files present
 /// in the same directory as dest_path.
 /// Destination file will have the same mode as the source file.
+/// TODO rework this to integrate with Dir
 pub fn copyFile(source_path: []const u8, dest_path: []const u8) !void {
     var in_file = try cwd().openFile(source_path, .{});
     defer in_file.close();
 
-    const mode = try in_file.mode();
-    const in_stream = &in_file.inStream().stream;
+    const stat = try in_file.stat();
 
-    var atomic_file = try AtomicFile.init(dest_path, mode);
+    var atomic_file = try AtomicFile.init(dest_path, stat.mode);
     defer atomic_file.deinit();
 
-    var buf: [mem.page_size]u8 = undefined;
-    while (true) {
-        const amt = try in_stream.readFull(buf[0..]);
-        try atomic_file.file.write(buf[0..amt]);
-        if (amt != buf.len) {
-            return atomic_file.finish();
-        }
-    }
+    try atomic_file.file.writeFileAll(in_file, .{ .in_len = stat.size });
+    return atomic_file.finish();
 }
 
-/// Guaranteed to be atomic. However until https://patchwork.kernel.org/patch/9636735/ is
-/// merged and readily available,
+/// Guaranteed to be atomic.
+/// On Linux, until https://patchwork.kernel.org/patch/9636735/ is merged and readily available,
 /// there is a possibility of power loss or application termination leaving temporary files present
+/// in the same directory as dest_path.
+/// TODO rework this to integrate with Dir
 pub fn copyFileMode(source_path: []const u8, dest_path: []const u8, mode: File.Mode) !void {
     var in_file = try cwd().openFile(source_path, .{});
     defer in_file.close();
@@ -171,14 +168,8 @@ pub fn copyFileMode(source_path: []const u8, dest_path: []const u8, mode: File.M
     var atomic_file = try AtomicFile.init(dest_path, mode);
     defer atomic_file.deinit();
 
-    var buf: [mem.page_size * 6]u8 = undefined;
-    while (true) {
-        const amt = try in_file.read(buf[0..]);
-        try atomic_file.file.write(buf[0..amt]);
-        if (amt != buf.len) {
-            return atomic_file.finish();
-        }
-    }
+    try atomic_file.file.writeFileAll(in_file, .{});
+    return atomic_file.finish();
 }
 
 /// TODO update this API to avoid a getrandom syscall for every operation. It
@@ -1150,7 +1141,7 @@ pub const Dir = struct {
         const buf = try allocator.alignedAlloc(u8, A, size);
         errdefer allocator.free(buf);
 
-        try file.inStream().stream.readNoEof(buf);
+        try file.inStream().readNoEof(buf);
         return buf;
     }
 

@@ -10,6 +10,7 @@ const c = std.c;
 const maxInt = std.math.maxInt;
 
 pub const LoggingAllocator = @import("heap/logging_allocator.zig").LoggingAllocator;
+pub const loggingAllocator = @import("heap/logging_allocator.zig").loggingAllocator;
 
 const Allocator = mem.Allocator;
 

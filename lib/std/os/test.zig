@@ -95,15 +95,41 @@ test "sendfile" {
         },
     };
 
-    var written_buf: [header1.len + header2.len + 10 + trailer1.len + trailer2.len]u8 = undefined;
+    var written_buf: [100]u8 = undefined;
     try dest_file.writeFileAll(src_file, .{
         .in_offset = 1,
         .in_len = 10,
         .headers_and_trailers = &hdtr,
         .header_count = 2,
     });
-    try dest_file.preadAll(&written_buf, 0);
-    expect(mem.eql(u8, &written_buf, "header1\nsecond header\nine1\nsecontrailer1\nsecond trailer\n"));
+    const amt = try dest_file.preadAll(&written_buf, 0);
+    expect(mem.eql(u8, written_buf[0..amt], "header1\nsecond header\nine1\nsecontrailer1\nsecond trailer\n"));
+}
+
+test "fs.copyFile" {
+    const data = "u6wj+JmdF3qHsFPE BUlH2g4gJCmEz0PP";
+    const src_file = "tmp_test_copy_file.txt";
+    const dest_file = "tmp_test_copy_file2.txt";
+    const dest_file2 = "tmp_test_copy_file3.txt";
+
+    try fs.cwd().writeFile(src_file, data);
+    defer fs.cwd().deleteFile(src_file) catch {};
+
+    try fs.copyFile(src_file, dest_file);
+    defer fs.cwd().deleteFile(dest_file) catch {};
+
+    try fs.copyFileMode(src_file, dest_file2, File.default_mode);
+    defer fs.cwd().deleteFile(dest_file2) catch {};
+
+    try expectFileContents(dest_file, data);
+    try expectFileContents(dest_file2, data);
+}
+
+fn expectFileContents(file_path: []const u8, data: []const u8) !void {
+    const contents = try fs.cwd().readFileAlloc(testing.allocator, file_path, 1000);
+    defer testing.allocator.free(contents);
+
+    testing.expectEqualSlices(u8, data, contents);
 }
 
 test "std.Thread.getCurrentId" {
@@ -354,8 +380,7 @@ test "mmap" {
         const file = try fs.cwd().createFile(test_out_file, .{});
         defer file.close();
 
-        var out_stream = file.outStream();
-        const stream = &out_stream.stream;
+        const stream = file.outStream();
 
         var i: u32 = 0;
         while (i < alloc_size / @sizeOf(u32)) : (i += 1) {
@@ -378,8 +403,8 @@ test "mmap" {
         );
         defer os.munmap(data);
 
-        var mem_stream = io.SliceInStream.init(data);
-        const stream = &mem_stream.stream;
+        var mem_stream = io.fixedBufferStream(data);
+        const stream = mem_stream.inStream();
 
         var i: u32 = 0;
         while (i < alloc_size / @sizeOf(u32)) : (i += 1) {
@@ -402,8 +427,8 @@ test "mmap" {
         );
         defer os.munmap(data);
 
-        var mem_stream = io.SliceInStream.init(data);
-        const stream = &mem_stream.stream;
+        var mem_stream = io.fixedBufferStream(data);
+        const stream = mem_stream.inStream();
 
         var i: u32 = alloc_size / 2 / @sizeOf(u32);
         while (i < alloc_size / @sizeOf(u32)) : (i += 1) {

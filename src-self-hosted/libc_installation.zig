@@ -38,7 +38,7 @@ pub const LibCInstallation = struct {
     pub fn parse(
         allocator: *Allocator,
         libc_file: []const u8,
-        stderr: *std.io.OutStream(fs.File.WriteError),
+        stderr: var,
     ) !LibCInstallation {
         var self: LibCInstallation = .{};
 
@@ -123,7 +123,7 @@ pub const LibCInstallation = struct {
         return self;
     }
 
-    pub fn render(self: LibCInstallation, out: *std.io.OutStream(fs.File.WriteError)) !void {
+    pub fn render(self: LibCInstallation, out: var) !void {
         @setEvalBranchQuota(4000);
         const include_dir = self.include_dir orelse "";
         const sys_include_dir = self.sys_include_dir orelse "";
@@ -348,7 +348,7 @@ pub const LibCInstallation = struct {
 
         for (searches) |search| {
             result_buf.shrink(0);
-            const stream = &std.io.BufferOutStream.init(&result_buf).stream;
+            const stream = result_buf.outStream();
             try stream.print("{}\\Include\\{}\\ucrt", .{ search.path, search.version });
 
             var dir = fs.cwd().openDirList(result_buf.toSliceConst()) catch |err| switch (err) {
@@ -395,7 +395,7 @@ pub const LibCInstallation = struct {
 
         for (searches) |search| {
             result_buf.shrink(0);
-            const stream = &std.io.BufferOutStream.init(&result_buf).stream;
+            const stream = result_buf.outStream();
             try stream.print("{}\\Lib\\{}\\ucrt\\{}", .{ search.path, search.version, arch_sub_dir });
 
             var dir = fs.cwd().openDirList(result_buf.toSliceConst()) catch |err| switch (err) {
@@ -459,7 +459,7 @@ pub const LibCInstallation = struct {
 
         for (searches) |search| {
             result_buf.shrink(0);
-            const stream = &std.io.BufferOutStream.init(&result_buf).stream;
+            const stream = result_buf.outStream();
             try stream.print("{}\\Lib\\{}\\um\\{}", .{ search.path, search.version, arch_sub_dir });
 
             var dir = fs.cwd().openDirList(result_buf.toSliceConst()) catch |err| switch (err) {

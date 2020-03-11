@@ -375,7 +375,7 @@ pub const Error = union(enum) {
             token: TokenIndex,
 
             pub fn render(self: *const ThisError, tokens: *Tree.TokenList, stream: var) !void {
-                return stream.write(msg);
+                return stream.writeAll(msg);
             }
         };
     }

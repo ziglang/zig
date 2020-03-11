@@ -176,7 +176,7 @@ fn getRandomBytesDevURandom(buf: []u8) !void {
         .io_mode = .blocking,
         .async_block_allowed = std.fs.File.async_block_allowed_yes,
     };
-    const stream = &file.inStream().stream;
+    const stream = file.inStream();
     stream.readNoEof(buf) catch return error.Unexpected;
 }
 

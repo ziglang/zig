@@ -18,8 +18,8 @@ const assert = std.debug.assert;
 const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 
 var stderr_file: fs.File = undefined;
-var stderr: *io.OutStream(fs.File.WriteError) = undefined;
-var stdout: *io.OutStream(fs.File.WriteError) = undefined;
+var stderr: fs.File.OutStream = undefined;
+var stdout: fs.File.OutStream = undefined;
 
 comptime {
     _ = @import("dep_tokenizer.zig");
@@ -146,7 +146,7 @@ export fn stage2_free_clang_errors(errors_ptr: [*]translate_c.ClangErrMsg, error
 }
 
 export fn stage2_render_ast(tree: *ast.Tree, output_file: *FILE) Error {
-    const c_out_stream = &std.io.COutStream.init(output_file).stream;
+    const c_out_stream = std.io.cOutStream(output_file);
     _ = std.zig.render(std.heap.c_allocator, c_out_stream, tree) catch |e| switch (e) {
         error.WouldBlock => unreachable, // stage1 opens stuff in exclusively blocking mode
         error.SystemResources => return .SystemResources,
@@ -186,9 +186,9 @@ fn fmtMain(argc: c_int, argv: [*]const [*:0]const u8) !void {
         try args_list.append(mem.toSliceConst(u8, argv[arg_i]));
     }
 
-    stdout = &std.io.getStdOut().outStream().stream;
+    stdout = std.io.getStdOut().outStream();
     stderr_file = std.io.getStdErr();
-    stderr = &stderr_file.outStream().stream;
+    stderr = stderr_file.outStream();
 
     const args = args_list.toSliceConst()[2..];
 
@@ -203,11 +203,11 @@ fn fmtMain(argc: c_int, argv: [*]const [*:0]const u8) !void {
             const arg = args[i];
             if (mem.startsWith(u8, arg, "-")) {
                 if (mem.eql(u8, arg, "--help")) {
-                    try stdout.write(self_hosted_main.usage_fmt);
+                    try stdout.writeAll(self_hosted_main.usage_fmt);
                     process.exit(0);
                 } else if (mem.eql(u8, arg, "--color")) {
                     if (i + 1 >= args.len) {
-                        try stderr.write("expected [auto|on|off] after --color\n");
+                        try stderr.writeAll("expected [auto|on|off] after --color\n");
                         process.exit(1);
                     }
                     i += 1;
@@ -238,14 +238,14 @@ fn fmtMain(argc: c_int, argv: [*]const [*:0]const u8) !void {
 
     if (stdin_flag) {
         if (input_files.len != 0) {
-            try stderr.write("cannot use --stdin with positional arguments\n");
+            try stderr.writeAll("cannot use --stdin with positional arguments\n");
             process.exit(1);
         }
 
         const stdin_file = io.getStdIn();
         var stdin = stdin_file.inStream();
 
-        const source_code = try stdin.stream.readAllAlloc(allocator, self_hosted_main.max_src_size);
+        const source_code = try stdin.readAllAlloc(allocator, self_hosted_main.max_src_size);
         defer allocator.free(source_code);
 
         const tree = std.zig.parse(allocator, source_code) catch |err| {
@@ -272,7 +272,7 @@ fn fmtMain(argc: c_int, argv: [*]const [*:0]const u8) !void {
     }
 
     if (input_files.len == 0) {
-        try stderr.write("expected at least one source file argument\n");
+        try stderr.writeAll("expected at least one source file argument\n");
         process.exit(1);
     }
 
@@ -409,11 +409,11 @@ fn printErrMsgToFile(
     const end_loc = tree.tokenLocationPtr(first_token.end, last_token);
 
     var text_buf = try std.Buffer.initSize(allocator, 0);
-    var out_stream = &std.io.BufferOutStream.init(&text_buf).stream;
+    const out_stream = &text_buf.outStream();
     try parse_error.render(&tree.tokens, out_stream);
     const text = text_buf.toOwnedSlice();
 
-    const stream = &file.outStream().stream;
+    const stream = &file.outStream();
     try stream.print("{}:{}:{}: error: {}\n", .{ path, start_loc.line + 1, start_loc.column + 1, text });
 
     if (!color_on) return;
@@ -641,7 +641,7 @@ fn cmdTargets(zig_triple: [*:0]const u8) !void {
     return @import("print_targets.zig").cmdTargets(
         std.heap.c_allocator,
         &[0][]u8{},
-        &std.io.getStdOut().outStream().stream,
+        std.io.getStdOut().outStream(),
         target,
     );
 }
@@ -808,7 +808,7 @@ const Stage2LibCInstallation = extern struct {
 // ABI warning
 export fn stage2_libc_parse(stage1_libc: *Stage2LibCInstallation, libc_file_z: [*:0]const u8) Error {
     stderr_file = std.io.getStdErr();
-    stderr = &stderr_file.outStream().stream;
+    stderr = stderr_file.outStream();
     const libc_file = mem.toSliceConst(u8, libc_file_z);
     var libc = LibCInstallation.parse(std.heap.c_allocator, libc_file, stderr) catch |err| switch (err) {
         error.ParseError => return .SemanticAnalyzeFail,
@@ -870,7 +870,7 @@ export fn stage2_libc_find_native(stage1_libc: *Stage2LibCInstallation) Error {
 // ABI warning
 export fn stage2_libc_render(stage1_libc: *Stage2LibCInstallation, output_file: *FILE) Error {
     var libc = stage1_libc.toStage2();
-    const c_out_stream = &std.io.COutStream.init(output_file).stream;
+    const c_out_stream = std.io.cOutStream(output_file);
     libc.render(c_out_stream) catch |err| switch (err) {
         error.WouldBlock => unreachable, // stage1 opens stuff in exclusively blocking mode
         error.SystemResources => return .SystemResources,
