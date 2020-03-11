@@ -935,6 +935,9 @@ pub fn writeInt(comptime T: type, buffer: *[@divExact(T.bit_count, 8)]u8, value:
 pub fn writeIntSliceLittle(comptime T: type, buffer: []u8, value: T) void {
     assert(buffer.len >= @divExact(T.bit_count, 8));
 
+    if (T.bit_count == 0)
+        return set(u8, buffer, 0);
+
     // TODO I want to call writeIntLittle here but comptime eval facilities aren't good enough
     const uint = std.meta.IntType(false, T.bit_count);
     var bits = @truncate(uint, value);
@@ -951,6 +954,9 @@ pub fn writeIntSliceLittle(comptime T: type, buffer: []u8, value: T) void {
 /// avoid the branch to check for extra buffer bytes, use writeIntBig instead.
 pub fn writeIntSliceBig(comptime T: type, buffer: []u8, value: T) void {
     assert(buffer.len >= @divExact(T.bit_count, 8));
+
+    if (T.bit_count == 0)
+        return set(u8, buffer, 0);
 
     // TODO I want to call writeIntBig here but comptime eval facilities aren't good enough
     const uint = std.meta.IntType(false, T.bit_count);
@@ -1821,7 +1827,7 @@ test "sliceAsBytes" {
 }
 
 test "sliceAsBytes with sentinel slice" {
-    const empty_string:[:0]const u8 = "";
+    const empty_string: [:0]const u8 = "";
     const bytes = sliceAsBytes(empty_string);
     testing.expect(bytes.len == 0);
 }
