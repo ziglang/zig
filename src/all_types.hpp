@@ -1834,6 +1834,7 @@ enum PanicMsgId {
     PanicMsgIdBadNoAsyncCall,
     PanicMsgIdResumeNotSuspendedFn,
     PanicMsgIdBadSentinel,
+    PanicMsgIdShxTooBigRhs,
 
     PanicMsgIdCount,
 };

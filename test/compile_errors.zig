@@ -2,6 +2,38 @@ const tests = @import("tests.zig");
 const std = @import("std");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.addTest("shift on type with non-power-of-two size",
+        \\export fn entry() void {
+        \\    const S = struct {
+        \\        fn a() void {
+        \\            var x: u24 = 42;
+        \\            _ = x >> 24;
+        \\        }
+        \\        fn b() void {
+        \\            var x: u24 = 42;
+        \\            _ = x << 24;
+        \\        }
+        \\        fn c() void {
+        \\            var x: u24 = 42;
+        \\            _ = @shlExact(x, 24);
+        \\        }
+        \\        fn d() void {
+        \\            var x: u24 = 42;
+        \\            _ = @shrExact(x, 24);
+        \\        }
+        \\    };
+        \\    S.a();
+        \\    S.b();
+        \\    S.c();
+        \\    S.d();
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:5:19: error: RHS of shift is too large for LHS type",
+        "tmp.zig:9:19: error: RHS of shift is too large for LHS type",
+        "tmp.zig:13:17: error: RHS of shift is too large for LHS type",
+        "tmp.zig:17:17: error: RHS of shift is too large for LHS type",
+    });
+
     cases.addTest("combination of noasync and async",
         \\export fn entry() void {
         \\    noasync {
@@ -4029,8 +4061,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\export fn entry() u16 { return f(); }
     , &[_][]const u8{
-        "tmp.zig:3:14: error: RHS of shift is too large for LHS type",
-        "tmp.zig:3:17: note: value 8 cannot fit into type u3",
+        "tmp.zig:3:17: error: integer value 8 cannot be coerced to type 'u3'",
     });
 
     cases.add("missing function call param",

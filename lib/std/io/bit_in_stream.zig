@@ -66,12 +66,18 @@ pub fn BitInStream(endian: builtin.Endian, comptime InStreamType: type) type {
                 switch (endian) {
                     .Big => {
                         out_buffer = @as(Buf, self.bit_buffer >> shift);
-                        self.bit_buffer <<= n;
+                        if (n >= u7_bit_count)
+                            self.bit_buffer = 0
+                        else
+                            self.bit_buffer <<= n;
                     },
                     .Little => {
                         const value = (self.bit_buffer << shift) >> shift;
                         out_buffer = @as(Buf, value);
-                        self.bit_buffer >>= n;
+                        if (n >= u7_bit_count)
+                            self.bit_buffer = 0
+                        else
+                            self.bit_buffer >>= n;
                     },
                 }
                 self.bit_count -= n;

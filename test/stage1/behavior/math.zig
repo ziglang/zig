@@ -453,6 +453,25 @@ fn testShrExact(x: u8) void {
     expect(shifted == 0b00101101);
 }
 
+test "shift left/right on u0 operand" {
+    const S = struct {
+        fn doTheTest() void {
+            var x: u0 = 0;
+            var y: u0 = 0;
+            expectEqual(@as(u0, 0), x << 0);
+            expectEqual(@as(u0, 0), x >> 0);
+            expectEqual(@as(u0, 0), x << y);
+            expectEqual(@as(u0, 0), x >> y);
+            expectEqual(@as(u0, 0), @shlExact(x, 0));
+            expectEqual(@as(u0, 0), @shrExact(x, 0));
+            expectEqual(@as(u0, 0), @shlExact(x, y));
+            expectEqual(@as(u0, 0), @shrExact(x, y));
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
 test "comptime_int addition" {
     comptime {
         expect(35361831660712422535336160538497375248 + 101752735581729509668353361206450473702 == 137114567242441932203689521744947848950);

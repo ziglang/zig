@@ -492,10 +492,7 @@ pub fn formatType(
         },
         .Type => return output(context, @typeName(T)),
         .EnumLiteral => {
-            const name = @tagName(value);
-            var buffer: [name.len + 1]u8 = undefined;
-            buffer[0] = '.';
-            std.mem.copy(u8, buffer[1..], name);
+            const buffer = [_]u8{'.'} ++ @tagName(value);
             return formatType(buffer, fmt, options, context, Errors, output, max_depth);
         },
         else => @compileError("Unable to format type '" ++ @typeName(T) ++ "'"),

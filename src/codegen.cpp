@@ -974,6 +974,8 @@ static Buf *panic_msg_buf(PanicMsgId msg_id) {
             return buf_create_from_str("resumed a non-suspended function");
         case PanicMsgIdBadSentinel:
             return buf_create_from_str("sentinel mismatch");
+        case PanicMsgIdShxTooBigRhs:
+            return buf_create_from_str("shift amount is greater than the type size");
     }
     zig_unreachable();
 }
@@ -2841,6 +2843,26 @@ static LLVMValueRef gen_rem(CodeGen *g, bool want_runtime_safety, bool want_fast
 
 }
 
+static void gen_shift_rhs_check(CodeGen *g, ZigType *lhs_type, ZigType *rhs_type, LLVMValueRef value) {
+    // We only check if the rhs value of the shift expression is greater or
+    // equal to the number of bits of the lhs if it's not a power of two,
+    // otherwise the check is useful as the allowed values are limited by the
+    // operand type itself
+    if (!is_power_of_2(lhs_type->data.integral.bit_count)) {
+        LLVMValueRef bit_count_value = LLVMConstInt(get_llvm_type(g, rhs_type),
+            lhs_type->data.integral.bit_count, false);
+        LLVMValueRef less_than_bit = LLVMBuildICmp(g->builder, LLVMIntULT, value, bit_count_value, "");
+        LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn_val, "CheckFail");
+        LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "CheckOk");
+        LLVMBuildCondBr(g->builder, less_than_bit, ok_block, fail_block);
+
+        LLVMPositionBuilderAtEnd(g->builder, fail_block);
+        gen_safety_crash(g, PanicMsgIdShxTooBigRhs);
+
+        LLVMPositionBuilderAtEnd(g->builder, ok_block);
+    }
+}
+
 static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutableGen *executable,
         IrInstGenBinOp *bin_op_instruction)
 {
@@ -2949,6 +2971,11 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutableGen *executable,
             {
                 assert(scalar_type->id == ZigTypeIdInt);
                 LLVMValueRef op2_casted = gen_widen_or_shorten(g, false, op2->value->type, scalar_type, op2_value);
+
+                if (want_runtime_safety) {
+                    gen_shift_rhs_check(g, scalar_type, op2->value->type, op2_value);
+                }
+
                 bool is_sloppy = (op_id == IrBinOpBitShiftLeftLossy);
                 if (is_sloppy) {
                     return LLVMBuildShl(g->builder, op1_value, op2_casted, "");
@@ -2965,6 +2992,11 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutableGen *executable,
             {
                 assert(scalar_type->id == ZigTypeIdInt);
                 LLVMValueRef op2_casted = gen_widen_or_shorten(g, false, op2->value->type, scalar_type, op2_value);
+
+                if (want_runtime_safety) {
+                    gen_shift_rhs_check(g, scalar_type, op2->value->type, op2_value);
+                }
+
                 bool is_sloppy = (op_id == IrBinOpBitShiftRightLossy);
                 if (is_sloppy) {
                     if (scalar_type->data.integral.is_signed) {
