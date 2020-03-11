@@ -570,7 +570,7 @@ pub const NativeTargetInfo = struct {
         cross_target: CrossTarget,
     ) AbiAndDynamicLinkerFromFileError!NativeTargetInfo {
         var hdr_buf: [@sizeOf(elf.Elf64_Ehdr)]u8 align(@alignOf(elf.Elf64_Ehdr)) = undefined;
-        _ = try preadFull(file, &hdr_buf, 0, hdr_buf.len);
+        _ = try preadMin(file, &hdr_buf, 0, hdr_buf.len);
         const hdr32 = @ptrCast(*elf.Elf32_Ehdr, &hdr_buf);
         const hdr64 = @ptrCast(*elf.Elf64_Ehdr, &hdr_buf);
         if (!mem.eql(u8, hdr32.e_ident[0..4], "\x7fELF")) return error.InvalidElfMagic;
@@ -587,6 +587,7 @@ pub const NativeTargetInfo = struct {
             elf.ELFCLASS64 => true,
             else => return error.InvalidElfClass,
         };
+        const elfInt = elf.int;
         var phoff = elfInt(is_64, need_bswap, hdr32.e_phoff, hdr64.e_phoff);
         const phentsize = elfInt(is_64, need_bswap, hdr32.e_phentsize, hdr64.e_phentsize);
         const phnum = elfInt(is_64, need_bswap, hdr32.e_phnum, hdr64.e_phnum);
@@ -610,7 +611,7 @@ pub const NativeTargetInfo = struct {
             // Reserve some bytes so that we can deref the 64-bit struct fields
             // even when the ELF file is 32-bits.
             const ph_reserve: usize = @sizeOf(elf.Elf64_Phdr) - @sizeOf(elf.Elf32_Phdr);
-            const ph_read_byte_len = try preadFull(file, ph_buf[0 .. ph_buf.len - ph_reserve], phoff, phentsize);
+            const ph_read_byte_len = try preadMin(file, ph_buf[0 .. ph_buf.len - ph_reserve], phoff, phentsize);
             var ph_buf_i: usize = 0;
             while (ph_buf_i < ph_read_byte_len and ph_i < phnum) : ({
                 ph_i += 1;
@@ -625,7 +626,7 @@ pub const NativeTargetInfo = struct {
                         const p_offset = elfInt(is_64, need_bswap, ph32.p_offset, ph64.p_offset);
                         const p_filesz = elfInt(is_64, need_bswap, ph32.p_filesz, ph64.p_filesz);
                         if (p_filesz > result.dynamic_linker.buffer.len) return error.NameTooLong;
-                        _ = try preadFull(file, result.dynamic_linker.buffer[0..p_filesz], p_offset, p_filesz);
+                        _ = try preadMin(file, result.dynamic_linker.buffer[0..p_filesz], p_offset, p_filesz);
                         // PT_INTERP includes a null byte in p_filesz.
                         const len = p_filesz - 1;
                         // dynamic_linker.max_byte is "max", not "len".
@@ -656,7 +657,7 @@ pub const NativeTargetInfo = struct {
                             // Reserve some bytes so that we can deref the 64-bit struct fields
                             // even when the ELF file is 32-bits.
                             const dyn_reserve: usize = @sizeOf(elf.Elf64_Dyn) - @sizeOf(elf.Elf32_Dyn);
-                            const dyn_read_byte_len = try preadFull(
+                            const dyn_read_byte_len = try preadMin(
                                 file,
                                 dyn_buf[0 .. dyn_buf.len - dyn_reserve],
                                 dyn_off,
@@ -701,14 +702,14 @@ pub const NativeTargetInfo = struct {
                 var sh_buf: [16 * @sizeOf(elf.Elf64_Shdr)]u8 align(@alignOf(elf.Elf64_Shdr)) = undefined;
                 if (sh_buf.len < shentsize) return error.InvalidElfFile;
 
-                _ = try preadFull(file, &sh_buf, str_section_off, shentsize);
+                _ = try preadMin(file, &sh_buf, str_section_off, shentsize);
                 const shstr32 = @ptrCast(*elf.Elf32_Shdr, @alignCast(@alignOf(elf.Elf32_Shdr), &sh_buf));
                 const shstr64 = @ptrCast(*elf.Elf64_Shdr, @alignCast(@alignOf(elf.Elf64_Shdr), &sh_buf));
                 const shstrtab_off = elfInt(is_64, need_bswap, shstr32.sh_offset, shstr64.sh_offset);
                 const shstrtab_size = elfInt(is_64, need_bswap, shstr32.sh_size, shstr64.sh_size);
                 var strtab_buf: [4096:0]u8 = undefined;
                 const shstrtab_len = std.math.min(shstrtab_size, strtab_buf.len);
-                const shstrtab_read_len = try preadFull(file, &strtab_buf, shstrtab_off, shstrtab_len);
+                const shstrtab_read_len = try preadMin(file, &strtab_buf, shstrtab_off, shstrtab_len);
                 const shstrtab = strtab_buf[0..shstrtab_read_len];
 
                 const shnum = elfInt(is_64, need_bswap, hdr32.e_shnum, hdr64.e_shnum);
@@ -717,7 +718,7 @@ pub const NativeTargetInfo = struct {
                     // Reserve some bytes so that we can deref the 64-bit struct fields
                     // even when the ELF file is 32-bits.
                     const sh_reserve: usize = @sizeOf(elf.Elf64_Shdr) - @sizeOf(elf.Elf32_Shdr);
-                    const sh_read_byte_len = try preadFull(
+                    const sh_read_byte_len = try preadMin(
                         file,
                         sh_buf[0 .. sh_buf.len - sh_reserve],
                         shoff,
@@ -751,7 +752,7 @@ pub const NativeTargetInfo = struct {
 
                 if (dynstr) |ds| {
                     const strtab_len = std.math.min(ds.size, strtab_buf.len);
-                    const strtab_read_len = try preadFull(file, &strtab_buf, ds.offset, shstrtab_len);
+                    const strtab_read_len = try preadMin(file, &strtab_buf, ds.offset, shstrtab_len);
                     const strtab = strtab_buf[0..strtab_read_len];
                     // TODO this pointer cast should not be necessary
                     const rpath_list = mem.toSliceConst(u8, @ptrCast([*:0]u8, strtab[rpoff..].ptr));
@@ -813,7 +814,7 @@ pub const NativeTargetInfo = struct {
         return result;
     }
 
-    fn preadFull(file: fs.File, buf: []u8, offset: u64, min_read_len: usize) !usize {
+    fn preadMin(file: fs.File, buf: []u8, offset: u64, min_read_len: usize) !usize {
         var i: u64 = 0;
         while (i < min_read_len) {
             const len = file.pread(buf[i .. buf.len - i], offset + i) catch |err| switch (err) {
@@ -852,22 +853,6 @@ pub const NativeTargetInfo = struct {
         ld: DynamicLinker,
         abi: Target.Abi,
     };
-
-    fn elfInt(is_64: bool, need_bswap: bool, int_32: var, int_64: var) @TypeOf(int_64) {
-        if (is_64) {
-            if (need_bswap) {
-                return @byteSwap(@TypeOf(int_64), int_64);
-            } else {
-                return int_64;
-            }
-        } else {
-            if (need_bswap) {
-                return @byteSwap(@TypeOf(int_32), int_32);
-            } else {
-                return int_32;
-            }
-        }
-    }
 
     fn detectNativeCpuAndFeatures(cpu_arch: Target.Cpu.Arch, os: Target.Os, cross_target: CrossTarget) ?Target.Cpu {
         // Here we switch on a comptime value rather than `cpu_arch`. This is valid because `cpu_arch`,
