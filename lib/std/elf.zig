@@ -346,13 +346,13 @@ const Header = struct {
 
 pub fn readHeader(file: File) !Header {
     var hdr_buf: [@sizeOf(Elf64_Ehdr)]u8 align(@alignOf(Elf64_Ehdr)) = undefined;
-    try in_stream.preadAll(&hdr_buf, 0);
-    const hdr32 = @ptrCast(*elf.Elf32_Ehdr, &hdr_buf);
-    const hdr64 = @ptrCast(*elf.Elf64_Ehdr, &hdr_buf);
+    try preadNoEof(file, &hdr_buf, 0);
+    const hdr32 = @ptrCast(*Elf32_Ehdr, &hdr_buf);
+    const hdr64 = @ptrCast(*Elf64_Ehdr, &hdr_buf);
     if (!mem.eql(u8, hdr32.e_ident[0..4], "\x7fELF")) return error.InvalidElfMagic;
     if (hdr32.e_ident[EI_VERSION] != 1) return error.InvalidElfVersion;
 
-    const endian = switch (hdr32.e_ident[elf.EI_DATA]) {
+    const endian = switch (hdr32.e_ident[EI_DATA]) {
         ELFDATA2LSB => .Little,
         ELFDATA2MSB => .Big,
         else => return error.InvalidElfEndian,
@@ -407,10 +407,10 @@ pub fn readAllHeaders(allocator: *mem.Allocator, file: File) !AllHeaders {
     // non-matching endian files, we post-process to correct integer endianness and offsets.
 
     const shdr_buf = std.mem.sliceToBytes(hdrs.section_headers)[0 .. hdrs.header.shentsize * hdrs.header.shnum];
-    const phdr_buf = std.mem.sliceToBytes(hdrs.section_headers)[0 .. hdrs.header.phentsize * hdrs.header.phnum];
+    const phdr_buf = std.mem.sliceToBytes(hdrs.program_headers)[0 .. hdrs.header.phentsize * hdrs.header.phnum];
 
-    try file.preadAll(phdr_buf, hdrs.header.phoff);
-    try file.preadAll(shdr_buf, hdrs.header.shoff);
+    try preadNoEof(file, shdr_buf, hdrs.header.shoff);
+    try preadNoEof(file, phdr_buf, hdrs.header.phoff);
 
     const shdrs32 = @ptrCast([*]Elf32_Shdr, @alignCast(@alignOf(Elf32_Shdr), shdr_buf.ptr))[0..hdrs.header.shnum];
     const phdrs32 = @ptrCast([*]Elf32_Phdr, @alignCast(@alignOf(Elf32_Phdr), phdr_buf.ptr))[0..hdrs.header.phnum];
@@ -456,6 +456,25 @@ pub fn int(is_64: bool, need_bswap: bool, int_32: var, int_64: var) @TypeOf(int_
         } else {
             return int_32;
         }
+    }
+}
+
+fn preadNoEof(file: std.fs.File, buf: []u8, offset: u64) !void {
+    var i: u64 = 0;
+    while (i < buf.len) {
+        const len = file.pread(buf[i .. buf.len - i], offset + i) catch |err| switch (err) {
+            error.SystemResources => return error.SystemResources,
+            error.IsDir => return error.UnableToReadElfFile,
+            error.OperationAborted => return error.UnableToReadElfFile,
+            error.BrokenPipe => return error.UnableToReadElfFile,
+            error.Unseekable => return error.UnableToReadElfFile,
+            error.ConnectionResetByPeer => return error.UnableToReadElfFile,
+            error.InputOutput => return error.FileSystem,
+            error.Unexpected => return error.Unexpected,
+            error.WouldBlock => return error.Unexpected,
+        };
+        if (len == 0) return error.UnexpectedEndOfFile;
+        i += len;
     }
 }
 
