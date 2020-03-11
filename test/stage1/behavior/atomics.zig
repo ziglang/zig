@@ -162,12 +162,23 @@ fn testAtomicRmwFloat() void {
     expect(x == 4);
 }
 
-test "atomics with bool" {
-    var x = false;
-    @atomicStore(bool, &x, true, .SeqCst);
-    expect(x == true);
-    expect(@atomicLoad(bool, &x, .SeqCst) == true);
-    expect(@atomicRmw(bool, &x, .Xchg, false, .SeqCst) == true);
-    expect(@cmpxchgStrong(bool, &x, false, true, .SeqCst, .SeqCst) == null);
-    expect(@cmpxchgStrong(bool, &x, false, true, .SeqCst, .SeqCst).? == true);
+test "atomics with different types" {
+    // testAtomicsWithType(bool, true, false);
+    // inline for (.{ u1, i5, u33 }) |T| {
+    //     var x: T = 0;
+    //     testAtomicsWithType(T, 0, 1);
+    // }
+    testAtomicsWithType(u0, 0, 0);
+    testAtomicsWithType(i0, 0, 0);
+}
+
+fn testAtomicsWithType(comptime T: type, a: T, b: T) void {
+    var x: T = b;
+    @atomicStore(T, &x, a, .SeqCst);
+    expect(x == a);
+    expect(@atomicLoad(T, &x, .SeqCst) == a);
+    expect(@atomicRmw(T, &x, .Xchg, b, .SeqCst) == a);
+    expect(@cmpxchgStrong(T, &x, b, a, .SeqCst, .SeqCst) == null);
+    if (@sizeOf(T) != 0)
+        expect(@cmpxchgStrong(T, &x, b, a, .SeqCst, .SeqCst).? == a);
 }
