@@ -48,8 +48,6 @@ const BinaryElfOutput = struct {
         };
         const elf_hdrs = try std.elf.readAllHeaders(allocator, elf_file);
 
-        var binaryElfOutput = BinaryElfOutput.init(arena_allocator);
-
         for (elf_hdrs.section_headers) |section, i| {
             if (sectionValidForOutput(section)) {
                 const newSection = try allocator.create(BinaryElfSection);
@@ -164,7 +162,7 @@ fn emitRaw(allocator: *Allocator, elf_path: []const u8, raw_path: []const u8) !v
     var out_file = try fs.cwd().createFile(raw_path, .{});
     defer out_file.close();
 
-    const binary_elf_output = try BinaryElfOutput.parse(allocator, elf_file);
+    var binary_elf_output = try BinaryElfOutput.parse(allocator, elf_file);
     defer binary_elf_output.deinit();
 
     for (binary_elf_output.sections.toSlice()) |section| {

@@ -1,5 +1,5 @@
-const builtin = @import("builtin");
 const std = @import("std.zig");
+const builtin = std.builtin;
 const io = std.io;
 const os = std.os;
 const math = std.math;
@@ -352,7 +352,7 @@ pub fn readHeader(file: File) !Header {
     if (!mem.eql(u8, hdr32.e_ident[0..4], "\x7fELF")) return error.InvalidElfMagic;
     if (hdr32.e_ident[EI_VERSION] != 1) return error.InvalidElfVersion;
 
-    const endian = switch (hdr32.e_ident[EI_DATA]) {
+    const endian: std.builtin.Endian = switch (hdr32.e_ident[EI_DATA]) {
         ELFDATA2LSB => .Little,
         ELFDATA2MSB => .Big,
         else => return error.InvalidElfEndian,
@@ -406,8 +406,8 @@ pub fn readAllHeaders(allocator: *mem.Allocator, file: File) !AllHeaders {
     // Treat section headers and program headers as byte buffers. For 32-bit ELF and
     // non-matching endian files, we post-process to correct integer endianness and offsets.
 
-    const shdr_buf = std.mem.sliceToBytes(hdrs.section_headers)[0 .. hdrs.header.shentsize * hdrs.header.shnum];
-    const phdr_buf = std.mem.sliceToBytes(hdrs.program_headers)[0 .. hdrs.header.phentsize * hdrs.header.phnum];
+    const shdr_buf = std.mem.sliceAsBytes(hdrs.section_headers)[0 .. hdrs.header.shentsize * hdrs.header.shnum];
+    const phdr_buf = std.mem.sliceAsBytes(hdrs.program_headers)[0 .. hdrs.header.phentsize * hdrs.header.phnum];
 
     try preadNoEof(file, shdr_buf, hdrs.header.shoff);
     try preadNoEof(file, phdr_buf, hdrs.header.phoff);
@@ -430,14 +430,14 @@ pub fn readAllHeaders(allocator: *mem.Allocator, file: File) !AllHeaders {
     }
     for (hdrs.program_headers) |*phdr, i| {
         phdr.* = .{
-            .p_type = int(is_64, need_bswap, phdrs32[i].p_type, shdr.p_type),
-            .p_offset = int(is_64, need_bswap, phdrs32[i].p_offset, shdr.p_offset),
-            .p_vaddr = int(is_64, need_bswap, phdrs32[i].p_vaddr, shdr.p_vaddr),
-            .p_paddr = int(is_64, need_bswap, phdrs32[i].p_paddr, shdr.p_paddr),
-            .p_filesz = int(is_64, need_bswap, phdrs32[i].p_filesz, shdr.p_filesz),
-            .p_memsz = int(is_64, need_bswap, phdrs32[i].p_memsz, shdr.p_memsz),
-            .p_flags = int(is_64, need_bswap, phdrs32[i].p_flags, shdr.p_flags),
-            .p_align = int(is_64, need_bswap, phdrs32[i].p_align, shdr.p_align),
+            .p_type = int(is_64, need_bswap, phdrs32[i].p_type, phdr.p_type),
+            .p_offset = int(is_64, need_bswap, phdrs32[i].p_offset, phdr.p_offset),
+            .p_vaddr = int(is_64, need_bswap, phdrs32[i].p_vaddr, phdr.p_vaddr),
+            .p_paddr = int(is_64, need_bswap, phdrs32[i].p_paddr, phdr.p_paddr),
+            .p_filesz = int(is_64, need_bswap, phdrs32[i].p_filesz, phdr.p_filesz),
+            .p_memsz = int(is_64, need_bswap, phdrs32[i].p_memsz, phdr.p_memsz),
+            .p_flags = int(is_64, need_bswap, phdrs32[i].p_flags, phdr.p_flags),
+            .p_align = int(is_64, need_bswap, phdrs32[i].p_align, phdr.p_align),
         };
     }
     return hdrs;

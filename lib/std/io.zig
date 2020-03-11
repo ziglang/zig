@@ -126,6 +126,8 @@ pub const deserializer = @import("io/serialization.zig").deserializer;
 
 pub const BufferedAtomicFile = @import("io/buffered_atomic_file.zig").BufferedAtomicFile;
 
+pub const StreamSource = @import("io/stream_source.zig").StreamSource;
+
 /// Deprecated; use `std.fs.Dir.writeFile`.
 pub fn writeFile(path: []const u8, data: []const u8) !void {
     return fs.cwd().writeFile(path, data);

@@ -12,9 +12,9 @@ pub fn FixedBufferStream(comptime Buffer: type) type {
         buffer: Buffer,
         pos: usize,
 
-        pub const ReadError = error{EndOfStream};
-        pub const WriteError = error{OutOfMemory};
-        pub const SeekError = error{EndOfStream};
+        pub const ReadError = error{};
+        pub const WriteError = error{NoSpaceLeft};
+        pub const SeekError = error{};
         pub const GetSeekPosError = error{};
 
         pub const InStream = io.InStream(*Self, ReadError, read);
@@ -51,16 +51,16 @@ pub fn FixedBufferStream(comptime Buffer: type) type {
             mem.copy(u8, dest[0..size], self.buffer[self.pos..end]);
             self.pos = end;
 
-            if (size == 0) return error.EndOfStream;
             return size;
         }
 
         /// If the returned number of bytes written is less than requested, the
-        /// buffer is full. Returns `error.OutOfMemory` when no bytes would be written.
+        /// buffer is full. Returns `error.NoSpaceLeft` when no bytes would be written.
+        /// Note: `error.NoSpaceLeft` matches the corresponding error from
+        /// `std.fs.File.WriteError`.
         pub fn write(self: *Self, bytes: []const u8) WriteError!usize {
             if (bytes.len == 0) return 0;
-
-            assert(self.pos <= self.buffer.len);
+            if (self.pos >= self.buffer.len) return error.NoSpaceLeft;
 
             const n = if (self.pos + bytes.len <= self.buffer.len)
                 bytes.len
@@ -70,26 +70,27 @@ pub fn FixedBufferStream(comptime Buffer: type) type {
             mem.copy(u8, self.buffer[self.pos .. self.pos + n], bytes[0..n]);
             self.pos += n;
 
-            if (n == 0) return error.OutOfMemory;
+            if (n == 0) return error.NoSpaceLeft;
 
             return n;
         }
 
         pub fn seekTo(self: *Self, pos: u64) SeekError!void {
-            const usize_pos = std.math.cast(usize, pos) catch return error.EndOfStream;
-            if (usize_pos > self.buffer.len) return error.EndOfStream;
+            const usize_pos = std.math.cast(usize, pos) catch std.math.maxInt(usize);
             self.pos = usize_pos;
         }
 
         pub fn seekBy(self: *Self, amt: i64) SeekError!void {
             if (amt < 0) {
-                const abs_amt = std.math.cast(usize, -amt) catch return error.EndOfStream;
-                if (abs_amt > self.pos) return error.EndOfStream;
-                self.pos -= abs_amt;
+                const abs_amt = std.math.cast(usize, -amt) catch std.math.maxInt(usize);
+                if (abs_amt > self.pos) {
+                    self.pos = 0;
+                } else {
+                    self.pos -= abs_amt;
+                }
             } else {
-                const usize_amt = std.math.cast(usize, amt) catch return error.EndOfStream;
-                if (self.pos + usize_amt > self.buffer.len) return error.EndOfStream;
-                self.pos += usize_amt;
+                const usize_amt = std.math.cast(usize, amt) catch std.math.maxInt(usize);
+                self.pos = std.math.add(usize, self.pos, usize_amt) catch std.math.maxInt(usize);
             }
         }
 
@@ -101,6 +102,7 @@ pub fn FixedBufferStream(comptime Buffer: type) type {
             return self.pos;
         }
 
+        /// Asserts that the seek pos is within the buffer range.
         pub fn getWritten(self: Self) []const u8 {
             return self.buffer[0..self.pos];
         }
@@ -140,13 +142,13 @@ test "FixedBufferStream output 2" {
     try fbs.outStream().writeAll("world");
     testing.expect(mem.eql(u8, fbs.getWritten(), "Helloworld"));
 
-    testing.expectError(error.OutOfMemory, fbs.outStream().writeAll("!"));
+    testing.expectError(error.NoSpaceLeft, fbs.outStream().writeAll("!"));
     testing.expect(mem.eql(u8, fbs.getWritten(), "Helloworld"));
 
     fbs.reset();
     testing.expect(fbs.getWritten().len == 0);
 
-    testing.expectError(error.OutOfMemory, fbs.outStream().writeAll("Hello world!"));
+    testing.expectError(error.NoSpaceLeft, fbs.outStream().writeAll("Hello world!"));
     testing.expect(mem.eql(u8, fbs.getWritten(), "Hello worl"));
 }
 
@@ -164,5 +166,6 @@ test "FixedBufferStream input" {
     testing.expect(read == 3);
     testing.expect(mem.eql(u8, dest[0..3], bytes[4..7]));
 
-    testing.expectError(error.EndOfStream, fbs.inStream().read(dest[0..4]));
+    read = try fbs.inStream().read(dest[0..4]);
+    testing.expect(read == 0);
 }
