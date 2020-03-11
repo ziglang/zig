@@ -76,21 +76,22 @@ pub fn FixedBufferStream(comptime Buffer: type) type {
         }
 
         pub fn seekTo(self: *Self, pos: u64) SeekError!void {
-            const usize_pos = std.math.cast(usize, pos) catch std.math.maxInt(usize);
-            self.pos = usize_pos;
+            self.pos = if (std.math.cast(usize, pos)) |x| x else |_| self.buffer.len;
         }
 
         pub fn seekBy(self: *Self, amt: i64) SeekError!void {
             if (amt < 0) {
-                const abs_amt = std.math.cast(usize, -amt) catch std.math.maxInt(usize);
-                if (abs_amt > self.pos) {
+                const abs_amt = std.math.absCast(amt);
+                const abs_amt_usize = std.math.cast(usize, abs_amt) catch std.math.maxInt(usize);
+                if (abs_amt_usize > self.pos) {
                     self.pos = 0;
                 } else {
-                    self.pos -= abs_amt;
+                    self.pos -= abs_amt_usize;
                 }
             } else {
-                const usize_amt = std.math.cast(usize, amt) catch std.math.maxInt(usize);
-                self.pos = std.math.add(usize, self.pos, usize_amt) catch std.math.maxInt(usize);
+                const amt_usize = std.math.cast(usize, amt) catch std.math.maxInt(usize);
+                const new_pos = std.math.add(usize, self.pos, amt_usize) catch std.math.maxInt(usize);
+                self.pos = std.math.min(self.buffer.len, new_pos);
             }
         }
 
@@ -102,7 +103,6 @@ pub fn FixedBufferStream(comptime Buffer: type) type {
             return self.pos;
         }
 
-        /// Asserts that the seek pos is within the buffer range.
         pub fn getWritten(self: Self) []const u8 {
             return self.buffer[0..self.pos];
         }
