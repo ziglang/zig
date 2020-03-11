@@ -350,7 +350,13 @@ pub fn pread(fd: i32, buf: [*]u8, count: usize, offset: u64) usize {
             );
         }
     } else {
-        return syscall4(SYS_pread, @bitCast(usize, @as(isize, fd)), @ptrToInt(buf), count, offset);
+        return syscall4(
+            SYS_pread,
+            @bitCast(usize, @as(isize, fd)),
+            @ptrToInt(buf),
+            count,
+            offset,
+        );
     }
 }
 
@@ -385,7 +391,36 @@ pub fn write(fd: i32, buf: [*]const u8, count: usize) usize {
 }
 
 pub fn pwrite(fd: i32, buf: [*]const u8, count: usize, offset: usize) usize {
-    return syscall4(SYS_pwrite, @bitCast(usize, @as(isize, fd)), @ptrToInt(buf), count, offset);
+    if (@hasDecl(@This(), "SYS_pwrite64")) {
+        if (require_aligned_register_pair) {
+            return syscall6(
+                SYS_pwrite64,
+                @bitCast(usize, @as(isize, fd)),
+                @ptrToInt(buf),
+                count,
+                0,
+                @truncate(usize, offset),
+                @truncate(usize, offset >> 32),
+            );
+        } else {
+            return syscall5(
+                SYS_pwrite64,
+                @bitCast(usize, @as(isize, fd)),
+                @ptrToInt(buf),
+                count,
+                @truncate(usize, offset),
+                @truncate(usize, offset >> 32),
+            );
+        }
+    } else {
+        return syscall4(
+            SYS_pwrite,
+            @bitCast(usize, @as(isize, fd)),
+            @ptrToInt(buf),
+            count,
+            offset,
+        );
+    }
 }
 
 pub fn rename(old: [*:0]const u8, new: [*:0]const u8) usize {
