@@ -438,6 +438,39 @@ pub fn pread(fd: fd_t, buf: []u8, offset: u64) PReadError!usize {
     return index;
 }
 
+pub const TruncateError = error{
+    /// The file descriptor is not open for writing.
+    NotFile,
+} || UnexpectedError;
+
+pub fn truncate(fd: fd_t, length: u64) TruncateError!void {
+    if (std.Target.current.os.tag == .windows) {
+        try windows.SetFilePointerEx_BEGIN(fd, length);
+
+        if (windows.kernel32.SetEndOfFile(fd) == 0)
+            return TruncateError.Unexpected;
+
+        return;
+    }
+
+    while (true) {
+        const rc = if (builtin.link_libc) blk: {
+            if (std.Target.current.os.tag == .linux)
+                break :blk system.ftruncate64(fd, @bitCast(off_t, length))
+            else
+                break :blk system.ftruncate(fd, @bitCast(off_t, length));
+        } else
+            system.ftruncate(fd, length);
+
+        switch (errno(rc)) {
+            0 => return,
+            EINTR => continue,
+            EBADF, EINVAL => return error.NotFile,
+            else => |err| return unexpectedErrno(err),
+        }
+    }
+}
+
 /// Number of bytes read is returned. Upon reading end-of-file, zero is returned.
 ///
 /// Retries when interrupted by a signal.

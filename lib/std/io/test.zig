@@ -125,6 +125,23 @@ test "File seek ops" {
     expect((try file.getPos()) == 1234);
 }
 
+test "setEndPos" {
+    const tmp_file_name = "temp_test_file.txt";
+    var file = try fs.cwd().createFile(tmp_file_name, .{});
+    defer {
+        file.close();
+        fs.cwd().deleteFile(tmp_file_name) catch {};
+    }
+
+    std.testing.expect((try file.getEndPos()) == 0);
+    try file.setEndPos(8192);
+    std.testing.expect((try file.getEndPos()) == 8192);
+    try file.setEndPos(4096);
+    std.testing.expect((try file.getEndPos()) == 4096);
+    try file.setEndPos(0);
+    std.testing.expect((try file.getEndPos()) == 0);
+}
+
 test "updateTimes" {
     const tmp_file_name = "just_a_temporary_file.txt";
     var file = try fs.cwd().createFile(tmp_file_name, .{ .read = true });

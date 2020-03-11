@@ -390,6 +390,33 @@ pub fn write(fd: i32, buf: [*]const u8, count: usize) usize {
     return syscall3(SYS_write, @bitCast(usize, @as(isize, fd)), @ptrToInt(buf), count);
 }
 
+pub fn ftruncate(fd: i32, length: u64) usize {
+    if (@hasDecl(@This(), "SYS_ftruncate64")) {
+        if (require_aligned_register_pair) {
+            return syscall4(
+                SYS_ftruncate64,
+                @bitCast(usize, @as(isize, fd)),
+                0,
+                @truncate(usize, length),
+                @truncate(usize, length >> 32),
+            );
+        } else {
+            return syscall3(
+                SYS_ftruncate64,
+                @bitCast(usize, @as(isize, fd)),
+                @truncate(usize, length),
+                @truncate(usize, length >> 32),
+            );
+        }
+    } else {
+        return syscall2(
+            SYS_ftruncate,
+            @bitCast(usize, @as(isize, fd)),
+            @truncate(usize, length),
+        );
+    }
+}
+
 pub fn pwrite(fd: i32, buf: [*]const u8, count: usize, offset: usize) usize {
     if (@hasDecl(@This(), "SYS_pwrite64")) {
         if (require_aligned_register_pair) {
