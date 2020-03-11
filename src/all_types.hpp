@@ -3567,8 +3567,6 @@ struct IrInstGenCmpxchg {
     IrInstGen *cmp_value;
     IrInstGen *new_value;
     IrInstGen *result_loc;
-    // non null if operand needs widening and truncating
-    ZigType *actual_type;
     bool is_weak;
 };
 
@@ -4201,8 +4199,6 @@ struct IrInstGenAtomicRmw {
 
     IrInstGen *ptr;
     IrInstGen *operand;
-    // non null if operand needs widening and truncating
-    ZigType *actual_type;
     AtomicRmwOp op;
     AtomicOrder ordering;
 };
@@ -4219,8 +4215,6 @@ struct IrInstGenAtomicLoad {
     IrInstGen base;
 
     IrInstGen *ptr;
-    // non null if operand needs widening and truncating
-    ZigType *actual_type;
     AtomicOrder ordering;
 };
 
@@ -4238,8 +4232,6 @@ struct IrInstGenAtomicStore {
 
     IrInstGen *ptr;
     IrInstGen *value;
-    // non null if operand needs widening and truncating
-    ZigType *actual_type;
     AtomicOrder ordering;
 };
 

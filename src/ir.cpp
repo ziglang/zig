@@ -227,7 +227,7 @@ static IrInstGen *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field_name
 static void ir_assert(bool ok, IrInst* source_instruction);
 static void ir_assert_gen(bool ok, IrInstGen *source_instruction);
 static IrInstGen *ir_get_var_ptr(IrAnalyze *ira, IrInst *source_instr, ZigVar *var);
-static ZigType *ir_resolve_atomic_operand_type(IrAnalyze *ira, IrInstGen *op, ZigType **actual_type);
+static ZigType *ir_resolve_atomic_operand_type(IrAnalyze *ira, IrInstGen *op);
 static IrInstSrc *ir_lval_wrap(IrBuilderSrc *irb, Scope *scope, IrInstSrc *value, LVal lval, ResultLoc *result_loc);
 static IrInstSrc *ir_expr_wrap(IrBuilderSrc *irb, Scope *scope, IrInstSrc *inst, ResultLoc *result_loc);
 static ZigType *adjust_ptr_align(CodeGen *g, ZigType *ptr_type, uint32_t new_align);
@@ -3406,7 +3406,7 @@ static IrInstSrc *ir_build_cmpxchg_src(IrBuilderSrc *irb, Scope *scope, AstNode 
 
 static IrInstGen *ir_build_cmpxchg_gen(IrAnalyze *ira, IrInst *source_instruction, ZigType *result_type,
     IrInstGen *ptr, IrInstGen *cmp_value, IrInstGen *new_value,
-    AtomicOrder success_order, AtomicOrder failure_order, bool is_weak, IrInstGen *result_loc, ZigType *actual_type)
+    AtomicOrder success_order, AtomicOrder failure_order, bool is_weak, IrInstGen *result_loc)
 {
     IrInstGenCmpxchg *instruction = ir_build_inst_gen<IrInstGenCmpxchg>(&ira->new_irb,
             source_instruction->scope, source_instruction->source_node);
@@ -3418,7 +3418,6 @@ static IrInstGen *ir_build_cmpxchg_gen(IrAnalyze *ira, IrInst *source_instructio
     instruction->failure_order = failure_order;
     instruction->is_weak = is_weak;
     instruction->result_loc = result_loc;
-    instruction->actual_type = actual_type;
 
     ir_ref_inst_gen(ptr, ira->new_irb.current_basic_block);
     ir_ref_inst_gen(cmp_value, ira->new_irb.current_basic_block);
@@ -4555,7 +4554,7 @@ static IrInstSrc *ir_build_atomic_rmw_src(IrBuilderSrc *irb, Scope *scope, AstNo
 }
 
 static IrInstGen *ir_build_atomic_rmw_gen(IrAnalyze *ira, IrInst *source_instr,
-        IrInstGen *ptr, IrInstGen *operand, AtomicRmwOp op, AtomicOrder ordering, ZigType *operand_type, ZigType *actual_type)
+        IrInstGen *ptr, IrInstGen *operand, AtomicRmwOp op, AtomicOrder ordering, ZigType *operand_type)
 {
     IrInstGenAtomicRmw *instruction = ir_build_inst_gen<IrInstGenAtomicRmw>(&ira->new_irb, source_instr->scope, source_instr->source_node);
     instruction->base.value->type = operand_type;
@@ -4563,7 +4562,6 @@ static IrInstGen *ir_build_atomic_rmw_gen(IrAnalyze *ira, IrInst *source_instr,
     instruction->op = op;
     instruction->operand = operand;
     instruction->ordering = ordering;
-    instruction->actual_type = actual_type;
 
     ir_ref_inst_gen(ptr, ira->new_irb.current_basic_block);
     ir_ref_inst_gen(operand, ira->new_irb.current_basic_block);
@@ -4587,14 +4585,13 @@ static IrInstSrc *ir_build_atomic_load_src(IrBuilderSrc *irb, Scope *scope, AstN
 }
 
 static IrInstGen *ir_build_atomic_load_gen(IrAnalyze *ira, IrInst *source_instr,
-        IrInstGen *ptr, AtomicOrder ordering, ZigType *operand_type, ZigType *actual_type)
+        IrInstGen *ptr, AtomicOrder ordering, ZigType *operand_type)
 {
     IrInstGenAtomicLoad *instruction = ir_build_inst_gen<IrInstGenAtomicLoad>(&ira->new_irb,
             source_instr->scope, source_instr->source_node);
     instruction->base.value->type = operand_type;
     instruction->ptr = ptr;
     instruction->ordering = ordering;
-    instruction->actual_type = actual_type;
 
     ir_ref_inst_gen(ptr, ira->new_irb.current_basic_block);
 
@@ -4619,14 +4616,13 @@ static IrInstSrc *ir_build_atomic_store_src(IrBuilderSrc *irb, Scope *scope, Ast
 }
 
 static IrInstGen *ir_build_atomic_store_gen(IrAnalyze *ira, IrInst *source_instr,
-        IrInstGen *ptr, IrInstGen *value, AtomicOrder ordering, ZigType *actual_type)
+        IrInstGen *ptr, IrInstGen *value, AtomicOrder ordering)
 {
     IrInstGenAtomicStore *instruction = ir_build_inst_void<IrInstGenAtomicStore>(&ira->new_irb,
             source_instr->scope, source_instr->source_node);
     instruction->ptr = ptr;
     instruction->value = value;
     instruction->ordering = ordering;
-    instruction->actual_type = actual_type;
 
     ir_ref_inst_gen(ptr, ira->new_irb.current_basic_block);
     ir_ref_inst_gen(value, ira->new_irb.current_basic_block);
@@ -25125,8 +25121,7 @@ static IrInstGen *ir_analyze_instruction_embed_file(IrAnalyze *ira, IrInstSrcEmb
 }
 
 static IrInstGen *ir_analyze_instruction_cmpxchg(IrAnalyze *ira, IrInstSrcCmpxchg *instruction) {
-    ZigType *actual_type;
-    ZigType *operand_type = ir_resolve_atomic_operand_type(ira, instruction->type_value->child, &actual_type);
+    ZigType *operand_type = ir_resolve_atomic_operand_type(ira, instruction->type_value->child);
     if (type_is_invalid(operand_type))
         return ira->codegen->invalid_inst_gen;
 
@@ -25203,29 +25198,34 @@ static IrInstGen *ir_analyze_instruction_cmpxchg(IrAnalyze *ira, IrInstSrcCmpxch
 
     // special case zero bit types
     if (type_has_one_possible_value(ira->codegen, operand_type) == OnePossibleValueYes) {
-        ZigValue *val = ira->codegen->pass1_arena->allocate<ZigValue>(1);
-        val->special = ConstValSpecialStatic;
-        val->type = result_type;
-        set_optional_value_to_null(val);
-        return ir_const_move(ira, &instruction->base.base, val);
+        IrInstGen *result = ir_const(ira, &instruction->base.base, result_type);
+        set_optional_value_to_null(result->value);
+        return result;
     }
 
     if (instr_is_comptime(casted_ptr) && casted_ptr->value->data.x_ptr.mut != ConstPtrMutRuntimeVar &&
         instr_is_comptime(casted_cmp_value) && instr_is_comptime(casted_new_value)) {
-        IrInstGen *result = ir_get_deref(ira, &instruction->base.base, casted_ptr, nullptr);
-        ZigValue *op1_val = ir_resolve_const(ira, result, UndefBad);
+        ZigValue *ptr_val = ir_resolve_const(ira, casted_ptr, UndefBad);
+        if (ptr_val == nullptr)
+            return ira->codegen->invalid_inst_gen;
+
+        ZigValue *op1_val = const_ptr_pointee(ira, ira->codegen, ptr_val, instruction->base.base.source_node);
+        if (op1_val == nullptr)
+            return ira->codegen->invalid_inst_gen;
+
         ZigValue *op2_val = ir_resolve_const(ira, casted_cmp_value, UndefBad);
+        if (op2_val == nullptr)
+            return ira->codegen->invalid_inst_gen;
+
         bool eql = const_values_equal(ira->codegen, op1_val, op2_val);
-        ZigValue *val = ira->codegen->pass1_arena->allocate<ZigValue>(1);
-        val->special = ConstValSpecialStatic;
-        val->type = result_type;
+        IrInstGen *result = ir_const(ira, &instruction->base.base, result_type);
         if (eql) {
             ir_analyze_store_ptr(ira, &instruction->base.base, casted_ptr, casted_new_value, false);
-            set_optional_value_to_null(val);
+            set_optional_value_to_null(result->value);
         } else {
-            set_optional_payload(val, op1_val);
+            set_optional_payload(result->value, op1_val);
         }
-        return ir_const_move(ira, &instruction->base.base, val);
+        return result;
     }
 
     IrInstGen *result_loc;
@@ -25241,7 +25241,7 @@ static IrInstGen *ir_analyze_instruction_cmpxchg(IrAnalyze *ira, IrInstSrcCmpxch
 
     return ir_build_cmpxchg_gen(ira, &instruction->base.base, result_type,
             casted_ptr, casted_cmp_value, casted_new_value,
-            success_order, failure_order, instruction->is_weak, result_loc, actual_type);
+            success_order, failure_order, instruction->is_weak, result_loc);
 }
 
 static IrInstGen *ir_analyze_instruction_fence(IrAnalyze *ira, IrInstSrcFence *instruction) {
@@ -28333,12 +28333,11 @@ static IrInstGen *ir_analyze_instruction_tag_type(IrAnalyze *ira, IrInstSrcTagTy
     }
 }
 
-static ZigType *ir_resolve_atomic_operand_type(IrAnalyze *ira, IrInstGen *op, ZigType **actual_type) {
+static ZigType *ir_resolve_atomic_operand_type(IrAnalyze *ira, IrInstGen *op) {
     ZigType *operand_type = ir_resolve_type(ira, op);
     if (type_is_invalid(operand_type))
         return ira->codegen->builtin_types.entry_invalid;
 
-    *actual_type = nullptr;
     if (operand_type->id == ZigTypeIdInt || operand_type->id == ZigTypeIdEnum) {
         ZigType *int_type;
         if (operand_type->id == ZigTypeIdEnum) {
@@ -28355,10 +28354,6 @@ static ZigType *ir_resolve_atomic_operand_type(IrAnalyze *ira, IrInstGen *op, Zi
                     max_atomic_bits, bit_count));
             return ira->codegen->builtin_types.entry_invalid;
         }
-
-        if (bit_count == 1 || !is_power_of_2(bit_count)) {
-            *actual_type = get_int_type(ira->codegen, int_type->data.integral.is_signed, int_type->abi_size * 8);
-        }
     } else if (operand_type->id == ZigTypeIdFloat) {
         uint32_t max_atomic_bits = target_arch_largest_atomic_bits(ira->codegen->zig_target->arch);
         if (operand_type->data.floating.bit_count > max_atomic_bits) {
@@ -28369,7 +28364,6 @@ static ZigType *ir_resolve_atomic_operand_type(IrAnalyze *ira, IrInstGen *op, Zi
         }
     } else if (operand_type->id == ZigTypeIdBool) {
         // will be treated as u8
-        *actual_type = ira->codegen->builtin_types.entry_u8;
     } else {
         Error err;
         ZigType *operand_ptr_type;
@@ -28387,8 +28381,7 @@ static ZigType *ir_resolve_atomic_operand_type(IrAnalyze *ira, IrInstGen *op, Zi
 }
 
 static IrInstGen *ir_analyze_instruction_atomic_rmw(IrAnalyze *ira, IrInstSrcAtomicRmw *instruction) {
-    ZigType *actual_type;
-    ZigType *operand_type = ir_resolve_atomic_operand_type(ira, instruction->operand_type->child, &actual_type);
+    ZigType *operand_type = ir_resolve_atomic_operand_type(ira, instruction->operand_type->child);
     if (type_is_invalid(operand_type))
         return ira->codegen->invalid_inst_gen;
 
@@ -28451,12 +28444,11 @@ static IrInstGen *ir_analyze_instruction_atomic_rmw(IrAnalyze *ira, IrInstSrcAto
     }
 
     return ir_build_atomic_rmw_gen(ira, &instruction->base.base, casted_ptr, casted_operand, op,
-            ordering, operand_type, actual_type);
+            ordering, operand_type);
 }
 
 static IrInstGen *ir_analyze_instruction_atomic_load(IrAnalyze *ira, IrInstSrcAtomicLoad *instruction) {
-    ZigType *actual_type;
-    ZigType *operand_type = ir_resolve_atomic_operand_type(ira, instruction->operand_type->child, &actual_type);
+    ZigType *operand_type = ir_resolve_atomic_operand_type(ira, instruction->operand_type->child);
     if (type_is_invalid(operand_type))
         return ira->codegen->invalid_inst_gen;
 
@@ -28486,12 +28478,11 @@ static IrInstGen *ir_analyze_instruction_atomic_load(IrAnalyze *ira, IrInstSrcAt
         return result;
     }
 
-    return ir_build_atomic_load_gen(ira, &instruction->base.base, casted_ptr, ordering, operand_type, actual_type);
+    return ir_build_atomic_load_gen(ira, &instruction->base.base, casted_ptr, ordering, operand_type);
 }
 
 static IrInstGen *ir_analyze_instruction_atomic_store(IrAnalyze *ira, IrInstSrcAtomicStore *instruction) {
-    ZigType *actual_type;
-    ZigType *operand_type = ir_resolve_atomic_operand_type(ira, instruction->operand_type->child, &actual_type);
+    ZigType *operand_type = ir_resolve_atomic_operand_type(ira, instruction->operand_type->child);
     if (type_is_invalid(operand_type))
         return ira->codegen->invalid_inst_gen;
 
@@ -28535,7 +28526,7 @@ static IrInstGen *ir_analyze_instruction_atomic_store(IrAnalyze *ira, IrInstSrcA
         return result;
     }
 
-    return ir_build_atomic_store_gen(ira, &instruction->base.base, casted_ptr, casted_value, ordering, actual_type);
+    return ir_build_atomic_store_gen(ira, &instruction->base.base, casted_ptr, casted_value, ordering);
 }
 
 static IrInstGen *ir_analyze_instruction_save_err_ret_addr(IrAnalyze *ira, IrInstSrcSaveErrRetAddr *instruction) {
