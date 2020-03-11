@@ -900,6 +900,7 @@ const Stage2Target = extern struct {
     llvm_cpu_features: ?[*:0]const u8,
     cpu_builtin_str: ?[*:0]const u8,
     cache_hash: ?[*:0]const u8,
+    cache_hash_len: usize,
     os_builtin_str: ?[*:0]const u8,
 
     dynamic_linker: ?[*:0]const u8,
@@ -1129,6 +1130,7 @@ const Stage2Target = extern struct {
             }
         };
 
+        const cache_hash_slice = cache_hash.toOwnedSlice();
         self.* = .{
             .arch = @enumToInt(target.cpu.arch) + 1, // skip over ZigLLVM_UnknownArch
             .vendor = 0,
@@ -1138,7 +1140,8 @@ const Stage2Target = extern struct {
             .llvm_cpu_features = llvm_features_buffer.toOwnedSlice().ptr,
             .cpu_builtin_str = cpu_builtin_str_buffer.toOwnedSlice().ptr,
             .os_builtin_str = os_builtin_str_buffer.toOwnedSlice().ptr,
-            .cache_hash = cache_hash.toOwnedSlice().ptr,
+            .cache_hash = cache_hash_slice.ptr,
+            .cache_hash_len = cache_hash_slice.len,
             .is_native = cross_target.isNative(),
             .glibc_or_darwin_version = glibc_or_darwin_version,
             .dynamic_linker = dynamic_linker,

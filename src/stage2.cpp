@@ -251,9 +251,12 @@ Error stage2_target_parse(struct ZigTarget *target, const char *zig_triple, cons
         target->cache_hash = "\n\n";
     }
 
+    target->cache_hash_len = strlen(target->cache_hash);
+
     if (dynamic_linker != nullptr) {
         target->dynamic_linker = dynamic_linker;
     }
+
     return ErrorNone;
 }
 
