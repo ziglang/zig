@@ -217,13 +217,13 @@ pub const ChildProcess = struct {
 
         try child.spawn();
 
-        var stdout_file_in_stream = child.stdout.?.inStream();
-        var stderr_file_in_stream = child.stderr.?.inStream();
+        const stdout_in = child.stdout.?.inStream();
+        const stderr_in = child.stderr.?.inStream();
 
         // TODO need to poll to read these streams to prevent a deadlock (or rely on evented I/O).
-        const stdout = try stdout_file_in_stream.readAllAlloc(args.allocator, args.max_output_bytes);
+        const stdout = try stdout_in.readAllAlloc(args.allocator, args.max_output_bytes);
         errdefer args.allocator.free(stdout);
-        const stderr = try stderr_file_in_stream.readAllAlloc(args.allocator, args.max_output_bytes);
+        const stderr = try stderr_in.readAllAlloc(args.allocator, args.max_output_bytes);
         errdefer args.allocator.free(stderr);
 
         return ExecResult{
@@ -780,7 +780,7 @@ fn windowsCreateCommandLine(allocator: *mem.Allocator, argv: []const []const u8)
     var buf = try Buffer.initSize(allocator, 0);
     defer buf.deinit();
 
-    var buf_stream = &io.BufferOutStream.init(&buf).stream;
+    var buf_stream = buf.outStream();
 
     for (argv) |arg, arg_i| {
         if (arg_i != 0) try buf.appendByte(' ');
