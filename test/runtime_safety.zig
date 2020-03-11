@@ -4,7 +4,6 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.addRuntimeSafety("shift left by huge amount",
         \\const std = @import("std");
         \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
-        \\    std.debug.warn("{}\n", .{message});
         \\    if (std.mem.eql(u8, message, "shift amount is greater than the type size")) {
         \\        std.process.exit(126); // good
         \\    }
