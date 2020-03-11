@@ -475,15 +475,15 @@ fn populateModule(di: *ModuleDebugInfo, mod: *Module) !void {
 
     const modi = di.pdb.getStreamById(mod.mod_info.ModuleSymStream) orelse return error.MissingDebugInfo;
 
-    const signature = try modi.stream.readIntLittle(u32);
+    const signature = try modi.inStream().readIntLittle(u32);
     if (signature != 4)
         return error.InvalidDebugInfo;
 
     mod.symbols = try allocator.alloc(u8, mod.mod_info.SymByteSize - 4);
-    try modi.stream.readNoEof(mod.symbols);
+    try modi.inStream().readNoEof(mod.symbols);
 
     mod.subsect_info = try allocator.alloc(u8, mod.mod_info.C13ByteSize);
-    try modi.stream.readNoEof(mod.subsect_info);
+    try modi.inStream().readNoEof(mod.subsect_info);
 
     var sect_offset: usize = 0;
     var skip_len: usize = undefined;
@@ -656,11 +656,11 @@ fn openCoffDebugInfo(allocator: *mem.Allocator, coff_file_path: [:0]const u16) !
     try di.pdb.openFile(di.coff, path);
 
     var pdb_stream = di.pdb.getStream(pdb.StreamType.Pdb) orelse return error.InvalidDebugInfo;
-    const version = try pdb_stream.stream.readIntLittle(u32);
-    const signature = try pdb_stream.stream.readIntLittle(u32);
-    const age = try pdb_stream.stream.readIntLittle(u32);
+    const version = try pdb_stream.inStream().readIntLittle(u32);
+    const signature = try pdb_stream.inStream().readIntLittle(u32);
+    const age = try pdb_stream.inStream().readIntLittle(u32);
     var guid: [16]u8 = undefined;
-    try pdb_stream.stream.readNoEof(&guid);
+    try pdb_stream.inStream().readNoEof(&guid);
     if (version != 20000404) // VC70, only value observed by LLVM team
         return error.UnknownPDBVersion;
     if (!mem.eql(u8, &di.coff.guid, &guid) or di.coff.age != age)
@@ -668,9 +668,9 @@ fn openCoffDebugInfo(allocator: *mem.Allocator, coff_file_path: [:0]const u16) !
     // We validated the executable and pdb match.
 
     const string_table_index = str_tab_index: {
-        const name_bytes_len = try pdb_stream.stream.readIntLittle(u32);
+        const name_bytes_len = try pdb_stream.inStream().readIntLittle(u32);
         const name_bytes = try allocator.alloc(u8, name_bytes_len);
-        try pdb_stream.stream.readNoEof(name_bytes);
+        try pdb_stream.inStream().readNoEof(name_bytes);
 
         const HashTableHeader = packed struct {
             Size: u32,
@@ -680,17 +680,17 @@ fn openCoffDebugInfo(allocator: *mem.Allocator, coff_file_path: [:0]const u16) !
                 return cap * 2 / 3 + 1;
             }
         };
-        const hash_tbl_hdr = try pdb_stream.stream.readStruct(HashTableHeader);
+        const hash_tbl_hdr = try pdb_stream.inStream().readStruct(HashTableHeader);
         if (hash_tbl_hdr.Capacity == 0)
             return error.InvalidDebugInfo;
 
         if (hash_tbl_hdr.Size > HashTableHeader.maxLoad(hash_tbl_hdr.Capacity))
             return error.InvalidDebugInfo;
 
-        const present = try readSparseBitVector(&pdb_stream.stream, allocator);
+        const present = try readSparseBitVector(&pdb_stream.inStream(), allocator);
         if (present.len != hash_tbl_hdr.Size)
             return error.InvalidDebugInfo;
-        const deleted = try readSparseBitVector(&pdb_stream.stream, allocator);
+        const deleted = try readSparseBitVector(&pdb_stream.inStream(), allocator);
 
         const Bucket = struct {
             first: u32,
@@ -698,8 +698,8 @@ fn openCoffDebugInfo(allocator: *mem.Allocator, coff_file_path: [:0]const u16) !
         };
         const bucket_list = try allocator.alloc(Bucket, present.len);
         for (present) |_| {
-            const name_offset = try pdb_stream.stream.readIntLittle(u32);
-            const name_index = try pdb_stream.stream.readIntLittle(u32);
+            const name_offset = try pdb_stream.inStream().readIntLittle(u32);
+            const name_index = try pdb_stream.inStream().readIntLittle(u32);
             const name = mem.toSlice(u8, @ptrCast([*:0]u8, name_bytes.ptr + name_offset));
             if (mem.eql(u8, name, "/names")) {
                 break :str_tab_index name_index;
@@ -714,7 +714,7 @@ fn openCoffDebugInfo(allocator: *mem.Allocator, coff_file_path: [:0]const u16) !
     const dbi = di.pdb.dbi;
 
     // Dbi Header
-    const dbi_stream_header = try dbi.stream.readStruct(pdb.DbiStreamHeader);
+    const dbi_stream_header = try dbi.inStream().readStruct(pdb.DbiStreamHeader);
     if (dbi_stream_header.VersionHeader != 19990903) // V70, only value observed by LLVM team
         return error.UnknownPDBVersion;
     if (dbi_stream_header.Age != age)
@@ -728,7 +728,7 @@ fn openCoffDebugInfo(allocator: *mem.Allocator, coff_file_path: [:0]const u16) !
     // Module Info Substream
     var mod_info_offset: usize = 0;
     while (mod_info_offset != mod_info_size) {
-        const mod_info = try dbi.stream.readStruct(pdb.ModInfo);
+        const mod_info = try dbi.inStream().readStruct(pdb.ModInfo);
         var this_record_len: usize = @sizeOf(pdb.ModInfo);
 
         const module_name = try dbi.readNullTermString(allocator);
@@ -766,14 +766,14 @@ fn openCoffDebugInfo(allocator: *mem.Allocator, coff_file_path: [:0]const u16) !
     var sect_contribs = ArrayList(pdb.SectionContribEntry).init(allocator);
     var sect_cont_offset: usize = 0;
     if (section_contrib_size != 0) {
-        const ver = @intToEnum(pdb.SectionContrSubstreamVersion, try dbi.stream.readIntLittle(u32));
+        const ver = @intToEnum(pdb.SectionContrSubstreamVersion, try dbi.inStream().readIntLittle(u32));
         if (ver != pdb.SectionContrSubstreamVersion.Ver60)
             return error.InvalidDebugInfo;
         sect_cont_offset += @sizeOf(u32);
     }
     while (sect_cont_offset != section_contrib_size) {
         const entry = try sect_contribs.addOne();
-        entry.* = try dbi.stream.readStruct(pdb.SectionContribEntry);
+        entry.* = try dbi.inStream().readStruct(pdb.SectionContribEntry);
         sect_cont_offset += @sizeOf(pdb.SectionContribEntry);
 
         if (sect_cont_offset > section_contrib_size)
@@ -827,7 +827,7 @@ pub fn openElfDebugInfo(allocator: *mem.Allocator, elf_file_path: []const u8) !M
         const str_section_off = shoff + @as(u64, hdr.e_shentsize) * @as(u64, hdr.e_shstrndx);
         const str_shdr = @ptrCast(
             *const elf.Shdr,
-            @alignCast(@alignOf(elf.Shdr), &mapped_mem[str_section_off]),
+            @alignCast(@alignOf(elf.Shdr), &mapped_mem[try math.cast(usize, str_section_off)]),
         );
         const header_strings = mapped_mem[str_shdr.sh_offset .. str_shdr.sh_offset + str_shdr.sh_size];
         const shdrs = @ptrCast(

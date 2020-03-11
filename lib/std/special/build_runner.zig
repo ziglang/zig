@@ -42,8 +42,8 @@ pub fn main() !void {
 
     var targets = ArrayList([]const u8).init(allocator);
 
-    const stderr_stream = &io.getStdErr().outStream().stream;
-    const stdout_stream = &io.getStdOut().outStream().stream;
+    const stderr_stream = io.getStdErr().outStream();
+    const stdout_stream = io.getStdOut().outStream();
 
     while (nextArg(args, &arg_idx)) |arg| {
         if (mem.startsWith(u8, arg, "-D")) {
@@ -159,7 +159,7 @@ fn usage(builder: *Builder, already_ran_build: bool, out_stream: var) !void {
         try out_stream.print("  {s:22} {}\n", .{ name, top_level_step.description });
     }
 
-    try out_stream.write(
+    try out_stream.writeAll(
         \\
         \\General Options:
         \\  --help                 Print this help and exit
@@ -184,7 +184,7 @@ fn usage(builder: *Builder, already_ran_build: bool, out_stream: var) !void {
         }
     }
 
-    try out_stream.write(
+    try out_stream.writeAll(
         \\
         \\Advanced Options:
         \\  --build-file [file]         Override path to build.zig
