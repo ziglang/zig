@@ -25212,7 +25212,20 @@ static IrInstGen *ir_analyze_instruction_cmpxchg(IrAnalyze *ira, IrInstSrcCmpxch
 
     if (instr_is_comptime(casted_ptr) && casted_ptr->value->data.x_ptr.mut != ConstPtrMutRuntimeVar &&
         instr_is_comptime(casted_cmp_value) && instr_is_comptime(casted_new_value)) {
-        zig_panic("TODO compile-time execution of cmpxchg");
+        IrInstGen *result = ir_get_deref(ira, &instruction->base.base, casted_ptr, nullptr);
+        ZigValue *op1_val = ir_resolve_const(ira, result, UndefBad);
+        ZigValue *op2_val = ir_resolve_const(ira, casted_cmp_value, UndefBad);
+        bool eql = const_values_equal(ira->codegen, op1_val, op2_val);
+        ZigValue *val = ira->codegen->pass1_arena->allocate<ZigValue>(1);
+        val->special = ConstValSpecialStatic;
+        val->type = result_type;
+        if (eql) {
+            ir_analyze_store_ptr(ira, &instruction->base.base, casted_ptr, casted_new_value, false);
+            set_optional_value_to_null(val);
+        } else {
+            set_optional_payload(val, op1_val);
+        }
+        return ir_const_move(ira, &instruction->base.base, val);
     }
 
     IrInstGen *result_loc;
@@ -28334,7 +28347,6 @@ static ZigType *ir_resolve_atomic_operand_type(IrAnalyze *ira, IrInstGen *op, Zi
             int_type = operand_type;
         }
         auto bit_count = int_type->data.integral.bit_count;
-        bool is_signed = int_type->data.integral.is_signed;
         uint32_t max_atomic_bits = target_arch_largest_atomic_bits(ira->codegen->zig_target->arch);
 
         if (bit_count > max_atomic_bits) {
@@ -28344,20 +28356,8 @@ static ZigType *ir_resolve_atomic_operand_type(IrAnalyze *ira, IrInstGen *op, Zi
             return ira->codegen->builtin_types.entry_invalid;
         }
 
-        if (bit_count < 2 || !is_power_of_2(bit_count)) {
-            if (bit_count < 8) {
-                *actual_type = get_int_type(ira->codegen, is_signed, 8);
-            } else if (bit_count < 16) {
-                *actual_type = get_int_type(ira->codegen, is_signed, 16);
-            } else if (bit_count < 32) {
-                *actual_type = get_int_type(ira->codegen, is_signed, 32);
-            } else if (bit_count < 64) {
-                *actual_type = get_int_type(ira->codegen, is_signed, 64);
-            } else if (bit_count < 128) {
-                *actual_type = get_int_type(ira->codegen, is_signed, 128);
-            } else {
-                zig_unreachable();
-            }
+        if (bit_count == 1 || !is_power_of_2(bit_count)) {
+            *actual_type = get_int_type(ira->codegen, int_type->data.integral.is_signed, int_type->abi_size * 8);
         }
     } else if (operand_type->id == ZigTypeIdFloat) {
         uint32_t max_atomic_bits = target_arch_largest_atomic_bits(ira->codegen->zig_target->arch);
