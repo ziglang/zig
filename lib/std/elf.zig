@@ -398,48 +398,123 @@ pub fn readAllHeaders(allocator: *mem.Allocator, file: File) !AllHeaders {
     const need_bswap = hdrs.header.endian != std.builtin.endian;
 
     hdrs.section_headers = try allocator.alloc(Elf64_Shdr, hdrs.header.shnum);
-    errdefer hdrs.allocator.free(hdrs.section_headers);
+    errdefer allocator.free(hdrs.section_headers);
 
     hdrs.program_headers = try allocator.alloc(Elf64_Phdr, hdrs.header.phnum);
-    errdefer hdrs.allocator.free(hdrs.program_headers);
+    errdefer allocator.free(hdrs.program_headers);
 
-    // Treat section headers and program headers as byte buffers. For 32-bit ELF and
-    // non-matching endian files, we post-process to correct integer endianness and offsets.
+    // If the ELF file is 64-bit and same-endianness, then all we have to do is
+    // yeet the bytes into memory.
+    // If only the endianness is different, they can be simply byte swapped.
+    if (is_64) {
+        const shdr_buf = std.mem.sliceAsBytes(hdrs.section_headers);
+        const phdr_buf = std.mem.sliceAsBytes(hdrs.program_headers);
+        try preadNoEof(file, shdr_buf, hdrs.header.shoff);
+        try preadNoEof(file, phdr_buf, hdrs.header.phoff);
 
-    const shdr_buf = std.mem.sliceAsBytes(hdrs.section_headers)[0 .. hdrs.header.shentsize * hdrs.header.shnum];
-    const phdr_buf = std.mem.sliceAsBytes(hdrs.program_headers)[0 .. hdrs.header.phentsize * hdrs.header.phnum];
+        if (need_bswap) {
+            for (hdrs.section_headers) |*shdr| {
+                shdr.* = .{
+                    .sh_name = @byteSwap(@TypeOf(shdr.sh_name), shdr.sh_name),
+                    .sh_type = @byteSwap(@TypeOf(shdr.sh_type), shdr.sh_type),
+                    .sh_flags = @byteSwap(@TypeOf(shdr.sh_flags), shdr.sh_flags),
+                    .sh_addr = @byteSwap(@TypeOf(shdr.sh_addr), shdr.sh_addr),
+                    .sh_offset = @byteSwap(@TypeOf(shdr.sh_offset), shdr.sh_offset),
+                    .sh_size = @byteSwap(@TypeOf(shdr.sh_size), shdr.sh_size),
+                    .sh_link = @byteSwap(@TypeOf(shdr.sh_link), shdr.sh_link),
+                    .sh_info = @byteSwap(@TypeOf(shdr.sh_info), shdr.sh_info),
+                    .sh_addralign = @byteSwap(@TypeOf(shdr.sh_addralign), shdr.sh_addralign),
+                    .sh_entsize = @byteSwap(@TypeOf(shdr.sh_entsize), shdr.sh_entsize),
+                };
+            }
+            for (hdrs.program_headers) |*phdr| {
+                phdr.* = .{
+                    .p_type = @byteSwap(@TypeOf(phdr.p_type), phdr.p_type),
+                    .p_offset = @byteSwap(@TypeOf(phdr.p_offset), phdr.p_offset),
+                    .p_vaddr = @byteSwap(@TypeOf(phdr.p_vaddr), phdr.p_vaddr),
+                    .p_paddr = @byteSwap(@TypeOf(phdr.p_paddr), phdr.p_paddr),
+                    .p_filesz = @byteSwap(@TypeOf(phdr.p_filesz), phdr.p_filesz),
+                    .p_memsz = @byteSwap(@TypeOf(phdr.p_memsz), phdr.p_memsz),
+                    .p_flags = @byteSwap(@TypeOf(phdr.p_flags), phdr.p_flags),
+                    .p_align = @byteSwap(@TypeOf(phdr.p_align), phdr.p_align),
+                };
+            }
+        }
 
+        return hdrs;
+    }
+
+    const shdrs_32 = try allocator.alloc(Elf32_Shdr, hdrs.header.shnum);
+    defer allocator.free(shdrs_32);
+
+    const phdrs_32 = try allocator.alloc(Elf32_Phdr, hdrs.header.phnum);
+    defer allocator.free(phdrs_32);
+
+    const shdr_buf = std.mem.sliceAsBytes(shdrs_32);
+    const phdr_buf = std.mem.sliceAsBytes(phdrs_32);
     try preadNoEof(file, shdr_buf, hdrs.header.shoff);
     try preadNoEof(file, phdr_buf, hdrs.header.phoff);
 
-    const shdrs32 = @ptrCast([*]Elf32_Shdr, @alignCast(@alignOf(Elf32_Shdr), shdr_buf.ptr))[0..hdrs.header.shnum];
-    const phdrs32 = @ptrCast([*]Elf32_Phdr, @alignCast(@alignOf(Elf32_Phdr), phdr_buf.ptr))[0..hdrs.header.phnum];
-    for (hdrs.section_headers) |*shdr, i| {
-        shdr.* = .{
-            .sh_name = int(is_64, need_bswap, shdrs32[i].sh_name, shdr.sh_name),
-            .sh_type = int(is_64, need_bswap, shdrs32[i].sh_type, shdr.sh_type),
-            .sh_flags = int(is_64, need_bswap, shdrs32[i].sh_flags, shdr.sh_flags),
-            .sh_addr = int(is_64, need_bswap, shdrs32[i].sh_addr, shdr.sh_addr),
-            .sh_offset = int(is_64, need_bswap, shdrs32[i].sh_offset, shdr.sh_offset),
-            .sh_size = int(is_64, need_bswap, shdrs32[i].sh_size, shdr.sh_size),
-            .sh_link = int(is_64, need_bswap, shdrs32[i].sh_link, shdr.sh_link),
-            .sh_info = int(is_64, need_bswap, shdrs32[i].sh_info, shdr.sh_info),
-            .sh_addralign = int(is_64, need_bswap, shdrs32[i].sh_addralign, shdr.sh_addralign),
-            .sh_entsize = int(is_64, need_bswap, shdrs32[i].sh_entsize, shdr.sh_entsize),
-        };
+    if (need_bswap) {
+        for (hdrs.section_headers) |*shdr, i| {
+            const o = shdrs_32[i];
+            shdr.* = .{
+                .sh_name = @byteSwap(@TypeOf(o.sh_name), o.sh_name),
+                .sh_type = @byteSwap(@TypeOf(o.sh_type), o.sh_type),
+                .sh_flags = @byteSwap(@TypeOf(o.sh_flags), o.sh_flags),
+                .sh_addr = @byteSwap(@TypeOf(o.sh_addr), o.sh_addr),
+                .sh_offset = @byteSwap(@TypeOf(o.sh_offset), o.sh_offset),
+                .sh_size = @byteSwap(@TypeOf(o.sh_size), o.sh_size),
+                .sh_link = @byteSwap(@TypeOf(o.sh_link), o.sh_link),
+                .sh_info = @byteSwap(@TypeOf(o.sh_info), o.sh_info),
+                .sh_addralign = @byteSwap(@TypeOf(o.sh_addralign), o.sh_addralign),
+                .sh_entsize = @byteSwap(@TypeOf(o.sh_entsize), o.sh_entsize),
+            };
+        }
+        for (hdrs.program_headers) |*phdr, i| {
+            const o = phdrs_32[i];
+            phdr.* = .{
+                .p_type = @byteSwap(@TypeOf(o.p_type), o.p_type),
+                .p_offset = @byteSwap(@TypeOf(o.p_offset), o.p_offset),
+                .p_vaddr = @byteSwap(@TypeOf(o.p_vaddr), o.p_vaddr),
+                .p_paddr = @byteSwap(@TypeOf(o.p_paddr), o.p_paddr),
+                .p_filesz = @byteSwap(@TypeOf(o.p_filesz), o.p_filesz),
+                .p_memsz = @byteSwap(@TypeOf(o.p_memsz), o.p_memsz),
+                .p_flags = @byteSwap(@TypeOf(o.p_flags), o.p_flags),
+                .p_align = @byteSwap(@TypeOf(o.p_align), o.p_align),
+            };
+        }
+    } else {
+        for (hdrs.section_headers) |*shdr, i| {
+            const o = shdrs_32[i];
+            shdr.* = .{
+                .sh_name = o.sh_name,
+                .sh_type = o.sh_type,
+                .sh_flags = o.sh_flags,
+                .sh_addr = o.sh_addr,
+                .sh_offset = o.sh_offset,
+                .sh_size = o.sh_size,
+                .sh_link = o.sh_link,
+                .sh_info = o.sh_info,
+                .sh_addralign = o.sh_addralign,
+                .sh_entsize = o.sh_entsize,
+            };
+        }
+        for (hdrs.program_headers) |*phdr, i| {
+            const o = phdrs_32[i];
+            phdr.* = .{
+                .p_type = o.p_type,
+                .p_offset = o.p_offset,
+                .p_vaddr = o.p_vaddr,
+                .p_paddr = o.p_paddr,
+                .p_filesz = o.p_filesz,
+                .p_memsz = o.p_memsz,
+                .p_flags = o.p_flags,
+                .p_align = o.p_align,
+            };
+        }
     }
-    for (hdrs.program_headers) |*phdr, i| {
-        phdr.* = .{
-            .p_type = int(is_64, need_bswap, phdrs32[i].p_type, phdr.p_type),
-            .p_offset = int(is_64, need_bswap, phdrs32[i].p_offset, phdr.p_offset),
-            .p_vaddr = int(is_64, need_bswap, phdrs32[i].p_vaddr, phdr.p_vaddr),
-            .p_paddr = int(is_64, need_bswap, phdrs32[i].p_paddr, phdr.p_paddr),
-            .p_filesz = int(is_64, need_bswap, phdrs32[i].p_filesz, phdr.p_filesz),
-            .p_memsz = int(is_64, need_bswap, phdrs32[i].p_memsz, phdr.p_memsz),
-            .p_flags = int(is_64, need_bswap, phdrs32[i].p_flags, phdr.p_flags),
-            .p_align = int(is_64, need_bswap, phdrs32[i].p_align, phdr.p_align),
-        };
-    }
+
     return hdrs;
 }
 
@@ -451,11 +526,15 @@ pub fn int(is_64: bool, need_bswap: bool, int_32: var, int_64: var) @TypeOf(int_
             return int_64;
         }
     } else {
-        if (need_bswap) {
-            return @byteSwap(@TypeOf(int_32), int_32);
-        } else {
-            return int_32;
-        }
+        return int32(need_bswap, int_32, @TypeOf(int_64));
+    }
+}
+
+pub fn int32(need_bswap: bool, int_32: var, comptime Int64: var) Int64 {
+    if (need_bswap) {
+        return @byteSwap(@TypeOf(int_32), int_32);
+    } else {
+        return int_32;
     }
 }
 

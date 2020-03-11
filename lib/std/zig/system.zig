@@ -587,7 +587,6 @@ pub const NativeTargetInfo = struct {
             elf.ELFCLASS64 => true,
             else => return error.InvalidElfClass,
         };
-        const elfInt = elf.int;
         var phoff = elfInt(is_64, need_bswap, hdr32.e_phoff, hdr64.e_phoff);
         const phentsize = elfInt(is_64, need_bswap, hdr32.e_phentsize, hdr64.e_phentsize);
         const phnum = elfInt(is_64, need_bswap, hdr32.e_phnum, hdr64.e_phnum);
@@ -853,6 +852,22 @@ pub const NativeTargetInfo = struct {
         ld: DynamicLinker,
         abi: Target.Abi,
     };
+
+    pub fn elfInt(is_64: bool, need_bswap: bool, int_32: var, int_64: var) @TypeOf(int_64) {
+        if (is_64) {
+            if (need_bswap) {
+                return @byteSwap(@TypeOf(int_64), int_64);
+            } else {
+                return int_64;
+            }
+        } else {
+            if (need_bswap) {
+                return @byteSwap(@TypeOf(int_32), int_32);
+            } else {
+                return int_32;
+            }
+        }
+    }
 
     fn detectNativeCpuAndFeatures(cpu_arch: Target.Cpu.Arch, os: Target.Os, cross_target: CrossTarget) ?Target.Cpu {
         // Here we switch on a comptime value rather than `cpu_arch`. This is valid because `cpu_arch`,
