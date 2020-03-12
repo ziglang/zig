@@ -336,6 +336,8 @@
 #define __NR_fsconfig		5431
 #define __NR_fsmount		5432
 #define __NR_fspick		5433
+#define __NR_pidfd_open		5434
+#define __NR_clone3		5435
 
 #define SYS_read			5000
 #define SYS_write			5001
@@ -675,3 +677,5 @@
 #define SYS_fsconfig		5431
 #define SYS_fsmount		5432
 #define SYS_fspick		5433
+#define SYS_pidfd_open		5434
+#define SYS_clone3		5435

@@ -6,7 +6,6 @@ extern "C" {
 #endif
 
 #include <features.h>
-#include <endian.h>
 #include <time.h>
 #include <stdint.h>
 
