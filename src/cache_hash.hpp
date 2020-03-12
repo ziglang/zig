@@ -36,6 +36,7 @@ void cache_init(CacheHash *ch, Buf *manifest_dir);
 
 // Next, use the hash population functions to add the initial parameters.
 void cache_mem(CacheHash *ch, const char *ptr, size_t len);
+void cache_slice(CacheHash *ch, Slice<const char> slice);
 void cache_str(CacheHash *ch, const char *ptr);
 void cache_int(CacheHash *ch, int x);
 void cache_bool(CacheHash *ch, bool x);

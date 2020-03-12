@@ -741,15 +741,15 @@ fn stage2TargetParse(
 
 // ABI warning
 const Stage2LibCInstallation = extern struct {
-    include_dir: [*:0]const u8,
+    include_dir: [*]const u8,
     include_dir_len: usize,
-    sys_include_dir: [*:0]const u8,
+    sys_include_dir: [*]const u8,
     sys_include_dir_len: usize,
-    crt_dir: [*:0]const u8,
+    crt_dir: [*]const u8,
     crt_dir_len: usize,
-    msvc_lib_dir: [*:0]const u8,
+    msvc_lib_dir: [*]const u8,
     msvc_lib_dir_len: usize,
-    kernel32_lib_dir: [*:0]const u8,
+    kernel32_lib_dir: [*]const u8,
     kernel32_lib_dir_len: usize,
 
     fn initFromStage2(self: *Stage2LibCInstallation, libc: LibCInstallation) void {
@@ -793,19 +793,19 @@ const Stage2LibCInstallation = extern struct {
     fn toStage2(self: Stage2LibCInstallation) LibCInstallation {
         var libc: LibCInstallation = .{};
         if (self.include_dir_len != 0) {
-            libc.include_dir = self.include_dir[0..self.include_dir_len :0];
+            libc.include_dir = self.include_dir[0..self.include_dir_len];
         }
         if (self.sys_include_dir_len != 0) {
-            libc.sys_include_dir = self.sys_include_dir[0..self.sys_include_dir_len :0];
+            libc.sys_include_dir = self.sys_include_dir[0..self.sys_include_dir_len];
         }
         if (self.crt_dir_len != 0) {
-            libc.crt_dir = self.crt_dir[0..self.crt_dir_len :0];
+            libc.crt_dir = self.crt_dir[0..self.crt_dir_len];
         }
         if (self.msvc_lib_dir_len != 0) {
-            libc.msvc_lib_dir = self.msvc_lib_dir[0..self.msvc_lib_dir_len :0];
+            libc.msvc_lib_dir = self.msvc_lib_dir[0..self.msvc_lib_dir_len];
         }
         if (self.kernel32_lib_dir_len != 0) {
-            libc.kernel32_lib_dir = self.kernel32_lib_dir[0..self.kernel32_lib_dir_len :0];
+            libc.kernel32_lib_dir = self.kernel32_lib_dir[0..self.kernel32_lib_dir_len];
         }
         return libc;
     }
