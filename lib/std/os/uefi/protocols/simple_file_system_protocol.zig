@@ -3,7 +3,7 @@ const Guid = uefi.Guid;
 const FileProtocol = uefi.protocols.FileProtocol;
 const Status = uefi.Status;
 
-const SimpleFileSystemProtocol = extern struct {
+pub const SimpleFileSystemProtocol = extern struct {
     revision: u64,
     _open_volume: extern fn (*const SimpleFileSystemProtocol, **const FileProtocol) Status,
 
