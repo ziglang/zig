@@ -2,7 +2,7 @@ const uefi = @import("std").os.uefi;
 const Guid = uefi.Guid;
 const Time = uefi.Time;
 
-const FileProtocol = extern struct {
+pub const FileProtocol = extern struct {
     revision: u64,
     _open: extern fn (*const FileProtocol, **const FileProtocol, *u16, u64, u64) usize,
     _close: extern fn (*const FileProtocol) usize,
@@ -67,7 +67,7 @@ const FileProtocol = extern struct {
     pub const efi_file_valid_attr: u64 = 0x0000000000000037;
 };
 
-const FileInfo = extern struct {
+pub const FileInfo = extern struct {
     size: u64,
     file_size: u64,
     physical_size: u64,
