@@ -16,6 +16,13 @@ pub extern "NtDll" fn NtQueryInformationFile(
     Length: ULONG,
     FileInformationClass: FILE_INFORMATION_CLASS,
 ) callconv(.Stdcall) NTSTATUS;
+pub extern "NtDll" fn NtSetInformationFile(
+    FileHandle: HANDLE,
+    IoStatusBlock: *IO_STATUS_BLOCK,
+    FileInformation: PVOID,
+    Length: ULONG,
+    FileInformationClass: FILE_INFORMATION_CLASS,
+) callconv(.Stdcall) NTSTATUS;
 
 pub extern "NtDll" fn NtQueryAttributesFile(
     ObjectAttributes: *OBJECT_ATTRIBUTES,

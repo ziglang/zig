@@ -1,5 +1,5 @@
-const builtin = @import("builtin");
-const std = @import("../std.zig");
+const std = @import("std");
+const builtin = std.builtin;
 const io = std.io;
 const meta = std.meta;
 const trait = std.trait;
@@ -133,13 +133,19 @@ test "setEndPos" {
         fs.cwd().deleteFile(tmp_file_name) catch {};
     }
 
+    // Verify that the file size changes and the file offset is not moved
     std.testing.expect((try file.getEndPos()) == 0);
+    std.testing.expect((try file.getPos()) == 0);
     try file.setEndPos(8192);
     std.testing.expect((try file.getEndPos()) == 8192);
+    std.testing.expect((try file.getPos()) == 0);
+    try file.seekTo(100);
     try file.setEndPos(4096);
     std.testing.expect((try file.getEndPos()) == 4096);
+    std.testing.expect((try file.getPos()) == 100);
     try file.setEndPos(0);
     std.testing.expect((try file.getEndPos()) == 0);
+    std.testing.expect((try file.getPos()) == 100);
 }
 
 test "updateTimes" {

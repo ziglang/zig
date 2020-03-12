@@ -225,6 +225,10 @@ pub const FILE_POSITION_INFORMATION = extern struct {
     CurrentByteOffset: LARGE_INTEGER,
 };
 
+pub const FILE_END_OF_FILE_INFORMATION = extern struct {
+    EndOfFile: LARGE_INTEGER,
+};
+
 pub const FILE_MODE_INFORMATION = extern struct {
     Mode: ULONG,
 };

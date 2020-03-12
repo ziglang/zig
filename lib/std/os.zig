@@ -447,10 +447,25 @@ pub const TruncateError = error{
 
 pub fn ftruncate(fd: fd_t, length: u64) TruncateError!void {
     if (std.Target.current.os.tag == .windows) {
-        try windows.SetFilePointerEx_BEGIN(fd, length);
+        var io_status_block: windows.IO_STATUS_BLOCK = undefined;
+        var eof_info = windows.FILE_END_OF_FILE_INFORMATION{
+            .EndOfFile = @bitCast(windows.LARGE_INTEGER, length),
+        };
 
-        if (windows.kernel32.SetEndOfFile(fd) == 0)
-            return TruncateError.Unexpected;
+        const rc = windows.ntdll.NtSetInformationFile(
+            fd,
+            &io_status_block,
+            &eof_info,
+            @sizeOf(windows.FILE_END_OF_FILE_INFORMATION),
+            .FileEndOfFileInformation,
+        );
+
+        switch (rc) {
+            .SUCCESS => {},
+            .INVALID_HANDLE => unreachable, // Handle not open for writing
+            .ACCESS_DENIED => return error.CannotTruncate,
+            else => return windows.unexpectedStatus(rc),
+        }
 
         return;
     }
@@ -471,7 +486,8 @@ pub fn ftruncate(fd: fd_t, length: u64) TruncateError!void {
             EIO => return error.InputOutput,
             EPERM => return error.CannotTruncate,
             ETXTBSY => return error.FileBusy,
-            EBADF, EINVAL => unreachable,
+            EBADF => unreachable, // Handle not open for writing
+            EINVAL => unreachable, // Handle not open for writing
             else => |err| return unexpectedErrno(err),
         }
     }
