@@ -1,6 +1,3 @@
-const builtin = @import("builtin");
-const AtomicOrder = builtin.AtomicOrder;
-
 /// Thread-safe, lock-free integer
 pub fn Int(comptime T: type) type {
     return struct {
@@ -14,16 +11,16 @@ pub fn Int(comptime T: type) type {
 
         /// Returns previous value
         pub fn incr(self: *Self) T {
-            return @atomicRmw(T, &self.unprotected_value, builtin.AtomicRmwOp.Add, 1, AtomicOrder.SeqCst);
+            return @atomicRmw(T, &self.unprotected_value, .Add, 1, .SeqCst);
         }
 
         /// Returns previous value
         pub fn decr(self: *Self) T {
-            return @atomicRmw(T, &self.unprotected_value, builtin.AtomicRmwOp.Sub, 1, AtomicOrder.SeqCst);
+            return @atomicRmw(T, &self.unprotected_value, .Sub, 1, .SeqCst);
         }
 
         pub fn get(self: *Self) T {
-            return @atomicLoad(T, &self.unprotected_value, AtomicOrder.SeqCst);
+            return @atomicLoad(T, &self.unprotected_value, .SeqCst);
         }
 
         pub fn set(self: *Self, new_value: T) void {
@@ -31,11 +28,11 @@ pub fn Int(comptime T: type) type {
         }
 
         pub fn xchg(self: *Self, new_value: T) T {
-            return @atomicRmw(T, &self.unprotected_value, builtin.AtomicRmwOp.Xchg, new_value, AtomicOrder.SeqCst);
+            return @atomicRmw(T, &self.unprotected_value, .Xchg, new_value, .SeqCst);
         }
 
         pub fn fetchAdd(self: *Self, op: T) T {
-            return @atomicRmw(T, &self.unprotected_value, builtin.AtomicRmwOp.Add, op, AtomicOrder.SeqCst);
+            return @atomicRmw(T, &self.unprotected_value, .Add, op, .SeqCst);
         }
     };
 }

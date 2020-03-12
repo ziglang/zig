@@ -1,7 +1,5 @@
 const std = @import("../std.zig");
 const builtin = @import("builtin");
-const AtomicOrder = builtin.AtomicOrder;
-const AtomicRmwOp = builtin.AtomicRmwOp;
 const assert = std.debug.assert;
 const expect = std.testing.expect;
 
@@ -145,7 +143,7 @@ const Context = struct {
     put_sum: isize,
     get_sum: isize,
     get_count: usize,
-    puts_done: u8, // TODO make this a bool
+    puts_done: bool,
 };
 
 // TODO add lazy evaluated build options and then put puts_per_thread behind
@@ -169,7 +167,7 @@ test "std.atomic.Queue" {
         .queue = &queue,
         .put_sum = 0,
         .get_sum = 0,
-        .puts_done = 0,
+        .puts_done = false,
         .get_count = 0,
     };
 
@@ -182,7 +180,7 @@ test "std.atomic.Queue" {
             }
         }
         expect(!context.queue.isEmpty());
-        context.puts_done = 1;
+        context.puts_done = true;
         {
             var i: usize = 0;
             while (i < put_thread_count) : (i += 1) {
@@ -204,7 +202,7 @@ test "std.atomic.Queue" {
 
         for (putters) |t|
             t.wait();
-        @atomicStore(u8, &context.puts_done, 1, AtomicOrder.SeqCst);
+        @atomicStore(bool, &context.puts_done, true, .SeqCst);
         for (getters) |t|
             t.wait();
 
@@ -231,25 +229,25 @@ fn startPuts(ctx: *Context) u8 {
         std.time.sleep(1); // let the os scheduler be our fuzz
         const x = @bitCast(i32, r.random.scalar(u32));
         const node = ctx.allocator.create(Queue(i32).Node) catch unreachable;
-        node.* = Queue(i32).Node{
+        node.* = .{
             .prev = undefined,
             .next = undefined,
             .data = x,
         };
         ctx.queue.put(node);
-        _ = @atomicRmw(isize, &ctx.put_sum, builtin.AtomicRmwOp.Add, x, AtomicOrder.SeqCst);
+        _ = @atomicRmw(isize, &ctx.put_sum, .Add, x, .SeqCst);
     }
     return 0;
 }
 
 fn startGets(ctx: *Context) u8 {
     while (true) {
-        const last = @atomicLoad(u8, &ctx.puts_done, builtin.AtomicOrder.SeqCst) == 1;
+        const last = @atomicLoad(bool, &ctx.puts_done, .SeqCst);
 
         while (ctx.queue.get()) |node| {
             std.time.sleep(1); // let the os scheduler be our fuzz
-            _ = @atomicRmw(isize, &ctx.get_sum, builtin.AtomicRmwOp.Add, node.data, builtin.AtomicOrder.SeqCst);
-            _ = @atomicRmw(usize, &ctx.get_count, builtin.AtomicRmwOp.Add, 1, builtin.AtomicOrder.SeqCst);
+            _ = @atomicRmw(isize, &ctx.get_sum, .Add, node.data, .SeqCst);
+            _ = @atomicRmw(usize, &ctx.get_count, .Add, 1, .SeqCst);
         }
 
         if (last) return 0;

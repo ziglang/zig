@@ -25208,12 +25208,50 @@ static IrInstGen *ir_analyze_instruction_cmpxchg(IrAnalyze *ira, IrInstSrcCmpxch
         return ira->codegen->invalid_inst_gen;
     }
 
-    if (instr_is_comptime(casted_ptr) && casted_ptr->value->data.x_ptr.mut != ConstPtrMutRuntimeVar &&
-        instr_is_comptime(casted_cmp_value) && instr_is_comptime(casted_new_value)) {
-        zig_panic("TODO compile-time execution of cmpxchg");
+    ZigType *result_type = get_optional_type(ira->codegen, operand_type);
+
+    // special case zero bit types
+    switch (type_has_one_possible_value(ira->codegen, operand_type)) {
+        case OnePossibleValueInvalid:
+            return ira->codegen->invalid_inst_gen;
+        case OnePossibleValueYes: {
+            IrInstGen *result = ir_const(ira, &instruction->base.base, result_type);
+            set_optional_value_to_null(result->value);
+            return result;
+        }
+        case OnePossibleValueNo:
+            break;
     }
 
-    ZigType *result_type = get_optional_type(ira->codegen, operand_type);
+    if (instr_is_comptime(casted_ptr) && casted_ptr->value->data.x_ptr.mut != ConstPtrMutRuntimeVar &&
+        instr_is_comptime(casted_cmp_value) && instr_is_comptime(casted_new_value)) {
+        ZigValue *ptr_val = ir_resolve_const(ira, casted_ptr, UndefBad);
+        if (ptr_val == nullptr)
+            return ira->codegen->invalid_inst_gen;
+
+        ZigValue *stored_val = const_ptr_pointee(ira, ira->codegen, ptr_val, instruction->base.base.source_node);
+        if (stored_val == nullptr)
+            return ira->codegen->invalid_inst_gen;
+
+        ZigValue *expected_val = ir_resolve_const(ira, casted_cmp_value, UndefBad);
+        if (expected_val == nullptr)
+            return ira->codegen->invalid_inst_gen;
+
+        ZigValue *new_val = ir_resolve_const(ira, casted_new_value, UndefBad);
+        if (new_val == nullptr)
+            return ira->codegen->invalid_inst_gen;
+
+        bool eql = const_values_equal(ira->codegen, stored_val, expected_val);
+        IrInstGen *result = ir_const(ira, &instruction->base.base, result_type);
+        if (eql) {
+            copy_const_val(ira->codegen, stored_val, new_val);
+            set_optional_value_to_null(result->value);
+        } else {
+            set_optional_payload(result->value, stored_val);
+        }
+        return result;
+    }
+
     IrInstGen *result_loc;
     if (handle_is_ptr(ira->codegen, result_type)) {
         result_loc = ir_resolve_result(ira, &instruction->base.base, instruction->result_loc,
@@ -28324,43 +28362,20 @@ static ZigType *ir_resolve_atomic_operand_type(IrAnalyze *ira, IrInstGen *op) {
     if (type_is_invalid(operand_type))
         return ira->codegen->builtin_types.entry_invalid;
 
-    if (operand_type->id == ZigTypeIdInt) {
-        if (operand_type->data.integral.bit_count < 8) {
-            ir_add_error(ira, &op->base,
-                buf_sprintf("expected integer type 8 bits or larger, found %" PRIu32 "-bit integer type",
-                    operand_type->data.integral.bit_count));
-            return ira->codegen->builtin_types.entry_invalid;
+    if (operand_type->id == ZigTypeIdInt || operand_type->id == ZigTypeIdEnum) {
+        ZigType *int_type;
+        if (operand_type->id == ZigTypeIdEnum) {
+            int_type = operand_type->data.enumeration.tag_int_type;
+        } else {
+            int_type = operand_type;
         }
+        auto bit_count = int_type->data.integral.bit_count;
         uint32_t max_atomic_bits = target_arch_largest_atomic_bits(ira->codegen->zig_target->arch);
-        if (operand_type->data.integral.bit_count > max_atomic_bits) {
+
+        if (bit_count > max_atomic_bits) {
             ir_add_error(ira, &op->base,
                 buf_sprintf("expected %" PRIu32 "-bit integer type or smaller, found %" PRIu32 "-bit integer type",
-                    max_atomic_bits, operand_type->data.integral.bit_count));
-            return ira->codegen->builtin_types.entry_invalid;
-        }
-        if (!is_power_of_2(operand_type->data.integral.bit_count)) {
-            ir_add_error(ira, &op->base,
-                buf_sprintf("%" PRIu32 "-bit integer type is not a power of 2", operand_type->data.integral.bit_count));
-            return ira->codegen->builtin_types.entry_invalid;
-        }
-    } else if (operand_type->id == ZigTypeIdEnum) {
-        ZigType *int_type = operand_type->data.enumeration.tag_int_type;
-        if (int_type->data.integral.bit_count < 8) {
-            ir_add_error(ira, &op->base,
-                buf_sprintf("expected enum tag type 8 bits or larger, found %" PRIu32 "-bit tag type",
-                    int_type->data.integral.bit_count));
-            return ira->codegen->builtin_types.entry_invalid;
-        }
-        uint32_t max_atomic_bits = target_arch_largest_atomic_bits(ira->codegen->zig_target->arch);
-        if (int_type->data.integral.bit_count > max_atomic_bits) {
-            ir_add_error(ira, &op->base,
-                buf_sprintf("expected %" PRIu32 "-bit enum tag type or smaller, found %" PRIu32 "-bit tag type",
-                    max_atomic_bits, int_type->data.integral.bit_count));
-            return ira->codegen->builtin_types.entry_invalid;
-        }
-        if (!is_power_of_2(int_type->data.integral.bit_count)) {
-            ir_add_error(ira, &op->base,
-                buf_sprintf("%" PRIu32 "-bit enum tag type is not a power of 2", int_type->data.integral.bit_count));
+                    max_atomic_bits, bit_count));
             return ira->codegen->builtin_types.entry_invalid;
         }
     } else if (operand_type->id == ZigTypeIdFloat) {
@@ -28371,6 +28386,8 @@ static ZigType *ir_resolve_atomic_operand_type(IrAnalyze *ira, IrInstGen *op) {
                     max_atomic_bits, (uint32_t) operand_type->data.floating.bit_count));
             return ira->codegen->builtin_types.entry_invalid;
         }
+    } else if (operand_type->id == ZigTypeIdBool) {
+        // will be treated as u8
     } else {
         Error err;
         ZigType *operand_ptr_type;
@@ -28409,11 +28426,15 @@ static IrInstGen *ir_analyze_instruction_atomic_rmw(IrAnalyze *ira, IrInstSrcAto
 
     if (operand_type->id == ZigTypeIdEnum && op != AtomicRmwOp_xchg) {
         ir_add_error(ira, &instruction->op->base,
-            buf_sprintf("@atomicRmw on enum only works with .Xchg"));
+            buf_sprintf("@atomicRmw with enum only allowed with .Xchg"));
+        return ira->codegen->invalid_inst_gen;
+    } else if (operand_type->id == ZigTypeIdBool && op != AtomicRmwOp_xchg) {
+        ir_add_error(ira, &instruction->op->base,
+            buf_sprintf("@atomicRmw with bool only allowed with .Xchg"));
         return ira->codegen->invalid_inst_gen;
     } else if (operand_type->id == ZigTypeIdFloat && op > AtomicRmwOp_sub) {
         ir_add_error(ira, &instruction->op->base,
-            buf_sprintf("@atomicRmw with float only works with .Xchg, .Add and .Sub"));
+            buf_sprintf("@atomicRmw with float only allowed with .Xchg, .Add and .Sub"));
         return ira->codegen->invalid_inst_gen;
     }
 
@@ -28434,14 +28455,103 @@ static IrInstGen *ir_analyze_instruction_atomic_rmw(IrAnalyze *ira, IrInstSrcAto
         return ira->codegen->invalid_inst_gen;
     }
 
-    if (instr_is_comptime(casted_operand) && instr_is_comptime(casted_ptr) && casted_ptr->value->data.x_ptr.mut == ConstPtrMutComptimeVar)
-    {
-        ir_add_error(ira, &instruction->base.base,
-            buf_sprintf("compiler bug: TODO compile-time execution of @atomicRmw"));
-        return ira->codegen->invalid_inst_gen;
+    // special case zero bit types
+    switch (type_has_one_possible_value(ira->codegen, operand_type)) {
+        case OnePossibleValueInvalid:
+            return ira->codegen->invalid_inst_gen;
+        case OnePossibleValueYes:
+            return ir_const_move(ira, &instruction->base.base, get_the_one_possible_value(ira->codegen, operand_type));
+        case OnePossibleValueNo:
+            break;
     }
 
-    return ir_build_atomic_rmw_gen(ira, &instruction->base.base, casted_ptr, casted_operand, op,
+    IrInst *source_inst = &instruction->base.base;
+    if (instr_is_comptime(casted_operand) && instr_is_comptime(casted_ptr) && casted_ptr->value->data.x_ptr.mut == ConstPtrMutComptimeVar) {
+        ZigValue *ptr_val = ir_resolve_const(ira, casted_ptr, UndefBad);
+        if (ptr_val == nullptr)
+            return ira->codegen->invalid_inst_gen;
+
+        ZigValue *op1_val = const_ptr_pointee(ira, ira->codegen, ptr_val, instruction->base.base.source_node);
+        if (op1_val == nullptr)
+            return ira->codegen->invalid_inst_gen;
+
+        ZigValue *op2_val = ir_resolve_const(ira, casted_operand, UndefBad);
+        if (op2_val == nullptr)
+            return ira->codegen->invalid_inst_gen;
+
+        IrInstGen *result = ir_const(ira, source_inst, operand_type);
+        copy_const_val(ira->codegen, result->value, op1_val);
+        if (op == AtomicRmwOp_xchg) {
+            copy_const_val(ira->codegen, op1_val, op2_val);
+            return result;
+        }
+
+        if (operand_type->id == ZigTypeIdPointer || operand_type->id == ZigTypeIdOptional) {
+            ir_add_error(ira, &instruction->ordering->base,
+                buf_sprintf("TODO comptime @atomicRmw with pointers other than .Xchg"));
+            return ira->codegen->invalid_inst_gen;
+        }
+
+        ErrorMsg *msg;
+        if (op == AtomicRmwOp_min || op == AtomicRmwOp_max) {
+            IrBinOp bin_op;
+            if (op == AtomicRmwOp_min)
+                // store op2 if op2 < op1
+                bin_op = IrBinOpCmpGreaterThan;
+            else
+                // store op2 if op2 > op1
+                bin_op = IrBinOpCmpLessThan;
+
+            IrInstGen *dummy_value = ir_const(ira, source_inst, operand_type);
+            msg = ir_eval_bin_op_cmp_scalar(ira, source_inst, op1_val, bin_op, op2_val, dummy_value->value);
+            if (msg != nullptr) {
+                return ira->codegen->invalid_inst_gen;
+            }
+            if (dummy_value->value->data.x_bool)
+                copy_const_val(ira->codegen, op1_val, op2_val);
+        } else {
+            IrBinOp bin_op;
+            switch (op) {
+                case AtomicRmwOp_xchg:
+                case AtomicRmwOp_max:
+                case AtomicRmwOp_min:
+                    zig_unreachable();
+                case AtomicRmwOp_add:
+                    if (operand_type->id == ZigTypeIdFloat)
+                        bin_op = IrBinOpAdd;
+                    else
+                        bin_op = IrBinOpAddWrap;
+                    break;
+                case AtomicRmwOp_sub:
+                    if (operand_type->id == ZigTypeIdFloat)
+                        bin_op = IrBinOpSub;
+                    else
+                        bin_op = IrBinOpSubWrap;
+                    break;
+                case AtomicRmwOp_and:
+                case AtomicRmwOp_nand:
+                    bin_op = IrBinOpBinAnd;
+                    break;
+                case AtomicRmwOp_or:
+                    bin_op = IrBinOpBinOr;
+                    break;
+                case AtomicRmwOp_xor:
+                    bin_op = IrBinOpBinXor;
+                    break;
+            }
+            msg = ir_eval_math_op_scalar(ira, source_inst, operand_type, op1_val, bin_op, op2_val, op1_val);
+            if (msg != nullptr) {
+                return ira->codegen->invalid_inst_gen;
+            }
+            if (op == AtomicRmwOp_nand) {
+                bigint_not(&op1_val->data.x_bigint, &op1_val->data.x_bigint,
+                        operand_type->data.integral.bit_count, operand_type->data.integral.is_signed);
+            }
+        }
+        return result;
+    }
+
+    return ir_build_atomic_rmw_gen(ira, source_inst, casted_ptr, casted_operand, op,
             ordering, operand_type);
 }
 
@@ -28511,6 +28621,16 @@ static IrInstGen *ir_analyze_instruction_atomic_store(IrAnalyze *ira, IrInstSrcA
         ir_add_error(ira, &instruction->ordering->base,
             buf_sprintf("@atomicStore atomic ordering must not be Acquire or AcqRel"));
         return ira->codegen->invalid_inst_gen;
+    }
+
+    // special case zero bit types
+    switch (type_has_one_possible_value(ira->codegen, operand_type)) {
+        case OnePossibleValueInvalid:
+            return ira->codegen->invalid_inst_gen;
+        case OnePossibleValueYes:
+            return ir_const_void(ira, &instruction->base.base);
+        case OnePossibleValueNo:
+            break;
     }
 
     if (instr_is_comptime(casted_value) && instr_is_comptime(casted_ptr)) {

@@ -14,8 +14,8 @@ pub fn Channel(comptime T: type) type {
         putters: std.atomic.Queue(PutNode),
         get_count: usize,
         put_count: usize,
-        dispatch_lock: u8, // TODO make this a bool
-        need_dispatch: u8, // TODO make this a bool
+        dispatch_lock: bool,
+        need_dispatch: bool,
 
         // simple fixed size ring buffer
         buffer_nodes: []T,
@@ -62,8 +62,8 @@ pub fn Channel(comptime T: type) type {
                 .buffer_len = 0,
                 .buffer_nodes = buffer,
                 .buffer_index = 0,
-                .dispatch_lock = 0,
-                .need_dispatch = 0,
+                .dispatch_lock = false,
+                .need_dispatch = false,
                 .getters = std.atomic.Queue(GetNode).init(),
                 .putters = std.atomic.Queue(PutNode).init(),
                 .or_null_queue = std.atomic.Queue(*std.atomic.Queue(GetNode).Node).init(),
@@ -165,15 +165,14 @@ pub fn Channel(comptime T: type) type {
 
         fn dispatch(self: *SelfChannel) void {
             // set the "need dispatch" flag
-            @atomicStore(u8, &self.need_dispatch, 1, .SeqCst);
+            @atomicStore(bool, &self.need_dispatch, true, .SeqCst);
 
             lock: while (true) {
                 // set the lock flag
-                const prev_lock = @atomicRmw(u8, &self.dispatch_lock, .Xchg, 1, .SeqCst);
-                if (prev_lock != 0) return;
+                if (@atomicRmw(bool, &self.dispatch_lock, .Xchg, true, .SeqCst)) return;
 
                 // clear the need_dispatch flag since we're about to do it
-                @atomicStore(u8, &self.need_dispatch, 0, .SeqCst);
+                @atomicStore(bool, &self.need_dispatch, false, .SeqCst);
 
                 while (true) {
                     one_dispatch: {
@@ -250,14 +249,12 @@ pub fn Channel(comptime T: type) type {
                     }
 
                     // clear need-dispatch flag
-                    const need_dispatch = @atomicRmw(u8, &self.need_dispatch, .Xchg, 0, .SeqCst);
-                    if (need_dispatch != 0) continue;
+                    if (@atomicRmw(bool, &self.need_dispatch, .Xchg, false, .SeqCst)) continue;
 
-                    const my_lock = @atomicRmw(u8, &self.dispatch_lock, .Xchg, 0, .SeqCst);
-                    assert(my_lock != 0);
+                    assert(@atomicRmw(bool, &self.dispatch_lock, .Xchg, false, .SeqCst));
 
                     // we have to check again now that we unlocked
-                    if (@atomicLoad(u8, &self.need_dispatch, .SeqCst) != 0) continue :lock;
+                    if (@atomicLoad(bool, &self.need_dispatch, .SeqCst)) continue :lock;
 
                     return;
                 }

@@ -49,6 +49,15 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:5:9: error: resume in noasync scope",
     });
 
+    cases.add("atomicrmw with bool op not .Xchg",
+        \\export fn entry() void {
+        \\    var x = false;
+        \\    _ = @atomicRmw(bool, &x, .Add, true, .SeqCst);
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:3:30: error: @atomicRmw with bool only allowed with .Xchg",
+    });
+
     cases.addTest("@TypeOf with no arguments",
         \\export fn entry() void {
         \\    _ = @TypeOf();
@@ -357,7 +366,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = @atomicRmw(f32, &x, .And, 2, .SeqCst);
         \\}
     , &[_][]const u8{
-        "tmp.zig:3:29: error: @atomicRmw with float only works with .Xchg, .Add and .Sub",
+        "tmp.zig:3:29: error: @atomicRmw with float only allowed with .Xchg, .Add and .Sub",
     });
 
     cases.add("intToPtr with misaligned address",
@@ -574,7 +583,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = @atomicRmw(E, &x, .Add, .b, .SeqCst);
         \\}
     , &[_][]const u8{
-        "tmp.zig:9:27: error: @atomicRmw on enum only works with .Xchg",
+        "tmp.zig:9:27: error: @atomicRmw with enum only allowed with .Xchg",
     });
 
     cases.add("disallow coercion from non-null-terminated pointer to null-terminated pointer",

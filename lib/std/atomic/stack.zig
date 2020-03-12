@@ -1,6 +1,5 @@
 const assert = std.debug.assert;
 const builtin = @import("builtin");
-const AtomicOrder = builtin.AtomicOrder;
 const expect = std.testing.expect;
 
 /// Many reader, many writer, non-allocating, thread-safe
@@ -11,7 +10,7 @@ pub fn Stack(comptime T: type) type {
         root: ?*Node,
         lock: @TypeOf(lock_init),
 
-        const lock_init = if (builtin.single_threaded) {} else @as(u8, 0);
+        const lock_init = if (builtin.single_threaded) {} else false;
 
         pub const Self = @This();
 
@@ -31,7 +30,7 @@ pub fn Stack(comptime T: type) type {
         /// being the first item in the stack, returns the other item that was there.
         pub fn pushFirst(self: *Self, node: *Node) ?*Node {
             node.next = null;
-            return @cmpxchgStrong(?*Node, &self.root, null, node, AtomicOrder.SeqCst, AtomicOrder.SeqCst);
+            return @cmpxchgStrong(?*Node, &self.root, null, node, .SeqCst, .SeqCst);
         }
 
         pub fn push(self: *Self, node: *Node) void {
@@ -39,8 +38,8 @@ pub fn Stack(comptime T: type) type {
                 node.next = self.root;
                 self.root = node;
             } else {
-                while (@atomicRmw(u8, &self.lock, builtin.AtomicRmwOp.Xchg, 1, AtomicOrder.SeqCst) != 0) {}
-                defer assert(@atomicRmw(u8, &self.lock, builtin.AtomicRmwOp.Xchg, 0, AtomicOrder.SeqCst) == 1);
+                while (@atomicRmw(bool, &self.lock, .Xchg, true, .SeqCst)) {}
+                defer assert(@atomicRmw(bool, &self.lock, .Xchg, false, .SeqCst));
 
                 node.next = self.root;
                 self.root = node;
@@ -53,8 +52,8 @@ pub fn Stack(comptime T: type) type {
                 self.root = root.next;
                 return root;
             } else {
-                while (@atomicRmw(u8, &self.lock, builtin.AtomicRmwOp.Xchg, 1, AtomicOrder.SeqCst) != 0) {}
-                defer assert(@atomicRmw(u8, &self.lock, builtin.AtomicRmwOp.Xchg, 0, AtomicOrder.SeqCst) == 1);
+                while (@atomicRmw(bool, &self.lock, .Xchg, true, .SeqCst)) {}
+                defer assert(@atomicRmw(bool, &self.lock, .Xchg, false, .SeqCst));
 
                 const root = self.root orelse return null;
                 self.root = root.next;
@@ -63,7 +62,7 @@ pub fn Stack(comptime T: type) type {
         }
 
         pub fn isEmpty(self: *Self) bool {
-            return @atomicLoad(?*Node, &self.root, AtomicOrder.SeqCst) == null;
+            return @atomicLoad(?*Node, &self.root, .SeqCst) == null;
         }
     };
 }
@@ -75,7 +74,7 @@ const Context = struct {
     put_sum: isize,
     get_sum: isize,
     get_count: usize,
-    puts_done: u8, // TODO make this a bool
+    puts_done: bool,
 };
 // TODO add lazy evaluated build options and then put puts_per_thread behind
 // some option such as: "AggressiveMultithreadedFuzzTest". In the AppVeyor
@@ -98,7 +97,7 @@ test "std.atomic.stack" {
         .stack = &stack,
         .put_sum = 0,
         .get_sum = 0,
-        .puts_done = 0,
+        .puts_done = false,
         .get_count = 0,
     };
 
@@ -109,7 +108,7 @@ test "std.atomic.stack" {
                 expect(startPuts(&context) == 0);
             }
         }
-        context.puts_done = 1;
+        context.puts_done = true;
         {
             var i: usize = 0;
             while (i < put_thread_count) : (i += 1) {
@@ -128,7 +127,7 @@ test "std.atomic.stack" {
 
         for (putters) |t|
             t.wait();
-        @atomicStore(u8, &context.puts_done, 1, AtomicOrder.SeqCst);
+        @atomicStore(bool, &context.puts_done, true, .SeqCst);
         for (getters) |t|
             t.wait();
     }
@@ -158,19 +157,19 @@ fn startPuts(ctx: *Context) u8 {
             .data = x,
         };
         ctx.stack.push(node);
-        _ = @atomicRmw(isize, &ctx.put_sum, builtin.AtomicRmwOp.Add, x, AtomicOrder.SeqCst);
+        _ = @atomicRmw(isize, &ctx.put_sum, .Add, x, .SeqCst);
     }
     return 0;
 }
 
 fn startGets(ctx: *Context) u8 {
     while (true) {
-        const last = @atomicLoad(u8, &ctx.puts_done, builtin.AtomicOrder.SeqCst) == 1;
+        const last = @atomicLoad(bool, &ctx.puts_done, .SeqCst);
 
         while (ctx.stack.pop()) |node| {
             std.time.sleep(1); // let the os scheduler be our fuzz
-            _ = @atomicRmw(isize, &ctx.get_sum, builtin.AtomicRmwOp.Add, node.data, builtin.AtomicOrder.SeqCst);
-            _ = @atomicRmw(usize, &ctx.get_count, builtin.AtomicRmwOp.Add, 1, builtin.AtomicOrder.SeqCst);
+            _ = @atomicRmw(isize, &ctx.get_sum, .Add, node.data, .SeqCst);
+            _ = @atomicRmw(usize, &ctx.get_count, .Add, 1, .SeqCst);
         }
 
         if (last) return 0;
