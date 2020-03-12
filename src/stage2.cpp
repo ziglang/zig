@@ -272,8 +272,6 @@ enum Error stage2_libc_parse(struct Stage2LibCInstallation *libc, const char *li
     libc->sys_include_dir_len = strlen(libc->sys_include_dir);
     libc->crt_dir = "";
     libc->crt_dir_len = strlen(libc->crt_dir);
-    libc->static_crt_dir = "";
-    libc->static_crt_dir_len = strlen(libc->static_crt_dir);
     libc->msvc_lib_dir = "";
     libc->msvc_lib_dir_len = strlen(libc->msvc_lib_dir);
     libc->kernel32_lib_dir = "";

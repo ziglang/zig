@@ -209,8 +209,6 @@ struct Stage2LibCInstallation {
     size_t sys_include_dir_len;
     const char *crt_dir;
     size_t crt_dir_len;
-    const char *static_crt_dir;
-    size_t static_crt_dir_len;
     const char *msvc_lib_dir;
     size_t msvc_lib_dir_len;
     const char *kernel32_lib_dir;

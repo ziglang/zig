@@ -17,7 +17,6 @@ pub const LibCInstallation = struct {
     include_dir: ?[:0]const u8 = null,
     sys_include_dir: ?[:0]const u8 = null,
     crt_dir: ?[:0]const u8 = null,
-    static_crt_dir: ?[:0]const u8 = null,
     msvc_lib_dir: ?[:0]const u8 = null,
     kernel32_lib_dir: ?[:0]const u8 = null,
 
@@ -98,13 +97,6 @@ pub const LibCInstallation = struct {
             try stderr.print("crt_dir may not be empty for {}\n", .{@tagName(Target.current.os.tag)});
             return error.ParseError;
         }
-        if (self.static_crt_dir == null and is_windows and is_gnu) {
-            try stderr.print("static_crt_dir may not be empty for {}-{}\n", .{
-                @tagName(Target.current.os.tag),
-                @tagName(Target.current.abi),
-            });
-            return error.ParseError;
-        }
         if (self.msvc_lib_dir == null and is_windows and !is_gnu) {
             try stderr.print("msvc_lib_dir may not be empty for {}-{}\n", .{
                 @tagName(Target.current.os.tag),
@@ -128,7 +120,6 @@ pub const LibCInstallation = struct {
         const include_dir = self.include_dir orelse "";
         const sys_include_dir = self.sys_include_dir orelse "";
         const crt_dir = self.crt_dir orelse "";
-        const static_crt_dir = self.static_crt_dir orelse "";
         const msvc_lib_dir = self.msvc_lib_dir orelse "";
         const kernel32_lib_dir = self.kernel32_lib_dir orelse "";
 
@@ -147,11 +138,6 @@ pub const LibCInstallation = struct {
             \\# Not needed when targeting MacOS.
             \\crt_dir={}
             \\
-            \\# The directory that contains `crtbegin.o`.
-            \\# On POSIX, can be found with `cc -print-file-name=crtbegin.o`.
-            \\# Only needed when targeting MinGW-w64 on Windows.
-            \\static_crt_dir={}
-            \\
             \\# The directory that contains `vcruntime.lib`.
             \\# Only needed when targeting MSVC on Windows.
             \\msvc_lib_dir={}
@@ -164,7 +150,6 @@ pub const LibCInstallation = struct {
             include_dir,
             sys_include_dir,
             crt_dir,
-            static_crt_dir,
             msvc_lib_dir,
             kernel32_lib_dir,
         });
@@ -186,7 +171,6 @@ pub const LibCInstallation = struct {
                 var batch = Batch(FindError!void, 3, .auto_async).init();
                 batch.add(&async self.findNativeIncludeDirPosix(args));
                 batch.add(&async self.findNativeCrtDirPosix(args));
-                batch.add(&async self.findNativeStaticCrtDirPosix(args));
                 try batch.wait();
             } else {
                 var sdk: *ZigWindowsSDK = undefined;
@@ -423,15 +407,6 @@ pub const LibCInstallation = struct {
         self.crt_dir = try ccPrintFileName(.{
             .allocator = args.allocator,
             .search_basename = "crt1.o",
-            .want_dirname = .only_dir,
-            .verbose = args.verbose,
-        });
-    }
-
-    fn findNativeStaticCrtDirPosix(self: *LibCInstallation, args: FindNativeOptions) FindError!void {
-        self.static_crt_dir = try ccPrintFileName(.{
-            .allocator = args.allocator,
-            .search_basename = "crtbegin.o",
             .want_dirname = .only_dir,
             .verbose = args.verbose,
         });

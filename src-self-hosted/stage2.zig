@@ -744,8 +744,6 @@ const Stage2LibCInstallation = extern struct {
     sys_include_dir_len: usize,
     crt_dir: [*:0]const u8,
     crt_dir_len: usize,
-    static_crt_dir: [*:0]const u8,
-    static_crt_dir_len: usize,
     msvc_lib_dir: [*:0]const u8,
     msvc_lib_dir_len: usize,
     kernel32_lib_dir: [*:0]const u8,
@@ -773,13 +771,6 @@ const Stage2LibCInstallation = extern struct {
             self.crt_dir = "";
             self.crt_dir_len = 0;
         }
-        if (libc.static_crt_dir) |s| {
-            self.static_crt_dir = s.ptr;
-            self.static_crt_dir_len = s.len;
-        } else {
-            self.static_crt_dir = "";
-            self.static_crt_dir_len = 0;
-        }
         if (libc.msvc_lib_dir) |s| {
             self.msvc_lib_dir = s.ptr;
             self.msvc_lib_dir_len = s.len;
@@ -806,9 +797,6 @@ const Stage2LibCInstallation = extern struct {
         }
         if (self.crt_dir_len != 0) {
             libc.crt_dir = self.crt_dir[0..self.crt_dir_len :0];
-        }
-        if (self.static_crt_dir_len != 0) {
-            libc.static_crt_dir = self.static_crt_dir[0..self.static_crt_dir_len :0];
         }
         if (self.msvc_lib_dir_len != 0) {
             libc.msvc_lib_dir = self.msvc_lib_dir[0..self.msvc_lib_dir_len :0];
