@@ -7,7 +7,6 @@ extern "C" {
 
 #include <stddef.h>
 #include <stdint.h>
-#include <endian.h>
 
 #define __NAMESER	19991006
 #define NS_PACKETSZ	512

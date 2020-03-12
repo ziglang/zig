@@ -41,6 +41,7 @@ extern "C" {
 #define PTRACE_SETSIGMASK 0x420b
 #define PTRACE_SECCOMP_GET_FILTER 0x420c
 #define PTRACE_SECCOMP_GET_METADATA 0x420d
+#define PTRACE_GET_SYSCALL_INFO 0x420e
 
 #define PT_READ_I PTRACE_PEEKTEXT
 #define PT_READ_D PTRACE_PEEKDATA
@@ -88,6 +89,11 @@ extern "C" {
 
 #define PTRACE_PEEKSIGINFO_SHARED 1
 
+#define PTRACE_SYSCALL_INFO_NONE 0
+#define PTRACE_SYSCALL_INFO_ENTRY 1
+#define PTRACE_SYSCALL_INFO_EXIT 2
+#define PTRACE_SYSCALL_INFO_SECCOMP 3
+
 #include <bits/ptrace.h>
 
 struct __ptrace_peeksiginfo_args {
@@ -99,6 +105,29 @@ struct __ptrace_peeksiginfo_args {
 struct __ptrace_seccomp_metadata {
 	uint64_t filter_off;
 	uint64_t flags;
+};
+
+struct __ptrace_syscall_info {
+	uint8_t op;
+	uint8_t __pad[3];
+	uint32_t arch;
+	uint64_t instruction_pointer;
+	uint64_t stack_pointer;
+	union {
+		struct {
+			uint64_t nr;
+			uint64_t args[6];
+		} entry;
+		struct {
+			int64_t rval;
+			uint8_t is_error;
+		} exit;
+		struct {
+			uint64_t nr;
+			uint64_t args[6];
+			uint32_t ret_data;
+		} seccomp;
+	};
 };
 
 long ptrace(int, ...);

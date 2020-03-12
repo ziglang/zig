@@ -23,10 +23,9 @@ struct elf_prstatus {
 	pid_t pr_ppid;
 	pid_t pr_pgrp;
 	pid_t pr_sid;
-	struct timeval pr_utime;
-	struct timeval pr_stime;
-	struct timeval pr_cutime;
-	struct timeval pr_cstime;
+	struct {
+		long tv_sec, tv_usec;
+	} pr_utime, pr_stime, pr_cutime, pr_cstime;
 	elf_gregset_t pr_reg;
 	int pr_fpvalid;
 };

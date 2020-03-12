@@ -23,7 +23,7 @@ int wcwidth(wchar_t wc)
 		return -1;
 	if (wc-0x20000U < 0x20000)
 		return 2;
-	if (wc == 0xe0001 || wc-0xe0020U < 0x5f || wc-0xe0100 < 0xef)
+	if (wc == 0xe0001 || wc-0xe0020U < 0x5f || wc-0xe0100U < 0xef)
 		return 0;
 	return 1;
 }

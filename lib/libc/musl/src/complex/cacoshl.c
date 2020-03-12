@@ -8,7 +8,10 @@ long double complex cacoshl(long double complex z)
 #else
 long double complex cacoshl(long double complex z)
 {
+	int zineg = signbit(cimagl(z));
+
 	z = cacosl(z);
-	return CMPLXL(-cimagl(z), creall(z));
+	if (zineg) return CMPLXL(cimagl(z), -creall(z));
+	else       return CMPLXL(-cimagl(z), creall(z));
 }
 #endif

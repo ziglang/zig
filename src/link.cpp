@@ -983,43 +983,58 @@ static bool is_musl_arch_name(const char *name) {
     return false;
 }
 
+enum MuslSrc {
+    MuslSrcAsm,
+    MuslSrcNormal,
+    MuslSrcO3,
+};
+
+static void add_musl_src_file(HashMap<Buf *, MuslSrc, buf_hash, buf_eql_buf> &source_table,
+        const char *file_path)
+{
+    Buf *src_file = buf_create_from_str(file_path);
+
+    MuslSrc src_kind;
+    if (buf_ends_with_str(src_file, ".c")) {
+        bool want_O3 = buf_starts_with_str(src_file, "musl/src/malloc/") ||
+            buf_starts_with_str(src_file, "musl/src/string/") ||
+            buf_starts_with_str(src_file, "musl/src/internal/");
+        src_kind = want_O3 ? MuslSrcO3 : MuslSrcNormal;
+    } else if (buf_ends_with_str(src_file, ".s") || buf_ends_with_str(src_file, ".S")) {
+        src_kind = MuslSrcAsm;
+    } else {
+        zig_unreachable();
+    }
+    if (ZIG_OS_SEP_CHAR != '/') {
+        buf_replace(src_file, '/', ZIG_OS_SEP_CHAR);
+    }
+    source_table.put_unique(src_file, src_kind);
+}
+
 static const char *build_musl(CodeGen *parent, Stage2ProgressNode *progress_node) {
     CodeGen *child_gen = create_child_codegen(parent, nullptr, OutTypeLib, nullptr, "c", progress_node);
 
     // When there is a src/<arch>/foo.* then it should substitute for src/foo.*
     // Even a .s file can substitute for a .c file.
 
-    enum MuslSrc {
-        MuslSrcAsm,
-        MuslSrcNormal,
-        MuslSrcO3,
-    };
-
     const char *target_musl_arch_name = target_arch_musl_name(parent->zig_target->arch);
 
     HashMap<Buf *, MuslSrc, buf_hash, buf_eql_buf> source_table = {};
-    source_table.init(1800);
+    source_table.init(2000);
 
     for (size_t i = 0; i < array_length(ZIG_MUSL_SRC_FILES); i += 1) {
-        Buf *src_file = buf_create_from_str(ZIG_MUSL_SRC_FILES[i]);
-
-        MuslSrc src_kind;
-        if (buf_ends_with_str(src_file, ".c")) {
-            assert(buf_starts_with_str(src_file, "musl/src/"));
-            bool want_O3 = buf_starts_with_str(src_file, "musl/src/malloc/") ||
-                buf_starts_with_str(src_file, "musl/src/string/") ||
-                buf_starts_with_str(src_file, "musl/src/internal/");
-            src_kind = want_O3 ? MuslSrcO3 : MuslSrcNormal;
-        } else if (buf_ends_with_str(src_file, ".s") || buf_ends_with_str(src_file, ".S")) {
-            src_kind = MuslSrcAsm;
-        } else {
-            continue;
-        }
-        if (ZIG_OS_SEP_CHAR != '/') {
-            buf_replace(src_file, '/', ZIG_OS_SEP_CHAR);
-        }
-        source_table.put_unique(src_file, src_kind);
+        add_musl_src_file(source_table, ZIG_MUSL_SRC_FILES[i]);
     }
+
+    static const char *time32_compat_arch_list[] = {"arm", "i386", "mips", "powerpc"};
+    for (size_t arch_i = 0; arch_i < array_length(time32_compat_arch_list); arch_i += 1) {
+        if (strcmp(target_musl_arch_name, time32_compat_arch_list[arch_i]) == 0) {
+            for (size_t i = 0; i < array_length(ZIG_MUSL_COMPAT_TIME32_FILES); i += 1) {
+                add_musl_src_file(source_table, ZIG_MUSL_COMPAT_TIME32_FILES[i]);
+            }
+        }
+    }
+
 
     ZigList<CFile *> c_source_files = {0};
 

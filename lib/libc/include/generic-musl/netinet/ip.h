@@ -7,7 +7,6 @@ extern "C" {
 
 #include <stdint.h>
 #include <netinet/in.h>
-#include <endian.h>
 
 struct timestamp {
 	uint8_t len;
@@ -190,6 +189,8 @@ struct ip_timestamp {
 #define	IPTTLDEC	1
 
 #define	IP_MSS		576
+
+#define __UAPI_DEF_IPHDR	0
 
 #ifdef __cplusplus
 }

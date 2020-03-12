@@ -116,5 +116,5 @@
 #define FIOGETOWN       0x8903
 #define SIOCGPGRP       0x8904
 #define SIOCATMARK      0x8905
-#define SIOCGSTAMP      0x8906
-#define SIOCGSTAMPNS    0x8907
+#define SIOCGSTAMP      _IOR(0x89, 6, char[16])
+#define SIOCGSTAMPNS    _IOR(0x89, 7, char[16])

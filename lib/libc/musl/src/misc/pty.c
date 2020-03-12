@@ -7,7 +7,9 @@
 
 int posix_openpt(int flags)
 {
-	return open("/dev/ptmx", flags);
+	int r = open("/dev/ptmx", flags);
+	if (r < 0 && errno == ENOSPC) errno = EAGAIN;
+	return r;
 }
 
 int grantpt(int fd)

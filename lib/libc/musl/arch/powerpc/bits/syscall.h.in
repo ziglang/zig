@@ -76,8 +76,8 @@
 #define __NR_setrlimit               75
 #define __NR_getrlimit               76
 #define __NR_getrusage               77
-#define __NR_gettimeofday            78
-#define __NR_settimeofday            79
+#define __NR_gettimeofday_time32            78
+#define __NR_settimeofday_time32            79
 #define __NR_getgroups               80
 #define __NR_setgroups               81
 #define __NR_select                  82
@@ -238,14 +238,14 @@
 #define __NR_epoll_wait             238
 #define __NR_remap_file_pages       239
 #define __NR_timer_create           240
-#define __NR_timer_settime          241
-#define __NR_timer_gettime          242
+#define __NR_timer_settime32          241
+#define __NR_timer_gettime32          242
 #define __NR_timer_getoverrun       243
 #define __NR_timer_delete           244
-#define __NR_clock_settime          245
-#define __NR_clock_gettime          246
-#define __NR_clock_getres           247
-#define __NR_clock_nanosleep        248
+#define __NR_clock_settime32          245
+#define __NR_clock_gettime32          246
+#define __NR_clock_getres_time32           247
+#define __NR_clock_nanosleep_time32        248
 #define __NR_swapcontext            249
 #define __NR_tgkill                 250
 #define __NR_utimes                 251
@@ -307,8 +307,8 @@
 #define __NR_sync_file_range2	308
 #define __NR_fallocate		309
 #define __NR_subpage_prot		310
-#define __NR_timerfd_settime	311
-#define __NR_timerfd_gettime	312
+#define __NR_timerfd_settime32	311
+#define __NR_timerfd_gettime32	312
 #define __NR_signalfd4		313
 #define __NR_eventfd2		314
 #define __NR_epoll_create1	315
@@ -413,4 +413,6 @@
 #define __NR_fsconfig		431
 #define __NR_fsmount		432
 #define __NR_fspick		433
+#define __NR_pidfd_open		434
+#define __NR_clone3		435
 

@@ -30,6 +30,11 @@ ssize_t mq_timedreceive(mqd_t, char *__restrict, size_t, unsigned *__restrict, c
 int mq_timedsend(mqd_t, const char *, size_t, unsigned, const struct timespec *);
 int mq_unlink(const char *);
 
+#if _REDIR_TIME64
+__REDIR(mq_timedreceive, __mq_timedreceive_time64);
+__REDIR(mq_timedsend, __mq_timedsend_time64);
+#endif
+
 #ifdef __cplusplus
 }
 #endif
