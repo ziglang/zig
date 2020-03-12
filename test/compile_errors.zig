@@ -2,15 +2,6 @@ const tests = @import("tests.zig");
 const std = @import("std");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
-    cases.add("atomicrmw with bool op not .Xchg",
-        \\export fn entry() void {
-        \\    var x = false;
-        \\    _ = @atomicRmw(bool, &x, .Add, true, .SeqCst);
-        \\}
-    , &[_][]const u8{
-        "tmp.zig:3:30: error: @atomicRmw with bool only allowed with .Xchg",
-    });
-
     cases.addTest("combination of noasync and async",
         \\export fn entry() void {
         \\    noasync {
@@ -24,6 +15,15 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:3:21: error: async call in noasync scope",
         "tmp.zig:4:9: error: suspend in noasync scope",
         "tmp.zig:5:9: error: resume in noasync scope",
+    });
+
+    cases.add("atomicrmw with bool op not .Xchg",
+        \\export fn entry() void {
+        \\    var x = false;
+        \\    _ = @atomicRmw(bool, &x, .Add, true, .SeqCst);
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:3:30: error: @atomicRmw with bool only allowed with .Xchg",
     });
 
     cases.addTest("@TypeOf with no arguments",

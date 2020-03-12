@@ -28436,14 +28436,84 @@ static IrInstGen *ir_analyze_instruction_atomic_rmw(IrAnalyze *ira, IrInstSrcAto
         return ir_const_move(ira, &instruction->base.base, get_the_one_possible_value(ira->codegen, operand_type));
     }
 
-    if (instr_is_comptime(casted_operand) && instr_is_comptime(casted_ptr) && casted_ptr->value->data.x_ptr.mut == ConstPtrMutComptimeVar)
-    {
-        ir_add_error(ira, &instruction->base.base,
-            buf_sprintf("compiler bug: TODO compile-time execution of @atomicRmw"));
-        return ira->codegen->invalid_inst_gen;
+    IrInst *source_inst = &instruction->base.base;
+    if (instr_is_comptime(casted_operand) && instr_is_comptime(casted_ptr) && casted_ptr->value->data.x_ptr.mut == ConstPtrMutComptimeVar) {
+        ZigValue *ptr_val = ir_resolve_const(ira, casted_ptr, UndefBad);
+        if (ptr_val == nullptr)
+            return ira->codegen->invalid_inst_gen;
+
+        ZigValue *op1_val = const_ptr_pointee(ira, ira->codegen, ptr_val, instruction->base.base.source_node);
+        if (op1_val == nullptr)
+            return ira->codegen->invalid_inst_gen;
+
+        ZigValue *op2_val = ir_resolve_const(ira, casted_operand, UndefBad);
+        if (op2_val == nullptr)
+            return ira->codegen->invalid_inst_gen;
+
+        if (op == AtomicRmwOp_xchg) {
+            ir_analyze_store_ptr(ira, source_inst, casted_ptr, casted_operand, false);
+            return ir_const_move(ira, source_inst, op1_val);
+        }
+
+        if (operand_type->id == ZigTypeIdPointer || operand_type->id == ZigTypeIdOptional) {
+            ir_add_error(ira, &instruction->ordering->base,
+                buf_sprintf("TODO comptime @atomicRmw with pointers other than .Xchg"));
+            return ira->codegen->invalid_inst_gen;
+        }
+
+        if (op == AtomicRmwOp_min || op == AtomicRmwOp_max) {
+            IrBinOp bin_op;
+            if (op == AtomicRmwOp_min)
+                // store op2 if op2 < op1
+                bin_op = IrBinOpCmpGreaterThan;
+            else
+                // store op2 if op2 > op1
+                bin_op = IrBinOpCmpLessThan;
+
+            IrInstGen *dummy_value = ir_const(ira, source_inst, operand_type);
+            ir_eval_bin_op_cmp_scalar(ira, source_inst, op1_val, bin_op, op2_val, dummy_value->value);
+            if (dummy_value->value->data.x_bool)
+                ir_analyze_store_ptr(ira, source_inst, casted_ptr, casted_operand, false);
+        } else {
+            IrBinOp bin_op;
+            switch (op) {
+                case AtomicRmwOp_xchg:
+                case AtomicRmwOp_max:
+                case AtomicRmwOp_min:
+                    zig_unreachable();
+                case AtomicRmwOp_add:
+                    if (operand_type->id == ZigTypeIdFloat)
+                        bin_op = IrBinOpAdd;
+                    else
+                        bin_op = IrBinOpAddWrap;
+                    break;
+                case AtomicRmwOp_sub:
+                    if (operand_type->id == ZigTypeIdFloat)
+                        bin_op = IrBinOpSub;
+                    else
+                        bin_op = IrBinOpSubWrap;
+                    break;
+                case AtomicRmwOp_and:
+                case AtomicRmwOp_nand:
+                    bin_op = IrBinOpBinAnd;
+                    break;
+                case AtomicRmwOp_or:
+                    bin_op = IrBinOpBinOr;
+                    break;
+                case AtomicRmwOp_xor:
+                    bin_op = IrBinOpBinXor;
+                    break;
+            }
+            ir_eval_math_op_scalar(ira, source_inst, operand_type, op1_val, bin_op, op2_val, op1_val);
+            if (op == AtomicRmwOp_nand) {
+                bigint_not(&op1_val->data.x_bigint, &op1_val->data.x_bigint,
+                        operand_type->data.integral.bit_count, operand_type->data.integral.is_signed);
+            }
+        }
+        return ir_const_move(ira, source_inst, op1_val);
     }
 
-    return ir_build_atomic_rmw_gen(ira, &instruction->base.base, casted_ptr, casted_operand, op,
+    return ir_build_atomic_rmw_gen(ira, source_inst, casted_ptr, casted_operand, op,
             ordering, operand_type);
 }
 

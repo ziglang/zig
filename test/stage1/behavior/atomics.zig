@@ -149,6 +149,7 @@ fn testAtomicStore() void {
 }
 
 test "atomicrmw with floats" {
+    comptime testAtomicRmwFloat();
     if (builtin.arch == .aarch64 or builtin.arch == .arm or builtin.arch == .riscv64)
         return error.SkipZigTest;
     testAtomicRmwFloat();
@@ -164,6 +165,34 @@ fn testAtomicRmwFloat() void {
     _ = @atomicRmw(f32, &x, .Sub, 2, .SeqCst);
     expect(x == 4);
 }
+
+test "atomicrmw with ints" {
+    testAtomicRmwFloat();
+    comptime testAtomicRmwFloat();
+}
+
+fn testAtomicRmwInt() void {
+    var x: u8 = 1;
+    _ = @atomicRmw(u8, &x, .Xchg, 3, .SeqCst);
+    expect(x == 3);
+    _ = @atomicRmw(u8, &x, .Add, 3, .SeqCst);
+    expect(x == 6);
+    _ = @atomicRmw(u8, &x, .Sub, 1, .SeqCst);
+    expect(x == 5);
+    _ = @atomicRmw(u8, &x, .And, 4, .SeqCst);
+    expect(x == 4);
+    _ = @atomicRmw(u8, &x, .Nand, 4, .SeqCst);
+    expect(x == 0xfb);
+    _ = @atomicRmw(u8, &x, .Or, 6, .SeqCst);
+    expect(x == 0xff);
+    _ = @atomicRmw(u8, &x, .Xor, 2, .SeqCst);
+    expect(x == 0xfd);
+    _ = @atomicRmw(u8, &x, .Max, 1, .SeqCst);
+    expect(x == 0xfd);
+    _ = @atomicRmw(u8, &x, .Min, 1, .SeqCst);
+    expect(x == 1);
+}
+
 
 test "atomics with different types" {
     testAtomicsWithType(bool, true, false);
