@@ -149,10 +149,10 @@ fn testAtomicStore() void {
 }
 
 test "atomicrmw with floats" {
-    comptime testAtomicRmwFloat();
     if (builtin.arch == .aarch64 or builtin.arch == .arm or builtin.arch == .riscv64)
         return error.SkipZigTest;
     testAtomicRmwFloat();
+    comptime testAtomicRmwFloat();
 }
 
 fn testAtomicRmwFloat() void {
@@ -167,8 +167,10 @@ fn testAtomicRmwFloat() void {
 }
 
 test "atomicrmw with ints" {
-    testAtomicRmwFloat();
-    comptime testAtomicRmwFloat();
+    if (builtin.arch == .mipsel)
+        return error.SkipZigTest;
+    testAtomicRmwInt();
+    comptime testAtomicRmwInt();
 }
 
 fn testAtomicRmwInt() void {
