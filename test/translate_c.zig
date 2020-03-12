@@ -3,6 +3,17 @@ const std = @import("std");
 const CrossTarget = std.zig.CrossTarget;
 
 pub fn addCases(cases: *tests.TranslateCContext) void {
+    cases.add("c booleans are just ints",
+        \\#define FOO(x) ((x >= 0) + (x >= 0))
+        \\#define BAR 1 && 2 > 4
+    , &[_][]const u8{
+        \\pub inline fn FOO(x: var) @TypeOf(@boolToInt(x >= 0) + @boolToInt(x >= 0)) {
+        \\    return @boolToInt(x >= 0) + @boolToInt(x >= 0);
+        \\}
+    ,
+        \\pub const BAR = (1 != 0) and (2 > 4);
+    });
+
     cases.add("struct with aligned fields",
         \\struct foo {
         \\    __attribute__((aligned(1))) short bar;
