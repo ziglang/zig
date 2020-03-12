@@ -38,8 +38,8 @@ pub fn Stack(comptime T: type) type {
                 node.next = self.root;
                 self.root = node;
             } else {
-                while (@atomicRmw(bool, &self.lock, .Xchg, true, .SeqCst) != false) {}
-                defer assert(@atomicRmw(bool, &self.lock, .Xchg, false, .SeqCst) == true);
+                while (@atomicRmw(bool, &self.lock, .Xchg, true, .SeqCst)) {}
+                defer assert(@atomicRmw(bool, &self.lock, .Xchg, false, .SeqCst));
 
                 node.next = self.root;
                 self.root = node;
@@ -52,8 +52,8 @@ pub fn Stack(comptime T: type) type {
                 self.root = root.next;
                 return root;
             } else {
-                while (@atomicRmw(bool, &self.lock, .Xchg, true, .SeqCst) != false) {}
-                defer assert(@atomicRmw(bool, &self.lock, .Xchg, false, .SeqCst) == true);
+                while (@atomicRmw(bool, &self.lock, .Xchg, true, .SeqCst)) {}
+                defer assert(@atomicRmw(bool, &self.lock, .Xchg, false, .SeqCst));
 
                 const root = self.root orelse return null;
                 self.root = root.next;
@@ -164,7 +164,7 @@ fn startPuts(ctx: *Context) u8 {
 
 fn startGets(ctx: *Context) u8 {
     while (true) {
-        const last = @atomicLoad(bool, &ctx.puts_done, .SeqCst) == true;
+        const last = @atomicLoad(bool, &ctx.puts_done, .SeqCst);
 
         while (ctx.stack.pop()) |node| {
             std.time.sleep(1); // let the os scheduler be our fuzz

@@ -169,8 +169,7 @@ pub fn Channel(comptime T: type) type {
 
             lock: while (true) {
                 // set the lock flag
-                const prev_lock = @atomicRmw(bool, &self.dispatch_lock, .Xchg, true, .SeqCst);
-                if (prev_lock != 0) return;
+                if (@atomicRmw(bool, &self.dispatch_lock, .Xchg, true, .SeqCst)) return;
 
                 // clear the need_dispatch flag since we're about to do it
                 @atomicStore(bool, &self.need_dispatch, false, .SeqCst);
@@ -250,11 +249,9 @@ pub fn Channel(comptime T: type) type {
                     }
 
                     // clear need-dispatch flag
-                    const need_dispatch = @atomicRmw(bool, &self.need_dispatch, .Xchg, false, .SeqCst);
-                    if (need_dispatch) continue;
+                    if (@atomicRmw(bool, &self.need_dispatch, .Xchg, false, .SeqCst)) continue;
 
-                    const my_lock = @atomicRmw(bool, &self.dispatch_lock, .Xchg, false, .SeqCst);
-                    assert(my_lock);
+                    assert(@atomicRmw(bool, &self.dispatch_lock, .Xchg, false, .SeqCst));
 
                     // we have to check again now that we unlocked
                     if (@atomicLoad(bool, &self.need_dispatch, .SeqCst)) continue :lock;

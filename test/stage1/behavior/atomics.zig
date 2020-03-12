@@ -149,6 +149,7 @@ fn testAtomicStore() void {
 }
 
 test "atomicrmw with floats" {
+    // TODO https://github.com/ziglang/zig/issues/4457
     if (builtin.arch == .aarch64 or builtin.arch == .arm or builtin.arch == .riscv64)
         return error.SkipZigTest;
     testAtomicRmwFloat();
@@ -167,8 +168,6 @@ fn testAtomicRmwFloat() void {
 }
 
 test "atomicrmw with ints" {
-    if (builtin.arch == .mipsel)
-        return error.SkipZigTest;
     testAtomicRmwInt();
     comptime testAtomicRmwInt();
 }
@@ -189,6 +188,9 @@ fn testAtomicRmwInt() void {
     expect(x == 0xff);
     _ = @atomicRmw(u8, &x, .Xor, 2, .SeqCst);
     expect(x == 0xfd);
+
+    // TODO https://github.com/ziglang/zig/issues/4724
+    if (builtin.arch == .mipsel) return;
     _ = @atomicRmw(u8, &x, .Max, 1, .SeqCst);
     expect(x == 0xfd);
     _ = @atomicRmw(u8, &x, .Min, 1, .SeqCst);

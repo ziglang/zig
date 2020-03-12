@@ -25215,21 +25215,25 @@ static IrInstGen *ir_analyze_instruction_cmpxchg(IrAnalyze *ira, IrInstSrcCmpxch
         if (ptr_val == nullptr)
             return ira->codegen->invalid_inst_gen;
 
-        ZigValue *op1_val = const_ptr_pointee(ira, ira->codegen, ptr_val, instruction->base.base.source_node);
-        if (op1_val == nullptr)
+        ZigValue *stored_val = const_ptr_pointee(ira, ira->codegen, ptr_val, instruction->base.base.source_node);
+        if (stored_val == nullptr)
             return ira->codegen->invalid_inst_gen;
 
-        ZigValue *op2_val = ir_resolve_const(ira, casted_cmp_value, UndefBad);
-        if (op2_val == nullptr)
+        ZigValue *expected_val = ir_resolve_const(ira, casted_cmp_value, UndefBad);
+        if (expected_val == nullptr)
             return ira->codegen->invalid_inst_gen;
 
-        bool eql = const_values_equal(ira->codegen, op1_val, op2_val);
+        ZigValue *new_val = ir_resolve_const(ira, casted_new_value, UndefBad);
+        if (new_val == nullptr)
+            return ira->codegen->invalid_inst_gen;
+
+        bool eql = const_values_equal(ira->codegen, stored_val, expected_val);
         IrInstGen *result = ir_const(ira, &instruction->base.base, result_type);
         if (eql) {
-            ir_analyze_store_ptr(ira, &instruction->base.base, casted_ptr, casted_new_value, false);
+            copy_const_val(ira->codegen, stored_val, new_val);
             set_optional_value_to_null(result->value);
         } else {
-            set_optional_payload(result->value, op1_val);
+            set_optional_payload(result->value, stored_val);
         }
         return result;
     }
