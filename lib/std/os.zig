@@ -439,11 +439,13 @@ pub fn pread(fd: fd_t, buf: []u8, offset: u64) PReadError!usize {
 }
 
 pub const TruncateError = error{
-    /// The file descriptor is not open for writing.
-    NotFile,
+    FileTooBig,
+    InputOutput,
+    CannotTruncate,
+    FileBusy,
 } || UnexpectedError;
 
-pub fn truncate(fd: fd_t, length: u64) TruncateError!void {
+pub fn ftruncate(fd: fd_t, length: u64) TruncateError!void {
     if (std.Target.current.os.tag == .windows) {
         try windows.SetFilePointerEx_BEGIN(fd, length);
 
@@ -454,18 +456,22 @@ pub fn truncate(fd: fd_t, length: u64) TruncateError!void {
     }
 
     while (true) {
-        const rc = if (builtin.link_libc) blk: {
+        const rc = if (builtin.link_libc)
             if (std.Target.current.os.tag == .linux)
-                break :blk system.ftruncate64(fd, @bitCast(off_t, length))
+                system.ftruncate64(fd, @bitCast(off_t, length))
             else
-                break :blk system.ftruncate(fd, @bitCast(off_t, length));
-        } else
+                system.ftruncate(fd, @bitCast(off_t, length))
+        else
             system.ftruncate(fd, length);
 
         switch (errno(rc)) {
             0 => return,
             EINTR => continue,
-            EBADF, EINVAL => return error.NotFile,
+            EFBIG => return error.FileTooBig,
+            EIO => return error.InputOutput,
+            EPERM => return error.CannotTruncate,
+            ETXTBSY => return error.FileBusy,
+            EBADF, EINVAL => unreachable,
             else => |err| return unexpectedErrno(err),
         }
     }

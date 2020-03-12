@@ -104,7 +104,7 @@ pub const File = struct {
     /// Shrinks or expands the file.
     /// The file offset after this call is undefined.
     pub fn setEndPos(self: File, length: u64) SetEndPosError!void {
-        try os.truncate(self.handle, length);
+        try os.ftruncate(self.handle, length);
     }
 
     pub const SeekError = os.SeekError;
