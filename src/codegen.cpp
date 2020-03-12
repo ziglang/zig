@@ -5259,8 +5259,13 @@ static LLVMValueRef ir_render_cmpxchg(CodeGen *g, IrExecutableGen *executable, I
         // operand needs widening and truncating
         ptr_val = LLVMBuildBitCast(g->builder, ptr_val,
             LLVMPointerType(actual_abi_type, 0), "");
-        cmp_val = LLVMBuildZExt(g->builder, cmp_val, actual_abi_type, "");
-        new_val = LLVMBuildZExt(g->builder, new_val, actual_abi_type, "");
+        if (operand_type->data.integral.is_signed) {
+            cmp_val = LLVMBuildSExt(g->builder, cmp_val, actual_abi_type, "");
+            new_val = LLVMBuildSExt(g->builder, new_val, actual_abi_type, "");
+        } else {
+            cmp_val = LLVMBuildZExt(g->builder, cmp_val, actual_abi_type, "");
+            new_val = LLVMBuildZExt(g->builder, new_val, actual_abi_type, "");
+        }
     }
 
     LLVMAtomicOrdering success_order = to_LLVMAtomicOrdering(instruction->success_order);
@@ -5877,7 +5882,12 @@ static LLVMValueRef ir_render_atomic_rmw(CodeGen *g, IrExecutableGen *executable
         // operand needs widening and truncating
         LLVMValueRef casted_ptr = LLVMBuildBitCast(g->builder, ptr,
             LLVMPointerType(actual_abi_type, 0), "");
-        LLVMValueRef casted_operand = LLVMBuildZExt(g->builder, operand, actual_abi_type, "");
+        LLVMValueRef casted_operand;
+        if (operand_type->data.integral.is_signed) {
+            casted_operand = LLVMBuildSExt(g->builder, operand, actual_abi_type, "");
+        } else {
+            casted_operand = LLVMBuildZExt(g->builder, operand, actual_abi_type, "");
+        }
         LLVMValueRef uncasted_result = ZigLLVMBuildAtomicRMW(g->builder, op, casted_ptr, casted_operand, ordering,
                 g->is_single_threaded);
         return LLVMBuildTrunc(g->builder, uncasted_result, get_llvm_type(g, operand_type), "");
@@ -5929,7 +5939,11 @@ static LLVMValueRef ir_render_atomic_store(CodeGen *g, IrExecutableGen *executab
         // operand needs widening
         ptr = LLVMBuildBitCast(g->builder, ptr,
                 LLVMPointerType(actual_abi_type, 0), "");
-        value = LLVMBuildZExt(g->builder, value, actual_abi_type, "");
+        if (instruction->value->value->type->data.integral.is_signed) {
+            value = LLVMBuildSExt(g->builder, value, actual_abi_type, "");
+        } else {
+            value = LLVMBuildZExt(g->builder, value, actual_abi_type, "");
+        }
     }
     LLVMValueRef store_inst = gen_store(g, value, ptr, instruction->ptr->value->type);
     LLVMSetOrdering(store_inst, ordering);

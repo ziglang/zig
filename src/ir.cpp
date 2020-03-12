@@ -25197,10 +25197,16 @@ static IrInstGen *ir_analyze_instruction_cmpxchg(IrAnalyze *ira, IrInstSrcCmpxch
     ZigType *result_type = get_optional_type(ira->codegen, operand_type);
 
     // special case zero bit types
-    if (type_has_one_possible_value(ira->codegen, operand_type) == OnePossibleValueYes) {
-        IrInstGen *result = ir_const(ira, &instruction->base.base, result_type);
-        set_optional_value_to_null(result->value);
-        return result;
+    switch (type_has_one_possible_value(ira->codegen, operand_type)) {
+        case OnePossibleValueInvalid:
+            return ira->codegen->invalid_inst_gen;
+        case OnePossibleValueYes: {
+            IrInstGen *result = ir_const(ira, &instruction->base.base, result_type);
+            set_optional_value_to_null(result->value);
+            return result;
+        }
+        case OnePossibleValueNo:
+            break;
     }
 
     if (instr_is_comptime(casted_ptr) && casted_ptr->value->data.x_ptr.mut != ConstPtrMutRuntimeVar &&
@@ -28432,8 +28438,13 @@ static IrInstGen *ir_analyze_instruction_atomic_rmw(IrAnalyze *ira, IrInstSrcAto
     }
 
     // special case zero bit types
-    if (type_has_one_possible_value(ira->codegen, operand_type) == OnePossibleValueYes) {
-        return ir_const_move(ira, &instruction->base.base, get_the_one_possible_value(ira->codegen, operand_type));
+    switch (type_has_one_possible_value(ira->codegen, operand_type)) {
+        case OnePossibleValueInvalid:
+            return ira->codegen->invalid_inst_gen;
+        case OnePossibleValueYes:
+            return ir_const_move(ira, &instruction->base.base, get_the_one_possible_value(ira->codegen, operand_type));
+        case OnePossibleValueNo:
+            break;
     }
 
     IrInst *source_inst = &instruction->base.base;
@@ -28450,9 +28461,11 @@ static IrInstGen *ir_analyze_instruction_atomic_rmw(IrAnalyze *ira, IrInstSrcAto
         if (op2_val == nullptr)
             return ira->codegen->invalid_inst_gen;
 
+        IrInstGen *result = ir_const(ira, source_inst, operand_type);
+        copy_const_val(ira->codegen, result->value, op1_val);
         if (op == AtomicRmwOp_xchg) {
-            ir_analyze_store_ptr(ira, source_inst, casted_ptr, casted_operand, false);
-            return ir_const_move(ira, source_inst, op1_val);
+            copy_const_val(ira->codegen, op1_val, op2_val);
+            return result;
         }
 
         if (operand_type->id == ZigTypeIdPointer || operand_type->id == ZigTypeIdOptional) {
@@ -28461,6 +28474,7 @@ static IrInstGen *ir_analyze_instruction_atomic_rmw(IrAnalyze *ira, IrInstSrcAto
             return ira->codegen->invalid_inst_gen;
         }
 
+        ErrorMsg *msg;
         if (op == AtomicRmwOp_min || op == AtomicRmwOp_max) {
             IrBinOp bin_op;
             if (op == AtomicRmwOp_min)
@@ -28471,9 +28485,12 @@ static IrInstGen *ir_analyze_instruction_atomic_rmw(IrAnalyze *ira, IrInstSrcAto
                 bin_op = IrBinOpCmpLessThan;
 
             IrInstGen *dummy_value = ir_const(ira, source_inst, operand_type);
-            ir_eval_bin_op_cmp_scalar(ira, source_inst, op1_val, bin_op, op2_val, dummy_value->value);
+            msg = ir_eval_bin_op_cmp_scalar(ira, source_inst, op1_val, bin_op, op2_val, dummy_value->value);
+            if (msg != nullptr) {
+                return ira->codegen->invalid_inst_gen;
+            }
             if (dummy_value->value->data.x_bool)
-                ir_analyze_store_ptr(ira, source_inst, casted_ptr, casted_operand, false);
+                copy_const_val(ira->codegen, op1_val, op2_val);
         } else {
             IrBinOp bin_op;
             switch (op) {
@@ -28504,13 +28521,16 @@ static IrInstGen *ir_analyze_instruction_atomic_rmw(IrAnalyze *ira, IrInstSrcAto
                     bin_op = IrBinOpBinXor;
                     break;
             }
-            ir_eval_math_op_scalar(ira, source_inst, operand_type, op1_val, bin_op, op2_val, op1_val);
+            msg = ir_eval_math_op_scalar(ira, source_inst, operand_type, op1_val, bin_op, op2_val, op1_val);
+            if (msg != nullptr) {
+                return ira->codegen->invalid_inst_gen;
+            }
             if (op == AtomicRmwOp_nand) {
                 bigint_not(&op1_val->data.x_bigint, &op1_val->data.x_bigint,
                         operand_type->data.integral.bit_count, operand_type->data.integral.is_signed);
             }
         }
-        return ir_const_move(ira, source_inst, op1_val);
+        return result;
     }
 
     return ir_build_atomic_rmw_gen(ira, source_inst, casted_ptr, casted_operand, op,
@@ -28586,8 +28606,13 @@ static IrInstGen *ir_analyze_instruction_atomic_store(IrAnalyze *ira, IrInstSrcA
     }
 
     // special case zero bit types
-    if (type_has_one_possible_value(ira->codegen, operand_type) == OnePossibleValueYes) {
-        return ir_const_void(ira, &instruction->base.base);
+    switch (type_has_one_possible_value(ira->codegen, operand_type)) {
+        case OnePossibleValueInvalid:
+            return ira->codegen->invalid_inst_gen;
+        case OnePossibleValueYes:
+            return ir_const_void(ira, &instruction->base.base);
+        case OnePossibleValueNo:
+            break;
     }
 
     if (instr_is_comptime(casted_value) && instr_is_comptime(casted_ptr)) {
