@@ -96,7 +96,6 @@ struct fdpic_dummy_loadmap {
 #define DYN_CNT 32
 
 typedef void (*stage2_func)(unsigned char *, size_t *);
-typedef void (*stage3_func)(size_t *);
 
 hidden void *__dlsym(void *restrict, const char *restrict, void *restrict);
 

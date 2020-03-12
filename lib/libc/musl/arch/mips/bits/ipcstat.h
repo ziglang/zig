@@ -1,1 +1,1 @@
-#define IPC_STAT 2
+#define IPC_STAT 0x102

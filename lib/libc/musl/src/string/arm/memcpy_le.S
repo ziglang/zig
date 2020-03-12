@@ -1,4 +1,4 @@
-#if !__ARMEB__ && !__thumb__
+#if !__ARMEB__
 
 /*
  * Copyright (C) 2008 The Android Open Source Project
@@ -40,8 +40,9 @@
  * This file has been modified from the original for use in musl libc.
  * The main changes are: addition of .type memcpy,%function to make the
  * code safely callable from thumb mode, adjusting the return
- * instructions to be compatible with pre-thumb ARM cpus, and removal
- * of prefetch code that is not compatible with older cpus.
+ * instructions to be compatible with pre-thumb ARM cpus, removal of
+ * prefetch code that is not compatible with older cpus and support for
+ * building as thumb 2.
  */
 
 .syntax unified
@@ -241,7 +242,8 @@ non_congruent:
 	beq     2f
 	ldr     r5, [r1], #4
 	sub     r2, r2, #4
-	orr     r4, r3, r5,             lsl lr
+	mov     r4, r5,                 lsl lr
+	orr     r4, r4, r3
 	mov     r3, r5,                 lsr r12
 	str     r4, [r0], #4
 	cmp     r2, #4
@@ -348,7 +350,8 @@ less_than_thirtytwo:
 
 1:      ldr     r5, [r1], #4
 	sub     r2, r2, #4
-	orr     r4, r3, r5,             lsl lr
+	mov     r4, r5,                 lsl lr
+	orr     r4, r4, r3
 	mov     r3,     r5,                     lsr r12
 	str     r4, [r0], #4
 	cmp     r2, #4

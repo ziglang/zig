@@ -1,7 +1,7 @@
 musl as a whole is licensed under the following standard MIT license:
 
 ----------------------------------------------------------------------
-Copyright © 2005-2019 Rich Felker, et al.
+Copyright © 2005-2020 Rich Felker, et al.
 
 Permission is hereby granted, free of charge, to any person obtaining
 a copy of this software and associated documentation files (the
@@ -26,6 +26,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 Authors/contributors include:
 
 A. Wilcox
+Ada Worcester
 Alex Dowad
 Alex Suykov
 Alexander Monakov
@@ -65,7 +66,6 @@ Jeremy Huntwork
 Jo-Philipp Wich
 Joakim Sindholt
 John Spencer
-Josiah Worcester
 Julien Ramseier
 Justin Cormack
 Kaarle Ritvanen

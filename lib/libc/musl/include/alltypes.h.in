@@ -1,3 +1,7 @@
+#define __LITTLE_ENDIAN 1234
+#define __BIG_ENDIAN 4321
+#define __USE_TIME_BITS64 1
+
 TYPEDEF unsigned _Addr size_t;
 TYPEDEF unsigned _Addr uintptr_t;
 TYPEDEF _Addr ptrdiff_t;
@@ -5,6 +9,8 @@ TYPEDEF _Addr ssize_t;
 TYPEDEF _Addr intptr_t;
 TYPEDEF _Addr regoff_t;
 TYPEDEF _Reg register_t;
+TYPEDEF _Int64 time_t;
+TYPEDEF _Int64 suseconds_t;
 
 TYPEDEF signed char     int8_t;
 TYPEDEF signed short    int16_t;
@@ -35,7 +41,7 @@ TYPEDEF void * timer_t;
 TYPEDEF int clockid_t;
 TYPEDEF long clock_t;
 STRUCT timeval { time_t tv_sec; suseconds_t tv_usec; };
-STRUCT timespec { time_t tv_sec; long tv_nsec; };
+STRUCT timespec { time_t tv_sec; int :8*(sizeof(time_t)-sizeof(long))*(__BYTE_ORDER==4321); long tv_nsec; int :8*(sizeof(time_t)-sizeof(long))*(__BYTE_ORDER!=4321); };
 
 TYPEDEF int pid_t;
 TYPEDEF unsigned id_t;
@@ -60,6 +66,9 @@ TYPEDEF struct { unsigned __attr[2]; } pthread_rwlockattr_t;
 STRUCT _IO_FILE { char __x; };
 TYPEDEF struct _IO_FILE FILE;
 
+TYPEDEF __builtin_va_list va_list;
+TYPEDEF __builtin_va_list __isoc_va_list;
+
 TYPEDEF struct __mbstate_t { unsigned __opaque1, __opaque2; } mbstate_t;
 
 TYPEDEF struct __locale_struct * locale_t;
@@ -70,6 +79,14 @@ STRUCT iovec { void *iov_base; size_t iov_len; };
 
 TYPEDEF unsigned socklen_t;
 TYPEDEF unsigned short sa_family_t;
+
+TYPEDEF struct { union { int __i[sizeof(long)==8?14:9]; volatile int __vi[sizeof(long)==8?14:9]; unsigned long __s[sizeof(long)==8?7:9]; } __u; } pthread_attr_t;
+TYPEDEF struct { union { int __i[sizeof(long)==8?10:6]; volatile int __vi[sizeof(long)==8?10:6]; volatile void *volatile __p[sizeof(long)==8?5:6]; } __u; } pthread_mutex_t;
+TYPEDEF struct { union { int __i[sizeof(long)==8?10:6]; volatile int __vi[sizeof(long)==8?10:6]; volatile void *volatile __p[sizeof(long)==8?5:6]; } __u; } mtx_t;
+TYPEDEF struct { union { int __i[12]; volatile int __vi[12]; void *__p[12*sizeof(int)/sizeof(void*)]; } __u; } pthread_cond_t;
+TYPEDEF struct { union { int __i[12]; volatile int __vi[12]; void *__p[12*sizeof(int)/sizeof(void*)]; } __u; } cnd_t;
+TYPEDEF struct { union { int __i[sizeof(long)==8?14:8]; volatile int __vi[sizeof(long)==8?14:8]; void *__p[sizeof(long)==8?7:8]; } __u; } pthread_rwlock_t;
+TYPEDEF struct { union { int __i[sizeof(long)==8?8:5]; volatile int __vi[sizeof(long)==8?8:5]; void *__p[sizeof(long)==8?4:5]; } __u; } pthread_barrier_t;
 
 #undef _Addr
 #undef _Int64

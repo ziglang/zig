@@ -6,9 +6,10 @@
 sigsetjmp:
 __sigsetjmp:
 	tst r1,r1
-	beq setjmp
+	bne 1f
+	b setjmp
 
-	str lr,[r0,#256]
+1:	str lr,[r0,#256]
 	str r4,[r0,#260+8]
 	mov r4,r0
 

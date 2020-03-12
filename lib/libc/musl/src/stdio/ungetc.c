@@ -16,5 +16,5 @@ int ungetc(int c, FILE *f)
 	f->flags &= ~F_EOF;
 
 	FUNLOCK(f);
-	return c;
+	return (unsigned char)c;
 }

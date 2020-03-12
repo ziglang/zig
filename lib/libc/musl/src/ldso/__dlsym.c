@@ -8,3 +8,7 @@ static void *stub_dlsym(void *restrict p, const char *restrict s, void *restrict
 }
 
 weak_alias(stub_dlsym, __dlsym);
+
+#if _REDIR_TIME64
+weak_alias(stub_dlsym, __dlsym_redir_time64);
+#endif

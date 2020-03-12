@@ -8,6 +8,8 @@ atanf:
 	jb 1f
 	fld1
 	fpatan
+	fstps 4(%esp)
+	flds 4(%esp)
 	ret
 		# subnormal x, return x with underflow
 1:	fld %st(0)

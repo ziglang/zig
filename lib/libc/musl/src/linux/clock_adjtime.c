@@ -94,21 +94,56 @@ int clock_adjtime (clockid_t clock_id, struct timex *utx)
 		return __syscall_ret(-ENOTSUP);
 #endif
 	if (sizeof(time_t) > sizeof(long)) {
-		union {
-			struct timex utx;
-			struct ktimex ktx;
-		} u = { *utx };
-		u.ktx.time_sec = utx->time.tv_sec;
-		u.ktx.time_usec = utx->time.tv_usec;
+		struct ktimex ktx = {
+			.modes = utx->modes,
+			.offset = utx->offset,
+			.freq = utx->freq,
+			.maxerror = utx->maxerror,
+			.esterror = utx->esterror,
+			.status = utx->status,
+			.constant = utx->constant,
+			.precision = utx->precision,
+			.tolerance = utx->tolerance,
+			.time_sec = utx->time.tv_sec,
+			.time_usec = utx->time.tv_usec,
+			.tick = utx->tick,
+			.ppsfreq = utx->ppsfreq,
+			.jitter = utx->jitter,
+			.shift = utx->shift,
+			.stabil = utx->stabil,
+			.jitcnt = utx->jitcnt,
+			.calcnt = utx->calcnt,
+			.errcnt = utx->errcnt,
+			.stbcnt = utx->stbcnt,
+			.tai = utx->tai,
+		};
 #ifdef SYS_adjtimex
-		if (clock_id==CLOCK_REALTIME) r = __syscall(SYS_adjtimex, &u);
+		if (clock_id==CLOCK_REALTIME) r = __syscall(SYS_adjtimex, &ktx);
 		else
 #endif
-		r = __syscall(SYS_clock_adjtime, clock_id, &u);
+		r = __syscall(SYS_clock_adjtime, clock_id, &ktx);
 		if (r>=0) {
-			*utx = u.utx;
-			utx->time.tv_sec = u.ktx.time_sec;
-			utx->time.tv_usec = u.ktx.time_usec;
+			utx->modes = ktx.modes;
+			utx->offset = ktx.offset;
+			utx->freq = ktx.freq;
+			utx->maxerror = ktx.maxerror;
+			utx->esterror = ktx.esterror;
+			utx->status = ktx.status;
+			utx->constant = ktx.constant;
+			utx->precision = ktx.precision;
+			utx->tolerance = ktx.tolerance;
+			utx->time.tv_sec = ktx.time_sec;
+			utx->time.tv_usec = ktx.time_usec;
+			utx->tick = ktx.tick;
+			utx->ppsfreq = ktx.ppsfreq;
+			utx->jitter = ktx.jitter;
+			utx->shift = ktx.shift;
+			utx->stabil = ktx.stabil;
+			utx->jitcnt = ktx.jitcnt;
+			utx->calcnt = ktx.calcnt;
+			utx->errcnt = ktx.errcnt;
+			utx->stbcnt = ktx.stbcnt;
+			utx->tai = ktx.tai;
 		}
 		return __syscall_ret(r);
 	}

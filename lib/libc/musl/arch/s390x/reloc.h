@@ -1,5 +1,3 @@
-#include <endian.h>
-
 #define LDSO_ARCH "s390x"
 
 #define REL_SYMBOLIC    R_390_64

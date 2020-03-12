@@ -1,3 +1,3 @@
-#if __ARMEB__ || __thumb__
+#if __ARMEB__
 #include "../memcpy.c"
 #endif

@@ -87,29 +87,17 @@ float complex catanf(float complex z)
 	x = crealf(z);
 	y = cimagf(z);
 
-	if ((x == 0.0f) && (y > 1.0f))
-		goto ovrf;
-
 	x2 = x * x;
 	a = 1.0f - x2 - (y * y);
-	if (a == 0.0f)
-		goto ovrf;
 
 	t = 0.5f * atan2f(2.0f * x, a);
 	w = _redupif(t);
 
 	t = y - 1.0f;
 	a = x2 + (t * t);
-	if (a == 0.0f)
-		goto ovrf;
 
 	t = y + 1.0f;
 	a = (x2 + (t * t))/a;
-	w = w + (0.25f * logf (a)) * I;
-	return w;
-
-ovrf:
-	// FIXME
-	w = MAXNUMF + MAXNUMF * I;
+	w = CMPLXF(w, 0.25f * logf(a));
 	return w;
 }
