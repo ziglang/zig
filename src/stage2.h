@@ -293,6 +293,7 @@ struct ZigTarget {
     const char *llvm_cpu_features;
     const char *cpu_builtin_str;
     const char *cache_hash;
+    size_t cache_hash_len;
     const char *os_builtin_str;
     const char *dynamic_linker;
 };

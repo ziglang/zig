@@ -8664,7 +8664,7 @@ static Error define_builtin_compile_vars(CodeGen *g) {
     cache_int(&cache_hash, g->zig_target->os);
     cache_int(&cache_hash, g->zig_target->abi);
     if (g->zig_target->cache_hash != nullptr) {
-        cache_str(&cache_hash, g->zig_target->cache_hash);
+        cache_mem(&cache_hash, g->zig_target->cache_hash, g->zig_target->cache_hash_len);
     }
     if (g->zig_target->glibc_or_darwin_version != nullptr) {
         cache_int(&cache_hash, g->zig_target->glibc_or_darwin_version->major);
@@ -10309,7 +10309,7 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     cache_int(ch, g->zig_target->os);
     cache_int(ch, g->zig_target->abi);
     if (g->zig_target->cache_hash != nullptr) {
-        cache_str(ch, g->zig_target->cache_hash);
+        cache_mem(ch, g->zig_target->cache_hash, g->zig_target->cache_hash_len);
     }
     if (g->zig_target->glibc_or_darwin_version != nullptr) {
         cache_int(ch, g->zig_target->glibc_or_darwin_version->major);

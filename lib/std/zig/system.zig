@@ -325,22 +325,19 @@ pub const NativeTargetInfo = struct {
         // native CPU architecture as being different than the current target), we use this:
         const cpu_arch = cross_target.getCpuArch();
 
-        const cpu = switch (cross_target.cpu_model) {
+        var cpu = switch (cross_target.cpu_model) {
             .native => detectNativeCpuAndFeatures(cpu_arch, os, cross_target),
-            .baseline => baselineCpuAndFeatures(cpu_arch, cross_target),
+            .baseline => Target.Cpu.baseline(cpu_arch),
             .determined_by_cpu_arch => if (cross_target.cpu_arch == null)
                 detectNativeCpuAndFeatures(cpu_arch, os, cross_target)
             else
-                baselineCpuAndFeatures(cpu_arch, cross_target),
-            .explicit => |model| blk: {
-                var adjusted_model = model.toCpu(cpu_arch);
-                cross_target.updateCpuFeatures(&adjusted_model.features);
-                break :blk adjusted_model;
-            },
+                Target.Cpu.baseline(cpu_arch),
+            .explicit => |model| model.toCpu(cpu_arch),
         } orelse backup_cpu_detection: {
             cpu_detection_unimplemented = true;
-            break :backup_cpu_detection baselineCpuAndFeatures(cpu_arch, cross_target);
+            break :backup_cpu_detection Target.Cpu.baseline(cpu_arch);
         };
+        cross_target.updateCpuFeatures(&cpu.features);
 
         var target = try detectAbiAndDynamicLinker(allocator, cpu, os, cross_target);
         target.cpu_detection_unimplemented = cpu_detection_unimplemented;
@@ -883,11 +880,5 @@ pub const NativeTargetInfo = struct {
                 return null;
             },
         }
-    }
-
-    fn baselineCpuAndFeatures(cpu_arch: Target.Cpu.Arch, cross_target: CrossTarget) Target.Cpu {
-        var adjusted_baseline = Target.Cpu.baseline(cpu_arch);
-        cross_target.updateCpuFeatures(&adjusted_baseline.features);
-        return adjusted_baseline;
     }
 };

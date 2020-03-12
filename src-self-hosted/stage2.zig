@@ -679,44 +679,42 @@ fn stage2TargetParse(
     mcpu_oz: ?[*:0]const u8,
     dynamic_linker_oz: ?[*:0]const u8,
 ) !void {
-    const target: CrossTarget = if (zig_triple_oz) |zig_triple_z| blk: {
-        const zig_triple = mem.toSliceConst(u8, zig_triple_z);
-        const mcpu = if (mcpu_oz) |mcpu_z| mem.toSliceConst(u8, mcpu_z) else null;
-        const dynamic_linker = if (dynamic_linker_oz) |dl_z| mem.toSliceConst(u8, dl_z) else null;
-        var diags: CrossTarget.ParseOptions.Diagnostics = .{};
-        break :blk CrossTarget.parse(.{
-            .arch_os_abi = zig_triple,
-            .cpu_features = mcpu,
-            .dynamic_linker = dynamic_linker,
-            .diagnostics = &diags,
-        }) catch |err| switch (err) {
-            error.UnknownCpuModel => {
-                std.debug.warn("Unknown CPU: '{}'\nAvailable CPUs for architecture '{}':\n", .{
-                    diags.cpu_name.?,
-                    @tagName(diags.arch.?),
-                });
-                for (diags.arch.?.allCpuModels()) |cpu| {
-                    std.debug.warn(" {}\n", .{cpu.name});
-                }
-                process.exit(1);
-            },
-            error.UnknownCpuFeature => {
-                std.debug.warn(
-                    \\Unknown CPU feature: '{}'
-                    \\Available CPU features for architecture '{}':
-                    \\
-                , .{
-                    diags.unknown_feature_name,
-                    @tagName(diags.arch.?),
-                });
-                for (diags.arch.?.allFeaturesList()) |feature| {
-                    std.debug.warn(" {}: {}\n", .{ feature.name, feature.description });
-                }
-                process.exit(1);
-            },
-            else => |e| return e,
-        };
-    } else .{};
+    const zig_triple = if (zig_triple_oz) |zig_triple_z| mem.toSliceConst(u8, zig_triple_z) else "native";
+    const mcpu = if (mcpu_oz) |mcpu_z| mem.toSliceConst(u8, mcpu_z) else null;
+    const dynamic_linker = if (dynamic_linker_oz) |dl_z| mem.toSliceConst(u8, dl_z) else null;
+    var diags: CrossTarget.ParseOptions.Diagnostics = .{};
+    const target: CrossTarget = CrossTarget.parse(.{
+        .arch_os_abi = zig_triple,
+        .cpu_features = mcpu,
+        .dynamic_linker = dynamic_linker,
+        .diagnostics = &diags,
+    }) catch |err| switch (err) {
+        error.UnknownCpuModel => {
+            std.debug.warn("Unknown CPU: '{}'\nAvailable CPUs for architecture '{}':\n", .{
+                diags.cpu_name.?,
+                @tagName(diags.arch.?),
+            });
+            for (diags.arch.?.allCpuModels()) |cpu| {
+                std.debug.warn(" {}\n", .{cpu.name});
+            }
+            process.exit(1);
+        },
+        error.UnknownCpuFeature => {
+            std.debug.warn(
+                \\Unknown CPU feature: '{}'
+                \\Available CPU features for architecture '{}':
+                \\
+            , .{
+                diags.unknown_feature_name,
+                @tagName(diags.arch.?),
+            });
+            for (diags.arch.?.allFeaturesList()) |feature| {
+                std.debug.warn(" {}: {}\n", .{ feature.name, feature.description });
+            }
+            process.exit(1);
+        },
+        else => |e| return e,
+    };
 
     try stage1_target.fromTarget(target);
 }
@@ -902,6 +900,7 @@ const Stage2Target = extern struct {
     llvm_cpu_features: ?[*:0]const u8,
     cpu_builtin_str: ?[*:0]const u8,
     cache_hash: ?[*:0]const u8,
+    cache_hash_len: usize,
     os_builtin_str: ?[*:0]const u8,
 
     dynamic_linker: ?[*:0]const u8,
@@ -1131,6 +1130,7 @@ const Stage2Target = extern struct {
             }
         };
 
+        const cache_hash_slice = cache_hash.toOwnedSlice();
         self.* = .{
             .arch = @enumToInt(target.cpu.arch) + 1, // skip over ZigLLVM_UnknownArch
             .vendor = 0,
@@ -1140,7 +1140,8 @@ const Stage2Target = extern struct {
             .llvm_cpu_features = llvm_features_buffer.toOwnedSlice().ptr,
             .cpu_builtin_str = cpu_builtin_str_buffer.toOwnedSlice().ptr,
             .os_builtin_str = os_builtin_str_buffer.toOwnedSlice().ptr,
-            .cache_hash = cache_hash.toOwnedSlice().ptr,
+            .cache_hash = cache_hash_slice.ptr,
+            .cache_hash_len = cache_hash_slice.len,
             .is_native = cross_target.isNative(),
             .glibc_or_darwin_version = glibc_or_darwin_version,
             .dynamic_linker = dynamic_linker,
