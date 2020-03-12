@@ -626,16 +626,24 @@ fn detectNativeCpuWithLLVM(
 }
 
 // ABI warning
-export fn stage2_cmd_targets(zig_triple: [*:0]const u8) c_int {
-    cmdTargets(zig_triple) catch |err| {
+export fn stage2_cmd_targets(
+    zig_triple: ?[*:0]const u8,
+    mcpu: ?[*:0]const u8,
+    dynamic_linker: ?[*:0]const u8,
+) c_int {
+    cmdTargets(zig_triple, mcpu, dynamic_linker) catch |err| {
         std.debug.warn("unable to list targets: {}\n", .{@errorName(err)});
         return -1;
     };
     return 0;
 }
 
-fn cmdTargets(zig_triple: [*:0]const u8) !void {
-    var cross_target = try CrossTarget.parse(.{ .arch_os_abi = mem.toSliceConst(u8, zig_triple) });
+fn cmdTargets(
+    zig_triple_oz: ?[*:0]const u8,
+    mcpu_oz: ?[*:0]const u8,
+    dynamic_linker_oz: ?[*:0]const u8,
+) !void {
+    const cross_target = try stage2CrossTarget(zig_triple_oz, mcpu_oz, dynamic_linker_oz);
     var dynamic_linker: ?[*:0]u8 = null;
     const target = try crossTargetToTarget(cross_target, &dynamic_linker);
     return @import("print_targets.zig").cmdTargets(
@@ -673,12 +681,11 @@ export fn stage2_target_parse(
     return .None;
 }
 
-fn stage2TargetParse(
-    stage1_target: *Stage2Target,
+fn stage2CrossTarget(
     zig_triple_oz: ?[*:0]const u8,
     mcpu_oz: ?[*:0]const u8,
     dynamic_linker_oz: ?[*:0]const u8,
-) !void {
+) !CrossTarget {
     const zig_triple = if (zig_triple_oz) |zig_triple_z| mem.toSliceConst(u8, zig_triple_z) else "native";
     const mcpu = if (mcpu_oz) |mcpu_z| mem.toSliceConst(u8, mcpu_z) else null;
     const dynamic_linker = if (dynamic_linker_oz) |dl_z| mem.toSliceConst(u8, dl_z) else null;
@@ -716,6 +723,16 @@ fn stage2TargetParse(
         else => |e| return e,
     };
 
+    return target;
+}
+
+fn stage2TargetParse(
+    stage1_target: *Stage2Target,
+    zig_triple_oz: ?[*:0]const u8,
+    mcpu_oz: ?[*:0]const u8,
+    dynamic_linker_oz: ?[*:0]const u8,
+) !void {
+    const target = try stage2CrossTarget(zig_triple_oz, mcpu_oz, dynamic_linker_oz);
     try stage1_target.fromTarget(target);
 }
 
@@ -904,22 +921,6 @@ const Stage2Target = extern struct {
     os_builtin_str: ?[*:0]const u8,
 
     dynamic_linker: ?[*:0]const u8,
-
-    fn toTarget(in_target: Stage2Target) CrossTarget {
-        if (in_target.is_native) return .{};
-
-        const in_arch = in_target.arch - 1; // skip over ZigLLVM_UnknownArch
-        const in_os = in_target.os;
-        const in_abi = in_target.abi;
-
-        return .{
-            .Cross = .{
-                .cpu = Target.Cpu.baseline(enumInt(Target.Cpu.Arch, in_arch)),
-                .os = Target.Os.defaultVersionRange(enumInt(Target.Os.Tag, in_os)),
-                .abi = enumInt(Target.Abi, in_abi),
-            },
-        };
-    }
 
     fn fromTarget(self: *Stage2Target, cross_target: CrossTarget) !void {
         const allocator = std.heap.c_allocator;

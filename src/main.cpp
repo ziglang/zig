@@ -1391,7 +1391,7 @@ static int main0(int argc, char **argv) {
         return main_exit(root_progress_node, EXIT_SUCCESS);
     }
     case CmdTargets:
-        return stage2_cmd_targets(buf_ptr(&zig_triple_buf));
+        return stage2_cmd_targets(target_string, mcpu, dynamic_linker);
     case CmdNone:
         return print_full_usage(arg0, stderr, EXIT_FAILURE);
     }

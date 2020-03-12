@@ -260,7 +260,7 @@ Error stage2_target_parse(struct ZigTarget *target, const char *zig_triple, cons
     return ErrorNone;
 }
 
-int stage2_cmd_targets(const char *zig_triple) {
+int stage2_cmd_targets(const char *zig_triple, const char *mcpu, const char *dynamic_linker) {
     const char *msg = "stage0 called stage2_cmd_targets";
     stage2_panic(msg, strlen(msg));
 }
