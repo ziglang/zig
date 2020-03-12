@@ -5375,7 +5375,7 @@ fn parseCPrimaryExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8, 
             const first_tok = it.list.at(0);
             const token = try appendToken(c, .CharLiteral, try zigifyEscapeSequences(c, source[tok.start..tok.end], source[first_tok.start..first_tok.end], source_loc));
             const node = try c.a().create(ast.Node.CharLiteral);
-            node.* = ast.Node.CharLiteral{
+            node.* = .{
                 .token = token,
             };
             return &node.base;
@@ -5384,7 +5384,7 @@ fn parseCPrimaryExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8, 
             const first_tok = it.list.at(0);
             const token = try appendToken(c, .StringLiteral, try zigifyEscapeSequences(c, source[tok.start..tok.end], source[first_tok.start..first_tok.end], source_loc));
             const node = try c.a().create(ast.Node.StringLiteral);
-            node.* = ast.Node.StringLiteral{
+            node.* = .{
                 .token = token,
             };
             return &node.base;
@@ -5793,12 +5793,13 @@ fn parseCSuffixOpExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8,
                 return node;
             },
         }
+        const cast_fn = if (bool_op) macroIntToBool else macroBoolToInt;
+        const lhs_node = try cast_fn(c, node);
         const rhs_node = try parseCPrefixOpExpr(c, it, source, source_loc, scope);
         const op_node = try c.a().create(ast.Node.InfixOp);
-        const cast_fn = if (bool_op) macroIntToBool else macroBoolToInt;
         op_node.* = .{
             .op_token = op_token,
-            .lhs = try cast_fn(c, node),
+            .lhs = lhs_node,
             .op = op_id,
             .rhs = try cast_fn(c, rhs_node),
         };

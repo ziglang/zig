@@ -3,6 +3,14 @@ const std = @import("std");
 const CrossTarget = std.zig.CrossTarget;
 
 pub fn addCases(cases: *tests.TranslateCContext) void {
+    cases.add("correct semicolon after infixop",
+        \\#define __ferror_unlocked_body(_fp) (((_fp)->_flags & _IO_ERR_SEEN) != 0)
+    , &[_][]const u8{
+        \\pub inline fn __ferror_unlocked_body(_fp: var) @TypeOf(((_fp.*._flags) & _IO_ERR_SEEN) != 0) {
+        \\    return ((_fp.*._flags) & _IO_ERR_SEEN) != 0;
+        \\}
+    });
+
     cases.add("c booleans are just ints",
         \\#define FOO(x) ((x >= 0) + (x >= 0))
         \\#define BAR 1 && 2 > 4
