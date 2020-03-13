@@ -1,5 +1,3 @@
-#include <endian.h>
-
 #if __BYTE_ORDER == __LITTLE_ENDIAN
 #define ENDIAN_SUFFIX "le"
 #else

@@ -178,6 +178,7 @@ pub const FILESTAT_SET_MTIM: fstflags_t = 0x0004;
 pub const FILESTAT_SET_MTIM_NOW: fstflags_t = 0x0008;
 
 pub const inode_t = u64;
+pub const ino_t = inode_t;
 
 pub const linkcount_t = u32;
 

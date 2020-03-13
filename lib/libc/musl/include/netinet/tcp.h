@@ -38,6 +38,7 @@
 #define TCP_FASTOPEN_NO_COOKIE 34
 #define TCP_ZEROCOPY_RECEIVE   35
 #define TCP_INQ          36
+#define TCP_TX_DELAY     37
 
 #define TCP_CM_INQ TCP_INQ
 
@@ -97,7 +98,6 @@ enum {
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <stdint.h>
-#include <endian.h>
 
 typedef uint32_t tcp_seq;
 
@@ -234,6 +234,8 @@ struct tcp_info {
 	uint64_t tcpi_bytes_retrans;
 	uint32_t tcpi_dsack_dups;
 	uint32_t tcpi_reord_seen;
+	uint32_t tcpi_rcv_ooopack;
+	uint32_t tcpi_snd_wnd;
 };
 
 #define TCP_MD5SIG_MAXKEYLEN    80

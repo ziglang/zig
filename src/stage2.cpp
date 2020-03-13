@@ -251,13 +251,16 @@ Error stage2_target_parse(struct ZigTarget *target, const char *zig_triple, cons
         target->cache_hash = "\n\n";
     }
 
+    target->cache_hash_len = strlen(target->cache_hash);
+
     if (dynamic_linker != nullptr) {
         target->dynamic_linker = dynamic_linker;
     }
+
     return ErrorNone;
 }
 
-int stage2_cmd_targets(const char *zig_triple) {
+int stage2_cmd_targets(const char *zig_triple, const char *mcpu, const char *dynamic_linker) {
     const char *msg = "stage0 called stage2_cmd_targets";
     stage2_panic(msg, strlen(msg));
 }
@@ -269,8 +272,6 @@ enum Error stage2_libc_parse(struct Stage2LibCInstallation *libc, const char *li
     libc->sys_include_dir_len = strlen(libc->sys_include_dir);
     libc->crt_dir = "";
     libc->crt_dir_len = strlen(libc->crt_dir);
-    libc->static_crt_dir = "";
-    libc->static_crt_dir_len = strlen(libc->static_crt_dir);
     libc->msvc_lib_dir = "";
     libc->msvc_lib_dir_len = strlen(libc->msvc_lib_dir);
     libc->kernel32_lib_dir = "";

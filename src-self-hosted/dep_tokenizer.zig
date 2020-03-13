@@ -306,12 +306,12 @@ pub const Tokenizer = struct {
 
     fn errorPosition(self: *Tokenizer, position: usize, bytes: []const u8, comptime fmt: []const u8, args: var) Error {
         var buffer = try std.Buffer.initSize(&self.arena.allocator, 0);
-        std.fmt.format(&buffer, anyerror, std.Buffer.append, fmt, args) catch {};
+        try buffer.outStream().print(fmt, args);
         try buffer.append(" '");
         var out = makeOutput(std.Buffer.append, &buffer);
         try printCharValues(&out, bytes);
         try buffer.append("'");
-        std.fmt.format(&buffer, anyerror, std.Buffer.append, " at position {}", .{position - (bytes.len - 1)}) catch {};
+        try buffer.outStream().print(" at position {}", .{position - (bytes.len - 1)});
         self.error_text = buffer.toSlice();
         return Error.InvalidInput;
     }
@@ -319,10 +319,9 @@ pub const Tokenizer = struct {
     fn errorIllegalChar(self: *Tokenizer, position: usize, char: u8, comptime fmt: []const u8, args: var) Error {
         var buffer = try std.Buffer.initSize(&self.arena.allocator, 0);
         try buffer.append("illegal char ");
-        var out = makeOutput(std.Buffer.append, &buffer);
-        try printUnderstandableChar(&out, char);
-        std.fmt.format(&buffer, anyerror, std.Buffer.append, " at position {}", .{position}) catch {};
-        if (fmt.len != 0) std.fmt.format(&buffer, anyerror, std.Buffer.append, ": " ++ fmt, args) catch {};
+        try printUnderstandableChar(&buffer, char);
+        try buffer.outStream().print(" at position {}", .{position});
+        if (fmt.len != 0) try buffer.outStream().print(": " ++ fmt, args);
         self.error_text = buffer.toSlice();
         return Error.InvalidInput;
     }
@@ -996,14 +995,13 @@ fn printCharValues(out: var, bytes: []const u8) !void {
     }
 }
 
-fn printUnderstandableChar(out: var, char: u8) !void {
+fn printUnderstandableChar(buffer: *std.Buffer, char: u8) !void {
     if (!std.ascii.isPrint(char) or char == ' ') {
-        const output = @typeInfo(@TypeOf(out)).Pointer.child.output;
-        std.fmt.format(out.context, anyerror, output, "\\x{X:2}", .{char}) catch {};
+        try buffer.outStream().print("\\x{X:2}", .{char});
     } else {
-        try out.write("'");
-        try out.write(&[_]u8{printable_char_tab[char]});
-        try out.write("'");
+        try buffer.append("'");
+        try buffer.appendByte(printable_char_tab[char]);
+        try buffer.append("'");
     }
 }
 

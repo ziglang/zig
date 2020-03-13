@@ -1,38 +1,39 @@
 const uefi = @import("std").os.uefi;
 const Event = uefi.Event;
 const Guid = uefi.Guid;
+const Status = uefi.Status;
 
 /// Character input devices, e.g. Keyboard
 pub const SimpleTextInputExProtocol = extern struct {
-    _reset: extern fn (*const SimpleTextInputExProtocol, bool) usize,
-    _read_key_stroke_ex: extern fn (*const SimpleTextInputExProtocol, *KeyData) usize,
+    _reset: extern fn (*const SimpleTextInputExProtocol, bool) Status,
+    _read_key_stroke_ex: extern fn (*const SimpleTextInputExProtocol, *KeyData) Status,
     wait_for_key_ex: Event,
-    _set_state: extern fn (*const SimpleTextInputExProtocol, *const u8) usize,
-    _register_key_notify: extern fn (*const SimpleTextInputExProtocol, *const KeyData, extern fn (*const KeyData) usize, **c_void) usize,
-    _unregister_key_notify: extern fn (*const SimpleTextInputExProtocol, *const c_void) usize,
+    _set_state: extern fn (*const SimpleTextInputExProtocol, *const u8) Status,
+    _register_key_notify: extern fn (*const SimpleTextInputExProtocol, *const KeyData, extern fn (*const KeyData) usize, **c_void) Status,
+    _unregister_key_notify: extern fn (*const SimpleTextInputExProtocol, *const c_void) Status,
 
     /// Resets the input device hardware.
-    pub fn reset(self: *const SimpleTextInputExProtocol, verify: bool) usize {
+    pub fn reset(self: *const SimpleTextInputExProtocol, verify: bool) Status {
         return self._reset(self, verify);
     }
 
     /// Reads the next keystroke from the input device.
-    pub fn readKeyStrokeEx(self: *const SimpleTextInputExProtocol, key_data: *KeyData) usize {
+    pub fn readKeyStrokeEx(self: *const SimpleTextInputExProtocol, key_data: *KeyData) Status {
         return self._read_key_stroke_ex(self, key_data);
     }
 
     /// Set certain state for the input device.
-    pub fn setState(self: *const SimpleTextInputExProtocol, state: *const u8) usize {
+    pub fn setState(self: *const SimpleTextInputExProtocol, state: *const u8) Status {
         return self._set_state(self, state);
     }
 
     /// Register a notification function for a particular keystroke for the input device.
-    pub fn registerKeyNotify(self: *const SimpleTextInputExProtocol, key_data: *const KeyData, notify: extern fn (*const KeyData) usize, handle: **c_void) usize {
+    pub fn registerKeyNotify(self: *const SimpleTextInputExProtocol, key_data: *const KeyData, notify: extern fn (*const KeyData) usize, handle: **c_void) Status {
         return self._register_key_notify(self, key_data, notify, handle);
     }
 
     /// Remove the notification that was previously registered.
-    pub fn unregisterKeyNotify(self: *const SimpleTextInputExProtocol, handle: *const c_void) usize {
+    pub fn unregisterKeyNotify(self: *const SimpleTextInputExProtocol, handle: *const c_void) Status {
         return self._unregister_key_notify(self, handle);
     }
 

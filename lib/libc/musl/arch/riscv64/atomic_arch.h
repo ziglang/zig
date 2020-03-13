@@ -15,7 +15,7 @@ static inline int a_cas(volatile int *p, int t, int s)
 		"	bnez %1, 1b\n"
 		"1:"
 		: "=&r"(old), "=&r"(tmp)
-		: "r"(p), "r"(t), "r"(s)
+		: "r"(p), "r"((long)t), "r"((long)s)
 		: "memory");
 	return old;
 }

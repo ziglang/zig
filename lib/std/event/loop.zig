@@ -809,6 +809,28 @@ pub const Loop = struct {
         return req_node.data.msg.readv.result;
     }
 
+    /// Performs an async `os.pread` using a separate thread.
+    /// `fd` must block and not return EAGAIN.
+    pub fn pread(self: *Loop, fd: os.fd_t, buf: []u8, offset: u64) os.PReadError!usize {
+        var req_node = Request.Node{
+            .data = .{
+                .msg = .{
+                    .pread = .{
+                        .fd = fd,
+                        .buf = buf,
+                        .offset = offset,
+                        .result = undefined,
+                    },
+                },
+                .finish = .{ .TickNode = .{ .data = @frame() } },
+            },
+        };
+        suspend {
+            self.posixFsRequest(&req_node);
+        }
+        return req_node.data.msg.pread.result;
+    }
+
     /// Performs an async `os.preadv` using a separate thread.
     /// `fd` must block and not return EAGAIN.
     pub fn preadv(self: *Loop, fd: os.fd_t, iov: []const os.iovec, offset: u64) os.ReadError!usize {
@@ -893,6 +915,35 @@ pub const Loop = struct {
             self.posixFsRequest(&req_node);
         }
         return req_node.data.msg.pwritev.result;
+    }
+
+    /// Performs an async `os.faccessatZ` using a separate thread.
+    /// `fd` must block and not return EAGAIN.
+    pub fn faccessatZ(
+        self: *Loop,
+        dirfd: os.fd_t,
+        path_z: [*:0]const u8,
+        mode: u32,
+        flags: u32,
+    ) os.AccessError!void {
+        var req_node = Request.Node{
+            .data = .{
+                .msg = .{
+                    .faccessat = .{
+                        .dirfd = dirfd,
+                        .path = path_z,
+                        .mode = mode,
+                        .flags = flags,
+                        .result = undefined,
+                    },
+                },
+                .finish = .{ .TickNode = .{ .data = @frame() } },
+            },
+        };
+        suspend {
+            self.posixFsRequest(&req_node);
+        }
+        return req_node.data.msg.faccessat.result;
     }
 
     fn workerRun(self: *Loop) void {
@@ -1038,6 +1089,9 @@ pub const Loop = struct {
                     .pwritev => |*msg| {
                         msg.result = noasync os.pwritev(msg.fd, msg.iov, msg.offset);
                     },
+                    .pread => |*msg| {
+                        msg.result = noasync os.pread(msg.fd, msg.buf, msg.offset);
+                    },
                     .preadv => |*msg| {
                         msg.result = noasync os.preadv(msg.fd, msg.iov, msg.offset);
                     },
@@ -1046,6 +1100,9 @@ pub const Loop = struct {
                     },
                     .openat => |*msg| {
                         msg.result = noasync os.openatC(msg.fd, msg.path, msg.flags, msg.mode);
+                    },
+                    .faccessat => |*msg| {
+                        msg.result = noasync os.faccessatZ(msg.dirfd, msg.path, msg.mode, msg.flags);
                     },
                     .close => |*msg| noasync os.close(msg.fd),
                 }
@@ -1120,10 +1177,12 @@ pub const Loop = struct {
             write: Write,
             writev: WriteV,
             pwritev: PWriteV,
+            pread: PRead,
             preadv: PReadV,
             open: Open,
             openat: OpenAt,
             close: Close,
+            faccessat: FAccessAt,
 
             /// special - means the fs thread should exit
             end,
@@ -1161,6 +1220,15 @@ pub const Loop = struct {
                 pub const Error = os.PWriteError;
             };
 
+            pub const PRead = struct {
+                fd: os.fd_t,
+                buf: []u8,
+                offset: usize,
+                result: Error!usize,
+
+                pub const Error = os.PReadError;
+            };
+
             pub const PReadV = struct {
                 fd: os.fd_t,
                 iov: []const os.iovec,
@@ -1191,6 +1259,16 @@ pub const Loop = struct {
 
             pub const Close = struct {
                 fd: os.fd_t,
+            };
+
+            pub const FAccessAt = struct {
+                dirfd: os.fd_t,
+                path: [*:0]const u8,
+                mode: u32,
+                flags: u32,
+                result: Error!void,
+
+                pub const Error = os.AccessError;
             };
         };
     };

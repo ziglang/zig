@@ -106,6 +106,7 @@ static ScopeExpr *find_expr_scope(Scope *scope) {
             case ScopeIdDecls:
             case ScopeIdFnDef:
             case ScopeIdCompTime:
+            case ScopeIdNoAsync:
             case ScopeIdVarDecl:
             case ScopeIdCImport:
             case ScopeIdSuspend:
@@ -223,6 +224,12 @@ ScopeFnDef *create_fndef_scope(CodeGen *g, AstNode *node, Scope *parent, ZigFn *
 Scope *create_comptime_scope(CodeGen *g, AstNode *node, Scope *parent) {
     ScopeCompTime *scope = heap::c_allocator.create<ScopeCompTime>();
     init_scope(g, &scope->base, ScopeIdCompTime, node, parent);
+    return &scope->base;
+}
+
+Scope *create_noasync_scope(CodeGen *g, AstNode *node, Scope *parent) {
+    ScopeNoAsync *scope = heap::c_allocator.create<ScopeNoAsync>();
+    init_scope(g, &scope->base, ScopeIdNoAsync, node, parent);
     return &scope->base;
 }
 
@@ -1955,29 +1962,14 @@ static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_sc
         return g->builtin_types.entry_invalid;
     }
 
-    switch (specified_return_type->id) {
-        case ZigTypeIdInvalid:
-            zig_unreachable();
-
-        case ZigTypeIdUndefined:
-        case ZigTypeIdNull:
-            add_node_error(g, fn_proto->return_type,
-                buf_sprintf("return type '%s' not allowed", buf_ptr(&specified_return_type->name)));
-            return g->builtin_types.entry_invalid;
-
-        case ZigTypeIdOpaque:
-        {
-            ErrorMsg* msg = add_node_error(g, fn_proto->return_type,
-                buf_sprintf("opaque return type '%s' not allowed", buf_ptr(&specified_return_type->name)));
-            Tld *tld = find_decl(g, &fn_entry->fndef_scope->base, &specified_return_type->name);
-            if (tld != nullptr) {
-                add_error_note(g, msg, tld->source_node, buf_sprintf("declared here"));
-            }
-            return g->builtin_types.entry_invalid;
+    if(!is_valid_return_type(specified_return_type)){
+        ErrorMsg* msg = add_node_error(g, fn_proto->return_type,
+            buf_sprintf("%s return type '%s' not allowed", type_id_name(specified_return_type->id), buf_ptr(&specified_return_type->name)));
+        Tld *tld = find_decl(g, &fn_entry->fndef_scope->base, &specified_return_type->name);
+        if (tld != nullptr) {
+            add_error_note(g, msg, tld->source_node, buf_sprintf("type declared here"));
         }
-
-        default:
-            break;
+        return g->builtin_types.entry_invalid;
     }
 
     if (fn_proto->auto_err_set) {
@@ -2047,6 +2039,19 @@ static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_sc
     }
 
     return get_fn_type(g, &fn_type_id);
+}
+
+bool is_valid_return_type(ZigType* type) {
+    switch (type->id) {
+        case ZigTypeIdInvalid:
+        case ZigTypeIdUndefined:
+        case ZigTypeIdNull:
+        case ZigTypeIdOpaque:
+            return false;
+        default:
+            return true;
+    }
+    zig_unreachable();
 }
 
 bool type_is_invalid(ZigType *type_entry) {
@@ -2893,7 +2898,7 @@ static Error resolve_struct_zero_bits(CodeGen *g, ZigType *struct_type) {
             return ErrorSemanticAnalyzeFail;
         }
         if (field_is_opaque_type) {
-            add_node_error(g, field_node->data.struct_field.type,
+            add_node_error(g, field_node,
                 buf_sprintf("opaque types have unknown size and therefore cannot be directly embedded in structs"));
             struct_type->data.structure.resolve_status = ResolveStatusInvalid;
             return ErrorSemanticAnalyzeFail;
@@ -3185,7 +3190,7 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
                 return ErrorSemanticAnalyzeFail;
             }
             if (field_is_opaque_type) {
-                add_node_error(g, field_node->data.struct_field.type,
+                add_node_error(g, field_node,
                     buf_create_from_str(
                         "opaque types have unknown size and therefore cannot be directly embedded in unions"));
                 union_type->data.unionation.resolve_status = ResolveStatusInvalid;
@@ -3755,6 +3760,7 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
         case NodeTypeCompTime:
             preview_comptime_decl(g, node, decls_scope);
             break;
+        case NodeTypeNoAsync:
         case NodeTypeParamDecl:
         case NodeTypeReturnExpr:
         case NodeTypeDefer:
@@ -5789,6 +5795,7 @@ ZigValue *get_the_one_possible_value(CodeGen *g, ZigType *type_entry) {
     ZigValue *result = g->pass1_arena->create<ZigValue>();
     result->type = type_entry;
     result->special = ConstValSpecialStatic;
+
     if (result->type->id == ZigTypeIdStruct) {
         // The fields array cannot be left unpopulated
         const ZigType *struct_type = result->type;
@@ -5799,6 +5806,22 @@ ZigValue *get_the_one_possible_value(CodeGen *g, ZigType *type_entry) {
             ZigType *field_type = resolve_struct_field_type(g, field);
             assert(field_type != nullptr);
             result->data.x_struct.fields[i] = get_the_one_possible_value(g, field_type);
+        }
+    } else if (result->type->id == ZigTypeIdArray) {
+        // The elements array cannot be left unpopulated
+        ZigType *array_type = result->type;
+        ZigType *elem_type = array_type->data.array.child_type;
+        ZigValue *sentinel_value = array_type->data.array.sentinel;
+        const size_t elem_count = array_type->data.array.len + (sentinel_value != nullptr);
+
+        result->data.x_array.data.s_none.elements = g->pass1_arena->allocate<ZigValue>(elem_count);
+        for (size_t i = 0; i < elem_count; i += 1) {
+            ZigValue *elem_val = &result->data.x_array.data.s_none.elements[i];
+            copy_const_val(g, elem_val, get_the_one_possible_value(g, elem_type));
+        }
+        if (sentinel_value != nullptr) {
+            ZigValue *last_elem_val = &result->data.x_array.data.s_none.elements[elem_count - 1];
+            copy_const_val(g, last_elem_val, sentinel_value);
         }
     } else if (result->type->id == ZigTypeIdPointer) {
         result->data.x_ptr.special = ConstPtrSpecialRef;
@@ -6176,6 +6199,7 @@ static void mark_suspension_point(Scope *scope) {
             case ScopeIdDecls:
             case ScopeIdFnDef:
             case ScopeIdCompTime:
+            case ScopeIdNoAsync:
             case ScopeIdCImport:
             case ScopeIdSuspend:
             case ScopeIdTypeOf:
@@ -9525,6 +9549,23 @@ void copy_const_val(CodeGen *g, ZigValue *dest, ZigValue *src) {
         copy_const_val(g, dest->data.x_optional, src->data.x_optional);
         dest->data.x_optional->parent.id = ConstParentIdOptionalPayload;
         dest->data.x_optional->parent.data.p_optional_payload.optional_val = dest;
+    }
+}
+
+bool optional_value_is_null(ZigValue *val) {
+    assert(val->special == ConstValSpecialStatic);
+    if (get_src_ptr_type(val->type) != nullptr) {
+        if (val->data.x_ptr.special == ConstPtrSpecialNull) {
+            return true;
+        } else if (val->data.x_ptr.special == ConstPtrSpecialHardCodedAddr) {
+            return val->data.x_ptr.data.hard_coded_addr.addr == 0;
+        } else {
+            return false;
+        }
+    } else if (is_opt_err_set(val->type)) {
+        return val->data.x_err_set == nullptr;
+    } else {
+        return val->data.x_optional == nullptr;
     }
 }
 

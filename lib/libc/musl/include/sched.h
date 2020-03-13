@@ -19,10 +19,14 @@ extern "C" {
 struct sched_param {
 	int sched_priority;
 	int __reserved1;
+#if _REDIR_TIME64
+	long __reserved2[4];
+#else
 	struct {
 		time_t __reserved1;
 		long __reserved2;
 	} __reserved2[2];
+#endif
 	int __reserved3;
 };
 
@@ -131,6 +135,10 @@ __CPU_op_func_S(XOR, ^)
 #define CPU_ZERO(set) CPU_ZERO_S(sizeof(cpu_set_t),set)
 #define CPU_EQUAL(s1,s2) CPU_EQUAL_S(sizeof(cpu_set_t),s1,s2)
 
+#endif
+
+#if _REDIR_TIME64
+__REDIR(sched_rr_get_interval, __sched_rr_get_interval_time64);
 #endif
 
 #ifdef __cplusplus

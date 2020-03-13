@@ -1,19 +1,3 @@
-struct msghdr {
-	void *msg_name;
-	socklen_t msg_namelen;
-	struct iovec *msg_iov;
-	int msg_iovlen;
-	void *msg_control;
-	socklen_t msg_controllen;
-	int msg_flags;
-};
-
-struct cmsghdr {
-	socklen_t cmsg_len;
-	int cmsg_level;
-	int cmsg_type;
-};
-
 #define SO_DEBUG        1
 #define SO_REUSEADDR    2
 #define SO_TYPE         3
@@ -31,8 +15,6 @@ struct cmsghdr {
 #define SO_REUSEPORT    15
 #define SO_RCVLOWAT     16
 #define SO_SNDLOWAT     17
-#define SO_RCVTIMEO     18
-#define SO_SNDTIMEO     19
 #define SO_PASSCRED     20
 #define SO_PEERCRED     21
 #define SO_ACCEPTCONN   30

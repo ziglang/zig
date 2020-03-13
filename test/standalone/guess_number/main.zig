@@ -4,7 +4,7 @@ const io = std.io;
 const fmt = std.fmt;
 
 pub fn main() !void {
-    const stdout = &io.getStdOut().outStream().stream;
+    const stdout = io.getStdOut().outStream();
     const stdin = io.getStdIn();
 
     try stdout.print("Welcome to the Guess Number Game in Zig.\n", .{});

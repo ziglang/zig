@@ -57,6 +57,14 @@ static int fstatat_statx(int fd, const char *restrict path, struct stat *restric
 		.st_mtim.tv_nsec = stx.stx_mtime.tv_nsec,
 		.st_ctim.tv_sec = stx.stx_ctime.tv_sec,
 		.st_ctim.tv_nsec = stx.stx_ctime.tv_nsec,
+#if _REDIR_TIME64
+		.__st_atim32.tv_sec = stx.stx_atime.tv_sec,
+		.__st_atim32.tv_nsec = stx.stx_atime.tv_nsec,
+		.__st_mtim32.tv_sec = stx.stx_mtime.tv_sec,
+		.__st_mtim32.tv_nsec = stx.stx_mtime.tv_nsec,
+		.__st_ctim32.tv_sec = stx.stx_ctime.tv_sec,
+		.__st_ctim32.tv_nsec = stx.stx_ctime.tv_nsec,
+#endif
 	};
 	return 0;
 }
@@ -110,6 +118,14 @@ static int fstatat_kstat(int fd, const char *restrict path, struct stat *restric
 		.st_mtim.tv_nsec = kst.st_mtime_nsec,
 		.st_ctim.tv_sec = kst.st_ctime_sec,
 		.st_ctim.tv_nsec = kst.st_ctime_nsec,
+#if _REDIR_TIME64
+		.__st_atim32.tv_sec = kst.st_atime_sec,
+		.__st_atim32.tv_nsec = kst.st_atime_nsec,
+		.__st_mtim32.tv_sec = kst.st_mtime_sec,
+		.__st_mtim32.tv_nsec = kst.st_mtime_nsec,
+		.__st_ctim32.tv_sec = kst.st_ctime_sec,
+		.__st_ctim32.tv_nsec = kst.st_ctime_nsec,
+#endif
 	};
 
 	return 0;
@@ -126,4 +142,6 @@ int fstatat(int fd, const char *restrict path, struct stat *restrict st, int fla
 	return __syscall_ret(ret);
 }
 
+#if !_REDIR_TIME64
 weak_alias(fstatat, fstatat64);
+#endif

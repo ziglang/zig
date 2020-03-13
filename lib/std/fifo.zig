@@ -293,8 +293,18 @@ pub fn LinearFifo(
 
         pub usingnamespace if (T == u8)
             struct {
-                pub fn print(self: *Self, comptime format: []const u8, args: var) !void {
-                    return std.fmt.format(self, error{OutOfMemory}, Self.write, format, args);
+                const OutStream = std.io.OutStream(*Self, Error, appendWrite);
+                const Error = error{OutOfMemory};
+
+                /// Same as `write` except it returns the number of bytes written, which is always the same
+                /// as `bytes.len`. The purpose of this function existing is to match `std.io.OutStream` API.
+                pub fn appendWrite(fifo: *Self, bytes: []const u8) Error!usize {
+                    try fifo.write(bytes);
+                    return bytes.len;
+                }
+
+                pub fn outStream(self: *Self) OutStream {
+                    return .{ .context = self };
                 }
             }
         else
@@ -407,7 +417,7 @@ test "LinearFifo(u8, .Dynamic)" {
     fifo.shrink(0);
 
     {
-        try fifo.print("{}, {}!", .{ "Hello", "World" });
+        try fifo.outStream().print("{}, {}!", .{ "Hello", "World" });
         var result: [30]u8 = undefined;
         testing.expectEqualSlices(u8, "Hello, World!", result[0..fifo.read(&result)]);
         testing.expectEqual(@as(usize, 0), fifo.readableLength());

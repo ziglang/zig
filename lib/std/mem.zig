@@ -105,6 +105,20 @@ pub const Allocator = struct {
         return self.alignedAlloc(T, null, n);
     }
 
+    /// Allocates an array of `n + 1` items of type `T` and sets the first `n`
+    /// items to `undefined` and the last item to `sentinel`. Depending on the
+    /// Allocator implementation, it may be required to call `free` once the
+    /// memory is no longer needed, to avoid a resource leak. If the
+    /// `Allocator` implementation is unknown, then correct code will
+    /// call `free` when done.
+    ///
+    /// For allocating a single item, see `create`.
+    pub fn allocSentinel(self: *Allocator, comptime Elem: type, n: usize, comptime sentinel: Elem) Error![:sentinel]Elem {
+        var ptr = try self.alloc(Elem, n + 1);
+        ptr[n] = sentinel;
+        return ptr[0 .. n :sentinel];
+    }
+
     pub fn alignedAlloc(
         self: *Allocator,
         comptime T: type,
@@ -921,6 +935,9 @@ pub fn writeInt(comptime T: type, buffer: *[@divExact(T.bit_count, 8)]u8, value:
 pub fn writeIntSliceLittle(comptime T: type, buffer: []u8, value: T) void {
     assert(buffer.len >= @divExact(T.bit_count, 8));
 
+    if (T.bit_count == 0)
+        return set(u8, buffer, 0);
+
     // TODO I want to call writeIntLittle here but comptime eval facilities aren't good enough
     const uint = std.meta.IntType(false, T.bit_count);
     var bits = @truncate(uint, value);
@@ -937,6 +954,9 @@ pub fn writeIntSliceLittle(comptime T: type, buffer: []u8, value: T) void {
 /// avoid the branch to check for extra buffer bytes, use writeIntBig instead.
 pub fn writeIntSliceBig(comptime T: type, buffer: []u8, value: T) void {
     assert(buffer.len >= @divExact(T.bit_count, 8));
+
+    if (T.bit_count == 0)
+        return set(u8, buffer, 0);
 
     // TODO I want to call writeIntBig here but comptime eval facilities aren't good enough
     const uint = std.meta.IntType(false, T.bit_count);
@@ -1807,7 +1827,7 @@ test "sliceAsBytes" {
 }
 
 test "sliceAsBytes with sentinel slice" {
-    const empty_string:[:0]const u8 = "";
+    const empty_string: [:0]const u8 = "";
     const bytes = sliceAsBytes(empty_string);
     testing.expect(bytes.len == 0);
 }

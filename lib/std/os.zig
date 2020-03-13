@@ -176,7 +176,7 @@ fn getRandomBytesDevURandom(buf: []u8) !void {
         .io_mode = .blocking,
         .async_block_allowed = std.fs.File.async_block_allowed_yes,
     };
-    const stream = &file.inStream().stream;
+    const stream = file.inStream();
     stream.readNoEof(buf) catch return error.Unexpected;
 }
 
@@ -273,10 +273,10 @@ pub fn exit(status: u8) noreturn {
         // exit() is only avaliable if exitBootServices() has not been called yet.
         // This call to exit should not fail, so we don't care about its return value.
         if (uefi.system_table.boot_services) |bs| {
-            _ = bs.exit(uefi.handle, status, 0, null);
+            _ = bs.exit(uefi.handle, @intToEnum(uefi.Status, status), 0, null);
         }
         // If we can't exit, reboot the system instead.
-        uefi.system_table.runtime_services.resetSystem(uefi.tables.ResetType.ResetCold, status, 0, null);
+        uefi.system_table.runtime_services.resetSystem(uefi.tables.ResetType.ResetCold, @intToEnum(uefi.Status, status), 0, null);
     }
     system.exit(status);
 }
@@ -436,6 +436,61 @@ pub fn pread(fd: fd_t, buf: []u8, offset: u64) PReadError!usize {
         }
     }
     return index;
+}
+
+pub const TruncateError = error{
+    FileTooBig,
+    InputOutput,
+    CannotTruncate,
+    FileBusy,
+} || UnexpectedError;
+
+pub fn ftruncate(fd: fd_t, length: u64) TruncateError!void {
+    if (std.Target.current.os.tag == .windows) {
+        var io_status_block: windows.IO_STATUS_BLOCK = undefined;
+        var eof_info = windows.FILE_END_OF_FILE_INFORMATION{
+            .EndOfFile = @bitCast(windows.LARGE_INTEGER, length),
+        };
+
+        const rc = windows.ntdll.NtSetInformationFile(
+            fd,
+            &io_status_block,
+            &eof_info,
+            @sizeOf(windows.FILE_END_OF_FILE_INFORMATION),
+            .FileEndOfFileInformation,
+        );
+
+        switch (rc) {
+            .SUCCESS => {},
+            .INVALID_HANDLE => unreachable, // Handle not open for writing
+            .ACCESS_DENIED => return error.CannotTruncate,
+            else => return windows.unexpectedStatus(rc),
+        }
+
+        return;
+    }
+
+    while (true) {
+        const rc = if (builtin.link_libc)
+            if (std.Target.current.os.tag == .linux)
+                system.ftruncate64(fd, @bitCast(off_t, length))
+            else
+                system.ftruncate(fd, @bitCast(off_t, length))
+        else
+            system.ftruncate(fd, length);
+
+        switch (errno(rc)) {
+            0 => return,
+            EINTR => continue,
+            EFBIG => return error.FileTooBig,
+            EIO => return error.InputOutput,
+            EPERM => return error.CannotTruncate,
+            ETXTBSY => return error.FileBusy,
+            EBADF => unreachable, // Handle not open for writing
+            EINVAL => unreachable, // Handle not open for writing
+            else => |err| return unexpectedErrno(err),
+        }
+    }
 }
 
 /// Number of bytes read is returned. Upon reading end-of-file, zero is returned.
@@ -3077,7 +3132,7 @@ pub fn realpathW(pathname: [*:0]const u16, out_buffer: *[MAX_PATH_BYTES]u8) Real
         windows.FILE_SHARE_READ,
         null,
         windows.OPEN_EXISTING,
-        windows.FILE_ATTRIBUTE_NORMAL,
+        windows.FILE_FLAG_BACKUP_SEMANTICS,
         null,
     );
     defer windows.CloseHandle(h_file);

@@ -40,12 +40,9 @@ pub fn main() !void {
     var out_file = try fs.cwd().createFile(out_file_name, .{});
     defer out_file.close();
 
-    var file_in_stream = in_file.inStream();
+    const input_file_bytes = try in_file.inStream().readAllAlloc(allocator, max_doc_file_size);
 
-    const input_file_bytes = try file_in_stream.stream.readAllAlloc(allocator, max_doc_file_size);
-
-    var file_out_stream = out_file.outStream();
-    var buffered_out_stream = io.BufferedOutStream(fs.File.WriteError).init(&file_out_stream.stream);
+    var buffered_out_stream = io.bufferedOutStream(out_file.outStream());
 
     var tokenizer = Tokenizer.init(in_file_name, input_file_bytes);
     var toc = try genToc(allocator, &tokenizer);
@@ -53,7 +50,7 @@ pub fn main() !void {
     try fs.cwd().makePath(tmp_dir_name);
     defer fs.deleteTree(tmp_dir_name) catch {};
 
-    try genHtml(allocator, &tokenizer, &toc, &buffered_out_stream.stream, zig_exe);
+    try genHtml(allocator, &tokenizer, &toc, buffered_out_stream.outStream(), zig_exe);
     try buffered_out_stream.flush();
 }
 
@@ -327,8 +324,7 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
     var toc_buf = try std.Buffer.initSize(allocator, 0);
     defer toc_buf.deinit();
 
-    var toc_buf_adapter = io.BufferOutStream.init(&toc_buf);
-    var toc = &toc_buf_adapter.stream;
+    var toc = toc_buf.outStream();
 
     var nodes = std.ArrayList(Node).init(allocator);
     defer nodes.deinit();
@@ -342,7 +338,7 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
                 if (header_stack_size != 0) {
                     return parseError(tokenizer, token, "unbalanced headers", .{});
                 }
-                try toc.write("    </ul>\n");
+                try toc.writeAll("    </ul>\n");
                 break;
             },
             Token.Id.Content => {
@@ -407,7 +403,7 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
                         if (last_columns) |n| {
                             try toc.print("<ul style=\"columns: {}\">\n", .{n});
                         } else {
-                            try toc.write("<ul>\n");
+                            try toc.writeAll("<ul>\n");
                         }
                     } else {
                         last_action = Action.Open;
@@ -424,9 +420,9 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
 
                     if (last_action == Action.Close) {
                         try toc.writeByteNTimes(' ', 8 + header_stack_size * 4);
-                        try toc.write("</ul></li>\n");
+                        try toc.writeAll("</ul></li>\n");
                     } else {
-                        try toc.write("</li>\n");
+                        try toc.writeAll("</li>\n");
                         last_action = Action.Close;
                     }
                 } else if (mem.eql(u8, tag_name, "see_also")) {
@@ -614,8 +610,7 @@ fn urlize(allocator: *mem.Allocator, input: []const u8) ![]u8 {
     var buf = try std.Buffer.initSize(allocator, 0);
     defer buf.deinit();
 
-    var buf_adapter = io.BufferOutStream.init(&buf);
-    var out = &buf_adapter.stream;
+    const out = buf.outStream();
     for (input) |c| {
         switch (c) {
             'a'...'z', 'A'...'Z', '_', '-', '0'...'9' => {
@@ -634,8 +629,7 @@ fn escapeHtml(allocator: *mem.Allocator, input: []const u8) ![]u8 {
     var buf = try std.Buffer.initSize(allocator, 0);
     defer buf.deinit();
 
-    var buf_adapter = io.BufferOutStream.init(&buf);
-    var out = &buf_adapter.stream;
+    const out = buf.outStream();
     try writeEscaped(out, input);
     return buf.toOwnedSlice();
 }
@@ -643,10 +637,10 @@ fn escapeHtml(allocator: *mem.Allocator, input: []const u8) ![]u8 {
 fn writeEscaped(out: var, input: []const u8) !void {
     for (input) |c| {
         try switch (c) {
-            '&' => out.write("&amp;"),
-            '<' => out.write("&lt;"),
-            '>' => out.write("&gt;"),
-            '"' => out.write("&quot;"),
+            '&' => out.writeAll("&amp;"),
+            '<' => out.writeAll("&lt;"),
+            '>' => out.writeAll("&gt;"),
+            '"' => out.writeAll("&quot;"),
             else => out.writeByte(c),
         };
     }
@@ -681,8 +675,7 @@ fn termColor(allocator: *mem.Allocator, input: []const u8) ![]u8 {
     var buf = try std.Buffer.initSize(allocator, 0);
     defer buf.deinit();
 
-    var buf_adapter = io.BufferOutStream.init(&buf);
-    var out = &buf_adapter.stream;
+    var out = buf.outStream();
     var number_start_index: usize = undefined;
     var first_number: usize = undefined;
     var second_number: usize = undefined;
@@ -743,7 +736,7 @@ fn termColor(allocator: *mem.Allocator, input: []const u8) ![]u8 {
                 'm' => {
                     state = TermState.Start;
                     while (open_span_count != 0) : (open_span_count -= 1) {
-                        try out.write("</span>");
+                        try out.writeAll("</span>");
                     }
                     if (first_number != 0 or second_number != 0) {
                         try out.print("<span class=\"t{}_{}\">", .{ first_number, second_number });
@@ -774,7 +767,7 @@ fn isType(name: []const u8) bool {
 
 fn tokenizeAndPrintRaw(docgen_tokenizer: *Tokenizer, out: var, source_token: Token, raw_src: []const u8) !void {
     const src = mem.trim(u8, raw_src, " \n");
-    try out.write("<code class=\"zig\">");
+    try out.writeAll("<code class=\"zig\">");
     var tokenizer = std.zig.Tokenizer.init(src);
     var index: usize = 0;
     var next_tok_is_fn = false;
@@ -835,15 +828,15 @@ fn tokenizeAndPrintRaw(docgen_tokenizer: *Tokenizer, out: var, source_token: Tok
             .Keyword_allowzero,
             .Keyword_while,
             => {
-                try out.write("<span class=\"tok-kw\">");
+                try out.writeAll("<span class=\"tok-kw\">");
                 try writeEscaped(out, src[token.start..token.end]);
-                try out.write("</span>");
+                try out.writeAll("</span>");
             },
 
             .Keyword_fn => {
-                try out.write("<span class=\"tok-kw\">");
+                try out.writeAll("<span class=\"tok-kw\">");
                 try writeEscaped(out, src[token.start..token.end]);
-                try out.write("</span>");
+                try out.writeAll("</span>");
                 next_tok_is_fn = true;
             },
 
@@ -852,24 +845,24 @@ fn tokenizeAndPrintRaw(docgen_tokenizer: *Tokenizer, out: var, source_token: Tok
             .Keyword_true,
             .Keyword_false,
             => {
-                try out.write("<span class=\"tok-null\">");
+                try out.writeAll("<span class=\"tok-null\">");
                 try writeEscaped(out, src[token.start..token.end]);
-                try out.write("</span>");
+                try out.writeAll("</span>");
             },
 
             .StringLiteral,
             .MultilineStringLiteralLine,
             .CharLiteral,
             => {
-                try out.write("<span class=\"tok-str\">");
+                try out.writeAll("<span class=\"tok-str\">");
                 try writeEscaped(out, src[token.start..token.end]);
-                try out.write("</span>");
+                try out.writeAll("</span>");
             },
 
             .Builtin => {
-                try out.write("<span class=\"tok-builtin\">");
+                try out.writeAll("<span class=\"tok-builtin\">");
                 try writeEscaped(out, src[token.start..token.end]);
-                try out.write("</span>");
+                try out.writeAll("</span>");
             },
 
             .LineComment,
@@ -877,16 +870,16 @@ fn tokenizeAndPrintRaw(docgen_tokenizer: *Tokenizer, out: var, source_token: Tok
             .ContainerDocComment,
             .ShebangLine,
             => {
-                try out.write("<span class=\"tok-comment\">");
+                try out.writeAll("<span class=\"tok-comment\">");
                 try writeEscaped(out, src[token.start..token.end]);
-                try out.write("</span>");
+                try out.writeAll("</span>");
             },
 
             .Identifier => {
                 if (prev_tok_was_fn) {
-                    try out.write("<span class=\"tok-fn\">");
+                    try out.writeAll("<span class=\"tok-fn\">");
                     try writeEscaped(out, src[token.start..token.end]);
-                    try out.write("</span>");
+                    try out.writeAll("</span>");
                 } else {
                     const is_int = blk: {
                         if (src[token.start] != 'i' and src[token.start] != 'u')
@@ -901,9 +894,9 @@ fn tokenizeAndPrintRaw(docgen_tokenizer: *Tokenizer, out: var, source_token: Tok
                         break :blk true;
                     };
                     if (is_int or isType(src[token.start..token.end])) {
-                        try out.write("<span class=\"tok-type\">");
+                        try out.writeAll("<span class=\"tok-type\">");
                         try writeEscaped(out, src[token.start..token.end]);
-                        try out.write("</span>");
+                        try out.writeAll("</span>");
                     } else {
                         try writeEscaped(out, src[token.start..token.end]);
                     }
@@ -913,9 +906,9 @@ fn tokenizeAndPrintRaw(docgen_tokenizer: *Tokenizer, out: var, source_token: Tok
             .IntegerLiteral,
             .FloatLiteral,
             => {
-                try out.write("<span class=\"tok-number\">");
+                try out.writeAll("<span class=\"tok-number\">");
                 try writeEscaped(out, src[token.start..token.end]);
-                try out.write("</span>");
+                try out.writeAll("</span>");
             },
 
             .Bang,
@@ -983,7 +976,7 @@ fn tokenizeAndPrintRaw(docgen_tokenizer: *Tokenizer, out: var, source_token: Tok
         }
         index = token.end;
     }
-    try out.write("</code>");
+    try out.writeAll("</code>");
 }
 
 fn tokenizeAndPrint(docgen_tokenizer: *Tokenizer, out: var, source_token: Token) !void {
@@ -1002,7 +995,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
     for (toc.nodes) |node| {
         switch (node) {
             .Content => |data| {
-                try out.write(data);
+                try out.writeAll(data);
             },
             .Link => |info| {
                 if (!toc.urls.contains(info.url)) {
@@ -1011,12 +1004,12 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                 try out.print("<a href=\"#{}\">{}</a>", .{ info.url, info.name });
             },
             .Nav => {
-                try out.write(toc.toc);
+                try out.writeAll(toc.toc);
             },
             .Builtin => |tok| {
-                try out.write("<pre>");
+                try out.writeAll("<pre>");
                 try tokenizeAndPrintRaw(tokenizer, out, tok, builtin_code);
-                try out.write("</pre>");
+                try out.writeAll("</pre>");
             },
             .HeaderOpen => |info| {
                 try out.print(
@@ -1025,7 +1018,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                 );
             },
             .SeeAlso => |items| {
-                try out.write("<p>See also:</p><ul>\n");
+                try out.writeAll("<p>See also:</p><ul>\n");
                 for (items) |item| {
                     const url = try urlize(allocator, item.name);
                     if (!toc.urls.contains(url)) {
@@ -1033,7 +1026,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                     }
                     try out.print("<li><a href=\"#{}\">{}</a></li>\n", .{ url, item.name });
                 }
-                try out.write("</ul>\n");
+                try out.writeAll("</ul>\n");
             },
             .Syntax => |content_tok| {
                 try tokenizeAndPrint(tokenizer, out, content_tok);
@@ -1047,9 +1040,9 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                 if (!code.is_inline) {
                     try out.print("<p class=\"file\">{}.zig</p>", .{code.name});
                 }
-                try out.write("<pre>");
+                try out.writeAll("<pre>");
                 try tokenizeAndPrint(tokenizer, out, code.source_token);
-                try out.write("</pre>");
+                try out.writeAll("</pre>");
                 const name_plus_ext = try std.fmt.allocPrint(allocator, "{}.zig", .{code.name});
                 const tmp_source_file_name = try fs.path.join(
                     allocator,

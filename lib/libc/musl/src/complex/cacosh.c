@@ -4,6 +4,9 @@
 
 double complex cacosh(double complex z)
 {
+	int zineg = signbit(cimag(z));
+
 	z = cacos(z);
-	return CMPLX(-cimag(z), creal(z));
+	if (zineg) return CMPLX(cimag(z), -creal(z));
+	else       return CMPLX(-cimag(z), creal(z));
 }

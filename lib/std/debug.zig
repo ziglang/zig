@@ -55,7 +55,7 @@ pub const LineInfo = struct {
 var stderr_file: File = undefined;
 var stderr_file_out_stream: File.OutStream = undefined;
 
-var stderr_stream: ?*io.OutStream(File.WriteError) = null;
+var stderr_stream: ?*File.OutStream = null;
 var stderr_mutex = std.Mutex.init();
 
 pub fn warn(comptime fmt: []const u8, args: var) void {
@@ -65,13 +65,13 @@ pub fn warn(comptime fmt: []const u8, args: var) void {
     noasync stderr.print(fmt, args) catch return;
 }
 
-pub fn getStderrStream() *io.OutStream(File.WriteError) {
+pub fn getStderrStream() *File.OutStream {
     if (stderr_stream) |st| {
         return st;
     } else {
         stderr_file = io.getStdErr();
         stderr_file_out_stream = stderr_file.outStream();
-        const st = &stderr_file_out_stream.stream;
+        const st = &stderr_file_out_stream;
         stderr_stream = st;
         return st;
     }
@@ -408,15 +408,15 @@ pub const TTY = struct {
         windows_api,
 
         fn setColor(conf: Config, out_stream: var, color: Color) void {
-            switch (conf) {
+            noasync switch (conf) {
                 .no_color => return,
                 .escape_codes => switch (color) {
-                    .Red => noasync out_stream.write(RED) catch return,
-                    .Green => noasync out_stream.write(GREEN) catch return,
-                    .Cyan => noasync out_stream.write(CYAN) catch return,
-                    .White, .Bold => noasync out_stream.write(WHITE) catch return,
-                    .Dim => noasync out_stream.write(DIM) catch return,
-                    .Reset => noasync out_stream.write(RESET) catch return,
+                    .Red => out_stream.writeAll(RED) catch return,
+                    .Green => out_stream.writeAll(GREEN) catch return,
+                    .Cyan => out_stream.writeAll(CYAN) catch return,
+                    .White, .Bold => out_stream.writeAll(WHITE) catch return,
+                    .Dim => out_stream.writeAll(DIM) catch return,
+                    .Reset => out_stream.writeAll(RESET) catch return,
                 },
                 .windows_api => if (builtin.os.tag == .windows) {
                     const S = struct {
@@ -455,7 +455,7 @@ pub const TTY = struct {
                 } else {
                     unreachable;
                 },
-            }
+            };
         }
     };
 };
@@ -475,15 +475,15 @@ fn populateModule(di: *ModuleDebugInfo, mod: *Module) !void {
 
     const modi = di.pdb.getStreamById(mod.mod_info.ModuleSymStream) orelse return error.MissingDebugInfo;
 
-    const signature = try modi.stream.readIntLittle(u32);
+    const signature = try modi.inStream().readIntLittle(u32);
     if (signature != 4)
         return error.InvalidDebugInfo;
 
     mod.symbols = try allocator.alloc(u8, mod.mod_info.SymByteSize - 4);
-    try modi.stream.readNoEof(mod.symbols);
+    try modi.inStream().readNoEof(mod.symbols);
 
     mod.subsect_info = try allocator.alloc(u8, mod.mod_info.C13ByteSize);
-    try modi.stream.readNoEof(mod.subsect_info);
+    try modi.inStream().readNoEof(mod.subsect_info);
 
     var sect_offset: usize = 0;
     var skip_len: usize = undefined;
@@ -565,38 +565,40 @@ fn printLineInfo(
     tty_config: TTY.Config,
     comptime printLineFromFile: var,
 ) !void {
-    tty_config.setColor(out_stream, .White);
+    noasync {
+        tty_config.setColor(out_stream, .White);
 
-    if (line_info) |*li| {
-        try noasync out_stream.print("{}:{}:{}", .{ li.file_name, li.line, li.column });
-    } else {
-        try noasync out_stream.write("???:?:?");
-    }
+        if (line_info) |*li| {
+            try out_stream.print("{}:{}:{}", .{ li.file_name, li.line, li.column });
+        } else {
+            try out_stream.writeAll("???:?:?");
+        }
 
-    tty_config.setColor(out_stream, .Reset);
-    try noasync out_stream.write(": ");
-    tty_config.setColor(out_stream, .Dim);
-    try noasync out_stream.print("0x{x} in {} ({})", .{ address, symbol_name, compile_unit_name });
-    tty_config.setColor(out_stream, .Reset);
-    try noasync out_stream.write("\n");
+        tty_config.setColor(out_stream, .Reset);
+        try out_stream.writeAll(": ");
+        tty_config.setColor(out_stream, .Dim);
+        try out_stream.print("0x{x} in {} ({})", .{ address, symbol_name, compile_unit_name });
+        tty_config.setColor(out_stream, .Reset);
+        try out_stream.writeAll("\n");
 
-    // Show the matching source code line if possible
-    if (line_info) |li| {
-        if (noasync printLineFromFile(out_stream, li)) {
-            if (li.column > 0) {
-                // The caret already takes one char
-                const space_needed = @intCast(usize, li.column - 1);
+        // Show the matching source code line if possible
+        if (line_info) |li| {
+            if (printLineFromFile(out_stream, li)) {
+                if (li.column > 0) {
+                    // The caret already takes one char
+                    const space_needed = @intCast(usize, li.column - 1);
 
-                try noasync out_stream.writeByteNTimes(' ', space_needed);
-                tty_config.setColor(out_stream, .Green);
-                try noasync out_stream.write("^");
-                tty_config.setColor(out_stream, .Reset);
+                    try out_stream.writeByteNTimes(' ', space_needed);
+                    tty_config.setColor(out_stream, .Green);
+                    try out_stream.writeAll("^");
+                    tty_config.setColor(out_stream, .Reset);
+                }
+                try out_stream.writeAll("\n");
+            } else |err| switch (err) {
+                error.EndOfFile, error.FileNotFound => {},
+                error.BadPathName => {},
+                else => return err,
             }
-            try noasync out_stream.write("\n");
-        } else |err| switch (err) {
-            error.EndOfFile, error.FileNotFound => {},
-            error.BadPathName => {},
-            else => return err,
         }
     }
 }
@@ -609,21 +611,21 @@ pub const OpenSelfDebugInfoError = error{
 };
 
 /// TODO resources https://github.com/ziglang/zig/issues/4353
-/// TODO once https://github.com/ziglang/zig/issues/3157 is fully implemented,
-/// make this `noasync fn` and remove the individual noasync calls.
 pub fn openSelfDebugInfo(allocator: *mem.Allocator) anyerror!DebugInfo {
-    if (builtin.strip_debug_info)
-        return error.MissingDebugInfo;
-    if (@hasDecl(root, "os") and @hasDecl(root.os, "debug") and @hasDecl(root.os.debug, "openSelfDebugInfo")) {
-        return noasync root.os.debug.openSelfDebugInfo(allocator);
-    }
-    switch (builtin.os.tag) {
-        .linux,
-        .freebsd,
-        .macosx,
-        .windows,
-        => return DebugInfo.init(allocator),
-        else => @compileError("openSelfDebugInfo unsupported for this platform"),
+    noasync {
+        if (builtin.strip_debug_info)
+            return error.MissingDebugInfo;
+        if (@hasDecl(root, "os") and @hasDecl(root.os, "debug") and @hasDecl(root.os.debug, "openSelfDebugInfo")) {
+            return root.os.debug.openSelfDebugInfo(allocator);
+        }
+        switch (builtin.os.tag) {
+            .linux,
+            .freebsd,
+            .macosx,
+            .windows,
+            => return DebugInfo.init(allocator),
+            else => @compileError("openSelfDebugInfo unsupported for this platform"),
+        }
     }
 }
 
@@ -654,11 +656,11 @@ fn openCoffDebugInfo(allocator: *mem.Allocator, coff_file_path: [:0]const u16) !
     try di.pdb.openFile(di.coff, path);
 
     var pdb_stream = di.pdb.getStream(pdb.StreamType.Pdb) orelse return error.InvalidDebugInfo;
-    const version = try pdb_stream.stream.readIntLittle(u32);
-    const signature = try pdb_stream.stream.readIntLittle(u32);
-    const age = try pdb_stream.stream.readIntLittle(u32);
+    const version = try pdb_stream.inStream().readIntLittle(u32);
+    const signature = try pdb_stream.inStream().readIntLittle(u32);
+    const age = try pdb_stream.inStream().readIntLittle(u32);
     var guid: [16]u8 = undefined;
-    try pdb_stream.stream.readNoEof(&guid);
+    try pdb_stream.inStream().readNoEof(&guid);
     if (version != 20000404) // VC70, only value observed by LLVM team
         return error.UnknownPDBVersion;
     if (!mem.eql(u8, &di.coff.guid, &guid) or di.coff.age != age)
@@ -666,9 +668,9 @@ fn openCoffDebugInfo(allocator: *mem.Allocator, coff_file_path: [:0]const u16) !
     // We validated the executable and pdb match.
 
     const string_table_index = str_tab_index: {
-        const name_bytes_len = try pdb_stream.stream.readIntLittle(u32);
+        const name_bytes_len = try pdb_stream.inStream().readIntLittle(u32);
         const name_bytes = try allocator.alloc(u8, name_bytes_len);
-        try pdb_stream.stream.readNoEof(name_bytes);
+        try pdb_stream.inStream().readNoEof(name_bytes);
 
         const HashTableHeader = packed struct {
             Size: u32,
@@ -678,17 +680,17 @@ fn openCoffDebugInfo(allocator: *mem.Allocator, coff_file_path: [:0]const u16) !
                 return cap * 2 / 3 + 1;
             }
         };
-        const hash_tbl_hdr = try pdb_stream.stream.readStruct(HashTableHeader);
+        const hash_tbl_hdr = try pdb_stream.inStream().readStruct(HashTableHeader);
         if (hash_tbl_hdr.Capacity == 0)
             return error.InvalidDebugInfo;
 
         if (hash_tbl_hdr.Size > HashTableHeader.maxLoad(hash_tbl_hdr.Capacity))
             return error.InvalidDebugInfo;
 
-        const present = try readSparseBitVector(&pdb_stream.stream, allocator);
+        const present = try readSparseBitVector(&pdb_stream.inStream(), allocator);
         if (present.len != hash_tbl_hdr.Size)
             return error.InvalidDebugInfo;
-        const deleted = try readSparseBitVector(&pdb_stream.stream, allocator);
+        const deleted = try readSparseBitVector(&pdb_stream.inStream(), allocator);
 
         const Bucket = struct {
             first: u32,
@@ -696,8 +698,8 @@ fn openCoffDebugInfo(allocator: *mem.Allocator, coff_file_path: [:0]const u16) !
         };
         const bucket_list = try allocator.alloc(Bucket, present.len);
         for (present) |_| {
-            const name_offset = try pdb_stream.stream.readIntLittle(u32);
-            const name_index = try pdb_stream.stream.readIntLittle(u32);
+            const name_offset = try pdb_stream.inStream().readIntLittle(u32);
+            const name_index = try pdb_stream.inStream().readIntLittle(u32);
             const name = mem.toSlice(u8, @ptrCast([*:0]u8, name_bytes.ptr + name_offset));
             if (mem.eql(u8, name, "/names")) {
                 break :str_tab_index name_index;
@@ -712,7 +714,7 @@ fn openCoffDebugInfo(allocator: *mem.Allocator, coff_file_path: [:0]const u16) !
     const dbi = di.pdb.dbi;
 
     // Dbi Header
-    const dbi_stream_header = try dbi.stream.readStruct(pdb.DbiStreamHeader);
+    const dbi_stream_header = try dbi.inStream().readStruct(pdb.DbiStreamHeader);
     if (dbi_stream_header.VersionHeader != 19990903) // V70, only value observed by LLVM team
         return error.UnknownPDBVersion;
     if (dbi_stream_header.Age != age)
@@ -726,7 +728,7 @@ fn openCoffDebugInfo(allocator: *mem.Allocator, coff_file_path: [:0]const u16) !
     // Module Info Substream
     var mod_info_offset: usize = 0;
     while (mod_info_offset != mod_info_size) {
-        const mod_info = try dbi.stream.readStruct(pdb.ModInfo);
+        const mod_info = try dbi.inStream().readStruct(pdb.ModInfo);
         var this_record_len: usize = @sizeOf(pdb.ModInfo);
 
         const module_name = try dbi.readNullTermString(allocator);
@@ -764,14 +766,14 @@ fn openCoffDebugInfo(allocator: *mem.Allocator, coff_file_path: [:0]const u16) !
     var sect_contribs = ArrayList(pdb.SectionContribEntry).init(allocator);
     var sect_cont_offset: usize = 0;
     if (section_contrib_size != 0) {
-        const ver = @intToEnum(pdb.SectionContrSubstreamVersion, try dbi.stream.readIntLittle(u32));
+        const ver = @intToEnum(pdb.SectionContrSubstreamVersion, try dbi.inStream().readIntLittle(u32));
         if (ver != pdb.SectionContrSubstreamVersion.Ver60)
             return error.InvalidDebugInfo;
         sect_cont_offset += @sizeOf(u32);
     }
     while (sect_cont_offset != section_contrib_size) {
         const entry = try sect_contribs.addOne();
-        entry.* = try dbi.stream.readStruct(pdb.SectionContribEntry);
+        entry.* = try dbi.inStream().readStruct(pdb.SectionContribEntry);
         sect_cont_offset += @sizeOf(pdb.SectionContribEntry);
 
         if (sect_cont_offset > section_contrib_size)
@@ -808,45 +810,71 @@ fn chopSlice(ptr: []const u8, offset: u64, size: u64) ![]const u8 {
 
 /// TODO resources https://github.com/ziglang/zig/issues/4353
 pub fn openElfDebugInfo(allocator: *mem.Allocator, elf_file_path: []const u8) !ModuleDebugInfo {
-    const mapped_mem = try mapWholeFile(elf_file_path);
+    noasync {
+        const mapped_mem = try mapWholeFile(elf_file_path);
+        const hdr = @ptrCast(*const elf.Ehdr, &mapped_mem[0]);
+        if (!mem.eql(u8, hdr.e_ident[0..4], "\x7fELF")) return error.InvalidElfMagic;
+        if (hdr.e_ident[elf.EI_VERSION] != 1) return error.InvalidElfVersion;
 
-    var seekable_stream = io.SliceSeekableInStream.init(mapped_mem);
-    var efile = try noasync elf.Elf.openStream(
-        allocator,
-        @ptrCast(*DW.DwarfSeekableStream, &seekable_stream.seekable_stream),
-        @ptrCast(*DW.DwarfInStream, &seekable_stream.stream),
-    );
-    defer noasync efile.close();
+        const endian: builtin.Endian = switch (hdr.e_ident[elf.EI_DATA]) {
+            elf.ELFDATA2LSB => .Little,
+            elf.ELFDATA2MSB => .Big,
+            else => return error.InvalidElfEndian,
+        };
+        assert(endian == std.builtin.endian); // this is our own debug info
 
-    const debug_info = (try noasync efile.findSection(".debug_info")) orelse
-        return error.MissingDebugInfo;
-    const debug_abbrev = (try noasync efile.findSection(".debug_abbrev")) orelse
-        return error.MissingDebugInfo;
-    const debug_str = (try noasync efile.findSection(".debug_str")) orelse
-        return error.MissingDebugInfo;
-    const debug_line = (try noasync efile.findSection(".debug_line")) orelse
-        return error.MissingDebugInfo;
-    const opt_debug_ranges = try noasync efile.findSection(".debug_ranges");
+        const shoff = hdr.e_shoff;
+        const str_section_off = shoff + @as(u64, hdr.e_shentsize) * @as(u64, hdr.e_shstrndx);
+        const str_shdr = @ptrCast(
+            *const elf.Shdr,
+            @alignCast(@alignOf(elf.Shdr), &mapped_mem[try math.cast(usize, str_section_off)]),
+        );
+        const header_strings = mapped_mem[str_shdr.sh_offset .. str_shdr.sh_offset + str_shdr.sh_size];
+        const shdrs = @ptrCast(
+            [*]const elf.Shdr,
+            @alignCast(@alignOf(elf.Shdr), &mapped_mem[shoff]),
+        )[0..hdr.e_shnum];
 
-    var di = DW.DwarfInfo{
-        .endian = efile.endian,
-        .debug_info = try chopSlice(mapped_mem, debug_info.sh_offset, debug_info.sh_size),
-        .debug_abbrev = try chopSlice(mapped_mem, debug_abbrev.sh_offset, debug_abbrev.sh_size),
-        .debug_str = try chopSlice(mapped_mem, debug_str.sh_offset, debug_str.sh_size),
-        .debug_line = try chopSlice(mapped_mem, debug_line.sh_offset, debug_line.sh_size),
-        .debug_ranges = if (opt_debug_ranges) |debug_ranges|
-            try chopSlice(mapped_mem, debug_ranges.sh_offset, debug_ranges.sh_size)
-        else
-            null,
-    };
+        var opt_debug_info: ?[]const u8 = null;
+        var opt_debug_abbrev: ?[]const u8 = null;
+        var opt_debug_str: ?[]const u8 = null;
+        var opt_debug_line: ?[]const u8 = null;
+        var opt_debug_ranges: ?[]const u8 = null;
 
-    try noasync DW.openDwarfDebugInfo(&di, allocator);
+        for (shdrs) |*shdr| {
+            if (shdr.sh_type == elf.SHT_NULL) continue;
 
-    return ModuleDebugInfo{
-        .base_address = undefined,
-        .dwarf = di,
-        .mapped_memory = mapped_mem,
-    };
+            const name = std.mem.span(@ptrCast([*:0]const u8, header_strings[shdr.sh_name..].ptr));
+            if (mem.eql(u8, name, ".debug_info")) {
+                opt_debug_info = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
+            } else if (mem.eql(u8, name, ".debug_abbrev")) {
+                opt_debug_abbrev = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
+            } else if (mem.eql(u8, name, ".debug_str")) {
+                opt_debug_str = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
+            } else if (mem.eql(u8, name, ".debug_line")) {
+                opt_debug_line = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
+            } else if (mem.eql(u8, name, ".debug_ranges")) {
+                opt_debug_ranges = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
+            }
+        }
+
+        var di = DW.DwarfInfo{
+            .endian = endian,
+            .debug_info = opt_debug_info orelse return error.MissingDebugInfo,
+            .debug_abbrev = opt_debug_abbrev orelse return error.MissingDebugInfo,
+            .debug_str = opt_debug_str orelse return error.MissingDebugInfo,
+            .debug_line = opt_debug_line orelse return error.MissingDebugInfo,
+            .debug_ranges = opt_debug_ranges,
+        };
+
+        try DW.openDwarfDebugInfo(&di, allocator);
+
+        return ModuleDebugInfo{
+            .base_address = undefined,
+            .dwarf = di,
+            .mapped_memory = mapped_mem,
+        };
+    }
 }
 
 /// TODO resources https://github.com/ziglang/zig/issues/4353
@@ -936,7 +964,9 @@ fn openMachODebugInfo(allocator: *mem.Allocator, macho_file_path: []const u8) !M
 }
 
 fn printLineFromFileAnyOs(out_stream: var, line_info: LineInfo) !void {
-    var f = try fs.cwd().openFile(line_info.file_name, .{});
+    // Need this to always block even in async I/O mode, because this could potentially
+    // be called from e.g. the event loop code crashing.
+    var f = try fs.cwd().openFile(line_info.file_name, .{ .always_blocking = true });
     defer f.close();
     // TODO fstat and make sure that the file has the correct size
 
@@ -982,22 +1012,24 @@ const MachoSymbol = struct {
     }
 };
 
-fn mapWholeFile(path: []const u8) ![]const u8 {
-    const file = try noasync fs.openFileAbsolute(path, .{ .always_blocking = true });
-    defer noasync file.close();
+fn mapWholeFile(path: []const u8) ![]align(mem.page_size) const u8 {
+    noasync {
+        const file = try fs.openFileAbsolute(path, .{ .always_blocking = true });
+        defer file.close();
 
-    const file_len = try math.cast(usize, try file.getEndPos());
-    const mapped_mem = try os.mmap(
-        null,
-        file_len,
-        os.PROT_READ,
-        os.MAP_SHARED,
-        file.handle,
-        0,
-    );
-    errdefer os.munmap(mapped_mem);
+        const file_len = try math.cast(usize, try file.getEndPos());
+        const mapped_mem = try os.mmap(
+            null,
+            file_len,
+            os.PROT_READ,
+            os.MAP_SHARED,
+            file.handle,
+            0,
+        );
+        errdefer os.munmap(mapped_mem);
 
-    return mapped_mem;
+        return mapped_mem;
+    }
 }
 
 pub const DebugInfo = struct {

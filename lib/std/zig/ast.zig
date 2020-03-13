@@ -378,7 +378,7 @@ pub const Error = union(enum) {
             token: TokenIndex,
 
             pub fn render(self: *const ThisError, tokens: *Tree.TokenList, stream: var) !void {
-                return stream.write(msg);
+                return stream.writeAll(msg);
             }
         };
     }
@@ -434,6 +434,7 @@ pub const Node = struct {
         ContainerDecl,
         Asm,
         Comptime,
+        Noasync,
         Block,
 
         // Misc
@@ -502,67 +503,71 @@ pub const Node = struct {
         var n = base;
         while (true) {
             switch (n.id) {
-                Id.Root,
-                Id.ContainerField,
-                Id.ParamDecl,
-                Id.Block,
-                Id.Payload,
-                Id.PointerPayload,
-                Id.PointerIndexPayload,
-                Id.Switch,
-                Id.SwitchCase,
-                Id.SwitchElse,
-                Id.FieldInitializer,
-                Id.DocComment,
-                Id.TestDecl,
+                .Root,
+                .ContainerField,
+                .ParamDecl,
+                .Block,
+                .Payload,
+                .PointerPayload,
+                .PointerIndexPayload,
+                .Switch,
+                .SwitchCase,
+                .SwitchElse,
+                .FieldInitializer,
+                .DocComment,
+                .TestDecl,
                 => return false,
-                Id.While => {
+                .While => {
                     const while_node = @fieldParentPtr(While, "base", n);
                     if (while_node.@"else") |@"else"| {
                         n = &@"else".base;
                         continue;
                     }
 
-                    return while_node.body.id != Id.Block;
+                    return while_node.body.id != .Block;
                 },
-                Id.For => {
+                .For => {
                     const for_node = @fieldParentPtr(For, "base", n);
                     if (for_node.@"else") |@"else"| {
                         n = &@"else".base;
                         continue;
                     }
 
-                    return for_node.body.id != Id.Block;
+                    return for_node.body.id != .Block;
                 },
-                Id.If => {
+                .If => {
                     const if_node = @fieldParentPtr(If, "base", n);
                     if (if_node.@"else") |@"else"| {
                         n = &@"else".base;
                         continue;
                     }
 
-                    return if_node.body.id != Id.Block;
+                    return if_node.body.id != .Block;
                 },
-                Id.Else => {
+                .Else => {
                     const else_node = @fieldParentPtr(Else, "base", n);
                     n = else_node.body;
                     continue;
                 },
-                Id.Defer => {
+                .Defer => {
                     const defer_node = @fieldParentPtr(Defer, "base", n);
-                    return defer_node.expr.id != Id.Block;
+                    return defer_node.expr.id != .Block;
                 },
-                Id.Comptime => {
+                .Comptime => {
                     const comptime_node = @fieldParentPtr(Comptime, "base", n);
-                    return comptime_node.expr.id != Id.Block;
+                    return comptime_node.expr.id != .Block;
                 },
-                Id.Suspend => {
+                .Suspend => {
                     const suspend_node = @fieldParentPtr(Suspend, "base", n);
                     if (suspend_node.body) |body| {
-                        return body.id != Id.Block;
+                        return body.id != .Block;
                     }
 
                     return true;
+                },
+                .Noasync => {
+                    const noasync_node = @fieldParentPtr(Noasync, "base", n);
+                    return noasync_node.expr.id != .Block;
                 },
                 else => return true,
             }
@@ -1081,6 +1086,29 @@ pub const Node = struct {
         }
     };
 
+    pub const Noasync = struct {
+        base: Node = Node{ .id = .Noasync },
+        noasync_token: TokenIndex,
+        expr: *Node,
+
+        pub fn iterate(self: *Noasync, index: usize) ?*Node {
+            var i = index;
+
+            if (i < 1) return self.expr;
+            i -= 1;
+
+            return null;
+        }
+
+        pub fn firstToken(self: *const Noasync) TokenIndex {
+            return self.noasync_token;
+        }
+
+        pub fn lastToken(self: *const Noasync) TokenIndex {
+            return self.expr.lastToken();
+        }
+    };
+
     pub const Payload = struct {
         base: Node = Node{ .id = .Payload },
         lpipe: TokenIndex,
@@ -1563,9 +1591,7 @@ pub const Node = struct {
         pub const Op = union(enum) {
             AddressOf,
             ArrayType: ArrayInfo,
-            Await: struct {
-                noasync_token: ?TokenIndex = null,
-            },
+            Await,
             BitNot,
             BoolNot,
             Cancel,

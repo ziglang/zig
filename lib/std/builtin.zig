@@ -436,19 +436,17 @@ pub const Version = struct {
         self: Version,
         comptime fmt: []const u8,
         options: std.fmt.FormatOptions,
-        context: var,
-        comptime Error: type,
-        comptime output: fn (@TypeOf(context), []const u8) Error!void,
-    ) Error!void {
+        out_stream: var,
+    ) !void {
         if (fmt.len == 0) {
             if (self.patch == 0) {
                 if (self.minor == 0) {
-                    return std.fmt.format(context, Error, output, "{}", .{self.major});
+                    return std.fmt.format(out_stream, "{}", .{self.major});
                 } else {
-                    return std.fmt.format(context, Error, output, "{}.{}", .{ self.major, self.minor });
+                    return std.fmt.format(out_stream, "{}.{}", .{ self.major, self.minor });
                 }
             } else {
-                return std.fmt.format(context, Error, output, "{}.{}.{}", .{ self.major, self.minor, self.patch });
+                return std.fmt.format(out_stream, "{}.{}.{}", .{ self.major, self.minor, self.patch });
             }
         } else {
             @compileError("Unknown format string: '" ++ fmt ++ "'");

@@ -1,16 +1,17 @@
 const uefi = @import("std").os.uefi;
 const Handle = uefi.Handle;
 const Guid = uefi.Guid;
+const Status = uefi.Status;
 
 pub const Ip6ServiceBindingProtocol = extern struct {
-    _create_child: extern fn (*const Ip6ServiceBindingProtocol, *?Handle) usize,
-    _destroy_child: extern fn (*const Ip6ServiceBindingProtocol, Handle) usize,
+    _create_child: extern fn (*const Ip6ServiceBindingProtocol, *?Handle) Status,
+    _destroy_child: extern fn (*const Ip6ServiceBindingProtocol, Handle) Status,
 
-    pub fn createChild(self: *const Ip6ServiceBindingProtocol, handle: *?Handle) usize {
+    pub fn createChild(self: *const Ip6ServiceBindingProtocol, handle: *?Handle) Status {
         return self._create_child(self, handle);
     }
 
-    pub fn destroyChild(self: *const Ip6ServiceBindingProtocol, handle: Handle) usize {
+    pub fn destroyChild(self: *const Ip6ServiceBindingProtocol, handle: Handle) Status {
         return self._destroy_child(self, handle);
     }
 

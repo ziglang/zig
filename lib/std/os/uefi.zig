@@ -2,10 +2,8 @@
 pub const protocols = @import("uefi/protocols.zig");
 
 /// Status codes returned by EFI interfaces
-pub const status = @import("uefi/status.zig");
+pub const Status = @import("uefi/status.zig").Status;
 pub const tables = @import("uefi/tables.zig");
-
-const fmt = @import("std").fmt;
 
 /// The EFI image's handle that is passed to its entry point.
 pub var handle: Handle = undefined;
@@ -29,13 +27,11 @@ pub const Guid = extern struct {
     pub fn format(
         self: @This(),
         comptime f: []const u8,
-        options: fmt.FormatOptions,
-        context: var,
-        comptime Errors: type,
-        output: fn (@TypeOf(context), []const u8) Errors!void,
+        options: std.fmt.FormatOptions,
+        out_stream: var,
     ) Errors!void {
         if (f.len == 0) {
-            return fmt.format(context, Errors, output, "{x:0>8}-{x:0>4}-{x:0>4}-{x:0>2}{x:0>2}-{x:0>12}", .{
+            return std.fmt.format(out_stream, "{x:0>8}-{x:0>4}-{x:0>4}-{x:0>2}{x:0>2}-{x:0>12}", .{
                 self.time_low,
                 self.time_mid,
                 self.time_high_and_version,
@@ -105,3 +101,6 @@ pub const TimeCapabilities = extern struct {
     /// If true, a time set operation clears the device's time below the resolution level.
     sets_to_zero: bool,
 };
+
+/// File Handle as specified in the EFI Shell Spec
+pub const FileHandle = *@OpaqueType();

@@ -62,6 +62,10 @@ int lio_listio(int, struct aiocb *__restrict const *__restrict, int, struct sige
 #define off64_t off_t
 #endif
 
+#if _REDIR_TIME64
+__REDIR(aio_suspend, __aio_suspend_time64);
+#endif
+
 #ifdef __cplusplus
 }
 #endif

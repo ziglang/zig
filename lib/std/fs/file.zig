@@ -71,7 +71,7 @@ pub const File = struct {
         if (need_async_thread and self.io_mode == .blocking and !self.async_block_allowed) {
             std.event.Loop.instance.?.close(self.handle);
         } else {
-            return os.close(self.handle);
+            os.close(self.handle);
         }
     }
 
@@ -97,6 +97,14 @@ pub const File = struct {
             return true;
         }
         return false;
+    }
+
+    pub const SetEndPosError = os.TruncateError;
+
+    /// Shrinks or expands the file.
+    /// The file offset after this call is left unchanged.
+    pub fn setEndPos(self: File, length: u64) SetEndPosError!void {
+        try os.ftruncate(self.handle, length);
     }
 
     pub const SeekError = os.SeekError;
@@ -145,6 +153,16 @@ pub const File = struct {
     }
 
     pub const Stat = struct {
+        /// A number that the system uses to point to the file metadata. This number is not guaranteed to be
+        /// unique across time, as some file systems may reuse an inode after it's file has been deleted.
+        /// Some systems may change the inode of a file over time.
+        ///
+        /// On Linux, the inode _is_ structure that stores the metadata, and the inode _number_ is what
+        /// you see here: the index number of the inode.
+        ///
+        /// The FileIndex on Windows is similar. It is a number for a file that is unique to each filesystem.
+        inode: os.ino_t,
+
         size: u64,
         mode: Mode,
 
@@ -174,6 +192,7 @@ pub const File = struct {
                 else => return windows.unexpectedStatus(rc),
             }
             return Stat{
+                .inode = info.InternalInformation.IndexNumber,
                 .size = @bitCast(u64, info.StandardInformation.EndOfFile),
                 .mode = 0,
                 .atime = windows.fromSysTime(info.BasicInformation.LastAccessTime),
@@ -187,6 +206,7 @@ pub const File = struct {
         const mtime = st.mtime();
         const ctime = st.ctime();
         return Stat{
+            .inode = st.ino,
             .size = @bitCast(u64, st.size),
             .mode = st.mode,
             .atime = @as(i64, atime.tv_sec) * std.time.ns_per_s + atime.tv_nsec,
@@ -238,11 +258,16 @@ pub const File = struct {
         }
     }
 
-    pub fn readAll(self: File, buffer: []u8) ReadError!void {
+    /// Returns the number of bytes read. If the number read is smaller than `buffer.len`, it
+    /// means the file reached the end. Reaching the end of a file is not an error condition.
+    pub fn readAll(self: File, buffer: []u8) ReadError!usize {
         var index: usize = 0;
-        while (index < buffer.len) {
-            index += try self.read(buffer[index..]);
+        while (index != buffer.len) {
+            const amt = try self.read(buffer[index..]);
+            if (amt == 0) break;
+            index += amt;
         }
+        return index;
     }
 
     pub fn pread(self: File, buffer: []u8, offset: u64) PReadError!usize {
@@ -253,11 +278,16 @@ pub const File = struct {
         }
     }
 
-    pub fn preadAll(self: File, buffer: []u8, offset: u64) PReadError!void {
+    /// Returns the number of bytes read. If the number read is smaller than `buffer.len`, it
+    /// means the file reached the end. Reaching the end of a file is not an error condition.
+    pub fn preadAll(self: File, buffer: []u8, offset: u64) PReadError!usize {
         var index: usize = 0;
-        while (index < buffer.len) {
-            index += try self.pread(buffer[index..], offset + index);
+        while (index != buffer.len) {
+            const amt = try self.pread(buffer[index..], offset + index);
+            if (amt == 0) break;
+            index += amt;
         }
+        return index;
     }
 
     pub fn readv(self: File, iovecs: []const os.iovec) ReadError!usize {
@@ -268,19 +298,27 @@ pub const File = struct {
         }
     }
 
+    /// Returns the number of bytes read. If the number read is smaller than the total bytes
+    /// from all the buffers, it means the file reached the end. Reaching the end of a file
+    /// is not an error condition.
     /// The `iovecs` parameter is mutable because this function needs to mutate the fields in
     /// order to handle partial reads from the underlying OS layer.
-    pub fn readvAll(self: File, iovecs: []os.iovec) ReadError!void {
+    pub fn readvAll(self: File, iovecs: []os.iovec) ReadError!usize {
         if (iovecs.len == 0) return;
 
         var i: usize = 0;
+        var off: usize = 0;
         while (true) {
             var amt = try self.readv(iovecs[i..]);
+            var eof = amt == 0;
+            off += amt;
             while (amt >= iovecs[i].iov_len) {
                 amt -= iovecs[i].iov_len;
                 i += 1;
-                if (i >= iovecs.len) return;
+                if (i >= iovecs.len) return off;
+                eof = false;
             }
+            if (eof) return off;
             iovecs[i].iov_base += amt;
             iovecs[i].iov_len -= amt;
         }
@@ -294,6 +332,9 @@ pub const File = struct {
         }
     }
 
+    /// Returns the number of bytes read. If the number read is smaller than the total bytes
+    /// from all the buffers, it means the file reached the end. Reaching the end of a file
+    /// is not an error condition.
     /// The `iovecs` parameter is mutable because this function needs to mutate the fields in
     /// order to handle partial reads from the underlying OS layer.
     pub fn preadvAll(self: File, iovecs: []const os.iovec, offset: u64) PReadError!void {
@@ -303,12 +344,15 @@ pub const File = struct {
         var off: usize = 0;
         while (true) {
             var amt = try self.preadv(iovecs[i..], offset + off);
+            var eof = amt == 0;
             off += amt;
             while (amt >= iovecs[i].iov_len) {
                 amt -= iovecs[i].iov_len;
                 i += 1;
-                if (i >= iovecs.len) return;
+                if (i >= iovecs.len) return off;
+                eof = false;
             }
+            if (eof) return off;
             iovecs[i].iov_base += amt;
             iovecs[i].iov_len -= amt;
         }
@@ -484,85 +528,29 @@ pub const File = struct {
         }
     }
 
-    pub fn inStream(file: File) InStream {
-        return InStream{
-            .file = file,
-            .stream = InStream.Stream{ .readFn = InStream.readFn },
-        };
+    pub const InStream = io.InStream(File, ReadError, read);
+
+    pub fn inStream(file: File) io.InStream(File, ReadError, read) {
+        return .{ .context = file };
     }
+
+    pub const OutStream = io.OutStream(File, WriteError, write);
 
     pub fn outStream(file: File) OutStream {
-        return OutStream{
-            .file = file,
-            .stream = OutStream.Stream{ .writeFn = OutStream.writeFn },
-        };
+        return .{ .context = file };
     }
+
+    pub const SeekableStream = io.SeekableStream(
+        File,
+        SeekError,
+        GetPosError,
+        seekTo,
+        seekBy,
+        getPos,
+        getEndPos,
+    );
 
     pub fn seekableStream(file: File) SeekableStream {
-        return SeekableStream{
-            .file = file,
-            .stream = SeekableStream.Stream{
-                .seekToFn = SeekableStream.seekToFn,
-                .seekByFn = SeekableStream.seekByFn,
-                .getPosFn = SeekableStream.getPosFn,
-                .getEndPosFn = SeekableStream.getEndPosFn,
-            },
-        };
+        return .{ .context = file };
     }
-
-    /// Implementation of io.InStream trait for File
-    pub const InStream = struct {
-        file: File,
-        stream: Stream,
-
-        pub const Error = ReadError;
-        pub const Stream = io.InStream(Error);
-
-        fn readFn(in_stream: *Stream, buffer: []u8) Error!usize {
-            const self = @fieldParentPtr(InStream, "stream", in_stream);
-            return self.file.read(buffer);
-        }
-    };
-
-    /// Implementation of io.OutStream trait for File
-    pub const OutStream = struct {
-        file: File,
-        stream: Stream,
-
-        pub const Error = WriteError;
-        pub const Stream = io.OutStream(Error);
-
-        fn writeFn(out_stream: *Stream, bytes: []const u8) Error!usize {
-            const self = @fieldParentPtr(OutStream, "stream", out_stream);
-            return self.file.write(bytes);
-        }
-    };
-
-    /// Implementation of io.SeekableStream trait for File
-    pub const SeekableStream = struct {
-        file: File,
-        stream: Stream,
-
-        pub const Stream = io.SeekableStream(SeekError, GetPosError);
-
-        pub fn seekToFn(seekable_stream: *Stream, pos: u64) SeekError!void {
-            const self = @fieldParentPtr(SeekableStream, "stream", seekable_stream);
-            return self.file.seekTo(pos);
-        }
-
-        pub fn seekByFn(seekable_stream: *Stream, amt: i64) SeekError!void {
-            const self = @fieldParentPtr(SeekableStream, "stream", seekable_stream);
-            return self.file.seekBy(amt);
-        }
-
-        pub fn getEndPosFn(seekable_stream: *Stream) GetPosError!u64 {
-            const self = @fieldParentPtr(SeekableStream, "stream", seekable_stream);
-            return self.file.getEndPos();
-        }
-
-        pub fn getPosFn(seekable_stream: *Stream) GetPosError!u64 {
-            const self = @fieldParentPtr(SeekableStream, "stream", seekable_stream);
-            return self.file.getPos();
-        }
-    };
 };

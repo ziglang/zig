@@ -16,6 +16,7 @@ extern "C" {
 
 struct utmpx {
 	short ut_type;
+	short __ut_pad1;
 	pid_t ut_pid;
 	char ut_line[32];
 	char ut_id[4];
@@ -25,7 +26,11 @@ struct utmpx {
 		short __e_termination;
 		short __e_exit;
 	} ut_exit;
-	long ut_session;
+#if __BYTE_ORDER == 1234
+	int ut_session, __ut_pad2;
+#else
+	int __ut_pad2, ut_session;
+#endif
 	struct timeval ut_tv;
 	unsigned ut_addr_v6[4];
 	char __unused[20];

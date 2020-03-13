@@ -76,8 +76,8 @@
 #define __NR_setrlimit		 75
 #define __NR_getrlimit		 76   /* Back compatible 2Gig limited rlimit */
 #define __NR_getrusage		 77
-#define __NR_gettimeofday	 78
-#define __NR_settimeofday	 79
+#define __NR_gettimeofday_time32	 78
+#define __NR_settimeofday_time32	 79
 #define __NR_getgroups		 80
 #define __NR_setgroups		 81
 #define __NR_select		 82
@@ -257,14 +257,14 @@
 #define __NR_remap_file_pages	257
 #define __NR_set_tid_address	258
 #define __NR_timer_create	259
-#define __NR_timer_settime	(__NR_timer_create+1)
-#define __NR_timer_gettime	(__NR_timer_create+2)
+#define __NR_timer_settime32	(__NR_timer_create+1)
+#define __NR_timer_gettime32	(__NR_timer_create+2)
 #define __NR_timer_getoverrun	(__NR_timer_create+3)
 #define __NR_timer_delete	(__NR_timer_create+4)
-#define __NR_clock_settime	(__NR_timer_create+5)
-#define __NR_clock_gettime	(__NR_timer_create+6)
-#define __NR_clock_getres	(__NR_timer_create+7)
-#define __NR_clock_nanosleep	(__NR_timer_create+8)
+#define __NR_clock_settime32	(__NR_timer_create+5)
+#define __NR_clock_gettime32	(__NR_timer_create+6)
+#define __NR_clock_getres_time32	(__NR_timer_create+7)
+#define __NR_clock_nanosleep_time32	(__NR_timer_create+8)
 #define __NR_statfs64		268
 #define __NR_fstatfs64		269
 #define __NR_tgkill		270
@@ -322,8 +322,8 @@
 #define __NR_timerfd_create	322
 #define __NR_eventfd		323
 #define __NR_fallocate		324
-#define __NR_timerfd_settime	325
-#define __NR_timerfd_gettime	326
+#define __NR_timerfd_settime32	325
+#define __NR_timerfd_gettime32	326
 #define __NR_signalfd4		327
 #define __NR_eventfd2		328
 #define __NR_epoll_create1	329
@@ -424,6 +424,8 @@
 #define __NR_fsconfig		431
 #define __NR_fsmount		432
 #define __NR_fspick		433
+#define __NR_pidfd_open		434
+#define __NR_clone3		435
 
 #define SYS_restart_syscall      0
 #define SYS_exit		  1
@@ -503,8 +505,8 @@
 #define SYS_setrlimit		 75
 #define SYS_getrlimit		 76   /* Back compatible 2Gig limited rlimit */
 #define SYS_getrusage		 77
-#define SYS_gettimeofday	 78
-#define SYS_settimeofday	 79
+#define SYS_gettimeofday_time32	 78
+#define SYS_settimeofday_time32	 79
 #define SYS_getgroups		 80
 #define SYS_setgroups		 81
 #define SYS_select		 82
@@ -682,14 +684,14 @@
 #define SYS_remap_file_pages	257
 #define SYS_set_tid_address	258
 #define SYS_timer_create	259
-#define SYS_timer_settime	(__NR_timer_create+1)
-#define SYS_timer_gettime	(__NR_timer_create+2)
+#define SYS_timer_settime32	(__NR_timer_create+1)
+#define SYS_timer_gettime32	(__NR_timer_create+2)
 #define SYS_timer_getoverrun	(__NR_timer_create+3)
 #define SYS_timer_delete	(__NR_timer_create+4)
-#define SYS_clock_settime	(__NR_timer_create+5)
-#define SYS_clock_gettime	(__NR_timer_create+6)
-#define SYS_clock_getres	(__NR_timer_create+7)
-#define SYS_clock_nanosleep	(__NR_timer_create+8)
+#define SYS_clock_settime32	(__NR_timer_create+5)
+#define SYS_clock_gettime32	(__NR_timer_create+6)
+#define SYS_clock_getres_time32	(__NR_timer_create+7)
+#define SYS_clock_nanosleep_time32	(__NR_timer_create+8)
 #define SYS_statfs64		268
 #define SYS_fstatfs64		269
 #define SYS_tgkill		270
@@ -747,8 +749,8 @@
 #define SYS_timerfd_create	322
 #define SYS_eventfd		323
 #define SYS_fallocate		324
-#define SYS_timerfd_settime	325
-#define SYS_timerfd_gettime	326
+#define SYS_timerfd_settime32	325
+#define SYS_timerfd_gettime32	326
 #define SYS_signalfd4		327
 #define SYS_eventfd2		328
 #define SYS_epoll_create1	329
@@ -849,3 +851,5 @@
 #define SYS_fsconfig		431
 #define SYS_fsmount		432
 #define SYS_fspick		433
+#define SYS_pidfd_open		434
+#define SYS_clone3		435

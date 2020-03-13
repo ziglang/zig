@@ -1,19 +1,19 @@
 struct msqid_ds {
 	struct ipc_perm msg_perm;
 #if _MIPSEL || __MIPSEL || __MIPSEL__
-	time_t msg_stime;
-	int __unused1;
-	time_t msg_rtime;
-	int __unused2;
-	time_t msg_ctime;
-	int __unused3;
+	unsigned long __msg_stime_lo;
+	unsigned long __msg_stime_hi;
+	unsigned long __msg_rtime_lo;
+	unsigned long __msg_rtime_hi;
+	unsigned long __msg_ctime_lo;
+	unsigned long __msg_ctime_hi;
 #else
-	int __unused1;
-	time_t msg_stime;
-	int __unused2;
-	time_t msg_rtime;
-	int __unused3;
-	time_t msg_ctime;
+	unsigned long __msg_stime_hi;
+	unsigned long __msg_stime_lo;
+	unsigned long __msg_rtime_hi;
+	unsigned long __msg_rtime_lo;
+	unsigned long __msg_ctime_hi;
+	unsigned long __msg_ctime_lo;
 #endif
 	unsigned long msg_cbytes;
 	msgqnum_t msg_qnum;
@@ -21,4 +21,7 @@ struct msqid_ds {
 	pid_t msg_lspid;
 	pid_t msg_lrpid;
 	unsigned long __unused[2];
+	time_t msg_stime;
+	time_t msg_rtime;
+	time_t msg_ctime;
 };

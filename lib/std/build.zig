@@ -926,8 +926,7 @@ pub const Builder = struct {
 
         try child.spawn();
 
-        var stdout_file_in_stream = child.stdout.?.inStream();
-        const stdout = try stdout_file_in_stream.stream.readAllAlloc(self.allocator, max_output_size);
+        const stdout = try child.stdout.?.inStream().readAllAlloc(self.allocator, max_output_size);
         errdefer self.allocator.free(stdout);
 
         const term = try child.wait();

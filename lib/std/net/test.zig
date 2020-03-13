@@ -113,6 +113,6 @@ fn testClient(addr: net.Address) anyerror!void {
 fn testServer(server: *net.StreamServer) anyerror!void {
     var client = try server.accept();
 
-    const stream = &client.file.outStream().stream;
+    const stream = client.file.outStream();
     try stream.print("hello from server\n", .{});
 }

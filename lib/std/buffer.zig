@@ -65,13 +65,9 @@ pub const Buffer = struct {
     }
 
     pub fn allocPrint(allocator: *Allocator, comptime format: []const u8, args: var) !Buffer {
-        const countSize = struct {
-            fn countSize(size: *usize, bytes: []const u8) (error{}!void) {
-                size.* += bytes.len;
-            }
-        }.countSize;
-        var size: usize = 0;
-        std.fmt.format(&size, error{}, countSize, format, args) catch |err| switch (err) {};
+        const size = std.math.cast(usize, std.fmt.count(format, args)) catch |err| switch (err) {
+            error.Overflow => return error.OutOfMemory,
+        };
         var self = try Buffer.initSize(allocator, size);
         assert((std.fmt.bufPrint(self.list.items, format, args) catch unreachable).len == size);
         return self;
@@ -154,8 +150,15 @@ pub const Buffer = struct {
         mem.copy(u8, self.list.toSlice(), m);
     }
 
-    pub fn print(self: *Buffer, comptime fmt: []const u8, args: var) !void {
-        return std.fmt.format(self, error{OutOfMemory}, Buffer.append, fmt, args);
+    pub fn outStream(self: *Buffer) std.io.OutStream(*Buffer, error{OutOfMemory}, appendWrite) {
+        return .{ .context = self };
+    }
+
+    /// Same as `append` except it returns the number of bytes written, which is always the same
+    /// as `m.len`. The purpose of this function existing is to match `std.io.OutStream` API.
+    pub fn appendWrite(self: *Buffer, m: []const u8) !usize {
+        try self.append(m);
+        return m.len;
     }
 };
 
@@ -205,6 +208,18 @@ test "Buffer.print" {
     var buf = try Buffer.init(testing.allocator, "");
     defer buf.deinit();
 
-    try buf.print("Hello {} the {}", .{ 2, "world" });
+    try buf.outStream().print("Hello {} the {}", .{ 2, "world" });
     testing.expect(buf.eql("Hello 2 the world"));
+}
+
+test "Buffer.outStream" {
+    var buffer = try Buffer.initSize(testing.allocator, 0);
+    defer buffer.deinit();
+    const buf_stream = buffer.outStream();
+
+    const x: i32 = 42;
+    const y: i32 = 1234;
+    try buf_stream.print("x: {}\ny: {}\n", .{ x, y });
+
+    testing.expect(mem.eql(u8, buffer.toSlice(), "x: 42\ny: 1234\n"));
 }

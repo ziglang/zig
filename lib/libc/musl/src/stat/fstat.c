@@ -10,4 +10,6 @@ int fstat(int fd, struct stat *st)
 	return fstatat(fd, "", st, AT_EMPTY_PATH);
 }
 
+#if !_REDIR_TIME64
 weak_alias(fstat, fstat64);
+#endif

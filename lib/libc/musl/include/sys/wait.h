@@ -13,7 +13,8 @@ extern "C" {
 typedef enum {
 	P_ALL = 0,
 	P_PID = 1,
-	P_PGID = 2
+	P_PGID = 2,
+	P_PIDFD = 3
 } idtype_t;
 
 pid_t wait (int *);
@@ -52,6 +53,13 @@ pid_t wait4 (pid_t, int *, int, struct rusage *);
 #define WIFSTOPPED(s) ((short)((((s)&0xffff)*0x10001)>>8) > 0x7f00)
 #define WIFSIGNALED(s) (((s)&0xffff)-1U < 0xffu)
 #define WIFCONTINUED(s) ((s) == 0xffff)
+
+#if _REDIR_TIME64
+#if defined(_GNU_SOURCE) || defined(_BSD_SOURCE)
+__REDIR(wait3, __wait3_time64);
+__REDIR(wait4, __wait4_time64);
+#endif
+#endif
 
 #ifdef __cplusplus
 }

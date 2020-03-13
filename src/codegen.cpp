@@ -686,6 +686,7 @@ static ZigLLVMDIScope *get_di_scope(CodeGen *g, Scope *scope) {
         case ScopeIdLoop:
         case ScopeIdSuspend:
         case ScopeIdCompTime:
+        case ScopeIdNoAsync:
         case ScopeIdRuntime:
         case ScopeIdTypeOf:
         case ScopeIdExpr:
@@ -967,11 +968,13 @@ static Buf *panic_msg_buf(PanicMsgId msg_id) {
         case PanicMsgIdResumedFnPendingAwait:
             return buf_create_from_str("resumed an async function which can only be awaited");
         case PanicMsgIdBadNoAsyncCall:
-            return buf_create_from_str("async function called with noasync suspended");
+            return buf_create_from_str("async function called in noasync scope suspended");
         case PanicMsgIdResumeNotSuspendedFn:
             return buf_create_from_str("resumed a non-suspended function");
         case PanicMsgIdBadSentinel:
             return buf_create_from_str("sentinel mismatch");
+        case PanicMsgIdShxTooBigRhs:
+            return buf_create_from_str("shift amount is greater than the type size");
     }
     zig_unreachable();
 }
@@ -2836,6 +2839,26 @@ static LLVMValueRef gen_rem(CodeGen *g, bool want_runtime_safety, bool want_fast
 
 }
 
+static void gen_shift_rhs_check(CodeGen *g, ZigType *lhs_type, ZigType *rhs_type, LLVMValueRef value) {
+    // We only check if the rhs value of the shift expression is greater or
+    // equal to the number of bits of the lhs if it's not a power of two,
+    // otherwise the check is useful as the allowed values are limited by the
+    // operand type itself
+    if (!is_power_of_2(lhs_type->data.integral.bit_count)) {
+        LLVMValueRef bit_count_value = LLVMConstInt(get_llvm_type(g, rhs_type),
+            lhs_type->data.integral.bit_count, false);
+        LLVMValueRef less_than_bit = LLVMBuildICmp(g->builder, LLVMIntULT, value, bit_count_value, "");
+        LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn_val, "CheckFail");
+        LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "CheckOk");
+        LLVMBuildCondBr(g->builder, less_than_bit, ok_block, fail_block);
+
+        LLVMPositionBuilderAtEnd(g->builder, fail_block);
+        gen_safety_crash(g, PanicMsgIdShxTooBigRhs);
+
+        LLVMPositionBuilderAtEnd(g->builder, ok_block);
+    }
+}
+
 static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutableGen *executable,
         IrInstGenBinOp *bin_op_instruction)
 {
@@ -2944,6 +2967,11 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutableGen *executable,
             {
                 assert(scalar_type->id == ZigTypeIdInt);
                 LLVMValueRef op2_casted = gen_widen_or_shorten(g, false, op2->value->type, scalar_type, op2_value);
+
+                if (want_runtime_safety) {
+                    gen_shift_rhs_check(g, scalar_type, op2->value->type, op2_value);
+                }
+
                 bool is_sloppy = (op_id == IrBinOpBitShiftLeftLossy);
                 if (is_sloppy) {
                     return LLVMBuildShl(g->builder, op1_value, op2_casted, "");
@@ -2960,6 +2988,11 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutableGen *executable,
             {
                 assert(scalar_type->id == ZigTypeIdInt);
                 LLVMValueRef op2_casted = gen_widen_or_shorten(g, false, op2->value->type, scalar_type, op2_value);
+
+                if (want_runtime_safety) {
+                    gen_shift_rhs_check(g, scalar_type, op2->value->type, op2_value);
+                }
+
                 bool is_sloppy = (op_id == IrBinOpBitShiftRightLossy);
                 if (is_sloppy) {
                     if (scalar_type->data.integral.is_signed) {
@@ -3930,6 +3963,7 @@ static void render_async_var_decls(CodeGen *g, Scope *scope) {
             case ScopeIdLoop:
             case ScopeIdSuspend:
             case ScopeIdCompTime:
+            case ScopeIdNoAsync:
             case ScopeIdRuntime:
             case ScopeIdTypeOf:
             case ScopeIdExpr:
@@ -5212,10 +5246,54 @@ static enum ZigLLVM_AtomicRMWBinOp to_ZigLLVMAtomicRMWBinOp(AtomicRmwOp op, bool
     zig_unreachable();
 }
 
+static LLVMTypeRef get_atomic_abi_type(CodeGen *g, IrInstGen *instruction) {
+    // If the operand type of an atomic operation is not a power of two sized
+    // we need to widen it before using it and then truncate the result.
+
+    ir_assert(instruction->value->type->id == ZigTypeIdPointer, instruction);
+    ZigType *operand_type = instruction->value->type->data.pointer.child_type;
+    if (operand_type->id == ZigTypeIdInt || operand_type->id == ZigTypeIdEnum) {
+        if (operand_type->id == ZigTypeIdEnum) {
+            operand_type = operand_type->data.enumeration.tag_int_type;
+        }
+        auto bit_count = operand_type->data.integral.bit_count;
+        bool is_signed = operand_type->data.integral.is_signed;
+        
+        ir_assert(bit_count != 0, instruction);
+        if (bit_count == 1 || !is_power_of_2(bit_count)) {
+            return get_llvm_type(g, get_int_type(g, is_signed, operand_type->abi_size * 8));
+        } else {
+            return nullptr;
+        }
+    } else if (operand_type->id == ZigTypeIdFloat) {
+        return nullptr;
+    } else if (operand_type->id == ZigTypeIdBool) {
+        return g->builtin_types.entry_u8->llvm_type;
+    } else {
+        ir_assert(get_codegen_ptr_type_bail(g, operand_type) != nullptr, instruction);
+        return nullptr;
+    }
+}
+
 static LLVMValueRef ir_render_cmpxchg(CodeGen *g, IrExecutableGen *executable, IrInstGenCmpxchg *instruction) {
     LLVMValueRef ptr_val = ir_llvm_value(g, instruction->ptr);
     LLVMValueRef cmp_val = ir_llvm_value(g, instruction->cmp_value);
     LLVMValueRef new_val = ir_llvm_value(g, instruction->new_value);
+
+    ZigType *operand_type = instruction->new_value->value->type;
+    LLVMTypeRef actual_abi_type = get_atomic_abi_type(g, instruction->ptr);
+    if (actual_abi_type != nullptr) {
+        // operand needs widening and truncating
+        ptr_val = LLVMBuildBitCast(g->builder, ptr_val,
+            LLVMPointerType(actual_abi_type, 0), "");
+        if (operand_type->data.integral.is_signed) {
+            cmp_val = LLVMBuildSExt(g->builder, cmp_val, actual_abi_type, "");
+            new_val = LLVMBuildSExt(g->builder, new_val, actual_abi_type, "");
+        } else {
+            cmp_val = LLVMBuildZExt(g->builder, cmp_val, actual_abi_type, "");
+            new_val = LLVMBuildZExt(g->builder, new_val, actual_abi_type, "");
+        }
+    }
 
     LLVMAtomicOrdering success_order = to_LLVMAtomicOrdering(instruction->success_order);
     LLVMAtomicOrdering failure_order = to_LLVMAtomicOrdering(instruction->failure_order);
@@ -5229,6 +5307,9 @@ static LLVMValueRef ir_render_cmpxchg(CodeGen *g, IrExecutableGen *executable, I
 
     if (!handle_is_ptr(g, optional_type)) {
         LLVMValueRef payload_val = LLVMBuildExtractValue(g->builder, result_val, 0, "");
+        if (actual_abi_type != nullptr) {
+            payload_val = LLVMBuildTrunc(g->builder, payload_val, get_llvm_type(g, operand_type), "");
+        }
         LLVMValueRef success_bit = LLVMBuildExtractValue(g->builder, result_val, 1, "");
         return LLVMBuildSelect(g->builder, success_bit, LLVMConstNull(get_llvm_type(g, child_type)), payload_val, "");
     }
@@ -5243,6 +5324,9 @@ static LLVMValueRef ir_render_cmpxchg(CodeGen *g, IrExecutableGen *executable, I
     ir_assert(type_has_bits(g, child_type), &instruction->base);
 
     LLVMValueRef payload_val = LLVMBuildExtractValue(g->builder, result_val, 0, "");
+    if (actual_abi_type != nullptr) {
+        payload_val = LLVMBuildTrunc(g->builder, payload_val, get_llvm_type(g, operand_type), "");
+    }
     LLVMValueRef val_ptr = LLVMBuildStructGEP(g->builder, result_loc, maybe_child_index, "");
     gen_assign_raw(g, val_ptr, get_pointer_to_type(g, child_type, false), payload_val);
 
@@ -5820,6 +5904,22 @@ static LLVMValueRef ir_render_atomic_rmw(CodeGen *g, IrExecutableGen *executable
     LLVMValueRef ptr = ir_llvm_value(g, instruction->ptr);
     LLVMValueRef operand = ir_llvm_value(g, instruction->operand);
 
+    LLVMTypeRef actual_abi_type = get_atomic_abi_type(g, instruction->ptr);
+    if (actual_abi_type != nullptr) {
+        // operand needs widening and truncating
+        LLVMValueRef casted_ptr = LLVMBuildBitCast(g->builder, ptr,
+            LLVMPointerType(actual_abi_type, 0), "");
+        LLVMValueRef casted_operand;
+        if (operand_type->data.integral.is_signed) {
+            casted_operand = LLVMBuildSExt(g->builder, operand, actual_abi_type, "");
+        } else {
+            casted_operand = LLVMBuildZExt(g->builder, operand, actual_abi_type, "");
+        }
+        LLVMValueRef uncasted_result = ZigLLVMBuildAtomicRMW(g->builder, op, casted_ptr, casted_operand, ordering,
+                g->is_single_threaded);
+        return LLVMBuildTrunc(g->builder, uncasted_result, get_llvm_type(g, operand_type), "");
+    }
+
     if (get_codegen_ptr_type_bail(g, operand_type) == nullptr) {
         return ZigLLVMBuildAtomicRMW(g->builder, op, ptr, operand, ordering, g->is_single_threaded);
     }
@@ -5838,6 +5938,17 @@ static LLVMValueRef ir_render_atomic_load(CodeGen *g, IrExecutableGen *executabl
 {
     LLVMAtomicOrdering ordering = to_LLVMAtomicOrdering(instruction->ordering);
     LLVMValueRef ptr = ir_llvm_value(g, instruction->ptr);
+
+    ZigType *operand_type = instruction->ptr->value->type->data.pointer.child_type;
+    LLVMTypeRef actual_abi_type = get_atomic_abi_type(g, instruction->ptr);
+    if (actual_abi_type != nullptr) {
+        // operand needs widening and truncating
+        ptr = LLVMBuildBitCast(g->builder, ptr,
+                LLVMPointerType(actual_abi_type, 0), "");
+        LLVMValueRef load_inst = gen_load(g, ptr, instruction->ptr->value->type, "");
+        LLVMSetOrdering(load_inst, ordering);
+        return LLVMBuildTrunc(g->builder, load_inst, get_llvm_type(g, operand_type), "");
+    }
     LLVMValueRef load_inst = gen_load(g, ptr, instruction->ptr->value->type, "");
     LLVMSetOrdering(load_inst, ordering);
     return load_inst;
@@ -5849,6 +5960,18 @@ static LLVMValueRef ir_render_atomic_store(CodeGen *g, IrExecutableGen *executab
     LLVMAtomicOrdering ordering = to_LLVMAtomicOrdering(instruction->ordering);
     LLVMValueRef ptr = ir_llvm_value(g, instruction->ptr);
     LLVMValueRef value = ir_llvm_value(g, instruction->value);
+
+    LLVMTypeRef actual_abi_type = get_atomic_abi_type(g, instruction->ptr);
+    if (actual_abi_type != nullptr) {
+        // operand needs widening
+        ptr = LLVMBuildBitCast(g->builder, ptr,
+                LLVMPointerType(actual_abi_type, 0), "");
+        if (instruction->value->value->type->data.integral.is_signed) {
+            value = LLVMBuildSExt(g->builder, value, actual_abi_type, "");
+        } else {
+            value = LLVMBuildZExt(g->builder, value, actual_abi_type, "");
+        }
+    }
     LLVMValueRef store_inst = gen_store(g, value, ptr, instruction->ptr->value->type);
     LLVMSetOrdering(store_inst, ordering);
     return nullptr;
@@ -6895,8 +7018,18 @@ check: switch (const_val->special) {
         case ZigTypeIdOptional:
             {
                 ZigType *child_type = type_entry->data.maybe.child_type;
+
                 if (get_src_ptr_type(type_entry) != nullptr) {
-                    return gen_const_val_ptr(g, const_val, name);
+                    bool has_bits;
+                    if ((err = type_has_bits2(g, child_type, &has_bits)))
+                        codegen_report_errors_and_exit(g);
+
+                    if (has_bits)
+                        return gen_const_val_ptr(g, const_val, name);
+
+                    // No bits, treat this value as a boolean
+                    const unsigned bool_val = optional_value_is_null(const_val) ? 0 : 1;
+                    return LLVMConstInt(LLVMInt1Type(), bool_val, false);
                 } else if (child_type->id == ZigTypeIdErrorSet) {
                     return gen_const_val_err_set(g, const_val, name);
                 } else if (!type_has_bits(g, child_type)) {
@@ -8614,7 +8747,7 @@ static Error define_builtin_compile_vars(CodeGen *g) {
     cache_int(&cache_hash, g->zig_target->os);
     cache_int(&cache_hash, g->zig_target->abi);
     if (g->zig_target->cache_hash != nullptr) {
-        cache_str(&cache_hash, g->zig_target->cache_hash);
+        cache_mem(&cache_hash, g->zig_target->cache_hash, g->zig_target->cache_hash_len);
     }
     if (g->zig_target->glibc_or_darwin_version != nullptr) {
         cache_int(&cache_hash, g->zig_target->glibc_or_darwin_version->major);
@@ -10259,7 +10392,7 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     cache_int(ch, g->zig_target->os);
     cache_int(ch, g->zig_target->abi);
     if (g->zig_target->cache_hash != nullptr) {
-        cache_str(ch, g->zig_target->cache_hash);
+        cache_mem(ch, g->zig_target->cache_hash, g->zig_target->cache_hash_len);
     }
     if (g->zig_target->glibc_or_darwin_version != nullptr) {
         cache_int(ch, g->zig_target->glibc_or_darwin_version->major);
