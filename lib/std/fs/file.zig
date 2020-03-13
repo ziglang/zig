@@ -46,8 +46,11 @@ pub const File = struct {
         /// the file is opened with a shared lock, allowing the other processes to read from the
         /// file, but not to write to the file.
         ///
-        /// Note that the lock is only advisory on Linux. This means that a process that does not
-        /// respect the locking API can still read and write to the file, despite the lock.
+        /// Note that the lock is only advisory on Linux, except in very specific cirsumstances[1].
+        /// This means that a process that does not respect the locking API can still read and write
+        /// to the file, despite the lock.
+        ///
+        /// [1]: https://www.kernel.org/doc/Documentation/filesystems/mandatory-locking.txt
         lock: bool = false,
 
         /// This prevents `O_NONBLOCK` from being passed even if `std.io.is_async`.
@@ -71,8 +74,11 @@ pub const File = struct {
 
         /// Prevent other files from accessing this file while this process has it is open.
         ///
-        /// Note that the lock is only advisory on Linux. This means that a process that does not
-        /// respect the locking API can still read and write to the file, despite the lock.
+        /// Note that the lock is only advisory on Linux, except in very specific cirsumstances[1].
+        /// This means that a process that does not respect the locking API can still read and write
+        /// to the file, despite the lock.
+        ///
+        /// [1]: https://www.kernel.org/doc/Documentation/filesystems/mandatory-locking.txt
         lock: bool = false,
 
         /// For POSIX systems this is the file system mode the file will
