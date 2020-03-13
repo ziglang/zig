@@ -1303,7 +1303,7 @@ static int main0(int argc, char **argv) {
                                 return main_exit(root_progress_node, EXIT_FAILURE);
                             }
                         } else {
-                            if (printf("%s\n", buf_ptr(&g->bin_file_output_path)) < 0)
+                            if (g->emit_bin && printf("%s\n", buf_ptr(&g->bin_file_output_path)) < 0)
                                 return main_exit(root_progress_node, EXIT_FAILURE);
                         }
                     }
