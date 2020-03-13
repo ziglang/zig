@@ -79,6 +79,7 @@ pub extern "c" fn fstatat(dirfd: fd_t, path: [*:0]const u8, stat_buf: *Stat, fla
 pub extern "c" fn lseek(fd: fd_t, offset: off_t, whence: c_int) off_t;
 pub extern "c" fn open(path: [*:0]const u8, oflag: c_uint, ...) c_int;
 pub extern "c" fn openat(fd: c_int, path: [*:0]const u8, oflag: c_uint, ...) c_int;
+pub extern "c" fn ftruncate(fd: c_int, length: off_t) c_int;
 pub extern "c" fn raise(sig: c_int) c_int;
 pub extern "c" fn read(fd: fd_t, buf: [*]u8, nbyte: usize) isize;
 pub extern "c" fn readv(fd: c_int, iov: [*]const iovec, iovcnt: c_uint) isize;

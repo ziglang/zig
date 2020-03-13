@@ -8,6 +8,7 @@ pub extern "kernel32" fn CancelIoEx(hFile: HANDLE, lpOverlapped: LPOVERLAPPED) c
 pub extern "kernel32" fn CloseHandle(hObject: HANDLE) callconv(.Stdcall) BOOL;
 
 pub extern "kernel32" fn CreateDirectoryW(lpPathName: [*:0]const u16, lpSecurityAttributes: ?*SECURITY_ATTRIBUTES) callconv(.Stdcall) BOOL;
+pub extern "kernel32" fn SetEndOfFile(hFile: HANDLE) callconv(.Stdcall) BOOL;
 
 pub extern "kernel32" fn CreateEventExW(
     lpEventAttributes: ?*SECURITY_ATTRIBUTES,
