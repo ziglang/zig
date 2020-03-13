@@ -294,7 +294,19 @@ pub fn LinearFifo(
         pub usingnamespace if (T == u8)
             struct {
                 pub fn print(self: *Self, comptime format: []const u8, args: var) !void {
-                    return std.fmt.format(self, error{OutOfMemory}, Self.write, format, args);
+                    // TODO: maybe expose this stream as a method?
+                    const FifoStream = struct {
+                        const OutStream = std.io.OutStream(*Self, Error, write);
+                        const Error = error{OutOfMemory};
+
+                        fn write(fifo: *Self, bytes: []const u8) Error!usize {
+                            try fifo.write(bytes);
+                            return bytes.len;
+                        }
+                    };
+
+                    var out_stream = FifoStream.OutStream{ .context = self };
+                    try out_stream.print(format, args);
                 }
             }
         else
