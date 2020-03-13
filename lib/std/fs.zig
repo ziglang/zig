@@ -1720,3 +1720,69 @@ test "" {
     _ = @import("fs/get_app_data_dir.zig");
     _ = @import("fs/watch.zig");
 }
+
+const FILE_LOCK_TEST_SLEEP_TIME = 1 * std.time.ns_per_s;
+
+test "open file with lock twice, make sure it wasn't open at the same time" {
+    const filename = "file_lock_test.txt";
+
+    if (builtin.os.tag == .windows) {
+        var ctxs = [_]FileLockTestContext{
+            .{ .filename = filename },
+            .{ .filename = filename },
+        };
+
+        const threads = [_]*std.Thread{
+            try std.Thread.spawn(&ctxs[0], lock_file),
+            try std.Thread.spawn(&ctxs[1], lock_file),
+        };
+
+        for (threads[0..]) |thread| {
+            thread.wait();
+        }
+
+        std.debug.assert(!ctxs[0].overlaps(&ctxs[1]));
+    } else {
+        const shared_mem = try std.os.mmap(null, 2 * @sizeOf(FileLockTestContext), std.os.PROT_READ | std.os.PROT_WRITE, std.os.MAP_SHARED | std.os.MAP_ANONYMOUS, -1, 0);
+        defer std.os.munmap(shared_mem);
+        const ctxs = @ptrCast([*]FileLockTestContext, shared_mem.ptr);
+
+        const childpid = try std.os.fork();
+        const ctx_idx: usize = if (childpid != 0) 0 else 1;
+
+        ctxs[ctx_idx].filename = filename;
+        lock_file_for_test(&ctxs[ctx_idx]);
+
+        if (childpid != 0) {
+            var status: u32 = 0;
+            _ = std.os.linux.waitpid(childpid, &status, 0);
+
+            std.debug.assert(!ctxs[0].overlaps(&ctxs[1]));
+        }
+    }
+
+    cwd().deleteFile(filename) catch |err| switch (err) {
+        error.FileNotFound => {},
+        else => return err,
+    };
+}
+
+const FileLockTestContext = struct {
+    filename: []const u8,
+
+    // Output variables
+    start_time: u64 = 0,
+    end_time: u64 = 0,
+
+    fn overlaps(self: *const @This(), other: *const @This()) bool {
+        return (self.start_time < other.end_time) and (self.end_time > other.start_time);
+    }
+};
+
+fn lock_file_for_test(ctx: *FileLockTestContext) void {
+    const file = cwd().createFile(ctx.filename, .{ .lock = true }) catch unreachable;
+    ctx.start_time = std.time.milliTimestamp();
+    std.time.sleep(FILE_LOCK_TEST_SLEEP_TIME);
+    ctx.end_time = std.time.milliTimestamp();
+    file.close();
+}
