@@ -1019,7 +1019,7 @@ const Stage2Target = extern struct {
             .macosx,
             .netbsd,
             .openbsd,
-            => try os_builtin_str_buffer.print(
+            => try os_builtin_str_buffer.outStream().print(
                 \\ .semver = .{{
                 \\        .min = .{{
                 \\            .major = {},
@@ -1043,7 +1043,7 @@ const Stage2Target = extern struct {
                 target.os.version_range.semver.max.patch,
             }),
 
-            .linux => try os_builtin_str_buffer.print(
+            .linux => try os_builtin_str_buffer.outStream().print(
                 \\ .linux = .{{
                 \\        .range = .{{
                 \\            .min = .{{
@@ -1078,7 +1078,7 @@ const Stage2Target = extern struct {
                 target.os.version_range.linux.glibc.patch,
             }),
 
-            .windows => try os_builtin_str_buffer.print(
+            .windows => try os_builtin_str_buffer.outStream().print(
                 \\ .windows = .{{
                 \\        .min = .{},
                 \\        .max = .{},

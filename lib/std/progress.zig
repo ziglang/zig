@@ -190,7 +190,7 @@ pub const Progress = struct {
             end.* += amt;
             self.columns_written += amt;
         } else |err| switch (err) {
-            error.BufferTooSmall => {
+            error.NoSpaceLeft => {
                 self.columns_written += self.output_buffer.len - end.*;
                 end.* = self.output_buffer.len;
             },

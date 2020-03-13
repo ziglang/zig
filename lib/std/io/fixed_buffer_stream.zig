@@ -103,7 +103,7 @@ pub fn FixedBufferStream(comptime Buffer: type) type {
             return self.pos;
         }
 
-        pub fn getWritten(self: Self) []const u8 {
+        pub fn getWritten(self: Self) Buffer {
             return self.buffer[0..self.pos];
         }
 

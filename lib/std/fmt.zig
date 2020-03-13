@@ -580,7 +580,7 @@ pub fn formatAsciiChar(
     options: FormatOptions,
     out_stream: var,
 ) !void {
-    return out_stream.writeAll(@as(*const [1]u8, &c)[0..]);
+    return out_stream.writeAll(@as(*const [1]u8, &c));
 }
 
 pub fn formatBuf(
@@ -592,9 +592,9 @@ pub fn formatBuf(
 
     const width = options.width orelse 0;
     var leftover_padding = if (width > buf.len) (width - buf.len) else return;
-    const pad_byte: u8 = options.fill;
+    const pad_byte = [1]u8{options.fill};
     while (leftover_padding > 0) : (leftover_padding -= 1) {
-        try out_stream.writeAll(@as(*const [1]u8, &pad_byte)[0..1]);
+        try out_stream.writeAll(&pad_byte);
     }
 }
 
@@ -1068,35 +1068,31 @@ fn digitToChar(digit: u8, uppercase: bool) u8 {
 
 pub const BufPrintError = error{
     /// As much as possible was written to the buffer, but it was too small to fit all the printed bytes.
-    BufferTooSmall,
+    NoSpaceLeft,
 };
 pub fn bufPrint(buf: []u8, comptime fmt: []const u8, args: var) BufPrintError![]u8 {
     var fbs = std.io.fixedBufferStream(buf);
-    format(fbs.outStream(), fmt, args) catch |err| switch (err) {
-        error.NoSpaceLeft => return error.BufferTooSmall,
-    };
-    //TODO: should we change one of these return signatures?
-    //return fbs.getWritten();
-    return buf[0..fbs.pos];
+    try format(fbs.outStream(), fmt, args);
+    return fbs.getWritten();
 }
 
 // Count the characters needed for format. Useful for preallocating memory
-pub fn count(comptime fmt: []const u8, args: var) !usize {
+pub fn count(comptime fmt: []const u8, args: var) u64 {
     var counting_stream = std.io.countingOutStream(std.io.null_out_stream);
     format(counting_stream.outStream(), fmt, args) catch |err| switch (err) {};
-    return std.math.cast(usize, counting_stream.bytes_written);
+    return counting_stream.bytes_written;
 }
 
 pub const AllocPrintError = error{OutOfMemory};
 
 pub fn allocPrint(allocator: *mem.Allocator, comptime fmt: []const u8, args: var) AllocPrintError![]u8 {
-    const size = count(fmt, args) catch |err| switch (err) {
+    const size = math.cast(usize, count(fmt, args)) catch |err| switch (err) {
         // Output too long. Can't possibly allocate enough memory to display it.
         error.Overflow => return error.OutOfMemory,
     };
     const buf = try allocator.alloc(u8, size);
     return bufPrint(buf, fmt, args) catch |err| switch (err) {
-        error.BufferTooSmall => unreachable, // we just counted the size above
+        error.NoSpaceLeft => unreachable, // we just counted the size above
     };
 }
 

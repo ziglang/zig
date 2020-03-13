@@ -504,22 +504,22 @@ pub const CrossTarget = struct {
         if (self.os_version_min != null or self.os_version_max != null) {
             switch (self.getOsVersionMin()) {
                 .none => {},
-                .semver => |v| try result.print(".{}", .{v}),
-                .windows => |v| try result.print(".{}", .{@tagName(v)}),
+                .semver => |v| try result.outStream().print(".{}", .{v}),
+                .windows => |v| try result.outStream().print(".{}", .{@tagName(v)}),
             }
         }
         if (self.os_version_max) |max| {
             switch (max) {
                 .none => {},
-                .semver => |v| try result.print("...{}", .{v}),
-                .windows => |v| try result.print("...{}", .{@tagName(v)}),
+                .semver => |v| try result.outStream().print("...{}", .{v}),
+                .windows => |v| try result.outStream().print("...{}", .{@tagName(v)}),
             }
         }
 
         if (self.glibc_version) |v| {
-            try result.print("-{}.{}", .{ @tagName(self.getAbi()), v });
+            try result.outStream().print("-{}.{}", .{ @tagName(self.getAbi()), v });
         } else if (self.abi) |abi| {
-            try result.print("-{}", .{@tagName(abi)});
+            try result.outStream().print("-{}", .{@tagName(abi)});
         }
 
         return result.toOwnedSlice();

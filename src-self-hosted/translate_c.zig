@@ -4755,7 +4755,7 @@ fn appendTokenFmt(c: *Context, token_id: Token.Id, comptime format: []const u8, 
     const start_index = c.source_buffer.len();
     errdefer c.source_buffer.shrink(start_index);
 
-    try c.source_buffer.print(format, args);
+    try c.source_buffer.outStream().print(format, args);
     const end_index = c.source_buffer.len();
     const token_index = c.tree.tokens.len;
     const new_token = try c.tree.tokens.addOne();

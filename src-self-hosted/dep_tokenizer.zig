@@ -306,12 +306,12 @@ pub const Tokenizer = struct {
 
     fn errorPosition(self: *Tokenizer, position: usize, bytes: []const u8, comptime fmt: []const u8, args: var) Error {
         var buffer = try std.Buffer.initSize(&self.arena.allocator, 0);
-        try buffer.print(fmt, args);
+        try buffer.outStream().print(fmt, args);
         try buffer.append(" '");
         var out = makeOutput(std.Buffer.append, &buffer);
         try printCharValues(&out, bytes);
         try buffer.append("'");
-        try buffer.print(" at position {}", .{position - (bytes.len - 1)});
+        try buffer.outStream().print(" at position {}", .{position - (bytes.len - 1)});
         self.error_text = buffer.toSlice();
         return Error.InvalidInput;
     }
@@ -320,8 +320,8 @@ pub const Tokenizer = struct {
         var buffer = try std.Buffer.initSize(&self.arena.allocator, 0);
         try buffer.append("illegal char ");
         try printUnderstandableChar(&buffer, char);
-        try buffer.print(" at position {}", .{position});
-        if (fmt.len != 0) try buffer.print(": " ++ fmt, args);
+        try buffer.outStream().print(" at position {}", .{position});
+        if (fmt.len != 0) try buffer.outStream().print(": " ++ fmt, args);
         self.error_text = buffer.toSlice();
         return Error.InvalidInput;
     }
@@ -997,7 +997,7 @@ fn printCharValues(out: var, bytes: []const u8) !void {
 
 fn printUnderstandableChar(buffer: *std.Buffer, char: u8) !void {
     if (!std.ascii.isPrint(char) or char == ' ') {
-        try buffer.print("\\x{X:2}", .{char});
+        try buffer.outStream().print("\\x{X:2}", .{char});
     } else {
         try buffer.append("'");
         try buffer.appendByte(printable_char_tab[char]);

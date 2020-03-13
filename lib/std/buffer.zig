@@ -65,7 +65,7 @@ pub const Buffer = struct {
     }
 
     pub fn allocPrint(allocator: *Allocator, comptime format: []const u8, args: var) !Buffer {
-        const size = std.fmt.count(format, args) catch |err| switch (err) {
+        const size = std.math.cast(usize, std.fmt.count(format, args)) catch |err| switch (err) {
             error.Overflow => return error.OutOfMemory,
         };
         var self = try Buffer.initSize(allocator, size);
@@ -150,10 +150,6 @@ pub const Buffer = struct {
         mem.copy(u8, self.list.toSlice(), m);
     }
 
-    pub fn print(self: *Buffer, comptime fmt: []const u8, args: var) !void {
-        return self.outStream().print(fmt, args);
-    }
-
     pub fn outStream(self: *Buffer) std.io.OutStream(*Buffer, error{OutOfMemory}, appendWrite) {
         return .{ .context = self };
     }
@@ -212,7 +208,7 @@ test "Buffer.print" {
     var buf = try Buffer.init(testing.allocator, "");
     defer buf.deinit();
 
-    try buf.print("Hello {} the {}", .{ 2, "world" });
+    try buf.outStream().print("Hello {} the {}", .{ 2, "world" });
     testing.expect(buf.eql("Hello 2 the world"));
 }
 
