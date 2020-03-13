@@ -1303,7 +1303,16 @@ static int main0(int argc, char **argv) {
                                 return main_exit(root_progress_node, EXIT_FAILURE);
                             }
                         } else {
-                            if (g->emit_bin && printf("%s\n", buf_ptr(&g->bin_file_output_path)) < 0)
+                            Buf *path = NULL;
+                            if (g->emit_bin)
+                                path = &g->bin_file_output_path;
+                            else if (g->emit_llvm_ir)
+                                path = &g->llvm_ir_file_output_path;
+                            else if (g->emit_asm)
+                                path = &g->asm_file_output_path;
+                            else
+                                return main_exit(root_progress_node, EXIT_FAILURE);
+                            if (printf("%s\n", buf_ptr(path)) < 0)
                                 return main_exit(root_progress_node, EXIT_FAILURE);
                         }
                     }
