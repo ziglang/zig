@@ -1,47 +1,48 @@
 const uefi = @import("std").os.uefi;
 const Guid = uefi.Guid;
 const Time = uefi.Time;
+const Status = uefi.Status;
 
 pub const FileProtocol = extern struct {
     revision: u64,
-    _open: extern fn (*const FileProtocol, **const FileProtocol, *u16, u64, u64) usize,
-    _close: extern fn (*const FileProtocol) usize,
-    _delete: extern fn (*const FileProtocol) usize,
-    _read: extern fn (*const FileProtocol, *usize, *c_void) usize,
-    _write: extern fn (*const FileProtocol, *usize, *c_void) usize,
-    _get_info: extern fn (*const FileProtocol, *Guid, *usize, *c_void) usize,
-    _set_info: extern fn (*const FileProtocol, *Guid, usize, *c_void) usize,
-    _flush: extern fn (*const FileProtocol) usize,
+    _open: extern fn (*const FileProtocol, **const FileProtocol, [*:0]const u16, u64, u64) Status,
+    _close: extern fn (*const FileProtocol) Status,
+    _delete: extern fn (*const FileProtocol) Status,
+    _read: extern fn (*const FileProtocol, *usize, [*]u8) Status,
+    _write: extern fn (*const FileProtocol, *usize, [*]const u8) Status,
+    _get_info: extern fn (*const FileProtocol, *Guid, *usize, *c_void) Status,
+    _set_info: extern fn (*const FileProtocol, *Guid, usize, *const c_void) Status,
+    _flush: extern fn (*const FileProtocol) Status,
 
-    pub fn open(self: *const FileProtocol, new_handle: **const FileProtocol, file_name: *u16, open_mode: u64, attributes: u64) usize {
+    pub fn open(self: *const FileProtocol, new_handle: **const FileProtocol, file_name: [*:0]const u16, open_mode: u64, attributes: u64) Status {
         return self._open(self, new_handle, file_name, open_mode, attributes);
     }
 
-    pub fn close(self: *const FileProtocol) usize {
+    pub fn close(self: *const FileProtocol) Status {
         return self._close(self);
     }
 
-    pub fn delete(self: *const FileProtocol) usize {
+    pub fn delete(self: *const FileProtocol) Status {
         return self._delete(self);
     }
 
-    pub fn read(self: *const FileProtocol, buffer_size: *usize, buffer: *c_void) usize {
+    pub fn read(self: *const FileProtocol, buffer_size: *usize, buffer: [*]u8) Status {
         return self._read(self, buffer_size, buffer);
     }
 
-    pub fn write(self: *const FileProtocol, buffer_size: *usize, buffer: *c_void) usize {
+    pub fn write(self: *const FileProtocol, buffer_size: *usize, buffer: [*]const u8) Status {
         return self._write(self, buffer_size, buffer);
     }
 
-    pub fn get_info(self: *const FileProtocol, information_type: *Guid, buffer_size: *usize, buffer: *c_void) usize {
+    pub fn get_info(self: *const FileProtocol, information_type: *Guid, buffer_size: *usize, buffer: *c_void) Status {
         return self._get_info(self, information_type, buffer_size, buffer);
     }
 
-    pub fn set_info(self: *const FileProtocol, information_type: *Guid, buffer_size: usize, buffer: *c_void) usize {
+    pub fn set_info(self: *const FileProtocol, information_type: *Guid, buffer_size: usize, buffer: *const c_void) Status {
         return self._set_info(self, information_type, buffer_size, buffer);
     }
 
-    pub fn flush(self: *const FileProtocol) usize {
+    pub fn flush(self: *const FileProtocol) Status {
         return self._flush(self);
     }
 
@@ -75,7 +76,10 @@ pub const FileInfo = extern struct {
     last_access_time: Time,
     modification_time: Time,
     attribute: u64,
-    file_name: [100:0]u16,
+
+    pub fn getFileName(self: *const FileInfo) [*:0]const u16 {
+        return @ptrCast([*:0]const u16, @ptrCast([*]const u8, self) + @sizeOf(FileInfo));
+    }
 
     pub const efi_file_read_only: u64 = 0x0000000000000001;
     pub const efi_file_hidden: u64 = 0x0000000000000002;

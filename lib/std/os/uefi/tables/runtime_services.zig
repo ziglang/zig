@@ -3,6 +3,7 @@ const Guid = uefi.Guid;
 const TableHeader = uefi.tables.TableHeader;
 const Time = uefi.Time;
 const TimeCapabilities = uefi.TimeCapabilities;
+const Status = uefi.Status;
 
 /// Runtime services are provided by the firmware before and after exitBootServices has been called.
 ///
@@ -16,31 +17,31 @@ pub const RuntimeServices = extern struct {
     hdr: TableHeader,
 
     /// Returns the current time and date information, and the time-keeping capabilities of the hardware platform.
-    getTime: extern fn (*uefi.Time, ?*TimeCapabilities) usize,
+    getTime: extern fn (*uefi.Time, ?*TimeCapabilities) Status,
 
-    setTime: usize, // TODO
-    getWakeupTime: usize, // TODO
-    setWakeupTime: usize, // TODO
-    setVirtualAddressMap: usize, // TODO
-    convertPointer: usize, // TODO
+    setTime: Status, // TODO
+    getWakeupTime: Status, // TODO
+    setWakeupTime: Status, // TODO
+    setVirtualAddressMap: Status, // TODO
+    convertPointer: Status, // TODO
 
     /// Returns the value of a variable.
-    getVariable: extern fn ([*:0]const u16, *align(8) const Guid, ?*u32, *usize, ?*c_void) usize,
+    getVariable: extern fn ([*:0]const u16, *align(8) const Guid, ?*u32, *usize, ?*c_void) Status,
 
     /// Enumerates the current variable names.
-    getNextVariableName: extern fn (*usize, [*]u16, *align(8) Guid) usize,
+    getNextVariableName: extern fn (*usize, [*:0]u16, *align(8) Guid) Status,
 
     /// Sets the value of a variable.
-    setVariable: extern fn ([*:0]const u16, *align(8) const Guid, u32, usize, *c_void) usize,
+    setVariable: extern fn ([*:0]const u16, *align(8) const Guid, u32, usize, *c_void) Status,
 
-    getNextHighMonotonicCount: usize, // TODO
+    getNextHighMonotonicCount: Status, // TODO
 
     /// Resets the entire platform.
-    resetSystem: extern fn (ResetType, usize, usize, ?*const c_void) noreturn,
+    resetSystem: extern fn (ResetType, Status, usize, ?*const c_void) noreturn,
 
-    updateCapsule: usize, // TODO
-    queryCapsuleCapabilities: usize, // TODO
-    queryVariableInfo: usize, // TODO
+    updateCapsule: Status, // TODO
+    queryCapsuleCapabilities: Status, // TODO
+    queryVariableInfo: Status, // TODO
 
     pub const signature: u64 = 0x56524553544e5552;
 };

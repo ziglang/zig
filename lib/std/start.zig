@@ -55,25 +55,24 @@ fn wasm_freestanding_start() callconv(.C) void {
 }
 
 fn EfiMain(handle: uefi.Handle, system_table: *uefi.tables.SystemTable) callconv(.C) usize {
-    const bad_efi_main_ret = "expected return type of main to be 'void', 'noreturn', or 'usize'";
     uefi.handle = handle;
     uefi.system_table = system_table;
 
-    switch (@typeInfo(@TypeOf(root.main).ReturnType)) {
-        .NoReturn => {
+    switch (@TypeOf(root.main).ReturnType) {
+        noreturn => {
             root.main();
         },
-        .Void => {
+        void => {
             root.main();
             return 0;
         },
-        .Int => |info| {
-            if (info.bits != @typeInfo(usize).Int.bits) {
-                @compileError(bad_efi_main_ret);
-            }
+        usize => {
             return root.main();
         },
-        else => @compileError(bad_efi_main_ret),
+        uefi.Status => {
+            return @enumToInt(root.main());
+        },
+        else => @compileError("expected return type of main to be 'void', 'noreturn', 'usize', or 'std.os.uefi.Status'"),
     }
 }
 
