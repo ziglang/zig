@@ -4752,15 +4752,10 @@ fn appendToken(c: *Context, token_id: Token.Id, bytes: []const u8) !ast.TokenInd
 }
 
 fn appendTokenFmt(c: *Context, token_id: Token.Id, comptime format: []const u8, args: var) !ast.TokenIndex {
-    const S = struct {
-        fn callback(context: *Context, bytes: []const u8) error{OutOfMemory}!void {
-            return context.source_buffer.append(bytes);
-        }
-    };
     const start_index = c.source_buffer.len();
     errdefer c.source_buffer.shrink(start_index);
 
-    try std.fmt.format(c, error{OutOfMemory}, S.callback, format, args);
+    try c.source_buffer.outStream().print(format, args);
     const end_index = c.source_buffer.len();
     const token_index = c.tree.tokens.len;
     const new_token = try c.tree.tokens.addOne();

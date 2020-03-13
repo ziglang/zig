@@ -69,19 +69,17 @@ fn peekIsAlign(comptime fmt: []const u8) bool {
 ///
 /// If a formatted user type contains a function of the type
 /// ```
-/// fn format(value: ?, comptime fmt: []const u8, options: std.fmt.FormatOptions, context: var, comptime Errors: type, comptime output: fn (@TypeOf(context), []const u8) Errors!void) Errors!void
+/// fn format(value: ?, comptime fmt: []const u8, options: std.fmt.FormatOptions, out_stream: var) !void
 /// ```
 /// with `?` being the type formatted, this function will be called instead of the default implementation.
 /// This allows user types to be formatted in a logical manner instead of dumping all fields of the type.
 ///
 /// A user type may be a `struct`, `vector`, `union` or `enum` type.
 pub fn format(
-    context: var,
-    comptime Errors: type,
-    comptime output: fn (@TypeOf(context), []const u8) Errors!void,
+    out_stream: var,
     comptime fmt: []const u8,
     args: var,
-) Errors!void {
+) !void {
     const ArgSetType = u32;
     if (@typeInfo(@TypeOf(args)) != .Struct) {
         @compileError("Expected tuple or struct argument, found " ++ @typeName(@TypeOf(args)));
@@ -138,7 +136,7 @@ pub fn format(
             .Start => switch (c) {
                 '{' => {
                     if (start_index < i) {
-                        try output(context, fmt[start_index..i]);
+                        try out_stream.writeAll(fmt[start_index..i]);
                     }
 
                     start_index = i;
@@ -150,7 +148,7 @@ pub fn format(
                 },
                 '}' => {
                     if (start_index < i) {
-                        try output(context, fmt[start_index..i]);
+                        try out_stream.writeAll(fmt[start_index..i]);
                     }
                     state = .CloseBrace;
                 },
@@ -185,9 +183,7 @@ pub fn format(
                         args[arg_to_print],
                         fmt[0..0],
                         options,
-                        context,
-                        Errors,
-                        output,
+                        out_stream,
                         default_max_depth,
                     );
 
@@ -218,9 +214,7 @@ pub fn format(
                         args[arg_to_print],
                         fmt[specifier_start..i],
                         options,
-                        context,
-                        Errors,
-                        output,
+                        out_stream,
                         default_max_depth,
                     );
                     state = .Start;
@@ -265,9 +259,7 @@ pub fn format(
                         args[arg_to_print],
                         fmt[specifier_start..specifier_end],
                         options,
-                        context,
-                        Errors,
-                        output,
+                        out_stream,
                         default_max_depth,
                     );
                     state = .Start;
@@ -293,9 +285,7 @@ pub fn format(
                         args[arg_to_print],
                         fmt[specifier_start..specifier_end],
                         options,
-                        context,
-                        Errors,
-                        output,
+                        out_stream,
                         default_max_depth,
                     );
                     state = .Start;
@@ -316,7 +306,7 @@ pub fn format(
         }
     }
     if (start_index < fmt.len) {
-        try output(context, fmt[start_index..]);
+        try out_stream.writeAll(fmt[start_index..]);
     }
 }
 
@@ -324,141 +314,131 @@ pub fn formatType(
     value: var,
     comptime fmt: []const u8,
     options: FormatOptions,
-    context: var,
-    comptime Errors: type,
-    comptime output: fn (@TypeOf(context), []const u8) Errors!void,
+    out_stream: var,
     max_depth: usize,
-) Errors!void {
+) @TypeOf(out_stream).Error!void {
     if (comptime std.mem.eql(u8, fmt, "*")) {
-        try output(context, @typeName(@TypeOf(value).Child));
-        try output(context, "@");
-        try formatInt(@ptrToInt(value), 16, false, FormatOptions{}, context, Errors, output);
+        try out_stream.writeAll(@typeName(@TypeOf(value).Child));
+        try out_stream.writeAll("@");
+        try formatInt(@ptrToInt(value), 16, false, FormatOptions{}, out_stream);
         return;
     }
 
     const T = @TypeOf(value);
+    if (comptime std.meta.trait.hasFn("format")(T)) {
+        return try value.format(fmt, options, out_stream);
+    }
+
     switch (@typeInfo(T)) {
         .ComptimeInt, .Int, .Float => {
-            return formatValue(value, fmt, options, context, Errors, output);
+            return formatValue(value, fmt, options, out_stream);
         },
         .Void => {
-            return output(context, "void");
+            return out_stream.writeAll("void");
         },
         .Bool => {
-            return output(context, if (value) "true" else "false");
+            return out_stream.writeAll(if (value) "true" else "false");
         },
         .Optional => {
             if (value) |payload| {
-                return formatType(payload, fmt, options, context, Errors, output, max_depth);
+                return formatType(payload, fmt, options, out_stream, max_depth);
             } else {
-                return output(context, "null");
+                return out_stream.writeAll("null");
             }
         },
         .ErrorUnion => {
             if (value) |payload| {
-                return formatType(payload, fmt, options, context, Errors, output, max_depth);
+                return formatType(payload, fmt, options, out_stream, max_depth);
             } else |err| {
-                return formatType(err, fmt, options, context, Errors, output, max_depth);
+                return formatType(err, fmt, options, out_stream, max_depth);
             }
         },
         .ErrorSet => {
-            try output(context, "error.");
-            return output(context, @errorName(value));
+            try out_stream.writeAll("error.");
+            return out_stream.writeAll(@errorName(value));
         },
         .Enum => |enumInfo| {
-            if (comptime std.meta.trait.hasFn("format")(T)) {
-                return value.format(fmt, options, context, Errors, output);
-            }
-
-            try output(context, @typeName(T));
+            try out_stream.writeAll(@typeName(T));
             if (enumInfo.is_exhaustive) {
-                try output(context, ".");
-                try output(context, @tagName(value));
+                try out_stream.writeAll(".");
+                try out_stream.writeAll(@tagName(value));
             } else {
                 // TODO: when @tagName works on exhaustive enums print known enum strings
-                try output(context, "(");
-                try formatType(@enumToInt(value), fmt, options, context, Errors, output, max_depth);
-                try output(context, ")");
+                try out_stream.writeAll("(");
+                try formatType(@enumToInt(value), fmt, options, out_stream, max_depth);
+                try out_stream.writeAll(")");
             }
         },
         .Union => {
-            if (comptime std.meta.trait.hasFn("format")(T)) {
-                return value.format(fmt, options, context, Errors, output);
-            }
-
-            try output(context, @typeName(T));
+            try out_stream.writeAll(@typeName(T));
             if (max_depth == 0) {
-                return output(context, "{ ... }");
+                return out_stream.writeAll("{ ... }");
             }
             const info = @typeInfo(T).Union;
             if (info.tag_type) |UnionTagType| {
-                try output(context, "{ .");
-                try output(context, @tagName(@as(UnionTagType, value)));
-                try output(context, " = ");
+                try out_stream.writeAll("{ .");
+                try out_stream.writeAll(@tagName(@as(UnionTagType, value)));
+                try out_stream.writeAll(" = ");
                 inline for (info.fields) |u_field| {
                     if (@enumToInt(@as(UnionTagType, value)) == u_field.enum_field.?.value) {
-                        try formatType(@field(value, u_field.name), fmt, options, context, Errors, output, max_depth - 1);
+                        try formatType(@field(value, u_field.name), fmt, options, out_stream, max_depth - 1);
                     }
                 }
-                try output(context, " }");
+                try out_stream.writeAll(" }");
             } else {
-                try format(context, Errors, output, "@{x}", .{@ptrToInt(&value)});
+                try format(out_stream, "@{x}", .{@ptrToInt(&value)});
             }
         },
         .Struct => |StructT| {
-            if (comptime std.meta.trait.hasFn("format")(T)) {
-                return value.format(fmt, options, context, Errors, output);
-            }
-
-            try output(context, @typeName(T));
+            try out_stream.writeAll(@typeName(T));
             if (max_depth == 0) {
-                return output(context, "{ ... }");
+                return out_stream.writeAll("{ ... }");
             }
-            try output(context, "{");
+            try out_stream.writeAll("{");
             inline for (StructT.fields) |f, i| {
                 if (i == 0) {
-                    try output(context, " .");
+                    try out_stream.writeAll(" .");
                 } else {
-                    try output(context, ", .");
+                    try out_stream.writeAll(", .");
                 }
-                try output(context, f.name);
-                try output(context, " = ");
-                try formatType(@field(value, f.name), fmt, options, context, Errors, output, max_depth - 1);
+                try out_stream.writeAll(f.name);
+                try out_stream.writeAll(" = ");
+                try formatType(@field(value, f.name), fmt, options, out_stream, max_depth - 1);
             }
-            try output(context, " }");
+            try out_stream.writeAll(" }");
         },
         .Pointer => |ptr_info| switch (ptr_info.size) {
             .One => switch (@typeInfo(ptr_info.child)) {
                 .Array => |info| {
                     if (info.child == u8) {
-                        return formatText(value, fmt, options, context, Errors, output);
+                        return formatText(value, fmt, options, out_stream);
                     }
-                    return format(context, Errors, output, "{}@{x}", .{ @typeName(T.Child), @ptrToInt(value) });
+                    return format(out_stream, "{}@{x}", .{ @typeName(T.Child), @ptrToInt(value) });
                 },
                 .Enum, .Union, .Struct => {
-                    return formatType(value.*, fmt, options, context, Errors, output, max_depth);
+                    return formatType(value.*, fmt, options, out_stream, max_depth);
                 },
-                else => return format(context, Errors, output, "{}@{x}", .{ @typeName(T.Child), @ptrToInt(value) }),
+                else => return format(out_stream, "{}@{x}", .{ @typeName(T.Child), @ptrToInt(value) }),
             },
             .Many, .C => {
                 if (ptr_info.sentinel) |sentinel| {
-                    return formatType(mem.span(value), fmt, options, context, Errors, output, max_depth);
+                    return formatType(mem.span(value), fmt, options, out_stream, max_depth);
                 }
                 if (ptr_info.child == u8) {
                     if (fmt.len > 0 and fmt[0] == 's') {
-                        return formatText(mem.span(value), fmt, options, context, Errors, output);
+                        return formatText(mem.span(value), fmt, options, out_stream);
                     }
                 }
-                return format(context, Errors, output, "{}@{x}", .{ @typeName(T.Child), @ptrToInt(value) });
+                return format(out_stream, "{}@{x}", .{ @typeName(T.Child), @ptrToInt(value) });
             },
             .Slice => {
                 if (fmt.len > 0 and ((fmt[0] == 'x') or (fmt[0] == 'X'))) {
-                    return formatText(value, fmt, options, context, Errors, output);
+                    return formatText(value, fmt, options, out_stream);
                 }
                 if (ptr_info.child == u8) {
-                    return formatText(value, fmt, options, context, Errors, output);
+                    return formatText(value, fmt, options, out_stream);
                 }
-                return format(context, Errors, output, "{}@{x}", .{ @typeName(ptr_info.child), @ptrToInt(value.ptr) });
+                return format(out_stream, "{}@{x}", .{ @typeName(ptr_info.child), @ptrToInt(value.ptr) });
             },
         },
         .Array => |info| {
@@ -473,27 +453,27 @@ pub fn formatType(
                     .sentinel = null,
                 },
             });
-            return formatType(@as(Slice, &value), fmt, options, context, Errors, output, max_depth);
+            return formatType(@as(Slice, &value), fmt, options, out_stream, max_depth);
         },
         .Vector => {
             const len = @typeInfo(T).Vector.len;
-            try output(context, "{ ");
+            try out_stream.writeAll("{ ");
             var i: usize = 0;
             while (i < len) : (i += 1) {
-                try formatValue(value[i], fmt, options, context, Errors, output);
+                try formatValue(value[i], fmt, options, out_stream);
                 if (i < len - 1) {
-                    try output(context, ", ");
+                    try out_stream.writeAll(", ");
                 }
             }
-            try output(context, " }");
+            try out_stream.writeAll(" }");
         },
         .Fn => {
-            return format(context, Errors, output, "{}@{x}", .{ @typeName(T), @ptrToInt(value) });
+            return format(out_stream, "{}@{x}", .{ @typeName(T), @ptrToInt(value) });
         },
-        .Type => return output(context, @typeName(T)),
+        .Type => return out_stream.writeAll(@typeName(T)),
         .EnumLiteral => {
             const buffer = [_]u8{'.'} ++ @tagName(value);
-            return formatType(buffer, fmt, options, context, Errors, output, max_depth);
+            return formatType(buffer, fmt, options, out_stream, max_depth);
         },
         else => @compileError("Unable to format type '" ++ @typeName(T) ++ "'"),
     }
@@ -503,21 +483,19 @@ fn formatValue(
     value: var,
     comptime fmt: []const u8,
     options: FormatOptions,
-    context: var,
-    comptime Errors: type,
-    comptime output: fn (@TypeOf(context), []const u8) Errors!void,
-) Errors!void {
+    out_stream: var,
+) !void {
     if (comptime std.mem.eql(u8, fmt, "B")) {
-        return formatBytes(value, options, 1000, context, Errors, output);
+        return formatBytes(value, options, 1000, out_stream);
     } else if (comptime std.mem.eql(u8, fmt, "Bi")) {
-        return formatBytes(value, options, 1024, context, Errors, output);
+        return formatBytes(value, options, 1024, out_stream);
     }
 
     const T = @TypeOf(value);
     switch (@typeInfo(T)) {
-        .Float => return formatFloatValue(value, fmt, options, context, Errors, output),
-        .Int, .ComptimeInt => return formatIntValue(value, fmt, options, context, Errors, output),
-        .Bool => return output(context, if (value) "true" else "false"),
+        .Float => return formatFloatValue(value, fmt, options, out_stream),
+        .Int, .ComptimeInt => return formatIntValue(value, fmt, options, out_stream),
+        .Bool => return out_stream.writeAll(if (value) "true" else "false"),
         else => comptime unreachable,
     }
 }
@@ -526,10 +504,8 @@ pub fn formatIntValue(
     value: var,
     comptime fmt: []const u8,
     options: FormatOptions,
-    context: var,
-    comptime Errors: type,
-    comptime output: fn (@TypeOf(context), []const u8) Errors!void,
-) Errors!void {
+    out_stream: var,
+) !void {
     comptime var radix = 10;
     comptime var uppercase = false;
 
@@ -544,7 +520,7 @@ pub fn formatIntValue(
         uppercase = false;
     } else if (comptime std.mem.eql(u8, fmt, "c")) {
         if (@TypeOf(int_value).bit_count <= 8) {
-            return formatAsciiChar(@as(u8, int_value), options, context, Errors, output);
+            return formatAsciiChar(@as(u8, int_value), options, out_stream);
         } else {
             @compileError("Cannot print integer that is larger than 8 bits as a ascii");
         }
@@ -561,21 +537,19 @@ pub fn formatIntValue(
         @compileError("Unknown format string: '" ++ fmt ++ "'");
     }
 
-    return formatInt(int_value, radix, uppercase, options, context, Errors, output);
+    return formatInt(int_value, radix, uppercase, options, out_stream);
 }
 
 fn formatFloatValue(
     value: var,
     comptime fmt: []const u8,
     options: FormatOptions,
-    context: var,
-    comptime Errors: type,
-    comptime output: fn (@TypeOf(context), []const u8) Errors!void,
-) Errors!void {
+    out_stream: var,
+) !void {
     if (fmt.len == 0 or comptime std.mem.eql(u8, fmt, "e")) {
-        return formatFloatScientific(value, options, context, Errors, output);
+        return formatFloatScientific(value, options, out_stream);
     } else if (comptime std.mem.eql(u8, fmt, "d")) {
-        return formatFloatDecimal(value, options, context, Errors, output);
+        return formatFloatDecimal(value, options, out_stream);
     } else {
         @compileError("Unknown format string: '" ++ fmt ++ "'");
     }
@@ -585,17 +559,15 @@ pub fn formatText(
     bytes: []const u8,
     comptime fmt: []const u8,
     options: FormatOptions,
-    context: var,
-    comptime Errors: type,
-    comptime output: fn (@TypeOf(context), []const u8) Errors!void,
-) Errors!void {
+    out_stream: var,
+) !void {
     if (fmt.len == 0) {
-        return output(context, bytes);
+        return out_stream.writeAll(bytes);
     } else if (comptime std.mem.eql(u8, fmt, "s")) {
-        return formatBuf(bytes, options, context, Errors, output);
+        return formatBuf(bytes, options, out_stream);
     } else if (comptime (std.mem.eql(u8, fmt, "x") or std.mem.eql(u8, fmt, "X"))) {
         for (bytes) |c| {
-            try formatInt(c, 16, fmt[0] == 'X', FormatOptions{ .width = 2, .fill = '0' }, context, Errors, output);
+            try formatInt(c, 16, fmt[0] == 'X', FormatOptions{ .width = 2, .fill = '0' }, out_stream);
         }
         return;
     } else {
@@ -606,27 +578,23 @@ pub fn formatText(
 pub fn formatAsciiChar(
     c: u8,
     options: FormatOptions,
-    context: var,
-    comptime Errors: type,
-    comptime output: fn (@TypeOf(context), []const u8) Errors!void,
-) Errors!void {
-    return output(context, @as(*const [1]u8, &c)[0..]);
+    out_stream: var,
+) !void {
+    return out_stream.writeAll(@as(*const [1]u8, &c));
 }
 
 pub fn formatBuf(
     buf: []const u8,
     options: FormatOptions,
-    context: var,
-    comptime Errors: type,
-    comptime output: fn (@TypeOf(context), []const u8) Errors!void,
-) Errors!void {
-    try output(context, buf);
+    out_stream: var,
+) !void {
+    try out_stream.writeAll(buf);
 
     const width = options.width orelse 0;
     var leftover_padding = if (width > buf.len) (width - buf.len) else return;
-    const pad_byte: u8 = options.fill;
+    const pad_byte = [1]u8{options.fill};
     while (leftover_padding > 0) : (leftover_padding -= 1) {
-        try output(context, @as(*const [1]u8, &pad_byte)[0..1]);
+        try out_stream.writeAll(&pad_byte);
     }
 }
 
@@ -636,40 +604,38 @@ pub fn formatBuf(
 pub fn formatFloatScientific(
     value: var,
     options: FormatOptions,
-    context: var,
-    comptime Errors: type,
-    comptime output: fn (@TypeOf(context), []const u8) Errors!void,
-) Errors!void {
+    out_stream: var,
+) !void {
     var x = @floatCast(f64, value);
 
     // Errol doesn't handle these special cases.
     if (math.signbit(x)) {
-        try output(context, "-");
+        try out_stream.writeAll("-");
         x = -x;
     }
 
     if (math.isNan(x)) {
-        return output(context, "nan");
+        return out_stream.writeAll("nan");
     }
     if (math.isPositiveInf(x)) {
-        return output(context, "inf");
+        return out_stream.writeAll("inf");
     }
     if (x == 0.0) {
-        try output(context, "0");
+        try out_stream.writeAll("0");
 
         if (options.precision) |precision| {
             if (precision != 0) {
-                try output(context, ".");
+                try out_stream.writeAll(".");
                 var i: usize = 0;
                 while (i < precision) : (i += 1) {
-                    try output(context, "0");
+                    try out_stream.writeAll("0");
                 }
             }
         } else {
-            try output(context, ".0");
+            try out_stream.writeAll(".0");
         }
 
-        try output(context, "e+00");
+        try out_stream.writeAll("e+00");
         return;
     }
 
@@ -679,50 +645,50 @@ pub fn formatFloatScientific(
     if (options.precision) |precision| {
         errol.roundToPrecision(&float_decimal, precision, errol.RoundMode.Scientific);
 
-        try output(context, float_decimal.digits[0..1]);
+        try out_stream.writeAll(float_decimal.digits[0..1]);
 
         // {e0} case prints no `.`
         if (precision != 0) {
-            try output(context, ".");
+            try out_stream.writeAll(".");
 
             var printed: usize = 0;
             if (float_decimal.digits.len > 1) {
                 const num_digits = math.min(float_decimal.digits.len, precision + 1);
-                try output(context, float_decimal.digits[1..num_digits]);
+                try out_stream.writeAll(float_decimal.digits[1..num_digits]);
                 printed += num_digits - 1;
             }
 
             while (printed < precision) : (printed += 1) {
-                try output(context, "0");
+                try out_stream.writeAll("0");
             }
         }
     } else {
-        try output(context, float_decimal.digits[0..1]);
-        try output(context, ".");
+        try out_stream.writeAll(float_decimal.digits[0..1]);
+        try out_stream.writeAll(".");
         if (float_decimal.digits.len > 1) {
             const num_digits = if (@TypeOf(value) == f32) math.min(@as(usize, 9), float_decimal.digits.len) else float_decimal.digits.len;
 
-            try output(context, float_decimal.digits[1..num_digits]);
+            try out_stream.writeAll(float_decimal.digits[1..num_digits]);
         } else {
-            try output(context, "0");
+            try out_stream.writeAll("0");
         }
     }
 
-    try output(context, "e");
+    try out_stream.writeAll("e");
     const exp = float_decimal.exp - 1;
 
     if (exp >= 0) {
-        try output(context, "+");
+        try out_stream.writeAll("+");
         if (exp > -10 and exp < 10) {
-            try output(context, "0");
+            try out_stream.writeAll("0");
         }
-        try formatInt(exp, 10, false, FormatOptions{ .width = 0 }, context, Errors, output);
+        try formatInt(exp, 10, false, FormatOptions{ .width = 0 }, out_stream);
     } else {
-        try output(context, "-");
+        try out_stream.writeAll("-");
         if (exp > -10 and exp < 10) {
-            try output(context, "0");
+            try out_stream.writeAll("0");
         }
-        try formatInt(-exp, 10, false, FormatOptions{ .width = 0 }, context, Errors, output);
+        try formatInt(-exp, 10, false, FormatOptions{ .width = 0 }, out_stream);
     }
 }
 
@@ -731,36 +697,34 @@ pub fn formatFloatScientific(
 pub fn formatFloatDecimal(
     value: var,
     options: FormatOptions,
-    context: var,
-    comptime Errors: type,
-    comptime output: fn (@TypeOf(context), []const u8) Errors!void,
-) Errors!void {
+    out_stream: var,
+) !void {
     var x = @as(f64, value);
 
     // Errol doesn't handle these special cases.
     if (math.signbit(x)) {
-        try output(context, "-");
+        try out_stream.writeAll("-");
         x = -x;
     }
 
     if (math.isNan(x)) {
-        return output(context, "nan");
+        return out_stream.writeAll("nan");
     }
     if (math.isPositiveInf(x)) {
-        return output(context, "inf");
+        return out_stream.writeAll("inf");
     }
     if (x == 0.0) {
-        try output(context, "0");
+        try out_stream.writeAll("0");
 
         if (options.precision) |precision| {
             if (precision != 0) {
-                try output(context, ".");
+                try out_stream.writeAll(".");
                 var i: usize = 0;
                 while (i < precision) : (i += 1) {
-                    try output(context, "0");
+                    try out_stream.writeAll("0");
                 }
             } else {
-                try output(context, ".0");
+                try out_stream.writeAll(".0");
             }
         }
 
@@ -782,14 +746,14 @@ pub fn formatFloatDecimal(
 
         if (num_digits_whole > 0) {
             // We may have to zero pad, for instance 1e4 requires zero padding.
-            try output(context, float_decimal.digits[0..num_digits_whole_no_pad]);
+            try out_stream.writeAll(float_decimal.digits[0..num_digits_whole_no_pad]);
 
             var i = num_digits_whole_no_pad;
             while (i < num_digits_whole) : (i += 1) {
-                try output(context, "0");
+                try out_stream.writeAll("0");
             }
         } else {
-            try output(context, "0");
+            try out_stream.writeAll("0");
         }
 
         // {.0} special case doesn't want a trailing '.'
@@ -797,7 +761,7 @@ pub fn formatFloatDecimal(
             return;
         }
 
-        try output(context, ".");
+        try out_stream.writeAll(".");
 
         // Keep track of fractional count printed for case where we pre-pad then post-pad with 0's.
         var printed: usize = 0;
@@ -809,7 +773,7 @@ pub fn formatFloatDecimal(
 
             var i: usize = 0;
             while (i < zeros_to_print) : (i += 1) {
-                try output(context, "0");
+                try out_stream.writeAll("0");
                 printed += 1;
             }
 
@@ -821,14 +785,14 @@ pub fn formatFloatDecimal(
         // Remaining fractional portion, zero-padding if insufficient.
         assert(precision >= printed);
         if (num_digits_whole_no_pad + precision - printed < float_decimal.digits.len) {
-            try output(context, float_decimal.digits[num_digits_whole_no_pad .. num_digits_whole_no_pad + precision - printed]);
+            try out_stream.writeAll(float_decimal.digits[num_digits_whole_no_pad .. num_digits_whole_no_pad + precision - printed]);
             return;
         } else {
-            try output(context, float_decimal.digits[num_digits_whole_no_pad..]);
+            try out_stream.writeAll(float_decimal.digits[num_digits_whole_no_pad..]);
             printed += float_decimal.digits.len - num_digits_whole_no_pad;
 
             while (printed < precision) : (printed += 1) {
-                try output(context, "0");
+                try out_stream.writeAll("0");
             }
         }
     } else {
@@ -840,14 +804,14 @@ pub fn formatFloatDecimal(
 
         if (num_digits_whole > 0) {
             // We may have to zero pad, for instance 1e4 requires zero padding.
-            try output(context, float_decimal.digits[0..num_digits_whole_no_pad]);
+            try out_stream.writeAll(float_decimal.digits[0..num_digits_whole_no_pad]);
 
             var i = num_digits_whole_no_pad;
             while (i < num_digits_whole) : (i += 1) {
-                try output(context, "0");
+                try out_stream.writeAll("0");
             }
         } else {
-            try output(context, "0");
+            try out_stream.writeAll("0");
         }
 
         // Omit `.` if no fractional portion
@@ -855,7 +819,7 @@ pub fn formatFloatDecimal(
             return;
         }
 
-        try output(context, ".");
+        try out_stream.writeAll(".");
 
         // Zero-fill until we reach significant digits or run out of precision.
         if (float_decimal.exp < 0) {
@@ -863,11 +827,11 @@ pub fn formatFloatDecimal(
 
             var i: usize = 0;
             while (i < zero_digit_count) : (i += 1) {
-                try output(context, "0");
+                try out_stream.writeAll("0");
             }
         }
 
-        try output(context, float_decimal.digits[num_digits_whole_no_pad..]);
+        try out_stream.writeAll(float_decimal.digits[num_digits_whole_no_pad..]);
     }
 }
 
@@ -875,12 +839,10 @@ pub fn formatBytes(
     value: var,
     options: FormatOptions,
     comptime radix: usize,
-    context: var,
-    comptime Errors: type,
-    comptime output: fn (@TypeOf(context), []const u8) Errors!void,
-) Errors!void {
+    out_stream: var,
+) !void {
     if (value == 0) {
-        return output(context, "0B");
+        return out_stream.writeAll("0B");
     }
 
     const mags_si = " kMGTPEZY";
@@ -897,10 +859,10 @@ pub fn formatBytes(
         else => unreachable,
     };
 
-    try formatFloatDecimal(new_value, options, context, Errors, output);
+    try formatFloatDecimal(new_value, options, out_stream);
 
     if (suffix == ' ') {
-        return output(context, "B");
+        return out_stream.writeAll("B");
     }
 
     const buf = switch (radix) {
@@ -908,7 +870,7 @@ pub fn formatBytes(
         1024 => &[_]u8{ suffix, 'i', 'B' },
         else => unreachable,
     };
-    return output(context, buf);
+    return out_stream.writeAll(buf);
 }
 
 pub fn formatInt(
@@ -916,10 +878,8 @@ pub fn formatInt(
     base: u8,
     uppercase: bool,
     options: FormatOptions,
-    context: var,
-    comptime Errors: type,
-    comptime output: fn (@TypeOf(context), []const u8) Errors!void,
-) Errors!void {
+    out_stream: var,
+) !void {
     const int_value = if (@TypeOf(value) == comptime_int) blk: {
         const Int = math.IntFittingRange(value, value);
         break :blk @as(Int, value);
@@ -927,9 +887,9 @@ pub fn formatInt(
         value;
 
     if (@TypeOf(int_value).is_signed) {
-        return formatIntSigned(int_value, base, uppercase, options, context, Errors, output);
+        return formatIntSigned(int_value, base, uppercase, options, out_stream);
     } else {
-        return formatIntUnsigned(int_value, base, uppercase, options, context, Errors, output);
+        return formatIntUnsigned(int_value, base, uppercase, options, out_stream);
     }
 }
 
@@ -938,10 +898,8 @@ fn formatIntSigned(
     base: u8,
     uppercase: bool,
     options: FormatOptions,
-    context: var,
-    comptime Errors: type,
-    comptime output: fn (@TypeOf(context), []const u8) Errors!void,
-) Errors!void {
+    out_stream: var,
+) !void {
     const new_options = FormatOptions{
         .width = if (options.width) |w| (if (w == 0) 0 else w - 1) else null,
         .precision = options.precision,
@@ -950,15 +908,15 @@ fn formatIntSigned(
     const bit_count = @typeInfo(@TypeOf(value)).Int.bits;
     const Uint = std.meta.IntType(false, bit_count);
     if (value < 0) {
-        try output(context, "-");
+        try out_stream.writeAll("-");
         const new_value = math.absCast(value);
-        return formatIntUnsigned(new_value, base, uppercase, new_options, context, Errors, output);
+        return formatIntUnsigned(new_value, base, uppercase, new_options, out_stream);
     } else if (options.width == null or options.width.? == 0) {
-        return formatIntUnsigned(@intCast(Uint, value), base, uppercase, options, context, Errors, output);
+        return formatIntUnsigned(@intCast(Uint, value), base, uppercase, options, out_stream);
     } else {
-        try output(context, "+");
+        try out_stream.writeAll("+");
         const new_value = @intCast(Uint, value);
-        return formatIntUnsigned(new_value, base, uppercase, new_options, context, Errors, output);
+        return formatIntUnsigned(new_value, base, uppercase, new_options, out_stream);
     }
 }
 
@@ -967,10 +925,8 @@ fn formatIntUnsigned(
     base: u8,
     uppercase: bool,
     options: FormatOptions,
-    context: var,
-    comptime Errors: type,
-    comptime output: fn (@TypeOf(context), []const u8) Errors!void,
-) Errors!void {
+    out_stream: var,
+) !void {
     assert(base >= 2);
     var buf: [math.max(@TypeOf(value).bit_count, 1)]u8 = undefined;
     const min_int_bits = comptime math.max(@TypeOf(value).bit_count, @TypeOf(base).bit_count);
@@ -994,34 +950,23 @@ fn formatIntUnsigned(
         const zero_byte: u8 = options.fill;
         var leftover_padding = padding - index;
         while (true) {
-            try output(context, @as(*const [1]u8, &zero_byte)[0..]);
+            try out_stream.writeAll(@as(*const [1]u8, &zero_byte)[0..]);
             leftover_padding -= 1;
             if (leftover_padding == 0) break;
         }
         mem.set(u8, buf[0..index], options.fill);
-        return output(context, &buf);
+        return out_stream.writeAll(&buf);
     } else {
         const padded_buf = buf[index - padding ..];
         mem.set(u8, padded_buf[0..padding], options.fill);
-        return output(context, padded_buf);
+        return out_stream.writeAll(padded_buf);
     }
 }
 
 pub fn formatIntBuf(out_buf: []u8, value: var, base: u8, uppercase: bool, options: FormatOptions) usize {
-    var context = FormatIntBuf{
-        .out_buf = out_buf,
-        .index = 0,
-    };
-    formatInt(value, base, uppercase, options, &context, error{}, formatIntCallback) catch unreachable;
-    return context.index;
-}
-const FormatIntBuf = struct {
-    out_buf: []u8,
-    index: usize,
-};
-fn formatIntCallback(context: *FormatIntBuf, bytes: []const u8) (error{}!void) {
-    mem.copy(u8, context.out_buf[context.index..], bytes);
-    context.index += bytes.len;
+    var fbs = std.io.fixedBufferStream(out_buf);
+    formatInt(value, base, uppercase, options, fbs.outStream()) catch unreachable;
+    return fbs.pos;
 }
 
 pub fn parseInt(comptime T: type, buf: []const u8, radix: u8) !T {
@@ -1121,42 +1066,34 @@ fn digitToChar(digit: u8, uppercase: bool) u8 {
     };
 }
 
-const BufPrintContext = struct {
-    remaining: []u8,
-};
-
-fn bufPrintWrite(context: *BufPrintContext, bytes: []const u8) !void {
-    if (context.remaining.len < bytes.len) {
-        mem.copy(u8, context.remaining, bytes[0..context.remaining.len]);
-        return error.BufferTooSmall;
-    }
-    mem.copy(u8, context.remaining, bytes);
-    context.remaining = context.remaining[bytes.len..];
-}
-
 pub const BufPrintError = error{
     /// As much as possible was written to the buffer, but it was too small to fit all the printed bytes.
-    BufferTooSmall,
+    NoSpaceLeft,
 };
 pub fn bufPrint(buf: []u8, comptime fmt: []const u8, args: var) BufPrintError![]u8 {
-    var context = BufPrintContext{ .remaining = buf };
-    try format(&context, BufPrintError, bufPrintWrite, fmt, args);
-    return buf[0 .. buf.len - context.remaining.len];
+    var fbs = std.io.fixedBufferStream(buf);
+    try format(fbs.outStream(), fmt, args);
+    return fbs.getWritten();
+}
+
+// Count the characters needed for format. Useful for preallocating memory
+pub fn count(comptime fmt: []const u8, args: var) u64 {
+    var counting_stream = std.io.countingOutStream(std.io.null_out_stream);
+    format(counting_stream.outStream(), fmt, args) catch |err| switch (err) {};
+    return counting_stream.bytes_written;
 }
 
 pub const AllocPrintError = error{OutOfMemory};
 
 pub fn allocPrint(allocator: *mem.Allocator, comptime fmt: []const u8, args: var) AllocPrintError![]u8 {
-    var size: usize = 0;
-    format(&size, error{}, countSize, fmt, args) catch |err| switch (err) {};
+    const size = math.cast(usize, count(fmt, args)) catch |err| switch (err) {
+        // Output too long. Can't possibly allocate enough memory to display it.
+        error.Overflow => return error.OutOfMemory,
+    };
     const buf = try allocator.alloc(u8, size);
     return bufPrint(buf, fmt, args) catch |err| switch (err) {
-        error.BufferTooSmall => unreachable, // we just counted the size above
+        error.NoSpaceLeft => unreachable, // we just counted the size above
     };
-}
-
-fn countSize(size: *usize, bytes: []const u8) (error{}!void) {
-    size.* += bytes.len;
 }
 
 pub fn allocPrint0(allocator: *mem.Allocator, comptime fmt: []const u8, args: var) AllocPrintError![:0]u8 {
@@ -1251,20 +1188,17 @@ test "int.padded" {
 test "buffer" {
     {
         var buf1: [32]u8 = undefined;
-        var context = BufPrintContext{ .remaining = buf1[0..] };
-        try formatType(1234, "", FormatOptions{}, &context, error{BufferTooSmall}, bufPrintWrite, default_max_depth);
-        var res = buf1[0 .. buf1.len - context.remaining.len];
-        std.testing.expect(mem.eql(u8, res, "1234"));
+        var fbs = std.io.fixedBufferStream(&buf1);
+        try formatType(1234, "", FormatOptions{}, fbs.outStream(), default_max_depth);
+        std.testing.expect(mem.eql(u8, fbs.getWritten(), "1234"));
 
-        context = BufPrintContext{ .remaining = buf1[0..] };
-        try formatType('a', "c", FormatOptions{}, &context, error{BufferTooSmall}, bufPrintWrite, default_max_depth);
-        res = buf1[0 .. buf1.len - context.remaining.len];
-        std.testing.expect(mem.eql(u8, res, "a"));
+        fbs.reset();
+        try formatType('a', "c", FormatOptions{}, fbs.outStream(), default_max_depth);
+        std.testing.expect(mem.eql(u8, fbs.getWritten(), "a"));
 
-        context = BufPrintContext{ .remaining = buf1[0..] };
-        try formatType(0b1100, "b", FormatOptions{}, &context, error{BufferTooSmall}, bufPrintWrite, default_max_depth);
-        res = buf1[0 .. buf1.len - context.remaining.len];
-        std.testing.expect(mem.eql(u8, res, "1100"));
+        fbs.reset();
+        try formatType(0b1100, "b", FormatOptions{}, fbs.outStream(), default_max_depth);
+        std.testing.expect(mem.eql(u8, fbs.getWritten(), "1100"));
     }
 }
 
@@ -1449,14 +1383,12 @@ test "custom" {
             self: SelfType,
             comptime fmt: []const u8,
             options: FormatOptions,
-            context: var,
-            comptime Errors: type,
-            comptime output: fn (@TypeOf(context), []const u8) Errors!void,
-        ) Errors!void {
+            out_stream: var,
+        ) !void {
             if (fmt.len == 0 or comptime std.mem.eql(u8, fmt, "p")) {
-                return std.fmt.format(context, Errors, output, "({d:.3},{d:.3})", .{ self.x, self.y });
+                return std.fmt.format(out_stream, "({d:.3},{d:.3})", .{ self.x, self.y });
             } else if (comptime std.mem.eql(u8, fmt, "d")) {
-                return std.fmt.format(context, Errors, output, "{d:.3}x{d:.3}", .{ self.x, self.y });
+                return std.fmt.format(out_stream, "{d:.3}x{d:.3}", .{ self.x, self.y });
             } else {
                 @compileError("Unknown format character: '" ++ fmt ++ "'");
             }
@@ -1640,10 +1572,10 @@ test "hexToBytes" {
 test "formatIntValue with comptime_int" {
     const value: comptime_int = 123456789123456789;
 
-    var buf = std.ArrayList(u8).init(std.testing.allocator);
-    defer buf.deinit();
-    try formatIntValue(value, "", FormatOptions{}, &buf, @TypeOf(std.ArrayList(u8).appendSlice).ReturnType.ErrorSet, std.ArrayList(u8).appendSlice);
-    std.testing.expect(mem.eql(u8, buf.toSliceConst(), "123456789123456789"));
+    var buf: [20]u8 = undefined;
+    var fbs = std.io.fixedBufferStream(&buf);
+    try formatIntValue(value, "", FormatOptions{}, fbs.outStream());
+    std.testing.expect(mem.eql(u8, fbs.getWritten(), "123456789123456789"));
 }
 
 test "formatType max_depth" {
@@ -1656,12 +1588,10 @@ test "formatType max_depth" {
             self: SelfType,
             comptime fmt: []const u8,
             options: FormatOptions,
-            context: var,
-            comptime Errors: type,
-            comptime output: fn (@TypeOf(context), []const u8) Errors!void,
-        ) Errors!void {
+            out_stream: var,
+        ) !void {
             if (fmt.len == 0) {
-                return std.fmt.format(context, Errors, output, "({d:.3},{d:.3})", .{ self.x, self.y });
+                return std.fmt.format(out_stream, "({d:.3},{d:.3})", .{ self.x, self.y });
             } else {
                 @compileError("Unknown format string: '" ++ fmt ++ "'");
             }
@@ -1695,25 +1625,22 @@ test "formatType max_depth" {
     inst.a = &inst;
     inst.tu.ptr = &inst.tu;
 
-    var buf0 = std.ArrayList(u8).init(std.testing.allocator);
-    defer buf0.deinit();
-    try formatType(inst, "", FormatOptions{}, &buf0, @TypeOf(std.ArrayList(u8).appendSlice).ReturnType.ErrorSet, std.ArrayList(u8).appendSlice, 0);
-    std.testing.expect(mem.eql(u8, buf0.toSlice(), "S{ ... }"));
+    var buf: [1000]u8 = undefined;
+    var fbs = std.io.fixedBufferStream(&buf);
+    try formatType(inst, "", FormatOptions{}, fbs.outStream(), 0);
+    std.testing.expect(mem.eql(u8, fbs.getWritten(), "S{ ... }"));
 
-    var buf1 = std.ArrayList(u8).init(std.testing.allocator);
-    defer buf1.deinit();
-    try formatType(inst, "", FormatOptions{}, &buf1, @TypeOf(std.ArrayList(u8).appendSlice).ReturnType.ErrorSet, std.ArrayList(u8).appendSlice, 1);
-    std.testing.expect(mem.eql(u8, buf1.toSlice(), "S{ .a = S{ ... }, .tu = TU{ ... }, .e = E.Two, .vec = (10.200,2.220) }"));
+    fbs.reset();
+    try formatType(inst, "", FormatOptions{}, fbs.outStream(), 1);
+    std.testing.expect(mem.eql(u8, fbs.getWritten(), "S{ .a = S{ ... }, .tu = TU{ ... }, .e = E.Two, .vec = (10.200,2.220) }"));
 
-    var buf2 = std.ArrayList(u8).init(std.testing.allocator);
-    defer buf2.deinit();
-    try formatType(inst, "", FormatOptions{}, &buf2, @TypeOf(std.ArrayList(u8).appendSlice).ReturnType.ErrorSet, std.ArrayList(u8).appendSlice, 2);
-    std.testing.expect(mem.eql(u8, buf2.toSlice(), "S{ .a = S{ .a = S{ ... }, .tu = TU{ ... }, .e = E.Two, .vec = (10.200,2.220) }, .tu = TU{ .ptr = TU{ ... } }, .e = E.Two, .vec = (10.200,2.220) }"));
+    fbs.reset();
+    try formatType(inst, "", FormatOptions{}, fbs.outStream(), 2);
+    std.testing.expect(mem.eql(u8, fbs.getWritten(), "S{ .a = S{ .a = S{ ... }, .tu = TU{ ... }, .e = E.Two, .vec = (10.200,2.220) }, .tu = TU{ .ptr = TU{ ... } }, .e = E.Two, .vec = (10.200,2.220) }"));
 
-    var buf3 = std.ArrayList(u8).init(std.testing.allocator);
-    defer buf3.deinit();
-    try formatType(inst, "", FormatOptions{}, &buf3, @TypeOf(std.ArrayList(u8).appendSlice).ReturnType.ErrorSet, std.ArrayList(u8).appendSlice, 3);
-    std.testing.expect(mem.eql(u8, buf3.toSlice(), "S{ .a = S{ .a = S{ .a = S{ ... }, .tu = TU{ ... }, .e = E.Two, .vec = (10.200,2.220) }, .tu = TU{ .ptr = TU{ ... } }, .e = E.Two, .vec = (10.200,2.220) }, .tu = TU{ .ptr = TU{ .ptr = TU{ ... } } }, .e = E.Two, .vec = (10.200,2.220) }"));
+    fbs.reset();
+    try formatType(inst, "", FormatOptions{}, fbs.outStream(), 3);
+    std.testing.expect(mem.eql(u8, fbs.getWritten(), "S{ .a = S{ .a = S{ .a = S{ ... }, .tu = TU{ ... }, .e = E.Two, .vec = (10.200,2.220) }, .tu = TU{ .ptr = TU{ ... } }, .e = E.Two, .vec = (10.200,2.220) }, .tu = TU{ .ptr = TU{ .ptr = TU{ ... } } }, .e = E.Two, .vec = (10.200,2.220) }"));
 }
 
 test "positional" {
