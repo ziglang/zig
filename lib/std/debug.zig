@@ -278,8 +278,11 @@ pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, c
                 // Another thread is panicking, wait for the last one to finish
                 // and call abort()
 
-                // XXX: Find a nicer way to loop forever
-                while (true) {}
+                // Here we sleep forever without hammering the CPU by causing a
+                // deadlock
+                var deadlock = std.Mutex.init();
+                _ = deadlock.acquire();
+                _ = deadlock.acquire();
             }
         },
         1 => {
