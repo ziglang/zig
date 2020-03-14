@@ -1754,8 +1754,7 @@ test "open file with lock twice, make sure it wasn't open at the same time" {
         lock_file_for_test(&ctxs[ctx_idx]);
 
         if (childpid != 0) {
-            var status: u32 = 0;
-            _ = std.os.linux.waitpid(childpid, &status, 0);
+            _ = std.os.waitpid(childpid, 0);
 
             std.debug.assert(!ctxs[0].overlaps(&ctxs[1]));
         }
