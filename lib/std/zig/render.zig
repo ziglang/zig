@@ -583,7 +583,6 @@ fn renderExpression(
                 },
 
                 .Try,
-                .Cancel,
                 .Resume,
                 => {
                     try renderToken(tree, stream, prefix_op_node.op_token, indent, start_col, Space.Space);

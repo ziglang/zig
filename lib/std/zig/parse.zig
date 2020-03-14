@@ -2181,7 +2181,7 @@ fn parseMultiplyOp(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 
     const token = nextToken(it);
     const op = switch (token.ptr.id) {
-        .PipePipe => ops{ .BoolOr = {} },
+        .PipePipe => ops{ .MergeErrorSets = {} },
         .Asterisk => ops{ .Mul = {} },
         .Slash => ops{ .Div = {} },
         .Percent => ops{ .Mod = {} },
