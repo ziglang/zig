@@ -1733,8 +1733,8 @@ test "open file with lock twice, make sure it wasn't open at the same time" {
         };
 
         const threads = [_]*std.Thread{
-            try std.Thread.spawn(&ctxs[0], lock_file),
-            try std.Thread.spawn(&ctxs[1], lock_file),
+            try std.Thread.spawn(&ctxs[0], lock_file_for_test),
+            try std.Thread.spawn(&ctxs[1], lock_file_for_test),
         };
 
         for (threads[0..]) |thread| {
@@ -1772,6 +1772,7 @@ const FileLockTestContext = struct {
     // Output variables
     start_time: u64 = 0,
     end_time: u64 = 0,
+    bytes_read: ?usize = null,
 
     fn overlaps(self: *const @This(), other: *const @This()) bool {
         return (self.start_time < other.end_time) and (self.end_time > other.start_time);
@@ -1782,6 +1783,73 @@ fn lock_file_for_test(ctx: *FileLockTestContext) void {
     const file = cwd().createFile(ctx.filename, .{ .lock = true }) catch unreachable;
     ctx.start_time = std.time.milliTimestamp();
     std.time.sleep(FILE_LOCK_TEST_SLEEP_TIME);
+    ctx.end_time = std.time.milliTimestamp();
+    file.close();
+}
+
+test "create file, lock and read from multiple process at once" {
+    const filename = "file_read_lock_test.txt";
+    const filedata = "Hello, world!\n";
+
+    try std.fs.cwd().writeFile(filename, filedata);
+
+    if (builtin.os.tag == .windows) {
+        var ctxs = [_]FileLockTestContext{
+            .{ .filename = filename },
+            .{ .filename = filename },
+        };
+
+        const threads = [_]*std.Thread{
+            try std.Thread.spawn(&ctxs[0], lock_file_for_read_test),
+            try std.Thread.spawn(&ctxs[1], lock_file_for_read_test),
+        };
+
+        for (threads[0..]) |thread| {
+            thread.wait();
+        }
+
+        std.debug.assert(ctxs[0].overlaps(&ctxs[1]));
+        std.debug.assert(ctxs[0].bytes_read.? == filedata.len);
+        std.debug.assert(ctxs[1].bytes_read.? == filedata.len);
+    } else {
+        const shared_mem = try std.os.mmap(null, 2 * @sizeOf(FileLockTestContext), std.os.PROT_READ | std.os.PROT_WRITE, std.os.MAP_SHARED | std.os.MAP_ANONYMOUS, -1, 0);
+        defer std.os.munmap(shared_mem);
+        const ctxs = @ptrCast([*]FileLockTestContext, shared_mem.ptr);
+
+        const childpid = try std.os.fork();
+        const ctx_idx: usize = if (childpid != 0) 0 else 1;
+
+        ctxs[ctx_idx].filename = filename;
+        lock_file_for_read_test(&ctxs[ctx_idx]);
+
+        if (childpid != 0) {
+            _ = std.os.waitpid(childpid, 0);
+
+            std.debug.assert(ctxs[0].overlaps(&ctxs[1]));
+            std.debug.assert(ctxs[0].bytes_read.? == filedata.len);
+            std.debug.assert(ctxs[1].bytes_read.? == filedata.len);
+        }
+    }
+
+    cwd().deleteFile(filename) catch |err| switch (err) {
+        error.FileNotFound => {},
+        else => return err,
+    };
+}
+
+fn lock_file_for_read_test(ctx: *FileLockTestContext) void {
+    const file = cwd().openFile(ctx.filename, .{ .lock = true }) catch unreachable;
+    ctx.start_time = std.time.milliTimestamp();
+
+    var buffer: [100]u8 = undefined;
+    ctx.bytes_read = 0;
+    while (true) {
+        const amt = file.read(buffer[0..]) catch unreachable;
+        if (amt == 0) break;
+        ctx.bytes_read.? += amt;
+    }
+    std.time.sleep(FILE_LOCK_TEST_SLEEP_TIME);
+
     ctx.end_time = std.time.milliTimestamp();
     file.close();
 }
