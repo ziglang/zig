@@ -276,3 +276,78 @@ test "vector comparison operators" {
     S.doTheTest();
     comptime S.doTheTest();
 }
+
+test "vector division operators" {
+    const S = struct {
+        fn doTheTestDiv(comptime T: type, x: @Vector(4, T), y: @Vector(4, T)) void {
+            if (!comptime std.meta.trait.isSignedInt(T)) {
+                const d0 = x / y;
+                for (@as([4]T, d0)) |v, i| {
+                    expectEqual(x[i] / y[i], v);
+                }
+            }
+            const d1 = @divExact(x, y);
+            for (@as([4]T, d1)) |v, i| {
+                expectEqual(@divExact(x[i], y[i]), v);
+            }
+            const d2 = @divFloor(x, y);
+            for (@as([4]T, d2)) |v, i| {
+                expectEqual(@divFloor(x[i], y[i]), v);
+            }
+            const d3 = @divTrunc(x, y);
+            for (@as([4]T, d3)) |v, i| {
+                expectEqual(@divTrunc(x[i], y[i]), v);
+            }
+        }
+
+        fn doTheTestMod(comptime T: type, x: @Vector(4, T), y: @Vector(4, T)) void {
+            if ((!comptime std.meta.trait.isSignedInt(T)) and @typeInfo(T) != .Float) {
+                const r0 = x % y;
+                for (@as([4]T, r0)) |v, i| {
+                    expectEqual(x[i] % y[i], v);
+                }
+            }
+            const r1 = @mod(x, y);
+            for (@as([4]T, r1)) |v, i| {
+                expectEqual(@mod(x[i], y[i]), v);
+            }
+            const r2 = @rem(x, y);
+            for (@as([4]T, r2)) |v, i| {
+                expectEqual(@rem(x[i], y[i]), v);
+            }
+        }
+
+        fn doTheTest() void {
+            doTheTestDiv(f16, [4]f16{ 4.0, -4.0, 4.0, -4.0 }, [4]f16{ 1.0, 2.0, -1.0, -2.0 });
+            doTheTestDiv(f32, [4]f32{ 4.0, -4.0, 4.0, -4.0 }, [4]f32{ 1.0, 2.0, -1.0, -2.0 });
+            doTheTestDiv(f64, [4]f64{ 4.0, -4.0, 4.0, -4.0 }, [4]f64{ 1.0, 2.0, -1.0, -2.0 });
+
+            doTheTestMod(f16, [4]f16{ 4.0, -4.0, 4.0, -4.0 }, [4]f16{ 1.0, 2.0, 0.5, 3.0 });
+            doTheTestMod(f32, [4]f32{ 4.0, -4.0, 4.0, -4.0 }, [4]f32{ 1.0, 2.0, 0.5, 3.0 });
+            doTheTestMod(f64, [4]f64{ 4.0, -4.0, 4.0, -4.0 }, [4]f64{ 1.0, 2.0, 0.5, 3.0 });
+
+            doTheTestDiv(i8, [4]i8{ 4, -4, 4, -4 }, [4]i8{ 1, 2, -1, -2 });
+            doTheTestDiv(i16, [4]i16{ 4, -4, 4, -4 }, [4]i16{ 1, 2, -1, -2 });
+            doTheTestDiv(i32, [4]i32{ 4, -4, 4, -4 }, [4]i32{ 1, 2, -1, -2 });
+            doTheTestDiv(i64, [4]i64{ 4, -4, 4, -4 }, [4]i64{ 1, 2, -1, -2 });
+
+            doTheTestMod(i8, [4]i8{ 4, -4, 4, -4 }, [4]i8{ 1, 2, 4, 8 });
+            doTheTestMod(i16, [4]i16{ 4, -4, 4, -4 }, [4]i16{ 1, 2, 4, 8 });
+            doTheTestMod(i32, [4]i32{ 4, -4, 4, -4 }, [4]i32{ 1, 2, 4, 8 });
+            doTheTestMod(i64, [4]i64{ 4, -4, 4, -4 }, [4]i64{ 1, 2, 4, 8 });
+
+            doTheTestDiv(u8, [4]u8{ 1, 2, 4, 8 }, [4]u8{ 1, 1, 2, 4 });
+            doTheTestDiv(u16, [4]u16{ 1, 2, 4, 8 }, [4]u16{ 1, 1, 2, 4 });
+            doTheTestDiv(u32, [4]u32{ 1, 2, 4, 8 }, [4]u32{ 1, 1, 2, 4 });
+            doTheTestDiv(u64, [4]u64{ 1, 2, 4, 8 }, [4]u64{ 1, 1, 2, 4 });
+
+            doTheTestMod(u8, [4]u8{ 1, 2, 4, 8 }, [4]u8{ 1, 1, 2, 4 });
+            doTheTestMod(u16, [4]u16{ 1, 2, 4, 8 }, [4]u16{ 1, 1, 2, 4 });
+            doTheTestMod(u32, [4]u32{ 1, 2, 4, 8 }, [4]u32{ 1, 1, 2, 4 });
+            doTheTestMod(u64, [4]u64{ 1, 2, 4, 8 }, [4]u64{ 1, 1, 2, 4 });
+        }
+    };
+
+    S.doTheTest();
+    comptime S.doTheTest();
+}

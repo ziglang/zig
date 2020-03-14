@@ -16943,6 +16943,7 @@ static bool ok_float_op(IrBinOp op) {
         case IrBinOpDivExact:
         case IrBinOpRemRem:
         case IrBinOpRemMod:
+        case IrBinOpRemUnspecified:
             return true;
 
         case IrBinOpBoolOr:
@@ -16963,7 +16964,6 @@ static bool ok_float_op(IrBinOp op) {
         case IrBinOpAddWrap:
         case IrBinOpSubWrap:
         case IrBinOpMultWrap:
-        case IrBinOpRemUnspecified:
         case IrBinOpArrayCat:
         case IrBinOpArrayMult:
             return false;
@@ -16989,6 +16989,31 @@ static bool is_pointer_arithmetic_allowed(ZigType *lhs_type, IrBinOp op) {
             return true;
     }
     zig_unreachable();
+}
+
+static bool value_cmp_zero_any(ZigValue *value, Cmp predicate) {
+    assert(value->special == ConstValSpecialStatic);
+
+    switch (value->type->id) {
+        case ZigTypeIdComptimeInt:
+        case ZigTypeIdInt:
+            return bigint_cmp_zero(&value->data.x_bigint) == predicate;
+        case ZigTypeIdComptimeFloat:
+        case ZigTypeIdFloat:
+            if (float_is_nan(value))
+                return false;
+            return float_cmp_zero(value) == predicate;
+        case ZigTypeIdVector: {
+            for (size_t i = 0; i < value->type->data.vector.len; i++) {
+                ZigValue *scalar_val = &value->data.x_array.data.s_none.elements[i];
+                if (!value_cmp_zero_any(scalar_val, predicate))
+                    return true;
+            }
+            return false;
+        }
+        default:
+            zig_unreachable();
+    }
 }
 
 static IrInstGen *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstSrcBinOp *instruction) {
@@ -17096,143 +17121,19 @@ static IrInstGen *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstSrcBinOp *instruc
     if (type_is_invalid(resolved_type))
         return ira->codegen->invalid_inst_gen;
 
-    bool is_int = resolved_type->id == ZigTypeIdInt || resolved_type->id == ZigTypeIdComptimeInt;
-    bool is_float = resolved_type->id == ZigTypeIdFloat || resolved_type->id == ZigTypeIdComptimeFloat;
-    bool is_signed_div = (
-        (resolved_type->id == ZigTypeIdInt && resolved_type->data.integral.is_signed) ||
-        resolved_type->id == ZigTypeIdFloat ||
-        (resolved_type->id == ZigTypeIdComptimeFloat &&
-            ((bigfloat_cmp_zero(&op1->value->data.x_bigfloat) != CmpGT) !=
-             (bigfloat_cmp_zero(&op2->value->data.x_bigfloat) != CmpGT))) ||
-        (resolved_type->id == ZigTypeIdComptimeInt &&
-            ((bigint_cmp_zero(&op1->value->data.x_bigint) != CmpGT) !=
-             (bigint_cmp_zero(&op2->value->data.x_bigint) != CmpGT)))
-    );
-    if (op_id == IrBinOpDivUnspecified && is_int) {
-        if (is_signed_div) {
-            bool ok = false;
-            if (instr_is_comptime(op1) && instr_is_comptime(op2)) {
-                ZigValue *op1_val = ir_resolve_const(ira, op1, UndefBad);
-                if (op1_val == nullptr)
-                    return ira->codegen->invalid_inst_gen;
+    ZigType *scalar_type = (resolved_type->id == ZigTypeIdVector) ?
+        resolved_type->data.vector.elem_type : resolved_type;
 
-                ZigValue *op2_val = ir_resolve_const(ira, op2, UndefBad);
-                if (op2_val == nullptr)
-                    return ira->codegen->invalid_inst_gen;
+    bool is_int = scalar_type->id == ZigTypeIdInt || scalar_type->id == ZigTypeIdComptimeInt;
+    bool is_float = scalar_type->id == ZigTypeIdFloat || scalar_type->id == ZigTypeIdComptimeFloat;
 
-                if (bigint_cmp_zero(&op2_val->data.x_bigint) == CmpEQ) {
-                    // the division by zero error will be caught later, but we don't have a
-                    // division function ambiguity problem.
-                    op_id = IrBinOpDivTrunc;
-                    ok = true;
-                } else {
-                    BigInt trunc_result;
-                    BigInt floor_result;
-                    bigint_div_trunc(&trunc_result, &op1_val->data.x_bigint, &op2_val->data.x_bigint);
-                    bigint_div_floor(&floor_result, &op1_val->data.x_bigint, &op2_val->data.x_bigint);
-                    if (bigint_cmp(&trunc_result, &floor_result) == CmpEQ) {
-                        ok = true;
-                        op_id = IrBinOpDivTrunc;
-                    }
-                }
-            }
-            if (!ok) {
-                ir_add_error(ira, &instruction->base.base,
-                    buf_sprintf("division with '%s' and '%s': signed integers must use @divTrunc, @divFloor, or @divExact",
-                        buf_ptr(&op1->value->type->name),
-                        buf_ptr(&op2->value->type->name)));
-                return ira->codegen->invalid_inst_gen;
-            }
-        } else {
-            op_id = IrBinOpDivTrunc;
-        }
-    } else if (op_id == IrBinOpRemUnspecified) {
-        if (is_signed_div && (is_int || is_float)) {
-            bool ok = false;
-            if (instr_is_comptime(op1) && instr_is_comptime(op2)) {
-                ZigValue *op1_val = ir_resolve_const(ira, op1, UndefBad);
-                if (op1_val == nullptr)
-                    return ira->codegen->invalid_inst_gen;
-
-                if (is_int) {
-                    ZigValue *op2_val = ir_resolve_const(ira, op2, UndefBad);
-                    if (op2_val == nullptr)
-                        return ira->codegen->invalid_inst_gen;
-
-                    if (bigint_cmp_zero(&op2->value->data.x_bigint) == CmpEQ) {
-                        // the division by zero error will be caught later, but we don't
-                        // have a remainder function ambiguity problem
-                        ok = true;
-                    } else {
-                        BigInt rem_result;
-                        BigInt mod_result;
-                        bigint_rem(&rem_result, &op1_val->data.x_bigint, &op2_val->data.x_bigint);
-                        bigint_mod(&mod_result, &op1_val->data.x_bigint, &op2_val->data.x_bigint);
-                        ok = bigint_cmp(&rem_result, &mod_result) == CmpEQ;
-                    }
-                } else {
-                    IrInstGen *casted_op2 = ir_implicit_cast(ira, op2, resolved_type);
-                    if (type_is_invalid(casted_op2->value->type))
-                        return ira->codegen->invalid_inst_gen;
-
-                    ZigValue *op2_val = ir_resolve_const(ira, casted_op2, UndefBad);
-                    if (op2_val == nullptr)
-                        return ira->codegen->invalid_inst_gen;
-
-                    if (float_cmp_zero(casted_op2->value) == CmpEQ) {
-                        // the division by zero error will be caught later, but we don't
-                        // have a remainder function ambiguity problem
-                        ok = true;
-                    } else {
-                        ZigValue rem_result = {};
-                        ZigValue mod_result = {};
-                        float_rem(&rem_result, op1_val, op2_val);
-                        float_mod(&mod_result, op1_val, op2_val);
-                        ok = float_cmp(&rem_result, &mod_result) == CmpEQ;
-                    }
-                }
-            }
-            if (!ok) {
-                ir_add_error(ira, &instruction->base.base,
-                    buf_sprintf("remainder division with '%s' and '%s': signed integers and floats must use @rem or @mod",
-                        buf_ptr(&op1->value->type->name),
-                        buf_ptr(&op2->value->type->name)));
-                return ira->codegen->invalid_inst_gen;
-            }
-        }
-        op_id = IrBinOpRemRem;
-    }
-
-    bool ok = false;
-    if (is_int) {
-        ok = true;
-    } else if (is_float && ok_float_op(op_id)) {
-        ok = true;
-    } else if (resolved_type->id == ZigTypeIdVector) {
-        ZigType *elem_type = resolved_type->data.vector.elem_type;
-        if (elem_type->id == ZigTypeIdInt || elem_type->id == ZigTypeIdComptimeInt) {
-            ok = true;
-        } else if ((elem_type->id == ZigTypeIdFloat || elem_type->id == ZigTypeIdComptimeFloat) && ok_float_op(op_id)) {
-            ok = true;
-        }
-    }
-    if (!ok) {
+    if (!is_int && !(is_float && ok_float_op(op_id))) {
         AstNode *source_node = instruction->base.base.source_node;
         ir_add_error_node(ira, source_node,
             buf_sprintf("invalid operands to binary expression: '%s' and '%s'",
                 buf_ptr(&op1->value->type->name),
                 buf_ptr(&op2->value->type->name)));
         return ira->codegen->invalid_inst_gen;
-    }
-
-    if (resolved_type->id == ZigTypeIdComptimeInt) {
-        if (op_id == IrBinOpAddWrap) {
-            op_id = IrBinOpAdd;
-        } else if (op_id == IrBinOpSubWrap) {
-            op_id = IrBinOpSub;
-        } else if (op_id == IrBinOpMultWrap) {
-            op_id = IrBinOpMult;
-        }
     }
 
     IrInstGen *casted_op1 = ir_implicit_cast(ira, op1, resolved_type);
@@ -17243,15 +17144,140 @@ static IrInstGen *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstSrcBinOp *instruc
     if (type_is_invalid(casted_op2->value->type))
         return ira->codegen->invalid_inst_gen;
 
+    // Comptime integers have no fixed size
+    if (scalar_type->id == ZigTypeIdComptimeInt) {
+        if (op_id == IrBinOpAddWrap) {
+            op_id = IrBinOpAdd;
+        } else if (op_id == IrBinOpSubWrap) {
+            op_id = IrBinOpSub;
+        } else if (op_id == IrBinOpMultWrap) {
+            op_id = IrBinOpMult;
+        }
+    }
+
     if (instr_is_comptime(casted_op1) && instr_is_comptime(casted_op2)) {
         ZigValue *op1_val = ir_resolve_const(ira, casted_op1, UndefBad);
         if (op1_val == nullptr)
             return ira->codegen->invalid_inst_gen;
+
         ZigValue *op2_val = ir_resolve_const(ira, casted_op2, UndefBad);
         if (op2_val == nullptr)
             return ira->codegen->invalid_inst_gen;
 
+        // Promote division with negative numbers to signed
+        bool is_signed_div = value_cmp_zero_any(op1_val, CmpLT) ||
+            value_cmp_zero_any(op2_val, CmpLT);
+
+        if (op_id == IrBinOpDivUnspecified && is_int) {
+            // Default to truncating division and check if it's valid for the
+            // given operands if signed
+            op_id = IrBinOpDivTrunc;
+
+            if (is_signed_div) {
+                bool ok = false;
+
+                if (value_cmp_zero_any(op2_val, CmpEQ)) {
+                    // the division by zero error will be caught later, but we don't have a
+                    // division function ambiguity problem.
+                    ok = true;
+                } else {
+                    IrInstGen *trunc_val = ir_analyze_math_op(ira, &instruction->base.base, resolved_type,
+                        op1_val, IrBinOpDivTrunc, op2_val);
+                    if (type_is_invalid(trunc_val->value->type))
+                        return ira->codegen->invalid_inst_gen;
+
+                    IrInstGen *floor_val = ir_analyze_math_op(ira, &instruction->base.base, resolved_type,
+                        op1_val, IrBinOpDivFloor, op2_val);
+                    if (type_is_invalid(floor_val->value->type))
+                        return ira->codegen->invalid_inst_gen;
+
+                    IrInstGen *cmp_val = ir_analyze_bin_op_cmp_numeric(ira, &instruction->base.base,
+                        trunc_val, floor_val, IrBinOpCmpEq);
+                    if (type_is_invalid(cmp_val->value->type))
+                        return ira->codegen->invalid_inst_gen;
+
+                    // We can "upgrade" the operator only if trunc(a/b) == floor(a/b)
+                    if (!ir_resolve_bool(ira, cmp_val, &ok))
+                        return ira->codegen->invalid_inst_gen;
+                }
+
+                if (!ok) {
+                    ir_add_error(ira, &instruction->base.base,
+                        buf_sprintf("division with '%s' and '%s': signed integers must use @divTrunc, @divFloor, or @divExact",
+                            buf_ptr(&op1->value->type->name),
+                            buf_ptr(&op2->value->type->name)));
+                    return ira->codegen->invalid_inst_gen;
+                }
+            }
+        } else if (op_id == IrBinOpRemUnspecified) {
+            op_id = IrBinOpRemRem;
+
+            if (is_signed_div) {
+                bool ok = false;
+
+                if (value_cmp_zero_any(op2_val, CmpEQ)) {
+                    // the division by zero error will be caught later, but we don't have a
+                    // division function ambiguity problem.
+                    ok = true;
+                } else {
+                    IrInstGen *rem_val = ir_analyze_math_op(ira, &instruction->base.base, resolved_type,
+                        op1_val, IrBinOpRemRem, op2_val);
+                    if (type_is_invalid(rem_val->value->type))
+                        return ira->codegen->invalid_inst_gen;
+
+                    IrInstGen *mod_val = ir_analyze_math_op(ira, &instruction->base.base, resolved_type,
+                        op1_val, IrBinOpRemMod, op2_val);
+                    if (type_is_invalid(mod_val->value->type))
+                        return ira->codegen->invalid_inst_gen;
+
+                    IrInstGen *cmp_val = ir_analyze_bin_op_cmp_numeric(ira, &instruction->base.base,
+                        rem_val, mod_val, IrBinOpCmpEq);
+                    if (type_is_invalid(cmp_val->value->type))
+                        return ira->codegen->invalid_inst_gen;
+
+                    // We can "upgrade" the operator only if mod(a,b) == rem(a,b)
+                    if (!ir_resolve_bool(ira, cmp_val, &ok))
+                        return ira->codegen->invalid_inst_gen;
+                }
+
+                if (!ok) {
+                    ir_add_error(ira, &instruction->base.base,
+                        buf_sprintf("remainder division with '%s' and '%s': signed integers and floats must use @rem or @mod",
+                            buf_ptr(&op1->value->type->name),
+                            buf_ptr(&op2->value->type->name)));
+                    return ira->codegen->invalid_inst_gen;
+                }
+            }
+        }
+
         return ir_analyze_math_op(ira, &instruction->base.base, resolved_type, op1_val, op_id, op2_val);
+    }
+
+    const bool is_signed_div =
+        (scalar_type->id == ZigTypeIdInt && scalar_type->data.integral.is_signed) ||
+        scalar_type->id == ZigTypeIdFloat;
+
+    // Warn the user to use the proper operators here
+    if (op_id == IrBinOpDivUnspecified && is_int) {
+        op_id = IrBinOpDivTrunc;
+
+        if (is_signed_div) {
+            ir_add_error(ira, &instruction->base.base,
+                buf_sprintf("division with '%s' and '%s': signed integers must use @divTrunc, @divFloor, or @divExact",
+                    buf_ptr(&op1->value->type->name),
+                    buf_ptr(&op2->value->type->name)));
+            return ira->codegen->invalid_inst_gen;
+        }
+    } else if (op_id == IrBinOpRemUnspecified) {
+        op_id = IrBinOpRemRem;
+
+        if (is_signed_div) {
+            ir_add_error(ira, &instruction->base.base,
+                buf_sprintf("remainder division with '%s' and '%s': signed integers and floats must use @rem or @mod",
+                    buf_ptr(&op1->value->type->name),
+                    buf_ptr(&op2->value->type->name)));
+            return ira->codegen->invalid_inst_gen;
+        }
     }
 
     return ir_build_bin_op_gen(ira, &instruction->base.base, resolved_type,
