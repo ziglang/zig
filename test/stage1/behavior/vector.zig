@@ -1,5 +1,6 @@
 const std = @import("std");
 const mem = std.mem;
+const math = std.math;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 
@@ -370,6 +371,70 @@ test "vector bitwise not operator" {
             doTheTestNot(u16, [_]u16{ 0, 2, 4, 255 });
             doTheTestNot(u32, [_]u32{ 0, 2, 4, 255 });
             doTheTestNot(u64, [_]u64{ 0, 2, 4, 255 });
+        }
+    };
+
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "vector shift operators" {
+    const S = struct {
+        fn doTheTestShift(x: var, y: var) void {
+            const N = @typeInfo(@TypeOf(x)).Array.len;
+            const TX = @typeInfo(@TypeOf(x)).Array.child;
+            const TY = @typeInfo(@TypeOf(y)).Array.child;
+
+            var xv = @as(@Vector(N, TX), x);
+            var yv = @as(@Vector(N, TY), y);
+
+            var z0 = xv >> yv;
+            for (@as([N]TX, z0)) |v, i| {
+                expectEqual(x[i] >> y[i], v);
+            }
+            var z1 = xv << yv;
+            for (@as([N]TX, z1)) |v, i| {
+                expectEqual(x[i] << y[i], v);
+            }
+        }
+        fn doTheTestShiftExact(x: var, y: var, dir: enum { Left, Right }) void {
+            const N = @typeInfo(@TypeOf(x)).Array.len;
+            const TX = @typeInfo(@TypeOf(x)).Array.child;
+            const TY = @typeInfo(@TypeOf(y)).Array.child;
+
+            var xv = @as(@Vector(N, TX), x);
+            var yv = @as(@Vector(N, TY), y);
+
+            var z = if (dir == .Left) @shlExact(xv, yv) else @shrExact(xv, yv);
+            for (@as([N]TX, z)) |v, i| {
+                const check = if (dir == .Left) x[i] << y[i] else x[i] >> y[i];
+                expectEqual(check, v);
+            }
+        }
+        fn doTheTest() void {
+            doTheTestShift([_]u8{ 0, 2, 4, math.maxInt(u8) }, [_]u3{ 2, 0, 2, 7 });
+            doTheTestShift([_]u16{ 0, 2, 4, math.maxInt(u16) }, [_]u4{ 2, 0, 2, 15 });
+            doTheTestShift([_]u24{ 0, 2, 4, math.maxInt(u24) }, [_]u5{ 2, 0, 2, 23 });
+            doTheTestShift([_]u32{ 0, 2, 4, math.maxInt(u32) }, [_]u5{ 2, 0, 2, 31 });
+            doTheTestShift([_]u64{ 0xfe, math.maxInt(u64) }, [_]u6{ 0, 63 });
+
+            doTheTestShift([_]i8{ 0, 2, 4, math.maxInt(i8) }, [_]u3{ 2, 0, 2, 7 });
+            doTheTestShift([_]i16{ 0, 2, 4, math.maxInt(i16) }, [_]u4{ 2, 0, 2, 7 });
+            doTheTestShift([_]i24{ 0, 2, 4, math.maxInt(i24) }, [_]u5{ 2, 0, 2, 7 });
+            doTheTestShift([_]i32{ 0, 2, 4, math.maxInt(i32) }, [_]u5{ 2, 0, 2, 7 });
+            doTheTestShift([_]i64{ 0xfe, math.maxInt(i64) }, [_]u6{ 0, 63 });
+
+            doTheTestShiftExact([_]u8{ 0, 1, 1 << 7, math.maxInt(u8) ^ 1 }, [_]u3{ 4, 0, 7, 1 }, .Right);
+            doTheTestShiftExact([_]u16{ 0, 1, 1 << 15, math.maxInt(u16) ^ 1 }, [_]u4{ 4, 0, 15, 1 }, .Right);
+            doTheTestShiftExact([_]u24{ 0, 1, 1 << 23, math.maxInt(u24) ^ 1 }, [_]u5{ 4, 0, 23, 1 }, .Right);
+            doTheTestShiftExact([_]u32{ 0, 1, 1 << 31, math.maxInt(u32) ^ 1 }, [_]u5{ 4, 0, 31, 1 }, .Right);
+            doTheTestShiftExact([_]u64{ 1 << 63, 1 }, [_]u6{ 63, 0 }, .Right);
+
+            doTheTestShiftExact([_]u8{ 0, 1, 1, math.maxInt(u8) ^ (1 << 7) }, [_]u3{ 4, 0, 7, 1 }, .Left);
+            doTheTestShiftExact([_]u16{ 0, 1, 1, math.maxInt(u16) ^ (1 << 15) }, [_]u4{ 4, 0, 15, 1 }, .Left);
+            doTheTestShiftExact([_]u24{ 0, 1, 1, math.maxInt(u24) ^ (1 << 23) }, [_]u5{ 4, 0, 23, 1 }, .Left);
+            doTheTestShiftExact([_]u32{ 0, 1, 1, math.maxInt(u32) ^ (1 << 31) }, [_]u5{ 4, 0, 31, 1 }, .Left);
+            doTheTestShiftExact([_]u64{ 1 << 63, 1 }, [_]u6{ 0, 63 }, .Left);
         }
     };
 
