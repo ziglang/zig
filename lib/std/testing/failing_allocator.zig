@@ -72,7 +72,11 @@ pub const FailingAllocator = struct {
 
     fn shrink(allocator: *mem.Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
         const self = @fieldParentPtr(FailingAllocator, "allocator", allocator);
-        const r = self.internal_allocator.shrinkFn(self.internal_allocator, old_mem, old_align, new_size, new_align);
+        const r = if (self.internal_allocator.shrinkFn) |shrinkFn|
+            shrinkFn(self.internal_allocator, old_mem, old_align, new_size, new_align)
+        else
+            self.internal_allocator.shrink(old_mem, new_size);
+
         self.freed_bytes += old_mem.len - r.len;
         if (new_size == 0)
             self.deallocations += 1;

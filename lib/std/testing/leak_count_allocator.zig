@@ -38,7 +38,10 @@ pub const LeakCountAllocator = struct {
             }
             self.count -= 1;
         }
-        return self.internal_allocator.shrinkFn(self.internal_allocator, old_mem, old_align, new_size, new_align);
+        return if (self.internal_allocator.shrinkFn) |shrinkFn|
+            shrinkFn(self.internal_allocator, old_mem, old_align, new_size, new_align)
+        else
+            self.internal_allocator.shrink(old_mem, new_size);
     }
 
     pub fn validate(self: LeakCountAllocator) !void {
