@@ -9650,6 +9650,21 @@ Error create_c_object_cache(CodeGen *g, CacheHash **out_cache_hash, bool verbose
     return ErrorNone;
 }
 
+static bool need_llvm_module(CodeGen *g) {
+    return buf_len(&g->main_pkg->root_src_path) != 0;
+}
+
+// before gen_c_objects
+static bool main_output_dir_is_just_one_c_object_pre(CodeGen *g) {
+    return g->enable_cache && g->c_source_files.length == 1 && !need_llvm_module(g) &&
+        g->out_type == OutTypeObj && g->link_objects.length == 0;
+}
+
+// after gen_c_objects
+static bool main_output_dir_is_just_one_c_object_post(CodeGen *g) {
+    return g->enable_cache && g->link_objects.length == 1 && !need_llvm_module(g) && g->out_type == OutTypeObj;
+}
+
 // returns true if it was a cache miss
 static void gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file) {
     Error err;
@@ -9667,7 +9682,12 @@ static void gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file) {
             buf_len(c_source_basename), 0);
 
     Buf *final_o_basename = buf_alloc();
-    os_path_extname(c_source_basename, final_o_basename, nullptr);
+    // We special case when doing build-obj for just one C file
+    if (main_output_dir_is_just_one_c_object_pre(g)) {
+        buf_init_from_buf(final_o_basename, g->root_out_name);
+    } else {
+        os_path_extname(c_source_basename, final_o_basename, nullptr);
+    }
     buf_append_str(final_o_basename, target_o_file_ext(g->zig_target));
 
     CacheHash *cache_hash;
@@ -10467,10 +10487,6 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     return ErrorNone;
 }
 
-static bool need_llvm_module(CodeGen *g) {
-    return buf_len(&g->main_pkg->root_src_path) != 0;
-}
-
 static void resolve_out_paths(CodeGen *g) {
     assert(g->output_dir != nullptr);
     assert(g->root_out_name != nullptr);
@@ -10576,12 +10592,8 @@ static void output_type_information(CodeGen *g) {
     }
 }
 
-static bool main_output_dir_is_just_one_c_object(CodeGen *g) {
-    return g->enable_cache && g->link_objects.length == 1 && !need_llvm_module(g);
-}
-
 static void init_output_dir(CodeGen *g, Buf *digest) {
-    if (main_output_dir_is_just_one_c_object(g)) {
+    if (main_output_dir_is_just_one_c_object_post(g)) {
         g->output_dir = buf_alloc();
         os_path_dirname(g->link_objects.at(0), g->output_dir);
     } else {
