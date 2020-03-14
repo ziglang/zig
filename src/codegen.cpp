@@ -155,6 +155,7 @@ static LLVMValueRef gen_await_early_return(CodeGen *g, IrInstGen *source_instr,
         LLVMValueRef target_frame_ptr, ZigType *result_type, ZigType *ptr_result_type,
         LLVMValueRef result_loc, bool non_async);
 static Error get_tmp_filename(CodeGen *g, Buf *out, Buf *suffix);
+static LLVMValueRef scalarize_cmp_result(CodeGen *g, LLVMValueRef val);
 
 static void addLLVMAttr(LLVMValueRef val, LLVMAttributeIndex attr_index, const char *attr_name) {
     unsigned kind_id = LLVMGetEnumAttributeKindForName(attr_name, strlen(attr_name));
@@ -2535,19 +2536,21 @@ static LLVMValueRef ir_render_return(CodeGen *g, IrExecutableGen *executable, Ir
     return nullptr;
 }
 
-static LLVMValueRef gen_overflow_shl_op(CodeGen *g, ZigType *type_entry,
-        LLVMValueRef val1, LLVMValueRef val2)
+static LLVMValueRef gen_overflow_shl_op(CodeGen *g, ZigType *operand_type,
+    LLVMValueRef val1, LLVMValueRef val2)
 {
     // for unsigned left shifting, we do the lossy shift, then logically shift
     // right the same number of bits
     // if the values don't match, we have an overflow
     // for signed left shifting we do the same except arithmetic shift right
+    ZigType *scalar_type = (operand_type->id == ZigTypeIdVector) ?
+        operand_type->data.vector.elem_type : operand_type;
 
-    assert(type_entry->id == ZigTypeIdInt);
+    assert(scalar_type->id == ZigTypeIdInt);
 
     LLVMValueRef result = LLVMBuildShl(g->builder, val1, val2, "");
     LLVMValueRef orig_val;
-    if (type_entry->data.integral.is_signed) {
+    if (scalar_type->data.integral.is_signed) {
         orig_val = LLVMBuildAShr(g->builder, result, val2, "");
     } else {
         orig_val = LLVMBuildLShr(g->builder, result, val2, "");
@@ -2556,6 +2559,9 @@ static LLVMValueRef gen_overflow_shl_op(CodeGen *g, ZigType *type_entry,
 
     LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "OverflowOk");
     LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn_val, "OverflowFail");
+    if (operand_type->id == ZigTypeIdVector) {
+        ok_bit = scalarize_cmp_result(g, ok_bit);
+    }
     LLVMBuildCondBr(g->builder, ok_bit, ok_block, fail_block);
 
     LLVMPositionBuilderAtEnd(g->builder, fail_block);
@@ -2565,13 +2571,16 @@ static LLVMValueRef gen_overflow_shl_op(CodeGen *g, ZigType *type_entry,
     return result;
 }
 
-static LLVMValueRef gen_overflow_shr_op(CodeGen *g, ZigType *type_entry,
-        LLVMValueRef val1, LLVMValueRef val2)
+static LLVMValueRef gen_overflow_shr_op(CodeGen *g, ZigType *operand_type,
+    LLVMValueRef val1, LLVMValueRef val2)
 {
-    assert(type_entry->id == ZigTypeIdInt);
+    ZigType *scalar_type = (operand_type->id == ZigTypeIdVector) ?
+        operand_type->data.vector.elem_type : operand_type;
+
+    assert(scalar_type->id == ZigTypeIdInt);
 
     LLVMValueRef result;
-    if (type_entry->data.integral.is_signed) {
+    if (scalar_type->data.integral.is_signed) {
         result = LLVMBuildAShr(g->builder, val1, val2, "");
     } else {
         result = LLVMBuildLShr(g->builder, val1, val2, "");
@@ -2581,6 +2590,9 @@ static LLVMValueRef gen_overflow_shr_op(CodeGen *g, ZigType *type_entry,
 
     LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "OverflowOk");
     LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn_val, "OverflowFail");
+    if (operand_type->id == ZigTypeIdVector) {
+        ok_bit = scalarize_cmp_result(g, ok_bit);
+    }
     LLVMBuildCondBr(g->builder, ok_bit, ok_block, fail_block);
 
     LLVMPositionBuilderAtEnd(g->builder, fail_block);
@@ -2897,11 +2909,17 @@ static void gen_shift_rhs_check(CodeGen *g, ZigType *lhs_type, ZigType *rhs_type
     // otherwise the check is useful as the allowed values are limited by the
     // operand type itself
     if (!is_power_of_2(lhs_type->data.integral.bit_count)) {
-        LLVMValueRef bit_count_value = LLVMConstInt(get_llvm_type(g, rhs_type),
-            lhs_type->data.integral.bit_count, false);
-        LLVMValueRef less_than_bit = LLVMBuildICmp(g->builder, LLVMIntULT, value, bit_count_value, "");
+        BigInt bit_count_bi = {0};
+        bigint_init_unsigned(&bit_count_bi, lhs_type->data.integral.bit_count);
+        LLVMValueRef bit_count_value = bigint_to_llvm_const(get_llvm_type(g, rhs_type),
+            &bit_count_bi);
+
         LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn_val, "CheckFail");
         LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "CheckOk");
+        LLVMValueRef less_than_bit = LLVMBuildICmp(g->builder, LLVMIntULT, value, bit_count_value, "");
+        if (rhs_type->id == ZigTypeIdVector) {
+            less_than_bit = scalarize_cmp_result(g, less_than_bit);
+        }
         LLVMBuildCondBr(g->builder, less_than_bit, ok_block, fail_block);
 
         LLVMPositionBuilderAtEnd(g->builder, fail_block);
@@ -3018,7 +3036,8 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutableGen *executable,
         case IrBinOpBitShiftLeftExact:
             {
                 assert(scalar_type->id == ZigTypeIdInt);
-                LLVMValueRef op2_casted = gen_widen_or_shorten(g, false, op2->value->type, scalar_type, op2_value);
+                LLVMValueRef op2_casted = LLVMBuildZExt(g->builder, op2_value,
+                    LLVMTypeOf(op1_value), "");//gen_widen_or_shorten(g, false, op2->value->type, scalar_type, op2_value);
 
                 if (want_runtime_safety) {
                     gen_shift_rhs_check(g, scalar_type, op2->value->type, op2_value);
@@ -3028,7 +3047,7 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutableGen *executable,
                 if (is_sloppy) {
                     return LLVMBuildShl(g->builder, op1_value, op2_casted, "");
                 } else if (want_runtime_safety) {
-                    return gen_overflow_shl_op(g, scalar_type, op1_value, op2_casted);
+                    return gen_overflow_shl_op(g, operand_type, op1_value, op2_casted);
                 } else if (scalar_type->data.integral.is_signed) {
                     return ZigLLVMBuildNSWShl(g->builder, op1_value, op2_casted, "");
                 } else {
@@ -3039,7 +3058,8 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutableGen *executable,
         case IrBinOpBitShiftRightExact:
             {
                 assert(scalar_type->id == ZigTypeIdInt);
-                LLVMValueRef op2_casted = gen_widen_or_shorten(g, false, op2->value->type, scalar_type, op2_value);
+                LLVMValueRef op2_casted = LLVMBuildZExt(g->builder, op2_value,
+                    LLVMTypeOf(op1_value), "");//gen_widen_or_shorten(g, false, op2->value->type, scalar_type, op2_value);
 
                 if (want_runtime_safety) {
                     gen_shift_rhs_check(g, scalar_type, op2->value->type, op2_value);
@@ -3053,7 +3073,7 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutableGen *executable,
                         return LLVMBuildLShr(g->builder, op1_value, op2_casted, "");
                     }
                 } else if (want_runtime_safety) {
-                    return gen_overflow_shr_op(g, scalar_type, op1_value, op2_casted);
+                    return gen_overflow_shr_op(g, operand_type, op1_value, op2_casted);
                 } else if (scalar_type->data.integral.is_signed) {
                     return ZigLLVMBuildAShrExact(g->builder, op1_value, op2_casted, "");
                 } else {
