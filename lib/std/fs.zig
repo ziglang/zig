@@ -1860,7 +1860,7 @@ fn run_lock_file_test(contexts: []FileLockTestContext) !void {
     }
 
     if (builtin.os.tag == .windows) {
-        const threads = std.ArrayList(*std.Thread).init(testing.allocator);
+        var threads = std.ArrayList(*std.Thread).init(std.testing.allocator);
         defer {
             for (threads.toSlice()) |thread| {
                 thread.wait();
@@ -1868,7 +1868,7 @@ fn run_lock_file_test(contexts: []FileLockTestContext) !void {
             threads.deinit();
         }
         for (ctxs) |*ctx, idx| {
-            threads.append(try std.Thread.spawn(ctx, Context.run));
+            try threads.append(try std.Thread.spawn(ctx, FileLockTestContext.run));
         }
     } else {
         var ctx_opt: ?*FileLockTestContext = null;
