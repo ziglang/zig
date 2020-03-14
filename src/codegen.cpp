@@ -10482,10 +10482,6 @@ static void resolve_out_paths(CodeGen *g) {
             case OutTypeUnknown:
                 zig_unreachable();
             case OutTypeObj:
-                if (g->enable_cache && g->link_objects.length == 1 && !need_llvm_module(g)) {
-                    buf_init_from_buf(&g->bin_file_output_path, g->link_objects.at(0));
-                    return;
-                }
                 if (need_llvm_module(g) && g->link_objects.length != 0 && !g->enable_cache &&
                     buf_eql_buf(o_basename, out_basename))
                 {
@@ -10580,6 +10576,20 @@ static void output_type_information(CodeGen *g) {
     }
 }
 
+static bool main_output_dir_is_just_one_c_object(CodeGen *g) {
+    return g->enable_cache && g->link_objects.length == 1 && !need_llvm_module(g);
+}
+
+static void init_output_dir(CodeGen *g, Buf *digest) {
+    if (main_output_dir_is_just_one_c_object(g)) {
+        g->output_dir = buf_alloc();
+        os_path_dirname(g->link_objects.at(0), g->output_dir);
+    } else {
+        g->output_dir = buf_sprintf("%s" OS_SEP CACHE_OUT_SUBDIR OS_SEP "%s",
+            buf_ptr(g->cache_dir), buf_ptr(digest));
+    }
+}
+
 void codegen_build_and_link(CodeGen *g) {
     Error err;
     assert(g->out_type != OutTypeUnknown);
@@ -10622,8 +10632,7 @@ void codegen_build_and_link(CodeGen *g) {
     }
 
     if (g->enable_cache && buf_len(&digest) != 0) {
-        g->output_dir = buf_sprintf("%s" OS_SEP CACHE_OUT_SUBDIR OS_SEP "%s",
-                buf_ptr(g->cache_dir), buf_ptr(&digest));
+        init_output_dir(g, &digest);
         resolve_out_paths(g);
     } else {
         if (need_llvm_module(g)) {
@@ -10644,8 +10653,7 @@ void codegen_build_and_link(CodeGen *g) {
                     exit(1);
                 }
             }
-            g->output_dir = buf_sprintf("%s" OS_SEP CACHE_OUT_SUBDIR OS_SEP "%s",
-                    buf_ptr(g->cache_dir), buf_ptr(&digest));
+            init_output_dir(g, &digest);
 
             if ((err = os_make_path(g->output_dir))) {
                 fprintf(stderr, "Unable to create output directory: %s\n", err_str(err));
