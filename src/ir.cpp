@@ -20363,24 +20363,45 @@ static IrInstGen *ir_analyze_bin_not(IrAnalyze *ira, IrInstSrcUnOp *instruction)
     if (type_is_invalid(expr_type))
         return ira->codegen->invalid_inst_gen;
 
-    if (expr_type->id == ZigTypeIdInt) {
-        if (instr_is_comptime(value)) {
-            ZigValue *target_const_val = ir_resolve_const(ira, value, UndefBad);
-            if (target_const_val == nullptr)
-                return ira->codegen->invalid_inst_gen;
+    ZigType *scalar_type = (expr_type->id == ZigTypeIdVector) ?
+        expr_type->data.vector.elem_type : expr_type;
 
-            IrInstGen *result = ir_const(ira, &instruction->base.base, expr_type);
-            bigint_not(&result->value->data.x_bigint, &target_const_val->data.x_bigint,
-                    expr_type->data.integral.bit_count, expr_type->data.integral.is_signed);
-            return result;
-        }
-
-        return ir_build_binary_not(ira, &instruction->base.base, value, expr_type);
+    if (scalar_type->id != ZigTypeIdInt) {
+        ir_add_error(ira, &instruction->base.base,
+            buf_sprintf("unable to perform binary not operation on type '%s'", buf_ptr(&expr_type->name)));
+        return ira->codegen->invalid_inst_gen;
     }
 
-    ir_add_error(ira, &instruction->base.base,
-            buf_sprintf("unable to perform binary not operation on type '%s'", buf_ptr(&expr_type->name)));
-    return ira->codegen->invalid_inst_gen;
+    if (instr_is_comptime(value)) {
+        ZigValue *expr_val = ir_resolve_const(ira, value, UndefBad);
+        if (expr_val == nullptr)
+            return ira->codegen->invalid_inst_gen;
+
+        IrInstGen *result = ir_const(ira, &instruction->base.base, expr_type);
+
+        if (expr_type->id == ZigTypeIdVector) {
+            expand_undef_array(ira->codegen, expr_val);
+            result->value->special = ConstValSpecialUndef;
+            expand_undef_array(ira->codegen, result->value);
+
+            for (size_t i = 0; i < expr_type->data.vector.len; i++) {
+                ZigValue *src_val = &expr_val->data.x_array.data.s_none.elements[i];
+                ZigValue *dst_val = &result->value->data.x_array.data.s_none.elements[i];
+
+                dst_val->type = scalar_type;
+                dst_val->special = ConstValSpecialStatic;
+                bigint_not(&dst_val->data.x_bigint, &src_val->data.x_bigint,
+                    scalar_type->data.integral.bit_count, scalar_type->data.integral.is_signed);
+            }
+        } else {
+            bigint_not(&result->value->data.x_bigint, &expr_val->data.x_bigint,
+                scalar_type->data.integral.bit_count, scalar_type->data.integral.is_signed);
+        }
+
+        return result;
+    }
+
+    return ir_build_binary_not(ira, &instruction->base.base, value, expr_type);
 }
 
 static IrInstGen *ir_analyze_instruction_un_op(IrAnalyze *ira, IrInstSrcUnOp *instruction) {

@@ -351,3 +351,28 @@ test "vector division operators" {
     S.doTheTest();
     comptime S.doTheTest();
 }
+
+test "vector bitwise not operator" {
+    const S = struct {
+        fn doTheTestNot(comptime T: type, x: @Vector(4, T)) void {
+            var y = ~x;
+            for (@as([4]T, y)) |v, i| {
+                expectEqual(~x[i], v);
+            }
+        }
+        fn doTheTest() void {
+            doTheTestNot(u8, [_]u8{ 0, 2, 4, 255 });
+            doTheTestNot(u16, [_]u16{ 0, 2, 4, 255 });
+            doTheTestNot(u32, [_]u32{ 0, 2, 4, 255 });
+            doTheTestNot(u64, [_]u64{ 0, 2, 4, 255 });
+
+            doTheTestNot(u8, [_]u8{ 0, 2, 4, 255 });
+            doTheTestNot(u16, [_]u16{ 0, 2, 4, 255 });
+            doTheTestNot(u32, [_]u32{ 0, 2, 4, 255 });
+            doTheTestNot(u64, [_]u64{ 0, 2, 4, 255 });
+        }
+    };
+
+    S.doTheTest();
+    comptime S.doTheTest();
+}
