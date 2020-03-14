@@ -193,19 +193,9 @@ pub const Allocator = struct {
             self.free(old_mem);
             return @as([*]align(new_alignment) T, undefined)[0..0];
         }
-        if (!self.canReclaimMemory()) {
-            if (new_n <= old_mem.len and new_alignment <= Slice.alignment) {
-                // Cannot reclaim memory; tell the client to keep it.
-                return error.OutOfMemory;
-            }
-            const result = try self.alignedAlloc(T, new_alignment, new_n);
-            const end_len = std.math.min(old_mem.len, new_n);
-            mem.copy(T, result, old_mem[0..end_len]);
-            // This loop gets optimized out in ReleaseFast mode
-            for (result[end_len..]) |*elem| {
-                elem.* = undefined;
-            }
-            return result;
+        if (!self.canReclaimMemory() and new_n <= old_mem.len and new_alignment <= Slice.alignment) {
+            // Cannot reclaim memory; tell the client to keep it.
+            return error.OutOfMemory;
         }
 
         const old_byte_slice = mem.sliceAsBytes(old_mem);
