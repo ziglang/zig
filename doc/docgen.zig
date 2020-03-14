@@ -1096,6 +1096,9 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             try build_args.append("-lc");
                             try out.print(" -lc", .{});
                         }
+                        const target = try std.zig.CrossTarget.parse(.{
+                            .arch_os_abi = code.target_str orelse "native",
+                        });
                         if (code.target_str) |triple| {
                             try build_args.appendSlice(&[_][]const u8{ "-target", triple });
                             if (!code.is_inline) {
@@ -1150,7 +1153,15 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             }
                         }
 
-                        const path_to_exe = mem.trim(u8, exec_result.stdout, " \r\n");
+                        const path_to_exe_dir = mem.trim(u8, exec_result.stdout, " \r\n");
+                        const path_to_exe_basename = try std.fmt.allocPrint(allocator, "{}{}", .{
+                            code.name,
+                            target.exeFileExt(),
+                        });
+                        const path_to_exe = try fs.path.join(allocator, &[_][]const u8{
+                            path_to_exe_dir,
+                            path_to_exe_basename,
+                        });
                         const run_args = &[_][]const u8{path_to_exe};
 
                         var exited_with_signal = false;
@@ -1486,7 +1497,12 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
 }
 
 fn exec(allocator: *mem.Allocator, env_map: *std.BufMap, args: []const []const u8) !ChildProcess.ExecResult {
-    const result = try ChildProcess.exec(allocator, args, null, env_map, max_doc_file_size);
+    const result = try ChildProcess.exec2(.{
+        .allocator = allocator,
+        .argv = args,
+        .env_map = env_map,
+        .max_output_bytes = max_doc_file_size,
+    });
     switch (result.term) {
         .Exited => |exit_code| {
             if (exit_code != 0) {
