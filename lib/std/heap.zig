@@ -526,7 +526,7 @@ pub const ArenaAllocator = struct {
         return ArenaAllocator{
             .allocator = Allocator{
                 .reallocFn = realloc,
-                .shrinkFn = shrink,
+                .shrinkFn = null,
             },
             .child_allocator = child_allocator,
             .buffer_list = std.SinglyLinkedList([]u8).init(),
@@ -585,18 +585,9 @@ pub const ArenaAllocator = struct {
     }
 
     fn realloc(allocator: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) ![]u8 {
-        if (new_size <= old_mem.len and new_align <= new_size) {
-            // We can't do anything with the memory, so tell the client to keep it.
-            return error.OutOfMemory;
-        } else {
-            const result = try alloc(allocator, new_size, new_align);
-            @memcpy(result.ptr, old_mem.ptr, std.math.min(old_mem.len, result.len));
-            return result;
-        }
-    }
-
-    fn shrink(allocator: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
-        return old_mem[0..new_size];
+        const result = try alloc(allocator, new_size, new_align);
+        @memcpy(result.ptr, old_mem.ptr, std.math.min(old_mem.len, result.len));
+        return result;
     }
 };
 
@@ -609,7 +600,7 @@ pub const FixedBufferAllocator = struct {
         return FixedBufferAllocator{
             .allocator = Allocator{
                 .reallocFn = realloc,
-                .shrinkFn = shrink,
+                .shrinkFn = null,
             },
             .buffer = buffer,
             .end_index = 0,
@@ -618,6 +609,7 @@ pub const FixedBufferAllocator = struct {
 
     fn alloc(allocator: *Allocator, n: usize, alignment: u29) ![]u8 {
         const self = @fieldParentPtr(FixedBufferAllocator, "allocator", allocator);
+
         const addr = @ptrToInt(self.buffer.ptr) + self.end_index;
         const adjusted_addr = mem.alignForward(addr, alignment);
         const adjusted_index = self.end_index + (adjusted_addr - addr);
@@ -643,18 +635,11 @@ pub const FixedBufferAllocator = struct {
             const result = self.buffer[start_index..new_end_index];
             self.end_index = new_end_index;
             return result;
-        } else if (new_size <= old_mem.len and new_align <= old_align) {
-            // We can't do anything with the memory, so tell the client to keep it.
-            return error.OutOfMemory;
         } else {
             const result = try alloc(allocator, new_size, new_align);
             @memcpy(result.ptr, old_mem.ptr, std.math.min(old_mem.len, result.len));
             return result;
         }
-    }
-
-    fn shrink(allocator: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
-        return old_mem[0..new_size];
     }
 
     pub fn reset(self: *FixedBufferAllocator) void {
@@ -676,7 +661,7 @@ pub const ThreadSafeFixedBufferAllocator = blk: {
                 return ThreadSafeFixedBufferAllocator{
                     .allocator = Allocator{
                         .reallocFn = realloc,
-                        .shrinkFn = shrink,
+                        .shrinkFn = null,
                     },
                     .buffer = buffer,
                     .end_index = 0,
@@ -685,6 +670,7 @@ pub const ThreadSafeFixedBufferAllocator = blk: {
 
             fn alloc(allocator: *Allocator, n: usize, alignment: u29) ![]u8 {
                 const self = @fieldParentPtr(ThreadSafeFixedBufferAllocator, "allocator", allocator);
+
                 var end_index = @atomicLoad(usize, &self.end_index, builtin.AtomicOrder.SeqCst);
                 while (true) {
                     const addr = @ptrToInt(self.buffer.ptr) + end_index;
@@ -699,18 +685,9 @@ pub const ThreadSafeFixedBufferAllocator = blk: {
             }
 
             fn realloc(allocator: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) ![]u8 {
-                if (new_size <= old_mem.len and new_align <= old_align) {
-                    // We can't do anything useful with the memory, tell the client to keep it.
-                    return error.OutOfMemory;
-                } else {
-                    const result = try alloc(allocator, new_size, new_align);
-                    @memcpy(result.ptr, old_mem.ptr, std.math.min(old_mem.len, result.len));
-                    return result;
-                }
-            }
-
-            fn shrink(allocator: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
-                return old_mem[0..new_size];
+                const result = try alloc(allocator, new_size, new_align);
+                @memcpy(result.ptr, old_mem.ptr, std.math.min(old_mem.len, result.len));
+                return result;
             }
 
             pub fn reset(self: *ThreadSafeFixedBufferAllocator) void {
