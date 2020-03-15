@@ -146,8 +146,8 @@ export fn stage2_free_clang_errors(errors_ptr: [*]translate_c.ClangErrMsg, error
 }
 
 export fn stage2_render_ast(tree: *ast.Tree, output_file: *FILE) Error {
-    const c_out_stream = std.io.cOutStream(output_file);
-    _ = std.zig.render(std.heap.c_allocator, c_out_stream, tree) catch |e| switch (e) {
+    var c_out_stream = std.io.cOutStream(output_file);
+    _ = std.zig.render(std.heap.c_allocator, &c_out_stream, tree) catch |e| switch (e) {
         error.WouldBlock => unreachable, // stage1 opens stuff in exclusively blocking mode
         error.SystemResources => return .SystemResources,
         error.OperationAborted => return .OperationAborted,
@@ -262,12 +262,12 @@ fn fmtMain(argc: c_int, argv: [*]const [*:0]const u8) !void {
             process.exit(1);
         }
         if (check_flag) {
-            const anything_changed = try std.zig.render(allocator, io.null_out_stream, tree);
+            const anything_changed = try std.zig.render(allocator, &io.null_out_stream, tree);
             const code = if (anything_changed) @as(u8, 1) else @as(u8, 0);
             process.exit(code);
         }
 
-        _ = try std.zig.render(allocator, stdout, tree);
+        _ = try std.zig.render(allocator, &stdout, tree);
         return;
     }
 
@@ -358,7 +358,7 @@ fn fmtPath(fmt: *Fmt, file_path: []const u8, check_mode: bool) FmtError!void {
     }
 
     if (check_mode) {
-        const anything_changed = try std.zig.render(fmt.allocator, io.null_out_stream, tree);
+        const anything_changed = try std.zig.render(fmt.allocator, &io.null_out_stream, tree);
         if (anything_changed) {
             try stderr.print("{}\n", .{file_path});
             fmt.any_error = true;
@@ -367,7 +367,8 @@ fn fmtPath(fmt: *Fmt, file_path: []const u8, check_mode: bool) FmtError!void {
         const baf = try io.BufferedAtomicFile.create(fmt.allocator, file_path);
         defer baf.destroy();
 
-        const anything_changed = try std.zig.render(fmt.allocator, baf.stream(), tree);
+        var stream = baf.stream();
+        const anything_changed = try std.zig.render(fmt.allocator, &stream, tree);
         if (anything_changed) {
             try stderr.print("{}\n", .{file_path});
             try baf.finish();
@@ -873,7 +874,7 @@ export fn stage2_libc_find_native(stage1_libc: *Stage2LibCInstallation) Error {
 // ABI warning
 export fn stage2_libc_render(stage1_libc: *Stage2LibCInstallation, output_file: *FILE) Error {
     var libc = stage1_libc.toStage2();
-    const c_out_stream = std.io.cOutStream(output_file);
+    var c_out_stream = std.io.cOutStream(output_file);
     libc.render(c_out_stream) catch |err| switch (err) {
         error.WouldBlock => unreachable, // stage1 opens stuff in exclusively blocking mode
         error.SystemResources => return .SystemResources,

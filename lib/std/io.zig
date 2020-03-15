@@ -116,6 +116,15 @@ pub const bitInStream = @import("io/bit_in_stream.zig").bitInStream;
 pub const BitOutStream = @import("io/bit_out_stream.zig").BitOutStream;
 pub const bitOutStream = @import("io/bit_out_stream.zig").bitOutStream;
 
+pub const AutoIndentingStream = @import("io/auto_indenting_stream.zig").AutoIndentingStream;
+pub const autoIndentingStream = @import("io/auto_indenting_stream.zig").autoIndentingStream;
+
+pub const ChangeDetectionStream = @import("io/change_detection_stream.zig").ChangeDetectionStream;
+pub const changeDetectionStream = @import("io/change_detection_stream.zig").changeDetectionStream;
+
+pub const FindByteOutStream = @import("io/find_byte_out_stream.zig").FindByteOutStream;
+pub const findByteOutStream = @import("io/find_byte_out_stream.zig").findByteOutStream;
+
 pub const Packing = @import("io/serialization.zig").Packing;
 
 pub const Serializer = @import("io/serialization.zig").Serializer;
@@ -139,7 +148,7 @@ pub fn readFileAlloc(allocator: *mem.Allocator, path: []const u8) ![]u8 {
 }
 
 /// An OutStream that doesn't write to anything.
-pub const null_out_stream = @as(NullOutStream, .{ .context = {} });
+pub var null_out_stream = @as(NullOutStream, .{ .context = {} });
 
 const NullOutStream = OutStream(void, error{}, dummyWrite);
 fn dummyWrite(context: void, data: []const u8) error{}!usize {

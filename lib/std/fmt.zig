@@ -1078,7 +1078,7 @@ pub fn bufPrint(buf: []u8, comptime fmt: []const u8, args: var) BufPrintError![]
 
 // Count the characters needed for format. Useful for preallocating memory
 pub fn count(comptime fmt: []const u8, args: var) u64 {
-    var counting_stream = std.io.countingOutStream(std.io.null_out_stream);
+    var counting_stream = std.io.countingOutStream(&std.io.null_out_stream);
     format(counting_stream.outStream(), fmt, args) catch |err| switch (err) {};
     return counting_stream.bytes_written;
 }

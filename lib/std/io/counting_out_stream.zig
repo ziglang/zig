@@ -6,7 +6,7 @@ const testing = std.testing;
 pub fn CountingOutStream(comptime OutStreamType: type) type {
     return struct {
         bytes_written: u64,
-        child_stream: OutStreamType,
+        child_stream: *OutStreamType,
 
         pub const Error = OutStreamType.Error;
         pub const OutStream = io.OutStream(*Self, Error, write);
@@ -25,12 +25,12 @@ pub fn CountingOutStream(comptime OutStreamType: type) type {
     };
 }
 
-pub fn countingOutStream(child_stream: var) CountingOutStream(@TypeOf(child_stream)) {
+pub fn countingOutStream(child_stream: var) CountingOutStream(@TypeOf(child_stream).Child) {
     return .{ .bytes_written = 0, .child_stream = child_stream };
 }
 
 test "io.CountingOutStream" {
-    var counting_stream = countingOutStream(std.io.null_out_stream);
+    var counting_stream = countingOutStream(&std.io.null_out_stream);
     const stream = counting_stream.outStream();
 
     const bytes = "yay" ** 100;
