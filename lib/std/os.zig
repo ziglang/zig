@@ -1664,7 +1664,7 @@ pub fn renameatW(
 
     rename_info.* = .{
         .ReplaceIfExists = ReplaceIfExists,
-        .RootDirectory = if (old_dir_fd == new_dir_fd or std.fs.path.isAbsoluteWindowsW(new_path_w)) null else new_dir_fd,
+        .RootDirectory = if (std.fs.path.isAbsoluteWindowsW(new_path_w)) null else new_dir_fd,
         .FileNameLength = @intCast(u32, new_path.len * 2), // already checked error.NameTooLong
         .FileName = undefined,
     };

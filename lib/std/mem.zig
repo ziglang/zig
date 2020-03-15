@@ -116,7 +116,7 @@ pub const Allocator = struct {
     pub fn allocSentinel(self: *Allocator, comptime Elem: type, n: usize, comptime sentinel: Elem) Error![:sentinel]Elem {
         var ptr = try self.alloc(Elem, n + 1);
         ptr[n] = sentinel;
-        return ptr[0 .. n :sentinel];
+        return ptr[0..n :sentinel];
     }
 
     pub fn alignedAlloc(
