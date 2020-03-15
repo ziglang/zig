@@ -1724,6 +1724,8 @@ test "" {
 const FILE_LOCK_TEST_SLEEP_TIME = 1 * std.time.ns_per_s;
 
 test "open file with lock twice, make sure it wasn't open at the same time" {
+    if (builtin.single_threaded) return;
+
     const filename = "file_lock_test.txt";
 
     var contexts = [_]FileLockTestContext{
@@ -1751,6 +1753,8 @@ test "open file with lock twice, make sure it wasn't open at the same time" {
 }
 
 test "create file, lock and read from multiple process at once" {
+    if (builtin.single_threaded) return;
+
     const filename = "file_read_lock_test.txt";
     const filedata = "Hello, world!\n";
 
