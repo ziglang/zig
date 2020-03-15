@@ -473,7 +473,15 @@ static bool ExecuteAssembler(AssemblerInvocation &Opts,
         T, Ctx, std::move(MAB), std::move(OW), std::move(CE), *STI,
         Opts.RelaxAll, Opts.IncrementalLinkerCompatible,
         /*DWARFMustBeAtTheEnd*/ true));
+// See https://github.com/ziglang/zig/issues/4243
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+#endif
     Str.get()->InitSections(Opts.NoExecStack);
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
   }
 
   // When -fembed-bitcode is passed to clang_as, a 1-byte marker
@@ -508,7 +516,15 @@ static bool ExecuteAssembler(AssemblerInvocation &Opts,
     int64_t Value;
     // We have already error checked this in the driver.
     Val.getAsInteger(0, Value);
+// See https://github.com/ziglang/zig/issues/4243
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+#endif
     Ctx.setSymbolValue(Parser->getStreamer(), Sym, Value);
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
   }
 
   if (!Failed) {
