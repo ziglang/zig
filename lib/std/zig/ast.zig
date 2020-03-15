@@ -740,11 +740,11 @@ pub const Node = struct {
             var i = index;
 
             switch (self.init_arg_expr) {
-                InitArg.Type => |t| {
+                .Type => |t| {
                     if (i < 1) return t;
                     i -= 1;
                 },
-                InitArg.None, InitArg.Enum => {},
+                .None, .Enum => {},
             }
 
             if (i < self.fields_and_decls.len) return self.fields_and_decls.at(i).*;
@@ -904,12 +904,7 @@ pub const Node = struct {
             }
 
             switch (self.return_type) {
-                // TODO allow this and next prong to share bodies since the types are the same
-                ReturnType.Explicit => |node| {
-                    if (i < 1) return node;
-                    i -= 1;
-                },
-                ReturnType.InferErrorSet => |node| {
+                .Explicit, .InferErrorSet => |node| {
                     if (i < 1) return node;
                     i -= 1;
                 },
@@ -934,9 +929,7 @@ pub const Node = struct {
         pub fn lastToken(self: *const FnProto) TokenIndex {
             if (self.body_node) |body_node| return body_node.lastToken();
             switch (self.return_type) {
-                // TODO allow this and next prong to share bodies since the types are the same
-                ReturnType.Explicit => |node| return node.lastToken(),
-                ReturnType.InferErrorSet => |node| return node.lastToken(),
+                .Explicit, .InferErrorSet => |node| return node.lastToken(),
             }
         }
     };
@@ -1512,55 +1505,55 @@ pub const Node = struct {
             i -= 1;
 
             switch (self.op) {
-                Op.Catch => |maybe_payload| {
+                .Catch => |maybe_payload| {
                     if (maybe_payload) |payload| {
                         if (i < 1) return payload;
                         i -= 1;
                     }
                 },
 
-                Op.Add,
-                Op.AddWrap,
-                Op.ArrayCat,
-                Op.ArrayMult,
-                Op.Assign,
-                Op.AssignBitAnd,
-                Op.AssignBitOr,
-                Op.AssignBitShiftLeft,
-                Op.AssignBitShiftRight,
-                Op.AssignBitXor,
-                Op.AssignDiv,
-                Op.AssignSub,
-                Op.AssignSubWrap,
-                Op.AssignMod,
-                Op.AssignAdd,
-                Op.AssignAddWrap,
-                Op.AssignMul,
-                Op.AssignMulWrap,
-                Op.BangEqual,
-                Op.BitAnd,
-                Op.BitOr,
-                Op.BitShiftLeft,
-                Op.BitShiftRight,
-                Op.BitXor,
-                Op.BoolAnd,
-                Op.BoolOr,
-                Op.Div,
-                Op.EqualEqual,
-                Op.ErrorUnion,
-                Op.GreaterOrEqual,
-                Op.GreaterThan,
-                Op.LessOrEqual,
-                Op.LessThan,
-                Op.MergeErrorSets,
-                Op.Mod,
-                Op.Mul,
-                Op.MulWrap,
-                Op.Period,
-                Op.Range,
-                Op.Sub,
-                Op.SubWrap,
-                Op.UnwrapOptional,
+                .Add,
+                .AddWrap,
+                .ArrayCat,
+                .ArrayMult,
+                .Assign,
+                .AssignBitAnd,
+                .AssignBitOr,
+                .AssignBitShiftLeft,
+                .AssignBitShiftRight,
+                .AssignBitXor,
+                .AssignDiv,
+                .AssignSub,
+                .AssignSubWrap,
+                .AssignMod,
+                .AssignAdd,
+                .AssignAddWrap,
+                .AssignMul,
+                .AssignMulWrap,
+                .BangEqual,
+                .BitAnd,
+                .BitOr,
+                .BitShiftLeft,
+                .BitShiftRight,
+                .BitXor,
+                .BoolAnd,
+                .BoolOr,
+                .Div,
+                .EqualEqual,
+                .ErrorUnion,
+                .GreaterOrEqual,
+                .GreaterThan,
+                .LessOrEqual,
+                .LessThan,
+                .MergeErrorSets,
+                .Mod,
+                .Mul,
+                .MulWrap,
+                .Period,
+                .Range,
+                .Sub,
+                .SubWrap,
+                .UnwrapOptional,
                 => {},
             }
 
@@ -1591,7 +1584,6 @@ pub const Node = struct {
             Await,
             BitNot,
             BoolNot,
-            Cancel,
             OptionalType,
             Negation,
             NegationWrap,
@@ -1628,8 +1620,7 @@ pub const Node = struct {
             var i = index;
 
             switch (self.op) {
-                // TODO https://github.com/ziglang/zig/issues/1107
-                Op.SliceType => |addr_of_info| {
+                .PtrType, .SliceType => |addr_of_info| {
                     if (addr_of_info.sentinel) |sentinel| {
                         if (i < 1) return sentinel;
                         i -= 1;
@@ -1641,14 +1632,7 @@ pub const Node = struct {
                     }
                 },
 
-                Op.PtrType => |addr_of_info| {
-                    if (addr_of_info.align_info) |align_info| {
-                        if (i < 1) return align_info.node;
-                        i -= 1;
-                    }
-                },
-
-                Op.ArrayType => |array_info| {
+                .ArrayType => |array_info| {
                     if (i < 1) return array_info.len_expr;
                     i -= 1;
                     if (array_info.sentinel) |sentinel| {
@@ -1657,16 +1641,15 @@ pub const Node = struct {
                     }
                 },
 
-                Op.AddressOf,
-                Op.Await,
-                Op.BitNot,
-                Op.BoolNot,
-                Op.Cancel,
-                Op.OptionalType,
-                Op.Negation,
-                Op.NegationWrap,
-                Op.Try,
-                Op.Resume,
+                .AddressOf,
+                .Await,
+                .BitNot,
+                .BoolNot,
+                .OptionalType,
+                .Negation,
+                .NegationWrap,
+                .Try,
+                .Resume,
                 => {},
             }
 
@@ -1850,19 +1833,14 @@ pub const Node = struct {
             var i = index;
 
             switch (self.kind) {
-                Kind.Break => |maybe_label| {
+                .Break,
+                .Continue => |maybe_label| {
                     if (maybe_label) |label| {
                         if (i < 1) return label;
                         i -= 1;
                     }
                 },
-                Kind.Continue => |maybe_label| {
-                    if (maybe_label) |label| {
-                        if (i < 1) return label;
-                        i -= 1;
-                    }
-                },
-                Kind.Return => {},
+                .Return => {},
             }
 
             if (self.rhs) |rhs| {
@@ -1883,17 +1861,13 @@ pub const Node = struct {
             }
 
             switch (self.kind) {
-                Kind.Break => |maybe_label| {
+                .Break,
+                .Continue => |maybe_label| {
                     if (maybe_label) |label| {
                         return label.lastToken();
                     }
                 },
-                Kind.Continue => |maybe_label| {
-                    if (maybe_label) |label| {
-                        return label.lastToken();
-                    }
-                },
-                Kind.Return => return self.ltoken,
+                .Return => return self.ltoken,
             }
 
             return self.ltoken;
@@ -2134,11 +2108,11 @@ pub const Node = struct {
             i -= 1;
 
             switch (self.kind) {
-                Kind.Variable => |variable_name| {
+                .Variable => |variable_name| {
                     if (i < 1) return &variable_name.base;
                     i -= 1;
                 },
-                Kind.Return => |return_type| {
+                .Return => |return_type| {
                     if (i < 1) return return_type;
                     i -= 1;
                 },
