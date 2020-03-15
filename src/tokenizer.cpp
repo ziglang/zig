@@ -1229,6 +1229,10 @@ void tokenize(Buf *buf, Tokenization *out) {
                         break;
                     }
                     if (is_exponent_signifier(c, t.radix)) {
+                        if (t.is_trailing_underscore) {
+                            invalid_char_error(&t, c);
+                            break;
+                        }
                         if (t.radix != 16 && t.radix != 10) {
                             invalid_char_error(&t, c);
                         }
@@ -1296,6 +1300,10 @@ void tokenize(Buf *buf, Tokenization *out) {
                         break;
                     }
                     if (is_exponent_signifier(c, t.radix)) {
+                        if (t.is_trailing_underscore) {
+                            invalid_char_error(&t, c);
+                            break;
+                        }
                         t.state = TokenizeStateFloatExponentUnsigned;
                         t.radix = 10; // exponent is always base 10
                         break;

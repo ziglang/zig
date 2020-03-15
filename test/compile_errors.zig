@@ -485,6 +485,14 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:2:23: error: invalid character: '_'",
     });
 
+    cases.add("invalid underscore placement in float literal - 14",
+        \\fn main() void {
+        \\    var bad: f128 = 0x0.0_p1;
+        \\})
+    , &[_][]const u8{
+        "tmp.zig:2:27: error: invalid character: 'p'",
+    });
+
     cases.add("var args without c calling conv",
         \\fn foo(args: ...) void {}
         \\comptime {
