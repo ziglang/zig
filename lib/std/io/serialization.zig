@@ -1,6 +1,10 @@
 const std = @import("../std.zig");
 const builtin = std.builtin;
 const io = std.io;
+const assert = std.debug.assert;
+const math = std.math;
+const meta = std.meta;
+const trait = meta.trait;
 
 pub const Packing = enum {
     /// Pack data to byte alignment
@@ -252,7 +256,7 @@ pub fn Serializer(comptime endian: builtin.Endian, comptime packing: Packing, co
                 byte.* = if (t_bit_count < u8_bit_count) v else @truncate(u8, v);
             }
 
-            try self.out_stream.write(&buffer);
+            try self.out_stream.writeAll(&buffer);
         }
 
         /// Serializes the passed value into the stream
