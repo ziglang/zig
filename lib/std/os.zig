@@ -1683,6 +1683,11 @@ pub fn renameatW(
     switch (rc) {
         .SUCCESS => return,
         .INVALID_HANDLE => unreachable,
+        .INVALID_PARAMETER => unreachable,
+        .OBJECT_PATH_SYNTAX_BAD => unreachable,
+        .ACCESS_DENIED => return error.AccessDenied,
+        .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
+        .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
         else => return windows.unexpectedStatus(rc),
     }
 }
