@@ -165,22 +165,36 @@ static long long scanexp(struct MuslFILE *f, int pok)
     int x;
     long long y;
     int neg = 0;
-    
+
     c = shgetc(f);
     if (c=='+' || c=='-') {
         neg = (c=='-');
         c = shgetc(f);
         if (c-'0'>=10U && pok) shunget(f);
     }
-    if (c-'0'>=10U) {
+    if (c-'0'>=10U && c!='_') {
         shunget(f);
         return LLONG_MIN;
     }
-    for (x=0; c-'0'<10U && x<INT_MAX/10; c = shgetc(f))
-        x = 10*x + c-'0';
-    for (y=x; c-'0'<10U && y<LLONG_MAX/100; c = shgetc(f))
-        y = 10*y + c-'0';
-    for (; c-'0'<10U; c = shgetc(f));
+    for (x=0; ; c = shgetc(f)) {
+        if (c=='_') {
+            continue;
+        } else if (c-'0'<10U && x<INT_MAX/10) {
+            x = 10*x + c-'0';
+        } else {
+            break;
+        }
+    }
+    for (y=x; ; c = shgetc(f)) {
+        if (c=='_') {
+            continue;
+        } else if (c-'0'<10U && y<LLONG_MAX/100) {
+            y = 10*y + c-'0';
+        } else {
+            break;
+        }
+    }
+    for (; c-'0'<10U || c=='_'; c = shgetc(f));
     shunget(f);
     return neg ? -y : y;
 }
@@ -450,16 +464,36 @@ static float128_t decfloat(struct MuslFILE *f, int c, int bits, int emin, int si
     j=0;
     k=0;
 
-    /* Don't let leading zeros consume buffer space */
-    for (; c=='0'; c = shgetc(f)) gotdig=1;
+    /* Don't let leading zeros/underscores consume buffer space */
+    for (; ; c = shgetc(f)) {
+        if (c=='_') {
+            continue;
+        } else if (c=='0') {
+            gotdig=1;
+        } else {
+            break;
+        }
+    }
+
     if (c=='.') {
         gotrad = 1;
-        for (c = shgetc(f); c=='0'; c = shgetc(f)) gotdig=1, lrp--;
+        for (c = shgetc(f); ; c = shgetc(f)) {
+            if (c == '_') {
+                continue;
+            } else if (c=='0') {
+                gotdig=1;
+                lrp--;
+            } else {
+                break;
+            }
+        }
     }
 
     x[0] = 0;
-    for (; c-'0'<10U || c=='.'; c = shgetc(f)) {
-        if (c == '.') {
+    for (; c-'0'<10U || c=='.' || c=='_'; c = shgetc(f)) {
+        if (c == '_') {
+            continue;
+        } else if (c == '.') {
             if (gotrad) break;
             gotrad = 1;
             lrp = dc;
@@ -773,18 +807,29 @@ static float128_t hexfloat(struct MuslFILE *f, int bits, int emin, int sign, int
 
     c = shgetc(f);
 
-    /* Skip leading zeros */
-    for (; c=='0'; c = shgetc(f)) gotdig = 1;
+    /* Skip leading zeros/underscores */
+    for (; c=='0' || c=='_'; c = shgetc(f)) gotdig = 1;
 
     if (c=='.') {
         gotrad = 1;
         c = shgetc(f);
         /* Count zeros after the radix point before significand */
-        for (rp=0; c=='0'; c = shgetc(f), rp--) gotdig = 1;
+        for (rp=0; ; c = shgetc(f)) {
+            if (c == '_') {
+                continue;
+            } else if (c == '0') {
+                gotdig = 1;
+                rp--;
+            } else {
+                break;
+            }
+        }
     }
 
-    for (; c-'0'<10U || (c|32)-'a'<6U || c=='.'; c = shgetc(f)) {
-        if (c=='.') {
+    for (; c-'0'<10U || (c|32)-'a'<6U || c=='.' || c=='_'; c = shgetc(f)) {
+        if (c=='_') {
+            continue;
+        } else if (c=='.') {
             if (gotrad) break;
             rp = dc;
             gotrad = 1;
