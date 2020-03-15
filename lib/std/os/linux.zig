@@ -465,17 +465,17 @@ pub fn renameat(oldfd: i32, oldpath: [*]const u8, newfd: i32, newpath: [*]const 
         return syscall4(
             SYS_renameat,
             @bitCast(usize, @as(isize, oldfd)),
-            @ptrToInt(old),
+            @ptrToInt(oldpath),
             @bitCast(usize, @as(isize, newfd)),
-            @ptrToInt(new),
+            @ptrToInt(newpath),
         );
     } else {
         return syscall5(
             SYS_renameat2,
             @bitCast(usize, @as(isize, oldfd)),
-            @ptrToInt(old),
+            @ptrToInt(oldpath),
             @bitCast(usize, @as(isize, newfd)),
-            @ptrToInt(new),
+            @ptrToInt(newpath),
             0,
         );
     }

@@ -116,7 +116,7 @@ pub const Allocator = struct {
     pub fn allocSentinel(self: *Allocator, comptime Elem: type, n: usize, comptime sentinel: Elem) Error![:sentinel]Elem {
         var ptr = try self.alloc(Elem, n + 1);
         ptr[n] = sentinel;
-        return ptr[0 .. n :sentinel];
+        return ptr[0..n :sentinel];
     }
 
     pub fn alignedAlloc(
@@ -567,12 +567,20 @@ test "span" {
 
 /// Takes a pointer to an array, an array, a sentinel-terminated pointer,
 /// or a slice, and returns the length.
+/// In the case of a sentinel-terminated array, it scans the array
+/// for a sentinel and uses that for the length, rather than using the array length.
 pub fn len(ptr: var) usize {
     return switch (@typeInfo(@TypeOf(ptr))) {
-        .Array => |info| info.len,
+        .Array => |info| if (info.sentinel) |sentinel|
+            indexOfSentinel(info.child, sentinel, &ptr)
+        else
+            info.len,
         .Pointer => |info| switch (info.size) {
             .One => switch (@typeInfo(info.child)) {
-                .Array => |x| x.len,
+                .Array => |x| if (x.sentinel) |sentinel|
+                    indexOfSentinel(x.child, sentinel, ptr)
+                else
+                    ptr.len,
                 else => @compileError("invalid type given to std.mem.length"),
             },
             .Many => if (info.sentinel) |sentinel|
@@ -596,6 +604,12 @@ test "len" {
         array[2] = 0;
         const ptr = array[0..2 :0].ptr;
         testing.expect(len(ptr) == 2);
+    }
+    {
+        var array: [5:0]u16 = [_:0]u16{ 1, 2, 3, 4, 5 };
+        testing.expect(len(&array) == 5);
+        array[2] = 0;
+        testing.expect(len(&array) == 2);
     }
 }
 

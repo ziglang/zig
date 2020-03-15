@@ -88,6 +88,82 @@ pub fn CreateFileW(
     return result;
 }
 
+pub const OpenError = error{
+    IsDir,
+    FileNotFound,
+    NoDevice,
+    SharingViolation,
+    AccessDenied,
+    PipeBusy,
+    PathAlreadyExists,
+    Unexpected,
+    NameTooLong,
+};
+
+/// TODO rename to CreateFileW
+/// TODO actually we don't need the path parameter to be null terminated
+pub fn OpenFileW(
+    dir: ?HANDLE,
+    sub_path_w: [*:0]const u16,
+    sa: ?*SECURITY_ATTRIBUTES,
+    access_mask: ACCESS_MASK,
+    creation: ULONG,
+) OpenError!HANDLE {
+    if (sub_path_w[0] == '.' and sub_path_w[1] == 0) {
+        return error.IsDir;
+    }
+    if (sub_path_w[0] == '.' and sub_path_w[1] == '.' and sub_path_w[2] == 0) {
+        return error.IsDir;
+    }
+
+    var result: HANDLE = undefined;
+
+    const path_len_bytes = math.cast(u16, mem.toSliceConst(u16, sub_path_w).len * 2) catch |err| switch (err) {
+        error.Overflow => return error.NameTooLong,
+    };
+    var nt_name = UNICODE_STRING{
+        .Length = path_len_bytes,
+        .MaximumLength = path_len_bytes,
+        .Buffer = @intToPtr([*]u16, @ptrToInt(sub_path_w)),
+    };
+    var attr = OBJECT_ATTRIBUTES{
+        .Length = @sizeOf(OBJECT_ATTRIBUTES),
+        .RootDirectory = if (std.fs.path.isAbsoluteWindowsW(sub_path_w)) null else dir,
+        .Attributes = 0, // Note we do not use OBJ_CASE_INSENSITIVE here.
+        .ObjectName = &nt_name,
+        .SecurityDescriptor = if (sa) |ptr| ptr.lpSecurityDescriptor else null,
+        .SecurityQualityOfService = null,
+    };
+    var io: IO_STATUS_BLOCK = undefined;
+    const rc = ntdll.NtCreateFile(
+        &result,
+        access_mask,
+        &attr,
+        &io,
+        null,
+        FILE_ATTRIBUTE_NORMAL,
+        FILE_SHARE_WRITE | FILE_SHARE_READ | FILE_SHARE_DELETE,
+        creation,
+        FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT,
+        null,
+        0,
+    );
+    switch (rc) {
+        .SUCCESS => return result,
+        .OBJECT_NAME_INVALID => unreachable,
+        .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
+        .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
+        .NO_MEDIA_IN_DEVICE => return error.NoDevice,
+        .INVALID_PARAMETER => unreachable,
+        .SHARING_VIOLATION => return error.SharingViolation,
+        .ACCESS_DENIED => return error.AccessDenied,
+        .PIPE_BUSY => return error.PipeBusy,
+        .OBJECT_PATH_SYNTAX_BAD => unreachable,
+        .OBJECT_NAME_COLLISION => return error.PathAlreadyExists,
+        else => return unexpectedStatus(rc),
+    }
+}
+
 pub const CreatePipeError = error{Unexpected};
 
 pub fn CreatePipe(rd: *HANDLE, wr: *HANDLE, sattr: *const SECURITY_ATTRIBUTES) CreatePipeError!void {

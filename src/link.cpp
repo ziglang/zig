@@ -566,6 +566,7 @@ static const char *build_libc_object(CodeGen *parent_gen, const char *name, CFil
         Stage2ProgressNode *progress_node)
 {
     CodeGen *child_gen = create_child_codegen(parent_gen, nullptr, OutTypeObj, nullptr, name, progress_node);
+    child_gen->root_out_name = buf_create_from_str(name);
     ZigList<CFile *> c_source_files = {0};
     c_source_files.append(c_file);
     child_gen->c_source_files = c_source_files;

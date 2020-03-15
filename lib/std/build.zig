@@ -2144,17 +2144,22 @@ pub const LibExeObjStep = struct {
             try zig_args.append("--cache");
             try zig_args.append("on");
 
-            const output_path_nl = try builder.execFromStep(zig_args.toSliceConst(), &self.step);
-            const output_path = mem.trimRight(u8, output_path_nl, "\r\n");
+            const output_dir_nl = try builder.execFromStep(zig_args.toSliceConst(), &self.step);
+            const build_output_dir = mem.trimRight(u8, output_dir_nl, "\r\n");
 
             if (self.output_dir) |output_dir| {
-                const full_dest = try fs.path.join(builder.allocator, &[_][]const u8{
-                    output_dir,
-                    fs.path.basename(output_path),
-                });
-                try builder.updateFile(output_path, full_dest);
+                var src_dir = try std.fs.cwd().openDirTraverse(build_output_dir);
+                defer src_dir.close();
+
+                var dest_dir = try std.fs.cwd().openDirList(output_dir);
+                defer dest_dir.close();
+
+                var it = src_dir.iterate();
+                while (try it.next()) |entry| {
+                    _ = try src_dir.updateFile(entry.name, dest_dir, entry.name, .{});
+                }
             } else {
-                self.output_dir = fs.path.dirname(output_path).?;
+                self.output_dir = build_output_dir;
             }
         }
 

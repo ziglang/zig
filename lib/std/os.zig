@@ -461,13 +461,11 @@ pub fn ftruncate(fd: fd_t, length: u64) TruncateError!void {
         );
 
         switch (rc) {
-            .SUCCESS => {},
+            .SUCCESS => return,
             .INVALID_HANDLE => unreachable, // Handle not open for writing
             .ACCESS_DENIED => return error.CannotTruncate,
             else => return windows.unexpectedStatus(rc),
         }
-
-        return;
     }
 
     while (true) {
@@ -852,6 +850,7 @@ pub const OpenError = error{
 
 /// Open and possibly create a file. Keeps trying if it gets interrupted.
 /// See also `openC`.
+/// TODO support windows
 pub fn open(file_path: []const u8, flags: u32, perm: usize) OpenError!fd_t {
     const file_path_c = try toPosixPath(file_path);
     return openC(&file_path_c, flags, perm);
@@ -859,6 +858,7 @@ pub fn open(file_path: []const u8, flags: u32, perm: usize) OpenError!fd_t {
 
 /// Open and possibly create a file. Keeps trying if it gets interrupted.
 /// See also `open`.
+/// TODO support windows
 pub fn openC(file_path: [*:0]const u8, flags: u32, perm: usize) OpenError!fd_t {
     while (true) {
         const rc = system.open(file_path, flags, perm);
@@ -892,6 +892,7 @@ pub fn openC(file_path: [*:0]const u8, flags: u32, perm: usize) OpenError!fd_t {
 /// Open and possibly create a file. Keeps trying if it gets interrupted.
 /// `file_path` is relative to the open directory handle `dir_fd`.
 /// See also `openatC`.
+/// TODO support windows
 pub fn openat(dir_fd: fd_t, file_path: []const u8, flags: u32, mode: mode_t) OpenError!fd_t {
     const file_path_c = try toPosixPath(file_path);
     return openatC(dir_fd, &file_path_c, flags, mode);
@@ -900,6 +901,7 @@ pub fn openat(dir_fd: fd_t, file_path: []const u8, flags: u32, mode: mode_t) Ope
 /// Open and possibly create a file. Keeps trying if it gets interrupted.
 /// `file_path` is relative to the open directory handle `dir_fd`.
 /// See also `openat`.
+/// TODO support windows
 pub fn openatC(dir_fd: fd_t, file_path: [*:0]const u8, flags: u32, mode: mode_t) OpenError!fd_t {
     while (true) {
         const rc = system.openat(dir_fd, file_path, flags, mode);
@@ -1527,6 +1529,9 @@ const RenameError = error{
     RenameAcrossMountPoints,
     InvalidUtf8,
     BadPathName,
+    NoDevice,
+    SharingViolation,
+    PipeBusy,
 } || UnexpectedError;
 
 /// Change the name or location of a file.
@@ -1578,6 +1583,113 @@ pub fn renameC(old_path: [*:0]const u8, new_path: [*:0]const u8) RenameError!voi
 pub fn renameW(old_path: [*:0]const u16, new_path: [*:0]const u16) RenameError!void {
     const flags = windows.MOVEFILE_REPLACE_EXISTING | windows.MOVEFILE_WRITE_THROUGH;
     return windows.MoveFileExW(old_path, new_path, flags);
+}
+
+/// Change the name or location of a file based on an open directory handle.
+pub fn renameat(
+    old_dir_fd: fd_t,
+    old_path: []const u8,
+    new_dir_fd: fd_t,
+    new_path: []const u8,
+) RenameError!void {
+    if (builtin.os.tag == .windows) {
+        const old_path_w = try windows.sliceToPrefixedFileW(old_path);
+        const new_path_w = try windows.sliceToPrefixedFileW(new_path);
+        return renameatW(old_dir_fd, &old_path_w, new_dir_fd, &new_path_w, windows.TRUE);
+    } else {
+        const old_path_c = try toPosixPath(old_path);
+        const new_path_c = try toPosixPath(new_path);
+        return renameatZ(old_dir_fd, &old_path_c, new_dir_fd, &new_path_c);
+    }
+}
+
+/// Same as `renameat` except the parameters are null-terminated byte arrays.
+pub fn renameatZ(
+    old_dir_fd: fd_t,
+    old_path: [*:0]const u8,
+    new_dir_fd: fd_t,
+    new_path: [*:0]const u8,
+) RenameError!void {
+    if (builtin.os.tag == .windows) {
+        const old_path_w = try windows.cStrToPrefixedFileW(old_path);
+        const new_path_w = try windows.cStrToPrefixedFileW(new_path);
+        return renameatW(old_dir_fd, &old_path_w, new_dir_fd, &new_path_w, windows.TRUE);
+    }
+
+    switch (errno(system.renameat(old_dir_fd, old_path, new_dir_fd, new_path))) {
+        0 => return,
+        EACCES => return error.AccessDenied,
+        EPERM => return error.AccessDenied,
+        EBUSY => return error.FileBusy,
+        EDQUOT => return error.DiskQuota,
+        EFAULT => unreachable,
+        EINVAL => unreachable,
+        EISDIR => return error.IsDir,
+        ELOOP => return error.SymLinkLoop,
+        EMLINK => return error.LinkQuotaExceeded,
+        ENAMETOOLONG => return error.NameTooLong,
+        ENOENT => return error.FileNotFound,
+        ENOTDIR => return error.NotDir,
+        ENOMEM => return error.SystemResources,
+        ENOSPC => return error.NoSpaceLeft,
+        EEXIST => return error.PathAlreadyExists,
+        ENOTEMPTY => return error.PathAlreadyExists,
+        EROFS => return error.ReadOnlyFileSystem,
+        EXDEV => return error.RenameAcrossMountPoints,
+        else => |err| return unexpectedErrno(err),
+    }
+}
+
+/// Same as `renameat` except the parameters are null-terminated UTF16LE encoded byte arrays.
+/// Assumes target is Windows.
+/// TODO these args can actually be slices when using ntdll. audit the rest of the W functions too.
+pub fn renameatW(
+    old_dir_fd: fd_t,
+    old_path: [*:0]const u16,
+    new_dir_fd: fd_t,
+    new_path_w: [*:0]const u16,
+    ReplaceIfExists: windows.BOOLEAN,
+) RenameError!void {
+    const access_mask = windows.SYNCHRONIZE | windows.GENERIC_WRITE | windows.DELETE;
+    const src_fd = try windows.OpenFileW(old_dir_fd, old_path, null, access_mask, windows.FILE_OPEN);
+    defer windows.CloseHandle(src_fd);
+
+    const struct_buf_len = @sizeOf(windows.FILE_RENAME_INFORMATION) + (MAX_PATH_BYTES - 1);
+    var rename_info_buf: [struct_buf_len]u8 align(@alignOf(windows.FILE_RENAME_INFORMATION)) = undefined;
+    const new_path = mem.span(new_path_w);
+    const struct_len = @sizeOf(windows.FILE_RENAME_INFORMATION) - 1 + new_path.len * 2;
+    if (struct_len > struct_buf_len) return error.NameTooLong;
+
+    const rename_info = @ptrCast(*windows.FILE_RENAME_INFORMATION, &rename_info_buf);
+
+    rename_info.* = .{
+        .ReplaceIfExists = ReplaceIfExists,
+        .RootDirectory = if (std.fs.path.isAbsoluteWindowsW(new_path_w)) null else new_dir_fd,
+        .FileNameLength = @intCast(u32, new_path.len * 2), // already checked error.NameTooLong
+        .FileName = undefined,
+    };
+    std.mem.copy(u16, @as([*]u16, &rename_info.FileName)[0..new_path.len], new_path);
+
+    var io_status_block: windows.IO_STATUS_BLOCK = undefined;
+
+    const rc = windows.ntdll.NtSetInformationFile(
+        src_fd,
+        &io_status_block,
+        rename_info,
+        @intCast(u32, struct_len), // already checked for error.NameTooLong
+        .FileRenameInformation,
+    );
+
+    switch (rc) {
+        .SUCCESS => return,
+        .INVALID_HANDLE => unreachable,
+        .INVALID_PARAMETER => unreachable,
+        .OBJECT_PATH_SYNTAX_BAD => unreachable,
+        .ACCESS_DENIED => return error.AccessDenied,
+        .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
+        .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
+        else => return windows.unexpectedStatus(rc),
+    }
 }
 
 pub const MakeDirError = error{
@@ -3125,6 +3237,7 @@ pub fn realpathC(pathname: [*:0]const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealP
 }
 
 /// Same as `realpath` except `pathname` is null-terminated and UTF16LE-encoded.
+/// TODO use ntdll for better semantics
 pub fn realpathW(pathname: [*:0]const u16, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
     const h_file = try windows.CreateFileW(
         pathname,
