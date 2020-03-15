@@ -606,7 +606,7 @@ test "len" {
         testing.expect(len(ptr) == 2);
     }
     {
-        var array: [5:0]u16 = [_]u16{ 1, 2, 3, 4, 5 };
+        var array: [5:0]u16 = [_:0]u16{ 1, 2, 3, 4, 5 };
         testing.expect(len(&array) == 5);
         array[2] = 0;
         testing.expect(len(&array) == 2);
