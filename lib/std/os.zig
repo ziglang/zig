@@ -1650,7 +1650,7 @@ pub fn renameatW(
     new_path_w: [*:0]const u16,
     ReplaceIfExists: windows.BOOLEAN,
 ) RenameError!void {
-    const access_mask = windows.SYNCHRONIZE | windows.GENERIC_WRITE;
+    const access_mask = windows.SYNCHRONIZE | windows.GENERIC_WRITE | windows.DELETE;
     const src_fd = try windows.OpenFileW(old_dir_fd, old_path, null, access_mask, windows.FILE_OPEN);
     defer windows.CloseHandle(src_fd);
 
@@ -1664,7 +1664,7 @@ pub fn renameatW(
 
     rename_info.* = .{
         .ReplaceIfExists = ReplaceIfExists,
-        .RootDirectory = if (std.fs.path.isAbsoluteWindowsW(new_path_w)) null else new_dir_fd,
+        .RootDirectory = if (old_dir_fd == new_dir_fd or std.fs.path.isAbsoluteWindowsW(new_path_w)) null else new_dir_fd,
         .FileNameLength = @intCast(u32, new_path.len * 2), // already checked error.NameTooLong
         .FileName = undefined,
     };
