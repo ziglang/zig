@@ -3584,7 +3584,9 @@ static bool value_is_all_undef(CodeGen *g, ZigValue *const_val) {
                 }
                 return true;
             } else if (const_val->type->id == ZigTypeIdArray) {
-                return value_is_all_undef_array(g, const_val, const_val->type->data.array.len);
+                const size_t full_len = const_val->type->data.array.len +
+                    (const_val->type->data.array.sentinel != nullptr);
+                return value_is_all_undef_array(g, const_val, full_len);
             } else if (const_val->type->id == ZigTypeIdVector) {
                 return value_is_all_undef_array(g, const_val, const_val->type->data.vector.len);
             } else {
