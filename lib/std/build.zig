@@ -2156,10 +2156,10 @@ pub const LibExeObjStep = struct {
             const build_output_dir = mem.trimRight(u8, output_dir_nl, "\r\n");
 
             if (self.output_dir) |output_dir| {
-                var src_dir = try std.fs.cwd().openDirTraverse(build_output_dir);
+                var src_dir = try std.fs.cwd().openDirList(build_output_dir);
                 defer src_dir.close();
 
-                var dest_dir = try std.fs.cwd().openDirList(output_dir);
+                var dest_dir = try std.fs.cwd().openDirTraverse(output_dir);
                 defer dest_dir.close();
 
                 var it = src_dir.iterate();
