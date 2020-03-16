@@ -376,3 +376,23 @@ test "type deduction for array subscript expression" {
     S.doTheTest();
     comptime S.doTheTest();
 }
+
+test "sentinel element count towards the ABI size calculation" {
+    const S = struct {
+        fn doTheTest() void {
+            const T = packed struct {
+                fill_pre: u8 = 0x55,
+                data: [0:0]u8 = undefined,
+                fill_post: u8 = 0xAA,
+            };
+            var x = T{};
+            var as_slice = mem.asBytes(&x);
+            expectEqual(@as(usize, 3), as_slice.len);
+            expectEqual(@as(u8, 0x55), as_slice[0]);
+            expectEqual(@as(u8, 0xAA), as_slice[2]);
+        }
+    };
+
+    S.doTheTest();
+    comptime S.doTheTest();
+}
