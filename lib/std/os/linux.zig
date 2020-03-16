@@ -588,6 +588,10 @@ pub fn waitpid(pid: pid_t, status: *u32, flags: u32) usize {
     return syscall4(SYS_wait4, @bitCast(usize, @as(isize, pid)), @ptrToInt(status), flags, 0);
 }
 
+pub fn fcntl(fd: fd_t, cmd: i32, arg: usize) usize {
+    return syscall3(SYS_fcntl, @bitCast(usize, @as(isize, fd)), @bitCast(usize, @as(isize, cmd)), arg);
+}
+
 var vdso_clock_gettime = @ptrCast(?*const c_void, init_vdso_clock_gettime);
 
 // We must follow the C calling convention when we call into the VDSO

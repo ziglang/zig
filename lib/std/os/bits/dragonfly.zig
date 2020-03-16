@@ -283,6 +283,8 @@ pub const F_LOCK = 1;
 pub const F_TLOCK = 2;
 pub const F_TEST = 3;
 
+pub const FD_CLOEXEC = 1;
+
 pub const AT_FDCWD = -328243;
 pub const AT_SYMLINK_NOFOLLOW = 1;
 pub const AT_REMOVEDIR = 2;

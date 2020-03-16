@@ -3163,6 +3163,31 @@ pub fn lseek_CUR_get(fd: fd_t) SeekError!u64 {
     }
 }
 
+pub const FcntlError = error{
+    PermissionDenied,
+    FileBusy,
+    ProcessFdQuotaExceeded,
+    Locked,
+} || UnexpectedError;
+
+pub fn fcntl(fd: fd_t, cmd: i32, arg: usize) FcntlError!usize {
+    while (true) {
+        const rc = system.fcntl(fd, cmd, arg);
+        switch (errno(rc)) {
+            0 => return @intCast(usize, rc),
+            EINTR => continue,
+            EACCES => return error.Locked,
+            EBADF => unreachable,
+            EBUSY => return error.FileBusy,
+            EINVAL => unreachable, // invalid parameters
+            EPERM => return error.PermissionDenied,
+            EMFILE => return error.ProcessFdQuotaExceeded,
+            ENOTDIR => unreachable, // invalid parameter
+            else => |err| return unexpectedErrno(err),
+        }
+    }
+}
+
 pub const RealPathError = error{
     FileNotFound,
     AccessDenied,

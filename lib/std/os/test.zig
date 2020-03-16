@@ -1,7 +1,8 @@
 const std = @import("../std.zig");
 const os = std.os;
 const testing = std.testing;
-const expect = std.testing.expect;
+const expect = testing.expect;
+const expectEqual = testing.expectEqual;
 const io = std.io;
 const fs = std.fs;
 const mem = std.mem;
@@ -445,4 +446,32 @@ test "getenv" {
     } else {
         expect(os.getenvZ("BOGUSDOESNOTEXISTENVVAR") == null);
     }
+}
+
+test "fcntl" {
+    if (builtin.os.tag == .windows)
+        return error.SkipZigTest;
+
+    const test_out_file = "os_tmp_test";
+
+    const file = try fs.cwd().createFile(test_out_file, .{});
+    defer file.close();
+
+    // Note: The test assumes createFile opens the file with O_CLOEXEC
+    {
+        const flags = try os.fcntl(file.handle, os.F_GETFD, 0);
+        expect((flags & os.FD_CLOEXEC) != 0);
+    }
+    {
+        _ = try os.fcntl(file.handle, os.F_SETFD, 0);
+        const flags = try os.fcntl(file.handle, os.F_GETFD, 0);
+        expect((flags & os.FD_CLOEXEC) == 0);
+    }
+    {
+        _ = try os.fcntl(file.handle, os.F_SETFD, os.FD_CLOEXEC);
+        const flags = try os.fcntl(file.handle, os.F_GETFD, 0);
+        expect((flags & os.FD_CLOEXEC) != 0);
+    }
+
+    try fs.cwd().deleteFile(test_out_file);
 }
