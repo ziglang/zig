@@ -525,7 +525,7 @@ pub const ArenaAllocator = struct {
     pub fn init(child_allocator: *Allocator) ArenaAllocator {
         return ArenaAllocator{
             .allocator = Allocator{
-                .reallocFn = realloc,
+                .reallocFn = if (child_allocator.canReclaimMemory()) realloc else reallocPassthrough,
                 .shrinkFn = null,
             },
             .child_allocator = child_allocator,
@@ -588,6 +588,11 @@ pub const ArenaAllocator = struct {
         const result = try alloc(allocator, new_size, new_align);
         @memcpy(result.ptr, old_mem.ptr, std.math.min(old_mem.len, result.len));
         return result;
+    }
+
+    fn reallocPassthrough(allocator: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) ![]u8 {
+        const self = @fieldParentPtr(ArenaAllocator, "allocator", allocator);
+        return self.child_allocator.reallocFn(self.child_allocator, old_mem, old_align, new_size, new_align);
     }
 };
 
@@ -866,6 +871,21 @@ test "ArenaAllocator" {
     try testAllocatorAligned(&arena_allocator.allocator, 16);
     try testAllocatorLargeAlignment(&arena_allocator.allocator);
     try testAllocatorAlignedShrink(&arena_allocator.allocator);
+}
+
+test "ArenaAllocator passthrough" {
+    var arena_allocator = ArenaAllocator.init(page_allocator);
+    defer arena_allocator.deinit();
+
+    var passthrough_allocator = ArenaAllocator.init(&arena_allocator.allocator);
+    defer passthrough_allocator.deinit();
+
+    try testAllocator(&passthrough_allocator.allocator);
+    try testAllocatorAligned(&passthrough_allocator.allocator, 16);
+    try testAllocatorLargeAlignment(&passthrough_allocator.allocator);
+    try testAllocatorAlignedShrink(&passthrough_allocator.allocator);
+
+    testing.expect(passthrough_allocator.buffer_list.first == null);
 }
 
 var test_fixed_buffer_allocator_memory: [800000 * @sizeOf(u64)]u8 = undefined;
