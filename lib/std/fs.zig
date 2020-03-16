@@ -555,6 +555,36 @@ pub const Dir = struct {
     };
 
     pub fn iterate(self: Dir) Iterator {
+        // Make sure the directory was not open with openDirTraverse
+        if (std.debug.runtime_safety) {
+            var ok = true;
+
+            if (builtin.os.tag == .windows) {
+                const w = os.windows;
+
+                var io_status_block: w.IO_STATUS_BLOCK = undefined;
+                var info: w.FILE_ACCESS_INFORMATION = undefined;
+
+                const rc = w.ntdll.NtQueryInformationFile(
+                    self.fd,
+                    &io_status_block,
+                    &info,
+                    @sizeOf(w.FILE_ACCESS_INFORMATION),
+                    .FileAccessInformation,
+                );
+                assert(rc == .SUCCESS);
+
+                ok = (info.AccessFlags & w.FILE_LIST_DIRECTORY) != 0;
+            } else if (@hasDecl(os, "O_PATH")) {
+                const f = os.fcntl(self.fd, os.F_GETFL, 0) catch unreachable;
+                ok = (f & os.O_PATH) == 0;
+            }
+
+            if (!ok) {
+                std.debug.panic("iterate() called on Dir open with openDirTraverse", .{});
+            }
+        }
+
         switch (builtin.os.tag) {
             .macosx, .ios, .freebsd, .netbsd, .dragonfly => return Iterator{
                 .dir = self,
