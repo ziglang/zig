@@ -849,11 +849,6 @@ static bool is_slice(ZigType *type) {
     return type->id == ZigTypeIdStruct && type->data.structure.special == StructSpecialSlice;
 }
 
-static bool slice_is_const(ZigType *type) {
-    assert(is_slice(type));
-    return type->data.structure.fields[slice_ptr_index]->type_entry->data.pointer.is_const;
-}
-
 // This function returns true when you can change the type of a ZigValue and the
 // value remains meaningful.
 static bool types_have_same_zig_comptime_repr(CodeGen *codegen, ZigType *expected, ZigType *actual) {
@@ -26206,7 +26201,6 @@ static IrInstGen *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstSrcSlice *i
         return ira->codegen->invalid_inst_gen;
     }
 
-    ZigType *return_type;
     ZigValue *sentinel_val = nullptr;
     if (instruction->sentinel) {
         IrInstGen *uncasted_sentinel = instruction->sentinel->child;
@@ -26218,6 +26212,46 @@ static IrInstGen *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstSrcSlice *i
         sentinel_val = ir_resolve_const(ira, sentinel, UndefBad);
         if (sentinel_val == nullptr)
             return ira->codegen->invalid_inst_gen;
+    }
+
+    // If start index and end index are both comptime known, then the result type is a pointer to array
+    // not a slice.
+    ZigType *return_type;
+
+    if (value_is_comptime(casted_start->value) &&
+        ((end != nullptr && value_is_comptime(end->value)) || array_type->id == ZigTypeIdArray ))
+    {
+        ZigValue *start_val = ir_resolve_const(ira, casted_start, UndefBad);
+        if (!start_val)
+            return ira->codegen->invalid_inst_gen;
+
+        uint64_t start_scalar = bigint_as_u64(&start_val->data.x_bigint);
+
+        uint64_t end_scalar;
+        if (end != nullptr) {
+            ZigValue *end_val = ir_resolve_const(ira, end, UndefBad);
+            if (!end_val)
+                return ira->codegen->invalid_inst_gen;
+            end_scalar = bigint_as_u64(&end_val->data.x_bigint);
+        } else {
+            end_scalar = array_type->data.array.len;
+        }
+        ZigValue *array_sentinel = (array_type->id == ZigTypeIdArray && end_scalar == array_type->data.array.len)
+            ? sentinel_val : nullptr;
+
+        if (start_scalar > end_scalar) {
+            ir_add_error(ira, &instruction->base.base, buf_sprintf("out of bounds slice"));
+            return ira->codegen->invalid_inst_gen;
+        }
+
+        ZigType *return_array_type = get_array_type(ira->codegen, elem_type, end_scalar - start_scalar,
+                array_sentinel);
+        return_type = get_pointer_to_type_extra(ira->codegen, return_array_type,
+                non_sentinel_slice_ptr_type->data.pointer.is_const,
+                non_sentinel_slice_ptr_type->data.pointer.is_volatile,
+                PtrLenSingle,
+                0, 0, 0, false);
+    } else if (sentinel_val != nullptr) {
         ZigType *slice_ptr_type = adjust_ptr_sentinel(ira->codegen, non_sentinel_slice_ptr_type, sentinel_val);
         return_type = get_slice_type(ira->codegen, slice_ptr_type);
     } else {
@@ -26401,15 +26435,25 @@ static IrInstGen *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstSrcSlice *i
         }
 
         IrInstGen *result = ir_const(ira, &instruction->base.base, return_type);
-        ZigValue *out_val = result->value;
-        out_val->data.x_struct.fields = alloc_const_vals_ptrs(ira->codegen, 2);
 
-        ZigValue *ptr_val = out_val->data.x_struct.fields[slice_ptr_index];
+        ZigValue *ptr_val;
+        if (return_type->id == ZigTypeIdPointer) {
+            // pointer to array
+            ptr_val = result->value;
+        } else {
+            // slice
+            result->value->data.x_struct.fields = alloc_const_vals_ptrs(ira->codegen, 2);
 
+            ptr_val = result->value->data.x_struct.fields[slice_ptr_index];
+
+            ZigValue *len_val = result->value->data.x_struct.fields[slice_len_index];
+            init_const_usize(ira->codegen, len_val, end_scalar - start_scalar);
+        }
+
+        bool return_type_is_const = non_sentinel_slice_ptr_type->data.pointer.is_const;
         if (array_val) {
             size_t index = abs_offset + start_scalar;
-            bool is_const = slice_is_const(return_type);
-            init_const_ptr_array(ira->codegen, ptr_val, array_val, index, is_const, PtrLenUnknown);
+            init_const_ptr_array(ira->codegen, ptr_val, array_val, index, return_type_is_const, PtrLenUnknown);
             if (array_type->id == ZigTypeIdArray) {
                 ptr_val->data.x_ptr.mut = ptr_ptr->value->data.x_ptr.mut;
             } else if (is_slice(array_type)) {
@@ -26419,15 +26463,15 @@ static IrInstGen *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstSrcSlice *i
             }
         } else if (ptr_is_undef) {
             ptr_val->type = get_pointer_to_type(ira->codegen, parent_ptr->type->data.pointer.child_type,
-                    slice_is_const(return_type));
+                    return_type_is_const);
             ptr_val->special = ConstValSpecialUndef;
         } else switch (parent_ptr->data.x_ptr.special) {
             case ConstPtrSpecialInvalid:
             case ConstPtrSpecialDiscard:
                 zig_unreachable();
             case ConstPtrSpecialRef:
-                init_const_ptr_ref(ira->codegen, ptr_val,
-                        parent_ptr->data.x_ptr.data.ref.pointee, slice_is_const(return_type));
+                init_const_ptr_ref(ira->codegen, ptr_val, parent_ptr->data.x_ptr.data.ref.pointee,
+                        return_type_is_const);
                 break;
             case ConstPtrSpecialBaseArray:
                 zig_unreachable();
@@ -26443,7 +26487,7 @@ static IrInstGen *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstSrcSlice *i
                 init_const_ptr_hard_coded_addr(ira->codegen, ptr_val,
                     parent_ptr->type->data.pointer.child_type,
                     parent_ptr->data.x_ptr.data.hard_coded_addr.addr + start_scalar,
-                    slice_is_const(return_type));
+                    return_type_is_const);
                 break;
             case ConstPtrSpecialFunction:
                 zig_panic("TODO");
@@ -26451,9 +26495,8 @@ static IrInstGen *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstSrcSlice *i
                 zig_panic("TODO");
         }
 
-        ZigValue *len_val = out_val->data.x_struct.fields[slice_len_index];
-        init_const_usize(ira->codegen, len_val, end_scalar - start_scalar);
-
+        // In the case of pointer-to-array, we must restore this because above it overwrites ptr_val->type
+        result->value->type = return_type;
         return result;
     }
 

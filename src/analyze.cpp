@@ -791,7 +791,10 @@ ZigType *get_array_type(CodeGen *g, ZigType *child_type, uint64_t array_size, Zi
         return existing_entry->value;
     }
 
-    assert(type_is_resolved(child_type, ResolveStatusSizeKnown));
+    Error err;
+    if ((err = type_resolve(g, child_type, ResolveStatusSizeKnown))) {
+        codegen_report_errors_and_exit(g);
+    }
 
     ZigType *entry = new_type_table_entry(ZigTypeIdArray);
 
