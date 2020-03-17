@@ -26261,13 +26261,16 @@ static IrInstGen *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstSrcSlice *i
             return ira->codegen->invalid_inst_gen;
     }
 
+    ZigType *child_array_type = (array_type->id == ZigTypeIdPointer &&
+            array_type->data.pointer.ptr_len == PtrLenSingle) ? array_type->data.pointer.child_type : array_type;
+
     // If start index and end index are both comptime known, then the result type is a pointer to array
     // not a slice.
     ZigType *return_type;
 
     if (value_is_comptime(casted_start->value) &&
         ((end != nullptr && value_is_comptime(end->value)) ||
-         (end == nullptr && array_type->id == ZigTypeIdArray)))
+         (end == nullptr && child_array_type->id == ZigTypeIdArray)))
     {
         ZigValue *start_val = ir_resolve_const(ira, casted_start, UndefBad);
         if (!start_val)
@@ -26282,10 +26285,11 @@ static IrInstGen *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstSrcSlice *i
                 return ira->codegen->invalid_inst_gen;
             end_scalar = bigint_as_u64(&end_val->data.x_bigint);
         } else {
-            end_scalar = array_type->data.array.len;
+            end_scalar = child_array_type->data.array.len;
         }
-        ZigValue *array_sentinel = (array_type->id == ZigTypeIdArray && end_scalar == array_type->data.array.len)
-            ? sentinel_val : nullptr;
+        ZigValue *array_sentinel = (child_array_type->id == ZigTypeIdArray &&
+                end_scalar == child_array_type->data.array.len)
+            ? child_array_type->data.array.sentinel : nullptr;
 
         if (start_scalar > end_scalar) {
             ir_add_error(ira, &instruction->base.base, buf_sprintf("out of bounds slice"));
@@ -26318,12 +26322,8 @@ static IrInstGen *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstSrcSlice *i
         size_t abs_offset;
         size_t rel_end;
         bool ptr_is_undef = false;
-        if (array_type->id == ZigTypeIdArray ||
-            (array_type->id == ZigTypeIdPointer && array_type->data.pointer.ptr_len == PtrLenSingle))
-        {
+        if (child_array_type->id == ZigTypeIdArray) {
             if (array_type->id == ZigTypeIdPointer) {
-                ZigType *child_array_type = array_type->data.pointer.child_type;
-                assert(child_array_type->id == ZigTypeIdArray);
                 parent_ptr = const_ptr_pointee(ira, ira->codegen, ptr_ptr->value, instruction->base.base.source_node);
                 if (parent_ptr == nullptr)
                     return ira->codegen->invalid_inst_gen;
