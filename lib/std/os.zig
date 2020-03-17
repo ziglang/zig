@@ -1147,7 +1147,7 @@ pub const LockCmd = enum {
 };
 
 /// Attempts to get lock the file, blocking if the file is locked.
-pub fn fcntlFlock(fd: fd_t, lock_cmd: LockCmd, flock_p: *const Flock) OpenError!void {
+pub fn fcntlFlock(fd: fd_t, lock_cmd: LockCmd, flock_p: *Flock) OpenError!void {
     const cmd: i32 = cmdval: {
         switch (lock_cmd) {
             .GetLock => break :cmdval F_GETLK,
