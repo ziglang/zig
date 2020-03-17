@@ -128,7 +128,7 @@ export fn stage2_translate_c(
     args_end: [*]?[*]const u8,
     resources_path: [*:0]const u8,
 ) Error {
-    var errors = @as([*]translate_c.ClangErrMsg, undefined)[0..0];
+    var errors: []translate_c.ClangErrMsg = &[0]translate_c.ClangErrMsg{};
     out_ast.* = translate_c.translate(std.heap.c_allocator, args_begin, args_end, &errors, resources_path) catch |err| switch (err) {
         error.SemanticAnalyzeFail => {
             out_errors_ptr.* = errors.ptr;

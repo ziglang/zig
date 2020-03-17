@@ -231,6 +231,7 @@ enum ConstPtrSpecial {
     // The pointer is a reference to a single object.
     ConstPtrSpecialRef,
     // The pointer points to an element in an underlying array.
+    // Not to be confused with ConstPtrSpecialSubArray.
     ConstPtrSpecialBaseArray,
     // The pointer points to a field in an underlying struct.
     ConstPtrSpecialBaseStruct,
@@ -257,6 +258,10 @@ enum ConstPtrSpecial {
     // types to be the same, so all optionals of pointer types use x_ptr
     // instead of x_optional.
     ConstPtrSpecialNull,
+    // The pointer points to a sub-array (not an individual element).
+    // Not to be confused with ConstPtrSpecialBaseArray. However, it uses the same
+    // union payload struct (base_array).
+    ConstPtrSpecialSubArray,
 };
 
 enum ConstPtrMut {

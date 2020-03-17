@@ -5280,6 +5280,11 @@ static uint32_t hash_const_val_ptr(ZigValue *const_val) {
             hash_val += hash_ptr(const_val->data.x_ptr.data.base_array.array_val);
             hash_val += hash_size(const_val->data.x_ptr.data.base_array.elem_index);
             return hash_val;
+        case ConstPtrSpecialSubArray:
+            hash_val += (uint32_t)2643358777;
+            hash_val += hash_ptr(const_val->data.x_ptr.data.base_array.array_val);
+            hash_val += hash_size(const_val->data.x_ptr.data.base_array.elem_index);
+            return hash_val;
         case ConstPtrSpecialBaseStruct:
             hash_val += (uint32_t)3518317043;
             hash_val += hash_ptr(const_val->data.x_ptr.data.base_struct.struct_val);
@@ -6746,6 +6751,7 @@ bool const_values_equal_ptr(ZigValue *a, ZigValue *b) {
                 return false;
             return true;
         case ConstPtrSpecialBaseArray:
+        case ConstPtrSpecialSubArray:
             if (a->data.x_ptr.data.base_array.array_val != b->data.x_ptr.data.base_array.array_val) {
                 return false;
             }
@@ -7003,6 +7009,7 @@ static void render_const_val_ptr(CodeGen *g, Buf *buf, ZigValue *const_val, ZigT
             render_const_value(g, buf, const_ptr_pointee(nullptr, g, const_val, nullptr));
             return;
         case ConstPtrSpecialBaseArray:
+        case ConstPtrSpecialSubArray:
             buf_appendf(buf, "*");
             // TODO we need a source node for const_ptr_pointee because it can generate compile errors
             render_const_value(g, buf, const_ptr_pointee(nullptr, g, const_val, nullptr));

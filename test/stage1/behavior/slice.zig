@@ -7,7 +7,7 @@ const mem = std.mem;
 const x = @intToPtr([*]i32, 0x1000)[0..0x500];
 const y = x[0x100..];
 test "compile time slice of pointer to hard coded address" {
-    expect(@ptrToInt(x.ptr) == 0x1000);
+    expect(@ptrToInt(x) == 0x1000);
     expect(x.len == 0x500);
 
     expect(@ptrToInt(y.ptr) == 0x1100);
@@ -47,7 +47,9 @@ test "C pointer slice access" {
     var buf: [10]u32 = [1]u32{42} ** 10;
     const c_ptr = @ptrCast([*c]const u32, &buf);
 
-    comptime expectEqual([]const u32, @TypeOf(c_ptr[0..1]));
+    var runtime_zero: usize = 0;
+    comptime expectEqual([]const u32, @TypeOf(c_ptr[runtime_zero..1]));
+    comptime expectEqual(*const [1]u32, @TypeOf(c_ptr[0..1]));
 
     for (c_ptr[0..5]) |*cl| {
         expectEqual(@as(u32, 42), cl.*);
@@ -107,7 +109,9 @@ test "obtaining a null terminated slice" {
     const ptr2 = buf[0..runtime_len :0];
     // ptr2 is a null-terminated slice
     comptime expect(@TypeOf(ptr2) == [:0]u8);
-    comptime expect(@TypeOf(ptr2[0..2]) == []u8);
+    comptime expect(@TypeOf(ptr2[0..2]) == *[2]u8);
+    var runtime_zero: usize = 0;
+    comptime expect(@TypeOf(ptr2[runtime_zero..2]) == []u8);
 }
 
 test "empty array to slice" {

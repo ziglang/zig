@@ -560,7 +560,7 @@ pub fn span(ptr: var) Span(@TypeOf(ptr)) {
 
 test "span" {
     var array: [5]u16 = [_]u16{ 1, 2, 3, 4, 5 };
-    const ptr = array[0..2 :3].ptr;
+    const ptr = @as([*:3]u16, array[0..2 :3]);
     testing.expect(eql(u16, span(ptr), &[_]u16{ 1, 2 }));
     testing.expect(eql(u16, span(&array), &[_]u16{ 1, 2, 3, 4, 5 }));
 }
@@ -602,7 +602,7 @@ test "len" {
         testing.expect(len(&array) == 5);
         testing.expect(len(array[0..3]) == 3);
         array[2] = 0;
-        const ptr = array[0..2 :0].ptr;
+        const ptr = @as([*:0]u16, array[0..2 :0]);
         testing.expect(len(ptr) == 2);
     }
     {
