@@ -1829,21 +1829,19 @@ fn SliceAsBytesReturnType(comptime sliceType: type) type {
 }
 
 pub fn sliceAsBytes(slice: var) SliceAsBytesReturnType(@TypeOf(slice)) {
-    const actualSlice = if (comptime trait.isPtrTo(.Array)(@TypeOf(slice))) slice[0..] else slice;
-    const actualSliceTypeInfo = @typeInfo(@TypeOf(actualSlice)).Pointer;
+    const Slice = @TypeOf(slice);
 
     // let's not give an undefined pointer to @ptrCast
     // it may be equal to zero and fail a null check
-    if (actualSlice.len == 0 and actualSliceTypeInfo.sentinel == null) {
+    if (slice.len == 0 and comptime meta.sentinel(Slice) == null) {
         return &[0]u8{};
     }
 
-    const sliceType = @TypeOf(actualSlice);
-    const alignment = comptime meta.alignment(sliceType);
+    const alignment = comptime meta.alignment(Slice);
 
-    const castTarget = if (comptime trait.isConstPtr(sliceType)) [*]align(alignment) const u8 else [*]align(alignment) u8;
+    const cast_target = if (comptime trait.isConstPtr(Slice)) [*]align(alignment) const u8 else [*]align(alignment) u8;
 
-    return @ptrCast(castTarget, actualSlice.ptr)[0 .. actualSlice.len * @sizeOf(comptime meta.Child(sliceType))];
+    return @ptrCast(cast_target, slice)[0 .. slice.len * @sizeOf(meta.Child(Slice))];
 }
 
 test "sliceAsBytes" {

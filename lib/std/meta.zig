@@ -115,30 +115,37 @@ test "std.meta.Child" {
     testing.expect(Child(?u8) == u8);
 }
 
-/// Given a type with a sentinel e.g. `[:0]u8`, returns the sentinel
-pub fn Sentinel(comptime T: type) Child(T) {
-    // comptime asserts that ptr has a sentinel
+/// Given a type which can have a sentinel e.g. `[:0]u8`, returns the sentinel value,
+/// or `null` if there is not one.
+/// Types which cannot possibly have a sentinel will be a compile error.
+pub fn sentinel(comptime T: type) ?Child(T) {
     switch (@typeInfo(T)) {
-        .Array => |arrayInfo| {
-            return comptime arrayInfo.sentinel.?;
-        },
-        .Pointer => |ptrInfo| {
-            switch (ptrInfo.size) {
-                .Many, .Slice => {
-                    return comptime ptrInfo.sentinel.?;
+        .Array => |info| return info.sentinel,
+        .Pointer => |info| {
+            switch (info.size) {
+                .Many, .Slice => return info.sentinel,
+                .One => switch (info.child) {
+                    .Array => |array_info| return array_info.sentinel,
+                    else => {},
                 },
                 else => {},
             }
         },
         else => {},
     }
-    @compileError("not a sentinel type, found '" ++ @typeName(T) ++ "'");
+    @compileError("type '" ++ @typeName(T) ++ "' cannot possibly have a sentinel");
 }
 
-test "std.meta.Sentinel" {
-    testing.expectEqual(@as(u8, 0), Sentinel([:0]u8));
-    testing.expectEqual(@as(u8, 0), Sentinel([*:0]u8));
-    testing.expectEqual(@as(u8, 0), Sentinel([5:0]u8));
+test "std.meta.sentinel" {
+    testing.expectEqual(@as(u8, 0), sentinel([:0]u8).?);
+    testing.expectEqual(@as(u8, 0), sentinel([*:0]u8).?);
+    testing.expectEqual(@as(u8, 0), sentinel([5:0]u8).?);
+    testing.expectEqual(@as(u8, 0), sentinel(*const [5:0]u8).?);
+
+    testing.expect(sentinel([]u8) == null);
+    testing.expect(sentinel([*]u8) == null);
+    testing.expect(sentinel([5]u8) == null);
+    testing.expect(sentinel(*const [5]u8) == null);
 }
 
 pub fn containerLayout(comptime T: type) TypeInfo.ContainerLayout {
