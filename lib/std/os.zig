@@ -2184,7 +2184,7 @@ const ListenError = error{
     OperationNotSupported,
 } || UnexpectedError;
 
-pub fn listen(sockfd: i32, backlog: u32) ListenError!void {
+pub fn listen(sockfd: fd_t, backlog: u32) ListenError!void {
     const rc = system.listen(sockfd, backlog);
     switch (errno(rc)) {
         0 => return,
@@ -2475,7 +2475,7 @@ pub fn connect(sockfd: fd_t, sock_addr: *const sockaddr, len: socklen_t) Connect
     }
 }
 
-pub fn getsockoptError(sockfd: i32) ConnectError!void {
+pub fn getsockoptError(sockfd: fd_t) ConnectError!void {
     var err_code: u32 = undefined;
     var size: u32 = @sizeOf(u32);
     const rc = system.getsockopt(sockfd, SOL_SOCKET, SO_ERROR, @ptrCast([*]u8, &err_code), &size);
