@@ -10,7 +10,7 @@ test "compile time slice of pointer to hard coded address" {
     expect(@ptrToInt(x) == 0x1000);
     expect(x.len == 0x500);
 
-    expect(@ptrToInt(y.ptr) == 0x1100);
+    expect(@ptrToInt(y) == 0x1100);
     expect(y.len == 0x400);
 }
 

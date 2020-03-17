@@ -20575,6 +20575,44 @@ static ZigType *adjust_ptr_allow_zero(CodeGen *g, ZigType *ptr_type, bool allow_
             allow_zero);
 }
 
+static Error compute_elem_align(IrAnalyze *ira, ZigType *elem_type, uint32_t base_ptr_align,
+        uint64_t elem_index, uint32_t *result)
+{
+    Error err;
+
+    if (base_ptr_align == 0) {
+        *result = 0;
+        return ErrorNone;
+    }
+
+    // figure out the largest alignment possible
+    if ((err = type_resolve(ira->codegen, elem_type, ResolveStatusSizeKnown)))
+        return err;
+
+    uint64_t elem_size = type_size(ira->codegen, elem_type);
+    uint64_t abi_align = get_abi_alignment(ira->codegen, elem_type);
+    uint64_t ptr_align = base_ptr_align;
+
+    uint64_t chosen_align = abi_align;
+    if (ptr_align >= abi_align) {
+        while (ptr_align > abi_align) {
+            if ((elem_index * elem_size) % ptr_align == 0) {
+                chosen_align = ptr_align;
+                break;
+            }
+            ptr_align >>= 1;
+        }
+    } else if (elem_size >= ptr_align && elem_size % ptr_align == 0) {
+        chosen_align = ptr_align;
+    } else {
+        // can't get here because guaranteed elem_size >= abi_align
+        zig_unreachable();
+    }
+
+    *result = chosen_align;
+    return ErrorNone;
+}
+
 static IrInstGen *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstSrcElemPtr *elem_ptr_instruction) {
     Error err;
     IrInstGen *array_ptr = elem_ptr_instruction->array_ptr->child;
@@ -20713,29 +20751,11 @@ static IrInstGen *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstSrcElemP
                 get_ptr_align(ira->codegen, ptr_type), 0, host_vec_len, false, (uint32_t)index,
                 nullptr, nullptr);
         } else if (return_type->data.pointer.explicit_alignment != 0) {
-            // figure out the largest alignment possible
-
-            if ((err = type_resolve(ira->codegen, return_type->data.pointer.child_type, ResolveStatusSizeKnown)))
+            uint32_t chosen_align;
+            if ((err = compute_elem_align(ira, return_type->data.pointer.child_type, 
+                return_type->data.pointer.explicit_alignment, index, &chosen_align)))
+            {
                 return ira->codegen->invalid_inst_gen;
-
-            uint64_t elem_size = type_size(ira->codegen, return_type->data.pointer.child_type);
-            uint64_t abi_align = get_abi_alignment(ira->codegen, return_type->data.pointer.child_type);
-            uint64_t ptr_align = get_ptr_align(ira->codegen, return_type);
-
-            uint64_t chosen_align = abi_align;
-            if (ptr_align >= abi_align) {
-                while (ptr_align > abi_align) {
-                    if ((index * elem_size) % ptr_align == 0) {
-                        chosen_align = ptr_align;
-                        break;
-                    }
-                    ptr_align >>= 1;
-                }
-            } else if (elem_size >= ptr_align && elem_size % ptr_align == 0) {
-                chosen_align = ptr_align;
-            } else {
-                // can't get here because guaranteed elem_size >= abi_align
-                zig_unreachable();
             }
             return_type = adjust_ptr_align(ira->codegen, return_type, chosen_align);
         }
@@ -26172,6 +26192,8 @@ static IrInstGen *ir_analyze_instruction_memcpy(IrAnalyze *ira, IrInstSrcMemcpy 
 }
 
 static IrInstGen *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstSrcSlice *instruction) {
+    Error err;
+
     IrInstGen *ptr_ptr = instruction->ptr->child;
     if (type_is_invalid(ptr_ptr->value->type))
         return ira->codegen->invalid_inst_gen;
@@ -26307,10 +26329,13 @@ static IrInstGen *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstSrcSlice *i
             return ira->codegen->invalid_inst_gen;
         }
 
-        // TODO in the case of non-zero start index, the byte alignment should be smarter here.
-        // we should be able to use the same logic as indexing.
-        uint32_t ptr_byte_alignment = ((end_scalar - start_scalar != 0) && start_scalar == 0) ?
-            non_sentinel_slice_ptr_type->data.pointer.explicit_alignment : 0;
+        uint32_t base_ptr_align = non_sentinel_slice_ptr_type->data.pointer.explicit_alignment;
+        uint32_t ptr_byte_alignment = 0;
+        if (end_scalar > start_scalar) {
+            if ((err = compute_elem_align(ira, elem_type, base_ptr_align, start_scalar, &ptr_byte_alignment)))
+                return ira->codegen->invalid_inst_gen;
+        }
+
         ZigType *return_array_type = get_array_type(ira->codegen, elem_type, end_scalar - start_scalar,
                 array_sentinel);
         return_type = get_pointer_to_type_extra(ira->codegen, return_array_type,
@@ -26318,9 +26343,11 @@ static IrInstGen *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstSrcSlice *i
                 non_sentinel_slice_ptr_type->data.pointer.is_volatile,
                 PtrLenSingle, ptr_byte_alignment, 0, 0, false);
     } else if (sentinel_val != nullptr) {
+        // TODO deal with non-abi-alignment here
         ZigType *slice_ptr_type = adjust_ptr_sentinel(ira->codegen, non_sentinel_slice_ptr_type, sentinel_val);
         return_type = get_slice_type(ira->codegen, slice_ptr_type);
     } else {
+        // TODO deal with non-abi-alignment here
         return_type = get_slice_type(ira->codegen, non_sentinel_slice_ptr_type);
     }
 
