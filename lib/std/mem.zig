@@ -1750,34 +1750,50 @@ fn BytesAsSliceReturnType(comptime T: type, comptime bytesType: type) type {
 }
 
 pub fn bytesAsSlice(comptime T: type, bytes: var) BytesAsSliceReturnType(T, @TypeOf(bytes)) {
-    const bytesSlice = if (comptime trait.isPtrTo(.Array)(@TypeOf(bytes))) bytes[0..] else bytes;
-
     // let's not give an undefined pointer to @ptrCast
     // it may be equal to zero and fail a null check
-    if (bytesSlice.len == 0) {
+    if (bytes.len == 0) {
         return &[0]T{};
     }
 
-    const bytesType = @TypeOf(bytesSlice);
-    const alignment = comptime meta.alignment(bytesType);
+    const Bytes = @TypeOf(bytes);
+    const alignment = comptime meta.alignment(Bytes);
 
-    const castTarget = if (comptime trait.isConstPtr(bytesType)) [*]align(alignment) const T else [*]align(alignment) T;
+    const cast_target = if (comptime trait.isConstPtr(Bytes)) [*]align(alignment) const T else [*]align(alignment) T;
 
-    return @ptrCast(castTarget, bytesSlice.ptr)[0..@divExact(bytes.len, @sizeOf(T))];
+    return @ptrCast(cast_target, bytes)[0..@divExact(bytes.len, @sizeOf(T))];
 }
 
 test "bytesAsSlice" {
-    const bytes = [_]u8{ 0xDE, 0xAD, 0xBE, 0xEF };
-    const slice = bytesAsSlice(u16, bytes[0..]);
-    testing.expect(slice.len == 2);
-    testing.expect(bigToNative(u16, slice[0]) == 0xDEAD);
-    testing.expect(bigToNative(u16, slice[1]) == 0xBEEF);
+    {
+        const bytes = [_]u8{ 0xDE, 0xAD, 0xBE, 0xEF };
+        const slice = bytesAsSlice(u16, bytes[0..]);
+        testing.expect(slice.len == 2);
+        testing.expect(bigToNative(u16, slice[0]) == 0xDEAD);
+        testing.expect(bigToNative(u16, slice[1]) == 0xBEEF);
+    }
+    {
+        const bytes = [_]u8{ 0xDE, 0xAD, 0xBE, 0xEF };
+        var runtime_zero: usize = 0;
+        const slice = bytesAsSlice(u16, bytes[runtime_zero..]);
+        testing.expect(slice.len == 2);
+        testing.expect(bigToNative(u16, slice[0]) == 0xDEAD);
+        testing.expect(bigToNative(u16, slice[1]) == 0xBEEF);
+    }
 }
 
 test "bytesAsSlice keeps pointer alignment" {
-    var bytes = [_]u8{ 0x01, 0x02, 0x03, 0x04 };
-    const numbers = bytesAsSlice(u32, bytes[0..]);
-    comptime testing.expect(@TypeOf(numbers) == []align(@alignOf(@TypeOf(bytes))) u32);
+    {
+        var bytes = [_]u8{ 0x01, 0x02, 0x03, 0x04 };
+        const numbers = bytesAsSlice(u32, bytes[0..]);
+        comptime testing.expect(@TypeOf(numbers) == []align(@alignOf(@TypeOf(bytes))) u32);
+    }
+    {
+        var bytes = [_]u8{ 0x01, 0x02, 0x03, 0x04 };
+        var runtime_zero: usize = 0;
+        const numbers = bytesAsSlice(u32, bytes[runtime_zero..]);
+        comptime testing.expect(@TypeOf(numbers) == []align(@alignOf(@TypeOf(bytes))) u32);
+    }
 }
 
 test "bytesAsSlice on a packed struct" {

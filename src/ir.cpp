@@ -25479,10 +25479,21 @@ static IrInstGen *ir_analyze_instruction_err_set_cast(IrAnalyze *ira, IrInstSrcE
 static Error resolve_ptr_align(IrAnalyze *ira, ZigType *ty, uint32_t *result_align) {
     Error err;
 
-    ZigType *ptr_type = get_src_ptr_type(ty);
+    ZigType *ptr_type;
+    if (is_slice(ty)) {
+        TypeStructField *ptr_field = ty->data.structure.fields[slice_ptr_index];
+        ptr_type = resolve_struct_field_type(ira->codegen, ptr_field);
+    } else {
+        ptr_type = get_src_ptr_type(ty);
+    }
     assert(ptr_type != nullptr);
     if (ptr_type->id == ZigTypeIdPointer) {
         if ((err = type_resolve(ira->codegen, ptr_type->data.pointer.child_type, ResolveStatusAlignmentKnown)))
+            return err;
+    } else if (is_slice(ptr_type)) {
+        TypeStructField *ptr_field = ptr_type->data.structure.fields[slice_ptr_index];
+        ZigType *slice_ptr_type = resolve_struct_field_type(ira->codegen, ptr_field);
+        if ((err = type_resolve(ira->codegen, slice_ptr_type->data.pointer.child_type, ResolveStatusAlignmentKnown)))
             return err;
     }
 
@@ -27615,10 +27626,18 @@ static IrInstGen *ir_analyze_ptr_cast(IrAnalyze *ira, IrInst* source_instr, IrIn
     // We have a check for zero bits later so we use get_src_ptr_type to
     // validate src_type and dest_type.
 
-    ZigType *src_ptr_type = get_src_ptr_type(src_type);
-    if (src_ptr_type == nullptr) {
-        ir_add_error(ira, ptr_src, buf_sprintf("expected pointer, found '%s'", buf_ptr(&src_type->name)));
-        return ira->codegen->invalid_inst_gen;
+    ZigType *if_slice_ptr_type;
+    if (is_slice(src_type)) {
+        TypeStructField *ptr_field = src_type->data.structure.fields[slice_ptr_index];
+        if_slice_ptr_type = resolve_struct_field_type(ira->codegen, ptr_field);
+    } else {
+        if_slice_ptr_type = src_type;
+
+        ZigType *src_ptr_type = get_src_ptr_type(src_type);
+        if (src_ptr_type == nullptr) {
+            ir_add_error(ira, ptr_src, buf_sprintf("expected pointer, found '%s'", buf_ptr(&src_type->name)));
+            return ira->codegen->invalid_inst_gen;
+        }
     }
 
     ZigType *dest_ptr_type = get_src_ptr_type(dest_type);
@@ -27628,7 +27647,7 @@ static IrInstGen *ir_analyze_ptr_cast(IrAnalyze *ira, IrInst* source_instr, IrIn
         return ira->codegen->invalid_inst_gen;
     }
 
-    if (get_ptr_const(src_type) && !get_ptr_const(dest_type)) {
+    if (get_ptr_const(ira->codegen, src_type) && !get_ptr_const(ira->codegen, dest_type)) {
         ir_add_error(ira, source_instr, buf_sprintf("cast discards const qualifier"));
         return ira->codegen->invalid_inst_gen;
     }
@@ -27646,7 +27665,10 @@ static IrInstGen *ir_analyze_ptr_cast(IrAnalyze *ira, IrInst* source_instr, IrIn
     if ((err = type_resolve(ira->codegen, src_type, ResolveStatusZeroBitsKnown)))
         return ira->codegen->invalid_inst_gen;
 
-    if (type_has_bits(ira->codegen, dest_type) && !type_has_bits(ira->codegen, src_type) && safety_check_on) {
+    if (safety_check_on &&
+        type_has_bits(ira->codegen, dest_type) &&
+        !type_has_bits(ira->codegen, if_slice_ptr_type))
+    {
         ErrorMsg *msg = ir_add_error(ira, source_instr,
             buf_sprintf("'%s' and '%s' do not have the same in-memory representation",
                 buf_ptr(&src_type->name), buf_ptr(&dest_type->name)));
@@ -27655,6 +27677,14 @@ static IrInstGen *ir_analyze_ptr_cast(IrAnalyze *ira, IrInst* source_instr, IrIn
         add_error_note(ira->codegen, msg, dest_type_src->source_node,
                 buf_sprintf("'%s' has in-memory bits", buf_ptr(&dest_type->name)));
         return ira->codegen->invalid_inst_gen;
+    }
+
+    // For slices, follow the `ptr` field.
+    if (is_slice(src_type)) {
+        TypeStructField *ptr_field = src_type->data.structure.fields[slice_ptr_index];
+        IrInstGen *ptr_ref = ir_get_ref(ira, source_instr, ptr, true, false);
+        IrInstGen *ptr_ptr = ir_analyze_struct_field_ptr(ira, source_instr, ptr_field, ptr_ref, src_type, false);
+        ptr = ir_get_deref(ira, source_instr, ptr_ptr, nullptr);
     }
 
     if (instr_is_comptime(ptr)) {

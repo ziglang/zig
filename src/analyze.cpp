@@ -4486,7 +4486,14 @@ static uint32_t get_async_frame_align_bytes(CodeGen *g) {
 }
 
 uint32_t get_ptr_align(CodeGen *g, ZigType *type) {
-    ZigType *ptr_type = get_src_ptr_type(type);
+    ZigType *ptr_type;
+    if (type->id == ZigTypeIdStruct) {
+        assert(type->data.structure.special == StructSpecialSlice);
+        TypeStructField *ptr_field = type->data.structure.fields[slice_ptr_index];
+        ptr_type = resolve_struct_field_type(g, ptr_field);
+    } else {
+        ptr_type = get_src_ptr_type(type);
+    }
     if (ptr_type->id == ZigTypeIdPointer) {
         return (ptr_type->data.pointer.explicit_alignment == 0) ?
             get_abi_alignment(g, ptr_type->data.pointer.child_type) : ptr_type->data.pointer.explicit_alignment;
@@ -4503,8 +4510,15 @@ uint32_t get_ptr_align(CodeGen *g, ZigType *type) {
     }
 }
 
-bool get_ptr_const(ZigType *type) {
-    ZigType *ptr_type = get_src_ptr_type(type);
+bool get_ptr_const(CodeGen *g, ZigType *type) {
+    ZigType *ptr_type;
+    if (type->id == ZigTypeIdStruct) {
+        assert(type->data.structure.special == StructSpecialSlice);
+        TypeStructField *ptr_field = type->data.structure.fields[slice_ptr_index];
+        ptr_type = resolve_struct_field_type(g, ptr_field);
+    } else {
+        ptr_type = get_src_ptr_type(type);
+    }
     if (ptr_type->id == ZigTypeIdPointer) {
         return ptr_type->data.pointer.is_const;
     } else if (ptr_type->id == ZigTypeIdFn) {
