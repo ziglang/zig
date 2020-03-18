@@ -5,10 +5,17 @@ const builtin = @import("builtin");
 var foo: u8 align(4) = 100;
 
 test "global variable alignment" {
-    expect(@TypeOf(&foo).alignment == 4);
-    expect(@TypeOf(&foo) == *align(4) u8);
-    const slice = @as(*[1]u8, &foo)[0..];
-    expect(@TypeOf(slice) == []align(4) u8);
+    comptime expect(@TypeOf(&foo).alignment == 4);
+    comptime expect(@TypeOf(&foo) == *align(4) u8);
+    {
+        const slice = @as(*[1]u8, &foo)[0..];
+        comptime expect(@TypeOf(slice) == *align(4) [1]u8);
+    }
+    {
+        var runtime_zero: usize = 0;
+        const slice = @as(*[1]u8, &foo)[runtime_zero..];
+        comptime expect(@TypeOf(slice) == []align(4) u8);
+    }
 }
 
 fn derp() align(@sizeOf(usize) * 2) i32 {

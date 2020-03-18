@@ -12693,34 +12693,50 @@ static IrInstGen *ir_resolve_ptr_of_array_to_slice(IrAnalyze *ira, IrInst* sourc
     assert(array_ptr->value->type->data.pointer.child_type->id == ZigTypeIdArray);
 
     ZigType *array_type = array_ptr->value->type->data.pointer.child_type;
-    const size_t array_len = array_type->data.array.len;
+    size_t array_len = array_type->data.array.len;
 
     // A zero-sized array can be casted regardless of the destination alignment, or
     // whether the pointer is undefined, and the result is always comptime known.
-    if (array_len == 0) {
-        ZigValue *undef_array = ira->codegen->pass1_arena->create<ZigValue>();
-        undef_array->special = ConstValSpecialUndef;
-        undef_array->type = array_type;
+    // TODO However, this is exposing a result location bug that I failed to solve on the first try.
+    // If you want to try to fix the bug, uncomment this block and get the tests passing.
+    //if (array_len == 0 && array_type->data.array.sentinel == nullptr) {
+    //    ZigValue *undef_array = ira->codegen->pass1_arena->create<ZigValue>();
+    //    undef_array->special = ConstValSpecialUndef;
+    //    undef_array->type = array_type;
 
-        IrInstGen *result = ir_const(ira, source_instr, wanted_type);
-        init_const_slice(ira->codegen, result->value, undef_array, 0, 0, false);
-        result->value->data.x_struct.fields[slice_ptr_index]->data.x_ptr.mut = ConstPtrMutComptimeConst;
-        result->value->type = wanted_type;
-        return result;
-    }
+    //    IrInstGen *result = ir_const(ira, source_instr, wanted_type);
+    //    init_const_slice(ira->codegen, result->value, undef_array, 0, 0, false);
+    //    result->value->data.x_struct.fields[slice_ptr_index]->data.x_ptr.mut = ConstPtrMutComptimeConst;
+    //    result->value->type = wanted_type;
+    //    return result;
+    //}
 
     if ((err = type_resolve(ira->codegen, array_ptr->value->type, ResolveStatusAlignmentKnown))) {
         return ira->codegen->invalid_inst_gen;
     }
 
-    wanted_type = adjust_slice_align(ira->codegen, wanted_type,
-        get_ptr_align(ira->codegen, array_ptr->value->type));
+    if (array_len != 0) {
+        wanted_type = adjust_slice_align(ira->codegen, wanted_type,
+            get_ptr_align(ira->codegen, array_ptr->value->type));
+    }
 
     if (instr_is_comptime(array_ptr)) {
-        ZigValue *array_ptr_val = ir_resolve_const(ira, array_ptr, UndefBad);
+        UndefAllowed undef_allowed = (array_len == 0) ? UndefOk : UndefBad;
+        ZigValue *array_ptr_val = ir_resolve_const(ira, array_ptr, undef_allowed);
         if (array_ptr_val == nullptr)
             return ira->codegen->invalid_inst_gen;
         ir_assert(is_slice(wanted_type), source_instr);
+        if (array_ptr_val->special == ConstValSpecialUndef) {
+            ZigValue *undef_array = ira->codegen->pass1_arena->create<ZigValue>();
+            undef_array->special = ConstValSpecialUndef;
+            undef_array->type = array_type;
+
+            IrInstGen *result = ir_const(ira, source_instr, wanted_type);
+            init_const_slice(ira->codegen, result->value, undef_array, 0, 0, false);
+            result->value->data.x_struct.fields[slice_ptr_index]->data.x_ptr.mut = ConstPtrMutComptimeConst;
+            result->value->type = wanted_type;
+            return result;
+        }
         bool wanted_const = wanted_type->data.structure.fields[slice_ptr_index]->type_entry->data.pointer.is_const;
         // Optimization to avoid creating unnecessary ZigValue in const_ptr_pointee
         if (array_ptr_val->data.x_ptr.special == ConstPtrSpecialSubArray) {
@@ -26314,18 +26330,13 @@ static IrInstGen *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstSrcSlice *i
     // then the pointer-to-array would be casted to a slice anyway. So, we preserve the laziness of these
     // values by making the return type a slice.
     ZigType *res_loc_type = get_result_loc_type(ira, instruction->result_loc);
-
-    if ((res_loc_type == nullptr || !is_slice(res_loc_type)) &&
-        value_is_comptime(casted_start->value) &&
+    bool result_loc_is_slice = (res_loc_type != nullptr && is_slice(res_loc_type));
+    bool end_is_known = !result_loc_is_slice &&
         ((end != nullptr && value_is_comptime(end->value)) ||
-         (end == nullptr && child_array_type->id == ZigTypeIdArray)))
-    {
-        ZigValue *start_val = ir_resolve_const(ira, casted_start, UndefBad);
-        if (!start_val)
-            return ira->codegen->invalid_inst_gen;
+         (end == nullptr && child_array_type->id == ZigTypeIdArray));
 
-        uint64_t start_scalar = bigint_as_u64(&start_val->data.x_bigint);
-
+    ZigValue *array_sentinel = sentinel_val;
+    if (end_is_known) {
         uint64_t end_scalar;
         if (end != nullptr) {
             ZigValue *end_val = ir_resolve_const(ira, end, UndefBad);
@@ -26335,36 +26346,46 @@ static IrInstGen *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstSrcSlice *i
         } else {
             end_scalar = child_array_type->data.array.len;
         }
-        ZigValue *array_sentinel = (child_array_type->id == ZigTypeIdArray &&
-                end_scalar == child_array_type->data.array.len)
-            ? child_array_type->data.array.sentinel : nullptr;
+        array_sentinel = (child_array_type->id == ZigTypeIdArray && end_scalar == child_array_type->data.array.len)
+            ? child_array_type->data.array.sentinel : sentinel_val;
 
-        if (start_scalar > end_scalar) {
-            ir_add_error(ira, &instruction->base.base, buf_sprintf("out of bounds slice"));
-            return ira->codegen->invalid_inst_gen;
-        }
-
-        uint32_t base_ptr_align = non_sentinel_slice_ptr_type->data.pointer.explicit_alignment;
-        uint32_t ptr_byte_alignment = 0;
-        if (end_scalar > start_scalar) {
-            if ((err = compute_elem_align(ira, elem_type, base_ptr_align, start_scalar, &ptr_byte_alignment)))
+        if (value_is_comptime(casted_start->value)) {
+            ZigValue *start_val = ir_resolve_const(ira, casted_start, UndefBad);
+            if (!start_val)
                 return ira->codegen->invalid_inst_gen;
-        }
 
-        ZigType *return_array_type = get_array_type(ira->codegen, elem_type, end_scalar - start_scalar,
-                array_sentinel);
-        return_type = get_pointer_to_type_extra(ira->codegen, return_array_type,
-                non_sentinel_slice_ptr_type->data.pointer.is_const,
-                non_sentinel_slice_ptr_type->data.pointer.is_volatile,
-                PtrLenSingle, ptr_byte_alignment, 0, 0, false);
-    } else if (sentinel_val != nullptr) {
+            uint64_t start_scalar = bigint_as_u64(&start_val->data.x_bigint);
+
+            if (start_scalar > end_scalar) {
+                ir_add_error(ira, &instruction->base.base, buf_sprintf("out of bounds slice"));
+                return ira->codegen->invalid_inst_gen;
+            }
+
+            uint32_t base_ptr_align = non_sentinel_slice_ptr_type->data.pointer.explicit_alignment;
+            uint32_t ptr_byte_alignment = 0;
+            if (end_scalar > start_scalar) {
+                if ((err = compute_elem_align(ira, elem_type, base_ptr_align, start_scalar, &ptr_byte_alignment)))
+                    return ira->codegen->invalid_inst_gen;
+            }
+
+            ZigType *return_array_type = get_array_type(ira->codegen, elem_type, end_scalar - start_scalar,
+                    array_sentinel);
+            return_type = get_pointer_to_type_extra(ira->codegen, return_array_type,
+                    non_sentinel_slice_ptr_type->data.pointer.is_const,
+                    non_sentinel_slice_ptr_type->data.pointer.is_volatile,
+                    PtrLenSingle, ptr_byte_alignment, 0, 0, false);
+            goto done_with_return_type;
+        }
+    }
+    if (array_sentinel != nullptr) {
         // TODO deal with non-abi-alignment here
-        ZigType *slice_ptr_type = adjust_ptr_sentinel(ira->codegen, non_sentinel_slice_ptr_type, sentinel_val);
+        ZigType *slice_ptr_type = adjust_ptr_sentinel(ira->codegen, non_sentinel_slice_ptr_type, array_sentinel);
         return_type = get_slice_type(ira->codegen, slice_ptr_type);
     } else {
         // TODO deal with non-abi-alignment here
         return_type = get_slice_type(ira->codegen, non_sentinel_slice_ptr_type);
     }
+done_with_return_type:
 
     if (instr_is_comptime(ptr_ptr) &&
         value_is_comptime(casted_start->value) &&

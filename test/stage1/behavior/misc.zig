@@ -572,9 +572,9 @@ test "slice string literal has correct type" {
         expect(@TypeOf(array[0..]) == *const [4]i32);
     }
     var runtime_zero: usize = 0;
-    expect(@TypeOf("aoeu"[runtime_zero..]) == [:0]const u8);
+    comptime expect(@TypeOf("aoeu"[runtime_zero..]) == [:0]const u8);
     const array = [_]i32{ 1, 2, 3, 4 };
-    expect(@TypeOf(array[runtime_zero..]) == []const u8);
+    comptime expect(@TypeOf(array[runtime_zero..]) == []const i32);
 }
 
 test "pointer child field" {
