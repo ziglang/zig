@@ -780,6 +780,8 @@ ZigType *get_error_union_type(CodeGen *g, ZigType *err_set_type, ZigType *payloa
 }
 
 ZigType *get_array_type(CodeGen *g, ZigType *child_type, uint64_t array_size, ZigValue *sentinel) {
+    Error err;
+
     TypeId type_id = {};
     type_id.id = ZigTypeIdArray;
     type_id.data.array.codegen = g;
@@ -791,8 +793,9 @@ ZigType *get_array_type(CodeGen *g, ZigType *child_type, uint64_t array_size, Zi
         return existing_entry->value;
     }
 
-    Error err;
-    if ((err = type_resolve(g, child_type, ResolveStatusSizeKnown))) {
+    size_t full_array_size = array_size + ((sentinel != nullptr) ? 1 : 0);
+
+    if (full_array_size != 0 && (err = type_resolve(g, child_type, ResolveStatusSizeKnown))) {
         codegen_report_errors_and_exit(g);
     }
 
@@ -806,9 +809,8 @@ ZigType *get_array_type(CodeGen *g, ZigType *child_type, uint64_t array_size, Zi
     }
     buf_appendf(&entry->name, "]%s", buf_ptr(&child_type->name));
 
-    size_t full_array_size = array_size + ((sentinel != nullptr) ? 1 : 0);
     entry->size_in_bits = child_type->size_in_bits * full_array_size;
-    entry->abi_align = child_type->abi_align;
+    entry->abi_align = (full_array_size == 0) ? 0 : child_type->abi_align;
     entry->abi_size = child_type->abi_size * full_array_size;
 
     entry->data.array.child_type = child_type;
