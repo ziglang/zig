@@ -803,13 +803,7 @@ ZigType *get_array_type(CodeGen *g, ZigType *child_type, uint64_t array_size, Zi
     }
     buf_appendf(&entry->name, "]%s", buf_ptr(&child_type->name));
 
-    size_t full_array_size;
-    if (array_size == 0) {
-        full_array_size = 0;
-    } else {
-        full_array_size = array_size + ((sentinel != nullptr) ? 1 : 0);
-    }
-
+    size_t full_array_size = array_size + ((sentinel != nullptr) ? 1 : 0);
     entry->size_in_bits = child_type->size_in_bits * full_array_size;
     entry->abi_align = child_type->abi_align;
     entry->abi_size = child_type->abi_size * full_array_size;
@@ -1197,7 +1191,8 @@ Error type_val_resolve_zero_bits(CodeGen *g, ZigValue *type_val, ZigType *parent
             LazyValueArrayType *lazy_array_type =
                 reinterpret_cast<LazyValueArrayType *>(type_val->data.x_lazy);
 
-            if (lazy_array_type->length < 1) {
+            // The sentinel counts as an extra element
+            if (lazy_array_type->length == 0 && lazy_array_type->sentinel == nullptr) {
                 *is_zero_bits = true;
                 return ErrorNone;
             }
@@ -1452,7 +1447,7 @@ static OnePossibleValue type_val_resolve_has_one_possible_value(CodeGen *g, ZigV
         case LazyValueIdArrayType: {
             LazyValueArrayType *lazy_array_type =
                 reinterpret_cast<LazyValueArrayType *>(type_val->data.x_lazy);
-            if (lazy_array_type->length < 1)
+            if (lazy_array_type->length == 0)
                 return OnePossibleValueYes;
             return type_val_resolve_has_one_possible_value(g, lazy_array_type->elem_type->value);
         }
