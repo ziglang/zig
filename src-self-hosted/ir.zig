@@ -1099,7 +1099,6 @@ pub const Builder = struct {
                     .Await => return error.Unimplemented,
                     .BitNot => return error.Unimplemented,
                     .BoolNot => return error.Unimplemented,
-                    .Cancel => return error.Unimplemented,
                     .OptionalType => return error.Unimplemented,
                     .Negation => return error.Unimplemented,
                     .NegationWrap => return error.Unimplemented,
@@ -1188,6 +1187,7 @@ pub const Builder = struct {
             .ParamDecl => return error.Unimplemented,
             .FieldInitializer => return error.Unimplemented,
             .EnumLiteral => return error.Unimplemented,
+            .Noasync => return error.Unimplemented,
         }
     }
 
