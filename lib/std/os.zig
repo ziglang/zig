@@ -1146,18 +1146,26 @@ pub const LockCmd = enum {
     SetLockBlocking,
 };
 
+pub const FcntlError = error{
+    /// The file is locked by another process
+    FileLocked,
+} || UnexpectedError;
+
 /// Attempts to get lock the file, blocking if the file is locked.
-pub fn fcntlFlock(fd: fd_t, lock_cmd: LockCmd, flock_p: *Flock) OpenError!void {
-    const cmd: i32 = cmdval: {
-        switch (lock_cmd) {
-            .GetLock => break :cmdval F_GETLK,
-            .SetLock => break :cmdval F_SETLK,
-            .SetLockBlocking => break :cmdval F_SETLKW,
-        }
+pub fn fcntlFlock(fd: fd_t, lock_cmd: LockCmd, flock_p: *Flock) FcntlError!void {
+    const cmd: i32 = switch (lock_cmd) {
+        .GetLock => F_GETLK,
+        .SetLock => F_SETLK,
+        .SetLockBlocking => F_SETLKW,
     };
-    const rc = system.fcntl(fd, cmd, flock_p);
-    if (rc < 0) {
-        std.debug.panic("fcntl error: {}\n", .{rc});
+    while (true) {
+        switch (errno(system.fcntl(fd, cmd, flock_p))) {
+            0 => return,
+            EACCES => return error.FileLocked,
+            EAGAIN => return error.FileLocked,
+            EINTR => continue,
+            else => |err| return unexpectedErrno(err),
+        }
     }
 }
 

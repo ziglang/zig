@@ -34,7 +34,7 @@ pub const File = struct {
         else => 0o666,
     };
 
-    pub const OpenError = windows.CreateFileError || os.OpenError;
+    pub const OpenError = windows.CreateFileError || os.OpenError || os.FcntlError;
 
     /// TODO https://github.com/ziglang/zig/issues/3802
     pub const OpenFlags = struct {

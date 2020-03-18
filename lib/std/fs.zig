@@ -1605,7 +1605,7 @@ pub fn readLinkC(pathname_c: [*]const u8, buffer: *[MAX_PATH_BYTES]u8) ![]u8 {
     return os.readlinkC(pathname_c, buffer);
 }
 
-pub const OpenSelfExeError = os.OpenError || os.windows.CreateFileError || SelfExePathError;
+pub const OpenSelfExeError = os.OpenError || os.windows.CreateFileError || SelfExePathError || os.FcntlError;
 
 pub fn openSelfExe() OpenSelfExeError!File {
     if (builtin.os.tag == .linux) {
