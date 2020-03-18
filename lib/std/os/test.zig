@@ -21,7 +21,7 @@ test "makePath, put some files in it, deleteTree" {
     try io.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c" ++ fs.path.sep_str ++ "file.txt", "nonsense");
     try io.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "file2.txt", "blah");
     try fs.deleteTree("os_test_tmp");
-    if (fs.cwd().openDirTraverse("os_test_tmp")) |dir| {
+    if (fs.cwd().openDir("os_test_tmp", .{})) |dir| {
         @panic("expected error");
     } else |err| {
         expect(err == error.FileNotFound);
@@ -49,7 +49,7 @@ test "sendfile" {
     try fs.cwd().makePath("os_test_tmp");
     defer fs.deleteTree("os_test_tmp") catch {};
 
-    var dir = try fs.cwd().openDirList("os_test_tmp");
+    var dir = try fs.cwd().openDir("os_test_tmp", .{});
     defer dir.close();
 
     const line1 = "line1\n";
@@ -455,7 +455,10 @@ test "fcntl" {
     const test_out_file = "os_tmp_test";
 
     const file = try fs.cwd().createFile(test_out_file, .{});
-    defer file.close();
+    defer {
+        file.close();
+        fs.cwd().deleteFile(test_out_file) catch {};
+    }
 
     // Note: The test assumes createFile opens the file with O_CLOEXEC
     {
@@ -472,6 +475,4 @@ test "fcntl" {
         const flags = try os.fcntl(file.handle, os.F_GETFD, 0);
         expect((flags & os.FD_CLOEXEC) != 0);
     }
-
-    try fs.cwd().deleteFile(test_out_file);
 }
