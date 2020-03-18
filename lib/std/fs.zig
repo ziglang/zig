@@ -688,7 +688,7 @@ pub const Dir = struct {
             flock.l_start = 0;
             flock.l_len = 0;
             flock.l_pid = 0;
-            try os.fcntlFlock(fd, .SetLockBlocking, &flock);
+            try os.fcntl(fd, os.F_SETLKW, &flock);
             locked = true;
         }
 
@@ -754,7 +754,7 @@ pub const Dir = struct {
             flock.l_start = 0;
             flock.l_len = 0;
             flock.l_pid = 0;
-            try os.fcntlFlock(fd, .SetLockBlocking, &flock);
+            try os.fcntl(fd, os.F_SETLKW, &flock);
         }
 
         return File{ .handle = fd, .io_mode = .blocking };

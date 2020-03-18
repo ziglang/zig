@@ -1140,24 +1140,13 @@ pub fn freeNullDelimitedEnvMap(allocator: *mem.Allocator, envp_buf: []?[*:0]u8) 
     allocator.free(envp_buf);
 }
 
-pub const LockCmd = enum {
-    GetLock,
-    SetLock,
-    SetLockBlocking,
-};
-
 pub const FcntlError = error{
     /// The file is locked by another process
     FileLocked,
 } || UnexpectedError;
 
 /// Attempts to get lock the file, blocking if the file is locked.
-pub fn fcntlFlock(fd: fd_t, lock_cmd: LockCmd, flock_p: *Flock) FcntlError!void {
-    const cmd: i32 = switch (lock_cmd) {
-        .GetLock => F_GETLK,
-        .SetLock => F_SETLK,
-        .SetLockBlocking => F_SETLKW,
-    };
+pub fn fcntl(fd: fd_t, cmd: i32, flock_p: *Flock) FcntlError!void {
     while (true) {
         switch (errno(system.fcntl(fd, cmd, flock_p))) {
             0 => return,
