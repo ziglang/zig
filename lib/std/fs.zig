@@ -261,28 +261,6 @@ pub fn deleteDirW(dir_path: [*:0]const u16) !void {
     return os.rmdirW(dir_path);
 }
 
-/// Removes a symlink, file, or directory.
-/// If `full_path` is relative, this is equivalent to `Dir.deleteTree` with the
-/// current working directory as the open directory handle.
-/// If `full_path` is absolute, this is equivalent to `Dir.deleteTree` with the
-/// base directory.
-pub fn deleteTree(full_path: []const u8) !void {
-    if (path.isAbsolute(full_path)) {
-        const dirname = path.dirname(full_path) orelse return error{
-            /// Attempt to remove the root file system path.
-            /// This error is unreachable if `full_path` is relative.
-            CannotDeleteRootDirectory,
-        }.CannotDeleteRootDirectory;
-
-        var dir = try cwd().openDir(dirname, .{});
-        defer dir.close();
-
-        return dir.deleteTree(path.basename(full_path));
-    } else {
-        return cwd().deleteTree(full_path);
-    }
-}
-
 pub const Dir = struct {
     fd: os.fd_t,
 
@@ -518,7 +496,8 @@ pub const Dir = struct {
                         self.end_index = io.Information;
                         switch (rc) {
                             .SUCCESS => {},
-                            .ACCESS_DENIED => return error.AccessDenied,
+                            .ACCESS_DENIED => return error.AccessDenied, // Double-check that the Dir was opened with iteration ability
+
                             else => return w.unexpectedStatus(rc),
                         }
                     }
@@ -827,7 +806,7 @@ pub const Dir = struct {
         // TODO remove some of these flags if args.access_sub_paths is false
         const base_flags = w.STANDARD_RIGHTS_READ | w.FILE_READ_ATTRIBUTES | w.FILE_READ_EA |
             w.SYNCHRONIZE | w.FILE_TRAVERSE;
-        const flags: u32 = if (args.iterate) base_flags else base_flags | w.FILE_LIST_DIRECTORY;
+        const flags: u32 = if (args.iterate) base_flags | w.FILE_LIST_DIRECTORY else base_flags;
         return self.openDirAccessMaskW(sub_path_w, flags);
     }
 
@@ -1304,7 +1283,7 @@ pub const Dir = struct {
     }
 };
 
-/// Returns an handle to the current working directory that is open for traversal.
+/// Returns an handle to the current working directory. It is not opened with iteration capability.
 /// Closing the returned `Dir` is checked illegal behavior. Iterating over the result is illegal behavior.
 /// On POSIX targets, this function is comptime-callable.
 pub fn cwd() Dir {
@@ -1380,6 +1359,25 @@ pub fn deleteFileAbsoluteC(absolute_path_c: [*:0]const u8) DeleteFileError!void 
 pub fn deleteFileAbsoluteW(absolute_path_w: [*:0]const u16) DeleteFileError!void {
     assert(path.isAbsoluteWindowsW(absolute_path_w));
     return cwd().deleteFileW(absolute_path_w);
+}
+
+/// Removes a symlink, file, or directory.
+/// This is equivalent to `Dir.deleteTree` with the base directory.
+/// Asserts that the path is absolute. See `Dir.deleteTree` for a function that
+/// operates on both absolute and relative paths.
+/// Asserts that the path parameter has no null bytes.
+pub fn deleteTreeAbsolute(absolute_path: []const u8) !void {
+    assert(path.isAbsolute(absolute_path));
+    const dirname = path.dirname(absolute_path) orelse return error{
+        /// Attempt to remove the root file system path.
+        /// This error is unreachable if `absolute_path` is relative.
+        CannotDeleteRootDirectory,
+    }.CannotDeleteRootDirectory;
+
+    var dir = try cwd().openDir(dirname, .{});
+    defer dir.close();
+
+    return dir.deleteTree(path.basename(absolute_path));
 }
 
 pub const Walker = struct {

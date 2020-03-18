@@ -20,7 +20,7 @@ test "makePath, put some files in it, deleteTree" {
     try fs.cwd().makePath("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c");
     try io.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c" ++ fs.path.sep_str ++ "file.txt", "nonsense");
     try io.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "file2.txt", "blah");
-    try fs.deleteTree("os_test_tmp");
+    try fs.cwd().deleteTree("os_test_tmp");
     if (fs.cwd().openDir("os_test_tmp", .{})) |dir| {
         @panic("expected error");
     } else |err| {
@@ -38,7 +38,7 @@ test "access file" {
 
     try io.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "file.txt", "");
     try os.access("os_test_tmp" ++ fs.path.sep_str ++ "file.txt", os.F_OK);
-    try fs.deleteTree("os_test_tmp");
+    try fs.cwd().deleteTree("os_test_tmp");
 }
 
 fn testThreadIdFn(thread_id: *Thread.Id) void {
@@ -47,7 +47,7 @@ fn testThreadIdFn(thread_id: *Thread.Id) void {
 
 test "sendfile" {
     try fs.cwd().makePath("os_test_tmp");
-    defer fs.deleteTree("os_test_tmp") catch {};
+    defer fs.cwd().deleteTree("os_test_tmp") catch {};
 
     var dir = try fs.cwd().openDir("os_test_tmp", .{});
     defer dir.close();
