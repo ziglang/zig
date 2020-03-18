@@ -1447,8 +1447,7 @@ static OnePossibleValue type_val_resolve_has_one_possible_value(CodeGen *g, ZigV
         case LazyValueIdArrayType: {
             LazyValueArrayType *lazy_array_type =
                 reinterpret_cast<LazyValueArrayType *>(type_val->data.x_lazy);
-            // The sentinel counts as an extra element
-            if (lazy_array_type->length == 0 && lazy_array_type->sentinel == nullptr)
+            if (lazy_array_type->length == 0)
                 return OnePossibleValueYes;
             return type_val_resolve_has_one_possible_value(g, lazy_array_type->elem_type->value);
         }
@@ -5735,8 +5734,7 @@ OnePossibleValue type_has_one_possible_value(CodeGen *g, ZigType *type_entry) {
         case ZigTypeIdUnreachable:
             return OnePossibleValueYes;
         case ZigTypeIdArray:
-            // The sentinel counts as an extra element
-            if (type_entry->data.array.len == 0 && type_entry->data.array.sentinel == nullptr)
+            if (type_entry->data.array.len == 0)
                 return OnePossibleValueYes;
             return type_has_one_possible_value(g, type_entry->data.array.child_type);
         case ZigTypeIdStruct:
