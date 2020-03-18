@@ -23,7 +23,6 @@ Direct inquiries to 30 Frost Street, Cambridge, MA 02140
    by scalbnl to avoid duplicated range checks.
 */
 
-extern long double __INFL;
 #define PRECL 32
 
 long double
@@ -38,7 +37,7 @@ hypotl (long double x, long double y)
     {
       /* Annex F.9.4.3, hypot returns +infinity if
          either component is an infinity, even when the
-         other compoent is NaN.  */
+         other component is NaN.  */
       return (isinf(xx) || isinf(yy)) ? INFINITY : NAN;
     }
 
@@ -73,7 +72,7 @@ hypotl (long double x, long double y)
     if (exx > LDBL_MAX_EXP)
     {
       errno = ERANGE; 
-      return __INFL;
+      return INFINITY;
     }
   if (exx < LDBL_MIN_EXP)
     return 0.0L;

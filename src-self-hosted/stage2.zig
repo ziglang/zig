@@ -18,8 +18,8 @@ const assert = std.debug.assert;
 const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 
 var stderr_file: fs.File = undefined;
-var stderr: *io.OutStream(fs.File.WriteError) = undefined;
-var stdout: *io.OutStream(fs.File.WriteError) = undefined;
+var stderr: fs.File.OutStream = undefined;
+var stdout: fs.File.OutStream = undefined;
 
 comptime {
     _ = @import("dep_tokenizer.zig");
@@ -146,7 +146,7 @@ export fn stage2_free_clang_errors(errors_ptr: [*]translate_c.ClangErrMsg, error
 }
 
 export fn stage2_render_ast(tree: *ast.Tree, output_file: *FILE) Error {
-    const c_out_stream = &std.io.COutStream.init(output_file).stream;
+    const c_out_stream = std.io.cOutStream(output_file);
     _ = std.zig.render(std.heap.c_allocator, c_out_stream, tree) catch |e| switch (e) {
         error.WouldBlock => unreachable, // stage1 opens stuff in exclusively blocking mode
         error.SystemResources => return .SystemResources,
@@ -186,9 +186,9 @@ fn fmtMain(argc: c_int, argv: [*]const [*:0]const u8) !void {
         try args_list.append(mem.toSliceConst(u8, argv[arg_i]));
     }
 
-    stdout = &std.io.getStdOut().outStream().stream;
+    stdout = std.io.getStdOut().outStream();
     stderr_file = std.io.getStdErr();
-    stderr = &stderr_file.outStream().stream;
+    stderr = stderr_file.outStream();
 
     const args = args_list.toSliceConst()[2..];
 
@@ -203,11 +203,11 @@ fn fmtMain(argc: c_int, argv: [*]const [*:0]const u8) !void {
             const arg = args[i];
             if (mem.startsWith(u8, arg, "-")) {
                 if (mem.eql(u8, arg, "--help")) {
-                    try stdout.write(self_hosted_main.usage_fmt);
+                    try stdout.writeAll(self_hosted_main.usage_fmt);
                     process.exit(0);
                 } else if (mem.eql(u8, arg, "--color")) {
                     if (i + 1 >= args.len) {
-                        try stderr.write("expected [auto|on|off] after --color\n");
+                        try stderr.writeAll("expected [auto|on|off] after --color\n");
                         process.exit(1);
                     }
                     i += 1;
@@ -238,14 +238,14 @@ fn fmtMain(argc: c_int, argv: [*]const [*:0]const u8) !void {
 
     if (stdin_flag) {
         if (input_files.len != 0) {
-            try stderr.write("cannot use --stdin with positional arguments\n");
+            try stderr.writeAll("cannot use --stdin with positional arguments\n");
             process.exit(1);
         }
 
         const stdin_file = io.getStdIn();
         var stdin = stdin_file.inStream();
 
-        const source_code = try stdin.stream.readAllAlloc(allocator, self_hosted_main.max_src_size);
+        const source_code = try stdin.readAllAlloc(allocator, self_hosted_main.max_src_size);
         defer allocator.free(source_code);
 
         const tree = std.zig.parse(allocator, source_code) catch |err| {
@@ -272,7 +272,7 @@ fn fmtMain(argc: c_int, argv: [*]const [*:0]const u8) !void {
     }
 
     if (input_files.len == 0) {
-        try stderr.write("expected at least one source file argument\n");
+        try stderr.writeAll("expected at least one source file argument\n");
         process.exit(1);
     }
 
@@ -409,11 +409,11 @@ fn printErrMsgToFile(
     const end_loc = tree.tokenLocationPtr(first_token.end, last_token);
 
     var text_buf = try std.Buffer.initSize(allocator, 0);
-    var out_stream = &std.io.BufferOutStream.init(&text_buf).stream;
+    const out_stream = &text_buf.outStream();
     try parse_error.render(&tree.tokens, out_stream);
     const text = text_buf.toOwnedSlice();
 
-    const stream = &file.outStream().stream;
+    const stream = &file.outStream();
     try stream.print("{}:{}:{}: error: {}\n", .{ path, start_loc.line + 1, start_loc.column + 1, text });
 
     if (!color_on) return;
@@ -626,22 +626,30 @@ fn detectNativeCpuWithLLVM(
 }
 
 // ABI warning
-export fn stage2_cmd_targets(zig_triple: [*:0]const u8) c_int {
-    cmdTargets(zig_triple) catch |err| {
+export fn stage2_cmd_targets(
+    zig_triple: ?[*:0]const u8,
+    mcpu: ?[*:0]const u8,
+    dynamic_linker: ?[*:0]const u8,
+) c_int {
+    cmdTargets(zig_triple, mcpu, dynamic_linker) catch |err| {
         std.debug.warn("unable to list targets: {}\n", .{@errorName(err)});
         return -1;
     };
     return 0;
 }
 
-fn cmdTargets(zig_triple: [*:0]const u8) !void {
-    var cross_target = try CrossTarget.parse(.{ .arch_os_abi = mem.toSliceConst(u8, zig_triple) });
+fn cmdTargets(
+    zig_triple_oz: ?[*:0]const u8,
+    mcpu_oz: ?[*:0]const u8,
+    dynamic_linker_oz: ?[*:0]const u8,
+) !void {
+    const cross_target = try stage2CrossTarget(zig_triple_oz, mcpu_oz, dynamic_linker_oz);
     var dynamic_linker: ?[*:0]u8 = null;
     const target = try crossTargetToTarget(cross_target, &dynamic_linker);
     return @import("print_targets.zig").cmdTargets(
         std.heap.c_allocator,
         &[0][]u8{},
-        &std.io.getStdOut().outStream().stream,
+        std.io.getStdOut().outStream(),
         target,
     );
 }
@@ -673,51 +681,58 @@ export fn stage2_target_parse(
     return .None;
 }
 
+fn stage2CrossTarget(
+    zig_triple_oz: ?[*:0]const u8,
+    mcpu_oz: ?[*:0]const u8,
+    dynamic_linker_oz: ?[*:0]const u8,
+) !CrossTarget {
+    const zig_triple = if (zig_triple_oz) |zig_triple_z| mem.toSliceConst(u8, zig_triple_z) else "native";
+    const mcpu = if (mcpu_oz) |mcpu_z| mem.toSliceConst(u8, mcpu_z) else null;
+    const dynamic_linker = if (dynamic_linker_oz) |dl_z| mem.toSliceConst(u8, dl_z) else null;
+    var diags: CrossTarget.ParseOptions.Diagnostics = .{};
+    const target: CrossTarget = CrossTarget.parse(.{
+        .arch_os_abi = zig_triple,
+        .cpu_features = mcpu,
+        .dynamic_linker = dynamic_linker,
+        .diagnostics = &diags,
+    }) catch |err| switch (err) {
+        error.UnknownCpuModel => {
+            std.debug.warn("Unknown CPU: '{}'\nAvailable CPUs for architecture '{}':\n", .{
+                diags.cpu_name.?,
+                @tagName(diags.arch.?),
+            });
+            for (diags.arch.?.allCpuModels()) |cpu| {
+                std.debug.warn(" {}\n", .{cpu.name});
+            }
+            process.exit(1);
+        },
+        error.UnknownCpuFeature => {
+            std.debug.warn(
+                \\Unknown CPU feature: '{}'
+                \\Available CPU features for architecture '{}':
+                \\
+            , .{
+                diags.unknown_feature_name,
+                @tagName(diags.arch.?),
+            });
+            for (diags.arch.?.allFeaturesList()) |feature| {
+                std.debug.warn(" {}: {}\n", .{ feature.name, feature.description });
+            }
+            process.exit(1);
+        },
+        else => |e| return e,
+    };
+
+    return target;
+}
+
 fn stage2TargetParse(
     stage1_target: *Stage2Target,
     zig_triple_oz: ?[*:0]const u8,
     mcpu_oz: ?[*:0]const u8,
     dynamic_linker_oz: ?[*:0]const u8,
 ) !void {
-    const target: CrossTarget = if (zig_triple_oz) |zig_triple_z| blk: {
-        const zig_triple = mem.toSliceConst(u8, zig_triple_z);
-        const mcpu = if (mcpu_oz) |mcpu_z| mem.toSliceConst(u8, mcpu_z) else null;
-        const dynamic_linker = if (dynamic_linker_oz) |dl_z| mem.toSliceConst(u8, dl_z) else null;
-        var diags: CrossTarget.ParseOptions.Diagnostics = .{};
-        break :blk CrossTarget.parse(.{
-            .arch_os_abi = zig_triple,
-            .cpu_features = mcpu,
-            .dynamic_linker = dynamic_linker,
-            .diagnostics = &diags,
-        }) catch |err| switch (err) {
-            error.UnknownCpuModel => {
-                std.debug.warn("Unknown CPU: '{}'\nAvailable CPUs for architecture '{}':\n", .{
-                    diags.cpu_name.?,
-                    @tagName(diags.arch.?),
-                });
-                for (diags.arch.?.allCpuModels()) |cpu| {
-                    std.debug.warn(" {}\n", .{cpu.name});
-                }
-                process.exit(1);
-            },
-            error.UnknownCpuFeature => {
-                std.debug.warn(
-                    \\Unknown CPU feature: '{}'
-                    \\Available CPU features for architecture '{}':
-                    \\
-                , .{
-                    diags.unknown_feature_name,
-                    @tagName(diags.arch.?),
-                });
-                for (diags.arch.?.allFeaturesList()) |feature| {
-                    std.debug.warn(" {}: {}\n", .{ feature.name, feature.description });
-                }
-                process.exit(1);
-            },
-            else => |e| return e,
-        };
-    } else .{};
-
+    const target = try stage2CrossTarget(zig_triple_oz, mcpu_oz, dynamic_linker_oz);
     try stage1_target.fromTarget(target);
 }
 
@@ -729,8 +744,6 @@ const Stage2LibCInstallation = extern struct {
     sys_include_dir_len: usize,
     crt_dir: [*:0]const u8,
     crt_dir_len: usize,
-    static_crt_dir: [*:0]const u8,
-    static_crt_dir_len: usize,
     msvc_lib_dir: [*:0]const u8,
     msvc_lib_dir_len: usize,
     kernel32_lib_dir: [*:0]const u8,
@@ -757,13 +770,6 @@ const Stage2LibCInstallation = extern struct {
         } else {
             self.crt_dir = "";
             self.crt_dir_len = 0;
-        }
-        if (libc.static_crt_dir) |s| {
-            self.static_crt_dir = s.ptr;
-            self.static_crt_dir_len = s.len;
-        } else {
-            self.static_crt_dir = "";
-            self.static_crt_dir_len = 0;
         }
         if (libc.msvc_lib_dir) |s| {
             self.msvc_lib_dir = s.ptr;
@@ -792,9 +798,6 @@ const Stage2LibCInstallation = extern struct {
         if (self.crt_dir_len != 0) {
             libc.crt_dir = self.crt_dir[0..self.crt_dir_len :0];
         }
-        if (self.static_crt_dir_len != 0) {
-            libc.static_crt_dir = self.static_crt_dir[0..self.static_crt_dir_len :0];
-        }
         if (self.msvc_lib_dir_len != 0) {
             libc.msvc_lib_dir = self.msvc_lib_dir[0..self.msvc_lib_dir_len :0];
         }
@@ -808,7 +811,7 @@ const Stage2LibCInstallation = extern struct {
 // ABI warning
 export fn stage2_libc_parse(stage1_libc: *Stage2LibCInstallation, libc_file_z: [*:0]const u8) Error {
     stderr_file = std.io.getStdErr();
-    stderr = &stderr_file.outStream().stream;
+    stderr = stderr_file.outStream();
     const libc_file = mem.toSliceConst(u8, libc_file_z);
     var libc = LibCInstallation.parse(std.heap.c_allocator, libc_file, stderr) catch |err| switch (err) {
         error.ParseError => return .SemanticAnalyzeFail,
@@ -870,7 +873,7 @@ export fn stage2_libc_find_native(stage1_libc: *Stage2LibCInstallation) Error {
 // ABI warning
 export fn stage2_libc_render(stage1_libc: *Stage2LibCInstallation, output_file: *FILE) Error {
     var libc = stage1_libc.toStage2();
-    const c_out_stream = &std.io.COutStream.init(output_file).stream;
+    const c_out_stream = std.io.cOutStream(output_file);
     libc.render(c_out_stream) catch |err| switch (err) {
         error.WouldBlock => unreachable, // stage1 opens stuff in exclusively blocking mode
         error.SystemResources => return .SystemResources,
@@ -902,25 +905,10 @@ const Stage2Target = extern struct {
     llvm_cpu_features: ?[*:0]const u8,
     cpu_builtin_str: ?[*:0]const u8,
     cache_hash: ?[*:0]const u8,
+    cache_hash_len: usize,
     os_builtin_str: ?[*:0]const u8,
 
     dynamic_linker: ?[*:0]const u8,
-
-    fn toTarget(in_target: Stage2Target) CrossTarget {
-        if (in_target.is_native) return .{};
-
-        const in_arch = in_target.arch - 1; // skip over ZigLLVM_UnknownArch
-        const in_os = in_target.os;
-        const in_abi = in_target.abi;
-
-        return .{
-            .Cross = .{
-                .cpu = Target.Cpu.baseline(enumInt(Target.Cpu.Arch, in_arch)),
-                .os = Target.Os.defaultVersionRange(enumInt(Target.Os.Tag, in_os)),
-                .abi = enumInt(Target.Abi, in_abi),
-            },
-        };
-    }
 
     fn fromTarget(self: *Stage2Target, cross_target: CrossTarget) !void {
         const allocator = std.heap.c_allocator;
@@ -1031,7 +1019,7 @@ const Stage2Target = extern struct {
             .macosx,
             .netbsd,
             .openbsd,
-            => try os_builtin_str_buffer.print(
+            => try os_builtin_str_buffer.outStream().print(
                 \\ .semver = .{{
                 \\        .min = .{{
                 \\            .major = {},
@@ -1055,7 +1043,7 @@ const Stage2Target = extern struct {
                 target.os.version_range.semver.max.patch,
             }),
 
-            .linux => try os_builtin_str_buffer.print(
+            .linux => try os_builtin_str_buffer.outStream().print(
                 \\ .linux = .{{
                 \\        .range = .{{
                 \\            .min = .{{
@@ -1090,7 +1078,7 @@ const Stage2Target = extern struct {
                 target.os.version_range.linux.glibc.patch,
             }),
 
-            .windows => try os_builtin_str_buffer.print(
+            .windows => try os_builtin_str_buffer.outStream().print(
                 \\ .windows = .{{
                 \\        .min = .{},
                 \\        .max = .{},
@@ -1131,6 +1119,7 @@ const Stage2Target = extern struct {
             }
         };
 
+        const cache_hash_slice = cache_hash.toOwnedSlice();
         self.* = .{
             .arch = @enumToInt(target.cpu.arch) + 1, // skip over ZigLLVM_UnknownArch
             .vendor = 0,
@@ -1140,7 +1129,8 @@ const Stage2Target = extern struct {
             .llvm_cpu_features = llvm_features_buffer.toOwnedSlice().ptr,
             .cpu_builtin_str = cpu_builtin_str_buffer.toOwnedSlice().ptr,
             .os_builtin_str = os_builtin_str_buffer.toOwnedSlice().ptr,
-            .cache_hash = cache_hash.toOwnedSlice().ptr,
+            .cache_hash = cache_hash_slice.ptr,
+            .cache_hash_len = cache_hash_slice.len,
             .is_native = cross_target.isNative(),
             .glibc_or_darwin_version = glibc_or_darwin_version,
             .dynamic_linker = dynamic_linker,
@@ -1154,7 +1144,7 @@ fn enumInt(comptime Enum: type, int: c_int) Enum {
 
 fn crossTargetToTarget(cross_target: CrossTarget, dynamic_linker_ptr: *?[*:0]u8) !Target {
     var info = try std.zig.system.NativeTargetInfo.detect(std.heap.c_allocator, cross_target);
-    if (cross_target.cpu_arch == null or cross_target.cpu_model == .native) {
+    if (info.cpu_detection_unimplemented) {
         // TODO We want to just use detected_info.target but implementing
         // CPU model & feature detection is todo so here we rely on LLVM.
         const llvm = @import("llvm.zig");

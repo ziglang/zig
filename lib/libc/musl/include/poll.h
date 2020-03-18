@@ -44,6 +44,12 @@ int poll (struct pollfd *, nfds_t, int);
 int ppoll(struct pollfd *, nfds_t, const struct timespec *, const sigset_t *);
 #endif
 
+#if _REDIR_TIME64
+#ifdef _GNU_SOURCE
+__REDIR(ppoll, __ppoll_time64);
+#endif
+#endif
+
 #ifdef __cplusplus
 }
 #endif

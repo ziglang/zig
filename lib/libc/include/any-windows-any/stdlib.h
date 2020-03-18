@@ -6,10 +6,11 @@
 #ifndef _INC_STDLIB
 #define _INC_STDLIB
 
-#include <crtdefs.h>
+#include <corecrt.h>
+#include <corecrt_wstdlib.h>
 #include <limits.h>
 
-#if defined (__USE_MINGW_ANSI_STDIO) && ((__USE_MINGW_ANSI_STDIO + 0) != 0) && !defined (__USE_MINGW_STRTOX)
+#if __USE_MINGW_ANSI_STDIO && !defined (__USE_MINGW_STRTOX)
 #define __USE_MINGW_STRTOX 1
 #endif
 
@@ -111,7 +112,7 @@ extern "C" {
   extern int __mb_cur_max;
 #define __mb_cur_max	__mb_cur_max
 #else
-#if __MSVCRT_VERSION__ < 0x1400
+#ifndef _UCRT
   extern int * __MINGW_IMP_SYMBOL(__mb_cur_max);
 #endif
 #define __mb_cur_max	(___mb_cur_max_func())
@@ -163,7 +164,7 @@ _CRTIMP int __cdecl ___mb_cur_max_func(void);
   extern char *_sys_errlist[];
   extern int _sys_nerr;
 #else
-#if __MSVCRT_VERSION__ >= 0x1400
+#ifdef _UCRT
   _CRTIMP char **__cdecl __sys_errlist(void);
   _CRTIMP int *__cdecl __sys_nerr(void);
 #define _sys_nerr (*__sys_nerr())
@@ -171,14 +172,14 @@ _CRTIMP int __cdecl ___mb_cur_max_func(void);
 #else
   extern __declspec(dllimport) char *_sys_errlist[1];
   extern __declspec(dllimport) int _sys_nerr;
-#endif /* __MSVCRT_VERSION__ < 0x1400 */
+#endif /* !_UCRT */
 #endif
 
   /* We have a fallback definition of __p___argv and __p__fmode for
      msvcrt versions that lack it. */
   _CRTIMP char ***__cdecl __p___argv(void);
   _CRTIMP int *__cdecl __p__fmode(void);
-#if (defined(_X86_) && !defined(__x86_64)) || (__MSVCRT_VERSION__ >= 0x1400)
+#if (defined(_X86_) && !defined(__x86_64)) || defined(_UCRT)
   _CRTIMP int *__cdecl __p___argc(void);
   _CRTIMP wchar_t ***__cdecl __p___wargv(void);
   _CRTIMP char ***__cdecl __p__environ(void);
@@ -245,7 +246,7 @@ _CRTIMP int __cdecl ___mb_cur_max_func(void);
   extern unsigned int _winminor;
 #endif
 
-#elif __MSVCRT_VERSION__ >= 0x1400
+#elif defined(_UCRT)
 
 #ifndef __argc
 #define __argc (* __p___argc())
@@ -275,7 +276,7 @@ _CRTIMP int __cdecl ___mb_cur_max_func(void);
 #define _wpgmptr (* __p__wpgmptr())
 #endif
 
-#else /* __MSVCRT_VERSION__ >= 0x1400 */
+#else /* _UCRT */
 
 #ifndef __argc
   extern int * __MINGW_IMP_SYMBOL(__argc);
@@ -291,6 +292,32 @@ _CRTIMP int __cdecl ___mb_cur_max_func(void);
 #endif
 
 #ifndef _POSIX_
+#if (defined(_ARM_) || defined(__arm__) || defined(_ARM64_) || defined(__aarch64__))
+  /* The plain msvcrt.dll for arm/aarch64 (and msvcr120_app.dll for arm) lacks
+   * _environ/_wenviron, but has these functions instead. */
+  _CRTIMP void __cdecl _get_environ(char ***);
+  _CRTIMP void __cdecl _get_wenviron(wchar_t ***);
+
+  static __inline char **__get_environ_ptr(void) {
+    char **__ptr;
+    _get_environ(&__ptr);
+    return __ptr;
+  }
+
+  static __inline wchar_t **__get_wenviron_ptr(void) {
+    wchar_t **__ptr;
+    _get_wenviron(&__ptr);
+    return __ptr;
+  }
+
+#ifndef _environ
+#define _environ (__get_environ_ptr())
+#endif
+
+#ifndef _wenviron
+#define _wenviron (__get_wenviron_ptr())
+#endif
+#else /* ARM/ARM64 */
 #ifndef _environ
   extern char *** __MINGW_IMP_SYMBOL(_environ);
 #define _environ (* __MINGW_IMP_SYMBOL(_environ))
@@ -300,6 +327,7 @@ _CRTIMP int __cdecl ___mb_cur_max_func(void);
   extern wchar_t *** __MINGW_IMP_SYMBOL(_wenviron);
 #define _wenviron (* __MINGW_IMP_SYMBOL(_wenviron))
 #endif
+#endif /* !ARM/ARM64 */
 #endif /* !_POSIX_ */
 
 #ifndef _pgmptr
@@ -337,7 +365,7 @@ _CRTIMP int __cdecl ___mb_cur_max_func(void);
 #define _winminor (* __MINGW_IMP_SYMBOL(_winminor))
 #endif
 
-#endif /* !_MSVCRT_ && __MSVCRT_VERSION__ < 0x1400 */
+#endif /* !_MSVCRT_ && !_UCRT */
 
   errno_t __cdecl _get_osplatform(unsigned int *_Value);
   errno_t __cdecl _get_osver(unsigned int *_Value);
@@ -470,8 +498,8 @@ float __cdecl __MINGW_NOTHROW strtof(const char * __restrict__ _Str,char ** __re
   /* libmingwex.a provides a c99-compliant strtod() exported as __strtod() */
   extern double __cdecl __MINGW_NOTHROW
   __strtod (const char * __restrict__ , char ** __restrict__);
-// The ucrtbase version of strtod is C99 compliant, so we don't need to redirect it to the mingw version.
-#if !defined(__USE_MINGW_STRTOX) && __MSVCRT_VERSION__ < 0x1400
+// The UCRT version of strtod is C99 compliant, so we don't need to redirect it to the mingw version.
+#if !defined(__USE_MINGW_STRTOX) && !defined(_UCRT)
 #define strtod __strtod
 #endif /* !defined(__USE_MINGW_STRTOX) */
 #endif /* __NO_ISOCEXT */

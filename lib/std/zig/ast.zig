@@ -375,7 +375,7 @@ pub const Error = union(enum) {
             token: TokenIndex,
 
             pub fn render(self: *const ThisError, tokens: *Tree.TokenList, stream: var) !void {
-                return stream.write(msg);
+                return stream.writeAll(msg);
             }
         };
     }
@@ -431,6 +431,7 @@ pub const Node = struct {
         ContainerDecl,
         Asm,
         Comptime,
+        Noasync,
         Block,
 
         // Misc
@@ -499,67 +500,71 @@ pub const Node = struct {
         var n = base;
         while (true) {
             switch (n.id) {
-                Id.Root,
-                Id.ContainerField,
-                Id.ParamDecl,
-                Id.Block,
-                Id.Payload,
-                Id.PointerPayload,
-                Id.PointerIndexPayload,
-                Id.Switch,
-                Id.SwitchCase,
-                Id.SwitchElse,
-                Id.FieldInitializer,
-                Id.DocComment,
-                Id.TestDecl,
+                .Root,
+                .ContainerField,
+                .ParamDecl,
+                .Block,
+                .Payload,
+                .PointerPayload,
+                .PointerIndexPayload,
+                .Switch,
+                .SwitchCase,
+                .SwitchElse,
+                .FieldInitializer,
+                .DocComment,
+                .TestDecl,
                 => return false,
-                Id.While => {
+                .While => {
                     const while_node = @fieldParentPtr(While, "base", n);
                     if (while_node.@"else") |@"else"| {
                         n = &@"else".base;
                         continue;
                     }
 
-                    return while_node.body.id != Id.Block;
+                    return while_node.body.id != .Block;
                 },
-                Id.For => {
+                .For => {
                     const for_node = @fieldParentPtr(For, "base", n);
                     if (for_node.@"else") |@"else"| {
                         n = &@"else".base;
                         continue;
                     }
 
-                    return for_node.body.id != Id.Block;
+                    return for_node.body.id != .Block;
                 },
-                Id.If => {
+                .If => {
                     const if_node = @fieldParentPtr(If, "base", n);
                     if (if_node.@"else") |@"else"| {
                         n = &@"else".base;
                         continue;
                     }
 
-                    return if_node.body.id != Id.Block;
+                    return if_node.body.id != .Block;
                 },
-                Id.Else => {
+                .Else => {
                     const else_node = @fieldParentPtr(Else, "base", n);
                     n = else_node.body;
                     continue;
                 },
-                Id.Defer => {
+                .Defer => {
                     const defer_node = @fieldParentPtr(Defer, "base", n);
-                    return defer_node.expr.id != Id.Block;
+                    return defer_node.expr.id != .Block;
                 },
-                Id.Comptime => {
+                .Comptime => {
                     const comptime_node = @fieldParentPtr(Comptime, "base", n);
-                    return comptime_node.expr.id != Id.Block;
+                    return comptime_node.expr.id != .Block;
                 },
-                Id.Suspend => {
+                .Suspend => {
                     const suspend_node = @fieldParentPtr(Suspend, "base", n);
                     if (suspend_node.body) |body| {
-                        return body.id != Id.Block;
+                        return body.id != .Block;
                     }
 
                     return true;
+                },
+                .Noasync => {
+                    const noasync_node = @fieldParentPtr(Noasync, "base", n);
+                    return noasync_node.expr.id != .Block;
                 },
                 else => return true,
             }
@@ -735,11 +740,11 @@ pub const Node = struct {
             var i = index;
 
             switch (self.init_arg_expr) {
-                InitArg.Type => |t| {
+                .Type => |t| {
                     if (i < 1) return t;
                     i -= 1;
                 },
-                InitArg.None, InitArg.Enum => {},
+                .None, .Enum => {},
             }
 
             if (i < self.fields_and_decls.len) return self.fields_and_decls.at(i).*;
@@ -899,12 +904,7 @@ pub const Node = struct {
             }
 
             switch (self.return_type) {
-                // TODO allow this and next prong to share bodies since the types are the same
-                ReturnType.Explicit => |node| {
-                    if (i < 1) return node;
-                    i -= 1;
-                },
-                ReturnType.InferErrorSet => |node| {
+                .Explicit, .InferErrorSet => |node| {
                     if (i < 1) return node;
                     i -= 1;
                 },
@@ -929,9 +929,7 @@ pub const Node = struct {
         pub fn lastToken(self: *const FnProto) TokenIndex {
             if (self.body_node) |body_node| return body_node.lastToken();
             switch (self.return_type) {
-                // TODO allow this and next prong to share bodies since the types are the same
-                ReturnType.Explicit => |node| return node.lastToken(),
-                ReturnType.InferErrorSet => |node| return node.lastToken(),
+                .Explicit, .InferErrorSet => |node| return node.lastToken(),
             }
         }
     };
@@ -1074,6 +1072,29 @@ pub const Node = struct {
         }
 
         pub fn lastToken(self: *const Comptime) TokenIndex {
+            return self.expr.lastToken();
+        }
+    };
+
+    pub const Noasync = struct {
+        base: Node = Node{ .id = .Noasync },
+        noasync_token: TokenIndex,
+        expr: *Node,
+
+        pub fn iterate(self: *Noasync, index: usize) ?*Node {
+            var i = index;
+
+            if (i < 1) return self.expr;
+            i -= 1;
+
+            return null;
+        }
+
+        pub fn firstToken(self: *const Noasync) TokenIndex {
+            return self.noasync_token;
+        }
+
+        pub fn lastToken(self: *const Noasync) TokenIndex {
             return self.expr.lastToken();
         }
     };
@@ -1484,55 +1505,55 @@ pub const Node = struct {
             i -= 1;
 
             switch (self.op) {
-                Op.Catch => |maybe_payload| {
+                .Catch => |maybe_payload| {
                     if (maybe_payload) |payload| {
                         if (i < 1) return payload;
                         i -= 1;
                     }
                 },
 
-                Op.Add,
-                Op.AddWrap,
-                Op.ArrayCat,
-                Op.ArrayMult,
-                Op.Assign,
-                Op.AssignBitAnd,
-                Op.AssignBitOr,
-                Op.AssignBitShiftLeft,
-                Op.AssignBitShiftRight,
-                Op.AssignBitXor,
-                Op.AssignDiv,
-                Op.AssignSub,
-                Op.AssignSubWrap,
-                Op.AssignMod,
-                Op.AssignAdd,
-                Op.AssignAddWrap,
-                Op.AssignMul,
-                Op.AssignMulWrap,
-                Op.BangEqual,
-                Op.BitAnd,
-                Op.BitOr,
-                Op.BitShiftLeft,
-                Op.BitShiftRight,
-                Op.BitXor,
-                Op.BoolAnd,
-                Op.BoolOr,
-                Op.Div,
-                Op.EqualEqual,
-                Op.ErrorUnion,
-                Op.GreaterOrEqual,
-                Op.GreaterThan,
-                Op.LessOrEqual,
-                Op.LessThan,
-                Op.MergeErrorSets,
-                Op.Mod,
-                Op.Mul,
-                Op.MulWrap,
-                Op.Period,
-                Op.Range,
-                Op.Sub,
-                Op.SubWrap,
-                Op.UnwrapOptional,
+                .Add,
+                .AddWrap,
+                .ArrayCat,
+                .ArrayMult,
+                .Assign,
+                .AssignBitAnd,
+                .AssignBitOr,
+                .AssignBitShiftLeft,
+                .AssignBitShiftRight,
+                .AssignBitXor,
+                .AssignDiv,
+                .AssignSub,
+                .AssignSubWrap,
+                .AssignMod,
+                .AssignAdd,
+                .AssignAddWrap,
+                .AssignMul,
+                .AssignMulWrap,
+                .BangEqual,
+                .BitAnd,
+                .BitOr,
+                .BitShiftLeft,
+                .BitShiftRight,
+                .BitXor,
+                .BoolAnd,
+                .BoolOr,
+                .Div,
+                .EqualEqual,
+                .ErrorUnion,
+                .GreaterOrEqual,
+                .GreaterThan,
+                .LessOrEqual,
+                .LessThan,
+                .MergeErrorSets,
+                .Mod,
+                .Mul,
+                .MulWrap,
+                .Period,
+                .Range,
+                .Sub,
+                .SubWrap,
+                .UnwrapOptional,
                 => {},
             }
 
@@ -1560,12 +1581,9 @@ pub const Node = struct {
         pub const Op = union(enum) {
             AddressOf,
             ArrayType: ArrayInfo,
-            Await: struct {
-                noasync_token: ?TokenIndex = null,
-            },
+            Await,
             BitNot,
             BoolNot,
-            Cancel,
             OptionalType,
             Negation,
             NegationWrap,
@@ -1602,8 +1620,7 @@ pub const Node = struct {
             var i = index;
 
             switch (self.op) {
-                // TODO https://github.com/ziglang/zig/issues/1107
-                Op.SliceType => |addr_of_info| {
+                .PtrType, .SliceType => |addr_of_info| {
                     if (addr_of_info.sentinel) |sentinel| {
                         if (i < 1) return sentinel;
                         i -= 1;
@@ -1615,14 +1632,7 @@ pub const Node = struct {
                     }
                 },
 
-                Op.PtrType => |addr_of_info| {
-                    if (addr_of_info.align_info) |align_info| {
-                        if (i < 1) return align_info.node;
-                        i -= 1;
-                    }
-                },
-
-                Op.ArrayType => |array_info| {
+                .ArrayType => |array_info| {
                     if (i < 1) return array_info.len_expr;
                     i -= 1;
                     if (array_info.sentinel) |sentinel| {
@@ -1631,16 +1641,15 @@ pub const Node = struct {
                     }
                 },
 
-                Op.AddressOf,
-                Op.Await,
-                Op.BitNot,
-                Op.BoolNot,
-                Op.Cancel,
-                Op.OptionalType,
-                Op.Negation,
-                Op.NegationWrap,
-                Op.Try,
-                Op.Resume,
+                .AddressOf,
+                .Await,
+                .BitNot,
+                .BoolNot,
+                .OptionalType,
+                .Negation,
+                .NegationWrap,
+                .Try,
+                .Resume,
                 => {},
             }
 
@@ -1824,19 +1833,14 @@ pub const Node = struct {
             var i = index;
 
             switch (self.kind) {
-                Kind.Break => |maybe_label| {
+                .Break,
+                .Continue => |maybe_label| {
                     if (maybe_label) |label| {
                         if (i < 1) return label;
                         i -= 1;
                     }
                 },
-                Kind.Continue => |maybe_label| {
-                    if (maybe_label) |label| {
-                        if (i < 1) return label;
-                        i -= 1;
-                    }
-                },
-                Kind.Return => {},
+                .Return => {},
             }
 
             if (self.rhs) |rhs| {
@@ -1857,17 +1861,13 @@ pub const Node = struct {
             }
 
             switch (self.kind) {
-                Kind.Break => |maybe_label| {
+                .Break,
+                .Continue => |maybe_label| {
                     if (maybe_label) |label| {
                         return label.lastToken();
                     }
                 },
-                Kind.Continue => |maybe_label| {
-                    if (maybe_label) |label| {
-                        return label.lastToken();
-                    }
-                },
-                Kind.Return => return self.ltoken,
+                .Return => return self.ltoken,
             }
 
             return self.ltoken;
@@ -2108,11 +2108,11 @@ pub const Node = struct {
             i -= 1;
 
             switch (self.kind) {
-                Kind.Variable => |variable_name| {
+                .Variable => |variable_name| {
                     if (i < 1) return &variable_name.base;
                     i -= 1;
                 },
-                Kind.Return => |return_type| {
+                .Return => |return_type| {
                     if (i < 1) return return_type;
                     i -= 1;
                 },

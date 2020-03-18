@@ -1,5 +1,5 @@
 /* Declarations for getopt.
-   Copyright (C) 1989-2019 Free Software Foundation, Inc.
+   Copyright (C) 1989-2020 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
    Unlike the bulk of the getopt implementation, this file is NOT part
    of gnulib; gnulib also has a getopt.h but it is different.
@@ -16,7 +16,7 @@
 
    You should have received a copy of the GNU Lesser General Public
    License along with the GNU C Library; if not, see
-   <http://www.gnu.org/licenses/>.  */
+   <https://www.gnu.org/licenses/>.  */
 
 #ifndef _GETOPT_H
 #define _GETOPT_H 1

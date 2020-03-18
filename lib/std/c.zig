@@ -75,9 +75,11 @@ pub extern "c" fn isatty(fd: fd_t) c_int;
 pub extern "c" fn close(fd: fd_t) c_int;
 pub extern "c" fn fstat(fd: fd_t, buf: *Stat) c_int;
 pub extern "c" fn @"fstat$INODE64"(fd: fd_t, buf: *Stat) c_int;
+pub extern "c" fn fstatat(dirfd: fd_t, path: [*:0]const u8, stat_buf: *Stat, flags: u32) c_int;
 pub extern "c" fn lseek(fd: fd_t, offset: off_t, whence: c_int) off_t;
 pub extern "c" fn open(path: [*:0]const u8, oflag: c_uint, ...) c_int;
 pub extern "c" fn openat(fd: c_int, path: [*:0]const u8, oflag: c_uint, ...) c_int;
+pub extern "c" fn ftruncate(fd: c_int, length: off_t) c_int;
 pub extern "c" fn raise(sig: c_int) c_int;
 pub extern "c" fn read(fd: fd_t, buf: [*]u8, nbyte: usize) isize;
 pub extern "c" fn readv(fd: c_int, iov: [*]const iovec, iovcnt: c_uint) isize;
@@ -101,9 +103,12 @@ pub extern "c" fn faccessat(dirfd: fd_t, path: [*:0]const u8, mode: c_uint, flag
 pub extern "c" fn pipe(fds: *[2]fd_t) c_int;
 pub extern "c" fn pipe2(fds: *[2]fd_t, flags: u32) c_int;
 pub extern "c" fn mkdir(path: [*:0]const u8, mode: c_uint) c_int;
+pub extern "c" fn mkdirat(dirfd: fd_t, path: [*:0]const u8, mode: u32) c_int;
 pub extern "c" fn symlink(existing: [*:0]const u8, new: [*:0]const u8) c_int;
 pub extern "c" fn rename(old: [*:0]const u8, new: [*:0]const u8) c_int;
+pub extern "c" fn renameat(olddirfd: fd_t, old: [*:0]const u8, newdirfd: fd_t, new: [*:0]const u8) c_int;
 pub extern "c" fn chdir(path: [*:0]const u8) c_int;
+pub extern "c" fn fchdir(fd: fd_t) c_int;
 pub extern "c" fn execve(path: [*:0]const u8, argv: [*:null]const ?[*:0]const u8, envp: [*:null]const ?[*:0]const u8) c_int;
 pub extern "c" fn dup(fd: fd_t) c_int;
 pub extern "c" fn dup2(old_fd: fd_t, new_fd: fd_t) c_int;
@@ -142,7 +147,7 @@ pub extern "c" fn sendto(
     buf: *const c_void,
     len: usize,
     flags: u32,
-    dest_addr: *const sockaddr,
+    dest_addr: ?*const sockaddr,
     addrlen: socklen_t,
 ) isize;
 

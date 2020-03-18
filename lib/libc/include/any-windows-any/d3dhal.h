@@ -47,6 +47,75 @@ typedef struct _D3DDeviceDesc_V1 {
   DWORD			dwMaxVertexCount;
 } D3DDEVICEDESC_V1,*LPD3DDEVICEDESC_V1;
 
+typedef struct _D3DDeviceDesc_V2
+{
+  DWORD dwSize;
+  DWORD dwFlags;
+  D3DCOLORMODEL dcmColorModel;
+  DWORD dwDevCaps;
+  D3DTRANSFORMCAPS dtcTransformCaps;
+  WINBOOL bClipping;
+  D3DLIGHTINGCAPS dlcLightingCaps;
+  D3DPRIMCAPS dpcLineCaps;
+  D3DPRIMCAPS dpcTriCaps;
+  DWORD dwDeviceRenderBitDepth;
+  DWORD dwDeviceZBufferBitDepth;
+  DWORD dwMaxBufferSize;
+  DWORD dwMaxVertexCount;
+
+  /* DirectX 5 */
+  DWORD dwMinTextureWidth;
+  DWORD dwMinTextureHeight;
+  DWORD dwMaxTextureWidth;
+  DWORD dwMaxTextureHeight;
+  DWORD dwMinStippleWidth;
+  DWORD dwMaxStippleWidth;
+  DWORD dwMinStippleHeight;
+  DWORD dwMaxStippleHeight;
+} D3DDEVICEDESC_V2, *LPD3DDEVICEDESC_V2;
+
+typedef struct _D3DDeviceDesc_V3
+{
+  DWORD dwSize;
+  DWORD dwFlags;
+  D3DCOLORMODEL dcmColorModel;
+  DWORD dwDevCaps;
+  D3DTRANSFORMCAPS dtcTransformCaps;
+  WINBOOL bClipping;
+  D3DLIGHTINGCAPS dlcLightingCaps;
+  D3DPRIMCAPS dpcLineCaps;
+  D3DPRIMCAPS dpcTriCaps;
+  DWORD dwDeviceRenderBitDepth;
+  DWORD dwDeviceZBufferBitDepth;
+  DWORD dwMaxBufferSize;
+  DWORD dwMaxVertexCount;
+
+  /* DirectX 5 */
+  DWORD dwMinTextureWidth;
+  DWORD dwMinTextureHeight;
+  DWORD dwMaxTextureWidth;
+  DWORD dwMaxTextureHeight;
+  DWORD dwMinStippleWidth;
+  DWORD dwMaxStippleWidth;
+  DWORD dwMinStippleHeight;
+  DWORD dwMaxStippleHeight;
+
+  /* DirectX 6 */
+  DWORD dwMaxTextureRepeat;
+  DWORD dwMaxTextureAspectRatio;
+  DWORD dwMaxAnisotropy;
+  D3DVALUE dvGuardBandLeft;
+  D3DVALUE dvGuardBandTop;
+  D3DVALUE dvGuardBandRight;
+  D3DVALUE dvGuardBandBottom;
+  D3DVALUE dvExtentsAdjust;
+  DWORD dwStencilCaps;
+  DWORD dwFVFCaps;
+  DWORD dwTextureOpCaps;
+  WORD wMaxTextureBlendStages;
+  WORD wMaxSimultaneousTextures;
+} D3DDEVICEDESC_V3, *LPD3DDEVICEDESC_V3;
+
 typedef struct _D3DHAL_GLOBALDRIVERDATA {
   DWORD			dwSize;
   D3DDEVICEDESC_V1	hwCaps;

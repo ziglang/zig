@@ -261,7 +261,9 @@ _STD_END
 _C_STD_BEGIN
 _CRTIMP void __cdecl _Atexit(void (__cdecl *)(void));
 
+#if !defined(_UCRT) && !defined(__LARGE_MBSTATE_T)
 typedef int _Mbstatet;
+#endif
 
 #define _ATEXIT_T void
 #define _Mbstinit(x) mbstate_t x = {0}

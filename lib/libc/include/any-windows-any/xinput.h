@@ -157,6 +157,9 @@
 #define XUSER_INDEX_ANY                 0x000000FF
 
 #define XINPUT_CAPS_FFB_SUPPORTED       0x0001
+#define XINPUT_CAPS_WIRELESS            0x0002
+#define XINPUT_CAPS_PMD_SUPPORTED       0x0008
+#define XINPUT_CAPS_NO_NAVIGATION       0x0010
 
 /*
  * Defines the structure of an xbox 360 joystick.

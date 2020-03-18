@@ -2,6 +2,80 @@ const tests = @import("tests.zig");
 const std = @import("std");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.addTest("shift on type with non-power-of-two size",
+        \\export fn entry() void {
+        \\    const S = struct {
+        \\        fn a() void {
+        \\            var x: u24 = 42;
+        \\            _ = x >> 24;
+        \\        }
+        \\        fn b() void {
+        \\            var x: u24 = 42;
+        \\            _ = x << 24;
+        \\        }
+        \\        fn c() void {
+        \\            var x: u24 = 42;
+        \\            _ = @shlExact(x, 24);
+        \\        }
+        \\        fn d() void {
+        \\            var x: u24 = 42;
+        \\            _ = @shrExact(x, 24);
+        \\        }
+        \\    };
+        \\    S.a();
+        \\    S.b();
+        \\    S.c();
+        \\    S.d();
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:5:19: error: RHS of shift is too large for LHS type",
+        "tmp.zig:9:19: error: RHS of shift is too large for LHS type",
+        "tmp.zig:13:17: error: RHS of shift is too large for LHS type",
+        "tmp.zig:17:17: error: RHS of shift is too large for LHS type",
+    });
+
+    cases.addTest("combination of noasync and async",
+        \\export fn entry() void {
+        \\    noasync {
+        \\        const bar = async foo();
+        \\        suspend;
+        \\        resume bar;
+        \\    }
+        \\}
+        \\fn foo() void {}
+    , &[_][]const u8{
+        "tmp.zig:3:21: error: async call in noasync scope",
+        "tmp.zig:4:9: error: suspend in noasync scope",
+        "tmp.zig:5:9: error: resume in noasync scope",
+    });
+
+    cases.add("atomicrmw with bool op not .Xchg",
+        \\export fn entry() void {
+        \\    var x = false;
+        \\    _ = @atomicRmw(bool, &x, .Add, true, .SeqCst);
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:3:30: error: @atomicRmw with bool only allowed with .Xchg",
+    });
+
+    cases.addTest("@TypeOf with no arguments",
+        \\export fn entry() void {
+        \\    _ = @TypeOf();
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:2:9: error: expected at least 1 argument, found 0",
+    });
+
+    cases.addTest("@TypeOf with incompatible arguments",
+        \\export fn entry() void {
+        \\    var var_1: f32 = undefined;
+        \\    var var_2: u32 = undefined;
+        \\    _ = @TypeOf(var_1, var_2);
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:4:9: error: incompatible types: 'f32' and 'u32'",
+    });
+
     cases.addTest("type mismatch with tuple concatenation",
         \\export fn entry() void {
         \\    var x = .{};
@@ -292,7 +366,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = @atomicRmw(f32, &x, .And, 2, .SeqCst);
         \\}
     , &[_][]const u8{
-        "tmp.zig:3:29: error: @atomicRmw with float only works with .Xchg, .Add and .Sub",
+        "tmp.zig:3:29: error: @atomicRmw with float only allowed with .Xchg, .Add and .Sub",
     });
 
     cases.add("intToPtr with misaligned address",
@@ -509,7 +583,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = @atomicRmw(E, &x, .Add, .b, .SeqCst);
         \\}
     , &[_][]const u8{
-        "tmp.zig:9:27: error: @atomicRmw on enum only works with .Xchg",
+        "tmp.zig:9:27: error: @atomicRmw with enum only allowed with .Xchg",
     });
 
     cases.add("disallow coercion from non-null-terminated pointer to null-terminated pointer",
@@ -1574,7 +1648,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var y: [*c]c_void = x;
         \\}
     , &[_][]const u8{
-        "tmp.zig:3:16: error: C pointers cannot point opaque types",
+        "tmp.zig:3:16: error: C pointers cannot point to opaque types",
     });
 
     cases.add("directly embedding opaque type in struct and union",
@@ -1592,9 +1666,14 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\export fn b() void {
         \\    var bar: Bar = undefined;
         \\}
+        \\export fn c() void {
+        \\    var baz: *@OpaqueType() = undefined;
+        \\    const qux = .{baz.*};
+        \\}
     , &[_][]const u8{
-        "tmp.zig:3:8: error: opaque types have unknown size and therefore cannot be directly embedded in structs",
-        "tmp.zig:7:10: error: opaque types have unknown size and therefore cannot be directly embedded in unions",
+        "tmp.zig:3:5: error: opaque types have unknown size and therefore cannot be directly embedded in structs",
+        "tmp.zig:7:5: error: opaque types have unknown size and therefore cannot be directly embedded in unions",
+        "tmp.zig:17:22: error: opaque types have unknown size and therefore cannot be directly embedded in structs",
     });
 
     cases.add("implicit cast between C pointer and Zig pointer - bad const/align/child",
@@ -3587,11 +3666,11 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add("array access of non array",
         \\export fn f() void {
         \\    var bad : bool = undefined;
-        \\    bad[bad] = bad[bad];
+        \\    bad[0] = bad[0];
         \\}
         \\export fn g() void {
         \\    var bad : bool = undefined;
-        \\    _ = bad[bad];
+        \\    _ = bad[0];
         \\}
     , &[_][]const u8{
         "tmp.zig:3:8: error: array access of non-array type 'bool'",
@@ -3991,8 +4070,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\export fn entry() u16 { return f(); }
     , &[_][]const u8{
-        "tmp.zig:3:14: error: RHS of shift is too large for LHS type",
-        "tmp.zig:3:17: note: value 8 cannot fit into type u3",
+        "tmp.zig:3:17: error: integer value 8 cannot be coerced to type 'u3'",
     });
 
     cases.add("missing function call param",
@@ -6520,9 +6598,41 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\export fn bar() !FooType {
         \\    return error.InvalidValue;
         \\}
+        \\export fn bav() !@TypeOf(null) {
+        \\    return error.InvalidValue;
+        \\}
+        \\export fn baz() !@TypeOf(undefined) {
+        \\    return error.InvalidValue;
+        \\}
     , &[_][]const u8{
-        "tmp.zig:2:18: error: opaque return type 'FooType' not allowed",
-        "tmp.zig:1:1: note: declared here",
+        "tmp.zig:2:18: error: Opaque return type 'FooType' not allowed",
+        "tmp.zig:1:1: note: type declared here",
+        "tmp.zig:5:18: error: Null return type '(null)' not allowed",
+        "tmp.zig:8:18: error: Undefined return type '(undefined)' not allowed",
+    });
+
+    cases.add("generic function returning opaque type",
+        \\const FooType = @OpaqueType();
+        \\fn generic(comptime T: type) !T {
+        \\    return undefined;
+        \\}
+        \\export fn bar() void {
+        \\    _ = generic(FooType);
+        \\}
+        \\export fn bav() void {
+        \\    _ = generic(@TypeOf(null));
+        \\}
+        \\export fn baz() void {
+        \\    _ = generic(@TypeOf(undefined));
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:6:16: error: call to generic function with Opaque return type 'FooType' not allowed",
+        "tmp.zig:2:1: note: function declared here",
+        "tmp.zig:1:1: note: type declared here",
+        "tmp.zig:9:16: error: call to generic function with Null return type '(null)' not allowed",
+        "tmp.zig:2:1: note: function declared here",
+        "tmp.zig:12:16: error: call to generic function with Undefined return type '(undefined)' not allowed",
+        "tmp.zig:2:1: note: function declared here",
     });
 
     cases.add( // fixed bug #2032

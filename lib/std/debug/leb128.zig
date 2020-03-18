@@ -121,18 +121,18 @@ pub fn readILEB128Mem(comptime T: type, ptr: *[*]const u8) !T {
 }
 
 fn test_read_stream_ileb128(comptime T: type, encoded: []const u8) !T {
-    var in_stream = std.io.SliceInStream.init(encoded);
-    return try readILEB128(T, &in_stream.stream);
+    var in_stream = std.io.fixedBufferStream(encoded);
+    return try readILEB128(T, in_stream.inStream());
 }
 
 fn test_read_stream_uleb128(comptime T: type, encoded: []const u8) !T {
-    var in_stream = std.io.SliceInStream.init(encoded);
-    return try readULEB128(T, &in_stream.stream);
+    var in_stream = std.io.fixedBufferStream(encoded);
+    return try readULEB128(T, in_stream.inStream());
 }
 
 fn test_read_ileb128(comptime T: type, encoded: []const u8) !T {
-    var in_stream = std.io.SliceInStream.init(encoded);
-    const v1 = readILEB128(T, &in_stream.stream);
+    var in_stream = std.io.fixedBufferStream(encoded);
+    const v1 = readILEB128(T, in_stream.inStream());
     var in_ptr = encoded.ptr;
     const v2 = readILEB128Mem(T, &in_ptr);
     testing.expectEqual(v1, v2);
@@ -140,8 +140,8 @@ fn test_read_ileb128(comptime T: type, encoded: []const u8) !T {
 }
 
 fn test_read_uleb128(comptime T: type, encoded: []const u8) !T {
-    var in_stream = std.io.SliceInStream.init(encoded);
-    const v1 = readULEB128(T, &in_stream.stream);
+    var in_stream = std.io.fixedBufferStream(encoded);
+    const v1 = readULEB128(T, in_stream.inStream());
     var in_ptr = encoded.ptr;
     const v2 = readULEB128Mem(T, &in_ptr);
     testing.expectEqual(v1, v2);
@@ -149,22 +149,22 @@ fn test_read_uleb128(comptime T: type, encoded: []const u8) !T {
 }
 
 fn test_read_ileb128_seq(comptime T: type, comptime N: usize, encoded: []const u8) void {
-    var in_stream = std.io.SliceInStream.init(encoded);
+    var in_stream = std.io.fixedBufferStream(encoded);
     var in_ptr = encoded.ptr;
     var i: usize = 0;
     while (i < N) : (i += 1) {
-        const v1 = readILEB128(T, &in_stream.stream);
+        const v1 = readILEB128(T, in_stream.inStream());
         const v2 = readILEB128Mem(T, &in_ptr);
         testing.expectEqual(v1, v2);
     }
 }
 
 fn test_read_uleb128_seq(comptime T: type, comptime N: usize, encoded: []const u8) void {
-    var in_stream = std.io.SliceInStream.init(encoded);
+    var in_stream = std.io.fixedBufferStream(encoded);
     var in_ptr = encoded.ptr;
     var i: usize = 0;
     while (i < N) : (i += 1) {
-        const v1 = readULEB128(T, &in_stream.stream);
+        const v1 = readULEB128(T, in_stream.inStream());
         const v2 = readULEB128Mem(T, &in_ptr);
         testing.expectEqual(v1, v2);
     }

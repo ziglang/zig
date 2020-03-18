@@ -1,26 +1,27 @@
 const uefi = @import("std").os.uefi;
 const Guid = uefi.Guid;
 const Event = uefi.Event;
+const Status = uefi.Status;
 
 pub const Ip6ConfigProtocol = extern struct {
-    _set_data: extern fn (*const Ip6ConfigProtocol, Ip6ConfigDataType, usize, *const c_void) usize,
-    _get_data: extern fn (*const Ip6ConfigProtocol, Ip6ConfigDataType, *usize, ?*const c_void) usize,
-    _register_data_notify: extern fn (*const Ip6ConfigProtocol, Ip6ConfigDataType, Event) usize,
-    _unregister_data_notify: extern fn (*const Ip6ConfigProtocol, Ip6ConfigDataType, Event) usize,
+    _set_data: extern fn (*const Ip6ConfigProtocol, Ip6ConfigDataType, usize, *const c_void) Status,
+    _get_data: extern fn (*const Ip6ConfigProtocol, Ip6ConfigDataType, *usize, ?*const c_void) Status,
+    _register_data_notify: extern fn (*const Ip6ConfigProtocol, Ip6ConfigDataType, Event) Status,
+    _unregister_data_notify: extern fn (*const Ip6ConfigProtocol, Ip6ConfigDataType, Event) Status,
 
-    pub fn setData(self: *const Ip6ConfigProtocol, data_type: Ip6ConfigDataType, data_size: usize, data: *const c_void) usize {
+    pub fn setData(self: *const Ip6ConfigProtocol, data_type: Ip6ConfigDataType, data_size: usize, data: *const c_void) Status {
         return self._set_data(self, data_type, data_size, data);
     }
 
-    pub fn getData(self: *const Ip6ConfigProtocol, data_type: Ip6ConfigDataType, data_size: *usize, data: ?*const c_void) usize {
+    pub fn getData(self: *const Ip6ConfigProtocol, data_type: Ip6ConfigDataType, data_size: *usize, data: ?*const c_void) Status {
         return self._get_data(self, data_type, data_size, data);
     }
 
-    pub fn registerDataNotify(self: *const Ip6ConfigProtocol, data_type: Ip6ConfigDataType, event: Event) usize {
+    pub fn registerDataNotify(self: *const Ip6ConfigProtocol, data_type: Ip6ConfigDataType, event: Event) Status {
         return self._register_data_notify(self, data_type, event);
     }
 
-    pub fn unregisterDataNotify(self: *const Ip6ConfigProtocol, data_type: Ip6ConfigDataType, event: Event) usize {
+    pub fn unregisterDataNotify(self: *const Ip6ConfigProtocol, data_type: Ip6ConfigDataType, event: Event) Status {
         return self._unregister_data_notify(self, data_type, event);
     }
 

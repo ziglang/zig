@@ -12,11 +12,15 @@ struct stat {
 	dev_t st_rdev;
 	long __st_padding2[2];
 	off_t st_size;
-	struct timespec st_atim;
-	struct timespec st_mtim;
-	struct timespec st_ctim;
+	struct {
+		long tv_sec;
+		long tv_nsec;
+	} __st_atim32, __st_mtim32, __st_ctim32;
 	blksize_t st_blksize;
 	long __st_padding3;
 	blkcnt_t st_blocks;
-        long __st_padding4[14];
+	struct timespec st_atim;
+	struct timespec st_mtim;
+	struct timespec st_ctim;
+	long __st_padding4[2];
 };

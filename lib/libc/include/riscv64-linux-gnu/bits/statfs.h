@@ -1,4 +1,4 @@
-/* Copyright (C) 2011-2019 Free Software Foundation, Inc.
+/* Copyright (C) 2011-2020 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
    Contributed by Chris Metcalf <cmetcalf@tilera.com>, 2011.
 
@@ -14,13 +14,13 @@
 
    You should have received a copy of the GNU Lesser General Public
    License along with the GNU C Library.  If not, see
-   <http://www.gnu.org/licenses/>.  */
+   <https://www.gnu.org/licenses/>.  */
 
 #ifndef _SYS_STATFS_H
 # error "Never include <bits/statfs.h> directly; use <sys/statfs.h> instead."
 #endif
 
-#include <endian.h>
+#include <bits/endian.h>
 #include <bits/types.h>
 #include <bits/wordsize.h>
 
@@ -34,7 +34,7 @@
 
 #if defined __USE_FILE_OFFSET64
 # define __field64(type, type64, name) type64 name
-#elif __WORDSIZE == 64
+#elif __WORDSIZE == 64 || __STATFS_MATCHES_STATFS64
 # define __field64(type, type64, name) type name
 #elif __BYTE_ORDER == __LITTLE_ENDIAN
 # define __field64(type, type64, name) \

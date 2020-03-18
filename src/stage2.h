@@ -202,9 +202,6 @@ ZIG_EXTERN_C void stage2_progress_update_node(Stage2ProgressNode *node,
         size_t completed_count, size_t estimated_total_items);
 
 // ABI warning
-ZIG_EXTERN_C int stage2_cmd_targets(const char *zig_triple);
-
-// ABI warning
 struct Stage2LibCInstallation {
     const char *include_dir;
     size_t include_dir_len;
@@ -212,8 +209,6 @@ struct Stage2LibCInstallation {
     size_t sys_include_dir_len;
     const char *crt_dir;
     size_t crt_dir_len;
-    const char *static_crt_dir;
-    size_t static_crt_dir_len;
     const char *msvc_lib_dir;
     size_t msvc_lib_dir_len;
     const char *kernel32_lib_dir;
@@ -293,6 +288,7 @@ struct ZigTarget {
     const char *llvm_cpu_features;
     const char *cpu_builtin_str;
     const char *cache_hash;
+    size_t cache_hash_len;
     const char *os_builtin_str;
     const char *dynamic_linker;
 };
@@ -300,6 +296,9 @@ struct ZigTarget {
 // ABI warning
 ZIG_EXTERN_C enum Error stage2_target_parse(struct ZigTarget *target, const char *zig_triple, const char *mcpu,
         const char *dynamic_linker);
+
+// ABI warning
+ZIG_EXTERN_C int stage2_cmd_targets(const char *zig_triple, const char *mcpu, const char *dynamic_linker);
 
 
 // ABI warning

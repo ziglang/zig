@@ -66,8 +66,10 @@
 #define D3DPRESENT_DONOTWAIT                    __MSABI_LONG(1)
 #define D3DPRESENT_LINEAR_CONTENT               __MSABI_LONG(2)
 #define D3DPRESENT_BACK_BUFFERS_MAX             __MSABI_LONG(3)
+#define D3DPRESENT_BACK_BUFFERS_MAX_EX          __MSABI_LONG(30)
 #define D3DSGR_NO_CALIBRATION                   __MSABI_LONG(0x00000000)
 #define D3DSGR_CALIBRATE                        __MSABI_LONG(0x00000001)
+#define D3DCURSOR_IMMEDIATE_UPDATE              __MSABI_LONG(0x00000001)
 
 #define _FACD3D  0x876
 #define MAKE_D3DHRESULT( code )                 MAKE_HRESULT( 1, _FACD3D, code )
@@ -1618,7 +1620,8 @@ DECLARE_INTERFACE_(IDirect3D9Ex, IDirect3D9)
     STDMETHOD_(UINT, GetAdapterModeCountEx)(THIS_ UINT adapter_idx, const D3DDISPLAYMODEFILTER *filter) PURE;
     STDMETHOD(EnumAdapterModesEx)(THIS_ UINT adapter_idx, const D3DDISPLAYMODEFILTER *filter,
             UINT mode_idx, D3DDISPLAYMODEEX *mode) PURE;
-    STDMETHOD(GetAdapterDisplayModeEx)(THIS_ UINT adapter_idx, D3DDISPLAYMODEEX *mode, D3DDISPLAYROTATION *rotation);
+    STDMETHOD(GetAdapterDisplayModeEx)(THIS_ UINT adapter_idx,
+            D3DDISPLAYMODEEX *mode, D3DDISPLAYROTATION *rotation) PURE;
     STDMETHOD(CreateDeviceEx)(THIS_ UINT adapter_idx, D3DDEVTYPE device_type, HWND focus_window, DWORD flags,
             D3DPRESENT_PARAMETERS *parameters, D3DDISPLAYMODEEX *mode, struct IDirect3DDevice9Ex **device) PURE;
     STDMETHOD(GetAdapterLUID)(THIS_ UINT adapter_idx, LUID *luid) PURE;

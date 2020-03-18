@@ -1,4 +1,3 @@
-#define MINGW_HAS_SECURE_API 1
 #include <sec_api/stdio_s.h>
 
 int __cdecl _vscprintf_p(const char *format, va_list arglist)

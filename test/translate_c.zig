@@ -3,11 +3,116 @@ const std = @import("std");
 const CrossTarget = std.zig.CrossTarget;
 
 pub fn addCases(cases: *tests.TranslateCContext) void {
+    cases.add("correct semicolon after infixop",
+        \\#define __ferror_unlocked_body(_fp) (((_fp)->_flags & _IO_ERR_SEEN) != 0)
+    , &[_][]const u8{
+        \\pub inline fn __ferror_unlocked_body(_fp: var) @TypeOf(((_fp.*._flags) & _IO_ERR_SEEN) != 0) {
+        \\    return ((_fp.*._flags) & _IO_ERR_SEEN) != 0;
+        \\}
+    });
+
+    cases.add("c booleans are just ints",
+        \\#define FOO(x) ((x >= 0) + (x >= 0))
+        \\#define BAR 1 && 2 > 4
+    , &[_][]const u8{
+        \\pub inline fn FOO(x: var) @TypeOf(@boolToInt(x >= 0) + @boolToInt(x >= 0)) {
+        \\    return @boolToInt(x >= 0) + @boolToInt(x >= 0);
+        \\}
+    ,
+        \\pub const BAR = (1 != 0) and (2 > 4);
+    });
+
+    cases.add("struct with aligned fields",
+        \\struct foo {
+        \\    __attribute__((aligned(1))) short bar;
+        \\};
+    , &[_][]const u8{
+        \\pub const struct_foo = extern struct {
+        \\    bar: c_short align(1),
+        \\};
+    });
+
+    cases.add("structs with VLAs are rejected",
+        \\struct foo { int x; int y[]; };
+        \\struct bar { int x; int y[0]; };
+    , &[_][]const u8{
+        \\pub const struct_foo = @OpaqueType();
+    ,
+        \\pub const struct_bar = @OpaqueType();
+    });
+
+    cases.add("nested loops without blocks",
+        \\void foo() {
+        \\    while (0) while (0) {}
+        \\    for (;;) while (0);
+        \\    for (;;) do {} while (0);
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() void {
+        \\    while (@as(c_int, 0) != 0) while (@as(c_int, 0) != 0) {};
+        \\    while (true) while (@as(c_int, 0) != 0) {};
+        \\    while (true) while (true) {
+        \\        if (!(@as(c_int, 0) != 0)) break;
+        \\    };
+        \\}
+    });
+
+    cases.add("macro comma operator",
+        \\#define foo (foo, bar)
+        \\#define bar(x) (&x, +3, 4 == 4, 5 * 6, baz(1, 2), 2 % 2, baz(1,2))
+    , &[_][]const u8{
+        \\pub const foo = blk: {
+        \\    _ = foo;
+        \\    break :blk bar;
+        \\};
+    ,
+        \\pub inline fn bar(x: var) @TypeOf(baz(1, 2)) {
+        \\    return blk: {
+        \\        _ = &x;
+        \\        _ = 3;
+        \\        _ = 4 == 4;
+        \\        _ = 5 * 6;
+        \\        _ = baz(1, 2);
+        \\        _ = 2 % 2;
+        \\        break :blk baz(1, 2);
+        \\    };
+        \\}
+    });
+
+    cases.add("macro keyword define",
+        \\#define foo 1
+        \\#define inline 2
+    , &[_][]const u8{
+        \\pub const foo = 1;
+    ,
+        \\pub const @"inline" = 2;
+    });
+
     cases.add("macro line continuation",
         \\#define FOO -\
         \\BAR
     , &[_][]const u8{
         \\pub const FOO = -BAR;
+    });
+
+    cases.add("struct with atomic field",
+        \\struct arcan_shmif_cont {
+        \\        struct arcan_shmif_page* addr;
+        \\};
+        \\struct arcan_shmif_page {
+        \\        volatile _Atomic int abufused[12];
+        \\};
+    , &[_][]const u8{
+        \\pub const struct_arcan_shmif_page = //
+    ,
+        \\warning: unsupported type: 'Atomic'
+        \\    @OpaqueType(); // 
+    ,
+        \\ warning: struct demoted to opaque type - unable to translate type of field abufused
+    , // TODO should be `addr: *struct_arcan_shmif_page`
+        \\pub const struct_arcan_shmif_cont = extern struct {
+        \\    addr: [*c]struct_arcan_shmif_page,
+        \\};
     });
 
     cases.add("function prototype translated as optional",
@@ -286,10 +391,11 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     cases.add("variables",
         \\extern int extern_var;
         \\static const int int_var = 13;
+        \\int foo;
     , &[_][]const u8{
         \\pub extern var extern_var: c_int;
-    ,
         \\pub const int_var: c_int = 13;
+        \\pub export var foo: c_int = undefined;
     });
 
     cases.add("const ptr initializer",
@@ -1352,7 +1458,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     cases.add("macro pointer cast",
         \\#define NRF_GPIO ((NRF_GPIO_Type *) NRF_GPIO_BASE)
     , &[_][]const u8{
-        \\pub const NRF_GPIO = if (@typeInfo(@TypeOf(NRF_GPIO_BASE)) == .Pointer) @ptrCast([*c]NRF_GPIO_Type, NRF_GPIO_BASE) else if (@typeInfo(@TypeOf(NRF_GPIO_BASE)) == .Int) @intToPtr([*c]NRF_GPIO_Type, NRF_GPIO_BASE) else @as([*c]NRF_GPIO_Type, NRF_GPIO_BASE);
+        \\pub const NRF_GPIO = (if (@typeInfo(@TypeOf(NRF_GPIO_BASE)) == .Pointer) @ptrCast([*c]NRF_GPIO_Type, NRF_GPIO_BASE) else if (@typeInfo(@TypeOf(NRF_GPIO_BASE)) == .Int and @typeInfo([*c]NRF_GPIO_Type) == .Pointer) @intToPtr([*c]NRF_GPIO_Type, NRF_GPIO_BASE) else @as([*c]NRF_GPIO_Type, NRF_GPIO_BASE));
     });
 
     cases.add("basic macro function",
@@ -1524,7 +1630,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     cases.add("shadowing primitive types",
         \\unsigned anyerror = 2;
     , &[_][]const u8{
-        \\pub export var _anyerror: c_uint = @bitCast(c_uint, @as(c_int, 2));
+        \\pub export var anyerror_1: c_uint = @bitCast(c_uint, @as(c_int, 2));
     });
 
     cases.add("floats",
@@ -2536,11 +2642,11 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\#define FOO(bar) baz((void *)(baz))
         \\#define BAR (void*) a
     , &[_][]const u8{
-        \\pub inline fn FOO(bar: var) @TypeOf(baz(if (@typeInfo(@TypeOf(baz)) == .Pointer) @ptrCast(*c_void, baz) else if (@typeInfo(@TypeOf(baz)) == .Int) @intToPtr(*c_void, baz) else @as(*c_void, baz))) {
-        \\    return baz(if (@typeInfo(@TypeOf(baz)) == .Pointer) @ptrCast(*c_void, baz) else if (@typeInfo(@TypeOf(baz)) == .Int) @intToPtr(*c_void, baz) else @as(*c_void, baz));
+        \\pub inline fn FOO(bar: var) @TypeOf(baz((if (@typeInfo(@TypeOf(baz)) == .Pointer) @ptrCast(*c_void, baz) else if (@typeInfo(@TypeOf(baz)) == .Int and @typeInfo(*c_void) == .Pointer) @intToPtr(*c_void, baz) else @as(*c_void, baz)))) {
+        \\    return baz((if (@typeInfo(@TypeOf(baz)) == .Pointer) @ptrCast(*c_void, baz) else if (@typeInfo(@TypeOf(baz)) == .Int and @typeInfo(*c_void) == .Pointer) @intToPtr(*c_void, baz) else @as(*c_void, baz)));
         \\}
     ,
-        \\pub const BAR = if (@typeInfo(@TypeOf(a)) == .Pointer) @ptrCast(*c_void, a) else if (@typeInfo(@TypeOf(a)) == .Int) @intToPtr(*c_void, a) else @as(*c_void, a);
+        \\pub const BAR = (if (@typeInfo(@TypeOf(a)) == .Pointer) @ptrCast(*c_void, a) else if (@typeInfo(@TypeOf(a)) == .Int and @typeInfo(*c_void) == .Pointer) @intToPtr(*c_void, a) else @as(*c_void, a));
     });
 
     cases.add("macro conditional operator",

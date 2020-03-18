@@ -1,4 +1,4 @@
-/* Copyright (C) 1992-2019 Free Software Foundation, Inc.
+/* Copyright (C) 1992-2020 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -13,7 +13,7 @@
 
    You should have received a copy of the GNU Lesser General Public
    License along with the GNU C Library; if not, see
-   <http://www.gnu.org/licenses/>.  */
+   <https://www.gnu.org/licenses/>.  */
 
 #ifndef	_SYS_CDEFS_H
 #define	_SYS_CDEFS_H	1
@@ -410,14 +410,6 @@
 # define __glibc_has_attribute(attr)	__has_attribute (attr)
 #else
 # define __glibc_has_attribute(attr)	0
-#endif
-
-#ifdef __has_include
-/* Do not use a function-like macro, so that __has_include can inhibit
-   macro expansion.  */
-# define __glibc_has_include __has_include
-#else
-# define __glibc_has_include(header)	0
 #endif
 
 #if (!defined _Noreturn \

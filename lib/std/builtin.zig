@@ -27,7 +27,7 @@ pub const Cpu = std.Target.Cpu;
 /// On non-Windows targets, this is `null`.
 pub const subsystem: ?SubSystem = blk: {
     if (@hasDecl(@This(), "explicit_subsystem")) break :blk explicit_subsystem;
-    switch (os) {
+    switch (os.tag) {
         .windows => {
             if (is_test) {
                 break :blk SubSystem.Console;
@@ -406,9 +406,9 @@ pub const Version = struct {
         min: Version,
         max: Version,
 
-        pub fn includesVersion(self: LinuxVersionRange, ver: Version) bool {
-            if (self.min.compare(ver) == .gt) return false;
-            if (self.max.compare(ver) == .lt) return false;
+        pub fn includesVersion(self: Range, ver: Version) bool {
+            if (self.min.order(ver) == .gt) return false;
+            if (self.max.order(ver) == .lt) return false;
             return true;
         }
     };
@@ -436,19 +436,17 @@ pub const Version = struct {
         self: Version,
         comptime fmt: []const u8,
         options: std.fmt.FormatOptions,
-        context: var,
-        comptime Error: type,
-        comptime output: fn (@TypeOf(context), []const u8) Error!void,
-    ) Error!void {
+        out_stream: var,
+    ) !void {
         if (fmt.len == 0) {
             if (self.patch == 0) {
                 if (self.minor == 0) {
-                    return std.fmt.format(context, Error, output, "{}", .{self.major});
+                    return std.fmt.format(out_stream, "{}", .{self.major});
                 } else {
-                    return std.fmt.format(context, Error, output, "{}.{}", .{ self.major, self.minor });
+                    return std.fmt.format(out_stream, "{}.{}", .{ self.major, self.minor });
                 }
             } else {
-                return std.fmt.format(context, Error, output, "{}.{}.{}", .{ self.major, self.minor, self.patch });
+                return std.fmt.format(out_stream, "{}.{}.{}", .{ self.major, self.minor, self.patch });
             }
         } else {
             @compileError("Unknown format string: '" ++ fmt ++ "'");

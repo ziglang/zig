@@ -34,9 +34,7 @@ ilogbf (float x)
     }
   if (hx < 0x7f800000)
     return (hx >> 23) - 127;
-  if (hx == 0x7f800000)
-    return 0x7fffffff;
-  return 0x80000000;
+  return 0x7fffffff;
 } */
         subq    $24, %rsp
         .seh_stackalloc 24
@@ -65,10 +63,7 @@ ilogbf (float x)
 .L2:
         cmpl    $2139095039, %edx
         jle     .L10
-        cmpl    $2139095040, %edx
         movl    $2147483647, %eax
-        movl    $-2147483648, %edx
-        cmovne  %edx, %eax
         addq    $24, %rsp
         ret
         .p2align 4,,10
@@ -92,6 +87,8 @@ ilogbf (float x)
 	andb    %ah, %dh
 	cmpb    $0x05, %dh
 	je      1f		/* Is +-Inf, jump.  */
+	cmpb    $0x01, %dh
+	je      1f		/* Is Nan, jump.  */
 
 	fxtract
 	pushl	%eax

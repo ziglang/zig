@@ -81,115 +81,47 @@ pub fn atomicSymLink(allocator: *Allocator, existing_path: []const u8, new_path:
     }
 }
 
-// TODO fix enum literal not casting to error union
-const PrevStatus = enum {
+pub const PrevStatus = enum {
     stale,
     fresh,
 };
 
+/// Deprecated; use `Dir.updateFile`.
 pub fn updateFile(source_path: []const u8, dest_path: []const u8) !PrevStatus {
-    return updateFileMode(source_path, dest_path, null);
-}
-
-/// Check the file size, mtime, and mode of `source_path` and `dest_path`. If they are equal, does nothing.
-/// Otherwise, atomically copies `source_path` to `dest_path`. The destination file gains the mtime,
-/// atime, and mode of the source file so that the next call to `updateFile` will not need a copy.
-/// Returns the previous status of the file before updating.
-/// If any of the directories do not exist for dest_path, they are created.
-pub fn updateFileMode(source_path: []const u8, dest_path: []const u8, mode: ?File.Mode) !PrevStatus {
     const my_cwd = cwd();
-
-    var src_file = try my_cwd.openFile(source_path, .{});
-    defer src_file.close();
-
-    const src_stat = try src_file.stat();
-    check_dest_stat: {
-        const dest_stat = blk: {
-            var dest_file = my_cwd.openFile(dest_path, .{}) catch |err| switch (err) {
-                error.FileNotFound => break :check_dest_stat,
-                else => |e| return e,
-            };
-            defer dest_file.close();
-
-            break :blk try dest_file.stat();
-        };
-
-        if (src_stat.size == dest_stat.size and
-            src_stat.mtime == dest_stat.mtime and
-            src_stat.mode == dest_stat.mode)
-        {
-            return PrevStatus.fresh;
-        }
-    }
-    const actual_mode = mode orelse src_stat.mode;
-
-    // TODO this logic could be made more efficient by calling makePath, once
-    // that API does not require an allocator
-    var atomic_file = make_atomic_file: while (true) {
-        const af = AtomicFile.init(dest_path, actual_mode) catch |err| switch (err) {
-            error.FileNotFound => {
-                var p = dest_path;
-                while (path.dirname(p)) |dirname| {
-                    makeDir(dirname) catch |e| switch (e) {
-                        error.FileNotFound => {
-                            p = dirname;
-                            continue;
-                        },
-                        else => return e,
-                    };
-                    continue :make_atomic_file;
-                } else {
-                    return err;
-                }
-            },
-            else => |e| return e,
-        };
-        break af;
-    } else unreachable;
-    defer atomic_file.deinit();
-
-    const in_stream = &src_file.inStream().stream;
-
-    var buf: [mem.page_size * 6]u8 = undefined;
-    while (true) {
-        const amt = try in_stream.readFull(buf[0..]);
-        try atomic_file.file.write(buf[0..amt]);
-        if (amt != buf.len) {
-            try atomic_file.file.updateTimes(src_stat.atime, src_stat.mtime);
-            try atomic_file.finish();
-            return PrevStatus.stale;
-        }
-    }
+    return Dir.updateFile(my_cwd, source_path, my_cwd, dest_path, .{});
 }
 
-/// Guaranteed to be atomic. However until https://patchwork.kernel.org/patch/9636735/ is
-/// merged and readily available,
+/// Deprecated; use `Dir.updateFile`.
+pub fn updateFileMode(source_path: []const u8, dest_path: []const u8, mode: ?File.Mode) !Dir.PrevStatus {
+    const my_cwd = cwd();
+    return Dir.updateFile(my_cwd, source_path, my_cwd, dest_path, .{ .override_mode = mode });
+}
+
+/// Guaranteed to be atomic.
+/// On Linux, until https://patchwork.kernel.org/patch/9636735/ is merged and readily available,
 /// there is a possibility of power loss or application termination leaving temporary files present
 /// in the same directory as dest_path.
 /// Destination file will have the same mode as the source file.
+/// TODO rework this to integrate with Dir
 pub fn copyFile(source_path: []const u8, dest_path: []const u8) !void {
     var in_file = try cwd().openFile(source_path, .{});
     defer in_file.close();
 
-    const mode = try in_file.mode();
-    const in_stream = &in_file.inStream().stream;
+    const stat = try in_file.stat();
 
-    var atomic_file = try AtomicFile.init(dest_path, mode);
+    var atomic_file = try AtomicFile.init(dest_path, stat.mode);
     defer atomic_file.deinit();
 
-    var buf: [mem.page_size]u8 = undefined;
-    while (true) {
-        const amt = try in_stream.readFull(buf[0..]);
-        try atomic_file.file.write(buf[0..amt]);
-        if (amt != buf.len) {
-            return atomic_file.finish();
-        }
-    }
+    try atomic_file.file.writeFileAll(in_file, .{ .in_len = stat.size });
+    return atomic_file.finish();
 }
 
-/// Guaranteed to be atomic. However until https://patchwork.kernel.org/patch/9636735/ is
-/// merged and readily available,
+/// Guaranteed to be atomic.
+/// On Linux, until https://patchwork.kernel.org/patch/9636735/ is merged and readily available,
 /// there is a possibility of power loss or application termination leaving temporary files present
+/// in the same directory as dest_path.
+/// TODO rework this to integrate with Dir
 pub fn copyFileMode(source_path: []const u8, dest_path: []const u8, mode: File.Mode) !void {
     var in_file = try cwd().openFile(source_path, .{});
     defer in_file.close();
@@ -197,50 +129,44 @@ pub fn copyFileMode(source_path: []const u8, dest_path: []const u8, mode: File.M
     var atomic_file = try AtomicFile.init(dest_path, mode);
     defer atomic_file.deinit();
 
-    var buf: [mem.page_size * 6]u8 = undefined;
-    while (true) {
-        const amt = try in_file.read(buf[0..]);
-        try atomic_file.file.write(buf[0..amt]);
-        if (amt != buf.len) {
-            return atomic_file.finish();
-        }
-    }
+    try atomic_file.file.writeFileAll(in_file, .{});
+    return atomic_file.finish();
 }
 
+/// TODO update this API to avoid a getrandom syscall for every operation.
 pub const AtomicFile = struct {
     file: File,
-    tmp_path_buf: [MAX_PATH_BYTES]u8,
+    tmp_path_buf: [MAX_PATH_BYTES - 1:0]u8,
     dest_path: []const u8,
-    finished: bool,
+    file_open: bool,
+    file_exists: bool,
+    dir: Dir,
 
     const InitError = File.OpenError;
 
-    /// dest_path must remain valid for the lifetime of AtomicFile
-    /// call finish to atomically replace dest_path with contents
-    pub fn init(dest_path: []const u8, mode: File.Mode) InitError!AtomicFile {
+    /// TODO rename this. Callers should go through Dir API
+    pub fn init2(dest_path: []const u8, mode: File.Mode, dir: Dir) InitError!AtomicFile {
         const dirname = path.dirname(dest_path);
         var rand_buf: [12]u8 = undefined;
         const dirname_component_len = if (dirname) |d| d.len + 1 else 0;
         const encoded_rand_len = comptime base64.Base64Encoder.calcSize(rand_buf.len);
         const tmp_path_len = dirname_component_len + encoded_rand_len;
-        var tmp_path_buf: [MAX_PATH_BYTES]u8 = undefined;
-        if (tmp_path_len >= tmp_path_buf.len) return error.NameTooLong;
+        var tmp_path_buf: [MAX_PATH_BYTES - 1:0]u8 = undefined;
+        if (tmp_path_len > tmp_path_buf.len) return error.NameTooLong;
 
-        if (dirname) |dir| {
-            mem.copy(u8, tmp_path_buf[0..], dir);
-            tmp_path_buf[dir.len] = path.sep;
+        if (dirname) |dn| {
+            mem.copy(u8, tmp_path_buf[0..], dn);
+            tmp_path_buf[dn.len] = path.sep;
         }
 
         tmp_path_buf[tmp_path_len] = 0;
         const tmp_path_slice = tmp_path_buf[0..tmp_path_len :0];
 
-        const my_cwd = cwd();
-
         while (true) {
             try crypto.randomBytes(rand_buf[0..]);
             base64_encoder.encode(tmp_path_slice[dirname_component_len..tmp_path_len], &rand_buf);
 
-            const file = my_cwd.createFileC(
+            const file = dir.createFileC(
                 tmp_path_slice,
                 .{ .mode = mode, .exclusive = true },
             ) catch |err| switch (err) {
@@ -252,86 +178,71 @@ pub const AtomicFile = struct {
                 .file = file,
                 .tmp_path_buf = tmp_path_buf,
                 .dest_path = dest_path,
-                .finished = false,
+                .file_open = true,
+                .file_exists = true,
+                .dir = dir,
             };
         }
     }
 
+    /// Deprecated. Use `Dir.atomicFile`.
+    pub fn init(dest_path: []const u8, mode: File.Mode) InitError!AtomicFile {
+        return init2(dest_path, mode, cwd());
+    }
+
     /// always call deinit, even after successful finish()
     pub fn deinit(self: *AtomicFile) void {
-        if (!self.finished) {
+        if (self.file_open) {
             self.file.close();
-            cwd().deleteFileC(@ptrCast([*:0]u8, &self.tmp_path_buf)) catch {};
-            self.finished = true;
+            self.file_open = false;
         }
+        if (self.file_exists) {
+            self.dir.deleteFileC(&self.tmp_path_buf) catch {};
+            self.file_exists = false;
+        }
+        self.* = undefined;
     }
 
     pub fn finish(self: *AtomicFile) !void {
-        assert(!self.finished);
-        self.file.close();
-        self.finished = true;
-        if (builtin.os.tag == .windows) {
-            const dest_path_w = try os.windows.sliceToPrefixedFileW(self.dest_path);
-            const tmp_path_w = try os.windows.cStrToPrefixedFileW(@ptrCast([*:0]u8, &self.tmp_path_buf));
-            return os.renameW(&tmp_path_w, &dest_path_w);
+        assert(self.file_exists);
+        if (self.file_open) {
+            self.file.close();
+            self.file_open = false;
         }
-        const dest_path_c = try os.toPosixPath(self.dest_path);
-        return os.renameC(@ptrCast([*:0]u8, &self.tmp_path_buf), &dest_path_c);
+        if (std.Target.current.os.tag == .windows) {
+            const dest_path_w = try os.windows.sliceToPrefixedFileW(self.dest_path);
+            const tmp_path_w = try os.windows.cStrToPrefixedFileW(&self.tmp_path_buf);
+            try os.renameatW(self.dir.fd, &tmp_path_w, self.dir.fd, &dest_path_w, os.windows.TRUE);
+            self.file_exists = false;
+        } else {
+            const dest_path_c = try os.toPosixPath(self.dest_path);
+            try os.renameatZ(self.dir.fd, &self.tmp_path_buf, self.dir.fd, &dest_path_c);
+            self.file_exists = false;
+        }
     }
 };
 
 const default_new_dir_mode = 0o755;
 
-/// Create a new directory.
-pub fn makeDir(dir_path: []const u8) !void {
-    return os.mkdir(dir_path, default_new_dir_mode);
+/// Create a new directory, based on an absolute path.
+/// Asserts that the path is absolute. See `Dir.makeDir` for a function that operates
+/// on both absolute and relative paths.
+pub fn makeDirAbsolute(absolute_path: []const u8) !void {
+    assert(path.isAbsolute(absolute_path));
+    return os.mkdir(absolute_path, default_new_dir_mode);
 }
 
-/// Same as `makeDir` except the parameter is a null-terminated UTF8-encoded string.
-pub fn makeDirC(dir_path: [*:0]const u8) !void {
-    return os.mkdirC(dir_path, default_new_dir_mode);
+/// Same as `makeDirAbsolute` except the parameter is a null-terminated UTF8-encoded string.
+pub fn makeDirAbsoluteZ(absolute_path_z: [*:0]const u8) !void {
+    assert(path.isAbsoluteC(absolute_path_z));
+    return os.mkdirZ(absolute_path_z, default_new_dir_mode);
 }
 
-/// Same as `makeDir` except the parameter is a null-terminated UTF16LE-encoded string.
-pub fn makeDirW(dir_path: [*:0]const u16) !void {
-    return os.mkdirW(dir_path, default_new_dir_mode);
-}
-
-/// Calls makeDir recursively to make an entire path. Returns success if the path
-/// already exists and is a directory.
-/// This function is not atomic, and if it returns an error, the file system may
-/// have been modified regardless.
-/// TODO determine if we can remove the allocator requirement from this function
-pub fn makePath(allocator: *Allocator, full_path: []const u8) !void {
-    const resolved_path = try path.resolve(allocator, &[_][]const u8{full_path});
-    defer allocator.free(resolved_path);
-
-    var end_index: usize = resolved_path.len;
-    while (true) {
-        makeDir(resolved_path[0..end_index]) catch |err| switch (err) {
-            error.PathAlreadyExists => {
-                // TODO stat the file and return an error if it's not a directory
-                // this is important because otherwise a dangling symlink
-                // could cause an infinite loop
-                if (end_index == resolved_path.len) return;
-            },
-            error.FileNotFound => {
-                // march end_index backward until next path component
-                while (true) {
-                    end_index -= 1;
-                    if (path.isSep(resolved_path[end_index])) break;
-                }
-                continue;
-            },
-            else => return err,
-        };
-        if (end_index == resolved_path.len) return;
-        // march end_index forward until next path component
-        while (true) {
-            end_index += 1;
-            if (end_index == resolved_path.len or path.isSep(resolved_path[end_index])) break;
-        }
-    }
+/// Same as `makeDirAbsolute` except the parameter is a null-terminated WTF-16 encoded string.
+pub fn makeDirAbsoluteW(absolute_path_w: [*:0]const u16) !void {
+    assert(path.isAbsoluteWindowsW(absolute_path_w));
+    const handle = try os.windows.CreateDirectoryW(null, absolute_path_w, null);
+    os.windows.CloseHandle(handle);
 }
 
 /// Returns `error.DirNotEmpty` if the directory is not empty.
@@ -709,17 +620,19 @@ pub const Dir = struct {
     /// Call `File.close` to release the resource.
     /// Asserts that the path parameter has no null bytes.
     pub fn openFile(self: Dir, sub_path: []const u8, flags: File.OpenFlags) File.OpenError!File {
-        if (std.debug.runtime_safety) for (sub_path) |byte| assert(byte != 0);
         if (builtin.os.tag == .windows) {
             const path_w = try os.windows.sliceToPrefixedFileW(sub_path);
             return self.openFileW(&path_w, flags);
         }
         const path_c = try os.toPosixPath(sub_path);
-        return self.openFileC(&path_c, flags);
+        return self.openFileZ(&path_c, flags);
     }
 
+    /// Deprecated; use `openFileZ`.
+    pub const openFileC = openFileZ;
+
     /// Same as `openFile` but the path parameter is null-terminated.
-    pub fn openFileC(self: Dir, sub_path: [*:0]const u8, flags: File.OpenFlags) File.OpenError!File {
+    pub fn openFileZ(self: Dir, sub_path: [*:0]const u8, flags: File.OpenFlags) File.OpenError!File {
         if (builtin.os.tag == .windows) {
             const path_w = try os.windows.cStrToPrefixedFileW(sub_path);
             return self.openFileW(&path_w, flags);
@@ -752,14 +665,16 @@ pub const Dir = struct {
         const access_mask = w.SYNCHRONIZE |
             (if (flags.read) @as(u32, w.GENERIC_READ) else 0) |
             (if (flags.write) @as(u32, w.GENERIC_WRITE) else 0);
-        return self.openFileWindows(sub_path_w, access_mask, w.FILE_OPEN);
+        return @as(File, .{
+            .handle = try os.windows.OpenFileW(self.fd, sub_path_w, null, access_mask, w.FILE_OPEN),
+            .io_mode = .blocking,
+        });
     }
 
     /// Creates, opens, or overwrites a file with write access.
     /// Call `File.close` on the result when done.
     /// Asserts that the path parameter has no null bytes.
     pub fn createFile(self: Dir, sub_path: []const u8, flags: File.CreateFlags) File.OpenError!File {
-        if (std.debug.runtime_safety) for (sub_path) |byte| assert(byte != 0);
         if (builtin.os.tag == .windows) {
             const path_w = try os.windows.sliceToPrefixedFileW(sub_path);
             return self.createFileW(&path_w, flags);
@@ -798,7 +713,10 @@ pub const Dir = struct {
             @as(u32, w.FILE_OVERWRITE_IF)
         else
             @as(u32, w.FILE_OPEN_IF);
-        return self.openFileWindows(sub_path_w, access_mask, creation);
+        return @as(File, .{
+            .handle = try os.windows.OpenFileW(self.fd, sub_path_w, null, access_mask, creation),
+            .io_mode = .blocking,
+        });
     }
 
     /// Deprecated; call `openFile` directly.
@@ -806,9 +724,9 @@ pub const Dir = struct {
         return self.openFile(sub_path, .{});
     }
 
-    /// Deprecated; call `openFileC` directly.
+    /// Deprecated; call `openFileZ` directly.
     pub fn openReadC(self: Dir, sub_path: [*:0]const u8) File.OpenError!File {
-        return self.openFileC(sub_path, .{});
+        return self.openFileZ(sub_path, .{});
     }
 
     /// Deprecated; call `openFileW` directly.
@@ -816,70 +734,62 @@ pub const Dir = struct {
         return self.openFileW(sub_path, .{});
     }
 
-    pub fn openFileWindows(
-        self: Dir,
-        sub_path_w: [*:0]const u16,
-        access_mask: os.windows.ACCESS_MASK,
-        creation: os.windows.ULONG,
-    ) File.OpenError!File {
-        const w = os.windows;
+    pub fn makeDir(self: Dir, sub_path: []const u8) !void {
+        try os.mkdirat(self.fd, sub_path, default_new_dir_mode);
+    }
 
-        if (sub_path_w[0] == '.' and sub_path_w[1] == 0) {
-            return error.IsDir;
-        }
-        if (sub_path_w[0] == '.' and sub_path_w[1] == '.' and sub_path_w[2] == 0) {
-            return error.IsDir;
-        }
+    pub fn makeDirZ(self: Dir, sub_path: [*:0]const u8) !void {
+        try os.mkdiratC(self.fd, sub_path, default_new_dir_mode);
+    }
 
-        var result = File{
-            .handle = undefined,
-            .io_mode = .blocking,
-        };
+    pub fn makeDirW(self: Dir, sub_path: [*:0]const u16) !void {
+        const handle = try os.windows.CreateDirectoryW(self.fd, sub_path, null);
+        os.windows.CloseHandle(handle);
+    }
 
-        const path_len_bytes = math.cast(u16, mem.toSliceConst(u16, sub_path_w).len * 2) catch |err| switch (err) {
-            error.Overflow => return error.NameTooLong,
-        };
-        var nt_name = w.UNICODE_STRING{
-            .Length = path_len_bytes,
-            .MaximumLength = path_len_bytes,
-            .Buffer = @intToPtr([*]u16, @ptrToInt(sub_path_w)),
-        };
-        var attr = w.OBJECT_ATTRIBUTES{
-            .Length = @sizeOf(w.OBJECT_ATTRIBUTES),
-            .RootDirectory = if (path.isAbsoluteWindowsW(sub_path_w)) null else self.fd,
-            .Attributes = 0, // Note we do not use OBJ_CASE_INSENSITIVE here.
-            .ObjectName = &nt_name,
-            .SecurityDescriptor = null,
-            .SecurityQualityOfService = null,
-        };
-        var io: w.IO_STATUS_BLOCK = undefined;
-        const rc = w.ntdll.NtCreateFile(
-            &result.handle,
-            access_mask,
-            &attr,
-            &io,
-            null,
-            w.FILE_ATTRIBUTE_NORMAL,
-            w.FILE_SHARE_WRITE | w.FILE_SHARE_READ | w.FILE_SHARE_DELETE,
-            creation,
-            w.FILE_NON_DIRECTORY_FILE | w.FILE_SYNCHRONOUS_IO_NONALERT,
-            null,
-            0,
-        );
-        switch (rc) {
-            .SUCCESS => return result,
-            .OBJECT_NAME_INVALID => unreachable,
-            .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
-            .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
-            .NO_MEDIA_IN_DEVICE => return error.NoDevice,
-            .INVALID_PARAMETER => unreachable,
-            .SHARING_VIOLATION => return error.SharingViolation,
-            .ACCESS_DENIED => return error.AccessDenied,
-            .PIPE_BUSY => return error.PipeBusy,
-            .OBJECT_PATH_SYNTAX_BAD => unreachable,
-            .OBJECT_NAME_COLLISION => return error.PathAlreadyExists,
-            else => return w.unexpectedStatus(rc),
+    /// Calls makeDir recursively to make an entire path. Returns success if the path
+    /// already exists and is a directory.
+    /// This function is not atomic, and if it returns an error, the file system may
+    /// have been modified regardless.
+    pub fn makePath(self: Dir, sub_path: []const u8) !void {
+        var end_index: usize = sub_path.len;
+        while (true) {
+            self.makeDir(sub_path[0..end_index]) catch |err| switch (err) {
+                error.PathAlreadyExists => {
+                    // TODO stat the file and return an error if it's not a directory
+                    // this is important because otherwise a dangling symlink
+                    // could cause an infinite loop
+                    if (end_index == sub_path.len) return;
+                },
+                error.FileNotFound => {
+                    if (end_index == 0) return err;
+                    // march end_index backward until next path component
+                    while (true) {
+                        end_index -= 1;
+                        if (path.isSep(sub_path[end_index])) break;
+                    }
+                    continue;
+                },
+                else => return err,
+            };
+            if (end_index == sub_path.len) return;
+            // march end_index forward until next path component
+            while (true) {
+                end_index += 1;
+                if (end_index == sub_path.len or path.isSep(sub_path[end_index])) break;
+            }
         }
+    }
+
+    /// Changes the current working directory to the open directory handle.
+    /// This modifies global state and can have surprising effects in multi-
+    /// threaded applications. Most applications and especially libraries should
+    /// not call this function as a general rule, however it can have use cases
+    /// in, for example, implementing a shell, or child process execution.
+    /// Not all targets support this. For example, WASI does not have the concept
+    /// of a current working directory.
+    pub fn setAsCwd(self: Dir) !void {
+        try os.fchdir(self.fd);
     }
 
     /// Deprecated; call `openDirList` directly.
@@ -899,8 +809,8 @@ pub const Dir = struct {
     /// Call `close` on the result when done.
     ///
     /// Asserts that the path parameter has no null bytes.
+    /// TODO collapse this and `openDirList` into one function with an options parameter
     pub fn openDirTraverse(self: Dir, sub_path: []const u8) OpenError!Dir {
-        if (std.debug.runtime_safety) for (sub_path) |byte| assert(byte != 0);
         if (builtin.os.tag == .windows) {
             const sub_path_w = try os.windows.sliceToPrefixedFileW(sub_path);
             return self.openDirTraverseW(&sub_path_w);
@@ -917,8 +827,8 @@ pub const Dir = struct {
     /// Call `close` on the result when done.
     ///
     /// Asserts that the path parameter has no null bytes.
+    /// TODO collapse this and `openDirTraverse` into one function with an options parameter
     pub fn openDirList(self: Dir, sub_path: []const u8) OpenError!Dir {
-        if (std.debug.runtime_safety) for (sub_path) |byte| assert(byte != 0);
         if (builtin.os.tag == .windows) {
             const sub_path_w = try os.windows.sliceToPrefixedFileW(sub_path);
             return self.openDirListW(&sub_path_w);
@@ -1082,7 +992,6 @@ pub const Dir = struct {
     /// To delete a directory recursively, see `deleteTree`.
     /// Asserts that the path parameter has no null bytes.
     pub fn deleteDir(self: Dir, sub_path: []const u8) DeleteDirError!void {
-        if (std.debug.runtime_safety) for (sub_path) |byte| assert(byte != 0);
         if (builtin.os.tag == .windows) {
             const sub_path_w = try os.windows.sliceToPrefixedFileW(sub_path);
             return self.deleteDirW(&sub_path_w);
@@ -1112,7 +1021,6 @@ pub const Dir = struct {
     /// The return value is a slice of `buffer`, from index `0`.
     /// Asserts that the path parameter has no null bytes.
     pub fn readLink(self: Dir, sub_path: []const u8, buffer: *[MAX_PATH_BYTES]u8) ![]u8 {
-        if (std.debug.runtime_safety) for (sub_path) |byte| assert(byte != 0);
         const sub_path_c = try os.toPosixPath(sub_path);
         return self.readLinkC(&sub_path_c, buffer);
     }
@@ -1146,7 +1054,7 @@ pub const Dir = struct {
         const buf = try allocator.alignedAlloc(u8, A, size);
         errdefer allocator.free(buf);
 
-        try file.inStream().stream.readNoEof(buf);
+        try file.inStream().readNoEof(buf);
         return buf;
     }
 
@@ -1329,7 +1237,7 @@ pub const Dir = struct {
     pub fn writeFile(self: Dir, sub_path: []const u8, data: []const u8) !void {
         var file = try self.createFile(sub_path, .{});
         defer file.close();
-        try file.write(data);
+        try file.writeAll(data);
     }
 
     pub const AccessError = os.AccessError;
@@ -1361,7 +1269,7 @@ pub const Dir = struct {
         else
             @as(u32, os.F_OK);
         const result = if (need_async_thread)
-            std.event.Loop.instance.?.faccessatZ(self.fd, sub_path, os_mode)
+            std.event.Loop.instance.?.faccessatZ(self.fd, sub_path, os_mode, 0)
         else
             os.faccessatZ(self.fd, sub_path, os_mode, 0);
         return result;
@@ -1374,6 +1282,70 @@ pub const Dir = struct {
     /// TODO currently this ignores `flags`.
     pub fn accessW(self: Dir, sub_path_w: [*:0]const u16, flags: File.OpenFlags) AccessError!void {
         return os.faccessatW(self.fd, sub_path_w, 0, 0);
+    }
+
+    pub const UpdateFileOptions = struct {
+        override_mode: ?File.Mode = null,
+    };
+
+    /// Check the file size, mtime, and mode of `source_path` and `dest_path`. If they are equal, does nothing.
+    /// Otherwise, atomically copies `source_path` to `dest_path`. The destination file gains the mtime,
+    /// atime, and mode of the source file so that the next call to `updateFile` will not need a copy.
+    /// Returns the previous status of the file before updating.
+    /// If any of the directories do not exist for dest_path, they are created.
+    /// If `override_mode` is provided, then that value is used rather than the source path's mode.
+    pub fn updateFile(
+        source_dir: Dir,
+        source_path: []const u8,
+        dest_dir: Dir,
+        dest_path: []const u8,
+        options: UpdateFileOptions,
+    ) !PrevStatus {
+        var src_file = try source_dir.openFile(source_path, .{});
+        defer src_file.close();
+
+        const src_stat = try src_file.stat();
+        const actual_mode = options.override_mode orelse src_stat.mode;
+        check_dest_stat: {
+            const dest_stat = blk: {
+                var dest_file = dest_dir.openFile(dest_path, .{}) catch |err| switch (err) {
+                    error.FileNotFound => break :check_dest_stat,
+                    else => |e| return e,
+                };
+                defer dest_file.close();
+
+                break :blk try dest_file.stat();
+            };
+
+            if (src_stat.size == dest_stat.size and
+                src_stat.mtime == dest_stat.mtime and
+                actual_mode == dest_stat.mode)
+            {
+                return PrevStatus.fresh;
+            }
+        }
+
+        if (path.dirname(dest_path)) |dirname| {
+            try dest_dir.makePath(dirname);
+        }
+
+        var atomic_file = try dest_dir.atomicFile(dest_path, .{ .mode = actual_mode });
+        defer atomic_file.deinit();
+
+        try atomic_file.file.writeFileAll(src_file, .{ .in_len = src_stat.size });
+        try atomic_file.file.updateTimes(src_stat.atime, src_stat.mtime);
+        try atomic_file.finish();
+        return PrevStatus.stale;
+    }
+
+    pub const AtomicFileOptions = struct {
+        mode: File.Mode = File.default_mode,
+    };
+
+    /// `dest_path` must remain valid for the lifetime of `AtomicFile`.
+    /// Call `AtomicFile.finish` to atomically replace `dest_path` with contents.
+    pub fn atomicFile(self: Dir, dest_path: []const u8, options: AtomicFileOptions) !AtomicFile {
+        return AtomicFile.init2(dest_path, options.mode, self);
     }
 };
 
@@ -1402,7 +1374,7 @@ pub fn openFileAbsolute(absolute_path: []const u8, flags: File.OpenFlags) File.O
 /// Same as `openFileAbsolute` but the path parameter is null-terminated.
 pub fn openFileAbsoluteC(absolute_path_c: [*:0]const u8, flags: File.OpenFlags) File.OpenError!File {
     assert(path.isAbsoluteC(absolute_path_c));
-    return cwd().openFileC(absolute_path_c, flags);
+    return cwd().openFileZ(absolute_path_c, flags);
 }
 
 /// Same as `openFileAbsolute` but the path parameter is WTF-16 encoded.
@@ -1665,6 +1637,8 @@ pub fn realpathAlloc(allocator: *Allocator, pathname: []const u8) ![]u8 {
 }
 
 test "" {
+    _ = makeDirAbsolute;
+    _ = makeDirAbsoluteZ;
     _ = @import("fs/path.zig");
     _ = @import("fs/file.zig");
     _ = @import("fs/get_app_data_dir.zig");

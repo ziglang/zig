@@ -175,3 +175,26 @@ test "0-bit child type coerced to optional return ptr result location" {
     S.doTheTest();
     comptime S.doTheTest();
 }
+
+test "0-bit child type coerced to optional" {
+    const S = struct {
+        fn doTheTest() void {
+            var it: Foo = .{
+                .list = undefined,
+            };
+            expect(it.foo() != null);
+        }
+
+        const Empty = struct {};
+        const Foo = struct {
+            list: [10]Empty,
+
+            fn foo(self: *Foo) ?*Empty {
+                const data = &self.list[0];
+                return data;
+            }
+        };
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}

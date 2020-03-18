@@ -8,8 +8,6 @@
 
 #include <stralign.h>
 
-#if defined(MINGW_HAS_SECURE_API)
-
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -25,6 +23,5 @@ extern "C" {
 
 #ifdef __cplusplus
 }
-#endif
 #endif
 #endif

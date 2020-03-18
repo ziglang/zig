@@ -350,15 +350,13 @@ pub const Headers = struct {
         self: Self,
         comptime fmt: []const u8,
         options: std.fmt.FormatOptions,
-        context: var,
-        comptime Errors: type,
-        output: fn (@TypeOf(context), []const u8) Errors!void,
-    ) Errors!void {
+        out_stream: var,
+    ) !void {
         for (self.toSlice()) |entry| {
-            try output(context, entry.name);
-            try output(context, ": ");
-            try output(context, entry.value);
-            try output(context, "\n");
+            try out_stream.writeAll(entry.name);
+            try out_stream.writeAll(": ");
+            try out_stream.writeAll(entry.value);
+            try out_stream.writeAll("\n");
         }
     }
 };

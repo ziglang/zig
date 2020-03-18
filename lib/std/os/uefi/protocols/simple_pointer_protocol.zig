@@ -1,21 +1,22 @@
 const uefi = @import("std").os.uefi;
 const Event = uefi.Event;
 const Guid = uefi.Guid;
+const Status = uefi.Status;
 
 /// Protocol for mice
 pub const SimplePointerProtocol = struct {
-    _reset: extern fn (*const SimplePointerProtocol, bool) usize,
-    _get_state: extern fn (*const SimplePointerProtocol, *SimplePointerState) usize,
+    _reset: extern fn (*const SimplePointerProtocol, bool) Status,
+    _get_state: extern fn (*const SimplePointerProtocol, *SimplePointerState) Status,
     wait_for_input: Event,
     mode: *SimplePointerMode,
 
     /// Resets the pointer device hardware.
-    pub fn reset(self: *const SimplePointerProtocol, verify: bool) usize {
+    pub fn reset(self: *const SimplePointerProtocol, verify: bool) Status {
         return self._reset(self, verify);
     }
 
     /// Retrieves the current state of a pointer device.
-    pub fn getState(self: *const SimplePointerProtocol, state: *SimplePointerState) usize {
+    pub fn getState(self: *const SimplePointerProtocol, state: *SimplePointerState) Status {
         return self._get_state(self, state);
     }
 

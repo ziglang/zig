@@ -8,6 +8,7 @@ pub extern "kernel32" fn CancelIoEx(hFile: HANDLE, lpOverlapped: LPOVERLAPPED) c
 pub extern "kernel32" fn CloseHandle(hObject: HANDLE) callconv(.Stdcall) BOOL;
 
 pub extern "kernel32" fn CreateDirectoryW(lpPathName: [*:0]const u16, lpSecurityAttributes: ?*SECURITY_ATTRIBUTES) callconv(.Stdcall) BOOL;
+pub extern "kernel32" fn SetEndOfFile(hFile: HANDLE) callconv(.Stdcall) BOOL;
 
 pub extern "kernel32" fn CreateEventExW(
     lpEventAttributes: ?*SECURITY_ATTRIBUTES,
@@ -102,7 +103,7 @@ pub extern "kernel32" fn GetFileAttributesW(lpFileName: [*]const WCHAR) callconv
 
 pub extern "kernel32" fn GetModuleFileNameW(hModule: ?HMODULE, lpFilename: [*]u16, nSize: DWORD) callconv(.Stdcall) DWORD;
 
-pub extern "kernel32" fn GetModuleHandleW(lpModuleName: ?[*]const WCHAR) callconv(.Stdcall) HMODULE;
+pub extern "kernel32" fn GetModuleHandleW(lpModuleName: ?[*]const WCHAR) callconv(.Stdcall) ?HMODULE;
 
 pub extern "kernel32" fn GetLastError() callconv(.Stdcall) Win32Error;
 

@@ -88,7 +88,7 @@ extern "C" {
   typedef const EVENT_DESCRIPTOR *PCEVENT_DESCRIPTOR;
 #endif
 
-  typedef struct _EVENT_FILTER_DESCRIPTOR {
+  struct _EVENT_FILTER_DESCRIPTOR {
     ULONGLONG Ptr;
     ULONG Size;
     ULONG Type;

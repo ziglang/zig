@@ -1,6 +1,6 @@
 /* Set flags signalling availability of kernel features based on given
    kernel version number.  i386 version.
-   Copyright (C) 1999-2019 Free Software Foundation, Inc.
+   Copyright (C) 1999-2020 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -15,7 +15,7 @@
 
    You should have received a copy of the GNU Lesser General Public
    License along with the GNU C Library; if not, see
-   <http://www.gnu.org/licenses/>.  */
+   <https://www.gnu.org/licenses/>.  */
 
 /* Direct socketcalls available with kernel 4.3.  */
 #if __LINUX_KERNEL_VERSION >= 0x040300
@@ -43,8 +43,11 @@
 # undef __ASSUME_SENDTO_SYSCALL
 #endif
 
-/* i686 only supports ipc syscall.  */
-#undef __ASSUME_DIRECT_SYSVIPC_SYSCALLS
+/* i686 only supports ipc syscall before 5.1.  */
+#if __LINUX_KERNEL_VERSION < 0x050100
+# undef __ASSUME_DIRECT_SYSVIPC_SYSCALLS
+# undef __ASSUME_SYSVIPC_DEFAULT_IPC_64
+#endif
 
 #undef __ASSUME_CLONE_DEFAULT
 #define __ASSUME_CLONE_BACKWARDS	1

@@ -217,21 +217,19 @@ pub const ChildProcess = struct {
 
         try child.spawn();
 
-        var stdout = Buffer.initNull(args.allocator);
-        var stderr = Buffer.initNull(args.allocator);
-        defer Buffer.deinit(&stdout);
-        defer Buffer.deinit(&stderr);
+        const stdout_in = child.stdout.?.inStream();
+        const stderr_in = child.stderr.?.inStream();
 
-        var stdout_file_in_stream = child.stdout.?.inStream();
-        var stderr_file_in_stream = child.stderr.?.inStream();
-
-        try stdout_file_in_stream.stream.readAllBuffer(&stdout, args.max_output_bytes);
-        try stderr_file_in_stream.stream.readAllBuffer(&stderr, args.max_output_bytes);
+        // TODO need to poll to read these streams to prevent a deadlock (or rely on evented I/O).
+        const stdout = try stdout_in.readAllAlloc(args.allocator, args.max_output_bytes);
+        errdefer args.allocator.free(stdout);
+        const stderr = try stderr_in.readAllAlloc(args.allocator, args.max_output_bytes);
+        errdefer args.allocator.free(stderr);
 
         return ExecResult{
             .term = try child.wait(),
-            .stdout = stdout.toOwnedSlice(),
-            .stderr = stderr.toOwnedSlice(),
+            .stdout = stdout,
+            .stderr = stderr,
         };
     }
 
@@ -782,7 +780,7 @@ fn windowsCreateCommandLine(allocator: *mem.Allocator, argv: []const []const u8)
     var buf = try Buffer.initSize(allocator, 0);
     defer buf.deinit();
 
-    var buf_stream = &io.BufferOutStream.init(&buf).stream;
+    var buf_stream = buf.outStream();
 
     for (argv) |arg, arg_i| {
         if (arg_i != 0) try buf.appendByte(' ');
@@ -859,8 +857,7 @@ fn writeIntFd(fd: i32, value: ErrInt) !void {
         .io_mode = .blocking,
         .async_block_allowed = File.async_block_allowed_yes,
     };
-    const stream = &file.outStream().stream;
-    stream.writeIntNative(u64, @intCast(u64, value)) catch return error.SystemResources;
+    file.outStream().writeIntNative(u64, @intCast(u64, value)) catch return error.SystemResources;
 }
 
 fn readIntFd(fd: i32) !ErrInt {
@@ -869,8 +866,7 @@ fn readIntFd(fd: i32) !ErrInt {
         .io_mode = .blocking,
         .async_block_allowed = File.async_block_allowed_yes,
     };
-    const stream = &file.inStream().stream;
-    return @intCast(ErrInt, stream.readIntNative(u64) catch return error.SystemResources);
+    return @intCast(ErrInt, file.inStream().readIntNative(u64) catch return error.SystemResources);
 }
 
 /// Caller must free result.

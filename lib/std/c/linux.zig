@@ -82,6 +82,15 @@ pub extern "c" fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
 
 pub extern "c" fn memfd_create(name: [*:0]const u8, flags: c_uint) c_int;
 
+pub extern "c" fn ftruncate64(fd: c_int, length: off_t) c_int;
+
+pub extern "c" fn sendfile(
+    out_fd: fd_t,
+    in_fd: fd_t,
+    offset: ?*off_t,
+    count: usize,
+) isize;
+
 pub const pthread_attr_t = extern struct {
     __size: [56]u8,
     __align: c_long,

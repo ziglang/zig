@@ -246,7 +246,7 @@ Collected from libdes and modified for SECURE RPC by Martin Kuck 1994
 This file is distributed under the terms of the GNU Lesser General
 Public License, version 2.1 or later - see the file COPYING.LIB for details.
 If you did not receive a copy of the license with this program, please
-see <http://www.gnu.org/licenses/> to obtain a copy.
+see <https://www.gnu.org/licenses/> to obtain a copy.
 
 The file inet/rcmd.c is under a UCB copyright and the following:
 
@@ -388,4 +388,4 @@ Copyright 2001 by Stephen L. Moshier <moshier@na-net.ornl.gov>
 
  You should have received a copy of the GNU Lesser General Public
  License along with this library; if not, see
- <http://www.gnu.org/licenses/>.  */
+ <https://www.gnu.org/licenses/>.  */

@@ -3,7 +3,6 @@ const builtin = std.builtin;
 const os = std.os;
 const fs = std.fs;
 const BufMap = std.BufMap;
-const Buffer = std.Buffer;
 const mem = std.mem;
 const math = std.math;
 const Allocator = mem.Allocator;
@@ -266,7 +265,7 @@ pub const ArgIteratorWindows = struct {
     }
 
     fn internalNext(self: *ArgIteratorWindows, allocator: *Allocator) NextError![]u8 {
-        var buf = try Buffer.initSize(allocator, 0);
+        var buf = std.ArrayList(u8).init(allocator);
         defer buf.deinit();
 
         var backslash_count: usize = 0;
@@ -282,10 +281,10 @@ pub const ArgIteratorWindows = struct {
                     if (quote_is_real) {
                         self.seen_quote_count += 1;
                         if (self.seen_quote_count == self.quote_count and self.seen_quote_count % 2 == 1) {
-                            try buf.appendByte('"');
+                            try buf.append('"');
                         }
                     } else {
-                        try buf.appendByte('"');
+                        try buf.append('"');
                     }
                 },
                 '\\' => {
@@ -295,7 +294,7 @@ pub const ArgIteratorWindows = struct {
                     try self.emitBackslashes(&buf, backslash_count);
                     backslash_count = 0;
                     if (self.seen_quote_count % 2 == 1 and self.seen_quote_count != self.quote_count) {
-                        try buf.appendByte(byte);
+                        try buf.append(byte);
                     } else {
                         return buf.toOwnedSlice();
                     }
@@ -303,16 +302,16 @@ pub const ArgIteratorWindows = struct {
                 else => {
                     try self.emitBackslashes(&buf, backslash_count);
                     backslash_count = 0;
-                    try buf.appendByte(byte);
+                    try buf.append(byte);
                 },
             }
         }
     }
 
-    fn emitBackslashes(self: *ArgIteratorWindows, buf: *Buffer, emit_count: usize) !void {
+    fn emitBackslashes(self: *ArgIteratorWindows, buf: *std.ArrayList(u8), emit_count: usize) !void {
         var i: usize = 0;
         while (i < emit_count) : (i += 1) {
-            try buf.appendByte('\\');
+            try buf.append('\\');
         }
     }
 
@@ -410,7 +409,7 @@ pub fn argsAlloc(allocator: *mem.Allocator) ![][]u8 {
 
     // TODO refactor to only make 1 allocation.
     var it = args();
-    var contents = try Buffer.initSize(allocator, 0);
+    var contents = std.ArrayList(u8).init(allocator);
     defer contents.deinit();
 
     var slice_list = std.ArrayList(usize).init(allocator);
@@ -419,7 +418,7 @@ pub fn argsAlloc(allocator: *mem.Allocator) ![][]u8 {
     while (it.next(allocator)) |arg_or_err| {
         const arg = try arg_or_err;
         defer allocator.free(arg);
-        try contents.append(arg);
+        try contents.appendSlice(arg);
         try slice_list.append(arg.len);
     }
 

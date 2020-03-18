@@ -3,9 +3,7 @@
 
 #include <features.h>
 
-/* Most limits are system-specific */
-
-#include <bits/limits.h>
+#include <bits/alltypes.h> /* __LONG_MAX */
 
 /* Support signed or unsigned plain-char */
 
@@ -16,8 +14,6 @@
 #define CHAR_MIN (-128)
 #define CHAR_MAX 127
 #endif
-
-/* Some universal constants... */
 
 #define CHAR_BIT 8
 #define SCHAR_MIN (-128)
@@ -30,8 +26,10 @@
 #define INT_MAX  0x7fffffff
 #define UINT_MAX 0xffffffffU
 #define LONG_MIN (-LONG_MAX-1)
+#define LONG_MAX __LONG_MAX
 #define ULONG_MAX (2UL*LONG_MAX+1)
 #define LLONG_MIN (-LLONG_MAX-1)
+#define LLONG_MAX  0x7fffffffffffffffLL
 #define ULLONG_MAX (2ULL*LLONG_MAX+1)
 
 #define MB_LEN_MAX 4
@@ -39,9 +37,13 @@
 #if defined(_POSIX_SOURCE) || defined(_POSIX_C_SOURCE) \
  || defined(_XOPEN_SOURCE) || defined(_GNU_SOURCE) || defined(_BSD_SOURCE)
 
+#include <bits/limits.h>
+
 #define PIPE_BUF 4096
 #define FILESIZEBITS 64
+#ifndef NAME_MAX
 #define NAME_MAX 255
+#endif
 #define PATH_MAX 4096
 #define NGROUPS_MAX 32
 #define ARG_MAX 131072
@@ -52,6 +54,12 @@
 #define TZNAME_MAX 6
 #define TTY_NAME_MAX 32
 #define HOST_NAME_MAX 255
+
+#if LONG_MAX == 0x7fffffffL
+#define LONG_BIT 32
+#else
+#define LONG_BIT 64
+#endif
 
 /* Implementation choices... */
 

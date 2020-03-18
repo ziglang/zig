@@ -18,6 +18,8 @@ pub usingnamespace switch (builtin.arch) {
     else => struct {},
 };
 
+pub usingnamespace @import("linux/netlink.zig");
+
 const is_mips = builtin.arch.isMIPS();
 
 pub const pid_t = i32;
@@ -29,6 +31,10 @@ pub const clock_t = isize;
 pub const NAME_MAX = 255;
 pub const PATH_MAX = 4096;
 pub const IOV_MAX = 1024;
+
+/// Largest hardware address length
+/// e.g. a mac address is a type of hardware address
+pub const MAX_ADDR_LEN = 32;
 
 pub const STDIN_FILENO = 0;
 pub const STDOUT_FILENO = 1;
@@ -1290,12 +1296,12 @@ pub const io_uring_files_update = struct {
 };
 
 pub const utsname = extern struct {
-    sysname: [65]u8,
-    nodename: [65]u8,
-    release: [65]u8,
-    version: [65]u8,
-    machine: [65]u8,
-    domainname: [65]u8,
+    sysname: [64:0]u8,
+    nodename: [64:0]u8,
+    release: [64:0]u8,
+    version: [64:0]u8,
+    machine: [64:0]u8,
+    domainname: [64:0]u8,
 };
 pub const HOST_NAME_MAX = 64;
 

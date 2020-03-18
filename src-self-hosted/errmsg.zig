@@ -164,8 +164,7 @@ pub const Msg = struct {
         const realpath_copy = try mem.dupe(comp.gpa(), u8, tree_scope.root().realpath);
         errdefer comp.gpa().free(realpath_copy);
 
-        var out_stream = &std.io.BufferOutStream.init(&text_buf).stream;
-        try parse_error.render(&tree_scope.tree.tokens, out_stream);
+        try parse_error.render(&tree_scope.tree.tokens, text_buf.outStream());
 
         const msg = try comp.gpa().create(Msg);
         msg.* = Msg{
@@ -204,8 +203,7 @@ pub const Msg = struct {
         const realpath_copy = try mem.dupe(allocator, u8, realpath);
         errdefer allocator.free(realpath_copy);
 
-        var out_stream = &std.io.BufferOutStream.init(&text_buf).stream;
-        try parse_error.render(&tree.tokens, out_stream);
+        try parse_error.render(&tree.tokens, text_buf.outStream());
 
         const msg = try allocator.create(Msg);
         msg.* = Msg{
@@ -272,7 +270,7 @@ pub const Msg = struct {
         });
         try stream.writeByteNTimes(' ', start_loc.column);
         try stream.writeByteNTimes('~', last_token.end - first_token.start);
-        try stream.write("\n");
+        try stream.writeAll("\n");
     }
 
     pub fn printToFile(msg: *const Msg, file: fs.File, color: Color) !void {
@@ -281,7 +279,6 @@ pub const Msg = struct {
             .On => true,
             .Off => false,
         };
-        var stream = &file.outStream().stream;
-        return msg.printToStream(stream, color_on);
+        return msg.printToStream(file.outStream(), color_on);
     }
 };

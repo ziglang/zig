@@ -4,6 +4,7 @@
 extern "C" {
 #endif
 
+#include <bits/alltypes.h>
 #include <bits/ioctl.h>
 
 #define N_TTY           0

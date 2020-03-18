@@ -9,7 +9,6 @@ const mem = std.mem;
 const process = std.process;
 const ArrayList = std.ArrayList;
 const BufMap = std.BufMap;
-const Buffer = std.Buffer;
 const warn = std.debug.warn;
 
 const max_stdout_size = 1 * 1024 * 1024; // 1 MiB
@@ -29,6 +28,8 @@ pub const RunStep = struct {
 
     stdout_action: StdIoAction = .inherit,
     stderr_action: StdIoAction = .inherit,
+
+    stdin_behavior: std.ChildProcess.StdIo = .Inherit,
 
     expected_exit_code: u8 = 0,
 
@@ -160,7 +161,7 @@ pub const RunStep = struct {
         child.cwd = cwd;
         child.env_map = self.env_map orelse self.builder.env_map;
 
-        child.stdin_behavior = .Ignore;
+        child.stdin_behavior = self.stdin_behavior;
         child.stdout_behavior = stdIoActionToBehavior(self.stdout_action);
         child.stderr_behavior = stdIoActionToBehavior(self.stderr_action);
 
@@ -169,23 +170,24 @@ pub const RunStep = struct {
             return err;
         };
 
-        var stdout = Buffer.initNull(self.builder.allocator);
-        var stderr = Buffer.initNull(self.builder.allocator);
-
         // TODO need to poll to read these streams to prevent a deadlock (or rely on evented I/O).
+
+        var stdout: ?[]const u8 = null;
+        defer if (stdout) |s| self.builder.allocator.free(s);
 
         switch (self.stdout_action) {
             .expect_exact, .expect_matches => {
-                var stdout_file_in_stream = child.stdout.?.inStream();
-                stdout_file_in_stream.stream.readAllBuffer(&stdout, max_stdout_size) catch unreachable;
+                stdout = child.stdout.?.inStream().readAllAlloc(self.builder.allocator, max_stdout_size) catch unreachable;
             },
             .inherit, .ignore => {},
         }
 
-        switch (self.stdout_action) {
+        var stderr: ?[]const u8 = null;
+        defer if (stderr) |s| self.builder.allocator.free(s);
+
+        switch (self.stderr_action) {
             .expect_exact, .expect_matches => {
-                var stderr_file_in_stream = child.stderr.?.inStream();
-                stderr_file_in_stream.stream.readAllBuffer(&stderr, max_stdout_size) catch unreachable;
+                stderr = child.stderr.?.inStream().readAllAlloc(self.builder.allocator, max_stdout_size) catch unreachable;
             },
             .inherit, .ignore => {},
         }
@@ -216,7 +218,7 @@ pub const RunStep = struct {
         switch (self.stderr_action) {
             .inherit, .ignore => {},
             .expect_exact => |expected_bytes| {
-                if (!mem.eql(u8, expected_bytes, stderr.toSliceConst())) {
+                if (!mem.eql(u8, expected_bytes, stderr.?)) {
                     warn(
                         \\
                         \\========= Expected this stderr: =========
@@ -224,13 +226,13 @@ pub const RunStep = struct {
                         \\========= But found: ====================
                         \\{}
                         \\
-                    , .{ expected_bytes, stderr.toSliceConst() });
+                    , .{ expected_bytes, stderr.? });
                     printCmd(cwd, argv);
                     return error.TestFailed;
                 }
             },
             .expect_matches => |matches| for (matches) |match| {
-                if (mem.indexOf(u8, stderr.toSliceConst(), match) == null) {
+                if (mem.indexOf(u8, stderr.?, match) == null) {
                     warn(
                         \\
                         \\========= Expected to find in stderr: =========
@@ -238,7 +240,7 @@ pub const RunStep = struct {
                         \\========= But stderr does not contain it: =====
                         \\{}
                         \\
-                    , .{ match, stderr.toSliceConst() });
+                    , .{ match, stderr.? });
                     printCmd(cwd, argv);
                     return error.TestFailed;
                 }
@@ -248,7 +250,7 @@ pub const RunStep = struct {
         switch (self.stdout_action) {
             .inherit, .ignore => {},
             .expect_exact => |expected_bytes| {
-                if (!mem.eql(u8, expected_bytes, stdout.toSliceConst())) {
+                if (!mem.eql(u8, expected_bytes, stdout.?)) {
                     warn(
                         \\
                         \\========= Expected this stdout: =========
@@ -256,13 +258,13 @@ pub const RunStep = struct {
                         \\========= But found: ====================
                         \\{}
                         \\
-                    , .{ expected_bytes, stdout.toSliceConst() });
+                    , .{ expected_bytes, stdout.? });
                     printCmd(cwd, argv);
                     return error.TestFailed;
                 }
             },
             .expect_matches => |matches| for (matches) |match| {
-                if (mem.indexOf(u8, stdout.toSliceConst(), match) == null) {
+                if (mem.indexOf(u8, stdout.?, match) == null) {
                     warn(
                         \\
                         \\========= Expected to find in stdout: =========
@@ -270,7 +272,7 @@ pub const RunStep = struct {
                         \\========= But stdout does not contain it: =====
                         \\{}
                         \\
-                    , .{ match, stdout.toSliceConst() });
+                    , .{ match, stdout.? });
                     printCmd(cwd, argv);
                     return error.TestFailed;
                 }

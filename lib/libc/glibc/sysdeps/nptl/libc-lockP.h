@@ -1,5 +1,5 @@
 /* Private libc-internal interface for mutex locks.  NPTL version.
-   Copyright (C) 1996-2019 Free Software Foundation, Inc.
+   Copyright (C) 1996-2020 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -14,7 +14,7 @@
 
    You should have received a copy of the GNU Lesser General Public
    License along with the GNU C Library; see the file COPYING.LIB.  If
-   not, see <http://www.gnu.org/licenses/>.  */
+   not, see <https://www.gnu.org/licenses/>.  */
 
 #ifndef _LIBC_LOCKP_H
 #define _LIBC_LOCKP_H 1

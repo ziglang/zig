@@ -1,3 +1,14 @@
+test "zig fmt: noasync block" {
+    try testCanonical(
+        \\pub fn main() anyerror!void {
+        \\    noasync {
+        \\        var foo: Foo = .{ .bar = 42 };
+        \\    }
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: noasync await" {
     try testCanonical(
         \\fn foo() void {
@@ -2798,7 +2809,7 @@ const maxInt = std.math.maxInt;
 var fixed_buffer_mem: [100 * 1024]u8 = undefined;
 
 fn testParse(source: []const u8, allocator: *mem.Allocator, anything_changed: *bool) ![]u8 {
-    const stderr = &io.getStdErr().outStream().stream;
+    const stderr = io.getStdErr().outStream();
 
     const tree = try std.zig.parse(allocator, source);
     defer tree.deinit();
@@ -2813,17 +2824,17 @@ fn testParse(source: []const u8, allocator: *mem.Allocator, anything_changed: *b
         {
             var i: usize = 0;
             while (i < loc.column) : (i += 1) {
-                try stderr.write(" ");
+                try stderr.writeAll(" ");
             }
         }
         {
             const caret_count = token.end - token.start;
             var i: usize = 0;
             while (i < caret_count) : (i += 1) {
-                try stderr.write("~");
+                try stderr.writeAll("~");
             }
         }
-        try stderr.write("\n");
+        try stderr.writeAll("\n");
     }
     if (tree.errors.len != 0) {
         return error.ParseError;
@@ -2832,8 +2843,7 @@ fn testParse(source: []const u8, allocator: *mem.Allocator, anything_changed: *b
     var buffer = try std.Buffer.initSize(allocator, 0);
     errdefer buffer.deinit();
 
-    var buffer_out_stream = io.BufferOutStream.init(&buffer);
-    anything_changed.* = try std.zig.render(allocator, &buffer_out_stream.stream, tree);
+    anything_changed.* = try std.zig.render(allocator, buffer.outStream(), tree);
     return buffer.toOwnedSlice();
 }
 

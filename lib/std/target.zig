@@ -146,7 +146,6 @@ pub const Target = struct {
                     .freestanding,
                     .ananas,
                     .cloudabi,
-                    .dragonfly,
                     .fuchsia,
                     .kfreebsd,
                     .lv2,
@@ -213,6 +212,12 @@ pub const Target = struct {
                         .semver = .{
                             .min = .{ .major = 6, .minor = 6 },
                             .max = .{ .major = 6, .minor = 6 },
+                        },
+                    },
+                    .dragonfly => return .{
+                        .semver = .{
+                            .min = .{ .major = 5, .minor = 8 },
+                            .max = .{ .major = 5, .minor = 8 },
                         },
                     },
 
@@ -902,7 +907,7 @@ pub const Target = struct {
                 };
             }
 
-            pub fn baseline(arch: Arch) *const Model {
+            pub fn generic(arch: Arch) *const Model {
                 const S = struct {
                     const generic_model = Model{
                         .name = "generic",
@@ -911,7 +916,7 @@ pub const Target = struct {
                     };
                 };
                 return switch (arch) {
-                    .arm, .armeb, .thumb, .thumbeb => &arm.cpu.baseline,
+                    .arm, .armeb, .thumb, .thumbeb => &arm.cpu.generic,
                     .aarch64, .aarch64_be, .aarch64_32 => &aarch64.cpu.generic,
                     .avr => &avr.cpu.avr1,
                     .bpfel, .bpfeb => &bpf.cpu.generic,
@@ -921,16 +926,28 @@ pub const Target = struct {
                     .msp430 => &msp430.cpu.generic,
                     .powerpc, .powerpc64, .powerpc64le => &powerpc.cpu.generic,
                     .amdgcn => &amdgpu.cpu.generic,
-                    .riscv32 => &riscv.cpu.baseline_rv32,
-                    .riscv64 => &riscv.cpu.baseline_rv64,
+                    .riscv32 => &riscv.cpu.generic_rv32,
+                    .riscv64 => &riscv.cpu.generic_rv64,
                     .sparc, .sparcv9, .sparcel => &sparc.cpu.generic,
                     .s390x => &systemz.cpu.generic,
-                    .i386 => &x86.cpu.pentium4,
+                    .i386 => &x86.cpu._i386,
                     .x86_64 => &x86.cpu.x86_64,
                     .nvptx, .nvptx64 => &nvptx.cpu.sm_20,
                     .wasm32, .wasm64 => &wasm.cpu.generic,
 
                     else => &S.generic_model,
+                };
+            }
+
+            pub fn baseline(arch: Arch) *const Model {
+                return switch (arch) {
+                    .arm, .armeb, .thumb, .thumbeb => &arm.cpu.baseline,
+                    .riscv32 => &riscv.cpu.baseline_rv32,
+                    .riscv64 => &riscv.cpu.baseline_rv64,
+                    .i386 => &x86.cpu.pentium4,
+                    .nvptx, .nvptx64 => &nvptx.cpu.sm_20,
+
+                    else => generic(arch),
                 };
             }
         };

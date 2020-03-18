@@ -58,6 +58,7 @@
 #define ETH_P_ERSPAN	0x88BE
 #define ETH_P_PREAUTH	0x88C7
 #define ETH_P_TIPC	0x88CA
+#define ETH_P_LLDP	0x88CC
 #define ETH_P_MACSEC	0x88E5
 #define ETH_P_8021AH	0x88E7
 #define ETH_P_MVRP	0x88F5

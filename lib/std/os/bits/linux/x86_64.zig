@@ -481,6 +481,7 @@ pub const msghdr_const = extern struct {
 };
 
 pub const off_t = i64;
+pub const ino_t = u64;
 
 /// Renamed to Stat to not conflict with the stat function.
 /// atime, mtime, and ctime have functions to return `timespec`,
@@ -490,7 +491,7 @@ pub const off_t = i64;
 /// methods to accomplish this.
 pub const Stat = extern struct {
     dev: u64,
-    ino: u64,
+    ino: ino_t,
     nlink: usize,
 
     mode: u32,

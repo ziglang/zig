@@ -230,7 +230,7 @@
 const std = @import("std");
 
 pub fn main() !void {
-    const stdout = &std.io.getStdOut().outStream().stream;
+    const stdout = std.io.getStdOut().outStream();
     try stdout.print("Hello, {}!\n", .{"world"});
 }
       {#code_end#}
@@ -6019,13 +6019,16 @@ pub fn printf(self: *OutStream, arg0: i32, arg1: []const u8) !void {
       </p>
       {#code_begin|syntax#}
 pub fn printValue(self: *OutStream, value: var) !void {
-    const T = @TypeOf(value);
-    if (@isInteger(T)) {
-        return self.printInt(T, value);
-    } else if (@isFloat(T)) {
-        return self.printFloat(T, value);
-    } else {
-        @compileError("Unable to print type '" ++ @typeName(T) ++ "'");
+    switch (@typeInfo(@TypeOf(value))) {
+        .Int => {
+            return self.printInt(T, value);
+        },
+        .Float => {
+            return self.printFloat(T, value);
+        },
+        else => {
+            @compileError("Unable to print type '" ++ @typeName(T) ++ "'");
+        },
     }
 }
       {#code_end#}
@@ -6725,17 +6728,8 @@ async fn func(y: *i32) void {
       This builtin function atomically dereferences a pointer and returns the value.
       </p>
       <p>
-      {#syntax#}T{#endsyntax#} must be a pointer type, a {#syntax#}bool{#endsyntax#}, a float,
-      an integer whose bit count meets these requirements:
-      </p>
-      <ul>
-          <li>At least 8</li>
-          <li>At most the same as usize</li>
-          <li>Power of 2</li>
-      </ul> or an enum with a valid integer tag type.
-      <p>
-      TODO right now bool is not accepted. Also I think we could make non powers of 2 work fine, maybe
-      we can remove this restriction
+      {#syntax#}T{#endsyntax#} must be a {#syntax#}bool{#endsyntax#}, a float,
+      an integer or an enum.
       </p>
       {#header_close#}
       {#header_open|@atomicRmw#}
@@ -6744,17 +6738,8 @@ async fn func(y: *i32) void {
       This builtin function atomically modifies memory and then returns the previous value.
       </p>
       <p>
-      {#syntax#}T{#endsyntax#} must be a pointer type, a {#syntax#}bool{#endsyntax#},
-      or an integer whose bit count meets these requirements:
-      </p>
-      <ul>
-          <li>At least 8</li>
-          <li>At most the same as usize</li>
-          <li>Power of 2</li>
-      </ul>
-      <p>
-      TODO right now bool is not accepted. Also I think we could make non powers of 2 work fine, maybe
-      we can remove this restriction
+      {#syntax#}T{#endsyntax#} must be a {#syntax#}bool{#endsyntax#}, a float,
+      an integer or an enum.
       </p>
       <p>
       Supported operations:
@@ -6779,17 +6764,8 @@ async fn func(y: *i32) void {
       This builtin function atomically stores a value.
       </p>
       <p>
-      {#syntax#}T{#endsyntax#} must be a pointer type, a {#syntax#}bool{#endsyntax#}, a float,
-      an integer whose bit count meets these requirements:
-      </p>
-      <ul>
-          <li>At least 8</li>
-          <li>At most the same as usize</li>
-          <li>Power of 2</li>
-      </ul> or an enum with a valid integer tag type.
-      <p>
-      TODO right now bool is not accepted. Also I think we could make non powers of 2 work fine, maybe
-      we can remove this restriction
+      {#syntax#}T{#endsyntax#} must be a {#syntax#}bool{#endsyntax#}, a float,
+      an integer or an enum.
       </p>
       {#header_close#}
       {#header_open|@bitCast#}
@@ -7105,7 +7081,8 @@ fn cmpxchgStrongButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_v
       more efficiently in machine instructions.
       </p>
       <p>
-      {#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("builtin").AtomicOrder{#endsyntax#}.
+      {#syntax#}T{#endsyntax#} must be a {#syntax#}bool{#endsyntax#}, a float,
+      an integer or an enum.
       </p>
       <p>{#syntax#}@TypeOf(ptr).alignment{#endsyntax#} must be {#syntax#}>= @sizeOf(T).{#endsyntax#}</p>
       {#see_also|Compile Variables|cmpxchgWeak#}
@@ -7133,7 +7110,8 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       However if you need a stronger guarantee, use {#link|@cmpxchgStrong#}.
       </p>
       <p>
-      {#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("builtin").AtomicOrder{#endsyntax#}.
+      {#syntax#}T{#endsyntax#} must be a {#syntax#}bool{#endsyntax#}, a float,
+      an integer or an enum.
       </p>
       <p>{#syntax#}@TypeOf(ptr).alignment{#endsyntax#} must be {#syntax#}>= @sizeOf(T).{#endsyntax#}</p>
       {#see_also|Compile Variables|cmpxchgStrong#}
@@ -7278,11 +7256,13 @@ test "main" {
       {#see_also|@divFloor|@divExact#}
       {#header_close#}
       {#header_open|@embedFile#}
-      <pre>{#syntax#}@embedFile(comptime path: []const u8) [X]u8{#endsyntax#}</pre>
+      <pre>{#syntax#}@embedFile(comptime path: []const u8) *const [X:0]u8{#endsyntax#}</pre>
       <p>
-      This function returns a compile time constant fixed-size array with length
-      equal to the byte count of the file given by {#syntax#}path{#endsyntax#}. The contents of the array
-      are the contents of the file.
+      This function returns a compile time constant pointer to null-terminated,
+      fixed-size array with length equal to the byte count of the file given by
+      {#syntax#}path{#endsyntax#}. The contents of the array are the contents of the file.
+      This is equivalent to a {#link|string literal|String Literals and Character Literals#}
+      with the file contents.
       </p>
       <p>
       {#syntax#}path{#endsyntax#} is absolute or relative to the current file, just like {#syntax#}@import{#endsyntax#}.
@@ -8368,12 +8348,14 @@ test "integer truncation" {
       {#header_close#}
 
       {#header_open|@TypeOf#}
-      <pre>{#syntax#}@TypeOf(expression) type{#endsyntax#}</pre>
+      <pre>{#syntax#}@TypeOf(...) type{#endsyntax#}</pre>
       <p>
-      This function returns a compile-time constant, which is the type of the
-      expression passed as an argument. The expression is evaluated.
+      {#syntax#}@TypeOf{#endsyntax#} is a special builtin function that takes any (nonzero) number of expressions
+      as parameters and returns the type of the result, using {#link|Peer Type Resolution#}.
       </p>
-      <p>{#syntax#}@TypeOf{#endsyntax#} guarantees no run-time side-effects within the expression:</p>
+      <p>
+      The expressions are evaluated, however they are guaranteed to have no <em>runtime</em> side-effects:
+      </p>
       {#code_begin|test#}
 const std = @import("std");
 const assert = std.debug.assert;

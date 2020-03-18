@@ -25,7 +25,7 @@ extern "C" {
 #ifdef _MSVCRT_
 #define __pctype_func()	(_pctype)
 #else
-#if __MSVCRT_VERSION__ >= 0x1400
+#ifdef _UCRT
   _CRTIMP unsigned short* __pctype_func(void);
 #else
 #define __pctype_func()	(* __MINGW_IMP_SYMBOL(_pctype))
@@ -37,7 +37,7 @@ extern "C" {
 #ifdef _MSVCRT_
   extern unsigned short *_pctype;
 #else
-#if __MSVCRT_VERSION__ >= 0x1400
+#ifdef _UCRT
 #define _pctype (__pctype_func())
 #else
   extern unsigned short ** __MINGW_IMP_SYMBOL(_pctype);
@@ -199,7 +199,7 @@ int __cdecl iswblank(wint_t _C);
   extern int __mb_cur_max;
 #define __mb_cur_max	__mb_cur_max
 #else
-#if __MSVCRT_VERSION__ < 0x1400
+#ifndef _UCRT
   extern int * __MINGW_IMP_SYMBOL(__mb_cur_max);
 #endif
 #define __mb_cur_max	(___mb_cur_max_func())
@@ -209,8 +209,13 @@ _CRTIMP int __cdecl ___mb_cur_max_func(void);
 #endif
 
 #define __chvalidchk(a,b) (__PCTYPE_FUNC[(unsigned char)(a)] & (b))
+#ifdef _UCRT
+#define _chvalidchk_l(_Char,_Flag,_Locale) (!_Locale ? __chvalidchk(_Char,_Flag) : ((_locale_t)_Locale)->locinfo->_locale_pctype[(unsigned char)(_Char)] & (_Flag))
+#define _ischartype_l(_Char,_Flag,_Locale) (((_Locale)!=NULL && (((_locale_t)(_Locale))->locinfo->_locale_mb_cur_max) > 1) ? _isctype_l(_Char,(_Flag),_Locale) : _chvalidchk_l(_Char,_Flag,_Locale))
+#else
 #define _chvalidchk_l(_Char,_Flag,_Locale) (!_Locale ? __chvalidchk(_Char,_Flag) : ((_locale_t)_Locale)->locinfo->pctype[(unsigned char)(_Char)] & (_Flag))
 #define _ischartype_l(_Char,_Flag,_Locale) (((_Locale)!=NULL && (((_locale_t)(_Locale))->locinfo->mb_cur_max) > 1) ? _isctype_l(_Char,(_Flag),_Locale) : _chvalidchk_l(_Char,_Flag,_Locale))
+#endif
 #define _isalpha_l(_Char,_Locale) _ischartype_l(_Char,_ALPHA,_Locale)
 #define _isupper_l(_Char,_Locale) _ischartype_l(_Char,_UPPER,_Locale)
 #define _islower_l(_Char,_Locale) _ischartype_l(_Char,_LOWER,_Locale)

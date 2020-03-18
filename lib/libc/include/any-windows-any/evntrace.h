@@ -90,6 +90,7 @@ typedef ULONG64 TRACEHANDLE,*PTRACEHANDLE;
 #define TRACE_LEVEL_RESERVED9 9
 
 #define EVENT_TRACE_TYPE_LOAD 0x0a
+#define EVENT_TRACE_TYPE_TERMINATE 0x0b
 
 #define EVENT_TRACE_TYPE_IO_READ 0x0a
 #define EVENT_TRACE_TYPE_IO_WRITE 0x0b
@@ -168,6 +169,13 @@ typedef ULONG64 TRACEHANDLE,*PTRACEHANDLE;
 #define EVENT_TRACE_TYPE_CONFIG_PROCESSORGROUP 0x1a
 #define EVENT_TRACE_TYPE_CONFIG_PROCESSORNUMBER 0x1b
 #define EVENT_TRACE_TYPE_CONFIG_DPI 0x1c
+#define EVENT_TRACE_TYPE_CONFIG_CI_INFO 0x1d
+#define EVENT_TRACE_TYPE_CONFIG_MACHINEID 0x1e
+#define EVENT_TRACE_TYPE_CONFIG_DEFRAG 0x1f
+#define EVENT_TRACE_TYPE_CONFIG_MOBILEPLATFORM 0x20
+#define EVENT_TRACE_TYPE_CONFIG_DEVICEFAMILY 0x21
+#define EVENT_TRACE_TYPE_CONFIG_FLIGHTID 0x22
+#define EVENT_TRACE_TYPE_CONFIG_PROCESSOR 0x23
 
 #define EVENT_TRACE_TYPE_OPTICAL_IO_READ 0x37
 #define EVENT_TRACE_TYPE_OPTICAL_IO_WRITE 0x38
@@ -219,6 +227,9 @@ typedef ULONG64 TRACEHANDLE,*PTRACEHANDLE;
 #define EVENT_TRACE_FLAG_VAMAP 0x00008000
 #define EVENT_TRACE_FLAG_NO_SYSCONFIG 0x10000000
 
+#define EVENT_TRACE_FLAG_JOB 0x00080000
+#define EVENT_TRACE_FLAG_DEBUG_EVENTS 0x00400000
+
 #define EVENT_TRACE_FLAG_EXTENSION 0x80000000
 #define EVENT_TRACE_FLAG_FORWARD_WMI 0x40000000
 #define EVENT_TRACE_FLAG_ENABLE_RESERVE 0x20000000
@@ -257,10 +268,14 @@ typedef ULONG64 TRACEHANDLE,*PTRACEHANDLE;
 #define EVENT_TRACE_STOP_ON_HYBRID_SHUTDOWN 0x00400000
 #define EVENT_TRACE_PERSIST_ON_HYBRID_SHUTDOWN 0x00800000
 
+#define EVENT_TRACE_INDEPENDENT_SESSION_MODE 0x08000000
+#define EVENT_TRACE_COMPRESSED_MODE 0x04000000
+
 #define EVENT_TRACE_CONTROL_QUERY 0
 #define EVENT_TRACE_CONTROL_STOP 1
 #define EVENT_TRACE_CONTROL_UPDATE 2
 #define EVENT_TRACE_CONTROL_FLUSH 3
+#define EVENT_TRACE_CONTROL_INCREMENT_FILE 4
 
 #define TRACE_MESSAGE_SEQUENCE 1
 #define TRACE_MESSAGE_GUID 2
@@ -284,6 +299,12 @@ typedef ULONG64 TRACEHANDLE,*PTRACEHANDLE;
 #define TRACE_HEADER_FLAG_LOG_WNODE 0x00040000
 #define TRACE_HEADER_FLAG_USE_GUID_PTR 0x00080000
 #define TRACE_HEADER_FLAG_USE_MOF_PTR 0x00100000
+
+typedef enum {
+  EtwCompressionModeRestart = 0,
+  EtwCompressionModeNoDisable = 1,
+  EtwCompressionModeNoRestart = 2
+} ETW_COMPRESSION_RESUMPTION_MODE;
 
 typedef struct _EVENT_TRACE_HEADER {
   USHORT Size;
@@ -538,6 +559,9 @@ typedef struct EVENT_INSTANCE_INFO {
 } EVENT_INSTANCE_INFO,*PEVENT_INSTANCE_INFO;
 
 #ifndef _EVNTRACE_KERNEL_MODE
+
+typedef struct _EVENT_FILTER_DESCRIPTOR EVENT_FILTER_DESCRIPTOR, *PEVENT_FILTER_DESCRIPTOR;
+
 typedef struct _EVENT_TRACE_PROPERTIES {
   WNODE_HEADER Wnode;
   ULONG BufferSize;
@@ -558,6 +582,45 @@ typedef struct _EVENT_TRACE_PROPERTIES {
   ULONG LogFileNameOffset;
   ULONG LoggerNameOffset;
 } EVENT_TRACE_PROPERTIES,*PEVENT_TRACE_PROPERTIES;
+
+typedef struct _EVENT_TRACE_PROPERTIES_V2 {
+  WNODE_HEADER Wnode;
+  ULONG BufferSize;
+  ULONG MinimumBuffers;
+  ULONG MaximumBuffers;
+  ULONG MaximumFileSize;
+  ULONG LogFileMode;
+  ULONG FlushTimer;
+  ULONG EnableFlags;
+  __C89_NAMELESS union {
+      LONG  AgeLimit;
+      LONG  FlushThreshold;
+  };
+  ULONG NumberOfBuffers;
+  ULONG FreeBuffers;
+  ULONG EventsLost;
+  ULONG BuffersWritten;
+  ULONG LogBuffersLost;
+  ULONG RealTimeBuffersLost;
+  HANDLE LoggerThreadId;
+  ULONG LogFileNameOffset;
+  ULONG LoggerNameOffset;
+  __C89_NAMELESS union {
+      __C89_NAMELESS struct {
+          ULONG VersionNumber : 8;
+      };
+      ULONG V2Control;
+  };
+  ULONG FilterDescCount;
+  PEVENT_FILTER_DESCRIPTOR FilterDesc;
+  __C89_NAMELESS union {
+      __C89_NAMELESS struct {
+          ULONG Wow : 1;
+          ULONG QpcDeltaTracking : 1;
+      };
+      ULONG64 V2Options;
+  };
+} EVENT_TRACE_PROPERTIES_V2, *PEVENT_TRACE_PROPERTIES_V2;
 
 typedef struct _TRACE_GUID_REGISTRATION {
   LPCGUID Guid;
@@ -721,8 +784,9 @@ extern "C" {
 #endif
 
 #define ENABLE_TRACE_PARAMETERS_VERSION 1
+#define ENABLE_TRACE_PARAMETERS_VERSION_2 2
 
-  typedef enum _TRACE_QUERY_INFO_CLASS {
+typedef enum _TRACE_QUERY_INFO_CLASS {
     TraceGuidQueryList,
     TraceGuidQueryInfo,
     TraceGuidQueryProcess,
@@ -733,30 +797,60 @@ extern "C" {
     TraceProfileSourceListInfo,
     TracePmcEventListInfo,
     TracePmcCounterListInfo,
+    TraceSetDisallowList,
+    TraceVersionInfo,
+    TraceGroupQueryList,
+    TraceGroupQueryInfo,
+    TraceDisallowListQuery,
+    TraceCompressionInfo,
+    TracePeriodicCaptureStateListInfo,
+    TracePeriodicCaptureStateInfo,
+    TraceProviderBinaryTracking,
+    TraceMaxLoggersQuery,
     MaxTraceSetInfoClass
-  } TRACE_QUERY_INFO_CLASS, TRACE_INFO_CLASS;
+} TRACE_QUERY_INFO_CLASS, TRACE_INFO_CLASS;
 
-  typedef struct _EVENT_FILTER_DESCRIPTOR EVENT_FILTER_DESCRIPTOR,*PEVENT_FILTER_DESCRIPTOR;
+typedef struct _EVENT_FILTER_DESCRIPTOR EVENT_FILTER_DESCRIPTOR,*PEVENT_FILTER_DESCRIPTOR;
 
-  typedef struct _ENABLE_TRACE_PARAMETERS {
-    ULONG Version;
-    ULONG EnableProperty;
-    ULONG ControlFlags;
-    GUID SourceId;
+typedef struct _ENABLE_TRACE_PARAMETERS_V1 {
+    ULONG                    Version;
+    ULONG                    EnableProperty;
+    ULONG                    ControlFlags;
+    GUID                     SourceId;
     PEVENT_FILTER_DESCRIPTOR EnableFilterDesc;
-  } ENABLE_TRACE_PARAMETERS,*PENABLE_TRACE_PARAMETERS;
+} ENABLE_TRACE_PARAMETERS_V1, *PENABLE_TRACE_PARAMETERS_V1;
 
-  /*To enable the read event type for disk IO events, set GUID to 3d6fa8d4-fe05-11d0-9dda-00c04fd7ba7c and Type to 10.*/
-  typedef struct _CLASSIC_EVENT_ID {
-    GUID EventGuid;
+typedef struct _ENABLE_TRACE_PARAMETERS {
+    ULONG                    Version;
+    ULONG                    EnableProperty;
+    ULONG                    ControlFlags;
+    GUID                     SourceId;
+    PEVENT_FILTER_DESCRIPTOR EnableFilterDesc;
+    ULONG                    FilterDescCount;
+} ENABLE_TRACE_PARAMETERS, *PENABLE_TRACE_PARAMETERS;
+
+/*To enable the read event type for disk IO events, set GUID to 3d6fa8d4-fe05-11d0-9dda-00c04fd7ba7c and Type to 10.*/
+typedef struct _CLASSIC_EVENT_ID {
+    GUID  EventGuid;
     UCHAR Type;
     UCHAR Reserved[7];
-  } CLASSIC_EVENT_ID,*PCLASSIC_EVENT_ID;
+} CLASSIC_EVENT_ID, *PCLASSIC_EVENT_ID;
 
-  typedef struct _TRACE_PROFILE_INTERVAL {
+typedef struct _TRACE_PROFILE_INTERVAL {
     ULONG Source;
     ULONG Interval;
-  } TRACE_PROFILE_INTERVAL,*PTRACE_PROFILE_INTERVAL;
+} TRACE_PROFILE_INTERVAL, *PTRACE_PROFILE_INTERVAL;
+
+typedef struct _TRACE_VERSION_INFO {
+    UINT EtwTraceProcessingVersion;
+    UINT Reserved;
+} TRACE_VERSION_INFO, *PTRACE_VERSION_INFO;
+
+typedef struct _TRACE_PERIODIC_CAPTURE_STATE_INFO {
+    ULONG CaptureStateFrequencyInSeconds;
+    USHORT ProviderCount;
+    USHORT Reserved;
+} TRACE_PERIODIC_CAPTURE_STATE_INFO, *PTRACE_PERIODIC_CAPTURE_STATE_INFO;
 
 #if WINAPI_FAMILY_PARTITION (WINAPI_PARTITION_DESKTOP)
   EXTERN_C ULONG WMIAPI StartTraceA (PTRACEHANDLE TraceHandle, LPCSTR InstanceName, PEVENT_TRACE_PROPERTIES Properties);
@@ -791,9 +885,22 @@ extern "C" {
 #if WINVER >= 0x0602
   EXTERN_C ULONG WMIAPI TraceQueryInformation (TRACEHANDLE SessionHandle, TRACE_INFO_CLASS InformationClass, PVOID TraceInformation, ULONG InformationLength, PULONG ReturnLength);
 #endif
-#endif
+#endif /* WINAPI_PARTITION_DESKTOP */
 
 #if WINAPI_FAMILY_PARTITION (WINAPI_PARTITION_APP)
+
+typedef enum _ETW_PROCESS_HANDLE_INFO_TYPE {
+    EtwQueryPartitionInformation = 1,
+    EtwQueryProcessHandleInfoMax
+} ETW_PROCESS_HANDLE_INFO_TYPE;
+
+typedef struct _ETW_TRACE_PARTITION_INFORMATION {
+    GUID PartitionId;
+    GUID ParentId;
+    LONG64 QpcOffsetFromRoot;
+    ULONG PartitionType;
+} ETW_TRACE_PARTITION_INFORMATION, *PETW_TRACE_PARTITION_INFORMATION;
+
   EXTERN_C ULONG WMIAPI StartTraceW (PTRACEHANDLE TraceHandle, LPCWSTR InstanceName, PEVENT_TRACE_PROPERTIES Properties);
   EXTERN_C ULONG WMIAPI StopTraceW (TRACEHANDLE TraceHandle, LPCWSTR InstanceName, PEVENT_TRACE_PROPERTIES Properties);
   EXTERN_C ULONG WMIAPI QueryTraceW (TRACEHANDLE TraceHandle, LPCWSTR InstanceName, PEVENT_TRACE_PROPERTIES Properties);
@@ -806,7 +913,8 @@ extern "C" {
   EXTERN_C UCHAR WMIAPI GetTraceEnableLevel (TRACEHANDLE TraceHandle);
   EXTERN_C ULONG WMIAPI GetTraceEnableFlags (TRACEHANDLE TraceHandle);
   EXTERN_C ULONG __cdecl TraceMessage (TRACEHANDLE LoggerHandle, ULONG MessageFlags, LPCGUID MessageGuid, USHORT MessageNumber,...);
-#endif
+  EXTERN_C ULONG WMIAPI QueryTraceProcessingHandle (TRACEHANDLE ProcessingHandle, ETW_PROCESS_HANDLE_INFO_TYPE InformationClass, PVOID InBuffer, ULONG InBufferSize, PVOID OutBuffer, ULONG OutBufferSize, PULONG ReturnLength);
+#endif /* WINAPI_PARTITION_APP */
 
 #ifdef __cplusplus
 }

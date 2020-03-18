@@ -1,6 +1,6 @@
 #include <math.h>
 
-#ifdef _SOFT_FLOAT
+#if defined(_SOFT_FLOAT) || defined(BROKEN_PPC_D_ASM)
 
 #include "../fabs.c"
 

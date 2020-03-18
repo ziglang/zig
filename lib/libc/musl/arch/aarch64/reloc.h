@@ -1,5 +1,3 @@
-#include <endian.h>
-
 #if __BYTE_ORDER == __BIG_ENDIAN
 #define ENDIAN_SUFFIX "_be"
 #else

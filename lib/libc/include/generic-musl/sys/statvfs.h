@@ -11,8 +11,6 @@ extern "C" {
 #define __NEED_fsfilcnt_t
 #include <bits/alltypes.h>
 
-#include <endian.h>
-
 struct statvfs {
 	unsigned long f_bsize, f_frsize;
 	fsblkcnt_t f_blocks, f_bfree, f_bavail;

@@ -5,6 +5,14 @@
  */
 #include "cephes_mconf.h"
 
+#if defined(__arm__) || defined(_ARM_) || defined(__aarch64__) || defined(_ARM64_)
+double tgamma(double x);
+
+long double tgammal(long double x)
+{
+	return tgamma(x);
+}
+#else
 /*
 gamma(x+2)  = gamma(x+2) P(x)/Q(x)
 0 <= x <= 1
@@ -272,7 +280,7 @@ long double __tgammal_r(long double x, int* sgngaml)
 	*sgngaml = 1;
 #ifdef NANS
 	if (isnanl(x))
-		return (NANL);
+		return x;
 #endif
 #ifdef INFINITIES
 #ifdef NANS
@@ -285,6 +293,9 @@ long double __tgammal_r(long double x, int* sgngaml)
 		return (x);
 #endif
 #endif
+	if (x == 0.0L)
+		return copysignl(HUGE_VALL, x);
+
 	q = fabsl(x);
 
 	if (q > 13.0L)
@@ -299,8 +310,8 @@ long double __tgammal_r(long double x, int* sgngaml)
 gsing:
 				_SET_ERRNO(EDOM);
 				mtherr("tgammal", SING);
-#ifdef INFINITIES
-				return (INFINITYL);
+#ifdef NANS
+				return (NAN);
 #else
 				return (*sgngaml * MAXNUML);
 #endif
@@ -390,4 +401,4 @@ long double tgammal(long double x)
 	int local_sgngaml = 0;
 	return (__tgammal_r(x, &local_sgngaml));
 }
-
+#endif

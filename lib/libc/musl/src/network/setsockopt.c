@@ -31,6 +31,15 @@ int setsockopt(int fd, int level, int optname, const void *optval, socklen_t opt
 
 			r = __socketcall(setsockopt, fd, level, optname,
 				((long[]){s, CLAMP(us)}), 2*sizeof(long), 0);
+			break;
+		case SO_TIMESTAMP:
+		case SO_TIMESTAMPNS:
+			if (SO_TIMESTAMP == SO_TIMESTAMP_OLD) break;
+			if (optname==SO_TIMESTAMP) optname=SO_TIMESTAMP_OLD;
+			if (optname==SO_TIMESTAMPNS) optname=SO_TIMESTAMPNS_OLD;
+			r = __socketcall(setsockopt, fd, level,
+				optname, optval, optlen, 0);
+			break;
 		}
 	}
 	return __syscall_ret(r);

@@ -30,11 +30,11 @@ pub fn WriteStream(comptime OutStream: type, comptime max_depth: usize) type {
         /// The string used as spacing.
         space: []const u8 = " ",
 
-        stream: *OutStream,
+        stream: OutStream,
         state_index: usize,
         state: [max_depth]State,
 
-        pub fn init(stream: *OutStream) Self {
+        pub fn init(stream: OutStream) Self {
             var self = Self{
                 .stream = stream,
                 .state_index = 1,
@@ -90,8 +90,8 @@ pub fn WriteStream(comptime OutStream: type, comptime max_depth: usize) type {
                     self.pushState(.Value);
                     try self.indent();
                     try self.writeEscapedString(name);
-                    try self.stream.write(":");
-                    try self.stream.write(self.space);
+                    try self.stream.writeAll(":");
+                    try self.stream.writeAll(self.space);
                 },
             }
         }
@@ -134,16 +134,16 @@ pub fn WriteStream(comptime OutStream: type, comptime max_depth: usize) type {
 
         pub fn emitNull(self: *Self) !void {
             assert(self.state[self.state_index] == State.Value);
-            try self.stream.write("null");
+            try self.stream.writeAll("null");
             self.popState();
         }
 
         pub fn emitBool(self: *Self, value: bool) !void {
             assert(self.state[self.state_index] == State.Value);
             if (value) {
-                try self.stream.write("true");
+                try self.stream.writeAll("true");
             } else {
-                try self.stream.write("false");
+                try self.stream.writeAll("false");
             }
             self.popState();
         }
@@ -188,13 +188,13 @@ pub fn WriteStream(comptime OutStream: type, comptime max_depth: usize) type {
             try self.stream.writeByte('"');
             for (string) |s| {
                 switch (s) {
-                    '"' => try self.stream.write("\\\""),
-                    '\t' => try self.stream.write("\\t"),
-                    '\r' => try self.stream.write("\\r"),
-                    '\n' => try self.stream.write("\\n"),
-                    8 => try self.stream.write("\\b"),
-                    12 => try self.stream.write("\\f"),
-                    '\\' => try self.stream.write("\\\\"),
+                    '"' => try self.stream.writeAll("\\\""),
+                    '\t' => try self.stream.writeAll("\\t"),
+                    '\r' => try self.stream.writeAll("\\r"),
+                    '\n' => try self.stream.writeAll("\\n"),
+                    8 => try self.stream.writeAll("\\b"),
+                    12 => try self.stream.writeAll("\\f"),
+                    '\\' => try self.stream.writeAll("\\\\"),
                     else => try self.stream.writeByte(s),
                 }
             }
@@ -231,10 +231,10 @@ pub fn WriteStream(comptime OutStream: type, comptime max_depth: usize) type {
 
         fn indent(self: *Self) !void {
             assert(self.state_index >= 1);
-            try self.stream.write(self.newline);
+            try self.stream.writeAll(self.newline);
             var i: usize = 0;
             while (i < self.state_index - 1) : (i += 1) {
-                try self.stream.write(self.one_indent);
+                try self.stream.writeAll(self.one_indent);
             }
         }
 
@@ -249,15 +249,22 @@ pub fn WriteStream(comptime OutStream: type, comptime max_depth: usize) type {
     };
 }
 
+pub fn writeStream(
+    out_stream: var,
+    comptime max_depth: usize,
+) WriteStream(@TypeOf(out_stream), max_depth) {
+    return WriteStream(@TypeOf(out_stream), max_depth).init(out_stream);
+}
+
 test "json write stream" {
     var out_buf: [1024]u8 = undefined;
-    var slice_stream = std.io.SliceOutStream.init(&out_buf);
-    const out = &slice_stream.stream;
+    var slice_stream = std.io.fixedBufferStream(&out_buf);
+    const out = slice_stream.outStream();
 
     var arena_allocator = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_allocator.deinit();
 
-    var w = std.json.WriteStream(@TypeOf(out).Child, 10).init(out);
+    var w = std.json.writeStream(out, 10);
     try w.emitJson(try getJson(&arena_allocator.allocator));
 
     const result = slice_stream.getWritten();

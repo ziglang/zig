@@ -225,6 +225,10 @@ pub const FILE_POSITION_INFORMATION = extern struct {
     CurrentByteOffset: LARGE_INTEGER,
 };
 
+pub const FILE_END_OF_FILE_INFORMATION = extern struct {
+    EndOfFile: LARGE_INTEGER,
+};
+
 pub const FILE_MODE_INFORMATION = extern struct {
     Mode: ULONG,
 };
@@ -234,6 +238,13 @@ pub const FILE_ALIGNMENT_INFORMATION = extern struct {
 };
 
 pub const FILE_NAME_INFORMATION = extern struct {
+    FileNameLength: ULONG,
+    FileName: [1]WCHAR,
+};
+
+pub const FILE_RENAME_INFORMATION = extern struct {
+    ReplaceIfExists: BOOLEAN,
+    RootDirectory: ?HANDLE,
     FileNameLength: ULONG,
     FileName: [1]WCHAR,
 };
@@ -1153,6 +1164,19 @@ const FLS_CALLBACK_INFO = @OpaqueType();
 const RTL_BITMAP = @OpaqueType();
 pub const PRTL_BITMAP = *RTL_BITMAP;
 const KAFFINITY = usize;
+
+pub const TEB = extern struct {
+    Reserved1: [12]PVOID,
+    ProcessEnvironmentBlock: *PEB,
+    Reserved2: [399]PVOID,
+    Reserved3: [1952]u8,
+    TlsSlots: [64]PVOID,
+    Reserved4: [8]u8,
+    Reserved5: [26]PVOID,
+    ReservedForOle: PVOID,
+    Reserved6: [4]PVOID,
+    TlsExpansionSlots: PVOID,
+};
 
 /// Process Environment Block
 /// Microsoft documentation of this is incomplete, the fields here are taken from various resources including:

@@ -14,11 +14,6 @@ const io = std.io;
 const sort = std.sort;
 const warn = std.debug.warn;
 
-const BinOutStream = io.OutStream(anyerror);
-const BinSeekStream = io.SeekableStream(anyerror, anyerror);
-const ElfSeekStream = io.SeekableStream(anyerror, anyerror);
-const ElfInStream = io.InStream(anyerror);
-
 const BinaryElfSection = struct {
     elfOffset: u64,
     binaryOffset: u64,
@@ -41,22 +36,19 @@ const BinaryElfOutput = struct {
 
     const Self = @This();
 
-    pub fn init(allocator: *Allocator) Self {
-        return Self{
-            .segments = ArrayList(*BinaryElfSegment).init(allocator),
-            .sections = ArrayList(*BinaryElfSection).init(allocator),
-        };
-    }
-
     pub fn deinit(self: *Self) void {
         self.sections.deinit();
         self.segments.deinit();
     }
 
-    pub fn parseElf(self: *Self, elfFile: elf.Elf) !void {
-        const allocator = self.segments.allocator;
+    pub fn parse(allocator: *Allocator, elf_file: File) !Self {
+        var self: Self = .{
+            .segments = ArrayList(*BinaryElfSegment).init(allocator),
+            .sections = ArrayList(*BinaryElfSection).init(allocator),
+        };
+        const elf_hdrs = try std.elf.readAllHeaders(allocator, elf_file);
 
-        for (elfFile.section_headers) |section, i| {
+        for (elf_hdrs.section_headers) |section, i| {
             if (sectionValidForOutput(section)) {
                 const newSection = try allocator.create(BinaryElfSection);
 
@@ -69,19 +61,19 @@ const BinaryElfOutput = struct {
             }
         }
 
-        for (elfFile.program_headers) |programHeader, i| {
-            if (programHeader.p_type == elf.PT_LOAD) {
+        for (elf_hdrs.program_headers) |phdr, i| {
+            if (phdr.p_type == elf.PT_LOAD) {
                 const newSegment = try allocator.create(BinaryElfSegment);
 
-                newSegment.physicalAddress = if (programHeader.p_paddr != 0) programHeader.p_paddr else programHeader.p_vaddr;
-                newSegment.virtualAddress = programHeader.p_vaddr;
-                newSegment.fileSize = @intCast(usize, programHeader.p_filesz);
-                newSegment.elfOffset = programHeader.p_offset;
+                newSegment.physicalAddress = if (phdr.p_paddr != 0) phdr.p_paddr else phdr.p_vaddr;
+                newSegment.virtualAddress = phdr.p_vaddr;
+                newSegment.fileSize = @intCast(usize, phdr.p_filesz);
+                newSegment.elfOffset = phdr.p_offset;
                 newSegment.binaryOffset = 0;
                 newSegment.firstSection = null;
 
                 for (self.sections.toSlice()) |section| {
-                    if (sectionWithinSegment(section, programHeader)) {
+                    if (sectionWithinSegment(section, phdr)) {
                         if (section.segment) |sectionSegment| {
                             if (sectionSegment.elfOffset > newSegment.elfOffset) {
                                 section.segment = newSegment;
@@ -126,14 +118,17 @@ const BinaryElfOutput = struct {
         }
 
         sort.sort(*BinaryElfSection, self.sections.toSlice(), sectionSortCompare);
+
+        return self;
     }
 
-    fn sectionWithinSegment(section: *BinaryElfSection, segment: elf.ProgramHeader) bool {
+    fn sectionWithinSegment(section: *BinaryElfSection, segment: elf.Elf64_Phdr) bool {
         return segment.p_offset <= section.elfOffset and (segment.p_offset + segment.p_filesz) >= (section.elfOffset + section.fileSize);
     }
 
-    fn sectionValidForOutput(section: elf.SectionHeader) bool {
-        return section.sh_size > 0 and section.sh_type != elf.SHT_NOBITS and ((section.sh_flags & elf.SHF_ALLOC) == elf.SHF_ALLOC);
+    fn sectionValidForOutput(shdr: var) bool {
+        return shdr.sh_size > 0 and shdr.sh_type != elf.SHT_NOBITS and
+            ((shdr.sh_flags & elf.SHF_ALLOC) == elf.SHF_ALLOC);
     }
 
     fn segmentSortCompare(left: *BinaryElfSegment, right: *BinaryElfSegment) bool {
@@ -151,60 +146,27 @@ const BinaryElfOutput = struct {
     }
 };
 
-const WriteContext = struct {
-    inStream: *ElfInStream,
-    inSeekStream: *ElfSeekStream,
-    outStream: *BinOutStream,
-    outSeekStream: *BinSeekStream,
-};
+fn writeBinaryElfSection(elf_file: File, out_file: File, section: *BinaryElfSection) !void {
+    try out_file.seekTo(section.binaryOffset);
 
-fn writeBinaryElfSection(allocator: *Allocator, context: WriteContext, section: *BinaryElfSection) !void {
-    var readBuffer = try allocator.alloc(u8, section.fileSize);
-    defer allocator.free(readBuffer);
-
-    try context.inSeekStream.seekTo(section.elfOffset);
-    _ = try context.inStream.read(readBuffer);
-
-    try context.outSeekStream.seekTo(section.binaryOffset);
-    try context.outStream.write(readBuffer);
+    try out_file.writeFileAll(elf_file, .{
+        .in_offset = section.elfOffset,
+        .in_len = section.fileSize,
+    });
 }
 
-fn emit_raw(allocator: *Allocator, elf_path: []const u8, raw_path: []const u8) !void {
-    var arenaAlloc = ArenaAllocator.init(allocator);
-    errdefer arenaAlloc.deinit();
-    var arena_allocator = &arenaAlloc.allocator;
+fn emitRaw(allocator: *Allocator, elf_path: []const u8, raw_path: []const u8) !void {
+    var elf_file = try fs.cwd().openFile(elf_path, .{});
+    defer elf_file.close();
 
-    const currentDir = fs.cwd();
+    var out_file = try fs.cwd().createFile(raw_path, .{});
+    defer out_file.close();
 
-    var file = try currentDir.openFile(elf_path, File.OpenFlags{});
-    defer file.close();
+    var binary_elf_output = try BinaryElfOutput.parse(allocator, elf_file);
+    defer binary_elf_output.deinit();
 
-    var fileInStream = file.inStream();
-    var fileSeekStream = file.seekableStream();
-
-    var elfFile = try elf.Elf.openStream(allocator, @ptrCast(*ElfSeekStream, &fileSeekStream.stream), @ptrCast(*ElfInStream, &fileInStream.stream));
-    defer elfFile.close();
-
-    var outFile = try currentDir.createFile(raw_path, File.CreateFlags{});
-    defer outFile.close();
-
-    var outFileOutStream = outFile.outStream();
-    var outFileSeekStream = outFile.seekableStream();
-
-    const writeContext = WriteContext{
-        .inStream = @ptrCast(*ElfInStream, &fileInStream.stream),
-        .inSeekStream = @ptrCast(*ElfSeekStream, &fileSeekStream.stream),
-        .outStream = @ptrCast(*BinOutStream, &outFileOutStream.stream),
-        .outSeekStream = @ptrCast(*BinSeekStream, &outFileSeekStream.stream),
-    };
-
-    var binaryElfOutput = BinaryElfOutput.init(arena_allocator);
-    defer binaryElfOutput.deinit();
-
-    try binaryElfOutput.parseElf(elfFile);
-
-    for (binaryElfOutput.sections.toSlice()) |section| {
-        try writeBinaryElfSection(allocator, writeContext, section);
+    for (binary_elf_output.sections.toSlice()) |section| {
+        try writeBinaryElfSection(elf_file, out_file, section);
     }
 }
 
@@ -213,11 +175,11 @@ pub const InstallRawStep = struct {
     builder: *Builder,
     artifact: *LibExeObjStep,
     dest_dir: InstallDir,
-    dest_filename: [] const u8,
+    dest_filename: []const u8,
 
     const Self = @This();
 
-    pub fn create(builder: *Builder, artifact: *LibExeObjStep, dest_filename: [] const u8) *Self {
+    pub fn create(builder: *Builder, artifact: *LibExeObjStep, dest_filename: []const u8) *Self {
         const self = builder.allocator.create(Self) catch unreachable;
         self.* = Self{
             .step = Step.init(builder.fmt("install raw binary {}", .{artifact.step.name}), builder.allocator, make),
@@ -249,7 +211,7 @@ pub const InstallRawStep = struct {
         const full_src_path = self.artifact.getOutputPath();
         const full_dest_path = builder.getInstallPath(self.dest_dir, self.dest_filename);
 
-        fs.makePath(builder.allocator, builder.getInstallPath(self.dest_dir, "")) catch unreachable;
-        try emit_raw(builder.allocator, full_src_path, full_dest_path);
+        fs.cwd().makePath(builder.getInstallPath(self.dest_dir, "")) catch unreachable;
+        try emitRaw(builder.allocator, full_src_path, full_dest_path);
     }
 };

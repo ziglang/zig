@@ -1,6 +1,5 @@
-/* Copyright (C) 1997-2019 Free Software Foundation, Inc.
+/* Copyright (C) 1997-2020 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
-   Contributed by Ralf Baechle <ralf@gnu.org>.
 
    The GNU C Library is free software; you can redistribute it and/or
    modify it under the terms of the GNU Lesser General Public
@@ -14,7 +13,7 @@
 
    You should have received a copy of the GNU Lesser General Public
    License along with the GNU C Library.  If not, see
-   <http://www.gnu.org/licenses/>.  */
+   <https://www.gnu.org/licenses/>.  */
 
 #ifndef _SYS_REGDEF_H
 #define _SYS_REGDEF_H

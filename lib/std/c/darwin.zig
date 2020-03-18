@@ -55,6 +55,22 @@ pub extern "c" fn clock_get_time(clock_serv: clock_serv_t, cur_time: *mach_times
 pub extern "c" fn host_get_clock_service(host: host_t, clock_id: clock_id_t, clock_serv: ?[*]clock_serv_t) kern_return_t;
 pub extern "c" fn mach_port_deallocate(task: ipc_space_t, name: mach_port_name_t) kern_return_t;
 
+pub const sf_hdtr = extern struct {
+    headers: [*]const iovec_const,
+    hdr_cnt: c_int,
+    trailers: [*]const iovec_const,
+    trl_cnt: c_int,
+};
+
+pub extern "c" fn sendfile(
+    in_fd: fd_t,
+    out_fd: fd_t,
+    offset: off_t,
+    len: *off_t,
+    sf_hdtr: ?*sf_hdtr,
+    flags: u32,
+) c_int;
+
 pub fn sigaddset(set: *sigset_t, signo: u5) void {
     set.* |= @as(u32, 1) << (signo - 1);
 }

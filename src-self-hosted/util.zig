@@ -3,8 +3,7 @@ const Target = std.Target;
 const llvm = @import("llvm.zig");
 
 pub fn getDarwinArchString(self: Target) [:0]const u8 {
-    const arch = self.getArch();
-    switch (arch) {
+    switch (self.cpu.arch) {
         .aarch64 => return "arm64",
         .thumb,
         .arm,
@@ -33,4 +32,16 @@ pub fn initializeAllTargets() void {
     llvm.InitializeAllTargetMCs();
     llvm.InitializeAllAsmPrinters();
     llvm.InitializeAllAsmParsers();
+}
+
+pub fn getLLVMTriple(allocator: *std.mem.Allocator, target: std.Target) !std.Buffer {
+    var result = try std.Buffer.initSize(allocator, 0);
+    errdefer result.deinit();
+
+    try result.outStream().print(
+        "{}-unknown-{}-{}",
+        .{ @tagName(target.cpu.arch), @tagName(target.os.tag), @tagName(target.abi) },
+    );
+
+    return result;
 }

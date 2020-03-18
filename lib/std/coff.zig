@@ -56,8 +56,7 @@ pub const Coff = struct {
     pub fn loadHeader(self: *Coff) !void {
         const pe_pointer_offset = 0x3C;
 
-        var file_stream = self.in_file.inStream();
-        const in = &file_stream.stream;
+        const in = self.in_file.inStream();
 
         var magic: [2]u8 = undefined;
         try in.readNoEof(magic[0..]);
@@ -89,11 +88,11 @@ pub const Coff = struct {
             else => return error.InvalidMachine,
         }
 
-        try self.loadOptionalHeader(&file_stream);
+        try self.loadOptionalHeader();
     }
 
-    fn loadOptionalHeader(self: *Coff, file_stream: *File.InStream) !void {
-        const in = &file_stream.stream;
+    fn loadOptionalHeader(self: *Coff) !void {
+        const in = self.in_file.inStream();
         self.pe_header.magic = try in.readIntLittle(u16);
         // For now we're only interested in finding the reference to the .pdb,
         // so we'll skip most of this header, which size is different in 32
@@ -136,8 +135,7 @@ pub const Coff = struct {
         const debug_dir = &self.pe_header.data_directory[DEBUG_DIRECTORY];
         const file_offset = debug_dir.virtual_address - header.virtual_address + header.pointer_to_raw_data;
 
-        var file_stream = self.in_file.inStream();
-        const in = &file_stream.stream;
+        const in = self.in_file.inStream();
         try self.in_file.seekTo(file_offset);
 
         // Find the correct DebugDirectoryEntry, and where its data is stored.
@@ -188,8 +186,7 @@ pub const Coff = struct {
 
         try self.sections.ensureCapacity(self.coff_header.number_of_sections);
 
-        var file_stream = self.in_file.inStream();
-        const in = &file_stream.stream;
+        const in = self.in_file.inStream();
 
         var name: [8]u8 = undefined;
 

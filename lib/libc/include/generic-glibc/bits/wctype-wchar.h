@@ -1,4 +1,4 @@
-/* Copyright (C) 1996-2019 Free Software Foundation, Inc.
+/* Copyright (C) 1996-2020 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -13,7 +13,7 @@
 
    You should have received a copy of the GNU Lesser General Public
    License along with the GNU C Library; if not, see
-   <http://www.gnu.org/licenses/>.  */
+   <https://www.gnu.org/licenses/>.  */
 
 /*
  *	ISO C99 Standard: 7.25
@@ -42,7 +42,7 @@ typedef unsigned long int wctype_t;
    endian).  We define the bit value interpretations here dependent on the
    machine's byte order.  */
 
-#  include <endian.h>
+#  include <bits/endian.h>
 #  if __BYTE_ORDER == __BIG_ENDIAN
 #   define _ISwbit(bit)	(1 << (bit))
 #  else /* __BYTE_ORDER == __LITTLE_ENDIAN */

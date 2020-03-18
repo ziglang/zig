@@ -763,7 +763,7 @@ pub const Builder = struct {
     }
 
     pub fn makePath(self: *Builder, path: []const u8) !void {
-        fs.makePath(self.allocator, self.pathFromRoot(path)) catch |err| {
+        fs.cwd().makePath(self.pathFromRoot(path)) catch |err| {
             warn("Unable to create path {}: {}\n", .{ path, @errorName(err) });
             return err;
         };
@@ -926,11 +926,8 @@ pub const Builder = struct {
 
         try child.spawn();
 
-        var stdout = std.Buffer.initNull(self.allocator);
-        defer std.Buffer.deinit(&stdout);
-
-        var stdout_file_in_stream = child.stdout.?.inStream();
-        try stdout_file_in_stream.stream.readAllBuffer(&stdout, max_output_size);
+        const stdout = try child.stdout.?.inStream().readAllAlloc(self.allocator, max_output_size);
+        errdefer self.allocator.free(stdout);
 
         const term = try child.wait();
         switch (term) {
@@ -939,7 +936,7 @@ pub const Builder = struct {
                     out_code.* = @truncate(u8, code);
                     return error.ExitCodeFailure;
                 }
-                return stdout.toOwnedSlice();
+                return stdout;
             },
             .Signal, .Stopped, .Unknown => |code| {
                 out_code.* = @truncate(u8, code);
@@ -1160,7 +1157,13 @@ pub const LibExeObjStep = struct {
 
     valgrind_support: ?bool = null,
 
+    /// Create a .eh_frame_hdr section and a PT_GNU_EH_FRAME segment in the ELF
+    /// file.
     link_eh_frame_hdr: bool = false,
+
+    /// Place every function in its own section so that unused ones may be
+    /// safely garbage-collected during the linking phase.
+    link_function_sections: bool = false,
 
     /// Uses system Wine installation to run cross compiled Windows build artifacts.
     enable_wine: bool = false,
@@ -1887,7 +1890,9 @@ pub const LibExeObjStep = struct {
         if (self.link_eh_frame_hdr) {
             try zig_args.append("--eh-frame-hdr");
         }
-
+        if (self.link_function_sections) {
+            try zig_args.append("-ffunction-sections");
+        }
         if (self.single_threaded) {
             try zig_args.append("--single-threaded");
         }
@@ -2147,17 +2152,22 @@ pub const LibExeObjStep = struct {
             try zig_args.append("--cache");
             try zig_args.append("on");
 
-            const output_path_nl = try builder.execFromStep(zig_args.toSliceConst(), &self.step);
-            const output_path = mem.trimRight(u8, output_path_nl, "\r\n");
+            const output_dir_nl = try builder.execFromStep(zig_args.toSliceConst(), &self.step);
+            const build_output_dir = mem.trimRight(u8, output_dir_nl, "\r\n");
 
             if (self.output_dir) |output_dir| {
-                const full_dest = try fs.path.join(builder.allocator, &[_][]const u8{
-                    output_dir,
-                    fs.path.basename(output_path),
-                });
-                try builder.updateFile(output_path, full_dest);
+                var src_dir = try std.fs.cwd().openDirTraverse(build_output_dir);
+                defer src_dir.close();
+
+                var dest_dir = try std.fs.cwd().openDirList(output_dir);
+                defer dest_dir.close();
+
+                var it = src_dir.iterate();
+                while (try it.next()) |entry| {
+                    _ = try src_dir.updateFile(entry.name, dest_dir, entry.name, .{});
+                }
             } else {
-                self.output_dir = fs.path.dirname(output_path).?;
+                self.output_dir = build_output_dir;
             }
         }
 
@@ -2311,7 +2321,7 @@ pub const InstallDirStep = struct {
             const rel_path = entry.path[full_src_dir.len + 1 ..];
             const dest_path = try fs.path.join(self.builder.allocator, &[_][]const u8{ dest_prefix, rel_path });
             switch (entry.kind) {
-                .Directory => try fs.makePath(self.builder.allocator, dest_path),
+                .Directory => try fs.cwd().makePath(dest_path),
                 .File => try self.builder.updateFile(entry.path, dest_path),
                 else => continue,
             }

@@ -1615,6 +1615,16 @@ unsigned ZigClangVarDecl_getAlignedAttribute(const struct ZigClangVarDecl *self,
     return 0;
 }
 
+unsigned ZigClangFieldDecl_getAlignedAttribute(const struct ZigClangFieldDecl *self, const ZigClangASTContext* ctx) {
+    auto casted_self = reinterpret_cast<const clang::FieldDecl *>(self);
+    auto casted_ctx = const_cast<clang::ASTContext *>(reinterpret_cast<const clang::ASTContext *>(ctx));
+    if (const clang::AlignedAttr *AA = casted_self->getAttr<clang::AlignedAttr>()) {
+        return AA->getAlignment(*casted_ctx);
+    }
+    // Zero means no explicit alignment factor was specified
+    return 0;
+}
+
 unsigned ZigClangFunctionDecl_getAlignedAttribute(const struct ZigClangFunctionDecl *self, const ZigClangASTContext* ctx) {
     auto casted_self = reinterpret_cast<const clang::FunctionDecl *>(self);
     auto casted_ctx = const_cast<clang::ASTContext *>(reinterpret_cast<const clang::ASTContext *>(ctx));
@@ -1879,6 +1889,26 @@ bool ZigClangType_isArrayType(const ZigClangType *self) {
 bool ZigClangType_isRecordType(const ZigClangType *self) {
     auto casted = reinterpret_cast<const clang::Type *>(self);
     return casted->isRecordType();
+}
+
+bool ZigClangType_isIncompleteOrZeroLengthArrayType(const ZigClangQualType *self,
+        const struct ZigClangASTContext *ctx)
+{
+    auto casted_ctx = reinterpret_cast<const clang::ASTContext *>(ctx);
+    auto casted = reinterpret_cast<const clang::QualType *>(self);
+    auto casted_type = reinterpret_cast<const clang::Type *>(self);
+    if (casted_type->isIncompleteArrayType())
+        return true;
+
+    clang::QualType elem_type = *casted;   
+    while (const clang::ConstantArrayType *ArrayT = casted_ctx->getAsConstantArrayType(elem_type)) {
+        if (ArrayT->getSize() == 0)
+            return true;
+
+        elem_type = ArrayT->getElementType();
+    }
+
+    return false;
 }
 
 bool ZigClangType_isConstantArrayType(const ZigClangType *self) {

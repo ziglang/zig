@@ -26,6 +26,15 @@ int getsockopt(int fd, int level, int optname, void *restrict optval, socklen_t 
 			tv->tv_sec = tv32[0];
 			tv->tv_usec = tv32[1];
 			*optlen = sizeof *tv;
+			break;
+		case SO_TIMESTAMP:
+		case SO_TIMESTAMPNS:
+			if (SO_TIMESTAMP == SO_TIMESTAMP_OLD) break;
+			if (optname==SO_TIMESTAMP) optname=SO_TIMESTAMP_OLD;
+			if (optname==SO_TIMESTAMPNS) optname=SO_TIMESTAMPNS_OLD;
+			r = __socketcall(getsockopt, fd, level,
+				optname, optval, optlen, 0);
+			break;
 		}
 	}
 	return __syscall_ret(r);

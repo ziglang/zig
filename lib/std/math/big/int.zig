@@ -519,16 +519,14 @@ pub const Int = struct {
         self: Int,
         comptime fmt: []const u8,
         options: std.fmt.FormatOptions,
-        context: var,
-        comptime FmtError: type,
-        output: fn (@TypeOf(context), []const u8) FmtError!void,
-    ) FmtError!void {
+        out_stream: var,
+    ) !void {
         self.assertWritable();
         // TODO look at fmt and support other bases
         // TODO support read-only fixed integers
         const str = self.toString(self.allocator.?, 10) catch @panic("TODO make this non allocating");
         defer self.allocator.?.free(str);
-        return output(context, str);
+        return out_stream.writeAll(str);
     }
 
     /// Returns -1, 0, 1 if |a| < |b|, |a| == |b| or |a| > |b| respectively.

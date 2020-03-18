@@ -110,6 +110,15 @@ int lchmod(const char *, mode_t);
 #define off64_t off_t
 #endif
 
+#if _REDIR_TIME64
+__REDIR(stat, __stat_time64);
+__REDIR(fstat, __fstat_time64);
+__REDIR(lstat, __lstat_time64);
+__REDIR(fstatat, __fstatat_time64);
+__REDIR(futimens, __futimens_time64);
+__REDIR(utimensat, __utimensat_time64);
+#endif
+
 #ifdef __cplusplus
 }
 #endif

@@ -76,33 +76,7 @@ static struct oserr_map local_errtab[] = {
   { ERROR_NOT_ENOUGH_QUOTA, ENOMEM }, { 0, -1 }
 };
 
-_CRTIMP __int64 __cdecl _lseeki64(int fh,__int64 pos,int mthd);
-__int64 __cdecl _ftelli64(FILE *str);
 void mingw_dosmaperr (unsigned long oserrno);
-int __cdecl _flush (FILE *str);
-
-int __cdecl _flush (FILE *str)
-{
-  FILE *stream;
-  int rc = 0; /* assume good return */
-  __int64 nchar;
-
-  stream = str;
-  if ((stream->_flag & (_IOREAD | _IOWRT)) == _IOWRT && bigbuf(stream)
-      && (nchar = (__int64) (stream->_ptr - stream->_base)) > 0ll)
-  {
-    if ( _write(_fileno(stream), stream->_base, nchar) == nchar) {
-      if (_IORW & stream->_flag)
-        stream->_flag &= ~_IOWRT;
-    } else {
-      stream->_flag |= _IOERR;
-      rc = EOF;
-    }
-  }
-  stream->_ptr = stream->_base;
-  stream->_cnt = 0ll;
-  return rc;
-}
 
 int fseeko64 (FILE* stream, _off64_t offset, int whence)
 {
@@ -128,111 +102,6 @@ int fseeko64 (FILE* stream, _off64_t offset, int whence)
       return (-1);
     }
   return fsetpos (stream, &pos);
-}
-
-int __cdecl _fseeki64(FILE *str,__int64 offset,int whence)
-{
-        FILE *stream;
-        /* Init stream pointer */
-        stream = str;
-        errno=0;
-        if(!stream || ((whence != SEEK_SET) && (whence != SEEK_CUR) && (whence != SEEK_END)))
-	{
-	  errno=EINVAL;
-	  return -1;
-        }
-        /* Clear EOF flag */
-        stream->_flag &= ~_IOEOF;
-
-        if (whence == SEEK_CUR) {
-	  offset += _ftelli64(stream);
-	  whence = SEEK_SET;
-	}
-        /* Flush buffer as necessary */
-        _flush(stream);
-
-        /* If file opened for read/write, clear flags since we don't know
-           what the user is going to do next. If the file was opened for
-           read access only, decrease _bufsiz so that the next _filbuf
-           won't cost quite so much */
-
-        if (stream->_flag & _IORW)
-                stream->_flag &= ~(_IOWRT|_IOREAD);
-        else if ( (stream->_flag & _IOREAD) && (stream->_flag & _IOMYBUF) &&
-                  !(stream->_flag & _IOSETVBUF) )
-                stream->_bufsiz = _SMALL_BUFSIZ;
-
-        /* Seek to the desired locale and return. */
-
-        return (_lseeki64(_fileno(stream), offset, whence) == -1ll ? -1 : 0);
-}
-
-__int64 __cdecl _ftelli64(FILE *str)
-{
-        FILE *stream;
-        size_t offset;
-        __int64 filepos;
-        register char *p;
-        char *max;
-        int fd;
-        size_t rdcnt = 0;
-
-	errno=0;
-        stream = str;
-        fd = _fileno(stream);
-        if (stream->_cnt < 0ll) stream->_cnt = 0ll;
-    if ((filepos = _lseeki64(fd, 0ll, SEEK_CUR)) < 0L)
-      return -1ll;
-
-    if (!bigbuf(stream))            /* _IONBF or no buffering designated */
-      return (filepos - (__int64) stream->_cnt);
-
-    offset = (size_t)(stream->_ptr - stream->_base);
-
-    if (stream->_flag & (_IOWRT|_IOREAD))
-      {
-        if (_osfile(fd) & FTEXT)
-          for (p = stream->_base; p < stream->_ptr; p++)
-            if (*p == '\n')  /* adjust for '\r' */
-              offset++;
-      }
-      else if (!(stream->_flag & _IORW)) {
-        errno=EINVAL;
-        return -1ll;
-      }
-      if (filepos == 0ll)
-        return ((__int64)offset);
-
-      if (stream->_flag & _IOREAD)    /* go to preceding sector */
-        {
-          if (stream->_cnt == 0ll)  /* filepos holds correct location */
-            offset = 0ll;
-          else
-            {
-	          rdcnt = ((size_t) stream->_cnt) + ((size_t) (size_t)(stream->_ptr - stream->_base));
-		      if (_osfile(fd) & FTEXT) {
-		        if (_lseeki64(fd, 0ll, SEEK_END) == filepos) {
-			      max = stream->_base + rdcnt;
-			    for (p = stream->_base; p < max; p++)
-			      if (*p == '\n') /* adjust for '\r' */
-			        rdcnt++;
-			    if (stream->_flag & _IOCTRLZ)
-			      ++rdcnt;
-		      } else {
-		        _lseeki64(fd, filepos, SEEK_SET);
-		        if ( (rdcnt <= _SMALL_BUFSIZ) && (stream->_flag & _IOMYBUF) &&
-		            !(stream->_flag & _IOSETVBUF))
-			      rdcnt = _SMALL_BUFSIZ;
-		        else
-		          rdcnt = stream->_bufsiz;
-		        if  (_osfile(fd) & FCRLF)
-		          ++rdcnt;
-		      }
-		    } /* end if FTEXT */
-	    }
-	  filepos -= (__int64)rdcnt;
-    } /* end else stream->_cnt != 0 */
-  return (filepos + (__int64)offset);
 }
 
 void mingw_dosmaperr (unsigned long oserrno)
