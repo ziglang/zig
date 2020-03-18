@@ -520,8 +520,7 @@ pub const Compilation = struct {
 
         if (comp.tmp_dir.getOrNull()) |tmp_dir_result|
             if (tmp_dir_result.*) |tmp_dir| {
-                // TODO evented I/O?
-                fs.deleteTree(tmp_dir) catch {};
+                fs.cwd().deleteTree(tmp_dir) catch {};
             } else |_| {};
     }
 

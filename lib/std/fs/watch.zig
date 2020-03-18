@@ -619,7 +619,7 @@ test "write a file, watch it, write it again" {
     if (true) return error.SkipZigTest;
 
     try fs.cwd().makePath(test_tmp_dir);
-    defer os.deleteTree(test_tmp_dir) catch {};
+    defer fs.cwd().deleteTree(test_tmp_dir) catch {};
 
     const allocator = std.heap.page_allocator;
     return testFsWatch(&allocator);

@@ -377,7 +377,7 @@ pub const Builder = struct {
             if (self.verbose) {
                 warn("rm {}\n", .{full_path});
             }
-            fs.deleteTree(full_path) catch {};
+            fs.cwd().deleteTree(full_path) catch {};
         }
 
         // TODO remove empty directories
@@ -2156,10 +2156,10 @@ pub const LibExeObjStep = struct {
             const build_output_dir = mem.trimRight(u8, output_dir_nl, "\r\n");
 
             if (self.output_dir) |output_dir| {
-                var src_dir = try std.fs.cwd().openDirTraverse(build_output_dir);
+                var src_dir = try std.fs.cwd().openDir(build_output_dir, .{ .iterate = true });
                 defer src_dir.close();
 
-                var dest_dir = try std.fs.cwd().openDirList(output_dir);
+                var dest_dir = try std.fs.cwd().openDir(output_dir, .{});
                 defer dest_dir.close();
 
                 var it = src_dir.iterate();
@@ -2365,7 +2365,7 @@ pub const RemoveDirStep = struct {
         const self = @fieldParentPtr(RemoveDirStep, "step", step);
 
         const full_path = self.builder.pathFromRoot(self.dir_path);
-        fs.deleteTree(full_path) catch |err| {
+        fs.cwd().deleteTree(full_path) catch |err| {
             warn("Unable to remove {}: {}\n", .{ full_path, @errorName(err) });
             return err;
         };

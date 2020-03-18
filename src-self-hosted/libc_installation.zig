@@ -280,7 +280,7 @@ pub const LibCInstallation = struct {
             // search in reverse order
             const search_path_untrimmed = search_paths.at(search_paths.len - path_i - 1);
             const search_path = std.mem.trimLeft(u8, search_path_untrimmed, " ");
-            var search_dir = fs.cwd().openDirList(search_path) catch |err| switch (err) {
+            var search_dir = fs.cwd().openDir(search_path, .{}) catch |err| switch (err) {
                 error.FileNotFound,
                 error.NotDir,
                 error.NoDevice,
@@ -335,7 +335,7 @@ pub const LibCInstallation = struct {
             const stream = result_buf.outStream();
             try stream.print("{}\\Include\\{}\\ucrt", .{ search.path, search.version });
 
-            var dir = fs.cwd().openDirList(result_buf.toSliceConst()) catch |err| switch (err) {
+            var dir = fs.cwd().openDir(result_buf.toSliceConst(), .{}) catch |err| switch (err) {
                 error.FileNotFound,
                 error.NotDir,
                 error.NoDevice,
@@ -382,7 +382,7 @@ pub const LibCInstallation = struct {
             const stream = result_buf.outStream();
             try stream.print("{}\\Lib\\{}\\ucrt\\{}", .{ search.path, search.version, arch_sub_dir });
 
-            var dir = fs.cwd().openDirList(result_buf.toSliceConst()) catch |err| switch (err) {
+            var dir = fs.cwd().openDir(result_buf.toSliceConst(), .{}) catch |err| switch (err) {
                 error.FileNotFound,
                 error.NotDir,
                 error.NoDevice,
@@ -437,7 +437,7 @@ pub const LibCInstallation = struct {
             const stream = result_buf.outStream();
             try stream.print("{}\\Lib\\{}\\um\\{}", .{ search.path, search.version, arch_sub_dir });
 
-            var dir = fs.cwd().openDirList(result_buf.toSliceConst()) catch |err| switch (err) {
+            var dir = fs.cwd().openDir(result_buf.toSliceConst(), .{}) catch |err| switch (err) {
                 error.FileNotFound,
                 error.NotDir,
                 error.NoDevice,
@@ -475,7 +475,7 @@ pub const LibCInstallation = struct {
 
         try result_buf.append("\\include");
 
-        var dir = fs.cwd().openDirList(result_buf.toSliceConst()) catch |err| switch (err) {
+        var dir = fs.cwd().openDir(result_buf.toSliceConst(), .{}) catch |err| switch (err) {
             error.FileNotFound,
             error.NotDir,
             error.NoDevice,

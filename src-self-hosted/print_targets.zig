@@ -72,7 +72,7 @@ pub fn cmdTargets(
         };
         defer allocator.free(zig_lib_dir);
 
-        var dir = try std.fs.cwd().openDirList(zig_lib_dir);
+        var dir = try std.fs.cwd().openDir(zig_lib_dir, .{});
         defer dir.close();
 
         const vers_txt = try dir.readFileAlloc(allocator, "libc/glibc/vers.txt", 10 * 1024);
