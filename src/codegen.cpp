@@ -5513,6 +5513,15 @@ static LLVMValueRef ir_render_slice(CodeGen *g, IrExecutableGen *executable, IrI
             }
         }
 
+        if (!type_has_bits(g, array_type)) {
+            LLVMValueRef tmp_struct_ptr = ir_llvm_value(g, instruction->result_loc);
+            size_t gen_len_index = result_type->data.structure.fields[slice_len_index]->gen_index;
+            LLVMValueRef len_field_ptr = LLVMBuildStructGEP(g->builder, tmp_struct_ptr, gen_len_index, "");
+            LLVMValueRef len_value = LLVMBuildNSWSub(g->builder, end_val, start_val, "");
+            gen_store_untyped(g, len_value, len_field_ptr, 0, false);
+            return tmp_struct_ptr;
+        }
+
         LLVMValueRef slice_start_ptr = LLVMBuildInBoundsGEP(g->builder, array_ptr, &start_val, 1, "");
         if (result_type->id == ZigTypeIdPointer) {
             ir_assert(instruction->result_loc == nullptr, &instruction->base);
@@ -5521,18 +5530,11 @@ static LLVMValueRef ir_render_slice(CodeGen *g, IrExecutableGen *executable, IrI
         }
 
         LLVMValueRef tmp_struct_ptr = ir_llvm_value(g, instruction->result_loc);
-        if (type_has_bits(g, array_type)) {
-            size_t gen_ptr_index = result_type->data.structure.fields[slice_ptr_index]->gen_index;
-            LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder, tmp_struct_ptr, gen_ptr_index, "");
-            gen_store_untyped(g, slice_start_ptr, ptr_field_ptr, 0, false);
-        }
-
-        size_t gen_len_index = result_type->data.structure.fields[slice_len_index]->gen_index;
-        LLVMValueRef len_field_ptr = LLVMBuildStructGEP(g->builder, tmp_struct_ptr, gen_len_index, "");
-        LLVMValueRef len_value = LLVMBuildNSWSub(g->builder, end_val, start_val, "");
-        gen_store_untyped(g, len_value, len_field_ptr, 0, false);
-
+        size_t gen_ptr_index = result_type->data.structure.fields[slice_ptr_index]->gen_index;
+        LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder, tmp_struct_ptr, gen_ptr_index, "");
+        gen_store_untyped(g, slice_start_ptr, ptr_field_ptr, 0, false);
         return tmp_struct_ptr;
+
     } else if (array_type->id == ZigTypeIdStruct) {
         assert(array_type->data.structure.special == StructSpecialSlice);
         assert(LLVMGetTypeKind(LLVMTypeOf(array_ptr)) == LLVMPointerTypeKind);
