@@ -104,7 +104,7 @@ pub fn Child(comptime T: type) type {
         .Array => |info| info.child,
         .Pointer => |info| info.child,
         .Optional => |info| info.child,
-        else => @compileError("Expected pointer, optional, or array type, " ++ "found '" ++ @typeName(T) ++ "'"),
+        else => @compileError("Expected pointer, optional, or array type, found '" ++ @typeName(T) ++ "'"),
     };
 }
 
@@ -115,16 +115,39 @@ test "std.meta.Child" {
     testing.expect(Child(?u8) == u8);
 }
 
+/// Given a "memory span" type, returns the "element type".
+pub fn Elem(comptime T: type) type {
+    switch (@typeInfo(T)) {
+        .Array => |info| return info.child,
+        .Pointer => |info| switch (info.size) {
+            .One => switch (@typeInfo(info.child)) {
+                .Array => |array_info| return array_info.child,
+                else => {},
+            },
+            .Many, .C, .Slice => return info.child,
+        },
+        else => {},
+    }
+    @compileError("Expected pointer, slice, or array, found '" ++ @typeName(T) ++ "'");
+}
+
+test "std.meta.Elem" {
+    testing.expect(Elem([1]u8) == u8);
+    testing.expect(Elem([*]u8) == u8);
+    testing.expect(Elem([]u8) == u8);
+    testing.expect(Elem(*[10]u8) == u8);
+}
+
 /// Given a type which can have a sentinel e.g. `[:0]u8`, returns the sentinel value,
 /// or `null` if there is not one.
 /// Types which cannot possibly have a sentinel will be a compile error.
-pub fn sentinel(comptime T: type) ?Child(T) {
+pub fn sentinel(comptime T: type) ?Elem(T) {
     switch (@typeInfo(T)) {
         .Array => |info| return info.sentinel,
         .Pointer => |info| {
             switch (info.size) {
                 .Many, .Slice => return info.sentinel,
-                .One => switch (info.child) {
+                .One => switch (@typeInfo(info.child)) {
                     .Array => |array_info| return array_info.sentinel,
                     else => {},
                 },
@@ -137,6 +160,11 @@ pub fn sentinel(comptime T: type) ?Child(T) {
 }
 
 test "std.meta.sentinel" {
+    testSentinel();
+    comptime testSentinel();
+}
+
+fn testSentinel() void {
     testing.expectEqual(@as(u8, 0), sentinel([:0]u8).?);
     testing.expectEqual(@as(u8, 0), sentinel([*:0]u8).?);
     testing.expectEqual(@as(u8, 0), sentinel([5:0]u8).?);
