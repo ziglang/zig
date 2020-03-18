@@ -26191,6 +26191,16 @@ static IrInstGen *ir_analyze_instruction_memcpy(IrAnalyze *ira, IrInstSrcMemcpy 
     return ir_build_memcpy_gen(ira, &instruction->base.base, casted_dest_ptr, casted_src_ptr, casted_count);
 }
 
+static ZigType *get_result_loc_type(IrAnalyze *ira, ResultLoc *result_loc) {
+    if (result_loc == nullptr) return nullptr;
+
+    if (result_loc->id == ResultLocIdCast) {
+        return ir_resolve_type(ira, result_loc->source_instruction->child);
+    }
+
+    return nullptr;
+}
+
 static IrInstGen *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstSrcSlice *instruction) {
     Error err;
 
@@ -26297,11 +26307,16 @@ static IrInstGen *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstSrcSlice *i
     ZigType *child_array_type = (array_type->id == ZigTypeIdPointer &&
             array_type->data.pointer.ptr_len == PtrLenSingle) ? array_type->data.pointer.child_type : array_type;
 
-    // If start index and end index are both comptime known, then the result type is a pointer to array
-    // not a slice.
     ZigType *return_type;
 
-    if (value_is_comptime(casted_start->value) &&
+    // If start index and end index are both comptime known, then the result type is a pointer to array
+    // not a slice. However, if the start or end index is a lazy value, and the result location is a slice,
+    // then the pointer-to-array would be casted to a slice anyway. So, we preserve the laziness of these
+    // values by making the return type a slice.
+    ZigType *res_loc_type = get_result_loc_type(ira, instruction->result_loc);
+
+    if ((res_loc_type == nullptr || !is_slice(res_loc_type)) &&
+        value_is_comptime(casted_start->value) &&
         ((end != nullptr && value_is_comptime(end->value)) ||
          (end == nullptr && child_array_type->id == ZigTypeIdArray)))
     {
