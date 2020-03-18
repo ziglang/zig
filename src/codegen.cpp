@@ -5530,9 +5530,16 @@ static LLVMValueRef ir_render_slice(CodeGen *g, IrExecutableGen *executable, IrI
         }
 
         LLVMValueRef tmp_struct_ptr = ir_llvm_value(g, instruction->result_loc);
+
         size_t gen_ptr_index = result_type->data.structure.fields[slice_ptr_index]->gen_index;
         LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder, tmp_struct_ptr, gen_ptr_index, "");
         gen_store_untyped(g, slice_start_ptr, ptr_field_ptr, 0, false);
+
+        size_t gen_len_index = result_type->data.structure.fields[slice_len_index]->gen_index;
+        LLVMValueRef len_field_ptr = LLVMBuildStructGEP(g->builder, tmp_struct_ptr, gen_len_index, "");
+        LLVMValueRef len_value = LLVMBuildNSWSub(g->builder, end_val, start_val, "");
+        gen_store_untyped(g, len_value, len_field_ptr, 0, false);
+
         return tmp_struct_ptr;
 
     } else if (array_type->id == ZigTypeIdStruct) {
