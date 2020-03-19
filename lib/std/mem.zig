@@ -824,8 +824,7 @@ pub const readIntBig = switch (builtin.endian) {
 pub fn readIntSliceNative(comptime T: type, bytes: []const u8) T {
     const n = @divExact(T.bit_count, 8);
     assert(bytes.len >= n);
-    // TODO https://github.com/ziglang/zig/issues/863
-    return readIntNative(T, @ptrCast(*const [n]u8, bytes.ptr));
+    return readIntNative(T, bytes[0..n]);
 }
 
 /// Asserts that bytes.len >= T.bit_count / 8. Reads the integer starting from index 0
@@ -863,8 +862,7 @@ pub fn readInt(comptime T: type, bytes: *const [@divExact(T.bit_count, 8)]u8, en
 pub fn readIntSlice(comptime T: type, bytes: []const u8, endian: builtin.Endian) T {
     const n = @divExact(T.bit_count, 8);
     assert(bytes.len >= n);
-    // TODO https://github.com/ziglang/zig/issues/863
-    return readInt(T, @ptrCast(*const [n]u8, bytes.ptr), endian);
+    return readInt(T, bytes[0..n], endian);
 }
 
 test "comptime read/write int" {
