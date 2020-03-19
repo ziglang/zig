@@ -230,9 +230,10 @@ pub fn isSingleItemPtr(comptime T: type) bool {
 
 test "std.meta.trait.isSingleItemPtr" {
     const array = [_]u8{0} ** 10;
-    testing.expect(isSingleItemPtr(@TypeOf(&array[0])));
-    testing.expect(!isSingleItemPtr(@TypeOf(array)));
-    testing.expect(!isSingleItemPtr(@TypeOf(array[0..1])));
+    comptime testing.expect(isSingleItemPtr(@TypeOf(&array[0])));
+    comptime testing.expect(!isSingleItemPtr(@TypeOf(array)));
+    var runtime_zero: usize = 0;
+    testing.expect(!isSingleItemPtr(@TypeOf(array[runtime_zero..1])));
 }
 
 pub fn isManyItemPtr(comptime T: type) bool {
@@ -259,7 +260,8 @@ pub fn isSlice(comptime T: type) bool {
 
 test "std.meta.trait.isSlice" {
     const array = [_]u8{0} ** 10;
-    testing.expect(isSlice(@TypeOf(array[0..])));
+    var runtime_zero: usize = 0;
+    testing.expect(isSlice(@TypeOf(array[runtime_zero..])));
     testing.expect(!isSlice(@TypeOf(array)));
     testing.expect(!isSlice(@TypeOf(&array[0])));
 }
@@ -276,7 +278,7 @@ pub fn isIndexable(comptime T: type) bool {
 
 test "std.meta.trait.isIndexable" {
     const array = [_]u8{0} ** 10;
-    const slice = array[0..];
+    const slice = @as([]const u8, &array);
 
     testing.expect(isIndexable(@TypeOf(array)));
     testing.expect(isIndexable(@TypeOf(&array)));

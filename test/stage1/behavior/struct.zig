@@ -409,8 +409,8 @@ const Bitfields = packed struct {
 test "native bit field understands endianness" {
     var all: u64 = 0x7765443322221111;
     var bytes: [8]u8 = undefined;
-    @memcpy(bytes[0..].ptr, @ptrCast([*]u8, &all), 8);
-    var bitfields = @ptrCast(*Bitfields, bytes[0..].ptr).*;
+    @memcpy(&bytes, @ptrCast([*]u8, &all), 8);
+    var bitfields = @ptrCast(*Bitfields, &bytes).*;
 
     expect(bitfields.f1 == 0x1111);
     expect(bitfields.f2 == 0x2222);

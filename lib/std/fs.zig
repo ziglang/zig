@@ -341,7 +341,7 @@ pub const Dir = struct {
                     if (self.index >= self.end_index) {
                         const rc = os.system.getdirentries(
                             self.dir.fd,
-                            self.buf[0..].ptr,
+                            &self.buf,
                             self.buf.len,
                             &self.seek,
                         );

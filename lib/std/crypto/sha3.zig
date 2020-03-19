@@ -120,7 +120,7 @@ fn keccak_f(comptime F: usize, d: []u8) void {
     var c = [_]u64{0} ** 5;
 
     for (s) |*r, i| {
-        r.* = mem.readIntSliceLittle(u64, d[8 * i .. 8 * i + 8]);
+        r.* = mem.readIntLittle(u64, d[8 * i ..][0..8]);
     }
 
     comptime var x: usize = 0;
@@ -167,8 +167,7 @@ fn keccak_f(comptime F: usize, d: []u8) void {
     }
 
     for (s) |r, i| {
-        // TODO https://github.com/ziglang/zig/issues/863
-        mem.writeIntSliceLittle(u64, d[8 * i .. 8 * i + 8], r);
+        mem.writeIntLittle(u64, d[8 * i ..][0..8], r);
     }
 }
 

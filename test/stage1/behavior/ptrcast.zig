@@ -13,7 +13,7 @@ fn testReinterpretBytesAsInteger() void {
         builtin.Endian.Little => 0xab785634,
         builtin.Endian.Big => 0x345678ab,
     };
-    expect(@ptrCast(*align(1) const u32, bytes[1..5].ptr).* == expected);
+    expect(@ptrCast(*align(1) const u32, bytes[1..5]).* == expected);
 }
 
 test "reinterpret bytes of an array into an extern struct" {

@@ -103,18 +103,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:3:23: error: pointer to size 0 type has no address",
     });
 
-    cases.addTest("slice to pointer conversion mismatch",
-        \\pub fn bytesAsSlice(bytes: var) [*]align(1) const u16 {
-        \\    return @ptrCast([*]align(1) const u16, bytes.ptr)[0..1];
-        \\}
-        \\test "bytesAsSlice" {
-        \\    const bytes = [_]u8{ 0xDE, 0xAD, 0xBE, 0xEF };
-        \\    const slice = bytesAsSlice(bytes[0..]);
-        \\}
-    , &[_][]const u8{
-        "tmp.zig:2:54: error: expected type '[*]align(1) const u16', found '[]align(1) const u16'",
-    });
-
     cases.addTest("access invalid @typeInfo decl",
         \\const A = B;
         \\test "Crash" {
@@ -1918,8 +1906,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add("reading past end of pointer casted array",
         \\comptime {
         \\    const array: [4]u8 = "aoeu".*;
-        \\    const slice = array[1..];
-        \\    const int_ptr = @ptrCast(*const u24, slice.ptr);
+        \\    const sub_array = array[1..];
+        \\    const int_ptr = @ptrCast(*const u24, sub_array);
         \\    const deref = int_ptr.*;
         \\}
     , &[_][]const u8{

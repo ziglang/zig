@@ -7,8 +7,8 @@ const builtin = @import("builtin");
 const fmt = std.fmt;
 
 const Endian = builtin.Endian;
-const readIntSliceLittle = std.mem.readIntSliceLittle;
-const writeIntSliceLittle = std.mem.writeIntSliceLittle;
+const readIntLittle = std.mem.readIntLittle;
+const writeIntLittle = std.mem.writeIntLittle;
 
 // Based on Supercop's ref10 implementation.
 pub const X25519 = struct {
@@ -255,16 +255,16 @@ const Fe = struct {
 
         var t: [10]i64 = undefined;
 
-        t[0] = readIntSliceLittle(u32, s[0..4]);
-        t[1] = @as(u32, readIntSliceLittle(u24, s[4..7])) << 6;
-        t[2] = @as(u32, readIntSliceLittle(u24, s[7..10])) << 5;
-        t[3] = @as(u32, readIntSliceLittle(u24, s[10..13])) << 3;
-        t[4] = @as(u32, readIntSliceLittle(u24, s[13..16])) << 2;
-        t[5] = readIntSliceLittle(u32, s[16..20]);
-        t[6] = @as(u32, readIntSliceLittle(u24, s[20..23])) << 7;
-        t[7] = @as(u32, readIntSliceLittle(u24, s[23..26])) << 5;
-        t[8] = @as(u32, readIntSliceLittle(u24, s[26..29])) << 4;
-        t[9] = (@as(u32, readIntSliceLittle(u24, s[29..32])) & 0x7fffff) << 2;
+        t[0] = readIntLittle(u32, s[0..4]);
+        t[1] = @as(u32, readIntLittle(u24, s[4..7])) << 6;
+        t[2] = @as(u32, readIntLittle(u24, s[7..10])) << 5;
+        t[3] = @as(u32, readIntLittle(u24, s[10..13])) << 3;
+        t[4] = @as(u32, readIntLittle(u24, s[13..16])) << 2;
+        t[5] = readIntLittle(u32, s[16..20]);
+        t[6] = @as(u32, readIntLittle(u24, s[20..23])) << 7;
+        t[7] = @as(u32, readIntLittle(u24, s[23..26])) << 5;
+        t[8] = @as(u32, readIntLittle(u24, s[26..29])) << 4;
+        t[9] = (@as(u32, readIntLittle(u24, s[29..32])) & 0x7fffff) << 2;
 
         carry1(h, t[0..]);
     }
@@ -544,15 +544,14 @@ const Fe = struct {
             ut[i] = @bitCast(u32, @intCast(i32, t[i]));
         }
 
-        // TODO https://github.com/ziglang/zig/issues/863
-        writeIntSliceLittle(u32, s[0..4], (ut[0] >> 0) | (ut[1] << 26));
-        writeIntSliceLittle(u32, s[4..8], (ut[1] >> 6) | (ut[2] << 19));
-        writeIntSliceLittle(u32, s[8..12], (ut[2] >> 13) | (ut[3] << 13));
-        writeIntSliceLittle(u32, s[12..16], (ut[3] >> 19) | (ut[4] << 6));
-        writeIntSliceLittle(u32, s[16..20], (ut[5] >> 0) | (ut[6] << 25));
-        writeIntSliceLittle(u32, s[20..24], (ut[6] >> 7) | (ut[7] << 19));
-        writeIntSliceLittle(u32, s[24..28], (ut[7] >> 13) | (ut[8] << 12));
-        writeIntSliceLittle(u32, s[28..], (ut[8] >> 20) | (ut[9] << 6));
+        writeIntLittle(u32, s[0..4], (ut[0] >> 0) | (ut[1] << 26));
+        writeIntLittle(u32, s[4..8], (ut[1] >> 6) | (ut[2] << 19));
+        writeIntLittle(u32, s[8..12], (ut[2] >> 13) | (ut[3] << 13));
+        writeIntLittle(u32, s[12..16], (ut[3] >> 19) | (ut[4] << 6));
+        writeIntLittle(u32, s[16..20], (ut[5] >> 0) | (ut[6] << 25));
+        writeIntLittle(u32, s[20..24], (ut[6] >> 7) | (ut[7] << 19));
+        writeIntLittle(u32, s[24..28], (ut[7] >> 13) | (ut[8] << 12));
+        writeIntLittle(u32, s[28..32], (ut[8] >> 20) | (ut[9] << 6));
 
         std.mem.secureZero(i64, t[0..]);
     }

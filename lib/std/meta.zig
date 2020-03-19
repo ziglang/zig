@@ -104,7 +104,7 @@ pub fn Child(comptime T: type) type {
         .Array => |info| info.child,
         .Pointer => |info| info.child,
         .Optional => |info| info.child,
-        else => @compileError("Expected pointer, optional, or array type, " ++ "found '" ++ @typeName(T) ++ "'"),
+        else => @compileError("Expected pointer, optional, or array type, found '" ++ @typeName(T) ++ "'"),
     };
 }
 
@@ -115,30 +115,65 @@ test "std.meta.Child" {
     testing.expect(Child(?u8) == u8);
 }
 
-/// Given a type with a sentinel e.g. `[:0]u8`, returns the sentinel
-pub fn Sentinel(comptime T: type) Child(T) {
-    // comptime asserts that ptr has a sentinel
+/// Given a "memory span" type, returns the "element type".
+pub fn Elem(comptime T: type) type {
     switch (@typeInfo(T)) {
-        .Array => |arrayInfo| {
-            return comptime arrayInfo.sentinel.?;
+        .Array => |info| return info.child,
+        .Pointer => |info| switch (info.size) {
+            .One => switch (@typeInfo(info.child)) {
+                .Array => |array_info| return array_info.child,
+                else => {},
+            },
+            .Many, .C, .Slice => return info.child,
         },
-        .Pointer => |ptrInfo| {
-            switch (ptrInfo.size) {
-                .Many, .Slice => {
-                    return comptime ptrInfo.sentinel.?;
+        else => {},
+    }
+    @compileError("Expected pointer, slice, or array, found '" ++ @typeName(T) ++ "'");
+}
+
+test "std.meta.Elem" {
+    testing.expect(Elem([1]u8) == u8);
+    testing.expect(Elem([*]u8) == u8);
+    testing.expect(Elem([]u8) == u8);
+    testing.expect(Elem(*[10]u8) == u8);
+}
+
+/// Given a type which can have a sentinel e.g. `[:0]u8`, returns the sentinel value,
+/// or `null` if there is not one.
+/// Types which cannot possibly have a sentinel will be a compile error.
+pub fn sentinel(comptime T: type) ?Elem(T) {
+    switch (@typeInfo(T)) {
+        .Array => |info| return info.sentinel,
+        .Pointer => |info| {
+            switch (info.size) {
+                .Many, .Slice => return info.sentinel,
+                .One => switch (@typeInfo(info.child)) {
+                    .Array => |array_info| return array_info.sentinel,
+                    else => {},
                 },
                 else => {},
             }
         },
         else => {},
     }
-    @compileError("not a sentinel type, found '" ++ @typeName(T) ++ "'");
+    @compileError("type '" ++ @typeName(T) ++ "' cannot possibly have a sentinel");
 }
 
-test "std.meta.Sentinel" {
-    testing.expectEqual(@as(u8, 0), Sentinel([:0]u8));
-    testing.expectEqual(@as(u8, 0), Sentinel([*:0]u8));
-    testing.expectEqual(@as(u8, 0), Sentinel([5:0]u8));
+test "std.meta.sentinel" {
+    testSentinel();
+    comptime testSentinel();
+}
+
+fn testSentinel() void {
+    testing.expectEqual(@as(u8, 0), sentinel([:0]u8).?);
+    testing.expectEqual(@as(u8, 0), sentinel([*:0]u8).?);
+    testing.expectEqual(@as(u8, 0), sentinel([5:0]u8).?);
+    testing.expectEqual(@as(u8, 0), sentinel(*const [5:0]u8).?);
+
+    testing.expect(sentinel([]u8) == null);
+    testing.expect(sentinel([*]u8) == null);
+    testing.expect(sentinel([5]u8) == null);
+    testing.expect(sentinel(*const [5]u8) == null);
 }
 
 pub fn containerLayout(comptime T: type) TypeInfo.ContainerLayout {

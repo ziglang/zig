@@ -15,10 +15,10 @@ fn rotw(w: u32) u32 {
 
 // Encrypt one block from src into dst, using the expanded key xk.
 fn encryptBlock(xk: []const u32, dst: []u8, src: []const u8) void {
-    var s0 = mem.readIntSliceBig(u32, src[0..4]);
-    var s1 = mem.readIntSliceBig(u32, src[4..8]);
-    var s2 = mem.readIntSliceBig(u32, src[8..12]);
-    var s3 = mem.readIntSliceBig(u32, src[12..16]);
+    var s0 = mem.readIntBig(u32, src[0..4]);
+    var s1 = mem.readIntBig(u32, src[4..8]);
+    var s2 = mem.readIntBig(u32, src[8..12]);
+    var s3 = mem.readIntBig(u32, src[12..16]);
 
     // First round just XORs input with key.
     s0 ^= xk[0];
@@ -58,18 +58,18 @@ fn encryptBlock(xk: []const u32, dst: []u8, src: []const u8) void {
     s2 ^= xk[k + 2];
     s3 ^= xk[k + 3];
 
-    mem.writeIntSliceBig(u32, dst[0..4], s0);
-    mem.writeIntSliceBig(u32, dst[4..8], s1);
-    mem.writeIntSliceBig(u32, dst[8..12], s2);
-    mem.writeIntSliceBig(u32, dst[12..16], s3);
+    mem.writeIntBig(u32, dst[0..4], s0);
+    mem.writeIntBig(u32, dst[4..8], s1);
+    mem.writeIntBig(u32, dst[8..12], s2);
+    mem.writeIntBig(u32, dst[12..16], s3);
 }
 
 // Decrypt one block from src into dst, using the expanded key xk.
 pub fn decryptBlock(xk: []const u32, dst: []u8, src: []const u8) void {
-    var s0 = mem.readIntSliceBig(u32, src[0..4]);
-    var s1 = mem.readIntSliceBig(u32, src[4..8]);
-    var s2 = mem.readIntSliceBig(u32, src[8..12]);
-    var s3 = mem.readIntSliceBig(u32, src[12..16]);
+    var s0 = mem.readIntBig(u32, src[0..4]);
+    var s1 = mem.readIntBig(u32, src[4..8]);
+    var s2 = mem.readIntBig(u32, src[8..12]);
+    var s3 = mem.readIntBig(u32, src[12..16]);
 
     // First round just XORs input with key.
     s0 ^= xk[0];
@@ -109,10 +109,10 @@ pub fn decryptBlock(xk: []const u32, dst: []u8, src: []const u8) void {
     s2 ^= xk[k + 2];
     s3 ^= xk[k + 3];
 
-    mem.writeIntSliceBig(u32, dst[0..4], s0);
-    mem.writeIntSliceBig(u32, dst[4..8], s1);
-    mem.writeIntSliceBig(u32, dst[8..12], s2);
-    mem.writeIntSliceBig(u32, dst[12..16], s3);
+    mem.writeIntBig(u32, dst[0..4], s0);
+    mem.writeIntBig(u32, dst[4..8], s1);
+    mem.writeIntBig(u32, dst[8..12], s2);
+    mem.writeIntBig(u32, dst[12..16], s3);
 }
 
 fn xorBytes(dst: []u8, a: []const u8, b: []const u8) usize {
@@ -154,8 +154,8 @@ fn AES(comptime keysize: usize) type {
             var n: usize = 0;
             while (n < src.len) {
                 ctx.encrypt(keystream[0..], ctrbuf[0..]);
-                var ctr_i = std.mem.readIntSliceBig(u128, ctrbuf[0..]);
-                std.mem.writeIntSliceBig(u128, ctrbuf[0..], ctr_i +% 1);
+                var ctr_i = std.mem.readIntBig(u128, ctrbuf[0..]);
+                std.mem.writeIntBig(u128, ctrbuf[0..], ctr_i +% 1);
 
                 n += xorBytes(dst[n..], src[n..], &keystream);
             }
@@ -251,7 +251,7 @@ fn expandKey(key: []const u8, enc: []u32, dec: []u32) void {
     var i: usize = 0;
     var nk = key.len / 4;
     while (i < nk) : (i += 1) {
-        enc[i] = mem.readIntSliceBig(u32, key[4 * i .. 4 * i + 4]);
+        enc[i] = mem.readIntBig(u32, key[4 * i ..][0..4]);
     }
     while (i < enc.len) : (i += 1) {
         var t = enc[i - 1];

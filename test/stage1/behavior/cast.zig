@@ -435,7 +435,8 @@ fn incrementVoidPtrValue(value: ?*c_void) void {
 
 test "implicit cast from [*]T to ?*c_void" {
     var a = [_]u8{ 3, 2, 1 };
-    incrementVoidPtrArray(a[0..].ptr, 3);
+    var runtime_zero: usize = 0;
+    incrementVoidPtrArray(a[runtime_zero..].ptr, 3);
     expect(std.mem.eql(u8, &a, &[_]u8{ 4, 3, 2 }));
 }
 

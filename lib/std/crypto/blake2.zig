@@ -123,8 +123,7 @@ fn Blake2s(comptime out_len: usize) type {
             const rr = d.h[0 .. out_len / 32];
 
             for (rr) |s, j| {
-                // TODO https://github.com/ziglang/zig/issues/863
-                mem.writeIntSliceLittle(u32, out[4 * j .. 4 * j + 4], s);
+                mem.writeIntLittle(u32, out[4 * j ..][0..4], s);
             }
         }
 
@@ -135,8 +134,7 @@ fn Blake2s(comptime out_len: usize) type {
             var v: [16]u32 = undefined;
 
             for (m) |*r, i| {
-                // TODO https://github.com/ziglang/zig/issues/863
-                r.* = mem.readIntSliceLittle(u32, b[4 * i .. 4 * i + 4]);
+                r.* = mem.readIntLittle(u32, b[4 * i ..][0..4]);
             }
 
             var k: usize = 0;
@@ -358,8 +356,7 @@ fn Blake2b(comptime out_len: usize) type {
             const rr = d.h[0 .. out_len / 64];
 
             for (rr) |s, j| {
-                // TODO https://github.com/ziglang/zig/issues/863
-                mem.writeIntSliceLittle(u64, out[8 * j .. 8 * j + 8], s);
+                mem.writeIntLittle(u64, out[8 * j ..][0..8], s);
             }
         }
 
@@ -370,7 +367,7 @@ fn Blake2b(comptime out_len: usize) type {
             var v: [16]u64 = undefined;
 
             for (m) |*r, i| {
-                r.* = mem.readIntSliceLittle(u64, b[8 * i .. 8 * i + 8]);
+                r.* = mem.readIntLittle(u64, b[8 * i ..][0..8]);
             }
 
             var k: usize = 0;
