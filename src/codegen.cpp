@@ -3584,9 +3584,7 @@ static bool value_is_all_undef(CodeGen *g, ZigValue *const_val) {
                 }
                 return true;
             } else if (const_val->type->id == ZigTypeIdArray) {
-                const size_t full_len = const_val->type->data.array.len +
-                    (const_val->type->data.array.sentinel != nullptr);
-                return value_is_all_undef_array(g, const_val, full_len);
+                return value_is_all_undef_array(g, const_val, const_val->type->data.array.len);
             } else if (const_val->type->id == ZigTypeIdVector) {
                 return value_is_all_undef_array(g, const_val, const_val->type->data.vector.len);
             } else {
@@ -6792,6 +6790,22 @@ static LLVMValueRef pack_const_int(CodeGen *g, LLVMTypeRef big_int_type_ref, Zig
                     used_bits += packed_bits_size;
                 }
             }
+
+            if (type_entry->data.array.sentinel != nullptr) {
+                ZigValue *elem_val = type_entry->data.array.sentinel;
+                LLVMValueRef child_val = pack_const_int(g, big_int_type_ref, elem_val);
+
+                if (is_big_endian) {
+                    LLVMValueRef shift_amt = LLVMConstInt(big_int_type_ref, packed_bits_size, false);
+                    val = LLVMConstShl(val, shift_amt);
+                    val = LLVMConstOr(val, child_val);
+                } else {
+                    LLVMValueRef shift_amt = LLVMConstInt(big_int_type_ref, used_bits, false);
+                    LLVMValueRef child_val_shifted = LLVMConstShl(child_val, shift_amt);
+                    val = LLVMConstOr(val, child_val_shifted);
+                    used_bits += packed_bits_size;
+                }
+            }
             return val;
         }
         case ZigTypeIdVector:
@@ -6858,20 +6872,11 @@ static LLVMValueRef gen_const_val_ptr(CodeGen *g, ZigValue *const_val, const cha
                 ZigValue *array_const_val = const_val->data.x_ptr.data.base_array.array_val;
                 assert(array_const_val->type->id == ZigTypeIdArray);
                 if (!type_has_bits(g, array_const_val->type)) {
-                    if (array_const_val->type->data.array.sentinel != nullptr) {
-                        ZigValue *pointee = array_const_val->type->data.array.sentinel;
-                        render_const_val(g, pointee, "");
-                        render_const_val_global(g, pointee, "");
-                        const_val->llvm_value = LLVMConstBitCast(pointee->llvm_global,
-                                get_llvm_type(g, const_val->type));
-                        return const_val->llvm_value;
-                    } else {
-                        // make this a null pointer
-                        ZigType *usize = g->builtin_types.entry_usize;
-                        const_val->llvm_value = LLVMConstIntToPtr(LLVMConstNull(usize->llvm_type),
-                                get_llvm_type(g, const_val->type));
-                        return const_val->llvm_value;
-                    }
+                    // make this a null pointer
+                    ZigType *usize = g->builtin_types.entry_usize;
+                    const_val->llvm_value = LLVMConstIntToPtr(LLVMConstNull(usize->llvm_type),
+                            get_llvm_type(g, const_val->type));
+                    return const_val->llvm_value;
                 }
                 size_t elem_index = const_val->data.x_ptr.data.base_array.elem_index;
                 LLVMValueRef uncasted_ptr_val = gen_const_ptr_array_recursive(g, array_const_val, elem_index);

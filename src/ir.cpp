@@ -20578,11 +20578,6 @@ static IrInstGen *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstSrcElemP
     }
 
     if (array_type->id == ZigTypeIdArray) {
-        if (array_type->data.array.len == 0) {
-            ir_add_error_node(ira, elem_ptr_instruction->base.base.source_node,
-                    buf_sprintf("index 0 outside array of size 0"));
-            return ira->codegen->invalid_inst_gen;
-        }
         ZigType *child_type = array_type->data.array.child_type;
         if (ptr_type->data.pointer.host_int_bytes == 0) {
             return_type = get_pointer_to_type_extra(ira->codegen, child_type,
@@ -27656,6 +27651,9 @@ static void buf_write_value_bytes_array(CodeGen *codegen, uint8_t *buf, ZigValue
         ZigValue *elem = &val->data.x_array.data.s_none.elements[elem_i];
         buf_write_value_bytes(codegen, &buf[buf_i], elem);
         buf_i += type_size(codegen, elem->type);
+    }
+    if (val->type->id == ZigTypeIdArray && val->type->data.array.sentinel != nullptr) {
+        buf_write_value_bytes(codegen, &buf[buf_i], val->type->data.array.sentinel);
     }
 }
 
