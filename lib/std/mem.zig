@@ -1586,24 +1586,24 @@ pub fn nativeToBig(comptime T: type, x: T) T {
 }
 
 fn AsBytesReturnType(comptime P: type) type {
-    if (comptime !trait.isSingleItemPtr(P))
+    if (!trait.isSingleItemPtr(P))
         @compileError("expected single item pointer, passed " ++ @typeName(P));
 
-    const size = @as(usize, @sizeOf(meta.Child(P)));
-    const alignment = comptime meta.alignment(P);
+    const size = @sizeOf(meta.Child(P));
+    const alignment = meta.alignment(P);
 
     if (alignment == 0) {
-        if (comptime trait.isConstPtr(P))
+        if (trait.isConstPtr(P))
             return *const [size]u8;
         return *[size]u8;
     }
 
-    if (comptime trait.isConstPtr(P))
+    if (trait.isConstPtr(P))
         return *align(alignment) const [size]u8;
     return *align(alignment) [size]u8;
 }
 
-///Given a pointer to a single item, returns a slice of the underlying bytes, preserving constness.
+/// Given a pointer to a single item, returns a slice of the underlying bytes, preserving constness.
 pub fn asBytes(ptr: var) AsBytesReturnType(@TypeOf(ptr)) {
     const P = @TypeOf(ptr);
     return @ptrCast(AsBytesReturnType(P), ptr);
@@ -1841,7 +1841,7 @@ pub fn sliceAsBytes(slice: var) SliceAsBytesReturnType(@TypeOf(slice)) {
 
     const cast_target = if (comptime trait.isConstPtr(Slice)) [*]align(alignment) const u8 else [*]align(alignment) u8;
 
-    return @ptrCast(cast_target, slice)[0 .. slice.len * @sizeOf(meta.Child(Slice))];
+    return @ptrCast(cast_target, slice)[0 .. slice.len * @sizeOf(meta.Elem(Slice))];
 }
 
 test "sliceAsBytes" {
@@ -1909,39 +1909,6 @@ test "sliceAsBytes and bytesAsSlice back" {
     testing.expect(bytes[9] == math.maxInt(u8));
     testing.expect(bytes[10] == math.maxInt(u8));
     testing.expect(bytes[11] == math.maxInt(u8));
-}
-
-fn SubArrayPtrReturnType(comptime T: type, comptime length: usize) type {
-    if (trait.isConstPtr(T))
-        return *const [length]meta.Child(meta.Child(T));
-    return *[length]meta.Child(meta.Child(T));
-}
-
-/// Given a pointer to an array, returns a pointer to a portion of that array, preserving constness.
-/// TODO this will be obsoleted by https://github.com/ziglang/zig/issues/863
-pub fn subArrayPtr(
-    ptr: var,
-    comptime start: usize,
-    comptime length: usize,
-) SubArrayPtrReturnType(@TypeOf(ptr), length) {
-    assert(start + length <= ptr.*.len);
-
-    const ReturnType = SubArrayPtrReturnType(@TypeOf(ptr), length);
-    const T = meta.Child(meta.Child(@TypeOf(ptr)));
-    return @ptrCast(ReturnType, &ptr[start]);
-}
-
-test "subArrayPtr" {
-    const a1: [6]u8 = "abcdef".*;
-    const sub1 = subArrayPtr(&a1, 2, 3);
-    testing.expect(eql(u8, sub1, "cde"));
-
-    var a2: [6]u8 = "abcdef".*;
-    var sub2 = subArrayPtr(&a2, 2, 3);
-
-    testing.expect(eql(u8, sub2, "cde"));
-    sub2[1] = 'X';
-    testing.expect(eql(u8, &a2, "abcXef"));
 }
 
 /// Round an address up to the nearest aligned address

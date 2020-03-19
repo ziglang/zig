@@ -14633,7 +14633,7 @@ static IrInstGen *ir_analyze_cast(IrAnalyze *ira, IrInst *source_instr,
         return ir_analyze_widen_or_shorten(ira, source_instr, value, wanted_type);
     }
 
-    // *[N]T to ?[]const T
+    // *[N]T to ?[]T
     if (wanted_type->id == ZigTypeIdOptional &&
         is_slice(wanted_type->data.maybe.child_type) &&
         actual_type->id == ZigTypeIdPointer &&
