@@ -145,15 +145,21 @@ test "@ptrCast slice to pointer" {
     comptime S.doTheTest();
 }
 
-test "slicing producing an array" {
+test "slice syntax resulting in pointer-to-array" {
     const S = struct {
         fn doTheTest() void {
             testArray();
             testArrayZ();
+            testArray0();
+            testArrayAlign();
             testPointer();
             testPointerZ();
+            testPointer0();
+            testPointerAlign();
             testSlice();
             testSliceZ();
+            testSlice0();
+            testSliceAlign();
         }
 
         fn testArray() void {
@@ -172,6 +178,28 @@ test "slicing producing an array" {
             comptime expect(@TypeOf(array[1..3 :4]) == *[2:4]u8);
         }
 
+        fn testArray0() void {
+            {
+                var array = [0]u8{};
+                var slice = array[0..0];
+                comptime expect(@TypeOf(slice) == *[0]u8);
+            }
+            {
+                var array = [0:0]u8{};
+                var slice = array[0..0];
+                comptime expect(@TypeOf(slice) == *[0:0]u8);
+                expect(slice[0] == 0);
+            }
+        }
+
+        fn testArrayAlign() void {
+            var array align(4) = [5]u8{ 1, 2, 3, 4, 5 };
+            var slice = array[4..5];
+            comptime expect(@TypeOf(slice) == *align(4) [1]u8);
+            expect(slice[0] == 5);
+            comptime expect(@TypeOf(array[0..2]) == *align(4) [2]u8);
+        }
+
         fn testPointer() void {
             var array = [5]u8{ 1, 2, 3, 4, 5 };
             var pointer: [*]u8 = &array;
@@ -186,6 +214,22 @@ test "slicing producing an array" {
             var pointer: [*:0]u8 = &array;
             comptime expect(@TypeOf(pointer[1..3]) == *[2]u8);
             comptime expect(@TypeOf(pointer[1..3 :4]) == *[2:4]u8);
+        }
+
+        fn testPointer0() void {
+            var pointer: [*]u0 = &[1]u0{0};
+            var slice = pointer[0..1];
+            comptime expect(@TypeOf(slice) == *[1]u0);
+            expect(slice[0] == 0);
+        }
+
+        fn testPointerAlign() void {
+            var array align(4) = [5]u8{ 1, 2, 3, 4, 5 };
+            var pointer: [*]align(4) u8 = &array;
+            var slice = pointer[4..5];
+            comptime expect(@TypeOf(slice) == *align(4) [1]u8);
+            expect(slice[0] == 5);
+            comptime expect(@TypeOf(pointer[0..2]) == *align(4) [2]u8);
         }
 
         fn testSlice() void {
@@ -203,6 +247,30 @@ test "slicing producing an array" {
             comptime expect(@TypeOf(slice[1..3]) == *[2]u8);
             comptime expect(@TypeOf(slice[1..]) == [:0]u8);
             comptime expect(@TypeOf(slice[1..3 :4]) == *[2:4]u8);
+        }
+
+        fn testSlice0() void {
+            {
+                var array = [0]u8{};
+                var src_slice: []u8 = &array;
+                var slice = src_slice[0..0];
+                comptime expect(@TypeOf(slice) == *[0]u8);
+            }
+            {
+                var array = [0:0]u8{};
+                var src_slice: [:0]u8 = &array;
+                var slice = src_slice[0..0];
+                comptime expect(@TypeOf(slice) == *[0]u8);
+            }
+        }
+
+        fn testSliceAlign() void {
+            var array align(4) = [5]u8{ 1, 2, 3, 4, 5 };
+            var src_slice: []align(4) u8 = &array;
+            var slice = src_slice[4..5];
+            comptime expect(@TypeOf(slice) == *align(4) [1]u8);
+            expect(slice[0] == 5);
+            comptime expect(@TypeOf(src_slice[0..2]) == *align(4) [2]u8);
         }
     };
 
