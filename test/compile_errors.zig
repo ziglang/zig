@@ -1903,17 +1903,16 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:7:15: error: switch must handle all possibilities",
     });
 
-    // TODO uncomment before merging branch
-    //cases.add("reading past end of pointer casted array",
-    //    \\comptime {
-    //    \\    const array: [4]u8 = "aoeu".*;
-    //    \\    const sub_array = array[1..];
-    //    \\    const int_ptr = @ptrCast(*const u24, sub_array);
-    //    \\    const deref = int_ptr.*;
-    //    \\}
-    //, &[_][]const u8{
-    //    "tmp.zig:5:26: error: attempt to read 4 bytes from [4]u8 at index 1 which is 3 bytes",
-    //});
+    cases.add("reading past end of pointer casted array",
+        \\comptime {
+        \\    const array: [4]u8 = "aoeu".*;
+        \\    const sub_array = array[1..];
+        \\    const int_ptr = @ptrCast(*const u24, sub_array);
+        \\    const deref = int_ptr.*;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:5:26: error: attempt to read 4 bytes from [4]u8 at index 1 which is 3 bytes",
+    });
 
     cases.add("error note for function parameter incompatibility",
         \\fn do_the_thing(func: fn (arg: i32) void) void {}

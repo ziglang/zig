@@ -19971,6 +19971,7 @@ static Error ir_read_const_ptr(IrAnalyze *ira, CodeGen *codegen, AstNode *source
         buf_write_value_bytes(codegen, (uint8_t*)buf_ptr(&buf), pointee);
         if ((err = buf_read_value_bytes(ira, codegen, source_node, (uint8_t*)buf_ptr(&buf), out_val)))
             return err;
+        buf_deinit(&buf);
         return ErrorNone;
     }
 
@@ -19990,7 +19991,31 @@ static Error ir_read_const_ptr(IrAnalyze *ira, CodeGen *codegen, AstNode *source
                 dst_size, buf_ptr(&pointee->type->name), src_size));
             return ErrorSemanticAnalyzeFail;
         }
-        case ConstPtrSpecialSubArray:
+        case ConstPtrSpecialSubArray: {
+            ZigValue *array_val = ptr_val->data.x_ptr.data.base_array.array_val;
+            assert(array_val->type->id == ZigTypeIdArray);
+            if (array_val->data.x_array.special != ConstArraySpecialNone)
+                zig_panic("TODO");
+            if (dst_size > src_size) {
+                size_t elem_index = ptr_val->data.x_ptr.data.base_array.elem_index;
+                opt_ir_add_error_node(ira, codegen, source_node,
+                    buf_sprintf("attempt to read %" ZIG_PRI_usize " bytes from %s at index %" ZIG_PRI_usize " which is %" ZIG_PRI_usize " bytes",
+                        dst_size, buf_ptr(&array_val->type->name), elem_index, src_size));
+                return ErrorSemanticAnalyzeFail;
+            }
+            size_t elem_size = src_size;
+            size_t elem_count = (dst_size % elem_size == 0) ? (dst_size / elem_size) : (dst_size / elem_size + 1);
+            Buf buf = BUF_INIT;
+            buf_resize(&buf, elem_count * elem_size);
+            for (size_t i = 0; i < elem_count; i += 1) {
+                ZigValue *elem_val = &array_val->data.x_array.data.s_none.elements[i];
+                buf_write_value_bytes(codegen, (uint8_t*)buf_ptr(&buf) + (i * elem_size), elem_val);
+            }
+            if ((err = buf_read_value_bytes(ira, codegen, source_node, (uint8_t*)buf_ptr(&buf), out_val)))
+                return err;
+            buf_deinit(&buf);
+            return ErrorNone;
+        }
         case ConstPtrSpecialBaseArray: {
             ZigValue *array_val = ptr_val->data.x_ptr.data.base_array.array_val;
             assert(array_val->type->id == ZigTypeIdArray);
@@ -20014,6 +20039,7 @@ static Error ir_read_const_ptr(IrAnalyze *ira, CodeGen *codegen, AstNode *source
             }
             if ((err = buf_read_value_bytes(ira, codegen, source_node, (uint8_t*)buf_ptr(&buf), out_val)))
                 return err;
+            buf_deinit(&buf);
             return ErrorNone;
         }
         case ConstPtrSpecialBaseStruct:
