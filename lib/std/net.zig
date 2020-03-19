@@ -957,8 +957,10 @@ fn linuxLookupNameFromDns(
         }
     }
 
-    var hack: usize = 0; // TODO remove this hack
-    var ap = [2][]u8{ apbuf[0][0..hack], apbuf[1][0..hack] };
+    var ap = [2][]u8{ apbuf[0], apbuf[1] };
+    ap[0].len = 0;
+    ap[1].len = 0;
+
     try resMSendRc(qp[0..nq], ap[0..nq], apbuf[0..nq], rc);
 
     var i: usize = 0;
