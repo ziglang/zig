@@ -1,4 +1,6 @@
-const expect = @import("std").testing.expect;
+const std = @import("std");
+const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 
 var result: [3]u8 = undefined;
 var index: usize = undefined;
@@ -90,6 +92,25 @@ test "return variable while defer expression in scope to modify it" {
         }
     };
 
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "errdefer with payload" {
+    const S = struct {
+        fn foo() !i32 {
+            errdefer |a| {
+                expectEqual(error.One, a);
+            }
+            return error.One;
+        }
+        fn doTheTest() void {
+            _ = foo() catch |err| switch (err) {
+                error.One => {},
+                else => unreachable,
+            };
+        }
+    };
     S.doTheTest();
     comptime S.doTheTest();
 }
