@@ -28,6 +28,24 @@ fn getArrayLen(a: []const u32) usize {
     return a.len;
 }
 
+test "array with sentinels" {
+    const S = struct {
+        fn doTheTest(is_ct: bool) void {
+            var zero_sized: [0:0xde]u8 = [_:0xde]u8{};
+            expectEqual(@as(u8, 0xde), zero_sized[0]);
+            // Disabled at runtime because of
+            // https://github.com/ziglang/zig/issues/4372
+            if (is_ct) {
+                var reinterpreted = @ptrCast(*[1]u8, &zero_sized);
+                expectEqual(@as(u8, 0xde), reinterpreted[0]);
+            }
+        }
+    };
+
+    S.doTheTest(false);
+    comptime S.doTheTest(true);
+}
+
 test "void arrays" {
     var array: [4]void = undefined;
     array[0] = void{};
