@@ -86,51 +86,33 @@ pub const PrevStatus = enum {
     fresh,
 };
 
-/// Deprecated; use `Dir.updateFile`.
-pub fn updateFile(source_path: []const u8, dest_path: []const u8) !PrevStatus {
+pub const CopyFileOptions = struct {
+    /// When this is `null` the mode is copied from the source file.
+    override_mode: ?File.Mode = null,
+};
+
+/// Same as `Dir.updateFile`, except asserts that both `source_path` and `dest_path`
+/// are absolute. See `Dir.updateFile` for a function that operates on both
+/// absolute and relative paths.
+pub fn updateFileAbsolute(
+    source_path: []const u8,
+    dest_path: []const u8,
+    args: CopyFileOptions,
+) !PrevStatus {
+    assert(path.isAbsolute(source_path));
+    assert(path.isAbsolute(dest_path));
     const my_cwd = cwd();
-    return Dir.updateFile(my_cwd, source_path, my_cwd, dest_path, .{});
+    return Dir.updateFile(my_cwd, source_path, my_cwd, dest_path, args);
 }
 
-/// Deprecated; use `Dir.updateFile`.
-pub fn updateFileMode(source_path: []const u8, dest_path: []const u8, mode: ?File.Mode) !Dir.PrevStatus {
+/// Same as `Dir.copyFile`, except asserts that both `source_path` and `dest_path`
+/// are absolute. See `Dir.copyFile` for a function that operates on both
+/// absolute and relative paths.
+pub fn copyFileAbsolute(source_path: []const u8, dest_path: []const u8, args: CopyFileOptions) !void {
+    assert(path.isAbsolute(source_path));
+    assert(path.isAbsolute(dest_path));
     const my_cwd = cwd();
-    return Dir.updateFile(my_cwd, source_path, my_cwd, dest_path, .{ .override_mode = mode });
-}
-
-/// Guaranteed to be atomic.
-/// On Linux, until https://patchwork.kernel.org/patch/9636735/ is merged and readily available,
-/// there is a possibility of power loss or application termination leaving temporary files present
-/// in the same directory as dest_path.
-/// Destination file will have the same mode as the source file.
-/// TODO rework this to integrate with Dir
-pub fn copyFile(source_path: []const u8, dest_path: []const u8) !void {
-    var in_file = try cwd().openFile(source_path, .{});
-    defer in_file.close();
-
-    const stat = try in_file.stat();
-
-    var atomic_file = try AtomicFile.init(dest_path, stat.mode);
-    defer atomic_file.deinit();
-
-    try atomic_file.file.writeFileAll(in_file, .{ .in_len = stat.size });
-    return atomic_file.finish();
-}
-
-/// Guaranteed to be atomic.
-/// On Linux, until https://patchwork.kernel.org/patch/9636735/ is merged and readily available,
-/// there is a possibility of power loss or application termination leaving temporary files present
-/// in the same directory as dest_path.
-/// TODO rework this to integrate with Dir
-pub fn copyFileMode(source_path: []const u8, dest_path: []const u8, mode: File.Mode) !void {
-    var in_file = try cwd().openFile(source_path, .{});
-    defer in_file.close();
-
-    var atomic_file = try AtomicFile.init(dest_path, mode);
-    defer atomic_file.deinit();
-
-    try atomic_file.file.writeFileAll(in_file, .{});
-    return atomic_file.finish();
+    return Dir.copyFile(my_cwd, source_path, my_cwd, dest_path, args);
 }
 
 /// TODO update this API to avoid a getrandom syscall for every operation.
@@ -245,18 +227,17 @@ pub fn makeDirAbsoluteW(absolute_path_w: [*:0]const u16) !void {
     os.windows.CloseHandle(handle);
 }
 
-/// Returns `error.DirNotEmpty` if the directory is not empty.
-/// To delete a directory recursively, see `deleteTree`.
+/// Deprecated; use `Dir.deleteDir`.
 pub fn deleteDir(dir_path: []const u8) !void {
     return os.rmdir(dir_path);
 }
 
-/// Same as `deleteDir` except the parameter is a null-terminated UTF8-encoded string.
+/// Deprecated; use `Dir.deleteDirC`.
 pub fn deleteDirC(dir_path: [*:0]const u8) !void {
     return os.rmdirC(dir_path);
 }
 
-/// Same as `deleteDir` except the parameter is a null-terminated UTF16LE-encoded string.
+/// Deprecated; use `Dir.deleteDirW`.
 pub fn deleteDirW(dir_path: [*:0]const u16) !void {
     return os.rmdirW(dir_path);
 }
@@ -1218,22 +1199,17 @@ pub const Dir = struct {
         return os.faccessatW(self.fd, sub_path_w, 0, 0);
     }
 
-    pub const UpdateFileOptions = struct {
-        override_mode: ?File.Mode = null,
-    };
-
     /// Check the file size, mtime, and mode of `source_path` and `dest_path`. If they are equal, does nothing.
     /// Otherwise, atomically copies `source_path` to `dest_path`. The destination file gains the mtime,
     /// atime, and mode of the source file so that the next call to `updateFile` will not need a copy.
     /// Returns the previous status of the file before updating.
     /// If any of the directories do not exist for dest_path, they are created.
-    /// If `override_mode` is provided, then that value is used rather than the source path's mode.
     pub fn updateFile(
         source_dir: Dir,
         source_path: []const u8,
         dest_dir: Dir,
         dest_path: []const u8,
-        options: UpdateFileOptions,
+        options: CopyFileOptions,
     ) !PrevStatus {
         var src_file = try source_dir.openFile(source_path, .{});
         defer src_file.close();
@@ -1270,6 +1246,34 @@ pub const Dir = struct {
         try atomic_file.file.updateTimes(src_stat.atime, src_stat.mtime);
         try atomic_file.finish();
         return PrevStatus.stale;
+    }
+
+    /// Guaranteed to be atomic.
+    /// On Linux, until https://patchwork.kernel.org/patch/9636735/ is merged and readily available,
+    /// there is a possibility of power loss or application termination leaving temporary files present
+    /// in the same directory as dest_path.
+    pub fn copyFile(
+        source_dir: Dir,
+        source_path: []const u8,
+        dest_dir: Dir,
+        dest_path: []const u8,
+        options: CopyFileOptions,
+    ) !void {
+        var in_file = try source_dir.openFile(source_path, .{});
+        defer in_file.close();
+
+        var size: ?u64 = null;
+        const mode = options.override_mode orelse blk: {
+            const stat = try in_file.stat();
+            size = stat.size;
+            break :blk stat.mode;
+        };
+
+        var atomic_file = try dest_dir.atomicFile(dest_path, .{ .mode = mode });
+        defer atomic_file.deinit();
+
+        try atomic_file.file.writeFileAll(in_file, .{ .in_len = size });
+        return atomic_file.finish();
     }
 
     pub const AtomicFileOptions = struct {
@@ -1471,13 +1475,12 @@ pub fn walkPath(allocator: *Allocator, dir_path: []const u8) !Walker {
     return walker;
 }
 
-/// Read value of a symbolic link.
-/// The return value is a slice of buffer, from index `0`.
+/// Deprecated; use `Dir.readLink`.
 pub fn readLink(pathname: []const u8, buffer: *[MAX_PATH_BYTES]u8) ![]u8 {
     return os.readlink(pathname, buffer);
 }
 
-/// Same as `readLink`, except the parameter is null-terminated.
+/// Deprecated; use `Dir.readLinkC`.
 pub fn readLinkC(pathname_c: [*]const u8, buffer: *[MAX_PATH_BYTES]u8) ![]u8 {
     return os.readlinkC(pathname_c, buffer);
 }
@@ -1584,6 +1587,7 @@ pub fn selfExeDirPath(out_buffer: *[MAX_PATH_BYTES]u8) SelfExePathError![]const 
 }
 
 /// `realpath`, except caller must free the returned memory.
+/// TODO integrate with `Dir`
 pub fn realpathAlloc(allocator: *Allocator, pathname: []const u8) ![]u8 {
     var buf: [MAX_PATH_BYTES]u8 = undefined;
     return mem.dupe(allocator, u8, try os.realpath(pathname, &buf));
@@ -1592,6 +1596,9 @@ pub fn realpathAlloc(allocator: *Allocator, pathname: []const u8) ![]u8 {
 test "" {
     _ = makeDirAbsolute;
     _ = makeDirAbsoluteZ;
+    _ = copyFileAbsolute;
+    _ = updateFileAbsolute;
+    _ = Dir.copyFile;
     _ = @import("fs/path.zig");
     _ = @import("fs/file.zig");
     _ = @import("fs/get_app_data_dir.zig");

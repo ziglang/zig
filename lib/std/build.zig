@@ -847,7 +847,8 @@ pub const Builder = struct {
         if (self.verbose) {
             warn("cp {} {} ", .{ source_path, dest_path });
         }
-        const prev_status = try fs.updateFile(source_path, dest_path);
+        const cwd = fs.cwd();
+        const prev_status = try fs.Dir.updateFile(cwd, source_path, cwd, dest_path, .{});
         if (self.verbose) switch (prev_status) {
             .stale => warn("# installed\n", .{}),
             .fresh => warn("# up-to-date\n", .{}),

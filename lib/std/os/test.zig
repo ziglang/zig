@@ -113,14 +113,16 @@ test "fs.copyFile" {
     const dest_file = "tmp_test_copy_file2.txt";
     const dest_file2 = "tmp_test_copy_file3.txt";
 
-    try fs.cwd().writeFile(src_file, data);
-    defer fs.cwd().deleteFile(src_file) catch {};
+    const cwd = fs.cwd();
 
-    try fs.copyFile(src_file, dest_file);
-    defer fs.cwd().deleteFile(dest_file) catch {};
+    try cwd.writeFile(src_file, data);
+    defer cwd.deleteFile(src_file) catch {};
 
-    try fs.copyFileMode(src_file, dest_file2, File.default_mode);
-    defer fs.cwd().deleteFile(dest_file2) catch {};
+    try cwd.copyFile(src_file, cwd, dest_file, .{});
+    defer cwd.deleteFile(dest_file) catch {};
+
+    try cwd.copyFile(src_file, cwd, dest_file2, .{ .override_mode = File.default_mode });
+    defer cwd.deleteFile(dest_file2) catch {};
 
     try expectFileContents(dest_file, data);
     try expectFileContents(dest_file2, data);
