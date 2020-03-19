@@ -26249,6 +26249,7 @@ static IrInstGen *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstSrcSlice *i
         end = nullptr;
     }
 
+    ZigValue *slice_sentinel_val = nullptr;
     ZigType *non_sentinel_slice_ptr_type;
     ZigType *elem_type;
 
@@ -26299,6 +26300,7 @@ static IrInstGen *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstSrcSlice *i
         }
     } else if (is_slice(array_type)) {
         ZigType *maybe_sentineled_slice_ptr_type = array_type->data.structure.fields[slice_ptr_index]->type_entry;
+        slice_sentinel_val = maybe_sentineled_slice_ptr_type->data.pointer.sentinel;
         non_sentinel_slice_ptr_type = adjust_ptr_sentinel(ira->codegen, maybe_sentineled_slice_ptr_type, nullptr);
         elem_type = non_sentinel_slice_ptr_type->data.pointer.child_type;
     } else {
@@ -26376,6 +26378,8 @@ static IrInstGen *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstSrcSlice *i
                     PtrLenSingle, ptr_byte_alignment, 0, 0, false);
             goto done_with_return_type;
         }
+    } else if (array_sentinel == nullptr && end == nullptr) {
+        array_sentinel = slice_sentinel_val;
     }
     if (array_sentinel != nullptr) {
         // TODO deal with non-abi-alignment here
