@@ -496,14 +496,14 @@ pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
     return true;
 }
 
-/// Deprecated. Use `span`.
+/// Deprecated. Use `spanZ`.
 pub fn toSliceConst(comptime T: type, ptr: [*:0]const T) [:0]const T {
-    return ptr[0..len(ptr) :0];
+    return ptr[0..lenZ(ptr) :0];
 }
 
-/// Deprecated. Use `span`.
+/// Deprecated. Use `spanZ`.
 pub fn toSlice(comptime T: type, ptr: [*:0]T) [:0]T {
-    return ptr[0..len(ptr) :0];
+    return ptr[0..lenZ(ptr) :0];
 }
 
 /// Takes a pointer to an array, a sentinel-terminated pointer, or a slice, and
@@ -548,6 +548,9 @@ test "Span" {
 /// returns a slice. If there is a sentinel on the input type, there will be a
 /// sentinel on the output type. The constness of the output type matches
 /// the constness of the input type.
+///
+/// When there is both a sentinel and an array length or slice length, the
+/// length value is used instead of the sentinel.
 pub fn span(ptr: var) Span(@TypeOf(ptr)) {
     const Result = Span(@TypeOf(ptr));
     const l = len(ptr);
@@ -565,23 +568,37 @@ test "span" {
     testing.expect(eql(u16, span(&array), &[_]u16{ 1, 2, 3, 4, 5 }));
 }
 
+/// Same as `span`, except when there is both a sentinel and an array
+/// length or slice length, scans the memory for the sentinel value
+/// rather than using the length.
+pub fn spanZ(ptr: var) Span(@TypeOf(ptr)) {
+    const Result = Span(@TypeOf(ptr));
+    const l = lenZ(ptr);
+    if (@typeInfo(Result).Pointer.sentinel) |s| {
+        return ptr[0..l :s];
+    } else {
+        return ptr[0..l];
+    }
+}
+
+test "spanZ" {
+    var array: [5]u16 = [_]u16{ 1, 2, 3, 4, 5 };
+    const ptr = @as([*:3]u16, array[0..2 :3]);
+    testing.expect(eql(u16, spanZ(ptr), &[_]u16{ 1, 2 }));
+    testing.expect(eql(u16, spanZ(&array), &[_]u16{ 1, 2, 3, 4, 5 }));
+}
+
 /// Takes a pointer to an array, an array, a sentinel-terminated pointer,
 /// or a slice, and returns the length.
-/// In the case of a sentinel-terminated array, it scans the array
-/// for a sentinel and uses that for the length, rather than using the array length.
+/// In the case of a sentinel-terminated array, it uses the array length.
+/// For C pointers it assumes it is a pointer-to-many with a 0 sentinel.
 pub fn len(ptr: var) usize {
     return switch (@typeInfo(@TypeOf(ptr))) {
-        .Array => |info| if (info.sentinel) |sentinel|
-            indexOfSentinel(info.child, sentinel, &ptr)
-        else
-            info.len,
+        .Array => |info| info.len,
         .Pointer => |info| switch (info.size) {
             .One => switch (@typeInfo(info.child)) {
-                .Array => |x| if (x.sentinel) |sentinel|
-                    indexOfSentinel(x.child, sentinel, ptr)
-                else
-                    ptr.len,
-                else => @compileError("invalid type given to std.mem.length"),
+                .Array => ptr.len,
+                else => @compileError("invalid type given to std.mem.len"),
             },
             .Many => if (info.sentinel) |sentinel|
                 indexOfSentinel(info.child, sentinel, ptr)
@@ -590,7 +607,7 @@ pub fn len(ptr: var) usize {
             .C => indexOfSentinel(info.child, 0, ptr),
             .Slice => ptr.len,
         },
-        else => @compileError("invalid type given to std.mem.length"),
+        else => @compileError("invalid type given to std.mem.len"),
     };
 }
 
@@ -609,7 +626,59 @@ test "len" {
         var array: [5:0]u16 = [_:0]u16{ 1, 2, 3, 4, 5 };
         testing.expect(len(&array) == 5);
         array[2] = 0;
-        testing.expect(len(&array) == 2);
+        testing.expect(len(&array) == 5);
+    }
+}
+
+/// Takes a pointer to an array, an array, a sentinel-terminated pointer,
+/// or a slice, and returns the length.
+/// In the case of a sentinel-terminated array, it scans the array
+/// for a sentinel and uses that for the length, rather than using the array length.
+/// For C pointers it assumes it is a pointer-to-many with a 0 sentinel.
+pub fn lenZ(ptr: var) usize {
+    return switch (@typeInfo(@TypeOf(ptr))) {
+        .Array => |info| if (info.sentinel) |sentinel|
+            indexOfSentinel(info.child, sentinel, &ptr)
+        else
+            info.len,
+        .Pointer => |info| switch (info.size) {
+            .One => switch (@typeInfo(info.child)) {
+                .Array => |x| if (x.sentinel) |sentinel|
+                    indexOfSentinel(x.child, sentinel, ptr)
+                else
+                    ptr.len,
+                else => @compileError("invalid type given to std.mem.lenZ"),
+            },
+            .Many => if (info.sentinel) |sentinel|
+                indexOfSentinel(info.child, sentinel, ptr)
+            else
+                @compileError("length of pointer with no sentinel"),
+            .C => indexOfSentinel(info.child, 0, ptr),
+            .Slice => if (info.sentinel) |sentinel|
+                indexOfSentinel(info.child, sentinel, ptr.ptr)
+            else
+                ptr.len,
+        },
+        else => @compileError("invalid type given to std.mem.lenZ"),
+    };
+}
+
+test "lenZ" {
+    testing.expect(lenZ("aoeu") == 4);
+
+    {
+        var array: [5]u16 = [_]u16{ 1, 2, 3, 4, 5 };
+        testing.expect(lenZ(&array) == 5);
+        testing.expect(lenZ(array[0..3]) == 3);
+        array[2] = 0;
+        const ptr = @as([*:0]u16, array[0..2 :0]);
+        testing.expect(lenZ(ptr) == 2);
+    }
+    {
+        var array: [5:0]u16 = [_:0]u16{ 1, 2, 3, 4, 5 };
+        testing.expect(lenZ(&array) == 5);
+        array[2] = 0;
+        testing.expect(lenZ(&array) == 2);
     }
 }
 
