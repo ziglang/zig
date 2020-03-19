@@ -3711,6 +3711,7 @@ struct IrInstGenSlice {
     IrInstGen *start;
     IrInstGen *end;
     IrInstGen *result_loc;
+    ZigValue *sentinel;
     bool safety_check_on;
 };
 

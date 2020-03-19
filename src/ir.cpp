@@ -3732,7 +3732,8 @@ static IrInstSrc *ir_build_slice_src(IrBuilderSrc *irb, Scope *scope, AstNode *s
 }
 
 static IrInstGen *ir_build_slice_gen(IrAnalyze *ira, IrInst *source_instruction, ZigType *slice_type,
-    IrInstGen *ptr, IrInstGen *start, IrInstGen *end, bool safety_check_on, IrInstGen *result_loc)
+    IrInstGen *ptr, IrInstGen *start, IrInstGen *end, bool safety_check_on, IrInstGen *result_loc,
+    ZigValue *sentinel)
 {
     IrInstGenSlice *instruction = ir_build_inst_gen<IrInstGenSlice>(
             &ira->new_irb, source_instruction->scope, source_instruction->source_node);
@@ -3742,6 +3743,7 @@ static IrInstGen *ir_build_slice_gen(IrAnalyze *ira, IrInst *source_instruction,
     instruction->end = end;
     instruction->safety_check_on = safety_check_on;
     instruction->result_loc = result_loc;
+    instruction->sentinel = sentinel;
 
     ir_ref_inst_gen(ptr, ira->new_irb.current_basic_block);
     ir_ref_inst_gen(start, ira->new_irb.current_basic_block);
@@ -26667,7 +26669,7 @@ done_with_return_type:
     }
 
     return ir_build_slice_gen(ira, &instruction->base.base, return_type, ptr_ptr,
-            casted_start, end, instruction->safety_check_on, result_loc);
+            casted_start, end, instruction->safety_check_on, result_loc, sentinel_val);
 }
 
 static IrInstGen *ir_analyze_instruction_has_field(IrAnalyze *ira, IrInstSrcHasField *instruction) {

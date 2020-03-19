@@ -5425,17 +5425,9 @@ static LLVMValueRef ir_render_slice(CodeGen *g, IrExecutableGen *executable, IrI
         return nullptr;
     }
 
-    ZigValue *sentinel = nullptr;
-    if (result_type->id == ZigTypeIdPointer) {
-        ZigType *result_array_type = result_type->data.pointer.child_type;
-        ir_assert(result_array_type->id == ZigTypeIdArray, &instruction->base);
-        sentinel = result_array_type->data.array.sentinel;
-    } else if (result_type->id == ZigTypeIdStruct) {
-        ZigType *res_slice_ptr_type = result_type->data.structure.fields[slice_ptr_index]->type_entry;
-        sentinel = res_slice_ptr_type->data.pointer.sentinel;
-    } else {
-        zig_unreachable();
-    }
+    // This is not whether the result type has a sentinel, but whether there should be a sentinel check,
+    // e.g. if they used [a..b :s] syntax.
+    ZigValue *sentinel = instruction->sentinel;
 
     if (array_type->id == ZigTypeIdArray ||
         (array_type->id == ZigTypeIdPointer && array_type->data.pointer.ptr_len == PtrLenSingle))
