@@ -377,7 +377,7 @@ pub const Builder = struct {
             if (self.verbose) {
                 warn("rm {}\n", .{full_path});
             }
-            fs.deleteTree(full_path) catch {};
+            fs.cwd().deleteTree(full_path) catch {};
         }
 
         // TODO remove empty directories
@@ -847,7 +847,8 @@ pub const Builder = struct {
         if (self.verbose) {
             warn("cp {} {} ", .{ source_path, dest_path });
         }
-        const prev_status = try fs.updateFile(source_path, dest_path);
+        const cwd = fs.cwd();
+        const prev_status = try fs.Dir.updateFile(cwd, source_path, cwd, dest_path, .{});
         if (self.verbose) switch (prev_status) {
             .stale => warn("# installed\n", .{}),
             .fresh => warn("# up-to-date\n", .{}),
@@ -1157,7 +1158,13 @@ pub const LibExeObjStep = struct {
 
     valgrind_support: ?bool = null,
 
+    /// Create a .eh_frame_hdr section and a PT_GNU_EH_FRAME segment in the ELF
+    /// file.
     link_eh_frame_hdr: bool = false,
+
+    /// Place every function in its own section so that unused ones may be
+    /// safely garbage-collected during the linking phase.
+    link_function_sections: bool = false,
 
     /// Uses system Wine installation to run cross compiled Windows build artifacts.
     enable_wine: bool = false,
@@ -1884,7 +1891,9 @@ pub const LibExeObjStep = struct {
         if (self.link_eh_frame_hdr) {
             try zig_args.append("--eh-frame-hdr");
         }
-
+        if (self.link_function_sections) {
+            try zig_args.append("-ffunction-sections");
+        }
         if (self.single_threaded) {
             try zig_args.append("--single-threaded");
         }
@@ -2144,17 +2153,22 @@ pub const LibExeObjStep = struct {
             try zig_args.append("--cache");
             try zig_args.append("on");
 
-            const output_path_nl = try builder.execFromStep(zig_args.toSliceConst(), &self.step);
-            const output_path = mem.trimRight(u8, output_path_nl, "\r\n");
+            const output_dir_nl = try builder.execFromStep(zig_args.toSliceConst(), &self.step);
+            const build_output_dir = mem.trimRight(u8, output_dir_nl, "\r\n");
 
             if (self.output_dir) |output_dir| {
-                const full_dest = try fs.path.join(builder.allocator, &[_][]const u8{
-                    output_dir,
-                    fs.path.basename(output_path),
-                });
-                try builder.updateFile(output_path, full_dest);
+                var src_dir = try std.fs.cwd().openDir(build_output_dir, .{ .iterate = true });
+                defer src_dir.close();
+
+                var dest_dir = try std.fs.cwd().openDir(output_dir, .{});
+                defer dest_dir.close();
+
+                var it = src_dir.iterate();
+                while (try it.next()) |entry| {
+                    _ = try src_dir.updateFile(entry.name, dest_dir, entry.name, .{});
+                }
             } else {
-                self.output_dir = fs.path.dirname(output_path).?;
+                self.output_dir = build_output_dir;
             }
         }
 
@@ -2352,7 +2366,7 @@ pub const RemoveDirStep = struct {
         const self = @fieldParentPtr(RemoveDirStep, "step", step);
 
         const full_path = self.builder.pathFromRoot(self.dir_path);
-        fs.deleteTree(full_path) catch |err| {
+        fs.cwd().deleteTree(full_path) catch |err| {
             warn("Unable to remove {}: {}\n", .{ full_path, @errorName(err) });
             return err;
         };

@@ -2093,8 +2093,9 @@ var foo: u8 align(4) = 100;
 test "global variable alignment" {
     assert(@TypeOf(&foo).alignment == 4);
     assert(@TypeOf(&foo) == *align(4) u8);
-    const slice = @as(*[1]u8, &foo)[0..];
-    assert(@TypeOf(slice) == []align(4) u8);
+    const as_pointer_to_array: *[1]u8 = &foo;
+    const as_slice: []u8 = as_pointer_to_array;
+    assert(@TypeOf(as_slice) == []align(4) u8);
 }
 
 fn derp() align(@sizeOf(usize) * 2) i32 { return 1234; }
@@ -2187,7 +2188,8 @@ test "basic slices" {
     // a slice is that the array's length is part of the type and known at
     // compile-time, whereas the slice's length is known at runtime.
     // Both can be accessed with the `len` field.
-    const slice = array[0..array.len];
+    var known_at_runtime_zero: usize = 0;
+    const slice = array[known_at_runtime_zero..array.len];
     assert(&slice[0] == &array[0]);
     assert(slice.len == array.len);
 
@@ -2207,13 +2209,15 @@ test "basic slices" {
       {#code_end#}
       <p>This is one reason we prefer slices to pointers.</p>
       {#code_begin|test|slices#}
-const assert = @import("std").debug.assert;
-const mem = @import("std").mem;
-const fmt = @import("std").fmt;
+const std = @import("std");
+const assert = std.debug.assert;
+const mem = std.mem;
+const fmt = std.fmt;
 
 test "using slices for strings" {
-    // Zig has no concept of strings. String literals are arrays of u8, and
-    // in general the string type is []u8 (slice of u8).
+    // Zig has no concept of strings. String literals are const pointers to
+    // arrays of u8, and by convention parameters that are "strings" are
+    // expected to be UTF-8 encoded slices of u8.
     // Here we coerce [5]u8 to []const u8
     const hello: []const u8 = "hello";
     const world: []const u8 = "世界";
@@ -2222,7 +2226,7 @@ test "using slices for strings" {
     // You can use slice syntax on an array to convert an array into a slice.
     const all_together_slice = all_together[0..];
     // String concatenation example.
-    const hello_world = try fmt.bufPrint(all_together_slice, "{} {}", .{hello, world});
+    const hello_world = try fmt.bufPrint(all_together_slice, "{} {}", .{ hello, world });
 
     // Generally, you can use UTF-8 and not worry about whether something is a
     // string. If you don't need to deal with individual characters, no need
@@ -2239,22 +2243,14 @@ test "slice pointer" {
     slice[2] = 3;
     assert(slice[2] == 3);
     // The slice is mutable because we sliced a mutable pointer.
-    assert(@TypeOf(slice) == []u8);
+    // Furthermore, it is actually a pointer to an array, since the start
+    // and end indexes were both comptime-known.
+    assert(@TypeOf(slice) == *[5]u8);
 
     // You can also slice a slice:
     const slice2 = slice[2..3];
     assert(slice2.len == 1);
     assert(slice2[0] == 3);
-}
-
-test "slice widening" {
-    // Zig supports slice widening and slice narrowing. Cast a slice of u8
-    // to a slice of anything else, and Zig will perform the length conversion.
-    const array align(@alignOf(u32)) = [_]u8{ 0x12, 0x12, 0x12, 0x12, 0x13, 0x13, 0x13, 0x13 };
-    const slice = mem.bytesAsSlice(u32, array[0..]);
-    assert(slice.len == 2);
-    assert(slice[0] == 0x12121212);
-    assert(slice[1] == 0x13131313);
 }
       {#code_end#}
       {#see_also|Pointers|for|Arrays#}

@@ -2249,11 +2249,16 @@ pub const StringifyOptions = struct {
     // TODO: allow picking if []u8 is string or array?
 };
 
+pub const StringifyError = error{
+    TooMuchData,
+    DifferentData,
+};
+
 pub fn stringify(
     value: var,
     options: StringifyOptions,
     out_stream: var,
-) !void {
+) StringifyError!void {
     const T = @TypeOf(value);
     switch (@typeInfo(T)) {
         .Float, .ComptimeFloat => {
@@ -2320,9 +2325,15 @@ pub fn stringify(
             return;
         },
         .Pointer => |ptr_info| switch (ptr_info.size) {
-            .One => {
-                // TODO: avoid loops?
-                return try stringify(value.*, options, out_stream);
+            .One => switch (@typeInfo(ptr_info.child)) {
+                .Array => {
+                    const Slice = []const std.meta.Elem(ptr_info.child);
+                    return stringify(@as(Slice, value), options, out_stream);
+                },
+                else => {
+                    // TODO: avoid loops?
+                    return stringify(value.*, options, out_stream);
+                },
             },
             // TODO: .Many when there is a sentinel (waiting for https://github.com/ziglang/zig/pull/3972)
             .Slice => {
@@ -2381,9 +2392,7 @@ pub fn stringify(
             },
             else => @compileError("Unable to stringify type '" ++ @typeName(T) ++ "'"),
         },
-        .Array => |info| {
-            return try stringify(value[0..], options, out_stream);
-        },
+        .Array => return stringify(&value, options, out_stream),
         else => @compileError("Unable to stringify type '" ++ @typeName(T) ++ "'"),
     }
     unreachable;

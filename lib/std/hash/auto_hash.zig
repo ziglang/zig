@@ -40,7 +40,9 @@ pub fn hashPointer(hasher: var, key: var, comptime strat: HashStrategy) void {
             .DeepRecursive => hashArray(hasher, key, .DeepRecursive),
         },
 
-        .Many, .C, => switch (strat) {
+        .Many,
+        .C,
+        => switch (strat) {
             .Shallow => hash(hasher, @ptrToInt(key), .Shallow),
             else => @compileError(
                 \\ unknown-length pointers and C pointers cannot be hashed deeply.
@@ -236,9 +238,11 @@ test "hash slice shallow" {
     defer std.testing.allocator.destroy(array1);
     array1.* = [_]u32{ 1, 2, 3, 4, 5, 6 };
     const array2 = [_]u32{ 1, 2, 3, 4, 5, 6 };
-    const a = array1[0..];
-    const b = array2[0..];
-    const c = array1[0..3];
+    // TODO audit deep/shallow - maybe it has the wrong behavior with respect to array pointers and slices
+    var runtime_zero: usize = 0;
+    const a = array1[runtime_zero..];
+    const b = array2[runtime_zero..];
+    const c = array1[runtime_zero..3];
     testing.expect(testHashShallow(a) == testHashShallow(a));
     testing.expect(testHashShallow(a) != testHashShallow(array1));
     testing.expect(testHashShallow(a) != testHashShallow(b));

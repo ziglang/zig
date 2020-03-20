@@ -1291,6 +1291,7 @@ static int main0(int argc, char **argv) {
                     if (g->enable_cache) {
 #if defined(ZIG_OS_WINDOWS)
                         buf_replace(&g->bin_file_output_path, '/', '\\');
+                        buf_replace(g->output_dir, '/', '\\');
 #endif
                         if (final_output_dir_step != nullptr) {
                             Buf *dest_basename = buf_alloc();
@@ -1304,7 +1305,7 @@ static int main0(int argc, char **argv) {
                                 return main_exit(root_progress_node, EXIT_FAILURE);
                             }
                         } else {
-                            if (printf("%s\n", buf_ptr(&g->bin_file_output_path)) < 0)
+                            if (printf("%s\n", buf_ptr(g->output_dir)) < 0)
                                 return main_exit(root_progress_node, EXIT_FAILURE);
                         }
                     }

@@ -1744,20 +1744,18 @@ fn writeEscapedString(buf: []u8, s: []const u8) void {
 // Returns either a string literal or a slice of `buf`.
 fn escapeChar(c: u8, char_buf: *[4]u8) []const u8 {
     return switch (c) {
-        '\"' => "\\\""[0..],
-        '\'' => "\\'"[0..],
-        '\\' => "\\\\"[0..],
-        '\n' => "\\n"[0..],
-        '\r' => "\\r"[0..],
-        '\t' => "\\t"[0..],
-        else => {
-            // Handle the remaining escapes Zig doesn't support by turning them
-            // into their respective hex representation
-            if (std.ascii.isCntrl(c))
-                return std.fmt.bufPrint(char_buf[0..], "\\x{x:0<2}", .{c}) catch unreachable
-            else
-                return std.fmt.bufPrint(char_buf[0..], "{c}", .{c}) catch unreachable;
-        },
+        '\"' => "\\\"",
+        '\'' => "\\'",
+        '\\' => "\\\\",
+        '\n' => "\\n",
+        '\r' => "\\r",
+        '\t' => "\\t",
+        // Handle the remaining escapes Zig doesn't support by turning them
+        // into their respective hex representation
+        else => if (std.ascii.isCntrl(c))
+            std.fmt.bufPrint(char_buf, "\\x{x:0<2}", .{c}) catch unreachable
+        else
+            std.fmt.bufPrint(char_buf, "{c}", .{c}) catch unreachable,
     };
 }
 

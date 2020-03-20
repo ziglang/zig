@@ -1509,6 +1509,8 @@ test "zig fmt: error set declaration" {
         \\const Error = error{OutOfMemory};
         \\const Error = error{};
         \\
+        \\const Error = error{ OutOfMemory, OutOfTime };
+        \\
     );
 }
 

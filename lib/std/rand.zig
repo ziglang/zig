@@ -5,7 +5,7 @@
 // ```
 // var buf: [8]u8 = undefined;
 // try std.crypto.randomBytes(buf[0..]);
-// const seed = mem.readIntSliceLittle(u64, buf[0..8]);
+// const seed = mem.readIntLittle(u64, buf[0..8]);
 //
 // var r = DefaultPrng.init(seed);
 //

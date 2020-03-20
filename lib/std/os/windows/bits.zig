@@ -242,6 +242,13 @@ pub const FILE_NAME_INFORMATION = extern struct {
     FileName: [1]WCHAR,
 };
 
+pub const FILE_RENAME_INFORMATION = extern struct {
+    ReplaceIfExists: BOOLEAN,
+    RootDirectory: ?HANDLE,
+    FileNameLength: ULONG,
+    FileName: [1]WCHAR,
+};
+
 pub const IO_STATUS_BLOCK = extern struct {
     // "DUMMYUNIONNAME" expands to "u"
     u: extern union {

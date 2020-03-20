@@ -136,6 +136,8 @@ pub const MAP_FIXED_NOREPLACE = 0x100000;
 /// For anonymous mmap, memory could be uninitialized
 pub const MAP_UNINITIALIZED = 0x4000000;
 
+pub const FD_CLOEXEC = 1;
+
 pub const F_OK = 0;
 pub const X_OK = 1;
 pub const W_OK = 2;

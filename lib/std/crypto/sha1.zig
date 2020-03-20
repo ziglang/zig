@@ -109,8 +109,7 @@ pub const Sha1 = struct {
         d.round(d.buf[0..]);
 
         for (d.s) |s, j| {
-            // TODO https://github.com/ziglang/zig/issues/863
-            mem.writeIntSliceBig(u32, out[4 * j .. 4 * j + 4], s);
+            mem.writeIntBig(u32, out[4 * j ..][0..4], s);
         }
     }
 
