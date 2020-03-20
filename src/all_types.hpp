@@ -2267,6 +2267,7 @@ struct CodeGen {
     Buf *zig_lib_dir;
     Buf *zig_std_dir;
     Buf *version_script_path;
+    Buf *override_soname;
 
     const char **llvm_argv;
     size_t llvm_argv_len;

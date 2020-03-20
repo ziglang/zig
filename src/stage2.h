@@ -291,6 +291,7 @@ struct ZigTarget {
     size_t cache_hash_len;
     const char *os_builtin_str;
     const char *dynamic_linker;
+    const char *standard_dynamic_linker_path;
 };
 
 // ABI warning
