@@ -1,4 +1,4 @@
-test "zig fmt: noasync block" {
+test "zig fmt: errdefer with payload" {
     try testCanonical(
         \\pub fn main() anyerror!void {
         \\    errdefer |a| x += 1;

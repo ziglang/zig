@@ -1,6 +1,7 @@
 const std = @import("std");
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
+const expectError = std.testing.expectError;
 
 var result: [3]u8 = undefined;
 var index: usize = undefined;
@@ -105,10 +106,7 @@ test "errdefer with payload" {
             return error.One;
         }
         fn doTheTest() void {
-            _ = foo() catch |err| switch (err) {
-                error.One => {},
-                else => unreachable,
-            };
+            expectError(error.One, foo());
         }
     };
     S.doTheTest();
