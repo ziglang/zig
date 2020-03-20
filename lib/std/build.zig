@@ -1121,7 +1121,7 @@ pub const LibExeObjStep = struct {
     emit_llvm_ir: bool = false,
     emit_asm: bool = false,
     emit_bin: bool = true,
-    disable_gen_h: bool,
+    emit_h: bool = false,
     bundle_compiler_rt: bool,
     disable_stack_probing: bool,
     disable_sanitize_c: bool,
@@ -1281,7 +1281,6 @@ pub const LibExeObjStep = struct {
             .exec_cmd_args = null,
             .name_prefix = "",
             .filter = null,
-            .disable_gen_h = false,
             .bundle_compiler_rt = false,
             .disable_stack_probing = false,
             .disable_sanitize_c = false,
@@ -1600,8 +1599,9 @@ pub const LibExeObjStep = struct {
         self.main_pkg_path = dir_path;
     }
 
-    pub fn setDisableGenH(self: *LibExeObjStep, value: bool) void {
-        self.disable_gen_h = value;
+    /// Deprecated; just set the field directly.
+    pub fn setDisableGenH(self: *LibExeObjStep, is_disabled: bool) void {
+        self.emit_h = !is_disabled;
     }
 
     pub fn setLibCFile(self: *LibExeObjStep, libc_file: ?[]const u8) void {
@@ -1632,7 +1632,7 @@ pub const LibExeObjStep = struct {
     /// the make step, from a step that has declared a dependency on this one.
     pub fn getOutputHPath(self: *LibExeObjStep) []const u8 {
         assert(self.kind != Kind.Exe);
-        assert(!self.disable_gen_h);
+        assert(self.emit_h);
         return fs.path.join(
             self.builder.allocator,
             &[_][]const u8{ self.output_dir.?, self.out_h_filename },
@@ -1884,6 +1884,7 @@ pub const LibExeObjStep = struct {
         if (self.emit_llvm_ir) try zig_args.append("-femit-llvm-ir");
         if (self.emit_asm) try zig_args.append("-femit-asm");
         if (!self.emit_bin) try zig_args.append("-fno-emit-bin");
+        if (self.emit_h) try zig_args.append("-femit-h");
 
         if (self.strip) {
             try zig_args.append("--strip");
@@ -1928,9 +1929,6 @@ pub const LibExeObjStep = struct {
         }
         if (self.is_dynamic) {
             try zig_args.append("-dynamic");
-        }
-        if (self.disable_gen_h) {
-            try zig_args.append("--disable-gen-h");
         }
         if (self.bundle_compiler_rt) {
             try zig_args.append("--bundle-compiler-rt");
@@ -2069,7 +2067,7 @@ pub const LibExeObjStep = struct {
                     try zig_args.append("-isystem");
                     try zig_args.append(self.builder.pathFromRoot(include_path));
                 },
-                .OtherStep => |other| if (!other.disable_gen_h) {
+                .OtherStep => |other| if (other.emit_h) {
                     const h_path = other.getOutputHPath();
                     try zig_args.append("-isystem");
                     try zig_args.append(fs.path.dirname(h_path).?);
@@ -2209,7 +2207,7 @@ const InstallArtifactStep = struct {
                     break :blk InstallDir.Lib;
                 }
             } else null,
-            .h_dir = if (artifact.kind == .Lib and !artifact.disable_gen_h) .Header else null,
+            .h_dir = if (artifact.kind == .Lib and artifact.emit_h) .Header else null,
         };
         self.step.dependOn(&artifact.step);
         artifact.install_step = self;

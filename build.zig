@@ -134,7 +134,8 @@ pub fn build(b: *Builder) !void {
     test_step.dependOn(tests.addRuntimeSafetyTests(b, test_filter, modes));
     test_step.dependOn(tests.addTranslateCTests(b, test_filter));
     test_step.dependOn(tests.addRunTranslatedCTests(b, test_filter));
-    test_step.dependOn(tests.addGenHTests(b, test_filter));
+    // tests for this feature are disabled until we have the self-hosted compiler available
+    //test_step.dependOn(tests.addGenHTests(b, test_filter));
     test_step.dependOn(tests.addCompileErrorTests(b, test_filter, modes));
     test_step.dependOn(docs_step);
 }
