@@ -12350,11 +12350,22 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
             prev_type->data.pointer.child_type->id == ZigTypeIdArray &&
             prev_type->data.pointer.ptr_len == PtrLenSingle &&
             ((cur_type->id == ZigTypeIdErrorUnion && is_slice(cur_type->data.error_union.payload_type)) ||
-                is_slice(cur_type)))
+             (cur_type->id == ZigTypeIdOptional && is_slice(cur_type->data.maybe.child_type)) ||
+             is_slice(cur_type)))
         {
             ZigType *array_type = prev_type->data.pointer.child_type;
-            ZigType *slice_type = (cur_type->id == ZigTypeIdErrorUnion) ?
-                cur_type->data.error_union.payload_type : cur_type;
+            ZigType *slice_type;
+            switch (cur_type->id) {
+                case ZigTypeIdErrorUnion:
+                    slice_type = cur_type->data.error_union.payload_type;
+                    break;
+                case ZigTypeIdOptional:
+                    slice_type = cur_type->data.maybe.child_type;
+                    break;
+                default:
+                    slice_type = cur_type;
+                    break;
+            }
             ZigType *slice_ptr_type = slice_type->data.structure.fields[slice_ptr_index]->type_entry;
             if ((slice_ptr_type->data.pointer.is_const || array_type->data.array.len == 0 ||
                         !prev_type->data.pointer.is_const) &&
