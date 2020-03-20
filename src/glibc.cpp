@@ -16,6 +16,7 @@ static const ZigGLibCLib glibc_libs[] = {
     {"pthread", 0},
     {"dl", 2},
     {"rt", 1},
+    {"ld", 2},
 };
 
 Error glibc_load_metadata(ZigGLibCAbi **out_result, Buf *zig_lib_dir, bool verbose) {
@@ -330,6 +331,8 @@ Error glibc_build_dummies_and_maps(CodeGen *g, const ZigGLibCAbi *glibc_abi, con
             return err;
         }
 
+        bool is_ld = (strcmp(lib->name, "ld") == 0);
+
         CodeGen *child_gen = create_child_codegen(g, zig_file_path, OutTypeLib, nullptr, lib->name, progress_node);
         codegen_set_lib_version(child_gen, lib->sover, 0, 0);
         child_gen->is_dynamic = true;
@@ -337,6 +340,13 @@ Error glibc_build_dummies_and_maps(CodeGen *g, const ZigGLibCAbi *glibc_abi, con
         child_gen->version_script_path = map_file_path;
         child_gen->enable_cache = false;
         child_gen->output_dir = dummy_dir;
+        if (is_ld) {
+            assert(g->zig_target->standard_dynamic_linker_path != nullptr);
+            Buf *ld_basename = buf_alloc();
+            os_path_split(buf_create_from_str(g->zig_target->standard_dynamic_linker_path),
+                    nullptr, ld_basename);
+            child_gen->override_soname = ld_basename;
+        }
         codegen_build_and_link(child_gen);
     }
 
