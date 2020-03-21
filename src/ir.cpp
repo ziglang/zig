@@ -16235,6 +16235,15 @@ static IrInstGen *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstSrcBinOp *bin_op_i
         IrInstGen *union_val = op1->value->type->id == ZigTypeIdUnion ? op1 : op2;
         IrInstGen *enum_val = op1->value->type->id == ZigTypeIdUnion ? op2 : op1;
 
+        if (!is_tagged_union(union_val->value->type)) {
+            ErrorMsg *msg = ir_add_error_node(ira, source_node,
+                buf_sprintf("comparison of union and enum literal is only valid for tagged union types"));
+            add_error_note(ira->codegen, msg, union_val->value->type->data.unionation.decl_node,
+                buf_sprintf("type %s is not a tagged union",
+                    buf_ptr(&union_val->value->type->name)));
+            return ira->codegen->invalid_inst_gen;
+        }
+
         ZigType *tag_type = union_val->value->type->data.unionation.tag_type;
         assert(tag_type != nullptr);
 
