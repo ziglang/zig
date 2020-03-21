@@ -2,6 +2,18 @@ const tests = @import("tests.zig");
 const std = @import("std");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.addTest("unused variable error on errdefer",
+        \\fn foo() !void {
+        \\    errdefer |a| unreachable;
+        \\    return error.A;
+        \\}
+        \\export fn entry() void {
+        \\    foo() catch unreachable;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:2:15: error: unused variable: 'a'",
+    });
+
     cases.addTest("shift on type with non-power-of-two size",
         \\export fn entry() void {
         \\    const S = struct {

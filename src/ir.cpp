@@ -272,6 +272,10 @@ static ResultLoc *no_result_loc(void);
 static IrInstGen *ir_analyze_test_non_null(IrAnalyze *ira, IrInst *source_inst, IrInstGen *value);
 static IrInstGen *ir_error_dependency_loop(IrAnalyze *ira, IrInst *source_instr);
 static IrInstGen *ir_const_undef(IrAnalyze *ira, IrInst *source_instruction, ZigType *ty);
+static ZigVar *ir_create_var(IrBuilderSrc *irb, AstNode *node, Scope *scope, Buf *name,
+        bool src_is_const, bool gen_is_const, bool is_shadowable, IrInstSrc *is_comptime);
+static void build_decl_var_and_init(IrBuilderSrc *irb, Scope *scope, AstNode *source_node, ZigVar *var,
+        IrInstSrc *init, const char *name_hint, IrInstSrc *is_comptime);
 
 static void destroy_instruction_src(IrInstSrc *inst) {
     switch (inst->id) {
@@ -5011,39 +5015,73 @@ static IrInstSrc *ir_mark_gen(IrInstSrc *instruction) {
     return instruction;
 }
 
-static bool ir_gen_defers_for_block(IrBuilderSrc *irb, Scope *inner_scope, Scope *outer_scope, bool gen_error_defers) {
+static bool ir_gen_defers_for_block(IrBuilderSrc *irb, Scope *inner_scope, Scope *outer_scope, bool *is_noreturn, IrInstSrc *err_value) {
     Scope *scope = inner_scope;
-    bool is_noreturn = false;
+    if (is_noreturn != nullptr) *is_noreturn = false;
     while (scope != outer_scope) {
         if (!scope)
-            return is_noreturn;
+            return true;
 
         switch (scope->id) {
             case ScopeIdDefer: {
                 AstNode *defer_node = scope->source_node;
                 assert(defer_node->type == NodeTypeDefer);
                 ReturnKind defer_kind = defer_node->data.defer.kind;
-                if (defer_kind == ReturnKindUnconditional ||
-                    (gen_error_defers && defer_kind == ReturnKindError))
-                {
-                    AstNode *defer_expr_node = defer_node->data.defer.expr;
-                    Scope *defer_expr_scope = defer_node->data.defer.expr_scope;
-                    IrInstSrc *defer_expr_value = ir_gen_node(irb, defer_expr_node, defer_expr_scope);
-                    if (defer_expr_value != irb->codegen->invalid_inst_src) {
-                        if (defer_expr_value->is_noreturn) {
-                            is_noreturn = true;
-                        } else {
-                            ir_mark_gen(ir_build_check_statement_is_void(irb, defer_expr_scope, defer_expr_node,
-                                        defer_expr_value));
-                        }
+                AstNode *defer_expr_node = defer_node->data.defer.expr;
+                AstNode *defer_var_node = defer_node->data.defer.err_payload;
+
+                if (defer_kind == ReturnKindError && err_value == nullptr) {
+                    // This is an `errdefer` but we're generating code for a
+                    // `return` that doesn't return an error, skip it
+                    scope = scope->parent;
+                    continue;
+                }
+
+                Scope *defer_expr_scope = defer_node->data.defer.expr_scope;
+                if (defer_var_node != nullptr) {
+                    assert(defer_kind == ReturnKindError);
+                    assert(defer_var_node->type == NodeTypeSymbol);
+                    Buf *var_name = defer_var_node->data.symbol_expr.symbol;
+
+                    if (defer_expr_node->type == NodeTypeUnreachable) {
+                        add_node_error(irb->codegen, defer_var_node,
+                            buf_sprintf("unused variable: '%s'", buf_ptr(var_name)));
+                        return false;
                     }
+
+                    IrInstSrc *is_comptime;
+                    if (ir_should_inline(irb->exec, defer_expr_scope)) {
+                        is_comptime = ir_build_const_bool(irb, defer_expr_scope,
+                            defer_expr_node, true);
+                    } else {
+                        is_comptime = ir_build_test_comptime(irb, defer_expr_scope,
+                            defer_expr_node, err_value);
+                    }
+
+                    ZigVar *err_var = ir_create_var(irb, defer_var_node, defer_expr_scope,
+                        var_name, true, true, false, is_comptime);
+                    build_decl_var_and_init(irb, defer_expr_scope, defer_var_node, err_var, err_value,
+                        buf_ptr(var_name), is_comptime);
+
+                    defer_expr_scope = err_var->child_scope;
+                }
+
+                IrInstSrc *defer_expr_value = ir_gen_node(irb, defer_expr_node, defer_expr_scope);
+                if (defer_expr_value == irb->codegen->invalid_inst_src)
+                    return irb->codegen->invalid_inst_src;
+
+                if (defer_expr_value->is_noreturn) {
+                    if (is_noreturn != nullptr) *is_noreturn = true;
+                } else {
+                    ir_mark_gen(ir_build_check_statement_is_void(irb, defer_expr_scope, defer_expr_node,
+                                defer_expr_value));
                 }
                 scope = scope->parent;
                 continue;
             }
             case ScopeIdDecls:
             case ScopeIdFnDef:
-                return is_noreturn;
+                return true;
             case ScopeIdBlock:
             case ScopeIdVarDecl:
             case ScopeIdLoop:
@@ -5060,7 +5098,7 @@ static bool ir_gen_defers_for_block(IrBuilderSrc *irb, Scope *inner_scope, Scope
                 zig_unreachable();
         }
     }
-    return is_noreturn;
+    return true;
 }
 
 static void ir_set_cursor_at_end_gen(IrBuilderGen *irb, IrBasicBlockGen *basic_block) {
@@ -5146,7 +5184,8 @@ static IrInstSrc *ir_gen_return(IrBuilderSrc *irb, Scope *scope, AstNode *node, 
                 bool have_err_defers = defer_counts[ReturnKindError] > 0;
                 if (!have_err_defers && !irb->codegen->have_err_ret_tracing) {
                     // only generate unconditional defers
-                    ir_gen_defers_for_block(irb, scope, outer_scope, false);
+                    if (!ir_gen_defers_for_block(irb, scope, outer_scope, nullptr, nullptr))
+                        return irb->codegen->invalid_inst_src;
                     IrInstSrc *result = ir_build_return_src(irb, scope, node, nullptr);
                     result_loc_ret->base.source_instruction = result;
                     return result;
@@ -5169,14 +5208,16 @@ static IrInstSrc *ir_gen_return(IrBuilderSrc *irb, Scope *scope, AstNode *node, 
                 IrBasicBlockSrc *ret_stmt_block = ir_create_basic_block(irb, scope, "RetStmt");
 
                 ir_set_cursor_at_end_and_append_block(irb, err_block);
-                ir_gen_defers_for_block(irb, scope, outer_scope, true);
+                if (!ir_gen_defers_for_block(irb, scope, outer_scope, nullptr, return_value))
+                    return irb->codegen->invalid_inst_src;
                 if (irb->codegen->have_err_ret_tracing && !should_inline) {
                     ir_build_save_err_ret_addr_src(irb, scope, node);
                 }
                 ir_build_br(irb, scope, node, ret_stmt_block, is_comptime);
 
                 ir_set_cursor_at_end_and_append_block(irb, ok_block);
-                ir_gen_defers_for_block(irb, scope, outer_scope, false);
+                if (!ir_gen_defers_for_block(irb, scope, outer_scope, nullptr, nullptr))
+                    return irb->codegen->invalid_inst_src;
                 ir_build_br(irb, scope, node, ret_stmt_block, is_comptime);
 
                 ir_set_cursor_at_end_and_append_block(irb, ret_stmt_block);
@@ -5213,7 +5254,12 @@ static IrInstSrc *ir_gen_return(IrBuilderSrc *irb, Scope *scope, AstNode *node, 
                 result_loc_ret->base.id = ResultLocIdReturn;
                 ir_build_reset_result(irb, scope, node, &result_loc_ret->base);
                 ir_build_end_expr(irb, scope, node, err_val, &result_loc_ret->base);
-                if (!ir_gen_defers_for_block(irb, scope, outer_scope, true)) {
+
+                bool is_noreturn = false;
+                if (!ir_gen_defers_for_block(irb, scope, outer_scope, &is_noreturn, err_val)) {
+                    return irb->codegen->invalid_inst_src;
+                }
+                if (!is_noreturn) {
                     if (irb->codegen->have_err_ret_tracing && !should_inline) {
                         ir_build_save_err_ret_addr_src(irb, scope, node);
                     }
@@ -5415,7 +5461,8 @@ static IrInstSrc *ir_gen_block(IrBuilderSrc *irb, Scope *parent_scope, AstNode *
 
     bool is_return_from_fn = block_node == irb->main_block_node;
     if (!is_return_from_fn) {
-        ir_gen_defers_for_block(irb, child_scope, outer_block_scope, false);
+        if (!ir_gen_defers_for_block(irb, child_scope, outer_block_scope, nullptr, nullptr))
+            return irb->codegen->invalid_inst_src;
     }
 
     IrInstSrc *result;
@@ -5440,7 +5487,8 @@ static IrInstSrc *ir_gen_block(IrBuilderSrc *irb, Scope *parent_scope, AstNode *
     result_loc_ret->base.id = ResultLocIdReturn;
     ir_build_reset_result(irb, parent_scope, block_node, &result_loc_ret->base);
     ir_mark_gen(ir_build_end_expr(irb, parent_scope, block_node, result, &result_loc_ret->base));
-    ir_gen_defers_for_block(irb, child_scope, outer_block_scope, false);
+    if (!ir_gen_defers_for_block(irb, child_scope, outer_block_scope, nullptr, nullptr))
+        return irb->codegen->invalid_inst_src;
     return ir_mark_gen(ir_build_return_src(irb, child_scope, result->base.source_node, result));
 }
 
@@ -9240,7 +9288,8 @@ static IrInstSrc *ir_gen_return_from_block(IrBuilderSrc *irb, Scope *break_scope
     }
 
     IrBasicBlockSrc *dest_block = block_scope->end_block;
-    ir_gen_defers_for_block(irb, break_scope, dest_block->scope, false);
+    if (!ir_gen_defers_for_block(irb, break_scope, dest_block->scope, nullptr, nullptr))
+        return irb->codegen->invalid_inst_src;
 
     block_scope->incoming_blocks->append(irb->current_basic_block);
     block_scope->incoming_values->append(result_value);
@@ -9314,7 +9363,8 @@ static IrInstSrc *ir_gen_break(IrBuilderSrc *irb, Scope *break_scope, AstNode *n
     }
 
     IrBasicBlockSrc *dest_block = loop_scope->break_block;
-    ir_gen_defers_for_block(irb, break_scope, dest_block->scope, false);
+    if (!ir_gen_defers_for_block(irb, break_scope, dest_block->scope, nullptr, nullptr))
+        return irb->codegen->invalid_inst_src;
 
     loop_scope->incoming_blocks->append(irb->current_basic_block);
     loop_scope->incoming_values->append(result_value);
@@ -9373,7 +9423,8 @@ static IrInstSrc *ir_gen_continue(IrBuilderSrc *irb, Scope *continue_scope, AstN
     }
 
     IrBasicBlockSrc *dest_block = loop_scope->continue_block;
-    ir_gen_defers_for_block(irb, continue_scope, dest_block->scope, false);
+    if (!ir_gen_defers_for_block(irb, continue_scope, dest_block->scope, nullptr, nullptr))
+        return irb->codegen->invalid_inst_src;
     return ir_mark_gen(ir_build_br(irb, continue_scope, node, dest_block, is_comptime));
 }
 

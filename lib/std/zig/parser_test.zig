@@ -1,3 +1,16 @@
+test "zig fmt: errdefer with payload" {
+    try testCanonical(
+        \\pub fn main() anyerror!void {
+        \\    errdefer |a| x += 1;
+        \\    errdefer |a| {}
+        \\    errdefer |a| {
+        \\        x += 1;
+        \\    }
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: noasync block" {
     try testCanonical(
         \\pub fn main() anyerror!void {

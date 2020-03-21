@@ -744,6 +744,7 @@ struct AstNodeReturnExpr {
 
 struct AstNodeDefer {
     ReturnKind kind;
+    AstNode *err_payload;
     AstNode *expr;
 
     // temporary data used in IR generation

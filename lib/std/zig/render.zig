@@ -376,6 +376,9 @@ fn renderExpression(
             const defer_node = @fieldParentPtr(ast.Node.Defer, "base", base);
 
             try renderToken(tree, stream, defer_node.defer_token, indent, start_col, Space.Space);
+            if (defer_node.payload) |payload| {
+                try renderExpression(allocator, stream, tree, indent, start_col, payload, Space.Space);
+            }
             return renderExpression(allocator, stream, tree, indent, start_col, defer_node.expr, space);
         },
         .Comptime => {
