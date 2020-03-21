@@ -9778,7 +9778,7 @@ static void gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file) {
         Termination term;
         ZigList<const char *> args = {};
         args.append(buf_ptr(self_exe_path));
-        args.append("cc");
+        args.append("clang");
 
         Buf *out_dep_path = buf_sprintf("%s.d", buf_ptr(out_obj_path));
         add_cc_args(g, args, buf_ptr(out_dep_path), false);

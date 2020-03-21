@@ -36,7 +36,7 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  build-lib [source]           create library from source or object files\n"
         "  build-obj [source]           create object from source or assembly\n"
         "  builtin                      show the source code of @import(\"builtin\")\n"
-        "  cc                           C compiler\n"
+        "  cc                           use Zig as a drop-in C compiler\n"
         "  fmt                          parse files and render in canonical zig format\n"
         "  id                           print the base64-encoded compiler id\n"
         "  init-exe                     initialize a `zig build` application in the cwd\n"
@@ -271,7 +271,7 @@ static int main0(int argc, char **argv) {
         return 0;
     }
 
-    if (argc >= 2 && (strcmp(argv[1], "cc") == 0 ||
+    if (argc >= 2 && (strcmp(argv[1], "clang") == 0 ||
             strcmp(argv[1], "-cc1") == 0 || strcmp(argv[1], "-cc1as") == 0))
     {
         return ZigClang_main(argc, argv);
@@ -575,9 +575,55 @@ static int main0(int argc, char **argv) {
         return (term.how == TerminationIdClean) ? term.code : -1;
     } else if (argc >= 2 && strcmp(argv[1], "fmt") == 0) {
         return stage2_fmt(argc, argv);
-    }
-
-    for (int i = 1; i < argc; i += 1) {
+    } else if (argc >= 2 && strcmp(argv[1], "cc") == 0) {
+        const char *o_arg = nullptr;
+        bool c_arg = false;
+        Stage2ClangArgIterator it;
+        stage2_clang_arg_iterator(&it, argc, argv);
+        while (it.has_next) {
+            if ((err = stage2_clang_arg_next(&it))) {
+                fprintf(stderr, "unable to parse command line parameters: %s\n", err_str(err));
+                return EXIT_FAILURE;
+            }
+            switch (it.kind) {
+                case Stage2ClangArgTarget: // example: -target riscv64-linux-unknown
+                    target_string = it.only_arg;
+                    break;
+                case Stage2ClangArgO: // -o
+                    o_arg = it.only_arg;
+                    break;
+                case Stage2ClangArgC: // -c
+                    c_arg = true;
+                    break;
+                case Stage2ClangArgOther:
+                    for (size_t i = 0; i < it.other_args_len; i += 1) {
+                        clang_argv.append(it.other_args_ptr[i]);
+                    }
+                    break;
+                case Stage2ClangArgPositional: {
+                    CFile *c_file = heap::c_allocator.create<CFile>();
+                    c_file->source_path = it.only_arg;
+                    c_source_files.append(c_file);
+                    break;
+                }
+                case Stage2ClangArgL: // -l
+                    if (strcmp(it.only_arg, "c") == 0)
+                        have_libc = true;
+                    link_libs.append(it.only_arg);
+                    break;
+            }
+        }
+        if (!c_arg) {
+            cmd = CmdBuild;
+            out_type = OutTypeExe;
+            if (o_arg == nullptr) {
+                zig_panic("TODO set out name to a.out");
+            }
+        } else {
+            cmd = CmdBuild;
+            out_type = OutTypeObj;
+        }
+    } else for (int i = 1; i < argc; i += 1) {
         char *arg = argv[i];
 
         if (arg[0] == '-') {
