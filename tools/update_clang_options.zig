@@ -38,6 +38,42 @@ const known_options = [_]KnownOpt{
         .name = "l",
         .ident = "l",
     },
+    .{
+        .name = "pipe",
+        .ident = "ignore",
+    },
+    .{
+        .name = "help",
+        .ident = "passthrough",
+    },
+    .{
+        .name = "fPIC",
+        .ident = "pic",
+    },
+    .{
+        .name = "fno-PIC",
+        .ident = "no_pic",
+    },
+    .{
+        .name = "nostdlib",
+        .ident = "nostdlib",
+    },
+    .{
+        .name = "no-standard-libraries",
+        .ident = "nostdlib",
+    },
+    .{
+        .name = "shared",
+        .ident = "shared",
+    },
+    .{
+        .name = "rdynamic",
+        .ident = "rdynamic",
+    },
+    .{
+        .name = "Wl,",
+        .ident = "wl",
+    },
 };
 
 const blacklisted_options = [_][]const u8{};
@@ -110,7 +146,7 @@ pub fn main() anyerror!void {
     const tree = try parser.parse(json_text);
     const root_map = &tree.root.Object;
 
-    var all_names = std.ArrayList([]const u8).init(allocator);
+    var all_objects = std.ArrayList(*json.ObjectMap).init(allocator);
     {
         var it = root_map.iterator();
         it_map: while (it.next()) |kv| {
@@ -123,10 +159,12 @@ pub fn main() anyerror!void {
                 if (std.mem.eql(u8, blacklisted_key, kv.key)) continue :it_map;
             }
             if (kv.value.Object.get("Name").?.value.String.len == 0) continue;
-            try all_names.append(kv.key);
+            try all_objects.append(&kv.value.Object);
         }
     }
-    std.sort.sort([]const u8, all_names.span(), nameLessThan);
+    // Some options have multiple matches. As an example, "-Wl,foo" matches both
+    // "W" and "Wl,". So we sort this list in order of descending priority.
+    std.sort.sort(*json.ObjectMap, all_objects.span(), objectLessThan);
 
     var stdout_bos = std.io.bufferedOutStream(std.io.getStdOut().outStream());
     const stdout = stdout_bos.outStream();
@@ -138,8 +176,7 @@ pub fn main() anyerror!void {
         \\
     );
 
-    for (all_names.span()) |key| {
-        const obj = &root_map.get(key).?.value.Object;
+    for (all_objects.span()) |obj| {
         const name = obj.get("Name").?.value.String;
         var pd1 = false;
         var pd2 = false;
@@ -153,61 +190,12 @@ pub fn main() anyerror!void {
             } else if (std.mem.eql(u8, prefix, "/")) {
                 pslash = true;
             } else {
-                std.debug.warn("{} (key {}) has unrecognized prefix '{}'\n", .{ name, key, prefix });
+                std.debug.warn("{} has unrecognized prefix '{}'\n", .{ name, prefix });
                 std.process.exit(1);
             }
         }
-        const num_args = @intCast(u8, obj.get("NumArgs").?.value.Integer);
-        const syntax_str: []const u8 = blk: {
-            for (obj.get("!superclasses").?.value.Array.span()) |superclass_json| {
-                const superclass = superclass_json.String;
-                if (std.mem.eql(u8, superclass, "Joined")) {
-                    break :blk ".joined";
-                } else if (std.mem.eql(u8, superclass, "CLJoined")) {
-                    break :blk ".joined";
-                } else if (std.mem.eql(u8, superclass, "CLIgnoredJoined")) {
-                    break :blk ".joined";
-                } else if (std.mem.eql(u8, superclass, "CLCompileJoined")) {
-                    break :blk ".joined";
-                } else if (std.mem.eql(u8, superclass, "JoinedOrSeparate")) {
-                    break :blk ".joined_or_separate";
-                } else if (std.mem.eql(u8, superclass, "CLJoinedOrSeparate")) {
-                    break :blk ".joined_or_separate";
-                } else if (std.mem.eql(u8, superclass, "CLCompileJoinedOrSeparate")) {
-                    break :blk ".joined_or_separate";
-                } else if (std.mem.eql(u8, superclass, "Flag")) {
-                    break :blk ".flag";
-                } else if (std.mem.eql(u8, superclass, "CLFlag")) {
-                    break :blk ".flag";
-                } else if (std.mem.eql(u8, superclass, "CLIgnoredFlag")) {
-                    break :blk ".flag";
-                } else if (std.mem.eql(u8, superclass, "Separate")) {
-                    break :blk ".separate";
-                } else if (std.mem.eql(u8, superclass, "JoinedAndSeparate")) {
-                    break :blk ".joined_and_separate";
-                } else if (std.mem.eql(u8, superclass, "CommaJoined")) {
-                    break :blk ".comma_joined";
-                } else if (std.mem.eql(u8, superclass, "CLRemainingArgsJoined")) {
-                    break :blk ".remaining_args_joined";
-                } else if (std.mem.eql(u8, superclass, "MultiArg")) {
-                    break :blk try std.fmt.allocPrint(allocator, ".{{ .multi_arg = {} }}", .{num_args});
-                }
-            }
-            if (std.mem.eql(u8, name, "<input>")) {
-                break :blk ".flag";
-            } else if (std.mem.eql(u8, name, "<unknown>")) {
-                break :blk ".flag";
-            }
-            const kind_def = obj.get("Kind").?.value.Object.get("def").?.value.String;
-            if (std.mem.eql(u8, kind_def, "KIND_FLAG")) {
-                break :blk ".flag";
-            }
-            std.debug.warn("{} (key {}) has unrecognized superclasses:\n", .{ name, key });
-            for (obj.get("!superclasses").?.value.Array.span()) |superclass_json| {
-                std.debug.warn(" {}\n", .{superclass_json.String});
-            }
-            std.process.exit(1);
-        };
+        const syntax = objSyntax(obj);
+
         if (knownOption(name)) |ident| {
             try stdout.print(
                 \\.{{
@@ -219,22 +207,14 @@ pub fn main() anyerror!void {
                 \\    .psl = {},
                 \\}},
                 \\
-            , .{ name, syntax_str, ident, pd1, pd2, pslash });
-        } else if (pd1 and !pd2 and !pslash and
-            std.mem.eql(u8, syntax_str, ".flag"))
-        {
+            , .{ name, syntax, ident, pd1, pd2, pslash });
+        } else if (pd1 and !pd2 and !pslash and syntax == .flag) {
             try stdout.print("flagpd1(\"{}\"),\n", .{name});
-        } else if (pd1 and !pd2 and !pslash and
-            std.mem.eql(u8, syntax_str, ".joined"))
-        {
+        } else if (pd1 and !pd2 and !pslash and syntax == .joined) {
             try stdout.print("joinpd1(\"{}\"),\n", .{name});
-        } else if (pd1 and !pd2 and !pslash and
-            std.mem.eql(u8, syntax_str, ".joined_or_separate"))
-        {
+        } else if (pd1 and !pd2 and !pslash and syntax == .joined_or_separate) {
             try stdout.print("jspd1(\"{}\"),\n", .{name});
-        } else if (pd1 and !pd2 and !pslash and
-            std.mem.eql(u8, syntax_str, ".separate"))
-        {
+        } else if (pd1 and !pd2 and !pslash and syntax == .separate) {
             try stdout.print("sepd1(\"{}\"),\n", .{name});
         } else {
             try stdout.print(
@@ -247,7 +227,7 @@ pub fn main() anyerror!void {
                 \\    .psl = {},
                 \\}},
                 \\
-            , .{ name, syntax_str, pd1, pd2, pslash });
+            , .{ name, syntax, pd1, pd2, pslash });
         }
     }
 
@@ -259,8 +239,142 @@ pub fn main() anyerror!void {
     try stdout_bos.flush();
 }
 
-fn nameLessThan(a: []const u8, b: []const u8) bool {
-    return std.mem.lessThan(u8, a, b);
+// TODO we should be able to import clang_options.zig but currently this is problematic because it will
+// import stage2.zig and that causes a bunch of stuff to get exported
+const Syntax = union(enum) {
+    /// A flag with no values.
+    flag,
+
+    /// An option which prefixes its (single) value.
+    joined,
+
+    /// An option which is followed by its value.
+    separate,
+
+    /// An option which is either joined to its (non-empty) value, or followed by its value.
+    joined_or_separate,
+
+    /// An option which is both joined to its (first) value, and followed by its (second) value.
+    joined_and_separate,
+
+    /// An option followed by its values, which are separated by commas.
+    comma_joined,
+
+    /// An option which consumes an optional joined argument and any other remaining arguments.
+    remaining_args_joined,
+
+    /// An option which is which takes multiple (separate) arguments.
+    multi_arg: u8,
+
+    pub fn format(
+        self: Syntax,
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        out_stream: var,
+    ) !void {
+        switch (self) {
+            .multi_arg => |n| return out_stream.print(".{{.{}={}}}", .{ @tagName(self), n }),
+            else => return out_stream.print(".{}", .{@tagName(self)}),
+        }
+    }
+};
+
+fn objSyntax(obj: *json.ObjectMap) Syntax {
+    const num_args = @intCast(u8, obj.get("NumArgs").?.value.Integer);
+    for (obj.get("!superclasses").?.value.Array.span()) |superclass_json| {
+        const superclass = superclass_json.String;
+        if (std.mem.eql(u8, superclass, "Joined")) {
+            return .joined;
+        } else if (std.mem.eql(u8, superclass, "CLJoined")) {
+            return .joined;
+        } else if (std.mem.eql(u8, superclass, "CLIgnoredJoined")) {
+            return .joined;
+        } else if (std.mem.eql(u8, superclass, "CLCompileJoined")) {
+            return .joined;
+        } else if (std.mem.eql(u8, superclass, "JoinedOrSeparate")) {
+            return .joined_or_separate;
+        } else if (std.mem.eql(u8, superclass, "CLJoinedOrSeparate")) {
+            return .joined_or_separate;
+        } else if (std.mem.eql(u8, superclass, "CLCompileJoinedOrSeparate")) {
+            return .joined_or_separate;
+        } else if (std.mem.eql(u8, superclass, "Flag")) {
+            return .flag;
+        } else if (std.mem.eql(u8, superclass, "CLFlag")) {
+            return .flag;
+        } else if (std.mem.eql(u8, superclass, "CLIgnoredFlag")) {
+            return .flag;
+        } else if (std.mem.eql(u8, superclass, "Separate")) {
+            return .separate;
+        } else if (std.mem.eql(u8, superclass, "JoinedAndSeparate")) {
+            return .joined_and_separate;
+        } else if (std.mem.eql(u8, superclass, "CommaJoined")) {
+            return .comma_joined;
+        } else if (std.mem.eql(u8, superclass, "CLRemainingArgsJoined")) {
+            return .remaining_args_joined;
+        } else if (std.mem.eql(u8, superclass, "MultiArg")) {
+            return .{ .multi_arg = num_args };
+        }
+    }
+    const name = obj.get("Name").?.value.String;
+    if (std.mem.eql(u8, name, "<input>")) {
+        return .flag;
+    } else if (std.mem.eql(u8, name, "<unknown>")) {
+        return .flag;
+    }
+    const kind_def = obj.get("Kind").?.value.Object.get("def").?.value.String;
+    if (std.mem.eql(u8, kind_def, "KIND_FLAG")) {
+        return .flag;
+    }
+    const key = obj.get("!name").?.value.String;
+    std.debug.warn("{} (key {}) has unrecognized superclasses:\n", .{ name, key });
+    for (obj.get("!superclasses").?.value.Array.span()) |superclass_json| {
+        std.debug.warn(" {}\n", .{superclass_json.String});
+    }
+    std.process.exit(1);
+}
+
+fn syntaxMatchesWithEql(syntax: Syntax) bool {
+    return switch (syntax) {
+        .flag,
+        .separate,
+        .multi_arg,
+        => true,
+
+        .joined,
+        .joined_or_separate,
+        .joined_and_separate,
+        .comma_joined,
+        .remaining_args_joined,
+        => false,
+    };
+}
+
+fn objectLessThan(a: *json.ObjectMap, b: *json.ObjectMap) bool {
+    // Priority is determined by exact matches first, followed by prefix matches in descending
+    // length, with key as a final tiebreaker.
+    const a_syntax = objSyntax(a);
+    const b_syntax = objSyntax(b);
+
+    const a_match_with_eql = syntaxMatchesWithEql(a_syntax);
+    const b_match_with_eql = syntaxMatchesWithEql(b_syntax);
+
+    if (a_match_with_eql and !b_match_with_eql) {
+        return true;
+    } else if (!a_match_with_eql and b_match_with_eql) {
+        return false;
+    }
+
+    if (!a_match_with_eql and !b_match_with_eql) {
+        const a_name = a.get("Name").?.value.String;
+        const b_name = b.get("Name").?.value.String;
+        if (a_name.len != b_name.len) {
+            return a_name.len > b_name.len;
+        }
+    }
+
+    const a_key = a.get("!name").?.value.String;
+    const b_key = b.get("!name").?.value.String;
+    return std.mem.lessThan(u8, a_key, b_key);
 }
 
 fn usageAndExit(file: fs.File, arg0: []const u8, code: u8) noreturn {

@@ -1239,6 +1239,14 @@ pub const ClangArgIterator = extern struct {
         other,
         positional,
         l,
+        ignore,
+        passthrough,
+        pic,
+        no_pic,
+        nostdlib,
+        shared,
+        rdynamic,
+        wl,
     };
 
     fn init(argv: []const [*:0]const u8) ClangArgIterator {
@@ -1282,7 +1290,8 @@ pub const ClangArgIterator = extern struct {
                 break :find_clang_arg;
             },
             .joined, .comma_joined => {
-                // Example: --target=foo
+                // joined example: --target=foo
+                // comma_joined example: -Wl,-soname,libsoundio.so.2
                 const prefix_len = clang_arg.matchStartsWith(arg);
                 if (prefix_len != 0) {
                     self.zig_equivalent = clang_arg.zig_equivalent;

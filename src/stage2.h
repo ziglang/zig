@@ -325,6 +325,14 @@ enum Stage2ClangArg {
     Stage2ClangArgOther,
     Stage2ClangArgPositional,
     Stage2ClangArgL,
+    Stage2ClangArgIgnore,
+    Stage2ClangArgPassthrough,
+    Stage2ClangArgPIC,
+    Stage2ClangArgNoPIC,
+    Stage2ClangArgNoStdLib,
+    Stage2ClangArgShared,
+    Stage2ClangArgRDynamic,
+    Stage2ClangArgWL,
 };
 
 // ABI warning
