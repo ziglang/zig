@@ -1240,7 +1240,7 @@ pub const ClangArgIterator = extern struct {
         positional,
         l,
         ignore,
-        passthrough,
+        driver_punt,
         pic,
         no_pic,
         nostdlib,

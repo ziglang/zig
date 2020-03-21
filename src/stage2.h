@@ -326,7 +326,7 @@ enum Stage2ClangArg {
     Stage2ClangArgPositional,
     Stage2ClangArgL,
     Stage2ClangArgIgnore,
-    Stage2ClangArgPassthrough,
+    Stage2ClangArgDriverPunt,
     Stage2ClangArgPIC,
     Stage2ClangArgNoPIC,
     Stage2ClangArgNoStdLib,

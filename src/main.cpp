@@ -630,7 +630,7 @@ static int main0(int argc, char **argv) {
                     break;
                 case Stage2ClangArgIgnore:
                     break;
-                case Stage2ClangArgPassthrough:
+                case Stage2ClangArgDriverPunt:
                     // Never mind what we're doing, just pass the args directly. For example --help.
                     return ZigClang_main(argc, argv);
                 case Stage2ClangArgPIC:

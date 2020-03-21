@@ -44,7 +44,7 @@ const known_options = [_]KnownOpt{
     },
     .{
         .name = "help",
-        .ident = "passthrough",
+        .ident = "driver_punt",
     },
     .{
         .name = "fPIC",
@@ -73,6 +73,14 @@ const known_options = [_]KnownOpt{
     .{
         .name = "Wl,",
         .ident = "wl",
+    },
+    .{
+        .name = "E",
+        .ident = "driver_punt",
+    },
+    .{
+        .name = "S",
+        .ident = "driver_punt",
     },
 };
 
