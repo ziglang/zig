@@ -1311,13 +1311,16 @@ pub const Builder = struct {
         var base: u8 = undefined;
         var rest: []const u8 = undefined;
         if (int_token.len >= 3 and int_token[0] == '0') {
+            rest = int_token[2..];
             base = switch (int_token[1]) {
                 'b' => 2,
                 'o' => 8,
                 'x' => 16,
-                else => unreachable,
+                else => {
+                    base = 10;
+                    rest = int_token;
+                },
             };
-            rest = int_token[2..];
         } else {
             base = 10;
             rest = int_token;
