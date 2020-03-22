@@ -18,12 +18,28 @@ sudo apt-get install -y libxml2-dev libclang-10-dev llvm-10 llvm-10-dev liblld-1
 # This will affect the cmake command below.
 git config core.abbrev 9
 
+# This patch is a workaround for
+# https://bugs.llvm.org/show_bug.cgi?id=44870 / https://github.com/llvm/llvm-project/issues/191
+# It only applies to the apt.llvm.org packages.
+patch <<'END_PATCH'
+--- CMakeLists.txt
++++ CMakeLists.txt
+@@ -369,6 +369,7 @@ target_link_libraries(zig_cpp LINK_PUBLIC
+     ${CLANG_LIBRARIES}
+     ${LLD_LIBRARIES}
+     ${LLVM_LIBRARIES}
++    "-Wl,/usr/lib/llvm-10/lib/LLVMPolly.so"
+ )
+ 
+ add_library(opt_c_util STATIC ${OPTIMIZED_C_SOURCES})
+END_PATCH
+
 export CC=gcc-7
 export CXX=g++-7
 mkdir build
 cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release
-make -j2 install
+make -j$(nproc) install
 ./zig build test -Denable-qemu
 VERSION="$(./zig version)"
 
