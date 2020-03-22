@@ -465,7 +465,7 @@ fn parseContainerField(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*No
 ///      / KEYWORD_noasync BlockExprStatement
 ///      / KEYWORD_suspend (SEMICOLON / BlockExprStatement)
 ///      / KEYWORD_defer BlockExprStatement
-///      / KEYWORD_errdefer BlockExprStatement
+///      / KEYWORD_errdefer Payload? BlockExprStatement
 ///      / IfStatement
 ///      / LabeledStatement
 ///      / SwitchExpr
@@ -526,6 +526,10 @@ fn parseStatement(arena: *Allocator, it: *TokenIterator, tree: *Tree) Error!?*No
 
     const defer_token = eatToken(it, .Keyword_defer) orelse eatToken(it, .Keyword_errdefer);
     if (defer_token) |token| {
+        const payload = if (tree.tokens.at(token).id == .Keyword_errdefer)
+            try parsePayload(arena, it, tree)
+        else
+            null;
         const expr_node = try expectNode(arena, it, tree, parseBlockExprStatement, .{
             .ExpectedBlockOrExpression = .{ .token = it.index },
         });
@@ -533,6 +537,7 @@ fn parseStatement(arena: *Allocator, it: *TokenIterator, tree: *Tree) Error!?*No
         node.* = .{
             .defer_token = token,
             .expr = expr_node,
+            .payload = payload,
         };
         return &node.base;
     }

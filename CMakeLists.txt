@@ -430,7 +430,6 @@ set(BUILD_LIBSTAGE2_ARGS "build-lib"
     --cache on
     --output-dir "${CMAKE_BINARY_DIR}"
     ${LIBSTAGE2_RELEASE_ARG}
-    --disable-gen-h
     --bundle-compiler-rt
     -fPIC
     -lc

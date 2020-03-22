@@ -10504,6 +10504,7 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
         cache_str(ch, g->libc->kernel32_lib_dir);
     }
     cache_buf_opt(ch, g->version_script_path);
+    cache_buf_opt(ch, g->override_soname);
 
     // gen_c_objects appends objects to g->link_objects which we want to include in the hash
     gen_c_objects(g);

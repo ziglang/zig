@@ -159,6 +159,7 @@ test "slice syntax resulting in pointer-to-array" {
             testSlice();
             testSliceZ();
             testSlice0();
+            testSliceOpt();
             testSliceAlign();
         }
 
@@ -247,6 +248,13 @@ test "slice syntax resulting in pointer-to-array" {
             comptime expect(@TypeOf(slice[1..3]) == *[2]u8);
             comptime expect(@TypeOf(slice[1..]) == [:0]u8);
             comptime expect(@TypeOf(slice[1..3 :4]) == *[2:4]u8);
+        }
+
+        fn testSliceOpt() void {
+            var array: [2]u8 = [2]u8{ 1, 2 };
+            var slice: ?[]u8 = &array;
+            comptime expect(@TypeOf(&array, slice) == ?[]u8);
+            comptime expect(@TypeOf(slice.?[0..2]) == *[2]u8);
         }
 
         fn testSlice0() void {

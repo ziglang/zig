@@ -235,8 +235,16 @@ pub fn panic(comptime format: []const u8, args: var) noreturn {
     panicExtra(null, first_trace_addr, format, args);
 }
 
-/// TODO multithreaded awareness
+/// Non-zero whenever the program triggered a panic.
+/// The counter is incremented/decremented atomically.
 var panicking: u8 = 0;
+
+// Locked to avoid interleaving panic messages from multiple threads.
+var panic_mutex = std.Mutex.init();
+
+/// Counts how many times the panic handler is invoked by this thread.
+/// This is used to catch and handle panics triggered by the panic handler.
+threadlocal var panic_stage: usize = 0;
 
 pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, comptime format: []const u8, args: var) noreturn {
     @setCold(true);
@@ -247,25 +255,50 @@ pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, c
         resetSegfaultHandler();
     }
 
-    switch (@atomicRmw(u8, &panicking, .Add, 1, .SeqCst)) {
+    switch (panic_stage) {
         0 => {
-            const stderr = getStderrStream();
-            noasync stderr.print(format ++ "\n", args) catch os.abort();
-            if (trace) |t| {
-                dumpStackTrace(t.*);
+            panic_stage = 1;
+
+            _ = @atomicRmw(u8, &panicking, .Add, 1, .SeqCst);
+
+            // Make sure to release the mutex when done
+            {
+                const held = panic_mutex.acquire();
+                defer held.release();
+
+                const stderr = getStderrStream();
+                noasync stderr.print(format ++ "\n", args) catch os.abort();
+                if (trace) |t| {
+                    dumpStackTrace(t.*);
+                }
+                dumpCurrentStackTrace(first_trace_addr);
             }
-            dumpCurrentStackTrace(first_trace_addr);
+
+            if (@atomicRmw(u8, &panicking, .Sub, 1, .SeqCst) != 1) {
+                // Another thread is panicking, wait for the last one to finish
+                // and call abort()
+
+                // Sleep forever without hammering the CPU
+                var event = std.ResetEvent.init();
+                event.wait();
+
+                unreachable;
+            }
         },
         1 => {
-            // TODO detect if a different thread caused the panic, because in that case
-            // we would want to return here instead of calling abort, so that the thread
-            // which first called panic can finish printing a stack trace.
-            warn("Panicked during a panic. Aborting.\n", .{});
+            panic_stage = 2;
+
+            // A panic happened while trying to print a previous panic message,
+            // we're still holding the mutex but that's fine as we're going to
+            // call abort()
+            const stderr = getStderrStream();
+            noasync stderr.print("Panicked during a panic. Aborting.\n", .{}) catch os.abort();
         },
         else => {
             // Panicked while printing "Panicked during a panic."
         },
     }
+
     os.abort();
 }
 

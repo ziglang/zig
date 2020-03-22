@@ -42,7 +42,8 @@ release/bin/zig build test-asm-link
 release/bin/zig build test-runtime-safety
 release/bin/zig build test-translate-c
 release/bin/zig build test-run-translated-c
-release/bin/zig build test-gen-h
+# TODO disabled until we are shipping self-hosted
+#release/bin/zig build test-gen-h
 release/bin/zig build test-compile-errors
 release/bin/zig build docs
 

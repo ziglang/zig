@@ -2,6 +2,29 @@ const tests = @import("tests.zig");
 const std = @import("std");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.addTest("unused variable error on errdefer",
+        \\fn foo() !void {
+        \\    errdefer |a| unreachable;
+        \\    return error.A;
+        \\}
+        \\export fn entry() void {
+        \\    foo() catch unreachable;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:2:15: error: unused variable: 'a'",
+    });
+
+    cases.addTest("comparison of non-tagged union and enum literal",
+        \\export fn entry() void {
+        \\    const U = union { A: u32, B: u64 };
+        \\    var u = U{ .A = 42 };
+        \\    var ok = u == .A;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:4:16: error: comparison of union and enum literal is only valid for tagged union types",
+        "tmp.zig:2:15: note: type U is not a tagged union",
+    });
+
     cases.addTest("shift on type with non-power-of-two size",
         \\export fn entry() void {
         \\    const S = struct {

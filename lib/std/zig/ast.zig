@@ -1035,6 +1035,7 @@ pub const Node = struct {
     pub const Defer = struct {
         base: Node = Node{ .id = .Defer },
         defer_token: TokenIndex,
+        payload: ?*Node,
         expr: *Node,
 
         pub fn iterate(self: *Defer, index: usize) ?*Node {
@@ -1836,8 +1837,7 @@ pub const Node = struct {
             var i = index;
 
             switch (self.kind) {
-                .Break,
-                .Continue => |maybe_label| {
+                .Break, .Continue => |maybe_label| {
                     if (maybe_label) |label| {
                         if (i < 1) return label;
                         i -= 1;
@@ -1864,8 +1864,7 @@ pub const Node = struct {
             }
 
             switch (self.kind) {
-                .Break,
-                .Continue => |maybe_label| {
+                .Break, .Continue => |maybe_label| {
                     if (maybe_label) |label| {
                         return label.lastToken();
                     }

@@ -820,7 +820,7 @@ fn linuxLookupNameFromHosts(
             // Skip to the delimiter in the stream, to fix parsing
             try stream.skipUntilDelimiterOrEof('\n');
             // Use the truncated line. A truncated comment or hostname will be handled correctly.
-            break :blk @as([]u8, &line_buf); // TODO the cast should not be necessary
+            break :blk &line_buf;
         },
         else => |e| return e,
     }) |line| {
@@ -1017,7 +1017,7 @@ fn getResolvConf(allocator: *mem.Allocator, rc: *ResolvConf) !void {
             // Skip to the delimiter in the stream, to fix parsing
             try stream.skipUntilDelimiterOrEof('\n');
             // Give an empty line to the while loop, which will be skipped.
-            break :blk @as([]u8, line_buf[0..0]); // TODO the cast should not be necessary
+            break :blk line_buf[0..0];
         },
         else => |e| return e,
     }) |line| {

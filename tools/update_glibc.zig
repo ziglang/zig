@@ -20,6 +20,7 @@ const lib_names = [_][]const u8{
     "m",
     "pthread",
     "rt",
+    "ld",
 };
 
 // fpu/nofpu are hardcoded elsewhere, based on .gnueabi/.gnueabihf with an exception for .arm
@@ -154,22 +155,24 @@ pub fn main() !void {
         const fn_set = &target_funcs_gop.kv.value.list;
 
         for (lib_names) |lib_name, lib_name_index| {
-            const basename = try fmt.allocPrint(allocator, "lib{}.abilist", .{lib_name});
+            const lib_prefix = if (std.mem.eql(u8, lib_name, "ld")) "" else "lib";
+            const basename = try fmt.allocPrint(allocator, "{}{}.abilist", .{ lib_prefix, lib_name });
             const abi_list_filename = blk: {
-                if (abi_list.targets[0].abi == .gnuabi64 and std.mem.eql(u8, lib_name, "c")) {
+                const is_c = std.mem.eql(u8, lib_name, "c");
+                const is_m = std.mem.eql(u8, lib_name, "m");
+                const is_ld = std.mem.eql(u8, lib_name, "ld");
+                if (abi_list.targets[0].abi == .gnuabi64 and (is_c or is_ld)) {
                     break :blk try fs.path.join(allocator, &[_][]const u8{ prefix, abi_list.path, "n64", basename });
-                } else if (abi_list.targets[0].abi == .gnuabin32 and std.mem.eql(u8, lib_name, "c")) {
+                } else if (abi_list.targets[0].abi == .gnuabin32 and (is_c or is_ld)) {
                     break :blk try fs.path.join(allocator, &[_][]const u8{ prefix, abi_list.path, "n32", basename });
                 } else if (abi_list.targets[0].arch != .arm and
                     abi_list.targets[0].abi == .gnueabihf and
-                    (std.mem.eql(u8, lib_name, "c") or
-                    (std.mem.eql(u8, lib_name, "m") and abi_list.targets[0].arch == .powerpc)))
+                    (is_c or (is_m and abi_list.targets[0].arch == .powerpc)))
                 {
                     break :blk try fs.path.join(allocator, &[_][]const u8{ prefix, abi_list.path, "fpu", basename });
                 } else if (abi_list.targets[0].arch != .arm and
                     abi_list.targets[0].abi == .gnueabi and
-                    (std.mem.eql(u8, lib_name, "c") or
-                    (std.mem.eql(u8, lib_name, "m") and abi_list.targets[0].arch == .powerpc)))
+                    (is_c or (is_m and abi_list.targets[0].arch == .powerpc)))
                 {
                     break :blk try fs.path.join(allocator, &[_][]const u8{ prefix, abi_list.path, "nofpu", basename });
                 } else if (abi_list.targets[0].arch == .arm) {
@@ -234,8 +237,8 @@ pub fn main() !void {
         const vers_txt_path = try fs.path.join(allocator, &[_][]const u8{ glibc_out_dir, "vers.txt" });
         const vers_txt_file = try fs.cwd().createFile(vers_txt_path, .{});
         defer vers_txt_file.close();
-        var buffered = std.io.BufferedOutStream(fs.File.WriteError).init(&vers_txt_file.outStream().stream);
-        const vers_txt = &buffered.stream;
+        var buffered = std.io.bufferedOutStream(vers_txt_file.outStream());
+        const vers_txt = buffered.outStream();
         for (global_ver_list) |name, i| {
             _ = global_ver_set.put(name, i) catch unreachable;
             try vers_txt.print("{}\n", .{name});
@@ -246,8 +249,8 @@ pub fn main() !void {
         const fns_txt_path = try fs.path.join(allocator, &[_][]const u8{ glibc_out_dir, "fns.txt" });
         const fns_txt_file = try fs.cwd().createFile(fns_txt_path, .{});
         defer fns_txt_file.close();
-        var buffered = std.io.BufferedOutStream(fs.File.WriteError).init(&fns_txt_file.outStream().stream);
-        const fns_txt = &buffered.stream;
+        var buffered = std.io.bufferedOutStream(fns_txt_file.outStream());
+        const fns_txt = buffered.outStream();
         for (global_fn_list) |name, i| {
             const kv = global_fn_set.get(name).?;
             kv.value.index = i;
@@ -277,8 +280,8 @@ pub fn main() !void {
         const abilist_txt_path = try fs.path.join(allocator, &[_][]const u8{ glibc_out_dir, "abi.txt" });
         const abilist_txt_file = try fs.cwd().createFile(abilist_txt_path, .{});
         defer abilist_txt_file.close();
-        var buffered = std.io.BufferedOutStream(fs.File.WriteError).init(&abilist_txt_file.outStream().stream);
-        const abilist_txt = &buffered.stream;
+        var buffered = std.io.bufferedOutStream(abilist_txt_file.outStream());
+        const abilist_txt = buffered.outStream();
 
         // first iterate over the abi lists
         for (abi_lists) |*abi_list, abi_index| {
