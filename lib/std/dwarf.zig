@@ -717,8 +717,7 @@ pub const DwarfInfo = struct {
         const next_offset = unit_length + (if (is_64) @as(usize, 12) else @as(usize, 4));
 
         const version = try in.readInt(u16, di.endian);
-        // TODO support 3 and 5
-        if (version != 2 and version != 4) return error.InvalidDebugInfo;
+        if (version < 2 or version > 4) return error.InvalidDebugInfo;
 
         const prologue_length = if (is_64) try in.readInt(u64, di.endian) else try in.readInt(u32, di.endian);
         const prog_start_offset = (try seekable.getPos()) + prologue_length;
