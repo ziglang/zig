@@ -2008,7 +2008,7 @@ static const char *get_def_lib(CodeGen *parent, const char *name, Buf *def_in_fi
 
         ZigList<const char *> args = {};
         args.append(buf_ptr(self_exe_path));
-        args.append("cc");
+        args.append("clang");
         args.append("-x");
         args.append("c");
         args.append(buf_ptr(def_in_file));

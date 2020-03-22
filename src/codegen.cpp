@@ -9269,6 +9269,7 @@ void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_pa
         case BuildModeDebug:
             // windows c runtime requires -D_DEBUG if using debug libraries
             args.append("-D_DEBUG");
+            args.append("-Og");
 
             if (g->libc_link_lib != nullptr) {
                 args.append("-fstack-protector-strong");
@@ -9723,13 +9724,17 @@ static void gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file) {
             buf_len(c_source_basename), 0);
 
     Buf *final_o_basename = buf_alloc();
-    // We special case when doing build-obj for just one C file
-    if (main_output_dir_is_just_one_c_object_pre(g)) {
-        buf_init_from_buf(final_o_basename, g->root_out_name);
+    if (c_file->preprocessor_only_basename == nullptr) {
+        // We special case when doing build-obj for just one C file
+        if (main_output_dir_is_just_one_c_object_pre(g)) {
+            buf_init_from_buf(final_o_basename, g->root_out_name);
+        } else {
+            os_path_extname(c_source_basename, final_o_basename, nullptr);
+        }
+        buf_append_str(final_o_basename, target_o_file_ext(g->zig_target));
     } else {
-        os_path_extname(c_source_basename, final_o_basename, nullptr);
+        buf_init_from_str(final_o_basename, c_file->preprocessor_only_basename);
     }
-    buf_append_str(final_o_basename, target_o_file_ext(g->zig_target));
 
     CacheHash *cache_hash;
     if ((err = create_c_object_cache(g, &cache_hash, true))) {
@@ -9778,7 +9783,13 @@ static void gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file) {
         Termination term;
         ZigList<const char *> args = {};
         args.append(buf_ptr(self_exe_path));
-        args.append("cc");
+        args.append("clang");
+
+        if (c_file->preprocessor_only_basename != nullptr) {
+            args.append("-E");
+        } else {
+            args.append("-c");
+        }
 
         Buf *out_dep_path = buf_sprintf("%s.d", buf_ptr(out_obj_path));
         add_cc_args(g, args, buf_ptr(out_dep_path), false);
@@ -9786,7 +9797,6 @@ static void gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file) {
         args.append("-o");
         args.append(buf_ptr(out_obj_path));
 
-        args.append("-c");
         args.append(buf_ptr(c_source_file));
 
         for (size_t arg_i = 0; arg_i < c_file->args.length; arg_i += 1) {
@@ -9841,6 +9851,7 @@ static void gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file) {
         os_path_join(artifact_dir, final_o_basename, o_final_path);
     }
 
+    g->c_artifact_dir = artifact_dir;
     g->link_objects.append(o_final_path);
     g->caches_to_release.append(cache_hash);
 
