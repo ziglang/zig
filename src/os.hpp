@@ -129,6 +129,7 @@ void os_file_close(OsFile *file);
 Error ATTRIBUTE_MUST_USE os_write_file(Buf *full_path, Buf *contents);
 Error ATTRIBUTE_MUST_USE os_copy_file(Buf *src_path, Buf *dest_path);
 Error ATTRIBUTE_MUST_USE os_update_file(Buf *src_path, Buf *dest_path);
+Error ATTRIBUTE_MUST_USE os_dump_file(Buf *src_path, FILE *dest_file);
 
 Error ATTRIBUTE_MUST_USE os_fetch_file(FILE *file, Buf *out_contents);
 Error ATTRIBUTE_MUST_USE os_fetch_file_path(Buf *full_path, Buf *out_contents);

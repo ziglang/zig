@@ -453,6 +453,7 @@ static int main0(int argc, char **argv) {
     const char *mcpu = nullptr;
     CodeModel code_model = CodeModelDefault;
     const char *override_soname = nullptr;
+    bool only_preprocess = false;
 
     ZigList<const char *> llvm_argv = {0};
     llvm_argv.append("zig (LLVM option parsing)");
@@ -660,6 +661,9 @@ static int main0(int argc, char **argv) {
                     }
                     break;
                 }
+                case Stage2ClangArgPreprocess:
+                    only_preprocess = true;
+                    break;
             }
         }
         // Parse linker args
@@ -715,7 +719,28 @@ static int main0(int argc, char **argv) {
             have_libc = true;
             link_libs.append("c");
         }
-        if (!c_arg) {
+        if (only_preprocess) {
+            cmd = CmdBuild;
+            out_type = OutTypeObj;
+            emit_bin = false;
+            // Transfer "objects" into c_source_files
+            for (size_t i = 0; i < objects.length; i += 1) {
+                CFile *c_file = heap::c_allocator.create<CFile>();
+                c_file->source_path = objects.at(i);
+                c_source_files.append(c_file);
+            }
+            for (size_t i = 0; i < c_source_files.length; i += 1) {
+                Buf *src_path;
+                if (emit_bin_override_path != nullptr) {
+                    src_path = buf_create_from_str(emit_bin_override_path);
+                } else {
+                    src_path = buf_create_from_str(c_source_files.at(i)->source_path);
+                }
+                Buf basename = BUF_INIT;
+                os_path_split(src_path, nullptr, &basename);
+                c_source_files.at(i)->preprocessor_only_basename = buf_ptr(&basename);
+            }
+        } else if (!c_arg) {
             cmd = CmdBuild;
             if (is_shared_lib) {
                 out_type = OutTypeLib;
@@ -1464,11 +1489,40 @@ static int main0(int argc, char **argv) {
                     return term.code;
                 } else if (cmd == CmdBuild) {
                     if (emit_bin_override_path != nullptr) {
+#if defined(ZIG_OS_WINDOWS)
+                        buf_replace(g->output_dir, '/', '\\');
+#endif
                         Buf *dest_path = buf_create_from_str(emit_bin_override_path);
-                        if ((err = os_update_file(&g->bin_file_output_path, dest_path))) {
-                            fprintf(stderr, "unable to copy %s to %s: %s\n", buf_ptr(&g->bin_file_output_path),
+                        Buf *source_path;
+                        if (only_preprocess) {
+                            source_path = buf_alloc();
+                            Buf *pp_only_basename = buf_create_from_str(
+                                    c_source_files.at(0)->preprocessor_only_basename);
+                            os_path_join(g->output_dir, pp_only_basename, source_path);
+
+                        } else {
+                            source_path = &g->bin_file_output_path;
+                        }
+                        if ((err = os_update_file(source_path, dest_path))) {
+                            fprintf(stderr, "unable to copy %s to %s: %s\n", buf_ptr(source_path),
                                     buf_ptr(dest_path), err_str(err));
                             return main_exit(root_progress_node, EXIT_FAILURE);
+                        }
+                    } else if (only_preprocess) {
+#if defined(ZIG_OS_WINDOWS)
+                        buf_replace(g->c_artifact_dir, '/', '\\');
+#endif
+                        // dump the preprocessed output to stdout
+                        for (size_t i = 0; i < c_source_files.length; i += 1) {
+                            Buf *source_path = buf_alloc();
+                            Buf *pp_only_basename = buf_create_from_str(
+                                    c_source_files.at(i)->preprocessor_only_basename);
+                            os_path_join(g->c_artifact_dir, pp_only_basename, source_path);
+                            if ((err = os_dump_file(source_path, stdout))) {
+                                fprintf(stderr, "unable to read %s: %s\n", buf_ptr(source_path),
+                                        err_str(err));
+                                return main_exit(root_progress_node, EXIT_FAILURE);
+                            }
                         }
                     } else if (g->enable_cache) {
 #if defined(ZIG_OS_WINDOWS)

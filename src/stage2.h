@@ -333,6 +333,7 @@ enum Stage2ClangArg {
     Stage2ClangArgShared,
     Stage2ClangArgRDynamic,
     Stage2ClangArgWL,
+    Stage2ClangArgPreprocess,
 };
 
 // ABI warning

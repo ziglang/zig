@@ -1051,6 +1051,30 @@ static Error copy_open_files(FILE *src_f, FILE *dest_f) {
     }
 }
 
+Error os_dump_file(Buf *src_path, FILE *dest_file) {
+    Error err;
+
+    FILE *src_f = fopen(buf_ptr(src_path), "rb");
+    if (!src_f) {
+        int err = errno;
+        if (err == ENOENT) {
+            return ErrorFileNotFound;
+        } else if (err == EACCES || err == EPERM) {
+            return ErrorAccess;
+        } else {
+            return ErrorFileSystem;
+        }
+    }
+    copy_open_files(src_f, dest_file);
+    if ((err = copy_open_files(src_f, dest_file))) {
+        fclose(src_f);
+        return err;
+    }
+
+    fclose(src_f);
+    return ErrorNone;
+}
+
 #if defined(ZIG_OS_WINDOWS)
 static void windows_filetime_to_os_timestamp(FILETIME *ft, OsTimeStamp *mtime) {
     mtime->sec = (((ULONGLONG) ft->dwHighDateTime) << 32) + ft->dwLowDateTime;

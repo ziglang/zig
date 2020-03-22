@@ -2003,6 +2003,7 @@ enum WantCSanitize {
 struct CFile {
     ZigList<const char *> args;
     const char *source_path;
+    const char *preprocessor_only_basename;
 };
 
 // When adding fields, check if they should be added to the hash computation in build_with_cache
@@ -2147,6 +2148,7 @@ struct CodeGen {
     // As an input parameter, mutually exclusive with enable_cache. But it gets
     // populated in codegen_build_and_link.
     Buf *output_dir;
+    Buf *c_artifact_dir;
     const char **libc_include_dir_list;
     size_t libc_include_dir_len;
 

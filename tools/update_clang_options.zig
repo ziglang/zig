@@ -76,10 +76,18 @@ const known_options = [_]KnownOpt{
     },
     .{
         .name = "E",
-        .ident = "driver_punt",
+        .ident = "preprocess",
+    },
+    .{
+        .name = "preprocess",
+        .ident = "preprocess",
     },
     .{
         .name = "S",
+        .ident = "driver_punt",
+    },
+    .{
+        .name = "assemble",
         .ident = "driver_punt",
     },
 };

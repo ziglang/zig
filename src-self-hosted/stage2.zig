@@ -1247,6 +1247,7 @@ pub const ClangArgIterator = extern struct {
         shared,
         rdynamic,
         wl,
+        preprocess,
     };
 
     fn init(argv: []const [*:0]const u8) ClangArgIterator {
