@@ -418,6 +418,10 @@ pub const Tokenizer = struct {
         SawAtSign,
     };
 
+    fn isIdentifierChar(char: u8) bool {
+        return std.ascii.isAlNum(char) or char == '_';
+    }
+
     pub fn next(self: *Tokenizer) Token {
         if (self.pending_invalid_token) |token| {
             self.pending_invalid_token = null;
@@ -1063,10 +1067,16 @@ pub const Tokenizer = struct {
                     'x' => {
                         state = State.IntegerLiteralHexNoUnderscore;
                     },
-                    else => {
-                        // reinterpret as a normal number
+                    '0'...'9', '_', '.', 'e', 'E' => {
+                        // reinterpret as a decimal number
                         self.index -= 1;
                         state = State.IntegerLiteralDec;
+                    },
+                    else => {
+                        if (isIdentifierChar(c)) {
+                            result.id = Token.Id.Invalid;
+                        }
+                        break;
                     },
                 },
                 State.IntegerLiteralBinNoUnderscore => switch (c) {
@@ -1075,6 +1085,7 @@ pub const Tokenizer = struct {
                     },
                     else => {
                         result.id = Token.Id.Invalid;
+                        break;
                     },
                 },
                 State.IntegerLiteralBin => switch (c) {
@@ -1082,10 +1093,12 @@ pub const Tokenizer = struct {
                         state = State.IntegerLiteralBinNoUnderscore;
                     },
                     '0'...'1' => {},
-                    '2'...'9', 'a'...'z', 'A'...'Z' => {
-                        result.id = Token.Id.Invalid;
+                    else => {
+                        if (isIdentifierChar(c)) {
+                            result.id = Token.Id.Invalid;
+                        }
+                        break;
                     },
-                    else => break,
                 },
                 State.IntegerLiteralOctNoUnderscore => switch (c) {
                     '0'...'7' => {
@@ -1093,6 +1106,7 @@ pub const Tokenizer = struct {
                     },
                     else => {
                         result.id = Token.Id.Invalid;
+                        break;
                     },
                 },
                 State.IntegerLiteralOct => switch (c) {
@@ -1100,10 +1114,12 @@ pub const Tokenizer = struct {
                         state = State.IntegerLiteralOctNoUnderscore;
                     },
                     '0'...'7' => {},
-                    '8'...'9', 'a'...'z', 'A'...'Z' => {
-                        result.id = Token.Id.Invalid;
+                    else => {
+                        if (isIdentifierChar(c)) {
+                            result.id = Token.Id.Invalid;
+                        }
+                        break;
                     },
-                    else => break,
                 },
                 State.IntegerLiteralDecNoUnderscore => switch (c) {
                     '0'...'9' => {
@@ -1111,6 +1127,7 @@ pub const Tokenizer = struct {
                     },
                     else => {
                         result.id = Token.Id.Invalid;
+                        break;
                     },
                 },
                 State.IntegerLiteralDec => switch (c) {
@@ -1126,10 +1143,12 @@ pub const Tokenizer = struct {
                         result.id = Token.Id.FloatLiteral;
                     },
                     '0'...'9' => {},
-                    'a'...'d', 'f'...'z', 'A'...'D', 'F'...'Z' => {
-                        result.id = Token.Id.Invalid;
+                    else => {
+                        if (isIdentifierChar(c)) {
+                            result.id = Token.Id.Invalid;
+                        }
+                        break;
                     },
-                    else => break,
                 },
                 State.IntegerLiteralHexNoUnderscore => switch (c) {
                     '0'...'9', 'a'...'f', 'A'...'F' => {
@@ -1137,6 +1156,7 @@ pub const Tokenizer = struct {
                     },
                     else => {
                         result.id = Token.Id.Invalid;
+                        break;
                     },
                 },
                 State.IntegerLiteralHex => switch (c) {
@@ -1152,10 +1172,12 @@ pub const Tokenizer = struct {
                         result.id = Token.Id.FloatLiteral;
                     },
                     '0'...'9', 'a'...'f', 'A'...'F' => {},
-                    'g'...'o', 'q'...'z', 'G'...'O', 'Q'...'Z' => {
-                        result.id = Token.Id.Invalid;
+                    else => {
+                        if (isIdentifierChar(c)) {
+                            result.id = Token.Id.Invalid;
+                        }
+                        break;
                     },
-                    else => break,
                 },
                 State.NumberDotDec => switch (c) {
                     '.' => {
@@ -1166,10 +1188,15 @@ pub const Tokenizer = struct {
                     'e', 'E' => {
                         state = State.FloatExponentUnsigned;
                     },
-                    else => {
-                        self.index -= 1;
+                    '0'...'9' => {
                         result.id = Token.Id.FloatLiteral;
-                        state = State.FloatFractionDecNoUnderscore;
+                        state = State.FloatFractionDec;
+                    },
+                    else => {
+                        if (isIdentifierChar(c)) {
+                            result.id = Token.Id.Invalid;
+                        }
+                        break;
                     },
                 },
                 State.NumberDotHex => switch (c) {
@@ -1181,10 +1208,15 @@ pub const Tokenizer = struct {
                     'p', 'P' => {
                         state = State.FloatExponentUnsigned;
                     },
-                    else => {
-                        self.index -= 1;
+                    '0'...'9', 'a'...'f', 'A'...'F' => {
                         result.id = Token.Id.FloatLiteral;
-                        state = State.FloatFractionHexNoUnderscore;
+                        state = State.FloatFractionHex;
+                    },
+                    else => {
+                        if (isIdentifierChar(c)) {
+                            result.id = Token.Id.Invalid;
+                        }
+                        break;
                     },
                 },
                 State.FloatFractionDecNoUnderscore => switch (c) {
@@ -1193,6 +1225,7 @@ pub const Tokenizer = struct {
                     },
                     else => {
                         result.id = Token.Id.Invalid;
+                        break;
                     },
                 },
                 State.FloatFractionDec => switch (c) {
@@ -1203,10 +1236,12 @@ pub const Tokenizer = struct {
                         state = State.FloatExponentUnsigned;
                     },
                     '0'...'9' => {},
-                    'a'...'d', 'f'...'z', 'A'...'D', 'F'...'Z' => {
-                        result.id = Token.Id.Invalid;
+                    else => {
+                        if (isIdentifierChar(c)) {
+                            result.id = Token.Id.Invalid;
+                        }
+                        break;
                     },
-                    else => break,
                 },
                 State.FloatFractionHexNoUnderscore => switch (c) {
                     '0'...'9', 'a'...'f', 'A'...'F' => {
@@ -1214,6 +1249,7 @@ pub const Tokenizer = struct {
                     },
                     else => {
                         result.id = Token.Id.Invalid;
+                        break;
                     },
                 },
                 State.FloatFractionHex => switch (c) {
@@ -1224,10 +1260,12 @@ pub const Tokenizer = struct {
                         state = State.FloatExponentUnsigned;
                     },
                     '0'...'9', 'a'...'f', 'A'...'F' => {},
-                    'g'...'o', 'q'...'z', 'G'...'O', 'Q'...'Z' => {
-                        result.id = Token.Id.Invalid;
+                    else => {
+                        if (isIdentifierChar(c)) {
+                            result.id = Token.Id.Invalid;
+                        }
+                        break;
                     },
-                    else => break,
                 },
                 State.FloatExponentUnsigned => switch (c) {
                     '+', '-' => {
@@ -1245,6 +1283,7 @@ pub const Tokenizer = struct {
                     },
                     else => {
                         result.id = Token.Id.Invalid;
+                        break;
                     },
                 },
                 State.FloatExponentNumber => switch (c) {
@@ -1252,10 +1291,12 @@ pub const Tokenizer = struct {
                         state = State.FloatExponentNumberNoUnderscore;
                     },
                     '0'...'9' => {},
-                    'a'...'z', 'A'...'Z' => {
-                        result.id = Token.Id.Invalid;
+                    else => {
+                        if (isIdentifierChar(c)) {
+                            result.id = Token.Id.Invalid;
+                        }
+                        break;
                     },
-                    else => break,
                 },
             }
         } else if (self.index == self.buffer.len) {
@@ -1706,11 +1747,11 @@ test "tokenizer - number literals decimal" {
     testTokenize("7", &[_]Token.Id{.IntegerLiteral});
     testTokenize("8", &[_]Token.Id{.IntegerLiteral});
     testTokenize("9", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("0a", &[_]Token.Id{.Invalid});
-    testTokenize("9b", &[_]Token.Id{.Invalid});
-    testTokenize("1z", &[_]Token.Id{.Invalid});
-    testTokenize("1z_1", &[_]Token.Id{.Invalid});
-    testTokenize("9z3", &[_]Token.Id{.Invalid});
+    testTokenize("0a", &[_]Token.Id{ .Invalid, .Identifier });
+    testTokenize("9b", &[_]Token.Id{ .Invalid, .Identifier });
+    testTokenize("1z", &[_]Token.Id{ .Invalid, .Identifier });
+    testTokenize("1z_1", &[_]Token.Id{ .Invalid, .Identifier });
+    testTokenize("9z3", &[_]Token.Id{ .Invalid, .Identifier });
 
     testTokenize("0_0", &[_]Token.Id{.IntegerLiteral});
     testTokenize("0001", &[_]Token.Id{.IntegerLiteral});
@@ -1720,15 +1761,17 @@ test "tokenizer - number literals decimal" {
 
     testTokenize("00_", &[_]Token.Id{.Invalid});
     testTokenize("0_0_", &[_]Token.Id{.Invalid});
-    testTokenize("0__0", &[_]Token.Id{.Invalid});
-    testTokenize("0_0f", &[_]Token.Id{.Invalid});
-    testTokenize("0_0_f", &[_]Token.Id{.Invalid});
-    testTokenize("1_,", &[_]Token.Id{.Invalid});
+    testTokenize("0__0", &[_]Token.Id{ .Invalid, .Identifier });
+    testTokenize("0_0f", &[_]Token.Id{ .Invalid, .Identifier });
+    testTokenize("0_0_f", &[_]Token.Id{ .Invalid, .Identifier });
+    testTokenize("0_0_f_00", &[_]Token.Id{ .Invalid, .Identifier });
+    testTokenize("1_,", &[_]Token.Id{ .Invalid, .Comma });
 
     testTokenize("1.", &[_]Token.Id{.FloatLiteral});
     testTokenize("0.0", &[_]Token.Id{.FloatLiteral});
     testTokenize("1.0", &[_]Token.Id{.FloatLiteral});
     testTokenize("10.0", &[_]Token.Id{.FloatLiteral});
+    testTokenize("0e0", &[_]Token.Id{.FloatLiteral});
     testTokenize("1e0", &[_]Token.Id{.FloatLiteral});
     testTokenize("1e100", &[_]Token.Id{.FloatLiteral});
     testTokenize("1.e100", &[_]Token.Id{.FloatLiteral});
@@ -1736,34 +1779,47 @@ test "tokenizer - number literals decimal" {
     testTokenize("1.0e+100", &[_]Token.Id{.FloatLiteral});
     testTokenize("1.0e-100", &[_]Token.Id{.FloatLiteral});
     testTokenize("1_0_0_0.0_0_0_0_0_1e1_0_0_0", &[_]Token.Id{.FloatLiteral});
+    testTokenize("1.+", &[_]Token.Id{ .FloatLiteral, .Plus });
 
     testTokenize("1e", &[_]Token.Id{.Invalid});
-    testTokenize("1.0e1f0", &[_]Token.Id{.Invalid});
-    testTokenize("1.0p100", &[_]Token.Id{.Invalid});
-    testTokenize("1.0p-100", &[_]Token.Id{ .Invalid, .Minus, .IntegerLiteral });
-    testTokenize("1.0p1f0", &[_]Token.Id{.Invalid});
-    testTokenize("1.0_,", &[_]Token.Id{.Invalid});
-    testTokenize("1.0e,", &[_]Token.Id{.Invalid});
+    testTokenize("1.0e1f0", &[_]Token.Id{ .Invalid, .Identifier });
+    testTokenize("1.0p100", &[_]Token.Id{ .Invalid, .Identifier });
+    testTokenize("1.0p-100", &[_]Token.Id{ .Invalid, .Identifier, .Minus, .IntegerLiteral });
+    testTokenize("1.0p1f0", &[_]Token.Id{ .Invalid, .Identifier });
+    testTokenize("1.0_,", &[_]Token.Id{ .Invalid, .Comma });
+    testTokenize("1_.0", &[_]Token.Id{ .Invalid, .Period, .IntegerLiteral });
+    testTokenize("1._", &[_]Token.Id{ .Invalid, .Identifier });
+    testTokenize("1.a", &[_]Token.Id{ .Invalid, .Identifier });
+    testTokenize("1.z", &[_]Token.Id{ .Invalid, .Identifier });
+    testTokenize("1._0", &[_]Token.Id{ .Invalid, .Identifier });
+    testTokenize("1._+", &[_]Token.Id{ .Invalid, .Identifier, .Plus });
+    testTokenize("1._e", &[_]Token.Id{ .Invalid, .Identifier });
+    testTokenize("1.0e", &[_]Token.Id{.Invalid});
+    testTokenize("1.0e,", &[_]Token.Id{ .Invalid, .Comma });
+    testTokenize("1.0e_", &[_]Token.Id{ .Invalid, .Identifier });
+    testTokenize("1.0e+_", &[_]Token.Id{ .Invalid, .Identifier });
+    testTokenize("1.0e-_", &[_]Token.Id{ .Invalid, .Identifier });
+    testTokenize("1.0e0_+", &[_]Token.Id{ .Invalid, .Plus });
 }
 
 test "tokenizer - number literals binary" {
     testTokenize("0b0", &[_]Token.Id{.IntegerLiteral});
     testTokenize("0b1", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("0b2", &[_]Token.Id{.Invalid});
-    testTokenize("0b3", &[_]Token.Id{.Invalid});
-    testTokenize("0b4", &[_]Token.Id{.Invalid});
-    testTokenize("0b5", &[_]Token.Id{.Invalid});
-    testTokenize("0b6", &[_]Token.Id{.Invalid});
-    testTokenize("0b7", &[_]Token.Id{.Invalid});
-    testTokenize("0b8", &[_]Token.Id{.Invalid});
-    testTokenize("0b9", &[_]Token.Id{.Invalid});
-    testTokenize("0ba", &[_]Token.Id{.Invalid});
-    testTokenize("0bb", &[_]Token.Id{.Invalid});
-    testTokenize("0bc", &[_]Token.Id{.Invalid});
-    testTokenize("0bd", &[_]Token.Id{.Invalid});
-    testTokenize("0be", &[_]Token.Id{.Invalid});
-    testTokenize("0bf", &[_]Token.Id{.Invalid});
-    testTokenize("0bz", &[_]Token.Id{.Invalid});
+    testTokenize("0b2", &[_]Token.Id{ .Invalid, .IntegerLiteral });
+    testTokenize("0b3", &[_]Token.Id{ .Invalid, .IntegerLiteral });
+    testTokenize("0b4", &[_]Token.Id{ .Invalid, .IntegerLiteral });
+    testTokenize("0b5", &[_]Token.Id{ .Invalid, .IntegerLiteral });
+    testTokenize("0b6", &[_]Token.Id{ .Invalid, .IntegerLiteral });
+    testTokenize("0b7", &[_]Token.Id{ .Invalid, .IntegerLiteral });
+    testTokenize("0b8", &[_]Token.Id{ .Invalid, .IntegerLiteral });
+    testTokenize("0b9", &[_]Token.Id{ .Invalid, .IntegerLiteral });
+    testTokenize("0ba", &[_]Token.Id{ .Invalid, .Identifier });
+    testTokenize("0bb", &[_]Token.Id{ .Invalid, .Identifier });
+    testTokenize("0bc", &[_]Token.Id{ .Invalid, .Identifier });
+    testTokenize("0bd", &[_]Token.Id{ .Invalid, .Identifier });
+    testTokenize("0be", &[_]Token.Id{ .Invalid, .Identifier });
+    testTokenize("0bf", &[_]Token.Id{ .Invalid, .Identifier });
+    testTokenize("0bz", &[_]Token.Id{ .Invalid, .Identifier });
 
     testTokenize("0b0000_0000", &[_]Token.Id{.IntegerLiteral});
     testTokenize("0b1111_1111", &[_]Token.Id{.IntegerLiteral});
@@ -1772,17 +1828,17 @@ test "tokenizer - number literals binary" {
     testTokenize("0b1.", &[_]Token.Id{ .IntegerLiteral, .Period });
     testTokenize("0b1.0", &[_]Token.Id{ .IntegerLiteral, .Period, .IntegerLiteral });
 
-    testTokenize("0B0", &[_]Token.Id{.Invalid});
-    testTokenize("0b_", &[_]Token.Id{.Invalid});
-    testTokenize("0b_0", &[_]Token.Id{.Invalid});
+    testTokenize("0B0", &[_]Token.Id{ .Invalid, .Identifier });
+    testTokenize("0b_", &[_]Token.Id{ .Invalid, .Identifier });
+    testTokenize("0b_0", &[_]Token.Id{ .Invalid, .Identifier });
     testTokenize("0b1_", &[_]Token.Id{.Invalid});
-    testTokenize("0b0__1", &[_]Token.Id{.Invalid});
+    testTokenize("0b0__1", &[_]Token.Id{ .Invalid, .Identifier });
     testTokenize("0b0_1_", &[_]Token.Id{.Invalid});
-    testTokenize("0b1e", &[_]Token.Id{.Invalid});
-    testTokenize("0b1p", &[_]Token.Id{.Invalid});
-    testTokenize("0b1e0", &[_]Token.Id{.Invalid});
-    testTokenize("0b1p0", &[_]Token.Id{.Invalid});
-    testTokenize("0b1_,", &[_]Token.Id{.Invalid});
+    testTokenize("0b1e", &[_]Token.Id{ .Invalid, .Identifier });
+    testTokenize("0b1p", &[_]Token.Id{ .Invalid, .Identifier });
+    testTokenize("0b1e0", &[_]Token.Id{ .Invalid, .Identifier });
+    testTokenize("0b1p0", &[_]Token.Id{ .Invalid, .Identifier });
+    testTokenize("0b1_,", &[_]Token.Id{ .Invalid, .Comma });
 }
 
 test "tokenizer - number literals octal" {
@@ -1794,15 +1850,15 @@ test "tokenizer - number literals octal" {
     testTokenize("0o5", &[_]Token.Id{.IntegerLiteral});
     testTokenize("0o6", &[_]Token.Id{.IntegerLiteral});
     testTokenize("0o7", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("0o8", &[_]Token.Id{.Invalid});
-    testTokenize("0o9", &[_]Token.Id{.Invalid});
-    testTokenize("0oa", &[_]Token.Id{.Invalid});
-    testTokenize("0ob", &[_]Token.Id{.Invalid});
-    testTokenize("0oc", &[_]Token.Id{.Invalid});
-    testTokenize("0od", &[_]Token.Id{.Invalid});
-    testTokenize("0oe", &[_]Token.Id{.Invalid});
-    testTokenize("0of", &[_]Token.Id{.Invalid});
-    testTokenize("0oz", &[_]Token.Id{.Invalid});
+    testTokenize("0o8", &[_]Token.Id{ .Invalid, .IntegerLiteral });
+    testTokenize("0o9", &[_]Token.Id{ .Invalid, .IntegerLiteral });
+    testTokenize("0oa", &[_]Token.Id{ .Invalid, .Identifier });
+    testTokenize("0ob", &[_]Token.Id{ .Invalid, .Identifier });
+    testTokenize("0oc", &[_]Token.Id{ .Invalid, .Identifier });
+    testTokenize("0od", &[_]Token.Id{ .Invalid, .Identifier });
+    testTokenize("0oe", &[_]Token.Id{ .Invalid, .Identifier });
+    testTokenize("0of", &[_]Token.Id{ .Invalid, .Identifier });
+    testTokenize("0oz", &[_]Token.Id{ .Invalid, .Identifier });
 
     testTokenize("0o01234567", &[_]Token.Id{.IntegerLiteral});
     testTokenize("0o0123_4567", &[_]Token.Id{.IntegerLiteral});
@@ -1811,17 +1867,17 @@ test "tokenizer - number literals octal" {
     testTokenize("0o7.", &[_]Token.Id{ .IntegerLiteral, .Period });
     testTokenize("0o7.0", &[_]Token.Id{ .IntegerLiteral, .Period, .IntegerLiteral });
 
-    testTokenize("0O0", &[_]Token.Id{.Invalid});
-    testTokenize("0o_", &[_]Token.Id{.Invalid});
-    testTokenize("0o_0", &[_]Token.Id{.Invalid});
+    testTokenize("0O0", &[_]Token.Id{ .Invalid, .Identifier });
+    testTokenize("0o_", &[_]Token.Id{ .Invalid, .Identifier });
+    testTokenize("0o_0", &[_]Token.Id{ .Invalid, .Identifier });
     testTokenize("0o1_", &[_]Token.Id{.Invalid});
-    testTokenize("0o0__1", &[_]Token.Id{.Invalid});
+    testTokenize("0o0__1", &[_]Token.Id{ .Invalid, .Identifier });
     testTokenize("0o0_1_", &[_]Token.Id{.Invalid});
-    testTokenize("0o1e", &[_]Token.Id{.Invalid});
-    testTokenize("0o1p", &[_]Token.Id{.Invalid});
-    testTokenize("0o1e0", &[_]Token.Id{.Invalid});
-    testTokenize("0o1p0", &[_]Token.Id{.Invalid});
-    testTokenize("0o_,", &[_]Token.Id{.Invalid});
+    testTokenize("0o1e", &[_]Token.Id{ .Invalid, .Identifier });
+    testTokenize("0o1p", &[_]Token.Id{ .Invalid, .Identifier });
+    testTokenize("0o1e0", &[_]Token.Id{ .Invalid, .Identifier });
+    testTokenize("0o1p0", &[_]Token.Id{ .Invalid, .Identifier });
+    testTokenize("0o_,", &[_]Token.Id{ .Invalid, .Identifier, .Comma });
 }
 
 test "tokenizer - number literals hexadeciaml" {
@@ -1847,21 +1903,21 @@ test "tokenizer - number literals hexadeciaml" {
     testTokenize("0xD", &[_]Token.Id{.IntegerLiteral});
     testTokenize("0xE", &[_]Token.Id{.IntegerLiteral});
     testTokenize("0xF", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("0x0z", &[_]Token.Id{.Invalid});
-    testTokenize("0xz", &[_]Token.Id{.Invalid});
+    testTokenize("0x0z", &[_]Token.Id{ .Invalid, .Identifier });
+    testTokenize("0xz", &[_]Token.Id{ .Invalid, .Identifier });
 
     testTokenize("0x0123456789ABCDEF", &[_]Token.Id{.IntegerLiteral});
     testTokenize("0x0123_4567_89AB_CDEF", &[_]Token.Id{.IntegerLiteral});
     testTokenize("0x01_23_45_67_89AB_CDE_F", &[_]Token.Id{.IntegerLiteral});
     testTokenize("0x0_1_2_3_4_5_6_7_8_9_A_B_C_D_E_F", &[_]Token.Id{.IntegerLiteral});
 
-    testTokenize("0X0", &[_]Token.Id{.Invalid});
-    testTokenize("0x_", &[_]Token.Id{.Invalid});
-    testTokenize("0x_1", &[_]Token.Id{.Invalid});
+    testTokenize("0X0", &[_]Token.Id{ .Invalid, .Identifier });
+    testTokenize("0x_", &[_]Token.Id{ .Invalid, .Identifier });
+    testTokenize("0x_1", &[_]Token.Id{ .Invalid, .Identifier });
     testTokenize("0x1_", &[_]Token.Id{.Invalid});
-    testTokenize("0x0__1", &[_]Token.Id{.Invalid});
+    testTokenize("0x0__1", &[_]Token.Id{ .Invalid, .Identifier });
     testTokenize("0x0_1_", &[_]Token.Id{.Invalid});
-    testTokenize("0x_,", &[_]Token.Id{.Invalid});
+    testTokenize("0x_,", &[_]Token.Id{ .Invalid, .Identifier, .Comma });
 
     testTokenize("0x1.", &[_]Token.Id{.FloatLiteral});
     testTokenize("0x1.0", &[_]Token.Id{.FloatLiteral});
@@ -1872,10 +1928,12 @@ test "tokenizer - number literals hexadeciaml" {
     testTokenize("0xF.FP0", &[_]Token.Id{.FloatLiteral});
     testTokenize("0x1p0", &[_]Token.Id{.FloatLiteral});
     testTokenize("0xfp0", &[_]Token.Id{.FloatLiteral});
+    testTokenize("0x1.+0xF.", &[_]Token.Id{ .FloatLiteral, .Plus, .FloatLiteral });
 
     testTokenize("0x0123456.789ABCDEF", &[_]Token.Id{.FloatLiteral});
     testTokenize("0x0_123_456.789_ABC_DEF", &[_]Token.Id{.FloatLiteral});
     testTokenize("0x0_1_2_3_4_5_6.7_8_9_A_B_C_D_E_F", &[_]Token.Id{.FloatLiteral});
+    testTokenize("0x0p0", &[_]Token.Id{.FloatLiteral});
     testTokenize("0x0.0p0", &[_]Token.Id{.FloatLiteral});
     testTokenize("0xff.ffp10", &[_]Token.Id{.FloatLiteral});
     testTokenize("0xff.ffP10", &[_]Token.Id{.FloatLiteral});
@@ -1888,21 +1946,24 @@ test "tokenizer - number literals hexadeciaml" {
     testTokenize("0x1e", &[_]Token.Id{.IntegerLiteral});
     testTokenize("0x1e0", &[_]Token.Id{.IntegerLiteral});
     testTokenize("0x1p", &[_]Token.Id{.Invalid});
-    testTokenize("0xfp0z1", &[_]Token.Id{.Invalid});
-    testTokenize("0xff.ffpff", &[_]Token.Id{.Invalid});
-    testTokenize("0x0_.0", &[_]Token.Id{.Invalid});
-    testTokenize("0x0._0", &[_]Token.Id{.Invalid});
+    testTokenize("0xfp0z1", &[_]Token.Id{ .Invalid, .Identifier });
+    testTokenize("0xff.ffpff", &[_]Token.Id{ .Invalid, .Identifier });
+    testTokenize("0x0.p", &[_]Token.Id{.Invalid});
+    testTokenize("0x0.z", &[_]Token.Id{ .Invalid, .Identifier });
+    testTokenize("0x0._", &[_]Token.Id{ .Invalid, .Identifier });
+    testTokenize("0x0_.0", &[_]Token.Id{ .Invalid, .Period, .IntegerLiteral });
+    testTokenize("0x0_.0.0", &[_]Token.Id{ .Invalid, .Period, .FloatLiteral });
+    testTokenize("0x0._0", &[_]Token.Id{ .Invalid, .Identifier });
     testTokenize("0x0.0_", &[_]Token.Id{.Invalid});
-    testTokenize("0x0_p0", &[_]Token.Id{.Invalid});
-    testTokenize("0x0_.p0", &[_]Token.Id{.Invalid});
-    testTokenize("0x0._p0", &[_]Token.Id{.Invalid});
-    testTokenize("0x0.0_p0", &[_]Token.Id{.Invalid});
-    testTokenize("0x0._0p0", &[_]Token.Id{.Invalid});
-    testTokenize("0x0.0_p0", &[_]Token.Id{.Invalid});
-    testTokenize("0x0.0p_0", &[_]Token.Id{.Invalid});
-    testTokenize("0x0.0p+_0", &[_]Token.Id{.Invalid});
-    testTokenize("0x0.0p-_0", &[_]Token.Id{.Invalid});
-    testTokenize("0x0.0p0_", &[_]Token.Id{.Invalid});
+    testTokenize("0x0_p0", &[_]Token.Id{ .Invalid, .Identifier });
+    testTokenize("0x0_.p0", &[_]Token.Id{ .Invalid, .Period, .Identifier });
+    testTokenize("0x0._p0", &[_]Token.Id{ .Invalid, .Identifier });
+    testTokenize("0x0.0_p0", &[_]Token.Id{ .Invalid, .Identifier });
+    testTokenize("0x0._0p0", &[_]Token.Id{ .Invalid, .Identifier });
+    testTokenize("0x0.0p_0", &[_]Token.Id{ .Invalid, .Identifier });
+    testTokenize("0x0.0p+_0", &[_]Token.Id{ .Invalid, .Identifier });
+    testTokenize("0x0.0p-_0", &[_]Token.Id{ .Invalid, .Identifier });
+    testTokenize("0x0.0p0_", &[_]Token.Id{ .Invalid, .Eof });
 }
 
 fn testTokenize(source: []const u8, expected_tokens: []const Token.Id) void {
