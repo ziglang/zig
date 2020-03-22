@@ -38,6 +38,7 @@ if(MSVC)
 else()
   find_path(CLANG_INCLUDE_DIRS NAMES clang/Frontend/ASTUnit.h
       PATHS
+          /usr/include/llvm9.0
           /usr/lib/llvm/9/include
           /usr/lib/llvm-9/include
           /usr/lib/llvm-9.0/include
@@ -49,6 +50,7 @@ else()
       find_library(CLANG_${_prettylibname_}_LIB NAMES ${_libname_}
           PATHS
               ${CLANG_LIBDIRS}
+              /usr/lib64/llvm9.0/lib
               /usr/lib/llvm/9/lib
               /usr/lib/llvm-9/lib
               /usr/lib/llvm-9.0/lib
