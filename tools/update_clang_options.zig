@@ -90,6 +90,62 @@ const known_options = [_]KnownOpt{
         .name = "assemble",
         .ident = "driver_punt",
     },
+    .{
+        .name = "O1",
+        .ident = "optimize",
+    },
+    .{
+        .name = "O2",
+        .ident = "optimize",
+    },
+    .{
+        .name = "Og",
+        .ident = "optimize",
+    },
+    .{
+        .name = "O",
+        .ident = "optimize",
+    },
+    .{
+        .name = "Ofast",
+        .ident = "optimize",
+    },
+    .{
+        .name = "optimize",
+        .ident = "optimize",
+    },
+    .{
+        .name = "g",
+        .ident = "debug",
+    },
+    .{
+        .name = "debug",
+        .ident = "debug",
+    },
+    .{
+        .name = "g-dwarf",
+        .ident = "debug",
+    },
+    .{
+        .name = "g-dwarf-2",
+        .ident = "debug",
+    },
+    .{
+        .name = "g-dwarf-3",
+        .ident = "debug",
+    },
+    .{
+        .name = "g-dwarf-4",
+        .ident = "debug",
+    },
+    .{
+        .name = "g-dwarf-5",
+        .ident = "debug",
+    },
+    .{
+        .name = "fsanitize",
+        .ident = "sanitize",
+    },
 };
 
 const blacklisted_options = [_][]const u8{};

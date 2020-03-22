@@ -9269,6 +9269,7 @@ void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_pa
         case BuildModeDebug:
             // windows c runtime requires -D_DEBUG if using debug libraries
             args.append("-D_DEBUG");
+            args.append("-Og");
 
             if (g->libc_link_lib != nullptr) {
                 args.append("-fstack-protector-strong");

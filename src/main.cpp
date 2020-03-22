@@ -580,6 +580,7 @@ static int main0(int argc, char **argv) {
         return stage2_fmt(argc, argv);
     } else if (argc >= 2 && strcmp(argv[1], "cc") == 0) {
         emit_h = false;
+        strip = true;
 
         bool c_arg = false;
         Stage2ClangArgIterator it;
@@ -664,6 +665,42 @@ static int main0(int argc, char **argv) {
                 case Stage2ClangArgPreprocess:
                     only_preprocess = true;
                     break;
+                case Stage2ClangArgOptimize:
+                    // alright what release mode do they want?
+                    if (strcmp(it.only_arg, "Os") == 0) {
+                        build_mode = BuildModeSmallRelease;
+                    } else if (strcmp(it.only_arg, "O2") == 0 ||
+                            strcmp(it.only_arg, "O3") == 0 ||
+                            strcmp(it.only_arg, "O4") == 0)
+                    {
+                        build_mode = BuildModeFastRelease;
+                    } else if (strcmp(it.only_arg, "Og") == 0) {
+                        build_mode = BuildModeDebug;
+                    } else {
+                        for (size_t i = 0; i < it.other_args_len; i += 1) {
+                            clang_argv.append(it.other_args_ptr[i]);
+                        }
+                    }
+                    break;
+                case Stage2ClangArgDebug:
+                    strip = false;
+                    if (strcmp(it.only_arg, "-g") == 0) {
+                        // we handled with strip = false above
+                    } else {
+                        for (size_t i = 0; i < it.other_args_len; i += 1) {
+                            clang_argv.append(it.other_args_ptr[i]);
+                        }
+                    }
+                    break;
+                case Stage2ClangArgSanitize:
+                    if (strcmp(it.only_arg, "undefined") == 0) {
+                        want_sanitize_c = WantCSanitizeEnabled;
+                    } else {
+                        for (size_t i = 0; i < it.other_args_len; i += 1) {
+                            clang_argv.append(it.other_args_ptr[i]);
+                        }
+                    }
+                    break;
             }
         }
         // Parse linker args
@@ -713,6 +750,10 @@ static int main0(int argc, char **argv) {
             } else {
                 fprintf(stderr, "warning: unsupported linker arg: %s\n", buf_ptr(arg));
             }
+        }
+
+        if (want_sanitize_c == WantCSanitizeEnabled && build_mode == BuildModeFastRelease) {
+            build_mode = BuildModeSafeRelease;
         }
 
         if (!nostdlib && !have_libc) {

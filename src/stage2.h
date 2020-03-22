@@ -334,6 +334,9 @@ enum Stage2ClangArg {
     Stage2ClangArgRDynamic,
     Stage2ClangArgWL,
     Stage2ClangArgPreprocess,
+    Stage2ClangArgOptimize,
+    Stage2ClangArgDebug,
+    Stage2ClangArgSanitize,
 };
 
 // ABI warning

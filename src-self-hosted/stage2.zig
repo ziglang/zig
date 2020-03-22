@@ -1248,6 +1248,9 @@ pub const ClangArgIterator = extern struct {
         rdynamic,
         wl,
         preprocess,
+        optimize,
+        debug,
+        sanitize,
     };
 
     fn init(argv: []const [*:0]const u8) ClangArgIterator {
@@ -1284,11 +1287,14 @@ pub const ClangArgIterator = extern struct {
         }
 
         find_clang_arg: for (clang_args) |clang_arg| switch (clang_arg.syntax) {
-            .flag => if (clang_arg.matchEql(arg)) {
-                self.zig_equivalent = clang_arg.zig_equivalent;
-                self.only_arg = arg.ptr;
+            .flag => {
+                const prefix_len = clang_arg.matchEql(arg);
+                if (prefix_len > 0) {
+                    self.zig_equivalent = clang_arg.zig_equivalent;
+                    self.only_arg = arg.ptr + prefix_len;
 
-                break :find_clang_arg;
+                    break :find_clang_arg;
+                }
             },
             .joined, .comma_joined => {
                 // joined example: --target=foo
@@ -1338,7 +1344,7 @@ pub const ClangArgIterator = extern struct {
                     break :find_clang_arg;
                 }
             },
-            .separate => if (clang_arg.matchEql(arg)) {
+            .separate => if (clang_arg.matchEql(arg) > 0) {
                 if (self.next_index >= self.argv_len) {
                     std.debug.warn("Expected parameter after '{}'\n", .{arg});
                     process.exit(1);
@@ -1355,7 +1361,7 @@ pub const ClangArgIterator = extern struct {
                     @panic("TODO");
                 }
             },
-            .multi_arg => if (clang_arg.matchEql(arg)) {
+            .multi_arg => if (clang_arg.matchEql(arg) > 0) {
                 @panic("TODO");
             },
         }
