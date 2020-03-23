@@ -326,12 +326,14 @@ pub const Rational = struct {
         r.q.swap(&other.q);
     }
 
-    /// Returns -1, 0, 1 if a < b, a == b or a > b respectively.
+    /// Returns math.Order.lt, math.Oder.eq, math.Order.gt if a < b, a == b or a
+    /// > b respectively.
     pub fn cmp(a: Rational, b: Rational) !math.Order {
         return cmpInternal(a, b, true);
     }
 
-    /// Returns -1, 0, 1 if |a| < |b|, |a| == |b| or |a| > |b| respectively.
+    /// Returns math.Order.lt, math.Oder.eq, math.Order.gt if |a| < |b|, |a| ==
+    /// |b| or |a| > |b| respectively.
     pub fn cmpAbs(a: Rational, b: Rational) !math.Order {
         return cmpInternal(a, b, false);
     }

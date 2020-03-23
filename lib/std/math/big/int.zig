@@ -534,7 +534,8 @@ pub const Int = struct {
         return out_stream.writeAll(str);
     }
 
-    /// Returns -1, 0, 1 if |a| < |b|, |a| == |b| or |a| > |b| respectively.
+    /// Returns math.Order.lt, math.Oder.eq, math.Order.gt if |a| < |b|, |a| ==
+    /// |b| or |a| > |b| respectively.
     pub fn cmpAbs(a: Int, b: Int) math.Order {
         if (a.len() < b.len()) {
             return .lt;
@@ -559,7 +560,8 @@ pub const Int = struct {
         }
     }
 
-    /// Returns -1, 0, 1 if a < b, a == b or a > b respectively.
+    /// Returns math.Order.lt, math.Oder.eq, math.Order.gt if a < b, a == b or a
+    /// > b respectively.
     pub fn cmp(a: Int, b: Int) math.Order {
         if (a.isPositive() != b.isPositive()) {
             return if (a.isPositive()) .gt else .lt;
