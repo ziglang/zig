@@ -9155,13 +9155,15 @@ static void detect_libc(CodeGen *g) {
 }
 
 // does not add the "cc" arg
-void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_path, bool translate_c) {
+void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_path,
+        bool translate_c, CSourceKind source_kind)
+{
     if (translate_c) {
         args.append("-x");
         args.append("c");
     }
 
-    if (out_dep_path != nullptr) {
+    if (source_kind != CSourceKindAsm && out_dep_path != nullptr) {
         args.append("-MD");
         args.append("-MV");
         args.append("-MF");
@@ -9176,10 +9178,12 @@ void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_pa
     }
 
     if (translate_c) {
-        // this gives us access to preprocessing entities, presumably at
-        // the cost of performance
-        args.append("-Xclang");
-        args.append("-detailed-preprocessing-record");
+        if (source_kind == CSourceKindC) {
+            // this gives us access to preprocessing entities, presumably at
+            // the cost of performance
+            args.append("-Xclang");
+            args.append("-detailed-preprocessing-record");
+        }
     } else {
         switch (g->err_color) {
             case ErrColorAuto:
@@ -9212,26 +9216,29 @@ void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_pa
         args.append(include_dir);
     }
 
-    if (g->zig_target->is_native) {
-        if (target_supports_clang_march_native(g->zig_target)) {
-            args.append("-march=native");
-        }
-    } else {
-        args.append("-target");
-        args.append(buf_ptr(&g->llvm_triple_str));
+    args.append("-target");
+    args.append(buf_ptr(&g->llvm_triple_str));
 
-        if (g->zig_target->llvm_cpu_name != nullptr) {
-            args.append("-Xclang");
-            args.append("-target-cpu");
-            args.append("-Xclang");
-            args.append(g->zig_target->llvm_cpu_name);
-        }
-        if (g->zig_target->llvm_cpu_features != nullptr) {
-            args.append("-Xclang");
-            args.append("-target-feature");
-            args.append("-Xclang");
-            args.append(g->zig_target->llvm_cpu_features);
-        }
+    switch (source_kind) {
+        case CSourceKindC:
+            if (g->zig_target->llvm_cpu_name != nullptr) {
+                args.append("-Xclang");
+                args.append("-target-cpu");
+                args.append("-Xclang");
+                args.append(g->zig_target->llvm_cpu_name);
+            }
+            if (g->zig_target->llvm_cpu_features != nullptr) {
+                args.append("-Xclang");
+                args.append("-target-feature");
+                args.append("-Xclang");
+                args.append(g->zig_target->llvm_cpu_features);
+            }
+            break;
+        case CSourceKindAsm:
+            break;
+    }
+    for (size_t i = 0; i < g->zig_target->llvm_cpu_features_asm_len; i += 1) {
+        args.append(g->zig_target->llvm_cpu_features_asm_ptr[i]);
     }
 
     if (g->zig_target->os == OsFreestanding) {
@@ -9377,7 +9384,7 @@ void codegen_translate_c(CodeGen *g, Buf *full_path) {
     }
 
     ZigList<const char *> clang_argv = {0};
-    add_cc_args(g, clang_argv, out_dep_path_cstr, true);
+    add_cc_args(g, clang_argv, out_dep_path_cstr, true, CSourceKindC);
 
     clang_argv.append(buf_ptr(full_path));
 
@@ -9714,6 +9721,15 @@ static void gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file) {
     Buf *c_source_basename = buf_alloc();
     os_path_split(c_source_file, nullptr, c_source_basename);
 
+    CSourceKind c_source_kind;
+    if (buf_ends_with_str(c_source_basename, ".s") ||
+        buf_ends_with_str(c_source_basename, ".S"))
+    {
+        c_source_kind = CSourceKindAsm;
+    } else {
+        c_source_kind = CSourceKindC;
+    }
+
     Stage2ProgressNode *child_prog_node = stage2_progress_start(g->sub_progress_node, buf_ptr(c_source_basename),
             buf_len(c_source_basename), 0);
 
@@ -9786,7 +9802,7 @@ static void gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file) {
         }
 
         Buf *out_dep_path = buf_sprintf("%s.d", buf_ptr(out_obj_path));
-        add_cc_args(g, args, buf_ptr(out_dep_path), false);
+        add_cc_args(g, args, buf_ptr(out_dep_path), false, c_source_kind);
 
         args.append("-o");
         args.append(buf_ptr(out_obj_path));

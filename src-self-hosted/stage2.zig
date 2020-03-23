@@ -912,6 +912,9 @@ const Stage2Target = extern struct {
     dynamic_linker: ?[*:0]const u8,
     standard_dynamic_linker_path: ?[*:0]const u8,
 
+    llvm_cpu_features_asm_ptr: [*]const [*:0]const u8,
+    llvm_cpu_features_asm_len: usize,
+
     fn fromTarget(self: *Stage2Target, cross_target: CrossTarget) !void {
         const allocator = std.heap.c_allocator;
 
@@ -943,6 +946,12 @@ const Stage2Target = extern struct {
         var llvm_features_buffer = try std.Buffer.initSize(allocator, 0);
         defer llvm_features_buffer.deinit();
 
+        // Unfortunately we have to do the work twice, because Clang does not support
+        // the same command line parameters for CPU features when assembling code as it does
+        // when compiling C code.
+        var asm_features_list = std.ArrayList([*:0]const u8).init(allocator);
+        defer asm_features_list.deinit();
+
         for (target.cpu.arch.allFeaturesList()) |feature, index_usize| {
             const index = @intCast(Target.Cpu.Feature.Set.Index, index_usize);
             const is_enabled = target.cpu.features.isEnabled(index);
@@ -961,6 +970,21 @@ const Stage2Target = extern struct {
                 try cpu_builtin_str_buffer.append(feature.name);
                 try cpu_builtin_str_buffer.append("\",\n");
             }
+        }
+
+        switch (target.cpu.arch) {
+            .riscv32, .riscv64 => {
+                if (std.Target.riscv.featureSetHas(target.cpu.features, .relax)) {
+                    try asm_features_list.append("-mrelax");
+                } else {
+                    try asm_features_list.append("-mno-relax");
+                }
+            },
+            else => {
+                // TODO
+                // Argh, why doesn't the assembler accept the list of CPU features?!
+                // I don't see a way to do this other than hard coding everything.
+            },
         }
 
         try cpu_builtin_str_buffer.append(
@@ -1128,6 +1152,7 @@ const Stage2Target = extern struct {
             null;
 
         const cache_hash_slice = cache_hash.toOwnedSlice();
+        const asm_features = asm_features_list.toOwnedSlice();
         self.* = .{
             .arch = @enumToInt(target.cpu.arch) + 1, // skip over ZigLLVM_UnknownArch
             .vendor = 0,
@@ -1135,6 +1160,8 @@ const Stage2Target = extern struct {
             .abi = @enumToInt(target.abi),
             .llvm_cpu_name = if (target.cpu.model.llvm_name) |s| s.ptr else null,
             .llvm_cpu_features = llvm_features_buffer.toOwnedSlice().ptr,
+            .llvm_cpu_features_asm_ptr = asm_features.ptr,
+            .llvm_cpu_features_asm_len = asm_features.len,
             .cpu_builtin_str = cpu_builtin_str_buffer.toOwnedSlice().ptr,
             .os_builtin_str = os_builtin_str_buffer.toOwnedSlice().ptr,
             .cache_hash = cache_hash_slice.ptr,
