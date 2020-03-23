@@ -375,7 +375,12 @@ pub const Thread = struct {
             if (c.pthread_attr_init(&attr) != 0) return error.SystemResources;
             defer assert(c.pthread_attr_destroy(&attr) == 0);
 
-            assert(c.pthread_attr_setstack(&attr, mmap_slice.ptr, stack_end_offset) == 0);
+            // Tell pthread where the effective stack start is and its size
+            assert(c.pthread_attr_setstack(
+                &attr,
+                mmap_slice.ptr + guard_end_offset,
+                stack_end_offset - guard_end_offset,
+            ) == 0);
 
             const err = c.pthread_create(&thread_ptr.data.handle, &attr, MainFuncs.posixThreadMain, @intToPtr(*c_void, arg));
             switch (err) {
