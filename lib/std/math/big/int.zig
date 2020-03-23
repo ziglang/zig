@@ -373,6 +373,7 @@ pub const Int = struct {
         const d = switch (ch) {
             '0'...'9' => ch - '0',
             'a'...'f' => (ch - 'a') + 0xa,
+            'A'...'F' => (ch - 'A') + 0xa,
             else => return error.InvalidCharForDigit,
         };
 
@@ -393,8 +394,9 @@ pub const Int = struct {
 
     /// Set self from the string representation `value`.
     ///
-    /// value must contain only digits <= `base`. Base prefixes are not allowed (e.g. 0x43 should
-    /// simply be 43).
+    /// `value` must contain only digits <= `base` and is case insensitive.  Base prefixes are
+    /// not allowed (e.g. 0x43 should simply be 43).  Underscores in the input string are
+    /// ignored and can be used as digit separators.
     ///
     /// Returns an error if memory could not be allocated or `value` has invalid digits for the
     /// requested base.
@@ -415,6 +417,9 @@ pub const Int = struct {
         try self.set(0);
 
         for (value[i..]) |ch| {
+            if (ch == '_') {
+                continue;
+            }
             const d = try charToDigit(ch, base);
 
             const ap_d = Int.initFixed(([_]Limb{d})[0..]);
@@ -1580,6 +1585,22 @@ test "big.int string negative" {
 
     try a.setString(10, "-1023");
     testing.expect((try a.to(i32)) == -1023);
+}
+
+test "big.int string set number with underscores" {
+    var a = try Int.init(testing.allocator);
+    defer a.deinit();
+
+    try a.setString(10, "__1_2_0_3_1_7_2_4_1_2_0_____9_1__2__4_7_8_1_2_4_1_2_9_0_8_4_7_1_2_4___");
+    testing.expect((try a.to(u128)) == 120317241209124781241290847124);
+}
+
+test "big.int string set case insensitive number" {
+    var a = try Int.init(testing.allocator);
+    defer a.deinit();
+
+    try a.setString(16, "aB_cD_eF");
+    testing.expect((try a.to(u32)) == 0xabcdef);
 }
 
 test "big.int string set bad char error" {
