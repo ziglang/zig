@@ -285,3 +285,17 @@ test "slice syntax resulting in pointer-to-array" {
     S.doTheTest();
     comptime S.doTheTest();
 }
+
+test "slice of hardcoded address to pointer" {
+    const S = struct {
+        fn doTheTest() void {
+            const pointer = @intToPtr([*]u8, 0x04)[0..2];
+            comptime expect(@TypeOf(pointer) == *[2]u8);
+            const slice: []const u8 = pointer;
+            expect(@ptrToInt(slice.ptr) == 4);
+            expect(slice.len == 2);
+        }
+    };
+
+    S.doTheTest();
+}

@@ -12819,7 +12819,7 @@ static IrInstGen *ir_resolve_ptr_of_array_to_slice(IrAnalyze *ira, IrInst* sourc
                 result->value->type = wanted_type;
                 return result;
             }
-        } else {
+        } else if (array_ptr_val->data.x_ptr.special != ConstPtrSpecialHardCodedAddr) {
             ZigValue *pointee = const_ptr_pointee(ira, ira->codegen, array_ptr_val, source_instr->source_node);
             if (pointee == nullptr)
                 return ira->codegen->invalid_inst_gen;
