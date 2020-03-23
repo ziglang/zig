@@ -612,10 +612,12 @@ static int main0(int argc, char **argv) {
                 case Stage2ClangArgPositional: {
                     Buf *arg_buf = buf_create_from_str(it.only_arg);
                     if (buf_ends_with_str(arg_buf, ".c") ||
+                        buf_ends_with_str(arg_buf, ".C") ||
                         buf_ends_with_str(arg_buf, ".cc") ||
                         buf_ends_with_str(arg_buf, ".cpp") ||
                         buf_ends_with_str(arg_buf, ".cxx") ||
-                        buf_ends_with_str(arg_buf, ".s"))
+                        buf_ends_with_str(arg_buf, ".s") ||
+                        buf_ends_with_str(arg_buf, ".S"))
                     {
                         CFile *c_file = heap::c_allocator.create<CFile>();
                         c_file->source_path = it.only_arg;
