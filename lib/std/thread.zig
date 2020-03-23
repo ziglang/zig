@@ -381,6 +381,11 @@ pub const Thread = struct {
                 mmap_slice.ptr + guard_end_offset,
                 stack_end_offset - guard_end_offset,
             ) == 0);
+            // Even though pthread's man pages state that the guard size is
+            // ignored when the stack address is explicitly given, on some
+            // plaforms such as NetBSD we still have to zero it to prevent
+            // random crashes in pthread_join calls
+            assert(c.pthread_attr_setguardsize(&attr, 0) == 0);
 
             const err = c.pthread_create(&thread_ptr.data.handle, &attr, MainFuncs.posixThreadMain, @intToPtr(*c_void, arg));
             switch (err) {
