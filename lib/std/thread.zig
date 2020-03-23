@@ -292,32 +292,69 @@ pub const Thread = struct {
                     l += tls_img.alloc_size;
                 }
             }
-            break :blk l;
+            // Round the size to the page size.
+            break :blk mem.alignForward(l, mem.page_size);
         };
-        // Map the whole stack with no rw permissions to avoid committing the
-        // whole region right away
-        const mmap_slice = os.mmap(
-            null,
-            mem.alignForward(mmap_len, mem.page_size),
-            os.PROT_NONE,
-            os.MAP_PRIVATE | os.MAP_ANONYMOUS,
-            -1,
-            0,
-        ) catch |err| switch (err) {
-            error.MemoryMappingNotSupported => unreachable,
-            error.AccessDenied => unreachable,
-            error.PermissionDenied => unreachable,
-            else => |e| return e,
-        };
-        errdefer os.munmap(mmap_slice);
 
-        // Map everything but the guard page as rw
-        os.mprotect(
-            mmap_slice,
-            os.PROT_READ | os.PROT_WRITE,
-        ) catch |err| switch (err) {
-            error.AccessDenied => unreachable,
-            else => |e| return e,
+        const mmap_slice = mem: {
+            if (std.Target.current.os.tag != .netbsd) {
+                // Map the whole stack with no rw permissions to avoid
+                // committing the whole region right away
+                const mmap_slice = os.mmap(
+                    null,
+                    mmap_len,
+                    os.PROT_NONE,
+                    os.MAP_PRIVATE | os.MAP_ANONYMOUS,
+                    -1,
+                    0,
+                ) catch |err| switch (err) {
+                    error.MemoryMappingNotSupported => unreachable,
+                    error.AccessDenied => unreachable,
+                    error.PermissionDenied => unreachable,
+                    else => |e| return e,
+                };
+                errdefer os.munmap(mmap_slice);
+
+                // Map everything but the guard page as rw
+                os.mprotect(
+                    mmap_slice[guard_end_offset..],
+                    os.PROT_READ | os.PROT_WRITE,
+                ) catch |err| switch (err) {
+                    error.AccessDenied => unreachable,
+                    else => |e| return e,
+                };
+
+                break :mem mmap_slice;
+            } else {
+                // NetBSD mprotect is very strict and doesn't allow to "upgrade"
+                // a PROT_NONE mapping to a RW one so let's allocate everything
+                // right away
+                const mmap_slice = os.mmap(
+                    null,
+                    mmap_len,
+                    os.PROT_READ | os.PROT_WRITE,
+                    os.MAP_PRIVATE | os.MAP_ANONYMOUS,
+                    -1,
+                    0,
+                ) catch |err| switch (err) {
+                    error.MemoryMappingNotSupported => unreachable,
+                    error.AccessDenied => unreachable,
+                    error.PermissionDenied => unreachable,
+                    else => |e| return e,
+                };
+                errdefer os.munmap(mmap_slice);
+
+                // Remap the guard page with no permissions
+                os.mprotect(
+                    mmap_slice[0..guard_end_offset],
+                    os.PROT_NONE,
+                ) catch |err| switch (err) {
+                    error.AccessDenied => unreachable,
+                    else => |e| return e,
+                };
+
+                break :mem mmap_slice;
+            }
         };
 
         const mmap_addr = @ptrToInt(mmap_slice.ptr);
