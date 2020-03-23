@@ -749,6 +749,16 @@ static int main0(int argc, char **argv) {
                 }
                 Buf *rpath = linker_args.at(i);
                 rpath_list.append(buf_ptr(rpath));
+            } else if (buf_eql_str(arg, "-I") ||
+                buf_eql_str(arg, "--dynamic-linker") ||
+                buf_eql_str(arg, "-dynamic-linker"))
+            {
+                i += 1;
+                if (i >= linker_args.length) {
+                    fprintf(stderr, "expected linker arg after '%s'\n", buf_ptr(arg));
+                    return EXIT_FAILURE;
+                }
+                dynamic_linker = buf_ptr(linker_args.at(i));
             } else {
                 fprintf(stderr, "warning: unsupported linker arg: %s\n", buf_ptr(arg));
             }
