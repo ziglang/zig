@@ -247,8 +247,7 @@ pub fn main() void {
 }
       {#code_end#}
       <p>
-      Note that we also left off the {#syntax#}!{#endsyntax#} from the return type.
-      In Zig, if your main function cannot fail, you must use the {#syntax#}void{#endsyntax#} return type.
+      Note that you can leave off the {#syntax#}!{#endsyntax#} from the return type because {#syntax#}warn{#endsyntax#} cannot fail.
       </p>
       {#see_also|Values|@import|Errors|Root Source File#}
       {#header_close#}
@@ -985,7 +984,7 @@ export fn foo_strict(x: f64) f64 {
 }
 
 export fn foo_optimized(x: f64) f64 {
-    @setFloatMode(builtin.FloatMode.Optimized);
+    @setFloatMode(.Optimized);
     return x + big - big;
 }
       {#code_end#}
@@ -2992,7 +2991,7 @@ test "simple union" {
       This turns the union into a <em>tagged</em> union, which makes it eligible
       to use with {#link|switch#} expressions. One can use {#link|@TagType#} to
       obtain the enum type from the union type.
-      Tagged unions coerce to their enum {#link|Type Coercion: unions and enums#}
+      Tagged unions coerce to their tag type: {#link|Type Coercion: unions and enums#}.
       </p>
       {#code_begin|test#}
 const std = @import("std");
@@ -9479,7 +9478,7 @@ pub fn main() void {
 const builtin = @import("builtin");
 
 const c = @cImport({
-    @cDefine("NDEBUG", builtin.mode == builtin.Mode.ReleaseFast);
+    @cDefine("NDEBUG", builtin.mode == .ReleaseFast);
     if (something) {
         @cDefine("_GNU_SOURCE", {});
     }
@@ -10077,7 +10076,6 @@ fn readU32Be() u32 {}
       {#header_open|Keyword: pub#}
       <p>The {#syntax#}pub{#endsyntax#} in front of a top level declaration makes the
       declaration available to reference from a different file than the one it is declared in.</p>
-      <p><a href="https://github.com/ziglang/zig/issues/2059">TODO delete pub syntax for fields, or make it do something.</a></p>
       {#see_also|@import#}
       {#header_close#}
       {#header_close#}
