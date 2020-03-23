@@ -1623,7 +1623,7 @@ pub const ModuleDebugInfo = switch (builtin.os.tag) {
             };
         }
     },
-    .linux, .freebsd => struct {
+    .linux, .netbsd, .freebsd, .dragonfly => struct {
         base_address: usize,
         dwarf: DW.DwarfInfo,
         mapped_memory: []const u8,
