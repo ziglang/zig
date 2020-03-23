@@ -3522,6 +3522,17 @@ pub fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) SigaltstackError!void {
     if (builtin.os.tag == .windows or builtin.os.tag == .uefi or builtin.os.tag == .wasi)
         @compileError("std.os.sigaltstack not available for this target");
 
+    if (std.Target.current.os.tag == .netbsd) {
+        switch (errno(system.__sigaltstack14(ss, old_ss))) {
+            0 => return,
+            EFAULT => unreachable,
+            EINVAL => unreachable,
+            ENOMEM => return error.SizeTooSmall,
+            EPERM => return error.PermissionDenied,
+            else => |err| return unexpectedErrno(err),
+        }
+    }
+
     switch (errno(system.sigaltstack(ss, old_ss))) {
         0 => return,
         EFAULT => unreachable,
