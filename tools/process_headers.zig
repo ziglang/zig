@@ -1,14 +1,14 @@
-// To get started, run this tool with no args and read the help message.
-//
-// The build systems of musl-libc and glibc require specifying a single target
-// architecture. Meanwhile, Zig supports out-of-the-box cross compilation for
-// every target. So the process to create libc headers that Zig ships is to use
-// this tool.
-// First, use the musl/glibc build systems to create installations of all the
-// targets in the `glibc_targets`/`musl_targets` variables.
-// Next, run this tool to create a new directory which puts .h files into
-// <arch> subdirectories, with `generic` being files that apply to all architectures.
-// You'll then have to manually update Zig source repo with these new files.
+//! To get started, run this tool with no args and read the help message.
+//!
+//! The build systems of musl-libc and glibc require specifying a single target
+//! architecture. Meanwhile, Zig supports out-of-the-box cross compilation for
+//! every target. So the process to create libc headers that Zig ships is to use
+//! this tool.
+//! First, use the musl/glibc build systems to create installations of all the
+//! targets in the `glibc_targets`/`musl_targets` variables.
+//! Next, run this tool to create a new directory which puts .h files into
+//! <arch> subdirectories, with `generic` being files that apply to all architectures.
+//! You'll then have to manually update Zig source repo with these new files.
 
 const std = @import("std");
 const Arch = std.Target.Cpu.Arch;

@@ -304,3 +304,15 @@ enum Error stage2_detect_native_paths(struct Stage2NativePaths *native_paths) {
 
     return ErrorNone;
 }
+
+void stage2_clang_arg_iterator(struct Stage2ClangArgIterator *it,
+        size_t argc, char **argv)
+{
+    const char *msg = "stage0 called stage2_clang_arg_iterator";
+    stage2_panic(msg, strlen(msg));
+}
+
+enum Error stage2_clang_arg_next(struct Stage2ClangArgIterator *it) {
+    const char *msg = "stage0 called stage2_clang_arg_next";
+    stage2_panic(msg, strlen(msg));
+}

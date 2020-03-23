@@ -276,6 +276,11 @@ static ZigVar *ir_create_var(IrBuilderSrc *irb, AstNode *node, Scope *scope, Buf
         bool src_is_const, bool gen_is_const, bool is_shadowable, IrInstSrc *is_comptime);
 static void build_decl_var_and_init(IrBuilderSrc *irb, Scope *scope, AstNode *source_node, ZigVar *var,
         IrInstSrc *init, const char *name_hint, IrInstSrc *is_comptime);
+static IrInstGen *ir_analyze_union_init(IrAnalyze *ira, IrInst* source_instruction,
+    AstNode *field_source_node, ZigType *union_type, Buf *field_name, IrInstGen *field_result_loc,
+    IrInstGen *result_loc);
+static IrInstGen *ir_analyze_struct_value_field_value(IrAnalyze *ira, IrInst* source_instr,
+    IrInstGen *struct_operand, TypeStructField *field);
 
 static void destroy_instruction_src(IrInstSrc *inst) {
     switch (inst->id) {
@@ -14412,10 +14417,71 @@ static IrInstGen *ir_analyze_struct_literal_to_struct(IrAnalyze *ira, IrInst* so
 }
 
 static IrInstGen *ir_analyze_struct_literal_to_union(IrAnalyze *ira, IrInst* source_instr,
-        IrInstGen *value, ZigType *wanted_type)
+        IrInstGen *value, ZigType *union_type)
 {
-    ir_add_error(ira, source_instr, buf_sprintf("TODO: type coercion of anon struct literal to union"));
-    return ira->codegen->invalid_inst_gen;
+    Error err;
+    ZigType *struct_type = value->value->type;
+
+    assert(struct_type->id == ZigTypeIdStruct);
+    assert(union_type->id == ZigTypeIdUnion);
+    assert(struct_type->data.structure.src_field_count == 1);
+
+    TypeStructField *only_field = struct_type->data.structure.fields[0];
+
+    if ((err = type_resolve(ira->codegen, union_type, ResolveStatusZeroBitsKnown)))
+        return ira->codegen->invalid_inst_gen;
+
+    TypeUnionField *union_field = find_union_type_field(union_type, only_field->name);
+    if (union_field == nullptr) {
+        ir_add_error_node(ira, only_field->decl_node,
+            buf_sprintf("no member named '%s' in union '%s'",
+                buf_ptr(only_field->name), buf_ptr(&union_type->name)));
+        return ira->codegen->invalid_inst_gen;
+    }
+
+    ZigType *payload_type = resolve_union_field_type(ira->codegen, union_field);
+    if (payload_type == nullptr)
+        return ira->codegen->invalid_inst_gen;
+
+    IrInstGen *field_value = ir_analyze_struct_value_field_value(ira, source_instr, value, only_field);
+    if (type_is_invalid(field_value->value->type))
+        return ira->codegen->invalid_inst_gen;
+
+    IrInstGen *casted_value = ir_implicit_cast(ira, field_value, payload_type);
+    if (type_is_invalid(casted_value->value->type))
+        return ira->codegen->invalid_inst_gen;
+
+    if (instr_is_comptime(casted_value)) {
+        ZigValue *val = ir_resolve_const(ira, casted_value, UndefBad);
+        if (val == nullptr)
+            return ira->codegen->invalid_inst_gen;
+
+        IrInstGen *result = ir_const(ira, source_instr, union_type);
+        bigint_init_bigint(&result->value->data.x_union.tag, &union_field->enum_field->value);
+        result->value->data.x_union.payload = val;
+
+        val->parent.id = ConstParentIdUnion;
+        val->parent.data.p_union.union_val = result->value;
+
+        return result;
+    }
+
+    IrInstGen *result_loc_inst = ir_resolve_result(ira, source_instr, no_result_loc(),
+        union_type, nullptr, true, true);
+    if (type_is_invalid(result_loc_inst->value->type) || result_loc_inst->value->type->id == ZigTypeIdUnreachable) {
+        return ira->codegen->invalid_inst_gen;
+    }
+
+    IrInstGen *payload_ptr = ir_analyze_container_field_ptr(ira, only_field->name, source_instr,
+        result_loc_inst, source_instr, union_type, true);
+    if (type_is_invalid(payload_ptr->value->type))
+        return ira->codegen->invalid_inst_gen;
+
+    IrInstGen *store_ptr_inst = ir_analyze_store_ptr(ira, source_instr, payload_ptr, casted_value, false);
+    if (type_is_invalid(store_ptr_inst->value->type))
+        return ira->codegen->invalid_inst_gen;
+
+    return ir_get_deref(ira, source_instr, result_loc_inst, nullptr);
 }
 
 // Add a compile error and return ErrorSemanticAnalyzeFail if the pointer alignment does not work,
@@ -23017,7 +23083,7 @@ static IrInstGen *ir_analyze_union_init(IrAnalyze *ira, IrInst* source_instructi
     Error err;
     assert(union_type->id == ZigTypeIdUnion);
 
-    if ((err = type_resolve(ira->codegen, union_type, ResolveStatusSizeKnown)))
+    if ((err = type_resolve(ira->codegen, union_type, ResolveStatusZeroBitsKnown)))
         return ira->codegen->invalid_inst_gen;
 
     TypeUnionField *type_field = find_union_type_field(union_type, field_name);
