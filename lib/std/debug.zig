@@ -1049,7 +1049,7 @@ const MachoSymbol = struct {
 
 fn mapWholeFile(path: []const u8) ![]align(mem.page_size) const u8 {
     noasync {
-        const file = try fs.openFileAbsolute(path, .{ .always_blocking = true });
+        const file = try fs.cwd().openFile(path, .{ .always_blocking = true });
         defer file.close();
 
         const file_len = try math.cast(usize, try file.getEndPos());
