@@ -3037,7 +3037,7 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutableGen *executable,
             {
                 assert(scalar_type->id == ZigTypeIdInt);
                 LLVMValueRef op2_casted = LLVMBuildZExt(g->builder, op2_value,
-                    LLVMTypeOf(op1_value), "");//gen_widen_or_shorten(g, false, op2->value->type, scalar_type, op2_value);
+                    LLVMTypeOf(op1_value), "");
 
                 if (want_runtime_safety) {
                     gen_shift_rhs_check(g, scalar_type, op2->value->type, op2_value);
@@ -3059,7 +3059,7 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutableGen *executable,
             {
                 assert(scalar_type->id == ZigTypeIdInt);
                 LLVMValueRef op2_casted = LLVMBuildZExt(g->builder, op2_value,
-                    LLVMTypeOf(op1_value), "");//gen_widen_or_shorten(g, false, op2->value->type, scalar_type, op2_value);
+                    LLVMTypeOf(op1_value), "");
 
                 if (want_runtime_safety) {
                     gen_shift_rhs_check(g, scalar_type, op2->value->type, op2_value);
