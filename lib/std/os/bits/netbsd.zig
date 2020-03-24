@@ -287,6 +287,9 @@ pub const O_WRONLY = 0x0001;
 pub const O_RDWR = 0x0002;
 pub const O_ACCMODE = 0x0003;
 
+pub const O_SHLOCK = 0x0010;
+pub const O_EXLOCK = 0x0020;
+
 pub const O_CREAT = 0x0200;
 pub const O_EXCL = 0x0800;
 pub const O_NOCTTY = 0x8000;
