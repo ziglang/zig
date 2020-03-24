@@ -107,6 +107,7 @@ pub fn OpenFileW(
     sub_path_w: [*:0]const u16,
     sa: ?*SECURITY_ATTRIBUTES,
     access_mask: ACCESS_MASK,
+    share_access_opt: ?ULONG,
     creation: ULONG,
 ) OpenError!HANDLE {
     if (sub_path_w[0] == '.' and sub_path_w[1] == 0) {
@@ -135,6 +136,7 @@ pub fn OpenFileW(
         .SecurityQualityOfService = null,
     };
     var io: IO_STATUS_BLOCK = undefined;
+    const share_access = share_access_opt orelse FILE_SHARE_WRITE | FILE_SHARE_READ | FILE_SHARE_DELETE;
     const rc = ntdll.NtCreateFile(
         &result,
         access_mask,
@@ -142,7 +144,7 @@ pub fn OpenFileW(
         &io,
         null,
         FILE_ATTRIBUTE_NORMAL,
-        FILE_SHARE_WRITE | FILE_SHARE_READ | FILE_SHARE_DELETE,
+        share_access,
         creation,
         FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT,
         null,
