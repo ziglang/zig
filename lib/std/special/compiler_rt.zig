@@ -67,6 +67,7 @@ comptime {
 
     @export(@import("compiler_rt/divsf3.zig").__divsf3, .{ .name = "__divsf3", .linkage = linkage });
     @export(@import("compiler_rt/divdf3.zig").__divdf3, .{ .name = "__divdf3", .linkage = linkage });
+    @export(@import("compiler_rt/divtf3.zig").__divtf3, .{ .name = "__divtf3", .linkage = linkage });
 
     @export(@import("compiler_rt/ashlti3.zig").__ashlti3, .{ .name = "__ashlti3", .linkage = linkage });
     @export(@import("compiler_rt/lshrti3.zig").__lshrti3, .{ .name = "__lshrti3", .linkage = linkage });
