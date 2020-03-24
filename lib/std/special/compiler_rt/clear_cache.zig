@@ -146,10 +146,12 @@ pub fn clear_cache(start: usize, end: usize) callconv(.C) void {
         //for (uintptr_t dword = start_dword; dword < end_dword; dword += dword_size)
         //  __asm__ volatile("flush %0" : : "r"(dword));
     } else if (apple) {
-        @compileError("TODO");
-        //// On Darwin, sys_icache_invalidate() provides this functionality
-        //sys_icache_invalidate(start, end - start);
+        // On Darwin, sys_icache_invalidate() provides this functionality
+        sys_icache_invalidate(start, end - start);
     } else {
         @compileError("no __clear_cache implementation available for this target");
     }
 }
+
+// Darwin-only
+extern fn sys_icache_invalidate(start: usize, len: usize) void;
