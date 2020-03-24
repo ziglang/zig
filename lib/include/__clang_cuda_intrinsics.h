@@ -45,7 +45,7 @@
     _Static_assert(sizeof(__val) == sizeof(__Bits));                           \
     _Static_assert(sizeof(__Bits) == 2 * sizeof(int));                         \
     __Bits __tmp;                                                              \
-    memcpy(&__val, &__tmp, sizeof(__val));                                     \
+    memcpy(&__tmp, &__val, sizeof(__val));                                \
     __tmp.__a = ::__FnName(__tmp.__a, __offset, __width);                      \
     __tmp.__b = ::__FnName(__tmp.__b, __offset, __width);                      \
     long long __ret;                                                           \
@@ -129,7 +129,7 @@ __MAKE_SHUFFLES(__shfl_xor, __nvvm_shfl_bfly_i32, __nvvm_shfl_bfly_f32, 0x1f,
     _Static_assert(sizeof(__val) == sizeof(__Bits));                           \
     _Static_assert(sizeof(__Bits) == 2 * sizeof(int));                         \
     __Bits __tmp;                                                              \
-    memcpy(&__val, &__tmp, sizeof(__val));                                     \
+    memcpy(&__tmp, &__val, sizeof(__val));                                     \
     __tmp.__a = ::__FnName(__mask, __tmp.__a, __offset, __width);              \
     __tmp.__b = ::__FnName(__mask, __tmp.__b, __offset, __width);              \
     long long __ret;                                                           \
@@ -211,7 +211,15 @@ inline __device__ unsigned int __ballot_sync(unsigned int mask, int pred) {
   return __nvvm_vote_ballot_sync(mask, pred);
 }
 
-inline __device__ unsigned int __activemask() { return __nvvm_vote_ballot(1); }
+inline __device__ unsigned int __activemask() {
+#if CUDA_VERSION < 9020
+  return __nvvm_vote_ballot(1);
+#else
+  unsigned int mask;
+  asm volatile("activemask.b32 %0;" : "=r"(mask));
+  return mask;
+#endif
+}
 
 inline __device__ unsigned int __fns(unsigned mask, unsigned base, int offset) {
   return __nvvm_fns(mask, base, offset);

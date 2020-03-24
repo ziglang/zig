@@ -38,6 +38,7 @@
 #include <llvm/Object/COFFImportFile.h>
 #include <llvm/Object/COFFModuleDefinition.h>
 #include <llvm/PassRegistry.h>
+#include <llvm/Support/CommandLine.h>
 #include <llvm/Support/FileSystem.h>
 #include <llvm/Support/TargetParser.h>
 #include <llvm/Support/Timer.h>
@@ -153,7 +154,7 @@ LLVMTargetMachineRef ZigLLVMCreateTargetMachine(LLVMTargetRef T, const char *Tri
 }
 
 unsigned ZigLLVMDataLayoutGetStackAlignment(LLVMTargetDataRef TD) {
-    return unwrap(TD)->getStackAlignment();
+    return unwrap(TD)->getStackAlignment().value();
 }
 
 unsigned ZigLLVMDataLayoutGetProgramAddressSpace(LLVMTargetDataRef TD) {
@@ -245,13 +246,13 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
 
         // Set output passes.
         if (dest_bin) {
-            if (target_machine->addPassesToEmitFile(MPM, *dest_bin, nullptr, TargetMachine::CGFT_ObjectFile)) {
+            if (target_machine->addPassesToEmitFile(MPM, *dest_bin, nullptr, CGFT_ObjectFile)) {
                 *error_message = strdup("TargetMachine can't emit an object file");
                 return true;
             }
         }
         if (dest_asm) {
-            if (target_machine->addPassesToEmitFile(MPM, *dest_asm, nullptr, TargetMachine::CGFT_AssemblyFile)) {
+            if (target_machine->addPassesToEmitFile(MPM, *dest_asm, nullptr, CGFT_AssemblyFile)) {
                 *error_message = strdup("TargetMachine can't emit an assembly file");
                 return true;
             }
@@ -316,14 +317,16 @@ LLVMValueRef ZigLLVMBuildCall(LLVMBuilderRef B, LLVMValueRef Fn, LLVMValueRef *A
 LLVMValueRef ZigLLVMBuildMemCpy(LLVMBuilderRef B, LLVMValueRef Dst, unsigned DstAlign,
         LLVMValueRef Src, unsigned SrcAlign, LLVMValueRef Size, bool isVolatile)
 {
-    CallInst *call_inst = unwrap(B)->CreateMemCpy(unwrap(Dst), DstAlign, unwrap(Src), SrcAlign, unwrap(Size), isVolatile);
+    CallInst *call_inst = unwrap(B)->CreateMemCpy(unwrap(Dst),
+        MaybeAlign(DstAlign), unwrap(Src), MaybeAlign(SrcAlign), unwrap(Size), isVolatile);
     return wrap(call_inst);
 }
 
 LLVMValueRef ZigLLVMBuildMemSet(LLVMBuilderRef B, LLVMValueRef Ptr, LLVMValueRef Val, LLVMValueRef Size,
         unsigned Align, bool isVolatile)
 {
-    CallInst *call_inst = unwrap(B)->CreateMemSet(unwrap(Ptr), unwrap(Val), unwrap(Size), Align, isVolatile);
+    CallInst *call_inst = unwrap(B)->CreateMemSet(unwrap(Ptr), unwrap(Val), unwrap(Size),
+            MaybeAlign(Align), isVolatile);
     return wrap(call_inst);
 }
 
@@ -787,7 +790,7 @@ void ZigLLVMAddFunctionAttrCold(LLVMValueRef fn_ref) {
 }
 
 void ZigLLVMParseCommandLineOptions(size_t argc, const char *const *argv) {
-    llvm::cl::ParseCommandLineOptions(argc, argv);
+    cl::ParseCommandLineOptions(argc, argv);
 }
 
 const char *ZigLLVMGetArchTypeName(ZigLLVM_ArchType arch) {
@@ -1026,11 +1029,13 @@ bool ZigLLVMWriteArchive(const char *archive_name, const char **file_names, size
 
 
 bool ZigLLDLink(ZigLLVM_ObjectFormatType oformat, const char **args, size_t arg_count,
-        void (*append_diagnostic)(void *, const char *, size_t), void *context)
+        void (*append_diagnostic)(void *, const char *, size_t),
+        void *context_stdout, void *context_stderr)
 {
     ArrayRef<const char *> array_ref_args(args, arg_count);
 
-    MyOStream diag(append_diagnostic, context);
+    MyOStream diag_stdout(append_diagnostic, context_stdout);
+    MyOStream diag_stderr(append_diagnostic, context_stderr);
 
     switch (oformat) {
         case ZigLLVM_UnknownObjectFormat:
@@ -1038,16 +1043,16 @@ bool ZigLLDLink(ZigLLVM_ObjectFormatType oformat, const char **args, size_t arg_
             assert(false); // unreachable
 
         case ZigLLVM_COFF:
-            return lld::coff::link(array_ref_args, false, diag);
+            return lld::coff::link(array_ref_args, false, diag_stdout, diag_stderr);
 
         case ZigLLVM_ELF:
-            return lld::elf::link(array_ref_args, false, diag);
+            return lld::elf::link(array_ref_args, false, diag_stdout, diag_stderr);
 
         case ZigLLVM_MachO:
-            return lld::mach_o::link(array_ref_args, false, diag);
+            return lld::mach_o::link(array_ref_args, false, diag_stdout, diag_stderr);
 
         case ZigLLVM_Wasm:
-            return lld::wasm::link(array_ref_args, false, diag);
+            return lld::wasm::link(array_ref_args, false, diag_stdout, diag_stderr);
     }
     assert(false); // unreachable
     abort();
@@ -1108,6 +1113,7 @@ static_assert((Triple::ArchType)ZigLLVM_arm == Triple::arm, "");
 static_assert((Triple::ArchType)ZigLLVM_armeb == Triple::armeb, "");
 static_assert((Triple::ArchType)ZigLLVM_aarch64 == Triple::aarch64, "");
 static_assert((Triple::ArchType)ZigLLVM_aarch64_be == Triple::aarch64_be, "");
+static_assert((Triple::ArchType)ZigLLVM_aarch64_32 == Triple::aarch64_32, "");
 static_assert((Triple::ArchType)ZigLLVM_arc == Triple::arc, "");
 static_assert((Triple::ArchType)ZigLLVM_avr == Triple::avr, "");
 static_assert((Triple::ArchType)ZigLLVM_bpfel == Triple::bpfel, "");
@@ -1153,6 +1159,7 @@ static_assert((Triple::ArchType)ZigLLVM_wasm32 == Triple::wasm32, "");
 static_assert((Triple::ArchType)ZigLLVM_wasm64 == Triple::wasm64, "");
 static_assert((Triple::ArchType)ZigLLVM_renderscript32 == Triple::renderscript32, "");
 static_assert((Triple::ArchType)ZigLLVM_renderscript64 == Triple::renderscript64, "");
+static_assert((Triple::ArchType)ZigLLVM_ve == Triple::ve, "");
 static_assert((Triple::ArchType)ZigLLVM_LastArchType == Triple::LastArchType, "");
 
 static_assert((Triple::VendorType)ZigLLVM_UnknownVendor == Triple::UnknownVendor, "");
@@ -1224,8 +1231,6 @@ static_assert((Triple::EnvironmentType)ZigLLVM_GNUX32 == Triple::GNUX32, "");
 static_assert((Triple::EnvironmentType)ZigLLVM_CODE16 == Triple::CODE16, "");
 static_assert((Triple::EnvironmentType)ZigLLVM_EABI == Triple::EABI, "");
 static_assert((Triple::EnvironmentType)ZigLLVM_EABIHF == Triple::EABIHF, "");
-static_assert((Triple::EnvironmentType)ZigLLVM_ELFv1 == Triple::ELFv1, "");
-static_assert((Triple::EnvironmentType)ZigLLVM_ELFv2 == Triple::ELFv2, "");
 static_assert((Triple::EnvironmentType)ZigLLVM_Android == Triple::Android, "");
 static_assert((Triple::EnvironmentType)ZigLLVM_Musl == Triple::Musl, "");
 static_assert((Triple::EnvironmentType)ZigLLVM_MuslEABI == Triple::MuslEABI, "");
@@ -1235,6 +1240,7 @@ static_assert((Triple::EnvironmentType)ZigLLVM_Itanium == Triple::Itanium, "");
 static_assert((Triple::EnvironmentType)ZigLLVM_Cygnus == Triple::Cygnus, "");
 static_assert((Triple::EnvironmentType)ZigLLVM_CoreCLR == Triple::CoreCLR, "");
 static_assert((Triple::EnvironmentType)ZigLLVM_Simulator == Triple::Simulator, "");
+static_assert((Triple::EnvironmentType)ZigLLVM_MacABI == Triple::MacABI, "");
 static_assert((Triple::EnvironmentType)ZigLLVM_LastEnvironmentType == Triple::LastEnvironmentType, "");
 
 static_assert((Triple::ObjectFormatType)ZigLLVM_UnknownObjectFormat == Triple::UnknownObjectFormat, "");

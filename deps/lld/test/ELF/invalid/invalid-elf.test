@@ -1,5 +1,0 @@
-# RUN: rm -rf %t && mkdir -p %t
-# RUN: echo > %t/empty.o
-# RUN: llvm-ar --format=gnu cr %t/not-elf.a %t/empty.o
-# RUN: not ld.lld --whole-archive %t/not-elf.a -o %t2 2>&1 | FileCheck %s
-# CHECK: not-elf.a(empty.o): not an ELF file

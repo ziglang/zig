@@ -63,6 +63,7 @@ pub const Feature = enum {
     max_private_element_size_16,
     max_private_element_size_4,
     max_private_element_size_8,
+    mfma_inline_literal_bug,
     mimg_r128,
     movrel,
     no_data_dep_hazard,
@@ -489,6 +490,11 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.max_private_element_size_8)] = .{
         .llvm_name = "max-private-element-size-8",
         .description = "Maximum private access size may be 8",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.mfma_inline_literal_bug)] = .{
+        .llvm_name = "mfma-inline-literal-bug",
+        .description = "MFMA cannot use inline literal as SrcC",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.mimg_r128)] = .{
@@ -1103,6 +1109,7 @@ pub const cpu = struct {
             .half_rate_64_ops,
             .ldsbankcount32,
             .mai_insts,
+            .mfma_inline_literal_bug,
             .pk_fmac_f16_inst,
             .sram_ecc,
         }),

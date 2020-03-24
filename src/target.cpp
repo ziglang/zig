@@ -66,6 +66,7 @@ static const ZigLLVM_ArchType arch_list[] = {
     ZigLLVM_wasm64,         // WebAssembly with 64-bit pointers
     ZigLLVM_renderscript32, // 32-bit RenderScript
     ZigLLVM_renderscript64, // 64-bit RenderScript
+    ZigLLVM_ve,             // NEC SX-Aurora Vector Engine
 };
 
 static const ZigLLVM_VendorType vendor_list[] = {
@@ -139,8 +140,6 @@ static const ZigLLVM_EnvironmentType abi_list[] = {
     ZigLLVM_CODE16,
     ZigLLVM_EABI,
     ZigLLVM_EABIHF,
-    ZigLLVM_ELFv1,
-    ZigLLVM_ELFv2,
     ZigLLVM_Android,
     ZigLLVM_Musl,
     ZigLLVM_MuslEABI,
@@ -530,6 +529,7 @@ uint32_t target_arch_pointer_bit_width(ZigLLVM_ArchType arch) {
         case ZigLLVM_spir64:
         case ZigLLVM_wasm64:
         case ZigLLVM_renderscript64:
+        case ZigLLVM_ve:
             return 64;
     }
     zig_unreachable();
@@ -593,6 +593,7 @@ uint32_t target_arch_largest_atomic_bits(ZigLLVM_ArchType arch) {
         case ZigLLVM_spir64:
         case ZigLLVM_wasm64:
         case ZigLLVM_renderscript64:
+        case ZigLLVM_ve:
             return 64;
 
         case ZigLLVM_x86_64:
@@ -889,6 +890,7 @@ const char *arch_stack_pointer_register_name(ZigLLVM_ArchType arch) {
         case ZigLLVM_xcore:
         case ZigLLVM_ppc:
         case ZigLLVM_ppc64:
+        case ZigLLVM_ve:
             zig_panic("TODO populate this table with stack pointer register name for this CPU architecture");
     }
     zig_unreachable();
@@ -950,6 +952,7 @@ bool target_is_arm(const ZigTarget *target) {
         case ZigLLVM_xcore:
         case ZigLLVM_ppc:
         case ZigLLVM_ppc64:
+        case ZigLLVM_ve:
             return false;
     }
     zig_unreachable();
@@ -1188,8 +1191,6 @@ const char *target_libc_generic_name(const ZigTarget *target) {
         case ZigLLVM_CODE16:
         case ZigLLVM_EABI:
         case ZigLLVM_EABIHF:
-        case ZigLLVM_ELFv1:
-        case ZigLLVM_ELFv2:
         case ZigLLVM_Android:
         case ZigLLVM_MSVC:
         case ZigLLVM_Itanium:

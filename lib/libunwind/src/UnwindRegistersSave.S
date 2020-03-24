@@ -974,6 +974,86 @@ DEFINE_LIBUNWIND_FUNCTION(__unw_getcontext)
   std %i6, [%o0 + 120]
   jmp %o7
    clr %o0                   // return UNW_ESUCCESS
+
+#elif defined(__riscv) && __riscv_xlen == 64
+
+#
+# extern int __unw_getcontext(unw_context_t* thread_state)
+#
+# On entry:
+#  thread_state pointer is in a0
+#
+DEFINE_LIBUNWIND_FUNCTION(__unw_getcontext)
+  // x0 is zero
+  sd    x1, (8 * 1)(a0)
+  sd    x2, (8 * 2)(a0)
+  sd    x3, (8 * 3)(a0)
+  sd    x4, (8 * 4)(a0)
+  sd    x5, (8 * 5)(a0)
+  sd    x6, (8 * 6)(a0)
+  sd    x7, (8 * 7)(a0)
+  sd    x8, (8 * 8)(a0)
+  sd    x9, (8 * 9)(a0)
+  sd    x10, (8 * 10)(a0)
+  sd    x11, (8 * 11)(a0)
+  sd    x12, (8 * 12)(a0)
+  sd    x13, (8 * 13)(a0)
+  sd    x14, (8 * 14)(a0)
+  sd    x15, (8 * 15)(a0)
+  sd    x16, (8 * 16)(a0)
+  sd    x17, (8 * 17)(a0)
+  sd    x18, (8 * 18)(a0)
+  sd    x19, (8 * 19)(a0)
+  sd    x20, (8 * 20)(a0)
+  sd    x21, (8 * 21)(a0)
+  sd    x22, (8 * 22)(a0)
+  sd    x23, (8 * 23)(a0)
+  sd    x24, (8 * 24)(a0)
+  sd    x25, (8 * 25)(a0)
+  sd    x26, (8 * 26)(a0)
+  sd    x27, (8 * 27)(a0)
+  sd    x28, (8 * 28)(a0)
+  sd    x29, (8 * 29)(a0)
+  sd    x30, (8 * 30)(a0)
+  sd    x31, (8 * 31)(a0)
+
+#if defined(__riscv_flen) && __riscv_flen == 64
+  fsd    f0, (8 * 32 + 8 * 0)(a0)
+  fsd    f1, (8 * 32 + 8 * 1)(a0)
+  fsd    f2, (8 * 32 + 8 * 2)(a0)
+  fsd    f3, (8 * 32 + 8 * 3)(a0)
+  fsd    f4, (8 * 32 + 8 * 4)(a0)
+  fsd    f5, (8 * 32 + 8 * 5)(a0)
+  fsd    f6, (8 * 32 + 8 * 6)(a0)
+  fsd    f7, (8 * 32 + 8 * 7)(a0)
+  fsd    f8, (8 * 32 + 8 * 8)(a0)
+  fsd    f9, (8 * 32 + 8 * 9)(a0)
+  fsd    f10, (8 * 32 + 8 * 10)(a0)
+  fsd    f11, (8 * 32 + 8 * 11)(a0)
+  fsd    f12, (8 * 32 + 8 * 12)(a0)
+  fsd    f13, (8 * 32 + 8 * 13)(a0)
+  fsd    f14, (8 * 32 + 8 * 14)(a0)
+  fsd    f15, (8 * 32 + 8 * 15)(a0)
+  fsd    f16, (8 * 32 + 8 * 16)(a0)
+  fsd    f17, (8 * 32 + 8 * 17)(a0)
+  fsd    f18, (8 * 32 + 8 * 18)(a0)
+  fsd    f19, (8 * 32 + 8 * 19)(a0)
+  fsd    f20, (8 * 32 + 8 * 20)(a0)
+  fsd    f21, (8 * 32 + 8 * 21)(a0)
+  fsd    f22, (8 * 32 + 8 * 22)(a0)
+  fsd    f23, (8 * 32 + 8 * 23)(a0)
+  fsd    f24, (8 * 32 + 8 * 24)(a0)
+  fsd    f25, (8 * 32 + 8 * 25)(a0)
+  fsd    f26, (8 * 32 + 8 * 26)(a0)
+  fsd    f27, (8 * 32 + 8 * 27)(a0)
+  fsd    f28, (8 * 32 + 8 * 28)(a0)
+  fsd    f29, (8 * 32 + 8 * 29)(a0)
+  fsd    f30, (8 * 32 + 8 * 30)(a0)
+  fsd    f31, (8 * 32 + 8 * 31)(a0)
+#endif
+
+  li     a0, 0  // return UNW_ESUCCESS
+  ret           // jump to ra
 #endif
 
   WEAK_ALIAS(__unw_getcontext, unw_getcontext)

@@ -7019,39 +7019,6 @@ static IrInstSrc *ir_gen_builtin_fn_call(IrBuilderSrc *irb, Scope *scope, AstNod
                 IrInstSrc *offset_of = ir_build_bit_offset_of(irb, scope, node, arg0_value, arg1_value);
                 return ir_lval_wrap(irb, scope, offset_of, lval, result_loc);
             }
-        case BuiltinFnIdNewStackCall:
-            {
-                if (node->data.fn_call_expr.params.length < 2) {
-                    add_node_error(irb->codegen, node,
-                        buf_sprintf("expected at least 2 arguments, found %" ZIG_PRI_usize,
-                            node->data.fn_call_expr.params.length));
-                    return irb->codegen->invalid_inst_src;
-                }
-
-                AstNode *new_stack_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *new_stack = ir_gen_node(irb, new_stack_node, scope);
-                if (new_stack == irb->codegen->invalid_inst_src)
-                    return new_stack;
-
-                AstNode *fn_ref_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *fn_ref = ir_gen_node(irb, fn_ref_node, scope);
-                if (fn_ref == irb->codegen->invalid_inst_src)
-                    return fn_ref;
-
-                size_t arg_count = node->data.fn_call_expr.params.length - 2;
-
-                IrInstSrc **args = heap::c_allocator.allocate<IrInstSrc*>(arg_count);
-                for (size_t i = 0; i < arg_count; i += 1) {
-                    AstNode *arg_node = node->data.fn_call_expr.params.at(i + 2);
-                    args[i] = ir_gen_node(irb, arg_node, scope);
-                    if (args[i] == irb->codegen->invalid_inst_src)
-                        return args[i];
-                }
-
-                IrInstSrc *call = ir_build_call_src(irb, scope, node, nullptr, fn_ref, arg_count, args,
-                        nullptr, CallModifierNone, false, new_stack, result_loc);
-                return ir_lval_wrap(irb, scope, call, lval, result_loc);
-            }
         case BuiltinFnIdCall: {
             // Cast the options parameter to the options type
             ZigType *options_type = get_builtin_type(irb->codegen, "CallOptions");
@@ -25159,7 +25126,7 @@ static IrInstGen *ir_analyze_instruction_c_import(IrAnalyze *ira, IrInstSrcCImpo
 
         ZigList<const char *> clang_argv = {0};
 
-        add_cc_args(ira->codegen, clang_argv, buf_ptr(tmp_dep_file), true);
+        add_cc_args(ira->codegen, clang_argv, buf_ptr(tmp_dep_file), true, CSourceKindC);
 
         clang_argv.append(buf_ptr(&tmp_c_file_path));
 

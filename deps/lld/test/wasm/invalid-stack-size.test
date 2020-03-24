@@ -1,4 +1,0 @@
-; RUN: llc -filetype=obj %p/Inputs/start.ll -o %t.o
-; RUN: not wasm-ld -o %t.wasm -z stack-size=1 %t.o 2>&1 | FileCheck %s
-
-; CHECK: error: stack size must be 16-byte aligned

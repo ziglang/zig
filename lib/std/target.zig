@@ -321,8 +321,6 @@ pub const Target = struct {
         code16,
         eabi,
         eabihf,
-        elfv1,
-        elfv2,
         android,
         musl,
         musleabi,
@@ -458,7 +456,7 @@ pub const Target = struct {
             pub const Set = struct {
                 ints: [usize_count]usize,
 
-                pub const needed_bit_count = 154;
+                pub const needed_bit_count = 155;
                 pub const byte_count = (needed_bit_count + 7) / 8;
                 pub const usize_count = (byte_count + (@sizeOf(usize) - 1)) / @sizeOf(usize);
                 pub const Index = std.math.Log2Int(std.meta.IntType(false, usize_count * @bitSizeOf(usize)));
@@ -605,6 +603,7 @@ pub const Target = struct {
             wasm64,
             renderscript32,
             renderscript64,
+            ve,
 
             pub fn isARM(arch: Arch) bool {
                 return switch (arch) {
@@ -819,6 +818,7 @@ pub const Target = struct {
                     .bpfeb,
                     .sparcv9,
                     .s390x,
+                    .ve,
                     => return 64,
                 }
             }
@@ -1273,6 +1273,7 @@ pub const Target = struct {
                 .lanai,
                 .renderscript32,
                 .renderscript64,
+                .ve,
                 => return result,
             },
 

@@ -5,6 +5,7 @@ const CpuModel = std.Target.Cpu.Model;
 pub const Feature = enum {
     abs2008,
     cnmips,
+    cnmipsp,
     crc,
     dsp,
     dspr2,
@@ -52,6 +53,7 @@ pub const Feature = enum {
     use_tcc_in_div,
     vfpu,
     virt,
+    xgot,
 };
 
 pub usingnamespace CpuFeature.feature_set_fns(Feature);
@@ -70,6 +72,13 @@ pub const all_features = blk: {
         .description = "Octeon cnMIPS Support",
         .dependencies = featureSet(&[_]Feature{
             .mips64r2,
+        }),
+    };
+    result[@enumToInt(Feature.cnmipsp)] = .{
+        .llvm_name = "cnmipsp",
+        .description = "Octeon+ cnMIPS Support",
+        .dependencies = featureSet(&[_]Feature{
+            .cnmips,
         }),
     };
     result[@enumToInt(Feature.crc)] = .{
@@ -364,6 +373,11 @@ pub const all_features = blk: {
         .description = "Mips Virtualization ASE",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@enumToInt(Feature.xgot)] = .{
+        .llvm_name = "xgot",
+        .description = "Assume 32-bit GOT",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     const ti = @typeInfo(Feature);
     for (result) |*elem, i| {
         elem.index = i;
@@ -373,6 +387,13 @@ pub const all_features = blk: {
 };
 
 pub const cpu = struct {
+    pub const generic = CpuModel{
+        .name = "generic",
+        .llvm_name = "generic",
+        .features = featureSet(&[_]Feature{
+            .mips32,
+        }),
+    };
     pub const mips1 = CpuModel{
         .name = "mips1",
         .llvm_name = "mips1",
@@ -486,6 +507,15 @@ pub const cpu = struct {
             .mips64r2,
         }),
     };
+    pub const @"octeon+" = CpuModel{
+        .name = "octeon+",
+        .llvm_name = "octeon+",
+        .features = featureSet(&[_]Feature{
+            .cnmips,
+            .cnmipsp,
+            .mips64r2,
+        }),
+    };
     pub const p5600 = CpuModel{
         .name = "p5600",
         .llvm_name = "p5600",
@@ -499,6 +529,7 @@ pub const cpu = struct {
 /// TODO: Replace this with usage of `std.meta.declList`. It does work, but stage1
 /// compiler has inefficient memory and CPU usage, affecting build times.
 pub const all_cpus = &[_]*const CpuModel{
+    &cpu.generic,
     &cpu.mips1,
     &cpu.mips2,
     &cpu.mips3,
@@ -515,5 +546,6 @@ pub const all_cpus = &[_]*const CpuModel{
     &cpu.mips64r5,
     &cpu.mips64r6,
     &cpu.octeon,
+    &cpu.@"octeon+",
     &cpu.p5600,
 };

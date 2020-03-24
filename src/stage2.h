@@ -293,6 +293,9 @@ struct ZigTarget {
     const char *os_builtin_str;
     const char *dynamic_linker;
     const char *standard_dynamic_linker_path;
+
+    const char **llvm_cpu_features_asm_ptr;
+    size_t llvm_cpu_features_asm_len;
 };
 
 // ABI warning

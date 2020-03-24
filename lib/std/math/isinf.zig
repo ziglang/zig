@@ -74,10 +74,6 @@ pub fn isNegativeInf(x: var) bool {
 }
 
 test "math.isInf" {
-    if (std.Target.current.os.tag == .windows) {
-        // TODO https://github.com/ziglang/zig/issues/508
-        return error.SkipZigTest;
-    }
     expect(!isInf(@as(f16, 0.0)));
     expect(!isInf(@as(f16, -0.0)));
     expect(!isInf(@as(f32, 0.0)));
@@ -97,10 +93,6 @@ test "math.isInf" {
 }
 
 test "math.isPositiveInf" {
-    if (std.Target.current.os.tag == .windows) {
-        // TODO https://github.com/ziglang/zig/issues/508
-        return error.SkipZigTest;
-    }
     expect(!isPositiveInf(@as(f16, 0.0)));
     expect(!isPositiveInf(@as(f16, -0.0)));
     expect(!isPositiveInf(@as(f32, 0.0)));
@@ -120,10 +112,6 @@ test "math.isPositiveInf" {
 }
 
 test "math.isNegativeInf" {
-    if (std.Target.current.os.tag == .windows) {
-        // TODO https://github.com/ziglang/zig/issues/508
-        return error.SkipZigTest;
-    }
     expect(!isNegativeInf(@as(f16, 0.0)));
     expect(!isNegativeInf(@as(f16, -0.0)));
     expect(!isNegativeInf(@as(f32, 0.0)));

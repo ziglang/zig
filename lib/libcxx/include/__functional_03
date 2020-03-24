@@ -104,7 +104,7 @@ class __func<_Fp, _Alloc, _Rp()>
 {
     __compressed_pair<_Fp, _Alloc> __f_;
 public:
-    explicit __func(_Fp __f) : __f_(_VSTD::move(__f)) {}
+    explicit __func(_Fp __f) : __f_(_VSTD::move(__f), __default_init_tag()) {}
     explicit __func(_Fp __f, _Alloc __a) : __f_(_VSTD::move(__f), _VSTD::move(__a)) {}
     virtual __base<_Rp()>* __clone() const;
     virtual void __clone(__base<_Rp()>*) const;
@@ -189,7 +189,7 @@ class __func<_Fp, _Alloc, _Rp(_A0)>
 {
     __compressed_pair<_Fp, _Alloc> __f_;
 public:
-    _LIBCPP_INLINE_VISIBILITY explicit __func(_Fp __f) : __f_(_VSTD::move(__f)) {}
+    _LIBCPP_INLINE_VISIBILITY explicit __func(_Fp __f) : __f_(_VSTD::move(__f), __default_init_tag()) {}
     _LIBCPP_INLINE_VISIBILITY explicit __func(_Fp __f, _Alloc __a)
         : __f_(_VSTD::move(__f), _VSTD::move(__a)) {}
     virtual __base<_Rp(_A0)>* __clone() const;
@@ -275,7 +275,7 @@ class __func<_Fp, _Alloc, _Rp(_A0, _A1)>
 {
     __compressed_pair<_Fp, _Alloc> __f_;
 public:
-    _LIBCPP_INLINE_VISIBILITY explicit __func(_Fp __f) : __f_(_VSTD::move(__f)) {}
+    _LIBCPP_INLINE_VISIBILITY explicit __func(_Fp __f) : __f_(_VSTD::move(__f), __default_init_tag()) {}
     _LIBCPP_INLINE_VISIBILITY explicit __func(_Fp __f, _Alloc __a)
         : __f_(_VSTD::move(__f), _VSTD::move(__a)) {}
     virtual __base<_Rp(_A0, _A1)>* __clone() const;
@@ -361,7 +361,7 @@ class __func<_Fp, _Alloc, _Rp(_A0, _A1, _A2)>
 {
     __compressed_pair<_Fp, _Alloc> __f_;
 public:
-    _LIBCPP_INLINE_VISIBILITY explicit __func(_Fp __f) : __f_(_VSTD::move(__f)) {}
+    _LIBCPP_INLINE_VISIBILITY explicit __func(_Fp __f) : __f_(_VSTD::move(__f), __default_init_tag()) {}
     _LIBCPP_INLINE_VISIBILITY explicit __func(_Fp __f, _Alloc __a)
         : __f_(_VSTD::move(__f), _VSTD::move(__a)) {}
     virtual __base<_Rp(_A0, _A1, _A2)>* __clone() const;

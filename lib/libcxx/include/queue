@@ -562,7 +562,7 @@ priority_queue(_Compare, _Container)
 template<class _InputIterator,
          class _Compare   = less<typename iterator_traits<_InputIterator>::value_type>,
          class _Container = vector<typename iterator_traits<_InputIterator>::value_type>,
-         class = typename enable_if< __is_input_iterator<_InputIterator>::value, nullptr_t>::type,
+         class = typename enable_if< __is_cpp17_input_iterator<_InputIterator>::value, nullptr_t>::type,
          class = typename enable_if<!__is_allocator<_Compare>::value, nullptr_t>::type,
          class = typename enable_if<!__is_allocator<_Container>::value, nullptr_t>::type
 >

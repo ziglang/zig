@@ -8,12 +8,12 @@
 # LLVM_LIBDIRS
 
 find_program(LLVM_CONFIG_EXE
-    NAMES llvm-config-9 llvm-config-9.0 llvm-config90 llvm-config
+    NAMES llvm-config-10 llvm-config-10.0 llvm-config100 llvm-config
     PATHS
         "/mingw64/bin"
         "/c/msys64/mingw64/bin"
         "c:/msys64/mingw64/bin"
-        "C:/Libraries/llvm-9.0.0/bin")
+        "C:/Libraries/llvm-10.0.0/bin")
 
 if ("${LLVM_CONFIG_EXE}" STREQUAL "LLVM_CONFIG_EXE-NOTFOUND")
   message(FATAL_ERROR "unable to find llvm-config")
@@ -28,14 +28,14 @@ execute_process(
 	OUTPUT_VARIABLE LLVM_CONFIG_VERSION
 	OUTPUT_STRIP_TRAILING_WHITESPACE)
 
-if("${LLVM_CONFIG_VERSION}" VERSION_LESS 9)
-  message(FATAL_ERROR "expected LLVM 9.x but found ${LLVM_CONFIG_VERSION}")
+if("${LLVM_CONFIG_VERSION}" VERSION_LESS 10)
+  message(FATAL_ERROR "expected LLVM 10.x but found ${LLVM_CONFIG_VERSION}")
 endif()
-if("${LLVM_CONFIG_VERSION}" VERSION_EQUAL 10)
-  message(FATAL_ERROR "expected LLVM 9.x but found ${LLVM_CONFIG_VERSION}")
+if("${LLVM_CONFIG_VERSION}" VERSION_EQUAL 11)
+  message(FATAL_ERROR "expected LLVM 10.x but found ${LLVM_CONFIG_VERSION}")
 endif()
-if("${LLVM_CONFIG_VERSION}" VERSION_GREATER 10)
-  message(FATAL_ERROR "expected LLVM 9.x but found ${LLVM_CONFIG_VERSION}")
+if("${LLVM_CONFIG_VERSION}" VERSION_GREATER 11)
+  message(FATAL_ERROR "expected LLVM 10.x but found ${LLVM_CONFIG_VERSION}")
 endif()
 
 execute_process(
@@ -113,7 +113,7 @@ execute_process(
 set(LLVM_LIBRARIES ${LLVM_LIBRARIES} ${LLVM_SYSTEM_LIBS})
 
 if(NOT LLVM_LIBRARIES)
-  find_library(LLVM_LIBRARIES NAMES LLVM LLVM-9 LLVM-9.0)
+  find_library(LLVM_LIBRARIES NAMES LLVM LLVM-10 LLVM-10.0)
 endif()
 
 link_directories("${CMAKE_PREFIX_PATH}/lib")

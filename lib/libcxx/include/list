@@ -715,7 +715,7 @@ template <class _Tp, class _Alloc>
 inline
 __list_imp<_Tp, _Alloc>::__list_imp()
         _NOEXCEPT_(is_nothrow_default_constructible<__node_allocator>::value)
-    : __size_alloc_(0)
+    : __size_alloc_(0, __default_init_tag())
 {
 }
 
@@ -887,10 +887,10 @@ public:
     list(size_type __n, const value_type& __x, const allocator_type& __a);
     template <class _InpIter>
         list(_InpIter __f, _InpIter __l,
-             typename enable_if<__is_input_iterator<_InpIter>::value>::type* = 0);
+             typename enable_if<__is_cpp17_input_iterator<_InpIter>::value>::type* = 0);
     template <class _InpIter>
         list(_InpIter __f, _InpIter __l, const allocator_type& __a,
-             typename enable_if<__is_input_iterator<_InpIter>::value>::type* = 0);
+             typename enable_if<__is_cpp17_input_iterator<_InpIter>::value>::type* = 0);
 
     list(const list& __c);
     list(const list& __c, const allocator_type& __a);
@@ -922,7 +922,7 @@ public:
 
     template <class _InpIter>
         void assign(_InpIter __f, _InpIter __l,
-             typename enable_if<__is_input_iterator<_InpIter>::value>::type* = 0);
+             typename enable_if<__is_cpp17_input_iterator<_InpIter>::value>::type* = 0);
     void assign(size_type __n, const value_type& __x);
 
     _LIBCPP_INLINE_VISIBILITY
@@ -1039,7 +1039,7 @@ public:
     iterator insert(const_iterator __p, size_type __n, const value_type& __x);
     template <class _InpIter>
         iterator insert(const_iterator __p, _InpIter __f, _InpIter __l,
-             typename enable_if<__is_input_iterator<_InpIter>::value>::type* = 0);
+             typename enable_if<__is_cpp17_input_iterator<_InpIter>::value>::type* = 0);
 
     _LIBCPP_INLINE_VISIBILITY
     void swap(list& __c)
@@ -1252,7 +1252,7 @@ list<_Tp, _Alloc>::list(size_type __n, const value_type& __x, const allocator_ty
 template <class _Tp, class _Alloc>
 template <class _InpIter>
 list<_Tp, _Alloc>::list(_InpIter __f, _InpIter __l,
-                        typename enable_if<__is_input_iterator<_InpIter>::value>::type*)
+                        typename enable_if<__is_cpp17_input_iterator<_InpIter>::value>::type*)
 {
 #if _LIBCPP_DEBUG_LEVEL >= 2
     __get_db()->__insert_c(this);
@@ -1264,7 +1264,7 @@ list<_Tp, _Alloc>::list(_InpIter __f, _InpIter __l,
 template <class _Tp, class _Alloc>
 template <class _InpIter>
 list<_Tp, _Alloc>::list(_InpIter __f, _InpIter __l, const allocator_type& __a,
-                        typename enable_if<__is_input_iterator<_InpIter>::value>::type*)
+                        typename enable_if<__is_cpp17_input_iterator<_InpIter>::value>::type*)
     : base(__a)
 {
 #if _LIBCPP_DEBUG_LEVEL >= 2
@@ -1403,7 +1403,7 @@ template <class _Tp, class _Alloc>
 template <class _InpIter>
 void
 list<_Tp, _Alloc>::assign(_InpIter __f, _InpIter __l,
-                          typename enable_if<__is_input_iterator<_InpIter>::value>::type*)
+                          typename enable_if<__is_cpp17_input_iterator<_InpIter>::value>::type*)
 {
     iterator __i = begin();
     iterator __e = end();
@@ -1532,7 +1532,7 @@ template <class _Tp, class _Alloc>
 template <class _InpIter>
 typename list<_Tp, _Alloc>::iterator
 list<_Tp, _Alloc>::insert(const_iterator __p, _InpIter __f, _InpIter __l,
-             typename enable_if<__is_input_iterator<_InpIter>::value>::type*)
+             typename enable_if<__is_cpp17_input_iterator<_InpIter>::value>::type*)
 {
 #if _LIBCPP_DEBUG_LEVEL >= 2
     _LIBCPP_ASSERT(__get_const_db()->__find_c_from_i(&__p) == this,
@@ -2211,7 +2211,7 @@ list<_Tp, _Alloc>::unique(_BinaryPred __binary_pred)
             __i = __j;
             }
     }
-    
+
     return (__remove_return_type) __deleted_nodes.size();
 }
 

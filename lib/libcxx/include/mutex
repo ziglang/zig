@@ -86,9 +86,9 @@ public:
     void unlock();
 };
 
-struct defer_lock_t {};
-struct try_to_lock_t {};
-struct adopt_lock_t {};
+struct defer_lock_t { explicit defer_lock_t() = default; };
+struct try_to_lock_t { explicit try_to_lock_t() = default; };
+struct adopt_lock_t { explicit adopt_lock_t() = default; };
 
 inline constexpr defer_lock_t  defer_lock{};
 inline constexpr try_to_lock_t try_to_lock{};
@@ -650,7 +650,7 @@ public:
 #endif
 
 template <class _Fp>
-void
+void _LIBCPP_INLINE_VISIBILITY
 __call_once_proxy(void* __vp)
 {
     __call_once_param<_Fp>* __p = static_cast<__call_once_param<_Fp>*>(__vp);

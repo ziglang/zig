@@ -1889,9 +1889,14 @@ static void link_diag_callback(void *context, const char *ptr, size_t len) {
     buf_append_mem(diag, ptr, len);
 }
 
-static bool zig_lld_link(ZigLLVM_ObjectFormatType oformat, const char **args, size_t arg_count, Buf *diag) {
+static bool zig_lld_link(ZigLLVM_ObjectFormatType oformat, const char **args, size_t arg_count,
+        Buf *diag)
+{
+    Buf *stdout_diag = buf_alloc();
     buf_resize(diag, 0);
-    return ZigLLDLink(oformat, args, arg_count, link_diag_callback, diag);
+    bool result = ZigLLDLink(oformat, args, arg_count, link_diag_callback, stdout_diag, diag);
+    buf_destroy(stdout_diag);
+    return result;
 }
 
 static void add_uefi_link_args(LinkJob *lj) {

@@ -26,19 +26,19 @@ namespace std {
          typedef void                         difference_type;
          typedef void                         pointer;
          typedef void                         reference;
-      
+
          ostream_joiner(ostream_type& s, const DelimT& delimiter);
          ostream_joiner(ostream_type& s, DelimT&& delimiter);
 
-         template<typename T>  
+         template<typename T>
          ostream_joiner& operator=(const T& value);
 
          ostream_joiner& operator*() noexcept;
          ostream_joiner& operator++() noexcept;
          ostream_joiner& operator++(int) noexcept;
    private:
-      ostream_type* out_stream;   // exposition only 
-      DelimT delim;               // exposition only 
+      ostream_type* out_stream;   // exposition only
+      DelimT delim;               // exposition only
       bool first_element;         // exposition only
    };
 
@@ -75,10 +75,10 @@ public:
 
     ostream_joiner(ostream_type& __os, _Delim&& __d)
         : __output_iter(_VSTD::addressof(__os)), __delim(_VSTD::move(__d)), __first(true) {}
-        
+
     ostream_joiner(ostream_type& __os, const _Delim& __d)
         : __output_iter(_VSTD::addressof(__os)), __delim(__d), __first(true) {}
-    
+
 
     template<typename _Tp>
     ostream_joiner& operator=(const _Tp& __v)

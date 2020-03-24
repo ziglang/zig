@@ -458,6 +458,8 @@ pub const Version = struct {
 /// therefore must be kept in sync with the compiler implementation.
 pub const CallOptions = struct {
     modifier: Modifier = .auto,
+
+    /// Only valid when `Modifier` is `Modifier.async_kw`.
     stack: ?[]align(std.Target.stack_align) u8 = null,
 
     pub const Modifier = enum {

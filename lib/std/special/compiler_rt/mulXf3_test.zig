@@ -44,10 +44,6 @@ fn makeNaN128(rand: u64) f128 {
     return float_result;
 }
 test "multf3" {
-    if (@import("std").Target.current.os.tag == .windows) {
-        // TODO https://github.com/ziglang/zig/issues/508
-        return error.SkipZigTest;
-    }
     // qNaN * any = qNaN
     test__multf3(qnan128, 0x1.23456789abcdefp+5, 0x7fff800000000000, 0x0);
 
