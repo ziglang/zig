@@ -74,7 +74,6 @@ pub extern "c" fn exit(code: c_int) noreturn;
 pub extern "c" fn isatty(fd: fd_t) c_int;
 pub extern "c" fn close(fd: fd_t) c_int;
 pub extern "c" fn fstat(fd: fd_t, buf: *Stat) c_int;
-pub extern "c" fn @"fstat$INODE64"(fd: fd_t, buf: *Stat) c_int;
 pub extern "c" fn fstatat(dirfd: fd_t, path: [*:0]const u8, stat_buf: *Stat, flags: u32) c_int;
 pub extern "c" fn lseek(fd: fd_t, offset: off_t, whence: c_int) off_t;
 pub extern "c" fn open(path: [*:0]const u8, oflag: c_uint, ...) c_int;
