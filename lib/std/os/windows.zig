@@ -137,32 +137,42 @@ pub fn OpenFileW(
     };
     var io: IO_STATUS_BLOCK = undefined;
     const share_access = share_access_opt orelse FILE_SHARE_WRITE | FILE_SHARE_READ | FILE_SHARE_DELETE;
-    const rc = ntdll.NtCreateFile(
-        &result,
-        access_mask,
-        &attr,
-        &io,
-        null,
-        FILE_ATTRIBUTE_NORMAL,
-        share_access,
-        creation,
-        FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT,
-        null,
-        0,
-    );
-    switch (rc) {
-        .SUCCESS => return result,
-        .OBJECT_NAME_INVALID => unreachable,
-        .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
-        .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
-        .NO_MEDIA_IN_DEVICE => return error.NoDevice,
-        .INVALID_PARAMETER => unreachable,
-        .SHARING_VIOLATION => return error.SharingViolation,
-        .ACCESS_DENIED => return error.AccessDenied,
-        .PIPE_BUSY => return error.PipeBusy,
-        .OBJECT_PATH_SYNTAX_BAD => unreachable,
-        .OBJECT_NAME_COLLISION => return error.PathAlreadyExists,
-        else => return unexpectedStatus(rc),
+
+    var delay: usize = 1;
+    while (true) {
+        const rc = ntdll.NtCreateFile(
+            &result,
+            access_mask,
+            &attr,
+            &io,
+            null,
+            FILE_ATTRIBUTE_NORMAL,
+            share_access,
+            creation,
+            FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT,
+            null,
+            0,
+        );
+        switch (rc) {
+            .SUCCESS => return result,
+            .OBJECT_NAME_INVALID => unreachable,
+            .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
+            .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
+            .NO_MEDIA_IN_DEVICE => return error.NoDevice,
+            .INVALID_PARAMETER => unreachable,
+            .SHARING_VIOLATION => {
+                std.time.sleep(delay);
+                if (delay < 1 * std.time.ns_per_s) {
+                    delay *= 2;
+                }
+                continue; // TODO: don't loop for async
+            },
+            .ACCESS_DENIED => return error.AccessDenied,
+            .PIPE_BUSY => return error.PipeBusy,
+            .OBJECT_PATH_SYNTAX_BAD => unreachable,
+            .OBJECT_NAME_COLLISION => return error.PathAlreadyExists,
+            else => return unexpectedStatus(rc),
+        }
     }
 }
 
