@@ -666,8 +666,19 @@ pub const Dir = struct {
             const path_w = try os.windows.cStrToPrefixedFileW(sub_path);
             return self.openFileW(&path_w, flags);
         }
+
+        // Use the O_ locking flags if the os supports them
+        const lock_flag: u32 = lock_flag: {
+            if (!flags.lock) break :lock_flag 0;
+            if (flags.write) {
+                break :lock_flag if (@hasDecl(os, "O_EXLOCK")) os.O_EXLOCK else 0;
+            } else {
+                break :lock_flag if (@hasDecl(os, "O_SHLOCK")) os.O_SHLOCK else 0;
+            }
+        };
+
         const O_LARGEFILE = if (@hasDecl(os, "O_LARGEFILE")) os.O_LARGEFILE else 0;
-        const os_flags = O_LARGEFILE | os.O_CLOEXEC | if (flags.write and flags.read)
+        const os_flags = lock_flag | O_LARGEFILE | os.O_CLOEXEC | if (flags.write and flags.read)
             @as(u32, os.O_RDWR)
         else if (flags.write)
             @as(u32, os.O_WRONLY)
@@ -678,18 +689,14 @@ pub const Dir = struct {
         else
             try os.openatC(self.fd, sub_path, os_flags, 0);
 
-        var locked = false;
-        if (flags.lock) {
+        // use fcntl file locking if no lock flag was given
+        if (flags.lock and lock_flag == 0) {
             // TODO: integrate async I/O
             // mem.zeroes is used here because flock's structure can vary across architectures and systems
             var flock = mem.zeroes(os.Flock);
             flock.l_type = if (flags.write) os.F_WRLCK else os.F_RDLCK;
             flock.l_whence = os.SEEK_SET;
-            flock.l_start = 0;
-            flock.l_len = 0;
-            flock.l_pid = 0;
             try os.fcntl(fd, os.F_SETLKW, &flock);
-            locked = true;
         }
 
         return File{
@@ -735,8 +742,15 @@ pub const Dir = struct {
             const path_w = try os.windows.cStrToPrefixedFileW(sub_path_c);
             return self.createFileW(&path_w, flags);
         }
+
+        // Use the O_ locking flags if the os supports them
+        const lock_flag: u32 = lock_flag: {
+            if (!flags.lock) break :lock_flag 0;
+            break :lock_flag if (@hasDecl(os, "O_EXLOCK")) os.O_EXLOCK else 0;
+        };
+
         const O_LARGEFILE = if (@hasDecl(os, "O_LARGEFILE")) os.O_LARGEFILE else 0;
-        const os_flags = O_LARGEFILE | os.O_CREAT | os.O_CLOEXEC |
+        const os_flags = lock_flag | O_LARGEFILE | os.O_CREAT | os.O_CLOEXEC |
             (if (flags.truncate) @as(u32, os.O_TRUNC) else 0) |
             (if (flags.read) @as(u32, os.O_RDWR) else os.O_WRONLY) |
             (if (flags.exclusive) @as(u32, os.O_EXCL) else 0);
@@ -745,15 +759,12 @@ pub const Dir = struct {
         else
             try os.openatC(self.fd, sub_path_c, os_flags, flags.mode);
 
-        if (flags.lock) {
+        if (flags.lock and lock_flag == 0) {
             // TODO: integrate async I/O
             // mem.zeroes is used here because flock's structure can vary across architectures and systems
             var flock = mem.zeroes(os.Flock);
             flock.l_type = os.F_WRLCK;
             flock.l_whence = os.SEEK_SET;
-            flock.l_start = 0;
-            flock.l_len = 0;
-            flock.l_pid = 0;
             try os.fcntl(fd, os.F_SETLKW, &flock);
         }
 
