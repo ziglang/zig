@@ -11,6 +11,9 @@ comptime {
 
     switch (builtin.arch) {
         .i386, .x86_64 => @export(@import("compiler_rt/stack_probe.zig").zig_probe_stack, .{ .name = "__zig_probe_stack", .linkage = linkage }),
+        .aarch64, .aarch64_be, .aarch64_32 => {
+            @export(@import("compiler_rt/clear_cache.zig").clear_cache, .{ .name = "__clear_cache", .linkage = linkage });
+        },
         else => {},
     }
 
