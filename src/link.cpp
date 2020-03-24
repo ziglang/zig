@@ -566,6 +566,7 @@ static const char *build_libc_object(CodeGen *parent_gen, const char *name, CFil
         Stage2ProgressNode *progress_node)
 {
     CodeGen *child_gen = create_child_codegen(parent_gen, nullptr, OutTypeObj, nullptr, name, progress_node);
+    child_gen->root_out_name = buf_create_from_str(name);
     ZigList<CFile *> c_source_files = {0};
     c_source_files.append(c_file);
     child_gen->c_source_files = c_source_files;
@@ -1650,7 +1651,6 @@ static void construct_linker_job_elf(LinkJob *lj) {
 
     bool is_lib = g->out_type == OutTypeLib;
     bool is_dyn_lib = g->is_dynamic && is_lib;
-    Buf *soname = nullptr;
     if (!g->have_dynamic_link) {
         if (g->zig_target->arch == ZigLLVM_arm || g->zig_target->arch == ZigLLVM_armeb ||
             g->zig_target->arch == ZigLLVM_thumb || g->zig_target->arch == ZigLLVM_thumbeb)
@@ -1661,15 +1661,13 @@ static void construct_linker_job_elf(LinkJob *lj) {
         }
     } else if (is_dyn_lib) {
         lj->args.append("-shared");
-
-        assert(buf_len(&g->bin_file_output_path) != 0);
-        soname = buf_sprintf("lib%s.so.%" ZIG_PRI_usize, buf_ptr(g->root_out_name), g->version_major);
     }
 
     if (target_requires_pie(g->zig_target) && g->out_type == OutTypeExe) {
         lj->args.append("-pie");
     }
 
+    assert(buf_len(&g->bin_file_output_path) != 0);
     lj->args.append("-o");
     lj->args.append(buf_ptr(&g->bin_file_output_path));
 
@@ -1739,6 +1737,9 @@ static void construct_linker_job_elf(LinkJob *lj) {
     }
 
     if (is_dyn_lib) {
+        Buf *soname = (g->override_soname == nullptr) ?
+            buf_sprintf("lib%s.so.%" ZIG_PRI_usize, buf_ptr(g->root_out_name), g->version_major) :
+            g->override_soname;
         lj->args.append("-soname");
         lj->args.append(buf_ptr(soname));
 
@@ -2007,7 +2008,7 @@ static const char *get_def_lib(CodeGen *parent, const char *name, Buf *def_in_fi
 
         ZigList<const char *> args = {};
         args.append(buf_ptr(self_exe_path));
-        args.append("cc");
+        args.append("clang");
         args.append("-x");
         args.append("c");
         args.append(buf_ptr(def_in_file));

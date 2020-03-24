@@ -61,8 +61,7 @@ fn salsa20_wordtobyte(out: []u8, input: [16]u32) void {
     }
 
     for (x) |_, i| {
-        // TODO https://github.com/ziglang/zig/issues/863
-        mem.writeIntSliceLittle(u32, out[4 * i .. 4 * i + 4], x[i] +% input[i]);
+        mem.writeIntLittle(u32, out[4 * i ..][0..4], x[i] +% input[i]);
     }
 }
 
@@ -73,10 +72,10 @@ fn chaCha20_internal(out: []u8, in: []const u8, key: [8]u32, counter: [4]u32) vo
 
     const c = "expand 32-byte k";
     const constant_le = [_]u32{
-        mem.readIntSliceLittle(u32, c[0..4]),
-        mem.readIntSliceLittle(u32, c[4..8]),
-        mem.readIntSliceLittle(u32, c[8..12]),
-        mem.readIntSliceLittle(u32, c[12..16]),
+        mem.readIntLittle(u32, c[0..4]),
+        mem.readIntLittle(u32, c[4..8]),
+        mem.readIntLittle(u32, c[8..12]),
+        mem.readIntLittle(u32, c[12..16]),
     };
 
     mem.copy(u32, ctx[0..], constant_le[0..4]);
@@ -120,19 +119,19 @@ pub fn chaCha20IETF(out: []u8, in: []const u8, counter: u32, key: [32]u8, nonce:
     var k: [8]u32 = undefined;
     var c: [4]u32 = undefined;
 
-    k[0] = mem.readIntSliceLittle(u32, key[0..4]);
-    k[1] = mem.readIntSliceLittle(u32, key[4..8]);
-    k[2] = mem.readIntSliceLittle(u32, key[8..12]);
-    k[3] = mem.readIntSliceLittle(u32, key[12..16]);
-    k[4] = mem.readIntSliceLittle(u32, key[16..20]);
-    k[5] = mem.readIntSliceLittle(u32, key[20..24]);
-    k[6] = mem.readIntSliceLittle(u32, key[24..28]);
-    k[7] = mem.readIntSliceLittle(u32, key[28..32]);
+    k[0] = mem.readIntLittle(u32, key[0..4]);
+    k[1] = mem.readIntLittle(u32, key[4..8]);
+    k[2] = mem.readIntLittle(u32, key[8..12]);
+    k[3] = mem.readIntLittle(u32, key[12..16]);
+    k[4] = mem.readIntLittle(u32, key[16..20]);
+    k[5] = mem.readIntLittle(u32, key[20..24]);
+    k[6] = mem.readIntLittle(u32, key[24..28]);
+    k[7] = mem.readIntLittle(u32, key[28..32]);
 
     c[0] = counter;
-    c[1] = mem.readIntSliceLittle(u32, nonce[0..4]);
-    c[2] = mem.readIntSliceLittle(u32, nonce[4..8]);
-    c[3] = mem.readIntSliceLittle(u32, nonce[8..12]);
+    c[1] = mem.readIntLittle(u32, nonce[0..4]);
+    c[2] = mem.readIntLittle(u32, nonce[4..8]);
+    c[3] = mem.readIntLittle(u32, nonce[8..12]);
     chaCha20_internal(out, in, k, c);
 }
 
@@ -147,19 +146,19 @@ pub fn chaCha20With64BitNonce(out: []u8, in: []const u8, counter: u64, key: [32]
     var k: [8]u32 = undefined;
     var c: [4]u32 = undefined;
 
-    k[0] = mem.readIntSliceLittle(u32, key[0..4]);
-    k[1] = mem.readIntSliceLittle(u32, key[4..8]);
-    k[2] = mem.readIntSliceLittle(u32, key[8..12]);
-    k[3] = mem.readIntSliceLittle(u32, key[12..16]);
-    k[4] = mem.readIntSliceLittle(u32, key[16..20]);
-    k[5] = mem.readIntSliceLittle(u32, key[20..24]);
-    k[6] = mem.readIntSliceLittle(u32, key[24..28]);
-    k[7] = mem.readIntSliceLittle(u32, key[28..32]);
+    k[0] = mem.readIntLittle(u32, key[0..4]);
+    k[1] = mem.readIntLittle(u32, key[4..8]);
+    k[2] = mem.readIntLittle(u32, key[8..12]);
+    k[3] = mem.readIntLittle(u32, key[12..16]);
+    k[4] = mem.readIntLittle(u32, key[16..20]);
+    k[5] = mem.readIntLittle(u32, key[20..24]);
+    k[6] = mem.readIntLittle(u32, key[24..28]);
+    k[7] = mem.readIntLittle(u32, key[28..32]);
 
     c[0] = @truncate(u32, counter);
     c[1] = @truncate(u32, counter >> 32);
-    c[2] = mem.readIntSliceLittle(u32, nonce[0..4]);
-    c[3] = mem.readIntSliceLittle(u32, nonce[4..8]);
+    c[2] = mem.readIntLittle(u32, nonce[0..4]);
+    c[3] = mem.readIntLittle(u32, nonce[4..8]);
 
     const block_size = (1 << 6);
     // The full block size is greater than the address space on a 32bit machine
@@ -463,8 +462,8 @@ pub fn chacha20poly1305Seal(dst: []u8, plaintext: []const u8, data: []const u8, 
         mac.update(zeros[0..padding]);
     }
     var lens: [16]u8 = undefined;
-    mem.writeIntSliceLittle(u64, lens[0..8], data.len);
-    mem.writeIntSliceLittle(u64, lens[8..16], plaintext.len);
+    mem.writeIntLittle(u64, lens[0..8], data.len);
+    mem.writeIntLittle(u64, lens[8..16], plaintext.len);
     mac.update(lens[0..]);
     mac.final(dst[plaintext.len..]);
 }
@@ -500,8 +499,8 @@ pub fn chacha20poly1305Open(dst: []u8, msgAndTag: []const u8, data: []const u8, 
         mac.update(zeros[0..padding]);
     }
     var lens: [16]u8 = undefined;
-    mem.writeIntSliceLittle(u64, lens[0..8], data.len);
-    mem.writeIntSliceLittle(u64, lens[8..16], ciphertext.len);
+    mem.writeIntLittle(u64, lens[0..8], data.len);
+    mem.writeIntLittle(u64, lens[8..16], ciphertext.len);
     mac.update(lens[0..]);
     var computedTag: [16]u8 = undefined;
     mac.final(computedTag[0..]);

@@ -468,6 +468,9 @@ pub const NativeTargetInfo = struct {
             error.InvalidUtf8 => unreachable,
             error.BadPathName => unreachable,
             error.PipeBusy => unreachable,
+            error.PermissionDenied => unreachable,
+            error.FileBusy => unreachable,
+            error.Locked => unreachable,
 
             error.IsDir,
             error.NotDir,
@@ -754,7 +757,7 @@ pub const NativeTargetInfo = struct {
                     const rpath_list = mem.toSliceConst(u8, @ptrCast([*:0]u8, strtab[rpoff..].ptr));
                     var it = mem.tokenize(rpath_list, ":");
                     while (it.next()) |rpath| {
-                        var dir = fs.cwd().openDirList(rpath) catch |err| switch (err) {
+                        var dir = fs.cwd().openDir(rpath, .{}) catch |err| switch (err) {
                             error.NameTooLong => unreachable,
                             error.InvalidUtf8 => unreachable,
                             error.BadPathName => unreachable,

@@ -219,10 +219,6 @@ pub fn mmap(address: ?[*]u8, length: usize, prot: usize, flags: u32, fd: i32, of
     }
 }
 
-pub fn fcntl(fd: fd_t, cmd: i32, arg: ?*c_void) usize {
-    return syscall3(SYS_fcntl, @bitCast(usize, @as(isize, fd)), @bitCast(usize, @as(isize, cmd)), @ptrToInt(arg));
-}
-
 pub fn mprotect(address: [*]const u8, length: usize, protection: usize) usize {
     return syscall3(SYS_mprotect, @ptrToInt(address), length, protection);
 }
@@ -469,17 +465,17 @@ pub fn renameat(oldfd: i32, oldpath: [*]const u8, newfd: i32, newpath: [*]const 
         return syscall4(
             SYS_renameat,
             @bitCast(usize, @as(isize, oldfd)),
-            @ptrToInt(old),
+            @ptrToInt(oldpath),
             @bitCast(usize, @as(isize, newfd)),
-            @ptrToInt(new),
+            @ptrToInt(newpath),
         );
     } else {
         return syscall5(
             SYS_renameat2,
             @bitCast(usize, @as(isize, oldfd)),
-            @ptrToInt(old),
+            @ptrToInt(oldpath),
             @bitCast(usize, @as(isize, newfd)),
-            @ptrToInt(new),
+            @ptrToInt(newpath),
             0,
         );
     }
@@ -590,6 +586,10 @@ pub fn unlinkat(dirfd: i32, path: [*:0]const u8, flags: u32) usize {
 
 pub fn waitpid(pid: pid_t, status: *u32, flags: u32) usize {
     return syscall4(SYS_wait4, @bitCast(usize, @as(isize, pid)), @ptrToInt(status), flags, 0);
+}
+
+pub fn fcntl(fd: fd_t, cmd: i32, arg: usize) usize {
+    return syscall3(SYS_fcntl, @bitCast(usize, @as(isize, fd)), @bitCast(usize, @as(isize, cmd)), arg);
 }
 
 var vdso_clock_gettime = @ptrCast(?*const c_void, init_vdso_clock_gettime);

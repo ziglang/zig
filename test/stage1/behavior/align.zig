@@ -5,10 +5,17 @@ const builtin = @import("builtin");
 var foo: u8 align(4) = 100;
 
 test "global variable alignment" {
-    expect(@TypeOf(&foo).alignment == 4);
-    expect(@TypeOf(&foo) == *align(4) u8);
-    const slice = @as(*[1]u8, &foo)[0..];
-    expect(@TypeOf(slice) == []align(4) u8);
+    comptime expect(@TypeOf(&foo).alignment == 4);
+    comptime expect(@TypeOf(&foo) == *align(4) u8);
+    {
+        const slice = @as(*[1]u8, &foo)[0..];
+        comptime expect(@TypeOf(slice) == *align(4) [1]u8);
+    }
+    {
+        var runtime_zero: usize = 0;
+        const slice = @as(*[1]u8, &foo)[runtime_zero..];
+        comptime expect(@TypeOf(slice) == []align(4) u8);
+    }
 }
 
 fn derp() align(@sizeOf(usize) * 2) i32 {
@@ -171,18 +178,19 @@ test "runtime known array index has best alignment possible" {
 
     // because pointer is align 2 and u32 align % 2 == 0 we can assume align 2
     var smaller align(2) = [_]u32{ 1, 2, 3, 4 };
-    comptime expect(@TypeOf(smaller[0..]) == []align(2) u32);
-    comptime expect(@TypeOf(smaller[0..].ptr) == [*]align(2) u32);
-    testIndex(smaller[0..].ptr, 0, *align(2) u32);
-    testIndex(smaller[0..].ptr, 1, *align(2) u32);
-    testIndex(smaller[0..].ptr, 2, *align(2) u32);
-    testIndex(smaller[0..].ptr, 3, *align(2) u32);
+    var runtime_zero: usize = 0;
+    comptime expect(@TypeOf(smaller[runtime_zero..]) == []align(2) u32);
+    comptime expect(@TypeOf(smaller[runtime_zero..].ptr) == [*]align(2) u32);
+    testIndex(smaller[runtime_zero..].ptr, 0, *align(2) u32);
+    testIndex(smaller[runtime_zero..].ptr, 1, *align(2) u32);
+    testIndex(smaller[runtime_zero..].ptr, 2, *align(2) u32);
+    testIndex(smaller[runtime_zero..].ptr, 3, *align(2) u32);
 
     // has to use ABI alignment because index known at runtime only
-    testIndex2(array[0..].ptr, 0, *u8);
-    testIndex2(array[0..].ptr, 1, *u8);
-    testIndex2(array[0..].ptr, 2, *u8);
-    testIndex2(array[0..].ptr, 3, *u8);
+    testIndex2(array[runtime_zero..].ptr, 0, *u8);
+    testIndex2(array[runtime_zero..].ptr, 1, *u8);
+    testIndex2(array[runtime_zero..].ptr, 2, *u8);
+    testIndex2(array[runtime_zero..].ptr, 3, *u8);
 }
 fn testIndex(smaller: [*]align(2) u32, index: usize, comptime T: type) void {
     comptime expect(@TypeOf(&smaller[index]) == T);

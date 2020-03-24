@@ -780,6 +780,8 @@ ZigType *get_error_union_type(CodeGen *g, ZigType *err_set_type, ZigType *payloa
 }
 
 ZigType *get_array_type(CodeGen *g, ZigType *child_type, uint64_t array_size, ZigValue *sentinel) {
+    Error err;
+
     TypeId type_id = {};
     type_id.id = ZigTypeIdArray;
     type_id.data.array.codegen = g;
@@ -791,7 +793,11 @@ ZigType *get_array_type(CodeGen *g, ZigType *child_type, uint64_t array_size, Zi
         return existing_entry->value;
     }
 
-    assert(type_is_resolved(child_type, ResolveStatusSizeKnown));
+    size_t full_array_size = array_size + ((sentinel != nullptr) ? 1 : 0);
+
+    if (full_array_size != 0 && (err = type_resolve(g, child_type, ResolveStatusSizeKnown))) {
+        codegen_report_errors_and_exit(g);
+    }
 
     ZigType *entry = new_type_table_entry(ZigTypeIdArray);
 
@@ -803,15 +809,8 @@ ZigType *get_array_type(CodeGen *g, ZigType *child_type, uint64_t array_size, Zi
     }
     buf_appendf(&entry->name, "]%s", buf_ptr(&child_type->name));
 
-    size_t full_array_size;
-    if (array_size == 0) {
-        full_array_size = 0;
-    } else {
-        full_array_size = array_size + ((sentinel != nullptr) ? 1 : 0);
-    }
-
     entry->size_in_bits = child_type->size_in_bits * full_array_size;
-    entry->abi_align = child_type->abi_align;
+    entry->abi_align = (full_array_size == 0) ? 0 : child_type->abi_align;
     entry->abi_size = child_type->abi_size * full_array_size;
 
     entry->data.array.child_type = child_type;
@@ -1197,7 +1196,8 @@ Error type_val_resolve_zero_bits(CodeGen *g, ZigValue *type_val, ZigType *parent
             LazyValueArrayType *lazy_array_type =
                 reinterpret_cast<LazyValueArrayType *>(type_val->data.x_lazy);
 
-            if (lazy_array_type->length < 1) {
+            // The sentinel counts as an extra element
+            if (lazy_array_type->length == 0 && lazy_array_type->sentinel == nullptr) {
                 *is_zero_bits = true;
                 return ErrorNone;
             }
@@ -1452,7 +1452,7 @@ static OnePossibleValue type_val_resolve_has_one_possible_value(CodeGen *g, ZigV
         case LazyValueIdArrayType: {
             LazyValueArrayType *lazy_array_type =
                 reinterpret_cast<LazyValueArrayType *>(type_val->data.x_lazy);
-            if (lazy_array_type->length < 1)
+            if (lazy_array_type->length == 0)
                 return OnePossibleValueYes;
             return type_val_resolve_has_one_possible_value(g, lazy_array_type->elem_type->value);
         }
@@ -4488,7 +4488,14 @@ static uint32_t get_async_frame_align_bytes(CodeGen *g) {
 }
 
 uint32_t get_ptr_align(CodeGen *g, ZigType *type) {
-    ZigType *ptr_type = get_src_ptr_type(type);
+    ZigType *ptr_type;
+    if (type->id == ZigTypeIdStruct) {
+        assert(type->data.structure.special == StructSpecialSlice);
+        TypeStructField *ptr_field = type->data.structure.fields[slice_ptr_index];
+        ptr_type = resolve_struct_field_type(g, ptr_field);
+    } else {
+        ptr_type = get_src_ptr_type(type);
+    }
     if (ptr_type->id == ZigTypeIdPointer) {
         return (ptr_type->data.pointer.explicit_alignment == 0) ?
             get_abi_alignment(g, ptr_type->data.pointer.child_type) : ptr_type->data.pointer.explicit_alignment;
@@ -4505,8 +4512,15 @@ uint32_t get_ptr_align(CodeGen *g, ZigType *type) {
     }
 }
 
-bool get_ptr_const(ZigType *type) {
-    ZigType *ptr_type = get_src_ptr_type(type);
+bool get_ptr_const(CodeGen *g, ZigType *type) {
+    ZigType *ptr_type;
+    if (type->id == ZigTypeIdStruct) {
+        assert(type->data.structure.special == StructSpecialSlice);
+        TypeStructField *ptr_field = type->data.structure.fields[slice_ptr_index];
+        ptr_type = resolve_struct_field_type(g, ptr_field);
+    } else {
+        ptr_type = get_src_ptr_type(type);
+    }
     if (ptr_type->id == ZigTypeIdPointer) {
         return ptr_type->data.pointer.is_const;
     } else if (ptr_type->id == ZigTypeIdFn) {
@@ -5282,6 +5296,11 @@ static uint32_t hash_const_val_ptr(ZigValue *const_val) {
             hash_val += hash_ptr(const_val->data.x_ptr.data.base_array.array_val);
             hash_val += hash_size(const_val->data.x_ptr.data.base_array.elem_index);
             return hash_val;
+        case ConstPtrSpecialSubArray:
+            hash_val += (uint32_t)2643358777;
+            hash_val += hash_ptr(const_val->data.x_ptr.data.base_array.array_val);
+            hash_val += hash_size(const_val->data.x_ptr.data.base_array.elem_index);
+            return hash_val;
         case ConstPtrSpecialBaseStruct:
             hash_val += (uint32_t)3518317043;
             hash_val += hash_ptr(const_val->data.x_ptr.data.base_struct.struct_val);
@@ -5811,17 +5830,12 @@ ZigValue *get_the_one_possible_value(CodeGen *g, ZigType *type_entry) {
         // The elements array cannot be left unpopulated
         ZigType *array_type = result->type;
         ZigType *elem_type = array_type->data.array.child_type;
-        ZigValue *sentinel_value = array_type->data.array.sentinel;
-        const size_t elem_count = array_type->data.array.len + (sentinel_value != nullptr);
+        const size_t elem_count = array_type->data.array.len;
 
         result->data.x_array.data.s_none.elements = g->pass1_arena->allocate<ZigValue>(elem_count);
         for (size_t i = 0; i < elem_count; i += 1) {
             ZigValue *elem_val = &result->data.x_array.data.s_none.elements[i];
             copy_const_val(g, elem_val, get_the_one_possible_value(g, elem_type));
-        }
-        if (sentinel_value != nullptr) {
-            ZigValue *last_elem_val = &result->data.x_array.data.s_none.elements[elem_count - 1];
-            copy_const_val(g, last_elem_val, sentinel_value);
         }
     } else if (result->type->id == ZigTypeIdPointer) {
         result->data.x_ptr.special = ConstPtrSpecialRef;
@@ -6753,6 +6767,7 @@ bool const_values_equal_ptr(ZigValue *a, ZigValue *b) {
                 return false;
             return true;
         case ConstPtrSpecialBaseArray:
+        case ConstPtrSpecialSubArray:
             if (a->data.x_ptr.data.base_array.array_val != b->data.x_ptr.data.base_array.array_val) {
                 return false;
             }
@@ -7010,6 +7025,7 @@ static void render_const_val_ptr(CodeGen *g, Buf *buf, ZigValue *const_val, ZigT
             render_const_value(g, buf, const_ptr_pointee(nullptr, g, const_val, nullptr));
             return;
         case ConstPtrSpecialBaseArray:
+        case ConstPtrSpecialSubArray:
             buf_appendf(buf, "*");
             // TODO we need a source node for const_ptr_pointee because it can generate compile errors
             render_const_value(g, buf, const_ptr_pointee(nullptr, g, const_val, nullptr));

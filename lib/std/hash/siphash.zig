@@ -39,8 +39,8 @@ fn SipHashStateless(comptime T: type, comptime c_rounds: usize, comptime d_round
         pub fn init(key: []const u8) Self {
             assert(key.len >= 16);
 
-            const k0 = mem.readIntSliceLittle(u64, key[0..8]);
-            const k1 = mem.readIntSliceLittle(u64, key[8..16]);
+            const k0 = mem.readIntLittle(u64, key[0..8]);
+            const k1 = mem.readIntLittle(u64, key[8..16]);
 
             var d = Self{
                 .v0 = k0 ^ 0x736f6d6570736575,
@@ -111,7 +111,7 @@ fn SipHashStateless(comptime T: type, comptime c_rounds: usize, comptime d_round
         fn round(self: *Self, b: []const u8) void {
             assert(b.len == 8);
 
-            const m = mem.readIntSliceLittle(u64, b[0..]);
+            const m = mem.readIntLittle(u64, b[0..8]);
             self.v3 ^= m;
 
             // TODO this is a workaround, should be able to supply the value without a separate variable

@@ -879,7 +879,7 @@ static AstNode *ast_parse_container_field(ParseContext *pc) {
 //      / KEYWORD_noasync BlockExprStatement
 //      / KEYWORD_suspend (SEMICOLON / BlockExprStatement)
 //      / KEYWORD_defer BlockExprStatement
-//      / KEYWORD_errdefer BlockExprStatement
+//      / KEYWORD_errdefer Payload? BlockExprStatement
 //      / IfStatement
 //      / LabeledStatement
 //      / SwitchExpr
@@ -923,12 +923,18 @@ static AstNode *ast_parse_statement(ParseContext *pc) {
     if (defer == nullptr)
         defer = eat_token_if(pc, TokenIdKeywordErrdefer);
     if (defer != nullptr) {
+        Token *payload = (defer->id == TokenIdKeywordErrdefer) ?
+            ast_parse_payload(pc) : nullptr;
         AstNode *statement = ast_expect(pc, ast_parse_block_expr_statement);
         AstNode *res = ast_create_node(pc, NodeTypeDefer, defer);
+
         res->data.defer.kind = ReturnKindUnconditional;
         res->data.defer.expr = statement;
-        if (defer->id == TokenIdKeywordErrdefer)
+        if (defer->id == TokenIdKeywordErrdefer) {
             res->data.defer.kind = ReturnKindError;
+            if (payload != nullptr)
+                res->data.defer.err_payload = token_symbol(pc, payload);
+        }
         return res;
     }
 
@@ -3032,6 +3038,7 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
             break;
         case NodeTypeDefer:
             visit_field(&node->data.defer.expr, visit, context);
+            visit_field(&node->data.defer.err_payload, visit, context);
             break;
         case NodeTypeVariableDeclaration:
             visit_field(&node->data.variable_declaration.type, visit, context);

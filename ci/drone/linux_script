@@ -26,7 +26,8 @@ make -j$(nproc) install
 # TODO test-cli is hitting https://github.com/ziglang/zig/issues/3526
 ./zig build test-asm-link test-runtime-safety
 # TODO test-translate-c is hitting https://github.com/ziglang/zig/issues/3526
-./zig build test-gen-h
+# TODO disabled until we are shipping self-hosted
+#./zig build test-gen-h
 # TODO test-compile-errors is hitting https://github.com/ziglang/zig/issues/3526
 # TODO building docs is hitting https://github.com/ziglang/zig/issues/3526
 

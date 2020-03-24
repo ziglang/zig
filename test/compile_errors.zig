@@ -2,6 +2,29 @@ const tests = @import("tests.zig");
 const std = @import("std");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.addTest("unused variable error on errdefer",
+        \\fn foo() !void {
+        \\    errdefer |a| unreachable;
+        \\    return error.A;
+        \\}
+        \\export fn entry() void {
+        \\    foo() catch unreachable;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:2:15: error: unused variable: 'a'",
+    });
+
+    cases.addTest("comparison of non-tagged union and enum literal",
+        \\export fn entry() void {
+        \\    const U = union { A: u32, B: u64 };
+        \\    var u = U{ .A = 42 };
+        \\    var ok = u == .A;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:4:16: error: comparison of union and enum literal is only valid for tagged union types",
+        "tmp.zig:2:15: note: type U is not a tagged union",
+    });
+
     cases.addTest("shift on type with non-power-of-two size",
         \\export fn entry() void {
         \\    const S = struct {
@@ -101,18 +124,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
     , &[_][]const u8{
         "tmp.zig:3:23: error: pointer to size 0 type has no address",
-    });
-
-    cases.addTest("slice to pointer conversion mismatch",
-        \\pub fn bytesAsSlice(bytes: var) [*]align(1) const u16 {
-        \\    return @ptrCast([*]align(1) const u16, bytes.ptr)[0..1];
-        \\}
-        \\test "bytesAsSlice" {
-        \\    const bytes = [_]u8{ 0xDE, 0xAD, 0xBE, 0xEF };
-        \\    const slice = bytesAsSlice(bytes[0..]);
-        \\}
-    , &[_][]const u8{
-        "tmp.zig:2:54: error: expected type '[*]align(1) const u16', found '[]align(1) const u16'",
     });
 
     cases.addTest("access invalid @typeInfo decl",
@@ -384,9 +395,161 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var bad_float :f32 = 0.0;
         \\    bad_float = bad_float + .20;
         \\    std.debug.assert(bad_float < 1.0);
-        \\})
+        \\}
     , &[_][]const u8{
         "tmp.zig:5:29: error: invalid token: '.'",
+    });
+
+    cases.add("invalid exponent in float literal - 1",
+        \\fn main() void {
+        \\    var bad: f128 = 0x1.0p1ab1;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:2:28: error: invalid character: 'a'",
+    });
+
+    cases.add("invalid exponent in float literal - 2",
+        \\fn main() void {
+        \\    var bad: f128 = 0x1.0p50F;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:2:29: error: invalid character: 'F'",
+    });
+
+    cases.add("invalid underscore placement in float literal - 1",
+        \\fn main() void {
+        \\    var bad: f128 = 0._0;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:2:23: error: invalid character: '_'",
+    });
+
+    cases.add("invalid underscore placement in float literal - 2",
+        \\fn main() void {
+        \\    var bad: f128 = 0_.0;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:2:23: error: invalid character: '.'",
+    });
+
+    cases.add("invalid underscore placement in float literal - 3",
+        \\fn main() void {
+        \\    var bad: f128 = 0.0_;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:2:25: error: invalid character: ';'",
+    });
+
+    cases.add("invalid underscore placement in float literal - 4",
+        \\fn main() void {
+        \\    var bad: f128 = 1.0e_1;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:2:25: error: invalid character: '_'",
+    });
+
+    cases.add("invalid underscore placement in float literal - 5",
+        \\fn main() void {
+        \\    var bad: f128 = 1.0e+_1;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:2:26: error: invalid character: '_'",
+    });
+
+    cases.add("invalid underscore placement in float literal - 6",
+        \\fn main() void {
+        \\    var bad: f128 = 1.0e-_1;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:2:26: error: invalid character: '_'",
+    });
+
+    cases.add("invalid underscore placement in float literal - 7",
+        \\fn main() void {
+        \\    var bad: f128 = 1.0e-1_;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:2:28: error: invalid character: ';'",
+    });
+
+    cases.add("invalid underscore placement in float literal - 9",
+        \\fn main() void {
+        \\    var bad: f128 = 1__0.0e-1;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:2:23: error: invalid character: '_'",
+    });
+
+    cases.add("invalid underscore placement in float literal - 10",
+        \\fn main() void {
+        \\    var bad: f128 = 1.0__0e-1;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:2:25: error: invalid character: '_'",
+    });
+
+    cases.add("invalid underscore placement in float literal - 11",
+        \\fn main() void {
+        \\    var bad: f128 = 1.0e-1__0;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:2:28: error: invalid character: '_'",
+    });
+
+    cases.add("invalid underscore placement in float literal - 12",
+        \\fn main() void {
+        \\    var bad: f128 = 0_x0.0;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:2:23: error: invalid character: 'x'",
+    });
+
+    cases.add("invalid underscore placement in float literal - 13",
+        \\fn main() void {
+        \\    var bad: f128 = 0x_0.0;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:2:23: error: invalid character: '_'",
+    });
+
+    cases.add("invalid underscore placement in float literal - 14",
+        \\fn main() void {
+        \\    var bad: f128 = 0x0.0_p1;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:2:27: error: invalid character: 'p'",
+    });
+
+    cases.add("invalid underscore placement in int literal - 1",
+        \\fn main() void {
+        \\    var bad: u128 = 0010_;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:2:26: error: invalid character: ';'",
+    });
+
+    cases.add("invalid underscore placement in int literal - 2",
+        \\fn main() void {
+        \\    var bad: u128 = 0b0010_;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:2:28: error: invalid character: ';'",
+    });
+
+    cases.add("invalid underscore placement in int literal - 3",
+        \\fn main() void {
+        \\    var bad: u128 = 0o0010_;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:2:28: error: invalid character: ';'",
+    });
+
+    cases.add("invalid underscore placement in int literal - 4",
+        \\fn main() void {
+        \\    var bad: u128 = 0x0010_;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:2:28: error: invalid character: ';'",
     });
 
     cases.add("var args without c calling conv",
@@ -1918,8 +2081,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add("reading past end of pointer casted array",
         \\comptime {
         \\    const array: [4]u8 = "aoeu".*;
-        \\    const slice = array[1..];
-        \\    const int_ptr = @ptrCast(*const u24, slice.ptr);
+        \\    const sub_array = array[1..];
+        \\    const int_ptr = @ptrCast(*const u24, sub_array);
         \\    const deref = int_ptr.*;
         \\}
     , &[_][]const u8{

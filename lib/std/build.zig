@@ -377,7 +377,7 @@ pub const Builder = struct {
             if (self.verbose) {
                 warn("rm {}\n", .{full_path});
             }
-            fs.deleteTree(full_path) catch {};
+            fs.cwd().deleteTree(full_path) catch {};
         }
 
         // TODO remove empty directories
@@ -847,7 +847,8 @@ pub const Builder = struct {
         if (self.verbose) {
             warn("cp {} {} ", .{ source_path, dest_path });
         }
-        const prev_status = try fs.updateFile(source_path, dest_path);
+        const cwd = fs.cwd();
+        const prev_status = try fs.Dir.updateFile(cwd, source_path, cwd, dest_path, .{});
         if (self.verbose) switch (prev_status) {
             .stale => warn("# installed\n", .{}),
             .fresh => warn("# up-to-date\n", .{}),
@@ -1120,7 +1121,7 @@ pub const LibExeObjStep = struct {
     emit_llvm_ir: bool = false,
     emit_asm: bool = false,
     emit_bin: bool = true,
-    disable_gen_h: bool,
+    emit_h: bool = false,
     bundle_compiler_rt: bool,
     disable_stack_probing: bool,
     disable_sanitize_c: bool,
@@ -1157,7 +1158,13 @@ pub const LibExeObjStep = struct {
 
     valgrind_support: ?bool = null,
 
+    /// Create a .eh_frame_hdr section and a PT_GNU_EH_FRAME segment in the ELF
+    /// file.
     link_eh_frame_hdr: bool = false,
+
+    /// Place every function in its own section so that unused ones may be
+    /// safely garbage-collected during the linking phase.
+    link_function_sections: bool = false,
 
     /// Uses system Wine installation to run cross compiled Windows build artifacts.
     enable_wine: bool = false,
@@ -1274,7 +1281,6 @@ pub const LibExeObjStep = struct {
             .exec_cmd_args = null,
             .name_prefix = "",
             .filter = null,
-            .disable_gen_h = false,
             .bundle_compiler_rt = false,
             .disable_stack_probing = false,
             .disable_sanitize_c = false,
@@ -1593,8 +1599,9 @@ pub const LibExeObjStep = struct {
         self.main_pkg_path = dir_path;
     }
 
-    pub fn setDisableGenH(self: *LibExeObjStep, value: bool) void {
-        self.disable_gen_h = value;
+    /// Deprecated; just set the field directly.
+    pub fn setDisableGenH(self: *LibExeObjStep, is_disabled: bool) void {
+        self.emit_h = !is_disabled;
     }
 
     pub fn setLibCFile(self: *LibExeObjStep, libc_file: ?[]const u8) void {
@@ -1625,7 +1632,7 @@ pub const LibExeObjStep = struct {
     /// the make step, from a step that has declared a dependency on this one.
     pub fn getOutputHPath(self: *LibExeObjStep) []const u8 {
         assert(self.kind != Kind.Exe);
-        assert(!self.disable_gen_h);
+        assert(self.emit_h);
         return fs.path.join(
             self.builder.allocator,
             &[_][]const u8{ self.output_dir.?, self.out_h_filename },
@@ -1672,7 +1679,7 @@ pub const LibExeObjStep = struct {
     }
 
     pub fn addBuildOption(self: *LibExeObjStep, comptime T: type, name: []const u8, value: T) void {
-        const out = &std.io.BufferOutStream.init(&self.build_options_contents).stream;
+        const out = self.build_options_contents.outStream();
         out.print("pub const {} = {};\n", .{ name, value }) catch unreachable;
     }
 
@@ -1877,6 +1884,7 @@ pub const LibExeObjStep = struct {
         if (self.emit_llvm_ir) try zig_args.append("-femit-llvm-ir");
         if (self.emit_asm) try zig_args.append("-femit-asm");
         if (!self.emit_bin) try zig_args.append("-fno-emit-bin");
+        if (self.emit_h) try zig_args.append("-femit-h");
 
         if (self.strip) {
             try zig_args.append("--strip");
@@ -1884,7 +1892,9 @@ pub const LibExeObjStep = struct {
         if (self.link_eh_frame_hdr) {
             try zig_args.append("--eh-frame-hdr");
         }
-
+        if (self.link_function_sections) {
+            try zig_args.append("-ffunction-sections");
+        }
         if (self.single_threaded) {
             try zig_args.append("--single-threaded");
         }
@@ -1919,9 +1929,6 @@ pub const LibExeObjStep = struct {
         }
         if (self.is_dynamic) {
             try zig_args.append("-dynamic");
-        }
-        if (self.disable_gen_h) {
-            try zig_args.append("--disable-gen-h");
         }
         if (self.bundle_compiler_rt) {
             try zig_args.append("--bundle-compiler-rt");
@@ -2060,7 +2067,7 @@ pub const LibExeObjStep = struct {
                     try zig_args.append("-isystem");
                     try zig_args.append(self.builder.pathFromRoot(include_path));
                 },
-                .OtherStep => |other| if (!other.disable_gen_h) {
+                .OtherStep => |other| if (other.emit_h) {
                     const h_path = other.getOutputHPath();
                     try zig_args.append("-isystem");
                     try zig_args.append(fs.path.dirname(h_path).?);
@@ -2144,17 +2151,22 @@ pub const LibExeObjStep = struct {
             try zig_args.append("--cache");
             try zig_args.append("on");
 
-            const output_path_nl = try builder.execFromStep(zig_args.toSliceConst(), &self.step);
-            const output_path = mem.trimRight(u8, output_path_nl, "\r\n");
+            const output_dir_nl = try builder.execFromStep(zig_args.toSliceConst(), &self.step);
+            const build_output_dir = mem.trimRight(u8, output_dir_nl, "\r\n");
 
             if (self.output_dir) |output_dir| {
-                const full_dest = try fs.path.join(builder.allocator, &[_][]const u8{
-                    output_dir,
-                    fs.path.basename(output_path),
-                });
-                try builder.updateFile(output_path, full_dest);
+                var src_dir = try std.fs.cwd().openDir(build_output_dir, .{ .iterate = true });
+                defer src_dir.close();
+
+                var dest_dir = try std.fs.cwd().openDir(output_dir, .{});
+                defer dest_dir.close();
+
+                var it = src_dir.iterate();
+                while (try it.next()) |entry| {
+                    _ = try src_dir.updateFile(entry.name, dest_dir, entry.name, .{});
+                }
             } else {
-                self.output_dir = fs.path.dirname(output_path).?;
+                self.output_dir = build_output_dir;
             }
         }
 
@@ -2195,7 +2207,7 @@ const InstallArtifactStep = struct {
                     break :blk InstallDir.Lib;
                 }
             } else null,
-            .h_dir = if (artifact.kind == .Lib and !artifact.disable_gen_h) .Header else null,
+            .h_dir = if (artifact.kind == .Lib and artifact.emit_h) .Header else null,
         };
         self.step.dependOn(&artifact.step);
         artifact.install_step = self;
@@ -2352,7 +2364,7 @@ pub const RemoveDirStep = struct {
         const self = @fieldParentPtr(RemoveDirStep, "step", step);
 
         const full_path = self.builder.pathFromRoot(self.dir_path);
-        fs.deleteTree(full_path) catch |err| {
+        fs.cwd().deleteTree(full_path) catch |err| {
             warn("Unable to remove {}: {}\n", .{ full_path, @errorName(err) });
             return err;
         };

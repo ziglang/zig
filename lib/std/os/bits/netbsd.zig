@@ -327,6 +327,8 @@ pub const F_RDLCK = 1;
 pub const F_WRLCK = 3;
 pub const F_UNLCK = 2;
 
+pub const FD_CLOEXEC = 1;
+
 pub const SEEK_SET = 0;
 pub const SEEK_CUR = 1;
 pub const SEEK_END = 2;

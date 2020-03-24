@@ -41,6 +41,10 @@ fn _DllMainCRTStartup(
     fdwReason: std.os.windows.DWORD,
     lpReserved: std.os.windows.LPVOID,
 ) callconv(.Stdcall) std.os.windows.BOOL {
+    if (!builtin.single_threaded) {
+        _ = @import("start_windows_tls.zig");
+    }
+
     if (@hasDecl(root, "DllMain")) {
         return root.DllMain(hinstDLL, fdwReason, lpReserved);
     }

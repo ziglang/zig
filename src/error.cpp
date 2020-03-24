@@ -83,6 +83,10 @@ const char *err_str(Error err) {
         case ErrorTargetHasNoDynamicLinker: return "target has no dynamic linker";
         case ErrorInvalidAbiVersion: return "invalid C ABI version";
         case ErrorInvalidOperatingSystemVersion: return "invalid operating system version";
+        case ErrorUnknownClangOption: return "unknown Clang option";
+        case ErrorPermissionDenied: return "permission is denied";
+        case ErrorFileBusy: return "file is busy";
+        case ErrorLocked: return "file is locked by another process";
     }
     return "(invalid error)";
 }

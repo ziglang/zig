@@ -28,6 +28,24 @@ fn getArrayLen(a: []const u32) usize {
     return a.len;
 }
 
+test "array with sentinels" {
+    const S = struct {
+        fn doTheTest(is_ct: bool) void {
+            var zero_sized: [0:0xde]u8 = [_:0xde]u8{};
+            expectEqual(@as(u8, 0xde), zero_sized[0]);
+            // Disabled at runtime because of
+            // https://github.com/ziglang/zig/issues/4372
+            if (is_ct) {
+                var reinterpreted = @ptrCast(*[1]u8, &zero_sized);
+                expectEqual(@as(u8, 0xde), reinterpreted[0]);
+            }
+        }
+    };
+
+    S.doTheTest(false);
+    comptime S.doTheTest(true);
+}
+
 test "void arrays" {
     var array: [4]void = undefined;
     array[0] = void{};
@@ -373,6 +391,26 @@ test "type deduction for array subscript expression" {
             expectEqual(@as(u8, 0x55), array[if (v1) 1 else 0]);
         }
     };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "sentinel element count towards the ABI size calculation" {
+    const S = struct {
+        fn doTheTest() void {
+            const T = packed struct {
+                fill_pre: u8 = 0x55,
+                data: [0:0]u8 = undefined,
+                fill_post: u8 = 0xAA,
+            };
+            var x = T{};
+            var as_slice = mem.asBytes(&x);
+            expectEqual(@as(usize, 3), as_slice.len);
+            expectEqual(@as(u8, 0x55), as_slice[0]);
+            expectEqual(@as(u8, 0xAA), as_slice[2]);
+        }
+    };
+
     S.doTheTest();
     comptime S.doTheTest();
 }

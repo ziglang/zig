@@ -524,7 +524,7 @@ test "comptime slice of slice preserves comptime var" {
 test "comptime slice of pointer preserves comptime var" {
     comptime {
         var buff: [10]u8 = undefined;
-        var a = buff[0..].ptr;
+        var a = @ptrCast([*]u8, &buff);
         a[0..1][0] = 1;
         expect(buff[0..][0..][0] == 1);
     }

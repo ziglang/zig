@@ -116,7 +116,7 @@ pub const Allocator = struct {
     pub fn allocSentinel(self: *Allocator, comptime Elem: type, n: usize, comptime sentinel: Elem) Error![:sentinel]Elem {
         var ptr = try self.alloc(Elem, n + 1);
         ptr[n] = sentinel;
-        return ptr[0 .. n :sentinel];
+        return ptr[0..n :sentinel];
     }
 
     pub fn alignedAlloc(
@@ -496,14 +496,14 @@ pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
     return true;
 }
 
-/// Deprecated. Use `span`.
+/// Deprecated. Use `spanZ`.
 pub fn toSliceConst(comptime T: type, ptr: [*:0]const T) [:0]const T {
-    return ptr[0..len(ptr) :0];
+    return ptr[0..lenZ(ptr) :0];
 }
 
-/// Deprecated. Use `span`.
+/// Deprecated. Use `spanZ`.
 pub fn toSlice(comptime T: type, ptr: [*:0]T) [:0]T {
-    return ptr[0..len(ptr) :0];
+    return ptr[0..lenZ(ptr) :0];
 }
 
 /// Takes a pointer to an array, a sentinel-terminated pointer, or a slice, and
@@ -548,6 +548,9 @@ test "Span" {
 /// returns a slice. If there is a sentinel on the input type, there will be a
 /// sentinel on the output type. The constness of the output type matches
 /// the constness of the input type.
+///
+/// When there is both a sentinel and an array length or slice length, the
+/// length value is used instead of the sentinel.
 pub fn span(ptr: var) Span(@TypeOf(ptr)) {
     const Result = Span(@TypeOf(ptr));
     const l = len(ptr);
@@ -560,20 +563,42 @@ pub fn span(ptr: var) Span(@TypeOf(ptr)) {
 
 test "span" {
     var array: [5]u16 = [_]u16{ 1, 2, 3, 4, 5 };
-    const ptr = array[0..2 :3].ptr;
+    const ptr = @as([*:3]u16, array[0..2 :3]);
     testing.expect(eql(u16, span(ptr), &[_]u16{ 1, 2 }));
     testing.expect(eql(u16, span(&array), &[_]u16{ 1, 2, 3, 4, 5 }));
 }
 
+/// Same as `span`, except when there is both a sentinel and an array
+/// length or slice length, scans the memory for the sentinel value
+/// rather than using the length.
+pub fn spanZ(ptr: var) Span(@TypeOf(ptr)) {
+    const Result = Span(@TypeOf(ptr));
+    const l = lenZ(ptr);
+    if (@typeInfo(Result).Pointer.sentinel) |s| {
+        return ptr[0..l :s];
+    } else {
+        return ptr[0..l];
+    }
+}
+
+test "spanZ" {
+    var array: [5]u16 = [_]u16{ 1, 2, 3, 4, 5 };
+    const ptr = @as([*:3]u16, array[0..2 :3]);
+    testing.expect(eql(u16, spanZ(ptr), &[_]u16{ 1, 2 }));
+    testing.expect(eql(u16, spanZ(&array), &[_]u16{ 1, 2, 3, 4, 5 }));
+}
+
 /// Takes a pointer to an array, an array, a sentinel-terminated pointer,
 /// or a slice, and returns the length.
+/// In the case of a sentinel-terminated array, it uses the array length.
+/// For C pointers it assumes it is a pointer-to-many with a 0 sentinel.
 pub fn len(ptr: var) usize {
     return switch (@typeInfo(@TypeOf(ptr))) {
         .Array => |info| info.len,
         .Pointer => |info| switch (info.size) {
             .One => switch (@typeInfo(info.child)) {
-                .Array => |x| x.len,
-                else => @compileError("invalid type given to std.mem.length"),
+                .Array => ptr.len,
+                else => @compileError("invalid type given to std.mem.len"),
             },
             .Many => if (info.sentinel) |sentinel|
                 indexOfSentinel(info.child, sentinel, ptr)
@@ -582,7 +607,7 @@ pub fn len(ptr: var) usize {
             .C => indexOfSentinel(info.child, 0, ptr),
             .Slice => ptr.len,
         },
-        else => @compileError("invalid type given to std.mem.length"),
+        else => @compileError("invalid type given to std.mem.len"),
     };
 }
 
@@ -594,8 +619,66 @@ test "len" {
         testing.expect(len(&array) == 5);
         testing.expect(len(array[0..3]) == 3);
         array[2] = 0;
-        const ptr = array[0..2 :0].ptr;
+        const ptr = @as([*:0]u16, array[0..2 :0]);
         testing.expect(len(ptr) == 2);
+    }
+    {
+        var array: [5:0]u16 = [_:0]u16{ 1, 2, 3, 4, 5 };
+        testing.expect(len(&array) == 5);
+        array[2] = 0;
+        testing.expect(len(&array) == 5);
+    }
+}
+
+/// Takes a pointer to an array, an array, a sentinel-terminated pointer,
+/// or a slice, and returns the length.
+/// In the case of a sentinel-terminated array, it scans the array
+/// for a sentinel and uses that for the length, rather than using the array length.
+/// For C pointers it assumes it is a pointer-to-many with a 0 sentinel.
+pub fn lenZ(ptr: var) usize {
+    return switch (@typeInfo(@TypeOf(ptr))) {
+        .Array => |info| if (info.sentinel) |sentinel|
+            indexOfSentinel(info.child, sentinel, &ptr)
+        else
+            info.len,
+        .Pointer => |info| switch (info.size) {
+            .One => switch (@typeInfo(info.child)) {
+                .Array => |x| if (x.sentinel) |sentinel|
+                    indexOfSentinel(x.child, sentinel, ptr)
+                else
+                    ptr.len,
+                else => @compileError("invalid type given to std.mem.lenZ"),
+            },
+            .Many => if (info.sentinel) |sentinel|
+                indexOfSentinel(info.child, sentinel, ptr)
+            else
+                @compileError("length of pointer with no sentinel"),
+            .C => indexOfSentinel(info.child, 0, ptr),
+            .Slice => if (info.sentinel) |sentinel|
+                indexOfSentinel(info.child, sentinel, ptr.ptr)
+            else
+                ptr.len,
+        },
+        else => @compileError("invalid type given to std.mem.lenZ"),
+    };
+}
+
+test "lenZ" {
+    testing.expect(lenZ("aoeu") == 4);
+
+    {
+        var array: [5]u16 = [_]u16{ 1, 2, 3, 4, 5 };
+        testing.expect(lenZ(&array) == 5);
+        testing.expect(lenZ(array[0..3]) == 3);
+        array[2] = 0;
+        const ptr = @as([*:0]u16, array[0..2 :0]);
+        testing.expect(lenZ(ptr) == 2);
+    }
+    {
+        var array: [5:0]u16 = [_:0]u16{ 1, 2, 3, 4, 5 };
+        testing.expect(lenZ(&array) == 5);
+        array[2] = 0;
+        testing.expect(lenZ(&array) == 2);
     }
 }
 
@@ -810,8 +893,7 @@ pub const readIntBig = switch (builtin.endian) {
 pub fn readIntSliceNative(comptime T: type, bytes: []const u8) T {
     const n = @divExact(T.bit_count, 8);
     assert(bytes.len >= n);
-    // TODO https://github.com/ziglang/zig/issues/863
-    return readIntNative(T, @ptrCast(*const [n]u8, bytes.ptr));
+    return readIntNative(T, bytes[0..n]);
 }
 
 /// Asserts that bytes.len >= T.bit_count / 8. Reads the integer starting from index 0
@@ -849,8 +931,7 @@ pub fn readInt(comptime T: type, bytes: *const [@divExact(T.bit_count, 8)]u8, en
 pub fn readIntSlice(comptime T: type, bytes: []const u8, endian: builtin.Endian) T {
     const n = @divExact(T.bit_count, 8);
     assert(bytes.len >= n);
-    // TODO https://github.com/ziglang/zig/issues/863
-    return readInt(T, @ptrCast(*const [n]u8, bytes.ptr), endian);
+    return readInt(T, bytes[0..n], endian);
 }
 
 test "comptime read/write int" {
@@ -1572,24 +1653,24 @@ pub fn nativeToBig(comptime T: type, x: T) T {
 }
 
 fn AsBytesReturnType(comptime P: type) type {
-    if (comptime !trait.isSingleItemPtr(P))
+    if (!trait.isSingleItemPtr(P))
         @compileError("expected single item pointer, passed " ++ @typeName(P));
 
-    const size = @as(usize, @sizeOf(meta.Child(P)));
-    const alignment = comptime meta.alignment(P);
+    const size = @sizeOf(meta.Child(P));
+    const alignment = meta.alignment(P);
 
     if (alignment == 0) {
-        if (comptime trait.isConstPtr(P))
+        if (trait.isConstPtr(P))
             return *const [size]u8;
         return *[size]u8;
     }
 
-    if (comptime trait.isConstPtr(P))
+    if (trait.isConstPtr(P))
         return *align(alignment) const [size]u8;
     return *align(alignment) [size]u8;
 }
 
-///Given a pointer to a single item, returns a slice of the underlying bytes, preserving constness.
+/// Given a pointer to a single item, returns a slice of the underlying bytes, preserving constness.
 pub fn asBytes(ptr: var) AsBytesReturnType(@TypeOf(ptr)) {
     const P = @TypeOf(ptr);
     return @ptrCast(AsBytesReturnType(P), ptr);
@@ -1736,34 +1817,50 @@ fn BytesAsSliceReturnType(comptime T: type, comptime bytesType: type) type {
 }
 
 pub fn bytesAsSlice(comptime T: type, bytes: var) BytesAsSliceReturnType(T, @TypeOf(bytes)) {
-    const bytesSlice = if (comptime trait.isPtrTo(.Array)(@TypeOf(bytes))) bytes[0..] else bytes;
-
     // let's not give an undefined pointer to @ptrCast
     // it may be equal to zero and fail a null check
-    if (bytesSlice.len == 0) {
+    if (bytes.len == 0) {
         return &[0]T{};
     }
 
-    const bytesType = @TypeOf(bytesSlice);
-    const alignment = comptime meta.alignment(bytesType);
+    const Bytes = @TypeOf(bytes);
+    const alignment = comptime meta.alignment(Bytes);
 
-    const castTarget = if (comptime trait.isConstPtr(bytesType)) [*]align(alignment) const T else [*]align(alignment) T;
+    const cast_target = if (comptime trait.isConstPtr(Bytes)) [*]align(alignment) const T else [*]align(alignment) T;
 
-    return @ptrCast(castTarget, bytesSlice.ptr)[0..@divExact(bytes.len, @sizeOf(T))];
+    return @ptrCast(cast_target, bytes)[0..@divExact(bytes.len, @sizeOf(T))];
 }
 
 test "bytesAsSlice" {
-    const bytes = [_]u8{ 0xDE, 0xAD, 0xBE, 0xEF };
-    const slice = bytesAsSlice(u16, bytes[0..]);
-    testing.expect(slice.len == 2);
-    testing.expect(bigToNative(u16, slice[0]) == 0xDEAD);
-    testing.expect(bigToNative(u16, slice[1]) == 0xBEEF);
+    {
+        const bytes = [_]u8{ 0xDE, 0xAD, 0xBE, 0xEF };
+        const slice = bytesAsSlice(u16, bytes[0..]);
+        testing.expect(slice.len == 2);
+        testing.expect(bigToNative(u16, slice[0]) == 0xDEAD);
+        testing.expect(bigToNative(u16, slice[1]) == 0xBEEF);
+    }
+    {
+        const bytes = [_]u8{ 0xDE, 0xAD, 0xBE, 0xEF };
+        var runtime_zero: usize = 0;
+        const slice = bytesAsSlice(u16, bytes[runtime_zero..]);
+        testing.expect(slice.len == 2);
+        testing.expect(bigToNative(u16, slice[0]) == 0xDEAD);
+        testing.expect(bigToNative(u16, slice[1]) == 0xBEEF);
+    }
 }
 
 test "bytesAsSlice keeps pointer alignment" {
-    var bytes = [_]u8{ 0x01, 0x02, 0x03, 0x04 };
-    const numbers = bytesAsSlice(u32, bytes[0..]);
-    comptime testing.expect(@TypeOf(numbers) == []align(@alignOf(@TypeOf(bytes))) u32);
+    {
+        var bytes = [_]u8{ 0x01, 0x02, 0x03, 0x04 };
+        const numbers = bytesAsSlice(u32, bytes[0..]);
+        comptime testing.expect(@TypeOf(numbers) == []align(@alignOf(@TypeOf(bytes))) u32);
+    }
+    {
+        var bytes = [_]u8{ 0x01, 0x02, 0x03, 0x04 };
+        var runtime_zero: usize = 0;
+        const numbers = bytesAsSlice(u32, bytes[runtime_zero..]);
+        comptime testing.expect(@TypeOf(numbers) == []align(@alignOf(@TypeOf(bytes))) u32);
+    }
 }
 
 test "bytesAsSlice on a packed struct" {
@@ -1799,21 +1896,19 @@ fn SliceAsBytesReturnType(comptime sliceType: type) type {
 }
 
 pub fn sliceAsBytes(slice: var) SliceAsBytesReturnType(@TypeOf(slice)) {
-    const actualSlice = if (comptime trait.isPtrTo(.Array)(@TypeOf(slice))) slice[0..] else slice;
-    const actualSliceTypeInfo = @typeInfo(@TypeOf(actualSlice)).Pointer;
+    const Slice = @TypeOf(slice);
 
     // let's not give an undefined pointer to @ptrCast
     // it may be equal to zero and fail a null check
-    if (actualSlice.len == 0 and actualSliceTypeInfo.sentinel == null) {
+    if (slice.len == 0 and comptime meta.sentinel(Slice) == null) {
         return &[0]u8{};
     }
 
-    const sliceType = @TypeOf(actualSlice);
-    const alignment = comptime meta.alignment(sliceType);
+    const alignment = comptime meta.alignment(Slice);
 
-    const castTarget = if (comptime trait.isConstPtr(sliceType)) [*]align(alignment) const u8 else [*]align(alignment) u8;
+    const cast_target = if (comptime trait.isConstPtr(Slice)) [*]align(alignment) const u8 else [*]align(alignment) u8;
 
-    return @ptrCast(castTarget, actualSlice.ptr)[0 .. actualSlice.len * @sizeOf(comptime meta.Child(sliceType))];
+    return @ptrCast(cast_target, slice)[0 .. slice.len * @sizeOf(meta.Elem(Slice))];
 }
 
 test "sliceAsBytes" {
@@ -1881,39 +1976,6 @@ test "sliceAsBytes and bytesAsSlice back" {
     testing.expect(bytes[9] == math.maxInt(u8));
     testing.expect(bytes[10] == math.maxInt(u8));
     testing.expect(bytes[11] == math.maxInt(u8));
-}
-
-fn SubArrayPtrReturnType(comptime T: type, comptime length: usize) type {
-    if (trait.isConstPtr(T))
-        return *const [length]meta.Child(meta.Child(T));
-    return *[length]meta.Child(meta.Child(T));
-}
-
-/// Given a pointer to an array, returns a pointer to a portion of that array, preserving constness.
-/// TODO this will be obsoleted by https://github.com/ziglang/zig/issues/863
-pub fn subArrayPtr(
-    ptr: var,
-    comptime start: usize,
-    comptime length: usize,
-) SubArrayPtrReturnType(@TypeOf(ptr), length) {
-    assert(start + length <= ptr.*.len);
-
-    const ReturnType = SubArrayPtrReturnType(@TypeOf(ptr), length);
-    const T = meta.Child(meta.Child(@TypeOf(ptr)));
-    return @ptrCast(ReturnType, &ptr[start]);
-}
-
-test "subArrayPtr" {
-    const a1: [6]u8 = "abcdef".*;
-    const sub1 = subArrayPtr(&a1, 2, 3);
-    testing.expect(eql(u8, sub1, "cde"));
-
-    var a2: [6]u8 = "abcdef".*;
-    var sub2 = subArrayPtr(&a2, 2, 3);
-
-    testing.expect(eql(u8, sub2, "cde"));
-    sub2[1] = 'X';
-    testing.expect(eql(u8, &a2, "abcXef"));
 }
 
 /// Round an address up to the nearest aligned address

@@ -69,7 +69,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\}
         \\pub fn main() void {
         \\    var buf: [4]u8 = undefined;
-        \\    const ptr = buf[0..].ptr;
+        \\    const ptr: [*]u8 = &buf;
         \\    const slice = ptr[0..3 :0];
         \\}
     );

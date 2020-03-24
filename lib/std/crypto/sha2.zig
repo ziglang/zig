@@ -167,8 +167,7 @@ fn Sha2_32(comptime params: Sha2Params32) type {
             const rr = d.s[0 .. params.out_len / 32];
 
             for (rr) |s, j| {
-                // TODO https://github.com/ziglang/zig/issues/863
-                mem.writeIntSliceBig(u32, out[4 * j .. 4 * j + 4], s);
+                mem.writeIntBig(u32, out[4 * j ..][0..4], s);
             }
         }
 
@@ -509,8 +508,7 @@ fn Sha2_64(comptime params: Sha2Params64) type {
             const rr = d.s[0 .. params.out_len / 64];
 
             for (rr) |s, j| {
-                // TODO https://github.com/ziglang/zig/issues/863
-                mem.writeIntSliceBig(u64, out[8 * j .. 8 * j + 8], s);
+                mem.writeIntBig(u64, out[8 * j ..][0..8], s);
             }
         }
 

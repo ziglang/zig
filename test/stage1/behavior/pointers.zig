@@ -159,12 +159,13 @@ test "allowzero pointer and slice" {
     var opt_ptr: ?[*]allowzero i32 = ptr;
     expect(opt_ptr != null);
     expect(@ptrToInt(ptr) == 0);
-    var slice = ptr[0..10];
-    expect(@TypeOf(slice) == []allowzero i32);
+    var runtime_zero: usize = 0;
+    var slice = ptr[runtime_zero..10];
+    comptime expect(@TypeOf(slice) == []allowzero i32);
     expect(@ptrToInt(&slice[5]) == 20);
 
-    expect(@typeInfo(@TypeOf(ptr)).Pointer.is_allowzero);
-    expect(@typeInfo(@TypeOf(slice)).Pointer.is_allowzero);
+    comptime expect(@typeInfo(@TypeOf(ptr)).Pointer.is_allowzero);
+    comptime expect(@typeInfo(@TypeOf(slice)).Pointer.is_allowzero);
 }
 
 test "assign null directly to C pointer and test null equality" {

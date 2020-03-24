@@ -612,8 +612,7 @@ fn linuxLookupName(
         } else {
             mem.copy(u8, &sa6.addr, "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff");
             mem.copy(u8, &da6.addr, "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff");
-            // TODO https://github.com/ziglang/zig/issues/863
-            mem.writeIntNative(u32, @ptrCast(*[4]u8, da6.addr[12..].ptr), addr.addr.in.addr);
+            mem.writeIntNative(u32, da6.addr[12..], addr.addr.in.addr);
             da4.addr = addr.addr.in.addr;
             da = @ptrCast(*os.sockaddr, &da4);
             dalen = @sizeOf(os.sockaddr_in);
@@ -821,7 +820,7 @@ fn linuxLookupNameFromHosts(
             // Skip to the delimiter in the stream, to fix parsing
             try stream.skipUntilDelimiterOrEof('\n');
             // Use the truncated line. A truncated comment or hostname will be handled correctly.
-            break :blk line_buf[0..];
+            break :blk &line_buf;
         },
         else => |e| return e,
     }) |line| {
@@ -958,7 +957,10 @@ fn linuxLookupNameFromDns(
         }
     }
 
-    var ap = [2][]u8{ apbuf[0][0..0], apbuf[1][0..0] };
+    var ap = [2][]u8{ apbuf[0], apbuf[1] };
+    ap[0].len = 0;
+    ap[1].len = 0;
+
     try resMSendRc(qp[0..nq], ap[0..nq], apbuf[0..nq], rc);
 
     var i: usize = 0;

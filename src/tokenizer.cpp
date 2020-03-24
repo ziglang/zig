@@ -177,10 +177,13 @@ enum TokenizeState {
     TokenizeStateSymbol,
     TokenizeStateZero, // "0", which might lead to "0x"
     TokenizeStateNumber, // "123", "0x123"
+    TokenizeStateNumberNoUnderscore, // "12_", "0x12_" next char must be digit
     TokenizeStateNumberDot,
     TokenizeStateFloatFraction, // "123.456", "0x123.456"
+    TokenizeStateFloatFractionNoUnderscore, // "123.45_", "0x123.45_"
     TokenizeStateFloatExponentUnsigned, // "123.456e", "123e", "0x123p"
-    TokenizeStateFloatExponentNumber, // "123.456e-", "123.456e5", "123.456e5e-5"
+    TokenizeStateFloatExponentNumber, // "123.456e7", "123.456e+7", "123.456e-7"
+    TokenizeStateFloatExponentNumberNoUnderscore, // "123.456e7_", "123.456e+7_", "123.456e-7_"
     TokenizeStateString,
     TokenizeStateStringEscape,
     TokenizeStateStringEscapeUnicodeStart,
@@ -233,14 +236,10 @@ struct Tokenize {
     Token *cur_tok;
     Tokenization *out;
     uint32_t radix;
-    int32_t exp_add_amt;
-    bool is_exp_negative;
+    bool is_trailing_underscore;
     size_t char_code_index;
     bool unicode;
     uint32_t char_code;
-    int exponent_in_bin_or_dec;
-    BigInt specified_exponent;
-    BigInt significand;
     size_t remaining_code_units;
 };
 
@@ -426,20 +425,16 @@ void tokenize(Buf *buf, Tokenization *out) {
                     case '0':
                         t.state = TokenizeStateZero;
                         begin_token(&t, TokenIdIntLiteral);
+                        t.is_trailing_underscore = false;
                         t.radix = 10;
-                        t.exp_add_amt = 1;
-                        t.exponent_in_bin_or_dec = 0;
                         bigint_init_unsigned(&t.cur_tok->data.int_lit.bigint, 0);
-                        bigint_init_unsigned(&t.specified_exponent, 0);
                         break;
                     case DIGIT_NON_ZERO:
                         t.state = TokenizeStateNumber;
                         begin_token(&t, TokenIdIntLiteral);
+                        t.is_trailing_underscore = false;
                         t.radix = 10;
-                        t.exp_add_amt = 1;
-                        t.exponent_in_bin_or_dec = 0;
                         bigint_init_unsigned(&t.cur_tok->data.int_lit.bigint, get_digit_value(c));
-                        bigint_init_unsigned(&t.specified_exponent, 0);
                         break;
                     case '"':
                         begin_token(&t, TokenIdStringLiteral);
@@ -1189,17 +1184,15 @@ void tokenize(Buf *buf, Tokenization *out) {
                 switch (c) {
                     case 'b':
                         t.radix = 2;
-                        t.state = TokenizeStateNumber;
+                        t.state = TokenizeStateNumberNoUnderscore;
                         break;
                     case 'o':
                         t.radix = 8;
-                        t.exp_add_amt = 3;
-                        t.state = TokenizeStateNumber;
+                        t.state = TokenizeStateNumberNoUnderscore;
                         break;
                     case 'x':
                         t.radix = 16;
-                        t.exp_add_amt = 4;
-                        t.state = TokenizeStateNumber;
+                        t.state = TokenizeStateNumberNoUnderscore;
                         break;
                     default:
                         // reinterpret as normal number
@@ -1208,9 +1201,27 @@ void tokenize(Buf *buf, Tokenization *out) {
                         continue;
                 }
                 break;
+            case TokenizeStateNumberNoUnderscore:
+                if (c == '_') {
+                    invalid_char_error(&t, c);
+                    break;
+                } else if (get_digit_value(c) < t.radix) {
+                    t.is_trailing_underscore = false;
+                    t.state = TokenizeStateNumber;
+                }
+                // fall through
             case TokenizeStateNumber:
                 {
+                    if (c == '_') {
+                        t.is_trailing_underscore = true;
+                        t.state = TokenizeStateNumberNoUnderscore;
+                        break;
+                    }
                     if (c == '.') {
+                        if (t.is_trailing_underscore) {
+                            invalid_char_error(&t, c);
+                            break;
+                        }
                         if (t.radix != 16 && t.radix != 10) {
                             invalid_char_error(&t, c);
                         }
@@ -1218,17 +1229,26 @@ void tokenize(Buf *buf, Tokenization *out) {
                         break;
                     }
                     if (is_exponent_signifier(c, t.radix)) {
+                        if (t.is_trailing_underscore) {
+                            invalid_char_error(&t, c);
+                            break;
+                        }
                         if (t.radix != 16 && t.radix != 10) {
                             invalid_char_error(&t, c);
                         }
                         t.state = TokenizeStateFloatExponentUnsigned;
+                        t.radix = 10; // exponent is always base 10
                         assert(t.cur_tok->id == TokenIdIntLiteral);
-                        bigint_init_bigint(&t.significand, &t.cur_tok->data.int_lit.bigint);
                         set_token_id(&t, t.cur_tok, TokenIdFloatLiteral);
                         break;
                     }
                     uint32_t digit_value = get_digit_value(c);
                     if (digit_value >= t.radix) {
+                        if (t.is_trailing_underscore) {
+                            invalid_char_error(&t, c);
+                            break;
+                        }
+
                         if (is_symbol_char(c)) {
                             invalid_char_error(&t, c);
                         }
@@ -1259,20 +1279,41 @@ void tokenize(Buf *buf, Tokenization *out) {
                         continue;
                     }
                     t.pos -= 1;
-                    t.state = TokenizeStateFloatFraction;
+                    t.state = TokenizeStateFloatFractionNoUnderscore;
                     assert(t.cur_tok->id == TokenIdIntLiteral);
-                    bigint_init_bigint(&t.significand, &t.cur_tok->data.int_lit.bigint);
                     set_token_id(&t, t.cur_tok, TokenIdFloatLiteral);
                     continue;
                 }
+            case TokenizeStateFloatFractionNoUnderscore:
+                if (c == '_') {
+                    invalid_char_error(&t, c);
+                } else if (get_digit_value(c) < t.radix) {
+                    t.is_trailing_underscore = false;
+                    t.state = TokenizeStateFloatFraction;
+                }
+                // fall through
             case TokenizeStateFloatFraction:
                 {
+                    if (c == '_') {
+                        t.is_trailing_underscore = true;
+                        t.state = TokenizeStateFloatFractionNoUnderscore;
+                        break;
+                    }
                     if (is_exponent_signifier(c, t.radix)) {
+                        if (t.is_trailing_underscore) {
+                            invalid_char_error(&t, c);
+                            break;
+                        }
                         t.state = TokenizeStateFloatExponentUnsigned;
+                        t.radix = 10; // exponent is always base 10
                         break;
                     }
                     uint32_t digit_value = get_digit_value(c);
                     if (digit_value >= t.radix) {
+                        if (t.is_trailing_underscore) {
+                            invalid_char_error(&t, c);
+                            break;
+                        }
                         if (is_symbol_char(c)) {
                             invalid_char_error(&t, c);
                         }
@@ -1282,46 +1323,47 @@ void tokenize(Buf *buf, Tokenization *out) {
                         t.state = TokenizeStateStart;
                         continue;
                     }
-                    t.exponent_in_bin_or_dec -= t.exp_add_amt;
-                    if (t.radix == 10) {
-                        // For now we use strtod to parse decimal floats, so we just have to get to the
-                        // end of the token.
-                        break;
-                    }
-                    BigInt digit_value_bi;
-                    bigint_init_unsigned(&digit_value_bi, digit_value);
 
-                    BigInt radix_bi;
-                    bigint_init_unsigned(&radix_bi, t.radix);
-
-                    BigInt multiplied;
-                    bigint_mul(&multiplied, &t.significand, &radix_bi);
-
-                    bigint_add(&t.significand, &multiplied, &digit_value_bi);
-                    break;
+                    // we use parse_f128 to generate the float literal, so just
+                    // need to get to the end of the token
                 }
+                break;
             case TokenizeStateFloatExponentUnsigned:
                 switch (c) {
                     case '+':
-                        t.is_exp_negative = false;
-                        t.state = TokenizeStateFloatExponentNumber;
+                        t.state = TokenizeStateFloatExponentNumberNoUnderscore;
                         break;
                     case '-':
-                        t.is_exp_negative = true;
-                        t.state = TokenizeStateFloatExponentNumber;
+                        t.state = TokenizeStateFloatExponentNumberNoUnderscore;
                         break;
                     default:
                         // reinterpret as normal exponent number
                         t.pos -= 1;
-                        t.is_exp_negative = false;
-                        t.state = TokenizeStateFloatExponentNumber;
+                        t.state = TokenizeStateFloatExponentNumberNoUnderscore;
                         continue;
                 }
                 break;
+            case TokenizeStateFloatExponentNumberNoUnderscore:
+                if (c == '_') {
+                    invalid_char_error(&t, c);
+                } else if (get_digit_value(c) < t.radix) {
+                    t.is_trailing_underscore = false;
+                    t.state = TokenizeStateFloatExponentNumber;
+                }
+                // fall through
             case TokenizeStateFloatExponentNumber:
                 {
+                    if (c == '_') {
+                        t.is_trailing_underscore = true;
+                        t.state = TokenizeStateFloatExponentNumberNoUnderscore;
+                        break;
+                    }
                     uint32_t digit_value = get_digit_value(c);
                     if (digit_value >= t.radix) {
+                        if (t.is_trailing_underscore) {
+                            invalid_char_error(&t, c);
+                            break;
+                        }
                         if (is_symbol_char(c)) {
                             invalid_char_error(&t, c);
                         }
@@ -1331,21 +1373,9 @@ void tokenize(Buf *buf, Tokenization *out) {
                         t.state = TokenizeStateStart;
                         continue;
                     }
-                    if (t.radix == 10) {
-                        // For now we use strtod to parse decimal floats, so we just have to get to the
-                        // end of the token.
-                        break;
-                    }
-                    BigInt digit_value_bi;
-                    bigint_init_unsigned(&digit_value_bi, digit_value);
 
-                    BigInt radix_bi;
-                    bigint_init_unsigned(&radix_bi, 10);
-
-                    BigInt multiplied;
-                    bigint_mul(&multiplied, &t.specified_exponent, &radix_bi);
-
-                    bigint_add(&t.specified_exponent, &multiplied, &digit_value_bi);
+                    // we use parse_f128 to generate the float literal, so just
+                    // need to get to the end of the token
                 }
                 break;
             case TokenizeStateSawDash:
@@ -1399,6 +1429,9 @@ void tokenize(Buf *buf, Tokenization *out) {
         case TokenizeStateStart:
         case TokenizeStateError:
             break;
+        case TokenizeStateNumberNoUnderscore:
+        case TokenizeStateFloatFractionNoUnderscore:
+        case TokenizeStateFloatExponentNumberNoUnderscore:
         case TokenizeStateNumberDot:
             tokenize_error(&t, "unterminated number literal");
             break;
