@@ -286,11 +286,9 @@ pub const Thread = struct {
             }
             // Finally, the Thread Local Storage, if any.
             if (!Thread.use_pthreads) {
-                if (os.linux.tls.tls_image) |tls_img| {
-                    l = mem.alignForward(l, @alignOf(usize));
-                    tls_start_offset = l;
-                    l += tls_img.alloc_size;
-                }
+                l = mem.alignForward(l, os.linux.tls.tls_image.alloc_align);
+                tls_start_offset = l;
+                l += os.linux.tls.tls_image.alloc_size;
             }
             // Round the size to the page size.
             break :blk mem.alignForward(l, mem.page_size);
@@ -396,18 +394,21 @@ pub const Thread = struct {
                 else => return os.unexpectedErrno(@intCast(usize, err)),
             }
         } else if (std.Target.current.os.tag == .linux) {
-            var flags: u32 = os.CLONE_VM | os.CLONE_FS | os.CLONE_FILES | os.CLONE_SIGHAND |
-                os.CLONE_THREAD | os.CLONE_SYSVSEM | os.CLONE_PARENT_SETTID | os.CLONE_CHILD_CLEARTID |
-                os.CLONE_DETACHED;
-            var newtls: usize = undefined;
+            const flags: u32 = os.CLONE_VM | os.CLONE_FS | os.CLONE_FILES |
+                os.CLONE_SIGHAND | os.CLONE_THREAD | os.CLONE_SYSVSEM |
+                os.CLONE_PARENT_SETTID | os.CLONE_CHILD_CLEARTID |
+                os.CLONE_DETACHED | os.CLONE_SETTLS;
             // This structure is only needed when targeting i386
             var user_desc: if (std.Target.current.cpu.arch == .i386) os.linux.user_desc else void = undefined;
 
-            if (os.linux.tls.tls_image) |tls_img| {
+            const tls_area = mmap_slice[tls_start_offset..];
+            const tp_value = os.linux.tls.prepareTLS(tls_area);
+
+            const newtls = blk: {
                 if (std.Target.current.cpu.arch == .i386) {
                     user_desc = os.linux.user_desc{
-                        .entry_number = tls_img.gdt_entry_number,
-                        .base_addr = os.linux.tls.copyTLS(mmap_addr + tls_start_offset),
+                        .entry_number = os.linux.tls.tls_image.gdt_entry_number,
+                        .base_addr = tp_value,
                         .limit = 0xfffff,
                         .seg_32bit = 1,
                         .contents = 0, // Data
@@ -416,12 +417,11 @@ pub const Thread = struct {
                         .seg_not_present = 0,
                         .useable = 1,
                     };
-                    newtls = @ptrToInt(&user_desc);
+                    break :blk @ptrToInt(&user_desc);
                 } else {
-                    newtls = os.linux.tls.copyTLS(mmap_addr + tls_start_offset);
+                    break :blk tp_value;
                 }
-                flags |= os.CLONE_SETTLS;
-            }
+            };
 
             const rc = os.linux.clone(
                 MainFuncs.linuxThreadMain,

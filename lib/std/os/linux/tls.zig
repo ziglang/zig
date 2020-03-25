@@ -1,8 +1,9 @@
 const std = @import("std");
+const builtin = std.builtin;
 const os = std.os;
 const mem = std.mem;
 const elf = std.elf;
-const builtin = @import("builtin");
+const math = std.math;
 const assert = std.debug.assert;
 
 // This file implements the two TLS variants [1] used by ELF-based systems.
@@ -57,13 +58,8 @@ const tls_tcb_size = switch (builtin.arch) {
     // ARM EABI mandates enough space for two pointers: the first one points to
     // the DTV while the second one is unspecified but reserved
     .arm, .armeb, .aarch64, .aarch64_be => 2 * @sizeOf(usize),
+    // One pointer-sized word that points either to the DTV or the TCB itself
     else => @sizeOf(usize),
-};
-
-// Controls if the TCB should be aligned according to the TLS segment p_align
-const tls_tcb_align_size = switch (builtin.arch) {
-    .arm, .armeb, .aarch64, .aarch64_be => true,
-    else => false,
 };
 
 // Controls if the TP points to the end of the TCB instead of its beginning
@@ -71,13 +67,6 @@ const tls_tp_points_past_tcb = switch (builtin.arch) {
     .riscv32, .riscv64, .mipsel, .powerpc64, .powerpc64le => true,
     else => false,
 };
-
-// Check if the architecture-specific parameters look correct
-comptime {
-    if (tls_tcb_align_size and tls_variant != TLSVariant.VariantI) {
-        @compileError("tls_tcb_align_size is only meaningful for variant I TLS");
-    }
-}
 
 // Some architectures add some offset to the tp and dtv addresses in order to
 // make the generated code more efficient
@@ -94,32 +83,36 @@ const tls_dtv_offset = switch (builtin.arch) {
 };
 
 // Per-thread storage for Zig's use
-const CustomData = packed struct {};
+const CustomData = struct {
+    dummy: usize,
+};
 
 // Dynamic Thread Vector
-const DTV = packed struct {
+const DTV = extern struct {
     entries: usize,
-    tls_block: [1]usize,
+    tls_block: [1][*]u8,
 };
 
 // Holds all the information about the process TLS image
 const TLSImage = struct {
-    data_src: []u8,
+    init_data: []const u8,
     alloc_size: usize,
+    alloc_align: usize,
     tcb_offset: usize,
     dtv_offset: usize,
     data_offset: usize,
+    data_size: usize,
     // Only used on the i386 architecture
     gdt_entry_number: usize,
 };
 
-pub var tls_image: ?TLSImage = null;
+pub var tls_image: TLSImage = undefined;
 
 pub fn setThreadPointer(addr: usize) void {
     switch (builtin.arch) {
         .i386 => {
             var user_desc = std.os.linux.user_desc{
-                .entry_number = tls_image.?.gdt_entry_number,
+                .entry_number = tls_image.gdt_entry_number,
                 .base_addr = addr,
                 .limit = 0xfffff,
                 .seg_32bit = 1,
@@ -134,7 +127,7 @@ pub fn setThreadPointer(addr: usize) void {
 
             const gdt_entry_number = user_desc.entry_number;
             // We have to keep track of our slot as it's also needed for clone()
-            tls_image.?.gdt_entry_number = gdt_entry_number;
+            tls_image.gdt_entry_number = gdt_entry_number;
             // Update the %gs selector
             asm volatile ("movl %[gs_val], %%gs"
                 :
@@ -171,7 +164,7 @@ pub fn setThreadPointer(addr: usize) void {
     }
 }
 
-pub fn initTLS() ?*elf.Phdr {
+fn initTLS() void {
     var tls_phdr: ?*elf.Phdr = null;
     var img_base: usize = 0;
 
@@ -195,124 +188,149 @@ pub fn initTLS() ?*elf.Phdr {
     // Sanity check
     assert(at_phent == @sizeOf(elf.Phdr));
 
-    // Search the TLS section
+    // Find the TLS section
     const phdrs = (@intToPtr([*]elf.Phdr, at_phdr))[0..at_phnum];
-
-    var gnu_stack: ?*elf.Phdr = null;
 
     for (phdrs) |*phdr| {
         switch (phdr.p_type) {
             elf.PT_PHDR => img_base = at_phdr - phdr.p_vaddr,
             elf.PT_TLS => tls_phdr = phdr,
-            elf.PT_GNU_STACK => gnu_stack = phdr,
-            else => continue,
+            else => {},
         }
     }
 
+    // If the cpu is ARM-based, check if it supports the TLS register
+    if (comptime builtin.arch.isARM() and at_hwcap & std.os.linux.HWCAP_TLS == 0) {
+        // If the CPU does not support TLS via a coprocessor register,
+        // a kernel helper function can be used instead on certain linux kernels.
+        // See linux/arch/arm/include/asm/tls.h and musl/src/thread/arm/__set_thread_area.c.
+        @panic("TODO: Implement ARM fallback TLS functionality");
+    }
+
+    var tls_align_factor: usize = undefined;
+    var tls_data: []const u8 = undefined;
+    var tls_data_alloc_size: usize = undefined;
     if (tls_phdr) |phdr| {
-        // If the cpu is arm-based, check if it supports the TLS register
-        if (builtin.arch == .arm and at_hwcap & std.os.linux.HWCAP_TLS == 0) {
-            // If the CPU does not support TLS via a coprocessor register,
-            // a kernel helper function can be used instead on certain linux kernels.
-            // See linux/arch/arm/include/asm/tls.h and musl/src/thread/arm/__set_thread_area.c.
-            @panic("TODO: Implement ARM fallback TLS functionality");
-        }
-
-        // Offsets into the allocated TLS area
-        var tcb_offset: usize = undefined;
-        var dtv_offset: usize = undefined;
-        var data_offset: usize = undefined;
-        var thread_data_offset: usize = undefined;
-        // Compute the total size of the ABI-specific data plus our own control
-        // structures
-        const alloc_size = switch (tls_variant) {
-            .VariantI => blk: {
-                var l: usize = 0;
-                dtv_offset = l;
-                l += @sizeOf(DTV);
-                thread_data_offset = l;
-                l += @sizeOf(CustomData);
-                l = mem.alignForward(l, phdr.p_align);
-                tcb_offset = l;
-                if (tls_tcb_align_size) {
-                    l += mem.alignForward(tls_tcb_size, phdr.p_align);
-                } else {
-                    l += tls_tcb_size;
-                }
-                data_offset = l;
-                l += phdr.p_memsz;
-                break :blk l;
-            },
-            .VariantII => blk: {
-                var l: usize = 0;
-                data_offset = l;
-                l += phdr.p_memsz;
-                l = mem.alignForward(l, phdr.p_align);
-                tcb_offset = l;
-                l += tls_tcb_size;
-                thread_data_offset = l;
-                l += @sizeOf(CustomData);
-                dtv_offset = l;
-                l += @sizeOf(DTV);
-                break :blk l;
-            },
-        };
-
-        tls_image = TLSImage{
-            .data_src = @intToPtr([*]u8, phdr.p_vaddr + img_base)[0..phdr.p_filesz],
-            .alloc_size = alloc_size,
-            .tcb_offset = tcb_offset,
-            .dtv_offset = dtv_offset,
-            .data_offset = data_offset,
-            .gdt_entry_number = @bitCast(usize, @as(isize, -1)),
-        };
+        // The effective size in memory is represented by p_memsz, the length of
+        // the data stored in the PT_TLS segment is p_filesz and may be less
+        // than the former
+        tls_align_factor = phdr.p_align;
+        tls_data = @intToPtr([*]u8, img_base + phdr.p_vaddr)[0..phdr.p_filesz];
+        tls_data_alloc_size = phdr.p_memsz;
+    } else {
+        tls_align_factor = @alignOf(*usize);
+        tls_data = &[_]u8{};
+        tls_data_alloc_size = 0;
     }
 
-    return gnu_stack;
+    // Offsets into the allocated TLS area
+    var tcb_offset: usize = undefined;
+    var dtv_offset: usize = undefined;
+    var data_offset: usize = undefined;
+    // Compute the total size of the ABI-specific data plus our own control
+    // structures. All the offset calculated here assume a well-aligned base
+    // address.
+    const alloc_size = switch (tls_variant) {
+        .VariantI => blk: {
+            var l: usize = 0;
+            dtv_offset = l;
+            l += @sizeOf(DTV);
+            // Add some padding here so that the thread pointer (tcb_offset) is
+            // aligned to p_align and the CustomData structure can be found by
+            // simply subtracting its @sizeOf from the tp value
+            const delta = (l + @sizeOf(CustomData)) & (tls_align_factor - 1);
+            if (delta > 0)
+                l += tls_align_factor - delta;
+            l += @sizeOf(CustomData);
+            tcb_offset = l;
+            l += mem.alignForward(tls_tcb_size, tls_align_factor);
+            data_offset = l;
+            l += tls_data_alloc_size;
+            break :blk l;
+        },
+        .VariantII => blk: {
+            var l: usize = 0;
+            data_offset = l;
+            l += mem.alignForward(tls_data_alloc_size, tls_align_factor);
+            // The thread pointer is aligned to p_align
+            tcb_offset = l;
+            l += tls_tcb_size;
+            // The CustomData structure is right after the TCB with no padding
+            // in between so it can be easily found
+            l += @sizeOf(CustomData);
+            l = mem.alignForward(l, @alignOf(DTV));
+            dtv_offset = l;
+            l += @sizeOf(DTV);
+            break :blk l;
+        },
+    };
+
+    tls_image = TLSImage{
+        .init_data = tls_data,
+        .alloc_size = alloc_size,
+        .alloc_align = tls_align_factor,
+        .tcb_offset = tcb_offset,
+        .dtv_offset = dtv_offset,
+        .data_offset = data_offset,
+        .data_size = tls_data_alloc_size,
+        .gdt_entry_number = @bitCast(usize, @as(isize, -1)),
+    };
 }
 
-pub fn copyTLS(addr: usize) usize {
-    const tls_img = tls_image.?;
+inline fn alignPtrCast(comptime T: type, ptr: [*]u8) *T {
+    return @ptrCast(*T, @alignCast(@alignOf(*T), ptr));
+}
 
-    // Be paranoid, clear the area we're going to use
-    @memset(@intToPtr([*]u8, addr), 0, tls_img.alloc_size);
+/// Initializes all the fields of the static TLS area and returns the computed
+/// architecture-specific value of the thread-pointer register
+pub fn prepareTLS(area: []u8) usize {
+    // Clear the area we're going to use, just to be safe
+    mem.set(u8, area, 0);
     // Prepare the DTV
-    const dtv = @intToPtr(*DTV, addr + tls_img.dtv_offset);
+    const dtv = alignPtrCast(DTV, area.ptr + tls_image.dtv_offset);
     dtv.entries = 1;
-    dtv.tls_block[0] = addr + tls_img.data_offset + tls_dtv_offset;
-    // Set-up the TCB
-    // Force the alignment to 1 byte as the TCB may start from a non-aligned
-    // address under the variant II model
-    const tcb_ptr = @intToPtr(*align(1) usize, addr + tls_img.tcb_offset);
-    if (tls_variant == TLSVariant.VariantI) {
-        tcb_ptr.* = addr + tls_img.dtv_offset;
-    } else {
-        tcb_ptr.* = addr + tls_img.tcb_offset;
-    }
+    dtv.tls_block[0] = area.ptr + tls_dtv_offset + tls_image.data_offset;
+    // Prepare the TCB
+    const tcb_ptr = alignPtrCast([*]u8, area.ptr + tls_image.tcb_offset);
+    tcb_ptr.* = switch (tls_variant) {
+        .VariantI => area.ptr + tls_image.dtv_offset,
+        .VariantII => area.ptr + tls_image.tcb_offset,
+    };
     // Copy the data
-    @memcpy(@intToPtr([*]u8, addr + tls_img.data_offset), tls_img.data_src.ptr, tls_img.data_src.len);
+    mem.copy(u8, area[tls_image.data_offset..], tls_image.init_data);
 
     // Return the corrected (if needed) value for the tp register
-    return addr + tls_tp_offset +
-        if (tls_tp_points_past_tcb) tls_img.data_offset else tls_img.tcb_offset;
+    return @ptrToInt(area.ptr) + tls_tp_offset +
+        if (tls_tp_points_past_tcb) tls_image.data_offset else tls_image.tcb_offset;
 }
 
-var main_thread_tls_buffer: [256]u8 align(32) = undefined;
+var main_thread_tls_buffer: [256]u8 = undefined;
 
-pub fn allocateTLS(size: usize) usize {
-    // Small TLS allocation, use our local buffer
-    if (size < main_thread_tls_buffer.len) {
-        return @ptrToInt(&main_thread_tls_buffer);
-    }
+pub fn initStaticTLS() void {
+    initTLS();
 
-    const slice = os.mmap(
-        null,
-        size,
-        os.PROT_READ | os.PROT_WRITE,
-        os.MAP_PRIVATE | os.MAP_ANONYMOUS,
-        -1,
-        0,
-    ) catch @panic("out of memory");
+    const alloc_tls_area: []u8 = blk: {
+        const full_alloc_size = tls_image.alloc_size + tls_image.alloc_align - 1;
 
-    return @ptrToInt(slice.ptr);
+        // Fast path for the common case where the TLS data is really small,
+        // avoid an allocation and use our local buffer
+        if (full_alloc_size < main_thread_tls_buffer.len)
+            break :blk main_thread_tls_buffer[0..];
+
+        break :blk os.mmap(
+            null,
+            full_alloc_size,
+            os.PROT_READ | os.PROT_WRITE,
+            os.MAP_PRIVATE | os.MAP_ANONYMOUS,
+            -1,
+            0,
+        ) catch os.abort();
+    };
+
+    // Make sure the slice is correctly aligned
+    const start = @ptrToInt(alloc_tls_area.ptr) & (tls_image.alloc_align - 1);
+    const tls_area = alloc_tls_area[start .. start + tls_image.alloc_size];
+
+    const tp_value = prepareTLS(tls_area);
+    setThreadPointer(tp_value);
 }
