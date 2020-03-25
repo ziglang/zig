@@ -56,6 +56,6 @@ FIND_AND_ADD_CLANG_LIB(clangCrossTU)
 FIND_AND_ADD_CLANG_LIB(clangIndex)
 
 include(FindPackageHandleStandardArgs)
-find_package_handle_standard_args(CLANG DEFAULT_MSG CLANG_LIBRARIES CLANG_INCLUDE_DIRS)
+find_package_handle_standard_args(clang DEFAULT_MSG CLANG_LIBRARIES CLANG_INCLUDE_DIRS)
 
 mark_as_advanced(CLANG_INCLUDE_DIRS CLANG_LIBRARIES CLANG_LIBDIRS)
