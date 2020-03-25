@@ -704,6 +704,9 @@ static int main0(int argc, char **argv) {
                         }
                     }
                     break;
+                case Stage2ClangArgLinkerScript:
+                    linker_script = it.only_arg;
+                    break;
             }
         }
         // Parse linker args
