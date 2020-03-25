@@ -358,7 +358,7 @@ pub const Thread = struct {
             const tls_area = mmap_slice[tls_start_offset..];
             const tp_value = os.linux.tls.prepareTLS(tls_area);
 
-            var newtls = blk: {
+            const newtls = blk: {
                 if (std.Target.current.cpu.arch == .i386) {
                     user_desc = os.linux.user_desc{
                         .entry_number = os.linux.tls.tls_image.gdt_entry_number,
