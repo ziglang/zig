@@ -2249,16 +2249,11 @@ pub const StringifyOptions = struct {
     // TODO: allow picking if []u8 is string or array?
 };
 
-pub const StringifyError = error{
-    TooMuchData,
-    DifferentData,
-};
-
 pub fn stringify(
     value: var,
     options: StringifyOptions,
     out_stream: var,
-) StringifyError!void {
+) @TypeOf(out_stream).Error!void {
     const T = @TypeOf(value);
     switch (@typeInfo(T)) {
         .Float, .ComptimeFloat => {
