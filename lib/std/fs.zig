@@ -339,12 +339,10 @@ pub const Dir = struct {
             fn nextBsd(self: *Self) !?Entry {
                 start_over: while (true) {
                     if (self.index >= self.end_index) {
-                        const rc = os.system.getdirentries(
-                            self.dir.fd,
-                            &self.buf,
-                            self.buf.len,
-                            &self.seek,
-                        );
+                        const rc = if (builtin.os.tag == .netbsd)
+                            os.system.__getdents30(self.dir.fd, &self.buf, self.buf.len)
+                        else
+                            os.system.getdents(self.dir.fd, &self.buf, self.buf.len);
                         switch (os.errno(rc)) {
                             0 => {},
                             os.EBADF => unreachable, // Dir is invalid or was opened without iteration ability
