@@ -1279,6 +1279,7 @@ pub const ClangArgIterator = extern struct {
         debug,
         sanitize,
         linker_script,
+        verbose_cmds,
     };
 
     fn init(argv: []const [*:0]const u8) ClangArgIterator {

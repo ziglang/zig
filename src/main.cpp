@@ -708,6 +708,10 @@ static int main0(int argc, char **argv) {
                 case Stage2ClangArgLinkerScript:
                     linker_script = it.only_arg;
                     break;
+                case Stage2ClangArgVerboseCmds:
+                    verbose_cc = true;
+                    verbose_link = true;
+                    break;
             }
         }
         // Parse linker args

@@ -341,6 +341,7 @@ enum Stage2ClangArg {
     Stage2ClangArgDebug,
     Stage2ClangArgSanitize,
     Stage2ClangArgLinkerScript,
+    Stage2ClangArgVerboseCmds,
 };
 
 // ABI warning
