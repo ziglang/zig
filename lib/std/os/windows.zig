@@ -108,6 +108,7 @@ pub fn OpenFileW(
     sa: ?*SECURITY_ATTRIBUTES,
     access_mask: ACCESS_MASK,
     creation: ULONG,
+    enable_async_io: bool,
 ) OpenError!HANDLE {
     if (sub_path_w[0] == '.' and sub_path_w[1] == 0) {
         return error.IsDir;
@@ -135,6 +136,7 @@ pub fn OpenFileW(
         .SecurityQualityOfService = null,
     };
     var io: IO_STATUS_BLOCK = undefined;
+    const blocking_flag = if (!enable_async_io) FILE_SYNCHRONOUS_IO_NONALERT else @as(ULONG, 0);
     const rc = ntdll.NtCreateFile(
         &result,
         access_mask,
@@ -144,7 +146,7 @@ pub fn OpenFileW(
         FILE_ATTRIBUTE_NORMAL,
         FILE_SHARE_WRITE | FILE_SHARE_READ | FILE_SHARE_DELETE,
         creation,
-        FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT,
+        FILE_NON_DIRECTORY_FILE | blocking_flag,
         null,
         0,
     );
@@ -428,10 +430,11 @@ pub const ReadFileError = error{
 
 /// If buffer's length exceeds what a Windows DWORD integer can hold, it will be broken into
 /// multiple non-atomic reads.
-pub fn ReadFile(in_hFile: HANDLE, buffer: []u8, offset: ?u64) ReadFileError!usize {
-    if (std.event.Loop.instance) |loop| {
+pub fn ReadFile(in_hFile: HANDLE, buffer: []u8, offset: ?u64, enable_async_io: bool) ReadFileError!usize {
+    if (std.event.Loop.instance != null and enable_async_io) {
+        const loop = std.event.Loop.instance.?;
         // TODO support async ReadFile with no offset
-        const off = offset.?;
+        const off = if (offset == null) 0 else offset.?;
         var resume_node = std.event.Loop.ResumeNode.Basic{
             .base = .{
                 .id = .Basic,
@@ -446,20 +449,20 @@ pub fn ReadFile(in_hFile: HANDLE, buffer: []u8, offset: ?u64) ReadFileError!usiz
             },
         };
         // TODO only call create io completion port once per fd
-        _ = windows.CreateIoCompletionPort(fd, loop.os_data.io_port, undefined, undefined) catch undefined;
+        _ = CreateIoCompletionPort(in_hFile, loop.os_data.io_port, undefined, undefined) catch undefined;
         loop.beginOneEvent();
         suspend {
             // TODO handle buffer bigger than DWORD can hold
-            _ = windows.kernel32.ReadFile(fd, buffer.ptr, @intCast(windows.DWORD, buffer.len), null, &resume_node.base.overlapped);
+            _ = kernel32.ReadFile(in_hFile, buffer.ptr, @intCast(DWORD, buffer.len), null, &resume_node.base.overlapped);
         }
-        var bytes_transferred: windows.DWORD = undefined;
-        if (windows.kernel32.GetOverlappedResult(fd, &resume_node.base.overlapped, &bytes_transferred, windows.FALSE) == 0) {
-            switch (windows.kernel32.GetLastError()) {
+        var bytes_transferred: DWORD = undefined;
+        if (kernel32.GetOverlappedResult(in_hFile, &resume_node.base.overlapped, &bytes_transferred, FALSE) == 0) {
+            switch (kernel32.GetLastError()) {
                 .IO_PENDING => unreachable,
                 .OPERATION_ABORTED => return error.OperationAborted,
                 .BROKEN_PIPE => return error.BrokenPipe,
                 .HANDLE_EOF => return @as(usize, bytes_transferred),
-                else => |err| return windows.unexpectedError(err),
+                else => |err| return unexpectedError(err),
             }
         }
         return @as(usize, bytes_transferred);
@@ -501,10 +504,11 @@ pub const WriteFileError = error{
     Unexpected,
 };
 
-pub fn WriteFile(handle: HANDLE, bytes: []const u8, offset: ?u64) WriteFileError!usize {
-    if (std.event.Loop.instance) |loop| {
+pub fn WriteFile(handle: HANDLE, bytes: []const u8, offset: ?u64, enable_async_io: bool) WriteFileError!usize {
+    if (std.event.Loop.instance != null and enable_async_io) {
+        const loop = std.event.Loop.instance.?;
         // TODO support async WriteFile with no offset
-        const off = offset.?;
+        const off = if (offset == null) 0 else offset.?;
         var resume_node = std.event.Loop.ResumeNode.Basic{
             .base = .{
                 .id = .Basic,
@@ -519,14 +523,14 @@ pub fn WriteFile(handle: HANDLE, bytes: []const u8, offset: ?u64) WriteFileError
             },
         };
         // TODO only call create io completion port once per fd
-        _ = CreateIoCompletionPort(fd, loop.os_data.io_port, undefined, undefined);
+        _ = CreateIoCompletionPort(handle, loop.os_data.io_port, undefined, undefined) catch undefined;
         loop.beginOneEvent();
         suspend {
-            const adjusted_len = math.cast(windows.DWORD, bytes.len) catch maxInt(windows.DWORD);
-            _ = kernel32.WriteFile(fd, bytes.ptr, adjusted_len, null, &resume_node.base.overlapped);
+            const adjusted_len = math.cast(DWORD, bytes.len) catch maxInt(DWORD);
+            _ = kernel32.WriteFile(handle, bytes.ptr, adjusted_len, null, &resume_node.base.overlapped);
         }
-        var bytes_transferred: windows.DWORD = undefined;
-        if (kernel32.GetOverlappedResult(fd, &resume_node.base.overlapped, &bytes_transferred, FALSE) == 0) {
+        var bytes_transferred: DWORD = undefined;
+        if (kernel32.GetOverlappedResult(handle, &resume_node.base.overlapped, &bytes_transferred, FALSE) == 0) {
             switch (kernel32.GetLastError()) {
                 .IO_PENDING => unreachable,
                 .INVALID_USER_BUFFER => return error.SystemResources,
@@ -534,7 +538,7 @@ pub fn WriteFile(handle: HANDLE, bytes: []const u8, offset: ?u64) WriteFileError
                 .OPERATION_ABORTED => return error.OperationAborted,
                 .NOT_ENOUGH_QUOTA => return error.SystemResources,
                 .BROKEN_PIPE => return error.BrokenPipe,
-                else => |err| return windows.unexpectedError(err),
+                else => |err| return unexpectedError(err),
             }
         }
         return bytes_transferred;

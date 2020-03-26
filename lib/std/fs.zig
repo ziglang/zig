@@ -613,9 +613,14 @@ pub const Dir = struct {
         const access_mask = w.SYNCHRONIZE |
             (if (flags.read) @as(u32, w.GENERIC_READ) else 0) |
             (if (flags.write) @as(u32, w.GENERIC_WRITE) else 0);
+        const enable_async_io = std.io.is_async and !flags.always_blocking;
         return @as(File, .{
-            .handle = try os.windows.OpenFileW(self.fd, sub_path_w, null, access_mask, w.FILE_OPEN),
+            .handle = try os.windows.OpenFileW(self.fd, sub_path_w, null, access_mask, w.FILE_OPEN, enable_async_io),
             .io_mode = .blocking,
+            .async_block_allowed = if (flags.always_blocking)
+                File.async_block_allowed_yes
+            else
+                File.async_block_allowed_no,
         });
     }
 
@@ -662,7 +667,7 @@ pub const Dir = struct {
         else
             @as(u32, w.FILE_OPEN_IF);
         return @as(File, .{
-            .handle = try os.windows.OpenFileW(self.fd, sub_path_w, null, access_mask, creation),
+            .handle = try os.windows.OpenFileW(self.fd, sub_path_w, null, access_mask, creation, std.io.is_async),
             .io_mode = .blocking,
         });
     }
