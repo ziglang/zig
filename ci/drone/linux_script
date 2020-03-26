@@ -3,16 +3,15 @@
 set -x
 set -e
 
-echo "=2================================="
+echo "==== 0"
 
 cat /etc/issue
 uname -a
 ulimit -a
 df -h
-cat /proc/meminfo
-cat /proc/cpuinfo
+lscpu
 
-echo "==================================="
+echo "==== 1"
 
 TRIPLEARCH="$(uname -m)"
 BUILDDIR="$(pwd)"
@@ -30,7 +29,20 @@ mkdir build
 cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release "-DCMAKE_INSTALL_PREFIX=$DISTDIR" -DZIG_STATIC=ON -DCMAKE_PREFIX_PATH=/deps/local
 
-make -j$(nproc) install
+echo "==== 2"
+make -j$(nproc) zig0
+file zig0
+ls -al zig0
+ldd zig0
+readelf zig0
+
+echo "==== 4"
+./zig0 version
+
+echo "==== 5"
+./zig0 targets
+exit
+
 ./zig build test-fmt test-behavior test-std test-compiler-rt -Dskip-release -Dskip-non-native
 # TODO test-compare-output is hitting https://github.com/ziglang/zig/issues/3526
 ./zig build test-standalone test-stack-traces
