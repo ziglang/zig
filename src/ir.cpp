@@ -13028,6 +13028,9 @@ static IrInstGen *ir_const_fn(IrAnalyze *ira, IrInst *source_instr, ZigFn *fn_en
 static IrInstGen *ir_const_bound_fn(IrAnalyze *ira, IrInst *src_inst, ZigFn *fn_entry, IrInstGen *first_arg,
         IrInst *first_arg_src)
 {
+    // This is unfortunately required to avoid improperly freeing first_arg_src
+    ira_ref(ira);
+
     IrInstGen *result = ir_const(ira, src_inst, get_bound_fn_type(ira->codegen, fn_entry));
     result->value->data.x_bound_fn.fn = fn_entry;
     result->value->data.x_bound_fn.first_arg = first_arg;
