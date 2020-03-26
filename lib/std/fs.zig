@@ -118,38 +118,30 @@ pub fn copyFileAbsolute(source_path: []const u8, dest_path: []const u8, args: Co
 /// TODO update this API to avoid a getrandom syscall for every operation.
 pub const AtomicFile = struct {
     file: File,
-    tmp_path_buf: [MAX_PATH_BYTES - 1:0]u8,
+    // TODO either replace this with rand_buf or use []u16 on Windows
+    tmp_path_buf: [TMP_PATH_LEN:0]u8,
     dest_path: []const u8,
     file_open: bool,
     file_exists: bool,
+    close_dir_on_deinit: bool,
     dir: Dir,
 
     const InitError = File.OpenError;
 
+    const TMP_PATH_LEN = base64.Base64Encoder.calcSize(12);
+
     /// TODO rename this. Callers should go through Dir API
-    pub fn init2(dest_path: []const u8, mode: File.Mode, dir: Dir) InitError!AtomicFile {
-        const dirname = path.dirname(dest_path);
+    pub fn init2(dest_path: []const u8, mode: File.Mode, dir: Dir, close_dir_on_deinit: bool) InitError!AtomicFile {
         var rand_buf: [12]u8 = undefined;
-        const dirname_component_len = if (dirname) |d| d.len + 1 else 0;
-        const encoded_rand_len = comptime base64.Base64Encoder.calcSize(rand_buf.len);
-        const tmp_path_len = dirname_component_len + encoded_rand_len;
-        var tmp_path_buf: [MAX_PATH_BYTES - 1:0]u8 = undefined;
-        if (tmp_path_len > tmp_path_buf.len) return error.NameTooLong;
-
-        if (dirname) |dn| {
-            mem.copy(u8, tmp_path_buf[0..], dn);
-            tmp_path_buf[dn.len] = path.sep;
-        }
-
-        tmp_path_buf[tmp_path_len] = 0;
-        const tmp_path_slice = tmp_path_buf[0..tmp_path_len :0];
+        var tmp_path_buf: [TMP_PATH_LEN:0]u8 = undefined;
+        tmp_path_buf[base64.Base64Encoder.calcSize(12)] = 0;
 
         while (true) {
             try crypto.randomBytes(rand_buf[0..]);
-            base64_encoder.encode(tmp_path_slice[dirname_component_len..tmp_path_len], &rand_buf);
+            base64_encoder.encode(&tmp_path_buf, &rand_buf);
 
             const file = dir.createFileC(
-                tmp_path_slice,
+                &tmp_path_buf,
                 .{ .mode = mode, .exclusive = true },
             ) catch |err| switch (err) {
                 error.PathAlreadyExists => continue,
@@ -162,6 +154,7 @@ pub const AtomicFile = struct {
                 .dest_path = dest_path,
                 .file_open = true,
                 .file_exists = true,
+                .close_dir_on_deinit = close_dir_on_deinit,
                 .dir = dir,
             };
         }
@@ -169,7 +162,7 @@ pub const AtomicFile = struct {
 
     /// Deprecated. Use `Dir.atomicFile`.
     pub fn init(dest_path: []const u8, mode: File.Mode) InitError!AtomicFile {
-        return init2(dest_path, mode, cwd());
+        return cwd().atomicFile(dest_path, .{ .mode = mode });
     }
 
     /// always call deinit, even after successful finish()
@@ -181,6 +174,9 @@ pub const AtomicFile = struct {
         if (self.file_exists) {
             self.dir.deleteFileC(&self.tmp_path_buf) catch {};
             self.file_exists = false;
+        }
+        if (self.close_dir_on_deinit) {
+            self.dir.close();
         }
         self.* = undefined;
     }
@@ -1281,7 +1277,12 @@ pub const Dir = struct {
     /// `dest_path` must remain valid for the lifetime of `AtomicFile`.
     /// Call `AtomicFile.finish` to atomically replace `dest_path` with contents.
     pub fn atomicFile(self: Dir, dest_path: []const u8, options: AtomicFileOptions) !AtomicFile {
-        return AtomicFile.init2(dest_path, options.mode, self);
+        if (path.dirname(dest_path)) |dirname| {
+            const dir = try self.openDir(dirname, .{});
+            return AtomicFile.init2(path.basename(dest_path), options.mode, dir, true);
+        } else {
+            return AtomicFile.init2(dest_path, options.mode, self, false);
+        }
     }
 };
 
