@@ -1325,7 +1325,15 @@ static int main0(int argc, char **argv) {
                 return print_error_usage(arg0);
             }
 
-            if (target.is_native && link_libs.length != 0) {
+            bool any_non_c_link_libs = false;
+            for (size_t i = 0; i < link_libs.length; i += 1) {
+                if (!target_is_libc_lib_name(&target, link_libs.at(i))) {
+                    any_non_c_link_libs = true;
+                    break;
+                }
+            }
+
+            if (target.is_native_os && any_non_c_link_libs) {
                 Error err;
                 Stage2NativePaths paths;
                 if ((err = stage2_detect_native_paths(&paths))) {
@@ -1338,7 +1346,7 @@ static int main0(int argc, char **argv) {
                 }
                 for (size_t i = 0; i < paths.include_dirs_len; i += 1) {
                     const char *include_dir = paths.include_dirs_ptr[i];
-                    clang_argv.append("-I");
+                    clang_argv.append("-isystem");
                     clang_argv.append(include_dir);
                 }
                 for (size_t i = 0; i < paths.lib_dirs_len; i += 1) {

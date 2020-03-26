@@ -181,7 +181,8 @@ static void get_native_target(ZigTarget *target) {
             &target->abi,
             &oformat);
     target->os = get_zig_os_type(os_type);
-    target->is_native = true;
+    target->is_native_os = true;
+    target->is_native_cpu = true;
     if (target->abi == ZigLLVM_UnknownEnvironment) {
         target->abi = target_default_abi(target->arch, target->os);
     }
@@ -204,7 +205,8 @@ Error stage2_target_parse(struct ZigTarget *target, const char *zig_triple, cons
             target->llvm_cpu_features = ZigLLVMGetNativeFeatures();
             target->cache_hash = "native\n\n";
         } else if (strcmp(mcpu, "baseline") == 0) {
-            target->is_native = false;
+            target->is_native_os = false;
+            target->is_native_cpu = false;
             target->llvm_cpu_name = "";
             target->llvm_cpu_features = "";
             target->cache_hash = "baseline\n\n";

@@ -1239,7 +1239,8 @@ void target_libc_enum(size_t index, ZigTarget *out_target) {
     out_target->os = libcs_available[index].os;
     out_target->abi = libcs_available[index].abi;
     out_target->vendor = ZigLLVM_UnknownVendor;
-    out_target->is_native = false;
+    out_target->is_native_os = false;
+    out_target->is_native_cpu = false;
 }
 
 bool target_has_debug_info(const ZigTarget *target) {

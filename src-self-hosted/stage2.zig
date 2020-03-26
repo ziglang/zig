@@ -898,7 +898,8 @@ const Stage2Target = extern struct {
     abi: c_int,
     os: c_int,
 
-    is_native: bool,
+    is_native_os: bool,
+    is_native_cpu: bool,
 
     glibc_or_darwin_version: ?*Stage2SemVer,
 
@@ -1166,7 +1167,8 @@ const Stage2Target = extern struct {
             .os_builtin_str = os_builtin_str_buffer.toOwnedSlice().ptr,
             .cache_hash = cache_hash_slice.ptr,
             .cache_hash_len = cache_hash_slice.len,
-            .is_native = cross_target.isNative(),
+            .is_native_os = cross_target.isNativeOs(),
+            .is_native_cpu = cross_target.isNativeCpu(),
             .glibc_or_darwin_version = glibc_or_darwin_version,
             .dynamic_linker = dynamic_linker,
             .standard_dynamic_linker_path = std_dl_z,

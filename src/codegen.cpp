@@ -8782,7 +8782,8 @@ static Error define_builtin_compile_vars(CodeGen *g) {
     cache_bool(&cache_hash, g->is_single_threaded);
     cache_bool(&cache_hash, g->test_is_evented);
     cache_int(&cache_hash, g->code_model);
-    cache_int(&cache_hash, g->zig_target->is_native);
+    cache_int(&cache_hash, g->zig_target->is_native_os);
+    cache_int(&cache_hash, g->zig_target->is_native_cpu);
     cache_int(&cache_hash, g->zig_target->arch);
     cache_int(&cache_hash, g->zig_target->vendor);
     cache_int(&cache_hash, g->zig_target->os);
@@ -8917,7 +8918,7 @@ static void init(CodeGen *g) {
     const char *target_specific_cpu_args = "";
     const char *target_specific_features = "";
 
-    if (g->zig_target->is_native) {
+    if (g->zig_target->is_native_cpu) {
         target_specific_cpu_args = ZigLLVMGetHostCPUName();
         target_specific_features = ZigLLVMGetNativeFeatures();
     }
@@ -9034,7 +9035,7 @@ static void detect_libc(CodeGen *g) {
         return;
     }
 
-    if (g->zig_target->is_native) {
+    if (g->zig_target->is_native_os) {
         g->libc = heap::c_allocator.create<Stage2LibCInstallation>();
 
         // search for native_libc.txt in following dirs:
@@ -9672,7 +9673,8 @@ Error create_c_object_cache(CodeGen *g, CacheHash **out_cache_hash, bool verbose
     cache_int(cache_hash, g->err_color);
     cache_buf(cache_hash, g->zig_c_headers_dir);
     cache_list_of_str(cache_hash, g->libc_include_dir_list, g->libc_include_dir_len);
-    cache_int(cache_hash, g->zig_target->is_native);
+    cache_int(cache_hash, g->zig_target->is_native_os);
+    cache_int(cache_hash, g->zig_target->is_native_cpu);
     cache_int(cache_hash, g->zig_target->arch);
     cache_int(cache_hash, g->zig_target->vendor);
     cache_int(cache_hash, g->zig_target->os);
@@ -10474,7 +10476,8 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     cache_list_of_buf(ch, g->forbidden_libs.items, g->forbidden_libs.length);
     cache_int(ch, g->build_mode);
     cache_int(ch, g->out_type);
-    cache_bool(ch, g->zig_target->is_native);
+    cache_bool(ch, g->zig_target->is_native_os);
+    cache_bool(ch, g->zig_target->is_native_cpu);
     cache_int(ch, g->zig_target->arch);
     cache_int(ch, g->zig_target->vendor);
     cache_int(ch, g->zig_target->os);
@@ -10941,7 +10944,7 @@ CodeGen *codegen_create(Buf *main_pkg_path, Buf *root_src_path, const ZigTarget 
     os_path_join(g->zig_std_dir, buf_sprintf("special"), g->zig_std_special_dir);
 
     assert(target != nullptr);
-    if (!target->is_native) {
+    if (!target->is_native_os) {
         g->each_lib_rpath = false;
     } else {
         g->each_lib_rpath = true;
