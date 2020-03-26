@@ -35,18 +35,19 @@ pwd
 make -j$(nproc) zig0
 ls -al zig0
 ldd zig0
-readelf -a zig0
+readelf -hlS zig0
 ./zig0 version
 
 echo "==== 3"
 make -j$(nproc) zig
 ls -al zig
 ldd zig
-readelf -a zig
+readelf -hlS zig
 ./zig version
 ./zig targets
 
 echo "==== 4"
+make -j$(nproc) install
 exit
 
 ./zig build test-fmt test-behavior test-std test-compiler-rt -Dskip-release -Dskip-non-native
