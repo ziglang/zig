@@ -3,6 +3,15 @@
 set -x
 set -e
 
+TRIPLEARCH="$(uname -m)"
+BUILDDIR="$(pwd)"
+DISTDIR="$(pwd)/dist"
+
+apk update
+apk add py3-pip xz perl-utils jq curl
+apk add util-linux
+pip3 install s3cmd
+
 echo "==== 0"
 
 cat /etc/issue
@@ -12,14 +21,6 @@ df -h
 lscpu
 
 echo "==== 1"
-
-TRIPLEARCH="$(uname -m)"
-BUILDDIR="$(pwd)"
-DISTDIR="$(pwd)/dist"
-
-apk update
-apk add py3-pip xz perl-utils jq curl
-pip3 install s3cmd
 
 # Make the `zig version` number consistent.
 # This will affect the cmake command below.
