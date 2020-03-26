@@ -3,6 +3,15 @@
 set -x
 set -e
 
+echo "==================================="
+cat /etc/issue
+uname -a
+ulimit -a
+df -h
+cat /proc/meminfo
+cat /proc/cpuinfo
+echo "==================================="
+
 TRIPLEARCH="$(uname -m)"
 BUILDDIR="$(pwd)"
 DISTDIR="$(pwd)/dist"
