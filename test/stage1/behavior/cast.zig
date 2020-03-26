@@ -462,10 +462,10 @@ fn foobar(func: PFN_void) void {
 
 test "implicit ptr to *c_void" {
     var a: u32 = 1;
-    var ptr: *c_void = &a;
+    var ptr: *align(@alignOf(u32)) c_void = &a;
     var b: *u32 = @ptrCast(*u32, ptr);
     expect(b.* == 1);
-    var ptr2: ?*c_void = &a;
+    var ptr2: ?*align(@alignOf(u32)) c_void = &a;
     var c: *u32 = @ptrCast(*u32, ptr2.?);
     expect(c.* == 1);
 }

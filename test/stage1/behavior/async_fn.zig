@@ -1547,3 +1547,19 @@ test "noasync on function calls" {
     expectEqual(@as(i32, 42), noasync S1.c().b);
     expectEqual(@as(i32, 42), (try noasync S1.d()).b);
 }
+
+test "avoid forcing frame alignment resolution implicit cast to *c_void" {
+    const S = struct {
+        var x: ?*c_void = null;
+
+        fn foo() bool {
+            suspend {
+                x = @frame();
+            }
+            return true;
+        }
+    };
+    var frame = async S.foo();
+    resume @ptrCast(anyframe->bool, @alignCast(@alignOf(@Frame(S.foo)), S.x));
+    expect(noasync await frame);
+}
