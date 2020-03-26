@@ -9,7 +9,7 @@ DISTDIR="$(pwd)/dist"
 
 apk update
 apk add py3-pip xz perl-utils jq curl
-apk add util-linux
+apk add file util-linux musl-utils
 pip3 install s3cmd
 
 echo "==== 0"
@@ -33,19 +33,16 @@ cmake .. -DCMAKE_BUILD_TYPE=Release "-DCMAKE_INSTALL_PREFIX=$DISTDIR" -DZIG_STAT
 echo "==== 2"
 pwd
 make -j$(nproc) zig0
-ls -al
-file ./zig0
-ls -al ./zig0
-ldd ./zig0
-readelf ./zig0
+ls -al zig0
+ldd zig0
+readelf zig0
 ./zig0 version
 
 echo "==== 3"
 make -j$(nproc) zig
-file ./zig
-ls -al ./zig
-ldd ./zig
-readelf ./zig
+ls -al zig
+ldd zig
+readelf zig
 ./zig version
 ./zig targets
 
