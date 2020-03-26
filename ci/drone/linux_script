@@ -28,29 +28,26 @@ git config core.abbrev 9
 
 mkdir build
 cd build
-cmake .. -DCMAKE_BUILD_TYPE=Release "-DCMAKE_INSTALL_PREFIX=$DISTDIR" -DZIG_STATIC=ON -DCMAKE_PREFIX_PATH=/deps/local
+cmake .. -DCMAKE_BUILD_TYPE=Release "-DCMAKE_INSTALL_PREFIX=$DISTDIR" -DZIG_STATIC=ON -DCMAKE_PREFIX_PATH=/deps/local -DCMAKE_VERBOSE_MAKEFILE=1
 
 echo "==== 2"
 pwd
 make -j$(nproc) zig0
-cd /drone/src/build
-file zig0
-ls -al zig0
-ldd zig0
-readelf zig0
+ls -al
+file ./zig0
+ls -al ./zig0
+ldd ./zig0
+readelf ./zig0
 ./zig0 version
-cd -
 
 echo "==== 3"
 make -j$(nproc) zig
-cd /drone/src/build
-file zig
-ls -al zig
-ldd zig
-readelf zig
+file ./zig
+ls -al ./zig
+ldd ./zig
+readelf ./zig
 ./zig version
 ./zig targets
-cd -
 
 echo "==== 4"
 exit
