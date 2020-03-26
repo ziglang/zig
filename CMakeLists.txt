@@ -90,30 +90,18 @@ include_directories(${CLANG_INCLUDE_DIRS})
 
 # No patches have been applied to SoftFloat-3e
 set(EMBEDDED_SOFTFLOAT_SOURCES
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/ARM-VFPv2/extF80M_isSignalingNaN.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/ARM-VFPv2/f128M_isSignalingNaN.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/ARM-VFPv2/s_commonNaNToExtF80M.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/ARM-VFPv2/s_commonNaNToExtF80UI.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/ARM-VFPv2/s_commonNaNToF128M.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/ARM-VFPv2/s_commonNaNToF128UI.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/ARM-VFPv2/s_commonNaNToF16UI.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/ARM-VFPv2/s_commonNaNToF32UI.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/ARM-VFPv2/s_commonNaNToF64UI.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/ARM-VFPv2/s_extF80MToCommonNaN.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/ARM-VFPv2/s_extF80UIToCommonNaN.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/ARM-VFPv2/s_f128MToCommonNaN.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/ARM-VFPv2/s_f128UIToCommonNaN.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/ARM-VFPv2/s_f16UIToCommonNaN.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/ARM-VFPv2/s_f32UIToCommonNaN.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/ARM-VFPv2/s_f64UIToCommonNaN.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/ARM-VFPv2/s_propagateNaNExtF80M.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/ARM-VFPv2/s_propagateNaNExtF80UI.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/ARM-VFPv2/s_propagateNaNF128M.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/ARM-VFPv2/s_propagateNaNF128UI.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/ARM-VFPv2/s_propagateNaNF16UI.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/ARM-VFPv2/s_propagateNaNF32UI.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/ARM-VFPv2/s_propagateNaNF64UI.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/ARM-VFPv2/softfloat_raiseFlags.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/8086/f128M_isSignalingNaN.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/8086/s_commonNaNToF128M.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/8086/s_commonNaNToF16UI.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/8086/s_commonNaNToF32UI.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/8086/s_commonNaNToF64UI.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/8086/s_f128MToCommonNaN.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/8086/s_f16UIToCommonNaN.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/8086/s_f32UIToCommonNaN.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/8086/s_f64UIToCommonNaN.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/8086/s_propagateNaNF128M.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/8086/s_propagateNaNF16UI.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/8086/softfloat_raiseFlags.c"
     "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/f128M_add.c"
     "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/f128M_div.c"
     "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/f128M_eq.c"
@@ -242,7 +230,7 @@ else()
 endif()
 target_include_directories(embedded_softfloat PUBLIC
     "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e-prebuilt"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/ARM-VFPv2"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/8086"
 )
 include_directories("${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/include")
 set(SOFTFLOAT_LIBRARIES embedded_softfloat)
