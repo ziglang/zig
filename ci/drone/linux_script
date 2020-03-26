@@ -32,16 +32,26 @@ cmake .. -DCMAKE_BUILD_TYPE=Release "-DCMAKE_INSTALL_PREFIX=$DISTDIR" -DZIG_STAT
 
 echo "==== 2"
 make -j$(nproc) zig0
+pushd /drone/src/build
 file zig0
 ls -al zig0
 ldd zig0
 readelf zig0
+./zig0 version
+popd
+
+echo "==== 3"
+make -j$(nproc) zig
+pushd /drone/src/build
+file zig
+ls -al zig
+ldd zig
+readelf zig
+./zig version
+./zig targets
+popd
 
 echo "==== 4"
-./zig0 version
-
-echo "==== 5"
-./zig0 targets
 exit
 
 ./zig build test-fmt test-behavior test-std test-compiler-rt -Dskip-release -Dskip-non-native
