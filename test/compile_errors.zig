@@ -2184,7 +2184,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add("don't implicit cast double pointer to *c_void",
         \\export fn entry() void {
         \\    var a: u32 = 1;
-        \\    var ptr: *c_void = &a;
+        \\    var ptr: *align(@alignOf(u32)) c_void = &a;
         \\    var b: *u32 = @ptrCast(*u32, ptr);
         \\    var ptr2: *c_void = &b;
         \\}
