@@ -27759,6 +27759,13 @@ static IrInstGen *ir_align_cast(IrAnalyze *ira, IrInstGen *target, uint32_t alig
         old_align_bytes = fn_type_id.alignment;
         fn_type_id.alignment = align_bytes;
         result_type = get_fn_type(ira->codegen, &fn_type_id);
+    } else if (target_type->id == ZigTypeIdAnyFrame) {
+        if (align_bytes >= target_fn_align(ira->codegen->zig_target)) {
+            result_type = target_type;
+        } else {
+            ir_add_error(ira, &target->base, buf_sprintf("sub-aligned anyframe not allowed"));
+            return ira->codegen->invalid_inst_gen;
+        }
     } else if (target_type->id == ZigTypeIdOptional &&
             target_type->data.maybe.child_type->id == ZigTypeIdPointer)
     {
