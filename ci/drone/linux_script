@@ -35,14 +35,14 @@ pwd
 make -j$(nproc) zig0
 ls -al zig0
 ldd zig0
-readelf zig0
+readelf -a zig0
 ./zig0 version
 
 echo "==== 3"
 make -j$(nproc) zig
 ls -al zig
 ldd zig
-readelf zig
+readelf -a zig
 ./zig version
 ./zig targets
 
