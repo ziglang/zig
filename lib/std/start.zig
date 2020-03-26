@@ -152,7 +152,13 @@ fn posixCallMainAndExit() noreturn {
         const auxv = @ptrCast([*]std.elf.Auxv, @alignCast(@alignOf(usize), envp.ptr + envp_count + 1));
         std.os.linux.elf_aux_maybe = auxv;
         // Initialize the TLS area
-        std.os.linux.tls.initStaticTLS();
+        const gnu_stack_phdr = std.os.linux.tls.initTLS() orelse @panic("ELF missing stack size");
+
+        if (std.os.linux.tls.tls_image) |tls_img| {
+            const tls_addr = std.os.linux.tls.allocateTLS(tls_img.alloc_size);
+            const tp = std.os.linux.tls.copyTLS(tls_addr);
+            std.os.linux.tls.setThreadPointer(tp);
+        }
 
         // TODO This is disabled because what should we do when linking libc and this code
         // does not execute? And also it's causing a test failure in stack traces in release modes.
