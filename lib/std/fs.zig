@@ -63,7 +63,7 @@ pub fn atomicSymLink(allocator: *Allocator, existing_path: []const u8, new_path:
 
     const dirname = path.dirname(new_path) orelse ".";
 
-    var rand_buf: [12]u8 = undefined;
+    var rand_buf: [AtomicFile.RANDOM_BYTES]u8 = undefined;
     const tmp_path = try allocator.alloc(u8, dirname.len + 1 + base64.Base64Encoder.calcSize(rand_buf.len));
     defer allocator.free(tmp_path);
     mem.copy(u8, tmp_path[0..], dirname);
@@ -128,13 +128,14 @@ pub const AtomicFile = struct {
 
     const InitError = File.OpenError;
 
-    const TMP_PATH_LEN = base64.Base64Encoder.calcSize(12);
+    const RANDOM_BYTES = 12;
+    const TMP_PATH_LEN = base64.Base64Encoder.calcSize(RANDOM_BYTES);
 
     /// TODO rename this. Callers should go through Dir API
     pub fn init2(dest_path: []const u8, mode: File.Mode, dir: Dir, close_dir_on_deinit: bool) InitError!AtomicFile {
-        var rand_buf: [12]u8 = undefined;
+        var rand_buf: [RANDOM_BYTES]u8 = undefined;
         var tmp_path_buf: [TMP_PATH_LEN:0]u8 = undefined;
-        tmp_path_buf[base64.Base64Encoder.calcSize(12)] = 0;
+        tmp_path_buf[base64.Base64Encoder.calcSize(RANDOM_BYTES)] = 0;
 
         while (true) {
             try crypto.randomBytes(rand_buf[0..]);
