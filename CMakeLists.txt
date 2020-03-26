@@ -242,7 +242,7 @@ else()
 endif()
 target_include_directories(embedded_softfloat PUBLIC
     "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e-prebuilt"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/8086"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/ARM-VFPv2"
 )
 include_directories("${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/include")
 set(SOFTFLOAT_LIBRARIES embedded_softfloat)
