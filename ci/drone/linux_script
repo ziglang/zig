@@ -11,6 +11,9 @@ apk update
 apk add py3-pip xz perl-utils jq curl
 pip3 install s3cmd
 
+apk add file util-linux musl-utils
+lscpu
+
 # Make the `zig version` number consistent.
 # This will affect the cmake command below.
 git config core.abbrev 9
