@@ -6,7 +6,7 @@ const File = std.fs.File;
 test "openSelfExe" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
-    const self_exe_file = try std.fs.openSelfExe();
+    const self_exe_file = try std.fs.openSelfExe(.{});
     self_exe_file.close();
 }
 

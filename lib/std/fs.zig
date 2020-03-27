@@ -1778,21 +1778,21 @@ pub fn walkPath(allocator: *Allocator, dir_path: []const u8) !Walker {
 
 pub const OpenSelfExeError = os.OpenError || os.windows.CreateFileError || SelfExePathError || os.FlockError;
 
-pub fn openSelfExe() OpenSelfExeError!File {
+pub fn openSelfExe(flags: File.OpenFlags) OpenSelfExeError!File {
     if (builtin.os.tag == .linux) {
-        return openFileAbsoluteZ("/proc/self/exe", .{});
+        return openFileAbsoluteZ("/proc/self/exe", flags);
     }
     if (builtin.os.tag == .windows) {
         const wide_slice = selfExePathW();
         const prefixed_path_w = try os.windows.wToPrefixedFileW(wide_slice);
-        return cwd().openFileW(prefixed_path_w.span(), .{});
+        return cwd().openFileW(prefix_path_w.span(), flags);
     }
     // Use of MAX_PATH_BYTES here is valid as the resulting path is immediately
     // opened with no modification.
     var buf: [MAX_PATH_BYTES]u8 = undefined;
     const self_exe_path = try selfExePath(&buf);
     buf[self_exe_path.len] = 0;
-    return openFileAbsoluteZ(buf[0..self_exe_path.len :0].ptr, .{});
+    return openFileAbsoluteZ(self_exe_path[0..self_exe_path.len :0].ptr, flags);
 }
 
 pub const SelfExePathError = os.ReadLinkError || os.SysCtlError;
