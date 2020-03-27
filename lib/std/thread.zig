@@ -286,38 +286,74 @@ pub const Thread = struct {
             }
             // Finally, the Thread Local Storage, if any.
             if (!Thread.use_pthreads) {
-                if (os.linux.tls.tls_image) |tls_img| {
-                    l = mem.alignForward(l, @alignOf(usize));
-                    tls_start_offset = l;
-                    l += tls_img.alloc_size;
-                }
+                // XXX: Is this alignment enough?
+                l = mem.alignForward(l, @alignOf(usize));
+                tls_start_offset = l;
+                l += os.linux.tls.tls_image.alloc_size;
             }
-            break :blk l;
+            // Round the size to the page size.
+            break :blk mem.alignForward(l, mem.page_size);
         };
-        // Map the whole stack with no rw permissions to avoid committing the
-        // whole region right away
-        const mmap_slice = os.mmap(
-            null,
-            mem.alignForward(mmap_len, mem.page_size),
-            os.PROT_NONE,
-            os.MAP_PRIVATE | os.MAP_ANONYMOUS,
-            -1,
-            0,
-        ) catch |err| switch (err) {
-            error.MemoryMappingNotSupported => unreachable,
-            error.AccessDenied => unreachable,
-            error.PermissionDenied => unreachable,
-            else => |e| return e,
-        };
-        errdefer os.munmap(mmap_slice);
 
-        // Map everything but the guard page as rw
-        os.mprotect(
-            mmap_slice,
-            os.PROT_READ | os.PROT_WRITE,
-        ) catch |err| switch (err) {
-            error.AccessDenied => unreachable,
-            else => |e| return e,
+        const mmap_slice = mem: {
+            if (std.Target.current.os.tag != .netbsd) {
+                // Map the whole stack with no rw permissions to avoid
+                // committing the whole region right away
+                const mmap_slice = os.mmap(
+                    null,
+                    mmap_len,
+                    os.PROT_NONE,
+                    os.MAP_PRIVATE | os.MAP_ANONYMOUS,
+                    -1,
+                    0,
+                ) catch |err| switch (err) {
+                    error.MemoryMappingNotSupported => unreachable,
+                    error.AccessDenied => unreachable,
+                    error.PermissionDenied => unreachable,
+                    else => |e| return e,
+                };
+                errdefer os.munmap(mmap_slice);
+
+                // Map everything but the guard page as rw
+                os.mprotect(
+                    mmap_slice[guard_end_offset..],
+                    os.PROT_READ | os.PROT_WRITE,
+                ) catch |err| switch (err) {
+                    error.AccessDenied => unreachable,
+                    else => |e| return e,
+                };
+
+                break :mem mmap_slice;
+            } else {
+                // NetBSD mprotect is very strict and doesn't allow to "upgrade"
+                // a PROT_NONE mapping to a RW one so let's allocate everything
+                // right away
+                const mmap_slice = os.mmap(
+                    null,
+                    mmap_len,
+                    os.PROT_READ | os.PROT_WRITE,
+                    os.MAP_PRIVATE | os.MAP_ANONYMOUS,
+                    -1,
+                    0,
+                ) catch |err| switch (err) {
+                    error.MemoryMappingNotSupported => unreachable,
+                    error.AccessDenied => unreachable,
+                    error.PermissionDenied => unreachable,
+                    else => |e| return e,
+                };
+                errdefer os.munmap(mmap_slice);
+
+                // Remap the guard page with no permissions
+                os.mprotect(
+                    mmap_slice[0..guard_end_offset],
+                    os.PROT_NONE,
+                ) catch |err| switch (err) {
+                    error.AccessDenied => unreachable,
+                    else => |e| return e,
+                };
+
+                break :mem mmap_slice;
+            }
         };
 
         const mmap_addr = @ptrToInt(mmap_slice.ptr);
@@ -338,7 +374,17 @@ pub const Thread = struct {
             if (c.pthread_attr_init(&attr) != 0) return error.SystemResources;
             defer assert(c.pthread_attr_destroy(&attr) == 0);
 
-            assert(c.pthread_attr_setstack(&attr, mmap_slice.ptr, stack_end_offset) == 0);
+            // Tell pthread where the effective stack start is and its size
+            assert(c.pthread_attr_setstack(
+                &attr,
+                mmap_slice.ptr + guard_end_offset,
+                stack_end_offset - guard_end_offset,
+            ) == 0);
+            // Even though pthread's man pages state that the guard size is
+            // ignored when the stack address is explicitly given, on some
+            // plaforms such as NetBSD we still have to zero it to prevent
+            // random crashes in pthread_join calls
+            assert(c.pthread_attr_setguardsize(&attr, 0) == 0);
 
             const err = c.pthread_create(&thread_ptr.data.handle, &attr, MainFuncs.posixThreadMain, @intToPtr(*c_void, arg));
             switch (err) {
@@ -349,18 +395,21 @@ pub const Thread = struct {
                 else => return os.unexpectedErrno(@intCast(usize, err)),
             }
         } else if (std.Target.current.os.tag == .linux) {
-            var flags: u32 = os.CLONE_VM | os.CLONE_FS | os.CLONE_FILES | os.CLONE_SIGHAND |
-                os.CLONE_THREAD | os.CLONE_SYSVSEM | os.CLONE_PARENT_SETTID | os.CLONE_CHILD_CLEARTID |
-                os.CLONE_DETACHED;
-            var newtls: usize = undefined;
+            const flags: u32 = os.CLONE_VM | os.CLONE_FS | os.CLONE_FILES |
+                os.CLONE_SIGHAND | os.CLONE_THREAD | os.CLONE_SYSVSEM |
+                os.CLONE_PARENT_SETTID | os.CLONE_CHILD_CLEARTID |
+                os.CLONE_DETACHED | os.CLONE_SETTLS;
             // This structure is only needed when targeting i386
             var user_desc: if (std.Target.current.cpu.arch == .i386) os.linux.user_desc else void = undefined;
 
-            if (os.linux.tls.tls_image) |tls_img| {
+            const tls_area = mmap_slice[tls_start_offset..];
+            const tp_value = os.linux.tls.prepareTLS(tls_area);
+
+            const newtls = blk: {
                 if (std.Target.current.cpu.arch == .i386) {
                     user_desc = os.linux.user_desc{
-                        .entry_number = tls_img.gdt_entry_number,
-                        .base_addr = os.linux.tls.copyTLS(mmap_addr + tls_start_offset),
+                        .entry_number = os.linux.tls.tls_image.gdt_entry_number,
+                        .base_addr = tp_value,
                         .limit = 0xfffff,
                         .seg_32bit = 1,
                         .contents = 0, // Data
@@ -369,12 +418,11 @@ pub const Thread = struct {
                         .seg_not_present = 0,
                         .useable = 1,
                     };
-                    newtls = @ptrToInt(&user_desc);
+                    break :blk @ptrToInt(&user_desc);
                 } else {
-                    newtls = os.linux.tls.copyTLS(mmap_addr + tls_start_offset);
+                    break :blk tp_value;
                 }
-                flags |= os.CLONE_SETTLS;
-            }
+            };
 
             const rc = os.linux.clone(
                 MainFuncs.linuxThreadMain,

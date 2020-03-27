@@ -339,12 +339,10 @@ pub const Dir = struct {
             fn nextBsd(self: *Self) !?Entry {
                 start_over: while (true) {
                     if (self.index >= self.end_index) {
-                        const rc = os.system.getdirentries(
-                            self.dir.fd,
-                            &self.buf,
-                            self.buf.len,
-                            &self.seek,
-                        );
+                        const rc = if (builtin.os.tag == .netbsd)
+                            os.system.__getdents30(self.dir.fd, &self.buf, self.buf.len)
+                        else
+                            os.system.getdents(self.dir.fd, &self.buf, self.buf.len);
                         switch (os.errno(rc)) {
                             0 => {},
                             os.EBADF => unreachable, // Dir is invalid or was opened without iteration ability
@@ -1511,6 +1509,13 @@ test "openSelfExe" {
 
 pub const SelfExePathError = os.ReadLinkError || os.SysCtlError;
 
+/// `selfExePath` except allocates the result on the heap.
+/// Caller owns returned memory.
+pub fn selfExePathAlloc(allocator: *Allocator) ![]u8 {
+    var buf: [MAX_PATH_BYTES]u8 = undefined;
+    return mem.dupe(allocator, u8, try selfExePath(&buf));
+}
+
 /// Get the path to the current executable.
 /// If you only need the directory, use selfExeDirPath.
 /// If you only want an open file handle, use openSelfExe.
@@ -1570,16 +1575,6 @@ pub fn selfExeDirPathAlloc(allocator: *Allocator) ![]u8 {
 /// Get the directory path that contains the current executable.
 /// Returned value is a slice of out_buffer.
 pub fn selfExeDirPath(out_buffer: *[MAX_PATH_BYTES]u8) SelfExePathError![]const u8 {
-    if (builtin.os.tag == .linux) {
-        // If the currently executing binary has been deleted,
-        // the file path looks something like `/a/b/c/exe (deleted)`
-        // This path cannot be opened, but it's valid for determining the directory
-        // the executable was in when it was run.
-        const full_exe_path = try os.readlinkC("/proc/self/exe", out_buffer);
-        // Assume that /proc/self/exe has an absolute path, and therefore dirname
-        // will not return null.
-        return path.dirname(full_exe_path).?;
-    }
     const self_exe_path = try selfExePath(out_buffer);
     // Assume that the OS APIs return absolute paths, and therefore dirname
     // will not return null.
