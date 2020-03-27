@@ -61,11 +61,17 @@ pub const f16_toint = 1.0 / f16_epsilon;
 pub const nan_u16 = @as(u16, 0x7C01);
 pub const nan_f16 = @bitCast(f16, nan_u16);
 
+pub const qnan_u16 = @as(u16, 0x7E00);
+pub const qnan_f16 = @bitCast(f16, qnan_u16);
+
 pub const inf_u16 = @as(u16, 0x7C00);
 pub const inf_f16 = @bitCast(f16, inf_u16);
 
 pub const nan_u32 = @as(u32, 0x7F800001);
 pub const nan_f32 = @bitCast(f32, nan_u32);
+
+pub const qnan_u32 = @as(u32, 0x7FC00000);
+pub const qnan_f32 = @bitCast(f32, qnan_u32);
 
 pub const inf_u32 = @as(u32, 0x7F800000);
 pub const inf_f32 = @bitCast(f32, inf_u32);
@@ -73,11 +79,17 @@ pub const inf_f32 = @bitCast(f32, inf_u32);
 pub const nan_u64 = @as(u64, 0x7FF << 52) | 1;
 pub const nan_f64 = @bitCast(f64, nan_u64);
 
+pub const qnan_u64 = @as(u64, 0x7ff8000000000000);
+pub const qnan_f64 = @bitCast(f64, qnan_u64);
+
 pub const inf_u64 = @as(u64, 0x7FF << 52);
 pub const inf_f64 = @bitCast(f64, inf_u64);
 
 pub const nan_u128 = @as(u128, 0x7fff0000000000000000000000000001);
 pub const nan_f128 = @bitCast(f128, nan_u128);
+
+pub const qnan_u128 = @as(u128, 0x7fff8000000000000000000000000000);
+pub const qnan_f128 = @bitCast(f128, qnan_u128);
 
 pub const inf_u128 = @as(u128, 0x7fff0000000000000000000000000000);
 pub const inf_f128 = @bitCast(f128, inf_u128);
@@ -670,13 +682,12 @@ fn testRem() void {
 
 /// Returns the absolute value of the integer parameter.
 /// Result is an unsigned integer.
-pub fn absCast(x: var) switch(@typeInfo(@TypeOf(x))) {
-        .ComptimeInt => comptime_int,
-        .Int => |intInfo| std.meta.IntType(false, intInfo.bits),
-        else => @compileError("absCast only accepts integers"),
-    }
-{
-    switch(@typeInfo(@TypeOf(x))) {
+pub fn absCast(x: var) switch (@typeInfo(@TypeOf(x))) {
+    .ComptimeInt => comptime_int,
+    .Int => |intInfo| std.meta.IntType(false, intInfo.bits),
+    else => @compileError("absCast only accepts integers"),
+} {
+    switch (@typeInfo(@TypeOf(x))) {
         .ComptimeInt => {
             if (x < 0) {
                 return -x;
