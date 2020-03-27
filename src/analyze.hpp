@@ -260,6 +260,7 @@ ZigLLVMDIType *get_llvm_di_type(CodeGen *g, ZigType *type);
 enum CSourceKind {
     CSourceKindAsm,
     CSourceKindC,
+    CSourceKindCpp,
 };
 
 void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_path, bool translate_c,

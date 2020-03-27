@@ -8448,6 +8448,8 @@ static bool detect_dynamic_link(CodeGen *g) {
         LinkLib *link_lib = g->link_libs_list.at(i);
         if (target_is_libc_lib_name(g->zig_target, buf_ptr(link_lib->name)))
             continue;
+        if (target_is_libcpp_lib_name(g->zig_target, buf_ptr(link_lib->name)))
+            continue;
         return true;
     }
     return false;
@@ -8782,6 +8784,8 @@ static Error define_builtin_compile_vars(CodeGen *g) {
     cache_bool(&cache_hash, g->is_test_build);
     cache_bool(&cache_hash, g->is_single_threaded);
     cache_bool(&cache_hash, g->test_is_evented);
+    cache_bool(&cache_hash, g->cpp_rtti);
+    cache_bool(&cache_hash, g->cpp_exceptions);
     cache_int(&cache_hash, g->code_model);
     cache_int(&cache_hash, g->zig_target->is_native_os);
     cache_int(&cache_hash, g->zig_target->is_native_cpu);
@@ -9181,7 +9185,7 @@ void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_pa
     }
 
     if (translate_c) {
-        if (source_kind == CSourceKindC) {
+        if (source_kind != CSourceKindAsm) {
             // this gives us access to preprocessing entities, presumably at
             // the cost of performance
             args.append("-Xclang");
@@ -9213,6 +9217,12 @@ void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_pa
 
         args.append("-isystem");
         args.append(libcxx_include_path);
+
+        if (target_abi_is_musl(g->zig_target->abi)) {
+            args.append("-D_LIBCPP_HAS_MUSL_LIBC");
+        }
+        args.append("-D_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS");
+        args.append("-D_LIBCXXABI_DISABLE_VISIBILITY_ANNOTATIONS");
     }
 
     // According to Rich Felker libc headers are supposed to go before C language headers.
@@ -9232,6 +9242,7 @@ void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_pa
 
     switch (source_kind) {
         case CSourceKindC:
+        case CSourceKindCpp:
             if (g->zig_target->llvm_cpu_name != nullptr) {
                 args.append("-Xclang");
                 args.append("-target-cpu");
@@ -9247,6 +9258,14 @@ void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_pa
             break;
         case CSourceKindAsm:
             break;
+    }
+    if (source_kind == CSourceKindCpp) {
+        if (!g->cpp_rtti) {
+            args.append("-fno-rtti");
+        }
+        if (!g->cpp_exceptions) {
+            args.append("-fno-exceptions");
+        }
     }
     for (size_t i = 0; i < g->zig_target->llvm_cpu_features_asm_len; i += 1) {
         args.append(g->zig_target->llvm_cpu_features_asm_ptr[i]);
@@ -9695,6 +9714,8 @@ Error create_c_object_cache(CodeGen *g, CacheHash **out_cache_hash, bool verbose
     cache_bool(cache_hash, g->have_sanitize_c);
     cache_bool(cache_hash, want_valgrind_support(g));
     cache_bool(cache_hash, g->function_sections);
+    cache_bool(cache_hash, g->cpp_rtti);
+    cache_bool(cache_hash, g->cpp_exceptions);
     cache_int(cache_hash, g->code_model);
 
     for (size_t arg_i = 0; arg_i < g->clang_argv_len; arg_i += 1) {
@@ -10529,6 +10550,8 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     cache_bool(ch, g->emit_bin);
     cache_bool(ch, g->emit_llvm_ir);
     cache_bool(ch, g->emit_asm);
+    cache_bool(ch, g->cpp_rtti);
+    cache_bool(ch, g->cpp_exceptions);
     cache_usize(ch, g->version_major);
     cache_usize(ch, g->version_minor);
     cache_usize(ch, g->version_patch);
@@ -10833,6 +10856,8 @@ CodeGen *create_child_codegen(CodeGen *parent_gen, Buf *root_src_path, OutType o
         parent_gen->build_mode, parent_gen->zig_lib_dir, libc, get_global_cache_dir(), false, child_progress_node);
     child_gen->root_out_name = buf_create_from_str(name);
     child_gen->disable_gen_h = true;
+    child_gen->cpp_rtti = parent_gen->cpp_rtti;
+    child_gen->cpp_exceptions = parent_gen->cpp_exceptions;
     child_gen->want_stack_check = WantStackCheckDisabled;
     child_gen->want_sanitize_c = WantCSanitizeDisabled;
     child_gen->verbose_tokenize = parent_gen->verbose_tokenize;

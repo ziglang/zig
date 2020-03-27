@@ -1859,7 +1859,6 @@ static const char *ZIG_LIBCXXABI_FILES[] = {
 "src/fallback_malloc.cpp",
 "src/private_typeinfo.cpp",
 "src/stdlib_exception.cpp",
-"src/stdlib_new_delete.cpp",
 "src/stdlib_stdexcept.cpp",
 "src/stdlib_typeinfo.cpp",
 };
@@ -1875,7 +1874,6 @@ static const char *ZIG_LIBCXX_FILES[] = {
 "src/exception.cpp",
 "src/experimental/memory_resource.cpp",
 "src/filesystem/directory_iterator.cpp",
-"src/filesystem/int128_builtins.cpp",
 "src/filesystem/operations.cpp",
 "src/functional.cpp",
 "src/future.cpp",
