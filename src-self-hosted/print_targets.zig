@@ -75,7 +75,7 @@ pub fn cmdTargets(
         var dir = try std.fs.cwd().openDir(zig_lib_dir, .{});
         defer dir.close();
 
-        const vers_txt = try dir.readFileAlloc(allocator, "libc/glibc/vers.txt", 10 * 1024);
+        const vers_txt = try dir.readFileAlloc(allocator, "libc" ++ std.fs.path.sep_str ++ "glibc" ++ std.fs.path.sep_str ++ "vers.txt", 10 * 1024);
         defer allocator.free(vers_txt);
 
         var list = std.ArrayList(std.builtin.Version).init(allocator);
