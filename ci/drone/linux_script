@@ -11,6 +11,7 @@ apk update
 apk add py3-pip xz perl-utils jq curl
 pip3 install s3cmd
 
+# serial bump to force drone build: 001
 apk add file util-linux musl-utils
 lscpu
 
