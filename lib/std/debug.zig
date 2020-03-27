@@ -1283,6 +1283,9 @@ pub const DebugInfo = struct {
         const elf_path = if (ctx.name.len > 0)
             ctx.name
         else blk: {
+            // Use of MAX_PATH_BYTES here is valid as the resulting path is immediately
+            // opened with no modification. TODO: Use openSelfExe instead to avoid path
+            // length limitations
             var buf: [fs.MAX_PATH_BYTES]u8 = undefined;
             break :blk try fs.selfExePath(&buf);
         };

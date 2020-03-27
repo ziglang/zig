@@ -15,12 +15,14 @@ pub const changeCurDir = os.chdir;
 pub const changeCurDirC = os.chdirC;
 
 /// The result is a slice of `out_buffer`, from index `0`.
-pub fn getCwd(out_buffer: *[fs.MAX_PATH_BYTES]u8) ![]u8 {
+pub fn getCwd(out_buffer: []u8) ![]u8 {
     return os.getcwd(out_buffer);
 }
 
 /// Caller must free the returned memory.
 pub fn getCwdAlloc(allocator: *Allocator) ![]u8 {
+    // TODO(#4812): Consider looping with larger and larger buffers to handle
+    // overlong paths.
     var buf: [fs.MAX_PATH_BYTES]u8 = undefined;
     return mem.dupe(allocator, u8, try os.getcwd(&buf));
 }
