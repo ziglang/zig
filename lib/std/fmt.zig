@@ -1661,8 +1661,14 @@ test "positional/alignment/width/precision" {
 }
 
 test "vector" {
-    // https://github.com/ziglang/zig/issues/3317
-    if (builtin.arch == .mipsel) return error.SkipZigTest;
+    if (builtin.arch == .mipsel) {
+        // https://github.com/ziglang/zig/issues/3317
+        return error.SkipZigTest;
+    }
+    if (builtin.arch == .riscv64) {
+        // https://github.com/ziglang/zig/issues/4486
+        return error.SkipZigTest;
+    }
 
     const vbool: @Vector(4, bool) = [_]bool{ true, false, true, false };
     const vi64: @Vector(4, i64) = [_]i64{ -2, -1, 0, 1 };

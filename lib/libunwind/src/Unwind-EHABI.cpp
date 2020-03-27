@@ -941,8 +941,13 @@ _Unwind_VRS_Pop(_Unwind_Context *context, _Unwind_VRS_RegClass regclass,
       // format 1", which is equivalent to FSTMD + a padding word.
       for (uint32_t i = first; i < end; ++i) {
         // SP is only 32-bit aligned so don't copy 64-bit at a time.
-        uint64_t value = *sp++;
-        value |= ((uint64_t)(*sp++)) << 32;
+        uint64_t w0 = *sp++;
+        uint64_t w1 = *sp++;
+#ifdef __LITTLE_ENDIAN__
+        uint64_t value = (w1 << 32) | w0;
+#else
+        uint64_t value = (w0 << 32) | w1;
+#endif
         if (_Unwind_VRS_Set(context, regclass, i, representation, &value) !=
             _UVRSR_OK)
           return _UVRSR_FAILED;

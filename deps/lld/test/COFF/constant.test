@@ -1,6 +1,0 @@
-REQUIRES: x86
-RUN: mkdir -p %t
-RUN: llvm-mc -triple i686-unknown-windows-msvc -filetype obj -o %t/import.o %S/Inputs/constant-import.s
-RUN: llc -mtriple i686-unknown-windows-msvc -filetype obj -o %t/export.o %S/Inputs/constant-export.ll
-RUN: lld-link -safeseh:no -machine:x86 -dll -out:%t/export.dll %t/export.o -entry:__CFConstantStringClassReference
-RUN: lld-link -safeseh:no -machine:x86 -dll -out:%t/import.dll %t/import.o %t/export.lib

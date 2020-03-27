@@ -4750,6 +4750,7 @@ fn appendToken(c: *Context, token_id: Token.Id, bytes: []const u8) !ast.TokenInd
 }
 
 fn appendTokenFmt(c: *Context, token_id: Token.Id, comptime format: []const u8, args: var) !ast.TokenIndex {
+    assert(token_id != .Invalid);
     const start_index = c.source_buffer.len();
     errdefer c.source_buffer.shrink(start_index);
 

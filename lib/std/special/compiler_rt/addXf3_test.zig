@@ -31,10 +31,6 @@ fn test__addtf3(a: f128, b: f128, expected_hi: u64, expected_lo: u64) void {
 }
 
 test "addtf3" {
-    if (@import("std").Target.current.os.tag == .windows) {
-        // TODO https://github.com/ziglang/zig/issues/508
-        return error.SkipZigTest;
-    }
     test__addtf3(qnan128, 0x1.23456789abcdefp+5, 0x7fff800000000000, 0x0);
 
     // NaN + any = NaN
@@ -75,10 +71,6 @@ fn test__subtf3(a: f128, b: f128, expected_hi: u64, expected_lo: u64) void {
 }
 
 test "subtf3" {
-    if (@import("std").Target.current.os.tag == .windows) {
-        // TODO https://github.com/ziglang/zig/issues/508
-        return error.SkipZigTest;
-    }
     // qNaN - any = qNaN
     test__subtf3(qnan128, 0x1.23456789abcdefp+5, 0x7fff800000000000, 0x0);
 

@@ -635,7 +635,7 @@ static const char *build_libunwind(CodeGen *parent, Stage2ProgressNode *progress
         c_file->args.append("-fPIC");
         c_file->args.append("-D_LIBUNWIND_DISABLE_VISIBILITY_ANNOTATIONS");
         c_file->args.append("-Wa,--noexecstack");
-        if (parent->zig_target->is_native) {
+        if (parent->zig_target->is_native_os && parent->zig_target->is_native_cpu) {
             c_file->args.append("-D_LIBUNWIND_IS_NATIVE_ONLY");
         }
         if (parent->build_mode == BuildModeDebug) {
@@ -1799,7 +1799,9 @@ static void construct_linker_job_elf(LinkJob *lj) {
                 lj->args.append("-lm");
             }
 
-            if (g->zig_target->os == OsFreeBSD) {
+            if (g->zig_target->os == OsFreeBSD ||
+                g->zig_target->os == OsNetBSD)
+            {
                 lj->args.append("-lpthread");
             }
         } else if (target_is_glibc(g->zig_target)) {
@@ -1827,7 +1829,7 @@ static void construct_linker_job_elf(LinkJob *lj) {
         }
     }
 
-    if (!g->zig_target->is_native) {
+    if (!g->zig_target->is_native_os) {
         lj->args.append("--allow-shlib-undefined");
     }
 }
@@ -1889,9 +1891,14 @@ static void link_diag_callback(void *context, const char *ptr, size_t len) {
     buf_append_mem(diag, ptr, len);
 }
 
-static bool zig_lld_link(ZigLLVM_ObjectFormatType oformat, const char **args, size_t arg_count, Buf *diag) {
+static bool zig_lld_link(ZigLLVM_ObjectFormatType oformat, const char **args, size_t arg_count,
+        Buf *diag)
+{
+    Buf *stdout_diag = buf_alloc();
     buf_resize(diag, 0);
-    return ZigLLDLink(oformat, args, arg_count, link_diag_callback, diag);
+    bool result = ZigLLDLink(oformat, args, arg_count, link_diag_callback, stdout_diag, diag);
+    buf_destroy(stdout_diag);
+    return result;
 }
 
 static void add_uefi_link_args(LinkJob *lj) {
@@ -2453,7 +2460,7 @@ static void construct_linker_job_macho(LinkJob *lj) {
         lj->args.append(buf_ptr(compiler_rt_o_path));
     }
 
-    if (g->zig_target->is_native) {
+    if (g->zig_target->is_native_os) {
         for (size_t lib_i = 0; lib_i < g->link_libs_list.length; lib_i += 1) {
             LinkLib *link_lib = g->link_libs_list.at(lib_i);
             if (target_is_libc_lib_name(g->zig_target, buf_ptr(link_lib->name))) {

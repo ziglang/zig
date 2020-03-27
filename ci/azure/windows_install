@@ -6,5 +6,5 @@ set -e
 pacman -Su --needed --noconfirm
 pacman -S --needed --noconfirm wget p7zip python3-pip
 pip install s3cmd
-wget -nv "https://ziglang.org/deps/llvm%2bclang-9.0.0-win64-msvc-mt.tar.xz"
-tar xf llvm+clang-9.0.0-win64-msvc-mt.tar.xz
+wget -nv "https://ziglang.org/deps/llvm%2bclang%2blld-10.0.0-x86_64-windows-msvc-release-mt.tar.xz"
+tar xf llvm+clang+lld-10.0.0-x86_64-windows-msvc-release-mt.tar.xz

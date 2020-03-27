@@ -558,7 +558,7 @@ struct __is_transparent<_Tp, _Up,
 
 // allocator_arg_t
 
-struct _LIBCPP_TEMPLATE_VIS allocator_arg_t { };
+struct _LIBCPP_TEMPLATE_VIS allocator_arg_t { explicit allocator_arg_t() = default; };
 
 #if defined(_LIBCPP_CXX03_LANG) || defined(_LIBCPP_BUILDING_LIBRARY)
 extern _LIBCPP_EXPORTED_FROM_ABI const allocator_arg_t allocator_arg;

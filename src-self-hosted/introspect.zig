@@ -41,7 +41,7 @@ pub fn testZigInstallPrefix(allocator: *mem.Allocator, test_path: []const u8) ![
 
 /// Caller must free result
 pub fn findZigLibDir(allocator: *mem.Allocator) ![]u8 {
-    const self_exe_path = try fs.selfExeDirPathAlloc(allocator);
+    const self_exe_path = try fs.selfExePathAlloc(allocator);
     defer allocator.free(self_exe_path);
 
     var cur_path: []const u8 = self_exe_path;

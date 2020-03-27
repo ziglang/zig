@@ -1,3 +1,0 @@
-SECTIONS {
-  goo = 0;
-};

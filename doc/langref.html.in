@@ -4984,6 +4984,10 @@ test "implicit unsigned integer to signed integer" {
 }
 
 test "float widening" {
+    // Note: there is an open issue preventing this from working on aarch64:
+    // https://github.com/ziglang/zig/issues/3282
+    if (std.Target.current.cpu.arch == .aarch64) return error.SkipZigTest;
+
     var a: f16 = 12.34;
     var b: f32 = a;
     var c: f64 = b;
@@ -6159,7 +6163,7 @@ volatile (
 // Next is the output constraint string. This feature is still
 // considered unstable in Zig, and so LLVM/GCC documentation
 // must be used to understand the semantics.
-// http://releases.llvm.org/9.0.0/docs/LangRef.html#inline-asm-constraint-string
+// http://releases.llvm.org/10.0.0/docs/LangRef.html#inline-asm-constraint-string
 // https://gcc.gnu.org/onlinedocs/gcc/Extended-Asm.html
 // In this example, the constraint string means "the result value of
 // this inline assembly instruction is whatever is in $rax".
@@ -6200,7 +6204,7 @@ volatile (
       <p>
       Output constraints are still considered to be unstable in Zig, and
       so
-      <a href="http://releases.llvm.org/9.0.0/docs/LangRef.html#inline-asm-constraint-string">LLVM documentation</a>
+      <a href="http://releases.llvm.org/10.0.0/docs/LangRef.html#inline-asm-constraint-string">LLVM documentation</a>
       and
       <a href="https://gcc.gnu.org/onlinedocs/gcc/Extended-Asm.html">GCC documentation</a>
       must be used to understand the semantics.
@@ -6215,7 +6219,7 @@ volatile (
       <p>
       Input constraints are still considered to be unstable in Zig, and
       so
-      <a href="http://releases.llvm.org/9.0.0/docs/LangRef.html#inline-asm-constraint-string">LLVM documentation</a>
+      <a href="http://releases.llvm.org/10.0.0/docs/LangRef.html#inline-asm-constraint-string">LLVM documentation</a>
       and
       <a href="https://gcc.gnu.org/onlinedocs/gcc/Extended-Asm.html">GCC documentation</a>
       must be used to understand the semantics.
@@ -6956,40 +6960,6 @@ pub const CallOptions = struct {
     };
 };
       {#code_end#}
-
-      {#header_open|Calling with a New Stack#}
-      <p>
-      When the {#syntax#}stack{#endsyntax#} option is provided, instead of using the same stack as the caller, the function uses the provided stack.
-      </p>
-      {#code_begin|test|new_stack_call#}
-const std = @import("std");
-const assert = std.debug.assert;
-
-var new_stack_bytes: [1024]u8 align(16) = undefined;
-
-test "calling a function with a new stack" {
-    const arg = 1234;
-
-    const a = @call(.{.stack = new_stack_bytes[0..512]}, targetFunction, .{arg});
-    const b = @call(.{.stack = new_stack_bytes[512..]}, targetFunction, .{arg});
-    _ = targetFunction(arg);
-
-    assert(arg == 1234);
-    assert(a < b);
-}
-
-fn targetFunction(x: i32) usize {
-    assert(x == 1234);
-
-    var local_variable: i32 = 42;
-    const ptr = &local_variable;
-    ptr.* += 1;
-
-    assert(local_variable == 43);
-    return @ptrToInt(ptr);
-}
-      {#code_end#}
-      {#header_close#}
       {#header_close#}
 
       {#header_open|@cDefine#}

@@ -562,8 +562,7 @@ static LLVMValueRef make_fn_llvm_value(CodeGen *g, ZigFn *fn) {
     add_uwtable_attr(g, llvm_fn);
     addLLVMFnAttr(llvm_fn, "nobuiltin");
     if (codegen_have_frame_pointer(g) && fn->fn_inline != FnInlineAlways) {
-        ZigLLVMAddFunctionAttr(llvm_fn, "no-frame-pointer-elim", "true");
-        ZigLLVMAddFunctionAttr(llvm_fn, "no-frame-pointer-elim-non-leaf", nullptr);
+        ZigLLVMAddFunctionAttr(llvm_fn, "frame-pointer", "all");
     }
     if (fn->section_name) {
         LLVMSetSection(llvm_fn, buf_ptr(fn->section_name));
@@ -1127,8 +1126,7 @@ static LLVMValueRef get_add_error_return_trace_addr_fn(CodeGen *g) {
     // on any architecture.
     addLLVMArgAttr(fn_val, (unsigned)0, "nonnull");
     if (codegen_have_frame_pointer(g)) {
-        ZigLLVMAddFunctionAttr(fn_val, "no-frame-pointer-elim", "true");
-        ZigLLVMAddFunctionAttr(fn_val, "no-frame-pointer-elim-non-leaf", nullptr);
+        ZigLLVMAddFunctionAttr(fn_val, "frame-pointer", "all");
     }
 
     LLVMBasicBlockRef entry_block = LLVMAppendBasicBlock(fn_val, "Entry");
@@ -1205,8 +1203,7 @@ static LLVMValueRef get_return_err_fn(CodeGen *g) {
     addLLVMFnAttr(fn_val, "nounwind");
     add_uwtable_attr(g, fn_val);
     if (codegen_have_frame_pointer(g)) {
-        ZigLLVMAddFunctionAttr(fn_val, "no-frame-pointer-elim", "true");
-        ZigLLVMAddFunctionAttr(fn_val, "no-frame-pointer-elim-non-leaf", nullptr);
+        ZigLLVMAddFunctionAttr(fn_val, "frame-pointer", "all");
     }
 
     // this is above the ZigLLVMClearCurrentDebugLocation
@@ -1289,8 +1286,7 @@ static LLVMValueRef get_safety_crash_err_fn(CodeGen *g) {
     addLLVMFnAttr(fn_val, "nounwind");
     add_uwtable_attr(g, fn_val);
     if (codegen_have_frame_pointer(g)) {
-        ZigLLVMAddFunctionAttr(fn_val, "no-frame-pointer-elim", "true");
-        ZigLLVMAddFunctionAttr(fn_val, "no-frame-pointer-elim-non-leaf", nullptr);
+        ZigLLVMAddFunctionAttr(fn_val, "frame-pointer", "all");
     }
     // Not setting alignment here. See the comment above about
     // "Cannot getTypeInfo() on a type that is unsized!"
@@ -5018,8 +5014,7 @@ static LLVMValueRef get_enum_tag_name_function(CodeGen *g, ZigType *enum_type) {
     addLLVMFnAttr(fn_val, "nounwind");
     add_uwtable_attr(g, fn_val);
     if (codegen_have_frame_pointer(g)) {
-        ZigLLVMAddFunctionAttr(fn_val, "no-frame-pointer-elim", "true");
-        ZigLLVMAddFunctionAttr(fn_val, "no-frame-pointer-elim-non-leaf", nullptr);
+        ZigLLVMAddFunctionAttr(fn_val, "frame-pointer", "all");
     }
 
     LLVMBasicBlockRef prev_block = LLVMGetInsertBlock(g->builder);
@@ -5628,7 +5623,7 @@ static LLVMValueRef get_frame_address_fn_val(CodeGen *g) {
 
     LLVMTypeRef fn_type = LLVMFunctionType(get_llvm_type(g, return_type),
             &g->builtin_types.entry_i32->llvm_type, 1, false);
-    g->frame_address_fn_val = LLVMAddFunction(g->module, "llvm.frameaddress", fn_type);
+    g->frame_address_fn_val = LLVMAddFunction(g->module, "llvm.frameaddress.p0i8", fn_type);
     assert(LLVMGetIntrinsicID(g->frame_address_fn_val));
 
     return g->frame_address_fn_val;
@@ -8385,7 +8380,6 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdNearbyInt, "nearbyInt", 1);
     create_builtin_fn(g, BuiltinFnIdRound, "round", 1);
     create_builtin_fn(g, BuiltinFnIdMulAdd, "mulAdd", 4);
-    create_builtin_fn(g, BuiltinFnIdNewStackCall, "newStackCall", SIZE_MAX);
     create_builtin_fn(g, BuiltinFnIdAsyncCall, "asyncCall", SIZE_MAX);
     create_builtin_fn(g, BuiltinFnIdShlExact, "shlExact", 2);
     create_builtin_fn(g, BuiltinFnIdShrExact, "shrExact", 2);
@@ -8788,7 +8782,8 @@ static Error define_builtin_compile_vars(CodeGen *g) {
     cache_bool(&cache_hash, g->is_single_threaded);
     cache_bool(&cache_hash, g->test_is_evented);
     cache_int(&cache_hash, g->code_model);
-    cache_int(&cache_hash, g->zig_target->is_native);
+    cache_int(&cache_hash, g->zig_target->is_native_os);
+    cache_int(&cache_hash, g->zig_target->is_native_cpu);
     cache_int(&cache_hash, g->zig_target->arch);
     cache_int(&cache_hash, g->zig_target->vendor);
     cache_int(&cache_hash, g->zig_target->os);
@@ -8923,7 +8918,7 @@ static void init(CodeGen *g) {
     const char *target_specific_cpu_args = "";
     const char *target_specific_features = "";
 
-    if (g->zig_target->is_native) {
+    if (g->zig_target->is_native_cpu) {
         target_specific_cpu_args = ZigLLVMGetHostCPUName();
         target_specific_features = ZigLLVMGetNativeFeatures();
     }
@@ -9040,7 +9035,7 @@ static void detect_libc(CodeGen *g) {
         return;
     }
 
-    if (g->zig_target->is_native) {
+    if (g->zig_target->is_native_os) {
         g->libc = heap::c_allocator.create<Stage2LibCInstallation>();
 
         // search for native_libc.txt in following dirs:
@@ -9161,13 +9156,15 @@ static void detect_libc(CodeGen *g) {
 }
 
 // does not add the "cc" arg
-void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_path, bool translate_c) {
+void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_path,
+        bool translate_c, CSourceKind source_kind)
+{
     if (translate_c) {
         args.append("-x");
         args.append("c");
     }
 
-    if (out_dep_path != nullptr) {
+    if (source_kind != CSourceKindAsm && out_dep_path != nullptr) {
         args.append("-MD");
         args.append("-MV");
         args.append("-MF");
@@ -9182,10 +9179,12 @@ void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_pa
     }
 
     if (translate_c) {
-        // this gives us access to preprocessing entities, presumably at
-        // the cost of performance
-        args.append("-Xclang");
-        args.append("-detailed-preprocessing-record");
+        if (source_kind == CSourceKindC) {
+            // this gives us access to preprocessing entities, presumably at
+            // the cost of performance
+            args.append("-Xclang");
+            args.append("-detailed-preprocessing-record");
+        }
     } else {
         switch (g->err_color) {
             case ErrColorAuto:
@@ -9218,26 +9217,29 @@ void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_pa
         args.append(include_dir);
     }
 
-    if (g->zig_target->is_native) {
-        if (target_supports_clang_march_native(g->zig_target)) {
-            args.append("-march=native");
-        }
-    } else {
-        args.append("-target");
-        args.append(buf_ptr(&g->llvm_triple_str));
+    args.append("-target");
+    args.append(buf_ptr(&g->llvm_triple_str));
 
-        if (g->zig_target->llvm_cpu_name != nullptr) {
-            args.append("-Xclang");
-            args.append("-target-cpu");
-            args.append("-Xclang");
-            args.append(g->zig_target->llvm_cpu_name);
-        }
-        if (g->zig_target->llvm_cpu_features != nullptr) {
-            args.append("-Xclang");
-            args.append("-target-feature");
-            args.append("-Xclang");
-            args.append(g->zig_target->llvm_cpu_features);
-        }
+    switch (source_kind) {
+        case CSourceKindC:
+            if (g->zig_target->llvm_cpu_name != nullptr) {
+                args.append("-Xclang");
+                args.append("-target-cpu");
+                args.append("-Xclang");
+                args.append(g->zig_target->llvm_cpu_name);
+            }
+            if (g->zig_target->llvm_cpu_features != nullptr) {
+                args.append("-Xclang");
+                args.append("-target-feature");
+                args.append("-Xclang");
+                args.append(g->zig_target->llvm_cpu_features);
+            }
+            break;
+        case CSourceKindAsm:
+            break;
+    }
+    for (size_t i = 0; i < g->zig_target->llvm_cpu_features_asm_len; i += 1) {
+        args.append(g->zig_target->llvm_cpu_features_asm_ptr[i]);
     }
 
     if (g->zig_target->os == OsFreestanding) {
@@ -9383,7 +9385,7 @@ void codegen_translate_c(CodeGen *g, Buf *full_path) {
     }
 
     ZigList<const char *> clang_argv = {0};
-    add_cc_args(g, clang_argv, out_dep_path_cstr, true);
+    add_cc_args(g, clang_argv, out_dep_path_cstr, true, CSourceKindC);
 
     clang_argv.append(buf_ptr(full_path));
 
@@ -9671,7 +9673,8 @@ Error create_c_object_cache(CodeGen *g, CacheHash **out_cache_hash, bool verbose
     cache_int(cache_hash, g->err_color);
     cache_buf(cache_hash, g->zig_c_headers_dir);
     cache_list_of_str(cache_hash, g->libc_include_dir_list, g->libc_include_dir_len);
-    cache_int(cache_hash, g->zig_target->is_native);
+    cache_int(cache_hash, g->zig_target->is_native_os);
+    cache_int(cache_hash, g->zig_target->is_native_cpu);
     cache_int(cache_hash, g->zig_target->arch);
     cache_int(cache_hash, g->zig_target->vendor);
     cache_int(cache_hash, g->zig_target->os);
@@ -9719,6 +9722,15 @@ static void gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file) {
     Buf *c_source_file = buf_create_from_str(c_file->source_path);
     Buf *c_source_basename = buf_alloc();
     os_path_split(c_source_file, nullptr, c_source_basename);
+
+    CSourceKind c_source_kind;
+    if (buf_ends_with_str(c_source_basename, ".s") ||
+        buf_ends_with_str(c_source_basename, ".S"))
+    {
+        c_source_kind = CSourceKindAsm;
+    } else {
+        c_source_kind = CSourceKindC;
+    }
 
     Stage2ProgressNode *child_prog_node = stage2_progress_start(g->sub_progress_node, buf_ptr(c_source_basename),
             buf_len(c_source_basename), 0);
@@ -9792,7 +9804,7 @@ static void gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file) {
         }
 
         Buf *out_dep_path = buf_sprintf("%s.d", buf_ptr(out_obj_path));
-        add_cc_args(g, args, buf_ptr(out_dep_path), false);
+        add_cc_args(g, args, buf_ptr(out_dep_path), false, c_source_kind);
 
         args.append("-o");
         args.append(buf_ptr(out_obj_path));
@@ -10464,7 +10476,8 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     cache_list_of_buf(ch, g->forbidden_libs.items, g->forbidden_libs.length);
     cache_int(ch, g->build_mode);
     cache_int(ch, g->out_type);
-    cache_bool(ch, g->zig_target->is_native);
+    cache_bool(ch, g->zig_target->is_native_os);
+    cache_bool(ch, g->zig_target->is_native_cpu);
     cache_int(ch, g->zig_target->arch);
     cache_int(ch, g->zig_target->vendor);
     cache_int(ch, g->zig_target->os);
@@ -10931,7 +10944,7 @@ CodeGen *codegen_create(Buf *main_pkg_path, Buf *root_src_path, const ZigTarget 
     os_path_join(g->zig_std_dir, buf_sprintf("special"), g->zig_std_special_dir);
 
     assert(target != nullptr);
-    if (!target->is_native) {
+    if (!target->is_native_os) {
         g->each_lib_rpath = false;
     } else {
         g->each_lib_rpath = true;

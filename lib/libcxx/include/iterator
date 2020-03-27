@@ -434,12 +434,65 @@ template <class E> constexpr const E* data(initializer_list<E> il) noexcept;    
 #endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
+template <class _Iter>
+struct _LIBCPP_TEMPLATE_VIS iterator_traits;
 
 struct _LIBCPP_TEMPLATE_VIS input_iterator_tag {};
 struct _LIBCPP_TEMPLATE_VIS output_iterator_tag {};
 struct _LIBCPP_TEMPLATE_VIS forward_iterator_tag       : public input_iterator_tag {};
 struct _LIBCPP_TEMPLATE_VIS bidirectional_iterator_tag : public forward_iterator_tag {};
 struct _LIBCPP_TEMPLATE_VIS random_access_iterator_tag : public bidirectional_iterator_tag {};
+#if _LIBCPP_STD_VER > 17
+// TODO(EricWF)  contiguous_iterator_tag is provided as an extension prior to
+//  C++20 to allow optimizations for users providing wrapped iterator types.
+struct _LIBCPP_TEMPLATE_VIS contiguous_iterator_tag: public random_access_iterator_tag { };
+#endif
+
+template <class _Iter>
+struct __iter_traits_cache {
+  using type = _If<
+    __is_primary_template<iterator_traits<_Iter> >::value,
+    _Iter,
+    iterator_traits<_Iter>
+  >;
+};
+template <class _Iter>
+using _ITER_TRAITS = typename __iter_traits_cache<_Iter>::type;
+
+struct __iter_concept_concept_test {
+  template <class _Iter>
+  using _Apply = typename _ITER_TRAITS<_Iter>::iterator_concept;
+};
+struct __iter_concept_category_test {
+  template <class _Iter>
+  using _Apply = typename _ITER_TRAITS<_Iter>::iterator_category;
+};
+struct __iter_concept_random_fallback {
+  template <class _Iter>
+  using _Apply = _EnableIf<
+                          __is_primary_template<iterator_traits<_Iter> >::value,
+                          random_access_iterator_tag
+                        >;
+};
+
+template <class _Iter, class _Tester> struct __test_iter_concept
+    : _IsValidExpansion<_Tester::template _Apply, _Iter>,
+      _Tester
+{
+};
+
+template <class _Iter>
+struct __iter_concept_cache {
+  using type = _Or<
+    __test_iter_concept<_Iter, __iter_concept_concept_test>,
+    __test_iter_concept<_Iter, __iter_concept_category_test>,
+    __test_iter_concept<_Iter, __iter_concept_random_fallback>
+  >;
+};
+
+template <class _Iter>
+using _ITER_CONCEPT = typename __iter_concept_cache<_Iter>::type::template _Apply<_Iter>;
+
 
 template <class _Tp>
 struct __has_iterator_typedefs
@@ -500,7 +553,10 @@ struct __iterator_traits<_Iter, true>
 
 template <class _Iter>
 struct _LIBCPP_TEMPLATE_VIS iterator_traits
-    : __iterator_traits<_Iter, __has_iterator_typedefs<_Iter>::value> {};
+    : __iterator_traits<_Iter, __has_iterator_typedefs<_Iter>::value> {
+
+  using __primary_template = iterator_traits;
+};
 
 template<class _Tp>
 struct _LIBCPP_TEMPLATE_VIS iterator_traits<_Tp*>
@@ -510,6 +566,9 @@ struct _LIBCPP_TEMPLATE_VIS iterator_traits<_Tp*>
     typedef _Tp* pointer;
     typedef _Tp& reference;
     typedef random_access_iterator_tag iterator_category;
+#if _LIBCPP_STD_VER > 17
+    typedef contiguous_iterator_tag    iterator_concept;
+#endif
 };
 
 template <class _Tp, class _Up, bool = __has_iterator_category<iterator_traits<_Tp> >::value>
@@ -521,19 +580,28 @@ template <class _Tp, class _Up>
 struct __has_iterator_category_convertible_to<_Tp, _Up, false> : public false_type {};
 
 template <class _Tp>
-struct __is_input_iterator : public __has_iterator_category_convertible_to<_Tp, input_iterator_tag> {};
+struct __is_cpp17_input_iterator : public __has_iterator_category_convertible_to<_Tp, input_iterator_tag> {};
 
 template <class _Tp>
-struct __is_forward_iterator : public __has_iterator_category_convertible_to<_Tp, forward_iterator_tag> {};
+struct __is_cpp17_forward_iterator : public __has_iterator_category_convertible_to<_Tp, forward_iterator_tag> {};
 
 template <class _Tp>
-struct __is_bidirectional_iterator : public __has_iterator_category_convertible_to<_Tp, bidirectional_iterator_tag> {};
+struct __is_cpp17_bidirectional_iterator : public __has_iterator_category_convertible_to<_Tp, bidirectional_iterator_tag> {};
 
 template <class _Tp>
-struct __is_random_access_iterator : public __has_iterator_category_convertible_to<_Tp, random_access_iterator_tag> {};
+struct __is_cpp17_random_access_iterator : public __has_iterator_category_convertible_to<_Tp, random_access_iterator_tag> {};
+
+#if _LIBCPP_STD_VER > 17
+template <class _Tp>
+struct __is_cpp17_contiguous_iterator : public __has_iterator_category_convertible_to<_Tp, contiguous_iterator_tag> {};
+#else
+template <class _Tp>
+struct __is_cpp17_contiguous_iterator : public false_type {};
+#endif
+
 
 template <class _Tp>
-struct __is_exactly_input_iterator
+struct __is_exactly_cpp17_input_iterator
     : public integral_constant<bool,
          __has_iterator_category_convertible_to<_Tp, input_iterator_tag>::value &&
         !__has_iterator_category_convertible_to<_Tp, forward_iterator_tag>::value> {};
@@ -600,7 +668,7 @@ inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14
 void advance(_InputIter& __i,
              typename iterator_traits<_InputIter>::difference_type __n)
 {
-    _LIBCPP_ASSERT(__n >= 0 || __is_bidirectional_iterator<_InputIter>::value,
+    _LIBCPP_ASSERT(__n >= 0 || __is_cpp17_bidirectional_iterator<_InputIter>::value,
                        "Attempt to advance(it, -n) on a non-bidi iterator");
     __advance(__i, __n, typename iterator_traits<_InputIter>::iterator_category());
 }
@@ -636,13 +704,13 @@ template <class _InputIter>
 inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14
 typename enable_if
 <
-    __is_input_iterator<_InputIter>::value,
+    __is_cpp17_input_iterator<_InputIter>::value,
     _InputIter
 >::type
 next(_InputIter __x,
      typename iterator_traits<_InputIter>::difference_type __n = 1)
 {
-    _LIBCPP_ASSERT(__n >= 0 || __is_bidirectional_iterator<_InputIter>::value,
+    _LIBCPP_ASSERT(__n >= 0 || __is_cpp17_bidirectional_iterator<_InputIter>::value,
                        "Attempt to next(it, -n) on a non-bidi iterator");
 
     _VSTD::advance(__x, __n);
@@ -653,13 +721,13 @@ template <class _InputIter>
 inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14
 typename enable_if
 <
-    __is_input_iterator<_InputIter>::value,
+    __is_cpp17_input_iterator<_InputIter>::value,
     _InputIter
 >::type
 prev(_InputIter __x,
      typename iterator_traits<_InputIter>::difference_type __n = 1)
 {
-    _LIBCPP_ASSERT(__n <= 0 || __is_bidirectional_iterator<_InputIter>::value,
+    _LIBCPP_ASSERT(__n <= 0 || __is_cpp17_bidirectional_iterator<_InputIter>::value,
                        "Attempt to prev(it, +n) on a non-bidi iterator");
     _VSTD::advance(__x, -__n);
     return __x;
@@ -1304,8 +1372,8 @@ _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG
 __wrap_iter<_Iter>
 operator+(typename __wrap_iter<_Iter>::difference_type, __wrap_iter<_Iter>) _NOEXCEPT;
 
-template <class _Ip, class _Op> _Op _LIBCPP_INLINE_VISIBILITY copy(_Ip, _Ip, _Op);
-template <class _B1, class _B2> _B2 _LIBCPP_INLINE_VISIBILITY copy_backward(_B1, _B1, _B2);
+template <class _Ip, class _Op> _Op _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17 copy(_Ip, _Ip, _Op);
+template <class _B1, class _B2> _B2 _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17 copy_backward(_B1, _B1, _B2);
 template <class _Ip, class _Op> _Op _LIBCPP_INLINE_VISIBILITY move(_Ip, _Ip, _Op);
 template <class _B1, class _B2> _B2 _LIBCPP_INLINE_VISIBILITY move_backward(_B1, _B1, _B2);
 
@@ -1515,8 +1583,8 @@ private:
     __wrap_iter<_Iter1>
     operator+(typename __wrap_iter<_Iter1>::difference_type, __wrap_iter<_Iter1>) _NOEXCEPT;
 
-    template <class _Ip, class _Op> friend _Op copy(_Ip, _Ip, _Op);
-    template <class _B1, class _B2> friend _B2 copy_backward(_B1, _B1, _B2);
+    template <class _Ip, class _Op> friend _LIBCPP_CONSTEXPR_AFTER_CXX17 _Op copy(_Ip, _Ip, _Op);
+    template <class _B1, class _B2> friend _LIBCPP_CONSTEXPR_AFTER_CXX17 _B2 copy_backward(_B1, _B1, _B2);
     template <class _Ip, class _Op> friend _Op move(_Ip, _Ip, _Op);
     template <class _B1, class _B2> friend _B2 move_backward(_B1, _B1, _B2);
 

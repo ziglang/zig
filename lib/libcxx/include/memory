@@ -662,7 +662,6 @@ void* align(size_t alignment, size_t size, void*& ptr, size_t& space);
 #include <tuple>
 #include <stdexcept>
 #include <cstring>
-#include <cassert>
 #if !defined(_LIBCPP_HAS_NO_ATOMIC_HEADER)
 #  include <atomic>
 #endif
@@ -1099,40 +1098,51 @@ struct __const_void_pointer<_Ptr, _Alloc, false>
 #endif
 };
 
+
+template <bool _UsePointerTraits> struct __to_address_helper;
+
+template <> struct __to_address_helper<true> {
+    template <class _Pointer>
+    using __return_type = decltype(pointer_traits<_Pointer>::to_address(std::declval<const _Pointer&>()));
+
+    template <class _Pointer>
+    _LIBCPP_CONSTEXPR
+    static __return_type<_Pointer>
+    __do_it(const _Pointer &__p) _NOEXCEPT { return pointer_traits<_Pointer>::to_address(__p); }
+};
+
+template <class _Pointer, bool _Dummy = true>
+using __choose_to_address = __to_address_helper<_IsValidExpansion<__to_address_helper<_Dummy>::template __return_type, _Pointer>::value>;
+
+
 template <class _Tp>
 inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR
 _Tp*
-__to_raw_pointer(_Tp* __p) _NOEXCEPT
+__to_address(_Tp* __p) _NOEXCEPT
 {
+    static_assert(!is_function<_Tp>::value, "_Tp is a function type");
     return __p;
 }
 
-#if _LIBCPP_STD_VER <= 17
 template <class _Pointer>
-inline _LIBCPP_INLINE_VISIBILITY
-typename pointer_traits<_Pointer>::element_type*
-__to_raw_pointer(_Pointer __p) _NOEXCEPT
-{
-    return _VSTD::__to_raw_pointer(__p.operator->());
-}
-#else
-template <class _Pointer>
-inline _LIBCPP_INLINE_VISIBILITY
-auto
-__to_raw_pointer(const _Pointer& __p) _NOEXCEPT
--> decltype(pointer_traits<_Pointer>::to_address(__p))
-{
-    return pointer_traits<_Pointer>::to_address(__p);
+inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR
+typename __choose_to_address<_Pointer>::template __return_type<_Pointer>
+__to_address(const _Pointer& __p) _NOEXCEPT {
+  return __choose_to_address<_Pointer>::__do_it(__p);
 }
 
-template <class _Pointer, class... _None>
-inline _LIBCPP_INLINE_VISIBILITY
-auto
-__to_raw_pointer(const _Pointer& __p, _None...) _NOEXCEPT
-{
-    return _VSTD::__to_raw_pointer(__p.operator->());
-}
+template <> struct __to_address_helper<false> {
+    template <class _Pointer>
+    using __return_type = typename pointer_traits<_Pointer>::element_type*;
 
+    template <class _Pointer>
+    _LIBCPP_CONSTEXPR
+    static __return_type<_Pointer>
+    __do_it(const _Pointer &__p) _NOEXCEPT { return std::__to_address(__p.operator->()); }
+};
+
+
+#if _LIBCPP_STD_VER > 17
 template <class _Tp>
 inline _LIBCPP_INLINE_VISIBILITY constexpr
 _Tp*
@@ -1147,7 +1157,7 @@ inline _LIBCPP_INLINE_VISIBILITY
 auto
 to_address(const _Pointer& __p) _NOEXCEPT
 {
-    return _VSTD::__to_raw_pointer(__p);
+    return _VSTD::__to_address(__p);
 }
 #endif
 
@@ -1507,6 +1517,31 @@ struct __is_default_allocator : false_type {};
 template <class _Tp>
 struct __is_default_allocator<_VSTD::allocator<_Tp> > : true_type {};
 
+
+
+template <class _Alloc,
+    bool = __has_construct<_Alloc, typename _Alloc::value_type*,  typename _Alloc::value_type&&>::value && !__is_default_allocator<_Alloc>::value
+    >
+struct __is_cpp17_move_insertable;
+template <class _Alloc>
+struct __is_cpp17_move_insertable<_Alloc, true> : std::true_type {};
+template <class _Alloc>
+struct __is_cpp17_move_insertable<_Alloc, false> : std::is_move_constructible<typename _Alloc::value_type> {};
+
+template <class _Alloc,
+    bool = __has_construct<_Alloc, typename _Alloc::value_type*, const typename _Alloc::value_type&>::value && !__is_default_allocator<_Alloc>::value
+    >
+struct __is_cpp17_copy_insertable;
+template <class _Alloc>
+struct __is_cpp17_copy_insertable<_Alloc, true> : __is_cpp17_move_insertable<_Alloc> {};
+template <class _Alloc>
+struct __is_cpp17_copy_insertable<_Alloc, false> : integral_constant<bool,
+    std::is_copy_constructible<typename _Alloc::value_type>::value &&
+    __is_cpp17_move_insertable<_Alloc>::value>
+  {};
+
+
+
 template <class _Alloc>
 struct _LIBCPP_TEMPLATE_VIS allocator_traits
 {
@@ -1609,10 +1644,18 @@ struct _LIBCPP_TEMPLATE_VIS allocator_traits
         _LIBCPP_INLINE_VISIBILITY
         static
         void
-        __construct_forward(allocator_type& __a, _Ptr __begin1, _Ptr __end1, _Ptr& __begin2)
+        __construct_forward_with_exception_guarantees(allocator_type& __a, _Ptr __begin1, _Ptr __end1, _Ptr& __begin2)
         {
+            static_assert(__is_cpp17_move_insertable<allocator_type>::value,
+              "The specified type does not meet the requirements of Cpp17MoveInsertible");
             for (; __begin1 != __end1; ++__begin1, (void) ++__begin2)
-                construct(__a, _VSTD::__to_raw_pointer(__begin2), _VSTD::move_if_noexcept(*__begin1));
+              construct(__a, _VSTD::__to_address(__begin2),
+#ifdef _LIBCPP_NO_EXCEPTIONS
+                        _VSTD::move(*__begin1)
+#else
+                        _VSTD::move_if_noexcept(*__begin1)
+#endif
+                        );
         }
 
     template <class _Tp>
@@ -1625,7 +1668,7 @@ struct _LIBCPP_TEMPLATE_VIS allocator_traits
              is_trivially_move_constructible<_Tp>::value,
             void
         >::type
-        __construct_forward(allocator_type&, _Tp* __begin1, _Tp* __end1, _Tp*& __begin2)
+        __construct_forward_with_exception_guarantees(allocator_type&, _Tp* __begin1, _Tp* __end1, _Tp*& __begin2)
         {
             ptrdiff_t _Np = __end1 - __begin1;
             if (_Np > 0)
@@ -1642,7 +1685,7 @@ struct _LIBCPP_TEMPLATE_VIS allocator_traits
         __construct_range_forward(allocator_type& __a, _Iter __begin1, _Iter __end1, _Ptr& __begin2)
         {
             for (; __begin1 != __end1; ++__begin1, (void) ++__begin2)
-                construct(__a, _VSTD::__to_raw_pointer(__begin2), *__begin1);
+                construct(__a, _VSTD::__to_address(__begin2), *__begin1);
         }
 
     template <class _SourceTp, class _DestTp,
@@ -1672,12 +1715,20 @@ struct _LIBCPP_TEMPLATE_VIS allocator_traits
         _LIBCPP_INLINE_VISIBILITY
         static
         void
-        __construct_backward(allocator_type& __a, _Ptr __begin1, _Ptr __end1, _Ptr& __end2)
+        __construct_backward_with_exception_guarantees(allocator_type& __a, _Ptr __begin1, _Ptr __end1, _Ptr& __end2)
         {
+            static_assert(__is_cpp17_move_insertable<allocator_type>::value,
+              "The specified type does not meet the requirements of Cpp17MoveInsertable");
             while (__end1 != __begin1)
             {
-                construct(__a, _VSTD::__to_raw_pointer(__end2-1), _VSTD::move_if_noexcept(*--__end1));
-                --__end2;
+              construct(__a, _VSTD::__to_address(__end2 - 1),
+#ifdef _LIBCPP_NO_EXCEPTIONS
+                        _VSTD::move(*--__end1)
+#else
+                        _VSTD::move_if_noexcept(*--__end1)
+#endif
+                        );
+              --__end2;
             }
         }
 
@@ -1691,7 +1742,7 @@ struct _LIBCPP_TEMPLATE_VIS allocator_traits
              is_trivially_move_constructible<_Tp>::value,
             void
         >::type
-        __construct_backward(allocator_type&, _Tp* __begin1, _Tp* __end1, _Tp*& __end2)
+        __construct_backward_with_exception_guarantees(allocator_type&, _Tp* __begin1, _Tp* __end1, _Tp*& __end2)
         {
             ptrdiff_t _Np = __end1 - __begin1;
             __end2 -= _Np;
@@ -2127,6 +2178,10 @@ public:
 };
 #endif
 
+// Tag used to default initialize one or both of the pair's elements.
+struct __default_init_tag {};
+struct __value_init_tag {};
+
 template <class _Tp, int _Idx,
           bool _CanBeEmptyBase =
               is_empty<_Tp>::value && !__libcpp_is_final<_Tp>::value>
@@ -2135,29 +2190,30 @@ struct __compressed_pair_elem {
   typedef _Tp& reference;
   typedef const _Tp& const_reference;
 
-#ifndef _LIBCPP_CXX03_LANG
-  _LIBCPP_INLINE_VISIBILITY constexpr __compressed_pair_elem() : __value_() {}
+  _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR
+  __compressed_pair_elem(__default_init_tag) {}
+  _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR
+  __compressed_pair_elem(__value_init_tag) : __value_() {}
 
   template <class _Up, class = typename enable_if<
       !is_same<__compressed_pair_elem, typename decay<_Up>::type>::value
   >::type>
   _LIBCPP_INLINE_VISIBILITY
-  constexpr explicit
+  _LIBCPP_CONSTEXPR explicit
   __compressed_pair_elem(_Up&& __u)
       : __value_(_VSTD::forward<_Up>(__u))
     {
     }
 
+
+#ifndef _LIBCPP_CXX03_LANG
   template <class... _Args, size_t... _Indexes>
   _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14
   __compressed_pair_elem(piecewise_construct_t, tuple<_Args...> __args,
                          __tuple_indices<_Indexes...>)
       : __value_(_VSTD::forward<_Args>(_VSTD::get<_Indexes>(__args))...) {}
-#else
-  _LIBCPP_INLINE_VISIBILITY __compressed_pair_elem() : __value_() {}
-  _LIBCPP_INLINE_VISIBILITY
-  __compressed_pair_elem(_ParamT __p) : __value_(std::forward<_ParamT>(__p)) {}
 #endif
+
 
   _LIBCPP_INLINE_VISIBILITY reference __get() _NOEXCEPT { return __value_; }
   _LIBCPP_INLINE_VISIBILITY
@@ -2174,37 +2230,33 @@ struct __compressed_pair_elem<_Tp, _Idx, true> : private _Tp {
   typedef const _Tp& const_reference;
   typedef _Tp __value_type;
 
-#ifndef _LIBCPP_CXX03_LANG
-  _LIBCPP_INLINE_VISIBILITY constexpr __compressed_pair_elem() = default;
+  _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR __compressed_pair_elem() = default;
+  _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR
+  __compressed_pair_elem(__default_init_tag) {}
+  _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR
+  __compressed_pair_elem(__value_init_tag) : __value_type() {}
 
   template <class _Up, class = typename enable_if<
         !is_same<__compressed_pair_elem, typename decay<_Up>::type>::value
   >::type>
   _LIBCPP_INLINE_VISIBILITY
-  constexpr explicit
+  _LIBCPP_CONSTEXPR explicit
   __compressed_pair_elem(_Up&& __u)
       : __value_type(_VSTD::forward<_Up>(__u))
   {}
 
+#ifndef _LIBCPP_CXX03_LANG
   template <class... _Args, size_t... _Indexes>
   _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14
   __compressed_pair_elem(piecewise_construct_t, tuple<_Args...> __args,
                          __tuple_indices<_Indexes...>)
       : __value_type(_VSTD::forward<_Args>(_VSTD::get<_Indexes>(__args))...) {}
-#else
-  _LIBCPP_INLINE_VISIBILITY __compressed_pair_elem() : __value_type() {}
-  _LIBCPP_INLINE_VISIBILITY
-  __compressed_pair_elem(_ParamT __p)
-      : __value_type(std::forward<_ParamT>(__p)) {}
 #endif
 
   _LIBCPP_INLINE_VISIBILITY reference __get() _NOEXCEPT { return *this; }
   _LIBCPP_INLINE_VISIBILITY
   const_reference __get() const _NOEXCEPT { return *this; }
 };
-
-// Tag used to construct the second element of the compressed pair.
-struct __second_tag {};
 
 template <class _T1, class _T2>
 class __compressed_pair : private __compressed_pair_elem<_T1, 0>,
@@ -2222,33 +2274,21 @@ class __compressed_pair : private __compressed_pair_elem<_T1, 0>,
     "implementation for this configuration");
 
 public:
-#ifndef _LIBCPP_CXX03_LANG
-  template <bool _Dummy = true,
+    template <bool _Dummy = true,
       class = typename enable_if<
           __dependent_type<is_default_constructible<_T1>, _Dummy>::value &&
           __dependent_type<is_default_constructible<_T2>, _Dummy>::value
       >::type
   >
   _LIBCPP_INLINE_VISIBILITY
-  constexpr __compressed_pair() {}
-
-  template <class _Tp, typename enable_if<!is_same<typename decay<_Tp>::type,
-                                                   __compressed_pair>::value,
-                                          bool>::type = true>
-  _LIBCPP_INLINE_VISIBILITY constexpr explicit
-  __compressed_pair(_Tp&& __t)
-      : _Base1(std::forward<_Tp>(__t)), _Base2() {}
-
-  template <class _Tp>
-  _LIBCPP_INLINE_VISIBILITY constexpr
-  __compressed_pair(__second_tag, _Tp&& __t)
-      : _Base1(), _Base2(std::forward<_Tp>(__t)) {}
+  _LIBCPP_CONSTEXPR __compressed_pair() : _Base1(__value_init_tag()), _Base2(__value_init_tag()) {}
 
   template <class _U1, class _U2>
-  _LIBCPP_INLINE_VISIBILITY constexpr
+  _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR
   __compressed_pair(_U1&& __t1, _U2&& __t2)
       : _Base1(std::forward<_U1>(__t1)), _Base2(std::forward<_U2>(__t2)) {}
 
+#ifndef _LIBCPP_CXX03_LANG
   template <class... _Args1, class... _Args2>
   _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14
   __compressed_pair(piecewise_construct_t __pc, tuple<_Args1...> __first_args,
@@ -2257,21 +2297,6 @@ public:
                typename __make_tuple_indices<sizeof...(_Args1)>::type()),
         _Base2(__pc, _VSTD::move(__second_args),
                typename __make_tuple_indices<sizeof...(_Args2)>::type()) {}
-
-#else
-  _LIBCPP_INLINE_VISIBILITY
-  __compressed_pair() {}
-
-  _LIBCPP_INLINE_VISIBILITY explicit
-  __compressed_pair(_T1 __t1) : _Base1(_VSTD::forward<_T1>(__t1)) {}
-
-  _LIBCPP_INLINE_VISIBILITY
-  __compressed_pair(__second_tag, _T2 __t2)
-      : _Base1(), _Base2(_VSTD::forward<_T2>(__t2)) {}
-
-  _LIBCPP_INLINE_VISIBILITY
-  __compressed_pair(_T1 __t1, _T2 __t2)
-      : _Base1(_VSTD::forward<_T1>(__t1)), _Base2(_VSTD::forward<_T2>(__t2)) {}
 #endif
 
   _LIBCPP_INLINE_VISIBILITY
@@ -2452,17 +2477,17 @@ public:
   template <bool _Dummy = true,
             class = _EnableIfDeleterDefaultConstructible<_Dummy> >
   _LIBCPP_INLINE_VISIBILITY
-  _LIBCPP_CONSTEXPR unique_ptr() _NOEXCEPT : __ptr_(pointer()) {}
+  _LIBCPP_CONSTEXPR unique_ptr() _NOEXCEPT : __ptr_(pointer(), __default_init_tag()) {}
 
   template <bool _Dummy = true,
             class = _EnableIfDeleterDefaultConstructible<_Dummy> >
   _LIBCPP_INLINE_VISIBILITY
-  _LIBCPP_CONSTEXPR unique_ptr(nullptr_t) _NOEXCEPT : __ptr_(pointer()) {}
+  _LIBCPP_CONSTEXPR unique_ptr(nullptr_t) _NOEXCEPT : __ptr_(pointer(), __default_init_tag()) {}
 
   template <bool _Dummy = true,
             class = _EnableIfDeleterDefaultConstructible<_Dummy> >
   _LIBCPP_INLINE_VISIBILITY
-  explicit unique_ptr(pointer __p) _NOEXCEPT : __ptr_(__p) {}
+  explicit unique_ptr(pointer __p) _NOEXCEPT : __ptr_(__p, __default_init_tag()) {}
 
   template <bool _Dummy = true,
             class = _EnableIfDeleterConstructible<_LValRefType<_Dummy> > >
@@ -2504,7 +2529,7 @@ public:
              typename enable_if<is_convertible<_Up*, _Tp*>::value &&
                                     is_same<_Dp, default_delete<_Tp> >::value,
                                 __nat>::type = __nat()) _NOEXCEPT
-      : __ptr_(__p.release()) {}
+      : __ptr_(__p.release(), __default_init_tag()) {}
 #endif
 
   _LIBCPP_INLINE_VISIBILITY
@@ -2675,19 +2700,19 @@ public:
   template <bool _Dummy = true,
             class = _EnableIfDeleterDefaultConstructible<_Dummy> >
   _LIBCPP_INLINE_VISIBILITY
-  _LIBCPP_CONSTEXPR unique_ptr() _NOEXCEPT : __ptr_(pointer()) {}
+  _LIBCPP_CONSTEXPR unique_ptr() _NOEXCEPT : __ptr_(pointer(), __default_init_tag()) {}
 
   template <bool _Dummy = true,
             class = _EnableIfDeleterDefaultConstructible<_Dummy> >
   _LIBCPP_INLINE_VISIBILITY
-  _LIBCPP_CONSTEXPR unique_ptr(nullptr_t) _NOEXCEPT : __ptr_(pointer()) {}
+  _LIBCPP_CONSTEXPR unique_ptr(nullptr_t) _NOEXCEPT : __ptr_(pointer(), __default_init_tag()) {}
 
   template <class _Pp, bool _Dummy = true,
             class = _EnableIfDeleterDefaultConstructible<_Dummy>,
             class = _EnableIfPointerConvertible<_Pp> >
   _LIBCPP_INLINE_VISIBILITY
   explicit unique_ptr(_Pp __p) _NOEXCEPT
-      : __ptr_(__p) {}
+      : __ptr_(__p, __default_init_tag()) {}
 
   template <class _Pp, bool _Dummy = true,
             class = _EnableIfDeleterConstructible<_LValRefType<_Dummy> >,
@@ -3531,23 +3556,19 @@ class __shared_ptr_emplace
 {
     __compressed_pair<_Alloc, _Tp> __data_;
 public:
-#ifndef _LIBCPP_HAS_NO_VARIADICS
 
     _LIBCPP_INLINE_VISIBILITY
     __shared_ptr_emplace(_Alloc __a)
-        :  __data_(_VSTD::move(__a)) {}
+        :  __data_(_VSTD::move(__a), __value_init_tag()) {}
 
+
+#ifndef _LIBCPP_HAS_NO_VARIADICS
     template <class ..._Args>
         _LIBCPP_INLINE_VISIBILITY
         __shared_ptr_emplace(_Alloc __a, _Args&& ...__args)
             :  __data_(piecewise_construct, _VSTD::forward_as_tuple(__a),
                    _VSTD::forward_as_tuple(_VSTD::forward<_Args>(__args)...)) {}
-
 #else  // _LIBCPP_HAS_NO_VARIADICS
-
-    _LIBCPP_INLINE_VISIBILITY
-    __shared_ptr_emplace(_Alloc __a)
-        :  __data_(__a) {}
 
     template <class _A0>
         _LIBCPP_INLINE_VISIBILITY
@@ -3831,48 +3852,21 @@ public:
                       : nullptr);}
 #endif  // _LIBCPP_NO_RTTI
 
-#ifndef _LIBCPP_HAS_NO_VARIADICS
-
-    template<class ..._Args>
-        static
-        shared_ptr<_Tp>
-        make_shared(_Args&& ...__args);
+    template<class _Yp, class _CntrlBlk>
+    static shared_ptr<_Tp>
+    __create_with_control_block(_Yp* __p, _CntrlBlk* __cntrl)
+    {
+        shared_ptr<_Tp> __r;
+        __r.__ptr_ = __p;
+        __r.__cntrl_ = __cntrl;
+        __r.__enable_weak_this(__r.__ptr_, __r.__ptr_);
+        return __r;
+    }
 
     template<class _Alloc, class ..._Args>
         static
         shared_ptr<_Tp>
         allocate_shared(const _Alloc& __a, _Args&& ...__args);
-
-#else  // _LIBCPP_HAS_NO_VARIADICS
-
-    static shared_ptr<_Tp> make_shared();
-
-    template<class _A0>
-        static shared_ptr<_Tp> make_shared(_A0&);
-
-    template<class _A0, class _A1>
-        static shared_ptr<_Tp> make_shared(_A0&, _A1&);
-
-    template<class _A0, class _A1, class _A2>
-        static shared_ptr<_Tp> make_shared(_A0&, _A1&, _A2&);
-
-    template<class _Alloc>
-        static shared_ptr<_Tp>
-        allocate_shared(const _Alloc& __a);
-
-    template<class _Alloc, class _A0>
-        static shared_ptr<_Tp>
-        allocate_shared(const _Alloc& __a, _A0& __a0);
-
-    template<class _Alloc, class _A0, class _A1>
-        static shared_ptr<_Tp>
-        allocate_shared(const _Alloc& __a, _A0& __a0, _A1& __a1);
-
-    template<class _Alloc, class _A0, class _A1, class _A2>
-        static shared_ptr<_Tp>
-        allocate_shared(const _Alloc& __a, _A0& __a0, _A1& __a1, _A2& __a2);
-
-#endif  // _LIBCPP_HAS_NO_VARIADICS
 
 private:
     template <class _Yp, bool = is_function<_Yp>::value>
@@ -4186,27 +4180,6 @@ shared_ptr<_Tp>::shared_ptr(unique_ptr<_Yp, _Dp> __r,
     __r.release();
 }
 
-#ifndef _LIBCPP_HAS_NO_VARIADICS
-
-template<class _Tp>
-template<class ..._Args>
-shared_ptr<_Tp>
-shared_ptr<_Tp>::make_shared(_Args&& ...__args)
-{
-    static_assert( is_constructible<_Tp, _Args...>::value, "Can't construct object in make_shared" );
-    typedef __shared_ptr_emplace<_Tp, allocator<_Tp> > _CntrlBlk;
-    typedef allocator<_CntrlBlk> _A2;
-    typedef __allocator_destructor<_A2> _D2;
-    _A2 __a2;
-    unique_ptr<_CntrlBlk, _D2> __hold2(__a2.allocate(1), _D2(__a2, 1));
-    ::new(__hold2.get()) _CntrlBlk(__a2, _VSTD::forward<_Args>(__args)...);
-    shared_ptr<_Tp> __r;
-    __r.__ptr_ = __hold2.get()->get();
-    __r.__cntrl_ = __hold2.release();
-    __r.__enable_weak_this(__r.__ptr_, __r.__ptr_);
-    return __r;
-}
-
 template<class _Tp>
 template<class _Alloc, class ..._Args>
 shared_ptr<_Tp>
@@ -4226,165 +4199,6 @@ shared_ptr<_Tp>::allocate_shared(const _Alloc& __a, _Args&& ...__args)
     __r.__enable_weak_this(__r.__ptr_, __r.__ptr_);
     return __r;
 }
-
-#else  // _LIBCPP_HAS_NO_VARIADICS
-
-template<class _Tp>
-shared_ptr<_Tp>
-shared_ptr<_Tp>::make_shared()
-{
-    static_assert((is_constructible<_Tp>::value), "Can't construct object in make_shared" );
-    typedef __shared_ptr_emplace<_Tp, allocator<_Tp> > _CntrlBlk;
-    typedef allocator<_CntrlBlk> _Alloc2;
-    typedef __allocator_destructor<_Alloc2> _D2;
-    _Alloc2 __alloc2;
-    unique_ptr<_CntrlBlk, _D2> __hold2(__alloc2.allocate(1), _D2(__alloc2, 1));
-    ::new(__hold2.get()) _CntrlBlk(__alloc2);
-    shared_ptr<_Tp> __r;
-    __r.__ptr_ = __hold2.get()->get();
-    __r.__cntrl_ = __hold2.release();
-    __r.__enable_weak_this(__r.__ptr_, __r.__ptr_);
-    return __r;
-}
-
-template<class _Tp>
-template<class _A0>
-shared_ptr<_Tp>
-shared_ptr<_Tp>::make_shared(_A0& __a0)
-{
-    static_assert((is_constructible<_Tp, _A0>::value), "Can't construct object in make_shared" );
-    typedef __shared_ptr_emplace<_Tp, allocator<_Tp> > _CntrlBlk;
-    typedef allocator<_CntrlBlk> _Alloc2;
-    typedef __allocator_destructor<_Alloc2> _D2;
-    _Alloc2 __alloc2;
-    unique_ptr<_CntrlBlk, _D2> __hold2(__alloc2.allocate(1), _D2(__alloc2, 1));
-    ::new(__hold2.get()) _CntrlBlk(__alloc2, __a0);
-    shared_ptr<_Tp> __r;
-    __r.__ptr_ = __hold2.get()->get();
-    __r.__cntrl_ = __hold2.release();
-    __r.__enable_weak_this(__r.__ptr_, __r.__ptr_);
-    return __r;
-}
-
-template<class _Tp>
-template<class _A0, class _A1>
-shared_ptr<_Tp>
-shared_ptr<_Tp>::make_shared(_A0& __a0, _A1& __a1)
-{
-    static_assert((is_constructible<_Tp, _A0, _A1>::value), "Can't construct object in make_shared" );
-    typedef __shared_ptr_emplace<_Tp, allocator<_Tp> > _CntrlBlk;
-    typedef allocator<_CntrlBlk> _Alloc2;
-    typedef __allocator_destructor<_Alloc2> _D2;
-    _Alloc2 __alloc2;
-    unique_ptr<_CntrlBlk, _D2> __hold2(__alloc2.allocate(1), _D2(__alloc2, 1));
-    ::new(__hold2.get()) _CntrlBlk(__alloc2, __a0, __a1);
-    shared_ptr<_Tp> __r;
-    __r.__ptr_ = __hold2.get()->get();
-    __r.__cntrl_ = __hold2.release();
-    __r.__enable_weak_this(__r.__ptr_, __r.__ptr_);
-    return __r;
-}
-
-template<class _Tp>
-template<class _A0, class _A1, class _A2>
-shared_ptr<_Tp>
-shared_ptr<_Tp>::make_shared(_A0& __a0, _A1& __a1, _A2& __a2)
-{
-    static_assert((is_constructible<_Tp, _A0, _A1, _A2>::value), "Can't construct object in make_shared" );
-    typedef __shared_ptr_emplace<_Tp, allocator<_Tp> > _CntrlBlk;
-    typedef allocator<_CntrlBlk> _Alloc2;
-    typedef __allocator_destructor<_Alloc2> _D2;
-    _Alloc2 __alloc2;
-    unique_ptr<_CntrlBlk, _D2> __hold2(__alloc2.allocate(1), _D2(__alloc2, 1));
-    ::new(__hold2.get()) _CntrlBlk(__alloc2, __a0, __a1, __a2);
-    shared_ptr<_Tp> __r;
-    __r.__ptr_ = __hold2.get()->get();
-    __r.__cntrl_ = __hold2.release();
-    __r.__enable_weak_this(__r.__ptr_, __r.__ptr_);
-    return __r;
-}
-
-template<class _Tp>
-template<class _Alloc>
-shared_ptr<_Tp>
-shared_ptr<_Tp>::allocate_shared(const _Alloc& __a)
-{
-    static_assert((is_constructible<_Tp>::value), "Can't construct object in allocate_shared" );
-    typedef __shared_ptr_emplace<_Tp, _Alloc> _CntrlBlk;
-    typedef typename __allocator_traits_rebind<_Alloc, _CntrlBlk>::type _Alloc2;
-    typedef __allocator_destructor<_Alloc2> _D2;
-    _Alloc2 __alloc2(__a);
-    unique_ptr<_CntrlBlk, _D2> __hold2(__alloc2.allocate(1), _D2(__alloc2, 1));
-    ::new(static_cast<void*>(_VSTD::addressof(*__hold2.get())))
-        _CntrlBlk(__a);
-    shared_ptr<_Tp> __r;
-    __r.__ptr_ = __hold2.get()->get();
-    __r.__cntrl_ = _VSTD::addressof(*__hold2.release());
-    __r.__enable_weak_this(__r.__ptr_, __r.__ptr_);
-    return __r;
-}
-
-template<class _Tp>
-template<class _Alloc, class _A0>
-shared_ptr<_Tp>
-shared_ptr<_Tp>::allocate_shared(const _Alloc& __a, _A0& __a0)
-{
-    static_assert((is_constructible<_Tp, _A0>::value), "Can't construct object in allocate_shared" );
-    typedef __shared_ptr_emplace<_Tp, _Alloc> _CntrlBlk;
-    typedef typename __allocator_traits_rebind<_Alloc, _CntrlBlk>::type _Alloc2;
-    typedef __allocator_destructor<_Alloc2> _D2;
-    _Alloc2 __alloc2(__a);
-    unique_ptr<_CntrlBlk, _D2> __hold2(__alloc2.allocate(1), _D2(__alloc2, 1));
-    ::new(static_cast<void*>(_VSTD::addressof(*__hold2.get())))
-        _CntrlBlk(__a, __a0);
-    shared_ptr<_Tp> __r;
-    __r.__ptr_ = __hold2.get()->get();
-    __r.__cntrl_ = _VSTD::addressof(*__hold2.release());
-    __r.__enable_weak_this(__r.__ptr_, __r.__ptr_);
-    return __r;
-}
-
-template<class _Tp>
-template<class _Alloc, class _A0, class _A1>
-shared_ptr<_Tp>
-shared_ptr<_Tp>::allocate_shared(const _Alloc& __a, _A0& __a0, _A1& __a1)
-{
-    static_assert((is_constructible<_Tp, _A0, _A1>::value), "Can't construct object in allocate_shared" );
-    typedef __shared_ptr_emplace<_Tp, _Alloc> _CntrlBlk;
-    typedef typename __allocator_traits_rebind<_Alloc, _CntrlBlk>::type _Alloc2;
-    typedef __allocator_destructor<_Alloc2> _D2;
-    _Alloc2 __alloc2(__a);
-    unique_ptr<_CntrlBlk, _D2> __hold2(__alloc2.allocate(1), _D2(__alloc2, 1));
-    ::new(static_cast<void*>(_VSTD::addressof(*__hold2.get())))
-        _CntrlBlk(__a, __a0, __a1);
-    shared_ptr<_Tp> __r;
-    __r.__ptr_ = __hold2.get()->get();
-    __r.__cntrl_ = _VSTD::addressof(*__hold2.release());
-    __r.__enable_weak_this(__r.__ptr_, __r.__ptr_);
-    return __r;
-}
-
-template<class _Tp>
-template<class _Alloc, class _A0, class _A1, class _A2>
-shared_ptr<_Tp>
-shared_ptr<_Tp>::allocate_shared(const _Alloc& __a, _A0& __a0, _A1& __a1, _A2& __a2)
-{
-    static_assert((is_constructible<_Tp, _A0, _A1, _A2>::value), "Can't construct object in allocate_shared" );
-    typedef __shared_ptr_emplace<_Tp, _Alloc> _CntrlBlk;
-    typedef typename __allocator_traits_rebind<_Alloc, _CntrlBlk>::type _Alloc2;
-    typedef __allocator_destructor<_Alloc2> _D2;
-    _Alloc2 __alloc2(__a);
-    unique_ptr<_CntrlBlk, _D2> __hold2(__alloc2.allocate(1), _D2(__alloc2, 1));
-    ::new(static_cast<void*>(_VSTD::addressof(*__hold2.get())))
-        _CntrlBlk(__a, __a0, __a1, __a2);
-    shared_ptr<_Tp> __r;
-    __r.__ptr_ = __hold2.get()->get();
-    __r.__cntrl_ = _VSTD::addressof(*__hold2.release());
-    __r.__enable_weak_this(__r.__ptr_, __r.__ptr_);
-    return __r;
-}
-
-#endif  // _LIBCPP_HAS_NO_VARIADICS
 
 template<class _Tp>
 shared_ptr<_Tp>::~shared_ptr()
@@ -4567,8 +4381,6 @@ shared_ptr<_Tp>::reset(_Yp* __p, _Dp __d, _Alloc __a)
     shared_ptr(__p, __d, __a).swap(*this);
 }
 
-#ifndef _LIBCPP_HAS_NO_VARIADICS
-
 template<class _Tp, class ..._Args>
 inline _LIBCPP_INLINE_VISIBILITY
 typename enable_if
@@ -4578,7 +4390,17 @@ typename enable_if
 >::type
 make_shared(_Args&& ...__args)
 {
-    return shared_ptr<_Tp>::make_shared(_VSTD::forward<_Args>(__args)...);
+    static_assert(is_constructible<_Tp, _Args...>::value, "Can't construct object in make_shared");
+    typedef __shared_ptr_emplace<_Tp, allocator<_Tp> > _CntrlBlk;
+    typedef allocator<_CntrlBlk> _A2;
+    typedef __allocator_destructor<_A2> _D2;
+
+    _A2 __a2;
+    unique_ptr<_CntrlBlk, _D2> __hold2(__a2.allocate(1), _D2(__a2, 1));
+    ::new(__hold2.get()) _CntrlBlk(__a2, _VSTD::forward<_Args>(__args)...);
+
+    _Tp *__ptr = __hold2.get()->get();
+    return shared_ptr<_Tp>::__create_with_control_block(__ptr, __hold2.release());
 }
 
 template<class _Tp, class _Alloc, class ..._Args>
@@ -4592,74 +4414,6 @@ allocate_shared(const _Alloc& __a, _Args&& ...__args)
 {
     return shared_ptr<_Tp>::allocate_shared(__a, _VSTD::forward<_Args>(__args)...);
 }
-
-#else  // _LIBCPP_HAS_NO_VARIADICS
-
-template<class _Tp>
-inline _LIBCPP_INLINE_VISIBILITY
-shared_ptr<_Tp>
-make_shared()
-{
-    return shared_ptr<_Tp>::make_shared();
-}
-
-template<class _Tp, class _A0>
-inline _LIBCPP_INLINE_VISIBILITY
-shared_ptr<_Tp>
-make_shared(_A0& __a0)
-{
-    return shared_ptr<_Tp>::make_shared(__a0);
-}
-
-template<class _Tp, class _A0, class _A1>
-inline _LIBCPP_INLINE_VISIBILITY
-shared_ptr<_Tp>
-make_shared(_A0& __a0, _A1& __a1)
-{
-    return shared_ptr<_Tp>::make_shared(__a0, __a1);
-}
-
-template<class _Tp, class _A0, class _A1, class _A2>
-inline _LIBCPP_INLINE_VISIBILITY
-shared_ptr<_Tp>
-make_shared(_A0& __a0, _A1& __a1, _A2& __a2)
-{
-    return shared_ptr<_Tp>::make_shared(__a0, __a1, __a2);
-}
-
-template<class _Tp, class _Alloc>
-inline _LIBCPP_INLINE_VISIBILITY
-shared_ptr<_Tp>
-allocate_shared(const _Alloc& __a)
-{
-    return shared_ptr<_Tp>::allocate_shared(__a);
-}
-
-template<class _Tp, class _Alloc, class _A0>
-inline _LIBCPP_INLINE_VISIBILITY
-shared_ptr<_Tp>
-allocate_shared(const _Alloc& __a, _A0& __a0)
-{
-    return shared_ptr<_Tp>::allocate_shared(__a, __a0);
-}
-
-template<class _Tp, class _Alloc, class _A0, class _A1>
-inline _LIBCPP_INLINE_VISIBILITY
-shared_ptr<_Tp>
-allocate_shared(const _Alloc& __a, _A0& __a0, _A1& __a1)
-{
-    return shared_ptr<_Tp>::allocate_shared(__a, __a0, __a1);
-}
-
-template<class _Tp, class _Alloc, class _A0, class _A1, class _A2>
-inline _LIBCPP_INLINE_VISIBILITY
-shared_ptr<_Tp>
-allocate_shared(const _Alloc& __a, _A0& __a0, _A1& __a1, _A2& __a2)
-{
-    return shared_ptr<_Tp>::allocate_shared(__a, __a0, __a1, __a2);
-}
-
-#endif  // _LIBCPP_HAS_NO_VARIADICS
 
 template<class _Tp, class _Up>
 inline _LIBCPP_INLINE_VISIBILITY
@@ -5589,5 +5343,9 @@ struct __builtin_new_allocator {
 _LIBCPP_END_NAMESPACE_STD
 
 _LIBCPP_POP_MACROS
+
+#if defined(_LIBCPP_HAS_PARALLEL_ALGORITHMS) && _LIBCPP_STD_VER >= 17
+#   include <__pstl_memory>
+#endif
 
 #endif  // _LIBCPP_MEMORY

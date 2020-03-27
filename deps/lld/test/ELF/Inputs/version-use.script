@@ -1,6 +1,0 @@
-ABC {
-global:
-foo;
-local:
-*;
-};

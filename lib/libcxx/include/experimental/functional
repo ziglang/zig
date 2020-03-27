@@ -112,7 +112,7 @@ template<class _ForwardIterator, class _BinaryPredicate = equal_to<>>
 class _LIBCPP_TYPE_VIS default_searcher {
 public:
     _LIBCPP_INLINE_VISIBILITY
-    default_searcher(_ForwardIterator __f, _ForwardIterator __l, 
+    default_searcher(_ForwardIterator __f, _ForwardIterator __l,
                        _BinaryPredicate __p = _BinaryPredicate())
         : __first_(__f), __last_(__l), __pred_(__p) {}
 
@@ -151,12 +151,12 @@ public: // TODO private:
 
     const _Value __default_value_;
     std::unordered_map<_Key, _Value, _Hash, _BinaryPredicate> __table;
-    
+
 public:
     _LIBCPP_INLINE_VISIBILITY
     _BMSkipTable(std::size_t __sz, _Value __default, _Hash __hf, _BinaryPredicate __pred)
         : __default_value_(__default), __table(__sz, __hf, __pred) {}
-    
+
     _LIBCPP_INLINE_VISIBILITY
     void insert(const key_type &__key, value_type __val)
     {
@@ -170,7 +170,7 @@ public:
         return __it == __table.end() ? __default_value_ : __it->second;
     }
 };
-    
+
 
 //  Special case small numeric values; use an array
 template<class _Key, typename _Value, class _Hash, class _BinaryPredicate>
@@ -189,7 +189,7 @@ public:
     {
         std::fill_n(__table.begin(), __table.size(), __default);
     }
-    
+
     _LIBCPP_INLINE_VISIBILITY
     void insert(key_type __key, value_type __val)
     {
@@ -204,8 +204,8 @@ public:
 };
 
 
-template <class _RandomAccessIterator1, 
-          class _Hash = hash<typename iterator_traits<_RandomAccessIterator1>::value_type>, 
+template <class _RandomAccessIterator1,
+          class _Hash = hash<typename iterator_traits<_RandomAccessIterator1>::value_type>,
           class _BinaryPredicate = equal_to<>>
 class _LIBCPP_TYPE_VIS boyer_moore_searcher {
 private:
@@ -217,9 +217,9 @@ private:
                     is_same<_Hash, hash<value_type>>::value &&
                     is_same<_BinaryPredicate, equal_to<>>::value
             > skip_table_type;
-    
+
 public:
-    boyer_moore_searcher(_RandomAccessIterator1 __f, _RandomAccessIterator1 __l, 
+    boyer_moore_searcher(_RandomAccessIterator1 __f, _RandomAccessIterator1 __l,
                 _Hash __hf = _Hash(), _BinaryPredicate __pred = _BinaryPredicate())
             : __first_(__f), __last_(__l), __pred_(__pred),
               __pattern_length_(_VSTD::distance(__first_, __last_)),
@@ -232,13 +232,13 @@ public:
 
         this->__build_suffix_table ( __first_, __last_, __pred_ );
         }
-        
+
     template <typename _RandomAccessIterator2>
     pair<_RandomAccessIterator2, _RandomAccessIterator2>
     operator ()(_RandomAccessIterator2 __f, _RandomAccessIterator2 __l) const
     {
         static_assert ( std::is_same<
-                typename std::__uncvref<typename std::iterator_traits<_RandomAccessIterator1>::value_type>::type, 
+                typename std::__uncvref<typename std::iterator_traits<_RandomAccessIterator1>::value_type>::type,
                 typename std::__uncvref<typename std::iterator_traits<_RandomAccessIterator2>::value_type>::type
                     >::value,
                 "Corpus and Pattern iterators must point to the same type" );
@@ -247,13 +247,13 @@ public:
         if (__first_ == __last_) return make_pair(__f, __f); // empty pattern
 
     //  If the pattern is larger than the corpus, we can't find it!
-        if ( __pattern_length_ > _VSTD::distance (__f, __l)) 
+        if ( __pattern_length_ > _VSTD::distance (__f, __l))
             return make_pair(__l, __l);
 
-    //  Do the search 
+    //  Do the search
         return this->__search(__f, __l);
     }
-        
+
 public: // TODO private:
     _RandomAccessIterator1               __first_;
     _RandomAccessIterator1               __last_;
@@ -270,7 +270,7 @@ public: // TODO private:
         const _RandomAccessIterator2 __last = __l - __pattern_length_;
         const skip_table_type &         __skip   = *__skip_.get();
         const vector<difference_type> & __suffix = *__suffix_.get();
-        
+
         while (__cur <= __last)
         {
 
@@ -282,7 +282,7 @@ public: // TODO private:
                 if ( __j == 0 )
                     return make_pair(__cur, __cur + __pattern_length_);
                 }
-            
+
         //  Since we didn't match, figure out how far to skip forward
             difference_type __k = __skip[__cur [ __j - 1 ]];
             difference_type __m = __j - __k - 1;
@@ -291,7 +291,7 @@ public: // TODO private:
             else
                 __cur += __suffix[ __j ];
         }
-    
+
         return make_pair(__l, __l);     // We didn't find anything
     }
 
@@ -300,21 +300,21 @@ public: // TODO private:
     void __compute_bm_prefix ( _Iterator __f, _Iterator __l, _BinaryPredicate __pred, _Container &__prefix )
     {
         const std::size_t __count = _VSTD::distance(__f, __l);
-                        
+
         __prefix[0] = 0;
         std::size_t __k = 0;
         for ( std::size_t __i = 1; __i < __count; ++__i )
         {
             while ( __k > 0 && !__pred ( __f[__k], __f[__i] ))
                 __k = __prefix [ __k - 1 ];
-                
+
             if ( __pred ( __f[__k], __f[__i] ))
                 __k++;
             __prefix [ __i ] = __k;
         }
     }
 
-    void __build_suffix_table(_RandomAccessIterator1 __f, _RandomAccessIterator1 __l, 
+    void __build_suffix_table(_RandomAccessIterator1 __f, _RandomAccessIterator1 __l,
                                                     _BinaryPredicate __pred)
     {
         const std::size_t __count = _VSTD::distance(__f, __l);
@@ -322,19 +322,19 @@ public: // TODO private:
         if (__count > 0)
         {
             _VSTD::vector<value_type> __scratch(__count);
-            
+
             __compute_bm_prefix(__f, __l, __pred, __scratch);
             for ( std::size_t __i = 0; __i <= __count; __i++ )
                 __suffix[__i] = __count - __scratch[__count-1];
-    
+
             typedef _VSTD::reverse_iterator<_RandomAccessIterator1> _RevIter;
             __compute_bm_prefix(_RevIter(__l), _RevIter(__f), __pred, __scratch);
-     
+
             for ( std::size_t __i = 0; __i < __count; __i++ )
             {
                 const std::size_t     __j = __count - __scratch[__i];
                 const difference_type __k = __i     - __scratch[__i] + 1;
-     
+
                 if (__suffix[__j] > __k)
                     __suffix[__j] = __k;
             }
@@ -343,20 +343,20 @@ public: // TODO private:
 
 };
 
-template<class _RandomAccessIterator, 
-         class _Hash = hash<typename iterator_traits<_RandomAccessIterator>::value_type>, 
+template<class _RandomAccessIterator,
+         class _Hash = hash<typename iterator_traits<_RandomAccessIterator>::value_type>,
          class _BinaryPredicate = equal_to<>>
 _LIBCPP_INLINE_VISIBILITY
 boyer_moore_searcher<_RandomAccessIterator, _Hash, _BinaryPredicate>
-make_boyer_moore_searcher( _RandomAccessIterator __f, _RandomAccessIterator __l, 
+make_boyer_moore_searcher( _RandomAccessIterator __f, _RandomAccessIterator __l,
                     _Hash __hf = _Hash(), _BinaryPredicate __p = _BinaryPredicate ())
 {
     return boyer_moore_searcher<_RandomAccessIterator, _Hash, _BinaryPredicate>(__f, __l, __hf, __p);
 }
 
 // boyer-moore-horspool
-template <class _RandomAccessIterator1, 
-          class _Hash = hash<typename iterator_traits<_RandomAccessIterator1>::value_type>, 
+template <class _RandomAccessIterator1,
+          class _Hash = hash<typename iterator_traits<_RandomAccessIterator1>::value_type>,
           class _BinaryPredicate = equal_to<>>
 class _LIBCPP_TYPE_VIS boyer_moore_horspool_searcher {
 private:
@@ -370,7 +370,7 @@ private:
             > skip_table_type;
 
 public:
-    boyer_moore_horspool_searcher(_RandomAccessIterator1 __f, _RandomAccessIterator1 __l, 
+    boyer_moore_horspool_searcher(_RandomAccessIterator1 __f, _RandomAccessIterator1 __l,
                 _Hash __hf = _Hash(), _BinaryPredicate __pred = _BinaryPredicate())
             : __first_(__f), __last_(__l), __pred_(__pred),
               __pattern_length_(_VSTD::distance(__first_, __last_)),
@@ -384,13 +384,13 @@ public:
                     __skip_->insert(*__f, __pattern_length_ - 1 - __i);
             }
         }
-            
+
     template <typename _RandomAccessIterator2>
     pair<_RandomAccessIterator2, _RandomAccessIterator2>
     operator ()(_RandomAccessIterator2 __f, _RandomAccessIterator2 __l) const
     {
         static_assert ( std::is_same<
-                typename std::__uncvref<typename std::iterator_traits<_RandomAccessIterator1>::value_type>::type, 
+                typename std::__uncvref<typename std::iterator_traits<_RandomAccessIterator1>::value_type>::type,
                 typename std::__uncvref<typename std::iterator_traits<_RandomAccessIterator2>::value_type>::type
                     >::value,
                 "Corpus and Pattern iterators must point to the same type" );
@@ -399,13 +399,13 @@ public:
         if (__first_ == __last_) return make_pair(__f, __f); // empty pattern
 
     //  If the pattern is larger than the corpus, we can't find it!
-        if ( __pattern_length_ > _VSTD::distance (__f, __l)) 
+        if ( __pattern_length_ > _VSTD::distance (__f, __l))
             return make_pair(__l, __l);
 
-    //  Do the search 
+    //  Do the search
         return this->__search(__f, __l);
     }
-        
+
 private:
     _RandomAccessIterator1      __first_;
     _RandomAccessIterator1      __last_;
@@ -433,17 +433,17 @@ private:
             }
             __cur += __skip[__cur[__pattern_length_-1]];
         }
-        
+
         return make_pair(__l, __l);
     }
 };
 
-template<class _RandomAccessIterator, 
-         class _Hash = hash<typename iterator_traits<_RandomAccessIterator>::value_type>, 
+template<class _RandomAccessIterator,
+         class _Hash = hash<typename iterator_traits<_RandomAccessIterator>::value_type>,
          class _BinaryPredicate = equal_to<>>
 _LIBCPP_INLINE_VISIBILITY
 boyer_moore_horspool_searcher<_RandomAccessIterator, _Hash, _BinaryPredicate>
-make_boyer_moore_horspool_searcher( _RandomAccessIterator __f, _RandomAccessIterator __l, 
+make_boyer_moore_horspool_searcher( _RandomAccessIterator __f, _RandomAccessIterator __l,
                     _Hash __hf = _Hash(), _BinaryPredicate __p = _BinaryPredicate ())
 {
     return boyer_moore_horspool_searcher<_RandomAccessIterator, _Hash, _BinaryPredicate>(__f, __l, __hf, __p);

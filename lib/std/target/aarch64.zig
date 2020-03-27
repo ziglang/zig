@@ -3,12 +3,18 @@ const CpuFeature = std.Target.Cpu.Feature;
 const CpuModel = std.Target.Cpu.Model;
 
 pub const Feature = enum {
+    a65,
     a76,
     aes,
     aggressive_fma,
     alternate_sextload_cvt_f32_pattern,
     altnzcv,
     am,
+    apple_a10,
+    apple_a11,
+    apple_a12,
+    apple_a13,
+    apple_a7,
     arith_bcc_fusion,
     arith_cbz_fusion,
     balance_fp_ops,
@@ -29,10 +35,10 @@ pub const Feature = enum {
     crc,
     crypto,
     custom_cheap_as_move,
-    cyclone,
     disable_latency_sched_heuristic,
     dit,
     dotprod,
+    ete,
     exynos_cheap_as_move,
     exynosm4,
     fmi,
@@ -54,12 +60,15 @@ pub const Feature = enum {
     mpam,
     mte,
     neon,
+    neoversee1,
+    neoversen1,
     no_neg_immediates,
     nv,
     pa,
     pan,
     pan_rwv,
     perfmon,
+    pmu,
     predictable_select_expensive,
     predres,
     rand,
@@ -110,11 +119,14 @@ pub const Feature = enum {
     sve2_bitperm,
     sve2_sha3,
     sve2_sm4,
+    tagged_globals,
     tlb_rmi,
+    tme,
     tpidr_el1,
     tpidr_el2,
     tpidr_el3,
     tracev8_4,
+    trbe,
     uaops,
     use_aa,
     use_postra_scheduler,
@@ -140,6 +152,21 @@ pub const all_features = blk: {
     const len = @typeInfo(Feature).Enum.fields.len;
     std.debug.assert(len <= CpuFeature.Set.needed_bit_count);
     var result: [len]CpuFeature = undefined;
+    result[@enumToInt(Feature.a65)] = .{
+        .llvm_name = "a65",
+        .description = "Cortex-A65 ARM processors",
+        .dependencies = featureSet(&[_]Feature{
+            .crypto,
+            .dotprod,
+            .fp_armv8,
+            .fullfp16,
+            .neon,
+            .ras,
+            .rcpc,
+            .ssbs,
+            .v8_2a,
+        }),
+    };
     result[@enumToInt(Feature.a76)] = .{
         .llvm_name = "a76",
         .description = "Cortex-A76 ARM processors",
@@ -178,6 +205,110 @@ pub const all_features = blk: {
         .llvm_name = "am",
         .description = "Enable v8.4-A Activity Monitors extension",
         .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.apple_a10)] = .{
+        .llvm_name = "apple-a10",
+        .description = "Apple A10",
+        .dependencies = featureSet(&[_]Feature{
+            .alternate_sextload_cvt_f32_pattern,
+            .arith_bcc_fusion,
+            .arith_cbz_fusion,
+            .crc,
+            .crypto,
+            .disable_latency_sched_heuristic,
+            .fp_armv8,
+            .fuse_aes,
+            .fuse_crypto_eor,
+            .lor,
+            .neon,
+            .pan,
+            .perfmon,
+            .rdm,
+            .vh,
+            .zcm,
+            .zcz,
+        }),
+    };
+    result[@enumToInt(Feature.apple_a11)] = .{
+        .llvm_name = "apple-a11",
+        .description = "Apple A11",
+        .dependencies = featureSet(&[_]Feature{
+            .alternate_sextload_cvt_f32_pattern,
+            .arith_bcc_fusion,
+            .arith_cbz_fusion,
+            .crypto,
+            .disable_latency_sched_heuristic,
+            .fp_armv8,
+            .fullfp16,
+            .fuse_aes,
+            .fuse_crypto_eor,
+            .neon,
+            .perfmon,
+            .v8_2a,
+            .zcm,
+            .zcz,
+        }),
+    };
+    result[@enumToInt(Feature.apple_a12)] = .{
+        .llvm_name = "apple-a12",
+        .description = "Apple A12",
+        .dependencies = featureSet(&[_]Feature{
+            .alternate_sextload_cvt_f32_pattern,
+            .arith_bcc_fusion,
+            .arith_cbz_fusion,
+            .crypto,
+            .disable_latency_sched_heuristic,
+            .fp_armv8,
+            .fullfp16,
+            .fuse_aes,
+            .fuse_crypto_eor,
+            .neon,
+            .perfmon,
+            .v8_3a,
+            .zcm,
+            .zcz,
+        }),
+    };
+    result[@enumToInt(Feature.apple_a13)] = .{
+        .llvm_name = "apple-a13",
+        .description = "Apple A13",
+        .dependencies = featureSet(&[_]Feature{
+            .alternate_sextload_cvt_f32_pattern,
+            .arith_bcc_fusion,
+            .arith_cbz_fusion,
+            .crypto,
+            .disable_latency_sched_heuristic,
+            .fp_armv8,
+            .fp16fml,
+            .fullfp16,
+            .fuse_aes,
+            .fuse_crypto_eor,
+            .neon,
+            .perfmon,
+            .sha3,
+            .v8_4a,
+            .zcm,
+            .zcz,
+        }),
+    };
+    result[@enumToInt(Feature.apple_a7)] = .{
+        .llvm_name = "apple-a7",
+        .description = "Apple A7 (the CPU formerly known as Cyclone)",
+        .dependencies = featureSet(&[_]Feature{
+            .alternate_sextload_cvt_f32_pattern,
+            .arith_bcc_fusion,
+            .arith_cbz_fusion,
+            .crypto,
+            .disable_latency_sched_heuristic,
+            .fp_armv8,
+            .fuse_aes,
+            .fuse_crypto_eor,
+            .neon,
+            .perfmon,
+            .zcm,
+            .zcz,
+            .zcz_fp_workaround,
+        }),
     };
     result[@enumToInt(Feature.arith_bcc_fusion)] = .{
         .llvm_name = "arith-bcc-fusion",
@@ -285,24 +416,6 @@ pub const all_features = blk: {
         .description = "Use custom handling of cheap instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@enumToInt(Feature.cyclone)] = .{
-        .llvm_name = "cyclone",
-        .description = "Cyclone",
-        .dependencies = featureSet(&[_]Feature{
-            .alternate_sextload_cvt_f32_pattern,
-            .arith_bcc_fusion,
-            .arith_cbz_fusion,
-            .crypto,
-            .disable_latency_sched_heuristic,
-            .fuse_aes,
-            .fuse_crypto_eor,
-            .perfmon,
-            .v8a,
-            .zcm,
-            .zcz,
-            .zcz_fp_workaround,
-        }),
-    };
     result[@enumToInt(Feature.disable_latency_sched_heuristic)] = .{
         .llvm_name = "disable-latency-sched-heuristic",
         .description = "Disable latency scheduling heuristic",
@@ -317,6 +430,13 @@ pub const all_features = blk: {
         .llvm_name = "dotprod",
         .description = "Enable dot product support",
         .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.ete)] = .{
+        .llvm_name = "ete",
+        .description = "Enable Embedded Trace Extension",
+        .dependencies = featureSet(&[_]Feature{
+            .trbe,
+        }),
     };
     result[@enumToInt(Feature.exynos_cheap_as_move)] = .{
         .llvm_name = "exynos-cheap-as-move",
@@ -451,6 +571,35 @@ pub const all_features = blk: {
             .fp_armv8,
         }),
     };
+    result[@enumToInt(Feature.neoversee1)] = .{
+        .llvm_name = "neoversee1",
+        .description = "Neoverse E1 ARM processors",
+        .dependencies = featureSet(&[_]Feature{
+            .crypto,
+            .dotprod,
+            .fp_armv8,
+            .fullfp16,
+            .neon,
+            .rcpc,
+            .ssbs,
+            .v8_2a,
+        }),
+    };
+    result[@enumToInt(Feature.neoversen1)] = .{
+        .llvm_name = "neoversen1",
+        .description = "Neoverse N1 ARM processors",
+        .dependencies = featureSet(&[_]Feature{
+            .crypto,
+            .dotprod,
+            .fp_armv8,
+            .fullfp16,
+            .neon,
+            .rcpc,
+            .spe,
+            .ssbs,
+            .v8_2a,
+        }),
+    };
     result[@enumToInt(Feature.no_neg_immediates)] = .{
         .llvm_name = "no-neg-immediates",
         .description = "Convert immediates and instructions to their negated or complemented equivalent when the immediate does not fit in the encoding.",
@@ -481,6 +630,11 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.perfmon)] = .{
         .llvm_name = "perfmon",
         .description = "Enable ARMv8 PMUv3 Performance Monitors extension",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.pmu)] = .{
+        .llvm_name = "pmu",
+        .description = "Enable v8.4-A PMU extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.predictable_select_expensive)] = .{
@@ -757,9 +911,19 @@ pub const all_features = blk: {
             .sve2,
         }),
     };
+    result[@enumToInt(Feature.tagged_globals)] = .{
+        .llvm_name = "tagged-globals",
+        .description = "Use an instruction sequence for taking the address of a global that allows a memory tag in the upper address bits",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@enumToInt(Feature.tlb_rmi)] = .{
         .llvm_name = "tlb-rmi",
         .description = "Enable v8.4-A TLB Range and Maintenance Instructions",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.tme)] = .{
+        .llvm_name = "tme",
+        .description = "Enable Transactional Memory Extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.tpidr_el1)] = .{
@@ -780,6 +944,11 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.tracev8_4)] = .{
         .llvm_name = "tracev8.4",
         .description = "Enable v8.4-A Trace extension",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.trbe)] = .{
+        .llvm_name = "trbe",
+        .description = "Enable Trace Buffer Extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.uaops)] = .{
@@ -856,6 +1025,7 @@ pub const all_features = blk: {
             .fmi,
             .mpam,
             .nv,
+            .pmu,
             .rasv8_4,
             .rcpc_immo,
             .sel2,
@@ -921,11 +1091,74 @@ pub const all_features = blk: {
 };
 
 pub const cpu = struct {
+    pub const apple_a10 = CpuModel{
+        .name = "apple_a10",
+        .llvm_name = "apple-a10",
+        .features = featureSet(&[_]Feature{
+            .apple_a10,
+        }),
+    };
+    pub const apple_a11 = CpuModel{
+        .name = "apple_a11",
+        .llvm_name = "apple-a11",
+        .features = featureSet(&[_]Feature{
+            .apple_a11,
+        }),
+    };
+    pub const apple_a12 = CpuModel{
+        .name = "apple_a12",
+        .llvm_name = "apple-a12",
+        .features = featureSet(&[_]Feature{
+            .apple_a12,
+        }),
+    };
+    pub const apple_a13 = CpuModel{
+        .name = "apple_a13",
+        .llvm_name = "apple-a13",
+        .features = featureSet(&[_]Feature{
+            .apple_a13,
+        }),
+    };
+    pub const apple_a7 = CpuModel{
+        .name = "apple_a7",
+        .llvm_name = "apple-a7",
+        .features = featureSet(&[_]Feature{
+            .apple_a7,
+        }),
+    };
+    pub const apple_a8 = CpuModel{
+        .name = "apple_a8",
+        .llvm_name = "apple-a8",
+        .features = featureSet(&[_]Feature{
+            .apple_a7,
+        }),
+    };
+    pub const apple_a9 = CpuModel{
+        .name = "apple_a9",
+        .llvm_name = "apple-a9",
+        .features = featureSet(&[_]Feature{
+            .apple_a7,
+        }),
+    };
     pub const apple_latest = CpuModel{
         .name = "apple_latest",
         .llvm_name = "apple-latest",
         .features = featureSet(&[_]Feature{
-            .cyclone,
+            .apple_a13,
+        }),
+    };
+    pub const apple_s4 = CpuModel{
+        .name = "apple_s4",
+        .llvm_name = "apple-s4",
+        .features = featureSet(&[_]Feature{
+            .apple_a12,
+        }),
+    };
+    pub const apple_s5 = CpuModel{
+        .name = "apple_s5",
+        .llvm_name = "apple-s5",
+        .features = featureSet(&[_]Feature{
+            .apple_a12,
         }),
     };
     pub const cortex_a35 = CpuModel{
@@ -982,6 +1215,20 @@ pub const cpu = struct {
             .v8a,
         }),
     };
+    pub const cortex_a65 = CpuModel{
+        .name = "cortex_a65",
+        .llvm_name = "cortex-a65",
+        .features = featureSet(&[_]Feature{
+            .a65,
+        }),
+    };
+    pub const cortex_a65ae = CpuModel{
+        .name = "cortex_a65ae",
+        .llvm_name = "cortex-a65ae",
+        .features = featureSet(&[_]Feature{
+            .a65,
+        }),
+    };
     pub const cortex_a72 = CpuModel{
         .name = "cortex_a72",
         .llvm_name = "cortex-a72",
@@ -1035,12 +1282,12 @@ pub const cpu = struct {
         .name = "cyclone",
         .llvm_name = "cyclone",
         .features = featureSet(&[_]Feature{
-            .cyclone,
+            .apple_a7,
         }),
     };
     pub const exynos_m1 = CpuModel{
         .name = "exynos_m1",
-        .llvm_name = "exynos-m1",
+        .llvm_name = null,
         .features = featureSet(&[_]Feature{
             .crc,
             .crypto,
@@ -1058,7 +1305,7 @@ pub const cpu = struct {
     };
     pub const exynos_m2 = CpuModel{
         .name = "exynos_m2",
-        .llvm_name = "exynos-m2",
+        .llvm_name = null,
         .features = featureSet(&[_]Feature{
             .crc,
             .crypto,
@@ -1128,6 +1375,7 @@ pub const cpu = struct {
         .name = "generic",
         .llvm_name = "generic",
         .features = featureSet(&[_]Feature{
+            .ete,
             .fuse_aes,
             .perfmon,
             .use_postra_scheduler,
@@ -1147,6 +1395,20 @@ pub const cpu = struct {
             .use_postra_scheduler,
             .zcz,
             .v8a,
+        }),
+    };
+    pub const neoverse_e1 = CpuModel{
+        .name = "neoverse_e1",
+        .llvm_name = "neoverse-e1",
+        .features = featureSet(&[_]Feature{
+            .neoversee1,
+        }),
+    };
+    pub const neoverse_n1 = CpuModel{
+        .name = "neoverse_n1",
+        .llvm_name = "neoverse-n1",
+        .features = featureSet(&[_]Feature{
+            .neoversen1,
         }),
     };
     pub const saphira = CpuModel{
@@ -1248,11 +1510,22 @@ pub const cpu = struct {
 /// TODO: Replace this with usage of `std.meta.declList`. It does work, but stage1
 /// compiler has inefficient memory and CPU usage, affecting build times.
 pub const all_cpus = &[_]*const CpuModel{
+    &cpu.apple_a10,
+    &cpu.apple_a11,
+    &cpu.apple_a12,
+    &cpu.apple_a13,
+    &cpu.apple_a7,
+    &cpu.apple_a8,
+    &cpu.apple_a9,
     &cpu.apple_latest,
+    &cpu.apple_s4,
+    &cpu.apple_s5,
     &cpu.cortex_a35,
     &cpu.cortex_a53,
     &cpu.cortex_a55,
     &cpu.cortex_a57,
+    &cpu.cortex_a65,
+    &cpu.cortex_a65ae,
     &cpu.cortex_a72,
     &cpu.cortex_a73,
     &cpu.cortex_a75,
@@ -1267,6 +1540,8 @@ pub const all_cpus = &[_]*const CpuModel{
     &cpu.falkor,
     &cpu.generic,
     &cpu.kryo,
+    &cpu.neoverse_e1,
+    &cpu.neoverse_n1,
     &cpu.saphira,
     &cpu.thunderx,
     &cpu.thunderx2t99,

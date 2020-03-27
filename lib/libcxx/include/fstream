@@ -508,34 +508,34 @@ const char* basic_filebuf<_CharT, _Traits>::__make_mdstring(
   switch (__mode & ~ios_base::ate) {
   case ios_base::out:
   case ios_base::out | ios_base::trunc:
-    return "w";
+    return "w" _LIBCPP_FOPEN_CLOEXEC_MODE;
   case ios_base::out | ios_base::app:
   case ios_base::app:
-    return "a";
+    return "a" _LIBCPP_FOPEN_CLOEXEC_MODE;
   case ios_base::in:
-    return "r";
+    return "r" _LIBCPP_FOPEN_CLOEXEC_MODE;
   case ios_base::in | ios_base::out:
-    return "r+";
+    return "r+" _LIBCPP_FOPEN_CLOEXEC_MODE;
   case ios_base::in | ios_base::out | ios_base::trunc:
-    return "w+";
+    return "w+" _LIBCPP_FOPEN_CLOEXEC_MODE;
   case ios_base::in | ios_base::out | ios_base::app:
   case ios_base::in | ios_base::app:
-    return "a+";
+    return "a+" _LIBCPP_FOPEN_CLOEXEC_MODE;
   case ios_base::out | ios_base::binary:
   case ios_base::out | ios_base::trunc | ios_base::binary:
-    return "wb";
+    return "wb" _LIBCPP_FOPEN_CLOEXEC_MODE;
   case ios_base::out | ios_base::app | ios_base::binary:
   case ios_base::app | ios_base::binary:
-    return "ab";
+    return "ab" _LIBCPP_FOPEN_CLOEXEC_MODE;
   case ios_base::in | ios_base::binary:
-    return "rb";
+    return "rb" _LIBCPP_FOPEN_CLOEXEC_MODE;
   case ios_base::in | ios_base::out | ios_base::binary:
-    return "r+b";
+    return "r+b" _LIBCPP_FOPEN_CLOEXEC_MODE;
   case ios_base::in | ios_base::out | ios_base::trunc | ios_base::binary:
-    return "w+b";
+    return "w+b" _LIBCPP_FOPEN_CLOEXEC_MODE;
   case ios_base::in | ios_base::out | ios_base::app | ios_base::binary:
   case ios_base::in | ios_base::app | ios_base::binary:
-    return "a+b";
+    return "a+b" _LIBCPP_FOPEN_CLOEXEC_MODE;
   default:
     return nullptr;
   }
@@ -697,10 +697,9 @@ basic_filebuf<_CharT, _Traits>::close()
         unique_ptr<FILE, int(*)(FILE*)> __h(__file_, fclose);
         if (sync())
             __rt = 0;
-        if (fclose(__h.release()) == 0)
-            __file_ = 0;
-        else
+        if (fclose(__h.release()))
             __rt = 0;
+        __file_ = 0;
         setbuf(0, 0);
     }
     return __rt;

@@ -1,11 +1,19 @@
 const std = @import("../std.zig");
+const builtin = std.builtin;
+
 usingnamespace std.c;
 
 extern "c" fn __errno() *c_int;
 pub const _errno = __errno;
 
-pub extern "c" fn getdents(fd: c_int, buf_ptr: [*]u8, nbytes: usize) usize;
-pub extern "c" fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
+pub const dl_iterate_phdr_callback = extern fn (info: *dl_phdr_info, size: usize, data: ?*c_void) c_int;
+pub extern "c" fn dl_iterate_phdr(callback: dl_iterate_phdr_callback, data: ?*c_void) c_int;
+
+pub extern "c" fn __fstat50(fd: fd_t, buf: *Stat) c_int;
+pub extern "c" fn __clock_gettime50(clk_id: c_int, tp: *timespec) c_int;
+pub extern "c" fn __clock_getres50(clk_id: c_int, tp: *timespec) c_int;
+pub extern "c" fn __getdents30(fd: c_int, buf_ptr: [*]u8, nbytes: usize) c_int;
+pub extern "c" fn __sigaltstack14(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
 
 pub const pthread_mutex_t = extern struct {
     ptm_magic: c_uint = 0x33330003,

@@ -534,13 +534,14 @@ pub const Int = struct {
         return out_stream.writeAll(str);
     }
 
-    /// Returns -1, 0, 1 if |a| < |b|, |a| == |b| or |a| > |b| respectively.
-    pub fn cmpAbs(a: Int, b: Int) i8 {
+    /// Returns math.Order.lt, math.Order.eq, math.Order.gt if |a| < |b|, |a| ==
+    /// |b| or |a| > |b| respectively.
+    pub fn cmpAbs(a: Int, b: Int) math.Order {
         if (a.len() < b.len()) {
-            return -1;
+            return .lt;
         }
         if (a.len() > b.len()) {
-            return 1;
+            return .gt;
         }
 
         var i: usize = a.len() - 1;
@@ -551,21 +552,26 @@ pub const Int = struct {
         }
 
         if (a.limbs[i] < b.limbs[i]) {
-            return -1;
+            return .lt;
         } else if (a.limbs[i] > b.limbs[i]) {
-            return 1;
+            return .gt;
         } else {
-            return 0;
+            return .eq;
         }
     }
 
-    /// Returns -1, 0, 1 if a < b, a == b or a > b respectively.
-    pub fn cmp(a: Int, b: Int) i8 {
+    /// Returns math.Order.lt, math.Order.eq, math.Order.gt if a < b, a == b or a
+    /// > b respectively.
+    pub fn cmp(a: Int, b: Int) math.Order {
         if (a.isPositive() != b.isPositive()) {
-            return if (a.isPositive()) @as(i8, 1) else -1;
+            return if (a.isPositive()) .gt else .lt;
         } else {
             const r = cmpAbs(a, b);
-            return if (a.isPositive()) r else -r;
+            return if (a.isPositive()) r else switch (r) {
+                .lt => math.Order.gt,
+                .eq => math.Order.eq,
+                .gt => math.Order.lt,
+            };
         }
     }
 
@@ -576,12 +582,12 @@ pub const Int = struct {
 
     /// Returns true if |a| == |b|.
     pub fn eqAbs(a: Int, b: Int) bool {
-        return cmpAbs(a, b) == 0;
+        return cmpAbs(a, b) == .eq;
     }
 
     /// Returns true if a == b.
     pub fn eq(a: Int, b: Int) bool {
-        return cmp(a, b) == 0;
+        return cmp(a, b) == .eq;
     }
 
     // Normalize a possible sequence of leading zeros.
@@ -694,7 +700,7 @@ pub const Int = struct {
         } else {
             if (a.isPositive()) {
                 // (a) - (b) => a - b
-                if (a.cmp(b) >= 0) {
+                if (a.cmp(b) != .lt) {
                     try r.ensureCapacity(a.len() + 1);
                     llsub(r.limbs[0..], a.limbs[0..a.len()], b.limbs[0..b.len()]);
                     r.normalize(a.len());
@@ -707,7 +713,7 @@ pub const Int = struct {
                 }
             } else {
                 // (-a) - (-b) => -(a - b)
-                if (a.cmp(b) < 0) {
+                if (a.cmp(b) == .lt) {
                     try r.ensureCapacity(a.len() + 1);
                     llsub(r.limbs[0..], a.limbs[0..a.len()], b.limbs[0..b.len()]);
                     r.normalize(a.len());
@@ -1010,7 +1016,7 @@ pub const Int = struct {
             @panic("quo and rem cannot be same variable");
         }
 
-        if (a.cmpAbs(b) < 0) {
+        if (a.cmpAbs(b) == .lt) {
             // quo may alias a so handle rem first
             try rem.copy(a);
             rem.setSign(a.isPositive() == b.isPositive());
@@ -1133,7 +1139,7 @@ pub const Int = struct {
 
         // 2.
         try tmp.shiftLeft(y.*, Limb.bit_count * (n - t));
-        while (x.cmp(tmp) >= 0) {
+        while (x.cmp(tmp) != .lt) {
             q.limbs[n - t] += 1;
             try x.sub(x.*, tmp);
         }
@@ -1164,7 +1170,7 @@ pub const Int = struct {
                 r.limbs[2] = carry;
                 r.normalize(3);
 
-                if (r.cmpAbs(tmp) <= 0) {
+                if (r.cmpAbs(tmp) != .gt) {
                     break;
                 }
 
@@ -1719,8 +1725,8 @@ test "big.int compare" {
     var b = try Int.initSet(testing.allocator, 10);
     defer b.deinit();
 
-    testing.expect(a.cmpAbs(b) == 1);
-    testing.expect(a.cmp(b) == -1);
+    testing.expect(a.cmpAbs(b) == .gt);
+    testing.expect(a.cmp(b) == .lt);
 }
 
 test "big.int compare similar" {
@@ -1729,8 +1735,8 @@ test "big.int compare similar" {
     var b = try Int.initSet(testing.allocator, 0xffffffffeeeeeeeeffffffffeeeeeeef);
     defer b.deinit();
 
-    testing.expect(a.cmpAbs(b) == -1);
-    testing.expect(b.cmpAbs(a) == 1);
+    testing.expect(a.cmpAbs(b) == .lt);
+    testing.expect(b.cmpAbs(a) == .gt);
 }
 
 test "big.int compare different limb size" {
@@ -1739,8 +1745,8 @@ test "big.int compare different limb size" {
     var b = try Int.initSet(testing.allocator, 1);
     defer b.deinit();
 
-    testing.expect(a.cmpAbs(b) == 1);
-    testing.expect(b.cmpAbs(a) == -1);
+    testing.expect(a.cmpAbs(b) == .gt);
+    testing.expect(b.cmpAbs(a) == .lt);
 }
 
 test "big.int compare multi-limb" {
@@ -1749,8 +1755,8 @@ test "big.int compare multi-limb" {
     var b = try Int.initSet(testing.allocator, 0x7777777799999999ffffeeeeffffeeeeffffeeeee);
     defer b.deinit();
 
-    testing.expect(a.cmpAbs(b) == 1);
-    testing.expect(a.cmp(b) == -1);
+    testing.expect(a.cmpAbs(b) == .gt);
+    testing.expect(a.cmp(b) == .lt);
 }
 
 test "big.int equality" {
@@ -2726,9 +2732,9 @@ test "big.int var args" {
 
     const c = try Int.initSet(testing.allocator, 11);
     defer c.deinit();
-    testing.expect(a.cmp(c) == 0);
+    testing.expect(a.cmp(c) == .eq);
 
     const d = try Int.initSet(testing.allocator, 14);
     defer d.deinit();
-    testing.expect(a.cmp(d) <= 0);
+    testing.expect(a.cmp(d) != .gt);
 }

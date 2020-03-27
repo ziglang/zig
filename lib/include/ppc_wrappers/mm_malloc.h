@@ -10,6 +10,8 @@
 #ifndef _MM_MALLOC_H_INCLUDED
 #define _MM_MALLOC_H_INCLUDED
 
+#if defined(__linux__) && defined(__ppc64__)
+
 #include <stdlib.h>
 
 /* We can't depend on <stdlib.h> since the prototype of posix_memalign
@@ -40,5 +42,9 @@ _mm_free (void * ptr)
 {
   free (ptr);
 }
+
+#else
+#include_next <mm_malloc.h>
+#endif
 
 #endif /* _MM_MALLOC_H_INCLUDED */

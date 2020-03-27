@@ -87,7 +87,7 @@ int isxdigit_l(int c, locale_t locale)
 static inline
 int iswalnum_l(wchar_t wc, locale_t locale)
 {
-  return __xiswalnum(locale, wc); 
+  return __xiswalnum(locale, wc);
 }
 
 static inline
@@ -159,7 +159,7 @@ int iswxdigit_l(wchar_t wc, locale_t locale)
 static inline
 int iswctype_l(wint_t wc, wctype_t desc, locale_t locale)
 {
-  return __xiswctype(locale, wc, desc); 
+  return __xiswctype(locale, wc, desc);
 }
 
 static inline
@@ -261,7 +261,7 @@ int vasprintf(char **strp, const char *fmt, va_list ap)
     str_size = vsnprintf(*strp, str_size + 1, fmt,  ap);
   }
   return str_size;
-}  
+}
 
 #ifdef __cplusplus
 }

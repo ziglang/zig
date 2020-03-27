@@ -146,6 +146,14 @@ const known_options = [_]KnownOpt{
         .name = "fsanitize",
         .ident = "sanitize",
     },
+    .{
+        .name = "T",
+        .ident = "linker_script",
+    },
+    .{
+        .name = "###",
+        .ident = "verbose_cmds",
+    },
 };
 
 const blacklisted_options = [_][]const u8{};

@@ -480,12 +480,19 @@ pub const CrossTarget = struct {
         return Target.libPrefix_cpu_arch_abi(self.getCpuArch(), self.getAbi());
     }
 
-    pub fn isNative(self: CrossTarget) bool {
+    pub fn isNativeCpu(self: CrossTarget) bool {
         return self.cpu_arch == null and
             (self.cpu_model == .native or self.cpu_model == .determined_by_cpu_arch) and
-            self.cpu_features_sub.isEmpty() and self.cpu_features_add.isEmpty() and
-            self.os_tag == null and self.os_version_min == null and self.os_version_max == null and
-            self.abi == null and self.dynamic_linker.get() == null and self.glibc_version == null;
+            self.cpu_features_sub.isEmpty() and self.cpu_features_add.isEmpty();
+    }
+
+    pub fn isNativeOs(self: CrossTarget) bool {
+        return self.os_tag == null and self.os_version_min == null and self.os_version_max == null and
+            self.dynamic_linker.get() == null and self.glibc_version == null;
+    }
+
+    pub fn isNative(self: CrossTarget) bool {
+        return self.isNativeCpu() and self.isNativeOs() and self.abi == null;
     }
 
     pub fn zigTriple(self: CrossTarget, allocator: *mem.Allocator) error{OutOfMemory}![:0]u8 {

@@ -1,6 +1,0 @@
-SECTIONS {
-  .foo : { *(.bar) }
-} INSERT .data;
-
-# RUN: not ld.lld -o %t1 --script %s 2>&1 | FileCheck %s
-# CHECK: {{.*}}:3: expected AFTER/BEFORE, but got '.data'

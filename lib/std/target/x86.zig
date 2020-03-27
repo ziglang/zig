@@ -46,7 +46,6 @@ pub const Feature = enum {
     fast_gather,
     fast_hops,
     fast_lzcnt,
-    fast_partial_ymm_or_zmm_write,
     fast_scalar_fsqrt,
     fast_scalar_shift_masks,
     fast_shld_rotate,
@@ -79,7 +78,9 @@ pub const Feature = enum {
     pconfig,
     pku,
     popcnt,
+    prefer_128_bit,
     prefer_256_bit,
+    prefer_mask_registers,
     prefetchwt1,
     prfchw,
     ptwrite,
@@ -114,8 +115,11 @@ pub const Feature = enum {
     sse4a,
     ssse3,
     tbm,
+    use_aa,
+    use_glm_div_sqrt_costs,
     vaes,
     vpclmulqdq,
+    vzeroupper,
     waitpkg,
     wbnoinvd,
     x87,
@@ -386,18 +390,11 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.fast_hops)] = .{
         .llvm_name = "fast-hops",
         .description = "Prefer horizontal vector math instructions (haddp, phsub, etc.) over normal vector instructions with shuffles",
-        .dependencies = featureSet(&[_]Feature{
-            .sse3,
-        }),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.fast_lzcnt)] = .{
         .llvm_name = "fast-lzcnt",
         .description = "LZCNT instructions are as fast as most simple integer ops",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@enumToInt(Feature.fast_partial_ymm_or_zmm_write)] = .{
-        .llvm_name = "fast-partial-ymm-or-zmm-write",
-        .description = "Partial writes to YMM/ZMM registers are fast",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.fast_scalar_fsqrt)] = .{
@@ -529,7 +526,7 @@ pub const all_features = blk: {
     };
     result[@enumToInt(Feature.mpx)] = .{
         .llvm_name = "mpx",
-        .description = "Support MPX instructions",
+        .description = "Deprecated. Support MPX instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.mwaitx)] = .{
@@ -569,9 +566,19 @@ pub const all_features = blk: {
         .description = "Support POPCNT instruction",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@enumToInt(Feature.prefer_128_bit)] = .{
+        .llvm_name = "prefer-128-bit",
+        .description = "Prefer 128-bit AVX instructions",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@enumToInt(Feature.prefer_256_bit)] = .{
         .llvm_name = "prefer-256-bit",
         .description = "Prefer 256-bit AVX instructions",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.prefer_mask_registers)] = .{
+        .llvm_name = "prefer-mask-registers",
+        .description = "Prefer AVX512 mask registers over PTEST/MOVMSK",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.prefetchwt1)] = .{
@@ -763,6 +770,16 @@ pub const all_features = blk: {
         .description = "Enable TBM instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@enumToInt(Feature.use_aa)] = .{
+        .llvm_name = "use-aa",
+        .description = "Use alias analysis during codegen",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.use_glm_div_sqrt_costs)] = .{
+        .llvm_name = "use-glm-div-sqrt-costs",
+        .description = "Use Goldmont specific floating point div/sqrt costs",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@enumToInt(Feature.vaes)] = .{
         .llvm_name = "vaes",
         .description = "Promote selected AES instructions to AVX512/AVX registers",
@@ -778,6 +795,11 @@ pub const all_features = blk: {
             .avx,
             .pclmul,
         }),
+    };
+    result[@enumToInt(Feature.vzeroupper)] = .{
+        .llvm_name = "vzeroupper",
+        .description = "Should insert vzeroupper instructions",
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.waitpkg)] = .{
         .llvm_name = "waitpkg",
@@ -847,6 +869,7 @@ pub const cpu = struct {
             .sahf,
             .slow_shld,
             .sse4a,
+            .vzeroupper,
             .x87,
         }),
     };
@@ -860,6 +883,7 @@ pub const cpu = struct {
             .nopl,
             .slow_shld,
             .slow_unaligned_mem_16,
+            .vzeroupper,
             .x87,
         }),
     };
@@ -875,6 +899,7 @@ pub const cpu = struct {
             .slow_shld,
             .slow_unaligned_mem_16,
             .sse,
+            .vzeroupper,
             .x87,
         }),
     };
@@ -892,6 +917,7 @@ pub const cpu = struct {
             .slow_shld,
             .slow_unaligned_mem_16,
             .sse2,
+            .vzeroupper,
             .x87,
         }),
     };
@@ -907,6 +933,7 @@ pub const cpu = struct {
             .slow_shld,
             .slow_unaligned_mem_16,
             .sse,
+            .vzeroupper,
             .x87,
         }),
     };
@@ -920,6 +947,7 @@ pub const cpu = struct {
             .nopl,
             .slow_shld,
             .slow_unaligned_mem_16,
+            .vzeroupper,
             .x87,
         }),
     };
@@ -935,6 +963,7 @@ pub const cpu = struct {
             .slow_shld,
             .slow_unaligned_mem_16,
             .sse,
+            .vzeroupper,
             .x87,
         }),
     };
@@ -952,6 +981,7 @@ pub const cpu = struct {
             .slow_shld,
             .slow_unaligned_mem_16,
             .sse2,
+            .vzeroupper,
             .x87,
         }),
     };
@@ -970,6 +1000,7 @@ pub const cpu = struct {
             .slow_shld,
             .slow_unaligned_mem_16,
             .sse3,
+            .vzeroupper,
             .x87,
         }),
     };
@@ -994,6 +1025,7 @@ pub const cpu = struct {
             .slow_two_mem_ops,
             .slow_unaligned_mem_16,
             .ssse3,
+            .vzeroupper,
             .x87,
         }),
     };
@@ -1014,6 +1046,7 @@ pub const cpu = struct {
             .sahf,
             .slow_shld,
             .sse4a,
+            .vzeroupper,
             .x87,
         }),
     };
@@ -1039,6 +1072,7 @@ pub const cpu = struct {
             .prfchw,
             .sahf,
             .slow_shld,
+            .vzeroupper,
             .x87,
             .xop,
             .xsave,
@@ -1071,6 +1105,7 @@ pub const cpu = struct {
             .sahf,
             .slow_shld,
             .tbm,
+            .vzeroupper,
             .x87,
             .xop,
             .xsave,
@@ -1104,6 +1139,7 @@ pub const cpu = struct {
             .sahf,
             .slow_shld,
             .tbm,
+            .vzeroupper,
             .x87,
             .xop,
             .xsave,
@@ -1141,6 +1177,7 @@ pub const cpu = struct {
             .sahf,
             .slow_shld,
             .tbm,
+            .vzeroupper,
             .x87,
             .xop,
             .xsave,
@@ -1168,6 +1205,7 @@ pub const cpu = struct {
             .slow_two_mem_ops,
             .slow_unaligned_mem_16,
             .ssse3,
+            .vzeroupper,
             .x87,
         }),
     };
@@ -1210,6 +1248,7 @@ pub const cpu = struct {
             .sahf,
             .slow_3ops_lea,
             .sse4_2,
+            .vzeroupper,
             .x87,
             .xsave,
             .xsaveopt,
@@ -1236,6 +1275,7 @@ pub const cpu = struct {
             .slow_shld,
             .sse4a,
             .ssse3,
+            .vzeroupper,
             .x87,
         }),
     };
@@ -1255,7 +1295,6 @@ pub const cpu = struct {
             .fast_bextr,
             .fast_hops,
             .fast_lzcnt,
-            .fast_partial_ymm_or_zmm_write,
             .fast_scalar_shift_masks,
             .fast_vector_shift_masks,
             .fxsr,
@@ -1281,6 +1320,7 @@ pub const cpu = struct {
         .features = featureSet(&[_]Feature{
             .@"3dnow",
             .slow_unaligned_mem_16,
+            .vzeroupper,
             .x87,
         }),
     };
@@ -1294,6 +1334,7 @@ pub const cpu = struct {
             .mmx,
             .slow_unaligned_mem_16,
             .sse,
+            .vzeroupper,
             .x87,
         }),
     };
@@ -1336,11 +1377,11 @@ pub const cpu = struct {
             .merge_to_threeway_branch,
             .mmx,
             .movbe,
-            .mpx,
             .nopl,
             .pclmul,
             .pku,
             .popcnt,
+            .prefer_256_bit,
             .prfchw,
             .rdrnd,
             .rdseed,
@@ -1349,6 +1390,7 @@ pub const cpu = struct {
             .sha,
             .slow_3ops_lea,
             .sse4_2,
+            .vzeroupper,
             .x87,
             .xsave,
             .xsavec,
@@ -1396,17 +1438,18 @@ pub const cpu = struct {
             .merge_to_threeway_branch,
             .mmx,
             .movbe,
-            .mpx,
             .nopl,
             .pclmul,
             .pku,
             .popcnt,
+            .prefer_256_bit,
             .prfchw,
             .rdrnd,
             .rdseed,
             .sahf,
             .slow_3ops_lea,
             .sse4_2,
+            .vzeroupper,
             .x87,
             .xsave,
             .xsavec,
@@ -1455,17 +1498,18 @@ pub const cpu = struct {
             .merge_to_threeway_branch,
             .mmx,
             .movbe,
-            .mpx,
             .nopl,
             .pclmul,
             .pku,
             .popcnt,
+            .prefer_256_bit,
             .prfchw,
             .rdrnd,
             .rdseed,
             .sahf,
             .slow_3ops_lea,
             .sse4_2,
+            .vzeroupper,
             .x87,
             .xsave,
             .xsavec,
@@ -1500,6 +1544,7 @@ pub const cpu = struct {
             .slow_3ops_lea,
             .slow_unaligned_mem_32,
             .sse4_2,
+            .vzeroupper,
             .x87,
             .xsave,
             .xsaveopt,
@@ -1541,6 +1586,7 @@ pub const cpu = struct {
             .sahf,
             .slow_3ops_lea,
             .sse4_2,
+            .vzeroupper,
             .x87,
             .xsave,
             .xsaveopt,
@@ -1561,6 +1607,7 @@ pub const cpu = struct {
             .sahf,
             .slow_unaligned_mem_16,
             .ssse3,
+            .vzeroupper,
             .x87,
         }),
     };
@@ -1579,6 +1626,7 @@ pub const cpu = struct {
             .popcnt,
             .sahf,
             .sse4_2,
+            .vzeroupper,
             .x87,
         }),
     };
@@ -1606,6 +1654,7 @@ pub const cpu = struct {
             .slow_3ops_lea,
             .slow_unaligned_mem_32,
             .sse4_2,
+            .vzeroupper,
             .x87,
             .xsave,
             .xsaveopt,
@@ -1617,6 +1666,7 @@ pub const cpu = struct {
         .features = featureSet(&[_]Feature{
             .cx8,
             .slow_unaligned_mem_16,
+            .vzeroupper,
             .x87,
         }),
     };
@@ -1627,6 +1677,7 @@ pub const cpu = struct {
             .@"3dnowa",
             .cx8,
             .slow_unaligned_mem_16,
+            .vzeroupper,
             .x87,
         }),
     };
@@ -1645,7 +1696,6 @@ pub const cpu = struct {
             .fxsr,
             .mmx,
             .movbe,
-            .mpx,
             .nopl,
             .pclmul,
             .popcnt,
@@ -1659,6 +1709,8 @@ pub const cpu = struct {
             .slow_two_mem_ops,
             .sse4_2,
             .ssse3,
+            .use_glm_div_sqrt_costs,
+            .vzeroupper,
             .x87,
             .xsave,
             .xsavec,
@@ -1680,7 +1732,6 @@ pub const cpu = struct {
             .fxsr,
             .mmx,
             .movbe,
-            .mpx,
             .nopl,
             .pclmul,
             .popcnt,
@@ -1697,6 +1748,8 @@ pub const cpu = struct {
             .slow_two_mem_ops,
             .sse4_2,
             .ssse3,
+            .use_glm_div_sqrt_costs,
+            .vzeroupper,
             .x87,
             .xsave,
             .xsavec,
@@ -1740,6 +1793,7 @@ pub const cpu = struct {
             .sahf,
             .slow_3ops_lea,
             .sse4_2,
+            .vzeroupper,
             .x87,
             .xsave,
             .xsaveopt,
@@ -1750,6 +1804,7 @@ pub const cpu = struct {
         .llvm_name = "i386",
         .features = featureSet(&[_]Feature{
             .slow_unaligned_mem_16,
+            .vzeroupper,
             .x87,
         }),
     };
@@ -1758,6 +1813,7 @@ pub const cpu = struct {
         .llvm_name = "i486",
         .features = featureSet(&[_]Feature{
             .slow_unaligned_mem_16,
+            .vzeroupper,
             .x87,
         }),
     };
@@ -1767,6 +1823,7 @@ pub const cpu = struct {
         .features = featureSet(&[_]Feature{
             .cx8,
             .slow_unaligned_mem_16,
+            .vzeroupper,
             .x87,
         }),
     };
@@ -1777,6 +1834,7 @@ pub const cpu = struct {
             .cmov,
             .cx8,
             .slow_unaligned_mem_16,
+            .vzeroupper,
             .x87,
         }),
     };
@@ -1825,11 +1883,11 @@ pub const cpu = struct {
             .merge_to_threeway_branch,
             .mmx,
             .movbe,
-            .mpx,
             .nopl,
             .pclmul,
             .pku,
             .popcnt,
+            .prefer_256_bit,
             .prfchw,
             .rdpid,
             .rdrnd,
@@ -1841,6 +1899,7 @@ pub const cpu = struct {
             .sse4_2,
             .vaes,
             .vpclmulqdq,
+            .vzeroupper,
             .x87,
             .xsave,
             .xsavec,
@@ -1893,12 +1952,12 @@ pub const cpu = struct {
             .merge_to_threeway_branch,
             .mmx,
             .movbe,
-            .mpx,
             .nopl,
             .pclmul,
             .pconfig,
             .pku,
             .popcnt,
+            .prefer_256_bit,
             .prfchw,
             .rdpid,
             .rdrnd,
@@ -1910,6 +1969,7 @@ pub const cpu = struct {
             .sse4_2,
             .vaes,
             .vpclmulqdq,
+            .vzeroupper,
             .wbnoinvd,
             .x87,
             .xsave,
@@ -1945,6 +2005,7 @@ pub const cpu = struct {
             .slow_3ops_lea,
             .slow_unaligned_mem_32,
             .sse4_2,
+            .vzeroupper,
             .x87,
             .xsave,
             .xsaveopt,
@@ -1957,6 +2018,7 @@ pub const cpu = struct {
             .cx8,
             .mmx,
             .slow_unaligned_mem_16,
+            .vzeroupper,
             .x87,
         }),
     };
@@ -1967,6 +2029,7 @@ pub const cpu = struct {
             .@"3dnow",
             .cx8,
             .slow_unaligned_mem_16,
+            .vzeroupper,
             .x87,
         }),
     };
@@ -1977,6 +2040,7 @@ pub const cpu = struct {
             .@"3dnow",
             .cx8,
             .slow_unaligned_mem_16,
+            .vzeroupper,
             .x87,
         }),
     };
@@ -1994,6 +2058,7 @@ pub const cpu = struct {
             .slow_shld,
             .slow_unaligned_mem_16,
             .sse2,
+            .vzeroupper,
             .x87,
         }),
     };
@@ -2012,6 +2077,7 @@ pub const cpu = struct {
             .slow_shld,
             .slow_unaligned_mem_16,
             .sse3,
+            .vzeroupper,
             .x87,
         }),
     };
@@ -2033,7 +2099,6 @@ pub const cpu = struct {
             .cx8,
             .f16c,
             .fast_gather,
-            .fast_partial_ymm_or_zmm_write,
             .fma,
             .fsgsbase,
             .fxsr,
@@ -2044,6 +2109,7 @@ pub const cpu = struct {
             .nopl,
             .pclmul,
             .popcnt,
+            .prefer_mask_registers,
             .prefetchwt1,
             .prfchw,
             .rdrnd,
@@ -2077,7 +2143,6 @@ pub const cpu = struct {
             .cx8,
             .f16c,
             .fast_gather,
-            .fast_partial_ymm_or_zmm_write,
             .fma,
             .fsgsbase,
             .fxsr,
@@ -2088,6 +2153,7 @@ pub const cpu = struct {
             .nopl,
             .pclmul,
             .popcnt,
+            .prefer_mask_registers,
             .prefetchwt1,
             .prfchw,
             .rdrnd,
@@ -2105,7 +2171,9 @@ pub const cpu = struct {
     pub const lakemont = CpuModel{
         .name = "lakemont",
         .llvm_name = "lakemont",
-        .features = featureSet(&[_]Feature{}),
+        .features = featureSet(&[_]Feature{
+            .vzeroupper,
+        }),
     };
     pub const nehalem = CpuModel{
         .name = "nehalem",
@@ -2122,6 +2190,7 @@ pub const cpu = struct {
             .popcnt,
             .sahf,
             .sse4_2,
+            .vzeroupper,
             .x87,
         }),
     };
@@ -2138,6 +2207,7 @@ pub const cpu = struct {
             .nopl,
             .slow_unaligned_mem_16,
             .sse3,
+            .vzeroupper,
             .x87,
         }),
     };
@@ -2155,6 +2225,7 @@ pub const cpu = struct {
             .slow_shld,
             .slow_unaligned_mem_16,
             .sse2,
+            .vzeroupper,
             .x87,
         }),
     };
@@ -2173,6 +2244,7 @@ pub const cpu = struct {
             .slow_shld,
             .slow_unaligned_mem_16,
             .sse3,
+            .vzeroupper,
             .x87,
         }),
     };
@@ -2191,6 +2263,7 @@ pub const cpu = struct {
             .sahf,
             .slow_unaligned_mem_16,
             .sse4_1,
+            .vzeroupper,
             .x87,
         }),
     };
@@ -2200,6 +2273,7 @@ pub const cpu = struct {
         .features = featureSet(&[_]Feature{
             .cx8,
             .slow_unaligned_mem_16,
+            .vzeroupper,
             .x87,
         }),
     };
@@ -2214,6 +2288,7 @@ pub const cpu = struct {
             .nopl,
             .slow_unaligned_mem_16,
             .sse2,
+            .vzeroupper,
             .x87,
         }),
     };
@@ -2224,6 +2299,7 @@ pub const cpu = struct {
             .cx8,
             .mmx,
             .slow_unaligned_mem_16,
+            .vzeroupper,
             .x87,
         }),
     };
@@ -2237,6 +2313,7 @@ pub const cpu = struct {
             .mmx,
             .nopl,
             .slow_unaligned_mem_16,
+            .vzeroupper,
             .x87,
         }),
     };
@@ -2251,6 +2328,7 @@ pub const cpu = struct {
             .nopl,
             .slow_unaligned_mem_16,
             .sse,
+            .vzeroupper,
             .x87,
         }),
     };
@@ -2265,6 +2343,7 @@ pub const cpu = struct {
             .nopl,
             .slow_unaligned_mem_16,
             .sse,
+            .vzeroupper,
             .x87,
         }),
     };
@@ -2279,6 +2358,7 @@ pub const cpu = struct {
             .nopl,
             .slow_unaligned_mem_16,
             .sse2,
+            .vzeroupper,
             .x87,
         }),
     };
@@ -2293,6 +2373,7 @@ pub const cpu = struct {
             .nopl,
             .slow_unaligned_mem_16,
             .sse2,
+            .vzeroupper,
             .x87,
         }),
     };
@@ -2304,6 +2385,7 @@ pub const cpu = struct {
             .cx8,
             .nopl,
             .slow_unaligned_mem_16,
+            .vzeroupper,
             .x87,
         }),
     };
@@ -2318,6 +2400,7 @@ pub const cpu = struct {
             .nopl,
             .slow_unaligned_mem_16,
             .sse3,
+            .vzeroupper,
             .x87,
         }),
     };
@@ -2345,6 +2428,7 @@ pub const cpu = struct {
             .slow_3ops_lea,
             .slow_unaligned_mem_32,
             .sse4_2,
+            .vzeroupper,
             .x87,
             .xsave,
             .xsaveopt,
@@ -2375,6 +2459,7 @@ pub const cpu = struct {
             .slow_two_mem_ops,
             .sse4_2,
             .ssse3,
+            .vzeroupper,
             .x87,
         }),
     };
@@ -2417,17 +2502,18 @@ pub const cpu = struct {
             .merge_to_threeway_branch,
             .mmx,
             .movbe,
-            .mpx,
             .nopl,
             .pclmul,
             .pku,
             .popcnt,
+            .prefer_256_bit,
             .prfchw,
             .rdrnd,
             .rdseed,
             .sahf,
             .slow_3ops_lea,
             .sse4_2,
+            .vzeroupper,
             .x87,
             .xsave,
             .xsavec,
@@ -2468,7 +2554,6 @@ pub const cpu = struct {
             .merge_to_threeway_branch,
             .mmx,
             .movbe,
-            .mpx,
             .nopl,
             .pclmul,
             .popcnt,
@@ -2479,6 +2564,7 @@ pub const cpu = struct {
             .sgx,
             .slow_3ops_lea,
             .sse4_2,
+            .vzeroupper,
             .x87,
             .xsave,
             .xsavec,
@@ -2525,17 +2611,18 @@ pub const cpu = struct {
             .merge_to_threeway_branch,
             .mmx,
             .movbe,
-            .mpx,
             .nopl,
             .pclmul,
             .pku,
             .popcnt,
+            .prefer_256_bit,
             .prfchw,
             .rdrnd,
             .rdseed,
             .sahf,
             .slow_3ops_lea,
             .sse4_2,
+            .vzeroupper,
             .x87,
             .xsave,
             .xsavec,
@@ -2568,7 +2655,81 @@ pub const cpu = struct {
             .slow_two_mem_ops,
             .sse4_2,
             .ssse3,
+            .vzeroupper,
             .x87,
+        }),
+    };
+    pub const tigerlake = CpuModel{
+        .name = "tigerlake",
+        .llvm_name = "tigerlake",
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
+            .adx,
+            .aes,
+            .avx,
+            .avx2,
+            .avx512bitalg,
+            .avx512bw,
+            .avx512cd,
+            .avx512dq,
+            .avx512f,
+            .avx512ifma,
+            .avx512vbmi,
+            .avx512vbmi2,
+            .avx512vl,
+            .avx512vnni,
+            .avx512vp2intersect,
+            .avx512vpopcntdq,
+            .bmi,
+            .bmi2,
+            .clflushopt,
+            .clwb,
+            .cmov,
+            .cx16,
+            .cx8,
+            .ermsb,
+            .f16c,
+            .fast_gather,
+            .fast_scalar_fsqrt,
+            .fast_shld_rotate,
+            .fast_variable_shuffle,
+            .fast_vector_fsqrt,
+            .fma,
+            .fsgsbase,
+            .fxsr,
+            .gfni,
+            .idivq_to_divl,
+            .invpcid,
+            .lzcnt,
+            .macrofusion,
+            .merge_to_threeway_branch,
+            .mmx,
+            .movbe,
+            .movdir64b,
+            .movdiri,
+            .nopl,
+            .pclmul,
+            .pku,
+            .popcnt,
+            .prefer_256_bit,
+            .prfchw,
+            .rdpid,
+            .rdrnd,
+            .rdseed,
+            .sahf,
+            .sgx,
+            .sha,
+            .shstk,
+            .slow_3ops_lea,
+            .sse4_2,
+            .vaes,
+            .vpclmulqdq,
+            .vzeroupper,
+            .x87,
+            .xsave,
+            .xsavec,
+            .xsaveopt,
+            .xsaves,
         }),
     };
     pub const tremont = CpuModel{
@@ -2589,7 +2750,6 @@ pub const cpu = struct {
             .movbe,
             .movdir64b,
             .movdiri,
-            .mpx,
             .nopl,
             .pclmul,
             .popcnt,
@@ -2606,6 +2766,8 @@ pub const cpu = struct {
             .slow_two_mem_ops,
             .sse4_2,
             .ssse3,
+            .use_glm_div_sqrt_costs,
+            .vzeroupper,
             .waitpkg,
             .x87,
             .xsave,
@@ -2630,6 +2792,7 @@ pub const cpu = struct {
             .popcnt,
             .sahf,
             .sse4_2,
+            .vzeroupper,
             .x87,
         }),
     };
@@ -2639,6 +2802,7 @@ pub const cpu = struct {
         .features = featureSet(&[_]Feature{
             .mmx,
             .slow_unaligned_mem_16,
+            .vzeroupper,
             .x87,
         }),
     };
@@ -2648,6 +2812,7 @@ pub const cpu = struct {
         .features = featureSet(&[_]Feature{
             .@"3dnow",
             .slow_unaligned_mem_16,
+            .vzeroupper,
             .x87,
         }),
     };
@@ -2665,6 +2830,7 @@ pub const cpu = struct {
             .slow_3ops_lea,
             .slow_incdec,
             .sse2,
+            .vzeroupper,
             .x87,
         }),
     };
@@ -2679,6 +2845,7 @@ pub const cpu = struct {
             .nopl,
             .slow_unaligned_mem_16,
             .sse3,
+            .vzeroupper,
             .x87,
         }),
     };
@@ -2719,6 +2886,7 @@ pub const cpu = struct {
             .sha,
             .slow_shld,
             .sse4a,
+            .vzeroupper,
             .x87,
             .xsave,
             .xsavec,
@@ -2765,6 +2933,7 @@ pub const cpu = struct {
             .sha,
             .slow_shld,
             .sse4a,
+            .vzeroupper,
             .wbnoinvd,
             .x87,
             .xsave,
@@ -2849,6 +3018,7 @@ pub const all_cpus = &[_]*const CpuModel{
     &cpu.skylake,
     &cpu.skylake_avx512,
     &cpu.slm,
+    &cpu.tigerlake,
     &cpu.tremont,
     &cpu.westmere,
     &cpu.winchip_c6,

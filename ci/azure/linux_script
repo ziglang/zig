@@ -5,32 +5,48 @@ set -e
 
 BUILDDIR="$(pwd)"
 
-sudo sh -c 'echo "deb http://apt.llvm.org/bionic/ llvm-toolchain-bionic-9 main" >> /etc/apt/sources.list'
+sudo sh -c 'echo "deb http://apt.llvm.org/bionic/ llvm-toolchain-bionic-10 main" >> /etc/apt/sources.list'
 wget -O - http://apt.llvm.org/llvm-snapshot.gpg.key|sudo apt-key add -
 sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
 sudo apt-get update -q
 
 sudo apt-get remove -y llvm-*
 sudo rm -rf /usr/local/*
-sudo apt-get install -y libxml2-dev libclang-9-dev llvm-9 llvm-9-dev cmake s3cmd gcc-7 g++-7 qemu
+sudo apt-get install -y libxml2-dev libclang-10-dev llvm-10 llvm-10-dev liblld-10-dev cmake s3cmd gcc-7 g++-7 qemu
 
 # Make the `zig version` number consistent.
 # This will affect the cmake command below.
 git config core.abbrev 9
+
+# This patch is a workaround for
+# https://bugs.llvm.org/show_bug.cgi?id=44870 / https://github.com/llvm/llvm-project/issues/191
+# It only applies to the apt.llvm.org packages.
+patch <<'END_PATCH'
+--- CMakeLists.txt
++++ CMakeLists.txt
+@@ -369,6 +369,7 @@ target_link_libraries(zig_cpp LINK_PUBLIC
+     ${CLANG_LIBRARIES}
+     ${LLD_LIBRARIES}
+     ${LLVM_LIBRARIES}
++    "-Wl,/usr/lib/llvm-10/lib/LLVMPolly.so"
+ )
+ 
+ add_library(opt_c_util STATIC ${OPTIMIZED_C_SOURCES})
+END_PATCH
 
 export CC=gcc-7
 export CXX=g++-7
 mkdir build
 cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release
-make -j2 install
+make -j$(nproc) install
 ./zig build test -Denable-qemu
 VERSION="$(./zig version)"
 
 if [ "${BUILD_REASON}" != "PullRequest" ]; then
   ARTIFACTSDIR="$BUILDDIR/artifacts"
   mkdir "$ARTIFACTSDIR"
-  docker run -i --mount type=bind,source="$ARTIFACTSDIR",target=/z ziglang/static-base:llvm9-x86_64 -j2 $BUILD_SOURCEVERSION
+  docker run -i --mount type=bind,source="$ARTIFACTSDIR",target=/z ziglang/static-base:llvm10-x86_64-1 -j2 $BUILD_SOURCEVERSION
   TARBALL="$(ls $ARTIFACTSDIR)"
   mv "$DOWNLOADSECUREFILE_SECUREFILEPATH" "$HOME/.s3cfg"
   s3cmd put -P --add-header="cache-control: public, max-age=31536000, immutable" "$ARTIFACTSDIR/$TARBALL" s3://ziglang.org/builds/

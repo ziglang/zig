@@ -1474,26 +1474,26 @@ private:
 #ifndef _LIBCPP_HAS_NO_DEDUCTION_GUIDES
 template<class _InputIterator, class _Compare = less<__iter_key_type<_InputIterator>>,
          class _Allocator = allocator<__iter_to_alloc_type<_InputIterator>>,
-         class = enable_if_t<!__is_allocator<_Compare>::value, void>,
-         class = enable_if_t<__is_allocator<_Allocator>::value, void>>
+         class = _EnableIf<!__is_allocator<_Compare>::value, void>,
+         class = _EnableIf<__is_allocator<_Allocator>::value, void>>
 map(_InputIterator, _InputIterator, _Compare = _Compare(), _Allocator = _Allocator())
   -> map<__iter_key_type<_InputIterator>, __iter_mapped_type<_InputIterator>, _Compare, _Allocator>;
 
 template<class _Key, class _Tp, class _Compare = less<remove_const_t<_Key>>,
          class _Allocator = allocator<pair<const _Key, _Tp>>,
-         class = enable_if_t<!__is_allocator<_Compare>::value, void>,
-         class = enable_if_t<__is_allocator<_Allocator>::value, void>>
+         class = _EnableIf<!__is_allocator<_Compare>::value, void>,
+         class = _EnableIf<__is_allocator<_Allocator>::value, void>>
 map(initializer_list<pair<_Key, _Tp>>, _Compare = _Compare(), _Allocator = _Allocator())
   -> map<remove_const_t<_Key>, _Tp, _Compare, _Allocator>;
 
 template<class _InputIterator, class _Allocator,
-         class = enable_if_t<__is_allocator<_Allocator>::value, void>>
+         class = _EnableIf<__is_allocator<_Allocator>::value, void>>
 map(_InputIterator, _InputIterator, _Allocator)
   -> map<__iter_key_type<_InputIterator>, __iter_mapped_type<_InputIterator>,
          less<__iter_key_type<_InputIterator>>, _Allocator>;
 
 template<class _Key, class _Tp, class _Allocator,
-         class = enable_if_t<__is_allocator<_Allocator>::value, void>>
+         class = _EnableIf<__is_allocator<_Allocator>::value, void>>
 map(initializer_list<pair<_Key, _Tp>>, _Allocator)
   -> map<remove_const_t<_Key>, _Tp, less<remove_const_t<_Key>>, _Allocator>;
 #endif
@@ -2131,26 +2131,26 @@ private:
 #ifndef _LIBCPP_HAS_NO_DEDUCTION_GUIDES
 template<class _InputIterator, class _Compare = less<__iter_key_type<_InputIterator>>,
          class _Allocator = allocator<__iter_to_alloc_type<_InputIterator>>,
-         class = enable_if_t<!__is_allocator<_Compare>::value, void>,
-         class = enable_if_t<__is_allocator<_Allocator>::value, void>>
+         class = _EnableIf<!__is_allocator<_Compare>::value, void>,
+         class = _EnableIf<__is_allocator<_Allocator>::value, void>>
 multimap(_InputIterator, _InputIterator, _Compare = _Compare(), _Allocator = _Allocator())
   -> multimap<__iter_key_type<_InputIterator>, __iter_mapped_type<_InputIterator>, _Compare, _Allocator>;
 
 template<class _Key, class _Tp, class _Compare = less<remove_const_t<_Key>>,
          class _Allocator = allocator<pair<const _Key, _Tp>>,
-         class = enable_if_t<!__is_allocator<_Compare>::value, void>,
-         class = enable_if_t<__is_allocator<_Allocator>::value, void>>
+         class = _EnableIf<!__is_allocator<_Compare>::value, void>,
+         class = _EnableIf<__is_allocator<_Allocator>::value, void>>
 multimap(initializer_list<pair<_Key, _Tp>>, _Compare = _Compare(), _Allocator = _Allocator())
   -> multimap<remove_const_t<_Key>, _Tp, _Compare, _Allocator>;
 
 template<class _InputIterator, class _Allocator,
-         class = enable_if_t<__is_allocator<_Allocator>::value, void>>
+         class = _EnableIf<__is_allocator<_Allocator>::value, void>>
 multimap(_InputIterator, _InputIterator, _Allocator)
   -> multimap<__iter_key_type<_InputIterator>, __iter_mapped_type<_InputIterator>,
          less<__iter_key_type<_InputIterator>>, _Allocator>;
 
 template<class _Key, class _Tp, class _Allocator,
-         class = enable_if_t<__is_allocator<_Allocator>::value, void>>
+         class = _EnableIf<__is_allocator<_Allocator>::value, void>>
 multimap(initializer_list<pair<_Key, _Tp>>, _Allocator)
   -> multimap<remove_const_t<_Key>, _Tp, less<remove_const_t<_Key>>, _Allocator>;
 #endif

@@ -57,12 +57,14 @@ string(REGEX REPLACE "\\\\" "\\\\\\\\" ZIG_LIBC_INCLUDE_DIR_ESCAPED "${ZIG_LIBC_
 
 option(ZIG_TEST_COVERAGE "Build Zig with test coverage instrumentation" OFF)
 
-# To see what patches have been applied to LLD in this repository:
-# git log -p -- deps/lld
-option(ZIG_FORCE_EXTERNAL_LLD "If your system has the LLD patches use it instead of the embedded LLD" OFF)
+# Zig no longer has embedded LLD. This option is kept for package maintainers
+# so that they don't have to update their scripts in case we ever re-introduce
+# LLD to the tree. This option does nothing.
+option(ZIG_FORCE_EXTERNAL_LLD "does nothing" OFF)
 
 find_package(llvm)
 find_package(clang)
+find_package(lld)
 
 if(APPLE AND ZIG_STATIC)
     list(REMOVE_ITEM LLVM_LIBRARIES "-lz")
@@ -82,205 +84,9 @@ foreach(CONFIG_TYPE ${CMAKE_CONFIGURATION_TYPES})
     set(CMAKE_LIBRARY_OUTPUT_DIRECTORY_${CONFIG_TYPE} ${ZIG_CPP_LIB_DIR})
 endforeach(CONFIG_TYPE CMAKE_CONFIGURATION_TYPES)
 
-if(ZIG_FORCE_EXTERNAL_LLD)
-    find_package(lld)
-    include_directories(${LLVM_INCLUDE_DIRS})
-    include_directories(${LLD_INCLUDE_DIRS})
-    include_directories(${CLANG_INCLUDE_DIRS})
-else()
-    # This goes first so that we find embedded LLD instead
-    # of system LLD.
-    include_directories("${CMAKE_SOURCE_DIR}/deps/lld/include")
-
-    include_directories(${LLVM_INCLUDE_DIRS})
-    include_directories(${CLANG_INCLUDE_DIRS})
-    set(EMBEDDED_LLD_LIB_SOURCES
-        "${CMAKE_SOURCE_DIR}/deps/lld/Common/Args.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/Common/ErrorHandler.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/Common/Filesystem.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/Common/Memory.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/Common/Reproduce.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/Common/Strings.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/Common/TargetOptionsCommandFlags.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/Common/Threads.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/Common/Timer.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/Common/Version.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/lib/Core/DefinedAtom.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/lib/Core/Error.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/lib/Core/File.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/lib/Core/LinkingContext.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/lib/Core/Reader.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/lib/Core/Resolver.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/lib/Core/SymbolTable.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/lib/Core/Writer.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/lib/Driver/DarwinLdDriver.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/FileArchive.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/ArchHandler.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/ArchHandler_arm.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/ArchHandler_arm64.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/ArchHandler_x86.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/ArchHandler_x86_64.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/CompactUnwindPass.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/GOTPass.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/LayoutPass.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/MachOLinkingContext.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/MachONormalizedFileBinaryReader.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/MachONormalizedFileBinaryWriter.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/MachONormalizedFileFromAtoms.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/MachONormalizedFileToAtoms.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/MachONormalizedFileYAML.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/ObjCPass.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/ShimPass.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/StubsPass.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/TLVPass.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/WriterMachO.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/YAML/ReaderWriterYAML.cpp"
-    )
-
-    set(EMBEDDED_LLD_ELF_SOURCES
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/AArch64ErrataFix.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Arch/AArch64.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Arch/AMDGPU.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Arch/ARM.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Arch/AVR.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Arch/Hexagon.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Arch/MSP430.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Arch/Mips.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Arch/MipsArchTree.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Arch/PPC.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Arch/PPC64.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Arch/RISCV.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Arch/SPARCV9.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Arch/X86.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Arch/X86_64.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/CallGraphSort.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/DWARF.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Driver.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/DriverUtils.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/EhFrame.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/ICF.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/InputFiles.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/InputSection.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/LTO.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/LinkerScript.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/MapFile.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/MarkLive.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/OutputSections.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Relocations.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/ScriptLexer.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/ScriptParser.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/SymbolTable.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Symbols.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/SyntheticSections.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Target.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Thunks.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Writer.cpp"
-    )
-
-    set(EMBEDDED_LLD_COFF_SOURCES
-        "${CMAKE_SOURCE_DIR}/deps/lld/COFF/Chunks.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/COFF/DLL.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/COFF/DebugTypes.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/COFF/Driver.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/COFF/DriverUtils.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/COFF/ICF.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/COFF/InputFiles.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/COFF/LTO.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/COFF/MapFile.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/COFF/MarkLive.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/COFF/MinGW.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/COFF/PDB.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/COFF/SymbolTable.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/COFF/Symbols.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/COFF/Writer.cpp"
-    )
-    set(EMBEDDED_LLD_MINGW_SOURCES
-        "${CMAKE_SOURCE_DIR}/deps/lld/MinGW/Driver.cpp"
-    )
-    set(EMBEDDED_LLD_WASM_SOURCES
-        "${CMAKE_SOURCE_DIR}/deps/lld/wasm/Driver.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/wasm/InputChunks.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/wasm/InputFiles.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/wasm/LTO.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/wasm/MarkLive.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/wasm/OutputSections.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/wasm/Relocations.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/wasm/SymbolTable.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/wasm/Symbols.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/wasm/SyntheticSections.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/wasm/Writer.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/wasm/WriterUtils.cpp"
-    )
-    add_library(embedded_lld_lib STATIC ${EMBEDDED_LLD_LIB_SOURCES})
-    add_library(embedded_lld_elf STATIC ${EMBEDDED_LLD_ELF_SOURCES})
-    add_library(embedded_lld_coff STATIC ${EMBEDDED_LLD_COFF_SOURCES})
-    add_library(embedded_lld_mingw STATIC ${EMBEDDED_LLD_MINGW_SOURCES})
-    add_library(embedded_lld_wasm STATIC ${EMBEDDED_LLD_WASM_SOURCES})
-    if(MSVC)
-        set(ZIG_LLD_COMPILE_FLAGS "-std=c++11 -D_CRT_SECURE_NO_WARNINGS /w")
-    else()
-      set(ZIG_LLD_COMPILE_FLAGS "-std=c++11 -fvisibility-inlines-hidden -fno-exceptions -fno-rtti -Wno-comment")
-      if(MINGW)
-        set(ZIG_LLD_COMPILE_FLAGS "${ZIG_LLD_COMPILE_FLAGS} -D__STDC_FORMAT_MACROS -D__USE_MINGW_ANSI_STDIO")
-      endif()
-    endif()
-    set_target_properties(embedded_lld_lib PROPERTIES
-        COMPILE_FLAGS ${ZIG_LLD_COMPILE_FLAGS}
-        LINK_FLAGS " "
-    )
-    set_target_properties(embedded_lld_elf PROPERTIES
-        COMPILE_FLAGS ${ZIG_LLD_COMPILE_FLAGS}
-        LINK_FLAGS " "
-    )
-    set_target_properties(embedded_lld_coff PROPERTIES
-        COMPILE_FLAGS ${ZIG_LLD_COMPILE_FLAGS}
-        LINK_FLAGS " "
-    )
-    set_target_properties(embedded_lld_mingw PROPERTIES
-        COMPILE_FLAGS ${ZIG_LLD_COMPILE_FLAGS}
-        LINK_FLAGS " "
-    )
-    set_target_properties(embedded_lld_wasm PROPERTIES
-        COMPILE_FLAGS ${ZIG_LLD_COMPILE_FLAGS}
-        LINK_FLAGS " "
-    )
-    target_include_directories(embedded_lld_lib PRIVATE
-        "${CMAKE_SOURCE_DIR}/deps/lld/include"
-        "${CMAKE_SOURCE_DIR}/deps/lld-prebuilt"
-    )
-    target_include_directories(embedded_lld_elf PRIVATE
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF"
-        "${CMAKE_SOURCE_DIR}/deps/lld/include"
-        "${CMAKE_SOURCE_DIR}/deps/lld-prebuilt/ELF"
-        "${CMAKE_SOURCE_DIR}/deps/lld-prebuilt"
-    )
-    target_include_directories(embedded_lld_coff PRIVATE
-        "${CMAKE_SOURCE_DIR}/deps/lld/COFF"
-        "${CMAKE_SOURCE_DIR}/deps/lld/include"
-        "${CMAKE_SOURCE_DIR}/deps/lld-prebuilt/COFF"
-        "${CMAKE_SOURCE_DIR}/deps/lld-prebuilt"
-    )
-    target_include_directories(embedded_lld_mingw PRIVATE
-        "${CMAKE_SOURCE_DIR}/deps/lld/MinGW"
-        "${CMAKE_SOURCE_DIR}/deps/lld/include"
-        "${CMAKE_SOURCE_DIR}/deps/lld-prebuilt/MinGW"
-        "${CMAKE_SOURCE_DIR}/deps/lld-prebuilt"
-    )
-    target_include_directories(embedded_lld_wasm PRIVATE
-        "${CMAKE_SOURCE_DIR}/deps/lld/wasm"
-        "${CMAKE_SOURCE_DIR}/deps/lld/include"
-        "${CMAKE_SOURCE_DIR}/deps/lld-prebuilt/wasm"
-        "${CMAKE_SOURCE_DIR}/deps/lld-prebuilt"
-    )
-    set(LLD_INCLUDE_DIRS "")
-    set(LLD_LIBRARIES
-        embedded_lld_elf
-        embedded_lld_coff
-        embedded_lld_mingw
-        embedded_lld_wasm
-        embedded_lld_lib
-    )
-endif()
+include_directories(${LLVM_INCLUDE_DIRS})
+include_directories(${LLD_INCLUDE_DIRS})
+include_directories(${CLANG_INCLUDE_DIRS})
 
 # No patches have been applied to SoftFloat-3e
 set(EMBEDDED_SOFTFLOAT_SOURCES
@@ -506,7 +312,7 @@ include_directories(
 )
 
 # These have to go before the -Wno- flags
-set(EXE_CFLAGS "-std=c++11")
+set(EXE_CFLAGS "-std=c++14")
 if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
     if(MSVC)
         set(EXE_CFLAGS "${EXE_CFLAGS} /w")
@@ -559,6 +365,11 @@ add_library(zig_cpp STATIC ${ZIG_CPP_SOURCES})
 set_target_properties(zig_cpp PROPERTIES
     COMPILE_FLAGS ${EXE_CFLAGS}
 )
+target_link_libraries(zig_cpp LINK_PUBLIC
+    ${CLANG_LIBRARIES}
+    ${LLD_LIBRARIES}
+    ${LLVM_LIBRARIES}
+)
 
 add_library(opt_c_util STATIC ${OPTIMIZED_C_SOURCES})
 set_target_properties(opt_c_util PROPERTIES
@@ -574,9 +385,6 @@ target_link_libraries(zigcompiler LINK_PUBLIC
     zig_cpp
     opt_c_util
     ${SOFTFLOAT_LIBRARIES}
-    ${CLANG_LIBRARIES}
-    ${LLD_LIBRARIES}
-    ${LLVM_LIBRARIES}
     ${CMAKE_THREAD_LIBS_INIT}
 )
 if(NOT MSVC)

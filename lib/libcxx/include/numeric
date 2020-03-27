@@ -532,17 +532,14 @@ midpoint(_Tp __a, _Tp __b) noexcept
 _LIBCPP_DISABLE_UBSAN_UNSIGNED_INTEGER_CHECK
 {
     using _Up = std::make_unsigned_t<_Tp>;
+    constexpr _Up __bitshift = std::numeric_limits<_Up>::digits - 1;
 
-    int __sign = 1;
-    _Up __m = __a;
-    _Up __M = __b;
-    if (__a > __b)
-    {
-        __sign = -1;
-        __m = __b;
-        __M = __a;
-    }
-     return __a + __sign * _Tp(_Up(__M-__m) >> 1);
+    _Up __diff = _Up(__b) - _Up(__a);
+    _Up __sign_bit = __b < __a;
+
+    _Up __half_diff = (__diff / 2) + (__sign_bit << __bitshift) + (__sign_bit & __diff);
+
+    return __a + __half_diff;
 }
 
 
@@ -576,7 +573,7 @@ midpoint(_Fp __a, _Fp __b) noexcept
     return __fp_abs(__a) <= __hi && __fp_abs(__b) <= __hi ?  // typical case: overflow is impossible
       (__a + __b)/2 :                                        // always correctly rounded
       __fp_abs(__a) < __lo ? __a + __b/2 :                   // not safe to halve a
-      __fp_abs(__a) < __lo ? __a/2 + __b :                   // not safe to halve b
+      __fp_abs(__b) < __lo ? __a/2 + __b :                   // not safe to halve b
       __a/2 + __b/2;                                         // otherwise correctly rounded
 }
 
@@ -585,5 +582,9 @@ midpoint(_Fp __a, _Fp __b) noexcept
 _LIBCPP_END_NAMESPACE_STD
 
 _LIBCPP_POP_MACROS
+
+#if defined(_LIBCPP_HAS_PARALLEL_ALGORITHMS) && _LIBCPP_STD_VER >= 17
+#   include <__pstl_numeric>
+#endif
 
 #endif  // _LIBCPP_NUMERIC

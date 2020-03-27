@@ -203,7 +203,7 @@ pub fn __divdf3(a: f64, b: f64) callconv(.C) f64 {
     }
 }
 
-fn wideMultiply(comptime Z: type, a: Z, b: Z, hi: *Z, lo: *Z) void {
+pub fn wideMultiply(comptime Z: type, a: Z, b: Z, hi: *Z, lo: *Z) void {
     @setRuntimeSafety(builtin.is_test);
     switch (Z) {
         u32 => {
@@ -312,7 +312,7 @@ fn wideMultiply(comptime Z: type, a: Z, b: Z, hi: *Z, lo: *Z) void {
     }
 }
 
-fn normalize(comptime T: type, significand: *std.meta.IntType(false, T.bit_count)) i32 {
+pub fn normalize(comptime T: type, significand: *std.meta.IntType(false, T.bit_count)) i32 {
     @setRuntimeSafety(builtin.is_test);
     const Z = std.meta.IntType(false, T.bit_count);
     const significandBits = std.math.floatMantissaBits(T);

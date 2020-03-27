@@ -13,6 +13,7 @@ pub extern "c" fn _dyld_get_image_vmaddr_slide(image_index: u32) usize;
 pub extern "c" fn _dyld_get_image_name(image_index: u32) [*:0]const u8;
 
 pub extern "c" fn __getdirentries64(fd: c_int, buf_ptr: [*]u8, buf_len: usize, basep: *i64) isize;
+pub extern "c" fn @"fstat$INODE64"(fd: fd_t, buf: *Stat) c_int;
 
 pub extern "c" fn mach_absolute_time() u64;
 pub extern "c" fn mach_timebase_info(tinfo: ?*mach_timebase_info_data) void;

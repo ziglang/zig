@@ -654,6 +654,8 @@ pub fn openSelfDebugInfo(allocator: *mem.Allocator) anyerror!DebugInfo {
         switch (builtin.os.tag) {
             .linux,
             .freebsd,
+            .netbsd,
+            .dragonfly,
             .macosx,
             .windows,
             => return DebugInfo.init(allocator),
@@ -1047,7 +1049,7 @@ const MachoSymbol = struct {
 
 fn mapWholeFile(path: []const u8) ![]align(mem.page_size) const u8 {
     noasync {
-        const file = try fs.openFileAbsolute(path, .{ .always_blocking = true });
+        const file = try fs.cwd().openFile(path, .{ .always_blocking = true });
         defer file.close();
 
         const file_len = try math.cast(usize, try file.getEndPos());
@@ -1621,7 +1623,7 @@ pub const ModuleDebugInfo = switch (builtin.os.tag) {
             };
         }
     },
-    .linux, .freebsd => struct {
+    .linux, .netbsd, .freebsd, .dragonfly => struct {
         base_address: usize,
         dwarf: DW.DwarfInfo,
         mapped_memory: []const u8,

@@ -237,7 +237,7 @@ public:
     typedef typename __table::const_iterator       const_iterator;
 
     _LIBCPP_INLINE_VISIBILITY
-    hash_set() {__table_.rehash(193);}
+    hash_set() { }
     explicit hash_set(size_type __n, const hasher& __hf = hasher(),
                            const key_equal& __eql = key_equal());
     hash_set(size_type __n, const hasher& __hf, const key_equal& __eql,
@@ -347,7 +347,6 @@ template <class _InputIterator>
 hash_set<_Value, _Hash, _Pred, _Alloc>::hash_set(
         _InputIterator __first, _InputIterator __last)
 {
-    __table_.rehash(193);
     insert(__first, __last);
 }
 
@@ -459,7 +458,7 @@ public:
     typedef typename __table::const_iterator       const_iterator;
 
     _LIBCPP_INLINE_VISIBILITY
-    hash_multiset() {__table_.rehash(193);}
+    hash_multiset() { }
     explicit hash_multiset(size_type __n, const hasher& __hf = hasher(),
                                 const key_equal& __eql = key_equal());
     hash_multiset(size_type __n, const hasher& __hf,
@@ -569,7 +568,6 @@ template <class _InputIterator>
 hash_multiset<_Value, _Hash, _Pred, _Alloc>::hash_multiset(
         _InputIterator __first, _InputIterator __last)
 {
-    __table_.rehash(193);
     insert(__first, __last);
 }
 

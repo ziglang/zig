@@ -477,8 +477,9 @@ using __tuple_like_with_size _LIBCPP_NODEBUG_TYPE = __tuple_like_with_size_imp<
                               >;
 
 struct _LIBCPP_TYPE_VIS __check_tuple_constructor_fail {
-    template <class ...>
-    static constexpr bool __enable_default() { return false; }
+
+    static constexpr bool __enable_explicit_default() { return false; }
+    static constexpr bool __enable_implicit_default() { return false; }
     template <class ...>
     static constexpr bool __enable_explicit() { return false; }
     template <class ...>

@@ -283,7 +283,8 @@ struct ZigTarget {
     enum ZigLLVM_EnvironmentType abi;
     Os os;
 
-    bool is_native;
+    bool is_native_os;
+    bool is_native_cpu;
 
     // null means default. this is double-purposed to be darwin min version
     struct Stage2SemVer *glibc_or_darwin_version;
@@ -296,6 +297,9 @@ struct ZigTarget {
     const char *os_builtin_str;
     const char *dynamic_linker;
     const char *standard_dynamic_linker_path;
+
+    const char **llvm_cpu_features_asm_ptr;
+    size_t llvm_cpu_features_asm_len;
 };
 
 // ABI warning
@@ -340,6 +344,8 @@ enum Stage2ClangArg {
     Stage2ClangArgOptimize,
     Stage2ClangArgDebug,
     Stage2ClangArgSanitize,
+    Stage2ClangArgLinkerScript,
+    Stage2ClangArgVerboseCmds,
 };
 
 // ABI warning

@@ -2531,18 +2531,15 @@ pub const FStatError = error{
 
 pub fn fstat(fd: fd_t) FStatError!Stat {
     var stat: Stat = undefined;
-    if (comptime std.Target.current.isDarwin()) {
-        switch (darwin.getErrno(darwin.@"fstat$INODE64"(fd, &stat))) {
-            0 => return stat,
-            EINVAL => unreachable,
-            EBADF => unreachable, // Always a race condition.
-            ENOMEM => return error.SystemResources,
-            EACCES => return error.AccessDenied,
-            else => |err| return unexpectedErrno(err),
-        }
-    }
 
-    switch (errno(system.fstat(fd, &stat))) {
+    const symbol_name = if (comptime std.Target.current.isDarwin())
+        "fstat$INODE64"
+    else if (std.Target.current.os.tag == .netbsd)
+        "__fstat50"
+    else
+        "fstat";
+
+    switch (errno(@field(system, symbol_name)(fd, &stat))) {
         0 => return stat,
         EINVAL => unreachable,
         EBADF => unreachable, // Always a race condition.
@@ -3401,7 +3398,13 @@ pub fn clock_gettime(clk_id: i32, tp: *timespec) ClockGetTimeError!void {
         }
         return;
     }
-    switch (errno(system.clock_gettime(clk_id, tp))) {
+
+    const symbol_name = if (std.Target.current.os.tag == .netbsd)
+        "__clock_gettime50"
+    else
+        "clock_gettime";
+
+    switch (errno(@field(system, symbol_name)(clk_id, tp))) {
         0 => return,
         EFAULT => unreachable,
         EINVAL => return error.UnsupportedClock,
@@ -3423,7 +3426,12 @@ pub fn clock_getres(clk_id: i32, res: *timespec) ClockGetTimeError!void {
         return;
     }
 
-    switch (errno(system.clock_getres(clk_id, res))) {
+    const symbol_name = if (std.Target.current.os.tag == .netbsd)
+        "__clock_getres50"
+    else
+        "clock_getres";
+
+    switch (errno(@field(system, symbol_name)(clk_id, res))) {
         0 => return,
         EFAULT => unreachable,
         EINVAL => return error.UnsupportedClock,
@@ -3489,10 +3497,12 @@ pub const SigaltstackError = error{
 } || UnexpectedError;
 
 pub fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) SigaltstackError!void {
-    if (builtin.os.tag == .windows or builtin.os.tag == .uefi or builtin.os.tag == .wasi)
-        @compileError("std.os.sigaltstack not available for this target");
+    const symbol_name = if (std.Target.current.os.tag == .netbsd)
+        "__sigaltstack14"
+    else
+        "sigaltstack";
 
-    switch (errno(system.sigaltstack(ss, old_ss))) {
+    switch (errno(@field(system, symbol_name)(ss, old_ss))) {
         0 => return,
         EFAULT => unreachable,
         EINVAL => unreachable,

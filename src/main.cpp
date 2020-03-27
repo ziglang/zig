@@ -261,12 +261,13 @@ static int main0(int argc, char **argv) {
     Error err;
 
     if (argc == 2 && strcmp(argv[1], "BUILD_INFO") == 0) {
-        printf("%s\n%s\n%s\n%s\n%s\n%s\n",
+        printf("%s\n%s\n%s\n%s\n%s\n%s\n%s\n",
                 ZIG_CMAKE_BINARY_DIR,
                 ZIG_CXX_COMPILER,
                 ZIG_LLVM_CONFIG_EXE,
                 ZIG_LLD_INCLUDE_PATH,
                 ZIG_LLD_LIBRARIES,
+                ZIG_CLANG_LIBRARIES,
                 ZIG_DIA_GUIDS_LIB);
         return 0;
     }
@@ -454,6 +455,7 @@ static int main0(int argc, char **argv) {
     CodeModel code_model = CodeModelDefault;
     const char *override_soname = nullptr;
     bool only_preprocess = false;
+    bool ensure_libc_on_non_freestanding = false;
 
     ZigList<const char *> llvm_argv = {0};
     llvm_argv.append("zig (LLVM option parsing)");
@@ -581,11 +583,11 @@ static int main0(int argc, char **argv) {
     } else if (argc >= 2 && strcmp(argv[1], "cc") == 0) {
         emit_h = false;
         strip = true;
+        ensure_libc_on_non_freestanding = true;
 
         bool c_arg = false;
         Stage2ClangArgIterator it;
         stage2_clang_arg_iterator(&it, argc, argv);
-        bool nostdlib = false;
         bool is_shared_lib = false;
         ZigList<Buf *> linker_args = {};
         while (it.has_next) {
@@ -644,7 +646,7 @@ static int main0(int argc, char **argv) {
                     want_pic = WantPICDisabled;
                     break;
                 case Stage2ClangArgNoStdLib:
-                    nostdlib = true;
+                    ensure_libc_on_non_freestanding = false;
                     break;
                 case Stage2ClangArgShared:
                     is_dynamic = true;
@@ -702,6 +704,13 @@ static int main0(int argc, char **argv) {
                             clang_argv.append(it.other_args_ptr[i]);
                         }
                     }
+                    break;
+                case Stage2ClangArgLinkerScript:
+                    linker_script = it.only_arg;
+                    break;
+                case Stage2ClangArgVerboseCmds:
+                    verbose_cc = true;
+                    verbose_link = true;
                     break;
             }
         }
@@ -768,10 +777,6 @@ static int main0(int argc, char **argv) {
             build_mode = BuildModeSafeRelease;
         }
 
-        if (!nostdlib && !have_libc) {
-            have_libc = true;
-            link_libs.append("c");
-        }
         if (only_preprocess) {
             cmd = CmdBuild;
             out_type = OutTypeObj;
@@ -1212,6 +1217,11 @@ static int main0(int argc, char **argv) {
         return print_error_usage(arg0);
     }
 
+    if (!have_libc && ensure_libc_on_non_freestanding && target.os != OsFreestanding) {
+        have_libc = true;
+        link_libs.append("c");
+    }
+
     Buf zig_triple_buf = BUF_INIT;
     target_triple_zig(&zig_triple_buf, &target);
 
@@ -1315,7 +1325,15 @@ static int main0(int argc, char **argv) {
                 return print_error_usage(arg0);
             }
 
-            if (target.is_native && link_libs.length != 0) {
+            bool any_non_c_link_libs = false;
+            for (size_t i = 0; i < link_libs.length; i += 1) {
+                if (!target_is_libc_lib_name(&target, link_libs.at(i))) {
+                    any_non_c_link_libs = true;
+                    break;
+                }
+            }
+
+            if (target.is_native_os && any_non_c_link_libs) {
                 Error err;
                 Stage2NativePaths paths;
                 if ((err = stage2_detect_native_paths(&paths))) {
@@ -1328,7 +1346,7 @@ static int main0(int argc, char **argv) {
                 }
                 for (size_t i = 0; i < paths.include_dirs_len; i += 1) {
                     const char *include_dir = paths.include_dirs_ptr[i];
-                    clang_argv.append("-I");
+                    clang_argv.append("-isystem");
                     clang_argv.append(include_dir);
                 }
                 for (size_t i = 0; i < paths.lib_dirs_len; i += 1) {

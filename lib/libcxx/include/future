@@ -611,7 +611,7 @@ __assoc_sub_state::wait_for(const chrono::duration<_Rep, _Period>& __rel_time) c
 }
 
 template <class _Rp>
-class _LIBCPP_AVAILABILITY_FUTURE __assoc_state
+class _LIBCPP_AVAILABILITY_FUTURE _LIBCPP_HIDDEN __assoc_state
     : public __assoc_sub_state
 {
     typedef __assoc_sub_state base;
@@ -1060,7 +1060,7 @@ template <class _Rp> class _LIBCPP_TEMPLATE_VIS shared_future;
 template <class _Rp> class _LIBCPP_TEMPLATE_VIS future;
 
 template <class _Rp, class _Fp>
-future<_Rp>
+_LIBCPP_INLINE_VISIBILITY future<_Rp>
 #ifndef _LIBCPP_HAS_NO_RVALUE_REFERENCES
 __make_deferred_assoc_state(_Fp&& __f);
 #else
@@ -1068,7 +1068,7 @@ __make_deferred_assoc_state(_Fp __f);
 #endif
 
 template <class _Rp, class _Fp>
-future<_Rp>
+_LIBCPP_INLINE_VISIBILITY future<_Rp>
 #ifndef _LIBCPP_HAS_NO_RVALUE_REFERENCES
 __make_async_assoc_state(_Fp&& __f);
 #else
@@ -1767,9 +1767,9 @@ class _LIBCPP_AVAILABILITY_FUTURE __packaged_task_func<_Fp, _Alloc, _Rp(_ArgType
     __compressed_pair<_Fp, _Alloc> __f_;
 public:
     _LIBCPP_INLINE_VISIBILITY
-    explicit __packaged_task_func(const _Fp& __f) : __f_(__f) {}
+    explicit __packaged_task_func(const _Fp& __f) : __f_(__f, __default_init_tag()) {}
     _LIBCPP_INLINE_VISIBILITY
-    explicit __packaged_task_func(_Fp&& __f) : __f_(_VSTD::move(__f)) {}
+    explicit __packaged_task_func(_Fp&& __f) : __f_(_VSTD::move(__f), __default_init_tag()) {}
     _LIBCPP_INLINE_VISIBILITY
     __packaged_task_func(const _Fp& __f, const _Alloc& __a)
         : __f_(__f, __a) {}
@@ -2266,7 +2266,7 @@ struct _LIBCPP_TEMPLATE_VIS uses_allocator<packaged_task<_Callable>, _Alloc>
     : public true_type {};
 
 template <class _Rp, class _Fp>
-future<_Rp>
+_LIBCPP_INLINE_VISIBILITY future<_Rp>
 #ifndef _LIBCPP_HAS_NO_RVALUE_REFERENCES
 __make_deferred_assoc_state(_Fp&& __f)
 #else
@@ -2279,7 +2279,7 @@ __make_deferred_assoc_state(_Fp __f)
 }
 
 template <class _Rp, class _Fp>
-future<_Rp>
+_LIBCPP_INLINE_VISIBILITY future<_Rp>
 #ifndef _LIBCPP_HAS_NO_RVALUE_REFERENCES
 __make_async_assoc_state(_Fp&& __f)
 #else
@@ -2293,7 +2293,7 @@ __make_async_assoc_state(_Fp __f)
 }
 
 template <class _Fp, class... _Args>
-class __async_func
+class _LIBCPP_HIDDEN __async_func
 {
     tuple<_Fp, _Args...> __f_;
 
