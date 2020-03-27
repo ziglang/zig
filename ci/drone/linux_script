@@ -15,21 +15,6 @@ pip3 install s3cmd
 # This will affect the cmake command below.
 git config core.abbrev 9
 
-# This patch is a workaround for
-# https://github.com/ziglang/zig/issues/4822
-patch <<'END_PATCH'
---- CMakeLists.txt
-+++ CMakeLists.txt
-@@ -430,7 +430,6 @@ set(BUILD_LIBSTAGE2_ARGS "build-lib"
-     --cache on
-     --output-dir "${CMAKE_BINARY_DIR}"
-     ${LIBSTAGE2_RELEASE_ARG}
--    --bundle-compiler-rt
-     -fPIC
-     -lc
-     ${LIBSTAGE2_WINDOWS_ARGS}
-END_PATCH
-
 mkdir build
 cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release "-DCMAKE_INSTALL_PREFIX=$DISTDIR" -DZIG_STATIC=ON -DCMAKE_PREFIX_PATH=/deps/local
