@@ -1273,6 +1273,7 @@ pub const ClangArgIterator = extern struct {
         pic,
         no_pic,
         nostdlib,
+        nostdlib_cpp,
         shared,
         rdynamic,
         wl,

@@ -1107,6 +1107,105 @@ static const char *build_musl(CodeGen *parent, Stage2ProgressNode *progress_node
     return buf_ptr(&child_gen->bin_file_output_path);
 }
 
+static const char *build_libcxxabi(CodeGen *parent, Stage2ProgressNode *progress_node) {
+    CodeGen *child_gen = create_child_codegen(parent, nullptr, OutTypeLib, nullptr, "c++abi", progress_node);
+    codegen_add_link_lib(child_gen, buf_create_from_str("c"));
+
+    ZigList<CFile *> c_source_files = {0};
+
+    const char *cxxabi_include_path = buf_ptr(buf_sprintf("%s" OS_SEP "libcxxabi" OS_SEP "include",
+                buf_ptr(parent->zig_lib_dir)));
+    const char *cxx_include_path = buf_ptr(buf_sprintf("%s" OS_SEP "libcxx" OS_SEP "include",
+                buf_ptr(parent->zig_lib_dir)));
+
+    for (size_t i = 0; i < array_length(ZIG_LIBCXXABI_FILES); i += 1) {
+        const char *rel_src_path = ZIG_LIBCXXABI_FILES[i];
+
+        CFile *c_file = heap::c_allocator.create<CFile>();
+        c_file->source_path = buf_ptr(buf_sprintf("%s" OS_SEP "libcxxabi" OS_SEP "%s",
+                    buf_ptr(parent->zig_lib_dir), rel_src_path));
+
+        c_file->args.append("-DHAVE___CXA_THREAD_ATEXIT_IMPL");
+        c_file->args.append("-D_LIBCPP_DISABLE_EXTERN_TEMPLATE");
+        c_file->args.append("-D_LIBCPP_ENABLE_CXX17_REMOVED_UNEXPECTED_FUNCTIONS");
+        c_file->args.append("-D_LIBCXXABI_BUILDING_LIBRARY");
+
+        c_file->args.append("-I");
+        c_file->args.append(cxxabi_include_path);
+
+        c_file->args.append("-I");
+        c_file->args.append(cxx_include_path);
+
+        c_file->args.append("-O3");
+        c_file->args.append("-DNDEBUG");
+        c_file->args.append("-fPIC");
+        c_file->args.append("-nostdinc++");
+        c_file->args.append("-fstrict-aliasing");
+        c_file->args.append("-funwind-tables");
+        c_file->args.append("-D_DEBUG");
+        c_file->args.append("-UNDEBUG");
+        c_file->args.append("-std=c++11");
+
+        c_source_files.append(c_file);
+    }
+
+
+    child_gen->c_source_files = c_source_files;
+    codegen_build_and_link(child_gen);
+    return buf_ptr(&child_gen->bin_file_output_path);
+}
+
+static const char *build_libcxx(CodeGen *parent, Stage2ProgressNode *progress_node) {
+    CodeGen *child_gen = create_child_codegen(parent, nullptr, OutTypeLib, nullptr, "c++", progress_node);
+    codegen_add_link_lib(child_gen, buf_create_from_str("c"));
+
+    ZigList<CFile *> c_source_files = {0};
+
+    const char *cxxabi_include_path = buf_ptr(buf_sprintf("%s" OS_SEP "libcxxabi" OS_SEP "include",
+                buf_ptr(parent->zig_lib_dir)));
+    const char *cxx_include_path = buf_ptr(buf_sprintf("%s" OS_SEP "libcxx" OS_SEP "include",
+                buf_ptr(parent->zig_lib_dir)));
+
+    for (size_t i = 0; i < array_length(ZIG_LIBCXX_FILES); i += 1) {
+        const char *rel_src_path = ZIG_LIBCXX_FILES[i];
+
+        Buf *src_path_buf = buf_create_from_str(rel_src_path);
+        if (buf_starts_with_str(src_path_buf, "src/support/win32") && parent->zig_target->os != OsWindows) {
+            continue;
+        }
+
+        CFile *c_file = heap::c_allocator.create<CFile>();
+        c_file->source_path = buf_ptr(buf_sprintf("%s" OS_SEP "libcxx" OS_SEP "%s",
+                    buf_ptr(parent->zig_lib_dir), rel_src_path));
+
+        c_file->args.append("-DNDEBUG");
+        c_file->args.append("-D_LIBCPP_BUILDING_LIBRARY");
+        c_file->args.append("-D_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER");
+        c_file->args.append("-DLIBCXX_BUILDING_LIBCXXABI");
+
+        c_file->args.append("-I");
+        c_file->args.append(cxx_include_path);
+
+        c_file->args.append("-I");
+        c_file->args.append(cxxabi_include_path);
+
+        c_file->args.append("-O3");
+        c_file->args.append("-DNDEBUG");
+        c_file->args.append("-fPIC");
+        c_file->args.append("-nostdinc++");
+        c_file->args.append("-fvisibility-inlines-hidden");
+        c_file->args.append("-std=c++14");
+        c_file->args.append("-Wno-user-defined-literals");
+
+        c_source_files.append(c_file);
+    }
+
+
+    child_gen->c_source_files = c_source_files;
+    codegen_build_and_link(child_gen);
+    return buf_ptr(&child_gen->bin_file_output_path);
+}
+
 static void add_msvcrt_os_dep(CodeGen *parent, CodeGen *child_gen, const char *src_path) {
     CFile *c_file = heap::c_allocator.create<CFile>();
     c_file->source_path = buf_ptr(buf_sprintf("%s" OS_SEP "libc" OS_SEP "mingw" OS_SEP "%s",
@@ -1770,6 +1869,10 @@ static void construct_linker_job_elf(LinkJob *lj) {
             // libc is linked specially
             continue;
         }
+        if (buf_eql_str(link_lib->name, "c++") || buf_eql_str(link_lib->name, "c++abi")) {
+            // libc++ is linked specially
+            continue;
+        }
         if (g->libc == nullptr && target_is_libc_lib_name(g->zig_target, buf_ptr(link_lib->name))) {
             // these libraries are always linked below when targeting glibc
             continue;
@@ -1785,6 +1888,11 @@ static void construct_linker_job_elf(LinkJob *lj) {
         lj->args.append(buf_ptr(arg));
     }
 
+    // libc++ dep
+    if (g->libcpp_link_lib != nullptr && g->out_type != OutTypeObj) {
+        lj->args.append(build_libcxxabi(g, lj->build_dep_prog_node));
+        lj->args.append(build_libcxx(g, lj->build_dep_prog_node));
+    }
 
     // libc dep
     if (g->libc_link_lib != nullptr && g->out_type != OutTypeObj) {

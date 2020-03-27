@@ -334,6 +334,7 @@ enum Stage2ClangArg {
     Stage2ClangArgPIC,
     Stage2ClangArgNoPIC,
     Stage2ClangArgNoStdLib,
+    Stage2ClangArgNoStdLibCpp,
     Stage2ClangArgShared,
     Stage2ClangArgRDynamic,
     Stage2ClangArgWL,

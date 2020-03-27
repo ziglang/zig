@@ -63,6 +63,10 @@ const known_options = [_]KnownOpt{
         .ident = "nostdlib",
     },
     .{
+        .name = "nostdlib++",
+        .ident = "nostdlib_cpp",
+    },
+    .{
         .name = "shared",
         .ident = "shared",
     },

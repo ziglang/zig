@@ -2019,6 +2019,7 @@ struct CodeGen {
     ZigLLVMDICompileUnit *compile_unit;
     ZigLLVMDIFile *compile_unit_file;
     LinkLib *libc_link_lib;
+    LinkLib *libcpp_link_lib;
     LLVMTargetDataRef target_data_ref;
     LLVMTargetMachineRef target_machine;
     ZigLLVMDIFile *dummy_di_file;

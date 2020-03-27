@@ -8700,6 +8700,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     buf_appendf(contents, "pub const object_format = ObjectFormat.%s;\n", cur_obj_fmt);
     buf_appendf(contents, "pub const mode = %s;\n", build_mode_to_str(g->build_mode));
     buf_appendf(contents, "pub const link_libc = %s;\n", bool_to_str(g->libc_link_lib != nullptr));
+    buf_appendf(contents, "pub const link_libcpp = %s;\n", bool_to_str(g->libcpp_link_lib != nullptr));
     buf_appendf(contents, "pub const have_error_return_tracing = %s;\n", bool_to_str(g->have_err_ret_tracing));
     buf_appendf(contents, "pub const valgrind_support = %s;\n", bool_to_str(want_valgrind_support(g)));
     buf_appendf(contents, "pub const position_independent_code = %s;\n", bool_to_str(g->have_pic));
@@ -8798,6 +8799,7 @@ static Error define_builtin_compile_vars(CodeGen *g) {
     }
     cache_bool(&cache_hash, g->have_err_ret_tracing);
     cache_bool(&cache_hash, g->libc_link_lib != nullptr);
+    cache_bool(&cache_hash, g->libcpp_link_lib != nullptr);
     cache_bool(&cache_hash, g->valgrind_support);
     cache_bool(&cache_hash, g->link_eh_frame_hdr);
     cache_int(&cache_hash, detect_subsystem(g));
@@ -9203,6 +9205,14 @@ void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_pa
     for (size_t i = 0; i < g->framework_dirs.length; i += 1) {
         args.append("-iframework");
         args.append(g->framework_dirs.at(i));
+    }
+
+    if (g->libcpp_link_lib != nullptr) {
+        const char *libcxx_include_path = buf_ptr(buf_sprintf("%s" OS_SEP "libcxx" OS_SEP "include",
+                buf_ptr(g->zig_lib_dir)));
+
+        args.append("-isystem");
+        args.append(libcxx_include_path);
     }
 
     // According to Rich Felker libc headers are supposed to go before C language headers.
