@@ -2019,6 +2019,7 @@ struct CodeGen {
     ZigLLVMDICompileUnit *compile_unit;
     ZigLLVMDIFile *compile_unit_file;
     LinkLib *libc_link_lib;
+    LinkLib *libcpp_link_lib;
     LLVMTargetDataRef target_data_ref;
     LLVMTargetMachineRef target_machine;
     ZigLLVMDIFile *dummy_di_file;
@@ -2261,6 +2262,8 @@ struct CodeGen {
     bool emit_asm;
     bool emit_llvm_ir;
     bool test_is_evented;
+    bool cpp_rtti;
+    bool cpp_exceptions;
     CodeModel code_model;
 
     Buf *root_out_name;

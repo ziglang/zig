@@ -106,6 +106,7 @@ enum Error {
     ErrorInvalidAbiVersion,
     ErrorInvalidOperatingSystemVersion,
     ErrorUnknownClangOption,
+    ErrorNestedResponseFile,
 };
 
 // ABI warning
@@ -334,6 +335,7 @@ enum Stage2ClangArg {
     Stage2ClangArgPIC,
     Stage2ClangArgNoPIC,
     Stage2ClangArgNoStdLib,
+    Stage2ClangArgNoStdLibCpp,
     Stage2ClangArgShared,
     Stage2ClangArgRDynamic,
     Stage2ClangArgWL,
@@ -343,6 +345,10 @@ enum Stage2ClangArg {
     Stage2ClangArgSanitize,
     Stage2ClangArgLinkerScript,
     Stage2ClangArgVerboseCmds,
+    Stage2ClangArgExceptions,
+    Stage2ClangArgNoExceptions,
+    Stage2ClangArgRtti,
+    Stage2ClangArgNoRtti,
 };
 
 // ABI warning
@@ -356,6 +362,7 @@ struct Stage2ClangArgIterator {
     const char **argv_ptr;
     size_t argv_len;
     size_t next_index;
+    size_t root_args;
 };
 
 // ABI warning

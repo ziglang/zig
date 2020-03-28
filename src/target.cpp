@@ -1229,6 +1229,13 @@ bool target_is_libc_lib_name(const ZigTarget *target, const char *name) {
     return false;
 }
 
+bool target_is_libcpp_lib_name(const ZigTarget *target, const char *name) {
+    if (strcmp(name, "c++") == 0 || strcmp(name, "c++abi") == 0)
+        return true;
+
+    return false;
+}
+
 size_t target_libc_count(void) {
     return array_length(libcs_available);
 }
