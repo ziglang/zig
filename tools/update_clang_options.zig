@@ -91,6 +91,10 @@ const known_options = [_]KnownOpt{
         .ident = "for_linker",
     },
     .{
+        .name = "z",
+        .ident = "linker_input_z",
+    },
+    .{
         .name = "E",
         .ident = "preprocess",
     },

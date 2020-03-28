@@ -1290,6 +1290,7 @@ pub const ClangArgIterator = extern struct {
         rtti,
         no_rtti,
         for_linker,
+        linker_input_z,
     };
 
     const Args = struct {

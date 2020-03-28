@@ -350,6 +350,7 @@ enum Stage2ClangArg {
     Stage2ClangArgRtti,
     Stage2ClangArgNoRtti,
     Stage2ClangArgForLinker,
+    Stage2ClangArgLinkerInputZ,
 };
 
 // ABI warning
