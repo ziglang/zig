@@ -7,7 +7,119 @@
 # LLVM_LIBRARIES
 # LLVM_LIBDIRS
 
-if(ZIG_CROSSCOMPILING)
+if("${ZIG_TARGET_TRIPLE}" STREQUAL "native")
+  find_program(LLVM_CONFIG_EXE
+      NAMES llvm-config-10 llvm-config-10.0 llvm-config100 llvm-config
+      PATHS
+          "/mingw64/bin"
+          "/c/msys64/mingw64/bin"
+          "c:/msys64/mingw64/bin"
+          "C:/Libraries/llvm-10.0.0/bin")
+
+  if ("${LLVM_CONFIG_EXE}" STREQUAL "LLVM_CONFIG_EXE-NOTFOUND")
+    message(FATAL_ERROR "unable to find llvm-config")
+  endif()
+
+  if ("${LLVM_CONFIG_EXE}" STREQUAL "LLVM_CONFIG_EXE-NOTFOUND")
+    message(FATAL_ERROR "unable to find llvm-config")
+  endif()
+
+  execute_process(
+    COMMAND ${LLVM_CONFIG_EXE} --version
+    OUTPUT_VARIABLE LLVM_CONFIG_VERSION
+    OUTPUT_STRIP_TRAILING_WHITESPACE)
+
+  if("${LLVM_CONFIG_VERSION}" VERSION_LESS 10)
+    message(FATAL_ERROR "expected LLVM 10.x but found ${LLVM_CONFIG_VERSION}")
+  endif()
+  if("${LLVM_CONFIG_VERSION}" VERSION_EQUAL 11)
+    message(FATAL_ERROR "expected LLVM 10.x but found ${LLVM_CONFIG_VERSION}")
+  endif()
+  if("${LLVM_CONFIG_VERSION}" VERSION_GREATER 11)
+    message(FATAL_ERROR "expected LLVM 10.x but found ${LLVM_CONFIG_VERSION}")
+  endif()
+
+  execute_process(
+    COMMAND ${LLVM_CONFIG_EXE} --targets-built
+      OUTPUT_VARIABLE LLVM_TARGETS_BUILT_SPACES
+    OUTPUT_STRIP_TRAILING_WHITESPACE)
+  string(REPLACE " " ";" LLVM_TARGETS_BUILT "${LLVM_TARGETS_BUILT_SPACES}")
+  function(NEED_TARGET TARGET_NAME)
+      list (FIND LLVM_TARGETS_BUILT "${TARGET_NAME}" _index)
+      if (${_index} EQUAL -1)
+          message(FATAL_ERROR "LLVM is missing target ${TARGET_NAME}. Zig requires LLVM to be built with all default targets enabled.")
+      endif()
+  endfunction(NEED_TARGET)
+  NEED_TARGET("AArch64")
+  NEED_TARGET("AMDGPU")
+  NEED_TARGET("ARM")
+  NEED_TARGET("BPF")
+  NEED_TARGET("Hexagon")
+  NEED_TARGET("Lanai")
+  NEED_TARGET("Mips")
+  NEED_TARGET("MSP430")
+  NEED_TARGET("NVPTX")
+  NEED_TARGET("PowerPC")
+  NEED_TARGET("RISCV")
+  NEED_TARGET("Sparc")
+  NEED_TARGET("SystemZ")
+  NEED_TARGET("WebAssembly")
+  NEED_TARGET("X86")
+  NEED_TARGET("XCore")
+
+  if(ZIG_STATIC_LLVM)
+    execute_process(
+        COMMAND ${LLVM_CONFIG_EXE} --libfiles --link-static
+        OUTPUT_VARIABLE LLVM_LIBRARIES_SPACES
+        OUTPUT_STRIP_TRAILING_WHITESPACE)
+    string(REPLACE " " ";" LLVM_LIBRARIES "${LLVM_LIBRARIES_SPACES}")
+
+    execute_process(
+        COMMAND ${LLVM_CONFIG_EXE} --system-libs --link-static
+        OUTPUT_VARIABLE LLVM_SYSTEM_LIBS_SPACES
+        OUTPUT_STRIP_TRAILING_WHITESPACE)
+    string(REPLACE " " ";" LLVM_SYSTEM_LIBS "${LLVM_SYSTEM_LIBS_SPACES}")
+
+    execute_process(
+        COMMAND ${LLVM_CONFIG_EXE} --libdir --link-static
+        OUTPUT_VARIABLE LLVM_LIBDIRS_SPACES
+        OUTPUT_STRIP_TRAILING_WHITESPACE)
+    string(REPLACE " " ";" LLVM_LIBDIRS "${LLVM_LIBDIRS_SPACES}")
+  endif()
+  if(NOT LLVM_LIBRARIES)
+    execute_process(
+        COMMAND ${LLVM_CONFIG_EXE} --libs
+        OUTPUT_VARIABLE LLVM_LIBRARIES_SPACES
+        OUTPUT_STRIP_TRAILING_WHITESPACE)
+    string(REPLACE " " ";" LLVM_LIBRARIES "${LLVM_LIBRARIES_SPACES}")
+
+    execute_process(
+        COMMAND ${LLVM_CONFIG_EXE} --system-libs
+        OUTPUT_VARIABLE LLVM_SYSTEM_LIBS_SPACES
+        OUTPUT_STRIP_TRAILING_WHITESPACE)
+    string(REPLACE " " ";" LLVM_SYSTEM_LIBS "${LLVM_SYSTEM_LIBS_SPACES}")
+
+    execute_process(
+        COMMAND ${LLVM_CONFIG_EXE} --libdir
+        OUTPUT_VARIABLE LLVM_LIBDIRS_SPACES
+        OUTPUT_STRIP_TRAILING_WHITESPACE)
+    string(REPLACE " " ";" LLVM_LIBDIRS "${LLVM_LIBDIRS_SPACES}")
+  endif()
+
+  execute_process(
+      COMMAND ${LLVM_CONFIG_EXE} --includedir
+      OUTPUT_VARIABLE LLVM_INCLUDE_DIRS
+      OUTPUT_STRIP_TRAILING_WHITESPACE)
+
+  set(LLVM_LIBRARIES ${LLVM_LIBRARIES} ${LLVM_SYSTEM_LIBS})
+
+  if(NOT LLVM_LIBRARIES)
+    find_library(LLVM_LIBRARIES NAMES LLVM LLVM-10 LLVM-10.0)
+  endif()
+
+  link_directories("${CMAKE_PREFIX_PATH}/lib")
+  link_directories("${LLVM_LIBDIRS}")
+else()
   # Here we assume that we're cross compiling with Zig, of course. No reason
   # to support more complicated setups. We also assume the experimental target
   # AVR is enabled.
@@ -189,118 +301,6 @@ if(ZIG_CROSSCOMPILING)
     FIND_AND_ADD_LLVM_LIB(LLVMAArch64Info)
     FIND_AND_ADD_LLVM_LIB(LLVMSupport)
     FIND_AND_ADD_LLVM_LIB(LLVMDemangle)
-else()
-  find_program(LLVM_CONFIG_EXE
-      NAMES llvm-config-10 llvm-config-10.0 llvm-config100 llvm-config
-      PATHS
-          "/mingw64/bin"
-          "/c/msys64/mingw64/bin"
-          "c:/msys64/mingw64/bin"
-          "C:/Libraries/llvm-10.0.0/bin")
-  
-  if ("${LLVM_CONFIG_EXE}" STREQUAL "LLVM_CONFIG_EXE-NOTFOUND")
-    message(FATAL_ERROR "unable to find llvm-config")
-  endif()
-  
-  if ("${LLVM_CONFIG_EXE}" STREQUAL "LLVM_CONFIG_EXE-NOTFOUND")
-    message(FATAL_ERROR "unable to find llvm-config")
-  endif()
-  
-  execute_process(
-  	COMMAND ${LLVM_CONFIG_EXE} --version
-  	OUTPUT_VARIABLE LLVM_CONFIG_VERSION
-  	OUTPUT_STRIP_TRAILING_WHITESPACE)
-  
-  if("${LLVM_CONFIG_VERSION}" VERSION_LESS 10)
-    message(FATAL_ERROR "expected LLVM 10.x but found ${LLVM_CONFIG_VERSION}")
-  endif()
-  if("${LLVM_CONFIG_VERSION}" VERSION_EQUAL 11)
-    message(FATAL_ERROR "expected LLVM 10.x but found ${LLVM_CONFIG_VERSION}")
-  endif()
-  if("${LLVM_CONFIG_VERSION}" VERSION_GREATER 11)
-    message(FATAL_ERROR "expected LLVM 10.x but found ${LLVM_CONFIG_VERSION}")
-  endif()
-  
-  execute_process(
-  	COMMAND ${LLVM_CONFIG_EXE} --targets-built
-      OUTPUT_VARIABLE LLVM_TARGETS_BUILT_SPACES
-  	OUTPUT_STRIP_TRAILING_WHITESPACE)
-  string(REPLACE " " ";" LLVM_TARGETS_BUILT "${LLVM_TARGETS_BUILT_SPACES}")
-  function(NEED_TARGET TARGET_NAME)
-      list (FIND LLVM_TARGETS_BUILT "${TARGET_NAME}" _index)
-      if (${_index} EQUAL -1)
-          message(FATAL_ERROR "LLVM is missing target ${TARGET_NAME}. Zig requires LLVM to be built with all default targets enabled.")
-      endif()
-  endfunction(NEED_TARGET)
-  NEED_TARGET("AArch64")
-  NEED_TARGET("AMDGPU")
-  NEED_TARGET("ARM")
-  NEED_TARGET("BPF")
-  NEED_TARGET("Hexagon")
-  NEED_TARGET("Lanai")
-  NEED_TARGET("Mips")
-  NEED_TARGET("MSP430")
-  NEED_TARGET("NVPTX")
-  NEED_TARGET("PowerPC")
-  NEED_TARGET("RISCV")
-  NEED_TARGET("Sparc")
-  NEED_TARGET("SystemZ")
-  NEED_TARGET("WebAssembly")
-  NEED_TARGET("X86")
-  NEED_TARGET("XCore")
-  
-  if(ZIG_STATIC_LLVM)
-    execute_process(
-        COMMAND ${LLVM_CONFIG_EXE} --libfiles --link-static
-        OUTPUT_VARIABLE LLVM_LIBRARIES_SPACES
-        OUTPUT_STRIP_TRAILING_WHITESPACE)
-    string(REPLACE " " ";" LLVM_LIBRARIES "${LLVM_LIBRARIES_SPACES}")
-  
-    execute_process(
-        COMMAND ${LLVM_CONFIG_EXE} --system-libs --link-static
-        OUTPUT_VARIABLE LLVM_SYSTEM_LIBS_SPACES
-        OUTPUT_STRIP_TRAILING_WHITESPACE)
-    string(REPLACE " " ";" LLVM_SYSTEM_LIBS "${LLVM_SYSTEM_LIBS_SPACES}")
-  
-    execute_process(
-        COMMAND ${LLVM_CONFIG_EXE} --libdir --link-static
-        OUTPUT_VARIABLE LLVM_LIBDIRS_SPACES
-        OUTPUT_STRIP_TRAILING_WHITESPACE)
-    string(REPLACE " " ";" LLVM_LIBDIRS "${LLVM_LIBDIRS_SPACES}")
-  endif()
-  if(NOT LLVM_LIBRARIES)
-    execute_process(
-        COMMAND ${LLVM_CONFIG_EXE} --libs
-        OUTPUT_VARIABLE LLVM_LIBRARIES_SPACES
-        OUTPUT_STRIP_TRAILING_WHITESPACE)
-    string(REPLACE " " ";" LLVM_LIBRARIES "${LLVM_LIBRARIES_SPACES}")
-  
-    execute_process(
-        COMMAND ${LLVM_CONFIG_EXE} --system-libs
-        OUTPUT_VARIABLE LLVM_SYSTEM_LIBS_SPACES
-        OUTPUT_STRIP_TRAILING_WHITESPACE)
-    string(REPLACE " " ";" LLVM_SYSTEM_LIBS "${LLVM_SYSTEM_LIBS_SPACES}")
-  
-    execute_process(
-        COMMAND ${LLVM_CONFIG_EXE} --libdir
-        OUTPUT_VARIABLE LLVM_LIBDIRS_SPACES
-        OUTPUT_STRIP_TRAILING_WHITESPACE)
-    string(REPLACE " " ";" LLVM_LIBDIRS "${LLVM_LIBDIRS_SPACES}")
-  endif()
-  
-  execute_process(
-      COMMAND ${LLVM_CONFIG_EXE} --includedir
-      OUTPUT_VARIABLE LLVM_INCLUDE_DIRS
-      OUTPUT_STRIP_TRAILING_WHITESPACE)
-  
-  set(LLVM_LIBRARIES ${LLVM_LIBRARIES} ${LLVM_SYSTEM_LIBS})
-  
-  if(NOT LLVM_LIBRARIES)
-    find_library(LLVM_LIBRARIES NAMES LLVM LLVM-10 LLVM-10.0)
-  endif()
-  
-  link_directories("${CMAKE_PREFIX_PATH}/lib")
-  link_directories("${LLVM_LIBDIRS}")
 endif()
 
 include(FindPackageHandleStandardArgs)
