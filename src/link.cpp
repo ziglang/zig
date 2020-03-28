@@ -1646,6 +1646,10 @@ static void construct_linker_job_elf(LinkJob *lj) {
         lj->args.append("--eh-frame-hdr");
     }
 
+    if (g->linker_rdynamic) {
+        lj->args.append("--export-dynamic");
+    }
+
     lj->args.append("-m");
     lj->args.append(getLDMOption(g->zig_target));
 
