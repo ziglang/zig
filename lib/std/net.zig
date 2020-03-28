@@ -397,13 +397,12 @@ pub const AddressList = struct {
 
 /// All memory allocated with `allocator` will be freed before this function returns.
 pub fn tcpConnectToHost(allocator: *mem.Allocator, name: []const u8, port: u16) !fs.File {
-    const list = getAddressList(allocator, name, port);
+    const list = try getAddressList(allocator, name, port);
     defer list.deinit();
 
-    const addrs = list.addrs.toSliceConst();
-    if (addrs.len == 0) return error.UnknownHostName;
+    if (list.addrs.len == 0) return error.UnknownHostName;
 
-    return tcpConnectToAddress(addrs[0], port);
+    return tcpConnectToAddress(list.addrs[0]);
 }
 
 pub fn tcpConnectToAddress(address: Address) !fs.File {
