@@ -106,6 +106,7 @@ enum Error {
     ErrorInvalidAbiVersion,
     ErrorInvalidOperatingSystemVersion,
     ErrorUnknownClangOption,
+    ErrorNestedResponseFile,
 };
 
 // ABI warning
@@ -361,6 +362,7 @@ struct Stage2ClangArgIterator {
     const char **argv_ptr;
     size_t argv_len;
     size_t next_index;
+    size_t root_args;
 };
 
 // ABI warning
