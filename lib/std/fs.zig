@@ -1800,8 +1800,13 @@ pub const SelfExePathError = os.ReadLinkError || os.SysCtlError;
 /// `selfExePath` except allocates the result on the heap.
 /// Caller owns returned memory.
 pub fn selfExePathAlloc(allocator: *Allocator) ![]u8 {
-    // TODO(#4812): Consider looping with larger and larger buffers to handle
-    // overlong paths.
+    // Use of MAX_PATH_BYTES here is justified as, at least on one tested Linux
+    // system, readlink will completely fail to return a result larger than
+    // PATH_MAX even if given a sufficiently large buffer. This makes it
+    // fundamentally impossible to get the selfExePath of a program running in
+    // a very deeply nested directory chain in this way.
+    // TODO(#4812): Investigate other systems and whether it is possible to get
+    // this path by trying larger and larger buffers until one succeeds.
     var buf: [MAX_PATH_BYTES]u8 = undefined;
     return mem.dupe(allocator, u8, try selfExePath(&buf));
 }
@@ -1858,8 +1863,13 @@ pub fn selfExePathW() [:0]const u16 {
 /// `selfExeDirPath` except allocates the result on the heap.
 /// Caller owns returned memory.
 pub fn selfExeDirPathAlloc(allocator: *Allocator) ![]u8 {
-    // TODO(#4812): Consider looping with larger and larger buffers to handle
-    // overlong paths.
+    // Use of MAX_PATH_BYTES here is justified as, at least on one tested Linux
+    // system, readlink will completely fail to return a result larger than
+    // PATH_MAX even if given a sufficiently large buffer. This makes it
+    // fundamentally impossible to get the selfExeDirPath of a program running
+    // in a very deeply nested directory chain in this way.
+    // TODO(#4812): Investigate other systems and whether it is possible to get
+    // this path by trying larger and larger buffers until one succeeds.
     var buf: [MAX_PATH_BYTES]u8 = undefined;
     return mem.dupe(allocator, u8, try selfExeDirPath(&buf));
 }
