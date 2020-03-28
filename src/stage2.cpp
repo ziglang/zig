@@ -197,6 +197,10 @@ Error stage2_target_parse(struct ZigTarget *target, const char *zig_triple, cons
 {
     Error err;
 
+    if (zig_triple != nullptr && strcmp(zig_triple, "native") == 0) {
+        zig_triple = nullptr;
+    }
+
     if (zig_triple == nullptr) {
         get_native_target(target);
 

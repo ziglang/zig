@@ -84,6 +84,7 @@ const char *err_str(Error err) {
         case ErrorInvalidAbiVersion: return "invalid C ABI version";
         case ErrorInvalidOperatingSystemVersion: return "invalid operating system version";
         case ErrorUnknownClangOption: return "unknown Clang option";
+        case ErrorNestedResponseFile: return "nested response file";
         case ErrorPermissionDenied: return "permission is denied";
         case ErrorFileBusy: return "file is busy";
         case ErrorLocked: return "file is locked by another process";

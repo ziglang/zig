@@ -63,6 +63,10 @@ const known_options = [_]KnownOpt{
         .ident = "nostdlib",
     },
     .{
+        .name = "nostdlib++",
+        .ident = "nostdlib_cpp",
+    },
+    .{
         .name = "shared",
         .ident = "shared",
     },
@@ -73,6 +77,22 @@ const known_options = [_]KnownOpt{
     .{
         .name = "Wl,",
         .ident = "wl",
+    },
+    .{
+        .name = "Xlinker",
+        .ident = "for_linker",
+    },
+    .{
+        .name = "for-linker",
+        .ident = "for_linker",
+    },
+    .{
+        .name = "for-linker=",
+        .ident = "for_linker",
+    },
+    .{
+        .name = "z",
+        .ident = "linker_input_z",
     },
     .{
         .name = "E",
@@ -153,6 +173,22 @@ const known_options = [_]KnownOpt{
     .{
         .name = "###",
         .ident = "verbose_cmds",
+    },
+    .{
+        .name = "fexceptions",
+        .ident = "exceptions",
+    },
+    .{
+        .name = "fno-exceptions",
+        .ident = "no_exceptions",
+    },
+    .{
+        .name = "frtti",
+        .ident = "rtti",
+    },
+    .{
+        .name = "fno-rtti",
+        .ident = "no_rtti",
     },
 };
 
