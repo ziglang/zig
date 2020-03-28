@@ -734,6 +734,13 @@ static int main0(int argc, char **argv) {
                 case Stage2ClangArgNoRtti:
                     cpp_rtti = false;
                     break;
+                case Stage2ClangArgForLinker:
+                    linker_args.append(buf_create_from_str(it.only_arg));
+                    break;
+                case Stage2ClangArgLinkerInputZ:
+                    linker_args.append(buf_create_from_str("-z"));
+                    linker_args.append(buf_create_from_str(it.only_arg));
+                    break;
             }
         }
         // Parse linker args
