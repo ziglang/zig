@@ -79,6 +79,18 @@ const known_options = [_]KnownOpt{
         .ident = "wl",
     },
     .{
+        .name = "Xlinker",
+        .ident = "for_linker",
+    },
+    .{
+        .name = "for-linker",
+        .ident = "for_linker",
+    },
+    .{
+        .name = "for-linker=",
+        .ident = "for_linker",
+    },
+    .{
         .name = "E",
         .ident = "preprocess",
     },

@@ -349,6 +349,7 @@ enum Stage2ClangArg {
     Stage2ClangArgNoExceptions,
     Stage2ClangArgRtti,
     Stage2ClangArgNoRtti,
+    Stage2ClangArgForLinker,
 };
 
 // ABI warning

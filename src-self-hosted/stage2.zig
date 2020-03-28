@@ -1289,6 +1289,7 @@ pub const ClangArgIterator = extern struct {
         no_exceptions,
         rtti,
         no_rtti,
+        for_linker,
     };
 
     const Args = struct {
