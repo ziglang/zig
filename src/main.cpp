@@ -790,6 +790,11 @@ static int main0(int argc, char **argv) {
                     return EXIT_FAILURE;
                 }
                 dynamic_linker = buf_ptr(linker_args.at(i));
+            } else if (buf_eql_str(arg, "-E") ||
+                buf_eql_str(arg, "--export-dynamic") ||
+                buf_eql_str(arg, "-export-dynamic"))
+            {
+                rdynamic = true;
             } else {
                 fprintf(stderr, "warning: unsupported linker arg: %s\n", buf_ptr(arg));
             }
