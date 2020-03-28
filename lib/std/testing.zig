@@ -172,11 +172,24 @@ test "expectEqual.union(enum)" {
 pub fn expectEqualSlices(comptime T: type, expected: []const T, actual: []const T) void {
     // TODO better printing of the difference
     // If the arrays are small enough we could print the whole thing
-    // If the child type is u8 and no weird bytes, we could print it as strings
     // Even for the length difference, it would be useful to see the values of the slices probably.
+    if ((@typeInfo(T) == .Int) and @typeInfo(T).Int.bits == 8) {
+        const expected_string = @as([]const u8, expected);
+        const actual_string = @as([]const u8, actual);
+
+        if (std.unicode.utf8ValidateSlice(expected_string) and std.unicode.utf8ValidateSlice(actual_string)) {
+            if (!std.mem.eql(u8, expected_string, actual_string)) {
+                std.debug.panic("expected string \"{}\", found \"{}\"", .{ expected_string, actual_string });
+            }
+
+            return;
+        }
+    }
+
     if (expected.len != actual.len) {
         std.debug.panic("slice lengths differ. expected {}, found {}", .{ expected.len, actual.len });
     }
+
     var i: usize = 0;
     while (i < expected.len) : (i += 1) {
         if (!std.meta.eql(expected[i], actual[i])) {
