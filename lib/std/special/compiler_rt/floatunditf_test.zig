@@ -1,6 +1,6 @@
 const __floatunditf = @import("floatunditf.zig").__floatunditf;
 
-fn test__floatunditf(a: u128, expected_hi: u64, expected_lo: u64) void {
+fn test__floatunditf(a: u64, expected_hi: u64, expected_lo: u64) void {
     const x = __floatunditf(a);
 
     const x_repr = @bitCast(u128, x);
