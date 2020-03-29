@@ -5782,6 +5782,18 @@ fn parseCSuffixOpExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8,
                 op_id = .Mod;
                 op_token = try appendToken(c, .Percent, "%");
             },
+            .StringLiteral => {
+                op_id = .ArrayCat;
+                op_token = try appendToken(c, .PlusPlus, "++");
+
+                _ = it.prev();
+            },
+            .Identifier => {
+                op_id = .ArrayCat;
+                op_token = try appendToken(c, .PlusPlus, "++");
+
+                _ = it.prev();
+            },
             else => {
                 _ = it.prev();
                 return node;
