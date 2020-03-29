@@ -1725,7 +1725,7 @@ pub const ifmap = struct {
 
 pub const ifreq = extern union {
     ifr_ifrn: struct {
-        ifrn_name: [IFNAMESIZE]u8,
+        name: [IFNAMESIZE]u8,
     },
     ifr_ifru: struct {
         ifru_addr: sockaddr,
@@ -1734,8 +1734,8 @@ pub const ifreq = extern union {
         ifru_netmask: sockaddr,
         ifru_hwaddr: sockaddr,
         ifru_flags: i16,
-        ifru_ivalue: i16,
-        ifru_mtu: i16,
+        ifru_ivalue: i32,
+        ifru_mtu: i32,
         ifru_map: ifmap,
         ifru_slave: [IFNAMESIZE]u8,
         ifru_newname: [IFNAMESIZE]u8,
