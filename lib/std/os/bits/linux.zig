@@ -1705,3 +1705,35 @@ pub const termios = extern struct {
     ispeed: speed_t,
     ospeed: speed_t,
 };
+
+pub const SIOCGIFINDEX = 0x8933;
+pub const IFNAMESIZE = 16;
+
+pub const ifmap = struct {
+    mem_start: u32,
+    mem_end: u32,
+    base_addr: i16,
+    irq: u8,
+    dma: u8,
+    port: u8,
+};
+
+pub const ifreq = extern union {
+    ifr_ifrn: struct {
+        ifrn_name: [IFNAMESIZE]u8,
+    },
+    ifr_ifru: struct {
+        ifru_addr: sockaddr,
+        ifru_dstaddr: sockaddr,
+        ifru_broadaddr: sockaddr,
+        ifru_netmask: sockaddr,
+        ifru_hwaddr: sockaddr,
+        ifru_flags: i16,
+        ifru_ivalue: i16,
+        ifru_mtu: i16,
+        ifru_map: ifmap,
+        ifru_slave: [IFNAMESIZE]u8,
+        ifru_newname: [IFNAMESIZE]u8,
+        ifru_data: [*:0]u8,
+    },
+};
