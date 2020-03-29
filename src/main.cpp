@@ -688,7 +688,9 @@ static int main0(int argc, char **argv) {
                             strcmp(it.only_arg, "O4") == 0)
                     {
                         build_mode = BuildModeFastRelease;
-                    } else if (strcmp(it.only_arg, "Og") == 0) {
+                    } else if (strcmp(it.only_arg, "Og") == 0 ||
+                            strcmp(it.only_arg, "O0") == 0)
+                    {
                         build_mode = BuildModeDebug;
                     } else {
                         for (size_t i = 0; i < it.other_args_len; i += 1) {
