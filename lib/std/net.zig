@@ -534,7 +534,18 @@ fn if_nametoindex(name: []const u8) !u32 {
         @ptrToInt(&ifr),
     );
 
-    return ifr.ifr_ifru.ifru_ivalue;
+    switch (os.errno(rc)) {
+        os.EBADF => return error.BadFile,
+        os.EINTR => return error.CaughtSignal,
+        os.EINVAL => unreachable,
+        os.EIO => return error.FileSystem,
+        os.ENOTTY => unreachable,
+        os.ENXIO => unreachable,
+        os.ENODEV => return error.Unsupported,
+        else => {},
+    }
+
+    return @bitCast(u32, ifr.ifr_ifru.ifru_ivalue);
 }
 
 pub const AddressList = struct {
