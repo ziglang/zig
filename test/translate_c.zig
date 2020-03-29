@@ -2808,4 +2808,43 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    return if (x > y) x else y;
         \\}
     });
+
+    cases.add("string concatenation in macros",
+        \\#define FOO "hello"
+        \\#define BAR FOO " world"
+        \\#define BAZ "oh, " FOO
+    , &[_][]const u8{
+        \\pub const FOO = "hello";
+    ,
+        \\pub const BAR = FOO ++ " world";
+    ,
+        \\pub const BAZ = "oh, " ++ FOO;
+    });
+
+    cases.add("string concatenation in macros: two defines",
+        \\#define FOO "hello"
+        \\#define BAZ " world"
+        \\#define BAR FOO BAZ
+    , &[_][]const u8{
+        \\pub const FOO = "hello";
+    ,
+        \\pub const BAZ = " world";
+    ,
+        \\pub const BAR = FOO ++ BAZ;
+    });
+
+    cases.add("string concatenation in macros: two strings",
+        \\#define FOO "a" "b"
+        \\#define BAR FOO "c"
+    , &[_][]const u8{
+        \\pub const FOO = "a" ++ "b";
+    ,
+        \\pub const BAR = FOO ++ "c";
+    });
+
+    cases.add("string concatenation in macros: three strings",
+        \\#define FOO "a" "b" "c"
+    , &[_][]const u8{
+        \\pub const FOO = "a" ++ ("b" ++ "c");
+    });
 }
