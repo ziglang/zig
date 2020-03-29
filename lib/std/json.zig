@@ -1658,9 +1658,6 @@ test "parse into tagged union" {
 }
 
 test "parseFree descends into tagged union" {
-    // tagged unions are broken on arm64: https://github.com/ziglang/zig/issues/4492
-    if (std.builtin.arch == .aarch64) return error.SkipZigTest;
-
     var fail_alloc = testing.FailingAllocator.init(testing.allocator, 1);
     const options = ParseOptions{ .allocator = &fail_alloc.allocator };
     const T = union(enum) {
