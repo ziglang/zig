@@ -184,7 +184,6 @@ pub const Address = extern union {
     }
 
     pub fn resolveIp6(buf: []const u8, port: u16) !Address {
-        // FIXME: implement if_nametoindex
         // FIXME: this is a very bad implementation, since it's only a copy
         // of parseIp6 with alphanumerical scope id support
         var result = Address{
@@ -205,7 +204,7 @@ pub const Address = extern union {
         var abbrv = false;
 
         var scope_id = false;
-        var scope_id_value: [32]u8 = undefined;
+        var scope_id_value: [16]u8 = undefined;
         var scope_id_index: usize = 0;
 
         for (buf) |c, i| {
@@ -273,10 +272,13 @@ pub const Address = extern union {
             return error.Incomplete;
         }
 
-        const resolved_scope_id = std.fmt.parseInt(u32, scope_id_value, 10) catch |err| blk: {
-            if (err != err.InvalidCharacter) return err;
-            break :blk if_nametoindex(scope_id_value);
-        };
+        var resolved_scope_id: u32 = 0;
+        if (std.mem.len(scope_id_value) > 0) {
+            resolved_scope_id = std.fmt.parseInt(u32, &scope_id_value, 10) catch |err| blk: {
+                if (err != error.InvalidCharacter) return err;
+                break :blk try if_nametoindex(&scope_id_value);
+            };
+        }
 
         result.in6.scope_id = resolved_scope_id;
 
@@ -522,7 +524,7 @@ fn if_nametoindex(name: []const u8) !u32 {
     var sockfd = try os.socket(os.AF_UNIX, os.SOCK_DGRAM | os.SOCK_CLOEXEC, 0);
     defer os.close(sockfd);
 
-    std.mem.copy(u8, ifr.ifr_ifrn.name, &name);
+    std.mem.copy(u8, &ifr.ifr_ifrn.name, name);
 
     const rc = os.system.syscall3(
         os.linux.SYS_ioctl,
