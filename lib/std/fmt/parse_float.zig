@@ -306,7 +306,7 @@ fn parseRepr(s: []const u8, n: *FloatRepr) !ParseResult {
 
             State.Exponent => {
                 if (isDigit(c)) {
-                    if (exponent < std.math.maxInt(i32)) {
+                    if (exponent < std.math.maxInt(i32) / 10) {
                         exponent *= 10;
                         exponent += @intCast(i32, c - '0');
                     }
@@ -416,6 +416,8 @@ test "fmt.parseFloat" {
         expectEqual(@bitCast(Z, try parseFloat(T, "nAn")), @bitCast(Z, std.math.nan(T)));
         expectEqual((try parseFloat(T, "inF")), std.math.inf(T));
         expectEqual((try parseFloat(T, "-INF")), -std.math.inf(T));
+
+        expectEqual(try parseFloat(T, "0.4e0066999999999999999999999999999999999999999999999999999"), std.math.inf(T));
 
         if (T != f16) {
             expect(approxEq(T, try parseFloat(T, "1e-2"), 0.01, epsilon));
