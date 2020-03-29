@@ -75,6 +75,8 @@ pub const Address = extern union {
         }
     }
 
+    /// Parse a given IPv6 address string into an Address.
+    /// Assumes the Scope ID of the address is fully numeric.
     pub fn parseIp6(buf: []const u8, port: u16) !Address {
         var result = Address{
             .in6 = os.sockaddr_in6{
@@ -274,7 +276,7 @@ pub const Address = extern union {
         const resolved_scope_id = std.fmt.parseInt(u32, scope_id_value, 10) catch |err| blk: {
             if (err != err.InvalidCharacter) return err;
             break :blk if_nametoindex(scope_id_value);
-        }
+        };
 
         result.in6.scope_id = resolved_scope_id;
 
@@ -514,6 +516,23 @@ pub fn connectUnixSocket(path: []const u8) !fs.File {
         .handle = sockfd,
         .io_mode = std.io.mode,
     };
+}
+
+fn if_nametoindex(name: []const u8) !u32 {
+    var ifr: os.ifreq = undefined;
+    var sockfd = try os.socket(os.AF_UNIX, os.SOCK_DGRAM | os.SOCK_CLOEXEC, 0);
+    defer os.close(sockfd);
+
+    std.mem.copy(u8, ifr.ifr_ifrn.name, &name);
+
+    const rc = os.system.syscall3(
+        os.linux.SYS_ioctl,
+        @bitCast(usize, @as(isize, sockfd)),
+        os.linux.SIOCGIFINDEX,
+        @ptrToInt(&ifr),
+    );
+
+    return ifr.ifr_ifru.ifru_ivalue;
 }
 
 pub const AddressList = struct {
