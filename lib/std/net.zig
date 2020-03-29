@@ -21,6 +21,9 @@ pub const Address = extern union {
     // TODO this crashed the compiler. https://github.com/ziglang/zig/issues/3512
     //pub const localhost = initIp4(parseIp4("127.0.0.1") catch unreachable, 0);
 
+    /// Parse the given IP address string into an Address value.
+    /// It is recommended to use Address.resolveIp instead, to handle
+    /// IPv6 link-local unix addresses.
     pub fn parseIp(name: []const u8, port: u16) !Address {
         if (parseIp4(name, port)) |ip4| return ip4 else |err| switch (err) {
             error.Overflow,
@@ -31,6 +34,27 @@ pub const Address = extern union {
         }
 
         if (parseIp6(name, port)) |ip6| return ip6 else |err| switch (err) {
+            error.Overflow,
+            error.InvalidEnd,
+            error.InvalidCharacter,
+            error.Incomplete,
+            error.InvalidIpv4Mapping,
+            => {},
+        }
+
+        return error.InvalidIPAddressFormat;
+    }
+
+    pub fn resolveIp(name: []const u8, port: u16) !Address {
+        if (parseIp4(name, port)) |ip4| return ip4 else |err| switch (err) {
+            error.Overflow,
+            error.InvalidEnd,
+            error.InvalidCharacter,
+            error.Incomplete,
+            => {},
+        }
+
+        if (resolveIp6(name, port)) |ip6| return ip6 else |err| switch (err) {
             error.Overflow,
             error.InvalidEnd,
             error.InvalidCharacter,
@@ -142,6 +166,117 @@ pub const Address = extern union {
         if (!saw_any_digits and !abbrv) {
             return error.Incomplete;
         }
+
+        if (index == 14) {
+            ip_slice[14] = @truncate(u8, x >> 8);
+            ip_slice[15] = @truncate(u8, x);
+            return result;
+        } else {
+            ip_slice[index] = @truncate(u8, x >> 8);
+            index += 1;
+            ip_slice[index] = @truncate(u8, x);
+            index += 1;
+            mem.copy(u8, result.in6.addr[16 - index ..], ip_slice[0..index]);
+            return result;
+        }
+    }
+
+    pub fn resolveIp6(buf: []const u8, port: u16) !Address {
+        // FIXME: implement if_nametoindex
+        // FIXME: this is a very bad implementation, since it's only a copy
+        // of parseIp6 with alphanumerical scope id support
+        var result = Address{
+            .in6 = os.sockaddr_in6{
+                .scope_id = 0,
+                .port = mem.nativeToBig(u16, port),
+                .flowinfo = 0,
+                .addr = undefined,
+            },
+        };
+        var ip_slice = result.in6.addr[0..];
+
+        var tail: [16]u8 = undefined;
+
+        var x: u16 = 0;
+        var saw_any_digits = false;
+        var index: u8 = 0;
+        var abbrv = false;
+
+        var scope_id = false;
+        var scope_id_value: [32]u8 = undefined;
+        var scope_id_index: usize = 0;
+
+        for (buf) |c, i| {
+            if (scope_id) {
+                scope_id_value[scope_id_index] = c;
+                scope_id_index += 1;
+            } else if (c == ':') {
+                if (!saw_any_digits) {
+                    if (abbrv) return error.InvalidCharacter; // ':::'
+                    if (i != 0) abbrv = true;
+                    mem.set(u8, ip_slice[index..], 0);
+                    ip_slice = tail[0..];
+                    index = 0;
+                    continue;
+                }
+                if (index == 14) {
+                    return error.InvalidEnd;
+                }
+                ip_slice[index] = @truncate(u8, x >> 8);
+                index += 1;
+                ip_slice[index] = @truncate(u8, x);
+                index += 1;
+
+                x = 0;
+                saw_any_digits = false;
+            } else if (c == '%') {
+                if (!saw_any_digits) {
+                    return error.InvalidCharacter;
+                }
+                scope_id = true;
+                saw_any_digits = false;
+            } else if (c == '.') {
+                if (!abbrv or ip_slice[0] != 0xff or ip_slice[1] != 0xff) {
+                    // must start with '::ffff:'
+                    return error.InvalidIpv4Mapping;
+                }
+                const start_index = mem.lastIndexOfScalar(u8, buf[0..i], ':').? + 1;
+                const addr = (parseIp4(buf[start_index..], 0) catch {
+                    return error.InvalidIpv4Mapping;
+                }).in.addr;
+                ip_slice = result.in6.addr[0..];
+                ip_slice[10] = 0xff;
+                ip_slice[11] = 0xff;
+
+                const ptr = mem.sliceAsBytes(@as(*const [1]u32, &addr)[0..]);
+
+                ip_slice[12] = ptr[0];
+                ip_slice[13] = ptr[1];
+                ip_slice[14] = ptr[2];
+                ip_slice[15] = ptr[3];
+                return result;
+            } else {
+                const digit = try std.fmt.charToDigit(c, 16);
+                if (@mulWithOverflow(u16, x, 16, &x)) {
+                    return error.Overflow;
+                }
+                if (@addWithOverflow(u16, x, digit, &x)) {
+                    return error.Overflow;
+                }
+                saw_any_digits = true;
+            }
+        }
+
+        if (!saw_any_digits and !abbrv) {
+            return error.Incomplete;
+        }
+
+        const resolved_scope_id = std.fmt.parseInt(u32, scope_id_value, 10) catch |err| blk: {
+            if (err != err.InvalidCharacter) return err;
+            break :blk if_nametoindex(scope_id_value);
+        }
+
+        result.in6.scope_id = resolved_scope_id;
 
         if (index == 14) {
             ip_slice[14] = @truncate(u8, x >> 8);
