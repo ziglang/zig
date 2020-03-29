@@ -1903,7 +1903,7 @@ static void construct_linker_job_elf(LinkJob *lj) {
             // libc is linked specially
             continue;
         }
-        if (buf_eql_str(link_lib->name, "c++") || buf_eql_str(link_lib->name, "c++abi")) {
+        if (target_is_libcpp_lib_name(g->zig_target, buf_ptr(link_lib->name))) {
             // libc++ is linked specially
             continue;
         }
@@ -2470,7 +2470,12 @@ static void construct_linker_job_coff(LinkJob *lj) {
         if (buf_eql_str(link_lib->name, "c")) {
             continue;
         }
-        if (buf_eql_str(link_lib->name, "c++") || buf_eql_str(link_lib->name, "c++abi")) {
+        if (target_is_libcpp_lib_name(g->zig_target, buf_ptr(link_lib->name))) {
+            // libc++ is linked specially
+            continue;
+        }
+        if (g->libc == nullptr && target_is_libc_lib_name(g->zig_target, buf_ptr(link_lib->name))) {
+            // these libraries are always linked below when targeting glibc
             continue;
         }
         bool is_sys_lib = is_mingw_link_lib(link_lib->name);
