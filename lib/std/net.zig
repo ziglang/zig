@@ -552,7 +552,7 @@ fn if_nametoindex(name: []const u8) !u32 {
         else => {},
     }
 
-    std.debug.warn("ival={}\n", .{ifr.ifr_ifru.ifru_ivalue});
+    std.debug.warn("ival={}, rest={}\n", .{ ifr.ifr_ifru.ifru_ivalue, ifr.ifr_ifru });
 
     return @bitCast(u32, ifr.ifr_ifru.ifru_ivalue);
 }
