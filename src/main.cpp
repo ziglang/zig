@@ -1371,15 +1371,17 @@ static int main0(int argc, char **argv) {
                 return print_error_usage(arg0);
             }
 
-            bool any_non_c_link_libs = false;
+            bool any_system_lib_dependencies = false;
             for (size_t i = 0; i < link_libs.length; i += 1) {
-                if (!target_is_libc_lib_name(&target, link_libs.at(i))) {
-                    any_non_c_link_libs = true;
+                if (!target_is_libc_lib_name(&target, link_libs.at(i)) &&
+                    !target_is_libcpp_lib_name(&target, link_libs.at(i)))
+                {
+                    any_system_lib_dependencies = true;
                     break;
                 }
             }
 
-            if (target.is_native_os && any_non_c_link_libs) {
+            if (target.is_native_os && any_system_lib_dependencies) {
                 Error err;
                 Stage2NativePaths paths;
                 if ((err = stage2_detect_native_paths(&paths))) {
