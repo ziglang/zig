@@ -400,6 +400,8 @@ pub const SYS_fsmount = 432;
 pub const SYS_fspick = 433;
 pub const SYS_pidfd_open = 434;
 pub const SYS_clone3 = 435;
+pub const SYS_openat2 = 437;
+pub const SYS_pidfd_getfd = 438;
 
 pub const SYS_breakpoint = 0x0f0001;
 pub const SYS_cacheflush = 0x0f0002;

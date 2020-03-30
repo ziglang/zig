@@ -1169,8 +1169,8 @@ pub fn io_uring_enter(fd: i32, to_submit: u32, min_complete: u32, flags: u32, si
     return syscall6(SYS_io_uring_enter, @bitCast(usize, @as(isize, fd)), to_submit, min_complete, flags, @ptrToInt(sig), NSIG / 8);
 }
 
-pub fn io_uring_register(fd: i32, opcode: u32, arg: ?*const c_void, nr_args: u32) usize {
-    return syscall4(SYS_io_uring_register, @bitCast(usize, @as(isize, fd)), opcode, @ptrToInt(arg), nr_args);
+pub fn io_uring_register(fd: i32, opcode: IORING_REGISTER, arg: ?*const c_void, nr_args: u32) usize {
+    return syscall4(SYS_io_uring_register, @bitCast(usize, @as(isize, fd)), @enumToInt(opcode), @ptrToInt(arg), nr_args);
 }
 
 pub fn memfd_create(name: [*:0]const u8, flags: u32) usize {

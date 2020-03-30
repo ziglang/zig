@@ -375,6 +375,8 @@ pub const SYS_pkey_free = (SYS_Linux + 365);
 pub const SYS_statx = (SYS_Linux + 366);
 pub const SYS_rseq = (SYS_Linux + 367);
 pub const SYS_io_pgetevents = (SYS_Linux + 368);
+pub const SYS_openat2 = (SYS_Linux + 437);
+pub const SYS_pidfd_getfd = (SYS_Linux + 438);
 
 pub const O_CREAT = 0o0400;
 pub const O_EXCL = 0o02000;
