@@ -45,33 +45,25 @@ pub fn clear_cache(start: usize, end: usize) callconv(.C) void {
         @compileError("TODO");
         // FlushInstructionCache(GetCurrentProcess(), start, end - start);
     } else if (arm32 and !apple) {
-        @compileError("TODO");
-        //#if defined(__FreeBSD__) || defined(__NetBSD__)
-        //  struct arm_sync_icache_args arg;
-        //
-        //  arg.addr = (uintptr_t)start;
-        //  arg.len = (uintptr_t)end - (uintptr_t)start;
-        //
-        //  sysarch(ARM_SYNC_ICACHE, &arg);
-        //#elif defined(__linux__)
-        //// We used to include asm/unistd.h for the __ARM_NR_cacheflush define, but
-        //// it also brought many other unused defines, as well as a dependency on
-        //// kernel headers to be installed.
-        ////
-        //// This value is stable at least since Linux 3.13 and should remain so for
-        //// compatibility reasons, warranting it's re-definition here.
-        //#define __ARM_NR_cacheflush 0x0f0002
-        //  register int start_reg __asm("r0") = (int)(intptr_t)start;
-        //  const register int end_reg __asm("r1") = (int)(intptr_t)end;
-        //  const register int flags __asm("r2") = 0;
-        //  const register int syscall_nr __asm("r7") = __ARM_NR_cacheflush;
-        //  __asm __volatile("svc 0x0"
-        //                   : "=r"(start_reg)
-        //                   : "r"(syscall_nr), "r"(start_reg), "r"(end_reg), "r"(flags));
-        //  assert(start_reg == 0 && "Cache flush syscall failed.");
-        //#else
-        //  compilerrt_abort();
-        //#endif
+        if (os == .freebsd or os == .netbsd) {
+            //  struct arm_sync_icache_args arg;
+            //
+            //  arg.addr = (uintptr_t)start;
+            //  arg.len = (uintptr_t)end - (uintptr_t)start;
+            //
+            //  sysarch(ARM_SYNC_ICACHE, &arg);
+            @compileError("TODO: implement for NetBSD/FreeBSD");
+        } else if (os == .linux) {
+            const result = std.os.linux.syscall3(
+                std.os.linux.SYS_cacheflush,
+                start,
+                end,
+                0,
+            );
+            std.debug.assert(result == 0);
+        } else {
+            @compileError("compilerrt_abort");
+        }
     } else if (os == .linux and mips) {
         @compileError("TODO");
         //const uintptr_t start_int = (uintptr_t)start;
