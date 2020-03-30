@@ -341,11 +341,7 @@ pub fn zeroes(comptime T: type) T {
             }
         },
         .Array => |info| {
-            var array: T = undefined;
-            for (array) |*element| {
-                element.* = zeroes(info.child);
-            }
-            return array;
+            return [_]info.child{zeroes(info.child)} ** info.len;
         },
         .Vector,
         .ErrorUnion,
