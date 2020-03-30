@@ -790,3 +790,18 @@ test "assignment to optional pointer result loc" {
     var foo: struct { ptr: ?*c_void } = .{ .ptr = &global_struct };
     expect(foo.ptr.? == @ptrCast(*c_void, &global_struct));
 }
+
+test "peer type resolve string lit with sentinel-terminated mutable slice" {
+    var array: [4:0]u8 = undefined;
+    array[4] = 0; // TODO remove this when #4372 is solved
+    var slice: [:0]u8 = array[0..4 :0];
+    comptime expect(@TypeOf(slice, "hi") == [:0]const u8);
+    comptime expect(@TypeOf("hi", slice) == [:0]const u8);
+}
+
+test "peer type resolve array pointers, one of them const" {
+    var array1: [4]u8 = undefined;
+    const array2: [5]u8 = undefined;
+    comptime expect(@TypeOf(&array1, &array2) == []const u8);
+    comptime expect(@TypeOf(&array2, &array1) == []const u8);
+}
