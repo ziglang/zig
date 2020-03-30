@@ -1,11 +1,9 @@
-const __ashrti3 = @import("ashrti3.zig").__ashrti3;
+const __ashrti3 = @import("shift.zig").__ashrti3;
 const testing = @import("std").testing;
 
 fn test__ashrti3(a: i128, b: i32, expected: i128) void {
     const x = __ashrti3(a, b);
-    // @import("std").debug.warn("got 0x{x}\nexp 0x{x}\n", .{@truncate(u64,
-    // @bitCast(u128, x) >> 64), @truncate(u64, @bitCast(u128, expected)) >> 64});
-    testing.expect(x == expected);
+    testing.expectEqual(expected, x);
 }
 
 test "ashrti3" {
