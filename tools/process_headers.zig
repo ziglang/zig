@@ -324,7 +324,7 @@ pub fn main() !void {
             },
             .os = .linux,
         };
-        search: for (search_paths.toSliceConst()) |search_path| {
+        search: for (search_paths.span()) |search_path| {
             var sub_path: []const []const u8 = undefined;
             switch (vendor) {
                 .musl => {
@@ -414,13 +414,13 @@ pub fn main() !void {
                 try contents_list.append(contents);
             }
         }
-        std.sort.sort(*Contents, contents_list.toSlice(), Contents.hitCountLessThan);
+        std.sort.sort(*Contents, contents_list.span(), Contents.hitCountLessThan);
         var best_contents = contents_list.popOrNull().?;
         if (best_contents.hit_count > 1) {
             // worth it to make it generic
             const full_path = try std.fs.path.join(allocator, &[_][]const u8{ out_dir, generic_name, path_kv.key });
             try std.fs.cwd().makePath(std.fs.path.dirname(full_path).?);
-            try std.io.writeFile(full_path, best_contents.bytes);
+            try std.fs.cwd().writeFile(full_path, best_contents.bytes);
             best_contents.is_generic = true;
             while (contents_list.popOrNull()) |contender| {
                 if (contender.hit_count > 1) {
@@ -447,7 +447,7 @@ pub fn main() !void {
             });
             const full_path = try std.fs.path.join(allocator, &[_][]const u8{ out_dir, out_subpath, path_kv.key });
             try std.fs.cwd().makePath(std.fs.path.dirname(full_path).?);
-            try std.io.writeFile(full_path, contents.bytes);
+            try std.fs.cwd().writeFile(full_path, contents.bytes);
         }
     }
 }

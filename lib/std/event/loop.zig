@@ -1096,10 +1096,10 @@ pub const Loop = struct {
                         msg.result = noasync os.preadv(msg.fd, msg.iov, msg.offset);
                     },
                     .open => |*msg| {
-                        msg.result = noasync os.openC(msg.path, msg.flags, msg.mode);
+                        msg.result = noasync os.openZ(msg.path, msg.flags, msg.mode);
                     },
                     .openat => |*msg| {
-                        msg.result = noasync os.openatC(msg.fd, msg.path, msg.flags, msg.mode);
+                        msg.result = noasync os.openatZ(msg.fd, msg.path, msg.flags, msg.mode);
                     },
                     .faccessat => |*msg| {
                         msg.result = noasync os.faccessatZ(msg.dirfd, msg.path, msg.mode, msg.flags);

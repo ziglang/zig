@@ -23,10 +23,12 @@ pub const State = struct {
 
     const Self = @This();
 
+    /// TODO follow the span() convention instead of having this and `toSliceConst`
     pub fn toSlice(self: *Self) []u8 {
         return mem.sliceAsBytes(self.data[0..]);
     }
 
+    /// TODO follow the span() convention instead of having this and `toSlice`
     pub fn toSliceConst(self: *Self) []const u8 {
         return mem.sliceAsBytes(self.data[0..]);
     }

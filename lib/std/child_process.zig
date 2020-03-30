@@ -175,29 +175,11 @@ pub const ChildProcess = struct {
         stderr: []u8,
     };
 
-    /// Spawns a child process, waits for it, collecting stdout and stderr, and then returns.
-    /// If it succeeds, the caller owns result.stdout and result.stderr memory.
-    /// TODO deprecate in favor of exec2
-    pub fn exec(
-        allocator: *mem.Allocator,
-        argv: []const []const u8,
-        cwd: ?[]const u8,
-        env_map: ?*const BufMap,
-        max_output_bytes: usize,
-    ) !ExecResult {
-        return exec2(.{
-            .allocator = allocator,
-            .argv = argv,
-            .cwd = cwd,
-            .env_map = env_map,
-            .max_output_bytes = max_output_bytes,
-        });
-    }
+    pub const exec2 = @compileError("deprecated: exec2 is renamed to exec");
 
     /// Spawns a child process, waits for it, collecting stdout and stderr, and then returns.
     /// If it succeeds, the caller owns result.stdout and result.stderr memory.
-    /// TODO rename to exec
-    pub fn exec2(args: struct {
+    pub fn exec(args: struct {
         allocator: *mem.Allocator,
         argv: []const []const u8,
         cwd: ?[]const u8 = null,
@@ -370,7 +352,7 @@ pub const ChildProcess = struct {
 
         const any_ignore = (self.stdin_behavior == StdIo.Ignore or self.stdout_behavior == StdIo.Ignore or self.stderr_behavior == StdIo.Ignore);
         const dev_null_fd = if (any_ignore)
-            os.openC("/dev/null", os.O_RDWR, 0) catch |err| switch (err) {
+            os.openZ("/dev/null", os.O_RDWR, 0) catch |err| switch (err) {
                 error.PathAlreadyExists => unreachable,
                 error.NoSpaceLeft => unreachable,
                 error.FileTooBig => unreachable,

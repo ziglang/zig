@@ -118,7 +118,7 @@ pub fn OpenFileW(
 
     var result: HANDLE = undefined;
 
-    const path_len_bytes = math.cast(u16, mem.toSliceConst(u16, sub_path_w).len * 2) catch |err| switch (err) {
+    const path_len_bytes = math.cast(u16, mem.lenZ(sub_path_w) * 2) catch |err| switch (err) {
         error.Overflow => return error.NameTooLong,
     };
     var nt_name = UNICODE_STRING{
@@ -685,7 +685,7 @@ pub fn CreateDirectoryW(
     sub_path_w: [*:0]const u16,
     sa: ?*SECURITY_ATTRIBUTES,
 ) CreateDirectoryError!HANDLE {
-    const path_len_bytes = math.cast(u16, mem.toSliceConst(u16, sub_path_w).len * 2) catch |err| switch (err) {
+    const path_len_bytes = math.cast(u16, mem.lenZ(sub_path_w) * 2) catch |err| switch (err) {
         error.Overflow => return error.NameTooLong,
     };
     var nt_name = UNICODE_STRING{
@@ -1214,7 +1214,7 @@ pub fn nanoSecondsToFileTime(ns: i64) FILETIME {
 }
 
 pub fn cStrToPrefixedFileW(s: [*:0]const u8) ![PATH_MAX_WIDE:0]u16 {
-    return sliceToPrefixedFileW(mem.toSliceConst(u8, s));
+    return sliceToPrefixedFileW(mem.spanZ(s));
 }
 
 pub fn sliceToPrefixedFileW(s: []const u8) ![PATH_MAX_WIDE:0]u16 {

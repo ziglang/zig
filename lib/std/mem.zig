@@ -492,15 +492,8 @@ pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
     return true;
 }
 
-/// Deprecated. Use `spanZ`.
-pub fn toSliceConst(comptime T: type, ptr: [*:0]const T) [:0]const T {
-    return ptr[0..lenZ(ptr) :0];
-}
-
-/// Deprecated. Use `spanZ`.
-pub fn toSlice(comptime T: type, ptr: [*:0]T) [:0]T {
-    return ptr[0..lenZ(ptr) :0];
-}
+pub const toSliceConst = @compileError("deprecated; use std.mem.spanZ");
+pub const toSlice = @compileError("deprecated; use std.mem.spanZ");
 
 /// Takes a pointer to an array, a sentinel-terminated pointer, or a slice, and
 /// returns a slice. If there is a sentinel on the input type, there will be a

@@ -421,7 +421,7 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Co
         process.exit(1);
     }
 
-    try ZigCompiler.setLlvmArgv(allocator, mllvm_flags.toSliceConst());
+    try ZigCompiler.setLlvmArgv(allocator, mllvm_flags.span());
 
     const zig_lib_dir = introspect.resolveZigLibDir(allocator) catch process.exit(1);
     defer allocator.free(zig_lib_dir);
@@ -448,14 +448,14 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Co
         comp.override_libc = &override_libc;
     }
 
-    for (system_libs.toSliceConst()) |lib| {
+    for (system_libs.span()) |lib| {
         _ = try comp.addLinkLib(lib, true);
     }
 
     comp.version = version;
     comp.is_test = false;
     comp.linker_script = linker_script;
-    comp.clang_argv = clang_argv_buf.toSliceConst();
+    comp.clang_argv = clang_argv_buf.span();
     comp.strip = strip;
 
     comp.verbose_tokenize = verbose_tokenize;
@@ -488,8 +488,8 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Co
     comp.emit_asm = emit_asm;
     comp.emit_llvm_ir = emit_llvm_ir;
     comp.emit_h = emit_h;
-    comp.assembly_files = assembly_files.toSliceConst();
-    comp.link_objects = link_objects.toSliceConst();
+    comp.assembly_files = assembly_files.span();
+    comp.link_objects = link_objects.span();
 
     comp.start();
     processBuildEvents(comp, color);
@@ -683,7 +683,7 @@ fn cmdFmt(allocator: *Allocator, args: []const []const u8) !void {
     };
 
     var group = event.Group(FmtError!void).init(allocator);
-    for (input_files.toSliceConst()) |file_path| {
+    for (input_files.span()) |file_path| {
         try group.call(fmtPath, .{ &fmt, file_path, check_flag });
     }
     try group.wait();
@@ -898,7 +898,7 @@ const CliPkg = struct {
     }
 
     pub fn deinit(self: *CliPkg) void {
-        for (self.children.toSliceConst()) |child| {
+        for (self.children.span()) |child| {
             child.deinit();
         }
         self.children.deinit();

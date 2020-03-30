@@ -129,7 +129,7 @@ pub const Headers = struct {
             self.index.deinit();
         }
         {
-            for (self.data.toSliceConst()) |entry| {
+            for (self.data.span()) |entry| {
                 entry.deinit();
             }
             self.data.deinit();
@@ -141,14 +141,14 @@ pub const Headers = struct {
         errdefer other.deinit();
         try other.data.ensureCapacity(self.data.len);
         try other.index.initCapacity(self.index.entries.len);
-        for (self.data.toSliceConst()) |entry| {
+        for (self.data.span()) |entry| {
             try other.append(entry.name, entry.value, entry.never_index);
         }
         return other;
     }
 
     pub fn toSlice(self: Self) []const HeaderEntry {
-        return self.data.toSliceConst();
+        return self.data.span();
     }
 
     pub fn append(self: *Self, name: []const u8, value: []const u8, never_index: ?bool) !void {
@@ -279,7 +279,7 @@ pub const Headers = struct {
 
         const buf = try allocator.alloc(HeaderEntry, dex.len);
         var n: usize = 0;
-        for (dex.toSliceConst()) |idx| {
+        for (dex.span()) |idx| {
             buf[n] = self.data.at(idx);
             n += 1;
         }
@@ -302,7 +302,7 @@ pub const Headers = struct {
         // adapted from mem.join
         const total_len = blk: {
             var sum: usize = dex.len - 1; // space for separator(s)
-            for (dex.toSliceConst()) |idx|
+            for (dex.span()) |idx|
                 sum += self.data.at(idx).value.len;
             break :blk sum;
         };
@@ -334,7 +334,7 @@ pub const Headers = struct {
             }
         }
         { // fill up indexes again; we know capacity is fine from before
-            for (self.data.toSliceConst()) |entry, i| {
+            for (self.data.span()) |entry, i| {
                 var dex = &self.index.get(entry.name).?.value;
                 dex.appendAssumeCapacity(i);
             }
@@ -495,8 +495,8 @@ test "Headers.getIndices" {
     try h.append("set-cookie", "y=2", null);
 
     testing.expect(null == h.getIndices("not-present"));
-    testing.expectEqualSlices(usize, &[_]usize{0}, h.getIndices("foo").?.toSliceConst());
-    testing.expectEqualSlices(usize, &[_]usize{ 1, 2 }, h.getIndices("set-cookie").?.toSliceConst());
+    testing.expectEqualSlices(usize, &[_]usize{0}, h.getIndices("foo").?.span());
+    testing.expectEqualSlices(usize, &[_]usize{ 1, 2 }, h.getIndices("set-cookie").?.span());
 }
 
 test "Headers.get" {

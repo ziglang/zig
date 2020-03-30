@@ -185,14 +185,14 @@ fn fmtMain(argc: c_int, argv: [*]const [*:0]const u8) !void {
     const argc_usize = @intCast(usize, argc);
     var arg_i: usize = 0;
     while (arg_i < argc_usize) : (arg_i += 1) {
-        try args_list.append(mem.toSliceConst(u8, argv[arg_i]));
+        try args_list.append(mem.spanZ(argv[arg_i]));
     }
 
     stdout = std.io.getStdOut().outStream();
     stderr_file = std.io.getStdErr();
     stderr = stderr_file.outStream();
 
-    const args = args_list.toSliceConst()[2..];
+    const args = args_list.span()[2..];
 
     var color: errmsg.Color = .Auto;
     var stdin_flag: bool = false;
@@ -285,7 +285,7 @@ fn fmtMain(argc: c_int, argv: [*]const [*:0]const u8) !void {
         .allocator = allocator,
     };
 
-    for (input_files.toSliceConst()) |file_path| {
+    for (input_files.span()) |file_path| {
         try fmtPath(&fmt, file_path, check_flag);
     }
     if (fmt.any_error) {
@@ -318,7 +318,8 @@ fn fmtPath(fmt: *Fmt, file_path: []const u8, check_mode: bool) FmtError!void {
     if (fmt.seen.exists(file_path)) return;
     try fmt.seen.put(file_path);
 
-    const source_code = io.readFileAlloc(fmt.allocator, file_path) catch |err| switch (err) {
+    const max = std.math.maxInt(usize);
+    const source_code = fs.cwd().readFileAlloc(fmt.allocator, file_path, max) catch |err| switch (err) {
         error.IsDir, error.AccessDenied => {
             // TODO make event based (and dir.next())
             var dir = try fs.cwd().openDir(file_path, .{ .iterate = true });
@@ -450,7 +451,7 @@ export fn stage2_DepTokenizer_next(self: *stage2_DepTokenizer) stage2_DepNextRes
         const textz = std.Buffer.init(&self.handle.arena.allocator, self.handle.error_text) catch @panic("failed to create .d tokenizer error text");
         return stage2_DepNextResult{
             .type_id = .error_,
-            .textz = textz.toSlice().ptr,
+            .textz = textz.span().ptr,
         };
     };
     const token = otoken orelse {
@@ -465,7 +466,7 @@ export fn stage2_DepTokenizer_next(self: *stage2_DepTokenizer) stage2_DepNextRes
             .target => .target,
             .prereq => .prereq,
         },
-        .textz = textz.toSlice().ptr,
+        .textz = textz.span().ptr,
     };
 }
 
@@ -572,7 +573,7 @@ fn detectNativeCpuWithLLVM(
     var result = Target.Cpu.baseline(arch);
 
     if (llvm_cpu_name_z) |cpu_name_z| {
-        const llvm_cpu_name = mem.toSliceConst(u8, cpu_name_z);
+        const llvm_cpu_name = mem.spanZ(cpu_name_z);
 
         for (arch.allCpuModels()) |model| {
             const this_llvm_name = model.llvm_name orelse continue;
@@ -593,7 +594,7 @@ fn detectNativeCpuWithLLVM(
     const all_features = arch.allFeaturesList();
 
     if (llvm_cpu_features_opt) |llvm_cpu_features| {
-        var it = mem.tokenize(mem.toSliceConst(u8, llvm_cpu_features), ",");
+        var it = mem.tokenize(mem.spanZ(llvm_cpu_features), ",");
         while (it.next()) |decorated_llvm_feat| {
             var op: enum {
                 add,
@@ -688,9 +689,9 @@ fn stage2CrossTarget(
     mcpu_oz: ?[*:0]const u8,
     dynamic_linker_oz: ?[*:0]const u8,
 ) !CrossTarget {
-    const zig_triple = if (zig_triple_oz) |zig_triple_z| mem.toSliceConst(u8, zig_triple_z) else "native";
-    const mcpu = if (mcpu_oz) |mcpu_z| mem.toSliceConst(u8, mcpu_z) else null;
-    const dynamic_linker = if (dynamic_linker_oz) |dl_z| mem.toSliceConst(u8, dl_z) else null;
+    const zig_triple = if (zig_triple_oz) |zig_triple_z| mem.spanZ(zig_triple_z) else "native";
+    const mcpu = if (mcpu_oz) |mcpu_z| mem.spanZ(mcpu_z) else null;
+    const dynamic_linker = if (dynamic_linker_oz) |dl_z| mem.spanZ(dl_z) else null;
     var diags: CrossTarget.ParseOptions.Diagnostics = .{};
     const target: CrossTarget = CrossTarget.parse(.{
         .arch_os_abi = zig_triple,
@@ -814,7 +815,7 @@ const Stage2LibCInstallation = extern struct {
 export fn stage2_libc_parse(stage1_libc: *Stage2LibCInstallation, libc_file_z: [*:0]const u8) Error {
     stderr_file = std.io.getStdErr();
     stderr = stderr_file.outStream();
-    const libc_file = mem.toSliceConst(u8, libc_file_z);
+    const libc_file = mem.spanZ(libc_file_z);
     var libc = LibCInstallation.parse(std.heap.c_allocator, libc_file, stderr) catch |err| switch (err) {
         error.ParseError => return .SemanticAnalyzeFail,
         error.DiskQuota => return .DiskQuota,
@@ -995,7 +996,7 @@ const Stage2Target = extern struct {
             \\
         );
 
-        assert(mem.endsWith(u8, llvm_features_buffer.toSliceConst(), ","));
+        assert(mem.endsWith(u8, llvm_features_buffer.span(), ","));
         llvm_features_buffer.shrink(llvm_features_buffer.len() - 1);
 
         var os_builtin_str_buffer = try std.Buffer.allocPrint(allocator,
@@ -1120,7 +1121,7 @@ const Stage2Target = extern struct {
         try os_builtin_str_buffer.append("};\n");
 
         try cache_hash.append(
-            os_builtin_str_buffer.toSlice()[os_builtin_str_ver_start_index..os_builtin_str_buffer.len()],
+            os_builtin_str_buffer.span()[os_builtin_str_ver_start_index..os_builtin_str_buffer.len()],
         );
 
         const glibc_or_darwin_version = blk: {
@@ -1232,10 +1233,10 @@ fn stage2DetectNativePaths(stage1_paths: *Stage2NativePaths) !void {
     var paths = try std.zig.system.NativePaths.detect(std.heap.c_allocator);
     errdefer paths.deinit();
 
-    try convertSlice(paths.include_dirs.toSlice(), &stage1_paths.include_dirs_ptr, &stage1_paths.include_dirs_len);
-    try convertSlice(paths.lib_dirs.toSlice(), &stage1_paths.lib_dirs_ptr, &stage1_paths.lib_dirs_len);
-    try convertSlice(paths.rpaths.toSlice(), &stage1_paths.rpaths_ptr, &stage1_paths.rpaths_len);
-    try convertSlice(paths.warnings.toSlice(), &stage1_paths.warnings_ptr, &stage1_paths.warnings_len);
+    try convertSlice(paths.include_dirs.span(), &stage1_paths.include_dirs_ptr, &stage1_paths.include_dirs_len);
+    try convertSlice(paths.lib_dirs.span(), &stage1_paths.lib_dirs_ptr, &stage1_paths.lib_dirs_len);
+    try convertSlice(paths.rpaths.span(), &stage1_paths.rpaths_ptr, &stage1_paths.rpaths_len);
+    try convertSlice(paths.warnings.span(), &stage1_paths.warnings_ptr, &stage1_paths.warnings_len);
 }
 
 fn convertSlice(slice: [][:0]u8, ptr: *[*][*:0]u8, len: *usize) !void {

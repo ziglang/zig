@@ -128,11 +128,13 @@ test "join" {
     testJoinPosix(&[_][]const u8{ "a/", "/c" }, "a/c");
 }
 
-pub fn isAbsoluteC(path_c: [*:0]const u8) bool {
+pub const isAbsoluteC = @compileError("deprecated: renamed to isAbsoluteZ");
+
+pub fn isAbsoluteZ(path_c: [*:0]const u8) bool {
     if (builtin.os.tag == .windows) {
-        return isAbsoluteWindowsC(path_c);
+        return isAbsoluteWindowsZ(path_c);
     } else {
-        return isAbsolutePosixC(path_c);
+        return isAbsolutePosixZ(path_c);
     }
 }
 
@@ -172,19 +174,23 @@ pub fn isAbsoluteWindows(path: []const u8) bool {
 }
 
 pub fn isAbsoluteWindowsW(path_w: [*:0]const u16) bool {
-    return isAbsoluteWindowsImpl(u16, mem.toSliceConst(u16, path_w));
+    return isAbsoluteWindowsImpl(u16, mem.spanZ(path_w));
 }
 
-pub fn isAbsoluteWindowsC(path_c: [*:0]const u8) bool {
-    return isAbsoluteWindowsImpl(u8, mem.toSliceConst(u8, path_c));
+pub const isAbsoluteWindowsC = @compileError("deprecated: renamed to isAbsoluteWindowsZ");
+
+pub fn isAbsoluteWindowsZ(path_c: [*:0]const u8) bool {
+    return isAbsoluteWindowsImpl(u8, mem.spanZ(path_c));
 }
 
 pub fn isAbsolutePosix(path: []const u8) bool {
     return path.len > 0 and path[0] == sep_posix;
 }
 
-pub fn isAbsolutePosixC(path_c: [*:0]const u8) bool {
-    return isAbsolutePosix(mem.toSliceConst(u8, path_c));
+pub const isAbsolutePosixC = @compileError("deprecated: renamed to isAbsolutePosixZ");
+
+pub fn isAbsolutePosixZ(path_c: [*:0]const u8) bool {
+    return isAbsolutePosix(mem.spanZ(path_c));
 }
 
 test "isAbsoluteWindows" {

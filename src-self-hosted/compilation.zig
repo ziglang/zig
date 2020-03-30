@@ -465,7 +465,7 @@ pub const Compilation = struct {
 
         comp.target_machine = llvm.CreateTargetMachine(
             comp.llvm_target,
-            comp.llvm_triple.toSliceConst(),
+            comp.llvm_triple.span(),
             target_specific_cpu_args orelse "",
             target_specific_cpu_features orelse "",
             opt_level,
@@ -1106,7 +1106,7 @@ pub const Compilation = struct {
             }
         }
 
-        for (self.link_libs_list.toSliceConst()) |existing_lib| {
+        for (self.link_libs_list.span()) |existing_lib| {
             if (mem.eql(u8, name, existing_lib.name)) {
                 return existing_lib;
             }
@@ -1371,7 +1371,7 @@ fn analyzeFnType(
     var params = ArrayList(Type.Fn.Param).init(comp.gpa());
     var params_consumed = false;
     defer if (!params_consumed) {
-        for (params.toSliceConst()) |param| {
+        for (params.span()) |param| {
             param.typ.base.deref(comp);
         }
         params.deinit();

@@ -156,7 +156,7 @@ pub const Value = struct {
             const llvm_fn_type = try self.base.typ.getLlvmType(ofile.arena, ofile.context);
             const llvm_fn = llvm.AddFunction(
                 ofile.module,
-                self.symbol_name.toSliceConst(),
+                self.symbol_name.span(),
                 llvm_fn_type,
             ) orelse return error.OutOfMemory;
 
@@ -241,7 +241,7 @@ pub const Value = struct {
             const llvm_fn_type = try self.base.typ.getLlvmType(ofile.arena, ofile.context);
             const llvm_fn = llvm.AddFunction(
                 ofile.module,
-                self.symbol_name.toSliceConst(),
+                self.symbol_name.span(),
                 llvm_fn_type,
             ) orelse return error.OutOfMemory;
 

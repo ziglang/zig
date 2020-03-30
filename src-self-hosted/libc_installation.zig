@@ -54,7 +54,7 @@ pub const LibCInstallation = struct {
             }
         }
 
-        const contents = try std.io.readFileAlloc(allocator, libc_file);
+        const contents = try std.fs.cwd().readFileAlloc(allocator, libc_file, std.math.maxInt(usize));
         defer allocator.free(contents);
 
         var it = std.mem.tokenize(contents, "\n");
@@ -229,7 +229,7 @@ pub const LibCInstallation = struct {
             "-xc",
             dev_null,
         };
-        const exec_res = std.ChildProcess.exec2(.{
+        const exec_res = std.ChildProcess.exec(.{
             .allocator = allocator,
             .argv = &argv,
             .max_output_bytes = 1024 * 1024,
@@ -335,7 +335,7 @@ pub const LibCInstallation = struct {
             const stream = result_buf.outStream();
             try stream.print("{}\\Include\\{}\\ucrt", .{ search.path, search.version });
 
-            var dir = fs.cwd().openDir(result_buf.toSliceConst(), .{}) catch |err| switch (err) {
+            var dir = fs.cwd().openDir(result_buf.span(), .{}) catch |err| switch (err) {
                 error.FileNotFound,
                 error.NotDir,
                 error.NoDevice,
@@ -382,7 +382,7 @@ pub const LibCInstallation = struct {
             const stream = result_buf.outStream();
             try stream.print("{}\\Lib\\{}\\ucrt\\{}", .{ search.path, search.version, arch_sub_dir });
 
-            var dir = fs.cwd().openDir(result_buf.toSliceConst(), .{}) catch |err| switch (err) {
+            var dir = fs.cwd().openDir(result_buf.span(), .{}) catch |err| switch (err) {
                 error.FileNotFound,
                 error.NotDir,
                 error.NoDevice,
@@ -437,7 +437,7 @@ pub const LibCInstallation = struct {
             const stream = result_buf.outStream();
             try stream.print("{}\\Lib\\{}\\um\\{}", .{ search.path, search.version, arch_sub_dir });
 
-            var dir = fs.cwd().openDir(result_buf.toSliceConst(), .{}) catch |err| switch (err) {
+            var dir = fs.cwd().openDir(result_buf.span(), .{}) catch |err| switch (err) {
                 error.FileNotFound,
                 error.NotDir,
                 error.NoDevice,
@@ -475,7 +475,7 @@ pub const LibCInstallation = struct {
 
         try result_buf.append("\\include");
 
-        var dir = fs.cwd().openDir(result_buf.toSliceConst(), .{}) catch |err| switch (err) {
+        var dir = fs.cwd().openDir(result_buf.span(), .{}) catch |err| switch (err) {
             error.FileNotFound,
             error.NotDir,
             error.NoDevice,
@@ -522,7 +522,7 @@ fn ccPrintFileName(args: CCPrintFileNameOptions) ![:0]u8 {
     defer allocator.free(arg1);
     const argv = [_][]const u8{ cc_exe, arg1 };
 
-    const exec_res = std.ChildProcess.exec2(.{
+    const exec_res = std.ChildProcess.exec(.{
         .allocator = allocator,
         .argv = &argv,
         .max_output_bytes = 1024 * 1024,

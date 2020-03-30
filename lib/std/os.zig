@@ -163,7 +163,7 @@ pub fn getrandom(buffer: []u8) GetRandomError!void {
 }
 
 fn getRandomBytesDevURandom(buf: []u8) !void {
-    const fd = try openC("/dev/urandom", O_RDONLY | O_CLOEXEC, 0);
+    const fd = try openZ("/dev/urandom", O_RDONLY | O_CLOEXEC, 0);
     defer close(fd);
 
     const st = try fstat(fd);
@@ -853,13 +853,15 @@ pub const OpenError = error{
 /// TODO support windows
 pub fn open(file_path: []const u8, flags: u32, perm: usize) OpenError!fd_t {
     const file_path_c = try toPosixPath(file_path);
-    return openC(&file_path_c, flags, perm);
+    return openZ(&file_path_c, flags, perm);
 }
+
+pub const openC = @compileError("deprecated: renamed to openZ");
 
 /// Open and possibly create a file. Keeps trying if it gets interrupted.
 /// See also `open`.
 /// TODO support windows
-pub fn openC(file_path: [*:0]const u8, flags: u32, perm: usize) OpenError!fd_t {
+pub fn openZ(file_path: [*:0]const u8, flags: u32, perm: usize) OpenError!fd_t {
     while (true) {
         const rc = system.open(file_path, flags, perm);
         switch (errno(rc)) {
@@ -895,14 +897,16 @@ pub fn openC(file_path: [*:0]const u8, flags: u32, perm: usize) OpenError!fd_t {
 /// TODO support windows
 pub fn openat(dir_fd: fd_t, file_path: []const u8, flags: u32, mode: mode_t) OpenError!fd_t {
     const file_path_c = try toPosixPath(file_path);
-    return openatC(dir_fd, &file_path_c, flags, mode);
+    return openatZ(dir_fd, &file_path_c, flags, mode);
 }
+
+pub const openatC = @compileError("deprecated: renamed to openatZ");
 
 /// Open and possibly create a file. Keeps trying if it gets interrupted.
 /// `file_path` is relative to the open directory handle `dir_fd`.
 /// See also `openat`.
 /// TODO support windows
-pub fn openatC(dir_fd: fd_t, file_path: [*:0]const u8, flags: u32, mode: mode_t) OpenError!fd_t {
+pub fn openatZ(dir_fd: fd_t, file_path: [*:0]const u8, flags: u32, mode: mode_t) OpenError!fd_t {
     while (true) {
         const rc = system.openat(dir_fd, file_path, flags, mode);
         switch (errno(rc)) {
@@ -959,8 +963,7 @@ pub const ExecveError = error{
     NameTooLong,
 } || UnexpectedError;
 
-/// Deprecated in favor of `execveZ`.
-pub const execveC = execveZ;
+pub const execveC = @compileError("deprecated: use execveZ");
 
 /// Like `execve` except the parameters are null-terminated,
 /// matching the syscall API on all targets. This removes the need for an allocator.
@@ -992,8 +995,7 @@ pub fn execveZ(
     }
 }
 
-/// Deprecated in favor of `execvpeZ`.
-pub const execvpeC = execvpeZ;
+pub const execvpeC = @compileError("deprecated in favor of execvpeZ");
 
 pub const Arg0Expand = enum {
     expand,
@@ -1012,7 +1014,7 @@ pub fn execvpeZ_expandArg0(
     },
     envp: [*:null]const ?[*:0]const u8,
 ) ExecveError {
-    const file_slice = mem.toSliceConst(u8, file);
+    const file_slice = mem.spanZ(file);
     if (mem.indexOfScalar(u8, file_slice, '/') != null) return execveZ(file, child_argv, envp);
 
     const PATH = getenvZ("PATH") orelse "/usr/local/bin:/bin/:/usr/bin";
@@ -1076,7 +1078,7 @@ pub fn execvpe_expandArg0(
     mem.set(?[*:0]u8, argv_buf, null);
     defer {
         for (argv_buf) |arg| {
-            const arg_buf = if (arg) |ptr| mem.toSlice(u8, ptr) else break;
+            const arg_buf = if (arg) |ptr| mem.spanZ(ptr) else break;
             allocator.free(arg_buf);
         }
         allocator.free(argv_buf);
@@ -1189,20 +1191,19 @@ pub fn getenv(key: []const u8) ?[]const u8 {
     return null;
 }
 
-/// Deprecated in favor of `getenvZ`.
-pub const getenvC = getenvZ;
+pub const getenvC = @compileError("Deprecated in favor of `getenvZ`");
 
 /// Get an environment variable with a null-terminated name.
 /// See also `getenv`.
 pub fn getenvZ(key: [*:0]const u8) ?[]const u8 {
     if (builtin.link_libc) {
         const value = system.getenv(key) orelse return null;
-        return mem.toSliceConst(u8, value);
+        return mem.spanZ(value);
     }
     if (builtin.os.tag == .windows) {
         @compileError("std.os.getenvZ is unavailable for Windows because environment string is in WTF-16 format. See std.process.getEnvVarOwned for cross-platform API or std.os.getenvW for Windows-specific API.");
     }
-    return getenv(mem.toSliceConst(u8, key));
+    return getenv(mem.spanZ(key));
 }
 
 /// Windows-only. Get an environment variable with a null-terminated, WTF-16 encoded name.
@@ -1211,7 +1212,7 @@ pub fn getenvW(key: [*:0]const u16) ?[:0]const u16 {
     if (builtin.os.tag != .windows) {
         @compileError("std.os.getenvW is a Windows-only API");
     }
-    const key_slice = mem.toSliceConst(u16, key);
+    const key_slice = mem.spanZ(key);
     const ptr = windows.peb().ProcessParameters.Environment;
     var i: usize = 0;
     while (ptr[i] != 0) {
@@ -1250,7 +1251,7 @@ pub fn getcwd(out_buffer: []u8) GetCwdError![]u8 {
         break :blk errno(system.getcwd(out_buffer.ptr, out_buffer.len));
     };
     switch (err) {
-        0 => return mem.toSlice(u8, @ptrCast([*:0]u8, out_buffer.ptr)),
+        0 => return mem.spanZ(@ptrCast([*:0]u8, out_buffer.ptr)),
         EFAULT => unreachable,
         EINVAL => unreachable,
         ENOENT => return error.CurrentWorkingDirectoryUnlinked,
@@ -1288,13 +1289,15 @@ pub fn symlink(target_path: []const u8, sym_link_path: []const u8) SymLinkError!
     } else {
         const target_path_c = try toPosixPath(target_path);
         const sym_link_path_c = try toPosixPath(sym_link_path);
-        return symlinkC(&target_path_c, &sym_link_path_c);
+        return symlinkZ(&target_path_c, &sym_link_path_c);
     }
 }
 
+pub const symlinkC = @compileError("deprecated: renamed to symlinkZ");
+
 /// This is the same as `symlink` except the parameters are null-terminated pointers.
 /// See also `symlink`.
-pub fn symlinkC(target_path: [*:0]const u8, sym_link_path: [*:0]const u8) SymLinkError!void {
+pub fn symlinkZ(target_path: [*:0]const u8, sym_link_path: [*:0]const u8) SymLinkError!void {
     if (builtin.os.tag == .windows) {
         const target_path_w = try windows.cStrToPrefixedFileW(target_path);
         const sym_link_path_w = try windows.cStrToPrefixedFileW(sym_link_path);
@@ -1323,10 +1326,12 @@ pub fn symlinkC(target_path: [*:0]const u8, sym_link_path: [*:0]const u8) SymLin
 pub fn symlinkat(target_path: []const u8, newdirfd: fd_t, sym_link_path: []const u8) SymLinkError!void {
     const target_path_c = try toPosixPath(target_path);
     const sym_link_path_c = try toPosixPath(sym_link_path);
-    return symlinkatC(target_path_c, newdirfd, sym_link_path_c);
+    return symlinkatZ(target_path_c, newdirfd, sym_link_path_c);
 }
 
-pub fn symlinkatC(target_path: [*:0]const u8, newdirfd: fd_t, sym_link_path: [*:0]const u8) SymLinkError!void {
+pub const symlinkatC = @compileError("deprecated: renamed to symlinkatZ");
+
+pub fn symlinkatZ(target_path: [*:0]const u8, newdirfd: fd_t, sym_link_path: [*:0]const u8) SymLinkError!void {
     switch (errno(system.symlinkat(target_path, newdirfd, sym_link_path))) {
         0 => return,
         EFAULT => unreachable,
@@ -1375,12 +1380,14 @@ pub fn unlink(file_path: []const u8) UnlinkError!void {
         return windows.DeleteFileW(&file_path_w);
     } else {
         const file_path_c = try toPosixPath(file_path);
-        return unlinkC(&file_path_c);
+        return unlinkZ(&file_path_c);
     }
 }
 
+pub const unlinkC = @compileError("deprecated: renamed to unlinkZ");
+
 /// Same as `unlink` except the parameter is a null terminated UTF8-encoded string.
-pub fn unlinkC(file_path: [*:0]const u8) UnlinkError!void {
+pub fn unlinkZ(file_path: [*:0]const u8) UnlinkError!void {
     if (builtin.os.tag == .windows) {
         const file_path_w = try windows.cStrToPrefixedFileW(file_path);
         return windows.DeleteFileW(&file_path_w);
@@ -1417,11 +1424,13 @@ pub fn unlinkat(dirfd: fd_t, file_path: []const u8, flags: u32) UnlinkatError!vo
         return unlinkatW(dirfd, &file_path_w, flags);
     }
     const file_path_c = try toPosixPath(file_path);
-    return unlinkatC(dirfd, &file_path_c, flags);
+    return unlinkatZ(dirfd, &file_path_c, flags);
 }
 
+pub const unlinkatC = @compileError("deprecated: renamed to unlinkatZ");
+
 /// Same as `unlinkat` but `file_path` is a null-terminated string.
-pub fn unlinkatC(dirfd: fd_t, file_path_c: [*:0]const u8, flags: u32) UnlinkatError!void {
+pub fn unlinkatZ(dirfd: fd_t, file_path_c: [*:0]const u8, flags: u32) UnlinkatError!void {
     if (builtin.os.tag == .windows) {
         const file_path_w = try windows.cStrToPrefixedFileW(file_path_c);
         return unlinkatW(dirfd, &file_path_w, flags);
@@ -1459,7 +1468,7 @@ pub fn unlinkatW(dirfd: fd_t, sub_path_w: [*:0]const u16, flags: u32) UnlinkatEr
     else
         @as(w.ULONG, w.FILE_DELETE_ON_CLOSE | w.FILE_NON_DIRECTORY_FILE);
 
-    const path_len_bytes = @intCast(u16, mem.toSliceConst(u16, sub_path_w).len * 2);
+    const path_len_bytes = @intCast(u16, mem.lenZ(sub_path_w) * 2);
     var nt_name = w.UNICODE_STRING{
         .Length = path_len_bytes,
         .MaximumLength = path_len_bytes,
@@ -1543,12 +1552,14 @@ pub fn rename(old_path: []const u8, new_path: []const u8) RenameError!void {
     } else {
         const old_path_c = try toPosixPath(old_path);
         const new_path_c = try toPosixPath(new_path);
-        return renameC(&old_path_c, &new_path_c);
+        return renameZ(&old_path_c, &new_path_c);
     }
 }
 
+pub const renameC = @compileError("deprecated: renamed to renameZ");
+
 /// Same as `rename` except the parameters are null-terminated byte arrays.
-pub fn renameC(old_path: [*:0]const u8, new_path: [*:0]const u8) RenameError!void {
+pub fn renameZ(old_path: [*:0]const u8, new_path: [*:0]const u8) RenameError!void {
     if (builtin.os.tag == .windows) {
         const old_path_w = try windows.cStrToPrefixedFileW(old_path);
         const new_path_w = try windows.cStrToPrefixedFileW(new_path);
@@ -1715,11 +1726,13 @@ pub fn mkdirat(dir_fd: fd_t, sub_dir_path: []const u8, mode: u32) MakeDirError!v
         return mkdiratW(dir_fd, &sub_dir_path_w, mode);
     } else {
         const sub_dir_path_c = try toPosixPath(sub_dir_path);
-        return mkdiratC(dir_fd, &sub_dir_path_c, mode);
+        return mkdiratZ(dir_fd, &sub_dir_path_c, mode);
     }
 }
 
-pub fn mkdiratC(dir_fd: fd_t, sub_dir_path: [*:0]const u8, mode: u32) MakeDirError!void {
+pub const mkdiratC = @compileError("deprecated: renamed to mkdiratZ");
+
+pub fn mkdiratZ(dir_fd: fd_t, sub_dir_path: [*:0]const u8, mode: u32) MakeDirError!void {
     if (builtin.os.tag == .windows) {
         const sub_dir_path_w = try windows.cStrToPrefixedFileW(sub_dir_path);
         return mkdiratW(dir_fd, &sub_dir_path_w, mode);
@@ -1810,12 +1823,14 @@ pub fn rmdir(dir_path: []const u8) DeleteDirError!void {
         return windows.RemoveDirectoryW(&dir_path_w);
     } else {
         const dir_path_c = try toPosixPath(dir_path);
-        return rmdirC(&dir_path_c);
+        return rmdirZ(&dir_path_c);
     }
 }
 
+pub const rmdirC = @compileError("deprecated: renamed to rmdirZ");
+
 /// Same as `rmdir` except the parameter is null-terminated.
-pub fn rmdirC(dir_path: [*:0]const u8) DeleteDirError!void {
+pub fn rmdirZ(dir_path: [*:0]const u8) DeleteDirError!void {
     if (builtin.os.tag == .windows) {
         const dir_path_w = try windows.cStrToPrefixedFileW(dir_path);
         return windows.RemoveDirectoryW(&dir_path_w);
@@ -1857,12 +1872,14 @@ pub fn chdir(dir_path: []const u8) ChangeCurDirError!void {
         @compileError("TODO implement chdir for Windows");
     } else {
         const dir_path_c = try toPosixPath(dir_path);
-        return chdirC(&dir_path_c);
+        return chdirZ(&dir_path_c);
     }
 }
 
+pub const chdirC = @compileError("deprecated: renamed to chdirZ");
+
 /// Same as `chdir` except the parameter is null-terminated.
-pub fn chdirC(dir_path: [*:0]const u8) ChangeCurDirError!void {
+pub fn chdirZ(dir_path: [*:0]const u8) ChangeCurDirError!void {
     if (builtin.os.tag == .windows) {
         const dir_path_w = try windows.cStrToPrefixedFileW(dir_path);
         @compileError("TODO implement chdir for Windows");
@@ -1919,12 +1936,14 @@ pub fn readlink(file_path: []const u8, out_buffer: []u8) ReadLinkError![]u8 {
         @compileError("TODO implement readlink for Windows");
     } else {
         const file_path_c = try toPosixPath(file_path);
-        return readlinkC(&file_path_c, out_buffer);
+        return readlinkZ(&file_path_c, out_buffer);
     }
 }
 
+pub const readlinkC = @compileError("deprecated: renamed to readlinkZ");
+
 /// Same as `readlink` except `file_path` is null-terminated.
-pub fn readlinkC(file_path: [*:0]const u8, out_buffer: []u8) ReadLinkError![]u8 {
+pub fn readlinkZ(file_path: [*:0]const u8, out_buffer: []u8) ReadLinkError![]u8 {
     if (builtin.os.tag == .windows) {
         const file_path_w = try windows.cStrToPrefixedFileW(file_path);
         @compileError("TODO implement readlink for Windows");
@@ -1945,7 +1964,9 @@ pub fn readlinkC(file_path: [*:0]const u8, out_buffer: []u8) ReadLinkError![]u8 
     }
 }
 
-pub fn readlinkatC(dirfd: fd_t, file_path: [*:0]const u8, out_buffer: []u8) ReadLinkError![]u8 {
+pub const readlinkatC = @compileError("deprecated: renamed to readlinkatZ");
+
+pub fn readlinkatZ(dirfd: fd_t, file_path: [*:0]const u8, out_buffer: []u8) ReadLinkError![]u8 {
     if (builtin.os.tag == .windows) {
         const file_path_w = try windows.cStrToPrefixedFileW(file_path);
         @compileError("TODO implement readlink for Windows");
@@ -2553,10 +2574,12 @@ const FStatAtError = FStatError || error{NameTooLong};
 
 pub fn fstatat(dirfd: fd_t, pathname: []const u8, flags: u32) FStatAtError![]Stat {
     const pathname_c = try toPosixPath(pathname);
-    return fstatatC(dirfd, &pathname_c, flags);
+    return fstatatZ(dirfd, &pathname_c, flags);
 }
 
-pub fn fstatatC(dirfd: fd_t, pathname: [*:0]const u8, flags: u32) FStatAtError!Stat {
+pub const fstatatC = @compileError("deprecated: renamed to fstatatZ");
+
+pub fn fstatatZ(dirfd: fd_t, pathname: [*:0]const u8, flags: u32) FStatAtError!Stat {
     var stat: Stat = undefined;
     switch (errno(system.fstatat(dirfd, pathname, &stat, flags))) {
         0 => return stat,
@@ -2668,11 +2691,13 @@ pub const INotifyAddWatchError = error{
 /// add a watch to an initialized inotify instance
 pub fn inotify_add_watch(inotify_fd: i32, pathname: []const u8, mask: u32) INotifyAddWatchError!i32 {
     const pathname_c = try toPosixPath(pathname);
-    return inotify_add_watchC(inotify_fd, &pathname_c, mask);
+    return inotify_add_watchZ(inotify_fd, &pathname_c, mask);
 }
 
+pub const inotify_add_watchC = @compileError("deprecated: renamed to inotify_add_watchZ");
+
 /// Same as `inotify_add_watch` except pathname is null-terminated.
-pub fn inotify_add_watchC(inotify_fd: i32, pathname: [*:0]const u8, mask: u32) INotifyAddWatchError!i32 {
+pub fn inotify_add_watchZ(inotify_fd: i32, pathname: [*:0]const u8, mask: u32) INotifyAddWatchError!i32 {
     const rc = system.inotify_add_watch(inotify_fd, pathname, mask);
     switch (errno(rc)) {
         0 => return @intCast(i32, rc),
@@ -2829,11 +2854,10 @@ pub fn access(path: []const u8, mode: u32) AccessError!void {
         return;
     }
     const path_c = try toPosixPath(path);
-    return accessC(&path_c, mode);
+    return accessZ(&path_c, mode);
 }
 
-/// Deprecated in favor of `accessZ`.
-pub const accessC = accessZ;
+pub const accessC = @compileError("Deprecated in favor of `accessZ`");
 
 /// Same as `access` except `path` is null-terminated.
 pub fn accessZ(path: [*:0]const u8, mode: u32) AccessError!void {
@@ -2920,7 +2944,7 @@ pub fn faccessatW(dirfd: fd_t, sub_path_w: [*:0]const u16, mode: u32, flags: u32
         return;
     }
 
-    const path_len_bytes = math.cast(u16, mem.toSliceConst(u16, sub_path_w).len * 2) catch |err| switch (err) {
+    const path_len_bytes = math.cast(u16, mem.lenZ(sub_path_w) * 2) catch |err| switch (err) {
         error.Overflow => return error.NameTooLong,
     };
     var nt_name = windows.UNICODE_STRING{
@@ -3019,7 +3043,9 @@ pub fn sysctl(
     }
 }
 
-pub fn sysctlbynameC(
+pub const sysctlbynameC = @compileError("deprecated: renamed to sysctlbynameZ");
+
+pub fn sysctlbynameZ(
     name: [*:0]const u8,
     oldp: ?*c_void,
     oldlenp: ?*usize,
@@ -3224,23 +3250,25 @@ pub fn realpath(pathname: []const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealPathE
         return realpathW(&pathname_w, out_buffer);
     }
     const pathname_c = try toPosixPath(pathname);
-    return realpathC(&pathname_c, out_buffer);
+    return realpathZ(&pathname_c, out_buffer);
 }
 
+pub const realpathC = @compileError("deprecated: renamed realpathZ");
+
 /// Same as `realpath` except `pathname` is null-terminated.
-pub fn realpathC(pathname: [*:0]const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
+pub fn realpathZ(pathname: [*:0]const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
     if (builtin.os.tag == .windows) {
         const pathname_w = try windows.cStrToPrefixedFileW(pathname);
         return realpathW(&pathname_w, out_buffer);
     }
     if (builtin.os.tag == .linux and !builtin.link_libc) {
-        const fd = try openC(pathname, linux.O_PATH | linux.O_NONBLOCK | linux.O_CLOEXEC, 0);
+        const fd = try openZ(pathname, linux.O_PATH | linux.O_NONBLOCK | linux.O_CLOEXEC, 0);
         defer close(fd);
 
         var procfs_buf: ["/proc/self/fd/-2147483648".len:0]u8 = undefined;
         const proc_path = std.fmt.bufPrint(procfs_buf[0..], "/proc/self/fd/{}\x00", .{fd}) catch unreachable;
 
-        return readlinkC(@ptrCast([*:0]const u8, proc_path.ptr), out_buffer);
+        return readlinkZ(@ptrCast([*:0]const u8, proc_path.ptr), out_buffer);
     }
     const result_path = std.c.realpath(pathname, out_buffer) orelse switch (std.c._errno().*) {
         EINVAL => unreachable,
@@ -3255,7 +3283,7 @@ pub fn realpathC(pathname: [*:0]const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealP
         EIO => return error.InputOutput,
         else => |err| return unexpectedErrno(@intCast(usize, err)),
     };
-    return mem.toSlice(u8, result_path);
+    return mem.spanZ(result_path);
 }
 
 /// Same as `realpath` except `pathname` is null-terminated and UTF16LE-encoded.
@@ -3564,7 +3592,7 @@ pub const GetHostNameError = error{PermissionDenied} || UnexpectedError;
 pub fn gethostname(name_buffer: *[HOST_NAME_MAX]u8) GetHostNameError![]u8 {
     if (builtin.link_libc) {
         switch (errno(system.gethostname(name_buffer, name_buffer.len))) {
-            0 => return mem.toSlice(u8, @ptrCast([*:0]u8, name_buffer)),
+            0 => return mem.spanZ(@ptrCast([*:0]u8, name_buffer)),
             EFAULT => unreachable,
             ENAMETOOLONG => unreachable, // HOST_NAME_MAX prevents this
             EPERM => return error.PermissionDenied,
@@ -3573,7 +3601,7 @@ pub fn gethostname(name_buffer: *[HOST_NAME_MAX]u8) GetHostNameError![]u8 {
     }
     if (builtin.os.tag == .linux) {
         const uts = uname();
-        const hostname = mem.toSliceConst(u8, @ptrCast([*:0]const u8, &uts.nodename));
+        const hostname = mem.spanZ(@ptrCast([*:0]const u8, &uts.nodename));
         mem.copy(u8, name_buffer, hostname);
         return name_buffer[0..hostname.len];
     }
@@ -4260,7 +4288,9 @@ pub const MemFdCreateError = error{
     SystemOutdated,
 } || UnexpectedError;
 
-pub fn memfd_createC(name: [*:0]const u8, flags: u32) MemFdCreateError!fd_t {
+pub const memfd_createC = @compileError("deprecated: renamed to memfd_createZ");
+
+pub fn memfd_createZ(name: [*:0]const u8, flags: u32) MemFdCreateError!fd_t {
     // memfd_create is available only in glibc versions starting with 2.27.
     const use_c = std.c.versionCheck(.{ .major = 2, .minor = 27, .patch = 0 }).ok;
     const sys = if (use_c) std.c else linux;
@@ -4291,7 +4321,7 @@ fn toMemFdPath(name: []const u8) ![MFD_MAX_NAME_LEN:0]u8 {
 
 pub fn memfd_create(name: []const u8, flags: u32) !fd_t {
     const name_t = try toMemFdPath(name);
-    return memfd_createC(&name_t, flags);
+    return memfd_createZ(&name_t, flags);
 }
 
 pub fn getrusage(who: i32) rusage {

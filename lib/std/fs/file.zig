@@ -89,7 +89,7 @@ pub const File = struct {
         if (self.isTty()) {
             if (self.handle == os.STDOUT_FILENO or self.handle == os.STDERR_FILENO) {
                 // Use getenvC to workaround https://github.com/ziglang/zig/issues/3511
-                if (os.getenvC("TERM")) |term| {
+                if (os.getenvZ("TERM")) |term| {
                     if (std.mem.eql(u8, term, "dumb"))
                         return false;
                 }

@@ -19,8 +19,8 @@ pub fn getDarwinArchString(self: Target) [:0]const u8 {
 pub fn llvmTargetFromTriple(triple: std.Buffer) !*llvm.Target {
     var result: *llvm.Target = undefined;
     var err_msg: [*:0]u8 = undefined;
-    if (llvm.GetTargetFromTriple(triple.toSlice(), &result, &err_msg) != 0) {
-        std.debug.warn("triple: {s} error: {s}\n", .{ triple.toSlice(), err_msg });
+    if (llvm.GetTargetFromTriple(triple.span(), &result, &err_msg) != 0) {
+        std.debug.warn("triple: {s} error: {s}\n", .{ triple.span(), err_msg });
         return error.UnsupportedTarget;
     }
     return result;

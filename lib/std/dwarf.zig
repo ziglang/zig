@@ -82,7 +82,7 @@ const Die = struct {
     };
 
     fn getAttr(self: *const Die, id: u64) ?*const FormValue {
-        for (self.attrs.toSliceConst()) |*attr| {
+        for (self.attrs.span()) |*attr| {
             if (attr.id == id) return &attr.value;
         }
         return null;
@@ -375,7 +375,7 @@ fn parseFormValue(allocator: *mem.Allocator, in_stream: var, form_id: u64, is_64
 }
 
 fn getAbbrevTableEntry(abbrev_table: *const AbbrevTable, abbrev_code: u64) ?*const AbbrevTableEntry {
-    for (abbrev_table.toSliceConst()) |*table_entry| {
+    for (abbrev_table.span()) |*table_entry| {
         if (table_entry.abbrev_code == abbrev_code) return table_entry;
     }
     return null;
@@ -399,7 +399,7 @@ pub const DwarfInfo = struct {
     }
 
     fn getSymbolName(di: *DwarfInfo, address: u64) ?[]const u8 {
-        for (di.func_list.toSliceConst()) |*func| {
+        for (di.func_list.span()) |*func| {
             if (func.pc_range) |range| {
                 if (address >= range.start and address < range.end) {
                     return func.name;
@@ -588,7 +588,7 @@ pub const DwarfInfo = struct {
     }
 
     fn findCompileUnit(di: *DwarfInfo, target_address: u64) !*const CompileUnit {
-        for (di.compile_unit_list.toSlice()) |*compile_unit| {
+        for (di.compile_unit_list.span()) |*compile_unit| {
             if (compile_unit.pc_range) |range| {
                 if (target_address >= range.start and target_address < range.end) return compile_unit;
             }
@@ -636,7 +636,7 @@ pub const DwarfInfo = struct {
     /// Gets an already existing AbbrevTable given the abbrev_offset, or if not found,
     /// seeks in the stream and parses it.
     fn getAbbrevTable(di: *DwarfInfo, abbrev_offset: u64) !*const AbbrevTable {
-        for (di.abbrev_table_list.toSlice()) |*header| {
+        for (di.abbrev_table_list.span()) |*header| {
             if (header.offset == abbrev_offset) {
                 return &header.table;
             }
@@ -690,7 +690,7 @@ pub const DwarfInfo = struct {
             .attrs = ArrayList(Die.Attr).init(di.allocator()),
         };
         try result.attrs.resize(table_entry.attrs.len);
-        for (table_entry.attrs.toSliceConst()) |attr, i| {
+        for (table_entry.attrs.span()) |attr, i| {
             result.attrs.items[i] = Die.Attr{
                 .id = attr.attr_id,
                 .value = try parseFormValue(di.allocator(), in_stream, attr.form_id, is_64),
@@ -757,7 +757,7 @@ pub const DwarfInfo = struct {
         }
 
         var file_entries = ArrayList(FileEntry).init(di.allocator());
-        var prog = LineNumberProgram.init(default_is_stmt, include_directories.toSliceConst(), &file_entries, target_address);
+        var prog = LineNumberProgram.init(default_is_stmt, include_directories.span(), &file_entries, target_address);
 
         while (true) {
             const file_name = try in.readUntilDelimiterAlloc(di.allocator(), 0, math.maxInt(usize));

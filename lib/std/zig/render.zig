@@ -1531,7 +1531,7 @@ fn renderExpression(
                 try renderToken(tree, stream, callconv_rparen, indent, start_col, Space.Space); // )
             } else if (cc_rewrite_str) |str| {
                 try stream.writeAll("callconv(");
-                try stream.writeAll(mem.toSliceConst(u8, str));
+                try stream.writeAll(mem.spanZ(str));
                 try stream.writeAll(") ");
             }
 

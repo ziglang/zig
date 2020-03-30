@@ -211,7 +211,7 @@ pub fn WriteStream(comptime OutStream: type, comptime max_depth: usize) type {
                 .String => |inner| try self.emitString(inner),
                 .Array => |inner| {
                     try self.beginArray();
-                    for (inner.toSliceConst()) |elem| {
+                    for (inner.span()) |elem| {
                         try self.arrayElem();
                         try self.emitJson(elem);
                     }

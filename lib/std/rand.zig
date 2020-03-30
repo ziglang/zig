@@ -59,7 +59,7 @@ pub const Random = struct {
         return @bitCast(T, unsigned_result);
     }
 
-    /// Constant-time implementation off ::uintLessThan.
+    /// Constant-time implementation off `uintLessThan`.
     /// The results of this function may be biased.
     pub fn uintLessThanBiased(r: *Random, comptime T: type, less_than: T) T {
         comptime assert(T.is_signed == false);
@@ -73,13 +73,13 @@ pub const Random = struct {
     }
 
     /// Returns an evenly distributed random unsigned integer `0 <= i < less_than`.
-    /// This function assumes that the underlying ::fillFn produces evenly distributed values.
+    /// This function assumes that the underlying `fillFn` produces evenly distributed values.
     /// Within this assumption, the runtime of this function is exponentially distributed.
-    /// If ::fillFn were backed by a true random generator,
+    /// If `fillFn` were backed by a true random generator,
     /// the runtime of this function would technically be unbounded.
-    /// However, if ::fillFn is backed by any evenly distributed pseudo random number generator,
+    /// However, if `fillFn` is backed by any evenly distributed pseudo random number generator,
     /// this function is guaranteed to return.
-    /// If you need deterministic runtime bounds, use `::uintLessThanBiased`.
+    /// If you need deterministic runtime bounds, use `uintLessThanBiased`.
     pub fn uintLessThan(r: *Random, comptime T: type, less_than: T) T {
         comptime assert(T.is_signed == false);
         comptime assert(T.bit_count <= 64); // TODO: workaround: LLVM ERROR: Unsupported library call operation!
@@ -116,7 +116,7 @@ pub const Random = struct {
         return @intCast(T, m >> Small.bit_count);
     }
 
-    /// Constant-time implementation off ::uintAtMost.
+    /// Constant-time implementation off `uintAtMost`.
     /// The results of this function may be biased.
     pub fn uintAtMostBiased(r: *Random, comptime T: type, at_most: T) T {
         assert(T.is_signed == false);
@@ -128,7 +128,7 @@ pub const Random = struct {
     }
 
     /// Returns an evenly distributed random unsigned integer `0 <= i <= at_most`.
-    /// See ::uintLessThan, which this function uses in most cases,
+    /// See `uintLessThan`, which this function uses in most cases,
     /// for commentary on the runtime of this function.
     pub fn uintAtMost(r: *Random, comptime T: type, at_most: T) T {
         assert(T.is_signed == false);
@@ -139,7 +139,7 @@ pub const Random = struct {
         return r.uintLessThan(T, at_most + 1);
     }
 
-    /// Constant-time implementation off ::intRangeLessThan.
+    /// Constant-time implementation off `intRangeLessThan`.
     /// The results of this function may be biased.
     pub fn intRangeLessThanBiased(r: *Random, comptime T: type, at_least: T, less_than: T) T {
         assert(at_least < less_than);
@@ -157,7 +157,7 @@ pub const Random = struct {
     }
 
     /// Returns an evenly distributed random integer `at_least <= i < less_than`.
-    /// See ::uintLessThan, which this function uses in most cases,
+    /// See `uintLessThan`, which this function uses in most cases,
     /// for commentary on the runtime of this function.
     pub fn intRangeLessThan(r: *Random, comptime T: type, at_least: T, less_than: T) T {
         assert(at_least < less_than);
@@ -174,7 +174,7 @@ pub const Random = struct {
         }
     }
 
-    /// Constant-time implementation off ::intRangeAtMostBiased.
+    /// Constant-time implementation off `intRangeAtMostBiased`.
     /// The results of this function may be biased.
     pub fn intRangeAtMostBiased(r: *Random, comptime T: type, at_least: T, at_most: T) T {
         assert(at_least <= at_most);
@@ -192,7 +192,7 @@ pub const Random = struct {
     }
 
     /// Returns an evenly distributed random integer `at_least <= i <= at_most`.
-    /// See ::uintLessThan, which this function uses in most cases,
+    /// See `uintLessThan`, which this function uses in most cases,
     /// for commentary on the runtime of this function.
     pub fn intRangeAtMost(r: *Random, comptime T: type, at_least: T, at_most: T) T {
         assert(at_least <= at_most);
@@ -209,15 +209,9 @@ pub const Random = struct {
         }
     }
 
-    /// TODO: deprecated. use ::boolean or ::int instead.
-    pub fn scalar(r: *Random, comptime T: type) T {
-        return if (T == bool) r.boolean() else r.int(T);
-    }
+    pub const scalar = @compileError("deprecated; use boolean() or int() instead");
 
-    /// TODO: deprecated. renamed to ::intRangeLessThan
-    pub fn range(r: *Random, comptime T: type, start: T, end: T) T {
-        return r.intRangeLessThan(T, start, end);
-    }
+    pub const range = @compileError("deprecated; use intRangeLessThan()");
 
     /// Return a floating point value evenly distributed in the range [0, 1).
     pub fn float(r: *Random, comptime T: type) T {

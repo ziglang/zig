@@ -119,7 +119,7 @@ pub const NativePaths = struct {
     }
 
     fn deinitArray(array: *ArrayList([:0]u8)) void {
-        for (array.toSlice()) |item| {
+        for (array.span()) |item| {
             array.allocator.free(item);
         }
         array.deinit();
@@ -201,7 +201,7 @@ pub const NativeTargetInfo = struct {
             switch (Target.current.os.tag) {
                 .linux => {
                     const uts = std.os.uname();
-                    const release = mem.toSliceConst(u8, &uts.release);
+                    const release = mem.spanZ(&uts.release);
                     // The release field may have several other fields after the
                     // kernel version
                     const kernel_version = if (mem.indexOfScalar(u8, release, '-')) |pos|
@@ -265,7 +265,7 @@ pub const NativeTargetInfo = struct {
                     // The osproductversion sysctl was introduced first with
                     // High Sierra, thankfully that's also the baseline that Zig
                     // supports
-                    std.os.sysctlbynameC(
+                    std.os.sysctlbynameZ(
                         "kern.osproductversion",
                         &product_version,
                         &size,
@@ -460,7 +460,7 @@ pub const NativeTargetInfo = struct {
             return result;
         }
 
-        const env_file = std.fs.openFileAbsoluteC("/usr/bin/env", .{}) catch |err| switch (err) {
+        const env_file = std.fs.openFileAbsoluteZ("/usr/bin/env", .{}) catch |err| switch (err) {
             error.NoSpaceLeft => unreachable,
             error.NameTooLong => unreachable,
             error.PathAlreadyExists => unreachable,
@@ -512,7 +512,7 @@ pub const NativeTargetInfo = struct {
 
     fn glibcVerFromSO(so_path: [:0]const u8) !std.builtin.Version {
         var link_buf: [std.os.PATH_MAX]u8 = undefined;
-        const link_name = std.os.readlinkC(so_path.ptr, &link_buf) catch |err| switch (err) {
+        const link_name = std.os.readlinkZ(so_path.ptr, &link_buf) catch |err| switch (err) {
             error.AccessDenied => return error.GnuLibCVersionUnavailable,
             error.FileSystem => return error.FileSystem,
             error.SymLinkLoop => return error.SymLinkLoop,
@@ -736,7 +736,7 @@ pub const NativeTargetInfo = struct {
                         );
                         const sh_name_off = elfInt(is_64, need_bswap, sh32.sh_name, sh64.sh_name);
                         // TODO this pointer cast should not be necessary
-                        const sh_name = mem.toSliceConst(u8, @ptrCast([*:0]u8, shstrtab[sh_name_off..].ptr));
+                        const sh_name = mem.spanZ(@ptrCast([*:0]u8, shstrtab[sh_name_off..].ptr));
                         if (mem.eql(u8, sh_name, ".dynstr")) {
                             break :find_dyn_str .{
                                 .offset = elfInt(is_64, need_bswap, sh32.sh_offset, sh64.sh_offset),
@@ -751,7 +751,7 @@ pub const NativeTargetInfo = struct {
                     const strtab_read_len = try preadMin(file, &strtab_buf, ds.offset, shstrtab_len);
                     const strtab = strtab_buf[0..strtab_read_len];
                     // TODO this pointer cast should not be necessary
-                    const rpath_list = mem.toSliceConst(u8, @ptrCast([*:0]u8, strtab[rpoff..].ptr));
+                    const rpath_list = mem.spanZ(@ptrCast([*:0]u8, strtab[rpoff..].ptr));
                     var it = mem.tokenize(rpath_list, ":");
                     while (it.next()) |rpath| {
                         var dir = fs.cwd().openDir(rpath, .{}) catch |err| switch (err) {
@@ -776,7 +776,7 @@ pub const NativeTargetInfo = struct {
                         defer dir.close();
 
                         var link_buf: [std.os.PATH_MAX]u8 = undefined;
-                        const link_name = std.os.readlinkatC(
+                        const link_name = std.os.readlinkatZ(
                             dir.fd,
                             glibc_so_basename,
                             &link_buf,

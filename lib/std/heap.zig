@@ -51,8 +51,7 @@ var wasm_page_allocator_state = Allocator{
     .shrinkFn = WasmPageAllocator.shrink,
 };
 
-/// Deprecated. Use `page_allocator`.
-pub const direct_allocator = page_allocator;
+pub const direct_allocator = @compileError("deprecated; use std.heap.page_allocator");
 
 const PageAllocator = struct {
     fn alloc(allocator: *Allocator, n: usize, alignment: u29) error{OutOfMemory}![]u8 {

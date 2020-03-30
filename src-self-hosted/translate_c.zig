@@ -235,7 +235,7 @@ pub const Context = struct {
 
     /// Convert a null-terminated C string to a slice allocated in the arena
     fn str(c: *Context, s: [*:0]const u8) ![]u8 {
-        return mem.dupe(c.a(), u8, mem.toSliceConst(u8, s));
+        return mem.dupe(c.a(), u8, mem.spanZ(s));
     }
 
     /// Convert a clang source location to a file:line:column string
@@ -5851,7 +5851,7 @@ fn parseCPrefixOpExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8,
 
 fn tokenSlice(c: *Context, token: ast.TokenIndex) []u8 {
     const tok = c.tree.tokens.at(token);
-    const slice = c.source_buffer.toSlice()[tok.start..tok.end];
+    const slice = c.source_buffer.span()[tok.start..tok.end];
     return if (mem.startsWith(u8, slice, "@\""))
         slice[2 .. slice.len - 1]
     else

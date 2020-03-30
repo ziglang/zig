@@ -48,13 +48,7 @@ pub fn InStream(
             if (amt_read < buf.len) return error.EndOfStream;
         }
 
-        /// Deprecated: use `readAllArrayList`.
-        pub fn readAllBuffer(self: Self, buffer: *Buffer, max_size: usize) !void {
-            buffer.list.shrink(0);
-            try self.readAllArrayList(&buffer.list, max_size);
-            errdefer buffer.shrink(0);
-            try buffer.list.append(0);
-        }
+        pub const readAllBuffer = @compileError("deprecated; use readAllArrayList()");
 
         /// Appends to the `std.ArrayList` contents by reading from the stream until end of stream is found.
         /// If the number of bytes appended would exceed `max_append_size`, `error.StreamTooLong` is returned

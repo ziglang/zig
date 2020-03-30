@@ -223,15 +223,15 @@ pub fn main() !void {
         var list = std.ArrayList([]const u8).init(allocator);
         var it = global_fn_set.iterator();
         while (it.next()) |kv| try list.append(kv.key);
-        std.sort.sort([]const u8, list.toSlice(), strCmpLessThan);
-        break :blk list.toSliceConst();
+        std.sort.sort([]const u8, list.span(), strCmpLessThan);
+        break :blk list.span();
     };
     const global_ver_list = blk: {
         var list = std.ArrayList([]const u8).init(allocator);
         var it = global_ver_set.iterator();
         while (it.next()) |kv| try list.append(kv.key);
-        std.sort.sort([]const u8, list.toSlice(), versionLessThan);
-        break :blk list.toSliceConst();
+        std.sort.sort([]const u8, list.span(), versionLessThan);
+        break :blk list.span();
     };
     {
         const vers_txt_path = try fs.path.join(allocator, &[_][]const u8{ glibc_out_dir, "vers.txt" });
@@ -264,13 +264,13 @@ pub fn main() !void {
     for (abi_lists) |*abi_list, abi_index| {
         const kv = target_functions.get(@ptrToInt(abi_list)).?;
         const fn_vers_list = &kv.value.fn_vers_list;
-        for (kv.value.list.toSliceConst()) |*ver_fn| {
+        for (kv.value.list.span()) |*ver_fn| {
             const gop = try fn_vers_list.getOrPut(ver_fn.name);
             if (!gop.found_existing) {
                 gop.kv.value = std.ArrayList(usize).init(allocator);
             }
             const ver_index = global_ver_set.get(ver_fn.ver).?.value;
-            if (std.mem.indexOfScalar(usize, gop.kv.value.toSliceConst(), ver_index) == null) {
+            if (std.mem.indexOfScalar(usize, gop.kv.value.span(), ver_index) == null) {
                 try gop.kv.value.append(ver_index);
             }
         }
@@ -297,7 +297,7 @@ pub fn main() !void {
                     try abilist_txt.writeByte('\n');
                     continue;
                 };
-                for (kv.value.toSliceConst()) |ver_index, it_i| {
+                for (kv.value.span()) |ver_index, it_i| {
                     if (it_i != 0) try abilist_txt.writeByte(' ');
                     try abilist_txt.print("{d}", .{ver_index});
                 }

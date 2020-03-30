@@ -326,7 +326,7 @@ pub fn Watch(comptime V: type) type {
             var basename_with_null_consumed = false;
             defer if (!basename_with_null_consumed) self.allocator.free(basename_with_null);
 
-            const wd = try os.inotify_add_watchC(
+            const wd = try os.inotify_add_watchZ(
                 self.os_data.inotify_fd,
                 dirname_with_null.ptr,
                 os.linux.IN_CLOSE_WRITE | os.linux.IN_ONLYDIR | os.linux.IN_EXCL_UNLINK,

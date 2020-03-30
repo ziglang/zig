@@ -239,7 +239,7 @@ pub fn main() anyerror!void {
         try std.fmt.allocPrint(allocator, "-I={}/clang/include/clang/Driver", .{llvm_src_root}),
     };
 
-    const child_result = try std.ChildProcess.exec2(.{
+    const child_result = try std.ChildProcess.exec(.{
         .allocator = allocator,
         .argv = &child_args,
         .max_output_bytes = 100 * 1024 * 1024,

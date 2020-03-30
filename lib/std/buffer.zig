@@ -43,7 +43,7 @@ pub const Buffer = struct {
 
     /// Must deinitialize with deinit.
     pub fn initFromBuffer(buffer: Buffer) !Buffer {
-        return Buffer.init(buffer.list.allocator, buffer.toSliceConst());
+        return Buffer.init(buffer.list.allocator, buffer.span());
     }
 
     /// Buffer takes ownership of the passed in slice. The slice must have been
@@ -81,15 +81,8 @@ pub const Buffer = struct {
         return self.list.span()[0..self.len() :0];
     }
 
-    /// Deprecated: use `span`
-    pub fn toSlice(self: Buffer) [:0]u8 {
-        return self.span();
-    }
-
-    /// Deprecated: use `span`
-    pub fn toSliceConst(self: Buffer) [:0]const u8 {
-        return self.span();
-    }
+    pub const toSlice = @compileError("deprecated; use span()");
+    pub const toSliceConst = @compileError("deprecated; use span()");
 
     pub fn shrink(self: *Buffer, new_len: usize) void {
         assert(new_len <= self.len());
@@ -120,17 +113,17 @@ pub const Buffer = struct {
     pub fn append(self: *Buffer, m: []const u8) !void {
         const old_len = self.len();
         try self.resize(old_len + m.len);
-        mem.copy(u8, self.list.toSlice()[old_len..], m);
+        mem.copy(u8, self.list.span()[old_len..], m);
     }
 
     pub fn appendByte(self: *Buffer, byte: u8) !void {
         const old_len = self.len();
         try self.resize(old_len + 1);
-        self.list.toSlice()[old_len] = byte;
+        self.list.span()[old_len] = byte;
     }
 
     pub fn eql(self: Buffer, m: []const u8) bool {
-        return mem.eql(u8, self.toSliceConst(), m);
+        return mem.eql(u8, self.span(), m);
     }
 
     pub fn startsWith(self: Buffer, m: []const u8) bool {
@@ -147,7 +140,7 @@ pub const Buffer = struct {
 
     pub fn replaceContents(self: *Buffer, m: []const u8) !void {
         try self.resize(m.len);
-        mem.copy(u8, self.list.toSlice(), m);
+        mem.copy(u8, self.list.span(), m);
     }
 
     pub fn outStream(self: *Buffer) std.io.OutStream(*Buffer, error{OutOfMemory}, appendWrite) {
@@ -171,17 +164,17 @@ test "simple Buffer" {
     try buf.append(" ");
     try buf.append("world");
     testing.expect(buf.eql("hello world"));
-    testing.expect(mem.eql(u8, mem.toSliceConst(u8, buf.toSliceConst().ptr), buf.toSliceConst()));
+    testing.expect(mem.eql(u8, mem.spanZ(buf.span().ptr), buf.span()));
 
     var buf2 = try Buffer.initFromBuffer(buf);
     defer buf2.deinit();
-    testing.expect(buf.eql(buf2.toSliceConst()));
+    testing.expect(buf.eql(buf2.span()));
 
     testing.expect(buf.startsWith("hell"));
     testing.expect(buf.endsWith("orld"));
 
     try buf2.resize(4);
-    testing.expect(buf.startsWith(buf2.toSlice()));
+    testing.expect(buf.startsWith(buf2.span()));
 }
 
 test "Buffer.initSize" {
@@ -189,7 +182,7 @@ test "Buffer.initSize" {
     defer buf.deinit();
     testing.expect(buf.len() == 3);
     try buf.append("hello");
-    testing.expect(mem.eql(u8, buf.toSliceConst()[3..], "hello"));
+    testing.expect(mem.eql(u8, buf.span()[3..], "hello"));
 }
 
 test "Buffer.initCapacity" {
@@ -201,7 +194,7 @@ test "Buffer.initCapacity" {
     try buf.append("hello");
     testing.expect(buf.len() == 5);
     testing.expect(buf.capacity() == old_cap);
-    testing.expect(mem.eql(u8, buf.toSliceConst(), "hello"));
+    testing.expect(mem.eql(u8, buf.span(), "hello"));
 }
 
 test "Buffer.print" {
@@ -221,5 +214,5 @@ test "Buffer.outStream" {
     const y: i32 = 1234;
     try buf_stream.print("x: {}\ny: {}\n", .{ x, y });
 
-    testing.expect(mem.eql(u8, buffer.toSlice(), "x: 42\ny: 1234\n"));
+    testing.expect(mem.eql(u8, buffer.span(), "x: 42\ny: 1234\n"));
 }

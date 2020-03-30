@@ -18,8 +18,8 @@ const AtomicOrder = builtin.AtomicOrder;
 
 test "makePath, put some files in it, deleteTree" {
     try fs.cwd().makePath("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c");
-    try io.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c" ++ fs.path.sep_str ++ "file.txt", "nonsense");
-    try io.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "file2.txt", "blah");
+    try fs.cwd().writeFile("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c" ++ fs.path.sep_str ++ "file.txt", "nonsense");
+    try fs.cwd().writeFile("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "file2.txt", "blah");
     try fs.cwd().deleteTree("os_test_tmp");
     if (fs.cwd().openDir("os_test_tmp", .{})) |dir| {
         @panic("expected error");
@@ -36,8 +36,8 @@ test "access file" {
         expect(err == error.FileNotFound);
     }
 
-    try io.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "file.txt", "");
-    try os.access("os_test_tmp" ++ fs.path.sep_str ++ "file.txt", os.F_OK);
+    try fs.cwd().writeFile("os_test_tmp" ++ fs.path.sep_str ++ "file.txt", "");
+    try fs.cwd().access("os_test_tmp" ++ fs.path.sep_str ++ "file.txt", .{});
     try fs.cwd().deleteTree("os_test_tmp");
 }
 
@@ -65,12 +65,12 @@ test "sendfile" {
         },
     };
 
-    var src_file = try dir.createFileC("sendfile1.txt", .{ .read = true });
+    var src_file = try dir.createFileZ("sendfile1.txt", .{ .read = true });
     defer src_file.close();
 
     try src_file.writevAll(&vecs);
 
-    var dest_file = try dir.createFileC("sendfile2.txt", .{ .read = true });
+    var dest_file = try dir.createFileZ("sendfile2.txt", .{ .read = true });
     defer dest_file.close();
 
     const header1 = "header1\n";
@@ -192,12 +192,12 @@ test "AtomicFile" {
         \\ this is a test file
     ;
     {
-        var af = try fs.AtomicFile.init(test_out_file, File.default_mode);
+        var af = try fs.cwd().atomicFile(test_out_file, .{});
         defer af.deinit();
         try af.file.writeAll(test_content);
         try af.finish();
     }
-    const content = try io.readFileAlloc(testing.allocator, test_out_file);
+    const content = try fs.cwd().readFileAlloc(testing.allocator, test_out_file, 9999);
     defer testing.allocator.free(content);
     expect(mem.eql(u8, content, test_content));
 
