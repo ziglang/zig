@@ -893,7 +893,7 @@ pub fn WSAStartup(majorVersion: u8, minorVersion: u8) !ws2_32.WSADATA {
     var wsadata: ws2_32.WSADATA = undefined;
     return switch (ws2_32.WSAStartup((@as(WORD, minorVersion) << 8) | majorVersion, &wsadata)) {
         0 => wsadata,
-        else => |err| unexpectedWSAError(@intToEnum(WinsockError, err)),
+        else => |err| unexpectedWSAError(@intToEnum(ws2_32.WinsockError, @intCast(u16, err))),
     };
 }
 
@@ -1292,7 +1292,7 @@ pub fn unexpectedError(err: Win32Error) std.os.UnexpectedError {
     return error.Unexpected;
 }
 
-pub fn unexpectedWSAError(err: WinsockError) std.os.UnexpectedError {
+pub fn unexpectedWSAError(err: ws2_32.WinsockError) std.os.UnexpectedError {
     return unexpectedError(@intToEnum(Win32Error, @enumToInt(err)));
 }
 
