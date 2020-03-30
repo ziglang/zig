@@ -273,10 +273,12 @@ pub const Address = extern union {
         }
 
         var resolved_scope_id: u32 = 0;
-        if (std.mem.len(scope_id_value) > 0) {
-            resolved_scope_id = std.fmt.parseInt(u32, &scope_id_value, 10) catch |err| blk: {
+        std.debug.warn("scope_id_value {} len {}\n", .{ scope_id_value, std.mem.len(scope_id_value) });
+        if (scope_id_index > 0) {
+            const scope_id_str = scope_id_value[0..scope_id_index];
+            resolved_scope_id = std.fmt.parseInt(u32, scope_id_str, 10) catch |err| blk: {
                 if (err != error.InvalidCharacter) return err;
-                break :blk try if_nametoindex(&scope_id_value);
+                break :blk try if_nametoindex(scope_id_str);
             };
         }
 
