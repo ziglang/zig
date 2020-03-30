@@ -542,13 +542,16 @@ fn if_nametoindex(name: []const u8) !u32 {
     switch (os.errno(rc)) {
         os.EBADF => return error.BadFile,
         os.EINTR => return error.CaughtSignal,
-        os.EINVAL => unreachable,
         os.EIO => return error.FileSystem,
+        os.EINVAL => unreachable,
         os.ENOTTY => unreachable,
         os.ENXIO => unreachable,
-        os.ENODEV => return error.Unsupported,
+        // ioctl() sends ENODEV for an unknown scope id.
+        os.ENODEV => return error.InterfaceNotFound,
         else => {},
     }
+
+    std.debug.warn("ival={}\n", .{ifr.ifr_ifru.ifru_ivalue});
 
     return @bitCast(u32, ifr.ifr_ifru.ifru_ivalue);
 }
