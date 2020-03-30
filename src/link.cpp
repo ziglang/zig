@@ -1947,15 +1947,11 @@ static void construct_linker_job_elf(LinkJob *lj) {
                 lj->args.append("-lpthread");
             }
         } else if (target_is_glibc(g->zig_target)) {
-            if (target_supports_libunwind(g->zig_target)) {
-                lj->args.append(build_libunwind(g, lj->build_dep_prog_node));
-            }
+            lj->args.append(build_libunwind(g, lj->build_dep_prog_node));
             add_glibc_libs(lj);
             lj->args.append(get_libc_crt_file(g, "libc_nonshared.a", lj->build_dep_prog_node));
         } else if (target_is_musl(g->zig_target)) {
-            if (target_supports_libunwind(g->zig_target)) {
-                lj->args.append(build_libunwind(g, lj->build_dep_prog_node));
-            }
+            lj->args.append(build_libunwind(g, lj->build_dep_prog_node));
             lj->args.append(build_musl(g, lj->build_dep_prog_node));
         } else if (g->libcpp_link_lib != nullptr) {
             lj->args.append(build_libunwind(g, lj->build_dep_prog_node));
