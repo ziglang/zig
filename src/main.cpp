@@ -243,7 +243,7 @@ static bool str_starts_with(const char *s1, const char *s2) {
     return memcmp(s1, s2, s2_len) == 0;
 }
 
-extern "C" int ZigClang_main(int argc, char **argv);
+extern "C" int ZigClang_main(int argc, const char **argv);
 
 #ifdef ZIG_ENABLE_MEM_PROFILE
 bool mem_report = false;
