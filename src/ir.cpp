@@ -20880,13 +20880,8 @@ static IrInstGen *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstSrcElemP
     if (instr_is_comptime(casted_elem_index)) {
         uint64_t index = bigint_as_u64(&casted_elem_index->value->data.x_bigint);
         if (array_type->id == ZigTypeIdArray) {
-            uint64_t array_len = array_type->data.array.len;
-            if (index == array_len && array_type->data.array.sentinel != nullptr) {
-                ZigType *elem_type = array_type->data.array.child_type;
-                IrInstGen *sentinel_elem = ir_const(ira, &elem_ptr_instruction->base.base, elem_type);
-                copy_const_val(ira->codegen, sentinel_elem->value, array_type->data.array.sentinel);
-                return ir_get_ref(ira, &elem_ptr_instruction->base.base, sentinel_elem, true, false);
-            }
+            uint64_t array_len = array_type->data.array.len +
+                (array_type->data.array.sentinel != nullptr);
             if (index >= array_len) {
                 ir_add_error_node(ira, elem_ptr_instruction->base.base.source_node,
                     buf_sprintf("index %" ZIG_PRI_u64 " outside array of size %" ZIG_PRI_u64,
