@@ -528,6 +528,10 @@ fn if_nametoindex(name: []const u8) !u32 {
     defer os.close(sockfd);
 
     std.mem.copy(u8, &ifr.ifr_ifrn.name, name);
+    std.debug.warn("name={} name.len={} ifr_name={}\n", .{ name, name.len, ifr.ifr_ifrn.name });
+    ifr.ifr_ifrn.name[name.len] = 0;
+
+    std.debug.warn("{} {} {}\n", .{ sockfd, os.linux.SIOCGIFINDEX, @ptrToInt(&ifr) });
 
     const rc = os.system.syscall3(
         os.linux.SYS_ioctl,
