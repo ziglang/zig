@@ -434,6 +434,8 @@ pub const SYS_fsopen = 430;
 pub const SYS_fsconfig = 431;
 pub const SYS_fsmount = 432;
 pub const SYS_fspick = 433;
+pub const SYS_openat2 = 437;
+pub const SYS_pidfd_getfd = 438;
 
 pub const O_CREAT = 0o100;
 pub const O_EXCL = 0o200;
