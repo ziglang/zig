@@ -273,7 +273,6 @@ pub const Address = extern union {
         }
 
         var resolved_scope_id: u32 = 0;
-        std.debug.warn("scope_id_value {} len {}\n", .{ scope_id_value, std.mem.len(scope_id_value) });
         if (scope_id_index > 0) {
             const scope_id_str = scope_id_value[0..scope_id_index];
             resolved_scope_id = std.fmt.parseInt(u32, scope_id_str, 10) catch |err| blk: {
@@ -528,10 +527,7 @@ fn if_nametoindex(name: []const u8) !u32 {
     defer os.close(sockfd);
 
     std.mem.copy(u8, &ifr.ifr_ifrn.name, name);
-    std.debug.warn("name={} name.len={} ifr_name={}\n", .{ name, name.len, ifr.ifr_ifrn.name });
     ifr.ifr_ifrn.name[name.len] = 0;
-
-    std.debug.warn("{} {} {}\n", .{ sockfd, os.linux.SIOCGIFINDEX, @ptrToInt(&ifr) });
 
     const rc = os.system.syscall3(
         os.linux.SYS_ioctl,
@@ -551,8 +547,6 @@ fn if_nametoindex(name: []const u8) !u32 {
         os.ENODEV => return error.InterfaceNotFound,
         else => {},
     }
-
-    std.debug.warn("ival={}, rest={}\n", .{ ifr.ifr_ifru.ifru_ivalue, ifr.ifr_ifru });
 
     return @bitCast(u32, ifr.ifr_ifru.ifru_ivalue);
 }
