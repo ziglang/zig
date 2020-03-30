@@ -1286,10 +1286,6 @@ pub const ClangArgIterator = extern struct {
         sanitize,
         linker_script,
         verbose_cmds,
-        exceptions,
-        no_exceptions,
-        rtti,
-        no_rtti,
         for_linker,
         linker_input_z,
     };

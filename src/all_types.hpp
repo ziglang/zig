@@ -2262,8 +2262,6 @@ struct CodeGen {
     bool emit_asm;
     bool emit_llvm_ir;
     bool test_is_evented;
-    bool cpp_rtti;
-    bool cpp_exceptions;
     CodeModel code_model;
 
     Buf *root_out_name;

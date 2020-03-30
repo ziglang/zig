@@ -345,10 +345,6 @@ enum Stage2ClangArg {
     Stage2ClangArgSanitize,
     Stage2ClangArgLinkerScript,
     Stage2ClangArgVerboseCmds,
-    Stage2ClangArgExceptions,
-    Stage2ClangArgNoExceptions,
-    Stage2ClangArgRtti,
-    Stage2ClangArgNoRtti,
     Stage2ClangArgForLinker,
     Stage2ClangArgLinkerInputZ,
 };

@@ -458,8 +458,6 @@ static int main0(int argc, char **argv) {
     bool only_preprocess = false;
     bool ensure_libc_on_non_freestanding = false;
     bool ensure_libcpp_on_non_freestanding = false;
-    bool cpp_rtti = true;
-    bool cpp_exceptions = true;
 
     ZigList<const char *> llvm_argv = {0};
     llvm_argv.append("zig (LLVM option parsing)");
@@ -723,18 +721,6 @@ static int main0(int argc, char **argv) {
                 case Stage2ClangArgVerboseCmds:
                     verbose_cc = true;
                     verbose_link = true;
-                    break;
-                case Stage2ClangArgExceptions:
-                    cpp_exceptions = true;
-                    break;
-                case Stage2ClangArgNoExceptions:
-                    cpp_exceptions = false;
-                    break;
-                case Stage2ClangArgRtti:
-                    cpp_rtti = true;
-                    break;
-                case Stage2ClangArgNoRtti:
-                    cpp_rtti = false;
                     break;
                 case Stage2ClangArgForLinker:
                     linker_args.append(buf_create_from_str(it.only_arg));
@@ -1331,8 +1317,6 @@ static int main0(int argc, char **argv) {
             LinkLib *link_lib = codegen_add_link_lib(g, buf_create_from_str(link_libs.at(i)));
             link_lib->provided_explicitly = true;
         }
-        g->cpp_rtti = cpp_rtti;
-        g->cpp_exceptions = cpp_exceptions;
         g->subsystem = subsystem;
         g->valgrind_support = valgrind_support;
         g->want_pic = want_pic;
@@ -1481,8 +1465,6 @@ static int main0(int argc, char **argv) {
             }
             CodeGen *g = codegen_create(main_pkg_path, zig_root_source_file, &target, out_type, build_mode,
                     override_lib_dir, libc, cache_dir_buf, cmd == CmdTest, root_progress_node);
-            g->cpp_rtti = cpp_rtti;
-            g->cpp_exceptions = cpp_exceptions;
             if (llvm_argv.length >= 2) codegen_set_llvm_argv(g, llvm_argv.items + 1, llvm_argv.length - 2);
             g->valgrind_support = valgrind_support;
             g->link_eh_frame_hdr = link_eh_frame_hdr;
