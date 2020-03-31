@@ -1456,7 +1456,10 @@ static void init_rand() {
     memcpy(&seed, bytes, sizeof(unsigned));
     srand(seed);
 #elif defined(ZIG_OS_LINUX)
-    srand(*((unsigned*)getauxval(AT_RANDOM)));
+    unsigned char *ptr_random = (unsigned char*)getauxval(AT_RANDOM);
+    unsigned seed;
+    memcpy(&seed, ptr_random, sizeof(seed));
+    srand(seed);
 #else
     int fd = open("/dev/urandom", O_RDONLY|O_CLOEXEC);
     if (fd == -1) {
