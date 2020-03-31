@@ -559,10 +559,14 @@ test "Span" {
 /// When there is both a sentinel and an array length or slice length, the
 /// length value is used instead of the sentinel.
 pub fn span(ptr: var) Span(@TypeOf(ptr)) {
-    const Result = Span(@TypeOf(ptr));
-    if (@typeInfo(@TypeOf(ptr)) == .Optional and ptr == null) {
-        return null;
+    if (@typeInfo(@TypeOf(ptr)) == .Optional) {
+        if (ptr) |non_null| {
+            return span(non_null);
+        } else {
+            return null;
+        }
     }
+    const Result = Span(@TypeOf(ptr));
     const l = len(ptr);
     if (@typeInfo(Result).Pointer.sentinel) |s| {
         return ptr[0..l :s];
@@ -576,16 +580,21 @@ test "span" {
     const ptr = @as([*:3]u16, array[0..2 :3]);
     testing.expect(eql(u16, span(ptr), &[_]u16{ 1, 2 }));
     testing.expect(eql(u16, span(&array), &[_]u16{ 1, 2, 3, 4, 5 }));
+    testing.expectEqual(@as(?[:0]u16, null), span(@as(?[*:0]u16, null)));
 }
 
 /// Same as `span`, except when there is both a sentinel and an array
 /// length or slice length, scans the memory for the sentinel value
 /// rather than using the length.
 pub fn spanZ(ptr: var) Span(@TypeOf(ptr)) {
-    const Result = Span(@TypeOf(ptr));
-    if (@typeInfo(@TypeOf(ptr)) == .Optional and ptr == null) {
-        return null;
+    if (@typeInfo(@TypeOf(ptr)) == .Optional) {
+        if (ptr) |non_null| {
+            return spanZ(non_null);
+        } else {
+            return null;
+        }
     }
+    const Result = Span(@TypeOf(ptr));
     const l = lenZ(ptr);
     if (@typeInfo(Result).Pointer.sentinel) |s| {
         return ptr[0..l :s];
@@ -599,6 +608,7 @@ test "spanZ" {
     const ptr = @as([*:3]u16, array[0..2 :3]);
     testing.expect(eql(u16, spanZ(ptr), &[_]u16{ 1, 2 }));
     testing.expect(eql(u16, spanZ(&array), &[_]u16{ 1, 2, 3, 4, 5 }));
+    testing.expectEqual(@as(?[:0]u16, null), spanZ(@as(?[*:0]u16, null)));
 }
 
 /// Takes a pointer to an array, an array, a sentinel-terminated pointer,

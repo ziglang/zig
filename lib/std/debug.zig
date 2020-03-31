@@ -1254,7 +1254,7 @@ pub const DebugInfo = struct {
                     if (context.address >= seg_start and context.address < seg_end) {
                         // Android libc uses NULL instead of an empty string to mark the
                         // main program
-                        context.name = if (info.dlpi_name) |dlpi_name| mem.spanZ(dlpi_name) else "";
+                        context.name = mem.spanZ(info.dlpi_name) orelse "";
                         context.base_address = info.dlpi_addr;
                         // Stop the iteration
                         return error.Found;
