@@ -3,16 +3,47 @@ const io = std.io;
 const assert = std.debug.assert;
 const testing = std.testing;
 
-pub fn BufferedInStream(comptime buffer_size: usize, comptime InStreamType: type) type {
+pub fn BufferedInStream(comptime buffer_type: std.fifo.LinearFifoBufferType, comptime InStreamType: type) type {
     return struct {
         unbuffered_in_stream: InStreamType,
-        fifo: FifoType = FifoType.init(),
+        fifo: FifoType,
 
         pub const Error = InStreamType.Error;
         pub const InStream = io.InStream(*Self, Error, read);
 
         const Self = @This();
-        const FifoType = std.fifo.LinearFifo(u8, std.fifo.LinearFifoBufferType{ .Static = buffer_size });
+        const FifoType = std.fifo.LinearFifo(u8, buffer_type);
+
+        pub usingnamespace switch (buffer_type) {
+            .Static => struct {
+                pub fn init(unbuffered_in_stream: InStreamType) Self {
+                    return .{
+                        .unbuffered_in_stream = unbuffered_in_stream,
+                        .fifo = FifoType.init(),
+                    };
+                }
+            },
+            .Slice => struct {
+                pub fn init(unbuffered_in_stream: InStreamType, buf: []u8) Self {
+                    return .{
+                        .unbuffered_in_stream = unbuffered_in_stream,
+                        .fifo = FifoType.init(buf),
+                    };
+                }
+            },
+            .Dynamic => struct {
+                pub fn init(unbuffered_in_stream: InStreamType, allocator: *mem.Allocator) Self {
+                    return .{
+                        .unbuffered_in_stream = unbuffered_in_stream,
+                        .fifo = FifoType.init(allocator),
+                    };
+                }
+            },
+        };
+
+        pub fn deinit(self: Self) void {
+            self.fifo.deinit();
+        }
 
         pub fn read(self: *Self, dest: []u8) Error!usize {
             var dest_index: usize = 0;
@@ -41,8 +72,10 @@ pub fn BufferedInStream(comptime buffer_size: usize, comptime InStreamType: type
     };
 }
 
-pub fn bufferedInStream(underlying_stream: var) BufferedInStream(4096, @TypeOf(underlying_stream)) {
-    return .{ .unbuffered_in_stream = underlying_stream };
+/// A buffering wrapper around another stream
+/// Uses a statically allocated buffer; no need to .deinit().
+pub fn bufferedInStream(underlying_stream: var) BufferedInStream(.{ .Static = 4096 }, @TypeOf(underlying_stream)) {
+    return BufferedInStream(.{ .Static = 4096 }, @TypeOf(underlying_stream)).init(underlying_stream);
 }
 
 test "io.BufferedInStream" {
@@ -83,4 +116,38 @@ test "io.BufferedInStream" {
     const res = try stream.readAllAlloc(testing.allocator, str.len + 1);
     defer testing.allocator.free(res);
     testing.expectEqualSlices(u8, str, res);
+}
+
+test "io.BufferedInStream.putBack*" {
+    const bytes = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8 };
+    var fbs = io.fixedBufferStream(&bytes);
+    var ps = BufferedInStream(.{ .Static = 2 }, @TypeOf(fbs.inStream())).init(fbs.inStream());
+    defer ps.deinit();
+
+    var dest: [4]u8 = undefined;
+
+    try ps.putBackByte(9);
+    try ps.putBackByte(10);
+
+    var read = try ps.inStream().read(dest[0..4]);
+    testing.expectEqual(@as(usize, 4), read);
+    testing.expectEqual(@as(u8, 10), dest[0]);
+    testing.expectEqual(@as(u8, 9), dest[1]);
+    testing.expectEqualSlices(u8, bytes[0..2], dest[2..4]);
+
+    read = try ps.inStream().read(dest[0..4]);
+    testing.expectEqual(@as(usize, 4), read);
+    testing.expectEqualSlices(u8, bytes[2..6], dest[0..4]);
+
+    read = try ps.inStream().read(dest[0..4]);
+    testing.expectEqual(@as(usize, 2), read);
+    testing.expectEqualSlices(u8, bytes[6..8], dest[0..2]);
+
+    try ps.putBackByte(11);
+    try ps.putBackByte(12);
+
+    read = try ps.inStream().read(dest[0..4]);
+    testing.expectEqual(@as(usize, 2), read);
+    testing.expectEqual(@as(u8, 12), dest[0]);
+    testing.expectEqual(@as(u8, 11), dest[1]);
 }
