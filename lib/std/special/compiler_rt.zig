@@ -17,26 +17,11 @@ comptime {
             .linkage = linkage,
         }),
 
-        .aarch64,
-        .aarch64_be,
-        .aarch64_32,
-        .riscv32,
-        .riscv64,
-        => @export(@import("compiler_rt/clear_cache.zig").clear_cache, .{
-            .name = "__clear_cache",
-            .linkage = linkage,
-        }),
-
-        .arm, .armeb, .thumb, .thumbeb => switch (builtin.os.tag) {
-            .linux => @export(@import("compiler_rt/clear_cache.zig").clear_cache, .{
-                .name = "__clear_cache",
-                .linkage = linkage,
-            }),
-            else => {},
-        },
-
         else => {},
     }
+
+    // __clear_cache manages its own logic about whether to be exported or not.
+    _ = @import("compiler_rt/clear_cache.zig").clear_cache;
 
     @export(@import("compiler_rt/compareXf2.zig").__lesf2, .{ .name = "__lesf2", .linkage = linkage });
     @export(@import("compiler_rt/compareXf2.zig").__ledf2, .{ .name = "__ledf2", .linkage = linkage });

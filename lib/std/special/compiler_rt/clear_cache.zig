@@ -45,9 +45,11 @@ pub fn clear_cache(start: usize, end: usize) callconv(.C) void {
     if (x86) {
         // Intel processors have a unified instruction and data cache
         // so there is nothing to do
+        exportIt();
     } else if (os == .windows and (arm32 or arm64)) {
-        @compileError("TODO");
+        // TODO
         // FlushInstructionCache(GetCurrentProcess(), start, end - start);
+        // exportIt();
     } else if (arm32 and !apple) {
         switch (os) {
             .freebsd, .netbsd => {
@@ -57,23 +59,28 @@ pub fn clear_cache(start: usize, end: usize) callconv(.C) void {
                 };
                 const result = sysarch(ARM_SYNC_ICACHE, @ptrToInt(&arg));
                 std.debug.assert(result == 0);
+                exportIt();
             },
             .linux => {
                 const result = std.os.linux.syscall3(.cacheflush, start, end, 0);
                 std.debug.assert(result == 0);
+                exportIt();
             },
-            else => @compileError("TODO"),
+            else => {},
         }
     } else if (os == .linux and mips) {
         const flags = 3; // ICACHE | DCACHE
-        const result = std.os.linux.syscall3(std.os.linux.SYS_cacheflush, start, end - start, flags);
+        const result = std.os.linux.syscall3(.cacheflush, start, end - start, flags);
         std.debug.assert(result == 0);
+        exportIt();
     } else if (mips and os == .openbsd) {
-        @compileError("TODO");
+        // TODO
         //cacheflush(start, (uintptr_t)end - (uintptr_t)start, BCACHE);
+        // exportIt();
     } else if (os == .linux and riscv) {
-        const result = std.os.linux.syscall3(std.os.linux.SYS_riscv_flush_icache, start, end - start, 0);
+        const result = std.os.linux.syscall3(.riscv_flush_icache, start, end - start, 0);
         std.debug.assert(result == 0);
+        exportIt();
     } else if (arm64 and !apple) {
         // Get Cache Type Info.
         // TODO memoize this?
@@ -112,8 +119,9 @@ pub fn clear_cache(start: usize, end: usize) callconv(.C) void {
             }
         }
         asm volatile ("isb sy");
+        exportIt();
     } else if (powerpc64) {
-        @compileError("TODO");
+        // TODO
         //const size_t line_size = 32;
         //const size_t len = (uintptr_t)end - (uintptr_t)start;
         //
@@ -128,8 +136,9 @@ pub fn clear_cache(start: usize, end: usize) callconv(.C) void {
         //for (uintptr_t line = start_line; line < end_line; line += line_size)
         //  __asm__ volatile("icbi 0, %0" : : "r"(line));
         //__asm__ volatile("isync");
+        // exportIt();
     } else if (sparc) {
-        @compileError("TODO");
+        // TODO
         //const size_t dword_size = 8;
         //const size_t len = (uintptr_t)end - (uintptr_t)start;
         //
@@ -139,12 +148,18 @@ pub fn clear_cache(start: usize, end: usize) callconv(.C) void {
         //
         //for (uintptr_t dword = start_dword; dword < end_dword; dword += dword_size)
         //  __asm__ volatile("flush %0" : : "r"(dword));
+        // exportIt();
     } else if (apple) {
         // On Darwin, sys_icache_invalidate() provides this functionality
         sys_icache_invalidate(start, end - start);
-    } else {
-        @compileError("no __clear_cache implementation available for this target");
+        exportIt();
     }
+}
+
+const linkage = if (std.builtin.is_test) std.builtin.GlobalLinkage.Internal else std.builtin.GlobalLinkage.Weak;
+
+inline fn exportIt() void {
+    @export(clear_cache, .{ .name = "__clear_cache", .linkage = linkage });
 }
 
 // Darwin-only
