@@ -10,10 +10,29 @@ comptime {
     const strong_linkage = if (is_test) builtin.GlobalLinkage.Internal else builtin.GlobalLinkage.Strong;
 
     switch (builtin.arch) {
-        .i386, .x86_64 => @export(@import("compiler_rt/stack_probe.zig").zig_probe_stack, .{ .name = "__zig_probe_stack", .linkage = linkage }),
-        .aarch64, .aarch64_be, .aarch64_32, .arm, .armeb, .thumb, .thumbeb => {
-            @export(@import("compiler_rt/clear_cache.zig").clear_cache, .{ .name = "__clear_cache", .linkage = linkage });
+        .i386,
+        .x86_64,
+        => @export(@import("compiler_rt/stack_probe.zig").zig_probe_stack, .{
+            .name = "__zig_probe_stack",
+            .linkage = linkage,
+        }),
+
+        .aarch64,
+        .aarch64_be,
+        .aarch64_32,
+        => @export(@import("compiler_rt/clear_cache.zig").clear_cache, .{
+            .name = "__clear_cache",
+            .linkage = linkage,
+        }),
+
+        .arm, .armeb, .thumb, .thumbeb => switch (builtin.os.tag) {
+            .linux => @export(@import("compiler_rt/clear_cache.zig").clear_cache, .{
+                .name = "__clear_cache",
+                .linkage = linkage,
+            }),
+            else => {},
         },
+
         else => {},
     }
 

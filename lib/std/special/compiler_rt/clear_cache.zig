@@ -54,15 +54,10 @@ pub fn clear_cache(start: usize, end: usize) callconv(.C) void {
             //  sysarch(ARM_SYNC_ICACHE, &arg);
             @compileError("TODO: implement for NetBSD/FreeBSD");
         } else if (os == .linux) {
-            const result = std.os.linux.syscall3(
-                std.os.linux.SYS_cacheflush,
-                start,
-                end,
-                0,
-            );
+            const result = std.os.linux.syscall3(std.os.linux.SYS_cacheflush, start, end, 0);
             std.debug.assert(result == 0);
         } else {
-            @compileError("compilerrt_abort");
+            @compileError("no __clear_cache implementation available for this target");
         }
     } else if (os == .linux and mips) {
         @compileError("TODO");
