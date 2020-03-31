@@ -191,6 +191,18 @@ pub fn expect(ok: bool) void {
     if (!ok) @panic("test failure");
 }
 
+/// This function is intended to be used only in tests. When the two strings are not
+/// equal, prints diagnostics to stderr to show exactly how they are not equal, then aborts.
+pub fn expectEqualString(comptime T: type, expected: []const T, actual: []const T) void {
+    if (T != u8 and T != u16) {
+        @compileError("expected u8 or u16, found '" ++ @typeName(T) ++ "'");
+    }
+
+    if (!std.mem.eql(T, expected, actual)) {
+        std.debug.panic("expected string \"{}\", got \"{}\"", .{ expected, actual });
+    }
+}
+
 test "expectEqual nested array" {
     const a = [2][2]f32{
         [_]f32{ 1.0, 0.0 },
@@ -210,4 +222,14 @@ test "expectEqual vector" {
     var b = @splat(4, @as(u32, 4));
 
     expectEqual(a, b);
+}
+
+test "expectEqualString" {
+    const a = "foo";
+    const b = "foo";
+    expectEqualString(u8, a, b);
+
+    const a2 = &[_]u16{ 0x0066, 0x006f, 0x006f, 0x0062, 0x0061, 0x0072, 0x0020, 0xd82d, 0xdc4d };
+    const b2 = &[_]u16{ 0x0066, 0x006f, 0x006f, 0x0062, 0x0061, 0x0072, 0x0020, 0xd82d, 0xdc4d };
+    expectEqualString(u16, @as([]const u16, a2), @as([]const u16, b2));
 }
