@@ -689,12 +689,11 @@ fn stage2CrossTarget(
     mcpu_oz: ?[*:0]const u8,
     dynamic_linker_oz: ?[*:0]const u8,
 ) !CrossTarget {
-    const zig_triple = if (zig_triple_oz) |zig_triple_z| mem.spanZ(zig_triple_z) else "native";
-    const mcpu = if (mcpu_oz) |mcpu_z| mem.spanZ(mcpu_z) else null;
-    const dynamic_linker = if (dynamic_linker_oz) |dl_z| mem.spanZ(dl_z) else null;
+    const mcpu = mem.spanZ(mcpu_oz);
+    const dynamic_linker = mem.spanZ(dynamic_linker_oz);
     var diags: CrossTarget.ParseOptions.Diagnostics = .{};
     const target: CrossTarget = CrossTarget.parse(.{
-        .arch_os_abi = zig_triple,
+        .arch_os_abi = mem.spanZ(zig_triple_oz) orelse "native",
         .cpu_features = mcpu,
         .dynamic_linker = dynamic_linker,
         .diagnostics = &diags,

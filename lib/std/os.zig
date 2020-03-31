@@ -1078,7 +1078,7 @@ pub fn execvpe_expandArg0(
     mem.set(?[*:0]u8, argv_buf, null);
     defer {
         for (argv_buf) |arg| {
-            const arg_buf = if (arg) |ptr| mem.spanZ(ptr) else break;
+            const arg_buf = mem.spanZ(arg) orelse break;
             allocator.free(arg_buf);
         }
         allocator.free(argv_buf);
