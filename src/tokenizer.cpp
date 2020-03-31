@@ -1494,9 +1494,17 @@ void tokenize(Buf *buf, Tokenization *out) {
             tokenize_error(&t, "unexpected EOF");
             break;
         case TokenizeStateLineComment:
+            break;
         case TokenizeStateSawSlash2:
+            cancel_token(&t);
+            break;
         case TokenizeStateSawSlash3:
+            set_token_id(&t, t.cur_tok, TokenIdDocComment);
+            end_token(&t);
+            break;
         case TokenizeStateSawSlashBang:
+            set_token_id(&t, t.cur_tok, TokenIdContainerDocComment);
+            end_token(&t);
             break;
     }
     if (t.state != TokenizeStateError) {
