@@ -651,6 +651,7 @@ static const char *build_libunwind(CodeGen *parent, Stage2ProgressNode *progress
         if (parent->is_single_threaded) {
             c_file->args.append("-D_LIBUNWIND_HAS_NO_THREADS");
         }
+        c_file->args.append("-Wno-bitwise-conditional-parentheses");
         c_source_files.append(c_file);
     }
     child_gen->c_source_files = c_source_files;

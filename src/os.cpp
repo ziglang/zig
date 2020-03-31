@@ -1097,8 +1097,8 @@ static Error set_file_times(OsFile file, OsTimeStamp ts) {
     return ErrorNone;
 #else
     struct timespec times[2] = {
-        { (time_t)ts.sec, (time_t)ts.nsec },
-        { (time_t)ts.sec, (time_t)ts.nsec },
+        { (time_t)ts.sec, (long)ts.nsec },
+        { (time_t)ts.sec, (long)ts.nsec },
     };
     if (futimens(file, times) == -1) {
         switch (errno) {

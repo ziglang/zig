@@ -3845,7 +3845,9 @@ fn transCreateNodePtrType(
 }
 
 fn transCreateNodeAPInt(c: *Context, int: *const ZigClangAPSInt) !*ast.Node {
-    const num_limbs = ZigClangAPSInt_getNumWords(int);
+    const num_limbs = math.cast(usize, ZigClangAPSInt_getNumWords(int)) catch |err| switch (err) {
+        error.Overflow => return error.OutOfMemory,
+    };
     var aps_int = int;
     const is_negative = ZigClangAPSInt_isSigned(int) and ZigClangAPSInt_isNegative(int);
     if (is_negative)
@@ -3855,8 +3857,26 @@ fn transCreateNodeAPInt(c: *Context, int: *const ZigClangAPSInt) !*ast.Node {
         big.negate();
     defer big.deinit();
     const data = ZigClangAPSInt_getRawData(aps_int);
-    var i: @TypeOf(num_limbs) = 0;
-    while (i < num_limbs) : (i += 1) big.limbs[i] = data[i];
+    switch (@sizeOf(std.math.big.Limb)) {
+        8 => {
+            var i: usize = 0;
+            while (i < num_limbs) : (i += 1) {
+                big.limbs[i] = data[i];
+            }
+        },
+        4 => {
+            var limb_i: usize = 0;
+            var data_i: usize = 0;
+            while (limb_i < num_limbs) : ({
+                limb_i += 2;
+                data_i += 1;
+            }) {
+                big.limbs[limb_i] = @truncate(u32, data[data_i]);
+                big.limbs[limb_i + 1] = @truncate(u32, data[data_i] >> 32);
+            }
+        },
+        else => @compileError("unimplemented"),
+    }
     const str = big.toString(c.a(), 10) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => unreachable,
