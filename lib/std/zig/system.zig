@@ -622,9 +622,10 @@ pub const NativeTargetInfo = struct {
                         const p_offset = elfInt(is_64, need_bswap, ph32.p_offset, ph64.p_offset);
                         const p_filesz = elfInt(is_64, need_bswap, ph32.p_filesz, ph64.p_filesz);
                         if (p_filesz > result.dynamic_linker.buffer.len) return error.NameTooLong;
-                        _ = try preadMin(file, result.dynamic_linker.buffer[0..p_filesz], p_offset, p_filesz);
-                        // PT_INTERP includes a null byte in p_filesz.
-                        const len = p_filesz - 1;
+                        const filesz = @intCast(usize, p_filesz);
+                        _ = try preadMin(file, result.dynamic_linker.buffer[0..filesz], p_offset, filesz);
+                        // PT_INTERP includes a null byte in filesz.
+                        const len = filesz - 1;
                         // dynamic_linker.max_byte is "max", not "len".
                         // We know it will fit in u8 because we check against dynamic_linker.buffer.len above.
                         result.dynamic_linker.max_byte = @intCast(u8, len - 1);
@@ -645,7 +646,7 @@ pub const NativeTargetInfo = struct {
                     {
                         var dyn_off = elfInt(is_64, need_bswap, ph32.p_offset, ph64.p_offset);
                         const p_filesz = elfInt(is_64, need_bswap, ph32.p_filesz, ph64.p_filesz);
-                        const dyn_size: u64 = if (is_64) @sizeOf(elf.Elf64_Dyn) else @sizeOf(elf.Elf32_Dyn);
+                        const dyn_size: usize = if (is_64) @sizeOf(elf.Elf64_Dyn) else @sizeOf(elf.Elf32_Dyn);
                         const dyn_num = p_filesz / dyn_size;
                         var dyn_buf: [16 * @sizeOf(elf.Elf64_Dyn)]u8 align(@alignOf(elf.Elf64_Dyn)) = undefined;
                         var dyn_i: usize = 0;
@@ -751,7 +752,10 @@ pub const NativeTargetInfo = struct {
                     const strtab_read_len = try preadMin(file, &strtab_buf, ds.offset, shstrtab_len);
                     const strtab = strtab_buf[0..strtab_read_len];
                     // TODO this pointer cast should not be necessary
-                    const rpath_list = mem.spanZ(@ptrCast([*:0]u8, strtab[rpoff..].ptr));
+                    const rpoff_usize = std.math.cast(usize, rpoff) catch |err| switch (err) {
+                        error.Overflow => return error.InvalidElfFile,
+                    };
+                    const rpath_list = mem.spanZ(@ptrCast([*:0]u8, strtab[rpoff_usize..].ptr));
                     var it = mem.tokenize(rpath_list, ":");
                     while (it.next()) |rpath| {
                         var dir = fs.cwd().openDir(rpath, .{}) catch |err| switch (err) {
@@ -811,7 +815,7 @@ pub const NativeTargetInfo = struct {
     }
 
     fn preadMin(file: fs.File, buf: []u8, offset: u64, min_read_len: usize) !usize {
-        var i: u64 = 0;
+        var i: usize = 0;
         while (i < min_read_len) {
             const len = file.pread(buf[i .. buf.len - i], offset + i) catch |err| switch (err) {
                 error.OperationAborted => unreachable, // Windows-only
