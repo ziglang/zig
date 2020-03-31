@@ -106,7 +106,7 @@ pub fn InStream(
                     return;
                 }
 
-                if (array_list.len == max_size) {
+                if (array_list.items.len == max_size) {
                     return error.StreamTooLong;
                 }
 
