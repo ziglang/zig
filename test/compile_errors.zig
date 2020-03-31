@@ -6806,4 +6806,27 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     , &[_][]const u8{
         "tmp.zig:2:27: error: type 'u32' does not support array initialization",
     });
+
+    cases.add("issue #2687: coerce from undefined array pointer to slice",
+        \\export fn foo1() void {
+        \\    const a: *[1]u8 = undefined;
+        \\    var b: []u8 = a;
+        \\}
+        \\export fn foo2() void {
+        \\    comptime {
+        \\        var a: *[1]u8 = undefined;
+        \\        var b: []u8 = a;
+        \\    }
+        \\}
+        \\export fn foo3() void {
+        \\    comptime {
+        \\        const a: *[1]u8 = undefined;
+        \\        var b: []u8 = a;
+        \\    }
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:3:19: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:8:23: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:14:23: error: use of undefined value here causes undefined behavior",
+    });
 }
