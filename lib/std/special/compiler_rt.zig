@@ -20,6 +20,8 @@ comptime {
         .aarch64,
         .aarch64_be,
         .aarch64_32,
+        .riscv32,
+        .riscv64,
         => @export(@import("compiler_rt/clear_cache.zig").clear_cache, .{
             .name = "__clear_cache",
             .linkage = linkage,
