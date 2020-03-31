@@ -160,7 +160,7 @@ pub fn LinearFifo(
             return self.readableSliceMut(offset);
         }
 
-        /// Discard first `count` bytes of readable data
+        /// Discard first `count` items in the fifo
         pub fn discard(self: *Self, count: usize) void {
             assert(count <= self.count);
             { // set old range to undefined. Note: may be wrapped around
@@ -199,7 +199,7 @@ pub fn LinearFifo(
             return c;
         }
 
-        /// Read data from the fifo into `dst`, returns number of bytes copied.
+        /// Read data from the fifo into `dst`, returns number of items copied.
         pub fn read(self: *Self, dst: []T) usize {
             var dst_left = dst;
 
@@ -215,7 +215,7 @@ pub fn LinearFifo(
             return dst.len - dst_left.len;
         }
 
-        /// Returns number of bytes available in fifo
+        /// Returns number of items available in fifo
         pub fn writableLength(self: Self) usize {
             return self.buf.len - self.count;
         }
@@ -233,9 +233,9 @@ pub fn LinearFifo(
             }
         }
 
-        /// Returns a writable buffer of at least `size` bytes, allocating memory as needed.
+        /// Returns a writable buffer of at least `size` items, allocating memory as needed.
         /// Use `fifo.update` once you've written data to it.
-        pub fn writeableWithSize(self: *Self, size: usize) ![]T {
+        pub fn writableWithSize(self: *Self, size: usize) ![]T {
             try self.ensureUnusedCapacity(size);
 
             // try to avoid realigning buffer
@@ -247,7 +247,7 @@ pub fn LinearFifo(
             return slice;
         }
 
-        /// Update the tail location of the buffer (usually follows use of writable/writeableWithSize)
+        /// Update the tail location of the buffer (usually follows use of writable/writableWithSize)
         pub fn update(self: *Self, count: usize) void {
             assert(self.count + count <= self.buf.len);
             self.count += count;
@@ -279,7 +279,7 @@ pub fn LinearFifo(
             } else {
                 tail %= self.buf.len;
             }
-            self.buf[tail] = byte;
+            self.buf[tail] = item;
             self.update(1);
         }
 
@@ -395,7 +395,7 @@ test "LinearFifo(u8, .Dynamic)" {
     }
 
     {
-        const buf = try fifo.writeableWithSize(12);
+        const buf = try fifo.writableWithSize(12);
         testing.expectEqual(@as(usize, 12), buf.len);
         var i: u8 = 0;
         while (i < 10) : (i += 1) {
@@ -445,6 +445,20 @@ test "LinearFifo" {
                 testing.expectEqual(@as(T, 1), try fifo.readItem());
                 testing.expectEqual(@as(T, 0), try fifo.readItem());
                 testing.expectEqual(@as(T, 1), try fifo.readItem());
+                testing.expectEqual(@as(usize, 0), fifo.readableLength());
+            }
+
+            {
+                try fifo.writeItem(1);
+                try fifo.writeItem(1);
+                try fifo.writeItem(1);
+                testing.expectEqual(@as(usize, 3), fifo.readableLength());
+            }
+
+            {
+                var readBuf: [3]T = undefined;
+                const n = fifo.read(&readBuf);
+                testing.expectEqual(@as(usize, 3), n); // NOTE: It should be the number of items.
             }
         }
     }
