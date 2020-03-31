@@ -26,6 +26,10 @@ pub fn clear_cache(start: usize, end: usize) callconv(.C) void {
         .mips, .mipsel, .mips64, .mips64el => true,
         else => false,
     };
+    const riscv = switch (arch) {
+        .riscv32, .riscv64 => true,
+        else => false,
+    };
     const powerpc64 = switch (arch) {
         .powerpc64, .powerpc64le => true,
         else => false,
@@ -45,28 +49,31 @@ pub fn clear_cache(start: usize, end: usize) callconv(.C) void {
         @compileError("TODO");
         // FlushInstructionCache(GetCurrentProcess(), start, end - start);
     } else if (arm32 and !apple) {
-        if (os == .freebsd or os == .netbsd) {
-            //  struct arm_sync_icache_args arg;
-            //
-            //  arg.addr = (uintptr_t)start;
-            //  arg.len = (uintptr_t)end - (uintptr_t)start;
-            //
-            //  sysarch(ARM_SYNC_ICACHE, &arg);
-            @compileError("TODO: implement for NetBSD/FreeBSD");
-        } else if (os == .linux) {
-            const result = std.os.linux.syscall3(std.os.linux.SYS_cacheflush, start, end, 0);
-            std.debug.assert(result == 0);
-        } else {
-            @compileError("no __clear_cache implementation available for this target");
+        switch (os) {
+            .freebsd, .netbsd => {
+                var arg = arm_sync_icache_args{
+                    .addr = start,
+                    .len = end - start,
+                };
+                const result = sysarch(ARM_SYNC_ICACHE, @ptrToInt(&arg));
+                std.debug.assert(result == 0);
+            },
+            .linux => {
+                const result = std.os.linux.syscall3(std.os.linux.SYS_cacheflush, start, end, 0);
+                std.debug.assert(result == 0);
+            },
+            else => @compileError("TODO"),
         }
     } else if (os == .linux and mips) {
-        @compileError("TODO");
-        //const uintptr_t start_int = (uintptr_t)start;
-        //const uintptr_t end_int = (uintptr_t)end;
-        //syscall(__NR_cacheflush, start, (end_int - start_int), BCACHE);
+        const flags = 3; // ICACHE | DCACHE
+        const result = std.os.linux.syscall3(std.os.linux.SYS_cacheflush, start, end - start, flags);
+        std.debug.assert(result == 0);
     } else if (mips and os == .openbsd) {
         @compileError("TODO");
         //cacheflush(start, (uintptr_t)end - (uintptr_t)start, BCACHE);
+    } else if (os == .linux and riscv) {
+        const result = std.os.linux.syscall3(std.os.linux.SYS_riscv_flush_icache, start, end - start, 0);
+        std.debug.assert(result == 0);
     } else if (arm64 and !apple) {
         // Get Cache Type Info.
         // TODO memoize this?
@@ -142,3 +149,10 @@ pub fn clear_cache(start: usize, end: usize) callconv(.C) void {
 
 // Darwin-only
 extern fn sys_icache_invalidate(start: usize, len: usize) void;
+// BSD-only
+const arm_sync_icache_args = extern struct {
+    addr: usize, // Virtual start address
+    len: usize, // Region size
+};
+const ARM_SYNC_ICACHE = 0;
+extern "c" fn sysarch(number: i32, args: usize) i32;
