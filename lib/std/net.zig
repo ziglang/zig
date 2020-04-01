@@ -504,7 +504,7 @@ pub fn getAddressList(allocator: *mem.Allocator, name: []const u8, port: u16) !*
         var lookup_addrs = std.ArrayList(LookupAddr).init(allocator);
         defer lookup_addrs.deinit();
 
-        var canon = std.Buffer.initNull(arena);
+        var canon = std.ArrayListSentineled(u8, 0).initNull(arena);
         defer canon.deinit();
 
         try linuxLookupName(&lookup_addrs, &canon, name, family, flags, port);
@@ -539,7 +539,7 @@ const DAS_ORDER_SHIFT = 0;
 
 fn linuxLookupName(
     addrs: *std.ArrayList(LookupAddr),
-    canon: *std.Buffer,
+    canon: *std.ArrayListSentineled(u8, 0),
     opt_name: ?[]const u8,
     family: os.sa_family_t,
     flags: u32,
@@ -798,7 +798,7 @@ fn linuxLookupNameFromNull(
 
 fn linuxLookupNameFromHosts(
     addrs: *std.ArrayList(LookupAddr),
-    canon: *std.Buffer,
+    canon: *std.ArrayListSentineled(u8, 0),
     name: []const u8,
     family: os.sa_family_t,
     port: u16,
@@ -868,7 +868,7 @@ pub fn isValidHostName(hostname: []const u8) bool {
 
 fn linuxLookupNameFromDnsSearch(
     addrs: *std.ArrayList(LookupAddr),
-    canon: *std.Buffer,
+    canon: *std.ArrayListSentineled(u8, 0),
     name: []const u8,
     family: os.sa_family_t,
     port: u16,
@@ -901,12 +901,12 @@ fn linuxLookupNameFromDnsSearch(
     // the full requested name to name_from_dns.
     try canon.resize(canon_name.len);
     mem.copy(u8, canon.span(), canon_name);
-    try canon.appendByte('.');
+    try canon.append('.');
 
     var tok_it = mem.tokenize(search, " \t");
     while (tok_it.next()) |tok| {
         canon.shrink(canon_name.len + 1);
-        try canon.append(tok);
+        try canon.appendSlice(tok);
         try linuxLookupNameFromDns(addrs, canon, canon.span(), family, rc, port);
         if (addrs.len != 0) return;
     }
@@ -917,13 +917,13 @@ fn linuxLookupNameFromDnsSearch(
 
 const dpc_ctx = struct {
     addrs: *std.ArrayList(LookupAddr),
-    canon: *std.Buffer,
+    canon: *std.ArrayListSentineled(u8, 0),
     port: u16,
 };
 
 fn linuxLookupNameFromDns(
     addrs: *std.ArrayList(LookupAddr),
-    canon: *std.Buffer,
+    canon: *std.ArrayListSentineled(u8, 0),
     name: []const u8,
     family: os.sa_family_t,
     rc: ResolvConf,
@@ -978,7 +978,7 @@ const ResolvConf = struct {
     attempts: u32,
     ndots: u32,
     timeout: u32,
-    search: std.Buffer,
+    search: std.ArrayListSentineled(u8, 0),
     ns: std.ArrayList(LookupAddr),
 
     fn deinit(rc: *ResolvConf) void {
@@ -993,7 +993,7 @@ const ResolvConf = struct {
 fn getResolvConf(allocator: *mem.Allocator, rc: *ResolvConf) !void {
     rc.* = ResolvConf{
         .ns = std.ArrayList(LookupAddr).init(allocator),
-        .search = std.Buffer.initNull(allocator),
+        .search = std.ArrayListSentineled(u8, 0).initNull(allocator),
         .ndots = 1,
         .timeout = 5,
         .attempts = 2,

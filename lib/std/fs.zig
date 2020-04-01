@@ -1416,13 +1416,14 @@ pub const readLinkC = @compileError("deprecated; use Dir.readLinkZ or readLinkAb
 
 pub const Walker = struct {
     stack: std.ArrayList(StackItem),
-    name_buffer: std.Buffer,
+    name_buffer: std.ArrayList(u8),
 
     pub const Entry = struct {
         /// The containing directory. This can be used to operate directly on `basename`
         /// rather than `path`, avoiding `error.NameTooLong` for deeply nested paths.
         /// The directory remains open until `next` or `deinit` is called.
         dir: Dir,
+        /// TODO make this null terminated for API convenience
         basename: []const u8,
 
         path: []const u8,
@@ -1445,8 +1446,8 @@ pub const Walker = struct {
             const dirname_len = top.dirname_len;
             if (try top.dir_it.next()) |base| {
                 self.name_buffer.shrink(dirname_len);
-                try self.name_buffer.appendByte(path.sep);
-                try self.name_buffer.append(base.name);
+                try self.name_buffer.append(path.sep);
+                try self.name_buffer.appendSlice(base.name);
                 if (base.kind == .Directory) {
                     var new_dir = top.dir_it.dir.openDir(base.name, .{ .iterate = true }) catch |err| switch (err) {
                         error.NameTooLong => unreachable, // no path sep in base.name
@@ -1456,7 +1457,7 @@ pub const Walker = struct {
                         errdefer new_dir.close();
                         try self.stack.append(StackItem{
                             .dir_it = new_dir.iterate(),
-                            .dirname_len = self.name_buffer.len(),
+                            .dirname_len = self.name_buffer.len,
                         });
                     }
                 }
@@ -1489,8 +1490,10 @@ pub fn walkPath(allocator: *Allocator, dir_path: []const u8) !Walker {
     var dir = try cwd().openDir(dir_path, .{ .iterate = true });
     errdefer dir.close();
 
-    var name_buffer = try std.Buffer.init(allocator, dir_path);
+    var name_buffer = std.ArrayList(u8).init(allocator);
     errdefer name_buffer.deinit();
+
+    try name_buffer.appendSlice(dir_path);
 
     var walker = Walker{
         .stack = std.ArrayList(Walker.StackItem).init(allocator),

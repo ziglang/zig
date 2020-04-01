@@ -1595,7 +1595,8 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file, Stage2Pr
     } else {
         assert(parent->libc != nullptr);
         Buf *out_buf = buf_alloc();
-        os_path_join(buf_create_from_str(parent->libc->crt_dir), buf_create_from_str(file), out_buf);
+        os_path_join(buf_create_from_mem(parent->libc->crt_dir, parent->libc->crt_dir_len),
+                buf_create_from_str(file), out_buf);
         return buf_ptr(out_buf);
     }
 }
@@ -1860,7 +1861,7 @@ static void construct_linker_job_elf(LinkJob *lj) {
     if (g->libc_link_lib != nullptr) {
         if (g->libc != nullptr) {
             lj->args.append("-L");
-            lj->args.append(g->libc->crt_dir);
+            lj->args.append(buf_ptr(buf_create_from_mem(g->libc->crt_dir, g->libc->crt_dir_len)));
         }
 
         if (g->have_dynamic_link && (is_dyn_lib || g->out_type == OutTypeExe)) {
@@ -2381,14 +2382,26 @@ static void construct_linker_job_coff(LinkJob *lj) {
     lj->args.append(buf_ptr(buf_sprintf("-OUT:%s", buf_ptr(&g->bin_file_output_path))));
 
     if (g->libc_link_lib != nullptr && g->libc != nullptr) {
-        lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", g->libc->crt_dir)));
+        Buf *buff0 = buf_create_from_str("-LIBPATH:");
+        buf_append_mem(buff0, g->libc->crt_dir, g->libc->crt_dir_len);
+        lj->args.append(buf_ptr(buff0));
 
         if (target_abi_is_gnu(g->zig_target->abi)) {
-            lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", g->libc->sys_include_dir)));
-            lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", g->libc->include_dir)));
+            Buf *buff1 = buf_create_from_str("-LIBPATH:");
+            buf_append_mem(buff1, g->libc->sys_include_dir, g->libc->sys_include_dir_len);
+            lj->args.append(buf_ptr(buff1));
+
+            Buf *buff2 = buf_create_from_str("-LIBPATH:");
+            buf_append_mem(buff2, g->libc->include_dir, g->libc->include_dir_len);
+            lj->args.append(buf_ptr(buff2));
         } else {
-            lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", g->libc->msvc_lib_dir)));
-            lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", g->libc->kernel32_lib_dir)));
+            Buf *buff1 = buf_create_from_str("-LIBPATH:");
+            buf_append_mem(buff1, g->libc->msvc_lib_dir, g->libc->msvc_lib_dir_len);
+            lj->args.append(buf_ptr(buff1));
+
+            Buf *buff2 = buf_create_from_str("-LIBPATH:");
+            buf_append_mem(buff2, g->libc->kernel32_lib_dir, g->libc->kernel32_lib_dir_len);
+            lj->args.append(buf_ptr(buff2));
         }
     }
 

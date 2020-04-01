@@ -14,11 +14,11 @@ usingnamespace @import("windows_sdk.zig");
 
 /// See the render function implementation for documentation of the fields.
 pub const LibCInstallation = struct {
-    include_dir: ?[:0]const u8 = null,
-    sys_include_dir: ?[:0]const u8 = null,
-    crt_dir: ?[:0]const u8 = null,
-    msvc_lib_dir: ?[:0]const u8 = null,
-    kernel32_lib_dir: ?[:0]const u8 = null,
+    include_dir: ?[]const u8 = null,
+    sys_include_dir: ?[]const u8 = null,
+    crt_dir: ?[]const u8 = null,
+    msvc_lib_dir: ?[]const u8 = null,
+    kernel32_lib_dir: ?[]const u8 = null,
 
     pub const FindError = error{
         OutOfMemory,
@@ -327,13 +327,12 @@ pub const LibCInstallation = struct {
         var search_buf: [2]Search = undefined;
         const searches = fillSearch(&search_buf, sdk);
 
-        var result_buf = try std.Buffer.initSize(allocator, 0);
+        var result_buf = std.ArrayList([]const u8).init(allocator);
         defer result_buf.deinit();
 
         for (searches) |search| {
             result_buf.shrink(0);
-            const stream = result_buf.outStream();
-            try stream.print("{}\\Include\\{}\\ucrt", .{ search.path, search.version });
+            try result_buf.outStream().print("{}\\Include\\{}\\ucrt", .{ search.path, search.version });
 
             var dir = fs.cwd().openDir(result_buf.span(), .{}) catch |err| switch (err) {
                 error.FileNotFound,
@@ -367,7 +366,7 @@ pub const LibCInstallation = struct {
         var search_buf: [2]Search = undefined;
         const searches = fillSearch(&search_buf, sdk);
 
-        var result_buf = try std.Buffer.initSize(allocator, 0);
+        var result_buf = try std.ArrayList([]const u8).init(allocator);
         defer result_buf.deinit();
 
         const arch_sub_dir = switch (builtin.arch) {
@@ -379,8 +378,7 @@ pub const LibCInstallation = struct {
 
         for (searches) |search| {
             result_buf.shrink(0);
-            const stream = result_buf.outStream();
-            try stream.print("{}\\Lib\\{}\\ucrt\\{}", .{ search.path, search.version, arch_sub_dir });
+            try result_buf.outStream().print("{}\\Lib\\{}\\ucrt\\{}", .{ search.path, search.version, arch_sub_dir });
 
             var dir = fs.cwd().openDir(result_buf.span(), .{}) catch |err| switch (err) {
                 error.FileNotFound,
@@ -422,7 +420,7 @@ pub const LibCInstallation = struct {
         var search_buf: [2]Search = undefined;
         const searches = fillSearch(&search_buf, sdk);
 
-        var result_buf = try std.Buffer.initSize(allocator, 0);
+        var result_buf = try std.ArrayList([]const u8).init(allocator);
         defer result_buf.deinit();
 
         const arch_sub_dir = switch (builtin.arch) {
@@ -470,12 +468,10 @@ pub const LibCInstallation = struct {
         const up1 = fs.path.dirname(msvc_lib_dir) orelse return error.LibCStdLibHeaderNotFound;
         const up2 = fs.path.dirname(up1) orelse return error.LibCStdLibHeaderNotFound;
 
-        var result_buf = try std.Buffer.init(allocator, up2);
-        defer result_buf.deinit();
+        const dir_path = try fs.path.join(allocator, &[_][]const u8{ up2, "include" });
+        errdefer allocator.free(dir_path);
 
-        try result_buf.append("\\include");
-
-        var dir = fs.cwd().openDir(result_buf.span(), .{}) catch |err| switch (err) {
+        var dir = fs.cwd().openDir(dir_path, .{}) catch |err| switch (err) {
             error.FileNotFound,
             error.NotDir,
             error.NoDevice,
@@ -490,7 +486,7 @@ pub const LibCInstallation = struct {
             else => return error.FileSystem,
         };
 
-        self.sys_include_dir = result_buf.toOwnedSlice();
+        self.sys_include_dir = dir_path;
     }
 
     fn findNativeMsvcLibDir(

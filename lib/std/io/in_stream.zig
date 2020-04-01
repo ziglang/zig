@@ -3,7 +3,6 @@ const builtin = std.builtin;
 const math = std.math;
 const assert = std.debug.assert;
 const mem = std.mem;
-const Buffer = std.Buffer;
 const testing = std.testing;
 
 pub fn InStream(

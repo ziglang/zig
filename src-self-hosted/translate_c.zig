@@ -209,7 +209,7 @@ const Scope = struct {
 
 pub const Context = struct {
     tree: *ast.Tree,
-    source_buffer: *std.Buffer,
+    source_buffer: *std.ArrayList(u8),
     err: Error,
     source_manager: *ZigClangSourceManager,
     decl_table: DeclTable,
@@ -275,7 +275,7 @@ pub fn translate(
 
         const tree = try tree_arena.allocator.create(ast.Tree);
         tree.* = ast.Tree{
-            .source = undefined, // need to use Buffer.toOwnedSlice later
+            .source = undefined, // need to use toOwnedSlice later
             .root_node = undefined,
             .arena_allocator = tree_arena,
             .tokens = undefined, // can't reference the allocator yet
@@ -296,7 +296,7 @@ pub fn translate(
         .eof_token = undefined,
     };
 
-    var source_buffer = try std.Buffer.initSize(arena, 0);
+    var source_buffer = std.ArrayList(u8).init(arena);
 
     var context = Context{
         .tree = tree,
@@ -4309,7 +4309,7 @@ fn makeRestorePoint(c: *Context) RestorePoint {
     return RestorePoint{
         .c = c,
         .token_index = c.tree.tokens.len,
-        .src_buf_index = c.source_buffer.len(),
+        .src_buf_index = c.source_buffer.len,
     };
 }
 
@@ -4771,11 +4771,11 @@ fn appendToken(c: *Context, token_id: Token.Id, bytes: []const u8) !ast.TokenInd
 
 fn appendTokenFmt(c: *Context, token_id: Token.Id, comptime format: []const u8, args: var) !ast.TokenIndex {
     assert(token_id != .Invalid);
-    const start_index = c.source_buffer.len();
+    const start_index = c.source_buffer.len;
     errdefer c.source_buffer.shrink(start_index);
 
     try c.source_buffer.outStream().print(format, args);
-    const end_index = c.source_buffer.len();
+    const end_index = c.source_buffer.len;
     const token_index = c.tree.tokens.len;
     const new_token = try c.tree.tokens.addOne();
     errdefer c.tree.tokens.shrink(token_index);
@@ -4785,7 +4785,7 @@ fn appendTokenFmt(c: *Context, token_id: Token.Id, comptime format: []const u8, 
         .start = start_index,
         .end = end_index,
     };
-    try c.source_buffer.appendByte(' ');
+    try c.source_buffer.append(' ');
 
     return token_index;
 }

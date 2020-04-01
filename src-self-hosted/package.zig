@@ -1,11 +1,11 @@
 const std = @import("std");
 const mem = std.mem;
 const assert = std.debug.assert;
-const Buffer = std.Buffer;
+const ArrayListSentineled = std.ArrayListSentineled;
 
 pub const Package = struct {
-    root_src_dir: Buffer,
-    root_src_path: Buffer,
+    root_src_dir: ArrayListSentineled(u8, 0),
+    root_src_path: ArrayListSentineled(u8, 0),
 
     /// relative to root_src_dir
     table: Table,
@@ -17,8 +17,8 @@ pub const Package = struct {
     pub fn create(allocator: *mem.Allocator, root_src_dir: []const u8, root_src_path: []const u8) !*Package {
         const ptr = try allocator.create(Package);
         ptr.* = Package{
-            .root_src_dir = try Buffer.init(allocator, root_src_dir),
-            .root_src_path = try Buffer.init(allocator, root_src_path),
+            .root_src_dir = try ArrayListSentineled(u8, 0).init(allocator, root_src_dir),
+            .root_src_path = try ArrayListSentineled(u8, 0).init(allocator, root_src_path),
             .table = Table.init(allocator),
         };
         return ptr;

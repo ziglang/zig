@@ -9123,21 +9123,29 @@ static void detect_libc(CodeGen *g) {
         g->libc_include_dir_len = 0;
         g->libc_include_dir_list = heap::c_allocator.allocate<const char *>(dir_count);
 
-        g->libc_include_dir_list[g->libc_include_dir_len] = g->libc->include_dir;
+        g->libc_include_dir_list[g->libc_include_dir_len] = buf_ptr(buf_create_from_mem(
+                    g->libc->include_dir, g->libc->include_dir_len));
         g->libc_include_dir_len += 1;
 
         if (want_sys_dir) {
-            g->libc_include_dir_list[g->libc_include_dir_len] = g->libc->sys_include_dir;
+            g->libc_include_dir_list[g->libc_include_dir_len] = buf_ptr(buf_create_from_mem(
+                        g->libc->sys_include_dir, g->libc->sys_include_dir_len));
             g->libc_include_dir_len += 1;
         }
 
         if (want_um_and_shared_dirs != 0) {
-            g->libc_include_dir_list[g->libc_include_dir_len] = buf_ptr(buf_sprintf(
-                        "%s" OS_SEP ".." OS_SEP "um", g->libc->include_dir));
+            Buf *include_dir_parent = buf_alloc();
+            os_path_join(buf_create_from_mem(g->libc->include_dir, g->libc->include_dir_len),
+                    buf_create_from_str(".."), include_dir_parent);
+
+            Buf *buff1 = buf_alloc();
+            os_path_join(include_dir_parent, buf_create_from_str("um"), buff1);
+            g->libc_include_dir_list[g->libc_include_dir_len] = buf_ptr(buff1);
             g->libc_include_dir_len += 1;
 
-            g->libc_include_dir_list[g->libc_include_dir_len] = buf_ptr(buf_sprintf(
-                        "%s" OS_SEP ".." OS_SEP "shared", g->libc->include_dir));
+            Buf *buff2 = buf_alloc();
+            os_path_join(include_dir_parent, buf_create_from_str("shared"), buff2);
+            g->libc_include_dir_list[g->libc_include_dir_len] = buf_ptr(buff2);
             g->libc_include_dir_len += 1;
         }
         assert(g->libc_include_dir_len == dir_count);
@@ -10546,11 +10554,11 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     cache_list_of_str(ch, g->lib_dirs.items, g->lib_dirs.length);
     cache_list_of_str(ch, g->framework_dirs.items, g->framework_dirs.length);
     if (g->libc) {
-        cache_str(ch, g->libc->include_dir);
-        cache_str(ch, g->libc->sys_include_dir);
-        cache_str(ch, g->libc->crt_dir);
-        cache_str(ch, g->libc->msvc_lib_dir);
-        cache_str(ch, g->libc->kernel32_lib_dir);
+        cache_slice(ch, Slice<const char>{g->libc->include_dir, g->libc->include_dir_len});
+        cache_slice(ch, Slice<const char>{g->libc->sys_include_dir, g->libc->sys_include_dir_len});
+        cache_slice(ch, Slice<const char>{g->libc->crt_dir, g->libc->crt_dir_len});
+        cache_slice(ch, Slice<const char>{g->libc->msvc_lib_dir, g->libc->msvc_lib_dir_len});
+        cache_slice(ch, Slice<const char>{g->libc->kernel32_lib_dir, g->libc->kernel32_lib_dir_len});
     }
     cache_buf_opt(ch, g->version_script_path);
     cache_buf_opt(ch, g->override_soname);

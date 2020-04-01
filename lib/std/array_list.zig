@@ -189,16 +189,30 @@ pub fn AlignedArrayList(comptime T: type, comptime alignment: ?u29) type {
             self.len += items.len;
         }
 
-        /// Append a value to the list `n` times. Allocates more memory
-        /// as necessary.
+        /// Same as `append` except it returns the number of bytes written, which is always the same
+        /// as `m.len`. The purpose of this function existing is to match `std.io.OutStream` API.
+        /// This function may be called only when `T` is `u8`.
+        fn appendWrite(self: *Self, m: []const u8) !usize {
+            try self.appendSlice(m);
+            return m.len;
+        }
+
+        /// Initializes an OutStream which will append to the list.
+        /// This function may be called only when `T` is `u8`.
+        pub fn outStream(self: *Self) std.io.OutStream(*Self, error{OutOfMemory}, appendWrite) {
+            return .{ .context = self };
+        }
+
+        /// Append a value to the list `n` times.
+        /// Allocates more memory as necessary.
         pub fn appendNTimes(self: *Self, value: T, n: usize) !void {
             const old_len = self.len;
             try self.resize(self.len + n);
             mem.set(T, self.items[old_len..self.len], value);
         }
 
-        /// Adjust the list's length to `new_len`. Doesn't initialize
-        /// added items if any.
+        /// Adjust the list's length to `new_len`.
+        /// Does not initialize added items if any.
         pub fn resize(self: *Self, new_len: usize) !void {
             try self.ensureCapacity(new_len);
             self.len = new_len;
@@ -478,4 +492,15 @@ test "std.ArrayList: ArrayList(T) of struct T" {
     defer root.sub_items.deinit();
     try root.sub_items.append(Item{ .integer = 42, .sub_items = ArrayList(Item).init(testing.allocator) });
     testing.expect(root.sub_items.items[0].integer == 42);
+}
+
+test "std.ArrayList(u8) implements outStream" {
+    var buffer = ArrayList(u8).init(std.testing.allocator);
+    defer buffer.deinit();
+
+    const x: i32 = 42;
+    const y: i32 = 1234;
+    try buffer.outStream().print("x: {}\ny: {}\n", .{ x, y });
+
+    testing.expectEqualSlices(u8, "x: 42\ny: 1234\n", buffer.span());
 }
