@@ -504,7 +504,7 @@ pub const CrossTarget = struct {
         const os_name = if (self.os_tag) |os_tag| @tagName(os_tag) else "native";
 
         var result = std.ArrayList(u8).init(allocator);
-        errdefer result.deinit();
+        defer result.deinit();
 
         try result.outStream().print("{}-{}", .{ arch_name, os_name });
 

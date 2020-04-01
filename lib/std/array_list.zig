@@ -189,32 +189,30 @@ pub fn AlignedArrayList(comptime T: type, comptime alignment: ?u29) type {
             self.len += items.len;
         }
 
-        pub usingnamespace if (T == u8)
-            struct {
-                /// Same as `append` except it returns the number of bytes written, which is always the same
-                /// as `m.len`. The purpose of this function existing is to match `std.io.OutStream` API.
-                fn appendWrite(self: *Self, m: []const u8) !usize {
-                    try self.appendSlice(m);
-                    return m.len;
-                }
+        /// Same as `append` except it returns the number of bytes written, which is always the same
+        /// as `m.len`. The purpose of this function existing is to match `std.io.OutStream` API.
+        /// This function may be called only when `T` is `u8`.
+        fn appendWrite(self: *Self, m: []const u8) !usize {
+            try self.appendSlice(m);
+            return m.len;
+        }
 
-                pub fn outStream(self: *Self) std.io.OutStream(*Self, error{OutOfMemory}, appendWrite) {
-                    return .{ .context = self };
-                }
-            }
-        else
-            struct {};
+        /// Initializes an OutStream which will append to the list.
+        /// This function may be called only when `T` is `u8`.
+        pub fn outStream(self: *Self) std.io.OutStream(*Self, error{OutOfMemory}, appendWrite) {
+            return .{ .context = self };
+        }
 
-        /// Append a value to the list `n` times. Allocates more memory
-        /// as necessary.
+        /// Append a value to the list `n` times.
+        /// Allocates more memory as necessary.
         pub fn appendNTimes(self: *Self, value: T, n: usize) !void {
             const old_len = self.len;
             try self.resize(self.len + n);
             mem.set(T, self.items[old_len..self.len], value);
         }
 
-        /// Adjust the list's length to `new_len`. Doesn't initialize
-        /// added items if any.
+        /// Adjust the list's length to `new_len`.
+        /// Does not initialize added items if any.
         pub fn resize(self: *Self, new_len: usize) !void {
             try self.ensureCapacity(new_len);
             self.len = new_len;

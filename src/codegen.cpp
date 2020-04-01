@@ -9123,17 +9123,20 @@ static void detect_libc(CodeGen *g) {
         g->libc_include_dir_len = 0;
         g->libc_include_dir_list = heap::c_allocator.allocate<const char *>(dir_count);
 
-        g->libc_include_dir_list[g->libc_include_dir_len] = buf_ptr(buf_create_from_mem(g->libc->include_dir, g->libc->include_dir_len));
+        g->libc_include_dir_list[g->libc_include_dir_len] = buf_ptr(buf_create_from_mem(
+                    g->libc->include_dir, g->libc->include_dir_len));
         g->libc_include_dir_len += 1;
 
         if (want_sys_dir) {
-            g->libc_include_dir_list[g->libc_include_dir_len] = buf_ptr(buf_create_from_mem(g->libc->sys_include_dir, g->libc->sys_include_dir_len));
+            g->libc_include_dir_list[g->libc_include_dir_len] = buf_ptr(buf_create_from_mem(
+                        g->libc->sys_include_dir, g->libc->sys_include_dir_len));
             g->libc_include_dir_len += 1;
         }
 
         if (want_um_and_shared_dirs != 0) {
             Buf *include_dir_parent = buf_alloc();
-            os_path_join(buf_create_from_mem(g->libc->include_dir, g->libc->include_dir_len), buf_create_from_str(".."), include_dir_parent);
+            os_path_join(buf_create_from_mem(g->libc->include_dir, g->libc->include_dir_len),
+                    buf_create_from_str(".."), include_dir_parent);
 
             Buf *buff1 = buf_alloc();
             os_path_join(include_dir_parent, buf_create_from_str("um"), buff1);

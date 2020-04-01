@@ -327,20 +327,14 @@ pub const LibCInstallation = struct {
         var search_buf: [2]Search = undefined;
         const searches = fillSearch(&search_buf, sdk);
 
-        for (searches) |search| {
-            const dir_path = try fs.path.join(
-                allocator,
-                &[_][]const u8{
-                    search.path,
-                    "Include",
-                    search.version,
-                    "ucrt",
-                },
-            );
-            var found = false;
-            defer if (!found) allocator.free(dir_path);
+        var result_buf = std.ArrayList([]const u8).init(allocator);
+        defer result_buf.deinit();
 
-            var dir = fs.cwd().openDir(dir_path, .{}) catch |err| switch (err) {
+        for (searches) |search| {
+            result_buf.shrink(0);
+            try result_buf.outStream().print("{}\\Include\\{}\\ucrt", .{ search.path, search.version });
+
+            var dir = fs.cwd().openDir(result_buf.span(), .{}) catch |err| switch (err) {
                 error.FileNotFound,
                 error.NotDir,
                 error.NoDevice,
@@ -355,8 +349,7 @@ pub const LibCInstallation = struct {
                 else => return error.FileSystem,
             };
 
-            found = true;
-            self.include_dir = dir_path;
+            self.include_dir = result_buf.toOwnedSlice();
             return;
         }
 
@@ -373,6 +366,9 @@ pub const LibCInstallation = struct {
         var search_buf: [2]Search = undefined;
         const searches = fillSearch(&search_buf, sdk);
 
+        var result_buf = try std.ArrayList([]const u8).init(allocator);
+        defer result_buf.deinit();
+
         const arch_sub_dir = switch (builtin.arch) {
             .i386 => "x86",
             .x86_64 => "x64",
@@ -381,20 +377,10 @@ pub const LibCInstallation = struct {
         };
 
         for (searches) |search| {
-            const dir_path = try fs.path.join(
-                allocator,
-                &[_][]const u8{
-                    search.path,
-                    "Lib",
-                    search.version,
-                    "ucrt",
-                    arch_sub_dir,
-                },
-            );
-            var found = false;
-            defer if (!found) allocator.free(dir_path);
+            result_buf.shrink(0);
+            try result_buf.outStream().print("{}\\Lib\\{}\\ucrt\\{}", .{ search.path, search.version, arch_sub_dir });
 
-            var dir = fs.cwd().openDir(dir_path, .{}) catch |err| switch (err) {
+            var dir = fs.cwd().openDir(result_buf.span(), .{}) catch |err| switch (err) {
                 error.FileNotFound,
                 error.NotDir,
                 error.NoDevice,
@@ -409,8 +395,7 @@ pub const LibCInstallation = struct {
                 else => return error.FileSystem,
             };
 
-            found = true;
-            self.crt_dir = dir_path;
+            self.crt_dir = result_buf.toOwnedSlice();
             return;
         }
         return error.LibCRuntimeNotFound;
@@ -434,6 +419,10 @@ pub const LibCInstallation = struct {
 
         var search_buf: [2]Search = undefined;
         const searches = fillSearch(&search_buf, sdk);
+
+        var result_buf = try std.ArrayList([]const u8).init(allocator);
+        defer result_buf.deinit();
+
         const arch_sub_dir = switch (builtin.arch) {
             .i386 => "x86",
             .x86_64 => "x64",
@@ -442,20 +431,11 @@ pub const LibCInstallation = struct {
         };
 
         for (searches) |search| {
-            const dir_path = try fs.path.join(
-                allocator,
-                &[_][]const u8{
-                    search.path,
-                    "Lib",
-                    search.version,
-                    "um",
-                    arch_sub_dir,
-                },
-            );
-            var found = false;
-            defer if (!found) allocator.free(dir_path);
+            result_buf.shrink(0);
+            const stream = result_buf.outStream();
+            try stream.print("{}\\Lib\\{}\\um\\{}", .{ search.path, search.version, arch_sub_dir });
 
-            var dir = fs.cwd().openDir(dir_path, .{}) catch |err| switch (err) {
+            var dir = fs.cwd().openDir(result_buf.span(), .{}) catch |err| switch (err) {
                 error.FileNotFound,
                 error.NotDir,
                 error.NoDevice,
@@ -470,8 +450,7 @@ pub const LibCInstallation = struct {
                 else => return error.FileSystem,
             };
 
-            found = true;
-            self.kernel32_lib_dir = dir_path;
+            self.kernel32_lib_dir = result_buf.toOwnedSlice();
             return;
         }
         return error.LibCKernel32LibNotFound;
@@ -489,13 +468,7 @@ pub const LibCInstallation = struct {
         const up1 = fs.path.dirname(msvc_lib_dir) orelse return error.LibCStdLibHeaderNotFound;
         const up2 = fs.path.dirname(up1) orelse return error.LibCStdLibHeaderNotFound;
 
-        const dir_path = try fs.path.join(
-            allocator,
-            &[_][]const u8{
-                up2,
-                "include",
-            },
-        );
+        const dir_path = try fs.path.join(allocator, &[_][]const u8{ up2, "include" });
         errdefer allocator.free(dir_path);
 
         var dir = fs.cwd().openDir(dir_path, .{}) catch |err| switch (err) {

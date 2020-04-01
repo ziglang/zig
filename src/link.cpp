@@ -1595,7 +1595,8 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file, Stage2Pr
     } else {
         assert(parent->libc != nullptr);
         Buf *out_buf = buf_alloc();
-        os_path_join(buf_create_from_mem(parent->libc->crt_dir, parent->libc->crt_dir_len), buf_create_from_str(file), out_buf);
+        os_path_join(buf_create_from_mem(parent->libc->crt_dir, parent->libc->crt_dir_len),
+                buf_create_from_str(file), out_buf);
         return buf_ptr(out_buf);
     }
 }

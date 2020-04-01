@@ -757,7 +757,6 @@ fn windowsCreateProcess(app_name: [*:0]u16, cmd_line: [*:0]u16, envp_ptr: ?[*]u1
 }
 
 /// Caller must dealloc.
-/// Guarantees a null byte at result[result.len].
 fn windowsCreateCommandLine(allocator: *mem.Allocator, argv: []const []const u8) ![:0]u8 {
     var buf = try Buffer.initSize(allocator, 0);
     defer buf.deinit();

@@ -1961,7 +1961,6 @@ pub const LibExeObjStep = struct {
                 }
             } else {
                 var mcpu_buffer = std.ArrayList(u8).init(builder.allocator);
-                errdefer mcpu_buffer.deinit();
 
                 try mcpu_buffer.outStream().print("-mcpu={}", .{cross.cpu.model.name});
 

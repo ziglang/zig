@@ -413,11 +413,11 @@ fn printErrMsgToFile(
 
     var text_buf = std.ArrayList(u8).init(allocator);
     defer text_buf.deinit();
-    const out_stream = &text_buf.outStream();
+    const out_stream = text_buf.outStream();
     try parse_error.render(&tree.tokens, out_stream);
     const text = text_buf.span();
 
-    const stream = &file.outStream();
+    const stream = file.outStream();
     try stream.print("{}:{}:{}: error: {}\n", .{ path, start_loc.line + 1, start_loc.column + 1, text });
 
     if (!color_on) return;

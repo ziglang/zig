@@ -297,7 +297,6 @@ pub fn translate(
     };
 
     var source_buffer = std.ArrayList(u8).init(arena);
-    errdefer source_buffer.deinit();
 
     var context = Context{
         .tree = tree,
