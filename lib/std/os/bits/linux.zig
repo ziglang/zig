@@ -813,13 +813,13 @@ pub const app_mask: sigset_t = [2]u32{ 0xfffffffc, 0x7fffffff } ++ [_]u32{0xffff
 pub const k_sigaction = if (is_mips)
     extern struct {
         flags: usize,
-        sigaction: ?extern fn (i32, *siginfo_t, *c_void) void,
+        sigaction: ?extern fn (i32, *siginfo_t, ?*c_void) void,
         mask: [4]u32,
         restorer: extern fn () void,
     }
 else
     extern struct {
-        sigaction: ?extern fn (i32, *siginfo_t, *c_void) void,
+        sigaction: ?extern fn (i32, *siginfo_t, ?*c_void) void,
         flags: usize,
         restorer: extern fn () void,
         mask: [2]u32,

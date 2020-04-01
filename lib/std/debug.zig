@@ -1666,7 +1666,11 @@ fn getDebugInfoAllocator() *mem.Allocator {
 }
 
 /// Whether or not the current target can print useful debug information when a segfault occurs.
-pub const have_segfault_handling_support = builtin.os.tag == .linux or builtin.os.tag == .windows;
+pub const have_segfault_handling_support = switch (builtin.os.tag) {
+    .linux, .netbsd => true,
+    .windows => true,
+    else => false,
+};
 pub const enable_segfault_handler: bool = if (@hasDecl(root, "enable_segfault_handler"))
     root.enable_segfault_handler
 else
@@ -1718,13 +1722,17 @@ fn resetSegfaultHandler() void {
     os.sigaction(os.SIGBUS, &act, null);
 }
 
-fn handleSegfaultLinux(sig: i32, info: *const os.siginfo_t, ctx_ptr: *const c_void) callconv(.C) noreturn {
+fn handleSegfaultLinux(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const c_void) callconv(.C) noreturn {
     // Reset to the default handler so that if a segfault happens in this handler it will crash
     // the process. Also when this handler returns, the original instruction will be repeated
     // and the resulting segfault will crash the process rather than continually dump stack traces.
     resetSegfaultHandler();
 
-    const addr = @ptrToInt(info.fields.sigfault.addr);
+    const addr = switch (builtin.os.tag) {
+        .linux => @ptrToInt(info.fields.sigfault.addr),
+        .netbsd => @ptrToInt(info.info.reason.fault.addr),
+        else => unreachable,
+    };
     switch (sig) {
         os.SIGSEGV => std.debug.warn("Segmentation fault at address 0x{x}\n", .{addr}),
         os.SIGILL => std.debug.warn("Illegal instruction at address 0x{x}\n", .{addr}),
