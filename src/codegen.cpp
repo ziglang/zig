@@ -714,7 +714,7 @@ static LLVMValueRef get_arithmetic_overflow_fn(CodeGen *g, ZigType *operand_type
     };
 
     if (operand_type->id == ZigTypeIdVector) {
-        sprintf(fn_name, "llvm.%s.with.overflow.v%" PRIu32 "i%" PRIu32, signed_str,
+        sprintf(fn_name, "llvm.%s.with.overflow.v%" PRIu64 "i%" PRIu32, signed_str,
                 operand_type->data.vector.len, int_type->data.integral.bit_count);
 
         LLVMTypeRef return_elem_types[] = {

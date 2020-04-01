@@ -1188,7 +1188,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    suspend;
         \\}
     , &[_][]const u8{
-        "tmp.zig:3:5: error: expected type '*@Frame(bar)', found '*@Frame(foo)'",
+        "tmp.zig:3:13: error: expected type '*@Frame(bar)', found '*@Frame(foo)'",
     });
 
     cases.add("@Frame() of generic function",

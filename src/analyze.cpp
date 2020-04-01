@@ -5156,6 +5156,7 @@ ZigType *get_vector_type(CodeGen *g, uint32_t len, ZigType *elem_type) {
     }
     entry->data.vector.len = len;
     entry->data.vector.elem_type = elem_type;
+    entry->data.vector.padding = 0;
 
     buf_resize(&entry->name, 0);
     buf_appendf(&entry->name, "@Vector(%u, %s)", len, buf_ptr(&elem_type->name));
