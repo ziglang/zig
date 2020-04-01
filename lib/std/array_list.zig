@@ -219,7 +219,10 @@ pub fn AlignedArrayList(comptime T: type, comptime alignment: ?u29) type {
             assert(new_len <= self.items.len);
 
             self.items = self.allocator.realloc(self.allocatedSlice(), new_len) catch |e| switch (e) {
-                error.OutOfMemory => return, // no problem, capacity is still correct then.
+                error.OutOfMemory => { // no problem, capacity is still correct then.
+                    self.items.len = new_len;
+                    return;
+                },
             };
             self.capacity = new_len;
         }
@@ -510,4 +513,19 @@ test "std.ArrayList(u8) implements outStream" {
     try buffer.outStream().print("x: {}\ny: {}\n", .{ x, y });
 
     testing.expectEqualSlices(u8, "x: 42\ny: 1234\n", buffer.span());
+}
+
+test "std.ArrayList.shrink still sets length on error.OutOfMemory" {
+        // use an arena allocator to make sure realloc returns error.OutOfMemory
+        var arena = std.heap.ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+
+        var list = ArrayList(i32).init(&arena.allocator);
+
+        try list.append(1);
+        try list.append(2);
+        try list.append(3);
+
+        list.shrink(1);
+        testing.expect(list.items.len == 1);
 }
