@@ -1324,6 +1324,7 @@ struct ZigTypeFloat {
     size_t bit_count;
 };
 
+// Needs to have the same memory layout as ZigTypeVector
 struct ZigTypeArray {
     ZigType *child_type;
     uint64_t len;
@@ -1512,11 +1513,16 @@ struct ZigTypeBoundFn {
     ZigType *fn_type;
 };
 
+// Needs to have the same memory layout as ZigTypeArray
 struct ZigTypeVector {
     // The type must be a pointer, integer, bool, or float
     ZigType *elem_type;
-    uint32_t len;
+    uint64_t len;
+    size_t padding;
 };
+
+// A lot of code is relying on ZigTypeArray and ZigTypeVector having the same layout/size
+static_assert(sizeof(ZigTypeVector) == sizeof(ZigTypeArray), "Size of ZigTypeVector and ZigTypeArray do not match!");
 
 enum ZigTypeId {
     ZigTypeIdInvalid,

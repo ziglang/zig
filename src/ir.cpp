@@ -15953,7 +15953,7 @@ static IrInstGen *ir_analyze_bin_op_cmp_numeric(IrAnalyze *ira, IrInst *source_i
     if (op1->value->type->id == ZigTypeIdVector && op2->value->type->id == ZigTypeIdVector) {
         if (op1->value->type->data.vector.len != op2->value->type->data.vector.len) {
             ir_add_error(ira, source_instr,
-                buf_sprintf("vector length mismatch: %" PRIu32 " and %" PRIu32,
+                buf_sprintf("vector length mismatch: %" PRIu64 " and %" PRIu64,
                     op1->value->type->data.vector.len, op2->value->type->data.vector.len));
             return ira->codegen->invalid_inst_gen;
         }
