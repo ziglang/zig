@@ -341,6 +341,9 @@ pub fn zeroes(comptime T: type) T {
             }
         },
         .Array => |info| {
+            if (info.sentinel) |sentinel| { 
+                return [_:info.sentinel]info.child{zeroes(info.child)} ** info.len; 
+            }
             return [_]info.child{zeroes(info.child)} ** info.len;
         },
         .Vector,
