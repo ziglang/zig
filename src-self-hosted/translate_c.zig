@@ -3018,6 +3018,8 @@ fn transCompoundAssignOperator(rp: RestorePoint, scope: *Scope, stmt: *const Zig
             return transCreateCompoundAssign(rp, scope, stmt, .AssignSubWrap, .MinusPercentEqual, "-%=", .SubWrap, .MinusPercent, "-%", used)
         else
             return transCreateCompoundAssign(rp, scope, stmt, .AssignSub, .MinusPercentEqual, "-=", .Sub, .Minus, "-", used),
+        .DivAssign => return transCreateCompoundAssign(rp, scope, stmt, .AssignDiv, .SlashEqual, "/=", .Div, .Slash, "/", used),
+        .RemAssign => return transCreateCompoundAssign(rp, scope, stmt, .AssignMod, .PercentEqual, "%=", .Mod, .Percent, "%", used),
         .ShlAssign => return transCreateCompoundAssign(rp, scope, stmt, .AssignBitShiftLeft, .AngleBracketAngleBracketLeftEqual, "<<=", .BitShiftLeft, .AngleBracketAngleBracketLeft, "<<", used),
         .ShrAssign => return transCreateCompoundAssign(rp, scope, stmt, .AssignBitShiftRight, .AngleBracketAngleBracketRightEqual, ">>=", .BitShiftRight, .AngleBracketAngleBracketRight, ">>", used),
         .AndAssign => return transCreateCompoundAssign(rp, scope, stmt, .AssignBitAnd, .AmpersandEqual, "&=", .BitAnd, .Ampersand, "&", used),
