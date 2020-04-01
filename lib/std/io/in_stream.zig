@@ -54,7 +54,7 @@ pub fn InStream(
         /// and the `std.ArrayList` has exactly `max_append_size` bytes appended.
         pub fn readAllArrayList(self: Self, array_list: *std.ArrayList(u8), max_append_size: usize) !void {
             try array_list.ensureCapacity(math.min(max_append_size, 4096));
-            const original_len = array_list.len;
+            const original_len = array_list.items.len;
             var start_index: usize = original_len;
             while (true) {
                 array_list.expandToCapacity();

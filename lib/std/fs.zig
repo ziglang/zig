@@ -1440,9 +1440,9 @@ pub const Walker = struct {
     /// a reference to the path.
     pub fn next(self: *Walker) !?Entry {
         while (true) {
-            if (self.stack.len == 0) return null;
+            if (self.stack.items.len == 0) return null;
             // `top` becomes invalid after appending to `self.stack`.
-            const top = &self.stack.span()[self.stack.len - 1];
+            const top = &self.stack.span()[self.stack.items.len - 1];
             const dirname_len = top.dirname_len;
             if (try top.dir_it.next()) |base| {
                 self.name_buffer.shrink(dirname_len);
@@ -1457,7 +1457,7 @@ pub const Walker = struct {
                         errdefer new_dir.close();
                         try self.stack.append(StackItem{
                             .dir_it = new_dir.iterate(),
-                            .dirname_len = self.name_buffer.len,
+                            .dirname_len = self.name_buffer.items.len,
                         });
                     }
                 }

@@ -4,7 +4,6 @@ const math = std.math;
 const mem = std.mem;
 const testing = std.testing;
 const Allocator = mem.Allocator;
-const ArrayList = std.ArrayList;
 
 const bn = @import("int.zig");
 const Limb = bn.Limb;

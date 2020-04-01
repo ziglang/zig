@@ -268,7 +268,7 @@ pub const LibCInstallation = struct {
                 try search_paths.append(line);
             }
         }
-        if (search_paths.len == 0) {
+        if (search_paths.items.len == 0) {
             return error.CCompilerCannotFindHeaders;
         }
 
@@ -276,9 +276,9 @@ pub const LibCInstallation = struct {
         const sys_include_dir_example_file = if (is_windows) "sys\\types.h" else "sys/errno.h";
 
         var path_i: usize = 0;
-        while (path_i < search_paths.len) : (path_i += 1) {
+        while (path_i < search_paths.items.len) : (path_i += 1) {
             // search in reverse order
-            const search_path_untrimmed = search_paths.at(search_paths.len - path_i - 1);
+            const search_path_untrimmed = search_paths.at(search_paths.items.len - path_i - 1);
             const search_path = std.mem.trimLeft(u8, search_path_untrimmed, " ");
             var search_dir = fs.cwd().openDir(search_path, .{}) catch |err| switch (err) {
                 error.FileNotFound,

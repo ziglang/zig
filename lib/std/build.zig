@@ -1779,7 +1779,7 @@ pub const LibExeObjStep = struct {
         const self = @fieldParentPtr(LibExeObjStep, "step", step);
         const builder = self.builder;
 
-        if (self.root_src == null and self.link_objects.len == 0) {
+        if (self.root_src == null and self.link_objects.items.len == 0) {
             warn("{}: linker needs 1 or more objects to link\n", .{self.step.name});
             return error.NeedAnObject;
         }
@@ -1847,7 +1847,7 @@ pub const LibExeObjStep = struct {
             }
         }
 
-        if (self.build_options_contents.len > 0) {
+        if (self.build_options_contents.items.len > 0) {
             const build_options_file = try fs.path.join(
                 builder.allocator,
                 &[_][]const u8{ builder.cache_root, builder.fmt("{}_build_options.zig", .{self.name}) },

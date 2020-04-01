@@ -239,7 +239,7 @@ fn fmtMain(argc: c_int, argv: [*]const [*:0]const u8) !void {
     }
 
     if (stdin_flag) {
-        if (input_files.len != 0) {
+        if (input_files.items.len != 0) {
             try stderr.writeAll("cannot use --stdin with positional arguments\n");
             process.exit(1);
         }
@@ -273,7 +273,7 @@ fn fmtMain(argc: c_int, argv: [*]const [*:0]const u8) !void {
         return;
     }
 
-    if (input_files.len == 0) {
+    if (input_files.items.len == 0) {
         try stderr.writeAll("expected at least one source file argument\n");
         process.exit(1);
     }
