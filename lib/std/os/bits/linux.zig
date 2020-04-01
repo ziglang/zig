@@ -827,15 +827,17 @@ else
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
 pub const Sigaction = extern struct {
-    sigaction: ?extern fn (i32, *siginfo_t, *c_void) void,
+    pub const sigaction_fn = fn (i32, *siginfo_t, ?*c_void) callconv(.C) void;
+    sigaction: ?sigaction_fn,
     mask: sigset_t,
     flags: u32,
     restorer: ?extern fn () void = null,
 };
 
-pub const SIG_ERR = @intToPtr(extern fn (i32, *siginfo_t, *c_void) void, maxInt(usize));
-pub const SIG_DFL = @intToPtr(?extern fn (i32, *siginfo_t, *c_void) void, 0);
-pub const SIG_IGN = @intToPtr(extern fn (i32, *siginfo_t, *c_void) void, 1);
+pub const SIG_ERR = @intToPtr(?Sigaction.sigaction_fn, maxInt(usize));
+pub const SIG_DFL = @intToPtr(?Sigaction.sigaction_fn, 0);
+pub const SIG_IGN = @intToPtr(?Sigaction.sigaction_fn, 1);
+
 pub const empty_sigset = [_]u32{0} ** sigset_t.len;
 
 pub const in_port_t = u16;
