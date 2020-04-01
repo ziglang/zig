@@ -6829,4 +6829,19 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:8:23: error: use of undefined value here causes undefined behavior",
         "tmp.zig:14:23: error: use of undefined value here causes undefined behavior",
     });
+
+    cases.add("issue #3818: bitcast from parray/slice to u16",
+        \\export fn foo1() void {
+        \\    var bytes = [_]u8{1, 2};
+        \\    const word: u16 = @bitCast(u16, bytes[0..]);
+        \\}
+        \\export fn foo2() void {
+        \\    var bytes: []u8 = &[_]u8{1, 2};
+        \\    const word: u16 = @bitCast(u16, bytes);
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:3:42: error: unable to @bitCast from pointer type '*[2]u8'",
+        "tmp.zig:7:32: error: destination type 'u16' has size 2 but source type '[]u8' has size 16",
+        "tmp.zig:7:37: note: referenced here",
+    });
 }
