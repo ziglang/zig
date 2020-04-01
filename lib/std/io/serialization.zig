@@ -5,6 +5,7 @@ const assert = std.debug.assert;
 const math = std.math;
 const meta = std.meta;
 const trait = meta.trait;
+const testing = std.testing;
 
 pub const Packing = enum {
     /// Pack data to byte alignment
@@ -273,7 +274,7 @@ pub fn Serializer(comptime endian: builtin.Endian, comptime packing: Packing, co
             if (comptime trait.hasFn("serialize")(T)) return T.serialize(value, self);
 
             if (comptime trait.isPacked(T) and packing != .Bit) {
-                var packed_serializer = Serializer(endian, .Bit, Error).init(self.out_stream);
+                var packed_serializer = Serializer(endian, .Bit, OutStreamType).init(self.out_stream);
                 try packed_serializer.serialize(value);
                 try packed_serializer.flush();
                 return;
@@ -364,28 +365,28 @@ fn testIntSerializerDeserializer(comptime endian: builtin.Endian, comptime packi
 
     var data_mem: [total_bytes]u8 = undefined;
     var out = io.fixedBufferStream(&data_mem);
-    var serializer = serializer(endian, packing, out.outStream());
+    var _serializer = serializer(endian, packing, out.outStream());
 
     var in = io.fixedBufferStream(&data_mem);
-    var deserializer = Deserializer(endian, packing, in.inStream());
+    var _deserializer = deserializer(endian, packing, in.inStream());
 
     comptime var i = 0;
     inline while (i <= max_test_bitsize) : (i += 1) {
         const U = std.meta.IntType(false, i);
         const S = std.meta.IntType(true, i);
-        try serializer.serializeInt(@as(U, i));
-        if (i != 0) try serializer.serializeInt(@as(S, -1)) else try serializer.serialize(@as(S, 0));
+        try _serializer.serializeInt(@as(U, i));
+        if (i != 0) try _serializer.serializeInt(@as(S, -1)) else try _serializer.serialize(@as(S, 0));
     }
-    try serializer.flush();
+    try _serializer.flush();
 
     i = 0;
     inline while (i <= max_test_bitsize) : (i += 1) {
         const U = std.meta.IntType(false, i);
         const S = std.meta.IntType(true, i);
-        const x = try deserializer.deserializeInt(U);
-        const y = try deserializer.deserializeInt(S);
-        expect(x == @as(U, i));
-        if (i != 0) expect(y == @as(S, -1)) else expect(y == 0);
+        const x = try _deserializer.deserializeInt(U);
+        const y = try _deserializer.deserializeInt(S);
+        testing.expect(x == @as(U, i));
+        if (i != 0) testing.expect(y == @as(S, -1)) else testing.expect(y == 0);
     }
 
     const u8_bit_count = comptime meta.bitCount(u8);
@@ -395,7 +396,7 @@ fn testIntSerializerDeserializer(comptime endian: builtin.Endian, comptime packi
     const extra_packed_byte = @boolToInt(total_bits % u8_bit_count > 0);
     const total_packed_bytes = (total_bits / u8_bit_count) + extra_packed_byte;
 
-    expect(in.pos == if (packing == .Bit) total_packed_bytes else total_bytes);
+    testing.expect(in.pos == if (packing == .Bit) total_packed_bytes else total_bytes);
 
     //Verify that empty error set works with serializer.
     //deserializer is covered by FixedBufferStream
@@ -421,35 +422,35 @@ fn testIntSerializerDeserializerInfNaN(
     var data_mem: [mem_size]u8 = undefined;
 
     var out = io.fixedBufferStream(&data_mem);
-    var serializer = serializer(endian, packing, out.outStream());
+    var _serializer = serializer(endian, packing, out.outStream());
 
     var in = io.fixedBufferStream(&data_mem);
-    var deserializer = deserializer(endian, packing, in.inStream());
+    var _deserializer = deserializer(endian, packing, in.inStream());
 
     //@TODO: isInf/isNan not currently implemented for f128.
-    try serializer.serialize(std.math.nan(f16));
-    try serializer.serialize(std.math.inf(f16));
-    try serializer.serialize(std.math.nan(f32));
-    try serializer.serialize(std.math.inf(f32));
-    try serializer.serialize(std.math.nan(f64));
-    try serializer.serialize(std.math.inf(f64));
+    try _serializer.serialize(std.math.nan(f16));
+    try _serializer.serialize(std.math.inf(f16));
+    try _serializer.serialize(std.math.nan(f32));
+    try _serializer.serialize(std.math.inf(f32));
+    try _serializer.serialize(std.math.nan(f64));
+    try _serializer.serialize(std.math.inf(f64));
     //try serializer.serialize(std.math.nan(f128));
     //try serializer.serialize(std.math.inf(f128));
-    const nan_check_f16 = try deserializer.deserialize(f16);
-    const inf_check_f16 = try deserializer.deserialize(f16);
-    const nan_check_f32 = try deserializer.deserialize(f32);
-    deserializer.alignToByte();
-    const inf_check_f32 = try deserializer.deserialize(f32);
-    const nan_check_f64 = try deserializer.deserialize(f64);
-    const inf_check_f64 = try deserializer.deserialize(f64);
+    const nan_check_f16 = try _deserializer.deserialize(f16);
+    const inf_check_f16 = try _deserializer.deserialize(f16);
+    const nan_check_f32 = try _deserializer.deserialize(f32);
+    _deserializer.alignToByte();
+    const inf_check_f32 = try _deserializer.deserialize(f32);
+    const nan_check_f64 = try _deserializer.deserialize(f64);
+    const inf_check_f64 = try _deserializer.deserialize(f64);
     //const nan_check_f128 = try deserializer.deserialize(f128);
     //const inf_check_f128 = try deserializer.deserialize(f128);
-    expect(std.math.isNan(nan_check_f16));
-    expect(std.math.isInf(inf_check_f16));
-    expect(std.math.isNan(nan_check_f32));
-    expect(std.math.isInf(inf_check_f32));
-    expect(std.math.isNan(nan_check_f64));
-    expect(std.math.isInf(inf_check_f64));
+    testing.expect(std.math.isNan(nan_check_f16));
+    testing.expect(std.math.isInf(inf_check_f16));
+    testing.expect(std.math.isNan(nan_check_f32));
+    testing.expect(std.math.isInf(inf_check_f32));
+    testing.expect(std.math.isNan(nan_check_f64));
+    testing.expect(std.math.isInf(inf_check_f64));
     //expect(std.math.isNan(nan_check_f128));
     //expect(std.math.isInf(inf_check_f128));
 }
@@ -461,8 +462,8 @@ test "Serializer/Deserializer Int: Inf/NaN" {
     try testIntSerializerDeserializerInfNaN(.Little, .Bit);
 }
 
-fn testAlternateSerializer(self: var, serializer: var) !void {
-    try serializer.serialize(self.f_f16);
+fn testAlternateSerializer(self: var, _serializer: var) !void {
+    try _serializer.serialize(self.f_f16);
 }
 
 fn testSerializerDeserializer(comptime endian: builtin.Endian, comptime packing: io.Packing) !void {
@@ -502,8 +503,8 @@ fn testSerializerDeserializer(comptime endian: builtin.Endian, comptime packing:
         f_f16: f16,
         f_unused_u32: u32,
 
-        pub fn deserialize(self: *@This(), deserializer: var) !void {
-            try deserializer.deserializeInto(&self.f_f16);
+        pub fn deserialize(self: *@This(), _deserializer: var) !void {
+            try _deserializer.deserializeInto(&self.f_f16);
             self.f_unused_u32 = 47;
         }
 
@@ -550,15 +551,15 @@ fn testSerializerDeserializer(comptime endian: builtin.Endian, comptime packing:
 
     var data_mem: [@sizeOf(MyStruct)]u8 = undefined;
     var out = io.fixedBufferStream(&data_mem);
-    var serializer = serializer(endian, packing, out.outStream());
+    var _serializer = serializer(endian, packing, out.outStream());
 
     var in = io.fixedBufferStream(&data_mem);
-    var deserializer = deserializer(endian, packing, in.inStream());
+    var _deserializer = deserializer(endian, packing, in.inStream());
 
-    try serializer.serialize(my_inst);
+    try _serializer.serialize(my_inst);
 
-    const my_copy = try deserializer.deserialize(MyStruct);
-    expect(meta.eql(my_copy, my_inst));
+    const my_copy = try _deserializer.deserialize(MyStruct);
+    testing.expect(meta.eql(my_copy, my_inst));
 }
 
 test "Serializer/Deserializer generic" {
@@ -584,18 +585,18 @@ fn testBadData(comptime endian: builtin.Endian, comptime packing: io.Packing) !v
     };
 
     var data_mem: [4]u8 = undefined;
-    var out = io.fixedBufferStream.init(&data_mem);
-    var serializer = serializer(endian, packing, out.outStream());
+    var out = io.fixedBufferStream(&data_mem);
+    var _serializer = serializer(endian, packing, out.outStream());
 
     var in = io.fixedBufferStream(&data_mem);
-    var deserializer = deserializer(endian, packing, in.inStream());
+    var _deserializer = deserializer(endian, packing, in.inStream());
 
-    try serializer.serialize(@as(u14, 3));
-    expectError(error.InvalidEnumTag, deserializer.deserialize(A));
+    try _serializer.serialize(@as(u14, 3));
+    testing.expectError(error.InvalidEnumTag, _deserializer.deserialize(A));
     out.pos = 0;
-    try serializer.serialize(@as(u14, 3));
-    try serializer.serialize(@as(u14, 88));
-    expectError(error.InvalidEnumTag, deserializer.deserialize(C));
+    try _serializer.serialize(@as(u14, 3));
+    try _serializer.serialize(@as(u14, 88));
+    testing.expectError(error.InvalidEnumTag, _deserializer.deserialize(C));
 }
 
 test "Deserializer bad data" {
