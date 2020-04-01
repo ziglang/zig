@@ -2381,6 +2381,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    a &= (a &= 1);
         \\    a |= (a |= 1);
         \\    a ^= (a ^= 1);
+        \\    a /= (a /= 1);
+        \\    a %= (a %= 1);
         \\    a >>= (a >>= 1);
         \\    a <<= (a <<= 1);
         \\}
@@ -2415,6 +2417,16 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    a ^= (blk: {
         \\        const ref = &a;
         \\        ref.* = ref.* ^ @as(c_int, 1);
+        \\        break :blk ref.*;
+        \\    });
+        \\    a /= (blk: {
+        \\        const ref = &a;
+        \\        ref.* = ref.* / @as(c_int, 1);
+        \\        break :blk ref.*;
+        \\    });
+        \\    a %= (blk: {
+        \\        const ref = &a;
+        \\        ref.* = ref.* % @as(c_int, 1);
         \\        break :blk ref.*;
         \\    });
         \\    a >>= @intCast(@import("std").math.Log2Int(c_int), (blk: {
