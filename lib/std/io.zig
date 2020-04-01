@@ -141,6 +141,20 @@ test "null_out_stream" {
 }
 
 test "" {
+    _ = @import("io/bit_in_stream.zig");
+    _ = @import("io/bit_out_stream.zig");
+    _ = @import("io/buffered_atomic_file.zig");
+    _ = @import("io/buffered_in_stream.zig");
+    _ = @import("io/buffered_out_stream.zig");
+    _ = @import("io/c_out_stream.zig");
+    _ = @import("io/counting_out_stream.zig");
+    _ = @import("io/fixed_buffer_stream.zig");
+    _ = @import("io/in_stream.zig");
+    _ = @import("io/out_stream.zig");
+    _ = @import("io/peek_stream.zig");
+    _ = @import("io/seekable_stream.zig");
+    _ = @import("io/serialization.zig");
+    _ = @import("io/stream_source.zig");
     _ = @import("io/test.zig");
 }
 
