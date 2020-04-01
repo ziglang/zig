@@ -15,10 +15,10 @@ const Context = struct {
     link_in_crt: bool,
 
     link_err: error{OutOfMemory}!void,
-    link_msg: std.Buffer,
+    link_msg: std.ArrayListSentineled(u8, 0),
 
     libc: *LibCInstallation,
-    out_file_path: std.Buffer,
+    out_file_path: std.ArrayListSentineled(u8, 0),
 };
 
 pub fn link(comp: *Compilation) !void {
@@ -34,9 +34,9 @@ pub fn link(comp: *Compilation) !void {
     };
     defer ctx.arena.deinit();
     ctx.args = std.ArrayList([*:0]const u8).init(&ctx.arena.allocator);
-    ctx.link_msg = std.Buffer.initNull(&ctx.arena.allocator);
+    ctx.link_msg = std.ArrayListSentineled(u8, 0).initNull(&ctx.arena.allocator);
 
-    ctx.out_file_path = try std.Buffer.init(&ctx.arena.allocator, comp.name.span());
+    ctx.out_file_path = try std.ArrayListSentineled(u8, 0).init(&ctx.arena.allocator, comp.name.span());
     switch (comp.kind) {
         .Exe => {
             try ctx.out_file_path.append(comp.target.exeFileExt());

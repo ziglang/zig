@@ -8,7 +8,7 @@ const fs = std.fs;
 const process = std.process;
 const Allocator = mem.Allocator;
 const ArrayList = std.ArrayList;
-const Buffer = std.Buffer;
+const ArrayListSentineled = std.ArrayListSentineled;
 const Target = std.Target;
 const CrossTarget = std.zig.CrossTarget;
 const self_hosted_main = @import("main.zig");
@@ -449,7 +449,7 @@ export fn stage2_DepTokenizer_deinit(self: *stage2_DepTokenizer) void {
 
 export fn stage2_DepTokenizer_next(self: *stage2_DepTokenizer) stage2_DepNextResult {
     const otoken = self.handle.next() catch {
-        const textz = std.Buffer.init(&self.handle.arena.allocator, self.handle.error_text) catch @panic("failed to create .d tokenizer error text");
+        const textz = std.ArrayListSentineled(u8, 0).init(&self.handle.arena.allocator, self.handle.error_text) catch @panic("failed to create .d tokenizer error text");
         return stage2_DepNextResult{
             .type_id = .error_,
             .textz = textz.span().ptr,
@@ -461,7 +461,7 @@ export fn stage2_DepTokenizer_next(self: *stage2_DepTokenizer) stage2_DepNextRes
             .textz = undefined,
         };
     };
-    const textz = std.Buffer.init(&self.handle.arena.allocator, token.bytes) catch @panic("failed to create .d tokenizer token text");
+    const textz = std.ArrayListSentineled(u8, 0).init(&self.handle.arena.allocator, token.bytes) catch @panic("failed to create .d tokenizer token text");
     return stage2_DepNextResult{
         .type_id = switch (token.id) {
             .target => .target,
@@ -924,14 +924,14 @@ const Stage2Target = extern struct {
         var dynamic_linker: ?[*:0]u8 = null;
         const target = try crossTargetToTarget(cross_target, &dynamic_linker);
 
-        var cache_hash = try std.Buffer.allocPrint(allocator, "{}\n{}\n", .{
+        var cache_hash = try std.ArrayListSentineled(u8, 0).allocPrint(allocator, "{}\n{}\n", .{
             target.cpu.model.name,
             target.cpu.features.asBytes(),
         });
         defer cache_hash.deinit();
 
         const generic_arch_name = target.cpu.arch.genericName();
-        var cpu_builtin_str_buffer = try std.Buffer.allocPrint(allocator,
+        var cpu_builtin_str_buffer = try std.ArrayListSentineled(u8, 0).allocPrint(allocator,
             \\Cpu{{
             \\    .arch = .{},
             \\    .model = &Target.{}.cpu.{},
@@ -946,7 +946,7 @@ const Stage2Target = extern struct {
         });
         defer cpu_builtin_str_buffer.deinit();
 
-        var llvm_features_buffer = try std.Buffer.initSize(allocator, 0);
+        var llvm_features_buffer = try std.ArrayListSentineled(u8, 0).initSize(allocator, 0);
         defer llvm_features_buffer.deinit();
 
         // Unfortunately we have to do the work twice, because Clang does not support
@@ -961,17 +961,17 @@ const Stage2Target = extern struct {
 
             if (feature.llvm_name) |llvm_name| {
                 const plus_or_minus = "-+"[@boolToInt(is_enabled)];
-                try llvm_features_buffer.appendByte(plus_or_minus);
-                try llvm_features_buffer.append(llvm_name);
-                try llvm_features_buffer.append(",");
+                try llvm_features_buffer.append(plus_or_minus);
+                try llvm_features_buffer.appendSlice(llvm_name);
+                try llvm_features_buffer.appendSlice(",");
             }
 
             if (is_enabled) {
                 // TODO some kind of "zig identifier escape" function rather than
                 // unconditionally using @"" syntax
-                try cpu_builtin_str_buffer.append("        .@\"");
-                try cpu_builtin_str_buffer.append(feature.name);
-                try cpu_builtin_str_buffer.append("\",\n");
+                try cpu_builtin_str_buffer.appendSlice("        .@\"");
+                try cpu_builtin_str_buffer.appendSlice(feature.name);
+                try cpu_builtin_str_buffer.appendSlice("\",\n");
             }
         }
 
@@ -990,7 +990,7 @@ const Stage2Target = extern struct {
             },
         }
 
-        try cpu_builtin_str_buffer.append(
+        try cpu_builtin_str_buffer.appendSlice(
             \\    }),
             \\};
             \\
@@ -999,7 +999,7 @@ const Stage2Target = extern struct {
         assert(mem.endsWith(u8, llvm_features_buffer.span(), ","));
         llvm_features_buffer.shrink(llvm_features_buffer.len() - 1);
 
-        var os_builtin_str_buffer = try std.Buffer.allocPrint(allocator,
+        var os_builtin_str_buffer = try std.ArrayListSentineled(u8, 0).allocPrint(allocator,
             \\Os{{
             \\    .tag = .{},
             \\    .version_range = .{{
@@ -1042,7 +1042,7 @@ const Stage2Target = extern struct {
             .emscripten,
             .uefi,
             .other,
-            => try os_builtin_str_buffer.append(" .none = {} }\n"),
+            => try os_builtin_str_buffer.appendSlice(" .none = {} }\n"),
 
             .freebsd,
             .macosx,
@@ -1118,9 +1118,9 @@ const Stage2Target = extern struct {
                 @tagName(target.os.version_range.windows.max),
             }),
         }
-        try os_builtin_str_buffer.append("};\n");
+        try os_builtin_str_buffer.appendSlice("};\n");
 
-        try cache_hash.append(
+        try cache_hash.appendSlice(
             os_builtin_str_buffer.span()[os_builtin_str_ver_start_index..os_builtin_str_buffer.len()],
         );
 

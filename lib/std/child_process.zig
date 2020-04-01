@@ -10,7 +10,7 @@ const windows = os.windows;
 const mem = std.mem;
 const debug = std.debug;
 const BufMap = std.BufMap;
-const Buffer = std.Buffer;
+const ArrayListSentineled = std.ArrayListSentineled;
 const builtin = @import("builtin");
 const Os = builtin.Os;
 const TailQueue = std.TailQueue;
@@ -758,7 +758,7 @@ fn windowsCreateProcess(app_name: [*:0]u16, cmd_line: [*:0]u16, envp_ptr: ?[*]u1
 
 /// Caller must dealloc.
 fn windowsCreateCommandLine(allocator: *mem.Allocator, argv: []const []const u8) ![:0]u8 {
-    var buf = try Buffer.initSize(allocator, 0);
+    var buf = try ArrayListSentineled(u8, 0).initSize(allocator, 0);
     defer buf.deinit();
     const buf_stream = buf.outStream();
 

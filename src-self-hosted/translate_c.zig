@@ -275,7 +275,7 @@ pub fn translate(
 
         const tree = try tree_arena.allocator.create(ast.Tree);
         tree.* = ast.Tree{
-            .source = undefined, // need to use Buffer.toOwnedSlice later
+            .source = undefined, // need to use toOwnedSlice later
             .root_node = undefined,
             .arena_allocator = tree_arena,
             .tokens = undefined, // can't reference the allocator yet

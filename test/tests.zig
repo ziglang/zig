@@ -4,7 +4,6 @@ const debug = std.debug;
 const warn = debug.warn;
 const build = std.build;
 const CrossTarget = std.zig.CrossTarget;
-const Buffer = std.Buffer;
 const io = std.io;
 const fs = std.fs;
 const mem = std.mem;
@@ -640,7 +639,7 @@ pub const StackTracesContext = struct {
             // - replace address with symbolic string
             // - skip empty lines
             const got: []const u8 = got_result: {
-                var buf = try Buffer.initSize(b.allocator, 0);
+                var buf = ArrayList(u8).init(b.allocator);
                 defer buf.deinit();
                 if (stderr.len != 0 and stderr[stderr.len - 1] == '\n') stderr = stderr[0 .. stderr.len - 1];
                 var it = mem.separate(stderr, "\n");
@@ -652,21 +651,21 @@ pub const StackTracesContext = struct {
                     var pos: usize = if (std.Target.current.os.tag == .windows) 2 else 0;
                     for (delims) |delim, i| {
                         marks[i] = mem.indexOfPos(u8, line, pos, delim) orelse {
-                            try buf.append(line);
-                            try buf.append("\n");
+                            try buf.appendSlice(line);
+                            try buf.appendSlice("\n");
                             continue :process_lines;
                         };
                         pos = marks[i] + delim.len;
                     }
                     pos = mem.lastIndexOfScalar(u8, line[0..marks[0]], fs.path.sep) orelse {
-                        try buf.append(line);
-                        try buf.append("\n");
+                        try buf.appendSlice(line);
+                        try buf.appendSlice("\n");
                         continue :process_lines;
                     };
-                    try buf.append(line[pos + 1 .. marks[2] + delims[2].len]);
-                    try buf.append(" [address]");
-                    try buf.append(line[marks[3]..]);
-                    try buf.append("\n");
+                    try buf.appendSlice(line[pos + 1 .. marks[2] + delims[2].len]);
+                    try buf.appendSlice(" [address]");
+                    try buf.appendSlice(line[marks[3]..]);
+                    try buf.appendSlice("\n");
                 }
                 break :got_result buf.toOwnedSlice();
             };

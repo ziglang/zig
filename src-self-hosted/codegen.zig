@@ -45,7 +45,7 @@ pub async fn renderToLlvm(comp: *Compilation, fn_val: *Value.Fn, code: *ir.Code)
 
     // Don't use ZIG_VERSION_STRING here. LLVM misparses it when it includes
     // the git revision.
-    const producer = try std.Buffer.allocPrint(&code.arena.allocator, "zig {}.{}.{}", .{
+    const producer = try std.fmt.allocPrintZ(&code.arena.allocator, "zig {}.{}.{}", .{
         @as(u32, c.ZIG_VERSION_MAJOR),
         @as(u32, c.ZIG_VERSION_MINOR),
         @as(u32, c.ZIG_VERSION_PATCH),
@@ -62,7 +62,7 @@ pub async fn renderToLlvm(comp: *Compilation, fn_val: *Value.Fn, code: *ir.Code)
         dibuilder,
         DW.LANG_C99,
         compile_unit_file,
-        producer.span(),
+        producer,
         is_optimized,
         flags,
         runtime_version,
