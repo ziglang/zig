@@ -765,7 +765,15 @@ test "CrossTarget.parse" {
 
         const text = try cross_target.zigTriple(std.testing.allocator);
         defer std.testing.allocator.free(text);
-        std.testing.expectEqualSlices(u8, "native-native-gnu.2.1.1", text);
+
+        var buf: [256]u8 = undefined;
+        const triple = std.fmt.bufPrint(
+            buf[0..],
+            "native-native-{}.2.1.1",
+            .{@tagName(std.Target.current.abi)},
+        ) catch unreachable;
+
+        std.testing.expectEqualSlices(u8, triple, text);
     }
     {
         const cross_target = try CrossTarget.parse(.{
