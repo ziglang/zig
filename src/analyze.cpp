@@ -363,6 +363,7 @@ bool type_is_resolved(ZigType *type_entry, ResolveStatus status) {
                 case ResolveStatusLLVMFull:
                     return type_entry->llvm_type != nullptr;
             }
+            zig_unreachable();
         case ZigTypeIdOpaque:
             return status < ResolveStatusSizeKnown;
         case ZigTypeIdPointer:
@@ -381,6 +382,7 @@ bool type_is_resolved(ZigType *type_entry, ResolveStatus status) {
                 case ResolveStatusLLVMFull:
                     return type_entry->llvm_type != nullptr;
             }
+            zig_unreachable();
         case ZigTypeIdMetaType:
         case ZigTypeIdVoid:
         case ZigTypeIdBool:

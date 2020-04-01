@@ -19949,6 +19949,7 @@ static IrInstGen *ir_analyze_call_extra(IrAnalyze *ira, IrInst* source_instr,
                     buf_sprintf("the specified modifier requires a comptime-known function"));
                 return ira->codegen->invalid_inst_gen;
             }
+            ZIG_FALLTHROUGH;
         default:
             break;
     }
@@ -28167,6 +28168,7 @@ static void buf_write_value_bytes(CodeGen *codegen, uint8_t *buf, ZigValue *val)
                     return;
                 }
             }
+            zig_unreachable();
         case ZigTypeIdOptional:
             zig_panic("TODO buf_write_value_bytes maybe type");
         case ZigTypeIdFn:

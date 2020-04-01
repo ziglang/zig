@@ -3954,8 +3954,9 @@ static void render_async_var_decls(CodeGen *g, Scope *scope) {
                 if (var->did_the_decl_codegen) {
                     render_decl_var(g, var);
                 }
-                // fallthrough
             }
+            ZIG_FALLTHROUGH;
+
             case ScopeIdDecls:
             case ScopeIdBlock:
             case ScopeIdDefer:

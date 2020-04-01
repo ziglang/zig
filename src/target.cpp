@@ -624,6 +624,7 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
                         case CIntTypeCount:
                             zig_unreachable();
                     }
+                    zig_unreachable();
                 default:
                     switch (id) {
                         case CIntTypeShort:
@@ -642,6 +643,7 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
                             zig_unreachable();
                     }
             }
+            zig_unreachable();
         case OsLinux:
         case OsMacOSX:
         case OsFreeBSD:
@@ -666,6 +668,7 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
                 case CIntTypeCount:
                     zig_unreachable();
             }
+            zig_unreachable();
         case OsUefi:
         case OsWindows:
             switch (id) {
@@ -683,6 +686,7 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
                 case CIntTypeCount:
                     zig_unreachable();
             }
+            zig_unreachable();
         case OsIOS:
             switch (id) {
                 case CIntTypeShort:
@@ -699,6 +703,7 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
                 case CIntTypeCount:
                     zig_unreachable();
             }
+            zig_unreachable();
         case OsAnanas:
         case OsCloudABI:
         case OsKFreeBSD:
