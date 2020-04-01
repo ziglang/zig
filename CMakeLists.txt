@@ -325,7 +325,7 @@ if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
     if(MSVC)
         set(EXE_CFLAGS "${EXE_CFLAGS} /w")
     else()
-        set(EXE_CFLAGS "${EXE_CFLAGS} -Werror -Wall")
+        set(EXE_CFLAGS "${EXE_CFLAGS} -Werror -Wall -Werror=implicit-fallthrough")
     endif()
 endif()
 

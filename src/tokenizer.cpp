@@ -840,6 +840,7 @@ void tokenize(Buf *buf, Tokenization *out) {
                         t.state = TokenizeStateStart;
                         continue;
                 }
+                break;
             case TokenizeStateSawSlash:
                 switch (c) {
                     case '/':
@@ -1209,7 +1210,7 @@ void tokenize(Buf *buf, Tokenization *out) {
                     t.is_trailing_underscore = false;
                     t.state = TokenizeStateNumber;
                 }
-                // fall through
+                ZIG_FALLTHROUGH;
             case TokenizeStateNumber:
                 {
                     if (c == '_') {
@@ -1291,7 +1292,7 @@ void tokenize(Buf *buf, Tokenization *out) {
                     t.is_trailing_underscore = false;
                     t.state = TokenizeStateFloatFraction;
                 }
-                // fall through
+                ZIG_FALLTHROUGH;
             case TokenizeStateFloatFraction:
                 {
                     if (c == '_') {
@@ -1350,7 +1351,7 @@ void tokenize(Buf *buf, Tokenization *out) {
                     t.is_trailing_underscore = false;
                     t.state = TokenizeStateFloatExponentNumber;
                 }
-                // fall through
+                ZIG_FALLTHROUGH;
             case TokenizeStateFloatExponentNumber:
                 {
                     if (c == '_') {
