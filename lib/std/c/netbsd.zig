@@ -21,7 +21,7 @@ pub extern "c" fn __sigprocmask14(how: c_int, noalias set: ?*const sigset_t, noa
 pub extern "c" fn __socket30(domain: c_uint, sock_type: c_uint, protocol: c_uint) c_int;
 pub extern "c" fn __gettimeofday50(noalias tv: ?*timeval, noalias tz: ?*timezone) c_int;
 pub extern "c" fn __getrusage50(who: c_int, usage: *rusage) c_int;
-// instead of sched_yield
+// libc aliases this as sched_yield
 pub extern "c" fn __libc_thr_yield() c_int;
 
 pub const pthread_mutex_t = extern struct {
