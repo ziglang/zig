@@ -11454,10 +11454,8 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, ZigType *wanted
     bool actual_allows_zero = ptr_allows_addr_zero(actual_type);
     bool wanted_is_c_ptr = wanted_type->id == ZigTypeIdPointer && wanted_type->data.pointer.ptr_len == PtrLenC;
     bool actual_is_c_ptr = actual_type->id == ZigTypeIdPointer && actual_type->data.pointer.ptr_len == PtrLenC;
-    bool wanted_opt_or_ptr = wanted_ptr_type != nullptr &&
-        (wanted_type->id == ZigTypeIdPointer || wanted_type->id == ZigTypeIdOptional);
-    bool actual_opt_or_ptr = actual_ptr_type != nullptr &&
-        (actual_type->id == ZigTypeIdPointer || actual_type->id == ZigTypeIdOptional);
+    bool wanted_opt_or_ptr = wanted_ptr_type != nullptr && wanted_ptr_type->id == ZigTypeIdPointer;
+    bool actual_opt_or_ptr = actual_ptr_type != nullptr && actual_ptr_type->id == ZigTypeIdPointer;
     if (wanted_opt_or_ptr && actual_opt_or_ptr) {
         bool ok_null_term_ptrs =
             wanted_ptr_type->data.pointer.sentinel == nullptr ||
