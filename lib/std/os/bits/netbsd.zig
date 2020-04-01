@@ -1,12 +1,22 @@
 const std = @import("../../std.zig");
+const builtin = std.builtin;
 const maxInt = std.math.maxInt;
 
+pub const blkcnt_t = i64;
+pub const blksize_t = i32;
+pub const clock_t = u32;
+pub const dev_t = u64;
 pub const fd_t = i32;
-pub const pid_t = i32;
-pub const mode_t = u32;
+pub const gid_t = u32;
 pub const ino_t = u64;
+pub const mode_t = u32;
+pub const nlink_t = u32;
 pub const off_t = i64;
+pub const pid_t = i32;
 pub const socklen_t = u32;
+pub const time_t = i64;
+pub const uid_t = u32;
+pub const lwpid_t = i32;
 
 /// Renamed from `kevent` to `Kevent` to avoid conflict with function name.
 pub const Kevent = extern struct {
@@ -137,23 +147,20 @@ pub const msghdr_const = extern struct {
 /// in C, macros are used to hide the differences. Here we use
 /// methods to accomplish this.
 pub const Stat = extern struct {
-    dev: u64,
-    mode: u32,
+    dev: dev_t,
+    mode: mode_t,
     ino: ino_t,
-    nlink: usize,
-
-    uid: u32,
-    gid: u32,
-    rdev: u64,
-
+    nlink: nlink_t,
+    uid: uid_t,
+    gid: gid_t,
+    rdev: dev_t,
     atim: timespec,
     mtim: timespec,
     ctim: timespec,
     birthtim: timespec,
-
     size: off_t,
-    blocks: i64,
-    blksize: isize,
+    blocks: blkcnt_t,
+    blksize: blksize_t,
     flags: u32,
     gen: u32,
     __spare: [2]u32,
@@ -176,12 +183,14 @@ pub const timespec = extern struct {
     tv_nsec: isize,
 };
 
+pub const MAXNAMLEN = 511;
+
 pub const dirent = extern struct {
-    d_fileno: u64,
+    d_fileno: ino_t,
     d_reclen: u16,
     d_namlen: u16,
     d_type: u8,
-    d_name: [512]u8,
+    d_name: [MAXNAMLEN:0]u8,
 
     pub fn reclen(self: dirent) u16 {
         return self.d_reclen;
@@ -685,23 +694,74 @@ pub const winsize = extern struct {
 
 const NSIG = 32;
 
-pub const SIG_ERR = @intToPtr(extern fn (i32) void, maxInt(usize));
-pub const SIG_DFL = @intToPtr(extern fn (i32) void, 0);
-pub const SIG_IGN = @intToPtr(extern fn (i32) void, 1);
+pub const SIG_ERR = @intToPtr(?Sigaction.sigaction_fn, maxInt(usize));
+pub const SIG_DFL = @intToPtr(?Sigaction.sigaction_fn, 0);
+pub const SIG_IGN = @intToPtr(?Sigaction.sigaction_fn, 1);
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
 pub const Sigaction = extern struct {
+    pub const sigaction_fn = fn (i32, *siginfo_t, ?*c_void) callconv(.C) void;
     /// signal handler
-    __sigaction_u: extern union {
-        __sa_handler: extern fn (i32) void,
-        __sa_sigaction: extern fn (i32, *__siginfo, usize) void,
-    },
-
-    /// see signal options
-    sa_flags: u32,
-
+    sigaction: ?sigaction_fn,
     /// signal mask to apply
-    sa_mask: sigset_t,
+    mask: sigset_t,
+    /// signal options
+    flags: u32,
+};
+
+pub const sigval_t = extern union {
+    int: i32,
+    ptr: ?*c_void,
+};
+
+pub const siginfo_t = extern union {
+    pad: [128]u8,
+    info: _ksiginfo,
+};
+
+pub const _ksiginfo = extern struct {
+    signo: i32,
+    code: i32,
+    errno: i32,
+    // 64bit architectures insert 4bytes of padding here, this is done by
+    // correctly aligning the reason field
+    reason: extern union {
+        rt: extern struct {
+            pid: pid_t,
+            uid: uid_t,
+            value: sigval_t,
+        },
+        child: extern struct {
+            pid: pid_t,
+            uid: uid_t,
+            status: i32,
+            utime: clock_t,
+            stime: clock_t,
+        },
+        fault: extern struct {
+            addr: ?*c_void,
+            trap: i32,
+            trap2: i32,
+            trap3: i32,
+        },
+        poll: extern struct {
+            band: i32,
+            fd: i32,
+        },
+        syscall: extern struct {
+            sysnum: i32,
+            retval: [2]i32,
+            @"error": i32,
+            args: [8]u64,
+        },
+        ptrace_state: extern struct {
+            pe_report_event: i32,
+            option: extern union {
+                pe_other_pid: pid_t,
+                pe_lwp: lwpid_t,
+            },
+        },
+    } align(@sizeOf(usize)),
 };
 
 pub const _SIG_WORDS = 4;
@@ -722,6 +782,34 @@ pub inline fn _SIG_VALID(sig: usize) usize {
 
 pub const sigset_t = extern struct {
     __bits: [_SIG_WORDS]u32,
+};
+
+pub const empty_sigset = sigset_t{ .__bits = [_]u32{0} ** _SIG_WORDS };
+
+// XXX x86_64 specific
+pub const mcontext_t = extern struct {
+    gregs: [26]u64,
+    mc_tlsbase: u64,
+    fpregs: [512]u8 align(8),
+};
+
+pub const REG_RBP = 12;
+pub const REG_RIP = 21;
+pub const REG_RSP = 24;
+
+pub const ucontext_t = extern struct {
+    flags: u32,
+    link: ?*ucontext_t,
+    sigmask: sigset_t,
+    stack: stack_t,
+    mcontext: mcontext_t,
+    __pad: [switch (builtin.arch) {
+        .i386 => 4,
+        .mips, .mipsel, .mips64, .mips64el => 14,
+        .arm, .armeb, .thumb, .thumbeb => 1,
+        .sparc, .sparcel, .sparcv9 => if (@sizeOf(usize) == 4) 43 else 8,
+        else => 0,
+    }]u32,
 };
 
 pub const EPERM = 1; // Operation not permitted
