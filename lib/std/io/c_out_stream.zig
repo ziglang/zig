@@ -39,6 +39,6 @@ test "" {
         std.fs.cwd().deleteFileZ(filename) catch {};
     }
 
-    const out_stream = &cOutStream(out_file);
+    const out_stream = cOutStream(out_file);
     try out_stream.print("hi: {}\n", .{@as(i32, 123)});
 }
