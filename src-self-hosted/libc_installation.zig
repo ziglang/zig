@@ -327,7 +327,7 @@ pub const LibCInstallation = struct {
         var search_buf: [2]Search = undefined;
         const searches = fillSearch(&search_buf, sdk);
 
-        var result_buf = std.ArrayList([]const u8).init(allocator);
+        var result_buf = std.ArrayList(u8).init(allocator);
         defer result_buf.deinit();
 
         for (searches) |search| {
@@ -366,7 +366,7 @@ pub const LibCInstallation = struct {
         var search_buf: [2]Search = undefined;
         const searches = fillSearch(&search_buf, sdk);
 
-        var result_buf = try std.ArrayList([]const u8).init(allocator);
+        var result_buf = std.ArrayList(u8).init(allocator);
         defer result_buf.deinit();
 
         const arch_sub_dir = switch (builtin.arch) {
@@ -420,7 +420,7 @@ pub const LibCInstallation = struct {
         var search_buf: [2]Search = undefined;
         const searches = fillSearch(&search_buf, sdk);
 
-        var result_buf = try std.ArrayList([]const u8).init(allocator);
+        var result_buf = std.ArrayList(u8).init(allocator);
         defer result_buf.deinit();
 
         const arch_sub_dir = switch (builtin.arch) {
