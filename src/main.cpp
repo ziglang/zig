@@ -455,7 +455,7 @@ static int main0(int argc, char **argv) {
     const char *mcpu = nullptr;
     CodeModel code_model = CodeModelDefault;
     const char *override_soname = nullptr;
-    bool only_preprocess = false;
+    bool only_pp_or_asm = false;
     bool ensure_libc_on_non_freestanding = false;
     bool ensure_libcpp_on_non_freestanding = false;
 
@@ -615,20 +615,22 @@ static int main0(int argc, char **argv) {
                     }
                     break;
                 case Stage2ClangArgPositional: {
-                    Buf *arg_buf = buf_create_from_str(it.only_arg);
-                    if (buf_ends_with_str(arg_buf, ".c") ||
-                        buf_ends_with_str(arg_buf, ".C") ||
-                        buf_ends_with_str(arg_buf, ".cc") ||
-                        buf_ends_with_str(arg_buf, ".cpp") ||
-                        buf_ends_with_str(arg_buf, ".cxx") ||
-                        buf_ends_with_str(arg_buf, ".s") ||
-                        buf_ends_with_str(arg_buf, ".S"))
-                    {
-                        CFile *c_file = heap::c_allocator.create<CFile>();
-                        c_file->source_path = it.only_arg;
-                        c_source_files.append(c_file);
-                    } else {
-                        objects.append(it.only_arg);
+                    FileExt file_ext = classify_file_ext(it.only_arg, strlen(it.only_arg));
+                    switch (file_ext) {
+                        case FileExtAsm:
+                        case FileExtC:
+                        case FileExtCpp:
+                        case FileExtLLVMIr:
+                        case FileExtLLVMBitCode:
+                        case FileExtHeader: {
+                            CFile *c_file = heap::c_allocator.create<CFile>();
+                            c_file->source_path = it.only_arg;
+                            c_source_files.append(c_file);
+                            break;
+                        }
+                        case FileExtUnknown:
+                            objects.append(it.only_arg);
+                            break;
                     }
                     break;
                 }
@@ -674,8 +676,12 @@ static int main0(int argc, char **argv) {
                     }
                     break;
                 }
-                case Stage2ClangArgPreprocess:
-                    only_preprocess = true;
+                case Stage2ClangArgPreprocessOrAsm:
+                    // this handles both -E and -S
+                    only_pp_or_asm = true;
+                    for (size_t i = 0; i < it.other_args_len; i += 1) {
+                        clang_argv.append(it.other_args_ptr[i]);
+                    }
                     break;
                 case Stage2ClangArgOptimize:
                     // alright what release mode do they want?
@@ -799,7 +805,7 @@ static int main0(int argc, char **argv) {
             build_mode = BuildModeSafeRelease;
         }
 
-        if (only_preprocess) {
+        if (only_pp_or_asm) {
             cmd = CmdBuild;
             out_type = OutTypeObj;
             emit_bin = false;
@@ -1597,7 +1603,7 @@ static int main0(int argc, char **argv) {
 #endif
                         Buf *dest_path = buf_create_from_str(emit_bin_override_path);
                         Buf *source_path;
-                        if (only_preprocess) {
+                        if (only_pp_or_asm) {
                             source_path = buf_alloc();
                             Buf *pp_only_basename = buf_create_from_str(
                                     c_source_files.at(0)->preprocessor_only_basename);
@@ -1611,7 +1617,7 @@ static int main0(int argc, char **argv) {
                                     buf_ptr(dest_path), err_str(err));
                             return main_exit(root_progress_node, EXIT_FAILURE);
                         }
-                    } else if (only_preprocess) {
+                    } else if (only_pp_or_asm) {
 #if defined(ZIG_OS_WINDOWS)
                         buf_replace(g->c_artifact_dir, '/', '\\');
 #endif

@@ -164,3 +164,25 @@ Buf *get_global_cache_dir(void) {
     buf_deinit(&app_data_dir);
     return &saved_global_cache_dir;
 }
+
+FileExt classify_file_ext(const char *filename_ptr, size_t filename_len) {
+    if (mem_ends_with_str(filename_ptr, filename_len, ".c")) {
+        return FileExtC;
+    } else if (mem_ends_with_str(filename_ptr, filename_len, ".C") ||
+        mem_ends_with_str(filename_ptr, filename_len, ".cc") ||
+        mem_ends_with_str(filename_ptr, filename_len, ".cpp") ||
+        mem_ends_with_str(filename_ptr, filename_len, ".cxx"))
+    {
+        return FileExtCpp;
+    } else if (mem_ends_with_str(filename_ptr, filename_len, ".ll")) {
+        return FileExtLLVMIr;
+    } else if (mem_ends_with_str(filename_ptr, filename_len, ".bc")) {
+        return FileExtLLVMBitCode;
+    } else if (mem_ends_with_str(filename_ptr, filename_len, ".s") ||
+        mem_ends_with_str(filename_ptr, filename_len, ".S"))
+    {
+        return FileExtAsm;
+    }
+    // TODO look for .so, .so.X, .so.X.Y, .so.X.Y.Z
+    return FileExtUnknown;
+}

@@ -1280,7 +1280,7 @@ pub const ClangArgIterator = extern struct {
         shared,
         rdynamic,
         wl,
-        preprocess,
+        pp_or_asm,
         optimize,
         debug,
         sanitize,

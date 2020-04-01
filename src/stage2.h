@@ -339,7 +339,7 @@ enum Stage2ClangArg {
     Stage2ClangArgShared,
     Stage2ClangArgRDynamic,
     Stage2ClangArgWL,
-    Stage2ClangArgPreprocess,
+    Stage2ClangArgPreprocessOrAsm,
     Stage2ClangArgOptimize,
     Stage2ClangArgDebug,
     Stage2ClangArgSanitize,

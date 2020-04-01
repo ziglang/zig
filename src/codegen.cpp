@@ -9170,18 +9170,11 @@ static void detect_libc(CodeGen *g) {
 
 // does not add the "cc" arg
 void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_path,
-        bool translate_c, CSourceKind source_kind)
+        bool translate_c, FileExt source_kind)
 {
     if (translate_c) {
         args.append("-x");
         args.append("c");
-    }
-
-    if (source_kind != CSourceKindAsm && out_dep_path != nullptr) {
-        args.append("-MD");
-        args.append("-MV");
-        args.append("-MF");
-        args.append(out_dep_path);
     }
 
     args.append("-nostdinc");
@@ -9191,14 +9184,7 @@ void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_pa
         args.append("-ffunction-sections");
     }
 
-    if (translate_c) {
-        if (source_kind != CSourceKindAsm) {
-            // this gives us access to preprocessing entities, presumably at
-            // the cost of performance
-            args.append("-Xclang");
-            args.append("-detailed-preprocessing-record");
-        }
-    } else {
+    if (!translate_c) {
         switch (g->err_color) {
             case ErrColorAuto:
                 break;
@@ -9232,24 +9218,25 @@ void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_pa
         args.append("-D_LIBCXXABI_DISABLE_VISIBILITY_ANNOTATIONS");
     }
 
-    // According to Rich Felker libc headers are supposed to go before C language headers.
-    // However as noted by @dimenus, appending libc headers before c_headers breaks intrinsics
-    // and other compiler specific items.
-    args.append("-isystem");
-    args.append(buf_ptr(g->zig_c_headers_dir));
-
-    for (size_t i = 0; i < g->libc_include_dir_len; i += 1) {
-        const char *include_dir = g->libc_include_dir_list[i];
-        args.append("-isystem");
-        args.append(include_dir);
-    }
-
     args.append("-target");
     args.append(buf_ptr(&g->llvm_triple_str));
 
     switch (source_kind) {
-        case CSourceKindC:
-        case CSourceKindCpp:
+        case FileExtC:
+        case FileExtCpp:
+        case FileExtHeader:
+            // According to Rich Felker libc headers are supposed to go before C language headers.
+            // However as noted by @dimenus, appending libc headers before c_headers breaks intrinsics
+            // and other compiler specific items.
+            args.append("-isystem");
+            args.append(buf_ptr(g->zig_c_headers_dir));
+
+            for (size_t i = 0; i < g->libc_include_dir_len; i += 1) {
+                const char *include_dir = g->libc_include_dir_list[i];
+                args.append("-isystem");
+                args.append(include_dir);
+            }
+
             if (g->zig_target->llvm_cpu_name != nullptr) {
                 args.append("-Xclang");
                 args.append("-target-cpu");
@@ -9262,8 +9249,23 @@ void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_pa
                 args.append("-Xclang");
                 args.append(g->zig_target->llvm_cpu_features);
             }
+            if (translate_c) {
+                // this gives us access to preprocessing entities, presumably at
+                // the cost of performance
+                args.append("-Xclang");
+                args.append("-detailed-preprocessing-record");
+            }
+            if (out_dep_path != nullptr) {
+                args.append("-MD");
+                args.append("-MV");
+                args.append("-MF");
+                args.append(out_dep_path);
+            }
             break;
-        case CSourceKindAsm:
+        case FileExtAsm:
+        case FileExtLLVMIr:
+        case FileExtLLVMBitCode:
+        case FileExtUnknown:
             break;
     }
     for (size_t i = 0; i < g->zig_target->llvm_cpu_features_asm_len; i += 1) {
@@ -9413,7 +9415,7 @@ void codegen_translate_c(CodeGen *g, Buf *full_path) {
     }
 
     ZigList<const char *> clang_argv = {0};
-    add_cc_args(g, clang_argv, out_dep_path_cstr, true, CSourceKindC);
+    add_cc_args(g, clang_argv, out_dep_path_cstr, true, FileExtC);
 
     clang_argv.append(buf_ptr(full_path));
 
@@ -9751,15 +9753,6 @@ static void gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file) {
     Buf *c_source_basename = buf_alloc();
     os_path_split(c_source_file, nullptr, c_source_basename);
 
-    CSourceKind c_source_kind;
-    if (buf_ends_with_str(c_source_basename, ".s") ||
-        buf_ends_with_str(c_source_basename, ".S"))
-    {
-        c_source_kind = CSourceKindAsm;
-    } else {
-        c_source_kind = CSourceKindC;
-    }
-
     Stage2ProgressNode *child_prog_node = stage2_progress_start(g->sub_progress_node, buf_ptr(c_source_basename),
             buf_len(c_source_basename), 0);
 
@@ -9825,14 +9818,13 @@ static void gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file) {
         args.append(buf_ptr(self_exe_path));
         args.append("clang");
 
-        if (c_file->preprocessor_only_basename != nullptr) {
-            args.append("-E");
-        } else {
+        if (c_file->preprocessor_only_basename == nullptr) {
             args.append("-c");
         }
 
         Buf *out_dep_path = buf_sprintf("%s.d", buf_ptr(out_obj_path));
-        add_cc_args(g, args, buf_ptr(out_dep_path), false, c_source_kind);
+        FileExt ext = classify_file_ext(buf_ptr(c_source_basename), buf_len(c_source_basename));
+        add_cc_args(g, args, buf_ptr(out_dep_path), false, ext);
 
         args.append("-o");
         args.append(buf_ptr(out_obj_path));

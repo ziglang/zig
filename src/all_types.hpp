@@ -54,6 +54,16 @@ struct ResultLocCast;
 struct ResultLocReturn;
 struct IrExecutableGen;
 
+enum FileExt {
+    FileExtUnknown,
+    FileExtAsm,
+    FileExtC,
+    FileExtCpp,
+    FileExtHeader,
+    FileExtLLVMIr,
+    FileExtLLVMBitCode,
+};
+
 enum PtrLen {
     PtrLenUnknown,
     PtrLenSingle,
