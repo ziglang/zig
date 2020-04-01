@@ -176,11 +176,23 @@ const known_options = [_]KnownOpt{
     },
     .{
         .name = "L",
-        .ident = "linker_input_l",
+        .ident = "lib_dir",
     },
     .{
         .name = "library-directory",
-        .ident = "linker_input_l",
+        .ident = "lib_dir",
+    },
+    .{
+        .name = "mcpu",
+        .ident = "mcpu",
+    },
+    .{
+        .name = "march",
+        .ident = "mcpu",
+    },
+    .{
+        .name = "mtune",
+        .ident = "mcpu",
     },
 };
 

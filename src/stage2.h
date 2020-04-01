@@ -347,7 +347,8 @@ enum Stage2ClangArg {
     Stage2ClangArgVerboseCmds,
     Stage2ClangArgForLinker,
     Stage2ClangArgLinkerInputZ,
-    Stage2ClangArgLinkerInputL,
+    Stage2ClangArgLibDir,
+    Stage2ClangArgMCpu,
 };
 
 // ABI warning

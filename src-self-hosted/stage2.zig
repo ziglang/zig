@@ -1288,7 +1288,8 @@ pub const ClangArgIterator = extern struct {
         verbose_cmds,
         for_linker,
         linker_input_z,
-        linker_input_l,
+        lib_dir,
+        mcpu,
     };
 
     const Args = struct {
