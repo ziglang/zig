@@ -18982,7 +18982,7 @@ static IrInstGen *ir_analyze_async_call(IrAnalyze *ira, IrInst* source_instr, Zi
         if (type_is_invalid(result_loc->value->type) || result_loc->value->type->id == ZigTypeIdUnreachable) {
             return result_loc;
         }
-        result_loc = ir_implicit_cast2(ira, &call_result_loc->source_instruction->base, result_loc,
+        result_loc = ir_implicit_cast2(ira, source_instr, result_loc,
                 get_pointer_to_type(ira->codegen, frame_type, false));
         if (type_is_invalid(result_loc->value->type))
             return ira->codegen->invalid_inst_gen;
@@ -19967,14 +19967,16 @@ static IrInstGen *ir_analyze_call_extra(IrAnalyze *ira, IrInst* source_instr,
         return ira->codegen->invalid_inst_gen;
 
     IrInstGen *stack = nullptr;
+    IrInst *stack_src = nullptr;
     if (stack_is_non_null) {
         stack = ir_analyze_optional_value_payload_value(ira, source_instr, opt_stack, false);
         if (type_is_invalid(stack->value->type))
             return ira->codegen->invalid_inst_gen;
+        stack_src = &stack->base;
     }
 
     return ir_analyze_fn_call(ira, source_instr, fn, fn_type, fn_ref, first_arg_ptr, first_arg_ptr_src,
-        modifier, stack, &stack->base, false, args_ptr, args_len, nullptr, result_loc);
+        modifier, stack, stack_src, false, args_ptr, args_len, nullptr, result_loc);
 }
 
 static IrInstGen *ir_analyze_instruction_call_extra(IrAnalyze *ira, IrInstSrcCallExtra *instruction) {
