@@ -729,6 +729,9 @@ static int main0(int argc, char **argv) {
                     linker_args.append(buf_create_from_str("-z"));
                     linker_args.append(buf_create_from_str(it.only_arg));
                     break;
+                case Stage2ClangArgLinkerInputL:
+                    lib_dirs.append(it.only_arg);
+                    break;
             }
         }
         // Parse linker args

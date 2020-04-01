@@ -174,6 +174,14 @@ const known_options = [_]KnownOpt{
         .name = "###",
         .ident = "verbose_cmds",
     },
+    .{
+        .name = "L",
+        .ident = "linker_input_l",
+    },
+    .{
+        .name = "library-directory",
+        .ident = "linker_input_l",
+    },
 };
 
 const blacklisted_options = [_][]const u8{};
