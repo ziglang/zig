@@ -48,6 +48,17 @@ test "parse and render IPv6 addresses" {
     testing.expectError(error.Incomplete, net.Address.parseIp6("FF01:", 0));
     testing.expectError(error.InvalidIpv4Mapping, net.Address.parseIp6("::123.123.123.123", 0));
     testing.expectError(error.Incomplete, net.Address.resolveIp6("ff01::fb%", 0));
+    testing.expectError(error.Overflow, net.Address.resolveIp6("ff01::fb%wlp3s0s0s0s0s0s0s0s0", 0));
+    testing.expectError(error.Overflow, net.Address.resolveIp6("ff01::fb%12345678901234", 0));
+}
+
+test "invalid but parseable IPv6 scope ids" {
+    // Currently, resolveIp6 with alphanumerical scope IDs only works on Linux.
+    if (std.builtin.os.tag != .linux) {
+        return error.SkipZigTest;
+    }
+
+    testing.expectError(error.InterfaceNotFound, net.Address.resolveIp6("ff01::fb%123s45678901234", 0));
 }
 
 test "parse and render IPv4 addresses" {
