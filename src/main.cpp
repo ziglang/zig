@@ -459,6 +459,11 @@ static int main0(int argc, char **argv) {
     bool ensure_libc_on_non_freestanding = false;
     bool ensure_libcpp_on_non_freestanding = false;
     bool disable_c_depfile = false;
+    Buf *linker_optimization = nullptr;
+    OptionalBool linker_gc_sections = OptionalBoolNull;
+    OptionalBool linker_allow_shlib_undefined = OptionalBoolNull;
+    bool linker_z_nodelete = false;
+    bool linker_z_defs = false;
 
     ZigList<const char *> llvm_argv = {0};
     llvm_argv.append("zig (LLVM option parsing)");
@@ -822,6 +827,30 @@ static int main0(int argc, char **argv) {
                     return EXIT_FAILURE;
                 }
                 version_script = linker_args.at(i);
+            } else if (buf_starts_with_str(arg, "-O")) {
+                linker_optimization = arg;
+            } else if (buf_eql_str(arg, "--gc-sections")) {
+                linker_gc_sections = OptionalBoolTrue;
+            } else if (buf_eql_str(arg, "--no-gc-sections")) {
+                linker_gc_sections = OptionalBoolFalse;
+            } else if (buf_eql_str(arg, "--allow-shlib-undefined")) {
+                linker_allow_shlib_undefined = OptionalBoolTrue;
+            } else if (buf_eql_str(arg, "--no-allow-shlib-undefined")) {
+                linker_allow_shlib_undefined = OptionalBoolFalse;
+            } else if (buf_eql_str(arg, "-z")) {
+                i += 1;
+                if (i >= linker_args.length) {
+                    fprintf(stderr, "expected linker arg after '%s'\n", buf_ptr(arg));
+                    return EXIT_FAILURE;
+                }
+                Buf *z_arg = linker_args.at(i);
+                if (buf_eql_str(z_arg, "nodelete")) {
+                    linker_z_nodelete = true;
+                } else if (buf_eql_str(z_arg, "defs")) {
+                    linker_z_defs = true;
+                } else {
+                    fprintf(stderr, "warning: unsupported linker arg: -z %s\n", buf_ptr(z_arg));
+                }
             } else {
                 fprintf(stderr, "warning: unsupported linker arg: %s\n", buf_ptr(arg));
             }
@@ -1541,6 +1570,12 @@ static int main0(int argc, char **argv) {
             g->function_sections = function_sections;
             g->code_model = code_model;
             g->disable_c_depfile = disable_c_depfile;
+
+            g->linker_optimization = linker_optimization;
+            g->linker_gc_sections = linker_gc_sections;
+            g->linker_allow_shlib_undefined = linker_allow_shlib_undefined;
+            g->linker_z_nodelete = linker_z_nodelete;
+            g->linker_z_defs = linker_z_defs;
 
             if (override_soname) {
                 g->override_soname = buf_create_from_str(override_soname);

@@ -2015,6 +2015,12 @@ enum WantCSanitize {
     WantCSanitizeEnabled,
 };
 
+enum OptionalBool {
+    OptionalBoolNull,
+    OptionalBoolFalse,
+    OptionalBoolTrue,
+};
+
 struct CFile {
     ZigList<const char *> args;
     const char *source_path;
@@ -2260,6 +2266,8 @@ struct CodeGen {
     TargetSubsystem subsystem; // careful using this directly; see detect_subsystem
     ValgrindSupport valgrind_support;
     CodeModel code_model;
+    OptionalBool linker_gc_sections;
+    OptionalBool linker_allow_shlib_undefined;
     bool strip_debug_symbols;
     bool is_test_build;
     bool is_single_threaded;
@@ -2280,6 +2288,8 @@ struct CodeGen {
     bool emit_asm;
     bool emit_llvm_ir;
     bool test_is_evented;
+    bool linker_z_nodelete;
+    bool linker_z_defs;
 
     Buf *root_out_name;
     Buf *test_filter;
@@ -2288,6 +2298,7 @@ struct CodeGen {
     Buf *zig_std_dir;
     Buf *version_script_path;
     Buf *override_soname;
+    Buf *linker_optimization;
 
     const char **llvm_argv;
     size_t llvm_argv_len;

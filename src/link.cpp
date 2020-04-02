@@ -1769,8 +1769,17 @@ static void construct_linker_job_elf(LinkJob *lj) {
         lj->args.append(g->linker_script);
     }
 
-    if (g->out_type != OutTypeObj) {
-        lj->args.append("--gc-sections");
+    switch (g->linker_gc_sections) {
+        case OptionalBoolNull:
+            if (g->out_type != OutTypeObj) {
+                lj->args.append("--gc-sections");
+            }
+            break;
+        case OptionalBoolTrue:
+            lj->args.append("--gc-sections");
+            break;
+        case OptionalBoolFalse:
+            break;
     }
 
     if (g->link_eh_frame_hdr) {
@@ -1779,6 +1788,19 @@ static void construct_linker_job_elf(LinkJob *lj) {
 
     if (g->linker_rdynamic) {
         lj->args.append("--export-dynamic");
+    }
+
+    if (g->linker_optimization != nullptr) {
+        lj->args.append(buf_ptr(g->linker_optimization));
+    }
+
+    if (g->linker_z_nodelete) {
+        lj->args.append("-z");
+        lj->args.append("nodelete");
+    }
+    if (g->linker_z_defs) {
+        lj->args.append("-z");
+        lj->args.append("defs");
     }
 
     lj->args.append("-m");
@@ -1971,8 +1993,17 @@ static void construct_linker_job_elf(LinkJob *lj) {
         }
     }
 
-    if (!g->zig_target->is_native_os) {
-        lj->args.append("--allow-shlib-undefined");
+    switch (g->linker_allow_shlib_undefined) {
+        case OptionalBoolNull:
+            if (!g->zig_target->is_native_os) {
+                lj->args.append("--allow-shlib-undefined");
+            }
+            break;
+        case OptionalBoolFalse:
+            break;
+        case OptionalBoolTrue:
+            lj->args.append("--allow-shlib-undefined");
+            break;
     }
 }
 
@@ -2536,8 +2567,32 @@ static void construct_linker_job_macho(LinkJob *lj) {
     //lj->args.append("-error-limit=0");
     lj->args.append("-demangle");
 
+    switch (g->linker_gc_sections) {
+        case OptionalBoolNull:
+            // TODO why do we not follow the same logic of elf here?
+            break;
+        case OptionalBoolTrue:
+            lj->args.append("--gc-sections");
+            break;
+        case OptionalBoolFalse:
+            break;
+    }
+
     if (g->linker_rdynamic) {
         lj->args.append("-export_dynamic");
+    }
+
+    if (g->linker_optimization != nullptr) {
+        lj->args.append(buf_ptr(g->linker_optimization));
+    }
+
+    if (g->linker_z_nodelete) {
+        lj->args.append("-z");
+        lj->args.append("nodelete");
+    }
+    if (g->linker_z_defs) {
+        lj->args.append("-z");
+        lj->args.append("defs");
     }
 
     bool is_lib = g->out_type == OutTypeLib;
@@ -2654,9 +2709,20 @@ static void construct_linker_job_macho(LinkJob *lj) {
         // and change between versions.
         // so we always link against libSystem
         lj->args.append("-lSystem");
-    } else {
-        lj->args.append("-undefined");
-        lj->args.append("dynamic_lookup");
+    }
+    switch (g->linker_allow_shlib_undefined) {
+        case OptionalBoolNull:
+            if (!g->zig_target->is_native_os) {
+                lj->args.append("-undefined");
+                lj->args.append("dynamic_lookup");
+            }
+            break;
+        case OptionalBoolFalse:
+            break;
+        case OptionalBoolTrue:
+            lj->args.append("-undefined");
+            lj->args.append("dynamic_lookup");
+            break;
     }
 
     for (size_t i = 0; i < g->framework_dirs.length; i += 1) {

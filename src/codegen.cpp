@@ -10558,6 +10558,11 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     }
     cache_buf_opt(ch, g->version_script_path);
     cache_buf_opt(ch, g->override_soname);
+    cache_buf_opt(ch, g->linker_optimization);
+    cache_int(ch, g->linker_gc_sections);
+    cache_int(ch, g->linker_allow_shlib_undefined);
+    cache_bool(ch, g->linker_z_nodelete);
+    cache_bool(ch, g->linker_z_defs);
 
     // gen_c_objects appends objects to g->link_objects which we want to include in the hash
     gen_c_objects(g);
