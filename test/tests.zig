@@ -152,17 +152,15 @@ const test_targets = blk: {
             .link_libc = true,
         },
 
-        // TODO disabled only because the CI server has such an old qemu that
-        // qemu-riscv64 isn't available :(
-        //TestTarget{
-        //    .target = .{
-        //        .cpu_arch = .riscv64,
-        //        .os_tag = .linux,
-        //        .abi = .none,
-        //    },
-        //},
+        TestTarget{
+            .target = .{
+                .cpu_arch = .riscv64,
+                .os_tag = .linux,
+                .abi = .none,
+            },
+        },
 
-        // https://github.com/ziglang/zig/issues/4485
+        // https://github.com/ziglang/zig/issues/4863
         //TestTarget{
         //    .target = .{
         //        .cpu_arch = .riscv64,
