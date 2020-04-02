@@ -1208,12 +1208,15 @@ pub fn getenvZ(key: [*:0]const u8) ?[]const u8 {
 
 /// Windows-only. Get an environment variable with a null-terminated, WTF-16 encoded name.
 /// See also `getenv`.
+/// This function first attempts a case-sensitive lookup. If no match is found, and `key`
+/// is ASCII, then it attempts a second case-insensitive lookup.
 pub fn getenvW(key: [*:0]const u16) ?[:0]const u16 {
     if (builtin.os.tag != .windows) {
         @compileError("std.os.getenvW is a Windows-only API");
     }
     const key_slice = mem.spanZ(key);
     const ptr = windows.peb().ProcessParameters.Environment;
+    var ascii_match: ?[:0]const u16 = null;
     var i: usize = 0;
     while (ptr[i] != 0) {
         const key_start = i;
@@ -1229,9 +1232,20 @@ pub fn getenvW(key: [*:0]const u16) ?[:0]const u16 {
 
         if (mem.eql(u16, key_slice, this_key)) return this_value;
 
+        ascii_check: {
+            if (ascii_match != null) break :ascii_check;
+            if (key_slice.len != this_key.len) break :ascii_check;
+            for (key_slice) |a_c, key_index| {
+                const a = math.cast(u8, a_c) catch break :ascii_check;
+                const b = math.cast(u8, this_key[key_index]) catch break :ascii_check;
+                if (std.ascii.toLower(a) != std.ascii.toLower(b)) break :ascii_check;
+            }
+            ascii_match = this_value;
+        }
+
         i += 1; // skip over null byte
     }
-    return null;
+    return ascii_match;
 }
 
 pub const GetCwdError = error{
