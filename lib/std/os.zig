@@ -21,7 +21,6 @@ const assert = std.debug.assert;
 const math = std.math;
 const mem = std.mem;
 const elf = std.elf;
-const unicode = std.unicode;
 const dl = @import("dynamic_library.zig");
 const MAX_PATH_BYTES = std.fs.MAX_PATH_BYTES;
 
@@ -1207,27 +1206,17 @@ pub fn getenvZ(key: [*:0]const u8) ?[]const u8 {
     return getenv(mem.spanZ(key));
 }
 
-fn utf16LeAsciiEqlIgnoreCase(a: []const u16, b: []const u16) bool {
-    if (a.len != b.len) return false;
-    var a_it = unicode.Utf16LeIterator.init(a);
-    var b_it = unicode.Utf16LeIterator.init(b);
-    while (a_it.nextCodepoint() catch return false) |a_codepoint| {
-        const b_codepoint = (b_it.nextCodepoint() catch return false) orelse return false;
-        const upper_a = if (a_codepoint >= 97 and a_codepoint <= 122) a_codepoint & 0b11011111 else a_codepoint;
-        const upper_b = if (b_codepoint >= 97 and b_codepoint <= 122) b_codepoint & 0b11011111 else b_codepoint;
-        if (upper_a != upper_b) return false;
-    }
-    return true;
-}
-
 /// Windows-only. Get an environment variable with a null-terminated, WTF-16 encoded name.
 /// See also `getenv`.
+/// This function first attempts a case-sensitive lookup. If no match is found, and `key`
+/// is ASCII, then it attempts a second case-insensitive lookup.
 pub fn getenvW(key: [*:0]const u16) ?[:0]const u16 {
     if (builtin.os.tag != .windows) {
         @compileError("std.os.getenvW is a Windows-only API");
     }
     const key_slice = mem.spanZ(key);
     const ptr = windows.peb().ProcessParameters.Environment;
+    var ascii_match: ?[:0]const u16 = null;
     var i: usize = 0;
     while (ptr[i] != 0) {
         const key_start = i;
@@ -1241,11 +1230,22 @@ pub fn getenvW(key: [*:0]const u16) ?[:0]const u16 {
         while (ptr[i] != 0) : (i += 1) {}
         const this_value = ptr[value_start..i :0];
 
-        if (utf16LeAsciiEqlIgnoreCase(key_slice, this_key)) return this_value;
+        if (mem.eql(u16, key_slice, this_key)) return this_value;
+
+        ascii_check: {
+            if (ascii_match != null) break :ascii_check;
+            if (key_slice.len != this_key.len) break :ascii_check;
+            for (key_slice) |a_c, key_index| {
+                const a = math.cast(u8, a_c) catch break :ascii_check;
+                const b = math.cast(u8, this_key[key_index]) catch break :ascii_check;
+                if (std.ascii.toLower(a) != std.ascii.toLower(b)) break :ascii_check;
+            }
+            ascii_match = this_value;
+        }
 
         i += 1; // skip over null byte
     }
-    return null;
+    return ascii_match;
 }
 
 pub const GetCwdError = error{
