@@ -815,6 +815,13 @@ static int main0(int argc, char **argv) {
                 buf_eql_str(arg, "-export-dynamic"))
             {
                 rdynamic = true;
+            } else if (buf_eql_str(arg, "--version-script")) {
+                i += 1;
+                if (i >= linker_args.length) {
+                    fprintf(stderr, "expected linker arg after '%s'\n", buf_ptr(arg));
+                    return EXIT_FAILURE;
+                }
+                version_script = linker_args.at(i);
             } else {
                 fprintf(stderr, "warning: unsupported linker arg: %s\n", buf_ptr(arg));
             }
