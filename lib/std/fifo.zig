@@ -215,6 +215,16 @@ pub fn LinearFifo(
             return dst.len - dst_left.len;
         }
 
+        /// Same as `read` except it returns an error union
+        /// The purpose of this function existing is to match `std.io.InStream` API.
+        fn readFn(self: *Self, dest: []u8) error{}!usize {
+            return self.read(dest);
+        }
+
+        pub fn inStream(self: *Self) std.io.InStream(*Self, error{}, readFn) {
+            return .{ .context = self };
+        }
+
         /// Returns number of items available in fifo
         pub fn writableLength(self: Self) usize {
             return self.buf.len - self.count;
@@ -413,6 +423,15 @@ test "LinearFifo(u8, .Dynamic)" {
         var result: [30]u8 = undefined;
         testing.expectEqualSlices(u8, "Hello, World!", result[0..fifo.read(&result)]);
         testing.expectEqual(@as(usize, 0), fifo.readableLength());
+    }
+
+    {
+        try fifo.outStream().writeAll("This is a test");
+        var result: [30]u8 = undefined;
+        testing.expectEqualSlices(u8, "This", (try fifo.inStream().readUntilDelimiterOrEof(&result, ' ')).?);
+        testing.expectEqualSlices(u8, "is", (try fifo.inStream().readUntilDelimiterOrEof(&result, ' ')).?);
+        testing.expectEqualSlices(u8, "a", (try fifo.inStream().readUntilDelimiterOrEof(&result, ' ')).?);
+        testing.expectEqualSlices(u8, "test", (try fifo.inStream().readUntilDelimiterOrEof(&result, ' ')).?);
     }
 }
 
