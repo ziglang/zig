@@ -748,6 +748,12 @@ static int main0(int argc, char **argv) {
                         clang_argv.append(it.other_args_ptr[i]);
                     }
                     break;
+                case Stage2ClangArgFrameworkDir:
+                    framework_dirs.append(it.only_arg);
+                    break;
+                case Stage2ClangArgFramework:
+                    frameworks.append(it.only_arg);
+                    break;
             }
         }
         // Parse linker args

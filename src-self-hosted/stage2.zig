@@ -1291,6 +1291,8 @@ pub const ClangArgIterator = extern struct {
         lib_dir,
         mcpu,
         dep_file,
+        framework_dir,
+        framework,
     };
 
     const Args = struct {

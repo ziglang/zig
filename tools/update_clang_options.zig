@@ -206,6 +206,14 @@ const known_options = [_]KnownOpt{
         .name = "MF",
         .ident = "dep_file",
     },
+    .{
+        .name = "F",
+        .ident = "framework_dir",
+    },
+    .{
+        .name = "framework",
+        .ident = "framework",
+    },
 };
 
 const blacklisted_options = [_][]const u8{};
