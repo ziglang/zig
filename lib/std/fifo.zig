@@ -291,24 +291,16 @@ pub fn LinearFifo(
             return self.writeAssumeCapacity(src);
         }
 
-        pub usingnamespace if (T == u8)
-            struct {
-                const OutStream = std.io.OutStream(*Self, Error, appendWrite);
-                const Error = error{OutOfMemory};
+        /// Same as `write` except it returns the number of bytes written, which is always the same
+        /// as `bytes.len`. The purpose of this function existing is to match `std.io.OutStream` API.
+        fn appendWrite(self: *Self, bytes: []const u8) error{OutOfMemory}!usize {
+            try self.write(bytes);
+            return bytes.len;
+        }
 
-                /// Same as `write` except it returns the number of bytes written, which is always the same
-                /// as `bytes.len`. The purpose of this function existing is to match `std.io.OutStream` API.
-                pub fn appendWrite(fifo: *Self, bytes: []const u8) Error!usize {
-                    try fifo.write(bytes);
-                    return bytes.len;
-                }
-
-                pub fn outStream(self: *Self) OutStream {
-                    return .{ .context = self };
-                }
-            }
-        else
-            struct {};
+        pub fn outStream(self: *Self) std.io.OutStream(*Self, error{OutOfMemory}, appendWrite) {
+            return .{ .context = self };
+        }
 
         /// Make `count` items available before the current read location
         fn rewind(self: *Self, count: usize) void {
