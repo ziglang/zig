@@ -1715,8 +1715,8 @@ pub const SIOCGIFINDEX = 0x8933;
 pub const IFNAMESIZE = 16;
 
 pub const ifmap = extern struct {
-    mem_start: c_ulong,
-    mem_end: c_ulong,
+    mem_start: u32,
+    mem_end: u32,
     base_addr: u16,
     irq: u8,
     dma: u8,
@@ -1739,6 +1739,6 @@ pub const ifreq = extern struct {
         ifru_map: ifmap,
         ifru_slave: [IFNAMESIZE]u8,
         ifru_newname: [IFNAMESIZE]u8,
-        ifru_data: [*c]u8,
+        ifru_data: ?[*]u8,
     },
 };
