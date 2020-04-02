@@ -209,8 +209,17 @@ pub const Address = extern union {
 
         for (buf) |c, i| {
             if (scope_id) {
-                scope_id_value[scope_id_index] = c;
-                scope_id_index += 1;
+                // Handling of percent-encoding should be for an URI library.
+                if ((c >= '0' and c <= '9') or
+                    (c >= 'A' and c <= 'Z') or
+                    (c >= 'a' and c <= 'z') or
+                    (c == '-') or (c == '.') or (c == '_') or (c == '~'))
+                {
+                    scope_id_value[scope_id_index] = c;
+                    scope_id_index += 1;
+                } else {
+                    return error.InvalidCharacter;
+                }
             } else if (c == ':') {
                 if (!saw_any_digits) {
                     if (abbrv) return error.InvalidCharacter; // ':::'
@@ -269,6 +278,10 @@ pub const Address = extern union {
         }
 
         if (!saw_any_digits and !abbrv) {
+            return error.Incomplete;
+        }
+
+        if (scope_id and scope_id_index == 0) {
             return error.Incomplete;
         }
 
