@@ -5361,7 +5361,7 @@ static uint32_t hash_const_val(ZigValue *const_val) {
                 return result;
             }
         case ZigTypeIdEnumLiteral:
-            return buf_hash(const_val->data.x_enum_literal) * 2691276464;
+            return buf_hash(const_val->data.x_enum_literal) * (uint32_t)2691276464;
         case ZigTypeIdEnum:
             {
                 uint32_t result = 31643936;
@@ -5429,12 +5429,12 @@ static uint32_t hash_const_val(ZigValue *const_val) {
             return 2709806591;
         case ZigTypeIdOptional:
             if (get_src_ptr_type(const_val->type) != nullptr) {
-                return hash_const_val_ptr(const_val) * 1992916303;
+                return hash_const_val_ptr(const_val) * (uint32_t)1992916303;
             } else if (const_val->type->data.maybe.child_type->id == ZigTypeIdErrorSet) {
-                return hash_const_val_error_set(const_val) * 3147031929;
+                return hash_const_val_error_set(const_val) * (uint32_t)3147031929;
             } else {
                 if (const_val->data.x_optional) {
-                    return hash_const_val(const_val->data.x_optional) * 1992916303;
+                    return hash_const_val(const_val->data.x_optional) * (uint32_t)1992916303;
                 } else {
                     return 4016830364;
                 }
