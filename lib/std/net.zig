@@ -204,7 +204,7 @@ pub const Address = extern union {
         var abbrv = false;
 
         var scope_id = false;
-        var scope_id_value: [16]u8 = undefined;
+        var scope_id_value: [os.IFNAMESIZE - 1]u8 = undefined;
         var scope_id_index: usize = 0;
 
         for (buf) |c, i| {
@@ -215,6 +215,10 @@ pub const Address = extern union {
                     (c >= 'a' and c <= 'z') or
                     (c == '-') or (c == '.') or (c == '_') or (c == '~'))
                 {
+                    if (scope_id_index >= scope_id_value.len) {
+                        return error.Overflow;
+                    }
+
                     scope_id_value[scope_id_index] = c;
                     scope_id_index += 1;
                 } else {
