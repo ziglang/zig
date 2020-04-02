@@ -215,6 +215,16 @@ pub fn LinearFifo(
             return dst.len - dst_left.len;
         }
 
+        /// Same as `read` except it returns an error union
+        /// The purpose of this function existing is to match `std.io.InStream` API.
+        fn readFn(self: *Self, dest: []u8) error{}!usize {
+            return self.read(dest);
+        }
+
+        pub fn inStream(self: *Self) std.io.InStream(*Self, error{}, readFn) {
+            return .{ .context = self };
+        }
+
         /// Returns number of items available in fifo
         pub fn writableLength(self: Self) usize {
             return self.buf.len - self.count;
@@ -291,24 +301,16 @@ pub fn LinearFifo(
             return self.writeAssumeCapacity(src);
         }
 
-        pub usingnamespace if (T == u8)
-            struct {
-                const OutStream = std.io.OutStream(*Self, Error, appendWrite);
-                const Error = error{OutOfMemory};
+        /// Same as `write` except it returns the number of bytes written, which is always the same
+        /// as `bytes.len`. The purpose of this function existing is to match `std.io.OutStream` API.
+        fn appendWrite(self: *Self, bytes: []const u8) error{OutOfMemory}!usize {
+            try self.write(bytes);
+            return bytes.len;
+        }
 
-                /// Same as `write` except it returns the number of bytes written, which is always the same
-                /// as `bytes.len`. The purpose of this function existing is to match `std.io.OutStream` API.
-                pub fn appendWrite(fifo: *Self, bytes: []const u8) Error!usize {
-                    try fifo.write(bytes);
-                    return bytes.len;
-                }
-
-                pub fn outStream(self: *Self) OutStream {
-                    return .{ .context = self };
-                }
-            }
-        else
-            struct {};
+        pub fn outStream(self: *Self) std.io.OutStream(*Self, error{OutOfMemory}, appendWrite) {
+            return .{ .context = self };
+        }
 
         /// Make `count` items available before the current read location
         fn rewind(self: *Self, count: usize) void {
@@ -421,6 +423,15 @@ test "LinearFifo(u8, .Dynamic)" {
         var result: [30]u8 = undefined;
         testing.expectEqualSlices(u8, "Hello, World!", result[0..fifo.read(&result)]);
         testing.expectEqual(@as(usize, 0), fifo.readableLength());
+    }
+
+    {
+        try fifo.outStream().writeAll("This is a test");
+        var result: [30]u8 = undefined;
+        testing.expectEqualSlices(u8, "This", (try fifo.inStream().readUntilDelimiterOrEof(&result, ' ')).?);
+        testing.expectEqualSlices(u8, "is", (try fifo.inStream().readUntilDelimiterOrEof(&result, ' ')).?);
+        testing.expectEqualSlices(u8, "a", (try fifo.inStream().readUntilDelimiterOrEof(&result, ' ')).?);
+        testing.expectEqualSlices(u8, "test", (try fifo.inStream().readUntilDelimiterOrEof(&result, ' ')).?);
     }
 }
 
