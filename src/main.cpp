@@ -458,6 +458,7 @@ static int main0(int argc, char **argv) {
     bool only_pp_or_asm = false;
     bool ensure_libc_on_non_freestanding = false;
     bool ensure_libcpp_on_non_freestanding = false;
+    bool disable_c_depfile = false;
 
     ZigList<const char *> llvm_argv = {0};
     llvm_argv.append("zig (LLVM option parsing)");
@@ -740,6 +741,12 @@ static int main0(int argc, char **argv) {
                     break;
                 case Stage2ClangArgMCpu:
                     mcpu = it.only_arg;
+                    break;
+                case Stage2ClangArgDepFile:
+                    disable_c_depfile = true;
+                    for (size_t i = 0; i < it.other_args_len; i += 1) {
+                        clang_argv.append(it.other_args_ptr[i]);
+                    }
                     break;
             }
         }
@@ -1520,6 +1527,7 @@ static int main0(int argc, char **argv) {
             g->system_linker_hack = system_linker_hack;
             g->function_sections = function_sections;
             g->code_model = code_model;
+            g->disable_c_depfile = disable_c_depfile;
 
             if (override_soname) {
                 g->override_soname = buf_create_from_str(override_soname);

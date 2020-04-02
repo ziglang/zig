@@ -2230,6 +2230,7 @@ struct CodeGen {
     bool reported_bad_link_libc_error;
     bool is_dynamic; // shared library rather than static library. dynamic musl rather than static musl.
     bool need_frame_size_prefix_data;
+    bool disable_c_depfile;
 
     //////////////////////////// Participates in Input Parameter Cache Hash
     /////// Note: there is a separate cache hash for builtin.zig, when adding fields,
@@ -2258,6 +2259,7 @@ struct CodeGen {
     const ZigTarget *zig_target;
     TargetSubsystem subsystem; // careful using this directly; see detect_subsystem
     ValgrindSupport valgrind_support;
+    CodeModel code_model;
     bool strip_debug_symbols;
     bool is_test_build;
     bool is_single_threaded;
@@ -2278,7 +2280,6 @@ struct CodeGen {
     bool emit_asm;
     bool emit_llvm_ir;
     bool test_is_evented;
-    CodeModel code_model;
 
     Buf *root_out_name;
     Buf *test_filter;

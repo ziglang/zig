@@ -9803,7 +9803,7 @@ static void gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file) {
             exit(1);
         }
     }
-    bool is_cache_miss = (buf_len(&digest) == 0);
+    bool is_cache_miss = g->disable_c_depfile || (buf_len(&digest) == 0);
     if (is_cache_miss) {
         // we can't know the digest until we do the C compiler invocation, so we
         // need a tmp filename.
@@ -9822,9 +9822,10 @@ static void gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file) {
             args.append("-c");
         }
 
-        Buf *out_dep_path = buf_sprintf("%s.d", buf_ptr(out_obj_path));
+        Buf *out_dep_path = g->disable_c_depfile ? nullptr : buf_sprintf("%s.d", buf_ptr(out_obj_path));
+        const char *out_dep_path_cstr = (out_dep_path == nullptr) ? nullptr : buf_ptr(out_dep_path);
         FileExt ext = classify_file_ext(buf_ptr(c_source_basename), buf_len(c_source_basename));
-        add_cc_args(g, args, buf_ptr(out_dep_path), false, ext);
+        add_cc_args(g, args, out_dep_path_cstr, false, ext);
 
         args.append("-o");
         args.append(buf_ptr(out_obj_path));
@@ -9845,22 +9846,24 @@ static void gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file) {
             exit(1);
         }
 
-        // add the files depended on to the cache system
-        if ((err = cache_add_dep_file(cache_hash, out_dep_path, true))) {
-            // Don't treat the absence of the .d file as a fatal error, the
-            // compiler may not produce one eg. when compiling .s files
+        if (out_dep_path != nullptr) {
+            // add the files depended on to the cache system
+            if ((err = cache_add_dep_file(cache_hash, out_dep_path, true))) {
+                // Don't treat the absence of the .d file as a fatal error, the
+                // compiler may not produce one eg. when compiling .s files
+                if (err != ErrorFileNotFound) {
+                    fprintf(stderr, "Failed to add C source dependencies to cache: %s\n", err_str(err));
+                    exit(1);
+                }
+            }
             if (err != ErrorFileNotFound) {
-                fprintf(stderr, "Failed to add C source dependencies to cache: %s\n", err_str(err));
+                os_delete_file(out_dep_path);
+            }
+
+            if ((err = cache_final(cache_hash, &digest))) {
+                fprintf(stderr, "Unable to finalize cache hash: %s\n", err_str(err));
                 exit(1);
             }
-        }
-        if (err != ErrorFileNotFound) {
-            os_delete_file(out_dep_path);
-        }
-
-        if ((err = cache_final(cache_hash, &digest))) {
-            fprintf(stderr, "Unable to finalize cache hash: %s\n", err_str(err));
-            exit(1);
         }
         artifact_dir = buf_alloc();
         os_path_join(o_dir, &digest, artifact_dir);
