@@ -1732,8 +1732,8 @@ pub const ifreq = extern struct {
         ifru_ivalue: i32,
         ifru_mtu: i32,
         ifru_map: ifmap,
-        ifru_slave: [IFNAMESIZE]u8,
-        ifru_newname: [IFNAMESIZE]u8,
+        ifru_slave: [IFNAMESIZE - 1:0]u8,
+        ifru_newname: [IFNAMESIZE - 1:0]u8,
         ifru_data: ?[*]u8,
     },
 };
