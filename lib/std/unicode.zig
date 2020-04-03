@@ -642,13 +642,13 @@ pub fn utf8ToUtf16LeStringLiteral(comptime utf8: []const u8) *const [calcUtf16Le
 }
 
 /// Returns length of a supplied UTF-8 string literal. Asserts that the data is valid UTF-8.
-fn calcUtf16LeLen(utf8: []const u8) usize {
+fn calcUtf16LeLen(comptime utf8: []const u8) usize {
     var src_i: usize = 0;
     var dest_len: usize = 0;
     while (src_i < utf8.len) {
-        const n = utf8ByteSequenceLength(utf8[src_i]) catch unreachable;
+        const n = utf8ByteSequenceLength(utf8[src_i]) catch |err| @compileError(err);
         const next_src_i = src_i + n;
-        const codepoint = utf8Decode(utf8[src_i..next_src_i]) catch unreachable;
+        const codepoint = utf8Decode(utf8[src_i..next_src_i]) catch |err| @compileError(err);
         if (codepoint < 0x10000) {
             dest_len += 1;
         } else {
