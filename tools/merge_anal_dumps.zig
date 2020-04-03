@@ -23,7 +23,7 @@ pub fn main() anyerror!void {
     }
 
     const stdout = try std.io.getStdOut();
-    try dump.render(&stdout.outStream().stream);
+    try dump.render(stdout.outStream());
 }
 
 /// AST source node

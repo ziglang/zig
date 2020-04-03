@@ -2,7 +2,7 @@ const builtin = @import("builtin");
 const std = @import("std");
 
 pub fn main() !void {
-    const stdout = &std.io.getStdOut().outStream().stream;
+    const stdout = std.io.getStdOut().outStream();
 
     const args = try std.process.argsAlloc(std.heap.page_allocator);
 
