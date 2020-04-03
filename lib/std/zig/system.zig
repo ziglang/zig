@@ -468,9 +468,8 @@ pub const NativeTargetInfo = struct {
             error.InvalidUtf8 => unreachable,
             error.BadPathName => unreachable,
             error.PipeBusy => unreachable,
-            error.PermissionDenied => unreachable,
-            error.FileBusy => unreachable,
-            error.Locked => unreachable,
+            error.FileLocksNotSupported => unreachable,
+            error.WouldBlock => unreachable,
 
             error.IsDir,
             error.NotDir,

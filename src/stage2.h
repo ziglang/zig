@@ -107,7 +107,6 @@ enum Error {
     ErrorInvalidOperatingSystemVersion,
     ErrorUnknownClangOption,
     ErrorNestedResponseFile,
-    ErrorPermissionDenied,
     ErrorFileBusy,
     ErrorLocked,
 };

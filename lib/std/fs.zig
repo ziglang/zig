@@ -843,6 +843,7 @@ pub const Dir = struct {
             error.IsDir => unreachable, // we're providing O_DIRECTORY
             error.NoSpaceLeft => unreachable, // not providing O_CREAT
             error.PathAlreadyExists => unreachable, // not providing O_CREAT
+            error.FileLocksNotSupported => unreachable, // locking folders is not supported
             else => |e| return e,
         };
         return Dir{ .fd = fd };
