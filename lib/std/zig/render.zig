@@ -187,12 +187,16 @@ fn renderExtraNewline(tree: *ast.Tree, stream: var, start_col: *usize, node: *as
     const first_token = node.firstToken();
     var prev_token = first_token;
     if (prev_token == 0) return;
+    var newline_threshold: usize = 2;
     while (tree.tokens.at(prev_token - 1).id == .DocComment) {
+        if (tree.tokenLocation(tree.tokens.at(prev_token - 1).end, prev_token).line == 1) {
+            newline_threshold += 1;
+        }
         prev_token -= 1;
     }
     const prev_token_end = tree.tokens.at(prev_token - 1).end;
     const loc = tree.tokenLocation(prev_token_end, first_token);
-    if (loc.line >= 2) {
+    if (loc.line >= newline_threshold) {
         try stream.writeByte('\n');
         start_col.* = 0;
     }
@@ -1527,7 +1531,7 @@ fn renderExpression(
                 try renderToken(tree, stream, callconv_rparen, indent, start_col, Space.Space); // )
             } else if (cc_rewrite_str) |str| {
                 try stream.writeAll("callconv(");
-                try stream.writeAll(mem.toSliceConst(u8, str));
+                try stream.writeAll(mem.spanZ(str));
                 try stream.writeAll(") ");
             }
 

@@ -651,6 +651,7 @@ static const char *build_libunwind(CodeGen *parent, Stage2ProgressNode *progress
         if (parent->is_single_threaded) {
             c_file->args.append("-D_LIBUNWIND_HAS_NO_THREADS");
         }
+        c_file->args.append("-Wno-bitwise-conditional-parentheses");
         c_source_files.append(c_file);
     }
     child_gen->c_source_files = c_source_files;
@@ -1594,7 +1595,8 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file, Stage2Pr
     } else {
         assert(parent->libc != nullptr);
         Buf *out_buf = buf_alloc();
-        os_path_join(buf_create_from_str(parent->libc->crt_dir), buf_create_from_str(file), out_buf);
+        os_path_join(buf_create_from_mem(parent->libc->crt_dir, parent->libc->crt_dir_len),
+                buf_create_from_str(file), out_buf);
         return buf_ptr(out_buf);
     }
 }
@@ -1767,8 +1769,17 @@ static void construct_linker_job_elf(LinkJob *lj) {
         lj->args.append(g->linker_script);
     }
 
-    if (g->out_type != OutTypeObj) {
-        lj->args.append("--gc-sections");
+    switch (g->linker_gc_sections) {
+        case OptionalBoolNull:
+            if (g->out_type != OutTypeObj) {
+                lj->args.append("--gc-sections");
+            }
+            break;
+        case OptionalBoolTrue:
+            lj->args.append("--gc-sections");
+            break;
+        case OptionalBoolFalse:
+            break;
     }
 
     if (g->link_eh_frame_hdr) {
@@ -1777,6 +1788,19 @@ static void construct_linker_job_elf(LinkJob *lj) {
 
     if (g->linker_rdynamic) {
         lj->args.append("--export-dynamic");
+    }
+
+    if (g->linker_optimization != nullptr) {
+        lj->args.append(buf_ptr(g->linker_optimization));
+    }
+
+    if (g->linker_z_nodelete) {
+        lj->args.append("-z");
+        lj->args.append("nodelete");
+    }
+    if (g->linker_z_defs) {
+        lj->args.append("-z");
+        lj->args.append("defs");
     }
 
     lj->args.append("-m");
@@ -1859,7 +1883,7 @@ static void construct_linker_job_elf(LinkJob *lj) {
     if (g->libc_link_lib != nullptr) {
         if (g->libc != nullptr) {
             lj->args.append("-L");
-            lj->args.append(g->libc->crt_dir);
+            lj->args.append(buf_ptr(buf_create_from_mem(g->libc->crt_dir, g->libc->crt_dir_len)));
         }
 
         if (g->have_dynamic_link && (is_dyn_lib || g->out_type == OutTypeExe)) {
@@ -1903,7 +1927,7 @@ static void construct_linker_job_elf(LinkJob *lj) {
             // libc is linked specially
             continue;
         }
-        if (buf_eql_str(link_lib->name, "c++") || buf_eql_str(link_lib->name, "c++abi")) {
+        if (target_is_libcpp_lib_name(g->zig_target, buf_ptr(link_lib->name))) {
             // libc++ is linked specially
             continue;
         }
@@ -1947,15 +1971,11 @@ static void construct_linker_job_elf(LinkJob *lj) {
                 lj->args.append("-lpthread");
             }
         } else if (target_is_glibc(g->zig_target)) {
-            if (target_supports_libunwind(g->zig_target)) {
-                lj->args.append(build_libunwind(g, lj->build_dep_prog_node));
-            }
+            lj->args.append(build_libunwind(g, lj->build_dep_prog_node));
             add_glibc_libs(lj);
             lj->args.append(get_libc_crt_file(g, "libc_nonshared.a", lj->build_dep_prog_node));
         } else if (target_is_musl(g->zig_target)) {
-            if (target_supports_libunwind(g->zig_target)) {
-                lj->args.append(build_libunwind(g, lj->build_dep_prog_node));
-            }
+            lj->args.append(build_libunwind(g, lj->build_dep_prog_node));
             lj->args.append(build_musl(g, lj->build_dep_prog_node));
         } else if (g->libcpp_link_lib != nullptr) {
             lj->args.append(build_libunwind(g, lj->build_dep_prog_node));
@@ -1973,8 +1993,17 @@ static void construct_linker_job_elf(LinkJob *lj) {
         }
     }
 
-    if (!g->zig_target->is_native_os) {
-        lj->args.append("--allow-shlib-undefined");
+    switch (g->linker_allow_shlib_undefined) {
+        case OptionalBoolNull:
+            if (!g->zig_target->is_native_os) {
+                lj->args.append("--allow-shlib-undefined");
+            }
+            break;
+        case OptionalBoolFalse:
+            break;
+        case OptionalBoolTrue:
+            lj->args.append("--allow-shlib-undefined");
+            break;
     }
 }
 
@@ -2384,14 +2413,26 @@ static void construct_linker_job_coff(LinkJob *lj) {
     lj->args.append(buf_ptr(buf_sprintf("-OUT:%s", buf_ptr(&g->bin_file_output_path))));
 
     if (g->libc_link_lib != nullptr && g->libc != nullptr) {
-        lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", g->libc->crt_dir)));
+        Buf *buff0 = buf_create_from_str("-LIBPATH:");
+        buf_append_mem(buff0, g->libc->crt_dir, g->libc->crt_dir_len);
+        lj->args.append(buf_ptr(buff0));
 
         if (target_abi_is_gnu(g->zig_target->abi)) {
-            lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", g->libc->sys_include_dir)));
-            lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", g->libc->include_dir)));
+            Buf *buff1 = buf_create_from_str("-LIBPATH:");
+            buf_append_mem(buff1, g->libc->sys_include_dir, g->libc->sys_include_dir_len);
+            lj->args.append(buf_ptr(buff1));
+
+            Buf *buff2 = buf_create_from_str("-LIBPATH:");
+            buf_append_mem(buff2, g->libc->include_dir, g->libc->include_dir_len);
+            lj->args.append(buf_ptr(buff2));
         } else {
-            lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", g->libc->msvc_lib_dir)));
-            lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", g->libc->kernel32_lib_dir)));
+            Buf *buff1 = buf_create_from_str("-LIBPATH:");
+            buf_append_mem(buff1, g->libc->msvc_lib_dir, g->libc->msvc_lib_dir_len);
+            lj->args.append(buf_ptr(buff1));
+
+            Buf *buff2 = buf_create_from_str("-LIBPATH:");
+            buf_append_mem(buff2, g->libc->kernel32_lib_dir, g->libc->kernel32_lib_dir_len);
+            lj->args.append(buf_ptr(buff2));
         }
     }
 
@@ -2470,7 +2511,12 @@ static void construct_linker_job_coff(LinkJob *lj) {
         if (buf_eql_str(link_lib->name, "c")) {
             continue;
         }
-        if (buf_eql_str(link_lib->name, "c++") || buf_eql_str(link_lib->name, "c++abi")) {
+        if (target_is_libcpp_lib_name(g->zig_target, buf_ptr(link_lib->name))) {
+            // libc++ is linked specially
+            continue;
+        }
+        if (g->libc == nullptr && target_is_libc_lib_name(g->zig_target, buf_ptr(link_lib->name))) {
+            // these libraries are always linked below when targeting glibc
             continue;
         }
         bool is_sys_lib = is_mingw_link_lib(link_lib->name);
@@ -2521,8 +2567,32 @@ static void construct_linker_job_macho(LinkJob *lj) {
     //lj->args.append("-error-limit=0");
     lj->args.append("-demangle");
 
+    switch (g->linker_gc_sections) {
+        case OptionalBoolNull:
+            // TODO why do we not follow the same logic of elf here?
+            break;
+        case OptionalBoolTrue:
+            lj->args.append("--gc-sections");
+            break;
+        case OptionalBoolFalse:
+            break;
+    }
+
     if (g->linker_rdynamic) {
         lj->args.append("-export_dynamic");
+    }
+
+    if (g->linker_optimization != nullptr) {
+        lj->args.append(buf_ptr(g->linker_optimization));
+    }
+
+    if (g->linker_z_nodelete) {
+        lj->args.append("-z");
+        lj->args.append("nodelete");
+    }
+    if (g->linker_z_defs) {
+        lj->args.append("-z");
+        lj->args.append("defs");
     }
 
     bool is_lib = g->out_type == OutTypeLib;
@@ -2639,9 +2709,20 @@ static void construct_linker_job_macho(LinkJob *lj) {
         // and change between versions.
         // so we always link against libSystem
         lj->args.append("-lSystem");
-    } else {
-        lj->args.append("-undefined");
-        lj->args.append("dynamic_lookup");
+    }
+    switch (g->linker_allow_shlib_undefined) {
+        case OptionalBoolNull:
+            if (!g->zig_target->is_native_os) {
+                lj->args.append("-undefined");
+                lj->args.append("dynamic_lookup");
+            }
+            break;
+        case OptionalBoolFalse:
+            break;
+        case OptionalBoolTrue:
+            lj->args.append("-undefined");
+            lj->args.append("dynamic_lookup");
+            break;
     }
 
     for (size_t i = 0; i < g->framework_dirs.length; i += 1) {

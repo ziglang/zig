@@ -80,7 +80,7 @@ static void jw_array_elem(JsonWriter *jw) {
             zig_unreachable();
         case JsonWriterStateArray:
             fprintf(jw->f, ",");
-            // fallthrough
+            ZIG_FALLTHROUGH;
         case JsonWriterStateArrayStart:
             jw->state[jw->state_index] = JsonWriterStateArray;
             jw_push_state(jw, JsonWriterStateValue);
@@ -134,7 +134,7 @@ static void jw_object_field(JsonWriter *jw, const char *name) {
             zig_unreachable();
         case JsonWriterStateObject:
             fprintf(jw->f, ",");
-            // fallthrough
+            ZIG_FALLTHROUGH;
         case JsonWriterStateObjectStart:
             jw->state[jw->state_index] = JsonWriterStateObject;
             jw_push_state(jw, JsonWriterStateValue);

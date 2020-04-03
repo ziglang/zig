@@ -1233,42 +1233,119 @@ pub const Value = union(enum) {
     Array: Array,
     Object: ObjectMap,
 
+    pub fn jsonStringify(
+        value: @This(),
+        options: StringifyOptions,
+        out_stream: var,
+    ) @TypeOf(out_stream).Error!void {
+        switch (value) {
+            .Null => try stringify(null, options, out_stream),
+            .Bool => |inner| try stringify(inner, options, out_stream),
+            .Integer => |inner| try stringify(inner, options, out_stream),
+            .Float => |inner| try stringify(inner, options, out_stream),
+            .String => |inner| try stringify(inner, options, out_stream),
+            .Array => |inner| try stringify(inner.span(), options, out_stream),
+            .Object => |inner| {
+                try out_stream.writeByte('{');
+                var field_output = false;
+                var child_options = options;
+                if (child_options.whitespace) |*child_whitespace| {
+                    child_whitespace.indent_level += 1;
+                }
+                var it = inner.iterator();
+                while (it.next()) |entry| {
+                    if (!field_output) {
+                        field_output = true;
+                    } else {
+                        try out_stream.writeByte(',');
+                    }
+                    if (child_options.whitespace) |child_whitespace| {
+                        try out_stream.writeByte('\n');
+                        try child_whitespace.outputIndent(out_stream);
+                    }
+
+                    try stringify(entry.key, options, out_stream);
+                    try out_stream.writeByte(':');
+                    if (child_options.whitespace) |child_whitespace| {
+                        if (child_whitespace.separator) {
+                            try out_stream.writeByte(' ');
+                        }
+                    }
+                    try stringify(entry.value, child_options, out_stream);
+                }
+                if (field_output) {
+                    if (options.whitespace) |whitespace| {
+                        try out_stream.writeByte('\n');
+                        try whitespace.outputIndent(out_stream);
+                    }
+                }
+                try out_stream.writeByte('}');
+            },
+        }
+    }
+
     pub fn dump(self: Value) void {
         var held = std.debug.getStderrMutex().acquire();
         defer held.release();
 
         const stderr = std.debug.getStderrStream();
-        self.dumpStream(stderr, 1024) catch return;
-    }
-
-    pub fn dumpIndent(self: Value, comptime indent: usize) void {
-        if (indent == 0) {
-            self.dump();
-        } else {
-            var held = std.debug.getStderrMutex().acquire();
-            defer held.release();
-
-            const stderr = std.debug.getStderrStream();
-            self.dumpStreamIndent(indent, stderr, 1024) catch return;
-        }
-    }
-
-    pub fn dumpStream(self: @This(), stream: var, comptime max_depth: usize) !void {
-        var w = std.json.WriteStream(@TypeOf(stream).Child, max_depth).init(stream);
-        w.newline = "";
-        w.one_indent = "";
-        w.space = "";
-        try w.emitJson(self);
-    }
-
-    pub fn dumpStreamIndent(self: @This(), comptime indent: usize, stream: var, comptime max_depth: usize) !void {
-        var one_indent = " " ** indent;
-
-        var w = std.json.WriteStream(@TypeOf(stream).Child, max_depth).init(stream);
-        w.one_indent = one_indent;
-        try w.emitJson(self);
+        std.json.stringify(self, std.json.StringifyOptions{ .whitespace = null }, stderr) catch return;
     }
 };
+
+test "Value.jsonStringify" {
+    {
+        var buffer: [10]u8 = undefined;
+        var fbs = std.io.fixedBufferStream(&buffer);
+        try @as(Value, .Null).jsonStringify(.{}, fbs.outStream());
+        testing.expectEqualSlices(u8, fbs.getWritten(), "null");
+    }
+    {
+        var buffer: [10]u8 = undefined;
+        var fbs = std.io.fixedBufferStream(&buffer);
+        try (Value{ .Bool = true }).jsonStringify(.{}, fbs.outStream());
+        testing.expectEqualSlices(u8, fbs.getWritten(), "true");
+    }
+    {
+        var buffer: [10]u8 = undefined;
+        var fbs = std.io.fixedBufferStream(&buffer);
+        try (Value{ .Integer = 42 }).jsonStringify(.{}, fbs.outStream());
+        testing.expectEqualSlices(u8, fbs.getWritten(), "42");
+    }
+    {
+        var buffer: [10]u8 = undefined;
+        var fbs = std.io.fixedBufferStream(&buffer);
+        try (Value{ .Float = 42 }).jsonStringify(.{}, fbs.outStream());
+        testing.expectEqualSlices(u8, fbs.getWritten(), "4.2e+01");
+    }
+    {
+        var buffer: [10]u8 = undefined;
+        var fbs = std.io.fixedBufferStream(&buffer);
+        try (Value{ .String = "weeee" }).jsonStringify(.{}, fbs.outStream());
+        testing.expectEqualSlices(u8, fbs.getWritten(), "\"weeee\"");
+    }
+    {
+        var buffer: [10]u8 = undefined;
+        var fbs = std.io.fixedBufferStream(&buffer);
+        try (Value{
+            .Array = Array.fromOwnedSlice(undefined, &[_]Value{
+                .{ .Integer = 1 },
+                .{ .Integer = 2 },
+                .{ .Integer = 3 },
+            }),
+        }).jsonStringify(.{}, fbs.outStream());
+        testing.expectEqualSlices(u8, fbs.getWritten(), "[1,2,3]");
+    }
+    {
+        var buffer: [10]u8 = undefined;
+        var fbs = std.io.fixedBufferStream(&buffer);
+        var obj = ObjectMap.init(testing.allocator);
+        defer obj.deinit();
+        try obj.putNoClobber("a", .{ .String = "b" });
+        try (Value{ .Object = obj }).jsonStringify(.{}, fbs.outStream());
+        testing.expectEqualSlices(u8, fbs.getWritten(), "{\"a\":\"b\"}");
+    }
+}
 
 pub const ParseOptions = struct {
     allocator: ?*Allocator = null,
@@ -1658,9 +1735,6 @@ test "parse into tagged union" {
 }
 
 test "parseFree descends into tagged union" {
-    // tagged unions are broken on arm64: https://github.com/ziglang/zig/issues/4492
-    if (std.builtin.arch == .aarch64) return error.SkipZigTest;
-
     var fail_alloc = testing.FailingAllocator.init(testing.allocator, 1);
     const options = ParseOptions{ .allocator = &fail_alloc.allocator };
     const T = union(enum) {
@@ -1947,7 +2021,7 @@ pub const Parser = struct {
     }
 
     fn pushToParent(p: *Parser, value: *const Value) !void {
-        switch (p.stack.toSlice()[p.stack.len - 1]) {
+        switch (p.stack.span()[p.stack.len - 1]) {
             // Object Parent -> [ ..., object, <key>, value ]
             Value.String => |key| {
                 _ = p.stack.pop();
@@ -2244,10 +2318,85 @@ test "string copy option" {
 }
 
 pub const StringifyOptions = struct {
-    // TODO: indentation options?
-    // TODO: make escaping '/' in strings optional?
-    // TODO: allow picking if []u8 is string or array?
+    pub const Whitespace = struct {
+        /// How many indentation levels deep are we?
+        indent_level: usize = 0,
+
+        pub const Indentation = union(enum) {
+            Space: u8,
+            Tab: void,
+        };
+
+        /// What character(s) should be used for indentation?
+        indent: Indentation = Indentation{ .Space = 4 },
+
+        fn outputIndent(
+            whitespace: @This(),
+            out_stream: var,
+        ) @TypeOf(out_stream).Error!void {
+            var char: u8 = undefined;
+            var n_chars: usize = undefined;
+            switch (whitespace.indent) {
+                .Space => |n_spaces| {
+                    char = ' ';
+                    n_chars = n_spaces;
+                },
+                .Tab => {
+                    char = '\t';
+                    n_chars = 1;
+                },
+            }
+            n_chars *= whitespace.indent_level;
+            try out_stream.writeByteNTimes(char, n_chars);
+        }
+
+        /// After a colon, should whitespace be inserted?
+        separator: bool = true,
+    };
+
+    /// Controls the whitespace emitted
+    whitespace: ?Whitespace = null,
+
+    /// Should []u8 be serialised as a string? or an array?
+    pub const StringOptions = union(enum) {
+        Array,
+
+        /// String output options
+        const StringOutputOptions = struct {
+            /// Should '/' be escaped in strings?
+            escape_solidus: bool = false,
+
+            /// Should unicode characters be escaped in strings?
+            escape_unicode: bool = false,
+        };
+        String: StringOutputOptions,
+    };
+
+    string: StringOptions = StringOptions{ .String = .{} },
 };
+
+fn outputUnicodeEscape(
+    codepoint: u21,
+    out_stream: var,
+) !void {
+    if (codepoint <= 0xFFFF) {
+        // If the character is in the Basic Multilingual Plane (U+0000 through U+FFFF),
+        // then it may be represented as a six-character sequence: a reverse solidus, followed
+        // by the lowercase letter u, followed by four hexadecimal digits that encode the character's code point.
+        try out_stream.writeAll("\\u");
+        try std.fmt.formatIntValue(codepoint, "x", std.fmt.FormatOptions{ .width = 4, .fill = '0' }, out_stream);
+    } else {
+        assert(codepoint <= 0x10FFFF);
+        // To escape an extended character that is not in the Basic Multilingual Plane,
+        // the character is represented as a 12-character sequence, encoding the UTF-16 surrogate pair.
+        const high = @intCast(u16, (codepoint - 0x10000) >> 10) + 0xD800;
+        const low = @intCast(u16, codepoint & 0x3FF) + 0xDC00;
+        try out_stream.writeAll("\\u");
+        try std.fmt.formatIntValue(high, "x", std.fmt.FormatOptions{ .width = 4, .fill = '0' }, out_stream);
+        try out_stream.writeAll("\\u");
+        try std.fmt.formatIntValue(low, "x", std.fmt.FormatOptions{ .width = 4, .fill = '0' }, out_stream);
+    }
+}
 
 pub fn stringify(
     value: var,
@@ -2265,11 +2414,14 @@ pub fn stringify(
         .Bool => {
             return out_stream.writeAll(if (value) "true" else "false");
         },
+        .Null => {
+            return out_stream.writeAll("null");
+        },
         .Optional => {
             if (value) |payload| {
                 return try stringify(payload, options, out_stream);
             } else {
-                return out_stream.writeAll("null");
+                return try stringify(null, options, out_stream);
             }
         },
         .Enum => {
@@ -2300,8 +2452,12 @@ pub fn stringify(
                 return value.jsonStringify(options, out_stream);
             }
 
-            try out_stream.writeAll("{");
+            try out_stream.writeByte('{');
             comptime var field_output = false;
+            var child_options = options;
+            if (child_options.whitespace) |*child_whitespace| {
+                child_whitespace.indent_level += 1;
+            }
             inline for (S.fields) |Field, field_i| {
                 // don't include void fields
                 if (Field.field_type == void) continue;
@@ -2309,14 +2465,28 @@ pub fn stringify(
                 if (!field_output) {
                     field_output = true;
                 } else {
-                    try out_stream.writeAll(",");
+                    try out_stream.writeByte(',');
                 }
-
+                if (child_options.whitespace) |child_whitespace| {
+                    try out_stream.writeByte('\n');
+                    try child_whitespace.outputIndent(out_stream);
+                }
                 try stringify(Field.name, options, out_stream);
-                try out_stream.writeAll(":");
-                try stringify(@field(value, Field.name), options, out_stream);
+                try out_stream.writeByte(':');
+                if (child_options.whitespace) |child_whitespace| {
+                    if (child_whitespace.separator) {
+                        try out_stream.writeByte(' ');
+                    }
+                }
+                try stringify(@field(value, Field.name), child_options, out_stream);
             }
-            try out_stream.writeAll("}");
+            if (field_output) {
+                if (options.whitespace) |whitespace| {
+                    try out_stream.writeByte('\n');
+                    try whitespace.outputIndent(out_stream);
+                }
+            }
+            try out_stream.writeByte('}');
             return;
         },
         .Pointer => |ptr_info| switch (ptr_info.size) {
@@ -2332,17 +2502,26 @@ pub fn stringify(
             },
             // TODO: .Many when there is a sentinel (waiting for https://github.com/ziglang/zig/pull/3972)
             .Slice => {
-                if (ptr_info.child == u8 and std.unicode.utf8ValidateSlice(value)) {
-                    try out_stream.writeAll("\"");
+                if (ptr_info.child == u8 and options.string == .String and std.unicode.utf8ValidateSlice(value)) {
+                    try out_stream.writeByte('\"');
                     var i: usize = 0;
                     while (i < value.len) : (i += 1) {
                         switch (value[i]) {
-                            // normal ascii characters
-                            0x20...0x21, 0x23...0x2E, 0x30...0x5B, 0x5D...0x7F => try out_stream.writeAll(value[i .. i + 1]),
-                            // control characters with short escapes
+                            // normal ascii character
+                            0x20...0x21, 0x23...0x2E, 0x30...0x5B, 0x5D...0x7F => |c| try out_stream.writeByte(c),
+                            // only 2 characters that *must* be escaped
                             '\\' => try out_stream.writeAll("\\\\"),
                             '\"' => try out_stream.writeAll("\\\""),
-                            '/' => try out_stream.writeAll("\\/"),
+                            // solidus is optional to escape
+                            '/' => {
+                                if (options.string.String.escape_solidus) {
+                                    try out_stream.writeAll("\\/");
+                                } else {
+                                    try out_stream.writeByte('\\');
+                                }
+                            },
+                            // control characters with short escapes
+                            // TODO: option to switch between unicode and 'short' forms?
                             0x8 => try out_stream.writeAll("\\b"),
                             0xC => try out_stream.writeAll("\\f"),
                             '\n' => try out_stream.writeAll("\\n"),
@@ -2350,39 +2529,43 @@ pub fn stringify(
                             '\t' => try out_stream.writeAll("\\t"),
                             else => {
                                 const ulen = std.unicode.utf8ByteSequenceLength(value[i]) catch unreachable;
-                                const codepoint = std.unicode.utf8Decode(value[i .. i + ulen]) catch unreachable;
-                                if (codepoint <= 0xFFFF) {
-                                    // If the character is in the Basic Multilingual Plane (U+0000 through U+FFFF),
-                                    // then it may be represented as a six-character sequence: a reverse solidus, followed
-                                    // by the lowercase letter u, followed by four hexadecimal digits that encode the character's code point.
-                                    try out_stream.writeAll("\\u");
-                                    try std.fmt.formatIntValue(codepoint, "x", std.fmt.FormatOptions{ .width = 4, .fill = '0' }, out_stream);
+                                // control characters (only things left with 1 byte length) should always be printed as unicode escapes
+                                if (ulen == 1 or options.string.String.escape_unicode) {
+                                    const codepoint = std.unicode.utf8Decode(value[i .. i + ulen]) catch unreachable;
+                                    try outputUnicodeEscape(codepoint, out_stream);
                                 } else {
-                                    // To escape an extended character that is not in the Basic Multilingual Plane,
-                                    // the character is represented as a 12-character sequence, encoding the UTF-16 surrogate pair.
-                                    const high = @intCast(u16, (codepoint - 0x10000) >> 10) + 0xD800;
-                                    const low = @intCast(u16, codepoint & 0x3FF) + 0xDC00;
-                                    try out_stream.writeAll("\\u");
-                                    try std.fmt.formatIntValue(high, "x", std.fmt.FormatOptions{ .width = 4, .fill = '0' }, out_stream);
-                                    try out_stream.writeAll("\\u");
-                                    try std.fmt.formatIntValue(low, "x", std.fmt.FormatOptions{ .width = 4, .fill = '0' }, out_stream);
+                                    try out_stream.writeAll(value[i .. i + ulen]);
                                 }
                                 i += ulen - 1;
                             },
                         }
                     }
-                    try out_stream.writeAll("\"");
+                    try out_stream.writeByte('\"');
                     return;
                 }
 
-                try out_stream.writeAll("[");
+                try out_stream.writeByte('[');
+                var child_options = options;
+                if (child_options.whitespace) |*whitespace| {
+                    whitespace.indent_level += 1;
+                }
                 for (value) |x, i| {
                     if (i != 0) {
-                        try out_stream.writeAll(",");
+                        try out_stream.writeByte(',');
                     }
-                    try stringify(x, options, out_stream);
+                    if (child_options.whitespace) |child_whitespace| {
+                        try out_stream.writeByte('\n');
+                        try child_whitespace.outputIndent(out_stream);
+                    }
+                    try stringify(x, child_options, out_stream);
                 }
-                try out_stream.writeAll("]");
+                if (value.len != 0) {
+                    if (options.whitespace) |whitespace| {
+                        try out_stream.writeByte('\n');
+                        try whitespace.outputIndent(out_stream);
+                    }
+                }
+                try out_stream.writeByte(']');
                 return;
             },
             else => @compileError("Unable to stringify type '" ++ @typeName(T) ++ "'"),
@@ -2393,7 +2576,7 @@ pub fn stringify(
     unreachable;
 }
 
-fn teststringify(expected: []const u8, value: var) !void {
+fn teststringify(expected: []const u8, value: var, options: StringifyOptions) !void {
     const ValidationOutStream = struct {
         const Self = @This();
         pub const OutStream = std.io.OutStream(*Self, Error, write);
@@ -2445,55 +2628,105 @@ fn teststringify(expected: []const u8, value: var) !void {
     };
 
     var vos = ValidationOutStream.init(expected);
-    try stringify(value, StringifyOptions{}, vos.outStream());
+    try stringify(value, options, vos.outStream());
     if (vos.expected_remaining.len > 0) return error.NotEnoughData;
 }
 
 test "stringify basic types" {
-    try teststringify("false", false);
-    try teststringify("true", true);
-    try teststringify("null", @as(?u8, null));
-    try teststringify("null", @as(?*u32, null));
-    try teststringify("42", 42);
-    try teststringify("4.2e+01", 42.0);
-    try teststringify("42", @as(u8, 42));
-    try teststringify("42", @as(u128, 42));
-    try teststringify("4.2e+01", @as(f32, 42));
-    try teststringify("4.2e+01", @as(f64, 42));
+    try teststringify("false", false, StringifyOptions{});
+    try teststringify("true", true, StringifyOptions{});
+    try teststringify("null", @as(?u8, null), StringifyOptions{});
+    try teststringify("null", @as(?*u32, null), StringifyOptions{});
+    try teststringify("42", 42, StringifyOptions{});
+    try teststringify("4.2e+01", 42.0, StringifyOptions{});
+    try teststringify("42", @as(u8, 42), StringifyOptions{});
+    try teststringify("42", @as(u128, 42), StringifyOptions{});
+    try teststringify("4.2e+01", @as(f32, 42), StringifyOptions{});
+    try teststringify("4.2e+01", @as(f64, 42), StringifyOptions{});
 }
 
 test "stringify string" {
-    try teststringify("\"hello\"", "hello");
-    try teststringify("\"with\\nescapes\\r\"", "with\nescapes\r");
-    try teststringify("\"with unicode\\u0001\"", "with unicode\u{1}");
-    try teststringify("\"with unicode\\u0080\"", "with unicode\u{80}");
-    try teststringify("\"with unicode\\u00ff\"", "with unicode\u{FF}");
-    try teststringify("\"with unicode\\u0100\"", "with unicode\u{100}");
-    try teststringify("\"with unicode\\u0800\"", "with unicode\u{800}");
-    try teststringify("\"with unicode\\u8000\"", "with unicode\u{8000}");
-    try teststringify("\"with unicode\\ud799\"", "with unicode\u{D799}");
-    try teststringify("\"with unicode\\ud800\\udc00\"", "with unicode\u{10000}");
-    try teststringify("\"with unicode\\udbff\\udfff\"", "with unicode\u{10FFFF}");
+    try teststringify("\"hello\"", "hello", StringifyOptions{});
+    try teststringify("\"with\\nescapes\\r\"", "with\nescapes\r", StringifyOptions{});
+    try teststringify("\"with\\nescapes\\r\"", "with\nescapes\r", StringifyOptions{ .string = .{ .String = .{ .escape_unicode = true } } });
+    try teststringify("\"with unicode\\u0001\"", "with unicode\u{1}", StringifyOptions{});
+    try teststringify("\"with unicode\\u0001\"", "with unicode\u{1}", StringifyOptions{ .string = .{ .String = .{ .escape_unicode = true } } });
+    try teststringify("\"with unicode\u{80}\"", "with unicode\u{80}", StringifyOptions{});
+    try teststringify("\"with unicode\\u0080\"", "with unicode\u{80}", StringifyOptions{ .string = .{ .String = .{ .escape_unicode = true } } });
+    try teststringify("\"with unicode\u{FF}\"", "with unicode\u{FF}", StringifyOptions{});
+    try teststringify("\"with unicode\\u00ff\"", "with unicode\u{FF}", StringifyOptions{ .string = .{ .String = .{ .escape_unicode = true } } });
+    try teststringify("\"with unicode\u{100}\"", "with unicode\u{100}", StringifyOptions{});
+    try teststringify("\"with unicode\\u0100\"", "with unicode\u{100}", StringifyOptions{ .string = .{ .String = .{ .escape_unicode = true } } });
+    try teststringify("\"with unicode\u{800}\"", "with unicode\u{800}", StringifyOptions{});
+    try teststringify("\"with unicode\\u0800\"", "with unicode\u{800}", StringifyOptions{ .string = .{ .String = .{ .escape_unicode = true } } });
+    try teststringify("\"with unicode\u{8000}\"", "with unicode\u{8000}", StringifyOptions{});
+    try teststringify("\"with unicode\\u8000\"", "with unicode\u{8000}", StringifyOptions{ .string = .{ .String = .{ .escape_unicode = true } } });
+    try teststringify("\"with unicode\u{D799}\"", "with unicode\u{D799}", StringifyOptions{});
+    try teststringify("\"with unicode\\ud799\"", "with unicode\u{D799}", StringifyOptions{ .string = .{ .String = .{ .escape_unicode = true } } });
+    try teststringify("\"with unicode\u{10000}\"", "with unicode\u{10000}", StringifyOptions{});
+    try teststringify("\"with unicode\\ud800\\udc00\"", "with unicode\u{10000}", StringifyOptions{ .string = .{ .String = .{ .escape_unicode = true } } });
+    try teststringify("\"with unicode\u{10FFFF}\"", "with unicode\u{10FFFF}", StringifyOptions{});
+    try teststringify("\"with unicode\\udbff\\udfff\"", "with unicode\u{10FFFF}", StringifyOptions{ .string = .{ .String = .{ .escape_unicode = true } } });
 }
 
 test "stringify tagged unions" {
     try teststringify("42", union(enum) {
         Foo: u32,
         Bar: bool,
-    }{ .Foo = 42 });
+    }{ .Foo = 42 }, StringifyOptions{});
 }
 
 test "stringify struct" {
     try teststringify("{\"foo\":42}", struct {
         foo: u32,
-    }{ .foo = 42 });
+    }{ .foo = 42 }, StringifyOptions{});
+}
+
+test "stringify struct with indentation" {
+    try teststringify(
+        \\{
+        \\    "foo": 42,
+        \\    "bar": [
+        \\        1,
+        \\        2,
+        \\        3
+        \\    ]
+        \\}
+    ,
+        struct {
+                foo: u32,
+                bar: [3]u32,
+            }{
+            .foo = 42,
+            .bar = .{ 1, 2, 3 },
+        },
+        StringifyOptions{
+            .whitespace = .{},
+        },
+    );
+    try teststringify(
+        "{\n\t\"foo\":42,\n\t\"bar\":[\n\t\t1,\n\t\t2,\n\t\t3\n\t]\n}",
+        struct {
+                foo: u32,
+                bar: [3]u32,
+            }{
+            .foo = 42,
+            .bar = .{ 1, 2, 3 },
+        },
+        StringifyOptions{
+            .whitespace = .{
+                .indent = .Tab,
+                .separator = false,
+            },
+        },
+    );
 }
 
 test "stringify struct with void field" {
     try teststringify("{\"foo\":42}", struct {
         foo: u32,
         bar: void = {},
-    }{ .foo = 42 });
+    }{ .foo = 42 }, StringifyOptions{});
 }
 
 test "stringify array of structs" {
@@ -2504,7 +2737,7 @@ test "stringify array of structs" {
         MyStruct{ .foo = 42 },
         MyStruct{ .foo = 100 },
         MyStruct{ .foo = 1000 },
-    });
+    }, StringifyOptions{});
 }
 
 test "stringify struct with custom stringifier" {
@@ -2518,7 +2751,7 @@ test "stringify struct with custom stringifier" {
         ) !void {
             try out_stream.writeAll("[\"something special\",");
             try stringify(42, options, out_stream);
-            try out_stream.writeAll("]");
+            try out_stream.writeByte(']');
         }
-    }{ .foo = 42 });
+    }{ .foo = 42 }, StringifyOptions{});
 }

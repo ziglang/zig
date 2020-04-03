@@ -54,8 +54,8 @@ make install
 ##### MacOS
 
 ```
-brew install cmake llvm@10
-brew outdated llvm@10 || brew upgrade llvm@10
+brew install cmake llvm
+brew outdated llvm || brew upgrade llvm
 mkdir build
 cd build
 cmake .. -DCMAKE_PREFIX_PATH=$(brew --prefix llvm)

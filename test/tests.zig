@@ -4,7 +4,6 @@ const debug = std.debug;
 const warn = debug.warn;
 const build = std.build;
 const CrossTarget = std.zig.CrossTarget;
-const Buffer = std.Buffer;
 const io = std.io;
 const fs = std.fs;
 const mem = std.mem;
@@ -583,7 +582,7 @@ pub const StackTracesContext = struct {
 
             warn("Test {}/{} {}...", .{ self.test_index + 1, self.context.test_index, self.name });
 
-            const child = std.ChildProcess.init(args.toSliceConst(), b.allocator) catch unreachable;
+            const child = std.ChildProcess.init(args.span(), b.allocator) catch unreachable;
             defer child.deinit();
 
             child.stdin_behavior = .Ignore;
@@ -592,7 +591,7 @@ pub const StackTracesContext = struct {
             child.env_map = b.env_map;
 
             if (b.verbose) {
-                printInvocation(args.toSliceConst());
+                printInvocation(args.span());
             }
             child.spawn() catch |err| debug.panic("Unable to spawn {}: {}\n", .{ full_exe_path, @errorName(err) });
 
@@ -614,23 +613,23 @@ pub const StackTracesContext = struct {
                             code,
                             expect_code,
                         });
-                        printInvocation(args.toSliceConst());
+                        printInvocation(args.span());
                         return error.TestFailed;
                     }
                 },
                 .Signal => |signum| {
                     warn("Process {} terminated on signal {}\n", .{ full_exe_path, signum });
-                    printInvocation(args.toSliceConst());
+                    printInvocation(args.span());
                     return error.TestFailed;
                 },
                 .Stopped => |signum| {
                     warn("Process {} stopped on signal {}\n", .{ full_exe_path, signum });
-                    printInvocation(args.toSliceConst());
+                    printInvocation(args.span());
                     return error.TestFailed;
                 },
                 .Unknown => |code| {
                     warn("Process {} terminated unexpectedly with error code {}\n", .{ full_exe_path, code });
-                    printInvocation(args.toSliceConst());
+                    printInvocation(args.span());
                     return error.TestFailed;
                 },
             }
@@ -640,7 +639,7 @@ pub const StackTracesContext = struct {
             // - replace address with symbolic string
             // - skip empty lines
             const got: []const u8 = got_result: {
-                var buf = try Buffer.initSize(b.allocator, 0);
+                var buf = ArrayList(u8).init(b.allocator);
                 defer buf.deinit();
                 if (stderr.len != 0 and stderr[stderr.len - 1] == '\n') stderr = stderr[0 .. stderr.len - 1];
                 var it = mem.separate(stderr, "\n");
@@ -652,21 +651,21 @@ pub const StackTracesContext = struct {
                     var pos: usize = if (std.Target.current.os.tag == .windows) 2 else 0;
                     for (delims) |delim, i| {
                         marks[i] = mem.indexOfPos(u8, line, pos, delim) orelse {
-                            try buf.append(line);
-                            try buf.append("\n");
+                            try buf.appendSlice(line);
+                            try buf.appendSlice("\n");
                             continue :process_lines;
                         };
                         pos = marks[i] + delim.len;
                     }
                     pos = mem.lastIndexOfScalar(u8, line[0..marks[0]], fs.path.sep) orelse {
-                        try buf.append(line);
-                        try buf.append("\n");
+                        try buf.appendSlice(line);
+                        try buf.appendSlice("\n");
                         continue :process_lines;
                     };
-                    try buf.append(line[pos + 1 .. marks[2] + delims[2].len]);
-                    try buf.append(" [address]");
-                    try buf.append(line[marks[3]..]);
-                    try buf.append("\n");
+                    try buf.appendSlice(line[pos + 1 .. marks[2] + delims[2].len]);
+                    try buf.appendSlice(" [address]");
+                    try buf.appendSlice(line[marks[3]..]);
+                    try buf.appendSlice("\n");
                 }
                 break :got_result buf.toOwnedSlice();
             };
@@ -785,7 +784,7 @@ pub const CompileErrorContext = struct {
             } else {
                 try zig_args.append("build-obj");
             }
-            const root_src_basename = self.case.sources.toSliceConst()[0].filename;
+            const root_src_basename = self.case.sources.span()[0].filename;
             try zig_args.append(self.write_src.getOutputPath(root_src_basename));
 
             zig_args.append("--name") catch unreachable;
@@ -809,10 +808,10 @@ pub const CompileErrorContext = struct {
             warn("Test {}/{} {}...", .{ self.test_index + 1, self.context.test_index, self.name });
 
             if (b.verbose) {
-                printInvocation(zig_args.toSliceConst());
+                printInvocation(zig_args.span());
             }
 
-            const child = std.ChildProcess.init(zig_args.toSliceConst(), b.allocator) catch unreachable;
+            const child = std.ChildProcess.init(zig_args.span(), b.allocator) catch unreachable;
             defer child.deinit();
 
             child.env_map = b.env_map;
@@ -822,11 +821,11 @@ pub const CompileErrorContext = struct {
 
             child.spawn() catch |err| debug.panic("Unable to spawn {}: {}\n", .{ zig_args.items[0], @errorName(err) });
 
-            var stdout_buf = Buffer.initNull(b.allocator);
-            var stderr_buf = Buffer.initNull(b.allocator);
+            var stdout_buf = ArrayList(u8).init(b.allocator);
+            var stderr_buf = ArrayList(u8).init(b.allocator);
 
-            child.stdout.?.inStream().readAllBuffer(&stdout_buf, max_stdout_size) catch unreachable;
-            child.stderr.?.inStream().readAllBuffer(&stderr_buf, max_stdout_size) catch unreachable;
+            child.stdout.?.inStream().readAllArrayList(&stdout_buf, max_stdout_size) catch unreachable;
+            child.stderr.?.inStream().readAllArrayList(&stderr_buf, max_stdout_size) catch unreachable;
 
             const term = child.wait() catch |err| {
                 debug.panic("Unable to spawn {}: {}\n", .{ zig_args.items[0], @errorName(err) });
@@ -834,19 +833,19 @@ pub const CompileErrorContext = struct {
             switch (term) {
                 .Exited => |code| {
                     if (code == 0) {
-                        printInvocation(zig_args.toSliceConst());
+                        printInvocation(zig_args.span());
                         return error.CompilationIncorrectlySucceeded;
                     }
                 },
                 else => {
                     warn("Process {} terminated unexpectedly\n", .{b.zig_exe});
-                    printInvocation(zig_args.toSliceConst());
+                    printInvocation(zig_args.span());
                     return error.TestFailed;
                 },
             }
 
-            const stdout = stdout_buf.toSliceConst();
-            const stderr = stderr_buf.toSliceConst();
+            const stdout = stdout_buf.span();
+            const stderr = stderr_buf.span();
 
             if (stdout.len != 0) {
                 warn(
@@ -875,12 +874,12 @@ pub const CompileErrorContext = struct {
 
                 if (!ok) {
                     warn("\n======== Expected these compile errors: ========\n", .{});
-                    for (self.case.expected_errors.toSliceConst()) |expected| {
+                    for (self.case.expected_errors.span()) |expected| {
                         warn("{}\n", .{expected});
                     }
                 }
             } else {
-                for (self.case.expected_errors.toSliceConst()) |expected| {
+                for (self.case.expected_errors.span()) |expected| {
                     if (mem.indexOf(u8, stderr, expected) == null) {
                         warn(
                             \\
@@ -980,7 +979,7 @@ pub const CompileErrorContext = struct {
             if (mem.indexOf(u8, annotated_case_name, filter) == null) return;
         }
         const write_src = b.addWriteFiles();
-        for (case.sources.toSliceConst()) |src_file| {
+        for (case.sources.span()) |src_file| {
             write_src.add(src_file.filename, src_file.source);
         }
 
@@ -1027,7 +1026,7 @@ pub const StandaloneContext = struct {
             zig_args.append("--verbose") catch unreachable;
         }
 
-        const run_cmd = b.addSystemCommand(zig_args.toSliceConst());
+        const run_cmd = b.addSystemCommand(zig_args.span());
 
         const log_step = b.addLog("PASS {}\n", .{annotated_case_name});
         log_step.step.dependOn(&run_cmd.step);
@@ -1127,7 +1126,7 @@ pub const GenHContext = struct {
             const full_h_path = self.obj.getOutputHPath();
             const actual_h = try io.readFileAlloc(b.allocator, full_h_path);
 
-            for (self.case.expected_lines.toSliceConst()) |expected_line| {
+            for (self.case.expected_lines.span()) |expected_line| {
                 if (mem.indexOf(u8, actual_h, expected_line) == null) {
                     warn(
                         \\
@@ -1188,7 +1187,7 @@ pub const GenHContext = struct {
         }
 
         const write_src = b.addWriteFiles();
-        for (case.sources.toSliceConst()) |src_file| {
+        for (case.sources.span()) |src_file| {
             write_src.add(src_file.filename, src_file.source);
         }
 

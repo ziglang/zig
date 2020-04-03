@@ -17,7 +17,7 @@ pub fn main() !void {
     const seed = std.mem.readIntNative(u64, &seed_bytes);
     var prng = std.rand.DefaultPrng.init(seed);
 
-    const answer = prng.random.range(u8, 0, 100) + 1;
+    const answer = prng.random.intRangeLessThan(u8, 0, 100) + 1;
 
     while (true) {
         try stdout.print("\nGuess a number between 1 and 100: ", .{});

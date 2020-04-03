@@ -128,16 +128,6 @@ pub const BufferedAtomicFile = @import("io/buffered_atomic_file.zig").BufferedAt
 
 pub const StreamSource = @import("io/stream_source.zig").StreamSource;
 
-/// Deprecated; use `std.fs.Dir.writeFile`.
-pub fn writeFile(path: []const u8, data: []const u8) !void {
-    return fs.cwd().writeFile(path, data);
-}
-
-/// Deprecated; use `std.fs.Dir.readFileAlloc`.
-pub fn readFileAlloc(allocator: *mem.Allocator, path: []const u8) ![]u8 {
-    return fs.cwd().readFileAlloc(allocator, path, math.maxInt(usize));
-}
-
 /// An OutStream that doesn't write to anything.
 pub const null_out_stream = @as(NullOutStream, .{ .context = {} });
 
@@ -151,5 +141,22 @@ test "null_out_stream" {
 }
 
 test "" {
+    _ = @import("io/bit_in_stream.zig");
+    _ = @import("io/bit_out_stream.zig");
+    _ = @import("io/buffered_atomic_file.zig");
+    _ = @import("io/buffered_in_stream.zig");
+    _ = @import("io/buffered_out_stream.zig");
+    _ = @import("io/c_out_stream.zig");
+    _ = @import("io/counting_out_stream.zig");
+    _ = @import("io/fixed_buffer_stream.zig");
+    _ = @import("io/in_stream.zig");
+    _ = @import("io/out_stream.zig");
+    _ = @import("io/peek_stream.zig");
+    _ = @import("io/seekable_stream.zig");
+    _ = @import("io/serialization.zig");
+    _ = @import("io/stream_source.zig");
     _ = @import("io/test.zig");
 }
+
+pub const writeFile = @compileError("deprecated: use std.fs.Dir.writeFile with math.maxInt(usize)");
+pub const readFileAlloc = @compileError("deprecated: use std.fs.Dir.readFileAlloc");

@@ -3,7 +3,7 @@ const Scope = @import("scope.zig").Scope;
 const Compilation = @import("compilation.zig").Compilation;
 const ObjectFile = @import("codegen.zig").ObjectFile;
 const llvm = @import("llvm.zig");
-const Buffer = std.Buffer;
+const ArrayListSentineled = std.ArrayListSentineled;
 const assert = std.debug.assert;
 
 /// Values are ref-counted, heap-allocated, and copy-on-write
@@ -131,9 +131,9 @@ pub const Value = struct {
 
         /// The main external name that is used in the .o file.
         /// TODO https://github.com/ziglang/zig/issues/265
-        symbol_name: Buffer,
+        symbol_name: ArrayListSentineled(u8, 0),
 
-        pub fn create(comp: *Compilation, fn_type: *Type.Fn, symbol_name: Buffer) !*FnProto {
+        pub fn create(comp: *Compilation, fn_type: *Type.Fn, symbol_name: ArrayListSentineled(u8, 0)) !*FnProto {
             const self = try comp.gpa().create(FnProto);
             self.* = FnProto{
                 .base = Value{
@@ -156,7 +156,7 @@ pub const Value = struct {
             const llvm_fn_type = try self.base.typ.getLlvmType(ofile.arena, ofile.context);
             const llvm_fn = llvm.AddFunction(
                 ofile.module,
-                self.symbol_name.toSliceConst(),
+                self.symbol_name.span(),
                 llvm_fn_type,
             ) orelse return error.OutOfMemory;
 
@@ -171,7 +171,7 @@ pub const Value = struct {
 
         /// The main external name that is used in the .o file.
         /// TODO https://github.com/ziglang/zig/issues/265
-        symbol_name: Buffer,
+        symbol_name: ArrayListSentineled(u8, 0),
 
         /// parent should be the top level decls or container decls
         fndef_scope: *Scope.FnDef,
@@ -183,13 +183,13 @@ pub const Value = struct {
         block_scope: ?*Scope.Block,
 
         /// Path to the object file that contains this function
-        containing_object: Buffer,
+        containing_object: ArrayListSentineled(u8, 0),
 
         link_set_node: *std.TailQueue(?*Value.Fn).Node,
 
         /// Creates a Fn value with 1 ref
         /// Takes ownership of symbol_name
-        pub fn create(comp: *Compilation, fn_type: *Type.Fn, fndef_scope: *Scope.FnDef, symbol_name: Buffer) !*Fn {
+        pub fn create(comp: *Compilation, fn_type: *Type.Fn, fndef_scope: *Scope.FnDef, symbol_name: ArrayListSentineled(u8, 0)) !*Fn {
             const link_set_node = try comp.gpa().create(Compilation.FnLinkSet.Node);
             link_set_node.* = Compilation.FnLinkSet.Node{
                 .data = null,
@@ -209,7 +209,7 @@ pub const Value = struct {
                 .child_scope = &fndef_scope.base,
                 .block_scope = null,
                 .symbol_name = symbol_name,
-                .containing_object = Buffer.initNull(comp.gpa()),
+                .containing_object = ArrayListSentineled(u8, 0).initNull(comp.gpa()),
                 .link_set_node = link_set_node,
             };
             fn_type.base.base.ref();
@@ -241,7 +241,7 @@ pub const Value = struct {
             const llvm_fn_type = try self.base.typ.getLlvmType(ofile.arena, ofile.context);
             const llvm_fn = llvm.AddFunction(
                 ofile.module,
-                self.symbol_name.toSliceConst(),
+                self.symbol_name.span(),
                 llvm_fn_type,
             ) orelse return error.OutOfMemory;
 

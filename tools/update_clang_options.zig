@@ -96,19 +96,19 @@ const known_options = [_]KnownOpt{
     },
     .{
         .name = "E",
-        .ident = "preprocess",
+        .ident = "pp_or_asm",
     },
     .{
         .name = "preprocess",
-        .ident = "preprocess",
+        .ident = "pp_or_asm",
     },
     .{
         .name = "S",
-        .ident = "driver_punt",
+        .ident = "pp_or_asm",
     },
     .{
         .name = "assemble",
-        .ident = "driver_punt",
+        .ident = "pp_or_asm",
     },
     .{
         .name = "O1",
@@ -175,20 +175,44 @@ const known_options = [_]KnownOpt{
         .ident = "verbose_cmds",
     },
     .{
-        .name = "fexceptions",
-        .ident = "exceptions",
+        .name = "L",
+        .ident = "lib_dir",
     },
     .{
-        .name = "fno-exceptions",
-        .ident = "no_exceptions",
+        .name = "library-directory",
+        .ident = "lib_dir",
     },
     .{
-        .name = "frtti",
-        .ident = "rtti",
+        .name = "mcpu",
+        .ident = "mcpu",
     },
     .{
-        .name = "fno-rtti",
-        .ident = "no_rtti",
+        .name = "march",
+        .ident = "mcpu",
+    },
+    .{
+        .name = "mtune",
+        .ident = "mcpu",
+    },
+    .{
+        .name = "MD",
+        .ident = "dep_file",
+    },
+    .{
+        .name = "MV",
+        .ident = "dep_file",
+    },
+    .{
+        .name = "MF",
+        .ident = "dep_file",
+    },
+    .{
+        .name = "F",
+        .ident = "framework_dir",
+    },
+    .{
+        .name = "framework",
+        .ident = "framework",
     },
 };
 
@@ -239,7 +263,7 @@ pub fn main() anyerror!void {
         try std.fmt.allocPrint(allocator, "-I={}/clang/include/clang/Driver", .{llvm_src_root}),
     };
 
-    const child_result = try std.ChildProcess.exec2(.{
+    const child_result = try std.ChildProcess.exec(.{
         .allocator = allocator,
         .argv = &child_args,
         .max_output_bytes = 100 * 1024 * 1024,

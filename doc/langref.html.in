@@ -4953,7 +4953,7 @@ const mem = std.mem;
 test "cast *[1][*]const u8 to [*]const ?[*]const u8" {
     const window_name = [1][*]const u8{"window name"};
     const x: [*]const ?[*]const u8 = &window_name;
-    assert(mem.eql(u8, std.mem.toSliceConst(u8, @ptrCast([*:0]const u8, x[0].?)), "window name"));
+    assert(mem.eql(u8, std.mem.spanZ(@ptrCast([*:0]const u8, x[0].?)), "window name"));
 }
       {#code_end#}
       {#header_close#}
@@ -9310,7 +9310,7 @@ test "string literal to constant slice" {
       </p>
       <p>
       Sometimes the lifetime of a pointer may be more complicated. For example, when using
-      {#syntax#}std.ArrayList(T).toSlice(){#endsyntax#}, the returned slice has a lifetime that remains
+      {#syntax#}std.ArrayList(T).span(){#endsyntax#}, the returned slice has a lifetime that remains
       valid until the next time the list is resized, such as by appending new elements.
       </p>
       <p>

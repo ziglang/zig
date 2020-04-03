@@ -119,7 +119,7 @@ pub fn OpenFileW(
 
     var result: HANDLE = undefined;
 
-    const path_len_bytes = math.cast(u16, mem.toSliceConst(u16, sub_path_w).len * 2) catch |err| switch (err) {
+    const path_len_bytes = math.cast(u16, mem.lenZ(sub_path_w) * 2) catch |err| switch (err) {
         error.Overflow => return error.NameTooLong,
     };
     var nt_name = UNICODE_STRING{
@@ -697,7 +697,7 @@ pub fn CreateDirectoryW(
     sub_path_w: [*:0]const u16,
     sa: ?*SECURITY_ATTRIBUTES,
 ) CreateDirectoryError!HANDLE {
-    const path_len_bytes = math.cast(u16, mem.toSliceConst(u16, sub_path_w).len * 2) catch |err| switch (err) {
+    const path_len_bytes = math.cast(u16, mem.lenZ(sub_path_w) * 2) catch |err| switch (err) {
         error.Overflow => return error.NameTooLong,
     };
     var nt_name = UNICODE_STRING{
@@ -905,7 +905,7 @@ pub fn WSAStartup(majorVersion: u8, minorVersion: u8) !ws2_32.WSADATA {
     var wsadata: ws2_32.WSADATA = undefined;
     return switch (ws2_32.WSAStartup((@as(WORD, minorVersion) << 8) | majorVersion, &wsadata)) {
         0 => wsadata,
-        else => |err| unexpectedWSAError(@intToEnum(WinsockError, err)),
+        else => |err| unexpectedWSAError(@intToEnum(ws2_32.WinsockError, @intCast(u16, err))),
     };
 }
 
@@ -1226,7 +1226,7 @@ pub fn nanoSecondsToFileTime(ns: i64) FILETIME {
 }
 
 pub fn cStrToPrefixedFileW(s: [*:0]const u8) ![PATH_MAX_WIDE:0]u16 {
-    return sliceToPrefixedFileW(mem.toSliceConst(u8, s));
+    return sliceToPrefixedFileW(mem.spanZ(s));
 }
 
 pub fn sliceToPrefixedFileW(s: []const u8) ![PATH_MAX_WIDE:0]u16 {
@@ -1304,7 +1304,7 @@ pub fn unexpectedError(err: Win32Error) std.os.UnexpectedError {
     return error.Unexpected;
 }
 
-pub fn unexpectedWSAError(err: WinsockError) std.os.UnexpectedError {
+pub fn unexpectedWSAError(err: ws2_32.WinsockError) std.os.UnexpectedError {
     return unexpectedError(@intToEnum(Win32Error, @enumToInt(err)));
 }
 

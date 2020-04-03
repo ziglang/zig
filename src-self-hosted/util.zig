@@ -16,11 +16,11 @@ pub fn getDarwinArchString(self: Target) [:0]const u8 {
     }
 }
 
-pub fn llvmTargetFromTriple(triple: std.Buffer) !*llvm.Target {
+pub fn llvmTargetFromTriple(triple: [:0]const u8) !*llvm.Target {
     var result: *llvm.Target = undefined;
     var err_msg: [*:0]u8 = undefined;
-    if (llvm.GetTargetFromTriple(triple.toSlice(), &result, &err_msg) != 0) {
-        std.debug.warn("triple: {s} error: {s}\n", .{ triple.toSlice(), err_msg });
+    if (llvm.GetTargetFromTriple(triple, &result, &err_msg) != 0) {
+        std.debug.warn("triple: {s} error: {s}\n", .{ triple, err_msg });
         return error.UnsupportedTarget;
     }
     return result;
@@ -34,14 +34,14 @@ pub fn initializeAllTargets() void {
     llvm.InitializeAllAsmParsers();
 }
 
-pub fn getLLVMTriple(allocator: *std.mem.Allocator, target: std.Target) !std.Buffer {
-    var result = try std.Buffer.initSize(allocator, 0);
-    errdefer result.deinit();
+pub fn getLLVMTriple(allocator: *std.mem.Allocator, target: std.Target) ![:0]u8 {
+    var result = try std.ArrayListSentineled(u8, 0).initSize(allocator, 0);
+    defer result.deinit();
 
     try result.outStream().print(
         "{}-unknown-{}-{}",
         .{ @tagName(target.cpu.arch), @tagName(target.os.tag), @tagName(target.abi) },
     );
 
-    return result;
+    return result.toOwnedSlice();
 }

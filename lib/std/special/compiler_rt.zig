@@ -10,12 +10,18 @@ comptime {
     const strong_linkage = if (is_test) builtin.GlobalLinkage.Internal else builtin.GlobalLinkage.Strong;
 
     switch (builtin.arch) {
-        .i386, .x86_64 => @export(@import("compiler_rt/stack_probe.zig").zig_probe_stack, .{ .name = "__zig_probe_stack", .linkage = linkage }),
-        .aarch64, .aarch64_be, .aarch64_32 => {
-            @export(@import("compiler_rt/clear_cache.zig").clear_cache, .{ .name = "__clear_cache", .linkage = linkage });
-        },
+        .i386,
+        .x86_64,
+        => @export(@import("compiler_rt/stack_probe.zig").zig_probe_stack, .{
+            .name = "__zig_probe_stack",
+            .linkage = linkage,
+        }),
+
         else => {},
     }
+
+    // __clear_cache manages its own logic about whether to be exported or not.
+    _ = @import("compiler_rt/clear_cache.zig").clear_cache;
 
     @export(@import("compiler_rt/compareXf2.zig").__lesf2, .{ .name = "__lesf2", .linkage = linkage });
     @export(@import("compiler_rt/compareXf2.zig").__ledf2, .{ .name = "__ledf2", .linkage = linkage });
@@ -69,9 +75,12 @@ comptime {
     @export(@import("compiler_rt/divdf3.zig").__divdf3, .{ .name = "__divdf3", .linkage = linkage });
     @export(@import("compiler_rt/divtf3.zig").__divtf3, .{ .name = "__divtf3", .linkage = linkage });
 
-    @export(@import("compiler_rt/ashlti3.zig").__ashlti3, .{ .name = "__ashlti3", .linkage = linkage });
-    @export(@import("compiler_rt/lshrti3.zig").__lshrti3, .{ .name = "__lshrti3", .linkage = linkage });
-    @export(@import("compiler_rt/ashrti3.zig").__ashrti3, .{ .name = "__ashrti3", .linkage = linkage });
+    @export(@import("compiler_rt/shift.zig").__ashldi3, .{ .name = "__ashldi3", .linkage = linkage });
+    @export(@import("compiler_rt/shift.zig").__ashlti3, .{ .name = "__ashlti3", .linkage = linkage });
+    @export(@import("compiler_rt/shift.zig").__ashrdi3, .{ .name = "__ashrdi3", .linkage = linkage });
+    @export(@import("compiler_rt/shift.zig").__ashrti3, .{ .name = "__ashrti3", .linkage = linkage });
+    @export(@import("compiler_rt/shift.zig").__lshrdi3, .{ .name = "__lshrdi3", .linkage = linkage });
+    @export(@import("compiler_rt/shift.zig").__lshrti3, .{ .name = "__lshrti3", .linkage = linkage });
 
     @export(@import("compiler_rt/floatsiXf.zig").__floatsidf, .{ .name = "__floatsidf", .linkage = linkage });
     @export(@import("compiler_rt/floatsiXf.zig").__floatsisf, .{ .name = "__floatsisf", .linkage = linkage });
@@ -228,6 +237,10 @@ comptime {
 
         @export(@import("compiler_rt/divsf3.zig").__aeabi_fdiv, .{ .name = "__aeabi_fdiv", .linkage = linkage });
         @export(@import("compiler_rt/divdf3.zig").__aeabi_ddiv, .{ .name = "__aeabi_ddiv", .linkage = linkage });
+
+        @export(@import("compiler_rt/shift.zig").__aeabi_llsl, .{ .name = "__aeabi_llsl", .linkage = linkage });
+        @export(@import("compiler_rt/shift.zig").__aeabi_lasr, .{ .name = "__aeabi_lasr", .linkage = linkage });
+        @export(@import("compiler_rt/shift.zig").__aeabi_llsr, .{ .name = "__aeabi_llsr", .linkage = linkage });
 
         @export(@import("compiler_rt/compareXf2.zig").__aeabi_fcmpeq, .{ .name = "__aeabi_fcmpeq", .linkage = linkage });
         @export(@import("compiler_rt/compareXf2.zig").__aeabi_fcmplt, .{ .name = "__aeabi_fcmplt", .linkage = linkage });

@@ -36,9 +36,9 @@ test "" {
     const out_file = std.c.fopen(filename, "w") orelse return error.UnableToOpenTestFile;
     defer {
         _ = std.c.fclose(out_file);
-        fs.cwd().deleteFileC(filename) catch {};
+        std.fs.cwd().deleteFileZ(filename) catch {};
     }
 
-    const out_stream = &io.COutStream.init(out_file).stream;
+    const out_stream = cOutStream(out_file);
     try out_stream.print("hi: {}\n", .{@as(i32, 123)});
 }

@@ -1,9 +1,9 @@
-const __lshrti3 = @import("lshrti3.zig").__lshrti3;
+const __lshrti3 = @import("shift.zig").__lshrti3;
 const testing = @import("std").testing;
 
 fn test__lshrti3(a: i128, b: i32, expected: i128) void {
     const x = __lshrti3(a, b);
-    testing.expect(x == expected);
+    testing.expectEqual(expected, x);
 }
 
 test "lshrti3" {

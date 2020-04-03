@@ -33,7 +33,7 @@ pub const Tokenizer = struct {
                             break; // advance
                         },
                         else => {
-                            self.state = State{ .target = try std.Buffer.initSize(&self.arena.allocator, 0) };
+                            self.state = State{ .target = try std.ArrayListSentineled(u8, 0).initSize(&self.arena.allocator, 0) };
                         },
                     },
                     .target => |*target| switch (char) {
@@ -53,7 +53,7 @@ pub const Tokenizer = struct {
                             break; // advance
                         },
                         else => {
-                            try target.appendByte(char);
+                            try target.append(char);
                             break; // advance
                         },
                     },
@@ -62,24 +62,24 @@ pub const Tokenizer = struct {
                             return self.errorIllegalChar(self.index, char, "bad target escape", .{});
                         },
                         ' ', '#', '\\' => {
-                            try target.appendByte(char);
+                            try target.append(char);
                             self.state = State{ .target = target.* };
                             break; // advance
                         },
                         '$' => {
-                            try target.append(self.bytes[self.index - 1 .. self.index]);
+                            try target.appendSlice(self.bytes[self.index - 1 .. self.index]);
                             self.state = State{ .target_dollar_sign = target.* };
                             break; // advance
                         },
                         else => {
-                            try target.append(self.bytes[self.index - 1 .. self.index + 1]);
+                            try target.appendSlice(self.bytes[self.index - 1 .. self.index + 1]);
                             self.state = State{ .target = target.* };
                             break; // advance
                         },
                     },
                     .target_dollar_sign => |*target| switch (char) {
                         '$' => {
-                            try target.appendByte(char);
+                            try target.append(char);
                             self.state = State{ .target = target.* };
                             break; // advance
                         },
@@ -89,7 +89,7 @@ pub const Tokenizer = struct {
                     },
                     .target_colon => |*target| switch (char) {
                         '\n', '\r' => {
-                            const bytes = target.toSlice();
+                            const bytes = target.span();
                             if (bytes.len != 0) {
                                 self.state = State{ .lhs = {} };
                                 return Token{ .id = .target, .bytes = bytes };
@@ -103,7 +103,7 @@ pub const Tokenizer = struct {
                             break; // advance
                         },
                         else => {
-                            const bytes = target.toSlice();
+                            const bytes = target.span();
                             if (bytes.len != 0) {
                                 self.state = State{ .rhs = {} };
                                 return Token{ .id = .target, .bytes = bytes };
@@ -115,7 +115,7 @@ pub const Tokenizer = struct {
                     },
                     .target_colon_reverse_solidus => |*target| switch (char) {
                         '\n', '\r' => {
-                            const bytes = target.toSlice();
+                            const bytes = target.span();
                             if (bytes.len != 0) {
                                 self.state = State{ .lhs = {} };
                                 return Token{ .id = .target, .bytes = bytes };
@@ -125,7 +125,7 @@ pub const Tokenizer = struct {
                             continue;
                         },
                         else => {
-                            try target.append(self.bytes[self.index - 2 .. self.index + 1]);
+                            try target.appendSlice(self.bytes[self.index - 2 .. self.index + 1]);
                             self.state = State{ .target = target.* };
                             break;
                         },
@@ -144,11 +144,11 @@ pub const Tokenizer = struct {
                             break; // advance
                         },
                         '"' => {
-                            self.state = State{ .prereq_quote = try std.Buffer.initSize(&self.arena.allocator, 0) };
+                            self.state = State{ .prereq_quote = try std.ArrayListSentineled(u8, 0).initSize(&self.arena.allocator, 0) };
                             break; // advance
                         },
                         else => {
-                            self.state = State{ .prereq = try std.Buffer.initSize(&self.arena.allocator, 0) };
+                            self.state = State{ .prereq = try std.ArrayListSentineled(u8, 0).initSize(&self.arena.allocator, 0) };
                         },
                     },
                     .rhs_continuation => switch (char) {
@@ -175,24 +175,24 @@ pub const Tokenizer = struct {
                     },
                     .prereq_quote => |*prereq| switch (char) {
                         '"' => {
-                            const bytes = prereq.toSlice();
+                            const bytes = prereq.span();
                             self.index += 1;
                             self.state = State{ .rhs = {} };
                             return Token{ .id = .prereq, .bytes = bytes };
                         },
                         else => {
-                            try prereq.appendByte(char);
+                            try prereq.append(char);
                             break; // advance
                         },
                     },
                     .prereq => |*prereq| switch (char) {
                         '\t', ' ' => {
-                            const bytes = prereq.toSlice();
+                            const bytes = prereq.span();
                             self.state = State{ .rhs = {} };
                             return Token{ .id = .prereq, .bytes = bytes };
                         },
                         '\n', '\r' => {
-                            const bytes = prereq.toSlice();
+                            const bytes = prereq.span();
                             self.state = State{ .lhs = {} };
                             return Token{ .id = .prereq, .bytes = bytes };
                         },
@@ -201,13 +201,13 @@ pub const Tokenizer = struct {
                             break; // advance
                         },
                         else => {
-                            try prereq.appendByte(char);
+                            try prereq.append(char);
                             break; // advance
                         },
                     },
                     .prereq_continuation => |*prereq| switch (char) {
                         '\n' => {
-                            const bytes = prereq.toSlice();
+                            const bytes = prereq.span();
                             self.index += 1;
                             self.state = State{ .rhs = {} };
                             return Token{ .id = .prereq, .bytes = bytes };
@@ -218,14 +218,14 @@ pub const Tokenizer = struct {
                         },
                         else => {
                             // not continuation
-                            try prereq.append(self.bytes[self.index - 1 .. self.index + 1]);
+                            try prereq.appendSlice(self.bytes[self.index - 1 .. self.index + 1]);
                             self.state = State{ .prereq = prereq.* };
                             break; // advance
                         },
                     },
                     .prereq_continuation_linefeed => |prereq| switch (char) {
                         '\n' => {
-                            const bytes = prereq.toSlice();
+                            const bytes = prereq.span();
                             self.index += 1;
                             self.state = State{ .rhs = {} };
                             return Token{ .id = .prereq, .bytes = bytes };
@@ -249,7 +249,7 @@ pub const Tokenizer = struct {
             .rhs_continuation_linefeed,
             => {},
             .target => |target| {
-                return self.errorPosition(idx, target.toSlice(), "incomplete target", .{});
+                return self.errorPosition(idx, target.span(), "incomplete target", .{});
             },
             .target_reverse_solidus,
             .target_dollar_sign,
@@ -258,7 +258,7 @@ pub const Tokenizer = struct {
                 return self.errorIllegalChar(idx, self.bytes[idx], "incomplete escape", .{});
             },
             .target_colon => |target| {
-                const bytes = target.toSlice();
+                const bytes = target.span();
                 if (bytes.len != 0) {
                     self.index += 1;
                     self.state = State{ .rhs = {} };
@@ -268,7 +268,7 @@ pub const Tokenizer = struct {
                 self.state = State{ .lhs = {} };
             },
             .target_colon_reverse_solidus => |target| {
-                const bytes = target.toSlice();
+                const bytes = target.span();
                 if (bytes.len != 0) {
                     self.index += 1;
                     self.state = State{ .rhs = {} };
@@ -278,20 +278,20 @@ pub const Tokenizer = struct {
                 self.state = State{ .lhs = {} };
             },
             .prereq_quote => |prereq| {
-                return self.errorPosition(idx, prereq.toSlice(), "incomplete quoted prerequisite", .{});
+                return self.errorPosition(idx, prereq.span(), "incomplete quoted prerequisite", .{});
             },
             .prereq => |prereq| {
-                const bytes = prereq.toSlice();
+                const bytes = prereq.span();
                 self.state = State{ .lhs = {} };
                 return Token{ .id = .prereq, .bytes = bytes };
             },
             .prereq_continuation => |prereq| {
-                const bytes = prereq.toSlice();
+                const bytes = prereq.span();
                 self.state = State{ .lhs = {} };
                 return Token{ .id = .prereq, .bytes = bytes };
             },
             .prereq_continuation_linefeed => |prereq| {
-                const bytes = prereq.toSlice();
+                const bytes = prereq.span();
                 self.state = State{ .lhs = {} };
                 return Token{ .id = .prereq, .bytes = bytes };
             },
@@ -300,29 +300,29 @@ pub const Tokenizer = struct {
     }
 
     fn errorf(self: *Tokenizer, comptime fmt: []const u8, args: var) Error {
-        self.error_text = (try std.Buffer.allocPrint(&self.arena.allocator, fmt, args)).toSlice();
+        self.error_text = try std.fmt.allocPrintZ(&self.arena.allocator, fmt, args);
         return Error.InvalidInput;
     }
 
     fn errorPosition(self: *Tokenizer, position: usize, bytes: []const u8, comptime fmt: []const u8, args: var) Error {
-        var buffer = try std.Buffer.initSize(&self.arena.allocator, 0);
+        var buffer = try std.ArrayListSentineled(u8, 0).initSize(&self.arena.allocator, 0);
         try buffer.outStream().print(fmt, args);
-        try buffer.append(" '");
-        var out = makeOutput(std.Buffer.append, &buffer);
+        try buffer.appendSlice(" '");
+        var out = makeOutput(std.ArrayListSentineled(u8, 0).appendSlice, &buffer);
         try printCharValues(&out, bytes);
-        try buffer.append("'");
+        try buffer.appendSlice("'");
         try buffer.outStream().print(" at position {}", .{position - (bytes.len - 1)});
-        self.error_text = buffer.toSlice();
+        self.error_text = buffer.span();
         return Error.InvalidInput;
     }
 
     fn errorIllegalChar(self: *Tokenizer, position: usize, char: u8, comptime fmt: []const u8, args: var) Error {
-        var buffer = try std.Buffer.initSize(&self.arena.allocator, 0);
-        try buffer.append("illegal char ");
+        var buffer = try std.ArrayListSentineled(u8, 0).initSize(&self.arena.allocator, 0);
+        try buffer.appendSlice("illegal char ");
         try printUnderstandableChar(&buffer, char);
         try buffer.outStream().print(" at position {}", .{position});
         if (fmt.len != 0) try buffer.outStream().print(": " ++ fmt, args);
-        self.error_text = buffer.toSlice();
+        self.error_text = buffer.span();
         return Error.InvalidInput;
     }
 
@@ -333,18 +333,18 @@ pub const Tokenizer = struct {
 
     const State = union(enum) {
         lhs: void,
-        target: std.Buffer,
-        target_reverse_solidus: std.Buffer,
-        target_dollar_sign: std.Buffer,
-        target_colon: std.Buffer,
-        target_colon_reverse_solidus: std.Buffer,
+        target: std.ArrayListSentineled(u8, 0),
+        target_reverse_solidus: std.ArrayListSentineled(u8, 0),
+        target_dollar_sign: std.ArrayListSentineled(u8, 0),
+        target_colon: std.ArrayListSentineled(u8, 0),
+        target_colon_reverse_solidus: std.ArrayListSentineled(u8, 0),
         rhs: void,
         rhs_continuation: void,
         rhs_continuation_linefeed: void,
-        prereq_quote: std.Buffer,
-        prereq: std.Buffer,
-        prereq_continuation: std.Buffer,
-        prereq_continuation_linefeed: std.Buffer,
+        prereq_quote: std.ArrayListSentineled(u8, 0),
+        prereq: std.ArrayListSentineled(u8, 0),
+        prereq_continuation: std.ArrayListSentineled(u8, 0),
+        prereq_continuation_linefeed: std.ArrayListSentineled(u8, 0),
     };
 
     const Token = struct {
@@ -841,31 +841,31 @@ fn depTokenizer(input: []const u8, expect: []const u8) !void {
     defer arena_allocator.deinit();
 
     var it = Tokenizer.init(arena, input);
-    var buffer = try std.Buffer.initSize(arena, 0);
+    var buffer = try std.ArrayListSentineled(u8, 0).initSize(arena, 0);
     var i: usize = 0;
     while (true) {
         const r = it.next() catch |err| {
             switch (err) {
                 Tokenizer.Error.InvalidInput => {
-                    if (i != 0) try buffer.append("\n");
-                    try buffer.append("ERROR: ");
-                    try buffer.append(it.error_text);
+                    if (i != 0) try buffer.appendSlice("\n");
+                    try buffer.appendSlice("ERROR: ");
+                    try buffer.appendSlice(it.error_text);
                 },
                 else => return err,
             }
             break;
         };
         const token = r orelse break;
-        if (i != 0) try buffer.append("\n");
-        try buffer.append(@tagName(token.id));
-        try buffer.append(" = {");
+        if (i != 0) try buffer.appendSlice("\n");
+        try buffer.appendSlice(@tagName(token.id));
+        try buffer.appendSlice(" = {");
         for (token.bytes) |b| {
-            try buffer.appendByte(printable_char_tab[b]);
+            try buffer.append(printable_char_tab[b]);
         }
-        try buffer.append("}");
+        try buffer.appendSlice("}");
         i += 1;
     }
-    const got: []const u8 = buffer.toSlice();
+    const got: []const u8 = buffer.span();
 
     if (std.mem.eql(u8, expect, got)) {
         testing.expect(true);
@@ -995,13 +995,13 @@ fn printCharValues(out: var, bytes: []const u8) !void {
     }
 }
 
-fn printUnderstandableChar(buffer: *std.Buffer, char: u8) !void {
+fn printUnderstandableChar(buffer: *std.ArrayListSentineled(u8, 0), char: u8) !void {
     if (!std.ascii.isPrint(char) or char == ' ') {
         try buffer.outStream().print("\\x{X:2}", .{char});
     } else {
-        try buffer.append("'");
-        try buffer.appendByte(printable_char_tab[char]);
-        try buffer.append("'");
+        try buffer.appendSlice("'");
+        try buffer.append(printable_char_tab[char]);
+        try buffer.appendSlice("'");
     }
 }
 

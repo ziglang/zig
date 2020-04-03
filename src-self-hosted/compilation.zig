@@ -2,7 +2,7 @@ const std = @import("std");
 const io = std.io;
 const mem = std.mem;
 const Allocator = mem.Allocator;
-const Buffer = std.Buffer;
+const ArrayListSentineled = std.ArrayListSentineled;
 const llvm = @import("llvm.zig");
 const c = @import("c.zig");
 const builtin = std.builtin;
@@ -123,8 +123,8 @@ pub const LlvmHandle = struct {
 
 pub const Compilation = struct {
     zig_compiler: *ZigCompiler,
-    name: Buffer,
-    llvm_triple: Buffer,
+    name: ArrayListSentineled(u8, 0),
+    llvm_triple: ArrayListSentineled(u8, 0),
     root_src_path: ?[]const u8,
     target: std.Target,
     llvm_target: *llvm.Target,
@@ -444,7 +444,7 @@ pub const Compilation = struct {
             comp.arena_allocator.deinit();
         }
 
-        comp.name = try Buffer.init(comp.arena(), name);
+        comp.name = try ArrayListSentineled(u8, 0).init(comp.arena(), name);
         comp.llvm_triple = try util.getLLVMTriple(comp.arena(), target);
         comp.llvm_target = try util.llvmTargetFromTriple(comp.llvm_triple);
         comp.zig_std_dir = try fs.path.join(comp.arena(), &[_][]const u8{ zig_lib_dir, "std" });
@@ -465,7 +465,7 @@ pub const Compilation = struct {
 
         comp.target_machine = llvm.CreateTargetMachine(
             comp.llvm_target,
-            comp.llvm_triple.toSliceConst(),
+            comp.llvm_triple.span(),
             target_specific_cpu_args orelse "",
             target_specific_cpu_features orelse "",
             opt_level,
@@ -1106,7 +1106,7 @@ pub const Compilation = struct {
             }
         }
 
-        for (self.link_libs_list.toSliceConst()) |existing_lib| {
+        for (self.link_libs_list.span()) |existing_lib| {
             if (mem.eql(u8, name, existing_lib.name)) {
                 return existing_lib;
             }
@@ -1151,7 +1151,7 @@ pub const Compilation = struct {
 
     /// If the temporary directory for this compilation has not been created, it creates it.
     /// Then it creates a random file name in that dir and returns it.
-    pub fn createRandomOutputPath(self: *Compilation, suffix: []const u8) !Buffer {
+    pub fn createRandomOutputPath(self: *Compilation, suffix: []const u8) !ArrayListSentineled(u8, 0) {
         const tmp_dir = try self.getTmpDir();
         const file_prefix = self.getRandomFileName();
 
@@ -1161,7 +1161,7 @@ pub const Compilation = struct {
         const full_path = try fs.path.join(self.gpa(), &[_][]const u8{ tmp_dir, file_name[0..] });
         errdefer self.gpa().free(full_path);
 
-        return Buffer.fromOwnedSlice(self.gpa(), full_path);
+        return ArrayListSentineled(u8, 0).fromOwnedSlice(self.gpa(), full_path);
     }
 
     /// If the temporary directory for this Compilation has not been created, creates it.
@@ -1279,7 +1279,7 @@ fn generateDeclFn(comp: *Compilation, fn_decl: *Decl.Fn) !void {
     const fn_type = try analyzeFnType(comp, tree_scope, fn_decl.base.parent_scope, fn_decl.fn_proto);
     defer fn_type.base.base.deref(comp);
 
-    var symbol_name = try std.Buffer.init(comp.gpa(), fn_decl.base.name);
+    var symbol_name = try std.ArrayListSentineled(u8, 0).init(comp.gpa(), fn_decl.base.name);
     var symbol_name_consumed = false;
     errdefer if (!symbol_name_consumed) symbol_name.deinit();
 
@@ -1371,7 +1371,7 @@ fn analyzeFnType(
     var params = ArrayList(Type.Fn.Param).init(comp.gpa());
     var params_consumed = false;
     defer if (!params_consumed) {
-        for (params.toSliceConst()) |param| {
+        for (params.span()) |param| {
             param.typ.base.deref(comp);
         }
         params.deinit();
@@ -1426,7 +1426,7 @@ fn generateDeclFnProto(comp: *Compilation, fn_decl: *Decl.Fn) !void {
     );
     defer fn_type.base.base.deref(comp);
 
-    var symbol_name = try std.Buffer.init(comp.gpa(), fn_decl.base.name);
+    var symbol_name = try std.ArrayListSentineled(u8, 0).init(comp.gpa(), fn_decl.base.name);
     var symbol_name_consumed = false;
     defer if (!symbol_name_consumed) symbol_name.deinit();
 

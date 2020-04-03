@@ -1227,13 +1227,13 @@ test "sort fuzz testing" {
 var fixed_buffer_mem: [100 * 1024]u8 = undefined;
 
 fn fuzzTest(rng: *std.rand.Random) !void {
-    const array_size = rng.range(usize, 0, 1000);
+    const array_size = rng.intRangeLessThan(usize, 0, 1000);
     var array = try testing.allocator.alloc(IdAndValue, array_size);
     defer testing.allocator.free(array);
     // populate with random data
     for (array) |*item, index| {
         item.id = index;
-        item.value = rng.range(i32, 0, 100);
+        item.value = rng.intRangeLessThan(i32, 0, 100);
     }
     sort(IdAndValue, array, cmpByValue);
 

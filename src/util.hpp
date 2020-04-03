@@ -100,6 +100,15 @@ static inline bool is_power_of_2(uint64_t x) {
     return x != 0 && ((x & (~x + 1)) == x);
 }
 
+static inline bool mem_ends_with_mem(const char *mem, size_t mem_len, const char *end, size_t end_len) {
+    if (mem_len < end_len) return false;
+    return memcmp(mem + mem_len - end_len, end, end_len) == 0;
+}
+
+static inline bool mem_ends_with_str(const char *mem, size_t mem_len, const char *str) {
+    return mem_ends_with_mem(mem, mem_len, str, strlen(str));
+}
+
 static inline uint64_t round_to_next_power_of_2(uint64_t x) {
     --x;
     x |= x >> 1;

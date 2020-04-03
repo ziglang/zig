@@ -341,11 +341,7 @@ pub fn zeroes(comptime T: type) T {
             }
         },
         .Array => |info| {
-            var array: T = undefined;
-            for (array) |*element| {
-                element.* = zeroes(info.child);
-            }
-            return array;
+            return [_]info.child{zeroes(info.child)} ** info.len;
         },
         .Vector,
         .ErrorUnion,
@@ -496,15 +492,8 @@ pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
     return true;
 }
 
-/// Deprecated. Use `spanZ`.
-pub fn toSliceConst(comptime T: type, ptr: [*:0]const T) [:0]const T {
-    return ptr[0..lenZ(ptr) :0];
-}
-
-/// Deprecated. Use `spanZ`.
-pub fn toSlice(comptime T: type, ptr: [*:0]T) [:0]T {
-    return ptr[0..lenZ(ptr) :0];
-}
+pub const toSliceConst = @compileError("deprecated; use std.mem.spanZ");
+pub const toSlice = @compileError("deprecated; use std.mem.spanZ");
 
 /// Takes a pointer to an array, a sentinel-terminated pointer, or a slice, and
 /// returns a slice. If there is a sentinel on the input type, there will be a
@@ -512,36 +501,54 @@ pub fn toSlice(comptime T: type, ptr: [*:0]T) [:0]T {
 /// the constness of the input type. `[*c]` pointers are assumed to be 0-terminated,
 /// and assumed to not allow null.
 pub fn Span(comptime T: type) type {
-    var ptr_info = @typeInfo(T).Pointer;
-    switch (ptr_info.size) {
-        .One => switch (@typeInfo(ptr_info.child)) {
-            .Array => |info| {
-                ptr_info.child = info.child;
-                ptr_info.sentinel = info.sentinel;
-            },
-            else => @compileError("invalid type given to std.mem.Span"),
+    switch(@typeInfo(T)) {
+        .Optional => |optional_info| {
+            return ?Span(optional_info.child);
         },
-        .C => {
-            ptr_info.sentinel = 0;
-            ptr_info.is_allowzero = false;
+        .Pointer => |ptr_info| {
+            var new_ptr_info = ptr_info;
+            switch (ptr_info.size) {
+                .One => switch (@typeInfo(ptr_info.child)) {
+                    .Array => |info| {
+                        new_ptr_info.child = info.child;
+                        new_ptr_info.sentinel = info.sentinel;
+                    },
+                    else => @compileError("invalid type given to std.mem.Span"),
+                },
+                .C => {
+                    new_ptr_info.sentinel = 0;
+                    new_ptr_info.is_allowzero = false;
+                },
+                .Many, .Slice => {},
+            }
+            new_ptr_info.size = .Slice;
+            return @Type(std.builtin.TypeInfo{ .Pointer = new_ptr_info });
         },
-        .Many, .Slice => {},
+        else => @compileError("invalid type given to std.mem.Span"),
     }
-    ptr_info.size = .Slice;
-    return @Type(std.builtin.TypeInfo{ .Pointer = ptr_info });
 }
 
 test "Span" {
     testing.expect(Span(*[5]u16) == []u16);
+    testing.expect(Span(?*[5]u16) == ?[]u16);
     testing.expect(Span(*const [5]u16) == []const u16);
+    testing.expect(Span(?*const [5]u16) == ?[]const u16);
     testing.expect(Span([]u16) == []u16);
+    testing.expect(Span(?[]u16) == ?[]u16);
     testing.expect(Span([]const u8) == []const u8);
+    testing.expect(Span(?[]const u8) == ?[]const u8);
     testing.expect(Span([:1]u16) == [:1]u16);
+    testing.expect(Span(?[:1]u16) == ?[:1]u16);
     testing.expect(Span([:1]const u8) == [:1]const u8);
+    testing.expect(Span(?[:1]const u8) == ?[:1]const u8);
     testing.expect(Span([*:1]u16) == [:1]u16);
+    testing.expect(Span(?[*:1]u16) == ?[:1]u16);
     testing.expect(Span([*:1]const u8) == [:1]const u8);
+    testing.expect(Span(?[*:1]const u8) == ?[:1]const u8);
     testing.expect(Span([*c]u16) == [:0]u16);
+    testing.expect(Span(?[*c]u16) == ?[:0]u16);
     testing.expect(Span([*c]const u8) == [:0]const u8);
+    testing.expect(Span(?[*c]const u8) == ?[:0]const u8);
 }
 
 /// Takes a pointer to an array, a sentinel-terminated pointer, or a slice, and
@@ -552,6 +559,13 @@ test "Span" {
 /// When there is both a sentinel and an array length or slice length, the
 /// length value is used instead of the sentinel.
 pub fn span(ptr: var) Span(@TypeOf(ptr)) {
+    if (@typeInfo(@TypeOf(ptr)) == .Optional) {
+        if (ptr) |non_null| {
+            return span(non_null);
+        } else {
+            return null;
+        }
+    }
     const Result = Span(@TypeOf(ptr));
     const l = len(ptr);
     if (@typeInfo(Result).Pointer.sentinel) |s| {
@@ -566,12 +580,20 @@ test "span" {
     const ptr = @as([*:3]u16, array[0..2 :3]);
     testing.expect(eql(u16, span(ptr), &[_]u16{ 1, 2 }));
     testing.expect(eql(u16, span(&array), &[_]u16{ 1, 2, 3, 4, 5 }));
+    testing.expectEqual(@as(?[:0]u16, null), span(@as(?[*:0]u16, null)));
 }
 
 /// Same as `span`, except when there is both a sentinel and an array
 /// length or slice length, scans the memory for the sentinel value
 /// rather than using the length.
 pub fn spanZ(ptr: var) Span(@TypeOf(ptr)) {
+    if (@typeInfo(@TypeOf(ptr)) == .Optional) {
+        if (ptr) |non_null| {
+            return spanZ(non_null);
+        } else {
+            return null;
+        }
+    }
     const Result = Span(@TypeOf(ptr));
     const l = lenZ(ptr);
     if (@typeInfo(Result).Pointer.sentinel) |s| {
@@ -586,6 +608,7 @@ test "spanZ" {
     const ptr = @as([*:3]u16, array[0..2 :3]);
     testing.expect(eql(u16, spanZ(ptr), &[_]u16{ 1, 2 }));
     testing.expect(eql(u16, spanZ(&array), &[_]u16{ 1, 2, 3, 4, 5 }));
+    testing.expectEqual(@as(?[:0]u16, null), spanZ(@as(?[*:0]u16, null)));
 }
 
 /// Takes a pointer to an array, an array, a sentinel-terminated pointer,

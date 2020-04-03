@@ -965,9 +965,9 @@ pub const Code = struct {
 
     pub fn dump(self: *Code) void {
         var bb_i: usize = 0;
-        for (self.basic_block_list.toSliceConst()) |bb| {
+        for (self.basic_block_list.span()) |bb| {
             std.debug.warn("{s}_{}:\n", .{ bb.name_hint, bb.debug_id });
-            for (bb.instruction_list.toSliceConst()) |instr| {
+            for (bb.instruction_list.span()) |instr| {
                 std.debug.warn("  ", .{});
                 instr.dump();
                 std.debug.warn("\n", .{});
@@ -978,7 +978,7 @@ pub const Code = struct {
     /// returns a ref-incremented value, or adds a compile error
     pub fn getCompTimeResult(self: *Code, comp: *Compilation) !*Value {
         const bb = self.basic_block_list.at(0);
-        for (bb.instruction_list.toSliceConst()) |inst| {
+        for (bb.instruction_list.span()) |inst| {
             if (inst.cast(Inst.Return)) |ret_inst| {
                 const ret_value = ret_inst.params.return_value;
                 if (ret_value.isCompTime()) {
@@ -2585,6 +2585,6 @@ pub fn analyze(comp: *Compilation, old_code: *Code, expected_type: ?*Type) !*Cod
         return ira.irb.finish();
     }
 
-    ira.irb.code.return_type = try ira.resolvePeerTypes(expected_type, ira.src_implicit_return_type_list.toSliceConst());
+    ira.irb.code.return_type = try ira.resolvePeerTypes(expected_type, ira.src_implicit_return_type_list.span());
     return ira.irb.finish();
 }

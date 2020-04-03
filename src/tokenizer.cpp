@@ -840,6 +840,7 @@ void tokenize(Buf *buf, Tokenization *out) {
                         t.state = TokenizeStateStart;
                         continue;
                 }
+                break;
             case TokenizeStateSawSlash:
                 switch (c) {
                     case '/':
@@ -1209,7 +1210,7 @@ void tokenize(Buf *buf, Tokenization *out) {
                     t.is_trailing_underscore = false;
                     t.state = TokenizeStateNumber;
                 }
-                // fall through
+                ZIG_FALLTHROUGH;
             case TokenizeStateNumber:
                 {
                     if (c == '_') {
@@ -1291,7 +1292,7 @@ void tokenize(Buf *buf, Tokenization *out) {
                     t.is_trailing_underscore = false;
                     t.state = TokenizeStateFloatFraction;
                 }
-                // fall through
+                ZIG_FALLTHROUGH;
             case TokenizeStateFloatFraction:
                 {
                     if (c == '_') {
@@ -1350,7 +1351,7 @@ void tokenize(Buf *buf, Tokenization *out) {
                     t.is_trailing_underscore = false;
                     t.state = TokenizeStateFloatExponentNumber;
                 }
-                // fall through
+                ZIG_FALLTHROUGH;
             case TokenizeStateFloatExponentNumber:
                 {
                     if (c == '_') {
@@ -1494,9 +1495,17 @@ void tokenize(Buf *buf, Tokenization *out) {
             tokenize_error(&t, "unexpected EOF");
             break;
         case TokenizeStateLineComment:
+            break;
         case TokenizeStateSawSlash2:
+            cancel_token(&t);
+            break;
         case TokenizeStateSawSlash3:
+            set_token_id(&t, t.cur_tok, TokenIdDocComment);
+            end_token(&t);
+            break;
         case TokenizeStateSawSlashBang:
+            set_token_id(&t, t.cur_tok, TokenIdContainerDocComment);
+            end_token(&t);
             break;
     }
     if (t.state != TokenizeStateError) {

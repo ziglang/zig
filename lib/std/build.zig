@@ -355,7 +355,7 @@ pub const Builder = struct {
             }
         }
 
-        for (wanted_steps.toSliceConst()) |s| {
+        for (wanted_steps.span()) |s| {
             try self.makeOneStep(s);
         }
     }
@@ -372,7 +372,7 @@ pub const Builder = struct {
         const uninstall_tls = @fieldParentPtr(TopLevelStep, "step", uninstall_step);
         const self = @fieldParentPtr(Builder, "uninstall_tls", uninstall_tls);
 
-        for (self.installed_files.toSliceConst()) |installed_file| {
+        for (self.installed_files.span()) |installed_file| {
             const full_path = self.getInstallPath(installed_file.dir, installed_file.path);
             if (self.verbose) {
                 warn("rm {}\n", .{full_path});
@@ -390,7 +390,7 @@ pub const Builder = struct {
         }
         s.loop_flag = true;
 
-        for (s.dependencies.toSlice()) |dep| {
+        for (s.dependencies.span()) |dep| {
             self.makeOneStep(dep) catch |err| {
                 if (err == error.DependencyLoopDetected) {
                     warn("  {}\n", .{s.name});
@@ -405,7 +405,7 @@ pub const Builder = struct {
     }
 
     fn getTopLevelStepByName(self: *Builder, name: []const u8) !*Step {
-        for (self.top_level_steps.toSliceConst()) |top_level_step| {
+        for (self.top_level_steps.span()) |top_level_step| {
             if (mem.eql(u8, top_level_step.step.name, name)) {
                 return &top_level_step.step;
             }
@@ -470,7 +470,7 @@ pub const Builder = struct {
                     return null;
                 },
                 UserValue.Scalar => |s| return &[_][]const u8{s},
-                UserValue.List => |lst| return lst.toSliceConst(),
+                UserValue.List => |lst| return lst.span(),
             },
         }
     }
@@ -866,7 +866,7 @@ pub const Builder = struct {
     pub fn findProgram(self: *Builder, names: []const []const u8, paths: []const []const u8) ![]const u8 {
         // TODO report error for ambiguous situations
         const exe_extension = @as(CrossTarget, .{}).exeFileExt();
-        for (self.search_prefixes.toSliceConst()) |search_prefix| {
+        for (self.search_prefixes.span()) |search_prefix| {
             for (names) |name| {
                 if (fs.path.isAbsolute(name)) {
                     return name;
@@ -1010,7 +1010,7 @@ pub const Builder = struct {
                 .desc = tok_it.rest(),
             });
         }
-        return list.toSliceConst();
+        return list.span();
     }
 
     fn getPkgConfigList(self: *Builder) ![]const PkgConfigPkg {
@@ -1139,7 +1139,7 @@ pub const LibExeObjStep = struct {
     out_lib_filename: []const u8,
     out_pdb_filename: []const u8,
     packages: ArrayList(Pkg),
-    build_options_contents: std.Buffer,
+    build_options_contents: std.ArrayList(u8),
     system_linker_hack: bool = false,
 
     object_src: []const u8,
@@ -1274,7 +1274,7 @@ pub const LibExeObjStep = struct {
             .lib_paths = ArrayList([]const u8).init(builder.allocator),
             .framework_dirs = ArrayList([]const u8).init(builder.allocator),
             .object_src = undefined,
-            .build_options_contents = std.Buffer.initSize(builder.allocator, 0) catch unreachable,
+            .build_options_contents = std.ArrayList(u8).init(builder.allocator),
             .c_std = Builder.CStd.C99,
             .override_lib_dir = null,
             .main_pkg_path = null,
@@ -1395,7 +1395,7 @@ pub const LibExeObjStep = struct {
         if (isLibCLibrary(name)) {
             return self.is_linking_libc;
         }
-        for (self.link_objects.toSliceConst()) |link_object| {
+        for (self.link_objects.span()) |link_object| {
             switch (link_object) {
                 LinkObject.SystemLib => |n| if (mem.eql(u8, n, name)) return true,
                 else => continue,
@@ -1599,10 +1599,7 @@ pub const LibExeObjStep = struct {
         self.main_pkg_path = dir_path;
     }
 
-    /// Deprecated; just set the field directly.
-    pub fn setDisableGenH(self: *LibExeObjStep, is_disabled: bool) void {
-        self.emit_h = !is_disabled;
-    }
+    pub const setDisableGenH = @compileError("deprecated; set the emit_h field directly");
 
     pub fn setLibCFile(self: *LibExeObjStep, libc_file: ?[]const u8) void {
         self.libc_file = libc_file;
@@ -1762,7 +1759,7 @@ pub const LibExeObjStep = struct {
         self.include_dirs.append(IncludeDir{ .OtherStep = other }) catch unreachable;
 
         // Inherit dependency on system libraries
-        for (other.link_objects.toSliceConst()) |link_object| {
+        for (other.link_objects.span()) |link_object| {
             switch (link_object) {
                 .SystemLib => |name| self.linkSystemLibrary(name),
                 else => continue,
@@ -1802,7 +1799,7 @@ pub const LibExeObjStep = struct {
 
         if (self.root_src) |root_src| try zig_args.append(root_src.getPath(builder));
 
-        for (self.link_objects.toSlice()) |link_object| {
+        for (self.link_objects.span()) |link_object| {
             switch (link_object) {
                 .StaticPath => |static_path| {
                     try zig_args.append("--object");
@@ -1850,12 +1847,12 @@ pub const LibExeObjStep = struct {
             }
         }
 
-        if (self.build_options_contents.len() > 0) {
+        if (self.build_options_contents.len > 0) {
             const build_options_file = try fs.path.join(
                 builder.allocator,
                 &[_][]const u8{ builder.cache_root, builder.fmt("{}_build_options.zig", .{self.name}) },
             );
-            try std.io.writeFile(build_options_file, self.build_options_contents.toSliceConst());
+            try fs.cwd().writeFile(build_options_file, self.build_options_contents.span());
             try zig_args.append("--pkg-begin");
             try zig_args.append("build_options");
             try zig_args.append(builder.pathFromRoot(build_options_file));
@@ -1963,22 +1960,22 @@ pub const LibExeObjStep = struct {
                     try zig_args.append(cross.cpu.model.name);
                 }
             } else {
-                var mcpu_buffer = try std.Buffer.init(builder.allocator, "-mcpu=");
-                try mcpu_buffer.append(cross.cpu.model.name);
+                var mcpu_buffer = std.ArrayList(u8).init(builder.allocator);
+
+                try mcpu_buffer.outStream().print("-mcpu={}", .{cross.cpu.model.name});
 
                 for (all_features) |feature, i_usize| {
                     const i = @intCast(std.Target.Cpu.Feature.Set.Index, i_usize);
                     const in_cpu_set = populated_cpu_features.isEnabled(i);
                     const in_actual_set = cross.cpu.features.isEnabled(i);
                     if (in_cpu_set and !in_actual_set) {
-                        try mcpu_buffer.appendByte('-');
-                        try mcpu_buffer.append(feature.name);
+                        try mcpu_buffer.outStream().print("-{}", .{feature.name});
                     } else if (!in_cpu_set and in_actual_set) {
-                        try mcpu_buffer.appendByte('+');
-                        try mcpu_buffer.append(feature.name);
+                        try mcpu_buffer.outStream().print("+{}", .{feature.name});
                     }
                 }
-                try zig_args.append(mcpu_buffer.toSliceConst());
+
+                try zig_args.append(mcpu_buffer.toOwnedSlice());
             }
 
             if (self.target.dynamic_linker.get()) |dynamic_linker| {
@@ -2040,7 +2037,7 @@ pub const LibExeObjStep = struct {
                 try zig_args.append("--test-cmd-bin");
             },
         }
-        for (self.packages.toSliceConst()) |pkg| {
+        for (self.packages.span()) |pkg| {
             try zig_args.append("--pkg-begin");
             try zig_args.append(pkg.name);
             try zig_args.append(builder.pathFromRoot(pkg.path));
@@ -2057,7 +2054,7 @@ pub const LibExeObjStep = struct {
             try zig_args.append("--pkg-end");
         }
 
-        for (self.include_dirs.toSliceConst()) |include_dir| {
+        for (self.include_dirs.span()) |include_dir| {
             switch (include_dir) {
                 .RawPath => |include_path| {
                     try zig_args.append("-I");
@@ -2075,18 +2072,18 @@ pub const LibExeObjStep = struct {
             }
         }
 
-        for (self.lib_paths.toSliceConst()) |lib_path| {
+        for (self.lib_paths.span()) |lib_path| {
             try zig_args.append("-L");
             try zig_args.append(lib_path);
         }
 
-        for (self.c_macros.toSliceConst()) |c_macro| {
+        for (self.c_macros.span()) |c_macro| {
             try zig_args.append("-D");
             try zig_args.append(c_macro);
         }
 
         if (self.target.isDarwin()) {
-            for (self.framework_dirs.toSliceConst()) |dir| {
+            for (self.framework_dirs.span()) |dir| {
                 try zig_args.append("-F");
                 try zig_args.append(dir);
             }
@@ -2146,12 +2143,12 @@ pub const LibExeObjStep = struct {
         }
 
         if (self.kind == Kind.Test) {
-            try builder.spawnChild(zig_args.toSliceConst());
+            try builder.spawnChild(zig_args.span());
         } else {
             try zig_args.append("--cache");
             try zig_args.append("on");
 
-            const output_dir_nl = try builder.execFromStep(zig_args.toSliceConst(), &self.step);
+            const output_dir_nl = try builder.execFromStep(zig_args.span(), &self.step);
             const build_output_dir = mem.trimRight(u8, output_dir_nl, "\r\n");
 
             if (self.output_dir) |output_dir| {

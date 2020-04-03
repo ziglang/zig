@@ -26,6 +26,10 @@ pub fn clear_cache(start: usize, end: usize) callconv(.C) void {
         .mips, .mipsel, .mips64, .mips64el => true,
         else => false,
     };
+    const riscv = switch (arch) {
+        .riscv32, .riscv64 => true,
+        else => false,
+    };
     const powerpc64 = switch (arch) {
         .powerpc64, .powerpc64le => true,
         else => false,
@@ -41,45 +45,42 @@ pub fn clear_cache(start: usize, end: usize) callconv(.C) void {
     if (x86) {
         // Intel processors have a unified instruction and data cache
         // so there is nothing to do
+        exportIt();
     } else if (os == .windows and (arm32 or arm64)) {
-        @compileError("TODO");
+        // TODO
         // FlushInstructionCache(GetCurrentProcess(), start, end - start);
+        // exportIt();
     } else if (arm32 and !apple) {
-        @compileError("TODO");
-        //#if defined(__FreeBSD__) || defined(__NetBSD__)
-        //  struct arm_sync_icache_args arg;
-        //
-        //  arg.addr = (uintptr_t)start;
-        //  arg.len = (uintptr_t)end - (uintptr_t)start;
-        //
-        //  sysarch(ARM_SYNC_ICACHE, &arg);
-        //#elif defined(__linux__)
-        //// We used to include asm/unistd.h for the __ARM_NR_cacheflush define, but
-        //// it also brought many other unused defines, as well as a dependency on
-        //// kernel headers to be installed.
-        ////
-        //// This value is stable at least since Linux 3.13 and should remain so for
-        //// compatibility reasons, warranting it's re-definition here.
-        //#define __ARM_NR_cacheflush 0x0f0002
-        //  register int start_reg __asm("r0") = (int)(intptr_t)start;
-        //  const register int end_reg __asm("r1") = (int)(intptr_t)end;
-        //  const register int flags __asm("r2") = 0;
-        //  const register int syscall_nr __asm("r7") = __ARM_NR_cacheflush;
-        //  __asm __volatile("svc 0x0"
-        //                   : "=r"(start_reg)
-        //                   : "r"(syscall_nr), "r"(start_reg), "r"(end_reg), "r"(flags));
-        //  assert(start_reg == 0 && "Cache flush syscall failed.");
-        //#else
-        //  compilerrt_abort();
-        //#endif
+        switch (os) {
+            .freebsd, .netbsd => {
+                var arg = arm_sync_icache_args{
+                    .addr = start,
+                    .len = end - start,
+                };
+                const result = sysarch(ARM_SYNC_ICACHE, @ptrToInt(&arg));
+                std.debug.assert(result == 0);
+                exportIt();
+            },
+            .linux => {
+                const result = std.os.linux.syscall3(.cacheflush, start, end, 0);
+                std.debug.assert(result == 0);
+                exportIt();
+            },
+            else => {},
+        }
     } else if (os == .linux and mips) {
-        @compileError("TODO");
-        //const uintptr_t start_int = (uintptr_t)start;
-        //const uintptr_t end_int = (uintptr_t)end;
-        //syscall(__NR_cacheflush, start, (end_int - start_int), BCACHE);
+        const flags = 3; // ICACHE | DCACHE
+        const result = std.os.linux.syscall3(.cacheflush, start, end - start, flags);
+        std.debug.assert(result == 0);
+        exportIt();
     } else if (mips and os == .openbsd) {
-        @compileError("TODO");
+        // TODO
         //cacheflush(start, (uintptr_t)end - (uintptr_t)start, BCACHE);
+        // exportIt();
+    } else if (os == .linux and riscv) {
+        const result = std.os.linux.syscall3(.riscv_flush_icache, start, end - start, 0);
+        std.debug.assert(result == 0);
+        exportIt();
     } else if (arm64 and !apple) {
         // Get Cache Type Info.
         // TODO memoize this?
@@ -118,8 +119,9 @@ pub fn clear_cache(start: usize, end: usize) callconv(.C) void {
             }
         }
         asm volatile ("isb sy");
+        exportIt();
     } else if (powerpc64) {
-        @compileError("TODO");
+        // TODO
         //const size_t line_size = 32;
         //const size_t len = (uintptr_t)end - (uintptr_t)start;
         //
@@ -134,8 +136,9 @@ pub fn clear_cache(start: usize, end: usize) callconv(.C) void {
         //for (uintptr_t line = start_line; line < end_line; line += line_size)
         //  __asm__ volatile("icbi 0, %0" : : "r"(line));
         //__asm__ volatile("isync");
+        // exportIt();
     } else if (sparc) {
-        @compileError("TODO");
+        // TODO
         //const size_t dword_size = 8;
         //const size_t len = (uintptr_t)end - (uintptr_t)start;
         //
@@ -145,13 +148,26 @@ pub fn clear_cache(start: usize, end: usize) callconv(.C) void {
         //
         //for (uintptr_t dword = start_dword; dword < end_dword; dword += dword_size)
         //  __asm__ volatile("flush %0" : : "r"(dword));
+        // exportIt();
     } else if (apple) {
         // On Darwin, sys_icache_invalidate() provides this functionality
         sys_icache_invalidate(start, end - start);
-    } else {
-        @compileError("no __clear_cache implementation available for this target");
+        exportIt();
     }
+}
+
+const linkage = if (std.builtin.is_test) std.builtin.GlobalLinkage.Internal else std.builtin.GlobalLinkage.Weak;
+
+fn exportIt() void {
+    @export(clear_cache, .{ .name = "__clear_cache", .linkage = linkage });
 }
 
 // Darwin-only
 extern fn sys_icache_invalidate(start: usize, len: usize) void;
+// BSD-only
+const arm_sync_icache_args = extern struct {
+    addr: usize, // Virtual start address
+    len: usize, // Region size
+};
+const ARM_SYNC_ICACHE = 0;
+extern "c" fn sysarch(number: i32, args: usize) i32;

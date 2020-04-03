@@ -373,6 +373,35 @@ test "zig fmt: correctly move doc comments on struct fields" {
     );
 }
 
+test "zig fmt: correctly space struct fields with doc comments" {
+    try testTransform(
+        \\pub const S = struct {
+        \\    /// A
+        \\    a: u8,
+        \\    /// B
+        \\    /// B (cont)
+        \\    b: u8,
+        \\
+        \\
+        \\    /// C
+        \\    c: u8,
+        \\};
+        \\
+        ,
+        \\pub const S = struct {
+        \\    /// A
+        \\    a: u8,
+        \\    /// B
+        \\    /// B (cont)
+        \\    b: u8,
+        \\
+        \\    /// C
+        \\    c: u8,
+        \\};
+        \\
+    );
+}
+
 test "zig fmt: doc comments on param decl" {
     try testCanonical(
         \\pub const Allocator = struct {
@@ -2924,7 +2953,7 @@ fn testParse(source: []const u8, allocator: *mem.Allocator, anything_changed: *b
         return error.ParseError;
     }
 
-    var buffer = try std.Buffer.initSize(allocator, 0);
+    var buffer = std.ArrayList(u8).init(allocator);
     errdefer buffer.deinit();
 
     anything_changed.* = try std.zig.render(allocator, buffer.outStream(), tree);

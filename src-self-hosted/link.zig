@@ -15,10 +15,10 @@ const Context = struct {
     link_in_crt: bool,
 
     link_err: error{OutOfMemory}!void,
-    link_msg: std.Buffer,
+    link_msg: std.ArrayListSentineled(u8, 0),
 
     libc: *LibCInstallation,
-    out_file_path: std.Buffer,
+    out_file_path: std.ArrayListSentineled(u8, 0),
 };
 
 pub fn link(comp: *Compilation) !void {
@@ -34,9 +34,9 @@ pub fn link(comp: *Compilation) !void {
     };
     defer ctx.arena.deinit();
     ctx.args = std.ArrayList([*:0]const u8).init(&ctx.arena.allocator);
-    ctx.link_msg = std.Buffer.initNull(&ctx.arena.allocator);
+    ctx.link_msg = std.ArrayListSentineled(u8, 0).initNull(&ctx.arena.allocator);
 
-    ctx.out_file_path = try std.Buffer.init(&ctx.arena.allocator, comp.name.toSliceConst());
+    ctx.out_file_path = try std.ArrayListSentineled(u8, 0).init(&ctx.arena.allocator, comp.name.span());
     switch (comp.kind) {
         .Exe => {
             try ctx.out_file_path.append(comp.target.exeFileExt());
@@ -70,7 +70,7 @@ pub fn link(comp: *Compilation) !void {
     try constructLinkerArgs(&ctx);
 
     if (comp.verbose_link) {
-        for (ctx.args.toSliceConst()) |arg, i| {
+        for (ctx.args.span()) |arg, i| {
             const space = if (i == 0) "" else " ";
             std.debug.warn("{}{s}", .{ space, arg });
         }
@@ -78,7 +78,7 @@ pub fn link(comp: *Compilation) !void {
     }
 
     const extern_ofmt = toExternObjectFormatType(comp.target.getObjectFormat());
-    const args_slice = ctx.args.toSlice();
+    const args_slice = ctx.args.span();
 
     {
         // LLD is not thread-safe, so we grab a global lock.
@@ -91,7 +91,7 @@ pub fn link(comp: *Compilation) !void {
                 // TODO capture these messages and pass them through the system, reporting them through the
                 // event system instead of printing them directly here.
                 // perhaps try to parse and understand them.
-                std.debug.warn("{}\n", .{ctx.link_msg.toSliceConst()});
+                std.debug.warn("{}\n", .{ctx.link_msg.span()});
             }
             return error.LinkFailed;
         }
@@ -173,7 +173,7 @@ fn constructLinkerArgsElf(ctx: *Context) !void {
     //}
 
     try ctx.args.append("-o");
-    try ctx.args.append(ctx.out_file_path.toSliceConst());
+    try ctx.args.append(ctx.out_file_path.span());
 
     if (ctx.link_in_crt) {
         const crt1o = if (ctx.comp.is_static) "crt1.o" else "Scrt1.o";
@@ -291,7 +291,7 @@ fn constructLinkerArgsCoff(ctx: *Context) !void {
 
     const is_library = ctx.comp.kind == .Lib;
 
-    const out_arg = try std.fmt.allocPrint(&ctx.arena.allocator, "-OUT:{}\x00", .{ctx.out_file_path.toSliceConst()});
+    const out_arg = try std.fmt.allocPrint(&ctx.arena.allocator, "-OUT:{}\x00", .{ctx.out_file_path.span()});
     try ctx.args.append(@ptrCast([*:0]const u8, out_arg.ptr));
 
     if (ctx.comp.haveLibC()) {
@@ -394,7 +394,7 @@ fn constructLinkerArgsMachO(ctx: *Context) !void {
     }
 
     try ctx.args.append("-o");
-    try ctx.args.append(ctx.out_file_path.toSliceConst());
+    try ctx.args.append(ctx.out_file_path.span());
 
     if (shared) {
         try ctx.args.append("-headerpad_max_install_names");
@@ -432,7 +432,7 @@ fn constructLinkerArgsMachO(ctx: *Context) !void {
 
     // TODO
     //if (ctx.comp.target == Target.Native) {
-    //    for (ctx.comp.link_libs_list.toSliceConst()) |lib| {
+    //    for (ctx.comp.link_libs_list.span()) |lib| {
     //        if (mem.eql(u8, lib.name, "c")) {
     //            // on Darwin, libSystem has libc in it, but also you have to use it
     //            // to make syscalls because the syscall numbers are not documented
@@ -482,7 +482,7 @@ fn addFnObjects(ctx: *Context) !void {
             ctx.comp.gpa().destroy(node);
             continue;
         };
-        try ctx.args.append(fn_val.containing_object.toSliceConst());
+        try ctx.args.append(fn_val.containing_object.span());
         it = node.next;
     }
 }

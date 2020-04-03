@@ -52,6 +52,8 @@ struct ZigClangAPValue {
     // experimentally-derived size of clang::APValue::DataType
 #if defined(_WIN32) && defined(_MSC_VER)
     char Data[52];
+#elif defined(__i386__)
+    char Data[48];
 #else
     char Data[68];
 #endif

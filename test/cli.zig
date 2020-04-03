@@ -59,7 +59,12 @@ fn printCmd(cwd: []const u8, argv: []const []const u8) void {
 
 fn exec(cwd: []const u8, argv: []const []const u8) !ChildProcess.ExecResult {
     const max_output_size = 100 * 1024;
-    const result = ChildProcess.exec(a, argv, cwd, null, max_output_size) catch |err| {
+    const result = ChildProcess.exec(.{
+        .allocator = a,
+        .argv = argv,
+        .cwd = cwd,
+        .max_output_bytes = max_output_size,
+    }) catch |err| {
         std.debug.warn("The following command failed:\n", .{});
         printCmd(cwd, argv);
         return err;
@@ -101,7 +106,7 @@ fn testGodboltApi(zig_exe: []const u8, dir_path: []const u8) anyerror!void {
     const example_zig_path = try fs.path.join(a, &[_][]const u8{ dir_path, "example.zig" });
     const example_s_path = try fs.path.join(a, &[_][]const u8{ dir_path, "example.s" });
 
-    try std.io.writeFile(example_zig_path,
+    try fs.cwd().writeFile(example_zig_path,
         \\// Type your code here, or load an example.
         \\export fn square(num: i32) i32 {
         \\    return num * num;
@@ -124,7 +129,7 @@ fn testGodboltApi(zig_exe: []const u8, dir_path: []const u8) anyerror!void {
     };
     _ = try exec(dir_path, &args);
 
-    const out_asm = try std.io.readFileAlloc(a, example_s_path);
+    const out_asm = try std.fs.cwd().readFileAlloc(a, example_s_path, std.math.maxInt(usize));
     testing.expect(std.mem.indexOf(u8, out_asm, "square:") != null);
     testing.expect(std.mem.indexOf(u8, out_asm, "mov\teax, edi") != null);
     testing.expect(std.mem.indexOf(u8, out_asm, "imul\teax, edi") != null);

@@ -24,6 +24,7 @@ else()
         string(TOUPPER ${_libname_} _prettylibname_)
         find_library(LLD_${_prettylibname_}_LIB NAMES ${_libname_}
             PATHS
+                ${LLD_LIBDIRS}
                 /usr/lib/llvm-10/lib
                 /usr/local/llvm100/lib
                 /mingw64/lib

@@ -42,18 +42,23 @@ pub const Adler32 = struct {
 
             s2 %= base;
         } else {
-            var i: usize = 0;
-            while (i + nmax <= input.len) : (i += nmax) {
-                const n = nmax / 16; // note: 16 | nmax
+            const n = nmax / 16; // note: 16 | nmax
 
+            var i: usize = 0;
+
+            while (i + nmax <= input.len) {
                 var rounds: usize = 0;
                 while (rounds < n) : (rounds += 1) {
                     comptime var j: usize = 0;
                     inline while (j < 16) : (j += 1) {
-                        s1 +%= input[i + n * j];
+                        s1 +%= input[i + j];
                         s2 +%= s1;
                     }
+                    i += 16;
                 }
+
+                s1 %= base;
+                s2 %= base;
             }
 
             if (i < input.len) {
@@ -89,19 +94,35 @@ pub const Adler32 = struct {
 };
 
 test "adler32 sanity" {
-    testing.expect(Adler32.hash("a") == 0x620062);
-    testing.expect(Adler32.hash("example") == 0xbc002ed);
+    testing.expectEqual(@as(u32, 0x620062), Adler32.hash("a"));
+    testing.expectEqual(@as(u32, 0xbc002ed), Adler32.hash("example"));
 }
 
 test "adler32 long" {
     const long1 = [_]u8{1} ** 1024;
-    testing.expect(Adler32.hash(long1[0..]) == 0x06780401);
+    testing.expectEqual(@as(u32, 0x06780401), Adler32.hash(long1[0..]));
 
     const long2 = [_]u8{1} ** 1025;
-    testing.expect(Adler32.hash(long2[0..]) == 0x0a7a0402);
+    testing.expectEqual(@as(u32, 0x0a7a0402), Adler32.hash(long2[0..]));
 }
 
 test "adler32 very long" {
     const long = [_]u8{1} ** 5553;
-    testing.expect(Adler32.hash(long[0..]) == 0x707f15b2);
+    testing.expectEqual(@as(u32, 0x707f15b2), Adler32.hash(long[0..]));
+}
+
+test "adler32 very long with variation" {
+    const long = comptime blk: {
+        @setEvalBranchQuota(7000);
+        var result: [6000]u8 = undefined;
+
+        var i: usize = 0;
+        while (i < result.len) : (i += 1) {
+            result[i] = @truncate(u8, i);
+        }
+
+        break :blk result;
+    };
+
+    testing.expectEqual(@as(u32, 0x5af38d6e), std.hash.Adler32.hash(long[0..]));
 }

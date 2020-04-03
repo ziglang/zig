@@ -190,8 +190,6 @@ fn testAtomicRmwInt() void {
     _ = @atomicRmw(u8, &x, .Xor, 2, .SeqCst);
     expect(x == 0xfd);
 
-    // TODO https://github.com/ziglang/zig/issues/4724
-    if (builtin.arch == .mipsel) return;
     _ = @atomicRmw(u8, &x, .Max, 1, .SeqCst);
     expect(x == 0xfd);
     _ = @atomicRmw(u8, &x, .Min, 1, .SeqCst);
