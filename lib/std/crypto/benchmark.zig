@@ -133,7 +133,7 @@ fn printPad(stdout: var, s: []const u8) !void {
 }
 
 pub fn main() !void {
-    const stdout = &std.io.getStdOut().outStream().stream;
+    const stdout = std.io.getStdOut().outStream();
 
     var buffer: [1024]u8 = undefined;
     var fixed = std.heap.FixedBufferAllocator.init(buffer[0..]);

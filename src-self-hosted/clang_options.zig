@@ -96,6 +96,16 @@ pub fn flagpd1(name: []const u8) CliArg {
 }
 
 /// Shortcut function for initializing a `CliArg`
+pub fn flagpsl(name: []const u8) CliArg {
+    return .{
+        .name = name,
+        .syntax = .flag,
+        .zig_equivalent = .other,
+        .psl = true,
+    };
+}
+
+/// Shortcut function for initializing a `CliArg`
 pub fn joinpd1(name: []const u8) CliArg {
     return .{
         .name = name,
