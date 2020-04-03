@@ -1250,6 +1250,7 @@ fn buildOutputType(
                     .framework => try frameworks.append(it.only_arg),
                     .nostdlibinc => want_native_include_dirs = false,
                     .strip => strip = true,
+                    .include_dir => try clang_argv.appendSlice(it.other_args),
                 }
             }
             // Parse linker args.
@@ -3329,6 +3330,7 @@ pub const ClangArgIterator = struct {
         red_zone,
         no_red_zone,
         strip,
+        include_dir,
     };
 
     const Args = struct {
