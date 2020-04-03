@@ -6,4 +6,5 @@ deps/* linguist-vendored
 lib/include/* linguist-vendored
 lib/libc/* linguist-vendored
 lib/libcxx/* linguist-vendored
+lib/libcxxabi/* linguist-vendored
 lib/libunwind/* linguist-vendored
