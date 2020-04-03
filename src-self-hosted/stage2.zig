@@ -1323,6 +1323,7 @@ pub const ClangArgIterator = extern struct {
         framework_dir,
         framework,
         nostdlibinc,
+        include_dir,
     };
 
     const Args = struct {

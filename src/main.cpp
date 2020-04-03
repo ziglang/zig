@@ -762,6 +762,11 @@ static int main0(int argc, char **argv) {
                 case Stage2ClangArgNoStdLibInc:
                     want_native_include_dirs = false;
                     break;
+                case Stage2ClangArgIncludeDir:
+                    for (size_t i = 0; i < it.other_args_len; i += 1) {
+                        clang_argv.append(it.other_args_ptr[i]);
+                    }
+                    break;
             }
         }
         // Parse linker args
