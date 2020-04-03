@@ -89,6 +89,15 @@ const test_targets = blk: {
             },
             .link_libc = true,
         },
+        // https://github.com/ziglang/zig/issues/4926
+        //TestTarget{
+        //    .target = .{
+        //        .cpu_arch = .i386,
+        //        .os_tag = .linux,
+        //        .abi = .gnu,
+        //    },
+        //    .link_libc = true,
+        //},
 
         TestTarget{
             .target = .{
@@ -127,7 +136,7 @@ const test_targets = blk: {
             }) catch unreachable,
             .link_libc = true,
         },
-        // TODO https://github.com/ziglang/zig/issues/3287
+        // https://github.com/ziglang/zig/issues/3287
         //TestTarget{
         //    .target = CrossTarget.parse(.{
         //        .arch_os_abi = "arm-linux-gnueabihf",
@@ -151,6 +160,15 @@ const test_targets = blk: {
             },
             .link_libc = true,
         },
+        // https://github.com/ziglang/zig/issues/4927
+        //TestTarget{
+        //    .target = .{
+        //        .cpu_arch = .mipsel,
+        //        .os_tag = .linux,
+        //        .abi = .gnu,
+        //    },
+        //    .link_libc = true,
+        //},
 
         TestTarget{
             .target = .{
@@ -185,7 +203,7 @@ const test_targets = blk: {
                 .os_tag = .macosx,
                 .abi = .gnu,
             },
-            // TODO https://github.com/ziglang/zig/issues/3295
+            // https://github.com/ziglang/zig/issues/3295
             .disable_native = true,
         },
 
