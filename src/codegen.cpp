@@ -8940,10 +8940,24 @@ static void init(CodeGen *g) {
         fprintf(stderr, "name=%s target_specific_cpu_args=%s\n", buf_ptr(g->root_out_name), target_specific_cpu_args);
         fprintf(stderr, "name=%s target_specific_features=%s\n", buf_ptr(g->root_out_name), target_specific_features);
     }
+
+    // TODO handle float ABI better- it should depend on the ABI portion of std.Target
+    ZigLLVMABIType float_abi = ZigLLVMABITypeDefault;
+
+    // TODO a way to override this as part of std.Target ABI?
+    const char *abi_name = nullptr;
+    if (target_is_riscv(g->zig_target)) {
+        // RISC-V Linux defaults to ilp32d/lp64d
+        if (g->zig_target->os == OsLinux) {
+            abi_name = (g->zig_target->arch == ZigLLVM_riscv32) ? "ilp32d" : "lp64d";
+        } else {
+            abi_name = (g->zig_target->arch == ZigLLVM_riscv32) ? "ilp32" : "lp64";
+        }
+    }
     
     g->target_machine = ZigLLVMCreateTargetMachine(target_ref, buf_ptr(&g->llvm_triple_str),
             target_specific_cpu_args, target_specific_features, opt_level, reloc_mode,
-            to_llvm_code_model(g), g->function_sections);
+            to_llvm_code_model(g), g->function_sections, float_abi, abi_name);
 
     g->target_data_ref = LLVMCreateTargetDataLayout(g->target_machine);
 

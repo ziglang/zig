@@ -100,7 +100,7 @@ static const bool assertions_on = false;
 
 LLVMTargetMachineRef ZigLLVMCreateTargetMachine(LLVMTargetRef T, const char *Triple,
     const char *CPU, const char *Features, LLVMCodeGenOptLevel Level, LLVMRelocMode Reloc,
-    LLVMCodeModel CodeModel, bool function_sections)
+    LLVMCodeModel CodeModel, bool function_sections, ZigLLVMABIType float_abi, const char *abi_name)
 {
     Optional<Reloc::Model> RM;
     switch (Reloc){
@@ -147,6 +147,21 @@ LLVMTargetMachineRef ZigLLVMCreateTargetMachine(LLVMTargetRef T, const char *Tri
 
     TargetOptions opt;
     opt.FunctionSections = function_sections;
+    switch (float_abi) {
+        case ZigLLVMABITypeDefault:
+            opt.FloatABIType = FloatABI::Default;
+            break;
+        case ZigLLVMABITypeSoft:
+            opt.FloatABIType = FloatABI::Soft;
+            break;
+        case ZigLLVMABITypeHard:
+            opt.FloatABIType = FloatABI::Hard;
+            break;
+    }
+
+    if (abi_name != nullptr) {
+        opt.MCOptions.ABIName = abi_name;
+    }
 
     TargetMachine *TM = reinterpret_cast<Target*>(T)->createTargetMachine(Triple, CPU, Features, opt, RM, CM,
             OL, JIT);
