@@ -160,15 +160,14 @@ const test_targets = blk: {
             },
         },
 
-        // https://github.com/ziglang/zig/issues/4863
-        //TestTarget{
-        //    .target = .{
-        //        .cpu_arch = .riscv64,
-        //        .os_tag = .linux,
-        //        .abi = .musl,
-        //    },
-        //    .link_libc = true,
-        //},
+        TestTarget{
+            .target = .{
+                .cpu_arch = .riscv64,
+                .os_tag = .linux,
+                .abi = .musl,
+            },
+            .link_libc = true,
+        },
 
         // https://github.com/ziglang/zig/issues/3340
         //TestTarget{
