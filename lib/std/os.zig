@@ -846,6 +846,9 @@ pub const OpenError = error{
     /// The path already exists and the `O_CREAT` and `O_EXCL` flags were provided.
     PathAlreadyExists,
     DeviceBusy,
+
+    /// The underlying filesystem does not support file locks
+    FileLocksNotSupported
 } || UnexpectedError;
 
 /// Open and possibly create a file. Keeps trying if it gets interrupted.
@@ -931,6 +934,7 @@ pub fn openatZ(dir_fd: fd_t, file_path: [*:0]const u8, flags: u32, mode: mode_t)
             EPERM => return error.AccessDenied,
             EEXIST => return error.PathAlreadyExists,
             EBUSY => return error.DeviceBusy,
+            EOPNOTSUPP => return error.FileLocksNotSupported,
             else => |err| return unexpectedErrno(err),
         }
     }
