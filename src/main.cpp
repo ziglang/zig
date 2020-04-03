@@ -833,9 +833,13 @@ static int main0(int argc, char **argv) {
                 linker_gc_sections = OptionalBoolTrue;
             } else if (buf_eql_str(arg, "--no-gc-sections")) {
                 linker_gc_sections = OptionalBoolFalse;
-            } else if (buf_eql_str(arg, "--allow-shlib-undefined")) {
+            } else if (buf_eql_str(arg, "--allow-shlib-undefined") ||
+                       buf_eql_str(arg, "-allow-shlib-undefined"))
+            {
                 linker_allow_shlib_undefined = OptionalBoolTrue;
-            } else if (buf_eql_str(arg, "--no-allow-shlib-undefined")) {
+            } else if (buf_eql_str(arg, "--no-allow-shlib-undefined") ||
+                       buf_eql_str(arg, "-no-allow-shlib-undefined"))
+            {
                 linker_allow_shlib_undefined = OptionalBoolFalse;
             } else if (buf_eql_str(arg, "-z")) {
                 i += 1;
