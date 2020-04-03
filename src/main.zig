@@ -455,6 +455,7 @@ fn buildOutputType(
     var main_pkg_path: ?[]const u8 = null;
     var clang_preprocessor_mode: Compilation.ClangPreprocessorMode = .no;
     var subsystem: ?std.Target.SubSystem = null;
+    var have_zig_only_args: bool = false;
 
     var system_libs = std.ArrayList([]const u8).init(gpa);
     defer system_libs.deinit();
@@ -1051,6 +1052,10 @@ fn buildOutputType(
                     .framework_dir => try framework_dirs.append(it.only_arg),
                     .framework => try frameworks.append(it.only_arg),
                     .nostdlibinc => want_native_include_dirs = false,
+                    .cache_dir => {
+                        override_local_cache_dir = it.only_arg;
+                        have_zig_only_args = true;
+                    },
                 }
             }
             // Parse linker args.
@@ -1224,8 +1229,23 @@ fn buildOutputType(
                 },
             }
             if (c_source_files.items.len == 0 and link_objects.items.len == 0) {
-                // For example `zig cc` and no args should print the "no input files" message.
-                return punt_to_clang(arena, all_args);
+                if(have_zig_only_args) {
+                    var clang_only_argv = std.ArrayList([]const u8).init(gpa);
+                    defer clang_only_argv.deinit();
+                    var x: usize = 0;
+                    while (x < all_args.len) : (x += 1) {
+                        const arg = all_args[i];
+                        if (mem.eql(u8, arg, "--stack")) {
+                            x += 1;
+                        } else {
+                            try clang_only_argv.append(arg);
+                        }
+                    }
+                    return punt_to_clang(arena, clang_only_argv.items);
+                } else {
+                    // For example `zig cc` and no args should print the "no input files" message.
+                    return punt_to_clang(arena, all_args);
+                }
             }
         },
     }
@@ -2742,6 +2762,7 @@ pub const ClangArgIterator = struct {
         framework_dir,
         framework,
         nostdlibinc,
+        cache_dir,
     };
 
     const Args = struct {

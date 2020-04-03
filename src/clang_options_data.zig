@@ -2,6 +2,16 @@
 // zig fmt: off
 usingnamespace @import("clang_options.zig");
 pub const data = blk: { @setEvalBranchQuota(6000); break :blk &[_]CliArg{
+// Applicable zig options:
+.{
+    .name = "cache-dir",
+    .syntax = .separate,
+    .zig_equivalent = .cache_dir,
+    .pd1 = false,
+    .pd2 = true,
+    .psl = false,
+},
+// Clang options:
 flagpd1("C"),
 flagpd1("CC"),
 .{

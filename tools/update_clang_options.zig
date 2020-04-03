@@ -284,6 +284,10 @@ const known_options = [_]KnownOpt{
         .name = "framework",
         .ident = "framework",
     },
+    .{
+        .name = "cache-dir",
+        .ident = "cache_dir",
+    },
 };
 
 const blacklisted_options = [_][]const u8{};
@@ -383,6 +387,16 @@ pub fn main() anyerror!void {
         \\// zig fmt: off
         \\usingnamespace @import("clang_options.zig");
         \\pub const data = blk: { @setEvalBranchQuota(6000); break :blk &[_]CliArg{
+        \\// Applicable zig options:
+        \\.{
+        \\    .name = "cache-dir",
+        \\    .syntax = .separate,
+        \\    .zig_equivalent = .cache_dir,
+        \\    .pd1 = false,
+        \\    .pd2 = true,
+        \\    .psl = false,
+        \\},
+        \\// Clang options:
         \\
     );
 
