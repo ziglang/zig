@@ -1394,3 +1394,8 @@ pub const F_UNLCK = 2;
 
 /// exclusive or write lock
 pub const F_WRLCK = 3;
+
+pub const LOCK_SH = 1;
+pub const LOCK_EX = 2;
+pub const LOCK_UN = 8;
+pub const LOCK_NB = 4;

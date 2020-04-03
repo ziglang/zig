@@ -819,36 +819,28 @@ pub const OpenError = error{
     SystemFdQuotaExceeded,
     NoDevice,
     FileNotFound,
-
     /// The path exceeded `MAX_PATH_BYTES` bytes.
     NameTooLong,
-
     /// Insufficient kernel memory was available, or
     /// the named file is a FIFO and per-user hard limit on
     /// memory allocation for pipes has been reached.
     SystemResources,
-
     /// The file is too large to be opened. This error is unreachable
     /// for 64-bit targets, as well as when opening directories.
     FileTooBig,
-
     /// The path refers to directory but the `O_DIRECTORY` flag was not provided.
     IsDir,
-
     /// A new path cannot be created because the device has no room for the new file.
     /// This error is only reachable when the `O_CREAT` flag is provided.
     NoSpaceLeft,
-
     /// A component used as a directory in the path was not, in fact, a directory, or
     /// `O_DIRECTORY` was specified and the path was not a directory.
     NotDir,
-
     /// The path already exists and the `O_CREAT` and `O_EXCL` flags were provided.
     PathAlreadyExists,
     DeviceBusy,
-
     /// The underlying filesystem does not support file locks
-    FileLocksNotSupported
+    FileLocksNotSupported,
 } || UnexpectedError;
 
 /// Open and possibly create a file. Keeps trying if it gets interrupted.
@@ -3217,6 +3209,28 @@ pub fn fcntl(fd: fd_t, cmd: i32, arg: usize) FcntlError!usize {
             EPERM => return error.PermissionDenied,
             EMFILE => return error.ProcessFdQuotaExceeded,
             ENOTDIR => unreachable, // invalid parameter
+            else => |err| return unexpectedErrno(err),
+        }
+    }
+}
+
+pub const FlockError = error{
+    WouldBlock,
+
+    /// The kernel ran out of memory for allocating file locks
+    SystemResources,
+} || UnexpectedError;
+
+pub fn flock(fd: fd_t, operation: i32) FlockError!usize {
+    while (true) {
+        const rc = system.flock(fd, operation);
+        switch (errno(rc)) {
+            0 => return @intCast(usize, rc),
+            EBADF => unreachable,
+            EINTR => continue,
+            EINVAL => unreachable, // invalid parameters
+            ENOLCK => return error.SystemResources,
+            EWOULDBLOCK => return error.WouldBlock, // TODO: integrate with async instead of just returning an error
             else => |err| return unexpectedErrno(err),
         }
     }

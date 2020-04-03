@@ -462,6 +462,11 @@ pub const F_GETOWN_EX = 16;
 
 pub const F_GETOWNER_UIDS = 17;
 
+pub const LOCK_SH = 1;
+pub const LOCK_EX = 2;
+pub const LOCK_UN = 8;
+pub const LOCK_NB = 4;
+
 /// stack-like segment
 pub const MAP_GROWSDOWN = 0x0100;
 

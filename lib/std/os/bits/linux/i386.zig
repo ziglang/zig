@@ -482,6 +482,11 @@ pub const F_RDLCK = 0;
 pub const F_WRLCK = 1;
 pub const F_UNLCK = 2;
 
+pub const LOCK_SH = 1;
+pub const LOCK_EX = 2;
+pub const LOCK_UN = 8;
+pub const LOCK_NB = 4;
+
 pub const F_SETOWN_EX = 15;
 pub const F_GETOWN_EX = 16;
 

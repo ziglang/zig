@@ -617,14 +617,9 @@ pub const Dir = struct {
         else
             try os.openatZ(self.fd, sub_path, os_flags, 0);
 
-        // use fcntl file locking if no lock flag was given
         if (flags.lock and lock_flag == 0) {
             // TODO: integrate async I/O
-            // mem.zeroes is used here because flock's structure can vary across architectures and systems
-            var flock = mem.zeroes(os.Flock);
-            flock.l_type = if (flags.write) os.F_WRLCK else os.F_RDLCK;
-            flock.l_whence = os.SEEK_SET;
-            _ = try os.fcntl(fd, os.F_SETLKW, @ptrToInt(&flock));
+            _ = try os.flock(fd, if (flags.write) os.LOCK_EX else os.LOCK_SH);
         }
 
         return File{
@@ -695,10 +690,7 @@ pub const Dir = struct {
         if (flags.lock and lock_flag == 0) {
             // TODO: integrate async I/O
             // mem.zeroes is used here because flock's structure can vary across architectures and systems
-            var flock = mem.zeroes(os.Flock);
-            flock.l_type = os.F_WRLCK;
-            flock.l_whence = os.SEEK_SET;
-            _ = try os.fcntl(fd, os.F_SETLKW, @ptrToInt(&flock));
+            _ = try os.flock(fd, os.LOCK_EX);
         }
 
         return File{ .handle = fd, .io_mode = .blocking };
@@ -1801,59 +1793,14 @@ const FileLockTestContext = struct {
 };
 
 fn run_lock_file_test(contexts: []FileLockTestContext) !void {
-    var shared_mem: if (builtin.os.tag == .windows) void else []align(mem.page_size) u8 = undefined;
-
-    var ctxs: []FileLockTestContext = undefined;
-    if (builtin.os.tag == .windows) {
-        ctxs = contexts;
-    } else {
-        shared_mem = try std.os.mmap(null, contexts.len * @sizeOf(FileLockTestContext), std.os.PROT_READ | std.os.PROT_WRITE, std.os.MAP_SHARED | std.os.MAP_ANONYMOUS, -1, 0);
-        const ctxs_ptr = @ptrCast([*]FileLockTestContext, shared_mem.ptr);
-        ctxs = ctxs_ptr[0..contexts.len];
-
-        for (contexts) |context, idx| {
-            ctxs[idx] = context;
+    var threads = std.ArrayList(*std.Thread).init(std.testing.allocator);
+    defer {
+        for (threads.toSlice()) |thread| {
+            thread.wait();
         }
+        threads.deinit();
     }
-
-    if (builtin.os.tag == .windows) {
-        var threads = std.ArrayList(*std.Thread).init(std.testing.allocator);
-        defer {
-            for (threads.toSlice()) |thread| {
-                thread.wait();
-            }
-            threads.deinit();
-        }
-        for (ctxs) |*ctx, idx| {
-            try threads.append(try std.Thread.spawn(ctx, FileLockTestContext.run));
-        }
-    } else {
-        var ctx_opt: ?*FileLockTestContext = null;
-        for (ctxs) |*ctx| {
-            const childpid = try std.os.fork();
-            if (childpid == 0) {
-                ctx_opt = ctx;
-                break;
-            }
-            ctx.pid = childpid;
-        }
-
-        if (ctx_opt) |ctx| {
-            ctx.run();
-            // Exit so we don't have duplicate test processes
-            std.os.exit(0);
-        } else {
-            for (ctxs) |ctx| {
-                _ = std.os.waitpid(ctx.pid.?, 0);
-            }
-        }
-    }
-
-    if (builtin.os.tag != .windows) {
-        // Copy contexts out of shared memory
-        for (ctxs) |ctx, idx| {
-            contexts[idx] = ctx;
-        }
-        std.os.munmap(shared_mem);
+    for (contexts) |*ctx, idx| {
+        try threads.append(try std.Thread.spawn(ctx, FileLockTestContext.run));
     }
 }
