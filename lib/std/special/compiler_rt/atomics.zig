@@ -88,6 +88,13 @@ fn __atomic_compare_exchange(
     return 0;
 }
 
+comptime {
+    @export(__atomic_load, .{ .name = "__atomic_load", .linkage = linkage });
+    @export(__atomic_store, .{ .name = "__atomic_store", .linkage = linkage });
+    @export(__atomic_exchange, .{ .name = "__atomic_exchange", .linkage = linkage });
+    @export(__atomic_compare_exchange, .{ .name = "__atomic_compare_exchange", .linkage = linkage });
+}
+
 // Specialized versions of the GCC atomic builtin functions.
 // LLVM emits those iff the object size is known and the pointers are correctly
 // aligned.
