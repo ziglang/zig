@@ -284,6 +284,14 @@ const known_options = [_]KnownOpt{
         .name = "framework",
         .ident = "framework",
     },
+    .{
+        .name = "I",
+        .ident = "include_dir",
+    },
+    .{
+        .name = "include-directory",
+        .ident = "include_dir",
+    },
 };
 
 const blacklisted_options = [_][]const u8{};

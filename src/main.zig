@@ -1051,6 +1051,7 @@ fn buildOutputType(
                     .framework_dir => try framework_dirs.append(it.only_arg),
                     .framework => try frameworks.append(it.only_arg),
                     .nostdlibinc => want_native_include_dirs = false,
+                    .include_dir => try clang_argv.appendSlice(it.other_args),
                 }
             }
             // Parse linker args.
@@ -2742,6 +2743,7 @@ pub const ClangArgIterator = struct {
         framework_dir,
         framework,
         nostdlibinc,
+        include_dir,
     };
 
     const Args = struct {
