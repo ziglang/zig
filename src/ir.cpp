@@ -26583,7 +26583,6 @@ done_with_return_type:
                 if (parent_ptr == nullptr)
                     return ira->codegen->invalid_inst_gen;
 
-
                 if (parent_ptr->special == ConstValSpecialUndef) {
                     array_val = nullptr;
                     abs_offset = 0;
@@ -26745,6 +26744,113 @@ done_with_return_type:
             ir_add_error(ira, &instruction->base.base, buf_sprintf("non-zero length slice of undefined pointer"));
             return ira->codegen->invalid_inst_gen;
         }
+
+        // check sentinel when target is comptime-known
+        {
+            if (!sentinel_val)
+                goto exit_check_sentinel;
+
+            switch (ptr_ptr->value->data.x_ptr.mut) {
+                case ConstPtrMutComptimeConst:
+                case ConstPtrMutComptimeVar:
+                    break;
+                case ConstPtrMutRuntimeVar:
+                case ConstPtrMutInfer:
+                    goto exit_check_sentinel;
+            }
+
+            // prepare check parameters
+            ZigValue *target = const_ptr_pointee(ira, ira->codegen, ptr_ptr->value, instruction->base.base.source_node);
+            if (target == nullptr)
+                return ira->codegen->invalid_inst_gen;
+
+            uint64_t target_len = 0;
+            ZigValue *target_sentinel = nullptr;
+            ZigValue *target_elements = nullptr;
+
+            for (;;) {
+                if (target->type->id == ZigTypeIdArray) {
+                    // handle `[N]T`
+                    target_len = target->type->data.array.len;
+                    target_sentinel = target->type->data.array.sentinel;
+                    target_elements = target->data.x_array.data.s_none.elements;
+                    break;
+                } else if (target->type->id == ZigTypeIdPointer && target->type->data.pointer.child_type->id == ZigTypeIdArray) {
+                    // handle `*[N]T`
+                    target = const_ptr_pointee(ira, ira->codegen, target, instruction->base.base.source_node);
+                    if (target == nullptr)
+                        return ira->codegen->invalid_inst_gen;
+                    assert(target->type->id == ZigTypeIdArray);
+                    continue;
+                } else if (target->type->id == ZigTypeIdPointer) {
+                    // handle `[*]T`
+                    // handle `[*c]T`
+                    switch (target->data.x_ptr.special) {
+                        case ConstPtrSpecialInvalid:
+                        case ConstPtrSpecialDiscard:
+                            zig_unreachable();
+                        case ConstPtrSpecialRef:
+                            target = target->data.x_ptr.data.ref.pointee;
+                            assert(target->type->id == ZigTypeIdArray);
+                            continue;
+                        case ConstPtrSpecialBaseArray:
+                        case ConstPtrSpecialSubArray:
+                            target = target->data.x_ptr.data.base_array.array_val;
+                            assert(target->type->id == ZigTypeIdArray);
+                            continue;
+                        case ConstPtrSpecialBaseStruct:
+                            zig_panic("TODO slice const inner struct");
+                        case ConstPtrSpecialBaseErrorUnionCode:
+                            zig_panic("TODO slice const inner error union code");
+                        case ConstPtrSpecialBaseErrorUnionPayload:
+                            zig_panic("TODO slice const inner error union payload");
+                        case ConstPtrSpecialBaseOptionalPayload:
+                            zig_panic("TODO slice const inner optional payload");
+                        case ConstPtrSpecialHardCodedAddr:
+                            // skip check
+                            goto exit_check_sentinel;
+                        case ConstPtrSpecialFunction:
+                            zig_panic("TODO slice of ptr cast from function");
+                        case ConstPtrSpecialNull:
+                            zig_panic("TODO slice of null ptr");
+                    }
+                    break;
+                } else if (is_slice(target->type)) {
+                    // handle `[]T`
+                    target = target->data.x_struct.fields[slice_ptr_index];
+                    assert(target->type->id == ZigTypeIdPointer);
+                    continue;
+                }
+
+                zig_unreachable();
+            }
+
+            // perform check
+            if (target_sentinel == nullptr) {
+                if (end_scalar >= target_len) {
+                    ir_add_error(ira, &instruction->base.base, buf_sprintf("slice-sentinel is out of bounds"));
+                    return ira->codegen->invalid_inst_gen;
+                }
+                if (!const_values_equal(ira->codegen, sentinel_val, &target_elements[end_scalar])) {
+                    ir_add_error(ira, &instruction->base.base, buf_sprintf("slice-sentinel does not match memory at target index"));
+                    return ira->codegen->invalid_inst_gen;
+                }
+            } else {
+                assert(end_scalar <= target_len);
+                if (end_scalar == target_len) {
+                    if (!const_values_equal(ira->codegen, sentinel_val, target_sentinel)) {
+                        ir_add_error(ira, &instruction->base.base, buf_sprintf("slice-sentinel does not match target-sentinel"));
+                        return ira->codegen->invalid_inst_gen;
+                    }
+                } else {
+                    if (!const_values_equal(ira->codegen, sentinel_val, &target_elements[end_scalar])) {
+                        ir_add_error(ira, &instruction->base.base, buf_sprintf("slice-sentinel does not match memory at target index"));
+                        return ira->codegen->invalid_inst_gen;
+                    }
+                }
+            }
+        }
+        exit_check_sentinel:
 
         IrInstGen *result = ir_const(ira, &instruction->base.base, return_type);
 
