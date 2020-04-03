@@ -317,6 +317,8 @@ comptime {
     @export(@import("compiler_rt/mulodi4.zig").__mulodi4, .{ .name = "__mulodi4", .linkage = linkage });
 }
 
+pub usingnamespace @import("compiler_rt/atomics.zig");
+
 // Avoid dragging in the runtime safety mechanisms into this .o file,
 // unless we're trying to test this file.
 pub fn panic(msg: []const u8, error_return_trace: ?*builtin.StackTrace) noreturn {
