@@ -457,6 +457,7 @@ static int main0(int argc, char **argv) {
     bool linker_z_nodelete = false;
     bool linker_z_defs = false;
     size_t stack_size_override = 0;
+    int zig_only_argc = 0;
 
     ZigList<const char *> llvm_argv = {0};
     llvm_argv.append("zig (LLVM option parsing)");
@@ -767,6 +768,10 @@ static int main0(int argc, char **argv) {
                         clang_argv.append(it.other_args_ptr[i]);
                     }
                     break;
+                case Stage2ClangArgCacheDir:
+                    cache_dir = it.only_arg;
+                    zig_only_argc += 2;
+                    break;
             }
         }
         // Parse linker args
@@ -933,7 +938,19 @@ static int main0(int argc, char **argv) {
         }
         if (c_source_files.length == 0 && objects.length == 0) {
             // For example `zig cc` and no args should print the "no input files" message.
-            return ZigClang_main(argc, argv);
+            if(zig_only_argc) {
+                ZigList<const char *> clang_argv = {0};
+                for (int i = 0; i < argc; i += 1) {
+                    if(strcmp(argv[i], "--cache-dir") == 0) {
+                        i += 1;
+                    } else {
+                        clang_argv.append(argv[i]);
+                    }
+                }
+                return ZigClang_main(clang_argv.length, (char **)clang_argv.items);
+            } else {
+                return ZigClang_main(argc, argv);
+            }
         }
     } else for (int i = 1; i < argc; i += 1) {
         char *arg = argv[i];
