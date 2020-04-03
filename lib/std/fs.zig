@@ -1550,7 +1550,7 @@ pub fn walkPath(allocator: *Allocator, dir_path: []const u8) !Walker {
     return walker;
 }
 
-pub const OpenSelfExeError = os.OpenError || os.windows.CreateFileError || SelfExePathError || os.FcntlError;
+pub const OpenSelfExeError = os.OpenError || os.windows.CreateFileError || SelfExePathError || os.FlockError;
 
 pub fn openSelfExe() OpenSelfExeError!File {
     if (builtin.os.tag == .linux) {

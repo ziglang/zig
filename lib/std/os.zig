@@ -3295,7 +3295,10 @@ pub fn realpathZ(pathname: [*:0]const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealP
         return realpathW(&pathname_w, out_buffer);
     }
     if (builtin.os.tag == .linux and !builtin.link_libc) {
-        const fd = try openZ(pathname, linux.O_PATH | linux.O_NONBLOCK | linux.O_CLOEXEC, 0);
+        const fd = openZ(pathname, linux.O_PATH | linux.O_NONBLOCK | linux.O_CLOEXEC, 0) catch |err| switch (err) {
+            error.FileLocksNotSupported => unreachable,
+            else => |e| return e,
+        };
         defer close(fd);
 
         var procfs_buf: ["/proc/self/fd/-2147483648".len:0]u8 = undefined;
