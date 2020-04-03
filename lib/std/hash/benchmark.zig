@@ -172,9 +172,7 @@ fn mode(comptime x: comptime_int) comptime_int {
 }
 
 pub fn main() !void {
-    var stdout_file = std.io.getStdOut();
-    var stdout_out_stream = stdout_file.outStream();
-    const stdout = &stdout_out_stream.stream;
+    const stdout = std.io.getStdOut().outStream();
 
     var buffer: [1024]u8 = undefined;
     var fixed = std.heap.FixedBufferAllocator.init(buffer[0..]);
