@@ -1213,7 +1213,7 @@ pub const DebugInfo = struct {
                 const obj_di = try self.allocator.create(ModuleDebugInfo);
                 errdefer self.allocator.destroy(obj_di);
 
-                obj_di.* = openCoffDebugInfo(self.allocator, name_buffer[0..:0]) catch |err| switch (err) {
+                obj_di.* = openCoffDebugInfo(self.allocator, name_buffer[0 .. len + 4 :0]) catch |err| switch (err) {
                     error.FileNotFound => return error.MissingDebugInfo,
                     else => return err,
                 };
