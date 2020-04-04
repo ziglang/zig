@@ -28417,6 +28417,7 @@ static Error buf_read_value_bytes(IrAnalyze *ira, CodeGen *codegen, AstNode *sou
                         }
                         BigInt big_int;
                         bigint_read_twos_complement(&big_int, buf + offset, big_int_byte_count * 8, is_big_endian, false);
+                        uint64_t bit_offset = 0;
                         while (src_i < src_field_count) {
                             TypeStructField *field = val->type->data.structure.fields[src_i];
                             src_assert(field->gen_index != SIZE_MAX, source_node);
@@ -28429,7 +28430,11 @@ static Error buf_read_value_bytes(IrAnalyze *ira, CodeGen *codegen, AstNode *sou
 
                             BigInt child_val;
                             if (is_big_endian) {
-                                zig_panic("TODO buf_read_value_bytes packed struct big endian");
+                                BigInt packed_bits_size_bi;
+                                bigint_init_unsigned(&packed_bits_size_bi, big_int_byte_count * 8 - packed_bits_size - bit_offset);
+                                BigInt tmp;
+                                bigint_shr(&tmp, &big_int, &packed_bits_size_bi);
+                                bigint_truncate(&child_val, &tmp, packed_bits_size, false);
                             } else {
                                 BigInt packed_bits_size_bi;
                                 bigint_init_unsigned(&packed_bits_size_bi, packed_bits_size);
@@ -28439,11 +28444,12 @@ static Error buf_read_value_bytes(IrAnalyze *ira, CodeGen *codegen, AstNode *sou
                                 big_int = tmp;
                             }
 
-                            bigint_write_twos_complement(&child_val, child_buf, big_int_byte_count * 8, is_big_endian);
+                            bigint_write_twos_complement(&child_val, child_buf, packed_bits_size, is_big_endian);
                             if ((err = buf_read_value_bytes(ira, codegen, source_node, child_buf, field_val))) {
                                 return err;
                             }
 
+                            bit_offset += packed_bits_size;
                             src_i += 1;
                         }
                         offset += big_int_byte_count;
