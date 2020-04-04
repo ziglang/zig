@@ -5387,12 +5387,24 @@ fn parseCPrimaryExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8, 
     switch (tok.id) {
         .CharLiteral => {
             const first_tok = it.list.at(0);
-            const token = try appendToken(c, .CharLiteral, try zigifyEscapeSequences(c, source[tok.start..tok.end], source[first_tok.start..first_tok.end], source_loc));
-            const node = try c.a().create(ast.Node.CharLiteral);
-            node.* = .{
-                .token = token,
-            };
-            return &node.base;
+            if (
+                (source[tok.start+1] == '\\' and tok.end - tok.start == 4)
+                or (source[tok.start+1] != '\\' and tok.end - tok.start == 3)
+            ) {
+                const token = try appendToken(c, .CharLiteral, try zigifyEscapeSequences(c, source[tok.start..tok.end], source[first_tok.start..first_tok.end], source_loc));
+                const node = try c.a().create(ast.Node.CharLiteral);
+                node.* = .{
+                    .token = token,
+                };
+                return &node.base;
+            } else {
+                const token = try appendTokenFmt(c, .IntegerLiteral, "0x{x}", .{source[tok.start+1..tok.end-1]});
+                const node = try c.a().create(ast.Node.IntegerLiteral);
+                node.* = .{
+                    .token = token,
+                };
+                return &node.base;
+            }
         },
         .StringLiteral => {
             const first_tok = it.list.at(0);
