@@ -412,7 +412,7 @@ fn findAndParseConfigH(b: *Builder) !Context {
     while (lines_it.next()) |line| {
         inline for (mappings) |mapping| {
             if (mem.startsWith(u8, line, mapping.prefix)) {
-                var it = mem.separate(line, "\"");
+                var it = mem.split(line, "\"");
                 _ = it.next().?; // skip the stuff before the quote
                 @field(ctx, mapping.field) = it.next().?; // the stuff inside the quote
             }

@@ -84,7 +84,7 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
         for (environ) |env| {
             if (env) |ptr| {
                 const pair = mem.spanZ(ptr);
-                var parts = mem.separate(pair, "=");
+                var parts = mem.split(pair, "=");
                 const key = parts.next().?;
                 const value = parts.next().?;
                 try result.set(key, value);

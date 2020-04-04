@@ -823,7 +823,7 @@ fn linuxLookupNameFromHosts(
         },
         else => |e| return e,
     }) |line| {
-        const no_comment_line = mem.separate(line, "#").next().?;
+        const no_comment_line = mem.split(line, "#").next().?;
 
         var line_it = mem.tokenize(no_comment_line, " \t");
         const ip_text = line_it.next() orelse continue;
@@ -1020,13 +1020,13 @@ fn getResolvConf(allocator: *mem.Allocator, rc: *ResolvConf) !void {
         },
         else => |e| return e,
     }) |line| {
-        const no_comment_line = mem.separate(line, "#").next().?;
+        const no_comment_line = mem.split(line, "#").next().?;
         var line_it = mem.tokenize(no_comment_line, " \t");
 
         const token = line_it.next() orelse continue;
         if (mem.eql(u8, token, "options")) {
             while (line_it.next()) |sub_tok| {
-                var colon_it = mem.separate(sub_tok, ":");
+                var colon_it = mem.split(sub_tok, ":");
                 const name = colon_it.next().?;
                 const value_txt = colon_it.next() orelse continue;
                 const value = std.fmt.parseInt(u8, value_txt, 10) catch |err| switch (err) {

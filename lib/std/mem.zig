@@ -1141,7 +1141,7 @@ test "writeIntBig and writeIntLittle" {
 /// If `buffer` is empty, the iterator will return null.
 /// If `delimiter_bytes` does not exist in buffer,
 /// the iterator will return `buffer`, null, in that order.
-/// See also the related function `separate`.
+/// See also the related function `split`.
 pub fn tokenize(buffer: []const u8, delimiter_bytes: []const u8) TokenIterator {
     return TokenIterator{
         .index = 0,
@@ -1196,15 +1196,13 @@ test "mem.tokenize (multibyte)" {
 
 /// Returns an iterator that iterates over the slices of `buffer` that
 /// are separated by bytes in `delimiter`.
-/// separate("abc|def||ghi", "|")
+/// split("abc|def||ghi", "|")
 /// will return slices for "abc", "def", "", "ghi", null, in that order.
 /// If `delimiter` does not exist in buffer,
 /// the iterator will return `buffer`, null, in that order.
 /// The delimiter length must not be zero.
 /// See also the related function `tokenize`.
-/// It is planned to rename this function to `split` before 1.0.0, like this:
-/// pub fn split(buffer: []const u8, delimiter: []const u8) SplitIterator {
-pub fn separate(buffer: []const u8, delimiter: []const u8) SplitIterator {
+pub fn split(buffer: []const u8, delimiter: []const u8) SplitIterator {
     assert(delimiter.len != 0);
     return SplitIterator{
         .index = 0,
@@ -1213,30 +1211,32 @@ pub fn separate(buffer: []const u8, delimiter: []const u8) SplitIterator {
     };
 }
 
-test "mem.separate" {
-    var it = separate("abc|def||ghi", "|");
+pub const separate = @compileError("deprecated: renamed to split (behavior remains unchanged)");
+
+test "mem.split" {
+    var it = split("abc|def||ghi", "|");
     testing.expect(eql(u8, it.next().?, "abc"));
     testing.expect(eql(u8, it.next().?, "def"));
     testing.expect(eql(u8, it.next().?, ""));
     testing.expect(eql(u8, it.next().?, "ghi"));
     testing.expect(it.next() == null);
 
-    it = separate("", "|");
+    it = split("", "|");
     testing.expect(eql(u8, it.next().?, ""));
     testing.expect(it.next() == null);
 
-    it = separate("|", "|");
+    it = split("|", "|");
     testing.expect(eql(u8, it.next().?, ""));
     testing.expect(eql(u8, it.next().?, ""));
     testing.expect(it.next() == null);
 
-    it = separate("hello", " ");
+    it = split("hello", " ");
     testing.expect(eql(u8, it.next().?, "hello"));
     testing.expect(it.next() == null);
 }
 
-test "mem.separate (multibyte)" {
-    var it = separate("a, b ,, c, d, e", ", ");
+test "mem.split (multibyte)" {
+    var it = split("a, b ,, c, d, e", ", ");
     testing.expect(eql(u8, it.next().?, "a"));
     testing.expect(eql(u8, it.next().?, "b ,"));
     testing.expect(eql(u8, it.next().?, "c"));
