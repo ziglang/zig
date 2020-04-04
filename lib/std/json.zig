@@ -2336,7 +2336,7 @@ pub const StringifyOptions = struct {
         /// After a colon, should whitespace be inserted?
         separator: bool = true,
 
-        fn outputIndent(
+        pub fn outputIndent(
             whitespace: @This(),
             out_stream: var,
         ) @TypeOf(out_stream).Error!void {

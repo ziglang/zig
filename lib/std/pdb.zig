@@ -708,7 +708,7 @@ const MsfStream = struct {
         return block * self.block_size + offset;
     }
 
-    fn inStream(self: *MsfStream) std.io.InStream(*MsfStream, Error, read) {
+    pub fn inStream(self: *MsfStream) std.io.InStream(*MsfStream, Error, read) {
         return .{ .context = self };
     }
 };
