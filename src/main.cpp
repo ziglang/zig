@@ -260,6 +260,7 @@ static int main0(int argc, char **argv) {
     char *arg0 = argv[0];
     Error err;
 
+#ifdef ZIG_ENABLE_BUILD_INFO
     if (argc == 2 && strcmp(argv[1], "BUILD_INFO") == 0) {
         printf("%s\n%s\n%s\n%s\n%s\n%s\n%s\n",
                 ZIG_CMAKE_BINARY_DIR,
@@ -271,6 +272,7 @@ static int main0(int argc, char **argv) {
                 ZIG_DIA_GUIDS_LIB);
         return 0;
     }
+#endif
 
     if (argc >= 2 && (strcmp(argv[1], "clang") == 0 ||
             strcmp(argv[1], "-cc1") == 0 || strcmp(argv[1], "-cc1as") == 0))

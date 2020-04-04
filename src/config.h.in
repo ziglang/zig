@@ -13,6 +13,8 @@
 #define ZIG_VERSION_PATCH @ZIG_VERSION_PATCH@
 #define ZIG_VERSION_STRING "@ZIG_VERSION@"
 
+#cmakedefine ZIG_ENABLE_BUILD_INFO
+#ifdef ZIG_ENABLE_BUILD_INFO
 // Used for communicating build information to self hosted build.
 #define ZIG_CMAKE_BINARY_DIR "@CMAKE_BINARY_DIR@"
 #define ZIG_CXX_COMPILER "@CMAKE_CXX_COMPILER@"
@@ -21,6 +23,7 @@
 #define ZIG_CLANG_LIBRARIES "@CLANG_LIBRARIES@"
 #define ZIG_LLVM_CONFIG_EXE "@LLVM_CONFIG_EXE@"
 #define ZIG_DIA_GUIDS_LIB "@ZIG_DIA_GUIDS_LIB_ESCAPED@"
+#endif
 
 #cmakedefine ZIG_ENABLE_MEM_PROFILE
 
