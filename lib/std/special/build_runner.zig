@@ -171,7 +171,7 @@ fn usage(builder: *Builder, already_ran_build: bool, out_stream: var) !void {
         \\
     );
 
-    if (builder.available_options_list.len == 0) {
+    if (builder.available_options_list.items.len == 0) {
         try out_stream.print("  (none)\n", .{});
     } else {
         for (builder.available_options_list.span()) |option| {

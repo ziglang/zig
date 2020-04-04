@@ -113,7 +113,7 @@ fn parse(tokens: *const ArrayList(Token), token_index: *usize) ParseError!Node {
 
 fn expandString(input: []const u8, output: *ArrayListSentineled(u8, 0)) !void {
     const tokens = try tokenize(input);
-    if (tokens.len == 1) {
+    if (tokens.items.len == 1) {
         return output.resize(0);
     }
 
@@ -142,7 +142,7 @@ fn expandString(input: []const u8, output: *ArrayListSentineled(u8, 0)) !void {
 const ExpandNodeError = error{OutOfMemory};
 
 fn expandNode(node: Node, output: *ArrayList(ArrayListSentineled(u8, 0))) ExpandNodeError!void {
-    assert(output.len == 0);
+    assert(output.items.len == 0);
     switch (node) {
         Node.Scalar => |scalar| {
             try output.append(try ArrayListSentineled(u8, 0).init(global_allocator, scalar));

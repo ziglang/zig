@@ -879,13 +879,13 @@ pub const CompileErrorContext = struct {
                 var err_iter = ErrLineIter.init(stderr);
                 var i: usize = 0;
                 ok = while (err_iter.next()) |line| : (i += 1) {
-                    if (i >= self.case.expected_errors.len) break false;
+                    if (i >= self.case.expected_errors.items.len) break false;
                     const expected = self.case.expected_errors.at(i);
                     if (mem.indexOf(u8, line, expected) == null) break false;
                     continue;
                 } else true;
 
-                ok = ok and i == self.case.expected_errors.len;
+                ok = ok and i == self.case.expected_errors.items.len;
 
                 if (!ok) {
                     warn("\n======== Expected these compile errors: ========\n", .{});

@@ -82,8 +82,8 @@ pub fn ArrayListSentineled(comptime T: type, comptime sentinel: T) type {
             self.list.deinit();
         }
 
-        pub fn span(self: var) @TypeOf(self.list.items[0 .. self.list.len - 1 :sentinel]) {
-            return self.list.span()[0..self.len() :sentinel];
+        pub fn span(self: var) @TypeOf(self.list.items[0..:sentinel]) {
+            return self.list.items[0..self.len() :sentinel];
         }
 
         pub fn shrink(self: *Self, new_len: usize) void {
@@ -98,16 +98,16 @@ pub fn ArrayListSentineled(comptime T: type, comptime sentinel: T) type {
         }
 
         pub fn isNull(self: Self) bool {
-            return self.list.len == 0;
+            return self.list.items.len == 0;
         }
 
         pub fn len(self: Self) usize {
-            return self.list.len - 1;
+            return self.list.items.len - 1;
         }
 
         pub fn capacity(self: Self) usize {
-            return if (self.list.items.len > 0)
-                self.list.items.len - 1
+            return if (self.list.capacity > 0)
+                self.list.capacity - 1
             else
                 0;
         }
@@ -115,13 +115,13 @@ pub fn ArrayListSentineled(comptime T: type, comptime sentinel: T) type {
         pub fn appendSlice(self: *Self, m: []const T) !void {
             const old_len = self.len();
             try self.resize(old_len + m.len);
-            mem.copy(T, self.list.span()[old_len..], m);
+            mem.copy(T, self.list.items[old_len..], m);
         }
 
         pub fn append(self: *Self, byte: T) !void {
             const old_len = self.len();
             try self.resize(old_len + 1);
-            self.list.span()[old_len] = byte;
+            self.list.items[old_len] = byte;
         }
 
         pub fn eql(self: Self, m: []const T) bool {
