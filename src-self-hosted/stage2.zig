@@ -115,6 +115,7 @@ const Error = extern enum {
     InvalidOperatingSystemVersion,
     UnknownClangOption,
     NestedResponseFile,
+    ZigIsTheCCompiler,
 };
 
 const FILE = std.c.FILE;
@@ -868,6 +869,7 @@ export fn stage2_libc_find_native(stage1_libc: *Stage2LibCInstallation) Error {
         error.LibCKernel32LibNotFound => return .LibCKernel32LibNotFound,
         error.UnsupportedArchitecture => return .UnsupportedArchitecture,
         error.WindowsSdkNotFound => return .WindowsSdkNotFound,
+        error.ZigIsTheCCompiler => return .ZigIsTheCCompiler,
     };
     stage1_libc.initFromStage2(libc);
     return .None;

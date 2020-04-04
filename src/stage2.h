@@ -107,6 +107,7 @@ enum Error {
     ErrorInvalidOperatingSystemVersion,
     ErrorUnknownClangOption,
     ErrorNestedResponseFile,
+    ErrorZigIsTheCCompiler,
 };
 
 // ABI warning

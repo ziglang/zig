@@ -32,6 +32,7 @@ pub const LibCInstallation = struct {
         LibCKernel32LibNotFound,
         UnsupportedArchitecture,
         WindowsSdkNotFound,
+        ZigIsTheCCompiler,
     };
 
     pub fn parse(
@@ -229,10 +230,19 @@ pub const LibCInstallation = struct {
             "-xc",
             dev_null,
         };
+        var env_map = try std.process.getEnvMap(allocator);
+        defer env_map.deinit();
+
+        // Detect infinite loops.
+        const inf_loop_env_key = "ZIG_IS_DETECTING_LIBC_PATHS";
+        if (env_map.get(inf_loop_env_key) != null) return error.ZigIsTheCCompiler;
+        try env_map.set(inf_loop_env_key, "1");
+
         const exec_res = std.ChildProcess.exec(.{
             .allocator = allocator,
             .argv = &argv,
             .max_output_bytes = 1024 * 1024,
+            .env_map = &env_map,
             // Some C compilers, such as Clang, are known to rely on argv[0] to find the path
             // to their own executable, without even bothering to resolve PATH. This results in the message:
             // error: unable to execute command: Executable "" doesn't exist!
@@ -518,10 +528,19 @@ fn ccPrintFileName(args: CCPrintFileNameOptions) ![:0]u8 {
     defer allocator.free(arg1);
     const argv = [_][]const u8{ cc_exe, arg1 };
 
+    var env_map = try std.process.getEnvMap(allocator);
+    defer env_map.deinit();
+
+    // Detect infinite loops.
+    const inf_loop_env_key = "ZIG_IS_DETECTING_LIBC_PATHS";
+    if (env_map.get(inf_loop_env_key) != null) return error.ZigIsTheCCompiler;
+    try env_map.set(inf_loop_env_key, "1");
+
     const exec_res = std.ChildProcess.exec(.{
         .allocator = allocator,
         .argv = &argv,
         .max_output_bytes = 1024 * 1024,
+        .env_map = &env_map,
         // Some C compilers, such as Clang, are known to rely on argv[0] to find the path
         // to their own executable, without even bothering to resolve PATH. This results in the message:
         // error: unable to execute command: Executable "" doesn't exist!
