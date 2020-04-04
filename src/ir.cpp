@@ -10993,48 +10993,77 @@ static void float_negate(ZigValue *out_val, ZigValue *op) {
 }
 
 void float_write_ieee597(ZigValue *op, uint8_t *buf, bool is_big_endian) {
-    if (op->type->id == ZigTypeIdFloat) {
-        switch (op->type->data.floating.bit_count) {
-            case 16:
-                memcpy(buf, &op->data.x_f16, 2); // TODO wrong when compiler is big endian
-                return;
-            case 32:
-                memcpy(buf, &op->data.x_f32, 4); // TODO wrong when compiler is big endian
-                return;
-            case 64:
-                memcpy(buf, &op->data.x_f64, 8); // TODO wrong when compiler is big endian
-                return;
-            case 128:
-                memcpy(buf, &op->data.x_f128, 16); // TODO wrong when compiler is big endian
-                return;
-            default:
-                zig_unreachable();
-        }
-    } else {
+    if (op->type->id != ZigTypeIdFloat)
         zig_unreachable();
+
+    const unsigned n = op->type->data.floating.bit_count / 8;
+    assert(n <= 16);
+
+    switch (op->type->data.floating.bit_count) {
+        case 16:
+            memcpy(buf, &op->data.x_f16, 2);
+            break;
+        case 32:
+            memcpy(buf, &op->data.x_f32, 4);
+            break;
+        case 64:
+            memcpy(buf, &op->data.x_f64, 8);
+            break;
+        case 128:
+            memcpy(buf, &op->data.x_f128, 16);
+            break;
+        default:
+            zig_unreachable();
+    }
+
+    if (is_big_endian) {
+        // Byteswap in place if needed
+        for (size_t i = 0; i < n / 2; i++) {
+            uint8_t u = buf[i];
+            buf[i] = buf[n - 1 - i];
+            buf[n - 1 - i] = u;
+        }
     }
 }
 
 void float_read_ieee597(ZigValue *val, uint8_t *buf, bool is_big_endian) {
-    if (val->type->id == ZigTypeIdFloat) {
-        switch (val->type->data.floating.bit_count) {
-            case 16:
-                memcpy(&val->data.x_f16, buf, 2); // TODO wrong when compiler is big endian
-                return;
-            case 32:
-                memcpy(&val->data.x_f32, buf, 4); // TODO wrong when compiler is big endian
-                return;
-            case 64:
-                memcpy(&val->data.x_f64, buf, 8); // TODO wrong when compiler is big endian
-                return;
-            case 128:
-                memcpy(&val->data.x_f128, buf, 16); // TODO wrong when compiler is big endian
-                return;
-            default:
-                zig_unreachable();
-        }
-    } else {
+    if (val->type->id != ZigTypeIdFloat)
         zig_unreachable();
+
+    const unsigned n = val->type->data.floating.bit_count / 8;
+    assert(n <= 16);
+
+    uint8_t tmp[16];
+    uint8_t *ptr = buf;
+
+    if (is_big_endian) {
+        memcpy(tmp, buf, n);
+
+        // Byteswap if needed
+        for (size_t i = 0; i < n / 2; i++) {
+            uint8_t u = tmp[i];
+            tmp[i] = tmp[n - 1 - i];
+            tmp[n - 1 - i] = u;
+        }
+
+        ptr = tmp;
+    }
+
+    switch (val->type->data.floating.bit_count) {
+        case 16:
+            memcpy(&val->data.x_f16, ptr, 2);
+            return;
+        case 32:
+            memcpy(&val->data.x_f32, ptr, 4);
+            return;
+        case 64:
+            memcpy(&val->data.x_f64, ptr, 8);
+            return;
+        case 128:
+            memcpy(&val->data.x_f128, ptr, 16);
+            return;
+        default:
+            zig_unreachable();
     }
 }
 
