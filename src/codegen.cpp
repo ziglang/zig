@@ -9057,80 +9057,13 @@ static void detect_libc(CodeGen *g) {
     if (g->zig_target->is_native_os) {
         g->libc = heap::c_allocator.create<Stage2LibCInstallation>();
 
-        // search for native_libc.txt in following dirs:
-        //   - LOCAL_CACHE_DIR
-        //   - GLOBAL_CACHE_DIR
-        // if not found create at:
-        //   - GLOBAL_CACHE_DIR
-        // be mindful local/global caches may be the same dir
-
-        Buf basename = BUF_INIT;
-        buf_init_from_str(&basename, "native_libc.txt");
-
-        Buf local_libc_txt = BUF_INIT;
-        os_path_join(g->cache_dir, &basename, &local_libc_txt);
-
-        Buf global_libc_txt = BUF_INIT;
-        os_path_join(get_global_cache_dir(), &basename, &global_libc_txt);
-
-        Buf *pathnames[3] = { nullptr };
-        size_t pathnames_idx = 0;
-
-        pathnames[pathnames_idx] = &local_libc_txt;
-        pathnames_idx += 1;
-
-        if (!buf_eql_buf(pathnames[0], &global_libc_txt)) {
-            pathnames[pathnames_idx] = &global_libc_txt;
-            pathnames_idx += 1;
+        if ((err = stage2_libc_find_native(g->libc))) {
+            fprintf(stderr,
+                "Unable to link against libc: Unable to find libc installation: %s\n"
+                "See `zig libc --help` for more details.\n", err_str(err));
+            exit(1);
         }
 
-        Buf* libc_txt = nullptr;
-        for (auto name : pathnames) {
-            if (name == nullptr)
-                break;
-
-            bool result;
-            if (os_file_exists(name, &result) != ErrorNone || !result)
-                continue;
-
-            libc_txt = name;
-            break;
-        }
-
-        if (libc_txt == nullptr)
-            libc_txt = &global_libc_txt;
-
-        if ((err = stage2_libc_parse(g->libc, buf_ptr(libc_txt)))) {
-            if ((err = stage2_libc_find_native(g->libc))) {
-                fprintf(stderr,
-                    "Unable to link against libc: Unable to find libc installation: %s\n"
-                    "See `zig libc --help` for more details.\n", err_str(err));
-                exit(1);
-            }
-            Buf libc_txt_dir = BUF_INIT;
-            os_path_dirname(libc_txt, &libc_txt_dir);
-            buf_deinit(&libc_txt_dir);
-            if ((err = os_make_path(&libc_txt_dir))) {
-                fprintf(stderr, "Unable to create %s directory: %s\n",
-                    buf_ptr(g->cache_dir), err_str(err));
-                exit(1);
-            }
-            Buf *native_libc_tmp = buf_sprintf("%s.tmp", buf_ptr(libc_txt));
-            FILE *file = fopen(buf_ptr(native_libc_tmp), "wb");
-            if (file == nullptr) {
-                fprintf(stderr, "Unable to open %s: %s\n", buf_ptr(native_libc_tmp), strerror(errno));
-                exit(1);
-            }
-            stage2_libc_render(g->libc, file);
-            if (fclose(file) != 0) {
-                fprintf(stderr, "Unable to save %s: %s\n", buf_ptr(native_libc_tmp), strerror(errno));
-                exit(1);
-            }
-            if ((err = os_rename(native_libc_tmp, libc_txt))) {
-                fprintf(stderr, "Unable to create %s: %s\n", buf_ptr(libc_txt), err_str(err));
-                exit(1);
-            }
-        }
         bool want_sys_dir = !mem_eql_mem(g->libc->include_dir,     g->libc->include_dir_len,
                                          g->libc->sys_include_dir, g->libc->sys_include_dir_len);
         size_t want_um_and_shared_dirs = (g->zig_target->os == OsWindows) ? 2 : 0;
@@ -9164,10 +9097,6 @@ static void detect_libc(CodeGen *g) {
             g->libc_include_dir_len += 1;
         }
         assert(g->libc_include_dir_len == dir_count);
-
-        buf_deinit(&global_libc_txt);
-        buf_deinit(&local_libc_txt);
-        buf_deinit(&basename);
     } else if ((g->out_type == OutTypeExe || (g->out_type == OutTypeLib && g->is_dynamic)) &&
         !target_os_is_darwin(g->zig_target->os))
     {
