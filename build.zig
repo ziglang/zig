@@ -352,11 +352,13 @@ fn findAndParseConfigH(b: *Builder) !Context {
         const max_bytes = 1 * 1024 * 1024;
         const config_h_text = dir.readFileAlloc(b.allocator, "config.h", max_bytes) catch |err| switch (err) {
             error.FileNotFound => {
-                check_dir = fs.path.dirname(check_dir) orelse {
+                const new_check_dir = fs.path.dirname(check_dir);
+                if (new_check_dir == null or mem.eql(u8, new_check_dir.?, check_dir)) {
                     std.debug.warn("Unable to find config.h file relative to Zig executable.\n", .{});
                     std.debug.warn("`zig build` must be run using a Zig executable within the source tree.\n", .{});
                     std.process.exit(1);
-                };
+                }
+                check_dir = new_check_dir.?;
                 continue;
             },
             else => |e| return e,
