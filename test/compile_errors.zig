@@ -5375,6 +5375,50 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         break :x tc;
     });
 
+    cases.addCase(x: {
+        const tc = cases.create("multiple files with private member instance function (canonical invocation) error",
+            \\const Foo = @import("foo.zig",).Foo;
+            \\
+            \\export fn callPrivFunction() void {
+            \\    var foo = Foo{};
+            \\    Foo.privateFunction(foo);
+            \\}
+        , &[_][]const u8{
+            "tmp.zig:5:8: error: 'privateFunction' is private",
+            "foo.zig:2:5: note: declared here",
+        });
+
+        tc.addSourceFile("foo.zig",
+            \\pub const Foo = struct {
+            \\    fn privateFunction(self: *Foo) void { }
+            \\};
+        );
+
+        break :x tc;
+    });
+
+    cases.addCase(x: {
+        const tc = cases.create("multiple files with private member instance function error",
+            \\const Foo = @import("foo.zig",).Foo;
+            \\
+            \\export fn callPrivFunction() void {
+            \\    var foo = Foo{};
+            \\    foo.privateFunction();
+            \\}
+        , &[_][]const u8{
+            "tmp.zig:5:8: error: 'privateFunction' is private",
+            "foo.zig:2:5: note: declared here",
+        });
+
+        tc.addSourceFile("foo.zig",
+            \\pub const Foo = struct {
+            \\    fn privateFunction(self: *Foo) void { }
+            \\};
+        );
+
+        break :x tc;
+    });
+
     cases.add("container init with non-type",
         \\const zero: i32 = 0;
         \\const a = zero{1};
