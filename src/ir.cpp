@@ -21624,6 +21624,15 @@ static IrInstGen *ir_analyze_container_member_access_inner(IrAnalyze *ira,
                 if (tld->resolution == TldResolutionResolving)
                     return ir_error_dependency_loop(ira, source_instr);
 
+                if (tld->visib_mod == VisibModPrivate &&
+                    tld->import != get_scope_import(source_instr->scope))
+                {
+                    ErrorMsg *msg = ir_add_error(ira, source_instr,
+                        buf_sprintf("'%s' is private", buf_ptr(field_name)));
+                    add_error_note(ira->codegen, msg, tld->source_node, buf_sprintf("declared here"));
+                    return ira->codegen->invalid_inst_gen;
+                }
+
                 TldFn *tld_fn = (TldFn *)tld;
                 ZigFn *fn_entry = tld_fn->fn_entry;
                 assert(fn_entry != nullptr);
