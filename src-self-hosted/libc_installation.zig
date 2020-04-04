@@ -60,7 +60,7 @@ pub const LibCInstallation = struct {
         var it = std.mem.tokenize(contents, "\n");
         while (it.next()) |line| {
             if (line.len == 0 or line[0] == '#') continue;
-            var line_it = std.mem.separate(line, "=");
+            var line_it = std.mem.split(line, "=");
             const name = line_it.next() orelse {
                 try stderr.print("missing equal sign after field name\n", .{});
                 return error.ParseError;

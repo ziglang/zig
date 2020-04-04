@@ -403,7 +403,7 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Co
     const root_name = if (provided_name) |n| n else blk: {
         if (root_src_file) |file| {
             const basename = fs.path.basename(file);
-            var it = mem.separate(basename, ".");
+            var it = mem.split(basename, ".");
             break :blk it.next() orelse basename;
         } else {
             try stderr.writeAll("--name [name] not provided and unable to infer\n");

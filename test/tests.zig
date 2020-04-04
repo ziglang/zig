@@ -657,7 +657,7 @@ pub const StackTracesContext = struct {
                 var buf = ArrayList(u8).init(b.allocator);
                 defer buf.deinit();
                 if (stderr.len != 0 and stderr[stderr.len - 1] == '\n') stderr = stderr[0 .. stderr.len - 1];
-                var it = mem.separate(stderr, "\n");
+                var it = mem.split(stderr, "\n");
                 process_lines: while (it.next()) |line| {
                     if (line.len == 0) continue;
                     const delims = [_][]const u8{ ":", ":", ":", " in " };
@@ -750,7 +750,7 @@ pub const CompileErrorContext = struct {
             const source_file = "tmp.zig";
 
             fn init(input: []const u8) ErrLineIter {
-                return ErrLineIter{ .lines = mem.separate(input, "\n") };
+                return ErrLineIter{ .lines = mem.split(input, "\n") };
             }
 
             fn next(self: *ErrLineIter) ?[]const u8 {
