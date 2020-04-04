@@ -455,6 +455,7 @@ fn buildOutputType(
     var main_pkg_path: ?[]const u8 = null;
     var clang_preprocessor_mode: Compilation.ClangPreprocessorMode = .no;
     var subsystem: ?std.Target.SubSystem = null;
+    var treat_as_file_ext: Compilation.FileExt = .unknown;
 
     var system_libs = std.ArrayList([]const u8).init(gpa);
     defer system_libs.deinit();
@@ -949,7 +950,12 @@ fn buildOutputType(
                         try clang_argv.appendSlice(it.other_args);
                     },
                     .positional => {
-                        const file_ext = Compilation.classifyFileExt(mem.spanZ(it.only_arg));
+                        var file_ext: Compilation.FileExt = undefined;
+                        if (treat_as_file_ext == .unknown) {
+                            file_ext = Compilation.classifyFileExt(mem.spanZ(it.only_arg));
+                        } else {
+                            file_ext = treat_as_file_ext;
+                        }
                         switch (file_ext) {
                             .assembly, .c, .cpp, .ll, .bc, .h => try c_source_files.append(.{ .src_path = it.only_arg }),
                             .unknown, .shared_library, .object, .static_library => {
@@ -1051,6 +1057,17 @@ fn buildOutputType(
                     .framework_dir => try framework_dirs.append(it.only_arg),
                     .framework => try frameworks.append(it.only_arg),
                     .nostdlibinc => want_native_include_dirs = false,
+                    .treat_as_language => {
+                        if (mem.eql(u8, it.only_arg, "c") or mem.eql(u8, it.only_arg, "c-header")) {
+                            treat_as_file_ext = .c;
+                        } else if (mem.eql(u8, it.only_arg, "c++")) {
+                            treat_as_file_ext = .cpp;
+                        } else {
+                            treat_as_file_ext = .unknown;
+                            fatal("unsupported value '{}' for -x or --language option", .{it.only_arg});
+                        }
+                        try clang_argv.appendSlice(it.other_args);
+                    },
                 }
             }
             // Parse linker args.
@@ -2742,6 +2759,7 @@ pub const ClangArgIterator = struct {
         framework_dir,
         framework,
         nostdlibinc,
+        treat_as_language,
     };
 
     const Args = struct {

@@ -284,6 +284,14 @@ const known_options = [_]KnownOpt{
         .name = "framework",
         .ident = "framework",
     },
+    .{
+        .name = "x",
+        .ident = "treat_as_language",
+    },
+    .{
+        .name = "language",
+        .ident = "treat_as_language",
+    },
 };
 
 const blacklisted_options = [_][]const u8{};
