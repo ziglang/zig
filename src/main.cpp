@@ -447,6 +447,7 @@ static int main0(int argc, char **argv) {
     bool ensure_libc_on_non_freestanding = false;
     bool ensure_libcpp_on_non_freestanding = false;
     bool disable_c_depfile = false;
+    bool want_native_include_dirs = false;
     Buf *linker_optimization = nullptr;
     OptionalBool linker_gc_sections = OptionalBoolNull;
     OptionalBool linker_allow_shlib_undefined = OptionalBoolNull;
@@ -581,6 +582,7 @@ static int main0(int argc, char **argv) {
         strip = true;
         ensure_libc_on_non_freestanding = true;
         ensure_libcpp_on_non_freestanding = (strcmp(argv[1], "c++") == 0);
+        want_native_include_dirs = true;
 
         bool c_arg = false;
         Stage2ClangArgIterator it;
@@ -746,6 +748,9 @@ static int main0(int argc, char **argv) {
                     break;
                 case Stage2ClangArgFramework:
                     frameworks.append(it.only_arg);
+                    break;
+                case Stage2ClangArgNoStdLibInc:
+                    want_native_include_dirs = false;
                     break;
             }
         }
@@ -1418,7 +1423,7 @@ static int main0(int argc, char **argv) {
                 }
             }
 
-            if (target.is_native_os && any_system_lib_dependencies) {
+            if (target.is_native_os && (any_system_lib_dependencies || want_native_include_dirs)) {
                 Error err;
                 Stage2NativePaths paths;
                 if ((err = stage2_detect_native_paths(&paths))) {
