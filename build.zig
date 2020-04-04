@@ -34,22 +34,7 @@ pub fn build(b: *Builder) !void {
 
     const test_step = b.step("test", "Run all the tests");
 
-    // find the stage0 build artifacts because we're going to re-use config.h and zig_cpp library
-    const build_info = try b.exec(&[_][]const u8{
-        b.zig_exe,
-        "BUILD_INFO",
-    });
-    var index: usize = 0;
-    var ctx = Context{
-        .cmake_binary_dir = nextValue(&index, build_info),
-        .cxx_compiler = nextValue(&index, build_info),
-        .llvm_config_exe = nextValue(&index, build_info),
-        .lld_include_dir = nextValue(&index, build_info),
-        .lld_libraries = nextValue(&index, build_info),
-        .clang_libraries = nextValue(&index, build_info),
-        .dia_guids_lib = nextValue(&index, build_info),
-        .llvm = undefined,
-    };
+    var ctx = try findAndParseConfigH(b);
     ctx.llvm = try findLLVM(b, ctx.llvm_config_exe);
 
     var test_stage2 = b.addTest("src-self-hosted/test.zig");
@@ -262,25 +247,6 @@ fn findLLVM(b: *Builder, llvm_config_exe: []const u8) !LibraryDep {
     return result;
 }
 
-fn nextValue(index: *usize, build_info: []const u8) []const u8 {
-    const start = index.*;
-    while (true) : (index.* += 1) {
-        switch (build_info[index.*]) {
-            '\n' => {
-                const result = build_info[start..index.*];
-                index.* += 1;
-                return result;
-            },
-            '\r' => {
-                const result = build_info[start..index.*];
-                index.* += 2;
-                return result;
-            },
-            else => continue,
-        }
-    }
-}
-
 fn configureStage2(b: *Builder, exe: var, ctx: Context) !void {
     exe.addIncludeDir("src");
     exe.addIncludeDir(ctx.cmake_binary_dir);
@@ -376,3 +342,79 @@ const Context = struct {
     dia_guids_lib: []const u8,
     llvm: LibraryDep,
 };
+
+fn findAndParseConfigH(b: *Builder) !Context {
+    var check_dir = fs.path.dirname(b.zig_exe).?;
+    const config_h_text = while (true) {
+        var dir = try fs.cwd().openDir(check_dir, .{});
+        defer dir.close();
+
+        const max_bytes = 1 * 1024 * 1024;
+        const config_h_text = dir.readFileAlloc(b.allocator, "config.h", max_bytes) catch |err| switch (err) {
+            error.FileNotFound => {
+                check_dir = fs.path.dirname(check_dir) orelse {
+                    std.debug.warn("Unable to find config.h file relative to Zig executable.\n", .{});
+                    std.debug.warn("`zig build` must be run using a Zig executable within the source tree.\n", .{});
+                    std.process.exit(1);
+                };
+                continue;
+            },
+            else => |e| return e,
+        };
+        break config_h_text;
+    } else unreachable; // TODO should not need `else unreachable`.
+
+    var ctx: Context = .{
+        .cmake_binary_dir = undefined,
+        .cxx_compiler = undefined,
+        .llvm_config_exe = undefined,
+        .lld_include_dir = undefined,
+        .lld_libraries = undefined,
+        .clang_libraries = undefined,
+        .dia_guids_lib = undefined,
+        .llvm = undefined,
+    };
+
+    const mappings = [_]struct { prefix: []const u8, field: []const u8 }{
+        .{
+            .prefix = "#define ZIG_CMAKE_BINARY_DIR ",
+            .field = "cmake_binary_dir",
+        },
+        .{
+            .prefix = "#define ZIG_CXX_COMPILER ",
+            .field = "cxx_compiler",
+        },
+        .{
+            .prefix = "#define ZIG_LLD_INCLUDE_PATH ",
+            .field = "lld_include_dir",
+        },
+        .{
+            .prefix = "#define ZIG_LLD_LIBRARIES ",
+            .field = "lld_libraries",
+        },
+        .{
+            .prefix = "#define ZIG_CLANG_LIBRARIES ",
+            .field = "clang_libraries",
+        },
+        .{
+            .prefix = "#define ZIG_LLVM_CONFIG_EXE ",
+            .field = "llvm_config_exe",
+        },
+        .{
+            .prefix = "#define ZIG_DIA_GUIDS_LIB ",
+            .field = "dia_guids_lib",
+        },
+    };
+
+    var lines_it = mem.tokenize(config_h_text, "\r\n");
+    while (lines_it.next()) |line| {
+        inline for (mappings) |mapping| {
+            if (mem.startsWith(u8, line, mapping.prefix)) {
+                var it = mem.separate(line, "\"");
+                _ = it.next().?; // skip the stuff before the quote
+                @field(ctx, mapping.field) = it.next().?; // the stuff inside the quote
+            }
+        }
+    }
+    return ctx;
+}

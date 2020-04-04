@@ -260,18 +260,6 @@ static int main0(int argc, char **argv) {
     char *arg0 = argv[0];
     Error err;
 
-    if (argc == 2 && strcmp(argv[1], "BUILD_INFO") == 0) {
-        printf("%s\n%s\n%s\n%s\n%s\n%s\n%s\n",
-                ZIG_CMAKE_BINARY_DIR,
-                ZIG_CXX_COMPILER,
-                ZIG_LLVM_CONFIG_EXE,
-                ZIG_LLD_INCLUDE_PATH,
-                ZIG_LLD_LIBRARIES,
-                ZIG_CLANG_LIBRARIES,
-                ZIG_DIA_GUIDS_LIB);
-        return 0;
-    }
-
     if (argc >= 2 && (strcmp(argv[1], "clang") == 0 ||
             strcmp(argv[1], "-cc1") == 0 || strcmp(argv[1], "-cc1as") == 0))
     {
