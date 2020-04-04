@@ -1325,6 +1325,7 @@ pub const ClangArgIterator = extern struct {
         nostdlibinc,
         include_dir,
         cache_dir,
+        treat_as_language,
     };
 
     const Args = struct {

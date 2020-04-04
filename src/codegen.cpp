@@ -9956,7 +9956,7 @@ static void gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file) {
 
         Buf *out_dep_path = g->disable_c_depfile ? nullptr : buf_sprintf("%s.d", buf_ptr(out_obj_path));
         const char *out_dep_path_cstr = (out_dep_path == nullptr) ? nullptr : buf_ptr(out_dep_path);
-        FileExt ext = classify_file_ext(buf_ptr(c_source_basename), buf_len(c_source_basename));
+        FileExt ext = c_file->treat_as_file_ext == FileExtUnknown ? classify_file_ext(buf_ptr(c_source_basename), buf_len(c_source_basename)) : c_file->treat_as_file_ext;
         add_cc_args(g, args, out_dep_path_cstr, false, ext);
 
         args.append("-o");

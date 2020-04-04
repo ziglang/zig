@@ -358,6 +358,7 @@ enum Stage2ClangArg {
     Stage2ClangArgNoStdLibInc,
     Stage2ClangArgIncludeDir,
     Stage2ClangArgCacheDir,
+    Stage2ClangArgTreatAsLanguage,
 };
 
 // ABI warning

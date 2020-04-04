@@ -274,6 +274,14 @@ const known_options = [_]KnownOpt{
         .name = "cache-dir",
         .ident = "cache_dir",
     },
+    .{
+        .name = "x",
+        .ident = "treat_as_language",
+    },
+    .{
+        .name = "language",
+        .ident = "treat_as_language",
+    },
 };
 
 const blacklisted_options = [_][]const u8{};

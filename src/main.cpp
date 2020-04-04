@@ -458,6 +458,7 @@ static int main0(int argc, char **argv) {
     bool linker_z_defs = false;
     size_t stack_size_override = 0;
     int zig_only_argc = 0;
+    FileExt treat_as_file_ext = FileExtUnknown;
 
     ZigList<const char *> llvm_argv = {0};
     llvm_argv.append("zig (LLVM option parsing)");
@@ -616,7 +617,12 @@ static int main0(int argc, char **argv) {
                     }
                     break;
                 case Stage2ClangArgPositional: {
-                    FileExt file_ext = classify_file_ext(it.only_arg, strlen(it.only_arg));
+                    FileExt file_ext;
+                    if (treat_as_file_ext == FileExtUnknown) {
+                        file_ext = classify_file_ext(it.only_arg, strlen(it.only_arg));
+                    } else {
+                        file_ext = treat_as_file_ext;
+                    }
                     switch (file_ext) {
                         case FileExtAsm:
                         case FileExtC:
@@ -626,6 +632,7 @@ static int main0(int argc, char **argv) {
                         case FileExtHeader: {
                             CFile *c_file = heap::c_allocator.create<CFile>();
                             c_file->source_path = it.only_arg;
+                            c_file->treat_as_file_ext = file_ext;
                             c_source_files.append(c_file);
                             break;
                         }
@@ -771,6 +778,19 @@ static int main0(int argc, char **argv) {
                 case Stage2ClangArgCacheDir:
                     cache_dir = it.only_arg;
                     zig_only_argc += 2;
+                    break;
+                case Stage2ClangArgTreatAsLanguage:
+                    if (strcmp(it.only_arg, "c") == 0 || strcmp(it.only_arg, "c-header") == 0) {
+                        treat_as_file_ext = FileExtC;
+                    } else if (strcmp(it.only_arg, "c++") == 0) {
+                        treat_as_file_ext = FileExtCpp;
+                    } else {
+                        treat_as_file_ext = FileExtUnknown;
+                        fprintf(stderr, "unsupported value (%s) for -x or --language option\n", it.only_arg);
+                    }
+                    for (size_t i = 0; i < it.other_args_len; i += 1) {
+                        clang_argv.append(it.other_args_ptr[i]);
+                    }
                     break;
             }
         }

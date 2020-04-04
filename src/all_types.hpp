@@ -2026,6 +2026,7 @@ struct CFile {
     ZigList<const char *> args;
     const char *source_path;
     const char *preprocessor_only_basename;
+    FileExt treat_as_file_ext;
 };
 
 // When adding fields, check if they should be added to the hash computation in build_with_cache
