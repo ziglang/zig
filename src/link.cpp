@@ -587,6 +587,7 @@ static const MinGWDef mingw_def_list[] = {
     {"ole32",   false},
     {"oleaut32",false},
     {"opengl32",false},
+    {"psapi",   false},
     {"rpcns4",  false},
     {"rpcrt4",  false},
     {"scarddlg",false},
