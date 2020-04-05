@@ -36,7 +36,7 @@ test "tuple concatenation" {
             consume_tuple(.{} ++ .{}, 0);
             consume_tuple(.{0} ++ .{}, 1);
             consume_tuple(.{0} ++ .{1}, 2);
-            consume_tuple(.{0, 1, 2} ++ .{u8, 1, noreturn}, 6);
+            consume_tuple(.{ 0, 1, 2 } ++ .{ u8, 1, noreturn }, 6);
             consume_tuple(t2 ++ t1, 1);
             consume_tuple(t1 ++ t2, 1);
             consume_tuple(t2 ++ t2, 2);
@@ -53,4 +53,18 @@ test "tuple concatenation" {
 
     T.doTheTest();
     comptime T.doTheTest();
+}
+
+test "pass tuple to comptime var parameter" {
+    const S = struct {
+        fn Foo(comptime args: var) void {
+            expect(args[0] == 1);
+        }
+
+        fn doTheTest() void {
+            Foo(.{1});
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
 }
