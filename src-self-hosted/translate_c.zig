@@ -1170,7 +1170,7 @@ fn transBinaryOperator(
             }
         },
         .Div => {
-            if (!cIsUnsignedInteger(qt)) {
+            if (cIsSignedInteger(qt)) {
                 // signed integer division uses @divTrunc
                 const div_trunc_node = try transCreateNodeBuiltinFnCall(rp.c, "@divTrunc");
                 try div_trunc_node.params.push(try transExpr(rp, scope, ZigClangBinaryOperator_getLHS(stmt), .used, .l_value));
@@ -1182,7 +1182,7 @@ fn transBinaryOperator(
             }
         },
         .Rem => {
-            if (!cIsUnsignedInteger(qt)) {
+            if (cIsSignedInteger(qt)) {
                 // signed integer division uses @rem
                 const rem_node = try transCreateNodeBuiltinFnCall(rp.c, "@rem");
                 try rem_node.params.push(try transExpr(rp, scope, ZigClangBinaryOperator_getLHS(stmt), .used, .l_value));
@@ -3018,6 +3018,8 @@ fn transCompoundAssignOperator(rp: RestorePoint, scope: *Scope, stmt: *const Zig
             return transCreateCompoundAssign(rp, scope, stmt, .AssignSubWrap, .MinusPercentEqual, "-%=", .SubWrap, .MinusPercent, "-%", used)
         else
             return transCreateCompoundAssign(rp, scope, stmt, .AssignSub, .MinusPercentEqual, "-=", .Sub, .Minus, "-", used),
+        .DivAssign => return transCreateCompoundAssign(rp, scope, stmt, .AssignDiv, .SlashEqual, "/=", .Div, .Slash, "/", used),
+        .RemAssign => return transCreateCompoundAssign(rp, scope, stmt, .AssignMod, .PercentEqual, "%=", .Mod, .Percent, "%", used),
         .ShlAssign => return transCreateCompoundAssign(rp, scope, stmt, .AssignBitShiftLeft, .AngleBracketAngleBracketLeftEqual, "<<=", .BitShiftLeft, .AngleBracketAngleBracketLeft, "<<", used),
         .ShrAssign => return transCreateCompoundAssign(rp, scope, stmt, .AssignBitShiftRight, .AngleBracketAngleBracketRightEqual, ">>=", .BitShiftRight, .AngleBracketAngleBracketRight, ">>", used),
         .AndAssign => return transCreateCompoundAssign(rp, scope, stmt, .AssignBitAnd, .AmpersandEqual, "&=", .BitAnd, .Ampersand, "&", used),
@@ -3046,13 +3048,37 @@ fn transCreateCompoundAssign(
     used: ResultUsed,
 ) TransError!*ast.Node {
     const is_shift = bin_op == .BitShiftLeft or bin_op == .BitShiftRight;
+    const is_div = bin_op == .Div;
+    const is_mod = bin_op == .Mod;
     const lhs = ZigClangCompoundAssignOperator_getLHS(stmt);
     const rhs = ZigClangCompoundAssignOperator_getRHS(stmt);
     const loc = ZigClangCompoundAssignOperator_getBeginLoc(stmt);
+    const is_signed = cIsSignedInteger(getExprQualType(rp.c, lhs));
     if (used == .unused) {
         // common case
         // c: lhs += rhs
         // zig: lhs += rhs
+
+        if ((is_mod or is_div) and is_signed) {
+            const op_token = try appendToken(rp.c, .Equal, "=");
+            const op_node = try rp.c.a().create(ast.Node.InfixOp);
+            const builtin = if (is_mod) "@rem" else "@divTrunc";
+            const builtin_node = try transCreateNodeBuiltinFnCall(rp.c, builtin);
+            const lhs_node = try transExpr(rp, scope, lhs, .used, .l_value);
+            try builtin_node.params.push(lhs_node);
+            _ = try appendToken(rp.c, .Comma, ",");
+            try builtin_node.params.push(try transExpr(rp, scope, rhs, .used, .r_value));
+            builtin_node.rparen_token = try appendToken(rp.c, .RParen, ")");
+            op_node.* = .{
+                .op_token = op_token,
+                .lhs = lhs_node,
+                .op = .Assign,
+                .rhs = &builtin_node.base,
+            };
+            _ = try appendToken(rp.c, .Semicolon, ";");
+            return &op_node.base;
+        }
+
         const lhs_node = try transExpr(rp, scope, lhs, .used, .l_value);
         const eq_token = try appendToken(rp.c, assign_tok_id, assign_bytes);
         var rhs_node = if (is_shift)
@@ -3095,31 +3121,51 @@ fn transCreateCompoundAssign(
     const lhs_node = try transCreateNodeIdentifier(rp.c, ref);
     const ref_node = try transCreateNodePtrDeref(rp.c, lhs_node);
     _ = try appendToken(rp.c, .Semicolon, ";");
-    const bin_token = try appendToken(rp.c, bin_tok_id, bin_bytes);
-    var rhs_node = try transExpr(rp, scope, rhs, .used, .r_value);
-    if (is_shift) {
-        const cast_node = try transCreateNodeBuiltinFnCall(rp.c, "@intCast");
-        const rhs_type = try qualTypeToLog2IntRef(rp, getExprQualType(rp.c, rhs), loc);
-        try cast_node.params.push(rhs_type);
+
+    if ((is_mod or is_div) and is_signed) {
+        const op_token = try appendToken(rp.c, .Equal, "=");
+        const op_node = try rp.c.a().create(ast.Node.InfixOp);
+        const builtin = if (is_mod) "@rem" else "@divTrunc";
+        const builtin_node = try transCreateNodeBuiltinFnCall(rp.c, builtin);
+        try builtin_node.params.push(try transCreateNodePtrDeref(rp.c, lhs_node));
         _ = try appendToken(rp.c, .Comma, ",");
-        try cast_node.params.push(rhs_node);
-        cast_node.rparen_token = try appendToken(rp.c, .RParen, ")");
-        rhs_node = &cast_node.base;
+        try builtin_node.params.push(try transExpr(rp, scope, rhs, .used, .r_value));
+        builtin_node.rparen_token = try appendToken(rp.c, .RParen, ")");
+        _ = try appendToken(rp.c, .Semicolon, ";");
+        op_node.* = .{
+            .op_token = op_token,
+            .lhs = ref_node,
+            .op = .Assign,
+            .rhs = &builtin_node.base,
+        };
+        _ = try appendToken(rp.c, .Semicolon, ";");
+        try block_scope.block_node.statements.push(&op_node.base);
+    } else {
+        const bin_token = try appendToken(rp.c, bin_tok_id, bin_bytes);
+        var rhs_node = try transExpr(rp, scope, rhs, .used, .r_value);
+
+        if (is_shift) {
+            const cast_node = try transCreateNodeBuiltinFnCall(rp.c, "@intCast");
+            const rhs_type = try qualTypeToLog2IntRef(rp, getExprQualType(rp.c, rhs), loc);
+            try cast_node.params.push(rhs_type);
+            _ = try appendToken(rp.c, .Comma, ",");
+            try cast_node.params.push(rhs_node);
+            cast_node.rparen_token = try appendToken(rp.c, .RParen, ")");
+            rhs_node = &cast_node.base;
+        }
+
+        const rhs_bin = try transCreateNodeInfixOp(rp, scope, ref_node, bin_op, bin_token, rhs_node, .used, false);
+        _ = try appendToken(rp.c, .Semicolon, ";");
+
+        const eq_token = try appendToken(rp.c, .Equal, "=");
+        const assign = try transCreateNodeInfixOp(rp, scope, ref_node, .Assign, eq_token, rhs_bin, .used, false);
+        try block_scope.block_node.statements.push(assign);
     }
-    const rhs_bin = try transCreateNodeInfixOp(rp, scope, ref_node, bin_op, bin_token, rhs_node, .used, false);
-
-    _ = try appendToken(rp.c, .Semicolon, ";");
-
-    const eq_token = try appendToken(rp.c, .Equal, "=");
-    const assign = try transCreateNodeInfixOp(rp, scope, ref_node, .Assign, eq_token, rhs_bin, .used, false);
-    try block_scope.block_node.statements.push(assign);
 
     const break_node = try transCreateNodeBreak(rp.c, block_scope.label);
     break_node.rhs = ref_node;
     try block_scope.block_node.statements.push(&break_node.base);
     block_scope.block_node.rbrace = try appendToken(rp.c, .RBrace, "}");
-    // semicolon must immediately follow rbrace because it is the last token in a block
-    _ = try appendToken(rp.c, .Semicolon, ";");
     const grouped_expr = try rp.c.a().create(ast.Node.GroupedExpression);
     grouped_expr.* = .{
         .lparen = try appendToken(rp.c, .LParen, "("),

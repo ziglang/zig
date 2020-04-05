@@ -2375,6 +2375,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     cases.add("compound assignment operators",
         \\void foo(void) {
         \\    int a = 0;
+        \\    unsigned b = 0;
         \\    a += (a += 1);
         \\    a -= (a -= 1);
         \\    a *= (a *= 1);
@@ -2383,10 +2384,15 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    a ^= (a ^= 1);
         \\    a >>= (a >>= 1);
         \\    a <<= (a <<= 1);
+        \\    a /= (a /= 1);
+        \\    a %= (a %= 1);
+        \\    b /= (b /= 1);
+        \\    b %= (b %= 1);
         \\}
     , &[_][]const u8{
         \\pub export fn foo() void {
         \\    var a: c_int = 0;
+        \\    var b: c_uint = @bitCast(c_uint, @as(c_int, 0));
         \\    a += (blk: {
         \\        const ref = &a;
         \\        ref.* = ref.* + @as(c_int, 1);
@@ -2427,6 +2433,26 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\        ref.* = ref.* << @intCast(@import("std").math.Log2Int(c_int), @as(c_int, 1));
         \\        break :blk ref.*;
         \\    }));
+        \\    a = @divTrunc(a, (blk: {
+        \\        const ref = &a;
+        \\        ref.* = @divTrunc(ref.*, @as(c_int, 1));
+        \\        break :blk ref.*;
+        \\    }));
+        \\    a = @rem(a, (blk: {
+        \\        const ref = &a;
+        \\        ref.* = @rem(ref.*, @as(c_int, 1));
+        \\        break :blk ref.*;
+        \\    }));
+        \\    b /= (blk: {
+        \\        const ref = &b;
+        \\        ref.* = ref.* / @bitCast(c_uint, @as(c_int, 1));
+        \\        break :blk ref.*;
+        \\    });
+        \\    b %= (blk: {
+        \\        const ref = &b;
+        \\        ref.* = ref.* % @bitCast(c_uint, @as(c_int, 1));
+        \\        break :blk ref.*;
+        \\    });
         \\}
     });
 
