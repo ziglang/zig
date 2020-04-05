@@ -501,11 +501,8 @@ pub const Target = struct {
 
                 /// Removes the specified feature but not its dependents.
                 pub fn removeFeatureSet(set: *Set, other_set: Set) void {
-                    // TODO should be able to use binary not on @Vector type.
-                    // https://github.com/ziglang/zig/issues/903
-                    for (set.ints) |*int, i| {
-                        int.* &= ~other_set.ints[i];
-                    }
+                    set.ints = @as(@Vector(usize_count, usize), set.ints) &
+                        ~@as(@Vector(usize_count, usize), other_set.ints);
                 }
 
                 pub fn populateDependencies(set: *Set, all_features_list: []const Cpu.Feature) void {
