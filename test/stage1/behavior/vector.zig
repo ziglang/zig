@@ -319,13 +319,18 @@ test "vector division operators" {
         }
 
         fn doTheTest() void {
-            if (std.builtin.os.tag != .windows)
+            // https://github.com/ziglang/zig/issues/4952
+            if (std.builtin.os.tag != .windows) {
                 doTheTestDiv(f16, [4]f16{ 4.0, -4.0, 4.0, -4.0 }, [4]f16{ 1.0, 2.0, -1.0, -2.0 });
+            }
+
             doTheTestDiv(f32, [4]f32{ 4.0, -4.0, 4.0, -4.0 }, [4]f32{ 1.0, 2.0, -1.0, -2.0 });
             doTheTestDiv(f64, [4]f64{ 4.0, -4.0, 4.0, -4.0 }, [4]f64{ 1.0, 2.0, -1.0, -2.0 });
 
-            if (std.builtin.os.tag != .windows)
+            // https://github.com/ziglang/zig/issues/4952
+            if (std.builtin.os.tag != .windows) {
                 doTheTestMod(f16, [4]f16{ 4.0, -4.0, 4.0, -4.0 }, [4]f16{ 1.0, 2.0, 0.5, 3.0 });
+            }
             doTheTestMod(f32, [4]f32{ 4.0, -4.0, 4.0, -4.0 }, [4]f32{ 1.0, 2.0, 0.5, 3.0 });
             doTheTestMod(f64, [4]f64{ 4.0, -4.0, 4.0, -4.0 }, [4]f64{ 1.0, 2.0, 0.5, 3.0 });
 
@@ -440,9 +445,28 @@ test "vector shift operators" {
         }
     };
 
-    // LLVM miscompiles pretty much every case on other architectures so don't
-    // even bother running this test
-    if (std.builtin.arch != .x86_64) return error.SkipZigTest;
+    switch (std.builtin.arch) {
+        .i386,
+        .aarch64,
+        .aarch64_be,
+        .aarch64_32,
+        .arm,
+        .armeb,
+        .thumb,
+        .thumbeb,
+        .mips,
+        .mipsel,
+        .mips64,
+        .mips64el,
+        .riscv64,
+        .sparcv9,
+        => {
+            // LLVM miscompiles on this architecture
+            // https://github.com/ziglang/zig/issues/4951
+            return error.SkipZigTest;
+        },
+        else => {},
+    }
 
     S.doTheTest();
     comptime S.doTheTest();
