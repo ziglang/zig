@@ -2847,4 +2847,10 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub const FOO = "a" ++ ("b" ++ "c");
     });
+
+    cases.add("multibyte character literals",
+        \\#define FOO 'abcd'
+    , &[_][]const u8{
+        \\pub const FOO = 0x61626364;
+    });
 }
