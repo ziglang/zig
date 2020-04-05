@@ -3166,8 +3166,6 @@ fn transCreateCompoundAssign(
     break_node.rhs = ref_node;
     try block_scope.block_node.statements.push(&break_node.base);
     block_scope.block_node.rbrace = try appendToken(rp.c, .RBrace, "}");
-    // semicolon must immediately follow rbrace because it is the last token in a block
-    _ = try appendToken(rp.c, .Semicolon, ";4");
     const grouped_expr = try rp.c.a().create(ast.Node.GroupedExpression);
     grouped_expr.* = .{
         .lparen = try appendToken(rp.c, .LParen, "("),
