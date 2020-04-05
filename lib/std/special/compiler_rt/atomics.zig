@@ -154,7 +154,7 @@ fn atomicExchangeFn(comptime T: type) fn (*T, T, i32) callconv(.C) T {
             if (@sizeOf(T) > largest_atomic_size) {
                 var sl = spinlocks.get(@ptrToInt(ptr));
                 defer sl.release();
-                var value = ptr.*;
+                const value = ptr.*;
                 ptr.* = val;
                 return value;
             } else {
@@ -177,11 +177,12 @@ fn atomicCompareExchangeFn(comptime T: type) fn (*T, *T, T, i32, i32) callconv(.
             if (@sizeOf(T) > largest_atomic_size) {
                 var sl = spinlocks.get(@ptrToInt(ptr));
                 defer sl.release();
-                if (ptr.* == expected.*) {
+                const value = ptr.*;
+                if (value == expected.*) {
                     ptr.* = desired;
                     return 1;
                 }
-                expected.* = ptr.*;
+                expected.* = value;
                 return 0;
             } else {
                 if (@cmpxchgStrong(T, ptr, expected.*, desired, .SeqCst, .SeqCst)) |old_value| {
@@ -208,14 +209,14 @@ fn fetchFn(comptime T: type, comptime op: builtin.AtomicRmwOp) fn (*T, T, i32) c
                 var sl = spinlocks.get(@ptrToInt(ptr));
                 defer sl.release();
 
-                var value = ptr.*;
+                const value = ptr.*;
                 ptr.* = switch (op) {
-                    .Add => ptr.* +% val,
-                    .Sub => ptr.* -% val,
-                    .And => ptr.* & val,
-                    .Nand => ~(ptr.* & val),
-                    .Or => ptr.* | val,
-                    .Xor => ptr.* ^ val,
+                    .Add => value +% val,
+                    .Sub => value -% val,
+                    .And => value & val,
+                    .Nand => ~(value & val),
+                    .Or => value | val,
+                    .Xor => value ^ val,
                     else => @compileError("unsupported atomic op"),
                 };
 
