@@ -99,10 +99,27 @@ comptime {
 // LLVM emits those iff the object size is known and the pointers are correctly
 // aligned.
 
-// The size (in bytes) of the biggest object that the architecture can access
-// atomically. Objects bigger than this threshold require the use of a lock.
+// The size (in bytes) of the biggest object that the architecture can
+// load/store atomically.
+// Objects bigger than this threshold require the use of a lock.
 const largest_atomic_size = switch (builtin.arch) {
     .x86_64 => 16,
+    else => @sizeOf(usize),
+};
+
+// The size (in bytes) of the biggest object that the architecture can perform
+// an atomic CAS operation with.
+// Objects bigger than this threshold require the use of a lock.
+const largest_atomic_cas_size = switch (builtin.arch) {
+    .arm, .armeb, .thumb, .thumbeb =>
+    // The ARM v6m ISA has no ldrex/strex and so it's impossible to do CAS
+    // operations unless we're targeting Linux or the user provides the missing
+    // builtin functions.
+    if (std.Target.arm.featureSetHas(std.Target.current.cpu.features, .has_v6m) and
+        std.Target.current.os.tag != .linux)
+        0
+    else
+        @sizeOf(usize),
     else => @sizeOf(usize),
 };
 
@@ -151,7 +168,7 @@ comptime {
 fn atomicExchangeFn(comptime T: type) fn (*T, T, i32) callconv(.C) T {
     return struct {
         fn atomic_exchange_N(ptr: *T, val: T, model: i32) callconv(.C) T {
-            if (@sizeOf(T) > largest_atomic_size) {
+            if (@sizeOf(T) > largest_atomic_cas_size) {
                 var sl = spinlocks.get(@ptrToInt(ptr));
                 defer sl.release();
                 const value = ptr.*;
@@ -174,7 +191,7 @@ comptime {
 fn atomicCompareExchangeFn(comptime T: type) fn (*T, *T, T, i32, i32) callconv(.C) i32 {
     return struct {
         fn atomic_compare_exchange_N(ptr: *T, expected: *T, desired: T, success: i32, failure: i32) callconv(.C) i32 {
-            if (@sizeOf(T) > largest_atomic_size) {
+            if (@sizeOf(T) > largest_atomic_cas_size) {
                 var sl = spinlocks.get(@ptrToInt(ptr));
                 defer sl.release();
                 const value = ptr.*;
@@ -205,7 +222,7 @@ comptime {
 fn fetchFn(comptime T: type, comptime op: builtin.AtomicRmwOp) fn (*T, T, i32) callconv(.C) T {
     return struct {
         pub fn fetch_op_N(ptr: *T, val: T, model: i32) callconv(.C) T {
-            if (@sizeOf(T) > largest_atomic_size) {
+            if (@sizeOf(T) > largest_atomic_cas_size) {
                 var sl = spinlocks.get(@ptrToInt(ptr));
                 defer sl.release();
 
