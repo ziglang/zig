@@ -39,7 +39,7 @@ pub fn build(b: *Builder) !void {
         "config_h",
         "Path to the generated config.h",
     )) |config_h_path|
-        try std.fs.cwd().readFileAlloc(b.allocator, config_h_path, max_config_h_bytes)
+        try std.fs.cwd().readFileAlloc(b.allocator, toNativePathSep(b, config_h_path), max_config_h_bytes)
     else
         try findAndReadConfigH(b);
 
@@ -65,7 +65,7 @@ pub fn build(b: *Builder) !void {
 
     const only_install_lib_files = b.option(bool, "lib-files-only", "Only install library files") orelse false;
     if (!only_install_lib_files and !skip_self_hosted) {
-        var ctx = parseConfigH(config_h_text);
+        var ctx = parseConfigH(b, config_h_text);
         ctx.llvm = try findLLVM(b, ctx.llvm_config_exe);
 
         try configureStage2(b, test_stage2, ctx);
@@ -377,7 +377,7 @@ fn findAndReadConfigH(b: *Builder) ![]const u8 {
     } else unreachable; // TODO should not need `else unreachable`.
 }
 
-fn parseConfigH(config_h_text: []const u8) Context {
+fn parseConfigH(b: *Builder, config_h_text: []const u8) Context {
     var ctx: Context = .{
         .cmake_binary_dir = undefined,
         .cxx_compiler = undefined,
@@ -426,9 +426,19 @@ fn parseConfigH(config_h_text: []const u8) Context {
             if (mem.startsWith(u8, line, mapping.prefix)) {
                 var it = mem.split(line, "\"");
                 _ = it.next().?; // skip the stuff before the quote
-                @field(ctx, mapping.field) = it.next().?; // the stuff inside the quote
+                const quoted = it.next().?; // the stuff inside the quote
+                @field(ctx, mapping.field) = toNativePathSep(b, quoted);
             }
         }
     }
     return ctx;
+}
+
+fn toNativePathSep(b: *Builder, s: []const u8) []u8 {
+    const duplicated = mem.dupe(b.allocator, u8, s) catch unreachable;
+    for (duplicated) |*byte| switch (byte.*) {
+        '/' => byte.* = fs.path.sep,
+        else => {},
+    };
+    return duplicated;
 }
