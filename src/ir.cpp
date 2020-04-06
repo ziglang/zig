@@ -21153,7 +21153,11 @@ static IrInstGen *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstSrcElemP
 
     bool safety_check_on = elem_ptr_instruction->safety_check_on;
     if (instr_is_comptime(casted_elem_index)) {
-        uint64_t index = bigint_as_u64(&casted_elem_index->value->data.x_bigint);
+        ZigValue *index_val = ir_resolve_const(ira, casted_elem_index, UndefBad);
+        if (index_val == nullptr)
+            return ira->codegen->invalid_inst_gen;
+        uint64_t index = bigint_as_u64(&index_val->data.x_bigint);
+
         if (array_type->id == ZigTypeIdArray) {
             uint64_t array_len = array_type->data.array.len +
                 (array_type->data.array.sentinel != nullptr);
