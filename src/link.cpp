@@ -72,7 +72,7 @@ static const char *msvcrt_common_src[] = {
 
 static const char *msvcrt_i386_src[] = {
     "misc" OS_SEP "lc_locale_func.c",
-
+    "misc" OS_SEP "___mb_cur_max_func.c",
 };
 
 static const char *msvcrt_other_src[] = {
