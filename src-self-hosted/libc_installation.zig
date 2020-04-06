@@ -168,29 +168,22 @@ pub const LibCInstallation = struct {
         var self: LibCInstallation = .{};
 
         if (is_windows) {
-            if (is_gnu) {
-                var batch = Batch(FindError!void, 3, .auto_async).init();
-                batch.add(&async self.findNativeIncludeDirPosix(args));
-                batch.add(&async self.findNativeCrtDirPosix(args));
-                try batch.wait();
-            } else {
-                var sdk: *ZigWindowsSDK = undefined;
-                switch (zig_find_windows_sdk(&sdk)) {
-                    .None => {
-                        defer zig_free_windows_sdk(sdk);
+            var sdk: *ZigWindowsSDK = undefined;
+            switch (zig_find_windows_sdk(&sdk)) {
+                .None => {
+                    defer zig_free_windows_sdk(sdk);
 
-                        var batch = Batch(FindError!void, 5, .auto_async).init();
-                        batch.add(&async self.findNativeMsvcIncludeDir(args, sdk));
-                        batch.add(&async self.findNativeMsvcLibDir(args, sdk));
-                        batch.add(&async self.findNativeKernel32LibDir(args, sdk));
-                        batch.add(&async self.findNativeIncludeDirWindows(args, sdk));
-                        batch.add(&async self.findNativeCrtDirWindows(args, sdk));
-                        try batch.wait();
-                    },
-                    .OutOfMemory => return error.OutOfMemory,
-                    .NotFound => return error.WindowsSdkNotFound,
-                    .PathTooLong => return error.WindowsSdkNotFound,
-                }
+                    var batch = Batch(FindError!void, 5, .auto_async).init();
+                    batch.add(&async self.findNativeMsvcIncludeDir(args, sdk));
+                    batch.add(&async self.findNativeMsvcLibDir(args, sdk));
+                    batch.add(&async self.findNativeKernel32LibDir(args, sdk));
+                    batch.add(&async self.findNativeIncludeDirWindows(args, sdk));
+                    batch.add(&async self.findNativeCrtDirWindows(args, sdk));
+                    try batch.wait();
+                },
+                .OutOfMemory => return error.OutOfMemory,
+                .NotFound => return error.WindowsSdkNotFound,
+                .PathTooLong => return error.WindowsSdkNotFound,
             }
         } else {
             try blk: {
