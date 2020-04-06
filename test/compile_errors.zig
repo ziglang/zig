@@ -2,6 +2,34 @@ const tests = @import("tests.zig");
 const std = @import("std");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.addTest("reference to const data",
+        \\export fn foo() void {
+        \\    var ptr = &[_]u8{0,0,0,0};
+        \\    ptr[1] = 2;
+        \\}
+        \\export fn bar() void {
+        \\    var ptr = &@as(u32, 2);
+        \\    ptr.* = 2;
+        \\}
+        \\export fn baz() void {
+        \\    var ptr = &true;
+        \\    ptr.* = false;
+        \\}
+        \\export fn qux() void {
+        \\    const S = struct{
+        \\        x: usize,
+        \\        y: usize,
+        \\    };
+        \\    var ptr = &S{.x=1,.y=2};
+        \\    ptr.x = 2;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:3:14: error: cannot assign to constant",
+        "tmp.zig:7:13: error: cannot assign to constant",
+        "tmp.zig:11:13: error: cannot assign to constant",
+        "tmp.zig:19:13: error: cannot assign to constant",
+    });
+
     cases.addTest("cast between ?T where T is not a pointer",
         \\pub const fnty1 = ?fn (i8) void;
         \\pub const fnty2 = ?fn (u64) void;
@@ -969,7 +997,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const x = 1 << &@as(u8, 10);
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:21: error: shift amount has to be an integer type, but found '*u8'",
+        "tmp.zig:2:21: error: shift amount has to be an integer type, but found '*const u8'",
         "tmp.zig:2:17: note: referenced here",
     });
 
@@ -978,7 +1006,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const x = &@as(u8, 1) << 10;
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:16: error: bit shifting operation expected integer type, found '*u8'",
+        "tmp.zig:2:16: error: bit shifting operation expected integer type, found '*const u8'",
         "tmp.zig:2:27: note: referenced here",
     });
 
@@ -6005,7 +6033,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    fn bar(self: *const Foo) void {}
         \\};
     , &[_][]const u8{
-        "tmp.zig:2:4: error: variable of type '*comptime_int' must be const or comptime",
+        "tmp.zig:2:4: error: variable of type '*const comptime_int' must be const or comptime",
         "tmp.zig:5:4: error: variable of type '(undefined)' must be const or comptime",
         "tmp.zig:8:4: error: variable of type 'comptime_int' must be const or comptime",
         "tmp.zig:11:4: error: variable of type 'comptime_float' must be const or comptime",
@@ -6849,12 +6877,12 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const word: u16 = @bitCast(u16, bytes[0..]);
         \\}
         \\export fn foo2() void {
-        \\    var bytes: []u8 = &[_]u8{1, 2};
+        \\    var bytes: []const u8 = &[_]u8{1, 2};
         \\    const word: u16 = @bitCast(u16, bytes);
         \\}
     , &[_][]const u8{
         "tmp.zig:3:42: error: unable to @bitCast from pointer type '*[2]u8'",
-        "tmp.zig:7:32: error: destination type 'u16' has size 2 but source type '[]u8' has size 16",
+        "tmp.zig:7:32: error: destination type 'u16' has size 2 but source type '[]const u8' has size 16",
         "tmp.zig:7:37: note: referenced here",
     });
 

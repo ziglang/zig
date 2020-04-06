@@ -161,8 +161,8 @@ test "for copies its payload" {
 
 test "for on slice with allowzero ptr" {
     const S = struct {
-        fn doTheTest(slice: []u8) void {
-            var ptr = @ptrCast([*]allowzero u8, slice.ptr)[0..slice.len];
+        fn doTheTest(slice: []const u8) void {
+            var ptr = @ptrCast([*]const allowzero u8, slice.ptr)[0..slice.len];
             for (ptr) |x, i| expect(x == i + 1);
             for (ptr) |*x, i| expect(x.* == i + 1);
         }

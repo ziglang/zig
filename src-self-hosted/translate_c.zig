@@ -4940,12 +4940,13 @@ fn transPreprocessorEntities(c: *Context, unit: *ZigClangASTUnit) Error!void {
                 const slice = begin_c[0..mem.len(begin_c)];
 
                 tok_list.shrink(0);
+                var src = std.c.tokenizer.Source{
+                    .buffer = slice,
+                    .file_name = undefined,
+                    .tokens = undefined,
+                };
                 var tokenizer = std.c.Tokenizer{
-                    .source = &std.c.tokenizer.Source{
-                        .buffer = slice,
-                        .file_name = undefined,
-                        .tokens = undefined,
-                    },
+                    .source = &src,
                 };
                 while (true) {
                     const tok = tokenizer.next();

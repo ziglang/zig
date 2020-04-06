@@ -1327,12 +1327,13 @@ test "Value.jsonStringify" {
     {
         var buffer: [10]u8 = undefined;
         var fbs = std.io.fixedBufferStream(&buffer);
+        var vals = [_]Value{
+            .{ .Integer = 1 },
+            .{ .Integer = 2 },
+            .{ .Integer = 3 },
+        };
         try (Value{
-            .Array = Array.fromOwnedSlice(undefined, &[_]Value{
-                .{ .Integer = 1 },
-                .{ .Integer = 2 },
-                .{ .Integer = 3 },
-            }),
+            .Array = Array.fromOwnedSlice(undefined, &vals),
         }).jsonStringify(.{}, fbs.outStream());
         testing.expectEqualSlices(u8, fbs.getWritten(), "[1,2,3]");
     }

@@ -7486,7 +7486,29 @@ static IrInstSrc *ir_lval_wrap(IrBuilderSrc *irb, Scope *scope, IrInstSrc *value
     if (lval == LValPtr) {
         // We needed a pointer to a value, but we got a value. So we create
         // an instruction which just makes a pointer of it.
-        return ir_build_ref_src(irb, scope, value->base.source_node, value, false, false);
+        IrInstSrc *check = value;
+        bool is_const = false;
+        while (check != nullptr) {
+            switch (check->id) {
+                case IrInstSrcIdImplicitCast:
+                    check = ((IrInstSrcImplicitCast *)check)->operand;
+                    break;
+                    
+                    ZIG_FALLTHROUGH;
+                case IrInstSrcIdConst:
+                case IrInstSrcIdContainerInitList:
+                case IrInstSrcIdContainerInitFields:
+                    // reference to const data
+                    is_const = true;
+                    check = nullptr;
+                    break;
+                default:
+                    is_const = false;
+                    check = nullptr;
+                    break;
+            }
+        }
+        return ir_build_ref_src(irb, scope, value->base.source_node, value, is_const, false);
     } else if (result_loc != nullptr) {
         return ir_expr_wrap(irb, scope, value, result_loc);
     } else {
