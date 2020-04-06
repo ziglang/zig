@@ -10597,6 +10597,7 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     cache_int(ch, g->linker_allow_shlib_undefined);
     cache_bool(ch, g->linker_z_nodelete);
     cache_bool(ch, g->linker_z_defs);
+    cache_usize(ch, g->stack_size_override);
 
     // gen_c_objects appends objects to g->link_objects which we want to include in the hash
     gen_c_objects(g);

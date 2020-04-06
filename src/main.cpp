@@ -453,6 +453,7 @@ static int main0(int argc, char **argv) {
     OptionalBool linker_allow_shlib_undefined = OptionalBoolNull;
     bool linker_z_nodelete = false;
     bool linker_z_defs = false;
+    size_t stack_size_override = 0;
 
     ZigList<const char *> llvm_argv = {0};
     llvm_argv.append("zig (LLVM option parsing)");
@@ -848,6 +849,27 @@ static int main0(int argc, char **argv) {
                 } else {
                     fprintf(stderr, "warning: unsupported linker arg: -z %s\n", buf_ptr(z_arg));
                 }
+            } else if (buf_eql_str(arg, "--major-image-version")) {
+                i += 1;
+                if (i >= linker_args.length) {
+                    fprintf(stderr, "expected linker arg after '%s'\n", buf_ptr(arg));
+                    return EXIT_FAILURE;
+                }
+                ver_major = atoi(buf_ptr(linker_args.at(i)));
+            } else if (buf_eql_str(arg, "--minor-image-version")) {
+                i += 1;
+                if (i >= linker_args.length) {
+                    fprintf(stderr, "expected linker arg after '%s'\n", buf_ptr(arg));
+                    return EXIT_FAILURE;
+                }
+                ver_minor = atoi(buf_ptr(linker_args.at(i)));
+            } else if (buf_eql_str(arg, "--stack")) {
+                i += 1;
+                if (i >= linker_args.length) {
+                    fprintf(stderr, "expected linker arg after '%s'\n", buf_ptr(arg));
+                    return EXIT_FAILURE;
+                }
+                stack_size_override = atoi(buf_ptr(linker_args.at(i)));
             } else {
                 fprintf(stderr, "warning: unsupported linker arg: %s\n", buf_ptr(arg));
             }
@@ -1573,6 +1595,7 @@ static int main0(int argc, char **argv) {
             g->linker_allow_shlib_undefined = linker_allow_shlib_undefined;
             g->linker_z_nodelete = linker_z_nodelete;
             g->linker_z_defs = linker_z_defs;
+            g->stack_size_override = stack_size_override;
 
             if (override_soname) {
                 g->override_soname = buf_create_from_str(override_soname);

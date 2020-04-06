@@ -2259,6 +2259,7 @@ struct CodeGen {
     size_t version_minor;
     size_t version_patch;
     const char *linker_script;
+    size_t stack_size_override;
 
     BuildMode build_mode;
     OutType out_type;
