@@ -34,8 +34,14 @@ pub fn build(b: *Builder) !void {
 
     const test_step = b.step("test", "Run all the tests");
 
-    var ctx = try findAndParseConfigH(b);
-    ctx.llvm = try findLLVM(b, ctx.llvm_config_exe);
+    const config_h_text = if (b.option(
+        []const u8,
+        "config_h",
+        "Path to the generated config.h",
+    )) |config_h_path|
+        try std.fs.cwd().readFileAlloc(b.allocator, config_h_path, max_config_h_bytes)
+    else
+        try findAndReadConfigH(b);
 
     var test_stage2 = b.addTest("src-self-hosted/test.zig");
     test_stage2.setBuildMode(builtin.Mode.Debug);
@@ -45,9 +51,6 @@ pub fn build(b: *Builder) !void {
 
     var exe = b.addExecutable("zig", "src-self-hosted/main.zig");
     exe.setBuildMode(mode);
-
-    try configureStage2(b, test_stage2, ctx);
-    try configureStage2(b, exe, ctx);
 
     const skip_release = b.option(bool, "skip-release", "Main test suite skips release builds") orelse false;
     const skip_release_small = b.option(bool, "skip-release-small", "Main test suite skips release-small builds") orelse skip_release;
@@ -62,6 +65,12 @@ pub fn build(b: *Builder) !void {
 
     const only_install_lib_files = b.option(bool, "lib-files-only", "Only install library files") orelse false;
     if (!only_install_lib_files and !skip_self_hosted) {
+        var ctx = parseConfigH(config_h_text);
+        ctx.llvm = try findLLVM(b, ctx.llvm_config_exe);
+
+        try configureStage2(b, test_stage2, ctx);
+        try configureStage2(b, exe, ctx);
+
         b.default_step.dependOn(&exe.step);
         exe.install();
     }
@@ -343,14 +352,15 @@ const Context = struct {
     llvm: LibraryDep,
 };
 
-fn findAndParseConfigH(b: *Builder) !Context {
+const max_config_h_bytes = 1 * 1024 * 1024;
+
+fn findAndReadConfigH(b: *Builder) ![]const u8 {
     var check_dir = fs.path.dirname(b.zig_exe).?;
-    const config_h_text = while (true) {
+    while (true) {
         var dir = try fs.cwd().openDir(check_dir, .{});
         defer dir.close();
 
-        const max_bytes = 1 * 1024 * 1024;
-        const config_h_text = dir.readFileAlloc(b.allocator, "config.h", max_bytes) catch |err| switch (err) {
+        const config_h_text = dir.readFileAlloc(b.allocator, "config.h", max_config_h_bytes) catch |err| switch (err) {
             error.FileNotFound => {
                 const new_check_dir = fs.path.dirname(check_dir);
                 if (new_check_dir == null or mem.eql(u8, new_check_dir.?, check_dir)) {
@@ -363,9 +373,11 @@ fn findAndParseConfigH(b: *Builder) !Context {
             },
             else => |e| return e,
         };
-        break config_h_text;
+        return config_h_text;
     } else unreachable; // TODO should not need `else unreachable`.
+}
 
+fn parseConfigH(config_h_text: []const u8) Context {
     var ctx: Context = .{
         .cmake_binary_dir = undefined,
         .cxx_compiler = undefined,

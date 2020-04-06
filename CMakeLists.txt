@@ -303,9 +303,10 @@ set(LIBC_FILES_DEST "${ZIG_LIB_DIR}/libc")
 set(LIBUNWIND_FILES_DEST "${ZIG_LIB_DIR}/libunwind")
 set(LIBCXX_FILES_DEST "${ZIG_LIB_DIR}/libcxx")
 set(ZIG_STD_DEST "${ZIG_LIB_DIR}/std")
+set(ZIG_CONFIG_H_OUT "${CMAKE_BINARY_DIR}/config.h")
 configure_file (
     "${CMAKE_SOURCE_DIR}/src/config.h.in"
-    "${CMAKE_BINARY_DIR}/config.h"
+    "${ZIG_CONFIG_H_OUT}"
 )
 
 include_directories(
@@ -485,6 +486,7 @@ set(ZIG_INSTALL_ARGS "build"
     --override-lib-dir "${CMAKE_SOURCE_DIR}/lib"
     "-Dlib-files-only"
     --prefix "${CMAKE_INSTALL_PREFIX}"
+    "-Dconfig_h=${ZIG_CONFIG_H_OUT}"
     install
 )
 
