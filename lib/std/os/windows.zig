@@ -136,7 +136,7 @@ pub fn OpenFileW(
         .SecurityQualityOfService = null,
     };
     var io: IO_STATUS_BLOCK = undefined;
-    const share_access = share_access_opt orelse FILE_SHARE_WRITE | FILE_SHARE_READ | FILE_SHARE_DELETE;
+    const share_access = share_access_opt orelse (FILE_SHARE_WRITE | FILE_SHARE_READ | FILE_SHARE_DELETE);
 
     var delay: usize = 1;
     while (true) {
