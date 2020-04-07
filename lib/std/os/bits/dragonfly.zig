@@ -244,6 +244,12 @@ pub const KERN_MAXID = 37;
 
 pub const HOST_NAME_MAX = 255;
 
+// access function
+pub const F_OK = 0; // test for existence of file
+pub const X_OK = 1; // test for execute or search permission
+pub const W_OK = 2; // test for write permission
+pub const R_OK = 4; // test for read permission
+
 pub const O_RDONLY = 0;
 pub const O_NDELAY = O_NONBLOCK;
 pub const O_WRONLY = 1;
@@ -277,7 +283,6 @@ pub const SEEK_END = 2;
 pub const SEEK_DATA = 3;
 pub const SEEK_HOLE = 4;
 
-pub const F_OK = 0;
 pub const F_ULOCK = 0;
 pub const F_LOCK = 1;
 pub const F_TLOCK = 2;
