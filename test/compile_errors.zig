@@ -2,6 +2,34 @@ const tests = @import("tests.zig");
 const std = @import("std");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.addTest("reference to const data",
+        \\export fn foo() void {
+        \\    var ptr = &[_]u8{0,0,0,0};
+        \\    ptr[1] = 2;
+        \\}
+        \\export fn bar() void {
+        \\    var ptr = &@as(u32, 2);
+        \\    ptr.* = 2;
+        \\}
+        \\export fn baz() void {
+        \\    var ptr = &true;
+        \\    ptr.* = false;
+        \\}
+        \\export fn qux() void {
+        \\    const S = struct{
+        \\        x: usize,
+        \\        y: usize,
+        \\    };
+        \\    var ptr = &S{.x=1,.y=2};
+        \\    ptr.x = 2;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:3:14: error: cannot assign to constant",
+        "tmp.zig:7:13: error: cannot assign to constant",
+        "tmp.zig:11:13: error: cannot assign to constant",
+        "tmp.zig:19:13: error: cannot assign to constant",
+    });
+
     cases.addTest("cast between ?T where T is not a pointer",
         \\pub const fnty1 = ?fn (i8) void;
         \\pub const fnty2 = ?fn (u64) void;
