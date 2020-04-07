@@ -3519,8 +3519,6 @@ struct IrInstSrcRef {
     IrInstSrc base;
 
     IrInstSrc *value;
-    bool is_const;
-    bool is_volatile;
 };
 
 struct IrInstGenRef {
