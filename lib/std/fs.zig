@@ -619,7 +619,7 @@ pub const Dir = struct {
 
         if (flags.lock and lock_flag == 0) {
             // TODO: integrate async I/O
-            _ = try os.flock(fd, if (flags.write) os.LOCK_EX else os.LOCK_SH);
+            try os.flock(fd, if (flags.write) os.LOCK_EX else os.LOCK_SH);
         }
 
         return File{
@@ -689,8 +689,7 @@ pub const Dir = struct {
 
         if (flags.lock and lock_flag == 0) {
             // TODO: integrate async I/O
-            // mem.zeroes is used here because flock's structure can vary across architectures and systems
-            _ = try os.flock(fd, os.LOCK_EX);
+            try os.flock(fd, os.LOCK_EX);
         }
 
         return File{ .handle = fd, .io_mode = .blocking };

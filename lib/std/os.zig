@@ -3229,11 +3229,11 @@ pub const FlockError = error{
     SystemResources,
 } || UnexpectedError;
 
-pub fn flock(fd: fd_t, operation: i32) FlockError!usize {
+pub fn flock(fd: fd_t, operation: i32) FlockError!void {
     while (true) {
         const rc = system.flock(fd, operation);
         switch (errno(rc)) {
-            0 => return @intCast(usize, rc),
+            0 => return,
             EBADF => unreachable,
             EINTR => continue,
             EINVAL => unreachable, // invalid parameters
