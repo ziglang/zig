@@ -698,6 +698,7 @@ pub const Target = struct {
                     .bpfeb => ._BPF,
                     .sparcv9 => ._SPARCV9,
                     .s390x => ._S390,
+                    .ve => ._NONE,
                 };
             }
 
@@ -739,6 +740,7 @@ pub const Target = struct {
                     .renderscript32,
                     .renderscript64,
                     .shave,
+                    .ve,
                     => .Little,
 
                     .arc,
@@ -1317,3 +1319,7 @@ pub const Target = struct {
         }
     }
 };
+
+test "" {
+    std.meta.refAllDecls(Target.Cpu.Arch);
+}
