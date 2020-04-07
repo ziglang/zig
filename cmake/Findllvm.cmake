@@ -9,7 +9,7 @@
 
 if("${ZIG_TARGET_TRIPLE}" STREQUAL "native")
   find_program(LLVM_CONFIG_EXE
-      NAMES llvm-config-10 llvm-config-10.0 llvm-config100 llvm-config
+      NAMES llvm-config-10 llvm-config-10.0 llvm-config100 llvm-config10 llvm-config
       PATHS
           "/mingw64/bin"
           "/c/msys64/mingw64/bin"
@@ -130,6 +130,7 @@ else()
         /usr/lib/llvm-10/include
         /usr/lib/llvm-10.0/include
         /usr/local/llvm100/include
+        /usr/local/llvm10/include
         /mingw64/include)
 
     macro(FIND_AND_ADD_LLVM_LIB _libname_)
@@ -141,6 +142,7 @@ else()
         /usr/lib/llvm-10/lib
         /usr/lib/llvm-10.0/lib
         /usr/local/llvm100/lib
+        /usr/local/llvm10/lib
         /mingw64/lib
         /c/msys64/mingw64/lib
         c:\\msys64\\mingw64\\lib)
