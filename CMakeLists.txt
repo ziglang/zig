@@ -365,7 +365,7 @@ if(ZIG_STATIC)
     endif()
 else()
     if(MINGW)
-        set(EXE_LDFLAGS "${EXE_LDFLAGS} -lz3")
+        set(EXE_LDFLAGS "${EXE_LDFLAGS}")
     endif()
 endif()
 
@@ -429,11 +429,6 @@ if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
 else()
     set(LIBSTAGE2_RELEASE_ARG --release-fast --strip)
 endif()
-if(WIN32)
-    set(LIBSTAGE2_WINDOWS_ARGS "-lntdll")
-else()
-    set(LIBSTAGE2_WINDOWS_ARGS "")
-endif()
 
 set(BUILD_LIBSTAGE2_ARGS "build-lib"
     "src-self-hosted/stage2.zig"
@@ -447,7 +442,6 @@ set(BUILD_LIBSTAGE2_ARGS "build-lib"
     --bundle-compiler-rt
     -fPIC
     -lc
-    ${LIBSTAGE2_WINDOWS_ARGS}
 )
 
 if("${ZIG_TARGET_TRIPLE}" STREQUAL "native")

@@ -72,7 +72,7 @@ static const char *msvcrt_common_src[] = {
 
 static const char *msvcrt_i386_src[] = {
     "misc" OS_SEP "lc_locale_func.c",
-
+    "misc" OS_SEP "___mb_cur_max_func.c",
 };
 
 static const char *msvcrt_other_src[] = {
@@ -1840,7 +1840,8 @@ static void construct_linker_job_elf(LinkJob *lj) {
 
     if (g->out_type == OutTypeExe) {
         lj->args.append("-z");
-        lj->args.append("stack-size=16777216"); // default to 16 MiB
+        size_t stack_size = (g->stack_size_override == 0) ? 16777216 : g->stack_size_override;
+        lj->args.append(buf_ptr(buf_sprintf("stack-size=%" ZIG_PRI_usize, stack_size)));
     }
 
     if (g->linker_script) {
@@ -2479,7 +2480,8 @@ static void construct_linker_job_coff(LinkJob *lj) {
 
     if (g->out_type == OutTypeExe) {
         // TODO compile time stack upper bound detection
-        lj->args.append("-STACK:16777216");
+        size_t stack_size = (g->stack_size_override == 0) ? 16777216 : g->stack_size_override;
+        lj->args.append(buf_ptr(buf_sprintf("-STACK:%" ZIG_PRI_usize, stack_size)));
     }
 
     coff_append_machine_arg(g, &lj->args);
