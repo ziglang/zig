@@ -56,7 +56,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\const std = @import("std");
         ++ check_panic_msg ++
             \\pub fn main() void {
-            \\    var buf_slice: []u8 = &[3]u8{ 'a', 'b', 0 };
+            \\    var buf_slice: []const u8 = &[3]u8{ 'a', 'b', 0 };
             \\    const slice = buf_slice[0..3 :0];
             \\}
         );
@@ -64,7 +64,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\const std = @import("std");
         ++ check_panic_msg ++
             \\pub fn main() void {
-            \\    var buf_slice: []u8 = &[3]u8{ 'a', 'b', 0 };
+            \\    var buf_slice: []const u8 = &[3]u8{ 'a', 'b', 0 };
             \\    const slice = buf_slice[0.. :0];
             \\}
         );
