@@ -596,13 +596,12 @@ pub const Dir = struct {
         }
 
         // Use the O_ locking flags if the os supports them
+        const has_flock_open_flags = @hasDecl(os, "O_EXLOCK") and @hasDecl(os, "O_SHLOCK");
         const lock_flag: u32 = lock_flag: {
-            if (!flags.lock) break :lock_flag 0;
-            if (flags.write) {
-                break :lock_flag if (@hasDecl(os, "O_EXLOCK")) os.O_EXLOCK else 0;
-            } else {
-                break :lock_flag if (@hasDecl(os, "O_SHLOCK")) os.O_SHLOCK else 0;
+            if (has_flock_open_flags and flags.lock) {
+                break :lock_flag if (flags.write) os.O_EXLOCK else os.O_SHLOCK;
             }
+            break :lock_flag 0;
         };
 
         const O_LARGEFILE = if (@hasDecl(os, "O_LARGEFILE")) os.O_LARGEFILE else 0;
@@ -617,7 +616,7 @@ pub const Dir = struct {
         else
             try os.openatZ(self.fd, sub_path, os_flags, 0);
 
-        if (flags.lock and lock_flag == 0) {
+        if (!has_flock_open_flags and flags.lock) {
             // TODO: integrate async I/O
             try os.flock(fd, if (flags.write) os.LOCK_EX else os.LOCK_SH);
         }
@@ -672,10 +671,8 @@ pub const Dir = struct {
         }
 
         // Use the O_ locking flags if the os supports them
-        const lock_flag: u32 = lock_flag: {
-            if (!flags.lock) break :lock_flag 0;
-            break :lock_flag if (@hasDecl(os, "O_EXLOCK")) os.O_EXLOCK else 0;
-        };
+        const has_flock_open_flags = @hasDecl(os, "O_EXLOCK");
+        const lock_flag: u32 = if (has_flock_open_flags and flags.lock) os.O_EXLOCK else 0;
 
         const O_LARGEFILE = if (@hasDecl(os, "O_LARGEFILE")) os.O_LARGEFILE else 0;
         const os_flags = lock_flag | O_LARGEFILE | os.O_CREAT | os.O_CLOEXEC |
@@ -687,7 +684,7 @@ pub const Dir = struct {
         else
             try os.openatZ(self.fd, sub_path_c, os_flags, flags.mode);
 
-        if (flags.lock and lock_flag == 0) {
+        if (!has_flock_open_flags and flags.lock) {
             // TODO: integrate async I/O
             try os.flock(fd, os.LOCK_EX);
         }
