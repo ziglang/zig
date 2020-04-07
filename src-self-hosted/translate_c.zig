@@ -5573,7 +5573,6 @@ fn parseCPrimaryExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8, 
             return &group_node.base;
         },
         else => {
-            std.debug.warn("{}", .{source});
             const first_tok = it.list.at(0);
             try failDecl(
                 c,
