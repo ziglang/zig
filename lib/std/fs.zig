@@ -599,9 +599,9 @@ pub const Dir = struct {
         const has_flock_open_flags = @hasDecl(os, "O_EXLOCK") and @hasDecl(os, "O_SHLOCK");
         const lock_flag: u32 = lock_flag: {
             if (has_flock_open_flags and flags.lock) {
-                break :lock_flag if (flags.write) os.O_EXLOCK else os.O_SHLOCK;
+                break :lock_flag if (flags.write) @as(u32, os.O_EXLOCK) else @as(u32, os.O_SHLOCK);
             }
-            break :lock_flag 0;
+            break :lock_flag @as(u32, 0);
         };
 
         const O_LARGEFILE = if (@hasDecl(os, "O_LARGEFILE")) os.O_LARGEFILE else 0;
