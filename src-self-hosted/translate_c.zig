@@ -811,7 +811,7 @@ fn transRecordDecl(c: *Context, record_decl: *const ZigClangRecordDecl) Error!?*
 
             var is_anon = false;
             var raw_name = try c.str(ZigClangNamedDecl_getName_bytes_begin(@ptrCast(*const ZigClangNamedDecl, field_decl)));
-            if (ZigClangFieldDecl_isAnonymousStructOrUnion(field_decl) or (std.Target.current.abi == .msvc and raw_name.len == 0)) {
+            if (ZigClangFieldDecl_isAnonymousStructOrUnion(field_decl) or raw_name.len == 0) {
                 raw_name = try std.fmt.allocPrint(c.a(), "unnamed_{}", .{c.getMangle()});
                 is_anon = true;
             }
