@@ -69,7 +69,7 @@ fn peekIsAlign(comptime fmt: []const u8) bool {
 ///
 /// If a formatted user type contains a function of the type
 /// ```
-/// fn format(value: ?, comptime fmt: []const u8, options: std.fmt.FormatOptions, out_stream: var) !void
+/// pub fn format(value: ?, comptime fmt: []const u8, options: std.fmt.FormatOptions, out_stream: var) !void
 /// ```
 /// with `?` being the type formatted, this function will be called instead of the default implementation.
 /// This allows user types to be formatted in a logical manner instead of dumping all fields of the type.

@@ -17,6 +17,7 @@ static const ZigGLibCLib glibc_libs[] = {
     {"dl", 2},
     {"rt", 1},
     {"ld", 2},
+    {"util", 1},
 };
 
 Error glibc_load_metadata(ZigGLibCAbi **out_result, Buf *zig_lib_dir, bool verbose) {

@@ -55,6 +55,10 @@ const known_options = [_]KnownOpt{
         .ident = "no_pic",
     },
     .{
+        .name = "nolibc",
+        .ident = "nostdlib",
+    },
+    .{
         .name = "nostdlib",
         .ident = "nostdlib",
     },
@@ -65,6 +69,22 @@ const known_options = [_]KnownOpt{
     .{
         .name = "nostdlib++",
         .ident = "nostdlib_cpp",
+    },
+    .{
+        .name = "nostdinc++",
+        .ident = "nostdlib_cpp",
+    },
+    .{
+        .name = "nostdlibinc",
+        .ident = "nostdlibinc",
+    },
+    .{
+        .name = "nostdinc",
+        .ident = "nostdlibinc",
+    },
+    .{
+        .name = "no-standard-includes",
+        .ident = "nostdlibinc",
     },
     .{
         .name = "shared",

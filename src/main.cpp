@@ -260,18 +260,6 @@ static int main0(int argc, char **argv) {
     char *arg0 = argv[0];
     Error err;
 
-    if (argc == 2 && strcmp(argv[1], "BUILD_INFO") == 0) {
-        printf("%s\n%s\n%s\n%s\n%s\n%s\n%s\n",
-                ZIG_CMAKE_BINARY_DIR,
-                ZIG_CXX_COMPILER,
-                ZIG_LLVM_CONFIG_EXE,
-                ZIG_LLD_INCLUDE_PATH,
-                ZIG_LLD_LIBRARIES,
-                ZIG_CLANG_LIBRARIES,
-                ZIG_DIA_GUIDS_LIB);
-        return 0;
-    }
-
     if (argc >= 2 && (strcmp(argv[1], "clang") == 0 ||
             strcmp(argv[1], "-cc1") == 0 || strcmp(argv[1], "-cc1as") == 0))
     {
@@ -459,11 +447,13 @@ static int main0(int argc, char **argv) {
     bool ensure_libc_on_non_freestanding = false;
     bool ensure_libcpp_on_non_freestanding = false;
     bool disable_c_depfile = false;
+    bool want_native_include_dirs = false;
     Buf *linker_optimization = nullptr;
     OptionalBool linker_gc_sections = OptionalBoolNull;
     OptionalBool linker_allow_shlib_undefined = OptionalBoolNull;
     bool linker_z_nodelete = false;
     bool linker_z_defs = false;
+    size_t stack_size_override = 0;
 
     ZigList<const char *> llvm_argv = {0};
     llvm_argv.append("zig (LLVM option parsing)");
@@ -593,6 +583,7 @@ static int main0(int argc, char **argv) {
         strip = true;
         ensure_libc_on_non_freestanding = true;
         ensure_libcpp_on_non_freestanding = (strcmp(argv[1], "c++") == 0);
+        want_native_include_dirs = true;
 
         bool c_arg = false;
         Stage2ClangArgIterator it;
@@ -759,6 +750,9 @@ static int main0(int argc, char **argv) {
                 case Stage2ClangArgFramework:
                     frameworks.append(it.only_arg);
                     break;
+                case Stage2ClangArgNoStdLibInc:
+                    want_native_include_dirs = false;
+                    break;
             }
         }
         // Parse linker args
@@ -833,9 +827,13 @@ static int main0(int argc, char **argv) {
                 linker_gc_sections = OptionalBoolTrue;
             } else if (buf_eql_str(arg, "--no-gc-sections")) {
                 linker_gc_sections = OptionalBoolFalse;
-            } else if (buf_eql_str(arg, "--allow-shlib-undefined")) {
+            } else if (buf_eql_str(arg, "--allow-shlib-undefined") ||
+                       buf_eql_str(arg, "-allow-shlib-undefined"))
+            {
                 linker_allow_shlib_undefined = OptionalBoolTrue;
-            } else if (buf_eql_str(arg, "--no-allow-shlib-undefined")) {
+            } else if (buf_eql_str(arg, "--no-allow-shlib-undefined") ||
+                       buf_eql_str(arg, "-no-allow-shlib-undefined"))
+            {
                 linker_allow_shlib_undefined = OptionalBoolFalse;
             } else if (buf_eql_str(arg, "-z")) {
                 i += 1;
@@ -851,6 +849,27 @@ static int main0(int argc, char **argv) {
                 } else {
                     fprintf(stderr, "warning: unsupported linker arg: -z %s\n", buf_ptr(z_arg));
                 }
+            } else if (buf_eql_str(arg, "--major-image-version")) {
+                i += 1;
+                if (i >= linker_args.length) {
+                    fprintf(stderr, "expected linker arg after '%s'\n", buf_ptr(arg));
+                    return EXIT_FAILURE;
+                }
+                ver_major = atoi(buf_ptr(linker_args.at(i)));
+            } else if (buf_eql_str(arg, "--minor-image-version")) {
+                i += 1;
+                if (i >= linker_args.length) {
+                    fprintf(stderr, "expected linker arg after '%s'\n", buf_ptr(arg));
+                    return EXIT_FAILURE;
+                }
+                ver_minor = atoi(buf_ptr(linker_args.at(i)));
+            } else if (buf_eql_str(arg, "--stack")) {
+                i += 1;
+                if (i >= linker_args.length) {
+                    fprintf(stderr, "expected linker arg after '%s'\n", buf_ptr(arg));
+                    return EXIT_FAILURE;
+                }
+                stack_size_override = atoi(buf_ptr(linker_args.at(i)));
             } else {
                 fprintf(stderr, "warning: unsupported linker arg: %s\n", buf_ptr(arg));
             }
@@ -1426,7 +1445,7 @@ static int main0(int argc, char **argv) {
                 }
             }
 
-            if (target.is_native_os && any_system_lib_dependencies) {
+            if (target.is_native_os && (any_system_lib_dependencies || want_native_include_dirs)) {
                 Error err;
                 Stage2NativePaths paths;
                 if ((err = stage2_detect_native_paths(&paths))) {
@@ -1576,6 +1595,7 @@ static int main0(int argc, char **argv) {
             g->linker_allow_shlib_undefined = linker_allow_shlib_undefined;
             g->linker_z_nodelete = linker_z_nodelete;
             g->linker_z_defs = linker_z_defs;
+            g->stack_size_override = stack_size_override;
 
             if (override_soname) {
                 g->override_soname = buf_create_from_str(override_soname);

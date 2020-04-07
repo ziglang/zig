@@ -37,7 +37,9 @@
 #include <fcntl.h>
 #include <ntsecapi.h>
 
+#if defined(_MSC_VER)
 typedef SSIZE_T ssize_t;
+#endif
 #else
 #define ZIG_OS_POSIX
 

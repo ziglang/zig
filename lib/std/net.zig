@@ -509,7 +509,7 @@ pub fn getAddressList(allocator: *mem.Allocator, name: []const u8, port: u16) !*
 
         try linuxLookupName(&lookup_addrs, &canon, name, family, flags, port);
 
-        result.addrs = try arena.alloc(Address, lookup_addrs.len);
+        result.addrs = try arena.alloc(Address, lookup_addrs.items.len);
         if (!canon.isNull()) {
             result.canon_name = canon.toOwnedSlice();
         }
@@ -554,7 +554,7 @@ fn linuxLookupName(
             return name_err;
         } else {
             try linuxLookupNameFromHosts(addrs, canon, name, family, port);
-            if (addrs.len == 0) {
+            if (addrs.items.len == 0) {
                 try linuxLookupNameFromDnsSearch(addrs, canon, name, family, port);
             }
         }
@@ -562,11 +562,11 @@ fn linuxLookupName(
         try canon.resize(0);
         try linuxLookupNameFromNull(addrs, family, flags, port);
     }
-    if (addrs.len == 0) return error.UnknownHostName;
+    if (addrs.items.len == 0) return error.UnknownHostName;
 
     // No further processing is needed if there are fewer than 2
     // results or if there are only IPv4 results.
-    if (addrs.len == 1 or family == os.AF_INET) return;
+    if (addrs.items.len == 1 or family == os.AF_INET) return;
     const all_ip4 = for (addrs.span()) |addr| {
         if (addr.addr.any.family != os.AF_INET) break false;
     } else true;
@@ -823,7 +823,7 @@ fn linuxLookupNameFromHosts(
         },
         else => |e| return e,
     }) |line| {
-        const no_comment_line = mem.separate(line, "#").next().?;
+        const no_comment_line = mem.split(line, "#").next().?;
 
         var line_it = mem.tokenize(no_comment_line, " \t");
         const ip_text = line_it.next() orelse continue;
@@ -908,7 +908,7 @@ fn linuxLookupNameFromDnsSearch(
         canon.shrink(canon_name.len + 1);
         try canon.appendSlice(tok);
         try linuxLookupNameFromDns(addrs, canon, canon.span(), family, rc, port);
-        if (addrs.len != 0) return;
+        if (addrs.items.len != 0) return;
     }
 
     canon.shrink(canon_name.len);
@@ -967,7 +967,7 @@ fn linuxLookupNameFromDns(
         dnsParse(ap[i], ctx, dnsParseCallback) catch {};
     }
 
-    if (addrs.len != 0) return;
+    if (addrs.items.len != 0) return;
     if (ap[0].len < 4 or (ap[0][3] & 15) == 2) return error.TemporaryNameServerFailure;
     if ((ap[0][3] & 15) == 0) return error.UnknownHostName;
     if ((ap[0][3] & 15) == 3) return;
@@ -1020,13 +1020,13 @@ fn getResolvConf(allocator: *mem.Allocator, rc: *ResolvConf) !void {
         },
         else => |e| return e,
     }) |line| {
-        const no_comment_line = mem.separate(line, "#").next().?;
+        const no_comment_line = mem.split(line, "#").next().?;
         var line_it = mem.tokenize(no_comment_line, " \t");
 
         const token = line_it.next() orelse continue;
         if (mem.eql(u8, token, "options")) {
             while (line_it.next()) |sub_tok| {
-                var colon_it = mem.separate(sub_tok, ":");
+                var colon_it = mem.split(sub_tok, ":");
                 const name = colon_it.next().?;
                 const value_txt = colon_it.next() orelse continue;
                 const value = std.fmt.parseInt(u8, value_txt, 10) catch |err| switch (err) {
@@ -1049,7 +1049,7 @@ fn getResolvConf(allocator: *mem.Allocator, rc: *ResolvConf) !void {
         }
     }
 
-    if (rc.ns.len == 0) {
+    if (rc.ns.items.len == 0) {
         return linuxLookupNameFromNumericUnspec(&rc.ns, "127.0.0.1", 53);
     }
 }
@@ -1078,7 +1078,7 @@ fn resMSendRc(
     var ns_list = std.ArrayList(Address).init(rc.ns.allocator);
     defer ns_list.deinit();
 
-    try ns_list.resize(rc.ns.len);
+    try ns_list.resize(rc.ns.items.len);
     const ns = ns_list.span();
 
     for (rc.ns.span()) |iplit, i| {

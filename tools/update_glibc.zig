@@ -21,6 +21,7 @@ const lib_names = [_][]const u8{
     "pthread",
     "rt",
     "ld",
+    "util",
 };
 
 // fpu/nofpu are hardcoded elsewhere, based on .gnueabi/.gnueabihf with an exception for .arm
@@ -182,7 +183,8 @@ pub fn main() !void {
                 }
                 break :blk try fs.path.join(allocator, &[_][]const u8{ prefix, abi_list.path, basename });
             };
-            const contents = std.io.readFileAlloc(allocator, abi_list_filename) catch |err| {
+            const max_bytes = 10 * 1024 * 1024;
+            const contents = std.fs.cwd().readFileAlloc(allocator, abi_list_filename, max_bytes) catch |err| {
                 std.debug.warn("unable to open {}: {}\n", .{ abi_list_filename, err });
                 std.process.exit(1);
             };

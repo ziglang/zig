@@ -6857,4 +6857,309 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:7:32: error: destination type 'u16' has size 2 but source type '[]u8' has size 16",
         "tmp.zig:7:37: note: referenced here",
     });
+
+    cases.add("comptime slice-sentinel is out of bounds (unterminated)",
+        \\export fn foo_array() void {
+        \\    comptime {
+        \\        var target = [_]u8{ 'a', 'b', 'c', 'd' } ++ [_]u8{undefined} ** 10;
+        \\        const slice = target[0..14 :0];
+        \\    }
+        \\}
+        \\export fn foo_ptr_array() void {
+        \\    comptime {
+        \\        var buf = [_]u8{ 'a', 'b', 'c', 'd' } ++ [_]u8{undefined} ** 10;
+        \\        var target = &buf;
+        \\        const slice = target[0..14 :0];
+        \\    }
+        \\}
+        \\export fn foo_vector_ConstPtrSpecialBaseArray() void {
+        \\    comptime {
+        \\        var buf = [_]u8{ 'a', 'b', 'c', 'd' } ++ [_]u8{undefined} ** 10;
+        \\        var target: [*]u8 = &buf;
+        \\        const slice = target[0..14 :0];
+        \\    }
+        \\}
+        \\export fn foo_vector_ConstPtrSpecialRef() void {
+        \\    comptime {
+        \\        var buf = [_]u8{ 'a', 'b', 'c', 'd' } ++ [_]u8{undefined} ** 10;
+        \\        var target: [*]u8 = @ptrCast([*]u8, &buf);
+        \\        const slice = target[0..14 :0];
+        \\    }
+        \\}
+        \\export fn foo_cvector_ConstPtrSpecialBaseArray() void {
+        \\    comptime {
+        \\        var buf = [_]u8{ 'a', 'b', 'c', 'd' } ++ [_]u8{undefined} ** 10;
+        \\        var target: [*c]u8 = &buf;
+        \\        const slice = target[0..14 :0];
+        \\    }
+        \\}
+        \\export fn foo_cvector_ConstPtrSpecialRef() void {
+        \\    comptime {
+        \\        var buf = [_]u8{ 'a', 'b', 'c', 'd' } ++ [_]u8{undefined} ** 10;
+        \\        var target: [*c]u8 = @ptrCast([*c]u8, &buf);
+        \\        const slice = target[0..14 :0];
+        \\    }
+        \\}
+        \\export fn foo_slice() void {
+        \\    comptime {
+        \\        var buf = [_]u8{ 'a', 'b', 'c', 'd' } ++ [_]u8{undefined} ** 10;
+        \\        var target: []u8 = &buf;
+        \\        const slice = target[0..14 :0];
+        \\    }
+        \\}
+    , &[_][]const u8{
+        ":4:29: error: slice-sentinel is out of bounds",
+        ":11:29: error: slice-sentinel is out of bounds",
+        ":18:29: error: slice-sentinel is out of bounds",
+        ":25:29: error: slice-sentinel is out of bounds",
+        ":32:29: error: slice-sentinel is out of bounds",
+        ":39:29: error: slice-sentinel is out of bounds",
+        ":46:29: error: slice-sentinel is out of bounds",
+    });
+
+    cases.add("comptime slice-sentinel is out of bounds (terminated)",
+        \\export fn foo_array() void {
+        \\    comptime {
+        \\        var target = [_:0]u8{ 'a', 'b', 'c', 'd' } ++ [_]u8{undefined} ** 10;
+        \\        const slice = target[0..15 :1];
+        \\    }
+        \\}
+        \\export fn foo_ptr_array() void {
+        \\    comptime {
+        \\        var buf = [_:0]u8{ 'a', 'b', 'c', 'd' } ++ [_]u8{undefined} ** 10;
+        \\        var target = &buf;
+        \\        const slice = target[0..15 :0];
+        \\    }
+        \\}
+        \\export fn foo_vector_ConstPtrSpecialBaseArray() void {
+        \\    comptime {
+        \\        var buf = [_:0]u8{ 'a', 'b', 'c', 'd' } ++ [_]u8{undefined} ** 10;
+        \\        var target: [*]u8 = &buf;
+        \\        const slice = target[0..15 :0];
+        \\    }
+        \\}
+        \\export fn foo_vector_ConstPtrSpecialRef() void {
+        \\    comptime {
+        \\        var buf = [_:0]u8{ 'a', 'b', 'c', 'd' } ++ [_]u8{undefined} ** 10;
+        \\        var target: [*]u8 = @ptrCast([*]u8, &buf);
+        \\        const slice = target[0..15 :0];
+        \\    }
+        \\}
+        \\export fn foo_cvector_ConstPtrSpecialBaseArray() void {
+        \\    comptime {
+        \\        var buf = [_:0]u8{ 'a', 'b', 'c', 'd' } ++ [_]u8{undefined} ** 10;
+        \\        var target: [*c]u8 = &buf;
+        \\        const slice = target[0..15 :0];
+        \\    }
+        \\}
+        \\export fn foo_cvector_ConstPtrSpecialRef() void {
+        \\    comptime {
+        \\        var buf = [_:0]u8{ 'a', 'b', 'c', 'd' } ++ [_]u8{undefined} ** 10;
+        \\        var target: [*c]u8 = @ptrCast([*c]u8, &buf);
+        \\        const slice = target[0..15 :0];
+        \\    }
+        \\}
+        \\export fn foo_slice() void {
+        \\    comptime {
+        \\        var buf = [_:0]u8{ 'a', 'b', 'c', 'd' } ++ [_]u8{undefined} ** 10;
+        \\        var target: []u8 = &buf;
+        \\        const slice = target[0..15 :0];
+        \\    }
+        \\}
+    , &[_][]const u8{
+        ":4:29: error: out of bounds slice",
+        ":11:29: error: out of bounds slice",
+        ":18:29: error: out of bounds slice",
+        ":25:29: error: out of bounds slice",
+        ":32:29: error: out of bounds slice",
+        ":39:29: error: out of bounds slice",
+        ":46:29: error: out of bounds slice",
+    });
+
+    cases.add("comptime slice-sentinel does not match memory at target index (unterminated)",
+        \\export fn foo_array() void {
+        \\    comptime {
+        \\        var target = [_]u8{ 'a', 'b', 'c', 'd' } ++ [_]u8{undefined} ** 10;
+        \\        const slice = target[0..3 :0];
+        \\    }
+        \\}
+        \\export fn foo_ptr_array() void {
+        \\    comptime {
+        \\        var buf = [_]u8{ 'a', 'b', 'c', 'd' } ++ [_]u8{undefined} ** 10;
+        \\        var target = &buf;
+        \\        const slice = target[0..3 :0];
+        \\    }
+        \\}
+        \\export fn foo_vector_ConstPtrSpecialBaseArray() void {
+        \\    comptime {
+        \\        var buf = [_]u8{ 'a', 'b', 'c', 'd' } ++ [_]u8{undefined} ** 10;
+        \\        var target: [*]u8 = &buf;
+        \\        const slice = target[0..3 :0];
+        \\    }
+        \\}
+        \\export fn foo_vector_ConstPtrSpecialRef() void {
+        \\    comptime {
+        \\        var buf = [_]u8{ 'a', 'b', 'c', 'd' } ++ [_]u8{undefined} ** 10;
+        \\        var target: [*]u8 = @ptrCast([*]u8, &buf);
+        \\        const slice = target[0..3 :0];
+        \\    }
+        \\}
+        \\export fn foo_cvector_ConstPtrSpecialBaseArray() void {
+        \\    comptime {
+        \\        var buf = [_]u8{ 'a', 'b', 'c', 'd' } ++ [_]u8{undefined} ** 10;
+        \\        var target: [*c]u8 = &buf;
+        \\        const slice = target[0..3 :0];
+        \\    }
+        \\}
+        \\export fn foo_cvector_ConstPtrSpecialRef() void {
+        \\    comptime {
+        \\        var buf = [_]u8{ 'a', 'b', 'c', 'd' } ++ [_]u8{undefined} ** 10;
+        \\        var target: [*c]u8 = @ptrCast([*c]u8, &buf);
+        \\        const slice = target[0..3 :0];
+        \\    }
+        \\}
+        \\export fn foo_slice() void {
+        \\    comptime {
+        \\        var buf = [_]u8{ 'a', 'b', 'c', 'd' } ++ [_]u8{undefined} ** 10;
+        \\        var target: []u8 = &buf;
+        \\        const slice = target[0..3 :0];
+        \\    }
+        \\}
+    , &[_][]const u8{
+        ":4:29: error: slice-sentinel does not match memory at target index",
+        ":11:29: error: slice-sentinel does not match memory at target index",
+        ":18:29: error: slice-sentinel does not match memory at target index",
+        ":25:29: error: slice-sentinel does not match memory at target index",
+        ":32:29: error: slice-sentinel does not match memory at target index",
+        ":39:29: error: slice-sentinel does not match memory at target index",
+        ":46:29: error: slice-sentinel does not match memory at target index",
+    });
+
+    cases.add("comptime slice-sentinel does not match memory at target index (terminated)",
+        \\export fn foo_array() void {
+        \\    comptime {
+        \\        var target = [_:0]u8{ 'a', 'b', 'c', 'd' } ++ [_]u8{undefined} ** 10;
+        \\        const slice = target[0..3 :0];
+        \\    }
+        \\}
+        \\export fn foo_ptr_array() void {
+        \\    comptime {
+        \\        var buf = [_:0]u8{ 'a', 'b', 'c', 'd' } ++ [_]u8{undefined} ** 10;
+        \\        var target = &buf;
+        \\        const slice = target[0..3 :0];
+        \\    }
+        \\}
+        \\export fn foo_vector_ConstPtrSpecialBaseArray() void {
+        \\    comptime {
+        \\        var buf = [_:0]u8{ 'a', 'b', 'c', 'd' } ++ [_]u8{undefined} ** 10;
+        \\        var target: [*]u8 = &buf;
+        \\        const slice = target[0..3 :0];
+        \\    }
+        \\}
+        \\export fn foo_vector_ConstPtrSpecialRef() void {
+        \\    comptime {
+        \\        var buf = [_:0]u8{ 'a', 'b', 'c', 'd' } ++ [_]u8{undefined} ** 10;
+        \\        var target: [*]u8 = @ptrCast([*]u8, &buf);
+        \\        const slice = target[0..3 :0];
+        \\    }
+        \\}
+        \\export fn foo_cvector_ConstPtrSpecialBaseArray() void {
+        \\    comptime {
+        \\        var buf = [_:0]u8{ 'a', 'b', 'c', 'd' } ++ [_]u8{undefined} ** 10;
+        \\        var target: [*c]u8 = &buf;
+        \\        const slice = target[0..3 :0];
+        \\    }
+        \\}
+        \\export fn foo_cvector_ConstPtrSpecialRef() void {
+        \\    comptime {
+        \\        var buf = [_:0]u8{ 'a', 'b', 'c', 'd' } ++ [_]u8{undefined} ** 10;
+        \\        var target: [*c]u8 = @ptrCast([*c]u8, &buf);
+        \\        const slice = target[0..3 :0];
+        \\    }
+        \\}
+        \\export fn foo_slice() void {
+        \\    comptime {
+        \\        var buf = [_:0]u8{ 'a', 'b', 'c', 'd' } ++ [_]u8{undefined} ** 10;
+        \\        var target: []u8 = &buf;
+        \\        const slice = target[0..3 :0];
+        \\    }
+        \\}
+    , &[_][]const u8{
+        ":4:29: error: slice-sentinel does not match memory at target index",
+        ":11:29: error: slice-sentinel does not match memory at target index",
+        ":18:29: error: slice-sentinel does not match memory at target index",
+        ":25:29: error: slice-sentinel does not match memory at target index",
+        ":32:29: error: slice-sentinel does not match memory at target index",
+        ":39:29: error: slice-sentinel does not match memory at target index",
+        ":46:29: error: slice-sentinel does not match memory at target index",
+    });
+
+    cases.add("comptime slice-sentinel does not match target-sentinel",
+        \\export fn foo_array() void {
+        \\    comptime {
+        \\        var target = [_:0]u8{ 'a', 'b', 'c', 'd' } ++ [_]u8{undefined} ** 10;
+        \\        const slice = target[0..14 :255];
+        \\    }
+        \\}
+        \\export fn foo_ptr_array() void {
+        \\    comptime {
+        \\        var buf = [_:0]u8{ 'a', 'b', 'c', 'd' } ++ [_]u8{undefined} ** 10;
+        \\        var target = &buf;
+        \\        const slice = target[0..14 :255];
+        \\    }
+        \\}
+        \\export fn foo_vector_ConstPtrSpecialBaseArray() void {
+        \\    comptime {
+        \\        var buf = [_:0]u8{ 'a', 'b', 'c', 'd' } ++ [_]u8{undefined} ** 10;
+        \\        var target: [*]u8 = &buf;
+        \\        const slice = target[0..14 :255];
+        \\    }
+        \\}
+        \\export fn foo_vector_ConstPtrSpecialRef() void {
+        \\    comptime {
+        \\        var buf = [_:0]u8{ 'a', 'b', 'c', 'd' } ++ [_]u8{undefined} ** 10;
+        \\        var target: [*]u8 = @ptrCast([*]u8, &buf);
+        \\        const slice = target[0..14 :255];
+        \\    }
+        \\}
+        \\export fn foo_cvector_ConstPtrSpecialBaseArray() void {
+        \\    comptime {
+        \\        var buf = [_:0]u8{ 'a', 'b', 'c', 'd' } ++ [_]u8{undefined} ** 10;
+        \\        var target: [*c]u8 = &buf;
+        \\        const slice = target[0..14 :255];
+        \\    }
+        \\}
+        \\export fn foo_cvector_ConstPtrSpecialRef() void {
+        \\    comptime {
+        \\        var buf = [_:0]u8{ 'a', 'b', 'c', 'd' } ++ [_]u8{undefined} ** 10;
+        \\        var target: [*c]u8 = @ptrCast([*c]u8, &buf);
+        \\        const slice = target[0..14 :255];
+        \\    }
+        \\}
+        \\export fn foo_slice() void {
+        \\    comptime {
+        \\        var buf = [_:0]u8{ 'a', 'b', 'c', 'd' } ++ [_]u8{undefined} ** 10;
+        \\        var target: []u8 = &buf;
+        \\        const slice = target[0..14 :255];
+        \\    }
+        \\}
+    , &[_][]const u8{
+        ":4:29: error: slice-sentinel does not match target-sentinel",
+        ":11:29: error: slice-sentinel does not match target-sentinel",
+        ":18:29: error: slice-sentinel does not match target-sentinel",
+        ":25:29: error: slice-sentinel does not match target-sentinel",
+        ":32:29: error: slice-sentinel does not match target-sentinel",
+        ":39:29: error: slice-sentinel does not match target-sentinel",
+        ":46:29: error: slice-sentinel does not match target-sentinel",
+    });
+
+    cases.add("issue #4207: coerce from non-terminated-slice to terminated-pointer",
+        \\export fn foo() [*:0]const u8 {
+        \\    var buffer: [64]u8 = undefined;
+        \\    return buffer[0..];
+        \\}
+    , &[_][]const u8{
+        ":3:18: error: expected type '[*:0]const u8', found '*[64]u8'",
+        ":3:18: note: destination pointer requires a terminating '0' sentinel",
+    });
 }

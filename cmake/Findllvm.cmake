@@ -144,9 +144,7 @@ else()
         /mingw64/lib
         /c/msys64/mingw64/lib
         c:\\msys64\\mingw64\\lib)
-      if(LLVM_${_prettylibname_}_LIB)
-        set(LLVM_LIBRARIES ${LLVM_LIBRARIES} ${LLVM_${_prettylibname_}_LIB})
-      endif()
+      set(LLVM_LIBRARIES ${LLVM_LIBRARIES} ${LLVM_${_prettylibname_}_LIB})
     endmacro(FIND_AND_ADD_LLVM_LIB)
 
     # This list can be re-generated with `llvm-config --libfiles` and then
@@ -154,7 +152,6 @@ else()
     # `llvm-config` here because we are cross compiling.
     FIND_AND_ADD_LLVM_LIB(LLVMXRay)
     FIND_AND_ADD_LLVM_LIB(LLVMWindowsManifest)
-    FIND_AND_ADD_LLVM_LIB(LLVMTableGen)
     FIND_AND_ADD_LLVM_LIB(LLVMSymbolize)
     FIND_AND_ADD_LLVM_LIB(LLVMDebugInfoPDB)
     FIND_AND_ADD_LLVM_LIB(LLVMOrcJIT)

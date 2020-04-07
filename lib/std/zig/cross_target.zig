@@ -224,7 +224,7 @@ pub const CrossTarget = struct {
             .dynamic_linker = DynamicLinker.init(args.dynamic_linker),
         };
 
-        var it = mem.separate(args.arch_os_abi, "-");
+        var it = mem.split(args.arch_os_abi, "-");
         const arch_name = it.next().?;
         const arch_is_native = mem.eql(u8, arch_name, "native");
         if (!arch_is_native) {
@@ -242,7 +242,7 @@ pub const CrossTarget = struct {
 
         const opt_abi_text = it.next();
         if (opt_abi_text) |abi_text| {
-            var abi_it = mem.separate(abi_text, ".");
+            var abi_it = mem.split(abi_text, ".");
             const abi = std.meta.stringToEnum(Target.Abi, abi_it.next().?) orelse
                 return error.UnknownApplicationBinaryInterface;
             result.abi = abi;
@@ -668,7 +668,7 @@ pub const CrossTarget = struct {
     }
 
     fn parseOs(result: *CrossTarget, diags: *ParseOptions.Diagnostics, text: []const u8) !void {
-        var it = mem.separate(text, ".");
+        var it = mem.split(text, ".");
         const os_name = it.next().?;
         diags.os_name = os_name;
         const os_is_native = mem.eql(u8, os_name, "native");
@@ -722,7 +722,7 @@ pub const CrossTarget = struct {
             .linux,
             .dragonfly,
             => {
-                var range_it = mem.separate(version_text, "...");
+                var range_it = mem.split(version_text, "...");
 
                 const min_text = range_it.next().?;
                 const min_ver = SemVer.parse(min_text) catch |err| switch (err) {
@@ -742,7 +742,7 @@ pub const CrossTarget = struct {
             },
 
             .windows => {
-                var range_it = mem.separate(version_text, "...");
+                var range_it = mem.split(version_text, "...");
 
                 const min_text = range_it.next().?;
                 const min_ver = std.meta.stringToEnum(Target.Os.WindowsVersion, min_text) orelse

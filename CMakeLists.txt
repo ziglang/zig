@@ -303,9 +303,10 @@ set(LIBC_FILES_DEST "${ZIG_LIB_DIR}/libc")
 set(LIBUNWIND_FILES_DEST "${ZIG_LIB_DIR}/libunwind")
 set(LIBCXX_FILES_DEST "${ZIG_LIB_DIR}/libcxx")
 set(ZIG_STD_DEST "${ZIG_LIB_DIR}/std")
+set(ZIG_CONFIG_H_OUT "${CMAKE_BINARY_DIR}/config.h")
 configure_file (
     "${CMAKE_SOURCE_DIR}/src/config.h.in"
-    "${CMAKE_BINARY_DIR}/config.h"
+    "${ZIG_CONFIG_H_OUT}"
 )
 
 include_directories(
@@ -364,7 +365,7 @@ if(ZIG_STATIC)
     endif()
 else()
     if(MINGW)
-        set(EXE_LDFLAGS "${EXE_LDFLAGS} -lz3")
+        set(EXE_LDFLAGS "${EXE_LDFLAGS}")
     endif()
 endif()
 
@@ -428,11 +429,6 @@ if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
 else()
     set(LIBSTAGE2_RELEASE_ARG --release-fast --strip)
 endif()
-if(WIN32)
-    set(LIBSTAGE2_WINDOWS_ARGS "-lntdll")
-else()
-    set(LIBSTAGE2_WINDOWS_ARGS "")
-endif()
 
 set(BUILD_LIBSTAGE2_ARGS "build-lib"
     "src-self-hosted/stage2.zig"
@@ -446,7 +442,6 @@ set(BUILD_LIBSTAGE2_ARGS "build-lib"
     --bundle-compiler-rt
     -fPIC
     -lc
-    ${LIBSTAGE2_WINDOWS_ARGS}
 )
 
 if("${ZIG_TARGET_TRIPLE}" STREQUAL "native")
@@ -485,6 +480,7 @@ set(ZIG_INSTALL_ARGS "build"
     --override-lib-dir "${CMAKE_SOURCE_DIR}/lib"
     "-Dlib-files-only"
     --prefix "${CMAKE_INSTALL_PREFIX}"
+    "-Dconfig_h=${ZIG_CONFIG_H_OUT}"
     install
 )
 

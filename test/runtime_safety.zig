@@ -505,6 +505,21 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\}
     );
 
+    cases.addRuntimeSafety("signed integer division overflow - vectors",
+        \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+        \\    @import("std").os.exit(126);
+        \\}
+        \\pub fn main() !void {
+        \\    var a: @Vector(4, i16) = [_]i16{ 1, 2, -32768, 4 };
+        \\    var b: @Vector(4, i16) = [_]i16{ 1, 2, -1, 4 };
+        \\    const x = div(a, b);
+        \\    if (x[2] == 32767) return error.Whatever;
+        \\}
+        \\fn div(a: @Vector(4, i16), b: @Vector(4, i16)) @Vector(4, i16) {
+        \\    return @divTrunc(a, b);
+        \\}
+    );
+
     cases.addRuntimeSafety("signed shift left overflow",
         \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);
@@ -569,6 +584,20 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\}
     );
 
+    cases.addRuntimeSafety("integer division by zero - vectors",
+        \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+        \\    @import("std").os.exit(126);
+        \\}
+        \\pub fn main() void {
+        \\    var a: @Vector(4, i32) = [4]i32{111, 222, 333, 444};
+        \\    var b: @Vector(4, i32) = [4]i32{111, 0, 333, 444};
+        \\    const x = div0(a, b);
+        \\}
+        \\fn div0(a: @Vector(4, i32), b: @Vector(4, i32)) @Vector(4, i32) {
+        \\    return @divTrunc(a, b);
+        \\}
+    );
+
     cases.addRuntimeSafety("exact division failure",
         \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);
@@ -578,6 +607,20 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    if (x == 0) return error.Whatever;
         \\}
         \\fn divExact(a: i32, b: i32) i32 {
+        \\    return @divExact(a, b);
+        \\}
+    );
+
+    cases.addRuntimeSafety("exact division failure - vectors",
+        \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+        \\    @import("std").os.exit(126);
+        \\}
+        \\pub fn main() !void {
+        \\    var a: @Vector(4, i32) = [4]i32{111, 222, 333, 444};
+        \\    var b: @Vector(4, i32) = [4]i32{111, 222, 333, 441};
+        \\    const x = divExact(a, b);
+        \\}
+        \\fn divExact(a: @Vector(4, i32), b: @Vector(4, i32)) @Vector(4, i32) {
         \\    return @divExact(a, b);
         \\}
     );
