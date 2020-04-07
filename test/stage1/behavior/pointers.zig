@@ -253,7 +253,7 @@ test "pointer sentinel with enums" {
         };
 
         fn doTheTest() void {
-            var ptr: [*:.sentinel]Number = &[_:.sentinel]Number{ .one, .two, .two, .one };
+            var ptr: [*:.sentinel]const Number = &[_:.sentinel]Number{ .one, .two, .two, .one };
             expect(ptr[4] == .sentinel); // TODO this should be comptime expect, see #3731
         }
     };
@@ -264,7 +264,7 @@ test "pointer sentinel with enums" {
 test "pointer sentinel with optional element" {
     const S = struct {
         fn doTheTest() void {
-            var ptr: [*:null]?i32 = &[_:null]?i32{ 1, 2, 3, 4 };
+            var ptr: [*:null]const ?i32 = &[_:null]?i32{ 1, 2, 3, 4 };
             expect(ptr[4] == null); // TODO this should be comptime expect, see #3731
         }
     };
@@ -276,7 +276,7 @@ test "pointer sentinel with +inf" {
     const S = struct {
         fn doTheTest() void {
             const inf = std.math.inf_f32;
-            var ptr: [*:inf]f32 = &[_:inf]f32{ 1.1, 2.2, 3.3, 4.4 };
+            var ptr: [*:inf]const f32 = &[_:inf]f32{ 1.1, 2.2, 3.3, 4.4 };
             expect(ptr[4] == inf); // TODO this should be comptime expect, see #3731
         }
     };

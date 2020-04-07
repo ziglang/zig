@@ -218,9 +218,9 @@ test "slice syntax resulting in pointer-to-array" {
         }
 
         fn testPointer0() void {
-            var pointer: [*]u0 = &[1]u0{0};
+            var pointer: [*]const u0 = &[1]u0{0};
             var slice = pointer[0..1];
-            comptime expect(@TypeOf(slice) == *[1]u0);
+            comptime expect(@TypeOf(slice) == *const [1]u0);
             expect(slice[0] == 0);
         }
 

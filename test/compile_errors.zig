@@ -997,7 +997,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const x = 1 << &@as(u8, 10);
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:21: error: shift amount has to be an integer type, but found '*u8'",
+        "tmp.zig:2:21: error: shift amount has to be an integer type, but found '*const u8'",
         "tmp.zig:2:17: note: referenced here",
     });
 
@@ -1006,7 +1006,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const x = &@as(u8, 1) << 10;
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:16: error: bit shifting operation expected integer type, found '*u8'",
+        "tmp.zig:2:16: error: bit shifting operation expected integer type, found '*const u8'",
         "tmp.zig:2:27: note: referenced here",
     });
 
@@ -6033,7 +6033,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    fn bar(self: *const Foo) void {}
         \\};
     , &[_][]const u8{
-        "tmp.zig:2:4: error: variable of type '*comptime_int' must be const or comptime",
+        "tmp.zig:2:4: error: variable of type '*const comptime_int' must be const or comptime",
         "tmp.zig:5:4: error: variable of type '(undefined)' must be const or comptime",
         "tmp.zig:8:4: error: variable of type 'comptime_int' must be const or comptime",
         "tmp.zig:11:4: error: variable of type 'comptime_float' must be const or comptime",
@@ -6877,12 +6877,12 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const word: u16 = @bitCast(u16, bytes[0..]);
         \\}
         \\export fn foo2() void {
-        \\    var bytes: []u8 = &[_]u8{1, 2};
+        \\    var bytes: []const u8 = &[_]u8{1, 2};
         \\    const word: u16 = @bitCast(u16, bytes);
         \\}
     , &[_][]const u8{
         "tmp.zig:3:42: error: unable to @bitCast from pointer type '*[2]u8'",
-        "tmp.zig:7:32: error: destination type 'u16' has size 2 but source type '[]u8' has size 16",
+        "tmp.zig:7:32: error: destination type 'u16' has size 2 but source type '[]const u8' has size 16",
         "tmp.zig:7:37: note: referenced here",
     });
 
