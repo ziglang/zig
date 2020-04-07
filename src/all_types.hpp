@@ -2083,7 +2083,7 @@ struct CodeGen {
     HashMap<Scope *, ZigValue *, fn_eval_hash, fn_eval_eql> memoized_fn_eval_table;
     HashMap<ZigLLVMFnKey, LLVMValueRef, zig_llvm_fn_key_hash, zig_llvm_fn_key_eql> llvm_fn_table;
     HashMap<Buf *, Tld *, buf_hash, buf_eql_buf> exported_symbol_names;
-    HashMap<Buf *, Tld *, buf_hash, buf_eql_buf> external_prototypes;
+    HashMap<Buf *, Tld *, buf_hash, buf_eql_buf> external_symbol_names;
     HashMap<Buf *, ZigValue *, buf_hash, buf_eql_buf> string_literals_table;
     HashMap<const ZigType *, ZigValue *, type_ptr_hash, type_ptr_eql> type_info_cache;
     HashMap<const ZigType *, ZigValue *, type_ptr_hash, type_ptr_eql> one_possible_values;

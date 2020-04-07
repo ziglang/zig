@@ -204,15 +204,14 @@ static bool is_symbol_available(CodeGen *g, const char *name) {
     Buf *buf_name = buf_create_from_str(name);
     bool result =
         g->exported_symbol_names.maybe_get(buf_name) == nullptr &&
-        g->external_prototypes.maybe_get(buf_name) == nullptr;
+        g->external_symbol_names.maybe_get(buf_name) == nullptr;
     buf_destroy(buf_name);
     return result;
 }
 
-static const char *get_mangled_name(CodeGen *g, const char *original_name, bool external_linkage) {
-    if (external_linkage || is_symbol_available(g, original_name)) {
+static const char *get_mangled_name(CodeGen *g, const char *original_name) {
+    if (is_symbol_available(g, original_name))
         return original_name;
-    }
 
     int n = 0;
     for (;; n += 1) {
@@ -437,7 +436,7 @@ static LLVMValueRef make_fn_llvm_value(CodeGen *g, ZigFn *fn) {
         symbol_name = unmangled_name;
         linkage = GlobalLinkageIdStrong;
     } else if (fn->export_list.length == 0) {
-        symbol_name = get_mangled_name(g, unmangled_name, false);
+        symbol_name = get_mangled_name(g, unmangled_name);
         linkage = GlobalLinkageIdInternal;
     } else {
         GlobalExport *fn_export = &fn->export_list.items[0];
@@ -1115,7 +1114,7 @@ static LLVMValueRef get_add_error_return_trace_addr_fn(CodeGen *g) {
     };
     LLVMTypeRef fn_type_ref = LLVMFunctionType(LLVMVoidType(), arg_types, 2, false);
 
-    const char *fn_name = get_mangled_name(g, "__zig_add_err_ret_trace_addr", false);
+    const char *fn_name = get_mangled_name(g, "__zig_add_err_ret_trace_addr");
     LLVMValueRef fn_val = LLVMAddFunction(g->module, fn_name, fn_type_ref);
     addLLVMFnAttr(fn_val, "alwaysinline");
     LLVMSetLinkage(fn_val, LLVMInternalLinkage);
@@ -1194,7 +1193,7 @@ static LLVMValueRef get_return_err_fn(CodeGen *g) {
     };
     LLVMTypeRef fn_type_ref = LLVMFunctionType(LLVMVoidType(), arg_types, 1, false);
 
-    const char *fn_name = get_mangled_name(g, "__zig_return_error", false);
+    const char *fn_name = get_mangled_name(g, "__zig_return_error");
     LLVMValueRef fn_val = LLVMAddFunction(g->module, fn_name, fn_type_ref);
     addLLVMFnAttr(fn_val, "noinline"); // so that we can look at return address
     addLLVMFnAttr(fn_val, "cold");
@@ -1264,7 +1263,7 @@ static LLVMValueRef get_safety_crash_err_fn(CodeGen *g) {
     LLVMSetLinkage(msg_prefix, LLVMPrivateLinkage);
     LLVMSetGlobalConstant(msg_prefix, true);
 
-    const char *fn_name = get_mangled_name(g, "__zig_fail_unwrap", false);
+    const char *fn_name = get_mangled_name(g, "__zig_fail_unwrap");
     LLVMTypeRef fn_type_ref;
     if (g->have_err_ret_tracing) {
         LLVMTypeRef arg_types[] = {
@@ -2174,7 +2173,7 @@ static LLVMValueRef get_merge_err_ret_traces_fn_val(CodeGen *g) {
     };
     LLVMTypeRef fn_type_ref = LLVMFunctionType(LLVMVoidType(), param_types, 2, false);
 
-    const char *fn_name = get_mangled_name(g, "__zig_merge_error_return_traces", false);
+    const char *fn_name = get_mangled_name(g, "__zig_merge_error_return_traces");
     LLVMValueRef fn_val = LLVMAddFunction(g->module, fn_name, fn_type_ref);
     LLVMSetLinkage(fn_val, LLVMInternalLinkage);
     ZigLLVMFunctionSetCallingConv(fn_val, get_llvm_cc(g, CallingConventionUnspecified));
@@ -5099,7 +5098,7 @@ static LLVMValueRef get_enum_tag_name_function(CodeGen *g, ZigType *enum_type) {
             &tag_int_llvm_type, 1, false);
 
     const char *fn_name = get_mangled_name(g,
-            buf_ptr(buf_sprintf("__zig_tag_name_%s", buf_ptr(&enum_type->name))), false);
+            buf_ptr(buf_sprintf("__zig_tag_name_%s", buf_ptr(&enum_type->name))));
     LLVMValueRef fn_val = LLVMAddFunction(g->module, fn_name, fn_type_ref);
     LLVMSetLinkage(fn_val, LLVMInternalLinkage);
     ZigLLVMFunctionSetCallingConv(fn_val, get_llvm_cc(g, CallingConventionUnspecified));
@@ -7588,7 +7587,7 @@ static void generate_error_name_table(CodeGen *g) {
     LLVMValueRef err_name_table_init = LLVMConstArray(get_llvm_type(g, str_type), values, (unsigned)g->errors_by_index.length);
 
     g->err_name_table = LLVMAddGlobal(g->module, LLVMTypeOf(err_name_table_init),
-            get_mangled_name(g, buf_ptr(buf_create_from_str("__zig_err_name_table")), false));
+            get_mangled_name(g, buf_ptr(buf_create_from_str("__zig_err_name_table"))));
     LLVMSetInitializer(g->err_name_table, err_name_table_init);
     LLVMSetLinkage(g->err_name_table, LLVMPrivateLinkage);
     LLVMSetGlobalConstant(g->err_name_table, true);
@@ -7719,7 +7718,7 @@ static void do_code_gen(CodeGen *g) {
                 symbol_name = unmangled_name;
                 linkage = GlobalLinkageIdStrong;
             } else {
-                symbol_name = get_mangled_name(g, unmangled_name, false);
+                symbol_name = get_mangled_name(g, unmangled_name);
                 linkage = GlobalLinkageIdInternal;
             }
         } else {
@@ -10953,7 +10952,7 @@ CodeGen *codegen_create(Buf *main_pkg_path, Buf *root_src_path, const ZigTarget 
     g->llvm_fn_table.init(16);
     g->memoized_fn_eval_table.init(16);
     g->exported_symbol_names.init(8);
-    g->external_prototypes.init(8);
+    g->external_symbol_names.init(8);
     g->string_literals_table.init(16);
     g->type_info_cache.init(32);
     g->one_possible_values.init(32);
@@ -10963,7 +10962,7 @@ CodeGen *codegen_create(Buf *main_pkg_path, Buf *root_src_path, const ZigTarget 
     buf_resize(&g->global_asm, 0);
 
     for (size_t i = 0; i < array_length(symbols_that_llvm_depends_on); i += 1) {
-        g->external_prototypes.put(buf_create_from_str(symbols_that_llvm_depends_on[i]), nullptr);
+        g->external_symbol_names.put(buf_create_from_str(symbols_that_llvm_depends_on[i]), nullptr);
     }
 
     if (root_src_path) {
