@@ -596,13 +596,12 @@ pub const Dir = struct {
         }
 
         // Use the O_ locking flags if the os supports them
-        const has_flock_open_flags = @hasDecl(os, "O_EXLOCK") and @hasDecl(os, "O_SHLOCK");
-        const lock_flag: u32 = lock_flag: {
-            if (has_flock_open_flags and flags.lock) {
-                break :lock_flag if (flags.write) @as(u32, os.O_EXLOCK) else @as(u32, os.O_SHLOCK);
-            }
-            break :lock_flag @as(u32, 0);
-        };
+        const has_flock_open_flags = @hasDecl(os, "O_EXLOCK");
+        const lock_flag: u32 = if (has_flock_open_flags) switch (flags.lock) {
+            .None => @as(u32, 0),
+            .Shared => os.O_SHLOCK,
+            .Exclusive => os.O_EXLOCK,
+        } else 0;
 
         const O_LARGEFILE = if (@hasDecl(os, "O_LARGEFILE")) os.O_LARGEFILE else 0;
         const os_flags = lock_flag | O_LARGEFILE | os.O_CLOEXEC | if (flags.write and flags.read)
@@ -616,9 +615,13 @@ pub const Dir = struct {
         else
             try os.openatZ(self.fd, sub_path, os_flags, 0);
 
-        if (!has_flock_open_flags and flags.lock) {
+        if (!has_flock_open_flags and flags.lock != .None) {
             // TODO: integrate async I/O
-            try os.flock(fd, if (flags.write) os.LOCK_EX else os.LOCK_SH);
+            try os.flock(fd, switch (flags.lock) {
+                .None => unreachable,
+                .Shared => os.LOCK_SH,
+                .Exclusive => os.LOCK_EX,
+            });
         }
 
         return File{
@@ -638,11 +641,13 @@ pub const Dir = struct {
         const access_mask = w.SYNCHRONIZE |
             (if (flags.read) @as(u32, w.GENERIC_READ) else 0) |
             (if (flags.write) @as(u32, w.GENERIC_WRITE) else 0);
-        const share_access = if (flags.lock)
-            w.FILE_SHARE_DELETE |
-                (if (flags.write) @as(os.windows.ULONG, 0) else w.FILE_SHARE_READ)
-        else
-            null;
+
+        const share_access = switch (flags.lock) {
+            .None => @as(?w.ULONG, null),
+            .Shared => w.FILE_SHARE_READ,
+            .Exclusive => @as(?w.ULONG, 0),
+        };
+
         return @as(File, .{
             .handle = try os.windows.OpenFileW(self.fd, sub_path_w, null, access_mask, share_access, w.FILE_OPEN),
             .io_mode = .blocking,
@@ -672,7 +677,11 @@ pub const Dir = struct {
 
         // Use the O_ locking flags if the os supports them
         const has_flock_open_flags = @hasDecl(os, "O_EXLOCK");
-        const lock_flag: u32 = if (has_flock_open_flags and flags.lock) os.O_EXLOCK else 0;
+        const lock_flag: u32 = if (has_flock_open_flags) switch (flags.lock) {
+            .None => @as(u32, 0),
+            .Shared => os.O_SHLOCK,
+            .Exclusive => os.O_EXLOCK,
+        } else 0;
 
         const O_LARGEFILE = if (@hasDecl(os, "O_LARGEFILE")) os.O_LARGEFILE else 0;
         const os_flags = lock_flag | O_LARGEFILE | os.O_CREAT | os.O_CLOEXEC |
@@ -684,9 +693,13 @@ pub const Dir = struct {
         else
             try os.openatZ(self.fd, sub_path_c, os_flags, flags.mode);
 
-        if (!has_flock_open_flags and flags.lock) {
+        if (!has_flock_open_flags and flags.lock != .None) {
             // TODO: integrate async I/O
-            try os.flock(fd, os.LOCK_EX);
+            try os.flock(fd, switch (flags.lock) {
+                .None => unreachable,
+                .Shared => os.LOCK_SH,
+                .Exclusive => os.LOCK_EX,
+            });
         }
 
         return File{ .handle = fd, .io_mode = .blocking };
@@ -705,10 +718,12 @@ pub const Dir = struct {
         else
             @as(u32, w.FILE_OPEN_IF);
 
-        const share_access = if (flags.lock)
-            @as(os.windows.ULONG, w.FILE_SHARE_DELETE)
-        else
-            null;
+        const share_access = switch (flags.lock) {
+            .None => @as(?w.ULONG, null),
+            .Shared => w.FILE_SHARE_READ,
+            .Exclusive => @as(?w.ULONG, 0),
+        };
+
         return @as(File, .{
             .handle = try os.windows.OpenFileW(self.fd, sub_path_w, null, access_mask, share_access, creation),
             .io_mode = .blocking,
@@ -1671,8 +1686,8 @@ test "open file with lock twice, make sure it wasn't open at the same time" {
     const filename = "file_lock_test.txt";
 
     var contexts = [_]FileLockTestContext{
-        .{ .filename = filename, .create = true, .exclusive = true },
-        .{ .filename = filename, .create = true, .exclusive = true },
+        .{ .filename = filename, .create = true, .lock = .Exclusive },
+        .{ .filename = filename, .create = true, .lock = .Exclusive },
     };
     try run_lock_file_test(&contexts);
 
@@ -1703,9 +1718,9 @@ test "create file, lock and read from multiple process at once" {
     try std.fs.cwd().writeFile(filename, filedata);
 
     var contexts = [_]FileLockTestContext{
-        .{ .filename = filename, .create = false, .exclusive = false },
-        .{ .filename = filename, .create = false, .exclusive = false },
-        .{ .filename = filename, .create = false, .exclusive = true },
+        .{ .filename = filename, .create = false, .lock = .Shared },
+        .{ .filename = filename, .create = false, .lock = .Shared },
+        .{ .filename = filename, .create = false, .lock = .Exclusive },
     };
 
     try run_lock_file_test(&contexts);
@@ -1740,8 +1755,8 @@ const FileLockTestContext = struct {
 
     // use file.createFile
     create: bool,
-    // get a read/write lock, instead of just a read lock
-    exclusive: bool,
+    // the type of lock to use
+    lock: File.Lock,
 
     // Output variables
     err: ?(File.OpenError || std.os.ReadError) = null,
@@ -1756,12 +1771,12 @@ const FileLockTestContext = struct {
     fn run(ctx: *@This()) void {
         var file: File = undefined;
         if (ctx.create) {
-            file = cwd().createFile(ctx.filename, .{ .lock = true }) catch |err| {
+            file = cwd().createFile(ctx.filename, .{ .lock = ctx.lock }) catch |err| {
                 ctx.err = err;
                 return;
             };
         } else {
-            file = cwd().openFile(ctx.filename, .{ .lock = true, .write = ctx.exclusive }) catch |err| {
+            file = cwd().openFile(ctx.filename, .{ .lock = ctx.lock }) catch |err| {
                 ctx.err = err;
                 return;
             };

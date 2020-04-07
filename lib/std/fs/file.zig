@@ -36,22 +36,29 @@ pub const File = struct {
 
     pub const OpenError = windows.CreateFileError || os.OpenError || os.FlockError;
 
+    pub const Lock = enum {
+        None, Shared, Exclusive
+    };
+
     /// TODO https://github.com/ziglang/zig/issues/3802
     pub const OpenFlags = struct {
         read: bool = true,
         write: bool = false,
 
-        /// Open the file with exclusive access. If `write` is true, then the file is opened with an
-        /// exclusive lock, meaning that no other processes can read or write to the file. Otherwise
-        /// the file is opened with a shared lock, allowing the other processes to read from the
-        /// file, but not to write to the file.
+        /// Open the file with a lock to prevent other processes from accessing it at the
+        /// same time. An exclusive lock will prevent other processes from acquiring a lock.
+        /// A shared lock will prevent other processes from acquiring a exclusive lock, but
+        /// doesn't prevent other process from getting their own shared locks.
         ///
         /// Note that the lock is only advisory on Linux, except in very specific cirsumstances[1].
-        /// This means that a process that does not respect the locking API can still read and write
+        /// This means that a process that does not respect the locking API can still get access
         /// to the file, despite the lock.
         ///
+        /// Windows' file locks are mandatory, and any process attempting to access the file will
+        /// receive an error.
+        ///
         /// [1]: https://www.kernel.org/doc/Documentation/filesystems/mandatory-locking.txt
-        lock: bool = false,
+        lock: Lock = .None,
 
         /// This prevents `O_NONBLOCK` from being passed even if `std.io.is_async`.
         /// It allows the use of `noasync` when calling functions related to opening
@@ -72,14 +79,20 @@ pub const File = struct {
         /// `error.FileAlreadyExists` to be returned.
         exclusive: bool = false,
 
-        /// Prevent other files from accessing this file while this process has it is open.
+        /// Open the file with a lock to prevent other processes from accessing it at the
+        /// same time. An exclusive lock will prevent other processes from acquiring a lock.
+        /// A shared lock will prevent other processes from acquiring a exclusive lock, but
+        /// doesn't prevent other process from getting their own shared locks.
         ///
         /// Note that the lock is only advisory on Linux, except in very specific cirsumstances[1].
-        /// This means that a process that does not respect the locking API can still read and write
+        /// This means that a process that does not respect the locking API can still get access
         /// to the file, despite the lock.
         ///
+        /// Windows' file locks are mandatory, and any process attempting to access the file will
+        /// receive an error.
+        ///
         /// [1]: https://www.kernel.org/doc/Documentation/filesystems/mandatory-locking.txt
-        lock: bool = false,
+        lock: Lock = .None,
 
         /// For POSIX systems this is the file system mode the file will
         /// be created with.
