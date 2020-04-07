@@ -3498,7 +3498,7 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
             }
         } else {
             fn_table_entry->inferred_async_node = inferred_async_none;
-            g->external_prototypes.put_unique(tld_fn->base.name, &tld_fn->base);
+            g->external_symbol_names.put_unique(tld_fn->base.name, &tld_fn->base);
         }
 
         Scope *child_scope = fn_table_entry->fndef_scope ? &fn_table_entry->fndef_scope->base : tld_fn->base.parent_scope;
@@ -4046,6 +4046,10 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var, bool allow_lazy) {
     if (is_export) {
         validate_export_var_type(g, type, source_node);
         add_var_export(g, tld_var->var, tld_var->var->name, GlobalLinkageIdStrong);
+    }
+
+    if (is_extern) {
+        g->external_symbol_names.put_unique(tld_var->base.name, &tld_var->base);
     }
 
     g->global_vars.append(tld_var);
