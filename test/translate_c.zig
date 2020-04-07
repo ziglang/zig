@@ -2855,7 +2855,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     });
 
     if (std.Target.current.abi == .msvc) {
-        cases.add("nameless struct fields on msvc",
+        cases.add("nameless struct fields",
             \\typedef struct NAMED
             \\{
             \\    long name;
@@ -2873,6 +2873,27 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
             \\pub const NAMED = struct_NAMED;
             \\pub const struct_ONENAMEWITHSTRUCT = extern struct {
             \\    unnamed_1: struct_NAMED,
+            \\    b: c_long,
+            \\};
+        });
+    } else {
+        cases.add("nameless struct fields",
+            \\typedef struct NAMED
+            \\{
+            \\    long name;
+            \\} NAMED;
+            \\
+            \\typedef struct ONENAMEWITHSTRUCT
+            \\{
+            \\    NAMED;
+            \\    long b;
+            \\} ONENAMEWITHSTRUCT;
+        , &[_][]const u8{
+            \\pub const struct_NAMED = extern struct {
+            \\    name: c_long,
+            \\};
+            \\pub const NAMED = struct_NAMED;
+            \\pub const struct_ONENAMEWITHSTRUCT = extern struct {
             \\    b: c_long,
             \\};
         });
