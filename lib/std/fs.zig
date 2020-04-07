@@ -1522,7 +1522,7 @@ pub fn openSelfExe() OpenSelfExeError!File {
     var buf: [MAX_PATH_BYTES]u8 = undefined;
     const self_exe_path = try selfExePath(&buf);
     buf[self_exe_path.len] = 0;
-    return openFileAbsoluteZ(self_exe_path[0..self_exe_path.len :0].ptr, .{});
+    return openFileAbsoluteZ(buf[0..self_exe_path.len :0].ptr, .{});
 }
 
 test "openSelfExe" {
