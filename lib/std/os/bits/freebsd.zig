@@ -396,6 +396,47 @@ pub const SOCK_SEQPACKET = 5;
 pub const SOCK_CLOEXEC = 0x10000000;
 pub const SOCK_NONBLOCK = 0x20000000;
 
+pub const SO_DEBUG = 0x00000001;
+pub const SO_ACCEPTCONN = 0x00000002;
+pub const SO_REUSEADDR = 0x00000004;
+pub const SO_KEEPALIVE = 0x00000008;
+pub const SO_DONTROUTE = 0x00000010;
+pub const SO_BROADCAST = 0x00000020;
+pub const SO_USELOOPBACK = 0x00000040;
+pub const SO_LINGER = 0x00000080;
+pub const SO_OOBINLINE = 0x00000100;
+pub const SO_REUSEPORT = 0x00000200;
+pub const SO_TIMESTAMP = 0x00000400;
+pub const SO_NOSIGPIPE = 0x00000800;
+pub const SO_ACCEPTFILTER = 0x00001000;
+pub const SO_BINTIME = 0x00002000;
+pub const SO_NO_OFFLOAD = 0x00004000;
+pub const SO_NO_DDP = 0x00008000;
+pub const SO_REUSEPORT_LB = 0x00010000;
+
+pub const SO_SNDBUF = 0x1001;
+pub const SO_RCVBUF = 0x1002;
+pub const SO_SNDLOWAT = 0x1003;
+pub const SO_RCVLOWAT = 0x1004;
+pub const SO_SNDTIMEO = 0x1005;
+pub const SO_RCVTIMEO = 0x1006;
+pub const SO_ERROR = 0x1007;
+pub const SO_TYPE = 0x1008;
+pub const SO_LABEL = 0x1009;
+pub const SO_PEERLABEL = 0x1010;
+pub const SO_LISTENQLIMIT = 0x1011;
+pub const SO_LISTENQLEN = 0x1012;
+pub const SO_LISTENINCQLEN = 0x1013;
+pub const SO_SETFIB = 0x1014;
+pub const SO_USER_COOKIE = 0x1015;
+pub const SO_PROTOCOL = 0x1016;
+pub const SO_PROTOTYPE = SO_PROTOCOL;
+pub const SO_TS_CLOCK = 0x1017;
+pub const SO_MAX_PACING_RATE = 0x1018;
+pub const SO_DOMAIN = 0x1019;
+
+pub const SOL_SOCKET = 0xffff;
+
 pub const PF_UNSPEC = AF_UNSPEC;
 pub const PF_LOCAL = AF_LOCAL;
 pub const PF_UNIX = PF_LOCAL;
