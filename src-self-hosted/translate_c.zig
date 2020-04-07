@@ -815,6 +815,9 @@ fn transRecordDecl(c: *Context, record_decl: *const ZigClangRecordDecl) Error!?*
                 raw_name = try std.fmt.allocPrint(c.a(), "unnamed_{}", .{c.getMangle()});
                 is_anon = true;
             }
+            if (raw_name.len == 0) {
+                continue;
+            }
             const field_name = try appendIdentifier(c, raw_name);
             _ = try appendToken(c, .Colon, ":");
             const field_type = transQualType(rp, field_qt, field_loc) catch |err| switch (err) {
@@ -5570,6 +5573,7 @@ fn parseCPrimaryExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8, 
             return &group_node.base;
         },
         else => {
+            std.debug.warn("{}", .{source});
             const first_tok = it.list.at(0);
             try failDecl(
                 c,
