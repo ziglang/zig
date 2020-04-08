@@ -63,6 +63,7 @@ option(ZIG_TEST_COVERAGE "Build Zig with test coverage instrumentation" OFF)
 option(ZIG_FORCE_EXTERNAL_LLD "does nothing" OFF)
 
 set(ZIG_TARGET_TRIPLE "native" CACHE STRING "arch-os-abi to output binaries for")
+set(ZIG_TARGET_MCPU "baseline" CACHE STRING "-mcpu parameter to output binaries for")
 set(ZIG_EXECUTABLE "" CACHE STRING "(when cross compiling) path to already-built zig binary")
 
 find_package(llvm)
@@ -433,7 +434,7 @@ endif()
 set(BUILD_LIBSTAGE2_ARGS "build-lib"
     "src-self-hosted/stage2.zig"
     -target "${ZIG_TARGET_TRIPLE}"
-    -mcpu=baseline
+    "-mcpu=${ZIG_TARGET_MCPU}"
     --name zigstage2
     --override-lib-dir "${CMAKE_SOURCE_DIR}/lib"
     --cache on
