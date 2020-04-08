@@ -1680,7 +1680,10 @@ pub fn renameatW(
     ReplaceIfExists: windows.BOOLEAN,
 ) RenameError!void {
     const access_mask = windows.SYNCHRONIZE | windows.GENERIC_WRITE | windows.DELETE;
-    const src_fd = try windows.OpenFileW(old_dir_fd, old_path, null, access_mask, null, false, windows.FILE_OPEN);
+    const src_fd = windows.OpenFileW(old_dir_fd, old_path, null, access_mask, null, false, windows.FILE_OPEN) catch |err| switch (err) {
+        error.WouldBlock => unreachable,
+        else => return err,
+    };
     defer windows.CloseHandle(src_fd);
 
     const struct_buf_len = @sizeOf(windows.FILE_RENAME_INFORMATION) + (MAX_PATH_BYTES - 1);
