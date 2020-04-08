@@ -596,7 +596,8 @@ pub const Dir = struct {
         }
 
         // Use the O_ locking flags if the os supports them
-        const has_flock_open_flags = @hasDecl(os, "O_EXLOCK");
+        // (Or if it's darwin, as darwin's `open` doesn't support the O_SYNC flag)
+        const has_flock_open_flags = @hasDecl(os, "O_EXLOCK") and !builtin.os.tag.isDarwin();
         const nonblocking_lock_flag = if (has_flock_open_flags and flags.lock_nonblocking) (os.O_NONBLOCK | os.O_SYNC) else @as(u32, 0);
         const lock_flag: u32 = if (has_flock_open_flags) switch (flags.lock) {
             .None => @as(u32, 0),
@@ -678,7 +679,8 @@ pub const Dir = struct {
         }
 
         // Use the O_ locking flags if the os supports them
-        const has_flock_open_flags = @hasDecl(os, "O_EXLOCK");
+        // (Or if it's darwin, as darwin's `open` doesn't support the O_SYNC flag)
+        const has_flock_open_flags = @hasDecl(os, "O_EXLOCK") and !builtin.os.tag.isDarwin();
         const nonblocking_lock_flag = if (has_flock_open_flags and flags.lock_nonblocking) (os.O_NONBLOCK | os.O_SYNC) else @as(u32, 0);
         const lock_flag: u32 = if (has_flock_open_flags) switch (flags.lock) {
             .None => @as(u32, 0),
