@@ -1682,7 +1682,7 @@ pub fn renameatW(
     const access_mask = windows.SYNCHRONIZE | windows.GENERIC_WRITE | windows.DELETE;
     const src_fd = windows.OpenFileW(old_dir_fd, old_path, null, access_mask, null, false, windows.FILE_OPEN) catch |err| switch (err) {
         error.WouldBlock => unreachable,
-        else => return err,
+        else => |e| return e,
     };
     defer windows.CloseHandle(src_fd);
 
