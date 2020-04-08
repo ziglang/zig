@@ -242,7 +242,7 @@ pub const CacheHash = struct {
             return null;
         }
 
-        return try self.final();
+        return self.final();
     }
 
     pub fn populate_file_hash(self: *@This(), cache_hash_file: *File) !void {
@@ -259,7 +259,8 @@ pub const CacheHash = struct {
         self.blake3.update(&cache_hash_file.bin_digest);
     }
 
-    pub fn final(self: *@This()) ![BASE64_DIGEST_LEN]u8 {
+    /// Returns a base64 encoded hash of the inputs.
+    pub fn final(self: *@This()) [BASE64_DIGEST_LEN]u8 {
         debug.assert(self.manifest_file != null);
 
         var bin_digest: [BIN_DIGEST_LEN]u8 = undefined;
@@ -340,7 +341,7 @@ test "cache file and the recall it" {
         // There should be nothing in the cache
         debug.assert((try ch.hit()) == null);
 
-        digest1 = try ch.final();
+        digest1 = ch.final();
     }
     {
         var ch = try CacheHash.init(testing.allocator, temp_manifest_dir);
