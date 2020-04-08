@@ -593,6 +593,7 @@ static const MinGWDef mingw_def_list[] = {
     {"scarddlg",false},
     {"setupapi",false},
     {"shell32", true},
+    {"shlwapi", false},
     {"urlmon",  false},
     {"user32",  true},
     {"version", false},
