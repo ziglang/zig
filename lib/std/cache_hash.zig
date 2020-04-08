@@ -167,10 +167,12 @@ pub const CacheHash = struct {
             }
 
             var iter = mem.tokenize(line, " ");
+            const inode = iter.next() orelse return error.InvalidFormat;
             const mtime_nsec_str = iter.next() orelse return error.InvalidFormat;
             const digest_str = iter.next() orelse return error.InvalidFormat;
             const file_path = iter.rest();
 
+            cache_hash_file.stat.inode = fmt.parseInt(os.ino_t, mtime_nsec_str, 10) catch return error.InvalidFormat;
             cache_hash_file.stat.mtime = fmt.parseInt(i64, mtime_nsec_str, 10) catch return error.InvalidFormat;
             base64_decoder.decode(&cache_hash_file.bin_digest, digest_str) catch return error.InvalidFormat;
 
@@ -189,10 +191,10 @@ pub const CacheHash = struct {
             defer this_file.close();
 
             const actual_stat = try this_file.stat();
-            const mtime_matches = actual_stat.mtime == cache_hash_file.stat.mtime;
+            const mtime_match = actual_stat.mtime == cache_hash_file.stat.mtime;
+            const inode_match = actual_stat.inode == cache_hash_file.stat.inode;
 
-            // TODO: check inode
-            if (!mtime_matches) {
+            if (!mtime_match or !inode_match) {
                 self.manifest_dirty = true;
 
                 cache_hash_file.stat = actual_stat;
@@ -279,7 +281,7 @@ pub const CacheHash = struct {
 
         for (self.files.toSlice()) |file| {
             base64_encoder.encode(encoded_digest[0..], &file.bin_digest);
-            try outStream.print("{} {} {}\n", .{ file.stat.mtime, encoded_digest[0..], file.path });
+            try outStream.print("{} {} {} {}\n", .{ file.stat.inode, file.stat.mtime, encoded_digest[0..], file.path });
         }
 
         try self.manifest_file.?.seekTo(0);
