@@ -17689,7 +17689,7 @@ static IrInstGen *ir_analyze_tuple_mult(IrAnalyze *ira, IrInst* source_instr,
         TypeStructField *src_field = op1_type->data.structure.fields[i % op1_field_count];
         TypeStructField *new_field = new_type->data.structure.fields[i];
 
-        new_field->name = buf_sprintf("%lu", i);
+        new_field->name = buf_sprintf("%" ZIG_PRI_u64, i);
         new_field->type_entry = src_field->type_entry;
         new_field->type_val = src_field->type_val;
         new_field->src_index = i;
