@@ -98,6 +98,7 @@ pub const OpenError = error{
     PathAlreadyExists,
     Unexpected,
     NameTooLong,
+    WouldBlock,
 };
 
 /// TODO rename to CreateFileW
@@ -108,6 +109,7 @@ pub fn OpenFileW(
     sa: ?*SECURITY_ATTRIBUTES,
     access_mask: ACCESS_MASK,
     share_access_opt: ?ULONG,
+    share_access_nonblocking: bool,
     creation: ULONG,
 ) OpenError!HANDLE {
     if (sub_path_w[0] == '.' and sub_path_w[1] == 0) {
@@ -161,6 +163,9 @@ pub fn OpenFileW(
             .NO_MEDIA_IN_DEVICE => return error.NoDevice,
             .INVALID_PARAMETER => unreachable,
             .SHARING_VIOLATION => {
+                if (share_access_nonblocking) {
+                    return error.WouldBlock;
+                }
                 std.time.sleep(delay);
                 if (delay < 1 * std.time.ns_per_s) {
                     delay *= 2;

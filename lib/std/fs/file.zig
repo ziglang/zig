@@ -60,6 +60,11 @@ pub const File = struct {
         /// [1]: https://www.kernel.org/doc/Documentation/filesystems/mandatory-locking.txt
         lock: Lock = .None,
 
+        /// Sets whether or not to wait until the file is locked to return. If set to true,
+        /// `error.WouldBlock` will be returned. Otherwise, the file will wait until the file
+        /// is available to proceed.
+        lock_nonblocking: bool = false,
+
         /// This prevents `O_NONBLOCK` from being passed even if `std.io.is_async`.
         /// It allows the use of `noasync` when calling functions related to opening
         /// the file, reading, and writing.
@@ -93,6 +98,11 @@ pub const File = struct {
         ///
         /// [1]: https://www.kernel.org/doc/Documentation/filesystems/mandatory-locking.txt
         lock: Lock = .None,
+
+        /// Sets whether or not to wait until the file is locked to return. If set to true,
+        /// `error.WouldBlock` will be returned. Otherwise, the file will wait until the file
+        /// is available to proceed.
+        lock_nonblocking: bool = false,
 
         /// For POSIX systems this is the file system mode the file will
         /// be created with.

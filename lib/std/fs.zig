@@ -597,10 +597,11 @@ pub const Dir = struct {
 
         // Use the O_ locking flags if the os supports them
         const has_flock_open_flags = @hasDecl(os, "O_EXLOCK");
+        const nonblocking_lock_flag = if (has_flock_open_flags and flags.lock_nonblocking) (os.O_NONBLOCK | os.O_SYNC) else @as(u32, 0);
         const lock_flag: u32 = if (has_flock_open_flags) switch (flags.lock) {
             .None => @as(u32, 0),
-            .Shared => os.O_SHLOCK,
-            .Exclusive => os.O_EXLOCK,
+            .Shared => os.O_SHLOCK | nonblocking_lock_flag,
+            .Exclusive => os.O_EXLOCK | nonblocking_lock_flag,
         } else 0;
 
         const O_LARGEFILE = if (@hasDecl(os, "O_LARGEFILE")) os.O_LARGEFILE else 0;
@@ -617,10 +618,11 @@ pub const Dir = struct {
 
         if (!has_flock_open_flags and flags.lock != .None) {
             // TODO: integrate async I/O
+            const lock_nonblocking = if (flags.lock_nonblocking) os.LOCK_NB else @as(i32, 0);
             try os.flock(fd, switch (flags.lock) {
                 .None => unreachable,
-                .Shared => os.LOCK_SH,
-                .Exclusive => os.LOCK_EX,
+                .Shared => os.LOCK_SH | lock_nonblocking,
+                .Exclusive => os.LOCK_EX | lock_nonblocking,
             });
         }
 
@@ -644,12 +646,12 @@ pub const Dir = struct {
 
         const share_access = switch (flags.lock) {
             .None => @as(?w.ULONG, null),
-            .Shared => w.FILE_SHARE_READ,
-            .Exclusive => @as(?w.ULONG, 0),
+            .Shared => w.FILE_SHARE_READ | w.FILE_SHARE_DELETE,
+            .Exclusive => w.FILE_SHARE_DELETE,
         };
 
         return @as(File, .{
-            .handle = try os.windows.OpenFileW(self.fd, sub_path_w, null, access_mask, share_access, w.FILE_OPEN),
+            .handle = try os.windows.OpenFileW(self.fd, sub_path_w, null, access_mask, share_access, flags.lock_nonblocking, w.FILE_OPEN),
             .io_mode = .blocking,
         });
     }
@@ -677,6 +679,7 @@ pub const Dir = struct {
 
         // Use the O_ locking flags if the os supports them
         const has_flock_open_flags = @hasDecl(os, "O_EXLOCK");
+        const nonblocking_lock_flag = if (has_flock_open_flags and flags.lock_nonblocking) (os.O_NONBLOCK | os.O_SYNC) else @as(u32, 0);
         const lock_flag: u32 = if (has_flock_open_flags) switch (flags.lock) {
             .None => @as(u32, 0),
             .Shared => os.O_SHLOCK,
@@ -695,10 +698,11 @@ pub const Dir = struct {
 
         if (!has_flock_open_flags and flags.lock != .None) {
             // TODO: integrate async I/O
+            const lock_nonblocking = if (flags.lock_nonblocking) os.LOCK_NB else @as(i32, 0);
             try os.flock(fd, switch (flags.lock) {
                 .None => unreachable,
-                .Shared => os.LOCK_SH,
-                .Exclusive => os.LOCK_EX,
+                .Shared => os.LOCK_SH | lock_nonblocking,
+                .Exclusive => os.LOCK_EX | lock_nonblocking,
             });
         }
 
@@ -720,12 +724,12 @@ pub const Dir = struct {
 
         const share_access = switch (flags.lock) {
             .None => @as(?w.ULONG, null),
-            .Shared => w.FILE_SHARE_READ,
-            .Exclusive => @as(?w.ULONG, 0),
+            .Shared => w.FILE_SHARE_READ | w.FILE_SHARE_DELETE,
+            .Exclusive => w.FILE_SHARE_DELETE,
         };
 
         return @as(File, .{
-            .handle = try os.windows.OpenFileW(self.fd, sub_path_w, null, access_mask, share_access, creation),
+            .handle = try os.windows.OpenFileW(self.fd, sub_path_w, null, access_mask, share_access, flags.lock_nonblocking, creation),
             .io_mode = .blocking,
         });
     }
@@ -1679,6 +1683,21 @@ test "" {
 }
 
 const FILE_LOCK_TEST_SLEEP_TIME = 1 * std.time.ns_per_s;
+
+test "open file with exclusive nonblocking lock twice" {
+    const dir = cwd();
+    const filename = "file_nonblocking_lock_test.txt";
+
+    const file1 = try dir.createFile(filename, .{ .lock = .Exclusive, .lock_nonblocking = true });
+
+    const file2 = dir.createFile(filename, .{ .lock = .Exclusive, .lock_nonblocking = true });
+    std.debug.assert(std.meta.eql(file2, error.WouldBlock));
+
+    dir.deleteFile(filename) catch |err| switch (err) {
+        error.FileNotFound => {},
+        else => return err,
+    };
+}
 
 test "open file with lock twice, make sure it wasn't open at the same time" {
     if (builtin.single_threaded) return;
