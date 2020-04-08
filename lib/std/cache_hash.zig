@@ -54,6 +54,7 @@ pub const CacheHash = struct {
         };
     }
 
+    /// Record a slice of bytes as an dependency of the process being cached
     pub fn addSlice(self: *@This(), val: []const u8) void {
         debug.assert(self.manifest_file == null);
 
@@ -61,57 +62,23 @@ pub const CacheHash = struct {
         self.blake3.update(&[_]u8{0});
     }
 
-    pub fn addBool(self: *@This(), val: bool) void {
-        debug.assert(self.manifest_file == null);
-        self.blake3.update(&[_]u8{@boolToInt(val)});
-    }
-
-    pub fn addInt(self: *@This(), val: var) void {
-        debug.assert(self.manifest_file == null);
-
-        switch (@typeInfo(@TypeOf(val))) {
-            .Int => |int_info| {
-                if (int_info.bits == 0 or int_info.bits % 8 != 0) {
-                    @compileError("Unsupported integer size. Please use a multiple of 8, manually convert to a u8 slice.");
-                }
-
-                const buf_len = @divExact(int_info.bits, 8);
-                var buf: [buf_len]u8 = undefined;
-                mem.writeIntNative(@TypeOf(val), &buf, val);
-                self.addSlice(&buf);
-
-                self.blake3.update(&[_]u8{0});
-            },
-            else => @compileError("Type must be an integer."),
-        }
-    }
-
+    /// Convert the input value into bytes and record it as a dependency of the
+    /// process being cached
     pub fn add(self: *@This(), val: var) void {
         debug.assert(self.manifest_file == null);
 
-        const val_type = @TypeOf(val);
-        switch (@typeInfo(val_type)) {
-            .Int => self.addInt(val),
-            .Bool => self.addBool(val),
-            .Array => |array_info| if (array_info.child == u8) {
-                self.addSlice(val[0..]);
-            } else {
-                @compileError("Unsupported array type");
-            },
-            .Pointer => |ptr_info| switch (ptr_info.size) {
-                .Slice => if (ptr_info.child == u8) {
-                    self.addSlice(val);
-                },
-                .One => self.add(val.*),
-                else => {
-                    @compileLog("Pointer type: ", ptr_info.size, ptr_info.child);
-                    @compileError("Unsupported pointer type");
-                },
-            },
-            else => @compileError("Unsupported type"),
-        }
+        const valPtr = switch (@typeInfo(@TypeOf(val))) {
+            .Int => &val,
+            .Pointer => val,
+            else => &val,
+        };
+
+        self.addSlice(mem.asBytes(valPtr));
     }
 
+    /// Add a file as a dependency of process being cached. When `CacheHash.hit` is
+    /// called, the file's contents will be checked to ensure that it matches
+    /// the contents from previous times.
     pub fn addFile(self: *@This(), file_path: []const u8) !void {
         debug.assert(self.manifest_file == null);
 
@@ -121,6 +88,14 @@ pub const CacheHash = struct {
         self.addSlice(cache_hash_file.path.?);
     }
 
+    /// Check the cache to see if the input exists in it. If it exists, a base64 encoding
+    /// of it's hash will be returned; otherwise, null will be returned.
+    ///
+    /// This function will also acquire an exclusive lock to the manifest file. This means
+    /// that a process holding a CacheHash will block any other process attempting to
+    /// acquire the lock.
+    ///
+    /// The lock on the manifest file is released when `CacheHash.release` is called.
     pub fn hit(self: *@This()) !?[BASE64_DIGEST_LEN]u8 {
         debug.assert(self.manifest_file == null);
 
@@ -268,6 +243,12 @@ pub const CacheHash = struct {
     /// Returns a base64 encoded hash of the inputs.
     pub fn final(self: *@This()) [BASE64_DIGEST_LEN]u8 {
         debug.assert(self.manifest_file != null);
+
+        // We don't close the manifest file yet, because we want to
+        // keep it locked until the API user is done using it.
+        // We also don't write out the manifest yet, because until
+        // cache_release is called we still might be working on creating
+        // the artifacts to cache.
 
         var bin_digest: [BIN_DIGEST_LEN]u8 = undefined;
         self.blake3.final(&bin_digest);
