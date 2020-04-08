@@ -10,7 +10,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    reassign(.{1, 2, 3});
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:16: error: cannot assign to constant"
+        "tmp.zig:2:15: error: cannot assign to constant"
     });
 
     cases.addTest("reassign to slice parameter",
@@ -35,7 +35,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    reassign(S{.x = 3});
         \\}
     , &[_][]const u8{
-        "tmp.zig:5:16: error: cannot assign to constant"
+        "tmp.zig:5:10: error: cannot assign to constant"
     });
 
     cases.addTest("reference to const data",

@@ -23552,10 +23552,14 @@ static IrInstGen *ir_analyze_instruction_container_init_list(IrAnalyze *ira,
     IrInstGen *result_loc = instruction->result_loc->child;
     if (type_is_invalid(result_loc->value->type))
         return result_loc;
+
     ir_assert(result_loc->value->type->id == ZigTypeIdPointer, &instruction->base.base);
+    if (result_loc->value->type->data.pointer.is_const) {
+        ir_add_error(ira, &instruction->base.base, buf_sprintf("cannot assign to constant"));
+        return ira->codegen->invalid_inst_gen;
+    }
 
     ZigType *container_type = result_loc->value->type->data.pointer.child_type;
-
     size_t elem_count = instruction->item_count;
 
     if (is_slice(container_type)) {
@@ -23706,6 +23710,11 @@ static IrInstGen *ir_analyze_instruction_container_init_fields(IrAnalyze *ira,
         return result_loc;
 
     ir_assert(result_loc->value->type->id == ZigTypeIdPointer, &instruction->base.base);
+    if (result_loc->value->type->data.pointer.is_const) {
+        ir_add_error(ira, &instruction->base.base, buf_sprintf("cannot assign to constant"));
+        return ira->codegen->invalid_inst_gen;
+    }
+
     ZigType *container_type = result_loc->value->type->data.pointer.child_type;
 
     return ir_analyze_container_init_fields(ira, &instruction->base.base, container_type,
@@ -27176,11 +27185,8 @@ done_with_return_type:
                 return result_loc;
             }
 
-            if (result_loc->value->type->id == ZigTypeIdPointer &&
-                result_loc->value->type->data.pointer.is_const &&
-                instruction->result_loc->id == ResultLocIdInstruction &&
-                !instruction->result_loc->allow_write_through_const)
-            {
+            ir_assert(result_loc->value->type->id == ZigTypeIdPointer, &instruction->base.base);
+            if (result_loc->value->type->data.pointer.is_const) {
                 ir_add_error(ira, &instruction->base.base, buf_sprintf("cannot assign to constant"));
                 return ira->codegen->invalid_inst_gen;
             }
@@ -29918,15 +29924,8 @@ static IrInstGen *ir_analyze_instruction_end_expr(IrAnalyze *ira, IrInstSrcEndEx
             return result_loc;
 
         if (!was_written || instruction->result_loc->id == ResultLocIdPeer) {
-            bool can_write_to_const_ptr = true;
-            if (result_loc->value->type->id == ZigTypeIdPointer &&
-                result_loc->value->type->data.pointer.is_const &&
-                instruction->result_loc->id == ResultLocIdInstruction)
-            {
-                can_write_to_const_ptr = false;
-            }
             IrInstGen *store_ptr = ir_analyze_store_ptr(ira, &instruction->base.base, result_loc, value,
-                    instruction->result_loc->allow_write_through_const && can_write_to_const_ptr);
+                    instruction->result_loc->allow_write_through_const);
             if (type_is_invalid(store_ptr->value->type)) {
                 return ira->codegen->invalid_inst_gen;
             }
