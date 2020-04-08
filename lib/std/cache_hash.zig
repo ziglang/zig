@@ -18,16 +18,11 @@ pub const File = struct {
     path: ?[]const u8,
     stat: fs.File.Stat,
     bin_digest: [BIN_DIGEST_LEN]u8,
-    contents: ?[]const u8,
 
     pub fn deinit(self: *@This(), alloc: *Allocator) void {
         if (self.path) |owned_slice| {
             alloc.free(owned_slice);
             self.path = null;
-        }
-        if (self.contents) |owned_slice| {
-            alloc.free(owned_slice);
-            self.contents = null;
         }
     }
 };
@@ -232,7 +227,7 @@ pub const CacheHash = struct {
         if (idx < input_file_count or idx == 0) {
             self.manifest_dirty = true;
             while (idx < input_file_count) : (idx += 1) {
-                var cache_hash_file = self.files.ptrAt(idx);
+                var cache_hash_file = &self.files.items[idx];
                 self.populate_file_hash(cache_hash_file) catch |err| {
                     self.manifest_file.?.close();
                     self.manifest_file = null;
@@ -318,7 +313,7 @@ fn hash_file(alloc: *Allocator, bin_digest: []u8, handle: *const fs.File) !void 
     blake3.final(bin_digest);
 }
 
-test "cache file and the recall it" {
+test "cache file and then recall it" {
     const cwd = fs.cwd();
 
     const temp_file = "test.txt";
