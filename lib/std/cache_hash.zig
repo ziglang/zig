@@ -7,7 +7,6 @@ const testing = @import("testing.zig");
 const mem = @import("mem.zig");
 const fmt = @import("fmt.zig");
 const Allocator = mem.Allocator;
-const Buffer = @import("buffer.zig").Buffer;
 const os = @import("os.zig");
 
 const base64_encoder = fs.base64_encoder;
@@ -45,7 +44,7 @@ pub const CacheHash = struct {
 
     pub fn init(alloc: *Allocator, manifest_dir_path: []const u8) !@This() {
         try fs.cwd().makePath(manifest_dir_path);
-        const manifest_dir = try fs.cwd().openDirTraverse(manifest_dir_path);
+        const manifest_dir = try fs.cwd().openDir(manifest_dir_path, .{ .iterate = true });
 
         return CacheHash{
             .alloc = alloc,
@@ -149,10 +148,10 @@ pub const CacheHash = struct {
         }
 
         // TODO: Figure out a good max value?
-        const file_contents = try self.manifest_file.?.inStream().stream.readAllAlloc(self.alloc, 16 * 1024);
+        const file_contents = try self.manifest_file.?.inStream().readAllAlloc(self.alloc, 16 * 1024);
         defer self.alloc.free(file_contents);
 
-        const input_file_count = self.files.len;
+        const input_file_count = self.files.items.len;
         var any_file_changed = false;
         var line_iter = mem.tokenize(file_contents, "\n");
         var idx: usize = 0;
@@ -274,16 +273,17 @@ pub const CacheHash = struct {
         debug.assert(self.manifest_file != null);
 
         var encoded_digest: [BASE64_DIGEST_LEN]u8 = undefined;
-        var contents = try Buffer.init(self.alloc, "");
+        var contents = ArrayList(u8).init(self.alloc);
+        var outStream = contents.outStream();
         defer contents.deinit();
 
         for (self.files.toSlice()) |file| {
             base64_encoder.encode(encoded_digest[0..], &file.bin_digest);
-            try contents.print("{} {} {}\n", .{ file.stat.mtime, encoded_digest[0..], file.path });
+            try outStream.print("{} {} {}\n", .{ file.stat.mtime, encoded_digest[0..], file.path });
         }
 
         try self.manifest_file.?.seekTo(0);
-        try self.manifest_file.?.writeAll(contents.toSlice());
+        try self.manifest_file.?.writeAll(contents.items);
     }
 
     pub fn release(self: *@This()) void {
@@ -306,9 +306,8 @@ pub const CacheHash = struct {
 
 fn hash_file(alloc: *Allocator, bin_digest: []u8, handle: *const fs.File) !void {
     var blake3 = Blake3.init();
-    var in_stream = handle.inStream().stream;
 
-    const contents = try handle.inStream().stream.readAllAlloc(alloc, 64 * 1024);
+    const contents = try handle.inStream().readAllAlloc(alloc, 64 * 1024);
     defer alloc.free(contents);
 
     blake3.update(contents);
