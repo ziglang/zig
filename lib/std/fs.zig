@@ -1691,6 +1691,7 @@ test "open file with exclusive nonblocking lock twice" {
     const filename = "file_nonblocking_lock_test.txt";
 
     const file1 = try dir.createFile(filename, .{ .lock = .Exclusive, .lock_nonblocking = true });
+    defer file1.close();
 
     const file2 = dir.createFile(filename, .{ .lock = .Exclusive, .lock_nonblocking = true });
     std.debug.assert(std.meta.eql(file2, error.WouldBlock));
