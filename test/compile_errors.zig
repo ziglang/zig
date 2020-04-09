@@ -2,6 +2,24 @@ const tests = @import("tests.zig");
 const std = @import("std");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.addTest("invalid assignments",
+        \\export fn entry1() void {
+        \\    var a: []const u8 = "foo";
+        \\    a[0..2] = "bar";
+        \\}
+        \\export fn entry2() void {
+        \\    var a: u8 = 2;
+        \\    a + 2 = 3;
+        \\}
+        \\export fn entry4() void {
+        \\    2 + 2 = 3;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:3:6: error: invalid left-hand side to assignment",
+        "tmp.zig:7:7: error: invalid left-hand side to assignment",
+        "tmp.zig:10:7: error: invalid left-hand side to assignment",
+    });
+
     cases.addTest("reassign to array parameter",
         \\fn reassign(a: [3]f32) void {
         \\    a = [3]f32{4, 5, 6};
@@ -10,7 +28,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    reassign(.{1, 2, 3});
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:15: error: cannot assign to constant"
+        "tmp.zig:2:15: error: cannot assign to constant",
     });
 
     cases.addTest("reassign to slice parameter",
@@ -21,7 +39,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    reassign("foo");
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:10: error: cannot assign to constant"
+        "tmp.zig:2:10: error: cannot assign to constant",
     });
 
     cases.addTest("reassign to struct parameter",
@@ -35,7 +53,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    reassign(S{.x = 3});
         \\}
     , &[_][]const u8{
-        "tmp.zig:5:10: error: cannot assign to constant"
+        "tmp.zig:5:10: error: cannot assign to constant",
     });
 
     cases.addTest("reference to const data",
@@ -3860,14 +3878,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\export fn entry() void { f(); }
     , &[_][]const u8{
         "tmp.zig:1:9: error: parameter of type 'noreturn' not allowed",
-    });
-
-    cases.add("bad assignment target",
-        \\export fn f() void {
-        \\    3 = 3;
-        \\}
-    , &[_][]const u8{
-        "tmp.zig:2:9: error: cannot assign to constant",
     });
 
     cases.add("assign to constant variable",

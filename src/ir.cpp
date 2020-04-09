@@ -5527,7 +5527,7 @@ static IrInstSrc *ir_gen_merge_err_sets(IrBuilderSrc *irb, Scope *scope, AstNode
 }
 
 static IrInstSrc *ir_gen_assign(IrBuilderSrc *irb, Scope *scope, AstNode *node) {
-    IrInstSrc *lvalue = ir_gen_node_extra(irb, node->data.bin_op_expr.op1, scope, LValPtr, nullptr);
+    IrInstSrc *lvalue = ir_gen_node_extra(irb, node->data.bin_op_expr.op1, scope, LValAssign, nullptr);
     if (lvalue == irb->codegen->invalid_inst_src)
         return irb->codegen->invalid_inst_src;
 
@@ -5546,7 +5546,7 @@ static IrInstSrc *ir_gen_assign(IrBuilderSrc *irb, Scope *scope, AstNode *node) 
 }
 
 static IrInstSrc *ir_gen_assign_merge_err_sets(IrBuilderSrc *irb, Scope *scope, AstNode *node) {
-    IrInstSrc *lvalue = ir_gen_node_extra(irb, node->data.bin_op_expr.op1, scope, LValPtr, nullptr);
+    IrInstSrc *lvalue = ir_gen_node_extra(irb, node->data.bin_op_expr.op1, scope, LValAssign, nullptr);
     if (lvalue == irb->codegen->invalid_inst_src)
         return lvalue;
     IrInstSrc *op1 = ir_build_load_ptr(irb, scope, node->data.bin_op_expr.op1, lvalue);
@@ -5559,7 +5559,7 @@ static IrInstSrc *ir_gen_assign_merge_err_sets(IrBuilderSrc *irb, Scope *scope, 
 }
 
 static IrInstSrc *ir_gen_assign_op(IrBuilderSrc *irb, Scope *scope, AstNode *node, IrBinOp op_id) {
-    IrInstSrc *lvalue = ir_gen_node_extra(irb, node->data.bin_op_expr.op1, scope, LValPtr, nullptr);
+    IrInstSrc *lvalue = ir_gen_node_extra(irb, node->data.bin_op_expr.op1, scope, LValAssign, nullptr);
     if (lvalue == irb->codegen->invalid_inst_src)
         return lvalue;
     IrInstSrc *op1 = ir_build_load_ptr(irb, scope, node->data.bin_op_expr.op1, lvalue);
@@ -5908,7 +5908,7 @@ static IrInstSrc *ir_gen_symbol(IrBuilderSrc *irb, Scope *scope, AstNode *node, 
     Buf *variable_name = node->data.symbol_expr.symbol;
 
     if (buf_eql_str(variable_name, "_")) {
-        if (lval == LValPtr) {
+        if (lval == LValAssign) {
             IrInstSrcConst *const_instruction = ir_build_instruction<IrInstSrcConst>(irb, scope, node);
             const_instruction->value = irb->codegen->pass1_arena->create<ZigValue>();
             const_instruction->value->type = get_pointer_to_type(irb->codegen,
@@ -5933,7 +5933,7 @@ static IrInstSrc *ir_gen_symbol(IrBuilderSrc *irb, Scope *scope, AstNode *node, 
         assert(err == ErrorPrimitiveTypeNotFound);
     } else {
         IrInstSrc *value = ir_build_const_type(irb, scope, node, primitive_type);
-        if (lval == LValPtr) {
+        if (lval == LValPtr || lval == LValAssign) {
             return ir_build_ref_src(irb, scope, node, value);
         } else {
             return ir_expr_wrap(irb, scope, value, result_loc);
@@ -5944,7 +5944,7 @@ static IrInstSrc *ir_gen_symbol(IrBuilderSrc *irb, Scope *scope, AstNode *node, 
     ZigVar *var = find_variable(irb->codegen, scope, variable_name, &crossed_fndef_scope);
     if (var) {
         IrInstSrc *var_ptr = ir_build_var_ptr_x(irb, scope, node, var, crossed_fndef_scope);
-        if (lval == LValPtr) {
+        if (lval == LValPtr || lval == LValAssign) {
             return var_ptr;
         } else {
             return ir_expr_wrap(irb, scope, ir_build_load_ptr(irb, scope, node, var_ptr), result_loc);
@@ -5954,7 +5954,7 @@ static IrInstSrc *ir_gen_symbol(IrBuilderSrc *irb, Scope *scope, AstNode *node, 
     Tld *tld = find_decl(irb->codegen, scope, variable_name);
     if (tld) {
         IrInstSrc *decl_ref = ir_build_decl_ref(irb, scope, node, tld, lval);
-        if (lval == LValPtr) {
+        if (lval == LValPtr || lval == LValAssign) {
             return decl_ref;
         } else {
             return ir_expr_wrap(irb, scope, decl_ref, result_loc);
@@ -5995,7 +5995,7 @@ static IrInstSrc *ir_gen_array_access(IrBuilderSrc *irb, Scope *scope, AstNode *
 
     IrInstSrc *ptr_instruction = ir_build_elem_ptr(irb, scope, node, array_ref_instruction,
             subscript_instruction, true, PtrLenSingle, nullptr);
-    if (lval == LValPtr)
+    if (lval == LValPtr || lval == LValAssign)
         return ptr_instruction;
 
     IrInstSrc *load_ptr = ir_build_load_ptr(irb, scope, node, ptr_instruction);
@@ -6754,7 +6754,7 @@ static IrInstSrc *ir_gen_builtin_fn_call(IrBuilderSrc *irb, Scope *scope, AstNod
                 IrInstSrc *ptr_instruction = ir_build_field_ptr_instruction(irb, scope, node,
                         arg0_value, arg1_value, false);
 
-                if (lval == LValPtr)
+                if (lval == LValPtr || lval == LValAssign)
                     return ptr_instruction;
 
                 IrInstSrc *load_ptr = ir_build_load_ptr(irb, scope, node, ptr_instruction);
@@ -7479,6 +7479,7 @@ static IrInstSrc *ir_lval_wrap(IrBuilderSrc *irb, Scope *scope, IrInstSrc *value
         return value;
     }
 
+    assert(lval != LValAssign);
     if (lval == LValPtr) {
         // We needed a pointer to a value, but we got a value. So we create
         // an instruction which just makes a pointer of it.
@@ -9962,7 +9963,7 @@ static IrInstSrc *ir_gen_node_raw(IrBuilderSrc *irb, AstNode *node, Scope *scope
                 IrInstSrc *ptr_instruction = ir_gen_field_access(irb, scope, node);
                 if (ptr_instruction == irb->codegen->invalid_inst_src)
                     return ptr_instruction;
-                if (lval == LValPtr)
+                if (lval == LValPtr || lval == LValAssign)
                     return ptr_instruction;
 
                 IrInstSrc *load_ptr = ir_build_load_ptr(irb, scope, node, ptr_instruction);
@@ -9970,7 +9971,12 @@ static IrInstSrc *ir_gen_node_raw(IrBuilderSrc *irb, AstNode *node, Scope *scope
             }
         case NodeTypePtrDeref: {
             AstNode *expr_node = node->data.ptr_deref_expr.target;
-            IrInstSrc *value = ir_gen_node_extra(irb, expr_node, scope, lval, nullptr);
+
+            LVal child_lval = lval;
+            if (child_lval == LValAssign)
+                child_lval = LValPtr;
+
+            IrInstSrc *value = ir_gen_node_extra(irb, expr_node, scope, child_lval, nullptr);
             if (value == irb->codegen->invalid_inst_src)
                 return value;
 
@@ -9988,7 +9994,7 @@ static IrInstSrc *ir_gen_node_raw(IrBuilderSrc *irb, AstNode *node, Scope *scope
                 return irb->codegen->invalid_inst_src;
 
             IrInstSrc *unwrapped_ptr = ir_build_optional_unwrap_ptr(irb, scope, node, maybe_ptr, true, false);
-            if (lval == LValPtr)
+            if (lval == LValPtr || lval == LValAssign)
                 return unwrapped_ptr;
 
             IrInstSrc *load_ptr = ir_build_load_ptr(irb, scope, node, unwrapped_ptr);
@@ -10068,6 +10074,97 @@ static ResultLoc *no_result_loc(void) {
 static IrInstSrc *ir_gen_node_extra(IrBuilderSrc *irb, AstNode *node, Scope *scope, LVal lval,
         ResultLoc *result_loc)
 {
+    if (lval == LValAssign) {
+        switch (node->type) {
+            case NodeTypeStructValueField:
+            case NodeTypeParamDecl:
+            case NodeTypeUsingNamespace:
+            case NodeTypeSwitchProng:
+            case NodeTypeSwitchRange:
+            case NodeTypeStructField:
+            case NodeTypeErrorSetField:
+            case NodeTypeFnDef:
+            case NodeTypeTestDecl:
+                zig_unreachable();
+
+            // cannot be assigned to
+            case NodeTypeBlock:
+            case NodeTypeGroupedExpr:
+            case NodeTypeBinOpExpr:
+            case NodeTypeIntLiteral:
+            case NodeTypeFloatLiteral:
+            case NodeTypeCharLiteral:
+            case NodeTypeIfBoolExpr:
+            case NodeTypeContainerInitExpr:
+            case NodeTypeVariableDeclaration:
+            case NodeTypeWhileExpr:
+            case NodeTypeForExpr:
+            case NodeTypeReturnExpr:
+            case NodeTypeBoolLiteral:
+            case NodeTypeArrayType:
+            case NodeTypePointerType:
+            case NodeTypeAnyFrameType:
+            case NodeTypeStringLiteral:
+            case NodeTypeUndefinedLiteral:
+            case NodeTypeAsmExpr:
+            case NodeTypeNullLiteral:
+            case NodeTypeIfErrorExpr:
+            case NodeTypeIfOptional:
+            case NodeTypeSwitchExpr:
+            case NodeTypeCompTime:
+            case NodeTypeNoAsync:
+            case NodeTypeErrorType:
+            case NodeTypeBreak:
+            case NodeTypeContinue:
+            case NodeTypeUnreachable:
+            case NodeTypeDefer:
+            case NodeTypeSliceExpr:
+            case NodeTypeCatchExpr:
+            case NodeTypeContainerDecl:
+            case NodeTypeFnProto:
+            case NodeTypeErrorSetDecl:
+            case NodeTypeResume:
+            case NodeTypeAwaitExpr:
+            case NodeTypeSuspend:
+            case NodeTypeEnumLiteral:
+            case NodeTypeInferredArrayType:
+            case NodeTypeVarFieldType:
+            case NodeTypePrefixOpExpr:
+                add_node_error(irb->codegen, node,
+                    buf_sprintf("invalid left-hand side to assignment"));
+                return irb->codegen->invalid_inst_src;
+
+            // @field can be assigned to
+            case NodeTypeFnCallExpr:
+                if (node->data.fn_call_expr.modifier == CallModifierBuiltin) {
+                    AstNode *fn_ref_expr = node->data.fn_call_expr.fn_ref_expr;
+                    Buf *name = fn_ref_expr->data.symbol_expr.symbol;
+                    auto entry = irb->codegen->builtin_fn_table.maybe_get(name);
+
+                    if (!entry) {
+                        add_node_error(irb->codegen, node,
+                                buf_sprintf("invalid builtin function: '%s'", buf_ptr(name)));
+                        return irb->codegen->invalid_inst_src;
+                    }
+
+                    if (entry->value->id == BuiltinFnIdField) {
+                        break;
+                    }
+                }
+                add_node_error(irb->codegen, node,
+                    buf_sprintf("invalid left-hand side to assignment"));
+                return irb->codegen->invalid_inst_src;
+
+
+            // can be assigned to
+            case NodeTypeUnwrapOptional:
+            case NodeTypePtrDeref:
+            case NodeTypeFieldAccessExpr:
+            case NodeTypeArrayAccessExpr:
+            case NodeTypeSymbol:
+                break;
+        }
+    }
     if (result_loc == nullptr) {
         // Create a result location indicating there is none - but if one gets created
         // it will be properly distributed.
@@ -20581,7 +20678,7 @@ static IrInstGen *ir_analyze_instruction_un_op(IrAnalyze *ira, IrInstSrcUnOp *in
                 return ira->codegen->invalid_inst_gen;
 
             // If the result needs to be an lvalue, type check it
-            if (instruction->lval == LValPtr && result->value->type->id != ZigTypeIdPointer) {
+            if (instruction->lval != LValNone && result->value->type->id != ZigTypeIdPointer) {
                 ir_add_error(ira, &instruction->base.base,
                     buf_sprintf("attempt to dereference non-pointer type '%s'", buf_ptr(&result->value->type->name)));
                 return ira->codegen->invalid_inst_gen;
@@ -21175,7 +21272,7 @@ static IrInstGen *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstSrcElemP
                 nullptr, nullptr);
         } else if (return_type->data.pointer.explicit_alignment != 0) {
             uint32_t chosen_align;
-            if ((err = compute_elem_align(ira, return_type->data.pointer.child_type, 
+            if ((err = compute_elem_align(ira, return_type->data.pointer.child_type,
                 return_type->data.pointer.explicit_alignment, index, &chosen_align)))
             {
                 return ira->codegen->invalid_inst_gen;
@@ -23348,7 +23445,7 @@ static IrInstGen *ir_analyze_instruction_ref(IrAnalyze *ira, IrInstSrcRef *ref_i
     IrInstGen *value = ref_instruction->value->child;
     if (type_is_invalid(value->value->type))
         return ira->codegen->invalid_inst_gen;
-    
+
     bool is_const = false;
     bool is_volatile = false;
 
@@ -28878,7 +28975,7 @@ static IrInstGen *ir_analyze_instruction_decl_ref(IrAnalyze *ira, IrInstSrcDeclR
         return ira->codegen->invalid_inst_gen;
     }
 
-    if (instruction->lval == LValPtr) {
+    if (instruction->lval == LValPtr || instruction->lval == LValAssign) {
         return ref_instruction;
     } else {
         return ir_get_deref(ira, &instruction->base.base, ref_instruction, nullptr);

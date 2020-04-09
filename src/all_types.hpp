@@ -2406,6 +2406,7 @@ struct ScopeDecls {
 enum LVal {
     LValNone,
     LValPtr,
+    LValAssign,
 };
 
 // This scope comes from a block expression in user code.
