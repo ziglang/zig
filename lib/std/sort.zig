@@ -10,16 +10,16 @@ pub fn binarySearch(comptime T: type, key: T, items: []const T, comptime compare
         return null;
 
     var left: usize = 0;
-    var right: usize = items.len - 1;
+    var right: usize = items.len;
 
-    while (left <= right) {
+    while (left < right) {
         // Avoid overflowing in the midpoint calculation
         const mid = left + (right - left) / 2;
         // Compare the key with the midpoint element
         switch (compareFn(key, items[mid])) {
             .eq => return mid,
             .gt => left = mid + 1,
-            .lt => right = mid - 1,
+            .lt => right = mid,
         }
     }
 
