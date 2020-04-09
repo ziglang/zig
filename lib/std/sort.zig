@@ -48,6 +48,10 @@ test "std.sort.binarySearch" {
         binarySearch(u32, 1, &[_]u32{0}, S.order_u32),
     );
     testing.expectEqual(
+        @as(?usize, null),
+        binarySearch(u32, 0, &[_]u32{1}, S.order_u32),
+    );
+    testing.expectEqual(
         @as(?usize, 4),
         binarySearch(u32, 5, &[_]u32{ 1, 2, 3, 4, 5 }, S.order_u32),
     );
