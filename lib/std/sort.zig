@@ -6,9 +6,6 @@ const math = std.math;
 const builtin = @import("builtin");
 
 pub fn binarySearch(comptime T: type, key: T, items: []const T, comptime compareFn: fn (lhs: T, rhs: T) math.Order) ?usize {
-    if (items.len < 1)
-        return null;
-
     var left: usize = 0;
     var right: usize = items.len;
 
