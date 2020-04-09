@@ -1218,6 +1218,10 @@ void zig_print_analysis_dump(CodeGen *g, FILE *f, const char *one_indent, const 
     jw_object_field(jw, "rootPkg");
     anal_dump_pkg_ref(&ctx, g->main_pkg);
 
+    // FIXME: Remove this ugly workaround.
+    //        Right now the code in docs/main.js relies on the root of the main package being itself.
+    g->main_pkg->package_table.put(buf_create_from_str("root"), g->main_pkg);
+
     // Poke the functions
     for (size_t i = 0; i < g->fn_defs.length; i += 1) {
         ZigFn *fn = g->fn_defs.at(i);
