@@ -2494,7 +2494,7 @@ static IrInstGenCall *ir_build_call_gen(IrAnalyze *ira, IrInst *source_instructi
 
 static IrInstSrc *ir_build_phi(IrBuilderSrc *irb, Scope *scope, AstNode *source_node,
         size_t incoming_count, IrBasicBlockSrc **incoming_blocks, IrInstSrc **incoming_values,
-        ResultLocPeerParent *peer_parent)
+        ResultLocPeerParent *peer_parent, IrInstSrc *while_cond)
 {
     assert(incoming_count != 0);
     assert(incoming_count != SIZE_MAX);
@@ -2504,11 +2504,13 @@ static IrInstSrc *ir_build_phi(IrBuilderSrc *irb, Scope *scope, AstNode *source_
     phi_instruction->incoming_blocks = incoming_blocks;
     phi_instruction->incoming_values = incoming_values;
     phi_instruction->peer_parent = peer_parent;
+    phi_instruction->while_cond = while_cond;
 
     for (size_t i = 0; i < incoming_count; i += 1) {
         ir_ref_bb(incoming_blocks[i]);
         ir_ref_instruction(incoming_values[i], irb->current_basic_block);
     }
+    if (while_cond != nullptr) ir_ref_instruction(while_cond, irb->current_basic_block);
 
     return &phi_instruction->base;
 }
@@ -5445,7 +5447,7 @@ static IrInstSrc *ir_gen_block(IrBuilderSrc *irb, Scope *parent_scope, AstNode *
         }
         ir_set_cursor_at_end_and_append_block(irb, scope_block->end_block);
         IrInstSrc *phi = ir_build_phi(irb, parent_scope, block_node, incoming_blocks.length,
-                incoming_blocks.items, incoming_values.items, scope_block->peer_parent);
+                incoming_blocks.items, incoming_values.items, scope_block->peer_parent, nullptr);
         return ir_expr_wrap(irb, parent_scope, phi, result_loc);
     } else {
         incoming_blocks.append(irb->current_basic_block);
@@ -5475,7 +5477,7 @@ static IrInstSrc *ir_gen_block(IrBuilderSrc *irb, Scope *parent_scope, AstNode *
         ir_mark_gen(ir_build_br(irb, parent_scope, block_node, scope_block->end_block, scope_block->is_comptime));
         ir_set_cursor_at_end_and_append_block(irb, scope_block->end_block);
         IrInstSrc *phi = ir_build_phi(irb, parent_scope, block_node, incoming_blocks.length,
-                incoming_blocks.items, incoming_values.items, scope_block->peer_parent);
+                incoming_blocks.items, incoming_values.items, scope_block->peer_parent, nullptr);
         result = ir_expr_wrap(irb, parent_scope, phi, result_loc);
     } else {
         IrInstSrc *void_inst = ir_mark_gen(ir_build_const_void(irb, child_scope, block_node));
@@ -5610,7 +5612,7 @@ static IrInstSrc *ir_gen_bool_or(IrBuilderSrc *irb, Scope *scope, AstNode *node)
     incoming_blocks[0] = post_val1_block;
     incoming_blocks[1] = post_val2_block;
 
-    return ir_build_phi(irb, scope, node, 2, incoming_blocks, incoming_values, nullptr);
+    return ir_build_phi(irb, scope, node, 2, incoming_blocks, incoming_values, nullptr, nullptr);
 }
 
 static IrInstSrc *ir_gen_bool_and(IrBuilderSrc *irb, Scope *scope, AstNode *node) {
@@ -5652,7 +5654,7 @@ static IrInstSrc *ir_gen_bool_and(IrBuilderSrc *irb, Scope *scope, AstNode *node
     incoming_blocks[0] = post_val1_block;
     incoming_blocks[1] = post_val2_block;
 
-    return ir_build_phi(irb, scope, node, 2, incoming_blocks, incoming_values, nullptr);
+    return ir_build_phi(irb, scope, node, 2, incoming_blocks, incoming_values, nullptr, nullptr);
 }
 
 static ResultLocPeerParent *ir_build_result_peers(IrBuilderSrc *irb, IrInstSrc *cond_br_inst,
@@ -5742,7 +5744,7 @@ static IrInstSrc *ir_gen_orelse(IrBuilderSrc *irb, Scope *parent_scope, AstNode 
     IrBasicBlockSrc **incoming_blocks = heap::c_allocator.allocate<IrBasicBlockSrc *>(2);
     incoming_blocks[0] = after_null_block;
     incoming_blocks[1] = after_ok_block;
-    IrInstSrc *phi = ir_build_phi(irb, parent_scope, node, 2, incoming_blocks, incoming_values, peer_parent);
+    IrInstSrc *phi = ir_build_phi(irb, parent_scope, node, 2, incoming_blocks, incoming_values, peer_parent, nullptr);
     return ir_lval_wrap(irb, parent_scope, phi, lval, result_loc);
 }
 
@@ -7441,7 +7443,7 @@ static IrInstSrc *ir_gen_if_bool_expr(IrBuilderSrc *irb, Scope *scope, AstNode *
     incoming_blocks[0] = after_then_block;
     incoming_blocks[1] = after_else_block;
 
-    IrInstSrc *phi = ir_build_phi(irb, scope, node, 2, incoming_blocks, incoming_values, peer_parent);
+    IrInstSrc *phi = ir_build_phi(irb, scope, node, 2, incoming_blocks, incoming_values, peer_parent, nullptr);
     return ir_expr_wrap(irb, scope, phi, result_loc);
 }
 
@@ -8053,7 +8055,7 @@ static IrInstSrc *ir_gen_while_expr(IrBuilderSrc *irb, Scope *scope, AstNode *no
         }
 
         IrInstSrc *phi = ir_build_phi(irb, scope, node, incoming_blocks.length,
-                incoming_blocks.items, incoming_values.items, peer_parent);
+                incoming_blocks.items, incoming_values.items, peer_parent, nullptr);
         return ir_expr_wrap(irb, scope, phi, result_loc);
     } else if (var_symbol != nullptr) {
         ir_set_cursor_at_end_and_append_block(irb, cond_block);
@@ -8073,6 +8075,7 @@ static IrInstSrc *ir_gen_while_expr(IrBuilderSrc *irb, Scope *scope, AstNode *no
         IrInstSrc *is_non_null = ir_build_test_non_null_src(irb, scope, node->data.while_expr.condition, maybe_val);
         IrBasicBlockSrc *after_cond_block = irb->current_basic_block;
         IrInstSrc *void_else_result = else_node ? nullptr : ir_mark_gen(ir_build_const_void(irb, scope, node));
+        IrInstSrc *phi_cond_check = else_node ? nullptr : maybe_val;
         IrInstSrc *cond_br_inst;
         if (!instr_is_unreachable(is_non_null)) {
             cond_br_inst = ir_build_cond_br(irb, scope, node->data.while_expr.condition, is_non_null,
@@ -8157,7 +8160,7 @@ static IrInstSrc *ir_gen_while_expr(IrBuilderSrc *irb, Scope *scope, AstNode *no
         }
 
         IrInstSrc *phi = ir_build_phi(irb, scope, node, incoming_blocks.length,
-                incoming_blocks.items, incoming_values.items, peer_parent);
+                incoming_blocks.items, incoming_values.items, peer_parent, phi_cond_check);
         return ir_expr_wrap(irb, scope, phi, result_loc);
     } else {
         ir_set_cursor_at_end_and_append_block(irb, cond_block);
@@ -8166,6 +8169,7 @@ static IrInstSrc *ir_gen_while_expr(IrBuilderSrc *irb, Scope *scope, AstNode *no
             return cond_val;
         IrBasicBlockSrc *after_cond_block = irb->current_basic_block;
         IrInstSrc *void_else_result = else_node ? nullptr : ir_mark_gen(ir_build_const_void(irb, scope, node));
+        IrInstSrc *phi_cond_check = else_node ? nullptr : cond_val;
         IrInstSrc *cond_br_inst;
         if (!instr_is_unreachable(cond_val)) {
             cond_br_inst = ir_build_cond_br(irb, scope, node->data.while_expr.condition, cond_val,
@@ -8247,7 +8251,7 @@ static IrInstSrc *ir_gen_while_expr(IrBuilderSrc *irb, Scope *scope, AstNode *no
         }
 
         IrInstSrc *phi = ir_build_phi(irb, scope, node, incoming_blocks.length,
-                incoming_blocks.items, incoming_values.items, peer_parent);
+                incoming_blocks.items, incoming_values.items, peer_parent, phi_cond_check);
         return ir_expr_wrap(irb, scope, phi, result_loc);
     }
 }
@@ -8392,7 +8396,7 @@ static IrInstSrc *ir_gen_for_expr(IrBuilderSrc *irb, Scope *parent_scope, AstNod
     }
 
     IrInstSrc *phi = ir_build_phi(irb, parent_scope, node, incoming_blocks.length,
-            incoming_blocks.items, incoming_values.items, peer_parent);
+            incoming_blocks.items, incoming_values.items, peer_parent, nullptr);
     return ir_lval_wrap(irb, parent_scope, phi, lval, result_loc);
 }
 
@@ -8788,7 +8792,7 @@ static IrInstSrc *ir_gen_if_optional_expr(IrBuilderSrc *irb, Scope *scope, AstNo
     incoming_blocks[0] = after_then_block;
     incoming_blocks[1] = after_else_block;
 
-    IrInstSrc *phi = ir_build_phi(irb, scope, node, 2, incoming_blocks, incoming_values, peer_parent);
+    IrInstSrc *phi = ir_build_phi(irb, scope, node, 2, incoming_blocks, incoming_values, peer_parent, nullptr);
     return ir_expr_wrap(irb, scope, phi, result_loc);
 }
 
@@ -8886,7 +8890,7 @@ static IrInstSrc *ir_gen_if_err_expr(IrBuilderSrc *irb, Scope *scope, AstNode *n
     incoming_blocks[0] = after_then_block;
     incoming_blocks[1] = after_else_block;
 
-    IrInstSrc *phi = ir_build_phi(irb, scope, node, 2, incoming_blocks, incoming_values, peer_parent);
+    IrInstSrc *phi = ir_build_phi(irb, scope, node, 2, incoming_blocks, incoming_values, peer_parent, nullptr);
     return ir_expr_wrap(irb, scope, phi, result_loc);
 }
 
@@ -9217,7 +9221,7 @@ static IrInstSrc *ir_gen_switch_expr(IrBuilderSrc *irb, Scope *scope, AstNode *n
         result_instruction = ir_build_const_void(irb, scope, node);
     } else {
         result_instruction = ir_build_phi(irb, scope, node, incoming_blocks.length,
-                incoming_blocks.items, incoming_values.items, peer_parent);
+                incoming_blocks.items, incoming_values.items, peer_parent, nullptr);
     }
     return ir_lval_wrap(irb, scope, result_instruction, lval, result_loc);
 }
@@ -9539,7 +9543,7 @@ static IrInstSrc *ir_gen_catch(IrBuilderSrc *irb, Scope *parent_scope, AstNode *
     IrBasicBlockSrc **incoming_blocks = heap::c_allocator.allocate<IrBasicBlockSrc *>(2);
     incoming_blocks[0] = after_err_block;
     incoming_blocks[1] = after_ok_block;
-    IrInstSrc *phi = ir_build_phi(irb, parent_scope, node, 2, incoming_blocks, incoming_values, peer_parent);
+    IrInstSrc *phi = ir_build_phi(irb, parent_scope, node, 2, incoming_blocks, incoming_values, peer_parent, nullptr);
     return ir_lval_wrap(irb, parent_scope, phi, lval, result_loc);
 }
 
@@ -20818,6 +20822,22 @@ static IrInstGen *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstSrcPhi *phi_i
 
     if (new_incoming_blocks.length == 1) {
         return new_incoming_values.at(0);
+    }
+
+    if (phi_instruction->while_cond) {
+        IrInstGen *while_cond_val = phi_instruction->while_cond->child;
+        if (instr_is_comptime(while_cond_val)) {
+            ZigValue *value = ir_resolve_const(ira, while_cond_val, UndefBad);
+            if (value == nullptr)
+                return ira->codegen->invalid_inst_gen;
+
+            if ((value->type->id == ZigTypeIdBool && value->data.x_bool == true) ||
+                (value->type->id == ZigTypeIdOptional && !optional_value_is_null(value))) {
+                return new_incoming_values.at(0);
+            } else {
+                return new_incoming_values.at(1);
+            }
+        }
     }
 
     ZigType *resolved_type = nullptr;

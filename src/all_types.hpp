@@ -2997,6 +2997,9 @@ struct IrInstSrcPhi {
     IrBasicBlockSrc **incoming_blocks;
     IrInstSrc **incoming_values;
     ResultLocPeerParent *peer_parent;
+
+    // used to check if while needs else body
+    IrInstSrc *while_cond;
 };
 
 struct IrInstGenPhi {

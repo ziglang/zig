@@ -287,3 +287,29 @@ test "while copies its payload" {
     S.doTheTest();
     comptime S.doTheTest();
 }
+
+test "while loop with comptime true condition needs no `else` block to return value with break" {
+    const S = struct {
+        fn doTheTest() void {
+            const x: u32 = while (true) {
+                break 69;
+            };
+            expect(x == 69);
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "while loop with comptime non-null optional needs no `else` block to return value with break" {
+    const S = struct {
+        fn doTheTest() void {
+            const x: u32 = while(@as(?u32, 2)) |some| {
+                break 69;
+            };
+            expect(x == 69);
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
