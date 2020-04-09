@@ -23556,10 +23556,14 @@ static IrInstGen *ir_analyze_instruction_container_init_list(IrAnalyze *ira,
     IrInstGen *result_loc = instruction->result_loc->child;
     if (type_is_invalid(result_loc->value->type))
         return result_loc;
+
     ir_assert(result_loc->value->type->id == ZigTypeIdPointer, &instruction->base.base);
+    if (result_loc->value->type->data.pointer.is_const) {
+        ir_add_error(ira, &instruction->base.base, buf_sprintf("cannot assign to constant"));
+        return ira->codegen->invalid_inst_gen;
+    }
 
     ZigType *container_type = result_loc->value->type->data.pointer.child_type;
-
     size_t elem_count = instruction->item_count;
 
     if (is_slice(container_type)) {
@@ -23710,6 +23714,11 @@ static IrInstGen *ir_analyze_instruction_container_init_fields(IrAnalyze *ira,
         return result_loc;
 
     ir_assert(result_loc->value->type->id == ZigTypeIdPointer, &instruction->base.base);
+    if (result_loc->value->type->data.pointer.is_const) {
+        ir_add_error(ira, &instruction->base.base, buf_sprintf("cannot assign to constant"));
+        return ira->codegen->invalid_inst_gen;
+    }
+
     ZigType *container_type = result_loc->value->type->data.pointer.child_type;
 
     return ir_analyze_container_init_fields(ira, &instruction->base.base, container_type,
@@ -27179,6 +27188,13 @@ done_with_return_type:
             if (type_is_invalid(result_loc->value->type) || result_loc->value->type->id == ZigTypeIdUnreachable) {
                 return result_loc;
             }
+
+            ir_assert(result_loc->value->type->id == ZigTypeIdPointer, &instruction->base.base);
+            if (result_loc->value->type->data.pointer.is_const) {
+                ir_add_error(ira, &instruction->base.base, buf_sprintf("cannot assign to constant"));
+                return ira->codegen->invalid_inst_gen;
+            }
+
             IrInstGen *dummy_value = ir_const(ira, &instruction->base.base, return_type);
             dummy_value->value->special = ConstValSpecialRuntime;
             IrInstGen *dummy_result = ir_implicit_cast2(ira, &instruction->base.base,

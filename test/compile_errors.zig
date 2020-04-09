@@ -2,6 +2,42 @@ const tests = @import("tests.zig");
 const std = @import("std");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.addTest("reassign to array parameter",
+        \\fn reassign(a: [3]f32) void {
+        \\    a = [3]f32{4, 5, 6};
+        \\}
+        \\export fn entry() void {
+        \\    reassign(.{1, 2, 3});
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:2:15: error: cannot assign to constant"
+    });
+
+    cases.addTest("reassign to slice parameter",
+        \\pub fn reassign(s: []const u8) void {
+        \\    s = s[0..];
+        \\}
+        \\export fn entry() void {
+        \\    reassign("foo");
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:2:10: error: cannot assign to constant"
+    });
+
+    cases.addTest("reassign to struct parameter",
+        \\const S = struct {
+        \\    x: u32,
+        \\};
+        \\fn reassign(s: S) void {
+        \\    s = S{.x = 2};
+        \\}
+        \\export fn entry() void {
+        \\    reassign(S{.x = 3});
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:5:10: error: cannot assign to constant"
+    });
+
     cases.addTest("reference to const data",
         \\export fn foo() void {
         \\    var ptr = &[_]u8{0,0,0,0};

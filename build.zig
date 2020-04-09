@@ -225,10 +225,11 @@ fn findLLVM(b: *Builder, llvm_config_exe: []const u8) !LibraryDep {
                 if (fs.path.isAbsolute(lib_arg)) {
                     try result.libs.append(lib_arg);
                 } else {
+                    var lib_arg_copy = lib_arg;
                     if (mem.endsWith(u8, lib_arg, ".lib")) {
-                        lib_arg = lib_arg[0 .. lib_arg.len - 4];
+                        lib_arg_copy = lib_arg[0 .. lib_arg.len - 4];
                     }
-                    try result.system_libs.append(lib_arg);
+                    try result.system_libs.append(lib_arg_copy);
                 }
             }
         }
