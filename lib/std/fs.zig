@@ -1684,7 +1684,7 @@ test "" {
     _ = @import("fs/watch.zig");
 }
 
-const FILE_LOCK_TEST_SLEEP_TIME = 1 * std.time.ns_per_s;
+const FILE_LOCK_TEST_SLEEP_TIME = 5 * std.time.millisecond;
 
 test "open file with exclusive nonblocking lock twice" {
     const dir = cwd();
