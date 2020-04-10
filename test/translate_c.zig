@@ -2879,7 +2879,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub const FOO = 0x61626364;
     });
-
+    
     cases.add("Make sure casts are grouped",
         \\typedef struct
         \\{
@@ -2910,4 +2910,49 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     ,
         \\pub const GPIO_2_MEM_MAP = @intToPtr([*c]c_uint, 0x8008);
     });
+    
+    if (std.Target.current.abi == .msvc) {
+        cases.add("nameless struct fields",
+            \\typedef struct NAMED
+            \\{
+            \\    long name;
+            \\} NAMED;
+            \\
+            \\typedef struct ONENAMEWITHSTRUCT
+            \\{
+            \\    NAMED;
+            \\    long b;
+            \\} ONENAMEWITHSTRUCT;
+        , &[_][]const u8{
+            \\pub const struct_NAMED = extern struct {
+            \\    name: c_long,
+            \\};
+            \\pub const NAMED = struct_NAMED;
+            \\pub const struct_ONENAMEWITHSTRUCT = extern struct {
+            \\    unnamed_1: struct_NAMED,
+            \\    b: c_long,
+            \\};
+        });
+    } else {
+        cases.add("nameless struct fields",
+            \\typedef struct NAMED
+            \\{
+            \\    long name;
+            \\} NAMED;
+            \\
+            \\typedef struct ONENAMEWITHSTRUCT
+            \\{
+            \\    NAMED;
+            \\    long b;
+            \\} ONENAMEWITHSTRUCT;
+        , &[_][]const u8{
+            \\pub const struct_NAMED = extern struct {
+            \\    name: c_long,
+            \\};
+            \\pub const NAMED = struct_NAMED;
+            \\pub const struct_ONENAMEWITHSTRUCT = extern struct {
+            \\    b: c_long,
+            \\};
+        });
+    }
 }
