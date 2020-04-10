@@ -32,13 +32,14 @@ test "parse and render IPv6 addresses" {
     };
     for (ips) |ip, i| {
         var addr = net.Address.parseIp6(ip, 0) catch unreachable;
-        var addr_via_resolve = net.Address.resolveIp6(ip, 0) catch unreachable;
-
         var newIp = std.fmt.bufPrint(buffer[0..], "{}", .{addr}) catch unreachable;
-        var newResolvedIp = std.fmt.bufPrint(buffer[0..], "{}", .{addr_via_resolve}) catch unreachable;
-
         std.testing.expect(std.mem.eql(u8, printed[i], newIp[1 .. newIp.len - 3]));
-        std.testing.expect(std.mem.eql(u8, printed[i], newResolvedIp[1 .. newResolvedIp.len - 3]));
+
+        if (std.builtin.os.tag == .linux) {
+            var addr_via_resolve = net.Address.resolveIp6(ip, 0) catch unreachable;
+            var newResolvedIp = std.fmt.bufPrint(buffer[0..], "{}", .{addr_via_resolve}) catch unreachable;
+            std.testing.expect(std.mem.eql(u8, printed[i], newResolvedIp[1 .. newResolvedIp.len - 3]));
+        }
     }
 
     testing.expectError(error.InvalidCharacter, net.Address.parseIp6(":::", 0));
@@ -47,9 +48,11 @@ test "parse and render IPv6 addresses" {
     testing.expectError(error.InvalidEnd, net.Address.parseIp6("FF01:0:0:0:0:0:0:FB:", 0));
     testing.expectError(error.Incomplete, net.Address.parseIp6("FF01:", 0));
     testing.expectError(error.InvalidIpv4Mapping, net.Address.parseIp6("::123.123.123.123", 0));
-    testing.expectError(error.Incomplete, net.Address.resolveIp6("ff01::fb%", 0));
-    testing.expectError(error.Overflow, net.Address.resolveIp6("ff01::fb%wlp3s0s0s0s0s0s0s0s0", 0));
-    testing.expectError(error.Overflow, net.Address.resolveIp6("ff01::fb%12345678901234", 0));
+    if (std.builtin.os.tag == .linux) {
+        testing.expectError(error.Incomplete, net.Address.resolveIp6("ff01::fb%", 0));
+        testing.expectError(error.Overflow, net.Address.resolveIp6("ff01::fb%wlp3s0s0s0s0s0s0s0s0", 0));
+        testing.expectError(error.Overflow, net.Address.resolveIp6("ff01::fb%12345678901234", 0));
+    }
 }
 
 test "invalid but parseable IPv6 scope ids" {
