@@ -1,6 +1,75 @@
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompareOutputContext) void {
+    {
+        const check_panic_msg =
+            \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+            \\    if (std.mem.eql(u8, message, "index out of bounds")) {
+            \\        std.process.exit(126); // good
+            \\    }
+            \\    std.process.exit(0); // test failed
+            \\}
+        ;
+
+        cases.addRuntimeSafety("slicing operator with sentinel",
+            \\const std = @import("std");
+        ++ check_panic_msg ++
+            \\pub fn main() void {
+            \\    var buf = [4]u8{'a','b','c',0};
+            \\    const slice = buf[0..4 :0];
+            \\}
+        );
+        cases.addRuntimeSafety("slicing operator with sentinel",
+            \\const std = @import("std");
+        ++ check_panic_msg ++
+            \\pub fn main() void {
+            \\    var buf = [4]u8{'a','b','c',0};
+            \\    const slice = buf[0..:0];
+            \\}
+        );
+        cases.addRuntimeSafety("slicing operator with sentinel",
+            \\const std = @import("std");
+        ++ check_panic_msg ++
+            \\pub fn main() void {
+            \\    var buf_zero = [0]u8{};
+            \\    const slice = buf_zero[0..0 :0];
+            \\}
+        );
+        cases.addRuntimeSafety("slicing operator with sentinel",
+            \\const std = @import("std");
+        ++ check_panic_msg ++
+            \\pub fn main() void {
+            \\    var buf_zero = [0]u8{};
+            \\    const slice = buf_zero[0..:0];
+            \\}
+        );
+        cases.addRuntimeSafety("slicing operator with sentinel",
+            \\const std = @import("std");
+        ++ check_panic_msg ++
+            \\pub fn main() void {
+            \\    var buf_sentinel = [2:0]u8{'a','b'};
+            \\    @ptrCast(*[3]u8, &buf_sentinel)[2] = 0;
+            \\    const slice = buf_sentinel[0..3 :0];
+            \\}
+        );
+        cases.addRuntimeSafety("slicing operator with sentinel",
+            \\const std = @import("std");
+        ++ check_panic_msg ++
+            \\pub fn main() void {
+            \\    var buf_slice: []const u8 = &[3]u8{ 'a', 'b', 0 };
+            \\    const slice = buf_slice[0..3 :0];
+            \\}
+        );
+        cases.addRuntimeSafety("slicing operator with sentinel",
+            \\const std = @import("std");
+        ++ check_panic_msg ++
+            \\pub fn main() void {
+            \\    var buf_slice: []const u8 = &[3]u8{ 'a', 'b', 0 };
+            \\    const slice = buf_slice[0.. :0];
+            \\}
+        );
+    }
+
     cases.addRuntimeSafety("shift left by huge amount",
         \\const std = @import("std");
         \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
@@ -505,6 +574,21 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\}
     );
 
+    cases.addRuntimeSafety("signed integer division overflow - vectors",
+        \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+        \\    @import("std").os.exit(126);
+        \\}
+        \\pub fn main() !void {
+        \\    var a: @Vector(4, i16) = [_]i16{ 1, 2, -32768, 4 };
+        \\    var b: @Vector(4, i16) = [_]i16{ 1, 2, -1, 4 };
+        \\    const x = div(a, b);
+        \\    if (x[2] == 32767) return error.Whatever;
+        \\}
+        \\fn div(a: @Vector(4, i16), b: @Vector(4, i16)) @Vector(4, i16) {
+        \\    return @divTrunc(a, b);
+        \\}
+    );
+
     cases.addRuntimeSafety("signed shift left overflow",
         \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);
@@ -569,6 +653,20 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\}
     );
 
+    cases.addRuntimeSafety("integer division by zero - vectors",
+        \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+        \\    @import("std").os.exit(126);
+        \\}
+        \\pub fn main() void {
+        \\    var a: @Vector(4, i32) = [4]i32{111, 222, 333, 444};
+        \\    var b: @Vector(4, i32) = [4]i32{111, 0, 333, 444};
+        \\    const x = div0(a, b);
+        \\}
+        \\fn div0(a: @Vector(4, i32), b: @Vector(4, i32)) @Vector(4, i32) {
+        \\    return @divTrunc(a, b);
+        \\}
+    );
+
     cases.addRuntimeSafety("exact division failure",
         \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);
@@ -578,6 +676,20 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    if (x == 0) return error.Whatever;
         \\}
         \\fn divExact(a: i32, b: i32) i32 {
+        \\    return @divExact(a, b);
+        \\}
+    );
+
+    cases.addRuntimeSafety("exact division failure - vectors",
+        \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+        \\    @import("std").os.exit(126);
+        \\}
+        \\pub fn main() !void {
+        \\    var a: @Vector(4, i32) = [4]i32{111, 222, 333, 444};
+        \\    var b: @Vector(4, i32) = [4]i32{111, 222, 333, 441};
+        \\    const x = divExact(a, b);
+        \\}
+        \\fn divExact(a: @Vector(4, i32), b: @Vector(4, i32)) @Vector(4, i32) {
         \\    return @divExact(a, b);
         \\}
     );

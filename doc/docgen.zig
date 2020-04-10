@@ -1108,7 +1108,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                         if (expected_outcome == .BuildFail) {
                             const result = try ChildProcess.exec(.{
                                 .allocator = allocator,
-                                .argv = build_args.span(),
+                                .argv = build_args.items,
                                 .env_map = &env_map,
                                 .max_output_bytes = max_doc_file_size,
                             });
@@ -1116,7 +1116,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                                 .Exited => |exit_code| {
                                     if (exit_code == 0) {
                                         warn("{}\nThe following command incorrectly succeeded:\n", .{result.stderr});
-                                        for (build_args.span()) |arg|
+                                        for (build_args.items) |arg|
                                             warn("{} ", .{arg})
                                         else
                                             warn("\n", .{});
@@ -1125,7 +1125,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                                 },
                                 else => {
                                     warn("{}\nThe following command crashed:\n", .{result.stderr});
-                                    for (build_args.span()) |arg|
+                                    for (build_args.items) |arg|
                                         warn("{} ", .{arg})
                                     else
                                         warn("\n", .{});
@@ -1137,7 +1137,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             try out.print("\n{}</code></pre>\n", .{colored_stderr});
                             break :code_block;
                         }
-                        const exec_result = exec(allocator, &env_map, build_args.span()) catch
+                        const exec_result = exec(allocator, &env_map, build_args.items) catch
                             return parseError(tokenizer, code.source_token, "example failed to compile", .{});
 
                         if (code.target_str) |triple| {
@@ -1238,7 +1238,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             try test_args.appendSlice(&[_][]const u8{ "-target", triple });
                             try out.print(" -target {}", .{triple});
                         }
-                        const result = exec(allocator, &env_map, test_args.span()) catch return parseError(tokenizer, code.source_token, "test failed", .{});
+                        const result = exec(allocator, &env_map, test_args.items) catch return parseError(tokenizer, code.source_token, "test failed", .{});
                         const escaped_stderr = try escapeHtml(allocator, result.stderr);
                         const escaped_stdout = try escapeHtml(allocator, result.stdout);
                         try out.print("\n{}{}</code></pre>\n", .{ escaped_stderr, escaped_stdout });
@@ -1274,7 +1274,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                         }
                         const result = try ChildProcess.exec(.{
                             .allocator = allocator,
-                            .argv = test_args.span(),
+                            .argv = test_args.items,
                             .env_map = &env_map,
                             .max_output_bytes = max_doc_file_size,
                         });
@@ -1282,7 +1282,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             .Exited => |exit_code| {
                                 if (exit_code == 0) {
                                     warn("{}\nThe following command incorrectly succeeded:\n", .{result.stderr});
-                                    for (test_args.span()) |arg|
+                                    for (test_args.items) |arg|
                                         warn("{} ", .{arg})
                                     else
                                         warn("\n", .{});
@@ -1291,7 +1291,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             },
                             else => {
                                 warn("{}\nThe following command crashed:\n", .{result.stderr});
-                                for (test_args.span()) |arg|
+                                for (test_args.items) |arg|
                                     warn("{} ", .{arg})
                                 else
                                     warn("\n", .{});
@@ -1337,7 +1337,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
 
                         const result = try ChildProcess.exec(.{
                             .allocator = allocator,
-                            .argv = test_args.span(),
+                            .argv = test_args.items,
                             .env_map = &env_map,
                             .max_output_bytes = max_doc_file_size,
                         });
@@ -1345,7 +1345,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             .Exited => |exit_code| {
                                 if (exit_code == 0) {
                                     warn("{}\nThe following command incorrectly succeeded:\n", .{result.stderr});
-                                    for (test_args.span()) |arg|
+                                    for (test_args.items) |arg|
                                         warn("{} ", .{arg})
                                     else
                                         warn("\n", .{});
@@ -1354,7 +1354,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             },
                             else => {
                                 warn("{}\nThe following command crashed:\n", .{result.stderr});
-                                for (test_args.span()) |arg|
+                                for (test_args.items) |arg|
                                     warn("{} ", .{arg})
                                 else
                                     warn("\n", .{});
@@ -1434,7 +1434,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                         if (maybe_error_match) |error_match| {
                             const result = try ChildProcess.exec(.{
                                 .allocator = allocator,
-                                .argv = build_args.span(),
+                                .argv = build_args.items,
                                 .env_map = &env_map,
                                 .max_output_bytes = max_doc_file_size,
                             });
@@ -1442,7 +1442,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                                 .Exited => |exit_code| {
                                     if (exit_code == 0) {
                                         warn("{}\nThe following command incorrectly succeeded:\n", .{result.stderr});
-                                        for (build_args.span()) |arg|
+                                        for (build_args.items) |arg|
                                             warn("{} ", .{arg})
                                         else
                                             warn("\n", .{});
@@ -1451,7 +1451,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                                 },
                                 else => {
                                     warn("{}\nThe following command crashed:\n", .{result.stderr});
-                                    for (build_args.span()) |arg|
+                                    for (build_args.items) |arg|
                                         warn("{} ", .{arg})
                                     else
                                         warn("\n", .{});
@@ -1466,7 +1466,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             const colored_stderr = try termColor(allocator, escaped_stderr);
                             try out.print("\n{}", .{colored_stderr});
                         } else {
-                            _ = exec(allocator, &env_map, build_args.span()) catch return parseError(tokenizer, code.source_token, "example failed to compile", .{});
+                            _ = exec(allocator, &env_map, build_args.items) catch return parseError(tokenizer, code.source_token, "example failed to compile", .{});
                         }
                         if (!code.is_inline) {
                             try out.print("</code></pre>\n", .{});
@@ -1503,7 +1503,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             try test_args.appendSlice(&[_][]const u8{ "-target", triple });
                             try out.print(" -target {}", .{triple});
                         }
-                        const result = exec(allocator, &env_map, test_args.span()) catch return parseError(tokenizer, code.source_token, "test failed", .{});
+                        const result = exec(allocator, &env_map, test_args.items) catch return parseError(tokenizer, code.source_token, "test failed", .{});
                         const escaped_stderr = try escapeHtml(allocator, result.stderr);
                         const escaped_stdout = try escapeHtml(allocator, result.stdout);
                         try out.print("\n{}{}</code></pre>\n", .{ escaped_stderr, escaped_stdout });

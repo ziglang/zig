@@ -23,7 +23,7 @@ pub fn main() anyerror!void {
     }
 
     const stdout = try std.io.getStdOut();
-    try dump.render(&stdout.outStream().stream);
+    try dump.render(stdout.outStream());
 }
 
 /// AST source node
@@ -194,7 +194,7 @@ const Dump = struct {
         for (other_files) |other_file, i| {
             const gop = try self.file_map.getOrPut(other_file.String);
             if (!gop.found_existing) {
-                gop.kv.value = self.file_list.len;
+                gop.kv.value = self.file_list.items.len;
                 try self.file_list.append(other_file.String);
             }
             try other_file_to_mine.putNoClobber(i, gop.kv.value);
@@ -213,7 +213,7 @@ const Dump = struct {
             };
             const gop = try self.node_map.getOrPut(other_node);
             if (!gop.found_existing) {
-                gop.kv.value = self.node_list.len;
+                gop.kv.value = self.node_list.items.len;
                 try self.node_list.append(other_node);
             }
             try other_ast_node_to_mine.putNoClobber(i, gop.kv.value);
@@ -243,7 +243,7 @@ const Dump = struct {
             };
             const gop = try self.error_map.getOrPut(other_error);
             if (!gop.found_existing) {
-                gop.kv.value = self.error_list.len;
+                gop.kv.value = self.error_list.items.len;
                 try self.error_list.append(other_error);
             }
             try other_error_to_mine.putNoClobber(i, gop.kv.value);
@@ -304,7 +304,7 @@ const Dump = struct {
     ) !void {
         const gop = try self.type_map.getOrPut(other_type);
         if (!gop.found_existing) {
-            gop.kv.value = self.type_list.len;
+            gop.kv.value = self.type_list.items.len;
             try self.type_list.append(other_type);
         }
         try other_types_to_mine.putNoClobber(other_type_index, gop.kv.value);

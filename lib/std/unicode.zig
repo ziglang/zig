@@ -475,7 +475,7 @@ pub fn utf16leToUtf8Alloc(allocator: *mem.Allocator, utf16le: []const u16) ![]u8
     var it = Utf16LeIterator.init(utf16le);
     while (try it.nextCodepoint()) |codepoint| {
         const utf8_len = utf8CodepointSequenceLength(codepoint) catch unreachable;
-        try result.resize(result.len + utf8_len);
+        try result.resize(result.items.len + utf8_len);
         assert((utf8Encode(codepoint, result.items[out_index..]) catch unreachable) == utf8_len);
         out_index += utf8_len;
     }
@@ -571,7 +571,7 @@ pub fn utf8ToUtf16LeWithNull(allocator: *mem.Allocator, utf8: []const u8) ![:0]u
         }
     }
 
-    const len = result.len;
+    const len = result.items.len;
     try result.append(0);
     return result.toOwnedSlice()[0..len :0];
 }

@@ -51,9 +51,16 @@ ZIG_EXTERN_C bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machi
         bool is_small, bool time_report,
         const char *asm_filename, const char *bin_filename, const char *llvm_ir_filename);
 
+
+enum ZigLLVMABIType {
+    ZigLLVMABITypeDefault, // Target-specific (either soft or hard depending on triple, etc).
+    ZigLLVMABITypeSoft,    // Soft float.
+    ZigLLVMABITypeHard     // Hard float.
+};
+
 ZIG_EXTERN_C LLVMTargetMachineRef ZigLLVMCreateTargetMachine(LLVMTargetRef T, const char *Triple,
     const char *CPU, const char *Features, LLVMCodeGenOptLevel Level, LLVMRelocMode Reloc,
-    LLVMCodeModel CodeModel, bool function_sections);
+    LLVMCodeModel CodeModel, bool function_sections, ZigLLVMABIType float_abi, const char *abi_name);
 
 ZIG_EXTERN_C LLVMTypeRef ZigLLVMTokenTypeInContext(LLVMContextRef context_ref);
 

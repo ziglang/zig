@@ -181,7 +181,7 @@ pub const Coff = struct {
     }
 
     pub fn loadSections(self: *Coff) !void {
-        if (self.sections.len == self.coff_header.number_of_sections)
+        if (self.sections.items.len == self.coff_header.number_of_sections)
             return;
 
         try self.sections.ensureCapacity(self.coff_header.number_of_sections);

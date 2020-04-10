@@ -55,6 +55,10 @@ const known_options = [_]KnownOpt{
         .ident = "no_pic",
     },
     .{
+        .name = "nolibc",
+        .ident = "nostdlib",
+    },
+    .{
         .name = "nostdlib",
         .ident = "nostdlib",
     },
@@ -65,6 +69,22 @@ const known_options = [_]KnownOpt{
     .{
         .name = "nostdlib++",
         .ident = "nostdlib_cpp",
+    },
+    .{
+        .name = "nostdinc++",
+        .ident = "nostdlib_cpp",
+    },
+    .{
+        .name = "nostdlibinc",
+        .ident = "nostdlibinc",
+    },
+    .{
+        .name = "nostdinc",
+        .ident = "nostdlibinc",
+    },
+    .{
+        .name = "no-standard-includes",
+        .ident = "nostdlibinc",
     },
     .{
         .name = "shared",
@@ -207,6 +227,34 @@ const known_options = [_]KnownOpt{
         .ident = "dep_file",
     },
     .{
+        .name = "MT",
+        .ident = "dep_file",
+    },
+    .{
+        .name = "MG",
+        .ident = "dep_file",
+    },
+    .{
+        .name = "MJ",
+        .ident = "dep_file",
+    },
+    .{
+        .name = "MM",
+        .ident = "dep_file",
+    },
+    .{
+        .name = "MMD",
+        .ident = "dep_file",
+    },
+    .{
+        .name = "MP",
+        .ident = "dep_file",
+    },
+    .{
+        .name = "MQ",
+        .ident = "dep_file",
+    },
+    .{
         .name = "F",
         .ident = "framework_dir",
     },
@@ -336,7 +384,12 @@ pub fn main() anyerror!void {
         }
         const syntax = objSyntax(obj);
 
-        if (knownOption(name)) |ident| {
+        if (std.mem.eql(u8, name, "MT") and syntax == .flag) {
+            // `-MT foo` is ambiguous because there is also an -MT flag
+            // The canonical way to specify the flag is with `/MT` and so we make this
+            // the only way.
+            try stdout.print("flagpsl(\"{}\"),\n", .{name});
+        } else if (knownOption(name)) |ident| {
             try stdout.print(
                 \\.{{
                 \\    .name = "{}",
@@ -350,6 +403,8 @@ pub fn main() anyerror!void {
             , .{ name, syntax, ident, pd1, pd2, pslash });
         } else if (pd1 and !pd2 and !pslash and syntax == .flag) {
             try stdout.print("flagpd1(\"{}\"),\n", .{name});
+        } else if (!pd1 and !pd2 and pslash and syntax == .flag) {
+            try stdout.print("flagpsl(\"{}\"),\n", .{name});
         } else if (pd1 and !pd2 and !pslash and syntax == .joined) {
             try stdout.print("joinpd1(\"{}\"),\n", .{name});
         } else if (pd1 and !pd2 and !pslash and syntax == .joined_or_separate) {

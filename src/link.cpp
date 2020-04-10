@@ -72,7 +72,7 @@ static const char *msvcrt_common_src[] = {
 
 static const char *msvcrt_i386_src[] = {
     "misc" OS_SEP "lc_locale_func.c",
-
+    "misc" OS_SEP "___mb_cur_max_func.c",
 };
 
 static const char *msvcrt_other_src[] = {
@@ -517,6 +517,52 @@ static const char *mingwex_arm64_src[] = {
     "math" OS_SEP "arm64" OS_SEP "trunc.S",
 };
 
+static const char *mingw_uuid_src[] = {
+    "libsrc/ativscp-uuid.c",
+    "libsrc/atsmedia-uuid.c",
+    "libsrc/bth-uuid.c",
+    "libsrc/cguid-uuid.c",
+    "libsrc/comcat-uuid.c",
+    "libsrc/devguid.c",
+    "libsrc/docobj-uuid.c",
+    "libsrc/dxva-uuid.c",
+    "libsrc/exdisp-uuid.c",
+    "libsrc/extras-uuid.c",
+    "libsrc/fwp-uuid.c",
+    "libsrc/guid_nul.c",
+    "libsrc/hlguids-uuid.c",
+    "libsrc/hlink-uuid.c",
+    "libsrc/mlang-uuid.c",
+    "libsrc/msctf-uuid.c",
+    "libsrc/mshtmhst-uuid.c",
+    "libsrc/mshtml-uuid.c",
+    "libsrc/msxml-uuid.c",
+    "libsrc/netcon-uuid.c",
+    "libsrc/ntddkbd-uuid.c",
+    "libsrc/ntddmou-uuid.c",
+    "libsrc/ntddpar-uuid.c",
+    "libsrc/ntddscsi-uuid.c",
+    "libsrc/ntddser-uuid.c",
+    "libsrc/ntddstor-uuid.c",
+    "libsrc/ntddvdeo-uuid.c",
+    "libsrc/oaidl-uuid.c",
+    "libsrc/objidl-uuid.c",
+    "libsrc/objsafe-uuid.c",
+    "libsrc/ocidl-uuid.c",
+    "libsrc/oleacc-uuid.c",
+    "libsrc/olectlid-uuid.c",
+    "libsrc/oleidl-uuid.c",
+    "libsrc/power-uuid.c",
+    "libsrc/powrprof-uuid.c",
+    "libsrc/uianimation-uuid.c",
+    "libsrc/usbcamdi-uuid.c",
+    "libsrc/usbiodef-uuid.c",
+    "libsrc/uuid.c",
+    "libsrc/vds-uuid.c",
+    "libsrc/virtdisk-uuid.c",
+    "libsrc/wia-uuid.c",
+};
+
 struct MinGWDef {
     const char *name;
     bool always_link;
@@ -541,11 +587,13 @@ static const MinGWDef mingw_def_list[] = {
     {"ole32",   false},
     {"oleaut32",false},
     {"opengl32",false},
+    {"psapi",   false},
     {"rpcns4",  false},
     {"rpcrt4",  false},
     {"scarddlg",false},
     {"setupapi",false},
     {"shell32", true},
+    {"shlwapi", false},
     {"urlmon",  false},
     {"user32",  true},
     {"version", false},
@@ -1261,7 +1309,32 @@ static void add_msvcrt_os_dep(CodeGen *parent, CodeGen *child_gen, const char *s
     child_gen->c_source_files.append(c_file);
 }
 
-static void add_mingwex_os_dep(CodeGen *parent, CodeGen *child_gen, const char *src_path) {
+static void add_mingwex_dep(CodeGen *parent, CodeGen *child_gen, const char *src_path) {
+    CFile *c_file = heap::c_allocator.create<CFile>();
+    c_file->source_path = buf_ptr(buf_sprintf("%s" OS_SEP "libc" OS_SEP "mingw" OS_SEP "%s",
+            buf_ptr(parent->zig_lib_dir), src_path));
+    c_file->args.append("-DHAVE_CONFIG_H");
+
+    c_file->args.append("-I");
+    c_file->args.append(path_from_libc(parent, "mingw"));
+
+    c_file->args.append("-I");
+    c_file->args.append(path_from_libc(parent, "mingw" OS_SEP "include"));
+
+    c_file->args.append("-std=gnu99");
+    c_file->args.append("-D_CRTBLD");
+    c_file->args.append("-D_WIN32_WINNT=0x0f00");
+    c_file->args.append("-D__MSVCRT_VERSION__=0x700");
+    c_file->args.append("-g");
+    c_file->args.append("-O2");
+
+    c_file->args.append("-isystem");
+    c_file->args.append(path_from_libc(parent, "include" OS_SEP "any-windows-any"));
+
+    child_gen->c_source_files.append(c_file);
+}
+
+static void add_mingw_uuid_dep(CodeGen *parent, CodeGen *child_gen, const char *src_path) {
     CFile *c_file = heap::c_allocator.create<CFile>();
     c_file->source_path = buf_ptr(buf_sprintf("%s" OS_SEP "libc" OS_SEP "mingw" OS_SEP "%s",
             buf_ptr(parent->zig_lib_dir), src_path));
@@ -1387,24 +1460,31 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file, Stage2Pr
             CodeGen *child_gen = create_child_codegen(parent, nullptr, OutTypeLib, nullptr, "mingwex", progress_node);
 
             for (size_t i = 0; i < array_length(mingwex_generic_src); i += 1) {
-                add_mingwex_os_dep(parent, child_gen, mingwex_generic_src[i]);
+                add_mingwex_dep(parent, child_gen, mingwex_generic_src[i]);
             }
             if (parent->zig_target->arch == ZigLLVM_x86 || parent->zig_target->arch == ZigLLVM_x86_64) {
                 for (size_t i = 0; i < array_length(mingwex_x86_src); i += 1) {
-                    add_mingwex_os_dep(parent, child_gen, mingwex_x86_src[i]);
+                    add_mingwex_dep(parent, child_gen, mingwex_x86_src[i]);
                 }
             } else if (target_is_arm(parent->zig_target)) {
                 if (target_arch_pointer_bit_width(parent->zig_target->arch) == 32) {
                     for (size_t i = 0; i < array_length(mingwex_arm32_src); i += 1) {
-                        add_mingwex_os_dep(parent, child_gen, mingwex_arm32_src[i]);
+                        add_mingwex_dep(parent, child_gen, mingwex_arm32_src[i]);
                     }
                 } else {
                     for (size_t i = 0; i < array_length(mingwex_arm64_src); i += 1) {
-                        add_mingwex_os_dep(parent, child_gen, mingwex_arm64_src[i]);
+                        add_mingwex_dep(parent, child_gen, mingwex_arm64_src[i]);
                     }
                 }
             } else {
                 zig_unreachable();
+            }
+            codegen_build_and_link(child_gen);
+            return buf_ptr(&child_gen->bin_file_output_path);
+        } else if (strcmp(file, "uuid.lib") == 0) {
+            CodeGen *child_gen = create_child_codegen(parent, nullptr, OutTypeLib, nullptr, "uuid", progress_node);
+            for (size_t i = 0; i < array_length(mingw_uuid_src); i += 1) {
+                add_mingw_uuid_dep(parent, child_gen, mingw_uuid_src[i]);
             }
             codegen_build_and_link(child_gen);
             return buf_ptr(&child_gen->bin_file_output_path);
@@ -1761,7 +1841,8 @@ static void construct_linker_job_elf(LinkJob *lj) {
 
     if (g->out_type == OutTypeExe) {
         lj->args.append("-z");
-        lj->args.append("stack-size=16777216"); // default to 16 MiB
+        size_t stack_size = (g->stack_size_override == 0) ? 16777216 : g->stack_size_override;
+        lj->args.append(buf_ptr(buf_sprintf("stack-size=%" ZIG_PRI_usize, stack_size)));
     }
 
     if (g->linker_script) {
@@ -2400,7 +2481,8 @@ static void construct_linker_job_coff(LinkJob *lj) {
 
     if (g->out_type == OutTypeExe) {
         // TODO compile time stack upper bound detection
-        lj->args.append("-STACK:16777216");
+        size_t stack_size = (g->stack_size_override == 0) ? 16777216 : g->stack_size_override;
+        lj->args.append(buf_ptr(buf_sprintf("-STACK:%" ZIG_PRI_usize, stack_size)));
     }
 
     coff_append_machine_arg(g, &lj->args);
@@ -2526,10 +2608,14 @@ static void construct_linker_job_coff(LinkJob *lj) {
         // If we're linking in the CRT or the libs are provided explictly we don't want to generate def/libs
         if ((lj->link_in_crt && is_sys_lib) || link_lib->provided_explicitly) {
             if (target_abi_is_gnu(lj->codegen->zig_target->abi)) {
-                Buf* lib_name = buf_sprintf("lib%s.a", buf_ptr(link_lib->name));
-                lj->args.append(buf_ptr(lib_name));
-            }
-            else {
+                if (buf_eql_str(link_lib->name, "uuid")) {
+                    // mingw-w64 provides this lib
+                    lj->args.append(get_libc_crt_file(g, "uuid.lib", lj->build_dep_prog_node));
+                } else {
+                    Buf* lib_name = buf_sprintf("lib%s.a", buf_ptr(link_lib->name));
+                    lj->args.append(buf_ptr(lib_name));
+                }
+            } else {
                 Buf* lib_name = buf_sprintf("%s.lib", buf_ptr(link_lib->name));
                 lj->args.append(buf_ptr(lib_name));
             }

@@ -89,6 +89,15 @@ const test_targets = blk: {
             },
             .link_libc = true,
         },
+        // https://github.com/ziglang/zig/issues/4926
+        //TestTarget{
+        //    .target = .{
+        //        .cpu_arch = .i386,
+        //        .os_tag = .linux,
+        //        .abi = .gnu,
+        //    },
+        //    .link_libc = true,
+        //},
 
         TestTarget{
             .target = .{
@@ -127,7 +136,7 @@ const test_targets = blk: {
             }) catch unreachable,
             .link_libc = true,
         },
-        // TODO https://github.com/ziglang/zig/issues/3287
+        // https://github.com/ziglang/zig/issues/3287
         //TestTarget{
         //    .target = CrossTarget.parse(.{
         //        .arch_os_abi = "arm-linux-gnueabihf",
@@ -151,26 +160,32 @@ const test_targets = blk: {
             },
             .link_libc = true,
         },
-
-        // TODO disabled only because the CI server has such an old qemu that
-        // qemu-riscv64 isn't available :(
+        // https://github.com/ziglang/zig/issues/4927
         //TestTarget{
         //    .target = .{
-        //        .cpu_arch = .riscv64,
+        //        .cpu_arch = .mipsel,
         //        .os_tag = .linux,
-        //        .abi = .none,
-        //    },
-        //},
-
-        // https://github.com/ziglang/zig/issues/4485
-        //TestTarget{
-        //    .target = .{
-        //        .cpu_arch = .riscv64,
-        //        .os_tag = .linux,
-        //        .abi = .musl,
+        //        .abi = .gnu,
         //    },
         //    .link_libc = true,
         //},
+
+        TestTarget{
+            .target = .{
+                .cpu_arch = .riscv64,
+                .os_tag = .linux,
+                .abi = .none,
+            },
+        },
+
+        TestTarget{
+            .target = .{
+                .cpu_arch = .riscv64,
+                .os_tag = .linux,
+                .abi = .musl,
+            },
+            .link_libc = true,
+        },
 
         // https://github.com/ziglang/zig/issues/3340
         //TestTarget{
@@ -188,7 +203,7 @@ const test_targets = blk: {
                 .os_tag = .macosx,
                 .abi = .gnu,
             },
-            // TODO https://github.com/ziglang/zig/issues/3295
+            // https://github.com/ziglang/zig/issues/3295
             .disable_native = true,
         },
 
@@ -597,7 +612,7 @@ pub const StackTracesContext = struct {
 
             const stdout = child.stdout.?.inStream().readAllAlloc(b.allocator, max_stdout_size) catch unreachable;
             defer b.allocator.free(stdout);
-            const stderr = child.stderr.?.inStream().readAllAlloc(b.allocator, max_stdout_size) catch unreachable;
+            var stderr = child.stderr.?.inStream().readAllAlloc(b.allocator, max_stdout_size) catch unreachable;
             defer b.allocator.free(stderr);
 
             const term = child.wait() catch |err| {
@@ -642,7 +657,7 @@ pub const StackTracesContext = struct {
                 var buf = ArrayList(u8).init(b.allocator);
                 defer buf.deinit();
                 if (stderr.len != 0 and stderr[stderr.len - 1] == '\n') stderr = stderr[0 .. stderr.len - 1];
-                var it = mem.separate(stderr, "\n");
+                var it = mem.split(stderr, "\n");
                 process_lines: while (it.next()) |line| {
                     if (line.len == 0) continue;
                     const delims = [_][]const u8{ ":", ":", ":", " in " };
@@ -735,7 +750,7 @@ pub const CompileErrorContext = struct {
             const source_file = "tmp.zig";
 
             fn init(input: []const u8) ErrLineIter {
-                return ErrLineIter{ .lines = mem.separate(input, "\n") };
+                return ErrLineIter{ .lines = mem.split(input, "\n") };
             }
 
             fn next(self: *ErrLineIter) ?[]const u8 {
@@ -864,13 +879,13 @@ pub const CompileErrorContext = struct {
                 var err_iter = ErrLineIter.init(stderr);
                 var i: usize = 0;
                 ok = while (err_iter.next()) |line| : (i += 1) {
-                    if (i >= self.case.expected_errors.len) break false;
+                    if (i >= self.case.expected_errors.items.len) break false;
                     const expected = self.case.expected_errors.at(i);
                     if (mem.indexOf(u8, line, expected) == null) break false;
                     continue;
                 } else true;
 
-                ok = ok and i == self.case.expected_errors.len;
+                ok = ok and i == self.case.expected_errors.items.len;
 
                 if (!ok) {
                     warn("\n======== Expected these compile errors: ========\n", .{});

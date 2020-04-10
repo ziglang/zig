@@ -1834,6 +1834,7 @@ fopen c
 fopen64 c
 fopencookie c
 fork c
+forkpty util
 fpathconf c
 fprintf c
 fputc c
@@ -2414,7 +2415,11 @@ logf32 m
 logf32x m
 logf64 m
 logf64x m
+login util
+login_tty util
 logl m
+logout util
+logwtmp util
 longjmp c
 lrand48 c
 lrand48_r c
@@ -2620,6 +2625,7 @@ openat c
 openat64 c
 opendir c
 openlog c
+openpty util
 optarg c
 opterr c
 optind c

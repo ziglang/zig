@@ -1327,12 +1327,13 @@ test "Value.jsonStringify" {
     {
         var buffer: [10]u8 = undefined;
         var fbs = std.io.fixedBufferStream(&buffer);
+        var vals = [_]Value{
+            .{ .Integer = 1 },
+            .{ .Integer = 2 },
+            .{ .Integer = 3 },
+        };
         try (Value{
-            .Array = Array.fromOwnedSlice(undefined, &[_]Value{
-                .{ .Integer = 1 },
-                .{ .Integer = 2 },
-                .{ .Integer = 3 },
-            }),
+            .Array = Array.fromOwnedSlice(undefined, &vals),
         }).jsonStringify(.{}, fbs.outStream());
         testing.expectEqualSlices(u8, fbs.getWritten(), "[1,2,3]");
     }
@@ -1556,7 +1557,7 @@ fn parseInternal(comptime T: type, token: Token, tokens: *TokenStream, options: 
                                     else => {},
                                 }
 
-                                try arraylist.ensureCapacity(arraylist.len + 1);
+                                try arraylist.ensureCapacity(arraylist.items.len + 1);
                                 const v = try parseInternal(ptrInfo.child, tok, tokens, options);
                                 arraylist.appendAssumeCapacity(v);
                             }
@@ -1874,7 +1875,7 @@ pub const Parser = struct {
             try p.transition(&arena.allocator, input, s.i - 1, token);
         }
 
-        debug.assert(p.stack.len == 1);
+        debug.assert(p.stack.items.len == 1);
 
         return ValueTree{
             .arena = arena,
@@ -1888,7 +1889,7 @@ pub const Parser = struct {
         switch (p.state) {
             .ObjectKey => switch (token) {
                 .ObjectEnd => {
-                    if (p.stack.len == 1) {
+                    if (p.stack.items.len == 1) {
                         return;
                     }
 
@@ -1907,8 +1908,8 @@ pub const Parser = struct {
                 },
             },
             .ObjectValue => {
-                var object = &p.stack.items[p.stack.len - 2].Object;
-                var key = p.stack.items[p.stack.len - 1].String;
+                var object = &p.stack.items[p.stack.items.len - 2].Object;
+                var key = p.stack.items[p.stack.items.len - 1].String;
 
                 switch (token) {
                     .ObjectBegin => {
@@ -1950,11 +1951,11 @@ pub const Parser = struct {
                 }
             },
             .ArrayValue => {
-                var array = &p.stack.items[p.stack.len - 1].Array;
+                var array = &p.stack.items[p.stack.items.len - 1].Array;
 
                 switch (token) {
                     .ArrayEnd => {
-                        if (p.stack.len == 1) {
+                        if (p.stack.items.len == 1) {
                             return;
                         }
 
@@ -2021,12 +2022,12 @@ pub const Parser = struct {
     }
 
     fn pushToParent(p: *Parser, value: *const Value) !void {
-        switch (p.stack.span()[p.stack.len - 1]) {
+        switch (p.stack.span()[p.stack.items.len - 1]) {
             // Object Parent -> [ ..., object, <key>, value ]
             Value.String => |key| {
                 _ = p.stack.pop();
 
-                var object = &p.stack.items[p.stack.len - 1].Object;
+                var object = &p.stack.items[p.stack.items.len - 1].Object;
                 _ = try object.put(key, value.*);
                 p.state = .ObjectKey;
             },
@@ -2165,7 +2166,7 @@ test "json.parser.dynamic" {
     testing.expect(animated.Bool == false);
 
     const array_of_object = image.Object.get("ArrayOfObject").?.value;
-    testing.expect(array_of_object.Array.len == 1);
+    testing.expect(array_of_object.Array.items.len == 1);
 
     const obj0 = array_of_object.Array.at(0).Object.get("n").?.value;
     testing.expect(mem.eql(u8, obj0.String, "m"));

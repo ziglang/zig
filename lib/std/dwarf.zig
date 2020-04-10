@@ -206,7 +206,7 @@ const LineNumberProgram = struct {
         if (self.target_address >= self.prev_address and self.target_address < self.address) {
             const file_entry = if (self.prev_file == 0) {
                 return error.MissingDebugInfo;
-            } else if (self.prev_file - 1 >= self.file_entries.len) {
+            } else if (self.prev_file - 1 >= self.file_entries.items.len) {
                 return error.InvalidDebugInfo;
             } else
                 &self.file_entries.items[self.prev_file - 1];
@@ -645,7 +645,7 @@ pub const DwarfInfo = struct {
             .offset = abbrev_offset,
             .table = try di.parseAbbrevTable(abbrev_offset),
         });
-        return &di.abbrev_table_list.items[di.abbrev_table_list.len - 1].table;
+        return &di.abbrev_table_list.items[di.abbrev_table_list.items.len - 1].table;
     }
 
     fn parseAbbrevTable(di: *DwarfInfo, offset: u64) !AbbrevTable {
@@ -665,7 +665,7 @@ pub const DwarfInfo = struct {
                 .has_children = (try in.readByte()) == CHILDREN_yes,
                 .attrs = ArrayList(AbbrevAttr).init(di.allocator()),
             });
-            const attrs = &result.items[result.len - 1].attrs;
+            const attrs = &result.items[result.items.len - 1].attrs;
 
             while (true) {
                 const attr_id = try leb.readULEB128(u64, in);
@@ -689,7 +689,7 @@ pub const DwarfInfo = struct {
             .has_children = table_entry.has_children,
             .attrs = ArrayList(Die.Attr).init(di.allocator()),
         };
-        try result.attrs.resize(table_entry.attrs.len);
+        try result.attrs.resize(table_entry.attrs.items.len);
         for (table_entry.attrs.span()) |attr, i| {
             result.attrs.items[i] = Die.Attr{
                 .id = attr.attr_id,

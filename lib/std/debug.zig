@@ -1213,7 +1213,7 @@ pub const DebugInfo = struct {
                 const obj_di = try self.allocator.create(ModuleDebugInfo);
                 errdefer self.allocator.destroy(obj_di);
 
-                obj_di.* = openCoffDebugInfo(self.allocator, name_buffer[0..:0]) catch |err| switch (err) {
+                obj_di.* = openCoffDebugInfo(self.allocator, name_buffer[0 .. len + 4 :0]) catch |err| switch (err) {
                     error.FileNotFound => return error.MissingDebugInfo,
                     else => return err,
                 };
@@ -1478,7 +1478,7 @@ pub const ModuleDebugInfo = switch (builtin.os.tag) {
 
             var coff_section: *coff.Section = undefined;
             const mod_index = for (self.sect_contribs) |sect_contrib| {
-                if (sect_contrib.Section > self.coff.sections.len) continue;
+                if (sect_contrib.Section > self.coff.sections.items.len) continue;
                 // Remember that SectionContribEntry.Section is 1-based.
                 coff_section = &self.coff.sections.span()[sect_contrib.Section - 1];
 

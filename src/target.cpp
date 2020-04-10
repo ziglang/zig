@@ -1238,6 +1238,8 @@ bool target_is_libc_lib_name(const ZigTarget *target, const char *name) {
             return true;
         if (strcmp(name, "dl") == 0)
             return true;
+        if (strcmp(name, "util") == 0)
+            return true;
     }
 
     return false;

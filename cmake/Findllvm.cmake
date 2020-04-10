@@ -9,7 +9,7 @@
 
 if("${ZIG_TARGET_TRIPLE}" STREQUAL "native")
   find_program(LLVM_CONFIG_EXE
-      NAMES llvm-config-10 llvm-config-10.0 llvm-config100 llvm-config
+      NAMES llvm-config-10 llvm-config-10.0 llvm-config100 llvm-config10 llvm-config
       PATHS
           "/mingw64/bin"
           "/c/msys64/mingw64/bin"
@@ -130,6 +130,7 @@ else()
         /usr/lib/llvm-10/include
         /usr/lib/llvm-10.0/include
         /usr/local/llvm100/include
+        /usr/local/llvm10/include
         /mingw64/include)
 
     macro(FIND_AND_ADD_LLVM_LIB _libname_)
@@ -141,12 +142,11 @@ else()
         /usr/lib/llvm-10/lib
         /usr/lib/llvm-10.0/lib
         /usr/local/llvm100/lib
+        /usr/local/llvm10/lib
         /mingw64/lib
         /c/msys64/mingw64/lib
         c:\\msys64\\mingw64\\lib)
-      if(LLVM_${_prettylibname_}_LIB)
-        set(LLVM_LIBRARIES ${LLVM_LIBRARIES} ${LLVM_${_prettylibname_}_LIB})
-      endif()
+      set(LLVM_LIBRARIES ${LLVM_LIBRARIES} ${LLVM_${_prettylibname_}_LIB})
     endmacro(FIND_AND_ADD_LLVM_LIB)
 
     # This list can be re-generated with `llvm-config --libfiles` and then
@@ -154,7 +154,6 @@ else()
     # `llvm-config` here because we are cross compiling.
     FIND_AND_ADD_LLVM_LIB(LLVMXRay)
     FIND_AND_ADD_LLVM_LIB(LLVMWindowsManifest)
-    FIND_AND_ADD_LLVM_LIB(LLVMTableGen)
     FIND_AND_ADD_LLVM_LIB(LLVMSymbolize)
     FIND_AND_ADD_LLVM_LIB(LLVMDebugInfoPDB)
     FIND_AND_ADD_LLVM_LIB(LLVMOrcJIT)
