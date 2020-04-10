@@ -108,6 +108,8 @@ enum Error {
     ErrorUnknownClangOption,
     ErrorNestedResponseFile,
     ErrorZigIsTheCCompiler,
+    ErrorFileBusy,
+    ErrorLocked,
 };
 
 // ABI warning

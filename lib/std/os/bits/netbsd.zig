@@ -35,6 +35,14 @@ pub const dl_phdr_info = extern struct {
     dlpi_phnum: u16,
 };
 
+pub const Flock = extern struct {
+    l_start: off_t,
+    l_len: off_t,
+    l_pid: pid_t,
+    l_type: i16,
+    l_whence: i16,
+};
+
 pub const addrinfo = extern struct {
     flags: i32,
     family: i32,
@@ -434,6 +442,15 @@ pub const F_SETOWN = 6;
 pub const F_GETLK = 7;
 pub const F_SETLK = 8;
 pub const F_SETLKW = 9;
+
+pub const F_RDLCK = 1;
+pub const F_WRLCK = 3;
+pub const F_UNLCK = 2;
+
+pub const LOCK_SH = 1;
+pub const LOCK_EX = 2;
+pub const LOCK_UN = 8;
+pub const LOCK_NB = 4;
 
 pub const FD_CLOEXEC = 1;
 

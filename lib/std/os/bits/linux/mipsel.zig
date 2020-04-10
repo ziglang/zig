@@ -5,6 +5,7 @@ const iovec = linux.iovec;
 const iovec_const = linux.iovec_const;
 const uid_t = linux.uid_t;
 const gid_t = linux.gid_t;
+const pid_t = linux.pid_t;
 
 pub const SYS = extern enum(usize) {
     pub const Linux = 4000;
@@ -419,6 +420,15 @@ pub const F_GETLK = 33;
 pub const F_SETLK = 34;
 pub const F_SETLKW = 35;
 
+pub const F_RDLCK = 0;
+pub const F_WRLCK = 1;
+pub const F_UNLCK = 2;
+
+pub const LOCK_SH = 1;
+pub const LOCK_EX = 2;
+pub const LOCK_UN = 8;
+pub const LOCK_NB = 4;
+
 pub const F_SETOWN_EX = 15;
 pub const F_GETOWN_EX = 16;
 
@@ -463,6 +473,16 @@ pub const SO_RCVBUFFORCE = 33;
 
 pub const VDSO_CGT_SYM = "__kernel_clock_gettime";
 pub const VDSO_CGT_VER = "LINUX_2.6.39";
+
+pub const Flock = extern struct {
+    l_type: i16,
+    l_whence: i16,
+    __pad0: [4]u8,
+    l_start: off_t,
+    l_len: off_t,
+    l_pid: pid_t,
+    __unused: [4]u8,
+};
 
 pub const blksize_t = i32;
 pub const nlink_t = u32;

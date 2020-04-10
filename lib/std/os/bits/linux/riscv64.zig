@@ -2,6 +2,7 @@
 const std = @import("../../../std.zig");
 const uid_t = std.os.linux.uid_t;
 const gid_t = std.os.linux.gid_t;
+const pid_t = std.os.linux.pid_t;
 
 pub const SYS = extern enum(usize) {
     io_setup = 0,
@@ -338,6 +339,15 @@ pub const F_GETOWN = 9;
 pub const F_SETSIG = 10;
 pub const F_GETSIG = 11;
 
+pub const F_RDLCK = 0;
+pub const F_WRLCK = 1;
+pub const F_UNLCK = 2;
+
+pub const LOCK_SH = 1;
+pub const LOCK_EX = 2;
+pub const LOCK_UN = 8;
+pub const LOCK_NB = 4;
+
 pub const F_SETOWN_EX = 15;
 pub const F_GETOWN_EX = 16;
 
@@ -354,6 +364,15 @@ pub const blkcnt_t = isize;
 pub const timespec = extern struct {
     tv_sec: time_t,
     tv_nsec: isize,
+};
+
+pub const Flock = extern struct {
+    l_type: i16,
+    l_whence: i16,
+    l_start: off_t,
+    l_len: off_t,
+    l_pid: pid_t,
+    __unused: [4]u8,
 };
 
 /// Renamed to Stat to not conflict with the stat function.

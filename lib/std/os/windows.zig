@@ -98,6 +98,7 @@ pub const OpenError = error{
     PathAlreadyExists,
     Unexpected,
     NameTooLong,
+    WouldBlock,
 };
 
 /// TODO rename to CreateFileW
@@ -107,6 +108,8 @@ pub fn OpenFileW(
     sub_path_w: [*:0]const u16,
     sa: ?*SECURITY_ATTRIBUTES,
     access_mask: ACCESS_MASK,
+    share_access_opt: ?ULONG,
+    share_access_nonblocking: bool,
     creation: ULONG,
 ) OpenError!HANDLE {
     if (sub_path_w[0] == '.' and sub_path_w[1] == 0) {
@@ -135,32 +138,46 @@ pub fn OpenFileW(
         .SecurityQualityOfService = null,
     };
     var io: IO_STATUS_BLOCK = undefined;
-    const rc = ntdll.NtCreateFile(
-        &result,
-        access_mask,
-        &attr,
-        &io,
-        null,
-        FILE_ATTRIBUTE_NORMAL,
-        FILE_SHARE_WRITE | FILE_SHARE_READ | FILE_SHARE_DELETE,
-        creation,
-        FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT,
-        null,
-        0,
-    );
-    switch (rc) {
-        .SUCCESS => return result,
-        .OBJECT_NAME_INVALID => unreachable,
-        .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
-        .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
-        .NO_MEDIA_IN_DEVICE => return error.NoDevice,
-        .INVALID_PARAMETER => unreachable,
-        .SHARING_VIOLATION => return error.SharingViolation,
-        .ACCESS_DENIED => return error.AccessDenied,
-        .PIPE_BUSY => return error.PipeBusy,
-        .OBJECT_PATH_SYNTAX_BAD => unreachable,
-        .OBJECT_NAME_COLLISION => return error.PathAlreadyExists,
-        else => return unexpectedStatus(rc),
+    const share_access = share_access_opt orelse (FILE_SHARE_WRITE | FILE_SHARE_READ | FILE_SHARE_DELETE);
+
+    var delay: usize = 1;
+    while (true) {
+        const rc = ntdll.NtCreateFile(
+            &result,
+            access_mask,
+            &attr,
+            &io,
+            null,
+            FILE_ATTRIBUTE_NORMAL,
+            share_access,
+            creation,
+            FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT,
+            null,
+            0,
+        );
+        switch (rc) {
+            .SUCCESS => return result,
+            .OBJECT_NAME_INVALID => unreachable,
+            .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
+            .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
+            .NO_MEDIA_IN_DEVICE => return error.NoDevice,
+            .INVALID_PARAMETER => unreachable,
+            .SHARING_VIOLATION => {
+                if (share_access_nonblocking) {
+                    return error.WouldBlock;
+                }
+                std.time.sleep(delay);
+                if (delay < 1 * std.time.ns_per_s) {
+                    delay *= 2;
+                }
+                continue; // TODO: don't loop for async
+            },
+            .ACCESS_DENIED => return error.AccessDenied,
+            .PIPE_BUSY => return error.PipeBusy,
+            .OBJECT_PATH_SYNTAX_BAD => unreachable,
+            .OBJECT_NAME_COLLISION => return error.PathAlreadyExists,
+            else => return unexpectedStatus(rc),
+        }
     }
 }
 

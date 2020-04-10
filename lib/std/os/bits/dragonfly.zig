@@ -697,6 +697,11 @@ pub const F_DUP2FD = 10;
 pub const F_DUPFD_CLOEXEC = 17;
 pub const F_DUP2FD_CLOEXEC = 18;
 
+pub const LOCK_SH = 1;
+pub const LOCK_EX = 2;
+pub const LOCK_UN = 8;
+pub const LOCK_NB = 4;
+
 pub const Flock = extern struct {
     l_start: off_t,
     l_len: off_t,

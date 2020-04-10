@@ -846,6 +846,9 @@ pub const OpenError = error{
     /// The path already exists and the `O_CREAT` and `O_EXCL` flags were provided.
     PathAlreadyExists,
     DeviceBusy,
+
+    /// The underlying filesystem does not support file locks
+    FileLocksNotSupported,
 } || UnexpectedError;
 
 /// Open and possibly create a file. Keeps trying if it gets interrupted.
@@ -931,6 +934,7 @@ pub fn openatZ(dir_fd: fd_t, file_path: [*:0]const u8, flags: u32, mode: mode_t)
             EPERM => return error.AccessDenied,
             EEXIST => return error.PathAlreadyExists,
             EBUSY => return error.DeviceBusy,
+            EOPNOTSUPP => return error.FileLocksNotSupported,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -1676,7 +1680,10 @@ pub fn renameatW(
     ReplaceIfExists: windows.BOOLEAN,
 ) RenameError!void {
     const access_mask = windows.SYNCHRONIZE | windows.GENERIC_WRITE | windows.DELETE;
-    const src_fd = try windows.OpenFileW(old_dir_fd, old_path, null, access_mask, windows.FILE_OPEN);
+    const src_fd = windows.OpenFileW(old_dir_fd, old_path, null, access_mask, null, false, windows.FILE_OPEN) catch |err| switch (err) {
+        error.WouldBlock => unreachable,
+        else => |e| return e,
+    };
     defer windows.CloseHandle(src_fd);
 
     const struct_buf_len = @sizeOf(windows.FILE_RENAME_INFORMATION) + (MAX_PATH_BYTES - 1);
@@ -3218,6 +3225,28 @@ pub fn fcntl(fd: fd_t, cmd: i32, arg: usize) FcntlError!usize {
     }
 }
 
+pub const FlockError = error{
+    WouldBlock,
+
+    /// The kernel ran out of memory for allocating file locks
+    SystemResources,
+} || UnexpectedError;
+
+pub fn flock(fd: fd_t, operation: i32) FlockError!void {
+    while (true) {
+        const rc = system.flock(fd, operation);
+        switch (errno(rc)) {
+            0 => return,
+            EBADF => unreachable,
+            EINTR => continue,
+            EINVAL => unreachable, // invalid parameters
+            ENOLCK => return error.SystemResources,
+            EWOULDBLOCK => return error.WouldBlock, // TODO: integrate with async instead of just returning an error
+            else => |err| return unexpectedErrno(err),
+        }
+    }
+}
+
 pub const RealPathError = error{
     FileNotFound,
     AccessDenied,
@@ -3269,7 +3298,10 @@ pub fn realpathZ(pathname: [*:0]const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealP
         return realpathW(&pathname_w, out_buffer);
     }
     if (builtin.os.tag == .linux and !builtin.link_libc) {
-        const fd = try openZ(pathname, linux.O_PATH | linux.O_NONBLOCK | linux.O_CLOEXEC, 0);
+        const fd = openZ(pathname, linux.O_PATH | linux.O_NONBLOCK | linux.O_CLOEXEC, 0) catch |err| switch (err) {
+            error.FileLocksNotSupported => unreachable,
+            else => |e| return e,
+        };
         defer close(fd);
 
         var procfs_buf: ["/proc/self/fd/-2147483648".len:0]u8 = undefined;

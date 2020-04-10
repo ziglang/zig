@@ -51,6 +51,16 @@ pub const dl_phdr_info = extern struct {
     dlpi_phnum: u16,
 };
 
+pub const Flock = extern struct {
+    l_start: off_t,
+    l_len: off_t,
+    l_pid: pid_t,
+    l_type: i16,
+    l_whence: i16,
+    l_sysid: i32,
+    __unused: [4]u8,
+};
+
 pub const msghdr = extern struct {
     /// optional address
     msg_name: ?*sockaddr,
@@ -315,6 +325,9 @@ pub const O_WRONLY = 0x0001;
 pub const O_RDWR = 0x0002;
 pub const O_ACCMODE = 0x0003;
 
+pub const O_SHLOCK = 0x0010;
+pub const O_EXLOCK = 0x0020;
+
 pub const O_CREAT = 0x0200;
 pub const O_EXCL = 0x0800;
 pub const O_NOCTTY = 0x8000;
@@ -349,6 +362,15 @@ pub const F_GETSIG = 11;
 pub const F_GETLK = 5;
 pub const F_SETLK = 6;
 pub const F_SETLKW = 7;
+
+pub const F_RDLCK = 1;
+pub const F_WRLCK = 3;
+pub const F_UNLCK = 2;
+
+pub const LOCK_SH = 1;
+pub const LOCK_EX = 2;
+pub const LOCK_UN = 8;
+pub const LOCK_NB = 4;
 
 pub const F_SETOWN_EX = 15;
 pub const F_GETOWN_EX = 16;

@@ -594,8 +594,19 @@ pub const Dir = struct {
             const path_w = try os.windows.cStrToPrefixedFileW(sub_path);
             return self.openFileW(&path_w, flags);
         }
+
+        // Use the O_ locking flags if the os supports them
+        // (Or if it's darwin, as darwin's `open` doesn't support the O_SYNC flag)
+        const has_flock_open_flags = @hasDecl(os, "O_EXLOCK") and !builtin.os.tag.isDarwin();
+        const nonblocking_lock_flag = if (has_flock_open_flags and flags.lock_nonblocking) (os.O_NONBLOCK | os.O_SYNC) else @as(u32, 0);
+        const lock_flag: u32 = if (has_flock_open_flags) switch (flags.lock) {
+            .None => @as(u32, 0),
+            .Shared => os.O_SHLOCK | nonblocking_lock_flag,
+            .Exclusive => os.O_EXLOCK | nonblocking_lock_flag,
+        } else 0;
+
         const O_LARGEFILE = if (@hasDecl(os, "O_LARGEFILE")) os.O_LARGEFILE else 0;
-        const os_flags = O_LARGEFILE | os.O_CLOEXEC | if (flags.write and flags.read)
+        const os_flags = lock_flag | O_LARGEFILE | os.O_CLOEXEC | if (flags.write and flags.read)
             @as(u32, os.O_RDWR)
         else if (flags.write)
             @as(u32, os.O_WRONLY)
@@ -605,6 +616,17 @@ pub const Dir = struct {
             try std.event.Loop.instance.?.openatZ(self.fd, sub_path, os_flags, 0)
         else
             try os.openatZ(self.fd, sub_path, os_flags, 0);
+
+        if (!has_flock_open_flags and flags.lock != .None) {
+            // TODO: integrate async I/O
+            const lock_nonblocking = if (flags.lock_nonblocking) os.LOCK_NB else @as(i32, 0);
+            try os.flock(fd, switch (flags.lock) {
+                .None => unreachable,
+                .Shared => os.LOCK_SH | lock_nonblocking,
+                .Exclusive => os.LOCK_EX | lock_nonblocking,
+            });
+        }
+
         return File{
             .handle = fd,
             .io_mode = .blocking,
@@ -622,8 +644,15 @@ pub const Dir = struct {
         const access_mask = w.SYNCHRONIZE |
             (if (flags.read) @as(u32, w.GENERIC_READ) else 0) |
             (if (flags.write) @as(u32, w.GENERIC_WRITE) else 0);
+
+        const share_access = switch (flags.lock) {
+            .None => @as(?w.ULONG, null),
+            .Shared => w.FILE_SHARE_READ | w.FILE_SHARE_DELETE,
+            .Exclusive => w.FILE_SHARE_DELETE,
+        };
+
         return @as(File, .{
-            .handle = try os.windows.OpenFileW(self.fd, sub_path_w, null, access_mask, w.FILE_OPEN),
+            .handle = try os.windows.OpenFileW(self.fd, sub_path_w, null, access_mask, share_access, flags.lock_nonblocking, w.FILE_OPEN),
             .io_mode = .blocking,
         });
     }
@@ -648,8 +677,19 @@ pub const Dir = struct {
             const path_w = try os.windows.cStrToPrefixedFileW(sub_path_c);
             return self.createFileW(&path_w, flags);
         }
+
+        // Use the O_ locking flags if the os supports them
+        // (Or if it's darwin, as darwin's `open` doesn't support the O_SYNC flag)
+        const has_flock_open_flags = @hasDecl(os, "O_EXLOCK") and !builtin.os.tag.isDarwin();
+        const nonblocking_lock_flag = if (has_flock_open_flags and flags.lock_nonblocking) (os.O_NONBLOCK | os.O_SYNC) else @as(u32, 0);
+        const lock_flag: u32 = if (has_flock_open_flags) switch (flags.lock) {
+            .None => @as(u32, 0),
+            .Shared => os.O_SHLOCK,
+            .Exclusive => os.O_EXLOCK,
+        } else 0;
+
         const O_LARGEFILE = if (@hasDecl(os, "O_LARGEFILE")) os.O_LARGEFILE else 0;
-        const os_flags = O_LARGEFILE | os.O_CREAT | os.O_CLOEXEC |
+        const os_flags = lock_flag | O_LARGEFILE | os.O_CREAT | os.O_CLOEXEC |
             (if (flags.truncate) @as(u32, os.O_TRUNC) else 0) |
             (if (flags.read) @as(u32, os.O_RDWR) else os.O_WRONLY) |
             (if (flags.exclusive) @as(u32, os.O_EXCL) else 0);
@@ -657,6 +697,17 @@ pub const Dir = struct {
             try std.event.Loop.instance.?.openatZ(self.fd, sub_path_c, os_flags, flags.mode)
         else
             try os.openatZ(self.fd, sub_path_c, os_flags, flags.mode);
+
+        if (!has_flock_open_flags and flags.lock != .None) {
+            // TODO: integrate async I/O
+            const lock_nonblocking = if (flags.lock_nonblocking) os.LOCK_NB else @as(i32, 0);
+            try os.flock(fd, switch (flags.lock) {
+                .None => unreachable,
+                .Shared => os.LOCK_SH | lock_nonblocking,
+                .Exclusive => os.LOCK_EX | lock_nonblocking,
+            });
+        }
+
         return File{ .handle = fd, .io_mode = .blocking };
     }
 
@@ -672,8 +723,15 @@ pub const Dir = struct {
             @as(u32, w.FILE_OVERWRITE_IF)
         else
             @as(u32, w.FILE_OPEN_IF);
+
+        const share_access = switch (flags.lock) {
+            .None => @as(?w.ULONG, null),
+            .Shared => w.FILE_SHARE_READ | w.FILE_SHARE_DELETE,
+            .Exclusive => w.FILE_SHARE_DELETE,
+        };
+
         return @as(File, .{
-            .handle = try os.windows.OpenFileW(self.fd, sub_path_w, null, access_mask, creation),
+            .handle = try os.windows.OpenFileW(self.fd, sub_path_w, null, access_mask, share_access, flags.lock_nonblocking, creation),
             .io_mode = .blocking,
         });
     }
@@ -802,6 +860,7 @@ pub const Dir = struct {
             error.IsDir => unreachable, // we're providing O_DIRECTORY
             error.NoSpaceLeft => unreachable, // not providing O_CREAT
             error.PathAlreadyExists => unreachable, // not providing O_CREAT
+            error.FileLocksNotSupported => unreachable, // locking folders is not supported
             else => |e| return e,
         };
         return Dir{ .fd = fd };
@@ -1508,7 +1567,7 @@ pub fn walkPath(allocator: *Allocator, dir_path: []const u8) !Walker {
     return walker;
 }
 
-pub const OpenSelfExeError = os.OpenError || os.windows.CreateFileError || SelfExePathError;
+pub const OpenSelfExeError = os.OpenError || os.windows.CreateFileError || SelfExePathError || os.FlockError;
 
 pub fn openSelfExe() OpenSelfExeError!File {
     if (builtin.os.tag == .linux) {
@@ -1623,4 +1682,159 @@ test "" {
     _ = @import("fs/file.zig");
     _ = @import("fs/get_app_data_dir.zig");
     _ = @import("fs/watch.zig");
+}
+
+const FILE_LOCK_TEST_SLEEP_TIME = 5 * std.time.millisecond;
+
+test "open file with exclusive nonblocking lock twice" {
+    const dir = cwd();
+    const filename = "file_nonblocking_lock_test.txt";
+
+    const file1 = try dir.createFile(filename, .{ .lock = .Exclusive, .lock_nonblocking = true });
+    defer file1.close();
+
+    const file2 = dir.createFile(filename, .{ .lock = .Exclusive, .lock_nonblocking = true });
+    std.debug.assert(std.meta.eql(file2, error.WouldBlock));
+
+    dir.deleteFile(filename) catch |err| switch (err) {
+        error.FileNotFound => {},
+        else => return err,
+    };
+}
+
+test "open file with lock twice, make sure it wasn't open at the same time" {
+    if (builtin.single_threaded) return;
+
+    const filename = "file_lock_test.txt";
+
+    var contexts = [_]FileLockTestContext{
+        .{ .filename = filename, .create = true, .lock = .Exclusive },
+        .{ .filename = filename, .create = true, .lock = .Exclusive },
+    };
+    try run_lock_file_test(&contexts);
+
+    // Check for an error
+    var was_error = false;
+    for (contexts) |context, idx| {
+        if (context.err) |err| {
+            was_error = true;
+            std.debug.warn("\nError in context {}: {}\n", .{ idx, err });
+        }
+    }
+    if (was_error) builtin.panic("There was an error in contexts", null);
+
+    std.debug.assert(!contexts[0].overlaps(&contexts[1]));
+
+    cwd().deleteFile(filename) catch |err| switch (err) {
+        error.FileNotFound => {},
+        else => return err,
+    };
+}
+
+test "create file, lock and read from multiple process at once" {
+    if (builtin.single_threaded) return;
+
+    const filename = "file_read_lock_test.txt";
+    const filedata = "Hello, world!\n";
+
+    try std.fs.cwd().writeFile(filename, filedata);
+
+    var contexts = [_]FileLockTestContext{
+        .{ .filename = filename, .create = false, .lock = .Shared },
+        .{ .filename = filename, .create = false, .lock = .Shared },
+        .{ .filename = filename, .create = false, .lock = .Exclusive },
+    };
+
+    try run_lock_file_test(&contexts);
+
+    var was_error = false;
+    for (contexts) |context, idx| {
+        if (context.err) |err| {
+            was_error = true;
+            std.debug.warn("\nError in context {}: {}\n", .{ idx, err });
+        }
+    }
+    if (was_error) builtin.panic("There was an error in contexts", null);
+
+    std.debug.assert(contexts[0].overlaps(&contexts[1]));
+    std.debug.assert(!contexts[2].overlaps(&contexts[0]));
+    std.debug.assert(!contexts[2].overlaps(&contexts[1]));
+    if (contexts[0].bytes_read.? != filedata.len) {
+        std.debug.warn("\n bytes_read: {}, expected: {} \n", .{ contexts[0].bytes_read, filedata.len });
+    }
+    std.debug.assert(contexts[0].bytes_read.? == filedata.len);
+    std.debug.assert(contexts[1].bytes_read.? == filedata.len);
+
+    cwd().deleteFile(filename) catch |err| switch (err) {
+        error.FileNotFound => {},
+        else => return err,
+    };
+}
+
+const FileLockTestContext = struct {
+    filename: []const u8,
+    pid: if (builtin.os.tag == .windows) ?void else ?std.os.pid_t = null,
+
+    // use file.createFile
+    create: bool,
+    // the type of lock to use
+    lock: File.Lock,
+
+    // Output variables
+    err: ?(File.OpenError || std.os.ReadError) = null,
+    start_time: u64 = 0,
+    end_time: u64 = 0,
+    bytes_read: ?usize = null,
+
+    fn overlaps(self: *const @This(), other: *const @This()) bool {
+        return (self.start_time < other.end_time) and (self.end_time > other.start_time);
+    }
+
+    fn run(ctx: *@This()) void {
+        var file: File = undefined;
+        if (ctx.create) {
+            file = cwd().createFile(ctx.filename, .{ .lock = ctx.lock }) catch |err| {
+                ctx.err = err;
+                return;
+            };
+        } else {
+            file = cwd().openFile(ctx.filename, .{ .lock = ctx.lock }) catch |err| {
+                ctx.err = err;
+                return;
+            };
+        }
+        defer file.close();
+
+        ctx.start_time = std.time.milliTimestamp();
+
+        if (!ctx.create) {
+            var buffer: [100]u8 = undefined;
+            ctx.bytes_read = 0;
+            while (true) {
+                const amt = file.read(buffer[0..]) catch |err| {
+                    ctx.err = err;
+                    return;
+                };
+                if (amt == 0) break;
+                ctx.bytes_read.? += amt;
+            }
+        }
+
+        std.time.sleep(FILE_LOCK_TEST_SLEEP_TIME);
+
+        ctx.end_time = std.time.milliTimestamp();
+    }
+};
+
+fn run_lock_file_test(contexts: []FileLockTestContext) !void {
+    var threads = std.ArrayList(*std.Thread).init(std.testing.allocator);
+    defer {
+        for (threads.toSlice()) |thread| {
+            thread.wait();
+        }
+        threads.deinit();
+    }
+    for (contexts) |*ctx, idx| {
+        try threads.append(try std.Thread.spawn(ctx, FileLockTestContext.run));
+    }
 }

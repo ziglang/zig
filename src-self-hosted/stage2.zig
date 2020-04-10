@@ -116,6 +116,8 @@ const Error = extern enum {
     UnknownClangOption,
     NestedResponseFile,
     ZigIsTheCCompiler,
+    FileBusy,
+    Locked,
 };
 
 const FILE = std.c.FILE;
@@ -847,6 +849,7 @@ export fn stage2_libc_parse(stage1_libc: *Stage2LibCInstallation, libc_file_z: [
         error.NoDevice => return .NoDevice,
         error.NotDir => return .NotDir,
         error.DeviceBusy => return .DeviceBusy,
+        error.FileLocksNotSupported => unreachable,
     };
     stage1_libc.initFromStage2(libc);
     return .None;

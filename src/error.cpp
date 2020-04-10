@@ -86,6 +86,8 @@ const char *err_str(Error err) {
         case ErrorUnknownClangOption: return "unknown Clang option";
         case ErrorNestedResponseFile: return "nested response file";
         case ErrorZigIsTheCCompiler: return "Zig was not provided with libc installation information, and so it does not know where the libc paths are on the system. Zig attempted to use the system C compiler to find out where the libc paths are, but discovered that Zig is being used as the system C compiler.";
+        case ErrorFileBusy: return "file is busy";
+        case ErrorLocked: return "file is locked by another process";
     }
     return "(invalid error)";
 }
