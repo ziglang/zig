@@ -2175,7 +2175,7 @@ static void ir_print_ptr_type(IrPrintSrc *irp, IrInstSrcPtrType *instruction) {
 }
 
 static void ir_print_decl_ref(IrPrintSrc *irp, IrInstSrcDeclRef *instruction) {
-    const char *ptr_str = (instruction->lval == LValPtr) ? "ptr " : "";
+    const char *ptr_str = (instruction->lval != LValNone) ? "ptr " : "";
     fprintf(irp->f, "declref %s%s", ptr_str, buf_ptr(instruction->tld->name));
 }
 
