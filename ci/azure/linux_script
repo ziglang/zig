@@ -14,7 +14,7 @@ sudo apt-get remove -y llvm-*
 # Without this, cmake finds the wrong version of ClangConfig.cmake and LLVMConfig.cmake
 # I was unable to reproduce this in a docker container for ubuntu:bionic. I believe this
 # is happeninng because Azure pre-installs a bunch of garbage.
-sudo rm -rf /usr/local/* /usr/lib/llvm-9
+sudo rm -rf /usr/local/* /usr/lib/llvm-*
 sudo apt-get install -y libxml2-dev libclang-10-dev llvm-10 llvm-10-dev liblld-10-dev cmake s3cmd gcc-7 g++-7
 
 wget https://ziglang.org/deps/qemu-5.0.0-rc2-x86_64-alpinelinux.tar.xz
