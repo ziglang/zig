@@ -156,7 +156,164 @@ if("${ZIG_TARGET_TRIPLE}" STREQUAL "native")
   NEED_TARGET("X86")
   NEED_TARGET("XCore")
 
-  set(LLVM_LIBRARIES LLVM)
+  if(LLVM_LINK_LLVM_DYLIB)
+    set(LLVM_LIBRARIES LLVM)
+  else()
+    # This list can be re-generated with `llvm-config --libfiles` and then
+    # reformatting using your favorite text editor. Note we do not execute
+    # `llvm-config` under any circumstances, because it is unreliable, and
+    # not available when cross-compiling.
+    set(LLVM_LIBRARIES
+      LLVMXRay
+      LLVMWindowsManifest
+      LLVMSymbolize
+      LLVMDebugInfoPDB
+      LLVMOrcJIT
+      LLVMOrcError
+      LLVMJITLink
+      LLVMObjectYAML
+      LLVMMCA
+      LLVMLTO
+      LLVMPasses
+      LLVMObjCARCOpts
+      LLVMLineEditor
+      LLVMLibDriver
+      LLVMInterpreter
+      LLVMFuzzMutate
+      LLVMFrontendOpenMP
+      LLVMMCJIT
+      LLVMExecutionEngine
+      LLVMRuntimeDyld
+      LLVMDWARFLinker
+      LLVMDlltoolDriver
+      LLVMOption
+      LLVMDebugInfoGSYM
+      LLVMCoverage
+      LLVMCoroutines
+      LLVMAVRDisassembler
+      LLVMAVRCodeGen
+      LLVMAVRAsmParser
+      LLVMAVRDesc
+      LLVMAVRInfo
+      LLVMXCoreDisassembler
+      LLVMXCoreCodeGen
+      LLVMXCoreDesc
+      LLVMXCoreInfo
+      LLVMX86Disassembler
+      LLVMX86AsmParser
+      LLVMX86CodeGen
+      LLVMX86Desc
+      LLVMX86Utils
+      LLVMX86Info
+      LLVMWebAssemblyDisassembler
+      LLVMWebAssemblyCodeGen
+      LLVMWebAssemblyDesc
+      LLVMWebAssemblyAsmParser
+      LLVMWebAssemblyInfo
+      LLVMSystemZDisassembler
+      LLVMSystemZCodeGen
+      LLVMSystemZAsmParser
+      LLVMSystemZDesc
+      LLVMSystemZInfo
+      LLVMSparcDisassembler
+      LLVMSparcCodeGen
+      LLVMSparcAsmParser
+      LLVMSparcDesc
+      LLVMSparcInfo
+      LLVMRISCVDisassembler
+      LLVMRISCVCodeGen
+      LLVMRISCVAsmParser
+      LLVMRISCVDesc
+      LLVMRISCVUtils
+      LLVMRISCVInfo
+      LLVMPowerPCDisassembler
+      LLVMPowerPCCodeGen
+      LLVMPowerPCAsmParser
+      LLVMPowerPCDesc
+      LLVMPowerPCInfo
+      LLVMNVPTXCodeGen
+      LLVMNVPTXDesc
+      LLVMNVPTXInfo
+      LLVMMSP430Disassembler
+      LLVMMSP430CodeGen
+      LLVMMSP430AsmParser
+      LLVMMSP430Desc
+      LLVMMSP430Info
+      LLVMMipsDisassembler
+      LLVMMipsCodeGen
+      LLVMMipsAsmParser
+      LLVMMipsDesc
+      LLVMMipsInfo
+      LLVMLanaiDisassembler
+      LLVMLanaiCodeGen
+      LLVMLanaiAsmParser
+      LLVMLanaiDesc
+      LLVMLanaiInfo
+      LLVMHexagonDisassembler
+      LLVMHexagonCodeGen
+      LLVMHexagonAsmParser
+      LLVMHexagonDesc
+      LLVMHexagonInfo
+      LLVMBPFDisassembler
+      LLVMBPFCodeGen
+      LLVMBPFAsmParser
+      LLVMBPFDesc
+      LLVMBPFInfo
+      LLVMARMDisassembler
+      LLVMARMCodeGen
+      LLVMARMAsmParser
+      LLVMARMDesc
+      LLVMARMUtils
+      LLVMARMInfo
+      LLVMAMDGPUDisassembler
+      LLVMAMDGPUCodeGen
+      LLVMMIRParser
+      LLVMipo
+      LLVMInstrumentation
+      LLVMVectorize
+      LLVMLinker
+      LLVMIRReader
+      LLVMAsmParser
+      LLVMAMDGPUAsmParser
+      LLVMAMDGPUDesc
+      LLVMAMDGPUUtils
+      LLVMAMDGPUInfo
+      LLVMAArch64Disassembler
+      LLVMMCDisassembler
+      LLVMAArch64CodeGen
+      LLVMCFGuard
+      LLVMGlobalISel
+      LLVMSelectionDAG
+      LLVMAsmPrinter
+      LLVMDebugInfoDWARF
+      LLVMCodeGen
+      LLVMTarget
+      LLVMScalarOpts
+      LLVMInstCombine
+      LLVMAggressiveInstCombine
+      LLVMTransformUtils
+      LLVMBitWriter
+      LLVMAnalysis
+      LLVMProfileData
+      LLVMObject
+      LLVMTextAPI
+      LLVMBitReader
+      LLVMCore
+      LLVMRemarks
+      LLVMBitstreamReader
+      LLVMAArch64AsmParser
+      LLVMMCParser
+      LLVMAArch64Desc
+      LLVMMC
+      LLVMDebugInfoCodeView
+      LLVMDebugInfoMSF
+      LLVMBinaryFormat
+      LLVMAArch64Utils
+      LLVMAArch64Info
+      LLVMSupport
+      LLVMDemangle
+    )
+  endif()
 else()
   # Here we assume that we're cross compiling with Zig, of course. No reason
   # to support more complicated setups. We also assume the experimental target
@@ -170,9 +327,6 @@ else()
     set(LLVM_LIBRARIES ${LLVM_LIBRARIES} ${LLVM_${_prettylibname_}_LIB})
   endmacro(FIND_AND_ADD_LLVM_LIB)
 
-  # This list can be re-generated with `llvm-config --libfiles` and then
-  # reformatting using your favorite text editor. Note we do not execute
-  # `llvm-config` here because we are cross compiling.
   FIND_AND_ADD_LLVM_LIB(LLVMXRay)
   FIND_AND_ADD_LLVM_LIB(LLVMWindowsManifest)
   FIND_AND_ADD_LLVM_LIB(LLVMSymbolize)
