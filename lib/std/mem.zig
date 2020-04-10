@@ -705,8 +705,17 @@ test "lenZ" {
     }
 }
 
-pub fn indexOfSentinel(comptime Elem: type, comptime sentinel: Elem, ptr: [*:sentinel]const Elem) usize {
-    var i: usize = 0;
+pub fn MaxElements(comptime Elem: type) type {
+    return @Type(std.builtin.TypeInfo{
+        .Int = .{
+            .is_signed = false,
+            .bits = @typeInfo(usize).Int.bits - @as(u16, math.log2_int(usize, @sizeOf(Elem))),
+        },
+    });
+}
+
+pub fn indexOfSentinel(comptime Elem: type, comptime sentinel: Elem, ptr: [*:sentinel]const Elem) MaxElements(Elem) {
+    var i: MaxElements(Elem) = 0;
     while (ptr[i] != sentinel) {
         i += 1;
     }
@@ -767,12 +776,12 @@ test "mem.trim" {
 }
 
 /// Linear search for the index of a scalar value inside a slice.
-pub fn indexOfScalar(comptime T: type, slice: []const T, value: T) ?usize {
+pub fn indexOfScalar(comptime T: type, slice: []const T, value: T) ?MaxElements(T) {
     return indexOfScalarPos(T, slice, 0, value);
 }
 
 /// Linear search for the last index of a scalar value inside a slice.
-pub fn lastIndexOfScalar(comptime T: type, slice: []const T, value: T) ?usize {
+pub fn lastIndexOfScalar(comptime T: type, slice: []const T, value: T) ?MaxElements(T) {
     var i: usize = slice.len;
     while (i != 0) {
         i -= 1;
@@ -781,7 +790,7 @@ pub fn lastIndexOfScalar(comptime T: type, slice: []const T, value: T) ?usize {
     return null;
 }
 
-pub fn indexOfScalarPos(comptime T: type, slice: []const T, start_index: usize, value: T) ?usize {
+pub fn indexOfScalarPos(comptime T: type, slice: []const T, start_index: usize, value: T) ?MaxElements(T) {
     var i: usize = start_index;
     while (i < slice.len) : (i += 1) {
         if (slice[i] == value) return i;
@@ -789,11 +798,11 @@ pub fn indexOfScalarPos(comptime T: type, slice: []const T, start_index: usize, 
     return null;
 }
 
-pub fn indexOfAny(comptime T: type, slice: []const T, values: []const T) ?usize {
+pub fn indexOfAny(comptime T: type, slice: []const T, values: []const T) ?MaxElements(T) {
     return indexOfAnyPos(T, slice, 0, values);
 }
 
-pub fn lastIndexOfAny(comptime T: type, slice: []const T, values: []const T) ?usize {
+pub fn lastIndexOfAny(comptime T: type, slice: []const T, values: []const T) ?MaxElements(T) {
     var i: usize = slice.len;
     while (i != 0) {
         i -= 1;
@@ -804,7 +813,7 @@ pub fn lastIndexOfAny(comptime T: type, slice: []const T, values: []const T) ?us
     return null;
 }
 
-pub fn indexOfAnyPos(comptime T: type, slice: []const T, start_index: usize, values: []const T) ?usize {
+pub fn indexOfAnyPos(comptime T: type, slice: []const T, start_index: usize, values: []const T) ?MaxElements(T) {
     var i: usize = start_index;
     while (i < slice.len) : (i += 1) {
         for (values) |value| {
@@ -814,14 +823,14 @@ pub fn indexOfAnyPos(comptime T: type, slice: []const T, start_index: usize, val
     return null;
 }
 
-pub fn indexOf(comptime T: type, haystack: []const T, needle: []const T) ?usize {
+pub fn indexOf(comptime T: type, haystack: []const T, needle: []const T) ?MaxElements(T) {
     return indexOfPos(T, haystack, 0, needle);
 }
 
 /// Find the index in a slice of a sub-slice, searching from the end backwards.
 /// To start looking at a different index, slice the haystack first.
 /// TODO is there even a better algorithm for this?
-pub fn lastIndexOf(comptime T: type, haystack: []const T, needle: []const T) ?usize {
+pub fn lastIndexOf(comptime T: type, haystack: []const T, needle: []const T) ?MaxElements(T) {
     if (needle.len > haystack.len) return null;
 
     var i: usize = haystack.len - needle.len;
@@ -832,7 +841,7 @@ pub fn lastIndexOf(comptime T: type, haystack: []const T, needle: []const T) ?us
 }
 
 // TODO boyer-moore algorithm
-pub fn indexOfPos(comptime T: type, haystack: []const T, start_index: usize, needle: []const T) ?usize {
+pub fn indexOfPos(comptime T: type, haystack: []const T, start_index: usize, needle: []const T) ?MaxElements(T) {
     if (needle.len > haystack.len) return null;
 
     var i: usize = start_index;
