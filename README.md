@@ -58,7 +58,7 @@ brew install cmake llvm
 brew outdated llvm || brew upgrade llvm
 mkdir build
 cd build
-cmake .. -DCMAKE_PREFIX_PATH=$(brew --prefix llvm)
+cmake .. -DCMAKE_PREFIX_PATH=$(brew --prefix llvm) -DZIG_PREFER_CLANG_CPP_DYLIB=ON
 make install
 ```
 
