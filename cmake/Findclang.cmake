@@ -17,7 +17,7 @@ find_path(CLANG_INCLUDE_DIRS NAMES clang/Frontend/ASTUnit.h
     /mingw64/include
 )
 
-if(NOT ZIG_STATIC_LLVM)
+if(ZIG_PREFER_CLANG_CPP_DYLIB)
   find_library(CLANG_CPP_DYLIB
     NAMES
       clang-cpp-10.0
