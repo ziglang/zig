@@ -8,6 +8,7 @@ const mem = @import("mem.zig");
 const fmt = @import("fmt.zig");
 const Allocator = mem.Allocator;
 const os = @import("os.zig");
+const time = @import("time.zig");
 
 const base64_encoder = fs.base64_encoder;
 const base64_decoder = fs.base64_decoder;
@@ -198,7 +199,10 @@ pub const CacheHash = struct {
 
                 cache_hash_file.stat = actual_stat;
 
-                // TODO: check for problematic timestamp
+                if (is_problematic_timestamp(cache_hash_file.stat.mtime)) {
+                    cache_hash_file.stat.mtime = 0;
+                    cache_hash_file.stat.inode = 0;
+                }
 
                 var actual_digest: [BIN_DIGEST_LEN]u8 = undefined;
                 try hash_file(self.alloc, &actual_digest, &this_file);
@@ -252,7 +256,10 @@ pub const CacheHash = struct {
 
         cache_hash_file.stat = try this_file.stat();
 
-        // TODO: check for problematic timestamp
+        if (is_problematic_timestamp(cache_hash_file.stat.mtime)) {
+            cache_hash_file.stat.mtime = 0;
+            cache_hash_file.stat.inode = 0;
+        }
 
         try hash_file(self.alloc, &cache_hash_file.bin_digest, &this_file);
         self.blake3.update(&cache_hash_file.bin_digest);
@@ -317,6 +324,16 @@ fn hash_file(alloc: *Allocator, bin_digest: []u8, handle: *const fs.File) !void 
     blake3.final(bin_digest);
 }
 
+/// If the wall clock time, rounded to the same precision as the
+/// mtime, is equal to the mtime, then we cannot rely on this mtime
+/// yet. We will instead save an mtime value that indicates the hash
+/// must be unconditionally computed.
+fn is_problematic_timestamp(file_mtime_ns: i64) bool {
+    const now_ms = time.milliTimestamp();
+    const file_mtime_ms = @divFloor(file_mtime_ns, time.millisecond);
+    return now_ms == file_mtime_ms;
+}
+
 test "cache file and then recall it" {
     const cwd = fs.cwd();
 
@@ -359,4 +376,14 @@ test "cache file and then recall it" {
 
     try cwd.deleteTree(temp_manifest_dir);
     try cwd.deleteFile(temp_file);
+}
+
+test "give problematic timestamp" {
+    const now_ns = @intCast(i64, time.milliTimestamp() * time.millisecond);
+    debug.assert(is_problematic_timestamp(now_ns));
+}
+
+test "give nonproblematic timestamp" {
+    const now_ns = @intCast(i64, time.milliTimestamp() * time.millisecond) - 1000;
+    debug.assert(!is_problematic_timestamp(now_ns));
 }
