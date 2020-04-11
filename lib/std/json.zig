@@ -1879,7 +1879,7 @@ pub const Parser = struct {
 
         return ValueTree{
             .arena = arena,
-            .root = p.stack.at(0),
+            .root = p.stack.items[0],
         };
     }
 
@@ -2168,7 +2168,7 @@ test "json.parser.dynamic" {
     const array_of_object = image.Object.get("ArrayOfObject").?.value;
     testing.expect(array_of_object.Array.items.len == 1);
 
-    const obj0 = array_of_object.Array.at(0).Object.get("n").?.value;
+    const obj0 = array_of_object.Array.items[0].Object.get("n").?.value;
     testing.expect(mem.eql(u8, obj0.String, "m"));
 
     const double = image.Object.get("double").?.value;
@@ -2222,8 +2222,8 @@ test "write json then parse it" {
     testing.expect(tree.root.Object.get("f").?.value.Bool == false);
     testing.expect(tree.root.Object.get("t").?.value.Bool == true);
     testing.expect(tree.root.Object.get("int").?.value.Integer == 1234);
-    testing.expect(tree.root.Object.get("array").?.value.Array.at(0).Null == {});
-    testing.expect(tree.root.Object.get("array").?.value.Array.at(1).Float == 12.34);
+    testing.expect(tree.root.Object.get("array").?.value.Array.items[0].Null == {});
+    testing.expect(tree.root.Object.get("array").?.value.Array.items[1].Float == 12.34);
     testing.expect(mem.eql(u8, tree.root.Object.get("str").?.value.String, "hello"));
 }
 
@@ -2247,7 +2247,7 @@ test "integer after float has proper type" {
         \\  "ints": [1, 2, 3]
         \\}
     );
-    std.testing.expect(json.Object.getValue("ints").?.Array.at(0) == .Integer);
+    std.testing.expect(json.Object.getValue("ints").?.Array.items[0] == .Integer);
 }
 
 test "escaped characters" {

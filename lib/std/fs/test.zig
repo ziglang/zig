@@ -158,7 +158,7 @@ const FileLockTestContext = struct {
 fn run_lock_file_test(contexts: []FileLockTestContext) !void {
     var threads = std.ArrayList(*std.Thread).init(std.testing.allocator);
     defer {
-        for (threads.toSlice()) |thread| {
+        for (threads.items) |thread| {
             thread.wait();
         }
         threads.deinit();

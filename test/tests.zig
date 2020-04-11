@@ -880,7 +880,7 @@ pub const CompileErrorContext = struct {
                 var i: usize = 0;
                 ok = while (err_iter.next()) |line| : (i += 1) {
                     if (i >= self.case.expected_errors.items.len) break false;
-                    const expected = self.case.expected_errors.at(i);
+                    const expected = self.case.expected_errors.items[i];
                     if (mem.indexOf(u8, line, expected) == null) break false;
                     continue;
                 } else true;

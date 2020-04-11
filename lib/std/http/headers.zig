@@ -200,7 +200,7 @@ pub const Headers = struct {
             var i = dex.items.len;
             while (i > 0) {
                 i -= 1;
-                const data_index = dex.at(i);
+                const data_index = dex.items[i];
                 const removed = self.data.orderedRemove(data_index);
                 assert(mem.eql(u8, removed.name, name));
                 removed.deinit();
@@ -260,7 +260,7 @@ pub const Headers = struct {
 
     /// Access the header at the specified index.
     pub fn at(self: Self, i: usize) HeaderEntry {
-        return self.data.at(i);
+        return self.data.items[i];
     }
 
     /// Returns a list of indices containing headers with the given name.
@@ -280,7 +280,7 @@ pub const Headers = struct {
         const buf = try allocator.alloc(HeaderEntry, dex.items.len);
         var n: usize = 0;
         for (dex.span()) |idx| {
-            buf[n] = self.data.at(idx);
+            buf[n] = self.data.items[idx];
             n += 1;
         }
         return buf;
@@ -303,18 +303,18 @@ pub const Headers = struct {
         const total_len = blk: {
             var sum: usize = dex.items.len - 1; // space for separator(s)
             for (dex.span()) |idx|
-                sum += self.data.at(idx).value.len;
+                sum += self.data.items[idx].value.len;
             break :blk sum;
         };
 
         const buf = try allocator.alloc(u8, total_len);
         errdefer allocator.free(buf);
 
-        const first_value = self.data.at(dex.at(0)).value;
+        const first_value = self.data.items[dex.items[0]].value;
         mem.copy(u8, buf, first_value);
         var buf_index: usize = first_value.len;
-        for (dex.toSlice()[1..]) |idx| {
-            const value = self.data.at(idx).value;
+        for (dex.items[1..]) |idx| {
+            const value = self.data.items[idx].value;
             buf[buf_index] = ',';
             buf_index += 1;
             mem.copy(u8, buf[buf_index..], value);
@@ -342,7 +342,7 @@ pub const Headers = struct {
     }
 
     pub fn sort(self: *Self) void {
-        std.sort.sort(HeaderEntry, self.data.toSlice(), HeaderEntry.compare);
+        std.sort.sort(HeaderEntry, self.data.items, HeaderEntry.compare);
         self.rebuild_index();
     }
 
