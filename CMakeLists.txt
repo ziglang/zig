@@ -454,6 +454,9 @@ if("${ZIG_TARGET_TRIPLE}" STREQUAL "native")
       WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
   )
   set(ZIG_EXECUTABLE "${zig_BINARY_DIR}/zig")
+  if (WIN32)
+    set(ZIG_EXECUTABLE "${ZIG_EXECUTABLE}.exe")
+  endif()
 else()
   add_custom_target(zig_build_libstage2 ALL
       COMMAND "${ZIG_EXECUTABLE}" ${BUILD_LIBSTAGE2_ARGS}
