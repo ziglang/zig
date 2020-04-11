@@ -8167,7 +8167,7 @@ test "vector @splat" {
       {#header_open|@tagName#}
       <pre>{#syntax#}@tagName(value: var) []const u8{#endsyntax#}</pre>
       <p>
-      Converts an enum value or union value to a slice of bytes representing the name.
+      Converts an enum value or union value to a slice of bytes representing the name.</p><p>If the enum is non-exhaustive and the tag value does not map to a name, it invokes safety-checked {#link|Undefined Behavior#}.
       </p>
       {#header_close#}
 
