@@ -139,7 +139,11 @@ pub const CacheHash = struct {
             const manifest_file_path = try fmt.allocPrint(self.alloc, "{}.txt", .{self.b64_digest});
             defer self.alloc.free(manifest_file_path);
 
-            self.manifest_file = try self.manifest_dir.createFile(manifest_file_path, .{ .read = true, .truncate = false });
+            self.manifest_file = try self.manifest_dir.createFile(manifest_file_path, .{
+                .read = true,
+                .truncate = false,
+                .lock = .Exclusive,
+            });
         }
 
         // TODO: Figure out a good max value?
@@ -213,7 +217,7 @@ pub const CacheHash = struct {
 
         if (any_file_changed) {
             // cache miss
-            // keep the manifest file open (TODO: with rw lock)
+            // keep the manifest file open
             // reset the hash
             self.blake3 = Blake3.init();
             self.blake3.update(&bin_digest);
