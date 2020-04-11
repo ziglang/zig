@@ -281,7 +281,7 @@ pub const LibCInstallation = struct {
         var path_i: usize = 0;
         while (path_i < search_paths.items.len) : (path_i += 1) {
             // search in reverse order
-            const search_path_untrimmed = search_paths.at(search_paths.items.len - path_i - 1);
+            const search_path_untrimmed = search_paths.items[search_paths.items.len - path_i - 1];
             const search_path = std.mem.trimLeft(u8, search_path_untrimmed, " ");
             var search_dir = fs.cwd().openDir(search_path, .{}) catch |err| switch (err) {
                 error.FileNotFound,

@@ -57,37 +57,13 @@ pub fn AlignedArrayList(comptime T: type, comptime alignment: ?u29) type {
             return self.items;
         }
 
-        /// Deprecated: use `items` field directly.
-        pub fn toSlice(self: Self) Slice {
-            return self.items;
-        }
-
-        /// Deprecated: use `items` field directly.
-        pub fn toSliceConst(self: Self) SliceConst {
-            return self.items;
-        }
-
-        /// Deprecated: use `list.items[i]`.
-        pub fn at(self: Self, i: usize) T {
-            return self.items[i];
-        }
-
-        /// Deprecated: use `&list.items[i]`.
-        pub fn ptrAt(self: Self, i: usize) *T {
-            return &self.items[i];
-        }
-
-        /// Deprecated: use `if (i >= list.items.len) return error.OutOfBounds else list.items[i] = item`.
-        pub fn setOrError(self: Self, i: usize, item: T) !void {
-            if (i >= self.items.len) return error.OutOfBounds;
-            self.items[i] = item;
-        }
-
-        /// Deprecated: use `list.items[i] = item`.
-        pub fn set(self: *Self, i: usize, item: T) void {
-            assert(i < self.items.len);
-            self.items[i] = item;
-        }
+        pub const toSlice = @compileError("deprecated: use `items` field directly");
+        pub const toSliceConst = @compileError("deprecated: use `items` field directly");
+        pub const at = @compileError("deprecated: use `list.items[i]`");
+        pub const ptrAt = @compileError("deprecated: use `&list.items[i]`");
+        pub const setOrError = @compileError("deprecated: use `if (i >= list.items.len) return error.OutOfBounds else list.items[i] = item`");
+        pub const set = @compileError("deprecated: use `list.items[i] = item`");
+        pub const swapRemoveOrError = @compileError("deprecated: use `if (i >= list.items.len) return error.OutOfBounds else list.swapRemove(i)`");
 
         /// ArrayList takes ownership of the passed in slice. The slice must have been
         /// allocated with `allocator`.
@@ -165,12 +141,6 @@ pub fn AlignedArrayList(comptime T: type, comptime alignment: ?u29) type {
             const old_item = self.items[i];
             self.items[i] = self.pop();
             return old_item;
-        }
-
-        /// Deprecated: use `if (i >= list.items.len) return error.OutOfBounds else list.swapRemove(i)`.
-        pub fn swapRemoveOrError(self: *Self, i: usize) !T {
-            if (i >= self.items.len) return error.OutOfBounds;
-            return self.swapRemove(i);
         }
 
         /// Append the slice of items to the list. Allocates more
@@ -308,9 +278,6 @@ test "std.ArrayList.basic" {
     var list = ArrayList(i32).init(testing.allocator);
     defer list.deinit();
 
-    // setting on empty list is out of bounds
-    testing.expectError(error.OutOfBounds, list.setOrError(0, 1));
-
     {
         var i: usize = 0;
         while (i < 10) : (i += 1) {
@@ -329,10 +296,6 @@ test "std.ArrayList.basic" {
         testing.expect(v == @intCast(i32, i + 1));
     }
 
-    for (list.toSliceConst()) |v, i| {
-        testing.expect(v == @intCast(i32, i + 1));
-    }
-
     testing.expect(list.pop() == 10);
     testing.expect(list.items.len == 9);
 
@@ -347,11 +310,8 @@ test "std.ArrayList.basic" {
     testing.expect(list.items.len == 9);
 
     // can only set on indices < self.items.len
-    list.set(7, 33);
-    list.set(8, 42);
-
-    testing.expectError(error.OutOfBounds, list.setOrError(9, 99));
-    testing.expectError(error.OutOfBounds, list.setOrError(10, 123));
+    list.items[7] = 33;
+    list.items[8] = 42;
 
     testing.expect(list.pop() == 42);
     testing.expect(list.pop() == 33);
@@ -426,34 +386,6 @@ test "std.ArrayList.swapRemove" {
     testing.expect(list.swapRemove(0) == 1);
     testing.expect(list.items[0] == 5);
     testing.expect(list.items.len == 4);
-}
-
-test "std.ArrayList.swapRemoveOrError" {
-    var list = ArrayList(i32).init(testing.allocator);
-    defer list.deinit();
-
-    // Test just after initialization
-    testing.expectError(error.OutOfBounds, list.swapRemoveOrError(0));
-
-    // Test after adding one item and remote it
-    try list.append(1);
-    testing.expect((try list.swapRemoveOrError(0)) == 1);
-    testing.expectError(error.OutOfBounds, list.swapRemoveOrError(0));
-
-    // Test after adding two items and remote both
-    try list.append(1);
-    try list.append(2);
-    testing.expect((try list.swapRemoveOrError(1)) == 2);
-    testing.expect((try list.swapRemoveOrError(0)) == 1);
-    testing.expectError(error.OutOfBounds, list.swapRemoveOrError(0));
-
-    // Test out of bounds with one item
-    try list.append(1);
-    testing.expectError(error.OutOfBounds, list.swapRemoveOrError(1));
-
-    // Test out of bounds with two items
-    try list.append(2);
-    testing.expectError(error.OutOfBounds, list.swapRemoveOrError(2));
 }
 
 test "std.ArrayList.insert" {
