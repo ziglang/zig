@@ -9252,7 +9252,9 @@ void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_pa
     }
 
     args.append("-nostdinc");
-    args.append("-nostdinc++");
+    if (source_kind == FileExtCpp) {
+        args.append("-nostdinc++");
+    }
     args.append("-fno-spell-checking");
 
     if (g->function_sections) {
