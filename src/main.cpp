@@ -632,11 +632,17 @@ static int main0(int argc, char **argv) {
                     break;
                 }
                 case Stage2ClangArgL: // -l
-                    if (strcmp(it.only_arg, "c") == 0)
+                    if (strcmp(it.only_arg, "c") == 0) {
                         have_libc = true;
-                    if (strcmp(it.only_arg, "c++") == 0)
+                        link_libs.append("c");
+                    } else if (strcmp(it.only_arg, "c++") == 0 ||
+                        strcmp(it.only_arg, "stdc++") == 0)
+                    {
                         have_libcpp = true;
-                    link_libs.append(it.only_arg);
+                        link_libs.append("c++");
+                    } else {
+                        link_libs.append(it.only_arg);
+                    }
                     break;
                 case Stage2ClangArgIgnore:
                     break;
@@ -1016,11 +1022,15 @@ static int main0(int argc, char **argv) {
             } else if (arg[1] == 'l' && arg[2] != 0) {
                 // alias for --library
                 const char *l = &arg[2];
-                if (strcmp(l, "c") == 0)
+                if (strcmp(l, "c") == 0) {
                     have_libc = true;
-                if (strcmp(l, "c++") == 0)
+                    link_libs.append("c");
+                } else if (strcmp(l, "c++") == 0 || strcmp(l, "stdc++") == 0) {
                     have_libcpp = true;
-                link_libs.append(l);
+                    link_libs.append("c++");
+                } else {
+                    link_libs.append(l);
+                }
             } else if (arg[1] == 'I' && arg[2] != 0) {
                 clang_argv.append("-I");
                 clang_argv.append(&arg[2]);
@@ -1159,11 +1169,15 @@ static int main0(int argc, char **argv) {
                 } else if (strcmp(arg, "-F") == 0) {
                     framework_dirs.append(argv[i]);
                 } else if (strcmp(arg, "--library") == 0 || strcmp(arg, "-l") == 0) {
-                    if (strcmp(argv[i], "c") == 0)
+                    if (strcmp(argv[i], "c") == 0) {
                         have_libc = true;
-                    if (strcmp(argv[i], "c++") == 0)
+                        link_libs.append("c");
+                    } else if (strcmp(argv[i], "c++") == 0 || strcmp(argv[i], "stdc++") == 0) {
                         have_libcpp = true;
-                    link_libs.append(argv[i]);
+                        link_libs.append("c++");
+                    } else {
+                        link_libs.append(argv[i]);
+                    }
                 } else if (strcmp(arg, "--forbid-library") == 0) {
                     forbidden_link_libs.append(argv[i]);
                 } else if (strcmp(arg, "--object") == 0) {
