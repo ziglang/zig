@@ -16498,6 +16498,12 @@ static IrInstGen *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstSrcBinOp *bin_op_i
         } else {
             return is_non_null;
         }
+    } else if (is_equality_cmp &&
+        (op1->value->type->id == ZigTypeIdOptional && op2->value->type->id == ZigTypeIdOptional) &&
+        (op1->value->type->data.maybe.child_type->id != ZigTypeIdPointer &&
+        (op2->value->type->data.maybe.child_type->id != ZigTypeIdPointer)))
+    {
+        zig_unreachable();
     } else if (op1->value->type->id == ZigTypeIdNull || op2->value->type->id == ZigTypeIdNull) {
         ZigType *non_null_type = (op1->value->type->id == ZigTypeIdNull) ? op2->value->type : op1->value->type;
         ir_add_error_node(ira, source_node, buf_sprintf("comparison of '%s' with null",
