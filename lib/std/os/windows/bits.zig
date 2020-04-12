@@ -27,8 +27,13 @@ pub const UCHAR = u8;
 pub const FLOAT = f32;
 pub const HANDLE = *c_void;
 pub const HCRYPTPROV = ULONG_PTR;
+pub const HBRUSH = *@OpaqueType();
+pub const HCURSOR = *@OpaqueType();
+pub const HICON = *@OpaqueType();
 pub const HINSTANCE = *@OpaqueType();
+pub const HMENU = *@OpaqueType();
 pub const HMODULE = *@OpaqueType();
+pub const HWND = *@OpaqueType();
 pub const FARPROC = *@OpaqueType();
 pub const INT = c_int;
 pub const LPBYTE = *BYTE;
@@ -64,6 +69,10 @@ pub const ULONGLONG = u64;
 pub const LONGLONG = i64;
 pub const HLOCAL = HANDLE;
 pub const LANGID = c_ushort;
+
+pub const WPARAM = usize;
+pub const LPARAM = ?*c_void;
+pub const LRESULT = ?*c_void;
 
 pub const va_list = *@OpaqueType();
 
