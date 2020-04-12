@@ -28,12 +28,20 @@ jobs:
 - job: BuildWindows
   pool:
     vmImage: 'windows-2019'
+  strategy:
+    matrix:
+      mingw64:
+        CHERE_INVOKING: yes
+        MSYSTEM: MINGW64
+        SCRIPT: '%CD:~0,2%\msys64\usr\bin\bash -lc "bash ci/azure/windows_mingw_script"'
+      msvc:
+        SCRIPT: ci/azure/windows_msvc_script.bat
 
   timeoutInMinutes: 360
 
   steps:
   - script: |
-      git clone https://github.com/lazka/msys2-ci-base.git %CD:~0,2%\msys64
+      git clone https://github.com/msys2/msys2-ci-base.git %CD:~0,2%\msys64
       %CD:~0,2%\msys64\usr\bin\rm -rf %CD:~0,2%\msys64\.git
       set PATH=%CD:~0,2%\msys64\usr\bin;C:\Windows\system32;C:\Windows;C:\Windows\System32\Wbem
       %CD:~0,2%\msys64\usr\bin\pacman --noconfirm -Syyuu
@@ -41,7 +49,7 @@ jobs:
   - task: DownloadSecureFile@1
     inputs:
       secureFile: s3cfg
-  - script: ci/azure/windows_script.bat
+  - script: $(SCRIPT)
     name: main
     displayName: 'Build and test'
 - job: OnMasterSuccess

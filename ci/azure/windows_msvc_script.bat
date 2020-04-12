@@ -5,7 +5,7 @@ SET "PREVMSYSEM=%MSYSTEM%"
 
 set "PATH=%CD:~0,2%\msys64\usr\bin;C:\Windows\system32;C:\Windows;C:\Windows\System32\Wbem"
 SET "MSYSTEM=MINGW64"
-bash -lc "cd ${SRCROOT} && ci/azure/windows_install" || exit /b
+bash -lc "cd ${SRCROOT} && ci/azure/windows_msvc_install" || exit /b
 SET "PATH=%PREVPATH%"
 SET "MSYSTEM=%PREVMSYSTEM%"
 
