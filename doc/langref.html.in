@@ -7694,7 +7694,8 @@ test "call foo" {
       <p>
       Invokes the panic handler function. By default the panic handler function
       calls the public {#syntax#}panic{#endsyntax#} function exposed in the root source file, or
-          if there is not one specified, invokes the one provided in {#syntax#}std/special/panic.zig{#endsyntax#}.
+      if there is not one specified, the {#syntax#}std.builtin.default_panic{#endsyntax#}
+      function from {#syntax#}std/builtin.zig{#endsyntax#}.
       </p>
       <p>Generally it is better to use {#syntax#}@import("std").debug.panic{#endsyntax#}.
           However, {#syntax#}@panic{#endsyntax#} can be useful for 2 scenarios:
