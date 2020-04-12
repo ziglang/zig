@@ -2584,9 +2584,9 @@ pub fn fstat(fd: fd_t) FStatError!Stat {
     }
 }
 
-const FStatAtError = FStatError || error{NameTooLong};
+pub const FStatAtError = FStatError || error{NameTooLong, FileNotFound};
 
-pub fn fstatat(dirfd: fd_t, pathname: []const u8, flags: u32) FStatAtError![]Stat {
+pub fn fstatat(dirfd: fd_t, pathname: []const u8, flags: u32) FStatAtError!Stat {
     const pathname_c = try toPosixPath(pathname);
     return fstatatZ(dirfd, &pathname_c, flags);
 }
