@@ -39,7 +39,7 @@ pub const StreamSource = union(enum) {
     pub fn write(self: *StreamSource, bytes: []const u8) WriteError!usize {
         switch (self.*) {
             .buffer => |*x| return x.write(bytes),
-            .const_buffer => |*x| return x.write(bytes),
+            .const_buffer => return error.AccessDenied,
             .file => |x| return x.write(bytes),
         }
     }
