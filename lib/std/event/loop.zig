@@ -1278,6 +1278,11 @@ test "std.event.Loop - basic" {
     // https://github.com/ziglang/zig/issues/1908
     if (builtin.single_threaded) return error.SkipZigTest;
 
+    if (true) {
+        // https://github.com/ziglang/zig/issues/4922
+        return error.SkipZigTest;
+    }
+
     var loop: Loop = undefined;
     try loop.initMultiThreaded();
     defer loop.deinit();
