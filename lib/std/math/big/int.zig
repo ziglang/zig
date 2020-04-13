@@ -381,14 +381,15 @@ pub const Int = struct {
         return if (d < base) d else return error.DigitTooLargeForBase;
     }
 
-    fn digitToChar(d: u8, base: u8) !u8 {
+    fn digitToChar(d: u8, base: u8, uppercase: bool) !u8 {
         if (d >= base) {
             return error.DigitTooLargeForBase;
         }
 
+        const a: u8 = if (uppercase) 'A' else 'a';
         return switch (d) {
             0...9 => '0' + d,
-            0xa...0xf => ('a' - 0xa) + d,
+            0xa...0xf => (a - 0xa) + d,
             else => unreachable,
         };
     }
@@ -434,7 +435,7 @@ pub const Int = struct {
     /// Converts self to a string in the requested base. Memory is allocated from the provided
     /// allocator and not the one present in self.
     /// TODO make this call format instead of the other way around
-    pub fn toString(self: Int, allocator: *Allocator, base: u8) ![]const u8 {
+    pub fn toString(self: Int, allocator: *Allocator, base: u8, uppercase: bool) ![]const u8 {
         if (base < 2 or base > 16) {
             return error.InvalidBase;
         }
@@ -456,7 +457,7 @@ pub const Int = struct {
                 var shift: usize = 0;
                 while (shift < Limb.bit_count) : (shift += base_shift) {
                     const r = @intCast(u8, (limb >> @intCast(Log2Limb, shift)) & @as(Limb, base - 1));
-                    const ch = try digitToChar(r, base);
+                    const ch = try digitToChar(r, base, uppercase);
                     try digits.append(ch);
                 }
             }
@@ -492,7 +493,7 @@ pub const Int = struct {
                 var r_word = r.limbs[0];
                 var i: usize = 0;
                 while (i < digits_per_limb) : (i += 1) {
-                    const ch = try digitToChar(@intCast(u8, r_word % base), base);
+                    const ch = try digitToChar(@intCast(u8, r_word % base), base, uppercase);
                     r_word /= base;
                     try digits.append(ch);
                 }
@@ -503,7 +504,7 @@ pub const Int = struct {
 
                 var r_word = q.limbs[0];
                 while (r_word != 0) {
-                    const ch = try digitToChar(@intCast(u8, r_word % base), base);
+                    const ch = try digitToChar(@intCast(u8, r_word % base), base, uppercase);
                     r_word /= base;
                     try digits.append(ch);
                 }
@@ -528,9 +529,28 @@ pub const Int = struct {
         out_stream: var,
     ) !void {
         self.assertWritable();
-        // TODO look at fmt and support other bases
         // TODO support read-only fixed integers
-        const str = self.toString(self.allocator.?, 10) catch @panic("TODO make this non allocating");
+
+        comptime var radix = 10;
+        comptime var uppercase = false;
+
+        if (fmt.len == 0 or comptime std.mem.eql(u8, fmt, "d")) {
+            radix = 10;
+            uppercase = false;
+        } else if (comptime std.mem.eql(u8, fmt, "b")) {
+            radix = 2;
+            uppercase = false;
+        } else if (comptime std.mem.eql(u8, fmt, "x")) {
+            radix = 16;
+            uppercase = false;
+        } else if (comptime std.mem.eql(u8, fmt, "X")) {
+            radix = 16;
+            uppercase = true;
+        } else {
+            @compileError("Unknown format string: '" ++ fmt ++ "'");
+        }
+
+        const str = self.toString(self.allocator.?, radix, uppercase) catch @panic("TODO make this non allocating");
         defer self.allocator.?.free(str);
         return out_stream.writeAll(str);
     }
@@ -1746,7 +1766,7 @@ test "big.int string to" {
     const a = try Int.initSet(testing.allocator, 120317241209124781241290847124);
     defer a.deinit();
 
-    const as = try a.toString(testing.allocator, 10);
+    const as = try a.toString(testing.allocator, 10, false);
     defer testing.allocator.free(as);
     const es = "120317241209124781241290847124";
 
@@ -1757,14 +1777,14 @@ test "big.int string to base base error" {
     const a = try Int.initSet(testing.allocator, 0xffffffff);
     defer a.deinit();
 
-    testing.expectError(error.InvalidBase, a.toString(testing.allocator, 45));
+    testing.expectError(error.InvalidBase, a.toString(testing.allocator, 45, false));
 }
 
 test "big.int string to base 2" {
     const a = try Int.initSet(testing.allocator, -0b1011);
     defer a.deinit();
 
-    const as = try a.toString(testing.allocator, 2);
+    const as = try a.toString(testing.allocator, 2, false);
     defer testing.allocator.free(as);
     const es = "-1011";
 
@@ -1775,7 +1795,7 @@ test "big.int string to base 16" {
     const a = try Int.initSet(testing.allocator, 0xefffffff00000001eeeeeeefaaaaaaab);
     defer a.deinit();
 
-    const as = try a.toString(testing.allocator, 16);
+    const as = try a.toString(testing.allocator, 16, false);
     defer testing.allocator.free(as);
     const es = "efffffff00000001eeeeeeefaaaaaaab";
 
@@ -1786,7 +1806,7 @@ test "big.int neg string to" {
     const a = try Int.initSet(testing.allocator, -123907434);
     defer a.deinit();
 
-    const as = try a.toString(testing.allocator, 10);
+    const as = try a.toString(testing.allocator, 10, false);
     defer testing.allocator.free(as);
     const es = "-123907434";
 
@@ -1797,7 +1817,7 @@ test "big.int zero string to" {
     const a = try Int.initSet(testing.allocator, 0);
     defer a.deinit();
 
-    const as = try a.toString(testing.allocator, 10);
+    const as = try a.toString(testing.allocator, 10, false);
     defer testing.allocator.free(as);
     const es = "0";
 
@@ -2628,7 +2648,7 @@ test "big.int div multi-multi zero-limb trailing (with rem)" {
 
     testing.expect((try q.to(u128)) == 0x10000000000000000);
 
-    const rs = try r.toString(testing.allocator, 16);
+    const rs = try r.toString(testing.allocator, 16, false);
     defer testing.allocator.free(rs);
     testing.expect(std.mem.eql(u8, rs, "4444444344444443111111111111111100000000000000000000000000000000"));
 }
@@ -2647,7 +2667,7 @@ test "big.int div multi-multi zero-limb trailing (with rem) and dividend zero-li
 
     testing.expect((try q.to(u128)) == 0x1);
 
-    const rs = try r.toString(testing.allocator, 16);
+    const rs = try r.toString(testing.allocator, 16, false);
     defer testing.allocator.free(rs);
     testing.expect(std.mem.eql(u8, rs, "444444434444444311111111111111110000000000000000"));
 }
@@ -2664,11 +2684,11 @@ test "big.int div multi-multi zero-limb trailing (with rem) and dividend zero-li
     defer r.deinit();
     try Int.divTrunc(&q, &r, a, b);
 
-    const qs = try q.toString(testing.allocator, 16);
+    const qs = try q.toString(testing.allocator, 16, false);
     defer testing.allocator.free(qs);
     testing.expect(std.mem.eql(u8, qs, "10000000000000000820820803105186f"));
 
-    const rs = try r.toString(testing.allocator, 16);
+    const rs = try r.toString(testing.allocator, 16, false);
     defer testing.allocator.free(rs);
     testing.expect(std.mem.eql(u8, rs, "4e11f2baa5896a321d463b543d0104e30000000000000000"));
 }
@@ -2688,11 +2708,11 @@ test "big.int div multi-multi fuzz case #1" {
     defer r.deinit();
     try Int.divTrunc(&q, &r, a, b);
 
-    const qs = try q.toString(testing.allocator, 16);
+    const qs = try q.toString(testing.allocator, 16, false);
     defer testing.allocator.free(qs);
     testing.expect(std.mem.eql(u8, qs, "3ffffffffffffffffffffffffffff0000000000000000000000000000000000001ffffffffffffffffffffffffffff7fffffffe000000000000000000000000000180000000000000000000003fffffbfffffffdfffffffffffffeffff800000100101000000100000000020003fffffdfbfffffe3ffffffffffffeffff7fffc00800a100000017ffe000002000400007efbfff7fe9f00000037ffff3fff7fffa004006100000009ffe00000190038200bf7d2ff7fefe80400060000f7d7f8fbf9401fe38e0403ffc0bdffffa51102c300d7be5ef9df4e5060007b0127ad3fa69f97d0f820b6605ff617ddf7f32ad7a05c0d03f2e7bc78a6000e087a8bbcdc59e07a5a079128a7861f553ddebed7e8e56701756f9ead39b48cd1b0831889ea6ec1fddf643d0565b075ff07e6caea4e2854ec9227fd635ed60a2f5eef2893052ffd54718fa08604acbf6a15e78a467c4a3c53c0278af06c4416573f925491b195e8fd79302cb1aaf7caf4ecfc9aec1254cc969786363ac729f914c6ddcc26738d6b0facd54eba026580aba2eb6482a088b0d224a8852420b91ec1"));
 
-    const rs = try r.toString(testing.allocator, 16);
+    const rs = try r.toString(testing.allocator, 16, false);
     defer testing.allocator.free(rs);
     testing.expect(std.mem.eql(u8, rs, "310d1d4c414426b4836c2635bad1df3a424e50cbdd167ffccb4dfff57d36b4aae0d6ca0910698220171a0f3373c1060a046c2812f0027e321f72979daa5e7973214170d49e885de0c0ecc167837d44502430674a82522e5df6a0759548052420b91ec1"));
 }
@@ -2712,11 +2732,11 @@ test "big.int div multi-multi fuzz case #2" {
     defer r.deinit();
     try Int.divTrunc(&q, &r, a, b);
 
-    const qs = try q.toString(testing.allocator, 16);
+    const qs = try q.toString(testing.allocator, 16, false);
     defer testing.allocator.free(qs);
     testing.expect(std.mem.eql(u8, qs, "40100400fe3f8fe3f8fe3f8fe3f8fe3f8fe4f93e4f93e4f93e4f93e4f93e4f93e4f93e4f93e4f93e4f93e4f93e4f91e4791e4791e4791e4791e4791e4791e4791e4791e4791e4791e4791e4791e4992649926499264991e4791e4791e4791e4791e4791e4791e4791e4791e4791e4791e4791e4791e4791e4791e4791e4791e4791e4791e4791e4791e4791e4791e4791e4792e4b92e4b92e4b92e4b92a4a92a4a92a4"));
 
-    const rs = try r.toString(testing.allocator, 16);
+    const rs = try r.toString(testing.allocator, 16, false);
     defer testing.allocator.free(rs);
     testing.expect(std.mem.eql(u8, rs, "a900000000000000000000000000000000000000000000000000"));
 }

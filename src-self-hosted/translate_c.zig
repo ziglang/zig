@@ -3922,7 +3922,7 @@ fn transCreateNodeAPInt(c: *Context, int: *const ZigClangAPSInt) !*ast.Node {
         },
         else => @compileError("unimplemented"),
     }
-    const str = big.toString(c.a(), 10) catch |err| switch (err) {
+    const str = big.toString(c.a(), 10, false) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => unreachable,
     };
