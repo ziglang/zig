@@ -7265,7 +7265,8 @@ check: switch (const_val->special) {
                             LLVMTypeRef field_ty = LLVMStructGetTypeAtIndex(get_llvm_type(g, type_entry),
                                     (unsigned)type_struct_field->gen_index);
                             const size_t size_in_bytes = LLVMStoreSizeOfType(g->target_data_ref, field_ty);
-                            LLVMTypeRef big_int_type_ref = LLVMIntType(size_in_bytes * 8);
+                            const size_t size_in_bits = size_in_bytes * 8;
+                            LLVMTypeRef big_int_type_ref = LLVMIntType(size_in_bits);
                             LLVMValueRef val = LLVMConstInt(big_int_type_ref, 0, false);
                             size_t used_bits = 0;
                             for (size_t i = src_field_index; i < src_field_index_end; i += 1) {
@@ -7278,16 +7279,17 @@ check: switch (const_val->special) {
                                 uint32_t packed_bits_size = type_size_bits(g, it_field->type_entry);
                                 if (is_big_endian) {
                                     LLVMValueRef shift_amt = LLVMConstInt(big_int_type_ref,
-                                            packed_bits_size, false);
-                                    val = LLVMConstShl(val, shift_amt);
-                                    val = LLVMConstOr(val, child_val);
+                                        size_in_bits - used_bits - packed_bits_size, false);
+                                    LLVMValueRef child_val_shifted = LLVMConstShl(child_val, shift_amt);
+                                    val = LLVMConstOr(val, child_val_shifted);
                                 } else {
                                     LLVMValueRef shift_amt = LLVMConstInt(big_int_type_ref, used_bits, false);
                                     LLVMValueRef child_val_shifted = LLVMConstShl(child_val, shift_amt);
                                     val = LLVMConstOr(val, child_val_shifted);
-                                    used_bits += packed_bits_size;
                                 }
+                                used_bits += packed_bits_size;
                             }
+                            assert(size_in_bits >= used_bits);
                             if (LLVMGetTypeKind(field_ty) != LLVMArrayTypeKind) {
                                 assert(LLVMGetTypeKind(field_ty) == LLVMIntegerTypeKind);
                                 fields[type_struct_field->gen_index] = val;
