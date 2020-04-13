@@ -16422,18 +16422,10 @@ static bool ir_is_cmp_allowed(IrBinOp op_id, ZigType *op_type) {
     }
 }
 
-static IrInstGen *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstSrcBinOp *bin_op_instruction) {
-    IrInstGen *op1 = bin_op_instruction->op1->child;
-    if (type_is_invalid(op1->value->type))
-        return ira->codegen->invalid_inst_gen;
-
-    IrInstGen *op2 = bin_op_instruction->op2->child;
-    if (type_is_invalid(op2->value->type))
-        return ira->codegen->invalid_inst_gen;
-
+static IrInstGen *ir_analyze_bin_op_cmp_seperate_ops(IrAnalyze *ira, IrInstSrcBinOp *bin_op_instruction, IrInstGen *op1, IrInstGen *op2) {
     AstNode *source_node = bin_op_instruction->base.base.source_node;
-
     IrBinOp op_id = bin_op_instruction->op_id;
+
     bool is_equality_cmp = (op_id == IrBinOpCmpEq || op_id == IrBinOpCmpNotEq);
     if (is_equality_cmp && op1->value->type->id == ZigTypeIdNull && op2->value->type->id == ZigTypeIdNull) {
         return ir_const_bool(ira, &bin_op_instruction->base.base, (op_id == IrBinOpCmpEq));
@@ -16703,6 +16695,19 @@ static IrInstGen *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstSrcBinOp *bin_op_i
         ira->codegen->builtin_types.entry_bool;
     return ir_build_bin_op_gen(ira, &bin_op_instruction->base.base, res_type,
             op_id, casted_op1, casted_op2, bin_op_instruction->safety_check_on);
+}
+
+static IrInstGen *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstSrcBinOp *bin_op_instruction) {
+    IrInstGen *op1 = bin_op_instruction->op1->child;
+    if (type_is_invalid(op1->value->type))
+        return ira->codegen->invalid_inst_gen;
+
+    IrInstGen *op2 = bin_op_instruction->op2->child;
+    if (type_is_invalid(op2->value->type))
+        return ira->codegen->invalid_inst_gen;
+
+
+    return ir_analyze_bin_op_cmp_seperate_ops(ira, bin_op_instruction, op1, op2);
 }
 
 static ErrorMsg *ir_eval_math_op_scalar(IrAnalyze *ira, IrInst* source_instr, ZigType *type_entry,
