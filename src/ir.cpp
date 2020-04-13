@@ -15,6 +15,7 @@
 #include "softfloat.hpp"
 #include "util.hpp"
 #include "mem_list.hpp"
+#include "all_types.hpp"
 
 #include <errno.h>
 
@@ -16495,6 +16496,48 @@ static IrInstGen *ir_analyze_bin_op_cmp_seperate_ops(IrAnalyze *ira, IrInstSrcBi
         (op1->value->type->data.maybe.child_type->id != ZigTypeIdPointer &&
         (op2->value->type->data.maybe.child_type->id != ZigTypeIdPointer)))
     {
+        assert(instr_is_comptime(op1) && instr_is_comptime(op2)); // fails???
+
+        if (instr_is_comptime(op1) && instr_is_comptime(op2)) {
+            ZigValue *op1_val = ir_resolve_const(ira, op1, UndefBad);
+            if (!op1_val)
+                return ira->codegen->invalid_inst_gen;
+
+            ZigValue *op2_val = ir_resolve_const(ira, op2, UndefBad);
+            if (!op2_val)
+                return ira->codegen->invalid_inst_gen;
+
+            ZigValue *op1_val_child = op1_val->data.x_optional;
+            ZigValue *op2_val_child = op2_val->data.x_optional;
+
+            if (!op1_val_child && !op2_val_child) {
+                return ir_const_bool(ira, &bin_op_instruction->base.base, op_id == IrBinOpCmpEq);
+            } else if (op1_val_child && op2_val_child) {
+                IrInstGen *op1_unwrapped = ir_build_optional_unwrap_ptr_gen(
+                        ira,
+                        &op1->base,
+                        op1,
+                        true,
+                        false,
+                        op1_val->type);
+
+                IrInstGen *op2_unwrapped = ir_build_optional_unwrap_ptr_gen(
+                        ira,
+                        &op2->base,
+                        op2,
+                        true,
+                        false,
+                        op2_val->type);
+
+                return ir_analyze_bin_op_cmp_seperate_ops(
+                        ira,
+                        bin_op_instruction,
+                        op1_unwrapped,
+                        op1_unwrapped);
+            } else {
+                return ir_const_bool(ira, &bin_op_instruction->base.base, op_id != IrBinOpCmpEq);
+            }
+        }
         zig_unreachable();
     } else if (op1->value->type->id == ZigTypeIdNull || op2->value->type->id == ZigTypeIdNull) {
         ZigType *non_null_type = (op1->value->type->id == ZigTypeIdNull) ? op2->value->type : op1->value->type;

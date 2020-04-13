@@ -30,26 +30,28 @@ fn testNullPtrsEql() void {
 }
 
 test "equality compare nullable integers" {
-    testNullableIntEql();
+
     comptime testNullableIntEql();
 }
 
 fn testNullableIntEql() void {
-    var a: ?i32 = 10;
-    var b: ?i32 = 20;
-    var n: ?i32 = null;
+    comptime {
+        var a: ?i32 = 10;
+        var b: ?i32 = 20;
+        var n: ?i32 = null;
 
-    expect(a == a);
-    expect(n == n);
-    expect(a != n);
-    expect(a != b);
+        expect(a == a);
+        expect(n == n);
+        expect(a != n);
+        expect(a != b);
 
-    var ao: ??i32 = a;
-    var no: ??i32 = n;
+        var ao: ??i32 = a;
+        var no: ??i32 = n;
 
-    expect(ao == ao);
-    expect(no == no);
-    expect(ao != no);
+        expect(ao == ao);
+        expect(no == no);
+        expect(ao != no);
+    }
 }
 
 test "address of unwrap optional" {
