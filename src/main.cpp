@@ -37,6 +37,7 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  build-obj [source]           create object from source or assembly\n"
         "  builtin                      show the source code of @import(\"builtin\")\n"
         "  cc                           use Zig as a drop-in C compiler\n"
+        "  c++                          use Zig as a drop-in C++ compiler\n"
         "  fmt                          parse files and render in canonical zig format\n"
         "  id                           print the base64-encoded compiler id\n"
         "  init-exe                     initialize a `zig build` application in the cwd\n"
