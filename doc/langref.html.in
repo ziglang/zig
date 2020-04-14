@@ -182,11 +182,12 @@
   <body>
     <div id="main-wrapper">
       <div id="index">
-        <a href="https://ziglang.org/documentation/0.1.1">0.1.1</a> |
-        <a href="https://ziglang.org/documentation/0.2.0">0.2.0</a> |
-        <a href="https://ziglang.org/documentation/0.3.0">0.3.0</a> |
-        <a href="https://ziglang.org/documentation/0.4.0">0.4.0</a> |
-        <a href="https://ziglang.org/documentation/0.5.0">0.5.0</a> |
+        <a href="https://ziglang.org/documentation/0.1.1/">0.1.1</a> |
+        <a href="https://ziglang.org/documentation/0.2.0/">0.2.0</a> |
+        <a href="https://ziglang.org/documentation/0.3.0/">0.3.0</a> |
+        <a href="https://ziglang.org/documentation/0.4.0/">0.4.0</a> |
+        <a href="https://ziglang.org/documentation/0.5.0/">0.5.0</a> |
+        <a href="https://ziglang.org/documentation/0.6.0/">0.6.0</a> |
         master
         <h1>Index</h1>
         {#nav#}
