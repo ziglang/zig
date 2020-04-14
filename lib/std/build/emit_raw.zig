@@ -95,7 +95,7 @@ const BinaryElfOutput = struct {
         sort.sort(*BinaryElfSegment, self.segments.span(), segmentSortCompare);
 
         if (self.segments.items.len > 0) {
-            const firstSegment = self.segments.at(0);
+            const firstSegment = self.segments.items[0];
             if (firstSegment.firstSection) |firstSection| {
                 const diff = firstSection.elfOffset - firstSegment.elfOffset;
 
