@@ -5458,9 +5458,46 @@ test "@intToPtr for pointer to zero bit type" {
       {#header_close#}
 
       {#header_open|Result Location Semantics#}
-      <p>
-      <a href="https://github.com/ziglang/zig/issues/2809">TODO add documentation for this</a>
-      </p>
+      <p>Certain expressions which manipulate a value in memory will directly initialize the final location of
+      that memory, to avoid making multiple allocations and copying between them:</p>
+      {#code_begin#}
+pub fn main() void {
+    // foo() allocates its result directly in x -- only one allocation is made
+    var x = foo();
+    
+    // Result location is properly communicated through struct fields and if expressions
+    var y = Data {
+        .field1 = 26,
+        .field2 = if (condition) bar() else baz(),
+    };
+
+    // Unwrapping errors or optionals currently does not elide copy (https://github.com/ziglang/zig/issues/2765)
+    var z = quux() catch unreachable; // Value is allocated twice
+}
+
+fn foo() Large {
+    // Direct return correctly passes result location to callsite
+    return Large { ... }
+}
+
+fn bar() Large {
+    // Assignment to a variable always makes another allocation, even when this variable is returned
+    // -- automatic copy elision in this case is planned (https://github.com/ziglang/zig/issues/2765)
+    var l = Large { ... };
+}
+
+fn quux() !Large { ... }}
+      {#code_end#}
+      <p>The current result location semantics elide copies from the following locations where possible:</p>
+      <ul>
+          <li>Variable declaration bodies</li>
+          <li>Struct, array and union initializations</li>
+          <li>If statement branches</li>
+          <li>Switch statement arms</li>
+          <li>Function returns</li>
+          <li>{#syntax#}catch{#endsyntax#} and {#syntax#}orelse{#endsyntax#} default statements</li>
+          <li>Arguments to {#syntax#}@bitCast{#endsyntax#}</li>
+      </ul>    
       {#header_close#}
 
       {#header_open|usingnamespace#}
