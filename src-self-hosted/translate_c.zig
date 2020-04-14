@@ -3058,6 +3058,7 @@ fn transCreateCompoundAssign(
         // common case
         // c: lhs += rhs
         // zig: lhs += rhs
+
         if ((is_mod or is_div) and is_signed) {
             const op_token = try appendToken(rp.c, .Equal, "=");
             const op_node = try rp.c.a().create(ast.Node.InfixOp);
@@ -4772,6 +4773,7 @@ pub fn failDecl(c: *Context, loc: ZigClangSourceLocation, name: []const u8, comp
     const msg_tok = try appendTokenFmt(c, .StringLiteral, "\"" ++ format ++ "\"", args);
     const rparen_tok = try appendToken(c, .RParen, ")");
     const semi_tok = try appendToken(c, .Semicolon, ";");
+    _ = try appendTokenFmt(c, .LineComment, "// {}", .{c.locStr(loc)});
 
     const msg_node = try c.a().create(ast.Node.StringLiteral);
     msg_node.* = ast.Node.StringLiteral{
@@ -5440,7 +5442,7 @@ fn parseCPrimaryExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8, 
                 };
                 return &node.base;
             } else {
-                const token = try appendTokenFmt(c, .IntegerLiteral, "0x{x}", .{source[tok.start + 1 .. tok.end - 1]});
+                const token = try appendTokenFmt(c, .IntegerLiteral, "0x{x}", .{source[tok.start+1..tok.end-1]});
                 const node = try c.a().create(ast.Node.IntegerLiteral);
                 node.* = .{
                     .token = token,
