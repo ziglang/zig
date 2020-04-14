@@ -80,7 +80,7 @@ static void jw_array_elem(JsonWriter *jw) {
             zig_unreachable();
         case JsonWriterStateArray:
             fprintf(jw->f, ",");
-            // fallthrough
+            ZIG_FALLTHROUGH;
         case JsonWriterStateArrayStart:
             jw->state[jw->state_index] = JsonWriterStateArray;
             jw_push_state(jw, JsonWriterStateValue);
@@ -134,7 +134,7 @@ static void jw_object_field(JsonWriter *jw, const char *name) {
             zig_unreachable();
         case JsonWriterStateObject:
             fprintf(jw->f, ",");
-            // fallthrough
+            ZIG_FALLTHROUGH;
         case JsonWriterStateObjectStart:
             jw->state[jw->state_index] = JsonWriterStateObject;
             jw_push_state(jw, JsonWriterStateValue);
@@ -1217,6 +1217,10 @@ void zig_print_analysis_dump(CodeGen *g, FILE *f, const char *one_indent, const 
 
     jw_object_field(jw, "rootPkg");
     anal_dump_pkg_ref(&ctx, g->main_pkg);
+
+    // FIXME: Remove this ugly workaround.
+    //        Right now the code in docs/main.js relies on the root of the main package being itself.
+    g->main_pkg->package_table.put(buf_create_from_str("root"), g->main_pkg);
 
     // Poke the functions
     for (size_t i = 0; i < g->fn_defs.length; i += 1) {

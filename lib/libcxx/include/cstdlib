@@ -154,7 +154,7 @@ using ::wcstombs;
 using ::at_quick_exit;
 using ::quick_exit;
 #endif
-#if _LIBCPP_STD_VER > 14 && defined(_LIBCPP_HAS_C11_FEATURES)
+#if _LIBCPP_STD_VER > 14 && defined(_LIBCPP_HAS_ALIGNED_ALLOC)
 using ::aligned_alloc;
 #endif
 

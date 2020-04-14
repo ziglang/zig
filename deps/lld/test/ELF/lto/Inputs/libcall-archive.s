@@ -1,2 +1,0 @@
-.globl __sync_val_compare_and_swap_8
-__sync_val_compare_and_swap_8:

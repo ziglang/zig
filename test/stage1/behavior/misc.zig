@@ -102,8 +102,8 @@ test "memcpy and memset intrinsics" {
     var foo: [20]u8 = undefined;
     var bar: [20]u8 = undefined;
 
-    @memset(foo[0..].ptr, 'A', foo.len);
-    @memcpy(bar[0..].ptr, foo[0..].ptr, bar.len);
+    @memset(&foo, 'A', foo.len);
+    @memcpy(&bar, &foo, bar.len);
 
     if (bar[11] != 'A') unreachable;
 }
@@ -565,12 +565,16 @@ test "volatile load and store" {
     expect(ptr.* == 1235);
 }
 
-test "slice string literal has type []const u8" {
+test "slice string literal has correct type" {
     comptime {
-        expect(@TypeOf("aoeu"[0..]) == []const u8);
+        expect(@TypeOf("aoeu"[0..]) == *const [4:0]u8);
         const array = [_]i32{ 1, 2, 3, 4 };
-        expect(@TypeOf(array[0..]) == []const i32);
+        expect(@TypeOf(array[0..]) == *const [4]i32);
     }
+    var runtime_zero: usize = 0;
+    comptime expect(@TypeOf("aoeu"[runtime_zero..]) == [:0]const u8);
+    const array = [_]i32{ 1, 2, 3, 4 };
+    comptime expect(@TypeOf(array[runtime_zero..]) == []const i32);
 }
 
 test "pointer child field" {

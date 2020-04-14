@@ -187,12 +187,16 @@ fn renderExtraNewline(tree: *ast.Tree, stream: var, start_col: *usize, node: *as
     const first_token = node.firstToken();
     var prev_token = first_token;
     if (prev_token == 0) return;
+    var newline_threshold: usize = 2;
     while (tree.tokens.at(prev_token - 1).id == .DocComment) {
+        if (tree.tokenLocation(tree.tokens.at(prev_token - 1).end, prev_token).line == 1) {
+            newline_threshold += 1;
+        }
         prev_token -= 1;
     }
     const prev_token_end = tree.tokens.at(prev_token - 1).end;
     const loc = tree.tokenLocation(prev_token_end, first_token);
-    if (loc.line >= 2) {
+    if (loc.line >= newline_threshold) {
         try stream.writeByte('\n');
         start_col.* = 0;
     }
@@ -376,6 +380,9 @@ fn renderExpression(
             const defer_node = @fieldParentPtr(ast.Node.Defer, "base", base);
 
             try renderToken(tree, stream, defer_node.defer_token, indent, start_col, Space.Space);
+            if (defer_node.payload) |payload| {
+                try renderExpression(allocator, stream, tree, indent, start_col, payload, Space.Space);
+            }
             return renderExpression(allocator, stream, tree, indent, start_col, defer_node.expr, space);
         },
         .Comptime => {
@@ -583,7 +590,6 @@ fn renderExpression(
                 },
 
                 .Try,
-                .Cancel,
                 .Resume,
                 => {
                     try renderToken(tree, stream, prefix_op_node.op_token, indent, start_col, Space.Space);
@@ -1269,25 +1275,51 @@ fn renderExpression(
             }
 
             try renderToken(tree, stream, err_set_decl.error_token, indent, start_col, Space.None); // error
-            try renderToken(tree, stream, lbrace, indent, start_col, Space.Newline); // {
-            const new_indent = indent + indent_delta;
 
-            var it = err_set_decl.decls.iterator(0);
-            while (it.next()) |node| {
-                try stream.writeByteNTimes(' ', new_indent);
+            const src_has_trailing_comma = blk: {
+                const maybe_comma = tree.prevToken(err_set_decl.rbrace_token);
+                break :blk tree.tokens.at(maybe_comma).id == .Comma;
+            };
 
-                if (it.peek()) |next_node| {
-                    try renderExpression(allocator, stream, tree, new_indent, start_col, node.*, Space.None);
-                    try renderToken(tree, stream, tree.nextToken(node.*.lastToken()), new_indent, start_col, Space.Newline); // ,
+            if (src_has_trailing_comma) {
+                try renderToken(tree, stream, lbrace, indent, start_col, Space.Newline); // {
+                const new_indent = indent + indent_delta;
 
-                    try renderExtraNewline(tree, stream, start_col, next_node.*);
-                } else {
-                    try renderExpression(allocator, stream, tree, new_indent, start_col, node.*, Space.Comma);
+                var it = err_set_decl.decls.iterator(0);
+                while (it.next()) |node| {
+                    try stream.writeByteNTimes(' ', new_indent);
+
+                    if (it.peek()) |next_node| {
+                        try renderExpression(allocator, stream, tree, new_indent, start_col, node.*, Space.None);
+                        try renderToken(tree, stream, tree.nextToken(node.*.lastToken()), new_indent, start_col, Space.Newline); // ,
+
+                        try renderExtraNewline(tree, stream, start_col, next_node.*);
+                    } else {
+                        try renderExpression(allocator, stream, tree, new_indent, start_col, node.*, Space.Comma);
+                    }
                 }
-            }
 
-            try stream.writeByteNTimes(' ', indent);
-            return renderToken(tree, stream, err_set_decl.rbrace_token, indent, start_col, space); // }
+                try stream.writeByteNTimes(' ', indent);
+                return renderToken(tree, stream, err_set_decl.rbrace_token, indent, start_col, space); // }
+            } else {
+                try renderToken(tree, stream, lbrace, indent, start_col, Space.Space); // {
+
+                var it = err_set_decl.decls.iterator(0);
+                while (it.next()) |node| {
+                    if (it.peek()) |next_node| {
+                        try renderExpression(allocator, stream, tree, indent, start_col, node.*, Space.None);
+
+                        const comma_token = tree.nextToken(node.*.lastToken());
+                        assert(tree.tokens.at(comma_token).id == .Comma);
+                        try renderToken(tree, stream, comma_token, indent, start_col, Space.Space); // ,
+                        try renderExtraNewline(tree, stream, start_col, next_node.*);
+                    } else {
+                        try renderExpression(allocator, stream, tree, indent, start_col, node.*, Space.Space);
+                    }
+                }
+
+                return renderToken(tree, stream, err_set_decl.rbrace_token, indent, start_col, space); // }
+            }
         },
 
         .ErrorTag => {
@@ -1499,7 +1531,7 @@ fn renderExpression(
                 try renderToken(tree, stream, callconv_rparen, indent, start_col, Space.Space); // )
             } else if (cc_rewrite_str) |str| {
                 try stream.writeAll("callconv(");
-                try stream.writeAll(mem.toSliceConst(u8, str));
+                try stream.writeAll(mem.spanZ(str));
                 try stream.writeAll(") ");
             }
 
@@ -1590,8 +1622,7 @@ fn renderExpression(
                 }
             } else {
                 var it = switch_case.items.iterator(0);
-                while (true) {
-                    const node = it.next().?;
+                while (it.next()) |node| {
                     if (it.peek()) |next_node| {
                         try renderExpression(allocator, stream, tree, indent, start_col, node.*, Space.None);
 
@@ -1602,7 +1633,6 @@ fn renderExpression(
                     } else {
                         try renderExpression(allocator, stream, tree, indent, start_col, node.*, Space.Comma);
                         try stream.writeByteNTimes(' ', indent);
-                        break;
                     }
                 }
             }

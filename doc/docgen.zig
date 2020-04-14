@@ -48,7 +48,7 @@ pub fn main() !void {
     var toc = try genToc(allocator, &tokenizer);
 
     try fs.cwd().makePath(tmp_dir_name);
-    defer fs.deleteTree(tmp_dir_name) catch {};
+    defer fs.cwd().deleteTree(tmp_dir_name) catch {};
 
     try genHtml(allocator, &tokenizer, &toc, buffered_out_stream.outStream(), zig_exe);
     try buffered_out_stream.flush();
@@ -321,7 +321,7 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
     var last_action = Action.Open;
     var last_columns: ?u8 = null;
 
-    var toc_buf = try std.Buffer.initSize(allocator, 0);
+    var toc_buf = std.ArrayList(u8).init(allocator);
     defer toc_buf.deinit();
 
     var toc = toc_buf.outStream();
@@ -607,7 +607,7 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
 }
 
 fn urlize(allocator: *mem.Allocator, input: []const u8) ![]u8 {
-    var buf = try std.Buffer.initSize(allocator, 0);
+    var buf = std.ArrayList(u8).init(allocator);
     defer buf.deinit();
 
     const out = buf.outStream();
@@ -626,7 +626,7 @@ fn urlize(allocator: *mem.Allocator, input: []const u8) ![]u8 {
 }
 
 fn escapeHtml(allocator: *mem.Allocator, input: []const u8) ![]u8 {
-    var buf = try std.Buffer.initSize(allocator, 0);
+    var buf = std.ArrayList(u8).init(allocator);
     defer buf.deinit();
 
     const out = buf.outStream();
@@ -672,7 +672,7 @@ test "term color" {
 }
 
 fn termColor(allocator: *mem.Allocator, input: []const u8) ![]u8 {
-    var buf = try std.Buffer.initSize(allocator, 0);
+    var buf = std.ArrayList(u8).init(allocator);
     defer buf.deinit();
 
     var out = buf.outStream();
@@ -1048,7 +1048,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                     allocator,
                     &[_][]const u8{ tmp_dir_name, name_plus_ext },
                 );
-                try io.writeFile(tmp_source_file_name, trimmed_raw_source);
+                try fs.cwd().writeFile(tmp_source_file_name, trimmed_raw_source);
 
                 switch (code.id) {
                     Code.Id.Exe => |expected_outcome| code_block: {
@@ -1096,6 +1096,9 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             try build_args.append("-lc");
                             try out.print(" -lc", .{});
                         }
+                        const target = try std.zig.CrossTarget.parse(.{
+                            .arch_os_abi = code.target_str orelse "native",
+                        });
                         if (code.target_str) |triple| {
                             try build_args.appendSlice(&[_][]const u8{ "-target", triple });
                             if (!code.is_inline) {
@@ -1103,18 +1106,17 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             }
                         }
                         if (expected_outcome == .BuildFail) {
-                            const result = try ChildProcess.exec(
-                                allocator,
-                                build_args.toSliceConst(),
-                                null,
-                                &env_map,
-                                max_doc_file_size,
-                            );
+                            const result = try ChildProcess.exec(.{
+                                .allocator = allocator,
+                                .argv = build_args.items,
+                                .env_map = &env_map,
+                                .max_output_bytes = max_doc_file_size,
+                            });
                             switch (result.term) {
                                 .Exited => |exit_code| {
                                     if (exit_code == 0) {
                                         warn("{}\nThe following command incorrectly succeeded:\n", .{result.stderr});
-                                        for (build_args.toSliceConst()) |arg|
+                                        for (build_args.items) |arg|
                                             warn("{} ", .{arg})
                                         else
                                             warn("\n", .{});
@@ -1123,7 +1125,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                                 },
                                 else => {
                                     warn("{}\nThe following command crashed:\n", .{result.stderr});
-                                    for (build_args.toSliceConst()) |arg|
+                                    for (build_args.items) |arg|
                                         warn("{} ", .{arg})
                                     else
                                         warn("\n", .{});
@@ -1135,7 +1137,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             try out.print("\n{}</code></pre>\n", .{colored_stderr});
                             break :code_block;
                         }
-                        const exec_result = exec(allocator, &env_map, build_args.toSliceConst()) catch
+                        const exec_result = exec(allocator, &env_map, build_args.items) catch
                             return parseError(tokenizer, code.source_token, "example failed to compile", .{});
 
                         if (code.target_str) |triple| {
@@ -1150,13 +1152,26 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             }
                         }
 
-                        const path_to_exe = mem.trim(u8, exec_result.stdout, " \r\n");
+                        const path_to_exe_dir = mem.trim(u8, exec_result.stdout, " \r\n");
+                        const path_to_exe_basename = try std.fmt.allocPrint(allocator, "{}{}", .{
+                            code.name,
+                            target.exeFileExt(),
+                        });
+                        const path_to_exe = try fs.path.join(allocator, &[_][]const u8{
+                            path_to_exe_dir,
+                            path_to_exe_basename,
+                        });
                         const run_args = &[_][]const u8{path_to_exe};
 
                         var exited_with_signal = false;
 
                         const result = if (expected_outcome == ExpectedOutcome.Fail) blk: {
-                            const result = try ChildProcess.exec(allocator, run_args, null, &env_map, max_doc_file_size);
+                            const result = try ChildProcess.exec(.{
+                                .allocator = allocator,
+                                .argv = run_args,
+                                .env_map = &env_map,
+                                .max_output_bytes = max_doc_file_size,
+                            });
                             switch (result.term) {
                                 .Exited => |exit_code| {
                                     if (exit_code == 0) {
@@ -1223,7 +1238,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             try test_args.appendSlice(&[_][]const u8{ "-target", triple });
                             try out.print(" -target {}", .{triple});
                         }
-                        const result = exec(allocator, &env_map, test_args.toSliceConst()) catch return parseError(tokenizer, code.source_token, "test failed", .{});
+                        const result = exec(allocator, &env_map, test_args.items) catch return parseError(tokenizer, code.source_token, "test failed", .{});
                         const escaped_stderr = try escapeHtml(allocator, result.stderr);
                         const escaped_stdout = try escapeHtml(allocator, result.stdout);
                         try out.print("\n{}{}</code></pre>\n", .{ escaped_stderr, escaped_stdout });
@@ -1257,12 +1272,17 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                                 try out.print(" --release-small", .{});
                             },
                         }
-                        const result = try ChildProcess.exec(allocator, test_args.toSliceConst(), null, &env_map, max_doc_file_size);
+                        const result = try ChildProcess.exec(.{
+                            .allocator = allocator,
+                            .argv = test_args.items,
+                            .env_map = &env_map,
+                            .max_output_bytes = max_doc_file_size,
+                        });
                         switch (result.term) {
                             .Exited => |exit_code| {
                                 if (exit_code == 0) {
                                     warn("{}\nThe following command incorrectly succeeded:\n", .{result.stderr});
-                                    for (test_args.toSliceConst()) |arg|
+                                    for (test_args.items) |arg|
                                         warn("{} ", .{arg})
                                     else
                                         warn("\n", .{});
@@ -1271,7 +1291,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             },
                             else => {
                                 warn("{}\nThe following command crashed:\n", .{result.stderr});
-                                for (test_args.toSliceConst()) |arg|
+                                for (test_args.items) |arg|
                                     warn("{} ", .{arg})
                                 else
                                     warn("\n", .{});
@@ -1315,12 +1335,17 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             },
                         }
 
-                        const result = try ChildProcess.exec(allocator, test_args.toSliceConst(), null, &env_map, max_doc_file_size);
+                        const result = try ChildProcess.exec(.{
+                            .allocator = allocator,
+                            .argv = test_args.items,
+                            .env_map = &env_map,
+                            .max_output_bytes = max_doc_file_size,
+                        });
                         switch (result.term) {
                             .Exited => |exit_code| {
                                 if (exit_code == 0) {
                                     warn("{}\nThe following command incorrectly succeeded:\n", .{result.stderr});
-                                    for (test_args.toSliceConst()) |arg|
+                                    for (test_args.items) |arg|
                                         warn("{} ", .{arg})
                                     else
                                         warn("\n", .{});
@@ -1329,7 +1354,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             },
                             else => {
                                 warn("{}\nThe following command crashed:\n", .{result.stderr});
-                                for (test_args.toSliceConst()) |arg|
+                                for (test_args.items) |arg|
                                     warn("{} ", .{arg})
                                 else
                                     warn("\n", .{});
@@ -1407,12 +1432,17 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                         }
 
                         if (maybe_error_match) |error_match| {
-                            const result = try ChildProcess.exec(allocator, build_args.toSliceConst(), null, &env_map, max_doc_file_size);
+                            const result = try ChildProcess.exec(.{
+                                .allocator = allocator,
+                                .argv = build_args.items,
+                                .env_map = &env_map,
+                                .max_output_bytes = max_doc_file_size,
+                            });
                             switch (result.term) {
                                 .Exited => |exit_code| {
                                     if (exit_code == 0) {
                                         warn("{}\nThe following command incorrectly succeeded:\n", .{result.stderr});
-                                        for (build_args.toSliceConst()) |arg|
+                                        for (build_args.items) |arg|
                                             warn("{} ", .{arg})
                                         else
                                             warn("\n", .{});
@@ -1421,7 +1451,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                                 },
                                 else => {
                                     warn("{}\nThe following command crashed:\n", .{result.stderr});
-                                    for (build_args.toSliceConst()) |arg|
+                                    for (build_args.items) |arg|
                                         warn("{} ", .{arg})
                                     else
                                         warn("\n", .{});
@@ -1436,7 +1466,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             const colored_stderr = try termColor(allocator, escaped_stderr);
                             try out.print("\n{}", .{colored_stderr});
                         } else {
-                            _ = exec(allocator, &env_map, build_args.toSliceConst()) catch return parseError(tokenizer, code.source_token, "example failed to compile", .{});
+                            _ = exec(allocator, &env_map, build_args.items) catch return parseError(tokenizer, code.source_token, "example failed to compile", .{});
                         }
                         if (!code.is_inline) {
                             try out.print("</code></pre>\n", .{});
@@ -1473,7 +1503,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             try test_args.appendSlice(&[_][]const u8{ "-target", triple });
                             try out.print(" -target {}", .{triple});
                         }
-                        const result = exec(allocator, &env_map, test_args.toSliceConst()) catch return parseError(tokenizer, code.source_token, "test failed", .{});
+                        const result = exec(allocator, &env_map, test_args.items) catch return parseError(tokenizer, code.source_token, "test failed", .{});
                         const escaped_stderr = try escapeHtml(allocator, result.stderr);
                         const escaped_stdout = try escapeHtml(allocator, result.stdout);
                         try out.print("\n{}{}</code></pre>\n", .{ escaped_stderr, escaped_stdout });
@@ -1486,7 +1516,12 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
 }
 
 fn exec(allocator: *mem.Allocator, env_map: *std.BufMap, args: []const []const u8) !ChildProcess.ExecResult {
-    const result = try ChildProcess.exec(allocator, args, null, env_map, max_doc_file_size);
+    const result = try ChildProcess.exec(.{
+        .allocator = allocator,
+        .argv = args,
+        .env_map = env_map,
+        .max_output_bytes = max_doc_file_size,
+    });
     switch (result.term) {
         .Exited => |exit_code| {
             if (exit_code != 0) {

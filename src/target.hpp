@@ -102,6 +102,7 @@ bool target_os_requires_libc(Os os);
 bool target_can_build_libc(const ZigTarget *target);
 const char *target_libc_generic_name(const ZigTarget *target);
 bool target_is_libc_lib_name(const ZigTarget *target, const char *name);
+bool target_is_libcpp_lib_name(const ZigTarget *target, const char *name);
 bool target_supports_fpic(const ZigTarget *target);
 bool target_supports_clang_march_native(const ZigTarget *target);
 bool target_requires_pic(const ZigTarget *target, bool linking_libc);
@@ -118,7 +119,6 @@ bool target_supports_stack_probing(const ZigTarget *target);
 bool target_supports_sanitize_c(const ZigTarget *target);
 bool target_has_debug_info(const ZigTarget *target);
 const char *target_arch_musl_name(ZigLLVM_ArchType arch);
-bool target_supports_libunwind(const ZigTarget *target);
 
 uint32_t target_arch_pointer_bit_width(ZigLLVM_ArchType arch);
 uint32_t target_arch_largest_atomic_bits(ZigLLVM_ArchType arch);

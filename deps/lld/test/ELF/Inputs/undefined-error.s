@@ -1,1 +1,0 @@
-callq fmod@PLT

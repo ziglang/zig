@@ -3,11 +3,11 @@
 // https://monocypher.org/
 
 const std = @import("../std.zig");
-const builtin = @import("builtin");
+const builtin = std.builtin;
 
 const Endian = builtin.Endian;
-const readIntSliceLittle = std.mem.readIntSliceLittle;
-const writeIntSliceLittle = std.mem.writeIntSliceLittle;
+const readIntLittle = std.mem.readIntLittle;
+const writeIntLittle = std.mem.writeIntLittle;
 
 pub const Poly1305 = struct {
     const Self = @This();
@@ -59,19 +59,19 @@ pub const Poly1305 = struct {
         {
             var i: usize = 0;
             while (i < 1) : (i += 1) {
-                ctx.r[0] = readIntSliceLittle(u32, key[0..4]) & 0x0fffffff;
+                ctx.r[0] = readIntLittle(u32, key[0..4]) & 0x0fffffff;
             }
         }
         {
             var i: usize = 1;
             while (i < 4) : (i += 1) {
-                ctx.r[i] = readIntSliceLittle(u32, key[i * 4 .. i * 4 + 4]) & 0x0ffffffc;
+                ctx.r[i] = readIntLittle(u32, key[i * 4 ..][0..4]) & 0x0ffffffc;
             }
         }
         {
             var i: usize = 0;
             while (i < 4) : (i += 1) {
-                ctx.pad[i] = readIntSliceLittle(u32, key[i * 4 + 16 .. i * 4 + 16 + 4]);
+                ctx.pad[i] = readIntLittle(u32, key[i * 4 + 16 ..][0..4]);
             }
         }
 
@@ -168,10 +168,10 @@ pub const Poly1305 = struct {
         const nb_blocks = nmsg.len >> 4;
         var i: usize = 0;
         while (i < nb_blocks) : (i += 1) {
-            ctx.c[0] = readIntSliceLittle(u32, nmsg[0..4]);
-            ctx.c[1] = readIntSliceLittle(u32, nmsg[4..8]);
-            ctx.c[2] = readIntSliceLittle(u32, nmsg[8..12]);
-            ctx.c[3] = readIntSliceLittle(u32, nmsg[12..16]);
+            ctx.c[0] = readIntLittle(u32, nmsg[0..4]);
+            ctx.c[1] = readIntLittle(u32, nmsg[4..8]);
+            ctx.c[2] = readIntLittle(u32, nmsg[8..12]);
+            ctx.c[3] = readIntLittle(u32, nmsg[12..16]);
             polyBlock(ctx);
             nmsg = nmsg[16..];
         }
@@ -210,11 +210,10 @@ pub const Poly1305 = struct {
         const uu2 = (uu1 >> 32) + ctx.h[2] + ctx.pad[2]; // <= 2_00000000
         const uu3 = (uu2 >> 32) + ctx.h[3] + ctx.pad[3]; // <= 2_00000000
 
-        // TODO https://github.com/ziglang/zig/issues/863
-        writeIntSliceLittle(u32, out[0..], @truncate(u32, uu0));
-        writeIntSliceLittle(u32, out[4..], @truncate(u32, uu1));
-        writeIntSliceLittle(u32, out[8..], @truncate(u32, uu2));
-        writeIntSliceLittle(u32, out[12..], @truncate(u32, uu3));
+        writeIntLittle(u32, out[0..4], @truncate(u32, uu0));
+        writeIntLittle(u32, out[4..8], @truncate(u32, uu1));
+        writeIntLittle(u32, out[8..12], @truncate(u32, uu2));
+        writeIntLittle(u32, out[12..16], @truncate(u32, uu3));
 
         ctx.secureZero();
     }

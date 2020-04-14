@@ -69,7 +69,7 @@ fn peekIsAlign(comptime fmt: []const u8) bool {
 ///
 /// If a formatted user type contains a function of the type
 /// ```
-/// fn format(value: ?, comptime fmt: []const u8, options: std.fmt.FormatOptions, out_stream: var) !void
+/// pub fn format(value: ?, comptime fmt: []const u8, options: std.fmt.FormatOptions, out_stream: var) !void
 /// ```
 /// with `?` being the type formatted, this function will be called instead of the default implementation.
 /// This allows user types to be formatted in a logical manner instead of dumping all fields of the type.
@@ -1223,7 +1223,8 @@ test "slice" {
         try testFmt("slice: abc\n", "slice: {}\n", .{value});
     }
     {
-        const value = @intToPtr([*]align(1) const []const u8, 0xdeadbeef)[0..0];
+        var runtime_zero: usize = 0;
+        const value = @intToPtr([*]align(1) const []const u8, 0xdeadbeef)[runtime_zero..runtime_zero];
         try testFmt("slice: []const u8@deadbeef\n", "slice: {}\n", .{value});
     }
 
@@ -1660,8 +1661,14 @@ test "positional/alignment/width/precision" {
 }
 
 test "vector" {
-    // https://github.com/ziglang/zig/issues/3317
-    if (builtin.arch == .mipsel) return error.SkipZigTest;
+    if (builtin.arch == .mipsel) {
+        // https://github.com/ziglang/zig/issues/3317
+        return error.SkipZigTest;
+    }
+    if (builtin.arch == .riscv64) {
+        // https://github.com/ziglang/zig/issues/4486
+        return error.SkipZigTest;
+    }
 
     const vbool: @Vector(4, bool) = [_]bool{ true, false, true, false };
     const vi64: @Vector(4, i64) = [_]i64{ -2, -1, 0, 1 };

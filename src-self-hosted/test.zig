@@ -57,11 +57,11 @@ pub const TestContext = struct {
         errdefer allocator.free(self.zig_lib_dir);
 
         try std.fs.cwd().makePath(tmp_dir_name);
-        errdefer std.fs.deleteTree(tmp_dir_name) catch {};
+        errdefer std.fs.cwd().deleteTree(tmp_dir_name) catch {};
     }
 
     fn deinit(self: *TestContext) void {
-        std.fs.deleteTree(tmp_dir_name) catch {};
+        std.fs.cwd().deleteTree(tmp_dir_name) catch {};
         allocator.free(self.zig_lib_dir);
         self.zig_compiler.deinit();
     }
@@ -88,8 +88,7 @@ pub const TestContext = struct {
             try std.fs.cwd().makePath(dirname);
         }
 
-        // TODO async I/O
-        try std.io.writeFile(file1_path, source);
+        try std.fs.cwd().writeFile(file1_path, source);
 
         var comp = try Compilation.create(
             &self.zig_compiler,
@@ -122,8 +121,7 @@ pub const TestContext = struct {
             try std.fs.cwd().makePath(dirname);
         }
 
-        // TODO async I/O
-        try std.io.writeFile(file1_path, source);
+        try std.fs.cwd().writeFile(file1_path, source);
 
         var comp = try Compilation.create(
             &self.zig_compiler,
@@ -156,7 +154,11 @@ pub const TestContext = struct {
             .Ok => {
                 const argv = [_][]const u8{exe_file};
                 // TODO use event loop
-                const child = try std.ChildProcess.exec(allocator, argv, null, null, 1024 * 1024);
+                const child = try std.ChildProcess.exec(.{
+                    .allocator = allocator,
+                    .argv = argv,
+                    .max_output_bytes = 1024 * 1024,
+                });
                 switch (child.term) {
                     .Exited => |code| {
                         if (code != 0) {

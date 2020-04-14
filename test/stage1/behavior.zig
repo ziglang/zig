@@ -41,6 +41,10 @@ comptime {
     _ = @import("behavior/bugs/3586.zig");
     _ = @import("behavior/bugs/3742.zig");
     _ = @import("behavior/bugs/4560.zig");
+    _ = @import("behavior/bugs/4769_a.zig");
+    _ = @import("behavior/bugs/4769_b.zig");
+    _ = @import("behavior/bugs/4769_c.zig");
+    _ = @import("behavior/bugs/4954.zig");
     _ = @import("behavior/bugs/394.zig");
     _ = @import("behavior/bugs/421.zig");
     _ = @import("behavior/bugs/529.zig");
@@ -82,7 +86,6 @@ comptime {
     _ = @import("behavior/misc.zig");
     _ = @import("behavior/muladd.zig");
     _ = @import("behavior/namespace_depends_on_compile_var.zig");
-    _ = @import("behavior/new_stack_call.zig");
     _ = @import("behavior/null.zig");
     _ = @import("behavior/optional.zig");
     _ = @import("behavior/pointers.zig");
@@ -94,6 +97,7 @@ comptime {
     _ = @import("behavior/shuffle.zig");
     _ = @import("behavior/sizeof_and_typeof.zig");
     _ = @import("behavior/slice.zig");
+    _ = @import("behavior/slice_sentinel_comptime.zig");
     _ = @import("behavior/struct.zig");
     _ = @import("behavior/struct_contains_null_ptr_itself.zig");
     _ = @import("behavior/struct_contains_slice_of_itself.zig");

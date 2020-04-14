@@ -59,7 +59,7 @@ pub const WriteFileStep = struct {
         // new random bytes when WriteFileStep implementation is modified
         // in a non-backwards-compatible way.
         hash.update("eagVR1dYXoE7ARDP");
-        for (self.files.toSliceConst()) |file| {
+        for (self.files.span()) |file| {
             hash.update(file.basename);
             hash.update(file.bytes);
             hash.update("|");
@@ -78,9 +78,9 @@ pub const WriteFileStep = struct {
             warn("unable to make path {}: {}\n", .{ self.output_dir, @errorName(err) });
             return err;
         };
-        var dir = try fs.cwd().openDirTraverse(self.output_dir);
+        var dir = try fs.cwd().openDir(self.output_dir, .{});
         defer dir.close();
-        for (self.files.toSliceConst()) |file| {
+        for (self.files.span()) |file| {
             dir.writeFile(file.basename, file.bytes) catch |err| {
                 warn("unable to write {} into {}: {}\n", .{
                     file.basename,

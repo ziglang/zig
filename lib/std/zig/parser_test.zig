@@ -1,3 +1,16 @@
+test "zig fmt: errdefer with payload" {
+    try testCanonical(
+        \\pub fn main() anyerror!void {
+        \\    errdefer |a| x += 1;
+        \\    errdefer |a| {}
+        \\    errdefer |a| {
+        \\        x += 1;
+        \\    }
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: noasync block" {
     try testCanonical(
         \\pub fn main() anyerror!void {
@@ -355,6 +368,35 @@ test "zig fmt: correctly move doc comments on struct fields" {
         \\    sectname: [16]u8,
         \\    /// segment this section goes in
         \\    segname: [16]u8,
+        \\};
+        \\
+    );
+}
+
+test "zig fmt: correctly space struct fields with doc comments" {
+    try testTransform(
+        \\pub const S = struct {
+        \\    /// A
+        \\    a: u8,
+        \\    /// B
+        \\    /// B (cont)
+        \\    b: u8,
+        \\
+        \\
+        \\    /// C
+        \\    c: u8,
+        \\};
+        \\
+        ,
+        \\pub const S = struct {
+        \\    /// A
+        \\    a: u8,
+        \\    /// B
+        \\    /// B (cont)
+        \\    b: u8,
+        \\
+        \\    /// C
+        \\    c: u8,
         \\};
         \\
     );
@@ -1508,6 +1550,8 @@ test "zig fmt: error set declaration" {
         \\
         \\const Error = error{OutOfMemory};
         \\const Error = error{};
+        \\
+        \\const Error = error{ OutOfMemory, OutOfTime };
         \\
     );
 }
@@ -2800,6 +2844,75 @@ test "zig fmt: extern without container keyword returns error" {
     );
 }
 
+test "zig fmt: integer literals with underscore separators" {
+    try testTransform(
+        \\const
+        \\ x     =
+        \\ 1_234_567
+        \\ +(0b0_1-0o7_0+0xff_FF ) +  0_0;
+    ,
+        \\const x = 1_234_567 + (0b0_1 - 0o7_0 + 0xff_FF) + 0_0;
+        \\
+    );
+}
+
+test "zig fmt: hex literals with underscore separators" {
+    try testTransform(
+        \\pub fn orMask(a: [ 1_000 ]u64, b: [  1_000]  u64) [1_000]u64 {
+        \\    var c: [1_000]u64 =  [1]u64{ 0xFFFF_FFFF_FFFF_FFFF}**1_000;
+        \\    for (c [ 0_0 .. ]) |_, i| {
+        \\        c[i] = (a[i] | b[i]) & 0xCCAA_CCAA_CCAA_CCAA;
+        \\    }
+        \\    return c;
+        \\}
+        \\
+        \\
+    ,
+        \\pub fn orMask(a: [1_000]u64, b: [1_000]u64) [1_000]u64 {
+        \\    var c: [1_000]u64 = [1]u64{0xFFFF_FFFF_FFFF_FFFF} ** 1_000;
+        \\    for (c[0_0..]) |_, i| {
+        \\        c[i] = (a[i] | b[i]) & 0xCCAA_CCAA_CCAA_CCAA;
+        \\    }
+        \\    return c;
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: decimal float literals with underscore separators" {
+    try testTransform(
+        \\pub fn main() void {
+        \\    const a:f64=(10.0e-0+(10.e+0))+10_00.00_00e-2+00_00.00_10e+4;
+        \\    const b:f64=010.0--0_10.+0_1_0.0_0+1e2;
+        \\    std.debug.warn("a: {}, b: {} -> a+b: {}\n", .{ a, b, a + b });
+        \\}
+    ,
+        \\pub fn main() void {
+        \\    const a: f64 = (10.0e-0 + (10.e+0)) + 10_00.00_00e-2 + 00_00.00_10e+4;
+        \\    const b: f64 = 010.0 - -0_10. + 0_1_0.0_0 + 1e2;
+        \\    std.debug.warn("a: {}, b: {} -> a+b: {}\n", .{ a, b, a + b });
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: hexadeciaml float literals with underscore separators" {
+    try testTransform(
+        \\pub fn main() void {
+        \\    const a: f64 = (0x10.0p-0+(0x10.p+0))+0x10_00.00_00p-8+0x00_00.00_10p+16;
+        \\    const b: f64 = 0x0010.0--0x00_10.+0x10.00+0x1p4;
+        \\    std.debug.warn("a: {}, b: {} -> a+b: {}\n", .{ a, b, a + b });
+        \\}
+    ,
+        \\pub fn main() void {
+        \\    const a: f64 = (0x10.0p-0 + (0x10.p+0)) + 0x10_00.00_00p-8 + 0x00_00.00_10p+16;
+        \\    const b: f64 = 0x0010.0 - -0x00_10. + 0x10.00 + 0x1p4;
+        \\    std.debug.warn("a: {}, b: {} -> a+b: {}\n", .{ a, b, a + b });
+        \\}
+        \\
+    );
+}
+
 const std = @import("std");
 const mem = std.mem;
 const warn = std.debug.warn;
@@ -2840,7 +2953,7 @@ fn testParse(source: []const u8, allocator: *mem.Allocator, anything_changed: *b
         return error.ParseError;
     }
 
-    var buffer = try std.Buffer.initSize(allocator, 0);
+    var buffer = std.ArrayList(u8).init(allocator);
     errdefer buffer.deinit();
 
     anything_changed.* = try std.zig.render(allocator, buffer.outStream(), tree);

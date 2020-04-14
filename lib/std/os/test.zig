@@ -1,7 +1,8 @@
 const std = @import("../std.zig");
 const os = std.os;
 const testing = std.testing;
-const expect = std.testing.expect;
+const expect = testing.expect;
+const expectEqual = testing.expectEqual;
 const io = std.io;
 const fs = std.fs;
 const mem = std.mem;
@@ -17,10 +18,10 @@ const AtomicOrder = builtin.AtomicOrder;
 
 test "makePath, put some files in it, deleteTree" {
     try fs.cwd().makePath("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c");
-    try io.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c" ++ fs.path.sep_str ++ "file.txt", "nonsense");
-    try io.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "file2.txt", "blah");
-    try fs.deleteTree("os_test_tmp");
-    if (fs.cwd().openDirTraverse("os_test_tmp")) |dir| {
+    try fs.cwd().writeFile("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c" ++ fs.path.sep_str ++ "file.txt", "nonsense");
+    try fs.cwd().writeFile("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "file2.txt", "blah");
+    try fs.cwd().deleteTree("os_test_tmp");
+    if (fs.cwd().openDir("os_test_tmp", .{})) |dir| {
         @panic("expected error");
     } else |err| {
         expect(err == error.FileNotFound);
@@ -35,9 +36,9 @@ test "access file" {
         expect(err == error.FileNotFound);
     }
 
-    try io.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "file.txt", "");
-    try os.access("os_test_tmp" ++ fs.path.sep_str ++ "file.txt", os.F_OK);
-    try fs.deleteTree("os_test_tmp");
+    try fs.cwd().writeFile("os_test_tmp" ++ fs.path.sep_str ++ "file.txt", "");
+    try fs.cwd().access("os_test_tmp" ++ fs.path.sep_str ++ "file.txt", .{});
+    try fs.cwd().deleteTree("os_test_tmp");
 }
 
 fn testThreadIdFn(thread_id: *Thread.Id) void {
@@ -46,9 +47,9 @@ fn testThreadIdFn(thread_id: *Thread.Id) void {
 
 test "sendfile" {
     try fs.cwd().makePath("os_test_tmp");
-    defer fs.deleteTree("os_test_tmp") catch {};
+    defer fs.cwd().deleteTree("os_test_tmp") catch {};
 
-    var dir = try fs.cwd().openDirList("os_test_tmp");
+    var dir = try fs.cwd().openDir("os_test_tmp", .{});
     defer dir.close();
 
     const line1 = "line1\n";
@@ -64,12 +65,12 @@ test "sendfile" {
         },
     };
 
-    var src_file = try dir.createFileC("sendfile1.txt", .{ .read = true });
+    var src_file = try dir.createFileZ("sendfile1.txt", .{ .read = true });
     defer src_file.close();
 
     try src_file.writevAll(&vecs);
 
-    var dest_file = try dir.createFileC("sendfile2.txt", .{ .read = true });
+    var dest_file = try dir.createFileZ("sendfile2.txt", .{ .read = true });
     defer dest_file.close();
 
     const header1 = "header1\n";
@@ -112,14 +113,16 @@ test "fs.copyFile" {
     const dest_file = "tmp_test_copy_file2.txt";
     const dest_file2 = "tmp_test_copy_file3.txt";
 
-    try fs.cwd().writeFile(src_file, data);
-    defer fs.cwd().deleteFile(src_file) catch {};
+    const cwd = fs.cwd();
 
-    try fs.copyFile(src_file, dest_file);
-    defer fs.cwd().deleteFile(dest_file) catch {};
+    try cwd.writeFile(src_file, data);
+    defer cwd.deleteFile(src_file) catch {};
 
-    try fs.copyFileMode(src_file, dest_file2, File.default_mode);
-    defer fs.cwd().deleteFile(dest_file2) catch {};
+    try cwd.copyFile(src_file, cwd, dest_file, .{});
+    defer cwd.deleteFile(dest_file) catch {};
+
+    try cwd.copyFile(src_file, cwd, dest_file2, .{ .override_mode = File.default_mode });
+    defer cwd.deleteFile(dest_file2) catch {};
 
     try expectFileContents(dest_file, data);
     try expectFileContents(dest_file2, data);
@@ -189,12 +192,12 @@ test "AtomicFile" {
         \\ this is a test file
     ;
     {
-        var af = try fs.AtomicFile.init(test_out_file, File.default_mode);
+        var af = try fs.cwd().atomicFile(test_out_file, .{});
         defer af.deinit();
         try af.file.writeAll(test_content);
         try af.finish();
     }
-    const content = try io.readFileAlloc(testing.allocator, test_out_file);
+    const content = try fs.cwd().readFileAlloc(testing.allocator, test_out_file, 9999);
     defer testing.allocator.free(content);
     expect(mem.eql(u8, content, test_content));
 
@@ -444,5 +447,34 @@ test "getenv" {
         expect(os.getenvW(&[_:0]u16{ 'B', 'O', 'G', 'U', 'S', 0x11, 0x22, 0x33, 0x44, 0x55 }) == null);
     } else {
         expect(os.getenvZ("BOGUSDOESNOTEXISTENVVAR") == null);
+    }
+}
+
+test "fcntl" {
+    if (builtin.os.tag == .windows)
+        return error.SkipZigTest;
+
+    const test_out_file = "os_tmp_test";
+
+    const file = try fs.cwd().createFile(test_out_file, .{});
+    defer {
+        file.close();
+        fs.cwd().deleteFile(test_out_file) catch {};
+    }
+
+    // Note: The test assumes createFile opens the file with O_CLOEXEC
+    {
+        const flags = try os.fcntl(file.handle, os.F_GETFD, 0);
+        expect((flags & os.FD_CLOEXEC) != 0);
+    }
+    {
+        _ = try os.fcntl(file.handle, os.F_SETFD, 0);
+        const flags = try os.fcntl(file.handle, os.F_GETFD, 0);
+        expect((flags & os.FD_CLOEXEC) == 0);
+    }
+    {
+        _ = try os.fcntl(file.handle, os.F_SETFD, os.FD_CLOEXEC);
+        const flags = try os.fcntl(file.handle, os.F_GETFD, 0);
+        expect((flags & os.FD_CLOEXEC) != 0);
     }
 }

@@ -17,6 +17,7 @@ pub const ntdll = @import("windows/ntdll.zig");
 pub const ole32 = @import("windows/ole32.zig");
 pub const psapi = @import("windows/psapi.zig");
 pub const shell32 = @import("windows/shell32.zig");
+pub const user32 = @import("windows/user32.zig");
 pub const ws2_32 = @import("windows/ws2_32.zig");
 
 pub usingnamespace @import("windows/bits.zig");
@@ -86,6 +87,99 @@ pub fn CreateFileW(
     }
 
     return result;
+}
+
+pub const OpenError = error{
+    IsDir,
+    FileNotFound,
+    NoDevice,
+    SharingViolation,
+    AccessDenied,
+    PipeBusy,
+    PathAlreadyExists,
+    Unexpected,
+    NameTooLong,
+    WouldBlock,
+};
+
+/// TODO rename to CreateFileW
+/// TODO actually we don't need the path parameter to be null terminated
+pub fn OpenFileW(
+    dir: ?HANDLE,
+    sub_path_w: [*:0]const u16,
+    sa: ?*SECURITY_ATTRIBUTES,
+    access_mask: ACCESS_MASK,
+    share_access_opt: ?ULONG,
+    share_access_nonblocking: bool,
+    creation: ULONG,
+) OpenError!HANDLE {
+    if (sub_path_w[0] == '.' and sub_path_w[1] == 0) {
+        return error.IsDir;
+    }
+    if (sub_path_w[0] == '.' and sub_path_w[1] == '.' and sub_path_w[2] == 0) {
+        return error.IsDir;
+    }
+
+    var result: HANDLE = undefined;
+
+    const path_len_bytes = math.cast(u16, mem.lenZ(sub_path_w) * 2) catch |err| switch (err) {
+        error.Overflow => return error.NameTooLong,
+    };
+    var nt_name = UNICODE_STRING{
+        .Length = path_len_bytes,
+        .MaximumLength = path_len_bytes,
+        .Buffer = @intToPtr([*]u16, @ptrToInt(sub_path_w)),
+    };
+    var attr = OBJECT_ATTRIBUTES{
+        .Length = @sizeOf(OBJECT_ATTRIBUTES),
+        .RootDirectory = if (std.fs.path.isAbsoluteWindowsW(sub_path_w)) null else dir,
+        .Attributes = 0, // Note we do not use OBJ_CASE_INSENSITIVE here.
+        .ObjectName = &nt_name,
+        .SecurityDescriptor = if (sa) |ptr| ptr.lpSecurityDescriptor else null,
+        .SecurityQualityOfService = null,
+    };
+    var io: IO_STATUS_BLOCK = undefined;
+    const share_access = share_access_opt orelse (FILE_SHARE_WRITE | FILE_SHARE_READ | FILE_SHARE_DELETE);
+
+    var delay: usize = 1;
+    while (true) {
+        const rc = ntdll.NtCreateFile(
+            &result,
+            access_mask,
+            &attr,
+            &io,
+            null,
+            FILE_ATTRIBUTE_NORMAL,
+            share_access,
+            creation,
+            FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT,
+            null,
+            0,
+        );
+        switch (rc) {
+            .SUCCESS => return result,
+            .OBJECT_NAME_INVALID => unreachable,
+            .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
+            .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
+            .NO_MEDIA_IN_DEVICE => return error.NoDevice,
+            .INVALID_PARAMETER => unreachable,
+            .SHARING_VIOLATION => {
+                if (share_access_nonblocking) {
+                    return error.WouldBlock;
+                }
+                std.time.sleep(delay);
+                if (delay < 1 * std.time.ns_per_s) {
+                    delay *= 2;
+                }
+                continue; // TODO: don't loop for async
+            },
+            .ACCESS_DENIED => return error.AccessDenied,
+            .PIPE_BUSY => return error.PipeBusy,
+            .OBJECT_PATH_SYNTAX_BAD => unreachable,
+            .OBJECT_NAME_COLLISION => return error.PathAlreadyExists,
+            else => return unexpectedStatus(rc),
+        }
+    }
 }
 
 pub const CreatePipeError = error{Unexpected};
@@ -609,7 +703,7 @@ pub fn CreateDirectoryW(
     sub_path_w: [*:0]const u16,
     sa: ?*SECURITY_ATTRIBUTES,
 ) CreateDirectoryError!HANDLE {
-    const path_len_bytes = math.cast(u16, mem.toSliceConst(u16, sub_path_w).len * 2) catch |err| switch (err) {
+    const path_len_bytes = math.cast(u16, mem.lenZ(sub_path_w) * 2) catch |err| switch (err) {
         error.Overflow => return error.NameTooLong,
     };
     var nt_name = UNICODE_STRING{
@@ -817,7 +911,7 @@ pub fn WSAStartup(majorVersion: u8, minorVersion: u8) !ws2_32.WSADATA {
     var wsadata: ws2_32.WSADATA = undefined;
     return switch (ws2_32.WSAStartup((@as(WORD, minorVersion) << 8) | majorVersion, &wsadata)) {
         0 => wsadata,
-        else => |err| unexpectedWSAError(@intToEnum(WinsockError, err)),
+        else => |err| unexpectedWSAError(@intToEnum(ws2_32.WinsockError, @intCast(u16, err))),
     };
 }
 
@@ -1138,7 +1232,7 @@ pub fn nanoSecondsToFileTime(ns: i64) FILETIME {
 }
 
 pub fn cStrToPrefixedFileW(s: [*:0]const u8) ![PATH_MAX_WIDE:0]u16 {
-    return sliceToPrefixedFileW(mem.toSliceConst(u8, s));
+    return sliceToPrefixedFileW(mem.spanZ(s));
 }
 
 pub fn sliceToPrefixedFileW(s: []const u8) ![PATH_MAX_WIDE:0]u16 {
@@ -1200,7 +1294,15 @@ pub fn unexpectedError(err: Win32Error) std.os.UnexpectedError {
         // 614 is the length of the longest windows error desciption
         var buf_u16: [614]u16 = undefined;
         var buf_u8: [614]u8 = undefined;
-        var len = kernel32.FormatMessageW(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, null, err, MAKELANGID(LANG.NEUTRAL, SUBLANG.DEFAULT), buf_u16[0..].ptr, buf_u16.len / @sizeOf(TCHAR), null);
+        const len = kernel32.FormatMessageW(
+            FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+            null,
+            err,
+            MAKELANGID(LANG.NEUTRAL, SUBLANG.DEFAULT),
+            &buf_u16,
+            buf_u16.len / @sizeOf(TCHAR),
+            null,
+        );
         _ = std.unicode.utf16leToUtf8(&buf_u8, buf_u16[0..len]) catch unreachable;
         std.debug.warn("error.Unexpected: GetLastError({}): {}\n", .{ @enumToInt(err), buf_u8[0..len] });
         std.debug.dumpCurrentStackTrace(null);
@@ -1208,7 +1310,7 @@ pub fn unexpectedError(err: Win32Error) std.os.UnexpectedError {
     return error.Unexpected;
 }
 
-pub fn unexpectedWSAError(err: WinsockError) std.os.UnexpectedError {
+pub fn unexpectedWSAError(err: ws2_32.WinsockError) std.os.UnexpectedError {
     return unexpectedError(@intToEnum(Win32Error, @enumToInt(err)));
 }
 

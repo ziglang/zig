@@ -7,10 +7,6 @@ const minInt = std.math.minInt;
 const mem = std.mem;
 
 test "division" {
-    if (@import("builtin").arch == .riscv64) {
-        // TODO: https://github.com/ziglang/zig/issues/3338
-        return error.SkipZigTest;
-    }
     testDivision();
     comptime testDivision();
 }
@@ -411,6 +407,34 @@ test "quad hex float literal parsing accurate" {
     comptime S.doTheTest();
 }
 
+test "underscore separator parsing" {
+    expect(0_0_0_0 == 0);
+    expect(1_234_567 == 1234567);
+    expect(001_234_567 == 1234567);
+    expect(0_0_1_2_3_4_5_6_7 == 1234567);
+
+    expect(0b0_0_0_0 == 0);
+    expect(0b1010_1010 == 0b10101010);
+    expect(0b0000_1010_1010 == 0b10101010);
+    expect(0b1_0_1_0_1_0_1_0 == 0b10101010);
+
+    expect(0o0_0_0_0 == 0);
+    expect(0o1010_1010 == 0o10101010);
+    expect(0o0000_1010_1010 == 0o10101010);
+    expect(0o1_0_1_0_1_0_1_0 == 0o10101010);
+
+    expect(0x0_0_0_0 == 0);
+    expect(0x1010_1010 == 0x10101010);
+    expect(0x0000_1010_1010 == 0x10101010);
+    expect(0x1_0_1_0_1_0_1_0 == 0x10101010);
+
+    expect(123_456.789_000e1_0 == 123456.789000e10);
+    expect(0_1_2_3_4_5_6.7_8_9_0_0_0e0_0_1_0 == 123456.789000e10);
+
+    expect(0x1234_5678.9ABC_DEF0p-1_0 == 0x12345678.9ABCDEF0p-10);
+    expect(0x1_2_3_4_5_6_7_8.9_A_B_C_D_E_F_0p-0_0_0_1_0 == 0x12345678.9ABCDEF0p-10);
+}
+
 test "hex float literal within range" {
     const a = 0x1.0p16383;
     const b = 0x0.1p16387;
@@ -548,10 +572,6 @@ test "comptime_int xor" {
 }
 
 test "f128" {
-    if (std.Target.current.os.tag == .windows) {
-        // TODO https://github.com/ziglang/zig/issues/508
-        return error.SkipZigTest;
-    }
     test_f128();
     comptime test_f128();
 }
@@ -597,10 +617,6 @@ fn remdiv(comptime T: type) void {
 }
 
 test "@sqrt" {
-    if (@import("builtin").arch == .riscv64) {
-        // TODO: https://github.com/ziglang/zig/issues/3338
-        return error.SkipZigTest;
-    }
     testSqrt(f64, 12.0);
     comptime testSqrt(f64, 12.0);
     testSqrt(f32, 13.0);
@@ -646,14 +662,6 @@ test "vector integer addition" {
 }
 
 test "NaN comparison" {
-    if (@import("builtin").arch == .riscv64) {
-        // TODO: https://github.com/ziglang/zig/issues/3338
-        return error.SkipZigTest;
-    }
-    if (std.Target.current.os.tag == .windows) {
-        // TODO https://github.com/ziglang/zig/issues/508
-        return error.SkipZigTest;
-    }
     testNanEqNan(f16);
     testNanEqNan(f32);
     testNanEqNan(f64);

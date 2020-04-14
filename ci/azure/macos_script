@@ -5,20 +5,20 @@ set -e
 
 system_profiler SPHardwareDataType
 
-brew install s3cmd gcc@8
+brew install s3cmd gcc@9
 
 ZIGDIR="$(pwd)"
-LLVMVER="9.0.1"
+LLVMVER="10.0.0"
 ARCH="x86_64"
-CACHE_BASENAME="llvm+clang-$LLVMVER-macos-$ARCH-gcc8-release"
+CACHE_BASENAME="llvm+clang+lld-$LLVMVER-$ARCH-macosx-gcc9-release"
 PREFIX="$HOME/$CACHE_BASENAME"
 TMPDIR="$HOME/tmpz"
 JOBS="-j2"
 
 # I tried using the system default compiler (clang), but it couldn't statically link libc++.
-# So we use gcc-8 from homebrew.
-export CC=gcc-8
-export CXX=g++-8
+# So we use gcc-9 from homebrew.
+export CC=gcc-9
+export CXX=g++-9
 
 rm -rf $PREFIX
 rm -rf $TMPDIR
@@ -55,9 +55,18 @@ else
   make $JOBS install
 
   cd $TMPDIR
-  wget https://releases.llvm.org/$LLVMVER/cfe-$LLVMVER.src.tar.xz
-  tar xf cfe-$LLVMVER.src.tar.xz
-  cd cfe-$LLVMVER.src/
+  wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVMVER/lld-$LLVMVER.src.tar.xz
+  tar xf lld-$LLVMVER.src.tar.xz
+  cd lld-$LLVMVER.src/
+  mkdir build
+  cd build
+  cmake .. -DCMAKE_INSTALL_PREFIX=$PREFIX -DCMAKE_PREFIX_PATH=$PREFIX -DCMAKE_BUILD_TYPE=Release
+  make $JOBS install
+
+  cd $TMPDIR
+  wget https://releases.llvm.org/$LLVMVER/clang-$LLVMVER.src.tar.xz
+  tar xf clang-$LLVMVER.src.tar.xz
+  cd clang-$LLVMVER.src/
   mkdir build
   cd build
   cmake .. -DCMAKE_INSTALL_PREFIX=$PREFIX -DCMAKE_PREFIX_PATH=$PREFIX -DCMAKE_BUILD_TYPE=Release

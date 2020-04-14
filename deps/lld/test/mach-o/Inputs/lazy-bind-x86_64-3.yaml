@@ -1,8 +1,0 @@
---- !mach-o
-arch:              x86_64
-file-type:         MH_DYLIB
-install-name:      /usr/lib/libbaz.dylib
-compat-version:    3.0
-current-version:   4.5
-exports:
-  - name:            _baz

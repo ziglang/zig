@@ -105,6 +105,11 @@ enum Error {
     ErrorTargetHasNoDynamicLinker,
     ErrorInvalidAbiVersion,
     ErrorInvalidOperatingSystemVersion,
+    ErrorUnknownClangOption,
+    ErrorNestedResponseFile,
+    ErrorZigIsTheCCompiler,
+    ErrorFileBusy,
+    ErrorLocked,
 };
 
 // ABI warning
@@ -279,7 +284,8 @@ struct ZigTarget {
     enum ZigLLVM_EnvironmentType abi;
     Os os;
 
-    bool is_native;
+    bool is_native_os;
+    bool is_native_cpu;
 
     // null means default. this is double-purposed to be darwin min version
     struct Stage2SemVer *glibc_or_darwin_version;
@@ -291,6 +297,10 @@ struct ZigTarget {
     size_t cache_hash_len;
     const char *os_builtin_str;
     const char *dynamic_linker;
+    const char *standard_dynamic_linker_path;
+
+    const char **llvm_cpu_features_asm_ptr;
+    size_t llvm_cpu_features_asm_len;
 };
 
 // ABI warning
@@ -314,5 +324,59 @@ struct Stage2NativePaths {
 };
 // ABI warning
 ZIG_EXTERN_C enum Error stage2_detect_native_paths(struct Stage2NativePaths *native_paths);
+
+// ABI warning
+enum Stage2ClangArg {
+    Stage2ClangArgTarget,
+    Stage2ClangArgO,
+    Stage2ClangArgC,
+    Stage2ClangArgOther,
+    Stage2ClangArgPositional,
+    Stage2ClangArgL,
+    Stage2ClangArgIgnore,
+    Stage2ClangArgDriverPunt,
+    Stage2ClangArgPIC,
+    Stage2ClangArgNoPIC,
+    Stage2ClangArgNoStdLib,
+    Stage2ClangArgNoStdLibCpp,
+    Stage2ClangArgShared,
+    Stage2ClangArgRDynamic,
+    Stage2ClangArgWL,
+    Stage2ClangArgPreprocessOrAsm,
+    Stage2ClangArgOptimize,
+    Stage2ClangArgDebug,
+    Stage2ClangArgSanitize,
+    Stage2ClangArgLinkerScript,
+    Stage2ClangArgVerboseCmds,
+    Stage2ClangArgForLinker,
+    Stage2ClangArgLinkerInputZ,
+    Stage2ClangArgLibDir,
+    Stage2ClangArgMCpu,
+    Stage2ClangArgDepFile,
+    Stage2ClangArgFrameworkDir,
+    Stage2ClangArgFramework,
+    Stage2ClangArgNoStdLibInc,
+};
+
+// ABI warning
+struct Stage2ClangArgIterator {
+    bool has_next;
+    enum Stage2ClangArg kind;
+    const char *only_arg;
+    const char *second_arg;
+    const char **other_args_ptr;
+    size_t other_args_len;
+    const char **argv_ptr;
+    size_t argv_len;
+    size_t next_index;
+    size_t root_args;
+};
+
+// ABI warning
+ZIG_EXTERN_C void stage2_clang_arg_iterator(struct Stage2ClangArgIterator *it,
+        size_t argc, char **argv);
+
+// ABI warning
+ZIG_EXTERN_C enum Error stage2_clang_arg_next(struct Stage2ClangArgIterator *it);
 
 #endif

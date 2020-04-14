@@ -224,7 +224,7 @@ pub const CrossTarget = struct {
             .dynamic_linker = DynamicLinker.init(args.dynamic_linker),
         };
 
-        var it = mem.separate(args.arch_os_abi, "-");
+        var it = mem.split(args.arch_os_abi, "-");
         const arch_name = it.next().?;
         const arch_is_native = mem.eql(u8, arch_name, "native");
         if (!arch_is_native) {
@@ -242,7 +242,7 @@ pub const CrossTarget = struct {
 
         const opt_abi_text = it.next();
         if (opt_abi_text) |abi_text| {
-            var abi_it = mem.separate(abi_text, ".");
+            var abi_it = mem.split(abi_text, ".");
             const abi = std.meta.stringToEnum(Target.Abi, abi_it.next().?) orelse
                 return error.UnknownApplicationBinaryInterface;
             result.abi = abi;
@@ -480,24 +480,33 @@ pub const CrossTarget = struct {
         return Target.libPrefix_cpu_arch_abi(self.getCpuArch(), self.getAbi());
     }
 
-    pub fn isNative(self: CrossTarget) bool {
+    pub fn isNativeCpu(self: CrossTarget) bool {
         return self.cpu_arch == null and
             (self.cpu_model == .native or self.cpu_model == .determined_by_cpu_arch) and
-            self.cpu_features_sub.isEmpty() and self.cpu_features_add.isEmpty() and
-            self.os_tag == null and self.os_version_min == null and self.os_version_max == null and
-            self.abi == null and self.dynamic_linker.get() == null and self.glibc_version == null;
+            self.cpu_features_sub.isEmpty() and self.cpu_features_add.isEmpty();
     }
 
-    pub fn zigTriple(self: CrossTarget, allocator: *mem.Allocator) error{OutOfMemory}![:0]u8 {
+    pub fn isNativeOs(self: CrossTarget) bool {
+        return self.os_tag == null and self.os_version_min == null and self.os_version_max == null and
+            self.dynamic_linker.get() == null and self.glibc_version == null;
+    }
+
+    pub fn isNative(self: CrossTarget) bool {
+        return self.isNativeCpu() and self.isNativeOs() and self.abi == null;
+    }
+
+    pub fn zigTriple(self: CrossTarget, allocator: *mem.Allocator) error{OutOfMemory}![]u8 {
         if (self.isNative()) {
-            return mem.dupeZ(allocator, u8, "native");
+            return mem.dupe(allocator, u8, "native");
         }
 
         const arch_name = if (self.cpu_arch) |arch| @tagName(arch) else "native";
         const os_name = if (self.os_tag) |os_tag| @tagName(os_tag) else "native";
 
-        var result = try std.Buffer.allocPrint(allocator, "{}-{}", .{ arch_name, os_name });
+        var result = std.ArrayList(u8).init(allocator);
         defer result.deinit();
+
+        try result.outStream().print("{}-{}", .{ arch_name, os_name });
 
         // The zig target syntax does not allow specifying a max os version with no min, so
         // if either are present, we need the min.
@@ -525,13 +534,13 @@ pub const CrossTarget = struct {
         return result.toOwnedSlice();
     }
 
-    pub fn allocDescription(self: CrossTarget, allocator: *mem.Allocator) ![:0]u8 {
+    pub fn allocDescription(self: CrossTarget, allocator: *mem.Allocator) ![]u8 {
         // TODO is there anything else worthy of the description that is not
         // already captured in the triple?
         return self.zigTriple(allocator);
     }
 
-    pub fn linuxTriple(self: CrossTarget, allocator: *mem.Allocator) ![:0]u8 {
+    pub fn linuxTriple(self: CrossTarget, allocator: *mem.Allocator) ![]u8 {
         return Target.linuxTripleSimple(allocator, self.getCpuArch(), self.getOsTag(), self.getAbi());
     }
 
@@ -542,7 +551,7 @@ pub const CrossTarget = struct {
     pub const VcpkgLinkage = std.builtin.LinkMode;
 
     /// Returned slice must be freed by the caller.
-    pub fn vcpkgTriplet(self: CrossTarget, allocator: *mem.Allocator, linkage: VcpkgLinkage) ![:0]u8 {
+    pub fn vcpkgTriplet(self: CrossTarget, allocator: *mem.Allocator, linkage: VcpkgLinkage) ![]u8 {
         const arch = switch (self.getCpuArch()) {
             .i386 => "x86",
             .x86_64 => "x64",
@@ -573,7 +582,7 @@ pub const CrossTarget = struct {
             .Dynamic => "",
         };
 
-        return std.fmt.allocPrint0(allocator, "{}-{}{}", .{ arch, os, static_suffix });
+        return std.fmt.allocPrint(allocator, "{}-{}{}", .{ arch, os, static_suffix });
     }
 
     pub const Executor = union(enum) {
@@ -659,7 +668,7 @@ pub const CrossTarget = struct {
     }
 
     fn parseOs(result: *CrossTarget, diags: *ParseOptions.Diagnostics, text: []const u8) !void {
-        var it = mem.separate(text, ".");
+        var it = mem.split(text, ".");
         const os_name = it.next().?;
         diags.os_name = os_name;
         const os_is_native = mem.eql(u8, os_name, "native");
@@ -713,7 +722,7 @@ pub const CrossTarget = struct {
             .linux,
             .dragonfly,
             => {
-                var range_it = mem.separate(version_text, "...");
+                var range_it = mem.split(version_text, "...");
 
                 const min_text = range_it.next().?;
                 const min_ver = SemVer.parse(min_text) catch |err| switch (err) {
@@ -733,7 +742,7 @@ pub const CrossTarget = struct {
             },
 
             .windows => {
-                var range_it = mem.separate(version_text, "...");
+                var range_it = mem.split(version_text, "...");
 
                 const min_text = range_it.next().?;
                 const min_ver = std.meta.stringToEnum(Target.Os.WindowsVersion, min_text) orelse
@@ -756,7 +765,15 @@ test "CrossTarget.parse" {
 
         const text = try cross_target.zigTriple(std.testing.allocator);
         defer std.testing.allocator.free(text);
-        std.testing.expectEqualSlices(u8, "native-native-gnu.2.1.1", text);
+
+        var buf: [256]u8 = undefined;
+        const triple = std.fmt.bufPrint(
+            buf[0..],
+            "native-native-{}.2.1.1",
+            .{@tagName(std.Target.current.abi)},
+        ) catch unreachable;
+
+        std.testing.expectEqualSlices(u8, triple, text);
     }
     {
         const cross_target = try CrossTarget.parse(.{

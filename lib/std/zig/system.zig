@@ -119,7 +119,7 @@ pub const NativePaths = struct {
     }
 
     fn deinitArray(array: *ArrayList([:0]u8)) void {
-        for (array.toSlice()) |item| {
+        for (array.span()) |item| {
             array.allocator.free(item);
         }
         array.deinit();
@@ -201,7 +201,7 @@ pub const NativeTargetInfo = struct {
             switch (Target.current.os.tag) {
                 .linux => {
                     const uts = std.os.uname();
-                    const release = mem.toSliceConst(u8, &uts.release);
+                    const release = mem.spanZ(&uts.release);
                     // The release field may have several other fields after the
                     // kernel version
                     const kernel_version = if (mem.indexOfScalar(u8, release, '-')) |pos|
@@ -265,7 +265,7 @@ pub const NativeTargetInfo = struct {
                     // The osproductversion sysctl was introduced first with
                     // High Sierra, thankfully that's also the baseline that Zig
                     // supports
-                    std.os.sysctlbynameC(
+                    std.os.sysctlbynameZ(
                         "kern.osproductversion",
                         &product_version,
                         &size,
@@ -460,7 +460,7 @@ pub const NativeTargetInfo = struct {
             return result;
         }
 
-        const env_file = std.fs.openFileAbsoluteC("/usr/bin/env", .{}) catch |err| switch (err) {
+        const env_file = std.fs.openFileAbsoluteZ("/usr/bin/env", .{}) catch |err| switch (err) {
             error.NoSpaceLeft => unreachable,
             error.NameTooLong => unreachable,
             error.PathAlreadyExists => unreachable,
@@ -468,6 +468,8 @@ pub const NativeTargetInfo = struct {
             error.InvalidUtf8 => unreachable,
             error.BadPathName => unreachable,
             error.PipeBusy => unreachable,
+            error.FileLocksNotSupported => unreachable,
+            error.WouldBlock => unreachable,
 
             error.IsDir,
             error.NotDir,
@@ -512,7 +514,7 @@ pub const NativeTargetInfo = struct {
 
     fn glibcVerFromSO(so_path: [:0]const u8) !std.builtin.Version {
         var link_buf: [std.os.PATH_MAX]u8 = undefined;
-        const link_name = std.os.readlinkC(so_path.ptr, &link_buf) catch |err| switch (err) {
+        const link_name = std.os.readlinkZ(so_path.ptr, &link_buf) catch |err| switch (err) {
             error.AccessDenied => return error.GnuLibCVersionUnavailable,
             error.FileSystem => return error.FileSystem,
             error.SymLinkLoop => return error.SymLinkLoop,
@@ -622,9 +624,10 @@ pub const NativeTargetInfo = struct {
                         const p_offset = elfInt(is_64, need_bswap, ph32.p_offset, ph64.p_offset);
                         const p_filesz = elfInt(is_64, need_bswap, ph32.p_filesz, ph64.p_filesz);
                         if (p_filesz > result.dynamic_linker.buffer.len) return error.NameTooLong;
-                        _ = try preadMin(file, result.dynamic_linker.buffer[0..p_filesz], p_offset, p_filesz);
-                        // PT_INTERP includes a null byte in p_filesz.
-                        const len = p_filesz - 1;
+                        const filesz = @intCast(usize, p_filesz);
+                        _ = try preadMin(file, result.dynamic_linker.buffer[0..filesz], p_offset, filesz);
+                        // PT_INTERP includes a null byte in filesz.
+                        const len = filesz - 1;
                         // dynamic_linker.max_byte is "max", not "len".
                         // We know it will fit in u8 because we check against dynamic_linker.buffer.len above.
                         result.dynamic_linker.max_byte = @intCast(u8, len - 1);
@@ -645,7 +648,7 @@ pub const NativeTargetInfo = struct {
                     {
                         var dyn_off = elfInt(is_64, need_bswap, ph32.p_offset, ph64.p_offset);
                         const p_filesz = elfInt(is_64, need_bswap, ph32.p_filesz, ph64.p_filesz);
-                        const dyn_size: u64 = if (is_64) @sizeOf(elf.Elf64_Dyn) else @sizeOf(elf.Elf32_Dyn);
+                        const dyn_size: usize = if (is_64) @sizeOf(elf.Elf64_Dyn) else @sizeOf(elf.Elf32_Dyn);
                         const dyn_num = p_filesz / dyn_size;
                         var dyn_buf: [16 * @sizeOf(elf.Elf64_Dyn)]u8 align(@alignOf(elf.Elf64_Dyn)) = undefined;
                         var dyn_i: usize = 0;
@@ -736,7 +739,7 @@ pub const NativeTargetInfo = struct {
                         );
                         const sh_name_off = elfInt(is_64, need_bswap, sh32.sh_name, sh64.sh_name);
                         // TODO this pointer cast should not be necessary
-                        const sh_name = mem.toSliceConst(u8, @ptrCast([*:0]u8, shstrtab[sh_name_off..].ptr));
+                        const sh_name = mem.spanZ(@ptrCast([*:0]u8, shstrtab[sh_name_off..].ptr));
                         if (mem.eql(u8, sh_name, ".dynstr")) {
                             break :find_dyn_str .{
                                 .offset = elfInt(is_64, need_bswap, sh32.sh_offset, sh64.sh_offset),
@@ -751,10 +754,13 @@ pub const NativeTargetInfo = struct {
                     const strtab_read_len = try preadMin(file, &strtab_buf, ds.offset, shstrtab_len);
                     const strtab = strtab_buf[0..strtab_read_len];
                     // TODO this pointer cast should not be necessary
-                    const rpath_list = mem.toSliceConst(u8, @ptrCast([*:0]u8, strtab[rpoff..].ptr));
+                    const rpoff_usize = std.math.cast(usize, rpoff) catch |err| switch (err) {
+                        error.Overflow => return error.InvalidElfFile,
+                    };
+                    const rpath_list = mem.spanZ(@ptrCast([*:0]u8, strtab[rpoff_usize..].ptr));
                     var it = mem.tokenize(rpath_list, ":");
                     while (it.next()) |rpath| {
-                        var dir = fs.cwd().openDirList(rpath) catch |err| switch (err) {
+                        var dir = fs.cwd().openDir(rpath, .{}) catch |err| switch (err) {
                             error.NameTooLong => unreachable,
                             error.InvalidUtf8 => unreachable,
                             error.BadPathName => unreachable,
@@ -776,7 +782,7 @@ pub const NativeTargetInfo = struct {
                         defer dir.close();
 
                         var link_buf: [std.os.PATH_MAX]u8 = undefined;
-                        const link_name = std.os.readlinkatC(
+                        const link_name = std.os.readlinkatZ(
                             dir.fd,
                             glibc_so_basename,
                             &link_buf,
@@ -811,7 +817,7 @@ pub const NativeTargetInfo = struct {
     }
 
     fn preadMin(file: fs.File, buf: []u8, offset: u64, min_read_len: usize) !usize {
-        var i: u64 = 0;
+        var i: usize = 0;
         while (i < min_read_len) {
             const len = file.pread(buf[i .. buf.len - i], offset + i) catch |err| switch (err) {
                 error.OperationAborted => unreachable, // Windows-only

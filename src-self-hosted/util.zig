@@ -3,8 +3,7 @@ const Target = std.Target;
 const llvm = @import("llvm.zig");
 
 pub fn getDarwinArchString(self: Target) [:0]const u8 {
-    const arch = self.getArch();
-    switch (arch) {
+    switch (self.cpu.arch) {
         .aarch64 => return "arm64",
         .thumb,
         .arm,
@@ -17,11 +16,11 @@ pub fn getDarwinArchString(self: Target) [:0]const u8 {
     }
 }
 
-pub fn llvmTargetFromTriple(triple: std.Buffer) !*llvm.Target {
+pub fn llvmTargetFromTriple(triple: [:0]const u8) !*llvm.Target {
     var result: *llvm.Target = undefined;
     var err_msg: [*:0]u8 = undefined;
-    if (llvm.GetTargetFromTriple(triple.toSlice(), &result, &err_msg) != 0) {
-        std.debug.warn("triple: {s} error: {s}\n", .{ triple.toSlice(), err_msg });
+    if (llvm.GetTargetFromTriple(triple, &result, &err_msg) != 0) {
+        std.debug.warn("triple: {s} error: {s}\n", .{ triple, err_msg });
         return error.UnsupportedTarget;
     }
     return result;
@@ -33,4 +32,16 @@ pub fn initializeAllTargets() void {
     llvm.InitializeAllTargetMCs();
     llvm.InitializeAllAsmPrinters();
     llvm.InitializeAllAsmParsers();
+}
+
+pub fn getLLVMTriple(allocator: *std.mem.Allocator, target: std.Target) ![:0]u8 {
+    var result = try std.ArrayListSentineled(u8, 0).initSize(allocator, 0);
+    defer result.deinit();
+
+    try result.outStream().print(
+        "{}-unknown-{}-{}",
+        .{ @tagName(target.cpu.arch), @tagName(target.os.tag), @tagName(target.abi) },
+    );
+
+    return result.toOwnedSlice();
 }

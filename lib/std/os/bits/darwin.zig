@@ -55,6 +55,14 @@ pub const mach_timebase_info_data = extern struct {
 pub const off_t = i64;
 pub const ino_t = u64;
 
+pub const Flock = extern struct {
+    l_start: off_t,
+    l_len: off_t,
+    l_pid: pid_t,
+    l_type: i16,
+    l_whence: i16,
+};
+
 /// Renamed to Stat to not conflict with the stat function.
 /// atime, mtime, and ctime have functions to return `timespec`,
 /// because although this is a POSIX API, the layout and names of
@@ -1386,3 +1394,8 @@ pub const F_UNLCK = 2;
 
 /// exclusive or write lock
 pub const F_WRLCK = 3;
+
+pub const LOCK_SH = 1;
+pub const LOCK_EX = 2;
+pub const LOCK_UN = 8;
+pub const LOCK_NB = 4;

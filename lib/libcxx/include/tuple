@@ -19,40 +19,40 @@ namespace std
 template <class... T>
 class tuple {
 public:
-    constexpr tuple();
-    explicit tuple(const T&...);  // constexpr in C++14
+    explicit(see-below) constexpr tuple();
+    explicit(see-below) tuple(const T&...);  // constexpr in C++14
     template <class... U>
-        explicit tuple(U&&...);  // constexpr in C++14
+        explicit(see-below) tuple(U&&...);  // constexpr in C++14
     tuple(const tuple&) = default;
     tuple(tuple&&) = default;
     template <class... U>
-        tuple(const tuple<U...>&);  // constexpr in C++14
+        explicit(see-below) tuple(const tuple<U...>&);  // constexpr in C++14
     template <class... U>
-        tuple(tuple<U...>&&);  // constexpr in C++14
+        explicit(see-below) tuple(tuple<U...>&&);  // constexpr in C++14
     template <class U1, class U2>
-        tuple(const pair<U1, U2>&); // iff sizeof...(T) == 2 // constexpr in C++14
+        explicit(see-below) tuple(const pair<U1, U2>&); // iff sizeof...(T) == 2 // constexpr in C++14
     template <class U1, class U2>
-        tuple(pair<U1, U2>&&); // iff sizeof...(T) == 2  // constexpr in C++14
+        explicit(see-below) tuple(pair<U1, U2>&&); // iff sizeof...(T) == 2  // constexpr in C++14
 
     // allocator-extended constructors
     template <class Alloc>
         tuple(allocator_arg_t, const Alloc& a);
     template <class Alloc>
-        tuple(allocator_arg_t, const Alloc& a, const T&...);
+        explicit(see-below) tuple(allocator_arg_t, const Alloc& a, const T&...);
     template <class Alloc, class... U>
-        tuple(allocator_arg_t, const Alloc& a, U&&...);
+        explicit(see-below) tuple(allocator_arg_t, const Alloc& a, U&&...);
     template <class Alloc>
         tuple(allocator_arg_t, const Alloc& a, const tuple&);
     template <class Alloc>
         tuple(allocator_arg_t, const Alloc& a, tuple&&);
     template <class Alloc, class... U>
-        tuple(allocator_arg_t, const Alloc& a, const tuple<U...>&);
+        explicit(see-below) tuple(allocator_arg_t, const Alloc& a, const tuple<U...>&);
     template <class Alloc, class... U>
-        tuple(allocator_arg_t, const Alloc& a, tuple<U...>&&);
+        explicit(see-below) tuple(allocator_arg_t, const Alloc& a, tuple<U...>&&);
     template <class Alloc, class U1, class U2>
-        tuple(allocator_arg_t, const Alloc& a, const pair<U1, U2>&);
+        explicit(see-below) tuple(allocator_arg_t, const Alloc& a, const pair<U1, U2>&);
     template <class Alloc, class U1, class U2>
-        tuple(allocator_arg_t, const Alloc& a, pair<U1, U2>&&);
+        explicit(see-below) tuple(allocator_arg_t, const Alloc& a, pair<U1, U2>&&);
 
     tuple& operator=(const tuple&);
     tuple&
@@ -68,6 +68,17 @@ public:
 
     void swap(tuple&) noexcept(AND(swap(declval<T&>(), declval<T&>())...));
 };
+
+template <class ...T>
+tuple(T...) -> tuple<T...>;                                         // since C++17
+template <class T1, class T2>
+tuple(pair<T1, T2>) -> tuple<T1, T2>;                               // since C++17
+template <class Alloc, class ...T>
+tuple(allocator_arg_t, Alloc, T...) -> tuple<T...>;                 // since C++17
+template <class Alloc, class T1, class T2>
+tuple(allocator_arg_t, Alloc, pair<T1, T2>) -> tuple<T1, T2>;       // since C++17
+template <class Alloc, class ...T>
+tuple(allocator_arg_t, Alloc, tuple<T...>) -> tuple<T...>;          // since C++17
 
 inline constexpr unspecified ignore;
 
@@ -488,10 +499,18 @@ class _LIBCPP_TEMPLATE_VIS tuple
     template <class _Dummy>
     struct _CheckArgsConstructor<true, _Dummy>
     {
-        template <class ..._Args>
-        static constexpr bool __enable_default() {
-            return __all<is_default_constructible<_Args>::value...>::value;
+        template <int&...>
+        static constexpr bool __enable_implicit_default() {
+           return __all<__is_implicitly_default_constructible<_Tp>::value... >::value;
         }
+
+        template <int&...>
+        static constexpr bool __enable_explicit_default() {
+            return
+                __all<is_default_constructible<_Tp>::value...>::value &&
+                !__enable_implicit_default< >();
+        }
+
 
         template <class ..._Args>
         static constexpr bool __enable_explicit() {
@@ -630,24 +649,39 @@ class _LIBCPP_TEMPLATE_VIS tuple
         const typename tuple_element<_Jp, tuple<_Up...> >::type&& get(const tuple<_Up...>&&) _NOEXCEPT;
 public:
 
-    template <bool _Dummy = true, class = typename enable_if<
-        _CheckArgsConstructor<_Dummy>::template __enable_default<_Tp...>()
-    >::type>
-    _LIBCPP_INLINE_VISIBILITY
-    _LIBCPP_CONSTEXPR tuple()
+    template <bool _Dummy = true, _EnableIf<
+        _CheckArgsConstructor<_Dummy>::__enable_implicit_default()
+    , void*> = nullptr>
+    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR
+    tuple()
+        _NOEXCEPT_(__all<is_nothrow_default_constructible<_Tp>::value...>::value) {}
+
+    template <bool _Dummy = true, _EnableIf<
+        _CheckArgsConstructor<_Dummy>::__enable_explicit_default()
+    , void*> = nullptr>
+    explicit _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR
+    tuple()
         _NOEXCEPT_(__all<is_nothrow_default_constructible<_Tp>::value...>::value) {}
 
     tuple(tuple const&) = default;
     tuple(tuple&&) = default;
 
-    template <class _AllocArgT, class _Alloc, bool _Dummy = true, class = _EnableIf<
-        _And<
-            _IsSame<allocator_arg_t, _AllocArgT>,
-           __dependent_type<is_default_constructible<_Tp>, _Dummy>...
-       >::value
-      >
+    template <class _AllocArgT, class _Alloc, _EnableIf<
+             _CheckArgsConstructor<_IsSame<allocator_arg_t, _AllocArgT>::value >::__enable_implicit_default()
+      , void*> = nullptr
     >
     _LIBCPP_INLINE_VISIBILITY
+    tuple(_AllocArgT, _Alloc const& __a)
+      : __base_(allocator_arg_t(), __a,
+                    __tuple_indices<>(), __tuple_types<>(),
+                    typename __make_tuple_indices<sizeof...(_Tp), 0>::type(),
+                    __tuple_types<_Tp...>()) {}
+
+    template <class _AllocArgT, class _Alloc, _EnableIf<
+             _CheckArgsConstructor<_IsSame<allocator_arg_t, _AllocArgT>::value>::__enable_explicit_default()
+      , void*> = nullptr
+    >
+    explicit _LIBCPP_INLINE_VISIBILITY
     tuple(_AllocArgT, _Alloc const& __a)
       : __base_(allocator_arg_t(), __a,
                     __tuple_indices<>(), __tuple_types<>(),
@@ -943,13 +977,16 @@ public:
 };
 
 #ifndef _LIBCPP_HAS_NO_DEDUCTION_GUIDES
-// NOTE: These are not yet standardized, but are required to simulate the
-// implicit deduction guide that should be generated had libc++ declared the
-// tuple-like constructors "correctly"
-template <class _Alloc, class ..._Args>
-tuple(allocator_arg_t, const _Alloc&, tuple<_Args...> const&) -> tuple<_Args...>;
-template <class _Alloc, class ..._Args>
-tuple(allocator_arg_t, const _Alloc&, tuple<_Args...>&&) -> tuple<_Args...>;
+template <class ..._Tp>
+tuple(_Tp...) -> tuple<_Tp...>;
+template <class _Tp1, class _Tp2>
+tuple(pair<_Tp1, _Tp2>) -> tuple<_Tp1, _Tp2>;
+template <class _Alloc, class ..._Tp>
+tuple(allocator_arg_t, _Alloc, _Tp...) -> tuple<_Tp...>;
+template <class _Alloc, class _Tp1, class _Tp2>
+tuple(allocator_arg_t, _Alloc, pair<_Tp1, _Tp2>) -> tuple<_Tp1, _Tp2>;
+template <class _Alloc, class ..._Tp>
+tuple(allocator_arg_t, _Alloc, tuple<_Tp...>) -> tuple<_Tp...>;
 #endif
 
 template <class ..._Tp>
@@ -1312,8 +1349,9 @@ struct __tuple_cat<tuple<_Types...>, __tuple_indices<_I0...>, __tuple_indices<_J
     typename __tuple_cat_return_ref<tuple<_Types...>&&, _Tuple0&&>::type
     operator()(tuple<_Types...> __t, _Tuple0&& __t0)
     {
-        return forward_as_tuple(_VSTD::forward<_Types>(_VSTD::get<_I0>(__t))...,
-                                      _VSTD::get<_J0>(_VSTD::forward<_Tuple0>(__t0))...);
+        return _VSTD::forward_as_tuple(
+            _VSTD::forward<_Types>(_VSTD::get<_I0>(__t))...,
+            _VSTD::get<_J0>(_VSTD::forward<_Tuple0>(__t0))...);
     }
 
     template <class _Tuple0, class _Tuple1, class ..._Tuples>
@@ -1324,15 +1362,16 @@ struct __tuple_cat<tuple<_Types...>, __tuple_indices<_I0...>, __tuple_indices<_J
         typedef _LIBCPP_NODEBUG_TYPE typename remove_reference<_Tuple0>::type _T0;
         typedef _LIBCPP_NODEBUG_TYPE typename remove_reference<_Tuple1>::type _T1;
         return __tuple_cat<
-           tuple<_Types..., typename __apply_cv<_Tuple0, typename tuple_element<_J0, _T0>::type>::type&&...>,
-           typename __make_tuple_indices<sizeof ...(_Types) + tuple_size<_T0>::value>::type,
-           typename __make_tuple_indices<tuple_size<_T1>::value>::type>()
-                           (forward_as_tuple(
-                              _VSTD::forward<_Types>(_VSTD::get<_I0>(__t))...,
-                              _VSTD::get<_J0>(_VSTD::forward<_Tuple0>(__t0))...
-                            ),
-                            _VSTD::forward<_Tuple1>(__t1),
-                            _VSTD::forward<_Tuples>(__tpls)...);
+            tuple<_Types...,
+                  typename __apply_cv<_Tuple0, typename tuple_element<
+                                                   _J0, _T0>::type>::type&&...>,
+            typename __make_tuple_indices<sizeof...(_Types) +
+                                          tuple_size<_T0>::value>::type,
+            typename __make_tuple_indices<tuple_size<_T1>::value>::type>()(
+            _VSTD::forward_as_tuple(
+                _VSTD::forward<_Types>(_VSTD::get<_I0>(__t))...,
+                _VSTD::get<_J0>(_VSTD::forward<_Tuple0>(__t0))...),
+            _VSTD::forward<_Tuple1>(__t1), _VSTD::forward<_Tuples>(__tpls)...);
     }
 };
 

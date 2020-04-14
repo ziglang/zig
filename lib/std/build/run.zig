@@ -29,6 +29,8 @@ pub const RunStep = struct {
     stdout_action: StdIoAction = .inherit,
     stderr_action: StdIoAction = .inherit,
 
+    stdin_behavior: std.ChildProcess.StdIo = .Inherit,
+
     expected_exit_code: u8 = 0,
 
     pub const StdIoAction = union(enum) {
@@ -137,7 +139,7 @@ pub const RunStep = struct {
         const cwd = if (self.cwd) |cwd| self.builder.pathFromRoot(cwd) else self.builder.build_root;
 
         var argv_list = ArrayList([]const u8).init(self.builder.allocator);
-        for (self.argv.toSlice()) |arg| {
+        for (self.argv.span()) |arg| {
             switch (arg) {
                 Arg.Bytes => |bytes| try argv_list.append(bytes),
                 Arg.Artifact => |artifact| {
@@ -151,7 +153,7 @@ pub const RunStep = struct {
             }
         }
 
-        const argv = argv_list.toSliceConst();
+        const argv = argv_list.span();
 
         const child = std.ChildProcess.init(argv, self.builder.allocator) catch unreachable;
         defer child.deinit();
@@ -159,7 +161,7 @@ pub const RunStep = struct {
         child.cwd = cwd;
         child.env_map = self.env_map orelse self.builder.env_map;
 
-        child.stdin_behavior = .Ignore;
+        child.stdin_behavior = self.stdin_behavior;
         child.stdout_behavior = stdIoActionToBehavior(self.stdout_action);
         child.stderr_behavior = stdIoActionToBehavior(self.stderr_action);
 
@@ -287,7 +289,7 @@ pub const RunStep = struct {
     }
 
     fn addPathForDynLibs(self: *RunStep, artifact: *LibExeObjStep) void {
-        for (artifact.link_objects.toSliceConst()) |link_object| {
+        for (artifact.link_objects.span()) |link_object| {
             switch (link_object) {
                 .OtherStep => |other| {
                     if (other.target.isWindows() and other.isDynamicLibrary()) {

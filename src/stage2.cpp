@@ -181,7 +181,8 @@ static void get_native_target(ZigTarget *target) {
             &target->abi,
             &oformat);
     target->os = get_zig_os_type(os_type);
-    target->is_native = true;
+    target->is_native_os = true;
+    target->is_native_cpu = true;
     if (target->abi == ZigLLVM_UnknownEnvironment) {
         target->abi = target_default_abi(target->arch, target->os);
     }
@@ -196,6 +197,10 @@ Error stage2_target_parse(struct ZigTarget *target, const char *zig_triple, cons
 {
     Error err;
 
+    if (zig_triple != nullptr && strcmp(zig_triple, "native") == 0) {
+        zig_triple = nullptr;
+    }
+
     if (zig_triple == nullptr) {
         get_native_target(target);
 
@@ -204,7 +209,8 @@ Error stage2_target_parse(struct ZigTarget *target, const char *zig_triple, cons
             target->llvm_cpu_features = ZigLLVMGetNativeFeatures();
             target->cache_hash = "native\n\n";
         } else if (strcmp(mcpu, "baseline") == 0) {
-            target->is_native = false;
+            target->is_native_os = false;
+            target->is_native_cpu = false;
             target->llvm_cpu_name = "";
             target->llvm_cpu_features = "";
             target->cache_hash = "baseline\n\n";
@@ -303,4 +309,16 @@ enum Error stage2_detect_native_paths(struct Stage2NativePaths *native_paths) {
     native_paths->warnings_len = 0;
 
     return ErrorNone;
+}
+
+void stage2_clang_arg_iterator(struct Stage2ClangArgIterator *it,
+        size_t argc, char **argv)
+{
+    const char *msg = "stage0 called stage2_clang_arg_iterator";
+    stage2_panic(msg, strlen(msg));
+}
+
+enum Error stage2_clang_arg_next(struct Stage2ClangArgIterator *it) {
+    const char *msg = "stage0 called stage2_clang_arg_next";
+    stage2_panic(msg, strlen(msg));
 }

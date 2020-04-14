@@ -1476,9 +1476,7 @@ static void ir_print_import(IrPrintSrc *irp, IrInstSrcImport *instruction) {
 }
 
 static void ir_print_ref(IrPrintSrc *irp, IrInstSrcRef *instruction) {
-    const char *const_str = instruction->is_const ? "const " : "";
-    const char *volatile_str = instruction->is_volatile ? "volatile " : "";
-    fprintf(irp->f, "%s%sref ", const_str, volatile_str);
+    fprintf(irp->f, "ref ");
     ir_print_other_inst_src(irp, instruction->value);
 }
 
@@ -2177,7 +2175,7 @@ static void ir_print_ptr_type(IrPrintSrc *irp, IrInstSrcPtrType *instruction) {
 }
 
 static void ir_print_decl_ref(IrPrintSrc *irp, IrInstSrcDeclRef *instruction) {
-    const char *ptr_str = (instruction->lval == LValPtr) ? "ptr " : "";
+    const char *ptr_str = (instruction->lval != LValNone) ? "ptr " : "";
     fprintf(irp->f, "declref %s%s", ptr_str, buf_ptr(instruction->tld->name));
 }
 

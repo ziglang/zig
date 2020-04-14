@@ -275,6 +275,10 @@ module std [system] {
     header "exception"
     export *
   }
+  module execution {
+    header "execution"
+    export *
+  }
   module filesystem {
     header "filesystem"
     export *

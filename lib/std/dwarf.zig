@@ -82,7 +82,7 @@ const Die = struct {
     };
 
     fn getAttr(self: *const Die, id: u64) ?*const FormValue {
-        for (self.attrs.toSliceConst()) |*attr| {
+        for (self.attrs.span()) |*attr| {
             if (attr.id == id) return &attr.value;
         }
         return null;
@@ -206,7 +206,7 @@ const LineNumberProgram = struct {
         if (self.target_address >= self.prev_address and self.target_address < self.address) {
             const file_entry = if (self.prev_file == 0) {
                 return error.MissingDebugInfo;
-            } else if (self.prev_file - 1 >= self.file_entries.len) {
+            } else if (self.prev_file - 1 >= self.file_entries.items.len) {
                 return error.InvalidDebugInfo;
             } else
                 &self.file_entries.items[self.prev_file - 1];
@@ -236,11 +236,11 @@ const LineNumberProgram = struct {
     }
 };
 
-fn readInitialLength(in_stream: var, is_64: *bool) !u64 {
-    const first_32_bits = try in_stream.readIntLittle(u32);
+fn readUnitLength(in_stream: var, endian: builtin.Endian, is_64: *bool) !u64 {
+    const first_32_bits = try in_stream.readInt(u32, endian);
     is_64.* = (first_32_bits == 0xffffffff);
     if (is_64.*) {
-        return in_stream.readIntLittle(u64);
+        return in_stream.readInt(u64, endian);
     } else {
         if (first_32_bits >= 0xfffffff0) return error.InvalidDebugInfo;
         // TODO this cast should not be needed
@@ -256,28 +256,36 @@ fn readAllocBytes(allocator: *mem.Allocator, in_stream: var, size: usize) ![]u8 
     return buf;
 }
 
+// TODO the noasyncs here are workarounds
+fn readAddress(in_stream: var, endian: builtin.Endian, is_64: bool) !u64 {
+    return noasync if (is_64)
+        try in_stream.readInt(u64, endian)
+    else
+        @as(u64, try in_stream.readInt(u32, endian));
+}
+
 fn parseFormValueBlockLen(allocator: *mem.Allocator, in_stream: var, size: usize) !FormValue {
     const buf = try readAllocBytes(allocator, in_stream, size);
     return FormValue{ .Block = buf };
 }
 
 // TODO the noasyncs here are workarounds
-fn parseFormValueBlock(allocator: *mem.Allocator, in_stream: var, size: usize) !FormValue {
-    const block_len = try noasync in_stream.readVarInt(usize, builtin.Endian.Little, size);
+fn parseFormValueBlock(allocator: *mem.Allocator, in_stream: var, endian: builtin.Endian, size: usize) !FormValue {
+    const block_len = try noasync in_stream.readVarInt(usize, endian, size);
     return parseFormValueBlockLen(allocator, in_stream, block_len);
 }
 
-fn parseFormValueConstant(allocator: *mem.Allocator, in_stream: var, signed: bool, comptime size: i32) !FormValue {
+fn parseFormValueConstant(allocator: *mem.Allocator, in_stream: var, signed: bool, endian: builtin.Endian, comptime size: i32) !FormValue {
     // TODO: Please forgive me, I've worked around zig not properly spilling some intermediate values here.
     // `noasync` should be removed from all the function calls once it is fixed.
     return FormValue{
         .Const = Constant{
             .signed = signed,
             .payload = switch (size) {
-                1 => try noasync in_stream.readIntLittle(u8),
-                2 => try noasync in_stream.readIntLittle(u16),
-                4 => try noasync in_stream.readIntLittle(u32),
-                8 => try noasync in_stream.readIntLittle(u64),
+                1 => try noasync in_stream.readInt(u8, endian),
+                2 => try noasync in_stream.readInt(u16, endian),
+                4 => try noasync in_stream.readInt(u32, endian),
+                8 => try noasync in_stream.readInt(u64, endian),
                 -1 => blk: {
                     if (signed) {
                         const x = try noasync leb.readILEB128(i64, in_stream);
@@ -294,30 +302,13 @@ fn parseFormValueConstant(allocator: *mem.Allocator, in_stream: var, signed: boo
 }
 
 // TODO the noasyncs here are workarounds
-fn parseFormValueDwarfOffsetSize(in_stream: var, is_64: bool) !u64 {
-    return if (is_64) try noasync in_stream.readIntLittle(u64) else @as(u64, try noasync in_stream.readIntLittle(u32));
-}
-
-// TODO the noasyncs here are workarounds
-fn parseFormValueTargetAddrSize(in_stream: var) !u64 {
-    if (@sizeOf(usize) == 4) {
-        // TODO this cast should not be needed
-        return @as(u64, try noasync in_stream.readIntLittle(u32));
-    } else if (@sizeOf(usize) == 8) {
-        return noasync in_stream.readIntLittle(u64);
-    } else {
-        unreachable;
-    }
-}
-
-// TODO the noasyncs here are workarounds
-fn parseFormValueRef(allocator: *mem.Allocator, in_stream: var, size: i32) !FormValue {
+fn parseFormValueRef(allocator: *mem.Allocator, in_stream: var, endian: builtin.Endian, size: i32) !FormValue {
     return FormValue{
         .Ref = switch (size) {
-            1 => try noasync in_stream.readIntLittle(u8),
-            2 => try noasync in_stream.readIntLittle(u16),
-            4 => try noasync in_stream.readIntLittle(u32),
-            8 => try noasync in_stream.readIntLittle(u64),
+            1 => try noasync in_stream.readInt(u8, endian),
+            2 => try noasync in_stream.readInt(u16, endian),
+            4 => try noasync in_stream.readInt(u32, endian),
+            8 => try noasync in_stream.readInt(u64, endian),
             -1 => try noasync leb.readULEB128(u64, in_stream),
             else => unreachable,
         },
@@ -325,23 +316,23 @@ fn parseFormValueRef(allocator: *mem.Allocator, in_stream: var, size: i32) !Form
 }
 
 // TODO the noasyncs here are workarounds
-fn parseFormValue(allocator: *mem.Allocator, in_stream: var, form_id: u64, is_64: bool) anyerror!FormValue {
+fn parseFormValue(allocator: *mem.Allocator, in_stream: var, form_id: u64, endian: builtin.Endian, is_64: bool) anyerror!FormValue {
     return switch (form_id) {
-        FORM_addr => FormValue{ .Address = try parseFormValueTargetAddrSize(in_stream) },
-        FORM_block1 => parseFormValueBlock(allocator, in_stream, 1),
-        FORM_block2 => parseFormValueBlock(allocator, in_stream, 2),
-        FORM_block4 => parseFormValueBlock(allocator, in_stream, 4),
+        FORM_addr => FormValue{ .Address = try readAddress(in_stream, endian, @sizeOf(usize) == 8) },
+        FORM_block1 => parseFormValueBlock(allocator, in_stream, endian, 1),
+        FORM_block2 => parseFormValueBlock(allocator, in_stream, endian, 2),
+        FORM_block4 => parseFormValueBlock(allocator, in_stream, endian, 4),
         FORM_block => x: {
             const block_len = try noasync leb.readULEB128(usize, in_stream);
             return parseFormValueBlockLen(allocator, in_stream, block_len);
         },
-        FORM_data1 => parseFormValueConstant(allocator, in_stream, false, 1),
-        FORM_data2 => parseFormValueConstant(allocator, in_stream, false, 2),
-        FORM_data4 => parseFormValueConstant(allocator, in_stream, false, 4),
-        FORM_data8 => parseFormValueConstant(allocator, in_stream, false, 8),
+        FORM_data1 => parseFormValueConstant(allocator, in_stream, false, endian, 1),
+        FORM_data2 => parseFormValueConstant(allocator, in_stream, false, endian, 2),
+        FORM_data4 => parseFormValueConstant(allocator, in_stream, false, endian, 4),
+        FORM_data8 => parseFormValueConstant(allocator, in_stream, false, endian, 8),
         FORM_udata, FORM_sdata => {
             const signed = form_id == FORM_sdata;
-            return parseFormValueConstant(allocator, in_stream, signed, -1);
+            return parseFormValueConstant(allocator, in_stream, signed, endian, -1);
         },
         FORM_exprloc => {
             const size = try noasync leb.readULEB128(usize, in_stream);
@@ -350,32 +341,32 @@ fn parseFormValue(allocator: *mem.Allocator, in_stream: var, form_id: u64, is_64
         },
         FORM_flag => FormValue{ .Flag = (try noasync in_stream.readByte()) != 0 },
         FORM_flag_present => FormValue{ .Flag = true },
-        FORM_sec_offset => FormValue{ .SecOffset = try parseFormValueDwarfOffsetSize(in_stream, is_64) },
+        FORM_sec_offset => FormValue{ .SecOffset = try readAddress(in_stream, endian, is_64) },
 
-        FORM_ref1 => parseFormValueRef(allocator, in_stream, 1),
-        FORM_ref2 => parseFormValueRef(allocator, in_stream, 2),
-        FORM_ref4 => parseFormValueRef(allocator, in_stream, 4),
-        FORM_ref8 => parseFormValueRef(allocator, in_stream, 8),
-        FORM_ref_udata => parseFormValueRef(allocator, in_stream, -1),
+        FORM_ref1 => parseFormValueRef(allocator, in_stream, endian, 1),
+        FORM_ref2 => parseFormValueRef(allocator, in_stream, endian, 2),
+        FORM_ref4 => parseFormValueRef(allocator, in_stream, endian, 4),
+        FORM_ref8 => parseFormValueRef(allocator, in_stream, endian, 8),
+        FORM_ref_udata => parseFormValueRef(allocator, in_stream, endian, -1),
 
-        FORM_ref_addr => FormValue{ .RefAddr = try parseFormValueDwarfOffsetSize(in_stream, is_64) },
-        FORM_ref_sig8 => FormValue{ .Ref = try noasync in_stream.readIntLittle(u64) },
+        FORM_ref_addr => FormValue{ .RefAddr = try readAddress(in_stream, endian, is_64) },
+        FORM_ref_sig8 => FormValue{ .Ref = try noasync in_stream.readInt(u64, endian) },
 
         FORM_string => FormValue{ .String = try in_stream.readUntilDelimiterAlloc(allocator, 0, math.maxInt(usize)) },
-        FORM_strp => FormValue{ .StrPtr = try parseFormValueDwarfOffsetSize(in_stream, is_64) },
+        FORM_strp => FormValue{ .StrPtr = try readAddress(in_stream, endian, is_64) },
         FORM_indirect => {
             const child_form_id = try noasync leb.readULEB128(u64, in_stream);
-            const F = @TypeOf(async parseFormValue(allocator, in_stream, child_form_id, is_64));
+            const F = @TypeOf(async parseFormValue(allocator, in_stream, child_form_id, endian, is_64));
             var frame = try allocator.create(F);
             defer allocator.destroy(frame);
-            return await @asyncCall(frame, {}, parseFormValue, allocator, in_stream, child_form_id, is_64);
+            return await @asyncCall(frame, {}, parseFormValue, allocator, in_stream, child_form_id, endian, is_64);
         },
         else => error.InvalidDebugInfo,
     };
 }
 
 fn getAbbrevTableEntry(abbrev_table: *const AbbrevTable, abbrev_code: u64) ?*const AbbrevTableEntry {
-    for (abbrev_table.toSliceConst()) |*table_entry| {
+    for (abbrev_table.span()) |*table_entry| {
         if (table_entry.abbrev_code == abbrev_code) return table_entry;
     }
     return null;
@@ -399,7 +390,7 @@ pub const DwarfInfo = struct {
     }
 
     fn getSymbolName(di: *DwarfInfo, address: u64) ?[]const u8 {
-        for (di.func_list.toSliceConst()) |*func| {
+        for (di.func_list.span()) |*func| {
             if (func.pc_range) |range| {
                 if (address >= range.start and address < range.end) {
                     return func.name;
@@ -423,7 +414,7 @@ pub const DwarfInfo = struct {
             };
 
             var is_64: bool = undefined;
-            const unit_length = try readInitialLength(in, &is_64);
+            const unit_length = try readUnitLength(in, di.endian, &is_64);
             if (unit_length == 0) return;
             const next_offset = unit_length + (if (is_64) @as(usize, 12) else @as(usize, 4));
 
@@ -530,7 +521,7 @@ pub const DwarfInfo = struct {
             };
 
             var is_64: bool = undefined;
-            const unit_length = try readInitialLength(in, &is_64);
+            const unit_length = try readUnitLength(in, di.endian, &is_64);
             if (unit_length == 0) return;
             const next_offset = unit_length + (if (is_64) @as(usize, 12) else @as(usize, 4));
 
@@ -588,7 +579,7 @@ pub const DwarfInfo = struct {
     }
 
     fn findCompileUnit(di: *DwarfInfo, target_address: u64) !*const CompileUnit {
-        for (di.compile_unit_list.toSlice()) |*compile_unit| {
+        for (di.compile_unit_list.span()) |*compile_unit| {
             if (compile_unit.pc_range) |range| {
                 if (target_address >= range.start and target_address < range.end) return compile_unit;
             }
@@ -610,8 +601,8 @@ pub const DwarfInfo = struct {
                     try seekable.seekTo(ranges_offset);
 
                     while (true) {
-                        const begin_addr = try in.readIntLittle(usize);
-                        const end_addr = try in.readIntLittle(usize);
+                        const begin_addr = try in.readInt(usize, di.endian);
+                        const end_addr = try in.readInt(usize, di.endian);
                         if (begin_addr == 0 and end_addr == 0) {
                             break;
                         }
@@ -636,7 +627,7 @@ pub const DwarfInfo = struct {
     /// Gets an already existing AbbrevTable given the abbrev_offset, or if not found,
     /// seeks in the stream and parses it.
     fn getAbbrevTable(di: *DwarfInfo, abbrev_offset: u64) !*const AbbrevTable {
-        for (di.abbrev_table_list.toSlice()) |*header| {
+        for (di.abbrev_table_list.span()) |*header| {
             if (header.offset == abbrev_offset) {
                 return &header.table;
             }
@@ -645,7 +636,7 @@ pub const DwarfInfo = struct {
             .offset = abbrev_offset,
             .table = try di.parseAbbrevTable(abbrev_offset),
         });
-        return &di.abbrev_table_list.items[di.abbrev_table_list.len - 1].table;
+        return &di.abbrev_table_list.items[di.abbrev_table_list.items.len - 1].table;
     }
 
     fn parseAbbrevTable(di: *DwarfInfo, offset: u64) !AbbrevTable {
@@ -665,7 +656,7 @@ pub const DwarfInfo = struct {
                 .has_children = (try in.readByte()) == CHILDREN_yes,
                 .attrs = ArrayList(AbbrevAttr).init(di.allocator()),
             });
-            const attrs = &result.items[result.len - 1].attrs;
+            const attrs = &result.items[result.items.len - 1].attrs;
 
             while (true) {
                 const attr_id = try leb.readULEB128(u64, in);
@@ -689,11 +680,11 @@ pub const DwarfInfo = struct {
             .has_children = table_entry.has_children,
             .attrs = ArrayList(Die.Attr).init(di.allocator()),
         };
-        try result.attrs.resize(table_entry.attrs.len);
-        for (table_entry.attrs.toSliceConst()) |attr, i| {
+        try result.attrs.resize(table_entry.attrs.items.len);
+        for (table_entry.attrs.span()) |attr, i| {
             result.attrs.items[i] = Die.Attr{
                 .id = attr.attr_id,
-                .value = try parseFormValue(di.allocator(), in_stream, attr.form_id, is_64),
+                .value = try parseFormValue(di.allocator(), in_stream, attr.form_id, di.endian, is_64),
             };
         }
         return result;
@@ -710,15 +701,14 @@ pub const DwarfInfo = struct {
         try seekable.seekTo(line_info_offset);
 
         var is_64: bool = undefined;
-        const unit_length = try readInitialLength(in, &is_64);
+        const unit_length = try readUnitLength(in, di.endian, &is_64);
         if (unit_length == 0) {
             return error.MissingDebugInfo;
         }
         const next_offset = unit_length + (if (is_64) @as(usize, 12) else @as(usize, 4));
 
         const version = try in.readInt(u16, di.endian);
-        // TODO support 3 and 5
-        if (version != 2 and version != 4) return error.InvalidDebugInfo;
+        if (version < 2 or version > 4) return error.InvalidDebugInfo;
 
         const prologue_length = if (is_64) try in.readInt(u64, di.endian) else try in.readInt(u32, di.endian);
         const prog_start_offset = (try seekable.getPos()) + prologue_length;
@@ -758,7 +748,7 @@ pub const DwarfInfo = struct {
         }
 
         var file_entries = ArrayList(FileEntry).init(di.allocator());
-        var prog = LineNumberProgram.init(default_is_stmt, include_directories.toSliceConst(), &file_entries, target_address);
+        var prog = LineNumberProgram.init(default_is_stmt, include_directories.span(), &file_entries, target_address);
 
         while (true) {
             const file_name = try in.readUntilDelimiterAlloc(di.allocator(), 0, math.maxInt(usize));

@@ -66,6 +66,7 @@ static const ZigLLVM_ArchType arch_list[] = {
     ZigLLVM_wasm64,         // WebAssembly with 64-bit pointers
     ZigLLVM_renderscript32, // 32-bit RenderScript
     ZigLLVM_renderscript64, // 64-bit RenderScript
+    ZigLLVM_ve,             // NEC SX-Aurora Vector Engine
 };
 
 static const ZigLLVM_VendorType vendor_list[] = {
@@ -139,8 +140,6 @@ static const ZigLLVM_EnvironmentType abi_list[] = {
     ZigLLVM_CODE16,
     ZigLLVM_EABI,
     ZigLLVM_EABIHF,
-    ZigLLVM_ELFv1,
-    ZigLLVM_ELFv2,
     ZigLLVM_Android,
     ZigLLVM_Musl,
     ZigLLVM_MuslEABI,
@@ -530,6 +529,7 @@ uint32_t target_arch_pointer_bit_width(ZigLLVM_ArchType arch) {
         case ZigLLVM_spir64:
         case ZigLLVM_wasm64:
         case ZigLLVM_renderscript64:
+        case ZigLLVM_ve:
             return 64;
     }
     zig_unreachable();
@@ -593,6 +593,7 @@ uint32_t target_arch_largest_atomic_bits(ZigLLVM_ArchType arch) {
         case ZigLLVM_spir64:
         case ZigLLVM_wasm64:
         case ZigLLVM_renderscript64:
+        case ZigLLVM_ve:
             return 64;
 
         case ZigLLVM_x86_64:
@@ -623,6 +624,7 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
                         case CIntTypeCount:
                             zig_unreachable();
                     }
+                    zig_unreachable();
                 default:
                     switch (id) {
                         case CIntTypeShort:
@@ -641,6 +643,7 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
                             zig_unreachable();
                     }
             }
+            zig_unreachable();
         case OsLinux:
         case OsMacOSX:
         case OsFreeBSD:
@@ -665,6 +668,7 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
                 case CIntTypeCount:
                     zig_unreachable();
             }
+            zig_unreachable();
         case OsUefi:
         case OsWindows:
             switch (id) {
@@ -682,6 +686,7 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
                 case CIntTypeCount:
                     zig_unreachable();
             }
+            zig_unreachable();
         case OsIOS:
             switch (id) {
                 case CIntTypeShort:
@@ -698,6 +703,7 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
                 case CIntTypeCount:
                     zig_unreachable();
             }
+            zig_unreachable();
         case OsAnanas:
         case OsCloudABI:
         case OsKFreeBSD:
@@ -889,6 +895,7 @@ const char *arch_stack_pointer_register_name(ZigLLVM_ArchType arch) {
         case ZigLLVM_xcore:
         case ZigLLVM_ppc:
         case ZigLLVM_ppc64:
+        case ZigLLVM_ve:
             zig_panic("TODO populate this table with stack pointer register name for this CPU architecture");
     }
     zig_unreachable();
@@ -950,6 +957,7 @@ bool target_is_arm(const ZigTarget *target) {
         case ZigLLVM_xcore:
         case ZigLLVM_ppc:
         case ZigLLVM_ppc64:
+        case ZigLLVM_ve:
             return false;
     }
     zig_unreachable();
@@ -1188,8 +1196,6 @@ const char *target_libc_generic_name(const ZigTarget *target) {
         case ZigLLVM_CODE16:
         case ZigLLVM_EABI:
         case ZigLLVM_EABIHF:
-        case ZigLLVM_ELFv1:
-        case ZigLLVM_ELFv2:
         case ZigLLVM_Android:
         case ZigLLVM_MSVC:
         case ZigLLVM_Itanium:
@@ -1205,6 +1211,15 @@ const char *target_libc_generic_name(const ZigTarget *target) {
 bool target_is_libc_lib_name(const ZigTarget *target, const char *name) {
     if (strcmp(name, "c") == 0)
         return true;
+
+    if (target_abi_is_gnu(target->abi) && target->os == OsWindows) {
+        // mingw-w64
+
+        if (strcmp(name, "m") == 0)
+            return true;
+
+        return false;
+    }
 
     if (target_abi_is_gnu(target->abi) || target_abi_is_musl(target->abi) || target_os_is_darwin(target->os)) {
         if (strcmp(name, "m") == 0)
@@ -1223,7 +1238,16 @@ bool target_is_libc_lib_name(const ZigTarget *target, const char *name) {
             return true;
         if (strcmp(name, "dl") == 0)
             return true;
+        if (strcmp(name, "util") == 0)
+            return true;
     }
+
+    return false;
+}
+
+bool target_is_libcpp_lib_name(const ZigTarget *target, const char *name) {
+    if (strcmp(name, "c++") == 0 || strcmp(name, "c++abi") == 0)
+        return true;
 
     return false;
 }
@@ -1238,7 +1262,8 @@ void target_libc_enum(size_t index, ZigTarget *out_target) {
     out_target->os = libcs_available[index].os;
     out_target->abi = libcs_available[index].abi;
     out_target->vendor = ZigLLVM_UnknownVendor;
-    out_target->is_native = false;
+    out_target->is_native_os = false;
+    out_target->is_native_cpu = false;
 }
 
 bool target_has_debug_info(const ZigTarget *target) {
@@ -1275,19 +1300,6 @@ const char *target_arch_musl_name(ZigLLVM_ArchType arch) {
         default:
             zig_unreachable();
     }
-}
-
-bool target_supports_libunwind(const ZigTarget *target) {
-    switch (target->arch) {
-        case ZigLLVM_arm:
-        case ZigLLVM_armeb:
-        case ZigLLVM_riscv32:
-        case ZigLLVM_riscv64:
-            return false;
-        default:
-            return true;
-    }
-    return true;
 }
 
 bool target_libc_needs_crti_crtn(const ZigTarget *target) {

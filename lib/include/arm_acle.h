@@ -90,9 +90,11 @@ __swp(uint32_t __x, volatile uint32_t *__p) {
 #endif
 
 /* 8.7 NOP */
+#if !defined(_MSC_VER) || !defined(__aarch64__)
 static __inline__ void __attribute__((__always_inline__, __nodebug__)) __nop(void) {
   __builtin_arm_nop();
 }
+#endif
 
 /* 9 DATA-PROCESSING INTRINSICS */
 /* 9.2 Miscellaneous data-processing intrinsics */
@@ -137,6 +139,26 @@ __clzl(unsigned long __t) {
 static __inline__ uint64_t __attribute__((__always_inline__, __nodebug__))
 __clzll(uint64_t __t) {
   return __builtin_clzll(__t);
+}
+
+/* CLS */
+static __inline__ uint32_t __attribute__((__always_inline__, __nodebug__))
+__cls(uint32_t __t) {
+  return __builtin_arm_cls(__t);
+}
+
+static __inline__ uint32_t __attribute__((__always_inline__, __nodebug__))
+__clsl(unsigned long __t) {
+#if __SIZEOF_LONG__ == 4
+  return __builtin_arm_cls(__t);
+#else
+  return __builtin_arm_cls64(__t);
+#endif
+}
+
+static __inline__ uint32_t __attribute__((__always_inline__, __nodebug__))
+__clsll(uint64_t __t) {
+  return __builtin_arm_cls64(__t);
 }
 
 /* REV */
@@ -609,11 +631,15 @@ __jcvt(double __a) {
 #define __arm_rsr(sysreg) __builtin_arm_rsr(sysreg)
 #define __arm_rsr64(sysreg) __builtin_arm_rsr64(sysreg)
 #define __arm_rsrp(sysreg) __builtin_arm_rsrp(sysreg)
+#define __arm_rsrf(sysreg) __builtin_bit_cast(float, __arm_rsr(sysreg))
+#define __arm_rsrf64(sysreg) __builtin_bit_cast(double, __arm_rsr64(sysreg))
 #define __arm_wsr(sysreg, v) __builtin_arm_wsr(sysreg, v)
 #define __arm_wsr64(sysreg, v) __builtin_arm_wsr64(sysreg, v)
 #define __arm_wsrp(sysreg, v) __builtin_arm_wsrp(sysreg, v)
+#define __arm_wsrf(sysreg, v) __arm_wsr(sysreg, __builtin_bit_cast(uint32_t, v))
+#define __arm_wsrf64(sysreg, v) __arm_wsr64(sysreg, __builtin_bit_cast(uint64_t, v))
 
-// Memory Tagging Extensions (MTE) Intrinsics
+/* Memory Tagging Extensions (MTE) Intrinsics */
 #if __ARM_FEATURE_MEMORY_TAGGING
 #define __arm_mte_create_random_tag(__ptr, __mask)  __builtin_arm_irg(__ptr, __mask)
 #define __arm_mte_increment_tag(__ptr, __tag_offset)  __builtin_arm_addg(__ptr, __tag_offset)
@@ -622,6 +648,28 @@ __jcvt(double __a) {
 #define __arm_mte_set_tag(__ptr) __builtin_arm_stg(__ptr)
 #define __arm_mte_ptrdiff(__ptra, __ptrb) __builtin_arm_subp(__ptra, __ptrb)
 #endif
+
+/* Transactional Memory Extension (TME) Intrinsics */
+#if __ARM_FEATURE_TME
+
+#define _TMFAILURE_REASON  0x00007fffu
+#define _TMFAILURE_RTRY    0x00008000u
+#define _TMFAILURE_CNCL    0x00010000u
+#define _TMFAILURE_MEM     0x00020000u
+#define _TMFAILURE_IMP     0x00040000u
+#define _TMFAILURE_ERR     0x00080000u
+#define _TMFAILURE_SIZE    0x00100000u
+#define _TMFAILURE_NEST    0x00200000u
+#define _TMFAILURE_DBG     0x00400000u
+#define _TMFAILURE_INT     0x00800000u
+#define _TMFAILURE_TRIVIAL 0x01000000u
+
+#define __tstart()        __builtin_arm_tstart()
+#define __tcommit()       __builtin_arm_tcommit()
+#define __tcancel(__arg)  __builtin_arm_tcancel(__arg)
+#define __ttest()         __builtin_arm_ttest()
+
+#endif /* __ARM_FEATURE_TME */
 
 #if defined(__cplusplus)
 }

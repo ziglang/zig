@@ -28,6 +28,33 @@ fn getArrayLen(a: []const u32) usize {
     return a.len;
 }
 
+test "array with sentinels" {
+    const S = struct {
+        fn doTheTest(is_ct: bool) void {
+            if (is_ct) {
+                var zero_sized: [0:0xde]u8 = [_:0xde]u8{};
+                // Disabled at runtime because of
+                // https://github.com/ziglang/zig/issues/4372
+                expectEqual(@as(u8, 0xde), zero_sized[0]);
+                var reinterpreted = @ptrCast(*[1]u8, &zero_sized);
+                expectEqual(@as(u8, 0xde), reinterpreted[0]);
+            }
+            var arr: [3:0x55]u8 = undefined;
+            // Make sure the sentinel pointer is pointing after the last element
+            if (!is_ct) {
+                const sentinel_ptr = @ptrToInt(&arr[3]);
+                const last_elem_ptr = @ptrToInt(&arr[2]);
+                expectEqual(@as(usize, 1), sentinel_ptr - last_elem_ptr);
+            }
+            // Make sure the sentinel is writeable
+            arr[3] = 0x55;
+        }
+    };
+
+    S.doTheTest(false);
+    comptime S.doTheTest(true);
+}
+
 test "void arrays" {
     var array: [4]void = undefined;
     array[0] = void{};
@@ -354,7 +381,7 @@ test "access the null element of a null terminated array" {
     const S = struct {
         fn doTheTest() void {
             var array: [4:0]u8 = .{ 'a', 'o', 'e', 'u' };
-            comptime expect(array[4] == 0);
+            expect(array[4] == 0);
             var len: usize = 4;
             expect(array[len] == 0);
         }
@@ -373,6 +400,26 @@ test "type deduction for array subscript expression" {
             expectEqual(@as(u8, 0x55), array[if (v1) 1 else 0]);
         }
     };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "sentinel element count towards the ABI size calculation" {
+    const S = struct {
+        fn doTheTest() void {
+            const T = packed struct {
+                fill_pre: u8 = 0x55,
+                data: [0:0]u8 = undefined,
+                fill_post: u8 = 0xAA,
+            };
+            var x = T{};
+            var as_slice = mem.asBytes(&x);
+            expectEqual(@as(usize, 3), as_slice.len);
+            expectEqual(@as(u8, 0x55), as_slice[0]);
+            expectEqual(@as(u8, 0xAA), as_slice[2]);
+        }
+    };
+
     S.doTheTest();
     comptime S.doTheTest();
 }

@@ -10,7 +10,7 @@ const windows = os.windows;
 const mem = std.mem;
 const debug = std.debug;
 const BufMap = std.BufMap;
-const Buffer = std.Buffer;
+const ArrayListSentineled = std.ArrayListSentineled;
 const builtin = @import("builtin");
 const Os = builtin.Os;
 const TailQueue = std.TailQueue;
@@ -175,29 +175,11 @@ pub const ChildProcess = struct {
         stderr: []u8,
     };
 
-    /// Spawns a child process, waits for it, collecting stdout and stderr, and then returns.
-    /// If it succeeds, the caller owns result.stdout and result.stderr memory.
-    /// TODO deprecate in favor of exec2
-    pub fn exec(
-        allocator: *mem.Allocator,
-        argv: []const []const u8,
-        cwd: ?[]const u8,
-        env_map: ?*const BufMap,
-        max_output_bytes: usize,
-    ) !ExecResult {
-        return exec2(.{
-            .allocator = allocator,
-            .argv = argv,
-            .cwd = cwd,
-            .env_map = env_map,
-            .max_output_bytes = max_output_bytes,
-        });
-    }
+    pub const exec2 = @compileError("deprecated: exec2 is renamed to exec");
 
     /// Spawns a child process, waits for it, collecting stdout and stderr, and then returns.
     /// If it succeeds, the caller owns result.stdout and result.stderr memory.
-    /// TODO rename to exec
-    pub fn exec2(args: struct {
+    pub fn exec(args: struct {
         allocator: *mem.Allocator,
         argv: []const []const u8,
         cwd: ?[]const u8 = null,
@@ -370,11 +352,12 @@ pub const ChildProcess = struct {
 
         const any_ignore = (self.stdin_behavior == StdIo.Ignore or self.stdout_behavior == StdIo.Ignore or self.stderr_behavior == StdIo.Ignore);
         const dev_null_fd = if (any_ignore)
-            os.openC("/dev/null", os.O_RDWR, 0) catch |err| switch (err) {
+            os.openZ("/dev/null", os.O_RDWR, 0) catch |err| switch (err) {
                 error.PathAlreadyExists => unreachable,
                 error.NoSpaceLeft => unreachable,
                 error.FileTooBig => unreachable,
                 error.DeviceBusy => unreachable,
+                error.FileLocksNotSupported => unreachable,
                 else => |e| return e,
             }
         else
@@ -775,38 +758,36 @@ fn windowsCreateProcess(app_name: [*:0]u16, cmd_line: [*:0]u16, envp_ptr: ?[*]u1
 }
 
 /// Caller must dealloc.
-/// Guarantees a null byte at result[result.len].
-fn windowsCreateCommandLine(allocator: *mem.Allocator, argv: []const []const u8) ![]u8 {
-    var buf = try Buffer.initSize(allocator, 0);
+fn windowsCreateCommandLine(allocator: *mem.Allocator, argv: []const []const u8) ![:0]u8 {
+    var buf = try ArrayListSentineled(u8, 0).initSize(allocator, 0);
     defer buf.deinit();
-
-    var buf_stream = buf.outStream();
+    const buf_stream = buf.outStream();
 
     for (argv) |arg, arg_i| {
-        if (arg_i != 0) try buf.appendByte(' ');
+        if (arg_i != 0) try buf_stream.writeByte(' ');
         if (mem.indexOfAny(u8, arg, " \t\n\"") == null) {
-            try buf.append(arg);
+            try buf_stream.writeAll(arg);
             continue;
         }
-        try buf.appendByte('"');
+        try buf_stream.writeByte('"');
         var backslash_count: usize = 0;
         for (arg) |byte| {
             switch (byte) {
                 '\\' => backslash_count += 1,
                 '"' => {
                     try buf_stream.writeByteNTimes('\\', backslash_count * 2 + 1);
-                    try buf.appendByte('"');
+                    try buf_stream.writeByte('"');
                     backslash_count = 0;
                 },
                 else => {
                     try buf_stream.writeByteNTimes('\\', backslash_count);
-                    try buf.appendByte(byte);
+                    try buf_stream.writeByte(byte);
                     backslash_count = 0;
                 },
             }
         }
         try buf_stream.writeByteNTimes('\\', backslash_count * 2);
-        try buf.appendByte('"');
+        try buf_stream.writeByte('"');
     }
 
     return buf.toOwnedSlice();

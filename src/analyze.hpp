@@ -76,7 +76,7 @@ void resolve_top_level_decl(CodeGen *g, Tld *tld, AstNode *source_node, bool all
 
 ZigType *get_src_ptr_type(ZigType *type);
 uint32_t get_ptr_align(CodeGen *g, ZigType *type);
-bool get_ptr_const(ZigType *type);
+bool get_ptr_const(CodeGen *g, ZigType *type);
 ZigType *validate_var_type(CodeGen *g, AstNode *source_node, ZigType *type_entry);
 ZigType *container_ref_type(ZigType *type_entry);
 bool type_is_complete(ZigType *type_entry);
@@ -257,7 +257,8 @@ Error create_c_object_cache(CodeGen *g, CacheHash **out_cache_hash, bool verbose
 LLVMTypeRef get_llvm_type(CodeGen *g, ZigType *type);
 ZigLLVMDIType *get_llvm_di_type(CodeGen *g, ZigType *type);
 
-void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_path, bool translate_c);
+void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_path, bool translate_c,
+        FileExt source_kind);
 
 void src_assert(bool ok, AstNode *source_node);
 bool is_container(ZigType *type_entry);

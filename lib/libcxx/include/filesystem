@@ -625,7 +625,7 @@ struct __is_pathable_char_array<_Source, _ECharT*, _UPtr, true>
   static _ECharT __first_or_null(const _ECharT* __b) { return *__b; }
 };
 
-template <class _Iter, bool _IsIt = __is_input_iterator<_Iter>::value,
+template <class _Iter, bool _IsIt = __is_cpp17_input_iterator<_Iter>::value,
           class = void>
 struct __is_pathable_iter : false_type {};
 
@@ -708,14 +708,14 @@ template <>
 struct _PathCVT<char> {
 
   template <class _Iter>
-  static typename enable_if<__is_exactly_input_iterator<_Iter>::value>::type
+  static typename enable_if<__is_exactly_cpp17_input_iterator<_Iter>::value>::type
   __append_range(string& __dest, _Iter __b, _Iter __e) {
     for (; __b != __e; ++__b)
       __dest.push_back(*__b);
   }
 
   template <class _Iter>
-  static typename enable_if<__is_forward_iterator<_Iter>::value>::type
+  static typename enable_if<__is_cpp17_forward_iterator<_Iter>::value>::type
   __append_range(string& __dest, _Iter __b, _Iter __e) {
     __dest.__append_forward_unsafe(__b, __e);
   }
@@ -2583,6 +2583,7 @@ public:
   void disable_recursion_pending() { __rec_ = false; }
 
 private:
+  _LIBCPP_FUNC_VIS
   recursive_directory_iterator(const path& __p, directory_options __opt,
                                error_code* __ec);
 

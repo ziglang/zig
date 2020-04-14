@@ -15,10 +15,10 @@ const Context = struct {
     link_in_crt: bool,
 
     link_err: error{OutOfMemory}!void,
-    link_msg: std.Buffer,
+    link_msg: std.ArrayListSentineled(u8, 0),
 
     libc: *LibCInstallation,
-    out_file_path: std.Buffer,
+    out_file_path: std.ArrayListSentineled(u8, 0),
 };
 
 pub fn link(comp: *Compilation) !void {
@@ -34,9 +34,9 @@ pub fn link(comp: *Compilation) !void {
     };
     defer ctx.arena.deinit();
     ctx.args = std.ArrayList([*:0]const u8).init(&ctx.arena.allocator);
-    ctx.link_msg = std.Buffer.initNull(&ctx.arena.allocator);
+    ctx.link_msg = std.ArrayListSentineled(u8, 0).initNull(&ctx.arena.allocator);
 
-    ctx.out_file_path = try std.Buffer.init(&ctx.arena.allocator, comp.name.toSliceConst());
+    ctx.out_file_path = try std.ArrayListSentineled(u8, 0).init(&ctx.arena.allocator, comp.name.span());
     switch (comp.kind) {
         .Exe => {
             try ctx.out_file_path.append(comp.target.exeFileExt());
@@ -56,12 +56,13 @@ pub fn link(comp: *Compilation) !void {
     if (comp.haveLibC()) {
         // TODO https://github.com/ziglang/zig/issues/3190
         var libc = ctx.comp.override_libc orelse blk: {
-            switch (comp.target) {
-                Target.Native => {
-                    break :blk comp.zig_compiler.getNativeLibC() catch return error.LibCRequiredButNotProvidedOrFound;
-                },
-                else => return error.LibCRequiredButNotProvidedOrFound,
-            }
+            @panic("this code has bitrotted");
+            //switch (comp.target) {
+            //    Target.Native => {
+            //        break :blk comp.zig_compiler.getNativeLibC() catch return error.LibCRequiredButNotProvidedOrFound;
+            //    },
+            //    else => return error.LibCRequiredButNotProvidedOrFound,
+            //}
         };
         ctx.libc = libc;
     }
@@ -69,7 +70,7 @@ pub fn link(comp: *Compilation) !void {
     try constructLinkerArgs(&ctx);
 
     if (comp.verbose_link) {
-        for (ctx.args.toSliceConst()) |arg, i| {
+        for (ctx.args.span()) |arg, i| {
             const space = if (i == 0) "" else " ";
             std.debug.warn("{}{s}", .{ space, arg });
         }
@@ -77,7 +78,7 @@ pub fn link(comp: *Compilation) !void {
     }
 
     const extern_ofmt = toExternObjectFormatType(comp.target.getObjectFormat());
-    const args_slice = ctx.args.toSlice();
+    const args_slice = ctx.args.span();
 
     {
         // LLD is not thread-safe, so we grab a global lock.
@@ -90,7 +91,7 @@ pub fn link(comp: *Compilation) !void {
                 // TODO capture these messages and pass them through the system, reporting them through the
                 // event system instead of printing them directly here.
                 // perhaps try to parse and understand them.
-                std.debug.warn("{}\n", .{ctx.link_msg.toSliceConst()});
+                std.debug.warn("{}\n", .{ctx.link_msg.span()});
             }
             return error.LinkFailed;
         }
@@ -155,11 +156,11 @@ fn constructLinkerArgsElf(ctx: *Context) !void {
     //bool shared = !g->is_static && is_lib;
     //Buf *soname = nullptr;
     if (ctx.comp.is_static) {
-        if (util.isArmOrThumb(ctx.comp.target)) {
-            try ctx.args.append("-Bstatic");
-        } else {
-            try ctx.args.append("-static");
-        }
+        //if (util.isArmOrThumb(ctx.comp.target)) {
+        //    try ctx.args.append("-Bstatic");
+        //} else {
+        //    try ctx.args.append("-static");
+        //}
     }
     //} else if (shared) {
     //    lj->args.append("-shared");
@@ -172,33 +173,28 @@ fn constructLinkerArgsElf(ctx: *Context) !void {
     //}
 
     try ctx.args.append("-o");
-    try ctx.args.append(ctx.out_file_path.toSliceConst());
+    try ctx.args.append(ctx.out_file_path.span());
 
     if (ctx.link_in_crt) {
         const crt1o = if (ctx.comp.is_static) "crt1.o" else "Scrt1.o";
-        const crtbegino = if (ctx.comp.is_static) "crtbeginT.o" else "crtbegin.o";
-        try addPathJoin(ctx, ctx.libc.lib_dir.?, crt1o);
-        try addPathJoin(ctx, ctx.libc.lib_dir.?, "crti.o");
-        try addPathJoin(ctx, ctx.libc.static_lib_dir.?, crtbegino);
+        try addPathJoin(ctx, ctx.libc.crt_dir.?, crt1o);
+        try addPathJoin(ctx, ctx.libc.crt_dir.?, "crti.o");
     }
 
     if (ctx.comp.haveLibC()) {
         try ctx.args.append("-L");
         // TODO addNullByte should probably return [:0]u8
-        try ctx.args.append(@ptrCast([*:0]const u8, (try std.cstr.addNullByte(&ctx.arena.allocator, ctx.libc.lib_dir.?)).ptr));
+        try ctx.args.append(@ptrCast([*:0]const u8, (try std.cstr.addNullByte(&ctx.arena.allocator, ctx.libc.crt_dir.?)).ptr));
 
-        try ctx.args.append("-L");
-        try ctx.args.append(@ptrCast([*:0]const u8, (try std.cstr.addNullByte(&ctx.arena.allocator, ctx.libc.static_lib_dir.?)).ptr));
-
-        if (!ctx.comp.is_static) {
-            const dl = blk: {
-                if (ctx.libc.dynamic_linker_path) |dl| break :blk dl;
-                if (util.getDynamicLinkerPath(ctx.comp.target)) |dl| break :blk dl;
-                return error.LibCMissingDynamicLinker;
-            };
-            try ctx.args.append("-dynamic-linker");
-            try ctx.args.append(@ptrCast([*:0]const u8, (try std.cstr.addNullByte(&ctx.arena.allocator, dl)).ptr));
-        }
+        //if (!ctx.comp.is_static) {
+        //    const dl = blk: {
+        //        //if (ctx.libc.dynamic_linker_path) |dl| break :blk dl;
+        //        //if (util.getDynamicLinkerPath(ctx.comp.target)) |dl| break :blk dl;
+        //        return error.LibCMissingDynamicLinker;
+        //    };
+        //    try ctx.args.append("-dynamic-linker");
+        //    try ctx.args.append(@ptrCast([*:0]const u8, (try std.cstr.addNullByte(&ctx.arena.allocator, dl)).ptr));
+        //}
     }
 
     //if (shared) {
@@ -265,13 +261,12 @@ fn constructLinkerArgsElf(ctx: *Context) !void {
 
     // crt end
     if (ctx.link_in_crt) {
-        try addPathJoin(ctx, ctx.libc.static_lib_dir.?, "crtend.o");
-        try addPathJoin(ctx, ctx.libc.lib_dir.?, "crtn.o");
+        try addPathJoin(ctx, ctx.libc.crt_dir.?, "crtn.o");
     }
 
-    if (ctx.comp.target != Target.Native) {
-        try ctx.args.append("--allow-shlib-undefined");
-    }
+    //if (ctx.comp.target != Target.Native) {
+    //    try ctx.args.append("--allow-shlib-undefined");
+    //}
 }
 
 fn addPathJoin(ctx: *Context, dirname: []const u8, basename: []const u8) !void {
@@ -287,7 +282,7 @@ fn constructLinkerArgsCoff(ctx: *Context) !void {
         try ctx.args.append("-DEBUG");
     }
 
-    switch (ctx.comp.target.getArch()) {
+    switch (ctx.comp.target.cpu.arch) {
         .i386 => try ctx.args.append("-MACHINE:X86"),
         .x86_64 => try ctx.args.append("-MACHINE:X64"),
         .aarch64 => try ctx.args.append("-MACHINE:ARM"),
@@ -296,13 +291,13 @@ fn constructLinkerArgsCoff(ctx: *Context) !void {
 
     const is_library = ctx.comp.kind == .Lib;
 
-    const out_arg = try std.fmt.allocPrint(&ctx.arena.allocator, "-OUT:{}\x00", .{ctx.out_file_path.toSliceConst()});
+    const out_arg = try std.fmt.allocPrint(&ctx.arena.allocator, "-OUT:{}\x00", .{ctx.out_file_path.span()});
     try ctx.args.append(@ptrCast([*:0]const u8, out_arg.ptr));
 
     if (ctx.comp.haveLibC()) {
         try ctx.args.append(@ptrCast([*:0]const u8, (try std.fmt.allocPrint(&ctx.arena.allocator, "-LIBPATH:{}\x00", .{ctx.libc.msvc_lib_dir.?})).ptr));
         try ctx.args.append(@ptrCast([*:0]const u8, (try std.fmt.allocPrint(&ctx.arena.allocator, "-LIBPATH:{}\x00", .{ctx.libc.kernel32_lib_dir.?})).ptr));
-        try ctx.args.append(@ptrCast([*:0]const u8, (try std.fmt.allocPrint(&ctx.arena.allocator, "-LIBPATH:{}\x00", .{ctx.libc.lib_dir.?})).ptr));
+        try ctx.args.append(@ptrCast([*:0]const u8, (try std.fmt.allocPrint(&ctx.arena.allocator, "-LIBPATH:{}\x00", .{ctx.libc.crt_dir.?})).ptr));
     }
 
     if (ctx.link_in_crt) {
@@ -399,7 +394,7 @@ fn constructLinkerArgsMachO(ctx: *Context) !void {
     }
 
     try ctx.args.append("-o");
-    try ctx.args.append(ctx.out_file_path.toSliceConst());
+    try ctx.args.append(ctx.out_file_path.span());
 
     if (shared) {
         try ctx.args.append("-headerpad_max_install_names");
@@ -417,7 +412,7 @@ fn constructLinkerArgsMachO(ctx: *Context) !void {
                 }
             },
             .IPhoneOS => {
-                if (ctx.comp.target.getArch() == .aarch64) {
+                if (ctx.comp.target.cpu.arch == .aarch64) {
                     // iOS does not need any crt1 files for arm64
                 } else if (platform.versionLessThan(3, 1)) {
                     try ctx.args.append("-lcrt1.o");
@@ -435,28 +430,29 @@ fn constructLinkerArgsMachO(ctx: *Context) !void {
     }
     try addFnObjects(ctx);
 
-    if (ctx.comp.target == Target.Native) {
-        for (ctx.comp.link_libs_list.toSliceConst()) |lib| {
-            if (mem.eql(u8, lib.name, "c")) {
-                // on Darwin, libSystem has libc in it, but also you have to use it
-                // to make syscalls because the syscall numbers are not documented
-                // and change between versions.
-                // so we always link against libSystem
-                try ctx.args.append("-lSystem");
-            } else {
-                if (mem.indexOfScalar(u8, lib.name, '/') == null) {
-                    const arg = try std.fmt.allocPrint(&ctx.arena.allocator, "-l{}\x00", .{lib.name});
-                    try ctx.args.append(@ptrCast([*:0]const u8, arg.ptr));
-                } else {
-                    const arg = try std.cstr.addNullByte(&ctx.arena.allocator, lib.name);
-                    try ctx.args.append(@ptrCast([*:0]const u8, arg.ptr));
-                }
-            }
-        }
-    } else {
-        try ctx.args.append("-undefined");
-        try ctx.args.append("dynamic_lookup");
-    }
+    // TODO
+    //if (ctx.comp.target == Target.Native) {
+    //    for (ctx.comp.link_libs_list.span()) |lib| {
+    //        if (mem.eql(u8, lib.name, "c")) {
+    //            // on Darwin, libSystem has libc in it, but also you have to use it
+    //            // to make syscalls because the syscall numbers are not documented
+    //            // and change between versions.
+    //            // so we always link against libSystem
+    //            try ctx.args.append("-lSystem");
+    //        } else {
+    //            if (mem.indexOfScalar(u8, lib.name, '/') == null) {
+    //                const arg = try std.fmt.allocPrint(&ctx.arena.allocator, "-l{}\x00", .{lib.name});
+    //                try ctx.args.append(@ptrCast([*:0]const u8, arg.ptr));
+    //            } else {
+    //                const arg = try std.cstr.addNullByte(&ctx.arena.allocator, lib.name);
+    //                try ctx.args.append(@ptrCast([*:0]const u8, arg.ptr));
+    //            }
+    //        }
+    //    }
+    //} else {
+    //    try ctx.args.append("-undefined");
+    //    try ctx.args.append("dynamic_lookup");
+    //}
 
     if (platform.kind == .MacOS) {
         if (platform.versionLessThan(10, 5)) {
@@ -486,7 +482,7 @@ fn addFnObjects(ctx: *Context) !void {
             ctx.comp.gpa().destroy(node);
             continue;
         };
-        try ctx.args.append(fn_val.containing_object.toSliceConst());
+        try ctx.args.append(fn_val.containing_object.span());
         it = node.next;
     }
 }

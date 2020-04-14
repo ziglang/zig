@@ -58,6 +58,8 @@ _LIBUNWIND_HIDDEN int __unw_init_local(unw_cursor_t *cursor,
 # warning The MIPS architecture is not supported with this ABI and environment!
 #elif defined(__sparc__)
 # define REGISTER_KIND Registers_sparc
+#elif defined(__riscv) && __riscv_xlen == 64
+# define REGISTER_KIND Registers_riscv
 #else
 # error Architecture not supported
 #endif
@@ -171,8 +173,7 @@ _LIBUNWIND_HIDDEN int __unw_get_proc_info(unw_cursor_t *cursor,
   co->getInfo(info);
   if (info->end_ip == 0)
     return UNW_ENOINFO;
-  else
-    return UNW_ESUCCESS;
+  return UNW_ESUCCESS;
 }
 _LIBUNWIND_WEAK_ALIAS(__unw_get_proc_info, unw_get_proc_info)
 
@@ -194,8 +195,7 @@ _LIBUNWIND_HIDDEN int __unw_get_proc_name(unw_cursor_t *cursor, char *buf,
   AbstractUnwindCursor *co = (AbstractUnwindCursor *)cursor;
   if (co->getFunctionName(buf, bufLen, offset))
     return UNW_ESUCCESS;
-  else
-    return UNW_EUNSPEC;
+  return UNW_EUNSPEC;
 }
 _LIBUNWIND_WEAK_ALIAS(__unw_get_proc_name, unw_get_proc_name)
 

@@ -4,7 +4,7 @@ const mem = std.mem;
 const debug = std.debug;
 const assert = debug.assert;
 const testing = std.testing;
-const Buffer = std.Buffer;
+const ArrayListSentineled = std.ArrayListSentineled;
 const ArrayList = std.ArrayList;
 const maxInt = std.math.maxInt;
 
@@ -111,9 +111,9 @@ fn parse(tokens: *const ArrayList(Token), token_index: *usize) ParseError!Node {
     }
 }
 
-fn expandString(input: []const u8, output: *Buffer) !void {
+fn expandString(input: []const u8, output: *ArrayListSentineled(u8, 0)) !void {
     const tokens = try tokenize(input);
-    if (tokens.len == 1) {
+    if (tokens.items.len == 1) {
         return output.resize(0);
     }
 
@@ -125,52 +125,52 @@ fn expandString(input: []const u8, output: *Buffer) !void {
         else => return error.InvalidInput,
     }
 
-    var result_list = ArrayList(Buffer).init(global_allocator);
+    var result_list = ArrayList(ArrayListSentineled(u8, 0)).init(global_allocator);
     defer result_list.deinit();
 
     try expandNode(root, &result_list);
 
     try output.resize(0);
-    for (result_list.toSliceConst()) |buf, i| {
+    for (result_list.span()) |buf, i| {
         if (i != 0) {
-            try output.appendByte(' ');
+            try output.append(' ');
         }
-        try output.append(buf.toSliceConst());
+        try output.appendSlice(buf.span());
     }
 }
 
 const ExpandNodeError = error{OutOfMemory};
 
-fn expandNode(node: Node, output: *ArrayList(Buffer)) ExpandNodeError!void {
-    assert(output.len == 0);
+fn expandNode(node: Node, output: *ArrayList(ArrayListSentineled(u8, 0))) ExpandNodeError!void {
+    assert(output.items.len == 0);
     switch (node) {
         Node.Scalar => |scalar| {
-            try output.append(try Buffer.init(global_allocator, scalar));
+            try output.append(try ArrayListSentineled(u8, 0).init(global_allocator, scalar));
         },
         Node.Combine => |pair| {
             const a_node = pair[0];
             const b_node = pair[1];
 
-            var child_list_a = ArrayList(Buffer).init(global_allocator);
+            var child_list_a = ArrayList(ArrayListSentineled(u8, 0)).init(global_allocator);
             try expandNode(a_node, &child_list_a);
 
-            var child_list_b = ArrayList(Buffer).init(global_allocator);
+            var child_list_b = ArrayList(ArrayListSentineled(u8, 0)).init(global_allocator);
             try expandNode(b_node, &child_list_b);
 
-            for (child_list_a.toSliceConst()) |buf_a| {
-                for (child_list_b.toSliceConst()) |buf_b| {
-                    var combined_buf = try Buffer.initFromBuffer(buf_a);
-                    try combined_buf.append(buf_b.toSliceConst());
+            for (child_list_a.span()) |buf_a| {
+                for (child_list_b.span()) |buf_b| {
+                    var combined_buf = try ArrayListSentineled(u8, 0).initFromBuffer(buf_a);
+                    try combined_buf.appendSlice(buf_b.span());
                     try output.append(combined_buf);
                 }
             }
         },
         Node.List => |list| {
-            for (list.toSliceConst()) |child_node| {
-                var child_list = ArrayList(Buffer).init(global_allocator);
+            for (list.span()) |child_node| {
+                var child_list = ArrayList(ArrayListSentineled(u8, 0)).init(global_allocator);
                 try expandNode(child_node, &child_list);
 
-                for (child_list.toSliceConst()) |buf| {
+                for (child_list.span()) |buf| {
                     try output.append(buf);
                 }
             }
@@ -187,17 +187,17 @@ pub fn main() !void {
 
     global_allocator = &arena.allocator;
 
-    var stdin_buf = try Buffer.initSize(global_allocator, 0);
+    var stdin_buf = try ArrayListSentineled(u8, 0).initSize(global_allocator, 0);
     defer stdin_buf.deinit();
 
     var stdin_adapter = stdin_file.inStream();
     try stdin_adapter.stream.readAllBuffer(&stdin_buf, maxInt(usize));
 
-    var result_buf = try Buffer.initSize(global_allocator, 0);
+    var result_buf = try ArrayListSentineled(u8, 0).initSize(global_allocator, 0);
     defer result_buf.deinit();
 
-    try expandString(stdin_buf.toSlice(), &result_buf);
-    try stdout_file.write(result_buf.toSliceConst());
+    try expandString(stdin_buf.span(), &result_buf);
+    try stdout_file.write(result_buf.span());
 }
 
 test "invalid inputs" {
@@ -218,7 +218,7 @@ test "invalid inputs" {
 }
 
 fn expectError(test_input: []const u8, expected_err: anyerror) void {
-    var output_buf = Buffer.initSize(global_allocator, 0) catch unreachable;
+    var output_buf = ArrayListSentineled(u8, 0).initSize(global_allocator, 0) catch unreachable;
     defer output_buf.deinit();
 
     testing.expectError(expected_err, expandString(test_input, &output_buf));
@@ -251,10 +251,10 @@ test "valid inputs" {
 }
 
 fn expectExpansion(test_input: []const u8, expected_result: []const u8) void {
-    var result = Buffer.initSize(global_allocator, 0) catch unreachable;
+    var result = ArrayListSentineled(u8, 0).initSize(global_allocator, 0) catch unreachable;
     defer result.deinit();
 
     expandString(test_input, &result) catch unreachable;
 
-    testing.expectEqualSlices(u8, expected_result, result.toSlice());
+    testing.expectEqualSlices(u8, expected_result, result.span());
 }

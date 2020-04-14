@@ -1096,10 +1096,10 @@ pub const Loop = struct {
                         msg.result = noasync os.preadv(msg.fd, msg.iov, msg.offset);
                     },
                     .open => |*msg| {
-                        msg.result = noasync os.openC(msg.path, msg.flags, msg.mode);
+                        msg.result = noasync os.openZ(msg.path, msg.flags, msg.mode);
                     },
                     .openat => |*msg| {
-                        msg.result = noasync os.openatC(msg.fd, msg.path, msg.flags, msg.mode);
+                        msg.result = noasync os.openatZ(msg.fd, msg.path, msg.flags, msg.mode);
                     },
                     .faccessat => |*msg| {
                         msg.result = noasync os.faccessatZ(msg.dirfd, msg.path, msg.mode, msg.flags);
@@ -1277,6 +1277,11 @@ pub const Loop = struct {
 test "std.event.Loop - basic" {
     // https://github.com/ziglang/zig/issues/1908
     if (builtin.single_threaded) return error.SkipZigTest;
+
+    if (true) {
+        // https://github.com/ziglang/zig/issues/4922
+        return error.SkipZigTest;
+    }
 
     var loop: Loop = undefined;
     try loop.initMultiThreaded();

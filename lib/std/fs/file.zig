@@ -34,12 +34,36 @@ pub const File = struct {
         else => 0o666,
     };
 
-    pub const OpenError = windows.CreateFileError || os.OpenError;
+    pub const OpenError = windows.CreateFileError || os.OpenError || os.FlockError;
+
+    pub const Lock = enum {
+        None, Shared, Exclusive
+    };
 
     /// TODO https://github.com/ziglang/zig/issues/3802
     pub const OpenFlags = struct {
         read: bool = true,
         write: bool = false,
+
+        /// Open the file with a lock to prevent other processes from accessing it at the
+        /// same time. An exclusive lock will prevent other processes from acquiring a lock.
+        /// A shared lock will prevent other processes from acquiring a exclusive lock, but
+        /// doesn't prevent other process from getting their own shared locks.
+        ///
+        /// Note that the lock is only advisory on Linux, except in very specific cirsumstances[1].
+        /// This means that a process that does not respect the locking API can still get access
+        /// to the file, despite the lock.
+        ///
+        /// Windows' file locks are mandatory, and any process attempting to access the file will
+        /// receive an error.
+        ///
+        /// [1]: https://www.kernel.org/doc/Documentation/filesystems/mandatory-locking.txt
+        lock: Lock = .None,
+
+        /// Sets whether or not to wait until the file is locked to return. If set to true,
+        /// `error.WouldBlock` will be returned. Otherwise, the file will wait until the file
+        /// is available to proceed.
+        lock_nonblocking: bool = false,
 
         /// This prevents `O_NONBLOCK` from being passed even if `std.io.is_async`.
         /// It allows the use of `noasync` when calling functions related to opening
@@ -59,6 +83,26 @@ pub const File = struct {
         /// Ensures that this open call creates the file, otherwise causes
         /// `error.FileAlreadyExists` to be returned.
         exclusive: bool = false,
+
+        /// Open the file with a lock to prevent other processes from accessing it at the
+        /// same time. An exclusive lock will prevent other processes from acquiring a lock.
+        /// A shared lock will prevent other processes from acquiring a exclusive lock, but
+        /// doesn't prevent other process from getting their own shared locks.
+        ///
+        /// Note that the lock is only advisory on Linux, except in very specific cirsumstances[1].
+        /// This means that a process that does not respect the locking API can still get access
+        /// to the file, despite the lock.
+        ///
+        /// Windows' file locks are mandatory, and any process attempting to access the file will
+        /// receive an error.
+        ///
+        /// [1]: https://www.kernel.org/doc/Documentation/filesystems/mandatory-locking.txt
+        lock: Lock = .None,
+
+        /// Sets whether or not to wait until the file is locked to return. If set to true,
+        /// `error.WouldBlock` will be returned. Otherwise, the file will wait until the file
+        /// is available to proceed.
+        lock_nonblocking: bool = false,
 
         /// For POSIX systems this is the file system mode the file will
         /// be created with.
@@ -89,7 +133,7 @@ pub const File = struct {
         if (self.isTty()) {
             if (self.handle == os.STDOUT_FILENO or self.handle == os.STDERR_FILENO) {
                 // Use getenvC to workaround https://github.com/ziglang/zig/issues/3511
-                if (os.getenvC("TERM")) |term| {
+                if (os.getenvZ("TERM")) |term| {
                     if (std.mem.eql(u8, term, "dumb"))
                         return false;
                 }

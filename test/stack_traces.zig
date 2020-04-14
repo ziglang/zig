@@ -42,6 +42,21 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
         \\}
     ;
 
+    const source_dumpCurrentStackTrace =
+        \\const std = @import("std");
+        \\
+        \\fn bar() void {
+        \\    std.debug.dumpCurrentStackTrace(@returnAddress());
+        \\}
+        \\fn foo() void {
+        \\    bar();
+        \\}
+        \\pub fn main() u8 {
+        \\    foo();
+        \\    return 1;
+        \\}
+    ;
+
     switch (std.Target.current.os.tag) {
         .freebsd => {
             cases.addCase(
@@ -254,6 +269,42 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
                 // release-small
                 \\error: TheSkyIsFalling
                     \\
+                },
+            );
+            cases.addCase(
+                "dumpCurrentStackTrace",
+                source_dumpCurrentStackTrace,
+                [_][]const u8{
+                // debug
+                \\source.zig:7:8: [address] in foo (test)
+                    \\    bar();
+                    \\       ^
+                    \\source.zig:10:8: [address] in main (test)
+                    \\    foo();
+                    \\       ^
+                    \\start.zig:250:29: [address] in std.start.posixCallMainAndExit (test)
+                    \\            return root.main();
+                    \\                            ^
+                    \\start.zig:123:5: [address] in std.start._start (test)
+                    \\    @call(.{ .modifier = .never_inline }, posixCallMainAndExit, .{});
+                    \\    ^
+                    \\
+                ,
+                // release-safe
+                switch (std.Target.current.cpu.arch) {
+                    .aarch64 => "", // TODO disabled; results in segfault
+                    else => 
+                \\start.zig:123:5: [address] in std.start._start (test)
+                    \\    @call(.{ .modifier = .never_inline }, posixCallMainAndExit, .{});
+                    \\    ^
+                    \\
+                    ,
+                },
+                // release-fast
+                \\
+                ,
+                // release-small
+                \\
                 },
             );
         },

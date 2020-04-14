@@ -71,6 +71,7 @@ export X86_64_FREEBSD_SHASUM="$(echo "$X86_64_FREEBSD_JSON" | jq .shasum -r)"
 git clone https://github.com/ziglang/www.ziglang.org --depth 1
 cd www.ziglang.org
 export MASTER_DATE="$(date +%Y-%m-%d)"
+export MASTER_VERSION="$VERSION"
 "../$ZIG" run update-download-page.zig
 
 $S3CMD put -P --no-mime-magic --add-header="cache-control: public, max-age=31536000, immutable" "../$SRC_TARBALL" s3://ziglang.org/builds/

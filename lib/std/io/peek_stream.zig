@@ -24,7 +24,7 @@ pub fn PeekStream(
             .Static => struct {
                 pub fn init(base: InStreamType) Self {
                     return .{
-                        .base = base,
+                        .unbuffered_in_stream = base,
                         .fifo = FifoType.init(),
                     };
                 }
@@ -32,7 +32,7 @@ pub fn PeekStream(
             .Slice => struct {
                 pub fn init(base: InStreamType, buf: []u8) Self {
                     return .{
-                        .base = base,
+                        .unbuffered_in_stream = base,
                         .fifo = FifoType.init(buf),
                     };
                 }
@@ -40,7 +40,7 @@ pub fn PeekStream(
             .Dynamic => struct {
                 pub fn init(base: InStreamType, allocator: *mem.Allocator) Self {
                     return .{
-                        .base = base,
+                        .unbuffered_in_stream = base,
                         .fifo = FifoType.init(allocator),
                     };
                 }
@@ -61,7 +61,7 @@ pub fn PeekStream(
             if (dest_index == dest.len) return dest_index;
 
             // ask the backing stream for more
-            dest_index += try self.base.read(dest[dest_index..]);
+            dest_index += try self.unbuffered_in_stream.read(dest[dest_index..]);
             return dest_index;
         }
 

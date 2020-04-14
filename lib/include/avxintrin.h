@@ -3069,7 +3069,7 @@ _mm256_broadcast_ps(__m128 const *__a)
 static __inline __m256d __DEFAULT_FN_ATTRS
 _mm256_load_pd(double const *__p)
 {
-  return *(__m256d *)__p;
+  return *(const __m256d *)__p;
 }
 
 /// Loads 8 single-precision floating point values from a 32-byte aligned
@@ -3085,7 +3085,7 @@ _mm256_load_pd(double const *__p)
 static __inline __m256 __DEFAULT_FN_ATTRS
 _mm256_load_ps(float const *__p)
 {
-  return *(__m256 *)__p;
+  return *(const __m256 *)__p;
 }
 
 /// Loads 4 double-precision floating point values from an unaligned
@@ -3105,7 +3105,7 @@ _mm256_loadu_pd(double const *__p)
   struct __loadu_pd {
     __m256d_u __v;
   } __attribute__((__packed__, __may_alias__));
-  return ((struct __loadu_pd*)__p)->__v;
+  return ((const struct __loadu_pd*)__p)->__v;
 }
 
 /// Loads 8 single-precision floating point values from an unaligned
@@ -3125,7 +3125,7 @@ _mm256_loadu_ps(float const *__p)
   struct __loadu_ps {
     __m256_u __v;
   } __attribute__((__packed__, __may_alias__));
-  return ((struct __loadu_ps*)__p)->__v;
+  return ((const struct __loadu_ps*)__p)->__v;
 }
 
 /// Loads 256 bits of integer data from a 32-byte aligned memory
@@ -3161,7 +3161,7 @@ _mm256_loadu_si256(__m256i_u const *__p)
   struct __loadu_si256 {
     __m256i_u __v;
   } __attribute__((__packed__, __may_alias__));
-  return ((struct __loadu_si256*)__p)->__v;
+  return ((const struct __loadu_si256*)__p)->__v;
 }
 
 /// Loads 256 bits of integer data from an unaligned memory location

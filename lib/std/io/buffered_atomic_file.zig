@@ -15,6 +15,7 @@ pub const BufferedAtomicFile = struct {
 
     /// TODO when https://github.com/ziglang/zig/issues/2761 is solved
     /// this API will not need an allocator
+    /// TODO integrate this with Dir API
     pub fn create(allocator: *mem.Allocator, dest_path: []const u8) !*BufferedAtomicFile {
         var self = try allocator.create(BufferedAtomicFile);
         self.* = BufferedAtomicFile{
@@ -25,7 +26,7 @@ pub const BufferedAtomicFile = struct {
         };
         errdefer allocator.destroy(self);
 
-        self.atomic_file = try fs.AtomicFile.init(dest_path, File.default_mode);
+        self.atomic_file = try fs.cwd().atomicFile(dest_path, .{});
         errdefer self.atomic_file.deinit();
 
         self.file_stream = self.atomic_file.file.outStream();

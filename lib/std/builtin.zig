@@ -424,7 +424,7 @@ pub const Version = struct {
     }
 
     pub fn parse(text: []const u8) !Version {
-        var it = std.mem.separate(text, ".");
+        var it = std.mem.split(text, ".");
         return Version{
             .major = try std.fmt.parseInt(u32, it.next() orelse return error.InvalidVersion, 10),
             .minor = try std.fmt.parseInt(u32, it.next() orelse "0", 10),
@@ -458,6 +458,8 @@ pub const Version = struct {
 /// therefore must be kept in sync with the compiler implementation.
 pub const CallOptions = struct {
     modifier: Modifier = .auto,
+
+    /// Only valid when `Modifier` is `Modifier.async_kw`.
     stack: ?[]align(std.Target.stack_align) u8 = null,
 
     pub const Modifier = enum {

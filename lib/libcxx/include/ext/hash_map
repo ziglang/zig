@@ -39,14 +39,17 @@ public:
     typedef /unspecified/ iterator;
     typedef /unspecified/ const_iterator;
 
-    explicit hash_map(size_type n = 193, const hasher& hf = hasher(),
+    hash_map();
+    explicit hash_map(size_type n, const hasher& hf = hasher(),
                            const key_equal& eql = key_equal(),
                            const allocator_type& a = allocator_type());
     template <class InputIterator>
-        hash_map(InputIterator f, InputIterator l,
-                      size_type n = 193, const hasher& hf = hasher(),
-                      const key_equal& eql = key_equal(),
-                      const allocator_type& a = allocator_type());
+    hash_map(InputIterator f, InputIterator l);
+    template <class InputIterator>
+    hash_map(InputIterator f, InputIterator l,
+                size_type n, const hasher& hf = hasher(),
+                const key_equal& eql = key_equal(),
+                const allocator_type& a = allocator_type());
     hash_map(const hash_map&);
     ~hash_map();
     hash_map& operator=(const hash_map&);
@@ -315,11 +318,12 @@ private:
 
     allocator_type& __na_;
 
-    __hash_map_node_destructor& operator=(const __hash_map_node_destructor&);
-
 public:
     bool __first_constructed;
     bool __second_constructed;
+
+    __hash_map_node_destructor(__hash_map_node_destructor const&) = default;
+    __hash_map_node_destructor& operator=(const __hash_map_node_destructor&) = delete;
 
     _LIBCPP_INLINE_VISIBILITY
     explicit __hash_map_node_destructor(allocator_type& __na)
@@ -391,10 +395,10 @@ public:
         return __t;
     }
 
-    friend _LIBCPP_INLINE_VISIBILITY 
+    friend _LIBCPP_INLINE_VISIBILITY
     bool operator==(const __hash_map_iterator& __x, const __hash_map_iterator& __y)
         {return __x.__i_ == __y.__i_;}
-    friend _LIBCPP_INLINE_VISIBILITY 
+    friend _LIBCPP_INLINE_VISIBILITY
     bool operator!=(const __hash_map_iterator& __x, const __hash_map_iterator& __y)
         {return __x.__i_ != __y.__i_;}
 
@@ -502,7 +506,7 @@ public:
     typedef __hash_map_iterator<typename __table::iterator>       iterator;
     typedef __hash_map_const_iterator<typename __table::const_iterator> const_iterator;
 
-    _LIBCPP_INLINE_VISIBILITY hash_map() {__table_.rehash(193);}
+    _LIBCPP_INLINE_VISIBILITY hash_map() { }
     explicit hash_map(size_type __n, const hasher& __hf = hasher(),
                            const key_equal& __eql = key_equal());
     hash_map(size_type __n, const hasher& __hf,
@@ -623,7 +627,6 @@ template <class _InputIterator>
 hash_map<_Key, _Tp, _Hash, _Pred, _Alloc>::hash_map(
         _InputIterator __first, _InputIterator __last)
 {
-    __table_.rehash(193);
     insert(__first, __last);
 }
 
@@ -775,7 +778,7 @@ public:
     typedef __hash_map_const_iterator<typename __table::const_iterator> const_iterator;
 
     _LIBCPP_INLINE_VISIBILITY
-    hash_multimap() {__table_.rehash(193);}
+    hash_multimap() { }
     explicit hash_multimap(size_type __n, const hasher& __hf = hasher(),
                                 const key_equal& __eql = key_equal());
     hash_multimap(size_type __n, const hasher& __hf,
@@ -890,7 +893,6 @@ template <class _InputIterator>
 hash_multimap<_Key, _Tp, _Hash, _Pred, _Alloc>::hash_multimap(
         _InputIterator __first, _InputIterator __last)
 {
-    __table_.rehash(193);
     insert(__first, __last);
 }
 

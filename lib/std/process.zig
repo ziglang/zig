@@ -83,8 +83,8 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
 
         for (environ) |env| {
             if (env) |ptr| {
-                const pair = mem.toSlice(u8, ptr);
-                var parts = mem.separate(pair, "=");
+                const pair = mem.spanZ(ptr);
+                var parts = mem.split(pair, "=");
                 const key = parts.next().?;
                 const value = parts.next().?;
                 try result.set(key, value);
@@ -176,7 +176,7 @@ pub const ArgIteratorPosix = struct {
 
         const s = os.argv[self.index];
         self.index += 1;
-        return mem.toSlice(u8, s);
+        return mem.spanZ(s);
     }
 
     pub fn skip(self: *ArgIteratorPosix) bool {
@@ -401,7 +401,7 @@ pub fn argsAlloc(allocator: *mem.Allocator) ![][]u8 {
 
         var i: usize = 0;
         while (i < count) : (i += 1) {
-            result_slice[i] = mem.toSlice(u8, argv[i]);
+            result_slice[i] = mem.spanZ(argv[i]);
         }
 
         return result_slice;
@@ -422,8 +422,8 @@ pub fn argsAlloc(allocator: *mem.Allocator) ![][]u8 {
         try slice_list.append(arg.len);
     }
 
-    const contents_slice = contents.toSliceConst();
-    const slice_sizes = slice_list.toSliceConst();
+    const contents_slice = contents.span();
+    const slice_sizes = slice_list.span();
     const slice_list_bytes = try math.mul(usize, @sizeOf([]u8), slice_sizes.len);
     const total_bytes = try math.add(usize, slice_list_bytes, contents_slice.len);
     const buf = try allocator.alignedAlloc(u8, @alignOf([]u8), total_bytes);
@@ -636,7 +636,7 @@ pub fn getSelfExeSharedLibPaths(allocator: *Allocator) error{OutOfMemory}![][:0]
                 fn callback(info: *os.dl_phdr_info, size: usize, list: *List) !void {
                     const name = info.dlpi_name orelse return;
                     if (name[0] == '/') {
-                        const item = try mem.dupeZ(list.allocator, u8, mem.toSliceConst(u8, name));
+                        const item = try mem.dupeZ(list.allocator, u8, mem.spanZ(name));
                         errdefer list.allocator.free(item);
                         try list.append(item);
                     }
@@ -657,7 +657,7 @@ pub fn getSelfExeSharedLibPaths(allocator: *Allocator) error{OutOfMemory}![][:0]
             var i: u32 = 0;
             while (i < img_count) : (i += 1) {
                 const name = std.c._dyld_get_image_name(i);
-                const item = try mem.dupeZ(allocator, u8, mem.toSliceConst(u8, name));
+                const item = try mem.dupeZ(allocator, u8, mem.spanZ(name));
                 errdefer allocator.free(item);
                 try paths.append(item);
             }

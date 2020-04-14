@@ -23,7 +23,7 @@ pub fn main() anyerror!void {
     }
 
     const stdout = try std.io.getStdOut();
-    try dump.render(&stdout.outStream().stream);
+    try dump.render(stdout.outStream());
 }
 
 /// AST source node
@@ -183,25 +183,25 @@ const Dump = struct {
         try mergeSameStrings(&self.zig_version, zig_version);
         try mergeSameStrings(&self.root_name, root_name);
 
-        for (params.get("builds").?.value.Array.toSliceConst()) |json_build| {
+        for (params.get("builds").?.value.Array.span()) |json_build| {
             const target = json_build.Object.get("target").?.value.String;
             try self.targets.append(target);
         }
 
         // Merge files. If the string matches, it's the same file.
-        const other_files = root.Object.get("files").?.value.Array.toSliceConst();
+        const other_files = root.Object.get("files").?.value.Array.span();
         var other_file_to_mine = std.AutoHashMap(usize, usize).init(self.a());
         for (other_files) |other_file, i| {
             const gop = try self.file_map.getOrPut(other_file.String);
             if (!gop.found_existing) {
-                gop.kv.value = self.file_list.len;
+                gop.kv.value = self.file_list.items.len;
                 try self.file_list.append(other_file.String);
             }
             try other_file_to_mine.putNoClobber(i, gop.kv.value);
         }
 
         // Merge AST nodes. If the file id, line, and column all match, it's the same AST node.
-        const other_ast_nodes = root.Object.get("astNodes").?.value.Array.toSliceConst();
+        const other_ast_nodes = root.Object.get("astNodes").?.value.Array.span();
         var other_ast_node_to_mine = std.AutoHashMap(usize, usize).init(self.a());
         for (other_ast_nodes) |other_ast_node_json, i| {
             const other_file_id = jsonObjInt(other_ast_node_json, "file");
@@ -213,7 +213,7 @@ const Dump = struct {
             };
             const gop = try self.node_map.getOrPut(other_node);
             if (!gop.found_existing) {
-                gop.kv.value = self.node_list.len;
+                gop.kv.value = self.node_list.items.len;
                 try self.node_list.append(other_node);
             }
             try other_ast_node_to_mine.putNoClobber(i, gop.kv.value);
@@ -221,9 +221,9 @@ const Dump = struct {
         // convert fields lists
         for (other_ast_nodes) |other_ast_node_json, i| {
             const my_node_index = other_ast_node_to_mine.get(i).?.value;
-            const my_node = &self.node_list.toSlice()[my_node_index];
+            const my_node = &self.node_list.span()[my_node_index];
             if (other_ast_node_json.Object.get("fields")) |fields_json_kv| {
-                const other_fields = fields_json_kv.value.Array.toSliceConst();
+                const other_fields = fields_json_kv.value.Array.span();
                 my_node.fields = try self.a().alloc(usize, other_fields.len);
                 for (other_fields) |other_field_index, field_i| {
                     const other_index = @intCast(usize, other_field_index.Integer);
@@ -233,7 +233,7 @@ const Dump = struct {
         }
 
         // Merge errors. If the AST Node matches, it's the same error value.
-        const other_errors = root.Object.get("errors").?.value.Array.toSliceConst();
+        const other_errors = root.Object.get("errors").?.value.Array.span();
         var other_error_to_mine = std.AutoHashMap(usize, usize).init(self.a());
         for (other_errors) |other_error_json, i| {
             const other_src_id = jsonObjInt(other_error_json, "src");
@@ -243,7 +243,7 @@ const Dump = struct {
             };
             const gop = try self.error_map.getOrPut(other_error);
             if (!gop.found_existing) {
-                gop.kv.value = self.error_list.len;
+                gop.kv.value = self.error_list.items.len;
                 try self.error_list.append(other_error);
             }
             try other_error_to_mine.putNoClobber(i, gop.kv.value);
@@ -253,7 +253,7 @@ const Dump = struct {
         // First we identify all the simple types and merge those.
         // Example: void, type, noreturn
         // We can also do integers and floats.
-        const other_types = root.Object.get("types").?.value.Array.toSliceConst();
+        const other_types = root.Object.get("types").?.value.Array.span();
         var other_types_to_mine = std.AutoHashMap(usize, usize).init(self.a());
         for (other_types) |other_type_json, i| {
             const type_kind = jsonObjInt(other_type_json, "kind");
@@ -304,7 +304,7 @@ const Dump = struct {
     ) !void {
         const gop = try self.type_map.getOrPut(other_type);
         if (!gop.found_existing) {
-            gop.kv.value = self.type_list.len;
+            gop.kv.value = self.type_list.items.len;
             try self.type_list.append(other_type);
         }
         try other_types_to_mine.putNoClobber(other_type_index, gop.kv.value);
@@ -336,7 +336,7 @@ const Dump = struct {
 
         try jw.objectField("builds");
         try jw.beginArray();
-        for (self.targets.toSliceConst()) |target| {
+        for (self.targets.span()) |target| {
             try jw.arrayElem();
             try jw.beginObject();
             try jw.objectField("target");
@@ -349,7 +349,7 @@ const Dump = struct {
 
         try jw.objectField("types");
         try jw.beginArray();
-        for (self.type_list.toSliceConst()) |t| {
+        for (self.type_list.span()) |t| {
             try jw.arrayElem();
             try jw.beginObject();
 
@@ -379,7 +379,7 @@ const Dump = struct {
 
         try jw.objectField("errors");
         try jw.beginArray();
-        for (self.error_list.toSliceConst()) |zig_error| {
+        for (self.error_list.span()) |zig_error| {
             try jw.arrayElem();
             try jw.beginObject();
 
@@ -395,7 +395,7 @@ const Dump = struct {
 
         try jw.objectField("astNodes");
         try jw.beginArray();
-        for (self.node_list.toSliceConst()) |node| {
+        for (self.node_list.span()) |node| {
             try jw.arrayElem();
             try jw.beginObject();
 
@@ -425,7 +425,7 @@ const Dump = struct {
 
         try jw.objectField("files");
         try jw.beginArray();
-        for (self.file_list.toSliceConst()) |file| {
+        for (self.file_list.span()) |file| {
             try jw.arrayElem();
             try jw.emitString(file);
         }

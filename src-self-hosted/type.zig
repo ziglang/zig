@@ -387,10 +387,10 @@ pub const Type = struct {
             };
             errdefer comp.gpa().destroy(self);
 
-            var name_buf = try std.Buffer.initSize(comp.gpa(), 0);
+            var name_buf = std.ArrayList(u8).init(comp.gpa());
             defer name_buf.deinit();
 
-            const name_stream = &std.io.BufferOutStream.init(&name_buf).stream;
+            const name_stream = name_buf.outStream();
 
             switch (key.data) {
                 .Generic => |generic| {

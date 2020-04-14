@@ -145,7 +145,7 @@ pub const Coff = struct {
         blk: while (i < debug_dir_entry_count) : (i += 1) {
             const debug_dir_entry = try in.readStruct(DebugDirectoryEntry);
             if (debug_dir_entry.type == IMAGE_DEBUG_TYPE_CODEVIEW) {
-                for (self.sections.toSlice()) |*section| {
+                for (self.sections.span()) |*section| {
                     const section_start = section.header.virtual_address;
                     const section_size = section.header.misc.virtual_size;
                     const rva = debug_dir_entry.address_of_raw_data;
@@ -181,7 +181,7 @@ pub const Coff = struct {
     }
 
     pub fn loadSections(self: *Coff) !void {
-        if (self.sections.len == self.coff_header.number_of_sections)
+        if (self.sections.items.len == self.coff_header.number_of_sections)
             return;
 
         try self.sections.ensureCapacity(self.coff_header.number_of_sections);
@@ -211,7 +211,7 @@ pub const Coff = struct {
     }
 
     pub fn getSection(self: *Coff, comptime name: []const u8) ?*Section {
-        for (self.sections.toSlice()) |*sec| {
+        for (self.sections.span()) |*sec| {
             if (mem.eql(u8, sec.header.name[0..name.len], name)) {
                 return sec;
             }

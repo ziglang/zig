@@ -7,10 +7,6 @@ fn test__floatuntitf(a: u128, expected: f128) void {
 }
 
 test "floatuntitf" {
-    if (@import("std").Target.current.os.tag == .windows) {
-        // TODO https://github.com/ziglang/zig/issues/508
-        return error.SkipZigTest;
-    }
     test__floatuntitf(0, 0.0);
 
     test__floatuntitf(1, 1.0);

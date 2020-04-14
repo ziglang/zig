@@ -1,5 +1,6 @@
 const std = @import("std");
 const mem = std.mem;
+const math = std.math;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 
@@ -273,6 +274,200 @@ test "vector comparison operators" {
             }
         }
     };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "vector division operators" {
+    const S = struct {
+        fn doTheTestDiv(comptime T: type, x: @Vector(4, T), y: @Vector(4, T)) void {
+            if (!comptime std.meta.trait.isSignedInt(T)) {
+                const d0 = x / y;
+                for (@as([4]T, d0)) |v, i| {
+                    expectEqual(x[i] / y[i], v);
+                }
+            }
+            const d1 = @divExact(x, y);
+            for (@as([4]T, d1)) |v, i| {
+                expectEqual(@divExact(x[i], y[i]), v);
+            }
+            const d2 = @divFloor(x, y);
+            for (@as([4]T, d2)) |v, i| {
+                expectEqual(@divFloor(x[i], y[i]), v);
+            }
+            const d3 = @divTrunc(x, y);
+            for (@as([4]T, d3)) |v, i| {
+                expectEqual(@divTrunc(x[i], y[i]), v);
+            }
+        }
+
+        fn doTheTestMod(comptime T: type, x: @Vector(4, T), y: @Vector(4, T)) void {
+            if ((!comptime std.meta.trait.isSignedInt(T)) and @typeInfo(T) != .Float) {
+                const r0 = x % y;
+                for (@as([4]T, r0)) |v, i| {
+                    expectEqual(x[i] % y[i], v);
+                }
+            }
+            const r1 = @mod(x, y);
+            for (@as([4]T, r1)) |v, i| {
+                expectEqual(@mod(x[i], y[i]), v);
+            }
+            const r2 = @rem(x, y);
+            for (@as([4]T, r2)) |v, i| {
+                expectEqual(@rem(x[i], y[i]), v);
+            }
+        }
+
+        fn doTheTest() void {
+            // https://github.com/ziglang/zig/issues/4952
+            if (std.builtin.os.tag != .windows) {
+                doTheTestDiv(f16, [4]f16{ 4.0, -4.0, 4.0, -4.0 }, [4]f16{ 1.0, 2.0, -1.0, -2.0 });
+            }
+
+            doTheTestDiv(f32, [4]f32{ 4.0, -4.0, 4.0, -4.0 }, [4]f32{ 1.0, 2.0, -1.0, -2.0 });
+            doTheTestDiv(f64, [4]f64{ 4.0, -4.0, 4.0, -4.0 }, [4]f64{ 1.0, 2.0, -1.0, -2.0 });
+
+            // https://github.com/ziglang/zig/issues/4952
+            if (std.builtin.os.tag != .windows) {
+                doTheTestMod(f16, [4]f16{ 4.0, -4.0, 4.0, -4.0 }, [4]f16{ 1.0, 2.0, 0.5, 3.0 });
+            }
+            doTheTestMod(f32, [4]f32{ 4.0, -4.0, 4.0, -4.0 }, [4]f32{ 1.0, 2.0, 0.5, 3.0 });
+            doTheTestMod(f64, [4]f64{ 4.0, -4.0, 4.0, -4.0 }, [4]f64{ 1.0, 2.0, 0.5, 3.0 });
+
+            doTheTestDiv(i8, [4]i8{ 4, -4, 4, -4 }, [4]i8{ 1, 2, -1, -2 });
+            doTheTestDiv(i16, [4]i16{ 4, -4, 4, -4 }, [4]i16{ 1, 2, -1, -2 });
+            doTheTestDiv(i32, [4]i32{ 4, -4, 4, -4 }, [4]i32{ 1, 2, -1, -2 });
+            doTheTestDiv(i64, [4]i64{ 4, -4, 4, -4 }, [4]i64{ 1, 2, -1, -2 });
+
+            doTheTestMod(i8, [4]i8{ 4, -4, 4, -4 }, [4]i8{ 1, 2, 4, 8 });
+            doTheTestMod(i16, [4]i16{ 4, -4, 4, -4 }, [4]i16{ 1, 2, 4, 8 });
+            doTheTestMod(i32, [4]i32{ 4, -4, 4, -4 }, [4]i32{ 1, 2, 4, 8 });
+            doTheTestMod(i64, [4]i64{ 4, -4, 4, -4 }, [4]i64{ 1, 2, 4, 8 });
+
+            doTheTestDiv(u8, [4]u8{ 1, 2, 4, 8 }, [4]u8{ 1, 1, 2, 4 });
+            doTheTestDiv(u16, [4]u16{ 1, 2, 4, 8 }, [4]u16{ 1, 1, 2, 4 });
+            doTheTestDiv(u32, [4]u32{ 1, 2, 4, 8 }, [4]u32{ 1, 1, 2, 4 });
+            doTheTestDiv(u64, [4]u64{ 1, 2, 4, 8 }, [4]u64{ 1, 1, 2, 4 });
+
+            doTheTestMod(u8, [4]u8{ 1, 2, 4, 8 }, [4]u8{ 1, 1, 2, 4 });
+            doTheTestMod(u16, [4]u16{ 1, 2, 4, 8 }, [4]u16{ 1, 1, 2, 4 });
+            doTheTestMod(u32, [4]u32{ 1, 2, 4, 8 }, [4]u32{ 1, 1, 2, 4 });
+            doTheTestMod(u64, [4]u64{ 1, 2, 4, 8 }, [4]u64{ 1, 1, 2, 4 });
+        }
+    };
+
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "vector bitwise not operator" {
+    const S = struct {
+        fn doTheTestNot(comptime T: type, x: @Vector(4, T)) void {
+            var y = ~x;
+            for (@as([4]T, y)) |v, i| {
+                expectEqual(~x[i], v);
+            }
+        }
+        fn doTheTest() void {
+            doTheTestNot(u8, [_]u8{ 0, 2, 4, 255 });
+            doTheTestNot(u16, [_]u16{ 0, 2, 4, 255 });
+            doTheTestNot(u32, [_]u32{ 0, 2, 4, 255 });
+            doTheTestNot(u64, [_]u64{ 0, 2, 4, 255 });
+
+            doTheTestNot(u8, [_]u8{ 0, 2, 4, 255 });
+            doTheTestNot(u16, [_]u16{ 0, 2, 4, 255 });
+            doTheTestNot(u32, [_]u32{ 0, 2, 4, 255 });
+            doTheTestNot(u64, [_]u64{ 0, 2, 4, 255 });
+        }
+    };
+
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "vector shift operators" {
+    const S = struct {
+        fn doTheTestShift(x: var, y: var) void {
+            const N = @typeInfo(@TypeOf(x)).Array.len;
+            const TX = @typeInfo(@TypeOf(x)).Array.child;
+            const TY = @typeInfo(@TypeOf(y)).Array.child;
+
+            var xv = @as(@Vector(N, TX), x);
+            var yv = @as(@Vector(N, TY), y);
+
+            var z0 = xv >> yv;
+            for (@as([N]TX, z0)) |v, i| {
+                expectEqual(x[i] >> y[i], v);
+            }
+            var z1 = xv << yv;
+            for (@as([N]TX, z1)) |v, i| {
+                expectEqual(x[i] << y[i], v);
+            }
+        }
+        fn doTheTestShiftExact(x: var, y: var, dir: enum { Left, Right }) void {
+            const N = @typeInfo(@TypeOf(x)).Array.len;
+            const TX = @typeInfo(@TypeOf(x)).Array.child;
+            const TY = @typeInfo(@TypeOf(y)).Array.child;
+
+            var xv = @as(@Vector(N, TX), x);
+            var yv = @as(@Vector(N, TY), y);
+
+            var z = if (dir == .Left) @shlExact(xv, yv) else @shrExact(xv, yv);
+            for (@as([N]TX, z)) |v, i| {
+                const check = if (dir == .Left) x[i] << y[i] else x[i] >> y[i];
+                expectEqual(check, v);
+            }
+        }
+        fn doTheTest() void {
+            doTheTestShift([_]u8{ 0, 2, 4, math.maxInt(u8) }, [_]u3{ 2, 0, 2, 7 });
+            doTheTestShift([_]u16{ 0, 2, 4, math.maxInt(u16) }, [_]u4{ 2, 0, 2, 15 });
+            doTheTestShift([_]u24{ 0, 2, 4, math.maxInt(u24) }, [_]u5{ 2, 0, 2, 23 });
+            doTheTestShift([_]u32{ 0, 2, 4, math.maxInt(u32) }, [_]u5{ 2, 0, 2, 31 });
+            doTheTestShift([_]u64{ 0xfe, math.maxInt(u64) }, [_]u6{ 0, 63 });
+
+            doTheTestShift([_]i8{ 0, 2, 4, math.maxInt(i8) }, [_]u3{ 2, 0, 2, 7 });
+            doTheTestShift([_]i16{ 0, 2, 4, math.maxInt(i16) }, [_]u4{ 2, 0, 2, 7 });
+            doTheTestShift([_]i24{ 0, 2, 4, math.maxInt(i24) }, [_]u5{ 2, 0, 2, 7 });
+            doTheTestShift([_]i32{ 0, 2, 4, math.maxInt(i32) }, [_]u5{ 2, 0, 2, 7 });
+            doTheTestShift([_]i64{ 0xfe, math.maxInt(i64) }, [_]u6{ 0, 63 });
+
+            doTheTestShiftExact([_]u8{ 0, 1, 1 << 7, math.maxInt(u8) ^ 1 }, [_]u3{ 4, 0, 7, 1 }, .Right);
+            doTheTestShiftExact([_]u16{ 0, 1, 1 << 15, math.maxInt(u16) ^ 1 }, [_]u4{ 4, 0, 15, 1 }, .Right);
+            doTheTestShiftExact([_]u24{ 0, 1, 1 << 23, math.maxInt(u24) ^ 1 }, [_]u5{ 4, 0, 23, 1 }, .Right);
+            doTheTestShiftExact([_]u32{ 0, 1, 1 << 31, math.maxInt(u32) ^ 1 }, [_]u5{ 4, 0, 31, 1 }, .Right);
+            doTheTestShiftExact([_]u64{ 1 << 63, 1 }, [_]u6{ 63, 0 }, .Right);
+
+            doTheTestShiftExact([_]u8{ 0, 1, 1, math.maxInt(u8) ^ (1 << 7) }, [_]u3{ 4, 0, 7, 1 }, .Left);
+            doTheTestShiftExact([_]u16{ 0, 1, 1, math.maxInt(u16) ^ (1 << 15) }, [_]u4{ 4, 0, 15, 1 }, .Left);
+            doTheTestShiftExact([_]u24{ 0, 1, 1, math.maxInt(u24) ^ (1 << 23) }, [_]u5{ 4, 0, 23, 1 }, .Left);
+            doTheTestShiftExact([_]u32{ 0, 1, 1, math.maxInt(u32) ^ (1 << 31) }, [_]u5{ 4, 0, 31, 1 }, .Left);
+            doTheTestShiftExact([_]u64{ 1 << 63, 1 }, [_]u6{ 0, 63 }, .Left);
+        }
+    };
+
+    switch (std.builtin.arch) {
+        .i386,
+        .aarch64,
+        .aarch64_be,
+        .aarch64_32,
+        .arm,
+        .armeb,
+        .thumb,
+        .thumbeb,
+        .mips,
+        .mipsel,
+        .mips64,
+        .mips64el,
+        .riscv64,
+        .sparcv9,
+        => {
+            // LLVM miscompiles on this architecture
+            // https://github.com/ziglang/zig/issues/4951
+            return error.SkipZigTest;
+        },
+        else => {},
+    }
+
     S.doTheTest();
     comptime S.doTheTest();
 }

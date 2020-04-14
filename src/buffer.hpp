@@ -178,10 +178,7 @@ static inline bool buf_starts_with_str(Buf *buf, const char *str) {
 }
 
 static inline bool buf_ends_with_mem(Buf *buf, const char *mem, size_t mem_len) {
-    if (buf_len(buf) < mem_len) {
-        return false;
-    }
-    return memcmp(buf_ptr(buf) + buf_len(buf) - mem_len, mem, mem_len) == 0;
+    return mem_ends_with_mem(buf_ptr(buf), buf_len(buf), mem, mem_len);
 }
 
 static inline bool buf_ends_with_str(Buf *buf, const char *str) {

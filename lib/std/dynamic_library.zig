@@ -254,9 +254,11 @@ pub const ElfDynLib = struct {
         };
     }
 
+    pub const openC = @compileError("deprecated: renamed to openZ");
+
     /// Trusts the file. Malicious file will be able to execute arbitrary code.
-    pub fn openC(path_c: [*:0]const u8) !ElfDynLib {
-        return open(mem.toSlice(u8, path_c));
+    pub fn openZ(path_c: [*:0]const u8) !ElfDynLib {
+        return open(mem.spanZ(path_c));
     }
 
     /// Trusts the file
@@ -285,7 +287,7 @@ pub const ElfDynLib = struct {
             if (0 == (@as(u32, 1) << @intCast(u5, self.syms[i].st_info & 0xf) & OK_TYPES)) continue;
             if (0 == (@as(u32, 1) << @intCast(u5, self.syms[i].st_info >> 4) & OK_BINDS)) continue;
             if (0 == self.syms[i].st_shndx) continue;
-            if (!mem.eql(u8, name, mem.toSliceConst(u8, self.strings + self.syms[i].st_name))) continue;
+            if (!mem.eql(u8, name, mem.spanZ(self.strings + self.syms[i].st_name))) continue;
             if (maybe_versym) |versym| {
                 if (!checkver(self.verdef.?, versym[i], vername, self.strings))
                     continue;
@@ -316,7 +318,7 @@ fn checkver(def_arg: *elf.Verdef, vsym_arg: i32, vername: []const u8, strings: [
         def = @intToPtr(*elf.Verdef, @ptrToInt(def) + def.vd_next);
     }
     const aux = @intToPtr(*elf.Verdaux, @ptrToInt(def) + def.vd_aux);
-    return mem.eql(u8, vername, mem.toSliceConst(u8, strings + aux.vda_name));
+    return mem.eql(u8, vername, mem.spanZ(strings + aux.vda_name));
 }
 
 pub const WindowsDynLib = struct {
@@ -329,7 +331,9 @@ pub const WindowsDynLib = struct {
         return openW(&path_w);
     }
 
-    pub fn openC(path_c: [*:0]const u8) !WindowsDynLib {
+    pub const openC = @compileError("deprecated: renamed to openZ");
+
+    pub fn openZ(path_c: [*:0]const u8) !WindowsDynLib {
         const path_w = try windows.cStrToPrefixedFileW(path_c);
         return openW(&path_w);
     }
@@ -362,10 +366,12 @@ pub const DlDynlib = struct {
 
     pub fn open(path: []const u8) !DlDynlib {
         const path_c = try os.toPosixPath(path);
-        return openC(&path_c);
+        return openZ(&path_c);
     }
 
-    pub fn openC(path_c: [*:0]const u8) !DlDynlib {
+    pub const openC = @compileError("deprecated: renamed to openZ");
+
+    pub fn openZ(path_c: [*:0]const u8) !DlDynlib {
         return DlDynlib{
             .handle = system.dlopen(path_c, system.RTLD_LAZY) orelse {
                 return error.FileNotFound;

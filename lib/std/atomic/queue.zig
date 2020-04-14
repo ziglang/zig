@@ -5,6 +5,8 @@ const expect = std.testing.expect;
 
 /// Many producer, many consumer, non-allocating, thread-safe.
 /// Uses a mutex to protect access.
+/// The queue does not manage ownership and the user is responsible to
+/// manage the storage of the nodes.
 pub fn Queue(comptime T: type) type {
     return struct {
         head: ?*Node,
@@ -14,6 +16,8 @@ pub fn Queue(comptime T: type) type {
         pub const Self = @This();
         pub const Node = std.TailQueue(T).Node;
 
+        /// Initializes a new queue. The queue does not provide a `deinit()`
+        /// function, so the user must take care of cleaning up the queue elements.
         pub fn init() Self {
             return Self{
                 .head = null,
@@ -22,6 +26,8 @@ pub fn Queue(comptime T: type) type {
             };
         }
 
+        /// Appends `node` to the queue.
+        /// The lifetime of `node` must be longer than lifetime of queue.
         pub fn put(self: *Self, node: *Node) void {
             node.next = null;
 
@@ -38,6 +44,9 @@ pub fn Queue(comptime T: type) type {
             }
         }
 
+        /// Gets a previously inserted node or returns `null` if there is none.
+        /// It is safe to `get()` a node from the queue while another thread tries
+        /// to `remove()` the same node at the same time.
         pub fn get(self: *Self) ?*Node {
             const held = self.mutex.acquire();
             defer held.release();
@@ -71,7 +80,9 @@ pub fn Queue(comptime T: type) type {
             }
         }
 
-        /// Thread-safe with get() and remove(). Returns whether node was actually removed.
+        /// Removes a node from the queue, returns whether node was actually removed.
+        /// It is safe to `remove()` a node from the queue while another thread tries
+        /// to `get()` the same node at the same time.
         pub fn remove(self: *Self, node: *Node) bool {
             const held = self.mutex.acquire();
             defer held.release();
@@ -95,16 +106,23 @@ pub fn Queue(comptime T: type) type {
             return true;
         }
 
+        /// Returns `true` if the queue is currently empty.
+        /// Note that in a multi-consumer environment a return value of `false`
+        /// does not mean that `get` will yield a non-`null` value!
         pub fn isEmpty(self: *Self) bool {
             const held = self.mutex.acquire();
             defer held.release();
             return self.head == null;
         }
 
+        /// Dumps the contents of the queue to `stderr`.
         pub fn dump(self: *Self) void {
             self.dumpToStream(std.io.getStdErr().outStream()) catch return;
         }
 
+        /// Dumps the contents of the queue to `stream`.
+        /// Up to 4 elements from the head are dumped and the tail of the queue is
+        /// dumped as well.
         pub fn dumpToStream(self: *Self, stream: var) !void {
             const S = struct {
                 fn dumpRecursive(
@@ -227,7 +245,7 @@ fn startPuts(ctx: *Context) u8 {
     var r = std.rand.DefaultPrng.init(0xdeadbeef);
     while (put_count != 0) : (put_count -= 1) {
         std.time.sleep(1); // let the os scheduler be our fuzz
-        const x = @bitCast(i32, r.random.scalar(u32));
+        const x = @bitCast(i32, r.random.int(u32));
         const node = ctx.allocator.create(Queue(i32).Node) catch unreachable;
         node.* = .{
             .prev = undefined,

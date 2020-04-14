@@ -235,8 +235,16 @@ pub fn panic(comptime format: []const u8, args: var) noreturn {
     panicExtra(null, first_trace_addr, format, args);
 }
 
-/// TODO multithreaded awareness
+/// Non-zero whenever the program triggered a panic.
+/// The counter is incremented/decremented atomically.
 var panicking: u8 = 0;
+
+// Locked to avoid interleaving panic messages from multiple threads.
+var panic_mutex = std.Mutex.init();
+
+/// Counts how many times the panic handler is invoked by this thread.
+/// This is used to catch and handle panics triggered by the panic handler.
+threadlocal var panic_stage: usize = 0;
 
 pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, comptime format: []const u8, args: var) noreturn {
     @setCold(true);
@@ -247,25 +255,50 @@ pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, c
         resetSegfaultHandler();
     }
 
-    switch (@atomicRmw(u8, &panicking, .Add, 1, .SeqCst)) {
+    switch (panic_stage) {
         0 => {
-            const stderr = getStderrStream();
-            noasync stderr.print(format ++ "\n", args) catch os.abort();
-            if (trace) |t| {
-                dumpStackTrace(t.*);
+            panic_stage = 1;
+
+            _ = @atomicRmw(u8, &panicking, .Add, 1, .SeqCst);
+
+            // Make sure to release the mutex when done
+            {
+                const held = panic_mutex.acquire();
+                defer held.release();
+
+                const stderr = getStderrStream();
+                noasync stderr.print(format ++ "\n", args) catch os.abort();
+                if (trace) |t| {
+                    dumpStackTrace(t.*);
+                }
+                dumpCurrentStackTrace(first_trace_addr);
             }
-            dumpCurrentStackTrace(first_trace_addr);
+
+            if (@atomicRmw(u8, &panicking, .Sub, 1, .SeqCst) != 1) {
+                // Another thread is panicking, wait for the last one to finish
+                // and call abort()
+
+                // Sleep forever without hammering the CPU
+                var event = std.ResetEvent.init();
+                event.wait();
+
+                unreachable;
+            }
         },
         1 => {
-            // TODO detect if a different thread caused the panic, because in that case
-            // we would want to return here instead of calling abort, so that the thread
-            // which first called panic can finish printing a stack trace.
-            warn("Panicked during a panic. Aborting.\n", .{});
+            panic_stage = 2;
+
+            // A panic happened while trying to print a previous panic message,
+            // we're still holding the mutex but that's fine as we're going to
+            // call abort()
+            const stderr = getStderrStream();
+            noasync stderr.print("Panicked during a panic. Aborting.\n", .{}) catch os.abort();
         },
         else => {
             // Panicked while printing "Panicked during a panic."
         },
     }
+
     os.abort();
 }
 
@@ -621,6 +654,8 @@ pub fn openSelfDebugInfo(allocator: *mem.Allocator) anyerror!DebugInfo {
         switch (builtin.os.tag) {
             .linux,
             .freebsd,
+            .netbsd,
+            .dragonfly,
             .macosx,
             .windows,
             => return DebugInfo.init(allocator),
@@ -700,7 +735,7 @@ fn openCoffDebugInfo(allocator: *mem.Allocator, coff_file_path: [:0]const u16) !
         for (present) |_| {
             const name_offset = try pdb_stream.inStream().readIntLittle(u32);
             const name_index = try pdb_stream.inStream().readIntLittle(u32);
-            const name = mem.toSlice(u8, @ptrCast([*:0]u8, name_bytes.ptr + name_offset));
+            const name = mem.spanZ(@ptrCast([*:0]u8, name_bytes.ptr + name_offset));
             if (mem.eql(u8, name, "/names")) {
                 break :str_tab_index name_index;
             }
@@ -1014,7 +1049,7 @@ const MachoSymbol = struct {
 
 fn mapWholeFile(path: []const u8) ![]align(mem.page_size) const u8 {
     noasync {
-        const file = try fs.openFileAbsolute(path, .{ .always_blocking = true });
+        const file = try fs.cwd().openFile(path, .{ .always_blocking = true });
         defer file.close();
 
         const file_len = try math.cast(usize, try file.getEndPos());
@@ -1096,7 +1131,7 @@ pub const DebugInfo = struct {
                     const obj_di = try self.allocator.create(ModuleDebugInfo);
                     errdefer self.allocator.destroy(obj_di);
 
-                    const macho_path = mem.toSliceConst(u8, std.c._dyld_get_image_name(i));
+                    const macho_path = mem.spanZ(std.c._dyld_get_image_name(i));
                     obj_di.* = openMachODebugInfo(self.allocator, macho_path) catch |err| switch (err) {
                         error.FileNotFound => return error.MissingDebugInfo,
                         else => return err,
@@ -1178,7 +1213,7 @@ pub const DebugInfo = struct {
                 const obj_di = try self.allocator.create(ModuleDebugInfo);
                 errdefer self.allocator.destroy(obj_di);
 
-                obj_di.* = openCoffDebugInfo(self.allocator, name_buffer[0..:0]) catch |err| switch (err) {
+                obj_di.* = openCoffDebugInfo(self.allocator, name_buffer[0 .. len + 4 :0]) catch |err| switch (err) {
                     error.FileNotFound => return error.MissingDebugInfo,
                     else => return err,
                 };
@@ -1219,10 +1254,7 @@ pub const DebugInfo = struct {
                     if (context.address >= seg_start and context.address < seg_end) {
                         // Android libc uses NULL instead of an empty string to mark the
                         // main program
-                        context.name = if (info.dlpi_name) |dlpi_name|
-                            mem.toSliceConst(u8, dlpi_name)
-                        else
-                            "";
+                        context.name = mem.spanZ(info.dlpi_name) orelse "";
                         context.base_address = info.dlpi_addr;
                         // Stop the iteration
                         return error.Found;
@@ -1391,7 +1423,7 @@ pub const ModuleDebugInfo = switch (builtin.os.tag) {
                 return SymbolInfo{};
 
             assert(symbol.ofile.?.n_strx < self.strings.len);
-            const o_file_path = mem.toSliceConst(u8, self.strings.ptr + symbol.ofile.?.n_strx);
+            const o_file_path = mem.spanZ(self.strings.ptr + symbol.ofile.?.n_strx);
 
             // Check if its debug infos are already in the cache
             var o_file_di = self.ofiles.getValue(o_file_path) orelse
@@ -1446,9 +1478,9 @@ pub const ModuleDebugInfo = switch (builtin.os.tag) {
 
             var coff_section: *coff.Section = undefined;
             const mod_index = for (self.sect_contribs) |sect_contrib| {
-                if (sect_contrib.Section > self.coff.sections.len) continue;
+                if (sect_contrib.Section > self.coff.sections.items.len) continue;
                 // Remember that SectionContribEntry.Section is 1-based.
-                coff_section = &self.coff.sections.toSlice()[sect_contrib.Section - 1];
+                coff_section = &self.coff.sections.span()[sect_contrib.Section - 1];
 
                 const vaddr_start = coff_section.header.virtual_address + sect_contrib.Offset;
                 const vaddr_end = vaddr_start + sect_contrib.Size;
@@ -1475,7 +1507,7 @@ pub const ModuleDebugInfo = switch (builtin.os.tag) {
                         const vaddr_start = coff_section.header.virtual_address + proc_sym.CodeOffset;
                         const vaddr_end = vaddr_start + proc_sym.CodeSize;
                         if (relocated_address >= vaddr_start and relocated_address < vaddr_end) {
-                            break mem.toSliceConst(u8, @ptrCast([*:0]u8, proc_sym) + @sizeOf(pdb.ProcSym));
+                            break mem.spanZ(@ptrCast([*:0]u8, proc_sym) + @sizeOf(pdb.ProcSym));
                         }
                     },
                     else => {},
@@ -1588,7 +1620,7 @@ pub const ModuleDebugInfo = switch (builtin.os.tag) {
             };
         }
     },
-    .linux, .freebsd => struct {
+    .linux, .netbsd, .freebsd, .dragonfly => struct {
         base_address: usize,
         dwarf: DW.DwarfInfo,
         mapped_memory: []const u8,
@@ -1634,7 +1666,11 @@ fn getDebugInfoAllocator() *mem.Allocator {
 }
 
 /// Whether or not the current target can print useful debug information when a segfault occurs.
-pub const have_segfault_handling_support = builtin.os.tag == .linux or builtin.os.tag == .windows;
+pub const have_segfault_handling_support = switch (builtin.os.tag) {
+    .linux, .netbsd => true,
+    .windows => true,
+    else => false,
+};
 pub const enable_segfault_handler: bool = if (@hasDecl(root, "enable_segfault_handler"))
     root.enable_segfault_handler
 else
@@ -1686,13 +1722,17 @@ fn resetSegfaultHandler() void {
     os.sigaction(os.SIGBUS, &act, null);
 }
 
-fn handleSegfaultLinux(sig: i32, info: *const os.siginfo_t, ctx_ptr: *const c_void) callconv(.C) noreturn {
+fn handleSegfaultLinux(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const c_void) callconv(.C) noreturn {
     // Reset to the default handler so that if a segfault happens in this handler it will crash
     // the process. Also when this handler returns, the original instruction will be repeated
     // and the resulting segfault will crash the process rather than continually dump stack traces.
     resetSegfaultHandler();
 
-    const addr = @ptrToInt(info.fields.sigfault.addr);
+    const addr = switch (builtin.os.tag) {
+        .linux => @ptrToInt(info.fields.sigfault.addr),
+        .netbsd => @ptrToInt(info.info.reason.fault.addr),
+        else => unreachable,
+    };
     switch (sig) {
         os.SIGSEGV => std.debug.warn("Segmentation fault at address 0x{x}\n", .{addr}),
         os.SIGILL => std.debug.warn("Illegal instruction at address 0x{x}\n", .{addr}),

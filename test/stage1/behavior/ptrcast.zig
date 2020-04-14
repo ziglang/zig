@@ -1,5 +1,5 @@
-const builtin = @import("builtin");
 const std = @import("std");
+const builtin = std.builtin;
 const expect = std.testing.expect;
 
 test "reinterpret bytes as integer with nonzero offset" {
@@ -13,7 +13,7 @@ fn testReinterpretBytesAsInteger() void {
         builtin.Endian.Little => 0xab785634,
         builtin.Endian.Big => 0x345678ab,
     };
-    expect(@ptrCast(*align(1) const u32, bytes[1..5].ptr).* == expected);
+    expect(@ptrCast(*align(1) const u32, bytes[1..5]).* == expected);
 }
 
 test "reinterpret bytes of an array into an extern struct" {
@@ -36,8 +36,12 @@ fn testReinterpretBytesAsExternStruct() void {
 }
 
 test "reinterpret struct field at comptime" {
-    const numLittle = comptime Bytes.init(0x12345678);
-    expect(std.mem.eql(u8, &[_]u8{ 0x78, 0x56, 0x34, 0x12 }, &numLittle.bytes));
+    const numNative = comptime Bytes.init(0x12345678);
+    if (builtin.endian != .Little) {
+        expect(std.mem.eql(u8, &[_]u8{ 0x12, 0x34, 0x56, 0x78 }, &numNative.bytes));
+    } else {
+        expect(std.mem.eql(u8, &[_]u8{ 0x78, 0x56, 0x34, 0x12 }, &numNative.bytes));
+    }
 }
 
 const Bytes = struct {

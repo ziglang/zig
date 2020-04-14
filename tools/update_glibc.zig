@@ -20,6 +20,8 @@ const lib_names = [_][]const u8{
     "m",
     "pthread",
     "rt",
+    "ld",
+    "util",
 };
 
 // fpu/nofpu are hardcoded elsewhere, based on .gnueabi/.gnueabihf with an exception for .arm
@@ -154,22 +156,24 @@ pub fn main() !void {
         const fn_set = &target_funcs_gop.kv.value.list;
 
         for (lib_names) |lib_name, lib_name_index| {
-            const basename = try fmt.allocPrint(allocator, "lib{}.abilist", .{lib_name});
+            const lib_prefix = if (std.mem.eql(u8, lib_name, "ld")) "" else "lib";
+            const basename = try fmt.allocPrint(allocator, "{}{}.abilist", .{ lib_prefix, lib_name });
             const abi_list_filename = blk: {
-                if (abi_list.targets[0].abi == .gnuabi64 and std.mem.eql(u8, lib_name, "c")) {
+                const is_c = std.mem.eql(u8, lib_name, "c");
+                const is_m = std.mem.eql(u8, lib_name, "m");
+                const is_ld = std.mem.eql(u8, lib_name, "ld");
+                if (abi_list.targets[0].abi == .gnuabi64 and (is_c or is_ld)) {
                     break :blk try fs.path.join(allocator, &[_][]const u8{ prefix, abi_list.path, "n64", basename });
-                } else if (abi_list.targets[0].abi == .gnuabin32 and std.mem.eql(u8, lib_name, "c")) {
+                } else if (abi_list.targets[0].abi == .gnuabin32 and (is_c or is_ld)) {
                     break :blk try fs.path.join(allocator, &[_][]const u8{ prefix, abi_list.path, "n32", basename });
                 } else if (abi_list.targets[0].arch != .arm and
                     abi_list.targets[0].abi == .gnueabihf and
-                    (std.mem.eql(u8, lib_name, "c") or
-                    (std.mem.eql(u8, lib_name, "m") and abi_list.targets[0].arch == .powerpc)))
+                    (is_c or (is_m and abi_list.targets[0].arch == .powerpc)))
                 {
                     break :blk try fs.path.join(allocator, &[_][]const u8{ prefix, abi_list.path, "fpu", basename });
                 } else if (abi_list.targets[0].arch != .arm and
                     abi_list.targets[0].abi == .gnueabi and
-                    (std.mem.eql(u8, lib_name, "c") or
-                    (std.mem.eql(u8, lib_name, "m") and abi_list.targets[0].arch == .powerpc)))
+                    (is_c or (is_m and abi_list.targets[0].arch == .powerpc)))
                 {
                     break :blk try fs.path.join(allocator, &[_][]const u8{ prefix, abi_list.path, "nofpu", basename });
                 } else if (abi_list.targets[0].arch == .arm) {
@@ -179,7 +183,8 @@ pub fn main() !void {
                 }
                 break :blk try fs.path.join(allocator, &[_][]const u8{ prefix, abi_list.path, basename });
             };
-            const contents = std.io.readFileAlloc(allocator, abi_list_filename) catch |err| {
+            const max_bytes = 10 * 1024 * 1024;
+            const contents = std.fs.cwd().readFileAlloc(allocator, abi_list_filename, max_bytes) catch |err| {
                 std.debug.warn("unable to open {}: {}\n", .{ abi_list_filename, err });
                 std.process.exit(1);
             };
@@ -220,22 +225,22 @@ pub fn main() !void {
         var list = std.ArrayList([]const u8).init(allocator);
         var it = global_fn_set.iterator();
         while (it.next()) |kv| try list.append(kv.key);
-        std.sort.sort([]const u8, list.toSlice(), strCmpLessThan);
-        break :blk list.toSliceConst();
+        std.sort.sort([]const u8, list.span(), strCmpLessThan);
+        break :blk list.span();
     };
     const global_ver_list = blk: {
         var list = std.ArrayList([]const u8).init(allocator);
         var it = global_ver_set.iterator();
         while (it.next()) |kv| try list.append(kv.key);
-        std.sort.sort([]const u8, list.toSlice(), versionLessThan);
-        break :blk list.toSliceConst();
+        std.sort.sort([]const u8, list.span(), versionLessThan);
+        break :blk list.span();
     };
     {
         const vers_txt_path = try fs.path.join(allocator, &[_][]const u8{ glibc_out_dir, "vers.txt" });
         const vers_txt_file = try fs.cwd().createFile(vers_txt_path, .{});
         defer vers_txt_file.close();
-        var buffered = std.io.BufferedOutStream(fs.File.WriteError).init(&vers_txt_file.outStream().stream);
-        const vers_txt = &buffered.stream;
+        var buffered = std.io.bufferedOutStream(vers_txt_file.outStream());
+        const vers_txt = buffered.outStream();
         for (global_ver_list) |name, i| {
             _ = global_ver_set.put(name, i) catch unreachable;
             try vers_txt.print("{}\n", .{name});
@@ -246,8 +251,8 @@ pub fn main() !void {
         const fns_txt_path = try fs.path.join(allocator, &[_][]const u8{ glibc_out_dir, "fns.txt" });
         const fns_txt_file = try fs.cwd().createFile(fns_txt_path, .{});
         defer fns_txt_file.close();
-        var buffered = std.io.BufferedOutStream(fs.File.WriteError).init(&fns_txt_file.outStream().stream);
-        const fns_txt = &buffered.stream;
+        var buffered = std.io.bufferedOutStream(fns_txt_file.outStream());
+        const fns_txt = buffered.outStream();
         for (global_fn_list) |name, i| {
             const kv = global_fn_set.get(name).?;
             kv.value.index = i;
@@ -261,13 +266,13 @@ pub fn main() !void {
     for (abi_lists) |*abi_list, abi_index| {
         const kv = target_functions.get(@ptrToInt(abi_list)).?;
         const fn_vers_list = &kv.value.fn_vers_list;
-        for (kv.value.list.toSliceConst()) |*ver_fn| {
+        for (kv.value.list.span()) |*ver_fn| {
             const gop = try fn_vers_list.getOrPut(ver_fn.name);
             if (!gop.found_existing) {
                 gop.kv.value = std.ArrayList(usize).init(allocator);
             }
             const ver_index = global_ver_set.get(ver_fn.ver).?.value;
-            if (std.mem.indexOfScalar(usize, gop.kv.value.toSliceConst(), ver_index) == null) {
+            if (std.mem.indexOfScalar(usize, gop.kv.value.span(), ver_index) == null) {
                 try gop.kv.value.append(ver_index);
             }
         }
@@ -277,8 +282,8 @@ pub fn main() !void {
         const abilist_txt_path = try fs.path.join(allocator, &[_][]const u8{ glibc_out_dir, "abi.txt" });
         const abilist_txt_file = try fs.cwd().createFile(abilist_txt_path, .{});
         defer abilist_txt_file.close();
-        var buffered = std.io.BufferedOutStream(fs.File.WriteError).init(&abilist_txt_file.outStream().stream);
-        const abilist_txt = &buffered.stream;
+        var buffered = std.io.bufferedOutStream(abilist_txt_file.outStream());
+        const abilist_txt = buffered.outStream();
 
         // first iterate over the abi lists
         for (abi_lists) |*abi_list, abi_index| {
@@ -294,7 +299,7 @@ pub fn main() !void {
                     try abilist_txt.writeByte('\n');
                     continue;
                 };
-                for (kv.value.toSliceConst()) |ver_index, it_i| {
+                for (kv.value.span()) |ver_index, it_i| {
                     if (it_i != 0) try abilist_txt.writeByte(' ');
                     try abilist_txt.print("{d}", .{ver_index});
                 }

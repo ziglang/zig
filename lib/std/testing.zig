@@ -7,7 +7,8 @@ pub const FailingAllocator = @import("testing/failing_allocator.zig").FailingAll
 pub const allocator = &allocator_instance.allocator;
 pub var allocator_instance = LeakCountAllocator.init(&base_allocator_instance.allocator);
 
-pub const failing_allocator = &FailingAllocator.init(&base_allocator_instance.allocator, 0).allocator;
+pub const failing_allocator = &failing_allocator_instance.allocator;
+pub var failing_allocator_instance = FailingAllocator.init(&base_allocator_instance.allocator, 0);
 
 pub var base_allocator_instance = std.heap.ThreadSafeFixedBufferAllocator.init(allocator_mem[0..]);
 var allocator_mem: [1024 * 1024]u8 = undefined;

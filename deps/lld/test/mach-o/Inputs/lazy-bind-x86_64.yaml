@@ -1,8 +1,0 @@
---- !mach-o
-arch:              x86_64
-file-type:         MH_DYLIB
-install-name:      /usr/lib/libbar.dylib
-compat-version:    1.0
-current-version:   2.3
-exports:
-  - name:            _bar

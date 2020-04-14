@@ -3,7 +3,6 @@ const builtin = std.builtin;
 const math = std.math;
 const assert = std.debug.assert;
 const mem = std.mem;
-const Buffer = std.Buffer;
 const testing = std.testing;
 
 pub fn InStream(
@@ -48,20 +47,14 @@ pub fn InStream(
             if (amt_read < buf.len) return error.EndOfStream;
         }
 
-        /// Deprecated: use `readAllArrayList`.
-        pub fn readAllBuffer(self: Self, buffer: *Buffer, max_size: usize) !void {
-            buffer.list.shrink(0);
-            try self.readAllArrayList(&buffer.list, max_size);
-            errdefer buffer.shrink(0);
-            try buffer.list.append(0);
-        }
+        pub const readAllBuffer = @compileError("deprecated; use readAllArrayList()");
 
         /// Appends to the `std.ArrayList` contents by reading from the stream until end of stream is found.
         /// If the number of bytes appended would exceed `max_append_size`, `error.StreamTooLong` is returned
         /// and the `std.ArrayList` has exactly `max_append_size` bytes appended.
         pub fn readAllArrayList(self: Self, array_list: *std.ArrayList(u8), max_append_size: usize) !void {
             try array_list.ensureCapacity(math.min(max_append_size, 4096));
-            const original_len = array_list.len;
+            const original_len = array_list.items.len;
             var start_index: usize = original_len;
             while (true) {
                 array_list.expandToCapacity();
@@ -113,7 +106,7 @@ pub fn InStream(
                     return;
                 }
 
-                if (array_list.len == max_size) {
+                if (array_list.items.len == max_size) {
                     return error.StreamTooLong;
                 }
 

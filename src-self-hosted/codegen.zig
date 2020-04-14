@@ -25,10 +25,10 @@ pub async fn renderToLlvm(comp: *Compilation, fn_val: *Value.Fn, code: *ir.Code)
 
     const context = llvm_handle.node.data;
 
-    const module = llvm.ModuleCreateWithNameInContext(comp.name.toSliceConst(), context) orelse return error.OutOfMemory;
+    const module = llvm.ModuleCreateWithNameInContext(comp.name.span(), context) orelse return error.OutOfMemory;
     defer llvm.DisposeModule(module);
 
-    llvm.SetTarget(module, comp.llvm_triple.toSliceConst());
+    llvm.SetTarget(module, comp.llvm_triple.span());
     llvm.SetDataLayout(module, comp.target_layout_str);
 
     if (comp.target.getObjectFormat() == .coff) {
@@ -45,7 +45,7 @@ pub async fn renderToLlvm(comp: *Compilation, fn_val: *Value.Fn, code: *ir.Code)
 
     // Don't use ZIG_VERSION_STRING here. LLVM misparses it when it includes
     // the git revision.
-    const producer = try std.Buffer.allocPrint(&code.arena.allocator, "zig {}.{}.{}", .{
+    const producer = try std.fmt.allocPrintZ(&code.arena.allocator, "zig {}.{}.{}", .{
         @as(u32, c.ZIG_VERSION_MAJOR),
         @as(u32, c.ZIG_VERSION_MINOR),
         @as(u32, c.ZIG_VERSION_PATCH),
@@ -54,15 +54,15 @@ pub async fn renderToLlvm(comp: *Compilation, fn_val: *Value.Fn, code: *ir.Code)
     const runtime_version = 0;
     const compile_unit_file = llvm.CreateFile(
         dibuilder,
-        comp.name.toSliceConst(),
-        comp.root_package.root_src_dir.toSliceConst(),
+        comp.name.span(),
+        comp.root_package.root_src_dir.span(),
     ) orelse return error.OutOfMemory;
     const is_optimized = comp.build_mode != .Debug;
     const compile_unit = llvm.CreateCompileUnit(
         dibuilder,
         DW.LANG_C99,
         compile_unit_file,
-        producer.toSliceConst(),
+        producer,
         is_optimized,
         flags,
         runtime_version,
@@ -109,14 +109,14 @@ pub async fn renderToLlvm(comp: *Compilation, fn_val: *Value.Fn, code: *ir.Code)
     if (llvm.TargetMachineEmitToFile(
         comp.target_machine,
         module,
-        output_path.toSliceConst(),
+        output_path.span(),
         llvm.EmitBinary,
         &err_msg,
         is_debug,
         is_small,
     )) {
         if (std.debug.runtime_safety) {
-            std.debug.panic("unable to write object file {}: {s}\n", .{ output_path.toSliceConst(), err_msg });
+            std.debug.panic("unable to write object file {}: {s}\n", .{ output_path.span(), err_msg });
         }
         return error.WritingObjectFileFailed;
     }
@@ -127,7 +127,7 @@ pub async fn renderToLlvm(comp: *Compilation, fn_val: *Value.Fn, code: *ir.Code)
         llvm.DumpModule(ofile.module);
     }
     if (comp.verbose_link) {
-        std.debug.warn("created {}\n", .{output_path.toSliceConst()});
+        std.debug.warn("created {}\n", .{output_path.span()});
     }
 }
 
@@ -150,7 +150,7 @@ pub fn renderToLlvmModule(ofile: *ObjectFile, fn_val: *Value.Fn, code: *ir.Code)
     const llvm_fn_type = try fn_val.base.typ.getLlvmType(ofile.arena, ofile.context);
     const llvm_fn = llvm.AddFunction(
         ofile.module,
-        fn_val.symbol_name.toSliceConst(),
+        fn_val.symbol_name.span(),
         llvm_fn_type,
     ) orelse return error.OutOfMemory;
 
@@ -211,7 +211,7 @@ pub fn renderToLlvmModule(ofile: *ObjectFile, fn_val: *Value.Fn, code: *ir.Code)
     const cur_ret_ptr = if (fn_type_normal.return_type.handleIsPtr()) llvm.GetParam(llvm_fn, 0) else null;
 
     // build all basic blocks
-    for (code.basic_block_list.toSlice()) |bb| {
+    for (code.basic_block_list.span()) |bb| {
         bb.llvm_block = llvm.AppendBasicBlockInContext(
             ofile.context,
             llvm_fn,
@@ -226,7 +226,7 @@ pub fn renderToLlvmModule(ofile: *ObjectFile, fn_val: *Value.Fn, code: *ir.Code)
     // TODO set up error return tracing
     // TODO allocate temporary stack values
 
-    const var_list = fn_type.non_key.Normal.variable_list.toSliceConst();
+    const var_list = fn_type.non_key.Normal.variable_list.span();
     // create debug variable declarations for variables and allocate all local variables
     for (var_list) |var_scope, i| {
         const var_type = switch (var_scope.data) {
@@ -306,9 +306,9 @@ pub fn renderToLlvmModule(ofile: *ObjectFile, fn_val: *Value.Fn, code: *ir.Code)
         //}
     }
 
-    for (code.basic_block_list.toSlice()) |current_block| {
+    for (code.basic_block_list.span()) |current_block| {
         llvm.PositionBuilderAtEnd(ofile.builder, current_block.llvm_block);
-        for (current_block.instruction_list.toSlice()) |instruction| {
+        for (current_block.instruction_list.span()) |instruction| {
             if (instruction.ref_count == 0 and !instruction.hasSideEffects()) continue;
 
             instruction.llvm_value = try instruction.render(ofile, fn_val);

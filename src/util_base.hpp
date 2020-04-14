@@ -64,4 +64,14 @@ static inline void zig_assert(bool ok, const char *file, int line, const char *f
 #undef assert
 #define assert(ok) zig_assert(ok, __FILE__, __LINE__, __func__)
 
+#if defined(_MSC_VER)
+#define ZIG_FALLTHROUGH
+#elif defined(__clang__)
+#define ZIG_FALLTHROUGH [[clang::fallthrough]]
+#elif defined(__GNUC__)
+#define ZIG_FALLTHROUGH __attribute__((fallthrough))
+#else
+#define ZIG_FALLTHROUGH
+#endif
+
 #endif

@@ -6,20 +6,17 @@ const math = std.math;
 const builtin = @import("builtin");
 
 pub fn binarySearch(comptime T: type, key: T, items: []const T, comptime compareFn: fn (lhs: T, rhs: T) math.Order) ?usize {
-    if (items.len < 1)
-        return null;
-
     var left: usize = 0;
-    var right: usize = items.len - 1;
+    var right: usize = items.len;
 
-    while (left <= right) {
+    while (left < right) {
         // Avoid overflowing in the midpoint calculation
         const mid = left + (right - left) / 2;
         // Compare the key with the midpoint element
         switch (compareFn(key, items[mid])) {
             .eq => return mid,
             .gt => left = mid + 1,
-            .lt => right = mid - 1,
+            .lt => right = mid,
         }
     }
 
@@ -46,6 +43,10 @@ test "std.sort.binarySearch" {
     testing.expectEqual(
         @as(?usize, null),
         binarySearch(u32, 1, &[_]u32{0}, S.order_u32),
+    );
+    testing.expectEqual(
+        @as(?usize, null),
+        binarySearch(u32, 0, &[_]u32{1}, S.order_u32),
     );
     testing.expectEqual(
         @as(?usize, 4),
@@ -1227,13 +1228,13 @@ test "sort fuzz testing" {
 var fixed_buffer_mem: [100 * 1024]u8 = undefined;
 
 fn fuzzTest(rng: *std.rand.Random) !void {
-    const array_size = rng.range(usize, 0, 1000);
+    const array_size = rng.intRangeLessThan(usize, 0, 1000);
     var array = try testing.allocator.alloc(IdAndValue, array_size);
     defer testing.allocator.free(array);
     // populate with random data
     for (array) |*item, index| {
         item.id = index;
-        item.value = rng.range(i32, 0, 100);
+        item.value = rng.intRangeLessThan(i32, 0, 100);
     }
     sort(IdAndValue, array, cmpByValue);
 
