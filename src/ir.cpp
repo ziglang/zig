@@ -16496,8 +16496,7 @@ static IrInstGen *ir_analyze_bin_op_cmp_seperate_ops(IrAnalyze *ira, IrInstSrcBi
         (op1->value->type->data.maybe.child_type->id != ZigTypeIdPointer &&
         (op2->value->type->data.maybe.child_type->id != ZigTypeIdPointer)))
     {
-        assert(instr_is_comptime(op1) && instr_is_comptime(op2)); // fails???
-
+        assert(instr_is_comptime(op1) && instr_is_comptime(op2));
         if (instr_is_comptime(op1) && instr_is_comptime(op2)) {
             ZigValue *op1_val = ir_resolve_const(ira, op1, UndefBad);
             if (!op1_val)
@@ -16521,6 +16520,8 @@ static IrInstGen *ir_analyze_bin_op_cmp_seperate_ops(IrAnalyze *ira, IrInstSrcBi
                         false,
                         op1_val->type);
 
+                op1_unwrapped->value->special = op1->value->special;
+
                 IrInstGen *op2_unwrapped = ir_build_optional_unwrap_ptr_gen(
                         ira,
                         &op2->base,
@@ -16528,12 +16529,13 @@ static IrInstGen *ir_analyze_bin_op_cmp_seperate_ops(IrAnalyze *ira, IrInstSrcBi
                         true,
                         false,
                         op2_val->type);
+                op2_unwrapped->value->special = op2->value->special;
 
                 return ir_analyze_bin_op_cmp_seperate_ops(
                         ira,
                         bin_op_instruction,
                         op1_unwrapped,
-                        op1_unwrapped);
+                        op2_unwrapped);
             } else {
                 return ir_const_bool(ira, &bin_op_instruction->base.base, op_id != IrBinOpCmpEq);
             }
