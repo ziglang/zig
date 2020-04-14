@@ -16512,30 +16512,13 @@ static IrInstGen *ir_analyze_bin_op_cmp_seperate_ops(IrAnalyze *ira, IrInstSrcBi
             if (!op1_val_child && !op2_val_child) {
                 return ir_const_bool(ira, &bin_op_instruction->base.base, op_id == IrBinOpCmpEq);
             } else if (op1_val_child && op2_val_child) {
-                IrInstGen *op1_unwrapped = ir_build_optional_unwrap_ptr_gen(
-                        ira,
-                        &op1->base,
-                        op1,
-                        true,
-                        false,
-                        op1_val->type);
-
-                op1_unwrapped->value->special = op1->value->special;
-
-                IrInstGen *op2_unwrapped = ir_build_optional_unwrap_ptr_gen(
-                        ira,
-                        &op2->base,
-                        op2,
-                        true,
-                        false,
-                        op2_val->type);
-                op2_unwrapped->value->special = op2->value->special;
-
+                op1->value = op1_val_child;
+                op2->value = op2_val_child;
                 return ir_analyze_bin_op_cmp_seperate_ops(
                         ira,
                         bin_op_instruction,
-                        op1_unwrapped,
-                        op2_unwrapped);
+                        op1,
+                        op2);
             } else {
                 return ir_const_bool(ira, &bin_op_instruction->base.base, op_id != IrBinOpCmpEq);
             }
