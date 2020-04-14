@@ -16422,7 +16422,7 @@ static bool ir_is_cmp_allowed(IrBinOp op_id, ZigType *op_type) {
             return is_equality_cmp && ir_is_cmp_allowed(op_id, op_type->data.maybe.child_type);
     }
 }
-
+#include <cstdio>
 static IrInstGen *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstSrcBinOp *bin_op_instruction) {
     IrInstGen *op1 = bin_op_instruction->op1->child;
     if (type_is_invalid(op1->value->type))
@@ -16514,14 +16514,14 @@ static IrInstGen *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstSrcBinOp *bin_op_i
             if (!op2_val)
                 return ira->codegen->invalid_inst_gen;
 
-            ZigValue *op1_val_child = op1_val->data.x_optional;
-            ZigValue *op2_val_child = op2_val->data.x_optional;
+            bool op1_is_null = optional_value_is_null(op1_val);
+            bool op2_is_null = optional_value_is_null(op2_val);
 
-            if (!op1_val_child && !op2_val_child) {
+            if (op1_is_null && op2_is_null) {
                 return ir_const_bool(ira, &bin_op_instruction->base.base, op_id == IrBinOpCmpEq);
-            } else if (op1_val_child && op2_val_child) {
-                op1->value = op1_val_child;
-                op2->value = op2_val_child;
+            } else if (!op1_is_null && !op2_is_null) {
+                op1->value = op1->value->data.x_optional;
+                op2->value = op2->value->data.x_optional;
                 return ir_analyze_bin_op_cmp(ira, bin_op_instruction);
             } else {
                 return ir_const_bool(ira, &bin_op_instruction->base.base, op_id != IrBinOpCmpEq);
