@@ -5459,12 +5459,8 @@ test "@intToPtr for pointer to zero bit type" {
 
       {#header_open|Result Location Semantics#}
       <p>Certain expressions which manipulate a value in memory will directly initialize the final location of
-<<<<<<< HEAD
       that memory, to avoid making multiple allocations and copying between them (note: "allocation" here means
       of registers or stack space, not dynamic as is usually meant):</p>
-=======
-      that memory, to avoid making multiple allocations and copying between them:</p>
->>>>>>> c88e218e948e506ba0494a0c53dd9b5e4cc5920a
       {#code_begin#}
 pub fn main() void {
     // foo() allocates its result directly in x -- only one allocation is made
@@ -5501,7 +5497,7 @@ fn quux() !Large { ... }}
           <li>Switch statement arms</li>
           <li>Function returns</li>
           <li>{#syntax#}catch{#endsyntax#} and {#syntax#}orelse{#endsyntax#} default statements</li>
-          <li>Arguments to {#syntax#}@bitCast{#endsyntax#}</li>
+          <li>Arguments to {#link|bitCast#}</li>
       </ul>    
       {#header_close#}
 
