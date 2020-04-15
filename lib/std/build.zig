@@ -18,6 +18,7 @@ const File = std.fs.File;
 const CrossTarget = std.zig.CrossTarget;
 
 pub const CheckFileStep = @import("build/check_file.zig").CheckFileStep;
+pub const FmtStep = @import("build/fmt.zig").FmtStep;
 pub const FunctionStep = @import("build/function.zig").FunctionStep;
 pub const InstallRawStep = @import("build/emit_raw.zig").InstallRawStep;
 pub const RunStep = @import("build/run.zig").RunStep;
