@@ -34,7 +34,6 @@ pub const CacheHash = struct {
     manifest_dir: fs.Dir,
     manifest_file: ?fs.File,
     manifest_dirty: bool,
-    force_check_manifest: bool,
     files: ArrayList(File),
     b64_digest: [BASE64_DIGEST_LEN]u8,
 
@@ -48,7 +47,6 @@ pub const CacheHash = struct {
             .manifest_dir = manifest_dir,
             .manifest_file = null,
             .manifest_dirty = false,
-            .force_check_manifest = false,
             .files = ArrayList(File).init(alloc),
             .b64_digest = undefined,
         };
@@ -104,22 +102,37 @@ pub const CacheHash = struct {
 
         base64_encoder.encode(self.b64_digest[0..], &bin_digest);
 
-        if (self.files.toSlice().len == 0 and !self.force_check_manifest) {
-            return self.b64_digest;
-        }
-
         self.blake3 = Blake3.init();
         self.blake3.update(&bin_digest);
 
-        {
-            const manifest_file_path = try fmt.allocPrint(self.alloc, "{}.txt", .{self.b64_digest});
-            defer self.alloc.free(manifest_file_path);
+        const manifest_file_path = try fmt.allocPrint(self.alloc, "{}.txt", .{self.b64_digest});
+        defer self.alloc.free(manifest_file_path);
 
+        if (self.files.items.len != 0) {
             self.manifest_file = try self.manifest_dir.createFile(manifest_file_path, .{
                 .read = true,
                 .truncate = false,
                 .lock = .Exclusive,
             });
+        } else {
+            // If there are no file inputs, we check if the manifest file exists instead of
+            // comparing the hashes on the files used for the cached item
+            self.manifest_file = self.manifest_dir.openFile(manifest_file_path, .{
+                .read = true,
+                .write = true,
+                .lock = .Exclusive,
+            }) catch |err| switch (err) {
+                error.FileNotFound => {
+                    self.manifest_dirty = true;
+                    self.manifest_file = try self.manifest_dir.createFile(manifest_file_path, .{
+                        .read = true,
+                        .truncate = false,
+                        .lock = .Exclusive,
+                    });
+                    return null;
+                },
+                else => |e| return e,
+            };
         }
 
         // TODO: Figure out a good max value?
@@ -206,7 +219,7 @@ pub const CacheHash = struct {
             return null;
         }
 
-        if (idx < input_file_count or idx == 0) {
+        if (idx < input_file_count) {
             self.manifest_dirty = true;
             while (idx < input_file_count) : (idx += 1) {
                 var cache_hash_file = &self.files.items[idx];
@@ -437,4 +450,35 @@ test "check that changing a file makes cache fail" {
 
     try cwd.deleteTree(temp_manifest_dir);
     try cwd.deleteFile(temp_file);
+}
+
+test "no file inputs" {
+    const cwd = fs.cwd();
+    const temp_manifest_dir = "no_file_inputs_manifest_dir";
+    defer cwd.deleteTree(temp_manifest_dir) catch unreachable;
+
+    var digest1: [BASE64_DIGEST_LEN]u8 = undefined;
+    var digest2: [BASE64_DIGEST_LEN]u8 = undefined;
+
+    {
+        var ch = try CacheHash.init(testing.allocator, temp_manifest_dir);
+        defer ch.release();
+
+        ch.add("1234");
+
+        // There should be nothing in the cache
+        testing.expectEqual(@as(?[64]u8, null), try ch.hit());
+
+        digest1 = ch.final();
+    }
+    {
+        var ch = try CacheHash.init(testing.allocator, temp_manifest_dir);
+        defer ch.release();
+
+        ch.add("1234");
+
+        digest2 = (try ch.hit()).?;
+    }
+
+    testing.expectEqual(digest1, digest2);
 }
