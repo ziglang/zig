@@ -358,10 +358,10 @@ test "cache file and then recall it" {
         ch.add(true);
         ch.add(@as(u16, 1234));
         ch.add("1234");
-        try ch.addFile("test.txt");
+        try ch.addFile(temp_file);
 
         // There should be nothing in the cache
-        debug.assert((try ch.hit()) == null);
+        testing.expectEqual(@as(?[64]u8, null), try ch.hit());
 
         digest1 = ch.final();
     }
@@ -372,13 +372,13 @@ test "cache file and then recall it" {
         ch.add(true);
         ch.add(@as(u16, 1234));
         ch.add("1234");
-        try ch.addFile("test.txt");
+        try ch.addFile(temp_file);
 
         // Cache hit! We just "built" the same file
         digest2 = (try ch.hit()).?;
     }
 
-    debug.assert(mem.eql(u8, digest1[0..], digest2[0..]));
+    testing.expectEqual(digest1, digest2);
 
     try cwd.deleteTree(temp_manifest_dir);
     try cwd.deleteFile(temp_file);
@@ -386,10 +386,10 @@ test "cache file and then recall it" {
 
 test "give problematic timestamp" {
     const now_ns = @intCast(i64, time.milliTimestamp() * time.millisecond);
-    debug.assert(is_problematic_timestamp(now_ns));
+    testing.expect(is_problematic_timestamp(now_ns));
 }
 
 test "give nonproblematic timestamp" {
     const now_ns = @intCast(i64, time.milliTimestamp() * time.millisecond) - 1000;
-    debug.assert(!is_problematic_timestamp(now_ns));
+    testing.expect(!is_problematic_timestamp(now_ns));
 }
