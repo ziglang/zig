@@ -5480,7 +5480,7 @@ fn foo() Large {
     // Direct return correctly passes result location to callsite
     return Large {
         // ...
-    }
+    };
 }
 
 fn bar() Large {
@@ -5489,7 +5489,9 @@ fn bar() Large {
     var l = Large {};
 }
 
-fn quux() !Large {}
+fn quux() !Large {
+    return Large {};
+}
       {#code_end#}
       <p>The current result location semantics elide copies from the following locations where possible:</p>
       <ul>
