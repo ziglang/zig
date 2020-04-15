@@ -159,8 +159,6 @@ pub const CacheHash = struct {
             }
 
             const this_file = fs.cwd().openFile(cache_hash_file.path.?, .{ .read = true }) catch {
-                self.manifest_file.?.close();
-                self.manifest_file = null;
                 return error.CacheUnavailable;
             };
             defer this_file.close();
@@ -213,8 +211,6 @@ pub const CacheHash = struct {
             while (idx < input_file_count) : (idx += 1) {
                 var cache_hash_file = &self.files.items[idx];
                 const contents = self.populate_file_hash(cache_hash_file) catch |err| {
-                    self.manifest_file.?.close();
-                    self.manifest_file = null;
                     return error.CacheUnavailable;
                 };
             }
@@ -256,12 +252,7 @@ pub const CacheHash = struct {
         var cache_hash_file = try self.files.addOne();
         cache_hash_file.path = try fs.path.resolve(self.alloc, &[_][]const u8{file_path});
 
-        const contents = self.populate_file_hash_fetch(otherAlloc, cache_hash_file) catch |err| {
-            self.manifest_file.close();
-            return err;
-        };
-
-        return contents;
+        return try self.populate_file_hash_fetch(otherAlloc, cache_hash_file);
     }
 
     /// Add a file as a dependency of process being cached, after the initial hash has been
@@ -317,6 +308,7 @@ pub const CacheHash = struct {
         }
 
         self.manifest_file.?.close();
+
         for (self.files.toSlice()) |*file| {
             file.deinit(self.alloc);
         }
