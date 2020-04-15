@@ -17,12 +17,12 @@ const fmt_lib = std.fmt;
 const File = std.fs.File;
 const CrossTarget = std.zig.CrossTarget;
 
-pub const FmtStep = @import("build/fmt.zig").FmtStep;
+pub const CheckFileStep = @import("build/check_file.zig").CheckFileStep;
+pub const FunctionStep = @import("build/function.zig").FunctionStep;
+pub const InstallRawStep = @import("build/emit_raw.zig").InstallRawStep;
+pub const RunStep = @import("build/run.zig").RunStep;
 pub const TranslateCStep = @import("build/translate_c.zig").TranslateCStep;
 pub const WriteFileStep = @import("build/write_file.zig").WriteFileStep;
-pub const RunStep = @import("build/run.zig").RunStep;
-pub const CheckFileStep = @import("build/check_file.zig").CheckFileStep;
-pub const InstallRawStep = @import("build/emit_raw.zig").InstallRawStep;
 
 pub const Builder = struct {
     install_tls: TopLevelStep,
@@ -270,6 +270,10 @@ pub const Builder = struct {
         const obj_step = LibExeObjStep.createObject(self, name, null);
         obj_step.addAssemblyFile(src);
         return obj_step;
+    }
+
+    pub fn addFunction(self: *Builder, function: fn () anyerror!void) *FunctionStep {
+        return FunctionStep.create(self, function);
     }
 
     /// Initializes a RunStep with argv, which must at least have the path to the
