@@ -116,6 +116,11 @@ fn _start() callconv(.Naked) noreturn {
                 : [argc] "=r" (-> [*]usize)
             );
         },
+        .powerpc64le => {
+            starting_stack_ptr = asm volatile ("mr %[argc], 1"
+                : [argc] "=r" (-> [*]usize)
+            );
+        },
         else => @compileError("unsupported arch"),
     }
     // If LLVM inlines stack variables into _start, they will overwrite
@@ -138,6 +143,10 @@ fn WinMainCRTStartup() callconv(.Stdcall) noreturn {
 fn posixCallMainAndExit() noreturn {
     if (builtin.os.tag == .freebsd) {
         @setAlignStack(16);
+    }
+    switch (builtin.arch) {
+        .powerpc64le => @setAlignStack(16),
+        else => {},
     }
     const argc = starting_stack_ptr[0];
     const argv = @ptrCast([*][*:0]u8, starting_stack_ptr + 1);

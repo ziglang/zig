@@ -48,7 +48,7 @@ const TLSVariant = enum {
 };
 
 const tls_variant = switch (builtin.arch) {
-    .arm, .armeb, .aarch64, .aarch64_be, .riscv32, .riscv64, .mipsel => TLSVariant.VariantI,
+    .arm, .armeb, .aarch64, .aarch64_be, .riscv32, .riscv64, .mipsel, .powerpc64le => TLSVariant.VariantI,
     .x86_64, .i386 => TLSVariant.VariantII,
     else => @compileError("undefined tls_variant for this architecture"),
 };
@@ -72,12 +72,12 @@ const tls_tp_points_past_tcb = switch (builtin.arch) {
 // make the generated code more efficient
 
 const tls_tp_offset = switch (builtin.arch) {
-    .mipsel => 0x7000,
+    .mipsel, .powerpc64le => 0x7000,
     else => 0,
 };
 
 const tls_dtv_offset = switch (builtin.arch) {
-    .mipsel => 0x8000,
+    .mipsel, .powerpc64le => 0x8000,
     .riscv32, .riscv64 => 0x800,
     else => 0,
 };
@@ -159,6 +159,19 @@ pub fn setThreadPointer(addr: usize) void {
         .mipsel => {
             const rc = std.os.linux.syscall1(.set_thread_area, addr);
             assert(rc == 0);
+        },
+        .powerpc64le => {
+            asm volatile (
+//            \\ stw 3, -12(1)
+//            \\ addi 3, 1, -12
+//            \\ mr 2,3
+//            \\ mr 13,3
+//            \\ li 3,0
+//            \\ blr
+            \\ mr 13, %[addr]
+            :
+            : [addr] "r" (addr)
+            );
         },
         else => @compileError("Unsupported architecture"),
     }

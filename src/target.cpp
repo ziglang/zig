@@ -855,6 +855,10 @@ const char *arch_stack_pointer_register_name(ZigLLVM_ArchType arch) {
         case ZigLLVM_mipsel:
             return "sp";
 
+        case ZigLLVM_ppc:
+        case ZigLLVM_ppc64:
+            return "r1";
+
         case ZigLLVM_wasm32:
         case ZigLLVM_wasm64:
             return nullptr; // known to be not available
@@ -893,8 +897,6 @@ const char *arch_stack_pointer_register_name(ZigLLVM_ArchType arch) {
         case ZigLLVM_tce:
         case ZigLLVM_tcele:
         case ZigLLVM_xcore:
-        case ZigLLVM_ppc:
-        case ZigLLVM_ppc64:
         case ZigLLVM_ve:
             zig_panic("TODO populate this table with stack pointer register name for this CPU architecture");
     }

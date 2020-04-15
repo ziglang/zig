@@ -20,6 +20,7 @@ pub usingnamespace switch (builtin.arch) {
     .arm => @import("linux/arm-eabi.zig"),
     .riscv64 => @import("linux/riscv64.zig"),
     .mipsel => @import("linux/mipsel.zig"),
+    .powerpc64le => @import("linux/powerpc64le.zig"),
     else => struct {},
 };
 pub usingnamespace @import("bits.zig");

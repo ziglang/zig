@@ -39,6 +39,8 @@
 #define ZIG_ARCH_ARM64
 #elif defined(__ARM_EABI__)
 #define ZIG_ARCH_ARM
+#elif defined(__ppc64le__)
+#define ZIG_ARCH_PPC64LE
 #else
 #define ZIG_ARCH_UNKNOWN
 #endif

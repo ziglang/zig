@@ -15,6 +15,7 @@ pub usingnamespace switch (builtin.arch) {
     .arm => @import("linux/arm-eabi.zig"),
     .riscv64 => @import("linux/riscv64.zig"),
     .mipsel => @import("linux/mipsel.zig"),
+    .powerpc64le => @import("linux/powerpc64le.zig"),
     else => struct {},
 };
 
@@ -1060,12 +1061,13 @@ pub fn CPU_COUNT(set: cpu_set_t) cpu_count_t {
 
 pub const MINSIGSTKSZ = switch (builtin.arch) {
     .i386, .x86_64, .arm, .mipsel => 2048,
+    .powerpc64le => 4096,
     .aarch64 => 5120,
     else => @compileError("MINSIGSTKSZ not defined for this architecture"),
 };
 pub const SIGSTKSZ = switch (builtin.arch) {
     .i386, .x86_64, .arm, .mipsel => 8192,
-    .aarch64 => 16384,
+    .aarch64, .powerpc64le => 16384,
     else => @compileError("SIGSTKSZ not defined for this architecture"),
 };
 

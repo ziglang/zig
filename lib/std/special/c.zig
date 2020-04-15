@@ -389,9 +389,79 @@ fn clone() callconv(.Naked) void {
                 \\  syscall
             );
         },
+        .powerpc64le => {
+            asm volatile (
+            \\  clrrdi  4,4,4
+            \\  li      0,0
+            \\  stdu    0,-32(4)
+            \\  std     3,8(4)
+            \\  std     6,16(4)
+            \\  mr      3,5
+            \\  mr      4,4
+            \\  mr      5,7
+            \\  mr      6,8
+            \\  mr      7,9
+            \\  li      0,120
+            \\  sc
+            \\  bns+    1f
+            \\  neg     3,3
+            \\1:
+            \\  cmpwi   cr7,3,0
+            \\  bnelr   cr7
+            \\  ld      3,16(1)
+            \\  ld      12, 8(1)
+            \\  mtctr   12
+            \\  bctrl
+            \\  li      0,1
+            \\  sc
+            );
+        },
         else => @compileError("Implement clone() for this arch."),
     }
 }
+
+// This is the valgrind implementation, which seems a little more
+// robust. I am not totally sure it is compatible with musl however! Test??
+    //            \\  stdu        1,-64(1)
+    //            \\  std         29,40(1)
+    //            \\  std         30,48(1)
+    //            \\  std         31,56(1)
+    //            \\  mr          30,3
+    //            \\  mr          31,6
+    //            \\  rldicr      4,4,0,59
+    //            \\  li          0,0
+    //            \\  stdu        0,-32(4)
+    //            \\  mr          29,4
+    //            \\  li          0,120
+    //            \\  mr          3,5
+    //            \\  mr          5,8
+    //            \\  mr          6,13
+    //            \\  mr          7,7
+    //            \\  mr          8,8
+    //            \\  mr          9,9
+    //            \\  sc
+    //            \\  mfcr        4
+    //            \\  sldi        4,4,32
+    //            \\  sldi        3,3,32
+    //            \\  sldi        3,3,32
+    //            \\  or          3,3,4
+    //            \\  cmpwi       3,0
+    //            \\  bne         1f
+    //            \\  mr          1,29
+    //            \\  ld          30,0(30)
+    //            \\  mtctr       30
+    //            \\  mr          3,31
+    //            \\  bctrl
+    //            \\  li          0,1
+    //            \\  sc
+    //            \\  .long 0
+    //            \\1:
+    //            \\  ld          29,40(1)
+    //            \\  ld          30,48(1)
+    //            \\  ld          31,56(1)
+    //            \\  addi        1,1,64
+    //            \\  blr
+
 
 const math = std.math;
 
