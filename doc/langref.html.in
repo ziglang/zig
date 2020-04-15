@@ -5478,16 +5478,18 @@ pub fn main() void {
 
 fn foo() Large {
     // Direct return correctly passes result location to callsite
-    return Large { ... }
+    return Large {
+        // ...
+    }
 }
 
 fn bar() Large {
     // Assignment to a variable always makes another allocation, even when this variable is returned
     // -- automatic copy elision in this case is planned (https://github.com/ziglang/zig/issues/2765)
-    var l = Large { ... };
+    var l = Large {};
 }
 
-fn quux() !Large { ... }}
+fn quux() !Large {}
       {#code_end#}
       <p>The current result location semantics elide copies from the following locations where possible:</p>
       <ul>
