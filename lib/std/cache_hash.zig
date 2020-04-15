@@ -311,13 +311,17 @@ pub const CacheHash = struct {
         try self.manifest_file.?.writeAll(contents.items);
     }
 
-    pub fn release(self: *@This()) void {
+    /// Releases the manifest file and frees any memory the CacheHash was using.
+    /// `CacheHash.hit` must be called first.
+    ///
+    /// Will also attempt to write to the manifest file if the manifest is dirty.
+    /// Writing to the manifest file is the only way that this file can return an
+    /// error.
+    pub fn release(self: *@This()) !void {
         debug.assert(self.manifest_file != null);
 
         if (self.manifest_dirty) {
-            self.write_manifest() catch |err| {
-                debug.warn("Unable to write cache file '{}': {}\n", .{ self.b64_digest, err });
-            };
+            try self.write_manifest();
         }
 
         self.manifest_file.?.close();
@@ -366,7 +370,7 @@ test "cache file and then recall it" {
 
     {
         var ch = try CacheHash.init(testing.allocator, temp_manifest_dir);
-        defer ch.release();
+        defer ch.release() catch unreachable;
 
         ch.add(true);
         ch.add(@as(u16, 1234));
@@ -380,7 +384,7 @@ test "cache file and then recall it" {
     }
     {
         var ch = try CacheHash.init(testing.allocator, temp_manifest_dir);
-        defer ch.release();
+        defer ch.release() catch unreachable;
 
         ch.add(true);
         ch.add(@as(u16, 1234));
@@ -420,7 +424,7 @@ test "check that changing a file makes cache fail" {
 
     {
         var ch = try CacheHash.init(testing.allocator, temp_manifest_dir);
-        defer ch.release();
+        defer ch.release() catch unreachable;
 
         ch.add("1234");
         try ch.addFile(temp_file);
@@ -435,7 +439,7 @@ test "check that changing a file makes cache fail" {
 
     {
         var ch = try CacheHash.init(testing.allocator, temp_manifest_dir);
-        defer ch.release();
+        defer ch.release() catch unreachable;
 
         ch.add("1234");
         try ch.addFile(temp_file);
@@ -462,7 +466,7 @@ test "no file inputs" {
 
     {
         var ch = try CacheHash.init(testing.allocator, temp_manifest_dir);
-        defer ch.release();
+        defer ch.release() catch unreachable;
 
         ch.add("1234");
 
@@ -473,7 +477,7 @@ test "no file inputs" {
     }
     {
         var ch = try CacheHash.init(testing.allocator, temp_manifest_dir);
-        defer ch.release();
+        defer ch.release() catch unreachable;
 
         ch.add("1234");
 
