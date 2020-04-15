@@ -258,7 +258,11 @@ pub const CacheHash = struct {
     }
 
     /// Add a file as a dependency of process being cached, after the initial hash has been
-    /// calculated. Returns the contents of the file, allocated with the given allocator.
+    /// calculated. This is useful for processes that don't know the all the files that
+    /// are depended on ahead of time. For example, a source file that can import other files
+    /// will need to be recompiled if the imported file is changed.
+    ///
+    /// Returns the contents of the file, allocated with the given allocator.
     pub fn addFilePostFetch(self: *@This(), otherAlloc: *mem.Allocator, file_path: []const u8) ![]u8 {
         debug.assert(self.manifest_file != null);
 
@@ -269,7 +273,9 @@ pub const CacheHash = struct {
     }
 
     /// Add a file as a dependency of process being cached, after the initial hash has been
-    /// calculated.
+    /// calculated. This is useful for processes that don't know the all the files that
+    /// are depended on ahead of time. For example, a source file that can import other files
+    /// will need to be recompiled if the imported file is changed.
     pub fn addFilePost(self: *@This(), file_path: []const u8) !void {
         const contents = try self.addFilePostFetch(self.alloc, file_path);
         self.alloc.free(contents);
