@@ -272,6 +272,13 @@ pub const Builder = struct {
         return obj_step;
     }
 
+    pub fn addCustom(self: *Builder, customStep: var) *@TypeOf(customStep) {
+        var allocated = self.allocator.create(@TypeOf(customStep)) catch unreachable;
+        allocated.* = customStep;
+        allocated.*.step = Step.init(@typeName(@TypeOf(customStep)), self.allocator, @TypeOf(customStep).make);
+        return allocated;
+    }
+
     /// Initializes a RunStep with argv, which must at least have the path to the
     /// executable. More command line arguments can be added with `addArg`,
     /// `addArgs`, and `addArtifactArg`.
