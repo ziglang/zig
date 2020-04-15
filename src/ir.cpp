@@ -16495,6 +16495,7 @@ static IrInstGen *ir_analyze_bin_op_cmp_seperate_ops(IrAnalyze *ira, IrInstSrcBi
         (op1->value->type->data.maybe.child_type->id != ZigTypeIdPointer) &&
         (op2->value->type->data.maybe.child_type->id != ZigTypeIdPointer))
     {
+        IrInst *bin_op_base = &bin_op_instruction->base.base;
         if (instr_is_comptime(op1) && instr_is_comptime(op2)) {
             ZigValue *op1_val = ir_resolve_const(ira, op1, UndefBad);
             if (!op1_val)
@@ -16508,14 +16509,20 @@ static IrInstGen *ir_analyze_bin_op_cmp_seperate_ops(IrAnalyze *ira, IrInstSrcBi
             bool op2_is_null = optional_value_is_null(op2_val);
 
             if (op1_is_null && op2_is_null) {
-                return ir_const_bool(ira, &bin_op_instruction->base.base, op_id == IrBinOpCmpEq);
+                return ir_const_bool(ira, bin_op_base, op_id == IrBinOpCmpEq);
             } else if (!op1_is_null && !op2_is_null) {
-                IrInstGen *op1_unwrapped = ir_analyze_optional_value_payload_value(ira, &op1->base, op1, false);
-                IrInstGen *op2_unwrapped = ir_analyze_optional_value_payload_value(ira, &op2->base, op2, false);
+                IrInstGen *op1_unwrapped = ir_analyze_optional_value_payload_value(ira, bin_op_base, op1, false);
+                if (type_is_invalid(op1_unwrapped->value->type))
+                    return ira->codegen->invalid_inst_gen;
+
+                IrInstGen *op2_unwrapped = ir_analyze_optional_value_payload_value(ira, bin_op_base, op2, false);
+                if (type_is_invalid(op2_unwrapped->value->type))
+                    return ira->codegen->invalid_inst_gen;
+
                 assert(instr_is_comptime(op1_unwrapped) && instr_is_comptime(op2_unwrapped));
                 return ir_analyze_bin_op_cmp_seperate_ops(ira, bin_op_instruction, op1_unwrapped, op2_unwrapped);
             } else {
-                return ir_const_bool(ira, &bin_op_instruction->base.base, op_id != IrBinOpCmpEq);
+                return ir_const_bool(ira, bin_op_base, op_id != IrBinOpCmpEq);
             }
         }
         ir_add_error_node(ira, source_node, buf_sprintf("comparison of non-comptime, non-pointer optionals. TODO: allow runtime comparison of non-pointer optionals"));
