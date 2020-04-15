@@ -16460,9 +16460,9 @@ static IrInstGen *ir_analyze_bin_op_cmp_seperate_ops(IrAnalyze *ira, IrInstSrcBi
         }
     } else if (is_equality_cmp &&
         ((op1->value->type->id == ZigTypeIdNull && op2->value->type->id == ZigTypeIdPointer &&
-             op2->value->type->data.pointer.ptr_len == PtrLenC) ||
+            op2->value->type->data.pointer.ptr_len == PtrLenC) ||
         (op2->value->type->id == ZigTypeIdNull && op1->value->type->id == ZigTypeIdPointer &&
-             op1->value->type->data.pointer.ptr_len == PtrLenC)))
+            op1->value->type->data.pointer.ptr_len == PtrLenC)))
     {
         IrInstGen *c_ptr_op;
         if (op1->value->type->id == ZigTypeIdNull) {
@@ -16479,8 +16479,8 @@ static IrInstGen *ir_analyze_bin_op_cmp_seperate_ops(IrAnalyze *ira, IrInstSrcBi
             if (c_ptr_val->special == ConstValSpecialUndef)
                 return ir_const_undef(ira, &bin_op_instruction->base.base, ira->codegen->builtin_types.entry_bool);
             bool is_null = c_ptr_val->data.x_ptr.special == ConstPtrSpecialNull ||
-                           (c_ptr_val->data.x_ptr.special == ConstPtrSpecialHardCodedAddr &&
-                            c_ptr_val->data.x_ptr.data.hard_coded_addr.addr == 0);
+                (c_ptr_val->data.x_ptr.special == ConstPtrSpecialHardCodedAddr &&
+                    c_ptr_val->data.x_ptr.data.hard_coded_addr.addr == 0);
             bool bool_result = (op_id == IrBinOpCmpEq) ? is_null : !is_null;
             return ir_const_bool(ira, &bin_op_instruction->base.base, bool_result);
         }
@@ -16524,7 +16524,7 @@ static IrInstGen *ir_analyze_bin_op_cmp_seperate_ops(IrAnalyze *ira, IrInstSrcBi
     } else if (op1->value->type->id == ZigTypeIdNull || op2->value->type->id == ZigTypeIdNull) {
         ZigType *non_null_type = (op1->value->type->id == ZigTypeIdNull) ? op2->value->type : op1->value->type;
         ir_add_error_node(ira, source_node, buf_sprintf("comparison of '%s' with null",
-                                                        buf_ptr(&non_null_type->name)));
+            buf_ptr(&non_null_type->name)));
         return ira->codegen->invalid_inst_gen;
     } else if (is_equality_cmp && (
         (op1->value->type->id == ZigTypeIdEnumLiteral && op2->value->type->id == ZigTypeIdUnion) ||
@@ -16536,10 +16536,10 @@ static IrInstGen *ir_analyze_bin_op_cmp_seperate_ops(IrAnalyze *ira, IrInstSrcBi
 
         if (!is_tagged_union(union_val->value->type)) {
             ErrorMsg *msg = ir_add_error_node(ira, source_node,
-                                              buf_sprintf("comparison of union and enum literal is only valid for tagged union types"));
+                buf_sprintf("comparison of union and enum literal is only valid for tagged union types"));
             add_error_note(ira->codegen, msg, union_val->value->type->data.unionation.decl_node,
-                           buf_sprintf("type %s is not a tagged union",
-                                       buf_ptr(&union_val->value->type->name)));
+                buf_sprintf("type %s is not a tagged union",
+                    buf_ptr(&union_val->value->type->name)));
             return ira->codegen->invalid_inst_gen;
         }
 
@@ -16570,7 +16570,7 @@ static IrInstGen *ir_analyze_bin_op_cmp_seperate_ops(IrAnalyze *ira, IrInstSrcBi
         }
 
         return ir_build_bin_op_gen(ira, &bin_op_instruction->base.base, ira->codegen->builtin_types.entry_bool,
-                                   op_id, casted_union, casted_val, bin_op_instruction->safety_check_on);
+            op_id, casted_union, casted_val, bin_op_instruction->safety_check_on);
     }
 
     if (op1->value->type->id == ZigTypeIdErrorSet && op2->value->type->id == ZigTypeIdErrorSet) {
@@ -16607,8 +16607,8 @@ static IrInstGen *ir_analyze_bin_op_cmp_seperate_ops(IrAnalyze *ira, IrInstSrcBi
         if (!type_is_global_error_set(intersect_type)) {
             if (intersect_type->data.error_set.err_count == 0) {
                 ir_add_error_node(ira, source_node,
-                                  buf_sprintf("error sets '%s' and '%s' have no common errors",
-                                              buf_ptr(&op1->value->type->name), buf_ptr(&op2->value->type->name)));
+                    buf_sprintf("error sets '%s' and '%s' have no common errors",
+                        buf_ptr(&op1->value->type->name), buf_ptr(&op2->value->type->name)));
                 return ira->codegen->invalid_inst_gen;
             }
             if (op1->value->type->data.error_set.err_count == 1 && op2->value->type->data.error_set.err_count == 1) {
@@ -16647,7 +16647,7 @@ static IrInstGen *ir_analyze_bin_op_cmp_seperate_ops(IrAnalyze *ira, IrInstSrcBi
         }
 
         return ir_build_bin_op_gen(ira, &bin_op_instruction->base.base, ira->codegen->builtin_types.entry_bool,
-                                   op_id, op1, op2, bin_op_instruction->safety_check_on);
+            op_id, op1, op2, bin_op_instruction->safety_check_on);
     }
 
     if (type_is_numeric(op1->value->type) && type_is_numeric(op2->value->type)) {
