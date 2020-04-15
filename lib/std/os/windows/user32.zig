@@ -72,7 +72,6 @@ pub const WM = enum(u16) {
     XBUTTONDBLCLK = 0x020D,
 };
 
-// WA
 pub const WA = enum(u16) {
     INACTIVE = 0,
     ACTIVE = 0x0006,
