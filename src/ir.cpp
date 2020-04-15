@@ -16504,7 +16504,6 @@ static IrInstGen *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstSrcBinOp *bin_op_i
                (op1->value->type->data.maybe.child_type->id != ZigTypeIdPointer &&
                 (op2->value->type->data.maybe.child_type->id != ZigTypeIdPointer)))
     {
-        assert(instr_is_comptime(op1) && instr_is_comptime(op2));
         if (instr_is_comptime(op1) && instr_is_comptime(op2)) {
             ZigValue *op1_val = ir_resolve_const(ira, op1, UndefBad);
             if (!op1_val)
@@ -16527,7 +16526,8 @@ static IrInstGen *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstSrcBinOp *bin_op_i
                 return ir_const_bool(ira, &bin_op_instruction->base.base, op_id != IrBinOpCmpEq);
             }
         }
-        zig_unreachable();
+        ir_add_error_node(ira, source_node, buf_sprintf("comparison of non-comptime, non-pointer optionals. TODO: allow runtime comparison of non-pointer optionals"));
+        return ira->codegen->invalid_inst_gen;
     } else if (op1->value->type->id == ZigTypeIdNull || op2->value->type->id == ZigTypeIdNull) {
         ZigType *non_null_type = (op1->value->type->id == ZigTypeIdNull) ? op2->value->type : op1->value->type;
         ir_add_error_node(ira, source_node, buf_sprintf("comparison of '%s' with null",
