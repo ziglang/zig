@@ -916,6 +916,7 @@ static int main0(int argc, char **argv) {
             }
             if (emit_bin_override_path == nullptr) {
                 emit_bin_override_path = "a.out";
+                enable_cache = CacheOptOn;
             }
         } else {
             cmd = CmdBuild;
