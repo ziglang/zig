@@ -5461,7 +5461,7 @@ test "@intToPtr for pointer to zero bit type" {
       <p>Certain expressions which manipulate a value in memory will directly initialize the final location of
       that memory, to avoid making multiple allocations and copying between them (note: "allocation" here means
       of registers or stack space, not dynamic as is usually meant):</p>
-      {#code_begin#}
+      {#code_begin|syntax#}
 pub fn main() void {
     // foo() allocates its result directly in x -- only one allocation is made
     var x = foo();
