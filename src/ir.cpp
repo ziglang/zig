@@ -16431,8 +16431,8 @@ static IrInstGen *ir_analyze_bin_op_cmp_seperate_ops(IrAnalyze *ira, IrInstSrcBi
     if (is_equality_cmp && op1->value->type->id == ZigTypeIdNull && op2->value->type->id == ZigTypeIdNull) {
         return ir_const_bool(ira, &bin_op_instruction->base.base, (op_id == IrBinOpCmpEq));
     } else if (is_equality_cmp &&
-               ((op1->value->type->id == ZigTypeIdNull && op2->value->type->id == ZigTypeIdOptional) ||
-                (op2->value->type->id == ZigTypeIdNull && op1->value->type->id == ZigTypeIdOptional)))
+        ((op1->value->type->id == ZigTypeIdNull && op2->value->type->id == ZigTypeIdOptional) ||
+        (op2->value->type->id == ZigTypeIdNull && op1->value->type->id == ZigTypeIdOptional)))
     {
         IrInstGen *maybe_op;
         if (op1->value->type->id == ZigTypeIdNull) {
@@ -16459,10 +16459,10 @@ static IrInstGen *ir_analyze_bin_op_cmp_seperate_ops(IrAnalyze *ira, IrInstSrcBi
             return is_non_null;
         }
     } else if (is_equality_cmp &&
-               ((op1->value->type->id == ZigTypeIdNull && op2->value->type->id == ZigTypeIdPointer &&
-                 op2->value->type->data.pointer.ptr_len == PtrLenC) ||
-                (op2->value->type->id == ZigTypeIdNull && op1->value->type->id == ZigTypeIdPointer &&
-                 op1->value->type->data.pointer.ptr_len == PtrLenC)))
+        ((op1->value->type->id == ZigTypeIdNull && op2->value->type->id == ZigTypeIdPointer &&
+             op2->value->type->data.pointer.ptr_len == PtrLenC) ||
+        (op2->value->type->id == ZigTypeIdNull && op1->value->type->id == ZigTypeIdPointer &&
+             op1->value->type->data.pointer.ptr_len == PtrLenC)))
     {
         IrInstGen *c_ptr_op;
         if (op1->value->type->id == ZigTypeIdNull) {
@@ -16492,9 +16492,9 @@ static IrInstGen *ir_analyze_bin_op_cmp_seperate_ops(IrAnalyze *ira, IrInstSrcBi
             return is_non_null;
         }
     } else if (is_equality_cmp &&
-               (op1->value->type->id == ZigTypeIdOptional && op2->value->type->id == ZigTypeIdOptional) &&
-               (op1->value->type->data.maybe.child_type->id != ZigTypeIdPointer &&
-                (op2->value->type->data.maybe.child_type->id != ZigTypeIdPointer)))
+        (op1->value->type->id == ZigTypeIdOptional && op2->value->type->id == ZigTypeIdOptional) &&
+        (op1->value->type->data.maybe.child_type->id != ZigTypeIdPointer) &&
+        (op2->value->type->data.maybe.child_type->id != ZigTypeIdPointer))
     {
         if (instr_is_comptime(op1) && instr_is_comptime(op2)) {
             ZigValue *op1_val = ir_resolve_const(ira, op1, UndefBad);
@@ -16527,8 +16527,8 @@ static IrInstGen *ir_analyze_bin_op_cmp_seperate_ops(IrAnalyze *ira, IrInstSrcBi
                                                         buf_ptr(&non_null_type->name)));
         return ira->codegen->invalid_inst_gen;
     } else if (is_equality_cmp && (
-            (op1->value->type->id == ZigTypeIdEnumLiteral && op2->value->type->id == ZigTypeIdUnion) ||
-            (op2->value->type->id == ZigTypeIdEnumLiteral && op1->value->type->id == ZigTypeIdUnion)))
+        (op1->value->type->id == ZigTypeIdEnumLiteral && op2->value->type->id == ZigTypeIdUnion) ||
+        (op2->value->type->id == ZigTypeIdEnumLiteral && op1->value->type->id == ZigTypeIdUnion)))
     {
         // Support equality comparison between a union's tag value and a enum literal
         IrInstGen *union_val = op1->value->type->id == ZigTypeIdUnion ? op1 : op2;
