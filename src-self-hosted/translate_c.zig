@@ -5523,23 +5523,57 @@ fn parseCPrimaryExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8, 
                 return error.ParseError;
             }
 
+            const lparen = try appendToken(c, .LParen, "(");
+
             if (saw_integer_literal) {
-                // @intToPtr(dest, x)
+                //(  if (@typeInfo(dest) == .Pointer))
+                //    @intToPtr(dest, x)
+                //else
+                //    @as(dest, x) )
+                const if_node = try transCreateNodeIf(c);
+                const type_info_node = try transCreateNodeBuiltinFnCall(c, "@typeInfo");
+                try type_info_node.params.push(inner_node);
+                type_info_node.rparen_token = try appendToken(c, .LParen, ")");
+                const cmp_node = try c.a().create(ast.Node.InfixOp);
+                cmp_node.* = .{
+                    .op_token = try appendToken(c, .EqualEqual, "=="),
+                    .lhs = &type_info_node.base,
+                    .op = .EqualEqual,
+                    .rhs = try transCreateNodeEnumLiteral(c, "Pointer"),
+                };
+                if_node.condition = &cmp_node.base;
+                _ = try appendToken(c, .RParen, ")");
+
                 const int_to_ptr = try transCreateNodeBuiltinFnCall(c, "@intToPtr");
                 try int_to_ptr.params.push(inner_node);
                 try int_to_ptr.params.push(node_to_cast);
                 int_to_ptr.rparen_token = try appendToken(c, .RParen, ")");
-                return &int_to_ptr.base;
+                if_node.body = &int_to_ptr.base;
+
+                const else_node = try transCreateNodeElse(c);
+                if_node.@"else" = else_node;
+
+                const as_node = try transCreateNodeBuiltinFnCall(c, "@as");
+                try as_node.params.push(inner_node);
+                try as_node.params.push(node_to_cast);
+                as_node.rparen_token = try appendToken(c, .RParen, ")");
+                else_node.body = &as_node.base;
+
+                const group_node = try c.a().create(ast.Node.GroupedExpression);
+                group_node.* = .{
+                    .lparen = lparen,
+                    .expr = &if_node.base,
+                    .rparen = try appendToken(c, .RParen, ")"),
+                };
+                return &group_node.base;
             }
 
             //(  if (@typeInfo(@TypeOf(x)) == .Pointer)
             //    @ptrCast(dest, @alignCast(@alignOf(dest.Child), x))
-            //else if (@typeInfo(@TypeOf(x)) == .Integer and @typeInfo(dest) == .Pointer))
+            //else if (@typeInfo(@TypeOf(x)) == .Int and @typeInfo(dest) == .Pointer))
             //    @intToPtr(dest, x)
             //else
             //    @as(dest, x) )
-
-            const lparen = try appendToken(c, .LParen, "(");
 
             const if_1 = try transCreateNodeIf(c);
             const type_id_1 = try transCreateNodeBuiltinFnCall(c, "@typeInfo");

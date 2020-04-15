@@ -2895,20 +2895,13 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
-    cases.add("Cast from integer literals to poiter",
+    cases.add("macro integer literal casts",
         \\#define NULL ((void*)0)
-        \\#define GPIO_0_MEM_MAP ((unsigned*)0x8000)
-        \\#define GPIO_1_MEM_MAP ((unsigned*)0x8004)
-        \\#define GPIO_2_MEM_MAP ((unsigned*)0x8008)
-        \\
+        \\#define FOO ((int)0x8000)
     , &[_][]const u8{
-        \\pub const NULL = @intToPtr(?*c_void, 0);
+        \\pub const NULL = (if (@typeInfo(?*c_void) == .Pointer) @intToPtr(?*c_void, 0) else @as(?*c_void, 0));
     ,
-        \\pub const GPIO_0_MEM_MAP = @intToPtr([*c]c_uint, 0x8000);
-    ,
-        \\pub const GPIO_1_MEM_MAP = @intToPtr([*c]c_uint, 0x8004);
-    ,
-        \\pub const GPIO_2_MEM_MAP = @intToPtr([*c]c_uint, 0x8008);
+        \\pub const FOO = (if (@typeInfo(c_int) == .Pointer) @intToPtr(c_int, 0x8000) else @as(c_int, 0x8000));
     });
     
     if (std.Target.current.abi == .msvc) {
