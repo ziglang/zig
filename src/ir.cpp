@@ -16422,7 +16422,7 @@ static bool ir_is_cmp_allowed(IrBinOp op_id, ZigType *op_type) {
             return is_equality_cmp && ir_is_cmp_allowed(op_id, op_type->data.maybe.child_type);
     }
 }
-#include <cstdio>
+
 static IrInstGen *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstSrcBinOp *bin_op_instruction) {
     IrInstGen *op1 = bin_op_instruction->op1->child;
     if (type_is_invalid(op1->value->type))

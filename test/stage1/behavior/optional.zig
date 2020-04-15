@@ -30,7 +30,7 @@ fn testNullPtrsEql() void {
 }
 
 test "equality compare nullable integers" {
-    testNullableIntEql(); // uncomment when runtime checking is complete
+     // testNullableIntEql(); uncomment when runtime checking is complete
     comptime testNullableIntEql();
 }
 
