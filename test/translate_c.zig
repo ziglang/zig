@@ -2879,7 +2879,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub const FOO = 0x61626364;
     });
-    
+
     cases.add("Make sure casts are grouped",
         \\typedef struct
         \\{
@@ -2903,7 +2903,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     ,
         \\pub const FOO = (if (@typeInfo(c_int) == .Pointer) @intToPtr(c_int, 0x8000) else @as(c_int, 0x8000));
     });
-    
+
     if (std.Target.current.abi == .msvc) {
         cases.add("nameless struct fields",
             \\typedef struct NAMED

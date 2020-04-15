@@ -1467,7 +1467,6 @@ pub const Int = struct {
 
         r.swap(&x);
     }
-
 };
 
 // Storage must live for the lifetime of the returned value
