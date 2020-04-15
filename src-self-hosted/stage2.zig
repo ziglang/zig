@@ -903,13 +903,14 @@ fn enumToString(value: var, type_name: []const u8) ![]const u8 {
             if (e.is_exhaustive) {
                 return std.fmt.allocPrint(std.heap.c_allocator, ".{}", .{@tagName(value)});
             } else {
-                return std.fmt.allocPrint(std.heap.c_allocator,
+                return std.fmt.allocPrint(
+                    std.heap.c_allocator,
                     "@intToEnum({}, {})",
-                    .{type_name, @enumToInt(value)}
+                    .{ type_name, @enumToInt(value) },
                 );
             }
         },
-        else => unreachable 
+        else => unreachable,
     }
 }
 
@@ -1136,7 +1137,7 @@ const Stage2Target = extern struct {
                 \\
             , .{
                 try enumToString(target.os.version_range.windows.min, "Target.Os.WindowsVersion"),
-                try enumToString(target.os.version_range.windows.max, "Target.Os.WindowsVersion")
+                try enumToString(target.os.version_range.windows.max, "Target.Os.WindowsVersion"),
             }),
         }
         try os_builtin_str_buffer.appendSlice("};\n");
