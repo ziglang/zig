@@ -180,7 +180,8 @@ pub const CacheHash = struct {
                 }
 
                 var actual_digest: [BIN_DIGEST_LEN]u8 = undefined;
-                try hash_file(self.alloc, &actual_digest, &this_file);
+                const contents = try hash_file(self.alloc, &actual_digest, &this_file);
+                self.alloc.free(contents);
 
                 if (!mem.eql(u8, &cache_hash_file.bin_digest, &actual_digest)) {
                     mem.copy(u8, &cache_hash_file.bin_digest, &actual_digest);
@@ -211,7 +212,7 @@ pub const CacheHash = struct {
             self.manifest_dirty = true;
             while (idx < input_file_count) : (idx += 1) {
                 var cache_hash_file = &self.files.items[idx];
-                self.populate_file_hash(cache_hash_file) catch |err| {
+                const contents = self.populate_file_hash(cache_hash_file) catch |err| {
                     self.manifest_file.?.close();
                     self.manifest_file = null;
                     return error.CacheUnavailable;
@@ -223,7 +224,7 @@ pub const CacheHash = struct {
         return self.final();
     }
 
-    pub fn populate_file_hash(self: *@This(), cache_hash_file: *File) !void {
+    fn populate_file_hash_fetch(self: *@This(), otherAlloc: *mem.Allocator, cache_hash_file: *File) ![]u8 {
         debug.assert(cache_hash_file.path != null);
 
         const this_file = try fs.cwd().openFile(cache_hash_file.path.?, .{});
@@ -236,8 +237,38 @@ pub const CacheHash = struct {
             cache_hash_file.stat.inode = 0;
         }
 
-        try hash_file(self.alloc, &cache_hash_file.bin_digest, &this_file);
+        const contents = try hash_file(otherAlloc, &cache_hash_file.bin_digest, &this_file);
         self.blake3.update(&cache_hash_file.bin_digest);
+
+        return contents;
+    }
+
+    fn populate_file_hash(self: *@This(), cache_hash_file: *File) !void {
+        const contents = try self.populate_file_hash_fetch(self.alloc, cache_hash_file);
+        self.alloc.free(contents);
+    }
+
+    /// Add a file as a dependency of process being cached, after the initial hash has been
+    /// calculated. Returns the contents of the file, allocated with the given allocator.
+    pub fn addFilePostFetch(self: *@This(), otherAlloc: *mem.Allocator, file_path: []const u8) ![]u8 {
+        debug.assert(self.manifest_file != null);
+
+        var cache_hash_file = try self.files.addOne();
+        cache_hash_file.path = try fs.path.resolve(self.alloc, &[_][]const u8{file_path});
+
+        const contents = self.populate_file_hash_fetch(otherAlloc, cache_hash_file) catch |err| {
+            self.manifest_file.close();
+            return err;
+        };
+
+        return contents;
+    }
+
+    /// Add a file as a dependency of process being cached, after the initial hash has been
+    /// calculated.
+    pub fn addFilePost(self: *@This(), file_path: []const u8) !void {
+        const contents = try self.addFilePostFetch(self.alloc, file_path);
+        self.alloc.free(contents);
     }
 
     /// Returns a base64 encoded hash of the inputs.
@@ -294,15 +325,17 @@ pub const CacheHash = struct {
     }
 };
 
-fn hash_file(alloc: *Allocator, bin_digest: []u8, handle: *const fs.File) !void {
+/// Hash the file, and return the contents as an array
+fn hash_file(alloc: *Allocator, bin_digest: []u8, handle: *const fs.File) ![]u8 {
     var blake3 = Blake3.init();
 
     const contents = try handle.inStream().readAllAlloc(alloc, 64 * 1024);
-    defer alloc.free(contents);
 
     blake3.update(contents);
 
     blake3.final(bin_digest);
+
+    return contents;
 }
 
 /// If the wall clock time, rounded to the same precision as the
