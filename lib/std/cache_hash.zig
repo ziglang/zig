@@ -393,3 +393,48 @@ test "give nonproblematic timestamp" {
     const now_ns = @intCast(i64, time.milliTimestamp() * time.millisecond) - 1000;
     testing.expect(!is_problematic_timestamp(now_ns));
 }
+
+test "check that changing a file makes cache fail" {
+    const cwd = fs.cwd();
+
+    const temp_file = "cache_hash_change_file_test.txt";
+    const temp_manifest_dir = "cache_hash_change_file_manifest_dir";
+
+    try cwd.writeFile(temp_file, "Hello, world!\n");
+
+    var digest1: [BASE64_DIGEST_LEN]u8 = undefined;
+    var digest2: [BASE64_DIGEST_LEN]u8 = undefined;
+
+    {
+        var ch = try CacheHash.init(testing.allocator, temp_manifest_dir);
+        defer ch.release();
+
+        ch.add("1234");
+        try ch.addFile(temp_file);
+
+        // There should be nothing in the cache
+        testing.expectEqual(@as(?[64]u8, null), try ch.hit());
+
+        digest1 = ch.final();
+    }
+
+    try cwd.writeFile(temp_file, "Hello, world; but updated!\n");
+
+    {
+        var ch = try CacheHash.init(testing.allocator, temp_manifest_dir);
+        defer ch.release();
+
+        ch.add("1234");
+        try ch.addFile(temp_file);
+
+        // A file that we depend on has been updated, so the cache should not contain an entry for it
+        testing.expectEqual(@as(?[64]u8, null), try ch.hit());
+
+        digest2 = ch.final();
+    }
+
+    testing.expect(!mem.eql(u8, digest1[0..], digest2[0..]));
+
+    try cwd.deleteTree(temp_manifest_dir);
+    try cwd.deleteFile(temp_file);
+}
