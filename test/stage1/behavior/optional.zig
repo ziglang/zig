@@ -30,12 +30,12 @@ fn testNullPtrsEql() void {
 }
 
 test "equality compare nullable integers" {
-
+    testNullableIntEql(); // uncomment when runtime checking is complete
     comptime testNullableIntEql();
 }
 
 fn testNullableIntEql() void {
-    comptime {
+    comptime { // these do not work at runtime yet. remove comptime when implementation of runtime comparison is done
         var a: ?i32 = 10;
         var b: ?i32 = 20;
         var n: ?i32 = null;
