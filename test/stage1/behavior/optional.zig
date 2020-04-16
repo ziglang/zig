@@ -1,4 +1,7 @@
-const expect = @import("std").testing.expect;
+const std = @import("std");
+const testing = std.testing;
+const expect = testing.expect;
+const expectEqual = testing.expectEqual;
 
 pub const EmptyStruct = struct {};
 
@@ -197,4 +200,36 @@ test "0-bit child type coerced to optional" {
     };
     S.doTheTest();
     comptime S.doTheTest();
+}
+
+test "array of optional unaligned types" {
+    const Enum = enum { one, two, three };
+
+    const SomeUnion = union(enum) {
+        Num: Enum,
+        Other: u32,
+    };
+
+    const values = [_]?SomeUnion{
+        SomeUnion{ .Num = .one },
+        SomeUnion{ .Num = .two },
+        SomeUnion{ .Num = .three },
+        SomeUnion{ .Num = .one },
+        SomeUnion{ .Num = .two },
+        SomeUnion{ .Num = .three },
+    };
+
+    // The index must be a runtime value
+    var i: usize = 0;
+    expectEqual(Enum.one, values[i].?.Num);
+    i += 1;
+    expectEqual(Enum.two, values[i].?.Num);
+    i += 1;
+    expectEqual(Enum.three, values[i].?.Num);
+    i += 1;
+    expectEqual(Enum.one, values[i].?.Num);
+    i += 1;
+    expectEqual(Enum.two, values[i].?.Num);
+    i += 1;
+    expectEqual(Enum.three, values[i].?.Num);
 }

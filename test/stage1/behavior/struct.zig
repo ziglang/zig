@@ -825,3 +825,19 @@ test "self-referencing struct via array member" {
     x = T{ .children = .{&x} };
     expect(x.children[0] == &x);
 }
+
+test "struct with union field" {
+    const Value = struct {
+        ref: u32 = 2,
+        kind: union(enum) {
+            None: usize,
+            Bool: bool,
+        },
+    };
+
+    var True = Value{
+        .kind = .{ .Bool = true },
+    };
+    expectEqual(@as(u32, 2), True.ref);
+    expectEqual(true, True.kind.Bool);
+}
