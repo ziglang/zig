@@ -1,6 +1,6 @@
 usingnamespace @import("bits.zig");
 
-pub const WM = extern enum {
+pub const WM = extern enum(UINT) {
     NULL = 0x0000,
     CREATE = 0x0001,
     DESTROY = 0x0002,
@@ -68,13 +68,13 @@ pub const WM = extern enum {
     pub const MOUSELAST = @intToEnum(@This(), 0x020d);
 };
 
-pub const WA = extern enum {
+pub const WA = extern enum(UINT) {
     INACTIVE = 0,
     ACTIVE = 1,
     CLICKACTIVE = 2,
 };
 
-pub const SW = extern enum {
+pub const SW = extern enum(UINT) {
     HIDE = 0,
     SHOWNORMAL = 1,
     SHOWMINIMIZED = 2,
@@ -89,7 +89,7 @@ pub const SW = extern enum {
     FORCEMINIMIZE = 11,
 };
 
-pub const VK = extern enum {
+pub const VK = extern enum(UINT) {
     LBUTTON = 0x01,
     RBUTTON = 0x02,
     CANCEL = 0x03,
