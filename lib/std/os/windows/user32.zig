@@ -33,7 +33,6 @@ pub const WM = enum(u16) {
 
     INPUT_DEVICE_CHANGE = 0x00fe,
     INPUT = 0x00FF,
-    KEYFIRST = 0x0100,
     KEYDOWN = 0x0100,
     KEYUP = 0x0101,
     CHAR = 0x0102,
@@ -42,14 +41,12 @@ pub const WM = enum(u16) {
     SYSKEYUP = 0x0105,
     SYSCHAR = 0x0106,
     SYSDEADCHAR = 0x0107,
-    UNICHAR = 0x0109,
     KEYLAST = 0x0109,
 
     COMMAND = 0x0111,
     SYSCOMMAND = 0x0112,
     TIMER = 0x0113,
 
-    MOUSEFIRST = 0x0200,
     MOUSEMOVE = 0x0200,
     LBUTTONDOWN = 0x0201,
     LBUTTONUP = 0x0202,
