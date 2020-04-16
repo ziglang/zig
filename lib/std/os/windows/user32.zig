@@ -78,10 +78,8 @@ pub const WA = enum(u16) {
     ACTIVATE = 0x0006,
 };
 
-pub const SW = enum(u16) {
-    HIDE = 0,
-    SHOW = 5,
-};
+pub const SW_HIDE = 0;
+pub const SW_SHOW = 5;
 
 pub const CS_HREDRAW = 0x0002;
 pub const CS_VREDRAW = 0x0001;
