@@ -19,11 +19,16 @@ pub const File = struct {
     path: ?[]const u8,
     stat: fs.File.Stat,
     bin_digest: [BIN_DIGEST_LEN]u8,
+    contents: ?[]const u8 = null,
 
     pub fn deinit(self: *@This(), alloc: *Allocator) void {
         if (self.path) |owned_slice| {
             alloc.free(owned_slice);
             self.path = null;
+        }
+        if (self.contents) |contents| {
+            alloc.free(contents);
+            self.contents = null;
         }
     }
 };
@@ -77,13 +82,23 @@ pub const CacheHash = struct {
     /// Add a file as a dependency of process being cached. When `CacheHash.hit` is
     /// called, the file's contents will be checked to ensure that it matches
     /// the contents from previous times.
-    pub fn addFile(self: *@This(), file_path: []const u8) !void {
+    ///
+    /// Returns the index of the entry in the `CacheHash.files` ArrayList. You can use it
+    /// to access the contents of the file after calling `CacheHash.hit()` like so:
+    ///
+    /// ```
+    /// var file_contents = cache_hash.files.items[file_index].contents.?;
+    /// ```
+    pub fn addFile(self: *@This(), file_path: []const u8) !usize {
         debug.assert(self.manifest_file == null);
 
+        const idx = self.files.items.len;
         var cache_hash_file = try self.files.addOne();
         cache_hash_file.path = try fs.path.resolve(self.alloc, &[_][]const u8{file_path});
 
         self.addSlice(cache_hash_file.path.?);
+
+        return idx;
     }
 
     /// Check the cache to see if the input exists in it. If it exists, a base64 encoding
@@ -191,8 +206,7 @@ pub const CacheHash = struct {
                 }
 
                 var actual_digest: [BIN_DIGEST_LEN]u8 = undefined;
-                const contents = try hash_file(self.alloc, &actual_digest, &this_file);
-                self.alloc.free(contents);
+                cache_hash_file.contents = try hash_file(self.alloc, &actual_digest, &this_file);
 
                 if (!mem.eql(u8, &cache_hash_file.bin_digest, &actual_digest)) {
                     mem.copy(u8, &cache_hash_file.bin_digest, &actual_digest);
@@ -253,8 +267,7 @@ pub const CacheHash = struct {
     }
 
     fn populate_file_hash(self: *@This(), cache_hash_file: *File) !void {
-        const contents = try self.populate_file_hash_fetch(self.alloc, cache_hash_file);
-        self.alloc.free(contents);
+        cache_hash_file.contents = try self.populate_file_hash_fetch(self.alloc, cache_hash_file);
     }
 
     /// Add a file as a dependency of process being cached, after the initial hash has been
@@ -381,7 +394,7 @@ test "cache file and then recall it" {
         ch.add(true);
         ch.add(@as(u16, 1234));
         ch.add("1234");
-        try ch.addFile(temp_file);
+        _ = try ch.addFile(temp_file);
 
         // There should be nothing in the cache
         testing.expectEqual(@as(?[64]u8, null), try ch.hit());
@@ -395,7 +408,7 @@ test "cache file and then recall it" {
         ch.add(true);
         ch.add(@as(u16, 1234));
         ch.add("1234");
-        try ch.addFile(temp_file);
+        _ = try ch.addFile(temp_file);
 
         // Cache hit! We just "built" the same file
         digest2 = (try ch.hit()).?;
@@ -433,7 +446,7 @@ test "check that changing a file makes cache fail" {
         defer ch.release() catch unreachable;
 
         ch.add("1234");
-        try ch.addFile(temp_file);
+        _ = try ch.addFile(temp_file);
 
         // There should be nothing in the cache
         testing.expectEqual(@as(?[64]u8, null), try ch.hit());
@@ -448,7 +461,7 @@ test "check that changing a file makes cache fail" {
         defer ch.release() catch unreachable;
 
         ch.add("1234");
-        try ch.addFile(temp_file);
+        _ = try ch.addFile(temp_file);
 
         // A file that we depend on has been updated, so the cache should not contain an entry for it
         testing.expectEqual(@as(?[64]u8, null), try ch.hit());
