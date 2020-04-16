@@ -16974,7 +16974,7 @@ static IrInstGen *ir_analyze_bit_shift(IrAnalyze *ira, IrInstSrcBinOp *bin_op_in
 
         if (!instr_is_comptime(op2)) {
             ir_add_error(ira, &bin_op_instruction->base.base,
-                buf_sprintf("LHS of shift must be an integer type, or RHS must be compile-time known"));
+                buf_sprintf("LHS of shift must be a fixed-width integer type, or RHS must be compile-time known"));
             return ira->codegen->invalid_inst_gen;
         }
 

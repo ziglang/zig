@@ -205,7 +205,7 @@ pub fn AlignedArrayList(comptime T: type, comptime alignment: ?u29) type {
                 better_capacity += better_capacity / 2 + 8;
                 if (better_capacity >= new_capacity) break;
             }
-            
+
             const new_memory = try self.allocator.realloc(self.allocatedSlice(), better_capacity);
             self.items.ptr = new_memory.ptr;
             self.capacity = new_memory.len;
@@ -250,7 +250,7 @@ pub fn AlignedArrayList(comptime T: type, comptime alignment: ?u29) type {
             if (self.items.len == 0) return null;
             return self.pop();
         }
-        
+
         // For a nicer API, `items.len` is the length, not the capacity.
         // This requires "unsafe" slicing.
         fn allocatedSlice(self: Self) Slice {
@@ -448,16 +448,16 @@ test "std.ArrayList(u8) implements outStream" {
 }
 
 test "std.ArrayList.shrink still sets length on error.OutOfMemory" {
-        // use an arena allocator to make sure realloc returns error.OutOfMemory
-        var arena = std.heap.ArenaAllocator.init(testing.allocator);
-        defer arena.deinit();
+    // use an arena allocator to make sure realloc returns error.OutOfMemory
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
 
-        var list = ArrayList(i32).init(&arena.allocator);
+    var list = ArrayList(i32).init(&arena.allocator);
 
-        try list.append(1);
-        try list.append(2);
-        try list.append(3);
+    try list.append(1);
+    try list.append(2);
+    try list.append(3);
 
-        list.shrink(1);
-        testing.expect(list.items.len == 1);
+    list.shrink(1);
+    testing.expect(list.items.len == 1);
 }
