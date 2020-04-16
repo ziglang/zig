@@ -1,10 +1,6 @@
 usingnamespace @import("bits.zig");
 
-pub const PM = enum(u16) {
-    REMOVE = 0x0001,
-    NOREMOVE = 0x0000,
-    NOYIELD = 0x0002,
-};
+
 
 pub const WM = enum(u16) {
     NULL = 0x0000,
@@ -77,6 +73,10 @@ pub const WA = enum(u16) {
     ACTIVE = 0x0006,
     ACTIVATE = 0x0006,
 };
+
+pub const PM_REMOVE = 0x0001;
+pub const PM_NOREMOVE = 0x0000;
+pub const PM_NOYIELD = 0x0002;
 
 pub const SW_HIDE = 0;
 pub const SW_SHOW = 5;
