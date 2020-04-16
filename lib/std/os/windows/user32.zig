@@ -188,7 +188,7 @@ pub const VK = extern enum {
     OEM_FJ_ROYA = 0x96,
     LSHIFT = 0xA0,
     RSHIFT = 0xA1,
-    LCONTROL 0xA2,
+    LCONTROL = 0xA2,
     RCONTROL = 0xA3,
     LMENU = 0xA4,
     RMENU = 0xA5,
