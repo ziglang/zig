@@ -100,6 +100,21 @@ test "create file, lock and read from multiple process at once" {
     };
 }
 
+test "open file with exclusive nonblocking lock twice (absolute paths)" {
+    const filename = "/tmp/zig-test-absolute-paths.txt";
+
+    const file1 = try fs.createFileAbsolute(filename, .{ .lock = .Exclusive, .lock_nonblocking = true });
+    defer file1.close();
+
+    const file2 = fs.createFileAbsolute(filename, .{ .lock = .Exclusive, .lock_nonblocking = true });
+    std.debug.assert(std.meta.eql(file2, error.WouldBlock));
+
+    fs.deleteFileAbsolute(filename) catch |err| switch (err) {
+        error.FileNotFound => {},
+        else => return err,
+    };
+}
+
 const FileLockTestContext = struct {
     filename: []const u8,
     pid: if (builtin.os.tag == .windows) ?void else ?std.os.pid_t = null,
