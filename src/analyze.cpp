@@ -858,10 +858,12 @@ ZigType *get_slice_type(CodeGen *g, ZigType *ptr_type) {
     entry->data.structure.fields[slice_ptr_index]->type_entry = ptr_type;
     entry->data.structure.fields[slice_ptr_index]->src_index = slice_ptr_index;
     entry->data.structure.fields[slice_ptr_index]->gen_index = 0;
+    entry->data.structure.fields[slice_ptr_index]->offset = 0;
     entry->data.structure.fields[slice_len_index]->name = len_field_name;
     entry->data.structure.fields[slice_len_index]->type_entry = g->builtin_types.entry_usize;
     entry->data.structure.fields[slice_len_index]->src_index = slice_len_index;
     entry->data.structure.fields[slice_len_index]->gen_index = 1;
+    entry->data.structure.fields[slice_len_index]->offset = ptr_type->abi_size;
 
     entry->data.structure.fields_by_name.put(ptr_field_name, entry->data.structure.fields[slice_ptr_index]);
     entry->data.structure.fields_by_name.put(len_field_name, entry->data.structure.fields[slice_len_index]);
