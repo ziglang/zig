@@ -133,7 +133,42 @@ pub const VK = extern enum(UINT) {
     INSERT = 0x2D,
     DELETE = 0x2E,
     HELP = 0x2F,
-
+    ZERO = 0x30,
+    ONE = 0x31,
+    TWO = 0x32,
+    THREE = 0x33,
+    FOUR = 0x34,
+    FIVE = 0x35,
+    SIX = 0x36,
+    SEVEN = 0x37,
+    EIGHT = 0x38,
+    NINE = 0x39,
+    A = 0x41,
+    B = 0x42,
+    C = 0x43,
+    D = 0x44,
+    E = 0x45,
+    F = 0x46,
+    G = 0x47,
+    H = 0x48,
+    I = 0x49,
+    J = 0x4A,
+    K = 0x4B,
+    L = 0x4C,
+    M = 0x4D,
+    N = 0x4E,
+    O = 0x4F,
+    P = 0x50,
+    Q = 0x51,
+    R = 0x52,
+    S = 0x53,
+    T = 0x54,
+    U = 0x55,
+    V = 0x56,
+    W = 0x57,
+    X = 0x58,
+    Y = 0x59,
+    Z = 0x5A,
     LWIN = 0x5B,
     RWIN = 0x5C,
     APPS = 0x5D,
@@ -291,7 +326,7 @@ pub const WS_HSCROLL = 0x00100000;
 pub const WS_GROUP = 0x00020000;
 pub const WS_TABSTOP = 0x00010000;
 
-pub const WNDPROC = fn (HWND, UINT, WPARAM, LPARAM) callconv(.Stdcall) LRESULT;
+pub const WNDPROC = fn (HWND, WM, WPARAM, LPARAM) callconv(.Stdcall) LRESULT;
 
 pub const WNDCLASSEXA = extern struct {
     cbSize: UINT = @sizeOf(WNDCLASSEXA),
@@ -314,7 +349,7 @@ pub const POINT = extern struct {
 
 pub const MSG = extern struct {
     hWnd: ?HWND,
-    message: UINT,
+    message: WM,
     wParam: WPARAM,
     lParam: LPARAM,
     time: DWORD,
@@ -338,7 +373,7 @@ pub extern "user32" fn CreateWindowExA(
 ) callconv(.Stdcall) ?HWND;
 
 pub extern "user32" fn RegisterClassExA(*const WNDCLASSEXA) callconv(.Stdcall) c_ushort;
-pub extern "user32" fn DefWindowProcA(HWND, UINT, WPARAM, LPARAM) callconv(.Stdcall) LRESULT;
+pub extern "user32" fn DefWindowProcA(HWND, WM, WPARAM, LPARAM) callconv(.Stdcall) LRESULT;
 pub extern "user32" fn GetModuleHandleA(lpModuleName: ?LPCSTR) callconv(.Stdcall) HMODULE;
 pub extern "user32" fn ShowWindow(hWnd: ?HWND, nCmdShow: i32) callconv(.Stdcall) bool;
 pub extern "user32" fn UpdateWindow(hWnd: ?HWND) callconv(.Stdcall) bool;
