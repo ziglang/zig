@@ -2155,6 +2155,9 @@ pub const LibExeObjStep = struct {
                 var src_dir = try std.fs.cwd().openDir(build_output_dir, .{ .iterate = true });
                 defer src_dir.close();
 
+                // Create the output directory if it doesn't exist.
+                try std.fs.cwd().makePath(output_dir);
+
                 var dest_dir = try std.fs.cwd().openDir(output_dir, .{});
                 defer dest_dir.close();
 
