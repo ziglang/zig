@@ -937,7 +937,7 @@ fn openMachODebugInfo(allocator: *mem.Allocator, macho_file_path: []const u8) !M
         return error.MissingDebugInfo;
     };
     const syms = @ptrCast([*]const macho.nlist_64, @alignCast(@alignOf(macho.nlist_64), hdr_base + symtab.symoff))[0..symtab.nsyms];
-    const strings = @ptrCast([*]const u8, hdr_base + symtab.stroff)[0..symtab.strsize :0];
+    const strings = @ptrCast([*]const u8, hdr_base + symtab.stroff)[0 .. symtab.strsize - 1 :0];
 
     const symbols_buf = try allocator.alloc(MachoSymbol, syms.len);
 
@@ -1418,19 +1418,23 @@ pub const ModuleDebugInfo = switch (builtin.os.tag) {
             const symbol = machoSearchSymbols(self.symbols, relocated_address) orelse
                 return SymbolInfo{};
 
-            // XXX: Return the symbol name
-            if (symbol.ofile == null)
-                return SymbolInfo{};
+            // Take the symbol name from the N_FUN STAB entry, we're going to
+            // use it if we fail to find the DWARF infos
+            const stab_symbol = mem.spanZ(self.strings[symbol.nlist.n_strx..]);
 
-            assert(symbol.ofile.?.n_strx < self.strings.len);
-            const o_file_path = mem.spanZ(self.strings.ptr + symbol.ofile.?.n_strx);
+            if (symbol.ofile == null)
+                return SymbolInfo{ .symbol_name = stab_symbol };
+
+            const o_file_path = mem.spanZ(self.strings[symbol.ofile.?.n_strx..]);
 
             // Check if its debug infos are already in the cache
             var o_file_di = self.ofiles.getValue(o_file_path) orelse
                 (self.loadOFile(o_file_path) catch |err| switch (err) {
-                error.MissingDebugInfo, error.InvalidDebugInfo => {
-                    // XXX: Return the symbol name
-                    return SymbolInfo{};
+                error.FileNotFound,
+                error.MissingDebugInfo,
+                error.InvalidDebugInfo,
+                => {
+                    return SymbolInfo{ .symbol_name = stab_symbol };
                 },
                 else => return err,
             });
@@ -1453,7 +1457,7 @@ pub const ModuleDebugInfo = switch (builtin.os.tag) {
                 };
             } else |err| switch (err) {
                 error.MissingDebugInfo, error.InvalidDebugInfo => {
-                    return SymbolInfo{};
+                    return SymbolInfo{ .symbol_name = stab_symbol };
                 },
                 else => return err,
             }
