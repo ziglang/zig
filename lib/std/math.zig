@@ -313,10 +313,9 @@ test "math.max" {
     testing.expect(max(@as(i32, -1), @as(i32, 2)) == 2);
 }
 
-pub fn clamp(clamped_val: var, bound_1: var, bound_2: var) Min(@TypeOf(bound_1), @TypeOf(bound_2)) {
-    const upper_bound = max(bound_1, bound_2);
-    const lower_bound = min(bound_1, bound_2);
-    return min(upper_bound, max(clamped_val, lower_bound));
+pub fn clamp(val: var, lower: var, upper: var) @TypeOf(val, lower, upper) {
+    assert(lower <= upper);
+    return max(lower, min(val, upper));
 }
 test "math.clamp" {
     // Within range
@@ -326,10 +325,13 @@ test "math.clamp" {
     // Above
     testing.expect(std.math.clamp(@as(i32, 8), @as(i32, -4), @as(i32, 7)) == 7);
 
-    // Reverse
-    testing.expect(std.math.clamp(@as(i32, -1), @as(i32, 7), @as(i32, -4)) == -1);
-    testing.expect(std.math.clamp(@as(i32, -5), @as(i32, 7), @as(i32, -4)) == -4);
-    testing.expect(std.math.clamp(@as(i32, 8), @as(i32, 7), @as(i32, -4)) == 7);
+    // Floating point
+    testing.expect(std.math.clamp(@as(f32, 1.1), @as(f32, 0.0), @as(f32, 1.0)) == 1.0);
+    testing.expect(std.math.clamp(@as(f32, -127.5), @as(f32, -200), @as(f32, -100)) == -127.5);
+
+    // Mix of comptime and non-comptime
+    var i: i32 = 1;
+    testing.expect(std.math.clamp(i, 0, 1) == 1);
 }
 
 pub fn mul(comptime T: type, a: T, b: T) (error{Overflow}!T) {
