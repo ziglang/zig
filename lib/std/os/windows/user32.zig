@@ -98,6 +98,7 @@ pub const PFD_DRAW_TO_WINDOW = 0x00000004;
 pub const PFD_SUPPORT_OPENGL = 0x00000020;
 pub const PFD_DOUBLEBUFFER = 0x00000001;
 pub const PFD_MAIN_PLANE = 0;
+pub const PFD_TYPE_RGBA = 0;
 
 pub const WNDPROC = fn (HWND, UINT, WPARAM, LPARAM) callconv(.Stdcall) LRESULT;
 
