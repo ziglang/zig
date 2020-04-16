@@ -148,7 +148,7 @@ pub const CacheHash = struct {
 
             var cache_hash_file: *File = undefined;
             if (idx < input_file_count) {
-                cache_hash_file = self.files.ptrAt(idx);
+                cache_hash_file = &self.files.items[idx];
             } else {
                 cache_hash_file = try self.files.addOne();
                 cache_hash_file.path = null;
@@ -213,7 +213,7 @@ pub const CacheHash = struct {
             self.blake3 = Blake3.init();
             self.blake3.update(&bin_digest);
             try self.files.resize(input_file_count);
-            for (self.files.toSlice()) |file| {
+            for (self.files.items) |file| {
                 self.blake3.update(&file.bin_digest);
             }
             return null;
@@ -308,7 +308,7 @@ pub const CacheHash = struct {
         var outStream = contents.outStream();
         defer contents.deinit();
 
-        for (self.files.toSlice()) |file| {
+        for (self.files.items) |file| {
             base64_encoder.encode(encoded_digest[0..], &file.bin_digest);
             try outStream.print("{} {} {} {}\n", .{ file.stat.inode, file.stat.mtime, encoded_digest[0..], file.path });
         }
@@ -332,7 +332,7 @@ pub const CacheHash = struct {
 
         self.manifest_file.?.close();
 
-        for (self.files.toSlice()) |*file| {
+        for (self.files.items) |*file| {
             file.deinit(self.alloc);
         }
         self.files.deinit();
