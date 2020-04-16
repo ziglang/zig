@@ -1,6 +1,6 @@
 usingnamespace @import("bits.zig");
 
-pub const WM = enum(u16) {
+pub const WM = extern enum {
     NULL = 0x0000,
     CREATE = 0x0001,
     DESTROY = 0x0002,
@@ -41,7 +41,7 @@ pub const WM = enum(u16) {
     SYSKEYUP = 0x0105,
     SYSCHAR = 0x0106,
     SYSDEADCHAR = 0x0107,
-    KEYLAST = 0x0109,
+    UNICHAR = 0x0109,
 
     COMMAND = 0x0111,
     SYSCOMMAND = 0x0112,
@@ -61,17 +61,32 @@ pub const WM = enum(u16) {
     XBUTTONDOWN = 0x020B,
     XBUTTONUP = 0x020C,
     XBUTTONDBLCLK = 0x020D,
+
+    pub const KEYFIRST = @intToEnum(@This(), 0x0100);
+    pub const KEYLAST = @intToEnum(@This(), 0x0109);
+    pub const MOUSEFIRST = @intToEnum(@This(), 0x0200);
+    pub const MOUSELAST = @intToEnum(@This(), 0x020d);
 };
 
-pub const WA = enum(u16) {
+pub const WA = extern enum {
     INACTIVE = 0,
-    ACTIVE = 0x0006,
-    ACTIVATE = 0x0006,
+    ACTIVE = 1,
+    CLICKACTIVE = 2,
 };
 
-pub const SW = enum(u16) {
+pub const SW = extern enum {
     HIDE = 0,
+    SHOWNORMAL = 1,
+    SHOWMINIMIZED = 2,
+    MAXIMIZE = 3,
+    SHOWNOACTIVE = 4,
     SHOW = 5,
+    MINIMIZE = 6,
+    SHOWMINNOACTIVE = 7,
+    SHOWNA = 8,
+    RESTORE = 9,
+    SHOWDEFAULT = 10,
+    FORCEMINIMIZE = 11,
 };
 
 pub const PM_REMOVE = 0x0001;
@@ -81,19 +96,36 @@ pub const PM_NOYIELD = 0x0002;
 pub const CS_HREDRAW = 0x0002;
 pub const CS_VREDRAW = 0x0001;
 pub const CS_OWNDC = 0x0020;
+pub const CS_BYTEALIGNCLIENT = 0x1000;
+pub const CS_BYTEALIGNWINDOW = 0x2000;
+pub const CS_CLASSDC = 0x0040;
+pub const CS_DBLCLKS = 0x0008;
+pub const CS_DROPSHADOW = 0x00020000;
+pub const CS_GLOBALCLASS = 0x4000;
+pub const CS_NOCLOSE = 0x0200;
+pub const CS_PARENTDC = 0x0080;
+pub const CS_SAVEBITS = 0x0800;
 
 pub const WS_OVERLAPPED = 0x00000000;
+pub const WS_POPUP = 0x80000000;
+pub const WS_CHILD = 0x40000000;
+pub const WS_MINIMIZE = 0x20000000;
 pub const WS_CAPTION = 0x00C00000;
 pub const WS_SYSMENU = 0x00080000;
 pub const WS_THICKFRAME = 0x00040000;
 pub const WS_MINIMIZEBOX = 0x00020000;
 pub const WS_MAXIMIZEBOX = 0x00010000;
-
-pub const PFD_DRAW_TO_WINDOW = 0x00000004;
-pub const PFD_SUPPORT_OPENGL = 0x00000020;
-pub const PFD_DOUBLEBUFFER = 0x00000001;
-pub const PFD_MAIN_PLANE = 0;
-pub const PFD_TYPE_RGBA = 0;
+pub const WS_VISIBLE = 0x10000000;
+pub const WS_DISABLED = 0x08000000;
+pub const WS_CLIPSIBLINGS = 0x04000000;
+pub const WS_CLIPCHILDREN = 0x02000000;
+pub const WS_MAXIMIZE = 0x01000000;
+pub const WS_BORDER = 0x00800000;
+pub const WS_DLGFRAME = 0x00400000;
+pub const WS_VSCROLL = 0x00200000;
+pub const WS_HSCROLL = 0x00100000;
+pub const WS_GROUP = 0x00020000;
+pub const WS_TABSTOP = 0x00010000;
 
 pub const WNDPROC = fn (HWND, UINT, WPARAM, LPARAM) callconv(.Stdcall) LRESULT;
 
@@ -142,7 +174,7 @@ pub extern "user32" fn CreateWindowExA(
 ) callconv(.Stdcall) ?HWND;
 
 pub extern "user32" fn RegisterClassExA(*const WNDCLASSEXA) callconv(.Stdcall) c_ushort;
-pub extern "user32" fn DefWindowProcA(HWND, Msg: UINT, WPARAM, LPARAM) callconv(.Stdcall) LRESULT;
+pub extern "user32" fn DefWindowProcA(HWND, UINT, WPARAM, LPARAM) callconv(.Stdcall) LRESULT;
 pub extern "user32" fn GetModuleHandleA(lpModuleName: ?LPCSTR) callconv(.Stdcall) HMODULE;
 pub extern "user32" fn ShowWindow(hWnd: ?HWND, nCmdShow: i32) callconv(.Stdcall) bool;
 pub extern "user32" fn UpdateWindow(hWnd: ?HWND) callconv(.Stdcall) bool;
