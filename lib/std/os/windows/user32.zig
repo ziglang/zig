@@ -78,32 +78,26 @@ pub const WA = enum(u16) {
     ACTIVATE = 0x0006,
 };
 
-pub const WS = enum(u16) {
-    OVERLAPPED = 0x00000000,
-    CAPTION = 0x00C00000,
-    SYSMENU = 0x00080000,
-    THICKFRAME = 0x00040000,
-    MINIMIZEBOX = 0x00020000,
-    MAXIMIZEBOX = 0x00010000,
-};
-
-pub const PFD = enum(u16) {
-    DRAW_TO_WINDOW = 0x00000004,
-    SUPPORT_OPENGL = 0x00000020,
-    DOUBLEBUFFER = 0x00000001,
-    MAIN_PLANE = 0,
-};
-
-pub const CS = enum(u16) {
-    HREDRAW = 0x0002,
-    VREDRAW = 0x0001,
-    OWNDC = 0x0020,
-};
-
 pub const SW = enum(u16) {
     HIDE = 0,
     SHOW = 5,
 };
+
+pub const CS_HREDRAW = 0x0002;
+pub const CS_VREDRAW = 0x0001;
+pub const CS_OWNDC = 0x0020;
+
+pub const WS_OVERLAPPED = 0x00000000;
+pub const WS_CAPTION = 0x00C00000;
+pub const WS_SYSMENU = 0x00080000;
+pub const WS_THICKFRAME = 0x00040000;
+pub const WS_MINIMIZEBOX = 0x00020000;
+pub const WS_MAXIMIZEBOX = 0x00010000;
+
+pub const PFD_DRAW_TO_WINDOW = 0x00000004;
+pub const PFD_SUPPORT_OPENGL = 0x00000020;
+pub const PFD_DOUBLEBUFFER = 0x00000001;
+pub const PFD_MAIN_PLANE = 0;
 
 pub const WNDPROC = fn (HWND, UINT, WPARAM, LPARAM) callconv(.Stdcall) LRESULT;
 
