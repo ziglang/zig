@@ -387,7 +387,7 @@ test "zig fmt: correctly space struct fields with doc comments" {
         \\    c: u8,
         \\};
         \\
-        ,
+    ,
         \\pub const S = struct {
         \\    /// A
         \\    a: u8,
