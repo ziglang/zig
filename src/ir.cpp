@@ -16672,7 +16672,7 @@ static IrInstGen *ir_analyze_bin_op_cmp_seperate_ops(IrAnalyze *ira, IrInstSrcBi
 
     if (!operator_allowed) {
         ir_add_error_node(ira, source_node,
-                          buf_sprintf("operator not allowed for type '%s'", buf_ptr(&resolved_type->name)));
+            buf_sprintf("operator not allowed for type '%s'", buf_ptr(&resolved_type->name)));
         return ira->codegen->invalid_inst_gen;
     }
 
@@ -16706,26 +16706,26 @@ static IrInstGen *ir_analyze_bin_op_cmp_seperate_ops(IrAnalyze *ira, IrInstSrcBi
         if (resolved_type->id != ZigTypeIdVector)
             return ir_evaluate_bin_op_cmp(ira, resolved_type, op1_val, op2_val, bin_op_instruction, op_id, one_possible_value);
         IrInstGen *result = ir_const(ira, &bin_op_instruction->base.base,
-                                     get_vector_type(ira->codegen, resolved_type->data.vector.len, ira->codegen->builtin_types.entry_bool));
+            get_vector_type(ira->codegen, resolved_type->data.vector.len, ira->codegen->builtin_types.entry_bool));
         result->value->data.x_array.data.s_none.elements =
                 ira->codegen->pass1_arena->allocate<ZigValue>(resolved_type->data.vector.len);
 
         expand_undef_array(ira->codegen, result->value);
         for (size_t i = 0;i < resolved_type->data.vector.len;i++) {
             IrInstGen *cur_res = ir_evaluate_bin_op_cmp(ira, resolved_type->data.vector.elem_type,
-                                                        &op1_val->data.x_array.data.s_none.elements[i],
-                                                        &op2_val->data.x_array.data.s_none.elements[i],
-                                                        bin_op_instruction, op_id, one_possible_value);
+                &op1_val->data.x_array.data.s_none.elements[i],
+                &op2_val->data.x_array.data.s_none.elements[i],
+                bin_op_instruction, op_id, one_possible_value);
             copy_const_val(ira->codegen, &result->value->data.x_array.data.s_none.elements[i], cur_res->value);
         }
         return result;
     }
 
     ZigType *res_type = (resolved_type->id == ZigTypeIdVector) ?
-                        get_vector_type(ira->codegen, resolved_type->data.vector.len, ira->codegen->builtin_types.entry_bool) :
-                        ira->codegen->builtin_types.entry_bool;
+        get_vector_type(ira->codegen, resolved_type->data.vector.len, ira->codegen->builtin_types.entry_bool) :
+        ira->codegen->builtin_types.entry_bool;
     return ir_build_bin_op_gen(ira, &bin_op_instruction->base.base, res_type,
-                               op_id, casted_op1, casted_op2, bin_op_instruction->safety_check_on);
+        op_id, casted_op1, casted_op2, bin_op_instruction->safety_check_on);
 }
 
 static IrInstGen *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstSrcBinOp *bin_op_instruction) {
