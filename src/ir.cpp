@@ -25375,7 +25375,7 @@ static ZigType *type_info_to_type(IrAnalyze *ira, IrInst *source_instr, ZigTypeI
         case ZigTypeIdBoundFn:
         case ZigTypeIdStruct:
             ir_add_error(ira, source_instr, buf_sprintf(
-                "@Type not availble for 'TypeInfo.%s'", type_id_name(tagTypeId)));
+                "@Type not available for 'TypeInfo.%s'", type_id_name(tagTypeId)));
             return ira->codegen->invalid_inst_gen->value->type;
     }
     zig_unreachable();
