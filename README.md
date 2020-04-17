@@ -58,9 +58,15 @@ brew install cmake llvm
 brew outdated llvm || brew upgrade llvm
 mkdir build
 cd build
-cmake .. -DCMAKE_PREFIX_PATH=$(brew --prefix llvm) -DZIG_PREFER_CLANG_CPP_DYLIB=ON
+cmake .. -DCMAKE_PREFIX_PATH=$(brew --prefix llvm)
 make install
 ```
+
+You will now run into this issue:
+[homebrew and llvm 10 packages in apt.llvm.org are broken with undefined reference to getPollyPluginInfo](https://github.com/ziglang/zig/issues/4799)
+
+Please help upstream LLVM and Homebrew solve this issue, there is nothing Zig
+can do about it. See that issue for a workaround you can do in the meantime.
 
 ##### Windows
 

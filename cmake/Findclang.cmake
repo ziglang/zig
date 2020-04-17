@@ -18,7 +18,7 @@ find_path(CLANG_INCLUDE_DIRS NAMES clang/Frontend/ASTUnit.h
 )
 
 if(ZIG_PREFER_CLANG_CPP_DYLIB)
-  find_library(CLANG_CPP_DYLIB
+  find_library(CLANG_LIBRARIES
     NAMES
       clang-cpp-10.0
       clang-cpp100
@@ -31,9 +31,7 @@ if(ZIG_PREFER_CLANG_CPP_DYLIB)
   )
 endif()
 
-if(CLANG_CPP_DYLIB)
-  set(CLANG_LIBRARIES ${CLANG_CPP_DYLIB})
-else()
+if(NOT CLANG_LIBRARIES)
   macro(FIND_AND_ADD_CLANG_LIB _libname_)
     string(TOUPPER ${_libname_} _prettylibname_)
     find_library(CLANG_${_prettylibname_}_LIB NAMES ${_libname_}
