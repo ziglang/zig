@@ -25957,14 +25957,8 @@ static IrInstGen *ir_analyze_instruction_int_cast(IrAnalyze *ira, IrInstSrcIntCa
         return ira->codegen->invalid_inst_gen;
     }
 
-    if (instr_is_comptime(target)) {
+    if (instr_is_comptime(target) || dest_type->id == ZigTypeIdComptimeInt) {
         return ir_implicit_cast2(ira, &instruction->target->base, target, dest_type);
-    }
-
-    if (dest_type->id == ZigTypeIdComptimeInt) {
-        ir_add_error(ira, &instruction->target->base, buf_sprintf("attempt to cast runtime value to '%s'",
-                buf_ptr(&dest_type->name)));
-        return ira->codegen->invalid_inst_gen;
     }
 
     return ir_analyze_widen_or_shorten(ira, &instruction->base.base, target, dest_type);
@@ -25975,7 +25969,7 @@ static IrInstGen *ir_analyze_instruction_float_cast(IrAnalyze *ira, IrInstSrcFlo
     if (type_is_invalid(dest_type))
         return ira->codegen->invalid_inst_gen;
 
-    if (dest_type->id != ZigTypeIdFloat) {
+    if (dest_type->id != ZigTypeIdFloat && dest_type->id != ZigTypeIdComptimeFloat) {
         ir_add_error(ira, &instruction->dest_type->base,
                 buf_sprintf("expected float type, found '%s'", buf_ptr(&dest_type->name)));
         return ira->codegen->invalid_inst_gen;
@@ -25999,6 +25993,10 @@ static IrInstGen *ir_analyze_instruction_float_cast(IrAnalyze *ira, IrInstSrcFlo
         } else {
             return ira->codegen->invalid_inst_gen;
         }
+    }
+
+    if (instr_is_comptime(target) || dest_type->id == ZigTypeIdComptimeFloat) {
+        return ir_implicit_cast2(ira, &instruction->target->base, target, dest_type);
     }
 
     if (target->value->type->id != ZigTypeIdFloat) {
@@ -26064,6 +26062,12 @@ static IrInstGen *ir_analyze_instruction_int_to_float(IrAnalyze *ira, IrInstSrcI
     if (type_is_invalid(dest_type))
         return ira->codegen->invalid_inst_gen;
 
+    if (dest_type->id != ZigTypeIdFloat && dest_type->id != ZigTypeIdComptimeFloat) {
+        ir_add_error(ira, &instruction->dest_type->base,
+                buf_sprintf("expected float type, found '%s'", buf_ptr(&dest_type->name)));
+        return ira->codegen->invalid_inst_gen;
+    }
+
     IrInstGen *target = instruction->target->child;
     if (type_is_invalid(target->value->type))
         return ira->codegen->invalid_inst_gen;
@@ -26077,33 +26081,31 @@ static IrInstGen *ir_analyze_instruction_int_to_float(IrAnalyze *ira, IrInstSrcI
     return ir_resolve_cast(ira, &instruction->base.base, target, dest_type, CastOpIntToFloat);
 }
 
-static IrInstGen *ir_analyze_float_to_int(IrAnalyze *ira, IrInst* source_instr,
-        ZigType *dest_type, IrInstGen *operand, AstNode *operand_source_node)
-{
-    if (operand->value->type->id == ZigTypeIdComptimeInt) {
-        return ir_implicit_cast(ira, operand, dest_type);
-    }
-
-    if (operand->value->type->id != ZigTypeIdFloat && operand->value->type->id != ZigTypeIdComptimeFloat) {
-        ir_add_error_node(ira, operand_source_node, buf_sprintf("expected float type, found '%s'",
-                    buf_ptr(&operand->value->type->name)));
-        return ira->codegen->invalid_inst_gen;
-    }
-
-    return ir_resolve_cast(ira, source_instr, operand, dest_type, CastOpFloatToInt);
-}
-
 static IrInstGen *ir_analyze_instruction_float_to_int(IrAnalyze *ira, IrInstSrcFloatToInt *instruction) {
     ZigType *dest_type = ir_resolve_type(ira, instruction->dest_type->child);
     if (type_is_invalid(dest_type))
         return ira->codegen->invalid_inst_gen;
 
-    IrInstGen *operand = instruction->target->child;
-    if (type_is_invalid(operand->value->type))
+    if (dest_type->id != ZigTypeIdInt && dest_type->id != ZigTypeIdComptimeInt) {
+        ir_add_error(ira, &instruction->dest_type->base, buf_sprintf("expected integer type, found '%s'", buf_ptr(&dest_type->name)));
+        return ira->codegen->invalid_inst_gen;
+    }
+
+    IrInstGen *target = instruction->target->child;
+    if (type_is_invalid(target->value->type))
         return ira->codegen->invalid_inst_gen;
 
-    return ir_analyze_float_to_int(ira, &instruction->base.base, dest_type, operand,
-            instruction->target->base.source_node);
+    if (target->value->type->id == ZigTypeIdComptimeInt) {
+        return ir_implicit_cast(ira, target, dest_type);
+    }
+
+    if (target->value->type->id != ZigTypeIdFloat && target->value->type->id != ZigTypeIdComptimeFloat) {
+        ir_add_error_node(ira, target->base.source_node, buf_sprintf("expected float type, found '%s'",
+                    buf_ptr(&target->value->type->name)));
+        return ira->codegen->invalid_inst_gen;
+    }
+
+    return ir_resolve_cast(ira, &instruction->base.base, target, dest_type, CastOpFloatToInt);
 }
 
 static IrInstGen *ir_analyze_instruction_err_to_int(IrAnalyze *ira, IrInstSrcErrToInt *instruction) {

@@ -2,6 +2,62 @@ const tests = @import("tests.zig");
 const std = @import("std");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.addTest("invalid int casts",
+        \\export fn foo() void {
+        \\    var a: u32 = 2;
+        \\    _ = @intCast(comptime_int, a);
+        \\}
+        \\export fn bar() void {
+        \\    var a: u32 = 2;
+        \\    _ = @intToFloat(u32, a);
+        \\}
+        \\export fn baz() void {
+        \\    var a: u32 = 2;
+        \\    _ = @floatToInt(u32, a);
+        \\}
+        \\export fn qux() void {
+        \\    var a: u32 = 2;
+        \\    _ = @intCast(comptime_int, a);
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:3:32: error: expected type 'comptime_int', found 'u32'",
+        "tmp.zig:3:9: note: referenced here",
+        "tmp.zig:7:21: error: expected float type, found 'u32'",
+        "tmp.zig:7:9: note: referenced here",
+        "tmp.zig:11:26: error: expected float type, found 'u32'",
+        "tmp.zig:11:9: note: referenced here",
+        "tmp.zig:15:32: error: expected type 'comptime_int', found 'u32'",
+        "tmp.zig:15:9: note: referenced here",
+    });
+
+    cases.addTest("invalid float casts",
+        \\export fn foo() void {
+        \\    var a: f32 = 2;
+        \\    _ = @floatCast(comptime_float, a);
+        \\}
+        \\export fn bar() void {
+        \\    var a: f32 = 2;
+        \\    _ = @floatToInt(f32, a);
+        \\}
+        \\export fn baz() void {
+        \\    var a: f32 = 2;
+        \\    _ = @intToFloat(f32, a);
+        \\}
+        \\export fn qux() void {
+        \\    var a: f32 = 2;
+        \\    _ = @floatCast(comptime_float, a);
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:3:36: error: expected type 'comptime_float', found 'f32'",
+        "tmp.zig:3:9: note: referenced here",
+        "tmp.zig:7:21: error: expected integer type, found 'f32'",
+        "tmp.zig:7:9: note: referenced here",
+        "tmp.zig:11:26: error: expected int type, found 'f32'",
+        "tmp.zig:11:9: note: referenced here",
+        "tmp.zig:15:36: error: expected type 'comptime_float', found 'f32'",
+        "tmp.zig:15:9: note: referenced here",
+    });
+
     cases.addTest("invalid assignments",
         \\export fn entry1() void {
         \\    var a: []const u8 = "foo";
