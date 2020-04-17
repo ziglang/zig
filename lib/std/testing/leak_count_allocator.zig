@@ -14,23 +14,21 @@ pub const LeakCountAllocator = struct {
         return .{
             .count = 0,
             .allocator = .{
-                .reallocFn = realloc,
-                .shrinkFn = shrink,
+                .allocFn = alloc,
+                .resizeFn = resize,
             },
             .internal_allocator = allocator,
         };
     }
 
-    fn realloc(allocator: *std.mem.Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) ![]u8 {
+    fn alloc(allocator: *std.mem.Allocator, len: usize, ptr_align: u29, len_align: u29) error{OutOfMemory}![]u8 {
         const self = @fieldParentPtr(LeakCountAllocator, "allocator", allocator);
-        var data = try self.internal_allocator.reallocFn(self.internal_allocator, old_mem, old_align, new_size, new_align);
-        if (old_mem.len == 0) {
-            self.count += 1;
-        }
-        return data;
+        const ptr = try self.internal_allocator.callAllocFn(len, ptr_align, len_align);
+        self.count += 1;
+        return ptr;
     }
 
-    fn shrink(allocator: *std.mem.Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
+    fn resize(allocator: *std.mem.Allocator, old_mem: []u8, new_size: usize, len_align: u29) error{OutOfMemory}!usize {
         const self = @fieldParentPtr(LeakCountAllocator, "allocator", allocator);
         if (new_size == 0) {
             if (self.count == 0) {
@@ -38,7 +36,10 @@ pub const LeakCountAllocator = struct {
             }
             self.count -= 1;
         }
-        return self.internal_allocator.shrinkFn(self.internal_allocator, old_mem, old_align, new_size, new_align);
+        return self.internal_allocator.callResizeFn(old_mem, new_size, len_align) catch |e| {
+            std.debug.assert(new_size > old_mem.len);
+            return e;
+        };
     }
 
     pub fn validate(self: LeakCountAllocator) !void {
