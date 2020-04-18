@@ -122,6 +122,9 @@ pub const NLM_F_CAPPED = 0x100;
 pub const NLM_F_ACK_TLVS = 0x200;
 
 pub const NetlinkMessageType = extern enum(u16) {
+    /// < 0x10: reserved control messages
+    pub const MIN_TYPE = 0x10;
+
     /// Nothing.
     NOOP = 0x1,
 
@@ -133,9 +136,6 @@ pub const NetlinkMessageType = extern enum(u16) {
 
     /// Data lost
     OVERRUN = 0x4,
-
-    /// < 0x10: reserved control messages
-    pub const MIN_TYPE = 0x10;
 
     // rtlink types
 

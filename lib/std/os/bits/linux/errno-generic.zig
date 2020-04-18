@@ -384,8 +384,10 @@ pub const EKEYREVOKED = 128;
 pub const EKEYREJECTED = 129;
 
 // for robust mutexes
+
 /// Owner died
 pub const EOWNERDEAD = 130;
+
 /// State not recoverable
 pub const ENOTRECOVERABLE = 131;
 

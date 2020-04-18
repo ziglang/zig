@@ -77,7 +77,7 @@ test "encodesTo" {
     testing.expectEqual(true, encodesTo("false", "false"));
     // totally different
     testing.expectEqual(false, encodesTo("false", "true"));
-    // differnt lengths
+    // different lengths
     testing.expectEqual(false, encodesTo("false", "other"));
     // with escape
     testing.expectEqual(true, encodesTo("\\", "\\\\"));
@@ -1771,22 +1771,20 @@ test "parse into struct with misc fields" {
         static_array: [3]f64,
         dynamic_array: []f64,
 
-        const Bar = struct {
+        complex: struct {
             nested: []const u8,
-        };
-        complex: Bar,
+        },
 
-        const Baz = struct {
+        veryComplex: []struct {
             foo: []const u8,
-        };
-        veryComplex: []Baz,
+        },
 
+        a_union: Union,
         const Union = union(enum) {
             x: u8,
             float: f64,
             string: []const u8,
         };
-        a_union: Union,
     };
     const r = try parse(T, &TokenStream.init(
         \\{
@@ -2323,13 +2321,14 @@ pub const StringifyOptions = struct {
         /// How many indentation levels deep are we?
         indent_level: usize = 0,
 
-        pub const Indentation = union(enum) {
+        /// What character(s) should be used for indentation?
+        indent: union(enum) {
             Space: u8,
             Tab: void,
-        };
+        } = .{ .Space = 4 },
 
-        /// What character(s) should be used for indentation?
-        indent: Indentation = Indentation{ .Space = 4 },
+        /// After a colon, should whitespace be inserted?
+        separator: bool = true,
 
         fn outputIndent(
             whitespace: @This(),
@@ -2350,17 +2349,17 @@ pub const StringifyOptions = struct {
             n_chars *= whitespace.indent_level;
             try out_stream.writeByteNTimes(char, n_chars);
         }
-
-        /// After a colon, should whitespace be inserted?
-        separator: bool = true,
     };
 
     /// Controls the whitespace emitted
     whitespace: ?Whitespace = null,
 
+    string: StringOptions = StringOptions{ .String = .{} },
+
     /// Should []u8 be serialised as a string? or an array?
     pub const StringOptions = union(enum) {
         Array,
+        String: StringOutputOptions,
 
         /// String output options
         const StringOutputOptions = struct {
@@ -2370,10 +2369,7 @@ pub const StringifyOptions = struct {
             /// Should unicode characters be escaped in strings?
             escape_unicode: bool = false,
         };
-        String: StringOutputOptions,
     };
-
-    string: StringOptions = StringOptions{ .String = .{} },
 };
 
 fn outputUnicodeEscape(

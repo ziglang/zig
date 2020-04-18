@@ -374,7 +374,7 @@ test "mem.zeroes" {
     testing.expect(a.y == 10);
 
     const ZigStruct = struct {
-        const IntegralTypes = struct {
+        integral_types: struct {
             integer_0: i0,
             integer_8: i8,
             integer_16: i16,
@@ -390,16 +390,13 @@ test "mem.zeroes" {
 
             float_32: f32,
             float_64: f64,
-        };
+        },
 
-        integral_types: IntegralTypes,
-
-        const Pointers = struct {
+        pointers: struct {
             optional: ?*u8,
             c_pointer: [*c]u8,
             slice: []u8,
-        };
-        pointers: Pointers,
+        },
 
         array: [2]u32,
         optional_int: ?u8,

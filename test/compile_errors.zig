@@ -4,17 +4,20 @@ const std = @import("std");
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add("declaration between fields",
         \\const S = struct {
-        \\    a: usize,
         \\    const foo = 2;
         \\    const bar = 2;
         \\    const baz = 2;
+        \\    a: usize,
+        \\    const foo1 = 2;
+        \\    const bar1 = 2;
+        \\    const baz1 = 2;
         \\    b: usize,
         \\};
         \\comptime {
         \\    _ = S;
         \\}
     , &[_][]const u8{
-        "tmp.zig:3:5: error: declarations are not allowed between container fields",
+        "tmp.zig:6:5: error: declarations are not allowed between container fields",
     });
 
     cases.add("non-extern function with var args",

@@ -1226,17 +1226,11 @@ pub const io_cqring_offsets = extern struct {
 };
 
 pub const io_uring_sqe = extern struct {
-    opcode: IORING_OP,
-    flags: u8,
-    ioprio: u16,
-    fd: i32,
     pub const union1 = extern union {
         off: u64,
         addr2: u64,
     };
-    union1: union1,
-    addr: u64,
-    len: u32,
+
     pub const union2 = extern union {
         rw_flags: kernel_rwf,
         fsync_flags: u32,
@@ -1250,8 +1244,7 @@ pub const io_uring_sqe = extern struct {
         statx_flags: u32,
         fadvise_flags: u32,
     };
-    union2: union2,
-    user_data: u64,
+
     pub const union3 = extern union {
         struct1: extern struct {
             /// index into fixed buffers, if used
@@ -1262,6 +1255,23 @@ pub const io_uring_sqe = extern struct {
         },
         __pad2: [3]u64,
     };
+    opcode: IORING_OP,
+    flags: u8,
+    ioprio: u16,
+    fd: i32,
+
+    opcode: u8,
+    flags: u8,
+    ioprio: u16,
+    fd: i32,
+
+    union1: union1,
+    addr: u64,
+    len: u32,
+
+    union2: union2,
+    user_data: u64,
+
     union3: union3,
 };
 
