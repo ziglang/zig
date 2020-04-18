@@ -1123,3 +1123,7 @@ fn testRangeBias(r: *Random, start: i8, end: i8, biased: bool) void {
         }
     }
 }
+
+test "" {
+    std.meta.refAllDecls(@This());
+}

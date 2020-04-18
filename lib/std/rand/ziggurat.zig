@@ -16,8 +16,8 @@ pub fn next_f64(random: *Random, comptime tables: ZigTable) f64 {
     while (true) {
         // We manually construct a float from parts as we can avoid an extra random lookup here by
         // using the unused exponent for the lookup table entry.
-        const bits = random.scalar(u64);
-        const i = @as(usize, bits & 0xff);
+        const bits = random.int(u64);
+        const i = @as(usize, @truncate(u8, bits));
 
         const u = blk: {
             if (tables.is_symmetric) {
