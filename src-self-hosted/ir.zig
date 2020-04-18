@@ -2,6 +2,7 @@ const std = @import("std");
 const mem = std.mem;
 const Allocator = std.mem.Allocator;
 const Value = @import("value.zig").Value;
+const Type = @import("type.zig").Type;
 const assert = std.debug.assert;
 
 pub const Inst = struct {
@@ -17,6 +18,7 @@ pub const Inst = struct {
         Fn,
     };
 
+    /// These names are used for the IR text format.
     pub const Tag = enum {
         constant,
         ptrtoint,
@@ -32,9 +34,11 @@ pub const Inst = struct {
     /// a memory location for the value to survive after a const instruction.
     pub const Constant = struct {
         base: Inst = Inst{ .tag = .constant },
-        value: *Value,
+        ty: Type,
 
-        positionals: struct {},
+        positionals: struct {
+            value: Value,
+        },
         kw_args: struct {},
     };
 
@@ -241,6 +245,31 @@ fn parseInstructionGeneric(ctx: *ParseContext, comptime fn_name: []const u8, com
 }
 
 fn parseParameterGeneric(ctx: *ParseContext, comptime T: type) !T {
+    if (@typeInfo(T) == .Enum) {
+        const start = ctx.i;
+        while (ctx.i < ctx.source.len) : (ctx.i += 1) switch (ctx.source[ctx.i]) {
+            ' ', '\n', ',', ')' => {
+                const enum_name = ctx.source[start..ctx.i];
+                ctx.i += 1;
+                return std.meta.stringToEnum(T, enum_name) orelse {
+                    return parseError(ctx, "tag '{}' not a member of enum '{}'", .{ enum_name, @typeName(T) });
+                };
+            },
+            else => continue,
+        };
+        return parseError(ctx, "unexpected EOF in enum parameter", .{});
+    }
+    switch (T) {
+        Inst.Fn.Body => {
+            var instructions = std.ArrayList(*Inst).init(ctx.allocator);
+            try requireEatBytes(ctx, "{");
+            return T{
+                .instructions = instructions.toOwnedSlice(),
+            };
+        },
+        Value => return parseError(ctx, "TODO implement parseParameterGeneric for type Value", .{}),
+        else => @compileError("Unimplemented: ir parseParameterGeneric for type " ++ @typeName(T)),
+    }
     return parseError(ctx, "TODO parse parameter {}", .{@typeName(T)});
 }
 
@@ -261,12 +290,18 @@ fn parseStringLiteralConst(ctx: *ParseContext) !*Inst {
                 },
                 else => |e| return e,
             };
-            const bytes_val = try ctx.allocator.create(Value.Bytes);
-            bytes_val.* = .{ .data = parsed };
+            const bytes_payload = try ctx.allocator.create(Value.Payload.Bytes);
+            errdefer ctx.allocator.destroy(bytes_payload);
+            bytes_payload.* = .{ .data = parsed };
+
+            const ty_payload = try ctx.allocator.create(Type.Payload.Array_u8_Sentinel0);
+            errdefer ctx.allocator.destroy(ty_payload);
+            ty_payload.* = .{ .len = parsed.len };
+
             const const_inst = try ctx.allocator.create(Inst.Constant);
             const_inst.* = .{
-                .value = &bytes_val.base,
-                .positionals = .{},
+                .ty = Type.initPayload(&ty_payload.base),
+                .positionals = .{ .value = Value.initPayload(&bytes_payload.base) },
                 .kw_args = .{},
             };
             return &const_inst.base;
