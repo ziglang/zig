@@ -101,7 +101,11 @@ test "create file, lock and read from multiple process at once" {
 }
 
 test "open file with exclusive nonblocking lock twice (absolute paths)" {
-    const filename = "/tmp/zig-test-absolute-paths.txt";
+    const allocator = std.heap.page_allocator;
+
+    const file_paths: [1][]const u8 = .{"zig-test-absolute-paths.txt"};
+    const filename = try fs.path.resolve(allocator, &file_paths);
+    defer allocator.free(filename);
 
     const file1 = try fs.createFileAbsolute(filename, .{ .lock = .Exclusive, .lock_nonblocking = true });
     defer file1.close();
