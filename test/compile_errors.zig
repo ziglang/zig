@@ -2,6 +2,15 @@ const tests = @import("tests.zig");
 const std = @import("std");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.add("non-extern function with var args",
+        \\fn foo(args: ...) void {}
+        \\export fn entry() void {
+        \\    foo();
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:1:1: error: non-extern function is variadic",
+    });
+
     cases.addTest("invalid int casts",
         \\export fn foo() void {
         \\    var a: u32 = 2;
@@ -703,15 +712,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:2:28: error: invalid character: ';'",
     });
 
-    cases.add("var args without c calling conv",
-        \\fn foo(args: ...) void {}
-        \\comptime {
-        \\    _ = foo;
-        \\}
-    , &[_][]const u8{
-        "tmp.zig:1:8: error: var args only allowed in functions with C calling convention",
-    });
-
     cases.add("comptime struct field, no init value",
         \\const Foo = struct {
         \\    comptime b: i32,
@@ -856,7 +856,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:11:25: error: expected type 'u32', found '@TypeOf(get_uval).ReturnType.ErrorSet!u32'",
     });
 
-    cases.add("asigning to struct or union fields that are not optionals with a function that returns an optional",
+    cases.add("assigning to struct or union fields that are not optionals with a function that returns an optional",
         \\fn maybe(is: bool) ?u8 {
         \\    if (is) return @as(u8, 10) else return null;
         \\}
@@ -1084,7 +1084,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = @Type(@typeInfo(struct { }));
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:15: error: @Type not availble for 'TypeInfo.Struct'",
+        "tmp.zig:2:15: error: @Type not available for 'TypeInfo.Struct'",
     });
 
     cases.add("wrong type for result ptr to @asyncCall",
@@ -2659,7 +2659,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:7:17: error: switch on type 'type' provides no expression parameter",
     });
 
-    cases.add("function protoype with no body",
+    cases.add("function prototype with no body",
         \\fn foo() void;
         \\export fn entry() void {
         \\    foo();

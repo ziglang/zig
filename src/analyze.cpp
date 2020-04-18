@@ -3619,10 +3619,16 @@ static void add_top_level_decl(CodeGen *g, ScopeDecls *decls_scope, Tld *tld) {
         assert(tld->source_node->type == NodeTypeFnProto);
         is_export = tld->source_node->data.fn_proto.is_export;
 
-        if (!is_export && !tld->source_node->data.fn_proto.is_extern &&
+        if (!tld->source_node->data.fn_proto.is_extern &&
             tld->source_node->data.fn_proto.fn_def_node == nullptr)
         {
             add_node_error(g, tld->source_node, buf_sprintf("non-extern function has no body"));
+            return;
+        }
+        if (!tld->source_node->data.fn_proto.is_extern &&
+            tld->source_node->data.fn_proto.is_var_args)
+        {
+            add_node_error(g, tld->source_node, buf_sprintf("non-extern function is variadic"));
             return;
         }
     } else if (tld->id == TldIdUsingNamespace) {
