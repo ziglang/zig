@@ -526,6 +526,15 @@ static void ast_parse_container_doc_comments(ParseContext *pc, Buf *buf) {
     }
 }
 
+enum ContainerFieldState {
+    // no fields have been seen
+    ContainerFieldStateNone,
+    // currently parsing fields
+    ContainerFieldStateSeen,
+    // saw fields and then a declaration after them
+    ContainerFieldStateEnd,
+};
+
 // ContainerMembers
 //     <- TestDecl ContainerMembers
 //      / TopLevelComptime ContainerMembers
@@ -537,17 +546,29 @@ static AstNodeContainerDecl ast_parse_container_members(ParseContext *pc) {
     AstNodeContainerDecl res = {};
     Buf tld_doc_comment_buf = BUF_INIT;
     buf_resize(&tld_doc_comment_buf, 0);
+    ContainerFieldState field_state = ContainerFieldStateNone;
+    Token *first_token = nullptr;
     for (;;) {
         ast_parse_container_doc_comments(pc, &tld_doc_comment_buf);
 
+        Token *peeked_token = peek_token(pc);
+
         AstNode *test_decl = ast_parse_test_decl(pc);
         if (test_decl != nullptr) {
+            if (field_state == ContainerFieldStateSeen) {
+                field_state = ContainerFieldStateEnd;
+                first_token = peeked_token;
+            }
             res.decls.append(test_decl);
             continue;
         }
 
         AstNode *top_level_comptime = ast_parse_top_level_comptime(pc);
         if (top_level_comptime != nullptr) {
+            if (field_state == ContainerFieldStateSeen) {
+                field_state = ContainerFieldStateEnd;
+                first_token = peeked_token;
+            }
             res.decls.append(top_level_comptime);
             continue;
         }
@@ -555,11 +576,17 @@ static AstNodeContainerDecl ast_parse_container_members(ParseContext *pc) {
         Buf doc_comment_buf = BUF_INIT;
         ast_parse_doc_comments(pc, &doc_comment_buf);
 
+        peeked_token = peek_token(pc);
+
         Token *visib_token = eat_token_if(pc, TokenIdKeywordPub);
         VisibMod visib_mod = visib_token != nullptr ? VisibModPub : VisibModPrivate;
 
         AstNode *top_level_decl = ast_parse_top_level_decl(pc, visib_mod, &doc_comment_buf);
         if (top_level_decl != nullptr) {
+            if (field_state == ContainerFieldStateSeen) {
+                field_state = ContainerFieldStateEnd;
+                first_token = peeked_token;
+            }
             res.decls.append(top_level_decl);
             continue;
         }
@@ -572,6 +599,16 @@ static AstNodeContainerDecl ast_parse_container_members(ParseContext *pc) {
 
         AstNode *container_field = ast_parse_container_field(pc);
         if (container_field != nullptr) {
+            switch (field_state) {
+                case ContainerFieldStateNone:
+                    field_state = ContainerFieldStateSeen;
+                    break;
+                case ContainerFieldStateSeen:
+                    break;
+                case ContainerFieldStateEnd:
+                    ast_error(pc, first_token, "declarations are not allowed between container fields");                    
+            }
+
             assert(container_field->type == NodeTypeStructField);
             container_field->data.struct_field.doc_comments = doc_comment_buf;
             container_field->data.struct_field.comptime_token = comptime_token;
