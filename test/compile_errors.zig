@@ -712,15 +712,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:2:28: error: invalid character: ';'",
     });
 
-    cases.add("var args without c calling conv",
-        \\fn foo(args: ...) void {}
-        \\comptime {
-        \\    _ = foo;
-        \\}
-    , &[_][]const u8{
-        "tmp.zig:1:8: error: var args only allowed in functions with C calling convention",
-    });
-
     cases.add("comptime struct field, no init value",
         \\const Foo = struct {
         \\    comptime b: i32,

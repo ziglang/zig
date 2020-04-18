@@ -27910,11 +27910,10 @@ static IrInstGen *ir_analyze_instruction_fn_proto(IrAnalyze *ira, IrInstSrcFnPro
 
             if (cc == CallingConventionC) {
                 break;
-            } else if (cc == CallingConventionUnspecified) {
-                lazy_fn_type->is_generic = true;
-                return result;
             } else {
-                zig_unreachable();
+                ir_add_error(ira, &instruction->base.base,
+                        buf_sprintf("var args only allowed in functions with C calling convention"));
+                return ira->codegen->invalid_inst_gen;
             }
         }
 
@@ -30979,10 +30978,10 @@ static ZigType *ir_resolve_lazy_fn_type(IrAnalyze *ira, AstNode *source_node, La
             if (fn_type_id.cc == CallingConventionC) {
                 fn_type_id.param_count = fn_type_id.next_param_index;
                 break;
-            } else if (fn_type_id.cc == CallingConventionUnspecified) {
-                return get_generic_fn_type(ira->codegen, &fn_type_id);
             } else {
-                zig_unreachable();
+                ir_add_error_node(ira, param_node,
+                        buf_sprintf("var args only allowed in functions with C calling convention"));
+                return nullptr;
             }
         }
         FnTypeParamInfo *param_info = &fn_type_id.param_info[fn_type_id.next_param_index];
