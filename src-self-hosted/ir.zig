@@ -14,6 +14,7 @@ pub const Inst = struct {
         Deref,
         Assembly,
         Unreach,
+        Fn,
     };
 
     pub const Tag = enum {
@@ -23,6 +24,7 @@ pub const Inst = struct {
         deref,
         @"asm",
         unreach,
+        @"fn",
     };
 
     /// This struct owns the `Value` memory. When the struct is deallocated,
@@ -31,26 +33,59 @@ pub const Inst = struct {
     pub const Constant = struct {
         base: Inst = Inst{ .tag = .constant },
         value: *Value,
+
+        positionals: struct {},
+        kw_args: struct {},
     };
 
     pub const PtrToInt = struct {
         base: Inst = Inst{ .tag = .ptrtoint },
+
+        positionals: struct {},
+        kw_args: struct {},
     };
 
     pub const FieldPtr = struct {
         base: Inst = Inst{ .tag = .fieldptr },
+
+        positionals: struct {},
+        kw_args: struct {},
     };
 
     pub const Deref = struct {
         base: Inst = Inst{ .tag = .deref },
+
+        positionals: struct {},
+        kw_args: struct {},
     };
 
     pub const Assembly = struct {
         base: Inst = Inst{ .tag = .@"asm" },
+
+        positionals: struct {},
+        kw_args: struct {},
     };
 
     pub const Unreach = struct {
         base: Inst = Inst{ .tag = .unreach },
+
+        positionals: struct {},
+        kw_args: struct {},
+    };
+
+    pub const Fn = struct {
+        base: Inst = Inst{ .tag = .@"fn" },
+
+        positionals: struct {
+            body: Body,
+        },
+        kw_args: struct {
+            cc: std.builtin.CallingConvention = .Unspecified,
+        },
+
+        pub const Body = struct {
+            instructions: []*Inst,
+        };
     };
 };
 
@@ -168,8 +203,45 @@ fn parseInstruction(ctx: *ParseContext) !*Inst {
         '0'...'9' => return parseIntegerLiteralConst(ctx),
         else => {},
     }
-    const fn_name = skipToAndOver(ctx, '(');
-    return parseError(ctx, "TODO parse instruction '{}'", .{fn_name});
+    const fn_name = try skipToAndOver(ctx, '(');
+    inline for (Inst.all_types) |InstType| {
+        const this_name = @tagName(std.meta.fieldInfo(InstType, "base").default_value.?.tag);
+        if (mem.eql(u8, this_name, fn_name)) {
+            return parseInstructionGeneric(ctx, this_name, InstType);
+        }
+    }
+    return parseError(ctx, "unknown instruction '{}'", .{fn_name});
+}
+
+fn parseInstructionGeneric(ctx: *ParseContext, comptime fn_name: []const u8, comptime InstType: type) !*Inst {
+    const inst_specific = try ctx.allocator.create(InstType);
+
+    const Positionals = @TypeOf(inst_specific.positionals);
+    inline for (@typeInfo(Positionals).Struct.fields) |arg_field| {
+        @field(inst_specific.positionals, arg_field.name) = try parseParameterGeneric(ctx, arg_field.field_type);
+    }
+
+    const KW_Args = @TypeOf(inst_specific.kw_args);
+    inst_specific.kw_args = .{}; // assign defaults
+    skipSpace(ctx);
+    while (eatByte(ctx, ',')) {
+        skipSpace(ctx);
+        const name = try skipToAndOver(ctx, '=');
+        inline for (@typeInfo(KW_Args).Struct.fields) |arg_field| {
+            if (mem.eql(u8, name, arg_field.name)) {
+                @field(inst_specific.kw_args, arg_field.name) = try parseParameterGeneric(ctx, arg_field.field_type);
+                break;
+            }
+        }
+        skipSpace(ctx);
+    }
+    try requireEatBytes(ctx, ")");
+
+    return &inst_specific.base;
+}
+
+fn parseParameterGeneric(ctx: *ParseContext, comptime T: type) !T {
+    return parseError(ctx, "TODO parse parameter {}", .{@typeName(T)});
 }
 
 fn parseStringLiteralConst(ctx: *ParseContext) !*Inst {
@@ -192,7 +264,11 @@ fn parseStringLiteralConst(ctx: *ParseContext) !*Inst {
             const bytes_val = try ctx.allocator.create(Value.Bytes);
             bytes_val.* = .{ .data = parsed };
             const const_inst = try ctx.allocator.create(Inst.Constant);
-            const_inst.* = .{ .value = &bytes_val.base };
+            const_inst.* = .{
+                .value = &bytes_val.base,
+                .positionals = .{},
+                .kw_args = .{},
+            };
             return &const_inst.base;
         },
         '\\' => {

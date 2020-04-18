@@ -25,7 +25,7 @@ test "hello world IR" {
         \\    args=[%6, %7])
         \\
         \\  %9 = unreachable()
-        \\}, cc=naked);
+        \\}, cc=naked)
         \\
         \\@2 = export("_start", @1)
     ,
