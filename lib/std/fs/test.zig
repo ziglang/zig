@@ -111,7 +111,7 @@ test "open file with exclusive nonblocking lock twice (absolute paths)" {
     defer file1.close();
 
     const file2 = fs.createFileAbsolute(filename, .{ .lock = .Exclusive, .lock_nonblocking = true });
-    std.debug.assert(std.meta.eql(file2, error.WouldBlock));
+    std.testing.expectError(error.WouldBlock, file2);
 
     fs.deleteFileAbsolute(filename) catch |err| switch (err) {
         error.FileNotFound => {},
