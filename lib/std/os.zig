@@ -370,7 +370,8 @@ pub fn readv(fd: fd_t, iov: []const iovec) ReadError!usize {
         const first = iov[0];
         return read(fd, first.iov_base[0..first.iov_len]);
     }
-
+    
+    const iov_count = math.cast(u31, iov.len) catch math.maxInt(u31);
     while (true) {
         // TODO handle the case when iov_len is too large and get rid of this @intCast
         const rc = system.readv(fd, iov.ptr, iov_count);
