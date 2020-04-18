@@ -108,9 +108,9 @@ test "open file with exclusive nonblocking lock twice (absolute paths)" {
     defer allocator.free(filename);
 
     const file1 = try fs.createFileAbsolute(filename, .{ .lock = .Exclusive, .lock_nonblocking = true });
-    defer file1.close();
 
     const file2 = fs.createFileAbsolute(filename, .{ .lock = .Exclusive, .lock_nonblocking = true });
+    file1.close();
     std.testing.expectError(error.WouldBlock, file2);
 
     try fs.deleteFileAbsolute(filename);
