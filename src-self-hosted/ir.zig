@@ -219,8 +219,8 @@ fn parseOptionalType(ctx: *ParseContext) !?Type {
 
 fn parseInstruction(ctx: *ParseContext, opt_type: ?Type) error{ OutOfMemory, ParseFailure }!*Inst {
     switch (ctx.source[ctx.i]) {
-        '"' => return parseStringLiteralConst(ctx),
-        '0'...'9' => return parseIntegerLiteralConst(ctx),
+        '"' => return parseStringLiteralConst(ctx, opt_type),
+        '0'...'9' => return parseIntegerLiteralConst(ctx, opt_type),
         else => {},
     }
     const fn_name = try skipToAndOver(ctx, '(');
@@ -327,7 +327,7 @@ fn parseBody(ctx: *ParseContext) !Inst.Fn.Body {
     };
 }
 
-fn parseStringLiteralConst(ctx: *ParseContext) !*Inst {
+fn parseStringLiteralConst(ctx: *ParseContext, opt_type: ?Type) !*Inst {
     const start = ctx.i;
     ctx.i += 1; // skip over '"'
 
@@ -344,17 +344,21 @@ fn parseStringLiteralConst(ctx: *ParseContext) !*Inst {
                 },
                 else => |e| return e,
             };
+            const const_inst = try ctx.allocator.create(Inst.Constant);
+            errdefer ctx.allocator.destroy(const_inst);
+
             const bytes_payload = try ctx.allocator.create(Value.Payload.Bytes);
             errdefer ctx.allocator.destroy(bytes_payload);
             bytes_payload.* = .{ .data = parsed };
 
-            const ty_payload = try ctx.allocator.create(Type.Payload.Array_u8_Sentinel0);
-            errdefer ctx.allocator.destroy(ty_payload);
-            ty_payload.* = .{ .len = parsed.len };
+            const ty = opt_type orelse blk: {
+                const ty_payload = try ctx.allocator.create(Type.Payload.Array_u8_Sentinel0);
+                ty_payload.* = .{ .len = parsed.len };
+                break :blk Type.initPayload(&ty_payload.base);
+            };
 
-            const const_inst = try ctx.allocator.create(Inst.Constant);
             const_inst.* = .{
-                .ty = Type.initPayload(&ty_payload.base),
+                .ty = ty,
                 .positionals = .{ .value = Value.initPayload(&bytes_payload.base) },
                 .kw_args = .{},
             };
@@ -370,8 +374,31 @@ fn parseStringLiteralConst(ctx: *ParseContext) !*Inst {
     return parseError(ctx, "unexpected EOF in string literal", .{});
 }
 
-fn parseIntegerLiteralConst(ctx: *ParseContext) !*Inst {
-    return parseError(ctx, "TODO parse integer literal", .{});
+fn parseIntegerLiteralConst(ctx: *ParseContext, opt_type: ?Type) !*Inst {
+    const start = ctx.i;
+    while (ctx.i < ctx.source.len) : (ctx.i += 1) switch (ctx.source[ctx.i]) {
+        '0'...'9' => continue,
+        else => break,
+    };
+    const number_text = ctx.source[start..ctx.i];
+    const number = std.fmt.parseInt(u64, number_text, 10) catch |err| switch (err) {
+        error.Overflow => return parseError(ctx, "TODO handle big integers", .{}),
+        error.InvalidCharacter => return parseError(ctx, "invalid integer literal", .{}),
+    };
+
+    const int_payload = try ctx.allocator.create(Value.Payload.Int_u64);
+    errdefer ctx.allocator.destroy(int_payload);
+    int_payload.* = .{ .int = number };
+
+    const const_inst = try ctx.allocator.create(Inst.Constant);
+    errdefer ctx.allocator.destroy(const_inst);
+
+    const_inst.* = .{
+        .ty = opt_type orelse Type.initTag(.int_comptime),
+        .positionals = .{ .value = Value.initPayload(&int_payload.base) },
+        .kw_args = .{},
+    };
+    return &const_inst.base;
 }
 
 pub fn main() anyerror!void {
