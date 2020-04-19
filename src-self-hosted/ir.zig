@@ -150,7 +150,7 @@ pub fn parseRoot(ctx: *ParseContext) !void {
     while (ctx.i < ctx.source.len) : (ctx.i += 1) switch (ctx.source[ctx.i]) {
         ';' => _ = try skipToAndOver(ctx, '\n'),
         '@' => {
-            const at_start = ctx.i;
+            ctx.i += 1;
             const ident = try skipToAndOver(ctx, ' ');
             const opt_type = try parseOptionalType(ctx);
             const inst = try parseInstruction(ctx, opt_type);
@@ -298,7 +298,24 @@ fn parseParameterGeneric(ctx: *ParseContext, comptime T: type) !T {
     switch (T) {
         Inst.Fn.Body => return parseBody(ctx),
         Inst.OtherInst => {
-            return parseError(ctx, "TODO implement parseParameterGeneric for OtherInst", .{});
+            const map = switch (ctx.source[ctx.i]) {
+                '@' => ctx.global_name_map,
+                '%' => return parseError(ctx, "TODO implement OtherInst for %", .{}),
+                else => |byte| return parseError(ctx, "unexpected byte: '{c}'", .{byte}),
+            };
+            ctx.i += 1;
+            const name_start = ctx.i;
+            while (ctx.i < ctx.source.len) : (ctx.i += 1) switch (ctx.source[ctx.i]) {
+                ';', ' ', '\n', ',', ')' => break,
+                else => continue,
+            };
+            const ident = ctx.source[name_start..ctx.i];
+            const kv = map.get(ident) orelse {
+                const bad_name = ctx.source[name_start - 1 .. ctx.i];
+                ctx.i = name_start - 1;
+                return parseError(ctx, "unrecognized identifier: {}", .{bad_name});
+            };
+            return Inst.OtherInst{ .index = kv.value };
         },
         Value => return parseError(ctx, "TODO implement parseParameterGeneric for type Value", .{}),
         else => @compileError("Unimplemented: ir parseParameterGeneric for type " ++ @typeName(T)),
@@ -319,7 +336,7 @@ fn parseBody(ctx: *ParseContext) !Inst.Fn.Body {
     while (ctx.i < ctx.source.len) : (ctx.i += 1) switch (ctx.source[ctx.i]) {
         ';' => _ = try skipToAndOver(ctx, '\n'),
         '%' => {
-            const at_start = ctx.i;
+            ctx.i += 1;
             const ident = try skipToAndOver(ctx, ' ');
             const opt_type = try parseOptionalType(ctx);
             const inst = try parseInstruction(ctx, opt_type);
@@ -452,3 +469,6 @@ fn findLineColumn(source: []const u8, byte_offset: usize) struct { line: usize, 
     }
     return .{ .line = line, .column = column };
 }
+
+// Performance optimization ideas:
+// * make the source code sentinel-terminated, so that all the checks against the length can be skipped
