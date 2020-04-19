@@ -17,6 +17,7 @@ pub const Inst = struct {
         @"asm",
         @"unreachable",
         @"fn",
+        @"export",
     };
 
     pub fn TagToType(tag: Tag) type {
@@ -26,8 +27,9 @@ pub const Inst = struct {
             .fieldptr => FieldPtr,
             .deref => Deref,
             .@"asm" => Assembly,
-            .@"unreachable" => Unreach,
+            .@"unreachable" => Unreachable,
             .@"fn" => Fn,
+            .@"export" => Export,
         };
     }
 
@@ -87,8 +89,8 @@ pub const Inst = struct {
         },
     };
 
-    pub const Unreach = struct {
-        base: Inst = Inst{ .tag = .unreach },
+    pub const Unreachable = struct {
+        base: Inst = Inst{ .tag = .@"unreachable" },
 
         positionals: struct {},
         kw_args: struct {},
@@ -107,6 +109,16 @@ pub const Inst = struct {
         pub const Body = struct {
             instructions: []*Inst,
         };
+    };
+
+    pub const Export = struct {
+        base: Inst = Inst{ .tag = .@"export" },
+
+        positionals: struct {
+            symbol_name: *Inst,
+            value: *Inst,
+        },
+        kw_args: struct {},
     };
 };
 
@@ -319,7 +331,6 @@ fn parseParameterGeneric(ctx: *ParseContext, comptime T: type, body_ctx: ?*BodyC
         while (ctx.i < ctx.source.len) : (ctx.i += 1) switch (ctx.source[ctx.i]) {
             ' ', '\n', ',', ')' => {
                 const enum_name = ctx.source[start..ctx.i];
-                ctx.i += 1;
                 return std.meta.stringToEnum(T, enum_name) orelse {
                     return parseError(ctx, "tag '{}' not a member of enum '{}'", .{ enum_name, @typeName(T) });
                 };
@@ -427,6 +438,10 @@ fn parseBody(ctx: *ParseContext) !Inst.Fn.Body {
             continue;
         },
         ' ', '\n' => continue,
+        '}' => {
+            ctx.i += 1;
+            break;
+        },
         else => |byte| return parseError(ctx, "unexpected byte: '{c}'", .{byte}),
     };
 
