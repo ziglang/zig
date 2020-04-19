@@ -15,7 +15,7 @@ pub const Inst = struct {
         fieldptr,
         deref,
         @"asm",
-        unreach,
+        @"unreachable",
         @"fn",
     };
 
@@ -26,7 +26,7 @@ pub const Inst = struct {
             .fieldptr => FieldPtr,
             .deref => Deref,
             .@"asm" => Assembly,
-            .unreach => Unreach,
+            .@"unreachable" => Unreach,
             .@"fn" => Fn,
         };
     }
@@ -75,8 +75,16 @@ pub const Inst = struct {
     pub const Assembly = struct {
         base: Inst = Inst{ .tag = .@"asm" },
 
-        positionals: struct {},
-        kw_args: struct {},
+        positionals: struct {
+            asm_source: *Inst,
+        },
+        kw_args: struct {
+            @"volatile": bool = false,
+            output: ?*Inst = null,
+            inputs: []*Inst = &[0]*Inst{},
+            clobbers: []*Inst = &[0]*Inst{},
+            args: []*Inst = &[0]*Inst{},
+        },
     };
 
     pub const Unreach = struct {
@@ -174,7 +182,9 @@ fn eatByte(ctx: *ParseContext, byte: u8) bool {
 }
 
 fn skipSpace(ctx: *ParseContext) void {
-    while (ctx.i < ctx.source.len and ctx.source[ctx.i] == ' ') : (ctx.i += 1) {}
+    while (ctx.i < ctx.source.len and (ctx.source[ctx.i] == ' ' or ctx.source[ctx.i] == '\n')) {
+        ctx.i += 1;
+    }
 }
 
 fn requireEatBytes(ctx: *ParseContext, bytes: []const u8) !void {
@@ -284,14 +294,17 @@ fn parseInstructionGeneric(
         skipSpace(ctx);
         const name = try skipToAndOver(ctx, '=');
         inline for (@typeInfo(KW_Args).Struct.fields) |arg_field| {
-            if (mem.eql(u8, name, arg_field.name)) {
-                @field(inst_specific.kw_args, arg_field.name) = try parseParameterGeneric(
-                    ctx,
-                    arg_field.field_type,
-                    body_ctx,
-                );
+            const field_name = arg_field.name;
+            if (mem.eql(u8, name, field_name)) {
+                const NonOptional = switch (@typeInfo(arg_field.field_type)) {
+                    .Optional => |info| info.child,
+                    else => arg_field.field_type,
+                };
+                @field(inst_specific.kw_args, field_name) = try parseParameterGeneric(ctx, NonOptional, body_ctx);
                 break;
             }
+        } else {
+            return parseError(ctx, "unrecognized keyword parameter: '{}'", .{name});
         }
         skipSpace(ctx);
     }
@@ -317,43 +330,70 @@ fn parseParameterGeneric(ctx: *ParseContext, comptime T: type, body_ctx: ?*BodyC
     }
     switch (T) {
         Inst.Fn.Body => return parseBody(ctx),
-        *Inst => {
-            const local_ref = switch (ctx.source[ctx.i]) {
-                '@' => false,
-                '%' => true,
-                '"' => return parseStringLiteralConst(ctx, null),
-                else => |byte| return parseError(ctx, "unexpected byte: '{c}'", .{byte}),
+        bool => {
+            const bool_value = switch (ctx.source[ctx.i]) {
+                '0' => false,
+                '1' => true,
+                else => |byte| return parseError(ctx, "expected '0' or '1' for boolean value, found {c}", .{byte}),
             };
-            const map = if (local_ref)
-                if (body_ctx) |bc|
-                    &bc.name_map
-                else
-                    return parseError(ctx, "referencing a % instruction in global scope", .{})
-            else
-                ctx.global_name_map;
-
             ctx.i += 1;
-            const name_start = ctx.i;
-            while (ctx.i < ctx.source.len) : (ctx.i += 1) switch (ctx.source[ctx.i]) {
-                ' ', '\n', ',', ')' => break,
-                else => continue,
-            };
-            const ident = ctx.source[name_start..ctx.i];
-            const kv = map.get(ident) orelse {
-                const bad_name = ctx.source[name_start - 1 .. ctx.i];
-                ctx.i = name_start - 1;
-                return parseError(ctx, "unrecognized identifier: {}", .{bad_name});
-            };
-            if (local_ref) {
-                return body_ctx.?.instructions.items[kv.value];
-            } else {
-                return ctx.decls.items[kv.value];
-            }
+            return bool_value;
         },
+        []*Inst => {
+            try requireEatBytes(ctx, "[");
+            skipSpace(ctx);
+            if (eatByte(ctx, ']')) return &[0]*Inst{};
+
+            var instructions = std.ArrayList(*Inst).init(ctx.allocator);
+            defer instructions.deinit();
+            while (true) {
+                skipSpace(ctx);
+                try instructions.append(try parseParameterInst(ctx, body_ctx));
+                skipSpace(ctx);
+                if (!eatByte(ctx, ',')) break;
+            }
+            try requireEatBytes(ctx, "]");
+            return instructions.toOwnedSlice();
+        },
+        *Inst => return parseParameterInst(ctx, body_ctx),
         Value => return parseError(ctx, "TODO implement parseParameterGeneric for type Value", .{}),
         else => @compileError("Unimplemented: ir parseParameterGeneric for type " ++ @typeName(T)),
     }
     return parseError(ctx, "TODO parse parameter {}", .{@typeName(T)});
+}
+
+fn parseParameterInst(ctx: *ParseContext, body_ctx: ?*BodyContext) !*Inst {
+    const local_ref = switch (ctx.source[ctx.i]) {
+        '@' => false,
+        '%' => true,
+        '"' => return parseStringLiteralConst(ctx, null),
+        else => |byte| return parseError(ctx, "unexpected byte: '{c}'", .{byte}),
+    };
+    const map = if (local_ref)
+        if (body_ctx) |bc|
+            &bc.name_map
+        else
+            return parseError(ctx, "referencing a % instruction in global scope", .{})
+    else
+        ctx.global_name_map;
+
+    ctx.i += 1;
+    const name_start = ctx.i;
+    while (ctx.i < ctx.source.len) : (ctx.i += 1) switch (ctx.source[ctx.i]) {
+        ' ', '\n', ',', ')', ']' => break,
+        else => continue,
+    };
+    const ident = ctx.source[name_start..ctx.i];
+    const kv = map.get(ident) orelse {
+        const bad_name = ctx.source[name_start - 1 .. ctx.i];
+        ctx.i = name_start - 1;
+        return parseError(ctx, "unrecognized identifier: {}", .{bad_name});
+    };
+    if (local_ref) {
+        return body_ctx.?.instructions.items[kv.value];
+    } else {
+        return ctx.decls.items[kv.value];
+    }
 }
 
 const BodyContext = struct {
