@@ -524,9 +524,10 @@ struct ZigValue {
         RuntimeHintSlice rh_slice;
     } data;
 
-    // uncomment these to find bugs. can't leave them uncommented because of a gcc-9 warning
-    //ZigValue(const ZigValue &other) = delete; // plz zero initialize with {}
+    // uncomment this to find bugs. can't leave it uncommented because of a gcc-9 warning
     //ZigValue& operator= (const ZigValue &other) = delete; // use copy_const_val
+
+    ZigValue(const ZigValue &other) = delete; // plz zero initialize with ZigValue val = {};
 
     // for use in debuggers
     void dump();
