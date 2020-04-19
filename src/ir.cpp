@@ -5408,11 +5408,19 @@ static IrInstSrc *ir_gen_block(IrBuilderSrc *irb, Scope *parent_scope, AstNode *
     }
 
     bool is_continuation_unreachable = false;
+    bool found_invalid_inst = false;
     IrInstSrc *noreturn_return_value = nullptr;
     for (size_t i = 0; i < block_node->data.block.statements.length; i += 1) {
         AstNode *statement_node = block_node->data.block.statements.at(i);
 
         IrInstSrc *statement_value = ir_gen_node(irb, statement_node, child_scope);
+        if (statement_value == irb->codegen->invalid_inst_src) {
+            // keep generating all the elements of the block in case of error,
+            // we want to collect other compile errors
+            found_invalid_inst = true;
+            continue;
+        }
+
         is_continuation_unreachable = instr_is_unreachable(statement_value);
         if (is_continuation_unreachable) {
             // keep the last noreturn statement value around in case we need to return it
@@ -5420,7 +5428,7 @@ static IrInstSrc *ir_gen_block(IrBuilderSrc *irb, Scope *parent_scope, AstNode *
         }
         // This logic must be kept in sync with
         // [STMT_EXPR_TEST_THING] <--- (search this token)
-        if (statement_node->type == NodeTypeDefer && statement_value != irb->codegen->invalid_inst_src) {
+        if (statement_node->type == NodeTypeDefer) {
             // defer starts a new scope
             child_scope = statement_node->data.defer.child_scope;
             assert(child_scope);
@@ -5428,11 +5436,14 @@ static IrInstSrc *ir_gen_block(IrBuilderSrc *irb, Scope *parent_scope, AstNode *
             // variable declarations start a new scope
             IrInstSrcDeclVar *decl_var_instruction = (IrInstSrcDeclVar *)statement_value;
             child_scope = decl_var_instruction->var->child_scope;
-        } else if (statement_value != irb->codegen->invalid_inst_src && !is_continuation_unreachable) {
+        } else if (!is_continuation_unreachable) {
             // this statement's value must be void
             ir_mark_gen(ir_build_check_statement_is_void(irb, child_scope, statement_node, statement_value));
         }
     }
+
+    if (found_invalid_inst)
+        return irb->codegen->invalid_inst_src;
 
     if (is_continuation_unreachable) {
         assert(noreturn_return_value != nullptr);
@@ -9905,6 +9916,8 @@ static IrInstSrc *ir_gen_suspend(IrBuilderSrc *irb, Scope *parent_scope, AstNode
         ScopeSuspend *suspend_scope = create_suspend_scope(irb->codegen, node, parent_scope);
         Scope *child_scope = &suspend_scope->base;
         IrInstSrc *susp_res = ir_gen_node(irb, node->data.suspend.block, child_scope);
+        if (susp_res == irb->codegen->invalid_inst_src)
+            return irb->codegen->invalid_inst_src;
         ir_mark_gen(ir_build_check_statement_is_void(irb, child_scope, node->data.suspend.block, susp_res));
     }
 

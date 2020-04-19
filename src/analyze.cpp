@@ -4610,7 +4610,9 @@ bool resolve_inferred_error_set(CodeGen *g, ZigType *err_set_type, AstNode *sour
             return false;
         } else if (infer_fn->anal_state == FnAnalStateReady) {
             analyze_fn_body(g, infer_fn);
-            if (err_set_type->data.error_set.incomplete) {
+            if (infer_fn->anal_state == FnAnalStateInvalid ||
+                err_set_type->data.error_set.incomplete)
+            {
                 assert(g->errors.length != 0);
                 return false;
             }
