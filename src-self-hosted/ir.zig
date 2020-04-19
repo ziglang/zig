@@ -99,40 +99,45 @@ pub const ErrorMsg = struct {
 };
 
 pub const Tree = struct {
-    decls: std.ArrayList(*Inst),
-    errors: std.ArrayList(ErrorMsg),
+    decls: []*Inst,
+    errors: []ErrorMsg,
 };
 
 const ParseContext = struct {
     allocator: *Allocator,
     i: usize,
     source: []const u8,
-    errors: *std.ArrayList(ErrorMsg),
+    errors: std.ArrayList(ErrorMsg),
+    decls: std.ArrayList(*Inst),
+    global_name_map: *std.StringHashMap(usize),
 };
 
 pub fn parse(allocator: *Allocator, source: []const u8) Allocator.Error!Tree {
-    var tree: Tree = .{
-        .decls = std.ArrayList(*Inst).init(allocator),
-        .errors = std.ArrayList(ErrorMsg).init(allocator),
-    };
+    var global_name_map = std.StringHashMap(usize).init(allocator);
+    defer global_name_map.deinit();
+
     var ctx: ParseContext = .{
         .allocator = allocator,
         .i = 0,
         .source = source,
-        .errors = &tree.errors,
+        .decls = std.ArrayList(*Inst).init(allocator),
+        .errors = std.ArrayList(ErrorMsg).init(allocator),
+        .global_name_map = &global_name_map,
     };
-    parseRoot(&ctx, &tree) catch |err| switch (err) {
+    parseRoot(&ctx) catch |err| switch (err) {
         error.ParseFailure => {
-            assert(tree.errors.items.len != 0);
+            assert(ctx.errors.items.len != 0);
         },
         else => |e| return e,
     };
-    return tree;
+    return Tree{
+        .decls = ctx.decls.toOwnedSlice(),
+        .errors = ctx.errors.toOwnedSlice(),
+    };
 }
 
-pub fn parseRoot(ctx: *ParseContext, tree: *Tree) !void {
+pub fn parseRoot(ctx: *ParseContext) !void {
     // The IR format is designed so that it can be tokenized and parsed at the same time.
-    var global_name_map = std.StringHashMap(usize).init(ctx.allocator);
     while (ctx.i < ctx.source.len) : (ctx.i += 1) switch (ctx.source[ctx.i]) {
         ';' => _ = try skipToAndOver(ctx, '\n'),
         '@' => {
@@ -145,11 +150,11 @@ pub fn parseRoot(ctx: *ParseContext, tree: *Tree) !void {
             }
             try requireEatBytes(ctx, "= ");
             const inst = try parseInstruction(ctx);
-            const ident_index = tree.decls.items.len;
-            if (try global_name_map.put(ident, ident_index)) |_| {
+            const ident_index = ctx.decls.items.len;
+            if (try ctx.global_name_map.put(ident, ident_index)) |_| {
                 return parseError(ctx, "redefinition of identifier '{}'", .{ident});
             }
-            try tree.decls.append(inst);
+            try ctx.decls.append(inst);
             continue;
         },
         ' ', '\n' => continue,
@@ -201,7 +206,7 @@ fn parseType(ctx: *ParseContext) !*Value {
     return parseError(ctx, "TODO parse type", .{});
 }
 
-fn parseInstruction(ctx: *ParseContext) !*Inst {
+fn parseInstruction(ctx: *ParseContext) error{ OutOfMemory, ParseFailure }!*Inst {
     switch (ctx.source[ctx.i]) {
         '"' => return parseStringLiteralConst(ctx),
         '0'...'9' => return parseIntegerLiteralConst(ctx),
@@ -260,17 +265,52 @@ fn parseParameterGeneric(ctx: *ParseContext, comptime T: type) !T {
         return parseError(ctx, "unexpected EOF in enum parameter", .{});
     }
     switch (T) {
-        Inst.Fn.Body => {
-            var instructions = std.ArrayList(*Inst).init(ctx.allocator);
-            try requireEatBytes(ctx, "{");
-            return T{
-                .instructions = instructions.toOwnedSlice(),
-            };
-        },
+        Inst.Fn.Body => return parseBody(ctx),
         Value => return parseError(ctx, "TODO implement parseParameterGeneric for type Value", .{}),
         else => @compileError("Unimplemented: ir parseParameterGeneric for type " ++ @typeName(T)),
     }
     return parseError(ctx, "TODO parse parameter {}", .{@typeName(T)});
+}
+
+fn parseBody(ctx: *ParseContext) !Inst.Fn.Body {
+    var instructions = std.ArrayList(*Inst).init(ctx.allocator);
+    defer instructions.deinit();
+
+    var name_map = std.StringHashMap(usize).init(ctx.allocator);
+    defer name_map.deinit();
+
+    try requireEatBytes(ctx, "{");
+    skipSpace(ctx);
+
+    while (ctx.i < ctx.source.len) : (ctx.i += 1) switch (ctx.source[ctx.i]) {
+        ';' => _ = try skipToAndOver(ctx, '\n'),
+        '%' => {
+            const at_start = ctx.i;
+            const ident = try skipToAndOver(ctx, ' ');
+            var ty: ?*Value = null;
+            if (eatByte(ctx, ':')) {
+                skipSpace(ctx);
+                ty = try parseType(ctx);
+                skipSpace(ctx);
+            }
+            skipSpace(ctx);
+            try requireEatBytes(ctx, "=");
+            skipSpace(ctx);
+            const inst = try parseInstruction(ctx);
+            const ident_index = instructions.items.len;
+            if (try name_map.put(ident, ident_index)) |_| {
+                return parseError(ctx, "redefinition of identifier '{}'", .{ident});
+            }
+            try instructions.append(inst);
+            continue;
+        },
+        ' ', '\n' => continue,
+        else => |byte| return parseError(ctx, "unexpected byte: '{c}'", .{byte}),
+    };
+
+    return Inst.Fn.Body{
+        .instructions = instructions.toOwnedSlice(),
+    };
 }
 
 fn parseStringLiteralConst(ctx: *ParseContext) !*Inst {
@@ -333,8 +373,8 @@ pub fn main() anyerror!void {
     const source = try std.fs.cwd().readFileAlloc(allocator, src_path, std.math.maxInt(u32));
 
     const tree = try parse(allocator, source);
-    if (tree.errors.items.len != 0) {
-        for (tree.errors.items) |err_msg| {
+    if (tree.errors.len != 0) {
+        for (tree.errors) |err_msg| {
             const loc = findLineColumn(source, err_msg.byte_offset);
             std.debug.warn("{}:{}:{}: error: {}\n", .{ src_path, loc.line + 1, loc.column + 1, err_msg.msg });
         }
