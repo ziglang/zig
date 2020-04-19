@@ -66,7 +66,9 @@ pub const Inst = struct {
     pub const Deref = struct {
         base: Inst = Inst{ .tag = .deref },
 
-        positionals: struct {},
+        positionals: struct {
+            ptr: *Inst,
+        },
         kw_args: struct {},
     };
 
@@ -151,7 +153,7 @@ pub fn parseRoot(ctx: *ParseContext) !void {
             ctx.i += 1;
             const ident = try skipToAndOver(ctx, ' ');
             const opt_type = try parseOptionalType(ctx);
-            const inst = try parseInstruction(ctx, opt_type);
+            const inst = try parseInstruction(ctx, opt_type, null);
             const ident_index = ctx.decls.items.len;
             if (try ctx.global_name_map.put(ident, ident_index)) |_| {
                 return parseError(ctx, "redefinition of identifier '{}'", .{ident});
@@ -224,7 +226,11 @@ fn parseOptionalType(ctx: *ParseContext) !?Type {
     }
 }
 
-fn parseInstruction(ctx: *ParseContext, opt_type: ?Type) error{ OutOfMemory, ParseFailure }!*Inst {
+fn parseInstruction(
+    ctx: *ParseContext,
+    opt_type: ?Type,
+    body_ctx: ?*BodyContext,
+) error{ OutOfMemory, ParseFailure }!*Inst {
     switch (ctx.source[ctx.i]) {
         '"' => return parseStringLiteralConst(ctx, opt_type),
         '0'...'9' => return parseIntegerLiteralConst(ctx, opt_type),
@@ -234,7 +240,7 @@ fn parseInstruction(ctx: *ParseContext, opt_type: ?Type) error{ OutOfMemory, Par
     inline for (@typeInfo(Inst.Tag).Enum.fields) |field| {
         if (mem.eql(u8, field.name, fn_name)) {
             const tag = @field(Inst.Tag, field.name);
-            return parseInstructionGeneric(ctx, field.name, Inst.TagToType(tag), opt_type);
+            return parseInstructionGeneric(ctx, field.name, Inst.TagToType(tag), opt_type, body_ctx);
         }
     }
     return parseError(ctx, "unknown instruction '{}'", .{fn_name});
@@ -245,6 +251,7 @@ fn parseInstructionGeneric(
     comptime fn_name: []const u8,
     comptime InstType: type,
     opt_type: ?Type,
+    body_ctx: ?*BodyContext,
 ) !*Inst {
     const inst_specific = try ctx.allocator.create(InstType);
 
@@ -262,7 +269,11 @@ fn parseInstructionGeneric(
         } else if (ctx.source[ctx.i] == ')') {
             return parseError(ctx, "expected positional parameter '{}'", .{arg_field.name});
         }
-        @field(inst_specific.positionals, arg_field.name) = try parseParameterGeneric(ctx, arg_field.field_type);
+        @field(inst_specific.positionals, arg_field.name) = try parseParameterGeneric(
+            ctx,
+            arg_field.field_type,
+            body_ctx,
+        );
         skipSpace(ctx);
     }
 
@@ -274,7 +285,11 @@ fn parseInstructionGeneric(
         const name = try skipToAndOver(ctx, '=');
         inline for (@typeInfo(KW_Args).Struct.fields) |arg_field| {
             if (mem.eql(u8, name, arg_field.name)) {
-                @field(inst_specific.kw_args, arg_field.name) = try parseParameterGeneric(ctx, arg_field.field_type);
+                @field(inst_specific.kw_args, arg_field.name) = try parseParameterGeneric(
+                    ctx,
+                    arg_field.field_type,
+                    body_ctx,
+                );
                 break;
             }
         }
@@ -285,7 +300,7 @@ fn parseInstructionGeneric(
     return &inst_specific.base;
 }
 
-fn parseParameterGeneric(ctx: *ParseContext, comptime T: type) !T {
+fn parseParameterGeneric(ctx: *ParseContext, comptime T: type, body_ctx: ?*BodyContext) !T {
     if (@typeInfo(T) == .Enum) {
         const start = ctx.i;
         while (ctx.i < ctx.source.len) : (ctx.i += 1) switch (ctx.source[ctx.i]) {
@@ -303,12 +318,20 @@ fn parseParameterGeneric(ctx: *ParseContext, comptime T: type) !T {
     switch (T) {
         Inst.Fn.Body => return parseBody(ctx),
         *Inst => {
-            const map = switch (ctx.source[ctx.i]) {
-                '@' => ctx.global_name_map,
-                '%' => return parseError(ctx, "TODO implement parsing % parameter", .{}),
+            const local_ref = switch (ctx.source[ctx.i]) {
+                '@' => false,
+                '%' => true,
                 '"' => return parseStringLiteralConst(ctx, null),
                 else => |byte| return parseError(ctx, "unexpected byte: '{c}'", .{byte}),
             };
+            const map = if (local_ref)
+                if (body_ctx) |bc|
+                    &bc.name_map
+                else
+                    return parseError(ctx, "referencing a % instruction in global scope", .{})
+            else
+                ctx.global_name_map;
+
             ctx.i += 1;
             const name_start = ctx.i;
             while (ctx.i < ctx.source.len) : (ctx.i += 1) switch (ctx.source[ctx.i]) {
@@ -321,7 +344,11 @@ fn parseParameterGeneric(ctx: *ParseContext, comptime T: type) !T {
                 ctx.i = name_start - 1;
                 return parseError(ctx, "unrecognized identifier: {}", .{bad_name});
             };
-            return ctx.decls.items[kv.value];
+            if (local_ref) {
+                return body_ctx.?.instructions.items[kv.value];
+            } else {
+                return ctx.decls.items[kv.value];
+            }
         },
         Value => return parseError(ctx, "TODO implement parseParameterGeneric for type Value", .{}),
         else => @compileError("Unimplemented: ir parseParameterGeneric for type " ++ @typeName(T)),
@@ -329,12 +356,18 @@ fn parseParameterGeneric(ctx: *ParseContext, comptime T: type) !T {
     return parseError(ctx, "TODO parse parameter {}", .{@typeName(T)});
 }
 
-fn parseBody(ctx: *ParseContext) !Inst.Fn.Body {
-    var instructions = std.ArrayList(*Inst).init(ctx.allocator);
-    defer instructions.deinit();
+const BodyContext = struct {
+    instructions: std.ArrayList(*Inst),
+    name_map: std.StringHashMap(usize),
+};
 
-    var name_map = std.StringHashMap(usize).init(ctx.allocator);
-    defer name_map.deinit();
+fn parseBody(ctx: *ParseContext) !Inst.Fn.Body {
+    var body_context = BodyContext{
+        .instructions = std.ArrayList(*Inst).init(ctx.allocator),
+        .name_map = std.StringHashMap(usize).init(ctx.allocator),
+    };
+    defer body_context.instructions.deinit();
+    defer body_context.name_map.deinit();
 
     try requireEatBytes(ctx, "{");
     skipSpace(ctx);
@@ -345,12 +378,12 @@ fn parseBody(ctx: *ParseContext) !Inst.Fn.Body {
             ctx.i += 1;
             const ident = try skipToAndOver(ctx, ' ');
             const opt_type = try parseOptionalType(ctx);
-            const inst = try parseInstruction(ctx, opt_type);
-            const ident_index = instructions.items.len;
-            if (try name_map.put(ident, ident_index)) |_| {
+            const inst = try parseInstruction(ctx, opt_type, &body_context);
+            const ident_index = body_context.instructions.items.len;
+            if (try body_context.name_map.put(ident, ident_index)) |_| {
                 return parseError(ctx, "redefinition of identifier '{}'", .{ident});
             }
-            try instructions.append(inst);
+            try body_context.instructions.append(inst);
             continue;
         },
         ' ', '\n' => continue,
@@ -358,7 +391,7 @@ fn parseBody(ctx: *ParseContext) !Inst.Fn.Body {
     };
 
     return Inst.Fn.Body{
-        .instructions = instructions.toOwnedSlice(),
+        .instructions = body_context.instructions.toOwnedSlice(),
     };
 }
 
