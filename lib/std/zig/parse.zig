@@ -88,6 +88,18 @@ fn parseRoot(arena: *Allocator, it: *TokenIterator, tree: *Tree) Error!*Node.Roo
 fn parseContainerMembers(arena: *Allocator, it: *TokenIterator, tree: *Tree) !Node.Root.DeclList {
     var list = Node.Root.DeclList.init(arena);
 
+    var field_state: union(enum) {
+        /// no fields have been seen
+        none,
+        /// currently parsing fields
+        seen,
+        /// saw fields and then a declaration after them.
+        /// payload is first token of previous declaration.
+        end: TokenIndex,
+        /// ther was a declaration between fields, don't report more errors
+        err,
+    } = .none;
+
     while (true) {
         if (try parseContainerDocComments(arena, it, tree)) |node| {
             try list.push(node);
@@ -97,12 +109,18 @@ fn parseContainerMembers(arena: *Allocator, it: *TokenIterator, tree: *Tree) !No
         const doc_comments = try parseDocComment(arena, it, tree);
 
         if (try parseTestDecl(arena, it, tree)) |node| {
+            if (field_state == .seen) {
+                field_state = .{ .end = node.firstToken() };
+            }
             node.cast(Node.TestDecl).?.doc_comments = doc_comments;
             try list.push(node);
             continue;
         }
 
         if (try parseTopLevelComptime(arena, it, tree)) |node| {
+            if (field_state == .seen) {
+                field_state = .{ .end = node.firstToken() };
+            }
             node.cast(Node.Comptime).?.doc_comments = doc_comments;
             try list.push(node);
             continue;
@@ -111,6 +129,9 @@ fn parseContainerMembers(arena: *Allocator, it: *TokenIterator, tree: *Tree) !No
         const visib_token = eatToken(it, .Keyword_pub);
 
         if (try parseTopLevelDecl(arena, it, tree)) |node| {
+            if (field_state == .seen) {
+                field_state = .{ .end = visib_token orelse node.firstToken() };
+            }
             switch (node.id) {
                 .FnProto => {
                     node.cast(Node.FnProto).?.doc_comments = doc_comments;
@@ -146,6 +167,18 @@ fn parseContainerMembers(arena: *Allocator, it: *TokenIterator, tree: *Tree) !No
         }
 
         if (try parseContainerField(arena, it, tree)) |node| {
+            switch (field_state) {
+                .none => field_state = .seen,
+                .err, .seen => {},
+                .end => |tok| {
+                    try tree.errors.push(.{
+                        .DeclBetweenFields = .{ .token = tok },
+                    });
+                    // continue parsing, error will be reported later
+                    field_state = .err;
+                },
+            }
+
             const field = node.cast(Node.ContainerField).?;
             field.doc_comments = doc_comments;
             try list.push(node);
