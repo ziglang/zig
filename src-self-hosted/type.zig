@@ -75,6 +75,7 @@ pub const Type = extern union {
     /// See `zigTypeTag` for the function that corresponds to `std.builtin.TypeId`.
     pub const Tag = enum {
         // The first section of this enum are tags that require no payload.
+        no_return,
         int_comptime,
         int_u8,
         int_usize,

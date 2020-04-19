@@ -237,6 +237,8 @@ fn parseOptionalType(ctx: *ParseContext) !?Type {
         const type_text = mem.trim(u8, type_text_untrimmed, " \n");
         if (mem.eql(u8, type_text, "usize")) {
             return Type.initTag(.int_usize);
+        } else if (mem.eql(u8, type_text, "noreturn")) {
+            return Type.initTag(.no_return);
         } else {
             return parseError(ctx, "TODO parse type '{}'", .{type_text});
         }
