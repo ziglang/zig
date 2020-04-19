@@ -17009,7 +17009,7 @@ static IrInstGen *ir_analyze_bit_shift(IrAnalyze *ira, IrInstSrcBinOp *bin_op_in
             if (op2_val == nullptr)
                 return ira->codegen->invalid_inst_gen;
 
-            ZigValue bit_count_value;
+            ZigValue bit_count_value = {};
             init_const_usize(ira->codegen, &bit_count_value, bit_count);
 
             if (!value_cmp_numeric_val_all(op2_val, CmpLT, &bit_count_value)) {
