@@ -24,9 +24,9 @@ pub const Type = extern union {
         }
     }
 
-    pub fn initTag(comptime tag: Tag) Type {
-        comptime assert(@enumToInt(tag) < Tag.no_payload_count);
-        return .{ .tag_if_small_enough = @enumToInt(tag) };
+    pub fn initTag(comptime small_tag: Tag) Type {
+        comptime assert(@enumToInt(small_tag) < Tag.no_payload_count);
+        return .{ .tag_if_small_enough = @enumToInt(small_tag) };
     }
 
     pub fn initPayload(payload: *Payload) Type {

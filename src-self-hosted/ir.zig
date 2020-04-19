@@ -143,13 +143,8 @@ pub fn parseRoot(ctx: *ParseContext) !void {
         '@' => {
             const at_start = ctx.i;
             const ident = try skipToAndOver(ctx, ' ');
-            var ty: ?*Value = null;
-            if (eatByte(ctx, ':')) {
-                ty = try parseType(ctx);
-                skipSpace(ctx);
-            }
-            try requireEatBytes(ctx, "= ");
-            const inst = try parseInstruction(ctx);
+            const opt_type = try parseOptionalType(ctx);
+            const inst = try parseInstruction(ctx, opt_type);
             const ident_index = ctx.decls.items.len;
             if (try ctx.global_name_map.put(ident, ident_index)) |_| {
                 return parseError(ctx, "redefinition of identifier '{}'", .{ident});
@@ -202,11 +197,27 @@ fn parseError(ctx: *ParseContext, comptime format: []const u8, args: var) error{
     return error.ParseFailure;
 }
 
-fn parseType(ctx: *ParseContext) !*Value {
-    return parseError(ctx, "TODO parse type", .{});
+/// Regardless of whether a `Type` is returned, it skips past the '='.
+fn parseOptionalType(ctx: *ParseContext) !?Type {
+    skipSpace(ctx);
+    if (eatByte(ctx, ':')) {
+        const type_text_untrimmed = try skipToAndOver(ctx, '=');
+        skipSpace(ctx);
+        const type_text = mem.trim(u8, type_text_untrimmed, " \n");
+        if (mem.eql(u8, type_text, "usize")) {
+            return Type.initTag(.int_usize);
+        } else {
+            return parseError(ctx, "TODO parse type '{}'", .{type_text});
+        }
+    } else {
+        skipSpace(ctx);
+        try requireEatBytes(ctx, "=");
+        skipSpace(ctx);
+        return null;
+    }
 }
 
-fn parseInstruction(ctx: *ParseContext) error{ OutOfMemory, ParseFailure }!*Inst {
+fn parseInstruction(ctx: *ParseContext, opt_type: ?Type) error{ OutOfMemory, ParseFailure }!*Inst {
     switch (ctx.source[ctx.i]) {
         '"' => return parseStringLiteralConst(ctx),
         '0'...'9' => return parseIntegerLiteralConst(ctx),
@@ -216,14 +227,25 @@ fn parseInstruction(ctx: *ParseContext) error{ OutOfMemory, ParseFailure }!*Inst
     inline for (Inst.all_types) |InstType| {
         const this_name = @tagName(std.meta.fieldInfo(InstType, "base").default_value.?.tag);
         if (mem.eql(u8, this_name, fn_name)) {
-            return parseInstructionGeneric(ctx, this_name, InstType);
+            return parseInstructionGeneric(ctx, this_name, InstType, opt_type);
         }
     }
     return parseError(ctx, "unknown instruction '{}'", .{fn_name});
 }
 
-fn parseInstructionGeneric(ctx: *ParseContext, comptime fn_name: []const u8, comptime InstType: type) !*Inst {
+fn parseInstructionGeneric(
+    ctx: *ParseContext,
+    comptime fn_name: []const u8,
+    comptime InstType: type,
+    opt_type: ?Type,
+) !*Inst {
     const inst_specific = try ctx.allocator.create(InstType);
+
+    if (@hasField(InstType, "ty")) {
+        inst_specific.ty = opt_type orelse {
+            return parseError(ctx, "instruction '" ++ fn_name ++ "' requires type", .{});
+        };
+    }
 
     const Positionals = @TypeOf(inst_specific.positionals);
     inline for (@typeInfo(Positionals).Struct.fields) |arg_field| {
@@ -287,16 +309,8 @@ fn parseBody(ctx: *ParseContext) !Inst.Fn.Body {
         '%' => {
             const at_start = ctx.i;
             const ident = try skipToAndOver(ctx, ' ');
-            var ty: ?*Value = null;
-            if (eatByte(ctx, ':')) {
-                skipSpace(ctx);
-                ty = try parseType(ctx);
-                skipSpace(ctx);
-            }
-            skipSpace(ctx);
-            try requireEatBytes(ctx, "=");
-            skipSpace(ctx);
-            const inst = try parseInstruction(ctx);
+            const opt_type = try parseOptionalType(ctx);
+            const inst = try parseInstruction(ctx, opt_type);
             const ident_index = instructions.items.len;
             if (try name_map.put(ident, ident_index)) |_| {
                 return parseError(ctx, "redefinition of identifier '{}'", .{ident});

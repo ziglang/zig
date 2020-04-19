@@ -37,9 +37,9 @@ pub const Value = extern union {
         bytes,
     };
 
-    pub fn initTag(comptime tag: Tag) Value {
-        comptime assert(@enumToInt(tag) < Tag.no_payload_count);
-        return .{ .tag_if_small_enough = @enumToInt(tag) };
+    pub fn initTag(comptime small_tag: Tag) Value {
+        comptime assert(@enumToInt(small_tag) < Tag.no_payload_count);
+        return .{ .tag_if_small_enough = @enumToInt(small_tag) };
     }
 
     pub fn initPayload(payload: *Payload) Value {
