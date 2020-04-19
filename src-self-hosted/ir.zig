@@ -31,11 +31,6 @@ pub const Inst = struct {
         };
     }
 
-    /// Represents a reference to another instruction.
-    pub const OtherInst = struct {
-        index: usize,
-    };
-
     /// This struct owns the `Value` memory. When the struct is deallocated,
     /// so is the `Value`. The value of a constant must be copied into
     /// a memory location for the value to survive after a const instruction.
@@ -53,7 +48,7 @@ pub const Inst = struct {
         base: Inst = Inst{ .tag = .ptrtoint },
 
         positionals: struct {
-            ptr: OtherInst,
+            ptr: *Inst,
         },
         kw_args: struct {},
     };
@@ -61,7 +56,10 @@ pub const Inst = struct {
     pub const FieldPtr = struct {
         base: Inst = Inst{ .tag = .fieldptr },
 
-        positionals: struct {},
+        positionals: struct {
+            object_ptr: *Inst,
+            field_name: *Inst,
+        },
         kw_args: struct {},
     };
 
@@ -257,8 +255,15 @@ fn parseInstructionGeneric(
     }
 
     const Positionals = @TypeOf(inst_specific.positionals);
-    inline for (@typeInfo(Positionals).Struct.fields) |arg_field| {
+    inline for (@typeInfo(Positionals).Struct.fields) |arg_field, i| {
+        if (ctx.source[ctx.i] == ',') {
+            ctx.i += 1;
+            skipSpace(ctx);
+        } else if (ctx.source[ctx.i] == ')') {
+            return parseError(ctx, "expected positional parameter '{}'", .{arg_field.name});
+        }
         @field(inst_specific.positionals, arg_field.name) = try parseParameterGeneric(ctx, arg_field.field_type);
+        skipSpace(ctx);
     }
 
     const KW_Args = @TypeOf(inst_specific.kw_args);
@@ -297,16 +302,17 @@ fn parseParameterGeneric(ctx: *ParseContext, comptime T: type) !T {
     }
     switch (T) {
         Inst.Fn.Body => return parseBody(ctx),
-        Inst.OtherInst => {
+        *Inst => {
             const map = switch (ctx.source[ctx.i]) {
                 '@' => ctx.global_name_map,
-                '%' => return parseError(ctx, "TODO implement OtherInst for %", .{}),
+                '%' => return parseError(ctx, "TODO implement parsing % parameter", .{}),
+                '"' => return parseStringLiteralConst(ctx, null),
                 else => |byte| return parseError(ctx, "unexpected byte: '{c}'", .{byte}),
             };
             ctx.i += 1;
             const name_start = ctx.i;
             while (ctx.i < ctx.source.len) : (ctx.i += 1) switch (ctx.source[ctx.i]) {
-                ';', ' ', '\n', ',', ')' => break,
+                ' ', '\n', ',', ')' => break,
                 else => continue,
             };
             const ident = ctx.source[name_start..ctx.i];
@@ -315,7 +321,7 @@ fn parseParameterGeneric(ctx: *ParseContext, comptime T: type) !T {
                 ctx.i = name_start - 1;
                 return parseError(ctx, "unrecognized identifier: {}", .{bad_name});
             };
-            return Inst.OtherInst{ .index = kv.value };
+            return ctx.decls.items[kv.value];
         },
         Value => return parseError(ctx, "TODO implement parseParameterGeneric for type Value", .{}),
         else => @compileError("Unimplemented: ir parseParameterGeneric for type " ++ @typeName(T)),
