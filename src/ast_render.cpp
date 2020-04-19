@@ -571,7 +571,7 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
             {
                 const char *defer_str = defer_string(node->data.defer.kind);
                 fprintf(ar->f, "%s ", defer_str);
-                render_node_grouped(ar, node->data.return_expr.expr);
+                render_node_grouped(ar, node->data.defer.expr);
                 break;
             }
         case NodeTypeVariableDeclaration:
