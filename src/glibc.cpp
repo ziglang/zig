@@ -362,9 +362,9 @@ Error glibc_build_dummies_and_maps(CodeGen *g, const ZigGLibCAbi *glibc_abi, con
 }
 
 uint32_t hash_glibc_target(const ZigTarget *x) {
-    return x->arch * 3250106448 +
-        x->os * 542534372 +
-        x->abi * 59162639;
+    return x->arch * (uint32_t)3250106448 +
+        x->os * (uint32_t)542534372 +
+        x->abi * (uint32_t)59162639;
 }
 
 bool eql_glibc_target(const ZigTarget *a, const ZigTarget *b) {
