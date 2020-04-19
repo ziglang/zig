@@ -8,16 +8,6 @@ const assert = std.debug.assert;
 pub const Inst = struct {
     tag: Tag,
 
-    pub const all_types = .{
-        Constant,
-        PtrToInt,
-        FieldPtr,
-        Deref,
-        Assembly,
-        Unreach,
-        Fn,
-    };
-
     /// These names are used for the IR text format.
     pub const Tag = enum {
         constant,
@@ -27,6 +17,23 @@ pub const Inst = struct {
         @"asm",
         unreach,
         @"fn",
+    };
+
+    pub fn TagToType(tag: Tag) type {
+        return switch (tag) {
+            .constant => Constant,
+            .ptrtoint => PtrToInt,
+            .fieldptr => FieldPtr,
+            .deref => Deref,
+            .@"asm" => Assembly,
+            .unreach => Unreach,
+            .@"fn" => Fn,
+        };
+    }
+
+    /// Represents a reference to another instruction.
+    pub const OtherInst = struct {
+        index: usize,
     };
 
     /// This struct owns the `Value` memory. When the struct is deallocated,
@@ -45,7 +52,9 @@ pub const Inst = struct {
     pub const PtrToInt = struct {
         base: Inst = Inst{ .tag = .ptrtoint },
 
-        positionals: struct {},
+        positionals: struct {
+            ptr: OtherInst,
+        },
         kw_args: struct {},
     };
 
@@ -224,10 +233,10 @@ fn parseInstruction(ctx: *ParseContext, opt_type: ?Type) error{ OutOfMemory, Par
         else => {},
     }
     const fn_name = try skipToAndOver(ctx, '(');
-    inline for (Inst.all_types) |InstType| {
-        const this_name = @tagName(std.meta.fieldInfo(InstType, "base").default_value.?.tag);
-        if (mem.eql(u8, this_name, fn_name)) {
-            return parseInstructionGeneric(ctx, this_name, InstType, opt_type);
+    inline for (@typeInfo(Inst.Tag).Enum.fields) |field| {
+        if (mem.eql(u8, field.name, fn_name)) {
+            const tag = @field(Inst.Tag, field.name);
+            return parseInstructionGeneric(ctx, field.name, Inst.TagToType(tag), opt_type);
         }
     }
     return parseError(ctx, "unknown instruction '{}'", .{fn_name});
@@ -288,6 +297,9 @@ fn parseParameterGeneric(ctx: *ParseContext, comptime T: type) !T {
     }
     switch (T) {
         Inst.Fn.Body => return parseBody(ctx),
+        Inst.OtherInst => {
+            return parseError(ctx, "TODO implement parseParameterGeneric for OtherInst", .{});
+        },
         Value => return parseError(ctx, "TODO implement parseParameterGeneric for type Value", .{}),
         else => @compileError("Unimplemented: ir parseParameterGeneric for type " ++ @typeName(T)),
     }
