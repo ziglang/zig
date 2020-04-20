@@ -546,7 +546,7 @@ fn if_nametoindex(name: []const u8) !u32 {
     std.mem.copy(u8, &ifr.ifr_ifrn.name, name);
     ifr.ifr_ifrn.name[name.len] = 0;
 
-    os.ioctl(sockfd, os.linux.SIOCGIFINDEX, @ptrToInt(&ifr)) catch |err| {
+    os.ioctl(sockfd, os.system.SIOCGIFINDEX, @ptrToInt(&ifr)) catch |err| {
         switch (err) {
             error.NoDevice => return error.InterfaceNotFound,
             else => return err,
