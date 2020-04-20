@@ -545,24 +545,12 @@ fn if_nametoindex(name: []const u8) !u32 {
     std.mem.copy(u8, &ifr.ifr_ifrn.name, name);
     ifr.ifr_ifrn.name[name.len] = 0;
 
-    const rc = os.system.syscall3(
-        os.linux.SYS_ioctl,
-        @bitCast(usize, @as(isize, sockfd)),
-        os.linux.SIOCGIFINDEX,
-        @ptrToInt(&ifr),
-    );
-
-    switch (os.errno(rc)) {
-        os.EBADF => return error.BadFile,
-        os.EINTR => return error.CaughtSignal,
-        os.EIO => return error.FileSystem,
-        os.EINVAL => unreachable,
-        os.ENOTTY => unreachable,
-        os.ENXIO => unreachable,
-        // ioctl() sends ENODEV for an unknown scope id.
-        os.ENODEV => return error.InterfaceNotFound,
-        else => {},
-    }
+    std.os.ioctl(sockfd, os.linux.SIOCGIFINDEX, @ptrToInt(&ifr)) catch |err| {
+        switch (err) {
+            error.NoDevice => return error.InterfaceNotFound,
+            else => return err,
+        }
+    };
 
     return @bitCast(u32, ifr.ifr_ifru.ifru_ivalue);
 }

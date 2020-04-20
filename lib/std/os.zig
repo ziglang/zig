@@ -405,7 +405,6 @@ pub fn readv(fd: fd_t, iov: []const iovec) ReadError!usize {
             else => |err| return unexpectedErrno(err),
         }
     }
-
     const iov_count = math.cast(u31, iov.len) catch math.maxInt(u31);
     while (true) {
         // TODO handle the case when iov_len is too large and get rid of this @intCast
@@ -2451,9 +2450,8 @@ pub fn socket(domain: u32, socket_type: u32, protocol: u32) SocketError!socket_t
     if (builtin.os.tag == .windows) {
         // NOTE: windows translates the SOCK_NONBLOCK/SOCK_CLOEXEC flags into windows-analagous operations
         const filtered_sock_type = socket_type & ~@as(u32, SOCK_NONBLOCK | SOCK_CLOEXEC);
-        const flags : u32 = if ((socket_type & SOCK_CLOEXEC) != 0) windows.ws2_32.WSA_FLAG_NO_HANDLE_INHERIT else 0;
-        const rc = windows.ws2_32.WSASocketW(@intCast(c_int, domain), @intCast(c_int, filtered_sock_type),
-            @intCast(c_int, protocol), null, 0, flags);
+        const flags: u32 = if ((socket_type & SOCK_CLOEXEC) != 0) windows.ws2_32.WSA_FLAG_NO_HANDLE_INHERIT else 0;
+        const rc = windows.ws2_32.WSASocketW(@intCast(c_int, domain), @intCast(c_int, filtered_sock_type), @intCast(c_int, protocol), null, 0, flags);
         if (rc == windows.ws2_32.INVALID_SOCKET) switch (windows.ws2_32.WSAGetLastError()) {
             .WSAEMFILE => return error.ProcessFdQuotaExceeded,
             .WSAENOBUFS => return error.SystemResources,
@@ -2463,7 +2461,7 @@ pub fn socket(domain: u32, socket_type: u32, protocol: u32) SocketError!socket_t
         };
         errdefer windows.closesocket(rc) catch unreachable;
         if ((socket_type & SOCK_NONBLOCK) != 0) {
-            var mode : c_ulong = 1; // nonblocking
+            var mode: c_ulong = 1; // nonblocking
             if (windows.ws2_32.SOCKET_ERROR == windows.ws2_32.ioctlsocket(rc, windows.ws2_32.FIONBIO, &mode)) {
                 switch (windows.ws2_32.WSAGetLastError()) {
                     // have not identified any error codes that should be handled yet
@@ -2858,7 +2856,7 @@ pub fn connect(sockfd: socket_t, sock_addr: *const sockaddr, len: socklen_t) Con
             .WSAECONNREFUSED => return error.ConnectionRefused,
             .WSAETIMEDOUT => return error.ConnectionTimedOut,
             .WSAEHOSTUNREACH // TODO: should we return NetworkUnreachable in this case as well?
-            ,.WSAENETUNREACH => return error.NetworkUnreachable,
+                , .WSAENETUNREACH => return error.NetworkUnreachable,
             .WSAEFAULT => unreachable,
             .WSAEINVAL => unreachable,
             .WSAEISCONN => unreachable,
@@ -4904,5 +4902,19 @@ pub fn tcsetattr(handle: fd_t, optional_action: TCSA, termios_p: termios) Termio
             EIO => return error.ProcessOrphaned,
             else => |err| return unexpectedErrno(err),
         }
+    }
+}
+
+pub fn ioctl(handle: fd_t, request: u32, arg: var) !void {
+    switch (errno(system.ioctl(handle, request, arg))) {
+        0 => {},
+        EINVAL => unreachable,
+        ENOTTY => unreachable,
+        ENXIO => unreachable,
+        EBADF => return error.BadFile,
+        EINTR => return error.CaughtSignal,
+        EIO => return error.FileSystem,
+        ENODEV => return error.NoDevice,
+        else => |err| return unexpectedErrno(err),
     }
 }
