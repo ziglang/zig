@@ -87,7 +87,7 @@ pub const Value = extern union {
             .int_i64 => return std.fmt.formatIntValue(self.cast(Payload.Int_i64).?.int, "", options, out_stream),
             .function => return out_stream.writeAll("(function)"),
             .ref => return out_stream.writeAll("(ref)"),
-            .bytes => return out_stream.writeAll("(bytes)"),
+            .bytes => return std.zig.renderStringLiteral(self.cast(Payload.Bytes).?.data, out_stream),
         }
     }
 

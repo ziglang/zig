@@ -169,8 +169,9 @@ pub const Tree = struct {
         }
 
         for (self.decls) |decl, i| {
-            try stream.print("@{} = ", .{i});
+            try stream.print("@{} ", .{i});
             try self.writeInstToStream(stream, decl, &inst_table);
+            try stream.writeByte('\n');
         }
     }
 
@@ -197,15 +198,26 @@ pub const Tree = struct {
     ) !void {
         const SpecificInst = Inst.TagToType(inst_tag);
         const inst = @fieldParentPtr(SpecificInst, "base", base);
+        if (@hasField(SpecificInst, "ty")) {
+            try stream.print(": {} ", .{inst.ty});
+        }
+        if (inst_tag == .constant) switch (inst.positionals.value.tag()) {
+            .bytes => {
+                try stream.writeAll("= ");
+                const bytes_value = inst.positionals.value.cast(Value.Payload.Bytes).?;
+                return std.zig.renderStringLiteral(bytes_value.data, stream);
+            },
+            else => {},
+        };
         const Positionals = @TypeOf(inst.positionals);
-        try stream.writeAll(@tagName(inst_tag) ++ "(");
+        try stream.writeAll("= " ++ @tagName(inst_tag) ++ "(");
         inline for (@typeInfo(Positionals).Struct.fields) |arg_field, i| {
             if (i != 0) {
                 try stream.writeAll(", ");
             }
             try self.writeParamToStream(stream, @field(inst.positionals, arg_field.name), inst_table);
         }
-        try stream.writeAll(")\n");
+        try stream.writeByte(')');
     }
 
     pub fn writeParamToStream(self: Tree, stream: var, param: var, inst_table: *const InstPtrTable) !void {
@@ -576,8 +588,14 @@ fn parseStringLiteralConst(ctx: *ParseContext, opt_type: ?Type) !*Inst {
             bytes_payload.* = .{ .data = parsed };
 
             const ty = opt_type orelse blk: {
-                const ty_payload = try ctx.allocator.create(Type.Payload.Array_u8_Sentinel0);
-                ty_payload.* = .{ .len = parsed.len };
+                const array_payload = try ctx.allocator.create(Type.Payload.Array_u8_Sentinel0);
+                errdefer ctx.allocator.destroy(array_payload);
+                array_payload.* = .{ .len = parsed.len };
+
+                const ty_payload = try ctx.allocator.create(Type.Payload.SingleConstPointer);
+                errdefer ctx.allocator.destroy(ty_payload);
+                ty_payload.* = .{ .pointee_type = Type.initPayload(&array_payload.base) };
+
                 break :blk Type.initPayload(&ty_payload.base);
             };
 
