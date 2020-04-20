@@ -1186,11 +1186,11 @@ pub fn getrusage(who: i32, usage: *rusage) usize {
 }
 
 pub fn tcgetattr(fd: fd_t, termios_p: *termios) usize {
-    return syscall3(.ioctl, @bitCast(usize, @as(isize, fd)), TCGETS, @ptrToInt(termios_p));
+    return ioctl(fd, TCGETS, @ptrToInt(termios_p));
 }
 
 pub fn tcsetattr(fd: fd_t, optional_action: TCSA, termios_p: *const termios) usize {
-    return syscall3(.ioctl, @bitCast(usize, @as(isize, fd)), TCSETS + @enumToInt(optional_action), @ptrToInt(termios_p));
+    return ioctl(fd, TCSETS + @enumToInt(optional_action), @ptrToInt(termios_p));
 }
 
 pub fn ioctl(fd: fd_t, request: u32, arg: var) usize {

@@ -2087,7 +2087,7 @@ pub fn isatty(handle: fd_t) bool {
     }
     if (builtin.os.tag == .linux) {
         var wsz: linux.winsize = undefined;
-        return linux.syscall3(.ioctl, @bitCast(usize, @as(isize, handle)), linux.TIOCGWINSZ, @ptrToInt(&wsz)) == 0;
+        return linux.ioctl(handle, linux.TIOCGWINSZ, @ptrToInt(&wsz)) == 0;
     }
     unreachable;
 }
