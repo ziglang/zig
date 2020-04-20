@@ -370,7 +370,7 @@ pub fn readv(fd: fd_t, iov: []const iovec) ReadError!usize {
         const first = iov[0];
         return read(fd, first.iov_base[0..first.iov_len]);
     }
-    
+
     const iov_count = math.cast(u31, iov.len) catch math.maxInt(u31);
     while (true) {
         // TODO handle the case when iov_len is too large and get rid of this @intCast
@@ -4385,5 +4385,19 @@ pub fn tcsetattr(handle: fd_t, optional_action: TCSA, termios_p: termios) Termio
             EIO => return error.ProcessOrphaned,
             else => |err| return unexpectedErrno(err),
         }
+    }
+}
+
+pub fn ioctl(handle: fd_t, request: u32, arg: var) !void {
+    switch (errno(system.ioctl(handle, request, arg))) {
+        0 => {},
+        EINVAL => unreachable,
+        ENOTTY => unreachable,
+        ENXIO => unreachable,
+        EBADF => return error.BadFile,
+        EINTR => return error.CaughtSignal,
+        EIO => return error.FileSystem,
+        ENODEV => return error.NoDevice,
+        else => |err| return unexpectedErrno(err),
     }
 }
