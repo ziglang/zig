@@ -33,6 +33,14 @@ pub const Inst = struct {
         };
     }
 
+    pub fn cast(base: *Inst, comptime T: type) ?*T {
+        const expected_tag = std.meta.fieldInfo(T, "base").default_value.?.tag;
+        if (base.tag != expected_tag)
+            return null;
+
+        return @fieldParentPtr(T, "base", base);
+    }
+
     /// This struct owns the `Value` memory. When the struct is deallocated,
     /// so is the `Value`. The value of a constant must be copied into
     /// a memory location for the value to survive after a const instruction.
@@ -130,6 +138,92 @@ pub const ErrorMsg = struct {
 pub const Tree = struct {
     decls: []*Inst,
     errors: []ErrorMsg,
+
+    pub fn deinit(self: *Tree) void {
+        // TODO resource deallocation
+        self.* = undefined;
+    }
+
+    /// This is a debugging utility for rendering the tree to stderr.
+    pub fn dump(self: Tree) void {
+        self.writeToStream(std.heap.page_allocator, std.io.getStdErr().outStream()) catch {};
+    }
+
+    const InstPtrTable = std.AutoHashMap(*Inst, struct { index: usize, fn_body: ?*Inst.Fn.Body });
+
+    pub fn writeToStream(self: Tree, allocator: *Allocator, stream: var) !void {
+        // First, build a map of *Inst to @ or % indexes
+        var inst_table = InstPtrTable.init(allocator);
+        defer inst_table.deinit();
+
+        try inst_table.ensureCapacity(self.decls.len);
+
+        for (self.decls) |decl, decl_i| {
+            try inst_table.putNoClobber(decl, .{ .index = decl_i, .fn_body = null });
+
+            if (decl.cast(Inst.Fn)) |fn_inst| {
+                for (fn_inst.positionals.body.instructions) |inst, inst_i| {
+                    try inst_table.putNoClobber(inst, .{ .index = inst_i, .fn_body = &fn_inst.positionals.body });
+                }
+            }
+        }
+
+        for (self.decls) |decl, i| {
+            try stream.print("@{} = ", .{i});
+            try self.writeInstToStream(stream, decl, &inst_table);
+        }
+    }
+
+    fn writeInstToStream(self: Tree, stream: var, decl: *Inst, inst_table: *const InstPtrTable) !void {
+        // TODO I tried implementing this with an inline for loop and hit a compiler bug
+        switch (decl.tag) {
+            .constant => return self.writeInstToStreamGeneric(stream, .constant, decl, inst_table),
+            .ptrtoint => return self.writeInstToStreamGeneric(stream, .ptrtoint, decl, inst_table),
+            .fieldptr => return self.writeInstToStreamGeneric(stream, .fieldptr, decl, inst_table),
+            .deref => return self.writeInstToStreamGeneric(stream, .deref, decl, inst_table),
+            .@"asm" => return self.writeInstToStreamGeneric(stream, .@"asm", decl, inst_table),
+            .@"unreachable" => return self.writeInstToStreamGeneric(stream, .@"unreachable", decl, inst_table),
+            .@"fn" => return self.writeInstToStreamGeneric(stream, .@"fn", decl, inst_table),
+            .@"export" => return self.writeInstToStreamGeneric(stream, .@"export", decl, inst_table),
+        }
+    }
+
+    fn writeInstToStreamGeneric(
+        self: Tree,
+        stream: var,
+        comptime inst_tag: Inst.Tag,
+        base: *Inst,
+        inst_table: *const InstPtrTable,
+    ) !void {
+        const SpecificInst = Inst.TagToType(inst_tag);
+        const inst = @fieldParentPtr(SpecificInst, "base", base);
+        const Positionals = @TypeOf(inst.positionals);
+        try stream.writeAll(@tagName(inst_tag) ++ "(");
+        inline for (@typeInfo(Positionals).Struct.fields) |arg_field, i| {
+            if (i != 0) {
+                try stream.writeAll(", ");
+            }
+            try self.writeParamToStream(stream, @field(inst.positionals, arg_field.name), inst_table);
+        }
+        try stream.writeAll(")\n");
+    }
+
+    pub fn writeParamToStream(self: Tree, stream: var, param: var, inst_table: *const InstPtrTable) !void {
+        switch (@TypeOf(param)) {
+            Value => {
+                try stream.print("{}", .{param});
+            },
+            *Inst => {
+                const info = inst_table.getValue(param).?;
+                const prefix = if (info.fn_body == null) "@" else "%";
+                try stream.print("{}{}", .{ prefix, info.index });
+            },
+            Inst.Fn.Body => {
+                try stream.print("(fn body)", .{});
+            },
+            else => |T| @compileError("unimplemented: rendering parameter of type " ++ @typeName(T)),
+        }
+    }
 };
 
 const ParseContext = struct {
@@ -278,6 +372,7 @@ fn parseInstructionGeneric(
     body_ctx: ?*BodyContext,
 ) !*Inst {
     const inst_specific = try ctx.allocator.create(InstType);
+    inst_specific.base = std.meta.fieldInfo(InstType, "base").default_value.?;
 
     if (@hasField(InstType, "ty")) {
         inst_specific.ty = opt_type orelse {
@@ -286,7 +381,7 @@ fn parseInstructionGeneric(
     }
 
     const Positionals = @TypeOf(inst_specific.positionals);
-    inline for (@typeInfo(Positionals).Struct.fields) |arg_field, i| {
+    inline for (@typeInfo(Positionals).Struct.fields) |arg_field| {
         if (ctx.source[ctx.i] == ',') {
             ctx.i += 1;
             skipSpace(ctx);
@@ -379,7 +474,11 @@ fn parseParameterInst(ctx: *ParseContext, body_ctx: ?*BodyContext) !*Inst {
     const local_ref = switch (ctx.source[ctx.i]) {
         '@' => false,
         '%' => true,
-        '"' => return parseStringLiteralConst(ctx, null),
+        '"' => {
+            const str_lit_inst = try parseStringLiteralConst(ctx, null);
+            try ctx.decls.append(str_lit_inst);
+            return str_lit_inst;
+        },
         else => |byte| return parseError(ctx, "unexpected byte: '{c}'", .{byte}),
     };
     const map = if (local_ref)
@@ -538,7 +637,9 @@ pub fn main() anyerror!void {
 
     const source = try std.fs.cwd().readFileAlloc(allocator, src_path, std.math.maxInt(u32));
 
-    const tree = try parse(allocator, source);
+    var tree = try parse(allocator, source);
+    defer tree.deinit();
+
     if (tree.errors.len != 0) {
         for (tree.errors) |err_msg| {
             const loc = findLineColumn(source, err_msg.byte_offset);
@@ -547,6 +648,11 @@ pub fn main() anyerror!void {
         if (debug_error_trace) return error.ParseFailure;
         std.process.exit(1);
     }
+
+    tree.dump();
+
+    //const new_tree = try semanticallyAnalyze(tree);
+    //defer new_tree.deinit();
 }
 
 fn findLineColumn(source: []const u8, byte_offset: usize) struct { line: usize, column: usize } {

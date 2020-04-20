@@ -23,10 +23,7 @@ pub const Value = extern union {
         void_value,
         noreturn_value,
         bool_true,
-        bool_false,
-        // Bump this when adding items above.
-        pub const last_no_payload_tag = Tag.bool_false;
-        pub const no_payload_count = @enumToInt(last_no_payload_tag) + 1;
+        bool_false, // See last_no_payload_tag below.
         // After this, the tag requires a payload.
 
         ty,
@@ -35,6 +32,9 @@ pub const Value = extern union {
         function,
         ref,
         bytes,
+
+        pub const last_no_payload_tag = Tag.bool_false;
+        pub const no_payload_count = @enumToInt(last_no_payload_tag) + 1;
     };
 
     pub fn initTag(comptime small_tag: Tag) Value {
@@ -49,9 +49,45 @@ pub const Value = extern union {
 
     pub fn tag(self: Value) Tag {
         if (self.tag_if_small_enough < Tag.no_payload_count) {
-            return @intToEnum(self.tag_if_small_enough);
+            return @intToEnum(Tag, @intCast(@TagType(Tag), self.tag_if_small_enough));
         } else {
             return self.ptr_otherwise.tag;
+        }
+    }
+
+    pub fn cast(self: Value, comptime T: type) ?*T {
+        if (self.tag_if_small_enough < Tag.no_payload_count)
+            return null;
+
+        const expected_tag = std.meta.fieldInfo(T, "base").default_value.?.tag;
+        if (self.ptr_otherwise.tag != expected_tag)
+            return null;
+
+        return @fieldParentPtr(T, "base", self.ptr_otherwise);
+    }
+
+    pub fn format(
+        self: Value,
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        out_stream: var,
+    ) !void {
+        comptime assert(fmt.len == 0);
+        switch (self.tag()) {
+            .void_type => return out_stream.writeAll("void"),
+            .noreturn_type => return out_stream.writeAll("noreturn"),
+            .bool_type => return out_stream.writeAll("bool"),
+            .usize_type => return out_stream.writeAll("usize"),
+            .void_value => return out_stream.writeAll("{}"),
+            .noreturn_value => return out_stream.writeAll("unreachable"),
+            .bool_true => return out_stream.writeAll("true"),
+            .bool_false => return out_stream.writeAll("false"),
+            .ty => return self.cast(Payload.Ty).?.ty.format("", options, out_stream),
+            .int_u64 => return std.fmt.formatIntValue(self.cast(Payload.Int_u64).?.int, "", options, out_stream),
+            .int_i64 => return std.fmt.formatIntValue(self.cast(Payload.Int_i64).?.int, "", options, out_stream),
+            .function => return out_stream.writeAll("(function)"),
+            .ref => return out_stream.writeAll("(ref)"),
+            .bytes => return out_stream.writeAll("(bytes)"),
         }
     }
 
@@ -94,8 +130,8 @@ pub const Value = extern union {
         };
 
         pub const Ty = struct {
-            base: Payload = Payload{ .tag = .fully_qualified_type },
-            ptr: *Type,
+            base: Payload = Payload{ .tag = .ty },
+            ty: Type,
         };
     };
 };

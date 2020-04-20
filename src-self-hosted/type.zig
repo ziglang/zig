@@ -36,7 +36,7 @@ pub const Type = extern union {
 
     pub fn tag(self: Type) Tag {
         if (self.tag_if_small_enough < Tag.no_payload_count) {
-            return @intToEnum(self.tag_if_small_enough);
+            return @intToEnum(Tag, @intCast(@TagType(Tag), self.tag_if_small_enough));
         } else {
             return self.ptr_otherwise.tag;
         }
@@ -49,21 +49,31 @@ pub const Type = extern union {
         out_stream: var,
     ) !void {
         comptime assert(fmt.len == 0);
-        switch (self.tag()) {
-            .int_u8 => return out_stream.writeAll("u8"),
-            .int_usize => return out_stream.writeAll("usize"),
-            .array_u8_sentinel_0 => {
-                const payload = @fieldParentPtr(Payload.Array_u8_Sentinel0, "base", self.ptr_otherwise);
-                return out_stream.print("[{}:0]u8", .{payload.len});
-            },
-            .array => {
-                const payload = @fieldParentPtr(Payload.Array, "base", self.ptr_otherwise);
-                return out_stream.print("[{}]{}", .{ payload.len, payload.elem_type });
-            },
-            .single_const_pointer => {
-                const payload = @fieldParentPtr(Payload.SingleConstPointer, "base", self.ptr_otherwise);
-                return out_stream.print("*const {}", .{payload.pointee_type});
-            },
+        var ty = self;
+        while (true) {
+            switch (ty.tag()) {
+                .no_return => return out_stream.writeAll("noreturn"),
+                .int_comptime => return out_stream.writeAll("comptime_int"),
+                .int_u8 => return out_stream.writeAll("u8"),
+                .int_usize => return out_stream.writeAll("usize"),
+                .array_u8_sentinel_0 => {
+                    const payload = @fieldParentPtr(Payload.Array_u8_Sentinel0, "base", ty.ptr_otherwise);
+                    return out_stream.print("[{}:0]u8", .{payload.len});
+                },
+                .array => {
+                    const payload = @fieldParentPtr(Payload.Array, "base", ty.ptr_otherwise);
+                    try out_stream.print("[{}]", .{payload.len});
+                    ty = payload.elem_type;
+                    continue;
+                },
+                .single_const_pointer => {
+                    const payload = @fieldParentPtr(Payload.SingleConstPointer, "base", ty.ptr_otherwise);
+                    try out_stream.writeAll("*const ");
+                    ty = payload.pointee_type;
+                    continue;
+                },
+            }
+            unreachable;
         }
     }
 
@@ -78,15 +88,15 @@ pub const Type = extern union {
         no_return,
         int_comptime,
         int_u8,
-        int_usize,
-        // Bump this when adding items above.
-        pub const last_no_payload_tag = Tag.int_usize;
-        pub const no_payload_count = @enumToInt(last_no_payload_tag) + 1;
+        int_usize, // See last_no_payload_tag below.
         // After this, the tag requires a payload.
 
         array_u8_sentinel_0,
         array,
         single_const_pointer,
+
+        pub const last_no_payload_tag = Tag.int_usize;
+        pub const no_payload_count = @enumToInt(last_no_payload_tag) + 1;
     };
 
     pub const Payload = struct {
