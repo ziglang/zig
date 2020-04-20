@@ -114,17 +114,6 @@ test "zig fmt: trailing comma in fn parameter list" {
     );
 }
 
-// TODO: Remove condition after deprecating 'typeOf'. See https://github.com/ziglang/zig/issues/1348
-test "zig fmt: change @typeOf to @TypeOf" {
-    try testTransform(
-        \\const a = @typeOf(@as(usize, 10));
-        \\
-    ,
-        \\const a = @TypeOf(@as(usize, 10));
-        \\
-    );
-}
-
 // TODO: Remove nakedcc/stdcallcc once zig 0.6.0 is released. See https://github.com/ziglang/zig/pull/3977
 test "zig fmt: convert extern/nakedcc/stdcallcc into callconv(...)" {
     try testTransform(

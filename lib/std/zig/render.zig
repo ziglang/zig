@@ -1359,12 +1359,7 @@ fn renderExpression(
         .BuiltinCall => {
             const builtin_call = @fieldParentPtr(ast.Node.BuiltinCall, "base", base);
 
-            // TODO: Remove condition after deprecating 'typeOf'. See https://github.com/ziglang/zig/issues/1348
-            if (mem.eql(u8, tree.tokenSlicePtr(tree.tokens.at(builtin_call.builtin_token)), "@typeOf")) {
-                try stream.writeAll("@TypeOf");
-            } else {
-                try renderToken(tree, stream, builtin_call.builtin_token, indent, start_col, Space.None); // @name
-            }
+            try renderToken(tree, stream, builtin_call.builtin_token, indent, start_col, Space.None); // @name
 
             const src_params_trailing_comma = blk: {
                 if (builtin_call.params.len < 2) break :blk false;
