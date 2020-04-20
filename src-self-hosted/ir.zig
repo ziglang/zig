@@ -175,7 +175,12 @@ pub const Tree = struct {
         }
     }
 
-    fn writeInstToStream(self: Tree, stream: var, decl: *Inst, inst_table: *const InstPtrTable) !void {
+    fn writeInstToStream(
+        self: Tree,
+        stream: var,
+        decl: *Inst,
+        inst_table: *const InstPtrTable,
+    ) @TypeOf(stream).Error!void {
         // TODO I tried implementing this with an inline for loop and hit a compiler bug
         switch (decl.tag) {
             .constant => return self.writeInstToStreamGeneric(stream, .constant, decl, inst_table),
@@ -201,14 +206,16 @@ pub const Tree = struct {
         if (@hasField(SpecificInst, "ty")) {
             try stream.print(": {} ", .{inst.ty});
         }
-        if (inst_tag == .constant) switch (inst.positionals.value.tag()) {
-            .bytes => {
+        if (inst_tag == .constant) {
+            if (inst.positionals.value.cast(Value.Payload.Bytes)) |bytes_value| {
                 try stream.writeAll("= ");
-                const bytes_value = inst.positionals.value.cast(Value.Payload.Bytes).?;
                 return std.zig.renderStringLiteral(bytes_value.data, stream);
-            },
-            else => {},
-        };
+            } else if (inst.positionals.value.cast(Value.Payload.Int_u64)) |v| {
+                return stream.print("= {}", .{v.int});
+            } else if (inst.positionals.value.cast(Value.Payload.Int_i64)) |v| {
+                return stream.print("= {}", .{v.int});
+            }
+        }
         const Positionals = @TypeOf(inst.positionals);
         try stream.writeAll("= " ++ @tagName(inst_tag) ++ "(");
         inline for (@typeInfo(Positionals).Struct.fields) |arg_field, i| {
@@ -231,7 +238,13 @@ pub const Tree = struct {
                 try stream.print("{}{}", .{ prefix, info.index });
             },
             Inst.Fn.Body => {
-                try stream.print("(fn body)", .{});
+                try stream.writeAll("{\n");
+                for (param.instructions) |inst, i| {
+                    try stream.print("  %{} ", .{i});
+                    try self.writeInstToStream(stream, inst, inst_table);
+                    try stream.writeByte('\n');
+                }
+                try stream.writeByte('}');
             },
             else => |T| @compileError("unimplemented: rendering parameter of type " ++ @typeName(T)),
         }
