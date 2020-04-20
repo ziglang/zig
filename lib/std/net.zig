@@ -61,6 +61,7 @@ pub const Address = extern union {
             error.Incomplete,
             error.InvalidIpv4Mapping,
             => {},
+            else => return err,
         }
 
         return error.InvalidIPAddressFormat;
@@ -545,7 +546,7 @@ fn if_nametoindex(name: []const u8) !u32 {
     std.mem.copy(u8, &ifr.ifr_ifrn.name, name);
     ifr.ifr_ifrn.name[name.len] = 0;
 
-    std.os.ioctl(sockfd, os.linux.SIOCGIFINDEX, @ptrToInt(&ifr)) catch |err| {
+    os.ioctl(sockfd, os.linux.SIOCGIFINDEX, @ptrToInt(&ifr)) catch |err| {
         switch (err) {
             error.NoDevice => return error.InterfaceNotFound,
             else => return err,
@@ -1246,7 +1247,7 @@ fn linuxLookupNameFromNumericUnspec(
     name: []const u8,
     port: u16,
 ) !void {
-    const addr = try Address.parseIp(name, port);
+    const addr = try Address.resolveIp(name, port);
     (try addrs.addOne()).* = LookupAddr{ .addr = addr };
 }
 
