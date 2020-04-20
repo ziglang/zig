@@ -252,12 +252,37 @@ pub const Thread = struct {
                 }
             }
             fn posixThreadMain(ctx: ?*c_void) callconv(.C) ?*c_void {
-                if (@sizeOf(Context) == 0) {
-                    _ = startFn({});
-                    return null;
-                } else {
-                    _ = startFn(@ptrCast(*const Context, @alignCast(@alignOf(Context), ctx)).*);
-                    return null;
+                const arg = if (@sizeOf(Context) == 0) {} else @ptrCast(*Context, @alignCast(@alignOf(Context), ctx)).*;
+
+                switch (@typeInfo(@TypeOf(startFn).ReturnType)) {
+                    .NoReturn => {
+                        startFn(arg);
+                    },
+                    .Void => {
+                        startFn(arg);
+                        return null;
+                    },
+                    .Int => |info| {
+                        if (info.bits != 8) {
+                            @compileError(bad_startfn_ret);
+                        }
+                        // pthreads don't support exit status, ignore value
+                        _ = startFn(arg);
+                        return null;
+                    },
+                    .ErrorUnion => |info| {
+                        if (info.payload != void) {
+                            @compileError(bad_startfn_ret);
+                        }
+                        startFn(arg) catch |err| {
+                            std.debug.warn("error: {}\n", .{@errorName(err)});
+                            if (@errorReturnTrace()) |trace| {
+                                std.debug.dumpStackTrace(trace.*);
+                            }
+                        };
+                        return 0;
+                    },
+                    else => @compileError(bad_startfn_ret),
                 }
             }
         };
