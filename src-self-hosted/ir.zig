@@ -218,24 +218,54 @@ pub const Tree = struct {
         }
         const Positionals = @TypeOf(inst.positionals);
         try stream.writeAll("= " ++ @tagName(inst_tag) ++ "(");
-        inline for (@typeInfo(Positionals).Struct.fields) |arg_field, i| {
+        const pos_fields = @typeInfo(Positionals).Struct.fields;
+        inline for (pos_fields) |arg_field, i| {
             if (i != 0) {
                 try stream.writeAll(", ");
             }
             try self.writeParamToStream(stream, @field(inst.positionals, arg_field.name), inst_table);
         }
+
+        comptime var need_comma = pos_fields.len != 0;
+        const KW_Args = @TypeOf(inst.kw_args);
+        inline for (@typeInfo(KW_Args).Struct.fields) |arg_field, i| {
+            if (need_comma) {
+                try stream.writeAll(",\n    ");
+            }
+            if (@typeInfo(arg_field.field_type) == .Optional) {
+                if (@field(inst.kw_args, arg_field.name)) |non_optional| {
+                    try stream.print("{}=", .{arg_field.name});
+                    try self.writeParamToStream(stream, non_optional, inst_table);
+                    need_comma = true;
+                }
+            } else {
+                try stream.print("{}=", .{arg_field.name});
+                try self.writeParamToStream(stream, @field(inst.kw_args, arg_field.name), inst_table);
+                need_comma = true;
+            }
+        }
+
         try stream.writeByte(')');
     }
 
-    pub fn writeParamToStream(self: Tree, stream: var, param: var, inst_table: *const InstPtrTable) !void {
+    fn writeParamToStream(self: Tree, stream: var, param: var, inst_table: *const InstPtrTable) !void {
+        if (@typeInfo(@TypeOf(param)) == .Enum) {
+            return stream.writeAll(@tagName(param));
+        }
         switch (@TypeOf(param)) {
             Value => {
                 try stream.print("{}", .{param});
             },
-            *Inst => {
-                const info = inst_table.getValue(param).?;
-                const prefix = if (info.fn_body == null) "@" else "%";
-                try stream.print("{}{}", .{ prefix, info.index });
+            *Inst => return self.writeInstParamToStream(stream, param, inst_table),
+            []*Inst => {
+                try stream.writeByte('[');
+                for (param) |inst, i| {
+                    if (i != 0) {
+                        try stream.writeAll(", ");
+                    }
+                    try self.writeInstParamToStream(stream, inst, inst_table);
+                }
+                try stream.writeByte(']');
             },
             Inst.Fn.Body => {
                 try stream.writeAll("{\n");
@@ -246,8 +276,15 @@ pub const Tree = struct {
                 }
                 try stream.writeByte('}');
             },
+            bool => return stream.writeByte("01"[@boolToInt(param)]),
             else => |T| @compileError("unimplemented: rendering parameter of type " ++ @typeName(T)),
         }
+    }
+
+    fn writeInstParamToStream(self: Tree, stream: var, inst: *Inst, inst_table: *const InstPtrTable) !void {
+        const info = inst_table.getValue(inst).?;
+        const prefix = if (info.fn_body == null) "@" else "%";
+        try stream.print("{}{}", .{ prefix, info.index });
     }
 };
 
