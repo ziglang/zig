@@ -4388,7 +4388,7 @@ pub fn tcsetattr(handle: fd_t, optional_action: TCSA, termios_p: termios) Termio
     }
 }
 
-pub fn ioctl(handle: fd_t, request: u32, arg: var) !void {
+pub fn ioctl(handle: fd_t, request: i32, arg: var) !void {
     switch (errno(system.ioctl(handle, request, arg))) {
         0 => {},
         EINVAL => unreachable,
