@@ -18,7 +18,7 @@ pub const Type = extern union {
 
     pub fn zigTypeTag(self: Type) std.builtin.TypeId {
         switch (self.tag()) {
-            .int_u8, .int_usize => return .Int,
+            .@"u8", .@"usize" => return .Int,
             .array_u8, .array_u8_sentinel_0 => return .Array,
             .single_const_pointer => return .Pointer,
         }
@@ -52,10 +52,35 @@ pub const Type = extern union {
         var ty = self;
         while (true) {
             switch (ty.tag()) {
-                .no_return => return out_stream.writeAll("noreturn"),
-                .int_comptime => return out_stream.writeAll("comptime_int"),
-                .int_u8 => return out_stream.writeAll("u8"),
-                .int_usize => return out_stream.writeAll("usize"),
+                @"u8",
+                @"i8",
+                @"isize",
+                @"usize",
+                @"noreturn",
+                @"void",
+                @"c_short",
+                @"c_ushort",
+                @"c_int",
+                @"c_uint",
+                @"c_long",
+                @"c_ulong",
+                @"c_longlong",
+                @"c_ulonglong",
+                @"c_longdouble",
+                @"c_void",
+                @"f16",
+                @"f32",
+                @"f64",
+                @"f128",
+                @"bool",
+                @"void",
+                @"type",
+                @"anyerror",
+                @"comptime_int",
+                @"comptime_float",
+                @"noreturn",
+                => |t| return out_stream.writeAll(@tagName(t)),
+
                 .array_u8_sentinel_0 => {
                     const payload = @fieldParentPtr(Payload.Array_u8_Sentinel0, "base", ty.ptr_otherwise);
                     return out_stream.print("[{}:0]u8", .{payload.len});
@@ -85,17 +110,38 @@ pub const Type = extern union {
     /// See `zigTypeTag` for the function that corresponds to `std.builtin.TypeId`.
     pub const Tag = enum {
         // The first section of this enum are tags that require no payload.
-        no_return,
-        int_comptime,
-        int_u8,
-        int_usize, // See last_no_payload_tag below.
+        @"u8",
+        @"i8",
+        @"isize",
+        @"usize",
+        @"c_short",
+        @"c_ushort",
+        @"c_int",
+        @"c_uint",
+        @"c_long",
+        @"c_ulong",
+        @"c_longlong",
+        @"c_ulonglong",
+        @"c_longdouble",
+        @"c_void",
+        @"f16",
+        @"f32",
+        @"f64",
+        @"f128",
+        @"bool",
+        @"void",
+        @"type",
+        @"anyerror",
+        @"comptime_int",
+        @"comptime_float",
+        @"noreturn", // See last_no_payload_tag below.
         // After this, the tag requires a payload.
 
         array_u8_sentinel_0,
         array,
         single_const_pointer,
 
-        pub const last_no_payload_tag = Tag.int_usize;
+        pub const last_no_payload_tag = Tag.@"noreturn";
         pub const no_payload_count = @enumToInt(last_no_payload_tag) + 1;
     };
 
