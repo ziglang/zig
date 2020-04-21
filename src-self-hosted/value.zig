@@ -100,6 +100,29 @@ pub const Value = extern union {
         unreachable;
     }
 
+    /// Asserts that the value is representable as a type.
+    pub fn toType(self: Value) Type {
+        return switch (self.tag()) {
+            .ty => self.cast(Payload.Ty).?.ty,
+
+            .void_type => Type.initTag(.@"void"),
+            .noreturn_type => Type.initTag(.@"noreturn"),
+            .bool_type => Type.initTag(.@"bool"),
+            .usize_type => Type.initTag(.@"usize"),
+
+            .void_value,
+            .noreturn_value,
+            .bool_true,
+            .bool_false,
+            .int_u64,
+            .int_i64,
+            .function,
+            .ref,
+            .bytes,
+            => unreachable,
+        };
+    }
+
     /// This type is not copyable since it may contain pointers to its inner data.
     pub const Payload = struct {
         tag: Tag,
@@ -116,6 +139,8 @@ pub const Value = extern union {
 
         pub const Function = struct {
             base: Payload = Payload{ .tag = .function },
+            /// Index into the `fns` array of the `ir.Module`
+            index: usize,
         };
 
         pub const ArraySentinel0_u8_Type = struct {

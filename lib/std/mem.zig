@@ -118,7 +118,7 @@ pub const Allocator = struct {
             ptr[n] = sentinel;
             return ptr[0..n :sentinel];
         } else {
-            return alignedAlloc(Elem, optional_alignment, n);
+            return self.alignedAlloc(Elem, optional_alignment, n);
         }
     }
 

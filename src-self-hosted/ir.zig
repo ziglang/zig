@@ -68,10 +68,16 @@ pub const Module = struct {
     exports: []Export,
     errors: []ErrorMsg,
     arena: std.heap.ArenaAllocator,
+    fns: []Fn,
 
     pub const Export = struct {
         name: []const u8,
         typed_value: TypedValue,
+    };
+
+    pub const Fn = struct {
+        analysis_status: enum { in_progress, failure, success },
+        body: []*Inst,
     };
 
     pub fn deinit(self: *Module, allocator: *Allocator) void {
@@ -97,12 +103,14 @@ pub fn analyze(allocator: *Allocator, old_module: text.Module) !Module {
         .arena = std.heap.ArenaAllocator.init(allocator),
         .old_module = &old_module,
         .errors = std.ArrayList(ErrorMsg).init(allocator),
-        .inst_table = std.AutoHashMap(*text.Inst, Analyze.NewInst).init(allocator),
+        .decl_table = std.AutoHashMap(*text.Inst, Analyze.NewDecl).init(allocator),
         .exports = std.ArrayList(Module.Export).init(allocator),
+        .fns = std.ArrayList(Module.Fn).init(allocator),
     };
     defer ctx.errors.deinit();
-    defer ctx.inst_table.deinit();
+    defer ctx.decl_table.deinit();
     defer ctx.exports.deinit();
+    defer ctx.fns.deinit();
 
     ctx.analyzeRoot() catch |err| switch (err) {
         error.AnalysisFail => {
@@ -113,6 +121,7 @@ pub fn analyze(allocator: *Allocator, old_module: text.Module) !Module {
     return Module{
         .exports = ctx.exports.toOwnedSlice(),
         .errors = ctx.errors.toOwnedSlice(),
+        .fns = ctx.fns.toOwnedSlice(),
         .arena = ctx.arena,
     };
 }
@@ -122,12 +131,24 @@ const Analyze = struct {
     arena: std.heap.ArenaAllocator,
     old_module: *const text.Module,
     errors: std.ArrayList(ErrorMsg),
-    inst_table: std.AutoHashMap(*text.Inst, NewInst),
+    decl_table: std.AutoHashMap(*text.Inst, NewDecl),
     exports: std.ArrayList(Module.Export),
+    fns: std.ArrayList(Module.Fn),
 
-    const NewInst = struct {
+    const NewDecl = struct {
         /// null means a semantic analysis error happened
         ptr: ?*Inst,
+    };
+
+    const NewInst = struct {
+        ptr: *Inst,
+    };
+
+    const Fn = struct {
+        body: std.ArrayList(*Inst),
+        inst_table: std.AutoHashMap(*text.Inst, NewInst),
+        /// Index into Module fns array
+        fn_index: usize,
     };
 
     const InnerError = error{ OutOfMemory, AnalysisFail };
@@ -135,29 +156,32 @@ const Analyze = struct {
     fn analyzeRoot(self: *Analyze) !void {
         for (self.old_module.decls) |decl| {
             if (decl.cast(text.Inst.Export)) |export_inst| {
-                try analyzeExport(self, export_inst);
+                try analyzeExport(self, null, export_inst);
             }
         }
     }
 
-    fn resolveInst(self: *Analyze, old_inst: *text.Inst) InnerError!*Inst {
-        if (self.inst_table.get(old_inst)) |kv| {
+    fn resolveInst(self: *Analyze, opt_func: ?*Fn, old_inst: *text.Inst) InnerError!*Inst {
+        if (opt_func) |func| {
+            const kv = func.inst_table.get(old_inst) orelse return error.AnalysisFail;
+            return kv.value.ptr;
+        } else if (self.decl_table.get(old_inst)) |kv| {
             return kv.value.ptr orelse return error.AnalysisFail;
         } else {
-            const new_inst = self.analyzeDecl(old_inst) catch |err| switch (err) {
+            const new_inst = self.analyzeInst(old_inst, null) catch |err| switch (err) {
                 error.AnalysisFail => {
-                    try self.inst_table.putNoClobber(old_inst, .{ .ptr = null });
+                    try self.decl_table.putNoClobber(old_inst, .{ .ptr = null });
                     return error.AnalysisFail;
                 },
                 else => |e| return e,
             };
-            try self.inst_table.putNoClobber(old_inst, .{ .ptr = new_inst });
+            try self.decl_table.putNoClobber(old_inst, .{ .ptr = new_inst });
             return new_inst;
         }
     }
 
-    fn resolveInstConst(self: *Analyze, old_inst: *text.Inst) InnerError!TypedValue {
-        const new_inst = try self.resolveInst(old_inst);
+    fn resolveInstConst(self: *Analyze, func: ?*Fn, old_inst: *text.Inst) InnerError!TypedValue {
+        const new_inst = try self.resolveInst(func, old_inst);
         const val = try self.resolveConstValue(new_inst);
         return TypedValue{
             .ty = new_inst.ty,
@@ -169,17 +193,25 @@ const Analyze = struct {
         return base.value() orelse return self.fail(base.src, "unable to resolve comptime value", .{});
     }
 
-    fn resolveConstString(self: *Analyze, old_inst: *text.Inst) ![]u8 {
-        const new_inst = try self.resolveInst(old_inst);
+    fn resolveConstString(self: *Analyze, func: ?*Fn, old_inst: *text.Inst) ![]u8 {
+        const new_inst = try self.resolveInst(func, old_inst);
         const wanted_type = Type.initTag(.const_slice_u8);
         const coerced_inst = try self.coerce(wanted_type, new_inst);
         const val = try self.resolveConstValue(coerced_inst);
         return val.toAllocatedBytes(&self.arena.allocator);
     }
 
-    fn analyzeExport(self: *Analyze, export_inst: *text.Inst.Export) !void {
-        const symbol_name = try self.resolveConstString(export_inst.positionals.symbol_name);
-        const typed_value = try self.resolveInstConst(export_inst.positionals.value);
+    fn resolveType(self: *Analyze, func: ?*Fn, old_inst: *text.Inst) !Type {
+        const new_inst = try self.resolveInst(func, old_inst);
+        const wanted_type = Type.initTag(.@"type");
+        const coerced_inst = try self.coerce(wanted_type, new_inst);
+        const val = try self.resolveConstValue(coerced_inst);
+        return val.toType();
+    }
+
+    fn analyzeExport(self: *Analyze, func: ?*Fn, export_inst: *text.Inst.Export) !void {
+        const symbol_name = try self.resolveConstString(func, export_inst.positionals.symbol_name);
+        const typed_value = try self.resolveInstConst(func, export_inst.positionals.value);
 
         switch (typed_value.ty.zigTypeTag()) {
             .Fn => {},
@@ -224,7 +256,7 @@ const Analyze = struct {
         });
     }
 
-    fn analyzeDecl(self: *Analyze, old_inst: *text.Inst) !*Inst {
+    fn analyzeInst(self: *Analyze, old_inst: *text.Inst, opt_func: ?*Fn) InnerError!*Inst {
         switch (old_inst.tag) {
             .str => {
                 // We can use this reference because Inst.Const's Value is arena-allocated.
@@ -239,7 +271,45 @@ const Analyze = struct {
             .as => return self.fail(old_inst.src, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
             .@"asm" => return self.fail(old_inst.src, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
             .@"unreachable" => return self.fail(old_inst.src, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
-            .@"fn" => return self.fail(old_inst.src, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
+            .@"fn" => {
+                const fn_inst = old_inst.cast(text.Inst.Fn).?;
+                const fn_type = try self.resolveType(opt_func, fn_inst.positionals.fn_type);
+
+                var new_func: Fn = .{
+                    .body = std.ArrayList(*Inst).init(self.allocator),
+                    .inst_table = std.AutoHashMap(*text.Inst, NewInst).init(self.allocator),
+                    .fn_index = self.fns.items.len,
+                };
+                defer new_func.body.deinit();
+                defer new_func.inst_table.deinit();
+                // Don't hang on to a reference to this when analyzing body instructions, since the memory
+                // could become invalid.
+                (try self.fns.addOne()).* = .{
+                    .analysis_status = .in_progress,
+                    .body = undefined,
+                };
+
+                for (fn_inst.positionals.body.instructions) |src_inst| {
+                    const new_inst = self.analyzeInst(src_inst, &new_func) catch |err| {
+                        self.fns.items[new_func.fn_index].analysis_status = .failure;
+                        return err;
+                    };
+                    try new_func.inst_table.putNoClobber(src_inst, .{ .ptr = new_inst });
+                }
+
+                self.fns.items[new_func.fn_index] = .{
+                    .analysis_status = .success,
+                    .body = new_func.body.toOwnedSlice(),
+                };
+
+                const fn_payload = try self.arena.allocator.create(Value.Payload.Function);
+                fn_payload.* = .{ .index = new_func.fn_index };
+
+                return self.constInst(old_inst.src, .{
+                    .ty = fn_type,
+                    .val = Value.initPayload(&fn_payload.base),
+                });
+            },
             .@"export" => return self.fail(old_inst.src, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
             .primitive => return self.fail(old_inst.src, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
             .fntype => return self.fail(old_inst.src, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
