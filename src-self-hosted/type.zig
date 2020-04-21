@@ -18,9 +18,39 @@ pub const Type = extern union {
 
     pub fn zigTypeTag(self: Type) std.builtin.TypeId {
         switch (self.tag()) {
-            .@"u8", .@"usize" => return .Int,
-            .array_u8, .array_u8_sentinel_0 => return .Array,
+            .@"u8",
+            .@"i8",
+            .@"isize",
+            .@"usize",
+            .@"c_short",
+            .@"c_ushort",
+            .@"c_int",
+            .@"c_uint",
+            .@"c_long",
+            .@"c_ulong",
+            .@"c_longlong",
+            .@"c_ulonglong",
+            .@"c_longdouble",
+            => return .Int,
+
+            .@"f16",
+            .@"f32",
+            .@"f64",
+            .@"f128",
+            => return .Float,
+
+            .@"c_void" => return .Opaque,
+            .@"bool" => return .Bool,
+            .@"void" => return .Void,
+            .@"type" => return .Type,
+            .@"anyerror" => return .ErrorSet,
+            .@"comptime_int" => return .ComptimeInt,
+            .@"comptime_float" => return .ComptimeFloat,
+            .@"noreturn" => return .NoReturn,
+
+            .array, .array_u8_sentinel_0 => return .Array,
             .single_const_pointer => return .Pointer,
+            .const_slice_u8 => return .Pointer,
         }
     }
 
@@ -51,35 +81,36 @@ pub const Type = extern union {
         comptime assert(fmt.len == 0);
         var ty = self;
         while (true) {
-            switch (ty.tag()) {
-                @"u8",
-                @"i8",
-                @"isize",
-                @"usize",
-                @"noreturn",
-                @"void",
-                @"c_short",
-                @"c_ushort",
-                @"c_int",
-                @"c_uint",
-                @"c_long",
-                @"c_ulong",
-                @"c_longlong",
-                @"c_ulonglong",
-                @"c_longdouble",
-                @"c_void",
-                @"f16",
-                @"f32",
-                @"f64",
-                @"f128",
-                @"bool",
-                @"void",
-                @"type",
-                @"anyerror",
-                @"comptime_int",
-                @"comptime_float",
-                @"noreturn",
-                => |t| return out_stream.writeAll(@tagName(t)),
+            const t = ty.tag();
+            switch (t) {
+                .@"u8",
+                .@"i8",
+                .@"isize",
+                .@"usize",
+                .@"c_short",
+                .@"c_ushort",
+                .@"c_int",
+                .@"c_uint",
+                .@"c_long",
+                .@"c_ulong",
+                .@"c_longlong",
+                .@"c_ulonglong",
+                .@"c_longdouble",
+                .@"c_void",
+                .@"f16",
+                .@"f32",
+                .@"f64",
+                .@"f128",
+                .@"bool",
+                .@"void",
+                .@"type",
+                .@"anyerror",
+                .@"comptime_int",
+                .@"comptime_float",
+                .@"noreturn",
+                => return out_stream.writeAll(@tagName(t)),
+
+                .const_slice_u8 => return out_stream.writeAll("[]const u8"),
 
                 .array_u8_sentinel_0 => {
                     const payload = @fieldParentPtr(Payload.Array_u8_Sentinel0, "base", ty.ptr_otherwise);
@@ -110,6 +141,7 @@ pub const Type = extern union {
     /// See `zigTypeTag` for the function that corresponds to `std.builtin.TypeId`.
     pub const Tag = enum {
         // The first section of this enum are tags that require no payload.
+        const_slice_u8,
         @"u8",
         @"i8",
         @"isize",

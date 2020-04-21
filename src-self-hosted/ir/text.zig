@@ -1,4 +1,5 @@
 //! This file has to do with parsing and rendering the ZIR text format.
+
 const std = @import("std");
 const mem = std.mem;
 const Allocator = std.mem.Allocator;
@@ -11,6 +12,7 @@ const BigInt = std.math.big.Int;
 /// in-memory, analyzed instructions with types and values.
 pub const Inst = struct {
     tag: Tag,
+    src_offset: usize,
 
     /// These names are used directly as the instruction names in the text format.
     pub const Tag = enum {
@@ -46,15 +48,15 @@ pub const Inst = struct {
     }
 
     pub fn cast(base: *Inst, comptime T: type) ?*T {
-        const expected_tag = std.meta.fieldInfo(T, "base").default_value.?.tag;
-        if (base.tag != expected_tag)
+        if (base.tag != T.base_tag)
             return null;
 
         return @fieldParentPtr(T, "base", base);
     }
 
     pub const Str = struct {
-        base: Inst = Inst{ .tag = .str },
+        pub const base_tag = Tag.str;
+        base: Inst,
 
         positionals: struct {
             bytes: []u8,
@@ -63,7 +65,8 @@ pub const Inst = struct {
     };
 
     pub const Int = struct {
-        base: Inst = Inst{ .tag = .int },
+        pub const base_tag = Tag.int;
+        base: Inst,
 
         positionals: struct {
             int: BigInt,
@@ -72,7 +75,8 @@ pub const Inst = struct {
     };
 
     pub const PtrToInt = struct {
-        base: Inst = Inst{ .tag = .ptrtoint },
+        pub const base_tag = Tag.ptrtoint;
+        base: Inst,
 
         positionals: struct {
             ptr: *Inst,
@@ -81,7 +85,8 @@ pub const Inst = struct {
     };
 
     pub const FieldPtr = struct {
-        base: Inst = Inst{ .tag = .fieldptr },
+        pub const base_tag = Tag.fieldptr;
+        base: Inst,
 
         positionals: struct {
             object_ptr: *Inst,
@@ -91,7 +96,8 @@ pub const Inst = struct {
     };
 
     pub const Deref = struct {
-        base: Inst = Inst{ .tag = .deref },
+        pub const base_tag = Tag.deref;
+        base: Inst,
 
         positionals: struct {
             ptr: *Inst,
@@ -100,7 +106,8 @@ pub const Inst = struct {
     };
 
     pub const As = struct {
-        base: Inst = Inst{ .tag = .as },
+        pub const base_tag = Tag.as;
+        base: Inst,
 
         positionals: struct {
             dest_type: *Inst,
@@ -110,7 +117,8 @@ pub const Inst = struct {
     };
 
     pub const Assembly = struct {
-        base: Inst = Inst{ .tag = .@"asm" },
+        pub const base_tag = Tag.@"asm";
+        base: Inst,
 
         positionals: struct {
             asm_source: *Inst,
@@ -126,14 +134,16 @@ pub const Inst = struct {
     };
 
     pub const Unreachable = struct {
-        base: Inst = Inst{ .tag = .@"unreachable" },
+        pub const base_tag = Tag.@"unreachable";
+        base: Inst,
 
         positionals: struct {},
         kw_args: struct {},
     };
 
     pub const Fn = struct {
-        base: Inst = Inst{ .tag = .@"fn" },
+        pub const base_tag = Tag.@"fn";
+        base: Inst,
 
         positionals: struct {
             fn_type: *Inst,
@@ -147,7 +157,8 @@ pub const Inst = struct {
     };
 
     pub const Export = struct {
-        base: Inst = Inst{ .tag = .@"export" },
+        pub const base_tag = Tag.@"export";
+        base: Inst,
 
         positionals: struct {
             symbol_name: *Inst,
@@ -157,7 +168,8 @@ pub const Inst = struct {
     };
 
     pub const Primitive = struct {
-        base: Inst = Inst{ .tag = .primitive },
+        pub const base_tag = Tag.primitive;
+        base: Inst,
 
         positionals: struct {
             tag: BuiltinType,
@@ -192,7 +204,8 @@ pub const Inst = struct {
     };
 
     pub const FnType = struct {
-        base: Inst = Inst{ .tag = .fntype },
+        pub const base_tag = Tag.fntype;
+        base: Inst,
 
         positionals: struct {
             param_types: []*Inst,
@@ -212,9 +225,12 @@ pub const ErrorMsg = struct {
 pub const Module = struct {
     decls: []*Inst,
     errors: []ErrorMsg,
+    arena: std.heap.ArenaAllocator,
 
-    pub fn deinit(self: *Module) void {
-        // TODO resource deallocation
+    pub fn deinit(self: *Module, allocator: *Allocator) void {
+        allocator.free(self.decls);
+        allocator.free(self.errors);
+        self.arena.deinit();
         self.* = undefined;
     }
 
@@ -225,6 +241,8 @@ pub const Module = struct {
 
     const InstPtrTable = std.AutoHashMap(*Inst, struct { index: usize, fn_body: ?*Inst.Fn.Body });
 
+    /// The allocator is used for temporary storage, but this function always returns
+    /// with no resources allocated.
     pub fn writeToStream(self: Module, allocator: *Allocator, stream: var) !void {
         // First, build a map of *Inst to @ or % indexes
         var inst_table = InstPtrTable.init(allocator);
@@ -359,6 +377,7 @@ pub fn parse(allocator: *Allocator, source: [:0]const u8) Allocator.Error!Module
 
     var parser: Parser = .{
         .allocator = allocator,
+        .arena = std.heap.ArenaAllocator.init(allocator),
         .i = 0,
         .source = source,
         .decls = std.ArrayList(*Inst).init(allocator),
@@ -374,11 +393,13 @@ pub fn parse(allocator: *Allocator, source: [:0]const u8) Allocator.Error!Module
     return Module{
         .decls = parser.decls.toOwnedSlice(),
         .errors = parser.errors.toOwnedSlice(),
+        .arena = parser.arena,
     };
 }
 
 const Parser = struct {
     allocator: *Allocator,
+    arena: std.heap.ArenaAllocator,
     i: usize,
     source: [:0]const u8,
     errors: std.ArrayList(ErrorMsg),
@@ -439,7 +460,7 @@ const Parser = struct {
                 self.i += 1;
                 const span = self.source[start..self.i];
                 var bad_index: usize = undefined;
-                const parsed = std.zig.parseStringLiteral(self.allocator, span, &bad_index) catch |err| switch (err) {
+                const parsed = std.zig.parseStringLiteral(&self.arena.allocator, span, &bad_index) catch |err| switch (err) {
                     error.InvalidCharacter => {
                         self.i = start + bad_index;
                         const bad_byte = self.source[self.i];
@@ -466,7 +487,7 @@ const Parser = struct {
             else => break,
         };
         const number_text = self.source[start..self.i];
-        var result = try BigInt.init(self.allocator);
+        var result = try BigInt.init(&self.arena.allocator);
         result.setString(10, number_text) catch |err| {
             self.i = start;
             switch (err) {
@@ -551,7 +572,7 @@ const Parser = struct {
 
     fn fail(self: *Parser, comptime format: []const u8, args: var) InnerError {
         @setCold(true);
-        const msg = try std.fmt.allocPrint(self.allocator, format, args);
+        const msg = try std.fmt.allocPrint(&self.arena.allocator, format, args);
         (try self.errors.addOne()).* = .{
             .byte_offset = self.i,
             .msg = msg,
@@ -576,8 +597,11 @@ const Parser = struct {
         comptime InstType: type,
         body_ctx: ?*Body,
     ) !*Inst {
-        const inst_specific = try self.allocator.create(InstType);
-        inst_specific.base = std.meta.fieldInfo(InstType, "base").default_value.?;
+        const inst_specific = try self.arena.allocator.create(InstType);
+        inst_specific.base = .{
+            .src_offset = self.i,
+            .tag = InstType.base_tag,
+        };
 
         if (@hasField(InstType, "ty")) {
             inst_specific.ty = opt_type orelse {
@@ -657,8 +681,7 @@ const Parser = struct {
                 skipSpace(self);
                 if (eatByte(self, ']')) return &[0]*Inst{};
 
-                var instructions = std.ArrayList(*Inst).init(self.allocator);
-                defer instructions.deinit();
+                var instructions = std.ArrayList(*Inst).init(&self.arena.allocator);
                 while (true) {
                     skipSpace(self);
                     try instructions.append(try parseParameterInst(self, body_ctx));

@@ -91,6 +91,15 @@ pub const Value = extern union {
         }
     }
 
+    /// Asserts that the value is representable as an array of bytes.
+    /// Copies the value into a freshly allocated slice of memory, which is owned by the caller.
+    pub fn toAllocatedBytes(self: Value, allocator: *std.mem.Allocator) error{OutOfMemory}![]u8 {
+        if (self.cast(Payload.Bytes)) |bytes| {
+            return std.mem.dupe(allocator, u8, bytes.data);
+        }
+        unreachable;
+    }
+
     /// This type is not copyable since it may contain pointers to its inner data.
     pub const Payload = struct {
         tag: Tag,
