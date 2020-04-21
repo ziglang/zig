@@ -141,7 +141,8 @@ const Analyze = struct {
     };
 
     const NewInst = struct {
-        ptr: *Inst,
+        /// null means a semantic analysis error happened
+        ptr: ?*Inst,
     };
 
     const Fn = struct {
@@ -163,9 +164,12 @@ const Analyze = struct {
 
     fn resolveInst(self: *Analyze, opt_func: ?*Fn, old_inst: *text.Inst) InnerError!*Inst {
         if (opt_func) |func| {
-            const kv = func.inst_table.get(old_inst) orelse return error.AnalysisFail;
-            return kv.value.ptr;
-        } else if (self.decl_table.get(old_inst)) |kv| {
+            if (func.inst_table.get(old_inst)) |kv| {
+                return kv.value.ptr orelse return error.AnalysisFail;
+            }
+        }
+
+        if (self.decl_table.get(old_inst)) |kv| {
             return kv.value.ptr orelse return error.AnalysisFail;
         } else {
             const new_inst = self.analyzeInst(null, old_inst) catch |err| switch (err) {
@@ -275,7 +279,7 @@ const Analyze = struct {
             .ptrtoint => return self.fail(old_inst.src, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
             .fieldptr => return self.fail(old_inst.src, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
             .deref => return self.fail(old_inst.src, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
-            .as => return self.fail(old_inst.src, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
+            .as => return self.analyzeInstAs(func, old_inst.cast(text.Inst.As).?),
             .@"asm" => return self.fail(old_inst.src, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
             .@"unreachable" => return self.fail(old_inst.src, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
             .@"fn" => return self.analyzeInstFn(func, old_inst.cast(text.Inst.Fn).?),
@@ -305,6 +309,7 @@ const Analyze = struct {
         for (fn_inst.positionals.body.instructions) |src_inst| {
             const new_inst = self.analyzeInst(&new_func, src_inst) catch |err| {
                 self.fns.items[new_func.fn_index].analysis_status = .failure;
+                try new_func.inst_table.putNoClobber(src_inst, .{ .ptr = null });
                 return err;
             };
             try new_func.inst_table.putNoClobber(src_inst, .{ .ptr = new_inst });
@@ -324,8 +329,8 @@ const Analyze = struct {
         });
     }
 
-    fn analyzeInstFnType(self: *Analyze, opt_func: ?*Fn, fntype: *text.Inst.FnType) InnerError!*Inst {
-        const return_type = try self.resolveType(opt_func, fntype.positionals.return_type);
+    fn analyzeInstFnType(self: *Analyze, func: ?*Fn, fntype: *text.Inst.FnType) InnerError!*Inst {
+        const return_type = try self.resolveType(func, fntype.positionals.return_type);
 
         if (return_type.zigTypeTag() == .NoReturn and
             fntype.positionals.param_types.len == 0 and
@@ -337,8 +342,14 @@ const Analyze = struct {
         return self.fail(fntype.base.src, "TODO implement fntype instruction more", .{});
     }
 
-    fn analyzeInstPrimitive(self: *Analyze, opt_func: ?*Fn, primitive: *text.Inst.Primitive) InnerError!*Inst {
+    fn analyzeInstPrimitive(self: *Analyze, func: ?*Fn, primitive: *text.Inst.Primitive) InnerError!*Inst {
         return self.constType(primitive.base.src, primitive.positionals.tag.toType());
+    }
+
+    fn analyzeInstAs(self: *Analyze, func: ?*Fn, as: *text.Inst.As) InnerError!*Inst {
+        const dest_type = try self.resolveType(func, as.positionals.dest_type);
+        const new_inst = try self.resolveInst(func, as.positionals.value);
+        return self.coerce(dest_type, new_inst);
     }
 
     fn coerce(self: *Analyze, dest_type: Type, inst: *Inst) !*Inst {
@@ -363,7 +374,11 @@ const Analyze = struct {
     }
 
     fn bitcast(self: *Analyze, dest_type: Type, inst: *Inst) !*Inst {
-        return self.fail(inst.src, "TODO implement bitcast analysis", .{});
+        if (inst.value()) |val| {
+            // Keep the comptime Value representation; take the new type.
+            return self.constInst(inst.src, .{ .ty = dest_type, .val = val });
+        }
+        return self.fail(inst.src, "TODO implement runtime bitcast", .{});
     }
 
     fn coerceArrayPtrToSlice(self: *Analyze, dest_type: Type, inst: *Inst) !*Inst {
