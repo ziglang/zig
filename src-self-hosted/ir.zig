@@ -5,6 +5,7 @@ const Value = @import("value.zig").Value;
 const Type = @import("type.zig").Type;
 const assert = std.debug.assert;
 const text = @import("ir/text.zig");
+const BigInt = std.math.big.Int;
 
 /// These are in-memory, analyzed instructions. See `text.Inst` for the representation
 /// of instructions that correspond to the ZIR text format.
@@ -267,6 +268,52 @@ const Analyze = struct {
         });
     }
 
+    fn constIntUnsigned(self: *Analyze, src: usize, ty: Type, int: u64) !*Inst {
+        const int_payload = try self.arena.allocator.create(Value.Payload.Int_u64);
+        int_payload.* = .{ .int = int };
+
+        return self.constInst(src, .{
+            .ty = ty,
+            .val = Value.initPayload(&int_payload.base),
+        });
+    }
+
+    fn constIntSigned(self: *Analyze, src: usize, ty: Type, int: i64) !*Inst {
+        const int_payload = try self.arena.allocator.create(Value.Payload.Int_i64);
+        int_payload.* = .{ .int = int };
+
+        return self.constInst(src, .{
+            .ty = ty,
+            .val = Value.initPayload(&int_payload.base),
+        });
+    }
+
+    fn constIntBig(self: *Analyze, src: usize, ty: Type, big_int: BigInt) !*Inst {
+        if (big_int.isPositive()) {
+            if (big_int.to(u64)) |x| {
+                return self.constIntUnsigned(src, ty, x);
+            } else |err| switch (err) {
+                error.NegativeIntoUnsigned => unreachable,
+                error.TargetTooSmall => {}, // handled below
+            }
+        } else {
+            if (big_int.to(i64)) |x| {
+                return self.constIntSigned(src, ty, x);
+            } else |err| switch (err) {
+                error.NegativeIntoUnsigned => unreachable,
+                error.TargetTooSmall => {}, // handled below
+            }
+        }
+
+        const big_int_payload = try self.arena.allocator.create(Value.Payload.IntBig);
+        big_int_payload.* = .{ .big_int = big_int };
+
+        return self.constInst(src, .{
+            .ty = ty,
+            .val = Value.initPayload(&big_int_payload.base),
+        });
+    }
+
     fn analyzeInst(self: *Analyze, func: ?*Fn, old_inst: *text.Inst) InnerError!*Inst {
         switch (old_inst.tag) {
             .str => {
@@ -275,7 +322,10 @@ const Analyze = struct {
                 const bytes = old_inst.cast(text.Inst.Str).?.positionals.bytes;
                 return self.constStr(old_inst.src, bytes);
             },
-            .int => return self.fail(old_inst.src, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
+            .int => {
+                const big_int = old_inst.cast(text.Inst.Int).?.positionals.int;
+                return self.constIntBig(old_inst.src, Type.initTag(.comptime_int), big_int);
+            },
             .ptrtoint => return self.fail(old_inst.src, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
             .fieldptr => return self.fail(old_inst.src, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
             .deref => return self.fail(old_inst.src, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),

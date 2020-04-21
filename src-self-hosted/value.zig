@@ -2,6 +2,7 @@ const std = @import("std");
 const Type = @import("type.zig").Type;
 const log2 = std.math.log2;
 const assert = std.debug.assert;
+const BigInt = std.math.big.Int;
 
 /// This is the raw data, with no bookkeeping, no memory awareness,
 /// no de-duplication, and no type system awareness.
@@ -53,6 +54,7 @@ pub const Value = extern union {
         ty,
         int_u64,
         int_i64,
+        int_big,
         function,
         ref,
         bytes,
@@ -133,6 +135,7 @@ pub const Value = extern union {
             .ty => return self.cast(Payload.Ty).?.ty.format("", options, out_stream),
             .int_u64 => return std.fmt.formatIntValue(self.cast(Payload.Int_u64).?.int, "", options, out_stream),
             .int_i64 => return std.fmt.formatIntValue(self.cast(Payload.Int_i64).?.int, "", options, out_stream),
+            .int_big => return out_stream.print("{}", .{self.cast(Payload.IntBig).?.big_int}),
             .function => return out_stream.writeAll("(function)"),
             .ref => return out_stream.writeAll("(ref)"),
             .bytes => return std.zig.renderStringLiteral(self.cast(Payload.Bytes).?.data, out_stream),
@@ -187,6 +190,7 @@ pub const Value = extern union {
             .bool_false,
             .int_u64,
             .int_i64,
+            .int_big,
             .function,
             .ref,
             .bytes,
@@ -206,6 +210,11 @@ pub const Value = extern union {
         pub const Int_i64 = struct {
             base: Payload = Payload{ .tag = .int_i64 },
             int: i64,
+        };
+
+        pub const IntBig = struct {
+            base: Payload = Payload{ .tag = .int_big },
+            big_int: BigInt,
         };
 
         pub const Function = struct {
