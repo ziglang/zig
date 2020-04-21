@@ -2590,11 +2590,8 @@ struct IrBasicBlockSrc {
 
 struct IrBasicBlockGen {
     ZigList<IrInstGen *> instruction_list;
-    IrBasicBlockSrc *parent;
     Scope *scope;
     const char *name_hint;
-    uint32_t index; // index into the basic block list
-    uint32_t ref_count;
     LLVMBasicBlockRef llvm_block;
     LLVMBasicBlockRef llvm_exit_block;
     // The instruction that referenced this basic block and caused us to
