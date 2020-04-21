@@ -187,9 +187,36 @@ const Analyze = struct {
         });
     }
 
+    fn constStr(self: *Analyze, src_offset: usize, str: []const u8) !*Inst {
+        const array_payload = try self.arena.allocator.create(Type.Payload.Array_u8_Sentinel0);
+        array_payload.* = .{ .len = str.len };
+
+        const ty_payload = try self.arena.allocator.create(Type.Payload.SingleConstPointer);
+        ty_payload.* = .{ .pointee_type = Type.initPayload(&array_payload.base) };
+
+        const bytes_payload = try self.arena.allocator.create(Value.Payload.Bytes);
+        bytes_payload.* = .{ .data = str };
+
+        const const_inst = try self.arena.allocator.create(Inst.Constant);
+        const_inst.* = .{
+            .base = .{
+                .tag = Inst.Constant.base_tag,
+                .ty = Type.initPayload(&ty_payload.base),
+                .src_offset = src_offset,
+            },
+            .val = Value.initPayload(&bytes_payload.base),
+        };
+        return &const_inst.base;
+    }
+
     fn analyzeDecl(self: *Analyze, old_inst: *text.Inst) !*Inst {
         switch (old_inst.tag) {
-            .str => return self.fail(old_inst.src_offset, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
+            .str => {
+                // We can use this reference because Inst.Const's Value is arena-allocated.
+                // The value would get copied to a MemoryCell before the `text.Inst.Str` lifetime ends.
+                const bytes = old_inst.cast(text.Inst.Str).?.positionals.bytes;
+                return self.constStr(old_inst.src_offset, bytes);
+            },
             .int => return self.fail(old_inst.src_offset, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
             .ptrtoint => return self.fail(old_inst.src_offset, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
             .fieldptr => return self.fail(old_inst.src_offset, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),

@@ -135,7 +135,7 @@ pub const Value = extern union {
 
         pub const Bytes = struct {
             base: Payload = Payload{ .tag = .bytes },
-            data: []u8,
+            data: []const u8,
         };
 
         pub const Ty = struct {
