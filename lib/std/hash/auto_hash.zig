@@ -357,7 +357,7 @@ test "testHash union" {
 
 test "testHash vector" {
     // Disabled because of #3317
-    if (@import("builtin").arch == .mipsel) return error.SkipZigTest;
+    if (@import("builtin").arch == .mipsel or @import("builtin").arch == .mips) return error.SkipZigTest;
 
     const a: @Vector(4, u32) = [_]u32{ 1, 2, 3, 4 };
     const b: @Vector(4, u32) = [_]u32{ 1, 2, 3, 5 };

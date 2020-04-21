@@ -660,6 +660,9 @@ fn calcUtf16LeLen(utf8: []const u8) usize {
 }
 
 test "utf8ToUtf16LeStringLiteral" {
+    // https://github.com/ziglang/zig/issues/5127
+    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
+
     {
         const bytes = [_:0]u16{0x41};
         const utf16 = utf8ToUtf16LeStringLiteral("A");

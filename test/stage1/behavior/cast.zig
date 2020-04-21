@@ -16,6 +16,9 @@ test "integer literal to pointer cast" {
 }
 
 test "pointer reinterpret const float to int" {
+    // https://github.com/ziglang/zig/issues/3345
+    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
+
     const float: f64 = 5.99999999999994648725e-01;
     const float_ptr = &float;
     const int_ptr = @ptrCast(*const i32, float_ptr);

@@ -160,6 +160,9 @@ fn hashFunc(out: []u8, Ki: usize, in: []const u8) void {
 }
 
 test "std.BloomFilter" {
+    // https://github.com/ziglang/zig/issues/5127
+    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
+
     inline for ([_]type{ bool, u1, u2, u3, u4 }) |Cell| {
         const emptyCell = if (Cell == bool) false else @as(Cell, 0);
         const BF = BloomFilter(128 * 8, 8, Cell, builtin.endian, hashFunc);

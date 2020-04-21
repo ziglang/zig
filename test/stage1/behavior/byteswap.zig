@@ -43,7 +43,7 @@ test "@byteSwap vectors" {
     if (std.Target.current.os.tag == .dragonfly) return error.SkipZigTest;
 
     // https://github.com/ziglang/zig/issues/3317
-    if (std.Target.current.cpu.arch == .mipsel) return error.SkipZigTest;
+    if (std.Target.current.cpu.arch == .mipsel or std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
 
     const ByteSwapVectorTest = struct {
         fn run() void {
