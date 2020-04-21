@@ -354,7 +354,7 @@ fn clone() callconv(.Naked) void {
                 \\    ecall
             );
         },
-        .mipsel => {
+        .mips, .mipsel => {
             asm volatile (
                 \\  # Save function pointer and argument pointer on new thread stack
                 \\  and $5, $5, -8

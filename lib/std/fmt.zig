@@ -1661,7 +1661,7 @@ test "positional/alignment/width/precision" {
 }
 
 test "vector" {
-    if (builtin.arch == .mipsel) {
+    if (builtin.arch == .mipsel or builtin.arch == .mips) {
         // https://github.com/ziglang/zig/issues/3317
         return error.SkipZigTest;
     }

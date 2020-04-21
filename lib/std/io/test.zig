@@ -126,6 +126,9 @@ test "File seek ops" {
 }
 
 test "setEndPos" {
+    // https://github.com/ziglang/zig/issues/5127
+    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
+
     const tmp_file_name = "temp_test_file.txt";
     var file = try fs.cwd().createFile(tmp_file_name, .{});
     defer {

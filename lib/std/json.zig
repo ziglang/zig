@@ -2249,6 +2249,9 @@ test "integer after float has proper type" {
 }
 
 test "escaped characters" {
+    // https://github.com/ziglang/zig/issues/5127
+    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
+
     var arena_allocator = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_allocator.deinit();
     const input =
@@ -2281,6 +2284,9 @@ test "escaped characters" {
 }
 
 test "string copy option" {
+    // https://github.com/ziglang/zig/issues/5127
+    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
+
     const input =
         \\{
         \\  "noescape": "aą😂",
