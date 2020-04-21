@@ -168,7 +168,7 @@ const Analyze = struct {
         } else if (self.decl_table.get(old_inst)) |kv| {
             return kv.value.ptr orelse return error.AnalysisFail;
         } else {
-            const new_inst = self.analyzeInst(old_inst, null) catch |err| switch (err) {
+            const new_inst = self.analyzeInst(null, old_inst) catch |err| switch (err) {
                 error.AnalysisFail => {
                     try self.decl_table.putNoClobber(old_inst, .{ .ptr = null });
                     return error.AnalysisFail;
@@ -256,7 +256,14 @@ const Analyze = struct {
         });
     }
 
-    fn analyzeInst(self: *Analyze, old_inst: *text.Inst, opt_func: ?*Fn) InnerError!*Inst {
+    fn constType(self: *Analyze, src: usize, ty: Type) !*Inst {
+        return self.constInst(src, .{
+            .ty = Type.initTag(.@"type"),
+            .val = try ty.toValue(&self.arena.allocator),
+        });
+    }
+
+    fn analyzeInst(self: *Analyze, func: ?*Fn, old_inst: *text.Inst) InnerError!*Inst {
         switch (old_inst.tag) {
             .str => {
                 // We can use this reference because Inst.Const's Value is arena-allocated.
@@ -271,49 +278,63 @@ const Analyze = struct {
             .as => return self.fail(old_inst.src, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
             .@"asm" => return self.fail(old_inst.src, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
             .@"unreachable" => return self.fail(old_inst.src, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
-            .@"fn" => {
-                const fn_inst = old_inst.cast(text.Inst.Fn).?;
-                const fn_type = try self.resolveType(opt_func, fn_inst.positionals.fn_type);
-
-                var new_func: Fn = .{
-                    .body = std.ArrayList(*Inst).init(self.allocator),
-                    .inst_table = std.AutoHashMap(*text.Inst, NewInst).init(self.allocator),
-                    .fn_index = self.fns.items.len,
-                };
-                defer new_func.body.deinit();
-                defer new_func.inst_table.deinit();
-                // Don't hang on to a reference to this when analyzing body instructions, since the memory
-                // could become invalid.
-                (try self.fns.addOne()).* = .{
-                    .analysis_status = .in_progress,
-                    .body = undefined,
-                };
-
-                for (fn_inst.positionals.body.instructions) |src_inst| {
-                    const new_inst = self.analyzeInst(src_inst, &new_func) catch |err| {
-                        self.fns.items[new_func.fn_index].analysis_status = .failure;
-                        return err;
-                    };
-                    try new_func.inst_table.putNoClobber(src_inst, .{ .ptr = new_inst });
-                }
-
-                self.fns.items[new_func.fn_index] = .{
-                    .analysis_status = .success,
-                    .body = new_func.body.toOwnedSlice(),
-                };
-
-                const fn_payload = try self.arena.allocator.create(Value.Payload.Function);
-                fn_payload.* = .{ .index = new_func.fn_index };
-
-                return self.constInst(old_inst.src, .{
-                    .ty = fn_type,
-                    .val = Value.initPayload(&fn_payload.base),
-                });
-            },
+            .@"fn" => return self.analyzeInstFn(func, old_inst.cast(text.Inst.Fn).?),
             .@"export" => return self.fail(old_inst.src, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
             .primitive => return self.fail(old_inst.src, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
-            .fntype => return self.fail(old_inst.src, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
+            .fntype => return self.analyzeInstFnType(func, old_inst.cast(text.Inst.FnType).?),
         }
+    }
+
+    fn analyzeInstFn(self: *Analyze, opt_func: ?*Fn, fn_inst: *text.Inst.Fn) InnerError!*Inst {
+        const fn_type = try self.resolveType(opt_func, fn_inst.positionals.fn_type);
+
+        var new_func: Fn = .{
+            .body = std.ArrayList(*Inst).init(self.allocator),
+            .inst_table = std.AutoHashMap(*text.Inst, NewInst).init(self.allocator),
+            .fn_index = self.fns.items.len,
+        };
+        defer new_func.body.deinit();
+        defer new_func.inst_table.deinit();
+        // Don't hang on to a reference to this when analyzing body instructions, since the memory
+        // could become invalid.
+        (try self.fns.addOne()).* = .{
+            .analysis_status = .in_progress,
+            .body = undefined,
+        };
+
+        for (fn_inst.positionals.body.instructions) |src_inst| {
+            const new_inst = self.analyzeInst(&new_func, src_inst) catch |err| {
+                self.fns.items[new_func.fn_index].analysis_status = .failure;
+                return err;
+            };
+            try new_func.inst_table.putNoClobber(src_inst, .{ .ptr = new_inst });
+        }
+
+        self.fns.items[new_func.fn_index] = .{
+            .analysis_status = .success,
+            .body = new_func.body.toOwnedSlice(),
+        };
+
+        const fn_payload = try self.arena.allocator.create(Value.Payload.Function);
+        fn_payload.* = .{ .index = new_func.fn_index };
+
+        return self.constInst(fn_inst.base.src, .{
+            .ty = fn_type,
+            .val = Value.initPayload(&fn_payload.base),
+        });
+    }
+
+    fn analyzeInstFnType(self: *Analyze, opt_func: ?*Fn, fntype: *text.Inst.FnType) InnerError!*Inst {
+        const return_type = try self.resolveType(opt_func, fntype.positionals.return_type);
+
+        if (return_type.zigTypeTag() == .NoReturn and
+            fntype.positionals.param_types.len == 0 and
+            fntype.kw_args.cc == .Naked)
+        {
+            return self.constType(fntype.base.src, Type.initTag(.fn_naked_noreturn_no_args));
+        }
+
+        return self.fail(fntype.base.src, "TODO implement fntype instruction more", .{});
     }
 
     fn coerce(self: *Analyze, dest_type: Type, inst: *Inst) !*Inst {

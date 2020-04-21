@@ -1,6 +1,7 @@
 const std = @import("std");
 const Value = @import("value.zig").Value;
 const assert = std.debug.assert;
+const Allocator = std.mem.Allocator;
 
 /// This is the raw data, with no bookkeeping, no memory awareness, no de-duplication.
 /// It's important for this struct to be small.
@@ -47,6 +48,8 @@ pub const Type = extern union {
             .@"comptime_int" => return .ComptimeInt,
             .@"comptime_float" => return .ComptimeFloat,
             .@"noreturn" => return .NoReturn,
+
+            .fn_naked_noreturn_no_args => return .Fn,
 
             .array, .array_u8_sentinel_0 => return .Array,
             .single_const_pointer => return .Pointer,
@@ -122,6 +125,7 @@ pub const Type = extern union {
                 => return out_stream.writeAll(@tagName(t)),
 
                 .const_slice_u8 => return out_stream.writeAll("[]const u8"),
+                .fn_naked_noreturn_no_args => return out_stream.writeAll("fn() callconv(.Naked) noreturn"),
 
                 .array_u8_sentinel_0 => {
                     const payload = @fieldParentPtr(Payload.Array_u8_Sentinel0, "base", ty.ptr_otherwise);
@@ -141,6 +145,43 @@ pub const Type = extern union {
                 },
             }
             unreachable;
+        }
+    }
+
+    pub fn toValue(self: Type, allocator: *Allocator) Allocator.Error!Value {
+        switch (self.tag()) {
+            .@"u8" => return Value.initTag(.u8_type),
+            .@"i8" => return Value.initTag(.i8_type),
+            .@"isize" => return Value.initTag(.isize_type),
+            .@"usize" => return Value.initTag(.usize_type),
+            .@"c_short" => return Value.initTag(.c_short_type),
+            .@"c_ushort" => return Value.initTag(.c_ushort_type),
+            .@"c_int" => return Value.initTag(.c_int_type),
+            .@"c_uint" => return Value.initTag(.c_uint_type),
+            .@"c_long" => return Value.initTag(.c_long_type),
+            .@"c_ulong" => return Value.initTag(.c_ulong_type),
+            .@"c_longlong" => return Value.initTag(.c_longlong_type),
+            .@"c_ulonglong" => return Value.initTag(.c_ulonglong_type),
+            .@"c_longdouble" => return Value.initTag(.c_longdouble_type),
+            .@"c_void" => return Value.initTag(.c_void_type),
+            .@"f16" => return Value.initTag(.f16_type),
+            .@"f32" => return Value.initTag(.f32_type),
+            .@"f64" => return Value.initTag(.f64_type),
+            .@"f128" => return Value.initTag(.f128_type),
+            .@"bool" => return Value.initTag(.bool_type),
+            .@"void" => return Value.initTag(.void_type),
+            .@"type" => return Value.initTag(.type_type),
+            .@"anyerror" => return Value.initTag(.anyerror_type),
+            .@"comptime_int" => return Value.initTag(.comptime_int_type),
+            .@"comptime_float" => return Value.initTag(.comptime_float_type),
+            .@"noreturn" => return Value.initTag(.noreturn_type),
+            .fn_naked_noreturn_no_args => return Value.initTag(.fn_naked_noreturn_no_args_type),
+            .const_slice_u8 => return Value.initTag(.const_slice_u8_type),
+            else => {
+                const ty_payload = try allocator.create(Value.Payload.Ty);
+                ty_payload.* = .{ .ty = self };
+                return Value.initPayload(&ty_payload.base);
+            },
         }
     }
 
@@ -174,6 +215,7 @@ pub const Type = extern union {
             .array,
             .array_u8_sentinel_0,
             .const_slice_u8,
+            .fn_naked_noreturn_no_args,
             => false,
 
             .single_const_pointer => true,
@@ -210,6 +252,7 @@ pub const Type = extern union {
             .array,
             .array_u8_sentinel_0,
             .single_const_pointer,
+            .fn_naked_noreturn_no_args,
             => false,
 
             .const_slice_u8 => true,
@@ -246,6 +289,7 @@ pub const Type = extern union {
             .@"noreturn",
             .array,
             .array_u8_sentinel_0,
+            .fn_naked_noreturn_no_args,
             => unreachable,
 
             .single_const_pointer, .const_slice_u8 => true,
@@ -280,6 +324,7 @@ pub const Type = extern union {
             .@"comptime_int",
             .@"comptime_float",
             .@"noreturn",
+            .fn_naked_noreturn_no_args,
             => unreachable,
 
             .array => self.cast(Payload.Array).?.elem_type,
@@ -296,7 +341,6 @@ pub const Type = extern union {
     /// See `zigTypeTag` for the function that corresponds to `std.builtin.TypeId`.
     pub const Tag = enum {
         // The first section of this enum are tags that require no payload.
-        const_slice_u8,
         @"u8",
         @"i8",
         @"isize",
@@ -321,14 +365,16 @@ pub const Type = extern union {
         @"anyerror",
         @"comptime_int",
         @"comptime_float",
-        @"noreturn", // See last_no_payload_tag below.
+        @"noreturn",
+        fn_naked_noreturn_no_args,
+        const_slice_u8, // See last_no_payload_tag below.
         // After this, the tag requires a payload.
 
         array_u8_sentinel_0,
         array,
         single_const_pointer,
 
-        pub const last_no_payload_tag = Tag.@"noreturn";
+        pub const last_no_payload_tag = Tag.const_slice_u8;
         pub const no_payload_count = @enumToInt(last_no_payload_tag) + 1;
     };
 
