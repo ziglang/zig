@@ -997,16 +997,7 @@ static bool instr_is_unreachable(IrInstSrc *instruction) {
     return instruction->is_noreturn;
 }
 
-static void ir_link_new_bb(IrBasicBlockGen *new_bb, IrBasicBlockSrc *old_bb) {
-    new_bb->parent = old_bb;
-    old_bb->child = new_bb;
-}
-
 static void ir_ref_bb(IrBasicBlockSrc *bb) {
-    bb->ref_count += 1;
-}
-
-static void ir_ref_bb_gen(IrBasicBlockGen *bb) {
     bb->ref_count += 1;
 }
 
@@ -1023,8 +1014,6 @@ static void ir_ref_instruction(IrInstSrc *instruction, IrBasicBlockSrc *cur_bb) 
 static void ir_ref_inst_gen(IrInstGen *instruction, IrBasicBlockGen *cur_bb) {
     assert(instruction->id != IrInstGenIdInvalid);
     instruction->base.ref_count += 1;
-    if (instruction->owner_bb != cur_bb && !instr_is_comptime(instruction))
-        ir_ref_bb_gen(instruction->owner_bb);
 }
 
 static void ir_ref_var(ZigVar *var) {
@@ -1084,13 +1073,12 @@ static IrBasicBlockGen *ir_create_basic_block_gen(IrAnalyze *ira, Scope *scope, 
     result->scope = scope;
     result->name_hint = name_hint;
     result->debug_id = exec_next_debug_id_gen(ira->new_irb.exec);
-    result->index = UINT32_MAX; // set later
     return result;
 }
 
 static IrBasicBlockGen *ir_build_bb_from(IrAnalyze *ira, IrBasicBlockSrc *other_bb) {
     IrBasicBlockGen *new_bb = ir_create_basic_block_gen(ira, other_bb->scope, other_bb->name_hint);
-    ir_link_new_bb(new_bb, other_bb);
+    other_bb->child = new_bb;
     return new_bb;
 }
 
@@ -2082,8 +2070,6 @@ static IrInstGen *ir_build_cond_br_gen(IrAnalyze *ira, IrInst *source_instr, IrI
     inst->else_block = else_block;
 
     ir_ref_inst_gen(condition, ira->new_irb.current_basic_block);
-    ir_ref_bb_gen(then_block);
-    ir_ref_bb_gen(else_block);
 
     return &inst->base;
 }
@@ -2527,7 +2513,6 @@ static IrInstGen *ir_build_phi_gen(IrAnalyze *ira, IrInst *source_instr, size_t 
     phi_instruction->incoming_values = incoming_values;
 
     for (size_t i = 0; i < incoming_count; i += 1) {
-        ir_ref_bb_gen(incoming_blocks[i]);
         ir_ref_inst_gen(incoming_values[i], ira->new_irb.current_basic_block);
     }
 
@@ -2551,8 +2536,6 @@ static IrInstSrc *ir_build_br(IrBuilderSrc *irb, Scope *scope, AstNode *source_n
 static IrInstGen *ir_build_br_gen(IrAnalyze *ira, IrInst *source_instr, IrBasicBlockGen *dest_block) {
     IrInstGenBr *inst = ir_build_inst_noreturn<IrInstGenBr>(&ira->new_irb, source_instr->scope, source_instr->source_node);
     inst->dest_block = dest_block;
-
-    ir_ref_bb_gen(dest_block);
 
     return &inst->base;
 }
@@ -3219,11 +3202,9 @@ static IrInstGenSwitchBr *ir_build_switch_br_gen(IrAnalyze *ira, IrInst *source_
     instruction->cases = cases;
 
     ir_ref_inst_gen(target_value, ira->new_irb.current_basic_block);
-    ir_ref_bb_gen(else_block);
 
     for (size_t i = 0; i < case_count; i += 1) {
         ir_ref_inst_gen(cases[i].value, ira->new_irb.current_basic_block);
-        ir_ref_bb_gen(cases[i].block);
     }
 
     return instruction;
@@ -30590,7 +30571,6 @@ ZigType *ir_analyze(CodeGen *codegen, IrExecutableSrc *old_exec, IrExecutableGen
 
     IrBasicBlockSrc *old_entry_bb = ira->old_irb.exec->basic_block_list.at(0);
     IrBasicBlockGen *new_entry_bb = ir_get_new_bb(ira, old_entry_bb, nullptr);
-    ir_ref_bb_gen(new_entry_bb);
     ira->new_irb.current_basic_block = new_entry_bb;
     ira->old_bb_index = 0;
 
