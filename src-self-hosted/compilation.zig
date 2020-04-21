@@ -45,13 +45,10 @@ pub const ZigCompiler = struct {
 
     native_libc: event.Future(LibCInstallation),
 
-    var lazy_init_targets = std.lazyInit(void);
+    var lazy_init_targets = std.once(util.initializeAllTargets);
 
     pub fn init(allocator: *Allocator) !ZigCompiler {
-        lazy_init_targets.get() orelse {
-            util.initializeAllTargets();
-            lazy_init_targets.resolve();
-        };
+        lazy_init_targets.call();
 
         var seed_bytes: [@sizeOf(u64)]u8 = undefined;
         try std.crypto.randomBytes(seed_bytes[0..]);
