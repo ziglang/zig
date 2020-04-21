@@ -232,6 +232,18 @@ const Analyze = struct {
     }
 
     fn coerce(self: *Analyze, dest_type: Type, inst: *Inst) !*Inst {
+        // *[N]T to []T
+        if (inst.ty.isSinglePointer() and dest_type.isSlice() and
+            (!inst.ty.pointerIsConst() or dest_type.pointerIsConst()))
+        {
+            const array_type = inst.ty.elemType();
+            const dst_elem_type = dest_type.elemType();
+            if (array_type.zigTypeTag() == .Array and
+                coerceInMemoryAllowed(dst_elem_type, array_type.elemType()) == .ok)
+            {
+                return self.fail(inst.src_offset, "TODO do the type coercion", .{});
+            }
+        }
         return self.fail(inst.src_offset, "TODO implement type coercion", .{});
     }
 
@@ -243,6 +255,21 @@ const Analyze = struct {
             .msg = msg,
         };
         return error.AnalysisFail;
+    }
+
+    const InMemoryCoercionResult = enum {
+        ok,
+        no_match,
+    };
+
+    fn coerceInMemoryAllowed(dest_type: Type, src_type: Type) InMemoryCoercionResult {
+        // As a shortcut, if the small tags / addresses match, we're done.
+        if (dest_type.tag_if_small_enough == src_type.tag_if_small_enough)
+            return .ok;
+
+        // TODO: implement more of this function
+
+        return .no_match;
     }
 };
 

@@ -72,6 +72,17 @@ pub const Type = extern union {
         }
     }
 
+    pub fn cast(self: Type, comptime T: type) ?*T {
+        if (self.tag_if_small_enough < Tag.no_payload_count)
+            return null;
+
+        const expected_tag = std.meta.fieldInfo(T, "base").default_value.?.tag;
+        if (self.ptr_otherwise.tag != expected_tag)
+            return null;
+
+        return @fieldParentPtr(T, "base", self.ptr_otherwise);
+    }
+
     pub fn format(
         self: Type,
         comptime fmt: []const u8,
@@ -131,6 +142,150 @@ pub const Type = extern union {
             }
             unreachable;
         }
+    }
+
+    pub fn isSinglePointer(self: Type) bool {
+        return switch (self.tag()) {
+            .@"u8",
+            .@"i8",
+            .@"isize",
+            .@"usize",
+            .@"c_short",
+            .@"c_ushort",
+            .@"c_int",
+            .@"c_uint",
+            .@"c_long",
+            .@"c_ulong",
+            .@"c_longlong",
+            .@"c_ulonglong",
+            .@"c_longdouble",
+            .@"f16",
+            .@"f32",
+            .@"f64",
+            .@"f128",
+            .@"c_void",
+            .@"bool",
+            .@"void",
+            .@"type",
+            .@"anyerror",
+            .@"comptime_int",
+            .@"comptime_float",
+            .@"noreturn",
+            .array,
+            .array_u8_sentinel_0,
+            .const_slice_u8,
+            => false,
+
+            .single_const_pointer => true,
+        };
+    }
+
+    pub fn isSlice(self: Type) bool {
+        return switch (self.tag()) {
+            .@"u8",
+            .@"i8",
+            .@"isize",
+            .@"usize",
+            .@"c_short",
+            .@"c_ushort",
+            .@"c_int",
+            .@"c_uint",
+            .@"c_long",
+            .@"c_ulong",
+            .@"c_longlong",
+            .@"c_ulonglong",
+            .@"c_longdouble",
+            .@"f16",
+            .@"f32",
+            .@"f64",
+            .@"f128",
+            .@"c_void",
+            .@"bool",
+            .@"void",
+            .@"type",
+            .@"anyerror",
+            .@"comptime_int",
+            .@"comptime_float",
+            .@"noreturn",
+            .array,
+            .array_u8_sentinel_0,
+            .single_const_pointer,
+            => false,
+
+            .const_slice_u8 => true,
+        };
+    }
+
+    /// Asserts the type is a pointer type.
+    pub fn pointerIsConst(self: Type) bool {
+        return switch (self.tag()) {
+            .@"u8",
+            .@"i8",
+            .@"isize",
+            .@"usize",
+            .@"c_short",
+            .@"c_ushort",
+            .@"c_int",
+            .@"c_uint",
+            .@"c_long",
+            .@"c_ulong",
+            .@"c_longlong",
+            .@"c_ulonglong",
+            .@"c_longdouble",
+            .@"f16",
+            .@"f32",
+            .@"f64",
+            .@"f128",
+            .@"c_void",
+            .@"bool",
+            .@"void",
+            .@"type",
+            .@"anyerror",
+            .@"comptime_int",
+            .@"comptime_float",
+            .@"noreturn",
+            .array,
+            .array_u8_sentinel_0,
+            => unreachable,
+
+            .single_const_pointer, .const_slice_u8 => true,
+        };
+    }
+
+    /// Asserts the type is a pointer or array type.
+    pub fn elemType(self: Type) Type {
+        return switch (self.tag()) {
+            .@"u8",
+            .@"i8",
+            .@"isize",
+            .@"usize",
+            .@"c_short",
+            .@"c_ushort",
+            .@"c_int",
+            .@"c_uint",
+            .@"c_long",
+            .@"c_ulong",
+            .@"c_longlong",
+            .@"c_ulonglong",
+            .@"c_longdouble",
+            .@"f16",
+            .@"f32",
+            .@"f64",
+            .@"f128",
+            .@"c_void",
+            .@"bool",
+            .@"void",
+            .@"type",
+            .@"anyerror",
+            .@"comptime_int",
+            .@"comptime_float",
+            .@"noreturn",
+            => unreachable,
+
+            .array => self.cast(Payload.Array).?.elem_type,
+            .single_const_pointer => self.cast(Payload.SingleConstPointer).?.pointee_type,
+            .array_u8_sentinel_0, .const_slice_u8 => Type.initTag(.@"u8"),
+        };
     }
 
     /// This enum does not directly correspond to `std.builtin.TypeId` because
