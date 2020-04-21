@@ -1011,7 +1011,7 @@ static void ir_ref_instruction(IrInstSrc *instruction, IrBasicBlockSrc *cur_bb) 
     }
 }
 
-static void ir_ref_inst_gen(IrInstGen *instruction, IrBasicBlockGen *cur_bb) {
+static void ir_ref_inst_gen(IrInstGen *instruction) {
     assert(instruction->id != IrInstGenIdInvalid);
     instruction->base.ref_count += 1;
 }
@@ -2038,7 +2038,7 @@ static IrInstGen *ir_build_cast(IrAnalyze *ira, IrInst *source_instr,ZigType *de
     inst->value = value;
     inst->cast_op = cast_op;
 
-    ir_ref_inst_gen(value, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(value);
 
     return &inst->base;
 }
@@ -2069,7 +2069,7 @@ static IrInstGen *ir_build_cond_br_gen(IrAnalyze *ira, IrInst *source_instr, IrI
     inst->then_block = then_block;
     inst->else_block = else_block;
 
-    ir_ref_inst_gen(condition, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(condition);
 
     return &inst->base;
 }
@@ -2089,7 +2089,7 @@ static IrInstGen *ir_build_return_gen(IrAnalyze *ira, IrInst *source_inst, IrIns
             source_inst->scope, source_inst->source_node);
     inst->operand = operand;
 
-    if (operand != nullptr) ir_ref_inst_gen(operand, ira->new_irb.current_basic_block);
+    if (operand != nullptr) ir_ref_inst_gen(operand);
 
     return &inst->base;
 }
@@ -2237,8 +2237,8 @@ static IrInstGen *ir_build_bin_op_gen(IrAnalyze *ira, IrInst *source_instr, ZigT
     inst->op2 = op2;
     inst->safety_check_on = safety_check_on;
 
-    ir_ref_inst_gen(op1, ira->new_irb.current_basic_block);
-    ir_ref_inst_gen(op2, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(op1);
+    ir_ref_inst_gen(op2);
 
     return &inst->base;
 }
@@ -2315,8 +2315,8 @@ static IrInstGen *ir_build_elem_ptr_gen(IrAnalyze *ira, Scope *scope, AstNode *s
     instruction->elem_index = elem_index;
     instruction->safety_check_on = safety_check_on;
 
-    ir_ref_inst_gen(array_ptr, ira->new_irb.current_basic_block);
-    ir_ref_inst_gen(elem_index, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(array_ptr);
+    ir_ref_inst_gen(elem_index);
 
     return &instruction->base;
 }
@@ -2371,7 +2371,7 @@ static IrInstGen *ir_build_struct_field_ptr(IrAnalyze *ira, IrInst *source_instr
     inst->struct_ptr = struct_ptr;
     inst->field = field;
 
-    ir_ref_inst_gen(struct_ptr, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(struct_ptr);
 
     return &inst->base;
 }
@@ -2387,7 +2387,7 @@ static IrInstGen *ir_build_union_field_ptr(IrAnalyze *ira, IrInst *source_instr,
     inst->union_ptr = union_ptr;
     inst->field = field;
 
-    ir_ref_inst_gen(union_ptr, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(union_ptr);
 
     return &inst->base;
 }
@@ -2469,11 +2469,11 @@ static IrInstGenCall *ir_build_call_gen(IrAnalyze *ira, IrInst *source_instructi
     call_instruction->new_stack = new_stack;
     call_instruction->result_loc = result_loc;
 
-    if (fn_ref != nullptr) ir_ref_inst_gen(fn_ref, ira->new_irb.current_basic_block);
+    if (fn_ref != nullptr) ir_ref_inst_gen(fn_ref);
     for (size_t i = 0; i < arg_count; i += 1)
-        ir_ref_inst_gen(args[i], ira->new_irb.current_basic_block);
-    if (new_stack != nullptr) ir_ref_inst_gen(new_stack, ira->new_irb.current_basic_block);
-    if (result_loc != nullptr) ir_ref_inst_gen(result_loc, ira->new_irb.current_basic_block);
+        ir_ref_inst_gen(args[i]);
+    if (new_stack != nullptr) ir_ref_inst_gen(new_stack);
+    if (result_loc != nullptr) ir_ref_inst_gen(result_loc);
 
     return call_instruction;
 }
@@ -2513,7 +2513,7 @@ static IrInstGen *ir_build_phi_gen(IrAnalyze *ira, IrInst *source_instr, size_t 
     phi_instruction->incoming_values = incoming_values;
 
     for (size_t i = 0; i < incoming_count; i += 1) {
-        ir_ref_inst_gen(incoming_values[i], ira->new_irb.current_basic_block);
+        ir_ref_inst_gen(incoming_values[i]);
     }
 
     return &phi_instruction->base;
@@ -2589,7 +2589,7 @@ static IrInstGen *ir_build_negation(IrAnalyze *ira, IrInst *source_instr, IrInst
     instruction->base.value->type = expr_type;
     instruction->operand = operand;
 
-    ir_ref_inst_gen(operand, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(operand);
 
     return &instruction->base;
 }
@@ -2602,7 +2602,7 @@ static IrInstGen *ir_build_negation_wrapping(IrAnalyze *ira, IrInst *source_inst
     instruction->base.value->type = expr_type;
     instruction->operand = operand;
 
-    ir_ref_inst_gen(operand, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(operand);
 
     return &instruction->base;
 }
@@ -2615,7 +2615,7 @@ static IrInstGen *ir_build_binary_not(IrAnalyze *ira, IrInst *source_instr, IrIn
     instruction->base.value->type = expr_type;
     instruction->operand = operand;
 
-    ir_ref_inst_gen(operand, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(operand);
 
     return &instruction->base;
 }
@@ -2686,8 +2686,8 @@ static IrInstGen *ir_build_store_ptr_gen(IrAnalyze *ira, IrInst *source_instr, I
     instruction->ptr = ptr;
     instruction->value = value;
 
-    ir_ref_inst_gen(ptr, ira->new_irb.current_basic_block);
-    ir_ref_inst_gen(value, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(ptr);
+    ir_ref_inst_gen(value);
 
     return &instruction->base;
 }
@@ -2701,9 +2701,9 @@ static IrInstGen *ir_build_vector_store_elem(IrAnalyze *ira, IrInst *src_inst,
     inst->index = index;
     inst->value = value;
 
-    ir_ref_inst_gen(vector_ptr, ira->new_irb.current_basic_block);
-    ir_ref_inst_gen(index, ira->new_irb.current_basic_block);
-    ir_ref_inst_gen(value, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(vector_ptr);
+    ir_ref_inst_gen(index);
+    ir_ref_inst_gen(value);
 
     return &inst->base;
 }
@@ -2732,7 +2732,7 @@ static IrInstGen *ir_build_var_decl_gen(IrAnalyze *ira, IrInst *source_instructi
     inst->var = var;
     inst->var_ptr = var_ptr;
 
-    ir_ref_inst_gen(var_ptr, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(var_ptr);
 
     return &inst->base;
 }
@@ -2769,8 +2769,8 @@ static IrInstGen *ir_build_load_ptr_gen(IrAnalyze *ira, IrInst *source_instructi
     instruction->ptr = ptr;
     instruction->result_loc = result_loc;
 
-    ir_ref_inst_gen(ptr, ira->new_irb.current_basic_block);
-    if (result_loc != nullptr) ir_ref_inst_gen(result_loc, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(ptr);
+    if (result_loc != nullptr) ir_ref_inst_gen(result_loc);
 
     return &instruction->base;
 }
@@ -2921,12 +2921,12 @@ static IrInstGen *ir_build_asm_gen(IrAnalyze *ira, IrInst *source_instr,
     assert(source_instr->source_node->type == NodeTypeAsmExpr);
     for (size_t i = 0; i < source_instr->source_node->data.asm_expr.output_list.length; i += 1) {
         IrInstGen *output_type = output_types[i];
-        if (output_type) ir_ref_inst_gen(output_type, ira->new_irb.current_basic_block);
+        if (output_type) ir_ref_inst_gen(output_type);
     }
 
     for (size_t i = 0; i < source_instr->source_node->data.asm_expr.input_list.length; i += 1) {
         IrInstGen *input_value = input_list[i];
-        ir_ref_inst_gen(input_value, ira->new_irb.current_basic_block);
+        ir_ref_inst_gen(input_value);
     }
 
     return &instruction->base;
@@ -2961,7 +2961,7 @@ static IrInstGen *ir_build_test_non_null_gen(IrAnalyze *ira, IrInst *source_inst
     inst->base.value->type = ira->codegen->builtin_types.entry_bool;
     inst->value = value;
 
-    ir_ref_inst_gen(value, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(value);
 
     return &inst->base;
 }
@@ -2989,7 +2989,7 @@ static IrInstGen *ir_build_optional_unwrap_ptr_gen(IrAnalyze *ira, IrInst *sourc
     inst->safety_check_on = safety_check_on;
     inst->initializing = initializing;
 
-    ir_ref_inst_gen(base_ptr, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(base_ptr);
 
     return &inst->base;
 }
@@ -3003,8 +3003,8 @@ static IrInstGen *ir_build_optional_wrap(IrAnalyze *ira, IrInst *source_instruct
     instruction->operand = operand;
     instruction->result_loc = result_loc;
 
-    ir_ref_inst_gen(operand, ira->new_irb.current_basic_block);
-    if (result_loc != nullptr) ir_ref_inst_gen(result_loc, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(operand);
+    if (result_loc != nullptr) ir_ref_inst_gen(result_loc);
 
     return &instruction->base;
 }
@@ -3018,8 +3018,8 @@ static IrInstGen *ir_build_err_wrap_payload(IrAnalyze *ira, IrInst *source_instr
     instruction->operand = operand;
     instruction->result_loc = result_loc;
 
-    ir_ref_inst_gen(operand, ira->new_irb.current_basic_block);
-    if (result_loc != nullptr) ir_ref_inst_gen(result_loc, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(operand);
+    if (result_loc != nullptr) ir_ref_inst_gen(result_loc);
 
     return &instruction->base;
 }
@@ -3033,8 +3033,8 @@ static IrInstGen *ir_build_err_wrap_code(IrAnalyze *ira, IrInst *source_instruct
     instruction->operand = operand;
     instruction->result_loc = result_loc;
 
-    ir_ref_inst_gen(operand, ira->new_irb.current_basic_block);
-    if (result_loc != nullptr) ir_ref_inst_gen(result_loc, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(operand);
+    if (result_loc != nullptr) ir_ref_inst_gen(result_loc);
 
     return &instruction->base;
 }
@@ -3058,7 +3058,7 @@ static IrInstGen *ir_build_clz_gen(IrAnalyze *ira, IrInst *source_instr, ZigType
     instruction->base.value->type = result_type;
     instruction->op = op;
 
-    ir_ref_inst_gen(op, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(op);
 
     return &instruction->base;
 }
@@ -3082,7 +3082,7 @@ static IrInstGen *ir_build_ctz_gen(IrAnalyze *ira, IrInst *source_instr, ZigType
     instruction->base.value->type = result_type;
     instruction->op = op;
 
-    ir_ref_inst_gen(op, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(op);
 
     return &instruction->base;
 }
@@ -3108,7 +3108,7 @@ static IrInstGen *ir_build_pop_count_gen(IrAnalyze *ira, IrInst *source_instr, Z
     instruction->base.value->type = result_type;
     instruction->op = op;
 
-    ir_ref_inst_gen(op, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(op);
 
     return &instruction->base;
 }
@@ -3134,7 +3134,7 @@ static IrInstGen *ir_build_bswap_gen(IrAnalyze *ira, IrInst *source_instr, ZigTy
     instruction->base.value->type = op_type;
     instruction->op = op;
 
-    ir_ref_inst_gen(op, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(op);
 
     return &instruction->base;
 }
@@ -3160,7 +3160,7 @@ static IrInstGen *ir_build_bit_reverse_gen(IrAnalyze *ira, IrInst *source_instr,
     instruction->base.value->type = int_type;
     instruction->op = op;
 
-    ir_ref_inst_gen(op, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(op);
 
     return &instruction->base;
 }
@@ -3201,10 +3201,10 @@ static IrInstGenSwitchBr *ir_build_switch_br_gen(IrAnalyze *ira, IrInst *source_
     instruction->case_count = case_count;
     instruction->cases = cases;
 
-    ir_ref_inst_gen(target_value, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(target_value);
 
     for (size_t i = 0; i < case_count; i += 1) {
-        ir_ref_inst_gen(cases[i].value, ira->new_irb.current_basic_block);
+        ir_ref_inst_gen(cases[i].value);
     }
 
     return instruction;
@@ -3257,7 +3257,7 @@ static IrInstGen *ir_build_union_tag(IrAnalyze *ira, IrInst *source_instr, IrIns
     instruction->value = value;
     instruction->base.value->type = tag_type;
 
-    ir_ref_inst_gen(value, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(value);
 
     return &instruction->base;
 }
@@ -3289,8 +3289,8 @@ static IrInstGen *ir_build_ref_gen(IrAnalyze *ira, IrInst *source_instruction, Z
     instruction->operand = operand;
     instruction->result_loc = result_loc;
 
-    ir_ref_inst_gen(operand, ira->new_irb.current_basic_block);
-    if (result_loc != nullptr) ir_ref_inst_gen(result_loc, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(operand);
+    if (result_loc != nullptr) ir_ref_inst_gen(result_loc);
 
     return &instruction->base;
 }
@@ -3335,7 +3335,7 @@ static IrInstGen *ir_build_err_name_gen(IrAnalyze *ira, IrInst *source_instr, Ir
     instruction->base.value->type = str_type;
     instruction->value = value;
 
-    ir_ref_inst_gen(value, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(value);
 
     return &instruction->base;
 }
@@ -3422,10 +3422,10 @@ static IrInstGen *ir_build_cmpxchg_gen(IrAnalyze *ira, IrInst *source_instructio
     instruction->is_weak = is_weak;
     instruction->result_loc = result_loc;
 
-    ir_ref_inst_gen(ptr, ira->new_irb.current_basic_block);
-    ir_ref_inst_gen(cmp_value, ira->new_irb.current_basic_block);
-    ir_ref_inst_gen(new_value, ira->new_irb.current_basic_block);
-    if (result_loc != nullptr) ir_ref_inst_gen(result_loc, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(ptr);
+    ir_ref_inst_gen(cmp_value);
+    ir_ref_inst_gen(new_value);
+    if (result_loc != nullptr) ir_ref_inst_gen(result_loc);
 
     return &instruction->base;
 }
@@ -3468,7 +3468,7 @@ static IrInstGen *ir_build_truncate_gen(IrAnalyze *ira, IrInst *source_instr, Zi
     instruction->base.value->type = dest_type;
     instruction->target = target;
 
-    ir_ref_inst_gen(target, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(target);
 
     return &instruction->base;
 }
@@ -3586,9 +3586,9 @@ static IrInstGen *ir_build_shuffle_vector_gen(IrAnalyze *ira, Scope *scope, AstN
     inst->b = b;
     inst->mask = mask;
 
-    ir_ref_inst_gen(a, ira->new_irb.current_basic_block);
-    ir_ref_inst_gen(b, ira->new_irb.current_basic_block);
-    ir_ref_inst_gen(mask, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(a);
+    ir_ref_inst_gen(b);
+    ir_ref_inst_gen(mask);
 
     return &inst->base;
 }
@@ -3614,7 +3614,7 @@ static IrInstGen *ir_build_splat_gen(IrAnalyze *ira, IrInst *source_instruction,
     instruction->base.value->type = result_type;
     instruction->scalar = scalar;
 
-    ir_ref_inst_gen(scalar, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(scalar);
 
     return &instruction->base;
 }
@@ -3634,7 +3634,7 @@ static IrInstGen *ir_build_bool_not_gen(IrAnalyze *ira, IrInst *source_instr, Ir
     instruction->base.value->type = ira->codegen->builtin_types.entry_bool;
     instruction->value = value;
 
-    ir_ref_inst_gen(value, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(value);
 
     return &instruction->base;
 }
@@ -3663,9 +3663,9 @@ static IrInstGen *ir_build_memset_gen(IrAnalyze *ira, IrInst *source_instr,
     instruction->byte = byte;
     instruction->count = count;
 
-    ir_ref_inst_gen(dest_ptr, ira->new_irb.current_basic_block);
-    ir_ref_inst_gen(byte, ira->new_irb.current_basic_block);
-    ir_ref_inst_gen(count, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(dest_ptr);
+    ir_ref_inst_gen(byte);
+    ir_ref_inst_gen(count);
 
     return &instruction->base;
 }
@@ -3694,9 +3694,9 @@ static IrInstGen *ir_build_memcpy_gen(IrAnalyze *ira, IrInst *source_instr,
     instruction->src_ptr = src_ptr;
     instruction->count = count;
 
-    ir_ref_inst_gen(dest_ptr, ira->new_irb.current_basic_block);
-    ir_ref_inst_gen(src_ptr, ira->new_irb.current_basic_block);
-    ir_ref_inst_gen(count, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(dest_ptr);
+    ir_ref_inst_gen(src_ptr);
+    ir_ref_inst_gen(count);
 
     return &instruction->base;
 }
@@ -3735,10 +3735,10 @@ static IrInstGen *ir_build_slice_gen(IrAnalyze *ira, IrInst *source_instruction,
     instruction->result_loc = result_loc;
     instruction->sentinel = sentinel;
 
-    ir_ref_inst_gen(ptr, ira->new_irb.current_basic_block);
-    ir_ref_inst_gen(start, ira->new_irb.current_basic_block);
-    if (end != nullptr) ir_ref_inst_gen(end, ira->new_irb.current_basic_block);
-    if (result_loc != nullptr) ir_ref_inst_gen(result_loc, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(ptr);
+    ir_ref_inst_gen(start);
+    if (end != nullptr) ir_ref_inst_gen(end);
+    if (result_loc != nullptr) ir_ref_inst_gen(result_loc);
 
     return &instruction->base;
 }
@@ -3811,7 +3811,7 @@ static IrInstGen *ir_build_frame_size_gen(IrAnalyze *ira, IrInst *source_instr, 
     inst->base.value->type = ira->codegen->builtin_types.entry_usize;
     inst->fn = fn;
 
-    ir_ref_inst_gen(fn, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(fn);
 
     return &inst->base;
 }
@@ -3847,9 +3847,9 @@ static IrInstGen *ir_build_overflow_op_gen(IrAnalyze *ira, IrInst *source_instr,
     instruction->result_ptr = result_ptr;
     instruction->result_ptr_type = result_ptr_type;
 
-    ir_ref_inst_gen(op1, ira->new_irb.current_basic_block);
-    ir_ref_inst_gen(op2, ira->new_irb.current_basic_block);
-    ir_ref_inst_gen(result_ptr, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(op1);
+    ir_ref_inst_gen(op2);
+    ir_ref_inst_gen(result_ptr);
 
     return &instruction->base;
 }
@@ -3875,7 +3875,7 @@ static IrInstGen *ir_build_float_op_gen(IrAnalyze *ira, IrInst *source_instr, Ir
     instruction->operand = operand;
     instruction->fn_id = fn_id;
 
-    ir_ref_inst_gen(operand, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(operand);
 
     return &instruction->base;
 }
@@ -3907,9 +3907,9 @@ static IrInstGen *ir_build_mul_add_gen(IrAnalyze *ira, IrInst *source_instr, IrI
     instruction->op2 = op2;
     instruction->op3 = op3;
 
-    ir_ref_inst_gen(op1, ira->new_irb.current_basic_block);
-    ir_ref_inst_gen(op2, ira->new_irb.current_basic_block);
-    ir_ref_inst_gen(op3, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(op1);
+    ir_ref_inst_gen(op2);
+    ir_ref_inst_gen(op3);
 
     return &instruction->base;
 }
@@ -3942,7 +3942,7 @@ static IrInstGen *ir_build_test_err_gen(IrAnalyze *ira, IrInst *source_instructi
     instruction->base.value->type = ira->codegen->builtin_types.entry_bool;
     instruction->err_union = err_union;
 
-    ir_ref_inst_gen(err_union, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(err_union);
 
     return &instruction->base;
 }
@@ -3965,7 +3965,7 @@ static IrInstGen *ir_build_unwrap_err_code_gen(IrAnalyze *ira, Scope *scope, Ast
     inst->base.value->type = result_type;
     inst->err_union_ptr = err_union_ptr;
 
-    ir_ref_inst_gen(err_union_ptr, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(err_union_ptr);
 
     return &inst->base;
 }
@@ -3992,7 +3992,7 @@ static IrInstGen *ir_build_unwrap_err_payload_gen(IrAnalyze *ira, Scope *scope, 
     inst->safety_check_on = safety_check_on;
     inst->initializing = initializing;
 
-    ir_ref_inst_gen(value, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(value);
 
     return &inst->base;
 }
@@ -4054,7 +4054,7 @@ static IrInstGen *ir_build_ptr_cast_gen(IrAnalyze *ira, IrInst *source_instructi
     instruction->ptr = ptr;
     instruction->safety_check_on = safety_check_on;
 
-    ir_ref_inst_gen(ptr, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(ptr);
 
     return &instruction->base;
 }
@@ -4091,7 +4091,7 @@ static IrInstGen *ir_build_bit_cast_gen(IrAnalyze *ira, IrInst *source_instructi
     instruction->base.value->type = ty;
     instruction->operand = operand;
 
-    ir_ref_inst_gen(operand, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(operand);
 
     return &instruction->base;
 }
@@ -4103,7 +4103,7 @@ static IrInstGen *ir_build_widen_or_shorten(IrAnalyze *ira, Scope *scope, AstNod
     inst->base.value->type = result_type;
     inst->target = target;
 
-    ir_ref_inst_gen(target, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(target);
 
     return &inst->base;
 }
@@ -4128,7 +4128,7 @@ static IrInstGen *ir_build_int_to_ptr_gen(IrAnalyze *ira, Scope *scope, AstNode 
     instruction->base.value->type = ptr_type;
     instruction->target = target;
 
-    ir_ref_inst_gen(target, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(target);
 
     return &instruction->base;
 }
@@ -4149,7 +4149,7 @@ static IrInstGen *ir_build_ptr_to_int_gen(IrAnalyze *ira, IrInst *source_instr, 
     inst->base.value->type = ira->codegen->builtin_types.entry_usize;
     inst->target = target;
 
-    ir_ref_inst_gen(target, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(target);
 
     return &inst->base;
 }
@@ -4174,7 +4174,7 @@ static IrInstGen *ir_build_int_to_enum_gen(IrAnalyze *ira, Scope *scope, AstNode
     instruction->base.value->type = dest_type;
     instruction->target = target;
 
-    ir_ref_inst_gen(target, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(target);
 
     return &instruction->base;
 }
@@ -4209,7 +4209,7 @@ static IrInstGen *ir_build_int_to_err_gen(IrAnalyze *ira, Scope *scope, AstNode 
     instruction->base.value->type = wanted_type;
     instruction->target = target;
 
-    ir_ref_inst_gen(target, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(target);
 
     return &instruction->base;
 }
@@ -4233,7 +4233,7 @@ static IrInstGen *ir_build_err_to_int_gen(IrAnalyze *ira, Scope *scope, AstNode 
     instruction->base.value->type = wanted_type;
     instruction->target = target;
 
-    ir_ref_inst_gen(target, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(target);
 
     return &instruction->base;
 }
@@ -4305,7 +4305,7 @@ static IrInstGen *ir_build_panic_gen(IrAnalyze *ira, IrInst *source_instr, IrIns
             source_instr->scope, source_instr->source_node);
     instruction->msg = msg;
 
-    ir_ref_inst_gen(msg, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(msg);
 
     return &instruction->base;
 }
@@ -4327,7 +4327,7 @@ static IrInstGen *ir_build_tag_name_gen(IrAnalyze *ira, IrInst *source_instr, Ir
     instruction->base.value->type = result_type;
     instruction->target = target;
 
-    ir_ref_inst_gen(target, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(target);
 
     return &instruction->base;
 }
@@ -4368,7 +4368,7 @@ static IrInstGen *ir_build_field_parent_ptr_gen(IrAnalyze *ira, IrInst *source_i
     inst->field_ptr = field_ptr;
     inst->field = field;
 
-    ir_ref_inst_gen(field_ptr, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(field_ptr);
 
     return &inst->base;
 }
@@ -4448,7 +4448,7 @@ static IrInstGen *ir_build_align_cast_gen(IrAnalyze *ira, Scope *scope, AstNode 
     instruction->base.value->type = result_type;
     instruction->target = target;
 
-    ir_ref_inst_gen(target, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(target);
 
     return &instruction->base;
 }
@@ -4568,8 +4568,8 @@ static IrInstGen *ir_build_atomic_rmw_gen(IrAnalyze *ira, IrInst *source_instr,
     instruction->operand = operand;
     instruction->ordering = ordering;
 
-    ir_ref_inst_gen(ptr, ira->new_irb.current_basic_block);
-    ir_ref_inst_gen(operand, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(ptr);
+    ir_ref_inst_gen(operand);
 
     return &instruction->base;
 }
@@ -4598,7 +4598,7 @@ static IrInstGen *ir_build_atomic_load_gen(IrAnalyze *ira, IrInst *source_instr,
     instruction->ptr = ptr;
     instruction->ordering = ordering;
 
-    ir_ref_inst_gen(ptr, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(ptr);
 
     return &instruction->base;
 }
@@ -4629,8 +4629,8 @@ static IrInstGen *ir_build_atomic_store_gen(IrAnalyze *ira, IrInst *source_instr
     instruction->value = value;
     instruction->ordering = ordering;
 
-    ir_ref_inst_gen(ptr, ira->new_irb.current_basic_block);
-    ir_ref_inst_gen(value, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(ptr);
+    ir_ref_inst_gen(value);
 
     return &instruction->base;
 }
@@ -4716,8 +4716,8 @@ static IrInstGen *ir_build_vector_to_array(IrAnalyze *ira, IrInst *source_instru
     instruction->vector = vector;
     instruction->result_loc = result_loc;
 
-    ir_ref_inst_gen(vector, ira->new_irb.current_basic_block);
-    ir_ref_inst_gen(result_loc, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(vector);
+    ir_ref_inst_gen(result_loc);
 
     return &instruction->base;
 }
@@ -4731,8 +4731,8 @@ static IrInstGen *ir_build_ptr_of_array_to_slice(IrAnalyze *ira, IrInst *source_
     instruction->operand = operand;
     instruction->result_loc = result_loc;
 
-    ir_ref_inst_gen(operand, ira->new_irb.current_basic_block);
-    ir_ref_inst_gen(result_loc, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(operand);
+    ir_ref_inst_gen(result_loc);
 
     return &instruction->base;
 }
@@ -4745,7 +4745,7 @@ static IrInstGen *ir_build_array_to_vector(IrAnalyze *ira, IrInst *source_instru
     instruction->base.value->type = result_type;
     instruction->array = array;
 
-    ir_ref_inst_gen(array, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(array);
 
     return &instruction->base;
 }
@@ -4758,7 +4758,7 @@ static IrInstGen *ir_build_assert_zero(IrAnalyze *ira, IrInst *source_instructio
     instruction->base.value->type = ira->codegen->builtin_types.entry_void;
     instruction->target = target;
 
-    ir_ref_inst_gen(target, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(target);
 
     return &instruction->base;
 }
@@ -4771,7 +4771,7 @@ static IrInstGen *ir_build_assert_non_null(IrAnalyze *ira, IrInst *source_instru
     instruction->base.value->type = ira->codegen->builtin_types.entry_void;
     instruction->target = target;
 
-    ir_ref_inst_gen(target, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(target);
 
     return &instruction->base;
 }
@@ -4841,7 +4841,7 @@ static IrInstGen *ir_build_suspend_finish_gen(IrAnalyze *ira, IrInst *source_ins
             source_instr->scope, source_instr->source_node);
     inst->begin = begin;
 
-    ir_ref_inst_gen(&begin->base, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(&begin->base);
 
     return &inst->base;
 }
@@ -4869,8 +4869,8 @@ static IrInstGenAwait *ir_build_await_gen(IrAnalyze *ira, IrInst *source_instruc
     instruction->result_loc = result_loc;
     instruction->is_noasync = is_noasync;
 
-    ir_ref_inst_gen(frame, ira->new_irb.current_basic_block);
-    if (result_loc != nullptr) ir_ref_inst_gen(result_loc, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(frame);
+    if (result_loc != nullptr) ir_ref_inst_gen(result_loc);
 
     return instruction;
 }
@@ -4889,7 +4889,7 @@ static IrInstGen *ir_build_resume_gen(IrAnalyze *ira, IrInst *source_instr, IrIn
             source_instr->scope, source_instr->source_node);
     instruction->frame = frame;
 
-    ir_ref_inst_gen(frame, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(frame);
 
     return &instruction->base;
 }
@@ -4914,7 +4914,7 @@ static IrInstGen *ir_build_spill_begin_gen(IrAnalyze *ira, IrInst *source_instr,
     instruction->operand = operand;
     instruction->spill_id = spill_id;
 
-    ir_ref_inst_gen(operand, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(operand);
 
     return &instruction->base;
 }
@@ -4938,7 +4938,7 @@ static IrInstGen *ir_build_spill_end_gen(IrAnalyze *ira, IrInst *source_instr, I
     instruction->base.value->type = result_type;
     instruction->begin = begin;
 
-    ir_ref_inst_gen(&begin->base, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(&begin->base);
 
     return &instruction->base;
 }
@@ -4952,8 +4952,8 @@ static IrInstGen *ir_build_vector_extract_elem(IrAnalyze *ira, IrInst *source_in
     instruction->vector = vector;
     instruction->index = index;
 
-    ir_ref_inst_gen(vector, ira->new_irb.current_basic_block);
-    ir_ref_inst_gen(index, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(vector);
+    ir_ref_inst_gen(index);
 
     return &instruction->base;
 }
