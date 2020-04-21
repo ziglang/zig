@@ -12,7 +12,8 @@ const BigInt = std.math.big.Int;
 /// in-memory, analyzed instructions with types and values.
 pub const Inst = struct {
     tag: Tag,
-    src_offset: usize,
+    /// Byte offset into the source.
+    src: usize,
 
     /// These names are used directly as the instruction names in the text format.
     pub const Tag = enum {
@@ -599,7 +600,7 @@ const Parser = struct {
     ) !*Inst {
         const inst_specific = try self.arena.allocator.create(InstType);
         inst_specific.base = .{
-            .src_offset = self.i,
+            .src = self.i,
             .tag = InstType.base_tag,
         };
 

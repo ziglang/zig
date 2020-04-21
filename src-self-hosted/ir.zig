@@ -14,7 +14,8 @@ const text = @import("ir/text.zig");
 pub const Inst = struct {
     tag: Tag,
     ty: Type,
-    src_offset: usize,
+    /// Byte offset into the source.
+    src: usize,
 
     pub const Tag = enum {
         unreach,
@@ -27,6 +28,15 @@ pub const Inst = struct {
             return null;
 
         return @fieldParentPtr(T, "base", base);
+    }
+
+    /// Returns `null` if runtime-known.
+    pub fn value(base: *Inst) ?Value {
+        return switch (base.tag) {
+            .unreach => Value.initTag(.noreturn_value),
+            .constant => base.cast(Constant).?.val,
+            .assembly => null,
+        };
     }
 
     pub const Constant = struct {
@@ -156,9 +166,7 @@ const Analyze = struct {
     }
 
     fn resolveConstValue(self: *Analyze, base: *Inst) !Value {
-        const const_inst = base.cast(Inst.Constant) orelse
-            return self.fail(base.src_offset, "unable to resolve comptime value", .{});
-        return const_inst.val;
+        return base.value() orelse return self.fail(base.src, "unable to resolve comptime value", .{});
     }
 
     fn resolveConstString(self: *Analyze, old_inst: *text.Inst) ![]u8 {
@@ -176,7 +184,7 @@ const Analyze = struct {
         switch (typed_value.ty.zigTypeTag()) {
             .Fn => {},
             else => return self.fail(
-                export_inst.positionals.value.src_offset,
+                export_inst.positionals.value.src,
                 "unable to export type '{}'",
                 .{typed_value.ty},
             ),
@@ -187,7 +195,20 @@ const Analyze = struct {
         });
     }
 
-    fn constStr(self: *Analyze, src_offset: usize, str: []const u8) !*Inst {
+    fn constInst(self: *Analyze, src: usize, typed_value: TypedValue) !*Inst {
+        const const_inst = try self.arena.allocator.create(Inst.Constant);
+        const_inst.* = .{
+            .base = .{
+                .tag = Inst.Constant.base_tag,
+                .ty = typed_value.ty,
+                .src = src,
+            },
+            .val = typed_value.val,
+        };
+        return &const_inst.base;
+    }
+
+    fn constStr(self: *Analyze, src: usize, str: []const u8) !*Inst {
         const array_payload = try self.arena.allocator.create(Type.Payload.Array_u8_Sentinel0);
         array_payload.* = .{ .len = str.len };
 
@@ -197,16 +218,10 @@ const Analyze = struct {
         const bytes_payload = try self.arena.allocator.create(Value.Payload.Bytes);
         bytes_payload.* = .{ .data = str };
 
-        const const_inst = try self.arena.allocator.create(Inst.Constant);
-        const_inst.* = .{
-            .base = .{
-                .tag = Inst.Constant.base_tag,
-                .ty = Type.initPayload(&ty_payload.base),
-                .src_offset = src_offset,
-            },
+        return self.constInst(src, .{
+            .ty = Type.initPayload(&ty_payload.base),
             .val = Value.initPayload(&bytes_payload.base),
-        };
-        return &const_inst.base;
+        });
     }
 
     fn analyzeDecl(self: *Analyze, old_inst: *text.Inst) !*Inst {
@@ -215,23 +230,28 @@ const Analyze = struct {
                 // We can use this reference because Inst.Const's Value is arena-allocated.
                 // The value would get copied to a MemoryCell before the `text.Inst.Str` lifetime ends.
                 const bytes = old_inst.cast(text.Inst.Str).?.positionals.bytes;
-                return self.constStr(old_inst.src_offset, bytes);
+                return self.constStr(old_inst.src, bytes);
             },
-            .int => return self.fail(old_inst.src_offset, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
-            .ptrtoint => return self.fail(old_inst.src_offset, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
-            .fieldptr => return self.fail(old_inst.src_offset, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
-            .deref => return self.fail(old_inst.src_offset, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
-            .as => return self.fail(old_inst.src_offset, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
-            .@"asm" => return self.fail(old_inst.src_offset, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
-            .@"unreachable" => return self.fail(old_inst.src_offset, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
-            .@"fn" => return self.fail(old_inst.src_offset, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
-            .@"export" => return self.fail(old_inst.src_offset, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
-            .primitive => return self.fail(old_inst.src_offset, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
-            .fntype => return self.fail(old_inst.src_offset, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
+            .int => return self.fail(old_inst.src, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
+            .ptrtoint => return self.fail(old_inst.src, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
+            .fieldptr => return self.fail(old_inst.src, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
+            .deref => return self.fail(old_inst.src, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
+            .as => return self.fail(old_inst.src, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
+            .@"asm" => return self.fail(old_inst.src, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
+            .@"unreachable" => return self.fail(old_inst.src, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
+            .@"fn" => return self.fail(old_inst.src, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
+            .@"export" => return self.fail(old_inst.src, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
+            .primitive => return self.fail(old_inst.src, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
+            .fntype => return self.fail(old_inst.src, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
         }
     }
 
     fn coerce(self: *Analyze, dest_type: Type, inst: *Inst) !*Inst {
+        const in_memory_result = coerceInMemoryAllowed(dest_type, inst.ty);
+        if (in_memory_result == .ok) {
+            return self.bitcast(dest_type, inst);
+        }
+
         // *[N]T to []T
         if (inst.ty.isSinglePointer() and dest_type.isSlice() and
             (!inst.ty.pointerIsConst() or dest_type.pointerIsConst()))
@@ -241,17 +261,29 @@ const Analyze = struct {
             if (array_type.zigTypeTag() == .Array and
                 coerceInMemoryAllowed(dst_elem_type, array_type.elemType()) == .ok)
             {
-                return self.fail(inst.src_offset, "TODO do the type coercion", .{});
+                return self.coerceArrayPtrToSlice(dest_type, inst);
             }
         }
-        return self.fail(inst.src_offset, "TODO implement type coercion", .{});
+        return self.fail(inst.src, "TODO implement type coercion", .{});
     }
 
-    fn fail(self: *Analyze, src_offset: usize, comptime format: []const u8, args: var) InnerError {
+    fn bitcast(self: *Analyze, dest_type: Type, inst: *Inst) !*Inst {
+        return self.fail(inst.src, "TODO implement bitcast analysis", .{});
+    }
+
+    fn coerceArrayPtrToSlice(self: *Analyze, dest_type: Type, inst: *Inst) !*Inst {
+        if (inst.value()) |val| {
+            // The comptime Value representation is compatible with both types.
+            return self.constInst(inst.src, .{ .ty = dest_type, .val = val });
+        }
+        return self.fail(inst.src, "TODO implement coerceArrayPtrToSlice runtime instruction", .{});
+    }
+
+    fn fail(self: *Analyze, src: usize, comptime format: []const u8, args: var) InnerError {
         @setCold(true);
         const msg = try std.fmt.allocPrint(&self.arena.allocator, format, args);
         (try self.errors.addOne()).* = .{
-            .byte_offset = src_offset,
+            .byte_offset = src,
             .msg = msg,
         };
         return error.AnalysisFail;
