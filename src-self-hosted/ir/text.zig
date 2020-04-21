@@ -28,6 +28,7 @@ pub const Inst = struct {
         @"export",
         primitive,
         fntype,
+        intcast,
     };
 
     pub fn TagToType(tag: Tag) type {
@@ -44,6 +45,7 @@ pub const Inst = struct {
             .@"export" => Export,
             .primitive => Primitive,
             .fntype => FnType,
+            .intcast => IntCast,
         };
     }
 
@@ -243,6 +245,17 @@ pub const Inst = struct {
             cc: std.builtin.CallingConvention = .Unspecified,
         },
     };
+
+    pub const IntCast = struct {
+        pub const base_tag = Tag.intcast;
+        base: Inst,
+
+        positionals: struct {
+            dest_type: *Inst,
+            value: *Inst,
+        },
+        kw_args: struct {},
+    };
 };
 
 pub const ErrorMsg = struct {
@@ -315,6 +328,7 @@ pub const Module = struct {
             .@"export" => return self.writeInstToStreamGeneric(stream, .@"export", decl, inst_table),
             .primitive => return self.writeInstToStreamGeneric(stream, .primitive, decl, inst_table),
             .fntype => return self.writeInstToStreamGeneric(stream, .fntype, decl, inst_table),
+            .intcast => return self.writeInstToStreamGeneric(stream, .intcast, decl, inst_table),
         }
     }
 

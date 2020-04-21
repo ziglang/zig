@@ -237,7 +237,7 @@ pub const Int = struct {
         return bits;
     }
 
-    fn fitsInTwosComp(self: Int, is_signed: bool, bit_count: usize) bool {
+    pub fn fitsInTwosComp(self: Int, is_signed: bool, bit_count: usize) bool {
         if (self.eqZero()) {
             return true;
         }

@@ -6,6 +6,7 @@ const Type = @import("type.zig").Type;
 const assert = std.debug.assert;
 const text = @import("ir/text.zig");
 const BigInt = std.math.big.Int;
+const Target = std.Target;
 
 /// These are in-memory, analyzed instructions. See `text.Inst` for the representation
 /// of instructions that correspond to the ZIR text format.
@@ -99,6 +100,8 @@ pub const ErrorMsg = struct {
 };
 
 pub fn analyze(allocator: *Allocator, old_module: text.Module) !Module {
+    const native_info = try std.zig.system.NativeTargetInfo.detect(allocator, .{});
+
     var ctx = Analyze{
         .allocator = allocator,
         .arena = std.heap.ArenaAllocator.init(allocator),
@@ -107,6 +110,7 @@ pub fn analyze(allocator: *Allocator, old_module: text.Module) !Module {
         .decl_table = std.AutoHashMap(*text.Inst, Analyze.NewDecl).init(allocator),
         .exports = std.ArrayList(Module.Export).init(allocator),
         .fns = std.ArrayList(Module.Fn).init(allocator),
+        .target = native_info.target,
     };
     defer ctx.errors.deinit();
     defer ctx.decl_table.deinit();
@@ -135,6 +139,7 @@ const Analyze = struct {
     decl_table: std.AutoHashMap(*text.Inst, NewDecl),
     exports: std.ArrayList(Module.Export),
     fns: std.ArrayList(Module.Fn),
+    target: Target,
 
     const NewDecl = struct {
         /// null means a semantic analysis error happened
@@ -336,6 +341,7 @@ const Analyze = struct {
             .@"export" => return self.fail(old_inst.src, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
             .primitive => return self.analyzeInstPrimitive(func, old_inst.cast(text.Inst.Primitive).?),
             .fntype => return self.analyzeInstFnType(func, old_inst.cast(text.Inst.FnType).?),
+            .intcast => return self.analyzeInstIntCast(func, old_inst.cast(text.Inst.IntCast).?),
         }
     }
 
@@ -402,6 +408,38 @@ const Analyze = struct {
         return self.coerce(dest_type, new_inst);
     }
 
+    fn analyzeInstIntCast(self: *Analyze, func: ?*Fn, intcast: *text.Inst.IntCast) InnerError!*Inst {
+        const dest_type = try self.resolveType(func, intcast.positionals.dest_type);
+        const new_inst = try self.resolveInst(func, intcast.positionals.value);
+
+        const dest_is_comptime_int = switch (dest_type.zigTypeTag()) {
+            .ComptimeInt => true,
+            .Int => false,
+            else => return self.fail(
+                intcast.positionals.dest_type.src,
+                "expected integer type, found '{}'",
+                .{
+                    dest_type,
+                },
+            ),
+        };
+
+        switch (new_inst.ty.zigTypeTag()) {
+            .ComptimeInt, .Int => {},
+            else => return self.fail(
+                intcast.positionals.value.src,
+                "expected integer type, found '{}'",
+                .{new_inst.ty},
+            ),
+        }
+
+        if (dest_is_comptime_int or new_inst.value() != null) {
+            return self.coerce(dest_type, new_inst);
+        }
+
+        return self.fail(intcast.base.src, "TODO implement analyze widen or shorten int", .{});
+    }
+
     fn coerce(self: *Analyze, dest_type: Type, inst: *Inst) !*Inst {
         const in_memory_result = coerceInMemoryAllowed(dest_type, inst.ty);
         if (in_memory_result == .ok) {
@@ -420,6 +458,17 @@ const Analyze = struct {
                 return self.coerceArrayPtrToSlice(dest_type, inst);
             }
         }
+
+        // comptime_int to fixed-width integer
+        if (inst.ty.zigTypeTag() == .ComptimeInt and dest_type.zigTypeTag() == .Int) {
+            // The representation is already correct; we only need to make sure it fits in the destination type.
+            const val = inst.value().?; // comptime_int always has comptime known value
+            if (!val.intFitsInType(dest_type, self.target)) {
+                return self.fail(inst.src, "type {} cannot represent integer value {}", .{ inst.ty, val });
+            }
+            return self.constInst(inst.src, .{ .ty = dest_type, .val = val });
+        }
+
         return self.fail(inst.src, "TODO implement type coercion", .{});
     }
 

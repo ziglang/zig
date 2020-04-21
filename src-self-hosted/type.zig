@@ -2,6 +2,7 @@ const std = @import("std");
 const Value = @import("value.zig").Value;
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
+const Target = std.Target;
 
 /// This is the raw data, with no bookkeeping, no memory awareness, no de-duplication.
 /// It's important for this struct to be small.
@@ -333,6 +334,44 @@ pub const Type = extern union {
         };
     }
 
+    /// Asserts the type is a fixed-width integer.
+    pub fn intInfo(self: Type, target: Target) struct { signed: bool, bits: u16 } {
+        return switch (self.tag()) {
+            .@"f16",
+            .@"f32",
+            .@"f64",
+            .@"f128",
+            .@"c_longdouble",
+            .@"c_void",
+            .@"bool",
+            .@"void",
+            .@"type",
+            .@"anyerror",
+            .@"comptime_int",
+            .@"comptime_float",
+            .@"noreturn",
+            .fn_naked_noreturn_no_args,
+            .array,
+            .single_const_pointer,
+            .array_u8_sentinel_0,
+            .const_slice_u8,
+            => unreachable,
+
+            .@"u8" => .{ .signed = false, .bits = 8 },
+            .@"i8" => .{ .signed = true, .bits = 8 },
+            .@"usize" => .{ .signed = false, .bits = target.cpu.arch.ptrBitWidth() },
+            .@"isize" => .{ .signed = true, .bits = target.cpu.arch.ptrBitWidth() },
+            .@"c_short" => .{ .signed = true, .bits = CInteger.short.sizeInBits(target) },
+            .@"c_ushort" => .{ .signed = false, .bits = CInteger.ushort.sizeInBits(target) },
+            .@"c_int" => .{ .signed = true, .bits = CInteger.int.sizeInBits(target) },
+            .@"c_uint" => .{ .signed = false, .bits = CInteger.uint.sizeInBits(target) },
+            .@"c_long" => .{ .signed = true, .bits = CInteger.long.sizeInBits(target) },
+            .@"c_ulong" => .{ .signed = false, .bits = CInteger.ulong.sizeInBits(target) },
+            .@"c_longlong" => .{ .signed = true, .bits = CInteger.longlong.sizeInBits(target) },
+            .@"c_ulonglong" => .{ .signed = false, .bits = CInteger.ulonglong.sizeInBits(target) },
+        };
+    }
+
     /// This enum does not directly correspond to `std.builtin.TypeId` because
     /// it has extra enum tags in it, as a way of using less memory. For example,
     /// even though Zig recognizes `*align(10) i32` and `*i32` both as Pointer types
@@ -400,4 +439,127 @@ pub const Type = extern union {
             pointee_type: Type,
         };
     };
+};
+
+pub const CInteger = enum {
+    short,
+    ushort,
+    int,
+    uint,
+    long,
+    ulong,
+    longlong,
+    ulonglong,
+
+    pub fn sizeInBits(self: CInteger, target: Target) u16 {
+        const arch = target.cpu.arch;
+        switch (target.os.tag) {
+            .freestanding, .other => switch (target.cpu.arch) {
+                .msp430 => switch (self) {
+                    .short,
+                    .ushort,
+                    .int,
+                    .uint,
+                    => return 16,
+                    .long,
+                    .ulong,
+                    => return 32,
+                    .longlong,
+                    .ulonglong,
+                    => return 64,
+                },
+                else => switch (self) {
+                    .short,
+                    .ushort,
+                    => return 16,
+                    .int,
+                    .uint,
+                    => return 32,
+                    .long,
+                    .ulong,
+                    => return target.cpu.arch.ptrBitWidth(),
+                    .longlong,
+                    .ulonglong,
+                    => return 64,
+                },
+            },
+
+            .linux,
+            .macosx,
+            .freebsd,
+            .netbsd,
+            .dragonfly,
+            .openbsd,
+            .wasi,
+            .emscripten,
+            => switch (self) {
+                .short,
+                .ushort,
+                => return 16,
+                .int,
+                .uint,
+                => return 32,
+                .long,
+                .ulong,
+                => return target.cpu.arch.ptrBitWidth(),
+                .longlong,
+                .ulonglong,
+                => return 64,
+            },
+
+            .windows, .uefi => switch (self) {
+                .short,
+                .ushort,
+                => return 16,
+                .int,
+                .uint,
+                .long,
+                .ulong,
+                => return 32,
+                .longlong,
+                .ulonglong,
+                => return 64,
+            },
+
+            .ios => switch (self) {
+                .short,
+                .ushort,
+                => return 16,
+                .int,
+                .uint,
+                => return 32,
+                .long,
+                .ulong,
+                .longlong,
+                .ulonglong,
+                => return 64,
+            },
+
+            .ananas,
+            .cloudabi,
+            .fuchsia,
+            .kfreebsd,
+            .lv2,
+            .solaris,
+            .haiku,
+            .minix,
+            .rtems,
+            .nacl,
+            .cnk,
+            .aix,
+            .cuda,
+            .nvcl,
+            .amdhsa,
+            .ps4,
+            .elfiamcu,
+            .tvos,
+            .watchos,
+            .mesa3d,
+            .contiki,
+            .amdpal,
+            .hermit,
+            .hurd,
+            => @panic("TODO specify the C integer type sizes for this OS"),
+        }
+    }
 };

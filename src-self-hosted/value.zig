@@ -3,6 +3,7 @@ const Type = @import("type.zig").Type;
 const log2 = std.math.log2;
 const assert = std.debug.assert;
 const BigInt = std.math.big.Int;
+const Target = std.Target;
 
 /// This is the raw data, with no bookkeeping, no memory awareness,
 /// no de-duplication, and no type system awareness.
@@ -196,6 +197,78 @@ pub const Value = extern union {
             .bytes,
             => unreachable,
         };
+    }
+
+    /// Asserts the value is an integer, and the destination type is ComptimeInt or Int.
+    pub fn intFitsInType(self: Value, ty: Type, target: Target) bool {
+        switch (self.tag()) {
+            .ty,
+            .u8_type,
+            .i8_type,
+            .isize_type,
+            .usize_type,
+            .c_short_type,
+            .c_ushort_type,
+            .c_int_type,
+            .c_uint_type,
+            .c_long_type,
+            .c_ulong_type,
+            .c_longlong_type,
+            .c_ulonglong_type,
+            .c_longdouble_type,
+            .f16_type,
+            .f32_type,
+            .f64_type,
+            .f128_type,
+            .c_void_type,
+            .bool_type,
+            .void_type,
+            .type_type,
+            .anyerror_type,
+            .comptime_int_type,
+            .comptime_float_type,
+            .noreturn_type,
+            .fn_naked_noreturn_no_args_type,
+            .const_slice_u8_type,
+            .void_value,
+            .noreturn_value,
+            .bool_true,
+            .bool_false,
+            .function,
+            .ref,
+            .bytes,
+            => unreachable,
+
+            .int_u64 => switch (ty.zigTypeTag()) {
+                .Int => {
+                    const x = self.cast(Payload.Int_u64).?.int;
+                    const info = ty.intInfo(target);
+                    const needed_bits = std.math.log2(x) + 1 + @boolToInt(info.signed);
+                    return info.bits >= needed_bits;
+                },
+                .ComptimeInt => return true,
+                else => unreachable,
+            },
+            .int_i64 => switch (ty.zigTypeTag()) {
+                .Int => {
+                    const x = self.cast(Payload.Int_i64).?.int;
+                    const info = ty.intInfo(target);
+                    if (!info.signed and x < 0)
+                        return false;
+                    @panic("TODO implement i64 intFitsInType");
+                },
+                .ComptimeInt => return true,
+                else => unreachable,
+            },
+            .int_big => switch (ty.zigTypeTag()) {
+                .Int => {
+                    const info = ty.intInfo(target);
+                    return self.cast(Payload.IntBig).?.big_int.fitsInTwosComp(info.signed, info.bits);
+                },
+                .ComptimeInt => return true,
+                else => unreachable,
+            },
+        }
     }
 
     /// This type is not copyable since it may contain pointers to its inner data.

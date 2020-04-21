@@ -11289,9 +11289,9 @@ static bool ir_num_lit_fits_in_other_type(IrAnalyze *ira, IrInstGen *instruction
             Buf *val_buf = buf_alloc();
             bigint_append_buf(val_buf, &const_val->data.x_bigint, 10);
             ir_add_error_node(ira, instruction->base.source_node,
-                buf_sprintf("integer value %s has no representation in type '%s'",
-                    buf_ptr(val_buf),
-                    buf_ptr(&other_type->name)));
+                buf_sprintf("type %s cannot represent integer value %s",
+                    buf_ptr(&other_type->name),
+                    buf_ptr(val_buf)));
             return false;
         }
         if (other_type->data.floating.bit_count >= const_val->type->data.floating.bit_count) {
