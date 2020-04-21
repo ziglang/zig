@@ -3,10 +3,9 @@
 const std = @import("std");
 const mem = std.mem;
 const Allocator = std.mem.Allocator;
-const Value = @import("../value.zig").Value;
 const assert = std.debug.assert;
-const ir = @import("../ir.zig");
 const BigInt = std.math.big.Int;
+const Type = @import("../type.zig").Type;
 
 /// These are instructions that correspond to the ZIR text format. See `ir.Inst` for
 /// in-memory, analyzed instructions with types and values.
@@ -201,6 +200,34 @@ pub const Inst = struct {
             @"anyerror",
             @"comptime_int",
             @"comptime_float",
+
+            fn toType(self: BuiltinType) Type {
+                return switch (self) {
+                    .@"isize" => Type.initTag(.@"isize"),
+                    .@"usize" => Type.initTag(.@"usize"),
+                    .@"c_short" => Type.initTag(.@"c_short"),
+                    .@"c_ushort" => Type.initTag(.@"c_ushort"),
+                    .@"c_int" => Type.initTag(.@"c_int"),
+                    .@"c_uint" => Type.initTag(.@"c_uint"),
+                    .@"c_long" => Type.initTag(.@"c_long"),
+                    .@"c_ulong" => Type.initTag(.@"c_ulong"),
+                    .@"c_longlong" => Type.initTag(.@"c_longlong"),
+                    .@"c_ulonglong" => Type.initTag(.@"c_ulonglong"),
+                    .@"c_longdouble" => Type.initTag(.@"c_longdouble"),
+                    .@"c_void" => Type.initTag(.@"c_void"),
+                    .@"f16" => Type.initTag(.@"f16"),
+                    .@"f32" => Type.initTag(.@"f32"),
+                    .@"f64" => Type.initTag(.@"f64"),
+                    .@"f128" => Type.initTag(.@"f128"),
+                    .@"bool" => Type.initTag(.@"bool"),
+                    .@"void" => Type.initTag(.@"void"),
+                    .@"noreturn" => Type.initTag(.@"noreturn"),
+                    .@"type" => Type.initTag(.@"type"),
+                    .@"anyerror" => Type.initTag(.@"anyerror"),
+                    .@"comptime_int" => Type.initTag(.@"comptime_int"),
+                    .@"comptime_float" => Type.initTag(.@"comptime_float"),
+                };
+            }
         };
     };
 
@@ -337,7 +364,6 @@ pub const Module = struct {
             return stream.writeAll(@tagName(param));
         }
         switch (@TypeOf(param)) {
-            Value => return stream.print("{}", .{param}),
             *Inst => return self.writeInstParamToStream(stream, param, inst_table),
             []*Inst => {
                 try stream.writeByte('[');
@@ -693,7 +719,6 @@ const Parser = struct {
                 return instructions.toOwnedSlice();
             },
             *Inst => return parseParameterInst(self, body_ctx),
-            Value => return self.fail("TODO implement parseParameterGeneric for type Value", .{}),
             []u8 => return self.parseStringLiteral(),
             BigInt => return self.parseIntegerLiteral(),
             else => @compileError("Unimplemented: ir parseParameterGeneric for type " ++ @typeName(T)),

@@ -280,7 +280,7 @@ const Analyze = struct {
             .@"unreachable" => return self.fail(old_inst.src, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
             .@"fn" => return self.analyzeInstFn(func, old_inst.cast(text.Inst.Fn).?),
             .@"export" => return self.fail(old_inst.src, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
-            .primitive => return self.fail(old_inst.src, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
+            .primitive => return self.analyzeInstPrimitive(func, old_inst.cast(text.Inst.Primitive).?),
             .fntype => return self.analyzeInstFnType(func, old_inst.cast(text.Inst.FnType).?),
         }
     }
@@ -335,6 +335,10 @@ const Analyze = struct {
         }
 
         return self.fail(fntype.base.src, "TODO implement fntype instruction more", .{});
+    }
+
+    fn analyzeInstPrimitive(self: *Analyze, opt_func: ?*Fn, primitive: *text.Inst.Primitive) InnerError!*Inst {
+        return self.constType(primitive.base.src, primitive.positionals.tag.toType());
     }
 
     fn coerce(self: *Analyze, dest_type: Type, inst: *Inst) !*Inst {
