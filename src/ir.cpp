@@ -11962,6 +11962,7 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
     bool any_are_null = (prev_inst->value->type->id == ZigTypeIdNull);
     bool convert_to_const_slice = false;
     bool make_the_slice_const = false;
+    bool make_the_pointer_const = false;
     for (; i < instruction_count; i += 1) {
         IrInstGen *cur_inst = instructions[i];
         ZigType *cur_type = cur_inst->value->type;
@@ -12463,6 +12464,34 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
             }
         }
 
+        // *[N]T to [*]T
+        if (prev_type->id == ZigTypeIdPointer &&
+            prev_type->data.pointer.ptr_len == PtrLenSingle &&
+            prev_type->data.pointer.child_type->id == ZigTypeIdArray &&
+            ((cur_type->id == ZigTypeIdPointer && cur_type->data.pointer.ptr_len == PtrLenUnknown))) 
+        {
+            prev_inst = cur_inst;   
+
+            if (prev_type->data.pointer.is_const && !cur_type->data.pointer.is_const) {
+                // const array pointer and non-const unknown pointer
+                make_the_pointer_const = true;
+            }
+            continue; 
+        }
+
+        // *[N]T to [*]T
+        if (cur_type->id == ZigTypeIdPointer &&
+            cur_type->data.pointer.ptr_len == PtrLenSingle &&
+            cur_type->data.pointer.child_type->id == ZigTypeIdArray &&
+            ((prev_type->id == ZigTypeIdPointer && prev_type->data.pointer.ptr_len == PtrLenUnknown))) 
+        {
+            if (cur_type->data.pointer.is_const && !prev_type->data.pointer.is_const) {
+                // const array pointer and non-const unknown pointer
+                make_the_pointer_const = true;
+            }
+            continue;   
+        }
+
         // *[N]T to []T
         // *[N]T to E![]T
         if (cur_type->id == ZigTypeIdPointer &&
@@ -12677,6 +12706,8 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
         } else {
             zig_unreachable();
         }
+    } else if (make_the_pointer_const) {
+        return adjust_ptr_const(ira->codegen, prev_inst->value->type, make_the_pointer_const);
     } else {
         return prev_inst->value->type;
     }
