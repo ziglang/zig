@@ -6,6 +6,8 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const BigInt = std.math.big.Int;
 const Type = @import("../type.zig").Type;
+const Value = @import("../value.zig").Value;
+const ir = @import("../ir.zig");
 
 /// These are instructions that correspond to the ZIR text format. See `ir.Inst` for
 /// in-memory, analyzed instructions with types and values.
@@ -61,7 +63,7 @@ pub const Inst = struct {
         base: Inst,
 
         positionals: struct {
-            bytes: []u8,
+            bytes: []const u8,
         },
         kw_args: struct {},
     };
@@ -399,7 +401,7 @@ pub const Module = struct {
                 try stream.writeByte('}');
             },
             bool => return stream.writeByte("01"[@boolToInt(param)]),
-            []u8 => return std.zig.renderStringLiteral(param, stream),
+            []u8, []const u8 => return std.zig.renderStringLiteral(param, stream),
             BigInt => return stream.print("{}", .{param}),
             else => |T| @compileError("unimplemented: rendering parameter of type " ++ @typeName(T)),
         }
@@ -425,6 +427,8 @@ pub fn parse(allocator: *Allocator, source: [:0]const u8) Allocator.Error!Module
         .errors = std.ArrayList(ErrorMsg).init(allocator),
         .global_name_map = &global_name_map,
     };
+    errdefer parser.arena.deinit();
+
     parser.parseRoot() catch |err| switch (err) {
         error.ParseFailure => {
             assert(parser.errors.items.len != 0);
@@ -733,7 +737,7 @@ const Parser = struct {
                 return instructions.toOwnedSlice();
             },
             *Inst => return parseParameterInst(self, body_ctx),
-            []u8 => return self.parseStringLiteral(),
+            []u8, []const u8 => return self.parseStringLiteral(),
             BigInt => return self.parseIntegerLiteral(),
             else => @compileError("Unimplemented: ir parseParameterGeneric for type " ++ @typeName(T)),
         }
@@ -771,5 +775,203 @@ const Parser = struct {
         } else {
             return self.decls.items[kv.value];
         }
+    }
+};
+
+pub fn emit_zir(allocator: *Allocator, old_module: ir.Module) !Module {
+    var ctx: EmitZIR = .{
+        .allocator = allocator,
+        .decls = std.ArrayList(*Inst).init(allocator),
+        .decl_table = std.AutoHashMap(*ir.Inst, *Inst).init(allocator),
+        .arena = std.heap.ArenaAllocator.init(allocator),
+        .old_module = &old_module,
+    };
+    defer ctx.decls.deinit();
+    defer ctx.decl_table.deinit();
+    errdefer ctx.arena.deinit();
+
+    try ctx.emit();
+
+    return Module{
+        .decls = ctx.decls.toOwnedSlice(),
+        .arena = ctx.arena,
+        .errors = &[0]ErrorMsg{},
+    };
+}
+
+const EmitZIR = struct {
+    allocator: *Allocator,
+    arena: std.heap.ArenaAllocator,
+    old_module: *const ir.Module,
+    decls: std.ArrayList(*Inst),
+    decl_table: std.AutoHashMap(*ir.Inst, *Inst),
+
+    pub fn emit(self: *EmitZIR) !void {
+        for (self.old_module.exports) |module_export| {
+            const export_value = try self.emitTypedValue(module_export.src, module_export.typed_value);
+            const symbol_name = try self.emitStringLiteral(module_export.src, module_export.name);
+            const export_inst = try self.arena.allocator.create(Inst.Export);
+            export_inst.* = .{
+                .base = .{ .src = module_export.src, .tag = Inst.Export.base_tag },
+                .positionals = .{
+                    .symbol_name = symbol_name,
+                    .value = export_value,
+                },
+                .kw_args = .{},
+            };
+            try self.decls.append(&export_inst.base);
+        }
+    }
+
+    pub fn resolveInst(self: *EmitZIR, inst_table: *const std.AutoHashMap(*ir.Inst, *Inst), inst: *ir.Inst) !*Inst {
+        if (inst.cast(ir.Inst.Constant)) |const_inst| {
+            if (self.decl_table.getValue(inst)) |decl| {
+                return decl;
+            }
+            const new_decl = try self.emitTypedValue(inst.src, .{ .ty = inst.ty, .val = const_inst.val });
+            try self.decl_table.putNoClobber(inst, new_decl);
+            return new_decl;
+        } else {
+            return inst_table.getValue(inst).?;
+        }
+    }
+
+    pub fn emitTypedValue(self: *EmitZIR, src: usize, typed_value: ir.TypedValue) Allocator.Error!*Inst {
+        switch (typed_value.ty.zigTypeTag()) {
+            .Pointer => {
+                const ptr_elem_type = typed_value.ty.elemType();
+                switch (ptr_elem_type.zigTypeTag()) {
+                    .Array => {
+                        // TODO more checks to make sure this can be emitted as a string literal
+                        //const array_elem_type = ptr_elem_type.elemType();
+                        //if (array_elem_type.eql(Type.initTag(.u8)) and
+                        //    ptr_elem_type.hasSentinel(Value.initTag(.zero)))
+                        //{
+                        //}
+                        const bytes = try typed_value.val.toAllocatedBytes(&self.arena.allocator);
+                        return self.emitStringLiteral(src, bytes);
+                    },
+                    else => |t| std.debug.panic("TODO implement emitTypedValue for pointer to {}", .{@tagName(t)}),
+                }
+            },
+            .Type => {
+                const ty = typed_value.val.toType();
+                return self.emitType(src, ty);
+            },
+            .Fn => {
+                const index = typed_value.val.cast(Value.Payload.Function).?.index;
+                const module_fn = self.old_module.fns[index];
+
+                var inst_table = std.AutoHashMap(*ir.Inst, *Inst).init(self.allocator);
+                defer inst_table.deinit();
+
+                var instructions = std.ArrayList(*Inst).init(self.allocator);
+                defer instructions.deinit();
+
+                for (module_fn.body) |inst| {
+                    const new_inst = switch (inst.tag) {
+                        .unreach => blk: {
+                            const unreach_inst = try self.arena.allocator.create(Inst.Unreachable);
+                            unreach_inst.* = .{
+                                .base = .{ .src = inst.src, .tag = Inst.Unreachable.base_tag },
+                                .positionals = .{},
+                                .kw_args = .{},
+                            };
+                            break :blk &unreach_inst.base;
+                        },
+                        .constant => unreachable, // excluded from function bodies
+                        .assembly => @panic("TODO emit zir asm instruction"),
+                        .ptrtoint => blk: {
+                            const old_inst = inst.cast(ir.Inst.PtrToInt).?;
+                            const new_inst = try self.arena.allocator.create(Inst.PtrToInt);
+                            new_inst.* = .{
+                                .base = .{ .src = inst.src, .tag = Inst.PtrToInt.base_tag },
+                                .positionals = .{
+                                    .ptr = try self.resolveInst(&inst_table, old_inst.args.ptr),
+                                },
+                                .kw_args = .{},
+                            };
+                            break :blk &new_inst.base;
+                        },
+                    };
+                    try instructions.append(new_inst);
+                    try inst_table.putNoClobber(inst, new_inst);
+                }
+
+                const fn_type = try self.emitType(src, module_fn.fn_type);
+
+                const fn_inst = try self.arena.allocator.create(Inst.Fn);
+                fn_inst.* = .{
+                    .base = .{ .src = src, .tag = Inst.Fn.base_tag },
+                    .positionals = .{
+                        .fn_type = fn_type,
+                        .body = .{
+                            .instructions = instructions.toOwnedSlice(),
+                        },
+                    },
+                    .kw_args = .{},
+                };
+                try self.decls.append(&fn_inst.base);
+                return &fn_inst.base;
+            },
+            else => |t| std.debug.panic("TODO implement emitTypedValue for {}", .{@tagName(t)}),
+        }
+    }
+
+    pub fn emitType(self: *EmitZIR, src: usize, ty: Type) !*Inst {
+        switch (ty.tag()) {
+            .isize => return self.emitPrimitiveType(src, .isize),
+            .usize => return self.emitPrimitiveType(src, .usize),
+            .c_short => return self.emitPrimitiveType(src, .c_short),
+            .c_ushort => return self.emitPrimitiveType(src, .c_ushort),
+            .c_int => return self.emitPrimitiveType(src, .c_int),
+            .c_uint => return self.emitPrimitiveType(src, .c_uint),
+            .c_long => return self.emitPrimitiveType(src, .c_long),
+            .c_ulong => return self.emitPrimitiveType(src, .c_ulong),
+            .c_longlong => return self.emitPrimitiveType(src, .c_longlong),
+            .c_ulonglong => return self.emitPrimitiveType(src, .c_ulonglong),
+            .c_longdouble => return self.emitPrimitiveType(src, .c_longdouble),
+            .c_void => return self.emitPrimitiveType(src, .c_void),
+            .f16 => return self.emitPrimitiveType(src, .f16),
+            .f32 => return self.emitPrimitiveType(src, .f32),
+            .f64 => return self.emitPrimitiveType(src, .f64),
+            .f128 => return self.emitPrimitiveType(src, .f128),
+            .anyerror => return self.emitPrimitiveType(src, .anyerror),
+            else => switch (ty.zigTypeTag()) {
+                .Bool => return self.emitPrimitiveType(src, .bool),
+                .Void => return self.emitPrimitiveType(src, .void),
+                .NoReturn => return self.emitPrimitiveType(src, .noreturn),
+                .Type => return self.emitPrimitiveType(src, .type),
+                .ComptimeInt => return self.emitPrimitiveType(src, .comptime_int),
+                .ComptimeFloat => return self.emitPrimitiveType(src, .comptime_float),
+                else => std.debug.panic("TODO implement emitType for {}", .{ty}),
+            },
+        }
+    }
+
+    pub fn emitPrimitiveType(self: *EmitZIR, src: usize, tag: Inst.Primitive.BuiltinType) !*Inst {
+        const primitive_inst = try self.arena.allocator.create(Inst.Primitive);
+        primitive_inst.* = .{
+            .base = .{ .src = src, .tag = Inst.Primitive.base_tag },
+            .positionals = .{
+                .tag = tag,
+            },
+            .kw_args = .{},
+        };
+        try self.decls.append(&primitive_inst.base);
+        return &primitive_inst.base;
+    }
+
+    pub fn emitStringLiteral(self: *EmitZIR, src: usize, str: []const u8) !*Inst {
+        const str_inst = try self.arena.allocator.create(Inst.Str);
+        str_inst.* = .{
+            .base = .{ .src = src, .tag = Inst.Str.base_tag },
+            .positionals = .{
+                .bytes = str,
+            },
+            .kw_args = .{},
+        };
+        try self.decls.append(&str_inst.base);
+        return &str_inst.base;
     }
 };

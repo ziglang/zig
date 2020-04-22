@@ -47,6 +47,7 @@ pub const Value = extern union {
         single_const_pointer_to_comptime_int_type,
         const_slice_u8_type,
 
+        zero,
         void_value,
         noreturn_value,
         bool_true,
@@ -133,6 +134,7 @@ pub const Value = extern union {
             .single_const_pointer_to_comptime_int_type => return out_stream.writeAll("*const comptime_int"),
             .const_slice_u8_type => return out_stream.writeAll("[]const u8"),
 
+            .zero => return out_stream.writeAll("0"),
             .void_value => return out_stream.writeAll("{}"),
             .noreturn_value => return out_stream.writeAll("unreachable"),
             .bool_true => return out_stream.writeAll("true"),
@@ -195,6 +197,7 @@ pub const Value = extern union {
             .single_const_pointer_to_comptime_int_type => Type.initTag(.single_const_pointer_to_comptime_int),
             .const_slice_u8_type => Type.initTag(.const_slice_u8),
 
+            .zero,
             .void_value,
             .noreturn_value,
             .bool_true,
@@ -251,6 +254,8 @@ pub const Value = extern union {
             .ref_val,
             .bytes,
             => unreachable,
+
+            .zero => return true,
 
             .int_u64 => switch (ty.zigTypeTag()) {
                 .Int => {
@@ -318,6 +323,7 @@ pub const Value = extern union {
             .fn_naked_noreturn_no_args_type,
             .single_const_pointer_to_comptime_int_type,
             .const_slice_u8_type,
+            .zero,
             .void_value,
             .noreturn_value,
             .bool_true,

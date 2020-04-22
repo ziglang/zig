@@ -86,7 +86,7 @@ pub const Inst = struct {
     };
 };
 
-const TypedValue = struct {
+pub const TypedValue = struct {
     ty: Type,
     val: Value,
 };
@@ -100,11 +100,13 @@ pub const Module = struct {
     pub const Export = struct {
         name: []const u8,
         typed_value: TypedValue,
+        src: usize,
     };
 
     pub const Fn = struct {
         analysis_status: enum { in_progress, failure, success },
         body: []*Inst,
+        fn_type: Type,
     };
 
     pub fn deinit(self: *Module, allocator: *Allocator) void {
@@ -112,10 +114,6 @@ pub const Module = struct {
         allocator.free(self.errors);
         self.arena.deinit();
         self.* = undefined;
-    }
-
-    pub fn emit_zir(self: Module, allocator: *Allocator) !text.Module {
-        return error.TodoImplementEmitToZIR;
     }
 };
 
@@ -141,6 +139,7 @@ pub fn analyze(allocator: *Allocator, old_module: text.Module) !Module {
     defer ctx.decl_table.deinit();
     defer ctx.exports.deinit();
     defer ctx.fns.deinit();
+    errdefer ctx.arena.deinit();
 
     ctx.analyzeRoot() catch |err| switch (err) {
         error.AnalysisFail => {
@@ -263,6 +262,7 @@ const Analyze = struct {
         try self.exports.append(.{
             .name = symbol_name,
             .typed_value = typed_value,
+            .src = export_inst.base.src,
         });
     }
 
@@ -426,6 +426,7 @@ const Analyze = struct {
         // could become invalid.
         (try self.fns.addOne()).* = .{
             .analysis_status = .in_progress,
+            .fn_type = fn_type,
             .body = undefined,
         };
 
@@ -438,10 +439,9 @@ const Analyze = struct {
             try new_func.inst_table.putNoClobber(src_inst, .{ .ptr = new_inst });
         }
 
-        self.fns.items[new_func.fn_index] = .{
-            .analysis_status = .success,
-            .body = new_func.body.toOwnedSlice(),
-        };
+        const f = &self.fns.items[new_func.fn_index];
+        f.analysis_status = .success;
+        f.body = new_func.body.toOwnedSlice();
 
         const fn_payload = try self.arena.allocator.create(Value.Payload.Function);
         fn_payload.* = .{ .index = new_func.fn_index };
@@ -712,7 +712,7 @@ pub fn main() anyerror!void {
         std.process.exit(1);
     }
 
-    var new_zir_module = try analyzed_module.emit_zir(allocator);
+    var new_zir_module = try text.emit_zir(allocator, analyzed_module);
     defer new_zir_module.deinit(allocator);
 
     new_zir_module.dump();
