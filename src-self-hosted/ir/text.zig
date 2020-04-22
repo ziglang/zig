@@ -880,7 +880,20 @@ const EmitZIR = struct {
                             break :blk &unreach_inst.base;
                         },
                         .constant => unreachable, // excluded from function bodies
-                        .assembly => @panic("TODO emit zir asm instruction"),
+                        .assembly => blk: {
+                            const old_inst = inst.cast(ir.Inst.Assembly).?;
+                            const new_inst = try self.arena.allocator.create(Inst.Asm);
+                            new_inst.* = .{
+                                .base = .{ .src = inst.src, .tag = Inst.Asm.base_tag },
+                                .positionals = .{
+                                    .asm_source = try self.emitStringLiteral(inst.src, old_inst.args.asm_source),
+                                    .return_type = try self.emitType(inst.src, inst.ty),
+                                },
+                                // TODO emit more kw_args
+                                .kw_args = .{},
+                            };
+                            break :blk &new_inst.base;
+                        },
                         .ptrtoint => blk: {
                             const old_inst = inst.cast(ir.Inst.PtrToInt).?;
                             const new_inst = try self.arena.allocator.create(Inst.PtrToInt);
@@ -918,7 +931,7 @@ const EmitZIR = struct {
         }
     }
 
-    pub fn emitType(self: *EmitZIR, src: usize, ty: Type) !*Inst {
+    pub fn emitType(self: *EmitZIR, src: usize, ty: Type) Allocator.Error!*Inst {
         switch (ty.tag()) {
             .isize => return self.emitPrimitiveType(src, .isize),
             .usize => return self.emitPrimitiveType(src, .usize),
@@ -944,6 +957,30 @@ const EmitZIR = struct {
                 .Type => return self.emitPrimitiveType(src, .type),
                 .ComptimeInt => return self.emitPrimitiveType(src, .comptime_int),
                 .ComptimeFloat => return self.emitPrimitiveType(src, .comptime_float),
+                .Fn => {
+                    const param_types = try self.allocator.alloc(Type, ty.fnParamLen());
+                    defer self.allocator.free(param_types);
+
+                    ty.fnParamTypes(param_types);
+                    const emitted_params = try self.arena.allocator.alloc(*Inst, param_types.len);
+                    for (param_types) |param_type, i| {
+                        emitted_params[i] = try self.emitType(src, param_type);
+                    }
+
+                    const fntype_inst = try self.arena.allocator.create(Inst.FnType);
+                    fntype_inst.* = .{
+                        .base = .{ .src = src, .tag = Inst.FnType.base_tag },
+                        .positionals = .{
+                            .param_types = emitted_params,
+                            .return_type = try self.emitType(src, ty.fnReturnType()),
+                        },
+                        .kw_args = .{
+                            .cc = ty.fnCallingConvention(),
+                        },
+                    };
+                    try self.decls.append(&fntype_inst.base);
+                    return &fntype_inst.base;
+                },
                 else => std.debug.panic("TODO implement emitType for {}", .{ty}),
             },
         }

@@ -422,6 +422,163 @@ pub const Type = extern union {
         };
     }
 
+    /// Asserts the type is a function.
+    pub fn fnParamLen(self: Type) usize {
+        return switch (self.tag()) {
+            .fn_naked_noreturn_no_args => 0,
+
+            .f16,
+            .f32,
+            .f64,
+            .f128,
+            .c_longdouble,
+            .c_void,
+            .bool,
+            .void,
+            .type,
+            .anyerror,
+            .comptime_int,
+            .comptime_float,
+            .noreturn,
+            .array,
+            .single_const_pointer,
+            .single_const_pointer_to_comptime_int,
+            .array_u8_sentinel_0,
+            .const_slice_u8,
+            .u8,
+            .i8,
+            .usize,
+            .isize,
+            .c_short,
+            .c_ushort,
+            .c_int,
+            .c_uint,
+            .c_long,
+            .c_ulong,
+            .c_longlong,
+            .c_ulonglong,
+            => unreachable,
+        };
+    }
+
+    /// Asserts the type is a function. The length of the slice must be at least the length
+    /// given by `fnParamLen`.
+    pub fn fnParamTypes(self: Type, types: []Type) void {
+        switch (self.tag()) {
+            .fn_naked_noreturn_no_args => return,
+
+            .f16,
+            .f32,
+            .f64,
+            .f128,
+            .c_longdouble,
+            .c_void,
+            .bool,
+            .void,
+            .type,
+            .anyerror,
+            .comptime_int,
+            .comptime_float,
+            .noreturn,
+            .array,
+            .single_const_pointer,
+            .single_const_pointer_to_comptime_int,
+            .array_u8_sentinel_0,
+            .const_slice_u8,
+            .u8,
+            .i8,
+            .usize,
+            .isize,
+            .c_short,
+            .c_ushort,
+            .c_int,
+            .c_uint,
+            .c_long,
+            .c_ulong,
+            .c_longlong,
+            .c_ulonglong,
+            => unreachable,
+        }
+    }
+
+    /// Asserts the type is a function.
+    pub fn fnReturnType(self: Type) Type {
+        return switch (self.tag()) {
+            .fn_naked_noreturn_no_args => Type.initTag(.noreturn),
+
+            .f16,
+            .f32,
+            .f64,
+            .f128,
+            .c_longdouble,
+            .c_void,
+            .bool,
+            .void,
+            .type,
+            .anyerror,
+            .comptime_int,
+            .comptime_float,
+            .noreturn,
+            .array,
+            .single_const_pointer,
+            .single_const_pointer_to_comptime_int,
+            .array_u8_sentinel_0,
+            .const_slice_u8,
+            .u8,
+            .i8,
+            .usize,
+            .isize,
+            .c_short,
+            .c_ushort,
+            .c_int,
+            .c_uint,
+            .c_long,
+            .c_ulong,
+            .c_longlong,
+            .c_ulonglong,
+            => unreachable,
+        };
+    }
+
+    /// Asserts the type is a function.
+    pub fn fnCallingConvention(self: Type) std.builtin.CallingConvention {
+        return switch (self.tag()) {
+            .fn_naked_noreturn_no_args => .Naked,
+
+            .f16,
+            .f32,
+            .f64,
+            .f128,
+            .c_longdouble,
+            .c_void,
+            .bool,
+            .void,
+            .type,
+            .anyerror,
+            .comptime_int,
+            .comptime_float,
+            .noreturn,
+            .array,
+            .single_const_pointer,
+            .single_const_pointer_to_comptime_int,
+            .array_u8_sentinel_0,
+            .const_slice_u8,
+            .u8,
+            .i8,
+            .usize,
+            .isize,
+            .c_short,
+            .c_ushort,
+            .c_int,
+            .c_uint,
+            .c_long,
+            .c_ulong,
+            .c_longlong,
+            .c_ulonglong,
+            => unreachable,
+        };
+    }
+
     /// This enum does not directly correspond to `std.builtin.TypeId` because
     /// it has extra enum tags in it, as a way of using less memory. For example,
     /// even though Zig recognizes `*align(10) i32` and `*i32` both as Pointer types
