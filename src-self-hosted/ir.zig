@@ -23,6 +23,7 @@ pub const Inst = struct {
         unreach,
         constant,
         assembly,
+        ptrtoint,
     };
 
     pub fn cast(base: *Inst, comptime T: type) ?*T {
@@ -32,12 +33,19 @@ pub const Inst = struct {
         return @fieldParentPtr(T, "base", base);
     }
 
+    pub fn Args(comptime T: type) type {
+        return std.meta.fieldInfo(T, "args").field_type;
+    }
+
     /// Returns `null` if runtime-known.
     pub fn value(base: *Inst) ?Value {
         return switch (base.tag) {
             .unreach => Value.initTag(.noreturn_value),
             .constant => base.cast(Constant).?.val,
-            .assembly => null,
+
+            .assembly,
+            .ptrtoint,
+            => null,
         };
     }
 
@@ -52,12 +60,23 @@ pub const Inst = struct {
         pub const base_tag = Tag.assembly;
         base: Inst,
 
-        asm_source: []const u8,
-        is_volatile: bool,
-        output: []const u8,
-        inputs: []const []const u8,
-        clobbers: []const []const u8,
-        args: []const []const u8,
+        args: struct {
+            asm_source: []const u8,
+            is_volatile: bool,
+            output: []const u8,
+            inputs: []const []const u8,
+            clobbers: []const []const u8,
+            args: []const *Inst,
+        },
+    };
+
+    pub const PtrToInt = struct {
+        pub const base_tag = Tag.ptrtoint;
+
+        base: Inst,
+        args: struct {
+            ptr: *Inst,
+        },
     };
 };
 
@@ -190,6 +209,10 @@ const Analyze = struct {
         }
     }
 
+    fn requireFunctionBody(self: *Analyze, func: ?*Fn, src: usize) !*Fn {
+        return func orelse return self.fail(src, "instruction illegal outside function body", .{});
+    }
+
     fn resolveInstConst(self: *Analyze, func: ?*Fn, old_inst: *text.Inst) InnerError!TypedValue {
         const new_inst = try self.resolveInst(func, old_inst);
         const val = try self.resolveConstValue(new_inst);
@@ -235,6 +258,33 @@ const Analyze = struct {
             .name = symbol_name,
             .typed_value = typed_value,
         });
+    }
+
+    fn addNewInstArgs(
+        self: *Analyze,
+        func: *Fn,
+        src: usize,
+        ty: Type,
+        comptime T: type,
+        args: Inst.Args(T),
+    ) !*Inst {
+        const inst = try self.addNewInst(func, src, ty, T);
+        inst.args = args;
+        return &inst.base;
+    }
+
+    fn addNewInst(self: *Analyze, func: *Fn, src: usize, ty: Type, comptime T: type) !*T {
+        const inst = try self.arena.allocator.create(T);
+        inst.* = .{
+            .base = .{
+                .tag = T.base_tag,
+                .ty = ty,
+                .src = src,
+            },
+            .args = undefined,
+        };
+        try func.body.append(&inst.base);
+        return inst;
     }
 
     fn constInst(self: *Analyze, src: usize, typed_value: TypedValue) !*Inst {
@@ -331,7 +381,7 @@ const Analyze = struct {
                 const big_int = old_inst.cast(text.Inst.Int).?.positionals.int;
                 return self.constIntBig(old_inst.src, Type.initTag(.comptime_int), big_int);
             },
-            .ptrtoint => return self.fail(old_inst.src, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
+            .ptrtoint => return self.analyzeInstPtrToInt(func, old_inst.cast(text.Inst.PtrToInt).?),
             .fieldptr => return self.fail(old_inst.src, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
             .deref => return self.fail(old_inst.src, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
             .as => return self.analyzeInstAs(func, old_inst.cast(text.Inst.As).?),
@@ -406,6 +456,18 @@ const Analyze = struct {
         const dest_type = try self.resolveType(func, as.positionals.dest_type);
         const new_inst = try self.resolveInst(func, as.positionals.value);
         return self.coerce(dest_type, new_inst);
+    }
+
+    fn analyzeInstPtrToInt(self: *Analyze, func: ?*Fn, ptrtoint: *text.Inst.PtrToInt) InnerError!*Inst {
+        const ptr = try self.resolveInst(func, ptrtoint.positionals.ptr);
+        if (ptr.ty.zigTypeTag() != .Pointer) {
+            return self.fail(ptrtoint.positionals.ptr.src, "expected pointer, found '{}'", .{ptr.ty});
+        }
+        // TODO handle known-pointer-address
+        const f = try self.requireFunctionBody(func, ptrtoint.base.src);
+        const ty = Type.initTag(.usize);
+        // TODO should not need the cast on the last parameter
+        return self.addNewInstArgs(f, ptrtoint.base.src, ty, Inst.PtrToInt, Inst.Args(Inst.PtrToInt){ .ptr = ptr });
     }
 
     fn analyzeInstIntCast(self: *Analyze, func: ?*Fn, intcast: *text.Inst.IntCast) InnerError!*Inst {
