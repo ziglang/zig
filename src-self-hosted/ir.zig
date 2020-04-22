@@ -383,7 +383,7 @@ const Analyze = struct {
             },
             .ptrtoint => return self.analyzeInstPtrToInt(func, old_inst.cast(text.Inst.PtrToInt).?),
             .fieldptr => return self.analyzeInstFieldPtr(func, old_inst.cast(text.Inst.FieldPtr).?),
-            .deref => return self.fail(old_inst.src, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
+            .deref => return self.analyzeInstDeref(func, old_inst.cast(text.Inst.Deref).?),
             .as => return self.analyzeInstAs(func, old_inst.cast(text.Inst.As).?),
             .@"asm" => return self.fail(old_inst.src, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
             .@"unreachable" => return self.fail(old_inst.src, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
@@ -476,7 +476,7 @@ const Analyze = struct {
 
         const elem_ty = switch (object_ptr.ty.zigTypeTag()) {
             .Pointer => object_ptr.ty.elemType(),
-            else => return self.fail(fieldptr.base.src, "expected pointer, found '{}'", .{object_ptr.ty}),
+            else => return self.fail(fieldptr.positionals.object_ptr.src, "expected pointer, found '{}'", .{object_ptr.ty}),
         };
         switch (elem_ty.zigTypeTag()) {
             .Array => {
@@ -533,6 +533,22 @@ const Analyze = struct {
         }
 
         return self.fail(intcast.base.src, "TODO implement analyze widen or shorten int", .{});
+    }
+
+    fn analyzeInstDeref(self: *Analyze, func: ?*Fn, deref: *text.Inst.Deref) InnerError!*Inst {
+        const ptr = try self.resolveInst(func, deref.positionals.ptr);
+        const elem_ty = switch (ptr.ty.zigTypeTag()) {
+            .Pointer => ptr.ty.elemType(),
+            else => return self.fail(deref.positionals.ptr.src, "expected pointer, found '{}'", .{ptr.ty}),
+        };
+        if (ptr.value()) |val| {
+            return self.constInst(deref.base.src, .{
+                .ty = elem_ty,
+                .val = val.pointerDeref(),
+            });
+        }
+
+        return self.fail(deref.base.src, "TODO implement runtime deref", .{});
     }
 
     fn coerce(self: *Analyze, dest_type: Type, inst: *Inst) !*Inst {

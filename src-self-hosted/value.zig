@@ -284,6 +284,54 @@ pub const Value = extern union {
         }
     }
 
+    /// Asserts the value is a pointer and dereferences it.
+    pub fn pointerDeref(self: Value) Value {
+        switch (self.tag()) {
+            .ty,
+            .u8_type,
+            .i8_type,
+            .isize_type,
+            .usize_type,
+            .c_short_type,
+            .c_ushort_type,
+            .c_int_type,
+            .c_uint_type,
+            .c_long_type,
+            .c_ulong_type,
+            .c_longlong_type,
+            .c_ulonglong_type,
+            .c_longdouble_type,
+            .f16_type,
+            .f32_type,
+            .f64_type,
+            .f128_type,
+            .c_void_type,
+            .bool_type,
+            .void_type,
+            .type_type,
+            .anyerror_type,
+            .comptime_int_type,
+            .comptime_float_type,
+            .noreturn_type,
+            .fn_naked_noreturn_no_args_type,
+            .single_const_pointer_to_comptime_int_type,
+            .const_slice_u8_type,
+            .void_value,
+            .noreturn_value,
+            .bool_true,
+            .bool_false,
+            .function,
+            .int_u64,
+            .int_i64,
+            .int_big,
+            .bytes,
+            => unreachable,
+
+            .ref => return self.cast(Payload.Ref).?.cell.contents,
+            .ref_val => return self.cast(Payload.RefVal).?.val,
+        }
+    }
+
     /// This type is not copyable since it may contain pointers to its inner data.
     pub const Payload = struct {
         tag: Tag,
@@ -321,7 +369,7 @@ pub const Value = extern union {
 
         pub const Ref = struct {
             base: Payload = Payload{ .tag = .ref },
-            pointee: *MemoryCell,
+            cell: *MemoryCell,
         };
 
         pub const RefVal = struct {
