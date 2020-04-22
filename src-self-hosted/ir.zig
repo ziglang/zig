@@ -666,8 +666,7 @@ const Analyze = struct {
     };
 
     fn coerceInMemoryAllowed(dest_type: Type, src_type: Type) InMemoryCoercionResult {
-        // As a shortcut, if the small tags / addresses match, we're done.
-        if (dest_type.tag_if_small_enough == src_type.tag_if_small_enough)
+        if (dest_type.eql(src_type))
             return .ok;
 
         // TODO: implement more of this function

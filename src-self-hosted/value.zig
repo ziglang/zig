@@ -4,6 +4,7 @@ const log2 = std.math.log2;
 const assert = std.debug.assert;
 const BigInt = std.math.big.Int;
 const Target = std.Target;
+const Allocator = std.mem.Allocator;
 
 /// This is the raw data, with no bookkeeping, no memory awareness,
 /// no de-duplication, and no type system awareness.
@@ -156,7 +157,7 @@ pub const Value = extern union {
 
     /// Asserts that the value is representable as an array of bytes.
     /// Copies the value into a freshly allocated slice of memory, which is owned by the caller.
-    pub fn toAllocatedBytes(self: Value, allocator: *std.mem.Allocator) error{OutOfMemory}![]u8 {
+    pub fn toAllocatedBytes(self: Value, allocator: *Allocator) Allocator.Error![]u8 {
         if (self.cast(Payload.Bytes)) |bytes| {
             return std.mem.dupe(allocator, u8, bytes.data);
         }
@@ -211,6 +212,56 @@ pub const Value = extern union {
             .bytes,
             => unreachable,
         };
+    }
+
+    /// Asserts the value is an integer.
+    pub fn toBigInt(self: Value, allocator: *Allocator) Allocator.Error!BigInt {
+        switch (self.tag()) {
+            .ty,
+            .u8_type,
+            .i8_type,
+            .isize_type,
+            .usize_type,
+            .c_short_type,
+            .c_ushort_type,
+            .c_int_type,
+            .c_uint_type,
+            .c_long_type,
+            .c_ulong_type,
+            .c_longlong_type,
+            .c_ulonglong_type,
+            .c_longdouble_type,
+            .f16_type,
+            .f32_type,
+            .f64_type,
+            .f128_type,
+            .c_void_type,
+            .bool_type,
+            .void_type,
+            .type_type,
+            .anyerror_type,
+            .comptime_int_type,
+            .comptime_float_type,
+            .noreturn_type,
+            .fn_naked_noreturn_no_args_type,
+            .single_const_pointer_to_comptime_int_type,
+            .const_slice_u8_type,
+            .void_value,
+            .noreturn_value,
+            .bool_true,
+            .bool_false,
+            .function,
+            .ref,
+            .ref_val,
+            .bytes,
+            => unreachable,
+
+            .zero => return BigInt.initSet(allocator, 0),
+
+            .int_u64 => return BigInt.initSet(allocator, self.cast(Payload.Int_u64).?.int),
+            .int_i64 => return BigInt.initSet(allocator, self.cast(Payload.Int_i64).?.int),
+            .int_big => return self.cast(Payload.IntBig).?.big_int,
+        }
     }
 
     /// Asserts the value is an integer, and the destination type is ComptimeInt or Int.

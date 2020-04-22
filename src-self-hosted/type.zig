@@ -88,6 +88,60 @@ pub const Type = extern union {
         return @fieldParentPtr(T, "base", self.ptr_otherwise);
     }
 
+    pub fn eql(self: Type, other: Type) bool {
+        //std.debug.warn("test {} == {}\n", .{ self, other });
+        // As a shortcut, if the small tags / addresses match, we're done.
+        if (self.tag_if_small_enough == other.tag_if_small_enough)
+            return true;
+        const zig_tag_a = self.zigTypeTag();
+        const zig_tag_b = self.zigTypeTag();
+        if (zig_tag_a != zig_tag_b)
+            return false;
+        switch (zig_tag_a) {
+            .Type => return true,
+            .Void => return true,
+            .Bool => return true,
+            .NoReturn => return true,
+            .ComptimeFloat => return true,
+            .ComptimeInt => return true,
+            .Undefined => return true,
+            .Null => return true,
+            .Pointer => {
+                const is_slice_a = isSlice(self);
+                const is_slice_b = isSlice(other);
+                if (is_slice_a != is_slice_b)
+                    return false;
+                @panic("TODO implement more pointer Type equality comparison");
+            },
+            .Int => {
+                if (self.tag() != other.tag()) {
+                    // Detect that e.g. u64 != usize, even if the bits match on a particular target.
+                    return false;
+                }
+                // The target will not be branched upon, because we handled target-dependent cases above.
+                const info_a = self.intInfo(@as(Target, undefined));
+                const info_b = self.intInfo(@as(Target, undefined));
+                return info_a.signed == info_b.signed and info_a.bits == info_b.bits;
+            },
+            .Float,
+            .Array,
+            .Struct,
+            .Optional,
+            .ErrorUnion,
+            .ErrorSet,
+            .Enum,
+            .Union,
+            .Fn,
+            .BoundFn,
+            .Opaque,
+            .Frame,
+            .AnyFrame,
+            .Vector,
+            .EnumLiteral,
+            => @panic("TODO implement more Type equality comparison"),
+        }
+    }
+
     pub fn format(
         self: Type,
         comptime fmt: []const u8,
