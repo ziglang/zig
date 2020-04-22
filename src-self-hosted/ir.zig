@@ -714,7 +714,9 @@ pub fn main() anyerror!void {
     var new_zir_module = try text.emit_zir(allocator, analyzed_module);
     defer new_zir_module.deinit(allocator);
 
-    new_zir_module.dump();
+    var bos = std.io.bufferedOutStream(std.io.getStdOut().outStream());
+    try new_zir_module.writeToStream(allocator, bos.outStream());
+    try bos.flush();
 }
 
 fn findLineColumn(source: []const u8, byte_offset: usize) struct { line: usize, column: usize } {
