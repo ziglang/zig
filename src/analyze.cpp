@@ -578,6 +578,7 @@ ZigType *get_pointer_to_type_extra2(CodeGen *g, ZigType *child_type, bool is_con
     }
     switch (ptr_len) {
         case PtrLenSingle:
+            assert(sentinel == nullptr);
             buf_appendf(&entry->name, "*");
             break;
         case PtrLenUnknown:

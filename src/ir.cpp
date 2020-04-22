@@ -21090,7 +21090,7 @@ static ZigType *adjust_ptr_len(CodeGen *g, ZigType *ptr_type, PtrLen ptr_len) {
             ptr_type->data.pointer.allow_zero,
             ptr_type->data.pointer.vector_index,
             ptr_type->data.pointer.inferred_struct_field,
-            ptr_type->data.pointer.sentinel);
+            (ptr_len != PtrLenUnknown) ? nullptr : ptr_type->data.pointer.sentinel);
 }
 
 static ZigType *adjust_ptr_allow_zero(CodeGen *g, ZigType *ptr_type, bool allow_zero) {

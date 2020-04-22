@@ -1,6 +1,7 @@
 const std = @import("std");
-const expect = std.testing.expect;
-const expectError = std.testing.expectError;
+const testing = std.testing;
+const expect = testing.expect;
+const expectError = testing.expectError;
 
 test "dereference pointer" {
     comptime testDerefPtr();
@@ -330,4 +331,9 @@ test "@ptrToInt on null optional at comptime" {
         const pointer = @intToPtr(?*u8, 0xf00);
         comptime expect(0xf00 == @ptrToInt(pointer));
     }
+}
+
+test "indexing array with sentinel returns correct type" {
+    var s: [:0]const u8 = "abc";
+    testing.expectEqualSlices(u8, "*const u8", @typeName(@TypeOf(&s[0])));
 }
