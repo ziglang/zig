@@ -761,7 +761,7 @@ pub const Target = struct {
                 };
             }
 
-            pub fn ptrBitWidth(arch: Arch) u32 {
+            pub fn ptrBitWidth(arch: Arch) u16 {
                 switch (arch) {
                     .avr,
                     .msp430,

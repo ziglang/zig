@@ -105,6 +105,31 @@ pub const Allocator = struct {
         return self.alignedAlloc(T, null, n);
     }
 
+    pub fn allocWithOptions(
+        self: *Allocator,
+        comptime Elem: type,
+        n: usize,
+        /// null means naturally aligned
+        comptime optional_alignment: ?u29,
+        comptime optional_sentinel: ?Elem,
+    ) Error!AllocWithOptionsPayload(Elem, optional_alignment, optional_sentinel) {
+        if (optional_sentinel) |sentinel| {
+            const ptr = try self.alignedAlloc(Elem, optional_alignment, n + 1);
+            ptr[n] = sentinel;
+            return ptr[0..n :sentinel];
+        } else {
+            return self.alignedAlloc(Elem, optional_alignment, n);
+        }
+    }
+
+    fn AllocWithOptionsPayload(comptime Elem: type, comptime alignment: ?u29, comptime sentinel: ?Elem) type {
+        if (sentinel) |s| {
+            return [:s]align(alignment orelse @alignOf(T)) Elem;
+        } else {
+            return []align(alignment orelse @alignOf(T)) Elem;
+        }
+    }
+
     /// Allocates an array of `n + 1` items of type `T` and sets the first `n`
     /// items to `undefined` and the last item to `sentinel`. Depending on the
     /// Allocator implementation, it may be required to call `free` once the
@@ -113,10 +138,10 @@ pub const Allocator = struct {
     /// call `free` when done.
     ///
     /// For allocating a single item, see `create`.
+    ///
+    /// Deprecated; use `allocWithOptions`.
     pub fn allocSentinel(self: *Allocator, comptime Elem: type, n: usize, comptime sentinel: Elem) Error![:sentinel]Elem {
-        var ptr = try self.alloc(Elem, n + 1);
-        ptr[n] = sentinel;
-        return ptr[0..n :sentinel];
+        return self.allocWithOptions(Elem, n, null, sentinel);
     }
 
     pub fn alignedAlloc(

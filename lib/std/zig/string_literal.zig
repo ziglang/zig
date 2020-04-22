@@ -6,7 +6,7 @@ const State = enum {
     Backslash,
 };
 
-pub const ParseStringLiteralError = error{
+pub const ParseError = error{
     OutOfMemory,
 
     /// When this is returned, index will be the position of the character.
@@ -14,11 +14,11 @@ pub const ParseStringLiteralError = error{
 };
 
 /// caller owns returned memory
-pub fn parseStringLiteral(
+pub fn parse(
     allocator: *std.mem.Allocator,
     bytes: []const u8,
     bad_index: *usize, // populated if error.InvalidCharacter is returned
-) ParseStringLiteralError![]u8 {
+) ParseError![]u8 {
     assert(bytes.len >= 2 and bytes[0] == '"' and bytes[bytes.len - 1] == '"');
 
     var list = std.ArrayList(u8).init(allocator);
@@ -110,7 +110,7 @@ pub fn parseStringLiteral(
     unreachable;
 }
 
-test "parseStringLiteral" {
+test "parse" {
     const expect = std.testing.expect;
     const eql = std.mem.eql;
 
@@ -119,7 +119,37 @@ test "parseStringLiteral" {
     var alloc = &fixed_buf_alloc.allocator;
     var bad_index: usize = undefined;
 
-    expect(eql(u8, "foo", try parseStringLiteral(alloc, "\"foo\"", &bad_index)));
-    expect(eql(u8, "foo", try parseStringLiteral(alloc, "\"f\x6f\x6f\"", &bad_index)));
-    expect(eql(u8, "f💯", try parseStringLiteral(alloc, "\"f\u{1f4af}\"", &bad_index)));
+    expect(eql(u8, "foo", try parse(alloc, "\"foo\"", &bad_index)));
+    expect(eql(u8, "foo", try parse(alloc, "\"f\x6f\x6f\"", &bad_index)));
+    expect(eql(u8, "f💯", try parse(alloc, "\"f\u{1f4af}\"", &bad_index)));
+}
+
+/// Writes a Zig-syntax escaped string literal to the stream. Includes the double quotes.
+pub fn render(utf8: []const u8, out_stream: var) !void {
+    try out_stream.writeByte('"');
+    for (utf8) |byte| switch (byte) {
+        '\n' => try out_stream.writeAll("\\n"),
+        '\r' => try out_stream.writeAll("\\r"),
+        '\t' => try out_stream.writeAll("\\t"),
+        '\\' => try out_stream.writeAll("\\\\"),
+        '"' => try out_stream.writeAll("\\\""),
+        ' ', '!', '#'...'[', ']'...'~' => try out_stream.writeByte(byte),
+        else => try out_stream.print("\\x{x:0>2}", .{byte}),
+    };
+    try out_stream.writeByte('"');
+}
+
+test "render" {
+    const expect = std.testing.expect;
+    const eql = std.mem.eql;
+
+    var fixed_buf_mem: [32]u8 = undefined;
+
+    {
+        var fbs = std.io.fixedBufferStream(&fixed_buf_mem);
+        try render(" \\ hi \x07 \x11 \" derp", fbs.outStream());
+        expect(eql(u8,
+            \\" \\ hi \x07 \x11 \" derp"
+        , fbs.getWritten()));
+    }
 }
