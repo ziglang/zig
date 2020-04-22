@@ -8,6 +8,7 @@ const assert = std.debug.assert;
 const process = std.process;
 const Target = std.Target;
 const CrossTarget = std.zig.CrossTarget;
+const macos = @import("system/macos.zig");
 
 const is_windows = Target.current.os.tag == .windows;
 
@@ -259,31 +260,35 @@ pub const NativeTargetInfo = struct {
                     os.version_range.windows.min = @intToEnum(Target.Os.WindowsVersion, version);
                 },
                 .macosx => {
-                    var product_version: [32]u8 = undefined;
-                    var size: usize = product_version.len;
+                    var scbuf: [32]u8 = undefined;
+                    var size: usize = undefined;
 
-                    // The osproductversion sysctl was introduced first with
-                    // High Sierra, thankfully that's also the baseline that Zig
-                    // supports
-                    std.os.sysctlbynameZ(
-                        "kern.osproductversion",
-                        &product_version,
-                        &size,
-                        null,
-                        0,
-                    ) catch |err| switch (err) {
-                        error.UnknownName => unreachable,
-                        else => unreachable,
-                    };
-
-                    const string_version = product_version[0 .. size - 1 :0];
-                    if (std.builtin.Version.parse(string_version)) |ver| {
-                        os.version_range.semver.min = ver;
-                        os.version_range.semver.max = ver;
+                    // The osproductversion sysctl was introduced first with 10.13.4 High Sierra.
+                    const key_osproductversion = "kern.osproductversion"; // eg. "10.15.4"
+                    size = scbuf.len;
+                    if (std.os.sysctlbynameZ(key_osproductversion, &scbuf, &size, null, 0)) |_| {
+                        const string_version = scbuf[0 .. size - 1];
+                        if (std.builtin.Version.parse(string_version)) |ver| {
+                            os.version_range.semver.min = ver;
+                            os.version_range.semver.max = ver;
+                        } else |err| switch (err) {
+                            error.Overflow => {},
+                            error.InvalidCharacter => {},
+                            error.InvalidVersion => {},
+                        }
                     } else |err| switch (err) {
-                        error.Overflow => {},
-                        error.InvalidCharacter => {},
-                        error.InvalidVersion => {},
+                        error.UnknownName => {
+                            const key_osversion = "kern.osversion"; // eg. "19E287"
+                            size = scbuf.len;
+                            std.os.sysctlbynameZ(key_osversion, &scbuf, &size, null, 0) catch {
+                                @panic("unable to detect macOS version: " ++ key_osversion);
+                            };
+                            if (macos.version_from_build(scbuf[0 .. size - 1])) |ver| {
+                                os.version_range.semver.min = ver;
+                                os.version_range.semver.max = ver;
+                            } else |_| {}
+                        },
+                        else => @panic("unable to detect macOS version: " ++ key_osproductversion),
                     }
                 },
                 .freebsd => {
@@ -888,3 +893,7 @@ pub const NativeTargetInfo = struct {
         }
     }
 };
+
+test "" {
+    _ = @import("system/macos.zig");
+}
