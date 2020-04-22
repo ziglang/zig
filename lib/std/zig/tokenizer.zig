@@ -848,6 +848,7 @@ pub const Tokenizer = struct {
                         self.index += 1;
                         break;
                     },
+                    '\t' => {},
                     else => self.checkLiteralCharacter(),
                 },
 
@@ -1684,6 +1685,14 @@ test "tokenizer - string identifier and builtin fns" {
         Token.Id.StringLiteral,
         Token.Id.RParen,
         Token.Id.Semicolon,
+    });
+}
+
+test "tokenizer - multiline string literal with literal tab" {
+    testTokenize(
+        \\\\foo	bar
+    , &[_]Token.Id{
+        Token.Id.MultilineStringLiteralLine,
     });
 }
 
