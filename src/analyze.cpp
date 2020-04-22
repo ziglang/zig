@@ -9044,7 +9044,7 @@ static void resolve_llvm_types_fn_type(CodeGen *g, ZigType *fn_type) {
     FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
     bool first_arg_return = want_first_arg_sret(g, fn_type_id);
     bool is_async = fn_type_id->cc == CallingConventionAsync;
-    bool is_c_abi = fn_type_id->cc == CallingConventionC;
+    bool is_c_abi = !calling_convention_allows_zig_types(fn_type_id->cc);
     bool prefix_arg_error_return_trace = g->have_err_ret_tracing && fn_type_can_fail(fn_type_id);
     // +1 for maybe making the first argument the return value
     // +1 for maybe first argument the error return trace

@@ -2071,7 +2071,7 @@ var_ok:
 
 void walk_function_params(CodeGen *g, ZigType *fn_type, FnWalk *fn_walk) {
     CallingConvention cc = fn_type->data.fn.fn_type_id.cc;
-    if (cc == CallingConventionC) {
+    if (!calling_convention_allows_zig_types(cc)) {
         size_t src_i = 0;
         for (;;) {
             if (!iter_function_params_c_abi(g, fn_type, fn_walk, src_i))
@@ -7862,7 +7862,7 @@ static void do_code_gen(CodeGen *g) {
 
         FnTypeId *fn_type_id = &fn_table_entry->type_entry->data.fn.fn_type_id;
         CallingConvention cc = fn_type_id->cc;
-        bool is_c_abi = cc == CallingConventionC;
+        bool is_c_abi = !calling_convention_allows_zig_types(cc);
         bool want_sret = want_first_arg_sret(g, fn_type_id);
 
         LLVMValueRef fn = fn_llvm_value(g, fn_table_entry);

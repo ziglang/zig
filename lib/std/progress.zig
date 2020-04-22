@@ -1,4 +1,5 @@
 const std = @import("std");
+const windows = std.os.windows;
 const testing = std.testing;
 const assert = std.debug.assert;
 
@@ -99,7 +100,12 @@ pub const Progress = struct {
     /// API to return Progress rather than accept it as a parameter.
     pub fn start(self: *Progress, name: []const u8, estimated_total_items: ?usize) !*Node {
         const stderr = std.io.getStdErr();
-        self.terminal = if (stderr.supportsAnsiEscapeCodes()) stderr else null;
+        self.terminal = null;
+        if (stderr.supportsAnsiEscapeCodes()) {
+            self.terminal = stderr;
+        } else if (std.builtin.os.tag == .windows and stderr.isTty()) {
+            self.terminal = stderr;
+        }
         self.root = Node{
             .context = self,
             .parent = null,
@@ -129,12 +135,48 @@ pub const Progress = struct {
         const prev_columns_written = self.columns_written;
         var end: usize = 0;
         if (self.columns_written > 0) {
-            // restore cursor position
-            end += (std.fmt.bufPrint(self.output_buffer[end..], "\x1b[{}D", .{self.columns_written}) catch unreachable).len;
-            self.columns_written = 0;
+            // restore the cursor position by moving the cursor
+            // `columns_written` cells to the left, then clear the rest of the
+            // line
+            if (std.builtin.os.tag != .windows) {
+                end += (std.fmt.bufPrint(self.output_buffer[end..], "\x1b[{}D", .{self.columns_written}) catch unreachable).len;
+                end += (std.fmt.bufPrint(self.output_buffer[end..], "\x1b[0K", .{}) catch unreachable).len;
+            } else {
+                var info: windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
+                if (windows.kernel32.GetConsoleScreenBufferInfo(file.handle, &info) != windows.TRUE)
+                    unreachable;
 
-            // clear rest of line
-            end += (std.fmt.bufPrint(self.output_buffer[end..], "\x1b[0K", .{}) catch unreachable).len;
+                var cursor_pos = windows.COORD{
+                    .X = info.dwCursorPosition.X - @intCast(windows.SHORT, self.columns_written),
+                    .Y = info.dwCursorPosition.Y,
+                };
+
+                if (cursor_pos.X < 0)
+                    cursor_pos.X = 0;
+
+                const fill_chars = @intCast(windows.DWORD, info.dwSize.X - cursor_pos.X);
+
+                var written: windows.DWORD = undefined;
+                if (windows.kernel32.FillConsoleOutputAttribute(
+                    file.handle,
+                    info.wAttributes,
+                    fill_chars,
+                    cursor_pos,
+                    &written,
+                ) != windows.TRUE) unreachable;
+                if (windows.kernel32.FillConsoleOutputCharacterA(
+                    file.handle,
+                    ' ',
+                    fill_chars,
+                    cursor_pos,
+                    &written,
+                ) != windows.TRUE) unreachable;
+
+                if (windows.kernel32.SetConsoleCursorPosition(file.handle, cursor_pos) != windows.TRUE)
+                    unreachable;
+            }
+
+            self.columns_written = 0;
         }
 
         if (!self.done) {
@@ -195,7 +237,7 @@ pub const Progress = struct {
                 end.* = self.output_buffer.len;
             },
         }
-        const bytes_needed_for_esc_codes_at_end = 11;
+        const bytes_needed_for_esc_codes_at_end = if (std.builtin.os.tag == .windows) 0 else 11;
         const max_end = self.output_buffer.len - bytes_needed_for_esc_codes_at_end;
         if (end.* > max_end) {
             const suffix = "...";
