@@ -382,7 +382,7 @@ const Analyze = struct {
                 return self.constIntBig(old_inst.src, Type.initTag(.comptime_int), big_int);
             },
             .ptrtoint => return self.analyzeInstPtrToInt(func, old_inst.cast(text.Inst.PtrToInt).?),
-            .fieldptr => return self.fail(old_inst.src, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
+            .fieldptr => return self.analyzeInstFieldPtr(func, old_inst.cast(text.Inst.FieldPtr).?),
             .deref => return self.fail(old_inst.src, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
             .as => return self.analyzeInstAs(func, old_inst.cast(text.Inst.As).?),
             .@"asm" => return self.fail(old_inst.src, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
@@ -468,6 +468,39 @@ const Analyze = struct {
         const ty = Type.initTag(.usize);
         // TODO should not need the cast on the last parameter
         return self.addNewInstArgs(f, ptrtoint.base.src, ty, Inst.PtrToInt, Inst.Args(Inst.PtrToInt){ .ptr = ptr });
+    }
+
+    fn analyzeInstFieldPtr(self: *Analyze, func: ?*Fn, fieldptr: *text.Inst.FieldPtr) InnerError!*Inst {
+        const object_ptr = try self.resolveInst(func, fieldptr.positionals.object_ptr);
+        const field_name = try self.resolveConstString(func, fieldptr.positionals.field_name);
+
+        const elem_ty = switch (object_ptr.ty.zigTypeTag()) {
+            .Pointer => object_ptr.ty.elemType(),
+            else => return self.fail(fieldptr.base.src, "expected pointer, found '{}'", .{object_ptr.ty}),
+        };
+        switch (elem_ty.zigTypeTag()) {
+            .Array => {
+                if (mem.eql(u8, field_name, "len")) {
+                    const len_payload = try self.arena.allocator.create(Value.Payload.Int_u64);
+                    len_payload.* = .{ .int = elem_ty.arrayLen() };
+
+                    const ref_payload = try self.arena.allocator.create(Value.Payload.RefVal);
+                    ref_payload.* = .{ .val = Value.initPayload(&len_payload.base) };
+
+                    return self.constInst(fieldptr.base.src, .{
+                        .ty = Type.initTag(.single_const_pointer_to_comptime_int),
+                        .val = Value.initPayload(&ref_payload.base),
+                    });
+                } else {
+                    return self.fail(
+                        fieldptr.positionals.field_name.src,
+                        "no member named '{}' in '{}'",
+                        .{ field_name, elem_ty },
+                    );
+                }
+            },
+            else => return self.fail(fieldptr.base.src, "type '{}' does not support field access", .{elem_ty}),
+        }
     }
 
     fn analyzeInstIntCast(self: *Analyze, func: ?*Fn, intcast: *text.Inst.IntCast) InnerError!*Inst {

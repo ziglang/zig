@@ -54,6 +54,7 @@ pub const Type = extern union {
 
             .array, .array_u8_sentinel_0 => return .Array,
             .single_const_pointer => return .Pointer,
+            .single_const_pointer_to_comptime_int => return .Pointer,
             .const_slice_u8 => return .Pointer,
         }
     }
@@ -127,6 +128,7 @@ pub const Type = extern union {
 
                 .const_slice_u8 => return out_stream.writeAll("[]const u8"),
                 .fn_naked_noreturn_no_args => return out_stream.writeAll("fn() callconv(.Naked) noreturn"),
+                .single_const_pointer_to_comptime_int => return out_stream.writeAll("*const comptime_int"),
 
                 .array_u8_sentinel_0 => {
                     const payload = @fieldParentPtr(Payload.Array_u8_Sentinel0, "base", ty.ptr_otherwise);
@@ -177,6 +179,7 @@ pub const Type = extern union {
             .@"comptime_float" => return Value.initTag(.comptime_float_type),
             .@"noreturn" => return Value.initTag(.noreturn_type),
             .fn_naked_noreturn_no_args => return Value.initTag(.fn_naked_noreturn_no_args_type),
+            .single_const_pointer_to_comptime_int => return Value.initTag(.single_const_pointer_to_comptime_int_type),
             .const_slice_u8 => return Value.initTag(.const_slice_u8_type),
             else => {
                 const ty_payload = try allocator.create(Value.Payload.Ty);
@@ -219,7 +222,9 @@ pub const Type = extern union {
             .fn_naked_noreturn_no_args,
             => false,
 
-            .single_const_pointer => true,
+            .single_const_pointer,
+            .single_const_pointer_to_comptime_int,
+            => true,
         };
     }
 
@@ -253,6 +258,7 @@ pub const Type = extern union {
             .array,
             .array_u8_sentinel_0,
             .single_const_pointer,
+            .single_const_pointer_to_comptime_int,
             .fn_naked_noreturn_no_args,
             => false,
 
@@ -293,7 +299,10 @@ pub const Type = extern union {
             .fn_naked_noreturn_no_args,
             => unreachable,
 
-            .single_const_pointer, .const_slice_u8 => true,
+            .single_const_pointer,
+            .single_const_pointer_to_comptime_int,
+            .const_slice_u8,
+            => true,
         };
     }
 
@@ -330,7 +339,47 @@ pub const Type = extern union {
 
             .array => self.cast(Payload.Array).?.elem_type,
             .single_const_pointer => self.cast(Payload.SingleConstPointer).?.pointee_type,
-            .array_u8_sentinel_0, .const_slice_u8 => Type.initTag(.@"u8"),
+            .array_u8_sentinel_0, .const_slice_u8 => Type.initTag(.u8),
+            .single_const_pointer_to_comptime_int => Type.initTag(.comptime_int),
+        };
+    }
+
+    /// Asserts the type is an array.
+    pub fn arrayLen(self: Type) u64 {
+        return switch (self.tag()) {
+            .u8,
+            .i8,
+            .isize,
+            .usize,
+            .c_short,
+            .c_ushort,
+            .c_int,
+            .c_uint,
+            .c_long,
+            .c_ulong,
+            .c_longlong,
+            .c_ulonglong,
+            .c_longdouble,
+            .f16,
+            .f32,
+            .f64,
+            .f128,
+            .c_void,
+            .bool,
+            .void,
+            .type,
+            .anyerror,
+            .comptime_int,
+            .comptime_float,
+            .noreturn,
+            .fn_naked_noreturn_no_args,
+            .single_const_pointer,
+            .single_const_pointer_to_comptime_int,
+            .const_slice_u8,
+            => unreachable,
+
+            .array => self.cast(Payload.Array).?.len,
+            .array_u8_sentinel_0 => self.cast(Payload.Array_u8_Sentinel0).?.len,
         };
     }
 
@@ -353,6 +402,7 @@ pub const Type = extern union {
             .fn_naked_noreturn_no_args,
             .array,
             .single_const_pointer,
+            .single_const_pointer_to_comptime_int,
             .array_u8_sentinel_0,
             .const_slice_u8,
             => unreachable,
@@ -380,32 +430,33 @@ pub const Type = extern union {
     /// See `zigTypeTag` for the function that corresponds to `std.builtin.TypeId`.
     pub const Tag = enum {
         // The first section of this enum are tags that require no payload.
-        @"u8",
-        @"i8",
-        @"isize",
-        @"usize",
-        @"c_short",
-        @"c_ushort",
-        @"c_int",
-        @"c_uint",
-        @"c_long",
-        @"c_ulong",
-        @"c_longlong",
-        @"c_ulonglong",
-        @"c_longdouble",
-        @"c_void",
-        @"f16",
-        @"f32",
-        @"f64",
-        @"f128",
-        @"bool",
-        @"void",
-        @"type",
-        @"anyerror",
-        @"comptime_int",
-        @"comptime_float",
-        @"noreturn",
+        u8,
+        i8,
+        isize,
+        usize,
+        c_short,
+        c_ushort,
+        c_int,
+        c_uint,
+        c_long,
+        c_ulong,
+        c_longlong,
+        c_ulonglong,
+        c_longdouble,
+        c_void,
+        f16,
+        f32,
+        f64,
+        f128,
+        bool,
+        void,
+        type,
+        anyerror,
+        comptime_int,
+        comptime_float,
+        noreturn,
         fn_naked_noreturn_no_args,
+        single_const_pointer_to_comptime_int,
         const_slice_u8, // See last_no_payload_tag below.
         // After this, the tag requires a payload.
 

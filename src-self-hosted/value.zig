@@ -44,6 +44,7 @@ pub const Value = extern union {
         comptime_float_type,
         noreturn_type,
         fn_naked_noreturn_no_args_type,
+        single_const_pointer_to_comptime_int_type,
         const_slice_u8_type,
 
         void_value,
@@ -58,6 +59,7 @@ pub const Value = extern union {
         int_big,
         function,
         ref,
+        ref_val,
         bytes,
 
         pub const last_no_payload_tag = Tag.bool_false;
@@ -100,7 +102,8 @@ pub const Value = extern union {
         out_stream: var,
     ) !void {
         comptime assert(fmt.len == 0);
-        switch (self.tag()) {
+        var val = self;
+        while (true) switch (val.tag()) {
             .u8_type => return out_stream.writeAll("u8"),
             .i8_type => return out_stream.writeAll("i8"),
             .isize_type => return out_stream.writeAll("isize"),
@@ -127,20 +130,26 @@ pub const Value = extern union {
             .comptime_float_type => return out_stream.writeAll("comptime_float"),
             .noreturn_type => return out_stream.writeAll("noreturn"),
             .fn_naked_noreturn_no_args_type => return out_stream.writeAll("fn() callconv(.Naked) noreturn"),
+            .single_const_pointer_to_comptime_int_type => return out_stream.writeAll("*const comptime_int"),
             .const_slice_u8_type => return out_stream.writeAll("[]const u8"),
 
             .void_value => return out_stream.writeAll("{}"),
             .noreturn_value => return out_stream.writeAll("unreachable"),
             .bool_true => return out_stream.writeAll("true"),
             .bool_false => return out_stream.writeAll("false"),
-            .ty => return self.cast(Payload.Ty).?.ty.format("", options, out_stream),
-            .int_u64 => return std.fmt.formatIntValue(self.cast(Payload.Int_u64).?.int, "", options, out_stream),
-            .int_i64 => return std.fmt.formatIntValue(self.cast(Payload.Int_i64).?.int, "", options, out_stream),
-            .int_big => return out_stream.print("{}", .{self.cast(Payload.IntBig).?.big_int}),
+            .ty => return val.cast(Payload.Ty).?.ty.format("", options, out_stream),
+            .int_u64 => return std.fmt.formatIntValue(val.cast(Payload.Int_u64).?.int, "", options, out_stream),
+            .int_i64 => return std.fmt.formatIntValue(val.cast(Payload.Int_i64).?.int, "", options, out_stream),
+            .int_big => return out_stream.print("{}", .{val.cast(Payload.IntBig).?.big_int}),
             .function => return out_stream.writeAll("(function)"),
             .ref => return out_stream.writeAll("(ref)"),
+            .ref_val => {
+                try out_stream.writeAll("*const ");
+                val = val.cast(Payload.RefVal).?.val;
+                continue;
+            },
             .bytes => return std.zig.renderStringLiteral(self.cast(Payload.Bytes).?.data, out_stream),
-        }
+        };
     }
 
     /// Asserts that the value is representable as an array of bytes.
@@ -183,6 +192,7 @@ pub const Value = extern union {
             .comptime_float_type => Type.initTag(.@"comptime_float"),
             .noreturn_type => Type.initTag(.@"noreturn"),
             .fn_naked_noreturn_no_args_type => Type.initTag(.fn_naked_noreturn_no_args),
+            .single_const_pointer_to_comptime_int_type => Type.initTag(.single_const_pointer_to_comptime_int),
             .const_slice_u8_type => Type.initTag(.const_slice_u8),
 
             .void_value,
@@ -194,6 +204,7 @@ pub const Value = extern union {
             .int_big,
             .function,
             .ref,
+            .ref_val,
             .bytes,
             => unreachable,
         };
@@ -229,6 +240,7 @@ pub const Value = extern union {
             .comptime_float_type,
             .noreturn_type,
             .fn_naked_noreturn_no_args_type,
+            .single_const_pointer_to_comptime_int_type,
             .const_slice_u8_type,
             .void_value,
             .noreturn_value,
@@ -236,6 +248,7 @@ pub const Value = extern union {
             .bool_false,
             .function,
             .ref,
+            .ref_val,
             .bytes,
             => unreachable,
 
@@ -309,6 +322,11 @@ pub const Value = extern union {
         pub const Ref = struct {
             base: Payload = Payload{ .tag = .ref },
             pointee: *MemoryCell,
+        };
+
+        pub const RefVal = struct {
+            base: Payload = Payload{ .tag = .ref_val },
+            val: Value,
         };
 
         pub const Bytes = struct {
