@@ -39,7 +39,7 @@ pub const Inst = struct {
             .fieldptr => FieldPtr,
             .deref => Deref,
             .as => As,
-            .@"asm" => Assembly,
+            .@"asm" => Asm,
             .@"unreachable" => Unreachable,
             .@"fn" => Fn,
             .@"export" => Export,
@@ -118,7 +118,7 @@ pub const Inst = struct {
         kw_args: struct {},
     };
 
-    pub const Assembly = struct {
+    pub const Asm = struct {
         pub const base_tag = Tag.@"asm";
         base: Inst,
 

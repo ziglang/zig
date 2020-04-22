@@ -255,6 +255,7 @@ pub const Value = extern union {
             .int_u64 => switch (ty.zigTypeTag()) {
                 .Int => {
                     const x = self.cast(Payload.Int_u64).?.int;
+                    if (x == 0) return true;
                     const info = ty.intInfo(target);
                     const needed_bits = std.math.log2(x) + 1 + @boolToInt(info.signed);
                     return info.bits >= needed_bits;
@@ -265,6 +266,7 @@ pub const Value = extern union {
             .int_i64 => switch (ty.zigTypeTag()) {
                 .Int => {
                     const x = self.cast(Payload.Int_i64).?.int;
+                    if (x == 0) return true;
                     const info = ty.intInfo(target);
                     if (!info.signed and x < 0)
                         return false;

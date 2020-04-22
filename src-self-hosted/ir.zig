@@ -49,6 +49,12 @@ pub const Inst = struct {
         };
     }
 
+    pub const Unreach = struct {
+        pub const base_tag = Tag.unreach;
+        base: Inst,
+        args: void,
+    };
+
     pub const Constant = struct {
         pub const base_tag = Tag.constant;
         base: Inst,
@@ -63,7 +69,7 @@ pub const Inst = struct {
         args: struct {
             asm_source: []const u8,
             is_volatile: bool,
-            output: []const u8,
+            output: ?[]const u8,
             inputs: []const []const u8,
             clobbers: []const []const u8,
             args: []const *Inst,
@@ -260,6 +266,7 @@ const Analyze = struct {
         });
     }
 
+    /// TODO should not need the cast on the last parameter at the callsites
     fn addNewInstArgs(
         self: *Analyze,
         func: *Fn,
@@ -318,8 +325,15 @@ const Analyze = struct {
 
     fn constType(self: *Analyze, src: usize, ty: Type) !*Inst {
         return self.constInst(src, .{
-            .ty = Type.initTag(.@"type"),
+            .ty = Type.initTag(.type),
             .val = try ty.toValue(&self.arena.allocator),
+        });
+    }
+
+    fn constVoid(self: *Analyze, src: usize) !*Inst {
+        return self.constInst(src, .{
+            .ty = Type.initTag(.void),
+            .val = Value.initTag(.void_value),
         });
     }
 
@@ -385,10 +399,13 @@ const Analyze = struct {
             .fieldptr => return self.analyzeInstFieldPtr(func, old_inst.cast(text.Inst.FieldPtr).?),
             .deref => return self.analyzeInstDeref(func, old_inst.cast(text.Inst.Deref).?),
             .as => return self.analyzeInstAs(func, old_inst.cast(text.Inst.As).?),
-            .@"asm" => return self.fail(old_inst.src, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
-            .@"unreachable" => return self.fail(old_inst.src, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
+            .@"asm" => return self.analyzeInstAsm(func, old_inst.cast(text.Inst.Asm).?),
+            .@"unreachable" => return self.analyzeInstUnreachable(func, old_inst.cast(text.Inst.Unreachable).?),
             .@"fn" => return self.analyzeInstFn(func, old_inst.cast(text.Inst.Fn).?),
-            .@"export" => return self.fail(old_inst.src, "TODO implement analyzing {}", .{@tagName(old_inst.tag)}),
+            .@"export" => {
+                try self.analyzeExport(func, old_inst.cast(text.Inst.Export).?);
+                return self.constVoid(old_inst.src);
+            },
             .primitive => return self.analyzeInstPrimitive(func, old_inst.cast(text.Inst.Primitive).?),
             .fntype => return self.analyzeInstFnType(func, old_inst.cast(text.Inst.FnType).?),
             .intcast => return self.analyzeInstIntCast(func, old_inst.cast(text.Inst.IntCast).?),
@@ -466,7 +483,6 @@ const Analyze = struct {
         // TODO handle known-pointer-address
         const f = try self.requireFunctionBody(func, ptrtoint.base.src);
         const ty = Type.initTag(.usize);
-        // TODO should not need the cast on the last parameter
         return self.addNewInstArgs(f, ptrtoint.base.src, ty, Inst.PtrToInt, Inst.Args(Inst.PtrToInt){ .ptr = ptr });
     }
 
@@ -549,6 +565,41 @@ const Analyze = struct {
         }
 
         return self.fail(deref.base.src, "TODO implement runtime deref", .{});
+    }
+
+    fn analyzeInstAsm(self: *Analyze, func: ?*Fn, assembly: *text.Inst.Asm) InnerError!*Inst {
+        const return_type = try self.resolveType(func, assembly.positionals.return_type);
+        const asm_source = try self.resolveConstString(func, assembly.positionals.asm_source);
+        const output = if (assembly.kw_args.output) |o| try self.resolveConstString(func, o) else null;
+
+        const inputs = try self.arena.allocator.alloc([]const u8, assembly.kw_args.inputs.len);
+        const clobbers = try self.arena.allocator.alloc([]const u8, assembly.kw_args.clobbers.len);
+        const args = try self.arena.allocator.alloc(*Inst, assembly.kw_args.args.len);
+
+        for (inputs) |*elem, i| {
+            elem.* = try self.resolveConstString(func, assembly.kw_args.inputs[i]);
+        }
+        for (clobbers) |*elem, i| {
+            elem.* = try self.resolveConstString(func, assembly.kw_args.clobbers[i]);
+        }
+        for (args) |*elem, i| {
+            elem.* = try self.resolveInst(func, assembly.kw_args.args[i]);
+        }
+
+        const f = try self.requireFunctionBody(func, assembly.base.src);
+        return self.addNewInstArgs(f, assembly.base.src, return_type, Inst.Assembly, Inst.Args(Inst.Assembly){
+            .asm_source = asm_source,
+            .is_volatile = assembly.kw_args.@"volatile",
+            .output = output,
+            .inputs = inputs,
+            .clobbers = clobbers,
+            .args = args,
+        });
+    }
+
+    fn analyzeInstUnreachable(self: *Analyze, func: ?*Fn, unreach: *text.Inst.Unreachable) InnerError!*Inst {
+        const f = try self.requireFunctionBody(func, unreach.base.src);
+        return self.addNewInstArgs(f, unreach.base.src, Type.initTag(.noreturn), Inst.Unreach, {});
     }
 
     fn coerce(self: *Analyze, dest_type: Type, inst: *Inst) !*Inst {
