@@ -34,7 +34,6 @@ pub fn generateSymbol(typed_value: ir.TypedValue, module: ir.Module, code: *std.
                 .code = code,
                 .inst_table = std.AutoHashMap(*ir.Inst, Function.MCValue).init(code.allocator),
                 .errors = std.ArrayList(ErrorMsg).init(code.allocator),
-                .constants = std.ArrayList(ir.TypedValue).init(code.allocator),
             };
             defer function.inst_table.deinit();
             defer function.errors.deinit();
@@ -49,6 +48,7 @@ pub fn generateSymbol(typed_value: ir.TypedValue, module: ir.Module, code: *std.
                 };
                 try function.inst_table.putNoClobber(inst, new_inst);
             }
+
             return Symbol{ .errors = function.errors.toOwnedSlice() };
         },
         else => @panic("TODO implement generateSymbol for non-function types"),
@@ -60,10 +60,6 @@ const Function = struct {
     mod_fn: *const ir.Module.Fn,
     code: *std.ArrayList(u8),
     inst_table: std.AutoHashMap(*ir.Inst, MCValue),
-    /// Constants are embedded within functions (at the end, after `ret`)
-    /// so that they are independently updateable.
-    /// This is a list of constants that must be appended to the symbol after `ret`.
-    constants: std.ArrayList(ir.TypedValue),
     errors: std.ArrayList(ErrorMsg),
 
     const MCValue = union(enum) {
@@ -71,8 +67,8 @@ const Function = struct {
         unreach,
         /// A pointer-sized integer that fits in a register.
         immediate: u64,
-        /// Refers to the index into `constants` field of `Function`.
-        local_const_ptr: usize,
+        /// The constant was emitted into the code, at this offset.
+        embedded_in_code: usize,
     };
 
     fn genFuncInst(self: *Function, inst: *ir.Inst) !MCValue {
@@ -88,11 +84,44 @@ const Function = struct {
         // TODO change this to call the panic function
         switch (self.module.target.cpu.arch) {
             .i386, .x86_64 => {
-                try self.code.append(0xcc); // x86 int3
+                try self.code.append(0xcc); // int3
             },
             else => return self.fail(src, "TODO implement panic for {}", .{self.module.target.cpu.arch}),
         }
         return .unreach;
+    }
+
+    fn genRet(self: *Function, src: usize) !void {
+        // TODO change this to call the panic function
+        switch (self.module.target.cpu.arch) {
+            .i386, .x86_64 => {
+                try self.code.append(0xc3); // ret
+            },
+            else => return self.fail(src, "TODO implement ret for {}", .{self.module.target.cpu.arch}),
+        }
+    }
+
+    fn genRelativeFwdJump(self: *Function, src: usize, amount: u32) !void {
+        switch (self.module.target.cpu.arch) {
+            .i386, .x86_64 => {
+                if (amount <= std.math.maxInt(u8)) {
+                    try self.code.resize(self.code.items.len + 2);
+                    self.code.items[self.code.items.len - 2] = 0xeb;
+                    self.code.items[self.code.items.len - 1] = @intCast(u8, amount);
+                } else if (amount <= std.math.maxInt(u16)) {
+                    try self.code.resize(self.code.items.len + 3);
+                    self.code.items[self.code.items.len - 3] = 0xe9; // jmp rel16
+                    const imm_ptr = self.code.items[self.code.items.len - 2 ..][0..2];
+                    mem.writeIntLittle(u16, imm_ptr, @intCast(u16, amount));
+                } else {
+                    try self.code.resize(self.code.items.len + 5);
+                    self.code.items[self.code.items.len - 5] = 0xea; // jmp rel32
+                    const imm_ptr = self.code.items[self.code.items.len - 4 ..][0..4];
+                    mem.writeIntLittle(u32, imm_ptr, amount);
+                }
+            },
+            else => return self.fail(src, "TODO implement relative forward jump for {}", .{self.module.target.cpu.arch}),
+        }
     }
 
     fn genAsm(self: *Function, inst: *ir.Inst.Assembly) !MCValue {
@@ -105,20 +134,48 @@ const Function = struct {
     }
 
     fn resolveInst(self: *Function, inst: *ir.Inst) !MCValue {
+        if (self.inst_table.getValue(inst)) |mcv| {
+            return mcv;
+        }
         if (inst.cast(ir.Inst.Constant)) |const_inst| {
-            switch (inst.ty.zigTypeTag()) {
-                .Int => {
-                    const info = inst.ty.intInfo(self.module.target);
-                    const ptr_bits = self.module.target.cpu.arch.ptrBitWidth();
-                    if (info.bits > ptr_bits or info.signed) {
-                        return self.fail(inst.src, "TODO const int bigger than ptr and signed int", .{});
-                    }
-                    return MCValue{ .immediate = const_inst.val.toUnsignedInt() };
-                },
-                else => return self.fail(inst.src, "TODO implement const of type '{}'", .{inst.ty}),
-            }
+            const mcvalue = try self.genTypedValue(inst.src, .{ .ty = inst.ty, .val = const_inst.val });
+            try self.inst_table.putNoClobber(inst, mcvalue);
+            return mcvalue;
         } else {
             return self.inst_table.getValue(inst).?;
+        }
+    }
+
+    fn genTypedValue(self: *Function, src: usize, typed_value: ir.TypedValue) !MCValue {
+        switch (typed_value.ty.zigTypeTag()) {
+            .Pointer => {
+                const ptr_elem_type = typed_value.ty.elemType();
+                switch (ptr_elem_type.zigTypeTag()) {
+                    .Array => {
+                        // TODO more checks to make sure this can be emitted as a string literal
+                        const bytes = try typed_value.val.toAllocatedBytes(self.code.allocator);
+                        defer self.code.allocator.free(bytes);
+                        const smaller_len = std.math.cast(u32, bytes.len) catch
+                            return self.fail(src, "TODO handle a larger string constant", .{});
+
+                        // Emit the string literal directly into the code; jump over it.
+                        const offset = self.code.items.len;
+                        try self.genRelativeFwdJump(src, smaller_len);
+                        try self.code.appendSlice(bytes);
+                        return MCValue{ .embedded_in_code = offset };
+                    },
+                    else => |t| return self.fail(src, "TODO implement emitTypedValue for pointer to '{}'", .{@tagName(t)}),
+                }
+            },
+            .Int => {
+                const info = typed_value.ty.intInfo(self.module.target);
+                const ptr_bits = self.module.target.cpu.arch.ptrBitWidth();
+                if (info.bits > ptr_bits or info.signed) {
+                    return self.fail(src, "TODO const int bigger than ptr and signed int", .{});
+                }
+                return MCValue{ .immediate = typed_value.val.toUnsignedInt() };
+            },
+            else => return self.fail(src, "TODO implement const of type '{}'", .{typed_value.ty}),
         }
     }
 
