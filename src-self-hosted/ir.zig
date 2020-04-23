@@ -724,7 +724,16 @@ pub fn main() anyerror!void {
     }
 
     const link = @import("link.zig");
-    try link.updateExecutableFilePath(allocator, analyzed_module, std.fs.cwd(), "a.out");
+    var result = try link.updateExecutableFilePath(allocator, analyzed_module, std.fs.cwd(), "a.out");
+    defer result.deinit(allocator);
+    if (result.errors.len != 0) {
+        for (result.errors) |err_msg| {
+            const loc = findLineColumn(source, err_msg.byte_offset);
+            std.debug.warn("{}:{}:{}: error: {}\n", .{ src_path, loc.line + 1, loc.column + 1, err_msg.msg });
+        }
+        if (debug_error_trace) return error.ParseFailure;
+        std.process.exit(1);
+    }
 }
 
 fn findLineColumn(source: []const u8, byte_offset: usize) struct { line: usize, column: usize } {

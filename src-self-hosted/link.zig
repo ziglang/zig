@@ -5,15 +5,38 @@ const Allocator = std.mem.Allocator;
 const ir = @import("ir.zig");
 const fs = std.fs;
 const elf = std.elf;
+const codegen = @import("codegen.zig");
 
 const executable_mode = 0o755;
 const default_entry_addr = 0x8000000;
+
+pub const ErrorMsg = struct {
+    byte_offset: usize,
+    msg: []const u8,
+};
+
+pub const Result = struct {
+    errors: []ErrorMsg,
+
+    pub fn deinit(self: *Result, allocator: *mem.Allocator) void {
+        for (self.errors) |err| {
+            allocator.free(err.msg);
+        }
+        allocator.free(self.errors);
+        self.* = undefined;
+    }
+};
 
 /// Attempts incremental linking, if the file already exists.
 /// If incremental linking fails, falls back to truncating the file and rewriting it.
 /// A malicious file is detected as incremental link failure and does not cause Illegal Behavior.
 /// This operation is not atomic.
-pub fn updateExecutableFilePath(allocator: *Allocator, module: ir.Module, dir: fs.Dir, sub_path: []const u8) !void {
+pub fn updateExecutableFilePath(
+    allocator: *Allocator,
+    module: ir.Module,
+    dir: fs.Dir,
+    sub_path: []const u8,
+) !Result {
     const file = try dir.createFile(sub_path, .{ .truncate = false, .read = true, .mode = executable_mode });
     defer file.close();
 
@@ -21,12 +44,18 @@ pub fn updateExecutableFilePath(allocator: *Allocator, module: ir.Module, dir: f
 }
 
 /// Atomically overwrites the old file, if present.
-pub fn writeExecutableFilePath(allocator: *Allocator, module: ir.Module, dir: fs.Dir, sub_path: []const u8) !void {
+pub fn writeExecutableFilePath(
+    allocator: *Allocator,
+    module: ir.Module,
+    dir: fs.Dir,
+    sub_path: []const u8,
+) !Result {
     const af = try dir.atomicFile(sub_path, .{ .mode = executable_mode });
     defer af.deinit();
 
-    try writeExecutableFile(allocator, module, af.file);
+    const result = try writeExecutableFile(allocator, module, af.file);
     try af.finish();
+    return result;
 }
 
 /// Attempts incremental linking, if the file already exists.
@@ -34,8 +63,8 @@ pub fn writeExecutableFilePath(allocator: *Allocator, module: ir.Module, dir: fs
 /// Returns an error if `file` is not already open with +read +write +seek abilities.
 /// A malicious file is detected as incremental link failure and does not cause Illegal Behavior.
 /// This operation is not atomic.
-pub fn updateExecutableFile(allocator: *Allocator, module: ir.Module, file: fs.File) !void {
-    updateExecutableFileInner(allocator, module, file) catch |err| switch (err) {
+pub fn updateExecutableFile(allocator: *Allocator, module: ir.Module, file: fs.File) !Result {
+    return updateExecutableFileInner(allocator, module, file) catch |err| switch (err) {
         error.IncrFailed => {
             return writeExecutableFile(allocator, module, file);
         },
@@ -66,20 +95,17 @@ const Update = struct {
     text_section_index: ?u16,
     symtab_section_index: ?u16,
 
-    /// Key: index into strtab. Value: index into symbols.
-    symbol_table: std.AutoHashMap(usize, usize),
     /// The same order as in the file
     symbols: std.ArrayList(elf.Elf64_Sym),
-    /// Sorted by address, index into symbols
-    symbols_by_addr: std.ArrayList(usize),
+
+    errors: std.ArrayList(ErrorMsg),
 
     fn deinit(self: *Update) void {
         self.sections.deinit();
         self.program_headers.deinit();
         self.shstrtab.deinit();
-        self.symbol_table.deinit();
         self.symbols.deinit();
-        self.symbols_by_addr.deinit();
+        self.errors.deinit();
     }
 
     // `expand_num / expand_den` is the factor of padding when allocation
@@ -162,6 +188,7 @@ const Update = struct {
     fn makeString(self: *Update, bytes: []const u8) !u32 {
         const result = self.shstrtab.items.len;
         try self.shstrtab.appendSlice(bytes);
+        try self.shstrtab.append(0);
         return @intCast(u32, result);
     }
 
@@ -187,6 +214,7 @@ const Update = struct {
             const file_size = 256 * 1024;
             const p_align = 0x1000;
             const off = self.findFreeSpace(file_size, p_align);
+            //std.debug.warn("found PT_LOAD free space 0x{x} to 0x{x}\n", .{ off, off + file_size });
             try self.program_headers.append(.{
                 .p_type = elf.PT_LOAD,
                 .p_offset = off,
@@ -194,10 +222,10 @@ const Update = struct {
                 .p_vaddr = default_entry_addr,
                 .p_paddr = default_entry_addr,
                 .p_memsz = 0,
-                .p_align = 0x1000,
+                .p_align = p_align,
                 .p_flags = elf.PF_X | elf.PF_R,
             });
-            self.entry_addr = default_entry_addr;
+            self.entry_addr = null;
             phdr_load_re_dirty = true;
             phdr_table_dirty = true;
         }
@@ -220,6 +248,7 @@ const Update = struct {
         if (self.shstrtab_index == null) {
             self.shstrtab_index = @intCast(u16, self.sections.items.len);
             const off = self.findFreeSpace(self.shstrtab.items.len, 1);
+            //std.debug.warn("found shstrtab free space 0x{x} to 0x{x}\n", .{ off, off + self.shstrtab.items.len });
             try self.sections.append(.{
                 .sh_name = try self.makeString(".shstrtab"),
                 .sh_type = elf.SHT_STRTAB,
@@ -259,6 +288,7 @@ const Update = struct {
             const each_size: u64 = if (small_ptr) @sizeOf(elf.Elf32_Sym) else @sizeOf(elf.Elf64_Sym);
             const file_size = self.module.exports.len * each_size;
             const off = self.findFreeSpace(file_size, min_align);
+            //std.debug.warn("found symtab free space 0x{x} to 0x{x}\n", .{ off, off + file_size });
 
             try self.sections.append(.{
                 .sh_name = try self.makeString(".symtab"),
@@ -307,6 +337,7 @@ const Update = struct {
             const needed_size = self.program_headers.items.len * phsize;
 
             if (needed_size > allocated_size) {
+                self.phdr_table_offset = null; // free the space
                 self.phdr_table_offset = self.findFreeSpace(needed_size, phalign);
             }
 
@@ -361,6 +392,7 @@ const Update = struct {
             const needed_size = self.sections.items.len * phsize;
 
             if (needed_size > allocated_size) {
+                self.shdr_table_offset = null; // free the space
                 self.shdr_table_offset = self.findFreeSpace(needed_size, phalign);
             }
 
@@ -414,11 +446,30 @@ const Update = struct {
                 },
             }
         }
-        if (shstrtab_dirty) {
-            try self.file.pwriteAll(self.shstrtab.items, self.sections.items[self.shstrtab_index.?].sh_offset);
-        }
         try self.writeCodeAndSymbols();
-        try self.writeElfHeader();
+
+        const shstrtab_sect = &self.sections.items[self.shstrtab_index.?];
+        if (shstrtab_dirty or self.shstrtab.items.len != shstrtab_sect.sh_size) {
+            const allocated_size = self.allocatedSize(shstrtab_sect.sh_offset);
+            const needed_size = self.shstrtab.items.len;
+
+            if (needed_size > allocated_size) {
+                shstrtab_sect.sh_size = 0; // free the space
+                shstrtab_sect.sh_offset = self.findFreeSpace(needed_size, 1);
+                shstrtab_sect.sh_size = needed_size;
+            }
+            try self.file.pwriteAll(self.shstrtab.items, shstrtab_sect.sh_offset);
+        }
+        if (self.entry_addr == null) {
+            const msg = try std.fmt.allocPrint(self.errors.allocator, "no entry point found", .{});
+            errdefer self.errors.allocator.free(msg);
+            try self.errors.append(.{
+                .byte_offset = 0,
+                .msg = msg,
+            });
+        } else {
+            try self.writeElfHeader();
+        }
         // TODO find end pos and truncate
     }
 
@@ -540,13 +591,122 @@ const Update = struct {
     }
 
     fn writeCodeAndSymbols(self: *Update) !void {
-        @panic("TODO writeCodeAndSymbols");
+        // index 0 is always a null symbol
+        try self.symbols.resize(1);
+        self.symbols.items[0] = .{
+            .st_name = 0,
+            .st_info = 0,
+            .st_other = 0,
+            .st_shndx = 0,
+            .st_value = 0,
+            .st_size = 0,
+        };
+
+        const phdr = &self.program_headers.items[self.phdr_load_re_index.?];
+        var vaddr: u64 = phdr.p_vaddr;
+
+        var code = std.ArrayList(u8).init(self.sections.allocator);
+        defer code.deinit();
+
+        for (self.module.exports) |exp| {
+            code.shrink(0);
+            var symbol = try codegen.generateSymbol(exp.typed_value, self.module.*, &code);
+            defer symbol.deinit(code.allocator);
+            if (symbol.errors.len != 0) {
+                for (symbol.errors) |err| {
+                    const msg = try mem.dupe(self.errors.allocator, u8, err.msg);
+                    errdefer self.errors.allocator.free(msg);
+                    try self.errors.append(.{
+                        .byte_offset = err.byte_offset,
+                        .msg = msg,
+                    });
+                }
+                continue;
+            }
+
+            if (mem.eql(u8, exp.name, "_start")) {
+                self.entry_addr = vaddr;
+            }
+            (try self.symbols.addOne()).* = .{
+                .st_name = try self.makeString(exp.name),
+                .st_info = (elf.STB_LOCAL << 4) | elf.STT_FUNC,
+                .st_other = 0,
+                .st_shndx = self.text_section_index.?,
+                .st_value = vaddr,
+                .st_size = code.items.len,
+            };
+            vaddr += code.items.len;
+        }
+
+        return self.writeSymbols();
+    }
+
+    fn writeSymbols(self: *Update) !void {
+        const ptr_width: enum { p32, p64 } = switch (self.module.target.cpu.arch.ptrBitWidth()) {
+            32 => .p32,
+            64 => .p64,
+            else => return error.UnsupportedArchitecture,
+        };
+        const small_ptr = ptr_width == .p32;
+        const syms_sect = &self.sections.items[self.symtab_section_index.?];
+        const sym_align: u16 = if (small_ptr) @alignOf(elf.Elf32_Sym) else @alignOf(elf.Elf64_Sym);
+        const sym_size: u64 = if (small_ptr) @sizeOf(elf.Elf32_Sym) else @sizeOf(elf.Elf64_Sym);
+
+        const allocated_size = self.allocatedSize(syms_sect.sh_offset);
+        const needed_size = self.symbols.items.len * sym_size;
+        if (needed_size > allocated_size) {
+            syms_sect.sh_size = 0; // free the space
+            syms_sect.sh_offset = self.findFreeSpace(needed_size, sym_align);
+            syms_sect.sh_size = needed_size;
+        }
+        const allocator = self.symbols.allocator;
+        const foreign_endian = self.module.target.cpu.arch.endian() != std.Target.current.cpu.arch.endian();
+        switch (ptr_width) {
+            .p32 => {
+                const buf = try allocator.alloc(elf.Elf32_Sym, self.symbols.items.len);
+                defer allocator.free(buf);
+
+                for (buf) |*sym, i| {
+                    sym.* = .{
+                        .st_name = self.symbols.items[i].st_name,
+                        .st_value = @intCast(u32, self.symbols.items[i].st_value),
+                        .st_size = @intCast(u32, self.symbols.items[i].st_size),
+                        .st_info = self.symbols.items[i].st_info,
+                        .st_other = self.symbols.items[i].st_other,
+                        .st_shndx = self.symbols.items[i].st_shndx,
+                    };
+                    if (foreign_endian) {
+                        bswapAllFields(elf.Elf32_Sym, sym);
+                    }
+                }
+                try self.file.pwriteAll(mem.sliceAsBytes(buf), syms_sect.sh_offset);
+            },
+            .p64 => {
+                const buf = try allocator.alloc(elf.Elf64_Sym, self.symbols.items.len);
+                defer allocator.free(buf);
+
+                for (buf) |*sym, i| {
+                    sym.* = .{
+                        .st_name = self.symbols.items[i].st_name,
+                        .st_value = self.symbols.items[i].st_value,
+                        .st_size = self.symbols.items[i].st_size,
+                        .st_info = self.symbols.items[i].st_info,
+                        .st_other = self.symbols.items[i].st_other,
+                        .st_shndx = self.symbols.items[i].st_shndx,
+                    };
+                    if (foreign_endian) {
+                        bswapAllFields(elf.Elf64_Sym, sym);
+                    }
+                }
+                try self.file.pwriteAll(mem.sliceAsBytes(buf), syms_sect.sh_offset);
+            },
+        }
     }
 };
 
 /// Truncates the existing file contents and overwrites the contents.
 /// Returns an error if `file` is not already open with +read +write +seek abilities.
-pub fn writeExecutableFile(allocator: *Allocator, module: ir.Module, file: fs.File) !void {
+pub fn writeExecutableFile(allocator: *Allocator, module: ir.Module, file: fs.File) !Result {
     var update = Update{
         .file = file,
         .module = &module,
@@ -561,17 +721,20 @@ pub fn writeExecutableFile(allocator: *Allocator, module: ir.Module, file: fs.Fi
         .text_section_index = null,
         .symtab_section_index = null,
 
-        .symbol_table = std.AutoHashMap(usize, usize).init(allocator),
         .symbols = std.ArrayList(elf.Elf64_Sym).init(allocator),
-        .symbols_by_addr = std.ArrayList(usize).init(allocator),
+
+        .errors = std.ArrayList(ErrorMsg).init(allocator),
     };
     defer update.deinit();
 
-    return update.perform();
+    try update.perform();
+    return Result{
+        .errors = update.errors.toOwnedSlice(),
+    };
 }
 
 /// Returns error.IncrFailed if incremental update could not be performed.
-fn updateExecutableFileInner(allocator: *Allocator, module: ir.Module, file: fs.File) !void {
+fn updateExecutableFileInner(allocator: *Allocator, module: ir.Module, file: fs.File) !Result {
     //var ehdr_buf: [@sizeOf(elf.Elf64_Ehdr)]u8 = undefined;
 
     // TODO implement incremental linking
