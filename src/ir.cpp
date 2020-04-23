@@ -16423,9 +16423,18 @@ static IrInstGen *ir_analyze_bin_op_cmp_optional_non_optional(IrAnalyze *ira, Ir
 
         bool are_equal = false;
         if (!optional_value_is_null(optional_val)) {
-            // this function will never be invoked if optional_val is an optional pointer, so accessing
-            // x_optional is fine without having to check get_src_ptr_type
-            are_equal = const_values_equal(ira->codegen, optional_val->data.x_optional, non_optional_val);
+            IrInstGen *optional_unwrapped = ir_analyze_optional_value_payload_value(ira, source_instr, optional, false);
+            if (type_is_invalid(optional_unwrapped->value->type)) {
+                return ira->codegen->invalid_inst_gen;
+            }
+            assert(instr_is_comptime(optional_unwrapped));
+
+            ZigValue *optional_unwrapped_val = ir_resolve_const(ira, optional_unwrapped, UndefBad);
+            if (!optional_unwrapped_val) {
+                return ira->codegen->invalid_inst_gen;
+            }
+
+            are_equal = const_values_equal(ira->codegen, optional_unwrapped_val, non_optional_val);
         }
         return ir_const_bool(ira, source_instr, (op_id == IrBinOpCmpEq)? are_equal : !are_equal);
     }
