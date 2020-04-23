@@ -96,6 +96,7 @@ pub const Module = struct {
     errors: []ErrorMsg,
     arena: std.heap.ArenaAllocator,
     fns: []Fn,
+    target: Target,
 
     pub const Export = struct {
         name: []const u8,
@@ -122,9 +123,7 @@ pub const ErrorMsg = struct {
     msg: []const u8,
 };
 
-pub fn analyze(allocator: *Allocator, old_module: text.Module) !Module {
-    const native_info = try std.zig.system.NativeTargetInfo.detect(allocator, .{});
-
+pub fn analyze(allocator: *Allocator, old_module: text.Module, target: Target) !Module {
     var ctx = Analyze{
         .allocator = allocator,
         .arena = std.heap.ArenaAllocator.init(allocator),
@@ -133,7 +132,7 @@ pub fn analyze(allocator: *Allocator, old_module: text.Module) !Module {
         .decl_table = std.AutoHashMap(*text.Inst, Analyze.NewDecl).init(allocator),
         .exports = std.ArrayList(Module.Export).init(allocator),
         .fns = std.ArrayList(Module.Fn).init(allocator),
-        .target = native_info.target,
+        .target = target,
     };
     defer ctx.errors.deinit();
     defer ctx.decl_table.deinit();
@@ -152,6 +151,7 @@ pub fn analyze(allocator: *Allocator, old_module: text.Module) !Module {
         .errors = ctx.errors.toOwnedSlice(),
         .fns = ctx.fns.toOwnedSlice(),
         .arena = ctx.arena,
+        .target = target,
     };
 }
 
@@ -699,7 +699,9 @@ pub fn main() anyerror!void {
         std.process.exit(1);
     }
 
-    var analyzed_module = try analyze(allocator, zir_module);
+    const native_info = try std.zig.system.NativeTargetInfo.detect(allocator, .{});
+
+    var analyzed_module = try analyze(allocator, zir_module, native_info.target);
     defer analyzed_module.deinit(allocator);
 
     if (analyzed_module.errors.len != 0) {
@@ -711,12 +713,18 @@ pub fn main() anyerror!void {
         std.process.exit(1);
     }
 
-    var new_zir_module = try text.emit_zir(allocator, analyzed_module);
-    defer new_zir_module.deinit(allocator);
+    const output_zir = false;
+    if (output_zir) {
+        var new_zir_module = try text.emit_zir(allocator, analyzed_module);
+        defer new_zir_module.deinit(allocator);
 
-    var bos = std.io.bufferedOutStream(std.io.getStdOut().outStream());
-    try new_zir_module.writeToStream(allocator, bos.outStream());
-    try bos.flush();
+        var bos = std.io.bufferedOutStream(std.io.getStdOut().outStream());
+        try new_zir_module.writeToStream(allocator, bos.outStream());
+        try bos.flush();
+    }
+
+    const link = @import("link.zig");
+    try link.updateExecutableFilePath(allocator, analyzed_module, std.fs.cwd(), "a.out");
 }
 
 fn findLineColumn(source: []const u8, byte_offset: usize) struct { line: usize, column: usize } {
