@@ -15806,12 +15806,12 @@ static void set_optional_payload(ZigValue *opt_val, ZigValue *payload) {
 }
 
 static IrInstGen *ir_evaluate_bin_op_cmp(IrAnalyze *ira, ZigType *resolved_type,
-    ZigValue *op1_val, ZigValue *op2_val, IrInstSrcBinOp *bin_op_instruction, IrBinOp op_id,
+    ZigValue *op1_val, ZigValue *op2_val, IrInst *source_instr, IrBinOp op_id,
     bool one_possible_value)
 {
     if (op1_val->special == ConstValSpecialUndef ||
         op2_val->special == ConstValSpecialUndef)
-        return ir_const_undef(ira, &bin_op_instruction->base.base, resolved_type);
+        return ir_const_undef(ira, source_instr, resolved_type);
     if (resolved_type->id == ZigTypeIdPointer && op_id != IrBinOpCmpEq && op_id != IrBinOpCmpNotEq) {
         if ((op1_val->data.x_ptr.special == ConstPtrSpecialHardCodedAddr ||
                 op1_val->data.x_ptr.special == ConstPtrSpecialNull) &&
@@ -15831,7 +15831,7 @@ static IrInstGen *ir_evaluate_bin_op_cmp(IrAnalyze *ira, ZigType *resolved_type,
                 cmp_result = CmpEQ;
             }
             bool answer = resolve_cmp_op_id(op_id, cmp_result);
-            return ir_const_bool(ira, &bin_op_instruction->base.base, answer);
+            return ir_const_bool(ira, source_instr, answer);
         }
     } else {
         bool are_equal = one_possible_value || const_values_equal(ira->codegen, op1_val, op2_val);
@@ -15843,7 +15843,7 @@ static IrInstGen *ir_evaluate_bin_op_cmp(IrAnalyze *ira, ZigType *resolved_type,
         } else {
             zig_unreachable();
         }
-        return ir_const_bool(ira, &bin_op_instruction->base.base, answer);
+        return ir_const_bool(ira, source_instr, answer);
     }
     zig_unreachable();
 }
@@ -16745,7 +16745,7 @@ static IrInstGen *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstSrcBinOp *bin_op_i
         if (op2_val == nullptr)
             return ira->codegen->invalid_inst_gen;
         if (resolved_type->id != ZigTypeIdVector)
-            return ir_evaluate_bin_op_cmp(ira, resolved_type, op1_val, op2_val, bin_op_instruction, op_id, one_possible_value);
+            return ir_evaluate_bin_op_cmp(ira, resolved_type, op1_val, op2_val, &bin_op_instruction->base.base, op_id, one_possible_value);
         IrInstGen *result = ir_const(ira, &bin_op_instruction->base.base,
             get_vector_type(ira->codegen, resolved_type->data.vector.len, ira->codegen->builtin_types.entry_bool));
         result->value->data.x_array.data.s_none.elements =
@@ -16756,7 +16756,7 @@ static IrInstGen *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstSrcBinOp *bin_op_i
             IrInstGen *cur_res = ir_evaluate_bin_op_cmp(ira, resolved_type->data.vector.elem_type,
                 &op1_val->data.x_array.data.s_none.elements[i],
                 &op2_val->data.x_array.data.s_none.elements[i],
-                bin_op_instruction, op_id, one_possible_value);
+                &bin_op_instruction->base.base, op_id, one_possible_value);
             copy_const_val(ira->codegen, &result->value->data.x_array.data.s_none.elements[i], cur_res->value);
         }
         return result;
