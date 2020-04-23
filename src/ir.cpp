@@ -29079,6 +29079,12 @@ static IrInstGen *ir_analyze_instruction_ptr_type(IrAnalyze *ira, IrInstSrcPtrTy
     lazy_ptr_type->base.id = LazyValueIdPtrType;
 
     if (instruction->sentinel != nullptr) {
+        if (instruction->ptr_len != PtrLenUnknown) {
+            ir_add_error(ira, &instruction->base.base,
+                buf_sprintf("sentinels are only allowed on unknown-length pointers"));
+            return ira->codegen->invalid_inst_gen;
+        }
+
         lazy_ptr_type->sentinel = instruction->sentinel->child;
         if (ir_resolve_const(ira, lazy_ptr_type->sentinel, LazyOk) == nullptr)
             return ira->codegen->invalid_inst_gen;
