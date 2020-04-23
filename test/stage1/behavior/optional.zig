@@ -32,6 +32,17 @@ fn testNullPtrsEql() void {
     expect(&number == x);
 }
 
+test "equality compare optional with non-optional" {
+    const ten: i32 = 10;
+    const opt_ten: ?i32 = 10;
+    const five: i32 = 5;
+    const n: ?i32 = null;
+
+    expect(n != ten);
+    expect(opt_ten == ten);
+    expect(opt_ten != five);
+}
+
 test "address of unwrap optional" {
     const S = struct {
         const Foo = struct {

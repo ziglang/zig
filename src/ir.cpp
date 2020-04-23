@@ -15,6 +15,7 @@
 #include "softfloat.hpp"
 #include "util.hpp"
 #include "mem_list.hpp"
+#include "all_types.hpp"
 
 #include <errno.h>
 
@@ -16381,6 +16382,57 @@ static IrInstGen *ir_analyze_bin_op_cmp_numeric(IrAnalyze *ira, IrInst *source_i
     return ir_build_bin_op_gen(ira, source_instr, result_type, op_id, casted_op1, casted_op2, true);
 }
 
+
+static IrInstGen *ir_analyze_bin_op_cmp_optional_non_optional(IrAnalyze *ira, IrInst *source_instr,
+        IrInstGen *op1, IrInstGen *op2, IrBinOp op_id, bool safety_check)
+{
+    assert(op_id == IrBinOpCmpEq || op_id == IrBinOpCmpNotEq);
+
+    IrInstGen *optional;
+    IrInstGen *non_optional;
+    if (op1->value->type->id == ZigTypeIdOptional) {
+        optional = op1;
+        non_optional = op2;
+    } else if (op2->value->type->id == ZigTypeIdOptional) {
+        optional = op2;
+        non_optional = op1;
+    } else {
+        zig_unreachable();
+    }
+
+    ZigType *child_type = optional->value->type->data.maybe.child_type;
+    if (child_type != non_optional->value->type) {
+        ir_add_error_node(ira, source_instr->source_node, buf_sprintf("cannot compare types %s and %s (%s is not equal to %s)",
+                buf_ptr(&op1->value->type->name),
+                buf_ptr(&op2->value->type->name),
+                buf_ptr(&child_type->name),
+                buf_ptr(&non_optional->value->type->name)));
+        return ira->codegen->invalid_inst_gen;
+    }
+
+    if (instr_is_comptime(optional) && instr_is_comptime(non_optional)) {
+        ZigValue *optional_val = ir_resolve_const(ira, optional, UndefBad);
+        if (!optional_val) {
+            return ira->codegen->invalid_inst_gen;
+        }
+
+        ZigValue *non_optional_val = ir_resolve_const(ira, non_optional, UndefBad);
+        if (!non_optional_val) {
+            return ira->codegen->invalid_inst_gen;
+        }
+
+        bool are_equal = false;
+        if (!optional_value_is_null(optional_val)) {
+            // this function will never be invoked if optional_val is an optional pointer, so accessing
+            // x_optional is fine without having to check get_src_ptr_type
+            are_equal = const_values_equal(ira->codegen, optional_val->data.x_optional, non_optional_val);
+        }
+        return ir_const_bool(ira, source_instr, (op_id == IrBinOpCmpEq)? are_equal : !are_equal);
+    }
+    zig_unreachable();
+}
+
+
 static IrInstGen *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstSrcBinOp *bin_op_instruction) {
     IrInstGen *op1 = bin_op_instruction->op1->child;
     if (type_is_invalid(op1->value->type))
@@ -16584,6 +16636,13 @@ static IrInstGen *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstSrcBinOp *bin_op_i
 
         return ir_build_bin_op_gen(ira, &bin_op_instruction->base.base, ira->codegen->builtin_types.entry_bool,
                 op_id, op1, op2, bin_op_instruction->safety_check_on);
+    }
+
+    if (is_equality_cmp && (
+        (op1->value->type->id == ZigTypeIdOptional && get_src_ptr_type(op1->value->type) == nullptr) ||
+        (op2->value->type->id == ZigTypeIdOptional && get_src_ptr_type(op2->value->type) == nullptr)))
+    {
+        return ir_analyze_bin_op_cmp_optional_non_optional(ira, &bin_op_instruction->base.base, op1, op2, op_id, bin_op_instruction->safety_check_on);
     }
 
     if (type_is_numeric(op1->value->type) && type_is_numeric(op2->value->type)) {
