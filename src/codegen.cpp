@@ -3331,12 +3331,16 @@ static LLVMValueRef ir_render_bit_cast(CodeGen *g, IrExecutableGen *executable,
             LLVMPointerType(get_llvm_type(g, wanted_type), 0) : get_llvm_type(g, wanted_type);
         return LLVMBuildBitCast(g->builder, value, wanted_type_ref, "");
     } else if (actual_is_ptr) {
+        // A scalar is wanted but we got a pointer
         LLVMTypeRef wanted_ptr_type_ref = LLVMPointerType(get_llvm_type(g, wanted_type), 0);
         LLVMValueRef bitcasted_ptr = LLVMBuildBitCast(g->builder, value, wanted_ptr_type_ref, "");
         uint32_t alignment = get_abi_alignment(g, actual_type);
         return gen_load_untyped(g, bitcasted_ptr, alignment, false, "");
     } else {
-        zig_unreachable();
+        // A pointer is wanted but we got a scalar
+        assert(actual_type->id == ZigTypeIdPointer);
+        LLVMTypeRef wanted_ptr_type_ref = LLVMPointerType(get_llvm_type(g, wanted_type), 0);
+        return LLVMBuildBitCast(g->builder, value, wanted_ptr_type_ref, "");
     }
 }
 

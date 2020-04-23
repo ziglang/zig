@@ -28878,8 +28878,11 @@ static IrInstGen *ir_analyze_bit_cast(IrAnalyze *ira, IrInst* source_instr, IrIn
     if ((err = type_resolve(ira->codegen, src_type, ResolveStatusSizeKnown)))
         return ira->codegen->invalid_inst_gen;
 
-    uint64_t dest_size_bytes = type_size(ira->codegen, dest_type);
-    uint64_t src_size_bytes = type_size(ira->codegen, src_type);
+    const bool src_is_ptr = handle_is_ptr(ira->codegen, src_type);
+    const bool dest_is_ptr = handle_is_ptr(ira->codegen, dest_type);
+
+    const uint64_t dest_size_bytes = type_size(ira->codegen, dest_type);
+    const uint64_t src_size_bytes = type_size(ira->codegen, src_type);
     if (dest_size_bytes != src_size_bytes) {
         ir_add_error(ira, source_instr,
             buf_sprintf("destination type '%s' has size %" ZIG_PRI_u64 " but source type '%s' has size %" ZIG_PRI_u64,
@@ -28888,8 +28891,8 @@ static IrInstGen *ir_analyze_bit_cast(IrAnalyze *ira, IrInst* source_instr, IrIn
         return ira->codegen->invalid_inst_gen;
     }
 
-    uint64_t dest_size_bits = type_size_bits(ira->codegen, dest_type);
-    uint64_t src_size_bits = type_size_bits(ira->codegen, src_type);
+    const uint64_t dest_size_bits = type_size_bits(ira->codegen, dest_type);
+    const uint64_t src_size_bits = type_size_bits(ira->codegen, src_type);
     if (dest_size_bits != src_size_bits) {
         ir_add_error(ira, source_instr,
             buf_sprintf("destination type '%s' has %" ZIG_PRI_u64 " bits but source type '%s' has %" ZIG_PRI_u64 " bits",
@@ -28909,6 +28912,11 @@ static IrInstGen *ir_analyze_bit_cast(IrAnalyze *ira, IrInst* source_instr, IrIn
         if ((err = buf_read_value_bytes(ira, ira->codegen, source_instr->source_node, buf, result->value)))
             return ira->codegen->invalid_inst_gen;
         return result;
+    }
+
+    if (dest_is_ptr && !src_is_ptr) {
+        // Spill the scalar into a local memory location and take its address
+        value = ir_get_ref(ira, source_instr, value, false, false);
     }
 
     return ir_build_bit_cast_gen(ira, source_instr, value, dest_type);
