@@ -2,6 +2,14 @@ const tests = @import("tests.zig");
 const std = @import("std");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.add("invalid pointer syntax",
+        \\export fn foo() void {
+        \\    var guid: *:0 const u8 = undefined;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:2:15: error: sentinels are only allowed on unknown-length pointers",
+    });
+
     cases.add("declaration between fields",
         \\const S = struct {
         \\    const foo = 2;
