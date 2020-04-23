@@ -14,9 +14,9 @@ sudo apt-get remove -y llvm-*
 sudo rm -rf /usr/local/*
 sudo apt-get install -y libxml2-dev libclang-10-dev llvm-10 llvm-10-dev liblld-10-dev cmake s3cmd gcc-7 g++-7
 
-wget https://ziglang.org/deps/qemu-5.0.0-rc2-x86_64-alpinelinux.tar.xz
-tar xf qemu-5.0.0-rc2-x86_64-alpinelinux.tar.xz
-PATH=$PWD/qemu-5.0.0-rc2/bin:$PATH
+wget https://ziglang.org/deps/qemu-linux-x86_64-5.0.0-rc4.tar.xz
+tar xf qemu-linux-x86_64-5.0.0-rc4.tar.xz
+PATH=$PWD/qemu-linux-x86_64-5.0.0-rc4/bin:$PATH
 
 # Make the `zig version` number consistent.
 # This will affect the cmake command below.
