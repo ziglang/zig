@@ -4552,7 +4552,17 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const pointer = &array[0];
         \\}
     , &[_][]const u8{
-        "tmp.zig:3:27: error: index 0 outside array of size 0",
+        "tmp.zig:3:27: error: accessing a zero length array is not allowed",
+    });
+
+    cases.add("indexing an array of size zero with runtime index",
+        \\const array = [_]u8{};
+        \\export fn foo() void {
+        \\    var index: usize = 0;
+        \\    const pointer = &array[index];
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:4:27: error: accessing a zero length array is not allowed",
     });
 
     cases.add("compile time division by zero",

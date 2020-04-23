@@ -3869,6 +3869,9 @@ static LLVMValueRef ir_render_elem_ptr(CodeGen *g, IrExecutableGen *executable, 
             assert(array_type->data.pointer.child_type->id == ZigTypeIdArray);
             array_type = array_type->data.pointer.child_type;
         }
+        
+        assert(array_type->data.array.len != 0 || array_type->data.array.sentinel != nullptr);
+
         if (safety_check_on) {
             uint64_t extra_len_from_sentinel = (array_type->data.array.sentinel != nullptr) ? 1 : 0;
             uint64_t full_len = array_type->data.array.len + extra_len_from_sentinel;

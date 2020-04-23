@@ -21199,6 +21199,11 @@ static IrInstGen *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstSrcElemP
     }
 
     if (array_type->id == ZigTypeIdArray) {
+        if(array_type->data.array.len == 0 && array_type->data.array.sentinel == nullptr){
+            ir_add_error(ira, &elem_ptr_instruction->base.base, buf_sprintf("accessing a zero length array is not allowed"));
+            return ira->codegen->invalid_inst_gen;
+        }
+
         ZigType *child_type = array_type->data.array.child_type;
         if (ptr_type->data.pointer.host_int_bytes == 0) {
             return_type = get_pointer_to_type_extra(ira->codegen, child_type,
