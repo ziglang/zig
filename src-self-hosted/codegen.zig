@@ -184,9 +184,6 @@ const Function = struct {
         if (arch != .x86_64 and arch != .i386) {
             return self.fail(inst.base.src, "TODO implement inline asm support for more architectures", .{});
         }
-        if (!mem.eql(u8, inst.args.asm_source, "syscall")) {
-            return self.fail(inst.base.src, "TODO implement support for more x86 assembly instructions", .{});
-        }
         for (inst.args.inputs) |input, i| {
             if (input.len < 3 or input[0] != '{' or input[input.len - 1] != '}') {
                 return self.fail(inst.base.src, "unrecognized asm input constraint: '{}'", .{input});
@@ -196,6 +193,12 @@ const Function = struct {
                 return self.fail(inst.base.src, "unrecognized register: '{}'", .{reg_name});
             const arg = try self.resolveInst(inst.args.args[i]);
             try self.genSetReg(inst.base.src, arch, reg, arg);
+        }
+
+        if (mem.eql(u8, inst.args.asm_source, "syscall")) {
+            try self.code.appendSlice(&[_]u8{ 0x0f, 0x05 });
+        } else {
+            return self.fail(inst.base.src, "TODO implement support for more x86 assembly instructions", .{});
         }
 
         if (inst.args.output) |output| {
@@ -214,10 +217,80 @@ const Function = struct {
     fn genSetReg(self: *Function, src: usize, comptime arch: Target.Cpu.Arch, reg: Reg(arch), mcv: MCValue) !void {
         switch (arch) {
             .x86_64 => switch (reg) {
-                .rax => return self.fail(src, "TODO implement genSetReg for x86_64 'rax'", .{}),
-                .rdi => return self.fail(src, "TODO implement genSetReg for x86_64 'rdi'", .{}),
-                .rsi => return self.fail(src, "TODO implement genSetReg for x86_64 'rsi'", .{}),
-                .rdx => return self.fail(src, "TODO implement genSetReg for x86_64 'rdx'", .{}),
+                .rax => switch (mcv) {
+                    .none, .unreach => unreachable,
+                    .immediate => |x| {
+                        // Setting the eax register zeroes the upper part of rax, so if the number is small
+                        // enough, that is preferable.
+                        // Best case: zero
+                        // 31 c0     xor    eax,eax
+                        if (x == 0) {
+                            return self.code.appendSlice(&[_]u8{ 0x31, 0xc0 });
+                        }
+                        // Next best case: set eax with 4 bytes
+                        // b8 04 03 02 01           mov    eax,0x01020304
+                        if (x <= std.math.maxInt(u32)) {
+                            try self.code.resize(self.code.items.len + 5);
+                            self.code.items[self.code.items.len - 5] = 0xb8;
+                            const imm_ptr = self.code.items[self.code.items.len - 4 ..][0..4];
+                            mem.writeIntLittle(u32, imm_ptr, @intCast(u32, x));
+                            return;
+                        }
+                        // Worst case: set rax with 8 bytes
+                        // 48 b8 08 07 06 05 04 03 02 01    movabs rax,0x0102030405060708
+                        try self.code.resize(self.code.items.len + 10);
+                        self.code.items[self.code.items.len - 10] = 0x48;
+                        self.code.items[self.code.items.len - 9] = 0xb8;
+                        const imm_ptr = self.code.items[self.code.items.len - 8 ..][0..8];
+                        mem.writeIntLittle(u64, imm_ptr, x);
+                        return;
+                    },
+                    .embedded_in_code => return self.fail(src, "TODO implement x86_64 genSetReg %rax = embedded_in_code", .{}),
+                    .register => return self.fail(src, "TODO implement x86_64 genSetReg %rax = register", .{}),
+                },
+                .rdi => switch (mcv) {
+                    .none, .unreach => unreachable,
+                    .immediate => |x| {
+                        // Setting the edi register zeroes the upper part of rdi, so if the number is small
+                        // enough, that is preferable.
+                        // Best case: zero
+                        // 31 ff                    xor    edi,edi
+                        if (x == 0) {
+                            return self.code.appendSlice(&[_]u8{ 0x31, 0xff });
+                        }
+                        // Next best case: set edi with 4 bytes
+                        // bf 04 03 02 01           mov    edi,0x1020304
+                        if (x <= std.math.maxInt(u32)) {
+                            try self.code.resize(self.code.items.len + 5);
+                            self.code.items[self.code.items.len - 5] = 0xbf;
+                            const imm_ptr = self.code.items[self.code.items.len - 4 ..][0..4];
+                            mem.writeIntLittle(u32, imm_ptr, @intCast(u32, x));
+                            return;
+                        }
+                        // Worst case: set rdi with 8 bytes
+                        // 48 bf 08 07 06 05 04 03 02 01    movabs rax,0x0102030405060708
+                        try self.code.resize(self.code.items.len + 10);
+                        self.code.items[self.code.items.len - 10] = 0x48;
+                        self.code.items[self.code.items.len - 9] = 0xbf;
+                        const imm_ptr = self.code.items[self.code.items.len - 8 ..][0..8];
+                        mem.writeIntLittle(u64, imm_ptr, x);
+                        return;
+                    },
+                    .embedded_in_code => return self.fail(src, "TODO implement x86_64 genSetReg %rdi = embedded_in_code", .{}),
+                    .register => return self.fail(src, "TODO implement x86_64 genSetReg %rdi = register", .{}),
+                },
+                .rsi => switch (mcv) {
+                    .none, .unreach => unreachable,
+                    .immediate => return self.fail(src, "TODO implement x86_64 genSetReg %rsi = immediate", .{}),
+                    .embedded_in_code => return self.fail(src, "TODO implement x86_64 genSetReg %rsi = embedded_in_code", .{}),
+                    .register => return self.fail(src, "TODO implement x86_64 genSetReg %rsi = register", .{}),
+                },
+                .rdx => switch (mcv) {
+                    .none, .unreach => unreachable,
+                    .immediate => return self.fail(src, "TODO implement x86_64 genSetReg %rdx = immediate", .{}),
+                    .embedded_in_code => return self.fail(src, "TODO implement x86_64 genSetReg %rdx = embedded_in_code", .{}),
+                    .register => return self.fail(src, "TODO implement x86_64 genSetReg %rdx = register", .{}),
+                },
                 else => return self.fail(src, "TODO implement genSetReg for x86_64 '{}'", .{@tagName(reg)}),
             },
             else => return self.fail(src, "TODO implement genSetReg for more architectures", .{}),
