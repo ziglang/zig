@@ -249,6 +249,37 @@ const Function = struct {
                     .embedded_in_code => return self.fail(src, "TODO implement x86_64 genSetReg %rax = embedded_in_code", .{}),
                     .register => return self.fail(src, "TODO implement x86_64 genSetReg %rax = register", .{}),
                 },
+                .rdx => switch (mcv) {
+                    .none, .unreach => unreachable,
+                    .immediate => |x| {
+                        // Setting the edx register zeroes the upper part of rdx, so if the number is small
+                        // enough, that is preferable.
+                        // Best case: zero
+                        // 31 d2                    xor    edx,edx
+                        if (x == 0) {
+                            return self.code.appendSlice(&[_]u8{ 0x31, 0xd2 });
+                        }
+                        // Next best case: set edx with 4 bytes
+                        // ba 04 03 02 01           mov    edx,0x1020304
+                        if (x <= std.math.maxInt(u32)) {
+                            try self.code.resize(self.code.items.len + 5);
+                            self.code.items[self.code.items.len - 5] = 0xba;
+                            const imm_ptr = self.code.items[self.code.items.len - 4 ..][0..4];
+                            mem.writeIntLittle(u32, imm_ptr, @intCast(u32, x));
+                            return;
+                        }
+                        // Worst case: set rdx with 8 bytes
+                        // 48 ba 08 07 06 05 04 03 02 01    movabs rdx,0x0102030405060708
+                        try self.code.resize(self.code.items.len + 10);
+                        self.code.items[self.code.items.len - 10] = 0x48;
+                        self.code.items[self.code.items.len - 9] = 0xba;
+                        const imm_ptr = self.code.items[self.code.items.len - 8 ..][0..8];
+                        mem.writeIntLittle(u64, imm_ptr, x);
+                        return;
+                    },
+                    .embedded_in_code => return self.fail(src, "TODO implement x86_64 genSetReg %rdx = embedded_in_code", .{}),
+                    .register => return self.fail(src, "TODO implement x86_64 genSetReg %rdx = register", .{}),
+                },
                 .rdi => switch (mcv) {
                     .none, .unreach => unreachable,
                     .immediate => |x| {
@@ -304,12 +335,6 @@ const Function = struct {
                         return;
                     },
                     .register => return self.fail(src, "TODO implement x86_64 genSetReg %rsi = register", .{}),
-                },
-                .rdx => switch (mcv) {
-                    .none, .unreach => unreachable,
-                    .immediate => return self.fail(src, "TODO implement x86_64 genSetReg %rdx = immediate", .{}),
-                    .embedded_in_code => return self.fail(src, "TODO implement x86_64 genSetReg %rdx = embedded_in_code", .{}),
-                    .register => return self.fail(src, "TODO implement x86_64 genSetReg %rdx = register", .{}),
                 },
                 else => return self.fail(src, "TODO implement genSetReg for x86_64 '{}'", .{@tagName(reg)}),
             },
