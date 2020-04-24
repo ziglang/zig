@@ -264,6 +264,56 @@ pub const Value = extern union {
         }
     }
 
+    /// Asserts the value is an integer and it fits in a u64
+    pub fn toUnsignedInt(self: Value) u64 {
+        switch (self.tag()) {
+            .ty,
+            .u8_type,
+            .i8_type,
+            .isize_type,
+            .usize_type,
+            .c_short_type,
+            .c_ushort_type,
+            .c_int_type,
+            .c_uint_type,
+            .c_long_type,
+            .c_ulong_type,
+            .c_longlong_type,
+            .c_ulonglong_type,
+            .c_longdouble_type,
+            .f16_type,
+            .f32_type,
+            .f64_type,
+            .f128_type,
+            .c_void_type,
+            .bool_type,
+            .void_type,
+            .type_type,
+            .anyerror_type,
+            .comptime_int_type,
+            .comptime_float_type,
+            .noreturn_type,
+            .fn_naked_noreturn_no_args_type,
+            .single_const_pointer_to_comptime_int_type,
+            .const_slice_u8_type,
+            .void_value,
+            .noreturn_value,
+            .bool_true,
+            .bool_false,
+            .function,
+            .ref,
+            .ref_val,
+            .bytes,
+            => unreachable,
+
+            .zero => return 0,
+
+            .int_u64 => return self.cast(Payload.Int_u64).?.int,
+            .int_i64 => return @intCast(u64, self.cast(Payload.Int_u64).?.int),
+            .int_big => return self.cast(Payload.IntBig).?.big_int.to(u64) catch unreachable,
+        }
+    }
+
     /// Asserts the value is an integer, and the destination type is ComptimeInt or Int.
     pub fn intFitsInType(self: Value, ty: Type, target: Target) bool {
         switch (self.tag()) {

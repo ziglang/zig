@@ -93,7 +93,7 @@ pub const File = struct {
         /// This means that a process that does not respect the locking API can still get access
         /// to the file, despite the lock.
         ///
-        /// Windows' file locks are mandatory, and any process attempting to access the file will
+        /// Windows's file locks are mandatory, and any process attempting to access the file will
         /// receive an error.
         ///
         /// [1]: https://www.kernel.org/doc/Documentation/filesystems/mandatory-locking.txt

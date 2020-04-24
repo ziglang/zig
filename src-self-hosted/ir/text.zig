@@ -31,6 +31,7 @@ pub const Inst = struct {
         primitive,
         fntype,
         intcast,
+        bitcast,
     };
 
     pub fn TagToType(tag: Tag) type {
@@ -48,6 +49,7 @@ pub const Inst = struct {
             .primitive => Primitive,
             .fntype => FnType,
             .intcast => IntCast,
+            .bitcast => BitCast,
         };
     }
 
@@ -258,6 +260,17 @@ pub const Inst = struct {
         },
         kw_args: struct {},
     };
+
+    pub const BitCast = struct {
+        pub const base_tag = Tag.bitcast;
+        base: Inst,
+
+        positionals: struct {
+            dest_type: *Inst,
+            operand: *Inst,
+        },
+        kw_args: struct {},
+    };
 };
 
 pub const ErrorMsg = struct {
@@ -331,6 +344,7 @@ pub const Module = struct {
             .primitive => return self.writeInstToStreamGeneric(stream, .primitive, decl, inst_table),
             .fntype => return self.writeInstToStreamGeneric(stream, .fntype, decl, inst_table),
             .intcast => return self.writeInstToStreamGeneric(stream, .intcast, decl, inst_table),
+            .bitcast => return self.writeInstToStreamGeneric(stream, .bitcast, decl, inst_table),
         }
     }
 
@@ -952,6 +966,19 @@ const EmitZIR = struct {
                                 .base = .{ .src = inst.src, .tag = Inst.PtrToInt.base_tag },
                                 .positionals = .{
                                     .ptr = try self.resolveInst(&inst_table, old_inst.args.ptr),
+                                },
+                                .kw_args = .{},
+                            };
+                            break :blk &new_inst.base;
+                        },
+                        .bitcast => blk: {
+                            const old_inst = inst.cast(ir.Inst.BitCast).?;
+                            const new_inst = try self.arena.allocator.create(Inst.BitCast);
+                            new_inst.* = .{
+                                .base = .{ .src = inst.src, .tag = Inst.BitCast.base_tag },
+                                .positionals = .{
+                                    .dest_type = try self.emitType(inst.src, inst.ty),
+                                    .operand = try self.resolveInst(&inst_table, old_inst.args.operand),
                                 },
                                 .kw_args = .{},
                             };

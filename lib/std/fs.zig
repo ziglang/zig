@@ -1345,8 +1345,10 @@ pub const Dir = struct {
         mode: File.Mode = File.default_mode,
     };
 
-    /// `dest_path` must remain valid for the lifetime of `AtomicFile`.
-    /// Call `AtomicFile.finish` to atomically replace `dest_path` with contents.
+    /// Directly access the `.file` field, and then call `AtomicFile.finish`
+    /// to atomically replace `dest_path` with contents.
+    /// Always call `AtomicFile.deinit` to clean up, regardless of whether `AtomicFile.finish` succeeded.
+    /// `dest_path` must remain valid until `AtomicFile.deinit` is called.
     pub fn atomicFile(self: Dir, dest_path: []const u8, options: AtomicFileOptions) !AtomicFile {
         if (path.dirname(dest_path)) |dirname| {
             const dir = try self.openDir(dirname, .{});

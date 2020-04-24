@@ -24,6 +24,7 @@ pub const Inst = struct {
         constant,
         assembly,
         ptrtoint,
+        bitcast,
     };
 
     pub fn cast(base: *Inst, comptime T: type) ?*T {
@@ -45,6 +46,7 @@ pub const Inst = struct {
 
             .assembly,
             .ptrtoint,
+            .bitcast,
             => null,
         };
     }
@@ -84,6 +86,15 @@ pub const Inst = struct {
             ptr: *Inst,
         },
     };
+
+    pub const BitCast = struct {
+        pub const base_tag = Tag.bitcast;
+
+        base: Inst,
+        args: struct {
+            operand: *Inst,
+        },
+    };
 };
 
 pub const TypedValue = struct {
@@ -96,6 +107,7 @@ pub const Module = struct {
     errors: []ErrorMsg,
     arena: std.heap.ArenaAllocator,
     fns: []Fn,
+    target: Target,
 
     pub const Export = struct {
         name: []const u8,
@@ -122,9 +134,7 @@ pub const ErrorMsg = struct {
     msg: []const u8,
 };
 
-pub fn analyze(allocator: *Allocator, old_module: text.Module) !Module {
-    const native_info = try std.zig.system.NativeTargetInfo.detect(allocator, .{});
-
+pub fn analyze(allocator: *Allocator, old_module: text.Module, target: Target) !Module {
     var ctx = Analyze{
         .allocator = allocator,
         .arena = std.heap.ArenaAllocator.init(allocator),
@@ -133,7 +143,7 @@ pub fn analyze(allocator: *Allocator, old_module: text.Module) !Module {
         .decl_table = std.AutoHashMap(*text.Inst, Analyze.NewDecl).init(allocator),
         .exports = std.ArrayList(Module.Export).init(allocator),
         .fns = std.ArrayList(Module.Fn).init(allocator),
-        .target = native_info.target,
+        .target = target,
     };
     defer ctx.errors.deinit();
     defer ctx.decl_table.deinit();
@@ -152,6 +162,7 @@ pub fn analyze(allocator: *Allocator, old_module: text.Module) !Module {
         .errors = ctx.errors.toOwnedSlice(),
         .fns = ctx.fns.toOwnedSlice(),
         .arena = ctx.arena,
+        .target = target,
     };
 }
 
@@ -234,7 +245,7 @@ const Analyze = struct {
     fn resolveConstString(self: *Analyze, func: ?*Fn, old_inst: *text.Inst) ![]u8 {
         const new_inst = try self.resolveInst(func, old_inst);
         const wanted_type = Type.initTag(.const_slice_u8);
-        const coerced_inst = try self.coerce(wanted_type, new_inst);
+        const coerced_inst = try self.coerce(func, wanted_type, new_inst);
         const val = try self.resolveConstValue(coerced_inst);
         return val.toAllocatedBytes(&self.arena.allocator);
     }
@@ -242,7 +253,7 @@ const Analyze = struct {
     fn resolveType(self: *Analyze, func: ?*Fn, old_inst: *text.Inst) !Type {
         const new_inst = try self.resolveInst(func, old_inst);
         const wanted_type = Type.initTag(.@"type");
-        const coerced_inst = try self.coerce(wanted_type, new_inst);
+        const coerced_inst = try self.coerce(func, wanted_type, new_inst);
         const val = try self.resolveConstValue(coerced_inst);
         return val.toType();
     }
@@ -409,6 +420,7 @@ const Analyze = struct {
             .primitive => return self.analyzeInstPrimitive(func, old_inst.cast(text.Inst.Primitive).?),
             .fntype => return self.analyzeInstFnType(func, old_inst.cast(text.Inst.FnType).?),
             .intcast => return self.analyzeInstIntCast(func, old_inst.cast(text.Inst.IntCast).?),
+            .bitcast => return self.analyzeInstBitCast(func, old_inst.cast(text.Inst.BitCast).?),
         }
     }
 
@@ -472,7 +484,7 @@ const Analyze = struct {
     fn analyzeInstAs(self: *Analyze, func: ?*Fn, as: *text.Inst.As) InnerError!*Inst {
         const dest_type = try self.resolveType(func, as.positionals.dest_type);
         const new_inst = try self.resolveInst(func, as.positionals.value);
-        return self.coerce(dest_type, new_inst);
+        return self.coerce(func, dest_type, new_inst);
     }
 
     fn analyzeInstPtrToInt(self: *Analyze, func: ?*Fn, ptrtoint: *text.Inst.PtrToInt) InnerError!*Inst {
@@ -545,10 +557,16 @@ const Analyze = struct {
         }
 
         if (dest_is_comptime_int or new_inst.value() != null) {
-            return self.coerce(dest_type, new_inst);
+            return self.coerce(func, dest_type, new_inst);
         }
 
         return self.fail(intcast.base.src, "TODO implement analyze widen or shorten int", .{});
+    }
+
+    fn analyzeInstBitCast(self: *Analyze, func: ?*Fn, inst: *text.Inst.BitCast) InnerError!*Inst {
+        const dest_type = try self.resolveType(func, inst.positionals.dest_type);
+        const operand = try self.resolveInst(func, inst.positionals.operand);
+        return self.bitcast(func, dest_type, operand);
     }
 
     fn analyzeInstDeref(self: *Analyze, func: ?*Fn, deref: *text.Inst.Deref) InnerError!*Inst {
@@ -583,7 +601,8 @@ const Analyze = struct {
             elem.* = try self.resolveConstString(func, assembly.kw_args.clobbers[i]);
         }
         for (args) |*elem, i| {
-            elem.* = try self.resolveInst(func, assembly.kw_args.args[i]);
+            const arg = try self.resolveInst(func, assembly.kw_args.args[i]);
+            elem.* = try self.coerce(func, Type.initTag(.usize), arg);
         }
 
         const f = try self.requireFunctionBody(func, assembly.base.src);
@@ -602,10 +621,14 @@ const Analyze = struct {
         return self.addNewInstArgs(f, unreach.base.src, Type.initTag(.noreturn), Inst.Unreach, {});
     }
 
-    fn coerce(self: *Analyze, dest_type: Type, inst: *Inst) !*Inst {
+    fn coerce(self: *Analyze, func: ?*Fn, dest_type: Type, inst: *Inst) !*Inst {
+        // If the types are the same, we can return the operand.
+        if (dest_type.eql(inst.ty))
+            return inst;
+
         const in_memory_result = coerceInMemoryAllowed(dest_type, inst.ty);
         if (in_memory_result == .ok) {
-            return self.bitcast(dest_type, inst);
+            return self.bitcast(func, dest_type, inst);
         }
 
         // *[N]T to []T
@@ -634,12 +657,14 @@ const Analyze = struct {
         return self.fail(inst.src, "TODO implement type coercion", .{});
     }
 
-    fn bitcast(self: *Analyze, dest_type: Type, inst: *Inst) !*Inst {
+    fn bitcast(self: *Analyze, func: ?*Fn, dest_type: Type, inst: *Inst) !*Inst {
         if (inst.value()) |val| {
             // Keep the comptime Value representation; take the new type.
             return self.constInst(inst.src, .{ .ty = dest_type, .val = val });
         }
-        return self.fail(inst.src, "TODO implement runtime bitcast", .{});
+        // TODO validate the type size and other compile errors
+        const f = try self.requireFunctionBody(func, inst.src);
+        return self.addNewInstArgs(f, inst.src, dest_type, Inst.BitCast, Inst.Args(Inst.BitCast){ .operand = inst });
     }
 
     fn coerceArrayPtrToSlice(self: *Analyze, dest_type: Type, inst: *Inst) !*Inst {
@@ -699,7 +724,9 @@ pub fn main() anyerror!void {
         std.process.exit(1);
     }
 
-    var analyzed_module = try analyze(allocator, zir_module);
+    const native_info = try std.zig.system.NativeTargetInfo.detect(allocator, .{});
+
+    var analyzed_module = try analyze(allocator, zir_module, native_info.target);
     defer analyzed_module.deinit(allocator);
 
     if (analyzed_module.errors.len != 0) {
@@ -711,12 +738,27 @@ pub fn main() anyerror!void {
         std.process.exit(1);
     }
 
-    var new_zir_module = try text.emit_zir(allocator, analyzed_module);
-    defer new_zir_module.deinit(allocator);
+    const output_zir = true;
+    if (output_zir) {
+        var new_zir_module = try text.emit_zir(allocator, analyzed_module);
+        defer new_zir_module.deinit(allocator);
 
-    var bos = std.io.bufferedOutStream(std.io.getStdOut().outStream());
-    try new_zir_module.writeToStream(allocator, bos.outStream());
-    try bos.flush();
+        var bos = std.io.bufferedOutStream(std.io.getStdOut().outStream());
+        try new_zir_module.writeToStream(allocator, bos.outStream());
+        try bos.flush();
+    }
+
+    const link = @import("link.zig");
+    var result = try link.updateExecutableFilePath(allocator, analyzed_module, std.fs.cwd(), "a.out");
+    defer result.deinit(allocator);
+    if (result.errors.len != 0) {
+        for (result.errors) |err_msg| {
+            const loc = findLineColumn(source, err_msg.byte_offset);
+            std.debug.warn("{}:{}:{}: error: {}\n", .{ src_path, loc.line + 1, loc.column + 1, err_msg.msg });
+        }
+        if (debug_error_trace) return error.ParseFailure;
+        std.process.exit(1);
+    }
 }
 
 fn findLineColumn(source: []const u8, byte_offset: usize) struct { line: usize, column: usize } {

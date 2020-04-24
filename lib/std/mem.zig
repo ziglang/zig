@@ -2027,7 +2027,13 @@ test "sliceAsBytes and bytesAsSlice back" {
 /// Round an address up to the nearest aligned address
 /// The alignment must be a power of 2 and greater than 0.
 pub fn alignForward(addr: usize, alignment: usize) usize {
-    return alignBackward(addr + (alignment - 1), alignment);
+    return alignForwardGeneric(usize, addr, alignment);
+}
+
+/// Round an address up to the nearest aligned address
+/// The alignment must be a power of 2 and greater than 0.
+pub fn alignForwardGeneric(comptime T: type, addr: T, alignment: T) T {
+    return alignBackwardGeneric(T, addr + (alignment - 1), alignment);
 }
 
 test "alignForward" {
@@ -2048,8 +2054,14 @@ test "alignForward" {
 /// Round an address up to the previous aligned address
 /// The alignment must be a power of 2 and greater than 0.
 pub fn alignBackward(addr: usize, alignment: usize) usize {
-    assert(@popCount(usize, alignment) == 1);
-    // 000010000 // example addr
+    return alignBackwardGeneric(usize, addr, alignment);
+}
+
+/// Round an address up to the previous aligned address
+/// The alignment must be a power of 2 and greater than 0.
+pub fn alignBackwardGeneric(comptime T: type, addr: T, alignment: T) T {
+    assert(@popCount(T, alignment) == 1);
+    // 000010000 // example alignment
     // 000001111 // subtract 1
     // 111110000 // binary not
     return addr & ~(alignment - 1);
