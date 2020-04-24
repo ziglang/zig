@@ -378,8 +378,8 @@ const Function = struct {
                             return self.fail(src, "TODO handle a larger string constant", .{});
 
                         // Emit the string literal directly into the code; jump over it.
-                        const offset = self.code.items.len;
                         try self.genRelativeFwdJump(src, smaller_len);
+                        const offset = self.code.items.len;
                         try self.code.appendSlice(bytes);
                         return MCValue{ .embedded_in_code = offset };
                     },
