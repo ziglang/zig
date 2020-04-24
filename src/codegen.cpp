@@ -9362,10 +9362,16 @@ void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_pa
                 args.append(g->zig_target->llvm_cpu_name);
             }
             if (g->zig_target->llvm_cpu_features != nullptr) {
-                args.append("-Xclang");
-                args.append("-target-feature");
-                args.append("-Xclang");
-                args.append(g->zig_target->llvm_cpu_features);
+                // https://github.com/ziglang/zig/issues/5017
+                SplitIterator it = memSplit(str(g->zig_target->llvm_cpu_features), str(","));
+                Optional<Slice<uint8_t>> flag = SplitIterator_next(&it);
+                while (flag.is_some) {
+                    args.append("-Xclang");
+                    args.append("-target-feature");
+                    args.append("-Xclang");
+                    args.append(buf_ptr(buf_create_from_slice(flag.value)));
+                    flag = SplitIterator_next(&it);
+                }
             }
             if (translate_c) {
                 // this gives us access to preprocessing entities, presumably at
