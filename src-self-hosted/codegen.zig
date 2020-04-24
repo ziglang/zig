@@ -81,6 +81,7 @@ const Function = struct {
             .constant => unreachable, // excluded from function bodies
             .assembly => return self.genAsm(inst.cast(ir.Inst.Assembly).?),
             .ptrtoint => return self.genPtrToInt(inst.cast(ir.Inst.PtrToInt).?),
+            .bitcast => return self.genBitCast(inst.cast(ir.Inst.BitCast).?),
         }
     }
 
@@ -282,7 +283,26 @@ const Function = struct {
                 .rsi => switch (mcv) {
                     .none, .unreach => unreachable,
                     .immediate => return self.fail(src, "TODO implement x86_64 genSetReg %rsi = immediate", .{}),
-                    .embedded_in_code => return self.fail(src, "TODO implement x86_64 genSetReg %rsi = embedded_in_code", .{}),
+                    .embedded_in_code => |code_offset| {
+                        // Examples:
+                        // lea rsi, [rip + 0x01020304]
+                        // lea rsi, [rip - 7]
+                        //  f: 48 8d 35 04 03 02 01  lea    rsi,[rip+0x1020304]        # 102031a <_start+0x102031a>
+                        // 16: 48 8d 35 f9 ff ff ff  lea    rsi,[rip+0xfffffffffffffff9]        # 16 <_start+0x16>
+                        //
+                        // We need the offset from RIP in a signed i32 twos complement.
+                        // The instruction is 7 bytes long and RIP points to the next instruction.
+                        try self.code.resize(self.code.items.len + 7);
+                        const rip = self.code.items.len;
+                        const big_offset = @intCast(i64, code_offset) - @intCast(i64, rip);
+                        const offset = @intCast(i32, big_offset);
+                        self.code.items[self.code.items.len - 7] = 0x48;
+                        self.code.items[self.code.items.len - 6] = 0x8d;
+                        self.code.items[self.code.items.len - 5] = 0x35;
+                        const imm_ptr = self.code.items[self.code.items.len - 4 ..][0..4];
+                        mem.writeIntLittle(i32, imm_ptr, offset);
+                        return;
+                    },
                     .register => return self.fail(src, "TODO implement x86_64 genSetReg %rsi = register", .{}),
                 },
                 .rdx => switch (mcv) {
@@ -300,6 +320,11 @@ const Function = struct {
     fn genPtrToInt(self: *Function, inst: *ir.Inst.PtrToInt) !MCValue {
         // no-op
         return self.resolveInst(inst.args.ptr);
+    }
+
+    fn genBitCast(self: *Function, inst: *ir.Inst.BitCast) !MCValue {
+        const operand = try self.resolveInst(inst.args.operand);
+        return operand;
     }
 
     fn resolveInst(self: *Function, inst: *ir.Inst) !MCValue {
@@ -344,6 +369,8 @@ const Function = struct {
                 }
                 return MCValue{ .immediate = typed_value.val.toUnsignedInt() };
             },
+            .ComptimeInt => unreachable, // semantic analysis prevents this
+            .ComptimeFloat => unreachable, // semantic analysis prevents this
             else => return self.fail(src, "TODO implement const of type '{}'", .{typed_value.ty}),
         }
     }
