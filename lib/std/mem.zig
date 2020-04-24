@@ -2061,7 +2061,7 @@ pub fn alignBackward(addr: usize, alignment: usize) usize {
 /// The alignment must be a power of 2 and greater than 0.
 pub fn alignBackwardGeneric(comptime T: type, addr: T, alignment: T) T {
     assert(@popCount(T, alignment) == 1);
-    // 000010000 // example addr
+    // 000010000 // example alignment
     // 000001111 // subtract 1
     // 111110000 // binary not
     return addr & ~(alignment - 1);

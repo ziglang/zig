@@ -7,7 +7,11 @@ const fs = std.fs;
 const elf = std.elf;
 const codegen = @import("codegen.zig");
 
-const executable_mode = 0o755;
+/// On common systems with a 0o022 umask, 0o777 will still result in a file created
+/// with 0o755 permissions, but it works appropriately if the system is configured
+/// more leniently. As another data point, C's fopen seems to open files with the
+/// 666 mode.
+const executable_mode = 0o777;
 const default_entry_addr = 0x8000000;
 
 pub const ErrorMsg = struct {
