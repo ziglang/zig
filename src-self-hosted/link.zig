@@ -332,61 +332,6 @@ const Update = struct {
             phdr_table_dirty = true;
         }
         const foreign_endian = self.module.target.cpu.arch.endian() != std.Target.current.cpu.arch.endian();
-        if (phdr_table_dirty) {
-            const allocated_size = self.allocatedSize(self.phdr_table_offset.?);
-            const needed_size = self.program_headers.items.len * phsize;
-
-            if (needed_size > allocated_size) {
-                self.phdr_table_offset = null; // free the space
-                self.phdr_table_offset = self.findFreeSpace(needed_size, phalign);
-            }
-
-            const allocator = self.program_headers.allocator;
-            switch (ptr_width) {
-                .p32 => {
-                    const buf = try allocator.alloc(elf.Elf32_Phdr, self.program_headers.items.len);
-                    defer allocator.free(buf);
-
-                    for (buf) |*phdr, i| {
-                        phdr.* = .{
-                            .p_type = self.program_headers.items[i].p_type,
-                            .p_flags = self.program_headers.items[i].p_flags,
-                            .p_offset = @intCast(u32, self.program_headers.items[i].p_offset),
-                            .p_vaddr = @intCast(u32, self.program_headers.items[i].p_vaddr),
-                            .p_paddr = @intCast(u32, self.program_headers.items[i].p_paddr),
-                            .p_filesz = @intCast(u32, self.program_headers.items[i].p_filesz),
-                            .p_memsz = @intCast(u32, self.program_headers.items[i].p_memsz),
-                            .p_align = @intCast(u32, self.program_headers.items[i].p_align),
-                        };
-                        if (foreign_endian) {
-                            bswapAllFields(elf.Elf32_Phdr, phdr);
-                        }
-                    }
-                    try self.file.pwriteAll(mem.sliceAsBytes(buf), self.phdr_table_offset.?);
-                },
-                .p64 => {
-                    const buf = try allocator.alloc(elf.Elf64_Phdr, self.program_headers.items.len);
-                    defer allocator.free(buf);
-
-                    for (buf) |*phdr, i| {
-                        phdr.* = .{
-                            .p_type = self.program_headers.items[i].p_type,
-                            .p_flags = self.program_headers.items[i].p_flags,
-                            .p_offset = self.program_headers.items[i].p_offset,
-                            .p_vaddr = self.program_headers.items[i].p_vaddr,
-                            .p_paddr = self.program_headers.items[i].p_paddr,
-                            .p_filesz = self.program_headers.items[i].p_filesz,
-                            .p_memsz = self.program_headers.items[i].p_memsz,
-                            .p_align = self.program_headers.items[i].p_align,
-                        };
-                        if (foreign_endian) {
-                            bswapAllFields(elf.Elf64_Phdr, phdr);
-                        }
-                    }
-                    try self.file.pwriteAll(mem.sliceAsBytes(buf), self.phdr_table_offset.?);
-                },
-            }
-        }
         if (shdr_table_dirty) {
             const allocated_size = self.allocatedSize(self.shdr_table_offset.?);
             const needed_size = self.sections.items.len * phsize;
@@ -446,7 +391,64 @@ const Update = struct {
                 },
             }
         }
-        try self.writeCodeAndSymbols();
+
+        try self.writeCodeAndSymbols(&phdr_table_dirty);
+
+        if (phdr_table_dirty) {
+            const allocated_size = self.allocatedSize(self.phdr_table_offset.?);
+            const needed_size = self.program_headers.items.len * phsize;
+
+            if (needed_size > allocated_size) {
+                self.phdr_table_offset = null; // free the space
+                self.phdr_table_offset = self.findFreeSpace(needed_size, phalign);
+            }
+
+            const allocator = self.program_headers.allocator;
+            switch (ptr_width) {
+                .p32 => {
+                    const buf = try allocator.alloc(elf.Elf32_Phdr, self.program_headers.items.len);
+                    defer allocator.free(buf);
+
+                    for (buf) |*phdr, i| {
+                        phdr.* = .{
+                            .p_type = self.program_headers.items[i].p_type,
+                            .p_flags = self.program_headers.items[i].p_flags,
+                            .p_offset = @intCast(u32, self.program_headers.items[i].p_offset),
+                            .p_vaddr = @intCast(u32, self.program_headers.items[i].p_vaddr),
+                            .p_paddr = @intCast(u32, self.program_headers.items[i].p_paddr),
+                            .p_filesz = @intCast(u32, self.program_headers.items[i].p_filesz),
+                            .p_memsz = @intCast(u32, self.program_headers.items[i].p_memsz),
+                            .p_align = @intCast(u32, self.program_headers.items[i].p_align),
+                        };
+                        if (foreign_endian) {
+                            bswapAllFields(elf.Elf32_Phdr, phdr);
+                        }
+                    }
+                    try self.file.pwriteAll(mem.sliceAsBytes(buf), self.phdr_table_offset.?);
+                },
+                .p64 => {
+                    const buf = try allocator.alloc(elf.Elf64_Phdr, self.program_headers.items.len);
+                    defer allocator.free(buf);
+
+                    for (buf) |*phdr, i| {
+                        phdr.* = .{
+                            .p_type = self.program_headers.items[i].p_type,
+                            .p_flags = self.program_headers.items[i].p_flags,
+                            .p_offset = self.program_headers.items[i].p_offset,
+                            .p_vaddr = self.program_headers.items[i].p_vaddr,
+                            .p_paddr = self.program_headers.items[i].p_paddr,
+                            .p_filesz = self.program_headers.items[i].p_filesz,
+                            .p_memsz = self.program_headers.items[i].p_memsz,
+                            .p_align = self.program_headers.items[i].p_align,
+                        };
+                        if (foreign_endian) {
+                            bswapAllFields(elf.Elf64_Phdr, phdr);
+                        }
+                    }
+                    try self.file.pwriteAll(mem.sliceAsBytes(buf), self.phdr_table_offset.?);
+                },
+            }
+        }
 
         const shstrtab_sect = &self.sections.items[self.shstrtab_index.?];
         if (shstrtab_dirty or self.shstrtab.items.len != shstrtab_sect.sh_size) {
@@ -590,7 +592,7 @@ const Update = struct {
         try self.file.pwriteAll(hdr_buf[0..index], 0);
     }
 
-    fn writeCodeAndSymbols(self: *Update) !void {
+    fn writeCodeAndSymbols(self: *Update, phdr_table_dirty: *bool) !void {
         // index 0 is always a null symbol
         try self.symbols.resize(1);
         self.symbols.items[0] = .{
@@ -636,6 +638,14 @@ const Update = struct {
                 .st_size = code.items.len,
             };
             vaddr += code.items.len;
+        }
+
+        {
+            // Now that we know the code size, we need to update the program header for executable code
+            phdr.p_memsz = vaddr - phdr.p_vaddr;
+            phdr.p_filesz = phdr.p_memsz;
+
+            phdr_table_dirty.* = true;
         }
 
         return self.writeSymbols();
