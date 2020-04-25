@@ -234,6 +234,18 @@ pub fn InStream(
             }
         }
 
+        /// Reads `slice.len` bytes from the stream and returns if they are the same as the passed slice
+        pub fn isBytes(self: Self, slice: []const u8) !bool {
+            var i: usize = 0;
+            var matches = true;
+            while (i < slice.len) : (i += 1) {
+                if (slice[i] != try self.readByte()) {
+                    matches = false;
+                }
+            }
+            return matches;
+        }
+
         pub fn readStruct(self: Self, comptime T: type) !T {
             // Only extern and packed structs have defined in-memory layout.
             comptime assert(@typeInfo(T).Struct.layout != builtin.TypeInfo.ContainerLayout.Auto);
@@ -275,4 +287,10 @@ test "InStream" {
         d = 3,
     }, undefined)) == .c);
     testing.expectError(error.EndOfStream, in_stream.readByte());
+}
+
+test "InStream.isBytes" {
+    const in_stream = std.io.fixedBufferStream("foobar").inStream();
+    testing.expectEqual(true, try in_stream.isBytes("foo"));
+    testing.expectEqual(false, try in_stream.isBytes("qux"));
 }
