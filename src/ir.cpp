@@ -16390,6 +16390,52 @@ static ZigType *single_type_bin_op_cmp_result_type(IrAnalyze *ira, ZigType *ty) 
     }
 }
 
+
+static IrInstGen *ir_try_resolve_bin_op_cmp_const(IrAnalyze *ira, ZigType *resolved_type,
+        IrInstGen *op1, IrInstGen *op2, IrInst *source_instr, IrBinOp op_id)
+{
+    assert(op1->value->type == resolved_type && op2->value->type == resolved_type);
+
+    bool one_possible_value;
+    switch (type_has_one_possible_value(ira->codegen, resolved_type)) {
+        case OnePossibleValueInvalid:
+            return ira->codegen->invalid_inst_gen;
+        case OnePossibleValueYes:
+            one_possible_value = true;
+            break;
+        case OnePossibleValueNo:
+            one_possible_value = false;
+            break;
+    }
+
+    if (one_possible_value || (instr_is_comptime(op1) && instr_is_comptime(op2))) {
+        ZigValue *op1_val = one_possible_value ? op1->value : ir_resolve_const(ira, op1, UndefBad);
+        if (op1_val == nullptr)
+            return ira->codegen->invalid_inst_gen;
+        ZigValue *op2_val = one_possible_value ? op2->value : ir_resolve_const(ira, op2, UndefBad);
+        if (op2_val == nullptr)
+            return ira->codegen->invalid_inst_gen;
+        if (resolved_type->id != ZigTypeIdVector)
+            return ir_evaluate_bin_op_cmp(ira, resolved_type, op1_val, op2_val, source_instr, op_id, one_possible_value);
+        IrInstGen *result = ir_const(ira, source_instr,
+                                     get_vector_type(ira->codegen, resolved_type->data.vector.len, ira->codegen->builtin_types.entry_bool));
+        result->value->data.x_array.data.s_none.elements =
+                ira->codegen->pass1_arena->allocate<ZigValue>(resolved_type->data.vector.len);
+
+        expand_undef_array(ira->codegen, result->value);
+        for (size_t i = 0;i < resolved_type->data.vector.len;i++) {
+            IrInstGen *cur_res = ir_evaluate_bin_op_cmp(ira, resolved_type->data.vector.elem_type,
+                &op1_val->data.x_array.data.s_none.elements[i],
+                &op2_val->data.x_array.data.s_none.elements[i],
+                source_instr, op_id, one_possible_value);
+            copy_const_val(ira->codegen, &result->value->data.x_array.data.s_none.elements[i], cur_res->value);
+        }
+        return result;
+    } else {
+        return nullptr;
+    }
+}
+
 static IrInstGen *ir_analyze_bin_op_cmp_optional_non_optional(IrAnalyze *ira, IrInst *source_instr,
         IrInstGen *op1, IrInstGen *op2, IrBinOp op_id, bool safety_check)
 {
@@ -16732,41 +16778,10 @@ static IrInstGen *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstSrcBinOp *bin_op_i
     if (type_is_invalid(casted_op2->value->type))
         return ira->codegen->invalid_inst_gen;
 
-    bool one_possible_value;
-    switch (type_has_one_possible_value(ira->codegen, resolved_type)) {
-        case OnePossibleValueInvalid:
-            return ira->codegen->invalid_inst_gen;
-        case OnePossibleValueYes:
-            one_possible_value = true;
-            break;
-        case OnePossibleValueNo:
-            one_possible_value = false;
-            break;
-    }
-
-    if (one_possible_value || (instr_is_comptime(casted_op1) && instr_is_comptime(casted_op2))) {
-        ZigValue *op1_val = one_possible_value ? casted_op1->value : ir_resolve_const(ira, casted_op1, UndefBad);
-        if (op1_val == nullptr)
-            return ira->codegen->invalid_inst_gen;
-        ZigValue *op2_val = one_possible_value ? casted_op2->value : ir_resolve_const(ira, casted_op2, UndefBad);
-        if (op2_val == nullptr)
-            return ira->codegen->invalid_inst_gen;
-        if (resolved_type->id != ZigTypeIdVector)
-            return ir_evaluate_bin_op_cmp(ira, resolved_type, op1_val, op2_val, &bin_op_instruction->base.base, op_id, one_possible_value);
-        IrInstGen *result = ir_const(ira, &bin_op_instruction->base.base,
-            get_vector_type(ira->codegen, resolved_type->data.vector.len, ira->codegen->builtin_types.entry_bool));
-        result->value->data.x_array.data.s_none.elements =
-            ira->codegen->pass1_arena->allocate<ZigValue>(resolved_type->data.vector.len);
-
-        expand_undef_array(ira->codegen, result->value);
-        for (size_t i = 0;i < resolved_type->data.vector.len;i++) {
-            IrInstGen *cur_res = ir_evaluate_bin_op_cmp(ira, resolved_type->data.vector.elem_type,
-                &op1_val->data.x_array.data.s_none.elements[i],
-                &op2_val->data.x_array.data.s_none.elements[i],
-                &bin_op_instruction->base.base, op_id, one_possible_value);
-            copy_const_val(ira->codegen, &result->value->data.x_array.data.s_none.elements[i], cur_res->value);
-        }
-        return result;
+    IrInstGen *const_eval_result = ir_try_resolve_bin_op_cmp_const(ira, resolved_type, casted_op1, casted_op2,
+            &bin_op_instruction->base.base, op_id);
+    if (const_eval_result != nullptr) {
+        return const_eval_result;
     }
 
     ZigType *res_type = single_type_bin_op_cmp_result_type(ira, resolved_type);
