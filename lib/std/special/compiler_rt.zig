@@ -23,6 +23,8 @@ comptime {
     // __clear_cache manages its own logic about whether to be exported or not.
     _ = @import("compiler_rt/clear_cache.zig").clear_cache;
 
+    _ = @import("compiler_rt/ubsan.zig");
+
     @export(@import("compiler_rt/compareXf2.zig").__lesf2, .{ .name = "__lesf2", .linkage = linkage });
     @export(@import("compiler_rt/compareXf2.zig").__ledf2, .{ .name = "__ledf2", .linkage = linkage });
     @export(@import("compiler_rt/compareXf2.zig").__letf2, .{ .name = "__letf2", .linkage = linkage });

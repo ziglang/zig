@@ -9412,7 +9412,7 @@ void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_pa
 
     if (g->have_sanitize_c) {
         args.append("-fsanitize=undefined");
-        args.append("-fsanitize-trap=undefined");
+        args.append("-fsanitize-minimal-runtime");
     }
 
     switch (g->build_mode) {
