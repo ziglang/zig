@@ -16382,6 +16382,13 @@ static IrInstGen *ir_analyze_bin_op_cmp_numeric(IrAnalyze *ira, IrInst *source_i
     return ir_build_bin_op_gen(ira, source_instr, result_type, op_id, casted_op1, casted_op2, true);
 }
 
+static ZigType *single_type_bin_op_cmp_result_type(IrAnalyze *ira, ZigType *ty) {
+    if (ty->id == ZigTypeIdVector) {
+        return get_vector_type(ira->codegen, ty->data.vector.len, ira->codegen->builtin_types.entry_bool);
+    } else {
+        return ira->codegen->builtin_types.entry_bool;
+    }
+}
 
 static IrInstGen *ir_analyze_bin_op_cmp_optional_non_optional(IrAnalyze *ira, IrInst *source_instr,
         IrInstGen *op1, IrInstGen *op2, IrBinOp op_id, bool safety_check)
@@ -16762,9 +16769,7 @@ static IrInstGen *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstSrcBinOp *bin_op_i
         return result;
     }
 
-    ZigType *res_type = (resolved_type->id == ZigTypeIdVector) ?
-        get_vector_type(ira->codegen, resolved_type->data.vector.len, ira->codegen->builtin_types.entry_bool) :
-        ira->codegen->builtin_types.entry_bool;
+    ZigType *res_type = single_type_bin_op_cmp_result_type(ira, resolved_type);
     return ir_build_bin_op_gen(ira, &bin_op_instruction->base.base, res_type,
             op_id, casted_op1, casted_op2, bin_op_instruction->safety_check_on);
 }
