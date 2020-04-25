@@ -266,9 +266,7 @@ pub const Thread = struct {
                         if (info.bits != 8) {
                             @compileError(bad_startfn_ret);
                         }
-                        // pthreads don't support exit status, ignore value
-                        _ = startFn(arg);
-                        return null;
+                        return @intToPtr(?*c_void, startFn(arg));
                     },
                     .ErrorUnion => |info| {
                         if (info.payload != void) {
