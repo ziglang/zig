@@ -171,3 +171,42 @@ test "@Type picks up the sentinel value from TypeInfo" {
         [:4]allowzero align(4) volatile u8,  [:4]allowzero align(4) const volatile u8,
     });
 }
+
+test "Type.Optional" {
+    testTypes(&[_]type{
+        ?u8,
+        ?*u8,
+        ?[]u8,
+        ?[*]u8,
+        ?[*c]u8,
+    });
+}
+
+test "Type.ErrorUnion" {
+    testTypes(&[_]type{
+        error{}!void,
+        error{Error}!void,
+    });
+}
+
+test "Type.Opaque" {
+    testing.expect(@OpaqueType() != @Type(.Opaque));
+    testing.expect(@Type(.Opaque) != @Type(.Opaque));
+    testing.expect(@typeInfo(@Type(.Opaque)) == .Opaque);
+}
+
+test "Type.Vector" {
+    testTypes(&[_]type{
+        @Vector(0, u8),
+        @Vector(4, u8),
+        @Vector(8, *u8),
+    });
+}
+
+test "Type.AnyFrame" {
+    testTypes(&[_]type{
+        anyframe,
+        anyframe->u8,
+        anyframe->anyframe->u8,
+    });
+}
