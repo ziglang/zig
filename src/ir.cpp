@@ -19706,18 +19706,26 @@ static IrInstGen *ir_analyze_fn_call(IrAnalyze *ira, IrInst* source_instr,
         return ira->codegen->invalid_inst_gen;
     }
 
+    bool extern_fn_in_typeof = false;
+
     if (modifier == CallModifierCompileTime) {
         // No special handling is needed for compile time evaluation of generic functions.
         if (!fn_entry || fn_entry->body_node == nullptr) {
-            ir_add_error(ira, &fn_ref->base, buf_sprintf("unable to evaluate constant expression"));
-            return ira->codegen->invalid_inst_gen;
+            // We keep evaluating extern functions in TypeOfs
+            if (get_scope_typeof(source_instr->scope) != nullptr && fn_entry) {
+                extern_fn_in_typeof = true;
+            } else {
+                ir_add_error(ira, &fn_ref->base, buf_sprintf("unable to evaluate constant expression"));
+                return ira->codegen->invalid_inst_gen;
+            }
         }
 
         if (!ir_emit_backward_branch(ira, source_instr))
             return ira->codegen->invalid_inst_gen;
 
         // Fork a scope of the function with known values for the parameters.
-        Scope *exec_scope = &fn_entry->fndef_scope->base;
+        // If we are evaluating an extern function in a TypeOf, we use the TypeOf's scope instead.
+        Scope *exec_scope = extern_fn_in_typeof ? source_instr->scope : &fn_entry->fndef_scope->base;
 
         size_t next_proto_i = 0;
         if (first_arg_ptr) {
@@ -19766,7 +19774,7 @@ static IrInstGen *ir_analyze_fn_call(IrAnalyze *ira, IrInst* source_instr,
             return_type = specified_return_type;
         }
 
-        bool cacheable = fn_eval_cacheable(exec_scope, return_type);
+        bool cacheable = !extern_fn_in_typeof && fn_eval_cacheable(exec_scope, return_type);
         ZigValue *result = nullptr;
         if (cacheable) {
             auto entry = ira->codegen->memoized_fn_eval_table.maybe_get(exec_scope);
@@ -19779,12 +19787,16 @@ static IrInstGen *ir_analyze_fn_call(IrAnalyze *ira, IrInst* source_instr,
             AstNode *body_node = fn_entry->body_node;
             ZigValue *result_ptr;
             create_result_ptr(ira->codegen, return_type, &result, &result_ptr);
-            if ((err = ir_eval_const_value(ira->codegen, exec_scope, body_node, result_ptr,
-                ira->new_irb.exec->backward_branch_count, ira->new_irb.exec->backward_branch_quota,
-                fn_entry, nullptr, source_instr->source_node, nullptr, ira->new_irb.exec, return_type_node,
-                UndefOk)))
-            {
-                return ira->codegen->invalid_inst_gen;
+
+            // If we are evaluating an extern function in a TypeOf, create a value and keep it undefined.
+            if (!extern_fn_in_typeof) {
+                if ((err = ir_eval_const_value(ira->codegen, exec_scope, body_node, result_ptr,
+                    ira->new_irb.exec->backward_branch_count, ira->new_irb.exec->backward_branch_quota,
+                    fn_entry, nullptr, source_instr->source_node, nullptr, ira->new_irb.exec, return_type_node,
+                    UndefOk)))
+                {
+                    return ira->codegen->invalid_inst_gen;
+                }
             }
 
             if (inferred_err_set_type != nullptr) {
