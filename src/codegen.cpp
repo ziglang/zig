@@ -10685,6 +10685,7 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     cache_buf_opt(ch, g->linker_optimization);
     cache_int(ch, g->linker_gc_sections);
     cache_int(ch, g->linker_allow_shlib_undefined);
+    cache_int(ch, g->linker_bind_global_refs_locally);
     cache_bool(ch, g->linker_z_nodelete);
     cache_bool(ch, g->linker_z_defs);
     cache_usize(ch, g->stack_size_override);

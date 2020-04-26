@@ -2086,6 +2086,14 @@ static void construct_linker_job_elf(LinkJob *lj) {
             lj->args.append("--allow-shlib-undefined");
             break;
     }
+    switch (g->linker_bind_global_refs_locally) {
+        case OptionalBoolNull:
+        case OptionalBoolFalse:
+            break;
+        case OptionalBoolTrue:
+            lj->args.append("-Bsymbolic");
+            break;
+    }
 }
 
 static void construct_linker_job_wasm(LinkJob *lj) {
@@ -2808,6 +2816,14 @@ static void construct_linker_job_macho(LinkJob *lj) {
         case OptionalBoolTrue:
             lj->args.append("-undefined");
             lj->args.append("dynamic_lookup");
+            break;
+    }
+    switch (g->linker_bind_global_refs_locally) {
+        case OptionalBoolNull:
+        case OptionalBoolFalse:
+            break;
+        case OptionalBoolTrue:
+            lj->args.append("-Bsymbolic");
             break;
     }
 
