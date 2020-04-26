@@ -25267,6 +25267,19 @@ static ZigType *get_const_field_meta_type(IrAnalyze *ira, AstNode *source_node, 
     return value->data.x_type;
 }
 
+static ZigType *get_const_field_meta_type_optional(IrAnalyze *ira, AstNode *source_node,
+    ZigValue *struct_value, const char *name, size_t field_index)
+{
+    ZigValue *value = get_const_field(ira, source_node, struct_value, name, field_index);
+    if (value == nullptr)
+        return ira->codegen->invalid_inst_gen->value->type;
+    assert(value->type->id == ZigTypeIdOptional);
+    assert(value->type->data.maybe.child_type == ira->codegen->builtin_types.entry_type);
+    if (value->data.x_optional == nullptr)
+        return nullptr;
+    return value->data.x_optional->data.x_type;
+}
+
 static ZigType *type_info_to_type(IrAnalyze *ira, IrInst *source_instr, ZigTypeId tagTypeId, ZigValue *payload) {
     Error err;
     switch (tagTypeId) {
@@ -25388,14 +25401,42 @@ static ZigType *type_info_to_type(IrAnalyze *ira, IrInst *source_instr, ZigTypeI
             return ira->codegen->builtin_types.entry_undef;
         case ZigTypeIdNull:
             return ira->codegen->builtin_types.entry_null;
-        case ZigTypeIdOptional:
-        case ZigTypeIdErrorUnion:
+        case ZigTypeIdOptional: {
+            assert(payload->special == ConstValSpecialStatic);
+            assert(payload->type == ir_type_info_get_type(ira, "Optional", nullptr));
+            ZigType *child_type = get_const_field_meta_type(ira, source_instr->source_node, payload, "child", 0);
+            return get_optional_type(ira->codegen, child_type);
+        }
+        case ZigTypeIdErrorUnion: {
+            assert(payload->special == ConstValSpecialStatic);
+            assert(payload->type == ir_type_info_get_type(ira, "ErrorUnion", nullptr));
+            ZigType *err_set_type = get_const_field_meta_type(ira, source_instr->source_node, payload, "error_set", 0);
+            ZigType *payload_type = get_const_field_meta_type(ira, source_instr->source_node, payload, "payload", 1);
+            return get_error_union_type(ira->codegen, err_set_type, payload_type);
+        }
+        case ZigTypeIdOpaque: {
+            Buf *bare_name = buf_alloc();
+            Buf *full_name = get_anon_type_name(ira->codegen,
+                ira->old_irb.exec, "opaque", source_instr->scope, source_instr->source_node, bare_name);
+            return get_opaque_type(ira->codegen,
+                source_instr->scope, source_instr->source_node, buf_ptr(full_name), bare_name);
+        }
+        case ZigTypeIdVector: {
+            assert(payload->special == ConstValSpecialStatic);
+            assert(payload->type == ir_type_info_get_type(ira, "Vector", nullptr));
+            BigInt *len = get_const_field_lit_int(ira, source_instr->source_node, payload, "len", 0);
+            ZigType *child_type = get_const_field_meta_type(ira, source_instr->source_node, payload, "child", 1);
+            return get_vector_type(ira->codegen, bigint_as_u32(len), child_type);
+        }
+        case ZigTypeIdAnyFrame: {
+            assert(payload->special == ConstValSpecialStatic);
+            assert(payload->type == ir_type_info_get_type(ira, "AnyFrame", nullptr));
+            ZigType *child_type = get_const_field_meta_type_optional(ira, source_instr->source_node, payload, "child", 0);
+            return get_any_frame_type(ira->codegen, child_type);
+        }
         case ZigTypeIdErrorSet:
         case ZigTypeIdEnum:
-        case ZigTypeIdOpaque:
         case ZigTypeIdFnFrame:
-        case ZigTypeIdAnyFrame:
-        case ZigTypeIdVector:
         case ZigTypeIdEnumLiteral:
             ir_add_error(ira, source_instr, buf_sprintf(
                 "TODO implement @Type for 'TypeInfo.%s': see https://github.com/ziglang/zig/issues/2907", type_id_name(tagTypeId)));
