@@ -421,6 +421,8 @@ const Analyze = struct {
             .fntype => return self.analyzeInstFnType(func, old_inst.cast(text.Inst.FnType).?),
             .intcast => return self.analyzeInstIntCast(func, old_inst.cast(text.Inst.IntCast).?),
             .bitcast => return self.analyzeInstBitCast(func, old_inst.cast(text.Inst.BitCast).?),
+            .elemptr => return self.analyzeInstElemPtr(func, old_inst.cast(text.Inst.ElemPtr).?),
+            .add => return self.analyzeInstAdd(func, old_inst.cast(text.Inst.Add).?),
         }
     }
 
@@ -569,6 +571,67 @@ const Analyze = struct {
         return self.bitcast(func, dest_type, operand);
     }
 
+    fn analyzeInstElemPtr(self: *Analyze, func: ?*Fn, inst: *text.Inst.ElemPtr) InnerError!*Inst {
+        const array_ptr = try self.resolveInst(func, inst.positionals.array_ptr);
+        const uncasted_index = try self.resolveInst(func, inst.positionals.index);
+        const elem_index = try self.coerce(func, Type.initTag(.usize), uncasted_index);
+
+        if (array_ptr.ty.isSinglePointer() and array_ptr.ty.elemType().zigTypeTag() == .Array) {
+            if (array_ptr.value()) |array_ptr_val| {
+                if (elem_index.value()) |index_val| {
+                    // Both array pointer and index are compile-time known.
+                    const index_u64 = index_val.toUnsignedInt();
+                    // @intCast here because it would have been impossible to construct a value that
+                    // required a larger index.
+                    const elem_val = try array_ptr_val.elemValueAt(&self.arena.allocator, @intCast(usize, index_u64));
+
+                    const ref_payload = try self.arena.allocator.create(Value.Payload.RefVal);
+                    ref_payload.* = .{ .val = elem_val };
+
+                    const type_payload = try self.arena.allocator.create(Type.Payload.SingleConstPointer);
+                    type_payload.* = .{ .pointee_type = array_ptr.ty.elemType().elemType() };
+
+                    return self.constInst(inst.base.src, .{
+                        .ty = Type.initPayload(&type_payload.base),
+                        .val = Value.initPayload(&ref_payload.base),
+                    });
+                }
+            }
+        }
+
+        return self.fail(inst.base.src, "TODO implement more analyze elemptr", .{});
+    }
+
+    fn analyzeInstAdd(self: *Analyze, func: ?*Fn, inst: *text.Inst.Add) InnerError!*Inst {
+        const lhs = try self.resolveInst(func, inst.positionals.lhs);
+        const rhs = try self.resolveInst(func, inst.positionals.rhs);
+
+        if (lhs.ty.zigTypeTag() == .Int and rhs.ty.zigTypeTag() == .Int) {
+            if (lhs.value()) |lhs_val| {
+                if (rhs.value()) |rhs_val| {
+                    const lhs_bigint = try lhs_val.toBigInt(&self.arena.allocator);
+                    const rhs_bigint = try rhs_val.toBigInt(&self.arena.allocator);
+                    var result_bigint = try BigInt.init(&self.arena.allocator);
+                    try BigInt.add(&result_bigint, lhs_bigint, rhs_bigint);
+
+                    if (!lhs.ty.eql(rhs.ty)) {
+                        return self.fail(inst.base.src, "TODO implement peer type resolution", .{});
+                    }
+
+                    const val_payload = try self.arena.allocator.create(Value.Payload.IntBig);
+                    val_payload.* = .{ .big_int = result_bigint };
+
+                    return self.constInst(inst.base.src, .{
+                        .ty = lhs.ty,
+                        .val = Value.initPayload(&val_payload.base),
+                    });
+                }
+            }
+        }
+
+        return self.fail(inst.base.src, "TODO implement more analyze add", .{});
+    }
+
     fn analyzeInstDeref(self: *Analyze, func: ?*Fn, deref: *text.Inst.Deref) InnerError!*Inst {
         const ptr = try self.resolveInst(func, deref.positionals.ptr);
         const elem_ty = switch (ptr.ty.zigTypeTag()) {
@@ -654,7 +717,22 @@ const Analyze = struct {
             return self.constInst(inst.src, .{ .ty = dest_type, .val = val });
         }
 
-        return self.fail(inst.src, "TODO implement type coercion", .{});
+        // integer widening
+        if (inst.ty.zigTypeTag() == .Int and dest_type.zigTypeTag() == .Int) {
+            const src_info = inst.ty.intInfo(self.target);
+            const dst_info = dest_type.intInfo(self.target);
+            if (src_info.signed == dst_info.signed and dst_info.bits >= src_info.bits) {
+                if (inst.value()) |val| {
+                    return self.constInst(inst.src, .{ .ty = dest_type, .val = val });
+                } else {
+                    return self.fail(inst.src, "TODO implement runtime integer widening", .{});
+                }
+            } else {
+                return self.fail(inst.src, "TODO implement more int widening {} to {}", .{ inst.ty, dest_type });
+            }
+        }
+
+        return self.fail(inst.src, "TODO implement type coercion from {} to {}", .{ inst.ty, dest_type });
     }
 
     fn bitcast(self: *Analyze, func: ?*Fn, dest_type: Type, inst: *Inst) !*Inst {

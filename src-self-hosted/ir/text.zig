@@ -32,6 +32,8 @@ pub const Inst = struct {
         fntype,
         intcast,
         bitcast,
+        elemptr,
+        add,
     };
 
     pub fn TagToType(tag: Tag) type {
@@ -50,6 +52,8 @@ pub const Inst = struct {
             .fntype => FnType,
             .intcast => IntCast,
             .bitcast => BitCast,
+            .elemptr => ElemPtr,
+            .add => Add,
         };
     }
 
@@ -156,6 +160,11 @@ pub const Inst = struct {
             body: Body,
         },
         kw_args: struct {},
+
+        const Point = struct {
+            x: i32,
+            y: i32,
+        };
 
         pub const Body = struct {
             instructions: []*Inst,
@@ -271,6 +280,28 @@ pub const Inst = struct {
         },
         kw_args: struct {},
     };
+
+    pub const ElemPtr = struct {
+        pub const base_tag = Tag.elemptr;
+        base: Inst,
+
+        positionals: struct {
+            array_ptr: *Inst,
+            index: *Inst,
+        },
+        kw_args: struct {},
+    };
+
+    pub const Add = struct {
+        pub const base_tag = Tag.add;
+        base: Inst,
+
+        positionals: struct {
+            lhs: *Inst,
+            rhs: *Inst,
+        },
+        kw_args: struct {},
+    };
 };
 
 pub const ErrorMsg = struct {
@@ -345,6 +376,8 @@ pub const Module = struct {
             .fntype => return self.writeInstToStreamGeneric(stream, .fntype, decl, inst_table),
             .intcast => return self.writeInstToStreamGeneric(stream, .intcast, decl, inst_table),
             .bitcast => return self.writeInstToStreamGeneric(stream, .bitcast, decl, inst_table),
+            .elemptr => return self.writeInstToStreamGeneric(stream, .elemptr, decl, inst_table),
+            .add => return self.writeInstToStreamGeneric(stream, .add, decl, inst_table),
         }
     }
 
