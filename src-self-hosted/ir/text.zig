@@ -161,11 +161,6 @@ pub const Inst = struct {
         },
         kw_args: struct {},
 
-        const Point = struct {
-            x: i32,
-            y: i32,
-        };
-
         pub const Body = struct {
             instructions: []*Inst,
         };
