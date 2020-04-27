@@ -1054,7 +1054,7 @@ pub const Target = std.zig.CrossTarget;
 pub const Pkg = struct {
     name: []const u8,
     path: []const u8,
-    dependencies: ?[]Pkg = null,
+    dependencies: ?[]const Pkg = null,
 };
 
 const CSourceFile = struct {
