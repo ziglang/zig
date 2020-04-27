@@ -19706,13 +19706,13 @@ static IrInstGen *ir_analyze_fn_call(IrAnalyze *ira, IrInst* source_instr,
         return ira->codegen->invalid_inst_gen;
     }
 
-    bool extern_fn_in_typeof = false;
-
     if (modifier == CallModifierCompileTime) {
+        bool extern_fn_in_typeof = false;
+
         // No special handling is needed for compile time evaluation of generic functions.
         if (!fn_entry || fn_entry->body_node == nullptr) {
-            // We keep evaluating extern functions in TypeOfs
-            if (get_scope_typeof(source_instr->scope) != nullptr && fn_entry) {
+            // We keep evaluating extern functions directly in TypeOfs
+            if (fn_entry && source_instr->scope->id == ScopeIdTypeOf) {
                 extern_fn_in_typeof = true;
             } else {
                 ir_add_error(ira, &fn_ref->base, buf_sprintf("unable to evaluate constant expression"));
@@ -19724,7 +19724,7 @@ static IrInstGen *ir_analyze_fn_call(IrAnalyze *ira, IrInst* source_instr,
             return ira->codegen->invalid_inst_gen;
 
         // Fork a scope of the function with known values for the parameters.
-        // If we are evaluating an extern function in a TypeOf, we use the TypeOf's scope instead.
+        // If we are evaluating an extern function in a TypeOf, we use the current scope instead.
         Scope *exec_scope = extern_fn_in_typeof ? source_instr->scope : &fn_entry->fndef_scope->base;
 
         size_t next_proto_i = 0;
@@ -19752,7 +19752,7 @@ static IrInstGen *ir_analyze_fn_call(IrAnalyze *ira, IrInst* source_instr,
                 return ira->codegen->invalid_inst_gen;
         }
 
-        for (size_t call_i = 0; call_i < args_len; call_i += 1) {
+        if (!extern_fn_in_typeof) for (size_t call_i = 0; call_i < args_len; call_i += 1) {
             IrInstGen *old_arg = args_ptr[call_i];
 
             if (!ir_analyze_fn_call_inline_arg(ira, fn_proto_node, old_arg, &exec_scope, &next_proto_i))
