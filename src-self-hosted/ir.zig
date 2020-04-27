@@ -4,9 +4,10 @@ const Allocator = std.mem.Allocator;
 const Value = @import("value.zig").Value;
 const Type = @import("type.zig").Type;
 const assert = std.debug.assert;
-const text = @import("ir/text.zig");
 const BigInt = std.math.big.Int;
 const Target = std.Target;
+
+pub const text = @import("ir/text.zig");
 
 /// These are in-memory, analyzed instructions. See `text.Inst` for the representation
 /// of instructions that correspond to the ZIR text format.
@@ -124,6 +125,10 @@ pub const Module = struct {
     pub fn deinit(self: *Module, allocator: *Allocator) void {
         allocator.free(self.exports);
         allocator.free(self.errors);
+        for (self.fns) |f| {
+            allocator.free(f.body);
+        }
+        allocator.free(self.fns);
         self.arena.deinit();
         self.* = undefined;
     }
@@ -795,7 +800,7 @@ pub fn main() anyerror!void {
 
     if (zir_module.errors.len != 0) {
         for (zir_module.errors) |err_msg| {
-            const loc = findLineColumn(source, err_msg.byte_offset);
+            const loc = std.zig.findLineColumn(source, err_msg.byte_offset);
             std.debug.warn("{}:{}:{}: error: {}\n", .{ src_path, loc.line + 1, loc.column + 1, err_msg.msg });
         }
         if (debug_error_trace) return error.ParseFailure;
@@ -809,10 +814,10 @@ pub fn main() anyerror!void {
 
     if (analyzed_module.errors.len != 0) {
         for (analyzed_module.errors) |err_msg| {
-            const loc = findLineColumn(source, err_msg.byte_offset);
+            const loc = std.zig.findLineColumn(source, err_msg.byte_offset);
             std.debug.warn("{}:{}:{}: error: {}\n", .{ src_path, loc.line + 1, loc.column + 1, err_msg.msg });
         }
-        if (debug_error_trace) return error.ParseFailure;
+        if (debug_error_trace) return error.AnalysisFail;
         std.process.exit(1);
     }
 
@@ -831,29 +836,12 @@ pub fn main() anyerror!void {
     defer result.deinit(allocator);
     if (result.errors.len != 0) {
         for (result.errors) |err_msg| {
-            const loc = findLineColumn(source, err_msg.byte_offset);
+            const loc = std.zig.findLineColumn(source, err_msg.byte_offset);
             std.debug.warn("{}:{}:{}: error: {}\n", .{ src_path, loc.line + 1, loc.column + 1, err_msg.msg });
         }
-        if (debug_error_trace) return error.ParseFailure;
+        if (debug_error_trace) return error.LinkFailure;
         std.process.exit(1);
     }
-}
-
-fn findLineColumn(source: []const u8, byte_offset: usize) struct { line: usize, column: usize } {
-    var line: usize = 0;
-    var column: usize = 0;
-    for (source[0..byte_offset]) |byte| {
-        switch (byte) {
-            '\n' => {
-                line += 1;
-                column = 0;
-            },
-            else => {
-                column += 1;
-            },
-        }
-    }
-    return .{ .line = line, .column = column };
 }
 
 // Performance optimization ideas:

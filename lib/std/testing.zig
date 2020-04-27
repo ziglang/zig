@@ -193,6 +193,44 @@ pub fn expect(ok: bool) void {
     if (!ok) @panic("test failure");
 }
 
+pub const TmpDir = struct {
+    dir: std.fs.Dir,
+    parent_dir: std.fs.Dir,
+    sub_path: [sub_path_len]u8,
+
+    const random_bytes_count = 12;
+    const sub_path_len = std.base64.Base64Encoder.calcSize(random_bytes_count);
+
+    pub fn cleanup(self: *TmpDir) void {
+        self.dir.close();
+        self.parent_dir.deleteTree(&self.sub_path) catch {};
+        self.parent_dir.close();
+        self.* = undefined;
+    }
+};
+
+pub fn tmpDir(opts: std.fs.Dir.OpenDirOptions) TmpDir {
+    var random_bytes: [TmpDir.random_bytes_count]u8 = undefined;
+    std.crypto.randomBytes(&random_bytes) catch
+        @panic("unable to make tmp dir for testing: unable to get random bytes");
+    var sub_path: [TmpDir.sub_path_len]u8 = undefined;
+    std.fs.base64_encoder.encode(&sub_path, &random_bytes);
+
+    var cache_dir = std.fs.cwd().makeOpenPath("zig-cache", .{}) catch
+        @panic("unable to make tmp dir for testing: unable to make and open zig-cache dir");
+    defer cache_dir.close();
+    var parent_dir = cache_dir.makeOpenPath("tmp", .{}) catch
+        @panic("unable to make tmp dir for testing: unable to make and open zig-cache/tmp dir");
+    var dir = parent_dir.makeOpenPath(&sub_path, opts) catch
+        @panic("unable to make tmp dir for testing: unable to make and open the tmp dir");
+
+    return .{
+        .dir = dir,
+        .parent_dir = parent_dir,
+        .sub_path = sub_path,
+    };
+}
+
 test "expectEqual nested array" {
     const a = [2][2]f32{
         [_]f32{ 1.0, 0.0 },

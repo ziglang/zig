@@ -532,9 +532,10 @@ const Parser = struct {
             else => |byte| return self.failByte(byte),
         };
 
-        return Inst.Fn.Body{
-            .instructions = body_context.instructions.toOwnedSlice(),
-        };
+        // Move the instructions to the arena
+        const instrs = try self.arena.allocator.alloc(*Inst, body_context.instructions.items.len);
+        mem.copy(*Inst, instrs, body_context.instructions.items);
+        return Inst.Fn.Body{ .instructions = instrs };
     }
 
     fn parseStringLiteral(self: *Parser) ![]u8 {
@@ -588,26 +589,27 @@ const Parser = struct {
 
     fn parseRoot(self: *Parser) !void {
         // The IR format is designed so that it can be tokenized and parsed at the same time.
-        while (true) : (self.i += 1) switch (self.source[self.i]) {
-            ';' => _ = try skipToAndOver(self, '\n'),
-            '@' => {
-                self.i += 1;
-                const ident = try skipToAndOver(self, ' ');
-                skipSpace(self);
-                try requireEatBytes(self, "=");
-                skipSpace(self);
-                const inst = try parseInstruction(self, null);
-                const ident_index = self.decls.items.len;
-                if (try self.global_name_map.put(ident, ident_index)) |_| {
-                    return self.fail("redefinition of identifier '{}'", .{ident});
-                }
-                try self.decls.append(inst);
-                continue;
-            },
-            ' ', '\n' => continue,
-            0 => break,
-            else => |byte| return self.fail("unexpected byte: '{c}'", .{byte}),
-        };
+        while (true) {
+            switch (self.source[self.i]) {
+                ';' => _ = try skipToAndOver(self, '\n'),
+                '@' => {
+                    self.i += 1;
+                    const ident = try skipToAndOver(self, ' ');
+                    skipSpace(self);
+                    try requireEatBytes(self, "=");
+                    skipSpace(self);
+                    const inst = try parseInstruction(self, null);
+                    const ident_index = self.decls.items.len;
+                    if (try self.global_name_map.put(ident, ident_index)) |_| {
+                        return self.fail("redefinition of identifier '{}'", .{ident});
+                    }
+                    try self.decls.append(inst);
+                },
+                ' ', '\n' => self.i += 1,
+                0 => break,
+                else => |byte| return self.fail("unexpected byte: '{c}'", .{byte}),
+            }
+        }
     }
 
     fn eatByte(self: *Parser, byte: u8) bool {

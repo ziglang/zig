@@ -46,6 +46,12 @@ pub const ChildProcess = struct {
 
     /// Set to change the current working directory when spawning the child process.
     cwd: ?[]const u8,
+    /// Set to change the current working directory when spawning the child process.
+    /// This is not yet implemented for Windows. See https://github.com/ziglang/zig/issues/5190
+    /// Once that is done, `cwd` will be deprecated in favor of this field.
+    /// The directory handle must be opened with the ability to be passed
+    /// to a child process (no `O_CLOEXEC` flag on POSIX).
+    cwd_dir: ?fs.Dir = null,
 
     err_pipe: if (builtin.os.tag == .windows) void else [2]os.fd_t,
 
@@ -183,6 +189,7 @@ pub const ChildProcess = struct {
         allocator: *mem.Allocator,
         argv: []const []const u8,
         cwd: ?[]const u8 = null,
+        cwd_dir: ?fs.Dir = null,
         env_map: ?*const BufMap = null,
         max_output_bytes: usize = 50 * 1024,
         expand_arg0: Arg0Expand = .no_expand,
@@ -194,6 +201,7 @@ pub const ChildProcess = struct {
         child.stdout_behavior = .Pipe;
         child.stderr_behavior = .Pipe;
         child.cwd = args.cwd;
+        child.cwd_dir = args.cwd_dir;
         child.env_map = args.env_map;
         child.expand_arg0 = args.expand_arg0;
 
@@ -414,7 +422,9 @@ pub const ChildProcess = struct {
                 os.close(stderr_pipe[1]);
             }
 
-            if (self.cwd) |cwd| {
+            if (self.cwd_dir) |cwd| {
+                os.fchdir(cwd.fd) catch |err| forkChildErrReport(err_pipe[1], err);
+            } else if (self.cwd) |cwd| {
                 os.chdir(cwd) catch |err| forkChildErrReport(err_pipe[1], err);
             }
 

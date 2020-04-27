@@ -415,7 +415,12 @@ pub const NativeTargetInfo = struct {
         // over our own shared objects and find a dynamic linker.
         self_exe: {
             const lib_paths = try std.process.getSelfExeSharedLibPaths(allocator);
-            defer allocator.free(lib_paths);
+            defer {
+                for (lib_paths) |lib_path| {
+                    allocator.free(lib_path);
+                }
+                allocator.free(lib_paths);
+            }
 
             var found_ld_info: LdInfo = undefined;
             var found_ld_path: [:0]const u8 = undefined;

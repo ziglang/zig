@@ -1,7 +1,14 @@
-test "hello world IR" {
-    exeCmp(
+const TestContext = @import("../../src-self-hosted/test.zig").TestContext;
+
+pub fn addCases(ctx: *TestContext) void {
+    if (@import("std").Target.current.os.tag == .windows) {
+        // TODO implement self-hosted PE (.exe file) linking
+        return;
+    }
+
+    ctx.addZIRCompareOutput("hello world ZIR",
         \\@0 = str("Hello, world!\n")
-        \\@1 = primitive(void)
+        \\@1 = primitive(noreturn)
         \\@2 = primitive(usize)
         \\@3 = fntype([], @1, cc=Naked)
         \\@4 = int(0)
@@ -50,5 +57,3 @@ test "hello world IR" {
         \\
     );
 }
-
-fn exeCmp(src: []const u8, expected_stdout: []const u8) void {}
