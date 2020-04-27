@@ -2520,7 +2520,7 @@ pub fn stringify(
                                 if (options.string.String.escape_solidus) {
                                     try out_stream.writeAll("\\/");
                                 } else {
-                                    try out_stream.writeByte('\\');
+                                    try out_stream.writeByte('/');
                                 }
                             },
                             // control characters with short escapes
