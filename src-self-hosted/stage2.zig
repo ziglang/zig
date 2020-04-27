@@ -339,7 +339,7 @@ fn fmtPath(fmt: *Fmt, file_path: []const u8, check_mode: bool) FmtError!void {
 
             while (try dir_it.next()) |entry| {
                 if (entry.kind == .Directory or mem.endsWith(u8, entry.name, ".zig")) {
-                    const full_path = try fs.path.join(fmt.allocator, &[_][]const u8{ real_path, entry.name });
+                    const full_path = try fs.path.join(fmt.allocator, &[_][]const u8{ file_path, entry.name });
                     try fmtPath(fmt, full_path, check_mode);
                 }
             }
@@ -377,7 +377,7 @@ fn fmtPath(fmt: *Fmt, file_path: []const u8, check_mode: bool) FmtError!void {
             fmt.any_error = true;
         }
     } else {
-        const baf = try io.BufferedAtomicFile.create(fmt.allocator, real_path);
+        const baf = try io.BufferedAtomicFile.create(fmt.allocator, fs.cwd(), real_path, .{});
         defer baf.destroy();
 
         const anything_changed = try std.zig.render(fmt.allocator, baf.stream(), tree);
