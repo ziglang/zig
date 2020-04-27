@@ -1,18 +1,31 @@
 const expectEqual = @import("std").testing.expectEqual;
 
-const FILE = extern struct { dummy_field: u8, };
+const FILE = extern struct {
+    dummy_field: u8,
+};
 extern fn printf([*c]const u8, ...) c_int;
 extern fn fputs([*c]const u8, noalias [*c]FILE) c_int;
 extern fn ftell([*c]FILE) c_long;
 
-test "Extern function call in @TypeOf" {
+const S = extern struct {
+    state: c_short,
+
+    extern fn s_do_thing([*c]S, b: c_int) c_short;
+};
+
+test "Extern function calls in @TypeOf" {
     const Test = struct {
-        fn test_fn(a: var, b: var) @TypeOf(printf("%d %s\n", a, b)) {
+        fn test_fn_1(a: var, b: var) @TypeOf(printf("%d %s\n", a, b)) {
             return 0;
         }
 
+        fn test_fn_2(a: var) @TypeOf((S{ .state = 0 }).s_do_thing(a)) {
+            return 1;
+        }
+
         fn doTheTest() void {
-            expectEqual(c_int, @TypeOf(test_fn(0, 42)));
+            expectEqual(c_int, @TypeOf(test_fn_1(0, 42)));
+            expectEqual(c_short, @TypeOf(test_fn_2(0)));
         }
     };
 
