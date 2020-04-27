@@ -1,8 +1,9 @@
 const TestContext = @import("../../src-self-hosted/test.zig").TestContext;
 
 pub fn addCases(ctx: *TestContext) void {
-    if (@import("std").Target.current.os.tag == .windows) {
+    if (@import("std").Target.current.os.tag != .linux) {
         // TODO implement self-hosted PE (.exe file) linking
+        // TODO implement more ZIR so we don't depend on linux
         return;
     }
 
