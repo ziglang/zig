@@ -1260,15 +1260,9 @@ pub fn wToPrefixedFileW(s: []const u16) ![PATH_MAX_WIDE:0]u16 {
 pub fn sliceToPrefixedSuffixedFileW(s: []const u8, comptime suffix: []const u16) ![PATH_MAX_WIDE + suffix.len:0]u16 {
     // TODO https://github.com/ziglang/zig/issues/2765
     var result: [PATH_MAX_WIDE + suffix.len:0]u16 = undefined;
-    // > File I/O functions in the Windows API convert "/" to "\" as part of
-    // > converting the name to an NT-style name, except when using the "\\?\"
-    // > prefix as detailed in the following sections.
-    // from https://docs.microsoft.com/en-us/windows/desktop/FileIO/naming-a-file#maximum-path-length-limitation
-    // Because we want the larger maximum path length for absolute paths, we
-    // disallow forward slashes in zig std lib file functions on Windows.
     for (s) |byte| {
         switch (byte) {
-            '/', '*', '?', '"', '<', '>', '|' => return error.BadPathName,
+            '*', '?', '"', '<', '>', '|' => return error.BadPathName,
             else => {},
         }
     }
@@ -1279,6 +1273,17 @@ pub fn sliceToPrefixedSuffixedFileW(s: []const u8, comptime suffix: []const u16)
     };
     const end_index = start_index + try std.unicode.utf8ToUtf16Le(result[start_index..], s);
     if (end_index + suffix.len > result.len) return error.NameTooLong;
+    // > File I/O functions in the Windows API convert "/" to "\" as part of
+    // > converting the name to an NT-style name, except when using the "\\?\"
+    // > prefix as detailed in the following sections.
+    // from https://docs.microsoft.com/en-us/windows/desktop/FileIO/naming-a-file#maximum-path-length-limitation
+    // Because we want the larger maximum path length for absolute paths, we
+    // convert forward slashes to backward slashes here.
+    for (result[0..end_index]) |*elem| {
+        if (elem.* == '/') {
+            elem.* = '\\';
+        }
+    }
     mem.copy(u16, result[end_index..], suffix);
     result[end_index + suffix.len] = 0;
     return result;
