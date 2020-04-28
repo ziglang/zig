@@ -189,20 +189,20 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\} outer;
         \\void foo(outer *x) { x->y = x->x; }
     , &[_][]const u8{
-        \\const struct_unnamed_5 = extern struct {
+        \\const struct_unnamed_3 = extern struct {
         \\    y: c_int,
         \\};
-        \\const union_unnamed_3 = extern union {
+        \\const union_unnamed_2 = extern union {
         \\    x: u8,
-        \\    unnamed_4: struct_unnamed_5,
+        \\    unnamed_0: struct_unnamed_3,
         \\};
         \\const struct_unnamed_1 = extern struct {
-        \\    unnamed_2: union_unnamed_3,
+        \\    unnamed_0: union_unnamed_2,
         \\};
         \\pub const outer = struct_unnamed_1;
         \\pub export fn foo(arg_x: [*c]outer) void {
         \\    var x = arg_x;
-        \\    x.*.unnamed_2.unnamed_4.y = @bitCast(c_int, @as(c_uint, x.*.unnamed_2.x));
+        \\    x.*.unnamed_0.unnamed_0.y = @bitCast(c_int, @as(c_uint, x.*.unnamed_0.x));
         \\}
     });
 
@@ -2922,7 +2922,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
             \\};
             \\pub const NAMED = struct_NAMED;
             \\pub const struct_ONENAMEWITHSTRUCT = extern struct {
-            \\    unnamed_1: struct_NAMED,
+            \\    unnamed_0: struct_NAMED,
             \\    b: c_long,
             \\};
         });
@@ -2948,4 +2948,22 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
             \\};
         });
     }
+
+    cases.add("unnamed fields have predictabile names",
+        \\struct a {
+        \\    struct {};
+        \\};
+        \\struct b {
+        \\    struct {};
+        \\};
+    , &[_][]const u8{
+        \\const struct_unnamed_1 = extern struct {};
+        \\pub const struct_a = extern struct {
+        \\    unnamed_0: struct_unnamed_1,
+        \\};
+        \\const struct_unnamed_2 = extern struct {};
+        \\pub const struct_b = extern struct {
+        \\    unnamed_0: struct_unnamed_2,
+        \\};
+    });
 }
