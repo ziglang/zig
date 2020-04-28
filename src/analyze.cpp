@@ -6021,6 +6021,19 @@ ZigValue *create_const_null(CodeGen *g, ZigType *type) {
     return const_val;
 }
 
+void init_const_fn(ZigValue *const_val, ZigFn *fn) {
+    const_val->special = ConstValSpecialStatic;
+    const_val->type = fn->type_entry;
+    const_val->data.x_ptr.special = ConstPtrSpecialFunction;
+    const_val->data.x_ptr.data.fn.fn_entry = fn;
+}
+
+ZigValue *create_const_fn(CodeGen *g, ZigFn *fn) {
+    ZigValue *const_val = g->pass1_arena->create<ZigValue>();
+    init_const_fn(const_val, fn);
+    return const_val;
+}
+
 void init_const_float(ZigValue *const_val, ZigType *type, double value) {
     const_val->special = ConstValSpecialStatic;
     const_val->type = type;

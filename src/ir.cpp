@@ -25166,9 +25166,18 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
                 break;
             }
         case ZigTypeIdFnFrame:
-            ir_add_error(ira, source_instr,
-                buf_sprintf("compiler bug: TODO @typeInfo for async function frames. https://github.com/ziglang/zig/issues/3066"));
-            return ErrorSemanticAnalyzeFail;
+            {
+                result = ira->codegen->pass1_arena->create<ZigValue>();
+                result->special = ConstValSpecialStatic;
+                result->type = ir_type_info_get_type(ira, "Frame", nullptr);
+                ZigValue **fields = alloc_const_vals_ptrs(ira->codegen, 1);
+                result->data.x_struct.fields = fields;
+                ZigFn *fn = type_entry->data.frame.fn;
+                // function: var
+                ensure_field_index(result->type, "function", 0);
+                fields[0] = create_const_fn(ira->codegen, fn);
+                break;
+            }
     }
 
     assert(result != nullptr);

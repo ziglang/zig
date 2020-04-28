@@ -180,6 +180,9 @@ ZigValue *create_const_slice(CodeGen *g, ZigValue *array_val, size_t start, size
 void init_const_null(ZigValue *const_val, ZigType *type);
 ZigValue *create_const_null(CodeGen *g, ZigType *type);
 
+void init_const_fn(ZigValue *const_val, ZigFn *fn);
+ZigValue *create_const_fn(CodeGen *g, ZigFn *fn);
+
 ZigValue **alloc_const_vals_ptrs(CodeGen *g, size_t count);
 ZigValue **realloc_const_vals_ptrs(CodeGen *g, ZigValue **ptr, size_t old_count, size_t new_count);
 
