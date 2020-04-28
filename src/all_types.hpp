@@ -19,6 +19,11 @@
 #include "target.hpp"
 #include "tokenizer.hpp"
 
+#ifndef NDEBUG
+#define DBG_MACRO_NO_WARNING
+#include <dbg.h>
+#endif
+
 struct AstNode;
 struct ZigFn;
 struct Scope;
