@@ -522,6 +522,15 @@ pub const FILE_ATTRIBUTE_VIRTUAL = 0x10000;
 pub const CREATE_EVENT_INITIAL_SET = 0x00000002;
 pub const CREATE_EVENT_MANUAL_RESET = 0x00000001;
 
+// flags for LocalAlloc
+pub const LHND = 0x0042;
+pub const LMEM_FIXED = 0x0000;
+pub const LMEM_MOVEABLE = 0x0002;
+pub const LMEM_ZEROINIT = 0x0040;
+pub const LPTR = 0x0040;
+pub const NONZEROLHND = LMEM_MOVEABLE;
+pub const NONZEROLPTR = LMEM_FIXED;
+
 pub const EVENT_ALL_ACCESS = 0x1F0003;
 pub const EVENT_MODIFY_STATE = 0x0002;
 
