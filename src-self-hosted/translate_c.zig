@@ -4022,7 +4022,8 @@ fn transCreateNodeFloat(c: *Context, int: var) !*ast.Node {
 }
 
 fn transCreateNodeOpaqueType(c: *Context) !*ast.Node {
-    const call_node = try transCreateNodeBuiltinFnCall(c, "@OpaqueType");
+    const call_node = try transCreateNodeBuiltinFnCall(c, "@Type");
+    try call_node.params.push(try transCreateNodeEnumLiteral(c, "Opaque"));
     call_node.rparen_token = try appendToken(c, .RParen, ")");
     return &call_node.base;
 }

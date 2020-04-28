@@ -1992,7 +1992,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     });
 
     cases.add("directly embedding opaque type in struct and union",
-        \\const O = @OpaqueType();
+        \\const O = @Type(.Opaque);
         \\const Foo = struct {
         \\    o: O,
         \\};
@@ -2007,7 +2007,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var bar: Bar = undefined;
         \\}
         \\export fn c() void {
-        \\    var baz: *@OpaqueType() = undefined;
+        \\    var baz: *@Type(.Opaque) = undefined;
         \\    const qux = .{baz.*};
         \\}
     , &[_][]const u8{
@@ -2971,7 +2971,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     });
 
     cases.add("unknown length pointer to opaque",
-        \\export const T = [*]@OpaqueType();
+        \\export const T = [*]@Type(.Opaque);
     , &[_][]const u8{
         "tmp.zig:1:21: error: unknown-length pointer to opaque",
     });
@@ -6127,8 +6127,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:2:31: error: index 2 outside array of size 2",
     });
 
-    cases.add("wrong pointer coerced to pointer to @OpaqueType()",
-        \\const Derp = @OpaqueType();
+    cases.add("wrong pointer coerced to pointer to @Type(.Opaque)",
+        \\const Derp = @Type(.Opaque);
         \\extern fn bar(d: *Derp) void;
         \\export fn foo() void {
         \\    var x = @as(u8, 1);
@@ -6166,7 +6166,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\export fn entry9() void {
         \\   var z: noreturn = return;
         \\}
-        \\const Opaque = @OpaqueType();
+        \\const Opaque = @Type(.Opaque);
         \\const Foo = struct {
         \\    fn bar(self: *const Foo) void {}
         \\};
@@ -6320,7 +6320,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     });
 
     cases.add("field access of opaque type",
-        \\const MyType = @OpaqueType();
+        \\const MyType = @Type(.Opaque);
         \\
         \\export fn entry() bool {
         \\    var x: i32 = 1;
@@ -6936,7 +6936,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     });
 
     cases.add("function returning opaque type",
-        \\const FooType = @OpaqueType();
+        \\const FooType = @Type(.Opaque);
         \\export fn bar() !FooType {
         \\    return error.InvalidValue;
         \\}
@@ -6954,7 +6954,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     });
 
     cases.add("generic function returning opaque type",
-        \\const FooType = @OpaqueType();
+        \\const FooType = @Type(.Opaque);
         \\fn generic(comptime T: type) !T {
         \\    return undefined;
         \\}

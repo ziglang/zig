@@ -12,7 +12,7 @@ pub var handle: Handle = undefined;
 pub var system_table: *tables.SystemTable = undefined;
 
 /// A handle to an event structure.
-pub const Event = *@OpaqueType();
+pub const Event = *@Type(.Opaque);
 
 /// GUIDs must be align(8)
 pub const Guid = extern struct {
@@ -46,7 +46,7 @@ pub const Guid = extern struct {
 };
 
 /// An EFI Handle represents a collection of related interfaces.
-pub const Handle = *@OpaqueType();
+pub const Handle = *@Type(.Opaque);
 
 /// This structure represents time information.
 pub const Time = extern struct {
@@ -103,4 +103,4 @@ pub const TimeCapabilities = extern struct {
 };
 
 /// File Handle as specified in the EFI Shell Spec
-pub const FileHandle = *@OpaqueType();
+pub const FileHandle = *@Type(.Opaque);
