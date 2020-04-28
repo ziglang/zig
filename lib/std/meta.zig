@@ -650,3 +650,12 @@ pub fn IntType(comptime is_signed: bool, comptime bit_count: u16) type {
         },
     });
 }
+
+pub fn Vector(comptime len: u32, comptime child: type) type {
+    return @Type(TypeInfo{
+        .Vector = .{
+            .len = len,
+            .child = child,
+        },
+    });
+}

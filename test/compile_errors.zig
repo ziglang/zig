@@ -984,7 +984,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add("store vector pointer with unknown runtime index",
         \\export fn entry() void {
-        \\    var v: @Vector(4, i32) = [_]i32{ 1, 5, 3, undefined };
+        \\    var v: @import("std").meta.Vector(4, i32) = [_]i32{ 1, 5, 3, undefined };
         \\
         \\    var i: u32 = 0;
         \\    storev(&v[i], 42);
@@ -999,7 +999,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add("load vector pointer with unknown runtime index",
         \\export fn entry() void {
-        \\    var v: @Vector(4, i32) = [_]i32{ 1, 5, 3, undefined };
+        \\    var v: @import("std").meta.Vector(4, i32) = [_]i32{ 1, 5, 3, undefined };
         \\
         \\    var i: u32 = 0;
         \\    var x = loadv(&v[i]);
@@ -1885,8 +1885,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.addTest("comptime vector overflow shows the index",
         \\comptime {
-        \\    var a: @Vector(4, u8) = [_]u8{ 1, 2, 255, 4 };
-        \\    var b: @Vector(4, u8) = [_]u8{ 5, 6, 1, 8 };
+        \\    var a: @import("std").meta.Vector(4, u8) = [_]u8{ 1, 2, 255, 4 };
+        \\    var b: @import("std").meta.Vector(4, u8) = [_]u8{ 5, 6, 1, 8 };
         \\    var x = a + b;
         \\}
     , &[_][]const u8{
@@ -6846,8 +6846,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.addTest("@shuffle with selected index past first vector length",
         \\export fn entry() void {
-        \\    const v: @Vector(4, u32) = [4]u32{ 10, 11, 12, 13 };
-        \\    const x: @Vector(4, u32) = [4]u32{ 14, 15, 16, 17 };
+        \\    const v: @import("std").meta.Vector(4, u32) = [4]u32{ 10, 11, 12, 13 };
+        \\    const x: @import("std").meta.Vector(4, u32) = [4]u32{ 14, 15, 16, 17 };
         \\    var z = @shuffle(u32, v, x, [8]i32{ 0, 1, 2, 3, 7, 6, 5, 4 });
         \\}
     , &[_][]const u8{
@@ -6858,11 +6858,13 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.addTest("nested vectors",
         \\export fn entry() void {
-        \\    const V = @Vector(4, @Vector(4, u8));
-        \\    var v: V = undefined;
+        \\    const V1 = @import("std").meta.Vector(4, u8);
+        \\    const V2 = @Type(@import("builtin").TypeInfo{ .Vector = .{ .len = 4, .child = V1 } });
+        \\    var v: V2 = undefined;
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:26: error: vector element type must be integer, float, bool, or pointer; '@Vector(4, u8)' is invalid",
+        "tmp.zig:3:49: error: vector element type must be integer, float, bool, or pointer; '@Vector(4, u8)' is invalid",
+        "tmp.zig:3:16: note: referenced here",
     });
 
     cases.addTest("bad @splat type",

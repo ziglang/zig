@@ -200,6 +200,9 @@ test "Type.Vector" {
         @Vector(0, u8),
         @Vector(4, u8),
         @Vector(8, *u8),
+        std.meta.Vector(0, u8),
+        std.meta.Vector(4, u8),
+        std.meta.Vector(8, *u8),
     });
 }
 
