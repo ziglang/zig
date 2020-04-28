@@ -11,7 +11,7 @@ const codegen = @import("codegen.zig");
 /// with 0o755 permissions, but it works appropriately if the system is configured
 /// more leniently. As another data point, C's fopen seems to open files with the
 /// 666 mode.
-const executable_mode = 0o777;
+const executable_mode = if (std.Target.current.os.tag == .windows) 0 else 0o777;
 const default_entry_addr = 0x8000000;
 
 pub const ErrorMsg = struct {
