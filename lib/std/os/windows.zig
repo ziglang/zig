@@ -1324,3 +1324,177 @@ pub fn unexpectedStatus(status: NTSTATUS) std.os.UnexpectedError {
     }
     return error.Unexpected;
 }
+
+/// Takes a windows command line string and returns a pointer to C strings
+/// Overwrites 'argc' with the number of command line arguments detected.
+/// Resulting pointer must be freed with kernel32.LocalFree()
+pub fn commandLineToArgv(cmdLine: LPSTR, argc: *usize) ![*]LPSTR {
+    // Adapted from Wine.
+    var argcount: usize = 1;
+
+    // Count the arguments.
+
+    var str = cmdLine;
+
+    // The first argument follows special rules
+    if (str[0] == '"') {
+        // It alwyas ends ar the next quote.
+        str += 1;
+        while (str[0] != 0) : (str += 1) {
+            if (str[0] == '"') {
+                str += 1;
+                break;
+            }
+        }
+    } else {
+        // It always ends at the next space.
+        while (str[0] != 0 and str[0] != ' ' and str[0] != '\t') : (str += 1) {}
+    }
+
+    // Skip to the first argument.
+    while (str[0] == ' ' or str[0] == '\t') : (str += 1) {}
+    if (str[0] != 0) argcount += 1;
+
+    var quote_count: usize = 0;
+    var backslash_count: usize = 0;
+
+    // Remaining arguments.
+    while (str[0] != '0') {
+        if ((str[0] == ' ' or str[0] == '\t') and quote_count == 0) {
+            // Skip to the next argument.
+            while (str[0] == ' ' or str[0] == '\t') : (str += 1) {}
+            if (str[0] != 0) argcount += 1;
+            backslash_count = 0;
+        } else if (str[0] == '\\') {
+            backslash_count += 1;
+            str += 1;
+        } else if (str[0] == '"') {
+            // Unescaped quote.
+            if ((backslash_count & 1) == 0) {
+                quote_count += 1;
+            }
+            str += 1;
+            backslash_count = 0;
+            while (str[0] == '"') {
+                quote_count += 1;
+                str += 1;
+            }
+
+            // quote count is now 1 if an unclosed quote remains, 0 otherwise
+            quote_count = quote_count % 3;
+            if (quote_count == 2)
+                quote_count = 0;
+        } else {
+            backslash_count = 0;
+            str += 1;
+        }
+    }
+
+    // Allocate both the string array and the strings that it points to
+    // in a single LocalAlloc call, that way the caller can make a single
+    // LocalFree() call to free them.
+    const array_of_str_size = (argcount + 1) * @sizeOf(LPSTR);
+    const cmd_line_size = mem.len(cmdLine);
+    const str_data_size = (cmd_line_size + 1) * @sizeOf(CHAR);
+    const total_mem_size = array_of_str_size + str_data_size;
+
+    var all_mem = @ptrCast(?[*]LPSTR, @alignCast(@alignOf(?[*]LPSTR), kernel32.LocalAlloc(LMEM_FIXED, total_mem_size)));
+    if (all_mem == null) {
+        return error.OutOfMemory;
+    }
+
+    // Copy the command line into the string data we allocated.
+    mem.copy(u8, @ptrCast([*]u8, all_mem.?)[array_of_str_size..total_mem_size], cmdLine[0..cmd_line_size]);
+
+    var argv: [*]LPSTR = all_mem.?;
+    var curr_ptr = @ptrCast(LPSTR, all_mem.?) + array_of_str_size;
+
+    argv[0] = curr_ptr;
+    argcount = 1;
+
+    // Like above, the first argument has special rules.
+    if (curr_ptr[0] == '"') {
+        str = curr_ptr + 1;
+        while (str[0] != 0) {
+            if (str[0] == '"') {
+                str += 1;
+                break;
+            }
+
+            str += 1;
+            curr_ptr = str;
+        }
+    } else {
+        while (curr_ptr[0] != 0 and curr_ptr[0] != ' ' and curr_ptr[0] != '\t') : (curr_ptr += 1) {}
+        str = curr_ptr;
+        if (str[0] != 0) str += 1;
+    }
+
+    // Write the null terminator.
+    curr_ptr[0] = 0;
+    curr_ptr += 1;
+
+    // Rest of arguments
+    while (str[0] == ' ' or str[0] == '\t') : (str += 1) {}
+
+    if (str[0] == 0) {
+        argc.* = argcount;
+        return argv;
+    }
+
+    argv[argcount] = curr_ptr;
+    argcount += 1;
+
+    quote_count = 0;
+    backslash_count = 0;
+
+    while (str[0] != 0) {
+        if ((str[0] == ' ' or str[0] == '\t') and quote_count == 0) {
+            // Close the previous arguments.
+            curr_ptr[0] = 0;
+            curr_ptr += 1;
+            backslash_count = 0;
+
+            while (str[0] == ' ' or str[0] == '\t') : (str += 1) {}
+            if (str[0] != 0) {
+                argv[argcount] = curr_ptr;
+                argcount += 1;
+            }
+        } else if (str[0] == '\\') {
+            str += 1;
+            curr_ptr = str;
+            backslash_count += 1;
+        } else if (str[0] == '"') {
+            if ((backslash_count & 1) == 0) {
+                curr_ptr -= @divExact(backslash_count, 2);
+                quote_count += 1;
+            } else {
+                curr_ptr = curr_ptr - backslash_count/2 - 1;
+                curr_ptr[0] = '"';
+                curr_ptr += 1;
+            }
+
+            str += 1;
+            backslash_count = 0;
+
+            while (str[0] == '"') : (str += 1) {
+                quote_count += 1;
+                if (quote_count == 3) {
+                    curr_ptr[0] = '"';
+                    quote_count = 0;
+                }
+            }
+
+            if (quote_count == 2) quote_count = 0;
+        } else {
+            str += 1;
+            curr_ptr = str;
+            backslash_count = 0;
+        }
+    }
+
+    curr_ptr[0] = 0;
+    argc.* = argcount;
+
+    return argv;
+}

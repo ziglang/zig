@@ -152,6 +152,9 @@ pub extern "kernel32" fn HeapAlloc(hHeap: HANDLE, dwFlags: DWORD, dwBytes: SIZE_
 
 pub extern "kernel32" fn HeapFree(hHeap: HANDLE, dwFlags: DWORD, lpMem: *c_void) callconv(.Stdcall) BOOL;
 
+pub extern "kernel32" fn LocalAlloc(uFlags: UINT, uBytes: SIZE_T) callconv(.Stdcall) HLOCAL;
+pub extern "kernel32" fn LocalFree(hMem: HLOCAL) callconv(.Stdcall) HLOCAL;
+
 pub extern "kernel32" fn HeapValidate(hHeap: HANDLE, dwFlags: DWORD, lpMem: ?*const c_void) callconv(.Stdcall) BOOL;
 
 pub extern "kernel32" fn VirtualAlloc(lpAddress: ?LPVOID, dwSize: SIZE_T, flAllocationType: DWORD, flProtect: DWORD) callconv(.Stdcall) ?LPVOID;

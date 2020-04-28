@@ -17,7 +17,11 @@ comptime {
         }
     } else if (builtin.output_mode == .Exe or @hasDecl(root, "main")) {
         if (builtin.link_libc and @hasDecl(root, "main")) {
-            if (@typeInfo(@TypeOf(root.main)).Fn.calling_convention != .C) {
+            if (builtin.subsystem != null and builtin.subsystem.? == builtin.SubSystem.Windows and
+                !@hasDecl(root, "WinMain") and !@hasDecl(root, "wWinMain"))
+            {
+                @export(WinMain, .{ .name = "WinMain" });
+            } else if (@typeInfo(@TypeOf(root.main)).Fn.calling_convention != .C) {
                 @export(main, .{ .name = "main", .linkage = .Weak });
             }
         } else if (builtin.os.tag == .windows) {
@@ -132,6 +136,18 @@ fn WinMainCRTStartup() callconv(.Stdcall) noreturn {
     std.debug.maybeEnableSegfaultHandler();
 
     std.os.windows.kernel32.ExitProcess(initEventLoopAndCallMain());
+}
+
+fn WinMain(hInst: std.os.windows.HINSTANCE, hPrevInst: std.os.windows.HINSTANCE, partialCmdLine: [*:0]u8, nShowCmd: c_int) callconv(.Stdcall) c_int {
+    std.debug.maybeEnableSegfaultHandler();
+
+    // Populate argc, argv.
+    // The command line passed wo WinMain does not include the first argument (program name) so we use CommandLineA()
+    var argc: usize = undefined;
+    const argv = std.os.windows.commandLineToArgv(std.os.windows.kernel32.GetCommandLineA(), &argc) catch unreachable;
+    defer _ = std.os.windows.kernel32.LocalFree(@ptrCast(std.os.windows.HLOCAL, argv));
+
+    return @call(.{ .modifier = .always_inline }, callMainWithArgs, .{ argc, argv, undefined });
 }
 
 // TODO https://github.com/ziglang/zig/issues/265
