@@ -9,7 +9,7 @@ pub fn __umodti3(a: u128, b: u128) callconv(.C) u128 {
     return r;
 }
 
-const v128 = @Vector(2, u64);
+const v128 = @import("std").meta.Vector(2, u64);
 pub fn __umodti3_windows_x86_64(a: v128, b: v128) callconv(.C) v128 {
     return @bitCast(v128, @call(.{ .modifier = .always_inline }, __umodti3, .{
         @bitCast(u128, a),

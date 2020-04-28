@@ -291,7 +291,7 @@ comptime {
                 @export(@import("compiler_rt/umodti3.zig").__umodti3, .{ .name = "__umodti3", .linkage = linkage });
             },
             .x86_64 => {
-                // The "ti" functions must use @Vector(2, u64) parameter types to adhere to the ABI
+                // The "ti" functions must use Vector(2, u64) parameter types to adhere to the ABI
                 // that LLVM expects compiler-rt to have.
                 @export(@import("compiler_rt/divti3.zig").__divti3_windows_x86_64, .{ .name = "__divti3", .linkage = linkage });
                 @export(@import("compiler_rt/modti3.zig").__modti3_windows_x86_64, .{ .name = "__modti3", .linkage = linkage });

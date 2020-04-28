@@ -359,13 +359,13 @@ test "testHash vector" {
     // Disabled because of #3317
     if (@import("builtin").arch == .mipsel or @import("builtin").arch == .mips) return error.SkipZigTest;
 
-    const a: @Vector(4, u32) = [_]u32{ 1, 2, 3, 4 };
-    const b: @Vector(4, u32) = [_]u32{ 1, 2, 3, 5 };
+    const a: meta.Vector(4, u32) = [_]u32{ 1, 2, 3, 4 };
+    const b: meta.Vector(4, u32) = [_]u32{ 1, 2, 3, 5 };
     testing.expect(testHash(a) == testHash(a));
     testing.expect(testHash(a) != testHash(b));
 
-    const c: @Vector(4, u31) = [_]u31{ 1, 2, 3, 4 };
-    const d: @Vector(4, u31) = [_]u31{ 1, 2, 3, 5 };
+    const c: meta.Vector(4, u31) = [_]u31{ 1, 2, 3, 4 };
+    const d: meta.Vector(4, u31) = [_]u31{ 1, 2, 3, 5 };
     testing.expect(testHash(c) == testHash(c));
     testing.expect(testHash(c) != testHash(d));
 }
