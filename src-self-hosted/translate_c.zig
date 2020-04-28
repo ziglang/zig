@@ -788,6 +788,7 @@ fn transRecordDecl(c: *Context, record_decl: *const ZigClangRecordDecl) Error!?*
             .rbrace_token = undefined,
         };
 
+        var unnamed_field_count: u32 = 0;
         var it = ZigClangRecordDecl_field_begin(record_def);
         const end_it = ZigClangRecordDecl_field_end(record_def);
         while (ZigClangRecordDecl_field_iterator_neq(it, end_it)) : (it = ZigClangRecordDecl_field_iterator_next(it)) {
@@ -812,7 +813,9 @@ fn transRecordDecl(c: *Context, record_decl: *const ZigClangRecordDecl) Error!?*
             var is_anon = false;
             var raw_name = try c.str(ZigClangNamedDecl_getName_bytes_begin(@ptrCast(*const ZigClangNamedDecl, field_decl)));
             if (ZigClangFieldDecl_isAnonymousStructOrUnion(field_decl) or raw_name.len == 0) {
-                raw_name = try std.fmt.allocPrint(c.a(), "unnamed_{}", .{c.getMangle()});
+                // Context.getMangle() is not used here because doing so causes unpredictable field names for anonymous fields.
+                raw_name = try std.fmt.allocPrint(c.a(), "unnamed_{}", .{unnamed_field_count});
+                unnamed_field_count += 1;
                 is_anon = true;
             }
             const field_name = try appendIdentifier(c, raw_name);
