@@ -1885,7 +1885,7 @@ test "null terminated array" {
               <li>Supports slice syntax: {#syntax#}ptr[start..end]{#endsyntax#}</li>
               <li>Supports pointer arithmetic: {#syntax#}ptr + x{#endsyntax#}, {#syntax#}ptr - x{#endsyntax#}</li>
               <li>{#syntax#}T{#endsyntax#} must have a known size, which means that it cannot be
-              {#syntax#}c_void{#endsyntax#} or any other {#link|@OpaqueType#}.</li>
+              {#syntax#}c_void{#endsyntax#} or any other {#link|opaque type|Opaque Types#}.</li>
             </ul>
           </li>
       </ul>
@@ -5392,7 +5392,7 @@ fn eql_i32(a: i32, b: i32) bool {
       </p>
       <p>
       {#syntax#}void{#endsyntax#} is distinct from {#syntax#}c_void{#endsyntax#}, which is defined like this:
-              {#syntax#}pub const c_void = @OpaqueType();{#endsyntax#}.
+              {#syntax#}pub const c_void = @Type(.Opaque);{#endsyntax#}.
                   {#syntax#}void{#endsyntax#} has a known size of 0 bytes, and {#syntax#}c_void{#endsyntax#} has an unknown, but non-zero, size.
       </p>
       <p>
@@ -7666,30 +7666,6 @@ mem.set(u8, dest, c);{#endsyntax#}</pre>
       </p>
       {#header_close#}
 
-      {#header_open|@OpaqueType#}
-      <pre>{#syntax#}@OpaqueType() type{#endsyntax#}</pre>
-      <p>
-      Creates a new type with an unknown (but non-zero) size and alignment.
-      </p>
-      <p>
-      This is typically used for type safety when interacting with C code that does not expose struct details.
-      Example:
-      </p>
-      {#code_begin|test_err|expected type '*Derp', found '*Wat'#}
-const Derp = @OpaqueType();
-const Wat = @OpaqueType();
-
-extern fn bar(d: *Derp) void;
-fn foo(w: *Wat) callconv(.C) void {
-    bar(w);
-}
-
-test "call foo" {
-    foo(undefined);
-}
-      {#code_end#}
-      {#header_close#}
-
       {#header_open|@panic#}
       <pre>{#syntax#}@panic(message: []const u8) noreturn{#endsyntax#}</pre>
       <p>
@@ -8274,21 +8250,21 @@ test "integer truncation" {
           <li>{#syntax#}comptime_float{#endsyntax#}</li>
           <li>{#syntax#}@TypeOf(undefined){#endsyntax#}</li>
           <li>{#syntax#}@TypeOf(null){#endsyntax#}</li>
+          <li>{#link|Arrays#}</li>
+          <li>{#link|Optionals#}</li>
+          <li>{#link|Error Union Type#}</li>
+          <li>{#link|Vectors#}</li>
+          <li>{#link|Opaque Types#}</li>
+          <li>AnyFrame</li>
       </ul>
       <p>
       For these types it is a
       <a href="https://github.com/ziglang/zig/issues/2907">TODO in the compiler to implement</a>:
       </p>
       <ul>
-          <li>Array</li>
-          <li>Optional</li>
-          <li>ErrorUnion</li>
           <li>ErrorSet</li>
           <li>Enum</li>
-          <li>Opaque</li>
           <li>FnFrame</li>
-          <li>AnyFrame</li>
-          <li>Vector</li>
           <li>EnumLiteral</li>
       </ul>
       <p>
@@ -8371,6 +8347,28 @@ fn foo(comptime T: type, ptr: *T) T {
       {#link|pointer|Pointers#}.
       </p>
       {#header_close#}
+      {#header_close#}
+
+      {#header_open|Opaque Types#}
+      {#syntax#}@Type(.Opaque){#endsyntax#} creates a new type with an unknown (but non-zero) size and alignment.
+      </p>
+      <p>
+      This is typically used for type safety when interacting with C code that does not expose struct details.
+      Example:
+      </p>
+      {#code_begin|test_err|expected type '*Derp', found '*Wat'#}
+const Derp = @Type(.Opaque);
+const Wat = @Type(.Opaque);
+
+extern fn bar(d: *Derp) void;
+fn foo(w: *Wat) callconv(.C) void {
+    bar(w);
+}
+
+test "call foo" {
+    foo(undefined);
+}
+      {#code_end#}
       {#header_close#}
 
       {#header_open|Build Mode#}

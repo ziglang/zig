@@ -444,9 +444,9 @@ export fn writeToVRam() void {
     vram[0] = 'X';
 }
 
-const OpaqueA = @OpaqueType();
-const OpaqueB = @OpaqueType();
-test "@OpaqueType" {
+const OpaqueA = @Type(.Opaque);
+const OpaqueB = @Type(.Opaque);
+test "opaque types" {
     expect(*OpaqueA != *OpaqueB);
     expect(mem.eql(u8, @typeName(OpaqueA), "OpaqueA"));
     expect(mem.eql(u8, @typeName(OpaqueB), "OpaqueB"));

@@ -27,16 +27,16 @@ pub const UCHAR = u8;
 pub const FLOAT = f32;
 pub const HANDLE = *c_void;
 pub const HCRYPTPROV = ULONG_PTR;
-pub const HBRUSH = *@OpaqueType();
-pub const HCURSOR = *@OpaqueType();
-pub const HICON = *@OpaqueType();
-pub const HINSTANCE = *@OpaqueType();
-pub const HMENU = *@OpaqueType();
-pub const HMODULE = *@OpaqueType();
-pub const HWND = *@OpaqueType();
-pub const HDC = *@OpaqueType();
-pub const HGLRC = *@OpaqueType();
-pub const FARPROC = *@OpaqueType();
+pub const HBRUSH = *@Type(.Opaque);
+pub const HCURSOR = *@Type(.Opaque);
+pub const HICON = *@Type(.Opaque);
+pub const HINSTANCE = *@Type(.Opaque);
+pub const HMENU = *@Type(.Opaque);
+pub const HMODULE = *@Type(.Opaque);
+pub const HWND = *@Type(.Opaque);
+pub const HDC = *@Type(.Opaque);
+pub const HGLRC = *@Type(.Opaque);
+pub const FARPROC = *@Type(.Opaque);
 pub const INT = c_int;
 pub const LPBYTE = *BYTE;
 pub const LPCH = *CHAR;
@@ -76,7 +76,7 @@ pub const WPARAM = usize;
 pub const LPARAM = ?*c_void;
 pub const LRESULT = ?*c_void;
 
-pub const va_list = *@OpaqueType();
+pub const va_list = *@Type(.Opaque);
 
 pub const TRUE = 1;
 pub const FALSE = 0;
@@ -1169,10 +1169,10 @@ pub const UNICODE_STRING = extern struct {
     Buffer: [*]WCHAR,
 };
 
-const ACTIVATION_CONTEXT_DATA = @OpaqueType();
-const ASSEMBLY_STORAGE_MAP = @OpaqueType();
-const FLS_CALLBACK_INFO = @OpaqueType();
-const RTL_BITMAP = @OpaqueType();
+const ACTIVATION_CONTEXT_DATA = @Type(.Opaque);
+const ASSEMBLY_STORAGE_MAP = @Type(.Opaque);
+const FLS_CALLBACK_INFO = @Type(.Opaque);
+const RTL_BITMAP = @Type(.Opaque);
 pub const PRTL_BITMAP = *RTL_BITMAP;
 const KAFFINITY = usize;
 
