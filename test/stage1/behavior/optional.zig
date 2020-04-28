@@ -33,10 +33,15 @@ fn testNullPtrsEql() void {
 }
 
 test "equality compare optional with non-optional" {
-    const ten: i32 = 10;
-    const opt_ten: ?i32 = 10;
-    const five: i32 = 5;
-    const n: ?i32 = null;
+    test_cmp_optional_non_optional();
+    comptime test_cmp_optional_non_optional();
+}
+
+fn test_cmp_optional_non_optional() void {
+    var ten: i32 = 10;
+    var opt_ten: ?i32 = 10;
+    var five: i32 = 5;
+    var n: ?i32 = null;
 
     expect(n != ten);
     expect(opt_ten == ten);

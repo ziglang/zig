@@ -3120,6 +3120,12 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutableGen *executable,
     zig_unreachable();
 }
 
+static LLVMValueRef ir_render_cmp_optional_non_optional(CodeGen *g, IrExecutableGen *executable,
+        IrInstGenCmpOptionalNonOptional *cmp_instruction)
+{
+    zig_panic("TODO: runtime rendering of cmp optional non optional");
+}
+
 static void add_error_range_check(CodeGen *g, ZigType *err_set_type, ZigType *int_type, LLVMValueRef target_val) {
     assert(err_set_type->id == ZigTypeIdErrorSet);
 
@@ -6545,6 +6551,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutableGen *executabl
             return ir_render_return(g, executable, (IrInstGenReturn *)instruction);
         case IrInstGenIdBinOp:
             return ir_render_bin_op(g, executable, (IrInstGenBinOp *)instruction);
+        case IrInstGenIdCmpOptionalNonOptional:
+            return ir_render_cmp_optional_non_optional(g, executable, (IrInstGenCmpOptionalNonOptional *)instruction);
         case IrInstGenIdCast:
             return ir_render_cast(g, executable, (IrInstGenCast *)instruction);
         case IrInstGenIdUnreachable:

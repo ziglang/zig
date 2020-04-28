@@ -567,6 +567,8 @@ void destroy_instruction_gen(IrInstGen *inst) {
             return heap::c_allocator.destroy(reinterpret_cast<IrInstGenConst *>(inst));
         case IrInstGenIdBinOp:
             return heap::c_allocator.destroy(reinterpret_cast<IrInstGenBinOp *>(inst));
+        case IrInstGenIdCmpOptionalNonOptional:
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenCmpOptionalNonOptional *>(inst));
         case IrInstGenIdCast:
             return heap::c_allocator.destroy(reinterpret_cast<IrInstGenCast *>(inst));
         case IrInstGenIdCall:
@@ -1656,6 +1658,10 @@ static constexpr IrInstGenId ir_inst_id(IrInstGenBinOp *) {
     return IrInstGenIdBinOp;
 }
 
+static constexpr IrInstGenId ir_inst_id(IrInstGenCmpOptionalNonOptional *) {
+    return IrInstGenIdCmpOptionalNonOptional;
+}
+
 static constexpr IrInstGenId ir_inst_id(IrInstGenLoadPtr *) {
     return IrInstGenIdLoadPtr;
 }
@@ -2254,6 +2260,22 @@ static IrInstGen *ir_build_bin_op_gen(IrAnalyze *ira, IrInst *source_instr, ZigT
 
     ir_ref_inst_gen(op1, ira->new_irb.current_basic_block);
     ir_ref_inst_gen(op2, ira->new_irb.current_basic_block);
+
+    return &inst->base;
+}
+
+static IrInstGen *ir_build_cmp_optional_non_optional_gen(IrAnalyze *ira, IrInst *source_instr, ZigType *res_type,
+        IrBinOp op_id, IrInstGen *optional, IrInstGen *non_optional)
+{
+    IrInstGenCmpOptionalNonOptional *inst = ir_build_inst_gen<IrInstGenCmpOptionalNonOptional>(&ira->new_irb,
+            source_instr->scope, source_instr->source_node);
+    inst->base.value->type = res_type;
+    inst->op_id = op_id;
+    inst->optional = optional;
+    inst->non_optional = non_optional;
+
+    ir_ref_inst_gen(optional, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(non_optional, ira->new_irb.current_basic_block);
 
     return &inst->base;
 }
@@ -16535,7 +16557,10 @@ static IrInstGen *ir_analyze_bin_op_cmp_optional_non_optional(IrAnalyze *ira, Ir
         }
         return ir_const_bool(ira, source_instr, (op_id == IrBinOpCmpEq)? are_equal : !are_equal);
     }
-    zig_unreachable();
+
+    ZigType *result_type = single_type_bin_op_cmp_result_type(ira, child_type);
+
+    return ir_build_cmp_optional_non_optional_gen(ira, source_instr, result_type, op_id, optional, non_optional);
 }
 
 
@@ -30819,6 +30844,7 @@ bool ir_inst_gen_has_side_effects(IrInstGen *instruction) {
 
         case IrInstGenIdPhi:
         case IrInstGenIdBinOp:
+        case IrInstGenIdCmpOptionalNonOptional:
         case IrInstGenIdConst:
         case IrInstGenIdCast:
         case IrInstGenIdElemPtr:

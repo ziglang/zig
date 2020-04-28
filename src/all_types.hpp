@@ -2761,6 +2761,7 @@ enum IrInstGenId {
     IrInstGenIdNegation,
     IrInstGenIdNegationWrapping,
     IrInstGenIdBinOp,
+    IrInstGenIdCmpOptionalNonOptional,
     IrInstGenIdLoadPtr,
     IrInstGenIdStorePtr,
     IrInstGenIdVectorStoreElem,
@@ -3092,6 +3093,14 @@ struct IrInstGenBinOp {
     IrInstGen *op2;
     IrBinOp op_id;
     bool safety_check_on;
+};
+
+struct IrInstGenCmpOptionalNonOptional {
+    IrInstGen base;
+
+    IrInstGen *optional;
+    IrInstGen *non_optional;
+    IrBinOp op_id;
 };
 
 struct IrInstSrcMergeErrSets {

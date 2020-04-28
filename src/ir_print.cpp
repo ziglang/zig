@@ -345,6 +345,8 @@ const char* ir_inst_gen_type_str(IrInstGenId id) {
             return "GenPhi";
         case IrInstGenIdBinOp:
             return "GenBinOp";
+        case IrInstGenIdCmpOptionalNonOptional:
+            return "CmpOptionalNonOptional";
         case IrInstGenIdLoadPtr:
             return "GenLoadPtr";
         case IrInstGenIdStorePtr:
@@ -720,6 +722,13 @@ static void ir_print_bin_op(IrPrintGen *irp, IrInstGenBinOp *bin_op_instruction)
     if (!bin_op_instruction->safety_check_on) {
         fprintf(irp->f, " // no safety");
     }
+}
+
+static void ir_print_cmp_optional_non_optional(IrPrintGen *irp, IrInstGenCmpOptionalNonOptional *cmp_instruction) {
+    ir_print_other_inst_gen(irp, cmp_instruction->optional);
+    fprintf(irp->f, " (optional) %s ", ir_bin_op_id_str(cmp_instruction->op_id));
+    ir_print_other_inst_gen(irp, cmp_instruction->non_optional);
+    fprintf(irp->f, " (non-optional)");
 }
 
 static void ir_print_merge_err_sets(IrPrintSrc *irp, IrInstSrcMergeErrSets *instruction) {
@@ -2969,6 +2978,9 @@ static void ir_print_inst_gen(IrPrintGen *irp, IrInstGen *instruction, bool trai
             break;
         case IrInstGenIdBinOp:
             ir_print_bin_op(irp, (IrInstGenBinOp *)instruction);
+            break;
+        case IrInstGenIdCmpOptionalNonOptional:
+            ir_print_cmp_optional_non_optional(irp, (IrInstGenCmpOptionalNonOptional *)instruction);
             break;
         case IrInstGenIdDeclVar:
             ir_print_decl_var_gen(irp, (IrInstGenDeclVar *)instruction);
