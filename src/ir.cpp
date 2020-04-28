@@ -25446,10 +25446,18 @@ static ZigType *type_info_to_type(IrAnalyze *ira, IrInst *source_instr, ZigTypeI
             ZigType *child_type = get_const_field_meta_type_optional(ira, source_instr->source_node, payload, "child", 0);
             return get_any_frame_type(ira->codegen, child_type);
         }
+        case ZigTypeIdEnumLiteral:
+            return ira->codegen->builtin_types.entry_enum_literal;
+        case ZigTypeIdFnFrame: {
+            assert(payload->special == ConstValSpecialStatic);
+            assert(payload->type == ir_type_info_get_type(ira, "Frame", nullptr));
+            ZigValue *function = get_const_field(ira, source_instr->source_node, payload, "function", 0);
+            assert(function->type->id == ZigTypeIdFn);
+            ZigFn *fn = function->data.x_ptr.data.fn.fn_entry;
+            return get_fn_frame_type(ira->codegen, fn);
+        }
         case ZigTypeIdErrorSet:
         case ZigTypeIdEnum:
-        case ZigTypeIdFnFrame:
-        case ZigTypeIdEnumLiteral:
             ir_add_error(ira, source_instr, buf_sprintf(
                 "TODO implement @Type for 'TypeInfo.%s': see https://github.com/ziglang/zig/issues/2907", type_id_name(tagTypeId)));
             return ira->codegen->invalid_inst_gen->value->type;
