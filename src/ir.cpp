@@ -25426,6 +25426,10 @@ static ZigType *type_info_to_type(IrAnalyze *ira, IrInst *source_instr, ZigTypeI
             assert(payload->type == ir_type_info_get_type(ira, "Vector", nullptr));
             BigInt *len = get_const_field_lit_int(ira, source_instr->source_node, payload, "len", 0);
             ZigType *child_type = get_const_field_meta_type(ira, source_instr->source_node, payload, "child", 1);
+            Error err;
+            if ((err = ir_validate_vector_elem_type(ira, source_instr->source_node, child_type))) {
+                return ira->codegen->invalid_inst_gen->value->type;
+            }
             return get_vector_type(ira->codegen, bigint_as_u32(len), child_type);
         }
         case ZigTypeIdAnyFrame: {
