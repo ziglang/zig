@@ -1358,7 +1358,7 @@ pub fn commandLineToArgv(cmdLine: LPSTR, argc: *usize) ![*]LPSTR {
     var backslash_count: usize = 0;
 
     // Remaining arguments.
-    while (str[0] != '0') {
+    while (str[0] != 0) {
         if ((str[0] == ' ' or str[0] == '\t') and quote_count == 0) {
             // Skip to the next argument.
             while (str[0] == ' ' or str[0] == '\t') : (str += 1) {}
