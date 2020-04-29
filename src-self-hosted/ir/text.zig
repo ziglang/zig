@@ -34,6 +34,10 @@ pub const Inst = struct {
         bitcast,
         elemptr,
         add,
+        cmp,
+        condbr,
+        isnull,
+        isnonnull,
     };
 
     pub fn TagToType(tag: Tag) type {
@@ -54,6 +58,10 @@ pub const Inst = struct {
             .bitcast => BitCast,
             .elemptr => ElemPtr,
             .add => Add,
+            .cmp => Cmp,
+            .condbr => CondBr,
+            .isnull => IsNull,
+            .isnonnull => IsNonNull,
         };
     }
 
@@ -157,13 +165,9 @@ pub const Inst = struct {
 
         positionals: struct {
             fn_type: *Inst,
-            body: Body,
+            body: Module.Body,
         },
         kw_args: struct {},
-
-        pub const Body = struct {
-            instructions: []*Inst,
-        };
     };
 
     pub const Export = struct {
@@ -297,6 +301,50 @@ pub const Inst = struct {
         },
         kw_args: struct {},
     };
+
+    pub const Cmp = struct {
+        pub const base_tag = Tag.cmp;
+        base: Inst,
+
+        positionals: struct {
+            lhs: *Inst,
+            op: std.math.CompareOperator,
+            rhs: *Inst,
+        },
+        kw_args: struct {},
+    };
+
+    pub const CondBr = struct {
+        pub const base_tag = Tag.condbr;
+        base: Inst,
+
+        positionals: struct {
+            condition: *Inst,
+            true_body: Module.Body,
+            false_body: Module.Body,
+        },
+        kw_args: struct {},
+    };
+
+    pub const IsNull = struct {
+        pub const base_tag = Tag.isnull;
+        base: Inst,
+
+        positionals: struct {
+            operand: *Inst,
+        },
+        kw_args: struct {},
+    };
+
+    pub const IsNonNull = struct {
+        pub const base_tag = Tag.isnonnull;
+        base: Inst,
+
+        positionals: struct {
+            operand: *Inst,
+        },
+        kw_args: struct {},
+    };
 };
 
 pub const ErrorMsg = struct {
@@ -308,6 +356,10 @@ pub const Module = struct {
     decls: []*Inst,
     errors: []ErrorMsg,
     arena: std.heap.ArenaAllocator,
+
+    pub const Body = struct {
+        instructions: []*Inst,
+    };
 
     pub fn deinit(self: *Module, allocator: *Allocator) void {
         allocator.free(self.decls);
@@ -321,7 +373,7 @@ pub const Module = struct {
         self.writeToStream(std.heap.page_allocator, std.io.getStdErr().outStream()) catch {};
     }
 
-    const InstPtrTable = std.AutoHashMap(*Inst, struct { index: usize, fn_body: ?*Inst.Fn.Body });
+    const InstPtrTable = std.AutoHashMap(*Inst, struct { index: usize, fn_body: ?*Module.Body });
 
     /// The allocator is used for temporary storage, but this function always returns
     /// with no resources allocated.
@@ -373,6 +425,10 @@ pub const Module = struct {
             .bitcast => return self.writeInstToStreamGeneric(stream, .bitcast, decl, inst_table),
             .elemptr => return self.writeInstToStreamGeneric(stream, .elemptr, decl, inst_table),
             .add => return self.writeInstToStreamGeneric(stream, .add, decl, inst_table),
+            .cmp => return self.writeInstToStreamGeneric(stream, .cmp, decl, inst_table),
+            .condbr => return self.writeInstToStreamGeneric(stream, .condbr, decl, inst_table),
+            .isnull => return self.writeInstToStreamGeneric(stream, .isnull, decl, inst_table),
+            .isnonnull => return self.writeInstToStreamGeneric(stream, .isnonnull, decl, inst_table),
         }
     }
 
@@ -432,7 +488,7 @@ pub const Module = struct {
                 }
                 try stream.writeByte(']');
             },
-            Inst.Fn.Body => {
+            Module.Body => {
                 try stream.writeAll("{\n");
                 for (param.instructions) |inst, i| {
                     try stream.print("  %{} ", .{i});
@@ -497,7 +553,7 @@ const Parser = struct {
         name_map: std.StringHashMap(usize),
     };
 
-    fn parseBody(self: *Parser) !Inst.Fn.Body {
+    fn parseBody(self: *Parser) !Module.Body {
         var body_context = Body{
             .instructions = std.ArrayList(*Inst).init(self.allocator),
             .name_map = std.StringHashMap(usize).init(self.allocator),
@@ -535,7 +591,7 @@ const Parser = struct {
         // Move the instructions to the arena
         const instrs = try self.arena.allocator.alloc(*Inst, body_context.instructions.items.len);
         mem.copy(*Inst, instrs, body_context.instructions.items);
-        return Inst.Fn.Body{ .instructions = instrs };
+        return Module.Body{ .instructions = instrs };
     }
 
     fn parseStringLiteral(self: *Parser) ![]u8 {
@@ -754,7 +810,7 @@ const Parser = struct {
             };
         }
         switch (T) {
-            Inst.Fn.Body => return parseBody(self),
+            Module.Body => return parseBody(self),
             bool => {
                 const bool_value = switch (self.source[self.i]) {
                     '0' => false,
@@ -880,11 +936,12 @@ const EmitZIR = struct {
     }
 
     fn emitComptimeIntVal(self: *EmitZIR, src: usize, val: Value) !*Inst {
+        const big_int_space = try self.arena.allocator.create(Value.BigIntSpace);
         const int_inst = try self.arena.allocator.create(Inst.Int);
         int_inst.* = .{
             .base = .{ .src = src, .tag = Inst.Int.base_tag },
             .positionals = .{
-                .int = try val.toBigInt(&self.arena.allocator),
+                .int = val.toBigInt(big_int_space),
             },
             .kw_args = .{},
         };
@@ -939,85 +996,7 @@ const EmitZIR = struct {
                 var instructions = std.ArrayList(*Inst).init(self.allocator);
                 defer instructions.deinit();
 
-                for (module_fn.body) |inst| {
-                    const new_inst = switch (inst.tag) {
-                        .unreach => blk: {
-                            const unreach_inst = try self.arena.allocator.create(Inst.Unreachable);
-                            unreach_inst.* = .{
-                                .base = .{ .src = inst.src, .tag = Inst.Unreachable.base_tag },
-                                .positionals = .{},
-                                .kw_args = .{},
-                            };
-                            break :blk &unreach_inst.base;
-                        },
-                        .constant => unreachable, // excluded from function bodies
-                        .assembly => blk: {
-                            const old_inst = inst.cast(ir.Inst.Assembly).?;
-                            const new_inst = try self.arena.allocator.create(Inst.Asm);
-
-                            const inputs = try self.arena.allocator.alloc(*Inst, old_inst.args.inputs.len);
-                            for (inputs) |*elem, i| {
-                                elem.* = try self.emitStringLiteral(inst.src, old_inst.args.inputs[i]);
-                            }
-
-                            const clobbers = try self.arena.allocator.alloc(*Inst, old_inst.args.clobbers.len);
-                            for (clobbers) |*elem, i| {
-                                elem.* = try self.emitStringLiteral(inst.src, old_inst.args.clobbers[i]);
-                            }
-
-                            const args = try self.arena.allocator.alloc(*Inst, old_inst.args.args.len);
-                            for (args) |*elem, i| {
-                                elem.* = try self.resolveInst(&inst_table, old_inst.args.args[i]);
-                            }
-
-                            new_inst.* = .{
-                                .base = .{ .src = inst.src, .tag = Inst.Asm.base_tag },
-                                .positionals = .{
-                                    .asm_source = try self.emitStringLiteral(inst.src, old_inst.args.asm_source),
-                                    .return_type = try self.emitType(inst.src, inst.ty),
-                                },
-                                .kw_args = .{
-                                    .@"volatile" = old_inst.args.is_volatile,
-                                    .output = if (old_inst.args.output) |o|
-                                        try self.emitStringLiteral(inst.src, o)
-                                    else
-                                        null,
-                                    .inputs = inputs,
-                                    .clobbers = clobbers,
-                                    .args = args,
-                                },
-                            };
-                            break :blk &new_inst.base;
-                        },
-                        .ptrtoint => blk: {
-                            const old_inst = inst.cast(ir.Inst.PtrToInt).?;
-                            const new_inst = try self.arena.allocator.create(Inst.PtrToInt);
-                            new_inst.* = .{
-                                .base = .{ .src = inst.src, .tag = Inst.PtrToInt.base_tag },
-                                .positionals = .{
-                                    .ptr = try self.resolveInst(&inst_table, old_inst.args.ptr),
-                                },
-                                .kw_args = .{},
-                            };
-                            break :blk &new_inst.base;
-                        },
-                        .bitcast => blk: {
-                            const old_inst = inst.cast(ir.Inst.BitCast).?;
-                            const new_inst = try self.arena.allocator.create(Inst.BitCast);
-                            new_inst.* = .{
-                                .base = .{ .src = inst.src, .tag = Inst.BitCast.base_tag },
-                                .positionals = .{
-                                    .dest_type = try self.emitType(inst.src, inst.ty),
-                                    .operand = try self.resolveInst(&inst_table, old_inst.args.operand),
-                                },
-                                .kw_args = .{},
-                            };
-                            break :blk &new_inst.base;
-                        },
-                    };
-                    try instructions.append(new_inst);
-                    try inst_table.putNoClobber(inst, new_inst);
-                }
+                try self.emitBody(module_fn.body, &inst_table, &instructions);
 
                 const fn_type = try self.emitType(src, module_fn.fn_type);
 
@@ -1036,6 +1015,155 @@ const EmitZIR = struct {
                 return &fn_inst.base;
             },
             else => |t| std.debug.panic("TODO implement emitTypedValue for {}", .{@tagName(t)}),
+        }
+    }
+
+    fn emitBody(
+        self: *EmitZIR,
+        body: ir.Module.Body,
+        inst_table: *std.AutoHashMap(*ir.Inst, *Inst),
+        instructions: *std.ArrayList(*Inst),
+    ) Allocator.Error!void {
+        for (body.instructions) |inst| {
+            const new_inst = switch (inst.tag) {
+                .unreach => blk: {
+                    const unreach_inst = try self.arena.allocator.create(Inst.Unreachable);
+                    unreach_inst.* = .{
+                        .base = .{ .src = inst.src, .tag = Inst.Unreachable.base_tag },
+                        .positionals = .{},
+                        .kw_args = .{},
+                    };
+                    break :blk &unreach_inst.base;
+                },
+                .constant => unreachable, // excluded from function bodies
+                .assembly => blk: {
+                    const old_inst = inst.cast(ir.Inst.Assembly).?;
+                    const new_inst = try self.arena.allocator.create(Inst.Asm);
+
+                    const inputs = try self.arena.allocator.alloc(*Inst, old_inst.args.inputs.len);
+                    for (inputs) |*elem, i| {
+                        elem.* = try self.emitStringLiteral(inst.src, old_inst.args.inputs[i]);
+                    }
+
+                    const clobbers = try self.arena.allocator.alloc(*Inst, old_inst.args.clobbers.len);
+                    for (clobbers) |*elem, i| {
+                        elem.* = try self.emitStringLiteral(inst.src, old_inst.args.clobbers[i]);
+                    }
+
+                    const args = try self.arena.allocator.alloc(*Inst, old_inst.args.args.len);
+                    for (args) |*elem, i| {
+                        elem.* = try self.resolveInst(inst_table, old_inst.args.args[i]);
+                    }
+
+                    new_inst.* = .{
+                        .base = .{ .src = inst.src, .tag = Inst.Asm.base_tag },
+                        .positionals = .{
+                            .asm_source = try self.emitStringLiteral(inst.src, old_inst.args.asm_source),
+                            .return_type = try self.emitType(inst.src, inst.ty),
+                        },
+                        .kw_args = .{
+                            .@"volatile" = old_inst.args.is_volatile,
+                            .output = if (old_inst.args.output) |o|
+                                try self.emitStringLiteral(inst.src, o)
+                            else
+                                null,
+                            .inputs = inputs,
+                            .clobbers = clobbers,
+                            .args = args,
+                        },
+                    };
+                    break :blk &new_inst.base;
+                },
+                .ptrtoint => blk: {
+                    const old_inst = inst.cast(ir.Inst.PtrToInt).?;
+                    const new_inst = try self.arena.allocator.create(Inst.PtrToInt);
+                    new_inst.* = .{
+                        .base = .{ .src = inst.src, .tag = Inst.PtrToInt.base_tag },
+                        .positionals = .{
+                            .ptr = try self.resolveInst(inst_table, old_inst.args.ptr),
+                        },
+                        .kw_args = .{},
+                    };
+                    break :blk &new_inst.base;
+                },
+                .bitcast => blk: {
+                    const old_inst = inst.cast(ir.Inst.BitCast).?;
+                    const new_inst = try self.arena.allocator.create(Inst.BitCast);
+                    new_inst.* = .{
+                        .base = .{ .src = inst.src, .tag = Inst.BitCast.base_tag },
+                        .positionals = .{
+                            .dest_type = try self.emitType(inst.src, inst.ty),
+                            .operand = try self.resolveInst(inst_table, old_inst.args.operand),
+                        },
+                        .kw_args = .{},
+                    };
+                    break :blk &new_inst.base;
+                },
+                .cmp => blk: {
+                    const old_inst = inst.cast(ir.Inst.Cmp).?;
+                    const new_inst = try self.arena.allocator.create(Inst.Cmp);
+                    new_inst.* = .{
+                        .base = .{ .src = inst.src, .tag = Inst.Cmp.base_tag },
+                        .positionals = .{
+                            .lhs = try self.resolveInst(inst_table, old_inst.args.lhs),
+                            .rhs = try self.resolveInst(inst_table, old_inst.args.rhs),
+                            .op = old_inst.args.op,
+                        },
+                        .kw_args = .{},
+                    };
+                    break :blk &new_inst.base;
+                },
+                .condbr => blk: {
+                    const old_inst = inst.cast(ir.Inst.CondBr).?;
+
+                    var true_body = std.ArrayList(*Inst).init(self.allocator);
+                    var false_body = std.ArrayList(*Inst).init(self.allocator);
+
+                    defer true_body.deinit();
+                    defer false_body.deinit();
+
+                    try self.emitBody(old_inst.args.true_body, inst_table, &true_body);
+                    try self.emitBody(old_inst.args.false_body, inst_table, &false_body);
+
+                    const new_inst = try self.arena.allocator.create(Inst.CondBr);
+                    new_inst.* = .{
+                        .base = .{ .src = inst.src, .tag = Inst.CondBr.base_tag },
+                        .positionals = .{
+                            .condition = try self.resolveInst(inst_table, old_inst.args.condition),
+                            .true_body = .{ .instructions = true_body.toOwnedSlice() },
+                            .false_body = .{ .instructions = false_body.toOwnedSlice() },
+                        },
+                        .kw_args = .{},
+                    };
+                    break :blk &new_inst.base;
+                },
+                .isnull => blk: {
+                    const old_inst = inst.cast(ir.Inst.IsNull).?;
+                    const new_inst = try self.arena.allocator.create(Inst.IsNull);
+                    new_inst.* = .{
+                        .base = .{ .src = inst.src, .tag = Inst.IsNull.base_tag },
+                        .positionals = .{
+                            .operand = try self.resolveInst(inst_table, old_inst.args.operand),
+                        },
+                        .kw_args = .{},
+                    };
+                    break :blk &new_inst.base;
+                },
+                .isnonnull => blk: {
+                    const old_inst = inst.cast(ir.Inst.IsNonNull).?;
+                    const new_inst = try self.arena.allocator.create(Inst.IsNonNull);
+                    new_inst.* = .{
+                        .base = .{ .src = inst.src, .tag = Inst.IsNonNull.base_tag },
+                        .positionals = .{
+                            .operand = try self.resolveInst(inst_table, old_inst.args.operand),
+                        },
+                        .kw_args = .{},
+                    };
+                    break :blk &new_inst.base;
+                },
+            };
+            try instructions.append(new_inst);
+            try inst_table.putNoClobber(inst, new_inst);
         }
     }
 

@@ -60,6 +60,13 @@ pub const Int = struct {
         return s;
     }
 
+    /// Hint: use `calcLimbLen` to figure out how big an array to allocate for `limbs`.
+    pub fn initSetFixed(limbs: []Limb, value: var) Int {
+        var s = Int.initFixed(limbs);
+        s.set(value) catch unreachable;
+        return s;
+    }
+
     /// Creates a new Int with a specific capacity. If capacity < default_capacity then the
     /// default capacity will be used instead.
     pub fn initCapacity(allocator: *Allocator, capacity: usize) !Int {
@@ -104,12 +111,11 @@ pub const Int = struct {
     /// Returns an Int backed by a fixed set of limb values.
     /// This is read-only and cannot be used as a result argument. If the Int tries to allocate
     /// memory a runtime panic will occur.
-    pub fn initFixed(limbs: []const Limb) Int {
+    pub fn initFixed(limbs: []Limb) Int {
         var self = Int{
             .allocator = null,
             .metadata = limbs.len,
-            // Cast away the const, invalid use to pass as a pointer argument.
-            .limbs = @intToPtr([*]Limb, @ptrToInt(limbs.ptr))[0..limbs.len],
+            .limbs = limbs,
         };
 
         self.normalize(limbs.len);
@@ -218,7 +224,7 @@ pub const Int = struct {
     /// one greater than the returned value.
     ///
     /// e.g. -127 returns 8 as it will fit in an i8. 127 returns 7 since it fits in a u7.
-    fn bitCountTwosComp(self: Int) usize {
+    pub fn bitCountTwosComp(self: Int) usize {
         var bits = self.bitCountAbs();
 
         // If the entire value has only one bit set (e.g. 0b100000000) then the negation in twos
@@ -267,7 +273,6 @@ pub const Int = struct {
 
     /// Sets an Int to value. Value must be an primitive integer type.
     pub fn set(self: *Int, value: var) Allocator.Error!void {
-        self.assertWritable();
         const T = @TypeOf(value);
 
         switch (@typeInfo(T)) {
@@ -598,6 +603,13 @@ pub const Int = struct {
         }
     }
 
+    /// Same as `cmp` but the right-hand operand is a primitive integer.
+    pub fn orderAgainstScalar(lhs: Int, scalar: var) math.Order {
+        var limbs: [calcLimbLen(scalar)]Limb = undefined;
+        const rhs = initSetFixed(&limbs, scalar);
+        return cmp(lhs, rhs);
+    }
+
     /// Returns true if a == 0.
     pub fn eqZero(a: Int) bool {
         return a.len() == 1 and a.limbs[0] == 0;
@@ -640,6 +652,33 @@ pub const Int = struct {
             .metadata = a.len(),
             .limbs = a.limbs,
         };
+    }
+
+    /// Returns the number of limbs needed to store `scalar`, which must be a
+    /// primitive integer value.
+    pub fn calcLimbLen(scalar: var) usize {
+        switch (@typeInfo(@TypeOf(scalar))) {
+            .Int => return @sizeOf(scalar) / @sizeOf(Limb),
+            .ComptimeInt => {
+                const w_value = if (scalar < 0) -scalar else scalar;
+                const req_limbs = @divFloor(math.log2(w_value), Limb.bit_count) + 1;
+                return req_limbs;
+            },
+            else => @compileError("parameter must be a primitive integer type"),
+        }
+    }
+
+    /// r = a + scalar
+    ///
+    /// r and a may be aliases.
+    /// scalar is a primitive integer type.
+    ///
+    /// Returns an error if memory could not be allocated.
+    pub fn addScalar(r: *Int, a: Int, scalar: var) Allocator.Error!void {
+        var limbs: [calcLimbLen(scalar)]Limb = undefined;
+        var operand = initFixed(&limbs);
+        operand.set(scalar) catch unreachable;
+        return add(r, a, operand);
     }
 
     /// r = a + b
