@@ -1333,7 +1333,6 @@ pub fn commandLineToArgv(cmdLine: LPSTR, argc: *usize) ![*]LPSTR {
     var argcount: usize = 1;
 
     // Count the arguments.
-
     var str = cmdLine;
 
     // The first argument follows special rules
@@ -1393,7 +1392,7 @@ pub fn commandLineToArgv(cmdLine: LPSTR, argc: *usize) ![*]LPSTR {
     // Allocate both the string array and the strings that it points to
     // in a single LocalAlloc call, that way the caller can make a single
     // LocalFree() call to free them.
-    const array_of_str_size = (argcount + 1) * @sizeOf(LPSTR);
+    const array_of_str_size = argcount * @sizeOf(LPSTR);
     const cmd_line_size = mem.len(cmdLine);
     const str_data_size = (cmd_line_size + 1) * @sizeOf(CHAR);
     const total_mem_size = array_of_str_size + str_data_size;
@@ -1421,8 +1420,9 @@ pub fn commandLineToArgv(cmdLine: LPSTR, argc: *usize) ![*]LPSTR {
                 break;
             }
 
+            curr_ptr[0] = str[0];
             str += 1;
-            curr_ptr = str;
+            curr_ptr += 1;
         }
     } else {
         while (curr_ptr[0] != 0 and curr_ptr[0] != ' ' and curr_ptr[0] != '\t') : (curr_ptr += 1) {}
@@ -1442,7 +1442,7 @@ pub fn commandLineToArgv(cmdLine: LPSTR, argc: *usize) ![*]LPSTR {
         return argv;
     }
 
-    argv[argcount] = curr_ptr;
+    argv[1] = curr_ptr;
     argcount += 1;
 
     quote_count = 0;
@@ -1461,8 +1461,9 @@ pub fn commandLineToArgv(cmdLine: LPSTR, argc: *usize) ![*]LPSTR {
                 argcount += 1;
             }
         } else if (str[0] == '\\') {
+            curr_ptr[0] = str[0];
             str += 1;
-            curr_ptr = str;
+            curr_ptr += 1;
             backslash_count += 1;
         } else if (str[0] == '"') {
             if ((backslash_count & 1) == 0) {
@@ -1487,8 +1488,9 @@ pub fn commandLineToArgv(cmdLine: LPSTR, argc: *usize) ![*]LPSTR {
 
             if (quote_count == 2) quote_count = 0;
         } else {
+            curr_ptr[0] = str[0];
             str += 1;
-            curr_ptr = str;
+            curr_ptr += 1;
             backslash_count = 0;
         }
     }

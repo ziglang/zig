@@ -140,7 +140,6 @@ fn WinMainCRTStartup() callconv(.Stdcall) noreturn {
 
 fn WinMain(hInst: std.os.windows.HINSTANCE, hPrevInst: std.os.windows.HINSTANCE, partialCmdLine: [*:0]u8, nShowCmd: c_int) callconv(.Stdcall) c_int {
     std.debug.maybeEnableSegfaultHandler();
-
     // Populate argc, argv.
     // The command line passed wo WinMain does not include the first argument (program name) so we use CommandLineA()
     var argc: usize = undefined;

@@ -32,8 +32,7 @@ pub const subsystem: ?SubSystem = blk: {
             if (is_test) {
                 break :blk SubSystem.Console;
             }
-            if (@hasDecl(root, "main") or
-                @hasDecl(root, "WinMain") or
+            if (@hasDecl(root, "WinMain") or
                 @hasDecl(root, "wWinMain") or
                 @hasDecl(root, "WinMainCRTStartup") or
                 @hasDecl(root, "wWinMainCRTStartup"))
