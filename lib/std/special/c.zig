@@ -511,7 +511,7 @@ export fn roundf(a: f32) f32 {
 fn generic_fmod(comptime T: type, x: T, y: T) T {
     @setRuntimeSafety(false);
 
-    const uint = std.meta.IntType(false, T.bit_count);
+    const uint = std.meta.Int(false, T.bit_count);
     const log2uint = math.Log2Int(uint);
     const digits = if (T == f32) 23 else 52;
     const exp_bits = if (T == f32) 9 else 12;

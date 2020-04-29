@@ -367,7 +367,7 @@ test "fmt.parseFloat" {
     const epsilon = 1e-7;
 
     inline for ([_]type{ f16, f32, f64, f128 }) |T| {
-        const Z = std.meta.IntType(false, T.bit_count);
+        const Z = std.meta.Int(false, T.bit_count);
 
         testing.expectError(error.InvalidCharacter, parseFloat(T, ""));
         testing.expectError(error.InvalidCharacter, parseFloat(T, "   1"));

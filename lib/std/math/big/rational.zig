@@ -127,8 +127,8 @@ pub const Rational = struct {
         // Translated from golang.go/src/math/big/rat.go.
         debug.assert(@typeInfo(T) == .Float);
 
-        const UnsignedIntType = std.meta.IntType(false, T.bit_count);
-        const f_bits = @bitCast(UnsignedIntType, f);
+        const UnsignedInt = std.meta.Int(false, T.bit_count);
+        const f_bits = @bitCast(UnsignedInt, f);
 
         const exponent_bits = math.floatExponentBits(T);
         const exponent_bias = (1 << (exponent_bits - 1)) - 1;
@@ -186,7 +186,7 @@ pub const Rational = struct {
         debug.assert(@typeInfo(T) == .Float);
 
         const fsize = T.bit_count;
-        const BitReprType = std.meta.IntType(false, T.bit_count);
+        const BitReprType = std.meta.Int(false, T.bit_count);
 
         const msize = math.floatMantissaBits(T);
         const msize1 = msize + 1;

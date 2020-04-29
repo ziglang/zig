@@ -45,8 +45,8 @@ pub const Random = struct {
     /// Returns a random int `i` such that `0 <= i <= maxInt(T)`.
     /// `i` is evenly distributed.
     pub fn int(r: *Random, comptime T: type) T {
-        const UnsignedT = std.meta.IntType(false, T.bit_count);
-        const ByteAlignedT = std.meta.IntType(false, @divTrunc(T.bit_count + 7, 8) * 8);
+        const UnsignedT = std.meta.Int(false, T.bit_count);
+        const ByteAlignedT = std.meta.Int(false, @divTrunc(T.bit_count + 7, 8) * 8);
 
         var rand_bytes: [@sizeOf(ByteAlignedT)]u8 = undefined;
         r.bytes(rand_bytes[0..]);
@@ -85,9 +85,9 @@ pub const Random = struct {
         comptime assert(T.bit_count <= 64); // TODO: workaround: LLVM ERROR: Unsupported library call operation!
         assert(0 < less_than);
         // Small is typically u32
-        const Small = std.meta.IntType(false, @divTrunc(T.bit_count + 31, 32) * 32);
+        const Small = std.meta.Int(false, @divTrunc(T.bit_count + 31, 32) * 32);
         // Large is typically u64
-        const Large = std.meta.IntType(false, Small.bit_count * 2);
+        const Large = std.meta.Int(false, Small.bit_count * 2);
 
         // adapted from:
         //   http://www.pcg-random.org/posts/bounded-rands.html
@@ -99,7 +99,7 @@ pub const Random = struct {
             // TODO: workaround for https://github.com/ziglang/zig/issues/1770
             // should be:
             //   var t: Small = -%less_than;
-            var t: Small = @bitCast(Small, -%@bitCast(std.meta.IntType(true, Small.bit_count), @as(Small, less_than)));
+            var t: Small = @bitCast(Small, -%@bitCast(std.meta.Int(true, Small.bit_count), @as(Small, less_than)));
 
             if (t >= less_than) {
                 t -= less_than;
@@ -145,7 +145,7 @@ pub const Random = struct {
         assert(at_least < less_than);
         if (T.is_signed) {
             // Two's complement makes this math pretty easy.
-            const UnsignedT = std.meta.IntType(false, T.bit_count);
+            const UnsignedT = std.meta.Int(false, T.bit_count);
             const lo = @bitCast(UnsignedT, at_least);
             const hi = @bitCast(UnsignedT, less_than);
             const result = lo +% r.uintLessThanBiased(UnsignedT, hi -% lo);
@@ -163,7 +163,7 @@ pub const Random = struct {
         assert(at_least < less_than);
         if (T.is_signed) {
             // Two's complement makes this math pretty easy.
-            const UnsignedT = std.meta.IntType(false, T.bit_count);
+            const UnsignedT = std.meta.Int(false, T.bit_count);
             const lo = @bitCast(UnsignedT, at_least);
             const hi = @bitCast(UnsignedT, less_than);
             const result = lo +% r.uintLessThan(UnsignedT, hi -% lo);
@@ -180,7 +180,7 @@ pub const Random = struct {
         assert(at_least <= at_most);
         if (T.is_signed) {
             // Two's complement makes this math pretty easy.
-            const UnsignedT = std.meta.IntType(false, T.bit_count);
+            const UnsignedT = std.meta.Int(false, T.bit_count);
             const lo = @bitCast(UnsignedT, at_least);
             const hi = @bitCast(UnsignedT, at_most);
             const result = lo +% r.uintAtMostBiased(UnsignedT, hi -% lo);
@@ -198,7 +198,7 @@ pub const Random = struct {
         assert(at_least <= at_most);
         if (T.is_signed) {
             // Two's complement makes this math pretty easy.
-            const UnsignedT = std.meta.IntType(false, T.bit_count);
+            const UnsignedT = std.meta.Int(false, T.bit_count);
             const lo = @bitCast(UnsignedT, at_least);
             const hi = @bitCast(UnsignedT, at_most);
             const result = lo +% r.uintAtMost(UnsignedT, hi -% lo);
@@ -275,7 +275,7 @@ pub const Random = struct {
 /// This function introduces a minor bias.
 pub fn limitRangeBiased(comptime T: type, random_int: T, less_than: T) T {
     comptime assert(T.is_signed == false);
-    const T2 = std.meta.IntType(false, T.bit_count * 2);
+    const T2 = std.meta.Int(false, T.bit_count * 2);
 
     // adapted from:
     //   http://www.pcg-random.org/posts/bounded-rands.html

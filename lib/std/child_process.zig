@@ -830,7 +830,7 @@ fn forkChildErrReport(fd: i32, err: ChildProcess.SpawnError) noreturn {
     os.exit(1);
 }
 
-const ErrInt = std.meta.IntType(false, @sizeOf(anyerror) * 8);
+const ErrInt = std.meta.Int(false, @sizeOf(anyerror) * 8);
 
 fn writeIntFd(fd: i32, value: ErrInt) !void {
     const file = File{

@@ -1065,7 +1065,7 @@ pub fn writeIntSliceLittle(comptime T: type, buffer: []u8, value: T) void {
         return set(u8, buffer, 0);
 
     // TODO I want to call writeIntLittle here but comptime eval facilities aren't good enough
-    const uint = std.meta.IntType(false, T.bit_count);
+    const uint = std.meta.Int(false, T.bit_count);
     var bits = @truncate(uint, value);
     for (buffer) |*b| {
         b.* = @truncate(u8, bits);
@@ -1085,7 +1085,7 @@ pub fn writeIntSliceBig(comptime T: type, buffer: []u8, value: T) void {
         return set(u8, buffer, 0);
 
     // TODO I want to call writeIntBig here but comptime eval facilities aren't good enough
-    const uint = std.meta.IntType(false, T.bit_count);
+    const uint = std.meta.Int(false, T.bit_count);
     var bits = @truncate(uint, value);
     var index: usize = buffer.len;
     while (index != 0) {
