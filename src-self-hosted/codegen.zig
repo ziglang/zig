@@ -77,6 +77,7 @@ const Function = struct {
 
     fn genFuncInst(self: *Function, inst: *ir.Inst) !MCValue {
         switch (inst.tag) {
+            .breakpoint => return self.genBreakpoint(inst.src),
             .unreach => return MCValue{ .unreach = {} },
             .constant => unreachable, // excluded from function bodies
             .assembly => return self.genAsm(inst.cast(ir.Inst.Assembly).?),

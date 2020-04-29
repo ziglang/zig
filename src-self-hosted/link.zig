@@ -431,7 +431,7 @@ const Update = struct {
                 },
             }
         }
-        if (self.entry_addr == null) {
+        if (self.entry_addr == null and self.module.output_mode == .Exe) {
             const msg = try std.fmt.allocPrint(self.errors.allocator, "no entry point found", .{});
             errdefer self.errors.allocator.free(msg);
             try self.errors.append(.{
@@ -480,7 +480,15 @@ const Update = struct {
 
         assert(index == 16);
 
-        mem.writeInt(u16, hdr_buf[index..][0..2], @enumToInt(elf.ET.EXEC), endian);
+        const elf_type = switch (self.module.output_mode) {
+            .Exe => elf.ET.EXEC,
+            .Obj => elf.ET.REL,
+            .Lib => switch (self.module.link_mode) {
+                .Static => elf.ET.REL,
+                .Dynamic => elf.ET.DYN,
+            },
+        };
+        mem.writeInt(u16, hdr_buf[index..][0..2], @enumToInt(elf_type), endian);
         index += 2;
 
         const machine = self.module.target.cpu.arch.toElfMachine();
@@ -491,10 +499,11 @@ const Update = struct {
         mem.writeInt(u32, hdr_buf[index..][0..4], 1, endian);
         index += 4;
 
+        const e_entry = if (elf_type == .REL) 0 else self.entry_addr.?;
+
         switch (ptr_width) {
             .p32 => {
-                // e_entry
-                mem.writeInt(u32, hdr_buf[index..][0..4], @intCast(u32, self.entry_addr.?), endian);
+                mem.writeInt(u32, hdr_buf[index..][0..4], @intCast(u32, e_entry), endian);
                 index += 4;
 
                 // e_phoff
@@ -507,7 +516,7 @@ const Update = struct {
             },
             .p64 => {
                 // e_entry
-                mem.writeInt(u64, hdr_buf[index..][0..8], self.entry_addr.?, endian);
+                mem.writeInt(u64, hdr_buf[index..][0..8], e_entry, endian);
                 index += 8;
 
                 // e_phoff
@@ -748,7 +757,7 @@ const Update = struct {
 pub fn writeFile(allocator: *Allocator, module: ir.Module, file: fs.File) !Result {
     switch (module.output_mode) {
         .Exe => {},
-        .Obj => return error.TODOImplementWritingObjectFiles,
+        .Obj => {},
         .Lib => return error.TODOImplementWritingLibFiles,
     }
     switch (module.object_format) {

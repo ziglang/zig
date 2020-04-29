@@ -21,16 +21,17 @@ pub const Inst = struct {
     src: usize,
 
     pub const Tag = enum {
-        unreach,
-        ret,
-        constant,
         assembly,
-        ptrtoint,
         bitcast,
+        breakpoint,
         cmp,
         condbr,
-        isnull,
+        constant,
         isnonnull,
+        isnull,
+        ptrtoint,
+        ret,
+        unreach,
     };
 
     pub fn cast(base: *Inst, comptime T: type) ?*T {
@@ -53,25 +54,6 @@ pub const Inst = struct {
         return inst.val;
     }
 
-    pub const Unreach = struct {
-        pub const base_tag = Tag.unreach;
-        base: Inst,
-        args: void,
-    };
-
-    pub const Ret = struct {
-        pub const base_tag = Tag.ret;
-        base: Inst,
-        args: void,
-    };
-
-    pub const Constant = struct {
-        pub const base_tag = Tag.constant;
-        base: Inst,
-
-        val: Value,
-    };
-
     pub const Assembly = struct {
         pub const base_tag = Tag.assembly;
         base: Inst,
@@ -86,15 +68,6 @@ pub const Inst = struct {
         },
     };
 
-    pub const PtrToInt = struct {
-        pub const base_tag = Tag.ptrtoint;
-
-        base: Inst,
-        args: struct {
-            ptr: *Inst,
-        },
-    };
-
     pub const BitCast = struct {
         pub const base_tag = Tag.bitcast;
 
@@ -102,6 +75,12 @@ pub const Inst = struct {
         args: struct {
             operand: *Inst,
         },
+    };
+
+    pub const Breakpoint = struct {
+        pub const base_tag = Tag.breakpoint;
+        base: Inst,
+        args: void,
     };
 
     pub const Cmp = struct {
@@ -126,13 +105,11 @@ pub const Inst = struct {
         },
     };
 
-    pub const IsNull = struct {
-        pub const base_tag = Tag.isnull;
-
+    pub const Constant = struct {
+        pub const base_tag = Tag.constant;
         base: Inst,
-        args: struct {
-            operand: *Inst,
-        },
+
+        val: Value,
     };
 
     pub const IsNonNull = struct {
@@ -142,6 +119,36 @@ pub const Inst = struct {
         args: struct {
             operand: *Inst,
         },
+    };
+
+    pub const IsNull = struct {
+        pub const base_tag = Tag.isnull;
+
+        base: Inst,
+        args: struct {
+            operand: *Inst,
+        },
+    };
+
+    pub const PtrToInt = struct {
+        pub const base_tag = Tag.ptrtoint;
+
+        base: Inst,
+        args: struct {
+            ptr: *Inst,
+        },
+    };
+
+    pub const Ret = struct {
+        pub const base_tag = Tag.ret;
+        base: Inst,
+        args: void,
+    };
+
+    pub const Unreach = struct {
+        pub const base_tag = Tag.unreach;
+        base: Inst,
+        args: void,
     };
 };
 
@@ -159,6 +166,7 @@ pub const Module = struct {
     link_mode: std.builtin.LinkMode,
     output_mode: std.builtin.OutputMode,
     object_format: std.Target.ObjectFormat,
+    optimize_mode: std.builtin.Mode,
 
     pub const Export = struct {
         name: []const u8,
@@ -198,6 +206,7 @@ pub const AnalyzeOptions = struct {
     output_mode: std.builtin.OutputMode,
     link_mode: std.builtin.LinkMode,
     object_format: ?std.Target.ObjectFormat = null,
+    optimize_mode: std.builtin.Mode,
 };
 
 pub fn analyze(allocator: *Allocator, old_module: text.Module, options: AnalyzeOptions) !Module {
@@ -210,6 +219,9 @@ pub fn analyze(allocator: *Allocator, old_module: text.Module, options: AnalyzeO
         .exports = std.ArrayList(Module.Export).init(allocator),
         .fns = std.ArrayList(Module.Fn).init(allocator),
         .target = options.target,
+        .optimize_mode = options.optimize_mode,
+        .link_mode = options.link_mode,
+        .output_mode = options.output_mode,
     };
     defer ctx.errors.deinit();
     defer ctx.decl_table.deinit();
@@ -229,9 +241,10 @@ pub fn analyze(allocator: *Allocator, old_module: text.Module, options: AnalyzeO
         .fns = ctx.fns.toOwnedSlice(),
         .arena = ctx.arena,
         .target = ctx.target,
-        .link_mode = options.link_mode,
-        .output_mode = options.output_mode,
+        .link_mode = ctx.link_mode,
+        .output_mode = ctx.output_mode,
         .object_format = options.object_format orelse ctx.target.getObjectFormat(),
+        .optimize_mode = ctx.optimize_mode,
     };
 }
 
@@ -244,6 +257,9 @@ const Analyze = struct {
     exports: std.ArrayList(Module.Export),
     fns: std.ArrayList(Module.Fn),
     target: Target,
+    link_mode: std.builtin.LinkMode,
+    optimize_mode: std.builtin.Mode,
+    output_mode: std.builtin.OutputMode,
 
     const NewDecl = struct {
         /// null means a semantic analysis error happened
@@ -495,6 +511,7 @@ const Analyze = struct {
 
     fn analyzeInst(self: *Analyze, block: ?*Block, old_inst: *text.Inst) InnerError!*Inst {
         switch (old_inst.tag) {
+            .breakpoint => return self.analyzeInstBreakpoint(block, old_inst.cast(text.Inst.Breakpoint).?),
             .str => {
                 // We can use this reference because Inst.Const's Value is arena-allocated.
                 // The value would get copied to a MemoryCell before the `text.Inst.Str` lifetime ends.
@@ -528,6 +545,11 @@ const Analyze = struct {
             .isnull => return self.analyzeInstIsNull(block, old_inst.cast(text.Inst.IsNull).?),
             .isnonnull => return self.analyzeInstIsNonNull(block, old_inst.cast(text.Inst.IsNonNull).?),
         }
+    }
+
+    fn analyzeInstBreakpoint(self: *Analyze, block: ?*Block, inst: *text.Inst.Breakpoint) InnerError!*Inst {
+        const b = try self.requireRuntimeBlock(block, inst.base.src);
+        return self.addNewInstArgs(b, inst.base.src, Type.initTag(.void), Inst.Breakpoint, Inst.Args(Inst.Breakpoint){});
     }
 
     fn analyzeInstFn(self: *Analyze, block: ?*Block, fn_inst: *text.Inst.Fn) InnerError!*Inst {
@@ -909,8 +931,21 @@ const Analyze = struct {
         });
     }
 
+    fn wantSafety(self: *Analyze, block: ?*Block) bool {
+        return switch (self.optimize_mode) {
+            .Debug => true,
+            .ReleaseSafe => true,
+            .ReleaseFast => false,
+            .ReleaseSmall => false,
+        };
+    }
+
     fn analyzeInstUnreachable(self: *Analyze, block: ?*Block, unreach: *text.Inst.Unreachable) InnerError!*Inst {
         const b = try self.requireRuntimeBlock(block, unreach.base.src);
+        if (self.wantSafety(block)) {
+            // TODO Once we have a panic function to call, call it here instead of this.
+            _ = try self.addNewInstArgs(b, unreach.base.src, Type.initTag(.void), Inst.Breakpoint, {});
+        }
         return self.addNewInstArgs(b, unreach.base.src, Type.initTag(.noreturn), Inst.Unreach, {});
     }
 
@@ -1258,6 +1293,7 @@ pub fn main() anyerror!void {
         .target = native_info.target,
         .output_mode = .Obj,
         .link_mode = .Static,
+        .optimize_mode = .Debug,
     });
     defer analyzed_module.deinit(allocator);
 

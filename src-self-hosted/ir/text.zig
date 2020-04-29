@@ -18,6 +18,7 @@ pub const Inst = struct {
 
     /// These names are used directly as the instruction names in the text format.
     pub const Tag = enum {
+        breakpoint,
         str,
         int,
         ptrtoint,
@@ -43,6 +44,7 @@ pub const Inst = struct {
 
     pub fn TagToType(tag: Tag) type {
         return switch (tag) {
+            .breakpoint => Breakpoint,
             .str => Str,
             .int => Int,
             .ptrtoint => PtrToInt,
@@ -73,6 +75,14 @@ pub const Inst = struct {
 
         return @fieldParentPtr(T, "base", base);
     }
+
+    pub const Breakpoint = struct {
+        pub const base_tag = Tag.breakpoint;
+        base: Inst,
+
+        positionals: struct {},
+        kw_args: struct {},
+    };
 
     pub const Str = struct {
         pub const base_tag = Tag.str;
@@ -419,6 +429,7 @@ pub const Module = struct {
     ) @TypeOf(stream).Error!void {
         // TODO I tried implementing this with an inline for loop and hit a compiler bug
         switch (decl.tag) {
+            .breakpoint => return self.writeInstToStreamGeneric(stream, .breakpoint, decl, inst_table),
             .str => return self.writeInstToStreamGeneric(stream, .str, decl, inst_table),
             .int => return self.writeInstToStreamGeneric(stream, .int, decl, inst_table),
             .ptrtoint => return self.writeInstToStreamGeneric(stream, .ptrtoint, decl, inst_table),
@@ -1030,6 +1041,16 @@ const EmitZIR = struct {
         }
     }
 
+    fn emitTrivial(self: *EmitZIR, src: usize, comptime T: type) Allocator.Error!*Inst {
+        const new_inst = try self.arena.allocator.create(T);
+        new_inst.* = .{
+            .base = .{ .src = src, .tag = T.base_tag },
+            .positionals = .{},
+            .kw_args = .{},
+        };
+        return &new_inst.base;
+    }
+
     fn emitBody(
         self: *EmitZIR,
         body: ir.Module.Body,
@@ -1038,24 +1059,9 @@ const EmitZIR = struct {
     ) Allocator.Error!void {
         for (body.instructions) |inst| {
             const new_inst = switch (inst.tag) {
-                .unreach => blk: {
-                    const unreach_inst = try self.arena.allocator.create(Inst.Unreachable);
-                    unreach_inst.* = .{
-                        .base = .{ .src = inst.src, .tag = Inst.Unreachable.base_tag },
-                        .positionals = .{},
-                        .kw_args = .{},
-                    };
-                    break :blk &unreach_inst.base;
-                },
-                .ret => blk: {
-                    const ret_inst = try self.arena.allocator.create(Inst.Return);
-                    ret_inst.* = .{
-                        .base = .{ .src = inst.src, .tag = Inst.Return.base_tag },
-                        .positionals = .{},
-                        .kw_args = .{},
-                    };
-                    break :blk &ret_inst.base;
-                },
+                .breakpoint => try self.emitTrivial(inst.src, Inst.Breakpoint),
+                .unreach => try self.emitTrivial(inst.src, Inst.Unreachable),
+                .ret => try self.emitTrivial(inst.src, Inst.Return),
                 .constant => unreachable, // excluded from function bodies
                 .assembly => blk: {
                     const old_inst = inst.cast(ir.Inst.Assembly).?;
