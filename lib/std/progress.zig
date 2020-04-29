@@ -178,7 +178,7 @@ pub const Progress = struct {
 
                 if (windows.kernel32.SetConsoleCursorPosition(file.handle, cursor_pos) != windows.TRUE)
                     unreachable;
-            }
+            } else unreachable;
 
             self.columns_written = 0;
         }
