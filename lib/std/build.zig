@@ -1775,6 +1775,22 @@ pub const LibExeObjStep = struct {
         }
     }
 
+    fn makePackageCmd(self: *LibExeObjStep, pkg: Pkg, zig_args: *ArrayList([]const u8)) anyerror!void {
+        const builder = self.builder;
+
+        try zig_args.append("--pkg-begin");
+        try zig_args.append(pkg.name);
+        try zig_args.append(builder.pathFromRoot(pkg.path));
+
+        if (pkg.dependencies) |dependencies| {
+            for (dependencies) |sub_pkg| {
+                try self.makePackageCmd(sub_pkg, zig_args);
+            }
+        }
+
+        try zig_args.append("--pkg-end");
+    }
+
     fn make(step: *Step) !void {
         const self = @fieldParentPtr(LibExeObjStep, "step", step);
         const builder = self.builder;
@@ -2037,21 +2053,9 @@ pub const LibExeObjStep = struct {
                 try zig_args.append("--test-cmd-bin");
             },
         }
+        
         for (self.packages.span()) |pkg| {
-            try zig_args.append("--pkg-begin");
-            try zig_args.append(pkg.name);
-            try zig_args.append(builder.pathFromRoot(pkg.path));
-
-            if (pkg.dependencies) |dependencies| {
-                for (dependencies) |sub_pkg| {
-                    try zig_args.append("--pkg-begin");
-                    try zig_args.append(sub_pkg.name);
-                    try zig_args.append(builder.pathFromRoot(sub_pkg.path));
-                    try zig_args.append("--pkg-end");
-                }
-            }
-
-            try zig_args.append("--pkg-end");
+            try self.makePackageCmd(pkg, &zig_args);
         }
 
         for (self.include_dirs.span()) |include_dir| {
