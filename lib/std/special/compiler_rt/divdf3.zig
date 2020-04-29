@@ -7,8 +7,8 @@ const builtin = @import("builtin");
 
 pub fn __divdf3(a: f64, b: f64) callconv(.C) f64 {
     @setRuntimeSafety(builtin.is_test);
-    const Z = std.meta.IntType(false, f64.bit_count);
-    const SignedZ = std.meta.IntType(true, f64.bit_count);
+    const Z = std.meta.Int(false, f64.bit_count);
+    const SignedZ = std.meta.Int(true, f64.bit_count);
 
     const typeWidth = f64.bit_count;
     const significandBits = std.math.floatMantissaBits(f64);
@@ -312,9 +312,9 @@ pub fn wideMultiply(comptime Z: type, a: Z, b: Z, hi: *Z, lo: *Z) void {
     }
 }
 
-pub fn normalize(comptime T: type, significand: *std.meta.IntType(false, T.bit_count)) i32 {
+pub fn normalize(comptime T: type, significand: *std.meta.Int(false, T.bit_count)) i32 {
     @setRuntimeSafety(builtin.is_test);
-    const Z = std.meta.IntType(false, T.bit_count);
+    const Z = std.meta.Int(false, T.bit_count);
     const significandBits = std.math.floatMantissaBits(T);
     const implicitBit = @as(Z, 1) << significandBits;
 

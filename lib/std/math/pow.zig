@@ -145,7 +145,7 @@ pub fn pow(comptime T: type, x: T, y: T) T {
     var xe = r2.exponent;
     var x1 = r2.significand;
 
-    var i = @floatToInt(std.meta.IntType(true, T.bit_count), yi);
+    var i = @floatToInt(std.meta.Int(true, T.bit_count), yi);
     while (i != 0) : (i >>= 1) {
         const overflow_shift = math.floatExponentBits(T) + 1;
         if (xe < -(1 << overflow_shift) or (1 << overflow_shift) < xe) {

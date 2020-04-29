@@ -642,7 +642,10 @@ pub fn declList(comptime Namespace: type, comptime Decl: type) []const *const De
     }
 }
 
-pub fn IntType(comptime is_signed: bool, comptime bit_count: u16) type {
+/// Deprecated: use Int
+pub const IntType = Int;
+
+pub fn Int(comptime is_signed: bool, comptime bit_count: u16) type {
     return @Type(TypeInfo{
         .Int = .{
             .is_signed = is_signed,

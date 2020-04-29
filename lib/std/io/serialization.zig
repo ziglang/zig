@@ -51,7 +51,7 @@ pub fn Deserializer(comptime endian: builtin.Endian, comptime packing: Packing, 
             const u8_bit_count = 8;
             const t_bit_count = comptime meta.bitCount(T);
 
-            const U = std.meta.IntType(false, t_bit_count);
+            const U = std.meta.Int(false, t_bit_count);
             const Log2U = math.Log2Int(U);
             const int_size = (U.bit_count + 7) / 8;
 
@@ -66,7 +66,7 @@ pub fn Deserializer(comptime endian: builtin.Endian, comptime packing: Packing, 
 
             if (int_size == 1) {
                 if (t_bit_count == 8) return @bitCast(T, buffer[0]);
-                const PossiblySignedByte = std.meta.IntType(T.is_signed, 8);
+                const PossiblySignedByte = std.meta.Int(T.is_signed, 8);
                 return @truncate(T, @bitCast(PossiblySignedByte, buffer[0]));
             }
 
@@ -236,7 +236,7 @@ pub fn Serializer(comptime endian: builtin.Endian, comptime packing: Packing, co
             const t_bit_count = comptime meta.bitCount(T);
             const u8_bit_count = comptime meta.bitCount(u8);
 
-            const U = std.meta.IntType(false, t_bit_count);
+            const U = std.meta.Int(false, t_bit_count);
             const Log2U = math.Log2Int(U);
             const int_size = (U.bit_count + 7) / 8;
 
@@ -372,8 +372,8 @@ fn testIntSerializerDeserializer(comptime endian: builtin.Endian, comptime packi
 
     comptime var i = 0;
     inline while (i <= max_test_bitsize) : (i += 1) {
-        const U = std.meta.IntType(false, i);
-        const S = std.meta.IntType(true, i);
+        const U = std.meta.Int(false, i);
+        const S = std.meta.Int(true, i);
         try _serializer.serializeInt(@as(U, i));
         if (i != 0) try _serializer.serializeInt(@as(S, -1)) else try _serializer.serialize(@as(S, 0));
     }
@@ -381,8 +381,8 @@ fn testIntSerializerDeserializer(comptime endian: builtin.Endian, comptime packi
 
     i = 0;
     inline while (i <= max_test_bitsize) : (i += 1) {
-        const U = std.meta.IntType(false, i);
-        const S = std.meta.IntType(true, i);
+        const U = std.meta.Int(false, i);
+        const S = std.meta.Int(true, i);
         const x = try _deserializer.deserializeInt(U);
         const y = try _deserializer.deserializeInt(S);
         testing.expect(x == @as(U, i));

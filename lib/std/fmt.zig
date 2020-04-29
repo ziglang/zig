@@ -906,7 +906,7 @@ fn formatIntSigned(
         .fill = options.fill,
     };
     const bit_count = @typeInfo(@TypeOf(value)).Int.bits;
-    const Uint = std.meta.IntType(false, bit_count);
+    const Uint = std.meta.Int(false, bit_count);
     if (value < 0) {
         try out_stream.writeAll("-");
         const new_value = math.absCast(value);
@@ -930,7 +930,7 @@ fn formatIntUnsigned(
     assert(base >= 2);
     var buf: [math.max(@TypeOf(value).bit_count, 1)]u8 = undefined;
     const min_int_bits = comptime math.max(@TypeOf(value).bit_count, @TypeOf(base).bit_count);
-    const MinInt = std.meta.IntType(@TypeOf(value).is_signed, min_int_bits);
+    const MinInt = std.meta.Int(@TypeOf(value).is_signed, min_int_bits);
     var a: MinInt = value;
     var index: usize = buf.len;
 

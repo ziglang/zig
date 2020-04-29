@@ -10,8 +10,8 @@ const high = 1 - low;
 pub fn udivmod(comptime DoubleInt: type, a: DoubleInt, b: DoubleInt, maybe_rem: ?*DoubleInt) DoubleInt {
     @setRuntimeSafety(is_test);
 
-    const SingleInt = @import("std").meta.IntType(false, @divExact(DoubleInt.bit_count, 2));
-    const SignedDoubleInt = @import("std").meta.IntType(true, DoubleInt.bit_count);
+    const SingleInt = @import("std").meta.Int(false, @divExact(DoubleInt.bit_count, 2));
+    const SignedDoubleInt = @import("std").meta.Int(true, DoubleInt.bit_count);
     const Log2SingleInt = @import("std").math.Log2Int(SingleInt);
 
     const n = @ptrCast(*const [2]SingleInt, &a).*; // TODO issue #421
