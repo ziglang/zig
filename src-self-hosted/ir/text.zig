@@ -26,6 +26,7 @@ pub const Inst = struct {
         as,
         @"asm",
         @"unreachable",
+        @"return",
         @"fn",
         @"export",
         primitive,
@@ -50,6 +51,7 @@ pub const Inst = struct {
             .as => As,
             .@"asm" => Asm,
             .@"unreachable" => Unreachable,
+            .@"return" => Return,
             .@"fn" => Fn,
             .@"export" => Export,
             .primitive => Primitive,
@@ -153,6 +155,14 @@ pub const Inst = struct {
 
     pub const Unreachable = struct {
         pub const base_tag = Tag.@"unreachable";
+        base: Inst,
+
+        positionals: struct {},
+        kw_args: struct {},
+    };
+
+    pub const Return = struct {
+        pub const base_tag = Tag.@"return";
         base: Inst,
 
         positionals: struct {},
@@ -417,6 +427,7 @@ pub const Module = struct {
             .as => return self.writeInstToStreamGeneric(stream, .as, decl, inst_table),
             .@"asm" => return self.writeInstToStreamGeneric(stream, .@"asm", decl, inst_table),
             .@"unreachable" => return self.writeInstToStreamGeneric(stream, .@"unreachable", decl, inst_table),
+            .@"return" => return self.writeInstToStreamGeneric(stream, .@"return", decl, inst_table),
             .@"fn" => return self.writeInstToStreamGeneric(stream, .@"fn", decl, inst_table),
             .@"export" => return self.writeInstToStreamGeneric(stream, .@"export", decl, inst_table),
             .primitive => return self.writeInstToStreamGeneric(stream, .primitive, decl, inst_table),
@@ -1000,14 +1011,15 @@ const EmitZIR = struct {
 
                 const fn_type = try self.emitType(src, module_fn.fn_type);
 
+                const arena_instrs = try self.arena.allocator.alloc(*Inst, instructions.items.len);
+                mem.copy(*Inst, arena_instrs, instructions.items);
+
                 const fn_inst = try self.arena.allocator.create(Inst.Fn);
                 fn_inst.* = .{
                     .base = .{ .src = src, .tag = Inst.Fn.base_tag },
                     .positionals = .{
                         .fn_type = fn_type,
-                        .body = .{
-                            .instructions = instructions.toOwnedSlice(),
-                        },
+                        .body = .{ .instructions = arena_instrs },
                     },
                     .kw_args = .{},
                 };
@@ -1034,6 +1046,15 @@ const EmitZIR = struct {
                         .kw_args = .{},
                     };
                     break :blk &unreach_inst.base;
+                },
+                .ret => blk: {
+                    const ret_inst = try self.arena.allocator.create(Inst.Return);
+                    ret_inst.* = .{
+                        .base = .{ .src = inst.src, .tag = Inst.Return.base_tag },
+                        .positionals = .{},
+                        .kw_args = .{},
+                    };
+                    break :blk &ret_inst.base;
                 },
                 .constant => unreachable, // excluded from function bodies
                 .assembly => blk: {

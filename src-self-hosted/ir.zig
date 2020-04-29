@@ -22,6 +22,7 @@ pub const Inst = struct {
 
     pub const Tag = enum {
         unreach,
+        ret,
         constant,
         assembly,
         ptrtoint,
@@ -54,6 +55,12 @@ pub const Inst = struct {
 
     pub const Unreach = struct {
         pub const base_tag = Tag.unreach;
+        base: Inst,
+        args: void,
+    };
+
+    pub const Ret = struct {
+        pub const base_tag = Tag.ret;
         base: Inst,
         args: void,
     };
@@ -491,6 +498,7 @@ const Analyze = struct {
             .as => return self.analyzeInstAs(block, old_inst.cast(text.Inst.As).?),
             .@"asm" => return self.analyzeInstAsm(block, old_inst.cast(text.Inst.Asm).?),
             .@"unreachable" => return self.analyzeInstUnreachable(block, old_inst.cast(text.Inst.Unreachable).?),
+            .@"return" => return self.analyzeInstRet(block, old_inst.cast(text.Inst.Return).?),
             .@"fn" => return self.analyzeInstFn(block, old_inst.cast(text.Inst.Fn).?),
             .@"export" => {
                 try self.analyzeExport(block, old_inst.cast(text.Inst.Export).?);
@@ -554,6 +562,13 @@ const Analyze = struct {
             fntype.kw_args.cc == .Naked)
         {
             return self.constType(fntype.base.src, Type.initTag(.fn_naked_noreturn_no_args));
+        }
+
+        if (return_type.zigTypeTag() == .Void and
+            fntype.positionals.param_types.len == 0 and
+            fntype.kw_args.cc == .C)
+        {
+            return self.constType(fntype.base.src, Type.initTag(.fn_ccc_void_no_args));
         }
 
         return self.fail(fntype.base.src, "TODO implement fntype instruction more", .{});
@@ -886,6 +901,11 @@ const Analyze = struct {
         return self.addNewInstArgs(b, unreach.base.src, Type.initTag(.noreturn), Inst.Unreach, {});
     }
 
+    fn analyzeInstRet(self: *Analyze, block: ?*Block, inst: *text.Inst.Return) InnerError!*Inst {
+        const b = try self.requireRuntimeBlock(block, inst.base.src);
+        return self.addNewInstArgs(b, inst.base.src, Type.initTag(.noreturn), Inst.Ret, {});
+    }
+
     fn analyzeBody(self: *Analyze, block: ?*Block, body: text.Module.Body) !void {
         for (body.instructions) |src_inst| {
             const new_inst = self.analyzeInst(block, src_inst) catch |err| {
@@ -1199,11 +1219,13 @@ pub fn main() anyerror!void {
     const allocator = if (std.builtin.link_libc) std.heap.c_allocator else &arena.allocator;
 
     const args = try std.process.argsAlloc(allocator);
+    defer std.process.argsFree(allocator, args);
 
     const src_path = args[1];
     const debug_error_trace = true;
 
     const source = try std.fs.cwd().readFileAllocOptions(allocator, src_path, std.math.maxInt(u32), 1, 0);
+    defer allocator.free(source);
 
     var zir_module = try text.parse(allocator, source);
     defer zir_module.deinit(allocator);

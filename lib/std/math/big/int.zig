@@ -62,6 +62,7 @@ pub const Int = struct {
 
     /// Hint: use `calcLimbLen` to figure out how big an array to allocate for `limbs`.
     pub fn initSetFixed(limbs: []Limb, value: var) Int {
+        mem.set(Limb, limbs, 0);
         var s = Int.initFixed(limbs);
         s.set(value) catch unreachable;
         return s;
@@ -126,11 +127,10 @@ pub const Int = struct {
     /// sufficient capacity, the exact amount will be allocated. This occurs even if the requested
     /// capacity is only greater than the current capacity by one limb.
     pub fn ensureCapacity(self: *Int, capacity: usize) !void {
-        self.assertWritable();
         if (capacity <= self.limbs.len) {
             return;
         }
-
+        self.assertWritable();
         self.limbs = try self.allocator.?.realloc(self.limbs, capacity);
     }
 
