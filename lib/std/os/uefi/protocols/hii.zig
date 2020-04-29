@@ -1,7 +1,7 @@
 const uefi = @import("std").os.uefi;
 const Guid = uefi.Guid;
 
-pub const HIIHandle = *@OpaqueType();
+pub const HIIHandle = *@Type(.Opaque);
 
 /// The header found at the start of each package.
 pub const HIIPackageHeader = packed struct {

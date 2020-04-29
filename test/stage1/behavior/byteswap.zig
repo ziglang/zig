@@ -55,8 +55,8 @@ test "@byteSwap vectors" {
         fn t(
             comptime I: type,
             comptime n: comptime_int,
-            input: @Vector(n, I),
-            expected_vector: @Vector(n, I),
+            input: std.meta.Vector(n, I),
+            expected_vector: std.meta.Vector(n, I),
         ) void {
             const actual_output: [n]I = @byteSwap(I, input);
             const expected_output: [n]I = expected_vector;

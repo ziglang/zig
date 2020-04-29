@@ -4,8 +4,8 @@ const Log2Int = std.math.Log2Int;
 
 fn Dwords(comptime T: type, comptime signed_half: bool) type {
     return extern union {
-        pub const HalfTU = std.meta.IntType(false, @divExact(T.bit_count, 2));
-        pub const HalfTS = std.meta.IntType(true, @divExact(T.bit_count, 2));
+        pub const HalfTU = std.meta.Int(false, @divExact(T.bit_count, 2));
+        pub const HalfTS = std.meta.Int(true, @divExact(T.bit_count, 2));
         pub const HalfT = if (signed_half) HalfTS else HalfTU;
 
         all: T,

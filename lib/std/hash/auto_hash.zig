@@ -93,7 +93,7 @@ pub fn hash(hasher: var, key: var, comptime strat: HashStrategy) void {
         // TODO Check if the situation is better after #561 is resolved.
         .Int => @call(.{ .modifier = .always_inline }, hasher.update, .{std.mem.asBytes(&key)}),
 
-        .Float => |info| hash(hasher, @bitCast(std.meta.IntType(false, info.bits), key), strat),
+        .Float => |info| hash(hasher, @bitCast(std.meta.Int(false, info.bits), key), strat),
 
         .Bool => hash(hasher, @boolToInt(key), strat),
         .Enum => hash(hasher, @enumToInt(key), strat),
@@ -359,13 +359,13 @@ test "testHash vector" {
     // Disabled because of #3317
     if (@import("builtin").arch == .mipsel or @import("builtin").arch == .mips) return error.SkipZigTest;
 
-    const a: @Vector(4, u32) = [_]u32{ 1, 2, 3, 4 };
-    const b: @Vector(4, u32) = [_]u32{ 1, 2, 3, 5 };
+    const a: meta.Vector(4, u32) = [_]u32{ 1, 2, 3, 4 };
+    const b: meta.Vector(4, u32) = [_]u32{ 1, 2, 3, 5 };
     testing.expect(testHash(a) == testHash(a));
     testing.expect(testHash(a) != testHash(b));
 
-    const c: @Vector(4, u31) = [_]u31{ 1, 2, 3, 4 };
-    const d: @Vector(4, u31) = [_]u31{ 1, 2, 3, 5 };
+    const c: meta.Vector(4, u31) = [_]u31{ 1, 2, 3, 4 };
+    const d: meta.Vector(4, u31) = [_]u31{ 1, 2, 3, 5 };
     testing.expect(testHash(c) == testHash(c));
     testing.expect(testHash(c) != testHash(d));
 }

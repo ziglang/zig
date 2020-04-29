@@ -318,11 +318,18 @@ const FmtError = error{
 } || fs.File.OpenError;
 
 fn fmtPath(fmt: *Fmt, file_path: []const u8, check_mode: bool) FmtError!void {
-    if (fmt.seen.exists(file_path)) return;
-    try fmt.seen.put(file_path);
+    // get the real path here to avoid Windows failing on relative file paths with . or .. in them
+    var real_path = fs.realpathAlloc(fmt.allocator, file_path) catch |err| {
+        try stderr.print("unable to open '{}': {}\n", .{ file_path, err });
+        fmt.any_error = true;
+        return;
+    };
+    defer fmt.allocator.free(real_path);
 
-    const max = std.math.maxInt(usize);
-    const source_code = fs.cwd().readFileAlloc(fmt.allocator, file_path, max) catch |err| switch (err) {
+    if (fmt.seen.exists(real_path)) return;
+    try fmt.seen.put(real_path);
+
+    const source_code = fs.cwd().readFileAlloc(fmt.allocator, real_path, self_hosted_main.max_src_size) catch |err| switch (err) {
         error.IsDir, error.AccessDenied => {
             // TODO make event based (and dir.next())
             var dir = try fs.cwd().openDir(file_path, .{ .iterate = true });
@@ -370,7 +377,7 @@ fn fmtPath(fmt: *Fmt, file_path: []const u8, check_mode: bool) FmtError!void {
             fmt.any_error = true;
         }
     } else {
-        const baf = try io.BufferedAtomicFile.create(fmt.allocator, file_path);
+        const baf = try io.BufferedAtomicFile.create(fmt.allocator, fs.cwd(), real_path, .{});
         defer baf.destroy();
 
         const anything_changed = try std.zig.render(fmt.allocator, baf.stream(), tree);

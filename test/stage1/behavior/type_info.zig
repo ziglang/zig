@@ -296,7 +296,7 @@ test "type info: vectors" {
 }
 
 fn testVector() void {
-    const vec_info = @typeInfo(@Vector(4, i32));
+    const vec_info = @typeInfo(std.meta.Vector(4, i32));
     expect(vec_info == .Vector);
     expect(vec_info.Vector.len == 4);
     expect(vec_info.Vector.child == i32);
