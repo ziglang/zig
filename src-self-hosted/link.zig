@@ -7,11 +7,6 @@ const fs = std.fs;
 const elf = std.elf;
 const codegen = @import("codegen.zig");
 
-/// On common systems with a 0o022 umask, 0o777 will still result in a file created
-/// with 0o755 permissions, but it works appropriately if the system is configured
-/// more leniently. As another data point, C's fopen seems to open files with the
-/// 666 mode.
-const executable_mode = if (std.Target.current.os.tag == .windows) 0 else 0o777;
 const default_entry_addr = 0x8000000;
 
 pub const ErrorMsg = struct {
@@ -35,29 +30,29 @@ pub const Result = struct {
 /// If incremental linking fails, falls back to truncating the file and rewriting it.
 /// A malicious file is detected as incremental link failure and does not cause Illegal Behavior.
 /// This operation is not atomic.
-pub fn updateExecutableFilePath(
+pub fn updateFilePath(
     allocator: *Allocator,
     module: ir.Module,
     dir: fs.Dir,
     sub_path: []const u8,
 ) !Result {
-    const file = try dir.createFile(sub_path, .{ .truncate = false, .read = true, .mode = executable_mode });
+    const file = try dir.createFile(sub_path, .{ .truncate = false, .read = true, .mode = determineMode(module) });
     defer file.close();
 
-    return updateExecutableFile(allocator, module, file);
+    return updateFile(allocator, module, file);
 }
 
 /// Atomically overwrites the old file, if present.
-pub fn writeExecutableFilePath(
+pub fn writeFilePath(
     allocator: *Allocator,
     module: ir.Module,
     dir: fs.Dir,
     sub_path: []const u8,
 ) !Result {
-    const af = try dir.atomicFile(sub_path, .{ .mode = executable_mode });
+    const af = try dir.atomicFile(sub_path, .{ .mode = determineMode(module) });
     defer af.deinit();
 
-    const result = try writeExecutableFile(allocator, module, af.file);
+    const result = try writeFile(allocator, module, af.file);
     try af.finish();
     return result;
 }
@@ -67,10 +62,10 @@ pub fn writeExecutableFilePath(
 /// Returns an error if `file` is not already open with +read +write +seek abilities.
 /// A malicious file is detected as incremental link failure and does not cause Illegal Behavior.
 /// This operation is not atomic.
-pub fn updateExecutableFile(allocator: *Allocator, module: ir.Module, file: fs.File) !Result {
-    return updateExecutableFileInner(allocator, module, file) catch |err| switch (err) {
+pub fn updateFile(allocator: *Allocator, module: ir.Module, file: fs.File) !Result {
+    return updateFileInner(allocator, module, file) catch |err| switch (err) {
         error.IncrFailed => {
-            return writeExecutableFile(allocator, module, file);
+            return writeFile(allocator, module, file);
         },
         else => |e| return e,
     };
@@ -750,7 +745,20 @@ const Update = struct {
 
 /// Truncates the existing file contents and overwrites the contents.
 /// Returns an error if `file` is not already open with +read +write +seek abilities.
-pub fn writeExecutableFile(allocator: *Allocator, module: ir.Module, file: fs.File) !Result {
+pub fn writeFile(allocator: *Allocator, module: ir.Module, file: fs.File) !Result {
+    switch (module.output_mode) {
+        .Exe => {},
+        .Obj => return error.TODOImplementWritingObjectFiles,
+        .Lib => return error.TODOImplementWritingLibFiles,
+    }
+    switch (module.object_format) {
+        .unknown => unreachable, // TODO remove this tag from the enum
+        .coff => return error.TODOImplementWritingCOFF,
+        .elf => {},
+        .macho => return error.TODOImplementWritingMachO,
+        .wasm => return error.TODOImplementWritingWasmObjects,
+    }
+
     var update = Update{
         .file = file,
         .module = &module,
@@ -778,7 +786,7 @@ pub fn writeExecutableFile(allocator: *Allocator, module: ir.Module, file: fs.Fi
 }
 
 /// Returns error.IncrFailed if incremental update could not be performed.
-fn updateExecutableFileInner(allocator: *Allocator, module: ir.Module, file: fs.File) !Result {
+fn updateFileInner(allocator: *Allocator, module: ir.Module, file: fs.File) !Result {
     //var ehdr_buf: [@sizeOf(elf.Elf64_Ehdr)]u8 = undefined;
 
     // TODO implement incremental linking
@@ -821,4 +829,20 @@ fn sectHeaderTo32(shdr: elf.Elf64_Shdr) elf.Elf32_Shdr {
         .sh_addralign = @intCast(u32, shdr.sh_addralign),
         .sh_entsize = @intCast(u32, shdr.sh_entsize),
     };
+}
+
+fn determineMode(module: ir.Module) fs.File.Mode {
+    // On common systems with a 0o022 umask, 0o777 will still result in a file created
+    // with 0o755 permissions, but it works appropriately if the system is configured
+    // more leniently. As another data point, C's fopen seems to open files with the
+    // 666 mode.
+    const executable_mode = if (std.Target.current.os.tag == .windows) 0 else 0o777;
+    switch (module.output_mode) {
+        .Lib => return switch (module.link_mode) {
+            .Dynamic => executable_mode,
+            .Static => fs.File.default_mode,
+        },
+        .Exe => return executable_mode,
+        .Obj => return fs.File.default_mode,
+    }
 }

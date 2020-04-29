@@ -156,6 +156,9 @@ pub const Module = struct {
     arena: std.heap.ArenaAllocator,
     fns: []Fn,
     target: Target,
+    link_mode: std.builtin.LinkMode,
+    output_mode: std.builtin.OutputMode,
+    object_format: std.Target.ObjectFormat,
 
     pub const Export = struct {
         name: []const u8,
@@ -190,7 +193,14 @@ pub const ErrorMsg = struct {
     msg: []const u8,
 };
 
-pub fn analyze(allocator: *Allocator, old_module: text.Module, target: Target) !Module {
+pub const AnalyzeOptions = struct {
+    target: Target,
+    output_mode: std.builtin.OutputMode,
+    link_mode: std.builtin.LinkMode,
+    object_format: ?std.Target.ObjectFormat = null,
+};
+
+pub fn analyze(allocator: *Allocator, old_module: text.Module, options: AnalyzeOptions) !Module {
     var ctx = Analyze{
         .allocator = allocator,
         .arena = std.heap.ArenaAllocator.init(allocator),
@@ -199,7 +209,7 @@ pub fn analyze(allocator: *Allocator, old_module: text.Module, target: Target) !
         .decl_table = std.AutoHashMap(*text.Inst, Analyze.NewDecl).init(allocator),
         .exports = std.ArrayList(Module.Export).init(allocator),
         .fns = std.ArrayList(Module.Fn).init(allocator),
-        .target = target,
+        .target = options.target,
     };
     defer ctx.errors.deinit();
     defer ctx.decl_table.deinit();
@@ -218,7 +228,10 @@ pub fn analyze(allocator: *Allocator, old_module: text.Module, target: Target) !
         .errors = ctx.errors.toOwnedSlice(),
         .fns = ctx.fns.toOwnedSlice(),
         .arena = ctx.arena,
-        .target = target,
+        .target = ctx.target,
+        .link_mode = options.link_mode,
+        .output_mode = options.output_mode,
+        .object_format = options.object_format orelse ctx.target.getObjectFormat(),
     };
 }
 
@@ -1241,7 +1254,11 @@ pub fn main() anyerror!void {
 
     const native_info = try std.zig.system.NativeTargetInfo.detect(allocator, .{});
 
-    var analyzed_module = try analyze(allocator, zir_module, native_info.target);
+    var analyzed_module = try analyze(allocator, zir_module, .{
+        .target = native_info.target,
+        .output_mode = .Obj,
+        .link_mode = .Static,
+    });
     defer analyzed_module.deinit(allocator);
 
     if (analyzed_module.errors.len != 0) {
@@ -1263,31 +1280,17 @@ pub fn main() anyerror!void {
         try bos.flush();
     }
 
-    // executable
-    //const link = @import("link.zig");
-    //var result = try link.updateExecutableFilePath(allocator, analyzed_module, std.fs.cwd(), "a.out");
-    //defer result.deinit(allocator);
-    //if (result.errors.len != 0) {
-    //    for (result.errors) |err_msg| {
-    //        const loc = std.zig.findLineColumn(source, err_msg.byte_offset);
-    //        std.debug.warn("{}:{}:{}: error: {}\n", .{ src_path, loc.line + 1, loc.column + 1, err_msg.msg });
-    //    }
-    //    if (debug_error_trace) return error.LinkFailure;
-    //    std.process.exit(1);
-    //}
-
-    // object file
     const link = @import("link.zig");
-    //var result = try link.updateExecutableFilePath(allocator, analyzed_module, std.fs.cwd(), "a.out");
-    //defer result.deinit(allocator);
-    //if (result.errors.len != 0) {
-    //    for (result.errors) |err_msg| {
-    //        const loc = std.zig.findLineColumn(source, err_msg.byte_offset);
-    //        std.debug.warn("{}:{}:{}: error: {}\n", .{ src_path, loc.line + 1, loc.column + 1, err_msg.msg });
-    //    }
-    //    if (debug_error_trace) return error.LinkFailure;
-    //    std.process.exit(1);
-    //}
+    var result = try link.updateFilePath(allocator, analyzed_module, std.fs.cwd(), "zir.o");
+    defer result.deinit(allocator);
+    if (result.errors.len != 0) {
+        for (result.errors) |err_msg| {
+            const loc = std.zig.findLineColumn(source, err_msg.byte_offset);
+            std.debug.warn("{}:{}:{}: error: {}\n", .{ src_path, loc.line + 1, loc.column + 1, err_msg.msg });
+        }
+        if (debug_error_trace) return error.LinkFailure;
+        std.process.exit(1);
+    }
 }
 
 // Performance optimization ideas:
