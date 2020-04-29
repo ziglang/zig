@@ -1080,6 +1080,9 @@ pub const Loop = struct {
                     .read => |*msg| {
                         msg.result = noasync os.read(msg.fd, msg.buf);
                     },
+                    .readv => |*msg| {
+                        msg.result = noasync os.readv(msg.fd, msg.iov);
+                    },
                     .write => |*msg| {
                         msg.result = noasync os.write(msg.fd, msg.bytes);
                     },
@@ -1174,6 +1177,7 @@ pub const Loop = struct {
 
         pub const Msg = union(enum) {
             read: Read,
+            readv: ReadV,
             write: Write,
             writev: WriteV,
             pwritev: PWriteV,
@@ -1190,6 +1194,14 @@ pub const Loop = struct {
             pub const Read = struct {
                 fd: os.fd_t,
                 buf: []u8,
+                result: Error!usize,
+
+                pub const Error = os.ReadError;
+            };
+
+            pub const ReadV = struct {
+                fd: os.fd_t,
+                iov: []const os.iovec,
                 result: Error!usize,
 
                 pub const Error = os.ReadError;
