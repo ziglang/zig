@@ -1,6 +1,51 @@
 const TestContext = @import("../../src-self-hosted/test.zig").TestContext;
 
 pub fn addCases(ctx: *TestContext) void {
+    ctx.addZIRTransform("elemptr, add, cmp, condbr, return, breakpoint",
+        \\@void = primitive(void)
+        \\@usize = primitive(usize)
+        \\@fnty = fntype([], @void, cc=C)
+        \\@0 = int(0)
+        \\@1 = int(1)
+        \\@2 = int(2)
+        \\@3 = int(3)
+        \\
+        \\@entry = fn(@fnty, {
+        \\  %a = str("\x32\x08\x01\x0a")
+        \\  %eptr0 = elemptr(%a, @0)
+        \\  %eptr1 = elemptr(%a, @1)
+        \\  %eptr2 = elemptr(%a, @2)
+        \\  %eptr3 = elemptr(%a, @3)
+        \\  %v0 = deref(%eptr0)
+        \\  %v1 = deref(%eptr1)
+        \\  %v2 = deref(%eptr2)
+        \\  %v3 = deref(%eptr3)
+        \\  %x0 = add(%v0, %v1)
+        \\  %x1 = add(%v2, %v3)
+        \\  %result = add(%x0, %x1)
+        \\
+        \\  %expected = int(69)
+        \\  %ok = cmp(%result, eq, %expected)
+        \\  %10 = condbr(%ok, {
+        \\    %11 = return()
+        \\  }, {
+        \\    %12 = breakpoint()
+        \\  })
+        \\})
+        \\
+        \\@9 = str("entry")
+        \\@10 = export(@9, @entry)
+    ,
+        \\@0 = primitive(void)
+        \\@1 = fntype([], @0, cc=C)
+        \\@2 = fn(@1, {
+        \\  %0 = return()
+        \\})
+        \\@3 = str("entry")
+        \\@4 = export(@3, @2)
+        \\
+    );
+
     if (@import("std").Target.current.os.tag != .linux or
         @import("std").Target.current.cpu.arch != .x86_64)
     {
