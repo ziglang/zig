@@ -2960,36 +2960,6 @@ fn testParse(source: []const u8, allocator: *mem.Allocator, anything_changed: *b
     return buffer.toOwnedSlice();
 }
 
-fn printLine(line: []const u8) void {
-    warn("{}⏎\n", .{line}); // Carriage return symbol
-}
-
-fn printIndicatorLine(source: []const u8, indicator_index: usize) void {
-    const line_begin_index = if (mem.lastIndexOfScalar(u8, source[0..indicator_index], '\n')) |line_begin|
-        line_begin + 1
-    else
-        0;
-    const line_end_index = if (mem.indexOfScalar(u8, source[indicator_index..], '\n')) |line_end|
-        (indicator_index + line_end)
-    else
-        (source.len - 1);
-    printLine(source[line_begin_index..line_end_index]);
-    {
-        var i: usize = line_begin_index;
-        while (i < indicator_index) : (i += 1)
-            warn(" ", .{});
-    }
-    warn("^~~~~\n", .{});
-}
-
-fn printWithVisibleNewlines(source: []const u8) void {
-    var i: usize = 0;
-    while (mem.indexOf(u8, source[i..], "\n")) |nl| : (i += nl + 1) {
-        printLine(source[i .. i + nl]);
-    }
-    warn("{}{}\n", .{ source[i..], "\u{2403}" }); // End of Text symbol (ETX)
-}
-
 fn testTransform(source: []const u8, expected_source: []const u8) !void {
     const needed_alloc_count = x: {
         // Try it once with unlimited memory, make sure it works
@@ -2997,27 +2967,7 @@ fn testTransform(source: []const u8, expected_source: []const u8) !void {
         var failing_allocator = std.testing.FailingAllocator.init(&fixed_allocator.allocator, maxInt(usize));
         var anything_changed: bool = undefined;
         const result_source = try testParse(source, &failing_allocator.allocator, &anything_changed);
-        if (mem.indexOfDiff(u8, result_source, expected_source)) |diff_index| {
-            warn("\n====== expected this output: =========\n", .{});
-            printWithVisibleNewlines(expected_source);
-            warn("\n======== instead found this: =========\n", .{});
-            printWithVisibleNewlines(result_source);
-            warn("\n======================================\n", .{});
-
-            var diff_line_number: usize = 1;
-            for (expected_source[0..diff_index]) |value| {
-                if (value == '\n') diff_line_number += 1;
-            }
-            warn("First difference occurs on line {}:\n", .{diff_line_number});
-
-            warn("expected:\n", .{});
-            printIndicatorLine(expected_source, diff_index);
-
-            warn("found:\n", .{});
-            printIndicatorLine(result_source, diff_index);
-
-            return error.TestFailed;
-        }
+        std.testing.expectEqualStrings(expected_source, result_source);
         const changes_expected = source.ptr != expected_source.ptr;
         if (anything_changed != changes_expected) {
             warn("std.zig.render returned {} instead of {}\n", .{ anything_changed, changes_expected });
