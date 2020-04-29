@@ -493,22 +493,22 @@ pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
 }
 
 /// Compares two slices and returns the index of the first inequality.
-/// Returns the length of the slices if they are equal.
-pub fn diffIndex(comptime T: type, a: []const T, b: []const T) usize {
+/// Returns null if the slices are equal.
+pub fn indexOfDiff(comptime T: type, a: []const T, b: []const T) ?usize {
     const shortest = math.min(a.len, b.len);
     if (a.ptr == b.ptr)
-        return shortest;
+        return if (a.len == b.len) null else shortest;
     var index: usize = 0;
     while (index < shortest) : (index += 1) if (a[index] != b[index]) return index;
-    return shortest;
+    return if (a.len == b.len) null else shortest;
 }
 
-test "diffIndex" {
-    testing.expectEqual(diffIndex(u8, "one", "one"), 3);
-    testing.expectEqual(diffIndex(u8, "one two", "one"), 3);
-    testing.expectEqual(diffIndex(u8, "one", "one two"), 3);
-    testing.expectEqual(diffIndex(u8, "one twx", "one two"), 6);
-    testing.expectEqual(diffIndex(u8, "xne", "one"), 0);
+test "indexOfDiff" {
+    testing.expectEqual(indexOfDiff(u8, "one", "one"), null);
+    testing.expectEqual(indexOfDiff(u8, "one two", "one"), 3);
+    testing.expectEqual(indexOfDiff(u8, "one", "one two"), 3);
+    testing.expectEqual(indexOfDiff(u8, "one twx", "one two"), 6);
+    testing.expectEqual(indexOfDiff(u8, "xne", "one"), 0);
 }
 
 pub const toSliceConst = @compileError("deprecated; use std.mem.spanZ");

@@ -2997,14 +2997,12 @@ fn testTransform(source: []const u8, expected_source: []const u8) !void {
         var failing_allocator = std.testing.FailingAllocator.init(&fixed_allocator.allocator, maxInt(usize));
         var anything_changed: bool = undefined;
         const result_source = try testParse(source, &failing_allocator.allocator, &anything_changed);
-        if (!mem.eql(u8, result_source, expected_source)) {
+        if (mem.indexOfDiff(u8, result_source, expected_source)) |diff_index| {
             warn("\n====== expected this output: =========\n", .{});
             printWithVisibleNewlines(expected_source);
             warn("\n======== instead found this: =========\n", .{});
             printWithVisibleNewlines(result_source);
             warn("\n======================================\n", .{});
-
-            const diff_index = mem.diffIndex(u8, result_source, expected_source);
 
             var diff_line_number: usize = 1;
             for (expected_source[0..diff_index]) |value| {
