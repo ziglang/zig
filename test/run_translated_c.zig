@@ -195,4 +195,62 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\  return 0;
         \\}
     , "");
+
+    //cases.add("case boolean expression converted to int",
+    //    \\#include <stdlib.h>
+    //    \\int main(int argc, char **argv) {
+    //    \\  int value = 1 + 2 * 3 + 4 * 5 + 6 << 7 | 8 == 9;
+    //    \\  if (value != 4224) abort();
+    //    \\  return 0;
+    //    \\}
+    //, "");
+
+    //cases.add("case boolean expression on left converted to int",
+    //    \\#include <stdlib.h>
+    //    \\int main(int argc, char **argv) {
+    //    \\  int value = 8 == 9 | 1 + 2 * 3 + 4 * 5 + 6 << 7;
+    //    \\  if (value != 4224) abort();
+    //    \\  return 0;
+    //    \\}
+    //, "");
+
+    //cases.add("case boolean and operator+ converts bool to int",
+    //    \\#include <stdlib.h>
+    //    \\int main(int argc, char **argv) {
+    //    \\  int value = (8 == 9) + 3;
+    //    \\  int value2 = 3 + (8 == 9);
+    //    \\  if (value != value2) abort();
+    //    \\  return 0;
+    //    \\}
+    //, "");
+
+    //cases.add("case boolean and operator<",
+    //    \\#include <stdlib.h>
+    //    \\int main(int argc, char **argv) {
+    //    \\  int value = (8 == 9) < 3;
+    //    \\  if (value == 0) abort();
+    //    \\  return 0;
+    //    \\}
+    //, "");
+
+    //cases.add("case boolean and operator*",
+    //    \\#include <stdlib.h>
+    //    \\int main(int argc, char **argv) {
+    //    \\  int value = (8 == 9) * 3;
+    //    \\  int value2 = 3 * (9 == 9);
+    //    \\  if (value == 0) abort();
+    //    \\  return 0;
+    //    \\}
+    //, "");
+
+    //cases.add("boolean shifted is valid",
+    //    \\#include <stdlib.h>
+    //    \\int main(int argc, char **argv) {
+    //    \\  int value = (9 == 9) << 3;
+    //    \\  int value2 = 1 << (8 == 9);
+    //    \\  if (value == 0) abort();
+    //    \\  if (value2 != 1) abort();
+    //    \\  return 0;
+    //    \\}
+    //, "");
 }
