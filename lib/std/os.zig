@@ -879,6 +879,30 @@ pub fn openZ(file_path: [*:0]const u8, flags: u32, perm: mode_t) OpenError!fd_t 
         return openW(file_path_w.span(), flags, perm);
     }
     while (true) {
+        if (builtin.os.tag == .wasi and !builtin.link_libc) {
+            var dirfd: fd_t = undefined;
+            var prefix: usize = undefined;
+            const path = mem.span(file_path);
+
+            switch (wasi.resolve_preopen(path, &dirfd, &prefix)) {
+                0 => {},
+                else => |err| return unexpectedErrno(err),
+            }
+
+            const rel_path = path[prefix + 1 ..];
+            // TODO map flags to wasi.oflag_t
+            // TODO call wasi.fd_fdstat_get to verify rights
+            // TODO adjust all flags to path_open
+            var fd: fd_t = undefined;
+
+            switch (wasi.path_open(dirfd, 0x0, rel_path.ptr, rel_path.len, wasi.O_CREAT, 0x0, 0x0, 0x0, &fd)) {
+                0 => {},
+                else => |err| return unexpectedErrno(err),
+            }
+
+            return fd;
+        }
+
         const rc = system.open(file_path, flags, perm);
         switch (errno(rc)) {
             0 => return @intCast(fd_t, rc),

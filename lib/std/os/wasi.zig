@@ -20,6 +20,51 @@ comptime {
 pub const iovec_t = iovec;
 pub const ciovec_t = iovec_const;
 
+fn is_prefix(preopen: []const u8, path: []const u8) bool {
+    if (preopen.len > path.len) {
+        return false;
+    }
+    var i: usize = 0;
+    while (i < preopen.len) {
+        std.debug.warn("{} == {}", .{ preopen[i], path[i] });
+        if (preopen[i] != path[i]) {
+            return false;
+        }
+        i += 1;
+    }
+    return true;
+}
+
+pub fn resolve_preopen(path: []const u8, dirfd: *fd_t, prefix: *usize) errno_t {
+    var fd: fd_t = 3; // start fd has to be beyond stdio fds
+    var preopen_path = [_]u8{0} ** PATH_MAX;
+
+    while (true) {
+        var buf: prestat_t = undefined;
+        switch (fd_prestat_get(fd, &buf)) {
+            ESUCCESS => {},
+            EBADF => {
+                break;
+            },
+            else => |err| return err,
+        }
+        const preopen_len = buf.u.dir.pr_name_len;
+        switch (fd_prestat_dir_name(fd, &preopen_path, preopen_len)) {
+            ESUCCESS => {},
+            else => |err| return err,
+        }
+        if (is_prefix(preopen_path[0..preopen_len], path)) {
+            dirfd.* = fd;
+            prefix.* = preopen_len;
+            return ESUCCESS;
+        }
+        std.mem.set(u8, &preopen_path, 0);
+        fd += 1;
+    }
+
+    return ENOTCAPABLE;
+}
+
 pub extern "wasi_snapshot_preview1" fn args_get(argv: [*][*:0]u8, argv_buf: [*]u8) errno_t;
 pub extern "wasi_snapshot_preview1" fn args_sizes_get(argc: *usize, argv_buf_size: *usize) errno_t;
 
