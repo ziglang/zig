@@ -1775,7 +1775,7 @@ pub const LibExeObjStep = struct {
         }
     }
 
-    fn makePackageCmd(self: *LibExeObjStep, pkg: Pkg, zig_args: *ArrayList([]const u8)) anyerror!void {
+    fn makePackageCmd(self: *LibExeObjStep, pkg: Pkg, zig_args: *ArrayList([]const u8)) error{OutOfMemory}!void {
         const builder = self.builder;
 
         try zig_args.append("--pkg-begin");
@@ -2053,7 +2053,7 @@ pub const LibExeObjStep = struct {
                 try zig_args.append("--test-cmd-bin");
             },
         }
-        
+
         for (self.packages.span()) |pkg| {
             try self.makePackageCmd(pkg, &zig_args);
         }
