@@ -44,7 +44,7 @@ pub const CacheHash = struct {
 
     pub fn init(alloc: *Allocator, manifest_dir_path: []const u8) !@This() {
         try fs.cwd().makePath(manifest_dir_path);
-        const manifest_dir = try fs.cwd().openDir(manifest_dir_path, .{ .iterate = true });
+        const manifest_dir = try fs.cwd().openDir(manifest_dir_path, .{});
 
         return CacheHash{
             .alloc = alloc,
