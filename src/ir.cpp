@@ -25456,7 +25456,79 @@ static ZigType *type_info_to_type(IrAnalyze *ira, IrInst *source_instr, ZigTypeI
             ZigFn *fn = function->data.x_ptr.data.fn.fn_entry;
             return get_fn_frame_type(ira->codegen, fn);
         }
-        case ZigTypeIdErrorSet:
+        case ZigTypeIdErrorSet: {
+            assert(payload->special == ConstValSpecialStatic);
+            assert(payload->type->id == ZigTypeIdOptional);
+            ZigValue *slice = payload->data.x_optional;
+            if (slice == nullptr)
+                return ira->codegen->builtin_types.entry_global_error_set;
+            assert(slice->special == ConstValSpecialStatic);
+            assert(is_slice(slice->type));
+            ZigType *err_set_type = new_type_table_entry(ZigTypeIdErrorSet);
+            Buf bare_name = BUF_INIT;
+            buf_init_from_buf(&err_set_type->name, get_anon_type_name(ira->codegen, ira->old_irb.exec, "error", source_instr->scope, source_instr->source_node, &bare_name));
+            err_set_type->size_in_bits = ira->codegen->builtin_types.entry_global_error_set->size_in_bits;
+            err_set_type->abi_align = ira->codegen->builtin_types.entry_global_error_set->abi_align;
+            err_set_type->abi_size = ira->codegen->builtin_types.entry_global_error_set->abi_size;
+            ZigValue *ptr = slice->data.x_struct.fields[slice_ptr_index];
+            assert(ptr->data.x_ptr.special == ConstPtrSpecialBaseArray);;
+            assert(ptr->data.x_ptr.data.base_array.elem_index == 0);
+            ZigValue *arr = ptr->data.x_ptr.data.base_array.array_val;
+            assert(arr->special == ConstValSpecialStatic);
+            assert(arr->data.x_array.special == ConstArraySpecialNone);
+            ZigValue *len = slice->data.x_struct.fields[slice_len_index];
+            size_t count = bigint_as_usize(&len->data.x_bigint);
+            err_set_type->data.error_set.err_count = count;
+            err_set_type->data.error_set.errors = heap::c_allocator.allocate<ErrorTableEntry *>(count);
+            bool *already_set = heap::c_allocator.allocate<bool>(ira->codegen->errors_by_index.length + count);
+            for (size_t i = 0; i < count; i++) {
+                ZigValue *error = &arr->data.x_array.data.s_none.elements[i];
+                assert(error->type == ir_type_info_get_type(ira, "Error", nullptr));
+                ErrorTableEntry *err_entry = heap::c_allocator.create<ErrorTableEntry>();
+                err_entry->decl_node = source_instr->source_node;
+                ZigValue *name_slice = get_const_field(ira, source_instr->source_node, error, "name", 0);
+                ZigValue *name_ptr = name_slice->data.x_struct.fields[slice_ptr_index];
+                ZigValue *name_len = name_slice->data.x_struct.fields[slice_len_index];
+                assert(name_ptr->data.x_ptr.special == ConstPtrSpecialBaseArray);
+                assert(name_ptr->data.x_ptr.data.base_array.elem_index == 0);
+                ZigValue *name_arr = name_ptr->data.x_ptr.data.base_array.array_val;
+                assert(name_arr->special == ConstValSpecialStatic);
+                switch (name_arr->data.x_array.special) {
+                    case ConstArraySpecialUndef:
+                        return ira->codegen->invalid_inst_gen->value->type;
+                    case ConstArraySpecialNone: {
+                        buf_resize(&err_entry->name, 0);
+                        size_t name_count = bigint_as_usize(&name_len->data.x_bigint);
+                        for (size_t j = 0; j < name_count; j++) {
+                            ZigValue *ch_val = &name_arr->data.x_array.data.s_none.elements[j];
+                            unsigned ch = bigint_as_u32(&ch_val->data.x_bigint);
+                            buf_append_char(&err_entry->name, ch);
+                        }
+                        break;
+                    }
+                    case ConstArraySpecialBuf:
+                        buf_init_from_buf(&err_entry->name, name_arr->data.x_array.data.s_buf);
+                        break;
+                }
+                auto existing_entry = ira->codegen->error_table.put_unique(&err_entry->name, err_entry);
+                if (existing_entry) {
+                    err_entry->value = existing_entry->value->value;
+                } else {
+                    size_t error_value_count = ira->codegen->errors_by_index.length;
+                    assert((uint32_t)error_value_count < (((uint32_t)1) << (uint32_t)ira->codegen->err_tag_type->data.integral.bit_count));
+                    err_entry->value = error_value_count;
+                    ira->codegen->errors_by_index.append(err_entry);
+                }
+                if (already_set[err_entry->value]) {
+                    ir_add_error(ira, source_instr, buf_sprintf("duplicate error: %s", buf_ptr(&err_entry->name)));
+                    return ira->codegen->invalid_inst_gen->value->type;
+                } else {
+                    already_set[err_entry->value] = true;
+                }
+                err_set_type->data.error_set.errors[i] = err_entry;
+            }
+            return err_set_type;
+        }
         case ZigTypeIdEnum:
             ir_add_error(ira, source_instr, buf_sprintf(
                 "TODO implement @Type for 'TypeInfo.%s': see https://github.com/ziglang/zig/issues/2907", type_id_name(tagTypeId)));

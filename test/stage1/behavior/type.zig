@@ -229,3 +229,10 @@ test "Type.Frame" {
         @Frame(add),
     });
 }
+
+test "Type.ErrorSet" {
+    // error sets don't compare equal so just check if they compile
+    _ = @Type(@typeInfo(error{}));
+    _ = @Type(@typeInfo(error{A}));
+    _ = @Type(@typeInfo(error{ A, B, C }));
+}
