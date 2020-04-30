@@ -186,6 +186,10 @@ pub const CacheHash = struct {
                 return error.InvalidFormat;
             }
 
+            if (cache_hash_file.path == null) {
+                cache_hash_file.path = try mem.dupe(self.alloc, u8, file_path);
+            }
+
             const this_file = fs.cwd().openFile(cache_hash_file.path.?, .{ .read = true }) catch {
                 return error.CacheUnavailable;
             };
