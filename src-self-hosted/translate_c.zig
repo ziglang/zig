@@ -1293,7 +1293,22 @@ fn transBinaryOperator(
     }
 
     const rhs_node = try transExpr(rp, scope, ZigClangBinaryOperator_getRHS(stmt), .used, .r_value);
-    return transCreateNodeInfixOp(rp, scope, lhs_node, op_id, op_token, rhs_node, result_used, true);
+
+    const lhs = if (isBoolRes(lhs_node)) init: {
+        const cast_node = try transCreateNodeBuiltinFnCall(rp.c, "@boolToInt");
+        try cast_node.params.push(lhs_node);
+        cast_node.rparen_token = try appendToken(rp.c, .RParen, ")");
+        break :init &cast_node.base;
+    } else lhs_node;
+
+    const rhs = if (isBoolRes(rhs_node)) init: {
+        const cast_node = try transCreateNodeBuiltinFnCall(rp.c, "@boolToInt");
+        try cast_node.params.push(rhs_node);
+        cast_node.rparen_token = try appendToken(rp.c, .RParen, ")");
+        break :init &cast_node.base;
+    } else rhs_node;
+
+    return transCreateNodeInfixOp(rp, scope, lhs, op_id, op_token, rhs, result_used, true);
 }
 
 fn transCompoundStmtInline(
