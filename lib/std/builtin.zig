@@ -235,8 +235,8 @@ pub const TypeInfo = union(enum) {
     /// therefore must be kept in sync with the compiler implementation.
     pub const Struct = struct {
         layout: ContainerLayout,
-        fields: []StructField,
-        decls: []Declaration,
+        fields: []const StructField,
+        decls: []const Declaration,
     };
 
     /// This data structure is used by the Zig language code generation and
@@ -261,7 +261,7 @@ pub const TypeInfo = union(enum) {
 
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
-    pub const ErrorSet = ?[]Error;
+    pub const ErrorSet = ?[]const Error;
 
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
@@ -275,8 +275,8 @@ pub const TypeInfo = union(enum) {
     pub const Enum = struct {
         layout: ContainerLayout,
         tag_type: type,
-        fields: []EnumField,
-        decls: []Declaration,
+        fields: []const EnumField,
+        decls: []const Declaration,
         is_exhaustive: bool,
     };
 
@@ -293,8 +293,8 @@ pub const TypeInfo = union(enum) {
     pub const Union = struct {
         layout: ContainerLayout,
         tag_type: ?type,
-        fields: []UnionField,
-        decls: []Declaration,
+        fields: []const UnionField,
+        decls: []const Declaration,
     };
 
     /// This data structure is used by the Zig language code generation and
@@ -312,7 +312,7 @@ pub const TypeInfo = union(enum) {
         is_generic: bool,
         is_var_args: bool,
         return_type: ?type,
-        args: []FnArg,
+        args: []const FnArg,
     };
 
     /// This data structure is used by the Zig language code generation and
@@ -358,7 +358,7 @@ pub const TypeInfo = union(enum) {
                 is_export: bool,
                 lib_name: ?[]const u8,
                 return_type: type,
-                arg_names: [][]const u8,
+                arg_names: []const []const u8,
 
                 /// This data structure is used by the Zig language code generation and
                 /// therefore must be kept in sync with the compiler implementation.
