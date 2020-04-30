@@ -444,12 +444,16 @@ pub const CrossTarget = struct {
         return self.getOsTag() == .netbsd;
     }
 
-    pub fn isUefi(self: CrossTarget) bool {
-        return self.getOsTag() == .uefi;
+    pub fn isOpenBSD(self: CrossTarget) bool {
+        return self.getOsTag() == .openbsd;
     }
 
     pub fn isDragonFlyBSD(self: CrossTarget) bool {
         return self.getOsTag() == .dragonfly;
+    }
+
+    pub fn isUefi(self: CrossTarget) bool {
+        return self.getOsTag() == .uefi;
     }
 
     pub fn isLinux(self: CrossTarget) bool {

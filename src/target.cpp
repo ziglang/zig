@@ -1303,7 +1303,7 @@ const char *target_arch_musl_name(ZigLLVM_ArchType arch) {
 }
 
 bool target_libc_needs_crti_crtn(const ZigTarget *target) {
-    if (target->arch == ZigLLVM_riscv32 || target->arch == ZigLLVM_riscv64 || target_is_android(target)) {
+    if (target_is_riscv(target) || target_is_android(target) || target->os == OsOpenBSD) {
         return false;
     }
     return true;

@@ -176,6 +176,7 @@ fn testEnum() void {
         Macos,
         Linux,
         FreeBSD,
+        OpenBSD,
     };
 
     const os_info = @typeInfo(Os);

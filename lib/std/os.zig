@@ -43,6 +43,7 @@ test "" {
     _ = freebsd;
     _ = linux;
     _ = netbsd;
+    _ = openbsd;
     _ = uefi;
     _ = wasi;
     _ = windows;

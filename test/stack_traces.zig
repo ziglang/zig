@@ -58,7 +58,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
     ;
 
     switch (std.Target.current.os.tag) {
-        .freebsd => {
+        .freebsd, .openbsd => {
             cases.addCase(
                 "return",
                 source_return,

@@ -291,7 +291,7 @@ fn configureStage2(b: *Builder, exe: var, ctx: Context) !void {
         };
 
         exe.linkSystemLibrary("pthread");
-    } else if (exe.target.isFreeBSD()) {
+    } else if (exe.target.isFreeBSD() or exe.target.isOpenBSD()) {
         try addCxxKnownPath(b, ctx, exe, "libc++.a", null);
         exe.linkSystemLibrary("pthread");
     } else if (exe.target.isDarwin()) {

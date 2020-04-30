@@ -594,7 +594,7 @@ test "PackedInt(Array/Slice)Endian" {
 // don't account for the bounds.
 test "PackedIntArray at end of available memory" {
     switch (builtin.os.tag) {
-        .linux, .macosx, .ios, .freebsd, .netbsd, .windows => {},
+        .linux, .macosx, .ios, .freebsd, .netbsd, .openbsd, .windows => {},
         else => return,
     }
     const PackedArray = PackedIntArray(u3, 8);
@@ -613,7 +613,7 @@ test "PackedIntArray at end of available memory" {
 
 test "PackedIntSlice at end of available memory" {
     switch (builtin.os.tag) {
-        .linux, .macosx, .ios, .freebsd, .netbsd, .windows => {},
+        .linux, .macosx, .ios, .freebsd, .netbsd, .openbsd, .windows => {},
         else => return,
     }
     const PackedSlice = PackedIntSlice(u11);

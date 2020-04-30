@@ -2047,7 +2047,8 @@ static void construct_linker_job_elf(LinkJob *lj) {
             }
 
             if (g->zig_target->os == OsFreeBSD ||
-                g->zig_target->os == OsNetBSD)
+                g->zig_target->os == OsNetBSD ||
+                g->zig_target->os == OsOpenBSD)
             {
                 lj->args.append("-lpthread");
             }

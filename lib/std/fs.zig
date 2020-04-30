@@ -37,7 +37,7 @@ pub const Watch = @import("fs/watch.zig").Watch;
 /// fit into a UTF-8 encoded array of this length.
 /// The byte count includes room for a null sentinel byte.
 pub const MAX_PATH_BYTES = switch (builtin.os.tag) {
-    .linux, .macosx, .ios, .freebsd, .netbsd, .dragonfly => os.PATH_MAX,
+    .linux, .macosx, .ios, .freebsd, .netbsd, .openbsd, .dragonfly => os.PATH_MAX,
     // Each UTF-16LE character may be expanded to 3 UTF-8 bytes.
     // If it would require 4 UTF-8 bytes, then there would be a surrogate
     // pair in the UTF-16LE, and we (over)account 3 bytes for it that way.
@@ -277,7 +277,7 @@ pub const Dir = struct {
     const IteratorError = error{AccessDenied} || os.UnexpectedError;
 
     pub const Iterator = switch (builtin.os.tag) {
-        .macosx, .ios, .freebsd, .netbsd, .dragonfly => struct {
+        .macosx, .ios, .freebsd, .netbsd, .openbsd, .dragonfly => struct {
             dir: Dir,
             seek: i64,
             buf: [8192]u8, // TODO align(@alignOf(os.dirent)),
@@ -293,7 +293,7 @@ pub const Dir = struct {
             pub fn next(self: *Self) Error!?Entry {
                 switch (builtin.os.tag) {
                     .macosx, .ios => return self.nextDarwin(),
-                    .freebsd, .netbsd, .dragonfly => return self.nextBsd(),
+                    .freebsd, .netbsd, .openbsd, .dragonfly => return self.nextBsd(),
                     else => @compileError("unimplemented"),
                 }
             }
@@ -526,7 +526,7 @@ pub const Dir = struct {
 
     pub fn iterate(self: Dir) Iterator {
         switch (builtin.os.tag) {
-            .macosx, .ios, .freebsd, .netbsd, .dragonfly => return Iterator{
+            .macosx, .ios, .freebsd, .netbsd, .openbsd, .dragonfly => return Iterator{
                 .dir = self,
                 .seek = 0,
                 .index = 0,

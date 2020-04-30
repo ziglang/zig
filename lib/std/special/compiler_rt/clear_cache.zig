@@ -52,7 +52,7 @@ pub fn clear_cache(start: usize, end: usize) callconv(.C) void {
         // exportIt();
     } else if (arm32 and !apple) {
         switch (os) {
-            .freebsd, .netbsd => {
+            .freebsd, .netbsd, .openbsd => {
                 var arg = arm_sync_icache_args{
                     .addr = start,
                     .len = end - start,
