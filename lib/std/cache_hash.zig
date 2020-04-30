@@ -509,3 +509,55 @@ test "no file inputs" {
 
     testing.expectEqual(digest1, digest2);
 }
+
+test "manifest file with extra line does not cause null pointer exeception" {
+    const cwd = fs.cwd();
+
+    const temp_file1 = "cache_hash_remove_file_test1.txt";
+    const temp_file2 = "cache_hash_remove_file_test2.txt";
+    const temp_manifest_dir = "cache_hash_remove_file_manifest_dir";
+
+    try cwd.writeFile(temp_file1, "Hello, world!\n");
+    try cwd.writeFile(temp_file2, "Hello world the second!\n");
+
+    var digest1: [BASE64_DIGEST_LEN]u8 = undefined;
+    var digest2: [BASE64_DIGEST_LEN]u8 = undefined;
+
+    {
+        var ch = try CacheHash.init(testing.allocator, temp_manifest_dir);
+        defer ch.release() catch unreachable;
+
+        ch.add("1234");
+        _ = try ch.addFile(temp_file1);
+        _ = try ch.addFile(temp_file2);
+
+        // There should be nothing in the cache
+        testing.expectEqual(@as(?[64]u8, null), try ch.hit());
+
+        digest1 = ch.final();
+    }
+    {
+        var ch = try CacheHash.init(testing.allocator, temp_manifest_dir);
+        defer ch.release() catch unreachable;
+
+        ch.add("1234");
+        _ = try ch.addFile(temp_file1);
+        _ = try ch.addFile(temp_file2);
+        {
+            // Remove an input file from the cache hash.
+            // We still have to add the input file, or else the initial cache
+            // hash will be different, and a different manifest file checked
+            const chf = ch.files.orderedRemove(1);
+            testing.allocator.free(chf.path.?);
+        }
+
+        // A file that we depend on has been updated, so the cache should not contain an entry for it
+        digest2 = (try ch.hit()).?;
+    }
+
+    testing.expect(mem.eql(u8, digest1[0..], digest2[0..]));
+
+    try cwd.deleteTree(temp_manifest_dir);
+    try cwd.deleteFile(temp_file1);
+    try cwd.deleteFile(temp_file2);
+}
