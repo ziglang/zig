@@ -648,8 +648,8 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
         case OsMacOSX:
         case OsFreeBSD:
         case OsNetBSD:
-        case OsDragonFly:
         case OsOpenBSD:
+        case OsDragonFly:
         case OsWASI:
         case OsEmscripten:
             switch (id) {
@@ -979,9 +979,9 @@ bool target_has_valgrind_support(const ZigTarget *target) {
 
 bool target_os_requires_libc(Os os) {
     // On Darwin, we always link libSystem which contains libc.
-    // Similarly on FreeBSD and NetBSD we always link system libc
+    // Similarly on FreeBSD, NetBSD and OpenBSD we always link system libc
     // since this is the stable syscall interface.
-    return (target_os_is_darwin(os) || os == OsFreeBSD || os == OsNetBSD || os == OsDragonFly);
+    return (target_os_is_darwin(os) || os == OsFreeBSD || os == OsNetBSD || os == OsOpenBSD || os == OsDragonFly);
 }
 
 bool target_supports_fpic(const ZigTarget *target) {

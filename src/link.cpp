@@ -1911,7 +1911,7 @@ static void construct_linker_job_elf(LinkJob *lj) {
 
     if (lj->link_in_crt) {
         const char *crt1o;
-        if (g->zig_target->os == OsNetBSD) {
+        if (g->zig_target->os == OsNetBSD || g->zig_target->os == OsOpenBSD) {
             crt1o = "crt0.o";
         } else if (target_is_android(g->zig_target)) {
             if (g->have_dynamic_link) {

@@ -27,8 +27,9 @@ const MAX_PATH_BYTES = std.fs.MAX_PATH_BYTES;
 pub const darwin = @import("os/darwin.zig");
 pub const dragonfly = @import("os/dragonfly.zig");
 pub const freebsd = @import("os/freebsd.zig");
-pub const netbsd = @import("os/netbsd.zig");
 pub const linux = @import("os/linux.zig");
+pub const netbsd = @import("os/netbsd.zig");
+pub const openbsd = @import("os/openbsd.zig");
 pub const uefi = @import("os/uefi.zig");
 pub const wasi = @import("os/wasi.zig");
 pub const windows = @import("os/windows.zig");
@@ -58,10 +59,11 @@ else if (builtin.link_libc)
     std.c
 else switch (builtin.os.tag) {
     .macosx, .ios, .watchos, .tvos => darwin,
+    .dragonfly => dragonfly,
     .freebsd => freebsd,
     .linux => linux,
     .netbsd => netbsd,
-    .dragonfly => dragonfly,
+    .openbsd => openbsd,
     .wasi => wasi,
     .windows => windows,
     else => struct {},
