@@ -182,8 +182,10 @@ pub const CacheHash = struct {
             if (file_path.len == 0) {
                 return error.InvalidFormat;
             }
-            if (cache_hash_file.path != null and !mem.eql(u8, file_path, cache_hash_file.path.?)) {
-                return error.InvalidFormat;
+            if (cache_hash_file.path) |p| {
+                if (!mem.eql(u8, file_path, p)) {
+                    return error.InvalidFormat;
+                }
             }
 
             if (cache_hash_file.path == null) {
