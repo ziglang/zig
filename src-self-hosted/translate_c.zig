@@ -1294,36 +1294,21 @@ fn transBinaryOperator(
 
     const rhs_node = try transExpr(rp, scope, ZigClangBinaryOperator_getRHS(stmt), .used, .r_value);
 
-    const is_lhs_bool = isBoolRes(lhs_node);
-    const is_rhs_bool = isBoolRes(rhs_node);
-
-    if (!is_lhs_bool and !is_rhs_bool) {
-        return transCreateNodeInfixOp(rp, scope, lhs_node, op_id, op_token, rhs_node, result_used, true);
-    }
-
-    const lhs = if (is_lhs_bool) init: {
+    const lhs = if (isBoolRes(lhs_node)) init: {
         const cast_node = try transCreateNodeBuiltinFnCall(rp.c, "@boolToInt");
         try cast_node.params.push(lhs_node);
         cast_node.rparen_token = try appendToken(rp.c, .RParen, ")");
         break :init &cast_node.base;
     } else lhs_node;
 
-    const rhs = if (is_rhs_bool) init: {
+    const rhs = if (isBoolRes(rhs_node)) init: {
         const cast_node = try transCreateNodeBuiltinFnCall(rp.c, "@boolToInt");
         try cast_node.params.push(rhs_node);
         cast_node.rparen_token = try appendToken(rp.c, .RParen, ")");
         break :init &cast_node.base;
     } else rhs_node;
 
-    const node = try rp.c.a().create(ast.Node.InfixOp);
-
-    node.* = .{
-        .op_token = op_token,
-        .lhs = lhs,
-        .op = op_id,
-        .rhs = rhs,
-    };
-    return maybeSuppressResult(rp, scope, result_used, &node.base);
+    return transCreateNodeInfixOp(rp, scope, lhs, op_id, op_token, rhs, result_used, true);
 }
 
 fn transCompoundStmtInline(
