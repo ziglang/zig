@@ -591,7 +591,7 @@ pub const Dir = struct {
         return self.openFileZ(&path_c, flags);
     }
 
-    pub fn openFileWasi(self: Dir, sub_path: []const u8, flags: File.OpenFlags) File.OpenError!File {
+    fn openFileWasi(self: Dir, sub_path: []const u8, flags: File.OpenFlags) File.OpenError!File {
         var fdflags: wasi.fdflag_t = 0x0;
         var rights: wasi.rights_t = 0x0;
         if (flags.read) {
@@ -703,11 +703,12 @@ pub const Dir = struct {
 
     pub const createFileC = @compileError("deprecated: renamed to createFileZ");
 
-    pub fn createFileWasi(self: Dir, sub_path: []const u8, flags: File.CreateFlags) File.OpenError!File {
-        var oflags: wasi.oflags_t = 0x0;
-        var rights: wasi.rights_t = wasi.FD_WRITE | wasi.FD_DATASYNC | wasi.FD_SEEK | wasi.FD_FDSTAT_SET_FLAGS | wasi.FD_SYNC | wasi.FD_ALLOCATE | wasi.FD_ADVISE | wasi.FD_FILESTAT_SET_TIMES | wasi.FD_FILESTAT_SET_SIZE;
+    fn createFileWasi(self: Dir, sub_path: []const u8, flags: File.CreateFlags) File.OpenError!File {
+        const wasi = os.wasi;
+        var oflags: wasi.oflags_t = wasi.O_CREAT;
+        var rights: wasi.rights_t = wasi.RIGHT_FD_WRITE | wasi.RIGHT_FD_DATASYNC | wasi.RIGHT_FD_SEEK | wasi.RIGHT_FD_FDSTAT_SET_FLAGS | wasi.RIGHT_FD_SYNC | wasi.RIGHT_FD_ALLOCATE | wasi.RIGHT_FD_ADVISE | wasi.RIGHT_FD_FILESTAT_SET_TIMES | wasi.RIGHT_FD_FILESTAT_SET_SIZE;
         if (flags.read) {
-            rights |= wasi.FD_READ | wasi.FD_TELL | wasi.FD_FILESTAT_GET;
+            rights |= wasi.RIGHT_FD_READ | wasi.RIGHT_FD_TELL | wasi.RIGHT_FD_FILESTAT_GET;
         }
         if (flags.truncate) {
             oflags |= wasi.O_TRUNC;
@@ -1438,6 +1439,18 @@ pub const Dir = struct {
 pub fn cwd() Dir {
     if (builtin.os.tag == .windows) {
         return Dir{ .fd = os.windows.peb().ProcessParameters.CurrentDirectory.Handle };
+    } else if (builtin.os.tag == .wasi) {
+        const wasi = os.wasi;
+        // On WASI we indeed don't have a concept of cwd; however, we can approximate it with
+        // trying to obtain a preopen for ".".
+        // TODO `cwd()` should be a fallible operation if we're going to support WASI this way.
+        var fd: wasi.fd_t = undefined;
+        var prefix: usize = undefined;
+        switch (wasi.resolve_preopen(".", &fd, &prefix)) {
+            0 => {},
+            else => {},
+        }
+        return Dir{ .fd = fd };
     } else {
         return Dir{ .fd = os.AT_FDCWD };
     }
