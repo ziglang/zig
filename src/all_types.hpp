@@ -3453,7 +3453,6 @@ struct IrInstSrcOptionalUnwrapPtr {
 
     IrInstSrc *base_ptr;
     bool safety_check_on;
-    bool initializing;
 };
 
 struct IrInstGenOptionalUnwrapPtr {

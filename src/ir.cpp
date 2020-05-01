@@ -2967,12 +2967,11 @@ static IrInstGen *ir_build_test_non_null_gen(IrAnalyze *ira, IrInst *source_inst
 }
 
 static IrInstSrc *ir_build_optional_unwrap_ptr(IrBuilderSrc *irb, Scope *scope, AstNode *source_node,
-        IrInstSrc *base_ptr, bool safety_check_on, bool initializing)
+        IrInstSrc *base_ptr, bool safety_check_on)
 {
     IrInstSrcOptionalUnwrapPtr *instruction = ir_build_instruction<IrInstSrcOptionalUnwrapPtr>(irb, scope, source_node);
     instruction->base_ptr = base_ptr;
     instruction->safety_check_on = safety_check_on;
-    instruction->initializing = initializing;
 
     ir_ref_instruction(base_ptr, irb->current_basic_block);
 
@@ -5721,7 +5720,7 @@ static IrInstSrc *ir_gen_orelse(IrBuilderSrc *irb, Scope *parent_scope, AstNode 
         ir_mark_gen(ir_build_br(irb, parent_scope, node, end_block, is_comptime));
 
     ir_set_cursor_at_end_and_append_block(irb, ok_block);
-    IrInstSrc *unwrapped_ptr = ir_build_optional_unwrap_ptr(irb, parent_scope, node, maybe_ptr, false, false);
+    IrInstSrc *unwrapped_ptr = ir_build_optional_unwrap_ptr(irb, parent_scope, node, maybe_ptr, false);
     IrInstSrc *unwrapped_payload = ir_build_load_ptr(irb, parent_scope, node, unwrapped_ptr);
     ir_build_end_expr(irb, parent_scope, node, unwrapped_payload, &peer_parent->peers.at(1)->base);
     IrBasicBlockSrc *after_ok_block = irb->current_basic_block;
@@ -8080,7 +8079,7 @@ static IrInstSrc *ir_gen_while_expr(IrBuilderSrc *irb, Scope *scope, AstNode *no
                 is_comptime);
 
         ir_set_cursor_at_end_and_append_block(irb, body_block);
-        IrInstSrc *payload_ptr = ir_build_optional_unwrap_ptr(irb, &spill_scope->base, symbol_node, maybe_val_ptr, false, false);
+        IrInstSrc *payload_ptr = ir_build_optional_unwrap_ptr(irb, &spill_scope->base, symbol_node, maybe_val_ptr, false);
         IrInstSrc *var_value = node->data.while_expr.var_is_ptr ?
             payload_ptr : ir_build_load_ptr(irb, &spill_scope->base, symbol_node, payload_ptr);
         build_decl_var_and_init(irb, child_scope, symbol_node, payload_var, var_value, buf_ptr(var_symbol), is_comptime);
@@ -8743,7 +8742,7 @@ static IrInstSrc *ir_gen_if_optional_expr(IrBuilderSrc *irb, Scope *scope, AstNo
         ZigVar *var = ir_create_var(irb, node, subexpr_scope,
                 var_symbol, is_const, is_const, is_shadowable, is_comptime);
 
-        IrInstSrc *payload_ptr = ir_build_optional_unwrap_ptr(irb, subexpr_scope, node, maybe_val_ptr, false, false);
+        IrInstSrc *payload_ptr = ir_build_optional_unwrap_ptr(irb, subexpr_scope, node, maybe_val_ptr, false);
         IrInstSrc *var_value = var_is_ptr ?
             payload_ptr : ir_build_load_ptr(irb, &spill_scope->base, node, payload_ptr);
         build_decl_var_and_init(irb, subexpr_scope, node, var, var_value, buf_ptr(var_symbol), is_comptime);
@@ -9987,7 +9986,7 @@ static IrInstSrc *ir_gen_node_raw(IrBuilderSrc *irb, AstNode *node, Scope *scope
             if (maybe_ptr == irb->codegen->invalid_inst_src)
                 return irb->codegen->invalid_inst_src;
 
-            IrInstSrc *unwrapped_ptr = ir_build_optional_unwrap_ptr(irb, scope, node, maybe_ptr, true, false);
+            IrInstSrc *unwrapped_ptr = ir_build_optional_unwrap_ptr(irb, scope, node, maybe_ptr, true );
             if (lval == LValPtr || lval == LValAssign)
                 return unwrapped_ptr;
 
