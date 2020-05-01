@@ -995,7 +995,7 @@ pub const Const = struct {
     /// TODO See if we can make this exact.
     pub fn sizeInBaseUpperBound(self: Const, base: usize) usize {
         const bit_count = @as(usize, @boolToInt(!self.positive)) + self.bitCountAbs();
-        return (bit_count / math.log2(base)) + 1;
+        return (bit_count / math.log2(base)) + 2;
     }
 
     pub const ConvertError = error{
