@@ -49,10 +49,9 @@ pub fn _init_timestart() void {
     var micro: os.darwin.timeval = undefined;
     var timestart: DarwinTimeStart = undefined;
 
-    var err = os.darwin.mach_timebase_info(&timestart.timebase);
-    assert(err == 0);
+    os.darwin.mach_timebase_info(&timestart.timebase);
 
-    err = os.darwin.gettimeofday(&micro, null);
+    const err = os.darwin.gettimeofday(&micro, null);
     assert(err == 0);
 
     timestart.initclock = os.darwin.mach_absolute_time();
@@ -94,7 +93,7 @@ pub fn nanoTimestamp() u64 {
         _init_timestart_once.call();
 
         const clock: u64 = os.darwin.mach_absolute_time() - _timestart.initclock;
-        const nano = clock * @divFloor(@as(u64, _timestart.timebase.number), @as(u64, _timestart.timebase.denom));
+        const nano = @divFloor(clock * @as(u64, _timestart.timebase.numer), @as(u64, _timestart.timebase.denom));
 
         const tv_sec_nsec = @intCast(u64, _timestart.inittime.tv_sec) * ns_per_s;
         const tv_nsec = @intCast(u64, _timestart.inittime.tv_nsec);
