@@ -42,10 +42,12 @@ fn getStdOutHandle() os.fd_t {
     return os.STDOUT_FILENO;
 }
 
+// TODO: async stdout on windows (https://github.com/ziglang/zig/pull/4816#issuecomment-604521023)
 pub fn getStdOut() File {
     return File{
         .handle = getStdOutHandle(),
         .io_mode = .blocking,
+        .async_block_allowed = if (builtin.os.tag == .windows) File.async_block_allowed_yes else File.async_block_allowed_no,
     };
 }
 
@@ -81,10 +83,12 @@ fn getStdInHandle() os.fd_t {
     return os.STDIN_FILENO;
 }
 
+// TODO: async stdin on windows (https://github.com/ziglang/zig/pull/4816#issuecomment-604521023)
 pub fn getStdIn() File {
     return File{
         .handle = getStdInHandle(),
         .io_mode = .blocking,
+        .async_block_allowed = if (builtin.os.tag == .windows) File.async_block_allowed_yes else File.async_block_allowed_no,
     };
 }
 

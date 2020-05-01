@@ -305,7 +305,7 @@ pub const ReadError = error{
 /// For POSIX the limit is `math.maxInt(isize)`.
 pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
     if (builtin.os.tag == .windows) {
-        return windows.ReadFile(fd, buf, null);
+        return windows.ReadFile(fd, buf, null, false);
     }
 
     if (builtin.os.tag == .wasi and !builtin.link_libc) {
@@ -370,7 +370,7 @@ pub fn readv(fd: fd_t, iov: []const iovec) ReadError!usize {
         const first = iov[0];
         return read(fd, first.iov_base[0..first.iov_len]);
     }
-    
+
     const iov_count = math.cast(u31, iov.len) catch math.maxInt(u31);
     while (true) {
         // TODO handle the case when iov_len is too large and get rid of this @intCast
@@ -408,7 +408,7 @@ pub const PReadError = ReadError || error{Unseekable};
 /// used to perform the I/O. `error.WouldBlock` is not possible on Windows.
 pub fn pread(fd: fd_t, buf: []u8, offset: u64) PReadError!usize {
     if (builtin.os.tag == .windows) {
-        return windows.ReadFile(fd, buf, offset);
+        return windows.ReadFile(fd, buf, offset, false);
     }
 
     while (true) {
@@ -584,7 +584,7 @@ pub const WriteError = error{
 /// The corresponding POSIX limit is `math.maxInt(isize)`.
 pub fn write(fd: fd_t, bytes: []const u8) WriteError!usize {
     if (builtin.os.tag == .windows) {
-        return windows.WriteFile(fd, bytes, null);
+        return windows.WriteFile(fd, bytes, null, false);
     }
 
     if (builtin.os.tag == .wasi and !builtin.link_libc) {
@@ -709,7 +709,7 @@ pub const PWriteError = WriteError || error{Unseekable};
 /// The corresponding POSIX limit is `math.maxInt(isize)`.
 pub fn pwrite(fd: fd_t, bytes: []const u8, offset: u64) PWriteError!usize {
     if (std.Target.current.os.tag == .windows) {
-        return windows.WriteFile(fd, bytes, offset);
+        return windows.WriteFile(fd, bytes, offset, false);
     }
 
     // Prevent EINVAL.
@@ -1670,38 +1670,40 @@ pub fn renameatZ(
     }
 }
 
-/// Same as `renameat` except the parameters are null-terminated UTF16LE encoded byte arrays.
-/// Assumes target is Windows.
-/// TODO these args can actually be slices when using ntdll. audit the rest of the W functions too.
+/// Same as `renameat` but Windows-only and the path parameters are
+/// [WTF-16](https://simonsapin.github.io/wtf-8/#potentially-ill-formed-utf-16) encoded.
 pub fn renameatW(
     old_dir_fd: fd_t,
-    old_path: [*:0]const u16,
+    old_path_w: []const u16,
     new_dir_fd: fd_t,
-    new_path_w: [*:0]const u16,
+    new_path_w: []const u16,
     ReplaceIfExists: windows.BOOLEAN,
 ) RenameError!void {
-    const access_mask = windows.SYNCHRONIZE | windows.GENERIC_WRITE | windows.DELETE;
-    const src_fd = windows.OpenFileW(old_dir_fd, old_path, null, access_mask, null, false, windows.FILE_OPEN) catch |err| switch (err) {
-        error.WouldBlock => unreachable,
+    const src_fd = windows.OpenFile(old_path_w, .{
+        .dir = old_dir_fd,
+        .access_mask = windows.SYNCHRONIZE | windows.GENERIC_WRITE | windows.DELETE,
+        .creation = windows.FILE_OPEN,
+        .enable_async_io = false,
+    }) catch |err| switch (err) {
+        error.WouldBlock => unreachable, // Not possible without `.share_access_nonblocking = true`.
         else => |e| return e,
     };
     defer windows.CloseHandle(src_fd);
 
     const struct_buf_len = @sizeOf(windows.FILE_RENAME_INFORMATION) + (MAX_PATH_BYTES - 1);
     var rename_info_buf: [struct_buf_len]u8 align(@alignOf(windows.FILE_RENAME_INFORMATION)) = undefined;
-    const new_path = mem.span(new_path_w);
-    const struct_len = @sizeOf(windows.FILE_RENAME_INFORMATION) - 1 + new_path.len * 2;
+    const struct_len = @sizeOf(windows.FILE_RENAME_INFORMATION) - 1 + new_path_w.len * 2;
     if (struct_len > struct_buf_len) return error.NameTooLong;
 
     const rename_info = @ptrCast(*windows.FILE_RENAME_INFORMATION, &rename_info_buf);
 
     rename_info.* = .{
         .ReplaceIfExists = ReplaceIfExists,
-        .RootDirectory = if (std.fs.path.isAbsoluteWindowsW(new_path_w)) null else new_dir_fd,
-        .FileNameLength = @intCast(u32, new_path.len * 2), // already checked error.NameTooLong
+        .RootDirectory = if (std.fs.path.isAbsoluteWindowsWTF16(new_path_w)) null else new_dir_fd,
+        .FileNameLength = @intCast(u32, new_path_w.len * 2), // already checked error.NameTooLong
         .FileName = undefined,
     };
-    std.mem.copy(u16, @as([*]u16, &rename_info.FileName)[0..new_path.len], new_path);
+    std.mem.copy(u16, @as([*]u16, &rename_info.FileName)[0..new_path_w.len], new_path_w);
 
     var io_status_block: windows.IO_STATUS_BLOCK = undefined;
 

@@ -639,21 +639,28 @@ pub const Dir = struct {
 
     /// Same as `openFile` but Windows-only and the path parameter is
     /// [WTF-16](https://simonsapin.github.io/wtf-8/#potentially-ill-formed-utf-16) encoded.
-    pub fn openFileW(self: Dir, sub_path_w: [*:0]const u16, flags: File.OpenFlags) File.OpenError!File {
+    pub fn openFileW(self: Dir, sub_path_w: []const u16, flags: File.OpenFlags) File.OpenError!File {
         const w = os.windows;
-        const access_mask = w.SYNCHRONIZE |
-            (if (flags.read) @as(u32, w.GENERIC_READ) else 0) |
-            (if (flags.write) @as(u32, w.GENERIC_WRITE) else 0);
-
-        const share_access = switch (flags.lock) {
-            .None => @as(?w.ULONG, null),
-            .Shared => w.FILE_SHARE_READ | w.FILE_SHARE_DELETE,
-            .Exclusive => w.FILE_SHARE_DELETE,
-        };
-
         return @as(File, .{
-            .handle = try os.windows.OpenFileW(self.fd, sub_path_w, null, access_mask, share_access, flags.lock_nonblocking, w.FILE_OPEN),
+            .handle = try os.windows.OpenFile(sub_path_w, .{
+                .dir = self.fd,
+                .access_mask = w.SYNCHRONIZE |
+                    (if (flags.read) @as(u32, w.GENERIC_READ) else 0) |
+                    (if (flags.write) @as(u32, w.GENERIC_WRITE) else 0),
+                .share_access = switch (flags.lock) {
+                    .None => @as(?w.ULONG, null),
+                    .Shared => w.FILE_SHARE_READ | w.FILE_SHARE_DELETE,
+                    .Exclusive => w.FILE_SHARE_DELETE,
+                },
+                .share_access_nonblocking = flags.lock_nonblocking,
+                .creation = w.FILE_OPEN,
+                .enable_async_io = std.io.is_async and !flags.always_blocking,
+            }),
             .io_mode = .blocking,
+            .async_block_allowed = if (flags.always_blocking)
+                File.async_block_allowed_yes
+            else
+                File.async_block_allowed_no,
         });
     }
 
@@ -713,25 +720,27 @@ pub const Dir = struct {
 
     /// Same as `createFile` but Windows-only and the path parameter is
     /// [WTF-16](https://simonsapin.github.io/wtf-8/#potentially-ill-formed-utf-16) encoded.
-    pub fn createFileW(self: Dir, sub_path_w: [*:0]const u16, flags: File.CreateFlags) File.OpenError!File {
+    pub fn createFileW(self: Dir, sub_path_w: []const u16, flags: File.CreateFlags) File.OpenError!File {
         const w = os.windows;
-        const access_mask = w.SYNCHRONIZE | w.GENERIC_WRITE |
-            (if (flags.read) @as(u32, w.GENERIC_READ) else 0);
-        const creation = if (flags.exclusive)
-            @as(u32, w.FILE_CREATE)
-        else if (flags.truncate)
-            @as(u32, w.FILE_OVERWRITE_IF)
-        else
-            @as(u32, w.FILE_OPEN_IF);
-
-        const share_access = switch (flags.lock) {
-            .None => @as(?w.ULONG, null),
-            .Shared => w.FILE_SHARE_READ | w.FILE_SHARE_DELETE,
-            .Exclusive => w.FILE_SHARE_DELETE,
-        };
-
+        const read_flag = if (flags.read) @as(u32, w.GENERIC_READ) else 0;
         return @as(File, .{
-            .handle = try os.windows.OpenFileW(self.fd, sub_path_w, null, access_mask, share_access, flags.lock_nonblocking, creation),
+            .handle = try os.windows.OpenFile(sub_path_w, .{
+                .dir = self.fd,
+                .access_mask = w.SYNCHRONIZE | w.GENERIC_WRITE | read_flag,
+                .share_access = switch (flags.lock) {
+                    .None => @as(?w.ULONG, null),
+                    .Shared => w.FILE_SHARE_READ | w.FILE_SHARE_DELETE,
+                    .Exclusive => w.FILE_SHARE_DELETE,
+                },
+                .share_access_nonblocking = flags.lock_nonblocking,
+                .creation = if (flags.exclusive)
+                    @as(u32, w.FILE_CREATE)
+                else if (flags.truncate)
+                    @as(u32, w.FILE_OVERWRITE_IF)
+                else
+                    @as(u32, w.FILE_OPEN_IF),
+                .enable_async_io = std.io.is_async,
+            }),
             .io_mode = .blocking,
         });
     }

@@ -177,6 +177,10 @@ pub fn isAbsoluteWindowsW(path_w: [*:0]const u16) bool {
     return isAbsoluteWindowsImpl(u16, mem.spanZ(path_w));
 }
 
+pub fn isAbsoluteWindowsWTF16(path: []const u16) bool {
+    return isAbsoluteWindowsImpl(u16, path);
+}
+
 pub const isAbsoluteWindowsC = @compileError("deprecated: renamed to isAbsoluteWindowsZ");
 
 pub fn isAbsoluteWindowsZ(path_c: [*:0]const u8) bool {

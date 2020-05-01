@@ -62,12 +62,14 @@ pub const File = struct {
 
         /// Sets whether or not to wait until the file is locked to return. If set to true,
         /// `error.WouldBlock` will be returned. Otherwise, the file will wait until the file
-        /// is available to proceed.
+        /// is available to proceed. In async I/O mode, non-blocking at the OS level is always
+        /// used, and `true` means `error.WouldBlock` is returned, and `false` means
+        /// `error.WouldBlock` is handled by the event loop.
         lock_nonblocking: bool = false,
 
         /// This prevents `O_NONBLOCK` from being passed even if `std.io.is_async`.
         /// It allows the use of `noasync` when calling functions related to opening
-        /// the file, reading, and writing.
+        /// the file, reading, writing, as well as locking functionality.
         always_blocking: bool = false,
     };
 
@@ -295,6 +297,10 @@ pub const File = struct {
     pub const PReadError = os.PReadError;
 
     pub fn read(self: File, buffer: []u8) ReadError!usize {
+        if (builtin.os.tag == .windows) {
+            const enable_async_io = std.io.is_async and !self.async_block_allowed;
+            return windows.ReadFile(self.handle, buffer, null, enable_async_io);
+        }
         if (need_async_thread and self.io_mode == .blocking and !self.async_block_allowed) {
             return std.event.Loop.instance.?.read(self.handle, buffer);
         } else {
@@ -315,6 +321,10 @@ pub const File = struct {
     }
 
     pub fn pread(self: File, buffer: []u8, offset: u64) PReadError!usize {
+        if (builtin.os.tag == .windows) {
+            const enable_async_io = std.io.is_async and !self.async_block_allowed;
+            return windows.ReadFile(self.handle, buffer, offset, enable_async_io);
+        }
         if (need_async_thread and self.io_mode == .blocking and !self.async_block_allowed) {
             return std.event.Loop.instance.?.pread(self.handle, buffer, offset);
         } else {
@@ -406,6 +416,10 @@ pub const File = struct {
     pub const PWriteError = os.PWriteError;
 
     pub fn write(self: File, bytes: []const u8) WriteError!usize {
+        if (builtin.os.tag == .windows) {
+            const enable_async_io = std.io.is_async and !self.async_block_allowed;
+            return windows.WriteFile(self.handle, bytes, null, enable_async_io);
+        }
         if (need_async_thread and self.io_mode == .blocking and !self.async_block_allowed) {
             return std.event.Loop.instance.?.write(self.handle, bytes);
         } else {
@@ -421,6 +435,10 @@ pub const File = struct {
     }
 
     pub fn pwrite(self: File, bytes: []const u8, offset: u64) PWriteError!usize {
+        if (builtin.os.tag == .windows) {
+            const enable_async_io = std.io.is_async and !self.async_block_allowed;
+            return windows.WriteFile(self.handle, bytes, offset, enable_async_io);
+        }
         if (need_async_thread and self.io_mode == .blocking and !self.async_block_allowed) {
             return std.event.Loop.instance.?.pwrite(self.handle, bytes, offset);
         } else {
