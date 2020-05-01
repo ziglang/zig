@@ -36,6 +36,32 @@ pub fn milliTimestamp() u64 {
     return @divFloor(nanoTimestamp(), millisecond);
 }
 
+const DarwinTimeStart = struct {
+    timebase: os.darwin.mach_timebase_info_data,
+    inittime: os.darwin.timespec,
+    initclock: u64,
+};
+
+var _timestart: ?DarwinTimeStart = null;
+
+pub fn _init_time_for_darwin() DarwinTimeStart {
+    var micro: os.darwin.timeval = undefined;
+    var timestart: DarwinTimeStart = undefined;
+
+    var err = os.darwin.mach_timebase_info(&timestart.timebase);
+    assert(err == 0);
+
+    err = os.darwin.gettimeofday(&micro, null);
+    assert(err == 0);
+
+    timestart.initclock = os.darwin.mach_absolute_time();
+    timestart.inittime.tv_sec = micro.tv_sec;
+    timestart.inittime.tv_nsec = micro.tv_usec * 1000;
+
+    _timestart = timestart;
+    return timestart;
+}
+
 /// Get the posix timestamp, UTC, in nanoseconds
 ///
 /// On windows this only has a granularity of 100 nanoseconds.
@@ -51,7 +77,7 @@ pub fn nanoTimestamp() u64 {
         const epoch_adj = epoch.windows * ns_per_s;
 
         const ft64 = (@as(u64, ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
-        return (ft64 * hns_per_ms) - -epoch_adj;
+        return (ft64 * ns_per_hns) - -epoch_adj;
     }
     if (builtin.os.tag == .wasi and !builtin.link_libc) {
         var ns: os.wasi.timestamp_t = undefined;
@@ -63,11 +89,17 @@ pub fn nanoTimestamp() u64 {
         return ns;
     }
     if (comptime std.Target.current.isDarwin()) {
-        var mts: os.darwin.mach_timespec_t = undefined;
-        var err = os.darwin.clock_get_time(os.darwin.CALENDAR_CLOCK, &mts);
-        assert(err == 0);
-        const sec_ns = @as(u64, mts.tv_sec * ns_per_s);
-        return sec_ns + @intCast(u64, mts.tv_nsec);
+        // https://stackoverflow.com/a/21352348
+        const timestart = if (_timestart) |timestart| timestart else _init_time_for_darwin();
+
+        const clock: u64 = os.darwin.mach_absolute_time() - timestart.initclock;
+        const nano = clock * @divFloor(@as(u64, timestart.timebase.number), @as(u64, timestart.timebase.denom));
+
+        var future = timestart.inittime;
+        const tv_sec_nsec = @intCast(u64, timestart.inittime.tv_sec) * ns_per_s;
+        const tv_nsec = @intCast(u64, timestart.inittime.tv_nsec);
+
+        return tv_sec_nsec + tv_nsec + nano;
     }
     var ts: os.timespec = undefined;
     //From what I can tell there's no reason clock_gettime
