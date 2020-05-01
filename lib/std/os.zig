@@ -869,6 +869,26 @@ pub fn open(file_path: []const u8, flags: u32, perm: mode_t) OpenError!fd_t {
     return openZ(&file_path_c, flags, perm);
 }
 
+pub fn openWasi(file_path: []const u8, oflags: wasi.oflags_t, fdflags: wasi.fdflags_t, rights: wasi.rights_t) OpenError!fd_t {
+    var dirfd: fd_t = undefined;
+    var prefix: usize = undefined;
+
+    switch (wasi.resolve_preopen(file_path, &dirfd, &prefix)) {
+        0 => {},
+        else => |err| return unexpectedErrno(err),
+    }
+
+    const rel_path = file_path[prefix + 1 ..];
+    var fd: fd_t = undefined;
+    switch (wasi.path_open(dirfd, 0x0, rel_path.ptr, rel_path.len, oflags, rights, 0x0, fdflags, &fd)) {
+        0 => {},
+        // TODO map errors
+        else => |err| return unexpectedErrno(err),
+    }
+
+    return fd;
+}
+
 pub const openC = @compileError("deprecated: renamed to openZ");
 
 /// Open and possibly create a file. Keeps trying if it gets interrupted.
@@ -879,30 +899,6 @@ pub fn openZ(file_path: [*:0]const u8, flags: u32, perm: mode_t) OpenError!fd_t 
         return openW(file_path_w.span(), flags, perm);
     }
     while (true) {
-        if (builtin.os.tag == .wasi and !builtin.link_libc) {
-            var dirfd: fd_t = undefined;
-            var prefix: usize = undefined;
-            const path = mem.span(file_path);
-
-            switch (wasi.resolve_preopen(path, &dirfd, &prefix)) {
-                0 => {},
-                else => |err| return unexpectedErrno(err),
-            }
-
-            const rel_path = path[prefix + 1 ..];
-            // TODO map flags to wasi.oflag_t
-            // TODO call wasi.fd_fdstat_get to verify rights
-            // TODO adjust all flags to path_open
-            var fd: fd_t = undefined;
-
-            switch (wasi.path_open(dirfd, 0x0, rel_path.ptr, rel_path.len, wasi.O_CREAT, 0x0, 0x0, 0x0, &fd)) {
-                0 => {},
-                else => |err| return unexpectedErrno(err),
-            }
-
-            return fd;
-        }
-
         const rc = system.open(file_path, flags, perm);
         switch (errno(rc)) {
             0 => return @intCast(fd_t, rc),
@@ -945,6 +941,16 @@ pub fn openW(file_path_w: []const u16, flags: u32, perm: usize) OpenError!fd_t {
 pub fn openat(dir_fd: fd_t, file_path: []const u8, flags: u32, mode: mode_t) OpenError!fd_t {
     const file_path_c = try toPosixPath(file_path);
     return openatZ(dir_fd, &file_path_c, flags, mode);
+}
+
+pub fn openatWasi(dir_fd: fd_t, file_path: []const u8, oflags: wasi.oflag_t, fdflags: wasi.fdflag_t, rights: wasi.rights_t) OpenError!fd_t {
+    switch (wasi.path_open(dirfd, 0x0, &file_path, file_path.len, oflags, rights, 0x0, fdflags, &fd)) {
+        0 => {},
+        // TODO map errors
+        else => |err| return unexpectedErrno(err),
+    }
+
+    return fd;
 }
 
 pub const openatC = @compileError("deprecated: renamed to openatZ");

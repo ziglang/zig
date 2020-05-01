@@ -37,7 +37,7 @@ pub const Watch = @import("fs/watch.zig").Watch;
 /// fit into a UTF-8 encoded array of this length.
 /// The byte count includes room for a null sentinel byte.
 pub const MAX_PATH_BYTES = switch (builtin.os.tag) {
-    .linux, .macosx, .ios, .freebsd, .netbsd, .dragonfly => os.PATH_MAX,
+    .linux, .macosx, .ios, .freebsd, .netbsd, .dragonfly, .wasi => os.PATH_MAX,
     // Each UTF-16LE character may be expanded to 3 UTF-8 bytes.
     // If it would require 4 UTF-8 bytes, then there would be a surrogate
     // pair in the UTF-16LE, and we (over)account 3 bytes for it that way.
@@ -584,8 +584,31 @@ pub const Dir = struct {
             const path_w = try os.windows.sliceToPrefixedFileW(sub_path);
             return self.openFileW(path_w.span(), flags);
         }
+        if (builtin.os.tag == .wasi) {
+            return self.openFileWasi(sub_path, flags);
+        }
         const path_c = try os.toPosixPath(sub_path);
         return self.openFileZ(&path_c, flags);
+    }
+
+    pub fn openFileWasi(self: Dir, sub_path: []const u8, flags: File.OpenFlags) File.OpenError!File {
+        var fdflags: wasi.fdflag_t = 0x0;
+        var rights: wasi.rights_t = 0x0;
+        if (flags.read) {
+            rights |= wasi.FD_READ | wasi.FD_TELL | wasi.FD_FILESTAT_GET;
+        }
+        if (flags.write) {
+            fdflags |= wasi.FDFLAG_APPEND;
+            rights |= wasi.FD_WRITE | wasi.FD_DATASYNC | wasi.FD_SEEK | wasi.FD_FDSTAT_SET_FLAGS | wasi.FD_SYNC | wasi.FD_ALLOCATE | wasi.FD_ADVISE | wasi.FD_FILESTAT_SET_TIMES | wasi.FD_FILESTAT_SET_SIZE;
+        }
+
+        const fd = try os.openatWasi(self.fd, sub_path, 0x0, fdflags, rights);
+
+        return File{
+            .handle = fd,
+            .io_mode = .blocking,
+            .async_block_allowed = File.async_block_allowed_no,
+        };
     }
 
     pub const openFileC = @compileError("deprecated: renamed to openFileZ");
@@ -671,11 +694,36 @@ pub const Dir = struct {
             const path_w = try os.windows.sliceToPrefixedFileW(sub_path);
             return self.createFileW(path_w.span(), flags);
         }
+        if (builtin.os.tag == .wasi) {
+            return self.createFileWasi(sub_path, flags);
+        }
         const path_c = try os.toPosixPath(sub_path);
         return self.createFileZ(&path_c, flags);
     }
 
     pub const createFileC = @compileError("deprecated: renamed to createFileZ");
+
+    pub fn createFileWasi(self: Dir, sub_path: []const u8, flags: File.CreateFlags) File.OpenError!File {
+        var oflags: wasi.oflags_t = 0x0;
+        var rights: wasi.rights_t = wasi.FD_WRITE | wasi.FD_DATASYNC | wasi.FD_SEEK | wasi.FD_FDSTAT_SET_FLAGS | wasi.FD_SYNC | wasi.FD_ALLOCATE | wasi.FD_ADVISE | wasi.FD_FILESTAT_SET_TIMES | wasi.FD_FILESTAT_SET_SIZE;
+        if (flags.read) {
+            rights |= wasi.FD_READ | wasi.FD_TELL | wasi.FD_FILESTAT_GET;
+        }
+        if (flags.truncate) {
+            oflags |= wasi.O_TRUNC;
+        }
+        if (flags.exclusive) {
+            oflags |= wasi.O_EXCL;
+        }
+
+        const fd = try os.openatWasi(self.fd, sub_path, oflags, 0x0, rights);
+
+        return File{
+            .handle = fd,
+            .io_mode = .blocking,
+            .async_block_allowed = File.async_block_allowed_no,
+        };
+    }
 
     /// Same as `createFile` but the path parameter is null-terminated.
     pub fn createFileZ(self: Dir, sub_path_c: [*:0]const u8, flags: File.CreateFlags) File.OpenError!File {
