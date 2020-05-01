@@ -349,13 +349,13 @@ pub const CacheHash = struct {
     /// Writing to the manifest file is the only way that this file can return an
     /// error.
     pub fn release(self: *@This()) !void {
-        debug.assert(self.manifest_file != null);
+        if (self.manifest_file) |file| {
+            if (self.manifest_dirty) {
+                try self.write_manifest();
+            }
 
-        if (self.manifest_dirty) {
-            try self.write_manifest();
+            file.close();
         }
-
-        self.manifest_file.?.close();
 
         for (self.files.items) |*file| {
             file.deinit(self.alloc);
