@@ -4,7 +4,8 @@ const Allocator = std.mem.Allocator;
 const Value = @import("value.zig").Value;
 const Type = @import("type.zig").Type;
 const assert = std.debug.assert;
-const BigInt = std.math.big.Int;
+const BigIntConst = std.math.big.int.Const;
+const BigIntMutable = std.math.big.int.Mutable;
 const Target = std.Target;
 
 pub const text = @import("ir/text.zig");
@@ -483,29 +484,32 @@ const Analyze = struct {
         });
     }
 
-    fn constIntBig(self: *Analyze, src: usize, ty: Type, big_int: BigInt) !*Inst {
-        if (big_int.isPositive()) {
+    fn constIntBig(self: *Analyze, src: usize, ty: Type, big_int: BigIntConst) !*Inst {
+        const val_payload = if (big_int.positive) blk: {
             if (big_int.to(u64)) |x| {
                 return self.constIntUnsigned(src, ty, x);
             } else |err| switch (err) {
                 error.NegativeIntoUnsigned => unreachable,
                 error.TargetTooSmall => {}, // handled below
             }
-        } else {
+            const big_int_payload = try self.arena.allocator.create(Value.Payload.IntBigPositive);
+            big_int_payload.* = .{ .limbs = big_int.limbs };
+            break :blk &big_int_payload.base;
+        } else blk: {
             if (big_int.to(i64)) |x| {
                 return self.constIntSigned(src, ty, x);
             } else |err| switch (err) {
                 error.NegativeIntoUnsigned => unreachable,
                 error.TargetTooSmall => {}, // handled below
             }
-        }
-
-        const big_int_payload = try self.arena.allocator.create(Value.Payload.IntBig);
-        big_int_payload.* = .{ .big_int = big_int };
+            const big_int_payload = try self.arena.allocator.create(Value.Payload.IntBigNegative);
+            big_int_payload.* = .{ .limbs = big_int.limbs };
+            break :blk &big_int_payload.base;
+        };
 
         return self.constInst(src, .{
             .ty = ty,
-            .val = Value.initPayload(&big_int_payload.base),
+            .val = Value.initPayload(val_payload),
         });
     }
 
@@ -745,19 +749,31 @@ const Analyze = struct {
                     var rhs_space: Value.BigIntSpace = undefined;
                     const lhs_bigint = lhs_val.toBigInt(&lhs_space);
                     const rhs_bigint = rhs_val.toBigInt(&rhs_space);
-                    var result_bigint = try BigInt.init(&self.arena.allocator);
-                    try BigInt.add(&result_bigint, lhs_bigint, rhs_bigint);
+                    const limbs = try self.arena.allocator.alloc(
+                        std.math.big.Limb,
+                        std.math.max(lhs_bigint.limbs.len, rhs_bigint.limbs.len) + 1,
+                    );
+                    var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
+                    result_bigint.add(lhs_bigint, rhs_bigint);
+                    const result_limbs = result_bigint.limbs[0..result_bigint.len];
 
                     if (!lhs.ty.eql(rhs.ty)) {
                         return self.fail(inst.base.src, "TODO implement peer type resolution", .{});
                     }
 
-                    const val_payload = try self.arena.allocator.create(Value.Payload.IntBig);
-                    val_payload.* = .{ .big_int = result_bigint };
+                    const val_payload = if (result_bigint.positive) blk: {
+                        const val_payload = try self.arena.allocator.create(Value.Payload.IntBigPositive);
+                        val_payload.* = .{ .limbs = result_limbs };
+                        break :blk &val_payload.base;
+                    } else blk: {
+                        const val_payload = try self.arena.allocator.create(Value.Payload.IntBigNegative);
+                        val_payload.* = .{ .limbs = result_limbs };
+                        break :blk &val_payload.base;
+                    };
 
                     return self.constInst(inst.base.src, .{
                         .ty = lhs.ty,
-                        .val = Value.initPayload(&val_payload.base),
+                        .val = Value.initPayload(val_payload),
                     });
                 }
             }
@@ -1076,7 +1092,8 @@ const Analyze = struct {
                 return self.constUndef(src, Type.initTag(.bool));
             const is_unsigned = if (lhs_is_float) x: {
                 var bigint_space: Value.BigIntSpace = undefined;
-                var bigint = lhs_val.toBigInt(&bigint_space);
+                var bigint = try lhs_val.toBigInt(&bigint_space).toManaged(self.allocator);
+                defer bigint.deinit();
                 const zcmp = lhs_val.orderAgainstZero();
                 if (lhs_val.floatHasFraction()) {
                     switch (op) {
@@ -1085,12 +1102,12 @@ const Analyze = struct {
                         else => {},
                     }
                     if (zcmp == .lt) {
-                        try bigint.addScalar(bigint, -1);
+                        try bigint.addScalar(bigint.toConst(), -1);
                     } else {
-                        try bigint.addScalar(bigint, 1);
+                        try bigint.addScalar(bigint.toConst(), 1);
                     }
                 }
-                lhs_bits = bigint.bitCountTwosComp();
+                lhs_bits = bigint.toConst().bitCountTwosComp();
                 break :x (zcmp != .lt);
             } else x: {
                 lhs_bits = lhs_val.intBitCountTwosComp();
@@ -1110,7 +1127,8 @@ const Analyze = struct {
                 return self.constUndef(src, Type.initTag(.bool));
             const is_unsigned = if (rhs_is_float) x: {
                 var bigint_space: Value.BigIntSpace = undefined;
-                var bigint = rhs_val.toBigInt(&bigint_space);
+                var bigint = try rhs_val.toBigInt(&bigint_space).toManaged(self.allocator);
+                defer bigint.deinit();
                 const zcmp = rhs_val.orderAgainstZero();
                 if (rhs_val.floatHasFraction()) {
                     switch (op) {
@@ -1119,12 +1137,12 @@ const Analyze = struct {
                         else => {},
                     }
                     if (zcmp == .lt) {
-                        try bigint.addScalar(bigint, -1);
+                        try bigint.addScalar(bigint.toConst(), -1);
                     } else {
-                        try bigint.addScalar(bigint, 1);
+                        try bigint.addScalar(bigint.toConst(), 1);
                     }
                 }
-                rhs_bits = bigint.bitCountTwosComp();
+                rhs_bits = bigint.toConst().bitCountTwosComp();
                 break :x (zcmp != .lt);
             } else x: {
                 rhs_bits = rhs_val.intBitCountTwosComp();

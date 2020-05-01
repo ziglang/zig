@@ -4,7 +4,8 @@ const std = @import("std");
 const mem = std.mem;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
-const BigInt = std.math.big.Int;
+const BigIntConst = std.math.big.int.Const;
+const BigIntMutable = std.math.big.int.Mutable;
 const Type = @import("../type.zig").Type;
 const Value = @import("../value.zig").Value;
 const ir = @import("../ir.zig");
@@ -99,7 +100,7 @@ pub const Inst = struct {
         base: Inst,
 
         positionals: struct {
-            int: BigInt,
+            int: BigIntConst,
         },
         kw_args: struct {},
     };
@@ -521,7 +522,7 @@ pub const Module = struct {
             },
             bool => return stream.writeByte("01"[@boolToInt(param)]),
             []u8, []const u8 => return std.zig.renderStringLiteral(param, stream),
-            BigInt => return stream.print("{}", .{param}),
+            BigIntConst => return stream.print("{}", .{param}),
             else => |T| @compileError("unimplemented: rendering parameter of type " ++ @typeName(T)),
         }
     }
@@ -644,7 +645,7 @@ const Parser = struct {
         };
     }
 
-    fn parseIntegerLiteral(self: *Parser) !BigInt {
+    fn parseIntegerLiteral(self: *Parser) !BigIntConst {
         const start = self.i;
         if (self.source[self.i] == '-') self.i += 1;
         while (true) : (self.i += 1) switch (self.source[self.i]) {
@@ -652,17 +653,21 @@ const Parser = struct {
             else => break,
         };
         const number_text = self.source[start..self.i];
-        var result = try BigInt.init(&self.arena.allocator);
-        result.setString(10, number_text) catch |err| {
-            self.i = start;
-            switch (err) {
-                error.InvalidBase => unreachable,
-                error.InvalidCharForDigit => return self.fail("invalid digit in integer literal", .{}),
-                error.DigitTooLargeForBase => return self.fail("digit too large in integer literal", .{}),
-                else => |e| return e,
-            }
+        const base = 10;
+        // TODO reuse the same array list for this
+        const limbs_buffer_len = std.math.big.int.calcSetStringLimbsBufferLen(base, number_text.len);
+        const limbs_buffer = try self.allocator.alloc(std.math.big.Limb, limbs_buffer_len);
+        defer self.allocator.free(limbs_buffer);
+        const limb_len = std.math.big.int.calcSetStringLimbsBufferLen(base, number_text.len);
+        const limbs = try self.arena.allocator.alloc(std.math.big.Limb, limb_len);
+        var result = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
+        result.setString(base, number_text, limbs_buffer, self.allocator) catch |err| switch (err) {
+            error.InvalidCharacter => {
+                self.i = start;
+                return self.fail("invalid digit in integer literal", .{});
+            },
         };
-        return result;
+        return result.toConst();
     }
 
     fn parseRoot(self: *Parser) !void {
@@ -859,7 +864,7 @@ const Parser = struct {
             },
             *Inst => return parseParameterInst(self, body_ctx),
             []u8, []const u8 => return self.parseStringLiteral(),
-            BigInt => return self.parseIntegerLiteral(),
+            BigIntConst => return self.parseIntegerLiteral(),
             else => @compileError("Unimplemented: ir parseParameterGeneric for type " ++ @typeName(T)),
         }
         return self.fail("TODO parse parameter {}", .{@typeName(T)});

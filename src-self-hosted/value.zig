@@ -2,7 +2,8 @@ const std = @import("std");
 const Type = @import("type.zig").Type;
 const log2 = std.math.log2;
 const assert = std.debug.assert;
-const BigInt = std.math.big.Int;
+const BigIntConst = std.math.big.int.Const;
+const BigIntMutable = std.math.big.int.Mutable;
 const Target = std.Target;
 const Allocator = std.mem.Allocator;
 
@@ -60,7 +61,8 @@ pub const Value = extern union {
         ty,
         int_u64,
         int_i64,
-        int_big,
+        int_big_positive,
+        int_big_negative,
         function,
         ref,
         ref_val,
@@ -148,7 +150,8 @@ pub const Value = extern union {
             .ty => return val.cast(Payload.Ty).?.ty.format("", options, out_stream),
             .int_u64 => return std.fmt.formatIntValue(val.cast(Payload.Int_u64).?.int, "", options, out_stream),
             .int_i64 => return std.fmt.formatIntValue(val.cast(Payload.Int_i64).?.int, "", options, out_stream),
-            .int_big => return out_stream.print("{}", .{val.cast(Payload.IntBig).?.big_int}),
+            .int_big_positive => return out_stream.print("{}", .{val.cast(Payload.IntBigPositive).?.asBigInt()}),
+            .int_big_negative => return out_stream.print("{}", .{val.cast(Payload.IntBigNegative).?.asBigInt()}),
             .function => return out_stream.writeAll("(function)"),
             .ref => return out_stream.writeAll("(ref)"),
             .ref_val => {
@@ -216,7 +219,8 @@ pub const Value = extern union {
             .null_value,
             .int_u64,
             .int_i64,
-            .int_big,
+            .int_big_positive,
+            .int_big_negative,
             .function,
             .ref,
             .ref_val,
@@ -227,7 +231,7 @@ pub const Value = extern union {
     }
 
     /// Asserts the value is an integer.
-    pub fn toBigInt(self: Value, space: *BigIntSpace) BigInt {
+    pub fn toBigInt(self: Value, space: *BigIntSpace) BigIntConst {
         switch (self.tag()) {
             .ty,
             .u8_type,
@@ -272,11 +276,12 @@ pub const Value = extern union {
 
             .the_one_possible_value, // An integer with one possible value is always zero.
             .zero,
-            => return BigInt.initSetFixed(&space.limbs, 0),
+            => return BigIntMutable.init(&space.limbs, 0).toConst(),
 
-            .int_u64 => return BigInt.initSetFixed(&space.limbs, self.cast(Payload.Int_u64).?.int),
-            .int_i64 => return BigInt.initSetFixed(&space.limbs, self.cast(Payload.Int_i64).?.int),
-            .int_big => return self.cast(Payload.IntBig).?.big_int,
+            .int_u64 => return BigIntMutable.init(&space.limbs, self.cast(Payload.Int_u64).?.int).toConst(),
+            .int_i64 => return BigIntMutable.init(&space.limbs, self.cast(Payload.Int_i64).?.int).toConst(),
+            .int_big_positive => return self.cast(Payload.IntBigPositive).?.asBigInt(),
+            .int_big_negative => return self.cast(Payload.IntBigPositive).?.asBigInt(),
         }
     }
 
@@ -330,7 +335,8 @@ pub const Value = extern union {
 
             .int_u64 => return self.cast(Payload.Int_u64).?.int,
             .int_i64 => return @intCast(u64, self.cast(Payload.Int_u64).?.int),
-            .int_big => return self.cast(Payload.IntBig).?.big_int.to(u64) catch unreachable,
+            .int_big_positive => return self.cast(Payload.IntBigPositive).?.asBigInt().to(u64) catch unreachable,
+            .int_big_negative => return self.cast(Payload.IntBigNegative).?.asBigInt().to(u64) catch unreachable,
         }
     }
 
@@ -391,7 +397,8 @@ pub const Value = extern union {
             .int_i64 => {
                 @panic("TODO implement i64 intBitCountTwosComp");
             },
-            .int_big => return self.cast(Payload.IntBig).?.big_int.bitCountTwosComp(),
+            .int_big_positive => return self.cast(Payload.IntBigPositive).?.asBigInt().bitCountTwosComp(),
+            .int_big_negative => return self.cast(Payload.IntBigNegative).?.asBigInt().bitCountTwosComp(),
         }
     }
 
@@ -466,10 +473,18 @@ pub const Value = extern union {
                 .ComptimeInt => return true,
                 else => unreachable,
             },
-            .int_big => switch (ty.zigTypeTag()) {
+            .int_big_positive => switch (ty.zigTypeTag()) {
                 .Int => {
                     const info = ty.intInfo(target);
-                    return self.cast(Payload.IntBig).?.big_int.fitsInTwosComp(info.signed, info.bits);
+                    return self.cast(Payload.IntBigPositive).?.asBigInt().fitsInTwosComp(info.signed, info.bits);
+                },
+                .ComptimeInt => return true,
+                else => unreachable,
+            },
+            .int_big_negative => switch (ty.zigTypeTag()) {
+                .Int => {
+                    const info = ty.intInfo(target);
+                    return self.cast(Payload.IntBigNegative).?.asBigInt().fitsInTwosComp(info.signed, info.bits);
                 },
                 .ComptimeInt => return true,
                 else => unreachable,
@@ -521,7 +536,8 @@ pub const Value = extern union {
             .undef,
             .int_u64,
             .int_i64,
-            .int_big,
+            .int_big_positive,
+            .int_big_negative,
             .the_one_possible_value,
             => unreachable,
 
@@ -578,7 +594,8 @@ pub const Value = extern union {
 
             .int_u64 => return std.math.order(lhs.cast(Payload.Int_u64).?.int, 0),
             .int_i64 => return std.math.order(lhs.cast(Payload.Int_i64).?.int, 0),
-            .int_big => return lhs.cast(Payload.IntBig).?.big_int.orderAgainstScalar(0),
+            .int_big_positive => return lhs.cast(Payload.IntBigPositive).?.asBigInt().orderAgainstScalar(0),
+            .int_big_negative => return lhs.cast(Payload.IntBigNegative).?.asBigInt().orderAgainstScalar(0),
         }
     }
 
@@ -597,7 +614,7 @@ pub const Value = extern union {
         var rhs_bigint_space: BigIntSpace = undefined;
         const lhs_bigint = lhs.toBigInt(&lhs_bigint_space);
         const rhs_bigint = rhs.toBigInt(&rhs_bigint_space);
-        return BigInt.cmp(lhs_bigint, rhs_bigint);
+        return lhs_bigint.order(rhs_bigint);
     }
 
     /// Asserts the value is comparable.
@@ -658,7 +675,8 @@ pub const Value = extern union {
             .function,
             .int_u64,
             .int_i64,
-            .int_big,
+            .int_big_positive,
+            .int_big_negative,
             .bytes,
             .undef,
             .repeated,
@@ -712,7 +730,8 @@ pub const Value = extern union {
             .function,
             .int_u64,
             .int_i64,
-            .int_big,
+            .int_big_positive,
+            .int_big_negative,
             .undef,
             => unreachable,
 
@@ -775,7 +794,8 @@ pub const Value = extern union {
             .function,
             .int_u64,
             .int_i64,
-            .int_big,
+            .int_big_positive,
+            .int_big_negative,
             .ref,
             .ref_val,
             .bytes,
@@ -801,9 +821,22 @@ pub const Value = extern union {
             int: i64,
         };
 
-        pub const IntBig = struct {
-            base: Payload = Payload{ .tag = .int_big },
-            big_int: BigInt,
+        pub const IntBigPositive = struct {
+            base: Payload = Payload{ .tag = .int_big_positive },
+            limbs: []const std.math.big.Limb,
+
+            pub fn asBigInt(self: IntBigPositive) BigIntConst {
+                return BigIntConst{ .limbs = self.limbs, .positive = true };
+            }
+        };
+
+        pub const IntBigNegative = struct {
+            base: Payload = Payload{ .tag = .int_big_negative },
+            limbs: []const std.math.big.Limb,
+
+            pub fn asBigInt(self: IntBigNegative) BigIntConst {
+                return BigIntConst{ .limbs = self.limbs, .positive = false };
+            }
         };
 
         pub const Function = struct {
