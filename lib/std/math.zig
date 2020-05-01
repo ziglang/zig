@@ -986,6 +986,43 @@ pub const Order = enum {
 
     /// Greater than (`>`)
     gt,
+
+    pub fn invert(self: Order) Order {
+        return switch (self) {
+            .lt => .gt,
+            .eq => .eq,
+            .gt => .gt,
+        };
+    }
+
+    pub fn compare(self: Order, op: CompareOperator) bool {
+        return switch (self) {
+            .lt => switch (op) {
+                .lt => true,
+                .lte => true,
+                .eq => false,
+                .gte => false,
+                .gt => false,
+                .neq => true,
+            },
+            .eq => switch (op) {
+                .lt => false,
+                .lte => true,
+                .eq => true,
+                .gte => true,
+                .gt => false,
+                .neq => false,
+            },
+            .gt => switch (op) {
+                .lt => false,
+                .lte => false,
+                .eq => false,
+                .gte => true,
+                .gt => true,
+                .neq => true,
+            },
+        };
+    }
 };
 
 /// Given two numbers, this function returns the order they are with respect to each other.

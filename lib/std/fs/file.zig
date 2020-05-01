@@ -69,6 +69,11 @@ pub const File = struct {
         /// It allows the use of `noasync` when calling functions related to opening
         /// the file, reading, and writing.
         always_blocking: bool = false,
+
+        /// `true` means the opened directory can be passed to a child process.
+        /// `false` means the directory handle is considered to be closed when a child
+        /// process is spawned. This corresponds to the inverse of `O_CLOEXEC` on POSIX.
+        share_with_child_process: bool = false,
     };
 
     /// TODO https://github.com/ziglang/zig/issues/3802
@@ -107,6 +112,11 @@ pub const File = struct {
         /// For POSIX systems this is the file system mode the file will
         /// be created with.
         mode: Mode = default_mode,
+
+        /// `true` means the opened directory can be passed to a child process.
+        /// `false` means the directory handle is considered to be closed when a child
+        /// process is spawned. This corresponds to the inverse of `O_CLOEXEC` on POSIX.
+        share_with_child_process: bool = false,
     };
 
     /// Upon success, the stream is in an uninitialized state. To continue using it,

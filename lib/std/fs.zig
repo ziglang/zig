@@ -606,7 +606,8 @@ pub const Dir = struct {
         } else 0;
 
         const O_LARGEFILE = if (@hasDecl(os, "O_LARGEFILE")) os.O_LARGEFILE else 0;
-        const os_flags = lock_flag | O_LARGEFILE | os.O_CLOEXEC | if (flags.write and flags.read)
+        const O_CLOEXEC: u32 = if (flags.share_with_child_process) 0 else os.O_CLOEXEC;
+        const os_flags = lock_flag | O_LARGEFILE | O_CLOEXEC | if (flags.write and flags.read)
             @as(u32, os.O_RDWR)
         else if (flags.write)
             @as(u32, os.O_WRONLY)
@@ -689,7 +690,8 @@ pub const Dir = struct {
         } else 0;
 
         const O_LARGEFILE = if (@hasDecl(os, "O_LARGEFILE")) os.O_LARGEFILE else 0;
-        const os_flags = lock_flag | O_LARGEFILE | os.O_CREAT | os.O_CLOEXEC |
+        const O_CLOEXEC: u32 = if (flags.share_with_child_process) 0 else os.O_CLOEXEC;
+        const os_flags = lock_flag | O_LARGEFILE | os.O_CREAT | O_CLOEXEC |
             (if (flags.truncate) @as(u32, os.O_TRUNC) else 0) |
             (if (flags.read) @as(u32, os.O_RDWR) else os.O_WRONLY) |
             (if (flags.exclusive) @as(u32, os.O_EXCL) else 0);
@@ -787,6 +789,15 @@ pub const Dir = struct {
         }
     }
 
+    /// This function performs `makePath`, followed by `openDir`.
+    /// If supported by the OS, this operation is atomic. It is not atomic on
+    /// all operating systems.
+    pub fn makeOpenPath(self: Dir, sub_path: []const u8, open_dir_options: OpenDirOptions) !Dir {
+        // TODO improve this implementation on Windows; we can avoid 1 call to NtClose
+        try self.makePath(sub_path);
+        return self.openDir(sub_path, open_dir_options);
+    }
+
     /// Changes the current working directory to the open directory handle.
     /// This modifies global state and can have surprising effects in multi-
     /// threaded applications. Most applications and especially libraries should
@@ -807,6 +818,11 @@ pub const Dir = struct {
         /// `true` means the opened directory can be scanned for the files and sub-directories
         /// of the result. It means the `iterate` function can be called.
         iterate: bool = false,
+
+        /// `true` means the opened directory can be passed to a child process.
+        /// `false` means the directory handle is considered to be closed when a child
+        /// process is spawned. This corresponds to the inverse of `O_CLOEXEC` on POSIX.
+        share_with_child_process: bool = false,
     };
 
     /// Opens a directory at the given path. The directory is a system resource that remains
@@ -832,9 +848,11 @@ pub const Dir = struct {
             return self.openDirW(&sub_path_w, args);
         } else if (!args.iterate) {
             const O_PATH = if (@hasDecl(os, "O_PATH")) os.O_PATH else 0;
-            return self.openDirFlagsZ(sub_path_c, os.O_DIRECTORY | os.O_RDONLY | os.O_CLOEXEC | O_PATH);
+            const O_CLOEXEC: u32 = if (args.share_with_child_process) 0 else os.O_CLOEXEC;
+            return self.openDirFlagsZ(sub_path_c, os.O_DIRECTORY | os.O_RDONLY | O_CLOEXEC | O_PATH);
         } else {
-            return self.openDirFlagsZ(sub_path_c, os.O_DIRECTORY | os.O_RDONLY | os.O_CLOEXEC);
+            const O_CLOEXEC: u32 = if (args.share_with_child_process) 0 else os.O_CLOEXEC;
+            return self.openDirFlagsZ(sub_path_c, os.O_DIRECTORY | os.O_RDONLY | O_CLOEXEC);
         }
     }
 
