@@ -33,16 +33,25 @@ pub fn timestamp() u64 {
 /// Get the posix timestamp, UTC, in milliseconds
 /// TODO audit this function. is it possible to return an error?
 pub fn milliTimestamp() u64 {
+    return @divFloor(nanoTimestamp(), millisecond);
+}
+
+/// Get the posix timestamp, UTC, in nanoseconds
+///
+/// On windows this only has a granularity of 100 nanoseconds.
+///
+/// TODO audit this function. is it possible to return an error?
+pub fn nanoTimestamp() u64 {
     if (is_windows) {
         //FileTime has a granularity of 100 nanoseconds
         //  and uses the NTFS/Windows epoch
         var ft: os.windows.FILETIME = undefined;
         os.windows.kernel32.GetSystemTimeAsFileTime(&ft);
-        const hns_per_ms = (ns_per_s / 100) / ms_per_s;
-        const epoch_adj = epoch.windows * ms_per_s;
+        const ns_per_hns = 100;
+        const epoch_adj = epoch.windows * ns_per_s;
 
         const ft64 = (@as(u64, ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
-        return @divFloor(ft64, hns_per_ms) - -epoch_adj;
+        return (ft64 * hns_per_ms) - -epoch_adj;
     }
     if (builtin.os.tag == .wasi and !builtin.link_libc) {
         var ns: os.wasi.timestamp_t = undefined;
@@ -51,25 +60,22 @@ pub fn milliTimestamp() u64 {
         const err = os.wasi.clock_time_get(os.wasi.CLOCK_REALTIME, 1, &ns);
         assert(err == os.wasi.ESUCCESS);
 
-        const ns_per_ms = 1000;
-        return @divFloor(ns, ns_per_ms);
+        return ns;
     }
     if (comptime std.Target.current.isDarwin()) {
-        var tv: os.darwin.timeval = undefined;
-        var err = os.darwin.gettimeofday(&tv, null);
+        var mts: os.darwin.mach_timespec_t = undefined;
+        var err = os.darwin.clock_get_time(os.darwin.CALENDAR_CLOCK, &mts);
         assert(err == 0);
-        const sec_ms = tv.tv_sec * ms_per_s;
-        const usec_ms = @divFloor(tv.tv_usec, us_per_s / ms_per_s);
-        return @intCast(u64, sec_ms + usec_ms);
+        const sec_ns = @as(u64, mts.tv_sec * ns_per_s);
+        return sec_ns + @intCast(u64, mts.tv_nsec);
     }
     var ts: os.timespec = undefined;
     //From what I can tell there's no reason clock_gettime
     //  should ever fail for us with CLOCK_REALTIME,
     //  seccomp aside.
     os.clock_gettime(os.CLOCK_REALTIME, &ts) catch unreachable;
-    const sec_ms = @intCast(u64, ts.tv_sec) * ms_per_s;
-    const nsec_ms = @divFloor(@intCast(u64, ts.tv_nsec), ns_per_s / ms_per_s);
-    return sec_ms + nsec_ms;
+    const sec_ns = @intCast(u64, ts.tv_sec) * ns_per_s;
+    return sec_ns + @intCast(u64, ts.tv_nsec);
 }
 
 /// Multiples of a base unit (nanoseconds)
