@@ -15,6 +15,8 @@ const base64_decoder = fs.base64_decoder;
 const BIN_DIGEST_LEN = 48;
 const BASE64_DIGEST_LEN = base64.Base64Encoder.calcSize(BIN_DIGEST_LEN);
 
+const MANIFEST_FILE_SIZE_MAX = 50 * 1024 * 1024;
+
 pub const File = struct {
     path: ?[]const u8,
     stat: fs.File.Stat,
@@ -150,8 +152,7 @@ pub const CacheHash = struct {
             };
         }
 
-        // TODO: Figure out a good max value?
-        const file_contents = try self.manifest_file.?.inStream().readAllAlloc(self.alloc, 16 * 1024);
+        const file_contents = try self.manifest_file.?.inStream().readAllAlloc(self.alloc, MANIFEST_FILE_SIZE_MAX);
         defer self.alloc.free(file_contents);
 
         const input_file_count = self.files.items.len;
