@@ -232,7 +232,13 @@ pub const CacheHash = struct {
             // reset the hash
             self.blake3 = Blake3.init();
             self.blake3.update(&bin_digest);
+
+            // Remove files not in the initial hash
+            for (self.files.items[input_file_count..]) |*file| {
+                file.deinit(self.alloc);
+            }
             try self.files.resize(input_file_count);
+
             for (self.files.items) |file| {
                 self.blake3.update(&file.bin_digest);
             }
@@ -512,18 +518,19 @@ test "no file inputs" {
     testing.expectEqual(digest1, digest2);
 }
 
-test "manifest file with extra line does not cause null pointer exeception" {
+test "CacheHashes with files added after initial hash work" {
     const cwd = fs.cwd();
 
-    const temp_file1 = "cache_hash_remove_file_test1.txt";
-    const temp_file2 = "cache_hash_remove_file_test2.txt";
-    const temp_manifest_dir = "cache_hash_remove_file_manifest_dir";
+    const temp_file1 = "cache_hash_post_file_test1.txt";
+    const temp_file2 = "cache_hash_post_file_test2.txt";
+    const temp_manifest_dir = "cache_hash_post_file_manifest_dir";
 
     try cwd.writeFile(temp_file1, "Hello, world!\n");
     try cwd.writeFile(temp_file2, "Hello world the second!\n");
 
     var digest1: [BASE64_DIGEST_LEN]u8 = undefined;
     var digest2: [BASE64_DIGEST_LEN]u8 = undefined;
+    var digest3: [BASE64_DIGEST_LEN]u8 = undefined;
 
     {
         var ch = try CacheHash.init(testing.allocator, temp_manifest_dir);
@@ -531,10 +538,11 @@ test "manifest file with extra line does not cause null pointer exeception" {
 
         ch.add("1234");
         _ = try ch.addFile(temp_file1);
-        _ = try ch.addFile(temp_file2);
 
         // There should be nothing in the cache
         testing.expectEqual(@as(?[64]u8, null), try ch.hit());
+
+        _ = try ch.addFilePost(temp_file2);
 
         digest1 = ch.final();
     }
@@ -544,20 +552,31 @@ test "manifest file with extra line does not cause null pointer exeception" {
 
         ch.add("1234");
         _ = try ch.addFile(temp_file1);
-        _ = try ch.addFile(temp_file2);
-        {
-            // Remove an input file from the cache hash.
-            // We still have to add the input file, or else the initial cache
-            // hash will be different, and a different manifest file checked
-            const chf = ch.files.orderedRemove(1);
-            testing.allocator.free(chf.path.?);
-        }
 
         // A file that we depend on has been updated, so the cache should not contain an entry for it
         digest2 = (try ch.hit()).?;
     }
 
+    // Modify the file added after initial hash
+    try cwd.writeFile(temp_file2, "Hello world the second, updated\n");
+
+    {
+        var ch = try CacheHash.init(testing.allocator, temp_manifest_dir);
+        defer ch.release() catch unreachable;
+
+        ch.add("1234");
+        _ = try ch.addFile(temp_file1);
+
+        // A file that we depend on has been updated, so the cache should not contain an entry for it
+        testing.expectEqual(@as(?[64]u8, null), try ch.hit());
+
+        _ = try ch.addFilePost(temp_file2);
+
+        digest3 = ch.final();
+    }
+
     testing.expect(mem.eql(u8, digest1[0..], digest2[0..]));
+    testing.expect(!mem.eql(u8, digest1[0..], digest3[0..]));
 
     try cwd.deleteTree(temp_manifest_dir);
     try cwd.deleteFile(temp_file1);
