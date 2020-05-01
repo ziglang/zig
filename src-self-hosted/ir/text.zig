@@ -658,7 +658,7 @@ const Parser = struct {
         const limbs_buffer_len = std.math.big.int.calcSetStringLimbsBufferLen(base, number_text.len);
         const limbs_buffer = try self.allocator.alloc(std.math.big.Limb, limbs_buffer_len);
         defer self.allocator.free(limbs_buffer);
-        const limb_len = std.math.big.int.calcSetStringLimbsBufferLen(base, number_text.len);
+        const limb_len = std.math.big.int.calcSetStringLimbCount(base, number_text.len);
         const limbs = try self.arena.allocator.alloc(std.math.big.Limb, limb_len);
         var result = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
         result.setString(base, number_text, limbs_buffer, self.allocator) catch |err| switch (err) {
