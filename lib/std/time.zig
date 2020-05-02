@@ -42,10 +42,10 @@ const DarwinTimeStart = struct {
     initclock: u64,
 };
 
-var _timestart: DarwinTimeStart = undefined;
-var _init_timestart_once = std.once(_init_timestart);
+var global_timestart: DarwinTimeStart = undefined;
+var init_global_timestart_once = std.once(init_global_timestart);
 
-pub fn _init_timestart() void {
+pub fn init_global_timestart() void {
     var micro: os.darwin.timeval = undefined;
     var timestart: DarwinTimeStart = undefined;
 
@@ -58,7 +58,7 @@ pub fn _init_timestart() void {
     timestart.inittime.tv_sec = micro.tv_sec;
     timestart.inittime.tv_nsec = micro.tv_usec * 1000;
 
-    _timestart = timestart;
+    global_timestart = timestart;
 }
 
 /// Get the posix timestamp, UTC, in nanoseconds
@@ -89,14 +89,13 @@ pub fn nanoTimestamp() u64 {
     }
     if (comptime std.Target.current.isDarwin()) {
         // https://stackoverflow.com/a/21352348
+        init_global_timestart_once.call();
 
-        _init_timestart_once.call();
+        const clock: u64 = os.darwin.mach_absolute_time() - global_timestart.initclock;
+        const nano = @divFloor(clock * @as(u64, global_timestart.timebase.numer), @as(u64, global_timestart.timebase.denom));
 
-        const clock: u64 = os.darwin.mach_absolute_time() - _timestart.initclock;
-        const nano = @divFloor(clock * @as(u64, _timestart.timebase.numer), @as(u64, _timestart.timebase.denom));
-
-        const tv_sec_nsec = @intCast(u64, _timestart.inittime.tv_sec) * ns_per_s;
-        const tv_nsec = @intCast(u64, _timestart.inittime.tv_nsec);
+        const tv_sec_nsec = @intCast(u64, global_timestart.inittime.tv_sec) * ns_per_s;
+        const tv_nsec = @intCast(u64, global_timestart.inittime.tv_nsec);
 
         return tv_sec_nsec + tv_nsec + nano;
     }
