@@ -358,13 +358,44 @@ pub const Address = extern union {
     }
 };
 
+fn getUnixSocketInitFlags() u16 {
+    comptime {
+        var flags = 0;
+        switch(builtin.os.tag) {
+            .linux, .freebsd, .netbsd, .dragonfly => {
+                flags |= os.SOCK_CLOEXEC;
+                flags |= if (std.io.is_async) os.SOCK_NONBLOCK else 0;
+            },
+            else => {}
+        }
+
+        return flags;
+    }
+}
+
+// These are primarily needed for UNIX-based platforms without 
+// SOCK_CLOEXEC and SOCK_NONBLOCK flags when creating sockets
+// or accepting connections
+fn setUnixSocketFlags(sock: os.fd_t) os.FcntlError!void {
+    var fdflags = try os.fcntl(sock, os.F_GETFD, 0);
+    fdflags |= os.FD_CLOEXEC;
+    _ = try os.fcntl(sock, os.F_SETFD, fdflags);
+
+    if(std.io.is_async) {
+        var flflags = try os.fcntl(sock, os.F_GETFL, 0);
+        flflags |= os.O_NONBLOCK;
+        _ = try os.fcntl(sock, os.F_SETFL, fdflags);
+    }
+}
+
 pub fn connectUnixSocket(path: []const u8) !fs.File {
-    const opt_non_block = if (std.io.is_async) os.SOCK_NONBLOCK else 0;
-    const sockfd = try os.socket(
-        os.AF_UNIX,
-        os.SOCK_STREAM | os.SOCK_CLOEXEC | opt_non_block,
-        0,
-    );
+    const flags = os.SOCK_STREAM | getUnixSocketInitFlags();
+    const sockfd = try os.socket(os.AF_UNIX, flags, 0);
+    
+    if(comptime builtin.os.tag.isDarwin()) {
+        try setUnixSocketFlags(sockfd); 
+    }
+
     errdefer os.close(sockfd);
 
     var addr = try std.net.Address.initUnix(path);
@@ -406,9 +437,13 @@ pub fn tcpConnectToHost(allocator: *mem.Allocator, name: []const u8, port: u16) 
 }
 
 pub fn tcpConnectToAddress(address: Address) !fs.File {
-    const nonblock = if (std.io.is_async) os.SOCK_NONBLOCK else 0;
-    const sock_flags = os.SOCK_STREAM | os.SOCK_CLOEXEC | nonblock;
+    const sock_flags = os.SOCK_STREAM | getUnixSocketInitFlags();
     const sockfd = try os.socket(address.any.family, sock_flags, os.IPPROTO_TCP);
+
+    if(comptime builtin.os.tag.isDarwin()) {
+        try setUnixSocketFlags(sockfd);
+    }
+
     errdefer os.close(sockfd);
     try os.connect(sockfd, &address.any, address.getOsSockLen());
 
@@ -1312,11 +1347,14 @@ pub const StreamServer = struct {
     }
 
     pub fn listen(self: *StreamServer, address: Address) !void {
-        const nonblock = if (std.io.is_async) os.SOCK_NONBLOCK else 0;
-        const sock_flags = os.SOCK_STREAM | os.SOCK_CLOEXEC | nonblock;
+        const flags = os.SOCK_STREAM | getUnixSocketInitFlags();
         const proto = if (address.any.family == os.AF_UNIX) @as(u32, 0) else os.IPPROTO_TCP;
+        const sockfd = try os.socket(address.any.family, flags, proto);
 
-        const sockfd = try os.socket(address.any.family, sock_flags, proto);
+        if(comptime builtin.os.tag.isDarwin()) {
+            try setUnixSocketFlags(sockfd);
+        }
+
         self.sockfd = sockfd;
         errdefer {
             os.close(sockfd);
@@ -1374,12 +1412,20 @@ pub const StreamServer = struct {
     };
 
     /// If this function succeeds, the returned `Connection` is a caller-managed resource.
-    pub fn accept(self: *StreamServer) AcceptError!Connection {
-        const nonblock = if (std.io.is_async) os.SOCK_NONBLOCK else 0;
-        const accept_flags = nonblock | os.SOCK_CLOEXEC;
+    pub fn accept(self: *StreamServer) !Connection {
         var accepted_addr: Address = undefined;
         var adr_len: os.socklen_t = @sizeOf(Address);
-        if (os.accept4(self.sockfd.?, &accepted_addr.any, &adr_len, accept_flags)) |fd| {
+        var _accept: os.AcceptError!os.fd_t = undefined;
+
+        if(comptime builtin.os.tag.isDarwin()) {
+            try setUnixSocketFlags(self.sockfd.?);
+            _accept = os.accept(self.sockfd.?, &accepted_addr.any, &adr_len);
+        } else {
+            const flags = getUnixSocketInitFlags();
+            _accept = os.accept4(self.sockfd.?, &accepted_addr.any, &adr_len, flags);
+        }
+
+        if (_accept) |fd| {
             return Connection{
                 .file = fs.File{
                     .handle = fd,
