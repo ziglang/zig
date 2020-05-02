@@ -421,16 +421,6 @@ pub const ChildProcess = struct {
             }
 
             if (self.cwd_dir) |cwd| {
-                // Remove the O_CLOEXEC flag. This is the only safe time to do it, between fork() and execve().
-                var flags = os.fcntl(cwd.fd, os.F_GETFD, 0) catch |err| switch (err) {
-                    error.Locked => unreachable,
-                    else => |e| forkChildErrReport(err_pipe[1], e),
-                };
-                flags &= ~@as(u32, os.O_CLOEXEC);
-                _ = os.fcntl(cwd.fd, os.F_SETFD, flags) catch |err| switch (err) {
-                    error.Locked => unreachable,
-                    else => |e| forkChildErrReport(err_pipe[1], e),
-                };
                 os.fchdir(cwd.fd) catch |err| forkChildErrReport(err_pipe[1], err);
             } else if (self.cwd) |cwd| {
                 os.chdir(cwd) catch |err| forkChildErrReport(err_pipe[1], err);
