@@ -1,3 +1,12 @@
+test "zig fmt: top-level fields" {
+    try testCanonical(
+        \\a: did_you_know,
+        \\b: all_files_are,
+        \\structs: ?x,
+        \\
+    );
+}
+
 test "zig fmt: decl between fields" {
     try testError(
         \\const S = struct {

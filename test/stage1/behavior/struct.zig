@@ -11,6 +11,16 @@ const StructWithNoFields = struct {
 };
 const empty_global_instance = StructWithNoFields{};
 
+top_level_field: i32,
+
+test "top level fields" {
+    var instance = @This(){
+        .top_level_field = 1234,
+    };
+    instance.top_level_field += 1;
+    expectEqual(@as(i32, 1235), instance.top_level_field);
+}
+
 test "call struct static method" {
     const result = StructWithNoFields.add(3, 4);
     expect(result == 7);
