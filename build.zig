@@ -44,7 +44,7 @@ pub fn build(b: *Builder) !void {
         try findAndReadConfigH(b);
 
     var test_stage2 = b.addTest("src-self-hosted/test.zig");
-    test_stage2.setBuildMode(builtin.Mode.Debug);
+    test_stage2.setBuildMode(.Debug); // note this is only the mode of the test harness
     test_stage2.addPackagePath("stage2_tests", "test/stage2/test.zig");
 
     const fmt_build_zig = b.addFmt(&[_][]const u8{"build.zig"});
@@ -68,7 +68,6 @@ pub fn build(b: *Builder) !void {
         var ctx = parseConfigH(b, config_h_text);
         ctx.llvm = try findLLVM(b, ctx.llvm_config_exe);
 
-        try configureStage2(b, test_stage2, ctx);
         try configureStage2(b, exe, ctx);
 
         b.default_step.dependOn(&exe.step);

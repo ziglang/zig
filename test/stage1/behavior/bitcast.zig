@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 const maxInt = std.math.maxInt;
 
 test "@bitCast i32 -> u32" {
@@ -186,4 +187,10 @@ test "triple level result location with bitcast sandwich passed as tuple element
         }
     };
     S.foo(.{@as(f64, @bitCast(f32, @as(u32, 0x414570A4)))});
+}
+
+test "bitcast generates a temporary value" {
+    var y = @as(u16, 0x55AA);
+    const x = @bitCast(u16, @bitCast([2]u8, y));
+    expectEqual(y, x);
 }

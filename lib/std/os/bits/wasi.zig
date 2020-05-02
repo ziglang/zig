@@ -1,7 +1,19 @@
+// Convenience types and consts used by std.os module
 pub const STDIN_FILENO = 0;
 pub const STDOUT_FILENO = 1;
 pub const STDERR_FILENO = 2;
 
+pub const mode_t = u32;
+
+pub const time_t = i64; // match https://github.com/CraneStation/wasi-libc
+
+pub const timespec = extern struct {
+    tv_sec: time_t,
+    tv_nsec: isize,
+};
+
+// As defined in the wasi_snapshot_preview1 spec file:
+// https://github.com/WebAssembly/WASI/blob/master/phases/snapshot/witx/typenames.witx
 pub const advice_t = u8;
 pub const ADVICE_NORMAL: advice_t = 0;
 pub const ADVICE_SEQUENTIAL: advice_t = 1;
@@ -21,10 +33,12 @@ pub const device_t = u64;
 pub const dircookie_t = u64;
 pub const DIRCOOKIE_START: dircookie_t = 0;
 
+pub const dirnamlen_t = u32;
+
 pub const dirent_t = extern struct {
     d_next: dircookie_t,
     d_ino: inode_t,
-    d_namlen: u32,
+    d_namlen: dirnamlen_t,
     d_type: filetype_t,
 };
 
@@ -111,12 +125,12 @@ pub const event_t = extern struct {
     userdata: userdata_t,
     @"error": errno_t,
     @"type": eventtype_t,
-    u: extern union {
-        fd_readwrite: extern struct {
-            nbytes: filesize_t,
-            flags: eventrwflags_t,
-        },
-    },
+    fd_readwrite: eventfdreadwrite_t,
+};
+
+pub const eventfdreadwrite_t = extern struct {
+    nbytes: filesize_t,
+    flags: eventrwflags_t,
 };
 
 pub const eventrwflags_t = u16;
@@ -130,7 +144,6 @@ pub const EVENTTYPE_FD_WRITE: eventtype_t = 2;
 pub const exitcode_t = u32;
 
 pub const fd_t = u32;
-pub const mode_t = u32;
 
 pub const fdflags_t = u16;
 pub const FDFLAG_APPEND: fdflags_t = 0x0001;
@@ -180,7 +193,7 @@ pub const FILESTAT_SET_MTIM_NOW: fstflags_t = 0x0008;
 pub const inode_t = u64;
 pub const ino_t = inode_t;
 
-pub const linkcount_t = u32;
+pub const linkcount_t = u64;
 
 pub const lookupflags_t = u32;
 pub const LOOKUP_SYMLINK_FOLLOW: lookupflags_t = 0x00000001;
@@ -196,11 +209,15 @@ pub const PREOPENTYPE_DIR: preopentype_t = 0;
 
 pub const prestat_t = extern struct {
     pr_type: preopentype_t,
-    u: extern union {
-        dir: extern struct {
-            pr_name_len: usize,
-        },
-    },
+    u: prestat_u_t,
+};
+
+pub const prestat_dir_t = extern struct {
+    pr_name_len: usize,
+};
+
+pub const prestat_u_t = extern union {
+    dir: prestat_dir_t,
 };
 
 pub const riflags_t = u16;
@@ -248,6 +265,7 @@ pub const SHUT_WR: sdflags_t = 0x02;
 pub const siflags_t = u16;
 
 pub const signal_t = u8;
+pub const SIGNONE: signal_t = 0;
 pub const SIGHUP: signal_t = 1;
 pub const SIGINT: signal_t = 2;
 pub const SIGQUIT: signal_t = 3;
@@ -284,32 +302,36 @@ pub const SUBSCRIPTION_CLOCK_ABSTIME: subclockflags_t = 0x0001;
 
 pub const subscription_t = extern struct {
     userdata: userdata_t,
-    @"type": eventtype_t,
-    u: extern union {
-        clock: extern struct {
-            identifier: userdata_t,
-            clock_id: clockid_t,
-            timeout: timestamp_t,
-            precision: timestamp_t,
-            flags: subclockflags_t,
-        },
-        fd_readwrite: extern struct {
-            fd: fd_t,
-        },
-    },
+    u: subscription_u_t,
+};
+
+pub const subscription_clock_t = extern struct {
+    id: clock_id_t,
+    timeout: timestamp_t,
+    precision: timestamp_t,
+    flags: subclockflags_t,
+};
+
+pub const subscription_fd_readwrite_t = extern struct {
+    fd: fd_t,
+};
+
+pub const subscription_u_t = extern struct {
+    tag: eventtype_t,
+    u: subscription_u_u_t,
+};
+
+pub const subscription_u_u_t = extern union {
+    clock: subscription_clock_t,
+    fd_read: subscription_fd_readwrite_t,
+    fd_write: subscription_fd_readwrite_t,
 };
 
 pub const timestamp_t = u64;
-pub const time_t = i64; // match https://github.com/CraneStation/wasi-libc
 
 pub const userdata_t = u64;
 
 pub const whence_t = u8;
-pub const WHENCE_CUR: whence_t = 0;
-pub const WHENCE_END: whence_t = 1;
-pub const WHENCE_SET: whence_t = 2;
-
-pub const timespec = extern struct {
-    tv_sec: time_t,
-    tv_nsec: isize,
-};
+pub const WHENCE_SET: whence_t = 0;
+pub const WHENCE_CUR: whence_t = 1;
+pub const WHENCE_END: whence_t = 2;

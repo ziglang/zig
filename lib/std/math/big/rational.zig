@@ -5,10 +5,10 @@ const mem = std.mem;
 const testing = std.testing;
 const Allocator = mem.Allocator;
 
-const bn = @import("int.zig");
-const Limb = bn.Limb;
-const DoubleLimb = bn.DoubleLimb;
-const Int = bn.Int;
+const Limb = std.math.big.Limb;
+const DoubleLimb = std.math.big.DoubleLimb;
+const Int = std.math.big.int.Managed;
+const IntConst = std.math.big.int.Const;
 
 /// An arbitrary-precision rational number.
 ///
@@ -17,6 +17,9 @@ const Int = bn.Int;
 ///
 /// Rational's are always normalized. That is, for a Rational r = p/q where p and q are integers,
 /// gcd(p, q) = 1 always.
+///
+/// TODO rework this to store its own allocator and use a non-managed big int, to avoid double
+/// allocator storage.
 pub const Rational = struct {
     /// Numerator. Determines the sign of the Rational.
     p: Int,
@@ -98,20 +101,20 @@ pub const Rational = struct {
         if (point) |i| {
             try self.p.setString(10, str[0..i]);
 
-            const base = Int.initFixed(([_]Limb{10})[0..]);
+            const base = IntConst{ .limbs = &[_]Limb{10}, .positive = true };
 
             var j: usize = start;
             while (j < str.len - i - 1) : (j += 1) {
-                try self.p.mul(self.p, base);
+                try self.p.mul(self.p.toConst(), base);
             }
 
             try self.q.setString(10, str[i + 1 ..]);
-            try self.p.add(self.p, self.q);
+            try self.p.add(self.p.toConst(), self.q.toConst());
 
             try self.q.set(1);
             var k: usize = i + 1;
             while (k < str.len) : (k += 1) {
-                try self.q.mul(self.q, base);
+                try self.q.mul(self.q.toConst(), base);
             }
 
             try self.reduce();
@@ -127,8 +130,8 @@ pub const Rational = struct {
         // Translated from golang.go/src/math/big/rat.go.
         debug.assert(@typeInfo(T) == .Float);
 
-        const UnsignedIntType = std.meta.IntType(false, T.bit_count);
-        const f_bits = @bitCast(UnsignedIntType, f);
+        const UnsignedInt = std.meta.Int(false, T.bit_count);
+        const f_bits = @bitCast(UnsignedInt, f);
 
         const exponent_bits = math.floatExponentBits(T);
         const exponent_bias = (1 << (exponent_bits - 1)) - 1;
@@ -186,7 +189,7 @@ pub const Rational = struct {
         debug.assert(@typeInfo(T) == .Float);
 
         const fsize = T.bit_count;
-        const BitReprType = std.meta.IntType(false, T.bit_count);
+        const BitReprType = std.meta.Int(false, T.bit_count);
 
         const msize = math.floatMantissaBits(T);
         const msize1 = msize + 1;
@@ -218,14 +221,14 @@ pub const Rational = struct {
         }
 
         // 2. compute quotient and remainder
-        var q = try Int.init(self.p.allocator.?);
+        var q = try Int.init(self.p.allocator);
         defer q.deinit();
 
         // unused
-        var r = try Int.init(self.p.allocator.?);
+        var r = try Int.init(self.p.allocator);
         defer r.deinit();
 
-        try Int.divTrunc(&q, &r, a2, b2);
+        try Int.divTrunc(&q, &r, a2.toConst(), b2.toConst());
 
         var mantissa = extractLowBits(q, BitReprType);
         var have_rem = r.len() > 0;
@@ -293,14 +296,14 @@ pub const Rational = struct {
 
     /// Set a Rational directly from an Int.
     pub fn copyInt(self: *Rational, a: Int) !void {
-        try self.p.copy(a);
+        try self.p.copy(a.toConst());
         try self.q.set(1);
     }
 
     /// Set a Rational directly from a ratio of two Int's.
     pub fn copyRatio(self: *Rational, a: Int, b: Int) !void {
-        try self.p.copy(a);
-        try self.q.copy(b);
+        try self.p.copy(a.toConst());
+        try self.q.copy(b.toConst());
 
         self.p.setSign(@boolToInt(self.p.isPositive()) ^ @boolToInt(self.q.isPositive()) == 0);
         self.q.setSign(true);
@@ -327,13 +330,13 @@ pub const Rational = struct {
 
     /// Returns math.Order.lt, math.Order.eq, math.Order.gt if a < b, a == b or a
     /// > b respectively.
-    pub fn cmp(a: Rational, b: Rational) !math.Order {
+    pub fn order(a: Rational, b: Rational) !math.Order {
         return cmpInternal(a, b, true);
     }
 
     /// Returns math.Order.lt, math.Order.eq, math.Order.gt if |a| < |b|, |a| ==
     /// |b| or |a| > |b| respectively.
-    pub fn cmpAbs(a: Rational, b: Rational) !math.Order {
+    pub fn orderAbs(a: Rational, b: Rational) !math.Order {
         return cmpInternal(a, b, false);
     }
 
@@ -341,16 +344,16 @@ pub const Rational = struct {
     fn cmpInternal(a: Rational, b: Rational, is_abs: bool) !math.Order {
         // TODO: Would a div compare algorithm of sorts be viable and quicker? Can we avoid
         // the memory allocations here?
-        var q = try Int.init(a.p.allocator.?);
+        var q = try Int.init(a.p.allocator);
         defer q.deinit();
 
-        var p = try Int.init(b.p.allocator.?);
+        var p = try Int.init(b.p.allocator);
         defer p.deinit();
 
-        try q.mul(a.p, b.q);
-        try p.mul(b.p, a.q);
+        try q.mul(a.p.toConst(), b.q.toConst());
+        try p.mul(b.p.toConst(), a.q.toConst());
 
-        return if (is_abs) q.cmpAbs(p) else q.cmp(p);
+        return if (is_abs) q.orderAbs(p) else q.order(p);
     }
 
     /// rma = a + b.
@@ -364,7 +367,7 @@ pub const Rational = struct {
 
         var sr: Rational = undefined;
         if (aliased) {
-            sr = try Rational.init(rma.p.allocator.?);
+            sr = try Rational.init(rma.p.allocator);
             r = &sr;
             aliased = true;
         }
@@ -373,11 +376,11 @@ pub const Rational = struct {
             r.deinit();
         };
 
-        try r.p.mul(a.p, b.q);
-        try r.q.mul(b.p, a.q);
-        try r.p.add(r.p, r.q);
+        try r.p.mul(a.p.toConst(), b.q.toConst());
+        try r.q.mul(b.p.toConst(), a.q.toConst());
+        try r.p.add(r.p.toConst(), r.q.toConst());
 
-        try r.q.mul(a.q, b.q);
+        try r.q.mul(a.q.toConst(), b.q.toConst());
         try r.reduce();
     }
 
@@ -392,7 +395,7 @@ pub const Rational = struct {
 
         var sr: Rational = undefined;
         if (aliased) {
-            sr = try Rational.init(rma.p.allocator.?);
+            sr = try Rational.init(rma.p.allocator);
             r = &sr;
             aliased = true;
         }
@@ -401,11 +404,11 @@ pub const Rational = struct {
             r.deinit();
         };
 
-        try r.p.mul(a.p, b.q);
-        try r.q.mul(b.p, a.q);
-        try r.p.sub(r.p, r.q);
+        try r.p.mul(a.p.toConst(), b.q.toConst());
+        try r.q.mul(b.p.toConst(), a.q.toConst());
+        try r.p.sub(r.p.toConst(), r.q.toConst());
 
-        try r.q.mul(a.q, b.q);
+        try r.q.mul(a.q.toConst(), b.q.toConst());
         try r.reduce();
     }
 
@@ -415,8 +418,8 @@ pub const Rational = struct {
     ///
     /// Returns an error if memory could not be allocated.
     pub fn mul(r: *Rational, a: Rational, b: Rational) !void {
-        try r.p.mul(a.p, b.p);
-        try r.q.mul(a.q, b.q);
+        try r.p.mul(a.p.toConst(), b.p.toConst());
+        try r.q.mul(a.q.toConst(), b.q.toConst());
         try r.reduce();
     }
 
@@ -430,8 +433,8 @@ pub const Rational = struct {
             @panic("division by zero");
         }
 
-        try r.p.mul(a.p, b.q);
-        try r.q.mul(b.p, a.q);
+        try r.p.mul(a.p.toConst(), b.q.toConst());
+        try r.q.mul(b.p.toConst(), a.q.toConst());
         try r.reduce();
     }
 
@@ -442,7 +445,7 @@ pub const Rational = struct {
 
     // reduce r/q such that gcd(r, q) = 1
     fn reduce(r: *Rational) !void {
-        var a = try Int.init(r.p.allocator.?);
+        var a = try Int.init(r.p.allocator);
         defer a.deinit();
 
         const sign = r.p.isPositive();
@@ -450,15 +453,15 @@ pub const Rational = struct {
         try a.gcd(r.p, r.q);
         r.p.setSign(sign);
 
-        const one = Int.initFixed(([_]Limb{1})[0..]);
-        if (a.cmp(one) != .eq) {
-            var unused = try Int.init(r.p.allocator.?);
+        const one = IntConst{ .limbs = &[_]Limb{1}, .positive = true };
+        if (a.toConst().order(one) != .eq) {
+            var unused = try Int.init(r.p.allocator);
             defer unused.deinit();
 
             // TODO: divexact would be useful here
             // TODO: don't copy r.q for div
-            try Int.divTrunc(&r.p, &unused, r.p, a);
-            try Int.divTrunc(&r.q, &unused, r.q, a);
+            try Int.divTrunc(&r.p, &unused, r.p.toConst(), a.toConst());
+            try Int.divTrunc(&r.q, &unused, r.q.toConst(), a.toConst());
         }
     }
 };
@@ -596,25 +599,25 @@ test "big.rational copy" {
     var a = try Rational.init(testing.allocator);
     defer a.deinit();
 
-    const b = try Int.initSet(testing.allocator, 5);
+    var b = try Int.initSet(testing.allocator, 5);
     defer b.deinit();
 
     try a.copyInt(b);
     testing.expect((try a.p.to(u32)) == 5);
     testing.expect((try a.q.to(u32)) == 1);
 
-    const c = try Int.initSet(testing.allocator, 7);
+    var c = try Int.initSet(testing.allocator, 7);
     defer c.deinit();
-    const d = try Int.initSet(testing.allocator, 3);
+    var d = try Int.initSet(testing.allocator, 3);
     defer d.deinit();
 
     try a.copyRatio(c, d);
     testing.expect((try a.p.to(u32)) == 7);
     testing.expect((try a.q.to(u32)) == 3);
 
-    const e = try Int.initSet(testing.allocator, 9);
+    var e = try Int.initSet(testing.allocator, 9);
     defer e.deinit();
-    const f = try Int.initSet(testing.allocator, 3);
+    var f = try Int.initSet(testing.allocator, 3);
     defer f.deinit();
 
     try a.copyRatio(e, f);
@@ -680,7 +683,7 @@ test "big.rational swap" {
     testing.expect((try b.q.to(u32)) == 23);
 }
 
-test "big.rational cmp" {
+test "big.rational order" {
     var a = try Rational.init(testing.allocator);
     defer a.deinit();
     var b = try Rational.init(testing.allocator);
@@ -688,11 +691,11 @@ test "big.rational cmp" {
 
     try a.setRatio(500, 231);
     try b.setRatio(18903, 8584);
-    testing.expect((try a.cmp(b)) == .lt);
+    testing.expect((try a.order(b)) == .lt);
 
     try a.setRatio(890, 10);
     try b.setRatio(89, 1);
-    testing.expect((try a.cmp(b)) == .eq);
+    testing.expect((try a.order(b)) == .eq);
 }
 
 test "big.rational add single-limb" {
@@ -703,11 +706,11 @@ test "big.rational add single-limb" {
 
     try a.setRatio(500, 231);
     try b.setRatio(18903, 8584);
-    testing.expect((try a.cmp(b)) == .lt);
+    testing.expect((try a.order(b)) == .lt);
 
     try a.setRatio(890, 10);
     try b.setRatio(89, 1);
-    testing.expect((try a.cmp(b)) == .eq);
+    testing.expect((try a.order(b)) == .eq);
 }
 
 test "big.rational add" {
@@ -723,7 +726,7 @@ test "big.rational add" {
     try a.add(a, b);
 
     try r.setRatio(984786924199, 290395044174);
-    testing.expect((try a.cmp(r)) == .eq);
+    testing.expect((try a.order(r)) == .eq);
 }
 
 test "big.rational sub" {
@@ -739,7 +742,7 @@ test "big.rational sub" {
     try a.sub(a, b);
 
     try r.setRatio(979040510045, 290395044174);
-    testing.expect((try a.cmp(r)) == .eq);
+    testing.expect((try a.order(r)) == .eq);
 }
 
 test "big.rational mul" {
@@ -755,7 +758,7 @@ test "big.rational mul" {
     try a.mul(a, b);
 
     try r.setRatio(571481443, 17082061422);
-    testing.expect((try a.cmp(r)) == .eq);
+    testing.expect((try a.order(r)) == .eq);
 }
 
 test "big.rational div" {
@@ -771,7 +774,7 @@ test "big.rational div" {
     try a.div(a, b);
 
     try r.setRatio(75531824394, 221015929);
-    testing.expect((try a.cmp(r)) == .eq);
+    testing.expect((try a.order(r)) == .eq);
 }
 
 test "big.rational div" {
@@ -784,11 +787,11 @@ test "big.rational div" {
     a.invert();
 
     try r.setRatio(23341, 78923);
-    testing.expect((try a.cmp(r)) == .eq);
+    testing.expect((try a.order(r)) == .eq);
 
     try a.setRatio(-78923, 23341);
     a.invert();
 
     try r.setRatio(-23341, 78923);
-    testing.expect((try a.cmp(r)) == .eq);
+    testing.expect((try a.order(r)) == .eq);
 }

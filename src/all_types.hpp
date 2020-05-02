@@ -2270,6 +2270,7 @@ struct CodeGen {
     CodeModel code_model;
     OptionalBool linker_gc_sections;
     OptionalBool linker_allow_shlib_undefined;
+    OptionalBool linker_bind_global_refs_locally;
     bool strip_debug_symbols;
     bool is_test_build;
     bool is_single_threaded;
@@ -2590,11 +2591,8 @@ struct IrBasicBlockSrc {
 
 struct IrBasicBlockGen {
     ZigList<IrInstGen *> instruction_list;
-    IrBasicBlockSrc *parent;
     Scope *scope;
     const char *name_hint;
-    uint32_t index; // index into the basic block list
-    uint32_t ref_count;
     LLVMBasicBlockRef llvm_block;
     LLVMBasicBlockRef llvm_exit_block;
     // The instruction that referenced this basic block and caused us to
@@ -3464,7 +3462,6 @@ struct IrInstSrcOptionalUnwrapPtr {
 
     IrInstSrc *base_ptr;
     bool safety_check_on;
-    bool initializing;
 };
 
 struct IrInstGenOptionalUnwrapPtr {

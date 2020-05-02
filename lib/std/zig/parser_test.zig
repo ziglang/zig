@@ -114,17 +114,6 @@ test "zig fmt: trailing comma in fn parameter list" {
     );
 }
 
-// TODO: Remove condition after deprecating 'typeOf'. See https://github.com/ziglang/zig/issues/1348
-test "zig fmt: change @typeOf to @TypeOf" {
-    try testTransform(
-        \\const a = @typeOf(@as(usize, 10));
-        \\
-    ,
-        \\const a = @TypeOf(@as(usize, 10));
-        \\
-    );
-}
-
 // TODO: Remove nakedcc/stdcallcc once zig 0.6.0 is released. See https://github.com/ziglang/zig/pull/3977
 test "zig fmt: convert extern/nakedcc/stdcallcc into callconv(...)" {
     try testTransform(
@@ -2982,14 +2971,7 @@ fn testTransform(source: []const u8, expected_source: []const u8) !void {
         var failing_allocator = std.testing.FailingAllocator.init(&fixed_allocator.allocator, maxInt(usize));
         var anything_changed: bool = undefined;
         const result_source = try testParse(source, &failing_allocator.allocator, &anything_changed);
-        if (!mem.eql(u8, result_source, expected_source)) {
-            warn("\n====== expected this output: =========\n", .{});
-            warn("{}", .{expected_source});
-            warn("\n======== instead found this: =========\n", .{});
-            warn("{}", .{result_source});
-            warn("\n======================================\n", .{});
-            return error.TestFailed;
-        }
+        std.testing.expectEqualStrings(expected_source, result_source);
         const changes_expected = source.ptr != expected_source.ptr;
         if (anything_changed != changes_expected) {
             warn("std.zig.render returned {} instead of {}\n", .{ anything_changed, changes_expected });

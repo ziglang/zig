@@ -277,8 +277,8 @@ pub extern "c" fn pthread_cond_signal(cond: *pthread_cond_t) c_int;
 pub extern "c" fn pthread_cond_broadcast(cond: *pthread_cond_t) c_int;
 pub extern "c" fn pthread_cond_destroy(cond: *pthread_cond_t) c_int;
 
-pub const pthread_t = *@OpaqueType();
-pub const FILE = @OpaqueType();
+pub const pthread_t = *@Type(.Opaque);
+pub const FILE = @Type(.Opaque);
 
 pub extern "c" fn dlopen(path: [*:0]const u8, mode: c_int) ?*c_void;
 pub extern "c" fn dlclose(handle: *c_void) c_int;

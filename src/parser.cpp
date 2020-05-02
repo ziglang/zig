@@ -55,7 +55,7 @@ static AstNode *ast_parse_bool_or_expr(ParseContext *pc);
 static AstNode *ast_parse_bool_and_expr(ParseContext *pc);
 static AstNode *ast_parse_compare_expr(ParseContext *pc);
 static AstNode *ast_parse_bitwise_expr(ParseContext *pc);
-static AstNode *ast_parse_bit_shit_expr(ParseContext *pc);
+static AstNode *ast_parse_bit_shift_expr(ParseContext *pc);
 static AstNode *ast_parse_addition_expr(ParseContext *pc);
 static AstNode *ast_parse_multiply_expr(ParseContext *pc);
 static AstNode *ast_parse_prefix_expr(ParseContext *pc);
@@ -1257,11 +1257,11 @@ static AstNode *ast_parse_compare_expr(ParseContext *pc) {
 
 // BitwiseExpr <- BitShiftExpr (BitwiseOp BitShiftExpr)*
 static AstNode *ast_parse_bitwise_expr(ParseContext *pc) {
-    return ast_parse_bin_op_expr(pc, BinOpChainInf, ast_parse_bitwise_op, ast_parse_bit_shit_expr);
+    return ast_parse_bin_op_expr(pc, BinOpChainInf, ast_parse_bitwise_op, ast_parse_bit_shift_expr);
 }
 
 // BitShiftExpr <- AdditionExpr (BitShiftOp AdditionExpr)*
-static AstNode *ast_parse_bit_shit_expr(ParseContext *pc) {
+static AstNode *ast_parse_bit_shift_expr(ParseContext *pc) {
     return ast_parse_bin_op_expr(pc, BinOpChainInf, ast_parse_bit_shift_op, ast_parse_addition_expr);
 }
 

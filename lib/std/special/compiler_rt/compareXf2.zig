@@ -22,8 +22,8 @@ const GE = extern enum(i32) {
 pub fn cmp(comptime T: type, comptime RT: type, a: T, b: T) RT {
     @setRuntimeSafety(builtin.is_test);
 
-    const srep_t = std.meta.IntType(true, T.bit_count);
-    const rep_t = std.meta.IntType(false, T.bit_count);
+    const srep_t = std.meta.Int(true, T.bit_count);
+    const rep_t = std.meta.Int(false, T.bit_count);
 
     const significandBits = std.math.floatMantissaBits(T);
     const exponentBits = std.math.floatExponentBits(T);
@@ -68,7 +68,7 @@ pub fn cmp(comptime T: type, comptime RT: type, a: T, b: T) RT {
 pub fn unordcmp(comptime T: type, a: T, b: T) i32 {
     @setRuntimeSafety(builtin.is_test);
 
-    const rep_t = std.meta.IntType(false, T.bit_count);
+    const rep_t = std.meta.Int(false, T.bit_count);
 
     const significandBits = std.math.floatMantissaBits(T);
     const exponentBits = std.math.floatExponentBits(T);

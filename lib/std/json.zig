@@ -2249,6 +2249,9 @@ test "integer after float has proper type" {
 }
 
 test "escaped characters" {
+    // https://github.com/ziglang/zig/issues/5127
+    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
+
     var arena_allocator = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_allocator.deinit();
     const input =
@@ -2281,6 +2284,9 @@ test "escaped characters" {
 }
 
 test "string copy option" {
+    // https://github.com/ziglang/zig/issues/5127
+    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
+
     const input =
         \\{
         \\  "noescape": "aą😂",
@@ -2514,7 +2520,7 @@ pub fn stringify(
                                 if (options.string.String.escape_solidus) {
                                     try out_stream.writeAll("\\/");
                                 } else {
-                                    try out_stream.writeByte('\\');
+                                    try out_stream.writeByte('/');
                                 }
                             },
                             // control characters with short escapes
@@ -2664,6 +2670,8 @@ test "stringify string" {
     try teststringify("\"with unicode\\ud800\\udc00\"", "with unicode\u{10000}", StringifyOptions{ .string = .{ .String = .{ .escape_unicode = true } } });
     try teststringify("\"with unicode\u{10FFFF}\"", "with unicode\u{10FFFF}", StringifyOptions{});
     try teststringify("\"with unicode\\udbff\\udfff\"", "with unicode\u{10FFFF}", StringifyOptions{ .string = .{ .String = .{ .escape_unicode = true } } });
+    try teststringify("\"/\"", "/", StringifyOptions{});
+    try teststringify("\"\\/\"", "/", StringifyOptions{ .string = .{ .String = .{ .escape_solidus = true } } });
 }
 
 test "stringify tagged unions" {

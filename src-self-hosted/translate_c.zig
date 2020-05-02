@@ -788,6 +788,7 @@ fn transRecordDecl(c: *Context, record_decl: *const ZigClangRecordDecl) Error!?*
             .rbrace_token = undefined,
         };
 
+        var unnamed_field_count: u32 = 0;
         var it = ZigClangRecordDecl_field_begin(record_def);
         const end_it = ZigClangRecordDecl_field_end(record_def);
         while (ZigClangRecordDecl_field_iterator_neq(it, end_it)) : (it = ZigClangRecordDecl_field_iterator_next(it)) {
@@ -812,7 +813,9 @@ fn transRecordDecl(c: *Context, record_decl: *const ZigClangRecordDecl) Error!?*
             var is_anon = false;
             var raw_name = try c.str(ZigClangNamedDecl_getName_bytes_begin(@ptrCast(*const ZigClangNamedDecl, field_decl)));
             if (ZigClangFieldDecl_isAnonymousStructOrUnion(field_decl) or raw_name.len == 0) {
-                raw_name = try std.fmt.allocPrint(c.a(), "unnamed_{}", .{c.getMangle()});
+                // Context.getMangle() is not used here because doing so causes unpredictable field names for anonymous fields.
+                raw_name = try std.fmt.allocPrint(c.a(), "unnamed_{}", .{unnamed_field_count});
+                unnamed_field_count += 1;
                 is_anon = true;
             }
             const field_name = try appendIdentifier(c, raw_name);
@@ -1290,7 +1293,22 @@ fn transBinaryOperator(
     }
 
     const rhs_node = try transExpr(rp, scope, ZigClangBinaryOperator_getRHS(stmt), .used, .r_value);
-    return transCreateNodeInfixOp(rp, scope, lhs_node, op_id, op_token, rhs_node, result_used, true);
+
+    const lhs = if (isBoolRes(lhs_node)) init: {
+        const cast_node = try transCreateNodeBuiltinFnCall(rp.c, "@boolToInt");
+        try cast_node.params.push(lhs_node);
+        cast_node.rparen_token = try appendToken(rp.c, .RParen, ")");
+        break :init &cast_node.base;
+    } else lhs_node;
+
+    const rhs = if (isBoolRes(rhs_node)) init: {
+        const cast_node = try transCreateNodeBuiltinFnCall(rp.c, "@boolToInt");
+        try cast_node.params.push(rhs_node);
+        cast_node.rparen_token = try appendToken(rp.c, .RParen, ")");
+        break :init &cast_node.base;
+    } else rhs_node;
+
+    return transCreateNodeInfixOp(rp, scope, lhs, op_id, op_token, rhs, result_used, true);
 }
 
 fn transCompoundStmtInline(
@@ -3895,18 +3913,20 @@ fn transCreateNodeAPInt(c: *Context, int: *const ZigClangAPSInt) !*ast.Node {
     };
     var aps_int = int;
     const is_negative = ZigClangAPSInt_isSigned(int) and ZigClangAPSInt_isNegative(int);
-    if (is_negative)
-        aps_int = ZigClangAPSInt_negate(aps_int);
-    var big = try math.big.Int.initCapacity(c.a(), num_limbs);
-    if (is_negative)
-        big.negate();
-    defer big.deinit();
+    if (is_negative) aps_int = ZigClangAPSInt_negate(aps_int);
+    defer if (is_negative) {
+        ZigClangAPSInt_free(aps_int);
+    };
+
+    const limbs = try c.a().alloc(math.big.Limb, num_limbs);
+    defer c.a().free(limbs);
+
     const data = ZigClangAPSInt_getRawData(aps_int);
-    switch (@sizeOf(std.math.big.Limb)) {
+    switch (@sizeOf(math.big.Limb)) {
         8 => {
             var i: usize = 0;
             while (i < num_limbs) : (i += 1) {
-                big.limbs[i] = data[i];
+                limbs[i] = data[i];
             }
         },
         4 => {
@@ -3916,23 +3936,23 @@ fn transCreateNodeAPInt(c: *Context, int: *const ZigClangAPSInt) !*ast.Node {
                 limb_i += 2;
                 data_i += 1;
             }) {
-                big.limbs[limb_i] = @truncate(u32, data[data_i]);
-                big.limbs[limb_i + 1] = @truncate(u32, data[data_i] >> 32);
+                limbs[limb_i] = @truncate(u32, data[data_i]);
+                limbs[limb_i + 1] = @truncate(u32, data[data_i] >> 32);
             }
         },
         else => @compileError("unimplemented"),
     }
-    const str = big.toString(c.a(), 10, false) catch |err| switch (err) {
+
+    const big: math.big.int.Const = .{ .limbs = limbs, .positive = !is_negative };
+    const str = big.toStringAlloc(c.a(), 10, false) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
-        else => unreachable,
     };
+    defer c.a().free(str);
     const token = try appendToken(c, .IntegerLiteral, str);
     const node = try c.a().create(ast.Node.IntegerLiteral);
     node.* = .{
         .token = token,
     };
-    if (is_negative)
-        ZigClangAPSInt_free(aps_int);
     return &node.base;
 }
 
@@ -4022,7 +4042,8 @@ fn transCreateNodeFloat(c: *Context, int: var) !*ast.Node {
 }
 
 fn transCreateNodeOpaqueType(c: *Context) !*ast.Node {
-    const call_node = try transCreateNodeBuiltinFnCall(c, "@OpaqueType");
+    const call_node = try transCreateNodeBuiltinFnCall(c, "@Type");
+    try call_node.params.push(try transCreateNodeEnumLiteral(c, "Opaque"));
     call_node.rparen_token = try appendToken(c, .RParen, ")");
     return &call_node.base;
 }

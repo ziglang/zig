@@ -578,6 +578,7 @@ ZigType *get_pointer_to_type_extra2(CodeGen *g, ZigType *child_type, bool is_con
     }
     switch (ptr_len) {
         case PtrLenSingle:
+            assert(sentinel == nullptr);
             buf_appendf(&entry->name, "*");
             break;
         case PtrLenUnknown:
@@ -1006,7 +1007,7 @@ bool want_first_arg_sret(CodeGen *g, FnTypeId *fn_type_id) {
     {
         X64CABIClass abi_class = type_c_abi_x86_64_class(g, fn_type_id->return_type);
         return abi_class == X64CABIClass_MEMORY || abi_class == X64CABIClass_MEMORY_nobyval;
-    } else if (g->zig_target->arch == ZigLLVM_mipsel) {
+    } else if (g->zig_target->arch == ZigLLVM_mips || g->zig_target->arch == ZigLLVM_mipsel) {
         return false;
     }
     zig_panic("TODO implement C ABI for this architecture. See https://github.com/ziglang/zig/issues/1481");
@@ -4610,7 +4611,9 @@ bool resolve_inferred_error_set(CodeGen *g, ZigType *err_set_type, AstNode *sour
             return false;
         } else if (infer_fn->anal_state == FnAnalStateReady) {
             analyze_fn_body(g, infer_fn);
-            if (err_set_type->data.error_set.incomplete) {
+            if (infer_fn->anal_state == FnAnalStateInvalid ||
+                err_set_type->data.error_set.incomplete)
+            {
                 assert(g->errors.length != 0);
                 return false;
             }
@@ -9042,7 +9045,7 @@ static void resolve_llvm_types_fn_type(CodeGen *g, ZigType *fn_type) {
     FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
     bool first_arg_return = want_first_arg_sret(g, fn_type_id);
     bool is_async = fn_type_id->cc == CallingConventionAsync;
-    bool is_c_abi = fn_type_id->cc == CallingConventionC;
+    bool is_c_abi = !calling_convention_allows_zig_types(fn_type_id->cc);
     bool prefix_arg_error_return_trace = g->have_err_ret_tracing && fn_type_can_fail(fn_type_id);
     // +1 for maybe making the first argument the return value
     // +1 for maybe first argument the error return trace

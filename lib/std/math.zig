@@ -458,7 +458,7 @@ pub fn Log2Int(comptime T: type) type {
         count += 1;
     }
 
-    return std.meta.IntType(false, count);
+    return std.meta.Int(false, count);
 }
 
 pub fn IntFittingRange(comptime from: comptime_int, comptime to: comptime_int) type {
@@ -474,7 +474,7 @@ pub fn IntFittingRange(comptime from: comptime_int, comptime to: comptime_int) t
     if (is_signed) {
         magnitude_bits += 1;
     }
-    return std.meta.IntType(is_signed, magnitude_bits);
+    return std.meta.Int(is_signed, magnitude_bits);
 }
 
 test "math.IntFittingRange" {
@@ -686,7 +686,7 @@ fn testRem() void {
 /// Result is an unsigned integer.
 pub fn absCast(x: var) switch (@typeInfo(@TypeOf(x))) {
     .ComptimeInt => comptime_int,
-    .Int => |intInfo| std.meta.IntType(false, intInfo.bits),
+    .Int => |intInfo| std.meta.Int(false, intInfo.bits),
     else => @compileError("absCast only accepts integers"),
 } {
     switch (@typeInfo(@TypeOf(x))) {
@@ -698,7 +698,7 @@ pub fn absCast(x: var) switch (@typeInfo(@TypeOf(x))) {
             }
         },
         .Int => |intInfo| {
-            const Uint = std.meta.IntType(false, intInfo.bits);
+            const Uint = std.meta.Int(false, intInfo.bits);
             if (x < 0) {
                 return ~@bitCast(Uint, x +% -1);
             } else {
@@ -719,10 +719,10 @@ test "math.absCast" {
 
 /// Returns the negation of the integer parameter.
 /// Result is a signed integer.
-pub fn negateCast(x: var) !std.meta.IntType(true, @TypeOf(x).bit_count) {
+pub fn negateCast(x: var) !std.meta.Int(true, @TypeOf(x).bit_count) {
     if (@TypeOf(x).is_signed) return negate(x);
 
-    const int = std.meta.IntType(true, @TypeOf(x).bit_count);
+    const int = std.meta.Int(true, @TypeOf(x).bit_count);
     if (x > -minInt(int)) return error.Overflow;
 
     if (x == -minInt(int)) return minInt(int);
@@ -808,11 +808,11 @@ fn testFloorPowerOfTwo() void {
 /// Returns the next power of two (if the value is not already a power of two).
 /// Only unsigned integers can be used. Zero is not an allowed input.
 /// Result is a type with 1 more bit than the input type.
-pub fn ceilPowerOfTwoPromote(comptime T: type, value: T) std.meta.IntType(T.is_signed, T.bit_count + 1) {
+pub fn ceilPowerOfTwoPromote(comptime T: type, value: T) std.meta.Int(T.is_signed, T.bit_count + 1) {
     comptime assert(@typeInfo(T) == .Int);
     comptime assert(!T.is_signed);
     assert(value != 0);
-    comptime const PromotedType = std.meta.IntType(T.is_signed, T.bit_count + 1);
+    comptime const PromotedType = std.meta.Int(T.is_signed, T.bit_count + 1);
     comptime const shiftType = std.math.Log2Int(PromotedType);
     return @as(PromotedType, 1) << @intCast(shiftType, T.bit_count - @clz(T, value - 1));
 }
@@ -823,7 +823,7 @@ pub fn ceilPowerOfTwoPromote(comptime T: type, value: T) std.meta.IntType(T.is_s
 pub fn ceilPowerOfTwo(comptime T: type, value: T) (error{Overflow}!T) {
     comptime assert(@typeInfo(T) == .Int);
     comptime assert(!T.is_signed);
-    comptime const PromotedType = std.meta.IntType(T.is_signed, T.bit_count + 1);
+    comptime const PromotedType = std.meta.Int(T.is_signed, T.bit_count + 1);
     comptime const overflowBit = @as(PromotedType, 1) << T.bit_count;
     var x = ceilPowerOfTwoPromote(T, value);
     if (overflowBit & x != 0) {
@@ -965,8 +965,8 @@ test "max value type" {
     testing.expect(x == 2147483647);
 }
 
-pub fn mulWide(comptime T: type, a: T, b: T) std.meta.IntType(T.is_signed, T.bit_count * 2) {
-    const ResultInt = std.meta.IntType(T.is_signed, T.bit_count * 2);
+pub fn mulWide(comptime T: type, a: T, b: T) std.meta.Int(T.is_signed, T.bit_count * 2) {
+    const ResultInt = std.meta.Int(T.is_signed, T.bit_count * 2);
     return @as(ResultInt, a) * @as(ResultInt, b);
 }
 
@@ -986,6 +986,43 @@ pub const Order = enum {
 
     /// Greater than (`>`)
     gt,
+
+    pub fn invert(self: Order) Order {
+        return switch (self) {
+            .lt => .gt,
+            .eq => .eq,
+            .gt => .gt,
+        };
+    }
+
+    pub fn compare(self: Order, op: CompareOperator) bool {
+        return switch (self) {
+            .lt => switch (op) {
+                .lt => true,
+                .lte => true,
+                .eq => false,
+                .gte => false,
+                .gt => false,
+                .neq => true,
+            },
+            .eq => switch (op) {
+                .lt => false,
+                .lte => true,
+                .eq => true,
+                .gte => true,
+                .gt => false,
+                .neq => false,
+            },
+            .gt => switch (op) {
+                .lt => false,
+                .lte => false,
+                .eq => false,
+                .gte => true,
+                .gt => true,
+                .neq => true,
+            },
+        };
+    }
 };
 
 /// Given two numbers, this function returns the order they are with respect to each other.

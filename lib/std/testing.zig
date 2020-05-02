@@ -1,4 +1,5 @@
 const std = @import("std.zig");
+const warn = std.debug.warn;
 
 pub const LeakCountAllocator = @import("testing/leak_count_allocator.zig").LeakCountAllocator;
 pub const FailingAllocator = @import("testing/failing_allocator.zig").FailingAllocator;
@@ -11,7 +12,7 @@ pub const failing_allocator = &failing_allocator_instance.allocator;
 pub var failing_allocator_instance = FailingAllocator.init(&base_allocator_instance.allocator, 0);
 
 pub var base_allocator_instance = std.heap.ThreadSafeFixedBufferAllocator.init(allocator_mem[0..]);
-var allocator_mem: [1024 * 1024]u8 = undefined;
+var allocator_mem: [2 * 1024 * 1024]u8 = undefined;
 
 /// This function is intended to be used only in tests. It prints diagnostics to stderr
 /// and then aborts when actual_error_union is not expected_error.
@@ -192,6 +193,44 @@ pub fn expect(ok: bool) void {
     if (!ok) @panic("test failure");
 }
 
+pub const TmpDir = struct {
+    dir: std.fs.Dir,
+    parent_dir: std.fs.Dir,
+    sub_path: [sub_path_len]u8,
+
+    const random_bytes_count = 12;
+    const sub_path_len = std.base64.Base64Encoder.calcSize(random_bytes_count);
+
+    pub fn cleanup(self: *TmpDir) void {
+        self.dir.close();
+        self.parent_dir.deleteTree(&self.sub_path) catch {};
+        self.parent_dir.close();
+        self.* = undefined;
+    }
+};
+
+pub fn tmpDir(opts: std.fs.Dir.OpenDirOptions) TmpDir {
+    var random_bytes: [TmpDir.random_bytes_count]u8 = undefined;
+    std.crypto.randomBytes(&random_bytes) catch
+        @panic("unable to make tmp dir for testing: unable to get random bytes");
+    var sub_path: [TmpDir.sub_path_len]u8 = undefined;
+    std.fs.base64_encoder.encode(&sub_path, &random_bytes);
+
+    var cache_dir = std.fs.cwd().makeOpenPath("zig-cache", .{}) catch
+        @panic("unable to make tmp dir for testing: unable to make and open zig-cache dir");
+    defer cache_dir.close();
+    var parent_dir = cache_dir.makeOpenPath("tmp", .{}) catch
+        @panic("unable to make tmp dir for testing: unable to make and open zig-cache/tmp dir");
+    var dir = parent_dir.makeOpenPath(&sub_path, opts) catch
+        @panic("unable to make tmp dir for testing: unable to make and open the tmp dir");
+
+    return .{
+        .dir = dir,
+        .parent_dir = parent_dir,
+        .sub_path = sub_path,
+    };
+}
+
 test "expectEqual nested array" {
     const a = [2][2]f32{
         [_]f32{ 1.0, 0.0 },
@@ -211,4 +250,66 @@ test "expectEqual vector" {
     var b = @splat(4, @as(u32, 4));
 
     expectEqual(a, b);
+}
+
+pub fn expectEqualStrings(expected: []const u8, actual: []const u8) void {
+    if (std.mem.indexOfDiff(u8, actual, expected)) |diff_index| {
+        warn("\n====== expected this output: =========\n", .{});
+        printWithVisibleNewlines(expected);
+        warn("\n======== instead found this: =========\n", .{});
+        printWithVisibleNewlines(actual);
+        warn("\n======================================\n", .{});
+
+        var diff_line_number: usize = 1;
+        for (expected[0..diff_index]) |value| {
+            if (value == '\n') diff_line_number += 1;
+        }
+        warn("First difference occurs on line {}:\n", .{diff_line_number});
+
+        warn("expected:\n", .{});
+        printIndicatorLine(expected, diff_index);
+
+        warn("found:\n", .{});
+        printIndicatorLine(actual, diff_index);
+
+        @panic("test failure");
+    }
+}
+
+fn printIndicatorLine(source: []const u8, indicator_index: usize) void {
+    const line_begin_index = if (std.mem.lastIndexOfScalar(u8, source[0..indicator_index], '\n')) |line_begin|
+        line_begin + 1
+    else
+        0;
+    const line_end_index = if (std.mem.indexOfScalar(u8, source[indicator_index..], '\n')) |line_end|
+        (indicator_index + line_end)
+    else
+        source.len;
+
+    printLine(source[line_begin_index..line_end_index]);
+    {
+        var i: usize = line_begin_index;
+        while (i < indicator_index) : (i += 1)
+            warn(" ", .{});
+    }
+    warn("^\n", .{});
+}
+
+fn printWithVisibleNewlines(source: []const u8) void {
+    var i: usize = 0;
+    while (std.mem.indexOf(u8, source[i..], "\n")) |nl| : (i += nl + 1) {
+        printLine(source[i .. i + nl]);
+    }
+    warn("{}␃\n", .{source[i..]}); // End of Text symbol (ETX)
+}
+
+fn printLine(line: []const u8) void {
+    switch (line[line.len - 1]) {
+        ' ', '\t' => warn("{}⏎\n", .{line}), // Carriage return symbol,
+        else => warn("{}\n", .{line}),
+    }
+}
+
+test "" {
+    expectEqualStrings("foo", "foo");
 }

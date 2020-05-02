@@ -1887,7 +1887,7 @@ static bool iter_function_params_c_abi(CodeGen *g, ZigType *fn_type, FnWalk *fn_
                     if (type_is_nonnull_ptr(g, ty)) {
                         addLLVMArgAttr(llvm_fn, fn_walk->data.attrs.gen_i, "nonnull");
                     }
-                    if (ptr_type->data.pointer.is_const) {
+                    if (ptr_type->id == ZigTypeIdPointer && ptr_type->data.pointer.is_const) {
                         addLLVMArgAttr(llvm_fn, fn_walk->data.attrs.gen_i, "readonly");
                     }
                     if (param_info->is_noalias) {
@@ -2071,7 +2071,7 @@ var_ok:
 
 void walk_function_params(CodeGen *g, ZigType *fn_type, FnWalk *fn_walk) {
     CallingConvention cc = fn_type->data.fn.fn_type_id.cc;
-    if (cc == CallingConventionC) {
+    if (!calling_convention_allows_zig_types(cc)) {
         size_t src_i = 0;
         for (;;) {
             if (!iter_function_params_c_abi(g, fn_type, fn_walk, src_i))
@@ -3335,12 +3335,16 @@ static LLVMValueRef ir_render_bit_cast(CodeGen *g, IrExecutableGen *executable,
             LLVMPointerType(get_llvm_type(g, wanted_type), 0) : get_llvm_type(g, wanted_type);
         return LLVMBuildBitCast(g->builder, value, wanted_type_ref, "");
     } else if (actual_is_ptr) {
+        // A scalar is wanted but we got a pointer
         LLVMTypeRef wanted_ptr_type_ref = LLVMPointerType(get_llvm_type(g, wanted_type), 0);
         LLVMValueRef bitcasted_ptr = LLVMBuildBitCast(g->builder, value, wanted_ptr_type_ref, "");
         uint32_t alignment = get_abi_alignment(g, actual_type);
         return gen_load_untyped(g, bitcasted_ptr, alignment, false, "");
     } else {
-        zig_unreachable();
+        // A pointer is wanted but we got a scalar
+        assert(actual_type->id == ZigTypeIdPointer);
+        LLVMTypeRef wanted_ptr_type_ref = LLVMPointerType(get_llvm_type(g, wanted_type), 0);
+        return LLVMBuildBitCast(g->builder, value, wanted_ptr_type_ref, "");
     }
 }
 
@@ -3869,6 +3873,9 @@ static LLVMValueRef ir_render_elem_ptr(CodeGen *g, IrExecutableGen *executable, 
             assert(array_type->data.pointer.child_type->id == ZigTypeIdArray);
             array_type = array_type->data.pointer.child_type;
         }
+        
+        assert(array_type->data.array.len != 0 || array_type->data.array.sentinel != nullptr);
+
         if (safety_check_on) {
             uint64_t extra_len_from_sentinel = (array_type->data.array.sentinel != nullptr) ? 1 : 0;
             uint64_t full_len = array_type->data.array.len + extra_len_from_sentinel;
@@ -7912,7 +7919,7 @@ static void do_code_gen(CodeGen *g) {
 
         FnTypeId *fn_type_id = &fn_table_entry->type_entry->data.fn.fn_type_id;
         CallingConvention cc = fn_type_id->cc;
-        bool is_c_abi = cc == CallingConventionC;
+        bool is_c_abi = !calling_convention_allows_zig_types(cc);
         bool want_sret = want_first_arg_sret(g, fn_type_id);
 
         LLVMValueRef fn = fn_llvm_value(g, fn_table_entry);
@@ -9405,10 +9412,16 @@ void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_pa
                 args.append(g->zig_target->llvm_cpu_name);
             }
             if (g->zig_target->llvm_cpu_features != nullptr) {
-                args.append("-Xclang");
-                args.append("-target-feature");
-                args.append("-Xclang");
-                args.append(g->zig_target->llvm_cpu_features);
+                // https://github.com/ziglang/zig/issues/5017
+                SplitIterator it = memSplit(str(g->zig_target->llvm_cpu_features), str(","));
+                Optional<Slice<uint8_t>> flag = SplitIterator_next(&it);
+                while (flag.is_some) {
+                    args.append("-Xclang");
+                    args.append("-target-feature");
+                    args.append("-Xclang");
+                    args.append(buf_ptr(buf_create_from_slice(flag.value)));
+                    flag = SplitIterator_next(&it);
+                }
             }
             if (translate_c) {
                 // this gives us access to preprocessing entities, presumably at
@@ -9862,6 +9875,9 @@ Error create_c_object_cache(CodeGen *g, CacheHash **out_cache_hash, bool verbose
     }
     cache_buf(cache_hash, compiler_id);
     cache_int(cache_hash, g->err_color);
+    cache_list_of_str(cache_hash, g->framework_dirs.items, g->framework_dirs.length);
+    cache_bool(cache_hash, g->libcpp_link_lib != nullptr);
+    cache_buf(cache_hash, g->zig_lib_dir);
     cache_buf(cache_hash, g->zig_c_headers_dir);
     cache_list_of_str(cache_hash, g->libc_include_dir_list, g->libc_include_dir_len);
     cache_int(cache_hash, g->zig_target->is_native_os);
@@ -9877,6 +9893,11 @@ Error create_c_object_cache(CodeGen *g, CacheHash **out_cache_hash, bool verbose
     cache_bool(cache_hash, want_valgrind_support(g));
     cache_bool(cache_hash, g->function_sections);
     cache_int(cache_hash, g->code_model);
+    cache_bool(cache_hash, codegen_have_frame_pointer(g));
+    cache_bool(cache_hash, g->libc_link_lib);
+    if (g->zig_target->cache_hash != nullptr) {
+        cache_mem(cache_hash, g->zig_target->cache_hash, g->zig_target->cache_hash_len);
+    }
 
     for (size_t arg_i = 0; arg_i < g->clang_argv_len; arg_i += 1) {
         cache_str(cache_hash, g->clang_argv[arg_i]);
@@ -10722,6 +10743,7 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     cache_buf_opt(ch, g->linker_optimization);
     cache_int(ch, g->linker_gc_sections);
     cache_int(ch, g->linker_allow_shlib_undefined);
+    cache_int(ch, g->linker_bind_global_refs_locally);
     cache_bool(ch, g->linker_z_nodelete);
     cache_bool(ch, g->linker_z_defs);
     cache_usize(ch, g->stack_size_override);

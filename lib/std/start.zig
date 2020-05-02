@@ -108,7 +108,7 @@ fn _start() callconv(.Naked) noreturn {
                 : [argc] "=r" (-> [*]usize)
             );
         },
-        .mipsel => {
+        .mips, .mipsel => {
             // Need noat here because LLVM is free to pick any register
             starting_stack_ptr = asm (
                 \\ .set noat

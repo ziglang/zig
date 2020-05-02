@@ -404,6 +404,7 @@ pub const Target = struct {
     };
 
     pub const ObjectFormat = enum {
+        /// TODO Get rid of this one.
         unknown,
         coff,
         elf,
@@ -459,7 +460,7 @@ pub const Target = struct {
                 pub const needed_bit_count = 155;
                 pub const byte_count = (needed_bit_count + 7) / 8;
                 pub const usize_count = (byte_count + (@sizeOf(usize) - 1)) / @sizeOf(usize);
-                pub const Index = std.math.Log2Int(std.meta.IntType(false, usize_count * @bitSizeOf(usize)));
+                pub const Index = std.math.Log2Int(std.meta.Int(false, usize_count * @bitSizeOf(usize)));
                 pub const ShiftInt = std.math.Log2Int(usize);
 
                 pub const empty = Set{ .ints = [1]usize{0} ** usize_count };
@@ -488,8 +489,8 @@ pub const Target = struct {
 
                 /// Adds the specified feature set but not its dependencies.
                 pub fn addFeatureSet(set: *Set, other_set: Set) void {
-                    set.ints = @as(@Vector(usize_count, usize), set.ints) |
-                        @as(@Vector(usize_count, usize), other_set.ints);
+                    set.ints = @as(std.meta.Vector(usize_count, usize), set.ints) |
+                        @as(std.meta.Vector(usize_count, usize), other_set.ints);
                 }
 
                 /// Removes the specified feature but not its dependents.
@@ -501,8 +502,8 @@ pub const Target = struct {
 
                 /// Removes the specified feature but not its dependents.
                 pub fn removeFeatureSet(set: *Set, other_set: Set) void {
-                    set.ints = @as(@Vector(usize_count, usize), set.ints) &
-                        ~@as(@Vector(usize_count, usize), other_set.ints);
+                    set.ints = @as(std.meta.Vector(usize_count, usize), set.ints) &
+                        ~@as(std.meta.Vector(usize_count, usize), other_set.ints);
                 }
 
                 pub fn populateDependencies(set: *Set, all_features_list: []const Cpu.Feature) void {
@@ -761,7 +762,7 @@ pub const Target = struct {
                 };
             }
 
-            pub fn ptrBitWidth(arch: Arch) u32 {
+            pub fn ptrBitWidth(arch: Arch) u16 {
                 switch (arch) {
                     .avr,
                     .msp430,

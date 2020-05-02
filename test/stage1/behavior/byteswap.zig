@@ -43,7 +43,7 @@ test "@byteSwap vectors" {
     if (std.Target.current.os.tag == .dragonfly) return error.SkipZigTest;
 
     // https://github.com/ziglang/zig/issues/3317
-    if (std.Target.current.cpu.arch == .mipsel) return error.SkipZigTest;
+    if (std.Target.current.cpu.arch == .mipsel or std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
 
     const ByteSwapVectorTest = struct {
         fn run() void {
@@ -55,8 +55,8 @@ test "@byteSwap vectors" {
         fn t(
             comptime I: type,
             comptime n: comptime_int,
-            input: @Vector(n, I),
-            expected_vector: @Vector(n, I),
+            input: std.meta.Vector(n, I),
+            expected_vector: std.meta.Vector(n, I),
         ) void {
             const actual_output: [n]I = @byteSwap(I, input);
             const expected_output: [n]I = expected_vector;

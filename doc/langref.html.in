@@ -1850,8 +1850,8 @@ test "null terminated array" {
       {#header_open|Vectors#}
       <p>
       A vector is a group of {#link|Integers#}, {#link|Floats#}, or {#link|Pointers#} which are operated on
-      in parallel using a single instruction ({#link|SIMD#}). Vector types are created with the builtin
-      function {#link|@Vector#}.
+      in parallel using a single instruction ({#link|SIMD#}). Vector types are created with the builtin function {#link|@Type#},
+      or using the shorthand as {#syntax#}std.meta.Vector{#endsyntax#}.
       </p>
       <p>
       TODO talk about C ABI interop
@@ -1885,7 +1885,7 @@ test "null terminated array" {
               <li>Supports slice syntax: {#syntax#}ptr[start..end]{#endsyntax#}</li>
               <li>Supports pointer arithmetic: {#syntax#}ptr + x{#endsyntax#}, {#syntax#}ptr - x{#endsyntax#}</li>
               <li>{#syntax#}T{#endsyntax#} must have a known size, which means that it cannot be
-              {#syntax#}c_void{#endsyntax#} or any other {#link|@OpaqueType#}.</li>
+              {#syntax#}c_void{#endsyntax#} or any other {#link|opaque type|Opaque Types#}.</li>
             </ul>
           </li>
       </ul>
@@ -5392,7 +5392,7 @@ fn eql_i32(a: i32, b: i32) bool {
       </p>
       <p>
       {#syntax#}void{#endsyntax#} is distinct from {#syntax#}c_void{#endsyntax#}, which is defined like this:
-              {#syntax#}pub const c_void = @OpaqueType();{#endsyntax#}.
+              {#syntax#}pub const c_void = @Type(.Opaque);{#endsyntax#}.
                   {#syntax#}void{#endsyntax#} has a known size of 0 bytes, and {#syntax#}c_void{#endsyntax#} has an unknown, but non-zero, size.
       </p>
       <p>
@@ -7666,30 +7666,6 @@ mem.set(u8, dest, c);{#endsyntax#}</pre>
       </p>
       {#header_close#}
 
-      {#header_open|@OpaqueType#}
-      <pre>{#syntax#}@OpaqueType() type{#endsyntax#}</pre>
-      <p>
-      Creates a new type with an unknown (but non-zero) size and alignment.
-      </p>
-      <p>
-      This is typically used for type safety when interacting with C code that does not expose struct details.
-      Example:
-      </p>
-      {#code_begin|test_err|expected type '*Derp', found '*Wat'#}
-const Derp = @OpaqueType();
-const Wat = @OpaqueType();
-
-extern fn bar(d: *Derp) void;
-fn foo(w: *Wat) callconv(.C) void {
-    bar(w);
-}
-
-test "call foo" {
-    foo(undefined);
-}
-      {#code_end#}
-      {#header_close#}
-
       {#header_open|@panic#}
       <pre>{#syntax#}@panic(message: []const u8) noreturn{#endsyntax#}</pre>
       <p>
@@ -7934,7 +7910,7 @@ test "@setRuntimeSafety" {
       {#header_close#}
 
       {#header_open|@shuffle#}
-      <pre>{#syntax#}@shuffle(comptime E: type, a: @Vector(a_len, E), b: @Vector(b_len, E), comptime mask: @Vector(mask_len, i32)) @Vector(mask_len, E){#endsyntax#}</pre>
+      <pre>{#syntax#}@shuffle(comptime E: type, a: std.meta.Vector(a_len, E), b: std.meta.Vector(b_len, E), comptime mask: std.meta.Vector(mask_len, i32)) std.meta.Vector(mask_len, E){#endsyntax#}</pre>
       <p>
       Constructs a new {#link|vector|Vectors#} by selecting elements from {#syntax#}a{#endsyntax#} and
       {#syntax#}b{#endsyntax#} based on {#syntax#}mask{#endsyntax#}.
@@ -7990,7 +7966,7 @@ test "@setRuntimeSafety" {
       {#header_close#}
 
       {#header_open|@splat#}
-      <pre>{#syntax#}@splat(comptime len: u32, scalar: var) @Vector(len, @TypeOf(scalar)){#endsyntax#}</pre>
+      <pre>{#syntax#}@splat(comptime len: u32, scalar: var) std.meta.Vector(len, @TypeOf(scalar)){#endsyntax#}</pre>
       <p>
       Produces a vector of length {#syntax#}len{#endsyntax#} where each element is the value
       {#syntax#}scalar{#endsyntax#}:
@@ -8002,7 +7978,7 @@ const assert = std.debug.assert;
 test "vector @splat" {
     const scalar: u32 = 5;
     const result = @splat(4, scalar);
-    comptime assert(@TypeOf(result) == @Vector(4, u32));
+    comptime assert(@TypeOf(result) == std.meta.Vector(4, u32));
     assert(std.mem.eql(u32, &@as([4]u32, result), &[_]u32{ 5, 5, 5, 5 }));
 }
       {#code_end#}
@@ -8274,21 +8250,21 @@ test "integer truncation" {
           <li>{#syntax#}comptime_float{#endsyntax#}</li>
           <li>{#syntax#}@TypeOf(undefined){#endsyntax#}</li>
           <li>{#syntax#}@TypeOf(null){#endsyntax#}</li>
+          <li>{#link|Arrays#}</li>
+          <li>{#link|Optionals#}</li>
+          <li>{#link|Error Union Type#}</li>
+          <li>{#link|Vectors#}</li>
+          <li>{#link|Opaque Types#}</li>
+          <li>AnyFrame</li>
       </ul>
       <p>
       For these types it is a
       <a href="https://github.com/ziglang/zig/issues/2907">TODO in the compiler to implement</a>:
       </p>
       <ul>
-          <li>Array</li>
-          <li>Optional</li>
-          <li>ErrorUnion</li>
           <li>ErrorSet</li>
           <li>Enum</li>
-          <li>Opaque</li>
           <li>FnFrame</li>
-          <li>AnyFrame</li>
-          <li>Vector</li>
           <li>EnumLiteral</li>
       </ul>
       <p>
@@ -8360,17 +8336,28 @@ fn foo(comptime T: type, ptr: *T) T {
       {#syntax#}@unionInit{#endsyntax#} forwards its {#link|result location|Result Location Semantics#} to {#syntax#}init_expr{#endsyntax#}.
       </p>
       {#header_close#}
-
-      {#header_open|@Vector#}
-      <pre>{#syntax#}@Vector(comptime len: u32, comptime ElemType: type) type{#endsyntax#}</pre>
-      <p>
-      This function returns a vector type for {#link|SIMD#}.
-      </p>
-      <p>
-      {#syntax#}ElemType{#endsyntax#} must be an {#link|integer|Integers#}, a {#link|float|Floats#}, or a
-      {#link|pointer|Pointers#}.
-      </p>
       {#header_close#}
+
+      {#header_open|Opaque Types#}
+      {#syntax#}@Type(.Opaque){#endsyntax#} creates a new type with an unknown (but non-zero) size and alignment.
+      </p>
+      <p>
+      This is typically used for type safety when interacting with C code that does not expose struct details.
+      Example:
+      </p>
+      {#code_begin|test_err|expected type '*Derp', found '*Wat'#}
+const Derp = @Type(.Opaque);
+const Wat = @Type(.Opaque);
+
+extern fn bar(d: *Derp) void;
+fn foo(w: *Wat) callconv(.C) void {
+    bar(w);
+}
+
+test "call foo" {
+    foo(undefined);
+}
+      {#code_end#}
       {#header_close#}
 
       {#header_open|Build Mode#}

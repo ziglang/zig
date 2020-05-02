@@ -105,6 +105,31 @@ pub const Allocator = struct {
         return self.alignedAlloc(T, null, n);
     }
 
+    pub fn allocWithOptions(
+        self: *Allocator,
+        comptime Elem: type,
+        n: usize,
+        /// null means naturally aligned
+        comptime optional_alignment: ?u29,
+        comptime optional_sentinel: ?Elem,
+    ) Error!AllocWithOptionsPayload(Elem, optional_alignment, optional_sentinel) {
+        if (optional_sentinel) |sentinel| {
+            const ptr = try self.alignedAlloc(Elem, optional_alignment, n + 1);
+            ptr[n] = sentinel;
+            return ptr[0..n :sentinel];
+        } else {
+            return self.alignedAlloc(Elem, optional_alignment, n);
+        }
+    }
+
+    fn AllocWithOptionsPayload(comptime Elem: type, comptime alignment: ?u29, comptime sentinel: ?Elem) type {
+        if (sentinel) |s| {
+            return [:s]align(alignment orelse @alignOf(T)) Elem;
+        } else {
+            return []align(alignment orelse @alignOf(T)) Elem;
+        }
+    }
+
     /// Allocates an array of `n + 1` items of type `T` and sets the first `n`
     /// items to `undefined` and the last item to `sentinel`. Depending on the
     /// Allocator implementation, it may be required to call `free` once the
@@ -113,10 +138,10 @@ pub const Allocator = struct {
     /// call `free` when done.
     ///
     /// For allocating a single item, see `create`.
+    ///
+    /// Deprecated; use `allocWithOptions`.
     pub fn allocSentinel(self: *Allocator, comptime Elem: type, n: usize, comptime sentinel: Elem) Error![:sentinel]Elem {
-        var ptr = try self.alloc(Elem, n + 1);
-        ptr[n] = sentinel;
-        return ptr[0..n :sentinel];
+        return self.allocWithOptions(Elem, n, null, sentinel);
     }
 
     pub fn alignedAlloc(
@@ -487,6 +512,25 @@ pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
         if (b[index] != item) return false;
     }
     return true;
+}
+
+/// Compares two slices and returns the index of the first inequality.
+/// Returns null if the slices are equal.
+pub fn indexOfDiff(comptime T: type, a: []const T, b: []const T) ?usize {
+    const shortest = math.min(a.len, b.len);
+    if (a.ptr == b.ptr)
+        return if (a.len == b.len) null else shortest;
+    var index: usize = 0;
+    while (index < shortest) : (index += 1) if (a[index] != b[index]) return index;
+    return if (a.len == b.len) null else shortest;
+}
+
+test "indexOfDiff" {
+    testing.expectEqual(indexOfDiff(u8, "one", "one"), null);
+    testing.expectEqual(indexOfDiff(u8, "one two", "one"), 3);
+    testing.expectEqual(indexOfDiff(u8, "one", "one two"), 3);
+    testing.expectEqual(indexOfDiff(u8, "one twx", "one two"), 6);
+    testing.expectEqual(indexOfDiff(u8, "xne", "one"), 0);
 }
 
 pub const toSliceConst = @compileError("deprecated; use std.mem.spanZ");
@@ -1040,7 +1084,7 @@ pub fn writeIntSliceLittle(comptime T: type, buffer: []u8, value: T) void {
         return set(u8, buffer, 0);
 
     // TODO I want to call writeIntLittle here but comptime eval facilities aren't good enough
-    const uint = std.meta.IntType(false, T.bit_count);
+    const uint = std.meta.Int(false, T.bit_count);
     var bits = @truncate(uint, value);
     for (buffer) |*b| {
         b.* = @truncate(u8, bits);
@@ -1060,7 +1104,7 @@ pub fn writeIntSliceBig(comptime T: type, buffer: []u8, value: T) void {
         return set(u8, buffer, 0);
 
     // TODO I want to call writeIntBig here but comptime eval facilities aren't good enough
-    const uint = std.meta.IntType(false, T.bit_count);
+    const uint = std.meta.Int(false, T.bit_count);
     var bits = @truncate(uint, value);
     var index: usize = buffer.len;
     while (index != 0) {
@@ -2002,7 +2046,13 @@ test "sliceAsBytes and bytesAsSlice back" {
 /// Round an address up to the nearest aligned address
 /// The alignment must be a power of 2 and greater than 0.
 pub fn alignForward(addr: usize, alignment: usize) usize {
-    return alignBackward(addr + (alignment - 1), alignment);
+    return alignForwardGeneric(usize, addr, alignment);
+}
+
+/// Round an address up to the nearest aligned address
+/// The alignment must be a power of 2 and greater than 0.
+pub fn alignForwardGeneric(comptime T: type, addr: T, alignment: T) T {
+    return alignBackwardGeneric(T, addr + (alignment - 1), alignment);
 }
 
 test "alignForward" {
@@ -2023,8 +2073,14 @@ test "alignForward" {
 /// Round an address up to the previous aligned address
 /// The alignment must be a power of 2 and greater than 0.
 pub fn alignBackward(addr: usize, alignment: usize) usize {
-    assert(@popCount(usize, alignment) == 1);
-    // 000010000 // example addr
+    return alignBackwardGeneric(usize, addr, alignment);
+}
+
+/// Round an address up to the previous aligned address
+/// The alignment must be a power of 2 and greater than 0.
+pub fn alignBackwardGeneric(comptime T: type, addr: T, alignment: T) T {
+    assert(@popCount(T, alignment) == 1);
+    // 000010000 // example alignment
     // 000001111 // subtract 1
     // 111110000 // binary not
     return addr & ~(alignment - 1);

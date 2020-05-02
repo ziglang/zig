@@ -16,6 +16,9 @@ test "integer literal to pointer cast" {
 }
 
 test "pointer reinterpret const float to int" {
+    // https://github.com/ziglang/zig/issues/3345
+    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
+
     const float: f64 = 5.99999999999994648725e-01;
     const float_ptr = &float;
     const int_ptr = @ptrCast(*const i32, float_ptr);
@@ -804,4 +807,23 @@ test "peer type resolve array pointers, one of them const" {
     const array2: [5]u8 = undefined;
     comptime expect(@TypeOf(&array1, &array2) == []const u8);
     comptime expect(@TypeOf(&array2, &array1) == []const u8);
+}
+
+test "peer type resolve array pointer and unknown pointer" {
+    const const_array: [4]u8 = undefined;
+    var array: [4]u8 = undefined;
+    var const_ptr: [*]const u8 = undefined;
+    var ptr: [*]u8 = undefined;
+
+    comptime expect(@TypeOf(&array, ptr) == [*]u8);
+    comptime expect(@TypeOf(ptr, &array) == [*]u8);
+
+    comptime expect(@TypeOf(&const_array, ptr) == [*]const u8);
+    comptime expect(@TypeOf(ptr, &const_array) == [*]const u8);
+
+    comptime expect(@TypeOf(&array, const_ptr) == [*]const u8);
+    comptime expect(@TypeOf(const_ptr, &array) == [*]const u8);
+    
+    comptime expect(@TypeOf(&const_array, const_ptr) == [*]const u8);
+    comptime expect(@TypeOf(const_ptr, &const_array) == [*]const u8);
 }

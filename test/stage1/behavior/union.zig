@@ -623,6 +623,9 @@ test "0-sized extern union definition" {
 }
 
 test "union initializer generates padding only if needed" {
+    // https://github.com/ziglang/zig/issues/5127
+    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
+
     const U = union(enum) {
         A: u24,
     };

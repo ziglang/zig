@@ -132,6 +132,7 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  --ver-major [ver]            dynamic library semver major version\n"
         "  --ver-minor [ver]            dynamic library semver minor version\n"
         "  --ver-patch [ver]            dynamic library semver patch version\n"
+        "  -Bsymbolic                   bind global references locally\n"
         "\n"
         "Test Options:\n"
         "  --test-filter [text]         skip tests that do not match filter\n"
@@ -452,6 +453,7 @@ static int main0(int argc, char **argv) {
     Buf *linker_optimization = nullptr;
     OptionalBool linker_gc_sections = OptionalBoolNull;
     OptionalBool linker_allow_shlib_undefined = OptionalBoolNull;
+    OptionalBool linker_bind_global_refs_locally = OptionalBoolNull;
     bool linker_z_nodelete = false;
     bool linker_z_defs = false;
     size_t stack_size_override = 0;
@@ -842,6 +844,8 @@ static int main0(int argc, char **argv) {
                        buf_eql_str(arg, "-no-allow-shlib-undefined"))
             {
                 linker_allow_shlib_undefined = OptionalBoolFalse;
+            } else if (buf_eql_str(arg, "-Bsymbolic")) {
+                linker_bind_global_refs_locally = OptionalBoolTrue;
             } else if (buf_eql_str(arg, "-z")) {
                 i += 1;
                 if (i >= linker_args.length) {
@@ -1013,6 +1017,8 @@ static int main0(int argc, char **argv) {
                 want_single_threaded = true;;
             } else if (strcmp(arg, "--bundle-compiler-rt") == 0) {
                 bundle_compiler_rt = true;
+            } else if (strcmp(arg, "-Bsymbolic") == 0) {
+                linker_bind_global_refs_locally = OptionalBoolTrue;
             } else if (strcmp(arg, "--test-cmd-bin") == 0) {
                 test_exec_args.append(nullptr);
             } else if (arg[1] == 'D' && arg[2] != 0) {
@@ -1609,6 +1615,7 @@ static int main0(int argc, char **argv) {
             g->linker_optimization = linker_optimization;
             g->linker_gc_sections = linker_gc_sections;
             g->linker_allow_shlib_undefined = linker_allow_shlib_undefined;
+            g->linker_bind_global_refs_locally = linker_bind_global_refs_locally;
             g->linker_z_nodelete = linker_z_nodelete;
             g->linker_z_defs = linker_z_defs;
             g->stack_size_override = stack_size_override;

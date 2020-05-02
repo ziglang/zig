@@ -45,7 +45,7 @@ pub fn BitOutStream(endian: builtin.Endian, comptime OutStreamType: type) type {
                 assert(u_bit_count >= bits);
                 break :bc if (u_bit_count <= u8_bit_count) u8_bit_count else u_bit_count;
             };
-            const Buf = std.meta.IntType(false, buf_bit_count);
+            const Buf = std.meta.Int(false, buf_bit_count);
             const BufShift = math.Log2Int(Buf);
 
             const buf_value = @intCast(Buf, value);
