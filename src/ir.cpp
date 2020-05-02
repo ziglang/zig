@@ -16530,7 +16530,8 @@ static IrInstGen *ir_analyze_bin_op_cmp_optional_non_optional(IrAnalyze *ira, Ir
     }
 
     if (child_type->id == ZigTypeIdVector) {
-        zig_panic("TODO: Support for optional vector comparison");
+        ir_add_error_node(ira, source_instr->source_node, buf_sprintf("TODO: cannot compare optional vector"));
+        return ira->codegen->invalid_inst_gen;
     }
 
     if (instr_is_comptime(optional) && instr_is_comptime(non_optional)) {
