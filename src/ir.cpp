@@ -2260,8 +2260,8 @@ static IrInstGen *ir_build_cmp_optional_non_optional_gen(IrAnalyze *ira, IrInst 
     inst->optional = optional;
     inst->non_optional = non_optional;
 
-    ir_ref_inst_gen(optional, ira->new_irb.current_basic_block);
-    ir_ref_inst_gen(non_optional, ira->new_irb.current_basic_block);
+    ir_ref_inst_gen(optional);
+    ir_ref_inst_gen(non_optional);
 
     return &inst->base;
 }
