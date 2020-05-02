@@ -41,11 +41,21 @@ fn test_cmp_optional_non_optional() void {
     var ten: i32 = 10;
     var opt_ten: ?i32 = 10;
     var five: i32 = 5;
-    var n: ?i32 = null;
+    var int_n: ?i32 = null;
 
-    expect(n != ten);
+    expect(int_n != ten);
     expect(opt_ten == ten);
     expect(opt_ten != five);
+
+    // test where handle_is_ptr() is false
+    var err_test_a: anyerror = error.TestErrorA;
+    var err_opt_test_a: ?anyerror = error.TestErrorA;
+    var err_test_b: anyerror = error.TestErrorB;
+    var err_n: ?anyerror = null;
+
+    expect(err_n != err_test_a);
+    expect(err_opt_test_a == err_test_a);
+    expect(err_opt_test_a != err_test_b);
 }
 
 test "address of unwrap optional" {

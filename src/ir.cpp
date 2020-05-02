@@ -16529,6 +16529,10 @@ static IrInstGen *ir_analyze_bin_op_cmp_optional_non_optional(IrAnalyze *ira, Ir
         return ira->codegen->invalid_inst_gen;
     }
 
+    if (child_type->id == ZigTypeIdVector) {
+        zig_panic("TODO: Support for optional vector comparison");
+    }
+
     if (instr_is_comptime(optional) && instr_is_comptime(non_optional)) {
         ZigValue *optional_val = ir_resolve_const(ira, optional, UndefBad);
         if (!optional_val) {
@@ -16560,7 +16564,8 @@ static IrInstGen *ir_analyze_bin_op_cmp_optional_non_optional(IrAnalyze *ira, Ir
 
     ZigType *result_type = single_type_bin_op_cmp_result_type(ira, child_type);
 
-    return ir_build_cmp_optional_non_optional_gen(ira, source_instr, result_type, op_id, optional, non_optional);
+    IrInstGen *opt_ref = ir_get_ref(ira, source_instr, optional, true, false);
+    return ir_build_cmp_optional_non_optional_gen(ira, source_instr, result_type, op_id, opt_ref, non_optional);
 }
 
 

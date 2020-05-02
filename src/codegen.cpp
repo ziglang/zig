@@ -2947,6 +2947,26 @@ static void gen_shift_rhs_check(CodeGen *g, ZigType *lhs_type, ZigType *rhs_type
     }
 }
 
+static LLVMValueRef gen_comparison(CodeGen *g, ZigType *scalar_type, LLVMValueRef op1, LLVMValueRef op2, IrBinOp op_id, bool want_fast_math) {
+    if (scalar_type->id == ZigTypeIdFloat) {
+        ZigLLVMSetFastMath(g->builder, want_fast_math);
+        LLVMRealPredicate pred = cmp_op_to_real_predicate(op_id);
+        return LLVMBuildFCmp(g->builder, pred, op1, op2, "");
+    } else if (scalar_type->id == ZigTypeIdInt) {
+        LLVMIntPredicate pred = cmp_op_to_int_predicate(op_id, scalar_type->data.integral.is_signed);
+        return LLVMBuildICmp(g->builder, pred, op1, op2, "");
+    } else if (scalar_type->id == ZigTypeIdEnum ||
+               scalar_type->id == ZigTypeIdErrorSet ||
+               scalar_type->id == ZigTypeIdBool ||
+               get_codegen_ptr_type_bail(g, scalar_type) != nullptr)
+    {
+        LLVMIntPredicate pred = cmp_op_to_int_predicate(op_id, false);
+        return LLVMBuildICmp(g->builder, pred, op1, op2, "");
+    } else {
+        zig_unreachable();
+    }
+}
+
 static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutableGen *executable,
         IrInstGenBinOp *bin_op_instruction)
 {
@@ -2980,23 +3000,7 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutableGen *executable,
         case IrBinOpCmpGreaterThan:
         case IrBinOpCmpLessOrEq:
         case IrBinOpCmpGreaterOrEq:
-            if (scalar_type->id == ZigTypeIdFloat) {
-                ZigLLVMSetFastMath(g->builder, ir_want_fast_math(g, &bin_op_instruction->base));
-                LLVMRealPredicate pred = cmp_op_to_real_predicate(op_id);
-                return LLVMBuildFCmp(g->builder, pred, op1_value, op2_value, "");
-            } else if (scalar_type->id == ZigTypeIdInt) {
-                LLVMIntPredicate pred = cmp_op_to_int_predicate(op_id, scalar_type->data.integral.is_signed);
-                return LLVMBuildICmp(g->builder, pred, op1_value, op2_value, "");
-            } else if (scalar_type->id == ZigTypeIdEnum ||
-                    scalar_type->id == ZigTypeIdErrorSet ||
-                    scalar_type->id == ZigTypeIdBool ||
-                    get_codegen_ptr_type_bail(g, scalar_type) != nullptr)
-            {
-                LLVMIntPredicate pred = cmp_op_to_int_predicate(op_id, false);
-                return LLVMBuildICmp(g->builder, pred, op1_value, op2_value, "");
-            } else {
-                zig_unreachable();
-            }
+            return gen_comparison(g, scalar_type, op1_value, op2_value, op_id, ir_want_fast_math(g, &bin_op_instruction->base));
         case IrBinOpMult:
         case IrBinOpMultWrap:
         case IrBinOpAdd:
@@ -3118,12 +3122,6 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutableGen *executable,
                     op1_value, op2_value, operand_type, RemKindMod);
     }
     zig_unreachable();
-}
-
-static LLVMValueRef ir_render_cmp_optional_non_optional(CodeGen *g, IrExecutableGen *executable,
-        IrInstGenCmpOptionalNonOptional *cmp_instruction)
-{
-    zig_panic("TODO: runtime rendering of cmp optional non optional");
 }
 
 static void add_error_range_check(CodeGen *g, ZigType *err_set_type, ZigType *int_type, LLVMValueRef target_val) {
@@ -4866,6 +4864,45 @@ static LLVMValueRef ir_render_optional_unwrap_ptr(CodeGen *g, IrExecutableGen *e
 
     bool gen_safety_check = instruction->safety_check_on && ir_want_runtime_safety(g, &instruction->base);
     return gen_optional_unwrap_ptr(g, instruction->base_ptr, gen_safety_check, instruction->initializing);
+}
+
+static LLVMValueRef ir_render_cmp_optional_non_optional(CodeGen *g, IrExecutableGen *executable,
+        IrInstGenCmpOptionalNonOptional *instruction)
+{
+    ZigType *ptr_type = instruction->optional->value->type;
+    ZigType *maybe_type = ptr_type->data.pointer.child_type;
+    ZigType *child_type = maybe_type->data.maybe.child_type;
+    LLVMValueRef base_ptr = ir_llvm_value(g, instruction->optional);
+
+    LLVMValueRef maybe_handle = get_handle_value(g, base_ptr, maybe_type, ptr_type);
+    LLVMValueRef non_null_bit = gen_non_null_bit(g, maybe_type, maybe_handle);
+    LLVMBasicBlockRef is_non_null_block = LLVMAppendBasicBlock(g->cur_fn_val, "CmpOptionalNonNull");
+    LLVMBasicBlockRef is_null_block = LLVMAppendBasicBlock(g->cur_fn_val, "CmpOptionalNull");
+    LLVMBasicBlockRef cmp_end_block = LLVMAppendBasicBlock(g->cur_fn_val, "CmpOptionalEnd");
+    LLVMBuildCondBr(g->builder, non_null_bit, is_non_null_block, is_null_block);
+
+    LLVMTypeRef llvm_bool = g->builtin_types.entry_bool->llvm_type;
+
+    LLVMPositionBuilderAtEnd(g->builder, is_non_null_block);
+    LLVMValueRef data_ptr = gen_optional_unwrap_ptr(g, instruction->optional, false, false);
+    LLVMValueRef data_obj = LLVMBuildLoad(g->builder, data_ptr, "");
+    LLVMValueRef cmp_result = gen_comparison(g, child_type,
+            data_obj,
+            ir_llvm_value(g, instruction->non_optional),
+            instruction->op_id,
+            ir_want_fast_math(g, &instruction->base));
+    LLVMBuildBr(g->builder, cmp_end_block);
+
+    LLVMPositionBuilderAtEnd(g->builder, is_null_block);
+    LLVMValueRef is_null_val = LLVMConstInt(llvm_bool, (instruction->op_id != IrBinOpCmpEq), false);
+    LLVMBuildBr(g->builder, cmp_end_block);
+
+    LLVMPositionBuilderAtEnd(g->builder, cmp_end_block);
+    LLVMValueRef result = LLVMBuildPhi(g->builder, llvm_bool, "");
+    LLVMValueRef incoming_vals[] = {cmp_result, is_null_val};
+    LLVMBasicBlockRef incoming_blocks[] = {is_non_null_block, is_null_block};
+    LLVMAddIncoming(result, incoming_vals, incoming_blocks, 2);
+    return result;
 }
 
 static LLVMValueRef get_int_builtin_fn(CodeGen *g, ZigType *expr_type, BuiltinFnId fn_id) {
