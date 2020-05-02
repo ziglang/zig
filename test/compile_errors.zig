@@ -7330,4 +7330,30 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         ":3:18: error: expected type '[*:0]const u8', found '*[64]u8'",
         ":3:18: note: destination pointer requires a terminating '0' sentinel",
     });
+
+    cases.add("compare optional to non-optional with invalid types",
+        \\export fn inconsistentChildType() void {
+        \\    var x: ?i32 = undefined;
+        \\    const y: comptime_int = 10;
+        \\    _ = (x == y);
+        \\}
+        \\
+        \\export fn optionalToOptional() void {
+        \\    var x: ?i32 = undefined;
+        \\    var y: ?i32 = undefined;
+        \\    _ = (x == y);
+        \\}
+        \\
+        \\export fn optionalVector() void {
+        \\    var x: ?@Vector(10, i32) = undefined;
+        \\    var y: @Vector(10, i32) = undefined;
+        \\    _ = (x == y);
+        \\}
+    , &[_][]const u8{
+        ":4:12: error: cannot compare types '?i32' and 'comptime_int'",
+        ":4:12: note: optional child type 'i32' must equal non-optional type 'comptime_int'",
+        ":10:12: error: cannot compare types '?i32' and '?i32'",
+        ":10:12: note: only optional to non-optional comparison is allowed",
+        ":16:12: error: TODO add comparison of optional vector",
+    });
 }

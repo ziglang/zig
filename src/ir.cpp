@@ -16545,16 +16545,23 @@ static IrInstGen *ir_analyze_bin_op_cmp_optional_non_optional(IrAnalyze *ira, Ir
 
     ZigType *child_type = optional->value->type->data.maybe.child_type;
     if (child_type != non_optional->value->type) {
-        ir_add_error_node(ira, source_instr->source_node, buf_sprintf("cannot compare types %s and %s (%s is not equal to %s)",
+        ErrorMsg * msg = ir_add_error_node(ira, source_instr->source_node, buf_sprintf("cannot compare types '%s' and '%s'",
                 buf_ptr(&op1->value->type->name),
-                buf_ptr(&op2->value->type->name),
-                buf_ptr(&child_type->name),
-                buf_ptr(&non_optional->value->type->name)));
+                buf_ptr(&op2->value->type->name)));
+
+        if (non_optional->value->type->id == ZigTypeIdOptional) {
+            add_error_note(ira->codegen, msg, source_instr->source_node, buf_sprintf("only optional to non-optional comparison is allowed"));
+        } else {
+            add_error_note(ira->codegen, msg, source_instr->source_node, buf_sprintf("optional child type '%s' must equal non-optional type '%s'",
+                    buf_ptr(&child_type->name),
+                    buf_ptr(&non_optional->value->type->name)));
+        }
+
         return ira->codegen->invalid_inst_gen;
     }
 
     if (child_type->id == ZigTypeIdVector) {
-        ir_add_error_node(ira, source_instr->source_node, buf_sprintf("TODO: cannot compare optional vector"));
+        ir_add_error_node(ira, source_instr->source_node, buf_sprintf("TODO add comparison of optional vector"));
         return ira->codegen->invalid_inst_gen;
     }
 
