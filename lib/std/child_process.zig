@@ -675,26 +675,17 @@ pub const ChildProcess = struct {
         };
 
         if (g_hChildStd_IN_Wr) |h| {
-            self.stdin = File{
-                .handle = h,
-                .io_mode = io.mode,
-            };
+            self.stdin = File{ .handle = h };
         } else {
             self.stdin = null;
         }
         if (g_hChildStd_OUT_Rd) |h| {
-            self.stdout = File{
-                .handle = h,
-                .io_mode = io.mode,
-            };
+            self.stdout = File{ .handle = h };
         } else {
             self.stdout = null;
         }
         if (g_hChildStd_ERR_Rd) |h| {
-            self.stderr = File{
-                .handle = h,
-                .io_mode = io.mode,
-            };
+            self.stderr = File{ .handle = h };
         } else {
             self.stderr = null;
         }
