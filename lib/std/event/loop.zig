@@ -734,14 +734,14 @@ pub const Loop = struct {
     }
 
     /// Performs an async `os.open` using a separate thread.
-    pub fn openZ(self: *Loop, file_path: [*:0]const u8, flags: u32, mode: usize) os.OpenError!os.fd_t {
+    pub fn openZ(self: *Loop, file_path: [*:0]const u8, flags: u32, mode: os.mode_t) os.OpenError!os.fd_t {
         var req_node = Request.Node{
             .data = .{
                 .msg = .{
                     .open = .{
                         .path = file_path,
                         .flags = flags,
-                        .mode = @intCast(os.mode_t, mode),
+                        .mode = mode,
                         .result = undefined,
                     },
                 },
@@ -755,7 +755,7 @@ pub const Loop = struct {
     }
 
     /// Performs an async `os.opent` using a separate thread.
-    pub fn openatZ(self: *Loop, fd: os.fd_t, file_path: [*:0]const u8, flags: u32, mode: usize) os.OpenError!os.fd_t {
+    pub fn openatZ(self: *Loop, fd: os.fd_t, file_path: [*:0]const u8, flags: u32, mode: os.mode_t) os.OpenError!os.fd_t {
         var req_node = Request.Node{
             .data = .{
                 .msg = .{
@@ -763,7 +763,7 @@ pub const Loop = struct {
                         .fd = fd,
                         .path = file_path,
                         .flags = flags,
-                        .mode = @intCast(os.mode_t, mode),
+                        .mode = mode,
                         .result = undefined,
                     },
                 },
