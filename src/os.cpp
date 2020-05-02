@@ -1462,6 +1462,14 @@ static void init_rand() {
     unsigned seed;
     memcpy(&seed, ptr_random, sizeof(seed));
     srand(seed);
+#elif defined(ZIG_OS_FREEBSD) || defined(ZIG_OS_NETBSD)
+    unsigned seed;
+    size_t len = sizeof(seed);
+    int mib[2] = { CTL_KERN, KERN_ARND };
+    if (sysctl(mib, 2, &seed, &len, NULL, 0) != 0) {
+        zig_panic("unable to query random data from sysctl");
+    }
+    srand(seed);
 #else
     int fd = open("/dev/urandom", O_RDONLY|O_CLOEXEC);
     if (fd == -1) {
