@@ -225,7 +225,7 @@ inline fn initEventLoopAndCallMain() u8 {
     return @call(.{ .modifier = .always_inline }, callMain, .{});
 }
 
-async fn callMainAsync(loop: *std.event.Loop) u8 {
+fn callMainAsync(loop: *std.event.Loop) callconv(.Async) u8 {
     // This prevents the event loop from terminating at least until main() has returned.
     loop.beginOneEvent();
     defer loop.finishOneEvent();

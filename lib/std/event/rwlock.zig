@@ -97,7 +97,7 @@ pub const RwLock = struct {
         while (self.reader_queue.get()) |node| resume node.data;
     }
 
-    pub async fn acquireRead(self: *RwLock) HeldRead {
+    pub fn acquireRead(self: *RwLock) HeldRead {
         _ = @atomicRmw(usize, &self.reader_lock_count, .Add, 1, .SeqCst);
 
         suspend {
@@ -130,7 +130,7 @@ pub const RwLock = struct {
         return HeldRead{ .lock = self };
     }
 
-    pub async fn acquireWrite(self: *RwLock) HeldWrite {
+    pub fn acquireWrite(self: *RwLock) HeldWrite {
         suspend {
             var my_tick_node = Loop.NextTickNode{
                 .data = @frame(),
@@ -226,7 +226,7 @@ test "std.event.RwLock" {
     testing.expectEqualSlices(i32, expected_result, shared_test_data);
 }
 
-async fn testLock(allocator: *Allocator, lock: *RwLock) void {
+fn testLock(allocator: *Allocator, lock: *RwLock) void {
     var read_nodes: [100]Loop.NextTickNode = undefined;
     for (read_nodes) |*read_node| {
         const frame = allocator.create(@Frame(readRunner)) catch @panic("memory");
@@ -260,7 +260,7 @@ var shared_test_data = [1]i32{0} ** 10;
 var shared_test_index: usize = 0;
 var shared_count: usize = 0;
 
-async fn writeRunner(lock: *RwLock) void {
+fn writeRunner(lock: *RwLock) void {
     suspend; // resumed by onNextTick
 
     var i: usize = 0;
@@ -278,7 +278,7 @@ async fn writeRunner(lock: *RwLock) void {
     }
 }
 
-async fn readRunner(lock: *RwLock) void {
+fn readRunner(lock: *RwLock) void {
     suspend; // resumed by onNextTick
     std.time.sleep(1);
 

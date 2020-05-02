@@ -105,7 +105,7 @@ pub fn Channel(comptime T: type) type {
 
         /// await this function to get an item from the channel. If the buffer is empty, the frame will
         /// complete when the next item is put in the channel.
-        pub async fn get(self: *SelfChannel) T {
+        pub fn get(self: *SelfChannel) T {
             // TODO https://github.com/ziglang/zig/issues/2765
             var result: T = undefined;
             var my_tick_node = Loop.NextTickNode.init(@frame());
@@ -125,7 +125,7 @@ pub fn Channel(comptime T: type) type {
             return result;
         }
 
-        //pub async fn select(comptime EnumUnion: type, channels: ...) EnumUnion {
+        //pub fn select(comptime EnumUnion: type, channels: ...) EnumUnion {
         //    assert(@memberCount(EnumUnion) == channels.len); // enum union and channels mismatch
         //    assert(channels.len != 0); // enum unions cannot have 0 fields
         //    if (channels.len == 1) {
@@ -306,7 +306,7 @@ test "std.event.Channel wraparound" {
     testing.expectEqual(@as(i32, 7), channel.get());
 }
 
-async fn testChannelGetter(channel: *Channel(i32)) void {
+fn testChannelGetter(channel: *Channel(i32)) void {
     const value1 = channel.get();
     testing.expect(value1 == 1234);
 
@@ -322,11 +322,11 @@ async fn testChannelGetter(channel: *Channel(i32)) void {
     await last_put;
 }
 
-async fn testChannelPutter(channel: *Channel(i32)) void {
+fn testChannelPutter(channel: *Channel(i32)) void {
     channel.put(1234);
     channel.put(4567);
 }
 
-async fn testPut(channel: *Channel(i32), value: i32) void {
+fn testPut(channel: *Channel(i32), value: i32) void {
     channel.put(value);
 }

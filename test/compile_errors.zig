@@ -779,7 +779,9 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     });
 
     cases.add("exported async function",
-        \\export async fn foo() void {}
+        \\export fn foo() callconv(.Async) void {
+        \\    suspend;
+        \\}
     , &[_][]const u8{
         "tmp.zig:1:1: error: exported function cannot be async",
     });
@@ -1258,11 +1260,13 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add("bad alignment in @asyncCall",
         \\export fn entry() void {
-        \\    var ptr: async fn () void = func;
+        \\    var ptr: fn () callconv(.Async) void = func;
         \\    var bytes: [64]u8 = undefined;
         \\    _ = @asyncCall(&bytes, {}, ptr);
         \\}
-        \\async fn func() void {}
+        \\fn func() void {
+        \\    suspend;
+        \\}
     , &[_][]const u8{
         "tmp.zig:4:21: error: expected type '[]align(16) u8', found '*[64]u8'",
     });
@@ -1408,8 +1412,9 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\export fn entry() void {
         \\    _ = async amain();
         \\}
-        \\async fn amain() void {
+        \\fn amain() void {
         \\    other();
+        \\    suspend;
         \\}
         \\fn other() void {
         \\    var x: [@sizeOf(@Frame(amain))]u8 = undefined;
@@ -1417,15 +1422,17 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     , &[_][]const u8{
         "tmp.zig:4:1: error: unable to determine async function frame of 'amain'",
         "tmp.zig:5:10: note: analysis of function 'other' depends on the frame",
-        "tmp.zig:8:13: note: referenced here",
+        "tmp.zig:9:13: note: referenced here",
+        "tmp.zig:9:12: note: referenced here",
     });
 
     cases.add("async function depends on its own frame",
         \\export fn entry() void {
         \\    _ = async amain();
         \\}
-        \\async fn amain() void {
+        \\fn amain() void {
         \\    var x: [@sizeOf(@Frame(amain))]u8 = undefined;
+        \\    suspend;
         \\}
     , &[_][]const u8{
         "tmp.zig:4:1: error: cannot resolve '@Frame(amain)': function not fully analyzed yet",
@@ -1442,27 +1449,30 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     , &[_][]const u8{
         "tmp.zig:4:32: error: expected async function, found 'fn() void'",
     });
-
     cases.add("runtime-known async function called",
         \\export fn entry() void {
         \\    _ = async amain();
         \\}
         \\fn amain() void {
-        \\    var ptr = afunc;
+        \\    var ptr: fn () callconv(.Async) void = afunc;
         \\    _ = ptr();
         \\}
-        \\async fn afunc() void {}
+        \\fn afunc() void {
+        \\    suspend;
+        \\}
     , &[_][]const u8{
         "tmp.zig:6:12: error: function is not comptime-known; @asyncCall required",
     });
 
     cases.add("runtime-known function called with async keyword",
         \\export fn entry() void {
-        \\    var ptr = afunc;
+        \\    var ptr: fn () callconv(.Async) void = afunc;
         \\    _ = async ptr();
         \\}
         \\
-        \\async fn afunc() void { }
+        \\fn afunc() void {
+        \\    suspend;
+        \\}
     , &[_][]const u8{
         "tmp.zig:3:15: error: function is not comptime-known; @asyncCall required",
     });
@@ -3051,7 +3061,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\export fn entry() void {
         \\    _ = async foo();
         \\}
-        \\async fn foo() void {
+        \\fn foo() void {
         \\    suspend {
         \\        suspend {
         \\        }
@@ -3094,16 +3104,16 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:7:19: error: union has no associated enum",
         "tmp.zig:1:18: note: declared here",
     });
-
     cases.add("returning error from void async function",
         \\export fn entry() void {
         \\    _ = async amain();
         \\}
-        \\async fn amain() void {
+        \\fn amain() void {
+        \\    suspend;
         \\    return error.ShouldBeCompileError;
         \\}
     , &[_][]const u8{
-        "tmp.zig:5:17: error: expected type 'void', found 'error{ShouldBeCompileError}'",
+        "tmp.zig:6:17: error: expected type 'void', found 'error{ShouldBeCompileError}'",
     });
 
     cases.add("var makes structs required to be comptime known",

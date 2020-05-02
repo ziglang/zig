@@ -252,10 +252,10 @@ test "zig fmt: anon list literal syntax" {
 test "zig fmt: async function" {
     try testCanonical(
         \\pub const Server = struct {
-        \\    handleRequestFn: async fn (*Server, *const std.net.Address, File) void,
+        \\    handleRequestFn: fn (*Server, *const std.net.Address, File) callconv(.Async) void,
         \\};
         \\test "hi" {
-        \\    var ptr = @ptrCast(async fn (i32) void, other);
+        \\    var ptr = @ptrCast(fn (i32) callconv(.Async) void, other);
         \\}
         \\
     );
@@ -453,9 +453,9 @@ test "zig fmt: aligned struct field" {
 
 test "zig fmt: preserve space between async fn definitions" {
     try testCanonical(
-        \\async fn a() void {}
+        \\fn a() callconv(.Async) void {}
         \\
-        \\async fn b() void {}
+        \\fn b() callconv(.Async) void {}
         \\
     );
 }
@@ -1515,7 +1515,7 @@ test "zig fmt: line comments in struct initializer" {
 
 test "zig fmt: first line comment in struct initializer" {
     try testCanonical(
-        \\pub async fn acquire(self: *Self) HeldLock {
+        \\pub fn acquire(self: *Self) callconv(.Async) HeldLock {
         \\    return HeldLock{
         \\        // guaranteed allocation elision
         \\        .held = self.lock.acquire(),
@@ -2500,7 +2500,7 @@ test "zig fmt: inline asm" {
 
 test "zig fmt: async functions" {
     try testCanonical(
-        \\async fn simpleAsyncFn() void {
+        \\fn simpleAsyncFn() callconv(.Async) void {
         \\    const a = async a.b();
         \\    x += 1;
         \\    suspend;

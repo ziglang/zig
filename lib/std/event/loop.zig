@@ -503,7 +503,7 @@ pub const Loop = struct {
         }
     }
 
-    pub async fn bsdWaitKev(self: *Loop, ident: usize, filter: i16, fflags: u32) void {
+    pub fn bsdWaitKev(self: *Loop, ident: usize, filter: i16, fflags: u32) void {
         var resume_node = ResumeNode.Basic{
             .base = ResumeNode{
                 .id = ResumeNode.Id.Basic,
@@ -1247,14 +1247,4 @@ test "std.event.Loop - basic" {
     defer loop.deinit();
 
     loop.run();
-}
-
-fn testEventLoop() i32 {
-    return 1234;
-}
-
-fn testEventLoop2(h: anyframe->i32, did_it: *bool) void {
-    const value = await h;
-    testing.expect(value == 1234);
-    did_it.* = true;
 }
