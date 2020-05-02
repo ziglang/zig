@@ -1442,7 +1442,7 @@ pub fn createFileAbsoluteW(absolute_path_w: [*:0]const u16, flags: File.CreateFl
 /// Asserts that the path is absolute. See `Dir.deleteFile` for a function that
 /// operates on both absolute and relative paths.
 /// Asserts that the path parameter has no null bytes.
-pub fn deleteFileAbsolute(absolute_path: []const u8) DeleteFileError!void {
+pub fn deleteFileAbsolute(absolute_path: []const u8) Dir.DeleteFileError!void {
     assert(path.isAbsolute(absolute_path));
     return cwd().deleteFile(absolute_path);
 }
@@ -1450,13 +1450,13 @@ pub fn deleteFileAbsolute(absolute_path: []const u8) DeleteFileError!void {
 pub const deleteFileAbsoluteC = @compileError("deprecated: renamed to deleteFileAbsoluteZ");
 
 /// Same as `deleteFileAbsolute` except the parameter is null-terminated.
-pub fn deleteFileAbsoluteZ(absolute_path_c: [*:0]const u8) DeleteFileError!void {
+pub fn deleteFileAbsoluteZ(absolute_path_c: [*:0]const u8) Dir.DeleteFileError!void {
     assert(path.isAbsoluteZ(absolute_path_c));
     return cwd().deleteFileZ(absolute_path_c);
 }
 
 /// Same as `deleteFileAbsolute` except the parameter is WTF-16 encoded.
-pub fn deleteFileAbsoluteW(absolute_path_w: [*:0]const u16) DeleteFileError!void {
+pub fn deleteFileAbsoluteW(absolute_path_w: [*:0]const u16) Dir.DeleteFileError!void {
     assert(path.isAbsoluteWindowsW(absolute_path_w));
     return cwd().deleteFileW(absolute_path_w);
 }
