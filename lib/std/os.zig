@@ -365,7 +365,7 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
 /// On these systems, the read races with concurrent writes to the same file descriptor.
 pub fn readv(fd: fd_t, iov: []const iovec) ReadError!usize {
     if (std.Target.current.os.tag == .windows) {
-        // TODO does Windows have a way to read an io vector?
+        // TODO improve this to use ReadFileScatter
         if (iov.len == 0) return @as(usize, 0);
         const first = iov[0];
         return read(fd, first.iov_base[0..first.iov_len]);
@@ -651,7 +651,7 @@ pub fn write(fd: fd_t, bytes: []const u8) WriteError!usize {
 /// If `iov.len` is larger than will fit in a `u31`, a partial write will occur.
 pub fn writev(fd: fd_t, iov: []const iovec_const) WriteError!usize {
     if (std.Target.current.os.tag == .windows) {
-        // TODO does Windows have a way to write an io vector?
+        // TODO improve this to use WriteFileScatter
         if (iov.len == 0) return @as(usize, 0);
         const first = iov[0];
         return write(fd, first.iov_base[0..first.iov_len]);

@@ -8,6 +8,7 @@ const assert = std.debug.assert;
 const windows = os.windows;
 const Os = builtin.Os;
 const maxInt = std.math.maxInt;
+const is_windows = std.Target.current.os.tag == .windows;
 
 pub const File = struct {
     /// The OS-specific file descriptor or file handle.
@@ -119,7 +120,9 @@ pub const File = struct {
     /// Upon success, the stream is in an uninitialized state. To continue using it,
     /// you must use the open() function.
     pub fn close(self: File) void {
-        if (self.capable_io_mode != self.intended_io_mode) {
+        if (is_windows) {
+            windows.CloseHandle(self.handle);
+        } else if (self.capable_io_mode != self.intended_io_mode) {
             std.event.Loop.instance.?.close(self.handle);
         } else {
             os.close(self.handle);
@@ -302,7 +305,9 @@ pub const File = struct {
     pub const PReadError = os.PReadError;
 
     pub fn read(self: File, buffer: []u8) ReadError!usize {
-        if (self.capable_io_mode != self.intended_io_mode) {
+        if (is_windows) {
+            return windows.ReadFile(self.handle, buffer, null, self.intended_io_mode);
+        } else if (self.capable_io_mode != self.intended_io_mode) {
             return std.event.Loop.instance.?.read(self.handle, buffer);
         } else {
             return os.read(self.handle, buffer);
@@ -322,7 +327,9 @@ pub const File = struct {
     }
 
     pub fn pread(self: File, buffer: []u8, offset: u64) PReadError!usize {
-        if (self.capable_io_mode != self.intended_io_mode) {
+        if (is_windows) {
+            return windows.ReadFile(self.handle, buffer, offset, self.intended_io_mode);
+        } else if (self.capable_io_mode != self.intended_io_mode) {
             return std.event.Loop.instance.?.pread(self.handle, buffer, offset);
         } else {
             return os.pread(self.handle, buffer, offset);
@@ -342,7 +349,12 @@ pub const File = struct {
     }
 
     pub fn readv(self: File, iovecs: []const os.iovec) ReadError!usize {
-        if (self.capable_io_mode != self.intended_io_mode) {
+        if (is_windows) {
+            // TODO improve this to use ReadFileScatter
+            if (iovecs.len == 0) return @as(usize, 0);
+            const first = iovecs[0];
+            return windows.ReadFile(self.handle, first.iov_base[0..first.iov_len], null, self.intended_io_mode);
+        } else if (self.capable_io_mode != self.intended_io_mode) {
             return std.event.Loop.instance.?.readv(self.handle, iovecs);
         } else {
             return os.readv(self.handle, iovecs);
@@ -376,7 +388,12 @@ pub const File = struct {
     }
 
     pub fn preadv(self: File, iovecs: []const os.iovec, offset: u64) PReadError!usize {
-        if (self.capable_io_mode != self.intended_io_mode) {
+        if (is_windows) {
+            // TODO improve this to use ReadFileScatter
+            if (iovecs.len == 0) return @as(usize, 0);
+            const first = iovecs[0];
+            return windows.ReadFile(self.handle, first.iov_base[0..first.iov_len], offset, self.intended_io_mode);
+        } else if (self.capable_io_mode != self.intended_io_mode) {
             return std.event.Loop.instance.?.preadv(self.handle, iovecs, offset);
         } else {
             return os.preadv(self.handle, iovecs, offset);
@@ -413,7 +430,9 @@ pub const File = struct {
     pub const PWriteError = os.PWriteError;
 
     pub fn write(self: File, bytes: []const u8) WriteError!usize {
-        if (self.capable_io_mode != self.intended_io_mode) {
+        if (is_windows) {
+            return windows.WriteFile(self.handle, bytes, null, self.intended_io_mode);
+        } else if (self.capable_io_mode != self.intended_io_mode) {
             return std.event.Loop.instance.?.write(self.handle, bytes);
         } else {
             return os.write(self.handle, bytes);
@@ -428,7 +447,9 @@ pub const File = struct {
     }
 
     pub fn pwrite(self: File, bytes: []const u8, offset: u64) PWriteError!usize {
-        if (self.capable_io_mode != self.intended_io_mode) {
+        if (is_windows) {
+            return windows.WriteFile(self.handle, bytes, offset, self.intended_io_mode);
+        } else if (self.capable_io_mode != self.intended_io_mode) {
             return std.event.Loop.instance.?.pwrite(self.handle, bytes, offset);
         } else {
             return os.pwrite(self.handle, bytes, offset);
@@ -443,7 +464,12 @@ pub const File = struct {
     }
 
     pub fn writev(self: File, iovecs: []const os.iovec_const) WriteError!usize {
-        if (self.capable_io_mode != self.intended_io_mode) {
+        if (is_windows) {
+            // TODO improve this to use WriteFileScatter
+            if (iovecs.len == 0) return @as(usize, 0);
+            const first = iovecs[0];
+            return windows.WriteFile(self.handle, first.iov_base[0..first.iov_len], null, self.intended_io_mode);
+        } else if (self.capable_io_mode != self.intended_io_mode) {
             return std.event.Loop.instance.?.writev(self.handle, iovecs);
         } else {
             return os.writev(self.handle, iovecs);
@@ -469,7 +495,12 @@ pub const File = struct {
     }
 
     pub fn pwritev(self: File, iovecs: []os.iovec_const, offset: usize) PWriteError!usize {
-        if (self.capable_io_mode != self.intended_io_mode) {
+        if (is_windows) {
+            // TODO improve this to use WriteFileScatter
+            if (iovecs.len == 0) return @as(usize, 0);
+            const first = iovecs[0];
+            return windows.WriteFile(self.handle, first.iov_base[0..first.iov_len], offset, self.intended_io_mode);
+        } else if (self.capable_io_mode != self.intended_io_mode) {
             return std.event.Loop.instance.?.pwritev(self.handle, iovecs, offset);
         } else {
             return os.pwritev(self.handle, iovecs, offset);
