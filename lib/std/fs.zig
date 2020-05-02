@@ -803,6 +803,15 @@ pub const Dir = struct {
         }
     }
 
+    /// This function performs `makePath`, followed by `openDir`.
+    /// If supported by the OS, this operation is atomic. It is not atomic on
+    /// all operating systems.
+    pub fn makeOpenPath(self: Dir, sub_path: []const u8, open_dir_options: OpenDirOptions) !Dir {
+        // TODO improve this implementation on Windows; we can avoid 1 call to NtClose
+        try self.makePath(sub_path);
+        return self.openDir(sub_path, open_dir_options);
+    }
+
     /// Changes the current working directory to the open directory handle.
     /// This modifies global state and can have surprising effects in multi-
     /// threaded applications. Most applications and especially libraries should

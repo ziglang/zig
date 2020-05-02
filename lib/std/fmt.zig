@@ -1058,7 +1058,7 @@ pub fn charToDigit(c: u8, radix: u8) (error{InvalidCharacter}!u8) {
     return value;
 }
 
-fn digitToChar(digit: u8, uppercase: bool) u8 {
+pub fn digitToChar(digit: u8, uppercase: bool) u8 {
     return switch (digit) {
         0...9 => digit + '0',
         10...35 => digit + ((if (uppercase) @as(u8, 'A') else @as(u8, 'a')) - 10),

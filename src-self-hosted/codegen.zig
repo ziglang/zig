@@ -39,7 +39,7 @@ pub fn generateSymbol(typed_value: ir.TypedValue, module: ir.Module, code: *std.
             defer function.inst_table.deinit();
             defer function.errors.deinit();
 
-            for (module_fn.body) |inst| {
+            for (module_fn.body.instructions) |inst| {
                 const new_inst = function.genFuncInst(inst) catch |err| switch (err) {
                     error.CodegenFail => {
                         assert(function.errors.items.len != 0);
@@ -77,32 +77,63 @@ const Function = struct {
 
     fn genFuncInst(self: *Function, inst: *ir.Inst) !MCValue {
         switch (inst.tag) {
-            .unreach => return self.genPanic(inst.src),
+            .breakpoint => return self.genBreakpoint(inst.src),
+            .unreach => return MCValue{ .unreach = {} },
             .constant => unreachable, // excluded from function bodies
             .assembly => return self.genAsm(inst.cast(ir.Inst.Assembly).?),
             .ptrtoint => return self.genPtrToInt(inst.cast(ir.Inst.PtrToInt).?),
             .bitcast => return self.genBitCast(inst.cast(ir.Inst.BitCast).?),
+            .ret => return self.genRet(inst.cast(ir.Inst.Ret).?),
+            .cmp => return self.genCmp(inst.cast(ir.Inst.Cmp).?),
+            .condbr => return self.genCondBr(inst.cast(ir.Inst.CondBr).?),
+            .isnull => return self.genIsNull(inst.cast(ir.Inst.IsNull).?),
+            .isnonnull => return self.genIsNonNull(inst.cast(ir.Inst.IsNonNull).?),
         }
     }
 
-    fn genPanic(self: *Function, src: usize) !MCValue {
-        // TODO change this to call the panic function
+    fn genBreakpoint(self: *Function, src: usize) !MCValue {
         switch (self.module.target.cpu.arch) {
             .i386, .x86_64 => {
                 try self.code.append(0xcc); // int3
             },
-            else => return self.fail(src, "TODO implement panic for {}", .{self.module.target.cpu.arch}),
+            else => return self.fail(src, "TODO implement @breakpoint() for {}", .{self.module.target.cpu.arch}),
         }
         return .unreach;
     }
 
-    fn genRet(self: *Function, src: usize) !void {
-        // TODO change this to call the panic function
+    fn genRet(self: *Function, inst: *ir.Inst.Ret) !MCValue {
         switch (self.module.target.cpu.arch) {
             .i386, .x86_64 => {
                 try self.code.append(0xc3); // ret
             },
-            else => return self.fail(src, "TODO implement ret for {}", .{self.module.target.cpu.arch}),
+            else => return self.fail(inst.base.src, "TODO implement return for {}", .{self.module.target.cpu.arch}),
+        }
+        return .unreach;
+    }
+
+    fn genCmp(self: *Function, inst: *ir.Inst.Cmp) !MCValue {
+        switch (self.module.target.cpu.arch) {
+            else => return self.fail(inst.base.src, "TODO implement cmp for {}", .{self.module.target.cpu.arch}),
+        }
+    }
+
+    fn genCondBr(self: *Function, inst: *ir.Inst.CondBr) !MCValue {
+        switch (self.module.target.cpu.arch) {
+            else => return self.fail(inst.base.src, "TODO implement condbr for {}", .{self.module.target.cpu.arch}),
+        }
+    }
+
+    fn genIsNull(self: *Function, inst: *ir.Inst.IsNull) !MCValue {
+        switch (self.module.target.cpu.arch) {
+            else => return self.fail(inst.base.src, "TODO implement isnull for {}", .{self.module.target.cpu.arch}),
+        }
+    }
+
+    fn genIsNonNull(self: *Function, inst: *ir.Inst.IsNonNull) !MCValue {
+        // Here you can specialize this instruction if it makes sense to, otherwise the default
+        // will call genIsNull and invert the result.
+        switch (self.module.target.cpu.arch) {
+            else => return self.fail(inst.base.src, "TODO call genIsNull and invert the result ", .{}),
         }
     }
 
@@ -501,11 +532,19 @@ fn Reg(comptime arch: Target.Cpu.Arch) type {
             bh,
             ch,
             dh,
+            bph,
+            sph,
+            sih,
+            dih,
 
             al,
             bl,
             cl,
             dl,
+            bpl,
+            spl,
+            sil,
+            dil,
             r8b,
             r9b,
             r10b,

@@ -20,37 +20,40 @@ pub const Type = extern union {
 
     pub fn zigTypeTag(self: Type) std.builtin.TypeId {
         switch (self.tag()) {
-            .@"u8",
-            .@"i8",
-            .@"isize",
-            .@"usize",
-            .@"c_short",
-            .@"c_ushort",
-            .@"c_int",
-            .@"c_uint",
-            .@"c_long",
-            .@"c_ulong",
-            .@"c_longlong",
-            .@"c_ulonglong",
-            .@"c_longdouble",
+            .u8,
+            .i8,
+            .isize,
+            .usize,
+            .c_short,
+            .c_ushort,
+            .c_int,
+            .c_uint,
+            .c_long,
+            .c_ulong,
+            .c_longlong,
+            .c_ulonglong,
+            .c_longdouble,
+            .int_signed,
+            .int_unsigned,
             => return .Int,
 
-            .@"f16",
-            .@"f32",
-            .@"f64",
-            .@"f128",
+            .f16,
+            .f32,
+            .f64,
+            .f128,
             => return .Float,
 
-            .@"c_void" => return .Opaque,
-            .@"bool" => return .Bool,
-            .@"void" => return .Void,
-            .@"type" => return .Type,
-            .@"anyerror" => return .ErrorSet,
-            .@"comptime_int" => return .ComptimeInt,
-            .@"comptime_float" => return .ComptimeFloat,
-            .@"noreturn" => return .NoReturn,
+            .c_void => return .Opaque,
+            .bool => return .Bool,
+            .void => return .Void,
+            .type => return .Type,
+            .anyerror => return .ErrorSet,
+            .comptime_int => return .ComptimeInt,
+            .comptime_float => return .ComptimeFloat,
+            .noreturn => return .NoReturn,
 
             .fn_naked_noreturn_no_args => return .Fn,
+            .fn_ccc_void_no_args => return .Fn,
 
             .array, .array_u8_sentinel_0 => return .Array,
             .single_const_pointer => return .Pointer,
@@ -153,35 +156,36 @@ pub const Type = extern union {
         while (true) {
             const t = ty.tag();
             switch (t) {
-                .@"u8",
-                .@"i8",
-                .@"isize",
-                .@"usize",
-                .@"c_short",
-                .@"c_ushort",
-                .@"c_int",
-                .@"c_uint",
-                .@"c_long",
-                .@"c_ulong",
-                .@"c_longlong",
-                .@"c_ulonglong",
-                .@"c_longdouble",
-                .@"c_void",
-                .@"f16",
-                .@"f32",
-                .@"f64",
-                .@"f128",
-                .@"bool",
-                .@"void",
-                .@"type",
-                .@"anyerror",
-                .@"comptime_int",
-                .@"comptime_float",
-                .@"noreturn",
+                .u8,
+                .i8,
+                .isize,
+                .usize,
+                .c_short,
+                .c_ushort,
+                .c_int,
+                .c_uint,
+                .c_long,
+                .c_ulong,
+                .c_longlong,
+                .c_ulonglong,
+                .c_longdouble,
+                .c_void,
+                .f16,
+                .f32,
+                .f64,
+                .f128,
+                .bool,
+                .void,
+                .type,
+                .anyerror,
+                .comptime_int,
+                .comptime_float,
+                .noreturn,
                 => return out_stream.writeAll(@tagName(t)),
 
                 .const_slice_u8 => return out_stream.writeAll("[]const u8"),
                 .fn_naked_noreturn_no_args => return out_stream.writeAll("fn() callconv(.Naked) noreturn"),
+                .fn_ccc_void_no_args => return out_stream.writeAll("fn() callconv(.C) void"),
                 .single_const_pointer_to_comptime_int => return out_stream.writeAll("*const comptime_int"),
 
                 .array_u8_sentinel_0 => {
@@ -200,6 +204,14 @@ pub const Type = extern union {
                     ty = payload.pointee_type;
                     continue;
                 },
+                .int_signed => {
+                    const payload = @fieldParentPtr(Payload.IntSigned, "base", ty.ptr_otherwise);
+                    return out_stream.print("i{}", .{payload.bits});
+                },
+                .int_unsigned => {
+                    const payload = @fieldParentPtr(Payload.IntUnsigned, "base", ty.ptr_otherwise);
+                    return out_stream.print("u{}", .{payload.bits});
+                },
             }
             unreachable;
         }
@@ -207,32 +219,33 @@ pub const Type = extern union {
 
     pub fn toValue(self: Type, allocator: *Allocator) Allocator.Error!Value {
         switch (self.tag()) {
-            .@"u8" => return Value.initTag(.u8_type),
-            .@"i8" => return Value.initTag(.i8_type),
-            .@"isize" => return Value.initTag(.isize_type),
-            .@"usize" => return Value.initTag(.usize_type),
-            .@"c_short" => return Value.initTag(.c_short_type),
-            .@"c_ushort" => return Value.initTag(.c_ushort_type),
-            .@"c_int" => return Value.initTag(.c_int_type),
-            .@"c_uint" => return Value.initTag(.c_uint_type),
-            .@"c_long" => return Value.initTag(.c_long_type),
-            .@"c_ulong" => return Value.initTag(.c_ulong_type),
-            .@"c_longlong" => return Value.initTag(.c_longlong_type),
-            .@"c_ulonglong" => return Value.initTag(.c_ulonglong_type),
-            .@"c_longdouble" => return Value.initTag(.c_longdouble_type),
-            .@"c_void" => return Value.initTag(.c_void_type),
-            .@"f16" => return Value.initTag(.f16_type),
-            .@"f32" => return Value.initTag(.f32_type),
-            .@"f64" => return Value.initTag(.f64_type),
-            .@"f128" => return Value.initTag(.f128_type),
-            .@"bool" => return Value.initTag(.bool_type),
-            .@"void" => return Value.initTag(.void_type),
-            .@"type" => return Value.initTag(.type_type),
-            .@"anyerror" => return Value.initTag(.anyerror_type),
-            .@"comptime_int" => return Value.initTag(.comptime_int_type),
-            .@"comptime_float" => return Value.initTag(.comptime_float_type),
-            .@"noreturn" => return Value.initTag(.noreturn_type),
+            .u8 => return Value.initTag(.u8_type),
+            .i8 => return Value.initTag(.i8_type),
+            .isize => return Value.initTag(.isize_type),
+            .usize => return Value.initTag(.usize_type),
+            .c_short => return Value.initTag(.c_short_type),
+            .c_ushort => return Value.initTag(.c_ushort_type),
+            .c_int => return Value.initTag(.c_int_type),
+            .c_uint => return Value.initTag(.c_uint_type),
+            .c_long => return Value.initTag(.c_long_type),
+            .c_ulong => return Value.initTag(.c_ulong_type),
+            .c_longlong => return Value.initTag(.c_longlong_type),
+            .c_ulonglong => return Value.initTag(.c_ulonglong_type),
+            .c_longdouble => return Value.initTag(.c_longdouble_type),
+            .c_void => return Value.initTag(.c_void_type),
+            .f16 => return Value.initTag(.f16_type),
+            .f32 => return Value.initTag(.f32_type),
+            .f64 => return Value.initTag(.f64_type),
+            .f128 => return Value.initTag(.f128_type),
+            .bool => return Value.initTag(.bool_type),
+            .void => return Value.initTag(.void_type),
+            .type => return Value.initTag(.type_type),
+            .anyerror => return Value.initTag(.anyerror_type),
+            .comptime_int => return Value.initTag(.comptime_int_type),
+            .comptime_float => return Value.initTag(.comptime_float_type),
+            .noreturn => return Value.initTag(.noreturn_type),
             .fn_naked_noreturn_no_args => return Value.initTag(.fn_naked_noreturn_no_args_type),
+            .fn_ccc_void_no_args => return Value.initTag(.fn_ccc_void_no_args_type),
             .single_const_pointer_to_comptime_int => return Value.initTag(.single_const_pointer_to_comptime_int_type),
             .const_slice_u8 => return Value.initTag(.const_slice_u8_type),
             else => {
@@ -245,35 +258,38 @@ pub const Type = extern union {
 
     pub fn isSinglePointer(self: Type) bool {
         return switch (self.tag()) {
-            .@"u8",
-            .@"i8",
-            .@"isize",
-            .@"usize",
-            .@"c_short",
-            .@"c_ushort",
-            .@"c_int",
-            .@"c_uint",
-            .@"c_long",
-            .@"c_ulong",
-            .@"c_longlong",
-            .@"c_ulonglong",
-            .@"c_longdouble",
-            .@"f16",
-            .@"f32",
-            .@"f64",
-            .@"f128",
-            .@"c_void",
-            .@"bool",
-            .@"void",
-            .@"type",
-            .@"anyerror",
-            .@"comptime_int",
-            .@"comptime_float",
-            .@"noreturn",
+            .u8,
+            .i8,
+            .isize,
+            .usize,
+            .c_short,
+            .c_ushort,
+            .c_int,
+            .c_uint,
+            .c_long,
+            .c_ulong,
+            .c_longlong,
+            .c_ulonglong,
+            .c_longdouble,
+            .f16,
+            .f32,
+            .f64,
+            .f128,
+            .c_void,
+            .bool,
+            .void,
+            .type,
+            .anyerror,
+            .comptime_int,
+            .comptime_float,
+            .noreturn,
             .array,
             .array_u8_sentinel_0,
             .const_slice_u8,
             .fn_naked_noreturn_no_args,
+            .fn_ccc_void_no_args,
+            .int_unsigned,
+            .int_signed,
             => false,
 
             .single_const_pointer,
@@ -284,36 +300,39 @@ pub const Type = extern union {
 
     pub fn isSlice(self: Type) bool {
         return switch (self.tag()) {
-            .@"u8",
-            .@"i8",
-            .@"isize",
-            .@"usize",
-            .@"c_short",
-            .@"c_ushort",
-            .@"c_int",
-            .@"c_uint",
-            .@"c_long",
-            .@"c_ulong",
-            .@"c_longlong",
-            .@"c_ulonglong",
-            .@"c_longdouble",
-            .@"f16",
-            .@"f32",
-            .@"f64",
-            .@"f128",
-            .@"c_void",
-            .@"bool",
-            .@"void",
-            .@"type",
-            .@"anyerror",
-            .@"comptime_int",
-            .@"comptime_float",
-            .@"noreturn",
+            .u8,
+            .i8,
+            .isize,
+            .usize,
+            .c_short,
+            .c_ushort,
+            .c_int,
+            .c_uint,
+            .c_long,
+            .c_ulong,
+            .c_longlong,
+            .c_ulonglong,
+            .c_longdouble,
+            .f16,
+            .f32,
+            .f64,
+            .f128,
+            .c_void,
+            .bool,
+            .void,
+            .type,
+            .anyerror,
+            .comptime_int,
+            .comptime_float,
+            .noreturn,
             .array,
             .array_u8_sentinel_0,
             .single_const_pointer,
             .single_const_pointer_to_comptime_int,
             .fn_naked_noreturn_no_args,
+            .fn_ccc_void_no_args,
+            .int_unsigned,
+            .int_signed,
             => false,
 
             .const_slice_u8 => true,
@@ -323,34 +342,37 @@ pub const Type = extern union {
     /// Asserts the type is a pointer type.
     pub fn pointerIsConst(self: Type) bool {
         return switch (self.tag()) {
-            .@"u8",
-            .@"i8",
-            .@"isize",
-            .@"usize",
-            .@"c_short",
-            .@"c_ushort",
-            .@"c_int",
-            .@"c_uint",
-            .@"c_long",
-            .@"c_ulong",
-            .@"c_longlong",
-            .@"c_ulonglong",
-            .@"c_longdouble",
-            .@"f16",
-            .@"f32",
-            .@"f64",
-            .@"f128",
-            .@"c_void",
-            .@"bool",
-            .@"void",
-            .@"type",
-            .@"anyerror",
-            .@"comptime_int",
-            .@"comptime_float",
-            .@"noreturn",
+            .u8,
+            .i8,
+            .isize,
+            .usize,
+            .c_short,
+            .c_ushort,
+            .c_int,
+            .c_uint,
+            .c_long,
+            .c_ulong,
+            .c_longlong,
+            .c_ulonglong,
+            .c_longdouble,
+            .f16,
+            .f32,
+            .f64,
+            .f128,
+            .c_void,
+            .bool,
+            .void,
+            .type,
+            .anyerror,
+            .comptime_int,
+            .comptime_float,
+            .noreturn,
             .array,
             .array_u8_sentinel_0,
             .fn_naked_noreturn_no_args,
+            .fn_ccc_void_no_args,
+            .int_unsigned,
+            .int_signed,
             => unreachable,
 
             .single_const_pointer,
@@ -363,32 +385,35 @@ pub const Type = extern union {
     /// Asserts the type is a pointer or array type.
     pub fn elemType(self: Type) Type {
         return switch (self.tag()) {
-            .@"u8",
-            .@"i8",
-            .@"isize",
-            .@"usize",
-            .@"c_short",
-            .@"c_ushort",
-            .@"c_int",
-            .@"c_uint",
-            .@"c_long",
-            .@"c_ulong",
-            .@"c_longlong",
-            .@"c_ulonglong",
-            .@"c_longdouble",
-            .@"f16",
-            .@"f32",
-            .@"f64",
-            .@"f128",
-            .@"c_void",
-            .@"bool",
-            .@"void",
-            .@"type",
-            .@"anyerror",
-            .@"comptime_int",
-            .@"comptime_float",
-            .@"noreturn",
+            .u8,
+            .i8,
+            .isize,
+            .usize,
+            .c_short,
+            .c_ushort,
+            .c_int,
+            .c_uint,
+            .c_long,
+            .c_ulong,
+            .c_longlong,
+            .c_ulonglong,
+            .c_longdouble,
+            .f16,
+            .f32,
+            .f64,
+            .f128,
+            .c_void,
+            .bool,
+            .void,
+            .type,
+            .anyerror,
+            .comptime_int,
+            .comptime_float,
+            .noreturn,
             .fn_naked_noreturn_no_args,
+            .fn_ccc_void_no_args,
+            .int_unsigned,
+            .int_signed,
             => unreachable,
 
             .array => self.cast(Payload.Array).?.elem_type,
@@ -398,7 +423,7 @@ pub const Type = extern union {
         };
     }
 
-    /// Asserts the type is an array.
+    /// Asserts the type is an array or vector.
     pub fn arrayLen(self: Type) u64 {
         return switch (self.tag()) {
             .u8,
@@ -427,9 +452,12 @@ pub const Type = extern union {
             .comptime_float,
             .noreturn,
             .fn_naked_noreturn_no_args,
+            .fn_ccc_void_no_args,
             .single_const_pointer,
             .single_const_pointer_to_comptime_int,
             .const_slice_u8,
+            .int_unsigned,
+            .int_signed,
             => unreachable,
 
             .array => self.cast(Payload.Array).?.len,
@@ -437,23 +465,67 @@ pub const Type = extern union {
         };
     }
 
+    /// Returns true if and only if the type is a fixed-width, signed integer.
+    pub fn isSignedInt(self: Type) bool {
+        return switch (self.tag()) {
+            .f16,
+            .f32,
+            .f64,
+            .f128,
+            .c_longdouble,
+            .c_void,
+            .bool,
+            .void,
+            .type,
+            .anyerror,
+            .comptime_int,
+            .comptime_float,
+            .noreturn,
+            .fn_naked_noreturn_no_args,
+            .fn_ccc_void_no_args,
+            .array,
+            .single_const_pointer,
+            .single_const_pointer_to_comptime_int,
+            .array_u8_sentinel_0,
+            .const_slice_u8,
+            .int_unsigned,
+            .u8,
+            .usize,
+            .c_ushort,
+            .c_uint,
+            .c_ulong,
+            .c_ulonglong,
+            => false,
+
+            .int_signed,
+            .i8,
+            .isize,
+            .c_short,
+            .c_int,
+            .c_long,
+            .c_longlong,
+            => true,
+        };
+    }
+
     /// Asserts the type is a fixed-width integer.
     pub fn intInfo(self: Type, target: Target) struct { signed: bool, bits: u16 } {
         return switch (self.tag()) {
-            .@"f16",
-            .@"f32",
-            .@"f64",
-            .@"f128",
-            .@"c_longdouble",
-            .@"c_void",
-            .@"bool",
-            .@"void",
-            .@"type",
-            .@"anyerror",
-            .@"comptime_int",
-            .@"comptime_float",
-            .@"noreturn",
+            .f16,
+            .f32,
+            .f64,
+            .f128,
+            .c_longdouble,
+            .c_void,
+            .bool,
+            .void,
+            .type,
+            .anyerror,
+            .comptime_int,
+            .comptime_float,
+            .noreturn,
             .fn_naked_noreturn_no_args,
+            .fn_ccc_void_no_args,
             .array,
             .single_const_pointer,
             .single_const_pointer_to_comptime_int,
@@ -461,18 +533,46 @@ pub const Type = extern union {
             .const_slice_u8,
             => unreachable,
 
-            .@"u8" => .{ .signed = false, .bits = 8 },
-            .@"i8" => .{ .signed = true, .bits = 8 },
-            .@"usize" => .{ .signed = false, .bits = target.cpu.arch.ptrBitWidth() },
-            .@"isize" => .{ .signed = true, .bits = target.cpu.arch.ptrBitWidth() },
-            .@"c_short" => .{ .signed = true, .bits = CInteger.short.sizeInBits(target) },
-            .@"c_ushort" => .{ .signed = false, .bits = CInteger.ushort.sizeInBits(target) },
-            .@"c_int" => .{ .signed = true, .bits = CInteger.int.sizeInBits(target) },
-            .@"c_uint" => .{ .signed = false, .bits = CInteger.uint.sizeInBits(target) },
-            .@"c_long" => .{ .signed = true, .bits = CInteger.long.sizeInBits(target) },
-            .@"c_ulong" => .{ .signed = false, .bits = CInteger.ulong.sizeInBits(target) },
-            .@"c_longlong" => .{ .signed = true, .bits = CInteger.longlong.sizeInBits(target) },
-            .@"c_ulonglong" => .{ .signed = false, .bits = CInteger.ulonglong.sizeInBits(target) },
+            .int_unsigned => .{ .signed = false, .bits = self.cast(Payload.IntUnsigned).?.bits },
+            .int_signed => .{ .signed = true, .bits = self.cast(Payload.IntSigned).?.bits },
+            .u8 => .{ .signed = false, .bits = 8 },
+            .i8 => .{ .signed = true, .bits = 8 },
+            .usize => .{ .signed = false, .bits = target.cpu.arch.ptrBitWidth() },
+            .isize => .{ .signed = true, .bits = target.cpu.arch.ptrBitWidth() },
+            .c_short => .{ .signed = true, .bits = CType.short.sizeInBits(target) },
+            .c_ushort => .{ .signed = false, .bits = CType.ushort.sizeInBits(target) },
+            .c_int => .{ .signed = true, .bits = CType.int.sizeInBits(target) },
+            .c_uint => .{ .signed = false, .bits = CType.uint.sizeInBits(target) },
+            .c_long => .{ .signed = true, .bits = CType.long.sizeInBits(target) },
+            .c_ulong => .{ .signed = false, .bits = CType.ulong.sizeInBits(target) },
+            .c_longlong => .{ .signed = true, .bits = CType.longlong.sizeInBits(target) },
+            .c_ulonglong => .{ .signed = false, .bits = CType.ulonglong.sizeInBits(target) },
+        };
+    }
+
+    pub fn isFloat(self: Type) bool {
+        return switch (self.tag()) {
+            .f16,
+            .f32,
+            .f64,
+            .f128,
+            .c_longdouble,
+            => true,
+
+            else => false,
+        };
+    }
+
+    /// Asserts the type is a fixed-size float.
+    pub fn floatBits(self: Type, target: Target) u16 {
+        return switch (self.tag()) {
+            .f16 => 16,
+            .f32 => 32,
+            .f64 => 64,
+            .f128 => 128,
+            .c_longdouble => CType.longdouble.sizeInBits(target),
+
+            else => unreachable,
         };
     }
 
@@ -480,6 +580,7 @@ pub const Type = extern union {
     pub fn fnParamLen(self: Type) usize {
         return switch (self.tag()) {
             .fn_naked_noreturn_no_args => 0,
+            .fn_ccc_void_no_args => 0,
 
             .f16,
             .f32,
@@ -511,6 +612,8 @@ pub const Type = extern union {
             .c_ulong,
             .c_longlong,
             .c_ulonglong,
+            .int_unsigned,
+            .int_signed,
             => unreachable,
         };
     }
@@ -520,6 +623,7 @@ pub const Type = extern union {
     pub fn fnParamTypes(self: Type, types: []Type) void {
         switch (self.tag()) {
             .fn_naked_noreturn_no_args => return,
+            .fn_ccc_void_no_args => return,
 
             .f16,
             .f32,
@@ -551,6 +655,8 @@ pub const Type = extern union {
             .c_ulong,
             .c_longlong,
             .c_ulonglong,
+            .int_unsigned,
+            .int_signed,
             => unreachable,
         }
     }
@@ -559,6 +665,7 @@ pub const Type = extern union {
     pub fn fnReturnType(self: Type) Type {
         return switch (self.tag()) {
             .fn_naked_noreturn_no_args => Type.initTag(.noreturn),
+            .fn_ccc_void_no_args => Type.initTag(.void),
 
             .f16,
             .f32,
@@ -590,6 +697,8 @@ pub const Type = extern union {
             .c_ulong,
             .c_longlong,
             .c_ulonglong,
+            .int_unsigned,
+            .int_signed,
             => unreachable,
         };
     }
@@ -598,6 +707,7 @@ pub const Type = extern union {
     pub fn fnCallingConvention(self: Type) std.builtin.CallingConvention {
         return switch (self.tag()) {
             .fn_naked_noreturn_no_args => .Naked,
+            .fn_ccc_void_no_args => .C,
 
             .f16,
             .f32,
@@ -629,7 +739,145 @@ pub const Type = extern union {
             .c_ulong,
             .c_longlong,
             .c_ulonglong,
+            .int_unsigned,
+            .int_signed,
             => unreachable,
+        };
+    }
+
+    pub fn isNumeric(self: Type) bool {
+        return switch (self.tag()) {
+            .f16,
+            .f32,
+            .f64,
+            .f128,
+            .c_longdouble,
+            .comptime_int,
+            .comptime_float,
+            .u8,
+            .i8,
+            .usize,
+            .isize,
+            .c_short,
+            .c_ushort,
+            .c_int,
+            .c_uint,
+            .c_long,
+            .c_ulong,
+            .c_longlong,
+            .c_ulonglong,
+            .int_unsigned,
+            .int_signed,
+            => true,
+
+            .c_void,
+            .bool,
+            .void,
+            .type,
+            .anyerror,
+            .noreturn,
+            .fn_naked_noreturn_no_args,
+            .fn_ccc_void_no_args,
+            .array,
+            .single_const_pointer,
+            .single_const_pointer_to_comptime_int,
+            .array_u8_sentinel_0,
+            .const_slice_u8,
+            => false,
+        };
+    }
+
+    pub fn onePossibleValue(self: Type) bool {
+        var ty = self;
+        while (true) switch (ty.tag()) {
+            .f16,
+            .f32,
+            .f64,
+            .f128,
+            .c_longdouble,
+            .comptime_int,
+            .comptime_float,
+            .u8,
+            .i8,
+            .usize,
+            .isize,
+            .c_short,
+            .c_ushort,
+            .c_int,
+            .c_uint,
+            .c_long,
+            .c_ulong,
+            .c_longlong,
+            .c_ulonglong,
+            .bool,
+            .type,
+            .anyerror,
+            .fn_naked_noreturn_no_args,
+            .fn_ccc_void_no_args,
+            .single_const_pointer_to_comptime_int,
+            .array_u8_sentinel_0,
+            .const_slice_u8,
+            => return false,
+
+            .c_void,
+            .void,
+            .noreturn,
+            => return true,
+
+            .int_unsigned => return ty.cast(Payload.IntUnsigned).?.bits == 0,
+            .int_signed => return ty.cast(Payload.IntSigned).?.bits == 0,
+            .array => {
+                const array = ty.cast(Payload.Array).?;
+                if (array.len == 0)
+                    return true;
+                ty = array.elem_type;
+                continue;
+            },
+            .single_const_pointer => {
+                const ptr = ty.cast(Payload.SingleConstPointer).?;
+                ty = ptr.pointee_type;
+                continue;
+            },
+        };
+    }
+
+    pub fn isCPtr(self: Type) bool {
+        return switch (self.tag()) {
+            .f16,
+            .f32,
+            .f64,
+            .f128,
+            .c_longdouble,
+            .comptime_int,
+            .comptime_float,
+            .u8,
+            .i8,
+            .usize,
+            .isize,
+            .c_short,
+            .c_ushort,
+            .c_int,
+            .c_uint,
+            .c_long,
+            .c_ulong,
+            .c_longlong,
+            .c_ulonglong,
+            .bool,
+            .type,
+            .anyerror,
+            .fn_naked_noreturn_no_args,
+            .fn_ccc_void_no_args,
+            .single_const_pointer_to_comptime_int,
+            .array_u8_sentinel_0,
+            .const_slice_u8,
+            .c_void,
+            .void,
+            .noreturn,
+            .int_unsigned,
+            .int_signed,
+            .array,
+            .single_const_pointer,
+            => return false,
         };
     }
 
@@ -667,6 +915,7 @@ pub const Type = extern union {
         comptime_float,
         noreturn,
         fn_naked_noreturn_no_args,
+        fn_ccc_void_no_args,
         single_const_pointer_to_comptime_int,
         const_slice_u8, // See last_no_payload_tag below.
         // After this, the tag requires a payload.
@@ -674,6 +923,8 @@ pub const Type = extern union {
         array_u8_sentinel_0,
         array,
         single_const_pointer,
+        int_signed,
+        int_unsigned,
 
         pub const last_no_payload_tag = Tag.const_slice_u8;
         pub const no_payload_count = @enumToInt(last_no_payload_tag) + 1;
@@ -700,10 +951,22 @@ pub const Type = extern union {
 
             pointee_type: Type,
         };
+
+        pub const IntSigned = struct {
+            base: Payload = Payload{ .tag = .int_signed },
+
+            bits: u16,
+        };
+
+        pub const IntUnsigned = struct {
+            base: Payload = Payload{ .tag = .int_unsigned },
+
+            bits: u16,
+        };
     };
 };
 
-pub const CInteger = enum {
+pub const CType = enum {
     short,
     ushort,
     int,
@@ -712,8 +975,9 @@ pub const CInteger = enum {
     ulong,
     longlong,
     ulonglong,
+    longdouble,
 
-    pub fn sizeInBits(self: CInteger, target: Target) u16 {
+    pub fn sizeInBits(self: CType, target: Target) u16 {
         const arch = target.cpu.arch;
         switch (target.os.tag) {
             .freestanding, .other => switch (target.cpu.arch) {
@@ -729,6 +993,7 @@ pub const CInteger = enum {
                     .longlong,
                     .ulonglong,
                     => return 64,
+                    .longdouble => @panic("TODO figure out what kind of float `long double` is on this target"),
                 },
                 else => switch (self) {
                     .short,
@@ -743,6 +1008,7 @@ pub const CInteger = enum {
                     .longlong,
                     .ulonglong,
                     => return 64,
+                    .longdouble => @panic("TODO figure out what kind of float `long double` is on this target"),
                 },
             },
 
@@ -767,6 +1033,7 @@ pub const CInteger = enum {
                 .longlong,
                 .ulonglong,
                 => return 64,
+                .longdouble => @panic("TODO figure out what kind of float `long double` is on this target"),
             },
 
             .windows, .uefi => switch (self) {
@@ -781,6 +1048,7 @@ pub const CInteger = enum {
                 .longlong,
                 .ulonglong,
                 => return 64,
+                .longdouble => @panic("TODO figure out what kind of float `long double` is on this target"),
             },
 
             .ios => switch (self) {
@@ -795,6 +1063,7 @@ pub const CInteger = enum {
                 .longlong,
                 .ulonglong,
                 => return 64,
+                .longdouble => @panic("TODO figure out what kind of float `long double` is on this target"),
             },
 
             .ananas,
@@ -821,7 +1090,7 @@ pub const CInteger = enum {
             .amdpal,
             .hermit,
             .hurd,
-            => @panic("TODO specify the C integer type sizes for this OS"),
+            => @panic("TODO specify the C integer and float type sizes for this OS"),
         }
     }
 };

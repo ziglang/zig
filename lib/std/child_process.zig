@@ -46,6 +46,10 @@ pub const ChildProcess = struct {
 
     /// Set to change the current working directory when spawning the child process.
     cwd: ?[]const u8,
+    /// Set to change the current working directory when spawning the child process.
+    /// This is not yet implemented for Windows. See https://github.com/ziglang/zig/issues/5190
+    /// Once that is done, `cwd` will be deprecated in favor of this field.
+    cwd_dir: ?fs.Dir = null,
 
     err_pipe: if (builtin.os.tag == .windows) void else [2]os.fd_t,
 
@@ -183,6 +187,7 @@ pub const ChildProcess = struct {
         allocator: *mem.Allocator,
         argv: []const []const u8,
         cwd: ?[]const u8 = null,
+        cwd_dir: ?fs.Dir = null,
         env_map: ?*const BufMap = null,
         max_output_bytes: usize = 50 * 1024,
         expand_arg0: Arg0Expand = .no_expand,
@@ -194,6 +199,7 @@ pub const ChildProcess = struct {
         child.stdout_behavior = .Pipe;
         child.stderr_behavior = .Pipe;
         child.cwd = args.cwd;
+        child.cwd_dir = args.cwd_dir;
         child.env_map = args.env_map;
         child.expand_arg0 = args.expand_arg0;
 
@@ -414,7 +420,19 @@ pub const ChildProcess = struct {
                 os.close(stderr_pipe[1]);
             }
 
-            if (self.cwd) |cwd| {
+            if (self.cwd_dir) |cwd| {
+                // Remove the O_CLOEXEC flag. This is the only safe time to do it, between fork() and execve().
+                var flags = os.fcntl(cwd.fd, os.F_GETFD, 0) catch |err| switch (err) {
+                    error.Locked => unreachable,
+                    else => |e| forkChildErrReport(err_pipe[1], e),
+                };
+                flags &= ~@as(u32, os.O_CLOEXEC);
+                _ = os.fcntl(cwd.fd, os.F_SETFD, flags) catch |err| switch (err) {
+                    error.Locked => unreachable,
+                    else => |e| forkChildErrReport(err_pipe[1], e),
+                };
+                os.fchdir(cwd.fd) catch |err| forkChildErrReport(err_pipe[1], err);
+            } else if (self.cwd) |cwd| {
                 os.chdir(cwd) catch |err| forkChildErrReport(err_pipe[1], err);
             }
 

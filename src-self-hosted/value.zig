@@ -2,7 +2,8 @@ const std = @import("std");
 const Type = @import("type.zig").Type;
 const log2 = std.math.log2;
 const assert = std.debug.assert;
-const BigInt = std.math.big.Int;
+const BigIntConst = std.math.big.int.Const;
+const BigIntMutable = std.math.big.int.Mutable;
 const Target = std.Target;
 const Allocator = std.mem.Allocator;
 
@@ -45,12 +46,14 @@ pub const Value = extern union {
         comptime_float_type,
         noreturn_type,
         fn_naked_noreturn_no_args_type,
+        fn_ccc_void_no_args_type,
         single_const_pointer_to_comptime_int_type,
         const_slice_u8_type,
 
+        undef,
         zero,
-        void_value,
-        noreturn_value,
+        the_one_possible_value, // when the type only has one possible value
+        null_value,
         bool_true,
         bool_false, // See last_no_payload_tag below.
         // After this, the tag requires a payload.
@@ -58,11 +61,13 @@ pub const Value = extern union {
         ty,
         int_u64,
         int_i64,
-        int_big,
+        int_big_positive,
+        int_big_negative,
         function,
         ref,
         ref_val,
         bytes,
+        repeated, // the value is a value repeated some number of times
 
         pub const last_no_payload_tag = Tag.bool_false;
         pub const no_payload_count = @enumToInt(last_no_payload_tag) + 1;
@@ -132,18 +137,21 @@ pub const Value = extern union {
             .comptime_float_type => return out_stream.writeAll("comptime_float"),
             .noreturn_type => return out_stream.writeAll("noreturn"),
             .fn_naked_noreturn_no_args_type => return out_stream.writeAll("fn() callconv(.Naked) noreturn"),
+            .fn_ccc_void_no_args_type => return out_stream.writeAll("fn() callconv(.C) void"),
             .single_const_pointer_to_comptime_int_type => return out_stream.writeAll("*const comptime_int"),
             .const_slice_u8_type => return out_stream.writeAll("[]const u8"),
 
+            .null_value => return out_stream.writeAll("null"),
+            .undef => return out_stream.writeAll("undefined"),
             .zero => return out_stream.writeAll("0"),
-            .void_value => return out_stream.writeAll("{}"),
-            .noreturn_value => return out_stream.writeAll("unreachable"),
+            .the_one_possible_value => return out_stream.writeAll("(one possible value)"),
             .bool_true => return out_stream.writeAll("true"),
             .bool_false => return out_stream.writeAll("false"),
             .ty => return val.cast(Payload.Ty).?.ty.format("", options, out_stream),
             .int_u64 => return std.fmt.formatIntValue(val.cast(Payload.Int_u64).?.int, "", options, out_stream),
             .int_i64 => return std.fmt.formatIntValue(val.cast(Payload.Int_i64).?.int, "", options, out_stream),
-            .int_big => return out_stream.print("{}", .{val.cast(Payload.IntBig).?.big_int}),
+            .int_big_positive => return out_stream.print("{}", .{val.cast(Payload.IntBigPositive).?.asBigInt()}),
+            .int_big_negative => return out_stream.print("{}", .{val.cast(Payload.IntBigNegative).?.asBigInt()}),
             .function => return out_stream.writeAll("(function)"),
             .ref => return out_stream.writeAll("(ref)"),
             .ref_val => {
@@ -152,6 +160,10 @@ pub const Value = extern union {
                 continue;
             },
             .bytes => return std.zig.renderStringLiteral(self.cast(Payload.Bytes).?.data, out_stream),
+            .repeated => {
+                try out_stream.writeAll("(repeated) ");
+                val = val.cast(Payload.Repeated).?.val;
+            },
         };
     }
 
@@ -195,27 +207,31 @@ pub const Value = extern union {
             .comptime_float_type => Type.initTag(.@"comptime_float"),
             .noreturn_type => Type.initTag(.@"noreturn"),
             .fn_naked_noreturn_no_args_type => Type.initTag(.fn_naked_noreturn_no_args),
+            .fn_ccc_void_no_args_type => Type.initTag(.fn_ccc_void_no_args),
             .single_const_pointer_to_comptime_int_type => Type.initTag(.single_const_pointer_to_comptime_int),
             .const_slice_u8_type => Type.initTag(.const_slice_u8),
 
+            .undef,
             .zero,
-            .void_value,
-            .noreturn_value,
+            .the_one_possible_value,
             .bool_true,
             .bool_false,
+            .null_value,
             .int_u64,
             .int_i64,
-            .int_big,
+            .int_big_positive,
+            .int_big_negative,
             .function,
             .ref,
             .ref_val,
             .bytes,
+            .repeated,
             => unreachable,
         };
     }
 
     /// Asserts the value is an integer.
-    pub fn toBigInt(self: Value, allocator: *Allocator) Allocator.Error!BigInt {
+    pub fn toBigInt(self: Value, space: *BigIntSpace) BigIntConst {
         switch (self.tag()) {
             .ty,
             .u8_type,
@@ -244,23 +260,28 @@ pub const Value = extern union {
             .comptime_float_type,
             .noreturn_type,
             .fn_naked_noreturn_no_args_type,
+            .fn_ccc_void_no_args_type,
             .single_const_pointer_to_comptime_int_type,
             .const_slice_u8_type,
-            .void_value,
-            .noreturn_value,
             .bool_true,
             .bool_false,
+            .null_value,
             .function,
             .ref,
             .ref_val,
             .bytes,
+            .undef,
+            .repeated,
             => unreachable,
 
-            .zero => return BigInt.initSet(allocator, 0),
+            .the_one_possible_value, // An integer with one possible value is always zero.
+            .zero,
+            => return BigIntMutable.init(&space.limbs, 0).toConst(),
 
-            .int_u64 => return BigInt.initSet(allocator, self.cast(Payload.Int_u64).?.int),
-            .int_i64 => return BigInt.initSet(allocator, self.cast(Payload.Int_i64).?.int),
-            .int_big => return self.cast(Payload.IntBig).?.big_int,
+            .int_u64 => return BigIntMutable.init(&space.limbs, self.cast(Payload.Int_u64).?.int).toConst(),
+            .int_i64 => return BigIntMutable.init(&space.limbs, self.cast(Payload.Int_i64).?.int).toConst(),
+            .int_big_positive => return self.cast(Payload.IntBigPositive).?.asBigInt(),
+            .int_big_negative => return self.cast(Payload.IntBigPositive).?.asBigInt(),
         }
     }
 
@@ -294,23 +315,90 @@ pub const Value = extern union {
             .comptime_float_type,
             .noreturn_type,
             .fn_naked_noreturn_no_args_type,
+            .fn_ccc_void_no_args_type,
             .single_const_pointer_to_comptime_int_type,
             .const_slice_u8_type,
-            .void_value,
-            .noreturn_value,
             .bool_true,
             .bool_false,
+            .null_value,
             .function,
             .ref,
             .ref_val,
             .bytes,
+            .undef,
+            .repeated,
             => unreachable,
 
-            .zero => return 0,
+            .zero,
+            .the_one_possible_value, // an integer with one possible value is always zero
+            => return 0,
 
             .int_u64 => return self.cast(Payload.Int_u64).?.int,
             .int_i64 => return @intCast(u64, self.cast(Payload.Int_u64).?.int),
-            .int_big => return self.cast(Payload.IntBig).?.big_int.to(u64) catch unreachable,
+            .int_big_positive => return self.cast(Payload.IntBigPositive).?.asBigInt().to(u64) catch unreachable,
+            .int_big_negative => return self.cast(Payload.IntBigNegative).?.asBigInt().to(u64) catch unreachable,
+        }
+    }
+
+    /// Asserts the value is an integer and not undefined.
+    /// Returns the number of bits the value requires to represent stored in twos complement form.
+    pub fn intBitCountTwosComp(self: Value) usize {
+        switch (self.tag()) {
+            .ty,
+            .u8_type,
+            .i8_type,
+            .isize_type,
+            .usize_type,
+            .c_short_type,
+            .c_ushort_type,
+            .c_int_type,
+            .c_uint_type,
+            .c_long_type,
+            .c_ulong_type,
+            .c_longlong_type,
+            .c_ulonglong_type,
+            .c_longdouble_type,
+            .f16_type,
+            .f32_type,
+            .f64_type,
+            .f128_type,
+            .c_void_type,
+            .bool_type,
+            .void_type,
+            .type_type,
+            .anyerror_type,
+            .comptime_int_type,
+            .comptime_float_type,
+            .noreturn_type,
+            .fn_naked_noreturn_no_args_type,
+            .fn_ccc_void_no_args_type,
+            .single_const_pointer_to_comptime_int_type,
+            .const_slice_u8_type,
+            .bool_true,
+            .bool_false,
+            .null_value,
+            .function,
+            .ref,
+            .ref_val,
+            .bytes,
+            .undef,
+            .repeated,
+            => unreachable,
+
+            .the_one_possible_value, // an integer with one possible value is always zero
+            .zero,
+            => return 0,
+
+            .int_u64 => {
+                const x = self.cast(Payload.Int_u64).?.int;
+                if (x == 0) return 0;
+                return std.math.log2(x) + 1;
+            },
+            .int_i64 => {
+                @panic("TODO implement i64 intBitCountTwosComp");
+            },
+            .int_big_positive => return self.cast(Payload.IntBigPositive).?.asBigInt().bitCountTwosComp(),
+            .int_big_negative => return self.cast(Payload.IntBigNegative).?.asBigInt().bitCountTwosComp(),
         }
     }
 
@@ -344,19 +432,23 @@ pub const Value = extern union {
             .comptime_float_type,
             .noreturn_type,
             .fn_naked_noreturn_no_args_type,
+            .fn_ccc_void_no_args_type,
             .single_const_pointer_to_comptime_int_type,
             .const_slice_u8_type,
-            .void_value,
-            .noreturn_value,
             .bool_true,
             .bool_false,
+            .null_value,
             .function,
             .ref,
             .ref_val,
             .bytes,
+            .repeated,
             => unreachable,
 
-            .zero => return true,
+            .zero,
+            .undef,
+            .the_one_possible_value, // an integer with one possible value is always zero
+            => return true,
 
             .int_u64 => switch (ty.zigTypeTag()) {
                 .Int => {
@@ -381,10 +473,18 @@ pub const Value = extern union {
                 .ComptimeInt => return true,
                 else => unreachable,
             },
-            .int_big => switch (ty.zigTypeTag()) {
+            .int_big_positive => switch (ty.zigTypeTag()) {
                 .Int => {
                     const info = ty.intInfo(target);
-                    return self.cast(Payload.IntBig).?.big_int.fitsInTwosComp(info.signed, info.bits);
+                    return self.cast(Payload.IntBigPositive).?.asBigInt().fitsInTwosComp(info.signed, info.bits);
+                },
+                .ComptimeInt => return true,
+                else => unreachable,
+            },
+            .int_big_negative => switch (ty.zigTypeTag()) {
+                .Int => {
+                    const info = ty.intInfo(target);
+                    return self.cast(Payload.IntBigNegative).?.asBigInt().fitsInTwosComp(info.signed, info.bits);
                 },
                 .ComptimeInt => return true,
                 else => unreachable,
@@ -392,9 +492,9 @@ pub const Value = extern union {
         }
     }
 
-    /// Asserts the value is a pointer and dereferences it.
-    pub fn pointerDeref(self: Value) Value {
-        switch (self.tag()) {
+    /// Asserts the value is a float
+    pub fn floatHasFraction(self: Value) bool {
+        return switch (self.tag()) {
             .ty,
             .u8_type,
             .i8_type,
@@ -422,23 +522,170 @@ pub const Value = extern union {
             .comptime_float_type,
             .noreturn_type,
             .fn_naked_noreturn_no_args_type,
+            .fn_ccc_void_no_args_type,
+            .single_const_pointer_to_comptime_int_type,
+            .const_slice_u8_type,
+            .bool_true,
+            .bool_false,
+            .null_value,
+            .function,
+            .ref,
+            .ref_val,
+            .bytes,
+            .repeated,
+            .undef,
+            .int_u64,
+            .int_i64,
+            .int_big_positive,
+            .int_big_negative,
+            .the_one_possible_value,
+            => unreachable,
+
+            .zero => false,
+        };
+    }
+
+    pub fn orderAgainstZero(lhs: Value) std.math.Order {
+        switch (lhs.tag()) {
+            .ty,
+            .u8_type,
+            .i8_type,
+            .isize_type,
+            .usize_type,
+            .c_short_type,
+            .c_ushort_type,
+            .c_int_type,
+            .c_uint_type,
+            .c_long_type,
+            .c_ulong_type,
+            .c_longlong_type,
+            .c_ulonglong_type,
+            .c_longdouble_type,
+            .f16_type,
+            .f32_type,
+            .f64_type,
+            .f128_type,
+            .c_void_type,
+            .bool_type,
+            .void_type,
+            .type_type,
+            .anyerror_type,
+            .comptime_int_type,
+            .comptime_float_type,
+            .noreturn_type,
+            .fn_naked_noreturn_no_args_type,
+            .fn_ccc_void_no_args_type,
+            .single_const_pointer_to_comptime_int_type,
+            .const_slice_u8_type,
+            .bool_true,
+            .bool_false,
+            .null_value,
+            .function,
+            .ref,
+            .ref_val,
+            .bytes,
+            .repeated,
+            .undef,
+            => unreachable,
+
+            .zero,
+            .the_one_possible_value, // an integer with one possible value is always zero
+            => return .eq,
+
+            .int_u64 => return std.math.order(lhs.cast(Payload.Int_u64).?.int, 0),
+            .int_i64 => return std.math.order(lhs.cast(Payload.Int_i64).?.int, 0),
+            .int_big_positive => return lhs.cast(Payload.IntBigPositive).?.asBigInt().orderAgainstScalar(0),
+            .int_big_negative => return lhs.cast(Payload.IntBigNegative).?.asBigInt().orderAgainstScalar(0),
+        }
+    }
+
+    /// Asserts the value is comparable.
+    pub fn order(lhs: Value, rhs: Value) std.math.Order {
+        const lhs_tag = lhs.tag();
+        const rhs_tag = lhs.tag();
+        const lhs_is_zero = lhs_tag == .zero or lhs_tag == .the_one_possible_value;
+        const rhs_is_zero = rhs_tag == .zero or rhs_tag == .the_one_possible_value;
+        if (lhs_is_zero) return rhs.orderAgainstZero().invert();
+        if (rhs_is_zero) return lhs.orderAgainstZero();
+
+        // TODO floats
+
+        var lhs_bigint_space: BigIntSpace = undefined;
+        var rhs_bigint_space: BigIntSpace = undefined;
+        const lhs_bigint = lhs.toBigInt(&lhs_bigint_space);
+        const rhs_bigint = rhs.toBigInt(&rhs_bigint_space);
+        return lhs_bigint.order(rhs_bigint);
+    }
+
+    /// Asserts the value is comparable.
+    pub fn compare(lhs: Value, op: std.math.CompareOperator, rhs: Value) bool {
+        return order(lhs, rhs).compare(op);
+    }
+
+    /// Asserts the value is comparable.
+    pub fn compareWithZero(lhs: Value, op: std.math.CompareOperator) bool {
+        return orderAgainstZero(lhs).compare(op);
+    }
+
+    pub fn toBool(self: Value) bool {
+        return switch (self.tag()) {
+            .bool_true => true,
+            .bool_false => false,
+            else => unreachable,
+        };
+    }
+
+    /// Asserts the value is a pointer and dereferences it.
+    pub fn pointerDeref(self: Value) Value {
+        return switch (self.tag()) {
+            .ty,
+            .u8_type,
+            .i8_type,
+            .isize_type,
+            .usize_type,
+            .c_short_type,
+            .c_ushort_type,
+            .c_int_type,
+            .c_uint_type,
+            .c_long_type,
+            .c_ulong_type,
+            .c_longlong_type,
+            .c_ulonglong_type,
+            .c_longdouble_type,
+            .f16_type,
+            .f32_type,
+            .f64_type,
+            .f128_type,
+            .c_void_type,
+            .bool_type,
+            .void_type,
+            .type_type,
+            .anyerror_type,
+            .comptime_int_type,
+            .comptime_float_type,
+            .noreturn_type,
+            .fn_naked_noreturn_no_args_type,
+            .fn_ccc_void_no_args_type,
             .single_const_pointer_to_comptime_int_type,
             .const_slice_u8_type,
             .zero,
-            .void_value,
-            .noreturn_value,
             .bool_true,
             .bool_false,
+            .null_value,
             .function,
             .int_u64,
             .int_i64,
-            .int_big,
+            .int_big_positive,
+            .int_big_negative,
             .bytes,
+            .undef,
+            .repeated,
             => unreachable,
 
-            .ref => return self.cast(Payload.Ref).?.cell.contents,
-            .ref_val => return self.cast(Payload.RefVal).?.val,
-        }
+            .the_one_possible_value => Value.initTag(.the_one_possible_value),
+            .ref => self.cast(Payload.Ref).?.cell.contents,
+            .ref_val => self.cast(Payload.RefVal).?.val,
+        };
     }
 
     /// Asserts the value is a single-item pointer to an array, or an array,
@@ -472,17 +719,20 @@ pub const Value = extern union {
             .comptime_float_type,
             .noreturn_type,
             .fn_naked_noreturn_no_args_type,
+            .fn_ccc_void_no_args_type,
             .single_const_pointer_to_comptime_int_type,
             .const_slice_u8_type,
             .zero,
-            .void_value,
-            .noreturn_value,
+            .the_one_possible_value,
             .bool_true,
             .bool_false,
+            .null_value,
             .function,
             .int_u64,
             .int_i64,
-            .int_big,
+            .int_big_positive,
+            .int_big_negative,
+            .undef,
             => unreachable,
 
             .ref => @panic("TODO figure out how MemoryCell works"),
@@ -493,7 +743,68 @@ pub const Value = extern union {
                 int_payload.* = .{ .int = self.cast(Payload.Bytes).?.data[index] };
                 return Value.initPayload(&int_payload.base);
             },
+
+            // No matter the index; all the elements are the same!
+            .repeated => return self.cast(Payload.Repeated).?.val,
         }
+    }
+
+    pub fn isUndef(self: Value) bool {
+        return self.tag() == .undef;
+    }
+
+    /// Valid for all types. Asserts the value is not undefined.
+    /// `.the_one_possible_value` is reported as not null.
+    pub fn isNull(self: Value) bool {
+        return switch (self.tag()) {
+            .ty,
+            .u8_type,
+            .i8_type,
+            .isize_type,
+            .usize_type,
+            .c_short_type,
+            .c_ushort_type,
+            .c_int_type,
+            .c_uint_type,
+            .c_long_type,
+            .c_ulong_type,
+            .c_longlong_type,
+            .c_ulonglong_type,
+            .c_longdouble_type,
+            .f16_type,
+            .f32_type,
+            .f64_type,
+            .f128_type,
+            .c_void_type,
+            .bool_type,
+            .void_type,
+            .type_type,
+            .anyerror_type,
+            .comptime_int_type,
+            .comptime_float_type,
+            .noreturn_type,
+            .fn_naked_noreturn_no_args_type,
+            .fn_ccc_void_no_args_type,
+            .single_const_pointer_to_comptime_int_type,
+            .const_slice_u8_type,
+            .zero,
+            .the_one_possible_value,
+            .bool_true,
+            .bool_false,
+            .function,
+            .int_u64,
+            .int_i64,
+            .int_big_positive,
+            .int_big_negative,
+            .ref,
+            .ref_val,
+            .bytes,
+            .repeated,
+            => false,
+
+            .undef => unreachable,
+            .null_value => true,
+        };
     }
 
     /// This type is not copyable since it may contain pointers to its inner data.
@@ -510,9 +821,22 @@ pub const Value = extern union {
             int: i64,
         };
 
-        pub const IntBig = struct {
-            base: Payload = Payload{ .tag = .int_big },
-            big_int: BigInt,
+        pub const IntBigPositive = struct {
+            base: Payload = Payload{ .tag = .int_big_positive },
+            limbs: []const std.math.big.Limb,
+
+            pub fn asBigInt(self: IntBigPositive) BigIntConst {
+                return BigIntConst{ .limbs = self.limbs, .positive = true };
+            }
+        };
+
+        pub const IntBigNegative = struct {
+            base: Payload = Payload{ .tag = .int_big_negative },
+            limbs: []const std.math.big.Limb,
+
+            pub fn asBigInt(self: IntBigNegative) BigIntConst {
+                return BigIntConst{ .limbs = self.limbs, .positive = false };
+            }
         };
 
         pub const Function = struct {
@@ -550,6 +874,20 @@ pub const Value = extern union {
             base: Payload = Payload{ .tag = .ty },
             ty: Type,
         };
+
+        pub const Repeated = struct {
+            base: Payload = Payload{ .tag = .ty },
+            /// This value is repeated some number of times. The amount of times to repeat
+            /// is stored externally.
+            val: Value,
+        };
+    };
+
+    /// Big enough to fit any non-BigInt value
+    pub const BigIntSpace = struct {
+        /// The +1 is headroom so that operations such as incrementing once or decrementing once
+        /// are possible without using an allocator.
+        limbs: [(@sizeOf(u64) / @sizeOf(std.math.big.Limb)) + 1]std.math.big.Limb,
     };
 };
 
