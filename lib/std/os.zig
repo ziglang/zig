@@ -854,8 +854,11 @@ pub const OpenError = error{
 
 /// Open and possibly create a file. Keeps trying if it gets interrupted.
 /// See also `openC`.
-/// TODO support windows
 pub fn open(file_path: []const u8, flags: u32, perm: usize) OpenError!fd_t {
+    if (std.Target.current.os.tag == .windows) {
+        const file_path_w = try windows.sliceToPrefixedFileW(file_path);
+        return openW(&file_path_w, flags, perm);
+    }
     const file_path_c = try toPosixPath(file_path);
     return openZ(&file_path_c, flags, perm);
 }
@@ -864,8 +867,11 @@ pub const openC = @compileError("deprecated: renamed to openZ");
 
 /// Open and possibly create a file. Keeps trying if it gets interrupted.
 /// See also `open`.
-/// TODO support windows
 pub fn openZ(file_path: [*:0]const u8, flags: u32, perm: usize) OpenError!fd_t {
+    if (std.Target.current.os.tag == .windows) {
+        const file_path_w = try windows.cStrToPrefixedFileW(file_path);
+        return openW(&file_path_w, flags, perm);
+    }
     while (true) {
         const rc = system.open(file_path, flags, perm);
         switch (errno(rc)) {
@@ -893,6 +899,13 @@ pub fn openZ(file_path: [*:0]const u8, flags: u32, perm: usize) OpenError!fd_t {
             else => |err| return unexpectedErrno(err),
         }
     }
+}
+
+/// Windows-only. The path parameter is
+/// [WTF-16](https://simonsapin.github.io/wtf-8/#potentially-ill-formed-utf-16) encoded.
+/// Translates the POSIX open API call to a Windows API call.
+pub fn openW(file_path_w: []const u16, flags: u32, perm: usize) OpenError!fd_t {
+    @compileError("TODO implement openW for windows");
 }
 
 /// Open and possibly create a file. Keeps trying if it gets interrupted.
@@ -1683,7 +1696,7 @@ pub fn renameatW(
         .dir = old_dir_fd,
         .access_mask = windows.SYNCHRONIZE | windows.GENERIC_WRITE | windows.DELETE,
         .creation = windows.FILE_OPEN,
-        .enable_async_io = false,
+        .io_mode = .blocking,
     }) catch |err| switch (err) {
         error.WouldBlock => unreachable, // Not possible without `.share_access_nonblocking = true`.
         else => |e| return e,

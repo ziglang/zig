@@ -52,7 +52,7 @@ pub const ResetEvent = struct {
 
     /// Wait for the event to be set by blocking the current thread.
     /// A timeout in nanoseconds can be provided as a hint for how
-    /// long the thread should block on the unset event before throwind error.TimedOut.
+    /// long the thread should block on the unset event before throwing error.TimedOut.
     pub fn timedWait(self: *ResetEvent, timeout_ns: u64) !void {
         return self.os_event.wait(timeout_ns);
     }

@@ -734,7 +734,7 @@ pub const Dir = struct {
                 .dir = self.fd,
                 .access_mask = w.SYNCHRONIZE | w.GENERIC_WRITE | read_flag,
                 .share_access = switch (flags.lock) {
-                    .None => @as(?w.ULONG, null),
+                    .None => w.FILE_SHARE_WRITE | w.FILE_SHARE_READ | w.FILE_SHARE_DELETE,
                     .Shared => w.FILE_SHARE_READ | w.FILE_SHARE_DELETE,
                     .Exclusive => w.FILE_SHARE_DELETE,
                 },

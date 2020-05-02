@@ -112,39 +112,43 @@ pub fn detectTTYConfig() TTY.Config {
 /// Tries to print the current stack trace to stderr, unbuffered, and ignores any error returned.
 /// TODO multithreaded awareness
 pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
-    const stderr = getStderrStream();
-    if (builtin.strip_debug_info) {
-        noasync stderr.print("Unable to dump stack trace: debug info stripped\n", .{}) catch return;
-        return;
+    noasync {
+        const stderr = getStderrStream();
+        if (builtin.strip_debug_info) {
+            stderr.print("Unable to dump stack trace: debug info stripped\n", .{}) catch return;
+            return;
+        }
+        const debug_info = getSelfDebugInfo() catch |err| {
+            stderr.print("Unable to dump stack trace: Unable to open debug info: {}\n", .{@errorName(err)}) catch return;
+            return;
+        };
+        writeCurrentStackTrace(stderr, debug_info, detectTTYConfig(), start_addr) catch |err| {
+            stderr.print("Unable to dump stack trace: {}\n", .{@errorName(err)}) catch return;
+            return;
+        };
     }
-    const debug_info = getSelfDebugInfo() catch |err| {
-        noasync stderr.print("Unable to dump stack trace: Unable to open debug info: {}\n", .{@errorName(err)}) catch return;
-        return;
-    };
-    writeCurrentStackTrace(stderr, debug_info, detectTTYConfig(), start_addr) catch |err| {
-        noasync stderr.print("Unable to dump stack trace: {}\n", .{@errorName(err)}) catch return;
-        return;
-    };
 }
 
 /// Tries to print the stack trace starting from the supplied base pointer to stderr,
 /// unbuffered, and ignores any error returned.
 /// TODO multithreaded awareness
 pub fn dumpStackTraceFromBase(bp: usize, ip: usize) void {
-    const stderr = getStderrStream();
-    if (builtin.strip_debug_info) {
-        noasync stderr.print("Unable to dump stack trace: debug info stripped\n", .{}) catch return;
-        return;
-    }
-    const debug_info = getSelfDebugInfo() catch |err| {
-        noasync stderr.print("Unable to dump stack trace: Unable to open debug info: {}\n", .{@errorName(err)}) catch return;
-        return;
-    };
-    const tty_config = detectTTYConfig();
-    printSourceAtAddress(debug_info, stderr, ip, tty_config) catch return;
-    var it = StackIterator.init(null, bp);
-    while (it.next()) |return_address| {
-        printSourceAtAddress(debug_info, stderr, return_address - 1, tty_config) catch return;
+    noasync {
+        const stderr = getStderrStream();
+        if (builtin.strip_debug_info) {
+            stderr.print("Unable to dump stack trace: debug info stripped\n", .{}) catch return;
+            return;
+        }
+        const debug_info = getSelfDebugInfo() catch |err| {
+            stderr.print("Unable to dump stack trace: Unable to open debug info: {}\n", .{@errorName(err)}) catch return;
+            return;
+        };
+        const tty_config = detectTTYConfig();
+        printSourceAtAddress(debug_info, stderr, ip, tty_config) catch return;
+        var it = StackIterator.init(null, bp);
+        while (it.next()) |return_address| {
+            printSourceAtAddress(debug_info, stderr, return_address - 1, tty_config) catch return;
+        }
     }
 }
 
@@ -199,19 +203,21 @@ pub fn captureStackTrace(first_address: ?usize, stack_trace: *builtin.StackTrace
 /// Tries to print a stack trace to stderr, unbuffered, and ignores any error returned.
 /// TODO multithreaded awareness
 pub fn dumpStackTrace(stack_trace: builtin.StackTrace) void {
-    const stderr = getStderrStream();
-    if (builtin.strip_debug_info) {
-        noasync stderr.print("Unable to dump stack trace: debug info stripped\n", .{}) catch return;
-        return;
+    noasync {
+        const stderr = getStderrStream();
+        if (builtin.strip_debug_info) {
+            stderr.print("Unable to dump stack trace: debug info stripped\n", .{}) catch return;
+            return;
+        }
+        const debug_info = getSelfDebugInfo() catch |err| {
+            stderr.print("Unable to dump stack trace: Unable to open debug info: {}\n", .{@errorName(err)}) catch return;
+            return;
+        };
+        writeStackTrace(stack_trace, stderr, getDebugInfoAllocator(), debug_info, detectTTYConfig()) catch |err| {
+            stderr.print("Unable to dump stack trace: {}\n", .{@errorName(err)}) catch return;
+            return;
+        };
     }
-    const debug_info = getSelfDebugInfo() catch |err| {
-        noasync stderr.print("Unable to dump stack trace: Unable to open debug info: {}\n", .{@errorName(err)}) catch return;
-        return;
-    };
-    writeStackTrace(stack_trace, stderr, getDebugInfoAllocator(), debug_info, detectTTYConfig()) catch |err| {
-        noasync stderr.print("Unable to dump stack trace: {}\n", .{@errorName(err)}) catch return;
-        return;
-    };
 }
 
 /// This function invokes undefined behavior when `ok` is `false`.
@@ -255,7 +261,7 @@ pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, c
         resetSegfaultHandler();
     }
 
-    switch (panic_stage) {
+    noasync switch (panic_stage) {
         0 => {
             panic_stage = 1;
 
@@ -267,7 +273,7 @@ pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, c
                 defer held.release();
 
                 const stderr = getStderrStream();
-                noasync stderr.print(format ++ "\n", args) catch os.abort();
+                stderr.print(format ++ "\n", args) catch os.abort();
                 if (trace) |t| {
                     dumpStackTrace(t.*);
                 }
@@ -292,12 +298,12 @@ pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, c
             // we're still holding the mutex but that's fine as we're going to
             // call abort()
             const stderr = getStderrStream();
-            noasync stderr.print("Panicked during a panic. Aborting.\n", .{}) catch os.abort();
+            stderr.print("Panicked during a panic. Aborting.\n", .{}) catch os.abort();
         },
         else => {
             // Panicked while printing "Panicked during a panic."
         },
-    }
+    };
 
     os.abort();
 }

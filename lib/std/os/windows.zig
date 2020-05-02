@@ -116,10 +116,10 @@ pub const OpenFileOptions = struct {
 /// TODO when share_access_nonblocking is false, this implementation uses
 /// untinterruptible sleep() to block. This is not the final iteration of the API.
 pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HANDLE {
-    if (sub_path_w[0] == '.' and sub_path_w[1] == 0) {
+    if (mem.eql(u16, sub_path_w, ".")) {
         return error.IsDir;
     }
-    if (sub_path_w[0] == '.' and sub_path_w[1] == '.' and sub_path_w[2] == 0) {
+    if (mem.eql(u16, sub_path_w, "..")) {
         return error.IsDir;
     }
 
