@@ -557,31 +557,29 @@ pub const Loop = struct {
     pub fn bsdAddKev(self: *Loop, resume_node: *ResumeNode.Basic, ident: usize, filter: i16, fflags: u32) !void {
         self.beginOneEvent();
         errdefer self.finishOneEvent();
-        var kev = os.Kevent{
+        var kev = [1]os.Kevent{os.Kevent{
             .ident = ident,
             .filter = filter,
             .flags = os.EV_ADD | os.EV_ENABLE | os.EV_CLEAR,
             .fflags = fflags,
             .data = 0,
             .udata = @ptrToInt(&resume_node.base),
-        };
-        const kevent_array = @ptrCast(*const [1]os.Kevent, &kev);
+        }};
         const empty_kevs = &[0]os.Kevent{};
-        _ = try os.kevent(self.os_data.kqfd, kevent_array, empty_kevs, null);
+        _ = try os.kevent(self.os_data.kqfd, &kev, empty_kevs, null);
     }
 
     pub fn bsdRemoveKev(self: *Loop, ident: usize, filter: i16) void {
-        var kev = os.Kevent{
+        var kev = [1]os.Kevent{os.Kevent{
             .ident = ident,
             .filter = filter,
             .flags = os.EV_DELETE,
             .fflags = 0,
             .data = 0,
             .udata = 0,
-        };
-        const kevent_array = @ptrCast(*const [1]os.Kevent, &kev);
+        }};
         const empty_kevs = &[0]os.Kevent{};
-        _ = os.kevent(self.os_data.kqfd, kevent_array, empty_kevs, null) catch undefined;
+        _ = os.kevent(self.os_data.kqfd, &kev, empty_kevs, null) catch undefined;
         self.finishOneEvent();
     }
 
