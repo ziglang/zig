@@ -374,7 +374,7 @@ pub fn readv(fd: fd_t, iov: []const iovec) ReadError!usize {
         const first = iov[0];
         return read(fd, first.iov_base[0..first.iov_len]);
     }
-    
+
     const iov_count = math.cast(u31, iov.len) catch math.maxInt(u31);
     while (true) {
         // TODO handle the case when iov_len is too large and get rid of this @intCast
@@ -2328,11 +2328,13 @@ fn _accept(sockfd: fd_t, addr: *sockaddr, addr_size: *socklen_t, flags: u32) Acc
     while (true) {
         const rc = func: {
             switch (comptime builtin.os.tag) {
-                .linux, .freebsd, .netbsd, .dragonfly =>
-                    break :func system.accept4(sockfd, addr, addr_size, flags)
-                .ios, .macosx, .watchos, .tvos =>
-                    break :func system.accept(sockfd, addr, addr_size),
-                else => @compileError("accept not available for target")
+                .linux, .freebsd, .netbsd, .dragonfly => 
+                    break :func system.accept4(sockfd, addr, addr_size, flags),
+                .ios, .macosx, .watchos, .tvos => {
+                    assert(flags == 0);
+                    break :func system.accept(sockfd, addr, addr_size);
+                },
+                else => @compileError("accept not available for target"),
             }
         };
 

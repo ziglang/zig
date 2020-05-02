@@ -361,19 +361,19 @@ pub const Address = extern union {
 fn getUnixSocketInitFlags() u16 {
     comptime {
         var flags = 0;
-        switch(builtin.os.tag) {
+        switch (builtin.os.tag) {
             .linux, .freebsd, .netbsd, .dragonfly => {
                 flags |= os.SOCK_CLOEXEC;
                 flags |= if (std.io.is_async) os.SOCK_NONBLOCK else 0;
             },
-            else => {}
+            else => {},
         }
 
         return flags;
     }
 }
 
-// These are primarily needed for UNIX-based platforms without 
+// These are primarily needed for UNIX-based platforms without
 // SOCK_CLOEXEC and SOCK_NONBLOCK flags when creating sockets
 // or accepting connections
 fn setUnixSocketFlags(sock: os.fd_t) os.FcntlError!void {
@@ -381,7 +381,7 @@ fn setUnixSocketFlags(sock: os.fd_t) os.FcntlError!void {
     fdflags |= os.FD_CLOEXEC;
     _ = try os.fcntl(sock, os.F_SETFD, fdflags);
 
-    if(std.io.is_async) {
+    if (std.io.is_async) {
         var flflags = try os.fcntl(sock, os.F_GETFL, 0);
         flflags |= os.O_NONBLOCK;
         _ = try os.fcntl(sock, os.F_SETFL, fdflags);
@@ -391,9 +391,9 @@ fn setUnixSocketFlags(sock: os.fd_t) os.FcntlError!void {
 pub fn connectUnixSocket(path: []const u8) !fs.File {
     const flags = os.SOCK_STREAM | getUnixSocketInitFlags();
     const sockfd = try os.socket(os.AF_UNIX, flags, 0);
-    
-    if(comptime builtin.os.tag.isDarwin()) {
-        try setUnixSocketFlags(sockfd); 
+
+    if (comptime builtin.os.tag.isDarwin()) {
+        try setUnixSocketFlags(sockfd);
     }
 
     errdefer os.close(sockfd);
@@ -440,7 +440,7 @@ pub fn tcpConnectToAddress(address: Address) !fs.File {
     const sock_flags = os.SOCK_STREAM | getUnixSocketInitFlags();
     const sockfd = try os.socket(address.any.family, sock_flags, os.IPPROTO_TCP);
 
-    if(comptime builtin.os.tag.isDarwin()) {
+    if (comptime builtin.os.tag.isDarwin()) {
         try setUnixSocketFlags(sockfd);
     }
 
@@ -1351,7 +1351,7 @@ pub const StreamServer = struct {
         const proto = if (address.any.family == os.AF_UNIX) @as(u32, 0) else os.IPPROTO_TCP;
         const sockfd = try os.socket(address.any.family, flags, proto);
 
-        if(comptime builtin.os.tag.isDarwin()) {
+        if (comptime builtin.os.tag.isDarwin()) {
             try setUnixSocketFlags(sockfd);
         }
 
@@ -1417,7 +1417,7 @@ pub const StreamServer = struct {
         var adr_len: os.socklen_t = @sizeOf(Address);
         var _accept: os.AcceptError!os.fd_t = undefined;
 
-        if(comptime builtin.os.tag.isDarwin()) {
+        if (comptime builtin.os.tag.isDarwin()) {
             try setUnixSocketFlags(self.sockfd.?);
             _accept = os.accept(self.sockfd.?, &accepted_addr.any, &adr_len);
         } else {
