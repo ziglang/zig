@@ -59,7 +59,7 @@ pub fn CreateFile(
     hTemplateFile: ?HANDLE,
 ) CreateFileError!HANDLE {
     const file_path_w = try sliceToPrefixedFileW(file_path);
-    return CreateFileW(&file_path_w, desired_access, share_mode, lpSecurityAttributes, creation_disposition, flags_and_attrs, hTemplateFile);
+    return CreateFileW(file_path_w.span().ptr, desired_access, share_mode, lpSecurityAttributes, creation_disposition, flags_and_attrs, hTemplateFile);
 }
 
 pub fn CreateFileW(
@@ -116,10 +116,10 @@ pub const OpenFileOptions = struct {
 /// TODO when share_access_nonblocking is false, this implementation uses
 /// untinterruptible sleep() to block. This is not the final iteration of the API.
 pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HANDLE {
-    if (mem.eql(u16, sub_path_w, ".")) {
+    if (mem.eql(u16, sub_path_w, &[_]u16{'.'})) {
         return error.IsDir;
     }
-    if (mem.eql(u16, sub_path_w, "..")) {
+    if (mem.eql(u16, sub_path_w, &[_]u16{ '.', '.' })) {
         return error.IsDir;
     }
 
@@ -199,7 +199,7 @@ pub fn CreatePipe(rd: *HANDLE, wr: *HANDLE, sattr: *const SECURITY_ATTRIBUTES) C
 
 pub fn CreateEventEx(attributes: ?*SECURITY_ATTRIBUTES, name: []const u8, flags: DWORD, desired_access: DWORD) !HANDLE {
     const nameW = try sliceToPrefixedFileW(name);
-    return CreateEventExW(attributes, &nameW, flags, desired_access);
+    return CreateEventExW(attributes, nameW.span().ptr, flags, desired_access);
 }
 
 pub fn CreateEventExW(attributes: ?*SECURITY_ATTRIBUTES, nameW: [*:0]const u16, flags: DWORD, desired_access: DWORD) !HANDLE {
@@ -330,42 +330,6 @@ pub fn WaitForMultipleObjectsEx(handles: []const HANDLE, waitAll: bool, millisec
         },
         else => return error.Unexpected,
     }
-}
-
-pub const FindFirstFileError = error{
-    FileNotFound,
-    InvalidUtf8,
-    BadPathName,
-    NameTooLong,
-    Unexpected,
-};
-
-pub fn FindFirstFile(dir_path: []const u8, find_file_data: *WIN32_FIND_DATAW) FindFirstFileError!HANDLE {
-    const dir_path_w = try sliceToPrefixedSuffixedFileW(dir_path, [_]u16{ '\\', '*' });
-    const handle = kernel32.FindFirstFileW(&dir_path_w, find_file_data);
-
-    if (handle == INVALID_HANDLE_VALUE) {
-        switch (kernel32.GetLastError()) {
-            .FILE_NOT_FOUND => return error.FileNotFound,
-            .PATH_NOT_FOUND => return error.FileNotFound,
-            else => |err| return unexpectedError(err),
-        }
-    }
-
-    return handle;
-}
-
-pub const FindNextFileError = error{Unexpected};
-
-/// Returns `true` if there was another file, `false` otherwise.
-pub fn FindNextFile(handle: HANDLE, find_file_data: *WIN32_FIND_DATAW) FindNextFileError!bool {
-    if (kernel32.FindNextFileW(handle, find_file_data) == 0) {
-        switch (kernel32.GetLastError()) {
-            .NO_MORE_FILES => return false,
-            else => |err| return unexpectedError(err),
-        }
-    }
-    return true;
 }
 
 pub const CreateIoCompletionPortError = error{Unexpected};
@@ -644,7 +608,7 @@ pub fn CreateSymbolicLink(
 ) CreateSymbolicLinkError!void {
     const sym_link_path_w = try sliceToPrefixedFileW(sym_link_path);
     const target_path_w = try sliceToPrefixedFileW(target_path);
-    return CreateSymbolicLinkW(&sym_link_path_w, &target_path_w, flags);
+    return CreateSymbolicLinkW(sym_link_path_w.span().ptr, target_path_w.span().ptr, flags);
 }
 
 pub fn CreateSymbolicLinkW(
@@ -669,7 +633,7 @@ pub const DeleteFileError = error{
 
 pub fn DeleteFile(filename: []const u8) DeleteFileError!void {
     const filename_w = try sliceToPrefixedFileW(filename);
-    return DeleteFileW(&filename_w);
+    return DeleteFileW(filename_w.span().ptr);
 }
 
 pub fn DeleteFileW(filename: [*:0]const u16) DeleteFileError!void {
@@ -691,7 +655,7 @@ pub const MoveFileError = error{Unexpected};
 pub fn MoveFileEx(old_path: []const u8, new_path: []const u8, flags: DWORD) MoveFileError!void {
     const old_path_w = try sliceToPrefixedFileW(old_path);
     const new_path_w = try sliceToPrefixedFileW(new_path);
-    return MoveFileExW(&old_path_w, &new_path_w, flags);
+    return MoveFileExW(old_path_w.span().ptr, new_path_w.span().ptr, flags);
 }
 
 pub fn MoveFileExW(old_path: [*:0]const u16, new_path: [*:0]const u16, flags: DWORD) MoveFileError!void {
@@ -716,7 +680,7 @@ pub const CreateDirectoryError = error{
 /// Returns an open directory handle which the caller is responsible for closing with `CloseHandle`.
 pub fn CreateDirectory(dir: ?HANDLE, pathname: []const u8, sa: ?*SECURITY_ATTRIBUTES) CreateDirectoryError!HANDLE {
     const pathname_w = try sliceToPrefixedFileW(pathname);
-    return CreateDirectoryW(dir, &pathname_w, sa);
+    return CreateDirectoryW(dir, pathname_w.span().ptr, sa);
 }
 
 /// Same as `CreateDirectory` except takes a WTF-16 encoded path.
@@ -784,7 +748,7 @@ pub const RemoveDirectoryError = error{
 
 pub fn RemoveDirectory(dir_path: []const u8) RemoveDirectoryError!void {
     const dir_path_w = try sliceToPrefixedFileW(dir_path);
-    return RemoveDirectoryW(&dir_path_w);
+    return RemoveDirectoryW(dir_path_w.span().ptr);
 }
 
 pub fn RemoveDirectoryW(dir_path_w: [*:0]const u16) RemoveDirectoryError!void {
@@ -913,7 +877,7 @@ pub const GetFileAttributesError = error{
 
 pub fn GetFileAttributes(filename: []const u8) GetFileAttributesError!DWORD {
     const filename_w = try sliceToPrefixedFileW(filename);
-    return GetFileAttributesW(&filename_w);
+    return GetFileAttributesW(filename_w.span().ptr);
 }
 
 pub fn GetFileAttributesW(lpFileName: [*:0]const u16) GetFileAttributesError!DWORD {
@@ -1253,34 +1217,22 @@ pub fn nanoSecondsToFileTime(ns: i64) FILETIME {
     };
 }
 
-pub fn cStrToPrefixedFileW(s: [*:0]const u8) ![PATH_MAX_WIDE:0]u16 {
+pub const PathSpace = struct {
+    data: [PATH_MAX_WIDE:0]u16,
+    len: usize,
+
+    pub fn span(self: PathSpace) [:0]const u16 {
+        return self.data[0..self.len :0];
+    }
+};
+
+pub fn cStrToPrefixedFileW(s: [*:0]const u8) !PathSpace {
     return sliceToPrefixedFileW(mem.spanZ(s));
 }
 
-pub fn sliceToPrefixedFileW(s: []const u8) ![PATH_MAX_WIDE:0]u16 {
-    return sliceToPrefixedSuffixedFileW(s, &[_]u16{});
-}
-
-/// Assumes an absolute path.
-pub fn wToPrefixedFileW(s: []const u16) ![PATH_MAX_WIDE:0]u16 {
+pub fn sliceToPrefixedFileW(s: []const u8) !PathSpace {
     // TODO https://github.com/ziglang/zig/issues/2765
-    var result: [PATH_MAX_WIDE:0]u16 = undefined;
-
-    const start_index = if (mem.startsWith(u16, s, &[_]u16{ '\\', '?' })) 0 else blk: {
-        const prefix = [_]u16{ '\\', '?', '?', '\\' };
-        mem.copy(u16, result[0..], &prefix);
-        break :blk prefix.len;
-    };
-    const end_index = start_index + s.len;
-    if (end_index + 1 > result.len) return error.NameTooLong;
-    mem.copy(u16, result[start_index..], s);
-    result[end_index] = 0;
-    return result;
-}
-
-pub fn sliceToPrefixedSuffixedFileW(s: []const u8, comptime suffix: []const u16) ![PATH_MAX_WIDE + suffix.len:0]u16 {
-    // TODO https://github.com/ziglang/zig/issues/2765
-    var result: [PATH_MAX_WIDE + suffix.len:0]u16 = undefined;
+    var path_space: PathSpace = undefined;
     for (s) |byte| {
         switch (byte) {
             '*', '?', '"', '<', '>', '|' => return error.BadPathName,
@@ -1289,25 +1241,46 @@ pub fn sliceToPrefixedSuffixedFileW(s: []const u8, comptime suffix: []const u16)
     }
     const start_index = if (mem.startsWith(u8, s, "\\?") or !std.fs.path.isAbsolute(s)) 0 else blk: {
         const prefix = [_]u16{ '\\', '?', '?', '\\' };
-        mem.copy(u16, result[0..], &prefix);
+        mem.copy(u16, path_space.data[0..], &prefix);
         break :blk prefix.len;
     };
-    const end_index = start_index + try std.unicode.utf8ToUtf16Le(result[start_index..], s);
-    if (end_index + suffix.len > result.len) return error.NameTooLong;
+    path_space.len = start_index + try std.unicode.utf8ToUtf16Le(path_space.data[start_index..], s);
+    if (path_space.len > path_space.data.len) return error.NameTooLong;
     // > File I/O functions in the Windows API convert "/" to "\" as part of
     // > converting the name to an NT-style name, except when using the "\\?\"
     // > prefix as detailed in the following sections.
     // from https://docs.microsoft.com/en-us/windows/desktop/FileIO/naming-a-file#maximum-path-length-limitation
     // Because we want the larger maximum path length for absolute paths, we
     // convert forward slashes to backward slashes here.
-    for (result[0..end_index]) |*elem| {
+    for (path_space.data[0..path_space.len]) |*elem| {
         if (elem.* == '/') {
             elem.* = '\\';
         }
     }
-    mem.copy(u16, result[end_index..], suffix);
-    result[end_index + suffix.len] = 0;
-    return result;
+    path_space.data[path_space.len] = 0;
+    return path_space;
+}
+
+/// Assumes an absolute path.
+pub fn wToPrefixedFileW(s: []const u16) !PathSpace {
+    // TODO https://github.com/ziglang/zig/issues/2765
+    var path_space: PathSpace = undefined;
+
+    const start_index = if (mem.startsWith(u16, s, &[_]u16{ '\\', '?' })) 0 else blk: {
+        const prefix = [_]u16{ '\\', '?', '?', '\\' };
+        mem.copy(u16, path_space.data[0..], &prefix);
+        break :blk prefix.len;
+    };
+    path_space.len = start_index + s.len;
+    if (path_space.len > path_space.data.len) return error.NameTooLong;
+    mem.copy(u16, path_space.data[start_index..], s);
+    for (path_space.data[0..path_space.len]) |*elem| {
+        if (elem.* == '/') {
+            elem.* = '\\';
+        }
+    }
+    path_space.data[path_space.len] = 0;
+    return path_space;
 }
 
 inline fn MAKELANGID(p: c_ushort, s: c_ushort) LANGID {

@@ -199,7 +199,7 @@ pub const AtomicFile = struct {
         if (std.Target.current.os.tag == .windows) {
             const dest_path_w = try os.windows.sliceToPrefixedFileW(self.dest_basename);
             const tmp_path_w = try os.windows.cStrToPrefixedFileW(&self.tmp_path_buf);
-            try os.renameatW(self.dir.fd, &tmp_path_w, self.dir.fd, &dest_path_w, os.windows.TRUE);
+            try os.renameatW(self.dir.fd, tmp_path_w.span(), self.dir.fd, dest_path_w.span(), os.windows.TRUE);
             self.file_exists = false;
         } else {
             const dest_path_c = try os.toPosixPath(self.dest_basename);
@@ -582,7 +582,7 @@ pub const Dir = struct {
     pub fn openFile(self: Dir, sub_path: []const u8, flags: File.OpenFlags) File.OpenError!File {
         if (builtin.os.tag == .windows) {
             const path_w = try os.windows.sliceToPrefixedFileW(sub_path);
-            return self.openFileW(&path_w, flags);
+            return self.openFileW(path_w.span(), flags);
         }
         const path_c = try os.toPosixPath(sub_path);
         return self.openFileZ(&path_c, flags);
@@ -594,7 +594,7 @@ pub const Dir = struct {
     pub fn openFileZ(self: Dir, sub_path: [*:0]const u8, flags: File.OpenFlags) File.OpenError!File {
         if (builtin.os.tag == .windows) {
             const path_w = try os.windows.cStrToPrefixedFileW(sub_path);
-            return self.openFileW(&path_w, flags);
+            return self.openFileW(path_w.span(), flags);
         }
 
         // Use the O_ locking flags if the os supports them
@@ -669,7 +669,7 @@ pub const Dir = struct {
     pub fn createFile(self: Dir, sub_path: []const u8, flags: File.CreateFlags) File.OpenError!File {
         if (builtin.os.tag == .windows) {
             const path_w = try os.windows.sliceToPrefixedFileW(sub_path);
-            return self.createFileW(&path_w, flags);
+            return self.createFileW(path_w.span(), flags);
         }
         const path_c = try os.toPosixPath(sub_path);
         return self.createFileZ(&path_c, flags);
@@ -681,7 +681,7 @@ pub const Dir = struct {
     pub fn createFileZ(self: Dir, sub_path_c: [*:0]const u8, flags: File.CreateFlags) File.OpenError!File {
         if (builtin.os.tag == .windows) {
             const path_w = try os.windows.cStrToPrefixedFileW(sub_path_c);
-            return self.createFileW(&path_w, flags);
+            return self.createFileW(path_w.span(), flags);
         }
 
         // Use the O_ locking flags if the os supports them
@@ -832,7 +832,7 @@ pub const Dir = struct {
     pub fn openDir(self: Dir, sub_path: []const u8, args: OpenDirOptions) OpenError!Dir {
         if (builtin.os.tag == .windows) {
             const sub_path_w = try os.windows.sliceToPrefixedFileW(sub_path);
-            return self.openDirW(&sub_path_w, args);
+            return self.openDirW(sub_path_w.span().ptr, args);
         } else {
             const sub_path_c = try os.toPosixPath(sub_path);
             return self.openDirZ(&sub_path_c, args);
@@ -845,7 +845,7 @@ pub const Dir = struct {
     pub fn openDirZ(self: Dir, sub_path_c: [*:0]const u8, args: OpenDirOptions) OpenError!Dir {
         if (builtin.os.tag == .windows) {
             const sub_path_w = try os.windows.cStrToPrefixedFileW(sub_path_c);
-            return self.openDirW(&sub_path_w, args);
+            return self.openDirW(sub_path_w.span().ptr, args);
         } else if (!args.iterate) {
             const O_PATH = if (@hasDecl(os, "O_PATH")) os.O_PATH else 0;
             return self.openDirFlagsZ(sub_path_c, os.O_DIRECTORY | os.O_RDONLY | os.O_CLOEXEC | O_PATH);
@@ -987,7 +987,7 @@ pub const Dir = struct {
     pub fn deleteDir(self: Dir, sub_path: []const u8) DeleteDirError!void {
         if (builtin.os.tag == .windows) {
             const sub_path_w = try os.windows.sliceToPrefixedFileW(sub_path);
-            return self.deleteDirW(&sub_path_w);
+            return self.deleteDirW(sub_path_w.span().ptr);
         }
         const sub_path_c = try os.toPosixPath(sub_path);
         return self.deleteDirZ(&sub_path_c);
@@ -1246,7 +1246,7 @@ pub const Dir = struct {
     pub fn access(self: Dir, sub_path: []const u8, flags: File.OpenFlags) AccessError!void {
         if (builtin.os.tag == .windows) {
             const sub_path_w = try os.windows.sliceToPrefixedFileW(sub_path);
-            return self.accessW(&sub_path_w, flags);
+            return self.accessW(sub_path_w.span().ptr, flags);
         }
         const path_c = try os.toPosixPath(sub_path);
         return self.accessZ(&path_c, flags);
@@ -1256,7 +1256,7 @@ pub const Dir = struct {
     pub fn accessZ(self: Dir, sub_path: [*:0]const u8, flags: File.OpenFlags) AccessError!void {
         if (builtin.os.tag == .windows) {
             const sub_path_w = try os.windows.cStrToPrefixedFileW(sub_path);
-            return self.accessW(&sub_path_w, flags);
+            return self.accessW(sub_path_w.span().ptr, flags);
         }
         const os_mode = if (flags.write and flags.read)
             @as(u32, os.R_OK | os.W_OK)
@@ -1596,7 +1596,7 @@ pub fn openSelfExe() OpenSelfExeError!File {
     if (builtin.os.tag == .windows) {
         const wide_slice = selfExePathW();
         const prefixed_path_w = try os.windows.wToPrefixedFileW(wide_slice);
-        return cwd().openFileW(&prefixed_path_w, .{});
+        return cwd().openFileW(prefixed_path_w.span(), .{});
     }
     var buf: [MAX_PATH_BYTES]u8 = undefined;
     const self_exe_path = try selfExePath(&buf);
