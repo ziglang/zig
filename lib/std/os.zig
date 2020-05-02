@@ -2309,12 +2309,53 @@ pub fn accept4(
     ///   description  of the `O_CLOEXEC` flag in `open` for reasons why this may be useful.
     flags: u32,
 ) AcceptError!fd_t {
+    if (comptime builtin.os.tag.isDarwin()) {
+        @compileError("accept4 not available for target Darwin, use accept");
+    }
+
+    return try _accept(sockfd, addr, addr_size, flags);
+}
+
+/// Accept a connection on a socket.
+/// If the application has a global event loop enabled, EAGAIN is handled
+/// via the event loop. Otherwise EAGAIN results in error.WouldBlock.
+pub fn accept(
+    /// This argument is a socket that has been created with `socket`, bound to a local address
+    /// with `bind`, and is listening for connections after a `listen`.
+    sockfd: fd_t,
+    /// This argument is a pointer to a sockaddr structure.  This structure is filled in with  the
+    /// address  of  the  peer  socket, as known to the communications layer.  The exact format of the
+    /// address returned addr is determined by the socket's address  family  (see  `socket`  and  the
+    /// respective  protocol  man  pages).
+    addr: *sockaddr,
+    /// This argument is a value-result argument: the caller must initialize it to contain  the
+    /// size (in bytes) of the structure pointed to by addr; on return it will contain the actual size
+    /// of the peer address.
+    ///
+    /// The returned address is truncated if the buffer provided is too small; in this  case,  `addr_size`
+    /// will return a value greater than was supplied to the call.
+    addr_size: *socklen_t,
+) AcceptError!fd_t {
+    return try _accept(sockfd, addr, addr_size, 0);
+}
+
+fn _accept(sockfd: fd_t, addr: *sockaddr, addr_size: *socklen_t, flags: u32) AcceptError!fd_t {
     while (true) {
-        const rc = system.accept4(sockfd, addr, addr_size, flags);
+        const rc = func: {
+            switch (comptime builtin.os.tag) {
+                .linux, .freebsd, .netbsd, .dragonfly => 
+                    break :func system.accept4(sockfd, addr, addr_size, flags),
+                .ios, .macosx, .watchos, .tvos => {
+                    assert(flags == 0);
+                    break :func system.accept(sockfd, addr, addr_size);
+                },
+                else => @compileError("accept not available for target"),
+            }
+        };
+
         switch (errno(rc)) {
             0 => return @intCast(fd_t, rc),
             EINTR => continue,
-
             EAGAIN => if (std.event.Loop.instance) |loop| {
                 loop.waitUntilFdReadable(sockfd);
                 continue;
@@ -2333,7 +2374,6 @@ pub fn accept4(
             EOPNOTSUPP => unreachable,
             EPROTO => return error.ProtocolFailure,
             EPERM => return error.BlockedByFirewall,
-
             else => |err| return unexpectedErrno(err),
         }
     }
