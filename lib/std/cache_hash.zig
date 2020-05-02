@@ -103,6 +103,7 @@ pub const CacheHash = struct {
         var cache_hash_file = try self.files.addOne();
         cache_hash_file.path = try fs.path.resolve(self.alloc, &[_][]const u8{file_path});
         cache_hash_file.max_file_size = max_file_size;
+        cache_hash_file.contents = null;
 
         self.addSlice(cache_hash_file.path.?);
 
@@ -175,6 +176,7 @@ pub const CacheHash = struct {
                 cache_hash_file = try self.files.addOne();
                 cache_hash_file.path = null;
                 cache_hash_file.max_file_size = null;
+                cache_hash_file.contents = null;
             }
 
             var iter = mem.tokenize(line, " ");
@@ -301,6 +303,8 @@ pub const CacheHash = struct {
 
         var cache_hash_file = try self.files.addOne();
         cache_hash_file.path = try fs.path.resolve(self.alloc, &[_][]const u8{file_path});
+        cache_hash_file.max_file_size = max_file_size_opt;
+        cache_hash_file.contents = null;
 
         const contents = try self.populate_file_hash_fetch(otherAlloc, cache_hash_file);
 
