@@ -19,6 +19,7 @@ const MANIFEST_FILE_SIZE_MAX = 50 * 1024 * 1024;
 
 pub const File = struct {
     path: ?[]const u8,
+    max_file_size: ?usize,
     stat: fs.File.Stat,
     bin_digest: [BIN_DIGEST_LEN]u8,
     contents: ?[]const u8 = null,
@@ -85,18 +86,23 @@ pub const CacheHash = struct {
     /// called, the file's contents will be checked to ensure that it matches
     /// the contents from previous times.
     ///
+    /// Max file size will be used to determine the amount of space to the file contents
+    /// are allowed to take up in memory. If max_file_size is null, then the contents
+    /// will not be loaded into memory.
+    ///
     /// Returns the index of the entry in the `CacheHash.files` ArrayList. You can use it
     /// to access the contents of the file after calling `CacheHash.hit()` like so:
     ///
     /// ```
     /// var file_contents = cache_hash.files.items[file_index].contents.?;
     /// ```
-    pub fn addFile(self: *@This(), file_path: []const u8) !usize {
+    pub fn addFile(self: *@This(), file_path: []const u8, max_file_size: ?usize) !usize {
         debug.assert(self.manifest_file == null);
 
         const idx = self.files.items.len;
         var cache_hash_file = try self.files.addOne();
         cache_hash_file.path = try fs.path.resolve(self.alloc, &[_][]const u8{file_path});
+        cache_hash_file.max_file_size = max_file_size;
 
         self.addSlice(cache_hash_file.path.?);
 
@@ -168,6 +174,7 @@ pub const CacheHash = struct {
             } else {
                 cache_hash_file = try self.files.addOne();
                 cache_hash_file.path = null;
+                cache_hash_file.max_file_size = null;
             }
 
             var iter = mem.tokenize(line, " ");
@@ -213,7 +220,7 @@ pub const CacheHash = struct {
                 }
 
                 var actual_digest: [BIN_DIGEST_LEN]u8 = undefined;
-                cache_hash_file.contents = try hash_file(self.alloc, &actual_digest, &this_file);
+                cache_hash_file.contents = try hash_file(self.alloc, &actual_digest, &this_file, cache_hash_file.max_file_size);
 
                 if (!mem.eql(u8, &cache_hash_file.bin_digest, &actual_digest)) {
                     mem.copy(u8, &cache_hash_file.bin_digest, &actual_digest);
@@ -260,7 +267,7 @@ pub const CacheHash = struct {
         return self.final();
     }
 
-    fn populate_file_hash_fetch(self: *@This(), otherAlloc: *mem.Allocator, cache_hash_file: *File) ![]u8 {
+    fn populate_file_hash_fetch(self: *@This(), otherAlloc: *mem.Allocator, cache_hash_file: *File) !?[]u8 {
         debug.assert(cache_hash_file.path != null);
 
         const this_file = try fs.cwd().openFile(cache_hash_file.path.?, .{});
@@ -273,7 +280,7 @@ pub const CacheHash = struct {
             cache_hash_file.stat.inode = 0;
         }
 
-        const contents = try hash_file(otherAlloc, &cache_hash_file.bin_digest, &this_file);
+        const contents = try hash_file(otherAlloc, &cache_hash_file.bin_digest, &this_file, cache_hash_file.max_file_size);
         self.blake3.update(&cache_hash_file.bin_digest);
 
         return contents;
@@ -289,13 +296,15 @@ pub const CacheHash = struct {
     /// will need to be recompiled if the imported file is changed.
     ///
     /// Returns the contents of the file, allocated with the given allocator.
-    pub fn addFilePostFetch(self: *@This(), otherAlloc: *mem.Allocator, file_path: []const u8) ![]u8 {
+    pub fn addFilePostFetch(self: *@This(), otherAlloc: *mem.Allocator, file_path: []const u8, max_file_size_opt: ?usize) !?[]u8 {
         debug.assert(self.manifest_file != null);
 
         var cache_hash_file = try self.files.addOne();
         cache_hash_file.path = try fs.path.resolve(self.alloc, &[_][]const u8{file_path});
 
-        return try self.populate_file_hash_fetch(otherAlloc, cache_hash_file);
+        const contents = try self.populate_file_hash_fetch(otherAlloc, cache_hash_file);
+
+        return contents;
     }
 
     /// Add a file as a dependency of process being cached, after the initial hash has been
@@ -303,8 +312,7 @@ pub const CacheHash = struct {
     /// are depended on ahead of time. For example, a source file that can import other files
     /// will need to be recompiled if the imported file is changed.
     pub fn addFilePost(self: *@This(), file_path: []const u8) !void {
-        const contents = try self.addFilePostFetch(self.alloc, file_path);
-        self.alloc.free(contents);
+        _ = try self.addFilePostFetch(self.alloc, file_path, null);
     }
 
     /// Returns a base64 encoded hash of the inputs.
@@ -367,16 +375,30 @@ pub const CacheHash = struct {
 };
 
 /// Hash the file, and return the contents as an array
-fn hash_file(alloc: *Allocator, bin_digest: []u8, handle: *const fs.File) ![]u8 {
+fn hash_file(alloc: *Allocator, bin_digest: []u8, handle: *const fs.File, max_file_size_opt: ?usize) !?[]u8 {
     var blake3 = Blake3.init();
+    var in_stream = handle.inStream();
 
-    const contents = try handle.inStream().readAllAlloc(alloc, 64 * 1024);
+    if (max_file_size_opt) |max_file_size| {
+        const contents = try in_stream.readAllAlloc(alloc, max_file_size);
 
-    blake3.update(contents);
+        blake3.update(contents);
 
-    blake3.final(bin_digest);
+        blake3.final(bin_digest);
 
-    return contents;
+        return contents;
+    } else {
+        var buf: [1024]u8 = undefined;
+
+        while (true) {
+            const bytes_read = try in_stream.read(buf[0..]);
+            if (bytes_read == 0) break;
+            blake3.update(buf[0..bytes_read]);
+        }
+
+        blake3.final(bin_digest);
+        return null;
+    }
 }
 
 /// If the wall clock time, rounded to the same precision as the
@@ -407,7 +429,7 @@ test "cache file and then recall it" {
         ch.add(true);
         ch.add(@as(u16, 1234));
         ch.add("1234");
-        _ = try ch.addFile(temp_file);
+        _ = try ch.addFile(temp_file, null);
 
         // There should be nothing in the cache
         testing.expectEqual(@as(?[64]u8, null), try ch.hit());
@@ -421,7 +443,7 @@ test "cache file and then recall it" {
         ch.add(true);
         ch.add(@as(u16, 1234));
         ch.add("1234");
-        _ = try ch.addFile(temp_file);
+        _ = try ch.addFile(temp_file, null);
 
         // Cache hit! We just "built" the same file
         digest2 = (try ch.hit()).?;
@@ -448,8 +470,10 @@ test "check that changing a file makes cache fail" {
 
     const temp_file = "cache_hash_change_file_test.txt";
     const temp_manifest_dir = "cache_hash_change_file_manifest_dir";
+    const original_temp_file_contents = "Hello, world!\n";
+    const updated_temp_file_contents = "Hello, world; but updated!\n";
 
-    try cwd.writeFile(temp_file, "Hello, world!\n");
+    try cwd.writeFile(temp_file, original_temp_file_contents);
 
     var digest1: [BASE64_DIGEST_LEN]u8 = undefined;
     var digest2: [BASE64_DIGEST_LEN]u8 = undefined;
@@ -459,25 +483,29 @@ test "check that changing a file makes cache fail" {
         defer ch.release() catch unreachable;
 
         ch.add("1234");
-        _ = try ch.addFile(temp_file);
+        const temp_file_idx = try ch.addFile(temp_file, 100);
 
         // There should be nothing in the cache
         testing.expectEqual(@as(?[64]u8, null), try ch.hit());
 
+        testing.expect(mem.eql(u8, original_temp_file_contents, ch.files.items[temp_file_idx].contents.?));
+
         digest1 = ch.final();
     }
 
-    try cwd.writeFile(temp_file, "Hello, world; but updated!\n");
+    try cwd.writeFile(temp_file, updated_temp_file_contents);
 
     {
         var ch = try CacheHash.init(testing.allocator, temp_manifest_dir);
         defer ch.release() catch unreachable;
 
         ch.add("1234");
-        _ = try ch.addFile(temp_file);
+        const temp_file_idx = try ch.addFile(temp_file, 100);
 
         // A file that we depend on has been updated, so the cache should not contain an entry for it
         testing.expectEqual(@as(?[64]u8, null), try ch.hit());
+
+        testing.expect(mem.eql(u8, updated_temp_file_contents, ch.files.items[temp_file_idx].contents.?));
 
         digest2 = ch.final();
     }
@@ -538,7 +566,7 @@ test "CacheHashes with files added after initial hash work" {
         defer ch.release() catch unreachable;
 
         ch.add("1234");
-        _ = try ch.addFile(temp_file1);
+        _ = try ch.addFile(temp_file1, null);
 
         // There should be nothing in the cache
         testing.expectEqual(@as(?[64]u8, null), try ch.hit());
@@ -552,7 +580,7 @@ test "CacheHashes with files added after initial hash work" {
         defer ch.release() catch unreachable;
 
         ch.add("1234");
-        _ = try ch.addFile(temp_file1);
+        _ = try ch.addFile(temp_file1, null);
 
         // A file that we depend on has been updated, so the cache should not contain an entry for it
         digest2 = (try ch.hit()).?;
@@ -566,7 +594,7 @@ test "CacheHashes with files added after initial hash work" {
         defer ch.release() catch unreachable;
 
         ch.add("1234");
-        _ = try ch.addFile(temp_file1);
+        _ = try ch.addFile(temp_file1, null);
 
         // A file that we depend on has been updated, so the cache should not contain an entry for it
         testing.expectEqual(@as(?[64]u8, null), try ch.hit());
