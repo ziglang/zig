@@ -764,6 +764,15 @@ pub const SOCK_RDM = 4;
 pub const SOCK_SEQPACKET = 5;
 pub const SOCK_MAXADDRLEN = 255;
 
+/// Not actually supported by Darwin, but Zig supplies a shim.
+/// This numerical value is not ABI-stable. It need only not conflict
+/// with any other "SOCK_" bits.
+pub const SOCK_CLOEXEC = 1 << 15;
+/// Not actually supported by Darwin, but Zig supplies a shim.
+/// This numerical value is not ABI-stable. It need only not conflict
+/// with any other "SOCK_" bits.
+pub const SOCK_NONBLOCK = 1 << 16;
+
 pub const IPPROTO_ICMP = 1;
 pub const IPPROTO_ICMPV6 = 58;
 pub const IPPROTO_TCP = 6;

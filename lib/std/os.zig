@@ -2159,9 +2159,20 @@ pub const SocketError = error{
 } || UnexpectedError;
 
 pub fn socket(domain: u32, socket_type: u32, protocol: u32) SocketError!fd_t {
+    const have_sock_flags = comptime !std.Target.current.isDarwin();
+    const filtered_sock_type = if (!have_sock_flags)
+        socket_type & ~@as(u32, SOCK_NONBLOCK | SOCK_CLOEXEC)
+    else
+        socket_type;
     const rc = system.socket(domain, socket_type, protocol);
     switch (errno(rc)) {
-        0 => return @intCast(fd_t, rc),
+        0 => {
+            const fd = @intCast(fd_t, rc);
+            if (!have_sock_flags and filtered_sock_type != socket_type) {
+                try setSockFlags(fd, socket_type);
+            }
+            return fd;
+        },
         EACCES => return error.PermissionDenied,
         EAFNOSUPPORT => return error.AddressFamilyNotSupported,
         EINVAL => return error.ProtocolFamilyNotAvailable,
@@ -2284,41 +2295,6 @@ pub const AcceptError = error{
 /// Accept a connection on a socket.
 /// If the application has a global event loop enabled, EAGAIN is handled
 /// via the event loop. Otherwise EAGAIN results in error.WouldBlock.
-pub fn accept4(
-    /// This argument is a socket that has been created with `socket`, bound to a local address
-    /// with `bind`, and is listening for connections after a `listen`.
-    sockfd: fd_t,
-    /// This argument is a pointer to a sockaddr structure.  This structure is filled in with  the
-    /// address  of  the  peer  socket, as known to the communications layer.  The exact format of the
-    /// address returned addr is determined by the socket's address  family  (see  `socket`  and  the
-    /// respective  protocol  man  pages).
-    addr: *sockaddr,
-    /// This argument is a value-result argument: the caller must initialize it to contain  the
-    /// size (in bytes) of the structure pointed to by addr; on return it will contain the actual size
-    /// of the peer address.
-    ///
-    /// The returned address is truncated if the buffer provided is too small; in this  case,  `addr_size`
-    /// will return a value greater than was supplied to the call.
-    addr_size: *socklen_t,
-    /// If  flags  is  0, then `accept4` is the same as `accept`.  The following values can be bitwise
-    /// ORed in flags to obtain different behavior:
-    /// * `SOCK_NONBLOCK` - Set the `O_NONBLOCK` file status flag on the open file description (see `open`)
-    ///   referred  to by the new file descriptor.  Using this flag saves extra calls to `fcntl` to achieve
-    ///   the same result.
-    /// * `SOCK_CLOEXEC`  - Set the close-on-exec (`FD_CLOEXEC`) flag on the new file descriptor.   See  the
-    ///   description  of the `O_CLOEXEC` flag in `open` for reasons why this may be useful.
-    flags: u32,
-) AcceptError!fd_t {
-    if (comptime builtin.os.tag.isDarwin()) {
-        @compileError("accept4 not available for target Darwin, use accept");
-    }
-
-    return try _accept(sockfd, addr, addr_size, flags);
-}
-
-/// Accept a connection on a socket.
-/// If the application has a global event loop enabled, EAGAIN is handled
-/// via the event loop. Otherwise EAGAIN results in error.WouldBlock.
 pub fn accept(
     /// This argument is a socket that has been created with `socket`, bound to a local address
     /// with `bind`, and is listening for connections after a `listen`.
@@ -2335,26 +2311,31 @@ pub fn accept(
     /// The returned address is truncated if the buffer provided is too small; in this  case,  `addr_size`
     /// will return a value greater than was supplied to the call.
     addr_size: *socklen_t,
+    /// The following values can be bitwise ORed in flags to obtain different behavior:
+    /// * `SOCK_NONBLOCK` - Set the `O_NONBLOCK` file status flag on the open file description (see `open`)
+    ///   referred  to by the new file descriptor.  Using this flag saves extra calls to `fcntl` to achieve
+    ///   the same result.
+    /// * `SOCK_CLOEXEC`  - Set the close-on-exec (`FD_CLOEXEC`) flag on the new file descriptor.   See  the
+    ///   description  of the `O_CLOEXEC` flag in `open` for reasons why this may be useful.
+    flags: u32,
 ) AcceptError!fd_t {
-    return try _accept(sockfd, addr, addr_size, 0);
-}
+    const have_accept4 = comptime !std.Target.current.isDarwin();
+    assert(0 == (flags & ~@as(u32, SOCK_NONBLOCK | SOCK_CLOEXEC))); // Unsupported flag(s)
 
-fn _accept(sockfd: fd_t, addr: *sockaddr, addr_size: *socklen_t, flags: u32) AcceptError!fd_t {
     while (true) {
-        const rc = func: {
-            switch (comptime builtin.os.tag) {
-                .linux, .freebsd, .netbsd, .dragonfly => 
-                    break :func system.accept4(sockfd, addr, addr_size, flags),
-                .ios, .macosx, .watchos, .tvos => {
-                    assert(flags == 0);
-                    break :func system.accept(sockfd, addr, addr_size);
-                },
-                else => @compileError("accept not available for target"),
-            }
-        };
+        const rc = if (have_accept4)
+            system.accept4(sockfd, addr, addr_size, flags)
+        else
+            system.accept(sockfd, addr, addr_size);
 
         switch (errno(rc)) {
-            0 => return @intCast(fd_t, rc),
+            0 => {
+                const fd = @intCast(fd_t, rc);
+                if (!have_accept4 and flags != 0) {
+                    try setSockFlags(fd, flags);
+                }
+                return fd;
+            },
             EINTR => continue,
             EAGAIN => if (std.event.Loop.instance) |loop| {
                 loop.waitUntilFdReadable(sockfd);
@@ -3282,6 +3263,35 @@ pub fn fcntl(fd: fd_t, cmd: i32, arg: usize) FcntlError!usize {
             ENOTDIR => unreachable, // invalid parameter
             else => |err| return unexpectedErrno(err),
         }
+    }
+}
+
+fn setSockFlags(fd: fd_t, flags: u32) !void {
+    {
+        var fd_flags = fcntl(fd, F_GETFD, 0) catch |err| switch (err) {
+            error.FileBusy => unreachable,
+            error.Locked => unreachable,
+            else => |e| return e,
+        };
+        if ((flags & SOCK_NONBLOCK) != 0) fd_flags |= FD_CLOEXEC;
+        _ = fcntl(fd, F_SETFD, fd_flags) catch |err| switch (err) {
+            error.FileBusy => unreachable,
+            error.Locked => unreachable,
+            else => |e| return e,
+        };
+    }
+    {
+        var fl_flags = fcntl(fd, F_GETFL, 0) catch |err| switch (err) {
+            error.FileBusy => unreachable,
+            error.Locked => unreachable,
+            else => |e| return e,
+        };
+        if ((flags & SOCK_CLOEXEC) != 0) fl_flags |= O_NONBLOCK;
+        _ = fcntl(fd, F_SETFL, fl_flags) catch |err| switch (err) {
+            error.FileBusy => unreachable,
+            error.Locked => unreachable,
+            else => |e| return e,
+        };
     }
 }
 
