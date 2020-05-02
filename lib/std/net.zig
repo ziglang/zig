@@ -1379,7 +1379,7 @@ pub const StreamServer = struct {
         const accept_flags = nonblock | os.SOCK_CLOEXEC;
         var accepted_addr: Address = undefined;
         var adr_len: os.socklen_t = @sizeOf(Address);
-        if (os.accept4(self.sockfd.?, &accepted_addr.any, &adr_len, accept_flags)) |fd| {
+        if (os.accept(self.sockfd.?, &accepted_addr.any, &adr_len, accept_flags)) |fd| {
             return Connection{
                 .file = fs.File{ .handle = fd },
                 .address = accepted_addr,
