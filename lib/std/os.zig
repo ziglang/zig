@@ -374,7 +374,7 @@ pub fn readv(fd: fd_t, iov: []const iovec) ReadError!usize {
         const first = iov[0];
         return read(fd, first.iov_base[0..first.iov_len]);
     }
-    
+
     const iov_count = math.cast(u31, iov.len) catch math.maxInt(u31);
     while (true) {
         // TODO handle the case when iov_len is too large and get rid of this @intCast
@@ -859,7 +859,7 @@ pub const OpenError = error{
 /// Open and possibly create a file. Keeps trying if it gets interrupted.
 /// See also `openC`.
 /// TODO support windows
-pub fn open(file_path: []const u8, flags: u32, perm: usize) OpenError!fd_t {
+pub fn open(file_path: []const u8, flags: u32, perm: mode_t) OpenError!fd_t {
     const file_path_c = try toPosixPath(file_path);
     return openZ(&file_path_c, flags, perm);
 }
@@ -869,7 +869,7 @@ pub const openC = @compileError("deprecated: renamed to openZ");
 /// Open and possibly create a file. Keeps trying if it gets interrupted.
 /// See also `open`.
 /// TODO support windows
-pub fn openZ(file_path: [*:0]const u8, flags: u32, perm: usize) OpenError!fd_t {
+pub fn openZ(file_path: [*:0]const u8, flags: u32, perm: mode_t) OpenError!fd_t {
     while (true) {
         const rc = system.open(file_path, flags, perm);
         switch (errno(rc)) {

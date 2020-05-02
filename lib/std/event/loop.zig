@@ -502,18 +502,43 @@ pub const Loop = struct {
     }
 
     pub fn waitUntilFdReadable(self: *Loop, fd: os.fd_t) void {
-        return self.linuxWaitFd(fd, os.EPOLLET | os.EPOLLONESHOT | os.EPOLLIN);
+        switch (builtin.os.tag) {
+            .linux => {
+                self.linuxWaitFd(fd, os.EPOLLET | os.EPOLLONESHOT | os.EPOLLIN);
+            },
+            .macosx, .freebsd, .netbsd, .dragonfly => {
+                self.bsdWaitKev(@intCast(usize, fd), os.EVFILT_READ, os.EV_ONESHOT);
+            },
+            else => @compileError("Unsupported OS"),
+        }
     }
 
     pub fn waitUntilFdWritable(self: *Loop, fd: os.fd_t) void {
-        return self.linuxWaitFd(fd, os.EPOLLET | os.EPOLLONESHOT | os.EPOLLOUT);
+        switch (builtin.os.tag) {
+            .linux => {
+                self.linuxWaitFd(fd, os.EPOLLET | os.EPOLLONESHOT | os.EPOLLOUT);
+            },
+            .macosx, .freebsd, .netbsd, .dragonfly => {
+                self.bsdWaitKev(@intCast(usize, fd), os.EVFILT_WRITE, os.EV_ONESHOT);
+            },
+            else => @compileError("Unsupported OS"),
+        }
     }
 
     pub fn waitUntilFdWritableOrReadable(self: *Loop, fd: os.fd_t) void {
-        return self.linuxWaitFd(fd, os.EPOLLET | os.EPOLLONESHOT | os.EPOLLOUT | os.EPOLLIN);
+        switch (builtin.os.tag) {
+            .linux => {
+                self.linuxWaitFd(@intCast(usize, fd), os.EPOLLET | os.EPOLLONESHOT | os.EPOLLOUT | os.EPOLLIN);
+            },
+            .macosx, .freebsd, .netbsd, .dragonfly => {
+                self.bsdWaitKev(@intCast(usize, fd), os.EVFILT_READ, os.EV_ONESHOT);
+                self.bsdWaitKev(@intCast(usize, fd), os.EVFILT_WRITE, os.EV_ONESHOT);
+            },
+            else => @compileError("Unsupported OS"),
+        }
     }
 
-    pub async fn bsdWaitKev(self: *Loop, ident: usize, filter: i16, fflags: u32) !os.Kevent {
+    pub async fn bsdWaitKev(self: *Loop, ident: usize, filter: i16, fflags: u32) void {
         var resume_node = ResumeNode.Basic{
             .base = ResumeNode{
                 .id = ResumeNode.Id.Basic,
@@ -524,40 +549,37 @@ pub const Loop = struct {
         };
         defer self.bsdRemoveKev(ident, filter);
         suspend {
-            try self.bsdAddKev(&resume_node, ident, filter, fflags);
+            self.bsdAddKev(&resume_node, ident, filter, fflags) catch unreachable;
         }
-        return resume_node.kev;
     }
 
     /// resume_node must live longer than the anyframe that it holds a reference to.
     pub fn bsdAddKev(self: *Loop, resume_node: *ResumeNode.Basic, ident: usize, filter: i16, fflags: u32) !void {
         self.beginOneEvent();
         errdefer self.finishOneEvent();
-        var kev = os.Kevent{
+        var kev = [1]os.Kevent{os.Kevent{
             .ident = ident,
             .filter = filter,
             .flags = os.EV_ADD | os.EV_ENABLE | os.EV_CLEAR,
             .fflags = fflags,
             .data = 0,
             .udata = @ptrToInt(&resume_node.base),
-        };
-        const kevent_array = (*const [1]os.Kevent)(&kev);
-        const empty_kevs = ([*]os.Kevent)(undefined)[0..0];
-        _ = try os.kevent(self.os_data.kqfd, kevent_array, empty_kevs, null);
+        }};
+        const empty_kevs = &[0]os.Kevent{};
+        _ = try os.kevent(self.os_data.kqfd, &kev, empty_kevs, null);
     }
 
     pub fn bsdRemoveKev(self: *Loop, ident: usize, filter: i16) void {
-        var kev = os.Kevent{
+        var kev = [1]os.Kevent{os.Kevent{
             .ident = ident,
             .filter = filter,
             .flags = os.EV_DELETE,
             .fflags = 0,
             .data = 0,
             .udata = 0,
-        };
-        const kevent_array = (*const [1]os.Kevent)(&kev);
-        const empty_kevs = ([*]os.Kevent)(undefined)[0..0];
-        _ = os.kevent(self.os_data.kqfd, kevent_array, empty_kevs, null) catch undefined;
+        }};
+        const empty_kevs = &[0]os.Kevent{};
+        _ = os.kevent(self.os_data.kqfd, &kev, empty_kevs, null) catch undefined;
         self.finishOneEvent();
     }
 
@@ -712,7 +734,7 @@ pub const Loop = struct {
     }
 
     /// Performs an async `os.open` using a separate thread.
-    pub fn openZ(self: *Loop, file_path: [*:0]const u8, flags: u32, mode: usize) os.OpenError!os.fd_t {
+    pub fn openZ(self: *Loop, file_path: [*:0]const u8, flags: u32, mode: os.mode_t) os.OpenError!os.fd_t {
         var req_node = Request.Node{
             .data = .{
                 .msg = .{
@@ -733,7 +755,7 @@ pub const Loop = struct {
     }
 
     /// Performs an async `os.opent` using a separate thread.
-    pub fn openatZ(self: *Loop, fd: os.fd_t, file_path: [*:0]const u8, flags: u32, mode: usize) os.OpenError!os.fd_t {
+    pub fn openatZ(self: *Loop, fd: os.fd_t, file_path: [*:0]const u8, flags: u32, mode: os.mode_t) os.OpenError!os.fd_t {
         var req_node = Request.Node{
             .data = .{
                 .msg = .{
