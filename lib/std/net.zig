@@ -412,7 +412,7 @@ pub fn tcpConnectToAddress(address: Address) !fs.File {
     errdefer os.close(sockfd);
     try os.connect(sockfd, &address.any, address.getOsSockLen());
 
-    return fs.File{ .handle = sockfd, .io_mode = std.io.mode };
+    return fs.File{ .handle = sockfd };
 }
 
 /// Call `AddressList.deinit` on the result.
@@ -1381,10 +1381,7 @@ pub const StreamServer = struct {
         var adr_len: os.socklen_t = @sizeOf(Address);
         if (os.accept4(self.sockfd.?, &accepted_addr.any, &adr_len, accept_flags)) |fd| {
             return Connection{
-                .file = fs.File{
-                    .handle = fd,
-                    .io_mode = std.io.mode,
-                },
+                .file = fs.File{ .handle = fd },
                 .address = accepted_addr,
             };
         } else |err| switch (err) {

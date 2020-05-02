@@ -8,6 +8,8 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const math = std.math;
 
+const is_darwin = std.Target.current.os.tag.isDarwin();
+
 pub const path = @import("fs/path.zig");
 pub const File = @import("fs/file.zig").File;
 
@@ -597,8 +599,11 @@ pub const Dir = struct {
 
         // Use the O_ locking flags if the os supports them
         // (Or if it's darwin, as darwin's `open` doesn't support the O_SYNC flag)
-        const has_flock_open_flags = @hasDecl(os, "O_EXLOCK") and !builtin.os.tag.isDarwin();
-        const nonblocking_lock_flag = if (has_flock_open_flags and flags.lock_nonblocking) (os.O_NONBLOCK | os.O_SYNC) else @as(u32, 0);
+        const has_flock_open_flags = @hasDecl(os, "O_EXLOCK") and !is_darwin;
+        const nonblocking_lock_flag = if (has_flock_open_flags and flags.lock_nonblocking)
+            os.O_NONBLOCK | os.O_SYNC
+        else
+            @as(u32, 0);
         const lock_flag: u32 = if (has_flock_open_flags) switch (flags.lock) {
             .None => @as(u32, 0),
             .Shared => os.O_SHLOCK | nonblocking_lock_flag,
@@ -612,7 +617,7 @@ pub const Dir = struct {
             @as(u32, os.O_WRONLY)
         else
             @as(u32, os.O_RDONLY);
-        const fd = if (need_async_thread and !flags.always_blocking)
+        const fd = if (flags.intended_io_mode != .blocking)
             try std.event.Loop.instance.?.openatZ(self.fd, sub_path, os_flags, 0)
         else
             try os.openatZ(self.fd, sub_path, os_flags, 0);
@@ -629,11 +634,8 @@ pub const Dir = struct {
 
         return File{
             .handle = fd,
-            .io_mode = .blocking,
-            .async_block_allowed = if (flags.always_blocking)
-                File.async_block_allowed_yes
-            else
-                File.async_block_allowed_no,
+            .capable_io_mode = .blocking,
+            .intended_io_mode = flags.intended_io_mode,
         };
     }
 
@@ -648,19 +650,16 @@ pub const Dir = struct {
                     (if (flags.read) @as(u32, w.GENERIC_READ) else 0) |
                     (if (flags.write) @as(u32, w.GENERIC_WRITE) else 0),
                 .share_access = switch (flags.lock) {
-                    .None => @as(?w.ULONG, null),
+                    .None => w.FILE_SHARE_WRITE | w.FILE_SHARE_READ | w.FILE_SHARE_DELETE,
                     .Shared => w.FILE_SHARE_READ | w.FILE_SHARE_DELETE,
                     .Exclusive => w.FILE_SHARE_DELETE,
                 },
                 .share_access_nonblocking = flags.lock_nonblocking,
                 .creation = w.FILE_OPEN,
-                .enable_async_io = std.io.is_async and !flags.always_blocking,
+                .io_mode = flags.intended_io_mode,
             }),
-            .io_mode = .blocking,
-            .async_block_allowed = if (flags.always_blocking)
-                File.async_block_allowed_yes
-            else
-                File.async_block_allowed_no,
+            .capable_io_mode = std.io.default_mode,
+            .intended_io_mode = flags.intended_io_mode,
         });
     }
 
@@ -687,8 +686,11 @@ pub const Dir = struct {
 
         // Use the O_ locking flags if the os supports them
         // (Or if it's darwin, as darwin's `open` doesn't support the O_SYNC flag)
-        const has_flock_open_flags = @hasDecl(os, "O_EXLOCK") and !builtin.os.tag.isDarwin();
-        const nonblocking_lock_flag = if (has_flock_open_flags and flags.lock_nonblocking) (os.O_NONBLOCK | os.O_SYNC) else @as(u32, 0);
+        const has_flock_open_flags = @hasDecl(os, "O_EXLOCK") and !is_darwin;
+        const nonblocking_lock_flag: u32 = if (has_flock_open_flags and flags.lock_nonblocking)
+            os.O_NONBLOCK | os.O_SYNC
+        else
+            0;
         const lock_flag: u32 = if (has_flock_open_flags) switch (flags.lock) {
             .None => @as(u32, 0),
             .Shared => os.O_SHLOCK,
@@ -700,7 +702,7 @@ pub const Dir = struct {
             (if (flags.truncate) @as(u32, os.O_TRUNC) else 0) |
             (if (flags.read) @as(u32, os.O_RDWR) else os.O_WRONLY) |
             (if (flags.exclusive) @as(u32, os.O_EXCL) else 0);
-        const fd = if (need_async_thread)
+        const fd = if (flags.intended_io_mode != .blocking)
             try std.event.Loop.instance.?.openatZ(self.fd, sub_path_c, os_flags, flags.mode)
         else
             try os.openatZ(self.fd, sub_path_c, os_flags, flags.mode);
@@ -715,7 +717,11 @@ pub const Dir = struct {
             });
         }
 
-        return File{ .handle = fd, .io_mode = .blocking };
+        return File{
+            .handle = fd,
+            .capable_io_mode = .blocking,
+            .intended_io_mode = flags.intended_io_mode,
+        };
     }
 
     /// Same as `createFile` but Windows-only and the path parameter is
@@ -739,9 +745,10 @@ pub const Dir = struct {
                     @as(u32, w.FILE_OVERWRITE_IF)
                 else
                     @as(u32, w.FILE_OPEN_IF),
-                .enable_async_io = std.io.is_async,
+                .io_mode = flags.intended_io_mode,
             }),
-            .io_mode = .blocking,
+            .capable_io_mode = std.io.default_mode,
+            .intended_io_mode = flags.intended_io_mode,
         });
     }
 
@@ -1257,7 +1264,7 @@ pub const Dir = struct {
             @as(u32, os.W_OK)
         else
             @as(u32, os.F_OK);
-        const result = if (need_async_thread)
+        const result = if (need_async_thread and flags.intended_io_mode != .blocking)
             std.event.Loop.instance.?.faccessatZ(self.fd, sub_path, os_mode, 0)
         else
             os.faccessatZ(self.fd, sub_path, os_mode, 0);
@@ -1399,8 +1406,8 @@ pub fn openFileAbsoluteZ(absolute_path_c: [*:0]const u8, flags: File.OpenFlags) 
 }
 
 /// Same as `openFileAbsolute` but the path parameter is WTF-16 encoded.
-pub fn openFileAbsoluteW(absolute_path_w: [*:0]const u16, flags: File.OpenFlags) File.OpenError!File {
-    assert(path.isAbsoluteWindowsW(absolute_path_w));
+pub fn openFileAbsoluteW(absolute_path_w: []const u16, flags: File.OpenFlags) File.OpenError!File {
+    assert(path.isAbsoluteWindowsWTF16(absolute_path_w));
     return cwd().openFileW(absolute_path_w, flags);
 }
 
@@ -1617,7 +1624,7 @@ pub fn selfExePathAlloc(allocator: *Allocator) ![]u8 {
 /// been deleted, the file path looks something like `/a/b/c/exe (deleted)`.
 /// TODO make the return type of this a null terminated pointer
 pub fn selfExePath(out_buffer: *[MAX_PATH_BYTES]u8) SelfExePathError![]u8 {
-    if (comptime std.Target.current.isDarwin()) {
+    if (is_darwin) {
         var u32_len: u32 = out_buffer.len;
         const rc = std.c._NSGetExecutablePath(out_buffer, &u32_len);
         if (rc != 0) return error.NameTooLong;

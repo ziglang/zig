@@ -173,8 +173,8 @@ fn getRandomBytesDevURandom(buf: []u8) !void {
 
     const file = std.fs.File{
         .handle = fd,
-        .io_mode = .blocking,
-        .async_block_allowed = std.fs.File.async_block_allowed_yes,
+        .capable_io_mode = .blocking,
+        .intended_io_mode = .blocking,
     };
     const stream = file.inStream();
     stream.readNoEof(buf) catch return error.Unexpected;
@@ -305,7 +305,7 @@ pub const ReadError = error{
 /// For POSIX the limit is `math.maxInt(isize)`.
 pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
     if (builtin.os.tag == .windows) {
-        return windows.ReadFile(fd, buf, null, false);
+        return windows.ReadFile(fd, buf, null, std.io.default_mode);
     }
 
     if (builtin.os.tag == .wasi and !builtin.link_libc) {
@@ -408,7 +408,7 @@ pub const PReadError = ReadError || error{Unseekable};
 /// used to perform the I/O. `error.WouldBlock` is not possible on Windows.
 pub fn pread(fd: fd_t, buf: []u8, offset: u64) PReadError!usize {
     if (builtin.os.tag == .windows) {
-        return windows.ReadFile(fd, buf, offset, false);
+        return windows.ReadFile(fd, buf, offset, std.io.default_mode);
     }
 
     while (true) {
@@ -584,7 +584,7 @@ pub const WriteError = error{
 /// The corresponding POSIX limit is `math.maxInt(isize)`.
 pub fn write(fd: fd_t, bytes: []const u8) WriteError!usize {
     if (builtin.os.tag == .windows) {
-        return windows.WriteFile(fd, bytes, null, false);
+        return windows.WriteFile(fd, bytes, null, std.io.default_mode);
     }
 
     if (builtin.os.tag == .wasi and !builtin.link_libc) {
@@ -709,7 +709,7 @@ pub const PWriteError = WriteError || error{Unseekable};
 /// The corresponding POSIX limit is `math.maxInt(isize)`.
 pub fn pwrite(fd: fd_t, bytes: []const u8, offset: u64) PWriteError!usize {
     if (std.Target.current.os.tag == .windows) {
-        return windows.WriteFile(fd, bytes, offset, false);
+        return windows.WriteFile(fd, bytes, offset, std.io.default_mode);
     }
 
     // Prevent EINVAL.

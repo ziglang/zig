@@ -8,7 +8,6 @@ const assert = std.debug.assert;
 const windows = os.windows;
 const Os = builtin.Os;
 const maxInt = std.math.maxInt;
-const need_async_thread = std.fs.need_async_thread;
 
 pub const File = struct {
     /// The OS-specific file descriptor or file handle.
@@ -17,15 +16,14 @@ pub const File = struct {
     /// On some systems, such as Linux, file system file descriptors are incapable of non-blocking I/O.
     /// This forces us to perform asynchronous I/O on a dedicated thread, to achieve non-blocking
     /// file-system I/O. To do this, `File` must be aware of whether it is a file system file descriptor,
-    /// or, more specifically, whether the I/O is blocking.
-    io_mode: io.Mode,
+    /// or, more specifically, whether the I/O is always blocking.
+    capable_io_mode: io.ModeOverride = io.default_mode,
 
-    /// Even when 'std.io.mode' is async, it is still sometimes desirable to perform blocking I/O, although
-    /// not by default. For example, when printing a stack trace to stderr.
-    async_block_allowed: @TypeOf(async_block_allowed_no) = async_block_allowed_no,
-
-    pub const async_block_allowed_yes = if (io.is_async) true else {};
-    pub const async_block_allowed_no = if (io.is_async) false else {};
+    /// Furthermore, even when `std.io.mode` is async, it is still sometimes desirable to perform blocking I/O,
+    /// although not by default. For example, when printing a stack trace to stderr.
+    /// This field tracks both by acting as an overriding I/O mode. When not building in async I/O mode,
+    /// the type only has the `.blocking` tag, making it a zero-bit type.
+    intended_io_mode: io.ModeOverride = io.default_mode,
 
     pub const Mode = os.mode_t;
 
@@ -36,9 +34,7 @@ pub const File = struct {
 
     pub const OpenError = windows.CreateFileError || os.OpenError || os.FlockError;
 
-    pub const Lock = enum {
-        None, Shared, Exclusive
-    };
+    pub const Lock = enum { None, Shared, Exclusive };
 
     /// TODO https://github.com/ziglang/zig/issues/3802
     pub const OpenFlags = struct {
@@ -62,15 +58,16 @@ pub const File = struct {
 
         /// Sets whether or not to wait until the file is locked to return. If set to true,
         /// `error.WouldBlock` will be returned. Otherwise, the file will wait until the file
-        /// is available to proceed. In async I/O mode, non-blocking at the OS level is always
-        /// used, and `true` means `error.WouldBlock` is returned, and `false` means
-        /// `error.WouldBlock` is handled by the event loop.
+        /// is available to proceed.
+        /// In async I/O mode, non-blocking at the OS level is
+        /// determined by `intended_io_mode`, and `true` means `error.WouldBlock` is returned,
+        /// and `false` means `error.WouldBlock` is handled by the event loop.
         lock_nonblocking: bool = false,
 
-        /// This prevents `O_NONBLOCK` from being passed even if `std.io.is_async`.
-        /// It allows the use of `noasync` when calling functions related to opening
-        /// the file, reading, writing, as well as locking functionality.
-        always_blocking: bool = false,
+        /// Setting this to `.blocking` prevents `O_NONBLOCK` from being passed even
+        /// if `std.io.is_async`. It allows the use of `noasync` when calling functions
+        /// related to opening the file, reading, writing, and locking.
+        intended_io_mode: io.ModeOverride = io.default_mode,
     };
 
     /// TODO https://github.com/ziglang/zig/issues/3802
@@ -104,17 +101,25 @@ pub const File = struct {
         /// Sets whether or not to wait until the file is locked to return. If set to true,
         /// `error.WouldBlock` will be returned. Otherwise, the file will wait until the file
         /// is available to proceed.
+        /// In async I/O mode, non-blocking at the OS level is
+        /// determined by `intended_io_mode`, and `true` means `error.WouldBlock` is returned,
+        /// and `false` means `error.WouldBlock` is handled by the event loop.
         lock_nonblocking: bool = false,
 
         /// For POSIX systems this is the file system mode the file will
         /// be created with.
         mode: Mode = default_mode,
+
+        /// Setting this to `.blocking` prevents `O_NONBLOCK` from being passed even
+        /// if `std.io.is_async`. It allows the use of `noasync` when calling functions
+        /// related to opening the file, reading, writing, and locking.
+        intended_io_mode: io.ModeOverride = io.default_mode,
     };
 
     /// Upon success, the stream is in an uninitialized state. To continue using it,
     /// you must use the open() function.
     pub fn close(self: File) void {
-        if (need_async_thread and self.io_mode == .blocking and !self.async_block_allowed) {
+        if (self.capable_io_mode != self.intended_io_mode) {
             std.event.Loop.instance.?.close(self.handle);
         } else {
             os.close(self.handle);
@@ -297,11 +302,7 @@ pub const File = struct {
     pub const PReadError = os.PReadError;
 
     pub fn read(self: File, buffer: []u8) ReadError!usize {
-        if (builtin.os.tag == .windows) {
-            const enable_async_io = std.io.is_async and !self.async_block_allowed;
-            return windows.ReadFile(self.handle, buffer, null, enable_async_io);
-        }
-        if (need_async_thread and self.io_mode == .blocking and !self.async_block_allowed) {
+        if (self.capable_io_mode != self.intended_io_mode) {
             return std.event.Loop.instance.?.read(self.handle, buffer);
         } else {
             return os.read(self.handle, buffer);
@@ -321,11 +322,7 @@ pub const File = struct {
     }
 
     pub fn pread(self: File, buffer: []u8, offset: u64) PReadError!usize {
-        if (builtin.os.tag == .windows) {
-            const enable_async_io = std.io.is_async and !self.async_block_allowed;
-            return windows.ReadFile(self.handle, buffer, offset, enable_async_io);
-        }
-        if (need_async_thread and self.io_mode == .blocking and !self.async_block_allowed) {
+        if (self.capable_io_mode != self.intended_io_mode) {
             return std.event.Loop.instance.?.pread(self.handle, buffer, offset);
         } else {
             return os.pread(self.handle, buffer, offset);
@@ -345,7 +342,7 @@ pub const File = struct {
     }
 
     pub fn readv(self: File, iovecs: []const os.iovec) ReadError!usize {
-        if (need_async_thread and self.io_mode == .blocking and !self.async_block_allowed) {
+        if (self.capable_io_mode != self.intended_io_mode) {
             return std.event.Loop.instance.?.readv(self.handle, iovecs);
         } else {
             return os.readv(self.handle, iovecs);
@@ -379,7 +376,7 @@ pub const File = struct {
     }
 
     pub fn preadv(self: File, iovecs: []const os.iovec, offset: u64) PReadError!usize {
-        if (need_async_thread and self.io_mode == .blocking and !self.async_block_allowed) {
+        if (self.capable_io_mode != self.intended_io_mode) {
             return std.event.Loop.instance.?.preadv(self.handle, iovecs, offset);
         } else {
             return os.preadv(self.handle, iovecs, offset);
@@ -416,11 +413,7 @@ pub const File = struct {
     pub const PWriteError = os.PWriteError;
 
     pub fn write(self: File, bytes: []const u8) WriteError!usize {
-        if (builtin.os.tag == .windows) {
-            const enable_async_io = std.io.is_async and !self.async_block_allowed;
-            return windows.WriteFile(self.handle, bytes, null, enable_async_io);
-        }
-        if (need_async_thread and self.io_mode == .blocking and !self.async_block_allowed) {
+        if (self.capable_io_mode != self.intended_io_mode) {
             return std.event.Loop.instance.?.write(self.handle, bytes);
         } else {
             return os.write(self.handle, bytes);
@@ -435,11 +428,7 @@ pub const File = struct {
     }
 
     pub fn pwrite(self: File, bytes: []const u8, offset: u64) PWriteError!usize {
-        if (builtin.os.tag == .windows) {
-            const enable_async_io = std.io.is_async and !self.async_block_allowed;
-            return windows.WriteFile(self.handle, bytes, offset, enable_async_io);
-        }
-        if (need_async_thread and self.io_mode == .blocking and !self.async_block_allowed) {
+        if (self.capable_io_mode != self.intended_io_mode) {
             return std.event.Loop.instance.?.pwrite(self.handle, bytes, offset);
         } else {
             return os.pwrite(self.handle, bytes, offset);
@@ -454,7 +443,7 @@ pub const File = struct {
     }
 
     pub fn writev(self: File, iovecs: []const os.iovec_const) WriteError!usize {
-        if (need_async_thread and self.io_mode == .blocking and !self.async_block_allowed) {
+        if (self.capable_io_mode != self.intended_io_mode) {
             return std.event.Loop.instance.?.writev(self.handle, iovecs);
         } else {
             return os.writev(self.handle, iovecs);
@@ -480,7 +469,7 @@ pub const File = struct {
     }
 
     pub fn pwritev(self: File, iovecs: []os.iovec_const, offset: usize) PWriteError!usize {
-        if (need_async_thread and self.io_mode == .blocking and !self.async_block_allowed) {
+        if (self.capable_io_mode != self.intended_io_mode) {
             return std.event.Loop.instance.?.pwritev(self.handle, iovecs, offset);
         } else {
             return os.pwritev(self.handle, iovecs, offset);

@@ -27,7 +27,12 @@ test "open file with exclusive nonblocking lock twice" {
 }
 
 test "open file with lock twice, make sure it wasn't open at the same time" {
-    if (builtin.single_threaded) return;
+    if (builtin.single_threaded) return error.SkipZigTest;
+
+    if (std.io.is_async) {
+        // This test starts its own threads and is not compatible with async I/O.
+        return error.SkipZigTest;
+    }
 
     const filename = "file_lock_test.txt";
 
@@ -57,6 +62,11 @@ test "open file with lock twice, make sure it wasn't open at the same time" {
 
 test "create file, lock and read from multiple process at once" {
     if (builtin.single_threaded) return error.SkipZigTest;
+
+    if (std.io.is_async) {
+        // This test starts its own threads and is not compatible with async I/O.
+        return error.SkipZigTest;
+    }
 
     if (true) {
         // https://github.com/ziglang/zig/issues/5006

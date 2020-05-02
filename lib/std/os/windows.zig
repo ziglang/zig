@@ -110,7 +110,7 @@ pub const OpenFileOptions = struct {
     share_access: ULONG = FILE_SHARE_WRITE | FILE_SHARE_READ | FILE_SHARE_DELETE,
     share_access_nonblocking: bool = false,
     creation: ULONG,
-    enable_async_io: bool = std.io.is_async,
+    io_mode: std.io.ModeOverride,
 };
 
 /// TODO when share_access_nonblocking is false, this implementation uses
@@ -145,7 +145,7 @@ pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HAN
 
     var delay: usize = 1;
     while (true) {
-        const blocking_flag: ULONG = if (!options.enable_async_io) FILE_SYNCHRONOUS_IO_NONALERT else 0;
+        const blocking_flag: ULONG = if (options.io_mode == .blocking) FILE_SYNCHRONOUS_IO_NONALERT else 0;
         const rc = ntdll.NtCreateFile(
             &result,
             options.access_mask,
@@ -451,11 +451,11 @@ pub const ReadFileError = error{
 
 /// If buffer's length exceeds what a Windows DWORD integer can hold, it will be broken into
 /// multiple non-atomic reads.
-pub fn ReadFile(in_hFile: HANDLE, buffer: []u8, offset: ?u64, enable_async_io: bool) ReadFileError!usize {
-    if (std.event.Loop.instance != null and enable_async_io) {
+pub fn ReadFile(in_hFile: HANDLE, buffer: []u8, offset: ?u64, io_mode: std.io.ModeOverride) ReadFileError!usize {
+    if (io_mode != .blocking) {
         const loop = std.event.Loop.instance.?;
-        // TODO support async ReadFile with no offset
-        const off = if (offset == null) 0 else offset.?;
+        // TODO make getting the file position non-blocking
+        const off = if (offset) |o| o else try SetFilePointerEx_CURRENT_get(in_hFile);
         var resume_node = std.event.Loop.ResumeNode.Basic{
             .base = .{
                 .id = .Basic,
@@ -485,6 +485,11 @@ pub fn ReadFile(in_hFile: HANDLE, buffer: []u8, offset: ?u64, enable_async_io: b
                 .HANDLE_EOF => return @as(usize, bytes_transferred),
                 else => |err| return unexpectedError(err),
             }
+        }
+        if (offset == null) {
+            // TODO make setting the file position non-blocking
+            const new_off = off + bytes_transferred;
+            try SetFilePointerEx_CURRENT(in_hFile, @bitCast(i64, new_off));
         }
         return @as(usize, bytes_transferred);
     } else {
@@ -525,11 +530,16 @@ pub const WriteFileError = error{
     Unexpected,
 };
 
-pub fn WriteFile(handle: HANDLE, bytes: []const u8, offset: ?u64, enable_async_io: bool) WriteFileError!usize {
-    if (std.event.Loop.instance != null and enable_async_io) {
+pub fn WriteFile(
+    handle: HANDLE,
+    bytes: []const u8,
+    offset: ?u64,
+    io_mode: std.io.ModeOverride,
+) WriteFileError!usize {
+    if (std.event.Loop.instance != null and io_mode != .blocking) {
         const loop = std.event.Loop.instance.?;
-        // TODO support async WriteFile with no offset
-        const off = if (offset == null) 0 else offset.?;
+        // TODO make getting the file position non-blocking
+        const off = if (offset) |o| o else try SetFilePointerEx_CURRENT_get(handle);
         var resume_node = std.event.Loop.ResumeNode.Basic{
             .base = .{
                 .id = .Basic,
@@ -561,6 +571,11 @@ pub fn WriteFile(handle: HANDLE, bytes: []const u8, offset: ?u64, enable_async_i
                 .BROKEN_PIPE => return error.BrokenPipe,
                 else => |err| return unexpectedError(err),
             }
+        }
+        if (offset == null) {
+            // TODO make setting the file position non-blocking
+            const new_off = off + bytes_transferred;
+            try SetFilePointerEx_CURRENT(handle, @bitCast(i64, new_off));
         }
         return bytes_transferred;
     } else {

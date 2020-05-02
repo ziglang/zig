@@ -433,26 +433,17 @@ pub const ChildProcess = struct {
         // we are the parent
         const pid = @intCast(i32, pid_result);
         if (self.stdin_behavior == StdIo.Pipe) {
-            self.stdin = File{
-                .handle = stdin_pipe[1],
-                .io_mode = std.io.mode,
-            };
+            self.stdin = File{ .handle = stdin_pipe[1] };
         } else {
             self.stdin = null;
         }
         if (self.stdout_behavior == StdIo.Pipe) {
-            self.stdout = File{
-                .handle = stdout_pipe[0],
-                .io_mode = std.io.mode,
-            };
+            self.stdout = File{ .handle = stdout_pipe[0] };
         } else {
             self.stdout = null;
         }
         if (self.stderr_behavior == StdIo.Pipe) {
-            self.stderr = File{
-                .handle = stderr_pipe[0],
-                .io_mode = std.io.mode,
-            };
+            self.stderr = File{ .handle = stderr_pipe[0] };
         } else {
             self.stderr = null;
         }
@@ -835,8 +826,8 @@ const ErrInt = std.meta.Int(false, @sizeOf(anyerror) * 8);
 fn writeIntFd(fd: i32, value: ErrInt) !void {
     const file = File{
         .handle = fd,
-        .io_mode = .blocking,
-        .async_block_allowed = File.async_block_allowed_yes,
+        .capable_io_mode = .blocking,
+        .intended_io_mode = .blocking,
     };
     file.outStream().writeIntNative(u64, @intCast(u64, value)) catch return error.SystemResources;
 }
@@ -844,8 +835,8 @@ fn writeIntFd(fd: i32, value: ErrInt) !void {
 fn readIntFd(fd: i32) !ErrInt {
     const file = File{
         .handle = fd,
-        .io_mode = .blocking,
-        .async_block_allowed = File.async_block_allowed_yes,
+        .capable_io_mode = .blocking,
+        .intended_io_mode = .blocking,
     };
     return @intCast(ErrInt, file.inStream().readIntNative(u64) catch return error.SystemResources);
 }

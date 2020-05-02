@@ -667,7 +667,7 @@ pub fn openSelfDebugInfo(allocator: *mem.Allocator) anyerror!DebugInfo {
 /// TODO resources https://github.com/ziglang/zig/issues/4353
 fn openCoffDebugInfo(allocator: *mem.Allocator, coff_file_path: [:0]const u16) !ModuleDebugInfo {
     noasync {
-        const coff_file = try std.fs.openFileAbsoluteW(coff_file_path.ptr, .{});
+        const coff_file = try std.fs.openFileAbsoluteW(coff_file_path, .{ .intended_io_mode = .blocking });
         errdefer coff_file.close();
 
         const coff_obj = try allocator.create(coff.Coff);
@@ -1003,7 +1003,7 @@ fn openMachODebugInfo(allocator: *mem.Allocator, macho_file_path: []const u8) !M
 fn printLineFromFileAnyOs(out_stream: var, line_info: LineInfo) !void {
     // Need this to always block even in async I/O mode, because this could potentially
     // be called from e.g. the event loop code crashing.
-    var f = try fs.cwd().openFile(line_info.file_name, .{ .always_blocking = true });
+    var f = try fs.cwd().openFile(line_info.file_name, .{ .intended_io_mode = .blocking });
     defer f.close();
     // TODO fstat and make sure that the file has the correct size
 
@@ -1051,7 +1051,7 @@ const MachoSymbol = struct {
 
 fn mapWholeFile(path: []const u8) ![]align(mem.page_size) const u8 {
     noasync {
-        const file = try fs.cwd().openFile(path, .{ .always_blocking = true });
+        const file = try fs.cwd().openFile(path, .{ .intended_io_mode = .blocking });
         defer file.close();
 
         const file_len = try math.cast(usize, try file.getEndPos());
