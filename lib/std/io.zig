@@ -30,6 +30,11 @@ else
     Mode.blocking;
 pub const is_async = mode != .blocking;
 
+/// This is an enum value to use for I/O mode at runtime, since it takes up zero bytes at runtime,
+/// and makes expressions comptime-known when `is_async` is `false`.
+pub const ModeOverride = if (is_async) Mode else enum { blocking };
+pub const default_mode: ModeOverride = if (is_async) Mode.evented else .blocking;
+
 fn getStdOutHandle() os.fd_t {
     if (builtin.os.tag == .windows) {
         return os.windows.peb().ProcessParameters.hStdOutput;
@@ -42,10 +47,13 @@ fn getStdOutHandle() os.fd_t {
     return os.STDOUT_FILENO;
 }
 
+/// TODO: async stdout on windows without a dedicated thread.
+/// https://github.com/ziglang/zig/pull/4816#issuecomment-604521023
 pub fn getStdOut() File {
     return File{
         .handle = getStdOutHandle(),
-        .io_mode = .blocking,
+        .capable_io_mode = .blocking,
+        .intended_io_mode = default_mode,
     };
 }
 
@@ -61,11 +69,13 @@ fn getStdErrHandle() os.fd_t {
     return os.STDERR_FILENO;
 }
 
+/// This returns a `File` that is configured to block with every write, in order
+/// to facilitate better debugging. This can be changed by modifying the `intended_io_mode` field.
 pub fn getStdErr() File {
     return File{
         .handle = getStdErrHandle(),
-        .io_mode = .blocking,
-        .async_block_allowed = File.async_block_allowed_yes,
+        .capable_io_mode = .blocking,
+        .intended_io_mode = .blocking,
     };
 }
 
@@ -81,10 +91,13 @@ fn getStdInHandle() os.fd_t {
     return os.STDIN_FILENO;
 }
 
+/// TODO: async stdin on windows without a dedicated thread.
+/// https://github.com/ziglang/zig/pull/4816#issuecomment-604521023
 pub fn getStdIn() File {
     return File{
         .handle = getStdInHandle(),
-        .io_mode = .blocking,
+        .capable_io_mode = .blocking,
+        .intended_io_mode = default_mode,
     };
 }
 

@@ -59,7 +59,7 @@ pub fn CreateFile(
     hTemplateFile: ?HANDLE,
 ) CreateFileError!HANDLE {
     const file_path_w = try sliceToPrefixedFileW(file_path);
-    return CreateFileW(&file_path_w, desired_access, share_mode, lpSecurityAttributes, creation_disposition, flags_and_attrs, hTemplateFile);
+    return CreateFileW(file_path_w.span().ptr, desired_access, share_mode, lpSecurityAttributes, creation_disposition, flags_and_attrs, hTemplateFile);
 }
 
 pub fn CreateFileW(
@@ -103,57 +103,59 @@ pub const OpenError = error{
     WouldBlock,
 };
 
-/// TODO rename to CreateFileW
-/// TODO actually we don't need the path parameter to be null terminated
-pub fn OpenFileW(
-    dir: ?HANDLE,
-    sub_path_w: [*:0]const u16,
-    sa: ?*SECURITY_ATTRIBUTES,
+pub const OpenFileOptions = struct {
     access_mask: ACCESS_MASK,
-    share_access_opt: ?ULONG,
-    share_access_nonblocking: bool,
+    dir: ?HANDLE = null,
+    sa: ?*SECURITY_ATTRIBUTES = null,
+    share_access: ULONG = FILE_SHARE_WRITE | FILE_SHARE_READ | FILE_SHARE_DELETE,
+    share_access_nonblocking: bool = false,
     creation: ULONG,
-) OpenError!HANDLE {
-    if (sub_path_w[0] == '.' and sub_path_w[1] == 0) {
+    io_mode: std.io.ModeOverride,
+};
+
+/// TODO when share_access_nonblocking is false, this implementation uses
+/// untinterruptible sleep() to block. This is not the final iteration of the API.
+pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HANDLE {
+    if (mem.eql(u16, sub_path_w, &[_]u16{'.'})) {
         return error.IsDir;
     }
-    if (sub_path_w[0] == '.' and sub_path_w[1] == '.' and sub_path_w[2] == 0) {
+    if (mem.eql(u16, sub_path_w, &[_]u16{ '.', '.' })) {
         return error.IsDir;
     }
 
     var result: HANDLE = undefined;
 
-    const path_len_bytes = math.cast(u16, mem.lenZ(sub_path_w) * 2) catch |err| switch (err) {
+    const path_len_bytes = math.cast(u16, sub_path_w.len * 2) catch |err| switch (err) {
         error.Overflow => return error.NameTooLong,
     };
     var nt_name = UNICODE_STRING{
         .Length = path_len_bytes,
         .MaximumLength = path_len_bytes,
-        .Buffer = @intToPtr([*]u16, @ptrToInt(sub_path_w)),
+        .Buffer = @intToPtr([*]u16, @ptrToInt(sub_path_w.ptr)),
     };
     var attr = OBJECT_ATTRIBUTES{
         .Length = @sizeOf(OBJECT_ATTRIBUTES),
-        .RootDirectory = if (std.fs.path.isAbsoluteWindowsW(sub_path_w)) null else dir,
+        .RootDirectory = if (std.fs.path.isAbsoluteWindowsWTF16(sub_path_w)) null else options.dir,
         .Attributes = 0, // Note we do not use OBJ_CASE_INSENSITIVE here.
         .ObjectName = &nt_name,
-        .SecurityDescriptor = if (sa) |ptr| ptr.lpSecurityDescriptor else null,
+        .SecurityDescriptor = if (options.sa) |ptr| ptr.lpSecurityDescriptor else null,
         .SecurityQualityOfService = null,
     };
     var io: IO_STATUS_BLOCK = undefined;
-    const share_access = share_access_opt orelse (FILE_SHARE_WRITE | FILE_SHARE_READ | FILE_SHARE_DELETE);
 
     var delay: usize = 1;
     while (true) {
+        const blocking_flag: ULONG = if (options.io_mode == .blocking) FILE_SYNCHRONOUS_IO_NONALERT else 0;
         const rc = ntdll.NtCreateFile(
             &result,
-            access_mask,
+            options.access_mask,
             &attr,
             &io,
             null,
             FILE_ATTRIBUTE_NORMAL,
-            share_access,
-            creation,
-            FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT,
+            options.share_access,
+            options.creation,
+            FILE_NON_DIRECTORY_FILE | blocking_flag,
             null,
             0,
         );
@@ -165,14 +167,16 @@ pub fn OpenFileW(
             .NO_MEDIA_IN_DEVICE => return error.NoDevice,
             .INVALID_PARAMETER => unreachable,
             .SHARING_VIOLATION => {
-                if (share_access_nonblocking) {
+                if (options.share_access_nonblocking) {
                     return error.WouldBlock;
                 }
+                // TODO sleep in a way that is interruptable
+                // TODO integrate with async I/O
                 std.time.sleep(delay);
                 if (delay < 1 * std.time.ns_per_s) {
                     delay *= 2;
                 }
-                continue; // TODO: don't loop for async
+                continue;
             },
             .ACCESS_DENIED => return error.AccessDenied,
             .PIPE_BUSY => return error.PipeBusy,
@@ -195,7 +199,7 @@ pub fn CreatePipe(rd: *HANDLE, wr: *HANDLE, sattr: *const SECURITY_ATTRIBUTES) C
 
 pub fn CreateEventEx(attributes: ?*SECURITY_ATTRIBUTES, name: []const u8, flags: DWORD, desired_access: DWORD) !HANDLE {
     const nameW = try sliceToPrefixedFileW(name);
-    return CreateEventExW(attributes, &nameW, flags, desired_access);
+    return CreateEventExW(attributes, nameW.span().ptr, flags, desired_access);
 }
 
 pub fn CreateEventExW(attributes: ?*SECURITY_ATTRIBUTES, nameW: [*:0]const u16, flags: DWORD, desired_access: DWORD) !HANDLE {
@@ -328,42 +332,6 @@ pub fn WaitForMultipleObjectsEx(handles: []const HANDLE, waitAll: bool, millisec
     }
 }
 
-pub const FindFirstFileError = error{
-    FileNotFound,
-    InvalidUtf8,
-    BadPathName,
-    NameTooLong,
-    Unexpected,
-};
-
-pub fn FindFirstFile(dir_path: []const u8, find_file_data: *WIN32_FIND_DATAW) FindFirstFileError!HANDLE {
-    const dir_path_w = try sliceToPrefixedSuffixedFileW(dir_path, [_]u16{ '\\', '*' });
-    const handle = kernel32.FindFirstFileW(&dir_path_w, find_file_data);
-
-    if (handle == INVALID_HANDLE_VALUE) {
-        switch (kernel32.GetLastError()) {
-            .FILE_NOT_FOUND => return error.FileNotFound,
-            .PATH_NOT_FOUND => return error.FileNotFound,
-            else => |err| return unexpectedError(err),
-        }
-    }
-
-    return handle;
-}
-
-pub const FindNextFileError = error{Unexpected};
-
-/// Returns `true` if there was another file, `false` otherwise.
-pub fn FindNextFile(handle: HANDLE, find_file_data: *WIN32_FIND_DATAW) FindNextFileError!bool {
-    if (kernel32.FindNextFileW(handle, find_file_data) == 0) {
-        switch (kernel32.GetLastError()) {
-            .NO_MORE_FILES => return false,
-            else => |err| return unexpectedError(err),
-        }
-    }
-    return true;
-}
-
 pub const CreateIoCompletionPortError = error{Unexpected};
 
 pub fn CreateIoCompletionPort(
@@ -447,10 +415,11 @@ pub const ReadFileError = error{
 
 /// If buffer's length exceeds what a Windows DWORD integer can hold, it will be broken into
 /// multiple non-atomic reads.
-pub fn ReadFile(in_hFile: HANDLE, buffer: []u8, offset: ?u64) ReadFileError!usize {
-    if (std.event.Loop.instance) |loop| {
-        // TODO support async ReadFile with no offset
-        const off = offset.?;
+pub fn ReadFile(in_hFile: HANDLE, buffer: []u8, offset: ?u64, io_mode: std.io.ModeOverride) ReadFileError!usize {
+    if (io_mode != .blocking) {
+        const loop = std.event.Loop.instance.?;
+        // TODO make getting the file position non-blocking
+        const off = if (offset) |o| o else try SetFilePointerEx_CURRENT_get(in_hFile);
         var resume_node = std.event.Loop.ResumeNode.Basic{
             .base = .{
                 .id = .Basic,
@@ -465,21 +434,26 @@ pub fn ReadFile(in_hFile: HANDLE, buffer: []u8, offset: ?u64) ReadFileError!usiz
             },
         };
         // TODO only call create io completion port once per fd
-        _ = windows.CreateIoCompletionPort(fd, loop.os_data.io_port, undefined, undefined) catch undefined;
+        _ = CreateIoCompletionPort(in_hFile, loop.os_data.io_port, undefined, undefined) catch undefined;
         loop.beginOneEvent();
         suspend {
             // TODO handle buffer bigger than DWORD can hold
-            _ = windows.kernel32.ReadFile(fd, buffer.ptr, @intCast(windows.DWORD, buffer.len), null, &resume_node.base.overlapped);
+            _ = kernel32.ReadFile(in_hFile, buffer.ptr, @intCast(DWORD, buffer.len), null, &resume_node.base.overlapped);
         }
-        var bytes_transferred: windows.DWORD = undefined;
-        if (windows.kernel32.GetOverlappedResult(fd, &resume_node.base.overlapped, &bytes_transferred, windows.FALSE) == 0) {
-            switch (windows.kernel32.GetLastError()) {
+        var bytes_transferred: DWORD = undefined;
+        if (kernel32.GetOverlappedResult(in_hFile, &resume_node.base.overlapped, &bytes_transferred, FALSE) == 0) {
+            switch (kernel32.GetLastError()) {
                 .IO_PENDING => unreachable,
                 .OPERATION_ABORTED => return error.OperationAborted,
                 .BROKEN_PIPE => return error.BrokenPipe,
                 .HANDLE_EOF => return @as(usize, bytes_transferred),
-                else => |err| return windows.unexpectedError(err),
+                else => |err| return unexpectedError(err),
             }
+        }
+        if (offset == null) {
+            // TODO make setting the file position non-blocking
+            const new_off = off + bytes_transferred;
+            try SetFilePointerEx_CURRENT(in_hFile, @bitCast(i64, new_off));
         }
         return @as(usize, bytes_transferred);
     } else {
@@ -520,10 +494,16 @@ pub const WriteFileError = error{
     Unexpected,
 };
 
-pub fn WriteFile(handle: HANDLE, bytes: []const u8, offset: ?u64) WriteFileError!usize {
-    if (std.event.Loop.instance) |loop| {
-        // TODO support async WriteFile with no offset
-        const off = offset.?;
+pub fn WriteFile(
+    handle: HANDLE,
+    bytes: []const u8,
+    offset: ?u64,
+    io_mode: std.io.ModeOverride,
+) WriteFileError!usize {
+    if (std.event.Loop.instance != null and io_mode != .blocking) {
+        const loop = std.event.Loop.instance.?;
+        // TODO make getting the file position non-blocking
+        const off = if (offset) |o| o else try SetFilePointerEx_CURRENT_get(handle);
         var resume_node = std.event.Loop.ResumeNode.Basic{
             .base = .{
                 .id = .Basic,
@@ -538,14 +518,14 @@ pub fn WriteFile(handle: HANDLE, bytes: []const u8, offset: ?u64) WriteFileError
             },
         };
         // TODO only call create io completion port once per fd
-        _ = CreateIoCompletionPort(fd, loop.os_data.io_port, undefined, undefined);
+        _ = CreateIoCompletionPort(handle, loop.os_data.io_port, undefined, undefined) catch undefined;
         loop.beginOneEvent();
         suspend {
-            const adjusted_len = math.cast(windows.DWORD, bytes.len) catch maxInt(windows.DWORD);
-            _ = kernel32.WriteFile(fd, bytes.ptr, adjusted_len, null, &resume_node.base.overlapped);
+            const adjusted_len = math.cast(DWORD, bytes.len) catch maxInt(DWORD);
+            _ = kernel32.WriteFile(handle, bytes.ptr, adjusted_len, null, &resume_node.base.overlapped);
         }
-        var bytes_transferred: windows.DWORD = undefined;
-        if (kernel32.GetOverlappedResult(fd, &resume_node.base.overlapped, &bytes_transferred, FALSE) == 0) {
+        var bytes_transferred: DWORD = undefined;
+        if (kernel32.GetOverlappedResult(handle, &resume_node.base.overlapped, &bytes_transferred, FALSE) == 0) {
             switch (kernel32.GetLastError()) {
                 .IO_PENDING => unreachable,
                 .INVALID_USER_BUFFER => return error.SystemResources,
@@ -553,8 +533,13 @@ pub fn WriteFile(handle: HANDLE, bytes: []const u8, offset: ?u64) WriteFileError
                 .OPERATION_ABORTED => return error.OperationAborted,
                 .NOT_ENOUGH_QUOTA => return error.SystemResources,
                 .BROKEN_PIPE => return error.BrokenPipe,
-                else => |err| return windows.unexpectedError(err),
+                else => |err| return unexpectedError(err),
             }
+        }
+        if (offset == null) {
+            // TODO make setting the file position non-blocking
+            const new_off = off + bytes_transferred;
+            try SetFilePointerEx_CURRENT(handle, @bitCast(i64, new_off));
         }
         return bytes_transferred;
     } else {
@@ -623,7 +608,7 @@ pub fn CreateSymbolicLink(
 ) CreateSymbolicLinkError!void {
     const sym_link_path_w = try sliceToPrefixedFileW(sym_link_path);
     const target_path_w = try sliceToPrefixedFileW(target_path);
-    return CreateSymbolicLinkW(&sym_link_path_w, &target_path_w, flags);
+    return CreateSymbolicLinkW(sym_link_path_w.span().ptr, target_path_w.span().ptr, flags);
 }
 
 pub fn CreateSymbolicLinkW(
@@ -648,7 +633,7 @@ pub const DeleteFileError = error{
 
 pub fn DeleteFile(filename: []const u8) DeleteFileError!void {
     const filename_w = try sliceToPrefixedFileW(filename);
-    return DeleteFileW(&filename_w);
+    return DeleteFileW(filename_w.span().ptr);
 }
 
 pub fn DeleteFileW(filename: [*:0]const u16) DeleteFileError!void {
@@ -670,7 +655,7 @@ pub const MoveFileError = error{Unexpected};
 pub fn MoveFileEx(old_path: []const u8, new_path: []const u8, flags: DWORD) MoveFileError!void {
     const old_path_w = try sliceToPrefixedFileW(old_path);
     const new_path_w = try sliceToPrefixedFileW(new_path);
-    return MoveFileExW(&old_path_w, &new_path_w, flags);
+    return MoveFileExW(old_path_w.span().ptr, new_path_w.span().ptr, flags);
 }
 
 pub fn MoveFileExW(old_path: [*:0]const u16, new_path: [*:0]const u16, flags: DWORD) MoveFileError!void {
@@ -695,7 +680,7 @@ pub const CreateDirectoryError = error{
 /// Returns an open directory handle which the caller is responsible for closing with `CloseHandle`.
 pub fn CreateDirectory(dir: ?HANDLE, pathname: []const u8, sa: ?*SECURITY_ATTRIBUTES) CreateDirectoryError!HANDLE {
     const pathname_w = try sliceToPrefixedFileW(pathname);
-    return CreateDirectoryW(dir, &pathname_w, sa);
+    return CreateDirectoryW(dir, pathname_w.span().ptr, sa);
 }
 
 /// Same as `CreateDirectory` except takes a WTF-16 encoded path.
@@ -763,7 +748,7 @@ pub const RemoveDirectoryError = error{
 
 pub fn RemoveDirectory(dir_path: []const u8) RemoveDirectoryError!void {
     const dir_path_w = try sliceToPrefixedFileW(dir_path);
-    return RemoveDirectoryW(&dir_path_w);
+    return RemoveDirectoryW(dir_path_w.span().ptr);
 }
 
 pub fn RemoveDirectoryW(dir_path_w: [*:0]const u16) RemoveDirectoryError!void {
@@ -892,7 +877,7 @@ pub const GetFileAttributesError = error{
 
 pub fn GetFileAttributes(filename: []const u8) GetFileAttributesError!DWORD {
     const filename_w = try sliceToPrefixedFileW(filename);
-    return GetFileAttributesW(&filename_w);
+    return GetFileAttributesW(filename_w.span().ptr);
 }
 
 pub fn GetFileAttributesW(lpFileName: [*:0]const u16) GetFileAttributesError!DWORD {
@@ -1232,34 +1217,22 @@ pub fn nanoSecondsToFileTime(ns: i64) FILETIME {
     };
 }
 
-pub fn cStrToPrefixedFileW(s: [*:0]const u8) ![PATH_MAX_WIDE:0]u16 {
+pub const PathSpace = struct {
+    data: [PATH_MAX_WIDE:0]u16,
+    len: usize,
+
+    pub fn span(self: PathSpace) [:0]const u16 {
+        return self.data[0..self.len :0];
+    }
+};
+
+pub fn cStrToPrefixedFileW(s: [*:0]const u8) !PathSpace {
     return sliceToPrefixedFileW(mem.spanZ(s));
 }
 
-pub fn sliceToPrefixedFileW(s: []const u8) ![PATH_MAX_WIDE:0]u16 {
-    return sliceToPrefixedSuffixedFileW(s, &[_]u16{});
-}
-
-/// Assumes an absolute path.
-pub fn wToPrefixedFileW(s: []const u16) ![PATH_MAX_WIDE:0]u16 {
+pub fn sliceToPrefixedFileW(s: []const u8) !PathSpace {
     // TODO https://github.com/ziglang/zig/issues/2765
-    var result: [PATH_MAX_WIDE:0]u16 = undefined;
-
-    const start_index = if (mem.startsWith(u16, s, &[_]u16{ '\\', '?' })) 0 else blk: {
-        const prefix = [_]u16{ '\\', '?', '?', '\\' };
-        mem.copy(u16, result[0..], &prefix);
-        break :blk prefix.len;
-    };
-    const end_index = start_index + s.len;
-    if (end_index + 1 > result.len) return error.NameTooLong;
-    mem.copy(u16, result[start_index..], s);
-    result[end_index] = 0;
-    return result;
-}
-
-pub fn sliceToPrefixedSuffixedFileW(s: []const u8, comptime suffix: []const u16) ![PATH_MAX_WIDE + suffix.len:0]u16 {
-    // TODO https://github.com/ziglang/zig/issues/2765
-    var result: [PATH_MAX_WIDE + suffix.len:0]u16 = undefined;
+    var path_space: PathSpace = undefined;
     for (s) |byte| {
         switch (byte) {
             '*', '?', '"', '<', '>', '|' => return error.BadPathName,
@@ -1268,25 +1241,46 @@ pub fn sliceToPrefixedSuffixedFileW(s: []const u8, comptime suffix: []const u16)
     }
     const start_index = if (mem.startsWith(u8, s, "\\?") or !std.fs.path.isAbsolute(s)) 0 else blk: {
         const prefix = [_]u16{ '\\', '?', '?', '\\' };
-        mem.copy(u16, result[0..], &prefix);
+        mem.copy(u16, path_space.data[0..], &prefix);
         break :blk prefix.len;
     };
-    const end_index = start_index + try std.unicode.utf8ToUtf16Le(result[start_index..], s);
-    if (end_index + suffix.len > result.len) return error.NameTooLong;
+    path_space.len = start_index + try std.unicode.utf8ToUtf16Le(path_space.data[start_index..], s);
+    if (path_space.len > path_space.data.len) return error.NameTooLong;
     // > File I/O functions in the Windows API convert "/" to "\" as part of
     // > converting the name to an NT-style name, except when using the "\\?\"
     // > prefix as detailed in the following sections.
     // from https://docs.microsoft.com/en-us/windows/desktop/FileIO/naming-a-file#maximum-path-length-limitation
     // Because we want the larger maximum path length for absolute paths, we
     // convert forward slashes to backward slashes here.
-    for (result[0..end_index]) |*elem| {
+    for (path_space.data[0..path_space.len]) |*elem| {
         if (elem.* == '/') {
             elem.* = '\\';
         }
     }
-    mem.copy(u16, result[end_index..], suffix);
-    result[end_index + suffix.len] = 0;
-    return result;
+    path_space.data[path_space.len] = 0;
+    return path_space;
+}
+
+/// Assumes an absolute path.
+pub fn wToPrefixedFileW(s: []const u16) !PathSpace {
+    // TODO https://github.com/ziglang/zig/issues/2765
+    var path_space: PathSpace = undefined;
+
+    const start_index = if (mem.startsWith(u16, s, &[_]u16{ '\\', '?' })) 0 else blk: {
+        const prefix = [_]u16{ '\\', '?', '?', '\\' };
+        mem.copy(u16, path_space.data[0..], &prefix);
+        break :blk prefix.len;
+    };
+    path_space.len = start_index + s.len;
+    if (path_space.len > path_space.data.len) return error.NameTooLong;
+    mem.copy(u16, path_space.data[start_index..], s);
+    for (path_space.data[0..path_space.len]) |*elem| {
+        if (elem.* == '/') {
+            elem.* = '\\';
+        }
+    }
+    path_space.data[path_space.len] = 0;
+    return path_space;
 }
 
 inline fn MAKELANGID(p: c_ushort, s: c_ushort) LANGID {

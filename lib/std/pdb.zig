@@ -470,7 +470,7 @@ pub const Pdb = struct {
     msf: Msf,
 
     pub fn openFile(self: *Pdb, coff_ptr: *coff.Coff, file_name: []u8) !void {
-        self.in_file = try fs.cwd().openFile(file_name, .{});
+        self.in_file = try fs.cwd().openFile(file_name, .{ .intended_io_mode = .blocking });
         self.allocator = coff_ptr.allocator;
         self.coff = coff_ptr;
 

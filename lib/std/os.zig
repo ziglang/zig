@@ -177,8 +177,8 @@ fn getRandomBytesDevURandom(buf: []u8) !void {
 
     const file = std.fs.File{
         .handle = fd,
-        .io_mode = .blocking,
-        .async_block_allowed = std.fs.File.async_block_allowed_yes,
+        .capable_io_mode = .blocking,
+        .intended_io_mode = .blocking,
     };
     const stream = file.inStream();
     stream.readNoEof(buf) catch return error.Unexpected;
@@ -309,7 +309,7 @@ pub const ReadError = error{
 /// For POSIX the limit is `math.maxInt(isize)`.
 pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
     if (builtin.os.tag == .windows) {
-        return windows.ReadFile(fd, buf, null);
+        return windows.ReadFile(fd, buf, null, std.io.default_mode);
     }
 
     if (builtin.os.tag == .wasi and !builtin.link_libc) {
@@ -369,7 +369,7 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
 /// On these systems, the read races with concurrent writes to the same file descriptor.
 pub fn readv(fd: fd_t, iov: []const iovec) ReadError!usize {
     if (std.Target.current.os.tag == .windows) {
-        // TODO does Windows have a way to read an io vector?
+        // TODO improve this to use ReadFileScatter
         if (iov.len == 0) return @as(usize, 0);
         const first = iov[0];
         return read(fd, first.iov_base[0..first.iov_len]);
@@ -412,7 +412,7 @@ pub const PReadError = ReadError || error{Unseekable};
 /// used to perform the I/O. `error.WouldBlock` is not possible on Windows.
 pub fn pread(fd: fd_t, buf: []u8, offset: u64) PReadError!usize {
     if (builtin.os.tag == .windows) {
-        return windows.ReadFile(fd, buf, offset);
+        return windows.ReadFile(fd, buf, offset, std.io.default_mode);
     }
 
     while (true) {
@@ -588,7 +588,7 @@ pub const WriteError = error{
 /// The corresponding POSIX limit is `math.maxInt(isize)`.
 pub fn write(fd: fd_t, bytes: []const u8) WriteError!usize {
     if (builtin.os.tag == .windows) {
-        return windows.WriteFile(fd, bytes, null);
+        return windows.WriteFile(fd, bytes, null, std.io.default_mode);
     }
 
     if (builtin.os.tag == .wasi and !builtin.link_libc) {
@@ -655,7 +655,7 @@ pub fn write(fd: fd_t, bytes: []const u8) WriteError!usize {
 /// If `iov.len` is larger than will fit in a `u31`, a partial write will occur.
 pub fn writev(fd: fd_t, iov: []const iovec_const) WriteError!usize {
     if (std.Target.current.os.tag == .windows) {
-        // TODO does Windows have a way to write an io vector?
+        // TODO improve this to use WriteFileScatter
         if (iov.len == 0) return @as(usize, 0);
         const first = iov[0];
         return write(fd, first.iov_base[0..first.iov_len]);
@@ -713,7 +713,7 @@ pub const PWriteError = WriteError || error{Unseekable};
 /// The corresponding POSIX limit is `math.maxInt(isize)`.
 pub fn pwrite(fd: fd_t, bytes: []const u8, offset: u64) PWriteError!usize {
     if (std.Target.current.os.tag == .windows) {
-        return windows.WriteFile(fd, bytes, offset);
+        return windows.WriteFile(fd, bytes, offset, std.io.default_mode);
     }
 
     // Prevent EINVAL.
@@ -858,8 +858,11 @@ pub const OpenError = error{
 
 /// Open and possibly create a file. Keeps trying if it gets interrupted.
 /// See also `openC`.
-/// TODO support windows
 pub fn open(file_path: []const u8, flags: u32, perm: mode_t) OpenError!fd_t {
+    if (std.Target.current.os.tag == .windows) {
+        const file_path_w = try windows.sliceToPrefixedFileW(file_path);
+        return openW(file_path_w.span(), flags, perm);
+    }
     const file_path_c = try toPosixPath(file_path);
     return openZ(&file_path_c, flags, perm);
 }
@@ -868,8 +871,11 @@ pub const openC = @compileError("deprecated: renamed to openZ");
 
 /// Open and possibly create a file. Keeps trying if it gets interrupted.
 /// See also `open`.
-/// TODO support windows
 pub fn openZ(file_path: [*:0]const u8, flags: u32, perm: mode_t) OpenError!fd_t {
+    if (std.Target.current.os.tag == .windows) {
+        const file_path_w = try windows.cStrToPrefixedFileW(file_path);
+        return openW(file_path_w.span(), flags, perm);
+    }
     while (true) {
         const rc = system.open(file_path, flags, perm);
         switch (errno(rc)) {
@@ -897,6 +903,13 @@ pub fn openZ(file_path: [*:0]const u8, flags: u32, perm: mode_t) OpenError!fd_t 
             else => |err| return unexpectedErrno(err),
         }
     }
+}
+
+/// Windows-only. The path parameter is
+/// [WTF-16](https://simonsapin.github.io/wtf-8/#potentially-ill-formed-utf-16) encoded.
+/// Translates the POSIX open API call to a Windows API call.
+pub fn openW(file_path_w: []const u16, flags: u32, perm: usize) OpenError!fd_t {
+    @compileError("TODO implement openW for windows");
 }
 
 /// Open and possibly create a file. Keeps trying if it gets interrupted.
@@ -1308,7 +1321,7 @@ pub fn symlink(target_path: []const u8, sym_link_path: []const u8) SymLinkError!
     if (builtin.os.tag == .windows) {
         const target_path_w = try windows.sliceToPrefixedFileW(target_path);
         const sym_link_path_w = try windows.sliceToPrefixedFileW(sym_link_path);
-        return windows.CreateSymbolicLinkW(&sym_link_path_w, &target_path_w, 0);
+        return windows.CreateSymbolicLinkW(sym_link_path_w.span().ptr, target_path_w.span().ptr, 0);
     } else {
         const target_path_c = try toPosixPath(target_path);
         const sym_link_path_c = try toPosixPath(sym_link_path);
@@ -1324,7 +1337,7 @@ pub fn symlinkZ(target_path: [*:0]const u8, sym_link_path: [*:0]const u8) SymLin
     if (builtin.os.tag == .windows) {
         const target_path_w = try windows.cStrToPrefixedFileW(target_path);
         const sym_link_path_w = try windows.cStrToPrefixedFileW(sym_link_path);
-        return windows.CreateSymbolicLinkW(&sym_link_path_w, &target_path_w, 0);
+        return windows.CreateSymbolicLinkW(sym_link_path_w.span().ptr, target_path_w.span().ptr, 0);
     }
     switch (errno(system.symlink(target_path, sym_link_path))) {
         0 => return,
@@ -1400,7 +1413,7 @@ pub const UnlinkError = error{
 pub fn unlink(file_path: []const u8) UnlinkError!void {
     if (builtin.os.tag == .windows) {
         const file_path_w = try windows.sliceToPrefixedFileW(file_path);
-        return windows.DeleteFileW(&file_path_w);
+        return windows.DeleteFileW(file_path_w.span().ptr);
     } else {
         const file_path_c = try toPosixPath(file_path);
         return unlinkZ(&file_path_c);
@@ -1413,7 +1426,7 @@ pub const unlinkC = @compileError("deprecated: renamed to unlinkZ");
 pub fn unlinkZ(file_path: [*:0]const u8) UnlinkError!void {
     if (builtin.os.tag == .windows) {
         const file_path_w = try windows.cStrToPrefixedFileW(file_path);
-        return windows.DeleteFileW(&file_path_w);
+        return windows.DeleteFileW(file_path_w.span().ptr);
     }
     switch (errno(system.unlink(file_path))) {
         0 => return,
@@ -1444,7 +1457,7 @@ pub const UnlinkatError = UnlinkError || error{
 pub fn unlinkat(dirfd: fd_t, file_path: []const u8, flags: u32) UnlinkatError!void {
     if (builtin.os.tag == .windows) {
         const file_path_w = try windows.sliceToPrefixedFileW(file_path);
-        return unlinkatW(dirfd, &file_path_w, flags);
+        return unlinkatW(dirfd, file_path_w.span().ptr, flags);
     }
     const file_path_c = try toPosixPath(file_path);
     return unlinkatZ(dirfd, &file_path_c, flags);
@@ -1456,7 +1469,7 @@ pub const unlinkatC = @compileError("deprecated: renamed to unlinkatZ");
 pub fn unlinkatZ(dirfd: fd_t, file_path_c: [*:0]const u8, flags: u32) UnlinkatError!void {
     if (builtin.os.tag == .windows) {
         const file_path_w = try windows.cStrToPrefixedFileW(file_path_c);
-        return unlinkatW(dirfd, &file_path_w, flags);
+        return unlinkatW(dirfd, file_path_w.span().ptr, flags);
     }
     switch (errno(system.unlinkat(dirfd, file_path_c, flags))) {
         0 => return,
@@ -1571,7 +1584,7 @@ pub fn rename(old_path: []const u8, new_path: []const u8) RenameError!void {
     if (builtin.os.tag == .windows) {
         const old_path_w = try windows.sliceToPrefixedFileW(old_path);
         const new_path_w = try windows.sliceToPrefixedFileW(new_path);
-        return renameW(&old_path_w, &new_path_w);
+        return renameW(old_path_w.span().ptr, new_path_w.span().ptr);
     } else {
         const old_path_c = try toPosixPath(old_path);
         const new_path_c = try toPosixPath(new_path);
@@ -1586,7 +1599,7 @@ pub fn renameZ(old_path: [*:0]const u8, new_path: [*:0]const u8) RenameError!voi
     if (builtin.os.tag == .windows) {
         const old_path_w = try windows.cStrToPrefixedFileW(old_path);
         const new_path_w = try windows.cStrToPrefixedFileW(new_path);
-        return renameW(&old_path_w, &new_path_w);
+        return renameW(old_path_w.span().ptr, new_path_w.span().ptr);
     }
     switch (errno(system.rename(old_path, new_path))) {
         0 => return,
@@ -1629,7 +1642,7 @@ pub fn renameat(
     if (builtin.os.tag == .windows) {
         const old_path_w = try windows.sliceToPrefixedFileW(old_path);
         const new_path_w = try windows.sliceToPrefixedFileW(new_path);
-        return renameatW(old_dir_fd, &old_path_w, new_dir_fd, &new_path_w, windows.TRUE);
+        return renameatW(old_dir_fd, old_path_w.span(), new_dir_fd, new_path_w.span(), windows.TRUE);
     } else {
         const old_path_c = try toPosixPath(old_path);
         const new_path_c = try toPosixPath(new_path);
@@ -1647,7 +1660,7 @@ pub fn renameatZ(
     if (builtin.os.tag == .windows) {
         const old_path_w = try windows.cStrToPrefixedFileW(old_path);
         const new_path_w = try windows.cStrToPrefixedFileW(new_path);
-        return renameatW(old_dir_fd, &old_path_w, new_dir_fd, &new_path_w, windows.TRUE);
+        return renameatW(old_dir_fd, old_path_w.span(), new_dir_fd, new_path_w.span(), windows.TRUE);
     }
 
     switch (errno(system.renameat(old_dir_fd, old_path, new_dir_fd, new_path))) {
@@ -1674,38 +1687,40 @@ pub fn renameatZ(
     }
 }
 
-/// Same as `renameat` except the parameters are null-terminated UTF16LE encoded byte arrays.
-/// Assumes target is Windows.
-/// TODO these args can actually be slices when using ntdll. audit the rest of the W functions too.
+/// Same as `renameat` but Windows-only and the path parameters are
+/// [WTF-16](https://simonsapin.github.io/wtf-8/#potentially-ill-formed-utf-16) encoded.
 pub fn renameatW(
     old_dir_fd: fd_t,
-    old_path: [*:0]const u16,
+    old_path_w: []const u16,
     new_dir_fd: fd_t,
-    new_path_w: [*:0]const u16,
+    new_path_w: []const u16,
     ReplaceIfExists: windows.BOOLEAN,
 ) RenameError!void {
-    const access_mask = windows.SYNCHRONIZE | windows.GENERIC_WRITE | windows.DELETE;
-    const src_fd = windows.OpenFileW(old_dir_fd, old_path, null, access_mask, null, false, windows.FILE_OPEN) catch |err| switch (err) {
-        error.WouldBlock => unreachable,
+    const src_fd = windows.OpenFile(old_path_w, .{
+        .dir = old_dir_fd,
+        .access_mask = windows.SYNCHRONIZE | windows.GENERIC_WRITE | windows.DELETE,
+        .creation = windows.FILE_OPEN,
+        .io_mode = .blocking,
+    }) catch |err| switch (err) {
+        error.WouldBlock => unreachable, // Not possible without `.share_access_nonblocking = true`.
         else => |e| return e,
     };
     defer windows.CloseHandle(src_fd);
 
     const struct_buf_len = @sizeOf(windows.FILE_RENAME_INFORMATION) + (MAX_PATH_BYTES - 1);
     var rename_info_buf: [struct_buf_len]u8 align(@alignOf(windows.FILE_RENAME_INFORMATION)) = undefined;
-    const new_path = mem.span(new_path_w);
-    const struct_len = @sizeOf(windows.FILE_RENAME_INFORMATION) - 1 + new_path.len * 2;
+    const struct_len = @sizeOf(windows.FILE_RENAME_INFORMATION) - 1 + new_path_w.len * 2;
     if (struct_len > struct_buf_len) return error.NameTooLong;
 
     const rename_info = @ptrCast(*windows.FILE_RENAME_INFORMATION, &rename_info_buf);
 
     rename_info.* = .{
         .ReplaceIfExists = ReplaceIfExists,
-        .RootDirectory = if (std.fs.path.isAbsoluteWindowsW(new_path_w)) null else new_dir_fd,
-        .FileNameLength = @intCast(u32, new_path.len * 2), // already checked error.NameTooLong
+        .RootDirectory = if (std.fs.path.isAbsoluteWindowsWTF16(new_path_w)) null else new_dir_fd,
+        .FileNameLength = @intCast(u32, new_path_w.len * 2), // already checked error.NameTooLong
         .FileName = undefined,
     };
-    std.mem.copy(u16, @as([*]u16, &rename_info.FileName)[0..new_path.len], new_path);
+    std.mem.copy(u16, @as([*]u16, &rename_info.FileName)[0..new_path_w.len], new_path_w);
 
     var io_status_block: windows.IO_STATUS_BLOCK = undefined;
 
@@ -1749,7 +1764,7 @@ pub const MakeDirError = error{
 pub fn mkdirat(dir_fd: fd_t, sub_dir_path: []const u8, mode: u32) MakeDirError!void {
     if (builtin.os.tag == .windows) {
         const sub_dir_path_w = try windows.sliceToPrefixedFileW(sub_dir_path);
-        return mkdiratW(dir_fd, &sub_dir_path_w, mode);
+        return mkdiratW(dir_fd, sub_dir_path_w.span().ptr, mode);
     } else {
         const sub_dir_path_c = try toPosixPath(sub_dir_path);
         return mkdiratZ(dir_fd, &sub_dir_path_c, mode);
@@ -1761,7 +1776,7 @@ pub const mkdiratC = @compileError("deprecated: renamed to mkdiratZ");
 pub fn mkdiratZ(dir_fd: fd_t, sub_dir_path: [*:0]const u8, mode: u32) MakeDirError!void {
     if (builtin.os.tag == .windows) {
         const sub_dir_path_w = try windows.cStrToPrefixedFileW(sub_dir_path);
-        return mkdiratW(dir_fd, &sub_dir_path_w, mode);
+        return mkdiratW(dir_fd, sub_dir_path_w.span().ptr, mode);
     }
     switch (errno(system.mkdirat(dir_fd, sub_dir_path, mode))) {
         0 => return,
@@ -1805,7 +1820,7 @@ pub fn mkdir(dir_path: []const u8, mode: u32) MakeDirError!void {
 pub fn mkdirZ(dir_path: [*:0]const u8, mode: u32) MakeDirError!void {
     if (builtin.os.tag == .windows) {
         const dir_path_w = try windows.cStrToPrefixedFileW(dir_path);
-        const sub_dir_handle = try windows.CreateDirectoryW(null, &dir_path_w, null);
+        const sub_dir_handle = try windows.CreateDirectoryW(null, dir_path_w.span().ptr, null);
         windows.CloseHandle(sub_dir_handle);
         return;
     }
@@ -1846,7 +1861,7 @@ pub const DeleteDirError = error{
 pub fn rmdir(dir_path: []const u8) DeleteDirError!void {
     if (builtin.os.tag == .windows) {
         const dir_path_w = try windows.sliceToPrefixedFileW(dir_path);
-        return windows.RemoveDirectoryW(&dir_path_w);
+        return windows.RemoveDirectoryW(dir_path_w.span().ptr);
     } else {
         const dir_path_c = try toPosixPath(dir_path);
         return rmdirZ(&dir_path_c);
@@ -1859,7 +1874,7 @@ pub const rmdirC = @compileError("deprecated: renamed to rmdirZ");
 pub fn rmdirZ(dir_path: [*:0]const u8) DeleteDirError!void {
     if (builtin.os.tag == .windows) {
         const dir_path_w = try windows.cStrToPrefixedFileW(dir_path);
-        return windows.RemoveDirectoryW(&dir_path_w);
+        return windows.RemoveDirectoryW(dir_path_w.span().ptr);
     }
     switch (errno(system.rmdir(dir_path))) {
         0 => return,
@@ -2869,7 +2884,7 @@ pub const AccessError = error{
 pub fn access(path: []const u8, mode: u32) AccessError!void {
     if (builtin.os.tag == .windows) {
         const path_w = try windows.sliceToPrefixedFileW(path);
-        _ = try windows.GetFileAttributesW(&path_w);
+        _ = try windows.GetFileAttributesW(path_w.span().ptr);
         return;
     }
     const path_c = try toPosixPath(path);
@@ -2882,7 +2897,7 @@ pub const accessC = @compileError("Deprecated in favor of `accessZ`");
 pub fn accessZ(path: [*:0]const u8, mode: u32) AccessError!void {
     if (builtin.os.tag == .windows) {
         const path_w = try windows.cStrToPrefixedFileW(path);
-        _ = try windows.GetFileAttributesW(&path_w);
+        _ = try windows.GetFileAttributesW(path_w.span().ptr);
         return;
     }
     switch (errno(system.access(path, mode))) {
@@ -2923,7 +2938,7 @@ pub fn accessW(path: [*:0]const u16, mode: u32) windows.GetFileAttributesError!v
 pub fn faccessat(dirfd: fd_t, path: []const u8, mode: u32, flags: u32) AccessError!void {
     if (builtin.os.tag == .windows) {
         const path_w = try windows.sliceToPrefixedFileW(path);
-        return faccessatW(dirfd, &path_w, mode, flags);
+        return faccessatW(dirfd, path_w.span().ptr, mode, flags);
     }
     const path_c = try toPosixPath(path);
     return faccessatZ(dirfd, &path_c, mode, flags);
@@ -2933,7 +2948,7 @@ pub fn faccessat(dirfd: fd_t, path: []const u8, mode: u32, flags: u32) AccessErr
 pub fn faccessatZ(dirfd: fd_t, path: [*:0]const u8, mode: u32, flags: u32) AccessError!void {
     if (builtin.os.tag == .windows) {
         const path_w = try windows.cStrToPrefixedFileW(path);
-        return faccessatW(dirfd, &path_w, mode, flags);
+        return faccessatW(dirfd, path_w.span().ptr, mode, flags);
     }
     switch (errno(system.faccessat(dirfd, path, mode, flags))) {
         0 => return,
@@ -3288,7 +3303,7 @@ pub const RealPathError = error{
 pub fn realpath(pathname: []const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
     if (builtin.os.tag == .windows) {
         const pathname_w = try windows.sliceToPrefixedFileW(pathname);
-        return realpathW(&pathname_w, out_buffer);
+        return realpathW(pathname_w.span().ptr, out_buffer);
     }
     const pathname_c = try toPosixPath(pathname);
     return realpathZ(&pathname_c, out_buffer);
@@ -3300,7 +3315,7 @@ pub const realpathC = @compileError("deprecated: renamed realpathZ");
 pub fn realpathZ(pathname: [*:0]const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
     if (builtin.os.tag == .windows) {
         const pathname_w = try windows.cStrToPrefixedFileW(pathname);
-        return realpathW(&pathname_w, out_buffer);
+        return realpathW(pathname_w.span().ptr, out_buffer);
     }
     if (builtin.os.tag == .linux and !builtin.link_libc) {
         const fd = openZ(pathname, linux.O_PATH | linux.O_NONBLOCK | linux.O_CLOEXEC, 0) catch |err| switch (err) {

@@ -96,7 +96,7 @@ pub const TestContext = struct {
         case: ZIRCompareOutputCase,
         target: std.Target,
     ) !void {
-        var tmp = std.testing.tmpDir(.{ .share_with_child_process = true });
+        var tmp = std.testing.tmpDir(.{});
         defer tmp.cleanup();
 
         var prg_node = root_node.start(case.name, 4);
