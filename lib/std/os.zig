@@ -153,6 +153,10 @@ pub fn getrandom(buffer: []u8) GetRandomError!void {
         }
         return;
     }
+    if (builtin.os.tag == .netbsd) {
+        netbsd.arc4random_buf(buffer.ptr, buffer.len);
+        return;
+    }
     if (builtin.os.tag == .wasi) {
         switch (wasi.random_get(buffer.ptr, buffer.len)) {
             0 => return,
@@ -854,7 +858,7 @@ pub const OpenError = error{
 
 /// Open and possibly create a file. Keeps trying if it gets interrupted.
 /// See also `openC`.
-pub fn open(file_path: []const u8, flags: u32, perm: usize) OpenError!fd_t {
+pub fn open(file_path: []const u8, flags: u32, perm: mode_t) OpenError!fd_t {
     if (std.Target.current.os.tag == .windows) {
         const file_path_w = try windows.sliceToPrefixedFileW(file_path);
         return openW(file_path_w.span(), flags, perm);
@@ -867,7 +871,7 @@ pub const openC = @compileError("deprecated: renamed to openZ");
 
 /// Open and possibly create a file. Keeps trying if it gets interrupted.
 /// See also `open`.
-pub fn openZ(file_path: [*:0]const u8, flags: u32, perm: usize) OpenError!fd_t {
+pub fn openZ(file_path: [*:0]const u8, flags: u32, perm: mode_t) OpenError!fd_t {
     if (std.Target.current.os.tag == .windows) {
         const file_path_w = try windows.cStrToPrefixedFileW(file_path);
         return openW(file_path_w.span(), flags, perm);

@@ -110,6 +110,22 @@ test "create file, lock and read from multiple process at once" {
     };
 }
 
+test "open file with exclusive nonblocking lock twice (absolute paths)" {
+    const allocator = std.testing.allocator;
+
+    const file_paths: [1][]const u8 = .{"zig-test-absolute-paths.txt"};
+    const filename = try fs.path.resolve(allocator, &file_paths);
+    defer allocator.free(filename);
+
+    const file1 = try fs.createFileAbsolute(filename, .{ .lock = .Exclusive, .lock_nonblocking = true });
+
+    const file2 = fs.createFileAbsolute(filename, .{ .lock = .Exclusive, .lock_nonblocking = true });
+    file1.close();
+    std.testing.expectError(error.WouldBlock, file2);
+
+    try fs.deleteFileAbsolute(filename);
+}
+
 const FileLockTestContext = struct {
     filename: []const u8,
     pid: if (builtin.os.tag == .windows) ?void else ?std.os.pid_t = null,
