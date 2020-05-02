@@ -1196,16 +1196,6 @@ fn parseSuffixExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const maybe_async = eatToken(it, .Keyword_async);
     if (maybe_async) |async_token| {
         const token_fn = eatToken(it, .Keyword_fn);
-        if (token_fn != null) {
-            // HACK: If we see the keyword `fn`, then we assume that
-            //       we are parsing an async fn proto, and not a call.
-            //       We therefore put back all tokens consumed by the async
-            //       prefix...
-            putBackToken(it, token_fn.?);
-            putBackToken(it, async_token);
-            return parsePrimaryTypeExpr(arena, it, tree);
-        }
-        // TODO: Implement hack for parsing `async fn ...` in ast_parse_suffix_expr
         var res = try expectNode(arena, it, tree, parsePrimaryTypeExpr, .{
             .ExpectedPrimaryTypeExpr = .{ .token = it.index },
         });
@@ -1782,12 +1772,10 @@ fn parseCallconv(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 ///     <- KEYWORD_nakedcc
 ///      / KEYWORD_stdcallcc
 ///      / KEYWORD_extern
-///      / KEYWORD_async
 fn parseFnCC(arena: *Allocator, it: *TokenIterator, tree: *Tree) ?FnCC {
     if (eatToken(it, .Keyword_nakedcc)) |token| return FnCC{ .CC = token };
     if (eatToken(it, .Keyword_stdcallcc)) |token| return FnCC{ .CC = token };
     if (eatToken(it, .Keyword_extern)) |token| return FnCC{ .Extern = token };
-    if (eatToken(it, .Keyword_async)) |token| return FnCC{ .CC = token };
     return null;
 }
 

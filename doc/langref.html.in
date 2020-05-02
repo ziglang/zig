@@ -10256,9 +10256,7 @@ WhileContinueExpr &lt;- COLON LPAREN AssignExpr RPAREN
 LinkSection &lt;- KEYWORD_linksection LPAREN Expr RPAREN
 
 # Fn specific
-FnCC
-    &lt;- KEYWORD_extern
-     / KEYWORD_async
+FnCC &lt;- KEYWORD_extern
 
 ParamDecl &lt;- (KEYWORD_noalias / KEYWORD_comptime)? (IDENTIFIER COLON)? ParamType
 

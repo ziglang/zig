@@ -1524,17 +1524,6 @@ static AstNode *ast_parse_error_union_expr(ParseContext *pc) {
 static AstNode *ast_parse_suffix_expr(ParseContext *pc) {
     Token *async_token = eat_token_if(pc, TokenIdKeywordAsync);
     if (async_token) {
-        if (eat_token_if(pc, TokenIdKeywordFn) != nullptr) {
-            // HACK: If we see the keyword `fn`, then we assume that
-            //       we are parsing an async fn proto, and not a call.
-            //       We therefore put back all tokens consumed by the async
-            //       prefix...
-            put_back_token(pc);
-            put_back_token(pc);
-
-            return ast_parse_primary_type_expr(pc);
-        }
-
         AstNode *child = ast_expect(pc, ast_parse_primary_type_expr);
         while (true) {
             AstNode *suffix = ast_parse_suffix_op(pc);
@@ -2187,15 +2176,9 @@ static AstNode *ast_parse_callconv(ParseContext *pc) {
     return res;
 }
 
-// FnCC
-//     <- KEYWORD_extern
-//      / KEYWORD_async
+// FnCC <- KEYWORD_extern
 static Optional<AstNodeFnProto> ast_parse_fn_cc(ParseContext *pc) {
     AstNodeFnProto res = {};
-    if (eat_token_if(pc, TokenIdKeywordAsync) != nullptr) {
-        res.is_async = true;
-        return Optional<AstNodeFnProto>::some(res);
-    }
     if (eat_token_if(pc, TokenIdKeywordExtern) != nullptr) {
         res.is_extern = true;
         return Optional<AstNodeFnProto>::some(res);
