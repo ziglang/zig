@@ -1595,6 +1595,46 @@ Error os_self_exe_path(Buf *out_path) {
     }
     buf_resize(out_path, cb - 1);
     return ErrorNone;
+#elif defined(ZIG_OS_OPENBSD)
+    // OpenBSD has no support for this. Out of the various tried methods,
+    // the only working workaround comes from stackoverflow.com/a/31495527
+
+    // Retrieve the argument vector
+    int mib[4] = { CTL_KERN, KERN_PROC_ARGS, getpid(), KERN_PROC_ARGV };
+    size_t len;
+    if (sysctl(mib, 4, nullptr, &len, nullptr, 0) == -1) {
+        return ErrorUnexpected;
+    }
+    Buf *tmp = buf_alloc_fixed(len);
+    if (sysctl(mib, 4, buf_ptr(tmp), &len, nullptr, 0) == -1) {
+        return ErrorUnexpected;
+    }
+
+    const char *prg_name = *(char **)buf_ptr(tmp);
+    if (*prg_name == '/' || *prg_name == '.') {
+        buf_init_from_str(tmp, prg_name);
+        return os_path_real(tmp, out_path);
+    } else {
+        // Retrieve set of directories where executables are located
+        const char *path_dirs = getenv("PATH");
+        if (path_dirs == nullptr) {
+            return ErrorFileNotFound;
+        }
+        buf_init_from_str(tmp, path_dirs);
+
+        buf_resize(out_path, PATH_MAX);
+        char *out = buf_ptr(out_path);
+
+        // Look for the program in the set of directories
+        char *path, *paths = buf_ptr(tmp);
+        while ((path = strsep(&paths, ":")) != nullptr) {
+            snprintf(out, PATH_MAX, "%s/%s", path, prg_name);
+            if (access(out, X_OK) != -1) {
+                buf_resize(out_path, strlen(out));
+                return ErrorNone;
+            }
+        }
+    }
 #endif
     return ErrorFileNotFound;
 }
