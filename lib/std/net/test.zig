@@ -81,7 +81,7 @@ test "resolve DNS" {
 test "listen on a port, send bytes, receive bytes" {
     if (!std.io.is_async) return error.SkipZigTest;
 
-    if (std.builtin.os.tag != .linux) {
+    if (std.builtin.os.tag != .linux and !std.builtin.os.tag.isDarwin()) {
         // TODO build abstractions for other operating systems
         return error.SkipZigTest;
     }

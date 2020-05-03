@@ -1366,6 +1366,10 @@ pub const StreamServer = struct {
 
         /// Firewall rules forbid connection.
         BlockedByFirewall,
+
+        /// Permission to create a socket of the specified type and/or
+        /// protocol is denied.
+        PermissionDenied,
     } || os.UnexpectedError;
 
     pub const Connection = struct {
