@@ -2156,6 +2156,9 @@ pub const SocketError = error{
 
     /// The protocol type or the specified protocol is not supported within this domain.
     ProtocolNotSupported,
+
+    /// The socket type is not supported by the protocol.
+    SocketTypeNotSupported,
 } || UnexpectedError;
 
 pub fn socket(domain: u32, socket_type: u32, protocol: u32) SocketError!fd_t {
@@ -2164,7 +2167,7 @@ pub fn socket(domain: u32, socket_type: u32, protocol: u32) SocketError!fd_t {
         socket_type & ~@as(u32, SOCK_NONBLOCK | SOCK_CLOEXEC)
     else
         socket_type;
-    const rc = system.socket(domain, socket_type, protocol);
+    const rc = system.socket(domain, filtered_sock_type, protocol);
     switch (errno(rc)) {
         0 => {
             const fd = @intCast(fd_t, rc);
@@ -2181,6 +2184,7 @@ pub fn socket(domain: u32, socket_type: u32, protocol: u32) SocketError!fd_t {
         ENOBUFS => return error.SystemResources,
         ENOMEM => return error.SystemResources,
         EPROTONOSUPPORT => return error.ProtocolNotSupported,
+        EPROTOTYPE => return error.SocketTypeNotSupported,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -2290,6 +2294,10 @@ pub const AcceptError = error{
     /// This error occurs when no global event loop is configured,
     /// and accepting from the socket would block.
     WouldBlock,
+
+    /// Permission to create a socket of the specified type and/or
+    /// protocol is denied.
+    PermissionDenied,
 } || UnexpectedError;
 
 /// Accept a connection on a socket.
