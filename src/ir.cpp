@@ -31082,6 +31082,19 @@ static ZigType *ir_resolve_lazy_fn_type(IrAnalyze *ira, AstNode *source_node, La
             ZigType *param_type = ir_resolve_type(ira, param_type_inst);
             if (type_is_invalid(param_type))
                 return nullptr;
+
+            if(!is_valid_param_type(param_type)){
+                if(param_type->id == ZigTypeIdOpaque){
+                    ir_add_error(ira, &param_type_inst->base,
+                        buf_sprintf("parameter of opaque type '%s' not allowed", buf_ptr(&param_type->name)));
+                } else {
+                    ir_add_error(ira, &param_type_inst->base,
+                        buf_sprintf("parameter of type '%s' not allowed", buf_ptr(&param_type->name)));
+                }
+
+                return nullptr;
+            }
+
             switch (type_requires_comptime(ira->codegen, param_type)) {
             case ReqCompTimeYes:
                 if (!calling_convention_allows_zig_types(fn_type_id.cc)) {

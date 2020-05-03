@@ -269,6 +269,7 @@ void resolve_llvm_types_fn(CodeGen *g, ZigFn *fn);
 bool fn_is_async(ZigFn *fn);
 CallingConvention cc_from_fn_proto(AstNodeFnProto *fn_proto);
 bool is_valid_return_type(ZigType* type);
+bool is_valid_param_type(ZigType* type);
 
 Error type_val_resolve_abi_align(CodeGen *g, AstNode *source_node, ZigValue *type_val, uint32_t *abi_align);
 Error type_val_resolve_abi_size(CodeGen *g, AstNode *source_node, ZigValue *type_val,
