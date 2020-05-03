@@ -16565,6 +16565,8 @@ static IrInstGen *ir_analyze_bin_op_cmp_optional_non_optional(IrAnalyze *ira, Ir
         return ira->codegen->invalid_inst_gen;
     }
 
+    ZigType *result_type = single_type_bin_op_cmp_result_type(ira, child_type);
+
     if (instr_is_comptime(optional) && instr_is_comptime(non_optional)) {
         ZigValue *optional_val = ir_resolve_const(ira, optional, UndefBad);
         if (!optional_val) {
@@ -16576,25 +16578,18 @@ static IrInstGen *ir_analyze_bin_op_cmp_optional_non_optional(IrAnalyze *ira, Ir
             return ira->codegen->invalid_inst_gen;
         }
 
-        bool are_equal = false;
         if (!optional_value_is_null(optional_val)) {
             IrInstGen *optional_unwrapped = ir_analyze_optional_value_payload_value(ira, source_instr, optional, false);
             if (type_is_invalid(optional_unwrapped->value->type)) {
                 return ira->codegen->invalid_inst_gen;
             }
-            assert(instr_is_comptime(optional_unwrapped));
 
-            ZigValue *optional_unwrapped_val = ir_resolve_const(ira, optional_unwrapped, UndefBad);
-            if (!optional_unwrapped_val) {
-                return ira->codegen->invalid_inst_gen;
-            }
-
-            are_equal = const_values_equal(ira->codegen, optional_unwrapped_val, non_optional_val);
+            IrInstGen *ret = ir_try_resolve_bin_op_cmp_const(ira, child_type, optional_unwrapped, non_optional, source_instr, op_id);
+            assert(ret != nullptr);
+            return ret;
         }
-        return ir_const_bool(ira, source_instr, (op_id == IrBinOpCmpEq)? are_equal : !are_equal);
+        return ir_const_bool(ira, source_instr, (op_id != IrBinOpCmpEq));
     }
-
-    ZigType *result_type = single_type_bin_op_cmp_result_type(ira, child_type);
 
     IrInstGen *opt_ref = ir_get_ref(ira, source_instr, optional, true, false);
     return ir_build_cmp_optional_non_optional_gen(ira, source_instr, result_type, op_id, opt_ref, non_optional);
