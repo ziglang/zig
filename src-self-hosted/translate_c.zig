@@ -1394,6 +1394,24 @@ fn transDeclStmt(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangDeclStmt)
                 node.semicolon_token = try appendToken(c, .Semicolon, ";");
                 try block_scope.block_node.statements.push(&node.base);
             },
+            .Typedef => {
+                const type_decl = @ptrCast(*const ZigClangTypedefNameDecl, it[0]);
+                const name = try c.str(ZigClangNamedDecl_getName_bytes_begin(
+                    @ptrCast(*const ZigClangNamedDecl, type_decl),
+                ));
+
+                const underlying_qual = ZigClangTypedefNameDecl_getUnderlyingType(type_decl);
+                const underlying_type = ZigClangQualType_getTypePtr(underlying_qual);
+
+                const mangled_name = try block_scope.makeMangledName(c, name);
+                const node = try transCreateNodeVarDecl(c, false, true, mangled_name);
+                node.eq_token = try appendToken(c, .Equal, "=");
+
+                const loc = ZigClangStmt_getBeginLoc(@ptrCast(*const ZigClangStmt, stmt));
+                node.init_node = try transType(rp, underlying_type, loc);
+                node.semicolon_token = try appendToken(c, .Semicolon, ";");
+                try block_scope.block_node.statements.push(&node.base);
+            },
             else => |kind| return revertAndWarn(
                 rp,
                 error.UnsupportedTranslation,
