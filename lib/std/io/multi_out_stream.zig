@@ -22,18 +22,15 @@ pub fn MultiOutStream(comptime OutStreams: type) type {
         }
 
         pub fn write(self: *Self, bytes: []const u8) Error!usize {
-            if (comptime self.streams.len == 0) return bytes.len;
-
-            // only first stream is allowed to do a partial write
-            // all subsequent streams do a `.writeAll`
-            const bytes_to_write = try self.streams[0].write(bytes);
-            const slice_to_write = bytes[0..bytes_to_write];
-            comptime var i = 1;
+            var batch = std.event.Batch(Error!void, self.streams.len, .auto_async).init();
+            comptime var i = 0;
             inline while (i < self.streams.len) : (i += 1) {
                 const stream = self.streams[i];
-                try stream.writeAll(slice_to_write);
+                // TODO: remove ptrCast: https://github.com/ziglang/zig/issues/5258
+                batch.add(@ptrCast(anyframe->Error!void, &async stream.writeAll(bytes)));
             }
-            return bytes_to_write;
+            try batch.wait();
+            return bytes.len;
         }
     };
 }
