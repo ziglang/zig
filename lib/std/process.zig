@@ -599,7 +599,7 @@ pub fn getBaseAddress() usize {
             const phdr = os.system.getauxval(std.elf.AT_PHDR);
             return phdr - @sizeOf(std.elf.Ehdr);
         },
-        .macosx, .freebsd, .netbsd => {
+        .macosx, .freebsd => {
             return @ptrToInt(&std.c._mh_execute_header);
         },
         .windows => return @ptrToInt(os.windows.kernel32.GetModuleHandleW(null)),

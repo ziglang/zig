@@ -40,6 +40,7 @@ comptime {
 
 test "" {
     _ = darwin;
+    _ = dragonfly;
     _ = freebsd;
     _ = linux;
     _ = netbsd;
@@ -65,6 +66,7 @@ else switch (builtin.os.tag) {
     .linux => linux,
     .netbsd => netbsd,
     .openbsd => openbsd,
+    .uefi => uefi,
     .wasi => wasi,
     .windows => windows,
     else => struct {},
@@ -1044,7 +1046,7 @@ pub fn execvpeZ_expandArg0(
     const file_slice = mem.spanZ(file);
     if (mem.indexOfScalar(u8, file_slice, '/') != null) return execveZ(file, child_argv, envp);
 
-    const PATH = getenvZ("PATH") orelse "/usr/local/bin:/bin/:/usr/bin";
+    const PATH = getenvZ("PATH") orelse "/usr/local/bin:/bin:/usr/bin";
     var path_buf: [MAX_PATH_BYTES]u8 = undefined;
     var it = mem.tokenize(PATH, ":");
     var seen_eacces = false;

@@ -253,6 +253,7 @@ pub const Loop = struct {
                 }
             },
             .macosx, .freebsd, .netbsd, .openbsd, .dragonfly => {
+                // TODO NetBSD and OpenBSD do not support EVFILT_USER
                 self.os_data.kqfd = try os.kqueue();
                 errdefer os.close(self.os_data.kqfd);
 

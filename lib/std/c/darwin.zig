@@ -76,8 +76,6 @@ pub fn sigaddset(set: *sigset_t, signo: u5) void {
     set.* |= @as(u32, 1) << (signo - 1);
 }
 
-pub extern "c" fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
-
 /// get address to use bind()
 pub const AI_PASSIVE = 0x00000001;
 

@@ -78,8 +78,6 @@ pub extern "c" fn getauxval(__type: c_ulong) c_ulong;
 pub const dl_iterate_phdr_callback = fn (info: *dl_phdr_info, size: usize, data: ?*c_void) callconv(.C) c_int;
 pub extern "c" fn dl_iterate_phdr(callback: dl_iterate_phdr_callback, data: ?*c_void) c_int;
 
-pub extern "c" fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
-
 pub extern "c" fn memfd_create(name: [*:0]const u8, flags: c_uint) c_int;
 
 pub extern "c" fn ftruncate64(fd: c_int, length: off_t) c_int;

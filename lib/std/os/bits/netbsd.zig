@@ -562,9 +562,6 @@ pub const EVFILT_TIMER = 6;
 /// Filesystem events
 pub const EVFILT_FS = 7;
 
-/// On input, NOTE_TRIGGER causes the event to be triggered for output.
-pub const NOTE_TRIGGER = 0x08000000;
-
 /// low water mark
 pub const NOTE_LOWAT = 0x00000001;
 

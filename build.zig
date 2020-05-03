@@ -280,7 +280,7 @@ fn configureStage2(b: *Builder, exe: var, ctx: Context) !void {
     }
     dependOnLib(b, exe, ctx.llvm);
 
-    if (exe.target.getOsTag() == .linux) {
+    if (exe.target.isLinux()) {
         // First we try to static link against gcc libstdc++. If that doesn't work,
         // we fall back to -lc++ and cross our fingers.
         addCxxKnownPath(b, ctx, exe, "libstdc++.a", "") catch |err| switch (err) {

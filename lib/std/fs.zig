@@ -367,17 +367,17 @@ pub const Dir = struct {
                         self.index = 0;
                         self.end_index = @intCast(usize, rc);
                     }
-                    const freebsd_entry = @ptrCast(*align(1) os.dirent, &self.buf[self.index]);
-                    const next_index = self.index + freebsd_entry.reclen();
+                    const entry = @ptrCast(*align(1) os.dirent, &self.buf[self.index]);
+                    const next_index = self.index + entry.reclen();
                     self.index = next_index;
 
-                    const name = @ptrCast([*]u8, &freebsd_entry.d_name)[0..freebsd_entry.d_namlen];
+                    const name = @ptrCast([*]u8, &entry.d_name)[0..entry.d_namlen];
 
                     if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..")) {
                         continue :start_over;
                     }
 
-                    const entry_kind = switch (freebsd_entry.d_type) {
+                    const entry_kind = switch (entry.d_type) {
                         os.DT_BLK => Entry.Kind.BlockDevice,
                         os.DT_CHR => Entry.Kind.CharacterDevice,
                         os.DT_DIR => Entry.Kind.Directory,
@@ -1036,7 +1036,7 @@ pub const Dir = struct {
 
     /// On success, caller owns returned buffer.
     /// If the file is larger than `max_bytes`, returns `error.FileTooBig`.
-    pub fn readFileAlloc(self: Dir, allocator: *mem.Allocator, file_path: []const u8, max_bytes: usize) ![]u8 {
+    pub fn readFileAlloc(self: Dir, allocator: *Allocator, file_path: []const u8, max_bytes: usize) ![]u8 {
         return self.readFileAllocOptions(allocator, file_path, max_bytes, @alignOf(u8), null);
     }
 
@@ -1045,7 +1045,7 @@ pub const Dir = struct {
     /// Allows specifying alignment and a sentinel value.
     pub fn readFileAllocOptions(
         self: Dir,
-        allocator: *mem.Allocator,
+        allocator: *Allocator,
         file_path: []const u8,
         max_bytes: usize,
         comptime alignment: u29,
