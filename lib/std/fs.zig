@@ -604,11 +604,7 @@ pub const Dir = struct {
 
         const fd = try os.openatWasi(self.fd, sub_path, 0x0, fdflags, rights);
 
-        return File{
-            .handle = fd,
-            .io_mode = .blocking,
-            .async_block_allowed = File.async_block_allowed_no,
-        };
+        return File{ .handle = fd };
     }
 
     pub const openFileC = @compileError("deprecated: renamed to openFileZ");
@@ -719,11 +715,7 @@ pub const Dir = struct {
 
         const fd = try os.openatWasi(self.fd, sub_path, oflags, 0x0, rights);
 
-        return File{
-            .handle = fd,
-            .io_mode = .blocking,
-            .async_block_allowed = File.async_block_allowed_no,
-        };
+        return File{ .handle = fd };
     }
 
     /// Same as `createFile` but the path parameter is null-terminated.
