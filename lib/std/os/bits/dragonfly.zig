@@ -369,6 +369,31 @@ pub const Kevent = extern struct {
     udata: usize,
 };
 
+// Modes for dlopen()
+
+/// Bind function calls lazily.
+pub const RTLD_LAZY = 1;
+
+/// Bind function calls immediately.
+pub const RTLD_NOW = 2;
+
+pub const RTLD_MODEMASK = 0x3;
+
+/// Make symbols globally available.
+pub const RTLD_GLOBAL = 0x100;
+
+/// Opposite of RTLD_GLOBAL, and the default.
+pub const RTLD_LOCAL = 0;
+
+/// Trace loaded objects and exit.
+pub const RTLD_TRACE = 0x200;
+
+/// Do not remove members.
+pub const RTLD_NODELETE = 0x01000;
+
+/// Do not load if not already loaded.
+pub const RTLD_NOLOAD = 0x02000;
+
 pub const EVFILT_FS = -10;
 pub const EVFILT_USER = -9;
 pub const EVFILT_EXCEPT = -8;
