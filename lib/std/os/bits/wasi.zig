@@ -12,8 +12,6 @@ pub const timespec = extern struct {
     tv_nsec: isize,
 };
 
-pub const PATH_MAX = 4096; // TODO verify this!
-
 // As defined in the wasi_snapshot_preview1 spec file:
 // https://github.com/WebAssembly/WASI/blob/master/phases/snapshot/witx/typenames.witx
 pub const advice_t = u8;
