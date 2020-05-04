@@ -338,7 +338,7 @@ pub const Blake3 = struct {
     }
 
     // Section 5.1.2 of the BLAKE3 spec explains this algorithm in more detail.
-    fn add_chunk_chaining_value(self: *Blake3, new_cv: [8]u32, total_chunks: u64) void {
+    fn add_chunk_chaining_value(self: *Blake3, first_cv: [8]u32, total_chunks: u64) void {
         // This chunk might complete some subtrees. For each completed subtree,
         // its left child will be the current top entry in the CV stack, and
         // its right child will be the current value of `new_cv`. Pop each left
@@ -346,6 +346,7 @@ pub const Blake3 = struct {
         // with the result. After all these merges, push the final value of
         // `new_cv` onto the stack. The number of completed subtrees is given
         // by the number of trailing 0-bits in the new total number of chunks.
+        var new_cv = first_cv;
         var chunk_counter = total_chunks;
         while (chunk_counter & 1 == 0) {
             new_cv = parent_cv(self.pop_cv(), new_cv, self.key, self.flags);

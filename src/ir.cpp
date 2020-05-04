@@ -19999,6 +19999,11 @@ static IrInstGen *ir_analyze_fn_call(IrAnalyze *ira, IrInst* source_instr,
                 if (type_is_invalid(result_loc->value->type) || result_loc->value->type->id == ZigTypeIdUnreachable) {
                     return result_loc;
                 }
+                if (result_loc->value->type->data.pointer.is_const) {
+                    ir_add_error(ira, source_instr, buf_sprintf("cannot assign to constant"));
+                    return ira->codegen->invalid_inst_gen;
+                }
+
                 IrInstGen *dummy_value = ir_const(ira, source_instr, impl_fn_type_id->return_type);
                 dummy_value->value->special = ConstValSpecialRuntime;
                 IrInstGen *dummy_result = ir_implicit_cast2(ira, source_instr,
@@ -20137,6 +20142,11 @@ static IrInstGen *ir_analyze_fn_call(IrAnalyze *ira, IrInst* source_instr,
             if (type_is_invalid(result_loc->value->type) || result_loc->value->type->id == ZigTypeIdUnreachable) {
                 return result_loc;
             }
+            if (result_loc->value->type->data.pointer.is_const) {
+                ir_add_error(ira, source_instr, buf_sprintf("cannot assign to constant"));
+                return ira->codegen->invalid_inst_gen;
+            }
+
             IrInstGen *dummy_value = ir_const(ira, source_instr, return_type);
             dummy_value->value->special = ConstValSpecialRuntime;
             IrInstGen *dummy_result = ir_implicit_cast2(ira, source_instr,

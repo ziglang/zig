@@ -2,6 +2,29 @@ const tests = @import("tests.zig");
 const std = @import("std");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.add("call assigned to constant",
+        \\const Foo = struct {
+        \\    x: i32,
+        \\};
+        \\fn foo() Foo {
+        \\    return .{ .x = 42 };
+        \\}
+        \\fn bar(val: var) Foo {
+        \\    return .{ .x = val };
+        \\}
+        \\export fn entry() void {
+        \\    const baz: Foo = undefined;
+        \\    baz = foo();
+        \\}
+        \\export fn entry1() void {
+        \\    const baz: Foo = undefined;
+        \\    baz = bar(42);
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:12:14: error: cannot assign to constant",
+        "tmp.zig:16:14: error: cannot assign to constant",
+    });
+
     cases.add("invalid pointer syntax",
         \\export fn foo() void {
         \\    var guid: *:0 const u8 = undefined;
