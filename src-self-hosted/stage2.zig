@@ -841,6 +841,7 @@ export fn stage2_libc_parse(stage1_libc: *Stage2LibCInstallation, libc_file_z: [
         error.EndOfStream => return .EndOfFile,
         error.IsDir => return .IsDir,
         error.ConnectionResetByPeer => unreachable,
+        error.ConnectionTimedOut => unreachable,
         error.OutOfMemory => return .OutOfMemory,
         error.Unseekable => unreachable,
         error.SharingViolation => return .SharingViolation,

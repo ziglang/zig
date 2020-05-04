@@ -292,6 +292,7 @@ pub const ReadError = error{
     OperationAborted,
     BrokenPipe,
     ConnectionResetByPeer,
+    ConnectionTimedOut,
 
     /// This error occurs when no global event loop is configured,
     /// and reading from the file descriptor would block.
@@ -351,6 +352,7 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
             ENOBUFS => return error.SystemResources,
             ENOMEM => return error.SystemResources,
             ECONNRESET => return error.ConnectionResetByPeer,
+            ETIMEDOUT => return error.ConnectionTimedOut,
             else => |err| return unexpectedErrno(err),
         }
     }
