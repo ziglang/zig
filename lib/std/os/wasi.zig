@@ -2,6 +2,7 @@
 // * typenames -- https://github.com/WebAssembly/WASI/blob/master/phases/snapshot/witx/typenames.witx
 // * module -- https://github.com/WebAssembly/WASI/blob/master/phases/snapshot/witx/wasi_snapshot_preview1.witx
 const std = @import("std");
+const mem = std.mem;
 const assert = std.debug.assert;
 
 pub usingnamespace @import("bits.zig");
@@ -63,6 +64,71 @@ pub fn resolve_preopen(path: []const u8, dirfd: *fd_t, prefix: *usize) errno_t {
     }
 
     return ENOTCAPABLE;
+}
+
+pub const PreopenType = enum {
+    Dir,
+};
+
+pub const Preopen = struct {
+    fd: fd_t,
+    @"type": union(PreopenType) {
+        Dir: []const u8,
+    },
+
+    const Self = @This();
+
+    pub fn newDir(fd: fd_t, path: []const u8) Self {
+        return Self{
+            .fd = fd,
+            .@"type" = .{ .Dir = path },
+        };
+    }
+};
+
+pub const GetPreopenError = std.os.UnexpectedError || mem.Allocator.Error;
+
+pub fn getPreopens(allocator: *mem.Allocator) GetPreopenError![]Preopen {
+    var preopens = std.ArrayList(Preopen).init(allocator);
+    errdefer freePreopens(allocator, preopens);
+    var fd: fd_t = 3; // start fd has to be beyond stdio fds
+
+    while (true) {
+        var buf: prestat_t = undefined;
+        switch (fd_prestat_get(fd, &buf)) {
+            ESUCCESS => {},
+            ENOTSUP => {
+                // not a preopen, so keep going
+                continue;
+            },
+            EBADF => {
+                // OK, no more fds available
+                break;
+            },
+            else => |err| return std.os.unexpectedErrno(err),
+        }
+        const preopen_len = buf.u.dir.pr_name_len;
+        const path_buf = try allocator.alloc(u8, preopen_len);
+        mem.set(u8, path_buf, 0);
+        switch (fd_prestat_dir_name(fd, path_buf.ptr, preopen_len)) {
+            ESUCCESS => {},
+            else => |err| return std.os.unexpectedErrno(err),
+        }
+        const preopen = Preopen.newDir(fd, path_buf);
+        try preopens.append(preopen);
+        fd += 1;
+    }
+
+    return preopens.toOwnedSlice();
+}
+
+pub fn freePreopens(allocator: *mem.Allocator, preopens: std.ArrayList(Preopen)) void {
+    for (preopens.items) |preopen| {
+        switch (preopen.@"type") {
+            PreopenType.Dir => |path| allocator.free(path),
+        }
+    }
+    preopens.deinit();
 }
 
 pub extern "wasi_snapshot_preview1" fn args_get(argv: [*][*:0]u8, argv_buf: [*]u8) errno_t;

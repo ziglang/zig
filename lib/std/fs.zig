@@ -1440,17 +1440,7 @@ pub fn cwd() Dir {
     if (builtin.os.tag == .windows) {
         return Dir{ .fd = os.windows.peb().ProcessParameters.CurrentDirectory.Handle };
     } else if (builtin.os.tag == .wasi) {
-        const wasi = os.wasi;
-        // On WASI we indeed don't have a concept of cwd; however, we can approximate it with
-        // trying to obtain a preopen for ".".
-        // TODO `cwd()` should be a fallible operation if we're going to support WASI this way.
-        var fd: wasi.fd_t = undefined;
-        var prefix: usize = undefined;
-        switch (wasi.resolve_preopen(".", &fd, &prefix)) {
-            0 => {},
-            else => {},
-        }
-        return Dir{ .fd = fd };
+        @compileError("WASI doesn't have a concept of cwd; use TODO instead");
     } else {
         return Dir{ .fd = os.AT_FDCWD };
     }
