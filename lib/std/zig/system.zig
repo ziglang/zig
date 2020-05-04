@@ -837,6 +837,7 @@ pub const NativeTargetInfo = struct {
                 error.BrokenPipe => return error.UnableToReadElfFile,
                 error.Unseekable => return error.UnableToReadElfFile,
                 error.ConnectionResetByPeer => return error.UnableToReadElfFile,
+                error.ConnectionTimedOut => return error.UnableToReadElfFile,
                 error.Unexpected => return error.Unexpected,
                 error.InputOutput => return error.FileSystem,
             };
