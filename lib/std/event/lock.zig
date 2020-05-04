@@ -89,7 +89,7 @@ pub const Lock = struct {
         while (self.queue.get()) |node| resume node.data;
     }
 
-    pub async fn acquire(self: *Lock) Held {
+    pub fn acquire(self: *Lock) callconv(.Async) Held {
         var my_tick_node = Loop.NextTickNode.init(@frame());
 
         errdefer _ = self.queue.remove(&my_tick_node); // TODO test canceling an acquire
@@ -134,8 +134,7 @@ test "std.event.Lock" {
     const expected_result = [1]i32{3 * @intCast(i32, shared_test_data.len)} ** shared_test_data.len;
     testing.expectEqualSlices(i32, &expected_result, &shared_test_data);
 }
-
-async fn testLock(lock: *Lock) void {
+fn testLock(lock: *Lock) callconv(.Async) void {
     var handle1 = async lockRunner(lock);
     var tick_node1 = Loop.NextTickNode{
         .prev = undefined,
@@ -167,8 +166,7 @@ async fn testLock(lock: *Lock) void {
 
 var shared_test_data = [1]i32{0} ** 10;
 var shared_test_index: usize = 0;
-
-async fn lockRunner(lock: *Lock) void {
+fn lockRunner(lock: *Lock) callconv(.Async) void {
     suspend; // resumed by onNextTick
 
     var i: usize = 0;

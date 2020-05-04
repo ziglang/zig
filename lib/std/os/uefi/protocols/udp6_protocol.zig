@@ -9,13 +9,13 @@ const ManagedNetworkConfigData = uefi.protocols.ManagedNetworkConfigData;
 const SimpleNetworkMode = uefi.protocols.SimpleNetworkMode;
 
 pub const Udp6Protocol = extern struct {
-    _get_mode_data: extern fn (*const Udp6Protocol, ?*Udp6ConfigData, ?*Ip6ModeData, ?*ManagedNetworkConfigData, ?*SimpleNetworkMode) Status,
-    _configure: extern fn (*const Udp6Protocol, ?*const Udp6ConfigData) Status,
-    _groups: extern fn (*const Udp6Protocol, bool, ?*const Ip6Address) Status,
-    _transmit: extern fn (*const Udp6Protocol, *Udp6CompletionToken) Status,
-    _receive: extern fn (*const Udp6Protocol, *Udp6CompletionToken) Status,
-    _cancel: extern fn (*const Udp6Protocol, ?*Udp6CompletionToken) Status,
-    _poll: extern fn (*const Udp6Protocol) Status,
+    _get_mode_data: fn (*const Udp6Protocol, ?*Udp6ConfigData, ?*Ip6ModeData, ?*ManagedNetworkConfigData, ?*SimpleNetworkMode) callconv(.C) Status,
+    _configure: fn (*const Udp6Protocol, ?*const Udp6ConfigData) callconv(.C) Status,
+    _groups: fn (*const Udp6Protocol, bool, ?*const Ip6Address) callconv(.C) Status,
+    _transmit: fn (*const Udp6Protocol, *Udp6CompletionToken) callconv(.C) Status,
+    _receive: fn (*const Udp6Protocol, *Udp6CompletionToken) callconv(.C) Status,
+    _cancel: fn (*const Udp6Protocol, ?*Udp6CompletionToken) callconv(.C) Status,
+    _poll: fn (*const Udp6Protocol) callconv(.C) Status,
 
     pub fn getModeData(self: *const Udp6Protocol, udp6_config_data: ?*Udp6ConfigData, ip6_mode_data: ?*Ip6ModeData, mnp_config_data: ?*ManagedNetworkConfigData, snp_mode_data: ?*SimpleNetworkMode) Status {
         return self._get_mode_data(self, udp6_config_data, ip6_mode_data, mnp_config_data, snp_mode_data);

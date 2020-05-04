@@ -503,7 +503,7 @@ pub const Loop = struct {
         }
     }
 
-    pub async fn bsdWaitKev(self: *Loop, ident: usize, filter: i16, fflags: u32) void {
+    pub fn bsdWaitKev(self: *Loop, ident: usize, filter: i16, fflags: u32) callconv(.Async) void {
         var resume_node = ResumeNode.Basic{
             .base = ResumeNode{
                 .id = ResumeNode.Id.Basic,

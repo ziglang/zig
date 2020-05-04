@@ -21,117 +21,117 @@ pub const BootServices = extern struct {
     hdr: TableHeader,
 
     /// Raises a task's priority level and returns its previous level.
-    raiseTpl: extern fn (usize) usize,
+    raiseTpl: fn (usize) callconv(.C) usize,
 
     /// Restores a task's priority level to its previous value.
-    restoreTpl: extern fn (usize) void,
+    restoreTpl: fn (usize) callconv(.C) void,
 
     /// Allocates memory pages from the system.
-    allocatePages: extern fn (AllocateType, MemoryType, usize, *[*]align(4096) u8) Status,
+    allocatePages: fn (AllocateType, MemoryType, usize, *[*]align(4096) u8) callconv(.C) Status,
 
     /// Frees memory pages.
-    freePages: extern fn ([*]align(4096) u8, usize) Status,
+    freePages: fn ([*]align(4096) u8, usize) callconv(.C) Status,
 
     /// Returns the current memory map.
-    getMemoryMap: extern fn (*usize, [*]MemoryDescriptor, *usize, *usize, *u32) Status,
+    getMemoryMap: fn (*usize, [*]MemoryDescriptor, *usize, *usize, *u32) callconv(.C) Status,
 
     /// Allocates pool memory.
-    allocatePool: extern fn (MemoryType, usize, *[*]align(8) u8) Status,
+    allocatePool: fn (MemoryType, usize, *[*]align(8) u8) callconv(.C) Status,
 
     /// Returns pool memory to the system.
-    freePool: extern fn ([*]align(8) u8) Status,
+    freePool: fn ([*]align(8) u8) callconv(.C) Status,
 
     /// Creates an event.
-    createEvent: extern fn (u32, usize, ?extern fn (Event, ?*c_void) void, ?*const c_void, *Event) Status,
+    createEvent: fn (u32, usize, ?fn (Event, ?*c_void) callconv(.C) void, ?*const c_void, *Event) callconv(.C) Status,
 
     /// Sets the type of timer and the trigger time for a timer event.
-    setTimer: extern fn (Event, TimerDelay, u64) Status,
+    setTimer: fn (Event, TimerDelay, u64) callconv(.C) Status,
 
     /// Stops execution until an event is signaled.
-    waitForEvent: extern fn (usize, [*]const Event, *usize) Status,
+    waitForEvent: fn (usize, [*]const Event, *usize) callconv(.C) Status,
 
     /// Signals an event.
-    signalEvent: extern fn (Event) Status,
+    signalEvent: fn (Event) callconv(.C) Status,
 
     /// Closes an event.
-    closeEvent: extern fn (Event) Status,
+    closeEvent: fn (Event) callconv(.C) Status,
 
     /// Checks whether an event is in the signaled state.
-    checkEvent: extern fn (Event) Status,
+    checkEvent: fn (Event) callconv(.C) Status,
 
     installProtocolInterface: Status, // TODO
     reinstallProtocolInterface: Status, // TODO
     uninstallProtocolInterface: Status, // TODO
 
     /// Queries a handle to determine if it supports a specified protocol.
-    handleProtocol: extern fn (Handle, *align(8) const Guid, *?*c_void) Status,
+    handleProtocol: fn (Handle, *align(8) const Guid, *?*c_void) callconv(.C) Status,
 
     reserved: *c_void,
 
     registerProtocolNotify: Status, // TODO
 
     /// Returns an array of handles that support a specified protocol.
-    locateHandle: extern fn (LocateSearchType, ?*align(8) const Guid, ?*const c_void, *usize, [*]Handle) Status,
+    locateHandle: fn (LocateSearchType, ?*align(8) const Guid, ?*const c_void, *usize, [*]Handle) callconv(.C) Status,
 
     locateDevicePath: Status, // TODO
     installConfigurationTable: Status, // TODO
 
     /// Loads an EFI image into memory.
-    loadImage: extern fn (bool, Handle, ?*const DevicePathProtocol, ?[*]const u8, usize, *?Handle) Status,
+    loadImage: fn (bool, Handle, ?*const DevicePathProtocol, ?[*]const u8, usize, *?Handle) callconv(.C) Status,
 
     /// Transfers control to a loaded image's entry point.
-    startImage: extern fn (Handle, ?*usize, ?*[*]u16) Status,
+    startImage: fn (Handle, ?*usize, ?*[*]u16) callconv(.C) Status,
 
     /// Terminates a loaded EFI image and returns control to boot services.
-    exit: extern fn (Handle, Status, usize, ?*const c_void) Status,
+    exit: fn (Handle, Status, usize, ?*const c_void) callconv(.C) Status,
 
     /// Unloads an image.
-    unloadImage: extern fn (Handle) Status,
+    unloadImage: fn (Handle) callconv(.C) Status,
 
     /// Terminates all boot services.
-    exitBootServices: extern fn (Handle, usize) Status,
+    exitBootServices: fn (Handle, usize) callconv(.C) Status,
 
     /// Returns a monotonically increasing count for the platform.
-    getNextMonotonicCount: extern fn (*u64) Status,
+    getNextMonotonicCount: fn (*u64) callconv(.C) Status,
 
     /// Induces a fine-grained stall.
-    stall: extern fn (usize) Status,
+    stall: fn (usize) callconv(.C) Status,
 
     /// Sets the system's watchdog timer.
-    setWatchdogTimer: extern fn (usize, u64, usize, ?[*]const u16) Status,
+    setWatchdogTimer: fn (usize, u64, usize, ?[*]const u16) callconv(.C) Status,
 
     connectController: Status, // TODO
     disconnectController: Status, // TODO
 
     /// Queries a handle to determine if it supports a specified protocol.
-    openProtocol: extern fn (Handle, *align(8) const Guid, *?*c_void, ?Handle, ?Handle, OpenProtocolAttributes) Status,
+    openProtocol: fn (Handle, *align(8) const Guid, *?*c_void, ?Handle, ?Handle, OpenProtocolAttributes) callconv(.C) Status,
 
     /// Closes a protocol on a handle that was opened using openProtocol().
-    closeProtocol: extern fn (Handle, *align(8) const Guid, Handle, ?Handle) Status,
+    closeProtocol: fn (Handle, *align(8) const Guid, Handle, ?Handle) callconv(.C) Status,
 
     /// Retrieves the list of agents that currently have a protocol interface opened.
-    openProtocolInformation: extern fn (Handle, *align(8) const Guid, *[*]ProtocolInformationEntry, *usize) Status,
+    openProtocolInformation: fn (Handle, *align(8) const Guid, *[*]ProtocolInformationEntry, *usize) callconv(.C) Status,
 
     /// Retrieves the list of protocol interface GUIDs that are installed on a handle in a buffer allocated from pool.
-    protocolsPerHandle: extern fn (Handle, *[*]*align(8) const Guid, *usize) Status,
+    protocolsPerHandle: fn (Handle, *[*]*align(8) const Guid, *usize) callconv(.C) Status,
 
     /// Returns an array of handles that support the requested protocol in a buffer allocated from pool.
-    locateHandleBuffer: extern fn (LocateSearchType, ?*align(8) const Guid, ?*const c_void, *usize, *[*]Handle) Status,
+    locateHandleBuffer: fn (LocateSearchType, ?*align(8) const Guid, ?*const c_void, *usize, *[*]Handle) callconv(.C) Status,
 
     /// Returns the first protocol instance that matches the given protocol.
-    locateProtocol: extern fn (*align(8) const Guid, ?*const c_void, *?*c_void) Status,
+    locateProtocol: fn (*align(8) const Guid, ?*const c_void, *?*c_void) callconv(.C) Status,
 
     installMultipleProtocolInterfaces: Status, // TODO
     uninstallMultipleProtocolInterfaces: Status, // TODO
 
     /// Computes and returns a 32-bit CRC for a data buffer.
-    calculateCrc32: extern fn ([*]const u8, usize, *u32) Status,
+    calculateCrc32: fn ([*]const u8, usize, *u32) callconv(.C) Status,
 
     /// Copies the contents of one buffer to another buffer
-    copyMem: extern fn ([*]u8, [*]const u8, usize) void,
+    copyMem: fn ([*]u8, [*]const u8, usize) callconv(.C) void,
 
     /// Fills a buffer with a specified value
-    setMem: extern fn ([*]u8, usize, u8) void,
+    setMem: fn ([*]u8, usize, u8) callconv(.C) void,
 
     createEventEx: Status, // TODO
 

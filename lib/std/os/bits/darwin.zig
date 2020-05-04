@@ -125,7 +125,7 @@ pub const empty_sigset = sigset_t(0);
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with function name.
 pub const Sigaction = extern struct {
-    handler: extern fn (c_int) void,
+    handler: fn (c_int) callconv(.C) void,
     sa_mask: sigset_t,
     sa_flags: c_int,
 };

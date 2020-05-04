@@ -5,16 +5,16 @@ const Status = uefi.Status;
 
 pub const FileProtocol = extern struct {
     revision: u64,
-    _open: extern fn (*const FileProtocol, **const FileProtocol, [*:0]const u16, u64, u64) Status,
-    _close: extern fn (*const FileProtocol) Status,
-    _delete: extern fn (*const FileProtocol) Status,
-    _read: extern fn (*const FileProtocol, *usize, [*]u8) Status,
-    _write: extern fn (*const FileProtocol, *usize, [*]const u8) Status,
-    _get_position: extern fn (*const FileProtocol, *u64) Status,
-    _set_position: extern fn (*const FileProtocol, *const u64) Status,
-    _get_info: extern fn (*const FileProtocol, *align(8) const Guid, *const usize, [*]u8) Status,
-    _set_info: extern fn (*const FileProtocol, *align(8) const Guid, usize, [*]const u8) Status,
-    _flush: extern fn (*const FileProtocol) Status,
+    _open: fn (*const FileProtocol, **const FileProtocol, [*:0]const u16, u64, u64) callconv(.C) Status,
+    _close: fn (*const FileProtocol) callconv(.C) Status,
+    _delete: fn (*const FileProtocol) callconv(.C) Status,
+    _read: fn (*const FileProtocol, *usize, [*]u8) callconv(.C) Status,
+    _write: fn (*const FileProtocol, *usize, [*]const u8) callconv(.C) Status,
+    _get_position: fn (*const FileProtocol, *u64) callconv(.C) Status,
+    _set_position: fn (*const FileProtocol, *const u64) callconv(.C) Status,
+    _get_info: fn (*const FileProtocol, *align(8) const Guid, *const usize, [*]u8) callconv(.C) Status,
+    _set_info: fn (*const FileProtocol, *align(8) const Guid, usize, [*]const u8) callconv(.C) Status,
+    _flush: fn (*const FileProtocol) callconv(.C) Status,
 
     pub fn open(self: *const FileProtocol, new_handle: **const FileProtocol, file_name: [*:0]const u16, open_mode: u64, attributes: u64) Status {
         return self._open(self, new_handle, file_name, open_mode, attributes);

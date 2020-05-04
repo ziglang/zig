@@ -112,12 +112,12 @@ test "@frameSize" {
     const S = struct {
         fn doTheTest() void {
             {
-                var ptr = @ptrCast(async fn (i32) void, other);
+                var ptr = @ptrCast(fn (i32) callconv(.Async) void, other);
                 const size = @frameSize(ptr);
                 expect(size == @sizeOf(@Frame(other)));
             }
             {
-                var ptr = @ptrCast(async fn () void, first);
+                var ptr = @ptrCast(fn () callconv(.Async) void, first);
                 const size = @frameSize(ptr);
                 expect(size == @sizeOf(@Frame(first)));
             }
@@ -184,7 +184,7 @@ test "coroutine suspend with block" {
 
 var a_promise: anyframe = undefined;
 var global_result = false;
-async fn testSuspendBlock() void {
+fn testSuspendBlock() callconv(.Async) void {
     suspend {
         comptime expect(@TypeOf(@frame()) == *@Frame(testSuspendBlock));
         a_promise = @frame();
@@ -209,14 +209,14 @@ test "coroutine await" {
     expect(await_final_result == 1234);
     expect(std.mem.eql(u8, &await_points, "abcdefghi"));
 }
-async fn await_amain() void {
+fn await_amain() callconv(.Async) void {
     await_seq('b');
     var p = async await_another();
     await_seq('e');
     await_final_result = await p;
     await_seq('h');
 }
-async fn await_another() i32 {
+fn await_another() callconv(.Async) i32 {
     await_seq('c');
     suspend {
         await_seq('d');
@@ -243,14 +243,14 @@ test "coroutine await early return" {
     expect(early_final_result == 1234);
     expect(std.mem.eql(u8, &early_points, "abcdef"));
 }
-async fn early_amain() void {
+fn early_amain() callconv(.Async) void {
     early_seq('b');
     var p = async early_another();
     early_seq('d');
     early_final_result = await p;
     early_seq('e');
 }
-async fn early_another() i32 {
+fn early_another() callconv(.Async) i32 {
     early_seq('c');
     return 1234;
 }
@@ -266,7 +266,7 @@ fn early_seq(c: u8) void {
 test "async function with dot syntax" {
     const S = struct {
         var y: i32 = 1;
-        async fn foo() void {
+        fn foo() callconv(.Async) void {
             y += 1;
             suspend;
         }
@@ -278,7 +278,7 @@ test "async function with dot syntax" {
 test "async fn pointer in a struct field" {
     var data: i32 = 1;
     const Foo = struct {
-        bar: async fn (*i32) void,
+        bar: fn (*i32) callconv(.Async) void,
     };
     var foo = Foo{ .bar = simpleAsyncFn2 };
     var bytes: [64]u8 align(16) = undefined;
@@ -294,8 +294,7 @@ test "async fn pointer in a struct field" {
 fn doTheAwait(f: anyframe->void) void {
     await f;
 }
-
-async fn simpleAsyncFn2(y: *i32) void {
+fn simpleAsyncFn2(y: *i32) callconv(.Async) void {
     defer y.* += 2;
     y.* += 1;
     suspend;
@@ -303,11 +302,10 @@ async fn simpleAsyncFn2(y: *i32) void {
 
 test "@asyncCall with return type" {
     const Foo = struct {
-        bar: async fn () i32,
+        bar: fn () callconv(.Async) i32,
 
         var global_frame: anyframe = undefined;
-
-        async fn middle() i32 {
+        fn middle() callconv(.Async) i32 {
             return afunc();
         }
 
@@ -338,8 +336,7 @@ test "async fn with inferred error set" {
             resume global_frame;
             std.testing.expectError(error.Fail, result);
         }
-
-        async fn middle() !void {
+        fn middle() callconv(.Async) !void {
             var f = async middle2();
             return await f;
         }
@@ -376,11 +373,11 @@ fn nonFailing() (anyframe->anyerror!void) {
     Static.frame = async suspendThenFail();
     return &Static.frame;
 }
-async fn suspendThenFail() anyerror!void {
+fn suspendThenFail() callconv(.Async) anyerror!void {
     suspend;
     return error.Fail;
 }
-async fn printTrace(p: anyframe->(anyerror!void)) void {
+fn printTrace(p: anyframe->(anyerror!void)) callconv(.Async) void {
     (await p) catch |e| {
         std.testing.expect(e == error.Fail);
         if (@errorReturnTrace()) |trace| {
@@ -397,7 +394,7 @@ test "break from suspend" {
     const p = async testBreakFromSuspend(&my_result);
     std.testing.expect(my_result == 2);
 }
-async fn testBreakFromSuspend(my_result: *i32) void {
+fn testBreakFromSuspend(my_result: *i32) callconv(.Async) void {
     suspend {
         resume @frame();
     }
@@ -826,7 +823,7 @@ test "cast fn to async fn when it is inferred to be async" {
         var ok = false;
 
         fn doTheTest() void {
-            var ptr: async fn () i32 = undefined;
+            var ptr: fn () callconv(.Async) i32 = undefined;
             ptr = func;
             var buf: [100]u8 align(16) = undefined;
             var result: i32 = undefined;
@@ -854,7 +851,7 @@ test "cast fn to async fn when it is inferred to be async, awaited directly" {
         var ok = false;
 
         fn doTheTest() void {
-            var ptr: async fn () i32 = undefined;
+            var ptr: fn () callconv(.Async) i32 = undefined;
             ptr = func;
             var buf: [100]u8 align(16) = undefined;
             var result: i32 = undefined;
@@ -958,8 +955,7 @@ test "@asyncCall with comptime-known function, but not awaited directly" {
             resume global_frame;
             std.testing.expectError(error.Fail, result);
         }
-
-        async fn middle() !void {
+        fn middle() callconv(.Async) !void {
             var f = async middle2();
             return await f;
         }
@@ -993,7 +989,7 @@ test "@asyncCall with actual frame instead of byte buffer" {
 
 test "@asyncCall using the result location inside the frame" {
     const S = struct {
-        async fn simple2(y: *i32) i32 {
+        fn simple2(y: *i32) callconv(.Async) i32 {
             defer y.* += 2;
             y.* += 1;
             suspend;
@@ -1005,7 +1001,7 @@ test "@asyncCall using the result location inside the frame" {
     };
     var data: i32 = 1;
     const Foo = struct {
-        bar: async fn (*i32) i32,
+        bar: fn (*i32) callconv(.Async) i32,
     };
     var foo = Foo{ .bar = S.simple2 };
     var bytes: [64]u8 align(16) = undefined;
@@ -1115,7 +1111,7 @@ test "await used in expression and awaiting fn with no suspend but async calling
             const sum = (await f1) + (await f2);
             expect(sum == 10);
         }
-        async fn add(a: i32, b: i32) i32 {
+        fn add(a: i32, b: i32) callconv(.Async) i32 {
             return a + b;
         }
     };
@@ -1130,7 +1126,7 @@ test "await used in expression after a fn call" {
             sum = foo() + await f1;
             expect(sum == 8);
         }
-        async fn add(a: i32, b: i32) i32 {
+        fn add(a: i32, b: i32) callconv(.Async) i32 {
             return a + b;
         }
         fn foo() i32 {
@@ -1147,7 +1143,7 @@ test "async fn call used in expression after a fn call" {
             sum = foo() + add(3, 4);
             expect(sum == 8);
         }
-        async fn add(a: i32, b: i32) i32 {
+        fn add(a: i32, b: i32) callconv(.Async) i32 {
             return a + b;
         }
         fn foo() i32 {
@@ -1403,7 +1399,7 @@ test "async function call resolves target fn frame, runtime func" {
         fn foo() anyerror!void {
             const stack_size = 1000;
             var stack_frame: [stack_size]u8 align(std.Target.stack_align) = undefined;
-            var func: async fn () anyerror!void = bar;
+            var func: fn () callconv(.Async) anyerror!void = bar;
             return await @asyncCall(&stack_frame, {}, func);
         }
 

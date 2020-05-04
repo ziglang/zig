@@ -41,7 +41,7 @@ const usage =
 
 const Command = struct {
     name: []const u8,
-    exec: async fn (*Allocator, []const []const u8) anyerror!void,
+    exec: fn (*Allocator, []const []const u8) callconv(.Async) anyerror!void,
 };
 
 pub fn main() !void {
@@ -713,8 +713,7 @@ const FmtError = error{
     FileBusy,
     CurrentWorkingDirectoryUnlinked,
 } || fs.File.OpenError;
-
-async fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtError!void {
+fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) callconv(.Async) FmtError!void {
     const stderr_file = io.getStdErr();
     const stderr = stderr_file.outStream();
 

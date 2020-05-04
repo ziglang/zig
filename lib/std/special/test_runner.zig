@@ -34,7 +34,7 @@ pub fn main() anyerror!void {
                     std.heap.page_allocator.free(async_frame_buffer);
                     async_frame_buffer = try std.heap.page_allocator.alignedAlloc(u8, std.Target.stack_align, size);
                 }
-                const casted_fn = @ptrCast(async fn () anyerror!void, test_fn.func);
+                const casted_fn = @ptrCast(fn () callconv(.Async) anyerror!void, test_fn.func);
                 break :blk await @asyncCall(async_frame_buffer, {}, casted_fn);
             },
             .blocking => {
