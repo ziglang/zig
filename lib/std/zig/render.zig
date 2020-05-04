@@ -1414,7 +1414,8 @@ fn renderExpression(
             }
 
             if (fn_proto.extern_export_inline_token) |extern_export_inline_token| {
-                try renderToken(tree, stream, extern_export_inline_token, indent, start_col, Space.Space); // extern/export
+                if (!fn_proto.is_extern_prototype)
+                    try renderToken(tree, stream, extern_export_inline_token, indent, start_col, Space.Space); // extern/export/inline
             }
 
             if (fn_proto.lib_name) |lib_name| {
@@ -1510,6 +1511,10 @@ fn renderExpression(
                 try renderToken(tree, stream, callconv_lparen, indent, start_col, Space.None); // (
                 try renderExpression(allocator, stream, tree, indent, start_col, callconv_expr, Space.None);
                 try renderToken(tree, stream, callconv_rparen, indent, start_col, Space.Space); // )
+            } else if (fn_proto.is_extern_prototype) {
+                try stream.writeAll("callconv(.C) ");
+            } else if (fn_proto.is_async) {
+                try stream.writeAll("callconv(.Async) ");
             }
 
             switch (fn_proto.return_type) {

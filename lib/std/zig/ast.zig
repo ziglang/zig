@@ -880,6 +880,8 @@ pub const Node = struct {
         align_expr: ?*Node, // populated if align(A) is present
         section_expr: ?*Node, // populated if linksection(A) is present
         callconv_expr: ?*Node, // populated if callconv(A) is present
+        is_extern_prototype: bool = false, // TODO: Remove once extern fn rewriting is
+        is_async: bool = false, // TODO: remove once async fn rewriting is
 
         pub const ParamList = SegmentedList(*Node, 2);
 

@@ -337,7 +337,25 @@ fn parseTopLevelDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node
 
 /// FnProto <- KEYWORD_fn IDENTIFIER? LPAREN ParamDeclList RPAREN ByteAlign? LinkSection? EXCLAMATIONMARK? (KEYWORD_var / TypeExpr)
 fn parseFnProto(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
-    const fn_token = eatToken(it, .Keyword_fn) orelse return null;
+    // TODO: Remove once extern/async fn rewriting is
+    var is_async = false;
+    var is_extern = false;
+    const cc_token: ?usize = blk: {
+        if (eatToken(it, .Keyword_extern)) |token| {
+            is_extern = true;
+            break :blk token;
+        }
+        if (eatToken(it, .Keyword_async)) |token| {
+            is_async = true;
+            break :blk token;
+        }
+        break :blk null;
+    };
+    const fn_token = eatToken(it, .Keyword_fn) orelse {
+        if (cc_token) |token|
+            putBackToken(it, token);
+        return null;
+    };
     const name_token = eatToken(it, .Identifier);
     const lparen = try expectToken(it, tree, .LParen);
     const params = try parseParamDeclList(arena, it, tree);
@@ -381,6 +399,8 @@ fn parseFnProto(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
         .align_expr = align_expr,
         .section_expr = section_expr,
         .callconv_expr = callconv_expr,
+        .is_extern_prototype = is_extern,
+        .is_async = is_async,
     };
 
     return &fn_proto_node.base;
@@ -1175,6 +1195,16 @@ fn parseSuffixExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const maybe_async = eatToken(it, .Keyword_async);
     if (maybe_async) |async_token| {
         const token_fn = eatToken(it, .Keyword_fn);
+        if (token_fn != null) {
+            // TODO: remove this hack when async fn rewriting is
+            // HACK: If we see the keyword `fn`, then we assume that
+            //       we are parsing an async fn proto, and not a call.
+            //       We therefore put back all tokens consumed by the async
+            //       prefix...
+            putBackToken(it, token_fn.?);
+            putBackToken(it, async_token);
+            return parsePrimaryTypeExpr(arena, it, tree);
+        }
         var res = try expectNode(arena, it, tree, parsePrimaryTypeExpr, .{
             .ExpectedPrimaryTypeExpr = .{ .token = it.index },
         });
