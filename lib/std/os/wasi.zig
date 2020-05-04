@@ -94,10 +94,31 @@ pub const PreopenList = struct {
         }
     }
 
+    pub fn find(self: *const Self, path: []const u8) ?*const Preopen {
+        for (self.buffer.items) |preopen| {
+            switch (preopen.@"type") {
+                PreopenType.Dir => |preopen_path| {
+                    if (mem.eql(u8, path, preopen_path)) return &preopen;
+                },
+            }
+        }
+        return null;
+    }
+
     pub fn asSlice(self: *const Self) []const Preopen {
         return self.buffer.items;
     }
 };
+
+pub fn openat(dir_fd: fd_t, file_path: []const u8, oflags: oflags_t, fdflags: fdflags_t, rights: rights_t) std.os.OpenError!fd_t {
+    var fd: fd_t = undefined;
+    switch (path_open(dir_fd, 0x0, file_path.ptr, file_path.len, oflags, rights, 0x0, fdflags, &fd)) {
+        0 => {},
+        // TODO map errors
+        else => |err| return std.os.unexpectedErrno(err),
+    }
+    return fd;
+}
 
 pub extern "wasi_snapshot_preview1" fn args_get(argv: [*][*:0]u8, argv_buf: [*]u8) errno_t;
 pub extern "wasi_snapshot_preview1" fn args_sizes_get(argc: *usize, argv_buf_size: *usize) errno_t;

@@ -602,7 +602,7 @@ pub const Dir = struct {
             rights |= wasi.FD_WRITE | wasi.FD_DATASYNC | wasi.FD_SEEK | wasi.FD_FDSTAT_SET_FLAGS | wasi.FD_SYNC | wasi.FD_ALLOCATE | wasi.FD_ADVISE | wasi.FD_FILESTAT_SET_TIMES | wasi.FD_FILESTAT_SET_SIZE;
         }
 
-        const fd = try os.openatWasi(self.fd, sub_path, 0x0, fdflags, rights);
+        const fd = try wasi.openat(self.fd, sub_path, 0x0, fdflags, rights);
 
         return File{ .handle = fd };
     }
@@ -713,7 +713,7 @@ pub const Dir = struct {
             oflags |= wasi.O_EXCL;
         }
 
-        const fd = try os.openatWasi(self.fd, sub_path, oflags, 0x0, rights);
+        const fd = try wasi.openat(self.fd, sub_path, oflags, 0x0, rights);
 
         return File{ .handle = fd };
     }

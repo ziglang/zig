@@ -923,16 +923,6 @@ pub fn openat(dir_fd: fd_t, file_path: []const u8, flags: u32, mode: mode_t) Ope
     return openatZ(dir_fd, &file_path_c, flags, mode);
 }
 
-pub fn openatWasi(dir_fd: fd_t, file_path: []const u8, oflags: wasi.oflags_t, fdflags: wasi.fdflags_t, rights: wasi.rights_t) OpenError!fd_t {
-    var fd: fd_t = undefined;
-    switch (wasi.path_open(dir_fd, 0x0, file_path.ptr, file_path.len, oflags, rights, 0x0, fdflags, &fd)) {
-        0 => {},
-        // TODO map errors
-        else => |err| return unexpectedErrno(err),
-    }
-    return fd;
-}
-
 pub const openatC = @compileError("deprecated: renamed to openatZ");
 
 /// Open and possibly create a file. Keeps trying if it gets interrupted.
