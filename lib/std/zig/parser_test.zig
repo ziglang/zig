@@ -2910,6 +2910,7 @@ test "zig fmt: noasync to nosuspend" {
         \\pub fn main() void {
         \\    nosuspend call();
         \\}
+        \\
     );
 }
 

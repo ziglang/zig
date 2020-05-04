@@ -802,7 +802,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     });
 
     cases.add("exported async function",
-        \\export async fn foo() void {}
+        \\export fn foo() callconv(.Async) void {}
     , &[_][]const u8{
         "tmp.zig:1:1: error: exported function cannot be async",
     });
@@ -1281,11 +1281,11 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add("bad alignment in @asyncCall",
         \\export fn entry() void {
-        \\    var ptr: async fn () void = func;
+        \\    var ptr: fn () callconv(.Async) void = func;
         \\    var bytes: [64]u8 = undefined;
         \\    _ = @asyncCall(&bytes, {}, ptr);
         \\}
-        \\async fn func() void {}
+        \\fn func() callconv(.Async) void {}
     , &[_][]const u8{
         "tmp.zig:4:21: error: expected type '[]align(16) u8', found '*[64]u8'",
     });
@@ -1431,7 +1431,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\export fn entry() void {
         \\    _ = async amain();
         \\}
-        \\async fn amain() void {
+        \\fn amain() callconv(.Async) void {
         \\    other();
         \\}
         \\fn other() void {
@@ -1447,7 +1447,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\export fn entry() void {
         \\    _ = async amain();
         \\}
-        \\async fn amain() void {
+        \\fn amain() callconv(.Async) void {
         \\    var x: [@sizeOf(@Frame(amain))]u8 = undefined;
         \\}
     , &[_][]const u8{
@@ -1474,7 +1474,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var ptr = afunc;
         \\    _ = ptr();
         \\}
-        \\async fn afunc() void {}
+        \\fn afunc() callconv(.Async) void {}
     , &[_][]const u8{
         "tmp.zig:6:12: error: function is not comptime-known; @asyncCall required",
     });
@@ -1485,7 +1485,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = async ptr();
         \\}
         \\
-        \\async fn afunc() void { }
+        \\fn afunc() callconv(.Async) void { }
     , &[_][]const u8{
         "tmp.zig:3:15: error: function is not comptime-known; @asyncCall required",
     });
@@ -3074,7 +3074,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\export fn entry() void {
         \\    _ = async foo();
         \\}
-        \\async fn foo() void {
+        \\fn foo() void {
         \\    suspend {
         \\        suspend {
         \\        }
@@ -3122,7 +3122,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\export fn entry() void {
         \\    _ = async amain();
         \\}
-        \\async fn amain() void {
+        \\fn amain() callconv(.Async) void {
         \\    return error.ShouldBeCompileError;
         \\}
     , &[_][]const u8{
@@ -3592,7 +3592,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     });
 
     cases.add("attempt to use 0 bit type in extern fn",
-        \\extern fn foo(ptr: extern fn(*void) void) void;
+        \\extern fn foo(ptr: fn(*void) callconv(.C) void) void;
         \\
         \\export fn entry() void {
         \\    foo(bar);
@@ -3603,7 +3603,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    bar(&{});
         \\}
     , &[_][]const u8{
-        "tmp.zig:1:30: error: parameter of type '*void' has 0 bits; not allowed in function with calling convention 'C'",
+        "tmp.zig:1:23: error: parameter of type '*void' has 0 bits; not allowed in function with calling convention 'C'",
         "tmp.zig:7:11: error: parameter of type '*void' has 0 bits; not allowed in function with calling convention 'C'",
     });
 

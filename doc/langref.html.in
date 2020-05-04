@@ -6713,7 +6713,7 @@ const assert = std.debug.assert;
 test "async fn pointer in a struct field" {
     var data: i32 = 1;
     const Foo = struct {
-        bar: async fn (*i32) void,
+        bar: fn (*i32) callconv(.Async) void,
     };
     var foo = Foo{ .bar = func };
     var bytes: [64]u8 align(@alignOf(@Frame(func))) = undefined;
@@ -6723,7 +6723,7 @@ test "async fn pointer in a struct field" {
     assert(data == 4);
 }
 
-async fn func(y: *i32) void {
+fn func(y: *i32) void {
     defer y.* += 2;
     y.* += 1;
     suspend;
