@@ -162,6 +162,10 @@ pub fn getrandom(buffer: []u8) GetRandomError!void {
         netbsd.arc4random_buf(buffer.ptr, buffer.len);
         return;
     }
+    if (builtin.os.tag == .openbsd) {
+        openbsd.arc4random_buf(buffer.ptr, buffer.len);
+        return;
+    }
     if (builtin.os.tag == .wasi) {
         switch (wasi.random_get(buffer.ptr, buffer.len)) {
             0 => return,
