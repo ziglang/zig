@@ -1983,43 +1983,12 @@ static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_sc
         }
     }
 
-    switch (fn_type_id.return_type->id) {
-        case ZigTypeIdInvalid:
-        case ZigTypeIdUndefined:
-        case ZigTypeIdNull:
-        case ZigTypeIdOpaque:
-            zig_unreachable();
-
-        case ZigTypeIdComptimeFloat:
-        case ZigTypeIdComptimeInt:
-        case ZigTypeIdEnumLiteral:
-        case ZigTypeIdBoundFn:
-        case ZigTypeIdMetaType:
-        case ZigTypeIdUnreachable:
-        case ZigTypeIdVoid:
-        case ZigTypeIdBool:
-        case ZigTypeIdInt:
-        case ZigTypeIdFloat:
-        case ZigTypeIdPointer:
-        case ZigTypeIdArray:
-        case ZigTypeIdStruct:
-        case ZigTypeIdOptional:
-        case ZigTypeIdErrorUnion:
-        case ZigTypeIdErrorSet:
-        case ZigTypeIdEnum:
-        case ZigTypeIdUnion:
-        case ZigTypeIdFn:
-        case ZigTypeIdVector:
-        case ZigTypeIdFnFrame:
-        case ZigTypeIdAnyFrame:
-            switch (type_requires_comptime(g, fn_type_id.return_type)) {
-                case ReqCompTimeInvalid:
-                    return g->builtin_types.entry_invalid;
-                case ReqCompTimeYes:
-                    return get_generic_fn_type(g, &fn_type_id);
-                case ReqCompTimeNo:
-                    break;
-            }
+    switch (type_requires_comptime(g, fn_type_id.return_type)) {
+        case ReqCompTimeInvalid:
+            return g->builtin_types.entry_invalid;
+        case ReqCompTimeYes:
+            return get_generic_fn_type(g, &fn_type_id);
+        case ReqCompTimeNo:
             break;
     }
 
