@@ -4,6 +4,7 @@
 const std = @import("std");
 const mem = std.mem;
 const assert = std.debug.assert;
+const Allocator = mem.Allocator;
 
 pub usingnamespace @import("bits.zig");
 
@@ -20,51 +21,6 @@ comptime {
 
 pub const iovec_t = iovec;
 pub const ciovec_t = iovec_const;
-
-fn is_prefix(preopen: []const u8, path: []const u8) bool {
-    if (preopen.len > path.len) {
-        return false;
-    }
-    var i: usize = 0;
-    while (i < preopen.len) {
-        std.debug.warn("{} == {}", .{ preopen[i], path[i] });
-        if (preopen[i] != path[i]) {
-            return false;
-        }
-        i += 1;
-    }
-    return true;
-}
-
-pub fn resolve_preopen(path: []const u8, dirfd: *fd_t, prefix: *usize) errno_t {
-    var fd: fd_t = 3; // start fd has to be beyond stdio fds
-    var preopen_path = [_]u8{0} ** PATH_MAX;
-
-    while (true) {
-        var buf: prestat_t = undefined;
-        switch (fd_prestat_get(fd, &buf)) {
-            ESUCCESS => {},
-            EBADF => {
-                break;
-            },
-            else => |err| return err,
-        }
-        const preopen_len = buf.u.dir.pr_name_len;
-        switch (fd_prestat_dir_name(fd, &preopen_path, preopen_len)) {
-            ESUCCESS => {},
-            else => |err| return err,
-        }
-        if (is_prefix(preopen_path[0..preopen_len], path)) {
-            dirfd.* = fd;
-            prefix.* = preopen_len;
-            return ESUCCESS;
-        }
-        std.mem.set(u8, &preopen_path, 0);
-        fd += 1;
-    }
-
-    return ENOTCAPABLE;
-}
 
 pub const PreopenType = enum {
     Dir,
@@ -86,50 +42,62 @@ pub const Preopen = struct {
     }
 };
 
-pub const GetPreopenError = std.os.UnexpectedError || mem.Allocator.Error;
+pub const PreopenList = struct {
+    const InnerList = std.ArrayList(Preopen);
 
-pub fn getPreopens(allocator: *mem.Allocator) GetPreopenError![]Preopen {
-    var preopens = std.ArrayList(Preopen).init(allocator);
-    errdefer freePreopens(allocator, preopens);
-    var fd: fd_t = 3; // start fd has to be beyond stdio fds
+    buffer: InnerList,
 
-    while (true) {
-        var buf: prestat_t = undefined;
-        switch (fd_prestat_get(fd, &buf)) {
-            ESUCCESS => {},
-            ENOTSUP => {
-                // not a preopen, so keep going
-                continue;
-            },
-            EBADF => {
-                // OK, no more fds available
-                break;
-            },
-            else => |err| return std.os.unexpectedErrno(err),
-        }
-        const preopen_len = buf.u.dir.pr_name_len;
-        const path_buf = try allocator.alloc(u8, preopen_len);
-        mem.set(u8, path_buf, 0);
-        switch (fd_prestat_dir_name(fd, path_buf.ptr, preopen_len)) {
-            ESUCCESS => {},
-            else => |err| return std.os.unexpectedErrno(err),
-        }
-        const preopen = Preopen.newDir(fd, path_buf);
-        try preopens.append(preopen);
-        fd += 1;
+    const Self = @This();
+    pub const Error = std.os.UnexpectedError || Allocator.Error;
+
+    pub fn init(allocator: *Allocator) Self {
+        return Self{ .buffer = InnerList.init(allocator) };
     }
 
-    return preopens.toOwnedSlice();
-}
+    pub fn deinit(pm: Self) void {
+        for (pm.buffer.items) |preopen| {
+            switch (preopen.@"type") {
+                PreopenType.Dir => |path| pm.buffer.allocator.free(path),
+            }
+        }
+        pm.buffer.deinit();
+    }
 
-pub fn freePreopens(allocator: *mem.Allocator, preopens: std.ArrayList(Preopen)) void {
-    for (preopens.items) |preopen| {
-        switch (preopen.@"type") {
-            PreopenType.Dir => |path| allocator.free(path),
+    pub fn populate(self: *Self) Error!void {
+        errdefer self.deinit();
+        var fd: fd_t = 3; // start fd has to be beyond stdio fds
+
+        while (true) {
+            var buf: prestat_t = undefined;
+            switch (fd_prestat_get(fd, &buf)) {
+                ESUCCESS => {},
+                ENOTSUP => {
+                    // not a preopen, so keep going
+                    continue;
+                },
+                EBADF => {
+                    // OK, no more fds available
+                    break;
+                },
+                else => |err| return std.os.unexpectedErrno(err),
+            }
+            const preopen_len = buf.u.dir.pr_name_len;
+            const path_buf = try self.buffer.allocator.alloc(u8, preopen_len);
+            mem.set(u8, path_buf, 0);
+            switch (fd_prestat_dir_name(fd, path_buf.ptr, preopen_len)) {
+                ESUCCESS => {},
+                else => |err| return std.os.unexpectedErrno(err),
+            }
+            const preopen = Preopen.newDir(fd, path_buf);
+            try self.buffer.append(preopen);
+            fd += 1;
         }
     }
-    preopens.deinit();
-}
+
+    pub fn asSlice(self: *const Self) []const Preopen {
+        return self.buffer.items;
+    }
+};
 
 pub extern "wasi_snapshot_preview1" fn args_get(argv: [*][*:0]u8, argv_buf: [*]u8) errno_t;
 pub extern "wasi_snapshot_preview1" fn args_sizes_get(argc: *usize, argv_buf_size: *usize) errno_t;
