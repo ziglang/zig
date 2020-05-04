@@ -875,7 +875,6 @@ pub const Node = struct {
         return_type: ReturnType,
         var_args_token: ?TokenIndex,
         extern_export_inline_token: ?TokenIndex,
-        cc_token: ?TokenIndex,
         body_node: ?*Node,
         lib_name: ?*Node, // populated if this is an extern declaration
         align_expr: ?*Node, // populated if align(A) is present
@@ -929,7 +928,6 @@ pub const Node = struct {
             if (self.visib_token) |visib_token| return visib_token;
             if (self.extern_export_inline_token) |extern_export_inline_token| return extern_export_inline_token;
             assert(self.lib_name == null);
-            if (self.cc_token) |cc_token| return cc_token;
             return self.fn_token;
         }
 

@@ -123,22 +123,6 @@ test "zig fmt: trailing comma in fn parameter list" {
     );
 }
 
-// TODO: Remove nakedcc/stdcallcc once zig 0.6.0 is released. See https://github.com/ziglang/zig/pull/3977
-test "zig fmt: convert extern/nakedcc/stdcallcc into callconv(...)" {
-    try testTransform(
-        \\nakedcc fn foo1() void {}
-        \\stdcallcc fn foo2() void {}
-        \\extern fn foo3() void {}
-        \\extern "mylib" fn foo4() void {}
-    ,
-        \\fn foo1() callconv(.Naked) void {}
-        \\fn foo2() callconv(.Stdcall) void {}
-        \\fn foo3() callconv(.C) void {}
-        \\fn foo4() callconv(.C) void {}
-        \\
-    );
-}
-
 test "zig fmt: comptime struct field" {
     try testCanonical(
         \\const Foo = struct {
