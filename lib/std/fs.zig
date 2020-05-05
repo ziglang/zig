@@ -377,7 +377,16 @@ pub const Dir = struct {
                         continue :start_over;
                     }
 
-                    const entry_kind = switch (entry.d_type) {
+                    const entry_kind = if (builtin.os.tag == .openbsd) switch (entry.d_type) {
+                        os.DT_BLK => Entry.Kind.BlockDevice,
+                        os.DT_CHR => Entry.Kind.CharacterDevice,
+                        os.DT_DIR => Entry.Kind.Directory,
+                        os.DT_FIFO => Entry.Kind.NamedPipe,
+                        os.DT_LNK => Entry.Kind.SymLink,
+                        os.DT_REG => Entry.Kind.File,
+                        os.DT_SOCK => Entry.Kind.UnixDomainSocket,
+                        else => Entry.Kind.Unknown,
+                    } else switch (entry.d_type) {
                         os.DT_BLK => Entry.Kind.BlockDevice,
                         os.DT_CHR => Entry.Kind.CharacterDevice,
                         os.DT_DIR => Entry.Kind.Directory,
