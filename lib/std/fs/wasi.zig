@@ -138,14 +138,3 @@ pub const PreopenList = struct {
         return self.buffer.toOwnedSlice();
     }
 };
-
-/// Convenience wrapper for `std.os.wasi.path_open` syscall.
-pub fn openat(dir_fd: fd_t, file_path: []const u8, oflags: oflags_t, fdflags: fdflags_t, rights: rights_t) os.OpenError!fd_t {
-    var fd: fd_t = undefined;
-    switch (path_open(dir_fd, 0x0, file_path.ptr, file_path.len, oflags, rights, 0x0, fdflags, &fd)) {
-        0 => {},
-        // TODO map errors
-        else => |err| return std.os.unexpectedErrno(err),
-    }
-    return fd;
-}

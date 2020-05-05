@@ -140,6 +140,14 @@ pub const File = struct {
         if (builtin.os.tag == .windows) {
             return os.isCygwinPty(self.handle);
         }
+        if (builtin.os.tag == .wasi) {
+            // WASI sanitizes stdout when fd is a tty so ANSI escape codes
+            // will not be interpreted as actual cursor commands.
+            if (self.handle == os.STDOUT_FILENO and self.isTty()) return false;
+            // stderr is always sanitized.
+            if (self.handle == os.STDERR_FILENO) return false;
+            return true;
+        }
         if (self.isTty()) {
             if (self.handle == os.STDOUT_FILENO or self.handle == os.STDERR_FILENO) {
                 // Use getenvC to workaround https://github.com/ziglang/zig/issues/3511
@@ -259,10 +267,11 @@ pub const File = struct {
         const atime = st.atime();
         const mtime = st.mtime();
         const ctime = st.ctime();
+        const m = if (builtin.os.tag == .wasi) 0 else st.mode;
         return Stat{
             .inode = st.ino,
             .size = @bitCast(u64, st.size),
-            .mode = st.mode,
+            .mode = m,
             .atime = @as(i64, atime.tv_sec) * std.time.ns_per_s + atime.tv_nsec,
             .mtime = @as(i64, mtime.tv_sec) * std.time.ns_per_s + mtime.tv_nsec,
             .ctime = @as(i64, ctime.tv_sec) * std.time.ns_per_s + ctime.tv_nsec,

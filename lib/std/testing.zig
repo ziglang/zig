@@ -14,6 +14,21 @@ pub var failing_allocator_instance = FailingAllocator.init(&base_allocator_insta
 pub var base_allocator_instance = std.heap.ThreadSafeFixedBufferAllocator.init(allocator_mem[0..]);
 var allocator_mem: [2 * 1024 * 1024]u8 = undefined;
 
+/// This function is intended to be used only in tests. It should be used in any testcase
+/// where we intend to test WASI and should be used a replacement for `std.fs.cwd()` in WASI.
+pub fn getTestDir() std.fs.Dir {
+    if (@import("builtin").os.tag == .wasi) {
+        var preopens = std.fs.wasi.PreopenList.init(allocator);
+        defer preopens.deinit();
+        preopens.populate() catch unreachable;
+
+        const preopen = preopens.find(".") orelse unreachable;
+        return std.fs.Dir{ .fd = preopen.fd };
+    } else {
+        return std.fs.cwd();
+    }
+}
+
 /// This function is intended to be used only in tests. It prints diagnostics to stderr
 /// and then aborts when actual_error_union is not expected_error.
 pub fn expectError(expected_error: anyerror, actual_error_union: var) void {

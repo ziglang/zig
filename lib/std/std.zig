@@ -75,5 +75,10 @@ comptime {
 }
 
 test "" {
-    meta.refAllDecls(@This());
+    // TODO is there a way around this? When enabled for WASI, we pick up functions
+    // which generate compile error. Perhaps semantic analyser should skip those
+    // if running in test mode?
+    if (builtin.os.tag != .wasi) {
+        meta.refAllDecls(@This());
+    }
 }

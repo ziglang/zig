@@ -2089,6 +2089,8 @@ pub const LibExeObjStep = struct {
             .wasmtime => |bin_name| if (self.enable_wasmtime) {
                 try zig_args.append("--test-cmd");
                 try zig_args.append(bin_name);
+                try zig_args.append("--test-cmd");
+                try zig_args.append("--dir=.");
                 try zig_args.append("--test-cmd-bin");
             },
         }
