@@ -8189,9 +8189,7 @@ fn List(comptime T: type) type {
       {#code_end#}
       <p>
       When {#syntax#}@This(){#endsyntax#} is used at global scope, it returns a reference to the
-      current import. There is a proposal to remove the import type and use an empty struct
-      type instead. See
-      <a href="https://github.com/ziglang/zig/issues/1047">#1047</a> for details.
+      struct that corresponds to the current file.
       </p>
       {#header_close#}
 
