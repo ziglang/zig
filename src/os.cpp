@@ -1470,6 +1470,12 @@ static void init_rand() {
         zig_panic("unable to query random data from sysctl");
     }
     srand(seed);
+#elif defined(ZIG_OS_OPENBSD)
+    unsigned seed;
+    if (getentropy(&seed, sizeof(seed)) != 0) {
+        zig_panic("unable to get entropy");
+    }
+    srand(seed);
 #else
     int fd = open("/dev/urandom", O_RDONLY|O_CLOEXEC);
     if (fd == -1) {
