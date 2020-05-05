@@ -21,7 +21,7 @@ pub fn Batch(
         /// usual recommended option for this parameter.
         auto_async,
 
-        /// Always uses the `noasync` keyword when using `await` on the jobs,
+        /// Always uses the `nosuspend` keyword when using `await` on the jobs,
         /// making `add` and `wait` non-async functions. Asserts that the jobs do not suspend.
         never_async,
 
