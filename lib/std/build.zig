@@ -1132,6 +1132,7 @@ pub const LibExeObjStep = struct {
     name_prefix: []const u8,
     filter: ?[]const u8,
     single_threaded: bool,
+    test_evented_io: bool = false,
     code_model: builtin.CodeModel = .default,
 
     root_src: ?FileSource,
@@ -1862,6 +1863,10 @@ pub const LibExeObjStep = struct {
         if (self.filter) |filter| {
             try zig_args.append("--test-filter");
             try zig_args.append(filter);
+        }
+
+        if (self.test_evented_io) {
+            try zig_args.append("--test-evented-io");
         }
 
         if (self.name_prefix.len != 0) {
