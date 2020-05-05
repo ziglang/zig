@@ -823,7 +823,7 @@ test "peer type resolve array pointer and unknown pointer" {
 
     comptime expect(@TypeOf(&array, const_ptr) == [*]const u8);
     comptime expect(@TypeOf(const_ptr, &array) == [*]const u8);
-    
+
     comptime expect(@TypeOf(&const_array, const_ptr) == [*]const u8);
     comptime expect(@TypeOf(const_ptr, &const_array) == [*]const u8);
 }

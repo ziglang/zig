@@ -195,7 +195,7 @@ pub const Loop = struct {
     const wakeup_bytes = [_]u8{0x1} ** 8;
 
     fn initOsData(self: *Loop, extra_thread_count: usize) InitOsDataError!void {
-        noasync switch (builtin.os.tag) {
+        nosuspend switch (builtin.os.tag) {
             .linux => {
                 errdefer {
                     while (self.available_eventfd_resume_nodes.pop()) |node| os.close(node.data.eventfd);
@@ -371,7 +371,7 @@ pub const Loop = struct {
     }
 
     fn deinitOsData(self: *Loop) void {
-        noasync switch (builtin.os.tag) {
+        nosuspend switch (builtin.os.tag) {
             .linux => {
                 os.close(self.os_data.final_eventfd);
                 while (self.available_eventfd_resume_nodes.pop()) |node| os.close(node.data.eventfd);
@@ -663,7 +663,7 @@ pub const Loop = struct {
     }
 
     pub fn finishOneEvent(self: *Loop) void {
-        noasync {
+        nosuspend {
             const prev = @atomicRmw(usize, &self.pending_event_count, .Sub, 1, .SeqCst);
             if (prev != 1) return;
 
@@ -1041,7 +1041,7 @@ pub const Loop = struct {
     }
 
     fn posixFsRun(self: *Loop) void {
-        noasync while (true) {
+        nosuspend while (true) {
             self.fs_thread_wakeup.reset();
             while (self.fs_queue.get()) |node| {
                 switch (node.data.msg) {

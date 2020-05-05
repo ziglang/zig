@@ -252,13 +252,13 @@ fn readUnitLength(in_stream: var, endian: builtin.Endian, is_64: *bool) !u64 {
 fn readAllocBytes(allocator: *mem.Allocator, in_stream: var, size: usize) ![]u8 {
     const buf = try allocator.alloc(u8, size);
     errdefer allocator.free(buf);
-    if ((try noasync in_stream.read(buf)) < size) return error.EndOfFile;
+    if ((try nosuspend in_stream.read(buf)) < size) return error.EndOfFile;
     return buf;
 }
 
 // TODO the noasyncs here are workarounds
 fn readAddress(in_stream: var, endian: builtin.Endian, is_64: bool) !u64 {
-    return noasync if (is_64)
+    return nosuspend if (is_64)
         try in_stream.readInt(u64, endian)
     else
         @as(u64, try in_stream.readInt(u32, endian));
@@ -271,7 +271,7 @@ fn parseFormValueBlockLen(allocator: *mem.Allocator, in_stream: var, size: usize
 
 // TODO the noasyncs here are workarounds
 fn parseFormValueBlock(allocator: *mem.Allocator, in_stream: var, endian: builtin.Endian, size: usize) !FormValue {
-    const block_len = try noasync in_stream.readVarInt(usize, endian, size);
+    const block_len = try nosuspend in_stream.readVarInt(usize, endian, size);
     return parseFormValueBlockLen(allocator, in_stream, block_len);
 }
 
@@ -282,16 +282,16 @@ fn parseFormValueConstant(allocator: *mem.Allocator, in_stream: var, signed: boo
         .Const = Constant{
             .signed = signed,
             .payload = switch (size) {
-                1 => try noasync in_stream.readInt(u8, endian),
-                2 => try noasync in_stream.readInt(u16, endian),
-                4 => try noasync in_stream.readInt(u32, endian),
-                8 => try noasync in_stream.readInt(u64, endian),
+                1 => try nosuspend in_stream.readInt(u8, endian),
+                2 => try nosuspend in_stream.readInt(u16, endian),
+                4 => try nosuspend in_stream.readInt(u32, endian),
+                8 => try nosuspend in_stream.readInt(u64, endian),
                 -1 => blk: {
                     if (signed) {
-                        const x = try noasync leb.readILEB128(i64, in_stream);
+                        const x = try nosuspend leb.readILEB128(i64, in_stream);
                         break :blk @bitCast(u64, x);
                     } else {
-                        const x = try noasync leb.readULEB128(u64, in_stream);
+                        const x = try nosuspend leb.readULEB128(u64, in_stream);
                         break :blk x;
                     }
                 },
@@ -305,11 +305,11 @@ fn parseFormValueConstant(allocator: *mem.Allocator, in_stream: var, signed: boo
 fn parseFormValueRef(allocator: *mem.Allocator, in_stream: var, endian: builtin.Endian, size: i32) !FormValue {
     return FormValue{
         .Ref = switch (size) {
-            1 => try noasync in_stream.readInt(u8, endian),
-            2 => try noasync in_stream.readInt(u16, endian),
-            4 => try noasync in_stream.readInt(u32, endian),
-            8 => try noasync in_stream.readInt(u64, endian),
-            -1 => try noasync leb.readULEB128(u64, in_stream),
+            1 => try nosuspend in_stream.readInt(u8, endian),
+            2 => try nosuspend in_stream.readInt(u16, endian),
+            4 => try nosuspend in_stream.readInt(u32, endian),
+            8 => try nosuspend in_stream.readInt(u64, endian),
+            -1 => try nosuspend leb.readULEB128(u64, in_stream),
             else => unreachable,
         },
     };
@@ -323,7 +323,7 @@ fn parseFormValue(allocator: *mem.Allocator, in_stream: var, form_id: u64, endia
         FORM_block2 => parseFormValueBlock(allocator, in_stream, endian, 2),
         FORM_block4 => parseFormValueBlock(allocator, in_stream, endian, 4),
         FORM_block => x: {
-            const block_len = try noasync leb.readULEB128(usize, in_stream);
+            const block_len = try nosuspend leb.readULEB128(usize, in_stream);
             return parseFormValueBlockLen(allocator, in_stream, block_len);
         },
         FORM_data1 => parseFormValueConstant(allocator, in_stream, false, endian, 1),
@@ -335,11 +335,11 @@ fn parseFormValue(allocator: *mem.Allocator, in_stream: var, form_id: u64, endia
             return parseFormValueConstant(allocator, in_stream, signed, endian, -1);
         },
         FORM_exprloc => {
-            const size = try noasync leb.readULEB128(usize, in_stream);
+            const size = try nosuspend leb.readULEB128(usize, in_stream);
             const buf = try readAllocBytes(allocator, in_stream, size);
             return FormValue{ .ExprLoc = buf };
         },
-        FORM_flag => FormValue{ .Flag = (try noasync in_stream.readByte()) != 0 },
+        FORM_flag => FormValue{ .Flag = (try nosuspend in_stream.readByte()) != 0 },
         FORM_flag_present => FormValue{ .Flag = true },
         FORM_sec_offset => FormValue{ .SecOffset = try readAddress(in_stream, endian, is_64) },
 
@@ -350,12 +350,12 @@ fn parseFormValue(allocator: *mem.Allocator, in_stream: var, form_id: u64, endia
         FORM_ref_udata => parseFormValueRef(allocator, in_stream, endian, -1),
 
         FORM_ref_addr => FormValue{ .RefAddr = try readAddress(in_stream, endian, is_64) },
-        FORM_ref_sig8 => FormValue{ .Ref = try noasync in_stream.readInt(u64, endian) },
+        FORM_ref_sig8 => FormValue{ .Ref = try nosuspend in_stream.readInt(u64, endian) },
 
         FORM_string => FormValue{ .String = try in_stream.readUntilDelimiterAlloc(allocator, 0, math.maxInt(usize)) },
         FORM_strp => FormValue{ .StrPtr = try readAddress(in_stream, endian, is_64) },
         FORM_indirect => {
-            const child_form_id = try noasync leb.readULEB128(u64, in_stream);
+            const child_form_id = try nosuspend leb.readULEB128(u64, in_stream);
             const F = @TypeOf(async parseFormValue(allocator, in_stream, child_form_id, endian, is_64));
             var frame = try allocator.create(F);
             defer allocator.destroy(frame);

@@ -1093,7 +1093,7 @@ test "recursive call of await @asyncCall with struct return type" {
 test "noasync function call" {
     const S = struct {
         fn doTheTest() void {
-            const result = noasync add(50, 100);
+            const result = nosuspend add(50, 100);
             expect(result == 150);
         }
         fn add(a: i32, b: i32) i32 {
@@ -1517,7 +1517,7 @@ test "noasync await" {
 
         fn doTheTest() void {
             var frame = async foo(false);
-            expect(noasync await frame == 42);
+            expect(nosuspend await frame == 42);
             finished = true;
         }
 
@@ -1544,8 +1544,8 @@ test "noasync on function calls" {
             return S0{};
         }
     };
-    expectEqual(@as(i32, 42), noasync S1.c().b);
-    expectEqual(@as(i32, 42), (try noasync S1.d()).b);
+    expectEqual(@as(i32, 42), nosuspend S1.c().b);
+    expectEqual(@as(i32, 42), (try nosuspend S1.d()).b);
 }
 
 test "avoid forcing frame alignment resolution implicit cast to *c_void" {
@@ -1561,5 +1561,5 @@ test "avoid forcing frame alignment resolution implicit cast to *c_void" {
     };
     var frame = async S.foo();
     resume @ptrCast(anyframe->bool, @alignCast(@alignOf(@Frame(S.foo)), S.x));
-    expect(noasync await frame);
+    expect(nosuspend await frame);
 }
