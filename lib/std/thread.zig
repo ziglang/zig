@@ -280,7 +280,7 @@ pub const Thread = struct {
                                 std.debug.dumpStackTrace(trace.*);
                             }
                         };
-                        return 0;
+                        return null;
                     },
                     else => @compileError(bad_startfn_ret),
                 }
