@@ -2173,7 +2173,7 @@ pub fn socket(domain: u32, socket_type: u32, protocol: u32) SocketError!fd_t {
     switch (errno(rc)) {
         0 => {
             const fd = @intCast(fd_t, rc);
-            if (!have_sock_flags and filtered_sock_type != socket_type) {
+            if (!have_sock_flags) {
                 try setSockFlags(fd, socket_type);
             }
             return fd;
@@ -2341,7 +2341,7 @@ pub fn accept(
         switch (errno(rc)) {
             0 => {
                 const fd = @intCast(fd_t, rc);
-                if (!have_accept4 and flags != 0) {
+                if (!have_accept4) {
                     try setSockFlags(fd, flags);
                 }
                 return fd;
@@ -3277,26 +3277,26 @@ pub fn fcntl(fd: fd_t, cmd: i32, arg: usize) FcntlError!usize {
 }
 
 fn setSockFlags(fd: fd_t, flags: u32) !void {
-    {
+    if ((flags & SOCK_CLOEXEC) != 0) {
         var fd_flags = fcntl(fd, F_GETFD, 0) catch |err| switch (err) {
             error.FileBusy => unreachable,
             error.Locked => unreachable,
             else => |e| return e,
         };
-        if ((flags & SOCK_CLOEXEC) != 0) fd_flags |= FD_CLOEXEC;
+        fd_flags |= FD_CLOEXEC;
         _ = fcntl(fd, F_SETFD, fd_flags) catch |err| switch (err) {
             error.FileBusy => unreachable,
             error.Locked => unreachable,
             else => |e| return e,
         };
     }
-    {
+    if ((flags & SOCK_NONBLOCK) != 0) {
         var fl_flags = fcntl(fd, F_GETFL, 0) catch |err| switch (err) {
             error.FileBusy => unreachable,
             error.Locked => unreachable,
             else => |e| return e,
         };
-        if ((flags & SOCK_NONBLOCK) != 0) fl_flags |= O_NONBLOCK;
+        fl_flags |= O_NONBLOCK;
         _ = fcntl(fd, F_SETFL, fl_flags) catch |err| switch (err) {
             error.FileBusy => unreachable,
             error.Locked => unreachable,
