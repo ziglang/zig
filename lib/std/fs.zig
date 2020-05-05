@@ -12,6 +12,7 @@ const is_darwin = std.Target.current.os.tag.isDarwin();
 
 pub const path = @import("fs/path.zig");
 pub const File = @import("fs/file.zig").File;
+pub const wasi = @import("fs/wasi.zig");
 
 // TODO audit these APIs with respect to Dir and absolute paths
 
@@ -37,7 +38,7 @@ pub const Watch = @import("fs/watch.zig").Watch;
 /// fit into a UTF-8 encoded array of this length.
 /// The byte count includes room for a null sentinel byte.
 pub const MAX_PATH_BYTES = switch (builtin.os.tag) {
-    .linux, .macosx, .ios, .freebsd, .netbsd, .dragonfly, .wasi => os.PATH_MAX,
+    .linux, .macosx, .ios, .freebsd, .netbsd, .dragonfly => os.PATH_MAX,
     // Each UTF-16LE character may be expanded to 3 UTF-8 bytes.
     // If it would require 4 UTF-8 bytes, then there would be a surrogate
     // pair in the UTF-16LE, and we (over)account 3 bytes for it that way.
@@ -700,7 +701,6 @@ pub const Dir = struct {
     pub const createFileC = @compileError("deprecated: renamed to createFileZ");
 
     fn createFileWasi(self: Dir, sub_path: []const u8, flags: File.CreateFlags) File.OpenError!File {
-        const wasi = os.wasi;
         var oflags: wasi.oflags_t = wasi.O_CREAT;
         var rights: wasi.rights_t = wasi.RIGHT_FD_WRITE | wasi.RIGHT_FD_DATASYNC | wasi.RIGHT_FD_SEEK | wasi.RIGHT_FD_FDSTAT_SET_FLAGS | wasi.RIGHT_FD_SYNC | wasi.RIGHT_FD_ALLOCATE | wasi.RIGHT_FD_ADVISE | wasi.RIGHT_FD_FILESTAT_SET_TIMES | wasi.RIGHT_FD_FILESTAT_SET_SIZE;
         if (flags.read) {
@@ -712,9 +712,7 @@ pub const Dir = struct {
         if (flags.exclusive) {
             oflags |= wasi.O_EXCL;
         }
-
         const fd = try wasi.openat(self.fd, sub_path, oflags, 0x0, rights);
-
         return File{ .handle = fd };
     }
 
