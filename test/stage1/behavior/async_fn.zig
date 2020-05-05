@@ -1090,7 +1090,7 @@ test "recursive call of await @asyncCall with struct return type" {
     expect(res.z == 3);
 }
 
-test "noasync function call" {
+test "nosuspend function call" {
     const S = struct {
         fn doTheTest() void {
             const result = nosuspend add(50, 100);
@@ -1511,7 +1511,7 @@ test "take address of temporary async frame" {
     S.doTheTest();
 }
 
-test "noasync await" {
+test "nosuspend await" {
     const S = struct {
         var finished = false;
 
@@ -1532,7 +1532,7 @@ test "noasync await" {
     expect(S.finished);
 }
 
-test "noasync on function calls" {
+test "nosuspend on function calls" {
     const S0 = struct {
         b: i32 = 42,
     };

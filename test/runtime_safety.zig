@@ -234,12 +234,12 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\}
     );
 
-    cases.addRuntimeSafety("noasync function call, callee suspends",
+    cases.addRuntimeSafety("nosuspend function call, callee suspends",
         \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);
         \\}
         \\pub fn main() void {
-        \\    _ = noasync add(101, 100);
+        \\    _ = nosuspend add(101, 100);
         \\}
         \\fn add(a: i32, b: i32) i32 {
         \\    if (a > 100) {

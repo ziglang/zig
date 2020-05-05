@@ -243,9 +243,9 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:17:17: error: RHS of shift is too large for LHS type",
     });
 
-    cases.addTest("combination of noasync and async",
+    cases.addTest("combination of nosuspend and async",
         \\export fn entry() void {
-        \\    noasync {
+        \\    nosuspend {
         \\        const bar = async foo();
         \\        suspend;
         \\        resume bar;
@@ -253,9 +253,9 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\fn foo() void {}
     , &[_][]const u8{
-        "tmp.zig:3:21: error: async call in noasync scope",
-        "tmp.zig:4:9: error: suspend in noasync scope",
-        "tmp.zig:5:9: error: resume in noasync scope",
+        "tmp.zig:3:21: error: async call in nosuspend scope",
+        "tmp.zig:4:9: error: suspend in nosuspend scope",
+        "tmp.zig:5:9: error: resume in nosuspend scope",
     });
 
     cases.add("atomicrmw with bool op not .Xchg",
