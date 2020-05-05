@@ -1132,7 +1132,7 @@ pub const LibExeObjStep = struct {
     name_prefix: []const u8,
     filter: ?[]const u8,
     single_threaded: bool,
-    evented_io: bool = false,
+    test_evented_io: bool = false,
     code_model: builtin.CodeModel = .default,
 
     root_src: ?FileSource,
@@ -1560,11 +1560,6 @@ pub const LibExeObjStep = struct {
         self.filter = text;
     }
 
-    pub fn setUseTestEventedIo(self: *LibExeObjStep, use_evented_io: bool) void {
-        assert(self.kind == Kind.Test);
-        self.evented_io = use_evented_io;
-    }
-
     pub fn addCSourceFile(self: *LibExeObjStep, file: []const u8, args: []const []const u8) void {
         self.addCSourceFileSource(.{
             .args = args,
@@ -1870,7 +1865,7 @@ pub const LibExeObjStep = struct {
             try zig_args.append(filter);
         }
 
-        if (self.evented_io) {
+        if (self.test_evented_io) {
             try zig_args.append("--test-evented-io");
         }
 
