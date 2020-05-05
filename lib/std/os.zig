@@ -3283,7 +3283,7 @@ fn setSockFlags(fd: fd_t, flags: u32) !void {
             error.Locked => unreachable,
             else => |e| return e,
         };
-        if ((flags & SOCK_NONBLOCK) != 0) fd_flags |= FD_CLOEXEC;
+        if ((flags & SOCK_CLOEXEC) != 0) fd_flags |= FD_CLOEXEC;
         _ = fcntl(fd, F_SETFD, fd_flags) catch |err| switch (err) {
             error.FileBusy => unreachable,
             error.Locked => unreachable,
@@ -3296,7 +3296,7 @@ fn setSockFlags(fd: fd_t, flags: u32) !void {
             error.Locked => unreachable,
             else => |e| return e,
         };
-        if ((flags & SOCK_CLOEXEC) != 0) fl_flags |= O_NONBLOCK;
+        if ((flags & SOCK_NONBLOCK) != 0) fl_flags |= O_NONBLOCK;
         _ = fcntl(fd, F_SETFL, fl_flags) catch |err| switch (err) {
             error.FileBusy => unreachable,
             error.Locked => unreachable,
