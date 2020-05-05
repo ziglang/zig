@@ -913,7 +913,7 @@ static AstNode *ast_parse_container_field(ParseContext *pc) {
 // Statement
 //     <- KEYWORD_comptime? VarDecl
 //      / KEYWORD_comptime BlockExprStatement
-//      / KEYWORD_noasync BlockExprStatement
+//      / KEYWORD_nosuspend BlockExprStatement
 //      / KEYWORD_suspend (SEMICOLON / BlockExprStatement)
 //      / KEYWORD_defer BlockExprStatement
 //      / KEYWORD_errdefer Payload? BlockExprStatement
@@ -937,11 +937,11 @@ static AstNode *ast_parse_statement(ParseContext *pc) {
         return res;
     }
 
-    Token *noasync = eat_token_if(pc, TokenIdKeywordNoAsync);
-    if (noasync != nullptr) {
+    Token *nosuspend = eat_token_if(pc, TokenIdKeywordNoSuspend);
+    if (nosuspend != nullptr) {
         AstNode *statement = ast_expect(pc, ast_parse_block_expr_statement);
-        AstNode *res = ast_create_node(pc, NodeTypeNoAsync, noasync);
-        res->data.noasync_expr.expr = statement;
+        AstNode *res = ast_create_node(pc, NodeTypeNoSuspend, nosuspend);
+        res->data.nosuspend_expr.expr = statement;
         return res;
     }
 
@@ -1289,7 +1289,7 @@ static AstNode *ast_parse_prefix_expr(ParseContext *pc) {
 //      / IfExpr
 //      / KEYWORD_break BreakLabel? Expr?
 //      / KEYWORD_comptime Expr
-//      / KEYWORD_noasync Expr
+//      / KEYWORD_nosuspend Expr
 //      / KEYWORD_continue BreakLabel?
 //      / KEYWORD_resume Expr
 //      / KEYWORD_return Expr?
@@ -1324,11 +1324,11 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc) {
         return res;
     }
 
-    Token *noasync = eat_token_if(pc, TokenIdKeywordNoAsync);
-    if (noasync != nullptr) {
+    Token *nosuspend = eat_token_if(pc, TokenIdKeywordNoSuspend);
+    if (nosuspend != nullptr) {
         AstNode *expr = ast_expect(pc, ast_parse_expr);
-        AstNode *res = ast_create_node(pc, NodeTypeNoAsync, noasync);
-        res->data.noasync_expr.expr = expr;
+        AstNode *res = ast_create_node(pc, NodeTypeNoSuspend, nosuspend);
+        res->data.nosuspend_expr.expr = expr;
         return res;
     }
 
@@ -1640,7 +1640,7 @@ static AstNode *ast_parse_suffix_expr(ParseContext *pc) {
 //      / IfTypeExpr
 //      / INTEGER
 //      / KEYWORD_comptime TypeExpr
-//      / KEYWORD_noasync TypeExpr
+//      / KEYWORD_nosuspend TypeExpr
 //      / KEYWORD_error DOT IDENTIFIER
 //      / KEYWORD_false
 //      / KEYWORD_null
@@ -1742,11 +1742,11 @@ static AstNode *ast_parse_primary_type_expr(ParseContext *pc) {
         return res;
     }
 
-    Token *noasync = eat_token_if(pc, TokenIdKeywordNoAsync);
-    if (noasync != nullptr) {
+    Token *nosuspend = eat_token_if(pc, TokenIdKeywordNoSuspend);
+    if (nosuspend != nullptr) {
         AstNode *expr = ast_expect(pc, ast_parse_type_expr);
-        AstNode *res = ast_create_node(pc, NodeTypeNoAsync, noasync);
-        res->data.noasync_expr.expr = expr;
+        AstNode *res = ast_create_node(pc, NodeTypeNoSuspend, nosuspend);
+        res->data.nosuspend_expr.expr = expr;
         return res;
     }
 
@@ -3189,7 +3189,7 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
         case NodeTypeCompTime:
             visit_field(&node->data.comptime_expr.expr, visit, context);
             break;
-        case NodeTypeNoAsync:
+        case NodeTypeNoSuspend:
             visit_field(&node->data.comptime_expr.expr, visit, context);
             break;
         case NodeTypeBreak:

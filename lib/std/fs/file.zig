@@ -66,7 +66,7 @@ pub const File = struct {
         lock_nonblocking: bool = false,
 
         /// Setting this to `.blocking` prevents `O_NONBLOCK` from being passed even
-        /// if `std.io.is_async`. It allows the use of `noasync` when calling functions
+        /// if `std.io.is_async`. It allows the use of `nosuspend` when calling functions
         /// related to opening the file, reading, writing, and locking.
         intended_io_mode: io.ModeOverride = io.default_mode,
     };
@@ -112,7 +112,7 @@ pub const File = struct {
         mode: Mode = default_mode,
 
         /// Setting this to `.blocking` prevents `O_NONBLOCK` from being passed even
-        /// if `std.io.is_async`. It allows the use of `noasync` when calling functions
+        /// if `std.io.is_async`. It allows the use of `nosuspend` when calling functions
         /// related to opening the file, reading, writing, and locking.
         intended_io_mode: io.ModeOverride = io.default_mode,
     };

@@ -4846,12 +4846,12 @@ static IrInstGen *ir_build_suspend_finish_gen(IrAnalyze *ira, IrInst *source_ins
 }
 
 static IrInstSrc *ir_build_await_src(IrBuilderSrc *irb, Scope *scope, AstNode *source_node,
-        IrInstSrc *frame, ResultLoc *result_loc, bool is_noasync)
+        IrInstSrc *frame, ResultLoc *result_loc, bool is_nosuspend)
 {
     IrInstSrcAwait *instruction = ir_build_instruction<IrInstSrcAwait>(irb, scope, source_node);
     instruction->frame = frame;
     instruction->result_loc = result_loc;
-    instruction->is_noasync = is_noasync;
+    instruction->is_nosuspend = is_nosuspend;
 
     ir_ref_instruction(frame, irb->current_basic_block);
 
@@ -4859,14 +4859,14 @@ static IrInstSrc *ir_build_await_src(IrBuilderSrc *irb, Scope *scope, AstNode *s
 }
 
 static IrInstGenAwait *ir_build_await_gen(IrAnalyze *ira, IrInst *source_instruction,
-        IrInstGen *frame, ZigType *result_type, IrInstGen *result_loc, bool is_noasync)
+        IrInstGen *frame, ZigType *result_type, IrInstGen *result_loc, bool is_nosuspend)
 {
     IrInstGenAwait *instruction = ir_build_inst_gen<IrInstGenAwait>(&ira->new_irb,
             source_instruction->scope, source_instruction->source_node);
     instruction->base.value->type = result_type;
     instruction->frame = frame;
     instruction->result_loc = result_loc;
-    instruction->is_noasync = is_noasync;
+    instruction->is_nosuspend = is_nosuspend;
 
     ir_ref_inst_gen(frame);
     if (result_loc != nullptr) ir_ref_inst_gen(result_loc);
@@ -4982,7 +4982,7 @@ static void ir_count_defers(IrBuilderSrc *irb, Scope *inner_scope, Scope *outer_
             case ScopeIdLoop:
             case ScopeIdSuspend:
             case ScopeIdCompTime:
-            case ScopeIdNoAsync:
+            case ScopeIdNoSuspend:
             case ScopeIdRuntime:
             case ScopeIdTypeOf:
             case ScopeIdExpr:
@@ -5072,7 +5072,7 @@ static bool ir_gen_defers_for_block(IrBuilderSrc *irb, Scope *inner_scope, Scope
             case ScopeIdLoop:
             case ScopeIdSuspend:
             case ScopeIdCompTime:
-            case ScopeIdNoAsync:
+            case ScopeIdNoSuspend:
             case ScopeIdRuntime:
             case ScopeIdTypeOf:
             case ScopeIdExpr:
@@ -7335,10 +7335,10 @@ static IrInstSrc *ir_gen_builtin_fn_call(IrBuilderSrc *irb, Scope *scope, AstNod
     zig_unreachable();
 }
 
-static ScopeNoAsync *get_scope_noasync(Scope *scope) {
+static ScopeNoSuspend *get_scope_nosuspend(Scope *scope) {
     while (scope) {
-        if (scope->id == ScopeIdNoAsync)
-            return (ScopeNoAsync *)scope;
+        if (scope->id == ScopeIdNoSuspend)
+            return (ScopeNoSuspend *)scope;
         if (scope->id == ScopeIdFnDef)
             return nullptr;
 
@@ -7355,15 +7355,15 @@ static IrInstSrc *ir_gen_fn_call(IrBuilderSrc *irb, Scope *scope, AstNode *node,
     if (node->data.fn_call_expr.modifier == CallModifierBuiltin)
         return ir_gen_builtin_fn_call(irb, scope, node, lval, result_loc);
 
-    bool is_noasync = get_scope_noasync(scope) != nullptr;
+    bool is_nosuspend = get_scope_nosuspend(scope) != nullptr;
     CallModifier modifier = node->data.fn_call_expr.modifier;
-    if (is_noasync) {
+    if (is_nosuspend) {
         if (modifier == CallModifierAsync) {
             add_node_error(irb->codegen, node,
-                    buf_sprintf("async call in noasync scope"));
+                    buf_sprintf("async call in nosuspend scope"));
             return irb->codegen->invalid_inst_src;
         }
-        modifier = CallModifierNoAsync;
+        modifier = CallModifierNoSuspend;
     }
 
     AstNode *fn_ref_node = node->data.fn_call_expr.fn_ref_expr;
@@ -9222,10 +9222,10 @@ static IrInstSrc *ir_gen_comptime(IrBuilderSrc *irb, Scope *parent_scope, AstNod
     return ir_gen_node_extra(irb, node->data.comptime_expr.expr, child_scope, lval, nullptr);
 }
 
-static IrInstSrc *ir_gen_noasync(IrBuilderSrc *irb, Scope *parent_scope, AstNode *node, LVal lval) {
-    assert(node->type == NodeTypeNoAsync);
+static IrInstSrc *ir_gen_nosuspend(IrBuilderSrc *irb, Scope *parent_scope, AstNode *node, LVal lval) {
+    assert(node->type == NodeTypeNoSuspend);
 
-    Scope *child_scope = create_noasync_scope(irb->codegen, node, parent_scope);
+    Scope *child_scope = create_nosuspend_scope(irb->codegen, node, parent_scope);
     // purposefully pass null for result_loc and let EndExpr handle it
     return ir_gen_node_extra(irb, node->data.comptime_expr.expr, child_scope, lval, nullptr);
 }
@@ -9813,8 +9813,8 @@ static IrInstSrc *ir_gen_fn_proto(IrBuilderSrc *irb, Scope *parent_scope, AstNod
 
 static IrInstSrc *ir_gen_resume(IrBuilderSrc *irb, Scope *scope, AstNode *node) {
     assert(node->type == NodeTypeResume);
-    if (get_scope_noasync(scope) != nullptr) {
-        add_node_error(irb->codegen, node, buf_sprintf("resume in noasync scope"));
+    if (get_scope_nosuspend(scope) != nullptr) {
+        add_node_error(irb->codegen, node, buf_sprintf("resume in nosuspend scope"));
         return irb->codegen->invalid_inst_src;
     }
 
@@ -9830,7 +9830,7 @@ static IrInstSrc *ir_gen_await_expr(IrBuilderSrc *irb, Scope *scope, AstNode *no
 {
     assert(node->type == NodeTypeAwaitExpr);
 
-    bool is_noasync = get_scope_noasync(scope) != nullptr;
+    bool is_nosuspend = get_scope_nosuspend(scope) != nullptr;
 
     AstNode *expr_node = node->data.await_expr.expr;
     if (expr_node->type == NodeTypeFnCallExpr && expr_node->data.fn_call_expr.modifier == CallModifierBuiltin) {
@@ -9864,7 +9864,7 @@ static IrInstSrc *ir_gen_await_expr(IrBuilderSrc *irb, Scope *scope, AstNode *no
     if (target_inst == irb->codegen->invalid_inst_src)
         return irb->codegen->invalid_inst_src;
 
-    IrInstSrc *await_inst = ir_build_await_src(irb, scope, node, target_inst, result_loc, is_noasync);
+    IrInstSrc *await_inst = ir_build_await_src(irb, scope, node, target_inst, result_loc, is_nosuspend);
     return ir_lval_wrap(irb, scope, await_inst, lval, result_loc);
 }
 
@@ -9876,8 +9876,8 @@ static IrInstSrc *ir_gen_suspend(IrBuilderSrc *irb, Scope *parent_scope, AstNode
         add_node_error(irb->codegen, node, buf_sprintf("suspend outside function definition"));
         return irb->codegen->invalid_inst_src;
     }
-    if (get_scope_noasync(parent_scope) != nullptr) {
-        add_node_error(irb->codegen, node, buf_sprintf("suspend in noasync scope"));
+    if (get_scope_nosuspend(parent_scope) != nullptr) {
+        add_node_error(irb->codegen, node, buf_sprintf("suspend in nosuspend scope"));
         return irb->codegen->invalid_inst_src;
     }
 
@@ -10017,8 +10017,8 @@ static IrInstSrc *ir_gen_node_raw(IrBuilderSrc *irb, AstNode *node, Scope *scope
             return ir_gen_switch_expr(irb, scope, node, lval, result_loc);
         case NodeTypeCompTime:
             return ir_expr_wrap(irb, scope, ir_gen_comptime(irb, scope, node, lval), result_loc);
-        case NodeTypeNoAsync:
-            return ir_expr_wrap(irb, scope, ir_gen_noasync(irb, scope, node, lval), result_loc);
+        case NodeTypeNoSuspend:
+            return ir_expr_wrap(irb, scope, ir_gen_nosuspend(irb, scope, node, lval), result_loc);
         case NodeTypeErrorType:
             return ir_lval_wrap(irb, scope, ir_gen_error_type(irb, scope, node), lval, result_loc);
         case NodeTypeBreak:
@@ -10105,7 +10105,7 @@ static IrInstSrc *ir_gen_node_extra(IrBuilderSrc *irb, AstNode *node, Scope *sco
             case NodeTypeIfOptional:
             case NodeTypeSwitchExpr:
             case NodeTypeCompTime:
-            case NodeTypeNoAsync:
+            case NodeTypeNoSuspend:
             case NodeTypeErrorType:
             case NodeTypeBreak:
             case NodeTypeContinue:
@@ -20030,7 +20030,7 @@ static IrInstGen *ir_analyze_fn_call(IrAnalyze *ira, IrInst* source_instr,
 
         if (impl_fn_type_id->cc == CallingConventionAsync &&
             parent_fn_entry->inferred_async_node == nullptr &&
-            modifier != CallModifierNoAsync)
+            modifier != CallModifierNoSuspend)
         {
             parent_fn_entry->inferred_async_node = fn_ref->base.source_node;
             parent_fn_entry->inferred_async_fn = impl_fn;
@@ -20128,7 +20128,7 @@ static IrInstGen *ir_analyze_fn_call(IrAnalyze *ira, IrInst* source_instr,
 
     if (fn_type_id->cc == CallingConventionAsync &&
         parent_fn_entry->inferred_async_node == nullptr &&
-        modifier != CallModifierNoAsync)
+        modifier != CallModifierNoSuspend)
     {
         parent_fn_entry->inferred_async_node = fn_ref->base.source_node;
         parent_fn_entry->inferred_async_fn = fn_entry;
@@ -20243,7 +20243,7 @@ static IrInstGen *ir_analyze_call_extra(IrAnalyze *ira, IrInst* source_instr,
             case CallModifierNone:
             case CallModifierAlwaysInline:
             case CallModifierAlwaysTail:
-            case CallModifierNoAsync:
+            case CallModifierNoSuspend:
                 modifier = CallModifierCompileTime;
                 break;
             case CallModifierNeverInline:
@@ -30287,7 +30287,7 @@ static IrInstGen *ir_analyze_instruction_await(IrAnalyze *ira, IrInstSrcAwait *i
     ir_assert(fn_entry != nullptr, &instruction->base.base);
 
     // If it's not @Frame(func) then it's definitely a suspend point
-    if (target_fn == nullptr && !instruction->is_noasync) {
+    if (target_fn == nullptr && !instruction->is_nosuspend) {
         if (fn_entry->inferred_async_node == nullptr) {
             fn_entry->inferred_async_node = instruction->base.base.source_node;
         }
@@ -30311,7 +30311,7 @@ static IrInstGen *ir_analyze_instruction_await(IrAnalyze *ira, IrInstSrcAwait *i
     }
 
     IrInstGenAwait *result = ir_build_await_gen(ira, &instruction->base.base, frame, result_type, result_loc,
-            instruction->is_noasync);
+            instruction->is_nosuspend);
     result->target_fn = target_fn;
     fn_entry->await_list.append(result);
     return ir_finish_anal(ira, &result->base);

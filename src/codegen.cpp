@@ -685,7 +685,7 @@ static ZigLLVMDIScope *get_di_scope(CodeGen *g, Scope *scope) {
         case ScopeIdLoop:
         case ScopeIdSuspend:
         case ScopeIdCompTime:
-        case ScopeIdNoAsync:
+        case ScopeIdNoSuspend:
         case ScopeIdRuntime:
         case ScopeIdTypeOf:
         case ScopeIdExpr:
@@ -966,8 +966,8 @@ static Buf *panic_msg_buf(PanicMsgId msg_id) {
             return buf_create_from_str("frame too small");
         case PanicMsgIdResumedFnPendingAwait:
             return buf_create_from_str("resumed an async function which can only be awaited");
-        case PanicMsgIdBadNoAsyncCall:
-            return buf_create_from_str("async function called in noasync scope suspended");
+        case PanicMsgIdBadNoSuspendCall:
+            return buf_create_from_str("async function called in nosuspend scope suspended");
         case PanicMsgIdResumeNotSuspendedFn:
             return buf_create_from_str("resumed a non-suspended function");
         case PanicMsgIdBadSentinel:
@@ -4061,7 +4061,7 @@ static void render_async_var_decls(CodeGen *g, Scope *scope) {
             case ScopeIdLoop:
             case ScopeIdSuspend:
             case ScopeIdCompTime:
-            case ScopeIdNoAsync:
+            case ScopeIdNoSuspend:
             case ScopeIdRuntime:
             case ScopeIdTypeOf:
             case ScopeIdExpr:
@@ -4212,9 +4212,9 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutableGen *executable, IrIn
             // even if prefix_arg_err_ret_stack is true, let the async function do its own
             // initialization.
         } else {
-            if (instruction->modifier == CallModifierNoAsync && !fn_is_async(g->cur_fn)) {
+            if (instruction->modifier == CallModifierNoSuspend && !fn_is_async(g->cur_fn)) {
                 // Async function called as a normal function, and calling function is not async.
-                // This is allowed because it was called with `noasync` which asserts that it will
+                // This is allowed because it was called with `nosuspend` which asserts that it will
                 // never suspend.
                 awaiter_init_val = zero;
             } else {
@@ -4325,7 +4325,7 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutableGen *executable, IrIn
         case CallModifierCompileTime:
             zig_unreachable();
         case CallModifierNone:
-        case CallModifierNoAsync:
+        case CallModifierNoSuspend:
         case CallModifierAsync:
             call_attr = ZigLLVM_CallAttrAuto;
             break;
@@ -4401,7 +4401,7 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutableGen *executable, IrIn
                         get_llvm_type(g, instruction->base.value->type), "");
             }
             return nullptr;
-        } else if (instruction->modifier == CallModifierNoAsync && !fn_is_async(g->cur_fn)) {
+        } else if (instruction->modifier == CallModifierNoSuspend && !fn_is_async(g->cur_fn)) {
             gen_resume(g, fn_val, frame_result_loc, ResumeIdCall);
 
             if (ir_want_runtime_safety(g, &instruction->base)) {
@@ -4412,13 +4412,13 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutableGen *executable, IrIn
                         all_ones, LLVMAtomicOrderingRelease);
                 LLVMValueRef ok_val = LLVMBuildICmp(g->builder, LLVMIntEQ, prev_val, all_ones, "");
 
-                LLVMBasicBlockRef bad_block = LLVMAppendBasicBlock(g->cur_fn_val, "NoAsyncPanic");
-                LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "NoAsyncOk");
+                LLVMBasicBlockRef bad_block = LLVMAppendBasicBlock(g->cur_fn_val, "NoSuspendPanic");
+                LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "NoSuspendOk");
                 LLVMBuildCondBr(g->builder, ok_val, ok_block, bad_block);
 
-                // The async function suspended, but this noasync call asserted it wouldn't.
+                // The async function suspended, but this nosuspend call asserted it wouldn't.
                 LLVMPositionBuilderAtEnd(g->builder, bad_block);
-                gen_safety_crash(g, PanicMsgIdBadNoAsyncCall);
+                gen_safety_crash(g, PanicMsgIdBadNoSuspendCall);
 
                 LLVMPositionBuilderAtEnd(g->builder, ok_block);
             }
@@ -6391,7 +6391,7 @@ static LLVMValueRef ir_render_await(CodeGen *g, IrExecutableGen *executable, IrI
     LLVMValueRef result_loc = (instruction->result_loc == nullptr) ?
         nullptr : ir_llvm_value(g, instruction->result_loc);
 
-    if (instruction->is_noasync ||
+    if (instruction->is_nosuspend ||
         (instruction->target_fn != nullptr && !fn_is_async(instruction->target_fn)))
     {
         return gen_await_early_return(g, &instruction->base, target_frame_ptr, result_type,
@@ -7918,7 +7918,7 @@ static void do_code_gen(CodeGen *g) {
         }
 
         if (!is_async) {
-            // allocate async frames for noasync calls & awaits to async functions
+            // allocate async frames for nosuspend calls & awaits to async functions
             ZigType *largest_call_frame_type = nullptr;
             IrInstGen *all_calls_alloca = ir_create_alloca(g, &fn_table_entry->fndef_scope->base,
                     fn_table_entry->body_node, fn_table_entry, g->builtin_types.entry_void, "@async_call_frame");
@@ -7928,7 +7928,7 @@ static void do_code_gen(CodeGen *g) {
                     continue;
                 if (!fn_is_async(call->fn_entry))
                     continue;
-                if (call->modifier != CallModifierNoAsync)
+                if (call->modifier != CallModifierNoSuspend)
                     continue;
                 if (call->frame_result_loc != nullptr)
                     continue;

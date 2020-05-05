@@ -495,7 +495,7 @@ fn parseContainerField(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*No
 /// Statement
 ///     <- KEYWORD_comptime? VarDecl
 ///      / KEYWORD_comptime BlockExprStatement
-///      / KEYWORD_noasync BlockExprStatement
+///      / KEYWORD_nosuspend BlockExprStatement
 ///      / KEYWORD_suspend (SEMICOLON / BlockExprStatement)
 ///      / KEYWORD_defer BlockExprStatement
 ///      / KEYWORD_errdefer Payload? BlockExprStatement
@@ -527,14 +527,14 @@ fn parseStatement(arena: *Allocator, it: *TokenIterator, tree: *Tree) Error!?*No
         return &node.base;
     }
 
-    if (eatToken(it, .Keyword_noasync)) |noasync_token| {
+    if (eatToken(it, .Keyword_nosuspend)) |nosuspend_token| {
         const block_expr = try expectNode(arena, it, tree, parseBlockExprStatement, .{
             .ExpectedBlockOrAssignment = .{ .token = it.index },
         });
 
-        const node = try arena.create(Node.Noasync);
+        const node = try arena.create(Node.Nosuspend);
         node.* = .{
-            .noasync_token = noasync_token,
+            .nosuspend_token = nosuspend_token,
             .expr = block_expr,
         };
         return &node.base;
@@ -908,7 +908,7 @@ fn parsePrefixExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 ///      / IfExpr
 ///      / KEYWORD_break BreakLabel? Expr?
 ///      / KEYWORD_comptime Expr
-///      / KEYWORD_noasync Expr
+///      / KEYWORD_nosuspend Expr
 ///      / KEYWORD_continue BreakLabel?
 ///      / KEYWORD_resume Expr
 ///      / KEYWORD_return Expr?
@@ -944,13 +944,13 @@ fn parsePrimaryExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node 
         return &node.base;
     }
 
-    if (eatToken(it, .Keyword_noasync)) |token| {
+    if (eatToken(it, .Keyword_nosuspend)) |token| {
         const expr_node = try expectNode(arena, it, tree, parseExpr, .{
             .ExpectedExpr = .{ .token = it.index },
         });
-        const node = try arena.create(Node.Noasync);
+        const node = try arena.create(Node.Nosuspend);
         node.* = .{
-            .noasync_token = token,
+            .nosuspend_token = token,
             .expr = expr_node,
         };
         return &node.base;
@@ -1288,7 +1288,7 @@ fn parseSuffixExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 ///      / IfTypeExpr
 ///      / INTEGER
 ///      / KEYWORD_comptime TypeExpr
-///      / KEYWORD_noasync TypeExpr
+///      / KEYWORD_nosuspend TypeExpr
 ///      / KEYWORD_error DOT IDENTIFIER
 ///      / KEYWORD_false
 ///      / KEYWORD_null
@@ -1327,11 +1327,11 @@ fn parsePrimaryTypeExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*N
         };
         return &node.base;
     }
-    if (eatToken(it, .Keyword_noasync)) |token| {
+    if (eatToken(it, .Keyword_nosuspend)) |token| {
         const expr = (try parseTypeExpr(arena, it, tree)) orelse return null;
-        const node = try arena.create(Node.Noasync);
+        const node = try arena.create(Node.Nosuspend);
         node.* = .{
-            .noasync_token = token,
+            .nosuspend_token = token,
             .expr = expr,
         };
         return &node.base;

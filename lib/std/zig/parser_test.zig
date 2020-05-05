@@ -35,10 +35,10 @@ test "zig fmt: errdefer with payload" {
     );
 }
 
-test "zig fmt: noasync block" {
+test "zig fmt: nosuspend block" {
     try testCanonical(
         \\pub fn main() anyerror!void {
-        \\    noasync {
+        \\    nosuspend {
         \\        var foo: Foo = .{ .bar = 42 };
         \\    }
         \\}
@@ -46,10 +46,10 @@ test "zig fmt: noasync block" {
     );
 }
 
-test "zig fmt: noasync await" {
+test "zig fmt: nosuspend await" {
     try testCanonical(
         \\fn foo() void {
-        \\    x = noasync await y;
+        \\    x = nosuspend await y;
         \\}
         \\
     );
@@ -2519,9 +2519,9 @@ test "zig fmt: async functions" {
     );
 }
 
-test "zig fmt: noasync" {
+test "zig fmt: nosuspend" {
     try testCanonical(
-        \\const a = noasync foo();
+        \\const a = nosuspend foo();
         \\
     );
 }
@@ -2921,6 +2921,20 @@ test "zig fmt: hexadeciaml float literals with underscore separators" {
         \\    const a: f64 = (0x10.0p-0 + (0x10.p+0)) + 0x10_00.00_00p-8 + 0x00_00.00_10p+16;
         \\    const b: f64 = 0x0010.0 - -0x00_10. + 0x10.00 + 0x1p4;
         \\    std.debug.warn("a: {}, b: {} -> a+b: {}\n", .{ a, b, a + b });
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: noasync to nosuspend" {
+    // TODO: remove this
+    try testTransform(
+        \\pub fn main() void {
+        \\    noasync call();
+        \\}
+    ,
+        \\pub fn main() void {
+        \\    nosuspend call();
         \\}
         \\
     );

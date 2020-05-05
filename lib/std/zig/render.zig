@@ -391,11 +391,15 @@ fn renderExpression(
             try renderToken(tree, stream, comptime_node.comptime_token, indent, start_col, Space.Space);
             return renderExpression(allocator, stream, tree, indent, start_col, comptime_node.expr, space);
         },
-        .Noasync => {
-            const noasync_node = @fieldParentPtr(ast.Node.Noasync, "base", base);
-
-            try renderToken(tree, stream, noasync_node.noasync_token, indent, start_col, Space.Space);
-            return renderExpression(allocator, stream, tree, indent, start_col, noasync_node.expr, space);
+        .Nosuspend => {
+            const nosuspend_node = @fieldParentPtr(ast.Node.Nosuspend, "base", base);
+            if (mem.eql(u8, tree.tokenSlice(nosuspend_node.nosuspend_token), "noasync")) {
+                // TODO: remove this
+                try stream.writeAll("nosuspend ");
+            } else {
+                try renderToken(tree, stream, nosuspend_node.nosuspend_token, indent, start_col, Space.Space);
+            }
+            return renderExpression(allocator, stream, tree, indent, start_col, nosuspend_node.expr, space);
         },
 
         .Suspend => {
