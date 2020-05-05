@@ -71,7 +71,16 @@ pub const PreopenList = struct {
 
     /// Populate the list with the preopens by issuing `std.os.wasi.fd_prestat_get`
     /// and `std.os.wasi.fd_prestat_dir_name` syscalls to the runtime.
+    ///
+    /// If called more than once, it will clear its contents every time before
+    /// issuing the syscalls.
     pub fn populate(self: *Self) Error!void {
+        // Clear contents if we're being called again
+        for (self.toOwnedSlice()) |preopen| {
+            switch (preopen.@"type") {
+                PreopenType.Dir => |path| self.buffer.allocator.free(path),
+            }
+        }
         errdefer self.deinit();
         var fd: fd_t = 3; // start fd has to be beyond stdio fds
 
@@ -122,6 +131,11 @@ pub const PreopenList = struct {
     /// Return the inner buffer as read-only slice.
     pub fn asSlice(self: *const Self) []const Preopen {
         return self.buffer.items;
+    }
+
+    /// The caller owns the returned memory. ArrayList becomes empty.
+    pub fn toOwnedSlice(self: *Self) []Preopen {
+        return self.buffer.toOwnedSlice();
     }
 };
 
