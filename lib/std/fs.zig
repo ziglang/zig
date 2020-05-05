@@ -592,19 +592,27 @@ pub const Dir = struct {
         return self.openFileZ(&path_c, flags);
     }
 
-    fn openFileWasi(self: Dir, sub_path: []const u8, flags: File.OpenFlags) File.OpenError!File {
-        var fdflags: wasi.fdflag_t = 0x0;
-        var rights: wasi.rights_t = 0x0;
+    /// Save as `openFile` but WASI only.
+    pub fn openFileWasi(self: Dir, sub_path: []const u8, flags: File.OpenFlags) File.OpenError!File {
+        const w = os.wasi;
+        var fdflags: w.fdflag_t = 0x0;
+        var rights: w.rights_t = 0x0;
         if (flags.read) {
-            rights |= wasi.FD_READ | wasi.FD_TELL | wasi.FD_FILESTAT_GET;
+            rights |= w.FD_READ | w.FD_TELL | w.FD_FILESTAT_GET;
         }
         if (flags.write) {
-            fdflags |= wasi.FDFLAG_APPEND;
-            rights |= wasi.FD_WRITE | wasi.FD_DATASYNC | wasi.FD_SEEK | wasi.FD_FDSTAT_SET_FLAGS | wasi.FD_SYNC | wasi.FD_ALLOCATE | wasi.FD_ADVISE | wasi.FD_FILESTAT_SET_TIMES | wasi.FD_FILESTAT_SET_SIZE;
+            fdflags |= w.FDFLAG_APPEND;
+            rights |= w.FD_WRITE |
+                w.FD_DATASYNC |
+                w.FD_SEEK |
+                w.FD_FDSTAT_SET_FLAGS |
+                w.FD_SYNC |
+                w.FD_ALLOCATE |
+                w.FD_ADVISE |
+                w.FD_FILESTAT_SET_TIMES |
+                w.FD_FILESTAT_SET_SIZE;
         }
-
         const fd = try wasi.openat(self.fd, sub_path, 0x0, fdflags, rights);
-
         return File{ .handle = fd };
     }
 
@@ -700,17 +708,27 @@ pub const Dir = struct {
 
     pub const createFileC = @compileError("deprecated: renamed to createFileZ");
 
-    fn createFileWasi(self: Dir, sub_path: []const u8, flags: File.CreateFlags) File.OpenError!File {
-        var oflags: wasi.oflags_t = wasi.O_CREAT;
-        var rights: wasi.rights_t = wasi.RIGHT_FD_WRITE | wasi.RIGHT_FD_DATASYNC | wasi.RIGHT_FD_SEEK | wasi.RIGHT_FD_FDSTAT_SET_FLAGS | wasi.RIGHT_FD_SYNC | wasi.RIGHT_FD_ALLOCATE | wasi.RIGHT_FD_ADVISE | wasi.RIGHT_FD_FILESTAT_SET_TIMES | wasi.RIGHT_FD_FILESTAT_SET_SIZE;
+    /// Same as `createFile` but WASI only.
+    pub fn createFileWasi(self: Dir, sub_path: []const u8, flags: File.CreateFlags) File.OpenError!File {
+        const w = os.wasi;
+        var oflags = w.O_CREAT;
+        var rights = w.RIGHT_FD_WRITE |
+            w.RIGHT_FD_DATASYNC |
+            w.RIGHT_FD_SEEK |
+            w.RIGHT_FD_FDSTAT_SET_FLAGS |
+            w.RIGHT_FD_SYNC |
+            w.RIGHT_FD_ALLOCATE |
+            w.RIGHT_FD_ADVISE |
+            w.RIGHT_FD_FILESTAT_SET_TIMES |
+            w.RIGHT_FD_FILESTAT_SET_SIZE;
         if (flags.read) {
-            rights |= wasi.RIGHT_FD_READ | wasi.RIGHT_FD_TELL | wasi.RIGHT_FD_FILESTAT_GET;
+            rights |= w.RIGHT_FD_READ | w.RIGHT_FD_TELL | w.RIGHT_FD_FILESTAT_GET;
         }
         if (flags.truncate) {
-            oflags |= wasi.O_TRUNC;
+            oflags |= w.O_TRUNC;
         }
         if (flags.exclusive) {
-            oflags |= wasi.O_EXCL;
+            oflags |= w.O_EXCL;
         }
         const fd = try wasi.openat(self.fd, sub_path, oflags, 0x0, rights);
         return File{ .handle = fd };
