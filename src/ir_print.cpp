@@ -861,8 +861,8 @@ static void ir_print_call_src(IrPrintSrc *irp, IrInstSrcCall *call_instruction) 
     switch (call_instruction->modifier) {
         case CallModifierNone:
             break;
-        case CallModifierNoAsync:
-            fprintf(irp->f, "noasync ");
+        case CallModifierNoSuspend:
+            fprintf(irp->f, "nosuspend ");
             break;
         case CallModifierAsync:
             fprintf(irp->f, "async ");
@@ -906,8 +906,8 @@ static void ir_print_call_gen(IrPrintGen *irp, IrInstGenCall *call_instruction) 
     switch (call_instruction->modifier) {
         case CallModifierNone:
             break;
-        case CallModifierNoAsync:
-            fprintf(irp->f, "noasync ");
+        case CallModifierNoSuspend:
+            fprintf(irp->f, "nosuspend ");
             break;
         case CallModifierAsync:
             fprintf(irp->f, "async ");
