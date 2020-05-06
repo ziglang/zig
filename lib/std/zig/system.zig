@@ -291,9 +291,28 @@ pub const NativeTargetInfo = struct {
                         else => @panic("unable to detect macOS version: " ++ key_osproductversion),
                     }
                 },
-                .freebsd => {
-                    // Unimplemented, fall back to default.
-                    // https://github.com/ziglang/zig/issues/4582
+                .freebsd, .netbsd, .openbsd, .dragonfly => {
+                    var mib = [2]c_int{ std.os.CTL_KERN, std.os.KERN_OSRELEASE };
+                    var buf: [32]u8 = undefined;
+                    var len: usize = buf.len;
+
+                    std.os.sysctl(&mib, &buf, &len, null, 0) catch {
+                        @panic("unable to get the system release string");
+                    };
+
+                    const release_version = if (mem.indexOfScalar(u8, buf, '-')) |pos|
+                        buf[0 .. pos]
+                    else
+                        buf[0 .. len - 1];
+
+                    if (std.builtin.Version.parse(release_version)) |ver| {
+                        os.version_range.semver.min = ver;
+                        os.version_range.semver.max = ver;
+                    } else |err| switch (err) {
+                        error.Overflow => {},
+                        error.InvalidCharacter => {},
+                        error.InvalidVersion => {},
+                    }
                 },
                 else => {
                     // Unimplemented, fall back to default version range.
