@@ -669,7 +669,7 @@ fn transTypeDefAsBuiltin(c: *Context, typedef_decl: *const ZigClangTypedefNameDe
 }
 
 fn checkForBuiltinTypedef(checked_name: []const u8) !?[]const u8 {
-    const table = comptime [_][2][]const u8{
+    const table = [_][2][]const u8{
         .{ "uint8_t", "u8" },
         .{ "int8_t", "i8" },
         .{ "uint16_t", "u16" },
@@ -1409,10 +1409,9 @@ fn transDeclStmt(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangDeclStmt)
 
                 const underlying_qual = ZigClangTypedefNameDecl_getUnderlyingType(typedef_decl);
                 const underlying_type = ZigClangQualType_getTypePtr(underlying_qual);
-                const underlying_name = try c.str(ZigClangType_getTypeClassName(underlying_type));
 
                 const mangled_name = try block_scope.makeMangledName(c, name);
-                if (try checkForBuiltinTypedef(underlying_name)) |builtin| {
+                if (try checkForBuiltinTypedef(name)) |builtin| {
                     try block_scope.variables.push(.{
                         .alias = builtin,
                         .name = mangled_name,
