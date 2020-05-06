@@ -616,14 +616,16 @@ pub const Loop = struct {
 
         self.workerRun();
 
-        switch (builtin.os.tag) {
-            .linux,
-            .macosx,
-            .freebsd,
-            .netbsd,
-            .dragonfly,
-            => self.fs_thread.wait(),
-            else => {},
+        if (!builtin.single_threaded) {
+            switch (builtin.os.tag) {
+                .linux,
+                .macosx,
+                .freebsd,
+                .netbsd,
+                .dragonfly,
+                => self.fs_thread.wait(),
+                else => {},
+            }
         }
 
         for (self.extra_threads) |extra_thread| {
