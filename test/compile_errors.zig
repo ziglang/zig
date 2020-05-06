@@ -7353,4 +7353,18 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         ":3:18: error: expected type '[*:0]const u8', found '*[64]u8'",
         ":3:18: note: destination pointer requires a terminating '0' sentinel",
     });
+
+    cases.add("issue #5221: invalid struct init type referenced by @typeInfo and passed into function",
+        \\fn ignore(comptime param: var) void {}
+        \\
+        \\export fn foo() void {
+        \\    const MyStruct = struct {
+        \\        wrong_type: []u8 = "foo",
+        \\    };
+        \\
+        \\    comptime ignore(@typeInfo(MyStruct).Struct.fields[0]);
+        \\}
+    , &[_][]const u8{
+        ":5:28: error: expected type '[]u8', found '*const [3:0]u8'",
+    });
 }

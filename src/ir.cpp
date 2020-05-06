@@ -21697,6 +21697,9 @@ static IrInstGen *ir_analyze_struct_field_ptr(IrAnalyze *ira, IrInst* source_ins
     if (field->is_comptime) {
         IrInstGen *elem = ir_const(ira, source_instr, field_type);
         memoize_field_init_val(ira->codegen, struct_type, field);
+        if(field->init_val != nullptr && type_is_invalid(field->init_val->type)){
+            return ira->codegen->invalid_inst_gen;
+        }
         copy_const_val(ira->codegen, elem->value, field->init_val);
         return ir_get_ref2(ira, source_instr, elem, field_type, true, false);
     }
@@ -25053,6 +25056,9 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
                     inner_fields[3]->type = get_optional_type2(ira->codegen, struct_field->type_entry);
                     if (inner_fields[3]->type == nullptr) return ErrorSemanticAnalyzeFail;
                     memoize_field_init_val(ira->codegen, type_entry, struct_field);
+                    if(struct_field->init_val != nullptr && type_is_invalid(struct_field->init_val->type)){
+                        return ErrorSemanticAnalyzeFail;
+                    }
                     set_optional_payload(inner_fields[3], struct_field->init_val);
 
                     ZigValue *name = create_const_str_lit(ira->codegen, struct_field->name)->data.x_ptr.data.ref.pointee;
