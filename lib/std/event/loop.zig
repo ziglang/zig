@@ -493,7 +493,7 @@ pub const Loop = struct {
     pub fn waitUntilFdWritableOrReadable(self: *Loop, fd: os.fd_t) void {
         switch (builtin.os.tag) {
             .linux => {
-                self.linuxWaitFd(@intCast(usize, fd), os.EPOLLET | os.EPOLLONESHOT | os.EPOLLOUT | os.EPOLLIN);
+                self.linuxWaitFd(fd, os.EPOLLET | os.EPOLLONESHOT | os.EPOLLOUT | os.EPOLLIN);
             },
             .macosx, .freebsd, .netbsd, .dragonfly => {
                 self.bsdWaitKev(@intCast(usize, fd), os.EVFILT_READ, os.EV_ONESHOT);
