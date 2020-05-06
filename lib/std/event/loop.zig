@@ -503,7 +503,7 @@ pub const Loop = struct {
         }
     }
 
-    pub async fn bsdWaitKev(self: *Loop, ident: usize, filter: i16, fflags: u32) void {
+    pub async fn bsdWaitKev(self: *Loop, ident: usize, filter: i16, flags: u16) void {
         var resume_node = ResumeNode.Basic{
             .base = ResumeNode{
                 .id = ResumeNode.Id.Basic,
@@ -512,21 +512,28 @@ pub const Loop = struct {
             },
             .kev = undefined,
         };
-        defer self.bsdRemoveKev(ident, filter);
+
+        defer {
+            // If the kevent was set to be ONESHOT, it doesn't need to be deleted manually.
+            if (flags & os.EV_ONESHOT != 0) {
+                self.bsdRemoveKev(ident, filter);
+            }
+        }
+
         suspend {
-            self.bsdAddKev(&resume_node, ident, filter, fflags) catch unreachable;
+            self.bsdAddKev(&resume_node, ident, filter, flags) catch unreachable;
         }
     }
 
     /// resume_node must live longer than the anyframe that it holds a reference to.
-    pub fn bsdAddKev(self: *Loop, resume_node: *ResumeNode.Basic, ident: usize, filter: i16, fflags: u32) !void {
+    pub fn bsdAddKev(self: *Loop, resume_node: *ResumeNode.Basic, ident: usize, filter: i16, flags: u16) !void {
         self.beginOneEvent();
         errdefer self.finishOneEvent();
         var kev = [1]os.Kevent{os.Kevent{
             .ident = ident,
             .filter = filter,
-            .flags = os.EV_ADD | os.EV_ENABLE | os.EV_CLEAR,
-            .fflags = fflags,
+            .flags = os.EV_ADD | os.EV_ENABLE | os.EV_CLEAR | flags,
+            .fflags = 0,
             .data = 0,
             .udata = @ptrToInt(&resume_node.base),
         }};
