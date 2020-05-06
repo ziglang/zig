@@ -548,6 +548,7 @@ fn preadNoEof(file: std.fs.File, buf: []u8, offset: u64) !void {
             error.BrokenPipe => return error.UnableToReadElfFile,
             error.Unseekable => return error.UnableToReadElfFile,
             error.ConnectionResetByPeer => return error.UnableToReadElfFile,
+            error.ConnectionTimedOut => return error.UnableToReadElfFile,
             error.InputOutput => return error.FileSystem,
             error.Unexpected => return error.Unexpected,
             error.WouldBlock => return error.Unexpected,
