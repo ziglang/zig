@@ -2549,7 +2549,7 @@ pub fn connect(sockfd: fd_t, sock_addr: *const sockaddr, len: socklen_t) Connect
             EAFNOSUPPORT => return error.AddressFamilyNotSupported,
             EAGAIN, EINPROGRESS => {
                 const loop = std.event.Loop.instance orelse return error.WouldBlock;
-                loop.waitUntilFdWritableOrReadable(sockfd);
+                loop.waitUntilFdWritable(sockfd);
                 return getsockoptError(sockfd);
             },
             EALREADY => unreachable, // The socket is nonblocking and a previous connection attempt has not yet been completed.
