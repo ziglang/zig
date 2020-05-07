@@ -23,3 +23,15 @@ pub const DT_BLK = 6;
 pub const DT_REG = 8;
 pub const DT_LNK = 10;
 pub const DT_SOCK = 12;
+
+/// Test for readable
+pub const R_OK = 4;
+
+/// Test for writable
+pub const W_OK = 2;
+
+/// Test for executable
+pub const X_OK = 1;
+
+/// Test for existence
+pub const F_OK = 0;

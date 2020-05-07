@@ -1622,7 +1622,7 @@ pub fn openSelfExe() OpenSelfExeError!File {
     return openFileAbsoluteZ(buf[0..self_exe_path.len :0].ptr, .{});
 }
 
-pub const SelfExePathError = os.ReadLinkError || os.SysCtlError;
+pub const SelfExePathError = os.ReadLinkError || os.SysCtlError || os.RealPathError || os.AccessError;
 
 /// `selfExePath` except allocates the result on the heap.
 /// Caller owns returned memory.
@@ -1663,6 +1663,48 @@ pub fn selfExePath(out_buffer: *[MAX_PATH_BYTES]u8) SelfExePathError![]u8 {
             try os.sysctl(&mib, out_buffer, &out_len, null, 0);
             // TODO could this slice from 0 to out_len instead?
             return mem.spanZ(@ptrCast([*:0]u8, out_buffer));
+        },
+        .openbsd => {
+            // OpenBSD has no support for this. Out of the various tried methods,
+            // the only working workaround comes from stackoverflow.com/a/31495527
+
+            // Retrieve the argument vector
+            var mib = [4]c_int{ os.CTL_KERN, os.KERN_PROC_ARGS, os.system.getpid(), os.KERN_PROC_ARGV };
+            var argv: [os.ARG_MAX / @sizeOf([]u8)][*:0]u8 = undefined;
+            var len: usize = undefined;
+            try os.sysctl(&mib, &argv, &len, null, 0);
+
+            var prg_name = argv[0];
+            if (prg_name[0] == '/' or prg_name[0] == '.') {
+                return os.realpathZ(prg_name, out_buffer);
+            }
+            prg_name = mem.spanZ(prg_name);
+
+            // Retrieve set of directories where executables are located
+            const PATH = os.getenvZ("PATH") orelse "/bin:/usr/bin:/usr/local/bin";
+            var it = mem.tokenize(PATH, ":");
+            var err: os.AccessError = undefined;
+
+            // Look for the program in the set of directories
+            while (it.next()) |search_path| {
+                const path_len = search_path.len + 1 + prg_name.len;
+                if (out_buffer.len < path_len) return error.NameTooLong;
+
+                mem.copy(u8, &out_buffer, search_path);
+                out_buffer[search_path.len] = '/';
+                mem.copy(u8, out_buffer[search_path.len + 1 ..], prg_name);
+                out_buffer[path_len] = 0;
+
+                const full_path = out_buffer[0..path_len :0];
+                err = os.accessZ(full_path.ptr, os.X_OK);
+                switch (err) {
+                    0 => return mem.spanZ(full_path),
+                    error.FileNotFound => {},
+                    else => |e| return e,
+                }
+            }
+
+            return err;
         },
         .windows => {
             const utf16le_slice = selfExePathW();
