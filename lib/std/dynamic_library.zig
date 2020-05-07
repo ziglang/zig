@@ -339,9 +339,14 @@ pub const WindowsDynLib = struct {
     }
 
     pub fn openW(path_w: [*:0]const u16) !WindowsDynLib {
+        const stripped_path = if (mem.len(path_w) >= 4) blk: {
+            const prefix= &[_]u16{ '\\', '?', '?', '\\' };
+            break: blk if (mem.eql(u16, path_w[0..4], prefix)) path_w + 4 else path_w;
+        } else path_w;
+
         return WindowsDynLib{
             // + 4 to skip over the \??\
-            .dll = try windows.LoadLibraryW(path_w + 4),
+            .dll = try windows.LoadLibraryW(stripped_path),
         };
     }
 
