@@ -282,7 +282,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
                     \\source.zig:10:8: [address] in main (test)
                     \\    foo();
                     \\       ^
-                    \\start.zig:250:29: [address] in std.start.posixCallMainAndExit (test)
+                    \\start.zig:249:29: [address] in std.start.posixCallMainAndExit (test)
                     \\            return root.main();
                     \\                            ^
                     \\start.zig:123:5: [address] in std.start._start (test)

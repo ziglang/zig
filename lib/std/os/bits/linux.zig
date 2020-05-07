@@ -813,15 +813,15 @@ pub const app_mask: sigset_t = [2]u32{ 0xfffffffc, 0x7fffffff } ++ [_]u32{0xffff
 pub const k_sigaction = if (is_mips)
     extern struct {
         flags: usize,
-        sigaction: ?extern fn (i32, *siginfo_t, ?*c_void) void,
+        sigaction: ?fn (i32, *siginfo_t, ?*c_void) callconv(.C) void,
         mask: [4]u32,
-        restorer: extern fn () void,
+        restorer: fn () callconv(.C) void,
     }
 else
     extern struct {
-        sigaction: ?extern fn (i32, *siginfo_t, ?*c_void) void,
+        sigaction: ?fn (i32, *siginfo_t, ?*c_void) callconv(.C) void,
         flags: usize,
-        restorer: extern fn () void,
+        restorer: fn () callconv(.C) void,
         mask: [2]u32,
     };
 
@@ -831,7 +831,7 @@ pub const Sigaction = extern struct {
     sigaction: ?sigaction_fn,
     mask: sigset_t,
     flags: u32,
-    restorer: ?extern fn () void = null,
+    restorer: ?fn () callconv(.C) void = null,
 };
 
 pub const SIG_ERR = @intToPtr(?Sigaction.sigaction_fn, maxInt(usize));

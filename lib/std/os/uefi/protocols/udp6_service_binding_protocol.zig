@@ -4,8 +4,8 @@ const Guid = uefi.Guid;
 const Status = uefi.Status;
 
 pub const Udp6ServiceBindingProtocol = extern struct {
-    _create_child: extern fn (*const Udp6ServiceBindingProtocol, *?Handle) Status,
-    _destroy_child: extern fn (*const Udp6ServiceBindingProtocol, Handle) Status,
+    _create_child: fn (*const Udp6ServiceBindingProtocol, *?Handle) callconv(.C) Status,
+    _destroy_child: fn (*const Udp6ServiceBindingProtocol, Handle) callconv(.C) Status,
 
     pub fn createChild(self: *const Udp6ServiceBindingProtocol, handle: *?Handle) Status {
         return self._create_child(self, handle);

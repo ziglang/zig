@@ -1528,8 +1528,6 @@ ZigType *get_generic_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
 }
 
 CallingConvention cc_from_fn_proto(AstNodeFnProto *fn_proto) {
-    if (fn_proto->is_async)
-        return CallingConventionAsync;
     // Compatible with the C ABI
     if (fn_proto->is_extern || fn_proto->is_export)
         return CallingConventionC;

@@ -5,8 +5,8 @@ const Status = uefi.Status;
 
 /// Protocol for mice
 pub const SimplePointerProtocol = struct {
-    _reset: extern fn (*const SimplePointerProtocol, bool) Status,
-    _get_state: extern fn (*const SimplePointerProtocol, *SimplePointerState) Status,
+    _reset: fn (*const SimplePointerProtocol, bool) callconv(.C) Status,
+    _get_state: fn (*const SimplePointerProtocol, *SimplePointerState) callconv(.C) Status,
     wait_for_input: Event,
     mode: *SimplePointerMode,
 

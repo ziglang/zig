@@ -627,7 +627,7 @@ pub const MEM_RESERVE_PLACEHOLDERS = 0x2;
 pub const MEM_DECOMMIT = 0x4000;
 pub const MEM_RELEASE = 0x8000;
 
-pub const PTHREAD_START_ROUTINE = extern fn (LPVOID) DWORD;
+pub const PTHREAD_START_ROUTINE = fn (LPVOID) callconv(.C) DWORD;
 pub const LPTHREAD_START_ROUTINE = PTHREAD_START_ROUTINE;
 
 pub const WIN32_FIND_DATAW = extern struct {
@@ -784,7 +784,7 @@ pub const IMAGE_TLS_DIRECTORY = extern struct {
 pub const IMAGE_TLS_DIRECTORY64 = IMAGE_TLS_DIRECTORY;
 pub const IMAGE_TLS_DIRECTORY32 = IMAGE_TLS_DIRECTORY;
 
-pub const PIMAGE_TLS_CALLBACK = ?extern fn (PVOID, DWORD, PVOID) void;
+pub const PIMAGE_TLS_CALLBACK = ?fn (PVOID, DWORD, PVOID) callconv(.C) void;
 
 pub const PROV_RSA_FULL = 1;
 
@@ -810,7 +810,7 @@ pub const FILE_ACTION_MODIFIED = 0x00000003;
 pub const FILE_ACTION_RENAMED_OLD_NAME = 0x00000004;
 pub const FILE_ACTION_RENAMED_NEW_NAME = 0x00000005;
 
-pub const LPOVERLAPPED_COMPLETION_ROUTINE = ?extern fn (DWORD, DWORD, *OVERLAPPED) void;
+pub const LPOVERLAPPED_COMPLETION_ROUTINE = ?fn (DWORD, DWORD, *OVERLAPPED) callconv(.C) void;
 
 pub const FILE_NOTIFY_CHANGE_CREATION = 64;
 pub const FILE_NOTIFY_CHANGE_SIZE = 8;
@@ -863,7 +863,7 @@ pub const RTL_CRITICAL_SECTION = extern struct {
 pub const CRITICAL_SECTION = RTL_CRITICAL_SECTION;
 pub const INIT_ONCE = RTL_RUN_ONCE;
 pub const INIT_ONCE_STATIC_INIT = RTL_RUN_ONCE_INIT;
-pub const INIT_ONCE_FN = extern fn (InitOnce: *INIT_ONCE, Parameter: ?*c_void, Context: ?*c_void) BOOL;
+pub const INIT_ONCE_FN = fn (InitOnce: *INIT_ONCE, Parameter: ?*c_void, Context: ?*c_void) callconv(.C) BOOL;
 
 pub const RTL_RUN_ONCE = extern struct {
     Ptr: ?*c_void,
@@ -1418,7 +1418,7 @@ pub const RTL_DRIVE_LETTER_CURDIR = extern struct {
     DosPath: UNICODE_STRING,
 };
 
-pub const PPS_POST_PROCESS_INIT_ROUTINE = ?extern fn () void;
+pub const PPS_POST_PROCESS_INIT_ROUTINE = ?fn () callconv(.C) void;
 
 pub const FILE_BOTH_DIR_INFORMATION = extern struct {
     NextEntryOffset: ULONG,
@@ -1438,7 +1438,7 @@ pub const FILE_BOTH_DIR_INFORMATION = extern struct {
 };
 pub const FILE_BOTH_DIRECTORY_INFORMATION = FILE_BOTH_DIR_INFORMATION;
 
-pub const IO_APC_ROUTINE = extern fn (PVOID, *IO_STATUS_BLOCK, ULONG) void;
+pub const IO_APC_ROUTINE = fn (PVOID, *IO_STATUS_BLOCK, ULONG) callconv(.C) void;
 
 pub const CURDIR = extern struct {
     DosPath: UNICODE_STRING,

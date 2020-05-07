@@ -335,20 +335,25 @@ fn parseTopLevelDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node
     return use_node;
 }
 
-/// FnProto <- FnCC? KEYWORD_fn IDENTIFIER? LPAREN ParamDeclList RPAREN ByteAlign? LinkSection? EXCLAMATIONMARK? (KEYWORD_var / TypeExpr)
+/// FnProto <- KEYWORD_fn IDENTIFIER? LPAREN ParamDeclList RPAREN ByteAlign? LinkSection? EXCLAMATIONMARK? (KEYWORD_var / TypeExpr)
 fn parseFnProto(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
-    const cc = parseFnCC(arena, it, tree);
-    const fn_token = eatToken(it, .Keyword_fn) orelse {
-        if (cc) |fnCC| {
-            if (fnCC == .Extern) {
-                putBackToken(it, fnCC.Extern); // 'extern' is also used in ContainerDecl
-            } else {
-                try tree.errors.push(.{
-                    .ExpectedToken = .{ .token = it.index, .expected_id = .Keyword_fn },
-                });
-                return error.ParseError;
-            }
+    // TODO: Remove once extern/async fn rewriting is
+    var is_async = false;
+    var is_extern = false;
+    const cc_token: ?usize = blk: {
+        if (eatToken(it, .Keyword_extern)) |token| {
+            is_extern = true;
+            break :blk token;
         }
+        if (eatToken(it, .Keyword_async)) |token| {
+            is_async = true;
+            break :blk token;
+        }
+        break :blk null;
+    };
+    const fn_token = eatToken(it, .Keyword_fn) orelse {
+        if (cc_token) |token|
+            putBackToken(it, token);
         return null;
     };
     const name_token = eatToken(it, .Identifier);
@@ -389,20 +394,14 @@ fn parseFnProto(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
         .return_type = return_type,
         .var_args_token = var_args_token,
         .extern_export_inline_token = null,
-        .cc_token = null,
         .body_node = null,
         .lib_name = null,
         .align_expr = align_expr,
         .section_expr = section_expr,
         .callconv_expr = callconv_expr,
+        .is_extern_prototype = is_extern,
+        .is_async = is_async,
     };
-
-    if (cc) |kind| {
-        switch (kind) {
-            .CC => |token| fn_proto_node.cc_token = token,
-            .Extern => |token| fn_proto_node.extern_export_inline_token = token,
-        }
-    }
 
     return &fn_proto_node.base;
 }
@@ -1197,6 +1196,7 @@ fn parseSuffixExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     if (maybe_async) |async_token| {
         const token_fn = eatToken(it, .Keyword_fn);
         if (token_fn != null) {
+            // TODO: remove this hack when async fn rewriting is
             // HACK: If we see the keyword `fn`, then we assume that
             //       we are parsing an async fn proto, and not a call.
             //       We therefore put back all tokens consumed by the async
@@ -1205,7 +1205,6 @@ fn parseSuffixExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
             putBackToken(it, async_token);
             return parsePrimaryTypeExpr(arena, it, tree);
         }
-        // TODO: Implement hack for parsing `async fn ...` in ast_parse_suffix_expr
         var res = try expectNode(arena, it, tree, parsePrimaryTypeExpr, .{
             .ExpectedPrimaryTypeExpr = .{ .token = it.index },
         });
@@ -1777,24 +1776,6 @@ fn parseCallconv(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     _ = try expectToken(it, tree, .RParen);
     return expr_node;
 }
-
-/// FnCC
-///     <- KEYWORD_nakedcc
-///      / KEYWORD_stdcallcc
-///      / KEYWORD_extern
-///      / KEYWORD_async
-fn parseFnCC(arena: *Allocator, it: *TokenIterator, tree: *Tree) ?FnCC {
-    if (eatToken(it, .Keyword_nakedcc)) |token| return FnCC{ .CC = token };
-    if (eatToken(it, .Keyword_stdcallcc)) |token| return FnCC{ .CC = token };
-    if (eatToken(it, .Keyword_extern)) |token| return FnCC{ .Extern = token };
-    if (eatToken(it, .Keyword_async)) |token| return FnCC{ .CC = token };
-    return null;
-}
-
-const FnCC = union(enum) {
-    CC: TokenIndex,
-    Extern: TokenIndex,
-};
 
 /// ParamDecl <- (KEYWORD_noalias / KEYWORD_comptime)? (IDENTIFIER COLON)? ParamType
 fn parseParamDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
