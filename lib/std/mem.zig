@@ -124,9 +124,9 @@ pub const Allocator = struct {
 
     fn AllocWithOptionsPayload(comptime Elem: type, comptime alignment: ?u29, comptime sentinel: ?Elem) type {
         if (sentinel) |s| {
-            return [:s]align(alignment orelse @alignOf(T)) Elem;
+            return [:s]align(alignment orelse @alignOf(Elem)) Elem;
         } else {
-            return []align(alignment orelse @alignOf(T)) Elem;
+            return []align(alignment orelse @alignOf(Elem)) Elem;
         }
     }
 
