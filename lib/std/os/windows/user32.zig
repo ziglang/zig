@@ -146,7 +146,6 @@ pub extern "user32" fn CreateWindowExA(
 
 pub extern "user32" fn RegisterClassExA(*const WNDCLASSEXA) callconv(.Stdcall) c_ushort;
 pub extern "user32" fn DefWindowProcA(HWND, Msg: UINT, WPARAM, LPARAM) callconv(.Stdcall) LRESULT;
-pub extern "user32" fn GetModuleHandleA(lpModuleName: ?LPCSTR) callconv(.Stdcall) HMODULE;
 pub extern "user32" fn ShowWindow(hWnd: ?HWND, nCmdShow: i32) callconv(.Stdcall) bool;
 pub extern "user32" fn UpdateWindow(hWnd: ?HWND) callconv(.Stdcall) bool;
 pub extern "user32" fn GetDC(hWnd: ?HWND) callconv(.Stdcall) ?HDC;
