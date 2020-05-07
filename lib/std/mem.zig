@@ -124,9 +124,9 @@ pub const Allocator = struct {
 
     fn AllocWithOptionsPayload(comptime Elem: type, comptime alignment: ?u29, comptime sentinel: ?Elem) type {
         if (sentinel) |s| {
-            return [:s]align(alignment orelse @alignOf(T)) Elem;
+            return [:s]align(alignment orelse @alignOf(Elem)) Elem;
         } else {
-            return []align(alignment orelse @alignOf(T)) Elem;
+            return []align(alignment orelse @alignOf(Elem)) Elem;
         }
     }
 
@@ -280,6 +280,22 @@ pub const Allocator = struct {
         assert(shrink_result.len == 0);
     }
 };
+
+var failAllocator = Allocator {
+    .reallocFn = failAllocatorRealloc,
+    .shrinkFn = failAllocatorShrink,
+};
+fn failAllocatorRealloc(self: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) ![]u8 {
+    return error.OutOfMemory;
+}
+fn failAllocatorShrink(self: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
+    @panic("failAllocatorShrink should never be called because it cannot allocate");
+}
+
+test "mem.Allocator basics" {
+    testing.expectError(error.OutOfMemory, failAllocator.alloc(u8, 1));
+    testing.expectError(error.OutOfMemory, failAllocator.allocSentinel(u8, 1, 0));
+}
 
 /// Copy all of source into dest at position 0.
 /// dest.len must be >= source.len.
