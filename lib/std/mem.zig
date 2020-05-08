@@ -341,8 +341,8 @@ pub fn zeroes(comptime T: type) T {
             }
         },
         .Array => |info| {
-            if (info.sentinel) |sentinel| { 
-                return [_:info.sentinel]info.child{zeroes(info.child)} ** info.len; 
+            if (info.sentinel) |sentinel| {
+                return [_:sentinel]info.child{zeroes(info.child)} ** info.len;
             }
             return [_]info.child{zeroes(info.child)} ** info.len;
         },
@@ -407,6 +407,7 @@ test "mem.zeroes" {
         array: [2]u32,
         optional_int: ?u8,
         empty: void,
+        sentinel: [3:0]u8,
     };
 
     const b = zeroes(ZigStruct);
@@ -431,6 +432,9 @@ test "mem.zeroes" {
         testing.expectEqual(@as(u32, 0), e);
     }
     testing.expectEqual(@as(?u8, null), b.optional_int);
+    for (b.sentinel) |e| {
+        testing.expectEqual(@as(u8, 0), e);
+    }
 }
 
 pub fn secureZero(comptime T: type, s: []T) void {
@@ -504,7 +508,7 @@ pub const toSlice = @compileError("deprecated; use std.mem.spanZ");
 /// the constness of the input type. `[*c]` pointers are assumed to be 0-terminated,
 /// and assumed to not allow null.
 pub fn Span(comptime T: type) type {
-    switch(@typeInfo(T)) {
+    switch (@typeInfo(T)) {
         .Optional => |optional_info| {
             return ?Span(optional_info.child);
         },
