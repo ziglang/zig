@@ -985,7 +985,7 @@ pub const Builder = struct {
         self.search_prefixes.append(search_prefix) catch unreachable;
     }
 
-    fn getInstallPath(self: *Builder, dir: InstallDir, dest_rel_path: []const u8) []const u8 {
+    pub fn getInstallPath(self: *Builder, dir: InstallDir, dest_rel_path: []const u8) []const u8 {
         const base_dir = switch (dir) {
             .Prefix => self.install_path,
             .Bin => self.exe_dir,
