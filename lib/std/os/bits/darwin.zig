@@ -1263,10 +1263,10 @@ pub const RTLD_NOLOAD = 0x10;
 pub const RTLD_NODELETE = 0x80;
 pub const RTLD_FIRST = 0x100;
 
-pub const RTLD_NEXT = @intToPtr(*c_void, ~maxInt(usize));
-pub const RTLD_DEFAULT = @intToPtr(*c_void, ~maxInt(usize) - 1);
-pub const RTLD_SELF = @intToPtr(*c_void, ~maxInt(usize) - 2);
-pub const RTLD_MAIN_ONLY = @intToPtr(*c_void, ~maxInt(usize) - 4);
+pub const RTLD_NEXT = @intToPtr(*c_void, @bitCast(usize, @as(isize, -1)));
+pub const RTLD_DEFAULT = @intToPtr(*c_void, @bitCast(usize, @as(isize, -2)));
+pub const RTLD_SELF = @intToPtr(*c_void, @bitCast(usize, @as(isize, -3)));
+pub const RTLD_MAIN_ONLY = @intToPtr(*c_void, @bitCast(usize, @as(isize, -5)));
 
 /// duplicate file descriptor
 pub const F_DUPFD = 0;
