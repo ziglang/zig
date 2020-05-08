@@ -33,11 +33,11 @@ const LinkMap = extern struct {
     pub const Iterator = struct {
         current: ?*LinkMap,
 
-        fn end(self: *Iterator) bool {
+        pub fn end(self: *Iterator) bool {
             return self.current == null;
         }
 
-        fn next(self: *Iterator) ?*LinkMap {
+        pub fn next(self: *Iterator) ?*LinkMap {
             if (self.current) |it| {
                 self.current = it.l_next;
                 return it;
