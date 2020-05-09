@@ -16449,6 +16449,54 @@ static IrInstGen *ir_analyze_bin_op_cmp_numeric(IrAnalyze *ira, IrInst *source_i
     return ir_build_bin_op_gen(ira, source_instr, result_type, op_id, casted_op1, casted_op2, true);
 }
 
+static bool type_is_self_comparable(ZigType *ty, bool is_equality_cmp) {
+    if (type_is_numeric(ty)) {
+        return true;
+    }
+    switch (ty->id) {
+        case ZigTypeIdInvalid:
+            zig_unreachable();
+
+        case ZigTypeIdComptimeFloat:
+        case ZigTypeIdComptimeInt:
+        case ZigTypeIdInt:
+        case ZigTypeIdFloat:
+            zig_unreachable(); // handled with the type_is_numeric check above
+
+        case ZigTypeIdVector:
+            // Not every case is handled by the type_is_numeric check above,
+            // vectors of bool trigger this code path
+        case ZigTypeIdBool:
+        case ZigTypeIdMetaType:
+        case ZigTypeIdVoid:
+        case ZigTypeIdErrorSet:
+        case ZigTypeIdFn:
+        case ZigTypeIdOpaque:
+        case ZigTypeIdBoundFn:
+        case ZigTypeIdEnum:
+        case ZigTypeIdEnumLiteral:
+        case ZigTypeIdAnyFrame:
+            return is_equality_cmp;
+
+        case ZigTypeIdPointer:
+            return is_equality_cmp || (ty->data.pointer.ptr_len == PtrLenC);
+
+        case ZigTypeIdUnreachable:
+        case ZigTypeIdArray:
+        case ZigTypeIdStruct:
+        case ZigTypeIdUndefined:
+        case ZigTypeIdNull:
+        case ZigTypeIdErrorUnion:
+        case ZigTypeIdUnion:
+        case ZigTypeIdFnFrame:
+            return false;
+
+        case ZigTypeIdOptional:
+            return is_equality_cmp && get_src_ptr_type(ty) != nullptr;
+    }
+    zig_unreachable();
+}
+
 static IrInstGen *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstSrcBinOp *bin_op_instruction) {
     IrInstGen *op1 = bin_op_instruction->op1->child;
     if (type_is_invalid(op1->value->type))
@@ -16666,51 +16714,8 @@ static IrInstGen *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstSrcBinOp *bin_op_i
     if (type_is_invalid(resolved_type))
         return ira->codegen->invalid_inst_gen;
 
-    bool operator_allowed;
-    switch (resolved_type->id) {
-        case ZigTypeIdInvalid:
-            zig_unreachable(); // handled above
+    bool operator_allowed = type_is_self_comparable(resolved_type, is_equality_cmp);
 
-        case ZigTypeIdComptimeFloat:
-        case ZigTypeIdComptimeInt:
-        case ZigTypeIdInt:
-        case ZigTypeIdFloat:
-            zig_unreachable(); // handled with the type_is_numeric checks above
-
-        case ZigTypeIdVector:
-            // Not every case is handled by the type_is_numeric checks above,
-            // vectors of bool trigger this code path
-        case ZigTypeIdBool:
-        case ZigTypeIdMetaType:
-        case ZigTypeIdVoid:
-        case ZigTypeIdErrorSet:
-        case ZigTypeIdFn:
-        case ZigTypeIdOpaque:
-        case ZigTypeIdBoundFn:
-        case ZigTypeIdEnum:
-        case ZigTypeIdEnumLiteral:
-        case ZigTypeIdAnyFrame:
-            operator_allowed = is_equality_cmp;
-            break;
-
-        case ZigTypeIdPointer:
-            operator_allowed = is_equality_cmp || (resolved_type->data.pointer.ptr_len == PtrLenC);
-            break;
-
-        case ZigTypeIdUnreachable:
-        case ZigTypeIdArray:
-        case ZigTypeIdStruct:
-        case ZigTypeIdUndefined:
-        case ZigTypeIdNull:
-        case ZigTypeIdErrorUnion:
-        case ZigTypeIdUnion:
-        case ZigTypeIdFnFrame:
-            operator_allowed = false;
-            break;
-        case ZigTypeIdOptional:
-            operator_allowed = is_equality_cmp && get_src_ptr_type(resolved_type) != nullptr;
-            break;
-    }
     if (!operator_allowed) {
         ir_add_error_node(ira, source_node,
             buf_sprintf("operator not allowed for type '%s'", buf_ptr(&resolved_type->name)));
