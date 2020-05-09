@@ -49,6 +49,28 @@ test "address of unwrap optional" {
     expect(foo.a == 1234);
 }
 
+test "equality compare optional with non-optional" {
+    test_cmp_optional_non_optional();
+    comptime test_cmp_optional_non_optional();
+}
+
+fn test_cmp_optional_non_optional() void {
+    var ten: i32 = 10;
+    var opt_ten: ?i32 = 10;
+    var five: i32 = 5;
+    var int_n: ?i32 = null;
+
+    expect(int_n != ten);
+    expect(opt_ten == ten);
+    expect(opt_ten != five);
+
+    // test evaluation is always lexical
+    // ensure that the optional isn't always computed before the non-optional
+    var mutable_state: i32 = 0;
+    _ = blk1: { mutable_state += 1; break :blk1 @as(?f64, 10.0); } != blk2: { expect(mutable_state == 1); break :blk2 @as(f64, 5.0); };
+    _ = blk1: { mutable_state += 1; break :blk1 @as(f64, 10.0); } != blk2: { expect(mutable_state == 2); break :blk2 @as(?f64, 5.0); };
+}
+
 test "passing an optional integer as a parameter" {
     const S = struct {
         fn entry() bool {
