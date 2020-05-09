@@ -377,7 +377,6 @@ pub fn connectUnixSocket(path: []const u8) !fs.File {
 
     return fs.File{
         .handle = sockfd,
-        .io_mode = std.io.mode,
     };
 }
 
