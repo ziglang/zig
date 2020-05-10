@@ -52,6 +52,7 @@ pub const Type = extern union {
             .comptime_float => return .ComptimeFloat,
             .noreturn => return .NoReturn,
 
+            .fn_noreturn_no_args => return .Fn,
             .fn_naked_noreturn_no_args => return .Fn,
             .fn_ccc_void_no_args => return .Fn,
 
@@ -184,6 +185,7 @@ pub const Type = extern union {
                 => return out_stream.writeAll(@tagName(t)),
 
                 .const_slice_u8 => return out_stream.writeAll("[]const u8"),
+                .fn_noreturn_no_args => return out_stream.writeAll("fn() noreturn"),
                 .fn_naked_noreturn_no_args => return out_stream.writeAll("fn() callconv(.Naked) noreturn"),
                 .fn_ccc_void_no_args => return out_stream.writeAll("fn() callconv(.C) void"),
                 .single_const_pointer_to_comptime_int => return out_stream.writeAll("*const comptime_int"),
@@ -244,6 +246,7 @@ pub const Type = extern union {
             .comptime_int => return Value.initTag(.comptime_int_type),
             .comptime_float => return Value.initTag(.comptime_float_type),
             .noreturn => return Value.initTag(.noreturn_type),
+            .fn_noreturn_no_args => return Value.initTag(.fn_noreturn_no_args_type),
             .fn_naked_noreturn_no_args => return Value.initTag(.fn_naked_noreturn_no_args_type),
             .fn_ccc_void_no_args => return Value.initTag(.fn_ccc_void_no_args_type),
             .single_const_pointer_to_comptime_int => return Value.initTag(.single_const_pointer_to_comptime_int_type),
@@ -286,6 +289,7 @@ pub const Type = extern union {
             .array,
             .array_u8_sentinel_0,
             .const_slice_u8,
+            .fn_noreturn_no_args,
             .fn_naked_noreturn_no_args,
             .fn_ccc_void_no_args,
             .int_unsigned,
@@ -329,6 +333,7 @@ pub const Type = extern union {
             .array_u8_sentinel_0,
             .single_const_pointer,
             .single_const_pointer_to_comptime_int,
+            .fn_noreturn_no_args,
             .fn_naked_noreturn_no_args,
             .fn_ccc_void_no_args,
             .int_unsigned,
@@ -369,6 +374,7 @@ pub const Type = extern union {
             .noreturn,
             .array,
             .array_u8_sentinel_0,
+            .fn_noreturn_no_args,
             .fn_naked_noreturn_no_args,
             .fn_ccc_void_no_args,
             .int_unsigned,
@@ -410,6 +416,7 @@ pub const Type = extern union {
             .comptime_int,
             .comptime_float,
             .noreturn,
+            .fn_noreturn_no_args,
             .fn_naked_noreturn_no_args,
             .fn_ccc_void_no_args,
             .int_unsigned,
@@ -451,6 +458,7 @@ pub const Type = extern union {
             .comptime_int,
             .comptime_float,
             .noreturn,
+            .fn_noreturn_no_args,
             .fn_naked_noreturn_no_args,
             .fn_ccc_void_no_args,
             .single_const_pointer,
@@ -481,6 +489,7 @@ pub const Type = extern union {
             .comptime_int,
             .comptime_float,
             .noreturn,
+            .fn_noreturn_no_args,
             .fn_naked_noreturn_no_args,
             .fn_ccc_void_no_args,
             .array,
@@ -524,6 +533,7 @@ pub const Type = extern union {
             .comptime_int,
             .comptime_float,
             .noreturn,
+            .fn_noreturn_no_args,
             .fn_naked_noreturn_no_args,
             .fn_ccc_void_no_args,
             .array,
@@ -579,6 +589,7 @@ pub const Type = extern union {
     /// Asserts the type is a function.
     pub fn fnParamLen(self: Type) usize {
         return switch (self.tag()) {
+            .fn_noreturn_no_args => 0,
             .fn_naked_noreturn_no_args => 0,
             .fn_ccc_void_no_args => 0,
 
@@ -622,6 +633,7 @@ pub const Type = extern union {
     /// given by `fnParamLen`.
     pub fn fnParamTypes(self: Type, types: []Type) void {
         switch (self.tag()) {
+            .fn_noreturn_no_args => return,
             .fn_naked_noreturn_no_args => return,
             .fn_ccc_void_no_args => return,
 
@@ -664,6 +676,7 @@ pub const Type = extern union {
     /// Asserts the type is a function.
     pub fn fnReturnType(self: Type) Type {
         return switch (self.tag()) {
+            .fn_noreturn_no_args => Type.initTag(.noreturn),
             .fn_naked_noreturn_no_args => Type.initTag(.noreturn),
             .fn_ccc_void_no_args => Type.initTag(.void),
 
@@ -706,8 +719,52 @@ pub const Type = extern union {
     /// Asserts the type is a function.
     pub fn fnCallingConvention(self: Type) std.builtin.CallingConvention {
         return switch (self.tag()) {
+            .fn_noreturn_no_args => .Unspecified,
             .fn_naked_noreturn_no_args => .Naked,
             .fn_ccc_void_no_args => .C,
+
+            .f16,
+            .f32,
+            .f64,
+            .f128,
+            .c_longdouble,
+            .c_void,
+            .bool,
+            .void,
+            .type,
+            .anyerror,
+            .comptime_int,
+            .comptime_float,
+            .noreturn,
+            .array,
+            .single_const_pointer,
+            .single_const_pointer_to_comptime_int,
+            .array_u8_sentinel_0,
+            .const_slice_u8,
+            .u8,
+            .i8,
+            .usize,
+            .isize,
+            .c_short,
+            .c_ushort,
+            .c_int,
+            .c_uint,
+            .c_long,
+            .c_ulong,
+            .c_longlong,
+            .c_ulonglong,
+            .int_unsigned,
+            .int_signed,
+            => unreachable,
+        };
+    }
+
+    /// Asserts the type is a function.
+    pub fn fnIsVarArgs(self: Type) bool {
+        return switch (self.tag()) {
+            .fn_noreturn_no_args => false,
+            .fn_naked_noreturn_no_args => false,
+            .fn_ccc_void_no_args => false,
 
             .f16,
             .f32,
@@ -776,6 +833,7 @@ pub const Type = extern union {
             .type,
             .anyerror,
             .noreturn,
+            .fn_noreturn_no_args,
             .fn_naked_noreturn_no_args,
             .fn_ccc_void_no_args,
             .array,
@@ -812,6 +870,7 @@ pub const Type = extern union {
             .bool,
             .type,
             .anyerror,
+            .fn_noreturn_no_args,
             .fn_naked_noreturn_no_args,
             .fn_ccc_void_no_args,
             .single_const_pointer_to_comptime_int,
@@ -865,6 +924,7 @@ pub const Type = extern union {
             .bool,
             .type,
             .anyerror,
+            .fn_noreturn_no_args,
             .fn_naked_noreturn_no_args,
             .fn_ccc_void_no_args,
             .single_const_pointer_to_comptime_int,
@@ -902,11 +962,11 @@ pub const Type = extern union {
         c_longlong,
         c_ulonglong,
         c_longdouble,
-        c_void,
         f16,
         f32,
         f64,
         f128,
+        c_void,
         bool,
         void,
         type,
@@ -914,6 +974,7 @@ pub const Type = extern union {
         comptime_int,
         comptime_float,
         noreturn,
+        fn_noreturn_no_args,
         fn_naked_noreturn_no_args,
         fn_ccc_void_no_args,
         single_const_pointer_to_comptime_int,

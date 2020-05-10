@@ -6,38 +6,24 @@ const Type = @import("type.zig").Type;
 const Value = @import("value.zig").Value;
 const Target = std.Target;
 
-pub const ErrorMsg = struct {
-    byte_offset: usize,
-    msg: []const u8,
-};
-
-pub const Symbol = struct {
-    errors: []ErrorMsg,
-
-    pub fn deinit(self: *Symbol, allocator: *mem.Allocator) void {
-        for (self.errors) |err| {
-            allocator.free(err.msg);
-        }
-        allocator.free(self.errors);
-        self.* = undefined;
-    }
-};
-
-pub fn generateSymbol(typed_value: ir.TypedValue, module: ir.Module, code: *std.ArrayList(u8)) !Symbol {
+pub fn generateSymbol(
+    typed_value: ir.TypedValue,
+    module: ir.Module,
+    code: *std.ArrayList(u8),
+    errors: *std.ArrayList(ir.ErrorMsg),
+) !void {
     switch (typed_value.ty.zigTypeTag()) {
         .Fn => {
-            const index = typed_value.val.cast(Value.Payload.Function).?.index;
-            const module_fn = module.fns[index];
+            const module_fn = typed_value.val.cast(Value.Payload.Function).?.func;
 
             var function = Function{
                 .module = &module,
-                .mod_fn = &module_fn,
+                .mod_fn = module_fn,
                 .code = code,
                 .inst_table = std.AutoHashMap(*ir.Inst, Function.MCValue).init(code.allocator),
-                .errors = std.ArrayList(ErrorMsg).init(code.allocator),
+                .errors = errors,
             };
             defer function.inst_table.deinit();
-            defer function.errors.deinit();
 
             for (module_fn.body.instructions) |inst| {
                 const new_inst = function.genFuncInst(inst) catch |err| switch (err) {
@@ -52,7 +38,7 @@ pub fn generateSymbol(typed_value: ir.TypedValue, module: ir.Module, code: *std.
 
             return Symbol{ .errors = function.errors.toOwnedSlice() };
         },
-        else => @panic("TODO implement generateSymbol for non-function types"),
+        else => @panic("TODO implement generateSymbol for non-function decls"),
     }
 }
 
@@ -61,7 +47,7 @@ const Function = struct {
     mod_fn: *const ir.Module.Fn,
     code: *std.ArrayList(u8),
     inst_table: std.AutoHashMap(*ir.Inst, MCValue),
-    errors: std.ArrayList(ErrorMsg),
+    errors: *std.ArrayList(ir.ErrorMsg),
 
     const MCValue = union(enum) {
         none,
@@ -78,6 +64,7 @@ const Function = struct {
     fn genFuncInst(self: *Function, inst: *ir.Inst) !MCValue {
         switch (inst.tag) {
             .breakpoint => return self.genBreakpoint(inst.src),
+            .call => return self.genCall(inst.cast(ir.Inst.Call).?),
             .unreach => return MCValue{ .unreach = {} },
             .constant => unreachable, // excluded from function bodies
             .assembly => return self.genAsm(inst.cast(ir.Inst.Assembly).?),
@@ -97,6 +84,13 @@ const Function = struct {
                 try self.code.append(0xcc); // int3
             },
             else => return self.fail(src, "TODO implement @breakpoint() for {}", .{self.module.target.cpu.arch}),
+        }
+        return .unreach;
+    }
+
+    fn genCall(self: *Function, inst: *ir.Inst.Call) !MCValue {
+        switch (self.module.target.cpu.arch) {
+            else => return self.fail(inst.base.src, "TODO implement call for {}", .{self.module.target.cpu.arch}),
         }
         return .unreach;
     }
@@ -140,6 +134,7 @@ const Function = struct {
     fn genRelativeFwdJump(self: *Function, src: usize, amount: u32) !void {
         switch (self.module.target.cpu.arch) {
             .i386, .x86_64 => {
+                // TODO x86 treats the operands as signed
                 if (amount <= std.math.maxInt(u8)) {
                     try self.code.resize(self.code.items.len + 2);
                     self.code.items[self.code.items.len - 2] = 0xeb;
@@ -433,14 +428,11 @@ const Function = struct {
 
     fn fail(self: *Function, src: usize, comptime format: []const u8, args: var) error{ CodegenFail, OutOfMemory } {
         @setCold(true);
-        const msg = try std.fmt.allocPrint(self.errors.allocator, format, args);
-        {
-            errdefer self.errors.allocator.free(msg);
-            (try self.errors.addOne()).* = .{
-                .byte_offset = src,
-                .msg = msg,
-            };
-        }
+        try self.errors.ensureCapacity(self.errors.items.len + 1);
+        self.errors.appendAssumeCapacity(.{
+            .byte_offset = src,
+            .msg = try std.fmt.allocPrint(self.errors.allocator, format, args),
+        });
         return error.CodegenFail;
     }
 };

@@ -16,10 +16,16 @@ pub const Inst = struct {
     tag: Tag,
     /// Byte offset into the source.
     src: usize,
+    name: []const u8,
 
     /// These names are used directly as the instruction names in the text format.
     pub const Tag = enum {
         breakpoint,
+        call,
+        /// Represents a reference to a global decl by name.
+        /// Canonicalized ZIR will not have any of these. The
+        /// syntax `@foo` is equivalent to `declref("foo")`.
+        declref,
         str,
         int,
         ptrtoint,
@@ -46,6 +52,8 @@ pub const Inst = struct {
     pub fn TagToType(tag: Tag) type {
         return switch (tag) {
             .breakpoint => Breakpoint,
+            .call => Call,
+            .declref => DeclRef,
             .str => Str,
             .int => Int,
             .ptrtoint => PtrToInt,
@@ -82,6 +90,29 @@ pub const Inst = struct {
         base: Inst,
 
         positionals: struct {},
+        kw_args: struct {},
+    };
+
+    pub const Call = struct {
+        pub const base_tag = Tag.call;
+        base: Inst,
+
+        positionals: struct {
+            func: *Inst,
+            args: []*Inst,
+        },
+        kw_args: struct {
+            modifier: std.builtin.CallOptions.Modifier = .auto,
+        },
+    };
+
+    pub const DeclRef = struct {
+        pub const base_tag = Tag.declref;
+        base: Inst,
+
+        positionals: struct {
+            name: *Inst,
+        },
         kw_args: struct {},
     };
 
@@ -212,55 +243,55 @@ pub const Inst = struct {
         kw_args: struct {},
 
         pub const BuiltinType = enum {
-            @"isize",
-            @"usize",
-            @"c_short",
-            @"c_ushort",
-            @"c_int",
-            @"c_uint",
-            @"c_long",
-            @"c_ulong",
-            @"c_longlong",
-            @"c_ulonglong",
-            @"c_longdouble",
-            @"c_void",
-            @"f16",
-            @"f32",
-            @"f64",
-            @"f128",
-            @"bool",
-            @"void",
-            @"noreturn",
-            @"type",
-            @"anyerror",
-            @"comptime_int",
-            @"comptime_float",
+            isize,
+            usize,
+            c_short,
+            c_ushort,
+            c_int,
+            c_uint,
+            c_long,
+            c_ulong,
+            c_longlong,
+            c_ulonglong,
+            c_longdouble,
+            c_void,
+            f16,
+            f32,
+            f64,
+            f128,
+            bool,
+            void,
+            noreturn,
+            type,
+            anyerror,
+            comptime_int,
+            comptime_float,
 
             fn toType(self: BuiltinType) Type {
                 return switch (self) {
-                    .@"isize" => Type.initTag(.@"isize"),
-                    .@"usize" => Type.initTag(.@"usize"),
-                    .@"c_short" => Type.initTag(.@"c_short"),
-                    .@"c_ushort" => Type.initTag(.@"c_ushort"),
-                    .@"c_int" => Type.initTag(.@"c_int"),
-                    .@"c_uint" => Type.initTag(.@"c_uint"),
-                    .@"c_long" => Type.initTag(.@"c_long"),
-                    .@"c_ulong" => Type.initTag(.@"c_ulong"),
-                    .@"c_longlong" => Type.initTag(.@"c_longlong"),
-                    .@"c_ulonglong" => Type.initTag(.@"c_ulonglong"),
-                    .@"c_longdouble" => Type.initTag(.@"c_longdouble"),
-                    .@"c_void" => Type.initTag(.@"c_void"),
-                    .@"f16" => Type.initTag(.@"f16"),
-                    .@"f32" => Type.initTag(.@"f32"),
-                    .@"f64" => Type.initTag(.@"f64"),
-                    .@"f128" => Type.initTag(.@"f128"),
-                    .@"bool" => Type.initTag(.@"bool"),
-                    .@"void" => Type.initTag(.@"void"),
-                    .@"noreturn" => Type.initTag(.@"noreturn"),
-                    .@"type" => Type.initTag(.@"type"),
-                    .@"anyerror" => Type.initTag(.@"anyerror"),
-                    .@"comptime_int" => Type.initTag(.@"comptime_int"),
-                    .@"comptime_float" => Type.initTag(.@"comptime_float"),
+                    .isize => Type.initTag(.isize),
+                    .usize => Type.initTag(.usize),
+                    .c_short => Type.initTag(.c_short),
+                    .c_ushort => Type.initTag(.c_ushort),
+                    .c_int => Type.initTag(.c_int),
+                    .c_uint => Type.initTag(.c_uint),
+                    .c_long => Type.initTag(.c_long),
+                    .c_ulong => Type.initTag(.c_ulong),
+                    .c_longlong => Type.initTag(.c_longlong),
+                    .c_ulonglong => Type.initTag(.c_ulonglong),
+                    .c_longdouble => Type.initTag(.c_longdouble),
+                    .c_void => Type.initTag(.c_void),
+                    .f16 => Type.initTag(.f16),
+                    .f32 => Type.initTag(.f32),
+                    .f64 => Type.initTag(.f64),
+                    .f128 => Type.initTag(.f128),
+                    .bool => Type.initTag(.bool),
+                    .void => Type.initTag(.void),
+                    .noreturn => Type.initTag(.noreturn),
+                    .type => Type.initTag(.type),
+                    .anyerror => Type.initTag(.anyerror),
+                    .comptime_int => Type.initTag(.comptime_int),
+                    .comptime_float => Type.initTag(.comptime_float),
                 };
             }
         };
@@ -376,7 +407,7 @@ pub const ErrorMsg = struct {
 pub const Module = struct {
     decls: []*Inst,
     errors: []ErrorMsg,
-    arena: std.heap.ArenaAllocator,
+    arena: std.heap.ArenaAllocator.State,
 
     pub const Body = struct {
         instructions: []*Inst,
@@ -385,7 +416,7 @@ pub const Module = struct {
     pub fn deinit(self: *Module, allocator: *Allocator) void {
         allocator.free(self.decls);
         allocator.free(self.errors);
-        self.arena.deinit();
+        self.arena.promote(allocator).deinit();
         self.* = undefined;
     }
 
@@ -431,6 +462,7 @@ pub const Module = struct {
         // TODO I tried implementing this with an inline for loop and hit a compiler bug
         switch (decl.tag) {
             .breakpoint => return self.writeInstToStreamGeneric(stream, .breakpoint, decl, inst_table),
+            .call => return self.writeInstToStreamGeneric(stream, .call, decl, inst_table),
             .str => return self.writeInstToStreamGeneric(stream, .str, decl, inst_table),
             .int => return self.writeInstToStreamGeneric(stream, .int, decl, inst_table),
             .ptrtoint => return self.writeInstToStreamGeneric(stream, .ptrtoint, decl, inst_table),
@@ -543,9 +575,9 @@ pub fn parse(allocator: *Allocator, source: [:0]const u8) Allocator.Error!Module
         .arena = std.heap.ArenaAllocator.init(allocator),
         .i = 0,
         .source = source,
-        .decls = std.ArrayList(*Inst).init(allocator),
-        .errors = std.ArrayList(ErrorMsg).init(allocator),
         .global_name_map = &global_name_map,
+        .errors = .{},
+        .decls = .{},
     };
     errdefer parser.arena.deinit();
 
@@ -555,10 +587,11 @@ pub fn parse(allocator: *Allocator, source: [:0]const u8) Allocator.Error!Module
         },
         else => |e| return e,
     };
+
     return Module{
-        .decls = parser.decls.toOwnedSlice(),
-        .errors = parser.errors.toOwnedSlice(),
-        .arena = parser.arena,
+        .decls = parser.decls.toOwnedSlice(allocator),
+        .errors = parser.errors.toOwnedSlice(allocator),
+        .arena = parser.arena.state,
     };
 }
 
@@ -567,8 +600,8 @@ const Parser = struct {
     arena: std.heap.ArenaAllocator,
     i: usize,
     source: [:0]const u8,
-    errors: std.ArrayList(ErrorMsg),
-    decls: std.ArrayList(*Inst),
+    errors: std.ArrayListUnmanaged(ErrorMsg),
+    decls: std.ArrayListUnmanaged(*Inst),
     global_name_map: *std.StringHashMap(usize),
 
     const Body = struct {
@@ -893,8 +926,25 @@ const Parser = struct {
         const ident = self.source[name_start..self.i];
         const kv = map.get(ident) orelse {
             const bad_name = self.source[name_start - 1 .. self.i];
-            self.i = name_start - 1;
-            return self.fail("unrecognized identifier: {}", .{bad_name});
+            const src = name_start - 1;
+            if (local_ref) {
+                self.i = src;
+                return self.fail("unrecognized identifier: {}", .{bad_name});
+            } else {
+                const name = try self.arena.allocator.create(Inst.Str);
+                name.* = .{
+                    .base = .{ .src = src, .tag = Inst.Str.base_tag },
+                    .positionals = .{ .bytes = ident },
+                    .kw_args = .{},
+                };
+                const declref = try self.arena.allocator.create(Inst.DeclRef);
+                declref.* = .{
+                    .base = .{ .src = src, .tag = Inst.DeclRef.base_tag },
+                    .positionals = .{ .name = &name.base },
+                    .kw_args = .{},
+                };
+                return &declref.base;
+            }
         };
         if (local_ref) {
             return body_ctx.?.instructions.items[kv.value];
@@ -1065,6 +1115,24 @@ const EmitZIR = struct {
         for (body.instructions) |inst| {
             const new_inst = switch (inst.tag) {
                 .breakpoint => try self.emitTrivial(inst.src, Inst.Breakpoint),
+                .call => blk: {
+                    const old_inst = inst.cast(ir.Inst.Call).?;
+                    const new_inst = try self.arena.allocator.create(Inst.Call);
+
+                    const args = try self.arena.allocator.alloc(*Inst, old_inst.args.args.len);
+                    for (args) |*elem, i| {
+                        elem.* = try self.resolveInst(inst_table, old_inst.args.args[i]);
+                    }
+                    new_inst.* = .{
+                        .base = .{ .src = inst.src, .tag = Inst.Call.base_tag },
+                        .positionals = .{
+                            .func = try self.resolveInst(inst_table, old_inst.args.func),
+                            .args = args,
+                        },
+                        .kw_args = .{},
+                    };
+                    break :blk &new_inst.base;
+                },
                 .unreach => try self.emitTrivial(inst.src, Inst.Unreachable),
                 .ret => try self.emitTrivial(inst.src, Inst.Return),
                 .constant => unreachable, // excluded from function bodies

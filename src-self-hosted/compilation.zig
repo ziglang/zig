@@ -19,7 +19,6 @@ const AtomicOrder = builtin.AtomicOrder;
 const Scope = @import("scope.zig").Scope;
 const Decl = @import("decl.zig").Decl;
 const ir = @import("ir.zig");
-const Visib = @import("visib.zig").Visib;
 const Value = @import("value.zig").Value;
 const Type = Value.Type;
 const Span = errmsg.Span;
@@ -30,7 +29,11 @@ const link = @import("link.zig").link;
 const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 const CInt = @import("c_int.zig").CInt;
 const fs = std.fs;
-const util = @import("util.zig");
+
+pub const Visib = enum {
+    Private,
+    Pub,
+};
 
 const max_src_size = 2 * 1024 * 1024 * 1024; // 2 GiB
 
@@ -45,7 +48,7 @@ pub const ZigCompiler = struct {
 
     native_libc: event.Future(LibCInstallation),
 
-    var lazy_init_targets = std.once(util.initializeAllTargets);
+    var lazy_init_targets = std.once(initializeAllTargets);
 
     pub fn init(allocator: *Allocator) !ZigCompiler {
         lazy_init_targets.call();
@@ -119,6 +122,8 @@ pub const LlvmHandle = struct {
 };
 
 pub const Compilation = struct {
+    pub const FnLinkSet = std.TailQueue(?*Value.Fn);
+
     zig_compiler: *ZigCompiler,
     name: ArrayListSentineled(u8, 0),
     llvm_triple: ArrayListSentineled(u8, 0),
@@ -151,8 +156,6 @@ pub const Compilation = struct {
     /// functions that have their own objects that we need to link
     /// it uses an optional pointer so that tombstone removals are possible
     fn_link_set: event.Locked(FnLinkSet) = event.Locked(FnLinkSet).init(FnLinkSet.init()),
-
-    pub const FnLinkSet = std.TailQueue(?*Value.Fn);
 
     link_libs_list: ArrayList(*LinkLib),
     libc_link_lib: ?*LinkLib = null,
@@ -361,8 +364,7 @@ pub const Compilation = struct {
             return comp;
         } else if (await frame) |_| unreachable else |err| return err;
     }
-
-    async fn createAsync(
+    fn createAsync(
         out_comp: *?*Compilation,
         zig_compiler: *ZigCompiler,
         name: []const u8,
@@ -372,7 +374,7 @@ pub const Compilation = struct {
         build_mode: builtin.Mode,
         is_static: bool,
         zig_lib_dir: []const u8,
-    ) !void {
+    ) callconv(.Async) !void {
         const allocator = zig_compiler.allocator;
 
         // TODO merge this line with stage2.zig crossTargetToTarget
@@ -442,8 +444,8 @@ pub const Compilation = struct {
         }
 
         comp.name = try ArrayListSentineled(u8, 0).init(comp.arena(), name);
-        comp.llvm_triple = try util.getLLVMTriple(comp.arena(), target);
-        comp.llvm_target = try util.llvmTargetFromTriple(comp.llvm_triple);
+        comp.llvm_triple = try getLLVMTriple(comp.arena(), target);
+        comp.llvm_target = try llvmTargetFromTriple(comp.llvm_triple);
         comp.zig_std_dir = try fs.path.join(comp.arena(), &[_][]const u8{ zig_lib_dir, "std" });
 
         const opt_level = switch (build_mode) {
@@ -726,8 +728,7 @@ pub const Compilation = struct {
     fn start(self: *Compilation) void {
         self.main_loop_future.resolve();
     }
-
-    async fn mainLoop(self: *Compilation) void {
+    fn mainLoop(self: *Compilation) callconv(.Async) void {
         // wait until start() is called
         _ = self.main_loop_future.get();
 
@@ -790,8 +791,7 @@ pub const Compilation = struct {
             build_result = group.wait();
         }
     }
-
-    async fn rebuildFile(self: *Compilation, root_scope: *Scope.Root) BuildError!void {
+    fn rebuildFile(self: *Compilation, root_scope: *Scope.Root) callconv(.Async) BuildError!void {
         const tree_scope = blk: {
             const source_code = fs.cwd().readFileAlloc(
                 self.gpa(),
@@ -964,15 +964,14 @@ pub const Compilation = struct {
             try link(self);
         }
     }
-
     /// caller takes ownership of resulting Code
-    async fn genAndAnalyzeCode(
+    fn genAndAnalyzeCode(
         comp: *Compilation,
         tree_scope: *Scope.AstTree,
         scope: *Scope,
         node: *ast.Node,
         expected_type: ?*Type,
-    ) !*ir.Code {
+    ) callconv(.Async) !*ir.Code {
         const unanalyzed_code = try ir.gen(
             comp,
             node,
@@ -1000,13 +999,12 @@ pub const Compilation = struct {
 
         return analyzed_code;
     }
-
-    async fn addCompTimeBlock(
+    fn addCompTimeBlock(
         comp: *Compilation,
         tree_scope: *Scope.AstTree,
         scope: *Scope,
         comptime_node: *ast.Node.Comptime,
-    ) BuildError!void {
+    ) callconv(.Async) BuildError!void {
         const void_type = Type.Void.get(comp);
         defer void_type.base.base.deref(comp);
 
@@ -1024,12 +1022,11 @@ pub const Compilation = struct {
         };
         analyzed_code.destroy(comp.gpa());
     }
-
-    async fn addTopLevelDecl(
+    fn addTopLevelDecl(
         self: *Compilation,
         decl: *Decl,
         locked_table: *Decl.Table,
-    ) BuildError!void {
+    ) callconv(.Async) BuildError!void {
         const is_export = decl.isExported(decl.tree_scope.tree);
 
         if (is_export) {
@@ -1065,11 +1062,10 @@ pub const Compilation = struct {
 
         try self.prelink_group.call(addCompileErrorAsync, .{ self, msg });
     }
-
-    async fn addCompileErrorAsync(
+    fn addCompileErrorAsync(
         self: *Compilation,
         msg: *Msg,
-    ) BuildError!void {
+    ) callconv(.Async) BuildError!void {
         errdefer msg.destroy();
 
         const compile_errors = self.compile_errors.acquire();
@@ -1077,8 +1073,7 @@ pub const Compilation = struct {
 
         try compile_errors.value.append(msg);
     }
-
-    async fn verifyUniqueSymbol(self: *Compilation, decl: *Decl) BuildError!void {
+    fn verifyUniqueSymbol(self: *Compilation, decl: *Decl) callconv(.Async) BuildError!void {
         const exported_symbol_names = self.exported_symbol_names.acquire();
         defer exported_symbol_names.release();
 
@@ -1129,8 +1124,7 @@ pub const Compilation = struct {
         }
         return link_lib;
     }
-
-    async fn startFindingNativeLibC(self: *Compilation) void {
+    fn startFindingNativeLibC(self: *Compilation) callconv(.Async) void {
         event.Loop.startCpuBoundOperation();
         // we don't care if it fails, we're just trying to kick off the future resolution
         _ = self.zig_compiler.getNativeLibC() catch return;
@@ -1234,7 +1228,7 @@ pub const Compilation = struct {
     }
 
     /// This declaration has been blessed as going into the final code generation.
-    pub async fn resolveDecl(comp: *Compilation, decl: *Decl) BuildError!void {
+    pub fn resolveDecl(comp: *Compilation, decl: *Decl) callconv(.Async) BuildError!void {
         if (decl.resolution.start()) |ptr| return ptr.*;
 
         decl.resolution.data = try generateDecl(comp, decl);
@@ -1335,8 +1329,7 @@ fn generateDeclFn(comp: *Compilation, fn_decl: *Decl.Fn) !void {
     try comp.prelink_group.call(codegen.renderToLlvm, .{ comp, fn_val, analyzed_code });
     try comp.prelink_group.call(addFnToLinkSet, .{ comp, fn_val });
 }
-
-async fn addFnToLinkSet(comp: *Compilation, fn_val: *Value.Fn) Compilation.BuildError!void {
+fn addFnToLinkSet(comp: *Compilation, fn_val: *Value.Fn) callconv(.Async) Compilation.BuildError!void {
     fn_val.base.ref();
     defer fn_val.base.deref(comp);
 
@@ -1431,4 +1424,34 @@ fn generateDeclFnProto(comp: *Compilation, fn_decl: *Decl.Fn) !void {
     const fn_proto_val = try Value.FnProto.create(comp, fn_type, symbol_name);
     fn_decl.value = .{ .FnProto = fn_proto_val };
     symbol_name_consumed = true;
+}
+
+pub fn llvmTargetFromTriple(triple: [:0]const u8) !*llvm.Target {
+    var result: *llvm.Target = undefined;
+    var err_msg: [*:0]u8 = undefined;
+    if (llvm.GetTargetFromTriple(triple, &result, &err_msg) != 0) {
+        std.debug.warn("triple: {s} error: {s}\n", .{ triple, err_msg });
+        return error.UnsupportedTarget;
+    }
+    return result;
+}
+
+pub fn initializeAllTargets() void {
+    llvm.InitializeAllTargets();
+    llvm.InitializeAllTargetInfos();
+    llvm.InitializeAllTargetMCs();
+    llvm.InitializeAllAsmPrinters();
+    llvm.InitializeAllAsmParsers();
+}
+
+pub fn getLLVMTriple(allocator: *std.mem.Allocator, target: std.Target) ![:0]u8 {
+    var result = try std.ArrayListSentineled(u8, 0).initSize(allocator, 0);
+    defer result.deinit();
+
+    try result.outStream().print(
+        "{}-unknown-{}-{}",
+        .{ @tagName(target.cpu.arch), @tagName(target.os.tag), @tagName(target.abi) },
+    );
+
+    return result.toOwnedSlice();
 }

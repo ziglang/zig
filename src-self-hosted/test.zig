@@ -3,15 +3,14 @@ const link = @import("link.zig");
 const ir = @import("ir.zig");
 const Allocator = std.mem.Allocator;
 
-var global_ctx: TestContext = undefined;
-
 test "self-hosted" {
-    try global_ctx.init();
-    defer global_ctx.deinit();
+    var ctx: TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
 
-    try @import("stage2_tests").addCases(&global_ctx);
+    try @import("stage2_tests").addCases(&ctx);
 
-    try global_ctx.run();
+    try ctx.run();
 }
 
 pub const TestContext = struct {
