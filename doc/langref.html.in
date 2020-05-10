@@ -1565,7 +1565,7 @@ value == null{#endsyntax#}</pre>
 const array1 = [_]u32{1,2};
 const array2 = [_]u32{3,4};
 const together = array1 ++ array2;
-mem.eql(u32, together, &[_]u32{1,2,3,4}){#endsyntax#}</pre>
+mem.eql(u32, &together, &[_]u32{1,2,3,4}){#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
