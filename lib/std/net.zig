@@ -341,7 +341,7 @@ pub const Address = extern union {
         return mem.eql(u8, a_bytes, b_bytes);
     }
 
-    fn getOsSockLen(self: Address) os.socklen_t {
+    pub fn getOsSockLen(self: Address) os.socklen_t {
         switch (self.any.family) {
             os.AF_INET => return @sizeOf(os.sockaddr_in),
             os.AF_INET6 => return @sizeOf(os.sockaddr_in6),
