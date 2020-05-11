@@ -15,6 +15,7 @@
 #include "softfloat.hpp"
 #include "util.hpp"
 #include "mem_list.hpp"
+#include "all_types.hpp"
 
 #include <errno.h>
 
@@ -16497,6 +16498,97 @@ static bool type_is_self_comparable(ZigType *ty, bool is_equality_cmp) {
     zig_unreachable();
 }
 
+static IrInstGen *ir_analyze_cmp_optional_non_optional(IrAnalyze *ira, IrInst *source_instr,
+        IrInstGen *op1, IrInstGen *op2, IrInstGen *optional, IrBinOp op_id)
+{
+    assert(op_id == IrBinOpCmpEq || op_id == IrBinOpCmpNotEq);
+    assert(optional->value->type->id == ZigTypeIdOptional);
+
+    IrInstGen *non_optional;
+    if (op1 == optional) {
+        non_optional = op2;
+    } else if (op2 == optional) {
+        non_optional = op1;
+    } else {
+        zig_unreachable();
+    }
+
+    ZigType *child_type = optional->value->type->data.maybe.child_type;
+    bool child_type_does_not_match = (child_type != non_optional->value->type);
+    if (child_type_does_not_match || !type_is_self_comparable(child_type, true)) {
+        ErrorMsg *msg = ir_add_error_node(ira, source_instr->source_node, buf_sprintf("cannot compare types '%s' and '%s'",
+            buf_ptr(&op1->value->type->name),
+            buf_ptr(&op2->value->type->name)));
+
+        if (child_type_does_not_match && non_optional->value->type->id == ZigTypeIdOptional) {
+            add_error_note(ira->codegen, msg, source_instr->source_node, buf_sprintf("only optional to non-optional comparison is allowed for non-pointer types"));
+        } else if (child_type_does_not_match) {
+            add_error_note(ira->codegen, msg, source_instr->source_node, buf_sprintf("optional child type '%s' must equal non-optional type '%s'",
+                buf_ptr(&child_type->name),
+                buf_ptr(&non_optional->value->type->name)));
+        } else {
+            add_error_note(ira->codegen, msg, source_instr->source_node, buf_sprintf("operator not supported for type '%s'",
+                buf_ptr(&child_type->name)));
+        }
+
+        return ira->codegen->invalid_inst_gen;
+    }
+
+    if (child_type->id == ZigTypeIdVector) {
+        ir_add_error_node(ira, source_instr->source_node, buf_sprintf("TODO add comparison of optional vector"));
+        return ira->codegen->invalid_inst_gen;
+    }
+
+    if (instr_is_comptime(optional) && instr_is_comptime(non_optional)) {
+        ZigValue *optional_val = ir_resolve_const(ira, optional, UndefBad);
+        if (!optional_val) {
+            return ira->codegen->invalid_inst_gen;
+        }
+
+        ZigValue *non_optional_val = ir_resolve_const(ira, non_optional, UndefBad);
+        if (!non_optional_val) {
+            return ira->codegen->invalid_inst_gen;
+        }
+
+        if (!optional_value_is_null(optional_val)) {
+            IrInstGen *optional_unwrapped = ir_analyze_optional_value_payload_value(ira, source_instr, optional, false);
+            if (type_is_invalid(optional_unwrapped->value->type)) {
+                return ira->codegen->invalid_inst_gen;
+            }
+
+            IrInstGen *ret = ir_try_evaluate_bin_op_cmp_const(ira, source_instr, optional_unwrapped, non_optional, child_type, op_id);
+            assert(ret != nullptr);
+            return ret;
+        }
+        return ir_const_bool(ira, source_instr, (op_id != IrBinOpCmpEq));
+    }
+
+    ZigType *result_type = ira->codegen->builtin_types.entry_bool;
+
+    IrBasicBlockGen *is_null_block = ir_create_basic_block_gen(ira, source_instr->scope, "CmpOptionalNonOptional optional is null");
+    IrBasicBlockGen *is_non_null_block = ir_create_basic_block_gen(ira, source_instr->scope, "CmpOptionalNonOptional optional is not null");
+    IrBasicBlockGen *end_block = ir_create_basic_block_gen(ira, source_instr->scope, "CmpOptionalNonOptional end");
+
+    IrInstGen *non_null_bit = ir_build_test_non_null_gen(ira, source_instr, optional);
+    ir_build_cond_br_gen(ira, source_instr, non_null_bit, is_non_null_block, is_null_block);
+    ir_finish_bb(ira);
+
+    ir_set_cursor_at_end_gen(&ira->new_irb, is_non_null_block);
+    IrInstGen *optional_unwrapped = ir_analyze_optional_value_payload_value(ira, source_instr, optional, false);
+    IrInstGen *non_null_cmp_result = ir_build_bin_op_gen(ira, source_instr, result_type, op_id,
+            optional_unwrapped, non_optional, false);
+    ir_finish_bb(ira);
+
+    ir_set_cursor_at_end_gen(&ira->new_irb, is_null_block);
+    IrInstGen *is_null_result = ir_const_bool(ira, source_instr, (op_id != IrBinOpCmpEq));
+    ir_finish_bb(ira);
+
+    ir_set_cursor_at_end_gen(&ira->new_irb, end_block);
+    IrBasicBlockGen *incoming_blocks[] = {is_null_block, is_non_null_block};
+    IrInstGen *incoming_values[] = {is_null_result, non_null_cmp_result};
+    return ir_build_phi_gen(ira, source_instr, 2, incoming_blocks, incoming_values, result_type);
+}
+
 static IrInstGen *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstSrcBinOp *bin_op_instruction) {
     IrInstGen *op1 = bin_op_instruction->op1->child;
     if (type_is_invalid(op1->value->type))
@@ -16573,6 +16665,14 @@ static IrInstGen *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstSrcBinOp *bin_op_i
         } else {
             return is_non_null;
         }
+    } else if (is_equality_cmp &&
+        (op1->value->type->id == ZigTypeIdOptional && get_src_ptr_type(op1->value->type) == nullptr))
+    {
+        return ir_analyze_cmp_optional_non_optional(ira, &bin_op_instruction->base.base, op1, op2, op1, op_id);
+    } else if(is_equality_cmp &&
+        (op2->value->type->id == ZigTypeIdOptional && get_src_ptr_type(op2->value->type) == nullptr))
+    {
+        return ir_analyze_cmp_optional_non_optional(ira, &bin_op_instruction->base.base, op1, op2, op2, op_id);
     } else if (op1->value->type->id == ZigTypeIdNull || op2->value->type->id == ZigTypeIdNull) {
         ZigType *non_null_type = (op1->value->type->id == ZigTypeIdNull) ? op2->value->type : op1->value->type;
         ir_add_error_node(ira, source_node, buf_sprintf("comparison of '%s' with null",
