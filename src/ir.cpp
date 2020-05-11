@@ -15871,7 +15871,7 @@ static IrInstGen *ir_evaluate_bin_op_cmp(IrAnalyze *ira, ZigType *resolved_type,
     zig_unreachable();
 }
 
-static IrInstGen *ir_try_evaluate_bin_op_const(IrAnalyze *ira, IrInst *source_instr, IrInstGen *op1, IrInstGen *op2,
+static IrInstGen *ir_try_evaluate_bin_op_cmp_const(IrAnalyze *ira, IrInst *source_instr, IrInstGen *op1, IrInstGen *op2,
         ZigType *resolved_type, IrBinOp op_id)
 {
     assert(op1->value->type == resolved_type && op2->value->type == resolved_type);
@@ -16730,7 +16730,8 @@ static IrInstGen *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstSrcBinOp *bin_op_i
     if (type_is_invalid(casted_op2->value->type))
         return ira->codegen->invalid_inst_gen;
 
-    IrInstGen *resolve_const_result = ir_try_evaluate_bin_op_const(ira, &bin_op_instruction->base.base, casted_op1, casted_op2, resolved_type, op_id);
+    IrInstGen *resolve_const_result = ir_try_evaluate_bin_op_cmp_const(ira, &bin_op_instruction->base.base, casted_op1,
+                                                                       casted_op2, resolved_type, op_id);
     if (resolve_const_result != nullptr) {
         return resolve_const_result;
     }
