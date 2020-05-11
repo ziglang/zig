@@ -5097,6 +5097,13 @@ static void ir_set_cursor_at_end(IrBuilderSrc *irb, IrBasicBlockSrc *basic_block
     irb->current_basic_block = basic_block;
 }
 
+static void ir_set_cursor_at_end_and_append_block_gen(IrBuilderGen *irb, IrBasicBlockGen *basic_block) {
+    assert(!basic_block->already_appended);
+    basic_block->already_appended = true;
+    irb->exec->basic_block_list.append(basic_block);
+    ir_set_cursor_at_end_gen(irb, basic_block);
+}
+
 static void ir_set_cursor_at_end_and_append_block(IrBuilderSrc *irb, IrBasicBlockSrc *basic_block) {
     basic_block->index = irb->exec->basic_block_list.length;
     irb->exec->basic_block_list.append(basic_block);
