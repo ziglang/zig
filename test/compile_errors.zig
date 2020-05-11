@@ -7411,4 +7411,12 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     , &[_][]const u8{
         ":5:28: error: expected type '[]u8', found '*const [3:0]u8'",
     });
+
+    cases.add("integer underflow error",
+        \\export fn entry() void {
+        \\    _ = @intToPtr(*c_void, ~@as(usize, @import("std").math.maxInt(usize)) - 1);
+        \\}
+    , &[_][]const u8{
+        ":2:75: error: operation caused overflow",
+    });
 }
