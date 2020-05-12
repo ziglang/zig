@@ -227,6 +227,8 @@ test "ascii character classes" {
     testing.expect(isSpace(' '));
 }
 
+/// Allocates a lower case copy of `ascii_string`.
+/// Caller owns returned string and must free with `allocator`.
 pub fn allocLowerString(allocator: *std.mem.Allocator, ascii_string: []const u8) ![]u8 {
     const result = try allocator.alloc(u8, ascii_string.len);
     for (result) |*c, i| {
@@ -241,6 +243,23 @@ test "allocLowerString" {
     std.testing.expect(std.mem.eql(u8, "abcdefghijklmnopqrst0234+💩!", result));
 }
 
+/// Allocates an upper case copy of `ascii_string`.
+/// Caller owns returned string and must free with `allocator`.
+pub fn allocUpperString(allocator: *std.mem.Allocator, ascii_string: []const u8) ![]u8 {
+    const result = try allocator.alloc(u8, ascii_string.len);
+    for (result) |*c, i| {
+        c.* = toUpper(ascii_string[i]);
+    }
+    return result;
+}
+
+test "allocUpperString" {
+    const result = try allocUpperString(std.testing.allocator, "aBcDeFgHiJkLmNOPqrst0234+💩!");
+    defer std.testing.allocator.free(result);
+    std.testing.expect(std.mem.eql(u8, "ABCDEFGHIJKLMNOPQRST0234+💩!", result));
+}
+
+/// Return `true` if `a` and `b` are equal, case insensitive.
 pub fn eqlIgnoreCase(a: []const u8, b: []const u8) bool {
     if (a.len != b.len) return false;
     for (a) |a_c, i| {
@@ -255,20 +274,43 @@ test "eqlIgnoreCase" {
     std.testing.expect(!eqlIgnoreCase("hElLo!", "helro!"));
 }
 
-/// Finds `substr` in `container`, starting at `start_index`.
-/// TODO boyer-moore algorithm
-pub fn indexOfIgnoreCasePos(container: []const u8, start_index: usize, substr: []const u8) ?usize {
+/// Return `true` if `a` and `b` are equal, case sensitive.
+pub fn eqlMatchCase(a: []const u8, b: []const u8) bool {
+    if (a.len != b.len) return false;
+    for (a) |a_c, i| {
+        if (a_c != b[i]) return false;
+    }
+    return true;
+}
+
+test "eqlMatchCase" {
+    std.testing.expect(!eqlMatchCase("HEl💩Lo!", "hel💩lo!"));
+    std.testing.expect(eqlMatchCase("Hello! ", "Hello! "));
+    std.testing.expect(eqlMatchCase("hElLo!", "hElLo!"));
+}
+
+fn indexOfPos(container: []const u8, start_index: usize, substr: []const u8, comptime case_sensitive: bool) ?usize {
     if (substr.len > container.len) return null;
 
     var i: usize = start_index;
     const end = container.len - substr.len;
     while (i <= end) : (i += 1) {
-        if (eqlIgnoreCase(container[i .. i + substr.len], substr)) return i;
+        if (case_sensitive) {
+            if (eqlMatchCase(container[i .. i + substr.len], substr)) return i;
+        } else {
+            if (eqlIgnoreCase(container[i .. i + substr.len], substr)) return i;
+        }
     }
     return null;
 }
 
-/// Finds `substr` in `container`, starting at `start_index`.
+/// Finds `substr` in `container`, case insensitive, starting at `start_index`.
+/// TODO boyer-moore algorithm
+pub fn indexOfIgnoreCasePos(container: []const u8, start_index: usize, substr: []const u8) ?usize {
+    return indexOfPos(container, start_index, substr, false);
+}
+
+/// Finds `substr` in `container`, case insensitive, starting at index 0.
 pub fn indexOfIgnoreCase(container: []const u8, substr: []const u8) ?usize {
     return indexOfIgnoreCasePos(container, 0, substr);
 }
@@ -280,4 +322,23 @@ test "indexOfIgnoreCase" {
     std.testing.expect(indexOfIgnoreCase("foo", "fool") == null);
 
     std.testing.expect(indexOfIgnoreCase("FOO foo", "fOo").? == 0);
+}
+
+/// Finds `substr` in `container`, case sensitive, starting at `start_index`.
+pub fn indexOfMatchCasePos(container: []const u8, start_index: usize, substr: []const u8) ?usize {
+    return indexOfPos(container, start_index, substr, true);
+}
+
+/// Finds `substr` in `container`, case sensitive, starting at index 0.
+pub fn indexOfMatchCase(container: []const u8, substr: []const u8) ?usize {
+    return indexOfMatchCasePos(container, 0, substr);
+}
+
+test "indexOfMatchCase" {
+    std.testing.expect(indexOfMatchCase("one Two Three Four", "Four").? == 14);
+    std.testing.expect(indexOfMatchCase("one two three FouR", "fOur") == null);
+    std.testing.expect(indexOfMatchCase("foO", "foO").? == 0);
+    std.testing.expect(indexOfMatchCase("foo", "fool") == null);
+
+    std.testing.expect(indexOfMatchCase("FOO foo", "FOO").? == 0);
 }
