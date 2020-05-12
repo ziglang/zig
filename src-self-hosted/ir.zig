@@ -5,6 +5,7 @@ const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const LinkedList = std.TailQueue;
 const Value = @import("value.zig").Value;
 const Type = @import("type.zig").Type;
+const TypedValue = @import("TypedValue.zig");
 const assert = std.debug.assert;
 const BigIntConst = std.math.big.int.Const;
 const BigIntMutable = std.math.big.int.Mutable;
@@ -167,11 +168,6 @@ pub const Inst = struct {
     };
 };
 
-pub const TypedValue = struct {
-    ty: Type,
-    val: Value,
-};
-
 fn swapRemoveElem(allocator: *Allocator, comptime T: type, item: T, list: *ArrayListUnmanaged(T)) void {
     var i: usize = 0;
     while (i < list.items.len) {
@@ -192,46 +188,125 @@ pub const Module = struct {
     root_scope: *Scope.ZIRModule,
     /// Pointer to externally managed resource.
     bin_file: *link.ElfFile,
-    failed_decls: ArrayListUnmanaged(*Decl) = .{},
-    failed_fns: ArrayListUnmanaged(*Fn) = .{},
-    failed_files: ArrayListUnmanaged(*Scope.ZIRModule) = .{},
+    /// It's rare for a decl to be exported, so we save memory by having a sparse map of
+    /// Decl pointers to details about them being exported.
+    /// The Export memory is owned by the `export_owners` table; the slice itself is owned by this table.
+    decl_exports: std.AutoHashMap(*Decl, []*Export),
+    /// This models the Decls that perform exports, so that `decl_exports` can be updated when a Decl
+    /// is modified. Note that the key of this table is not the Decl being exported, but the Decl that
+    /// is performing the export of another Decl.
+    /// This table owns the Export memory.
+    export_owners: std.AutoHashMap(*Decl, []*Export),
+    /// Maps fully qualified namespaced names to the Decl struct for them.
     decl_table: std.AutoHashMap(Decl.Hash, *Decl),
+
     optimize_mode: std.builtin.Mode,
     link_error_flags: link.ElfFile.ErrorFlags = .{},
 
+    /// We optimize memory usage for a compilation with no compile errors by storing the
+    /// error messages and mapping outside of `Decl`.
+    /// The ErrorMsg memory is owned by the decl, using Module's allocator.
+    failed_decls: std.AutoHashMap(*Decl, *ErrorMsg),
+    /// We optimize memory usage for a compilation with no compile errors by storing the
+    /// error messages and mapping outside of `Fn`.
+    /// The ErrorMsg memory is owned by the `Fn`, using Module's allocator.
+    failed_fns: std.AutoHashMap(*Fn, *ErrorMsg),
+    /// Using a map here for consistency with the other fields here.
+    /// The ErrorMsg memory is owned by the `Scope.ZIRModule`, using Module's allocator.
+    failed_files: std.AutoHashMap(*Scope.ZIRModule, *ErrorMsg),
+    /// Using a map here for consistency with the other fields here.
+    /// The ErrorMsg memory is owned by the `Export`, using Module's allocator.
+    failed_exports: std.AutoHashMap(*Export, *ErrorMsg),
+
+    pub const Export = struct {
+        options: std.builtin.ExportOptions,
+        /// Byte offset into the file that contains the export directive.
+        src: usize,
+        /// Represents the position of the export, if any, in the output file.
+        link: link.ElfFile.Export,
+        /// The Decl that performs the export. Note that this is *not* the Decl being exported.
+        owner_decl: *Decl,
+        status: enum { in_progress, failed, complete },
+    };
+
     pub const Decl = struct {
-        /// Contains the memory for `typed_value` and this `Decl` itself.
-        /// If the Decl is a function, also contains that memory.
-        /// If the decl has any export nodes, also contains that memory.
-        /// TODO look into using a more memory efficient arena that will cost less bytes per decl.
-        /// This one has a minimum allocation of 4096 bytes.
-        arena: std.heap.ArenaAllocator.State,
         /// This name is relative to the containing namespace of the decl. It uses a null-termination
         /// to save bytes, since there can be a lot of decls in a compilation. The null byte is not allowed
         /// in symbol names, because executable file formats use null-terminated strings for symbol names.
+        /// All Decls have names, even values that are not bound to a zig namespace. This is necessary for
+        /// mapping them to an address in the output file.
+        /// Memory owned by this decl, using Module's allocator.
         name: [*:0]const u8,
-        /// It's rare for a decl to be exported, and it's even rarer for a decl to be mapped to more
-        /// than one export, so we use a linked list to save memory.
-        export_node: ?*LinkedList(std.builtin.ExportOptions).Node = null,
+        /// The direct parent container of the Decl. This field will need to get more fleshed out when
+        /// self-hosted supports proper struct types and Zig AST => ZIR.
+        /// Reference to externally owned memory.
+        scope: *Scope.ZIRModule,
         /// Byte offset into the source file that contains this declaration.
         /// This is the base offset that src offsets within this Decl are relative to.
         src: usize,
+        /// The most recent value of the Decl after a successful semantic analysis.
+        /// The tag for this union is determined by the tag value of the analysis field.
+        typed_value: union {
+            never_succeeded,
+            most_recent: TypedValue.Managed,
+        },
         /// Represents the "shallow" analysis status. For example, for decls that are functions,
         /// the function type is analyzed with this set to `in_progress`, however, the semantic
         /// analysis of the function body is performed with this value set to `success`. Functions
         /// have their own analysis status field.
-        analysis: union(enum) {
-            in_progress,
-            failure: ErrorMsg,
-            success: TypedValue,
+        analysis: enum {
+            initial_in_progress,
+            /// This Decl might be OK but it depends on another one which did not successfully complete
+            /// semantic analysis. This Decl never had a value computed.
+            initial_dependency_failure,
+            /// Semantic analysis failure. This Decl never had a value computed.
+            /// There will be a corresponding ErrorMsg in Module.failed_decls.
+            initial_sema_failure,
+            /// In this case the `typed_value.most_recent` can still be accessed.
+            /// There will be a corresponding ErrorMsg in Module.failed_decls.
+            codegen_failure,
+            /// This Decl might be OK but it depends on another one which did not successfully complete
+            /// semantic analysis. There is a most recent value available.
+            repeat_dependency_failure,
+            /// Semantic anlaysis failure, but the `typed_value.most_recent` can be accessed.
+            /// There will be a corresponding ErrorMsg in Module.failed_decls.
+            repeat_sema_failure,
+            /// Completed successfully before; the `typed_value.most_recent` can be accessed, and
+            /// new semantic analysis is in progress.
+            repeat_in_progress,
+            /// Everything is done and updated.
+            complete,
         },
-        /// The direct container of the Decl. This field will need to get more fleshed out when
-        /// self-hosted supports proper struct types and Zig AST => ZIR.
-        scope: *Scope.ZIRModule,
+
+        /// Represents the position of the code, if any, in the output file.
+        /// This is populated regardless of semantic analysis and code generation.
+        /// This value is `undefined` if the type has no runtime bits.
+        link: link.ElfFile.Decl,
+
+        /// The set of other decls whose typed_value could possibly change if this Decl's
+        /// typed_value is modified.
+        /// TODO look into using a lightweight map/set data structure rather than a linear array.
+        dependants: ArrayListUnmanaged(*Decl) = .{},
+
+        pub fn typedValue(self: Decl) ?TypedValue {
+            switch (self.analysis) {
+                .initial_in_progress,
+                .initial_dependency_failure,
+                .initial_sema_failure,
+                => return null,
+                .codegen_failure,
+                .repeat_dependency_failure,
+                .repeat_sema_failure,
+                .repeat_in_progress,
+                .complete,
+                => return self.typed_value.most_recent,
+            }
+        }
 
         pub fn destroy(self: *Decl, allocator: *Allocator) void {
-            var arena = self.arena.promote(allocator);
-            arena.deinit();
+            allocator.free(mem.spanZ(u8, self.name));
+            if (self.typedValue()) |tv| tv.deinit(allocator);
+            allocator.destroy(self);
         }
 
         pub const Hash = [16]u8;
@@ -252,8 +327,10 @@ pub const Module = struct {
     pub const Fn = struct {
         fn_type: Type,
         analysis: union(enum) {
+            queued,
             in_progress: *Analysis,
-            failure: ErrorMsg,
+            /// There will be a corresponding ErrorMsg in Module.failed_fns
+            failure,
             success: Body,
         },
         /// The direct container of the Fn. This field will need to get more fleshed out when
@@ -290,67 +367,35 @@ pub const Module = struct {
             /// Relative to the owning package's root_src_dir.
             /// Reference to external memory, not owned by ZIRModule.
             sub_file_path: []const u8,
-            contents: union(enum) {
+            source: union {
                 unloaded,
-                parse_failure: ParseFailure,
-                success: Contents,
+                bytes: [:0]const u8,
             },
-            pub const ParseFailure = struct {
-                source: [:0]const u8,
-                errors: []ErrorMsg,
-
-                pub fn deinit(self: *ParseFailure, allocator: *Allocator) void {
-                    allocator.free(self.errors);
-                    allocator.free(source);
-                }
-            };
-            pub const Contents = struct {
-                source: [:0]const u8,
+            contents: union {
+                not_available,
                 module: *text.Module,
-            };
+            },
+            status: enum {
+                unloaded,
+                unloaded_parse_failure,
+                loaded_parse_failure,
+                loaded_success,
+            },
 
             pub fn deinit(self: *ZIRModule, allocator: *Allocator) void {
-                switch (self.contents) {
-                    .unloaded => {},
-                    .parse_failure => |pf| pd.deinit(allocator),
-                    .success => |contents| {
+                switch (self.status) {
+                    .unloaded,
+                    .unloaded_parse_failure,
+                    => {},
+                    .loaded_success => {
                         allocator.free(contents.source);
-                        contents.src_zir_module.deinit(allocator);
+                        self.contents.module.deinit(allocator);
+                    },
+                    .loaded_parse_failure => {
+                        allocator.free(contents.source);
                     },
                 }
                 self.* = undefined;
-            }
-
-            pub fn loadContents(self: *ZIRModule, allocator: *Allocator) !*Contents {
-                if (self.contents) |contents| return contents;
-
-                const max_size = std.math.maxInt(u32);
-                const source = try self.root_pkg_dir.readFileAllocOptions(allocator, self.root_src_path, max_size, 1, 0);
-                errdefer allocator.free(source);
-
-                var errors = std.ArrayList(ErrorMsg).init(allocator);
-                defer errors.deinit();
-
-                var src_zir_module = try text.parse(allocator, source, &errors);
-                errdefer src_zir_module.deinit(allocator);
-
-                switch (self.contents) {
-                    .parse_failure => |pf| pf.deinit(allocator),
-                    .unloaded => {},
-                    .success => unreachable,
-                }
-
-                if (errors.items.len != 0) {
-                    self.contents = .{ .parse_failure = errors.toOwnedSlice() };
-                    return error.ParseFailure;
-                }
-                self.contents = .{
-                    .success = .{
-                        .source = source,
-                        .module = src_zir_module,
-                    },
-                };
-                return &self.contents.success;
             }
         };
 
@@ -436,7 +481,7 @@ pub const Module = struct {
         // Analyze the root source file now.
         self.analyzeRoot(self.root_scope) catch |err| switch (err) {
             error.AnalysisFail => {
-                assert(self.totalErrorCount() != 0);
+                assert(self.failed_files.size != 0);
             },
             else => |e| return e,
         };
@@ -446,9 +491,10 @@ pub const Module = struct {
     }
 
     pub fn totalErrorCount(self: *Module) usize {
-        return self.failed_decls.items.len +
-            self.failed_fns.items.len +
-            self.failed_decls.items.len +
+        return self.failed_decls.size +
+            self.failed_fns.size +
+            self.failed_decls.size +
+            self.failed_exports.size +
             @boolToInt(self.link_error_flags.no_entry_point_found);
     }
 
@@ -459,24 +505,40 @@ pub const Module = struct {
         var errors = std.ArrayList(AllErrors.Message).init(self.allocator);
         defer errors.deinit();
 
-        for (self.failed_files.items) |scope| {
-            const source = scope.parse_failure.source;
-            for (scope.parse_failure.errors) |parse_error| {
-                AllErrors.add(&arena, &errors, scope.sub_file_path, source, parse_error);
+        {
+            var it = self.failed_files.iterator();
+            while (it.next()) |kv| {
+                const scope = kv.key;
+                const err_msg = kv.value;
+                const source = scope.parse_failure.source;
+                AllErrors.add(&arena, &errors, scope.sub_file_path, source, err_msg);
             }
         }
-
-        for (self.failed_fns.items) |func| {
-            const source = func.scope.success.source;
-            for (func.analysis.failure) |err_msg| {
+        {
+            var it = self.failed_fns.iterator();
+            while (it.next()) |kv| {
+                const func = kv.key;
+                const err_msg = kv.value;
+                const source = func.scope.success.source;
                 AllErrors.add(&arena, &errors, func.scope.sub_file_path, source, err_msg);
             }
         }
-
-        for (self.failed_decls.items) |decl| {
-            const source = decl.scope.success.source;
-            for (decl.analysis.failure) |err_msg| {
+        {
+            var it = self.failed_decls.iterator();
+            while (it.next()) |kv| {
+                const decl = kv.key;
+                const err_msg = kv.value;
+                const source = decl.scope.success.source;
                 AllErrors.add(&arena, &errors, decl.scope.sub_file_path, source, err_msg);
+            }
+        }
+        {
+            var it = self.failed_exports.iterator();
+            while (it.next()) |kv| {
+                const decl = kv.key.owner_decl;
+                const err_msg = kv.value;
+                const source = decl.scope.success.source;
+                try AllErrors.add(&arena, &errors, decl.scope.sub_file_path, source, err_msg);
             }
         }
 
@@ -508,21 +570,79 @@ pub const Module = struct {
         // Here we simulate adding a source file which was previously not part of the compilation,
         // which means scanning the decls looking for exports.
         // TODO also identify decls that need to be deleted.
-        const contents = blk: {
-            // Clear parse errors.
-            swapRemoveElem(self.allocator, *Scope.ZIRModule, root_scope, self.failed_files);
-            try self.failed_files.ensureCapacity(self.allocator, self.failed_files.items.len + 1);
-            break :blk root_scope.loadContents(self.allocator) catch |err| switch (err) {
-                error.ParseFailure => {
-                    self.failed_files.appendAssumeCapacity(root_scope);
+        const src_module = switch (root_scope.status) {
+            .unloaded => blk: {
+                try self.failed_files.ensureCapacity(self.failed_files.size + 1);
+
+                var keep_source = false;
+                const source = try self.root_pkg_dir.readFileAllocOptions(
+                    self.allocator,
+                    self.root_src_path,
+                    std.math.maxInt(u32),
+                    1,
+                    0,
+                );
+                defer if (!keep_source) self.allocator.free(source);
+
+                var keep_zir_module = false;
+                const zir_module = try self.allocator.create(text.Module);
+                defer if (!keep_zir_module) self.allocator.destroy(zir_module);
+
+                zir_module.* = try text.parse(self.allocator, source);
+                defer if (!keep_zir_module) zir_module.deinit(self.allocator);
+
+                if (zir_module.error_msg) |src_err_msg| {
+                    self.failed_files.putAssumeCapacityNoClobber(
+                        root_scope,
+                        try ErrorMsg.create(self.allocator, src_err_msg.byte_offset, "{}", .{src_err_msg.msg}),
+                    );
+                    root_scope.status = .loaded_parse_failure;
+                    root_scope.source = .{ .bytes = source };
+                    keep_source = true;
                     return error.AnalysisFail;
-                },
-                else => |e| return e,
-            };
+                }
+
+                root_scope.status = .loaded_success;
+                root_scope.source = .{ .bytes = source };
+                keep_source = true;
+                root_scope.contents = .{ .module = zir_module };
+                keep_zir_module = true;
+
+                break :blk zir_module;
+            },
+
+            .unloaded_parse_failure, .loaded_parse_failure => return error.AnalysisFail,
+            .loaded_success => root_scope.contents.module,
         };
+
+        // Here we ensure enough queue capacity to store all the decls, so that later we can use
+        // appendAssumeCapacity.
+        try self.analysis_queue.ensureCapacity(self.analysis_queue.items.len + contents.module.decls.len);
+
         for (contents.module.decls) |decl| {
             if (decl.cast(text.Inst.Export)) |export_inst| {
                 try analyzeExport(self, &root_scope.base, export_inst);
+            }
+        }
+
+        while (self.analysis_queue.popOrNull()) |work_item| {
+            switch (work_item) {
+                .decl => |decl| switch (decl.analysis) {
+                    .success => |typed_value| {
+                        var arena = decl.arena.promote(self.allocator);
+                        const update_result = self.bin_file.updateDecl(
+                            self.*,
+                            typed_value,
+                            decl.export_node,
+                            decl.fullyQualifiedNameHash(),
+                            &arena.allocator,
+                        );
+                        decl.arena = arena.state;
+                        if (try update_result) |err_msg| {
+                            decl.analysis = .{ .codegen_failure = err_msg };
+                        }
+                    },
+                },
             }
         }
     }
@@ -548,18 +668,38 @@ pub const Module = struct {
                 break :blk new_decl;
             };
 
-            var decl_scope: Scope.DeclAnalysis = .{ .decl = new_decl };
+            swapRemoveElem(self.allocator, *Scope.ZIRModule, root_scope, self.failed_decls);
+            var decl_scope: Scope.DeclAnalysis = .{
+                .base = .{ .parent = scope },
+                .decl = new_decl,
+            };
             const typed_value = self.analyzeInstConst(&decl_scope.base, old_inst) catch |err| switch (err) {
-                error.AnalysisFail => return error.AnalysisFail,
+                error.AnalysisFail => {
+                    assert(new_decl.analysis == .failure);
+                    return error.AnalysisFail;
+                },
                 else => |e| return e,
             };
             new_decl.analysis = .{ .success = typed_value };
-            if (try self.bin_file.updateDecl(self.*, typed_value, new_decl.export_node, hash)) |err_msg| {
-                new_decl.analysis = .{ .success = typed_value };
-            } else |err| {
-                return err;
-            }
+            // We ensureCapacity when scanning for decls.
+            self.analysis_queue.appendAssumeCapacity(.{ .decl = new_decl });
             return new_decl;
+        }
+    }
+
+    fn resolveCompleteDecl(self: *Module, scope: *Scope, old_inst: *text.Inst) InnerError!*Decl {
+        const decl = try self.resolveDecl(scope, old_inst);
+        switch (decl.analysis) {
+            .initial_in_progress => unreachable,
+            .repeat_in_progress => unreachable,
+            .initial_dependency_failure,
+            .repeat_dependency_failure,
+            .initial_sema_failure,
+            .repeat_sema_failure,
+            .codegen_failure,
+            => return error.AnalysisFail,
+
+            .complete => return decl,
         }
     }
 
@@ -570,7 +710,7 @@ pub const Module = struct {
             }
         }
 
-        const decl = try self.resolveDecl(scope, old_inst);
+        const decl = try self.resolveCompleteDecl(scope, old_inst);
         const decl_ref = try self.analyzeDeclRef(scope, old_inst.src, decl);
         return self.analyzeDeref(scope, old_inst.src, decl_ref);
     }
@@ -621,29 +761,52 @@ pub const Module = struct {
     }
 
     fn analyzeExport(self: *Module, scope: *Scope, export_inst: *text.Inst.Export) !void {
+        try self.decl_exports.ensureCapacity(self.decl_exports.size + 1);
+        try self.export_owners.ensureCapacity(self.export_owners.size + 1);
         const symbol_name = try self.resolveConstString(scope, export_inst.positionals.symbol_name);
-        const decl = try self.resolveDecl(scope, export_inst.positionals.value);
-
-        switch (decl.analysis) {
-            .in_progress => unreachable,
-            .failure => return error.AnalysisFail,
-            .success => |typed_value| switch (typed_value.ty.zigTypeTag()) {
-                .Fn => {},
-                else => return self.fail(
-                    scope,
-                    export_inst.positionals.value.src,
-                    "unable to export type '{}'",
-                    .{typed_value.ty},
-                ),
-            },
+        const exported_decl = try self.resolveCompleteDecl(scope, export_inst.positionals.value);
+        const typed_value = exported_decl.typed_value.most_recent.typed_value;
+        switch (typed_value.ty.zigTypeTag()) {
+            .Fn => {},
+            else => return self.fail(
+                scope,
+                export_inst.positionals.value.src,
+                "unable to export type '{}'",
+                .{typed_value.ty},
+            ),
         }
-        const Node = LinkedList(std.builtin.ExportOptions).Node;
-        export_node = try decl.arena.promote(self.allocator).allocator.create(Node);
-        export_node.* = .{ .data = .{ .name = symbol_name } };
-        decl.export_node = export_node;
+        const new_export = try self.allocator.create(Export);
+        errdefer self.allocator.destroy(new_export);
 
-        // TODO Avoid double update in the case of exporting a decl that we just created.
-        self.bin_file.updateDeclExports();
+        const owner_decl = scope.getDecl();
+
+        new_export.* = .{
+            .options = .{ .data = .{ .name = symbol_name } },
+            .src = export_inst.base.src,
+            .link = .{},
+            .owner_decl = owner_decl,
+            .status = .in_progress,
+        };
+
+        // Add to export_owners table.
+        const eo_gop = self.export_owners.getOrPut(owner_decl) catch unreachable;
+        if (!eo_gop.found_existing) {
+            eo_gop.kv.value = &[0]*Export{};
+        }
+        eo_gop.kv.value = try self.allocator.realloc(eo_gop.kv.value, eo_gop.kv.value.len + 1);
+        eo_gop.kv.value[eo_gop.kv.value.len - 1] = new_export;
+        errdefer eo_gop.kv.value = self.allocator.shrink(eo_gop.kv.value, eo_gop.kv.value.len - 1);
+
+        // Add to exported_decl table.
+        const de_gop = self.decl_exports.getOrPut(exported_decl) catch unreachable;
+        if (!de_gop.found_existing) {
+            de_gop.kv.value = &[0]*Export{};
+        }
+        de_gop.kv.value = try self.allocator.realloc(de_gop.kv.value, de_gop.kv.value.len + 1);
+        de_gop.kv.value[de_gop.kv.value.len - 1] = new_export;
+        errdefer de_gop.kv.value = self.allocator.shrink(de_gop.kv.value, de_gop.kv.value.len - 1);
+
+        try self.bin_file.updateDeclExports(self, decl, de_gop.kv.value);
     }
 
     /// TODO should not need the cast on the last parameter at the callsites
@@ -1636,6 +1799,31 @@ pub const Module = struct {
 pub const ErrorMsg = struct {
     byte_offset: usize,
     msg: []const u8,
+
+    pub fn create(allocator: *Allocator, byte_offset: usize, comptime format: []const u8, args: var) !*ErrorMsg {
+        const self = try allocator.create(ErrorMsg);
+        errdefer allocator.destroy(ErrorMsg);
+        self.* = init(allocator, byte_offset, format, args);
+        return self;
+    }
+
+    /// Assumes the ErrorMsg struct and msg were both allocated with allocator.
+    pub fn destroy(self: *ErrorMsg, allocator: *Allocator) void {
+        self.deinit(allocator);
+        allocator.destroy(self);
+    }
+
+    pub fn init(allocator: *Allocator, byte_offset: usize, comptime format: []const u8, args: var) !ErrorMsg {
+        return ErrorMsg{
+            .byte_offset = byte_offset,
+            .msg = try std.fmt.allocPrint(allocator, format, args),
+        };
+    }
+
+    pub fn deinit(self: *ErrorMsg, allocator: *Allocator) void {
+        allocator.free(err_msg.msg);
+        self.* = undefined;
+    }
 };
 
 pub fn main() anyerror!void {

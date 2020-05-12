@@ -406,8 +406,8 @@ pub const ErrorMsg = struct {
 
 pub const Module = struct {
     decls: []*Inst,
-    errors: []ErrorMsg,
     arena: std.heap.ArenaAllocator.State,
+    error_msg: ?ErrorMsg = null,
 
     pub const Body = struct {
         instructions: []*Inst,
@@ -415,7 +415,6 @@ pub const Module = struct {
 
     pub fn deinit(self: *Module, allocator: *Allocator) void {
         allocator.free(self.decls);
-        allocator.free(self.errors);
         self.arena.promote(allocator).deinit();
         self.* = undefined;
     }
@@ -576,22 +575,21 @@ pub fn parse(allocator: *Allocator, source: [:0]const u8) Allocator.Error!Module
         .i = 0,
         .source = source,
         .global_name_map = &global_name_map,
-        .errors = .{},
         .decls = .{},
     };
     errdefer parser.arena.deinit();
 
     parser.parseRoot() catch |err| switch (err) {
         error.ParseFailure => {
-            assert(parser.errors.items.len != 0);
+            assert(parser.error_msg != null);
         },
         else => |e| return e,
     };
 
     return Module{
         .decls = parser.decls.toOwnedSlice(allocator),
-        .errors = parser.errors.toOwnedSlice(allocator),
         .arena = parser.arena.state,
+        .error_msg = parser.error_msg,
     };
 }
 
@@ -600,9 +598,9 @@ const Parser = struct {
     arena: std.heap.ArenaAllocator,
     i: usize,
     source: [:0]const u8,
-    errors: std.ArrayListUnmanaged(ErrorMsg),
     decls: std.ArrayListUnmanaged(*Inst),
     global_name_map: *std.StringHashMap(usize),
+    error_msg: ?ErrorMsg = null,
 
     const Body = struct {
         instructions: std.ArrayList(*Inst),
@@ -776,10 +774,9 @@ const Parser = struct {
 
     fn fail(self: *Parser, comptime format: []const u8, args: var) InnerError {
         @setCold(true);
-        const msg = try std.fmt.allocPrint(&self.arena.allocator, format, args);
-        (try self.errors.addOne()).* = .{
+        self.error_msg = ErrorMsg{
             .byte_offset = self.i,
-            .msg = msg,
+            .msg = try std.fmt.allocPrint(&self.arena.allocator, format, args),
         };
         return error.ParseFailure;
     }
@@ -971,7 +968,6 @@ pub fn emit_zir(allocator: *Allocator, old_module: ir.Module) !Module {
     return Module{
         .decls = ctx.decls.toOwnedSlice(),
         .arena = ctx.arena,
-        .errors = &[0]ErrorMsg{},
     };
 }
 

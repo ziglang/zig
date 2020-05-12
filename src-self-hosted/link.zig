@@ -130,6 +130,20 @@ pub const ElfFile = struct {
         no_entry_point_found: bool = false,
     };
 
+    /// TODO it's too bad this optional takes up double the memory it should
+    pub const Decl = struct {
+        /// Each decl always gets a local symbol with the fully qualified name.
+        /// The vaddr and size are found here directly.
+        /// The file offset is found by computing the vaddr offset from the section vaddr
+        /// the symbol references, and adding that to the file offset of the section.
+        local_sym_index: ?usize = null,
+    };
+
+    /// TODO it's too bad this optional takes up double the memory it should
+    pub const Export = struct {
+        sym_index: ?usize = null,
+    };
+
     pub fn deinit(self: *ElfFile) void {
         self.sections.deinit(self.allocator);
         self.program_headers.deinit(self.allocator);
@@ -138,7 +152,7 @@ pub const ElfFile = struct {
         self.offset_table.deinit(self.allocator);
     }
 
-    // `expand_num / expand_den` is the factor of padding when allocation
+    // `alloc_num / alloc_den` is the factor of padding when allocation
     const alloc_num = 4;
     const alloc_den = 3;
 
@@ -216,10 +230,19 @@ pub const ElfFile = struct {
     }
 
     fn makeString(self: *ElfFile, bytes: []const u8) !u32 {
+        try self.shstrtab.ensureCapacity(self.allocator, self.shstrtab.items.len + bytes.len + 1);
         const result = self.shstrtab.items.len;
-        try self.shstrtab.appendSlice(bytes);
-        try self.shstrtab.append(0);
+        self.shstrtab.appendSliceAssumeCapacity(bytes);
+        self.shstrtab.appendAssumeCapacity(0);
         return @intCast(u32, result);
+    }
+
+    fn updateString(self: *ElfFile, old_str_off: u32, new_name: []const u8) !u32 {
+        const existing_name = self.getString(old_str_off);
+        if (mem.eql(u8, existing_name, new_name)) {
+            return old_str_off;
+        }
+        return self.makeString(new_name);
     }
 
     pub fn populateMissingMetadata(self: *ElfFile) !void {
@@ -575,166 +598,200 @@ pub const ElfFile = struct {
         try self.file.pwriteAll(hdr_buf[0..index], 0);
     }
 
-    /// TODO Look into making this smaller to save memory.
-    /// Lots of redundant info here with the data stored in symbol structs.
-    const DeclSymbol = struct {
-        symbol_indexes: []usize,
-        vaddr: u64,
-        file_offset: u64,
-        size: u64,
-    };
-
     const AllocatedBlock = struct {
         vaddr: u64,
         file_offset: u64,
         size_capacity: u64,
     };
 
-    fn allocateDeclSymbol(self: *ElfFile, size: u64) AllocatedBlock {
+    fn allocateTextBlock(self: *ElfFile, new_block_size: u64) !AllocatedBlock {
         const phdr = &self.program_headers.items[self.phdr_load_re_index.?];
-        todo();
-        //{
-        //    // Now that we know the code size, we need to update the program header for executable code
-        //    phdr.p_memsz = vaddr - phdr.p_vaddr;
-        //    phdr.p_filesz = phdr.p_memsz;
+        const shdr = &self.sections.items[self.text_section_index.?];
 
-        //    const shdr = &self.sections.items[self.text_section_index.?];
-        //    shdr.sh_size = phdr.p_filesz;
+        const text_capacity = self.allocatedSize(shdr.sh_offset);
+        // TODO instead of looping here, maintain a free list and a pointer to the end.
+        const end_vaddr = blk: {
+            var start: u64 = 0;
+            var size: u64 = 0;
+            for (self.symbols.items) |sym| {
+                if (sym.st_value > start) {
+                    start = sm.st_value;
+                    size = sym.st_size;
+                }
+            }
+            break :blk start + (size * alloc_num / alloc_den);
+        };
 
-        //    self.phdr_table_dirty = true; // TODO look into making only the one program header dirty
-        //    self.shdr_table_dirty = true; // TODO look into making only the one section dirty
-        //}
+        const text_size = end_vaddr - phdr.p_vaddr;
+        const needed_size = text_size + new_block_size;
+        if (needed_size > text_capacity) {
+            // Must move the entire text section.
+            const new_offset = self.findFreeSpace(needed_size, 0x1000);
+            const amt = try self.file.copyRangeAll(shdr.sh_offset, self.file, new_offset, text_size);
+            if (amt != text_size) return error.InputOutput;
+            shdr.sh_offset = new_offset;
+        }
+        // Now that we know the code size, we need to update the program header for executable code
+        shdr.sh_size = needed_size;
+        phdr.p_memsz = needed_size;
+        phdr.p_filesz = needed_size;
 
-        //return self.writeSymbols();
+        self.phdr_table_dirty = true; // TODO look into making only the one program header dirty
+        self.shdr_table_dirty = true; // TODO look into making only the one section dirty
     }
 
-    fn findAllocatedBlock(self: *ElfFile, vaddr: u64) AllocatedBlock {
-        todo();
+    fn findAllocatedTextBlock(self: *ElfFile, sym: elf.Elf64_Sym) AllocatedBlock {
+        const phdr = &self.program_headers.items[self.phdr_load_re_index.?];
+        const shdr = &self.sections.items[self.text_section_index.?];
+
+        // Find the next sym after this one.
+        // TODO look into using a hash map to speed up perf.
+        const text_capacity = self.allocatedSize(shdr.sh_offset);
+        var next_vaddr_start = phdr.p_vaddr + text_capacity;
+        for (self.symbols.items) |elem| {
+            if (elem.st_value < sym.st_value) continue;
+            if (elem.st_value < next_vaddr_start) next_vaddr_start = elem.st_value;
+        }
+        return .{
+            .vaddr = sym.st_value,
+            .file_offset = shdr.sh_offset + (sym.st_value - phdr.p_vaddr),
+            .size_capacity = next_vaddr_start - sym.st_value,
+        };
     }
 
-    pub fn updateDecl(
-        self: *ElfFile,
-        module: ir.Module,
-        typed_value: ir.TypedValue,
-        decl_export_node: ?*std.LinkedList(std.builtin.ExportOptions).Node,
-        hash: ir.Module.Decl.Hash,
-        err_msg_allocator: *Allocator,
-    ) !?ir.ErrorMsg {
+    pub fn updateDecl(self: *ElfFile, module: *ir.Module, decl: *ir.Module.Decl) !void {
         var code = std.ArrayList(u8).init(self.allocator);
         defer code.deinit();
 
-        const err_msg = try codegen.generateSymbol(typed_value, module, &code, err_msg_allocator);
-        if (err_msg != null) |em| return em;
-
-        const export_count = blk: {
-            var export_node = decl_export_node;
-            var i: usize = 0;
-            while (export_node) |node| : (export_node = node.next) i += 1;
-            break :blk i;
-        };
-
-        // Find or create a symbol from the decl
-        var valid_sym_index_len: usize = 0;
-        const decl_symbol = blk: {
-            if (self.decl_table.getValue(hash)) |decl_symbol| {
-                valid_sym_index_len = decl_symbol.symbol_indexes.len;
-                decl_symbol.symbol_indexes = try self.allocator.realloc(usize, export_count);
-
-                const existing_block = self.findAllocatedBlock(decl_symbol.vaddr);
-                if (code.items.len > existing_block.size_capacity) {
-                    const new_block = self.allocateDeclSymbol(code.items.len);
-                    decl_symbol.vaddr = new_block.vaddr;
-                    decl_symbol.file_offset = new_block.file_offset;
-                    decl_symbol.size = code.items.len;
-                }
-                break :blk decl_symbol;
-            } else {
-                const new_block = self.allocateDeclSymbol(code.items.len);
-
-                const decl_symbol = try self.allocator.create(DeclSymbol);
-                errdefer self.allocator.destroy(decl_symbol);
-
-                decl_symbol.* = .{
-                    .symbol_indexes = try self.allocator.alloc(usize, export_count),
-                    .vaddr = new_block.vaddr,
-                    .file_offset = new_block.file_offset,
-                    .size = code.items.len,
-                };
-                errdefer self.allocator.free(decl_symbol.symbol_indexes);
-
-                try self.decl_table.put(hash, decl_symbol);
-                break :blk decl_symbol;
-            }
-        };
-
-        // Allocate new symbols.
-        {
-            var i: usize = valid_sym_index_len;
-            const old_len = self.symbols.items.len;
-            try self.symbols.resize(old_len + (decl_symbol.symbol_indexes.len - i));
-            while (i < decl_symbol.symbol_indexes) : (i += 1) {
-                decl_symbol.symbol_indexes[i] = old_len + i;
-            }
+        const typed_value = decl.typed_value.most_recent.typed_value;
+        const err_msg = try codegen.generateSymbol(typed_value, module, &code, module.allocator);
+        if (err_msg != null) |em| {
+            decl.analysis = .codegen_failure;
+            _ = try module.failed_decls.put(decl, em);
+            return;
         }
 
-        var export_node = decl_export_node;
-        var export_index: usize = 0;
-        while (export_node) |node| : ({
-            export_node = node.next;
-            export_index += 1;
-        }) {
-            if (node.data.section) |section_name| {
+        const file_offset = blk: {
+            const code_size = code.items.len;
+            const stt_bits: u8 = switch (typed_value.ty.zigTypeTag()) {
+                .Fn => elf.STT_FUNC,
+                else => elf.STT_OBJECT,
+            };
+
+            if (decl.link.local_sym_index) |local_sym_index| {
+                const local_sym = &self.symbols.items[local_sym_index];
+                const existing_block = self.findAllocatedTextBlock(local_sym);
+                const file_offset = if (code_size > existing_block.size_capacity) fo: {
+                    const new_block = self.allocateTextBlock(code_size);
+                    local_sym.st_value = new_block.vaddr;
+                    local_sym.st_size = code_size;
+                    break :fo new_block.file_offset;
+                } else existing_block.file_offset;
+                local_sym.st_name = try self.updateString(local_sym.st_name, mem.spanZ(u8, decl.name));
+                local_sym.st_info = (elf.STB_LOCAL << 4) | stt_bits;
+                // TODO this write could be avoided if no fields of the symbol were changed.
+                try self.writeSymbol(local_sym_index);
+                break :blk file_offset;
+            } else {
+                try self.symbols.ensureCapacity(self.symbols.items.len + 1);
+                const decl_name = mem.spanZ(u8, decl.name);
+                const name_str_index = try self.makeString(decl_name);
+                const new_block = self.allocateTextBlock(code_size);
+                const local_sym_index = self.symbols.items.len;
+
+                self.symbols.appendAssumeCapacity(self.allocator, .{
+                    .st_name = name_str_index,
+                    .st_info = (elf.STB_LOCAL << 4) | stt_bits,
+                    .st_other = 0,
+                    .st_shndx = self.text_section_index.?,
+                    .st_value = new_block.vaddr,
+                    .st_size = code_size,
+                });
+                errdefer self.symbols.shrink(self.symbols.items.len - 1);
+                try self.writeSymbol(local_sym_index);
+
+                self.symbol_count_dirty = true;
+                decl.link.local_sym_index = local_sym_index;
+
+                break :blk new_block.file_offset;
+            }
+        };
+
+        try self.file.pwriteAll(code.items, file_offset);
+
+        // Since we updated the vaddr and the size, each corresponding export symbol also needs to be updated.
+        const decl_exports = module.decl_exports.get(decl) orelse &[0]*ir.Module.Export{};
+        return self.updateDeclExports(module, decl, decl_exports);
+    }
+
+    /// Must be called only after a successful call to `updateDecl`.
+    pub fn updateDeclExports(
+        self: *ElfFile,
+        module: *ir.Module,
+        decl: *const ir.Module.Decl,
+        exports: []const *const Export,
+    ) !void {
+        try self.symbols.ensureCapacity(self.symbols.items.len + exports.len);
+        const typed_value = decl.typed_value.most_recent.typed_value;
+        const decl_sym = self.symbols.items[decl.link.local_sym_index.?];
+
+        for (exports) |exp| {
+            if (exp.options.section) |section_name| {
                 if (!mem.eql(u8, section_name, ".text")) {
-                    try errors.ensureCapacity(errors.items.len + 1);
-                    errors.appendAssumeCapacity(.{
-                        .byte_offset = 0,
-                        .msg = try std.fmt.allocPrint(errors.allocator, "Unimplemented: ExportOptions.section", .{}),
-                    });
+                    try module.failed_exports.ensureCapacity(module.failed_exports.size + 1);
+                    module.failed_exports.putAssumeCapacityNoClobber(
+                        exp,
+                        try ir.ErrorMsg.create(0, "Unimplemented: ExportOptions.section", .{}),
+                    );
                 }
             }
-            const stb_bits = switch (node.data.linkage) {
+            const stb_bits = switch (exp.options.linkage) {
                 .Internal => elf.STB_LOCAL,
                 .Strong => blk: {
-                    if (mem.eql(u8, node.data.name, "_start")) {
+                    if (mem.eql(u8, exp.options.name, "_start")) {
                         self.entry_addr = decl_symbol.vaddr;
                     }
                     break :blk elf.STB_GLOBAL;
                 },
                 .Weak => elf.STB_WEAK,
                 .LinkOnce => {
-                    try errors.ensureCapacity(errors.items.len + 1);
-                    errors.appendAssumeCapacity(.{
-                        .byte_offset = 0,
-                        .msg = try std.fmt.allocPrint(errors.allocator, "Unimplemented: GlobalLinkage.LinkOnce", .{}),
-                    });
+                    try module.failed_exports.ensureCapacity(module.failed_exports.size + 1);
+                    module.failed_exports.putAssumeCapacityNoClobber(
+                        exp,
+                        try ir.ErrorMsg.create(0, "Unimplemented: GlobalLinkage.LinkOnce", .{}),
+                    );
                 },
             };
-            const stt_bits = switch (typed_value.ty.zigTypeTag()) {
-                .Fn => elf.STT_FUNC,
-                else => elf.STT_OBJECT,
-            };
-            const sym_index = decl_symbol.symbol_indexes[export_index];
-            const name = blk: {
-                if (i < valid_sym_index_len) {
-                    const name_stroff = self.symbols.items[sym_index].st_name;
-                    const existing_name = self.getString(name_stroff);
-                    if (mem.eql(u8, existing_name, node.data.name)) {
-                        break :blk name_stroff;
-                    }
-                }
-                break :blk try self.makeString(node.data.name);
-            };
-            self.symbols.items[sym_index] = .{
-                .st_name = name,
-                .st_info = (stb_bits << 4) | stt_bits,
-                .st_other = 0,
-                .st_shndx = self.text_section_index.?,
-                .st_value = decl_symbol.vaddr,
-                .st_size = code.items.len,
-            };
-        }
+            const stt_bits: u8 = @truncate(u4, decl_sym.st_info);
+            if (exp.link.sym_index) |i| {
+                const sym = &self.symbols.items[i];
+                sym.* = .{
+                    .st_name = try self.updateString(sym.st_name, exp.options.name),
+                    .st_info = (stb_bits << 4) | stt_bits,
+                    .st_other = 0,
+                    .st_shndx = self.text_section_index.?,
+                    .st_value = decl_sym.st_value,
+                    .st_size = decl_sym.st_size,
+                };
+                try self.writeSymbol(i);
+            } else {
+                const name = try self.makeString(exp.options.name);
+                const i = self.symbols.items.len;
+                self.symbols.appendAssumeCapacity(self.allocator, .{
+                    .st_name = sn.name,
+                    .st_info = (stb_bits << 4) | stt_bits,
+                    .st_other = 0,
+                    .st_shndx = self.text_section_index.?,
+                    .st_value = decl_sym.st_value,
+                    .st_size = decl_sym.st_size,
+                });
+                errdefer self.symbols.shrink(self.symbols.items.len - 1);
+                try self.writeSymbol(i);
 
-        try self.file.pwriteAll(code.items, decl_symbol.file_offset);
+                self.symbol_count_dirty = true;
+                exp.link.sym_index = i;
+            }
+        }
     }
 
     fn writeProgHeader(self: *ElfFile, index: usize) !void {
@@ -782,7 +839,48 @@ pub const ElfFile = struct {
         }
     }
 
-    fn writeSymbols(self: *ElfFile) !void {
+    fn writeSymbol(self: *ElfFile, index: usize) !void {
+        const syms_sect = &self.sections.items[self.symtab_section_index.?];
+        // Make sure we are not pointlessly writing symbol data that will have to get relocated
+        // due to running out of space.
+        if (self.symbol_count_dirty) {
+            const allocated_size = self.allocatedSize(syms_sect.sh_offset);
+            const needed_size = self.symbols.items.len * sym_size;
+            if (needed_size > allocated_size) {
+                return self.writeAllSymbols();
+            }
+        }
+        const foreign_endian = self.options.target.cpu.arch.endian() != std.Target.current.cpu.arch.endian();
+        switch (self.ptr_width) {
+            .p32 => {
+                var sym = [1]elf.Elf32_Sym{
+                    .{
+                        .st_name = self.symbols.items[index].st_name,
+                        .st_value = @intCast(u32, self.symbols.items[index].st_value),
+                        .st_size = @intCast(u32, self.symbols.items[index].st_size),
+                        .st_info = self.symbols.items[index].st_info,
+                        .st_other = self.symbols.items[index].st_other,
+                        .st_shndx = self.symbols.items[index].st_shndx,
+                    },
+                };
+                if (foreign_endian) {
+                    bswapAllFields(elf.Elf32_Sym, &sym[0]);
+                }
+                const off = syms_sect.sh_offset + @sizeOf(elf.Elf32_Sym) * index;
+                try self.file.pwriteAll(mem.sliceAsBytes(sym[0..1]), off);
+            },
+            .p64 => {
+                var sym = [1]elf.Elf64_Sym{self.symbols.items[index]};
+                if (foreign_endian) {
+                    bswapAllFields(elf.Elf64_Sym, &sym[0]);
+                }
+                const off = syms_sect.sh_offset + @sizeOf(elf.Elf64_Sym) * index;
+                try self.file.pwriteAll(mem.sliceAsBytes(sym[0..1]), off);
+            },
+        }
+    }
+
+    fn writeAllSymbols(self: *ElfFile) !void {
         const small_ptr = self.ptr_width == .p32;
         const syms_sect = &self.sections.items[self.symtab_section_index.?];
         const sym_align: u16 = if (small_ptr) @alignOf(elf.Elf32_Sym) else @alignOf(elf.Elf64_Sym);

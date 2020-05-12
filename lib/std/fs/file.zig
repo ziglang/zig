@@ -527,6 +527,30 @@ pub const File = struct {
         }
     }
 
+    pub fn copyRange(in: File, in_offset: u64, out: File, out_offset: u64, len: usize) PWriteError!usize {
+        // TODO take advantage of copy_file_range OS APIs
+        var buf: [8 * 4096]u8 = undefined;
+        const adjusted_count = math.min(buf.len, len);
+        const amt_read = try in.pread(buf[0..adjusted_count], in_offset);
+        if (amt_read == 0) return 0;
+        return out.pwrite(buf[0..amt_read], out_offset);
+    }
+
+    /// Returns the number of bytes copied. If the number read is smaller than `buffer.len`, it
+    /// means the in file reached the end. Reaching the end of a file is not an error condition.
+    pub fn copyRangeAll(in: File, in_offset: u64, out: File, out_offset: u64, len: usize) PWriteError!usize {
+        var total_bytes_copied = 0;
+        var in_off = in_offset;
+        var out_off = out_offset;
+        while (total_bytes_copied < len) {
+            const amt_copied = try copyRange(in, in_off, out, out_off, len - total_bytes_copied);
+            if (amt_copied == 0) return total_bytes_copied;
+            total_bytes_copied += amt_copied;
+            in_off += amt_copied;
+            out_off += amt_copied;
+        }
+    }
+
     pub const WriteFileOptions = struct {
         in_offset: u64 = 0,
 

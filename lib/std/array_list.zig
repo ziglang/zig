@@ -149,10 +149,15 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         /// Append the slice of items to the list. Allocates more
         /// memory as necessary.
         pub fn appendSlice(self: *Self, items: SliceConst) !void {
+            try self.ensureCapacity(self.items.len + items.len);
+            self.appendSliceAssumeCapacity(items);
+        }
+
+        /// Append the slice of items to the list, asserting the capacity is already
+        /// enough to store the new items.
+        pub fn appendSliceAssumeCapacity(self: *Self, items: SliceConst) void {
             const oldlen = self.items.len;
             const newlen = self.items.len + items.len;
-
-            try self.ensureCapacity(newlen);
             self.items.len = newlen;
             mem.copy(T, self.items[oldlen..], items);
         }
@@ -378,10 +383,16 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// Append the slice of items to the list. Allocates more
         /// memory as necessary.
         pub fn appendSlice(self: *Self, allocator: *Allocator, items: SliceConst) !void {
+            try self.ensureCapacity(allocator, self.items.len + items.len);
+            self.appendSliceAssumeCapacity(items);
+        }
+
+        /// Append the slice of items to the list, asserting the capacity is enough
+        /// to store the new items.
+        pub fn appendSliceAssumeCapacity(self: *Self, items: SliceConst) void {
             const oldlen = self.items.len;
             const newlen = self.items.len + items.len;
 
-            try self.ensureCapacity(allocator, newlen);
             self.items.len = newlen;
             mem.copy(T, self.items[oldlen..], items);
         }

@@ -5,8 +5,7 @@ const Allocator = std.mem.Allocator;
 const Target = std.Target;
 
 /// This is the raw data, with no bookkeeping, no memory awareness, no de-duplication.
-/// It's important for this struct to be small.
-/// It is not copyable since it may contain references to its inner data.
+/// It's important for this type to be small.
 /// Types are not de-duplicated, which helps with multi-threading since it obviates the requirement
 /// of obtaining a lock on a global type table, as well as making the
 /// garbage collection bookkeeping simpler.
@@ -51,6 +50,7 @@ pub const Type = extern union {
             .comptime_int => return .ComptimeInt,
             .comptime_float => return .ComptimeFloat,
             .noreturn => return .NoReturn,
+            .@"null" => return .Null,
 
             .fn_noreturn_no_args => return .Fn,
             .fn_naked_noreturn_no_args => return .Fn,
@@ -184,6 +184,8 @@ pub const Type = extern union {
                 .noreturn,
                 => return out_stream.writeAll(@tagName(t)),
 
+                .@"null" => return out_stream.writeAll("@TypeOf(null)"),
+
                 .const_slice_u8 => return out_stream.writeAll("[]const u8"),
                 .fn_noreturn_no_args => return out_stream.writeAll("fn() noreturn"),
                 .fn_naked_noreturn_no_args => return out_stream.writeAll("fn() callconv(.Naked) noreturn"),
@@ -246,6 +248,7 @@ pub const Type = extern union {
             .comptime_int => return Value.initTag(.comptime_int_type),
             .comptime_float => return Value.initTag(.comptime_float_type),
             .noreturn => return Value.initTag(.noreturn_type),
+            .@"null" => return Value.initTag(.null_type),
             .fn_noreturn_no_args => return Value.initTag(.fn_noreturn_no_args_type),
             .fn_naked_noreturn_no_args => return Value.initTag(.fn_naked_noreturn_no_args_type),
             .fn_ccc_void_no_args => return Value.initTag(.fn_ccc_void_no_args_type),
@@ -286,6 +289,7 @@ pub const Type = extern union {
             .comptime_int,
             .comptime_float,
             .noreturn,
+            .@"null",
             .array,
             .array_u8_sentinel_0,
             .const_slice_u8,
@@ -329,6 +333,7 @@ pub const Type = extern union {
             .comptime_int,
             .comptime_float,
             .noreturn,
+            .@"null",
             .array,
             .array_u8_sentinel_0,
             .single_const_pointer,
@@ -372,6 +377,7 @@ pub const Type = extern union {
             .comptime_int,
             .comptime_float,
             .noreturn,
+            .@"null",
             .array,
             .array_u8_sentinel_0,
             .fn_noreturn_no_args,
@@ -416,6 +422,7 @@ pub const Type = extern union {
             .comptime_int,
             .comptime_float,
             .noreturn,
+            .@"null",
             .fn_noreturn_no_args,
             .fn_naked_noreturn_no_args,
             .fn_ccc_void_no_args,
@@ -458,6 +465,7 @@ pub const Type = extern union {
             .comptime_int,
             .comptime_float,
             .noreturn,
+            .@"null",
             .fn_noreturn_no_args,
             .fn_naked_noreturn_no_args,
             .fn_ccc_void_no_args,
@@ -489,6 +497,7 @@ pub const Type = extern union {
             .comptime_int,
             .comptime_float,
             .noreturn,
+            .@"null",
             .fn_noreturn_no_args,
             .fn_naked_noreturn_no_args,
             .fn_ccc_void_no_args,
@@ -533,6 +542,7 @@ pub const Type = extern union {
             .comptime_int,
             .comptime_float,
             .noreturn,
+            .@"null",
             .fn_noreturn_no_args,
             .fn_naked_noreturn_no_args,
             .fn_ccc_void_no_args,
@@ -606,6 +616,7 @@ pub const Type = extern union {
             .comptime_int,
             .comptime_float,
             .noreturn,
+            .@"null",
             .array,
             .single_const_pointer,
             .single_const_pointer_to_comptime_int,
@@ -650,6 +661,7 @@ pub const Type = extern union {
             .comptime_int,
             .comptime_float,
             .noreturn,
+            .@"null",
             .array,
             .single_const_pointer,
             .single_const_pointer_to_comptime_int,
@@ -693,6 +705,7 @@ pub const Type = extern union {
             .comptime_int,
             .comptime_float,
             .noreturn,
+            .@"null",
             .array,
             .single_const_pointer,
             .single_const_pointer_to_comptime_int,
@@ -736,6 +749,7 @@ pub const Type = extern union {
             .comptime_int,
             .comptime_float,
             .noreturn,
+            .@"null",
             .array,
             .single_const_pointer,
             .single_const_pointer_to_comptime_int,
@@ -779,6 +793,7 @@ pub const Type = extern union {
             .comptime_int,
             .comptime_float,
             .noreturn,
+            .@"null",
             .array,
             .single_const_pointer,
             .single_const_pointer_to_comptime_int,
@@ -833,6 +848,7 @@ pub const Type = extern union {
             .type,
             .anyerror,
             .noreturn,
+            .@"null",
             .fn_noreturn_no_args,
             .fn_naked_noreturn_no_args,
             .fn_ccc_void_no_args,
@@ -881,6 +897,7 @@ pub const Type = extern union {
             .c_void,
             .void,
             .noreturn,
+            .@"null",
             => return true,
 
             .int_unsigned => return ty.cast(Payload.IntUnsigned).?.bits == 0,
@@ -933,6 +950,7 @@ pub const Type = extern union {
             .c_void,
             .void,
             .noreturn,
+            .@"null",
             .int_unsigned,
             .int_signed,
             .array,
@@ -974,6 +992,7 @@ pub const Type = extern union {
         comptime_int,
         comptime_float,
         noreturn,
+        @"null",
         fn_noreturn_no_args,
         fn_naked_noreturn_no_args,
         fn_ccc_void_no_args,
