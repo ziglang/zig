@@ -27,13 +27,13 @@ cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=$PREFIX "-DCMAKE_INSTALL
 make $JOBS install
 
 release/bin/zig build test-fmt
-release/bin/zig build test-behavior
+release/bin/zig build test-behavior -Dskip-wasi
 
 # This test is disabled because it triggers "out of memory" on the sr.ht CI service.
 # See https://github.com/ziglang/zig/issues/3210
 # release/bin/zig build test-std
 
-release/bin/zig build test-compiler-rt
+release/bin/zig build test-compiler-rt -Dskip-wasi
 release/bin/zig build test-compare-output
 release/bin/zig build test-standalone
 release/bin/zig build test-stack-traces
