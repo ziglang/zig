@@ -48,31 +48,21 @@ pub fn parse(allocator: *Allocator, source: []const u8) Allocator.Error!*Tree {
 
     while (it.peek().?.id == .LineComment) _ = it.next();
 
-    tree.root_node = parseRoot(arena, &it, tree) catch |err| blk: {
-        switch (err) {
-            error.ParseError => {
-                assert(tree.errors.len != 0);
-                break :blk undefined;
-            },
-            error.OutOfMemory => {
-                return error.OutOfMemory;
-            },
-        }
-    };
+    tree.root_node = try parseRoot(arena, &it, tree);
 
     return tree;
 }
 
 /// Root <- skip ContainerMembers eof
-fn parseRoot(arena: *Allocator, it: *TokenIterator, tree: *Tree) Error!*Node.Root {
+fn parseRoot(arena: *Allocator, it: *TokenIterator, tree: *Tree) Allocator.Error!*Node.Root {
     const node = try arena.create(Node.Root);
     node.* = .{
         .decls = try parseContainerMembers(arena, it, tree),
-        .eof_token = eatToken(it, .Eof) orelse {
+        .eof_token = eatToken(it, .Eof) orelse blk: {
             try tree.errors.push(.{
                 .ExpectedContainerMembers = .{ .token = it.index },
             });
-            return error.ParseError;
+            break :blk undefined;
         },
     };
     return node;
@@ -85,7 +75,7 @@ fn parseRoot(arena: *Allocator, it: *TokenIterator, tree: *Tree) Error!*Node.Roo
 ///      / KEYWORD_pub? ContainerField COMMA ContainerMembers
 ///      / KEYWORD_pub? ContainerField
 ///      /
-fn parseContainerMembers(arena: *Allocator, it: *TokenIterator, tree: *Tree) !Node.Root.DeclList {
+fn parseContainerMembers(arena: *Allocator, it: *TokenIterator, tree: *Tree) Allocator.Error!Node.Root.DeclList {
     var list = Node.Root.DeclList.init(arena);
 
     var field_state: union(enum) {
@@ -108,7 +98,13 @@ fn parseContainerMembers(arena: *Allocator, it: *TokenIterator, tree: *Tree) !No
 
         const doc_comments = try parseDocComment(arena, it, tree);
 
-        if (try parseTestDecl(arena, it, tree)) |node| {
+        if (parseTestDecl(arena, it, tree) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.ParseError => {
+                findEndOfBlock(it);
+                continue;
+            },
+        }) |node| {
             if (field_state == .seen) {
                 field_state = .{ .end = node.firstToken() };
             }
@@ -117,7 +113,13 @@ fn parseContainerMembers(arena: *Allocator, it: *TokenIterator, tree: *Tree) !No
             continue;
         }
 
-        if (try parseTopLevelComptime(arena, it, tree)) |node| {
+        if (parseTopLevelComptime(arena, it, tree) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.ParseError => {
+                findEndOfBlock(it);
+                continue;
+            },
+        }) |node| {
             if (field_state == .seen) {
                 field_state = .{ .end = node.firstToken() };
             }
@@ -128,7 +130,15 @@ fn parseContainerMembers(arena: *Allocator, it: *TokenIterator, tree: *Tree) !No
 
         const visib_token = eatToken(it, .Keyword_pub);
 
-        if (try parseTopLevelDecl(arena, it, tree)) |node| {
+        if (parseTopLevelDecl(arena, it, tree) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.ParseError => {
+                // attempt to recover by finding a semicolon
+                // TODO if this was a function with a body we should use findEndOfBlock
+                findToken(it, .Semicolon);
+                continue;
+            },
+        }) |node| {
             if (field_state == .seen) {
                 field_state = .{ .end = visib_token orelse node.firstToken() };
             }
@@ -163,10 +173,17 @@ fn parseContainerMembers(arena: *Allocator, it: *TokenIterator, tree: *Tree) !No
             try tree.errors.push(.{
                 .ExpectedPubItem = .{ .token = it.index },
             });
-            return error.ParseError;
+            // ignore this pub
         }
 
-        if (try parseContainerField(arena, it, tree)) |node| {
+        if (parseContainerField(arena, it, tree) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.ParseError => {
+                // attempt to recover by finding a comma
+                findToken(it, .Comma);
+                continue;
+            },
+        }) |node| {
             switch (field_state) {
                 .none => field_state = .seen,
                 .err, .seen => {},
@@ -200,8 +217,39 @@ fn parseContainerMembers(arena: *Allocator, it: *TokenIterator, tree: *Tree) !No
     return list;
 }
 
+/// Attempts to find a closing brace, assumes the opening brace was found.
+fn findEndOfBlock(it: *TokenIterator) void {
+    var count: u32 = 1;
+    while (it.next()) |tok| switch (tok.id) {
+        .LBrace => count += 1,
+        .RBrace => {
+            count -= 1;
+            if (count == 0) return;
+        },
+        else => {},
+    };
+}
+
+/// Attempts to find `wanted` token, keeps track of parentheses.
+fn findToken(it: *TokenIterator, wanted: Token.Id) void {
+    var count: u32 = 0;
+    while (it.next()) |tok| switch (tok.id) {
+        .LParen, .LBracket, .LBrace => count += 1,
+        .RParen, .RBracket, .RBrace => {
+            if (count == 0) {
+                _ = it.prev();
+                return;
+            }
+            count -= 1;
+        },
+        else => {
+            if (tok.id == wanted and count == 0) return; 
+        },
+    };
+}
+
 /// Eat a multiline container doc comment
-fn parseContainerDocComments(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseContainerDocComments(arena: *Allocator, it: *TokenIterator, tree: *Tree) Allocator.Error!?*Node {
     var lines = Node.DocComment.LineList.init(arena);
     while (eatToken(it, .ContainerDocComment)) |line| {
         try lines.push(line);
@@ -687,8 +735,13 @@ fn parseLoopStatement(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Nod
         node.cast(Node.While).?.inline_token = inline_token;
         return node;
     }
+    if (inline_token == null) return null;
 
-    return null;
+    // If we've seen "inline", there should have been a "for" or "while"
+    try tree.errors.push(.{
+        .ExpectedInlinable = .{ .token = it.index },
+    });
+    return error.ParseError;
 }
 
 /// ForStatement
@@ -2925,7 +2978,7 @@ fn parseDocComment(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node.D
 }
 
 /// Eat a single-line doc comment on the same line as another node
-fn parseAppendedDocComment(arena: *Allocator, it: *TokenIterator, tree: *Tree, after_token: TokenIndex) !?*Node.DocComment {
+fn parseAppendedDocComment(arena: *Allocator, it: *TokenIterator, tree: *Tree, after_token: TokenIndex) Allocator.Error!?*Node.DocComment {
     const comment_token = eatToken(it, .DocComment) orelse return null;
     if (tree.tokensOnSameLine(after_token, comment_token)) {
         const node = try arena.create(Node.DocComment);

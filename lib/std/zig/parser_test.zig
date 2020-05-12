@@ -1,3 +1,13 @@
+test "zig fmt: fault tolerant parsing" {
+    try testError(
+        \\test "" {inline}
+        \\test "" {inline}
+    , &[_]Error{
+        .ExpectedInlinable,
+        .ExpectedInlinable,
+    });
+}
+
 test "zig fmt: top-level fields" {
     try testCanonical(
         \\a: did_you_know,
