@@ -300,10 +300,11 @@ pub const NativeTargetInfo = struct {
                         @panic("unable to get the system release string");
                     };
 
-                    const release_version = if (mem.indexOfScalar(u8, buf, '-')) |pos|
-                        buf[0 .. pos]
+                    const release = buf[0 .. len - 1];
+                    const release_version = if (mem.indexOfScalar(u8, release, '-')) |pos|
+                        release[0..pos]
                     else
-                        buf[0 .. len - 1];
+                        release;
 
                     if (std.builtin.Version.parse(release_version)) |ver| {
                         os.version_range.semver.min = ver;

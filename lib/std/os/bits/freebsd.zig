@@ -213,6 +213,7 @@ pub const sockaddr_un = extern struct {
 pub const CTL_KERN = 1;
 pub const CTL_DEBUG = 5;
 
+pub const KERN_OSRELEASE = 2; // string: system release
 pub const KERN_PROC = 14; // struct: process entries
 pub const KERN_PROC_PATHNAME = 12; // path to executable
 

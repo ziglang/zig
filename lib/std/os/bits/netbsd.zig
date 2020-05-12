@@ -286,6 +286,7 @@ pub const AI_ADDRCONFIG = 0x00000400;
 pub const CTL_KERN = 1;
 pub const CTL_DEBUG = 5;
 
+pub const KERN_OSRELEASE = 2; // string: system release
 pub const KERN_PROC_ARGS = 48; // struct: process argv/env
 pub const KERN_PROC_PATHNAME = 5; // path to executable
 
