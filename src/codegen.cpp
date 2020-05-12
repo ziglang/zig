@@ -1794,6 +1794,16 @@ static LLVMValueRef ir_llvm_value(CodeGen *g, IrInstGen *instruction) {
 }
 
 void codegen_report_errors_and_exit(CodeGen *g) {
+    // Clear progress indicator before printing errors
+    if (g->sub_progress_node != nullptr) {
+        stage2_progress_end(g->sub_progress_node);
+        g->sub_progress_node = nullptr;
+    }
+    if (g->main_progress_node != nullptr) {
+        stage2_progress_end(g->main_progress_node);
+        g->main_progress_node = nullptr;
+    }
+
     assert(g->errors.length != 0);
     for (size_t i = 0; i < g->errors.length; i += 1) {
         ErrorMsg *err = g->errors.at(i);
