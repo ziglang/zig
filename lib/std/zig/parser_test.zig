@@ -19,7 +19,9 @@ test "zig fmt: decl between fields" {
         \\    const baz1 = 2;
         \\    b: usize,
         \\};
-    );
+    , &[_]Error{
+        .DeclBetweenFields,
+    });
 }
 
 test "zig fmt: errdefer with payload" {
@@ -2828,7 +2830,9 @@ test "zig fmt: extern without container keyword returns error" {
     try testError(
         \\const container = extern {};
         \\
-    );
+    , &[_]Error{
+        .ExpectedExpr,
+    });
 }
 
 test "zig fmt: integer literals with underscore separators" {
@@ -3030,9 +3034,17 @@ fn testTransform(source: []const u8, expected_source: []const u8) !void {
 fn testCanonical(source: []const u8) !void {
     return testTransform(source, source);
 }
-fn testError(source: []const u8) !void {
+
+const Error = @TagType(std.zig.ast.Error);
+
+fn testError(source: []const u8, expected_errors: []const Error) !void {
     const tree = try std.zig.parse(std.testing.allocator, source);
     defer tree.deinit();
 
-    std.testing.expect(tree.errors.len != 0);
+    std.testing.expect(tree.errors.len == expected_errors.len);
+    for (expected_errors) |expected, i| {
+        const err = tree.errors.at(i);
+
+        std.testing.expect(expected == err.*);
+    }
 }
