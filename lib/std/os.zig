@@ -4937,3 +4937,17 @@ pub fn ioctl_SIOCGIFINDEX(fd: fd_t, ifr: *ifreq) IoCtl_SIOCGIFINDEX_Error!void {
         }
     }
 }
+
+pub fn signalfd(fd: fd_t, mask: *const sigset_t, flags: i32) !fd_t {
+    const rc = system.signalfd4(fd, mask, flags);
+    switch (errno(rc)) {
+        0 => return @intCast(fd_t, rc),
+        EBADF, EINVAL => unreachable,
+        ENFILE => return error.SystemFdQuotaExceeded,
+        ENOMEM => return error.SystemResources,
+        EMFILE => return error.ProcessResources,
+        ENODEV => return error.InodeMountFail,
+        ENOSYS => return error.SystemOutdated,
+        else => |err| return std.os.unexpectedErrno(err),
+    }
+}
