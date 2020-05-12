@@ -205,7 +205,7 @@ pub fn WriteStream(comptime OutStream: type, comptime max_depth: usize) type {
             self.state[self.state_index] = state;
         }
 
-        fn popState(self: *Self) void {
+        pub fn popState(self: *Self) void {
             self.state_index -= 1;
         }
 
