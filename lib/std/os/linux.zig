@@ -811,7 +811,10 @@ pub fn sigaction(sig: u6, noalias act: *const Sigaction, noalias oact: ?*Sigacti
 
 pub fn sigaddset(set: *sigset_t, sig: u6) void {
     const s = sig - 1;
-    (set.*)[@intCast(usize, s) / usize.bit_count] |= @intCast(usize, 1) << (s & (usize.bit_count - 1));
+    // shift in musl: s&8*sizeof *set->__bits-1
+    const shift = @intCast(u5, s & (usize.bit_count - 1));
+    const val = @intCast(u32, 1) << shift;
+    (set.*)[@intCast(usize, s) / usize.bit_count] |= val;
 }
 
 pub fn sigismember(set: *const sigset_t, sig: u6) bool {
