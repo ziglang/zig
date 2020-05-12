@@ -12760,9 +12760,7 @@ static bool eval_const_expr_implicit_cast(IrAnalyze *ira, IrInst *source_instr,
             const_val->type = new_type;
             break;
         case CastOpIntToFloat:
-            {
-                assert(new_type->id == ZigTypeIdFloat);
-
+            if (new_type->id == ZigTypeIdFloat) {
                 BigFloat bigfloat;
                 bigfloat_init_bigint(&bigfloat, &other_val->data.x_bigint);
                 switch (new_type->data.floating.bit_count) {
@@ -12783,9 +12781,13 @@ static bool eval_const_expr_implicit_cast(IrAnalyze *ira, IrInst *source_instr,
                     default:
                         zig_unreachable();
                 }
-                const_val->special = ConstValSpecialStatic;
-                break;
+            } else if (new_type->id == ZigTypeIdComptimeFloat) {
+                bigfloat_init_bigint(&const_val->data.x_bigfloat, &other_val->data.x_bigint);
+            } else {
+                zig_unreachable();
             }
+            const_val->special = ConstValSpecialStatic;
+            break;
         case CastOpFloatToInt:
             float_init_bigint(&const_val->data.x_bigint, other_val);
             if (new_type->id == ZigTypeIdInt) {
