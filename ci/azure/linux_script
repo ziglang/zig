@@ -50,7 +50,7 @@ mkdir build
 cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release
 make -j$(nproc) install
-./zig build test -Denable-qemu
+./zig build test -Denable-qemu -Denable-wasmtime
 VERSION="$(./zig version)"
 
 if [ "${BUILD_REASON}" != "PullRequest" ]; then

@@ -18,4 +18,4 @@ cmake .. -G 'MSYS Makefiles' -DCMAKE_BUILD_TYPE=RelWithDebInfo $CMAKEFLAGS -DCMA
 
 make -j$(nproc) install
 
-./zig build test-behavior -Dskip-non-native -Dskip-release -Dskip-wasi
+./zig build test-behavior -Dskip-non-native -Dskip-release

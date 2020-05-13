@@ -472,9 +472,9 @@ pub fn addPkgTests(
     skip_single_threaded: bool,
     skip_non_native: bool,
     skip_libc: bool,
-    skip_wasi: bool,
     is_wine_enabled: bool,
     is_qemu_enabled: bool,
+    is_wasmtime_enabled: bool,
     glibc_dir: ?[]const u8,
 ) *build.Step {
     const step = b.step(b.fmt("test-{}", .{name}), desc);
@@ -483,7 +483,7 @@ pub fn addPkgTests(
         if (skip_non_native and !test_target.target.isNative())
             continue;
 
-        if (skip_wasi) {
+        if (!is_wasmtime_enabled) {
             if (test_target.target.os_tag) |tag| {
                 if (tag == .wasi) {
                     warn("Skipping {} on wasm32-wasi.\n", .{root_src});
@@ -544,7 +544,7 @@ pub fn addPkgTests(
         these_tests.overrideZigLibDir("lib");
         these_tests.enable_wine = is_wine_enabled;
         these_tests.enable_qemu = is_qemu_enabled;
-        these_tests.enable_wasmtime = !skip_wasi;
+        these_tests.enable_wasmtime = is_wasmtime_enabled;
         these_tests.glibc_multi_install_dir = glibc_dir;
 
         step.dependOn(&these_tests.step);
