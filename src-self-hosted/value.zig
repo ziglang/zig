@@ -160,7 +160,7 @@ pub const Value = extern union {
             .function => return out_stream.writeAll("(function)"),
             .decl_ref => return out_stream.writeAll("(decl ref)"),
             .elem_ptr => {
-                const elem_ptr = val.cast(Payload.Int_u64).?;
+                const elem_ptr = val.cast(Payload.ElemPtr).?;
                 try out_stream.print("&[{}] ", .{elem_ptr.index});
                 val = elem_ptr.array_ptr;
             },

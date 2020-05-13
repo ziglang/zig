@@ -2,7 +2,6 @@ const std = @import("std");
 const mem = std.mem;
 const Allocator = std.mem.Allocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
-const LinkedList = std.TailQueue;
 const Value = @import("value.zig").Value;
 const Type = @import("type.zig").Type;
 const TypedValue = @import("TypedValue.zig");
@@ -168,17 +167,6 @@ pub const Inst = struct {
     };
 };
 
-fn swapRemoveElem(allocator: *Allocator, comptime T: type, item: T, list: *ArrayListUnmanaged(T)) void {
-    var i: usize = 0;
-    while (i < list.items.len) {
-        if (list.items[i] == item) {
-            list.swapRemove(allocator, i);
-            continue;
-        }
-        i += 1;
-    }
-}
-
 pub const Module = struct {
     /// General-purpose allocator.
     allocator: *Allocator,
@@ -203,6 +191,8 @@ pub const Module = struct {
     optimize_mode: std.builtin.Mode,
     link_error_flags: link.ElfFile.ErrorFlags = link.ElfFile.ErrorFlags{},
 
+    work_stack: ArrayListUnmanaged(WorkItem) = ArrayListUnmanaged(WorkItem){},
+
     /// We optimize memory usage for a compilation with no compile errors by storing the
     /// error messages and mapping outside of `Decl`.
     /// The ErrorMsg memory is owned by the decl, using Module's allocator.
@@ -217,6 +207,11 @@ pub const Module = struct {
     /// Using a map here for consistency with the other fields here.
     /// The ErrorMsg memory is owned by the `Export`, using Module's allocator.
     failed_exports: std.AutoHashMap(*Export, *ErrorMsg),
+
+    pub const WorkItem = union(enum) {
+        /// Write the machine code for a Decl to the output file.
+        codegen_decl: *Decl,
+    };
 
     pub const Export = struct {
         options: std.builtin.ExportOptions,
@@ -322,11 +317,13 @@ pub const Module = struct {
         }
     };
 
-    /// Memory is managed by the arena of the owning Decl.
+    /// Fn struct memory is owned by the Decl's TypedValue.Managed arena allocator.
     pub const Fn = struct {
+        /// This memory owned by the Decl's TypedValue.Managed arena allocator.
         fn_type: Type,
         analysis: union(enum) {
-            queued,
+            /// The value is the source instruction.
+            queued: *text.Inst.Fn,
             in_progress: *Analysis,
             /// There will be a corresponding ErrorMsg in Module.failed_fns
             failure,
@@ -336,11 +333,14 @@ pub const Module = struct {
         /// self-hosted supports proper struct types and Zig AST => ZIR.
         scope: *Scope.ZIRModule,
 
-        /// This memory managed by the general purpose allocator.
+        /// This memory is temporary and points to stack memory for the duration
+        /// of Fn analysis.
         pub const Analysis = struct {
             inner_block: Scope.Block,
             /// null value means a semantic analysis error happened.
             inst_table: std.AutoHashMap(*text.Inst, ?*Inst),
+            /// Owns the memory for instructions
+            arena: std.heap.ArenaAllocator,
         };
     };
 
@@ -352,6 +352,26 @@ pub const Module = struct {
                 return null;
 
             return @fieldParentPtr(T, "base", base);
+        }
+
+        /// Asserts the scope has a parent which is a DeclAnalysis and
+        /// returns the arena Allocator.
+        pub fn arena(self: *Scope) *Allocator {
+            switch (self.tag) {
+                .block => return self.cast(Block).?.arena,
+                .decl => return &self.cast(DeclAnalysis).?.arena.allocator,
+                .zir_module => unreachable,
+            }
+        }
+
+        /// Asserts the scope has a parent which is a DeclAnalysis and
+        /// returns the Decl.
+        pub fn decl(self: *Scope) *Decl {
+            switch (self.tag) {
+                .block => return self.cast(Block).?.decl,
+                .decl => return self.cast(DeclAnalysis).?.decl,
+                .zir_module => unreachable,
+            }
         }
 
         pub const Tag = enum {
@@ -404,7 +424,10 @@ pub const Module = struct {
             pub const base_tag: Tag = .block;
             base: Scope = Scope{ .tag = base_tag },
             func: *Fn,
+            decl: *Decl,
             instructions: ArrayListUnmanaged(*Inst),
+            /// Points to the arena allocator of DeclAnalysis
+            arena: *Allocator,
         };
 
         /// This is a temporary structure, references to it are valid only
@@ -413,6 +436,7 @@ pub const Module = struct {
             pub const base_tag: Tag = .decl;
             base: Scope = Scope{ .tag = base_tag },
             decl: *Decl,
+            arena: std.heap.ArenaAllocator,
         };
     };
 
@@ -616,21 +640,62 @@ pub const Module = struct {
 
         // Here we ensure enough queue capacity to store all the decls, so that later we can use
         // appendAssumeCapacity.
-        try self.analysis_queue.ensureCapacity(self.analysis_queue.items.len + contents.module.decls.len);
+        try self.work_stack.ensureCapacity(
+            self.allocator,
+            self.work_stack.items.len + src_module.decls.len,
+        );
 
-        for (contents.module.decls) |decl| {
+        for (src_module.decls) |decl| {
             if (decl.cast(text.Inst.Export)) |export_inst| {
                 try analyzeExport(self, &root_scope.base, export_inst);
             }
         }
 
-        while (self.analysis_queue.popOrNull()) |work_item| {
-            switch (work_item) {
-                .decl => |decl| switch (decl.analysis) {
-                    .success => try self.bin_file.updateDecl(self, decl),
+        while (self.work_stack.pop()) |work_item| switch (work_item) {
+            .codegen_decl => |decl| switch (decl.analysis) {
+                .success => {
+                    if (decl.typed_value.most_recent.typed_value.val.cast(Value.Function)) |payload| {
+                        switch (payload.func.analysis) {
+                            .queued => self.analyzeFnBody(decl, payload.func) catch |err| switch (err) {
+                                error.AnalysisFail => {
+                                    assert(func_payload.func.analysis == .failure);
+                                    continue;
+                                },
+                                else => |e| return e,
+                            },
+                            .in_progress => unreachable,
+                            .failure => continue,
+                            .success => {},
+                        }
+                    }
+                    try self.bin_file.updateDecl(self, decl);
                 },
-            }
-        }
+            },
+        };
+    }
+
+    fn analyzeFnBody(self: *Module, decl: *Decl, func: *Fn) !void {
+        // Use the Decl's arena for function memory.
+        var arena = decl.typed_value.most_recent.arena.?.promote(self.allocator);
+        defer decl.typed_value.most_recent.arena.?.* = arena.state;
+        var analysis: Analysis = .{
+            .inner_block = .{
+                .func = func,
+                .decl = decl,
+                .instructions = .{},
+                .arena = &arena.allocator,
+            },
+            .inst_table = std.AutoHashMap(*text.Inst, ?*Inst).init(self.allocator),
+        };
+        defer analysis.inner_block.instructions.deinit();
+        defer analysis.inst_table.deinit();
+
+        const fn_inst = func.analysis.queued;
+        func.analysis = .{ .in_progress = &analysis };
+
+        try self.analyzeBody(&analysis.inner_block, fn_inst.positionals.body);
+
+        func.analysis = .{ .success = .{ .instructions = analysis.inner_block.instructions.toOwnedSlice() } };
     }
 
     fn resolveDecl(self: *Module, scope: *Scope, old_inst: *text.Inst) InnerError!*Decl {
@@ -656,19 +721,27 @@ pub const Module = struct {
             };
 
             var decl_scope: Scope.DeclAnalysis = .{
-                .base = .{ .parent = scope },
                 .decl = new_decl,
+                .arena = std.heap.ArenaAllocator.init(self.allocator),
             };
-            const typed_value = self.analyzeInstConst(&decl_scope.base, old_inst) catch |err| switch (err) {
-                error.AnalysisFail => {
-                    assert(new_decl.analysis == .failure);
-                    return error.AnalysisFail;
+            errdefer decl_scope.arena.deinit();
+
+            const arena_state = try self.allocator.create(std.heap.ArenaAllocator.State);
+            errdefer self.allocator.destroy(arena_state);
+
+            const typed_value = try self.analyzeInstConst(&decl_scope.base, old_inst);
+
+            arena_state.* = decl_scope.arena;
+
+            new_decl.typed_value = .{
+                .most_recent = .{
+                    .typed_value = typed_value,
+                    .arena = arena_state,
                 },
-                else => |e| return e,
             };
-            new_decl.analysis = .{ .success = typed_value };
+            new_decl.analysis = .complete;
             // We ensureCapacity when scanning for decls.
-            self.analysis_queue.appendAssumeCapacity(.{ .decl = new_decl });
+            self.work_stack.appendAssumeCapacity(self.allocator, .{ .codegen_decl = new_decl });
             return new_decl;
         }
     }
@@ -708,7 +781,7 @@ pub const Module = struct {
 
     fn resolveInstConst(self: *Module, scope: *Scope, old_inst: *text.Inst) InnerError!TypedValue {
         const new_inst = try self.resolveInst(scope, old_inst);
-        const val = try self.resolveConstValue(new_inst);
+        const val = try self.resolveConstValue(scope, new_inst);
         return TypedValue{
             .ty = new_inst.ty,
             .val = val,
@@ -716,7 +789,7 @@ pub const Module = struct {
     }
 
     fn resolveConstValue(self: *Module, scope: *Scope, base: *Inst) !Value {
-        return (try self.resolveDefinedValue(base)) orelse
+        return (try self.resolveDefinedValue(scope, base)) orelse
             return self.fail(scope, base.src, "unable to resolve comptime value", .{});
     }
 
@@ -734,15 +807,15 @@ pub const Module = struct {
         const new_inst = try self.resolveInst(scope, old_inst);
         const wanted_type = Type.initTag(.const_slice_u8);
         const coerced_inst = try self.coerce(scope, wanted_type, new_inst);
-        const val = try self.resolveConstValue(coerced_inst);
-        return val.toAllocatedBytes(&self.arena.allocator);
+        const val = try self.resolveConstValue(scope, coerced_inst);
+        return val.toAllocatedBytes(scope.arena());
     }
 
     fn resolveType(self: *Module, scope: *Scope, old_inst: *text.Inst) !Type {
         const new_inst = try self.resolveInst(scope, old_inst);
         const wanted_type = Type.initTag(.@"type");
         const coerced_inst = try self.coerce(scope, wanted_type, new_inst);
-        const val = try self.resolveConstValue(coerced_inst);
+        const val = try self.resolveConstValue(scope, coerced_inst);
         return val.toType();
     }
 
@@ -764,7 +837,7 @@ pub const Module = struct {
         const new_export = try self.allocator.create(Export);
         errdefer self.allocator.destroy(new_export);
 
-        const owner_decl = scope.getDecl();
+        const owner_decl = scope.decl();
 
         new_export.* = .{
             .options = .{ .data = .{ .name = symbol_name } },
@@ -810,7 +883,7 @@ pub const Module = struct {
     }
 
     fn addNewInst(self: *Module, block: *Scope.Block, src: usize, ty: Type, comptime T: type) !*T {
-        const inst = try self.arena.allocator.create(T);
+        const inst = try block.arena.create(T);
         inst.* = .{
             .base = .{
                 .tag = T.base_tag,
@@ -823,8 +896,8 @@ pub const Module = struct {
         return inst;
     }
 
-    fn constInst(self: *Module, src: usize, typed_value: TypedValue) !*Inst {
-        const const_inst = try self.arena.allocator.create(Inst.Constant);
+    fn constInst(self: *Module, scope: *Scope, src: usize, typed_value: TypedValue) !*Inst {
+        const const_inst = try scope.arena().create(Inst.Constant);
         const_inst.* = .{
             .base = .{
                 .tag = Inst.Constant.base_tag,
@@ -836,71 +909,71 @@ pub const Module = struct {
         return &const_inst.base;
     }
 
-    fn constStr(self: *Module, src: usize, str: []const u8) !*Inst {
-        const array_payload = try self.arena.allocator.create(Type.Payload.Array_u8_Sentinel0);
+    fn constStr(self: *Module, scope: *Scope, src: usize, str: []const u8) !*Inst {
+        const array_payload = try scope.arena().create(Type.Payload.Array_u8_Sentinel0);
         array_payload.* = .{ .len = str.len };
 
-        const ty_payload = try self.arena.allocator.create(Type.Payload.SingleConstPointer);
+        const ty_payload = try scope.arena().create(Type.Payload.SingleConstPointer);
         ty_payload.* = .{ .pointee_type = Type.initPayload(&array_payload.base) };
 
-        const bytes_payload = try self.arena.allocator.create(Value.Payload.Bytes);
+        const bytes_payload = try scope.arena().create(Value.Payload.Bytes);
         bytes_payload.* = .{ .data = str };
 
-        return self.constInst(src, .{
+        return self.constInst(scope, src, .{
             .ty = Type.initPayload(&ty_payload.base),
             .val = Value.initPayload(&bytes_payload.base),
         });
     }
 
-    fn constType(self: *Module, src: usize, ty: Type) !*Inst {
-        return self.constInst(src, .{
+    fn constType(self: *Module, scope: *Scope, src: usize, ty: Type) !*Inst {
+        return self.constInst(scope, src, .{
             .ty = Type.initTag(.type),
-            .val = try ty.toValue(&self.arena.allocator),
+            .val = try ty.toValue(scope.arena()),
         });
     }
 
-    fn constVoid(self: *Module, src: usize) !*Inst {
-        return self.constInst(src, .{
+    fn constVoid(self: *Module, scope: *Scope, src: usize) !*Inst {
+        return self.constInst(scope, src, .{
             .ty = Type.initTag(.void),
             .val = Value.initTag(.the_one_possible_value),
         });
     }
 
-    fn constUndef(self: *Module, src: usize, ty: Type) !*Inst {
-        return self.constInst(src, .{
+    fn constUndef(self: *Module, scope: *Scope, src: usize, ty: Type) !*Inst {
+        return self.constInst(scope, src, .{
             .ty = ty,
             .val = Value.initTag(.undef),
         });
     }
 
-    fn constBool(self: *Module, src: usize, v: bool) !*Inst {
-        return self.constInst(src, .{
+    fn constBool(self: *Module, scope: *Scope, src: usize, v: bool) !*Inst {
+        return self.constInst(scope, src, .{
             .ty = Type.initTag(.bool),
             .val = ([2]Value{ Value.initTag(.bool_false), Value.initTag(.bool_true) })[@boolToInt(v)],
         });
     }
 
-    fn constIntUnsigned(self: *Module, src: usize, ty: Type, int: u64) !*Inst {
-        const int_payload = try self.arena.allocator.create(Value.Payload.Int_u64);
+    fn constIntUnsigned(self: *Module, scope: *Scope, src: usize, ty: Type, int: u64) !*Inst {
+        const int_payload = try scope.arena().create(Value.Payload.Int_u64);
         int_payload.* = .{ .int = int };
 
-        return self.constInst(src, .{
+        return self.constInst(scope, src, .{
             .ty = ty,
             .val = Value.initPayload(&int_payload.base),
         });
     }
 
-    fn constIntSigned(self: *Module, src: usize, ty: Type, int: i64) !*Inst {
-        const int_payload = try self.arena.allocator.create(Value.Payload.Int_i64);
+    fn constIntSigned(self: *Module, scope: *Scope, src: usize, ty: Type, int: i64) !*Inst {
+        const int_payload = try scope.arena().create(Value.Payload.Int_i64);
         int_payload.* = .{ .int = int };
 
-        return self.constInst(src, .{
+        return self.constInst(scope, src, .{
             .ty = ty,
             .val = Value.initPayload(&int_payload.base),
         });
     }
 
-    fn constIntBig(self: *Module, src: usize, ty: Type, big_int: BigIntConst) !*Inst {
+    fn constIntBig(self: *Module, scope: *Scope, src: usize, ty: Type, big_int: BigIntConst) !*Inst {
         const val_payload = if (big_int.positive) blk: {
             if (big_int.to(u64)) |x| {
                 return self.constIntUnsigned(src, ty, x);
@@ -908,7 +981,7 @@ pub const Module = struct {
                 error.NegativeIntoUnsigned => unreachable,
                 error.TargetTooSmall => {}, // handled below
             }
-            const big_int_payload = try self.arena.allocator.create(Value.Payload.IntBigPositive);
+            const big_int_payload = try scope.arena().create(Value.Payload.IntBigPositive);
             big_int_payload.* = .{ .limbs = big_int.limbs };
             break :blk &big_int_payload.base;
         } else blk: {
@@ -918,12 +991,12 @@ pub const Module = struct {
                 error.NegativeIntoUnsigned => unreachable,
                 error.TargetTooSmall => {}, // handled below
             }
-            const big_int_payload = try self.arena.allocator.create(Value.Payload.IntBigNegative);
+            const big_int_payload = try scope.arena().create(Value.Payload.IntBigNegative);
             big_int_payload.* = .{ .limbs = big_int.limbs };
             break :blk &big_int_payload.base;
         };
 
-        return self.constInst(src, .{
+        return self.constInst(scope, src, .{
             .ty = ty,
             .val = Value.initPayload(val_payload),
         });
@@ -958,11 +1031,10 @@ pub const Module = struct {
             .@"asm" => return self.analyzeInstAsm(scope, old_inst.cast(text.Inst.Asm).?),
             .@"unreachable" => return self.analyzeInstUnreachable(scope, old_inst.cast(text.Inst.Unreachable).?),
             .@"return" => return self.analyzeInstRet(scope, old_inst.cast(text.Inst.Return).?),
-            // TODO postpone function analysis until later
             .@"fn" => return self.analyzeInstFn(scope, old_inst.cast(text.Inst.Fn).?),
             .@"export" => {
                 try self.analyzeExport(scope, old_inst.cast(text.Inst.Export).?);
-                return self.constVoid(old_inst.src);
+                return self.constVoid(scope, old_inst.src);
             },
             .primitive => return self.analyzeInstPrimitive(old_inst.cast(text.Inst.Primitive).?),
             .fntype => return self.analyzeInstFnType(scope, old_inst.cast(text.Inst.FnType).?),
@@ -1033,7 +1105,7 @@ pub const Module = struct {
         defer self.allocator.free(fn_param_types);
         func.ty.fnParamTypes(fn_param_types);
 
-        const casted_args = try self.arena.allocator.alloc(*Inst, fn_params_len);
+        const casted_args = try scope.arena().alloc(*Inst, fn_params_len);
         for (inst.positionals.args) |src_arg, i| {
             const uncasted_arg = try self.resolveInst(scope, src_arg);
             casted_args[i] = try self.coerce(scope, fn_param_types[i], uncasted_arg);
@@ -1048,36 +1120,15 @@ pub const Module = struct {
 
     fn analyzeInstFn(self: *Module, scope: *Scope, fn_inst: *text.Inst.Fn) InnerError!*Inst {
         const fn_type = try self.resolveType(scope, fn_inst.positionals.fn_type);
-
-        var new_func: Fn = .{
-            .fn_index = self.fns.items.len,
-            .inner_block = .{
-                .func = undefined,
-                .instructions = .{},
-            },
-            .inst_table = std.AutoHashMap(*text.Inst, ?*Inst).init(self.allocator),
-        };
-        new_func.inner_block.func = &new_func;
-        defer new_func.inner_block.instructions.deinit();
-        defer new_func.inst_table.deinit();
-        // Don't hang on to a reference to this when analyzing body instructions, since the memory
-        // could become invalid.
-        (try self.fns.addOne(self.allocator)).* = .{
-            .analysis_status = .in_progress,
+        const new_func = try scope.arena().create(Fn);
+        new_func.* = .{
             .fn_type = fn_type,
-            .body = undefined,
+            .analysis = .{ .queued = fn_inst.positionals.body },
+            .scope = scope.namespace(),
         };
-
-        try self.analyzeBody(&new_func.inner_block, fn_inst.positionals.body);
-
-        const f = &self.fns.items[new_func.fn_index];
-        f.analysis_status = .success;
-        f.body = .{ .instructions = new_func.inner_block.instructions.toOwnedSlice() };
-
-        const fn_payload = try self.arena.allocator.create(Value.Payload.Function);
-        fn_payload.* = .{ .index = new_func.fn_index };
-
-        return self.constInst(fn_inst.base.src, .{
+        const fn_payload = try scope.arena().create(Value.Payload.Function);
+        fn_payload.* = .{ .func = new_func };
+        return self.constInst(scope, fn_inst.base.src, .{
             .ty = fn_type,
             .val = Value.initPayload(&fn_payload.base),
         });
@@ -1142,13 +1193,13 @@ pub const Module = struct {
         switch (elem_ty.zigTypeTag()) {
             .Array => {
                 if (mem.eql(u8, field_name, "len")) {
-                    const len_payload = try self.arena.allocator.create(Value.Payload.Int_u64);
+                    const len_payload = try scope.arena().create(Value.Payload.Int_u64);
                     len_payload.* = .{ .int = elem_ty.arrayLen() };
 
-                    const ref_payload = try self.arena.allocator.create(Value.Payload.RefVal);
+                    const ref_payload = try scope.arena().create(Value.Payload.RefVal);
                     ref_payload.* = .{ .val = Value.initPayload(&len_payload.base) };
 
-                    return self.constInst(fieldptr.base.src, .{
+                    return self.constInst(scope, fieldptr.base.src, .{
                         .ty = Type.initTag(.single_const_pointer_to_comptime_int),
                         .val = Value.initPayload(&ref_payload.base),
                     });
@@ -1217,12 +1268,12 @@ pub const Module = struct {
                     const index_u64 = index_val.toUnsignedInt();
                     // @intCast here because it would have been impossible to construct a value that
                     // required a larger index.
-                    const elem_ptr = try array_ptr_val.elemPtr(&self.arena.allocator, @intCast(usize, index_u64));
+                    const elem_ptr = try array_ptr_val.elemPtr(scope.arena(), @intCast(usize, index_u64));
 
-                    const type_payload = try self.arena.allocator.create(Type.Payload.SingleConstPointer);
+                    const type_payload = try scope.arena().create(Type.Payload.SingleConstPointer);
                     type_payload.* = .{ .pointee_type = array_ptr.ty.elemType().elemType() };
 
-                    return self.constInst(inst.base.src, .{
+                    return self.constInst(scope, inst.base.src, .{
                         .ty = Type.initPayload(&type_payload.base),
                         .val = elem_ptr,
                     });
@@ -1246,7 +1297,7 @@ pub const Module = struct {
                     var rhs_space: Value.BigIntSpace = undefined;
                     const lhs_bigint = lhs_val.toBigInt(&lhs_space);
                     const rhs_bigint = rhs_val.toBigInt(&rhs_space);
-                    const limbs = try self.arena.allocator.alloc(
+                    const limbs = try scope.arena().alloc(
                         std.math.big.Limb,
                         std.math.max(lhs_bigint.limbs.len, rhs_bigint.limbs.len) + 1,
                     );
@@ -1259,16 +1310,16 @@ pub const Module = struct {
                     }
 
                     const val_payload = if (result_bigint.positive) blk: {
-                        const val_payload = try self.arena.allocator.create(Value.Payload.IntBigPositive);
+                        const val_payload = try scope.arena().create(Value.Payload.IntBigPositive);
                         val_payload.* = .{ .limbs = result_limbs };
                         break :blk &val_payload.base;
                     } else blk: {
-                        const val_payload = try self.arena.allocator.create(Value.Payload.IntBigNegative);
+                        const val_payload = try scope.arena().create(Value.Payload.IntBigNegative);
                         val_payload.* = .{ .limbs = result_limbs };
                         break :blk &val_payload.base;
                     };
 
-                    return self.constInst(inst.base.src, .{
+                    return self.constInst(scope, inst.base.src, .{
                         .ty = lhs.ty,
                         .val = Value.initPayload(val_payload),
                     });
@@ -1286,7 +1337,7 @@ pub const Module = struct {
             else => return self.fail(scope, deref.positionals.ptr.src, "expected pointer, found '{}'", .{ptr.ty}),
         };
         if (ptr.value()) |val| {
-            return self.constInst(deref.base.src, .{
+            return self.constInst(scope, deref.base.src, .{
                 .ty = elem_ty,
                 .val = val.pointerDeref(),
             });
@@ -1300,9 +1351,9 @@ pub const Module = struct {
         const asm_source = try self.resolveConstString(scope, assembly.positionals.asm_source);
         const output = if (assembly.kw_args.output) |o| try self.resolveConstString(scope, o) else null;
 
-        const inputs = try self.arena.allocator.alloc([]const u8, assembly.kw_args.inputs.len);
-        const clobbers = try self.arena.allocator.alloc([]const u8, assembly.kw_args.clobbers.len);
-        const args = try self.arena.allocator.alloc(*Inst, assembly.kw_args.args.len);
+        const inputs = try scope.arena().alloc([]const u8, assembly.kw_args.inputs.len);
+        const clobbers = try scope.arena().alloc([]const u8, assembly.kw_args.clobbers.len);
+        const args = try scope.arena().alloc(*Inst, assembly.kw_args.args.len);
 
         for (inputs) |*elem, i| {
             elem.* = try self.resolveConstString(scope, assembly.kw_args.inputs[i]);
@@ -1408,15 +1459,16 @@ pub const Module = struct {
         const uncasted_cond = try self.resolveInst(scope, inst.positionals.condition);
         const cond = try self.coerce(scope, Type.initTag(.bool), uncasted_cond);
 
-        if (try self.resolveDefinedValue(cond)) |cond_val| {
+        if (try self.resolveDefinedValue(scope, cond)) |cond_val| {
             const body = if (cond_val.toBool()) &inst.positionals.true_body else &inst.positionals.false_body;
             try self.analyzeBody(scope, body.*);
-            return self.constVoid(inst.base.src);
+            return self.constVoid(scope, inst.base.src);
         }
 
         const parent_block = try self.requireRuntimeBlock(scope, inst.base.src);
 
         var true_block: Scope.Block = .{
+            .base = .{ .parent = scope },
             .func = parent_block.func,
             .instructions = .{},
         };
@@ -1424,6 +1476,7 @@ pub const Module = struct {
         try self.analyzeBody(&true_block.base, inst.positionals.true_body);
 
         var false_block: Scope.Block = .{
+            .base = .{ .parent = scope },
             .func = parent_block.func,
             .instructions = .{},
         };
@@ -1431,8 +1484,8 @@ pub const Module = struct {
         try self.analyzeBody(&false_block.base, inst.positionals.false_body);
 
         // Copy the instruction pointers to the arena memory
-        const true_instructions = try self.arena.allocator.alloc(*Inst, true_block.instructions.items.len);
-        const false_instructions = try self.arena.allocator.alloc(*Inst, false_block.instructions.items.len);
+        const true_instructions = try scope.arena().alloc(*Inst, true_block.instructions.items.len);
+        const false_instructions = try scope.arena().alloc(*Inst, false_block.instructions.items.len);
 
         mem.copy(*Inst, true_instructions, true_block.instructions.items);
         mem.copy(*Inst, false_instructions, false_block.instructions.items);
@@ -1586,7 +1639,7 @@ pub const Module = struct {
         var lhs_bits: usize = undefined;
         if (lhs.value()) |lhs_val| {
             if (lhs_val.isUndef())
-                return self.constUndef(src, Type.initTag(.bool));
+                return self.constUndef(scope, src, Type.initTag(.bool));
             const is_unsigned = if (lhs_is_float) x: {
                 var bigint_space: Value.BigIntSpace = undefined;
                 var bigint = try lhs_val.toBigInt(&bigint_space).toManaged(self.allocator);
@@ -1621,7 +1674,7 @@ pub const Module = struct {
         var rhs_bits: usize = undefined;
         if (rhs.value()) |rhs_val| {
             if (rhs_val.isUndef())
-                return self.constUndef(src, Type.initTag(.bool));
+                return self.constUndef(scope, src, Type.initTag(.bool));
             const is_unsigned = if (rhs_is_float) x: {
                 var bigint_space: Value.BigIntSpace = undefined;
                 var bigint = try rhs_val.toBigInt(&bigint_space).toManaged(self.allocator);
@@ -1670,13 +1723,13 @@ pub const Module = struct {
         });
     }
 
-    fn makeIntType(self: *Module, signed: bool, bits: u16) !Type {
+    fn makeIntType(self: *Module, scope: *Scope, signed: bool, bits: u16) !Type {
         if (signed) {
-            const int_payload = try self.arena.allocator.create(Type.Payload.IntSigned);
+            const int_payload = try scope.arena().create(Type.Payload.IntSigned);
             int_payload.* = .{ .bits = bits };
             return Type.initPayload(&int_payload.base);
         } else {
-            const int_payload = try self.arena.allocator.create(Type.Payload.IntUnsigned);
+            const int_payload = try scope.arena().create(Type.Payload.IntUnsigned);
             int_payload.* = .{ .bits = bits };
             return Type.initPayload(&int_payload.base);
         }
@@ -1701,7 +1754,7 @@ pub const Module = struct {
             if (array_type.zigTypeTag() == .Array and
                 coerceInMemoryAllowed(dst_elem_type, array_type.elemType()) == .ok)
             {
-                return self.coerceArrayPtrToSlice(dest_type, inst);
+                return self.coerceArrayPtrToSlice(scope, dest_type, inst);
             }
         }
 
@@ -1712,7 +1765,7 @@ pub const Module = struct {
             if (!val.intFitsInType(dest_type, self.target())) {
                 return self.fail(scope, inst.src, "type {} cannot represent integer value {}", .{ inst.ty, val });
             }
-            return self.constInst(inst.src, .{ .ty = dest_type, .val = val });
+            return self.constInst(scope, inst.src, .{ .ty = dest_type, .val = val });
         }
 
         // integer widening
@@ -1721,7 +1774,7 @@ pub const Module = struct {
             const dst_info = dest_type.intInfo(self.target());
             if (src_info.signed == dst_info.signed and dst_info.bits >= src_info.bits) {
                 if (inst.value()) |val| {
-                    return self.constInst(inst.src, .{ .ty = dest_type, .val = val });
+                    return self.constInst(scope, inst.src, .{ .ty = dest_type, .val = val });
                 } else {
                     return self.fail(scope, inst.src, "TODO implement runtime integer widening", .{});
                 }
@@ -1736,33 +1789,41 @@ pub const Module = struct {
     fn bitcast(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) !*Inst {
         if (inst.value()) |val| {
             // Keep the comptime Value representation; take the new type.
-            return self.constInst(inst.src, .{ .ty = dest_type, .val = val });
+            return self.constInst(scope, inst.src, .{ .ty = dest_type, .val = val });
         }
         // TODO validate the type size and other compile errors
         const b = try self.requireRuntimeBlock(scope, inst.src);
         return self.addNewInstArgs(b, inst.src, dest_type, Inst.BitCast, Inst.Args(Inst.BitCast){ .operand = inst });
     }
 
-    fn coerceArrayPtrToSlice(self: *Module, dest_type: Type, inst: *Inst) !*Inst {
+    fn coerceArrayPtrToSlice(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) !*Inst {
         if (inst.value()) |val| {
             // The comptime Value representation is compatible with both types.
-            return self.constInst(inst.src, .{ .ty = dest_type, .val = val });
+            return self.constInst(scope, inst.src, .{ .ty = dest_type, .val = val });
         }
         return self.fail(scope, inst.src, "TODO implement coerceArrayPtrToSlice runtime instruction", .{});
     }
 
     fn fail(self: *Module, scope: *Scope, src: usize, comptime format: []const u8, args: var) InnerError {
         @setCold(true);
-        const err_msg = ErrorMsg{
-            .byte_offset = src,
-            .msg = try std.fmt.allocPrint(self.allocator, format, args),
-        };
-        if (scope.cast(Scope.Block)) |block| {
-            block.func.analysis = .{ .failure = err_msg };
-        } else if (scope.cast(Scope.Decl)) |scope_decl| {
-            scope_decl.decl.analysis = .{ .failure = err_msg };
-        } else {
-            unreachable;
+        try self.failed_decls.ensureCapacity(self.failed_decls.size + 1);
+        try self.failed_fns.ensureCapacity(self.failed_fns.size + 1);
+        const err_msg = try ErrorMsg.create(self.allocator, src, format, args);
+        switch (scope.tag) {
+            .decl => {
+                const decl = scope.cast(Scope.DeclAnalysis).?.decl;
+                switch (decl.analysis) {
+                    .initial_in_progress => decl.analysis = .initial_sema_failure,
+                    .repeat_in_progress => decl.analysis = .repeat_sema_failure,
+                    else => unreachable,
+                }
+                self.failed_decls.putAssumeCapacityNoClobber(decl, err_msg);
+            },
+            .block => {
+                const func = scope.cast(Scope.Block).?.func;
+                func.analysis = .failure;
+                self.failed_fns.putAssumeCapacityNoClobber(func, err_msg);
+            },
         }
         return error.AnalysisFail;
     }
@@ -1788,8 +1849,8 @@ pub const ErrorMsg = struct {
 
     pub fn create(allocator: *Allocator, byte_offset: usize, comptime format: []const u8, args: var) !*ErrorMsg {
         const self = try allocator.create(ErrorMsg);
-        errdefer allocator.destroy(ErrorMsg);
-        self.* = init(allocator, byte_offset, format, args);
+        errdefer allocator.destroy(self);
+        self.* = try init(allocator, byte_offset, format, args);
         return self;
     }
 

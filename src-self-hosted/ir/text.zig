@@ -631,7 +631,7 @@ const Parser = struct {
                 if (try body_context.name_map.put(ident, ident_index)) |_| {
                     return self.fail("redefinition of identifier '{}'", .{ident});
                 }
-                try body_context.instructions.append(inst);
+                try body_context.instructions.append(self.allocator, inst);
                 continue;
             },
             ' ', '\n' => continue,
@@ -717,7 +717,7 @@ const Parser = struct {
                     if (try self.global_name_map.put(ident, ident_index)) |_| {
                         return self.fail("redefinition of identifier '{}'", .{ident});
                     }
-                    try self.decls.append(inst);
+                    try self.decls.append(self.allocator, inst);
                 },
                 ' ', '\n' => self.i += 1,
                 0 => break,
@@ -885,7 +885,7 @@ const Parser = struct {
                 var instructions = std.ArrayList(*Inst).init(&self.arena.allocator);
                 while (true) {
                     skipSpace(self);
-                    try instructions.append(try parseParameterInst(self, body_ctx));
+                    try instructions.append(self.allocator, try parseParameterInst(self, body_ctx));
                     skipSpace(self);
                     if (!eatByte(self, ',')) break;
                 }
@@ -991,7 +991,7 @@ const EmitZIR = struct {
                 },
                 .kw_args = .{},
             };
-            try self.decls.append(&export_inst.base);
+            try self.decls.append(self.allocator, &export_inst.base);
         }
     }
 
@@ -1018,7 +1018,7 @@ const EmitZIR = struct {
             },
             .kw_args = .{},
         };
-        try self.decls.append(&int_inst.base);
+        try self.decls.append(self.allocator, &int_inst.base);
         return &int_inst.base;
     }
 
@@ -1051,7 +1051,7 @@ const EmitZIR = struct {
                     },
                     .kw_args = .{},
                 };
-                try self.decls.append(&as_inst.base);
+                try self.decls.append(self.allocator, &as_inst.base);
 
                 return &as_inst.base;
             },
@@ -1085,7 +1085,7 @@ const EmitZIR = struct {
                     },
                     .kw_args = .{},
                 };
-                try self.decls.append(&fn_inst.base);
+                try self.decls.append(self.allocator, &fn_inst.base);
                 return &fn_inst.base;
             },
             else => |t| std.debug.panic("TODO implement emitTypedValue for {}", .{@tagName(t)}),
@@ -1258,7 +1258,7 @@ const EmitZIR = struct {
                     break :blk &new_inst.base;
                 },
             };
-            try instructions.append(new_inst);
+            try instructions.append(self.allocator, new_inst);
             try inst_table.putNoClobber(inst, new_inst);
         }
     }
@@ -1310,7 +1310,7 @@ const EmitZIR = struct {
                             .cc = ty.fnCallingConvention(),
                         },
                     };
-                    try self.decls.append(&fntype_inst.base);
+                    try self.decls.append(self.allocator, &fntype_inst.base);
                     return &fntype_inst.base;
                 },
                 else => std.debug.panic("TODO implement emitType for {}", .{ty}),
@@ -1327,7 +1327,7 @@ const EmitZIR = struct {
             },
             .kw_args = .{},
         };
-        try self.decls.append(&primitive_inst.base);
+        try self.decls.append(self.allocator, &primitive_inst.base);
         return &primitive_inst.base;
     }
 
@@ -1340,7 +1340,7 @@ const EmitZIR = struct {
             },
             .kw_args = .{},
         };
-        try self.decls.append(&str_inst.base);
+        try self.decls.append(self.allocator, &str_inst.base);
         return &str_inst.base;
     }
 };
