@@ -136,7 +136,7 @@ pub const Token = union(enum) {
 /// they are encountered. No copies or allocations are performed during parsing and the entire
 /// parsing state requires ~40-50 bytes of stack space.
 ///
-/// Conforms strictly to RFC8529.
+/// Conforms strictly to RFC8259.
 ///
 /// For a non-byte based wrapper, consider using TokenStream instead.
 pub const StreamingParser = struct {
