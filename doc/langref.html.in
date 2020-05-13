@@ -9988,6 +9988,13 @@ coding style.
       conventions.
       </p>
       <p>
+      File names fall into two categories: types and namespaces. If the file
+      (implicity a struct) has top level fields, it should be named like any
+      other struct with fields using {#syntax#}TitleCase{#endsyntax#}. Otherwise,
+      it should use {#syntax#}snake_case{#endsyntax#}. Directory names should be
+      {#syntax#}snake_case{#endsyntax#}.
+      </p>
+      <p>
       These are general rules of thumb; if it makes sense to do something different,
       do what makes sense. For example, if there is an established convention such as
       {#syntax#}ENOENT{#endsyntax#}, follow the established convention.
@@ -9996,6 +10003,7 @@ coding style.
       {#header_open|Examples#}
       {#code_begin|syntax#}
 const namespace_name = @import("dir_name/file_name.zig");
+const TypeName = @import("dir_name/TypeName.zig");
 var global_var: i32 = undefined;
 const const_name = 42;
 const primitive_type_alias = f32;
