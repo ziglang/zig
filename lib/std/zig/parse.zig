@@ -130,7 +130,13 @@ fn parseContainerMembers(arena: *Allocator, it: *TokenIterator, tree: *Tree) All
 
         const visib_token = eatToken(it, .Keyword_pub);
 
-        if (try parseTopLevelDecl(arena, it, tree)) |node| {
+        if (parseTopLevelDecl(arena, it, tree) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.ParseError => {
+                // try again
+                continue;
+            },
+        }) |node| {
             if (field_state == .seen) {
                 field_state = .{ .end = visib_token orelse node.firstToken() };
             }
@@ -315,7 +321,7 @@ fn parseTopLevelComptime(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*
 ///     <- (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE? / (KEYWORD_inline / KEYWORD_noinline))? FnProto (SEMICOLON / Block)
 ///      / (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE?)? KEYWORD_threadlocal? VarDecl
 ///      / KEYWORD_usingnamespace Expr SEMICOLON
-fn parseTopLevelDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) Allocator.Error!?*Node {
+fn parseTopLevelDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) Error!?*Node {
     var lib_name: ?*Node = null;
     const extern_export_inline_token = blk: {
         if (eatToken(it, .Keyword_export)) |token| break :blk token;
@@ -334,7 +340,7 @@ fn parseTopLevelDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) Allocat
             // this fn will likely have a body so we
             // use findEndOfBlock instead of findToken.
             findEndOfBlock(it);
-            return null;
+            return error.ParseError;
         },
     }) |node| {
         const fn_node = node.cast(Node.FnProto).?;
@@ -373,7 +379,7 @@ fn parseTopLevelDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) Allocat
         error.ParseError => {
             // try to skip to next decl
             findToken(it, .Semicolon);
-            return null;
+            return error.ParseError;
         },
     }) |node| {
         var var_decl = node.cast(Node.VarDecl).?;
@@ -388,8 +394,8 @@ fn parseTopLevelDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) Allocat
         try tree.errors.push(.{
             .ExpectedVarDecl = .{ .token = it.index },
         });
-        // ignore this, try to find next decl by skipping the next block
-        findEndOfBlock(it);
+        // ignore this and try again;
+        return error.ParseError;
     }
 
     if (extern_export_inline_token) |token| {
@@ -404,7 +410,7 @@ fn parseTopLevelDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) Allocat
         error.ParseError => {
             // try to skip to next decl
             findToken(it, .Semicolon);
-            return null;
+            return error.ParseError;
         },
     };
 }

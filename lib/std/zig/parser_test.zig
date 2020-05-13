@@ -62,6 +62,28 @@ test "recovery: missing return type" {
     });
 }
 
+test "recovery: continue after invalid decl" {
+    try testError(
+        \\fn foo {
+        \\    inline;
+        \\}
+        \\test "" {
+        \\    a && b;
+        \\}
+    , &[_]Error{
+        .ExpectedToken,
+        .InvalidAnd,
+    });
+    try testError(
+        \\threadlocal test "" {
+        \\    a && b;
+        \\}
+    , &[_]Error{
+        .ExpectedVarDecl,
+        .InvalidAnd,
+    });
+}
+
 test "zig fmt: top-level fields" {
     try testCanonical(
         \\a: did_you_know,
