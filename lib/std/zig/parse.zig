@@ -2824,21 +2824,16 @@ fn ListParseFn(comptime L: type, comptime nodeParseFn: var) ParseFn(L) {
             while (try nodeParseFn(arena, it, tree)) |node| {
                 try list.push(node);
 
-                const token = nextToken(it);
-                switch (token.ptr.id) {
-                    .Comma => {},
+                switch (it.peek().?.id) {
+                    .Comma => _ = nextToken(it),
                     // all possible delimiters
-                    .Colon, .RParen, .RBrace, .RBracket => {
-                        putBackToken(it, token.index);
-                        break;
-                    },
+                    .Colon, .RParen, .RBrace, .RBracket => break,
                     else => {
                         // this is likely just a missing comma,
                         // continue parsing this list and give an error
                         try tree.errors.push(.{
-                            .MissingComma = .{ .token = token.index },
+                            .MissingComma = .{ .token = it.index },
                         });
-                        putBackToken(it, token.index);
                     },
                 }
             }
@@ -2850,7 +2845,17 @@ fn ListParseFn(comptime L: type, comptime nodeParseFn: var) ParseFn(L) {
 fn SimpleBinOpParseFn(comptime token: Token.Id, comptime op: Node.InfixOp.Op) NodeParseFn {
     return struct {
         pub fn parse(arena: *Allocator, it: *TokenIterator, tree: *Tree) Error!?*Node {
-            const op_token = eatToken(it, token) orelse return null;
+            const op_token = if (token == .Keyword_and) switch (it.peek().?.id) {
+                .Keyword_and => nextToken(it).index,
+                .Invalid_ampersands => blk: {
+                    try tree.errors.push(.{
+                        .InvalidAnd = .{ .token = it.index },
+                    });
+                    break :blk nextToken(it).index;
+                },
+                else => return null,
+            } else eatToken(it, token) orelse return null;
+
             const node = try arena.create(Node.InfixOp);
             node.* = .{
                 .op_token = op_token,

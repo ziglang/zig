@@ -21,14 +21,15 @@ test "zig fmt: fault tolerant parsing" {
         \\        2 => {}
         \\        3 => {}
         \\        else => {
-        \\            inline;
+        \\            foo && bar +;
         \\        }
         \\    }
         \\}
     , &[_]Error{
         .MissingComma,
         .MissingComma,
-        .ExpectedInlinable,
+        .InvalidAnd,
+        .InvalidToken,
     });
 }
 
