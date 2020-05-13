@@ -185,18 +185,18 @@ pub fn PriorityQueue(comptime T: type) type {
             self.len = new_len;
         }
 
-        const Iterator = struct {
+        pub const Iterator = struct {
             queue: *PriorityQueue(T),
             count: usize,
 
-            fn next(it: *Iterator) ?T {
+            pub fn next(it: *Iterator) ?T {
                 if (it.count > it.queue.len - 1) return null;
                 const out = it.count;
                 it.count += 1;
                 return it.queue.items[out];
             }
 
-            fn reset(it: *Iterator) void {
+            pub fn reset(it: *Iterator) void {
                 it.count = 0;
             }
         };
