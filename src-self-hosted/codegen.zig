@@ -5,13 +5,9 @@ const ir = @import("ir.zig");
 const Type = @import("type.zig").Type;
 const Value = @import("value.zig").Value;
 const Target = std.Target;
+const Allocator = mem.Allocator;
 
-pub fn generateSymbol(
-    typed_value: ir.TypedValue,
-    module: ir.Module,
-    code: *std.ArrayList(u8),
-    errors: *std.ArrayList(ir.ErrorMsg),
-) !void {
+pub fn generateSymbol(typed_value: ir.TypedValue, module: ir.Module, code: *std.ArrayList(u8)) !?*ir.ErrorMsg {
     switch (typed_value.ty.zigTypeTag()) {
         .Fn => {
             const module_fn = typed_value.val.cast(Value.Payload.Function).?.func;
@@ -21,14 +17,14 @@ pub fn generateSymbol(
                 .mod_fn = module_fn,
                 .code = code,
                 .inst_table = std.AutoHashMap(*ir.Inst, Function.MCValue).init(code.allocator),
-                .errors = errors,
+                .err_msg = null,
             };
             defer function.inst_table.deinit();
 
             for (module_fn.body.instructions) |inst| {
                 const new_inst = function.genFuncInst(inst) catch |err| switch (err) {
                     error.CodegenFail => {
-                        assert(function.errors.items.len != 0);
+                        assert(function.err_msg != null);
                         break;
                     },
                     else => |e| return e,
@@ -36,7 +32,7 @@ pub fn generateSymbol(
                 try function.inst_table.putNoClobber(inst, new_inst);
             }
 
-            return Symbol{ .errors = function.errors.toOwnedSlice() };
+            return function.err_msg;
         },
         else => @panic("TODO implement generateSymbol for non-function decls"),
     }
@@ -47,7 +43,7 @@ const Function = struct {
     mod_fn: *const ir.Module.Fn,
     code: *std.ArrayList(u8),
     inst_table: std.AutoHashMap(*ir.Inst, MCValue),
-    errors: *std.ArrayList(ir.ErrorMsg),
+    err_msg: ?*ir.ErrorMsg,
 
     const MCValue = union(enum) {
         none,
@@ -428,11 +424,8 @@ const Function = struct {
 
     fn fail(self: *Function, src: usize, comptime format: []const u8, args: var) error{ CodegenFail, OutOfMemory } {
         @setCold(true);
-        try self.errors.ensureCapacity(self.errors.items.len + 1);
-        self.errors.appendAssumeCapacity(.{
-            .byte_offset = src,
-            .msg = try std.fmt.allocPrint(self.errors.allocator, format, args),
-        });
+        assert(self.err_msg == null);
+        self.err_msg = try ir.ErrorMsg.create(self.code.allocator, src, format, args);
         return error.CodegenFail;
     }
 };

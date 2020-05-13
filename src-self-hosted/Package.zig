@@ -50,3 +50,4 @@ pub fn add(self: *Package, name: []const u8, package: *Package) !void {
 const std = @import("std");
 const mem = std.mem;
 const assert = std.debug.assert;
+const Package = @This();

@@ -201,7 +201,7 @@ pub const Module = struct {
     decl_table: std.AutoHashMap(Decl.Hash, *Decl),
 
     optimize_mode: std.builtin.Mode,
-    link_error_flags: link.ElfFile.ErrorFlags = .{},
+    link_error_flags: link.ElfFile.ErrorFlags = link.ElfFile.ErrorFlags{},
 
     /// We optimize memory usage for a compilation with no compile errors by storing the
     /// error messages and mapping outside of `Decl`.
@@ -247,7 +247,7 @@ pub const Module = struct {
         /// The most recent value of the Decl after a successful semantic analysis.
         /// The tag for this union is determined by the tag value of the analysis field.
         typed_value: union {
-            never_succeeded,
+            never_succeeded: void,
             most_recent: TypedValue.Managed,
         },
         /// Represents the "shallow" analysis status. For example, for decls that are functions,
@@ -278,12 +278,11 @@ pub const Module = struct {
             complete,
         },
 
-        /// Represents the position of the code, if any, in the output file.
+        /// Represents the position of the code in the output file.
         /// This is populated regardless of semantic analysis and code generation.
-        /// This value is `undefined` if the type has no runtime bits.
-        link: link.ElfFile.Decl,
+        link: link.ElfFile.Decl = link.ElfFile.Decl.empty,
 
-        /// The set of other decls whose typed_value could possibly change if this Decl's
+        /// The shallow set of other decls whose typed_value could possibly change if this Decl's
         /// typed_value is modified.
         /// TODO look into using a lightweight map/set data structure rather than a linear array.
         dependants: ArrayListUnmanaged(*Decl) = .{},
@@ -368,11 +367,11 @@ pub const Module = struct {
             /// Reference to external memory, not owned by ZIRModule.
             sub_file_path: []const u8,
             source: union {
-                unloaded,
+                unloaded: void,
                 bytes: [:0]const u8,
             },
             contents: union {
-                not_available,
+                not_available: void,
                 module: *text.Module,
             },
             status: enum {
@@ -575,9 +574,9 @@ pub const Module = struct {
                 try self.failed_files.ensureCapacity(self.failed_files.size + 1);
 
                 var keep_source = false;
-                const source = try self.root_pkg_dir.readFileAllocOptions(
+                const source = try self.root_pkg.root_src_dir.readFileAllocOptions(
                     self.allocator,
-                    self.root_src_path,
+                    self.root_pkg.root_src_path,
                     std.math.maxInt(u32),
                     1,
                     0,
@@ -628,20 +627,7 @@ pub const Module = struct {
         while (self.analysis_queue.popOrNull()) |work_item| {
             switch (work_item) {
                 .decl => |decl| switch (decl.analysis) {
-                    .success => |typed_value| {
-                        var arena = decl.arena.promote(self.allocator);
-                        const update_result = self.bin_file.updateDecl(
-                            self.*,
-                            typed_value,
-                            decl.export_node,
-                            decl.fullyQualifiedNameHash(),
-                            &arena.allocator,
-                        );
-                        decl.arena = arena.state;
-                        if (try update_result) |err_msg| {
-                            decl.analysis = .{ .codegen_failure = err_msg };
-                        }
-                    },
+                    .success => try self.bin_file.updateDecl(self, decl),
                 },
             }
         }
@@ -653,22 +639,22 @@ pub const Module = struct {
             return kv.value;
         } else {
             const new_decl = blk: {
-                var decl_arena = std.heap.ArenaAllocator.init(self.allocator);
-                errdefer decl_arena.deinit();
-                const new_decl = try decl_arena.allocator.create(Decl);
-                const name = try mem.dupeZ(&decl_arena.allocator, u8, old_inst.name);
+                try self.decl_table.ensureCapacity(self.decl_table.size + 1);
+                const new_decl = try self.allocator.create(Decl);
+                errdefer self.allocator.destroy(new_decl);
+                const name = try mem.dupeZ(self.allocator, u8, old_inst.name);
+                errdefer self.allocator.free(name);
                 new_decl.* = .{
-                    .arena = decl_arena.state,
                     .name = name,
-                    .src = old_inst.src,
-                    .analysis = .in_progress,
                     .scope = scope.findZIRModule(),
+                    .src = old_inst.src,
+                    .typed_value = .{ .never_succeeded = {} },
+                    .analysis = .initial_in_progress,
                 };
-                try self.decl_table.putNoClobber(hash, new_decl);
+                self.decl_table.putAssumeCapacityNoClobber(hash, new_decl);
                 break :blk new_decl;
             };
 
-            swapRemoveElem(self.allocator, *Scope.ZIRModule, root_scope, self.failed_decls);
             var decl_scope: Scope.DeclAnalysis = .{
                 .base = .{ .parent = scope },
                 .decl = new_decl,
@@ -1838,6 +1824,7 @@ pub fn main() anyerror!void {
     const bin_path = args[2];
     const debug_error_trace = true;
     const output_zir = true;
+    const object_format: ?std.builtin.ObjectFormat = null;
 
     const native_info = try std.zig.system.NativeTargetInfo.detect(allocator, .{});
 
@@ -1845,9 +1832,9 @@ pub fn main() anyerror!void {
         .target = native_info.target,
         .output_mode = .Exe,
         .link_mode = .Static,
-        .object_format = options.object_format orelse native_info.target.getObjectFormat(),
+        .object_format = object_format orelse native_info.target.getObjectFormat(),
     });
-    defer bin_file.deinit(allocator);
+    defer bin_file.deinit();
 
     var module = blk: {
         const root_pkg = try Package.create(allocator, std.fs.cwd(), ".", src_path);
@@ -1857,7 +1844,9 @@ pub fn main() anyerror!void {
         errdefer allocator.destroy(root_scope);
         root_scope.* = .{
             .sub_file_path = root_pkg.root_src_path,
-            .contents = .unloaded,
+            .source = .{ .unloaded = {} },
+            .contents = .{ .not_available = {} },
+            .status = .unloaded,
         };
 
         break :blk Module{
@@ -1866,7 +1855,13 @@ pub fn main() anyerror!void {
             .root_scope = root_scope,
             .bin_file = &bin_file,
             .optimize_mode = .Debug,
-            .decl_table = std.AutoHashMap(Decl.Hash, *Decl).init(allocator),
+            .decl_table = std.AutoHashMap(Module.Decl.Hash, *Module.Decl).init(allocator),
+            .decl_exports = std.AutoHashMap(*Module.Decl, []*Module.Export).init(allocator),
+            .export_owners = std.AutoHashMap(*Module.Decl, []*Module.Export).init(allocator),
+            .failed_decls = std.AutoHashMap(*Module.Decl, *ErrorMsg).init(allocator),
+            .failed_fns = std.AutoHashMap(*Module.Fn, *ErrorMsg).init(allocator),
+            .failed_files = std.AutoHashMap(*Module.Scope.ZIRModule, *ErrorMsg).init(allocator),
+            .failed_exports = std.AutoHashMap(*Module.Export, *ErrorMsg).init(allocator),
         };
     };
     defer module.deinit();
