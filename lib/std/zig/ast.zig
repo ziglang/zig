@@ -926,6 +926,7 @@ pub const Node = struct {
                     if (i < 1) return node;
                     i -= 1;
                 },
+                .Invalid => unreachable,
             }
 
             if (self.body_node) |body_node| {

@@ -172,6 +172,7 @@ fn parseContainerMembers(arena: *Allocator, it: *TokenIterator, tree: *Tree) All
                 .ExpectedPubItem = .{ .token = it.index },
             });
             // ignore this pub
+            continue;
         }
 
         if (parseContainerField(arena, it, tree) catch |err| switch (err) {
@@ -1017,7 +1018,7 @@ fn parsePrimaryExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node 
         const node = try arena.create(Node.ControlFlowExpression);
         node.* = .{
             .ltoken = token,
-            .kind = Node.ControlFlowExpression.Kind{ .Break = label },
+            .kind = .{ .Break = label },
             .rhs = expr_node,
         };
         return &node.base;
@@ -1053,7 +1054,7 @@ fn parsePrimaryExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node 
         const node = try arena.create(Node.ControlFlowExpression);
         node.* = .{
             .ltoken = token,
-            .kind = Node.ControlFlowExpression.Kind{ .Continue = label },
+            .kind = .{ .Continue = label },
             .rhs = null,
         };
         return &node.base;
@@ -1077,7 +1078,7 @@ fn parsePrimaryExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node 
         const node = try arena.create(Node.ControlFlowExpression);
         node.* = .{
             .ltoken = token,
-            .kind = Node.ControlFlowExpression.Kind.Return,
+            .kind = .Return,
             .rhs = expr_node,
         };
         return &node.base;
@@ -1322,7 +1323,8 @@ fn parseSuffixExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
             try tree.errors.push(.{
                 .ExpectedParamList = .{ .token = it.index },
             });
-            return null;
+            // ignore this, continue parsing
+            return res;
         };
         const node = try arena.create(Node.SuffixOp);
         node.* = .{
@@ -2908,7 +2910,13 @@ fn parseBuiltinCall(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node 
         try tree.errors.push(.{
             .ExpectedParamList = .{ .token = it.index },
         });
-        return error.ParseError;
+
+        // lets pretend this was an identifier so we can continue parsing
+        const node = try arena.create(Node.Identifier);
+        node.* = .{
+            .token = token,
+        };
+        return &node.base;
     };
     const node = try arena.create(Node.BuiltinCall);
     node.* = .{

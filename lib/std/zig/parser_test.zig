@@ -67,19 +67,22 @@ test "recovery: continue after invalid decl" {
         \\fn foo {
         \\    inline;
         \\}
-        \\test "" {
-        \\    a && b;
+        \\pub test "" {
+        \\    async a && b;
         \\}
     , &[_]Error{
         .ExpectedToken,
+        .ExpectedPubItem,
+        .ExpectedParamList,
         .InvalidAnd,
     });
     try testError(
         \\threadlocal test "" {
-        \\    a && b;
+        \\    @a && b;
         \\}
     , &[_]Error{
         .ExpectedVarDecl,
+        .ExpectedParamList,
         .InvalidAnd,
     });
 }
