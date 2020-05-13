@@ -360,15 +360,17 @@ fn parseTopLevelDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) Error!?
         try tree.errors.push(.{
             .ExpectedSemiOrLBrace = .{ .token = it.index },
         });
-        return null;
+        return error.ParseError;
     }
 
     if (extern_export_inline_token) |token| {
         if (tree.tokens.at(token).id == .Keyword_inline or
             tree.tokens.at(token).id == .Keyword_noinline)
         {
-            putBackToken(it, token);
-            return null;
+            try tree.errors.push(.{
+                .ExpectedFn = .{ .token = it.index },
+            });
+            return error.ParseError;
         }
     }
 
@@ -399,10 +401,11 @@ fn parseTopLevelDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) Error!?
     }
 
     if (extern_export_inline_token) |token| {
-        if (lib_name) |string_literal_node|
-            putBackToken(it, string_literal_node.cast(Node.StringLiteral).?.token);
-        putBackToken(it, token);
-        return null;
+        try tree.errors.push(.{
+            .ExpectedVarDeclOrFn = .{ .token = it.index },
+        });
+        // ignore this and try again;
+        return error.ParseError;
     }
 
     return parseUse(arena, it, tree) catch |err| switch (err) {

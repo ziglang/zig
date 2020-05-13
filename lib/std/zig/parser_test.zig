@@ -84,6 +84,21 @@ test "recovery: continue after invalid decl" {
     });
 }
 
+test "recovery: invalid extern/inline" {
+    try testError(
+        \\inline test "" { a && b; }
+    , &[_]Error{
+        .ExpectedFn,
+        .InvalidAnd,
+    });
+    try testError(
+        \\extern "" test "" { a && b; }
+    , &[_]Error{
+        .ExpectedVarDeclOrFn,
+        .InvalidAnd,
+    });
+}
+
 test "zig fmt: top-level fields" {
     try testCanonical(
         \\a: did_you_know,

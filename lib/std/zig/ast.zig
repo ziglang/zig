@@ -129,6 +129,7 @@ pub const Error = union(enum) {
     ExpectedStatement: ExpectedStatement,
     ExpectedVarDeclOrFn: ExpectedVarDeclOrFn,
     ExpectedVarDecl: ExpectedVarDecl,
+    ExpectedFn: ExpectedFn,
     ExpectedReturnType: ExpectedReturnType,
     ExpectedAggregateKw: ExpectedAggregateKw,
     UnattachedDocComment: UnattachedDocComment,
@@ -179,6 +180,7 @@ pub const Error = union(enum) {
             .ExpectedStatement => |*x| return x.render(tokens, stream),
             .ExpectedVarDeclOrFn => |*x| return x.render(tokens, stream),
             .ExpectedVarDecl => |*x| return x.render(tokens, stream),
+            .ExpectedFn => |*x| return x.render(tokens, stream),
             .ExpectedReturnType => |*x| return x.render(tokens, stream),
             .ExpectedAggregateKw => |*x| return x.render(tokens, stream),
             .UnattachedDocComment => |*x| return x.render(tokens, stream),
@@ -231,6 +233,7 @@ pub const Error = union(enum) {
             .ExpectedStatement => |x| return x.token,
             .ExpectedVarDeclOrFn => |x| return x.token,
             .ExpectedVarDecl => |x| return x.token,
+            .ExpectedFn => |x| return x.token,
             .ExpectedReturnType => |x| return x.token,
             .ExpectedAggregateKw => |x| return x.token,
             .UnattachedDocComment => |x| return x.token,
@@ -280,6 +283,7 @@ pub const Error = union(enum) {
     pub const ExpectedStatement = SingleTokenError("Expected statement, found '{}'");
     pub const ExpectedVarDeclOrFn = SingleTokenError("Expected variable declaration or function, found '{}'");
     pub const ExpectedVarDecl = SingleTokenError("Expected variable declaration, found '{}'");
+    pub const ExpectedFn = SingleTokenError("Expected function, found '{}'");
     pub const ExpectedReturnType = SingleTokenError("Expected 'var' or return type expression, found '{}'");
     pub const ExpectedAggregateKw = SingleTokenError("Expected '" ++ Token.Id.Keyword_struct.symbol() ++ "', '" ++ Token.Id.Keyword_union.symbol() ++ "', or '" ++ Token.Id.Keyword_enum.symbol() ++ "', found '{}'");
     pub const ExpectedEqOrSemi = SingleTokenError("Expected '=' or ';', found '{}'");
