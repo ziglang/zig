@@ -165,6 +165,7 @@ pub const Error = union(enum) {
     ExpectedDerefOrUnwrap: ExpectedDerefOrUnwrap,
     ExpectedSuffixOp: ExpectedSuffixOp,
     DeclBetweenFields: DeclBetweenFields,
+    MissingComma: MissingComma,
 
     pub fn render(self: *const Error, tokens: *Tree.TokenList, stream: var) !void {
         switch (self.*) {
@@ -213,6 +214,7 @@ pub const Error = union(enum) {
             .ExpectedDerefOrUnwrap => |*x| return x.render(tokens, stream),
             .ExpectedSuffixOp => |*x| return x.render(tokens, stream),
             .DeclBetweenFields => |*x| return x.render(tokens, stream),
+            .MissingComma => |*x| return x.render(tokens, stream),
         }
     }
 
@@ -263,6 +265,7 @@ pub const Error = union(enum) {
             .ExpectedDerefOrUnwrap => |x| return x.token,
             .ExpectedSuffixOp => |x| return x.token,
             .DeclBetweenFields => |x| return x.token,
+            .MissingComma => |x| return x.token,
         }
     }
 
@@ -308,6 +311,7 @@ pub const Error = union(enum) {
     pub const ExtraVolatileQualifier = SimpleError("Extra volatile qualifier");
     pub const ExtraAllowZeroQualifier = SimpleError("Extra allowzero qualifier");
     pub const DeclBetweenFields = SimpleError("Declarations are not allowed between container fields");
+    pub const MissingComma = SimpleError("Expected comma between items");
 
     pub const ExpectedCall = struct {
         node: *Node,

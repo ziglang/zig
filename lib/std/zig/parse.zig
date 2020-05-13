@@ -1083,7 +1083,14 @@ fn parseBlock(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 
     var statements = Node.Block.StatementList.init(arena);
     while (true) {
-        const statement = (try parseStatement(arena, it, tree)) orelse break;
+        const statement = (parseStatement(arena, it, tree) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.ParseError => {
+                // try to skip to the next statement
+                findToken(it, .Semicolon);
+                continue;
+            },
+        }) orelse break;
         try statements.push(statement);
     }
 
@@ -2816,7 +2823,24 @@ fn ListParseFn(comptime L: type, comptime nodeParseFn: var) ParseFn(L) {
             var list = L.init(arena);
             while (try nodeParseFn(arena, it, tree)) |node| {
                 try list.push(node);
-                if (eatToken(it, .Comma) == null) break;
+
+                const token = nextToken(it);
+                switch (token.ptr.id) {
+                    .Comma => {},
+                    // all possible delimiters
+                    .Colon, .RParen, .RBrace, .RBracket => {
+                        putBackToken(it, token.index);
+                        break;
+                    },
+                    else => {
+                        // this is likely just a missing comma,
+                        // continue parsing this list and give an error
+                        try tree.errors.push(.{
+                            .MissingComma = .{ .token = token.index },
+                        });
+                        putBackToken(it, token.index);
+                    },
+                }
             }
             return list;
         }

@@ -6,6 +6,30 @@ test "zig fmt: fault tolerant parsing" {
         .ExpectedInlinable,
         .ExpectedInlinable,
     });
+    try testError(
+        \\test "" {
+        \\    foo + +;
+        \\    inline;
+        \\}
+    , &[_]Error{
+        .InvalidToken,
+        .ExpectedInlinable,
+    });
+    try testError(
+        \\test "" {
+        \\    switch (foo) {
+        \\        2 => {}
+        \\        3 => {}
+        \\        else => {
+        \\            inline;
+        \\        }
+        \\    }
+        \\}
+    , &[_]Error{
+        .MissingComma,
+        .MissingComma,
+        .ExpectedInlinable,
+    });
 }
 
 test "zig fmt: top-level fields" {
