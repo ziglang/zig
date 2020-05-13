@@ -893,6 +893,7 @@ pub const Node = struct {
         pub const ReturnType = union(enum) {
             Explicit: *Node,
             InferErrorSet: *Node,
+            Invalid,
         };
 
         pub fn iterate(self: *FnProto, index: usize) ?*Node {
@@ -942,6 +943,7 @@ pub const Node = struct {
             if (self.body_node) |body_node| return body_node.lastToken();
             switch (self.return_type) {
                 .Explicit, .InferErrorSet => |node| return node.lastToken(),
+                .Invalid => unreachable,
             }
         }
     };

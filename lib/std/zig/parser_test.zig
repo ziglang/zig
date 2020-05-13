@@ -1,4 +1,4 @@
-test "zig fmt: fault tolerant parsing" {
+test "recovery: top level" {
     try testError(
         \\test "" {inline}
         \\test "" {inline}
@@ -6,6 +6,9 @@ test "zig fmt: fault tolerant parsing" {
         .ExpectedInlinable,
         .ExpectedInlinable,
     });
+}
+
+test "recovery: block statements" {
     try testError(
         \\test "" {
         \\    foo + +;
@@ -15,6 +18,9 @@ test "zig fmt: fault tolerant parsing" {
         .InvalidToken,
         .ExpectedInlinable,
     });
+}
+
+test "recovery: missing comma" {
     try testError(
         \\test "" {
         \\    switch (foo) {
@@ -30,6 +36,29 @@ test "zig fmt: fault tolerant parsing" {
         .MissingComma,
         .InvalidAnd,
         .InvalidToken,
+    });
+}
+
+test "recovery: extra qualifier" {
+    try testError(
+        \\const a: *const const u8;
+        \\test ""
+    , &[_]Error{
+        .ExtraConstQualifier,
+        .ExpectedLBrace,
+    });
+}
+
+test "recovery: missing return type" {
+    try testError(
+        \\fn foo() {
+        \\    a && b;
+        \\}
+        \\test ""
+    , &[_]Error{
+        .ExpectedReturnType,
+        .InvalidAnd,
+        .ExpectedLBrace,
     });
 }
 

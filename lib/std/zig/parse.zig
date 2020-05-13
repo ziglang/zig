@@ -130,15 +130,7 @@ fn parseContainerMembers(arena: *Allocator, it: *TokenIterator, tree: *Tree) All
 
         const visib_token = eatToken(it, .Keyword_pub);
 
-        if (parseTopLevelDecl(arena, it, tree) catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
-            error.ParseError => {
-                // attempt to recover by finding a semicolon
-                // TODO if this was a function with a body we should use findEndOfBlock
-                findToken(it, .Semicolon);
-                continue;
-            },
-        }) |node| {
+        if (try parseTopLevelDecl(arena, it, tree)) |node| {
             if (field_state == .seen) {
                 field_state = .{ .end = visib_token orelse node.firstToken() };
             }
@@ -217,43 +209,49 @@ fn parseContainerMembers(arena: *Allocator, it: *TokenIterator, tree: *Tree) All
     return list;
 }
 
-/// Attempts to find a closing brace, assumes the opening brace was found.
+/// Attempts to find a closing brace.
 fn findEndOfBlock(it: *TokenIterator) void {
-    var count: u32 = 1;
-    while (it.next()) |tok| switch (tok.id) {
-        .LBrace => count += 1,
-        .RBrace => {
-            count -= 1;
-            if (count == 0) return;
-        },
-        .Eof => {
-            _ = it.prev();
-            return;
-        },
-        else => {},
-    };
+    var count: u32 = 0;
+    while (true) {
+        const tok = nextToken(it);
+        switch (tok.ptr.id) {
+            .LBrace => count += 1,
+            .RBrace => {
+                if (count <= 1) return;
+                count -= 1;
+            },
+            .Eof => {
+                putBackToken(it, tok.index);
+                return;
+            },
+            else => {},
+        }
+    }
 }
 
 /// Attempts to find `wanted` token, keeps track of parentheses.
 fn findToken(it: *TokenIterator, wanted: Token.Id) void {
     var count: u32 = 0;
-    while (it.next()) |tok| switch (tok.id) {
-        .LParen, .LBracket, .LBrace => count += 1,
-        .RParen, .RBracket, .RBrace => {
-            if (count == 0) {
-                _ = it.prev();
+    while (true) {
+        const tok = nextToken(it);
+        switch (tok.ptr.id) {
+            .LParen, .LBracket, .LBrace => count += 1,
+            .RParen, .RBracket, .RBrace => {
+                if (count == 0) {
+                    putBackToken(it, tok.index);
+                    return;
+                }
+                count -= 1;
+            },
+            .Eof => {
+                putBackToken(it, tok.index);
                 return;
-            }
-            count -= 1;
-        },
-        .Eof => {
-            _ = it.prev();
-            return;
-        },
-        else => {
-            if (tok.id == wanted and count == 0) return;
-        },
-    };
+            },
+            else => {
+                if (tok.ptr.id == wanted and count == 0) return;
+            },
+        }
+    }
 }
 
 /// Eat a multiline container doc comment
@@ -317,7 +315,7 @@ fn parseTopLevelComptime(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*
 ///     <- (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE? / (KEYWORD_inline / KEYWORD_noinline))? FnProto (SEMICOLON / Block)
 ///      / (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE?)? KEYWORD_threadlocal? VarDecl
 ///      / KEYWORD_usingnamespace Expr SEMICOLON
-fn parseTopLevelDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseTopLevelDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) Allocator.Error!?*Node {
     var lib_name: ?*Node = null;
     const extern_export_inline_token = blk: {
         if (eatToken(it, .Keyword_export)) |token| break :blk token;
@@ -330,12 +328,26 @@ fn parseTopLevelDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node
         break :blk null;
     };
 
-    if (try parseFnProto(arena, it, tree)) |node| {
+    if (parseFnProto(arena, it, tree) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        error.ParseError => {
+            // this fn will likely have a body so we
+            // use findEndOfBlock instead of findToken.
+            findEndOfBlock(it);
+            return null;
+        },
+    }) |node| {
         const fn_node = node.cast(Node.FnProto).?;
         fn_node.*.extern_export_inline_token = extern_export_inline_token;
         fn_node.*.lib_name = lib_name;
         if (eatToken(it, .Semicolon)) |_| return node;
-        if (try parseBlock(arena, it, tree)) |body_node| {
+        if (parseBlock(arena, it, tree) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            // since parseBlock only return error.ParseError on
+            // a missing '}' we can assume this function was
+            // supposed to end here.
+            error.ParseError => null,
+        }) |body_node| {
             fn_node.body_node = body_node;
             return node;
         }
@@ -356,7 +368,14 @@ fn parseTopLevelDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node
 
     const thread_local_token = eatToken(it, .Keyword_threadlocal);
 
-    if (try parseVarDecl(arena, it, tree)) |node| {
+    if (parseVarDecl(arena, it, tree) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        error.ParseError => {
+            // try to skip to next decl
+            findToken(it, .Semicolon);
+            return null;
+        },
+    }) |node| {
         var var_decl = node.cast(Node.VarDecl).?;
         var_decl.*.thread_local_token = thread_local_token;
         var_decl.*.comptime_token = null;
@@ -369,7 +388,8 @@ fn parseTopLevelDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node
         try tree.errors.push(.{
             .ExpectedVarDecl = .{ .token = it.index },
         });
-        return error.ParseError;
+        // ignore this, try to find next decl by skipping the next block
+        findEndOfBlock(it);
     }
 
     if (extern_export_inline_token) |token| {
@@ -379,16 +399,14 @@ fn parseTopLevelDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node
         return null;
     }
 
-    const use_node = (try parseUse(arena, it, tree)) orelse return null;
-    const expr_node = try expectNode(arena, it, tree, parseExpr, .{
-        .ExpectedExpr = .{ .token = it.index },
-    });
-    const semicolon_token = try expectToken(it, tree, .Semicolon);
-    const use_node_raw = use_node.cast(Node.Use).?;
-    use_node_raw.*.expr = expr_node;
-    use_node_raw.*.semicolon_token = semicolon_token;
-
-    return use_node;
+    return parseUse(arena, it, tree) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        error.ParseError => {
+            // try to skip to next decl
+            findToken(it, .Semicolon);
+            return null;
+        },
+    };
 }
 
 /// FnProto <- KEYWORD_fn IDENTIFIER? LPAREN ParamDeclList RPAREN ByteAlign? LinkSection? EXCLAMATIONMARK? (KEYWORD_var / TypeExpr)
@@ -422,18 +440,23 @@ fn parseFnProto(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const exclamation_token = eatToken(it, .Bang);
 
     const return_type_expr = (try parseVarType(arena, it, tree)) orelse
-        try expectNode(arena, it, tree, parseTypeExpr, .{
-        .ExpectedReturnType = .{ .token = it.index },
-    });
+        (try parseTypeExpr(arena, it, tree)) orelse blk: {
+        try tree.errors.push(.{
+            .ExpectedReturnType = .{ .token = it.index },
+        });
+        // most likely the user forgot to specify the return type.
+        // Mark return type as invalid and try to continue.
+        break :blk null;
+    };
 
-    const return_type: Node.FnProto.ReturnType = if (exclamation_token != null)
-        .{
-            .InferErrorSet = return_type_expr,
-        }
+    // TODO https://github.com/ziglang/zig/issues/3750
+    const R = Node.FnProto.ReturnType;
+    const return_type = if (return_type_expr == null)
+        R{ .Invalid = {} }
+    else if (exclamation_token != null)
+        R{ .InferErrorSet = return_type_expr.? }
     else
-        .{
-            .Explicit = return_type_expr,
-        };
+        R{ .Explicit = return_type_expr.? };
 
     const var_args_token = if (params.len > 0)
         params.at(params.len - 1).*.cast(Node.ParamDecl).?.var_args_token
@@ -2992,8 +3015,10 @@ fn parseUse(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
         .doc_comments = null,
         .visib_token = null,
         .use_token = token,
-        .expr = undefined, // set by caller
-        .semicolon_token = undefined, // set by caller
+        .expr = try expectNode(arena, it, tree, parseExpr, .{
+            .ExpectedExpr = .{ .token = it.index },
+        }),
+        .semicolon_token = try expectToken(it, tree, .Semicolon),
     };
     return &node.base;
 }

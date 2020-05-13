@@ -1444,6 +1444,7 @@ fn renderExpression(
             else switch (fn_proto.return_type) {
                 .Explicit => |node| node.firstToken(),
                 .InferErrorSet => |node| tree.prevToken(node.firstToken()),
+                .Invalid => unreachable,
             });
             assert(tree.tokens.at(rparen).id == .RParen);
 
@@ -1518,13 +1519,14 @@ fn renderExpression(
             }
 
             switch (fn_proto.return_type) {
-                ast.Node.FnProto.ReturnType.Explicit => |node| {
+                .Explicit => |node| {
                     return renderExpression(allocator, stream, tree, indent, start_col, node, space);
                 },
-                ast.Node.FnProto.ReturnType.InferErrorSet => |node| {
+                .InferErrorSet => |node| {
                     try renderToken(tree, stream, tree.prevToken(node.firstToken()), indent, start_col, Space.None); // !
                     return renderExpression(allocator, stream, tree, indent, start_col, node, space);
                 },
+                .Invalid => unreachable,
             }
         },
 
