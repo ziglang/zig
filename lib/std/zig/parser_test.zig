@@ -138,6 +138,16 @@ test "recovery: invalid container members" {
     });
 }
 
+test "recovery: invalid parameter" {
+    try testError(
+        \\fn main() void {
+        \\    a(comptime T: type)
+        \\}
+    , &[_]Error{
+        .ExpectedToken,
+    });
+}
+
 test "zig fmt: top-level fields" {
     try testCanonical(
         \\a: did_you_know,

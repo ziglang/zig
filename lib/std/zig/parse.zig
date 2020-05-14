@@ -213,7 +213,7 @@ fn parseContainerMembers(arena: *Allocator, it: *TokenIterator, tree: *Tree) All
                             .ExpectedToken = .{ .token = index, .expected_id = .Comma },
                         });
                         continue;
-                    }
+                    },
                 }
             };
             if (try parseAppendedDocComment(arena, it, tree, comma)) |appended_comment|
@@ -245,6 +245,7 @@ fn parseContainerMembers(arena: *Allocator, it: *TokenIterator, tree: *Tree) All
     return list;
 }
 
+/// Attempts to find next container member by searching for certain tokens
 fn findNextContainerMember(it: *TokenIterator) void {
     var level: u32 = 0;
     while (true) {
@@ -294,27 +295,30 @@ fn findNextContainerMember(it: *TokenIterator) void {
     }
 }
 
-/// Attempts to find `wanted` token, keeps track of parentheses.
-fn findToken(it: *TokenIterator, wanted: Token.Id) void {
-    var count: u32 = 0;
+/// Attempts to find the next statement by searching for a semicolon
+fn findNextStmt(it: *TokenIterator) void {
+    var level: u32 = 0;
     while (true) {
         const tok = nextToken(it);
         switch (tok.ptr.id) {
-            .LParen, .LBracket, .LBrace => count += 1,
-            .RParen, .RBracket, .RBrace => {
-                if (count == 0) {
+            .LBrace => level += 1,
+            .RBrace => {
+                if (level == 0) {
                     putBackToken(it, tok.index);
                     return;
                 }
-                count -= 1;
+                level -= 1;
+            },
+            .Semicolon => {
+                if (level == 0) {
+                    return;
+                }
             },
             .Eof => {
                 putBackToken(it, tok.index);
                 return;
             },
-            else => {
-                if (tok.ptr.id == wanted and count == 0) return;
-            },
+            else => {},
         }
     }
 }
@@ -1186,7 +1190,7 @@ fn parseBlock(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
             error.OutOfMemory => return error.OutOfMemory,
             error.ParseError => {
                 // try to skip to the next statement
-                findToken(it, .Semicolon);
+                findNextStmt(it);
                 continue;
             },
         }) orelse break;
