@@ -518,7 +518,7 @@ fn parseFnProto(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     // TODO https://github.com/ziglang/zig/issues/3750
     const R = Node.FnProto.ReturnType;
     const return_type = if (return_type_expr == null)
-        R{ .Invalid = {} }
+        R{ .Invalid = rparen }
     else if (exclamation_token != null)
         R{ .InferErrorSet = return_type_expr.? }
     else

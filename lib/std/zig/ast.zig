@@ -897,7 +897,7 @@ pub const Node = struct {
         pub const ReturnType = union(enum) {
             Explicit: *Node,
             InferErrorSet: *Node,
-            Invalid,
+            Invalid: TokenIndex,
         };
 
         pub fn iterate(self: *FnProto, index: usize) ?*Node {
