@@ -24,8 +24,7 @@ pub const Inst = struct {
         breakpoint,
         call,
         /// Represents a reference to a global decl by name.
-        /// Canonicalized ZIR will not have any of these. The
-        /// syntax `@foo` is equivalent to `declref("foo")`.
+        /// The syntax `@foo` is equivalent to `declref("foo")`.
         declref,
         str,
         int,
@@ -39,6 +38,7 @@ pub const Inst = struct {
         @"fn",
         @"export",
         primitive,
+        ref,
         fntype,
         intcast,
         bitcast,
@@ -67,6 +67,7 @@ pub const Inst = struct {
             .@"fn" => Fn,
             .@"export" => Export,
             .primitive => Primitive,
+            .ref => Ref,
             .fntype => FnType,
             .intcast => IntCast,
             .bitcast => BitCast,
@@ -230,6 +231,16 @@ pub const Inst = struct {
         positionals: struct {
             symbol_name: *Inst,
             value: *Inst,
+        },
+        kw_args: struct {},
+    };
+
+    pub const Ref = struct {
+        pub const base_tag = Tag.ref;
+        base: Inst,
+
+        positionals: struct {
+            operand: *Inst,
         },
         kw_args: struct {},
     };
@@ -407,7 +418,7 @@ pub const ErrorMsg = struct {
 
 pub const Module = struct {
     decls: []*Inst,
-    arena: std.heap.ArenaAllocator.State,
+    arena: std.heap.ArenaAllocator,
     error_msg: ?ErrorMsg = null,
 
     pub const Body = struct {
@@ -416,7 +427,7 @@ pub const Module = struct {
 
     pub fn deinit(self: *Module, allocator: *Allocator) void {
         allocator.free(self.decls);
-        self.arena.promote(allocator).deinit();
+        self.arena.deinit();
         self.* = undefined;
     }
 
@@ -475,6 +486,7 @@ pub const Module = struct {
             .@"return" => return self.writeInstToStreamGeneric(stream, .@"return", decl, inst_table),
             .@"fn" => return self.writeInstToStreamGeneric(stream, .@"fn", decl, inst_table),
             .@"export" => return self.writeInstToStreamGeneric(stream, .@"export", decl, inst_table),
+            .ref => return self.writeInstToStreamGeneric(stream, .ref, decl, inst_table),
             .primitive => return self.writeInstToStreamGeneric(stream, .primitive, decl, inst_table),
             .fntype => return self.writeInstToStreamGeneric(stream, .fntype, decl, inst_table),
             .intcast => return self.writeInstToStreamGeneric(stream, .intcast, decl, inst_table),
@@ -591,7 +603,7 @@ pub fn parse(allocator: *Allocator, source: [:0]const u8) Allocator.Error!Module
 
     return Module{
         .decls = parser.decls.toOwnedSlice(allocator),
-        .arena = parser.arena.state,
+        .arena = parser.arena,
         .error_msg = parser.error_msg,
     };
 }
@@ -630,7 +642,7 @@ const Parser = struct {
                 skipSpace(self);
                 try requireEatBytes(self, "=");
                 skipSpace(self);
-                const inst = try parseInstruction(self, &body_context, ident[1..]);
+                const inst = try parseInstruction(self, &body_context, ident);
                 const ident_index = body_context.instructions.items.len;
                 if (try body_context.name_map.put(ident, ident_index)) |_| {
                     return self.fail("redefinition of identifier '{}'", .{ident});
@@ -716,7 +728,7 @@ const Parser = struct {
                     skipSpace(self);
                     try requireEatBytes(self, "=");
                     skipSpace(self);
-                    const inst = try parseInstruction(self, null, ident[1..]);
+                    const inst = try parseInstruction(self, null, ident);
                     const ident_index = self.decls.items.len;
                     if (try self.global_name_map.put(ident, ident_index)) |_| {
                         return self.fail("redefinition of identifier '{}'", .{ident});
@@ -987,7 +999,7 @@ pub fn emit_zir(allocator: *Allocator, old_module: ir.Module) !Module {
 
     return Module{
         .decls = ctx.decls.toOwnedSlice(allocator),
-        .arena = ctx.arena.state,
+        .arena = ctx.arena,
     };
 }
 
@@ -1056,6 +1068,7 @@ const EmitZIR = struct {
     }
 
     fn emitTypedValue(self: *EmitZIR, src: usize, typed_value: TypedValue) Allocator.Error!*Inst {
+        const allocator = &self.arena.allocator;
         switch (typed_value.ty.zigTypeTag()) {
             .Pointer => {
                 const ptr_elem_type = typed_value.ty.elemType();
@@ -1067,7 +1080,10 @@ const EmitZIR = struct {
                         //    ptr_elem_type.hasSentinel(Value.initTag(.zero)))
                         //{
                         //}
-                        const bytes = try typed_value.val.toAllocatedBytes(&self.arena.allocator);
+                        const bytes = typed_value.val.toAllocatedBytes(allocator) catch |err| switch (err) {
+                            error.AnalysisFail => unreachable,
+                            else => |e| return e,
+                        };
                         return self.emitStringLiteral(src, bytes);
                     },
                     else => |t| std.debug.panic("TODO implement emitTypedValue for pointer to {}", .{@tagName(t)}),

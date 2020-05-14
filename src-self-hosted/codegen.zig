@@ -9,7 +9,18 @@ const link = @import("link.zig");
 const Target = std.Target;
 const Allocator = mem.Allocator;
 
-pub fn generateSymbol(bin_file: *link.ElfFile, typed_value: TypedValue, code: *std.ArrayList(u8)) !?*ir.ErrorMsg {
+pub const Result = union(enum) {
+    /// This value might or might not alias the `code` parameter passed to `generateSymbol`.
+    ok: []const u8,
+    fail: *ir.ErrorMsg,
+};
+
+pub fn generateSymbol(
+    bin_file: *link.ElfFile,
+    src: usize,
+    typed_value: TypedValue,
+    code: *std.ArrayList(u8),
+) error{OutOfMemory}!Result {
     switch (typed_value.ty.zigTypeTag()) {
         .Fn => {
             const module_fn = typed_value.val.cast(Value.Payload.Function).?.func;
@@ -18,25 +29,77 @@ pub fn generateSymbol(bin_file: *link.ElfFile, typed_value: TypedValue, code: *s
                 .target = &bin_file.options.target,
                 .mod_fn = module_fn,
                 .code = code,
-                .inst_table = std.AutoHashMap(*ir.Inst, Function.MCValue).init(code.allocator),
+                .inst_table = std.AutoHashMap(*ir.Inst, Function.MCValue).init(bin_file.allocator),
                 .err_msg = null,
             };
             defer function.inst_table.deinit();
 
             for (module_fn.analysis.success.instructions) |inst| {
                 const new_inst = function.genFuncInst(inst) catch |err| switch (err) {
-                    error.CodegenFail => {
-                        assert(function.err_msg != null);
-                        break;
-                    },
+                    error.CodegenFail => return Result{ .fail = function.err_msg.? },
                     else => |e| return e,
                 };
                 try function.inst_table.putNoClobber(inst, new_inst);
             }
 
-            return function.err_msg;
+            if (function.err_msg) |em| {
+                return Result{ .fail = em };
+            } else {
+                return Result{ .ok = code.items };
+            }
         },
-        else => @panic("TODO implement generateSymbol for non-function decls"),
+        .Array => {
+            if (typed_value.val.cast(Value.Payload.Bytes)) |payload| {
+                return Result{ .ok = payload.data };
+            }
+            return Result{
+                .fail = try ir.ErrorMsg.create(
+                    bin_file.allocator,
+                    src,
+                    "TODO implement generateSymbol for more kinds of arrays",
+                    .{},
+                ),
+            };
+        },
+        .Pointer => {
+            if (typed_value.val.cast(Value.Payload.DeclRef)) |payload| {
+                const decl = payload.decl;
+                assert(decl.link.local_sym_index != 0);
+                // TODO handle the dependency of this symbol on the decl's vaddr.
+                // If the decl changes vaddr, then this symbol needs to get regenerated.
+                const vaddr = bin_file.symbols.items[decl.link.local_sym_index].st_value;
+                const endian = bin_file.options.target.cpu.arch.endian();
+                switch (bin_file.ptr_width) {
+                    .p32 => {
+                        try code.resize(4);
+                        mem.writeInt(u32, code.items[0..4], @intCast(u32, vaddr), endian);
+                    },
+                    .p64 => {
+                        try code.resize(8);
+                        mem.writeInt(u64, code.items[0..8], vaddr, endian);
+                    },
+                }
+                return Result{ .ok = code.items };
+            }
+            return Result{
+                .fail = try ir.ErrorMsg.create(
+                    bin_file.allocator,
+                    src,
+                    "TODO implement generateSymbol for pointer {}",
+                    .{typed_value.val},
+                ),
+            };
+        },
+        else => |t| {
+            return Result{
+                .fail = try ir.ErrorMsg.create(
+                    bin_file.allocator,
+                    src,
+                    "TODO implement generateSymbol for type '{}'",
+                    .{@tagName(t)},
+                ),
+            };
+        },
     }
 }
 
@@ -390,14 +453,18 @@ const Function = struct {
     }
 
     fn genTypedValue(self: *Function, src: usize, typed_value: TypedValue) !MCValue {
+        const allocator = self.code.allocator;
         switch (typed_value.ty.zigTypeTag()) {
             .Pointer => {
                 const ptr_elem_type = typed_value.ty.elemType();
                 switch (ptr_elem_type.zigTypeTag()) {
                     .Array => {
                         // TODO more checks to make sure this can be emitted as a string literal
-                        const bytes = try typed_value.val.toAllocatedBytes(self.code.allocator);
-                        defer self.code.allocator.free(bytes);
+                        const bytes = typed_value.val.toAllocatedBytes(allocator) catch |err| switch (err) {
+                            error.AnalysisFail => unreachable,
+                            else => |e| return e,
+                        };
+                        defer allocator.free(bytes);
                         const smaller_len = std.math.cast(u32, bytes.len) catch
                             return self.fail(src, "TODO handle a larger string constant", .{});
 

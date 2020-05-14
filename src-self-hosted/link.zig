@@ -33,9 +33,11 @@ pub fn openBinFilePath(
     options: Options,
 ) !ElfFile {
     const file = try dir.createFile(sub_path, .{ .truncate = false, .read = true, .mode = determineMode(options) });
-    defer file.close();
+    errdefer file.close();
 
-    return openBinFile(allocator, file, options);
+    var bin_file = try openBinFile(allocator, file, options);
+    bin_file.owns_file_handle = true;
+    return bin_file;
 }
 
 /// Atomically overwrites the old file, if present.
@@ -89,6 +91,7 @@ pub fn openBinFile(allocator: *Allocator, file: fs.File, options: Options) !ElfF
 pub const ElfFile = struct {
     allocator: *Allocator,
     file: fs.File,
+    owns_file_handle: bool,
     options: Options,
     ptr_width: enum { p32, p64 },
 
@@ -162,6 +165,8 @@ pub const ElfFile = struct {
         self.shstrtab.deinit(self.allocator);
         self.symbols.deinit(self.allocator);
         self.offset_table.deinit(self.allocator);
+        if (self.owns_file_handle)
+            self.file.close();
     }
 
     // `alloc_num / alloc_den` is the factor of padding when allocation
@@ -685,7 +690,7 @@ pub const ElfFile = struct {
         // TODO Also detect virtual address collisions.
         const text_capacity = self.allocatedSize(shdr.sh_offset);
         // TODO instead of looping here, maintain a free list and a pointer to the end.
-        var last_start: u64 = 0;
+        var last_start: u64 = phdr.p_vaddr;
         var last_size: u64 = 0;
         for (self.symbols.items) |sym| {
             if (sym.st_value > last_start) {
@@ -738,19 +743,21 @@ pub const ElfFile = struct {
     }
 
     pub fn updateDecl(self: *ElfFile, module: *ir.Module, decl: *ir.Module.Decl) !void {
-        var code = std.ArrayList(u8).init(self.allocator);
-        defer code.deinit();
+        var code_buffer = std.ArrayList(u8).init(self.allocator);
+        defer code_buffer.deinit();
 
         const typed_value = decl.typed_value.most_recent.typed_value;
-        const err_msg = try codegen.generateSymbol(self, typed_value, &code);
-        if (err_msg) |em| {
-            decl.analysis = .codegen_failure;
-            _ = try module.failed_decls.put(decl, em);
-            return;
-        }
+        const code = switch (try codegen.generateSymbol(self, decl.src, typed_value, &code_buffer)) {
+            .ok => |x| x,
+            .fail => |em| {
+                decl.analysis = .codegen_failure;
+                _ = try module.failed_decls.put(decl, em);
+                return;
+            },
+        };
 
         const file_offset = blk: {
-            const code_size = code.items.len;
+            const code_size = code.len;
             const stt_bits: u8 = switch (typed_value.ty.zigTypeTag()) {
                 .Fn => elf.STT_FUNC,
                 else => elf.STT_OBJECT,
@@ -793,11 +800,13 @@ pub const ElfFile = struct {
                 errdefer self.symbols.shrink(self.allocator, self.symbols.items.len - 1);
                 self.offset_table.appendAssumeCapacity(new_block.vaddr);
                 errdefer self.offset_table.shrink(self.allocator, self.offset_table.items.len - 1);
-                try self.writeSymbol(local_sym_index);
-                try self.writeOffsetTableEntry(offset_table_index);
 
                 self.symbol_count_dirty = true;
                 self.offset_table_count_dirty = true;
+
+                try self.writeSymbol(local_sym_index);
+                try self.writeOffsetTableEntry(offset_table_index);
+
                 decl.link = .{
                     .local_sym_index = @intCast(u32, local_sym_index),
                     .offset_table_index = @intCast(u32, offset_table_index),
@@ -807,7 +816,7 @@ pub const ElfFile = struct {
             }
         };
 
-        try self.file.pwriteAll(code.items, file_offset);
+        try self.file.pwriteAll(code, file_offset);
 
         // Since we updated the vaddr and the size, each corresponding export symbol also needs to be updated.
         const decl_exports = module.decl_exports.getValue(decl) orelse &[0]*ir.Module.Export{};
@@ -823,7 +832,7 @@ pub const ElfFile = struct {
     ) !void {
         try self.symbols.ensureCapacity(self.allocator, self.symbols.items.len + exports.len);
         const typed_value = decl.typed_value.most_recent.typed_value;
-        assert(decl.link.local_sym_index != 0);
+        if (decl.link.local_sym_index == 0) return;
         const decl_sym = self.symbols.items[decl.link.local_sym_index];
 
         for (exports) |exp| {
@@ -1112,6 +1121,7 @@ pub fn createElfFile(allocator: *Allocator, file: fs.File, options: Options) !El
             else => return error.UnsupportedELFArchitecture,
         },
         .shdr_table_dirty = true,
+        .owns_file_handle = false,
     };
     errdefer self.deinit();
 
@@ -1161,6 +1171,7 @@ fn openBinFileInner(allocator: *Allocator, file: fs.File, options: Options) !Elf
     var self: ElfFile = .{
         .allocator = allocator,
         .file = file,
+        .owns_file_handle = false,
         .options = options,
         .ptr_width = switch (options.target.cpu.arch.ptrBitWidth()) {
             32 => .p32,

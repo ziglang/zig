@@ -180,9 +180,16 @@ pub const Value = extern union {
 
     /// Asserts that the value is representable as an array of bytes.
     /// Copies the value into a freshly allocated slice of memory, which is owned by the caller.
-    pub fn toAllocatedBytes(self: Value, allocator: *Allocator) Allocator.Error![]u8 {
+    pub fn toAllocatedBytes(self: Value, allocator: *Allocator) ![]u8 {
         if (self.cast(Payload.Bytes)) |bytes| {
             return std.mem.dupe(allocator, u8, bytes.data);
+        }
+        if (self.cast(Payload.Repeated)) |repeated| {
+            @panic("TODO implement toAllocatedBytes for this Value tag");
+        }
+        if (self.cast(Payload.DeclRef)) |declref| {
+            const val = try declref.decl.value();
+            return val.toAllocatedBytes(allocator);
         }
         unreachable;
     }

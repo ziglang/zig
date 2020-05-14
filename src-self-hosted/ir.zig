@@ -191,7 +191,7 @@ pub const Module = struct {
     optimize_mode: std.builtin.Mode,
     link_error_flags: link.ElfFile.ErrorFlags = link.ElfFile.ErrorFlags{},
 
-    work_stack: ArrayListUnmanaged(WorkItem) = ArrayListUnmanaged(WorkItem){},
+    work_queue: std.fifo.LinearFifo(WorkItem, .Dynamic),
 
     /// We optimize memory usage for a compilation with no compile errors by storing the
     /// error messages and mapping outside of `Decl`.
@@ -333,6 +333,15 @@ pub const Module = struct {
             return (try self.typedValue()).val;
         }
 
+        pub fn dump(self: *Decl) void {
+            self.scope.dumpSrc(self.src);
+            std.debug.warn(" name={} status={}", .{ mem.spanZ(self.name), @tagName(self.analysis) });
+            if (self.typedValueManaged()) |tvm| {
+                std.debug.warn(" ty={} val={}", .{ tvm.typed_value.ty, tvm.typed_value.val });
+            }
+            std.debug.warn("\n", .{});
+        }
+
         fn typedValueManaged(self: *Decl) ?*TypedValue.Managed {
             switch (self.analysis) {
                 .initial_in_progress,
@@ -359,7 +368,10 @@ pub const Module = struct {
             queued: *text.Inst.Fn,
             in_progress: *Analysis,
             /// There will be a corresponding ErrorMsg in Module.failed_decls
-            failure,
+            sema_failure,
+            /// This Fn might be OK but it depends on another Decl which did not successfully complete
+            /// semantic analysis.
+            dependency_failure,
             success: Body,
         },
 
@@ -390,7 +402,7 @@ pub const Module = struct {
             switch (self.tag) {
                 .block => return self.cast(Block).?.arena,
                 .decl => return &self.cast(DeclAnalysis).?.arena.allocator,
-                .zir_module => unreachable,
+                .zir_module => return &self.cast(ZIRModule).?.contents.module.arena.allocator,
             }
         }
 
@@ -412,6 +424,18 @@ pub const Module = struct {
                 .decl => return self.cast(DeclAnalysis).?.decl.scope,
                 .zir_module => return self.cast(ZIRModule).?,
             }
+        }
+
+        pub fn dumpInst(self: *Scope, inst: *Inst) void {
+            const zir_module = self.namespace();
+            const loc = std.zig.findLineColumn(zir_module.source.bytes, inst.src);
+            std.debug.warn("{}:{}:{}: {}: ty={}\n", .{
+                zir_module.sub_file_path,
+                loc.line + 1,
+                loc.column + 1,
+                @tagName(inst.tag),
+                inst.ty,
+            });
         }
 
         pub const Tag = enum {
@@ -438,6 +462,7 @@ pub const Module = struct {
                 unloaded,
                 unloaded_parse_failure,
                 loaded_parse_failure,
+                loaded_sema_failure,
                 loaded_success,
             },
 
@@ -446,7 +471,7 @@ pub const Module = struct {
                     .unloaded,
                     .unloaded_parse_failure,
                     => {},
-                    .loaded_success => {
+                    .loaded_success, .loaded_sema_failure => {
                         allocator.free(self.source.bytes);
                         self.contents.module.deinit(allocator);
                     },
@@ -455,6 +480,11 @@ pub const Module = struct {
                     },
                 }
                 self.* = undefined;
+            }
+
+            pub fn dumpSrc(self: *ZIRModule, src: usize) void {
+                const loc = std.zig.findLineColumn(self.source.bytes, src);
+                std.debug.warn("{}:{}:{}\n", .{ self.sub_file_path, loc.line + 1, loc.column + 1 });
             }
         };
 
@@ -520,7 +550,7 @@ pub const Module = struct {
 
     pub fn deinit(self: *Module) void {
         const allocator = self.allocator;
-        self.work_stack.deinit(allocator);
+        self.work_queue.deinit();
         {
             var it = self.decl_table.iterator();
             while (it.next()) |kv| {
@@ -586,6 +616,8 @@ pub const Module = struct {
         };
 
         try self.performAllTheWork();
+
+        // TODO unload all the source files from memory
 
         try self.bin_file.flush();
         self.link_error_flags = self.bin_file.error_flags;
@@ -654,7 +686,7 @@ pub const Module = struct {
     const InnerError = error{ OutOfMemory, AnalysisFail };
 
     pub fn performAllTheWork(self: *Module) error{OutOfMemory}!void {
-        while (self.work_stack.popOrNull()) |work_item| switch (work_item) {
+        while (self.work_queue.readItem()) |work_item| switch (work_item) {
             .codegen_decl => |decl| switch (decl.analysis) {
                 .initial_in_progress,
                 .repeat_in_progress,
@@ -671,14 +703,22 @@ pub const Module = struct {
                     if (decl.typed_value.most_recent.typed_value.val.cast(Value.Payload.Function)) |payload| {
                         switch (payload.func.analysis) {
                             .queued => self.analyzeFnBody(decl, payload.func) catch |err| switch (err) {
-                                error.AnalysisFail => continue,
+                                error.AnalysisFail => {
+                                    if (payload.func.analysis == .queued) {
+                                        payload.func.analysis = .dependency_failure;
+                                    }
+                                    continue;
+                                },
                                 else => |e| return e,
                             },
                             .in_progress => unreachable,
-                            .failure => continue,
+                            .sema_failure, .dependency_failure => continue,
                             .success => {},
                         }
                     }
+                    if (!decl.typed_value.most_recent.typed_value.ty.hasCodeGenBits())
+                        continue;
+
                     self.bin_file.updateDecl(self, decl) catch |err| switch (err) {
                         error.OutOfMemory => return error.OutOfMemory,
                         else => {
@@ -739,7 +779,10 @@ pub const Module = struct {
                 return zir_module;
             },
 
-            .unloaded_parse_failure, .loaded_parse_failure => return error.AnalysisFail,
+            .unloaded_parse_failure,
+            .loaded_parse_failure,
+            .loaded_sema_failure,
+            => return error.AnalysisFail,
             .loaded_success => return root_scope.contents.module,
         }
     }
@@ -756,14 +799,11 @@ pub const Module = struct {
 
         // Here we ensure enough queue capacity to store all the decls, so that later we can use
         // appendAssumeCapacity.
-        try self.work_stack.ensureCapacity(
-            self.allocator,
-            self.work_stack.items.len + src_module.decls.len,
-        );
+        try self.work_queue.ensureUnusedCapacity(src_module.decls.len);
 
         for (src_module.decls) |decl| {
             if (decl.cast(text.Inst.Export)) |export_inst| {
-                try analyzeExport(self, &root_scope.base, export_inst);
+                _ = try self.resolveDecl(&root_scope.base, &export_inst.base);
             }
         }
     }
@@ -825,9 +865,18 @@ pub const Module = struct {
             };
             errdefer decl_scope.arena.deinit();
 
+            const typed_value = self.analyzeInstConst(&decl_scope.base, old_inst) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.AnalysisFail => {
+                    switch (new_decl.analysis) {
+                        .initial_in_progress => new_decl.analysis = .initial_dependency_failure,
+                        .repeat_in_progress => new_decl.analysis = .repeat_dependency_failure,
+                        else => {},
+                    }
+                    return error.AnalysisFail;
+                },
+            };
             const arena_state = try decl_scope.arena.allocator.create(std.heap.ArenaAllocator.State);
-
-            const typed_value = try self.analyzeInstConst(&decl_scope.base, old_inst);
 
             arena_state.* = decl_scope.arena.state;
 
@@ -839,7 +888,7 @@ pub const Module = struct {
             };
             new_decl.analysis = .complete;
             // We ensureCapacity when scanning for decls.
-            self.work_stack.appendAssumeCapacity(.{ .codegen_decl = new_decl });
+            self.work_queue.writeItemAssumeCapacity(.{ .codegen_decl = new_decl });
             return new_decl;
         }
     }
@@ -1021,11 +1070,8 @@ pub const Module = struct {
     }
 
     fn constStr(self: *Module, scope: *Scope, src: usize, str: []const u8) !*Inst {
-        const array_payload = try scope.arena().create(Type.Payload.Array_u8_Sentinel0);
-        array_payload.* = .{ .len = str.len };
-
-        const ty_payload = try scope.arena().create(Type.Payload.SingleConstPointer);
-        ty_payload.* = .{ .pointee_type = Type.initPayload(&array_payload.base) };
+        const ty_payload = try scope.arena().create(Type.Payload.Array_u8_Sentinel0);
+        ty_payload.* = .{ .len = str.len };
 
         const bytes_payload = try scope.arena().create(Value.Payload.Bytes);
         bytes_payload.* = .{ .data = str };
@@ -1150,6 +1196,7 @@ pub const Module = struct {
                 return self.constVoid(scope, old_inst.src);
             },
             .primitive => return self.analyzeInstPrimitive(scope, old_inst.cast(text.Inst.Primitive).?),
+            .ref => return self.analyzeInstRef(scope, old_inst.cast(text.Inst.Ref).?),
             .fntype => return self.analyzeInstFnType(scope, old_inst.cast(text.Inst.FnType).?),
             .intcast => return self.analyzeInstIntCast(scope, old_inst.cast(text.Inst.IntCast).?),
             .bitcast => return self.analyzeInstBitCast(scope, old_inst.cast(text.Inst.BitCast).?),
@@ -1167,12 +1214,34 @@ pub const Module = struct {
         return self.addNewInstArgs(b, inst.base.src, Type.initTag(.void), Inst.Breakpoint, Inst.Args(Inst.Breakpoint){});
     }
 
+    fn analyzeInstRef(self: *Module, scope: *Scope, inst: *text.Inst.Ref) InnerError!*Inst {
+        const decl = try self.resolveCompleteDecl(scope, inst.positionals.operand);
+        return self.analyzeDeclRef(scope, inst.base.src, decl);
+    }
+
     fn analyzeInstDeclRef(self: *Module, scope: *Scope, inst: *text.Inst.DeclRef) InnerError!*Inst {
-        return self.fail(scope, inst.base.src, "TODO implement analyzeInstDeclFef", .{});
+        const decl_name = try self.resolveConstString(scope, inst.positionals.name);
+        // This will need to get more fleshed out when there are proper structs & namespaces.
+        const zir_module = scope.namespace();
+        for (zir_module.contents.module.decls) |src_decl| {
+            if (mem.eql(u8, src_decl.name, decl_name)) {
+                const decl = try self.resolveCompleteDecl(scope, src_decl);
+                return self.analyzeDeclRef(scope, inst.base.src, decl);
+            }
+        }
+        return self.fail(scope, inst.positionals.name.src, "use of undeclared identifier '{}'", .{decl_name});
     }
 
     fn analyzeDeclRef(self: *Module, scope: *Scope, src: usize, decl: *Decl) InnerError!*Inst {
-        return self.fail(scope, src, "TODO implement analyzeDeclRef", .{});
+        const decl_tv = try decl.typedValue();
+        const ty_payload = try scope.arena().create(Type.Payload.SingleConstPointer);
+        ty_payload.* = .{ .pointee_type = decl_tv.ty };
+        const val_payload = try scope.arena().create(Value.Payload.DeclRef);
+        val_payload.* = .{ .decl = decl };
+        return self.constInst(scope, src, .{
+            .ty = Type.initPayload(&ty_payload.base),
+            .val = Value.initPayload(&val_payload.base),
+        });
     }
 
     fn analyzeInstCall(self: *Module, scope: *Scope, inst: *text.Inst.Call) InnerError!*Inst {
@@ -1929,6 +1998,7 @@ pub const Module = struct {
     fn fail(self: *Module, scope: *Scope, src: usize, comptime format: []const u8, args: var) InnerError {
         @setCold(true);
         try self.failed_decls.ensureCapacity(self.failed_decls.size + 1);
+        try self.failed_files.ensureCapacity(self.failed_files.size + 1);
         const err_msg = try ErrorMsg.create(self.allocator, src, format, args);
         switch (scope.tag) {
             .decl => {
@@ -1942,10 +2012,14 @@ pub const Module = struct {
             },
             .block => {
                 const block = scope.cast(Scope.Block).?;
-                block.func.analysis = .failure;
+                block.func.analysis = .sema_failure;
                 self.failed_decls.putAssumeCapacityNoClobber(block.decl, err_msg);
             },
-            .zir_module => unreachable,
+            .zir_module => {
+                const zir_module = scope.cast(Scope.ZIRModule).?;
+                zir_module.status = .loaded_sema_failure;
+                self.failed_files.putAssumeCapacityNoClobber(zir_module, err_msg);
+            },
         }
         return error.AnalysisFail;
     }
@@ -2044,6 +2118,7 @@ pub fn main() anyerror!void {
             .failed_decls = std.AutoHashMap(*Module.Decl, *ErrorMsg).init(allocator),
             .failed_files = std.AutoHashMap(*Module.Scope.ZIRModule, *ErrorMsg).init(allocator),
             .failed_exports = std.AutoHashMap(*Module.Export, *ErrorMsg).init(allocator),
+            .work_queue = std.fifo.LinearFifo(Module.WorkItem, .Dynamic).init(allocator),
         };
     };
     defer module.deinit();

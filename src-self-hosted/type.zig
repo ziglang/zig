@@ -262,6 +262,50 @@ pub const Type = extern union {
         }
     }
 
+    pub fn hasCodeGenBits(self: Type) bool {
+        return switch (self.tag()) {
+            .u8,
+            .i8,
+            .isize,
+            .usize,
+            .c_short,
+            .c_ushort,
+            .c_int,
+            .c_uint,
+            .c_long,
+            .c_ulong,
+            .c_longlong,
+            .c_ulonglong,
+            .c_longdouble,
+            .f16,
+            .f32,
+            .f64,
+            .f128,
+            .bool,
+            .anyerror,
+            .fn_noreturn_no_args,
+            .fn_naked_noreturn_no_args,
+            .fn_ccc_void_no_args,
+            .single_const_pointer_to_comptime_int,
+            .const_slice_u8, // See last_no_payload_tag below.
+            .array_u8_sentinel_0,
+            .array,
+            .single_const_pointer,
+            .int_signed,
+            .int_unsigned,
+            => true,
+
+            .c_void,
+            .void,
+            .type,
+            .comptime_int,
+            .comptime_float,
+            .noreturn,
+            .@"null",
+            => false,
+        };
+    }
+
     pub fn isSinglePointer(self: Type) bool {
         return switch (self.tag()) {
             .u8,
