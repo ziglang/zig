@@ -102,6 +102,23 @@ test "recovery: invalid extern/inline" {
     });
 }
 
+test "recovery: missing semicolon" {
+    try testError(
+        \\test "" {
+        \\    comptime a && b
+        \\    c && d
+        \\    @foo
+        \\}
+    , &[_]Error{
+        .InvalidAnd,
+        .ExpectedToken,
+        .InvalidAnd,
+        .ExpectedToken,
+        .ExpectedParamList,
+        .ExpectedToken,
+    });
+}
+
 test "zig fmt: top-level fields" {
     try testCanonical(
         \\a: did_you_know,

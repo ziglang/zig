@@ -667,7 +667,12 @@ fn parseStatement(arena: *Allocator, it: *TokenIterator, tree: *Tree) Error!?*No
     if (try parseLabeledStatement(arena, it, tree)) |node| return node;
     if (try parseSwitchExpr(arena, it, tree)) |node| return node;
     if (try parseAssignExpr(arena, it, tree)) |node| {
-        _ = try expectToken(it, tree, .Semicolon);
+        _ = eatToken(it, .Semicolon) orelse {
+            try tree.errors.push(.{
+                .ExpectedToken = .{ .token = it.index, .expected_id = .Semicolon },
+            });
+            // pretend we saw a semicolon and continue parsing
+        };
         return node;
     }
 
@@ -911,7 +916,12 @@ fn parseWhileStatement(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*No
 fn parseBlockExprStatement(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     if (try parseBlockExpr(arena, it, tree)) |node| return node;
     if (try parseAssignExpr(arena, it, tree)) |node| {
-        _ = try expectToken(it, tree, .Semicolon);
+        _ = eatToken(it, .Semicolon) orelse {
+            try tree.errors.push(.{
+                .ExpectedToken = .{ .token = it.index, .expected_id = .Semicolon },
+            });
+            // pretend we saw a semicolon and continue parsing
+        };
         return node;
     }
     return null;
@@ -3072,7 +3082,7 @@ fn parseDocComment(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node.D
 }
 
 /// Eat a single-line doc comment on the same line as another node
-fn parseAppendedDocComment(arena: *Allocator, it: *TokenIterator, tree: *Tree, after_token: TokenIndex) Allocator.Error!?*Node.DocComment {
+fn parseAppendedDocComment(arena: *Allocator, it: *TokenIterator, tree: *Tree, after_token: TokenIndex) !?*Node.DocComment {
     const comment_token = eatToken(it, .DocComment) orelse return null;
     if (tree.tokensOnSameLine(after_token, comment_token)) {
         const node = try arena.create(Node.DocComment);
