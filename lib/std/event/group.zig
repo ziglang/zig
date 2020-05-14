@@ -84,7 +84,7 @@ pub fn Group(comptime ReturnType: type) type {
         /// Wait for all the calls and promises of the group to complete.
         /// Thread-safe.
         /// Safe to call any number of times.
-        pub async fn wait(self: *Self) ReturnType {
+        pub fn wait(self: *Self) callconv(.Async) ReturnType {
             const held = self.lock.acquire();
             defer held.release();
 
@@ -127,8 +127,7 @@ test "std.event.Group" {
 
     const handle = async testGroup(std.heap.page_allocator);
 }
-
-async fn testGroup(allocator: *Allocator) void {
+fn testGroup(allocator: *Allocator) callconv(.Async) void {
     var count: usize = 0;
     var group = Group(void).init(allocator);
     var sleep_a_little_frame = async sleepALittle(&count);
@@ -145,20 +144,17 @@ async fn testGroup(allocator: *Allocator) void {
     another.add(&something_that_fails_frame) catch @panic("memory");
     testing.expectError(error.ItBroke, another.wait());
 }
-
-async fn sleepALittle(count: *usize) void {
+fn sleepALittle(count: *usize) callconv(.Async) void {
     std.time.sleep(1 * std.time.millisecond);
     _ = @atomicRmw(usize, count, .Add, 1, .SeqCst);
 }
-
-async fn increaseByTen(count: *usize) void {
+fn increaseByTen(count: *usize) callconv(.Async) void {
     var i: usize = 0;
     while (i < 10) : (i += 1) {
         _ = @atomicRmw(usize, count, .Add, 1, .SeqCst);
     }
 }
-
-async fn doSomethingThatFails() anyerror!void {}
-async fn somethingElse() anyerror!void {
+fn doSomethingThatFails() callconv(.Async) anyerror!void {}
+fn somethingElse() callconv(.Async) anyerror!void {
     return error.ItBroke;
 }

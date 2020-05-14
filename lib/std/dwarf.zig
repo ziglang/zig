@@ -121,7 +121,7 @@ const Die = struct {
         };
     }
 
-    fn getAttrString(self: *const Die, di: *DwarfInfo, id: u64) ![]const u8 {
+    pub fn getAttrString(self: *const Die, di: *DwarfInfo, id: u64) ![]const u8 {
         const form_value = self.getAttr(id) orelse return error.MissingDebugInfo;
         return switch (form_value.*) {
             FormValue.String => |value| value,
@@ -389,7 +389,7 @@ pub const DwarfInfo = struct {
         return self.abbrev_table_list.allocator;
     }
 
-    fn getSymbolName(di: *DwarfInfo, address: u64) ?[]const u8 {
+    pub fn getSymbolName(di: *DwarfInfo, address: u64) ?[]const u8 {
         for (di.func_list.span()) |*func| {
             if (func.pc_range) |range| {
                 if (address >= range.start and address < range.end) {
@@ -578,7 +578,7 @@ pub const DwarfInfo = struct {
         }
     }
 
-    fn findCompileUnit(di: *DwarfInfo, target_address: u64) !*const CompileUnit {
+    pub fn findCompileUnit(di: *DwarfInfo, target_address: u64) !*const CompileUnit {
         for (di.compile_unit_list.span()) |*compile_unit| {
             if (compile_unit.pc_range) |range| {
                 if (target_address >= range.start and target_address < range.end) return compile_unit;
@@ -690,7 +690,7 @@ pub const DwarfInfo = struct {
         return result;
     }
 
-    fn getLineNumberInfo(di: *DwarfInfo, compile_unit: CompileUnit, target_address: usize) !debug.LineInfo {
+    pub fn getLineNumberInfo(di: *DwarfInfo, compile_unit: CompileUnit, target_address: usize) !debug.LineInfo {
         var stream = io.fixedBufferStream(di.debug_line);
         const in = &stream.inStream();
         const seekable = &stream.seekableStream();

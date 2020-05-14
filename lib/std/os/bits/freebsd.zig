@@ -725,16 +725,16 @@ pub const winsize = extern struct {
 
 const NSIG = 32;
 
-pub const SIG_ERR = @intToPtr(extern fn (i32) void, maxInt(usize));
-pub const SIG_DFL = @intToPtr(extern fn (i32) void, 0);
-pub const SIG_IGN = @intToPtr(extern fn (i32) void, 1);
+pub const SIG_ERR = @intToPtr(fn (i32) callconv(.C) void, maxInt(usize));
+pub const SIG_DFL = @intToPtr(fn (i32) callconv(.C) void, 0);
+pub const SIG_IGN = @intToPtr(fn (i32) callconv(.C) void, 1);
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
 pub const Sigaction = extern struct {
     /// signal handler
     __sigaction_u: extern union {
-        __sa_handler: extern fn (i32) void,
-        __sa_sigaction: extern fn (i32, *__siginfo, usize) void,
+        __sa_handler: fn (i32) callconv(.C) void,
+        __sa_sigaction: fn (i32, *__siginfo, usize) callconv(.C) void,
     },
 
     /// see signal options

@@ -644,7 +644,7 @@ const MsfStream = struct {
         return stream;
     }
 
-    fn readNullTermString(self: *MsfStream, allocator: *mem.Allocator) ![]u8 {
+    pub fn readNullTermString(self: *MsfStream, allocator: *mem.Allocator) ![]u8 {
         var list = ArrayList(u8).init(allocator);
         while (true) {
             const byte = try self.inStream().readByte();
@@ -684,13 +684,13 @@ const MsfStream = struct {
         return buffer.len;
     }
 
-    fn seekBy(self: *MsfStream, len: i64) !void {
+    pub fn seekBy(self: *MsfStream, len: i64) !void {
         self.pos = @intCast(u64, @intCast(i64, self.pos) + len);
         if (self.pos >= self.blocks.len * self.block_size)
             return error.EOF;
     }
 
-    fn seekTo(self: *MsfStream, len: u64) !void {
+    pub fn seekTo(self: *MsfStream, len: u64) !void {
         self.pos = len;
         if (self.pos >= self.blocks.len * self.block_size)
             return error.EOF;
@@ -708,7 +708,7 @@ const MsfStream = struct {
         return block * self.block_size + offset;
     }
 
-    fn inStream(self: *MsfStream) std.io.InStream(*MsfStream, Error, read) {
+    pub fn inStream(self: *MsfStream) std.io.InStream(*MsfStream, Error, read) {
         return .{ .context = self };
     }
 };

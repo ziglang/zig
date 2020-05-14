@@ -113,11 +113,9 @@ pub fn hash(hasher: var, key: var, comptime strat: HashStrategy) void {
                 hasher.update(mem.asBytes(&key));
             } else {
                 // Otherwise, hash every element.
-                // TODO remove the copy to an array once field access is done.
-                const array: [info.len]info.child = key;
                 comptime var i = 0;
                 inline while (i < info.len) : (i += 1) {
-                    hash(hasher, array[i], strat);
+                    hash(hasher, key[i], strat);
                 }
             }
         },

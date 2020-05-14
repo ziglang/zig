@@ -227,6 +227,8 @@ test "ascii character classes" {
     testing.expect(isSpace(' '));
 }
 
+/// Allocates a lower case copy of `ascii_string`.
+/// Caller owns returned string and must free with `allocator`.
 pub fn allocLowerString(allocator: *std.mem.Allocator, ascii_string: []const u8) ![]u8 {
     const result = try allocator.alloc(u8, ascii_string.len);
     for (result) |*c, i| {
@@ -241,6 +243,23 @@ test "allocLowerString" {
     std.testing.expect(std.mem.eql(u8, "abcdefghijklmnopqrst0234+💩!", result));
 }
 
+/// Allocates an upper case copy of `ascii_string`.
+/// Caller owns returned string and must free with `allocator`.
+pub fn allocUpperString(allocator: *std.mem.Allocator, ascii_string: []const u8) ![]u8 {
+    const result = try allocator.alloc(u8, ascii_string.len);
+    for (result) |*c, i| {
+        c.* = toUpper(ascii_string[i]);
+    }
+    return result;
+}
+
+test "allocUpperString" {
+    const result = try allocUpperString(std.testing.allocator, "aBcDeFgHiJkLmNOPqrst0234+💩!");
+    defer std.testing.allocator.free(result);
+    std.testing.expect(std.mem.eql(u8, "ABCDEFGHIJKLMNOPQRST0234+💩!", result));
+}
+
+/// Compares strings `a` and `b` case insensitively and returns whether they are equal.
 pub fn eqlIgnoreCase(a: []const u8, b: []const u8) bool {
     if (a.len != b.len) return false;
     for (a) |a_c, i| {
@@ -255,7 +274,7 @@ test "eqlIgnoreCase" {
     std.testing.expect(!eqlIgnoreCase("hElLo!", "helro!"));
 }
 
-/// Finds `substr` in `container`, starting at `start_index`.
+/// Finds `substr` in `container`, ignoring case, starting at `start_index`.
 /// TODO boyer-moore algorithm
 pub fn indexOfIgnoreCasePos(container: []const u8, start_index: usize, substr: []const u8) ?usize {
     if (substr.len > container.len) return null;
@@ -268,7 +287,7 @@ pub fn indexOfIgnoreCasePos(container: []const u8, start_index: usize, substr: [
     return null;
 }
 
-/// Finds `substr` in `container`, starting at `start_index`.
+/// Finds `substr` in `container`, ignoring case, starting at index 0.
 pub fn indexOfIgnoreCase(container: []const u8, substr: []const u8) ?usize {
     return indexOfIgnoreCasePos(container, 0, substr);
 }

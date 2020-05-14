@@ -124,9 +124,9 @@ pub const Allocator = struct {
 
     fn AllocWithOptionsPayload(comptime Elem: type, comptime alignment: ?u29, comptime sentinel: ?Elem) type {
         if (sentinel) |s| {
-            return [:s]align(alignment orelse @alignOf(T)) Elem;
+            return [:s]align(alignment orelse @alignOf(Elem)) Elem;
         } else {
-            return []align(alignment orelse @alignOf(T)) Elem;
+            return []align(alignment orelse @alignOf(Elem)) Elem;
         }
     }
 
@@ -281,6 +281,22 @@ pub const Allocator = struct {
     }
 };
 
+var failAllocator = Allocator {
+    .reallocFn = failAllocatorRealloc,
+    .shrinkFn = failAllocatorShrink,
+};
+fn failAllocatorRealloc(self: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) ![]u8 {
+    return error.OutOfMemory;
+}
+fn failAllocatorShrink(self: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
+    @panic("failAllocatorShrink should never be called because it cannot allocate");
+}
+
+test "mem.Allocator basics" {
+    testing.expectError(error.OutOfMemory, failAllocator.alloc(u8, 1));
+    testing.expectError(error.OutOfMemory, failAllocator.allocSentinel(u8, 1, 0));
+}
+
 /// Copy all of source into dest at position 0.
 /// dest.len must be >= source.len.
 /// dest.ptr must be <= src.ptr.
@@ -366,6 +382,9 @@ pub fn zeroes(comptime T: type) T {
             }
         },
         .Array => |info| {
+            if (info.sentinel) |sentinel| {
+                return [_:sentinel]info.child{zeroes(info.child)} ** info.len;
+            }
             return [_]info.child{zeroes(info.child)} ** info.len;
         },
         .Vector,
@@ -426,6 +445,7 @@ test "mem.zeroes" {
         array: [2]u32,
         optional_int: ?u8,
         empty: void,
+        sentinel: [3:0]u8,
     };
 
     const b = zeroes(ZigStruct);
@@ -450,6 +470,9 @@ test "mem.zeroes" {
         testing.expectEqual(@as(u32, 0), e);
     }
     testing.expectEqual(@as(?u8, null), b.optional_int);
+    for (b.sentinel) |e| {
+        testing.expectEqual(@as(u8, 0), e);
+    }
 }
 
 pub fn secureZero(comptime T: type, s: []T) void {

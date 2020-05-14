@@ -668,6 +668,31 @@ fn transTypeDefAsBuiltin(c: *Context, typedef_decl: *const ZigClangTypedefNameDe
     return transCreateNodeIdentifier(c, builtin_name);
 }
 
+fn checkForBuiltinTypedef(checked_name: []const u8) !?[]const u8 {
+    const table = [_][2][]const u8{
+        .{ "uint8_t", "u8" },
+        .{ "int8_t", "i8" },
+        .{ "uint16_t", "u16" },
+        .{ "int16_t", "i16" },
+        .{ "uint32_t", "u32" },
+        .{ "int32_t", "i32" },
+        .{ "uint64_t", "u64" },
+        .{ "int64_t", "i64" },
+        .{ "intptr_t", "isize" },
+        .{ "uintptr_t", "usize" },
+        .{ "ssize_t", "isize" },
+        .{ "size_t", "usize" },
+    };
+
+    for (table) |entry| {
+        if (mem.eql(u8, checked_name, entry[0])) {
+            return entry[1];
+        }
+    }
+
+    return null;
+}
+
 fn transTypeDef(c: *Context, typedef_decl: *const ZigClangTypedefNameDecl, top_level_visit: bool) Error!?*ast.Node {
     if (c.decl_table.get(@ptrToInt(ZigClangTypedefNameDecl_getCanonicalDecl(typedef_decl)))) |kv|
         return transCreateNodeIdentifier(c, kv.value); // Avoid processing this decl twice
@@ -678,54 +703,36 @@ fn transTypeDef(c: *Context, typedef_decl: *const ZigClangTypedefNameDecl, top_l
     // TODO https://github.com/ziglang/zig/issues/3756
     // TODO https://github.com/ziglang/zig/issues/1802
     const checked_name = if (isZigPrimitiveType(typedef_name)) try std.fmt.allocPrint(c.a(), "{}_{}", .{ typedef_name, c.getMangle() }) else typedef_name;
-
-    if (mem.eql(u8, checked_name, "uint8_t"))
-        return transTypeDefAsBuiltin(c, typedef_decl, "u8")
-    else if (mem.eql(u8, checked_name, "int8_t"))
-        return transTypeDefAsBuiltin(c, typedef_decl, "i8")
-    else if (mem.eql(u8, checked_name, "uint16_t"))
-        return transTypeDefAsBuiltin(c, typedef_decl, "u16")
-    else if (mem.eql(u8, checked_name, "int16_t"))
-        return transTypeDefAsBuiltin(c, typedef_decl, "i16")
-    else if (mem.eql(u8, checked_name, "uint32_t"))
-        return transTypeDefAsBuiltin(c, typedef_decl, "u32")
-    else if (mem.eql(u8, checked_name, "int32_t"))
-        return transTypeDefAsBuiltin(c, typedef_decl, "i32")
-    else if (mem.eql(u8, checked_name, "uint64_t"))
-        return transTypeDefAsBuiltin(c, typedef_decl, "u64")
-    else if (mem.eql(u8, checked_name, "int64_t"))
-        return transTypeDefAsBuiltin(c, typedef_decl, "i64")
-    else if (mem.eql(u8, checked_name, "intptr_t"))
-        return transTypeDefAsBuiltin(c, typedef_decl, "isize")
-    else if (mem.eql(u8, checked_name, "uintptr_t"))
-        return transTypeDefAsBuiltin(c, typedef_decl, "usize")
-    else if (mem.eql(u8, checked_name, "ssize_t"))
-        return transTypeDefAsBuiltin(c, typedef_decl, "isize")
-    else if (mem.eql(u8, checked_name, "size_t"))
-        return transTypeDefAsBuiltin(c, typedef_decl, "usize");
+    if (try checkForBuiltinTypedef(checked_name)) |builtin| {
+        return transTypeDefAsBuiltin(c, typedef_decl, builtin);
+    }
 
     if (!top_level_visit) {
         return transCreateNodeIdentifier(c, checked_name);
     }
 
     _ = try c.decl_table.put(@ptrToInt(ZigClangTypedefNameDecl_getCanonicalDecl(typedef_decl)), checked_name);
-    const visib_tok = try appendToken(c, .Keyword_pub, "pub");
-    const const_tok = try appendToken(c, .Keyword_const, "const");
-    const node = try transCreateNodeVarDecl(c, true, true, checked_name);
-    node.eq_token = try appendToken(c, .Equal, "=");
+    const node = (try transCreateNodeTypedef(rp, typedef_decl, true, checked_name)) orelse return null;
+    try addTopLevelDecl(c, checked_name, &node.base);
+    return transCreateNodeIdentifier(c, checked_name);
+}
+
+fn transCreateNodeTypedef(rp: RestorePoint, typedef_decl: *const ZigClangTypedefNameDecl, toplevel: bool, checked_name: []const u8) Error!?*ast.Node.VarDecl {
+    const node = try transCreateNodeVarDecl(rp.c, toplevel, true, checked_name);
+    node.eq_token = try appendToken(rp.c, .Equal, "=");
 
     const child_qt = ZigClangTypedefNameDecl_getUnderlyingType(typedef_decl);
     const typedef_loc = ZigClangTypedefNameDecl_getLocation(typedef_decl);
     node.init_node = transQualType(rp, child_qt, typedef_loc) catch |err| switch (err) {
         error.UnsupportedType => {
-            try failDecl(c, typedef_loc, checked_name, "unable to resolve typedef child type", .{});
+            try failDecl(rp.c, typedef_loc, checked_name, "unable to resolve typedef child type", .{});
             return null;
         },
         error.OutOfMemory => |e| return e,
     };
-    node.semicolon_token = try appendToken(c, .Semicolon, ";");
-    try addTopLevelDecl(c, checked_name, &node.base);
-    return transCreateNodeIdentifier(c, checked_name);
+
+    node.semicolon_token = try appendToken(rp.c, .Semicolon, ";");
+    return node;
 }
 
 fn transRecordDecl(c: *Context, record_decl: *const ZigClangRecordDecl) Error!?*ast.Node {
@@ -1393,6 +1400,26 @@ fn transDeclStmt(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangDeclStmt)
                 node.init_node = init_node;
                 node.semicolon_token = try appendToken(c, .Semicolon, ";");
                 try block_scope.block_node.statements.push(&node.base);
+            },
+            .Typedef => {
+                const typedef_decl = @ptrCast(*const ZigClangTypedefNameDecl, it[0]);
+                const name = try c.str(ZigClangNamedDecl_getName_bytes_begin(
+                    @ptrCast(*const ZigClangNamedDecl, typedef_decl),
+                ));
+
+                const underlying_qual = ZigClangTypedefNameDecl_getUnderlyingType(typedef_decl);
+                const underlying_type = ZigClangQualType_getTypePtr(underlying_qual);
+
+                const mangled_name = try block_scope.makeMangledName(c, name);
+                if (try checkForBuiltinTypedef(name)) |builtin| {
+                    try block_scope.variables.push(.{
+                        .alias = builtin,
+                        .name = mangled_name,
+                    });
+                } else {
+                    const node = (try transCreateNodeTypedef(rp, typedef_decl, false, mangled_name)) orelse return error.UnsupportedTranslation;
+                    try block_scope.block_node.statements.push(&node.base);
+                }
             },
             else => |kind| return revertAndWarn(
                 rp,
@@ -4094,7 +4121,6 @@ fn transCreateNodeMacroFn(c: *Context, name: []const u8, ref: *ast.Node, proto_a
         .return_type = proto_alias.return_type,
         .var_args_token = null,
         .extern_export_inline_token = inline_tok,
-        .cc_token = null,
         .body_node = null,
         .lib_name = null,
         .align_expr = null,
@@ -4753,7 +4779,6 @@ fn finishTransFnProto(
         .return_type = .{ .Explicit = return_type_node },
         .var_args_token = null, // TODO this field is broken in the AST data model
         .extern_export_inline_token = extern_export_inline_tok,
-        .cc_token = null,
         .body_node = null,
         .lib_name = null,
         .align_expr = align_expr,
@@ -5119,7 +5144,6 @@ fn transMacroFnDefine(c: *Context, it: *CTokenList.Iterator, source: []const u8,
         .return_type = .{ .Explicit = &type_of.base },
         .doc_comments = null,
         .var_args_token = null,
-        .cc_token = null,
         .body_node = null,
         .lib_name = null,
         .align_expr = null,

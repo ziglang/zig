@@ -718,7 +718,6 @@ struct AstNodeFnProto {
     Buf doc_comments;
 
     FnInline fn_inline;
-    bool is_async;
 
     VisibMod visib_mod;
     bool auto_err_set;

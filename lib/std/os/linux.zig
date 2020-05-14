@@ -599,7 +599,7 @@ pub fn flock(fd: fd_t, operation: i32) usize {
 var vdso_clock_gettime = @ptrCast(?*const c_void, init_vdso_clock_gettime);
 
 // We must follow the C calling convention when we call into the VDSO
-const vdso_clock_gettime_ty = extern fn (i32, *timespec) usize;
+const vdso_clock_gettime_ty = fn (i32, *timespec) callconv(.C) usize;
 
 pub fn clock_gettime(clk_id: i32, tp: *timespec) usize {
     if (@hasDecl(@This(), "VDSO_CGT_SYM")) {
@@ -791,7 +791,7 @@ pub fn sigaction(sig: u6, noalias act: *const Sigaction, noalias oact: ?*Sigacti
         .sigaction = act.sigaction,
         .flags = act.flags | SA_RESTORER,
         .mask = undefined,
-        .restorer = @ptrCast(extern fn () void, restorer_fn),
+        .restorer = @ptrCast(fn () callconv(.C) void, restorer_fn),
     };
     var ksa_old: k_sigaction = undefined;
     const ksa_mask_size = @sizeOf(@TypeOf(ksa_old.mask));

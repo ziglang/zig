@@ -31,7 +31,7 @@ pub fn Locked(comptime T: type) type {
             self.lock.deinit();
         }
 
-        pub async fn acquire(self: *Self) HeldLock {
+        pub fn acquire(self: *Self) callconv(.Async) HeldLock {
             return HeldLock{
                 // TODO guaranteed allocation elision
                 .held = self.lock.acquire(),

@@ -236,7 +236,7 @@ pub const Inst = struct {
             @"comptime_int",
             @"comptime_float",
 
-            fn toType(self: BuiltinType) Type {
+            pub fn toType(self: BuiltinType) Type {
                 return switch (self) {
                     .@"isize" => Type.initTag(.@"isize"),
                     .@"usize" => Type.initTag(.@"usize"),
