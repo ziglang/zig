@@ -697,16 +697,9 @@ pub const Module = struct {
         };
     }
 
-    fn analyzeRoot(self: *Module, root_scope: *Scope.ZIRModule) !void {
-        // TODO use the cache to identify, from the modified source files, the decls which have
-        // changed based on the span of memory that represents the decl in the re-parsed source file.
-        // Use the cached dependency graph to recursively determine the set of decls which need
-        // regeneration.
-        // Here we simulate adding a source file which was previously not part of the compilation,
-        // which means scanning the decls looking for exports.
-        // TODO also identify decls that need to be deleted.
-        const src_module = switch (root_scope.status) {
-            .unloaded => blk: {
+    fn getTextModule(self: *Module, root_scope: *Scope.ZIRModule) !*text.Module {
+        switch (root_scope.status) {
+            .unloaded => {
                 try self.failed_files.ensureCapacity(self.failed_files.size + 1);
 
                 var keep_source = false;
@@ -743,12 +736,23 @@ pub const Module = struct {
                 root_scope.contents = .{ .module = zir_module };
                 keep_zir_module = true;
 
-                break :blk zir_module;
+                return zir_module;
             },
 
             .unloaded_parse_failure, .loaded_parse_failure => return error.AnalysisFail,
-            .loaded_success => root_scope.contents.module,
-        };
+            .loaded_success => return root_scope.contents.module,
+        }
+    }
+
+    fn analyzeRoot(self: *Module, root_scope: *Scope.ZIRModule) !void {
+        // TODO use the cache to identify, from the modified source files, the decls which have
+        // changed based on the span of memory that represents the decl in the re-parsed source file.
+        // Use the cached dependency graph to recursively determine the set of decls which need
+        // regeneration.
+        // Here we simulate adding a source file which was previously not part of the compilation,
+        // which means scanning the decls looking for exports.
+        // TODO also identify decls that need to be deleted.
+        const src_module = try self.getTextModule(root_scope);
 
         // Here we ensure enough queue capacity to store all the decls, so that later we can use
         // appendAssumeCapacity.
