@@ -119,6 +119,25 @@ test "recovery: missing semicolon" {
     });
 }
 
+test "recovery: invalid container members" {
+    try testError(
+        \\usingnamespace;
+        \\foo+
+        \\bar@,
+        \\while (a == 2) { test "" {}}
+        \\test "" {
+        \\    a && b
+        \\}
+    , &[_]Error{
+        .ExpectedExpr,
+        .ExpectedToken,
+        .ExpectedToken,
+        .ExpectedContainerMembers,
+        .InvalidAnd,
+        .ExpectedToken,
+    });
+}
+
 test "zig fmt: top-level fields" {
     try testCanonical(
         \\a: did_you_know,
@@ -2953,6 +2972,8 @@ test "zig fmt: extern without container keyword returns error" {
         \\
     , &[_]Error{
         .ExpectedExpr,
+        .ExpectedVarDeclOrFn,
+        .ExpectedContainerMembers,
     });
 }
 

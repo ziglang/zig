@@ -59,10 +59,13 @@ fn parseRoot(arena: *Allocator, it: *TokenIterator, tree: *Tree) Allocator.Error
     node.* = .{
         .decls = try parseContainerMembers(arena, it, tree),
         .eof_token = eatToken(it, .Eof) orelse blk: {
+            // parseContainerMembers will try to skip as much
+            // invalid tokens as it can so this can only be a '}'
+            const tok = eatToken(it, .RBrace).?;
             try tree.errors.push(.{
-                .ExpectedContainerMembers = .{ .token = it.index },
+                .ExpectedContainerMembers = .{ .token = tok },
             });
-            break :blk undefined;
+            break :blk tok;
         },
     };
     return node;
@@ -101,7 +104,7 @@ fn parseContainerMembers(arena: *Allocator, it: *TokenIterator, tree: *Tree) All
         if (parseTestDecl(arena, it, tree) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             error.ParseError => {
-                findEndOfBlock(it);
+                findNextContainerMember(it);
                 continue;
             },
         }) |node| {
@@ -116,7 +119,7 @@ fn parseContainerMembers(arena: *Allocator, it: *TokenIterator, tree: *Tree) All
         if (parseTopLevelComptime(arena, it, tree) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             error.ParseError => {
-                findEndOfBlock(it);
+                findNextContainerMember(it);
                 continue;
             },
         }) |node| {
@@ -178,8 +181,8 @@ fn parseContainerMembers(arena: *Allocator, it: *TokenIterator, tree: *Tree) All
         if (parseContainerField(arena, it, tree) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             error.ParseError => {
-                // attempt to recover by finding a comma
-                findToken(it, .Comma);
+                // attempt to recover
+                findNextContainerMember(it);
                 continue;
             },
         }) |node| {
@@ -198,7 +201,21 @@ fn parseContainerMembers(arena: *Allocator, it: *TokenIterator, tree: *Tree) All
             const field = node.cast(Node.ContainerField).?;
             field.doc_comments = doc_comments;
             try list.push(node);
-            const comma = eatToken(it, .Comma) orelse break;
+            const comma = eatToken(it, .Comma) orelse {
+                // try to continue parsing
+                const index = it.index;
+                findNextContainerMember(it);
+                switch (it.peek().?.id) {
+                    .Eof, .RBrace => break,
+                    else => {
+                        // add error and continue
+                        try tree.errors.push(.{
+                            .ExpectedToken = .{ .token = index, .expected_id = .Comma },
+                        });
+                        continue;
+                    }
+                }
+            };
             if (try parseAppendedDocComment(arena, it, tree, comma)) |appended_comment|
                 field.doc_comments = appended_comment;
             continue;
@@ -210,22 +227,63 @@ fn parseContainerMembers(arena: *Allocator, it: *TokenIterator, tree: *Tree) All
                 .UnattachedDocComment = .{ .token = doc_comments.?.firstToken() },
             });
         }
-        break;
+
+        switch (it.peek().?.id) {
+            .Eof, .RBrace => break,
+            else => {
+                // this was likely not supposed to end yet,
+                // try to find the next declaration
+                const index = it.index;
+                findNextContainerMember(it);
+                try tree.errors.push(.{
+                    .ExpectedContainerMembers = .{ .token = index },
+                });
+            },
+        }
     }
 
     return list;
 }
 
-/// Attempts to find a closing brace.
-fn findEndOfBlock(it: *TokenIterator) void {
-    var count: u32 = 0;
+fn findNextContainerMember(it: *TokenIterator) void {
+    var level: u32 = 0;
     while (true) {
         const tok = nextToken(it);
         switch (tok.ptr.id) {
-            .LBrace => count += 1,
-            .RBrace => {
-                if (count <= 1) return;
-                count -= 1;
+            // any of these can start a new top level declaration
+            .Keyword_test,
+            .Keyword_comptime,
+            .Keyword_pub,
+            .Keyword_export,
+            .Keyword_extern,
+            .Keyword_inline,
+            .Keyword_noinline,
+            .Keyword_usingnamespace,
+            .Keyword_threadlocal,
+            .Keyword_const,
+            .Keyword_var,
+            .Keyword_fn,
+            .Identifier,
+            => {
+                if (level == 0) {
+                    putBackToken(it, tok.index);
+                    return;
+                }
+            },
+            .Comma, .Semicolon => {
+                // this decl was likely meant to end here
+                if (level == 0) {
+                    return;
+                }
+            },
+            .LParen, .LBracket, .LBrace => level += 1,
+            .RParen, .RBracket, .RBrace => {
+                if (level == 0) {
+                    // end of container, exit
+                    putBackToken(it, tok.index);
+                    return;
+                }
+                level -= 1;
             },
             .Eof => {
                 putBackToken(it, tok.index);
@@ -338,9 +396,7 @@ fn parseTopLevelDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) Error!?
     if (parseFnProto(arena, it, tree) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         error.ParseError => {
-            // this fn will likely have a body so we
-            // use findEndOfBlock instead of findToken.
-            findEndOfBlock(it);
+            findNextContainerMember(it);
             return error.ParseError;
         },
     }) |node| {
@@ -381,7 +437,7 @@ fn parseTopLevelDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) Error!?
         error.OutOfMemory => return error.OutOfMemory,
         error.ParseError => {
             // try to skip to next decl
-            findToken(it, .Semicolon);
+            findNextContainerMember(it);
             return error.ParseError;
         },
     }) |node| {
@@ -413,7 +469,7 @@ fn parseTopLevelDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) Error!?
         error.OutOfMemory => return error.OutOfMemory,
         error.ParseError => {
             // try to skip to next decl
-            findToken(it, .Semicolon);
+            findNextContainerMember(it);
             return error.ParseError;
         },
     };
@@ -3215,6 +3271,8 @@ fn expectToken(it: *TokenIterator, tree: *Tree, id: Token.Id) Error!TokenIndex {
         try tree.errors.push(.{
             .ExpectedToken = .{ .token = token.index, .expected_id = id },
         });
+        // go back so that we can recover properly
+        putBackToken(it, token.index);
         return error.ParseError;
     }
     return token.index;
