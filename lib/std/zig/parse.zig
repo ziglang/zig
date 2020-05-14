@@ -1389,7 +1389,6 @@ fn parseSuffixExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 ///      / IfTypeExpr
 ///      / INTEGER
 ///      / KEYWORD_comptime TypeExpr
-///      / KEYWORD_nosuspend TypeExpr
 ///      / KEYWORD_error DOT IDENTIFIER
 ///      / KEYWORD_false
 ///      / KEYWORD_null
@@ -1424,15 +1423,6 @@ fn parsePrimaryTypeExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*N
         node.* = .{
             .doc_comments = null,
             .comptime_token = token,
-            .expr = expr,
-        };
-        return &node.base;
-    }
-    if (eatToken(it, .Keyword_nosuspend)) |token| {
-        const expr = (try parseTypeExpr(arena, it, tree)) orelse return null;
-        const node = try arena.create(Node.Nosuspend);
-        node.* = .{
-            .nosuspend_token = token,
             .expr = expr,
         };
         return &node.base;

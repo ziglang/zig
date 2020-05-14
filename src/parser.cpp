@@ -1609,7 +1609,6 @@ static AstNode *ast_parse_suffix_expr(ParseContext *pc) {
 //      / IfTypeExpr
 //      / INTEGER
 //      / KEYWORD_comptime TypeExpr
-//      / KEYWORD_nosuspend TypeExpr
 //      / KEYWORD_error DOT IDENTIFIER
 //      / KEYWORD_false
 //      / KEYWORD_null
@@ -1708,14 +1707,6 @@ static AstNode *ast_parse_primary_type_expr(ParseContext *pc) {
         AstNode *expr = ast_expect(pc, ast_parse_type_expr);
         AstNode *res = ast_create_node(pc, NodeTypeCompTime, comptime);
         res->data.comptime_expr.expr = expr;
-        return res;
-    }
-
-    Token *nosuspend = eat_token_if(pc, TokenIdKeywordNoSuspend);
-    if (nosuspend != nullptr) {
-        AstNode *expr = ast_expect(pc, ast_parse_type_expr);
-        AstNode *res = ast_create_node(pc, NodeTypeNoSuspend, nosuspend);
-        res->data.nosuspend_expr.expr = expr;
         return res;
     }
 
