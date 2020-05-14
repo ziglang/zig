@@ -5,16 +5,17 @@ const ir = @import("ir.zig");
 const Type = @import("type.zig").Type;
 const Value = @import("value.zig").Value;
 const TypedValue = @import("TypedValue.zig");
+const link = @import("link.zig");
 const Target = std.Target;
 const Allocator = mem.Allocator;
 
-pub fn generateSymbol(typed_value: TypedValue, module: ir.Module, code: *std.ArrayList(u8)) !?*ir.ErrorMsg {
+pub fn generateSymbol(bin_file: *link.ElfFile, typed_value: TypedValue, code: *std.ArrayList(u8)) !?*ir.ErrorMsg {
     switch (typed_value.ty.zigTypeTag()) {
         .Fn => {
             const module_fn = typed_value.val.cast(Value.Payload.Function).?.func;
 
             var function = Function{
-                .module = &module,
+                .target = &bin_file.options.target,
                 .mod_fn = module_fn,
                 .code = code,
                 .inst_table = std.AutoHashMap(*ir.Inst, Function.MCValue).init(code.allocator),
@@ -22,7 +23,7 @@ pub fn generateSymbol(typed_value: TypedValue, module: ir.Module, code: *std.Arr
             };
             defer function.inst_table.deinit();
 
-            for (module_fn.body.instructions) |inst| {
+            for (module_fn.analysis.success.instructions) |inst| {
                 const new_inst = function.genFuncInst(inst) catch |err| switch (err) {
                     error.CodegenFail => {
                         assert(function.err_msg != null);
@@ -40,7 +41,7 @@ pub fn generateSymbol(typed_value: TypedValue, module: ir.Module, code: *std.Arr
 }
 
 const Function = struct {
-    module: *const ir.Module,
+    target: *const std.Target,
     mod_fn: *const ir.Module.Fn,
     code: *std.ArrayList(u8),
     inst_table: std.AutoHashMap(*ir.Inst, MCValue),
@@ -76,60 +77,60 @@ const Function = struct {
     }
 
     fn genBreakpoint(self: *Function, src: usize) !MCValue {
-        switch (self.module.target.cpu.arch) {
+        switch (self.target.cpu.arch) {
             .i386, .x86_64 => {
                 try self.code.append(0xcc); // int3
             },
-            else => return self.fail(src, "TODO implement @breakpoint() for {}", .{self.module.target.cpu.arch}),
+            else => return self.fail(src, "TODO implement @breakpoint() for {}", .{self.target.cpu.arch}),
         }
         return .unreach;
     }
 
     fn genCall(self: *Function, inst: *ir.Inst.Call) !MCValue {
-        switch (self.module.target.cpu.arch) {
-            else => return self.fail(inst.base.src, "TODO implement call for {}", .{self.module.target.cpu.arch}),
+        switch (self.target.cpu.arch) {
+            else => return self.fail(inst.base.src, "TODO implement call for {}", .{self.target.cpu.arch}),
         }
         return .unreach;
     }
 
     fn genRet(self: *Function, inst: *ir.Inst.Ret) !MCValue {
-        switch (self.module.target.cpu.arch) {
+        switch (self.target.cpu.arch) {
             .i386, .x86_64 => {
                 try self.code.append(0xc3); // ret
             },
-            else => return self.fail(inst.base.src, "TODO implement return for {}", .{self.module.target.cpu.arch}),
+            else => return self.fail(inst.base.src, "TODO implement return for {}", .{self.target.cpu.arch}),
         }
         return .unreach;
     }
 
     fn genCmp(self: *Function, inst: *ir.Inst.Cmp) !MCValue {
-        switch (self.module.target.cpu.arch) {
-            else => return self.fail(inst.base.src, "TODO implement cmp for {}", .{self.module.target.cpu.arch}),
+        switch (self.target.cpu.arch) {
+            else => return self.fail(inst.base.src, "TODO implement cmp for {}", .{self.target.cpu.arch}),
         }
     }
 
     fn genCondBr(self: *Function, inst: *ir.Inst.CondBr) !MCValue {
-        switch (self.module.target.cpu.arch) {
-            else => return self.fail(inst.base.src, "TODO implement condbr for {}", .{self.module.target.cpu.arch}),
+        switch (self.target.cpu.arch) {
+            else => return self.fail(inst.base.src, "TODO implement condbr for {}", .{self.target.cpu.arch}),
         }
     }
 
     fn genIsNull(self: *Function, inst: *ir.Inst.IsNull) !MCValue {
-        switch (self.module.target.cpu.arch) {
-            else => return self.fail(inst.base.src, "TODO implement isnull for {}", .{self.module.target.cpu.arch}),
+        switch (self.target.cpu.arch) {
+            else => return self.fail(inst.base.src, "TODO implement isnull for {}", .{self.target.cpu.arch}),
         }
     }
 
     fn genIsNonNull(self: *Function, inst: *ir.Inst.IsNonNull) !MCValue {
         // Here you can specialize this instruction if it makes sense to, otherwise the default
         // will call genIsNull and invert the result.
-        switch (self.module.target.cpu.arch) {
+        switch (self.target.cpu.arch) {
             else => return self.fail(inst.base.src, "TODO call genIsNull and invert the result ", .{}),
         }
     }
 
     fn genRelativeFwdJump(self: *Function, src: usize, amount: u32) !void {
-        switch (self.module.target.cpu.arch) {
+        switch (self.target.cpu.arch) {
             .i386, .x86_64 => {
                 // TODO x86 treats the operands as signed
                 if (amount <= std.math.maxInt(u8)) {
@@ -143,13 +144,13 @@ const Function = struct {
                     mem.writeIntLittle(u32, imm_ptr, amount);
                 }
             },
-            else => return self.fail(src, "TODO implement relative forward jump for {}", .{self.module.target.cpu.arch}),
+            else => return self.fail(src, "TODO implement relative forward jump for {}", .{self.target.cpu.arch}),
         }
     }
 
     fn genAsm(self: *Function, inst: *ir.Inst.Assembly) !MCValue {
         // TODO convert to inline function
-        switch (self.module.target.cpu.arch) {
+        switch (self.target.cpu.arch) {
             .arm => return self.genAsmArch(.arm, inst),
             .armeb => return self.genAsmArch(.armeb, inst),
             .aarch64 => return self.genAsmArch(.aarch64, inst),
@@ -388,7 +389,7 @@ const Function = struct {
         }
     }
 
-    fn genTypedValue(self: *Function, src: usize, typed_value: ir.TypedValue) !MCValue {
+    fn genTypedValue(self: *Function, src: usize, typed_value: TypedValue) !MCValue {
         switch (typed_value.ty.zigTypeTag()) {
             .Pointer => {
                 const ptr_elem_type = typed_value.ty.elemType();
@@ -410,8 +411,8 @@ const Function = struct {
                 }
             },
             .Int => {
-                const info = typed_value.ty.intInfo(self.module.target);
-                const ptr_bits = self.module.target.cpu.arch.ptrBitWidth();
+                const info = typed_value.ty.intInfo(self.target.*);
+                const ptr_bits = self.target.cpu.arch.ptrBitWidth();
                 if (info.bits > ptr_bits or info.signed) {
                     return self.fail(src, "TODO const int bigger than ptr and signed int", .{});
                 }

@@ -685,23 +685,20 @@ pub const ElfFile = struct {
         // TODO Also detect virtual address collisions.
         const text_capacity = self.allocatedSize(shdr.sh_offset);
         // TODO instead of looping here, maintain a free list and a pointer to the end.
-        const end_vaddr = blk: {
-            var start: u64 = 0;
-            var size: u64 = 0;
-            for (self.symbols.items) |sym| {
-                if (sym.st_value > start) {
-                    start = sm.st_value;
-                    size = sym.st_size;
-                }
+        var last_start: u64 = 0;
+        var last_size: u64 = 0;
+        for (self.symbols.items) |sym| {
+            if (sym.st_value > last_start) {
+                last_start = sym.st_value;
+                last_size = sym.st_size;
             }
-            break :blk start + (size * alloc_num / alloc_den);
-        };
-
-        const text_size = end_vaddr - phdr.p_vaddr;
-        const needed_size = text_size + new_block_size;
+        }
+        const end_vaddr = last_start + (last_size * alloc_num / alloc_den);
+        const needed_size = (end_vaddr + new_block_size) - phdr.p_vaddr;
         if (needed_size > text_capacity) {
             // Must move the entire text section.
             const new_offset = self.findFreeSpace(needed_size, 0x1000);
+            const text_size = (last_start + last_size) - phdr.p_vaddr;
             const amt = try self.file.copyRangeAll(shdr.sh_offset, self.file, new_offset, text_size);
             if (amt != text_size) return error.InputOutput;
             shdr.sh_offset = new_offset;
@@ -713,6 +710,12 @@ pub const ElfFile = struct {
 
         self.phdr_table_dirty = true; // TODO look into making only the one program header dirty
         self.shdr_table_dirty = true; // TODO look into making only the one section dirty
+
+        return AllocatedBlock{
+            .vaddr = end_vaddr,
+            .file_offset = shdr.sh_offset + (end_vaddr - phdr.p_vaddr),
+            .size_capacity = text_capacity - end_vaddr,
+        };
     }
 
     fn findAllocatedTextBlock(self: *ElfFile, sym: elf.Elf64_Sym) AllocatedBlock {
@@ -739,8 +742,8 @@ pub const ElfFile = struct {
         defer code.deinit();
 
         const typed_value = decl.typed_value.most_recent.typed_value;
-        const err_msg = try codegen.generateSymbol(typed_value, module.*, &code);
-        if (err_msg != null) |em| {
+        const err_msg = try codegen.generateSymbol(self, typed_value, &code);
+        if (err_msg) |em| {
             decl.analysis = .codegen_failure;
             _ = try module.failed_decls.put(decl, em);
             return;
@@ -755,7 +758,7 @@ pub const ElfFile = struct {
 
             if (decl.link.local_sym_index != 0) {
                 const local_sym = &self.symbols.items[decl.link.local_sym_index];
-                const existing_block = self.findAllocatedTextBlock(local_sym);
+                const existing_block = self.findAllocatedTextBlock(local_sym.*);
                 const file_offset = if (code_size > existing_block.size_capacity) fo: {
                     const new_block = try self.allocateTextBlock(code_size);
                     local_sym.st_value = new_block.vaddr;
@@ -765,7 +768,7 @@ pub const ElfFile = struct {
 
                     break :fo new_block.file_offset;
                 } else existing_block.file_offset;
-                local_sym.st_name = try self.updateString(local_sym.st_name, mem.spanZ(u8, decl.name));
+                local_sym.st_name = try self.updateString(local_sym.st_name, mem.spanZ(decl.name));
                 local_sym.st_info = (elf.STB_LOCAL << 4) | stt_bits;
                 // TODO this write could be avoided if no fields of the symbol were changed.
                 try self.writeSymbol(decl.link.local_sym_index);
@@ -773,7 +776,7 @@ pub const ElfFile = struct {
             } else {
                 try self.symbols.ensureCapacity(self.allocator, self.symbols.items.len + 1);
                 try self.offset_table.ensureCapacity(self.allocator, self.offset_table.items.len + 1);
-                const decl_name = mem.spanZ(u8, decl.name);
+                const decl_name = mem.spanZ(decl.name);
                 const name_str_index = try self.makeString(decl_name);
                 const new_block = try self.allocateTextBlock(code_size);
                 const local_sym_index = self.symbols.items.len;
@@ -796,8 +799,8 @@ pub const ElfFile = struct {
                 self.symbol_count_dirty = true;
                 self.offset_table_count_dirty = true;
                 decl.link = .{
-                    .local_sym_index = local_sym_index,
-                    .offset_table_index = offset_table_index,
+                    .local_sym_index = @intCast(u32, local_sym_index),
+                    .offset_table_index = @intCast(u32, offset_table_index),
                 };
 
                 break :blk new_block.file_offset;
@@ -807,7 +810,7 @@ pub const ElfFile = struct {
         try self.file.pwriteAll(code.items, file_offset);
 
         // Since we updated the vaddr and the size, each corresponding export symbol also needs to be updated.
-        const decl_exports = module.decl_exports.get(decl) orelse &[0]*ir.Module.Export{};
+        const decl_exports = module.decl_exports.getValue(decl) orelse &[0]*ir.Module.Export{};
         return self.updateDeclExports(module, decl, decl_exports);
     }
 
@@ -938,9 +941,9 @@ pub const ElfFile = struct {
             const needed_size = self.symbols.items.len * shdr.sh_entsize;
             if (needed_size > allocated_size) {
                 // Must move the entire got section.
-                const new_offset = self.findFreeSpace(needed_size, shdr.sh_entsize);
+                const new_offset = self.findFreeSpace(needed_size, @intCast(u16, shdr.sh_entsize));
                 const amt = try self.file.copyRangeAll(shdr.sh_offset, self.file, new_offset, shdr.sh_size);
-                if (amt != text_size) return error.InputOutput;
+                if (amt != shdr.sh_size) return error.InputOutput;
                 shdr.sh_offset = new_offset;
             }
             shdr.sh_size = needed_size;
