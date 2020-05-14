@@ -16578,17 +16578,17 @@ static IrInstGen *ir_analyze_cmp_optional_non_optional(IrAnalyze *ira, IrInst *s
 
     IrInstGen *non_null_bit = ir_build_test_non_null_gen(ira, source_instr, optional);
     ir_build_cond_br_gen(ira, source_instr, non_null_bit, is_non_null_block, is_null_block);
-    ir_finish_bb(ira);
 
-    ir_set_cursor_at_end_gen(&ira->new_irb, is_non_null_block);
+    ir_set_cursor_at_end_and_append_block_gen(&ira->new_irb, is_non_null_block);
     IrInstGen *optional_unwrapped = ir_analyze_optional_value_payload_value(ira, source_instr, optional, false);
     IrInstGen *non_null_cmp_result = ir_build_bin_op_gen(ira, source_instr, result_type, op_id,
             optional_unwrapped, non_optional, false);
-    ir_finish_bb(ira);
+    ir_build_br_gen(ira, source_instr, end_block);
 
-    ir_set_cursor_at_end_gen(&ira->new_irb, is_null_block);
+
+    ir_set_cursor_at_end_and_append_block_gen(&ira->new_irb, is_null_block);
     IrInstGen *is_null_result = ir_const_bool(ira, source_instr, (op_id != IrBinOpCmpEq));
-    ir_finish_bb(ira);
+    ir_build_br_gen(ira, source_instr, end_block);
 
     ir_set_cursor_at_end_gen(&ira->new_irb, end_block);
     IrBasicBlockGen *incoming_blocks[] = {is_null_block, is_non_null_block};
