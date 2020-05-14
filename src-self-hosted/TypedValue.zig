@@ -16,7 +16,7 @@ pub const Managed = struct {
     /// If this is `null` then there is no memory management needed.
     arena: ?*std.heap.ArenaAllocator.State = null,
 
-    pub fn deinit(self: *ManagedTypedValue, allocator: *Allocator) void {
+    pub fn deinit(self: *Managed, allocator: *Allocator) void {
         if (self.arena) |a| a.promote(allocator).deinit();
         self.* = undefined;
     }

@@ -4,10 +4,11 @@ const assert = std.debug.assert;
 const ir = @import("ir.zig");
 const Type = @import("type.zig").Type;
 const Value = @import("value.zig").Value;
+const TypedValue = @import("TypedValue.zig");
 const Target = std.Target;
 const Allocator = mem.Allocator;
 
-pub fn generateSymbol(typed_value: ir.TypedValue, module: ir.Module, code: *std.ArrayList(u8)) !?*ir.ErrorMsg {
+pub fn generateSymbol(typed_value: TypedValue, module: ir.Module, code: *std.ArrayList(u8)) !?*ir.ErrorMsg {
     switch (typed_value.ty.zigTypeTag()) {
         .Fn => {
             const module_fn = typed_value.val.cast(Value.Payload.Function).?.func;

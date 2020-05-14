@@ -8,6 +8,7 @@ const BigIntConst = std.math.big.int.Const;
 const BigIntMutable = std.math.big.int.Mutable;
 const Type = @import("../type.zig").Type;
 const Value = @import("../value.zig").Value;
+const TypedValue = @import("../TypedValue.zig");
 const ir = @import("../ir.zig");
 
 /// These are instructions that correspond to the ZIR text format. See `ir.Inst` for
@@ -462,6 +463,7 @@ pub const Module = struct {
         switch (decl.tag) {
             .breakpoint => return self.writeInstToStreamGeneric(stream, .breakpoint, decl, inst_table),
             .call => return self.writeInstToStreamGeneric(stream, .call, decl, inst_table),
+            .declref => return self.writeInstToStreamGeneric(stream, .declref, decl, inst_table),
             .str => return self.writeInstToStreamGeneric(stream, .str, decl, inst_table),
             .int => return self.writeInstToStreamGeneric(stream, .int, decl, inst_table),
             .ptrtoint => return self.writeInstToStreamGeneric(stream, .ptrtoint, decl, inst_table),
@@ -576,6 +578,7 @@ pub fn parse(allocator: *Allocator, source: [:0]const u8) Allocator.Error!Module
         .source = source,
         .global_name_map = &global_name_map,
         .decls = .{},
+        .unnamed_index = 0,
     };
     errdefer parser.arena.deinit();
 
@@ -601,6 +604,7 @@ const Parser = struct {
     decls: std.ArrayListUnmanaged(*Inst),
     global_name_map: *std.StringHashMap(usize),
     error_msg: ?ErrorMsg = null,
+    unnamed_index: usize,
 
     const Body = struct {
         instructions: std.ArrayList(*Inst),
@@ -626,12 +630,12 @@ const Parser = struct {
                 skipSpace(self);
                 try requireEatBytes(self, "=");
                 skipSpace(self);
-                const inst = try parseInstruction(self, &body_context);
+                const inst = try parseInstruction(self, &body_context, ident[1..]);
                 const ident_index = body_context.instructions.items.len;
                 if (try body_context.name_map.put(ident, ident_index)) |_| {
                     return self.fail("redefinition of identifier '{}'", .{ident});
                 }
-                try body_context.instructions.append(self.allocator, inst);
+                try body_context.instructions.append(inst);
                 continue;
             },
             ' ', '\n' => continue,
@@ -712,7 +716,7 @@ const Parser = struct {
                     skipSpace(self);
                     try requireEatBytes(self, "=");
                     skipSpace(self);
-                    const inst = try parseInstruction(self, null);
+                    const inst = try parseInstruction(self, null, ident[1..]);
                     const ident_index = self.decls.items.len;
                     if (try self.global_name_map.put(ident, ident_index)) |_| {
                         return self.fail("redefinition of identifier '{}'", .{ident});
@@ -781,12 +785,12 @@ const Parser = struct {
         return error.ParseFailure;
     }
 
-    fn parseInstruction(self: *Parser, body_ctx: ?*Body) InnerError!*Inst {
+    fn parseInstruction(self: *Parser, body_ctx: ?*Body, name: []const u8) InnerError!*Inst {
         const fn_name = try skipToAndOver(self, '(');
         inline for (@typeInfo(Inst.Tag).Enum.fields) |field| {
             if (mem.eql(u8, field.name, fn_name)) {
                 const tag = @field(Inst.Tag, field.name);
-                return parseInstructionGeneric(self, field.name, Inst.TagToType(tag), body_ctx);
+                return parseInstructionGeneric(self, field.name, Inst.TagToType(tag), body_ctx, name);
             }
         }
         return self.fail("unknown instruction '{}'", .{fn_name});
@@ -797,9 +801,11 @@ const Parser = struct {
         comptime fn_name: []const u8,
         comptime InstType: type,
         body_ctx: ?*Body,
-    ) !*Inst {
+        inst_name: []const u8,
+    ) InnerError!*Inst {
         const inst_specific = try self.arena.allocator.create(InstType);
         inst_specific.base = .{
+            .name = inst_name,
             .src = self.i,
             .tag = InstType.base_tag,
         };
@@ -885,7 +891,7 @@ const Parser = struct {
                 var instructions = std.ArrayList(*Inst).init(&self.arena.allocator);
                 while (true) {
                     skipSpace(self);
-                    try instructions.append(self.allocator, try parseParameterInst(self, body_ctx));
+                    try instructions.append(try parseParameterInst(self, body_ctx));
                     skipSpace(self);
                     if (!eatByte(self, ',')) break;
                 }
@@ -930,13 +936,21 @@ const Parser = struct {
             } else {
                 const name = try self.arena.allocator.create(Inst.Str);
                 name.* = .{
-                    .base = .{ .src = src, .tag = Inst.Str.base_tag },
+                    .base = .{
+                        .name = try self.generateName(),
+                        .src = src,
+                        .tag = Inst.Str.base_tag,
+                    },
                     .positionals = .{ .bytes = ident },
                     .kw_args = .{},
                 };
                 const declref = try self.arena.allocator.create(Inst.DeclRef);
                 declref.* = .{
-                    .base = .{ .src = src, .tag = Inst.DeclRef.base_tag },
+                    .base = .{
+                        .name = try self.generateName(),
+                        .src = src,
+                        .tag = Inst.DeclRef.base_tag,
+                    },
                     .positionals = .{ .name = &name.base },
                     .kw_args = .{},
                 };
@@ -949,25 +963,31 @@ const Parser = struct {
             return self.decls.items[kv.value];
         }
     }
+
+    fn generateName(self: *Parser) ![]u8 {
+        const result = try std.fmt.allocPrint(&self.arena.allocator, "unnamed${}", .{self.unnamed_index});
+        self.unnamed_index += 1;
+        return result;
+    }
 };
 
 pub fn emit_zir(allocator: *Allocator, old_module: ir.Module) !Module {
     var ctx: EmitZIR = .{
         .allocator = allocator,
-        .decls = std.ArrayList(*Inst).init(allocator),
+        .decls = .{},
         .decl_table = std.AutoHashMap(*ir.Inst, *Inst).init(allocator),
         .arena = std.heap.ArenaAllocator.init(allocator),
         .old_module = &old_module,
     };
-    defer ctx.decls.deinit();
+    defer ctx.decls.deinit(allocator);
     defer ctx.decl_table.deinit();
     errdefer ctx.arena.deinit();
 
     try ctx.emit();
 
     return Module{
-        .decls = ctx.decls.toOwnedSlice(),
-        .arena = ctx.arena,
+        .decls = ctx.decls.toOwnedSlice(allocator),
+        .arena = ctx.arena.state,
     };
 }
 
@@ -975,23 +995,32 @@ const EmitZIR = struct {
     allocator: *Allocator,
     arena: std.heap.ArenaAllocator,
     old_module: *const ir.Module,
-    decls: std.ArrayList(*Inst),
+    decls: std.ArrayListUnmanaged(*Inst),
     decl_table: std.AutoHashMap(*ir.Inst, *Inst),
 
     fn emit(self: *EmitZIR) !void {
-        for (self.old_module.exports) |module_export| {
-            const export_value = try self.emitTypedValue(module_export.src, module_export.typed_value);
-            const symbol_name = try self.emitStringLiteral(module_export.src, module_export.name);
-            const export_inst = try self.arena.allocator.create(Inst.Export);
-            export_inst.* = .{
-                .base = .{ .src = module_export.src, .tag = Inst.Export.base_tag },
-                .positionals = .{
-                    .symbol_name = symbol_name,
-                    .value = export_value,
-                },
-                .kw_args = .{},
-            };
-            try self.decls.append(self.allocator, &export_inst.base);
+        var it = self.old_module.decl_exports.iterator();
+        while (it.next()) |kv| {
+            const decl = kv.key;
+            const exports = kv.value;
+            const export_value = try self.emitTypedValue(decl.src, decl.typed_value.most_recent.typed_value);
+            for (exports) |module_export| {
+                const symbol_name = try self.emitStringLiteral(module_export.src, module_export.options.name);
+                const export_inst = try self.arena.allocator.create(Inst.Export);
+                export_inst.* = .{
+                    .base = .{
+                        .name = try self.autoName(),
+                        .src = module_export.src,
+                        .tag = Inst.Export.base_tag,
+                    },
+                    .positionals = .{
+                        .symbol_name = symbol_name,
+                        .value = export_value,
+                    },
+                    .kw_args = .{},
+                };
+                try self.decls.append(self.allocator, &export_inst.base);
+            }
         }
     }
 
@@ -1012,7 +1041,11 @@ const EmitZIR = struct {
         const big_int_space = try self.arena.allocator.create(Value.BigIntSpace);
         const int_inst = try self.arena.allocator.create(Inst.Int);
         int_inst.* = .{
-            .base = .{ .src = src, .tag = Inst.Int.base_tag },
+            .base = .{
+                .name = try self.autoName(),
+                .src = src,
+                .tag = Inst.Int.base_tag,
+            },
             .positionals = .{
                 .int = val.toBigInt(big_int_space),
             },
@@ -1022,7 +1055,7 @@ const EmitZIR = struct {
         return &int_inst.base;
     }
 
-    fn emitTypedValue(self: *EmitZIR, src: usize, typed_value: ir.TypedValue) Allocator.Error!*Inst {
+    fn emitTypedValue(self: *EmitZIR, src: usize, typed_value: TypedValue) Allocator.Error!*Inst {
         switch (typed_value.ty.zigTypeTag()) {
             .Pointer => {
                 const ptr_elem_type = typed_value.ty.elemType();
@@ -1044,7 +1077,11 @@ const EmitZIR = struct {
             .Int => {
                 const as_inst = try self.arena.allocator.create(Inst.As);
                 as_inst.* = .{
-                    .base = .{ .src = src, .tag = Inst.As.base_tag },
+                    .base = .{
+                        .name = try self.autoName(),
+                        .src = src,
+                        .tag = Inst.As.base_tag,
+                    },
                     .positionals = .{
                         .dest_type = try self.emitType(src, typed_value.ty),
                         .value = try self.emitComptimeIntVal(src, typed_value.val),
@@ -1060,8 +1097,7 @@ const EmitZIR = struct {
                 return self.emitType(src, ty);
             },
             .Fn => {
-                const index = typed_value.val.cast(Value.Payload.Function).?.index;
-                const module_fn = self.old_module.fns[index];
+                const module_fn = typed_value.val.cast(Value.Payload.Function).?.func;
 
                 var inst_table = std.AutoHashMap(*ir.Inst, *Inst).init(self.allocator);
                 defer inst_table.deinit();
@@ -1069,7 +1105,7 @@ const EmitZIR = struct {
                 var instructions = std.ArrayList(*Inst).init(self.allocator);
                 defer instructions.deinit();
 
-                try self.emitBody(module_fn.body, &inst_table, &instructions);
+                try self.emitBody(module_fn.analysis.success, &inst_table, &instructions);
 
                 const fn_type = try self.emitType(src, module_fn.fn_type);
 
@@ -1078,7 +1114,11 @@ const EmitZIR = struct {
 
                 const fn_inst = try self.arena.allocator.create(Inst.Fn);
                 fn_inst.* = .{
-                    .base = .{ .src = src, .tag = Inst.Fn.base_tag },
+                    .base = .{
+                        .name = try self.autoName(),
+                        .src = src,
+                        .tag = Inst.Fn.base_tag,
+                    },
                     .positionals = .{
                         .fn_type = fn_type,
                         .body = .{ .instructions = arena_instrs },
@@ -1095,7 +1135,11 @@ const EmitZIR = struct {
     fn emitTrivial(self: *EmitZIR, src: usize, comptime T: type) Allocator.Error!*Inst {
         const new_inst = try self.arena.allocator.create(T);
         new_inst.* = .{
-            .base = .{ .src = src, .tag = T.base_tag },
+            .base = .{
+                .name = try self.autoName(),
+                .src = src,
+                .tag = T.base_tag,
+            },
             .positionals = .{},
             .kw_args = .{},
         };
@@ -1120,7 +1164,11 @@ const EmitZIR = struct {
                         elem.* = try self.resolveInst(inst_table, old_inst.args.args[i]);
                     }
                     new_inst.* = .{
-                        .base = .{ .src = inst.src, .tag = Inst.Call.base_tag },
+                        .base = .{
+                            .name = try self.autoName(),
+                            .src = inst.src,
+                            .tag = Inst.Call.base_tag,
+                        },
                         .positionals = .{
                             .func = try self.resolveInst(inst_table, old_inst.args.func),
                             .args = args,
@@ -1152,7 +1200,11 @@ const EmitZIR = struct {
                     }
 
                     new_inst.* = .{
-                        .base = .{ .src = inst.src, .tag = Inst.Asm.base_tag },
+                        .base = .{
+                            .name = try self.autoName(),
+                            .src = inst.src,
+                            .tag = Inst.Asm.base_tag,
+                        },
                         .positionals = .{
                             .asm_source = try self.emitStringLiteral(inst.src, old_inst.args.asm_source),
                             .return_type = try self.emitType(inst.src, inst.ty),
@@ -1174,7 +1226,11 @@ const EmitZIR = struct {
                     const old_inst = inst.cast(ir.Inst.PtrToInt).?;
                     const new_inst = try self.arena.allocator.create(Inst.PtrToInt);
                     new_inst.* = .{
-                        .base = .{ .src = inst.src, .tag = Inst.PtrToInt.base_tag },
+                        .base = .{
+                            .name = try self.autoName(),
+                            .src = inst.src,
+                            .tag = Inst.PtrToInt.base_tag,
+                        },
                         .positionals = .{
                             .ptr = try self.resolveInst(inst_table, old_inst.args.ptr),
                         },
@@ -1186,7 +1242,11 @@ const EmitZIR = struct {
                     const old_inst = inst.cast(ir.Inst.BitCast).?;
                     const new_inst = try self.arena.allocator.create(Inst.BitCast);
                     new_inst.* = .{
-                        .base = .{ .src = inst.src, .tag = Inst.BitCast.base_tag },
+                        .base = .{
+                            .name = try self.autoName(),
+                            .src = inst.src,
+                            .tag = Inst.BitCast.base_tag,
+                        },
                         .positionals = .{
                             .dest_type = try self.emitType(inst.src, inst.ty),
                             .operand = try self.resolveInst(inst_table, old_inst.args.operand),
@@ -1199,7 +1259,11 @@ const EmitZIR = struct {
                     const old_inst = inst.cast(ir.Inst.Cmp).?;
                     const new_inst = try self.arena.allocator.create(Inst.Cmp);
                     new_inst.* = .{
-                        .base = .{ .src = inst.src, .tag = Inst.Cmp.base_tag },
+                        .base = .{
+                            .name = try self.autoName(),
+                            .src = inst.src,
+                            .tag = Inst.Cmp.base_tag,
+                        },
                         .positionals = .{
                             .lhs = try self.resolveInst(inst_table, old_inst.args.lhs),
                             .rhs = try self.resolveInst(inst_table, old_inst.args.rhs),
@@ -1223,7 +1287,11 @@ const EmitZIR = struct {
 
                     const new_inst = try self.arena.allocator.create(Inst.CondBr);
                     new_inst.* = .{
-                        .base = .{ .src = inst.src, .tag = Inst.CondBr.base_tag },
+                        .base = .{
+                            .name = try self.autoName(),
+                            .src = inst.src,
+                            .tag = Inst.CondBr.base_tag,
+                        },
                         .positionals = .{
                             .condition = try self.resolveInst(inst_table, old_inst.args.condition),
                             .true_body = .{ .instructions = true_body.toOwnedSlice() },
@@ -1237,7 +1305,11 @@ const EmitZIR = struct {
                     const old_inst = inst.cast(ir.Inst.IsNull).?;
                     const new_inst = try self.arena.allocator.create(Inst.IsNull);
                     new_inst.* = .{
-                        .base = .{ .src = inst.src, .tag = Inst.IsNull.base_tag },
+                        .base = .{
+                            .name = try self.autoName(),
+                            .src = inst.src,
+                            .tag = Inst.IsNull.base_tag,
+                        },
                         .positionals = .{
                             .operand = try self.resolveInst(inst_table, old_inst.args.operand),
                         },
@@ -1249,7 +1321,11 @@ const EmitZIR = struct {
                     const old_inst = inst.cast(ir.Inst.IsNonNull).?;
                     const new_inst = try self.arena.allocator.create(Inst.IsNonNull);
                     new_inst.* = .{
-                        .base = .{ .src = inst.src, .tag = Inst.IsNonNull.base_tag },
+                        .base = .{
+                            .name = try self.autoName(),
+                            .src = inst.src,
+                            .tag = Inst.IsNonNull.base_tag,
+                        },
                         .positionals = .{
                             .operand = try self.resolveInst(inst_table, old_inst.args.operand),
                         },
@@ -1258,7 +1334,7 @@ const EmitZIR = struct {
                     break :blk &new_inst.base;
                 },
             };
-            try instructions.append(self.allocator, new_inst);
+            try instructions.append(new_inst);
             try inst_table.putNoClobber(inst, new_inst);
         }
     }
@@ -1301,7 +1377,11 @@ const EmitZIR = struct {
 
                     const fntype_inst = try self.arena.allocator.create(Inst.FnType);
                     fntype_inst.* = .{
-                        .base = .{ .src = src, .tag = Inst.FnType.base_tag },
+                        .base = .{
+                            .name = try self.autoName(),
+                            .src = src,
+                            .tag = Inst.FnType.base_tag,
+                        },
                         .positionals = .{
                             .param_types = emitted_params,
                             .return_type = try self.emitType(src, ty.fnReturnType()),
@@ -1318,10 +1398,18 @@ const EmitZIR = struct {
         }
     }
 
+    fn autoName(self: *EmitZIR) ![]u8 {
+        return std.fmt.allocPrint(&self.arena.allocator, "{}", .{self.decls.items.len});
+    }
+
     fn emitPrimitiveType(self: *EmitZIR, src: usize, tag: Inst.Primitive.BuiltinType) !*Inst {
         const primitive_inst = try self.arena.allocator.create(Inst.Primitive);
         primitive_inst.* = .{
-            .base = .{ .src = src, .tag = Inst.Primitive.base_tag },
+            .base = .{
+                .name = try self.autoName(),
+                .src = src,
+                .tag = Inst.Primitive.base_tag,
+            },
             .positionals = .{
                 .tag = tag,
             },
@@ -1334,7 +1422,11 @@ const EmitZIR = struct {
     fn emitStringLiteral(self: *EmitZIR, src: usize, str: []const u8) !*Inst {
         const str_inst = try self.arena.allocator.create(Inst.Str);
         str_inst.* = .{
-            .base = .{ .src = src, .tag = Inst.Str.base_tag },
+            .base = .{
+                .name = try self.autoName(),
+                .src = src,
+                .tag = Inst.Str.base_tag,
+            },
             .positionals = .{
                 .bytes = str,
             },

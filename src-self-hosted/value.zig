@@ -67,6 +67,7 @@ pub const Value = extern union {
         int_big_positive,
         int_big_negative,
         function,
+        ref_val,
         decl_ref,
         elem_ptr,
         bytes,
@@ -158,6 +159,11 @@ pub const Value = extern union {
             .int_big_positive => return out_stream.print("{}", .{val.cast(Payload.IntBigPositive).?.asBigInt()}),
             .int_big_negative => return out_stream.print("{}", .{val.cast(Payload.IntBigNegative).?.asBigInt()}),
             .function => return out_stream.writeAll("(function)"),
+            .ref_val => {
+                const ref_val = val.cast(Payload.RefVal).?;
+                try out_stream.writeAll("&const ");
+                val = ref_val.val;
+            },
             .decl_ref => return out_stream.writeAll("(decl ref)"),
             .elem_ptr => {
                 const elem_ptr = val.cast(Payload.ElemPtr).?;
@@ -229,6 +235,7 @@ pub const Value = extern union {
             .int_big_positive,
             .int_big_negative,
             .function,
+            .ref_val,
             .decl_ref,
             .elem_ptr,
             .bytes,
@@ -276,6 +283,7 @@ pub const Value = extern union {
             .bool_false,
             .null_value,
             .function,
+            .ref_val,
             .decl_ref,
             .elem_ptr,
             .bytes,
@@ -333,6 +341,7 @@ pub const Value = extern union {
             .bool_false,
             .null_value,
             .function,
+            .ref_val,
             .decl_ref,
             .elem_ptr,
             .bytes,
@@ -391,6 +400,7 @@ pub const Value = extern union {
             .bool_false,
             .null_value,
             .function,
+            .ref_val,
             .decl_ref,
             .elem_ptr,
             .bytes,
@@ -454,6 +464,7 @@ pub const Value = extern union {
             .bool_false,
             .null_value,
             .function,
+            .ref_val,
             .decl_ref,
             .elem_ptr,
             .bytes,
@@ -546,6 +557,7 @@ pub const Value = extern union {
             .bool_false,
             .null_value,
             .function,
+            .ref_val,
             .decl_ref,
             .elem_ptr,
             .bytes,
@@ -600,6 +612,7 @@ pub const Value = extern union {
             .bool_false,
             .null_value,
             .function,
+            .ref_val,
             .decl_ref,
             .elem_ptr,
             .bytes,
@@ -655,7 +668,8 @@ pub const Value = extern union {
     }
 
     /// Asserts the value is a pointer and dereferences it.
-    pub fn pointerDeref(self: Value, module: *ir.Module) !Value {
+    /// Returns error.AnalysisFail if the pointer points to a Decl that failed semantic analysis.
+    pub fn pointerDeref(self: Value, allocator: *Allocator) error{ AnalysisFail, OutOfMemory }!Value {
         return switch (self.tag()) {
             .ty,
             .u8_type,
@@ -704,21 +718,19 @@ pub const Value = extern union {
             => unreachable,
 
             .the_one_possible_value => Value.initTag(.the_one_possible_value),
-            .decl_ref => {
-                const index = self.cast(Payload.DeclRef).?.index;
-                return module.getDeclValue(index);
-            },
+            .ref_val => self.cast(Payload.RefVal).?.val,
+            .decl_ref => self.cast(Payload.DeclRef).?.decl.value(),
             .elem_ptr => {
-                const elem_ptr = self.cast(ElemPtr).?;
-                const array_val = try elem_ptr.array_ptr.pointerDeref(module);
-                return self.elemValue(array_val, elem_ptr.index);
+                const elem_ptr = self.cast(Payload.ElemPtr).?;
+                const array_val = try elem_ptr.array_ptr.pointerDeref(allocator);
+                return array_val.elemValue(allocator, elem_ptr.index);
             },
         };
     }
 
     /// Asserts the value is a single-item pointer to an array, or an array,
     /// or an unknown-length pointer, and returns the element value at the index.
-    pub fn elemValue(self: Value, index: usize) Value {
+    pub fn elemValue(self: Value, allocator: *Allocator, index: usize) error{OutOfMemory}!Value {
         switch (self.tag()) {
             .ty,
             .u8_type,
@@ -764,6 +776,7 @@ pub const Value = extern union {
             .int_big_negative,
             .undef,
             .elem_ptr,
+            .ref_val,
             .decl_ref,
             => unreachable,
 
@@ -838,6 +851,7 @@ pub const Value = extern union {
             .int_i64,
             .int_big_positive,
             .int_big_negative,
+            .ref_val,
             .decl_ref,
             .elem_ptr,
             .bytes,
@@ -896,11 +910,16 @@ pub const Value = extern union {
             elem_type: *Type,
         };
 
+        /// Represents a pointer to another immutable value.
+        pub const RefVal = struct {
+            base: Payload = Payload{ .tag = .ref_val },
+            val: Value,
+        };
+
         /// Represents a pointer to a decl, not the value of the decl.
         pub const DeclRef = struct {
             base: Payload = Payload{ .tag = .decl_ref },
-            /// Index into the Module's decls list
-            index: usize,
+            decl: *ir.Module.Decl,
         };
 
         pub const ElemPtr = struct {

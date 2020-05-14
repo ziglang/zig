@@ -279,6 +279,21 @@ pub const Allocator = struct {
         const shrink_result = self.shrinkFn(self, non_const_ptr[0..bytes_len], Slice.alignment, 0, 1);
         assert(shrink_result.len == 0);
     }
+
+    /// Copies `m` to newly allocated memory. Caller owns the memory.
+    pub fn dupe(allocator: *Allocator, comptime T: type, m: []const T) ![]T {
+        const new_buf = try allocator.alloc(T, m.len);
+        copy(T, new_buf, m);
+        return new_buf;
+    }
+
+    /// Copies `m` to newly allocated memory, with a null-terminated element. Caller owns the memory.
+    pub fn dupeZ(allocator: *Allocator, comptime T: type, m: []const T) ![:0]T {
+        const new_buf = try allocator.alloc(T, m.len + 1);
+        copy(T, new_buf, m);
+        new_buf[m.len] = 0;
+        return new_buf[0..m.len :0];
+    }
 };
 
 /// Copy all of source into dest at position 0.
@@ -762,19 +777,14 @@ pub fn allEqual(comptime T: type, slice: []const T, scalar: T) bool {
     return true;
 }
 
-/// Copies `m` to newly allocated memory. Caller owns the memory.
+/// Deprecated, use `Allocator.dupe`.
 pub fn dupe(allocator: *Allocator, comptime T: type, m: []const T) ![]T {
-    const new_buf = try allocator.alloc(T, m.len);
-    copy(T, new_buf, m);
-    return new_buf;
+    return allocator.dupe(T, m);
 }
 
-/// Copies `m` to newly allocated memory, with a null-terminated element. Caller owns the memory.
+/// Deprecated, use `Allocator.dupeZ`.
 pub fn dupeZ(allocator: *Allocator, comptime T: type, m: []const T) ![:0]T {
-    const new_buf = try allocator.alloc(T, m.len + 1);
-    copy(T, new_buf, m);
-    new_buf[m.len] = 0;
-    return new_buf[0..m.len :0];
+    return allocator.dupeZ(T, m);
 }
 
 /// Remove values from the beginning of a slice.

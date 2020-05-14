@@ -269,13 +269,6 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
 
 /// Bring-your-own allocator with every function call.
 /// Initialize directly and deinitialize with `deinit` or use `toOwnedSlice`.
-pub fn init() Self {
-    return .{
-        .items = &[_]T{},
-        .capacity = 0,
-    };
-}
-
 pub fn ArrayListUnmanaged(comptime T: type) type {
     return ArrayListAlignedUnmanaged(T, null);
 }
@@ -317,7 +310,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// The caller owns the returned memory. ArrayList becomes empty.
         pub fn toOwnedSlice(self: *Self, allocator: *Allocator) Slice {
             const result = allocator.shrink(self.allocatedSlice(), self.items.len);
-            self.* = init(allocator);
+            self.* = Self{};
             return result;
         }
 

@@ -153,7 +153,7 @@ pub const ElfFile = struct {
     };
 
     pub const Export = struct {
-        sym_index: usize,
+        sym_index: ?usize = null,
     };
 
     pub fn deinit(self: *ElfFile) void {
@@ -247,6 +247,11 @@ pub const ElfFile = struct {
         self.shstrtab.appendSliceAssumeCapacity(bytes);
         self.shstrtab.appendAssumeCapacity(0);
         return @intCast(u32, result);
+    }
+
+    fn getString(self: *ElfFile, str_off: u32) []const u8 {
+        assert(str_off < self.shstrtab.items.len);
+        return mem.spanZ(@ptrCast([*:0]const u8, self.shstrtab.items.ptr + str_off));
     }
 
     fn updateString(self: *ElfFile, old_str_off: u32, new_name: []const u8) !u32 {
@@ -418,6 +423,14 @@ pub const ElfFile = struct {
         const foreign_endian = self.options.target.cpu.arch.endian() != std.Target.current.cpu.arch.endian();
 
         if (self.phdr_table_dirty) {
+            const phsize: u64 = switch (self.ptr_width) {
+                .p32 => @sizeOf(elf.Elf32_Phdr),
+                .p64 => @sizeOf(elf.Elf64_Phdr),
+            };
+            const phalign: u16 = switch (self.ptr_width) {
+                .p32 => @alignOf(elf.Elf32_Phdr),
+                .p64 => @alignOf(elf.Elf64_Phdr),
+            };
             const allocated_size = self.allocatedSize(self.phdr_table_offset.?);
             const needed_size = self.program_headers.items.len * phsize;
 
@@ -426,11 +439,10 @@ pub const ElfFile = struct {
                 self.phdr_table_offset = self.findFreeSpace(needed_size, phalign);
             }
 
-            const allocator = self.program_headers.allocator;
             switch (self.ptr_width) {
                 .p32 => {
-                    const buf = try allocator.alloc(elf.Elf32_Phdr, self.program_headers.items.len);
-                    defer allocator.free(buf);
+                    const buf = try self.allocator.alloc(elf.Elf32_Phdr, self.program_headers.items.len);
+                    defer self.allocator.free(buf);
 
                     for (buf) |*phdr, i| {
                         phdr.* = progHeaderTo32(self.program_headers.items[i]);
@@ -441,8 +453,8 @@ pub const ElfFile = struct {
                     try self.file.pwriteAll(mem.sliceAsBytes(buf), self.phdr_table_offset.?);
                 },
                 .p64 => {
-                    const buf = try allocator.alloc(elf.Elf64_Phdr, self.program_headers.items.len);
-                    defer allocator.free(buf);
+                    const buf = try self.allocator.alloc(elf.Elf64_Phdr, self.program_headers.items.len);
+                    defer self.allocator.free(buf);
 
                     for (buf) |*phdr, i| {
                         phdr.* = self.program_headers.items[i];
@@ -478,12 +490,20 @@ pub const ElfFile = struct {
             }
         }
         if (self.shdr_table_dirty) {
+            const shsize: u64 = switch (self.ptr_width) {
+                .p32 => @sizeOf(elf.Elf32_Shdr),
+                .p64 => @sizeOf(elf.Elf64_Shdr),
+            };
+            const shalign: u16 = switch (self.ptr_width) {
+                .p32 => @alignOf(elf.Elf32_Shdr),
+                .p64 => @alignOf(elf.Elf64_Shdr),
+            };
             const allocated_size = self.allocatedSize(self.shdr_table_offset.?);
-            const needed_size = self.sections.items.len * phsize;
+            const needed_size = self.sections.items.len * shsize;
 
             if (needed_size > allocated_size) {
                 self.shdr_table_offset = null; // free the space
-                self.shdr_table_offset = self.findFreeSpace(needed_size, phalign);
+                self.shdr_table_offset = self.findFreeSpace(needed_size, shalign);
             }
 
             switch (self.ptr_width) {
@@ -719,7 +739,7 @@ pub const ElfFile = struct {
         defer code.deinit();
 
         const typed_value = decl.typed_value.most_recent.typed_value;
-        const err_msg = try codegen.generateSymbol(typed_value, module, &code);
+        const err_msg = try codegen.generateSymbol(typed_value, module.*, &code);
         if (err_msg != null) |em| {
             decl.analysis = .codegen_failure;
             _ = try module.failed_decls.put(decl, em);
@@ -751,15 +771,15 @@ pub const ElfFile = struct {
                 try self.writeSymbol(decl.link.local_sym_index);
                 break :blk file_offset;
             } else {
-                try self.symbols.ensureCapacity(self.symbols.items.len + 1);
-                try self.offset_table.ensureCapacity(self.offset_table.items.len + 1);
+                try self.symbols.ensureCapacity(self.allocator, self.symbols.items.len + 1);
+                try self.offset_table.ensureCapacity(self.allocator, self.offset_table.items.len + 1);
                 const decl_name = mem.spanZ(u8, decl.name);
                 const name_str_index = try self.makeString(decl_name);
                 const new_block = try self.allocateTextBlock(code_size);
                 const local_sym_index = self.symbols.items.len;
                 const offset_table_index = self.offset_table.items.len;
 
-                self.symbols.appendAssumeCapacity(self.allocator, .{
+                self.symbols.appendAssumeCapacity(.{
                     .st_name = name_str_index,
                     .st_info = (elf.STB_LOCAL << 4) | stt_bits,
                     .st_other = 0,
@@ -767,9 +787,9 @@ pub const ElfFile = struct {
                     .st_value = new_block.vaddr,
                     .st_size = code_size,
                 });
-                errdefer self.symbols.shrink(self.symbols.items.len - 1);
-                self.offset_table.appendAssumeCapacity(self.allocator, new_block.vaddr);
-                errdefer self.offset_table.shrink(self.offset_table.items.len - 1);
+                errdefer self.symbols.shrink(self.allocator, self.symbols.items.len - 1);
+                self.offset_table.appendAssumeCapacity(new_block.vaddr);
+                errdefer self.offset_table.shrink(self.allocator, self.offset_table.items.len - 1);
                 try self.writeSymbol(local_sym_index);
                 try self.writeOffsetTableEntry(offset_table_index);
 
@@ -796,11 +816,12 @@ pub const ElfFile = struct {
         self: *ElfFile,
         module: *ir.Module,
         decl: *const ir.Module.Decl,
-        exports: []const *const Export,
+        exports: []const *ir.Module.Export,
     ) !void {
-        try self.symbols.ensureCapacity(self.symbols.items.len + exports.len);
+        try self.symbols.ensureCapacity(self.allocator, self.symbols.items.len + exports.len);
         const typed_value = decl.typed_value.most_recent.typed_value;
-        const decl_sym = self.symbols.items[decl.link.local_sym_index.?];
+        assert(decl.link.local_sym_index != 0);
+        const decl_sym = self.symbols.items[decl.link.local_sym_index];
 
         for (exports) |exp| {
             if (exp.options.section) |section_name| {
@@ -808,15 +829,16 @@ pub const ElfFile = struct {
                     try module.failed_exports.ensureCapacity(module.failed_exports.size + 1);
                     module.failed_exports.putAssumeCapacityNoClobber(
                         exp,
-                        try ir.ErrorMsg.create(0, "Unimplemented: ExportOptions.section", .{}),
+                        try ir.ErrorMsg.create(self.allocator, 0, "Unimplemented: ExportOptions.section", .{}),
                     );
+                    continue;
                 }
             }
-            const stb_bits = switch (exp.options.linkage) {
+            const stb_bits: u8 = switch (exp.options.linkage) {
                 .Internal => elf.STB_LOCAL,
                 .Strong => blk: {
                     if (mem.eql(u8, exp.options.name, "_start")) {
-                        self.entry_addr = decl_symbol.vaddr;
+                        self.entry_addr = decl_sym.st_value;
                     }
                     break :blk elf.STB_GLOBAL;
                 },
@@ -825,8 +847,9 @@ pub const ElfFile = struct {
                     try module.failed_exports.ensureCapacity(module.failed_exports.size + 1);
                     module.failed_exports.putAssumeCapacityNoClobber(
                         exp,
-                        try ir.ErrorMsg.create(0, "Unimplemented: GlobalLinkage.LinkOnce", .{}),
+                        try ir.ErrorMsg.create(self.allocator, 0, "Unimplemented: GlobalLinkage.LinkOnce", .{}),
                     );
+                    continue;
                 },
             };
             const stt_bits: u8 = @truncate(u4, decl_sym.st_info);
@@ -844,15 +867,15 @@ pub const ElfFile = struct {
             } else {
                 const name = try self.makeString(exp.options.name);
                 const i = self.symbols.items.len;
-                self.symbols.appendAssumeCapacity(self.allocator, .{
-                    .st_name = sn.name,
+                self.symbols.appendAssumeCapacity(.{
+                    .st_name = name,
                     .st_info = (stb_bits << 4) | stt_bits,
                     .st_other = 0,
                     .st_shndx = self.text_section_index.?,
                     .st_value = decl_sym.st_value,
                     .st_size = decl_sym.st_size,
                 });
-                errdefer self.symbols.shrink(self.symbols.items.len - 1);
+                errdefer self.symbols.shrink(self.allocator, self.symbols.items.len - 1);
                 try self.writeSymbol(i);
 
                 self.symbol_count_dirty = true;
@@ -946,10 +969,15 @@ pub const ElfFile = struct {
     }
 
     fn writeSymbol(self: *ElfFile, index: usize) !void {
+        assert(index != 0);
         const syms_sect = &self.sections.items[self.symtab_section_index.?];
         // Make sure we are not pointlessly writing symbol data that will have to get relocated
         // due to running out of space.
         if (self.symbol_count_dirty) {
+            const sym_size: u64 = switch (self.ptr_width) {
+                .p32 => @sizeOf(elf.Elf32_Sym),
+                .p64 => @sizeOf(elf.Elf64_Sym),
+            };
             const allocated_size = self.allocatedSize(syms_sect.sh_offset);
             const needed_size = self.symbols.items.len * sym_size;
             if (needed_size > allocated_size) {
@@ -990,11 +1018,15 @@ pub const ElfFile = struct {
     }
 
     fn writeAllSymbols(self: *ElfFile) !void {
-        const small_ptr = self.ptr_width == .p32;
         const syms_sect = &self.sections.items[self.symtab_section_index.?];
-        const sym_align: u16 = if (small_ptr) @alignOf(elf.Elf32_Sym) else @alignOf(elf.Elf64_Sym);
-        const sym_size: u64 = if (small_ptr) @sizeOf(elf.Elf32_Sym) else @sizeOf(elf.Elf64_Sym);
-
+        const sym_align: u16 = switch (self.ptr_width) {
+            .p32 => @alignOf(elf.Elf32_Sym),
+            .p64 => @alignOf(elf.Elf64_Sym),
+        };
+        const sym_size: u64 = switch (self.ptr_width) {
+            .p32 => @sizeOf(elf.Elf32_Sym),
+            .p64 => @sizeOf(elf.Elf64_Sym),
+        };
         const allocated_size = self.allocatedSize(syms_sect.sh_offset);
         const needed_size = self.symbols.items.len * sym_size;
         if (needed_size > allocated_size) {
