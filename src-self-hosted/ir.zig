@@ -334,8 +334,14 @@ pub const Module = struct {
         }
 
         pub fn dump(self: *Decl) void {
-            self.scope.dumpSrc(self.src);
-            std.debug.warn(" name={} status={}", .{ mem.spanZ(self.name), @tagName(self.analysis) });
+            const loc = std.zig.findLineColumn(self.scope.source.bytes, self.src);
+            std.debug.warn("{}:{}:{} name={} status={}", .{
+                self.scope.sub_file_path,
+                loc.line + 1,
+                loc.column + 1,
+                mem.spanZ(self.name),
+                @tagName(self.analysis),
+            });
             if (self.typedValueManaged()) |tvm| {
                 std.debug.warn(" ty={} val={}", .{ tvm.typed_value.ty, tvm.typed_value.val });
             }
@@ -721,6 +727,9 @@ pub const Module = struct {
 
                     self.bin_file.updateDecl(self, decl) catch |err| switch (err) {
                         error.OutOfMemory => return error.OutOfMemory,
+                        error.AnalysisFail => {
+                            decl.analysis = .repeat_dependency_failure;
+                        },
                         else => {
                             try self.failed_decls.ensureCapacity(self.failed_decls.size + 1);
                             self.failed_decls.putAssumeCapacityNoClobber(decl, try ErrorMsg.create(

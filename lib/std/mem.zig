@@ -2099,7 +2099,11 @@ pub fn alignBackwardGeneric(comptime T: type, addr: T, alignment: T) T {
 /// Given an address and an alignment, return true if the address is a multiple of the alignment
 /// The alignment must be a power of 2 and greater than 0.
 pub fn isAligned(addr: usize, alignment: usize) bool {
-    return alignBackward(addr, alignment) == addr;
+    return isAlignedGeneric(u64, addr, alignment);
+}
+
+pub fn isAlignedGeneric(comptime T: type, addr: T, alignment: T) bool {
+    return alignBackwardGeneric(T, addr, alignment) == addr;
 }
 
 test "isAligned" {

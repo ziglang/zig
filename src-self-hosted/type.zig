@@ -287,12 +287,12 @@ pub const Type = extern union {
             .fn_naked_noreturn_no_args,
             .fn_ccc_void_no_args,
             .single_const_pointer_to_comptime_int,
-            .const_slice_u8, // See last_no_payload_tag below.
+            .const_slice_u8,
             .array_u8_sentinel_0,
-            .array,
+            .array, // TODO check for zero bits
             .single_const_pointer,
-            .int_signed,
-            .int_unsigned,
+            .int_signed, // TODO check for zero bits
+            .int_unsigned, // TODO check for zero bits
             => true,
 
             .c_void,
@@ -303,6 +303,66 @@ pub const Type = extern union {
             .noreturn,
             .@"null",
             => false,
+        };
+    }
+
+    /// Asserts that hasCodeGenBits() is true.
+    pub fn abiAlignment(self: Type, target: Target) u32 {
+        return switch (self.tag()) {
+            .u8,
+            .i8,
+            .bool,
+            .fn_noreturn_no_args, // represents machine code; not a pointer
+            .fn_naked_noreturn_no_args, // represents machine code; not a pointer
+            .fn_ccc_void_no_args, // represents machine code; not a pointer
+            .array_u8_sentinel_0,
+            => return 1,
+
+            .isize,
+            .usize,
+            .single_const_pointer_to_comptime_int,
+            .const_slice_u8,
+            .single_const_pointer,
+            => return @divExact(target.cpu.arch.ptrBitWidth(), 8),
+
+            .c_short => return @divExact(CType.short.sizeInBits(target), 8),
+            .c_ushort => return @divExact(CType.ushort.sizeInBits(target), 8),
+            .c_int => return @divExact(CType.int.sizeInBits(target), 8),
+            .c_uint => return @divExact(CType.uint.sizeInBits(target), 8),
+            .c_long => return @divExact(CType.long.sizeInBits(target), 8),
+            .c_ulong => return @divExact(CType.ulong.sizeInBits(target), 8),
+            .c_longlong => return @divExact(CType.longlong.sizeInBits(target), 8),
+            .c_ulonglong => return @divExact(CType.ulonglong.sizeInBits(target), 8),
+
+            .f16 => return 2,
+            .f32 => return 4,
+            .f64 => return 8,
+            .f128 => return 16,
+            .c_longdouble => return 16,
+
+            .anyerror => return 2, // TODO revisit this when we have the concept of the error tag type
+
+            .array => return self.cast(Payload.Array).?.elem_type.abiAlignment(target),
+
+            .int_signed, .int_unsigned => {
+                const bits: u16 = if (self.cast(Payload.IntSigned)) |pl|
+                    pl.bits
+                else if (self.cast(Payload.IntUnsigned)) |pl|
+                    pl.bits
+                else
+                    unreachable;
+
+                return std.math.ceilPowerOfTwoPromote(u16, (bits + 7) / 8);
+            },
+
+            .c_void,
+            .void,
+            .type,
+            .comptime_int,
+            .comptime_float,
+            .noreturn,
+            .@"null",
+            => unreachable,
         };
     }
 
@@ -522,6 +582,50 @@ pub const Type = extern union {
 
             .array => self.cast(Payload.Array).?.len,
             .array_u8_sentinel_0 => self.cast(Payload.Array_u8_Sentinel0).?.len,
+        };
+    }
+
+    /// Asserts the type is an array or vector.
+    pub fn arraySentinel(self: Type) ?Value {
+        return switch (self.tag()) {
+            .u8,
+            .i8,
+            .isize,
+            .usize,
+            .c_short,
+            .c_ushort,
+            .c_int,
+            .c_uint,
+            .c_long,
+            .c_ulong,
+            .c_longlong,
+            .c_ulonglong,
+            .c_longdouble,
+            .f16,
+            .f32,
+            .f64,
+            .f128,
+            .c_void,
+            .bool,
+            .void,
+            .type,
+            .anyerror,
+            .comptime_int,
+            .comptime_float,
+            .noreturn,
+            .@"null",
+            .fn_noreturn_no_args,
+            .fn_naked_noreturn_no_args,
+            .fn_ccc_void_no_args,
+            .single_const_pointer,
+            .single_const_pointer_to_comptime_int,
+            .const_slice_u8,
+            .int_unsigned,
+            .int_signed,
+            => unreachable,
+
+            .array => return null,
+            .array_u8_sentinel_0 => return Value.initTag(.zero),
         };
     }
 

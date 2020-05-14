@@ -10,8 +10,10 @@ const Target = std.Target;
 const Allocator = mem.Allocator;
 
 pub const Result = union(enum) {
-    /// This value might or might not alias the `code` parameter passed to `generateSymbol`.
-    ok: []const u8,
+    /// The `code` parameter passed to `generateSymbol` has the value appended.
+    appended: void,
+    /// The value is available externally, `code` is unused.
+    externally_managed: []const u8,
     fail: *ir.ErrorMsg,
 };
 
@@ -20,7 +22,11 @@ pub fn generateSymbol(
     src: usize,
     typed_value: TypedValue,
     code: *std.ArrayList(u8),
-) error{OutOfMemory}!Result {
+) error{
+    OutOfMemory,
+    /// A Decl that this symbol depends on had a semantic analysis failure.
+    AnalysisFail,
+}!Result {
     switch (typed_value.ty.zigTypeTag()) {
         .Fn => {
             const module_fn = typed_value.val.cast(Value.Payload.Function).?.func;
@@ -45,12 +51,29 @@ pub fn generateSymbol(
             if (function.err_msg) |em| {
                 return Result{ .fail = em };
             } else {
-                return Result{ .ok = code.items };
+                return Result{ .appended = {} };
             }
         },
         .Array => {
             if (typed_value.val.cast(Value.Payload.Bytes)) |payload| {
-                return Result{ .ok = payload.data };
+                if (typed_value.ty.arraySentinel()) |sentinel| {
+                    try code.ensureCapacity(code.items.len + payload.data.len + 1);
+                    code.appendSliceAssumeCapacity(payload.data);
+                    const prev_len = code.items.len;
+                    switch (try generateSymbol(bin_file, src, .{
+                        .ty = typed_value.ty.elemType(),
+                        .val = sentinel,
+                    }, code)) {
+                        .appended => return Result{ .appended = {} },
+                        .externally_managed => |slice| {
+                            code.appendSliceAssumeCapacity(slice);
+                            return Result{ .appended = {} };
+                        },
+                        .fail => |em| return Result{ .fail = em },
+                    }
+                } else {
+                    return Result{ .externally_managed = payload.data };
+                }
             }
             return Result{
                 .fail = try ir.ErrorMsg.create(
@@ -64,10 +87,11 @@ pub fn generateSymbol(
         .Pointer => {
             if (typed_value.val.cast(Value.Payload.DeclRef)) |payload| {
                 const decl = payload.decl;
+                if (decl.analysis != .complete) return error.AnalysisFail;
                 assert(decl.link.local_sym_index != 0);
                 // TODO handle the dependency of this symbol on the decl's vaddr.
                 // If the decl changes vaddr, then this symbol needs to get regenerated.
-                const vaddr = bin_file.symbols.items[decl.link.local_sym_index].st_value;
+                const vaddr = bin_file.local_symbols.items[decl.link.local_sym_index].st_value;
                 const endian = bin_file.options.target.cpu.arch.endian();
                 switch (bin_file.ptr_width) {
                     .p32 => {
@@ -79,7 +103,7 @@ pub fn generateSymbol(
                         mem.writeInt(u64, code.items[0..8], vaddr, endian);
                     },
                 }
-                return Result{ .ok = code.items };
+                return Result{ .appended = {} };
             }
             return Result{
                 .fail = try ir.ErrorMsg.create(
@@ -87,6 +111,22 @@ pub fn generateSymbol(
                     src,
                     "TODO implement generateSymbol for pointer {}",
                     .{typed_value.val},
+                ),
+            };
+        },
+        .Int => {
+            const info = typed_value.ty.intInfo(bin_file.options.target);
+            if (info.bits == 8 and !info.signed) {
+                const x = typed_value.val.toUnsignedInt();
+                try code.append(@intCast(u8, x));
+                return Result{ .appended = {} };
+            }
+            return Result{
+                .fail = try ir.ErrorMsg.create(
+                    bin_file.allocator,
+                    src,
+                    "TODO implement generateSymbol for int type '{}'",
+                    .{typed_value.ty},
                 ),
             };
         },
