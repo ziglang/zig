@@ -148,6 +148,20 @@ test "recovery: invalid parameter" {
     });
 }
 
+test "recovery: extra '}' at top level" {
+    try testError(
+        \\}}}
+        \\test "" {
+        \\    a && b;
+        \\}
+    , &[_]Error{
+        .ExpectedContainerMembers,
+        .ExpectedContainerMembers,
+        .ExpectedContainerMembers,
+        .InvalidAnd,
+    });
+}
+
 test "zig fmt: top-level fields" {
     try testCanonical(
         \\a: did_you_know,

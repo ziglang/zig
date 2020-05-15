@@ -57,16 +57,10 @@ pub fn parse(allocator: *Allocator, source: []const u8) Allocator.Error!*Tree {
 fn parseRoot(arena: *Allocator, it: *TokenIterator, tree: *Tree) Allocator.Error!*Node.Root {
     const node = try arena.create(Node.Root);
     node.* = .{
-        .decls = try parseContainerMembers(arena, it, tree),
-        .eof_token = eatToken(it, .Eof) orelse blk: {
-            // parseContainerMembers will try to skip as much
-            // invalid tokens as it can so this can only be a '}'
-            const tok = eatToken(it, .RBrace).?;
-            try tree.errors.push(.{
-                .ExpectedContainerMembers = .{ .token = tok },
-            });
-            break :blk tok;
-        },
+        .decls = try parseContainerMembers(arena, it, tree, true),
+        // parseContainerMembers will try to skip as much
+        // invalid tokens as it can so this can only be the EOF
+        .eof_token = eatToken(it, .Eof).?,
     };
     return node;
 }
@@ -78,7 +72,7 @@ fn parseRoot(arena: *Allocator, it: *TokenIterator, tree: *Tree) Allocator.Error
 ///      / KEYWORD_pub? ContainerField COMMA ContainerMembers
 ///      / KEYWORD_pub? ContainerField
 ///      /
-fn parseContainerMembers(arena: *Allocator, it: *TokenIterator, tree: *Tree) !Node.Root.DeclList {
+fn parseContainerMembers(arena: *Allocator, it: *TokenIterator, tree: *Tree, top_level: bool) !Node.Root.DeclList {
     var list = Node.Root.DeclList.init(arena);
 
     var field_state: union(enum) {
@@ -205,9 +199,15 @@ fn parseContainerMembers(arena: *Allocator, it: *TokenIterator, tree: *Tree) !No
                 // try to continue parsing
                 const index = it.index;
                 findNextContainerMember(it);
-                switch (it.peek().?.id) {
-                    .Eof, .RBrace => break,
+                const next = it.peek().?.id;
+                switch (next) {
+                    .Eof => break,
                     else => {
+                        if (next == .RBrace) {
+                            if (!top_level) break;
+                            _ = nextToken(it);
+                        }
+
                         // add error and continue
                         try tree.errors.push(.{
                             .ExpectedToken = .{ .token = index, .expected_id = .Comma },
@@ -228,9 +228,15 @@ fn parseContainerMembers(arena: *Allocator, it: *TokenIterator, tree: *Tree) !No
             });
         }
 
-        switch (it.peek().?.id) {
-            .Eof, .RBrace => break,
+        const next = it.peek().?.id;
+        switch (next) {
+            .Eof => break,
             else => {
+                if (next == .RBrace) {
+                    if (!top_level) break;
+                    _ = nextToken(it);
+                }
+
                 // this was likely not supposed to end yet,
                 // try to find the next declaration
                 const index = it.index;
@@ -2778,7 +2784,7 @@ fn parsePtrTypeStart(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node
 fn parseContainerDeclAuto(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const node = (try parseContainerDeclType(arena, it, tree)) orelse return null;
     const lbrace = try expectToken(it, tree, .LBrace);
-    const members = try parseContainerMembers(arena, it, tree);
+    const members = try parseContainerMembers(arena, it, tree, false);
     const rbrace = try expectToken(it, tree, .RBrace);
 
     const decl_type = node.cast(Node.ContainerDecl).?;
