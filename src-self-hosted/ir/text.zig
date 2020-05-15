@@ -1456,6 +1456,21 @@ const EmitZIR = struct {
             .kw_args = .{},
         };
         try self.decls.append(self.allocator, &str_inst.base);
-        return &str_inst.base;
+
+        const ref_inst = try self.arena.allocator.create(Inst.Ref);
+        ref_inst.* = .{
+            .base = .{
+                .name = try self.autoName(),
+                .src = src,
+                .tag = Inst.Ref.base_tag,
+            },
+            .positionals = .{
+                .operand = &str_inst.base,
+            },
+            .kw_args = .{},
+        };
+        try self.decls.append(self.allocator, &ref_inst.base);
+
+        return &ref_inst.base;
     }
 };
