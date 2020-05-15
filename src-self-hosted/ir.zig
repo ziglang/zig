@@ -922,7 +922,6 @@ pub const Module = struct {
         if (self.decl_table.get(hash)) |kv| {
             return kv.value;
         } else {
-            std.debug.warn("creating new decl for {}\n", .{old_inst.name});
             const new_decl = blk: {
                 try self.decl_table.ensureCapacity(self.decl_table.size + 1);
                 const new_decl = try self.allocator.create(Decl);
@@ -2161,101 +2160,3 @@ pub const ErrorMsg = struct {
         self.* = undefined;
     }
 };
-
-pub fn main() anyerror!void {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-    const allocator = if (std.builtin.link_libc) std.heap.c_allocator else &arena.allocator;
-
-    const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
-
-    const src_path = args[1];
-    const bin_path = args[2];
-    const debug_error_trace = false;
-    const output_zir = false;
-    const object_format: ?std.builtin.ObjectFormat = null;
-
-    const native_info = try std.zig.system.NativeTargetInfo.detect(allocator, .{});
-
-    var bin_file = try link.openBinFilePath(allocator, std.fs.cwd(), bin_path, .{
-        .target = native_info.target,
-        .output_mode = .Exe,
-        .link_mode = .Static,
-        .object_format = object_format orelse native_info.target.getObjectFormat(),
-    });
-    defer bin_file.deinit();
-
-    var module = blk: {
-        const root_pkg = try Package.create(allocator, std.fs.cwd(), ".", src_path);
-        errdefer root_pkg.destroy();
-
-        const root_scope = try allocator.create(Module.Scope.ZIRModule);
-        errdefer allocator.destroy(root_scope);
-        root_scope.* = .{
-            .sub_file_path = root_pkg.root_src_path,
-            .source = .{ .unloaded = {} },
-            .contents = .{ .not_available = {} },
-            .status = .never_loaded,
-        };
-
-        break :blk Module{
-            .allocator = allocator,
-            .root_pkg = root_pkg,
-            .root_scope = root_scope,
-            .bin_file = &bin_file,
-            .optimize_mode = .Debug,
-            .decl_table = std.AutoHashMap(Module.Decl.Hash, *Module.Decl).init(allocator),
-            .decl_exports = std.AutoHashMap(*Module.Decl, []*Module.Export).init(allocator),
-            .export_owners = std.AutoHashMap(*Module.Decl, []*Module.Export).init(allocator),
-            .failed_decls = std.AutoHashMap(*Module.Decl, *ErrorMsg).init(allocator),
-            .failed_files = std.AutoHashMap(*Module.Scope.ZIRModule, *ErrorMsg).init(allocator),
-            .failed_exports = std.AutoHashMap(*Module.Export, *ErrorMsg).init(allocator),
-            .work_queue = std.fifo.LinearFifo(Module.WorkItem, .Dynamic).init(allocator),
-        };
-    };
-    defer module.deinit();
-
-    const stdin = std.io.getStdIn().inStream();
-    const stderr = std.io.getStdErr().outStream();
-    var repl_buf: [1024]u8 = undefined;
-
-    while (true) {
-        try module.update();
-
-        var errors = try module.getAllErrorsAlloc();
-        defer errors.deinit(allocator);
-
-        if (errors.list.len != 0) {
-            for (errors.list) |full_err_msg| {
-                std.debug.warn("{}:{}:{}: error: {}\n", .{
-                    full_err_msg.src_path,
-                    full_err_msg.line + 1,
-                    full_err_msg.column + 1,
-                    full_err_msg.msg,
-                });
-            }
-            if (debug_error_trace) return error.AnalysisFail;
-        }
-
-        try stderr.print("🦎 ", .{});
-        if (try stdin.readUntilDelimiterOrEof(&repl_buf, '\n')) |line| {
-            if (mem.eql(u8, line, "update")) {
-                continue;
-            } else {
-                try stderr.print("unknown command: {}\n", .{line});
-            }
-        } else {
-            break;
-        }
-    }
-
-    if (output_zir) {
-        var new_zir_module = try text.emit_zir(allocator, module);
-        defer new_zir_module.deinit(allocator);
-
-        var bos = std.io.bufferedOutStream(std.io.getStdOut().outStream());
-        try new_zir_module.writeToStream(allocator, bos.outStream());
-        try bos.flush();
-    }
-}

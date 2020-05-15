@@ -20,7 +20,7 @@ pub const Inst = struct {
     name: []const u8,
 
     /// Slice into the source of the part after the = and before the next instruction.
-    contents: []const u8,
+    contents: []const u8 = &[0]u8{},
 
     /// These names are used directly as the instruction names in the text format.
     pub const Tag = enum {
@@ -825,7 +825,6 @@ const Parser = struct {
             .name = inst_name,
             .src = self.i,
             .tag = InstType.base_tag,
-            .contents = undefined,
         };
 
         if (@hasField(InstType, "ty")) {
@@ -960,7 +959,6 @@ const Parser = struct {
                         .name = try self.generateName(),
                         .src = src,
                         .tag = Inst.Str.base_tag,
-                        .contents = undefined,
                     },
                     .positionals = .{ .bytes = ident },
                     .kw_args = .{},
@@ -971,7 +969,6 @@ const Parser = struct {
                         .name = try self.generateName(),
                         .src = src,
                         .tag = Inst.DeclRef.base_tag,
-                        .contents = undefined,
                     },
                     .positionals = .{ .name = &name.base },
                     .kw_args = .{},
