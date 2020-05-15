@@ -7754,6 +7754,13 @@ static LLVMValueRef gen_const_val(CodeGen *g, ZigValue *const_val, const char *n
 }
 
 static void render_const_val(CodeGen *g, ZigValue *const_val, const char *name) {
+    if (const_val->special == ConstValSpecialRuntime) {
+        // `const_val` refers to an extern variable. Don't generate an `LLVMValueRef` for
+        // the variable. We shouldn't call `LLVMSetInitializer` on it either.
+        assert(const_val->llvm_global);
+        return;
+    }
+
     if (!const_val->llvm_value)
         const_val->llvm_value = gen_const_val(g, const_val, name);
 
@@ -7762,6 +7769,13 @@ static void render_const_val(CodeGen *g, ZigValue *const_val, const char *name) 
 }
 
 static void render_const_val_global(CodeGen *g, ZigValue *const_val, const char *name) {
+    if (const_val->special == ConstValSpecialRuntime) {
+        // `const_val` refers to an extern variable. `llvm_global` should already
+        // have been created by an earlier codegen pass.
+        assert(const_val->llvm_global);
+        return;
+    }
+
     if (!const_val->llvm_global) {
         LLVMTypeRef type_ref = const_val->llvm_value ?
             LLVMTypeOf(const_val->llvm_value) : get_llvm_type(g, const_val->type);
@@ -7891,6 +7905,39 @@ static void do_code_gen(CodeGen *g) {
 
     generate_error_name_table(g);
 
+    // Create extern variables
+    for (size_t i = 0; i < g->global_vars.length; i += 1) {
+        TldVar *tld_var = g->global_vars.at(i);
+        ZigVar *var = tld_var->var;
+
+        bool externally_initialized = var->decl_node->data.variable_declaration.expr == nullptr;
+        if (!externally_initialized) {
+            continue;
+        }
+
+        assert(var->decl_node->data.variable_declaration.is_extern);
+        const char *symbol_name = var->name;
+
+        LLVMValueRef global_value;
+        LLVMValueRef existing_llvm_var = LLVMGetNamedGlobal(g->module, symbol_name);
+        if (existing_llvm_var) {
+            global_value = LLVMConstBitCast(existing_llvm_var,
+                    LLVMPointerType(get_llvm_type(g, var->var_type), 0));
+        } else {
+            global_value = LLVMAddGlobal(g->module, get_llvm_type(g, var->var_type), symbol_name);
+            // TODO debug info for the extern variable
+
+            LLVMSetLinkage(global_value, LLVMExternalLinkage);
+            maybe_import_dll(g, global_value, GlobalLinkageIdStrong);
+            LLVMSetAlignment(global_value, var->align_bytes);
+            LLVMSetGlobalConstant(global_value, var->gen_is_const);
+            set_global_tls(g, var, global_value);
+        }
+
+        var->value_ref = global_value;
+        var->const_value->llvm_global = global_value;
+    }
+
     // Generate module level variables
     for (size_t i = 0; i < g->global_vars.length; i += 1) {
         TldVar *tld_var = g->global_vars.at(i);
@@ -7956,28 +8003,12 @@ static void do_code_gen(CodeGen *g) {
             linkage = global_export->linkage;
         }
 
-        LLVMValueRef global_value;
         bool externally_initialized = var->decl_node->data.variable_declaration.expr == nullptr;
-        if (externally_initialized) {
-            LLVMValueRef existing_llvm_var = LLVMGetNamedGlobal(g->module, symbol_name);
-            if (existing_llvm_var) {
-                global_value = LLVMConstBitCast(existing_llvm_var,
-                        LLVMPointerType(get_llvm_type(g, var->var_type), 0));
-            } else {
-                global_value = LLVMAddGlobal(g->module, get_llvm_type(g, var->var_type), symbol_name);
-                // TODO debug info for the extern variable
-
-                LLVMSetLinkage(global_value, to_llvm_linkage(linkage));
-                maybe_import_dll(g, global_value, GlobalLinkageIdStrong);
-                LLVMSetAlignment(global_value, var->align_bytes);
-                LLVMSetGlobalConstant(global_value, var->gen_is_const);
-                set_global_tls(g, var, global_value);
-            }
-        } else {
+        if (!externally_initialized) {
             bool exported = (linkage != GlobalLinkageIdInternal);
             render_const_val(g, var->const_value, symbol_name);
             render_const_val_global(g, var->const_value, symbol_name);
-            global_value = var->const_value->llvm_global;
+            LLVMValueRef global_value = var->const_value->llvm_global;
 
             if (exported) {
                 LLVMSetLinkage(global_value, to_llvm_linkage(linkage));
@@ -7997,9 +8028,8 @@ static void do_code_gen(CodeGen *g) {
 
             LLVMSetGlobalConstant(global_value, var->gen_is_const);
             set_global_tls(g, var, global_value);
+            var->value_ref = global_value;
         }
-
-        var->value_ref = global_value;
 
         for (size_t export_i = 1; export_i < var->export_list.length; export_i += 1) {
             GlobalExport *global_export = &var->export_list.items[export_i];

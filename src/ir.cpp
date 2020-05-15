@@ -19894,30 +19894,34 @@ static IrInstGen *ir_get_var_ptr(IrAnalyze *ira, IrInst *source_instr, ZigVar *v
     IrInstGen *result = ir_build_var_ptr_gen(ira, source_instr, var);
     result->value->type = var_ptr_type;
 
-    if (!linkage_makes_it_runtime && !var->is_thread_local && value_is_comptime(var->const_value)) {
+    bool is_local_var = !var->decl_node->data.variable_declaration.is_extern &&
+        var->const_value->special == ConstValSpecialRuntime;
+
+    // The address of a thread-local variable can't be resolved even by a linker because
+    // it's dependent on the current thread. The concept of current thread doesn't exist
+    // at compile time, so even if we had a symbolic (i.e., relocatable) representation
+    // of a pointer to a thread-local variable, there would be no ways to make use of it
+    // in a meaningful way.
+    //
+    // The same goes for local variables - They are stored in a stack frame, whose
+    // instance doesn't even exist at compile/link time.
+    if (!var->is_thread_local && !is_local_var) {
         ZigValue *val = var->const_value;
-        switch (val->special) {
-            case ConstValSpecialRuntime:
-                break;
-            case ConstValSpecialStatic: // fallthrough
-            case ConstValSpecialLazy: // fallthrough
-            case ConstValSpecialUndef: {
-                ConstPtrMut ptr_mut;
-                if (comptime_var_mem) {
-                    ptr_mut = ConstPtrMutComptimeVar;
-                } else if (var->gen_is_const) {
-                    ptr_mut = ConstPtrMutComptimeConst;
-                } else {
-                    assert(!comptime_var_mem);
-                    ptr_mut = ConstPtrMutRuntimeVar;
-                }
-                result->value->special = ConstValSpecialStatic;
-                result->value->data.x_ptr.mut = ptr_mut;
-                result->value->data.x_ptr.special = ConstPtrSpecialRef;
-                result->value->data.x_ptr.data.ref.pointee = val;
-                return result;
-            }
+
+        ConstPtrMut ptr_mut;
+        if (comptime_var_mem) {
+            ptr_mut = ConstPtrMutComptimeVar;
+        } else if (var->gen_is_const && !linkage_makes_it_runtime) {
+            ptr_mut = ConstPtrMutComptimeConst;
+        } else {
+            assert(!comptime_var_mem);
+            ptr_mut = ConstPtrMutRuntimeVar;
         }
+        result->value->special = ConstValSpecialStatic;
+        result->value->data.x_ptr.mut = ptr_mut;
+        result->value->data.x_ptr.special = ConstPtrSpecialRef;
+        result->value->data.x_ptr.data.ref.pointee = val;
+        return result;
     }
 
     bool in_fn_scope = (scope_fn_entry(var->parent_scope) != nullptr);
@@ -22288,12 +22292,15 @@ static IrInstGen *ir_analyze_struct_field_ptr(IrAnalyze *ira, IrInst* source_ins
             if (type_is_invalid(struct_val->type))
                 return ira->codegen->invalid_inst_gen;
 
-            // This to allow lazy values to be resolved.
-            if ((err = ir_resolve_const_val(ira->codegen, ira->new_irb.exec,
-                source_instr->source_node, struct_val, UndefOk)))
-            {
-                return ira->codegen->invalid_inst_gen;
+            if (ptr_val->data.x_ptr.mut != ConstPtrMutRuntimeVar) {
+                // This to allow lazy values to be resolved.
+                if ((err = ir_resolve_const_val(ira->codegen, ira->new_irb.exec,
+                    source_instr->source_node, struct_val, UndefOk)))
+                {
+                    return ira->codegen->invalid_inst_gen;
+                }
             }
+
             if (initializing && struct_val->special == ConstValSpecialUndef) {
                 struct_val->data.x_struct.fields = alloc_const_vals_ptrs(ira->codegen, struct_type->data.structure.src_field_count);
                 struct_val->special = ConstValSpecialStatic;
