@@ -292,6 +292,8 @@ pub const Module = struct {
         /// TODO look into using a lightweight map/set data structure rather than a linear array.
         dependants: ArrayListUnmanaged(*Decl) = ArrayListUnmanaged(*Decl){},
 
+        contents_hash: Hash,
+
         pub fn destroy(self: *Decl, allocator: *Allocator) void {
             allocator.free(mem.spanZ(self.name));
             if (self.typedValueManaged()) |tvm| {
@@ -465,26 +467,42 @@ pub const Module = struct {
                 module: *text.Module,
             },
             status: enum {
-                unloaded,
+                never_loaded,
+                unloaded_success,
                 unloaded_parse_failure,
+                unloaded_sema_failure,
                 loaded_parse_failure,
                 loaded_sema_failure,
                 loaded_success,
             },
 
-            pub fn deinit(self: *ZIRModule, allocator: *Allocator) void {
+            pub fn unload(self: *ZIRModule, allocator: *Allocator) void {
                 switch (self.status) {
-                    .unloaded,
+                    .never_loaded,
                     .unloaded_parse_failure,
+                    .unloaded_sema_failure,
+                    .unloaded_success,
                     => {},
-                    .loaded_success, .loaded_sema_failure => {
+
+                    .loaded_success => {
                         allocator.free(self.source.bytes);
                         self.contents.module.deinit(allocator);
+                        self.status = .unloaded_success;
+                    },
+                    .loaded_sema_failure => {
+                        allocator.free(self.source.bytes);
+                        self.contents.module.deinit(allocator);
+                        self.status = .unloaded_sema_failure;
                     },
                     .loaded_parse_failure => {
                         allocator.free(self.source.bytes);
+                        self.status = .unloaded_parse_failure;
                     },
                 }
+            }
+
+            pub fn deinit(self: *ZIRModule, allocator: *Allocator) void {
+                self.unload(allocator);
                 self.* = undefined;
             }
 
@@ -623,7 +641,8 @@ pub const Module = struct {
 
         try self.performAllTheWork();
 
-        // TODO unload all the source files from memory
+        // Unload all the source files from memory.
+        self.root_scope.unload(self.allocator);
 
         try self.bin_file.flush();
         self.link_error_flags = self.bin_file.error_flags;
@@ -722,8 +741,8 @@ pub const Module = struct {
                             .success => {},
                         }
                     }
-                    if (!decl.typed_value.most_recent.typed_value.ty.hasCodeGenBits())
-                        continue;
+
+                    assert(decl.typed_value.most_recent.typed_value.ty.hasCodeGenBits());
 
                     self.bin_file.updateDecl(self, decl) catch |err| switch (err) {
                         error.OutOfMemory => return error.OutOfMemory,
@@ -748,7 +767,7 @@ pub const Module = struct {
 
     fn getTextModule(self: *Module, root_scope: *Scope.ZIRModule) !*text.Module {
         switch (root_scope.status) {
-            .unloaded => {
+            .never_loaded, .unloaded_success => {
                 try self.failed_files.ensureCapacity(self.failed_files.size + 1);
 
                 var keep_source = false;
@@ -789,6 +808,7 @@ pub const Module = struct {
             },
 
             .unloaded_parse_failure,
+            .unloaded_sema_failure,
             .loaded_parse_failure,
             .loaded_sema_failure,
             => return error.AnalysisFail,
@@ -804,16 +824,62 @@ pub const Module = struct {
         // Here we simulate adding a source file which was previously not part of the compilation,
         // which means scanning the decls looking for exports.
         // TODO also identify decls that need to be deleted.
-        const src_module = try self.getTextModule(root_scope);
+        switch (root_scope.status) {
+            .never_loaded => {
+                const src_module = try self.getTextModule(root_scope);
 
-        // Here we ensure enough queue capacity to store all the decls, so that later we can use
-        // appendAssumeCapacity.
-        try self.work_queue.ensureUnusedCapacity(src_module.decls.len);
+                // Here we ensure enough queue capacity to store all the decls, so that later we can use
+                // appendAssumeCapacity.
+                try self.work_queue.ensureUnusedCapacity(src_module.decls.len);
 
-        for (src_module.decls) |decl| {
-            if (decl.cast(text.Inst.Export)) |export_inst| {
-                _ = try self.resolveDecl(&root_scope.base, &export_inst.base);
-            }
+                for (src_module.decls) |decl| {
+                    if (decl.cast(text.Inst.Export)) |export_inst| {
+                        _ = try self.resolveDecl(&root_scope.base, &export_inst.base, link.ElfFile.Decl.empty);
+                    }
+                }
+            },
+
+            .unloaded_parse_failure,
+            .unloaded_sema_failure,
+            .loaded_parse_failure,
+            .loaded_sema_failure,
+            .loaded_success,
+            .unloaded_success,
+            => {
+                const src_module = try self.getTextModule(root_scope);
+
+                // Look for changed decls.
+                for (src_module.decls) |src_decl| {
+                    const name_hash = Decl.hashSimpleName(src_decl.name);
+                    if (self.decl_table.get(name_hash)) |kv| {
+                        const decl = kv.value;
+                        const new_contents_hash = Decl.hashSimpleName(src_decl.contents);
+                        if (!mem.eql(u8, &new_contents_hash, &decl.contents_hash)) {
+                            // TODO recursive dependency management
+                            std.debug.warn("noticed that '{}' changed\n", .{src_decl.name});
+                            self.decl_table.removeAssertDiscard(name_hash);
+                            const saved_link = decl.link;
+                            decl.destroy(self.allocator);
+                            if (self.export_owners.getValue(decl)) |exports| {
+                                @panic("TODO handle updating a decl that does an export");
+                            }
+                            const new_decl = self.resolveDecl(
+                                &root_scope.base,
+                                src_decl,
+                                saved_link,
+                            ) catch |err| switch (err) {
+                                error.OutOfMemory => return error.OutOfMemory,
+                                error.AnalysisFail => continue,
+                            };
+                            if (self.decl_exports.remove(decl)) |entry| {
+                                self.decl_exports.putAssumeCapacityNoClobber(new_decl, entry.value);
+                            }
+                        }
+                    } else if (src_decl.cast(text.Inst.Export)) |export_inst| {
+                        _ = try self.resolveDecl(&root_scope.base, &export_inst.base, link.ElfFile.Decl.empty);
+                    }
+                }
+            },
         }
     }
 
@@ -846,11 +912,17 @@ pub const Module = struct {
         };
     }
 
-    fn resolveDecl(self: *Module, scope: *Scope, old_inst: *text.Inst) InnerError!*Decl {
+    fn resolveDecl(
+        self: *Module,
+        scope: *Scope,
+        old_inst: *text.Inst,
+        bin_file_link: link.ElfFile.Decl,
+    ) InnerError!*Decl {
         const hash = Decl.hashSimpleName(old_inst.name);
         if (self.decl_table.get(hash)) |kv| {
             return kv.value;
         } else {
+            std.debug.warn("creating new decl for {}\n", .{old_inst.name});
             const new_decl = blk: {
                 try self.decl_table.ensureCapacity(self.decl_table.size + 1);
                 const new_decl = try self.allocator.create(Decl);
@@ -863,6 +935,8 @@ pub const Module = struct {
                     .src = old_inst.src,
                     .typed_value = .{ .never_succeeded = {} },
                     .analysis = .initial_in_progress,
+                    .contents_hash = Decl.hashSimpleName(old_inst.contents),
+                    .link = bin_file_link,
                 };
                 self.decl_table.putAssumeCapacityNoClobber(hash, new_decl);
                 break :blk new_decl;
@@ -887,6 +961,14 @@ pub const Module = struct {
             };
             const arena_state = try decl_scope.arena.allocator.create(std.heap.ArenaAllocator.State);
 
+            const has_codegen_bits = typed_value.ty.hasCodeGenBits();
+            if (has_codegen_bits) {
+                // We don't fully codegen the decl until later, but we do need to reserve a global
+                // offset table index for it. This allows us to codegen decls out of dependency order,
+                // increasing how many computations can be done in parallel.
+                try self.bin_file.allocateDeclIndexes(new_decl);
+            }
+
             arena_state.* = decl_scope.arena.state;
 
             new_decl.typed_value = .{
@@ -896,14 +978,16 @@ pub const Module = struct {
                 },
             };
             new_decl.analysis = .complete;
-            // We ensureCapacity when scanning for decls.
-            self.work_queue.writeItemAssumeCapacity(.{ .codegen_decl = new_decl });
+            if (has_codegen_bits) {
+                // We ensureCapacity when scanning for decls.
+                self.work_queue.writeItemAssumeCapacity(.{ .codegen_decl = new_decl });
+            }
             return new_decl;
         }
     }
 
     fn resolveCompleteDecl(self: *Module, scope: *Scope, old_inst: *text.Inst) InnerError!*Decl {
-        const decl = try self.resolveDecl(scope, old_inst);
+        const decl = try self.resolveDecl(scope, old_inst, link.ElfFile.Decl.empty);
         switch (decl.analysis) {
             .initial_in_progress => unreachable,
             .repeat_in_progress => unreachable,
@@ -2088,8 +2172,8 @@ pub fn main() anyerror!void {
 
     const src_path = args[1];
     const bin_path = args[2];
-    const debug_error_trace = true;
-    const output_zir = true;
+    const debug_error_trace = false;
+    const output_zir = false;
     const object_format: ?std.builtin.ObjectFormat = null;
 
     const native_info = try std.zig.system.NativeTargetInfo.detect(allocator, .{});
@@ -2112,7 +2196,7 @@ pub fn main() anyerror!void {
             .sub_file_path = root_pkg.root_src_path,
             .source = .{ .unloaded = {} },
             .contents = .{ .not_available = {} },
-            .status = .unloaded,
+            .status = .never_loaded,
         };
 
         break :blk Module{
@@ -2132,22 +2216,38 @@ pub fn main() anyerror!void {
     };
     defer module.deinit();
 
-    try module.update();
+    const stdin = std.io.getStdIn().inStream();
+    const stderr = std.io.getStdErr().outStream();
+    var repl_buf: [1024]u8 = undefined;
 
-    var errors = try module.getAllErrorsAlloc();
-    defer errors.deinit(allocator);
+    while (true) {
+        try module.update();
 
-    if (errors.list.len != 0) {
-        for (errors.list) |full_err_msg| {
-            std.debug.warn("{}:{}:{}: error: {}\n", .{
-                full_err_msg.src_path,
-                full_err_msg.line + 1,
-                full_err_msg.column + 1,
-                full_err_msg.msg,
-            });
+        var errors = try module.getAllErrorsAlloc();
+        defer errors.deinit(allocator);
+
+        if (errors.list.len != 0) {
+            for (errors.list) |full_err_msg| {
+                std.debug.warn("{}:{}:{}: error: {}\n", .{
+                    full_err_msg.src_path,
+                    full_err_msg.line + 1,
+                    full_err_msg.column + 1,
+                    full_err_msg.msg,
+                });
+            }
+            if (debug_error_trace) return error.AnalysisFail;
         }
-        if (debug_error_trace) return error.AnalysisFail;
-        std.process.exit(1);
+
+        try stderr.print("🦎 ", .{});
+        if (try stdin.readUntilDelimiterOrEof(&repl_buf, '\n')) |line| {
+            if (mem.eql(u8, line, "update")) {
+                continue;
+            } else {
+                try stderr.print("unknown command: {}\n", .{line});
+            }
+        } else {
+            break;
+        }
     }
 
     if (output_zir) {

@@ -19,6 +19,9 @@ pub const Inst = struct {
     src: usize,
     name: []const u8,
 
+    /// Slice into the source of the part after the = and before the next instruction.
+    contents: []const u8,
+
     /// These names are used directly as the instruction names in the text format.
     pub const Tag = enum {
         breakpoint,
@@ -798,11 +801,12 @@ const Parser = struct {
     }
 
     fn parseInstruction(self: *Parser, body_ctx: ?*Body, name: []const u8) InnerError!*Inst {
+        const contents_start = self.i;
         const fn_name = try skipToAndOver(self, '(');
         inline for (@typeInfo(Inst.Tag).Enum.fields) |field| {
             if (mem.eql(u8, field.name, fn_name)) {
                 const tag = @field(Inst.Tag, field.name);
-                return parseInstructionGeneric(self, field.name, Inst.TagToType(tag), body_ctx, name);
+                return parseInstructionGeneric(self, field.name, Inst.TagToType(tag), body_ctx, name, contents_start);
             }
         }
         return self.fail("unknown instruction '{}'", .{fn_name});
@@ -814,12 +818,14 @@ const Parser = struct {
         comptime InstType: type,
         body_ctx: ?*Body,
         inst_name: []const u8,
+        contents_start: usize,
     ) InnerError!*Inst {
         const inst_specific = try self.arena.allocator.create(InstType);
         inst_specific.base = .{
             .name = inst_name,
             .src = self.i,
             .tag = InstType.base_tag,
+            .contents = undefined,
         };
 
         if (@hasField(InstType, "ty")) {
@@ -866,6 +872,8 @@ const Parser = struct {
             skipSpace(self);
         }
         try requireEatBytes(self, ")");
+
+        inst_specific.base.contents = self.source[contents_start..self.i];
 
         return &inst_specific.base;
     }
@@ -952,6 +960,7 @@ const Parser = struct {
                         .name = try self.generateName(),
                         .src = src,
                         .tag = Inst.Str.base_tag,
+                        .contents = undefined,
                     },
                     .positionals = .{ .bytes = ident },
                     .kw_args = .{},
@@ -962,6 +971,7 @@ const Parser = struct {
                         .name = try self.generateName(),
                         .src = src,
                         .tag = Inst.DeclRef.base_tag,
+                        .contents = undefined,
                     },
                     .positionals = .{ .name = &name.base },
                     .kw_args = .{},

@@ -33,6 +33,7 @@ pub fn generateSymbol(
 
             var function = Function{
                 .target = &bin_file.options.target,
+                .bin_file = bin_file,
                 .mod_fn = module_fn,
                 .code = code,
                 .inst_table = std.AutoHashMap(*ir.Inst, Function.MCValue).init(bin_file.allocator),
@@ -144,6 +145,7 @@ pub fn generateSymbol(
 }
 
 const Function = struct {
+    bin_file: *link.ElfFile,
     target: *const std.Target,
     mod_fn: *const ir.Module.Fn,
     code: *std.ArrayList(u8),
@@ -160,6 +162,8 @@ const Function = struct {
         /// The value is in a target-specific register. The value can
         /// be @intToEnum casted to the respective Reg enum.
         register: usize,
+        /// The value is in memory at a hard-coded address.
+        memory: u64,
     };
 
     fn genFuncInst(self: *Function, inst: *ir.Inst) !MCValue {
@@ -375,6 +379,7 @@ const Function = struct {
                     },
                     .embedded_in_code => return self.fail(src, "TODO implement x86_64 genSetReg %rax = embedded_in_code", .{}),
                     .register => return self.fail(src, "TODO implement x86_64 genSetReg %rax = register", .{}),
+                    .memory => return self.fail(src, "TODO implement x86_64 genSetReg %rax = memory", .{}),
                 },
                 .rdx => switch (mcv) {
                     .none, .unreach => unreachable,
@@ -406,6 +411,7 @@ const Function = struct {
                     },
                     .embedded_in_code => return self.fail(src, "TODO implement x86_64 genSetReg %rdx = embedded_in_code", .{}),
                     .register => return self.fail(src, "TODO implement x86_64 genSetReg %rdx = register", .{}),
+                    .memory => return self.fail(src, "TODO implement x86_64 genSetReg %rdx = memory", .{}),
                 },
                 .rdi => switch (mcv) {
                     .none, .unreach => unreachable,
@@ -437,10 +443,37 @@ const Function = struct {
                     },
                     .embedded_in_code => return self.fail(src, "TODO implement x86_64 genSetReg %rdi = embedded_in_code", .{}),
                     .register => return self.fail(src, "TODO implement x86_64 genSetReg %rdi = register", .{}),
+                    .memory => return self.fail(src, "TODO implement x86_64 genSetReg %rdi = memory", .{}),
                 },
                 .rsi => switch (mcv) {
                     .none, .unreach => unreachable,
-                    .immediate => return self.fail(src, "TODO implement x86_64 genSetReg %rsi = immediate", .{}),
+                    .immediate => |x| {
+                        // Setting the edi register zeroes the upper part of rdi, so if the number is small
+                        // enough, that is preferable.
+                        // Best case: zero
+                        // 31 f6                    xor    esi,esi
+                        if (x == 0) {
+                            return self.code.appendSlice(&[_]u8{ 0x31, 0xf6 });
+                        }
+                        // Next best case: set esi with 4 bytes
+                        // be 40 30 20 10           mov    esi,0x10203040
+                        if (x <= std.math.maxInt(u32)) {
+                            try self.code.resize(self.code.items.len + 5);
+                            self.code.items[self.code.items.len - 5] = 0xbe;
+                            const imm_ptr = self.code.items[self.code.items.len - 4 ..][0..4];
+                            mem.writeIntLittle(u32, imm_ptr, @intCast(u32, x));
+                            return;
+                        }
+                        // Worst case: set rsi with 8 bytes
+                        // 48 be 80 70 60 50 40 30 20 10   movabs rsi,0x1020304050607080
+
+                        try self.code.resize(self.code.items.len + 10);
+                        self.code.items[self.code.items.len - 10] = 0x48;
+                        self.code.items[self.code.items.len - 9] = 0xbe;
+                        const imm_ptr = self.code.items[self.code.items.len - 8 ..][0..8];
+                        mem.writeIntLittle(u64, imm_ptr, x);
+                        return;
+                    },
                     .embedded_in_code => |code_offset| {
                         // Examples:
                         // lea rsi, [rip + 0x01020304]
@@ -462,6 +495,21 @@ const Function = struct {
                         return;
                     },
                     .register => return self.fail(src, "TODO implement x86_64 genSetReg %rsi = register", .{}),
+                    .memory => |x| {
+                        if (x <= std.math.maxInt(u32)) {
+                            // 48 8b 34 25 40 30 20 10    mov    rsi,QWORD PTR ds:0x10203040
+                            try self.code.resize(self.code.items.len + 8);
+                            self.code.items[self.code.items.len - 8] = 0x48;
+                            self.code.items[self.code.items.len - 7] = 0x8b;
+                            self.code.items[self.code.items.len - 6] = 0x34;
+                            self.code.items[self.code.items.len - 5] = 0x25;
+                            const imm_ptr = self.code.items[self.code.items.len - 4 ..][0..4];
+                            mem.writeIntLittle(u32, imm_ptr, @intCast(u32, x));
+                            return;
+                        } else {
+                            return self.fail(src, "TODO implement genSetReg for x86_64 setting rsi to 64-bit memory", .{});
+                        }
+                    },
                 },
                 else => return self.fail(src, "TODO implement genSetReg for x86_64 '{}'", .{@tagName(reg)}),
             },
@@ -493,33 +541,21 @@ const Function = struct {
     }
 
     fn genTypedValue(self: *Function, src: usize, typed_value: TypedValue) !MCValue {
+        const ptr_bits = self.target.cpu.arch.ptrBitWidth();
+        const ptr_bytes: u64 = @divExact(ptr_bits, 8);
         const allocator = self.code.allocator;
         switch (typed_value.ty.zigTypeTag()) {
             .Pointer => {
-                const ptr_elem_type = typed_value.ty.elemType();
-                switch (ptr_elem_type.zigTypeTag()) {
-                    .Array => {
-                        // TODO more checks to make sure this can be emitted as a string literal
-                        const bytes = typed_value.val.toAllocatedBytes(allocator) catch |err| switch (err) {
-                            error.AnalysisFail => unreachable,
-                            else => |e| return e,
-                        };
-                        defer allocator.free(bytes);
-                        const smaller_len = std.math.cast(u32, bytes.len) catch
-                            return self.fail(src, "TODO handle a larger string constant", .{});
-
-                        // Emit the string literal directly into the code; jump over it.
-                        try self.genRelativeFwdJump(src, smaller_len);
-                        const offset = self.code.items.len;
-                        try self.code.appendSlice(bytes);
-                        return MCValue{ .embedded_in_code = offset };
-                    },
-                    else => |t| return self.fail(src, "TODO implement emitTypedValue for pointer to '{}'", .{@tagName(t)}),
+                if (typed_value.val.cast(Value.Payload.DeclRef)) |payload| {
+                    const got = &self.bin_file.program_headers.items[self.bin_file.phdr_got_index.?];
+                    const decl = payload.decl;
+                    const got_addr = got.p_vaddr + decl.link.offset_table_index * ptr_bytes;
+                    return MCValue{ .memory = got_addr };
                 }
+                return self.fail(src, "TODO codegen more kinds of const pointers", .{});
             },
             .Int => {
                 const info = typed_value.ty.intInfo(self.target.*);
-                const ptr_bits = self.target.cpu.arch.ptrBitWidth();
                 if (info.bits > ptr_bits or info.signed) {
                     return self.fail(src, "TODO const int bigger than ptr and signed int", .{});
                 }

@@ -310,7 +310,7 @@ pub const ElfFile = struct {
             // TODO instead of hard coding the vaddr, make a function to find a vaddr to put things at.
             // we'll need to re-use that function anyway, in case the GOT grows and overlaps something
             // else in virtual memory.
-            const default_got_addr = 0x80000000;
+            const default_got_addr = 0x4000000;
             try self.program_headers.append(self.allocator, .{
                 .p_type = elf.PT_LOAD,
                 .p_offset = off,
@@ -755,6 +755,35 @@ pub const ElfFile = struct {
         };
     }
 
+    pub fn allocateDeclIndexes(self: *ElfFile, decl: *ir.Module.Decl) !void {
+        if (decl.link.local_sym_index != 0) return;
+
+        try self.local_symbols.ensureCapacity(self.allocator, self.local_symbols.items.len + 1);
+        try self.offset_table.ensureCapacity(self.allocator, self.offset_table.items.len + 1);
+        const local_sym_index = self.local_symbols.items.len;
+        const offset_table_index = self.offset_table.items.len;
+        const phdr = &self.program_headers.items[self.phdr_load_re_index.?];
+
+        self.local_symbols.appendAssumeCapacity(.{
+            .st_name = 0,
+            .st_info = 0,
+            .st_other = 0,
+            .st_shndx = 0,
+            .st_value = phdr.p_vaddr,
+            .st_size = 0,
+        });
+        errdefer self.local_symbols.shrink(self.allocator, self.local_symbols.items.len - 1);
+        self.offset_table.appendAssumeCapacity(0);
+        errdefer self.offset_table.shrink(self.allocator, self.offset_table.items.len - 1);
+
+        self.offset_table_count_dirty = true;
+
+        decl.link = .{
+            .local_sym_index = @intCast(u32, local_sym_index),
+            .offset_table_index = @intCast(u32, offset_table_index),
+        };
+    }
+
     pub fn updateDecl(self: *ElfFile, module: *ir.Module, decl: *ir.Module.Decl) !void {
         var code_buffer = std.ArrayList(u8).init(self.allocator);
         defer code_buffer.deinit();
@@ -781,21 +810,33 @@ pub const ElfFile = struct {
             if (decl.link.local_sym_index != 0) {
                 const local_sym = &self.local_symbols.items[decl.link.local_sym_index];
                 const existing_block = self.findAllocatedTextBlock(local_sym.*);
-                const need_realloc = code.len > existing_block.size_capacity or
+                const need_realloc = local_sym.st_size == 0 or
+                    code.len > existing_block.size_capacity or
                     !mem.isAlignedGeneric(u64, local_sym.st_value, required_alignment);
+                // TODO check for collision with another symbol
                 const file_offset = if (need_realloc) fo: {
                     const new_block = try self.allocateTextBlock(code.len, required_alignment);
                     local_sym.st_value = new_block.vaddr;
-                    local_sym.st_size = code.len;
+                    self.offset_table.items[decl.link.offset_table_index] = new_block.vaddr;
 
+                    //std.debug.warn("{}: writing got index {}=0x{x}\n", .{
+                    //    decl.name,
+                    //    decl.link.offset_table_index,
+                    //    self.offset_table.items[decl.link.offset_table_index],
+                    //});
                     try self.writeOffsetTableEntry(decl.link.offset_table_index);
 
                     break :fo new_block.file_offset;
                 } else existing_block.file_offset;
+                local_sym.st_size = code.len;
                 local_sym.st_name = try self.updateString(local_sym.st_name, mem.spanZ(decl.name));
                 local_sym.st_info = (elf.STB_LOCAL << 4) | stt_bits;
+                local_sym.st_other = 0;
+                local_sym.st_shndx = self.text_section_index.?;
                 // TODO this write could be avoided if no fields of the symbol were changed.
                 try self.writeSymbol(decl.link.local_sym_index);
+
+                //std.debug.warn("updating {} at vaddr 0x{x}\n", .{ decl.name, local_sym.st_value });
                 break :blk file_offset;
             } else {
                 try self.local_symbols.ensureCapacity(self.allocator, self.local_symbols.items.len + 1);
@@ -829,6 +870,7 @@ pub const ElfFile = struct {
                     .offset_table_index = @intCast(u32, offset_table_index),
                 };
 
+                //std.debug.warn("writing new {} at vaddr 0x{x}\n", .{ decl.name, new_block.vaddr });
                 break :blk new_block.file_offset;
             }
         };
