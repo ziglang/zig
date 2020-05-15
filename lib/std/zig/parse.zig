@@ -69,8 +69,8 @@ fn parseRoot(arena: *Allocator, it: *TokenIterator, tree: *Tree) Allocator.Error
 ///     <- TestDecl ContainerMembers
 ///      / TopLevelComptime ContainerMembers
 ///      / KEYWORD_pub? TopLevelDecl ContainerMembers
-///      / KEYWORD_pub? ContainerField COMMA ContainerMembers
-///      / KEYWORD_pub? ContainerField
+///      / ContainerField COMMA ContainerMembers
+///      / ContainerField
 ///      /
 fn parseContainerMembers(arena: *Allocator, it: *TokenIterator, tree: *Tree, top_level: bool) !Node.Root.DeclList {
     var list = Node.Root.DeclList.init(arena);
@@ -284,7 +284,10 @@ fn findNextContainerMember(it: *TokenIterator) void {
                 }
             },
             .LParen, .LBracket, .LBrace => level += 1,
-            .RParen, .RBracket, .RBrace => {
+            .RParen, .RBracket => {
+                if (level != 0) level -= 1;
+            },
+            .RBrace => {
                 if (level == 0) {
                     // end of container, exit
                     putBackToken(it, tok.index);

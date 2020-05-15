@@ -162,6 +162,16 @@ test "recovery: extra '}' at top level" {
     });
 }
 
+test "recovery: mismatched bracket at top level" {
+    try testError(
+        \\const S = struct {
+        \\    arr: 128]?G
+        \\};
+    , &[_]Error{
+        .ExpectedToken,
+    });
+}
+
 test "zig fmt: top-level fields" {
     try testCanonical(
         \\a: did_you_know,
