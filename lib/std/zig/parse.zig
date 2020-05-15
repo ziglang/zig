@@ -78,7 +78,7 @@ fn parseRoot(arena: *Allocator, it: *TokenIterator, tree: *Tree) Allocator.Error
 ///      / KEYWORD_pub? ContainerField COMMA ContainerMembers
 ///      / KEYWORD_pub? ContainerField
 ///      /
-fn parseContainerMembers(arena: *Allocator, it: *TokenIterator, tree: *Tree) Allocator.Error!Node.Root.DeclList {
+fn parseContainerMembers(arena: *Allocator, it: *TokenIterator, tree: *Tree) !Node.Root.DeclList {
     var list = Node.Root.DeclList.init(arena);
 
     var field_state: union(enum) {
@@ -136,7 +136,7 @@ fn parseContainerMembers(arena: *Allocator, it: *TokenIterator, tree: *Tree) All
         if (parseTopLevelDecl(arena, it, tree) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             error.ParseError => {
-                // try again
+                findNextContainerMember(it);
                 continue;
             },
         }) |node| {
@@ -324,7 +324,7 @@ fn findNextStmt(it: *TokenIterator) void {
 }
 
 /// Eat a multiline container doc comment
-fn parseContainerDocComments(arena: *Allocator, it: *TokenIterator, tree: *Tree) Allocator.Error!?*Node {
+fn parseContainerDocComments(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     var lines = Node.DocComment.LineList.init(arena);
     while (eatToken(it, .ContainerDocComment)) |line| {
         try lines.push(line);
@@ -384,7 +384,7 @@ fn parseTopLevelComptime(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*
 ///     <- (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE? / (KEYWORD_inline / KEYWORD_noinline))? FnProto (SEMICOLON / Block)
 ///      / (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE?)? KEYWORD_threadlocal? VarDecl
 ///      / KEYWORD_usingnamespace Expr SEMICOLON
-fn parseTopLevelDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) Error!?*Node {
+fn parseTopLevelDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     var lib_name: ?*Node = null;
     const extern_export_inline_token = blk: {
         if (eatToken(it, .Keyword_export)) |token| break :blk token;
@@ -397,13 +397,7 @@ fn parseTopLevelDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) Error!?
         break :blk null;
     };
 
-    if (parseFnProto(arena, it, tree) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
-        error.ParseError => {
-            findNextContainerMember(it);
-            return error.ParseError;
-        },
-    }) |node| {
+    if (try parseFnProto(arena, it, tree)) |node| {
         const fn_node = node.cast(Node.FnProto).?;
         fn_node.*.extern_export_inline_token = extern_export_inline_token;
         fn_node.*.lib_name = lib_name;
@@ -413,7 +407,7 @@ fn parseTopLevelDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) Error!?
             // since parseBlock only return error.ParseError on
             // a missing '}' we can assume this function was
             // supposed to end here.
-            error.ParseError => null,
+            error.ParseError => return node,
         }) |body_node| {
             fn_node.body_node = body_node;
             return node;
@@ -437,14 +431,7 @@ fn parseTopLevelDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) Error!?
 
     const thread_local_token = eatToken(it, .Keyword_threadlocal);
 
-    if (parseVarDecl(arena, it, tree) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
-        error.ParseError => {
-            // try to skip to next decl
-            findNextContainerMember(it);
-            return error.ParseError;
-        },
-    }) |node| {
+    if (try parseVarDecl(arena, it, tree)) |node| {
         var var_decl = node.cast(Node.VarDecl).?;
         var_decl.*.thread_local_token = thread_local_token;
         var_decl.*.comptime_token = null;
@@ -469,14 +456,7 @@ fn parseTopLevelDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) Error!?
         return error.ParseError;
     }
 
-    return parseUse(arena, it, tree) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
-        error.ParseError => {
-            // try to skip to next decl
-            findNextContainerMember(it);
-            return error.ParseError;
-        },
-    };
+    return try parseUse(arena, it, tree);
 }
 
 /// FnProto <- KEYWORD_fn IDENTIFIER? LPAREN ParamDeclList RPAREN ByteAlign? LinkSection? EXCLAMATIONMARK? (KEYWORD_var / TypeExpr)
@@ -2926,7 +2906,7 @@ fn ListParseFn(comptime L: type, comptime nodeParseFn: var) ParseFn(L) {
                         // this is likely just a missing comma,
                         // continue parsing this list and give an error
                         try tree.errors.push(.{
-                            .MissingComma = .{ .token = it.index },
+                            .ExpectedToken = .{ .token = it.index, .expected_id = .Comma },
                         });
                     },
                 }

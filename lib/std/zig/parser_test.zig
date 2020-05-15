@@ -32,8 +32,8 @@ test "recovery: missing comma" {
         \\    }
         \\}
     , &[_]Error{
-        .MissingComma,
-        .MissingComma,
+        .ExpectedToken,
+        .ExpectedToken,
         .InvalidAnd,
         .InvalidToken,
     });
@@ -2983,7 +2983,6 @@ test "zig fmt: extern without container keyword returns error" {
     , &[_]Error{
         .ExpectedExpr,
         .ExpectedVarDeclOrFn,
-        .ExpectedContainerMembers,
     });
 }
 

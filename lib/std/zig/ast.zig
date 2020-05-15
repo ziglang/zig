@@ -166,7 +166,6 @@ pub const Error = union(enum) {
     ExpectedDerefOrUnwrap: ExpectedDerefOrUnwrap,
     ExpectedSuffixOp: ExpectedSuffixOp,
     DeclBetweenFields: DeclBetweenFields,
-    MissingComma: MissingComma,
     InvalidAnd: InvalidAnd,
 
     pub fn render(self: *const Error, tokens: *Tree.TokenList, stream: var) !void {
@@ -217,7 +216,6 @@ pub const Error = union(enum) {
             .ExpectedDerefOrUnwrap => |*x| return x.render(tokens, stream),
             .ExpectedSuffixOp => |*x| return x.render(tokens, stream),
             .DeclBetweenFields => |*x| return x.render(tokens, stream),
-            .MissingComma => |*x| return x.render(tokens, stream),
             .InvalidAnd => |*x| return x.render(tokens, stream),
         }
     }
@@ -270,7 +268,6 @@ pub const Error = union(enum) {
             .ExpectedDerefOrUnwrap => |x| return x.token,
             .ExpectedSuffixOp => |x| return x.token,
             .DeclBetweenFields => |x| return x.token,
-            .MissingComma => |x| return x.token,
             .InvalidAnd => |x| return x.token,
         }
     }
@@ -318,7 +315,6 @@ pub const Error = union(enum) {
     pub const ExtraVolatileQualifier = SimpleError("Extra volatile qualifier");
     pub const ExtraAllowZeroQualifier = SimpleError("Extra allowzero qualifier");
     pub const DeclBetweenFields = SimpleError("Declarations are not allowed between container fields");
-    pub const MissingComma = SimpleError("Expected comma between items");
     pub const InvalidAnd = SimpleError("`&&` is invalid. Note that `and` is boolean AND.");
 
     pub const ExpectedCall = struct {
@@ -926,7 +922,7 @@ pub const Node = struct {
                     if (i < 1) return node;
                     i -= 1;
                 },
-                .Invalid => unreachable,
+                .Invalid => {},
             }
 
             if (self.body_node) |body_node| {
@@ -948,7 +944,7 @@ pub const Node = struct {
             if (self.body_node) |body_node| return body_node.lastToken();
             switch (self.return_type) {
                 .Explicit, .InferErrorSet => |node| return node.lastToken(),
-                .Invalid => unreachable,
+                .Invalid => |tok| return tok,
             }
         }
     };

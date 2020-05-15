@@ -13,6 +13,9 @@ pub const Error = error{
 
 /// Returns whether anything changed
 pub fn render(allocator: *mem.Allocator, stream: var, tree: *ast.Tree) (@TypeOf(stream).Error || Error)!bool {
+    // cannot render an invalid tree
+    std.debug.assert(tree.errors.len == 0);
+
     // make a passthrough stream that checks whether something changed
     const MyStream = struct {
         const MyStream = @This();
