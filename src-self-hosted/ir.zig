@@ -487,11 +487,13 @@ pub const Module = struct {
                     .loaded_success => {
                         allocator.free(self.source.bytes);
                         self.contents.module.deinit(allocator);
+                        allocator.destroy(self.contents.module);
                         self.status = .unloaded_success;
                     },
                     .loaded_sema_failure => {
                         allocator.free(self.source.bytes);
                         self.contents.module.deinit(allocator);
+                        allocator.destroy(self.contents.module);
                         self.status = .unloaded_sema_failure;
                     },
                     .loaded_parse_failure => {
@@ -603,7 +605,14 @@ pub const Module = struct {
             }
             self.failed_exports.deinit();
         }
-        self.decl_exports.deinit();
+        {
+            var it = self.decl_exports.iterator();
+            while (it.next()) |kv| {
+                const export_list = kv.value;
+                allocator.free(export_list);
+            }
+            self.decl_exports.deinit();
+        }
         {
             var it = self.export_owners.iterator();
             while (it.next()) |kv| {
@@ -613,7 +622,7 @@ pub const Module = struct {
                 }
                 allocator.free(export_list);
             }
-            self.failed_exports.deinit();
+            self.export_owners.deinit();
         }
         self.root_pkg.destroy();
         {
