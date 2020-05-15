@@ -7419,4 +7419,26 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     , &[_][]const u8{
         ":2:75: error: operation caused overflow",
     });
+
+    cases.add("pointer to a local runtime `var` is not constant",
+        \\export fn get_ptr() *const u32 {
+        \\    var local_var: u32 = 42;
+        \\    return struct {
+        \\        const ptr = &local_var;
+        \\    }.ptr;
+        \\}
+    , &[_][]const u8{
+        ":4:21: error: cannot store runtime value in compile time variable",
+    });
+
+    cases.add("pointer to a local runtime `const` is not constant",
+        \\export fn get_ptr(x: u32) *const u32 {
+        \\    const local_var: u32 = x;
+        \\    return struct {
+        \\        const ptr = &local_var;
+        \\    }.ptr;
+        \\}
+    , &[_][]const u8{
+        ":4:21: error: cannot store runtime value in compile time variable",
+    });
 }
