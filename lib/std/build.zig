@@ -1678,6 +1678,16 @@ pub const LibExeObjStep = struct {
 
     pub fn addBuildOption(self: *LibExeObjStep, comptime T: type, name: []const u8, value: T) void {
         const out = self.build_options_contents.outStream();
+        switch (@typeInfo(T)) {
+            .Enum => |enum_info| {
+                out.print("const {} = enum {{\n", .{@typeName(T)}) catch unreachable;
+                inline for (enum_info.fields) |field| {
+                    out.print("    {},\n", .{ field.name }) catch unreachable;
+                }
+                out.print("}};\n", .{}) catch unreachable;
+            },
+            else => {},
+        }
         out.print("pub const {} = {};\n", .{ name, value }) catch unreachable;
     }
 
