@@ -43,15 +43,11 @@ test "@shuffle" {
                 expect(mem.eql(bool, &@as([4]bool, res2), &[4]bool{ false, false, true, false }));
             }
 
-            // TODO re-enable when LLVM codegen is fixed
-            // https://github.com/ziglang/zig/issues/3246
-            if (false) {
-                var x2: Vector(3, bool) = [3]bool{ false, true, false };
-                var v4: Vector(2, bool) = [2]bool{ true, false };
-                const mask5: Vector(4, i32) = [4]i32{ 0, ~@as(i32, 1), 1, 2 };
-                var res2 = @shuffle(bool, x2, v4, mask5);
-                expect(mem.eql(bool, &@as([4]bool, res2), &[4]bool{ false, false, true, false }));
-            }
+            var x2: Vector(3, bool) = [3]bool{ false, true, false };
+            var v4: Vector(2, bool) = [2]bool{ true, false };
+            const mask5: Vector(4, i32) = [4]i32{ 0, ~@as(i32, 1), 1, 2 };
+            var res2 = @shuffle(bool, x2, v4, mask5);
+            expect(mem.eql(bool, &@as([4]bool, res2), &[4]bool{ false, false, true, false }));
         }
     };
     S.doTheTest();
