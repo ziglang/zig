@@ -668,7 +668,7 @@ fn transTypeDefAsBuiltin(c: *Context, typedef_decl: *const ZigClangTypedefNameDe
     return transCreateNodeIdentifier(c, builtin_name);
 }
 
-fn checkForBuiltinTypedef(checked_name: []const u8) !?[]const u8 {
+fn checkForBuiltinTypedef(checked_name: []const u8) ?[]const u8 {
     const table = [_][2][]const u8{
         .{ "uint8_t", "u8" },
         .{ "int8_t", "i8" },
@@ -703,7 +703,7 @@ fn transTypeDef(c: *Context, typedef_decl: *const ZigClangTypedefNameDecl, top_l
     // TODO https://github.com/ziglang/zig/issues/3756
     // TODO https://github.com/ziglang/zig/issues/1802
     const checked_name = if (isZigPrimitiveType(typedef_name)) try std.fmt.allocPrint(c.a(), "{}_{}", .{ typedef_name, c.getMangle() }) else typedef_name;
-    if (try checkForBuiltinTypedef(checked_name)) |builtin| {
+    if (checkForBuiltinTypedef(checked_name)) |builtin| {
         return transTypeDefAsBuiltin(c, typedef_decl, builtin);
     }
 
@@ -1411,7 +1411,7 @@ fn transDeclStmt(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangDeclStmt)
                 const underlying_type = ZigClangQualType_getTypePtr(underlying_qual);
 
                 const mangled_name = try block_scope.makeMangledName(c, name);
-                if (try checkForBuiltinTypedef(name)) |builtin| {
+                if (checkForBuiltinTypedef(name)) |builtin| {
                     try block_scope.variables.push(.{
                         .alias = builtin,
                         .name = mangled_name,
