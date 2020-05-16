@@ -11,8 +11,6 @@ const link = @import("link.zig");
 const Package = @import("Package.zig");
 const zir = @import("zir.zig");
 
-const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
-
 // TODO Improve async I/O enough that we feel comfortable doing this.
 //pub const io_mode = .evented;
 
@@ -33,7 +31,6 @@ const usage =
     \\  build-lib  [source]      Create library from source or object files
     \\  build-obj  [source]      Create object from source or assembly
     \\  fmt        [source]      Parse file and render in canonical zig format
-    \\  libc       [paths_file]  Display native libc paths file or validate one
     \\  targets                  List available compilation targets
     \\  version                  Print version number and exit
     \\  zen                      Print zen of zig and exit
@@ -65,8 +62,6 @@ pub fn main() !void {
         return buildOutputType(gpa, arena, cmd_args, .Obj);
     } else if (mem.eql(u8, cmd, "fmt")) {
         return cmdFmt(gpa, cmd_args);
-    } else if (mem.eql(u8, cmd, "libc")) {
-        return cmdLibC(gpa, cmd_args);
     } else if (mem.eql(u8, cmd, "targets")) {
         const info = try std.zig.system.NativeTargetInfo.detect(arena, .{});
         const stdout = io.getStdOut().outStream();
@@ -534,41 +529,6 @@ const Fmt = struct {
 
     const SeenMap = std.BufSet;
 };
-
-fn parseLibcPaths(gpa: *Allocator, libc: *LibCInstallation, libc_paths_file: []const u8) void {
-    const stderr = io.getStdErr().outStream();
-    libc.* = LibCInstallation.parse(gpa, libc_paths_file, stderr) catch |err| {
-        stderr.print("Unable to parse libc path file '{}': {}.\n" ++
-            "Try running `zig libc` to see an example for the native target.\n", .{
-            libc_paths_file,
-            @errorName(err),
-        }) catch {};
-        process.exit(1);
-    };
-}
-
-fn cmdLibC(gpa: *Allocator, args: []const []const u8) !void {
-    const stderr = io.getStdErr().outStream();
-    switch (args.len) {
-        0 => {},
-        1 => {
-            var libc_installation: LibCInstallation = undefined;
-            parseLibcPaths(gpa, &libc_installation, args[0]);
-            return;
-        },
-        else => {
-            try stderr.print("unexpected extra parameter: {}\n", .{args[1]});
-            process.exit(1);
-        },
-    }
-
-    const libc = LibCInstallation.findNative(.{ .allocator = gpa }) catch |err| {
-        stderr.print("unable to find libc: {}\n", .{@errorName(err)}) catch {};
-        process.exit(1);
-    };
-
-    libc.render(io.getStdOut().outStream()) catch process.exit(1);
-}
 
 pub fn cmdFmt(gpa: *Allocator, args: []const []const u8) !void {
     const stderr_file = io.getStdErr();
