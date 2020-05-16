@@ -157,7 +157,7 @@ fn buildOutputType(
     var color: Color = .Auto;
     var build_mode: std.builtin.Mode = .Debug;
     var provided_name: ?[]const u8 = null;
-    var is_dynamic = false;
+    var link_mode: ?std.builtin.LinkMode = null;
     var root_src_file: ?[]const u8 = null;
     var version: std.builtin.Version = .{ .major = 0, .minor = 0, .patch = 0 };
     var strip = false;
@@ -286,7 +286,9 @@ fn buildOutputType(
                 } else if (mem.eql(u8, arg, "-fno-emit-zir")) {
                     emit_zir = .no;
                 } else if (mem.eql(u8, arg, "-dynamic")) {
-                    is_dynamic = true;
+                    link_mode = .Dynamic;
+                } else if (mem.eql(u8, arg, "-static")) {
+                    link_mode = .Static;
                 } else if (mem.eql(u8, arg, "--strip")) {
                     strip = true;
                 } else if (mem.eql(u8, arg, "--debug-tokenize")) {
@@ -427,42 +429,19 @@ fn buildOutputType(
         .yes => |p| p,
     };
 
-    var bin_file = try link.openBinFilePath(gpa, fs.cwd(), bin_path, .{
+    const root_pkg = try Package.create(gpa, fs.cwd(), ".", src_path);
+    defer root_pkg.destroy();
+
+    var module = try Module.init(gpa, .{
         .target = target_info.target,
         .output_mode = output_mode,
-        .link_mode = if (is_dynamic) .Dynamic else .Static,
-        .object_format = object_format orelse target_info.target.getObjectFormat(),
+        .root_pkg = root_pkg,
+        .bin_file_dir = fs.cwd(),
+        .bin_file_path = bin_path,
+        .link_mode = link_mode,
+        .object_format = object_format,
+        .optimize_mode = build_mode,
     });
-    defer bin_file.deinit();
-
-    var module = blk: {
-        const root_pkg = try Package.create(gpa, fs.cwd(), ".", src_path);
-        errdefer root_pkg.destroy();
-
-        const root_scope = try gpa.create(Module.Scope.ZIRModule);
-        errdefer gpa.destroy(root_scope);
-        root_scope.* = .{
-            .sub_file_path = root_pkg.root_src_path,
-            .source = .{ .unloaded = {} },
-            .contents = .{ .not_available = {} },
-            .status = .never_loaded,
-        };
-
-        break :blk Module{
-            .allocator = gpa,
-            .root_pkg = root_pkg,
-            .root_scope = root_scope,
-            .bin_file = &bin_file,
-            .optimize_mode = .Debug,
-            .decl_table = std.AutoHashMap(Module.Decl.Hash, *Module.Decl).init(gpa),
-            .decl_exports = std.AutoHashMap(*Module.Decl, []*Module.Export).init(gpa),
-            .export_owners = std.AutoHashMap(*Module.Decl, []*Module.Export).init(gpa),
-            .failed_decls = std.AutoHashMap(*Module.Decl, *Module.ErrorMsg).init(gpa),
-            .failed_files = std.AutoHashMap(*Module.Scope.ZIRModule, *Module.ErrorMsg).init(gpa),
-            .failed_exports = std.AutoHashMap(*Module.Export, *Module.ErrorMsg).init(gpa),
-            .work_queue = std.fifo.LinearFifo(Module.WorkItem, .Dynamic).init(gpa),
-        };
-    };
     defer module.deinit();
 
     const stdin = std.io.getStdIn().inStream();

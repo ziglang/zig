@@ -18,12 +18,11 @@ const Inst = ir.Inst;
 
 /// General-purpose allocator.
 allocator: *Allocator,
-/// Module owns this resource.
+/// Pointer to externally managed resource.
 root_pkg: *Package,
 /// Module owns this resource.
 root_scope: *Scope.ZIRModule,
-/// Pointer to externally managed resource.
-bin_file: *link.ElfFile,
+bin_file: link.ElfFile,
 /// It's rare for a decl to be exported, so we save memory by having a sparse map of
 /// Decl pointers to details about them being exported.
 /// The Export memory is owned by the `export_owners` table; the slice itself is owned by this table.
@@ -422,7 +421,55 @@ pub const AllErrors = struct {
     }
 };
 
+pub const InitOptions = struct {
+    target: std.Target,
+    root_pkg: *Package,
+    output_mode: std.builtin.OutputMode,
+    bin_file_dir: ?std.fs.Dir = null,
+    bin_file_path: []const u8,
+    link_mode: ?std.builtin.LinkMode = null,
+    object_format: ?std.builtin.ObjectFormat = null,
+    optimize_mode: std.builtin.Mode = .Debug,
+};
+
+pub fn init(gpa: *Allocator, options: InitOptions) !Module {
+    const root_scope = try gpa.create(Scope.ZIRModule);
+    errdefer gpa.destroy(root_scope);
+
+    root_scope.* = .{
+        .sub_file_path = options.root_pkg.root_src_path,
+        .source = .{ .unloaded = {} },
+        .contents = .{ .not_available = {} },
+        .status = .never_loaded,
+    };
+
+    const bin_file_dir = options.bin_file_dir orelse std.fs.cwd();
+    var bin_file = try link.openBinFilePath(gpa, bin_file_dir, options.bin_file_path, .{
+        .target = options.target,
+        .output_mode = options.output_mode,
+        .link_mode = options.link_mode orelse .Static,
+        .object_format = options.object_format orelse options.target.getObjectFormat(),
+    });
+    errdefer bin_file.deinit();
+
+    return Module{
+        .allocator = gpa,
+        .root_pkg = options.root_pkg,
+        .root_scope = root_scope,
+        .bin_file = bin_file,
+        .optimize_mode = options.optimize_mode,
+        .decl_table = std.AutoHashMap(Decl.Hash, *Decl).init(gpa),
+        .decl_exports = std.AutoHashMap(*Decl, []*Export).init(gpa),
+        .export_owners = std.AutoHashMap(*Decl, []*Export).init(gpa),
+        .failed_decls = std.AutoHashMap(*Decl, *ErrorMsg).init(gpa),
+        .failed_files = std.AutoHashMap(*Scope.ZIRModule, *ErrorMsg).init(gpa),
+        .failed_exports = std.AutoHashMap(*Export, *ErrorMsg).init(gpa),
+        .work_queue = std.fifo.LinearFifo(WorkItem, .Dynamic).init(gpa),
+    };
+}
+
 pub fn deinit(self: *Module) void {
+    self.bin_file.deinit();
     const allocator = self.allocator;
     self.work_queue.deinit();
     {
@@ -472,7 +519,6 @@ pub fn deinit(self: *Module) void {
         }
         self.export_owners.deinit();
     }
-    self.root_pkg.destroy();
     {
         self.root_scope.deinit(allocator);
         allocator.destroy(self.root_scope);

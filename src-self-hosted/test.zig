@@ -1,7 +1,9 @@
 const std = @import("std");
 const link = @import("link.zig");
-const ir = @import("ir.zig");
+const Module = @import("Module.zig");
 const Allocator = std.mem.Allocator;
+const zir = @import("zir.zig");
+const Package = @import("Package.zig");
 
 test "self-hosted" {
     var ctx: TestContext = undefined;
@@ -98,52 +100,31 @@ pub const TestContext = struct {
         var tmp = std.testing.tmpDir(.{});
         defer tmp.cleanup();
 
-        var prg_node = root_node.start(case.name, 4);
+        var prg_node = root_node.start(case.name, 2);
         prg_node.activate();
         defer prg_node.end();
 
-        var zir_module = x: {
-            var parse_node = prg_node.start("parse", null);
-            parse_node.activate();
-            defer parse_node.end();
+        const tmp_src_path = "test-case.zir";
+        try tmp.dir.writeFile(tmp_src_path, case.src);
 
-            break :x try ir.text.parse(allocator, case.src);
-        };
-        defer zir_module.deinit(allocator);
-        if (zir_module.errors.len != 0) {
-            debugPrintErrors(case.src, zir_module.errors);
-            return error.ParseFailure;
-        }
+        const root_pkg = try Package.create(allocator, tmp.dir, ".", tmp_src_path);
+        defer root_pkg.destroy();
 
-        var analyzed_module = x: {
-            var analyze_node = prg_node.start("analyze", null);
-            analyze_node.activate();
-            defer analyze_node.end();
-
-            break :x try ir.analyze(allocator, zir_module, .{
+        {
+            var module = try Module.init(allocator, .{
                 .target = target,
                 .output_mode = .Exe,
-                .link_mode = .Static,
                 .optimize_mode = .Debug,
+                .bin_file_dir = tmp.dir,
+                .bin_file_path = "a.out",
+                .root_pkg = root_pkg,
             });
-        };
-        defer analyzed_module.deinit(allocator);
-        if (analyzed_module.errors.len != 0) {
-            debugPrintErrors(case.src, analyzed_module.errors);
-            return error.ParseFailure;
-        }
+            defer module.deinit();
 
-        var link_result = x: {
-            var link_node = prg_node.start("link", null);
-            link_node.activate();
-            defer link_node.end();
-
-            break :x try link.updateFilePath(allocator, analyzed_module, tmp.dir, "a.out");
-        };
-        defer link_result.deinit(allocator);
-        if (link_result.errors.len != 0) {
-            debugPrintErrors(case.src, link_result.errors);
-            return error.LinkFailure;
+            var module_node = prg_node.start("parse,analysis,codegen", null);
+            module_node.activate();
+            try module.update();
+            module_node.end();
         }
 
         var exec_result = x: {
@@ -178,38 +159,37 @@ pub const TestContext = struct {
         case: ZIRTransformCase,
         target: std.Target,
     ) !void {
-        var prg_node = root_node.start(case.name, 4);
+        var tmp = std.testing.tmpDir(.{});
+        defer tmp.cleanup();
+
+        var prg_node = root_node.start(case.name, 3);
         prg_node.activate();
         defer prg_node.end();
 
-        var parse_node = prg_node.start("parse", null);
-        parse_node.activate();
-        var zir_module = try ir.text.parse(allocator, case.src);
-        defer zir_module.deinit(allocator);
-        if (zir_module.errors.len != 0) {
-            debugPrintErrors(case.src, zir_module.errors);
-            return error.ParseFailure;
-        }
-        parse_node.end();
+        const tmp_src_path = "test-case.zir";
+        try tmp.dir.writeFile(tmp_src_path, case.src);
 
-        var analyze_node = prg_node.start("analyze", null);
-        analyze_node.activate();
-        var analyzed_module = try ir.analyze(allocator, zir_module, .{
+        const root_pkg = try Package.create(allocator, tmp.dir, ".", tmp_src_path);
+        defer root_pkg.destroy();
+
+        var module = try Module.init(allocator, .{
             .target = target,
             .output_mode = .Obj,
-            .link_mode = .Static,
             .optimize_mode = .Debug,
+            .bin_file_dir = tmp.dir,
+            .bin_file_path = "test-case.o",
+            .root_pkg = root_pkg,
         });
-        defer analyzed_module.deinit(allocator);
-        if (analyzed_module.errors.len != 0) {
-            debugPrintErrors(case.src, analyzed_module.errors);
-            return error.ParseFailure;
-        }
-        analyze_node.end();
+        defer module.deinit();
+
+        var module_node = prg_node.start("parse/analysis/codegen", null);
+        module_node.activate();
+        try module.update();
+        module_node.end();
 
         var emit_node = prg_node.start("emit", null);
         emit_node.activate();
-        var new_zir_module = try ir.text.emit_zir(allocator, analyzed_module);
+        var new_zir_module = try zir.emit(allocator, module);
         defer new_zir_module.deinit(allocator);
         emit_node.end();
 
