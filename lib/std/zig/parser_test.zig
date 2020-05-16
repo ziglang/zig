@@ -172,6 +172,18 @@ test "recovery: mismatched bracket at top level" {
     });
 }
 
+test "recovery: invalid global error set access" {
+    try testError(
+        \\test "" {
+        \\    error && foo;
+        \\}
+    , &[_]Error{
+        .ExpectedToken,
+        .ExpectedIdentifier,
+        .InvalidAnd,
+    });
+}
+
 test "zig fmt: top-level fields" {
     try testCanonical(
         \\a: did_you_know,
