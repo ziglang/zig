@@ -724,16 +724,12 @@ fn parseIfStatement(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node 
     const if_prefix = if_node.cast(Node.If).?;
 
     const block_expr = (try parseBlockExpr(arena, it, tree));
-    const assign_expr = if (block_expr == null) blk: {
-        break :blk (try parseAssignExpr(arena, it, tree)) orelse null;
-    } else null;
-
-    if (block_expr == null and assign_expr == null) {
-        try tree.errors.push(.{
+    const assign_expr = if (block_expr == null)
+        try expectNode(arena, it, tree, parseAdditionExpr, .{
             .ExpectedBlockOrAssignment = .{ .token = it.index },
-        });
-        return error.ParseError;
-    }
+        })
+    else
+        null;
 
     const semicolon = if (assign_expr != null) eatToken(it, .Semicolon) else null;
 
@@ -770,10 +766,9 @@ fn parseIfStatement(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node 
         try tree.errors.push(.{
             .ExpectedSemiOrElse = .{ .token = it.index },
         });
-        return error.ParseError;
     }
 
-    unreachable;
+    return if_node;
 }
 
 /// LabeledStatement <- BlockLabel? (Block / LoopStatement)
@@ -879,7 +874,8 @@ fn parseForStatement(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node
         try tree.errors.push(.{
             .ExpectedSemiOrElse = .{ .token = it.index },
         });
-        return null;
+
+        return node;
     }
 
     return null;
@@ -941,7 +937,8 @@ fn parseWhileStatement(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*No
         try tree.errors.push(.{
             .ExpectedSemiOrElse = .{ .token = it.index },
         });
-        return null;
+
+        return node;
     }
 
     return null;

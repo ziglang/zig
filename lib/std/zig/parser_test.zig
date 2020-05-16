@@ -184,6 +184,22 @@ test "recovery: invalid global error set access" {
     });
 }
 
+test "recovery: missing semicolon after if, for, while stmt" {
+    try testError(
+        \\test "" {
+        \\    if (foo) bar
+        \\    for (foo) |a| bar
+        \\    while (foo) bar
+        \\    a && b;
+        \\}
+    , &[_]Error{
+        .ExpectedSemiOrElse,
+        .ExpectedSemiOrElse,
+        .ExpectedSemiOrElse,
+        .InvalidAnd,
+    });
+}
+
 test "zig fmt: top-level fields" {
     try testCanonical(
         \\a: did_you_know,
