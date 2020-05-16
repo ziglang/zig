@@ -3103,6 +3103,7 @@ fn transCreateCompoundAssign(
         // common case
         // c: lhs += rhs
         // zig: lhs += rhs
+
         if ((is_mod or is_div) and is_signed) {
             const op_token = try appendToken(rp.c, .Equal, "=");
             const op_node = try rp.c.a().create(ast.Node.InfixOp);
@@ -4813,6 +4814,7 @@ pub fn failDecl(c: *Context, loc: ZigClangSourceLocation, name: []const u8, comp
     const msg_tok = try appendTokenFmt(c, .StringLiteral, "\"" ++ format ++ "\"", args);
     const rparen_tok = try appendToken(c, .RParen, ")");
     const semi_tok = try appendToken(c, .Semicolon, ";");
+    _ = try appendTokenFmt(c, .LineComment, "// {}", .{c.locStr(loc)});
 
     const msg_node = try c.a().create(ast.Node.StringLiteral);
     msg_node.* = .{
@@ -5049,8 +5051,8 @@ fn transMacroDefine(c: *Context, it: *CTokenList.Iterator, source: []const u8, n
             c,
             source_loc,
             name,
-            "unable to translate C expr: unexpected token {}",
-            .{last.id},
+            "unable to translate C expr: unexpected token .{}",
+            .{@tagName(last.id)},
         );
 
     node.semicolon_token = try appendToken(c, .Semicolon, ";");
@@ -5157,8 +5159,8 @@ fn transMacroFnDefine(c: *Context, it: *CTokenList.Iterator, source: []const u8,
             c,
             source_loc,
             name,
-            "unable to translate C expr: unexpected token {}",
-            .{last.id},
+            "unable to translate C expr: unexpected token .{}",
+            .{@tagName(last.id)},
         );
     _ = try appendToken(c, .Semicolon, ";");
     const type_of_arg = if (expr.id != .Block) expr else blk: {
@@ -5476,7 +5478,7 @@ fn parseCPrimaryExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8, 
                 };
                 return &node.base;
             } else {
-                const token = try appendTokenFmt(c, .IntegerLiteral, "0x{x}", .{source[tok.start + 1 .. tok.end - 1]});
+                const token = try appendTokenFmt(c, .IntegerLiteral, "0x{x}", .{source[tok.start+1..tok.end-1]});
                 const node = try c.a().create(ast.Node.IntegerLiteral);
                 node.* = .{
                     .token = token,
@@ -5726,8 +5728,8 @@ fn parseCPrimaryExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8, 
                 c,
                 source_loc,
                 source[first_tok.start..first_tok.end],
-                "unable to translate C expr: unexpected token {}",
-                .{tok.id},
+                "unable to translate C expr: unexpected token .{}",
+                .{@tagName(tok.id)},
             );
             return error.ParseError;
         },

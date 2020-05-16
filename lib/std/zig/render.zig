@@ -2332,8 +2332,10 @@ fn renderTokenOffset(
     }
 
     while (true) {
-        assert(loc.line != 0);
-        const newline_count = if (loc.line == 1) @as(u8, 1) else @as(u8, 2);
+        // translate-c doesn't generate correct newlines
+        // in generated code (loc.line == 0) so treat that case
+        // as though there was meant to be a newline between the tokens
+        const newline_count = if (loc.line <= 1) @as(u8, 1) else @as(u8, 2);
         try stream.writeByteNTimes('\n', newline_count);
         try stream.writeByteNTimes(' ', indent);
         try stream.writeAll(mem.trimRight(u8, tree.tokenSlicePtr(next_token), " "));
