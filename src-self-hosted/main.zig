@@ -447,11 +447,17 @@ fn buildOutputType(
 
     while (watch) {
         try stderr.print("🦎 ", .{});
+        if (output_mode == .Exe) {
+            try module.makeBinFileExecutable();
+        }
         if (stdin.readUntilDelimiterOrEof(&repl_buf, '\n') catch |err| {
             try stderr.print("\nUnable to parse command: {}\n", .{@errorName(err)});
             continue;
         }) |line| {
             if (mem.eql(u8, line, "update")) {
+                if (output_mode == .Exe) {
+                    try module.makeBinFileWritable();
+                }
                 try updateModule(gpa, &module, zir_out_path);
             } else if (mem.eql(u8, line, "exit")) {
                 break;

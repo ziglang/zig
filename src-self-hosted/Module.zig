@@ -23,6 +23,8 @@ root_pkg: *Package,
 /// Module owns this resource.
 root_scope: *Scope.ZIRModule,
 bin_file: link.ElfFile,
+bin_file_dir: std.fs.Dir,
+bin_file_path: []const u8,
 /// It's rare for a decl to be exported, so we save memory by having a sparse map of
 /// Decl pointers to details about them being exported.
 /// The Export memory is owned by the `export_owners` table; the slice itself is owned by this table.
@@ -456,6 +458,8 @@ pub fn init(gpa: *Allocator, options: InitOptions) !Module {
         .allocator = gpa,
         .root_pkg = options.root_pkg,
         .root_scope = root_scope,
+        .bin_file_dir = bin_file_dir,
+        .bin_file_path = options.bin_file_path,
         .bin_file = bin_file,
         .optimize_mode = options.optimize_mode,
         .decl_table = std.AutoHashMap(Decl.Hash, *Decl).init(gpa),
@@ -549,6 +553,18 @@ pub fn update(self: *Module) !void {
 
     try self.bin_file.flush();
     self.link_error_flags = self.bin_file.error_flags;
+}
+
+/// Having the file open for writing is problematic as far as executing the
+/// binary is concerned. This will remove the write flag, or close the file,
+/// or whatever is needed so that it can be executed.
+/// After this, one must call` makeFileWritable` before calling `update`.
+pub fn makeBinFileExecutable(self: *Module) !void {
+    return self.bin_file.makeExecutable();
+}
+
+pub fn makeBinFileWritable(self: *Module) !void {
+    return self.bin_file.makeWritable(self.bin_file_dir, self.bin_file_path);
 }
 
 pub fn totalErrorCount(self: *Module) usize {
@@ -759,7 +775,7 @@ fn analyzeRoot(self: *Module, root_scope: *Scope.ZIRModule) !void {
                     const new_contents_hash = Decl.hashSimpleName(src_decl.contents);
                     if (!mem.eql(u8, &new_contents_hash, &decl.contents_hash)) {
                         // TODO recursive dependency management
-                        std.debug.warn("noticed that '{}' changed\n", .{src_decl.name});
+                        //std.debug.warn("noticed that '{}' changed\n", .{src_decl.name});
                         self.decl_table.removeAssertDiscard(name_hash);
                         const saved_link = decl.link;
                         decl.destroy(self.allocator);

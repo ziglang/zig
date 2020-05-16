@@ -91,7 +91,7 @@ pub fn openBinFile(allocator: *Allocator, file: fs.File, options: Options) !ElfF
 
 pub const ElfFile = struct {
     allocator: *Allocator,
-    file: fs.File,
+    file: ?fs.File,
     owns_file_handle: bool,
     options: Options,
     ptr_width: enum { p32, p64 },
@@ -170,8 +170,27 @@ pub const ElfFile = struct {
         self.local_symbols.deinit(self.allocator);
         self.global_symbols.deinit(self.allocator);
         self.offset_table.deinit(self.allocator);
-        if (self.owns_file_handle)
-            self.file.close();
+        if (self.owns_file_handle) {
+            if (self.file) |f| f.close();
+        }
+    }
+
+    pub fn makeExecutable(self: *ElfFile) !void {
+        assert(self.owns_file_handle);
+        if (self.file) |f| {
+            f.close();
+            self.file = null;
+        }
+    }
+
+    pub fn makeWritable(self: *ElfFile, dir: fs.Dir, sub_path: []const u8) !void {
+        assert(self.owns_file_handle);
+        if (self.file != null) return;
+        self.file = try dir.createFile(sub_path, .{
+            .truncate = false,
+            .read = true,
+            .mode = determineMode(self.options),
+        });
     }
 
     // `alloc_num / alloc_den` is the factor of padding when allocation
@@ -467,7 +486,7 @@ pub const ElfFile = struct {
                             bswapAllFields(elf.Elf32_Phdr, phdr);
                         }
                     }
-                    try self.file.pwriteAll(mem.sliceAsBytes(buf), self.phdr_table_offset.?);
+                    try self.file.?.pwriteAll(mem.sliceAsBytes(buf), self.phdr_table_offset.?);
                 },
                 .p64 => {
                     const buf = try self.allocator.alloc(elf.Elf64_Phdr, self.program_headers.items.len);
@@ -479,7 +498,7 @@ pub const ElfFile = struct {
                             bswapAllFields(elf.Elf64_Phdr, phdr);
                         }
                     }
-                    try self.file.pwriteAll(mem.sliceAsBytes(buf), self.phdr_table_offset.?);
+                    try self.file.?.pwriteAll(mem.sliceAsBytes(buf), self.phdr_table_offset.?);
                 },
             }
             self.phdr_table_dirty = false;
@@ -498,7 +517,7 @@ pub const ElfFile = struct {
                 shstrtab_sect.sh_size = needed_size;
                 //std.debug.warn("shstrtab start=0x{x} end=0x{x}\n", .{ shstrtab_sect.sh_offset, shstrtab_sect.sh_offset + needed_size });
 
-                try self.file.pwriteAll(self.shstrtab.items, shstrtab_sect.sh_offset);
+                try self.file.?.pwriteAll(self.shstrtab.items, shstrtab_sect.sh_offset);
                 if (!self.shdr_table_dirty) {
                     // Then it won't get written with the others and we need to do it.
                     try self.writeSectHeader(self.shstrtab_index.?);
@@ -534,7 +553,7 @@ pub const ElfFile = struct {
                             bswapAllFields(elf.Elf32_Shdr, shdr);
                         }
                     }
-                    try self.file.pwriteAll(mem.sliceAsBytes(buf), self.shdr_table_offset.?);
+                    try self.file.?.pwriteAll(mem.sliceAsBytes(buf), self.shdr_table_offset.?);
                 },
                 .p64 => {
                     const buf = try self.allocator.alloc(elf.Elf64_Shdr, self.sections.items.len);
@@ -547,7 +566,7 @@ pub const ElfFile = struct {
                             bswapAllFields(elf.Elf64_Shdr, shdr);
                         }
                     }
-                    try self.file.pwriteAll(mem.sliceAsBytes(buf), self.shdr_table_offset.?);
+                    try self.file.?.pwriteAll(mem.sliceAsBytes(buf), self.shdr_table_offset.?);
                 },
             }
             self.shdr_table_dirty = false;
@@ -687,7 +706,7 @@ pub const ElfFile = struct {
 
         assert(index == e_ehsize);
 
-        try self.file.pwriteAll(hdr_buf[0..index], 0);
+        try self.file.?.pwriteAll(hdr_buf[0..index], 0);
     }
 
     const AllocatedBlock = struct {
@@ -718,7 +737,7 @@ pub const ElfFile = struct {
             // Must move the entire text section.
             const new_offset = self.findFreeSpace(needed_size, 0x1000);
             const text_size = (last_start + last_size) - phdr.p_vaddr;
-            const amt = try self.file.copyRangeAll(shdr.sh_offset, self.file, new_offset, text_size);
+            const amt = try self.file.?.copyRangeAll(shdr.sh_offset, self.file.?, new_offset, text_size);
             if (amt != text_size) return error.InputOutput;
             shdr.sh_offset = new_offset;
         }
@@ -876,7 +895,7 @@ pub const ElfFile = struct {
             }
         };
 
-        try self.file.pwriteAll(code, file_offset);
+        try self.file.?.pwriteAll(code, file_offset);
 
         // Since we updated the vaddr and the size, each corresponding export symbol also needs to be updated.
         const decl_exports = module.decl_exports.getValue(decl) orelse &[0]*Module.Export{};
@@ -962,14 +981,14 @@ pub const ElfFile = struct {
                 if (foreign_endian) {
                     bswapAllFields(elf.Elf32_Phdr, &phdr[0]);
                 }
-                return self.file.pwriteAll(mem.sliceAsBytes(&phdr), offset);
+                return self.file.?.pwriteAll(mem.sliceAsBytes(&phdr), offset);
             },
             64 => {
                 var phdr = [1]elf.Elf64_Phdr{self.program_headers.items[index]};
                 if (foreign_endian) {
                     bswapAllFields(elf.Elf64_Phdr, &phdr[0]);
                 }
-                return self.file.pwriteAll(mem.sliceAsBytes(&phdr), offset);
+                return self.file.?.pwriteAll(mem.sliceAsBytes(&phdr), offset);
             },
             else => return error.UnsupportedArchitecture,
         }
@@ -985,14 +1004,14 @@ pub const ElfFile = struct {
                 if (foreign_endian) {
                     bswapAllFields(elf.Elf32_Shdr, &shdr[0]);
                 }
-                return self.file.pwriteAll(mem.sliceAsBytes(&shdr), offset);
+                return self.file.?.pwriteAll(mem.sliceAsBytes(&shdr), offset);
             },
             64 => {
                 var shdr = [1]elf.Elf64_Shdr{self.sections.items[index]};
                 if (foreign_endian) {
                     bswapAllFields(elf.Elf64_Shdr, &shdr[0]);
                 }
-                return self.file.pwriteAll(mem.sliceAsBytes(&shdr), offset);
+                return self.file.?.pwriteAll(mem.sliceAsBytes(&shdr), offset);
             },
             else => return error.UnsupportedArchitecture,
         }
@@ -1012,7 +1031,7 @@ pub const ElfFile = struct {
             if (needed_size > allocated_size) {
                 // Must move the entire got section.
                 const new_offset = self.findFreeSpace(needed_size, entry_size);
-                const amt = try self.file.copyRangeAll(shdr.sh_offset, self.file, new_offset, shdr.sh_size);
+                const amt = try self.file.?.copyRangeAll(shdr.sh_offset, self.file.?, new_offset, shdr.sh_size);
                 if (amt != shdr.sh_size) return error.InputOutput;
                 shdr.sh_offset = new_offset;
             }
@@ -1031,12 +1050,12 @@ pub const ElfFile = struct {
             .p32 => {
                 var buf: [4]u8 = undefined;
                 mem.writeInt(u32, &buf, @intCast(u32, self.offset_table.items[index]), endian);
-                try self.file.pwriteAll(&buf, off);
+                try self.file.?.pwriteAll(&buf, off);
             },
             .p64 => {
                 var buf: [8]u8 = undefined;
                 mem.writeInt(u64, &buf, self.offset_table.items[index], endian);
-                try self.file.pwriteAll(&buf, off);
+                try self.file.?.pwriteAll(&buf, off);
             },
         }
     }
@@ -1059,7 +1078,7 @@ pub const ElfFile = struct {
                 // Move all the symbols to a new file location.
                 const new_offset = self.findFreeSpace(needed_size, sym_align);
                 const existing_size = @as(u64, syms_sect.sh_info) * sym_size;
-                const amt = try self.file.copyRangeAll(syms_sect.sh_offset, self.file, new_offset, existing_size);
+                const amt = try self.file.?.copyRangeAll(syms_sect.sh_offset, self.file.?, new_offset, existing_size);
                 if (amt != existing_size) return error.InputOutput;
                 syms_sect.sh_offset = new_offset;
             }
@@ -1084,7 +1103,7 @@ pub const ElfFile = struct {
                     bswapAllFields(elf.Elf32_Sym, &sym[0]);
                 }
                 const off = syms_sect.sh_offset + @sizeOf(elf.Elf32_Sym) * index;
-                try self.file.pwriteAll(mem.sliceAsBytes(sym[0..1]), off);
+                try self.file.?.pwriteAll(mem.sliceAsBytes(sym[0..1]), off);
             },
             .p64 => {
                 var sym = [1]elf.Elf64_Sym{self.local_symbols.items[index]};
@@ -1092,7 +1111,7 @@ pub const ElfFile = struct {
                     bswapAllFields(elf.Elf64_Sym, &sym[0]);
                 }
                 const off = syms_sect.sh_offset + @sizeOf(elf.Elf64_Sym) * index;
-                try self.file.pwriteAll(mem.sliceAsBytes(sym[0..1]), off);
+                try self.file.?.pwriteAll(mem.sliceAsBytes(sym[0..1]), off);
             },
         }
     }
@@ -1124,7 +1143,7 @@ pub const ElfFile = struct {
                         bswapAllFields(elf.Elf32_Sym, sym);
                     }
                 }
-                try self.file.pwriteAll(mem.sliceAsBytes(buf), global_syms_off);
+                try self.file.?.pwriteAll(mem.sliceAsBytes(buf), global_syms_off);
             },
             .p64 => {
                 const buf = try self.allocator.alloc(elf.Elf64_Sym, self.global_symbols.items.len);
@@ -1143,7 +1162,7 @@ pub const ElfFile = struct {
                         bswapAllFields(elf.Elf64_Sym, sym);
                     }
                 }
-                try self.file.pwriteAll(mem.sliceAsBytes(buf), global_syms_off);
+                try self.file.?.pwriteAll(mem.sliceAsBytes(buf), global_syms_off);
             },
         }
     }
