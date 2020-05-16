@@ -510,9 +510,10 @@ fn parseFnProto(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     else
         R{ .Explicit = return_type_expr.? };
 
-    const var_args_token = if (params.len > 0)
-        params.at(params.len - 1).*.cast(Node.ParamDecl).?.var_args_token
-    else
+    const var_args_token = if (params.len > 0) blk: {
+        const param_type = params.at(params.len - 1).*.cast(Node.ParamDecl).?.param_type;
+        break :blk if (param_type == .var_args) param_type.var_args else null;
+    } else
         null;
 
     const fn_proto_node = try arena.create(Node.FnProto);
@@ -1939,15 +1940,8 @@ fn parseParamDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
         .comptime_token = comptime_token,
         .noalias_token = noalias_token,
         .name_token = name_token,
-        // TODO: These should be squished into a ParamType enum
-        .type_node = undefined,
-        .var_args_token = null,
+        .param_type = param_type,
     };
-    switch (param_type) {
-        .VarType => |node| param_decl.type_node = node,
-        .TypeExpr => |node| param_decl.type_node = node,
-        .VarArgs => |token| param_decl.var_args_token = token,
-    }
     return &param_decl.base;
 }
 
@@ -1955,19 +1949,14 @@ fn parseParamDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 ///     <- KEYWORD_var
 ///      / DOT3
 ///      / TypeExpr
-fn parseParamType(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?ParamType {
-    if (try parseVarType(arena, it, tree)) |node| return ParamType{ .VarType = node };
-    if (eatToken(it, .Ellipsis3)) |token| return ParamType{ .VarArgs = token };
-    if (try parseTypeExpr(arena, it, tree)) |node| return ParamType{ .TypeExpr = node };
+fn parseParamType(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?Node.ParamDecl.ParamType {
+    // TODO cast from tuple to error union is broken
+    const P = Node.ParamDecl.ParamType;
+    if (try parseVarType(arena, it, tree)) |node| return P{ .var_type = node };
+    if (eatToken(it, .Ellipsis3)) |token| return P{ .var_args = token };
+    if (try parseTypeExpr(arena, it, tree)) |node| return P{ .type_expr = node };
     return null;
 }
-
-// TODO: Move to ast.Node.ParamDecl.ParamType
-const ParamType = union(enum) {
-    VarType: *Node,
-    VarArgs: TokenIndex,
-    TypeExpr: *Node,
-};
 
 /// IfPrefix <- KEYWORD_if LPAREN Expr RPAREN PtrPayload?
 fn parseIfPrefix(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
