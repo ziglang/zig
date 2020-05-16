@@ -105,6 +105,7 @@ pub const Builder = struct {
         Bool,
         Int,
         Float,
+        Enum,
         String,
         List,
     };
@@ -450,6 +451,27 @@ pub const Builder = struct {
             },
             TypeId.Int => panic("TODO integer options to build script", .{}),
             TypeId.Float => panic("TODO float options to build script", .{}),
+            TypeId.Enum => switch (entry.value.value) {
+                UserValue.Flag => {
+                    warn("Expected -D{} to be a string, but received a boolean.\n", .{name});
+                    self.markInvalidUserInput();
+                    return null;
+                },
+                UserValue.Scalar => |s| {
+                    if (std.meta.stringToEnum(T, s)) |enum_lit| {
+                        return enum_lit;
+                    } else {
+                        warn("Expected -D{} to be of type {}.\n", .{ name, @typeName(T) });
+                        self.markInvalidUserInput();
+                        return null;
+                    }
+                },
+                UserValue.List => {
+                    warn("Expected -D{} to be a string, but received a list.\n", .{name});
+                    self.markInvalidUserInput();
+                    return null;
+                },
+            },
             TypeId.String => switch (entry.value.value) {
                 UserValue.Flag => {
                     warn("Expected -D{} to be a string, but received a boolean.\n", .{name});
@@ -681,6 +703,7 @@ pub const Builder = struct {
             .Int => .Int,
             .Float => .Float,
             .Bool => .Bool,
+            .Enum => .Enum,
             else => switch (T) {
                 []const u8 => .String,
                 []const []const u8 => .List,
@@ -698,6 +721,7 @@ pub const Builder = struct {
             .Bool => "bool",
             .Int => "int",
             .Float => "float",
+            .Enum => "enum",
             .String => "string",
             .List => "list",
         };
