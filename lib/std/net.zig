@@ -341,7 +341,7 @@ pub const Address = extern union {
         return mem.eql(u8, a_bytes, b_bytes);
     }
 
-    fn getOsSockLen(self: Address) os.socklen_t {
+    pub fn getOsSockLen(self: Address) os.socklen_t {
         switch (self.any.family) {
             os.AF_INET => return @sizeOf(os.sockaddr_in),
             os.AF_INET6 => return @sizeOf(os.sockaddr_in6),
@@ -377,7 +377,6 @@ pub fn connectUnixSocket(path: []const u8) !fs.File {
 
     return fs.File{
         .handle = sockfd,
-        .io_mode = std.io.mode,
     };
 }
 
@@ -386,7 +385,7 @@ pub const AddressList = struct {
     addrs: []Address,
     canon_name: ?[]u8,
 
-    fn deinit(self: *AddressList) void {
+    pub fn deinit(self: *AddressList) void {
         // Here we copy the arena allocator into stack memory, because
         // otherwise it would destroy itself while it was still working.
         var arena = self.arena;
@@ -1366,6 +1365,10 @@ pub const StreamServer = struct {
 
         /// Firewall rules forbid connection.
         BlockedByFirewall,
+
+        /// Permission to create a socket of the specified type and/or
+        /// protocol is denied.
+        PermissionDenied,
     } || os.UnexpectedError;
 
     pub const Connection = struct {

@@ -62,7 +62,7 @@ pub fn warn(comptime fmt: []const u8, args: var) void {
     const held = stderr_mutex.acquire();
     defer held.release();
     const stderr = getStderrStream();
-    noasync stderr.print(fmt, args) catch return;
+    nosuspend stderr.print(fmt, args) catch return;
 }
 
 pub fn getStderrStream() *File.OutStream {
@@ -112,7 +112,7 @@ pub fn detectTTYConfig() TTY.Config {
 /// Tries to print the current stack trace to stderr, unbuffered, and ignores any error returned.
 /// TODO multithreaded awareness
 pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
-    noasync {
+    nosuspend {
         const stderr = getStderrStream();
         if (builtin.strip_debug_info) {
             stderr.print("Unable to dump stack trace: debug info stripped\n", .{}) catch return;
@@ -133,7 +133,7 @@ pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
 /// unbuffered, and ignores any error returned.
 /// TODO multithreaded awareness
 pub fn dumpStackTraceFromBase(bp: usize, ip: usize) void {
-    noasync {
+    nosuspend {
         const stderr = getStderrStream();
         if (builtin.strip_debug_info) {
             stderr.print("Unable to dump stack trace: debug info stripped\n", .{}) catch return;
@@ -203,7 +203,7 @@ pub fn captureStackTrace(first_address: ?usize, stack_trace: *builtin.StackTrace
 /// Tries to print a stack trace to stderr, unbuffered, and ignores any error returned.
 /// TODO multithreaded awareness
 pub fn dumpStackTrace(stack_trace: builtin.StackTrace) void {
-    noasync {
+    nosuspend {
         const stderr = getStderrStream();
         if (builtin.strip_debug_info) {
             stderr.print("Unable to dump stack trace: debug info stripped\n", .{}) catch return;
@@ -261,7 +261,7 @@ pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, c
         resetSegfaultHandler();
     }
 
-    noasync switch (panic_stage) {
+    nosuspend switch (panic_stage) {
         0 => {
             panic_stage = 1;
 
@@ -357,7 +357,7 @@ pub const StackIterator = struct {
     else
         0;
 
-    fn next(self: *StackIterator) ?usize {
+    pub fn next(self: *StackIterator) ?usize {
         var address = self.next_internal() orelse return null;
 
         if (self.first_address) |first_address| {
@@ -447,7 +447,7 @@ pub const TTY = struct {
         windows_api,
 
         fn setColor(conf: Config, out_stream: var, color: Color) void {
-            noasync switch (conf) {
+            nosuspend switch (conf) {
                 .no_color => return,
                 .escape_codes => switch (color) {
                     .Red => out_stream.writeAll(RED) catch return,
@@ -604,7 +604,7 @@ fn printLineInfo(
     tty_config: TTY.Config,
     comptime printLineFromFile: var,
 ) !void {
-    noasync {
+    nosuspend {
         tty_config.setColor(out_stream, .White);
 
         if (line_info) |*li| {
@@ -651,7 +651,7 @@ pub const OpenSelfDebugInfoError = error{
 
 /// TODO resources https://github.com/ziglang/zig/issues/4353
 pub fn openSelfDebugInfo(allocator: *mem.Allocator) anyerror!DebugInfo {
-    noasync {
+    nosuspend {
         if (builtin.strip_debug_info)
             return error.MissingDebugInfo;
         if (@hasDecl(root, "os") and @hasDecl(root.os, "debug") and @hasDecl(root.os.debug, "openSelfDebugInfo")) {
@@ -672,7 +672,7 @@ pub fn openSelfDebugInfo(allocator: *mem.Allocator) anyerror!DebugInfo {
 
 /// TODO resources https://github.com/ziglang/zig/issues/4353
 fn openCoffDebugInfo(allocator: *mem.Allocator, coff_file_path: [:0]const u16) !ModuleDebugInfo {
-    noasync {
+    nosuspend {
         const coff_file = try std.fs.openFileAbsoluteW(coff_file_path, .{ .intended_io_mode = .blocking });
         errdefer coff_file.close();
 
@@ -853,7 +853,7 @@ fn chopSlice(ptr: []const u8, offset: u64, size: u64) ![]const u8 {
 
 /// TODO resources https://github.com/ziglang/zig/issues/4353
 pub fn openElfDebugInfo(allocator: *mem.Allocator, elf_file_path: []const u8) !ModuleDebugInfo {
-    noasync {
+    nosuspend {
         const mapped_mem = try mapWholeFile(elf_file_path);
         const hdr = @ptrCast(*const elf.Ehdr, &mapped_mem[0]);
         if (!mem.eql(u8, hdr.e_ident[0..4], "\x7fELF")) return error.InvalidElfMagic;
@@ -1056,7 +1056,7 @@ const MachoSymbol = struct {
 };
 
 fn mapWholeFile(path: []const u8) ![]align(mem.page_size) const u8 {
-    noasync {
+    nosuspend {
         const file = try fs.cwd().openFile(path, .{ .intended_io_mode = .blocking });
         defer file.close();
 
@@ -1418,7 +1418,7 @@ pub const ModuleDebugInfo = switch (builtin.os.tag) {
         }
 
         fn getSymbolAtAddress(self: *@This(), address: usize) !SymbolInfo {
-            noasync {
+            nosuspend {
                 // Translate the VA into an address into this object
                 const relocated_address = address - self.base_address;
                 assert(relocated_address >= 0x100000000);
@@ -1643,14 +1643,14 @@ pub const ModuleDebugInfo = switch (builtin.os.tag) {
             // Translate the VA into an address into this object
             const relocated_address = address - self.base_address;
 
-            if (noasync self.dwarf.findCompileUnit(relocated_address)) |compile_unit| {
+            if (nosuspend self.dwarf.findCompileUnit(relocated_address)) |compile_unit| {
                 return SymbolInfo{
-                    .symbol_name = noasync self.dwarf.getSymbolName(relocated_address) orelse "???",
+                    .symbol_name = nosuspend self.dwarf.getSymbolName(relocated_address) orelse "???",
                     .compile_unit_name = compile_unit.die.getAttrString(&self.dwarf, DW.AT_name) catch |err| switch (err) {
                         error.MissingDebugInfo, error.InvalidDebugInfo => "???",
                         else => return err,
                     },
-                    .line_info = noasync self.dwarf.getLineNumberInfo(compile_unit.*, relocated_address) catch |err| switch (err) {
+                    .line_info = nosuspend self.dwarf.getLineNumberInfo(compile_unit.*, relocated_address) catch |err| switch (err) {
                         error.MissingDebugInfo, error.InvalidDebugInfo => null,
                         else => return err,
                     },

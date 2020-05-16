@@ -34,7 +34,7 @@ pub fn Future(comptime T: type) type {
         /// Obtain the value. If it's not available, wait until it becomes
         /// available.
         /// Thread-safe.
-        pub async fn get(self: *Self) *T {
+        pub fn get(self: *Self) callconv(.Async) *T {
             if (@atomicLoad(Available, &self.available, .SeqCst) == .Finished) {
                 return &self.data;
             }
@@ -59,7 +59,7 @@ pub fn Future(comptime T: type) type {
         /// should start working on the data.
         /// It's not required to call start() before resolve() but it can be useful since
         /// this method is thread-safe.
-        pub async fn start(self: *Self) ?*T {
+        pub fn start(self: *Self) callconv(.Async) ?*T {
             const state = @cmpxchgStrong(Available, &self.available, .NotStarted, .Started, .SeqCst, .SeqCst) orelse return null;
             switch (state) {
                 .Started => {

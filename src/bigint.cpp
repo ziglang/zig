@@ -243,6 +243,7 @@ bool bigint_fits_in_bits(const BigInt *bn, size_t bit_count, bool is_signed) {
     }
 
     if (!is_signed) {
+        if(bn->is_negative) return false;
         size_t full_bits = bn->digit_count * 64;
         size_t leading_zero_count = bigint_clz(bn, full_bits);
         return bit_count >= full_bits - leading_zero_count;

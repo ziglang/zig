@@ -47,10 +47,10 @@ pub const Token = struct {
         Keyword.init("for", .Keyword_for),
         Keyword.init("if", .Keyword_if),
         Keyword.init("inline", .Keyword_inline),
-        Keyword.init("nakedcc", .Keyword_nakedcc),
         Keyword.init("noalias", .Keyword_noalias),
-        Keyword.init("noasync", .Keyword_noasync),
+        Keyword.init("noasync", .Keyword_nosuspend), // TODO: remove this
         Keyword.init("noinline", .Keyword_noinline),
+        Keyword.init("nosuspend", .Keyword_nosuspend),
         Keyword.init("null", .Keyword_null),
         Keyword.init("or", .Keyword_or),
         Keyword.init("orelse", .Keyword_orelse),
@@ -59,7 +59,6 @@ pub const Token = struct {
         Keyword.init("resume", .Keyword_resume),
         Keyword.init("return", .Keyword_return),
         Keyword.init("linksection", .Keyword_linksection),
-        Keyword.init("stdcallcc", .Keyword_stdcallcc),
         Keyword.init("struct", .Keyword_struct),
         Keyword.init("suspend", .Keyword_suspend),
         Keyword.init("switch", .Keyword_switch),
@@ -180,10 +179,9 @@ pub const Token = struct {
         Keyword_for,
         Keyword_if,
         Keyword_inline,
-        Keyword_nakedcc,
         Keyword_noalias,
-        Keyword_noasync,
         Keyword_noinline,
+        Keyword_nosuspend,
         Keyword_null,
         Keyword_or,
         Keyword_orelse,
@@ -193,7 +191,6 @@ pub const Token = struct {
         Keyword_resume,
         Keyword_return,
         Keyword_linksection,
-        Keyword_stdcallcc,
         Keyword_struct,
         Keyword_suspend,
         Keyword_switch,
@@ -305,10 +302,9 @@ pub const Token = struct {
                 .Keyword_for => "for",
                 .Keyword_if => "if",
                 .Keyword_inline => "inline",
-                .Keyword_nakedcc => "nakedcc",
                 .Keyword_noalias => "noalias",
-                .Keyword_noasync => "noasync",
                 .Keyword_noinline => "noinline",
+                .Keyword_nosuspend => "nosuspend",
                 .Keyword_null => "null",
                 .Keyword_or => "or",
                 .Keyword_orelse => "orelse",
@@ -317,7 +313,6 @@ pub const Token = struct {
                 .Keyword_resume => "resume",
                 .Keyword_return => "return",
                 .Keyword_linksection => "linksection",
-                .Keyword_stdcallcc => "stdcallcc",
                 .Keyword_struct => "struct",
                 .Keyword_suspend => "suspend",
                 .Keyword_switch => "switch",
@@ -358,64 +353,64 @@ pub const Tokenizer = struct {
     }
 
     const State = enum {
-        Start,
-        Identifier,
-        Builtin,
-        StringLiteral,
-        StringLiteralBackslash,
-        MultilineStringLiteralLine,
-        CharLiteral,
-        CharLiteralBackslash,
-        CharLiteralHexEscape,
-        CharLiteralUnicodeEscapeSawU,
-        CharLiteralUnicodeEscape,
-        CharLiteralUnicodeInvalid,
-        CharLiteralUnicode,
-        CharLiteralEnd,
-        Backslash,
-        Equal,
-        Bang,
-        Pipe,
-        Minus,
-        MinusPercent,
-        Asterisk,
-        AsteriskPercent,
-        Slash,
-        LineCommentStart,
-        LineComment,
-        DocCommentStart,
-        DocComment,
-        ContainerDocComment,
-        Zero,
-        IntegerLiteralDec,
-        IntegerLiteralDecNoUnderscore,
-        IntegerLiteralBin,
-        IntegerLiteralBinNoUnderscore,
-        IntegerLiteralOct,
-        IntegerLiteralOctNoUnderscore,
-        IntegerLiteralHex,
-        IntegerLiteralHexNoUnderscore,
-        NumberDotDec,
-        NumberDotHex,
-        FloatFractionDec,
-        FloatFractionDecNoUnderscore,
-        FloatFractionHex,
-        FloatFractionHexNoUnderscore,
-        FloatExponentUnsigned,
-        FloatExponentNumber,
-        FloatExponentNumberNoUnderscore,
-        Ampersand,
-        Caret,
-        Percent,
-        Plus,
-        PlusPercent,
-        AngleBracketLeft,
-        AngleBracketAngleBracketLeft,
-        AngleBracketRight,
-        AngleBracketAngleBracketRight,
-        Period,
-        Period2,
-        SawAtSign,
+        start,
+        identifier,
+        builtin,
+        string_literal,
+        string_literal_backslash,
+        multiline_string_literal_line,
+        char_literal,
+        char_literal_backslash,
+        char_literal_hex_escape,
+        char_literal_unicode_escape_saw_u,
+        char_literal_unicode_escape,
+        char_literal_unicode_invalid,
+        char_literal_unicode,
+        char_literal_end,
+        backslash,
+        equal,
+        bang,
+        pipe,
+        minus,
+        minus_percent,
+        asterisk,
+        asterisk_percent,
+        slash,
+        line_comment_start,
+        line_comment,
+        doc_comment_start,
+        doc_comment,
+        container_doc_comment,
+        zero,
+        int_literal_dec,
+        int_literal_dec_no_underscore,
+        int_literal_bin,
+        int_literal_bin_no_underscore,
+        int_literal_oct,
+        int_literal_oct_no_underscore,
+        int_literal_hex,
+        int_literal_hex_no_underscore,
+        num_dot_dec,
+        num_dot_hex,
+        float_fraction_dec,
+        float_fraction_dec_no_underscore,
+        float_fraction_hex,
+        float_fraction_hex_no_underscore,
+        float_exponent_unsigned,
+        float_exponent_num,
+        float_exponent_num_no_underscore,
+        ampersand,
+        caret,
+        percent,
+        plus,
+        plus_percent,
+        angle_bracket_left,
+        angle_bracket_angle_bracket_left,
+        angle_bracket_right,
+        angle_bracket_angle_bracket_right,
+        period,
+        period_2,
+        saw_at_sign,
     };
 
     fn isIdentifierChar(char: u8) bool {
@@ -428,9 +423,9 @@ pub const Tokenizer = struct {
             return token;
         }
         const start_index = self.index;
-        var state = State.Start;
+        var state: State = .start;
         var result = Token{
-            .id = Token.Id.Eof,
+            .id = .Eof,
             .start = self.index,
             .end = undefined,
         };
@@ -439,40 +434,40 @@ pub const Tokenizer = struct {
         while (self.index < self.buffer.len) : (self.index += 1) {
             const c = self.buffer[self.index];
             switch (state) {
-                State.Start => switch (c) {
+                .start => switch (c) {
                     ' ', '\n', '\t', '\r' => {
                         result.start = self.index + 1;
                     },
                     '"' => {
-                        state = State.StringLiteral;
-                        result.id = Token.Id.StringLiteral;
+                        state = .string_literal;
+                        result.id = .StringLiteral;
                     },
                     '\'' => {
-                        state = State.CharLiteral;
+                        state = .char_literal;
                     },
                     'a'...'z', 'A'...'Z', '_' => {
-                        state = State.Identifier;
-                        result.id = Token.Id.Identifier;
+                        state = .identifier;
+                        result.id = .Identifier;
                     },
                     '@' => {
-                        state = State.SawAtSign;
+                        state = .saw_at_sign;
                     },
                     '=' => {
-                        state = State.Equal;
+                        state = .equal;
                     },
                     '!' => {
-                        state = State.Bang;
+                        state = .bang;
                     },
                     '|' => {
-                        state = State.Pipe;
+                        state = .pipe;
                     },
                     '(' => {
-                        result.id = Token.Id.LParen;
+                        result.id = .LParen;
                         self.index += 1;
                         break;
                     },
                     ')' => {
-                        result.id = Token.Id.RParen;
+                        result.id = .RParen;
                         self.index += 1;
                         break;
                     },
@@ -482,213 +477,213 @@ pub const Tokenizer = struct {
                         break;
                     },
                     ']' => {
-                        result.id = Token.Id.RBracket;
+                        result.id = .RBracket;
                         self.index += 1;
                         break;
                     },
                     ';' => {
-                        result.id = Token.Id.Semicolon;
+                        result.id = .Semicolon;
                         self.index += 1;
                         break;
                     },
                     ',' => {
-                        result.id = Token.Id.Comma;
+                        result.id = .Comma;
                         self.index += 1;
                         break;
                     },
                     '?' => {
-                        result.id = Token.Id.QuestionMark;
+                        result.id = .QuestionMark;
                         self.index += 1;
                         break;
                     },
                     ':' => {
-                        result.id = Token.Id.Colon;
+                        result.id = .Colon;
                         self.index += 1;
                         break;
                     },
                     '%' => {
-                        state = State.Percent;
+                        state = .percent;
                     },
                     '*' => {
-                        state = State.Asterisk;
+                        state = .asterisk;
                     },
                     '+' => {
-                        state = State.Plus;
+                        state = .plus;
                     },
                     '<' => {
-                        state = State.AngleBracketLeft;
+                        state = .angle_bracket_left;
                     },
                     '>' => {
-                        state = State.AngleBracketRight;
+                        state = .angle_bracket_right;
                     },
                     '^' => {
-                        state = State.Caret;
+                        state = .caret;
                     },
                     '\\' => {
-                        state = State.Backslash;
-                        result.id = Token.Id.MultilineStringLiteralLine;
+                        state = .backslash;
+                        result.id = .MultilineStringLiteralLine;
                     },
                     '{' => {
-                        result.id = Token.Id.LBrace;
+                        result.id = .LBrace;
                         self.index += 1;
                         break;
                     },
                     '}' => {
-                        result.id = Token.Id.RBrace;
+                        result.id = .RBrace;
                         self.index += 1;
                         break;
                     },
                     '~' => {
-                        result.id = Token.Id.Tilde;
+                        result.id = .Tilde;
                         self.index += 1;
                         break;
                     },
                     '.' => {
-                        state = State.Period;
+                        state = .period;
                     },
                     '-' => {
-                        state = State.Minus;
+                        state = .minus;
                     },
                     '/' => {
-                        state = State.Slash;
+                        state = .slash;
                     },
                     '&' => {
-                        state = State.Ampersand;
+                        state = .ampersand;
                     },
                     '0' => {
-                        state = State.Zero;
-                        result.id = Token.Id.IntegerLiteral;
+                        state = .zero;
+                        result.id = .IntegerLiteral;
                     },
                     '1'...'9' => {
-                        state = State.IntegerLiteralDec;
-                        result.id = Token.Id.IntegerLiteral;
+                        state = .int_literal_dec;
+                        result.id = .IntegerLiteral;
                     },
                     else => {
-                        result.id = Token.Id.Invalid;
+                        result.id = .Invalid;
                         self.index += 1;
                         break;
                     },
                 },
 
-                State.SawAtSign => switch (c) {
+                .saw_at_sign => switch (c) {
                     '"' => {
-                        result.id = Token.Id.Identifier;
-                        state = State.StringLiteral;
+                        result.id = .Identifier;
+                        state = .string_literal;
                     },
                     else => {
                         // reinterpret as a builtin
                         self.index -= 1;
-                        state = State.Builtin;
-                        result.id = Token.Id.Builtin;
+                        state = .builtin;
+                        result.id = .Builtin;
                     },
                 },
 
-                State.Ampersand => switch (c) {
+                .ampersand => switch (c) {
                     '&' => {
-                        result.id = Token.Id.Invalid_ampersands;
+                        result.id = .Invalid_ampersands;
                         self.index += 1;
                         break;
                     },
                     '=' => {
-                        result.id = Token.Id.AmpersandEqual;
+                        result.id = .AmpersandEqual;
                         self.index += 1;
                         break;
                     },
                     else => {
-                        result.id = Token.Id.Ampersand;
+                        result.id = .Ampersand;
                         break;
                     },
                 },
 
-                State.Asterisk => switch (c) {
+                .asterisk => switch (c) {
                     '=' => {
-                        result.id = Token.Id.AsteriskEqual;
+                        result.id = .AsteriskEqual;
                         self.index += 1;
                         break;
                     },
                     '*' => {
-                        result.id = Token.Id.AsteriskAsterisk;
+                        result.id = .AsteriskAsterisk;
                         self.index += 1;
                         break;
                     },
                     '%' => {
-                        state = State.AsteriskPercent;
+                        state = .asterisk_percent;
                     },
                     else => {
-                        result.id = Token.Id.Asterisk;
+                        result.id = .Asterisk;
                         break;
                     },
                 },
 
-                State.AsteriskPercent => switch (c) {
+                .asterisk_percent => switch (c) {
                     '=' => {
-                        result.id = Token.Id.AsteriskPercentEqual;
+                        result.id = .AsteriskPercentEqual;
                         self.index += 1;
                         break;
                     },
                     else => {
-                        result.id = Token.Id.AsteriskPercent;
+                        result.id = .AsteriskPercent;
                         break;
                     },
                 },
 
-                State.Percent => switch (c) {
+                .percent => switch (c) {
                     '=' => {
-                        result.id = Token.Id.PercentEqual;
+                        result.id = .PercentEqual;
                         self.index += 1;
                         break;
                     },
                     else => {
-                        result.id = Token.Id.Percent;
+                        result.id = .Percent;
                         break;
                     },
                 },
 
-                State.Plus => switch (c) {
+                .plus => switch (c) {
                     '=' => {
-                        result.id = Token.Id.PlusEqual;
+                        result.id = .PlusEqual;
                         self.index += 1;
                         break;
                     },
                     '+' => {
-                        result.id = Token.Id.PlusPlus;
+                        result.id = .PlusPlus;
                         self.index += 1;
                         break;
                     },
                     '%' => {
-                        state = State.PlusPercent;
+                        state = .plus_percent;
                     },
                     else => {
-                        result.id = Token.Id.Plus;
+                        result.id = .Plus;
                         break;
                     },
                 },
 
-                State.PlusPercent => switch (c) {
+                .plus_percent => switch (c) {
                     '=' => {
-                        result.id = Token.Id.PlusPercentEqual;
+                        result.id = .PlusPercentEqual;
                         self.index += 1;
                         break;
                     },
                     else => {
-                        result.id = Token.Id.PlusPercent;
+                        result.id = .PlusPercent;
                         break;
                     },
                 },
 
-                State.Caret => switch (c) {
+                .caret => switch (c) {
                     '=' => {
-                        result.id = Token.Id.CaretEqual;
+                        result.id = .CaretEqual;
                         self.index += 1;
                         break;
                     },
                     else => {
-                        result.id = Token.Id.Caret;
+                        result.id = .Caret;
                         break;
                     },
                 },
 
-                State.Identifier => switch (c) {
+                .identifier => switch (c) {
                     'a'...'z', 'A'...'Z', '_', '0'...'9' => {},
                     else => {
                         if (Token.getKeyword(self.buffer[result.start..self.index])) |id| {
@@ -697,19 +692,19 @@ pub const Tokenizer = struct {
                         break;
                     },
                 },
-                State.Builtin => switch (c) {
+                .builtin => switch (c) {
                     'a'...'z', 'A'...'Z', '_', '0'...'9' => {},
                     else => break,
                 },
-                State.Backslash => switch (c) {
+                .backslash => switch (c) {
                     '\\' => {
-                        state = State.MultilineStringLiteralLine;
+                        state = .multiline_string_literal_line;
                     },
                     else => break,
                 },
-                State.StringLiteral => switch (c) {
+                .string_literal => switch (c) {
                     '\\' => {
-                        state = State.StringLiteralBackslash;
+                        state = .string_literal_backslash;
                     },
                     '"' => {
                         self.index += 1;
@@ -719,98 +714,98 @@ pub const Tokenizer = struct {
                     else => self.checkLiteralCharacter(),
                 },
 
-                State.StringLiteralBackslash => switch (c) {
+                .string_literal_backslash => switch (c) {
                     '\n', '\r' => break, // Look for this error later.
                     else => {
-                        state = State.StringLiteral;
+                        state = .string_literal;
                     },
                 },
 
-                State.CharLiteral => switch (c) {
+                .char_literal => switch (c) {
                     '\\' => {
-                        state = State.CharLiteralBackslash;
+                        state = .char_literal_backslash;
                     },
                     '\'', 0x80...0xbf, 0xf8...0xff => {
-                        result.id = Token.Id.Invalid;
+                        result.id = .Invalid;
                         break;
                     },
                     0xc0...0xdf => { // 110xxxxx
                         remaining_code_units = 1;
-                        state = State.CharLiteralUnicode;
+                        state = .char_literal_unicode;
                     },
                     0xe0...0xef => { // 1110xxxx
                         remaining_code_units = 2;
-                        state = State.CharLiteralUnicode;
+                        state = .char_literal_unicode;
                     },
                     0xf0...0xf7 => { // 11110xxx
                         remaining_code_units = 3;
-                        state = State.CharLiteralUnicode;
+                        state = .char_literal_unicode;
                     },
                     else => {
-                        state = State.CharLiteralEnd;
+                        state = .char_literal_end;
                     },
                 },
 
-                State.CharLiteralBackslash => switch (c) {
+                .char_literal_backslash => switch (c) {
                     '\n' => {
-                        result.id = Token.Id.Invalid;
+                        result.id = .Invalid;
                         break;
                     },
                     'x' => {
-                        state = State.CharLiteralHexEscape;
+                        state = .char_literal_hex_escape;
                         seen_escape_digits = 0;
                     },
                     'u' => {
-                        state = State.CharLiteralUnicodeEscapeSawU;
+                        state = .char_literal_unicode_escape_saw_u;
                     },
                     else => {
-                        state = State.CharLiteralEnd;
+                        state = .char_literal_end;
                     },
                 },
 
-                State.CharLiteralHexEscape => switch (c) {
+                .char_literal_hex_escape => switch (c) {
                     '0'...'9', 'a'...'f', 'A'...'F' => {
                         seen_escape_digits += 1;
                         if (seen_escape_digits == 2) {
-                            state = State.CharLiteralEnd;
+                            state = .char_literal_end;
                         }
                     },
                     else => {
-                        result.id = Token.Id.Invalid;
+                        result.id = .Invalid;
                         break;
                     },
                 },
 
-                State.CharLiteralUnicodeEscapeSawU => switch (c) {
+                .char_literal_unicode_escape_saw_u => switch (c) {
                     '{' => {
-                        state = State.CharLiteralUnicodeEscape;
+                        state = .char_literal_unicode_escape;
                         seen_escape_digits = 0;
                     },
                     else => {
-                        result.id = Token.Id.Invalid;
-                        state = State.CharLiteralUnicodeInvalid;
+                        result.id = .Invalid;
+                        state = .char_literal_unicode_invalid;
                     },
                 },
 
-                State.CharLiteralUnicodeEscape => switch (c) {
+                .char_literal_unicode_escape => switch (c) {
                     '0'...'9', 'a'...'f', 'A'...'F' => {
                         seen_escape_digits += 1;
                     },
                     '}' => {
                         if (seen_escape_digits == 0) {
-                            result.id = Token.Id.Invalid;
-                            state = State.CharLiteralUnicodeInvalid;
+                            result.id = .Invalid;
+                            state = .char_literal_unicode_invalid;
                         } else {
-                            state = State.CharLiteralEnd;
+                            state = .char_literal_end;
                         }
                     },
                     else => {
-                        result.id = Token.Id.Invalid;
-                        state = State.CharLiteralUnicodeInvalid;
+                        result.id = .Invalid;
+                        state = .char_literal_unicode_invalid;
                     },
                 },
 
-                State.CharLiteralUnicodeInvalid => switch (c) {
+                .char_literal_unicode_invalid => switch (c) {
                     // Keep consuming characters until an obvious stopping point.
                     // This consolidates e.g. `u{0ab1Q}` into a single invalid token
                     // instead of creating the tokens `u{0ab1`, `Q`, `}`
@@ -818,32 +813,32 @@ pub const Tokenizer = struct {
                     else => break,
                 },
 
-                State.CharLiteralEnd => switch (c) {
+                .char_literal_end => switch (c) {
                     '\'' => {
-                        result.id = Token.Id.CharLiteral;
+                        result.id = .CharLiteral;
                         self.index += 1;
                         break;
                     },
                     else => {
-                        result.id = Token.Id.Invalid;
+                        result.id = .Invalid;
                         break;
                     },
                 },
 
-                State.CharLiteralUnicode => switch (c) {
+                .char_literal_unicode => switch (c) {
                     0x80...0xbf => {
                         remaining_code_units -= 1;
                         if (remaining_code_units == 0) {
-                            state = State.CharLiteralEnd;
+                            state = .char_literal_end;
                         }
                     },
                     else => {
-                        result.id = Token.Id.Invalid;
+                        result.id = .Invalid;
                         break;
                     },
                 },
 
-                State.MultilineStringLiteralLine => switch (c) {
+                .multiline_string_literal_line => switch (c) {
                     '\n' => {
                         self.index += 1;
                         break;
@@ -852,449 +847,449 @@ pub const Tokenizer = struct {
                     else => self.checkLiteralCharacter(),
                 },
 
-                State.Bang => switch (c) {
+                .bang => switch (c) {
                     '=' => {
-                        result.id = Token.Id.BangEqual;
+                        result.id = .BangEqual;
                         self.index += 1;
                         break;
                     },
                     else => {
-                        result.id = Token.Id.Bang;
+                        result.id = .Bang;
                         break;
                     },
                 },
 
-                State.Pipe => switch (c) {
+                .pipe => switch (c) {
                     '=' => {
-                        result.id = Token.Id.PipeEqual;
+                        result.id = .PipeEqual;
                         self.index += 1;
                         break;
                     },
                     '|' => {
-                        result.id = Token.Id.PipePipe;
+                        result.id = .PipePipe;
                         self.index += 1;
                         break;
                     },
                     else => {
-                        result.id = Token.Id.Pipe;
+                        result.id = .Pipe;
                         break;
                     },
                 },
 
-                State.Equal => switch (c) {
+                .equal => switch (c) {
                     '=' => {
-                        result.id = Token.Id.EqualEqual;
+                        result.id = .EqualEqual;
                         self.index += 1;
                         break;
                     },
                     '>' => {
-                        result.id = Token.Id.EqualAngleBracketRight;
+                        result.id = .EqualAngleBracketRight;
                         self.index += 1;
                         break;
                     },
                     else => {
-                        result.id = Token.Id.Equal;
+                        result.id = .Equal;
                         break;
                     },
                 },
 
-                State.Minus => switch (c) {
+                .minus => switch (c) {
                     '>' => {
-                        result.id = Token.Id.Arrow;
+                        result.id = .Arrow;
                         self.index += 1;
                         break;
                     },
                     '=' => {
-                        result.id = Token.Id.MinusEqual;
+                        result.id = .MinusEqual;
                         self.index += 1;
                         break;
                     },
                     '%' => {
-                        state = State.MinusPercent;
+                        state = .minus_percent;
                     },
                     else => {
-                        result.id = Token.Id.Minus;
+                        result.id = .Minus;
                         break;
                     },
                 },
 
-                State.MinusPercent => switch (c) {
+                .minus_percent => switch (c) {
                     '=' => {
-                        result.id = Token.Id.MinusPercentEqual;
+                        result.id = .MinusPercentEqual;
                         self.index += 1;
                         break;
                     },
                     else => {
-                        result.id = Token.Id.MinusPercent;
+                        result.id = .MinusPercent;
                         break;
                     },
                 },
 
-                State.AngleBracketLeft => switch (c) {
+                .angle_bracket_left => switch (c) {
                     '<' => {
-                        state = State.AngleBracketAngleBracketLeft;
+                        state = .angle_bracket_angle_bracket_left;
                     },
                     '=' => {
-                        result.id = Token.Id.AngleBracketLeftEqual;
+                        result.id = .AngleBracketLeftEqual;
                         self.index += 1;
                         break;
                     },
                     else => {
-                        result.id = Token.Id.AngleBracketLeft;
+                        result.id = .AngleBracketLeft;
                         break;
                     },
                 },
 
-                State.AngleBracketAngleBracketLeft => switch (c) {
+                .angle_bracket_angle_bracket_left => switch (c) {
                     '=' => {
-                        result.id = Token.Id.AngleBracketAngleBracketLeftEqual;
+                        result.id = .AngleBracketAngleBracketLeftEqual;
                         self.index += 1;
                         break;
                     },
                     else => {
-                        result.id = Token.Id.AngleBracketAngleBracketLeft;
+                        result.id = .AngleBracketAngleBracketLeft;
                         break;
                     },
                 },
 
-                State.AngleBracketRight => switch (c) {
+                .angle_bracket_right => switch (c) {
                     '>' => {
-                        state = State.AngleBracketAngleBracketRight;
+                        state = .angle_bracket_angle_bracket_right;
                     },
                     '=' => {
-                        result.id = Token.Id.AngleBracketRightEqual;
+                        result.id = .AngleBracketRightEqual;
                         self.index += 1;
                         break;
                     },
                     else => {
-                        result.id = Token.Id.AngleBracketRight;
+                        result.id = .AngleBracketRight;
                         break;
                     },
                 },
 
-                State.AngleBracketAngleBracketRight => switch (c) {
+                .angle_bracket_angle_bracket_right => switch (c) {
                     '=' => {
-                        result.id = Token.Id.AngleBracketAngleBracketRightEqual;
+                        result.id = .AngleBracketAngleBracketRightEqual;
                         self.index += 1;
                         break;
                     },
                     else => {
-                        result.id = Token.Id.AngleBracketAngleBracketRight;
+                        result.id = .AngleBracketAngleBracketRight;
                         break;
                     },
                 },
 
-                State.Period => switch (c) {
+                .period => switch (c) {
                     '.' => {
-                        state = State.Period2;
+                        state = .period_2;
                     },
                     '*' => {
-                        result.id = Token.Id.PeriodAsterisk;
+                        result.id = .PeriodAsterisk;
                         self.index += 1;
                         break;
                     },
                     else => {
-                        result.id = Token.Id.Period;
+                        result.id = .Period;
                         break;
                     },
                 },
 
-                State.Period2 => switch (c) {
+                .period_2 => switch (c) {
                     '.' => {
-                        result.id = Token.Id.Ellipsis3;
+                        result.id = .Ellipsis3;
                         self.index += 1;
                         break;
                     },
                     else => {
-                        result.id = Token.Id.Ellipsis2;
+                        result.id = .Ellipsis2;
                         break;
                     },
                 },
 
-                State.Slash => switch (c) {
+                .slash => switch (c) {
                     '/' => {
-                        state = State.LineCommentStart;
-                        result.id = Token.Id.LineComment;
+                        state = .line_comment_start;
+                        result.id = .LineComment;
                     },
                     '=' => {
-                        result.id = Token.Id.SlashEqual;
+                        result.id = .SlashEqual;
                         self.index += 1;
                         break;
                     },
                     else => {
-                        result.id = Token.Id.Slash;
+                        result.id = .Slash;
                         break;
                     },
                 },
-                State.LineCommentStart => switch (c) {
+                .line_comment_start => switch (c) {
                     '/' => {
-                        state = State.DocCommentStart;
+                        state = .doc_comment_start;
                     },
                     '!' => {
-                        result.id = Token.Id.ContainerDocComment;
-                        state = State.ContainerDocComment;
+                        result.id = .ContainerDocComment;
+                        state = .container_doc_comment;
                     },
                     '\n' => break,
                     else => {
-                        state = State.LineComment;
+                        state = .line_comment;
                         self.checkLiteralCharacter();
                     },
                 },
-                State.DocCommentStart => switch (c) {
+                .doc_comment_start => switch (c) {
                     '/' => {
-                        state = State.LineComment;
+                        state = .line_comment;
                     },
                     '\n' => {
-                        result.id = Token.Id.DocComment;
+                        result.id = .DocComment;
                         break;
                     },
                     else => {
-                        state = State.DocComment;
-                        result.id = Token.Id.DocComment;
+                        state = .doc_comment;
+                        result.id = .DocComment;
                         self.checkLiteralCharacter();
                     },
                 },
-                State.LineComment, State.DocComment, State.ContainerDocComment => switch (c) {
+                .line_comment, .doc_comment, .container_doc_comment => switch (c) {
                     '\n' => break,
                     else => self.checkLiteralCharacter(),
                 },
-                State.Zero => switch (c) {
+                .zero => switch (c) {
                     'b' => {
-                        state = State.IntegerLiteralBinNoUnderscore;
+                        state = .int_literal_bin_no_underscore;
                     },
                     'o' => {
-                        state = State.IntegerLiteralOctNoUnderscore;
+                        state = .int_literal_oct_no_underscore;
                     },
                     'x' => {
-                        state = State.IntegerLiteralHexNoUnderscore;
+                        state = .int_literal_hex_no_underscore;
                     },
                     '0'...'9', '_', '.', 'e', 'E' => {
                         // reinterpret as a decimal number
                         self.index -= 1;
-                        state = State.IntegerLiteralDec;
+                        state = .int_literal_dec;
                     },
                     else => {
                         if (isIdentifierChar(c)) {
-                            result.id = Token.Id.Invalid;
+                            result.id = .Invalid;
                         }
                         break;
                     },
                 },
-                State.IntegerLiteralBinNoUnderscore => switch (c) {
+                .int_literal_bin_no_underscore => switch (c) {
                     '0'...'1' => {
-                        state = State.IntegerLiteralBin;
+                        state = .int_literal_bin;
                     },
                     else => {
-                        result.id = Token.Id.Invalid;
+                        result.id = .Invalid;
                         break;
                     },
                 },
-                State.IntegerLiteralBin => switch (c) {
+                .int_literal_bin => switch (c) {
                     '_' => {
-                        state = State.IntegerLiteralBinNoUnderscore;
+                        state = .int_literal_bin_no_underscore;
                     },
                     '0'...'1' => {},
                     else => {
                         if (isIdentifierChar(c)) {
-                            result.id = Token.Id.Invalid;
+                            result.id = .Invalid;
                         }
                         break;
                     },
                 },
-                State.IntegerLiteralOctNoUnderscore => switch (c) {
+                .int_literal_oct_no_underscore => switch (c) {
                     '0'...'7' => {
-                        state = State.IntegerLiteralOct;
+                        state = .int_literal_oct;
                     },
                     else => {
-                        result.id = Token.Id.Invalid;
+                        result.id = .Invalid;
                         break;
                     },
                 },
-                State.IntegerLiteralOct => switch (c) {
+                .int_literal_oct => switch (c) {
                     '_' => {
-                        state = State.IntegerLiteralOctNoUnderscore;
+                        state = .int_literal_oct_no_underscore;
                     },
                     '0'...'7' => {},
                     else => {
                         if (isIdentifierChar(c)) {
-                            result.id = Token.Id.Invalid;
+                            result.id = .Invalid;
                         }
                         break;
                     },
                 },
-                State.IntegerLiteralDecNoUnderscore => switch (c) {
+                .int_literal_dec_no_underscore => switch (c) {
                     '0'...'9' => {
-                        state = State.IntegerLiteralDec;
+                        state = .int_literal_dec;
                     },
                     else => {
-                        result.id = Token.Id.Invalid;
+                        result.id = .Invalid;
                         break;
                     },
                 },
-                State.IntegerLiteralDec => switch (c) {
+                .int_literal_dec => switch (c) {
                     '_' => {
-                        state = State.IntegerLiteralDecNoUnderscore;
+                        state = .int_literal_dec_no_underscore;
                     },
                     '.' => {
-                        state = State.NumberDotDec;
-                        result.id = Token.Id.FloatLiteral;
+                        state = .num_dot_dec;
+                        result.id = .FloatLiteral;
                     },
                     'e', 'E' => {
-                        state = State.FloatExponentUnsigned;
-                        result.id = Token.Id.FloatLiteral;
+                        state = .float_exponent_unsigned;
+                        result.id = .FloatLiteral;
                     },
                     '0'...'9' => {},
                     else => {
                         if (isIdentifierChar(c)) {
-                            result.id = Token.Id.Invalid;
+                            result.id = .Invalid;
                         }
                         break;
                     },
                 },
-                State.IntegerLiteralHexNoUnderscore => switch (c) {
+                .int_literal_hex_no_underscore => switch (c) {
                     '0'...'9', 'a'...'f', 'A'...'F' => {
-                        state = State.IntegerLiteralHex;
+                        state = .int_literal_hex;
                     },
                     else => {
-                        result.id = Token.Id.Invalid;
+                        result.id = .Invalid;
                         break;
                     },
                 },
-                State.IntegerLiteralHex => switch (c) {
+                .int_literal_hex => switch (c) {
                     '_' => {
-                        state = State.IntegerLiteralHexNoUnderscore;
+                        state = .int_literal_hex_no_underscore;
                     },
                     '.' => {
-                        state = State.NumberDotHex;
-                        result.id = Token.Id.FloatLiteral;
+                        state = .num_dot_hex;
+                        result.id = .FloatLiteral;
                     },
                     'p', 'P' => {
-                        state = State.FloatExponentUnsigned;
-                        result.id = Token.Id.FloatLiteral;
+                        state = .float_exponent_unsigned;
+                        result.id = .FloatLiteral;
                     },
                     '0'...'9', 'a'...'f', 'A'...'F' => {},
                     else => {
                         if (isIdentifierChar(c)) {
-                            result.id = Token.Id.Invalid;
+                            result.id = .Invalid;
                         }
                         break;
                     },
                 },
-                State.NumberDotDec => switch (c) {
+                .num_dot_dec => switch (c) {
                     '.' => {
                         self.index -= 1;
-                        state = State.Start;
+                        state = .start;
                         break;
                     },
                     'e', 'E' => {
-                        state = State.FloatExponentUnsigned;
+                        state = .float_exponent_unsigned;
                     },
                     '0'...'9' => {
-                        result.id = Token.Id.FloatLiteral;
-                        state = State.FloatFractionDec;
+                        result.id = .FloatLiteral;
+                        state = .float_fraction_dec;
                     },
                     else => {
                         if (isIdentifierChar(c)) {
-                            result.id = Token.Id.Invalid;
+                            result.id = .Invalid;
                         }
                         break;
                     },
                 },
-                State.NumberDotHex => switch (c) {
+                .num_dot_hex => switch (c) {
                     '.' => {
                         self.index -= 1;
-                        state = State.Start;
+                        state = .start;
                         break;
                     },
                     'p', 'P' => {
-                        state = State.FloatExponentUnsigned;
+                        state = .float_exponent_unsigned;
                     },
                     '0'...'9', 'a'...'f', 'A'...'F' => {
-                        result.id = Token.Id.FloatLiteral;
-                        state = State.FloatFractionHex;
+                        result.id = .FloatLiteral;
+                        state = .float_fraction_hex;
                     },
                     else => {
                         if (isIdentifierChar(c)) {
-                            result.id = Token.Id.Invalid;
+                            result.id = .Invalid;
                         }
                         break;
                     },
                 },
-                State.FloatFractionDecNoUnderscore => switch (c) {
+                .float_fraction_dec_no_underscore => switch (c) {
                     '0'...'9' => {
-                        state = State.FloatFractionDec;
+                        state = .float_fraction_dec;
                     },
                     else => {
-                        result.id = Token.Id.Invalid;
+                        result.id = .Invalid;
                         break;
                     },
                 },
-                State.FloatFractionDec => switch (c) {
+                .float_fraction_dec => switch (c) {
                     '_' => {
-                        state = State.FloatFractionDecNoUnderscore;
+                        state = .float_fraction_dec_no_underscore;
                     },
                     'e', 'E' => {
-                        state = State.FloatExponentUnsigned;
+                        state = .float_exponent_unsigned;
                     },
                     '0'...'9' => {},
                     else => {
                         if (isIdentifierChar(c)) {
-                            result.id = Token.Id.Invalid;
+                            result.id = .Invalid;
                         }
                         break;
                     },
                 },
-                State.FloatFractionHexNoUnderscore => switch (c) {
+                .float_fraction_hex_no_underscore => switch (c) {
                     '0'...'9', 'a'...'f', 'A'...'F' => {
-                        state = State.FloatFractionHex;
+                        state = .float_fraction_hex;
                     },
                     else => {
-                        result.id = Token.Id.Invalid;
+                        result.id = .Invalid;
                         break;
                     },
                 },
-                State.FloatFractionHex => switch (c) {
+                .float_fraction_hex => switch (c) {
                     '_' => {
-                        state = State.FloatFractionHexNoUnderscore;
+                        state = .float_fraction_hex_no_underscore;
                     },
                     'p', 'P' => {
-                        state = State.FloatExponentUnsigned;
+                        state = .float_exponent_unsigned;
                     },
                     '0'...'9', 'a'...'f', 'A'...'F' => {},
                     else => {
                         if (isIdentifierChar(c)) {
-                            result.id = Token.Id.Invalid;
+                            result.id = .Invalid;
                         }
                         break;
                     },
                 },
-                State.FloatExponentUnsigned => switch (c) {
+                .float_exponent_unsigned => switch (c) {
                     '+', '-' => {
-                        state = State.FloatExponentNumberNoUnderscore;
+                        state = .float_exponent_num_no_underscore;
                     },
                     else => {
                         // reinterpret as a normal exponent number
                         self.index -= 1;
-                        state = State.FloatExponentNumberNoUnderscore;
+                        state = .float_exponent_num_no_underscore;
                     },
                 },
-                State.FloatExponentNumberNoUnderscore => switch (c) {
+                .float_exponent_num_no_underscore => switch (c) {
                     '0'...'9' => {
-                        state = State.FloatExponentNumber;
+                        state = .float_exponent_num;
                     },
                     else => {
-                        result.id = Token.Id.Invalid;
+                        result.id = .Invalid;
                         break;
                     },
                 },
-                State.FloatExponentNumber => switch (c) {
+                .float_exponent_num => switch (c) {
                     '_' => {
-                        state = State.FloatExponentNumberNoUnderscore;
+                        state = .float_exponent_num_no_underscore;
                     },
                     '0'...'9' => {},
                     else => {
                         if (isIdentifierChar(c)) {
-                            result.id = Token.Id.Invalid;
+                            result.id = .Invalid;
                         }
                         break;
                     },
@@ -1302,123 +1297,123 @@ pub const Tokenizer = struct {
             }
         } else if (self.index == self.buffer.len) {
             switch (state) {
-                State.Start,
-                State.IntegerLiteralDec,
-                State.IntegerLiteralBin,
-                State.IntegerLiteralOct,
-                State.IntegerLiteralHex,
-                State.NumberDotDec,
-                State.NumberDotHex,
-                State.FloatFractionDec,
-                State.FloatFractionHex,
-                State.FloatExponentNumber,
-                State.StringLiteral, // find this error later
-                State.MultilineStringLiteralLine,
-                State.Builtin,
+                .start,
+                .int_literal_dec,
+                .int_literal_bin,
+                .int_literal_oct,
+                .int_literal_hex,
+                .num_dot_dec,
+                .num_dot_hex,
+                .float_fraction_dec,
+                .float_fraction_hex,
+                .float_exponent_num,
+                .string_literal, // find this error later
+                .multiline_string_literal_line,
+                .builtin,
                 => {},
 
-                State.Identifier => {
+                .identifier => {
                     if (Token.getKeyword(self.buffer[result.start..self.index])) |id| {
                         result.id = id;
                     }
                 },
-                State.LineCommentStart, State.LineComment => {
-                    result.id = Token.Id.LineComment;
+                .line_comment, .line_comment_start => {
+                    result.id = .LineComment;
                 },
-                State.DocComment, State.DocCommentStart => {
-                    result.id = Token.Id.DocComment;
+                .doc_comment, .doc_comment_start => {
+                    result.id = .DocComment;
                 },
-                State.ContainerDocComment => {
-                    result.id = Token.Id.ContainerDocComment;
+                .container_doc_comment => {
+                    result.id = .ContainerDocComment;
                 },
 
-                State.IntegerLiteralDecNoUnderscore,
-                State.IntegerLiteralBinNoUnderscore,
-                State.IntegerLiteralOctNoUnderscore,
-                State.IntegerLiteralHexNoUnderscore,
-                State.FloatFractionDecNoUnderscore,
-                State.FloatFractionHexNoUnderscore,
-                State.FloatExponentNumberNoUnderscore,
-                State.FloatExponentUnsigned,
-                State.SawAtSign,
-                State.Backslash,
-                State.CharLiteral,
-                State.CharLiteralBackslash,
-                State.CharLiteralHexEscape,
-                State.CharLiteralUnicodeEscapeSawU,
-                State.CharLiteralUnicodeEscape,
-                State.CharLiteralUnicodeInvalid,
-                State.CharLiteralEnd,
-                State.CharLiteralUnicode,
-                State.StringLiteralBackslash,
+                .int_literal_dec_no_underscore,
+                .int_literal_bin_no_underscore,
+                .int_literal_oct_no_underscore,
+                .int_literal_hex_no_underscore,
+                .float_fraction_dec_no_underscore,
+                .float_fraction_hex_no_underscore,
+                .float_exponent_num_no_underscore,
+                .float_exponent_unsigned,
+                .saw_at_sign,
+                .backslash,
+                .char_literal,
+                .char_literal_backslash,
+                .char_literal_hex_escape,
+                .char_literal_unicode_escape_saw_u,
+                .char_literal_unicode_escape,
+                .char_literal_unicode_invalid,
+                .char_literal_end,
+                .char_literal_unicode,
+                .string_literal_backslash,
                 => {
-                    result.id = Token.Id.Invalid;
+                    result.id = .Invalid;
                 },
 
-                State.Equal => {
-                    result.id = Token.Id.Equal;
+                .equal => {
+                    result.id = .Equal;
                 },
-                State.Bang => {
-                    result.id = Token.Id.Bang;
+                .bang => {
+                    result.id = .Bang;
                 },
-                State.Minus => {
-                    result.id = Token.Id.Minus;
+                .minus => {
+                    result.id = .Minus;
                 },
-                State.Slash => {
-                    result.id = Token.Id.Slash;
+                .slash => {
+                    result.id = .Slash;
                 },
-                State.Zero => {
-                    result.id = Token.Id.IntegerLiteral;
+                .zero => {
+                    result.id = .IntegerLiteral;
                 },
-                State.Ampersand => {
-                    result.id = Token.Id.Ampersand;
+                .ampersand => {
+                    result.id = .Ampersand;
                 },
-                State.Period => {
-                    result.id = Token.Id.Period;
+                .period => {
+                    result.id = .Period;
                 },
-                State.Period2 => {
-                    result.id = Token.Id.Ellipsis2;
+                .period_2 => {
+                    result.id = .Ellipsis2;
                 },
-                State.Pipe => {
-                    result.id = Token.Id.Pipe;
+                .pipe => {
+                    result.id = .Pipe;
                 },
-                State.AngleBracketAngleBracketRight => {
-                    result.id = Token.Id.AngleBracketAngleBracketRight;
+                .angle_bracket_angle_bracket_right => {
+                    result.id = .AngleBracketAngleBracketRight;
                 },
-                State.AngleBracketRight => {
-                    result.id = Token.Id.AngleBracketRight;
+                .angle_bracket_right => {
+                    result.id = .AngleBracketRight;
                 },
-                State.AngleBracketAngleBracketLeft => {
-                    result.id = Token.Id.AngleBracketAngleBracketLeft;
+                .angle_bracket_angle_bracket_left => {
+                    result.id = .AngleBracketAngleBracketLeft;
                 },
-                State.AngleBracketLeft => {
-                    result.id = Token.Id.AngleBracketLeft;
+                .angle_bracket_left => {
+                    result.id = .AngleBracketLeft;
                 },
-                State.PlusPercent => {
-                    result.id = Token.Id.PlusPercent;
+                .plus_percent => {
+                    result.id = .PlusPercent;
                 },
-                State.Plus => {
-                    result.id = Token.Id.Plus;
+                .plus => {
+                    result.id = .Plus;
                 },
-                State.Percent => {
-                    result.id = Token.Id.Percent;
+                .percent => {
+                    result.id = .Percent;
                 },
-                State.Caret => {
-                    result.id = Token.Id.Caret;
+                .caret => {
+                    result.id = .Caret;
                 },
-                State.AsteriskPercent => {
-                    result.id = Token.Id.AsteriskPercent;
+                .asterisk_percent => {
+                    result.id = .AsteriskPercent;
                 },
-                State.Asterisk => {
-                    result.id = Token.Id.Asterisk;
+                .asterisk => {
+                    result.id = .Asterisk;
                 },
-                State.MinusPercent => {
-                    result.id = Token.Id.MinusPercent;
+                .minus_percent => {
+                    result.id = .MinusPercent;
                 },
             }
         }
 
-        if (result.id == Token.Id.Eof) {
+        if (result.id == .Eof) {
             if (self.pending_invalid_token) |token| {
                 self.pending_invalid_token = null;
                 return token;
@@ -1433,8 +1428,8 @@ pub const Tokenizer = struct {
         if (self.pending_invalid_token != null) return;
         const invalid_length = self.getInvalidCharacterLength();
         if (invalid_length == 0) return;
-        self.pending_invalid_token = Token{
-            .id = Token.Id.Invalid,
+        self.pending_invalid_token = .{
+            .id = .Invalid,
             .start = self.index,
             .end = self.index + invalid_length,
         };
@@ -1479,7 +1474,7 @@ pub const Tokenizer = struct {
 };
 
 test "tokenizer" {
-    testTokenize("test", &[_]Token.Id{Token.Id.Keyword_test});
+    testTokenize("test", &[_]Token.Id{.Keyword_test});
 }
 
 test "tokenizer - unknown length pointer and then c pointer" {
@@ -1487,15 +1482,15 @@ test "tokenizer - unknown length pointer and then c pointer" {
         \\[*]u8
         \\[*c]u8
     , &[_]Token.Id{
-        Token.Id.LBracket,
-        Token.Id.Asterisk,
-        Token.Id.RBracket,
-        Token.Id.Identifier,
-        Token.Id.LBracket,
-        Token.Id.Asterisk,
-        Token.Id.Identifier,
-        Token.Id.RBracket,
-        Token.Id.Identifier,
+        .LBracket,
+        .Asterisk,
+        .RBracket,
+        .Identifier,
+        .LBracket,
+        .Asterisk,
+        .Identifier,
+        .RBracket,
+        .Identifier,
     });
 }
 
@@ -1566,125 +1561,125 @@ test "tokenizer - char literal with unicode code point" {
 
 test "tokenizer - float literal e exponent" {
     testTokenize("a = 4.94065645841246544177e-324;\n", &[_]Token.Id{
-        Token.Id.Identifier,
-        Token.Id.Equal,
-        Token.Id.FloatLiteral,
-        Token.Id.Semicolon,
+        .Identifier,
+        .Equal,
+        .FloatLiteral,
+        .Semicolon,
     });
 }
 
 test "tokenizer - float literal p exponent" {
     testTokenize("a = 0x1.a827999fcef32p+1022;\n", &[_]Token.Id{
-        Token.Id.Identifier,
-        Token.Id.Equal,
-        Token.Id.FloatLiteral,
-        Token.Id.Semicolon,
+        .Identifier,
+        .Equal,
+        .FloatLiteral,
+        .Semicolon,
     });
 }
 
 test "tokenizer - chars" {
-    testTokenize("'c'", &[_]Token.Id{Token.Id.CharLiteral});
+    testTokenize("'c'", &[_]Token.Id{.CharLiteral});
 }
 
 test "tokenizer - invalid token characters" {
-    testTokenize("#", &[_]Token.Id{Token.Id.Invalid});
-    testTokenize("`", &[_]Token.Id{Token.Id.Invalid});
-    testTokenize("'c", &[_]Token.Id{Token.Id.Invalid});
-    testTokenize("'", &[_]Token.Id{Token.Id.Invalid});
-    testTokenize("''", &[_]Token.Id{ Token.Id.Invalid, Token.Id.Invalid });
+    testTokenize("#", &[_]Token.Id{.Invalid});
+    testTokenize("`", &[_]Token.Id{.Invalid});
+    testTokenize("'c", &[_]Token.Id{.Invalid});
+    testTokenize("'", &[_]Token.Id{.Invalid});
+    testTokenize("''", &[_]Token.Id{ .Invalid, .Invalid });
 }
 
 test "tokenizer - invalid literal/comment characters" {
     testTokenize("\"\x00\"", &[_]Token.Id{
-        Token.Id.StringLiteral,
-        Token.Id.Invalid,
+        .StringLiteral,
+        .Invalid,
     });
     testTokenize("//\x00", &[_]Token.Id{
-        Token.Id.LineComment,
-        Token.Id.Invalid,
+        .LineComment,
+        .Invalid,
     });
     testTokenize("//\x1f", &[_]Token.Id{
-        Token.Id.LineComment,
-        Token.Id.Invalid,
+        .LineComment,
+        .Invalid,
     });
     testTokenize("//\x7f", &[_]Token.Id{
-        Token.Id.LineComment,
-        Token.Id.Invalid,
+        .LineComment,
+        .Invalid,
     });
 }
 
 test "tokenizer - utf8" {
-    testTokenize("//\xc2\x80", &[_]Token.Id{Token.Id.LineComment});
-    testTokenize("//\xf4\x8f\xbf\xbf", &[_]Token.Id{Token.Id.LineComment});
+    testTokenize("//\xc2\x80", &[_]Token.Id{.LineComment});
+    testTokenize("//\xf4\x8f\xbf\xbf", &[_]Token.Id{.LineComment});
 }
 
 test "tokenizer - invalid utf8" {
     testTokenize("//\x80", &[_]Token.Id{
-        Token.Id.LineComment,
-        Token.Id.Invalid,
+        .LineComment,
+        .Invalid,
     });
     testTokenize("//\xbf", &[_]Token.Id{
-        Token.Id.LineComment,
-        Token.Id.Invalid,
+        .LineComment,
+        .Invalid,
     });
     testTokenize("//\xf8", &[_]Token.Id{
-        Token.Id.LineComment,
-        Token.Id.Invalid,
+        .LineComment,
+        .Invalid,
     });
     testTokenize("//\xff", &[_]Token.Id{
-        Token.Id.LineComment,
-        Token.Id.Invalid,
+        .LineComment,
+        .Invalid,
     });
     testTokenize("//\xc2\xc0", &[_]Token.Id{
-        Token.Id.LineComment,
-        Token.Id.Invalid,
+        .LineComment,
+        .Invalid,
     });
     testTokenize("//\xe0", &[_]Token.Id{
-        Token.Id.LineComment,
-        Token.Id.Invalid,
+        .LineComment,
+        .Invalid,
     });
     testTokenize("//\xf0", &[_]Token.Id{
-        Token.Id.LineComment,
-        Token.Id.Invalid,
+        .LineComment,
+        .Invalid,
     });
     testTokenize("//\xf0\x90\x80\xc0", &[_]Token.Id{
-        Token.Id.LineComment,
-        Token.Id.Invalid,
+        .LineComment,
+        .Invalid,
     });
 }
 
 test "tokenizer - illegal unicode codepoints" {
     // unicode newline characters.U+0085, U+2028, U+2029
-    testTokenize("//\xc2\x84", &[_]Token.Id{Token.Id.LineComment});
+    testTokenize("//\xc2\x84", &[_]Token.Id{.LineComment});
     testTokenize("//\xc2\x85", &[_]Token.Id{
-        Token.Id.LineComment,
-        Token.Id.Invalid,
+        .LineComment,
+        .Invalid,
     });
-    testTokenize("//\xc2\x86", &[_]Token.Id{Token.Id.LineComment});
-    testTokenize("//\xe2\x80\xa7", &[_]Token.Id{Token.Id.LineComment});
+    testTokenize("//\xc2\x86", &[_]Token.Id{.LineComment});
+    testTokenize("//\xe2\x80\xa7", &[_]Token.Id{.LineComment});
     testTokenize("//\xe2\x80\xa8", &[_]Token.Id{
-        Token.Id.LineComment,
-        Token.Id.Invalid,
+        .LineComment,
+        .Invalid,
     });
     testTokenize("//\xe2\x80\xa9", &[_]Token.Id{
-        Token.Id.LineComment,
-        Token.Id.Invalid,
+        .LineComment,
+        .Invalid,
     });
-    testTokenize("//\xe2\x80\xaa", &[_]Token.Id{Token.Id.LineComment});
+    testTokenize("//\xe2\x80\xaa", &[_]Token.Id{.LineComment});
 }
 
 test "tokenizer - string identifier and builtin fns" {
     testTokenize(
         \\const @"if" = @import("std");
     , &[_]Token.Id{
-        Token.Id.Keyword_const,
-        Token.Id.Identifier,
-        Token.Id.Equal,
-        Token.Id.Builtin,
-        Token.Id.LParen,
-        Token.Id.StringLiteral,
-        Token.Id.RParen,
-        Token.Id.Semicolon,
+        .Keyword_const,
+        .Identifier,
+        .Equal,
+        .Builtin,
+        .LParen,
+        .StringLiteral,
+        .RParen,
+        .Semicolon,
     });
 }
 
@@ -1692,26 +1687,26 @@ test "tokenizer - multiline string literal with literal tab" {
     testTokenize(
         \\\\foo	bar
     , &[_]Token.Id{
-        Token.Id.MultilineStringLiteralLine,
+        .MultilineStringLiteralLine,
     });
 }
 
 test "tokenizer - pipe and then invalid" {
     testTokenize("||=", &[_]Token.Id{
-        Token.Id.PipePipe,
-        Token.Id.Equal,
+        .PipePipe,
+        .Equal,
     });
 }
 
 test "tokenizer - line comment and doc comment" {
-    testTokenize("//", &[_]Token.Id{Token.Id.LineComment});
-    testTokenize("// a / b", &[_]Token.Id{Token.Id.LineComment});
-    testTokenize("// /", &[_]Token.Id{Token.Id.LineComment});
-    testTokenize("/// a", &[_]Token.Id{Token.Id.DocComment});
-    testTokenize("///", &[_]Token.Id{Token.Id.DocComment});
-    testTokenize("////", &[_]Token.Id{Token.Id.LineComment});
-    testTokenize("//!", &[_]Token.Id{Token.Id.ContainerDocComment});
-    testTokenize("//!!", &[_]Token.Id{Token.Id.ContainerDocComment});
+    testTokenize("//", &[_]Token.Id{.LineComment});
+    testTokenize("// a / b", &[_]Token.Id{.LineComment});
+    testTokenize("// /", &[_]Token.Id{.LineComment});
+    testTokenize("/// a", &[_]Token.Id{.DocComment});
+    testTokenize("///", &[_]Token.Id{.DocComment});
+    testTokenize("////", &[_]Token.Id{.LineComment});
+    testTokenize("//!", &[_]Token.Id{.ContainerDocComment});
+    testTokenize("//!!", &[_]Token.Id{.ContainerDocComment});
 }
 
 test "tokenizer - line comment followed by identifier" {
@@ -1720,28 +1715,28 @@ test "tokenizer - line comment followed by identifier" {
         \\    // another
         \\    Another,
     , &[_]Token.Id{
-        Token.Id.Identifier,
-        Token.Id.Comma,
-        Token.Id.LineComment,
-        Token.Id.Identifier,
-        Token.Id.Comma,
+        .Identifier,
+        .Comma,
+        .LineComment,
+        .Identifier,
+        .Comma,
     });
 }
 
 test "tokenizer - UTF-8 BOM is recognized and skipped" {
     testTokenize("\xEF\xBB\xBFa;\n", &[_]Token.Id{
-        Token.Id.Identifier,
-        Token.Id.Semicolon,
+        .Identifier,
+        .Semicolon,
     });
 }
 
 test "correctly parse pointer assignment" {
     testTokenize("b.*=3;\n", &[_]Token.Id{
-        Token.Id.Identifier,
-        Token.Id.PeriodAsterisk,
-        Token.Id.Equal,
-        Token.Id.IntegerLiteral,
-        Token.Id.Semicolon,
+        .Identifier,
+        .PeriodAsterisk,
+        .Equal,
+        .IntegerLiteral,
+        .Semicolon,
     });
 }
 
@@ -1984,5 +1979,5 @@ fn testTokenize(source: []const u8, expected_tokens: []const Token.Id) void {
         }
     }
     const last_token = tokenizer.next();
-    std.testing.expect(last_token.id == Token.Id.Eof);
+    std.testing.expect(last_token.id == .Eof);
 }

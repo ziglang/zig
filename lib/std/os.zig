@@ -292,6 +292,7 @@ pub const ReadError = error{
     OperationAborted,
     BrokenPipe,
     ConnectionResetByPeer,
+    ConnectionTimedOut,
 
     /// This error occurs when no global event loop is configured,
     /// and reading from the file descriptor would block.
@@ -351,6 +352,7 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
             ENOBUFS => return error.SystemResources,
             ENOMEM => return error.SystemResources,
             ECONNRESET => return error.ConnectionResetByPeer,
+            ETIMEDOUT => return error.ConnectionTimedOut,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -2156,6 +2158,9 @@ pub const SocketError = error{
 
     /// The protocol type or the specified protocol is not supported within this domain.
     ProtocolNotSupported,
+
+    /// The socket type is not supported by the protocol.
+    SocketTypeNotSupported,
 } || UnexpectedError;
 
 pub fn socket(domain: u32, socket_type: u32, protocol: u32) SocketError!fd_t {
@@ -2164,11 +2169,11 @@ pub fn socket(domain: u32, socket_type: u32, protocol: u32) SocketError!fd_t {
         socket_type & ~@as(u32, SOCK_NONBLOCK | SOCK_CLOEXEC)
     else
         socket_type;
-    const rc = system.socket(domain, socket_type, protocol);
+    const rc = system.socket(domain, filtered_sock_type, protocol);
     switch (errno(rc)) {
         0 => {
             const fd = @intCast(fd_t, rc);
-            if (!have_sock_flags and filtered_sock_type != socket_type) {
+            if (!have_sock_flags) {
                 try setSockFlags(fd, socket_type);
             }
             return fd;
@@ -2181,6 +2186,7 @@ pub fn socket(domain: u32, socket_type: u32, protocol: u32) SocketError!fd_t {
         ENOBUFS => return error.SystemResources,
         ENOMEM => return error.SystemResources,
         EPROTONOSUPPORT => return error.ProtocolNotSupported,
+        EPROTOTYPE => return error.SocketTypeNotSupported,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -2290,6 +2296,10 @@ pub const AcceptError = error{
     /// This error occurs when no global event loop is configured,
     /// and accepting from the socket would block.
     WouldBlock,
+
+    /// Permission to create a socket of the specified type and/or
+    /// protocol is denied.
+    PermissionDenied,
 } || UnexpectedError;
 
 /// Accept a connection on a socket.
@@ -2331,7 +2341,7 @@ pub fn accept(
         switch (errno(rc)) {
             0 => {
                 const fd = @intCast(fd_t, rc);
-                if (!have_accept4 and flags != 0) {
+                if (!have_accept4) {
                     try setSockFlags(fd, flags);
                 }
                 return fd;
@@ -2539,7 +2549,7 @@ pub fn connect(sockfd: fd_t, sock_addr: *const sockaddr, len: socklen_t) Connect
             EAFNOSUPPORT => return error.AddressFamilyNotSupported,
             EAGAIN, EINPROGRESS => {
                 const loop = std.event.Loop.instance orelse return error.WouldBlock;
-                loop.waitUntilFdWritableOrReadable(sockfd);
+                loop.waitUntilFdWritable(sockfd);
                 return getsockoptError(sockfd);
             },
             EALREADY => unreachable, // The socket is nonblocking and a previous connection attempt has not yet been completed.
@@ -3267,26 +3277,26 @@ pub fn fcntl(fd: fd_t, cmd: i32, arg: usize) FcntlError!usize {
 }
 
 fn setSockFlags(fd: fd_t, flags: u32) !void {
-    {
+    if ((flags & SOCK_CLOEXEC) != 0) {
         var fd_flags = fcntl(fd, F_GETFD, 0) catch |err| switch (err) {
             error.FileBusy => unreachable,
             error.Locked => unreachable,
             else => |e| return e,
         };
-        if ((flags & SOCK_NONBLOCK) != 0) fd_flags |= FD_CLOEXEC;
+        fd_flags |= FD_CLOEXEC;
         _ = fcntl(fd, F_SETFD, fd_flags) catch |err| switch (err) {
             error.FileBusy => unreachable,
             error.Locked => unreachable,
             else => |e| return e,
         };
     }
-    {
+    if ((flags & SOCK_NONBLOCK) != 0) {
         var fl_flags = fcntl(fd, F_GETFL, 0) catch |err| switch (err) {
             error.FileBusy => unreachable,
             error.Locked => unreachable,
             else => |e| return e,
         };
-        if ((flags & SOCK_CLOEXEC) != 0) fl_flags |= O_NONBLOCK;
+        fl_flags |= O_NONBLOCK;
         _ = fcntl(fd, F_SETFL, fl_flags) catch |err| switch (err) {
             error.FileBusy => unreachable,
             error.Locked => unreachable,

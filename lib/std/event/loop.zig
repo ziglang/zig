@@ -195,7 +195,7 @@ pub const Loop = struct {
     const wakeup_bytes = [_]u8{0x1} ** 8;
 
     fn initOsData(self: *Loop, extra_thread_count: usize) InitOsDataError!void {
-        noasync switch (builtin.os.tag) {
+        nosuspend switch (builtin.os.tag) {
             .linux => {
                 errdefer {
                     while (self.available_eventfd_resume_nodes.pop()) |node| os.close(node.data.eventfd);
@@ -371,7 +371,7 @@ pub const Loop = struct {
     }
 
     fn deinitOsData(self: *Loop) void {
-        noasync switch (builtin.os.tag) {
+        nosuspend switch (builtin.os.tag) {
             .linux => {
                 os.close(self.os_data.final_eventfd);
                 while (self.available_eventfd_resume_nodes.pop()) |node| os.close(node.data.eventfd);
@@ -493,7 +493,7 @@ pub const Loop = struct {
     pub fn waitUntilFdWritableOrReadable(self: *Loop, fd: os.fd_t) void {
         switch (builtin.os.tag) {
             .linux => {
-                self.linuxWaitFd(@intCast(usize, fd), os.EPOLLET | os.EPOLLONESHOT | os.EPOLLOUT | os.EPOLLIN);
+                self.linuxWaitFd(fd, os.EPOLLET | os.EPOLLONESHOT | os.EPOLLOUT | os.EPOLLIN);
             },
             .macosx, .freebsd, .netbsd, .dragonfly => {
                 self.bsdWaitKev(@intCast(usize, fd), os.EVFILT_READ, os.EV_ONESHOT);
@@ -503,7 +503,7 @@ pub const Loop = struct {
         }
     }
 
-    pub async fn bsdWaitKev(self: *Loop, ident: usize, filter: i16, fflags: u32) void {
+    pub fn bsdWaitKev(self: *Loop, ident: usize, filter: i16, flags: u16) void {
         var resume_node = ResumeNode.Basic{
             .base = ResumeNode{
                 .id = ResumeNode.Id.Basic,
@@ -512,21 +512,28 @@ pub const Loop = struct {
             },
             .kev = undefined,
         };
-        defer self.bsdRemoveKev(ident, filter);
+
+        defer {
+            // If the kevent was set to be ONESHOT, it doesn't need to be deleted manually.
+            if (flags & os.EV_ONESHOT != 0) {
+                self.bsdRemoveKev(ident, filter);
+            }
+        }
+
         suspend {
-            self.bsdAddKev(&resume_node, ident, filter, fflags) catch unreachable;
+            self.bsdAddKev(&resume_node, ident, filter, flags) catch unreachable;
         }
     }
 
     /// resume_node must live longer than the anyframe that it holds a reference to.
-    pub fn bsdAddKev(self: *Loop, resume_node: *ResumeNode.Basic, ident: usize, filter: i16, fflags: u32) !void {
+    pub fn bsdAddKev(self: *Loop, resume_node: *ResumeNode.Basic, ident: usize, filter: i16, flags: u16) !void {
         self.beginOneEvent();
         errdefer self.finishOneEvent();
         var kev = [1]os.Kevent{os.Kevent{
             .ident = ident,
             .filter = filter,
-            .flags = os.EV_ADD | os.EV_ENABLE | os.EV_CLEAR,
-            .fflags = fflags,
+            .flags = os.EV_ADD | os.EV_ENABLE | os.EV_CLEAR | flags,
+            .fflags = 0,
             .data = 0,
             .udata = @ptrToInt(&resume_node.base),
         }};
@@ -616,14 +623,16 @@ pub const Loop = struct {
 
         self.workerRun();
 
-        switch (builtin.os.tag) {
-            .linux,
-            .macosx,
-            .freebsd,
-            .netbsd,
-            .dragonfly,
-            => self.fs_thread.wait(),
-            else => {},
+        if (!builtin.single_threaded) {
+            switch (builtin.os.tag) {
+                .linux,
+                .macosx,
+                .freebsd,
+                .netbsd,
+                .dragonfly,
+                => self.fs_thread.wait(),
+                else => {},
+            }
         }
 
         for (self.extra_threads) |extra_thread| {
@@ -663,7 +672,7 @@ pub const Loop = struct {
     }
 
     pub fn finishOneEvent(self: *Loop) void {
-        noasync {
+        nosuspend {
             const prev = @atomicRmw(usize, &self.pending_event_count, .Sub, 1, .SeqCst);
             if (prev != 1) return;
 
@@ -1041,7 +1050,7 @@ pub const Loop = struct {
     }
 
     fn posixFsRun(self: *Loop) void {
-        noasync while (true) {
+        nosuspend while (true) {
             self.fs_thread_wakeup.reset();
             while (self.fs_queue.get()) |node| {
                 switch (node.data.msg) {

@@ -1565,7 +1565,7 @@ value == null{#endsyntax#}</pre>
 const array1 = [_]u32{1,2};
 const array2 = [_]u32{3,4};
 const together = array1 ++ array2;
-mem.eql(u32, together, &[_]u32{1,2,3,4}){#endsyntax#}</pre>
+mem.eql(u32, &together, &[_]u32{1,2,3,4}){#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
@@ -6713,7 +6713,7 @@ const assert = std.debug.assert;
 test "async fn pointer in a struct field" {
     var data: i32 = 1;
     const Foo = struct {
-        bar: async fn (*i32) void,
+        bar: fn (*i32) callconv(.Async) void,
     };
     var foo = Foo{ .bar = func };
     var bytes: [64]u8 align(@alignOf(@Frame(func))) = undefined;
@@ -6723,7 +6723,7 @@ test "async fn pointer in a struct field" {
     assert(data == 4);
 }
 
-async fn func(y: *i32) void {
+fn func(y: *i32) void {
     defer y.* += 2;
     y.* += 1;
     suspend;
@@ -8189,9 +8189,7 @@ fn List(comptime T: type) type {
       {#code_end#}
       <p>
       When {#syntax#}@This(){#endsyntax#} is used at global scope, it returns a reference to the
-      current import. There is a proposal to remove the import type and use an empty struct
-      type instead. See
-      <a href="https://github.com/ziglang/zig/issues/1047">#1047</a> for details.
+      struct that corresponds to the current file.
       </p>
       {#header_close#}
 
@@ -9990,6 +9988,13 @@ coding style.
       conventions.
       </p>
       <p>
+      File names fall into two categories: types and namespaces. If the file
+      (implicity a struct) has top level fields, it should be named like any
+      other struct with fields using {#syntax#}TitleCase{#endsyntax#}. Otherwise,
+      it should use {#syntax#}snake_case{#endsyntax#}. Directory names should be
+      {#syntax#}snake_case{#endsyntax#}.
+      </p>
+      <p>
       These are general rules of thumb; if it makes sense to do something different,
       do what makes sense. For example, if there is an established convention such as
       {#syntax#}ENOENT{#endsyntax#}, follow the established convention.
@@ -9998,6 +10003,7 @@ coding style.
       {#header_open|Examples#}
       {#code_begin|syntax#}
 const namespace_name = @import("dir_name/file_name.zig");
+const TypeName = @import("dir_name/TypeName.zig");
 var global_var: i32 = undefined;
 const const_name = 42;
 const primitive_type_alias = f32;
@@ -10088,7 +10094,7 @@ TopLevelDecl
      / (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE?)? KEYWORD_threadlocal? VarDecl
      / KEYWORD_usingnamespace Expr SEMICOLON
 
-FnProto &lt;- FnCC? KEYWORD_fn IDENTIFIER? LPAREN ParamDeclList RPAREN ByteAlign? LinkSection? EXCLAMATIONMARK? (KEYWORD_var / TypeExpr)
+FnProto &lt;- KEYWORD_fn IDENTIFIER? LPAREN ParamDeclList RPAREN ByteAlign? LinkSection? EXCLAMATIONMARK? (KEYWORD_var / TypeExpr)
 
 VarDecl &lt;- (KEYWORD_const / KEYWORD_var) IDENTIFIER (COLON TypeExpr)? ByteAlign? LinkSection? (EQUAL Expr)? SEMICOLON
 
@@ -10098,6 +10104,7 @@ ContainerField &lt;- IDENTIFIER (COLON TypeExpr)? (EQUAL Expr)?
 Statement
     &lt;- KEYWORD_comptime? VarDecl
      / KEYWORD_comptime BlockExprStatement
+     / KEYWORD_nosuspend BlockExprStatement
      / KEYWORD_suspend (SEMICOLON / BlockExprStatement)
      / KEYWORD_defer BlockExprStatement
      / KEYWORD_errdefer BlockExprStatement
@@ -10154,6 +10161,7 @@ PrimaryExpr
      / IfExpr
      / KEYWORD_break BreakLabel? Expr?
      / KEYWORD_comptime Expr
+     / KEYWORD_nosuspend Expr
      / KEYWORD_continue BreakLabel?
      / KEYWORD_resume Expr
      / KEYWORD_return Expr?
@@ -10254,11 +10262,6 @@ FieldInit &lt;- DOT IDENTIFIER EQUAL Expr
 WhileContinueExpr &lt;- COLON LPAREN AssignExpr RPAREN
 
 LinkSection &lt;- KEYWORD_linksection LPAREN Expr RPAREN
-
-# Fn specific
-FnCC
-    &lt;- KEYWORD_extern
-     / KEYWORD_async
 
 ParamDecl &lt;- (KEYWORD_noalias / KEYWORD_comptime)? (IDENTIFIER COLON)? ParamType
 
@@ -10521,6 +10524,7 @@ KEYWORD_for         &lt;- 'for'         end_of_word
 KEYWORD_if          &lt;- 'if'          end_of_word
 KEYWORD_inline      &lt;- 'inline'      end_of_word
 KEYWORD_noalias     &lt;- 'noalias'     end_of_word
+KEYWORD_nosuspend   &lt;- 'nosuspend'   end_of_word
 KEYWORD_null        &lt;- 'null'        end_of_word
 KEYWORD_or          &lt;- 'or'          end_of_word
 KEYWORD_orelse      &lt;- 'orelse'      end_of_word

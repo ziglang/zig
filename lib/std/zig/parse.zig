@@ -48,31 +48,24 @@ pub fn parse(allocator: *Allocator, source: []const u8) Allocator.Error!*Tree {
 
     while (it.peek().?.id == .LineComment) _ = it.next();
 
-    tree.root_node = parseRoot(arena, &it, tree) catch |err| blk: {
-        switch (err) {
-            error.ParseError => {
-                assert(tree.errors.len != 0);
-                break :blk undefined;
-            },
-            error.OutOfMemory => {
-                return error.OutOfMemory;
-            },
-        }
-    };
+    tree.root_node = try parseRoot(arena, &it, tree);
 
     return tree;
 }
 
 /// Root <- skip ContainerMembers eof
-fn parseRoot(arena: *Allocator, it: *TokenIterator, tree: *Tree) Error!*Node.Root {
+fn parseRoot(arena: *Allocator, it: *TokenIterator, tree: *Tree) Allocator.Error!*Node.Root {
     const node = try arena.create(Node.Root);
     node.* = .{
         .decls = try parseContainerMembers(arena, it, tree),
-        .eof_token = eatToken(it, .Eof) orelse {
+        .eof_token = eatToken(it, .Eof) orelse blk: {
+            // parseContainerMembers will try to skip as much
+            // invalid tokens as it can so this can only be a '}'
+            const tok = eatToken(it, .RBrace).?;
             try tree.errors.push(.{
-                .ExpectedContainerMembers = .{ .token = it.index },
+                .ExpectedContainerMembers = .{ .token = tok },
             });
-            return error.ParseError;
+            break :blk tok;
         },
     };
     return node;
@@ -108,7 +101,13 @@ fn parseContainerMembers(arena: *Allocator, it: *TokenIterator, tree: *Tree) !No
 
         const doc_comments = try parseDocComment(arena, it, tree);
 
-        if (try parseTestDecl(arena, it, tree)) |node| {
+        if (parseTestDecl(arena, it, tree) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.ParseError => {
+                findNextContainerMember(it);
+                continue;
+            },
+        }) |node| {
             if (field_state == .seen) {
                 field_state = .{ .end = node.firstToken() };
             }
@@ -117,7 +116,13 @@ fn parseContainerMembers(arena: *Allocator, it: *TokenIterator, tree: *Tree) !No
             continue;
         }
 
-        if (try parseTopLevelComptime(arena, it, tree)) |node| {
+        if (parseTopLevelComptime(arena, it, tree) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.ParseError => {
+                findNextContainerMember(it);
+                continue;
+            },
+        }) |node| {
             if (field_state == .seen) {
                 field_state = .{ .end = node.firstToken() };
             }
@@ -128,7 +133,13 @@ fn parseContainerMembers(arena: *Allocator, it: *TokenIterator, tree: *Tree) !No
 
         const visib_token = eatToken(it, .Keyword_pub);
 
-        if (try parseTopLevelDecl(arena, it, tree)) |node| {
+        if (parseTopLevelDecl(arena, it, tree) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.ParseError => {
+                findNextContainerMember(it);
+                continue;
+            },
+        }) |node| {
             if (field_state == .seen) {
                 field_state = .{ .end = visib_token orelse node.firstToken() };
             }
@@ -163,10 +174,18 @@ fn parseContainerMembers(arena: *Allocator, it: *TokenIterator, tree: *Tree) !No
             try tree.errors.push(.{
                 .ExpectedPubItem = .{ .token = it.index },
             });
-            return error.ParseError;
+            // ignore this pub
+            continue;
         }
 
-        if (try parseContainerField(arena, it, tree)) |node| {
+        if (parseContainerField(arena, it, tree) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.ParseError => {
+                // attempt to recover
+                findNextContainerMember(it);
+                continue;
+            },
+        }) |node| {
             switch (field_state) {
                 .none => field_state = .seen,
                 .err, .seen => {},
@@ -182,7 +201,21 @@ fn parseContainerMembers(arena: *Allocator, it: *TokenIterator, tree: *Tree) !No
             const field = node.cast(Node.ContainerField).?;
             field.doc_comments = doc_comments;
             try list.push(node);
-            const comma = eatToken(it, .Comma) orelse break;
+            const comma = eatToken(it, .Comma) orelse {
+                // try to continue parsing
+                const index = it.index;
+                findNextContainerMember(it);
+                switch (it.peek().?.id) {
+                    .Eof, .RBrace => break,
+                    else => {
+                        // add error and continue
+                        try tree.errors.push(.{
+                            .ExpectedToken = .{ .token = index, .expected_id = .Comma },
+                        });
+                        continue;
+                    },
+                }
+            };
             if (try parseAppendedDocComment(arena, it, tree, comma)) |appended_comment|
                 field.doc_comments = appended_comment;
             continue;
@@ -194,10 +227,100 @@ fn parseContainerMembers(arena: *Allocator, it: *TokenIterator, tree: *Tree) !No
                 .UnattachedDocComment = .{ .token = doc_comments.?.firstToken() },
             });
         }
-        break;
+
+        switch (it.peek().?.id) {
+            .Eof, .RBrace => break,
+            else => {
+                // this was likely not supposed to end yet,
+                // try to find the next declaration
+                const index = it.index;
+                findNextContainerMember(it);
+                try tree.errors.push(.{
+                    .ExpectedContainerMembers = .{ .token = index },
+                });
+            },
+        }
     }
 
     return list;
+}
+
+/// Attempts to find next container member by searching for certain tokens
+fn findNextContainerMember(it: *TokenIterator) void {
+    var level: u32 = 0;
+    while (true) {
+        const tok = nextToken(it);
+        switch (tok.ptr.id) {
+            // any of these can start a new top level declaration
+            .Keyword_test,
+            .Keyword_comptime,
+            .Keyword_pub,
+            .Keyword_export,
+            .Keyword_extern,
+            .Keyword_inline,
+            .Keyword_noinline,
+            .Keyword_usingnamespace,
+            .Keyword_threadlocal,
+            .Keyword_const,
+            .Keyword_var,
+            .Keyword_fn,
+            .Identifier,
+            => {
+                if (level == 0) {
+                    putBackToken(it, tok.index);
+                    return;
+                }
+            },
+            .Comma, .Semicolon => {
+                // this decl was likely meant to end here
+                if (level == 0) {
+                    return;
+                }
+            },
+            .LParen, .LBracket, .LBrace => level += 1,
+            .RParen, .RBracket, .RBrace => {
+                if (level == 0) {
+                    // end of container, exit
+                    putBackToken(it, tok.index);
+                    return;
+                }
+                level -= 1;
+            },
+            .Eof => {
+                putBackToken(it, tok.index);
+                return;
+            },
+            else => {},
+        }
+    }
+}
+
+/// Attempts to find the next statement by searching for a semicolon
+fn findNextStmt(it: *TokenIterator) void {
+    var level: u32 = 0;
+    while (true) {
+        const tok = nextToken(it);
+        switch (tok.ptr.id) {
+            .LBrace => level += 1,
+            .RBrace => {
+                if (level == 0) {
+                    putBackToken(it, tok.index);
+                    return;
+                }
+                level -= 1;
+            },
+            .Semicolon => {
+                if (level == 0) {
+                    return;
+                }
+            },
+            .Eof => {
+                putBackToken(it, tok.index);
+                return;
+            },
+            else => {},
+        }
+    }
 }
 
 /// Eat a multiline container doc comment
@@ -279,22 +402,30 @@ fn parseTopLevelDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node
         fn_node.*.extern_export_inline_token = extern_export_inline_token;
         fn_node.*.lib_name = lib_name;
         if (eatToken(it, .Semicolon)) |_| return node;
-        if (try parseBlock(arena, it, tree)) |body_node| {
+        if (parseBlock(arena, it, tree) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            // since parseBlock only return error.ParseError on
+            // a missing '}' we can assume this function was
+            // supposed to end here.
+            error.ParseError => return node,
+        }) |body_node| {
             fn_node.body_node = body_node;
             return node;
         }
         try tree.errors.push(.{
             .ExpectedSemiOrLBrace = .{ .token = it.index },
         });
-        return null;
+        return error.ParseError;
     }
 
     if (extern_export_inline_token) |token| {
         if (tree.tokens.at(token).id == .Keyword_inline or
             tree.tokens.at(token).id == .Keyword_noinline)
         {
-            putBackToken(it, token);
-            return null;
+            try tree.errors.push(.{
+                .ExpectedFn = .{ .token = it.index },
+            });
+            return error.ParseError;
         }
     }
 
@@ -313,42 +444,40 @@ fn parseTopLevelDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node
         try tree.errors.push(.{
             .ExpectedVarDecl = .{ .token = it.index },
         });
+        // ignore this and try again;
         return error.ParseError;
     }
 
     if (extern_export_inline_token) |token| {
-        if (lib_name) |string_literal_node|
-            putBackToken(it, string_literal_node.cast(Node.StringLiteral).?.token);
-        putBackToken(it, token);
-        return null;
+        try tree.errors.push(.{
+            .ExpectedVarDeclOrFn = .{ .token = it.index },
+        });
+        // ignore this and try again;
+        return error.ParseError;
     }
 
-    const use_node = (try parseUse(arena, it, tree)) orelse return null;
-    const expr_node = try expectNode(arena, it, tree, parseExpr, .{
-        .ExpectedExpr = .{ .token = it.index },
-    });
-    const semicolon_token = try expectToken(it, tree, .Semicolon);
-    const use_node_raw = use_node.cast(Node.Use).?;
-    use_node_raw.*.expr = expr_node;
-    use_node_raw.*.semicolon_token = semicolon_token;
-
-    return use_node;
+    return try parseUse(arena, it, tree);
 }
 
-/// FnProto <- FnCC? KEYWORD_fn IDENTIFIER? LPAREN ParamDeclList RPAREN ByteAlign? LinkSection? EXCLAMATIONMARK? (KEYWORD_var / TypeExpr)
+/// FnProto <- KEYWORD_fn IDENTIFIER? LPAREN ParamDeclList RPAREN ByteAlign? LinkSection? EXCLAMATIONMARK? (KEYWORD_var / TypeExpr)
 fn parseFnProto(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
-    const cc = parseFnCC(arena, it, tree);
-    const fn_token = eatToken(it, .Keyword_fn) orelse {
-        if (cc) |fnCC| {
-            if (fnCC == .Extern) {
-                putBackToken(it, fnCC.Extern); // 'extern' is also used in ContainerDecl
-            } else {
-                try tree.errors.push(.{
-                    .ExpectedToken = .{ .token = it.index, .expected_id = .Keyword_fn },
-                });
-                return error.ParseError;
-            }
+    // TODO: Remove once extern/async fn rewriting is
+    var is_async = false;
+    var is_extern = false;
+    const cc_token: ?usize = blk: {
+        if (eatToken(it, .Keyword_extern)) |token| {
+            is_extern = true;
+            break :blk token;
         }
+        if (eatToken(it, .Keyword_async)) |token| {
+            is_async = true;
+            break :blk token;
+        }
+        break :blk null;
+    };
+    const fn_token = eatToken(it, .Keyword_fn) orelse {
+        if (cc_token) |token|
+            putBackToken(it, token);
         return null;
     };
     const name_token = eatToken(it, .Identifier);
@@ -361,18 +490,23 @@ fn parseFnProto(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const exclamation_token = eatToken(it, .Bang);
 
     const return_type_expr = (try parseVarType(arena, it, tree)) orelse
-        try expectNode(arena, it, tree, parseTypeExpr, .{
-        .ExpectedReturnType = .{ .token = it.index },
-    });
+        (try parseTypeExpr(arena, it, tree)) orelse blk: {
+        try tree.errors.push(.{
+            .ExpectedReturnType = .{ .token = it.index },
+        });
+        // most likely the user forgot to specify the return type.
+        // Mark return type as invalid and try to continue.
+        break :blk null;
+    };
 
-    const return_type: Node.FnProto.ReturnType = if (exclamation_token != null)
-        .{
-            .InferErrorSet = return_type_expr,
-        }
+    // TODO https://github.com/ziglang/zig/issues/3750
+    const R = Node.FnProto.ReturnType;
+    const return_type = if (return_type_expr == null)
+        R{ .Invalid = rparen }
+    else if (exclamation_token != null)
+        R{ .InferErrorSet = return_type_expr.? }
     else
-        .{
-            .Explicit = return_type_expr,
-        };
+        R{ .Explicit = return_type_expr.? };
 
     const var_args_token = if (params.len > 0)
         params.at(params.len - 1).*.cast(Node.ParamDecl).?.var_args_token
@@ -389,20 +523,14 @@ fn parseFnProto(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
         .return_type = return_type,
         .var_args_token = var_args_token,
         .extern_export_inline_token = null,
-        .cc_token = null,
         .body_node = null,
         .lib_name = null,
         .align_expr = align_expr,
         .section_expr = section_expr,
         .callconv_expr = callconv_expr,
+        .is_extern_prototype = is_extern,
+        .is_async = is_async,
     };
-
-    if (cc) |kind| {
-        switch (kind) {
-            .CC => |token| fn_proto_node.cc_token = token,
-            .Extern => |token| fn_proto_node.extern_export_inline_token = token,
-        }
-    }
 
     return &fn_proto_node.base;
 }
@@ -495,7 +623,7 @@ fn parseContainerField(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*No
 /// Statement
 ///     <- KEYWORD_comptime? VarDecl
 ///      / KEYWORD_comptime BlockExprStatement
-///      / KEYWORD_noasync BlockExprStatement
+///      / KEYWORD_nosuspend BlockExprStatement
 ///      / KEYWORD_suspend (SEMICOLON / BlockExprStatement)
 ///      / KEYWORD_defer BlockExprStatement
 ///      / KEYWORD_errdefer Payload? BlockExprStatement
@@ -527,14 +655,14 @@ fn parseStatement(arena: *Allocator, it: *TokenIterator, tree: *Tree) Error!?*No
         return &node.base;
     }
 
-    if (eatToken(it, .Keyword_noasync)) |noasync_token| {
+    if (eatToken(it, .Keyword_nosuspend)) |nosuspend_token| {
         const block_expr = try expectNode(arena, it, tree, parseBlockExprStatement, .{
             .ExpectedBlockOrAssignment = .{ .token = it.index },
         });
 
-        const node = try arena.create(Node.Noasync);
+        const node = try arena.create(Node.Nosuspend);
         node.* = .{
-            .noasync_token = noasync_token,
+            .nosuspend_token = nosuspend_token,
             .expr = block_expr,
         };
         return &node.base;
@@ -579,7 +707,12 @@ fn parseStatement(arena: *Allocator, it: *TokenIterator, tree: *Tree) Error!?*No
     if (try parseLabeledStatement(arena, it, tree)) |node| return node;
     if (try parseSwitchExpr(arena, it, tree)) |node| return node;
     if (try parseAssignExpr(arena, it, tree)) |node| {
-        _ = try expectToken(it, tree, .Semicolon);
+        _ = eatToken(it, .Semicolon) orelse {
+            try tree.errors.push(.{
+                .ExpectedToken = .{ .token = it.index, .expected_id = .Semicolon },
+            });
+            // pretend we saw a semicolon and continue parsing
+        };
         return node;
     }
 
@@ -688,8 +821,13 @@ fn parseLoopStatement(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Nod
         node.cast(Node.While).?.inline_token = inline_token;
         return node;
     }
+    if (inline_token == null) return null;
 
-    return null;
+    // If we've seen "inline", there should have been a "for" or "while"
+    try tree.errors.push(.{
+        .ExpectedInlinable = .{ .token = it.index },
+    });
+    return error.ParseError;
 }
 
 /// ForStatement
@@ -818,7 +956,12 @@ fn parseWhileStatement(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*No
 fn parseBlockExprStatement(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     if (try parseBlockExpr(arena, it, tree)) |node| return node;
     if (try parseAssignExpr(arena, it, tree)) |node| {
-        _ = try expectToken(it, tree, .Semicolon);
+        _ = eatToken(it, .Semicolon) orelse {
+            try tree.errors.push(.{
+                .ExpectedToken = .{ .token = it.index, .expected_id = .Semicolon },
+            });
+            // pretend we saw a semicolon and continue parsing
+        };
         return node;
     }
     return null;
@@ -908,7 +1051,7 @@ fn parsePrefixExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 ///      / IfExpr
 ///      / KEYWORD_break BreakLabel? Expr?
 ///      / KEYWORD_comptime Expr
-///      / KEYWORD_noasync Expr
+///      / KEYWORD_nosuspend Expr
 ///      / KEYWORD_continue BreakLabel?
 ///      / KEYWORD_resume Expr
 ///      / KEYWORD_return Expr?
@@ -925,7 +1068,7 @@ fn parsePrimaryExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node 
         const node = try arena.create(Node.ControlFlowExpression);
         node.* = .{
             .ltoken = token,
-            .kind = Node.ControlFlowExpression.Kind{ .Break = label },
+            .kind = .{ .Break = label },
             .rhs = expr_node,
         };
         return &node.base;
@@ -944,13 +1087,13 @@ fn parsePrimaryExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node 
         return &node.base;
     }
 
-    if (eatToken(it, .Keyword_noasync)) |token| {
+    if (eatToken(it, .Keyword_nosuspend)) |token| {
         const expr_node = try expectNode(arena, it, tree, parseExpr, .{
             .ExpectedExpr = .{ .token = it.index },
         });
-        const node = try arena.create(Node.Noasync);
+        const node = try arena.create(Node.Nosuspend);
         node.* = .{
-            .noasync_token = token,
+            .nosuspend_token = token,
             .expr = expr_node,
         };
         return &node.base;
@@ -961,7 +1104,7 @@ fn parsePrimaryExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node 
         const node = try arena.create(Node.ControlFlowExpression);
         node.* = .{
             .ltoken = token,
-            .kind = Node.ControlFlowExpression.Kind{ .Continue = label },
+            .kind = .{ .Continue = label },
             .rhs = null,
         };
         return &node.base;
@@ -985,7 +1128,7 @@ fn parsePrimaryExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node 
         const node = try arena.create(Node.ControlFlowExpression);
         node.* = .{
             .ltoken = token,
-            .kind = Node.ControlFlowExpression.Kind.Return,
+            .kind = .Return,
             .rhs = expr_node,
         };
         return &node.base;
@@ -1023,7 +1166,14 @@ fn parseBlock(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 
     var statements = Node.Block.StatementList.init(arena);
     while (true) {
-        const statement = (try parseStatement(arena, it, tree)) orelse break;
+        const statement = (parseStatement(arena, it, tree) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.ParseError => {
+                // try to skip to the next statement
+                findNextStmt(it);
+                continue;
+            },
+        }) orelse break;
         try statements.push(statement);
     }
 
@@ -1197,6 +1347,7 @@ fn parseSuffixExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     if (maybe_async) |async_token| {
         const token_fn = eatToken(it, .Keyword_fn);
         if (token_fn != null) {
+            // TODO: remove this hack when async fn rewriting is
             // HACK: If we see the keyword `fn`, then we assume that
             //       we are parsing an async fn proto, and not a call.
             //       We therefore put back all tokens consumed by the async
@@ -1205,7 +1356,6 @@ fn parseSuffixExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
             putBackToken(it, async_token);
             return parsePrimaryTypeExpr(arena, it, tree);
         }
-        // TODO: Implement hack for parsing `async fn ...` in ast_parse_suffix_expr
         var res = try expectNode(arena, it, tree, parsePrimaryTypeExpr, .{
             .ExpectedPrimaryTypeExpr = .{ .token = it.index },
         });
@@ -1223,7 +1373,8 @@ fn parseSuffixExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
             try tree.errors.push(.{
                 .ExpectedParamList = .{ .token = it.index },
             });
-            return null;
+            // ignore this, continue parsing
+            return res;
         };
         const node = try arena.create(Node.SuffixOp);
         node.* = .{
@@ -1288,7 +1439,6 @@ fn parseSuffixExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 ///      / IfTypeExpr
 ///      / INTEGER
 ///      / KEYWORD_comptime TypeExpr
-///      / KEYWORD_noasync TypeExpr
 ///      / KEYWORD_error DOT IDENTIFIER
 ///      / KEYWORD_false
 ///      / KEYWORD_null
@@ -1323,15 +1473,6 @@ fn parsePrimaryTypeExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*N
         node.* = .{
             .doc_comments = null,
             .comptime_token = token,
-            .expr = expr,
-        };
-        return &node.base;
-    }
-    if (eatToken(it, .Keyword_noasync)) |token| {
-        const expr = (try parseTypeExpr(arena, it, tree)) orelse return null;
-        const node = try arena.create(Node.Noasync);
-        node.* = .{
-            .noasync_token = token,
             .expr = expr,
         };
         return &node.base;
@@ -1777,24 +1918,6 @@ fn parseCallconv(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     _ = try expectToken(it, tree, .RParen);
     return expr_node;
 }
-
-/// FnCC
-///     <- KEYWORD_nakedcc
-///      / KEYWORD_stdcallcc
-///      / KEYWORD_extern
-///      / KEYWORD_async
-fn parseFnCC(arena: *Allocator, it: *TokenIterator, tree: *Tree) ?FnCC {
-    if (eatToken(it, .Keyword_nakedcc)) |token| return FnCC{ .CC = token };
-    if (eatToken(it, .Keyword_stdcallcc)) |token| return FnCC{ .CC = token };
-    if (eatToken(it, .Keyword_extern)) |token| return FnCC{ .Extern = token };
-    if (eatToken(it, .Keyword_async)) |token| return FnCC{ .CC = token };
-    return null;
-}
-
-const FnCC = union(enum) {
-    CC: TokenIndex,
-    Extern: TokenIndex,
-};
 
 /// ParamDecl <- (KEYWORD_noalias / KEYWORD_comptime)? (IDENTIFIER COLON)? ParamType
 fn parseParamDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
@@ -2290,7 +2413,7 @@ fn parsePrefixTypeOp(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node
         const node = try arena.create(Node.AnyFrameType);
         node.* = .{
             .anyframe_token = token,
-            .result = Node.AnyFrameType.Result{
+            .result = .{
                 .arrow_token = arrow,
                 .return_type = undefined, // set by caller
             },
@@ -2331,6 +2454,13 @@ fn parsePrefixTypeOp(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node
                 } else null;
                 _ = try expectToken(it, tree, .RParen);
 
+                if (ptr_info.align_info != null) {
+                    try tree.errors.push(.{
+                        .ExtraAlignQualifier = .{ .token = it.index - 1 },
+                    });
+                    continue;
+                }
+
                 ptr_info.align_info = Node.PrefixOp.PtrInfo.Align{
                     .node = expr_node,
                     .bit_range = bit_range,
@@ -2339,14 +2469,32 @@ fn parsePrefixTypeOp(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node
                 continue;
             }
             if (eatToken(it, .Keyword_const)) |const_token| {
+                if (ptr_info.const_token != null) {
+                    try tree.errors.push(.{
+                        .ExtraConstQualifier = .{ .token = it.index - 1 },
+                    });
+                    continue;
+                }
                 ptr_info.const_token = const_token;
                 continue;
             }
             if (eatToken(it, .Keyword_volatile)) |volatile_token| {
+                if (ptr_info.volatile_token != null) {
+                    try tree.errors.push(.{
+                        .ExtraVolatileQualifier = .{ .token = it.index - 1 },
+                    });
+                    continue;
+                }
                 ptr_info.volatile_token = volatile_token;
                 continue;
             }
             if (eatToken(it, .Keyword_allowzero)) |allowzero_token| {
+                if (ptr_info.allowzero_token != null) {
+                    try tree.errors.push(.{
+                        .ExtraAllowZeroQualifier = .{ .token = it.index - 1 },
+                    });
+                    continue;
+                }
                 ptr_info.allowzero_token = allowzero_token;
                 continue;
             }
@@ -2365,9 +2513,9 @@ fn parsePrefixTypeOp(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node
                     if (try parseByteAlign(arena, it, tree)) |align_expr| {
                         if (slice_type.align_info != null) {
                             try tree.errors.push(.{
-                                .ExtraAlignQualifier = .{ .token = it.index },
+                                .ExtraAlignQualifier = .{ .token = it.index - 1 },
                             });
-                            return error.ParseError;
+                            continue;
                         }
                         slice_type.align_info = Node.PrefixOp.PtrInfo.Align{
                             .node = align_expr,
@@ -2378,9 +2526,9 @@ fn parsePrefixTypeOp(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node
                     if (eatToken(it, .Keyword_const)) |const_token| {
                         if (slice_type.const_token != null) {
                             try tree.errors.push(.{
-                                .ExtraConstQualifier = .{ .token = it.index },
+                                .ExtraConstQualifier = .{ .token = it.index - 1 },
                             });
-                            return error.ParseError;
+                            continue;
                         }
                         slice_type.const_token = const_token;
                         continue;
@@ -2388,9 +2536,9 @@ fn parsePrefixTypeOp(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node
                     if (eatToken(it, .Keyword_volatile)) |volatile_token| {
                         if (slice_type.volatile_token != null) {
                             try tree.errors.push(.{
-                                .ExtraVolatileQualifier = .{ .token = it.index },
+                                .ExtraVolatileQualifier = .{ .token = it.index - 1 },
                             });
-                            return error.ParseError;
+                            continue;
                         }
                         slice_type.volatile_token = volatile_token;
                         continue;
@@ -2398,9 +2546,9 @@ fn parsePrefixTypeOp(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node
                     if (eatToken(it, .Keyword_allowzero)) |allowzero_token| {
                         if (slice_type.allowzero_token != null) {
                             try tree.errors.push(.{
-                                .ExtraAllowZeroQualifier = .{ .token = it.index },
+                                .ExtraAllowZeroQualifier = .{ .token = it.index - 1 },
                             });
-                            return error.ParseError;
+                            continue;
                         }
                         slice_type.allowzero_token = allowzero_token;
                         continue;
@@ -2749,7 +2897,19 @@ fn ListParseFn(comptime L: type, comptime nodeParseFn: var) ParseFn(L) {
             var list = L.init(arena);
             while (try nodeParseFn(arena, it, tree)) |node| {
                 try list.push(node);
-                if (eatToken(it, .Comma) == null) break;
+
+                switch (it.peek().?.id) {
+                    .Comma => _ = nextToken(it),
+                    // all possible delimiters
+                    .Colon, .RParen, .RBrace, .RBracket => break,
+                    else => {
+                        // this is likely just a missing comma,
+                        // continue parsing this list and give an error
+                        try tree.errors.push(.{
+                            .ExpectedToken = .{ .token = it.index, .expected_id = .Comma },
+                        });
+                    },
+                }
             }
             return list;
         }
@@ -2759,7 +2919,17 @@ fn ListParseFn(comptime L: type, comptime nodeParseFn: var) ParseFn(L) {
 fn SimpleBinOpParseFn(comptime token: Token.Id, comptime op: Node.InfixOp.Op) NodeParseFn {
     return struct {
         pub fn parse(arena: *Allocator, it: *TokenIterator, tree: *Tree) Error!?*Node {
-            const op_token = eatToken(it, token) orelse return null;
+            const op_token = if (token == .Keyword_and) switch (it.peek().?.id) {
+                .Keyword_and => nextToken(it).index,
+                .Invalid_ampersands => blk: {
+                    try tree.errors.push(.{
+                        .InvalidAnd = .{ .token = it.index },
+                    });
+                    break :blk nextToken(it).index;
+                },
+                else => return null,
+            } else eatToken(it, token) orelse return null;
+
             const node = try arena.create(Node.InfixOp);
             node.* = .{
                 .op_token = op_token,
@@ -2780,7 +2950,13 @@ fn parseBuiltinCall(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node 
         try tree.errors.push(.{
             .ExpectedParamList = .{ .token = it.index },
         });
-        return error.ParseError;
+
+        // lets pretend this was an identifier so we can continue parsing
+        const node = try arena.create(Node.Identifier);
+        node.* = .{
+            .token = token,
+        };
+        return &node.base;
     };
     const node = try arena.create(Node.BuiltinCall);
     node.* = .{
@@ -2896,8 +3072,10 @@ fn parseUse(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
         .doc_comments = null,
         .visib_token = null,
         .use_token = token,
-        .expr = undefined, // set by caller
-        .semicolon_token = undefined, // set by caller
+        .expr = try expectNode(arena, it, tree, parseExpr, .{
+            .ExpectedExpr = .{ .token = it.index },
+        }),
+        .semicolon_token = try expectToken(it, tree, .Semicolon),
     };
     return &node.base;
 }
@@ -3077,6 +3255,8 @@ fn expectToken(it: *TokenIterator, tree: *Tree, id: Token.Id) Error!TokenIndex {
         try tree.errors.push(.{
             .ExpectedToken = .{ .token = token.index, .expected_id = id },
         });
+        // go back so that we can recover properly
+        putBackToken(it, token.index);
         return error.ParseError;
     }
     return token.index;

@@ -121,7 +121,7 @@ const Die = struct {
         };
     }
 
-    fn getAttrString(self: *const Die, di: *DwarfInfo, id: u64) ![]const u8 {
+    pub fn getAttrString(self: *const Die, di: *DwarfInfo, id: u64) ![]const u8 {
         const form_value = self.getAttr(id) orelse return error.MissingDebugInfo;
         return switch (form_value.*) {
             FormValue.String => |value| value,
@@ -248,17 +248,17 @@ fn readUnitLength(in_stream: var, endian: builtin.Endian, is_64: *bool) !u64 {
     }
 }
 
-// TODO the noasyncs here are workarounds
+// TODO the nosuspends here are workarounds
 fn readAllocBytes(allocator: *mem.Allocator, in_stream: var, size: usize) ![]u8 {
     const buf = try allocator.alloc(u8, size);
     errdefer allocator.free(buf);
-    if ((try noasync in_stream.read(buf)) < size) return error.EndOfFile;
+    if ((try nosuspend in_stream.read(buf)) < size) return error.EndOfFile;
     return buf;
 }
 
-// TODO the noasyncs here are workarounds
+// TODO the nosuspends here are workarounds
 fn readAddress(in_stream: var, endian: builtin.Endian, is_64: bool) !u64 {
-    return noasync if (is_64)
+    return nosuspend if (is_64)
         try in_stream.readInt(u64, endian)
     else
         @as(u64, try in_stream.readInt(u32, endian));
@@ -269,29 +269,29 @@ fn parseFormValueBlockLen(allocator: *mem.Allocator, in_stream: var, size: usize
     return FormValue{ .Block = buf };
 }
 
-// TODO the noasyncs here are workarounds
+// TODO the nosuspends here are workarounds
 fn parseFormValueBlock(allocator: *mem.Allocator, in_stream: var, endian: builtin.Endian, size: usize) !FormValue {
-    const block_len = try noasync in_stream.readVarInt(usize, endian, size);
+    const block_len = try nosuspend in_stream.readVarInt(usize, endian, size);
     return parseFormValueBlockLen(allocator, in_stream, block_len);
 }
 
 fn parseFormValueConstant(allocator: *mem.Allocator, in_stream: var, signed: bool, endian: builtin.Endian, comptime size: i32) !FormValue {
     // TODO: Please forgive me, I've worked around zig not properly spilling some intermediate values here.
-    // `noasync` should be removed from all the function calls once it is fixed.
+    // `nosuspend` should be removed from all the function calls once it is fixed.
     return FormValue{
         .Const = Constant{
             .signed = signed,
             .payload = switch (size) {
-                1 => try noasync in_stream.readInt(u8, endian),
-                2 => try noasync in_stream.readInt(u16, endian),
-                4 => try noasync in_stream.readInt(u32, endian),
-                8 => try noasync in_stream.readInt(u64, endian),
+                1 => try nosuspend in_stream.readInt(u8, endian),
+                2 => try nosuspend in_stream.readInt(u16, endian),
+                4 => try nosuspend in_stream.readInt(u32, endian),
+                8 => try nosuspend in_stream.readInt(u64, endian),
                 -1 => blk: {
                     if (signed) {
-                        const x = try noasync leb.readILEB128(i64, in_stream);
+                        const x = try nosuspend leb.readILEB128(i64, in_stream);
                         break :blk @bitCast(u64, x);
                     } else {
-                        const x = try noasync leb.readULEB128(u64, in_stream);
+                        const x = try nosuspend leb.readULEB128(u64, in_stream);
                         break :blk x;
                     }
                 },
@@ -301,21 +301,21 @@ fn parseFormValueConstant(allocator: *mem.Allocator, in_stream: var, signed: boo
     };
 }
 
-// TODO the noasyncs here are workarounds
+// TODO the nosuspends here are workarounds
 fn parseFormValueRef(allocator: *mem.Allocator, in_stream: var, endian: builtin.Endian, size: i32) !FormValue {
     return FormValue{
         .Ref = switch (size) {
-            1 => try noasync in_stream.readInt(u8, endian),
-            2 => try noasync in_stream.readInt(u16, endian),
-            4 => try noasync in_stream.readInt(u32, endian),
-            8 => try noasync in_stream.readInt(u64, endian),
-            -1 => try noasync leb.readULEB128(u64, in_stream),
+            1 => try nosuspend in_stream.readInt(u8, endian),
+            2 => try nosuspend in_stream.readInt(u16, endian),
+            4 => try nosuspend in_stream.readInt(u32, endian),
+            8 => try nosuspend in_stream.readInt(u64, endian),
+            -1 => try nosuspend leb.readULEB128(u64, in_stream),
             else => unreachable,
         },
     };
 }
 
-// TODO the noasyncs here are workarounds
+// TODO the nosuspends here are workarounds
 fn parseFormValue(allocator: *mem.Allocator, in_stream: var, form_id: u64, endian: builtin.Endian, is_64: bool) anyerror!FormValue {
     return switch (form_id) {
         FORM_addr => FormValue{ .Address = try readAddress(in_stream, endian, @sizeOf(usize) == 8) },
@@ -323,7 +323,7 @@ fn parseFormValue(allocator: *mem.Allocator, in_stream: var, form_id: u64, endia
         FORM_block2 => parseFormValueBlock(allocator, in_stream, endian, 2),
         FORM_block4 => parseFormValueBlock(allocator, in_stream, endian, 4),
         FORM_block => x: {
-            const block_len = try noasync leb.readULEB128(usize, in_stream);
+            const block_len = try nosuspend leb.readULEB128(usize, in_stream);
             return parseFormValueBlockLen(allocator, in_stream, block_len);
         },
         FORM_data1 => parseFormValueConstant(allocator, in_stream, false, endian, 1),
@@ -335,11 +335,11 @@ fn parseFormValue(allocator: *mem.Allocator, in_stream: var, form_id: u64, endia
             return parseFormValueConstant(allocator, in_stream, signed, endian, -1);
         },
         FORM_exprloc => {
-            const size = try noasync leb.readULEB128(usize, in_stream);
+            const size = try nosuspend leb.readULEB128(usize, in_stream);
             const buf = try readAllocBytes(allocator, in_stream, size);
             return FormValue{ .ExprLoc = buf };
         },
-        FORM_flag => FormValue{ .Flag = (try noasync in_stream.readByte()) != 0 },
+        FORM_flag => FormValue{ .Flag = (try nosuspend in_stream.readByte()) != 0 },
         FORM_flag_present => FormValue{ .Flag = true },
         FORM_sec_offset => FormValue{ .SecOffset = try readAddress(in_stream, endian, is_64) },
 
@@ -350,12 +350,12 @@ fn parseFormValue(allocator: *mem.Allocator, in_stream: var, form_id: u64, endia
         FORM_ref_udata => parseFormValueRef(allocator, in_stream, endian, -1),
 
         FORM_ref_addr => FormValue{ .RefAddr = try readAddress(in_stream, endian, is_64) },
-        FORM_ref_sig8 => FormValue{ .Ref = try noasync in_stream.readInt(u64, endian) },
+        FORM_ref_sig8 => FormValue{ .Ref = try nosuspend in_stream.readInt(u64, endian) },
 
         FORM_string => FormValue{ .String = try in_stream.readUntilDelimiterAlloc(allocator, 0, math.maxInt(usize)) },
         FORM_strp => FormValue{ .StrPtr = try readAddress(in_stream, endian, is_64) },
         FORM_indirect => {
-            const child_form_id = try noasync leb.readULEB128(u64, in_stream);
+            const child_form_id = try nosuspend leb.readULEB128(u64, in_stream);
             const F = @TypeOf(async parseFormValue(allocator, in_stream, child_form_id, endian, is_64));
             var frame = try allocator.create(F);
             defer allocator.destroy(frame);
@@ -389,7 +389,7 @@ pub const DwarfInfo = struct {
         return self.abbrev_table_list.allocator;
     }
 
-    fn getSymbolName(di: *DwarfInfo, address: u64) ?[]const u8 {
+    pub fn getSymbolName(di: *DwarfInfo, address: u64) ?[]const u8 {
         for (di.func_list.span()) |*func| {
             if (func.pc_range) |range| {
                 if (address >= range.start and address < range.end) {
@@ -578,7 +578,7 @@ pub const DwarfInfo = struct {
         }
     }
 
-    fn findCompileUnit(di: *DwarfInfo, target_address: u64) !*const CompileUnit {
+    pub fn findCompileUnit(di: *DwarfInfo, target_address: u64) !*const CompileUnit {
         for (di.compile_unit_list.span()) |*compile_unit| {
             if (compile_unit.pc_range) |range| {
                 if (target_address >= range.start and target_address < range.end) return compile_unit;
@@ -690,7 +690,7 @@ pub const DwarfInfo = struct {
         return result;
     }
 
-    fn getLineNumberInfo(di: *DwarfInfo, compile_unit: CompileUnit, target_address: usize) !debug.LineInfo {
+    pub fn getLineNumberInfo(di: *DwarfInfo, compile_unit: CompileUnit, target_address: usize) !debug.LineInfo {
         var stream = io.fixedBufferStream(di.debug_line);
         const in = &stream.inStream();
         const seekable = &stream.seekableStream();

@@ -105,7 +105,7 @@ pub fn Channel(comptime T: type) type {
 
         /// await this function to get an item from the channel. If the buffer is empty, the frame will
         /// complete when the next item is put in the channel.
-        pub async fn get(self: *SelfChannel) T {
+        pub fn get(self: *SelfChannel) callconv(.Async) T {
             // TODO https://github.com/ziglang/zig/issues/2765
             var result: T = undefined;
             var my_tick_node = Loop.NextTickNode.init(@frame());
@@ -305,8 +305,7 @@ test "std.event.Channel wraparound" {
     channel.put(7);
     testing.expectEqual(@as(i32, 7), channel.get());
 }
-
-async fn testChannelGetter(channel: *Channel(i32)) void {
+fn testChannelGetter(channel: *Channel(i32)) callconv(.Async) void {
     const value1 = channel.get();
     testing.expect(value1 == 1234);
 
@@ -321,12 +320,10 @@ async fn testChannelGetter(channel: *Channel(i32)) void {
     testing.expect(value4.? == 4444);
     await last_put;
 }
-
-async fn testChannelPutter(channel: *Channel(i32)) void {
+fn testChannelPutter(channel: *Channel(i32)) callconv(.Async) void {
     channel.put(1234);
     channel.put(4567);
 }
-
-async fn testPut(channel: *Channel(i32), value: i32) void {
+fn testPut(channel: *Channel(i32), value: i32) callconv(.Async) void {
     channel.put(value);
 }

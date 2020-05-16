@@ -672,7 +672,7 @@ enum NodeType {
     NodeTypeSwitchProng,
     NodeTypeSwitchRange,
     NodeTypeCompTime,
-    NodeTypeNoAsync,
+    NodeTypeNoSuspend,
     NodeTypeBreak,
     NodeTypeContinue,
     NodeTypeAsmExpr,
@@ -718,7 +718,6 @@ struct AstNodeFnProto {
     Buf doc_comments;
 
     FnInline fn_inline;
-    bool is_async;
 
     VisibMod visib_mod;
     bool auto_err_set;
@@ -862,7 +861,7 @@ enum CallModifier {
     CallModifierAsync,
     CallModifierNeverTail,
     CallModifierNeverInline,
-    CallModifierNoAsync,
+    CallModifierNoSuspend,
     CallModifierAlwaysTail,
     CallModifierAlwaysInline,
     CallModifierCompileTime,
@@ -1014,7 +1013,7 @@ struct AstNodeCompTime {
     AstNode *expr;
 };
 
-struct AstNodeNoAsync {
+struct AstNodeNoSuspend {
     AstNode *expr;
 };
 
@@ -1225,7 +1224,7 @@ struct AstNode {
         AstNodeSwitchProng switch_prong;
         AstNodeSwitchRange switch_range;
         AstNodeCompTime comptime_expr;
-        AstNodeNoAsync noasync_expr;
+        AstNodeNoSuspend nosuspend_expr;
         AstNodeAsmExpr asm_expr;
         AstNodeFieldAccessExpr field_access_expr;
         AstNodePtrDerefExpr ptr_deref_expr;
@@ -1858,7 +1857,7 @@ enum PanicMsgId {
     PanicMsgIdResumedAnAwaitingFn,
     PanicMsgIdFrameTooSmall,
     PanicMsgIdResumedFnPendingAwait,
-    PanicMsgIdBadNoAsyncCall,
+    PanicMsgIdBadNoSuspendCall,
     PanicMsgIdResumeNotSuspendedFn,
     PanicMsgIdBadSentinel,
     PanicMsgIdShxTooBigRhs,
@@ -2376,7 +2375,7 @@ enum ScopeId {
     ScopeIdRuntime,
     ScopeIdTypeOf,
     ScopeIdExpr,
-    ScopeIdNoAsync,
+    ScopeIdNoSuspend,
 };
 
 struct Scope {
@@ -2510,9 +2509,9 @@ struct ScopeCompTime {
     Scope base;
 };
 
-// This scope is created for a noasync expression.
-// NodeTypeNoAsync
-struct ScopeNoAsync {
+// This scope is created for a nosuspend expression.
+// NodeTypeNoSuspend
+struct ScopeNoSuspend {
     Scope base;
 };
 
@@ -4488,7 +4487,7 @@ struct IrInstSrcAwait {
 
     IrInstSrc *frame;
     ResultLoc *result_loc;
-    bool is_noasync;
+    bool is_nosuspend;
 };
 
 struct IrInstGenAwait {
@@ -4497,7 +4496,7 @@ struct IrInstGenAwait {
     IrInstGen *frame;
     IrInstGen *result_loc;
     ZigFn *target_fn;
-    bool is_noasync;
+    bool is_nosuspend;
 };
 
 struct IrInstSrcResume {

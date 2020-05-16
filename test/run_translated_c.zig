@@ -243,4 +243,17 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\  return 0;
         \\}
     , "");
+
+    cases.add("scoped typedef",
+        \\int main(int argc, char **argv) {
+        \\  typedef int Foo;
+        \\  typedef Foo Bar;
+        \\  typedef void (*func)(int);
+        \\  typedef int uint32_t;
+        \\  uint32_t a;
+        \\  Foo i;
+        \\  Bar j;
+        \\  return 0;
+        \\}
+    , "");
 }

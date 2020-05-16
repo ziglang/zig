@@ -781,7 +781,7 @@ pub extern fn ZigClangSourceManager_getCharacterData(self: ?*const struct_ZigCla
 pub extern fn ZigClangASTContext_getPointerType(self: ?*const struct_ZigClangASTContext, T: struct_ZigClangQualType) struct_ZigClangQualType;
 pub extern fn ZigClangASTUnit_getASTContext(self: ?*struct_ZigClangASTUnit) ?*struct_ZigClangASTContext;
 pub extern fn ZigClangASTUnit_getSourceManager(self: *struct_ZigClangASTUnit) *struct_ZigClangSourceManager;
-pub extern fn ZigClangASTUnit_visitLocalTopLevelDecls(self: *struct_ZigClangASTUnit, context: ?*c_void, Fn: ?extern fn (?*c_void, *const struct_ZigClangDecl) bool) bool;
+pub extern fn ZigClangASTUnit_visitLocalTopLevelDecls(self: *struct_ZigClangASTUnit, context: ?*c_void, Fn: ?fn (?*c_void, *const struct_ZigClangDecl) callconv(.C) bool) bool;
 pub extern fn ZigClangRecordType_getDecl(record_ty: ?*const struct_ZigClangRecordType) *const struct_ZigClangRecordDecl;
 pub extern fn ZigClangTagDecl_isThisDeclarationADefinition(self: *const ZigClangTagDecl) bool;
 pub extern fn ZigClangEnumType_getDecl(record_ty: ?*const struct_ZigClangEnumType) *const struct_ZigClangEnumDecl;

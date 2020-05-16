@@ -73,7 +73,6 @@ pub const WM_XBUTTONDBLCLK = 0x020D;
 // WA
 pub const WA_INACTIVE = 0;
 pub const WA_ACTIVE = 0x0006;
-pub const WM_ACTIVATE = 0x0006;
 
 // WS
 pub const WS_OVERLAPPED = 0x00000000;
@@ -147,7 +146,6 @@ pub extern "user32" fn CreateWindowExA(
 
 pub extern "user32" fn RegisterClassExA(*const WNDCLASSEXA) callconv(.Stdcall) c_ushort;
 pub extern "user32" fn DefWindowProcA(HWND, Msg: UINT, WPARAM, LPARAM) callconv(.Stdcall) LRESULT;
-pub extern "user32" fn GetModuleHandleA(lpModuleName: ?LPCSTR) callconv(.Stdcall) HMODULE;
 pub extern "user32" fn ShowWindow(hWnd: ?HWND, nCmdShow: i32) callconv(.Stdcall) bool;
 pub extern "user32" fn UpdateWindow(hWnd: ?HWND) callconv(.Stdcall) bool;
 pub extern "user32" fn GetDC(hWnd: ?HWND) callconv(.Stdcall) ?HDC;

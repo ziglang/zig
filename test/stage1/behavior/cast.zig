@@ -762,7 +762,7 @@ test "variable initialization uses result locations properly with regards to the
 
 test "cast between [*c]T and ?[*:0]T on fn parameter" {
     const S = struct {
-        const Handler = ?extern fn ([*c]const u8) void;
+        const Handler = ?fn ([*c]const u8) callconv(.C) void;
         fn addCallback(handler: Handler) void {}
 
         fn myCallback(cstr: ?[*:0]const u8) callconv(.C) void {}
@@ -823,7 +823,16 @@ test "peer type resolve array pointer and unknown pointer" {
 
     comptime expect(@TypeOf(&array, const_ptr) == [*]const u8);
     comptime expect(@TypeOf(const_ptr, &array) == [*]const u8);
-    
+
     comptime expect(@TypeOf(&const_array, const_ptr) == [*]const u8);
     comptime expect(@TypeOf(const_ptr, &const_array) == [*]const u8);
+}
+
+test "comptime float casts" {
+    const a = @intToFloat(comptime_float, 1);
+    expect(a == 1);
+    expect(@TypeOf(a) == comptime_float);
+    const b = @floatToInt(comptime_int, 2);
+    expect(b == 2);
+    expect(@TypeOf(b) == comptime_int);
 }

@@ -78,7 +78,7 @@ enum TokenId {
     TokenIdKeywordNoInline,
     TokenIdKeywordLinkSection,
     TokenIdKeywordNoAlias,
-    TokenIdKeywordNoAsync,
+    TokenIdKeywordNoSuspend,
     TokenIdKeywordNull,
     TokenIdKeywordOr,
     TokenIdKeywordOrElse,

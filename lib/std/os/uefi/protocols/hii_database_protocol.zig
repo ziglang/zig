@@ -6,10 +6,10 @@ const hii = uefi.protocols.hii;
 /// Database manager for HII-related data structures.
 pub const HIIDatabaseProtocol = extern struct {
     _new_package_list: Status, // TODO
-    _remove_package_list: extern fn (*const HIIDatabaseProtocol, hii.HIIHandle) Status,
-    _update_package_list: extern fn (*const HIIDatabaseProtocol, hii.HIIHandle, *const hii.HIIPackageList) Status,
-    _list_package_lists: extern fn (*const HIIDatabaseProtocol, u8, ?*const Guid, *usize, [*]hii.HIIHandle) Status,
-    _export_package_lists: extern fn (*const HIIDatabaseProtocol, ?hii.HIIHandle, *usize, *hii.HIIPackageList) Status,
+    _remove_package_list: fn (*const HIIDatabaseProtocol, hii.HIIHandle) callconv(.C) Status,
+    _update_package_list: fn (*const HIIDatabaseProtocol, hii.HIIHandle, *const hii.HIIPackageList) callconv(.C) Status,
+    _list_package_lists: fn (*const HIIDatabaseProtocol, u8, ?*const Guid, *usize, [*]hii.HIIHandle) callconv(.C) Status,
+    _export_package_lists: fn (*const HIIDatabaseProtocol, ?hii.HIIHandle, *usize, *hii.HIIPackageList) callconv(.C) Status,
     _register_package_notify: Status, // TODO
     _unregister_package_notify: Status, // TODO
     _find_keyboard_layouts: Status, // TODO

@@ -220,8 +220,8 @@ static const char *node_type_str(NodeType node_type) {
             return "SwitchRange";
         case NodeTypeCompTime:
             return "CompTime";
-        case NodeTypeNoAsync:
-            return "NoAsync";
+        case NodeTypeNoSuspend:
+            return "NoSuspend";
         case NodeTypeBreak:
             return "Break";
         case NodeTypeContinue:
@@ -709,8 +709,8 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 switch (node->data.fn_call_expr.modifier) {
                     case CallModifierNone:
                         break;
-                    case CallModifierNoAsync:
-                        fprintf(ar->f, "noasync ");
+                    case CallModifierNoSuspend:
+                        fprintf(ar->f, "nosuspend ");
                         break;
                     case CallModifierAsync:
                         fprintf(ar->f, "async ");
@@ -1093,10 +1093,10 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 render_node_grouped(ar, node->data.comptime_expr.expr);
                 break;
             }
-        case NodeTypeNoAsync:
+        case NodeTypeNoSuspend:
             {
-                fprintf(ar->f, "noasync ");
-                render_node_grouped(ar, node->data.noasync_expr.expr);
+                fprintf(ar->f, "nosuspend ");
+                render_node_grouped(ar, node->data.nosuspend_expr.expr);
                 break;
             }
         case NodeTypeForExpr:

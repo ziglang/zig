@@ -284,11 +284,11 @@ pub const Builder = struct {
         return run_step;
     }
 
-    fn dupe(self: *Builder, bytes: []const u8) []u8 {
+    pub fn dupe(self: *Builder, bytes: []const u8) []u8 {
         return mem.dupe(self.allocator, u8, bytes) catch unreachable;
     }
 
-    fn dupePath(self: *Builder, bytes: []const u8) []u8 {
+    pub fn dupePath(self: *Builder, bytes: []const u8) []u8 {
         const the_copy = self.dupe(bytes);
         for (the_copy) |*byte| {
             switch (byte.*) {
@@ -717,7 +717,7 @@ pub const Builder = struct {
         return self.invalid_user_input;
     }
 
-    fn spawnChild(self: *Builder, argv: []const []const u8) !void {
+    pub fn spawnChild(self: *Builder, argv: []const []const u8) !void {
         return self.spawnChildEnvMap(null, self.env_map, argv);
     }
 
@@ -843,7 +843,7 @@ pub const Builder = struct {
         }) catch unreachable;
     }
 
-    fn updateFile(self: *Builder, source_path: []const u8, dest_path: []const u8) !void {
+    pub fn updateFile(self: *Builder, source_path: []const u8, dest_path: []const u8) !void {
         if (self.verbose) {
             warn("cp {} {} ", .{ source_path, dest_path });
         }
@@ -855,7 +855,7 @@ pub const Builder = struct {
         };
     }
 
-    fn pathFromRoot(self: *Builder, rel_path: []const u8) []u8 {
+    pub fn pathFromRoot(self: *Builder, rel_path: []const u8) []u8 {
         return fs.path.resolve(self.allocator, &[_][]const u8{ self.build_root, rel_path }) catch unreachable;
     }
 
@@ -985,7 +985,7 @@ pub const Builder = struct {
         self.search_prefixes.append(search_prefix) catch unreachable;
     }
 
-    fn getInstallPath(self: *Builder, dir: InstallDir, dest_rel_path: []const u8) []const u8 {
+    pub fn getInstallPath(self: *Builder, dir: InstallDir, dest_rel_path: []const u8) []const u8 {
         const base_dir = switch (dir) {
             .Prefix => self.install_path,
             .Bin => self.exe_dir,
@@ -1132,6 +1132,7 @@ pub const LibExeObjStep = struct {
     name_prefix: []const u8,
     filter: ?[]const u8,
     single_threaded: bool,
+    test_evented_io: bool = false,
     code_model: builtin.CodeModel = .default,
 
     root_src: ?FileSource,
@@ -1862,6 +1863,10 @@ pub const LibExeObjStep = struct {
         if (self.filter) |filter| {
             try zig_args.append("--test-filter");
             try zig_args.append(filter);
+        }
+
+        if (self.test_evented_io) {
+            try zig_args.append("--test-evented-io");
         }
 
         if (self.name_prefix.len != 0) {

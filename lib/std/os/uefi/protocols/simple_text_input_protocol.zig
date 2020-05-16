@@ -6,8 +6,8 @@ const Status = uefi.Status;
 
 /// Character input devices, e.g. Keyboard
 pub const SimpleTextInputProtocol = extern struct {
-    _reset: extern fn (*const SimpleTextInputProtocol, bool) usize,
-    _read_key_stroke: extern fn (*const SimpleTextInputProtocol, *InputKey) Status,
+    _reset: fn (*const SimpleTextInputProtocol, bool) callconv(.C) usize,
+    _read_key_stroke: fn (*const SimpleTextInputProtocol, *InputKey) callconv(.C) Status,
     wait_for_key: Event,
 
     /// Resets the input device hardware.

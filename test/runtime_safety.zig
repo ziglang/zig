@@ -234,12 +234,12 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\}
     );
 
-    cases.addRuntimeSafety("noasync function call, callee suspends",
+    cases.addRuntimeSafety("nosuspend function call, callee suspends",
         \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);
         \\}
         \\pub fn main() void {
-        \\    _ = noasync add(101, 100);
+        \\    _ = nosuspend add(101, 100);
         \\}
         \\fn add(a: i32, b: i32) i32 {
         \\    if (a > 100) {
@@ -282,7 +282,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    var ptr = other;
         \\    var frame = @asyncCall(&bytes, {}, ptr);
         \\}
-        \\async fn other() void {
+        \\fn other() callconv(.Async) void {
         \\    suspend;
         \\}
     );
@@ -874,16 +874,16 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    return &failing_frame;
         \\}
         \\
-        \\async fn failing() anyerror!void {
+        \\fn failing() anyerror!void {
         \\    suspend;
         \\    return second();
         \\}
         \\
-        \\async fn second() anyerror!void {
+        \\fn second() callconv(.Async) anyerror!void {
         \\    return error.Fail;
         \\}
         \\
-        \\async fn printTrace(p: anyframe->anyerror!void) void {
+        \\fn printTrace(p: anyframe->anyerror!void) void {
         \\    (await p) catch unreachable;
         \\}
     );

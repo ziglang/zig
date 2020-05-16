@@ -106,7 +106,7 @@ static ScopeExpr *find_expr_scope(Scope *scope) {
             case ScopeIdDecls:
             case ScopeIdFnDef:
             case ScopeIdCompTime:
-            case ScopeIdNoAsync:
+            case ScopeIdNoSuspend:
             case ScopeIdVarDecl:
             case ScopeIdCImport:
             case ScopeIdSuspend:
@@ -227,9 +227,9 @@ Scope *create_comptime_scope(CodeGen *g, AstNode *node, Scope *parent) {
     return &scope->base;
 }
 
-Scope *create_noasync_scope(CodeGen *g, AstNode *node, Scope *parent) {
-    ScopeNoAsync *scope = heap::c_allocator.create<ScopeNoAsync>();
-    init_scope(g, &scope->base, ScopeIdNoAsync, node, parent);
+Scope *create_nosuspend_scope(CodeGen *g, AstNode *node, Scope *parent) {
+    ScopeNoSuspend *scope = heap::c_allocator.create<ScopeNoSuspend>();
+    init_scope(g, &scope->base, ScopeIdNoSuspend, node, parent);
     return &scope->base;
 }
 
@@ -1528,8 +1528,6 @@ ZigType *get_generic_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
 }
 
 CallingConvention cc_from_fn_proto(AstNodeFnProto *fn_proto) {
-    if (fn_proto->is_async)
-        return CallingConventionAsync;
     // Compatible with the C ABI
     if (fn_proto->is_extern || fn_proto->is_export)
         return CallingConventionC;
@@ -3771,7 +3769,7 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
         case NodeTypeCompTime:
             preview_comptime_decl(g, node, decls_scope);
             break;
-        case NodeTypeNoAsync:
+        case NodeTypeNoSuspend:
         case NodeTypeParamDecl:
         case NodeTypeReturnExpr:
         case NodeTypeDefer:
@@ -4689,7 +4687,7 @@ void add_async_error_notes(CodeGen *g, ErrorMsg *msg, ZigFn *fn) {
 static Error analyze_callee_async(CodeGen *g, ZigFn *fn, ZigFn *callee, AstNode *call_node,
         bool must_not_be_async, CallModifier modifier)
 {
-    if (modifier == CallModifierNoAsync)
+    if (modifier == CallModifierNoSuspend)
         return ErrorNone;
     bool callee_is_async = false;
     switch (callee->type_entry->data.fn.fn_type_id.cc) {
@@ -4812,7 +4810,7 @@ static void analyze_fn_async(CodeGen *g, ZigFn *fn, bool resolve_frame) {
     }
     for (size_t i = 0; i < fn->await_list.length; i += 1) {
         IrInstGenAwait *await = fn->await_list.at(i);
-        if (await->is_noasync) continue;
+        if (await->is_nosuspend) continue;
         switch (analyze_callee_async(g, fn, await->target_fn, await->base.base.source_node, must_not_be_async,
                     CallModifierNone))
         {
@@ -6239,7 +6237,7 @@ static void mark_suspension_point(Scope *scope) {
             case ScopeIdDecls:
             case ScopeIdFnDef:
             case ScopeIdCompTime:
-            case ScopeIdNoAsync:
+            case ScopeIdNoSuspend:
             case ScopeIdCImport:
             case ScopeIdSuspend:
             case ScopeIdTypeOf:
@@ -6472,7 +6470,7 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
     // The funtion call result of foo() must be spilled.
     for (size_t i = 0; i < fn->await_list.length; i += 1) {
         IrInstGenAwait *await = fn->await_list.at(i);
-        if (await->is_noasync) {
+        if (await->is_nosuspend) {
             continue;
         }
         if (await->base.value->special != ConstValSpecialRuntime) {

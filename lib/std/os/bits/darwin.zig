@@ -125,7 +125,7 @@ pub const empty_sigset = sigset_t(0);
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with function name.
 pub const Sigaction = extern struct {
-    handler: extern fn (c_int) void,
+    handler: fn (c_int) callconv(.C) void,
     sa_mask: sigset_t,
     sa_flags: c_int,
 };
@@ -1263,10 +1263,10 @@ pub const RTLD_NOLOAD = 0x10;
 pub const RTLD_NODELETE = 0x80;
 pub const RTLD_FIRST = 0x100;
 
-pub const RTLD_NEXT = @intToPtr(*c_void, ~maxInt(usize));
-pub const RTLD_DEFAULT = @intToPtr(*c_void, ~maxInt(usize) - 1);
-pub const RTLD_SELF = @intToPtr(*c_void, ~maxInt(usize) - 2);
-pub const RTLD_MAIN_ONLY = @intToPtr(*c_void, ~maxInt(usize) - 4);
+pub const RTLD_NEXT = @intToPtr(*c_void, @bitCast(usize, @as(isize, -1)));
+pub const RTLD_DEFAULT = @intToPtr(*c_void, @bitCast(usize, @as(isize, -2)));
+pub const RTLD_SELF = @intToPtr(*c_void, @bitCast(usize, @as(isize, -3)));
+pub const RTLD_MAIN_ONLY = @intToPtr(*c_void, @bitCast(usize, @as(isize, -5)));
 
 /// duplicate file descriptor
 pub const F_DUPFD = 0;

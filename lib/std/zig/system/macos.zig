@@ -39,7 +39,7 @@ pub fn version_from_build(build: []const u8) !std.builtin.Version {
             zend += 1;
         }
         if (zend == yindex + 1) return error.InvalidVersion;
-        const z = std.fmt.parseUnsigned(u16, build[yindex + 1..zend], 10) catch return error.InvalidVersion;
+        const z = std.fmt.parseUnsigned(u16, build[yindex + 1 .. zend], 10) catch return error.InvalidVersion;
 
         result.patch = switch (result.minor) {
             // TODO: compiler complains without explicit @as() coercion
@@ -97,7 +97,9 @@ pub fn version_from_build(build: []const u8) !std.builtin.Version {
             4 => @as(u32, switch (y) { // Tiger: 10.4
                 'A' => 0,
                 'B' => 1,
-                'C', 'E', => 2,
+                'C',
+                'E',
+                => 2,
                 'F' => 3,
                 'G' => @as(u32, block: {
                     if (z >= 1454) break :block 5;
@@ -105,7 +107,10 @@ pub fn version_from_build(build: []const u8) !std.builtin.Version {
                 }),
                 'H' => 5,
                 'I' => 6,
-                'J', 'K', 'N', => 7,
+                'J',
+                'K',
+                'N',
+                => 7,
                 'L' => 8,
                 'P' => 9,
                 'R' => 10,
@@ -438,7 +443,7 @@ test "version_from_build" {
     for (known) |pair| {
         var buf: [32]u8 = undefined;
         const ver = try version_from_build(pair[0]);
-        const sver = try std.fmt.bufPrint(buf[0..], "{}.{}.{}", .{ver.major, ver.minor, ver.patch});
+        const sver = try std.fmt.bufPrint(buf[0..], "{}.{}.{}", .{ ver.major, ver.minor, ver.patch });
         std.testing.expect(std.mem.eql(u8, sver, pair[1]));
     }
 }

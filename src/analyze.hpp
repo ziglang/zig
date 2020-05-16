@@ -125,7 +125,7 @@ ScopeLoop *create_loop_scope(CodeGen *g, AstNode *node, Scope *parent);
 ScopeSuspend *create_suspend_scope(CodeGen *g, AstNode *node, Scope *parent);
 ScopeFnDef *create_fndef_scope(CodeGen *g, AstNode *node, Scope *parent, ZigFn *fn_entry);
 Scope *create_comptime_scope(CodeGen *g, AstNode *node, Scope *parent);
-Scope *create_noasync_scope(CodeGen *g, AstNode *node, Scope *parent);
+Scope *create_nosuspend_scope(CodeGen *g, AstNode *node, Scope *parent);
 Scope *create_runtime_scope(CodeGen *g, AstNode *node, Scope *parent, IrInstSrc *is_comptime);
 Scope *create_typeof_scope(CodeGen *g, AstNode *node, Scope *parent);
 ScopeExpr *create_expr_scope(CodeGen *g, AstNode *node, Scope *parent);

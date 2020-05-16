@@ -136,7 +136,7 @@ pub const Token = union(enum) {
 /// they are encountered. No copies or allocations are performed during parsing and the entire
 /// parsing state requires ~40-50 bytes of stack space.
 ///
-/// Conforms strictly to RFC8529.
+/// Conforms strictly to RFC8259.
 ///
 /// For a non-byte based wrapper, consider using TokenStream instead.
 pub const StreamingParser = struct {
@@ -2194,7 +2194,7 @@ test "write json then parse it" {
     try jw.emitBool(true);
 
     try jw.objectField("int");
-    try jw.emitNumber(@as(i32, 1234));
+    try jw.emitNumber(1234);
 
     try jw.objectField("array");
     try jw.beginArray();
@@ -2203,7 +2203,7 @@ test "write json then parse it" {
     try jw.emitNull();
 
     try jw.arrayElem();
-    try jw.emitNumber(@as(f64, 12.34));
+    try jw.emitNumber(12.34);
 
     try jw.endArray();
 
@@ -2336,7 +2336,7 @@ pub const StringifyOptions = struct {
         /// After a colon, should whitespace be inserted?
         separator: bool = true,
 
-        fn outputIndent(
+        pub fn outputIndent(
             whitespace: @This(),
             out_stream: var,
         ) @TypeOf(out_stream).Error!void {
