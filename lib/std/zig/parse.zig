@@ -231,6 +231,12 @@ fn parseContainerMembers(arena: *Allocator, it: *TokenIterator, tree: *Tree, top
         const next = it.peek().?.id;
         switch (next) {
             .Eof => break,
+            .Keyword_comptime => {
+                _ = nextToken(it);
+                try tree.errors.push(.{
+                    .ExpectedBlockOrField = .{ .token = it.index },
+                });
+            },
             else => {
                 const index = it.index;
                 if (next == .RBrace) {
