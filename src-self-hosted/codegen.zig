@@ -6,6 +6,8 @@ const Type = @import("type.zig").Type;
 const Value = @import("value.zig").Value;
 const TypedValue = @import("TypedValue.zig");
 const link = @import("link.zig");
+const Module = @import("Module.zig");
+const ErrorMsg = Module.ErrorMsg;
 const Target = std.Target;
 const Allocator = mem.Allocator;
 
@@ -14,7 +16,7 @@ pub const Result = union(enum) {
     appended: void,
     /// The value is available externally, `code` is unused.
     externally_managed: []const u8,
-    fail: *ir.ErrorMsg,
+    fail: *Module.ErrorMsg,
 };
 
 pub fn generateSymbol(
@@ -77,7 +79,7 @@ pub fn generateSymbol(
                 }
             }
             return Result{
-                .fail = try ir.ErrorMsg.create(
+                .fail = try ErrorMsg.create(
                     bin_file.allocator,
                     src,
                     "TODO implement generateSymbol for more kinds of arrays",
@@ -107,7 +109,7 @@ pub fn generateSymbol(
                 return Result{ .appended = {} };
             }
             return Result{
-                .fail = try ir.ErrorMsg.create(
+                .fail = try ErrorMsg.create(
                     bin_file.allocator,
                     src,
                     "TODO implement generateSymbol for pointer {}",
@@ -123,7 +125,7 @@ pub fn generateSymbol(
                 return Result{ .appended = {} };
             }
             return Result{
-                .fail = try ir.ErrorMsg.create(
+                .fail = try ErrorMsg.create(
                     bin_file.allocator,
                     src,
                     "TODO implement generateSymbol for int type '{}'",
@@ -133,7 +135,7 @@ pub fn generateSymbol(
         },
         else => |t| {
             return Result{
-                .fail = try ir.ErrorMsg.create(
+                .fail = try ErrorMsg.create(
                     bin_file.allocator,
                     src,
                     "TODO implement generateSymbol for type '{}'",
@@ -147,10 +149,10 @@ pub fn generateSymbol(
 const Function = struct {
     bin_file: *link.ElfFile,
     target: *const std.Target,
-    mod_fn: *const ir.Module.Fn,
+    mod_fn: *const Module.Fn,
     code: *std.ArrayList(u8),
     inst_table: std.AutoHashMap(*ir.Inst, MCValue),
-    err_msg: ?*ir.ErrorMsg,
+    err_msg: ?*ErrorMsg,
 
     const MCValue = union(enum) {
         none,
@@ -570,7 +572,7 @@ const Function = struct {
     fn fail(self: *Function, src: usize, comptime format: []const u8, args: var) error{ CodegenFail, OutOfMemory } {
         @setCold(true);
         assert(self.err_msg == null);
-        self.err_msg = try ir.ErrorMsg.create(self.code.allocator, src, format, args);
+        self.err_msg = try ErrorMsg.create(self.code.allocator, src, format, args);
         return error.CodegenFail;
     }
 };

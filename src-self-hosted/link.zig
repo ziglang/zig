@@ -3,6 +3,7 @@ const mem = std.mem;
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const ir = @import("ir.zig");
+const Module = @import("Module.zig");
 const fs = std.fs;
 const elf = std.elf;
 const codegen = @import("codegen.zig");
@@ -45,8 +46,8 @@ pub fn writeFilePath(
     allocator: *Allocator,
     dir: fs.Dir,
     sub_path: []const u8,
-    module: ir.Module,
-    errors: *std.ArrayList(ir.ErrorMsg),
+    module: Module,
+    errors: *std.ArrayList(Module.ErrorMsg),
 ) !void {
     const options: Options = .{
         .target = module.target,
@@ -755,7 +756,7 @@ pub const ElfFile = struct {
         };
     }
 
-    pub fn allocateDeclIndexes(self: *ElfFile, decl: *ir.Module.Decl) !void {
+    pub fn allocateDeclIndexes(self: *ElfFile, decl: *Module.Decl) !void {
         if (decl.link.local_sym_index != 0) return;
 
         try self.local_symbols.ensureCapacity(self.allocator, self.local_symbols.items.len + 1);
@@ -784,7 +785,7 @@ pub const ElfFile = struct {
         };
     }
 
-    pub fn updateDecl(self: *ElfFile, module: *ir.Module, decl: *ir.Module.Decl) !void {
+    pub fn updateDecl(self: *ElfFile, module: *Module, decl: *Module.Decl) !void {
         var code_buffer = std.ArrayList(u8).init(self.allocator);
         defer code_buffer.deinit();
 
@@ -878,16 +879,16 @@ pub const ElfFile = struct {
         try self.file.pwriteAll(code, file_offset);
 
         // Since we updated the vaddr and the size, each corresponding export symbol also needs to be updated.
-        const decl_exports = module.decl_exports.getValue(decl) orelse &[0]*ir.Module.Export{};
+        const decl_exports = module.decl_exports.getValue(decl) orelse &[0]*Module.Export{};
         return self.updateDeclExports(module, decl, decl_exports);
     }
 
     /// Must be called only after a successful call to `updateDecl`.
     pub fn updateDeclExports(
         self: *ElfFile,
-        module: *ir.Module,
-        decl: *const ir.Module.Decl,
-        exports: []const *ir.Module.Export,
+        module: *Module,
+        decl: *const Module.Decl,
+        exports: []const *Module.Export,
     ) !void {
         try self.global_symbols.ensureCapacity(self.allocator, self.global_symbols.items.len + exports.len);
         const typed_value = decl.typed_value.most_recent.typed_value;
@@ -900,7 +901,7 @@ pub const ElfFile = struct {
                     try module.failed_exports.ensureCapacity(module.failed_exports.size + 1);
                     module.failed_exports.putAssumeCapacityNoClobber(
                         exp,
-                        try ir.ErrorMsg.create(self.allocator, 0, "Unimplemented: ExportOptions.section", .{}),
+                        try Module.ErrorMsg.create(self.allocator, 0, "Unimplemented: ExportOptions.section", .{}),
                     );
                     continue;
                 }
@@ -918,7 +919,7 @@ pub const ElfFile = struct {
                     try module.failed_exports.ensureCapacity(module.failed_exports.size + 1);
                     module.failed_exports.putAssumeCapacityNoClobber(
                         exp,
-                        try ir.ErrorMsg.create(self.allocator, 0, "Unimplemented: GlobalLinkage.LinkOnce", .{}),
+                        try Module.ErrorMsg.create(self.allocator, 0, "Unimplemented: GlobalLinkage.LinkOnce", .{}),
                     );
                     continue;
                 },

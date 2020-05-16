@@ -6,7 +6,7 @@ const BigIntConst = std.math.big.int.Const;
 const BigIntMutable = std.math.big.int.Mutable;
 const Target = std.Target;
 const Allocator = std.mem.Allocator;
-const ir = @import("ir.zig");
+const Module = @import("Module.zig");
 
 /// This is the raw data, with no bookkeeping, no memory awareness,
 /// no de-duplication, and no type system awareness.
@@ -904,7 +904,7 @@ pub const Value = extern union {
 
         pub const Function = struct {
             base: Payload = Payload{ .tag = .function },
-            func: *ir.Module.Fn,
+            func: *Module.Fn,
         };
 
         pub const ArraySentinel0_u8_Type = struct {
@@ -926,7 +926,7 @@ pub const Value = extern union {
         /// Represents a pointer to a decl, not the value of the decl.
         pub const DeclRef = struct {
             base: Payload = Payload{ .tag = .decl_ref },
-            decl: *ir.Module.Decl,
+            decl: *Module.Decl,
         };
 
         pub const ElemPtr = struct {

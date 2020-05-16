@@ -6,9 +6,10 @@ const process = std.process;
 const Allocator = mem.Allocator;
 const ArrayList = std.ArrayList;
 const ast = std.zig.ast;
-const ir = @import("ir.zig");
+const Module = @import("Module.zig");
 const link = @import("link.zig");
 const Package = @import("Package.zig");
+const zir = @import("zir.zig");
 
 const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 
@@ -438,7 +439,7 @@ fn buildOutputType(
         const root_pkg = try Package.create(gpa, fs.cwd(), ".", src_path);
         errdefer root_pkg.destroy();
 
-        const root_scope = try gpa.create(ir.Module.Scope.ZIRModule);
+        const root_scope = try gpa.create(Module.Scope.ZIRModule);
         errdefer gpa.destroy(root_scope);
         root_scope.* = .{
             .sub_file_path = root_pkg.root_src_path,
@@ -447,19 +448,19 @@ fn buildOutputType(
             .status = .never_loaded,
         };
 
-        break :blk ir.Module{
+        break :blk Module{
             .allocator = gpa,
             .root_pkg = root_pkg,
             .root_scope = root_scope,
             .bin_file = &bin_file,
             .optimize_mode = .Debug,
-            .decl_table = std.AutoHashMap(ir.Module.Decl.Hash, *ir.Module.Decl).init(gpa),
-            .decl_exports = std.AutoHashMap(*ir.Module.Decl, []*ir.Module.Export).init(gpa),
-            .export_owners = std.AutoHashMap(*ir.Module.Decl, []*ir.Module.Export).init(gpa),
-            .failed_decls = std.AutoHashMap(*ir.Module.Decl, *ir.ErrorMsg).init(gpa),
-            .failed_files = std.AutoHashMap(*ir.Module.Scope.ZIRModule, *ir.ErrorMsg).init(gpa),
-            .failed_exports = std.AutoHashMap(*ir.Module.Export, *ir.ErrorMsg).init(gpa),
-            .work_queue = std.fifo.LinearFifo(ir.Module.WorkItem, .Dynamic).init(gpa),
+            .decl_table = std.AutoHashMap(Module.Decl.Hash, *Module.Decl).init(gpa),
+            .decl_exports = std.AutoHashMap(*Module.Decl, []*Module.Export).init(gpa),
+            .export_owners = std.AutoHashMap(*Module.Decl, []*Module.Export).init(gpa),
+            .failed_decls = std.AutoHashMap(*Module.Decl, *Module.ErrorMsg).init(gpa),
+            .failed_files = std.AutoHashMap(*Module.Scope.ZIRModule, *Module.ErrorMsg).init(gpa),
+            .failed_exports = std.AutoHashMap(*Module.Export, *Module.ErrorMsg).init(gpa),
+            .work_queue = std.fifo.LinearFifo(Module.WorkItem, .Dynamic).init(gpa),
         };
     };
     defer module.deinit();
@@ -491,7 +492,7 @@ fn buildOutputType(
     }
 }
 
-fn updateModule(gpa: *Allocator, module: *ir.Module, zir_out_path: ?[]const u8) !void {
+fn updateModule(gpa: *Allocator, module: *Module, zir_out_path: ?[]const u8) !void {
     try module.update();
 
     var errors = try module.getAllErrorsAlloc();
@@ -509,7 +510,7 @@ fn updateModule(gpa: *Allocator, module: *ir.Module, zir_out_path: ?[]const u8) 
     }
 
     if (zir_out_path) |zop| {
-        var new_zir_module = try ir.text.emit_zir(gpa, module.*);
+        var new_zir_module = try zir.emit(gpa, module.*);
         defer new_zir_module.deinit(gpa);
 
         const baf = try io.BufferedAtomicFile.create(gpa, fs.cwd(), zop, .{});

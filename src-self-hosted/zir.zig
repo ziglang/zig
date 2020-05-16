@@ -6,10 +6,11 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const BigIntConst = std.math.big.int.Const;
 const BigIntMutable = std.math.big.int.Mutable;
-const Type = @import("../type.zig").Type;
-const Value = @import("../value.zig").Value;
-const TypedValue = @import("../TypedValue.zig");
-const ir = @import("../ir.zig");
+const Type = @import("type.zig").Type;
+const Value = @import("value.zig").Value;
+const TypedValue = @import("TypedValue.zig");
+const ir = @import("ir.zig");
+const IrModule = @import("Module.zig");
 
 /// These are instructions that correspond to the ZIR text format. See `ir.Inst` for
 /// in-memory, analyzed instructions with types and values.
@@ -990,7 +991,7 @@ const Parser = struct {
     }
 };
 
-pub fn emit_zir(allocator: *Allocator, old_module: ir.Module) !Module {
+pub fn emit(allocator: *Allocator, old_module: IrModule) !Module {
     var ctx: EmitZIR = .{
         .allocator = allocator,
         .decls = .{},
@@ -1013,7 +1014,7 @@ pub fn emit_zir(allocator: *Allocator, old_module: ir.Module) !Module {
 const EmitZIR = struct {
     allocator: *Allocator,
     arena: std.heap.ArenaAllocator,
-    old_module: *const ir.Module,
+    old_module: *const IrModule,
     decls: std.ArrayListUnmanaged(*Inst),
     decl_table: std.AutoHashMap(*ir.Inst, *Inst),
 
@@ -1171,7 +1172,7 @@ const EmitZIR = struct {
 
     fn emitBody(
         self: *EmitZIR,
-        body: ir.Module.Body,
+        body: IrModule.Body,
         inst_table: *std.AutoHashMap(*ir.Inst, *Inst),
         instructions: *std.ArrayList(*Inst),
     ) Allocator.Error!void {
