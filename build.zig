@@ -53,7 +53,6 @@ pub fn build(b: *Builder) !void {
     exe.setBuildMode(mode);
     test_step.dependOn(&exe.step);
     b.default_step.dependOn(&exe.step);
-    exe.install();
 
     const skip_release = b.option(bool, "skip-release", "Main test suite skips release builds") orelse false;
     const skip_release_small = b.option(bool, "skip-release-small", "Main test suite skips release-small builds") orelse skip_release;
@@ -69,6 +68,9 @@ pub fn build(b: *Builder) !void {
         ctx.llvm = try findLLVM(b, ctx.llvm_config_exe);
 
         try configureStage2(b, exe, ctx);
+    }
+    if (!only_install_lib_files) {
+        exe.install();
     }
     const link_libc = b.option(bool, "force-link-libc", "Force self-hosted compiler to link libc") orelse false;
     if (link_libc) exe.linkLibC();
