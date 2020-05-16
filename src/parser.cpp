@@ -538,8 +538,8 @@ enum ContainerFieldState {
 //     <- TestDecl ContainerMembers
 //      / TopLevelComptime ContainerMembers
 //      / KEYWORD_pub? TopLevelDecl ContainerMembers
-//      / KEYWORD_comptime? ContainerField COMMA ContainerMembers
-//      / KEYWORD_comptime? ContainerField
+//      / ContainerField COMMA ContainerMembers
+//      / ContainerField
 //      /
 static AstNodeContainerDecl ast_parse_container_members(ParseContext *pc) {
     AstNodeContainerDecl res = {};
@@ -862,7 +862,7 @@ static AstNode *ast_parse_var_decl(ParseContext *pc) {
     return res;
 }
 
-// ContainerField <- IDENTIFIER (COLON TypeExpr ByteAlign?)? (EQUAL Expr)?
+// ContainerField <- KEYWORD_comptime? IDENTIFIER (COLON TypeExpr ByteAlign?)? (EQUAL Expr)?
 static AstNode *ast_parse_container_field(ParseContext *pc) {
     Token *identifier = eat_token_if(pc, TokenIdSymbol);
     if (identifier == nullptr)

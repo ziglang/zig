@@ -57,16 +57,10 @@ pub fn parse(allocator: *Allocator, source: []const u8) Allocator.Error!*Tree {
 fn parseRoot(arena: *Allocator, it: *TokenIterator, tree: *Tree) Allocator.Error!*Node.Root {
     const node = try arena.create(Node.Root);
     node.* = .{
-        .decls = try parseContainerMembers(arena, it, tree),
-        .eof_token = eatToken(it, .Eof) orelse blk: {
-            // parseContainerMembers will try to skip as much
-            // invalid tokens as it can so this can only be a '}'
-            const tok = eatToken(it, .RBrace).?;
-            try tree.errors.push(.{
-                .ExpectedContainerMembers = .{ .token = tok },
-            });
-            break :blk tok;
-        },
+        .decls = try parseContainerMembers(arena, it, tree, true),
+        // parseContainerMembers will try to skip as much
+        // invalid tokens as it can so this can only be the EOF
+        .eof_token = eatToken(it, .Eof).?,
     };
     return node;
 }
@@ -75,10 +69,10 @@ fn parseRoot(arena: *Allocator, it: *TokenIterator, tree: *Tree) Allocator.Error
 ///     <- TestDecl ContainerMembers
 ///      / TopLevelComptime ContainerMembers
 ///      / KEYWORD_pub? TopLevelDecl ContainerMembers
-///      / KEYWORD_pub? ContainerField COMMA ContainerMembers
-///      / KEYWORD_pub? ContainerField
+///      / ContainerField COMMA ContainerMembers
+///      / ContainerField
 ///      /
-fn parseContainerMembers(arena: *Allocator, it: *TokenIterator, tree: *Tree) !Node.Root.DeclList {
+fn parseContainerMembers(arena: *Allocator, it: *TokenIterator, tree: *Tree, top_level: bool) !Node.Root.DeclList {
     var list = Node.Root.DeclList.init(arena);
 
     var field_state: union(enum) {
@@ -205,9 +199,15 @@ fn parseContainerMembers(arena: *Allocator, it: *TokenIterator, tree: *Tree) !No
                 // try to continue parsing
                 const index = it.index;
                 findNextContainerMember(it);
-                switch (it.peek().?.id) {
-                    .Eof, .RBrace => break,
+                const next = it.peek().?.id;
+                switch (next) {
+                    .Eof => break,
                     else => {
+                        if (next == .RBrace) {
+                            if (!top_level) break;
+                            _ = nextToken(it);
+                        }
+
                         // add error and continue
                         try tree.errors.push(.{
                             .ExpectedToken = .{ .token = index, .expected_id = .Comma },
@@ -228,12 +228,18 @@ fn parseContainerMembers(arena: *Allocator, it: *TokenIterator, tree: *Tree) !No
             });
         }
 
-        switch (it.peek().?.id) {
-            .Eof, .RBrace => break,
+        const next = it.peek().?.id;
+        switch (next) {
+            .Eof => break,
             else => {
+                const index = it.index;
+                if (next == .RBrace) {
+                    if (!top_level) break;
+                    _ = nextToken(it);
+                }
+
                 // this was likely not supposed to end yet,
                 // try to find the next declaration
-                const index = it.index;
                 findNextContainerMember(it);
                 try tree.errors.push(.{
                     .ExpectedContainerMembers = .{ .token = index },
@@ -278,7 +284,10 @@ fn findNextContainerMember(it: *TokenIterator) void {
                 }
             },
             .LParen, .LBracket, .LBrace => level += 1,
-            .RParen, .RBracket, .RBrace => {
+            .RParen, .RBracket => {
+                if (level != 0) level -= 1;
+            },
+            .RBrace => {
                 if (level == 0) {
                     // end of container, exit
                     putBackToken(it, tok.index);
@@ -402,20 +411,16 @@ fn parseTopLevelDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node
         fn_node.*.extern_export_inline_token = extern_export_inline_token;
         fn_node.*.lib_name = lib_name;
         if (eatToken(it, .Semicolon)) |_| return node;
-        if (parseBlock(arena, it, tree) catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
+
+        if (try expectNodeRecoverable(arena, it, tree, parseBlock, .{
             // since parseBlock only return error.ParseError on
             // a missing '}' we can assume this function was
             // supposed to end here.
-            error.ParseError => return node,
-        }) |body_node| {
-            fn_node.body_node = body_node;
-            return node;
-        }
-        try tree.errors.push(.{
             .ExpectedSemiOrLBrace = .{ .token = it.index },
-        });
-        return error.ParseError;
+        })) |body_node| {
+            fn_node.body_node = body_node;
+        }
+        return node;
     }
 
     if (extern_export_inline_token) |token| {
@@ -490,14 +495,11 @@ fn parseFnProto(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const exclamation_token = eatToken(it, .Bang);
 
     const return_type_expr = (try parseVarType(arena, it, tree)) orelse
-        (try parseTypeExpr(arena, it, tree)) orelse blk: {
-        try tree.errors.push(.{
-            .ExpectedReturnType = .{ .token = it.index },
-        });
+        try expectNodeRecoverable(arena, it, tree, parseTypeExpr, .{
         // most likely the user forgot to specify the return type.
         // Mark return type as invalid and try to continue.
-        break :blk null;
-    };
+        .ExpectedReturnType = .{ .token = it.index },
+    });
 
     // TODO https://github.com/ziglang/zig/issues/3750
     const R = Node.FnProto.ReturnType;
@@ -508,9 +510,10 @@ fn parseFnProto(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     else
         R{ .Explicit = return_type_expr.? };
 
-    const var_args_token = if (params.len > 0)
-        params.at(params.len - 1).*.cast(Node.ParamDecl).?.var_args_token
-    else
+    const var_args_token = if (params.len > 0) blk: {
+        const param_type = params.at(params.len - 1).*.cast(Node.ParamDecl).?.param_type;
+        break :blk if (param_type == .var_args) param_type.var_args else null;
+    } else
         null;
 
     const fn_proto_node = try arena.create(Node.FnProto);
@@ -707,12 +710,7 @@ fn parseStatement(arena: *Allocator, it: *TokenIterator, tree: *Tree) Error!?*No
     if (try parseLabeledStatement(arena, it, tree)) |node| return node;
     if (try parseSwitchExpr(arena, it, tree)) |node| return node;
     if (try parseAssignExpr(arena, it, tree)) |node| {
-        _ = eatToken(it, .Semicolon) orelse {
-            try tree.errors.push(.{
-                .ExpectedToken = .{ .token = it.index, .expected_id = .Semicolon },
-            });
-            // pretend we saw a semicolon and continue parsing
-        };
+        _ = try expectTokenRecoverable(it, tree, .Semicolon);
         return node;
     }
 
@@ -727,16 +725,12 @@ fn parseIfStatement(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node 
     const if_prefix = if_node.cast(Node.If).?;
 
     const block_expr = (try parseBlockExpr(arena, it, tree));
-    const assign_expr = if (block_expr == null) blk: {
-        break :blk (try parseAssignExpr(arena, it, tree)) orelse null;
-    } else null;
-
-    if (block_expr == null and assign_expr == null) {
-        try tree.errors.push(.{
+    const assign_expr = if (block_expr == null)
+        try expectNode(arena, it, tree, parseAdditionExpr, .{
             .ExpectedBlockOrAssignment = .{ .token = it.index },
-        });
-        return error.ParseError;
-    }
+        })
+    else
+        null;
 
     const semicolon = if (assign_expr != null) eatToken(it, .Semicolon) else null;
 
@@ -773,10 +767,9 @@ fn parseIfStatement(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node 
         try tree.errors.push(.{
             .ExpectedSemiOrElse = .{ .token = it.index },
         });
-        return error.ParseError;
     }
 
-    unreachable;
+    return if_node;
 }
 
 /// LabeledStatement <- BlockLabel? (Block / LoopStatement)
@@ -882,7 +875,8 @@ fn parseForStatement(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node
         try tree.errors.push(.{
             .ExpectedSemiOrElse = .{ .token = it.index },
         });
-        return null;
+
+        return node;
     }
 
     return null;
@@ -944,7 +938,8 @@ fn parseWhileStatement(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*No
         try tree.errors.push(.{
             .ExpectedSemiOrElse = .{ .token = it.index },
         });
-        return null;
+
+        return node;
     }
 
     return null;
@@ -956,12 +951,7 @@ fn parseWhileStatement(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*No
 fn parseBlockExprStatement(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     if (try parseBlockExpr(arena, it, tree)) |node| return node;
     if (try parseAssignExpr(arena, it, tree)) |node| {
-        _ = eatToken(it, .Semicolon) orelse {
-            try tree.errors.push(.{
-                .ExpectedToken = .{ .token = it.index, .expected_id = .Semicolon },
-            });
-            // pretend we saw a semicolon and continue parsing
-        };
+        _ = try expectTokenRecoverable(it, tree, .Semicolon);
         return node;
     }
     return null;
@@ -1478,17 +1468,19 @@ fn parsePrimaryTypeExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*N
         return &node.base;
     }
     if (eatToken(it, .Keyword_error)) |token| {
-        const period = try expectToken(it, tree, .Period);
-        const identifier = try expectNode(arena, it, tree, parseIdentifier, .{
+        const period = try expectTokenRecoverable(it, tree, .Period);
+        const identifier = try expectNodeRecoverable(arena, it, tree, parseIdentifier, .{
             .ExpectedIdentifier = .{ .token = it.index },
         });
         const global_error_set = try createLiteral(arena, Node.ErrorType, token);
+        if (period == null or identifier == null) return global_error_set;
+
         const node = try arena.create(Node.InfixOp);
         node.* = .{
-            .op_token = period,
+            .op_token = period.?,
             .lhs = global_error_set,
             .op = .Period,
-            .rhs = identifier,
+            .rhs = identifier.?,
         };
         return &node.base;
     }
@@ -1948,15 +1940,8 @@ fn parseParamDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
         .comptime_token = comptime_token,
         .noalias_token = noalias_token,
         .name_token = name_token,
-        // TODO: These should be squished into a ParamType enum
-        .type_node = undefined,
-        .var_args_token = null,
+        .param_type = param_type,
     };
-    switch (param_type) {
-        .VarType => |node| param_decl.type_node = node,
-        .TypeExpr => |node| param_decl.type_node = node,
-        .VarArgs => |token| param_decl.var_args_token = token,
-    }
     return &param_decl.base;
 }
 
@@ -1964,19 +1949,14 @@ fn parseParamDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 ///     <- KEYWORD_var
 ///      / DOT3
 ///      / TypeExpr
-fn parseParamType(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?ParamType {
-    if (try parseVarType(arena, it, tree)) |node| return ParamType{ .VarType = node };
-    if (eatToken(it, .Ellipsis3)) |token| return ParamType{ .VarArgs = token };
-    if (try parseTypeExpr(arena, it, tree)) |node| return ParamType{ .TypeExpr = node };
+fn parseParamType(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?Node.ParamDecl.ParamType {
+    // TODO cast from tuple to error union is broken
+    const P = Node.ParamDecl.ParamType;
+    if (try parseVarType(arena, it, tree)) |node| return P{ .var_type = node };
+    if (eatToken(it, .Ellipsis3)) |token| return P{ .var_args = token };
+    if (try parseTypeExpr(arena, it, tree)) |node| return P{ .type_expr = node };
     return null;
 }
-
-// TODO: Move to ast.Node.ParamDecl.ParamType
-const ParamType = union(enum) {
-    VarType: *Node,
-    VarArgs: TokenIndex,
-    TypeExpr: *Node,
-};
 
 /// IfPrefix <- KEYWORD_if LPAREN Expr RPAREN PtrPayload?
 fn parseIfPrefix(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
@@ -2778,7 +2758,7 @@ fn parsePtrTypeStart(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node
 fn parseContainerDeclAuto(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const node = (try parseContainerDeclType(arena, it, tree)) orelse return null;
     const lbrace = try expectToken(it, tree, .LBrace);
-    const members = try parseContainerMembers(arena, it, tree);
+    const members = try parseContainerMembers(arena, it, tree, false);
     const rbrace = try expectToken(it, tree, .RBrace);
 
     const decl_type = node.cast(Node.ContainerDecl).?;
@@ -3250,6 +3230,11 @@ fn eatAnnotatedToken(it: *TokenIterator, id: Token.Id) ?AnnotatedToken {
 }
 
 fn expectToken(it: *TokenIterator, tree: *Tree, id: Token.Id) Error!TokenIndex {
+    return (try expectTokenRecoverable(it, tree, id)) orelse
+        error.ParseError;
+}
+
+fn expectTokenRecoverable(it: *TokenIterator, tree: *Tree, id: Token.Id) !?TokenIndex {
     const token = nextToken(it);
     if (token.ptr.id != id) {
         try tree.errors.push(.{
@@ -3257,7 +3242,7 @@ fn expectToken(it: *TokenIterator, tree: *Tree, id: Token.Id) Error!TokenIndex {
         });
         // go back so that we can recover properly
         putBackToken(it, token.index);
-        return error.ParseError;
+        return null;
     }
     return token.index;
 }
@@ -3297,9 +3282,20 @@ fn expectNode(
     parseFn: NodeParseFn,
     err: AstError, // if parsing fails
 ) Error!*Node {
+    return (try expectNodeRecoverable(arena, it, tree, parseFn, err)) orelse
+        return error.ParseError;
+}
+
+fn expectNodeRecoverable(
+    arena: *Allocator,
+    it: *TokenIterator,
+    tree: *Tree,
+    parseFn: NodeParseFn,
+    err: AstError, // if parsing fails
+) !?*Node {
     return (try parseFn(arena, it, tree)) orelse {
         try tree.errors.push(err);
-        return error.ParseError;
+        return null;
     };
 }
 

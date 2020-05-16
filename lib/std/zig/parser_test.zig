@@ -148,6 +148,58 @@ test "recovery: invalid parameter" {
     });
 }
 
+test "recovery: extra '}' at top level" {
+    try testError(
+        \\}}}
+        \\test "" {
+        \\    a && b;
+        \\}
+    , &[_]Error{
+        .ExpectedContainerMembers,
+        .ExpectedContainerMembers,
+        .ExpectedContainerMembers,
+        .InvalidAnd,
+    });
+}
+
+test "recovery: mismatched bracket at top level" {
+    try testError(
+        \\const S = struct {
+        \\    arr: 128]?G
+        \\};
+    , &[_]Error{
+        .ExpectedToken,
+    });
+}
+
+test "recovery: invalid global error set access" {
+    try testError(
+        \\test "" {
+        \\    error && foo;
+        \\}
+    , &[_]Error{
+        .ExpectedToken,
+        .ExpectedIdentifier,
+        .InvalidAnd,
+    });
+}
+
+test "recovery: missing semicolon after if, for, while stmt" {
+    try testError(
+        \\test "" {
+        \\    if (foo) bar
+        \\    for (foo) |a| bar
+        \\    while (foo) bar
+        \\    a && b;
+        \\}
+    , &[_]Error{
+        .ExpectedSemiOrElse,
+        .ExpectedSemiOrElse,
+        .ExpectedSemiOrElse,
+        .InvalidAnd,
+    });
+}
+
 test "zig fmt: top-level fields" {
     try testCanonical(
         \\a: did_you_know,

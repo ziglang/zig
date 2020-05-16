@@ -10098,7 +10098,7 @@ FnProto &lt;- KEYWORD_fn IDENTIFIER? LPAREN ParamDeclList RPAREN ByteAlign? Link
 
 VarDecl &lt;- (KEYWORD_const / KEYWORD_var) IDENTIFIER (COLON TypeExpr)? ByteAlign? LinkSection? (EQUAL Expr)? SEMICOLON
 
-ContainerField &lt;- IDENTIFIER (COLON TypeExpr)? (EQUAL Expr)?
+ContainerField &lt;- KEYWORD_comptime? IDENTIFIER (COLON TypeExpr)? (EQUAL Expr)?
 
 # *** Block Level ***
 Statement
@@ -10212,7 +10212,7 @@ PrimaryTypeExpr
      / KEYWORD_error DOT IDENTIFIER
      / KEYWORD_false
      / KEYWORD_null
-     / KEYWORD_promise
+     / KEYWORD_anyframe
      / KEYWORD_true
      / KEYWORD_undefined
      / KEYWORD_unreachable
@@ -10356,7 +10356,7 @@ PrefixOp
 
 PrefixTypeOp
     &lt;- QUESTIONMARK
-     / KEYWORD_promise MINUSRARROW
+     / KEYWORD_anyframe MINUSRARROW
      / ArrayTypeStart (ByteAlign / KEYWORD_const / KEYWORD_volatile / KEYWORD_allowzero)*
      / PtrTypeStart (KEYWORD_align LPAREN Expr (COLON INTEGER COLON INTEGER)? RPAREN / KEYWORD_const / KEYWORD_volatile / KEYWORD_allowzero)*
 
@@ -10503,6 +10503,7 @@ end_of_word &lt;- ![a-zA-Z0-9_] skip
 KEYWORD_align       &lt;- 'align'       end_of_word
 KEYWORD_allowzero   &lt;- 'allowzero'   end_of_word
 KEYWORD_and         &lt;- 'and'         end_of_word
+KEYWORD_anyframe    &lt;- 'anyframe'    end_of_word
 KEYWORD_asm         &lt;- 'asm'         end_of_word
 KEYWORD_async       &lt;- 'async'       end_of_word
 KEYWORD_await       &lt;- 'await'       end_of_word
@@ -10529,7 +10530,6 @@ KEYWORD_null        &lt;- 'null'        end_of_word
 KEYWORD_or          &lt;- 'or'          end_of_word
 KEYWORD_orelse      &lt;- 'orelse'      end_of_word
 KEYWORD_packed      &lt;- 'packed'      end_of_word
-KEYWORD_promise     &lt;- 'promise'     end_of_word
 KEYWORD_pub         &lt;- 'pub'         end_of_word
 KEYWORD_resume      &lt;- 'resume'      end_of_word
 KEYWORD_return      &lt;- 'return'      end_of_word
@@ -10556,7 +10556,7 @@ keyword &lt;- KEYWORD_align / KEYWORD_and / KEYWORD_allowzero / KEYWORD_asm
          / KEYWORD_error / KEYWORD_export / KEYWORD_extern / KEYWORD_false
          / KEYWORD_fn / KEYWORD_for / KEYWORD_if / KEYWORD_inline
          / KEYWORD_noalias / KEYWORD_null / KEYWORD_or
-         / KEYWORD_orelse / KEYWORD_packed / KEYWORD_promise / KEYWORD_pub
+         / KEYWORD_orelse / KEYWORD_packed / KEYWORD_anyframe / KEYWORD_pub
          / KEYWORD_resume / KEYWORD_return / KEYWORD_linksection
          / KEYWORD_struct / KEYWORD_suspend
          / KEYWORD_switch / KEYWORD_test / KEYWORD_threadlocal / KEYWORD_true / KEYWORD_try

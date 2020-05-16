@@ -986,14 +986,22 @@ pub const Node = struct {
         comptime_token: ?TokenIndex,
         noalias_token: ?TokenIndex,
         name_token: ?TokenIndex,
-        type_node: *Node,
-        var_args_token: ?TokenIndex,
+        param_type: ParamType,
+
+        pub const ParamType = union(enum) {
+            var_type: *Node,
+            var_args: TokenIndex,
+            type_expr: *Node,
+        };
 
         pub fn iterate(self: *ParamDecl, index: usize) ?*Node {
             var i = index;
 
             if (i < 1) {
-                return if (self.var_args_token == null) self.type_node else null;
+                switch (self.param_type) {
+                    .var_args => return null,
+                    .var_type, .type_expr => |node| return node,
+                }
             }
             i -= 1;
 
@@ -1004,12 +1012,17 @@ pub const Node = struct {
             if (self.comptime_token) |comptime_token| return comptime_token;
             if (self.noalias_token) |noalias_token| return noalias_token;
             if (self.name_token) |name_token| return name_token;
-            return self.type_node.firstToken();
+            switch (self.param_type) {
+                .var_args => |tok| return tok,
+                .var_type, .type_expr => |node| return node.firstToken(),
+            }
         }
 
         pub fn lastToken(self: *const ParamDecl) TokenIndex {
-            if (self.var_args_token) |var_args_token| return var_args_token;
-            return self.type_node.lastToken();
+            switch (self.param_type) {
+                .var_args => |tok| return tok,
+                .var_type, .type_expr => |node| return node.lastToken(),
+            }
         }
     };
 

@@ -501,7 +501,7 @@ fn visitFnDecl(c: *Context, fn_decl: *const ZigClangFunctionDecl) Error!void {
         const param = @fieldParentPtr(ast.Node.ParamDecl, "base", p.*);
         const param_name = if (param.name_token) |name_tok|
             tokenSlice(c, name_tok)
-        else if (param.var_args_token != null) {
+        else if (param.param_type == .var_args) {
             assert(it.next() == null);
             _ = proto_node.params.pop();
             break;
@@ -4103,8 +4103,7 @@ fn transCreateNodeMacroFn(c: *Context, name: []const u8, ref: *ast.Node, proto_a
             .comptime_token = null,
             .noalias_token = param.noalias_token,
             .name_token = param_name_tok,
-            .type_node = param.type_node,
-            .var_args_token = null,
+            .param_type = param.param_type,
         };
         try fn_params.push(&param_node.base);
     }
@@ -4678,8 +4677,7 @@ fn finishTransFnProto(
             .comptime_token = null,
             .noalias_token = noalias_tok,
             .name_token = param_name_tok,
-            .type_node = type_node,
-            .var_args_token = null,
+            .param_type = .{ .type_expr = type_node },
         };
         try fn_params.push(&param_node.base);
 
@@ -4699,8 +4697,7 @@ fn finishTransFnProto(
             .comptime_token = null,
             .noalias_token = null,
             .name_token = null,
-            .type_node = undefined, // Note: Accessing this causes an access violation. Need to check .var_args_token first before trying this field
-            .var_args_token = try appendToken(rp.c, .Ellipsis3, "..."),
+            .param_type = .{ .var_args = try appendToken(rp.c, .Ellipsis3, "...") }
         };
         try fn_params.push(&var_arg_node.base);
     }
@@ -5108,8 +5105,7 @@ fn transMacroFnDefine(c: *Context, it: *CTokenList.Iterator, source: []const u8,
             .comptime_token = null,
             .noalias_token = null,
             .name_token = param_name_tok,
-            .type_node = &identifier.base,
-            .var_args_token = null,
+            .param_type = .{ .type_expr = &identifier.base },
         };
         try fn_params.push(&param_node.base);
 
