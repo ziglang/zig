@@ -12,6 +12,7 @@ const is_darwin = std.Target.current.os.tag.isDarwin();
 
 pub const path = @import("fs/path.zig");
 pub const File = @import("fs/file.zig").File;
+pub const wasi = @import("fs/wasi.zig");
 
 // TODO audit these APIs with respect to Dir and absolute paths
 
@@ -584,8 +585,35 @@ pub const Dir = struct {
             const path_w = try os.windows.sliceToPrefixedFileW(sub_path);
             return self.openFileW(path_w.span(), flags);
         }
+        if (builtin.os.tag == .wasi) {
+            return self.openFileWasi(sub_path, flags);
+        }
         const path_c = try os.toPosixPath(sub_path);
         return self.openFileZ(&path_c, flags);
+    }
+
+    /// Save as `openFile` but WASI only.
+    pub fn openFileWasi(self: Dir, sub_path: []const u8, flags: File.OpenFlags) File.OpenError!File {
+        const w = os.wasi;
+        var fdflags: w.fdflag_t = 0x0;
+        var rights: w.rights_t = 0x0;
+        if (flags.read) {
+            rights |= w.FD_READ | w.FD_TELL | w.FD_FILESTAT_GET;
+        }
+        if (flags.write) {
+            fdflags |= w.FDFLAG_APPEND;
+            rights |= w.FD_WRITE |
+                w.FD_DATASYNC |
+                w.FD_SEEK |
+                w.FD_FDSTAT_SET_FLAGS |
+                w.FD_SYNC |
+                w.FD_ALLOCATE |
+                w.FD_ADVISE |
+                w.FD_FILESTAT_SET_TIMES |
+                w.FD_FILESTAT_SET_SIZE;
+        }
+        const fd = try wasi.openat(self.fd, sub_path, 0x0, fdflags, rights);
+        return File{ .handle = fd };
     }
 
     pub const openFileC = @compileError("deprecated: renamed to openFileZ");
@@ -671,11 +699,40 @@ pub const Dir = struct {
             const path_w = try os.windows.sliceToPrefixedFileW(sub_path);
             return self.createFileW(path_w.span(), flags);
         }
+        if (builtin.os.tag == .wasi) {
+            return self.createFileWasi(sub_path, flags);
+        }
         const path_c = try os.toPosixPath(sub_path);
         return self.createFileZ(&path_c, flags);
     }
 
     pub const createFileC = @compileError("deprecated: renamed to createFileZ");
+
+    /// Same as `createFile` but WASI only.
+    pub fn createFileWasi(self: Dir, sub_path: []const u8, flags: File.CreateFlags) File.OpenError!File {
+        const w = os.wasi;
+        var oflags = w.O_CREAT;
+        var rights = w.RIGHT_FD_WRITE |
+            w.RIGHT_FD_DATASYNC |
+            w.RIGHT_FD_SEEK |
+            w.RIGHT_FD_FDSTAT_SET_FLAGS |
+            w.RIGHT_FD_SYNC |
+            w.RIGHT_FD_ALLOCATE |
+            w.RIGHT_FD_ADVISE |
+            w.RIGHT_FD_FILESTAT_SET_TIMES |
+            w.RIGHT_FD_FILESTAT_SET_SIZE;
+        if (flags.read) {
+            rights |= w.RIGHT_FD_READ | w.RIGHT_FD_TELL | w.RIGHT_FD_FILESTAT_GET;
+        }
+        if (flags.truncate) {
+            oflags |= w.O_TRUNC;
+        }
+        if (flags.exclusive) {
+            oflags |= w.O_EXCL;
+        }
+        const fd = try wasi.openat(self.fd, sub_path, oflags, 0x0, rights);
+        return File{ .handle = fd };
+    }
 
     /// Same as `createFile` but the path parameter is null-terminated.
     pub fn createFileZ(self: Dir, sub_path_c: [*:0]const u8, flags: File.CreateFlags) File.OpenError!File {
@@ -1390,6 +1447,8 @@ pub const Dir = struct {
 pub fn cwd() Dir {
     if (builtin.os.tag == .windows) {
         return Dir{ .fd = os.windows.peb().ProcessParameters.CurrentDirectory.Handle };
+    } else if (builtin.os.tag == .wasi) {
+        @compileError("WASI doesn't have a concept of cwd; use TODO instead");
     } else {
         return Dir{ .fd = os.AT_FDCWD };
     }
