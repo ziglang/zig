@@ -12,10 +12,11 @@ pub fn addCases(ctx: *TestContext) void {
         \\
         \\@entry = fn(@fnty, {
         \\  %a = str("\x32\x08\x01\x0a")
-        \\  %eptr0 = elemptr(%a, @0)
-        \\  %eptr1 = elemptr(%a, @1)
-        \\  %eptr2 = elemptr(%a, @2)
-        \\  %eptr3 = elemptr(%a, @3)
+        \\  %aref = ref(%a)
+        \\  %eptr0 = elemptr(%aref, @0)
+        \\  %eptr1 = elemptr(%aref, @1)
+        \\  %eptr2 = elemptr(%aref, @2)
+        \\  %eptr3 = elemptr(%aref, @3)
         \\  %v0 = deref(%eptr0)
         \\  %v1 = deref(%eptr1)
         \\  %v2 = deref(%eptr2)
@@ -34,7 +35,8 @@ pub fn addCases(ctx: *TestContext) void {
         \\})
         \\
         \\@9 = str("entry")
-        \\@10 = export(@9, @entry)
+        \\@10 = ref(@9)
+        \\@11 = export(@10, @entry)
     ,
         \\@0 = primitive(void)
         \\@1 = fntype([], @0, cc=C)
@@ -42,7 +44,8 @@ pub fn addCases(ctx: *TestContext) void {
         \\  %0 = return()
         \\})
         \\@3 = str("entry")
-        \\@4 = export(@3, @2)
+        \\@4 = ref(@3)
+        \\@5 = export(@4, @2)
         \\
     );
 
@@ -55,51 +58,71 @@ pub fn addCases(ctx: *TestContext) void {
     }
 
     ctx.addZIRCompareOutput("hello world ZIR",
-        \\@0 = str("Hello, world!\n")
-        \\@1 = primitive(noreturn)
-        \\@2 = primitive(usize)
-        \\@3 = fntype([], @1, cc=Naked)
-        \\@4 = int(0)
-        \\@5 = int(1)
-        \\@6 = int(231)
-        \\@7 = str("len")
+        \\@noreturn = primitive(noreturn)
+        \\@void = primitive(void)
+        \\@usize = primitive(usize)
+        \\@0 = int(0)
+        \\@1 = int(1)
+        \\@2 = int(2)
+        \\@3 = int(3)
         \\
-        \\@8 = fn(@3, {
-        \\  %0 = as(@2, @5) ; SYS_write
-        \\  %1 = as(@2, @5) ; STDOUT_FILENO
-        \\  %2 = ptrtoint(@0) ; msg ptr
-        \\  %3 = fieldptr(@0, @7) ; msg len ptr
-        \\  %4 = deref(%3) ; msg len
-        \\  %sysoutreg = str("={rax}")
-        \\  %rax = str("{rax}")
-        \\  %rdi = str("{rdi}")
-        \\  %rsi = str("{rsi}")
-        \\  %rdx = str("{rdx}")
-        \\  %rcx = str("rcx")
-        \\  %r11 = str("r11")
-        \\  %memory = str("memory")
-        \\  %syscall = str("syscall")
-        \\  %5 = asm(%syscall, @2,
+        \\@syscall_array = str("syscall")
+        \\@sysoutreg_array = str("={rax}")
+        \\@rax_array = str("{rax}")
+        \\@rdi_array = str("{rdi}")
+        \\@rcx_array = str("rcx")
+        \\@r11_array = str("r11")
+        \\@rdx_array = str("{rdx}")
+        \\@rsi_array = str("{rsi}")
+        \\@memory_array = str("memory")
+        \\@len_array = str("len")
+        \\
+        \\@msg = str("Hello, world!\n")
+        \\
+        \\@start_fnty = fntype([], @noreturn, cc=Naked)
+        \\@start = fn(@start_fnty, {
+        \\  %SYS_exit_group = int(231)
+        \\  %exit_code = as(@usize, @0)
+        \\
+        \\  %syscall = ref(@syscall_array)
+        \\  %sysoutreg = ref(@sysoutreg_array)
+        \\  %rax = ref(@rax_array)
+        \\  %rdi = ref(@rdi_array)
+        \\  %rcx = ref(@rcx_array)
+        \\  %rdx = ref(@rdx_array)
+        \\  %rsi = ref(@rsi_array)
+        \\  %r11 = ref(@r11_array)
+        \\  %memory = ref(@memory_array)
+        \\
+        \\  %SYS_write = as(@usize, @1)
+        \\  %STDOUT_FILENO = as(@usize, @1)
+        \\
+        \\  %msg_ptr = ref(@msg)
+        \\  %msg_addr = ptrtoint(%msg_ptr)
+        \\
+        \\  %len_name = ref(@len_array)
+        \\  %msg_len_ptr = fieldptr(%msg_ptr, %len_name)
+        \\  %msg_len = deref(%msg_len_ptr)
+        \\  %rc_write = asm(%syscall, @usize,
         \\    volatile=1,
         \\    output=%sysoutreg,
         \\    inputs=[%rax, %rdi, %rsi, %rdx],
         \\    clobbers=[%rcx, %r11, %memory],
-        \\    args=[%0, %1, %2, %4])
+        \\    args=[%SYS_write, %STDOUT_FILENO, %msg_addr, %msg_len])
         \\
-        \\  %6 = as(@2, @6) ;SYS_exit_group
-        \\  %7 = as(@2, @4) ;exit code
-        \\  %8 = asm(%syscall, @2,
+        \\  %rc_exit = asm(%syscall, @usize,
         \\    volatile=1,
         \\    output=%sysoutreg,
         \\    inputs=[%rax, %rdi],
         \\    clobbers=[%rcx, %r11, %memory],
-        \\    args=[%6, %7])
+        \\    args=[%SYS_exit_group, %exit_code])
         \\
-        \\  %9 = unreachable()
-        \\})
+        \\  %99 = unreachable()
+        \\});
         \\
         \\@9 = str("_start")
-        \\@10 = export(@9, @8)
+        \\@10 = ref(@9)
+        \\@11 = export(@10, @start)
     ,
         \\Hello, world!
         \\
