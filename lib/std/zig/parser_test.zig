@@ -200,6 +200,14 @@ test "recovery: missing semicolon after if, for, while stmt" {
     });
 }
 
+test "recovery: invalid comptime" {
+    try testError(
+        \\comptime
+    , &[_]Error{
+        .ExpectedBlockOrField,
+    });
+}
+
 test "zig fmt: top-level fields" {
     try testCanonical(
         \\a: did_you_know,
