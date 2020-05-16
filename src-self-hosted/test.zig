@@ -29,6 +29,7 @@ pub const TestContext = struct {
         name: []const u8,
         src: [:0]const u8,
         expected_zir: []const u8,
+        cross_target: std.zig.CrossTarget,
     };
 
     pub fn addZIRCompareOutput(
@@ -47,6 +48,7 @@ pub const TestContext = struct {
     pub fn addZIRTransform(
         ctx: *TestContext,
         name: []const u8,
+        cross_target: std.zig.CrossTarget,
         src: [:0]const u8,
         expected_zir: []const u8,
     ) void {
@@ -54,6 +56,7 @@ pub const TestContext = struct {
             .name = name,
             .src = src,
             .expected_zir = expected_zir,
+            .cross_target = cross_target,
         }) catch unreachable;
     }
 
@@ -85,7 +88,8 @@ pub const TestContext = struct {
         }
         for (self.zir_transform_cases.items) |case| {
             std.testing.base_allocator_instance.reset();
-            try self.runOneZIRTransformCase(std.testing.allocator, root_node, case, native_info.target);
+            const info = try std.zig.system.NativeTargetInfo.detect(std.testing.allocator, case.cross_target);
+            try self.runOneZIRTransformCase(std.testing.allocator, root_node, case, info.target);
             try std.testing.allocator_instance.validate();
         }
     }

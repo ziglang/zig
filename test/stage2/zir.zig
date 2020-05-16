@@ -1,7 +1,15 @@
+const std = @import("std");
 const TestContext = @import("../../src-self-hosted/test.zig").TestContext;
+// self-hosted does not yet support PE executable files / COFF object files
+// or mach-o files. So we do the ZIR transform test cases cross compiling for
+// x86_64-linux.
+const linux_x64 = std.zig.CrossTarget{
+    .cpu_arch = .x86_64,
+    .os_tag = .linux,
+};
 
 pub fn addCases(ctx: *TestContext) void {
-    ctx.addZIRTransform("elemptr, add, cmp, condbr, return, breakpoint",
+    ctx.addZIRTransform("elemptr, add, cmp, condbr, return, breakpoint", linux_x64,
         \\@void = primitive(void)
         \\@usize = primitive(usize)
         \\@fnty = fntype([], @void, cc=C)
@@ -49,8 +57,8 @@ pub fn addCases(ctx: *TestContext) void {
         \\
     );
 
-    if (@import("std").Target.current.os.tag != .linux or
-        @import("std").Target.current.cpu.arch != .x86_64)
+    if (std.Target.current.os.tag != .linux or
+        std.Target.current.cpu.arch != .x86_64)
     {
         // TODO implement self-hosted PE (.exe file) linking
         // TODO implement more ZIR so we don't depend on x86_64-linux
