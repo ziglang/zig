@@ -5013,8 +5013,8 @@ fn transMacroDefine(c: *Context, it: *CTokenList.Iterator, source: []const u8, n
             c,
             source_loc,
             name,
-            "unable to translate C expr: unexpected token {}",
-            .{last.id},
+            "unable to translate C expr: unexpected token .{}",
+            .{@tagName(last.id)},
         );
 
     node.semicolon_token = try appendToken(c, .Semicolon, ";");
@@ -5123,8 +5123,8 @@ fn transMacroFnDefine(c: *Context, it: *CTokenList.Iterator, source: []const u8,
             c,
             source_loc,
             name,
-            "unable to translate C expr: unexpected token {}",
-            .{last.id},
+            "unable to translate C expr: unexpected token .{}",
+            .{@tagName(last.id)},
         );
     _ = try appendToken(c, .Semicolon, ";");
     const type_of_arg = if (expr.id != .Block) expr else blk: {
@@ -5658,8 +5658,8 @@ fn parseCPrimaryExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8, 
                 c,
                 source_loc,
                 source[first_tok.start..first_tok.end],
-                "unable to translate C expr: unexpected token {}",
-                .{tok.id},
+                "unable to translate C expr: unexpected token .{}",
+                .{@tagName(tok.id)},
             );
             return error.ParseError;
         },
