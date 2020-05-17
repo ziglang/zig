@@ -20,6 +20,7 @@ pub const Register = enum(u8) {
     al, bl, cl, dl, ah, ch, dh, bh,
     r8b, r9b, r10b, r11b, r12b, r13b, r14b, r15b,
 
+    /// Returns the bit-width of the register.
     pub fn size(self: @This()) u7 {
         return switch (@enumToInt(self)) {
             0...15 => 64,
@@ -30,10 +31,20 @@ pub const Register = enum(u8) {
         };
     }
 
+    /// Returns whether the register is *extended*. Extended registers are the
+    /// new registers added with amd64, r8 through r15. This also includes any
+    /// other variant of access to those registers, such as r8b, r15d, and so
+    /// on. This is needed because access to these registers requires special
+    /// handling via the REX prefix, via the B or R bits, depending on context.
     pub fn isExtended(self: @This()) bool {
         return @enumToInt(self) & 0x08 != 0;
     }
 
+    /// This returns the 4-bit register ID, which is used in practically every
+    /// opcode. Note that bit 3 (the highest bit) is *never* used directly in
+    /// an instruction (@see isExtended), and requires special handling. The
+    /// lower three bits are often embedded directly in instructions (such as
+    /// the B8 variant of moves), or used in R/M bytes.
     pub fn id(self: @This()) u4 {
         return @truncate(u4, @enumToInt(self));
     }

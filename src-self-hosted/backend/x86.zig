@@ -9,6 +9,7 @@ pub const Register = enum(u8) {
     // 16-23, 8-bit registers. id is int value - 16.
     al, bl, cl, dl, ah, ch, dh, bh,
 
+    /// Returns the bit-width of the register.
     pub fn size(self: @This()) u7 {
         return switch (@enumToInt(self)) {
             0...7 => 32,
@@ -18,6 +19,9 @@ pub const Register = enum(u8) {
         };
     }
 
+    /// Returns the register's id. This is used in practically every opcode the
+    /// x86 has. It is embedded in some instructions, such as the `B8 +rd` move
+    /// instruction, and is used in the R/M byte.
     pub fn id(self: @This()) u3 {
         return @truncate(u3, @enumToInt(self));
     }
