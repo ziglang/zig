@@ -1418,7 +1418,10 @@ fn parseInternal(comptime T: type, token: Token, tokens: *TokenStream, options: 
             if (unionInfo.tag_type) |_| {
                 // try each of the union fields until we find one that matches
                 inline for (unionInfo.fields) |u_field| {
-                    if (parseInternal(u_field.field_type, token, tokens, options)) |value| {
+                    // take a copy of tokens so we can withhold mutations until success
+                    var tokens_copy = tokens.*;
+                    if (parseInternal(u_field.field_type, token, &tokens_copy, options)) |value| {
+                        tokens.* = tokens_copy;
                         return @unionInit(T, u_field.name, value);
                     } else |err| {
                         // Bubble up error.OutOfMemory
@@ -1732,6 +1735,14 @@ test "parse into tagged union" {
             y: u8,
         };
         testing.expectEqual(T{ .x = 42 }, try parse(T, &TokenStream.init("42"), ParseOptions{}));
+    }
+
+    { // needs to back out when first union member doesn't match
+        const T = union(enum) {
+            A: struct { x: u32 },
+            B: struct { y: u32 },
+        };
+        testing.expectEqual(T{ .B = .{.y = 42} }, try parse(T, &TokenStream.init("{\"y\":42}"), ParseOptions{}));
     }
 }
 
