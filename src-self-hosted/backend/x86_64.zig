@@ -35,13 +35,7 @@ pub const Register = enum(u8) {
     }
 
     pub fn id(self: @This()) u4 {
-        return @intCast(u4, switch (@enumToInt(self)) {
-            0...15 => |i| i,
-            16...31 => |i| i - 16,
-            32...47 => |i| i - 32,
-            48...64 => |i| i - 48,
-            else => unreachable,
-        });
+        return @truncate(u4, @enumToInt(self));
     }
     
 };
