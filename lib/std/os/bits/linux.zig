@@ -1260,11 +1260,6 @@ pub const io_uring_sqe = extern struct {
     ioprio: u16,
     fd: i32,
 
-    opcode: u8,
-    flags: u8,
-    ioprio: u16,
-    fd: i32,
-
     union1: union1,
     addr: u64,
     len: u32,
