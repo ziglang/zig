@@ -307,7 +307,7 @@ pub const Scope = struct {
         /// Relative to the owning package's root_src_dir.
         /// Reference to external memory, not owned by ZIRModule.
         sub_file_path: []const u8,
-        source: union {
+        source: union(enum) {
             unloaded: void,
             bytes: [:0]const u8,
         },
@@ -320,7 +320,7 @@ pub const Scope = struct {
             unloaded_success,
             unloaded_parse_failure,
             unloaded_sema_failure,
-            loaded_parse_failure,
+
             loaded_sema_failure,
             loaded_success,
         },
@@ -334,21 +334,22 @@ pub const Scope = struct {
                 => {},
 
                 .loaded_success => {
-                    allocator.free(self.source.bytes);
                     self.contents.module.deinit(allocator);
                     allocator.destroy(self.contents.module);
                     self.status = .unloaded_success;
                 },
                 .loaded_sema_failure => {
-                    allocator.free(self.source.bytes);
                     self.contents.module.deinit(allocator);
                     allocator.destroy(self.contents.module);
                     self.status = .unloaded_sema_failure;
                 },
-                .loaded_parse_failure => {
-                    allocator.free(self.source.bytes);
-                    self.status = .unloaded_parse_failure;
+            }
+            switch (self.source) {
+                .bytes => |bytes| {
+                    allocator.free(bytes);
+                    self.source = .{ .unloaded = {} };
                 },
+                .unloaded => {},
             }
         }
 
@@ -586,7 +587,7 @@ pub fn getAllErrorsAlloc(self: *Module) !AllErrors {
         while (it.next()) |kv| {
             const scope = kv.key;
             const err_msg = kv.value;
-            const source = scope.source.bytes;
+            const source = try self.getSource(scope);
             try AllErrors.add(&arena, &errors, scope.sub_file_path, source, err_msg.*);
         }
     }
@@ -595,7 +596,7 @@ pub fn getAllErrorsAlloc(self: *Module) !AllErrors {
         while (it.next()) |kv| {
             const decl = kv.key;
             const err_msg = kv.value;
-            const source = decl.scope.source.bytes;
+            const source = try self.getSource(decl.scope);
             try AllErrors.add(&arena, &errors, decl.scope.sub_file_path, source, err_msg.*);
         }
     }
@@ -604,7 +605,7 @@ pub fn getAllErrorsAlloc(self: *Module) !AllErrors {
         while (it.next()) |kv| {
             const decl = kv.key.owner_decl;
             const err_msg = kv.value;
-            const source = decl.scope.source.bytes;
+            const source = try self.getSource(decl.scope);
             try AllErrors.add(&arena, &errors, decl.scope.sub_file_path, source, err_msg.*);
         }
     }
@@ -684,20 +685,29 @@ pub fn performAllTheWork(self: *Module) error{OutOfMemory}!void {
     };
 }
 
+fn getSource(self: *Module, root_scope: *Scope.ZIRModule) ![:0]const u8 {
+    switch (root_scope.source) {
+        .unloaded => {
+            const source = try self.root_pkg.root_src_dir.readFileAllocOptions(
+                self.allocator,
+                root_scope.sub_file_path,
+                std.math.maxInt(u32),
+                1,
+                0,
+            );
+            root_scope.source = .{ .bytes = source };
+            return source;
+        },
+        .bytes => |bytes| return bytes,
+    }
+}
+
 fn getSrcModule(self: *Module, root_scope: *Scope.ZIRModule) !*zir.Module {
     switch (root_scope.status) {
         .never_loaded, .unloaded_success => {
             try self.failed_files.ensureCapacity(self.failed_files.size + 1);
 
-            var keep_source = false;
-            const source = try self.root_pkg.root_src_dir.readFileAllocOptions(
-                self.allocator,
-                self.root_pkg.root_src_path,
-                std.math.maxInt(u32),
-                1,
-                0,
-            );
-            defer if (!keep_source) self.allocator.free(source);
+            const source = try self.getSource(root_scope);
 
             var keep_zir_module = false;
             const zir_module = try self.allocator.create(zir.Module);
@@ -711,15 +721,11 @@ fn getSrcModule(self: *Module, root_scope: *Scope.ZIRModule) !*zir.Module {
                     root_scope,
                     try ErrorMsg.create(self.allocator, src_err_msg.byte_offset, "{}", .{src_err_msg.msg}),
                 );
-                root_scope.status = .loaded_parse_failure;
-                root_scope.source = .{ .bytes = source };
-                keep_source = true;
+                root_scope.status = .unloaded_parse_failure;
                 return error.AnalysisFail;
             }
 
             root_scope.status = .loaded_success;
-            root_scope.source = .{ .bytes = source };
-            keep_source = true;
             root_scope.contents = .{ .module = zir_module };
             keep_zir_module = true;
 
@@ -728,10 +734,9 @@ fn getSrcModule(self: *Module, root_scope: *Scope.ZIRModule) !*zir.Module {
 
         .unloaded_parse_failure,
         .unloaded_sema_failure,
-        .loaded_parse_failure,
-        .loaded_sema_failure,
         => return error.AnalysisFail,
-        .loaded_success => return root_scope.contents.module,
+
+        .loaded_success, .loaded_sema_failure => return root_scope.contents.module,
     }
 }
 
@@ -760,10 +765,9 @@ fn analyzeRoot(self: *Module, root_scope: *Scope.ZIRModule) !void {
 
         .unloaded_parse_failure,
         .unloaded_sema_failure,
-        .loaded_parse_failure,
+        .unloaded_success,
         .loaded_sema_failure,
         .loaded_success,
-        .unloaded_success,
         => {
             const src_module = try self.getSrcModule(root_scope);
 
@@ -2008,9 +2012,16 @@ fn coerceArrayPtrToSlice(self: *Module, scope: *Scope, dest_type: Type, inst: *I
 
 fn fail(self: *Module, scope: *Scope, src: usize, comptime format: []const u8, args: var) InnerError {
     @setCold(true);
-    try self.failed_decls.ensureCapacity(self.failed_decls.size + 1);
-    try self.failed_files.ensureCapacity(self.failed_files.size + 1);
     const err_msg = try ErrorMsg.create(self.allocator, src, format, args);
+    return self.failWithOwnedErrorMsg(scope, src, err_msg);
+}
+
+fn failWithOwnedErrorMsg(self: *Module, scope: *Scope, src: usize, err_msg: *ErrorMsg) InnerError {
+    {
+        errdefer err_msg.destroy(self.allocator);
+        try self.failed_decls.ensureCapacity(self.failed_decls.size + 1);
+        try self.failed_files.ensureCapacity(self.failed_files.size + 1);
+    }
     switch (scope.tag) {
         .decl => {
             const decl = scope.cast(Scope.DeclAnalysis).?.decl;
