@@ -4,64 +4,155 @@ const assert = std.debug.assert;
 const ir = @import("ir.zig");
 const Type = @import("type.zig").Type;
 const Value = @import("value.zig").Value;
+const TypedValue = @import("TypedValue.zig");
+const link = @import("link.zig");
+const Module = @import("Module.zig");
+const ErrorMsg = Module.ErrorMsg;
 const Target = std.Target;
+const Allocator = mem.Allocator;
 
-pub const ErrorMsg = struct {
-    byte_offset: usize,
-    msg: []const u8,
+pub const Result = union(enum) {
+    /// The `code` parameter passed to `generateSymbol` has the value appended.
+    appended: void,
+    /// The value is available externally, `code` is unused.
+    externally_managed: []const u8,
+    fail: *Module.ErrorMsg,
 };
 
-pub const Symbol = struct {
-    errors: []ErrorMsg,
-
-    pub fn deinit(self: *Symbol, allocator: *mem.Allocator) void {
-        for (self.errors) |err| {
-            allocator.free(err.msg);
-        }
-        allocator.free(self.errors);
-        self.* = undefined;
-    }
-};
-
-pub fn generateSymbol(typed_value: ir.TypedValue, module: ir.Module, code: *std.ArrayList(u8)) !Symbol {
+pub fn generateSymbol(
+    bin_file: *link.ElfFile,
+    src: usize,
+    typed_value: TypedValue,
+    code: *std.ArrayList(u8),
+) error{
+    OutOfMemory,
+    /// A Decl that this symbol depends on had a semantic analysis failure.
+    AnalysisFail,
+}!Result {
     switch (typed_value.ty.zigTypeTag()) {
         .Fn => {
-            const index = typed_value.val.cast(Value.Payload.Function).?.index;
-            const module_fn = module.fns[index];
+            const module_fn = typed_value.val.cast(Value.Payload.Function).?.func;
 
             var function = Function{
-                .module = &module,
-                .mod_fn = &module_fn,
+                .target = &bin_file.options.target,
+                .bin_file = bin_file,
+                .mod_fn = module_fn,
                 .code = code,
-                .inst_table = std.AutoHashMap(*ir.Inst, Function.MCValue).init(code.allocator),
-                .errors = std.ArrayList(ErrorMsg).init(code.allocator),
+                .inst_table = std.AutoHashMap(*ir.Inst, Function.MCValue).init(bin_file.allocator),
+                .err_msg = null,
             };
             defer function.inst_table.deinit();
-            defer function.errors.deinit();
 
-            for (module_fn.body.instructions) |inst| {
+            for (module_fn.analysis.success.instructions) |inst| {
                 const new_inst = function.genFuncInst(inst) catch |err| switch (err) {
-                    error.CodegenFail => {
-                        assert(function.errors.items.len != 0);
-                        break;
-                    },
+                    error.CodegenFail => return Result{ .fail = function.err_msg.? },
                     else => |e| return e,
                 };
                 try function.inst_table.putNoClobber(inst, new_inst);
             }
 
-            return Symbol{ .errors = function.errors.toOwnedSlice() };
+            if (function.err_msg) |em| {
+                return Result{ .fail = em };
+            } else {
+                return Result{ .appended = {} };
+            }
         },
-        else => @panic("TODO implement generateSymbol for non-function types"),
+        .Array => {
+            if (typed_value.val.cast(Value.Payload.Bytes)) |payload| {
+                if (typed_value.ty.arraySentinel()) |sentinel| {
+                    try code.ensureCapacity(code.items.len + payload.data.len + 1);
+                    code.appendSliceAssumeCapacity(payload.data);
+                    const prev_len = code.items.len;
+                    switch (try generateSymbol(bin_file, src, .{
+                        .ty = typed_value.ty.elemType(),
+                        .val = sentinel,
+                    }, code)) {
+                        .appended => return Result{ .appended = {} },
+                        .externally_managed => |slice| {
+                            code.appendSliceAssumeCapacity(slice);
+                            return Result{ .appended = {} };
+                        },
+                        .fail => |em| return Result{ .fail = em },
+                    }
+                } else {
+                    return Result{ .externally_managed = payload.data };
+                }
+            }
+            return Result{
+                .fail = try ErrorMsg.create(
+                    bin_file.allocator,
+                    src,
+                    "TODO implement generateSymbol for more kinds of arrays",
+                    .{},
+                ),
+            };
+        },
+        .Pointer => {
+            if (typed_value.val.cast(Value.Payload.DeclRef)) |payload| {
+                const decl = payload.decl;
+                if (decl.analysis != .complete) return error.AnalysisFail;
+                assert(decl.link.local_sym_index != 0);
+                // TODO handle the dependency of this symbol on the decl's vaddr.
+                // If the decl changes vaddr, then this symbol needs to get regenerated.
+                const vaddr = bin_file.local_symbols.items[decl.link.local_sym_index].st_value;
+                const endian = bin_file.options.target.cpu.arch.endian();
+                switch (bin_file.ptr_width) {
+                    .p32 => {
+                        try code.resize(4);
+                        mem.writeInt(u32, code.items[0..4], @intCast(u32, vaddr), endian);
+                    },
+                    .p64 => {
+                        try code.resize(8);
+                        mem.writeInt(u64, code.items[0..8], vaddr, endian);
+                    },
+                }
+                return Result{ .appended = {} };
+            }
+            return Result{
+                .fail = try ErrorMsg.create(
+                    bin_file.allocator,
+                    src,
+                    "TODO implement generateSymbol for pointer {}",
+                    .{typed_value.val},
+                ),
+            };
+        },
+        .Int => {
+            const info = typed_value.ty.intInfo(bin_file.options.target);
+            if (info.bits == 8 and !info.signed) {
+                const x = typed_value.val.toUnsignedInt();
+                try code.append(@intCast(u8, x));
+                return Result{ .appended = {} };
+            }
+            return Result{
+                .fail = try ErrorMsg.create(
+                    bin_file.allocator,
+                    src,
+                    "TODO implement generateSymbol for int type '{}'",
+                    .{typed_value.ty},
+                ),
+            };
+        },
+        else => |t| {
+            return Result{
+                .fail = try ErrorMsg.create(
+                    bin_file.allocator,
+                    src,
+                    "TODO implement generateSymbol for type '{}'",
+                    .{@tagName(t)},
+                ),
+            };
+        },
     }
 }
 
 const Function = struct {
-    module: *const ir.Module,
-    mod_fn: *const ir.Module.Fn,
+    bin_file: *link.ElfFile,
+    target: *const std.Target,
+    mod_fn: *const Module.Fn,
     code: *std.ArrayList(u8),
     inst_table: std.AutoHashMap(*ir.Inst, MCValue),
-    errors: std.ArrayList(ErrorMsg),
+    err_msg: ?*ErrorMsg,
 
     const MCValue = union(enum) {
         none,
@@ -73,11 +164,14 @@ const Function = struct {
         /// The value is in a target-specific register. The value can
         /// be @intToEnum casted to the respective Reg enum.
         register: usize,
+        /// The value is in memory at a hard-coded address.
+        memory: u64,
     };
 
     fn genFuncInst(self: *Function, inst: *ir.Inst) !MCValue {
         switch (inst.tag) {
             .breakpoint => return self.genBreakpoint(inst.src),
+            .call => return self.genCall(inst.cast(ir.Inst.Call).?),
             .unreach => return MCValue{ .unreach = {} },
             .constant => unreachable, // excluded from function bodies
             .assembly => return self.genAsm(inst.cast(ir.Inst.Assembly).?),
@@ -92,54 +186,76 @@ const Function = struct {
     }
 
     fn genBreakpoint(self: *Function, src: usize) !MCValue {
-        switch (self.module.target.cpu.arch) {
+        switch (self.target.cpu.arch) {
             .i386, .x86_64 => {
                 try self.code.append(0xcc); // int3
             },
-            else => return self.fail(src, "TODO implement @breakpoint() for {}", .{self.module.target.cpu.arch}),
+            else => return self.fail(src, "TODO implement @breakpoint() for {}", .{self.target.cpu.arch}),
         }
-        return .unreach;
+        return .none;
+    }
+
+    fn genCall(self: *Function, inst: *ir.Inst.Call) !MCValue {
+        if (inst.args.func.cast(ir.Inst.Constant)) |func_inst| {
+            if (inst.args.args.len != 0) {
+                return self.fail(inst.base.src, "TODO implement call with more than 0 parameters", .{});
+            }
+
+            if (func_inst.val.cast(Value.Payload.Function)) |func_val| {
+                const func = func_val.func;
+                return self.fail(inst.base.src, "TODO implement calling function", .{});
+            } else {
+                return self.fail(inst.base.src, "TODO implement calling weird function values", .{});
+            }
+        } else {
+            return self.fail(inst.base.src, "TODO implement calling runtime known function pointer", .{});
+        }
+
+        switch (self.target.cpu.arch) {
+            else => return self.fail(inst.base.src, "TODO implement call for {}", .{self.target.cpu.arch}),
+        }
     }
 
     fn genRet(self: *Function, inst: *ir.Inst.Ret) !MCValue {
-        switch (self.module.target.cpu.arch) {
+        switch (self.target.cpu.arch) {
             .i386, .x86_64 => {
                 try self.code.append(0xc3); // ret
             },
-            else => return self.fail(inst.base.src, "TODO implement return for {}", .{self.module.target.cpu.arch}),
+            else => return self.fail(inst.base.src, "TODO implement return for {}", .{self.target.cpu.arch}),
         }
         return .unreach;
     }
 
     fn genCmp(self: *Function, inst: *ir.Inst.Cmp) !MCValue {
-        switch (self.module.target.cpu.arch) {
-            else => return self.fail(inst.base.src, "TODO implement cmp for {}", .{self.module.target.cpu.arch}),
+        switch (self.target.cpu.arch) {
+            else => return self.fail(inst.base.src, "TODO implement cmp for {}", .{self.target.cpu.arch}),
         }
     }
 
     fn genCondBr(self: *Function, inst: *ir.Inst.CondBr) !MCValue {
-        switch (self.module.target.cpu.arch) {
-            else => return self.fail(inst.base.src, "TODO implement condbr for {}", .{self.module.target.cpu.arch}),
+        switch (self.target.cpu.arch) {
+            else => return self.fail(inst.base.src, "TODO implement condbr for {}", .{self.target.cpu.arch}),
         }
     }
 
     fn genIsNull(self: *Function, inst: *ir.Inst.IsNull) !MCValue {
-        switch (self.module.target.cpu.arch) {
-            else => return self.fail(inst.base.src, "TODO implement isnull for {}", .{self.module.target.cpu.arch}),
+        switch (self.target.cpu.arch) {
+            else => return self.fail(inst.base.src, "TODO implement isnull for {}", .{self.target.cpu.arch}),
         }
     }
 
     fn genIsNonNull(self: *Function, inst: *ir.Inst.IsNonNull) !MCValue {
         // Here you can specialize this instruction if it makes sense to, otherwise the default
         // will call genIsNull and invert the result.
-        switch (self.module.target.cpu.arch) {
+        switch (self.target.cpu.arch) {
             else => return self.fail(inst.base.src, "TODO call genIsNull and invert the result ", .{}),
         }
     }
 
     fn genRelativeFwdJump(self: *Function, src: usize, amount: u32) !void {
-        switch (self.module.target.cpu.arch) {
+        switch (self.target.cpu.arch) {
             .i386, .x86_64 => {
+                // TODO x86 treats the operands as signed
                 if (amount <= std.math.maxInt(u8)) {
                     try self.code.resize(self.code.items.len + 2);
                     self.code.items[self.code.items.len - 2] = 0xeb;
@@ -151,13 +267,13 @@ const Function = struct {
                     mem.writeIntLittle(u32, imm_ptr, amount);
                 }
             },
-            else => return self.fail(src, "TODO implement relative forward jump for {}", .{self.module.target.cpu.arch}),
+            else => return self.fail(src, "TODO implement relative forward jump for {}", .{self.target.cpu.arch}),
         }
     }
 
     fn genAsm(self: *Function, inst: *ir.Inst.Assembly) !MCValue {
         // TODO convert to inline function
-        switch (self.module.target.cpu.arch) {
+        switch (self.target.cpu.arch) {
             .arm => return self.genAsmArch(.arm, inst),
             .armeb => return self.genAsmArch(.armeb, inst),
             .aarch64 => return self.genAsmArch(.aarch64, inst),
@@ -246,128 +362,182 @@ const Function = struct {
         }
     }
 
-    fn genSetReg(self: *Function, src: usize, comptime arch: Target.Cpu.Arch, reg: Reg(arch), mcv: MCValue) !void {
+    fn genSetReg(self: *Function, src: usize, comptime arch: Target.Cpu.Arch, reg: Reg(arch), mcv: MCValue) error{ CodegenFail, OutOfMemory }!void {
         switch (arch) {
-            .x86_64 => switch (reg) {
-                .rax => switch (mcv) {
-                    .none, .unreach => unreachable,
-                    .immediate => |x| {
-                        // Setting the eax register zeroes the upper part of rax, so if the number is small
-                        // enough, that is preferable.
-                        // Best case: zero
-                        // 31 c0     xor    eax,eax
-                        if (x == 0) {
-                            return self.code.appendSlice(&[_]u8{ 0x31, 0xc0 });
-                        }
-                        // Next best case: set eax with 4 bytes
-                        // b8 04 03 02 01           mov    eax,0x01020304
-                        if (x <= std.math.maxInt(u32)) {
-                            try self.code.resize(self.code.items.len + 5);
-                            self.code.items[self.code.items.len - 5] = 0xb8;
-                            const imm_ptr = self.code.items[self.code.items.len - 4 ..][0..4];
-                            mem.writeIntLittle(u32, imm_ptr, @intCast(u32, x));
-                            return;
-                        }
-                        // Worst case: set rax with 8 bytes
-                        // 48 b8 08 07 06 05 04 03 02 01    movabs rax,0x0102030405060708
-                        try self.code.resize(self.code.items.len + 10);
-                        self.code.items[self.code.items.len - 10] = 0x48;
-                        self.code.items[self.code.items.len - 9] = 0xb8;
-                        const imm_ptr = self.code.items[self.code.items.len - 8 ..][0..8];
-                        mem.writeIntLittle(u64, imm_ptr, x);
-                        return;
-                    },
-                    .embedded_in_code => return self.fail(src, "TODO implement x86_64 genSetReg %rax = embedded_in_code", .{}),
-                    .register => return self.fail(src, "TODO implement x86_64 genSetReg %rax = register", .{}),
-                },
-                .rdx => switch (mcv) {
-                    .none, .unreach => unreachable,
-                    .immediate => |x| {
-                        // Setting the edx register zeroes the upper part of rdx, so if the number is small
-                        // enough, that is preferable.
-                        // Best case: zero
-                        // 31 d2                    xor    edx,edx
-                        if (x == 0) {
-                            return self.code.appendSlice(&[_]u8{ 0x31, 0xd2 });
-                        }
-                        // Next best case: set edx with 4 bytes
-                        // ba 04 03 02 01           mov    edx,0x1020304
-                        if (x <= std.math.maxInt(u32)) {
-                            try self.code.resize(self.code.items.len + 5);
-                            self.code.items[self.code.items.len - 5] = 0xba;
-                            const imm_ptr = self.code.items[self.code.items.len - 4 ..][0..4];
-                            mem.writeIntLittle(u32, imm_ptr, @intCast(u32, x));
-                            return;
-                        }
-                        // Worst case: set rdx with 8 bytes
-                        // 48 ba 08 07 06 05 04 03 02 01    movabs rdx,0x0102030405060708
-                        try self.code.resize(self.code.items.len + 10);
-                        self.code.items[self.code.items.len - 10] = 0x48;
-                        self.code.items[self.code.items.len - 9] = 0xba;
-                        const imm_ptr = self.code.items[self.code.items.len - 8 ..][0..8];
-                        mem.writeIntLittle(u64, imm_ptr, x);
-                        return;
-                    },
-                    .embedded_in_code => return self.fail(src, "TODO implement x86_64 genSetReg %rdx = embedded_in_code", .{}),
-                    .register => return self.fail(src, "TODO implement x86_64 genSetReg %rdx = register", .{}),
-                },
-                .rdi => switch (mcv) {
-                    .none, .unreach => unreachable,
-                    .immediate => |x| {
-                        // Setting the edi register zeroes the upper part of rdi, so if the number is small
-                        // enough, that is preferable.
-                        // Best case: zero
-                        // 31 ff                    xor    edi,edi
-                        if (x == 0) {
-                            return self.code.appendSlice(&[_]u8{ 0x31, 0xff });
-                        }
-                        // Next best case: set edi with 4 bytes
-                        // bf 04 03 02 01           mov    edi,0x1020304
-                        if (x <= std.math.maxInt(u32)) {
-                            try self.code.resize(self.code.items.len + 5);
-                            self.code.items[self.code.items.len - 5] = 0xbf;
-                            const imm_ptr = self.code.items[self.code.items.len - 4 ..][0..4];
-                            mem.writeIntLittle(u32, imm_ptr, @intCast(u32, x));
-                            return;
-                        }
-                        // Worst case: set rdi with 8 bytes
-                        // 48 bf 08 07 06 05 04 03 02 01    movabs rax,0x0102030405060708
-                        try self.code.resize(self.code.items.len + 10);
-                        self.code.items[self.code.items.len - 10] = 0x48;
-                        self.code.items[self.code.items.len - 9] = 0xbf;
-                        const imm_ptr = self.code.items[self.code.items.len - 8 ..][0..8];
-                        mem.writeIntLittle(u64, imm_ptr, x);
-                        return;
-                    },
-                    .embedded_in_code => return self.fail(src, "TODO implement x86_64 genSetReg %rdi = embedded_in_code", .{}),
-                    .register => return self.fail(src, "TODO implement x86_64 genSetReg %rdi = register", .{}),
-                },
-                .rsi => switch (mcv) {
-                    .none, .unreach => unreachable,
-                    .immediate => return self.fail(src, "TODO implement x86_64 genSetReg %rsi = immediate", .{}),
-                    .embedded_in_code => |code_offset| {
-                        // Examples:
-                        // lea rsi, [rip + 0x01020304]
-                        // lea rsi, [rip - 7]
-                        //  f: 48 8d 35 04 03 02 01  lea    rsi,[rip+0x1020304]        # 102031a <_start+0x102031a>
-                        // 16: 48 8d 35 f9 ff ff ff  lea    rsi,[rip+0xfffffffffffffff9]        # 16 <_start+0x16>
+            .x86_64 => switch (mcv) {
+                .none, .unreach => unreachable,
+                .immediate => |x| {
+                    if (reg.size() != 64) {
+                        return self.fail(src, "TODO decide whether to implement non-64-bit loads", .{});
+                    }
+                    // 32-bit moves zero-extend to 64-bit, so xoring the 32-bit
+                    // register is the fastest way to zero a register.
+                    if (x == 0) {
+                        // The encoding for `xor r32, r32` is `0x31 /r`.
+                        // Section 3.1.1.1 of the Intel x64 Manual states that "/r indicates that the
+                        // ModR/M byte of the instruction contains a register operand and an r/m operand."
                         //
-                        // We need the offset from RIP in a signed i32 twos complement.
-                        // The instruction is 7 bytes long and RIP points to the next instruction.
-                        try self.code.resize(self.code.items.len + 7);
-                        const rip = self.code.items.len;
-                        const big_offset = @intCast(i64, code_offset) - @intCast(i64, rip);
-                        const offset = @intCast(i32, big_offset);
-                        self.code.items[self.code.items.len - 7] = 0x48;
-                        self.code.items[self.code.items.len - 6] = 0x8d;
-                        self.code.items[self.code.items.len - 5] = 0x35;
+                        // R/M bytes are composed of two bits for the mode, then three bits for the register,
+                        // then three bits for the operand. Since we're zeroing a register, the two three-bit
+                        // values will be identical, and the mode is three (the raw register value).
+                        //
+                        if (reg.isExtended()) {
+                            // If we're accessing e.g. r8d, we need to use a REX prefix before the actual operation. Since
+                            // this is a 32-bit operation, the W flag is set to zero. X is also zero, as we're not using a SIB.
+                            // Both R and B are set, as we're extending, in effect, the register bits *and* the operand.
+                            //
+                            // From section 2.2.1.2 of the manual, REX is encoded as b0100WRXB. In this case, that's
+                            // b01000101, or 0x45.
+                            return self.code.appendSlice(&[_]u8{
+                                0x45,
+                                0x31,
+                                0xC0 | (@as(u8, reg.id() & 0b111) << 3) | @truncate(u3, reg.id()),
+                            });
+                        } else {
+                            return self.code.appendSlice(&[_]u8{
+                                0x31,
+                                0xC0 | (@as(u8, reg.id()) << 3) | reg.id(),
+                            });
+                        }
+                    }
+                    if (x <= std.math.maxInt(u32)) {
+                        // Next best case: if we set the lower four bytes, the upper four will be zeroed.
+                        //
+                        // The encoding for `mov IMM32 -> REG` is (0xB8 + R) IMM.
+                        if (reg.isExtended()) {
+                            // Just as with XORing, we need a REX prefix. This time though, we only
+                            // need the B bit set, as we're extending the opcode's register field,
+                            // and there is no Mod R/M byte.
+                            //
+                            // Thus, we need b01000001, or 0x41.
+                            try self.code.resize(self.code.items.len + 6);
+                            self.code.items[self.code.items.len - 6] = 0x41;
+                        } else {
+                            try self.code.resize(self.code.items.len + 5);
+                        }
+                        self.code.items[self.code.items.len - 5] = 0xB8 | @as(u8, reg.id() & 0b111);
                         const imm_ptr = self.code.items[self.code.items.len - 4 ..][0..4];
-                        mem.writeIntLittle(i32, imm_ptr, offset);
+                        mem.writeIntLittle(u32, imm_ptr, @intCast(u32, x));
                         return;
-                    },
-                    .register => return self.fail(src, "TODO implement x86_64 genSetReg %rsi = register", .{}),
+                    }
+                    // Worst case: we need to load the 64-bit register with the IMM. GNU's assemblers calls
+                    // this `movabs`, though this is officially just a different variant of the plain `mov`
+                    // instruction.
+                    //
+                    // This encoding is, in fact, the *same* as the one used for 32-bit loads. The only
+                    // difference is that we set REX.W before the instruction, which extends the load to
+                    // 64-bit and uses the full bit-width of the register.
+                    //
+                    // Since we always need a REX here, let's just check if we also need to set REX.B.
+                    //
+                    // In this case, the encoding of the REX byte is 0b0100100B
+                    const REX = 0x48 | (if (reg.isExtended()) @as(u8, 0x01) else 0);
+                    try self.code.resize(self.code.items.len + 10);
+                    self.code.items[self.code.items.len - 10] = REX;
+                    self.code.items[self.code.items.len - 9] = 0xB8 | @as(u8, reg.id() & 0b111);
+                    const imm_ptr = self.code.items[self.code.items.len - 8 ..][0..8];
+                    mem.writeIntLittle(u64, imm_ptr, x);
                 },
-                else => return self.fail(src, "TODO implement genSetReg for x86_64 '{}'", .{@tagName(reg)}),
+                .embedded_in_code => |code_offset| {
+                    if (reg.size() != 64) {
+                        return self.fail(src, "TODO decide whether to implement non-64-bit loads", .{});
+                    }
+                    // We need the offset from RIP in a signed i32 twos complement.
+                    // The instruction is 7 bytes long and RIP points to the next instruction.
+                    //
+                    // 64-bit LEA is encoded as REX.W 8D /r. If the register is extended, the REX byte is modified,
+                    // but the operation size is unchanged. Since we're using a disp32, we want mode 0 and lower three
+                    // bits as five.
+                    // REX 0x8D 0b00RRR101, where RRR is the lower three bits of the id.
+                    try self.code.resize(self.code.items.len + 7);
+                    const REX = 0x48 | if (reg.isExtended()) @as(u8, 1) else 0;
+                    const rip = self.code.items.len;
+                    const big_offset = @intCast(i64, code_offset) - @intCast(i64, rip);
+                    const offset = @intCast(i32, big_offset);
+                    self.code.items[self.code.items.len - 7] = REX;
+                    self.code.items[self.code.items.len - 6] = 0x8D;
+                    self.code.items[self.code.items.len - 5] = 0b101 | (@as(u8, reg.id() & 0b111) << 3);
+                    const imm_ptr = self.code.items[self.code.items.len - 4 ..][0..4];
+                    mem.writeIntLittle(i32, imm_ptr, offset);
+                },
+                .register => |r| {
+                    if (reg.size() != 64) {
+                        return self.fail(src, "TODO decide whether to implement non-64-bit loads", .{});
+                    }
+                    const src_reg = @intToEnum(Reg(arch), @intCast(u8, r));
+                    // This is a varient of 8B /r. Since we're using 64-bit moves, we require a REX.
+                    // This is thus three bytes: REX 0x8B R/M.
+                    // If the destination is extended, the R field must be 1.
+                    // If the *source* is extended, the B field must be 1.
+                    // Since the register is being accessed directly, the R/M mode is three. The reg field (the middle
+                    // three bits) contain the destination, and the R/M field (the lower three bits) contain the source.
+                    const REX = 0x48 | (if (reg.isExtended()) @as(u8, 4) else 0) | (if (src_reg.isExtended()) @as(u8, 1) else 0);
+                    const R = 0xC0 | (@as(u8, reg.id() & 0b111) << 3) | @truncate(u3, src_reg.id());
+                    try self.code.appendSlice(&[_]u8{ REX, 0x8B, R });
+                },
+                .memory => |x| {
+                    if (reg.size() != 64) {
+                        return self.fail(src, "TODO decide whether to implement non-64-bit loads", .{});
+                    }
+                    if (x <= std.math.maxInt(u32)) {
+                        // Moving from memory to a register is a variant of `8B /r`.
+                        // Since we're using 64-bit moves, we require a REX.
+                        // This variant also requires a SIB, as it would otherwise be RIP-relative.
+                        // We want mode zero with the lower three bits set to four to indicate an SIB with no other displacement.
+                        // The SIB must be 0x25, to indicate a disp32 with no scaled index.
+                        // 0b00RRR100, where RRR is the lower three bits of the register ID.
+                        // The instruction is thus eight bytes; REX 0x8B 0b00RRR100 0x25 followed by a four-byte disp32.
+                        try self.code.resize(self.code.items.len + 8);
+                        const REX = 0x48 | if (reg.isExtended()) @as(u8, 1) else 0;
+                        const r = 0x04 | (@as(u8, reg.id() & 0b111) << 3);
+                        self.code.items[self.code.items.len - 8] = REX;
+                        self.code.items[self.code.items.len - 7] = 0x8B;
+                        self.code.items[self.code.items.len - 6] = r;
+                        self.code.items[self.code.items.len - 5] = 0x25;
+                        const imm_ptr = self.code.items[self.code.items.len - 4 ..][0..4];
+                        mem.writeIntLittle(u32, imm_ptr, @intCast(u32, x));
+                    } else {
+                        // If this is RAX, we can use a direct load; otherwise, we need to load the address, then indirectly load
+                        // the value.
+                        if (reg.id() == 0) {
+                            // REX.W 0xA1 moffs64*
+                            // moffs64* is a 64-bit offset "relative to segment base", which really just means the
+                            // absolute address for all practical purposes.
+                            try self.code.resize(self.code.items.len + 10);
+                            // REX.W == 0x48
+                            self.code.items[self.code.items.len - 10] = 0x48;
+                            self.code.items[self.code.items.len - 9] = 0xA1;
+                            const imm_ptr = self.code.items[self.code.items.len - 8 ..][0..8];
+                            mem.writeIntLittle(u64, imm_ptr, x);
+                        } else {
+                            // This requires two instructions; a move imm as used above, followed by an indirect load using the register
+                            // as the address and the register as the destination.
+                            //
+                            // This cannot be used if the lower three bits of the id are equal to four or five, as there
+                            // is no way to possibly encode it. This means that RSP, RBP, R12, and R13 cannot be used with
+                            // this instruction.
+                            const id3 = @truncate(u3, reg.id());
+                            std.debug.assert(id3 != 4 and id3 != 5);
+
+                            // Rather than duplicate the logic used for the move, we just use a self-call with a new MCValue.
+                            try self.genSetReg(src, arch, reg, MCValue{ .immediate = x });
+
+                            // Now, the register contains the address of the value to load into it
+                            // Currently, we're only allowing 64-bit registers, so we need the `REX.W 8B /r` variant.
+                            // TODO: determine whether to allow other sized registers, and if so, handle them properly.
+                            // This operation requires three bytes: REX 0x8B R/M
+                            //
+                            // For this operation, we want R/M mode *zero* (use register indirectly), and the two register
+                            // values must match. Thus, it's 00ABCABC where ABC is the lower three bits of the register ID.
+                            //
+                            // Furthermore, if this is an extended register, both B and R must be set in the REX byte, as *both*
+                            // register operands need to be marked as extended.
+                            const REX = 0x48 | if (reg.isExtended()) @as(u8, 0b0101) else 0;
+                            const RM = (@as(u8, reg.id() & 0b111) << 3) | @truncate(u3, reg.id());
+                            try self.code.appendSlice(&[_]u8{ REX, 0x8B, RM });
+                        }
+                    }
+                },
             },
             else => return self.fail(src, "TODO implement genSetReg for more architectures", .{}),
         }
@@ -396,30 +566,22 @@ const Function = struct {
         }
     }
 
-    fn genTypedValue(self: *Function, src: usize, typed_value: ir.TypedValue) !MCValue {
+    fn genTypedValue(self: *Function, src: usize, typed_value: TypedValue) !MCValue {
+        const ptr_bits = self.target.cpu.arch.ptrBitWidth();
+        const ptr_bytes: u64 = @divExact(ptr_bits, 8);
+        const allocator = self.code.allocator;
         switch (typed_value.ty.zigTypeTag()) {
             .Pointer => {
-                const ptr_elem_type = typed_value.ty.elemType();
-                switch (ptr_elem_type.zigTypeTag()) {
-                    .Array => {
-                        // TODO more checks to make sure this can be emitted as a string literal
-                        const bytes = try typed_value.val.toAllocatedBytes(self.code.allocator);
-                        defer self.code.allocator.free(bytes);
-                        const smaller_len = std.math.cast(u32, bytes.len) catch
-                            return self.fail(src, "TODO handle a larger string constant", .{});
-
-                        // Emit the string literal directly into the code; jump over it.
-                        try self.genRelativeFwdJump(src, smaller_len);
-                        const offset = self.code.items.len;
-                        try self.code.appendSlice(bytes);
-                        return MCValue{ .embedded_in_code = offset };
-                    },
-                    else => |t| return self.fail(src, "TODO implement emitTypedValue for pointer to '{}'", .{@tagName(t)}),
+                if (typed_value.val.cast(Value.Payload.DeclRef)) |payload| {
+                    const got = &self.bin_file.program_headers.items[self.bin_file.phdr_got_index.?];
+                    const decl = payload.decl;
+                    const got_addr = got.p_vaddr + decl.link.offset_table_index * ptr_bytes;
+                    return MCValue{ .memory = got_addr };
                 }
+                return self.fail(src, "TODO codegen more kinds of const pointers", .{});
             },
             .Int => {
-                const info = typed_value.ty.intInfo(self.module.target);
-                const ptr_bits = self.module.target.cpu.arch.ptrBitWidth();
+                const info = typed_value.ty.intInfo(self.target.*);
                 if (info.bits > ptr_bits or info.signed) {
                     return self.fail(src, "TODO const int bigger than ptr and signed int", .{});
                 }
@@ -433,127 +595,19 @@ const Function = struct {
 
     fn fail(self: *Function, src: usize, comptime format: []const u8, args: var) error{ CodegenFail, OutOfMemory } {
         @setCold(true);
-        const msg = try std.fmt.allocPrint(self.errors.allocator, format, args);
-        {
-            errdefer self.errors.allocator.free(msg);
-            (try self.errors.addOne()).* = .{
-                .byte_offset = src,
-                .msg = msg,
-            };
-        }
+        assert(self.err_msg == null);
+        self.err_msg = try ErrorMsg.create(self.code.allocator, src, format, args);
         return error.CodegenFail;
     }
 };
 
+const x86_64 = @import("codegen/x86_64.zig");
+const x86 = @import("codegen/x86.zig");
+
 fn Reg(comptime arch: Target.Cpu.Arch) type {
     return switch (arch) {
-        .i386 => enum {
-            eax,
-            ebx,
-            ecx,
-            edx,
-            ebp,
-            esp,
-            esi,
-            edi,
-
-            ax,
-            bx,
-            cx,
-            dx,
-            bp,
-            sp,
-            si,
-            di,
-
-            ah,
-            bh,
-            ch,
-            dh,
-
-            al,
-            bl,
-            cl,
-            dl,
-        },
-        .x86_64 => enum {
-            rax,
-            rbx,
-            rcx,
-            rdx,
-            rbp,
-            rsp,
-            rsi,
-            rdi,
-            r8,
-            r9,
-            r10,
-            r11,
-            r12,
-            r13,
-            r14,
-            r15,
-
-            eax,
-            ebx,
-            ecx,
-            edx,
-            ebp,
-            esp,
-            esi,
-            edi,
-            r8d,
-            r9d,
-            r10d,
-            r11d,
-            r12d,
-            r13d,
-            r14d,
-            r15d,
-
-            ax,
-            bx,
-            cx,
-            dx,
-            bp,
-            sp,
-            si,
-            di,
-            r8w,
-            r9w,
-            r10w,
-            r11w,
-            r12w,
-            r13w,
-            r14w,
-            r15w,
-
-            ah,
-            bh,
-            ch,
-            dh,
-            bph,
-            sph,
-            sih,
-            dih,
-
-            al,
-            bl,
-            cl,
-            dl,
-            bpl,
-            spl,
-            sil,
-            dil,
-            r8b,
-            r9b,
-            r10b,
-            r11b,
-            r12b,
-            r13b,
-            r14b,
-            r15b,
-        },
+        .i386 => x86.Register,
+        .x86_64 => x86_64.Register,
         else => @compileError("TODO add more register enums"),
     };
 }

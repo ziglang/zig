@@ -49,7 +49,7 @@ pub fn SinglyLinkedList(comptime T: type) type {
             }
         };
 
-        first: ?*Node,
+        first: ?*Node = null,
 
         /// Initialize a linked list.
         ///

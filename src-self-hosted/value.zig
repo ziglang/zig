@@ -6,10 +6,11 @@ const BigIntConst = std.math.big.int.Const;
 const BigIntMutable = std.math.big.int.Mutable;
 const Target = std.Target;
 const Allocator = std.mem.Allocator;
+const Module = @import("Module.zig");
 
 /// This is the raw data, with no bookkeeping, no memory awareness,
 /// no de-duplication, and no type system awareness.
-/// It's important for this struct to be small.
+/// It's important for this type to be small.
 /// This union takes advantage of the fact that the first page of memory
 /// is unmapped, giving us 4096 possible enum tags that have no payload.
 pub const Value = extern union {
@@ -45,6 +46,8 @@ pub const Value = extern union {
         comptime_int_type,
         comptime_float_type,
         noreturn_type,
+        null_type,
+        fn_noreturn_no_args_type,
         fn_naked_noreturn_no_args_type,
         fn_ccc_void_no_args_type,
         single_const_pointer_to_comptime_int_type,
@@ -64,8 +67,9 @@ pub const Value = extern union {
         int_big_positive,
         int_big_negative,
         function,
-        ref,
         ref_val,
+        decl_ref,
+        elem_ptr,
         bytes,
         repeated, // the value is a value repeated some number of times
 
@@ -136,6 +140,8 @@ pub const Value = extern union {
             .comptime_int_type => return out_stream.writeAll("comptime_int"),
             .comptime_float_type => return out_stream.writeAll("comptime_float"),
             .noreturn_type => return out_stream.writeAll("noreturn"),
+            .null_type => return out_stream.writeAll("@TypeOf(null)"),
+            .fn_noreturn_no_args_type => return out_stream.writeAll("fn() noreturn"),
             .fn_naked_noreturn_no_args_type => return out_stream.writeAll("fn() callconv(.Naked) noreturn"),
             .fn_ccc_void_no_args_type => return out_stream.writeAll("fn() callconv(.C) void"),
             .single_const_pointer_to_comptime_int_type => return out_stream.writeAll("*const comptime_int"),
@@ -153,11 +159,16 @@ pub const Value = extern union {
             .int_big_positive => return out_stream.print("{}", .{val.cast(Payload.IntBigPositive).?.asBigInt()}),
             .int_big_negative => return out_stream.print("{}", .{val.cast(Payload.IntBigNegative).?.asBigInt()}),
             .function => return out_stream.writeAll("(function)"),
-            .ref => return out_stream.writeAll("(ref)"),
             .ref_val => {
-                try out_stream.writeAll("*const ");
-                val = val.cast(Payload.RefVal).?.val;
-                continue;
+                const ref_val = val.cast(Payload.RefVal).?;
+                try out_stream.writeAll("&const ");
+                val = ref_val.val;
+            },
+            .decl_ref => return out_stream.writeAll("(decl ref)"),
+            .elem_ptr => {
+                const elem_ptr = val.cast(Payload.ElemPtr).?;
+                try out_stream.print("&[{}] ", .{elem_ptr.index});
+                val = elem_ptr.array_ptr;
             },
             .bytes => return std.zig.renderStringLiteral(self.cast(Payload.Bytes).?.data, out_stream),
             .repeated => {
@@ -169,9 +180,16 @@ pub const Value = extern union {
 
     /// Asserts that the value is representable as an array of bytes.
     /// Copies the value into a freshly allocated slice of memory, which is owned by the caller.
-    pub fn toAllocatedBytes(self: Value, allocator: *Allocator) Allocator.Error![]u8 {
+    pub fn toAllocatedBytes(self: Value, allocator: *Allocator) ![]u8 {
         if (self.cast(Payload.Bytes)) |bytes| {
             return std.mem.dupe(allocator, u8, bytes.data);
+        }
+        if (self.cast(Payload.Repeated)) |repeated| {
+            @panic("TODO implement toAllocatedBytes for this Value tag");
+        }
+        if (self.cast(Payload.DeclRef)) |declref| {
+            const val = try declref.decl.value();
+            return val.toAllocatedBytes(allocator);
         }
         unreachable;
     }
@@ -181,31 +199,33 @@ pub const Value = extern union {
         return switch (self.tag()) {
             .ty => self.cast(Payload.Ty).?.ty,
 
-            .u8_type => Type.initTag(.@"u8"),
-            .i8_type => Type.initTag(.@"i8"),
-            .isize_type => Type.initTag(.@"isize"),
-            .usize_type => Type.initTag(.@"usize"),
-            .c_short_type => Type.initTag(.@"c_short"),
-            .c_ushort_type => Type.initTag(.@"c_ushort"),
-            .c_int_type => Type.initTag(.@"c_int"),
-            .c_uint_type => Type.initTag(.@"c_uint"),
-            .c_long_type => Type.initTag(.@"c_long"),
-            .c_ulong_type => Type.initTag(.@"c_ulong"),
-            .c_longlong_type => Type.initTag(.@"c_longlong"),
-            .c_ulonglong_type => Type.initTag(.@"c_ulonglong"),
-            .c_longdouble_type => Type.initTag(.@"c_longdouble"),
-            .f16_type => Type.initTag(.@"f16"),
-            .f32_type => Type.initTag(.@"f32"),
-            .f64_type => Type.initTag(.@"f64"),
-            .f128_type => Type.initTag(.@"f128"),
-            .c_void_type => Type.initTag(.@"c_void"),
-            .bool_type => Type.initTag(.@"bool"),
-            .void_type => Type.initTag(.@"void"),
-            .type_type => Type.initTag(.@"type"),
-            .anyerror_type => Type.initTag(.@"anyerror"),
-            .comptime_int_type => Type.initTag(.@"comptime_int"),
-            .comptime_float_type => Type.initTag(.@"comptime_float"),
-            .noreturn_type => Type.initTag(.@"noreturn"),
+            .u8_type => Type.initTag(.u8),
+            .i8_type => Type.initTag(.i8),
+            .isize_type => Type.initTag(.isize),
+            .usize_type => Type.initTag(.usize),
+            .c_short_type => Type.initTag(.c_short),
+            .c_ushort_type => Type.initTag(.c_ushort),
+            .c_int_type => Type.initTag(.c_int),
+            .c_uint_type => Type.initTag(.c_uint),
+            .c_long_type => Type.initTag(.c_long),
+            .c_ulong_type => Type.initTag(.c_ulong),
+            .c_longlong_type => Type.initTag(.c_longlong),
+            .c_ulonglong_type => Type.initTag(.c_ulonglong),
+            .c_longdouble_type => Type.initTag(.c_longdouble),
+            .f16_type => Type.initTag(.f16),
+            .f32_type => Type.initTag(.f32),
+            .f64_type => Type.initTag(.f64),
+            .f128_type => Type.initTag(.f128),
+            .c_void_type => Type.initTag(.c_void),
+            .bool_type => Type.initTag(.bool),
+            .void_type => Type.initTag(.void),
+            .type_type => Type.initTag(.type),
+            .anyerror_type => Type.initTag(.anyerror),
+            .comptime_int_type => Type.initTag(.comptime_int),
+            .comptime_float_type => Type.initTag(.comptime_float),
+            .noreturn_type => Type.initTag(.noreturn),
+            .null_type => Type.initTag(.@"null"),
+            .fn_noreturn_no_args_type => Type.initTag(.fn_noreturn_no_args),
             .fn_naked_noreturn_no_args_type => Type.initTag(.fn_naked_noreturn_no_args),
             .fn_ccc_void_no_args_type => Type.initTag(.fn_ccc_void_no_args),
             .single_const_pointer_to_comptime_int_type => Type.initTag(.single_const_pointer_to_comptime_int),
@@ -222,8 +242,9 @@ pub const Value = extern union {
             .int_big_positive,
             .int_big_negative,
             .function,
-            .ref,
             .ref_val,
+            .decl_ref,
+            .elem_ptr,
             .bytes,
             .repeated,
             => unreachable,
@@ -259,6 +280,8 @@ pub const Value = extern union {
             .comptime_int_type,
             .comptime_float_type,
             .noreturn_type,
+            .null_type,
+            .fn_noreturn_no_args_type,
             .fn_naked_noreturn_no_args_type,
             .fn_ccc_void_no_args_type,
             .single_const_pointer_to_comptime_int_type,
@@ -267,8 +290,9 @@ pub const Value = extern union {
             .bool_false,
             .null_value,
             .function,
-            .ref,
             .ref_val,
+            .decl_ref,
+            .elem_ptr,
             .bytes,
             .undef,
             .repeated,
@@ -314,6 +338,8 @@ pub const Value = extern union {
             .comptime_int_type,
             .comptime_float_type,
             .noreturn_type,
+            .null_type,
+            .fn_noreturn_no_args_type,
             .fn_naked_noreturn_no_args_type,
             .fn_ccc_void_no_args_type,
             .single_const_pointer_to_comptime_int_type,
@@ -322,8 +348,9 @@ pub const Value = extern union {
             .bool_false,
             .null_value,
             .function,
-            .ref,
             .ref_val,
+            .decl_ref,
+            .elem_ptr,
             .bytes,
             .undef,
             .repeated,
@@ -370,6 +397,8 @@ pub const Value = extern union {
             .comptime_int_type,
             .comptime_float_type,
             .noreturn_type,
+            .null_type,
+            .fn_noreturn_no_args_type,
             .fn_naked_noreturn_no_args_type,
             .fn_ccc_void_no_args_type,
             .single_const_pointer_to_comptime_int_type,
@@ -378,8 +407,9 @@ pub const Value = extern union {
             .bool_false,
             .null_value,
             .function,
-            .ref,
             .ref_val,
+            .decl_ref,
+            .elem_ptr,
             .bytes,
             .undef,
             .repeated,
@@ -431,6 +461,8 @@ pub const Value = extern union {
             .comptime_int_type,
             .comptime_float_type,
             .noreturn_type,
+            .null_type,
+            .fn_noreturn_no_args_type,
             .fn_naked_noreturn_no_args_type,
             .fn_ccc_void_no_args_type,
             .single_const_pointer_to_comptime_int_type,
@@ -439,8 +471,9 @@ pub const Value = extern union {
             .bool_false,
             .null_value,
             .function,
-            .ref,
             .ref_val,
+            .decl_ref,
+            .elem_ptr,
             .bytes,
             .repeated,
             => unreachable,
@@ -521,6 +554,8 @@ pub const Value = extern union {
             .comptime_int_type,
             .comptime_float_type,
             .noreturn_type,
+            .null_type,
+            .fn_noreturn_no_args_type,
             .fn_naked_noreturn_no_args_type,
             .fn_ccc_void_no_args_type,
             .single_const_pointer_to_comptime_int_type,
@@ -529,8 +564,9 @@ pub const Value = extern union {
             .bool_false,
             .null_value,
             .function,
-            .ref,
             .ref_val,
+            .decl_ref,
+            .elem_ptr,
             .bytes,
             .repeated,
             .undef,
@@ -573,6 +609,8 @@ pub const Value = extern union {
             .comptime_int_type,
             .comptime_float_type,
             .noreturn_type,
+            .null_type,
+            .fn_noreturn_no_args_type,
             .fn_naked_noreturn_no_args_type,
             .fn_ccc_void_no_args_type,
             .single_const_pointer_to_comptime_int_type,
@@ -581,8 +619,9 @@ pub const Value = extern union {
             .bool_false,
             .null_value,
             .function,
-            .ref,
             .ref_val,
+            .decl_ref,
+            .elem_ptr,
             .bytes,
             .repeated,
             .undef,
@@ -636,7 +675,8 @@ pub const Value = extern union {
     }
 
     /// Asserts the value is a pointer and dereferences it.
-    pub fn pointerDeref(self: Value) Value {
+    /// Returns error.AnalysisFail if the pointer points to a Decl that failed semantic analysis.
+    pub fn pointerDeref(self: Value, allocator: *Allocator) error{ AnalysisFail, OutOfMemory }!Value {
         return switch (self.tag()) {
             .ty,
             .u8_type,
@@ -664,6 +704,8 @@ pub const Value = extern union {
             .comptime_int_type,
             .comptime_float_type,
             .noreturn_type,
+            .null_type,
+            .fn_noreturn_no_args_type,
             .fn_naked_noreturn_no_args_type,
             .fn_ccc_void_no_args_type,
             .single_const_pointer_to_comptime_int_type,
@@ -683,14 +725,19 @@ pub const Value = extern union {
             => unreachable,
 
             .the_one_possible_value => Value.initTag(.the_one_possible_value),
-            .ref => self.cast(Payload.Ref).?.cell.contents,
             .ref_val => self.cast(Payload.RefVal).?.val,
+            .decl_ref => self.cast(Payload.DeclRef).?.decl.value(),
+            .elem_ptr => {
+                const elem_ptr = self.cast(Payload.ElemPtr).?;
+                const array_val = try elem_ptr.array_ptr.pointerDeref(allocator);
+                return array_val.elemValue(allocator, elem_ptr.index);
+            },
         };
     }
 
     /// Asserts the value is a single-item pointer to an array, or an array,
     /// or an unknown-length pointer, and returns the element value at the index.
-    pub fn elemValueAt(self: Value, allocator: *Allocator, index: usize) Allocator.Error!Value {
+    pub fn elemValue(self: Value, allocator: *Allocator, index: usize) error{OutOfMemory}!Value {
         switch (self.tag()) {
             .ty,
             .u8_type,
@@ -718,6 +765,8 @@ pub const Value = extern union {
             .comptime_int_type,
             .comptime_float_type,
             .noreturn_type,
+            .null_type,
+            .fn_noreturn_no_args_type,
             .fn_naked_noreturn_no_args_type,
             .fn_ccc_void_no_args_type,
             .single_const_pointer_to_comptime_int_type,
@@ -733,13 +782,13 @@ pub const Value = extern union {
             .int_big_positive,
             .int_big_negative,
             .undef,
+            .elem_ptr,
+            .ref_val,
+            .decl_ref,
             => unreachable,
 
-            .ref => @panic("TODO figure out how MemoryCell works"),
-            .ref_val => @panic("TODO figure out how MemoryCell works"),
-
             .bytes => {
-                const int_payload = try allocator.create(Value.Payload.Int_u64);
+                const int_payload = try allocator.create(Payload.Int_u64);
                 int_payload.* = .{ .int = self.cast(Payload.Bytes).?.data[index] };
                 return Value.initPayload(&int_payload.base);
             },
@@ -747,6 +796,17 @@ pub const Value = extern union {
             // No matter the index; all the elements are the same!
             .repeated => return self.cast(Payload.Repeated).?.val,
         }
+    }
+
+    /// Returns a pointer to the element value at the index.
+    pub fn elemPtr(self: Value, allocator: *Allocator, index: usize) !Value {
+        const payload = try allocator.create(Payload.ElemPtr);
+        if (self.cast(Payload.ElemPtr)) |elem_ptr| {
+            payload.* = .{ .array_ptr = elem_ptr.array_ptr, .index = elem_ptr.index + index };
+        } else {
+            payload.* = .{ .array_ptr = self, .index = index };
+        }
+        return Value.initPayload(&payload.base);
     }
 
     pub fn isUndef(self: Value) bool {
@@ -783,6 +843,8 @@ pub const Value = extern union {
             .comptime_int_type,
             .comptime_float_type,
             .noreturn_type,
+            .null_type,
+            .fn_noreturn_no_args_type,
             .fn_naked_noreturn_no_args_type,
             .fn_ccc_void_no_args_type,
             .single_const_pointer_to_comptime_int_type,
@@ -796,8 +858,9 @@ pub const Value = extern union {
             .int_i64,
             .int_big_positive,
             .int_big_negative,
-            .ref,
             .ref_val,
+            .decl_ref,
+            .elem_ptr,
             .bytes,
             .repeated,
             => false,
@@ -841,8 +904,7 @@ pub const Value = extern union {
 
         pub const Function = struct {
             base: Payload = Payload{ .tag = .function },
-            /// Index into the `fns` array of the `ir.Module`
-            index: usize,
+            func: *Module.Fn,
         };
 
         pub const ArraySentinel0_u8_Type = struct {
@@ -855,14 +917,22 @@ pub const Value = extern union {
             elem_type: *Type,
         };
 
-        pub const Ref = struct {
-            base: Payload = Payload{ .tag = .ref },
-            cell: *MemoryCell,
-        };
-
+        /// Represents a pointer to another immutable value.
         pub const RefVal = struct {
             base: Payload = Payload{ .tag = .ref_val },
             val: Value,
+        };
+
+        /// Represents a pointer to a decl, not the value of the decl.
+        pub const DeclRef = struct {
+            base: Payload = Payload{ .tag = .decl_ref },
+            decl: *Module.Decl,
+        };
+
+        pub const ElemPtr = struct {
+            base: Payload = Payload{ .tag = .elem_ptr },
+            array_ptr: Value,
+            index: usize,
         };
 
         pub const Bytes = struct {
@@ -888,31 +958,5 @@ pub const Value = extern union {
         /// The +1 is headroom so that operations such as incrementing once or decrementing once
         /// are possible without using an allocator.
         limbs: [(@sizeOf(u64) / @sizeOf(std.math.big.Limb)) + 1]std.math.big.Limb,
-    };
-};
-
-/// This is the heart of resource management of the Zig compiler. The Zig compiler uses
-/// stop-the-world mark-and-sweep garbage collection during compilation to manage the resources
-/// associated with evaluating compile-time code and semantic analysis. Each `MemoryCell` represents
-/// a root.
-pub const MemoryCell = struct {
-    parent: Parent,
-    contents: Value,
-
-    pub const Parent = union(enum) {
-        none,
-        struct_field: struct {
-            struct_base: *MemoryCell,
-            field_index: usize,
-        },
-        array_elem: struct {
-            array_base: *MemoryCell,
-            elem_index: usize,
-        },
-        union_field: *MemoryCell,
-        err_union_code: *MemoryCell,
-        err_union_payload: *MemoryCell,
-        optional_payload: *MemoryCell,
-        optional_flag: *MemoryCell,
     };
 };

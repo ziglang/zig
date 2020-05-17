@@ -279,6 +279,21 @@ pub const Allocator = struct {
         const shrink_result = self.shrinkFn(self, non_const_ptr[0..bytes_len], Slice.alignment, 0, 1);
         assert(shrink_result.len == 0);
     }
+
+    /// Copies `m` to newly allocated memory. Caller owns the memory.
+    pub fn dupe(allocator: *Allocator, comptime T: type, m: []const T) ![]T {
+        const new_buf = try allocator.alloc(T, m.len);
+        copy(T, new_buf, m);
+        return new_buf;
+    }
+
+    /// Copies `m` to newly allocated memory, with a null-terminated element. Caller owns the memory.
+    pub fn dupeZ(allocator: *Allocator, comptime T: type, m: []const T) ![:0]T {
+        const new_buf = try allocator.alloc(T, m.len + 1);
+        copy(T, new_buf, m);
+        new_buf[m.len] = 0;
+        return new_buf[0..m.len :0];
+    }
 };
 
 var failAllocator = Allocator {
@@ -785,19 +800,14 @@ pub fn allEqual(comptime T: type, slice: []const T, scalar: T) bool {
     return true;
 }
 
-/// Copies `m` to newly allocated memory. Caller owns the memory.
+/// Deprecated, use `Allocator.dupe`.
 pub fn dupe(allocator: *Allocator, comptime T: type, m: []const T) ![]T {
-    const new_buf = try allocator.alloc(T, m.len);
-    copy(T, new_buf, m);
-    return new_buf;
+    return allocator.dupe(T, m);
 }
 
-/// Copies `m` to newly allocated memory, with a null-terminated element. Caller owns the memory.
+/// Deprecated, use `Allocator.dupeZ`.
 pub fn dupeZ(allocator: *Allocator, comptime T: type, m: []const T) ![:0]T {
-    const new_buf = try allocator.alloc(T, m.len + 1);
-    copy(T, new_buf, m);
-    new_buf[m.len] = 0;
-    return new_buf[0..m.len :0];
+    return allocator.dupeZ(T, m);
 }
 
 /// Remove values from the beginning of a slice.
@@ -2112,7 +2122,11 @@ pub fn alignBackwardGeneric(comptime T: type, addr: T, alignment: T) T {
 /// Given an address and an alignment, return true if the address is a multiple of the alignment
 /// The alignment must be a power of 2 and greater than 0.
 pub fn isAligned(addr: usize, alignment: usize) bool {
-    return alignBackward(addr, alignment) == addr;
+    return isAlignedGeneric(u64, addr, alignment);
+}
+
+pub fn isAlignedGeneric(comptime T: type, addr: T, alignment: T) bool {
+    return alignBackwardGeneric(T, addr, alignment) == addr;
 }
 
 test "isAligned" {

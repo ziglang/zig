@@ -51,6 +51,8 @@ pub fn build(b: *Builder) !void {
 
     var exe = b.addExecutable("zig", "src-self-hosted/main.zig");
     exe.setBuildMode(mode);
+    test_step.dependOn(&exe.step);
+    b.default_step.dependOn(&exe.step);
 
     const skip_release = b.option(bool, "skip-release", "Main test suite skips release builds") orelse false;
     const skip_release_small = b.option(bool, "skip-release-small", "Main test suite skips release-small builds") orelse skip_release;
@@ -58,21 +60,20 @@ pub fn build(b: *Builder) !void {
     const skip_release_safe = b.option(bool, "skip-release-safe", "Main test suite skips release-safe builds") orelse skip_release;
     const skip_non_native = b.option(bool, "skip-non-native", "Main test suite skips non-native builds") orelse false;
     const skip_libc = b.option(bool, "skip-libc", "Main test suite skips tests that link libc") orelse false;
-    const skip_self_hosted = (b.option(bool, "skip-self-hosted", "Main test suite skips building self hosted compiler") orelse false) or true; // TODO evented I/O good enough that this passes everywhere
-    if (!skip_self_hosted) {
-        test_step.dependOn(&exe.step);
-    }
 
     const only_install_lib_files = b.option(bool, "lib-files-only", "Only install library files") orelse false;
-    if (!only_install_lib_files and !skip_self_hosted) {
+    const enable_llvm = b.option(bool, "enable-llvm", "Build self-hosted compiler with LLVM backend enabled") orelse false;
+    if (enable_llvm) {
         var ctx = parseConfigH(b, config_h_text);
         ctx.llvm = try findLLVM(b, ctx.llvm_config_exe);
 
         try configureStage2(b, exe, ctx);
-
-        b.default_step.dependOn(&exe.step);
+    }
+    if (!only_install_lib_files) {
         exe.install();
     }
+    const link_libc = b.option(bool, "force-link-libc", "Force self-hosted compiler to link libc") orelse false;
+    if (link_libc) exe.linkLibC();
 
     b.installDirectory(InstallDirectoryOptions{
         .source_dir = "lib",

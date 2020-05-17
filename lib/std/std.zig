@@ -1,6 +1,8 @@
-pub const AlignedArrayList = @import("array_list.zig").AlignedArrayList;
 pub const ArrayList = @import("array_list.zig").ArrayList;
+pub const ArrayListAligned = @import("array_list.zig").ArrayListAligned;
+pub const ArrayListAlignedUnmanaged = @import("array_list.zig").ArrayListAlignedUnmanaged;
 pub const ArrayListSentineled = @import("array_list_sentineled.zig").ArrayListSentineled;
+pub const ArrayListUnmanaged = @import("array_list.zig").ArrayListUnmanaged;
 pub const AutoHashMap = @import("hash_map.zig").AutoHashMap;
 pub const BloomFilter = @import("bloom_filter.zig").BloomFilter;
 pub const BufMap = @import("buf_map.zig").BufMap;
