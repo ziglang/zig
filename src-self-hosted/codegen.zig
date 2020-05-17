@@ -379,12 +379,12 @@ const Function = struct {
                             return self.code.appendSlice(&[_]u8{
                                 0x45,
                                 0x31,
-                                0xC0 | (@intCast(u8, @truncate(u3, reg.id())) << 3) | @truncate(u3, reg.id()),
+                                0xC0 | (@as(u8, reg.id() & 0b111) << 3) | @truncate(u3, reg.id()),
                             });
                         } else {
                             return self.code.appendSlice(&[_]u8{
                                 0x31,
-                                0xC0 | (@intCast(u8, reg.id()) << 3) | @intCast(u3, reg.id()),
+                                0xC0 | (@as(u8, reg.id()) << 3) | reg.id(),
                             });
                         }
                     }
@@ -403,7 +403,7 @@ const Function = struct {
                         } else {
                             try self.code.resize(self.code.items.len + 5);
                         }
-                        self.code.items[self.code.items.len - 5] = 0xB8 | @intCast(u8, @truncate(u3, reg.id()));
+                        self.code.items[self.code.items.len - 5] = 0xB8 | @as(u8, reg.id() & 0b111);
                         const imm_ptr = self.code.items[self.code.items.len - 4 ..][0..4];
                         mem.writeIntLittle(u32, imm_ptr, @intCast(u32, x));
                         return;
@@ -422,7 +422,7 @@ const Function = struct {
                     const REX = 0x48 | (if (reg.isExtended()) @as(u8, 0x01) else 0);
                     try self.code.resize(self.code.items.len + 10);
                     self.code.items[self.code.items.len - 10] = REX;
-                    self.code.items[self.code.items.len - 9] = 0xB8 | @intCast(u8, @truncate(u3, reg.id()));
+                    self.code.items[self.code.items.len - 9] = 0xB8 | @as(u8, reg.id() & 0b111);
                     const imm_ptr = self.code.items[self.code.items.len - 8 ..][0..8];
                     mem.writeIntLittle(u64, imm_ptr, x);
                 },
@@ -444,7 +444,7 @@ const Function = struct {
                     const offset = @intCast(i32, big_offset);
                     self.code.items[self.code.items.len - 7] = REX;
                     self.code.items[self.code.items.len - 6] = 0x8D;
-                    self.code.items[self.code.items.len - 5] = 0x5 | (@intCast(u8, @truncate(u3, reg.id())) << 3);
+                    self.code.items[self.code.items.len - 5] = 0b101 | (@as(u8, reg.id() & 0b111) << 3);
                     const imm_ptr = self.code.items[self.code.items.len - 4 ..][0..4];
                     mem.writeIntLittle(i32, imm_ptr, offset);
                 },
@@ -460,7 +460,7 @@ const Function = struct {
                     // Since the register is being accessed directly, the R/M mode is three. The reg field (the middle
                     // three bits) contain the destination, and the R/M field (the lower three bits) contain the source.
                     const REX = 0x48 | (if (reg.isExtended()) @as(u8, 4) else 0) | (if (src_reg.isExtended()) @as(u8, 1) else 0);
-                    const R = 0xC0 | (@intCast(u8, @truncate(u3, reg.id())) << 3) | @truncate(u3, src_reg.id());
+                    const R = 0xC0 | (@as(u8, reg.id() & 0b111) << 3) | @truncate(u3, src_reg.id());
                     try self.code.appendSlice(&[_]u8{ REX, 0x8B, R });
                 },
                 .memory => |x| {
@@ -477,7 +477,7 @@ const Function = struct {
                         // The instruction is thus eight bytes; REX 0x8B 0b00RRR100 0x25 followed by a four-byte disp32.
                         try self.code.resize(self.code.items.len + 8);
                         const REX = 0x48 | if (reg.isExtended()) @as(u8, 1) else 0;
-                        const r = 0x04 | (@intCast(u8, @truncate(u3, reg.id())) << 3);
+                        const r = 0x04 | (@as(u8, reg.id() & 0b111) << 3);
                         self.code.items[self.code.items.len - 8] = REX;
                         self.code.items[self.code.items.len - 7] = 0x8B;
                         self.code.items[self.code.items.len - 6] = r;
@@ -521,7 +521,7 @@ const Function = struct {
                             // Furthermore, if this is an extended register, both B and R must be set in the REX byte, as *both*
                             // register operands need to be marked as extended.
                             const REX = 0x48 | if (reg.isExtended()) @as(u8, 0b0101) else 0;
-                            const RM = (@intCast(u8, @truncate(u3, reg.id())) << 3) | @truncate(u3, reg.id());
+                            const RM = (@as(u8, reg.id() & 0b111) << 3) | @truncate(u3, reg.id());
                             try self.code.appendSlice(&[_]u8{ REX, 0x8B, RM });
                         }
                     }
