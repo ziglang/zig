@@ -13,6 +13,7 @@ pub const TranslateCStep = struct {
     step: Step,
     builder: *Builder,
     source: build.FileSource,
+    include_dirs: std.ArrayList([]const u8),
     output_dir: ?[]const u8,
     out_basename: []const u8,
     target: CrossTarget = CrossTarget{},
@@ -23,6 +24,7 @@ pub const TranslateCStep = struct {
             .step = Step.init(.TranslateC, "translate-c", builder.allocator, make),
             .builder = builder,
             .source = source,
+            .include_dirs = std.ArrayList([]const u8).init(builder.allocator),
             .output_dir = null,
             .out_basename = undefined,
         };
@@ -49,6 +51,10 @@ pub const TranslateCStep = struct {
         return self.builder.addExecutableSource("translated_c", @as(build.FileSource, .{ .translate_c = self }));
     }
 
+    pub fn addIncludeDir(self: *TranslateCStep, include_dir: []const u8) void {
+        self.include_dirs.append(include_dir) catch unreachable;
+    }
+
     pub fn addCheckFile(self: *TranslateCStep, expected_matches: []const []const u8) *CheckFileStep {
         return CheckFileStep.create(self.builder, .{ .translate_c = self }, expected_matches);
     }
@@ -67,6 +73,11 @@ pub const TranslateCStep = struct {
         if (!self.target.isNative()) {
             try argv_list.append("-target");
             try argv_list.append(try self.target.zigTriple(self.builder.allocator));
+        }
+
+        for (self.include_dirs.items) |include_dir| {
+            try argv_list.append("-I");
+            try argv_list.append(include_dir);
         }
 
         try argv_list.append(self.source.getPath(self.builder));
