@@ -732,7 +732,7 @@ fn parseIfStatement(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node 
 
     const block_expr = (try parseBlockExpr(arena, it, tree));
     const assign_expr = if (block_expr == null)
-        try expectNode(arena, it, tree, parseAdditionExpr, .{
+        try expectNode(arena, it, tree, parseAssignExpr, .{
             .ExpectedBlockOrAssignment = .{ .token = it.index },
         })
     else
