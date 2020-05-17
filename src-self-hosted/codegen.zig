@@ -11,8 +11,6 @@ const ErrorMsg = Module.ErrorMsg;
 const Target = std.Target;
 const Allocator = mem.Allocator;
 
-const Backend = @import("backend.zig");
-
 pub const Result = union(enum) {
     /// The `code` parameter passed to `generateSymbol` has the value appended.
     appended: void,
@@ -194,14 +192,28 @@ const Function = struct {
             },
             else => return self.fail(src, "TODO implement @breakpoint() for {}", .{self.target.cpu.arch}),
         }
-        return .unreach;
+        return .none;
     }
 
     fn genCall(self: *Function, inst: *ir.Inst.Call) !MCValue {
+        if (inst.args.func.cast(ir.Inst.Constant)) |func_inst| {
+            if (inst.args.args.len != 0) {
+                return self.fail(inst.base.src, "TODO implement call with more than 0 parameters", .{});
+            }
+
+            if (func_inst.val.cast(Value.Payload.Function)) |func_val| {
+                const func = func_val.func;
+                return self.fail(inst.base.src, "TODO implement calling function", .{});
+            } else {
+                return self.fail(inst.base.src, "TODO implement calling weird function values", .{});
+            }
+        } else {
+            return self.fail(inst.base.src, "TODO implement calling runtime known function pointer", .{});
+        }
+
         switch (self.target.cpu.arch) {
             else => return self.fail(inst.base.src, "TODO implement call for {}", .{self.target.cpu.arch}),
         }
-        return .unreach;
     }
 
     fn genRet(self: *Function, inst: *ir.Inst.Ret) !MCValue {
@@ -589,10 +601,13 @@ const Function = struct {
     }
 };
 
+const x86_64 = @import("codegen/x86_64.zig");
+const x86 = @import("codegen/x86.zig");
+
 fn Reg(comptime arch: Target.Cpu.Arch) type {
     return switch (arch) {
-        .i386 => Backend.x86.Register,
-        .x86_64 => Backend.x86_64.Register,
+        .i386 => x86.Register,
+        .x86_64 => x86_64.Register,
         else => @compileError("TODO add more register enums"),
     };
 }
