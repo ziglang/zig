@@ -37,7 +37,6 @@ pub const Register = enum(u8) {
     pub fn id(self: @This()) u4 {
         return @truncate(u4, @enumToInt(self));
     }
-    
 };
 
 // zig fmt: on
