@@ -184,35 +184,38 @@ pub fn InStream(
             return @bitCast(i8, try self.readByte());
         }
 
+        /// Reads exactly `num_bytes` bytes and returns as an array.
+        /// `num_bytes` must be comptime-known
+        pub fn readBytesNoEof(self: Self, comptime num_bytes: usize) ![num_bytes]u8 {
+            var bytes: [num_bytes]u8 = undefined;
+            try self.readNoEof(&bytes);
+            return bytes;
+        }
+
         /// Reads a native-endian integer
         pub fn readIntNative(self: Self, comptime T: type) !T {
-            var bytes: [(T.bit_count + 7) / 8]u8 = undefined;
-            try self.readNoEof(bytes[0..]);
+            const bytes = try self.readBytesNoEof((T.bit_count + 7) / 8);
             return mem.readIntNative(T, &bytes);
         }
 
         /// Reads a foreign-endian integer
         pub fn readIntForeign(self: Self, comptime T: type) !T {
-            var bytes: [(T.bit_count + 7) / 8]u8 = undefined;
-            try self.readNoEof(bytes[0..]);
+            const bytes = try self.readBytesNoEof((T.bit_count + 7) / 8);
             return mem.readIntForeign(T, &bytes);
         }
 
         pub fn readIntLittle(self: Self, comptime T: type) !T {
-            var bytes: [(T.bit_count + 7) / 8]u8 = undefined;
-            try self.readNoEof(bytes[0..]);
+            const bytes = try self.readBytesNoEof((T.bit_count + 7) / 8);
             return mem.readIntLittle(T, &bytes);
         }
 
         pub fn readIntBig(self: Self, comptime T: type) !T {
-            var bytes: [(T.bit_count + 7) / 8]u8 = undefined;
-            try self.readNoEof(bytes[0..]);
+            const bytes = try self.readBytesNoEof((T.bit_count + 7) / 8);
             return mem.readIntBig(T, &bytes);
         }
 
         pub fn readInt(self: Self, comptime T: type, endian: builtin.Endian) !T {
-            var bytes: [(T.bit_count + 7) / 8]u8 = undefined;
-            try self.readNoEof(bytes[0..]);
+            const bytes = try self.readBytesNoEof((T.bit_count + 7) / 8);
             return mem.readInt(T, &bytes, endian);
         }
 
@@ -229,6 +232,18 @@ pub fn InStream(
             while (i < num_bytes) : (i += 1) {
                 _ = try self.readByte();
             }
+        }
+
+        /// Reads `slice.len` bytes from the stream and returns if they are the same as the passed slice
+        pub fn isBytes(self: Self, slice: []const u8) !bool {
+            var i: usize = 0;
+            var matches = true;
+            while (i < slice.len) : (i += 1) {
+                if (slice[i] != try self.readByte()) {
+                    matches = false;
+                }
+            }
+            return matches;
         }
 
         pub fn readStruct(self: Self, comptime T: type) !T {
@@ -272,4 +287,10 @@ test "InStream" {
         d = 3,
     }, undefined)) == .c);
     testing.expectError(error.EndOfStream, in_stream.readByte());
+}
+
+test "InStream.isBytes" {
+    const in_stream = std.io.fixedBufferStream("foobar").inStream();
+    testing.expectEqual(true, try in_stream.isBytes("foo"));
+    testing.expectEqual(false, try in_stream.isBytes("qux"));
 }
