@@ -19,6 +19,11 @@ wget https://ziglang.org/deps/$QEMUBASE.tar.xz
 tar xf $QEMUBASE.tar.xz
 PATH=$PWD/$QEMUBASE/bin:$PATH
 
+WASMTIME="wasmtime-v0.15.0-x86_64-linux"
+wget https://github.com/bytecodealliance/wasmtime/releases/download/v0.15.0/$WASMTIME.tar.xz
+tar xf $WASMTIME.tar.xz
+PATH=$PWD/$WASMTIME:$PATH
+
 # Make the `zig version` number consistent.
 # This will affect the cmake command below.
 git config core.abbrev 9
@@ -45,7 +50,7 @@ mkdir build
 cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release
 make -j$(nproc) install
-./zig build test -Denable-qemu
+./zig build test -Denable-qemu -Denable-wasmtime
 VERSION="$(./zig version)"
 
 if [ "${BUILD_REASON}" != "PullRequest" ]; then

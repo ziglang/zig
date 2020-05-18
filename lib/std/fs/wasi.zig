@@ -117,7 +117,7 @@ pub const PreopenList = struct {
     /// TODO make the function more generic by searching by `PreopenType` union. This will
     /// be needed in the future when WASI extends its capabilities to resources
     /// other than preopened directories.
-    pub fn find(self: *const Self, path: []const u8) ?*const Preopen {
+    pub fn find(self: Self, path: []const u8) ?*const Preopen {
         for (self.buffer.items) |preopen| {
             switch (preopen.@"type") {
                 PreopenType.Dir => |preopen_path| {
@@ -129,7 +129,7 @@ pub const PreopenList = struct {
     }
 
     /// Return the inner buffer as read-only slice.
-    pub fn asSlice(self: *const Self) []const Preopen {
+    pub fn asSlice(self: Self) []const Preopen {
         return self.buffer.items;
     }
 
@@ -138,14 +138,3 @@ pub const PreopenList = struct {
         return self.buffer.toOwnedSlice();
     }
 };
-
-/// Convenience wrapper for `std.os.wasi.path_open` syscall.
-pub fn openat(dir_fd: fd_t, file_path: []const u8, oflags: oflags_t, fdflags: fdflags_t, rights: rights_t) os.OpenError!fd_t {
-    var fd: fd_t = undefined;
-    switch (path_open(dir_fd, 0x0, file_path.ptr, file_path.len, oflags, rights, 0x0, fdflags, &fd)) {
-        0 => {},
-        // TODO map errors
-        else => |err| return std.os.unexpectedErrno(err),
-    }
-    return fd;
-}

@@ -4,6 +4,8 @@ const fs = std.fs;
 const File = std.fs.File;
 
 test "openSelfExe" {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
     const self_exe_file = try std.fs.openSelfExe();
     self_exe_file.close();
 }
@@ -11,6 +13,8 @@ test "openSelfExe" {
 const FILE_LOCK_TEST_SLEEP_TIME = 5 * std.time.millisecond;
 
 test "open file with exclusive nonblocking lock twice" {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
     const dir = fs.cwd();
     const filename = "file_nonblocking_lock_test.txt";
 
@@ -35,7 +39,6 @@ test "open file with lock twice, make sure it wasn't open at the same time" {
     }
 
     const filename = "file_lock_test.txt";
-
     var contexts = [_]FileLockTestContext{
         .{ .filename = filename, .create = true, .lock = .Exclusive },
         .{ .filename = filename, .create = true, .lock = .Exclusive },
@@ -111,6 +114,8 @@ test "create file, lock and read from multiple process at once" {
 }
 
 test "open file with exclusive nonblocking lock twice (absolute paths)" {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
     const allocator = std.testing.allocator;
 
     const file_paths: [1][]const u8 = .{"zig-test-absolute-paths.txt"};

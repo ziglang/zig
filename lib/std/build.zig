@@ -1061,6 +1061,8 @@ pub const Builder = struct {
 };
 
 test "builder.findProgram compiles" {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
 
@@ -1706,7 +1708,7 @@ pub const LibExeObjStep = struct {
             .Enum => |enum_info| {
                 out.print("const {} = enum {{\n", .{@typeName(T)}) catch unreachable;
                 inline for (enum_info.fields) |field| {
-                    out.print("    {},\n", .{ field.name }) catch unreachable;
+                    out.print("    {},\n", .{field.name}) catch unreachable;
                 }
                 out.print("}};\n", .{}) catch unreachable;
             },
@@ -2089,6 +2091,8 @@ pub const LibExeObjStep = struct {
             .wasmtime => |bin_name| if (self.enable_wasmtime) {
                 try zig_args.append("--test-cmd");
                 try zig_args.append(bin_name);
+                try zig_args.append("--test-cmd");
+                try zig_args.append("--dir=.");
                 try zig_args.append("--test-cmd-bin");
             },
         }

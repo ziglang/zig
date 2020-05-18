@@ -1,9 +1,12 @@
 const std = @import("../std.zig");
+const builtin = std.builtin;
 const net = std.net;
 const mem = std.mem;
 const testing = std.testing;
 
 test "parse and render IPv6 addresses" {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
     var buffer: [100]u8 = undefined;
     const ips = [_][]const u8{
         "FF01:0:0:0:0:0:0:FB",
@@ -42,6 +45,8 @@ test "parse and render IPv6 addresses" {
 }
 
 test "parse and render IPv4 addresses" {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
     var buffer: [18]u8 = undefined;
     for ([_][]const u8{
         "0.0.0.0",
@@ -63,7 +68,7 @@ test "parse and render IPv4 addresses" {
 }
 
 test "resolve DNS" {
-    if (std.builtin.os.tag == .windows) {
+    if (builtin.os.tag == .windows or builtin.os.tag == .wasi) {
         // DNS resolution not implemented on Windows yet.
         return error.SkipZigTest;
     }
@@ -101,6 +106,8 @@ test "listen on a port, send bytes, receive bytes" {
 }
 
 fn testClient(addr: net.Address) anyerror!void {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
     const socket_file = try net.tcpConnectToAddress(addr);
     defer socket_file.close();
 
@@ -111,6 +118,8 @@ fn testClient(addr: net.Address) anyerror!void {
 }
 
 fn testServer(server: *net.StreamServer) anyerror!void {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
     var client = try server.accept();
 
     const stream = client.file.outStream();

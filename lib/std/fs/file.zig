@@ -30,6 +30,7 @@ pub const File = struct {
 
     pub const default_mode = switch (builtin.os.tag) {
         .windows => 0,
+        .wasi => 0,
         else => 0o666,
     };
 
@@ -139,6 +140,12 @@ pub const File = struct {
     pub fn supportsAnsiEscapeCodes(self: File) bool {
         if (builtin.os.tag == .windows) {
             return os.isCygwinPty(self.handle);
+        }
+        if (builtin.os.tag == .wasi) {
+            // WASI sanitizes stdout when fd is a tty so ANSI escape codes
+            // will not be interpreted as actual cursor commands, and
+            // stderr is always sanitized.
+            return false;
         }
         if (self.isTty()) {
             if (self.handle == os.STDOUT_FILENO or self.handle == os.STDERR_FILENO) {

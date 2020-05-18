@@ -133,6 +133,9 @@ fn alignedBig() align(16) i32 {
 }
 
 test "@alignCast functions" {
+    // TODO investigate why this fails when cross-compiled to wasm.
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
     expect(fnExpectsOnly1(simple4) == 0x19);
 }
 fn fnExpectsOnly1(ptr: fn () align(1) i32) i32 {
@@ -324,6 +327,9 @@ test "align(@alignOf(T)) T does not force resolution of T" {
 }
 
 test "align(N) on functions" {
+    // TODO investigate why this fails when cross-compiled to wasm.
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
     expect((@ptrToInt(overaligned_fn) & (0x1000 - 1)) == 0);
 }
 fn overaligned_fn() align(0x1000) i32 {
