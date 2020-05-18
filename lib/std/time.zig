@@ -40,16 +40,8 @@ pub fn sleep(nanoseconds: u64) void {
 
         var event: w.event_t = undefined;
         var nevents: usize = undefined;
-        switch (w.poll_oneoff(&in, &event, 1, &nevents)) {
-            w.ESUCCESS => {},
-            else => |err| @panic("unexpected error of poll_oneoff"),
-        }
-
-        if (nevents == 1 and event.userdata == userdata and event.@"error" == w.ESUCCESS and event.@"type" == w.EVENTTYPE_CLOCK) {
-            return;
-        }
-
-        @panic("unexpected result of poll_oneoff");
+        _ = w.poll_oneoff(&in, &event, 1, &nevents);
+        return;
     }
 
     const s = nanoseconds / ns_per_s;
