@@ -15406,6 +15406,12 @@ static IrInstGen *ir_get_deref(IrAnalyze *ira, IrInst* source_instruction, IrIns
     }
     if (instr_is_comptime(ptr)) {
         if (ptr->value->special == ConstValSpecialUndef) {
+            // If we are in a TypeOf call, we return an undefined value instead of erroring
+            // since we know the type.
+            if (get_scope_typeof(source_instruction->scope)) {
+                return ir_const_undef(ira, source_instruction, child_type);
+            }
+
             ir_add_error(ira, &ptr->base, buf_sprintf("attempt to dereference undefined value"));
             return ira->codegen->invalid_inst_gen;
         }
@@ -19709,7 +19715,7 @@ static IrInstGen *ir_analyze_fn_call(IrAnalyze *ira, IrInst* source_instr,
     if (modifier == CallModifierCompileTime) {
         // If we are evaluating an extern function in a TypeOf call, we can return an undefined value
         // of its return type.
-        if (fn_entry != nullptr && source_instr->scope->id == ScopeIdTypeOf &&
+        if (fn_entry != nullptr && get_scope_typeof(source_instr->scope) != nullptr &&
             fn_proto_node->data.fn_proto.is_extern) {
 
             assert(fn_entry->body_node == nullptr);
@@ -21842,6 +21848,11 @@ static IrInstGen *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field_name
         return ir_analyze_inferred_field_ptr(ira, field_name, source_instr, container_ptr, bare_type);
     }
 
+    // Tracks wether we should return an undefined value of the correct type.
+    // We do this if the container pointer is undefined and we are in a TypeOf call.
+    bool return_undef = container_ptr->value->special == ConstValSpecialUndef && \
+                         get_scope_typeof(source_instr->scope) != nullptr;
+
     if ((err = type_resolve(ira->codegen, bare_type, ResolveStatusZeroBitsKnown)))
         return ira->codegen->invalid_inst_gen;
 
@@ -21849,6 +21860,12 @@ static IrInstGen *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field_name
     if (bare_type->id == ZigTypeIdStruct) {
         TypeStructField *field = find_struct_type_field(bare_type, field_name);
         if (field != nullptr) {
+            if (return_undef) {
+                ZigType *field_ptr_type = get_pointer_to_type(ira->codegen, resolve_struct_field_type(ira->codegen, field),
+                                                              container_ptr->value->type->data.pointer.is_const);
+                return ir_const_undef(ira, source_instr, field_ptr_type);
+            }
+
             return ir_analyze_struct_field_ptr(ira, source_instr, field, container_ptr, bare_type, initializing);
         } else {
             return ir_analyze_container_member_access_inner(ira, bare_type, field_name,
