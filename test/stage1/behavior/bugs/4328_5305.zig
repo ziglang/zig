@@ -3,9 +3,11 @@ const expectEqual = @import("std").testing.expectEqual;
 const FILE = extern struct {
     dummy_field: u8,
 };
+
 extern fn printf([*c]const u8, ...) c_int;
 extern fn fputs([*c]const u8, noalias [*c]FILE) c_int;
 extern fn ftell([*c]FILE) c_long;
+extern fn fopen([*c]const u8, [*c]const u8) [*c]FILE;
 
 const S = extern struct {
     state: c_short,
@@ -41,6 +43,26 @@ test "Peer resolution of extern function calls in @TypeOf" {
 
         fn doTheTest() void {
             expectEqual(c_long, @TypeOf(test_fn()));
+        }
+    };
+
+    Test.doTheTest();
+    comptime Test.doTheTest();
+}
+
+test "Extern function calls, dereferences and field access in @TypeOf" {
+    const Test = struct {
+        fn test_fn_1(a: c_long) @TypeOf(fopen("test", "r").*) {
+            return .{ .dummy_field = 0 };
+        }
+
+        fn test_fn_2(a: var) @TypeOf(fopen("test", "r").*.dummy_field) {
+            return 255;
+        }
+
+        fn doTheTest() void {
+            expectEqual(FILE, @TypeOf(test_fn_1(0)));
+            expectEqual(u8, @TypeOf(test_fn_2(0)));
         }
     };
 
