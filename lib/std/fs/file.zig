@@ -143,11 +143,9 @@ pub const File = struct {
         }
         if (builtin.os.tag == .wasi) {
             // WASI sanitizes stdout when fd is a tty so ANSI escape codes
-            // will not be interpreted as actual cursor commands.
-            if (self.handle == os.STDOUT_FILENO and self.isTty()) return false;
+            // will not be interpreted as actual cursor commands, and
             // stderr is always sanitized.
-            if (self.handle == os.STDERR_FILENO) return false;
-            return true;
+            return false;
         }
         if (self.isTty()) {
             if (self.handle == os.STDOUT_FILENO or self.handle == os.STDERR_FILENO) {
