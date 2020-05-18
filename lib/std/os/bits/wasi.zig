@@ -3,11 +3,11 @@ pub const STDIN_FILENO = 0;
 pub const STDOUT_FILENO = 1;
 pub const STDERR_FILENO = 2;
 
-pub const mode_t = u32;
+pub const mode_t = u0;
 
 pub const time_t = i64; // match https://github.com/CraneStation/wasi-libc
 
-pub const timespec = extern struct {
+pub const timespec = struct {
     tv_sec: time_t,
     tv_nsec: isize,
 
@@ -26,7 +26,45 @@ pub const timespec = extern struct {
     }
 };
 
-pub const Stat = filestat_t;
+pub const Stat = struct {
+    dev: device_t,
+    ino: inode_t,
+    mode: mode_t,
+    filetype: filetype_t,
+    nlink: linkcount_t,
+    size: filesize_t,
+    atim: timespec,
+    mtim: timespec,
+    ctim: timespec,
+
+    const Self = @This();
+
+    pub fn fromFilestat(stat: filestat_t) Self {
+        return Self{
+            .dev = stat.dev,
+            .ino = stat.ino,
+            .mode = 0,
+            .filetype = stat.filetype,
+            .nlink = stat.nlink,
+            .size = stat.size,
+            .atim = stat.atime(),
+            .mtim = stat.mtime(),
+            .ctim = stat.ctime(),
+        };
+    }
+
+    pub fn atime(self: Self) timespec {
+        return self.atim;
+    }
+
+    pub fn mtime(self: Self) timespec {
+        return self.mtim;
+    }
+
+    pub fn ctime(self: Self) timespec {
+        return self.ctim;
+    }
+};
 
 pub const AT_REMOVEDIR: u32 = 1; // there's no AT_REMOVEDIR in WASI, but we simulate here to match other OSes
 

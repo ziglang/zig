@@ -2904,9 +2904,9 @@ pub const FStatError = error{
 
 pub fn fstat(fd: fd_t) FStatError!Stat {
     if (builtin.os.tag == .wasi) {
-        var stat: Stat = undefined;
+        var stat: wasi.filestat_t = undefined;
         switch (wasi.fd_filestat_get(fd, &stat)) {
-            wasi.ESUCCESS => return stat,
+            wasi.ESUCCESS => return Stat.fromFilestat(stat),
             wasi.EINVAL => unreachable,
             wasi.EBADF => unreachable, // Always a race condition.
             wasi.ENOMEM => return error.SystemResources,

@@ -30,6 +30,7 @@ pub const File = struct {
 
     pub const default_mode = switch (builtin.os.tag) {
         .windows => 0,
+        .wasi => 0,
         else => 0o666,
     };
 
@@ -267,11 +268,10 @@ pub const File = struct {
         const atime = st.atime();
         const mtime = st.mtime();
         const ctime = st.ctime();
-        const m = if (builtin.os.tag == .wasi) 0 else st.mode;
         return Stat{
             .inode = st.ino,
             .size = @bitCast(u64, st.size),
-            .mode = m,
+            .mode = st.mode,
             .atime = @as(i64, atime.tv_sec) * std.time.ns_per_s + atime.tv_nsec,
             .mtime = @as(i64, mtime.tv_sec) * std.time.ns_per_s + mtime.tv_nsec,
             .ctime = @as(i64, ctime.tv_sec) * std.time.ns_per_s + ctime.tv_nsec,
