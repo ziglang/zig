@@ -483,15 +483,6 @@ pub fn addPkgTests(
         if (skip_non_native and !test_target.target.isNative())
             continue;
 
-        if (!is_wasmtime_enabled) {
-            if (test_target.target.os_tag) |tag| {
-                if (tag == .wasi) {
-                    warn("Skipping {} on wasm32-wasi.\n", .{root_src});
-                    continue;
-                }
-            }
-        }
-
         if (skip_libc and test_target.link_libc)
             continue;
 

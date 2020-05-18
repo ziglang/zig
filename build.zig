@@ -117,7 +117,7 @@ pub fn build(b: *Builder) !void {
     fmt_step.dependOn(&fmt_build_zig.step);
 
     // TODO for the moment, skip wasm32-wasi until bugs are sorted out.
-    test_step.dependOn(tests.addPkgTests(b, test_filter, "test/stage1/behavior.zig", "behavior", "Run the behavior tests", modes, false, skip_non_native, skip_libc, is_wine_enabled, is_qemu_enabled, false, glibc_multi_dir));
+    test_step.dependOn(tests.addPkgTests(b, test_filter, "test/stage1/behavior.zig", "behavior", "Run the behavior tests", modes, false, skip_non_native, skip_libc, is_wine_enabled, is_qemu_enabled, is_wasmtime_enabled, glibc_multi_dir));
 
     test_step.dependOn(tests.addPkgTests(b, test_filter, "lib/std/std.zig", "std", "Run the standard library tests", modes, false, skip_non_native, skip_libc, is_wine_enabled, is_qemu_enabled, is_wasmtime_enabled, glibc_multi_dir));
 

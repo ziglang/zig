@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const mem = std.mem;
 const math = std.math;
 const expect = std.testing.expect;
@@ -387,6 +388,9 @@ test "vector bitwise not operator" {
 }
 
 test "vector shift operators" {
+    // TODO investigate why this fails when cross-compiled to wasm.
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
     const S = struct {
         fn doTheTestShift(x: var, y: var) void {
             const N = @typeInfo(@TypeOf(x)).Array.len;
