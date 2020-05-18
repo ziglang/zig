@@ -1,7 +1,9 @@
 const std = @import("../std.zig");
 const builtin = std.builtin;
 const fs = std.fs;
+const Dir = std.fs.Dir;
 const File = std.fs.File;
+const tmpDir = std.testing.tmpDir;
 
 test "openSelfExe" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
@@ -15,16 +17,18 @@ const FILE_LOCK_TEST_SLEEP_TIME = 5 * std.time.millisecond;
 test "open file with exclusive nonblocking lock twice" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
-    const dir = fs.cwd();
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
     const filename = "file_nonblocking_lock_test.txt";
 
-    const file1 = try dir.createFile(filename, .{ .lock = .Exclusive, .lock_nonblocking = true });
+    const file1 = try tmp.dir.createFile(filename, .{ .lock = .Exclusive, .lock_nonblocking = true });
     defer file1.close();
 
-    const file2 = dir.createFile(filename, .{ .lock = .Exclusive, .lock_nonblocking = true });
+    const file2 = tmp.dir.createFile(filename, .{ .lock = .Exclusive, .lock_nonblocking = true });
     std.debug.assert(std.meta.eql(file2, error.WouldBlock));
 
-    dir.deleteFile(filename) catch |err| switch (err) {
+    tmp.dir.deleteFile(filename) catch |err| switch (err) {
         error.FileNotFound => {},
         else => return err,
     };
@@ -40,9 +44,12 @@ test "open file with lock twice, make sure it wasn't open at the same time" {
 
     const filename = "file_lock_test.txt";
 
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
     var contexts = [_]FileLockTestContext{
-        .{ .filename = filename, .create = true, .lock = .Exclusive },
-        .{ .filename = filename, .create = true, .lock = .Exclusive },
+        .{ .dir = tmp.dir, .filename = filename, .create = true, .lock = .Exclusive },
+        .{ .dir = tmp.dir, .filename = filename, .create = true, .lock = .Exclusive },
     };
     try run_lock_file_test(&contexts);
 
@@ -58,7 +65,7 @@ test "open file with lock twice, make sure it wasn't open at the same time" {
 
     std.debug.assert(!contexts[0].overlaps(&contexts[1]));
 
-    fs.cwd().deleteFile(filename) catch |err| switch (err) {
+    tmp.dir.deleteFile(filename) catch |err| switch (err) {
         error.FileNotFound => {},
         else => return err,
     };
@@ -80,12 +87,15 @@ test "create file, lock and read from multiple process at once" {
     const filename = "file_read_lock_test.txt";
     const filedata = "Hello, world!\n";
 
-    try fs.cwd().writeFile(filename, filedata);
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    try tmp.dir.writeFile(filename, filedata);
 
     var contexts = [_]FileLockTestContext{
-        .{ .filename = filename, .create = false, .lock = .Shared },
-        .{ .filename = filename, .create = false, .lock = .Shared },
-        .{ .filename = filename, .create = false, .lock = .Exclusive },
+        .{ .dir = tmp.dir, .filename = filename, .create = false, .lock = .Shared },
+        .{ .dir = tmp.dir, .filename = filename, .create = false, .lock = .Shared },
+        .{ .dir = tmp.dir, .filename = filename, .create = false, .lock = .Exclusive },
     };
 
     try run_lock_file_test(&contexts);
@@ -108,7 +118,7 @@ test "create file, lock and read from multiple process at once" {
     std.debug.assert(contexts[0].bytes_read.? == filedata.len);
     std.debug.assert(contexts[1].bytes_read.? == filedata.len);
 
-    fs.cwd().deleteFile(filename) catch |err| switch (err) {
+    tmp.dir.deleteFile(filename) catch |err| switch (err) {
         error.FileNotFound => {},
         else => return err,
     };
@@ -133,6 +143,7 @@ test "open file with exclusive nonblocking lock twice (absolute paths)" {
 }
 
 const FileLockTestContext = struct {
+    dir: Dir,
     filename: []const u8,
     pid: if (builtin.os.tag == .windows) ?void else ?std.os.pid_t = null,
 
@@ -154,12 +165,12 @@ const FileLockTestContext = struct {
     fn run(ctx: *@This()) void {
         var file: File = undefined;
         if (ctx.create) {
-            file = fs.cwd().createFile(ctx.filename, .{ .lock = ctx.lock }) catch |err| {
+            file = ctx.dir.createFile(ctx.filename, .{ .lock = ctx.lock }) catch |err| {
                 ctx.err = err;
                 return;
             };
         } else {
-            file = fs.cwd().openFile(ctx.filename, .{ .lock = ctx.lock }) catch |err| {
+            file = ctx.dir.openFile(ctx.filename, .{ .lock = ctx.lock }) catch |err| {
                 ctx.err = err;
                 return;
             };
