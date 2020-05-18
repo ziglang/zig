@@ -117,7 +117,7 @@ pub const PreopenList = struct {
     /// TODO make the function more generic by searching by `PreopenType` union. This will
     /// be needed in the future when WASI extends its capabilities to resources
     /// other than preopened directories.
-    pub fn find(self: *const Self, path: []const u8) ?*const Preopen {
+    pub fn find(self: Self, path: []const u8) ?*const Preopen {
         for (self.buffer.items) |preopen| {
             switch (preopen.@"type") {
                 PreopenType.Dir => |preopen_path| {
@@ -129,7 +129,7 @@ pub const PreopenList = struct {
     }
 
     /// Return the inner buffer as read-only slice.
-    pub fn asSlice(self: *const Self) []const Preopen {
+    pub fn asSlice(self: Self) []const Preopen {
         return self.buffer.items;
     }
 
