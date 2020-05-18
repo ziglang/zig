@@ -11,17 +11,18 @@ const mem = std.mem;
 const fs = std.fs;
 const File = std.fs.File;
 
-const getTestDir = std.testing.getTestDir;
+const tmpDir = std.testing.tmpDir;
 
 test "write a file, read it, then delete it" {
-    const test_dir = getTestDir();
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
 
     var data: [1024]u8 = undefined;
     var prng = DefaultPrng.init(1234);
     prng.random.bytes(data[0..]);
     const tmp_file_name = "temp_test_file.txt";
     {
-        var file = try test_dir.createFile(tmp_file_name, .{});
+        var file = try tmp.dir.createFile(tmp_file_name, .{});
         defer file.close();
 
         var buf_stream = io.bufferedOutStream(file.outStream());
@@ -34,7 +35,7 @@ test "write a file, read it, then delete it" {
 
     {
         // Make sure the exclusive flag is honored.
-        if (test_dir.createFile(tmp_file_name, .{ .exclusive = true })) |file| {
+        if (tmp.dir.createFile(tmp_file_name, .{ .exclusive = true })) |file| {
             unreachable;
         } else |err| {
             std.debug.assert(err == File.OpenError.PathAlreadyExists);
@@ -42,7 +43,7 @@ test "write a file, read it, then delete it" {
     }
 
     {
-        var file = try test_dir.openFile(tmp_file_name, .{});
+        var file = try tmp.dir.openFile(tmp_file_name, .{});
         defer file.close();
 
         const file_size = try file.getEndPos();
@@ -58,14 +59,16 @@ test "write a file, read it, then delete it" {
         expect(mem.eql(u8, contents["begin".len .. contents.len - "end".len], &data));
         expect(mem.eql(u8, contents[contents.len - "end".len ..], "end"));
     }
-    try test_dir.deleteFile(tmp_file_name);
+    try tmp.dir.deleteFile(tmp_file_name);
 }
 
 test "BitStreams with File Stream" {
-    var test_dir = getTestDir();
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
     const tmp_file_name = "temp_test_file.txt";
     {
-        var file = try test_dir.createFile(tmp_file_name, .{});
+        var file = try tmp.dir.createFile(tmp_file_name, .{});
         defer file.close();
 
         var bit_stream = io.bitOutStream(builtin.endian, file.outStream());
@@ -79,7 +82,7 @@ test "BitStreams with File Stream" {
         try bit_stream.flushBits();
     }
     {
-        var file = try test_dir.openFile(tmp_file_name, .{});
+        var file = try tmp.dir.openFile(tmp_file_name, .{});
         defer file.close();
 
         var bit_stream = io.bitInStream(builtin.endian, file.inStream());
@@ -101,16 +104,18 @@ test "BitStreams with File Stream" {
 
         expectError(error.EndOfStream, bit_stream.readBitsNoEof(u1, 1));
     }
-    try test_dir.deleteFile(tmp_file_name);
+    try tmp.dir.deleteFile(tmp_file_name);
 }
 
 test "File seek ops" {
-    var test_dir = getTestDir();
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
     const tmp_file_name = "temp_test_file.txt";
-    var file = try test_dir.createFile(tmp_file_name, .{});
+    var file = try tmp.dir.createFile(tmp_file_name, .{});
     defer {
         file.close();
-        test_dir.deleteFile(tmp_file_name) catch {};
+        tmp.dir.deleteFile(tmp_file_name) catch {};
     }
 
     try file.writeAll(&([_]u8{0x55} ** 8192));
@@ -133,12 +138,14 @@ test "setEndPos" {
     // https://github.com/ziglang/zig/issues/5127
     if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
 
-    var test_dir = getTestDir();
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
     const tmp_file_name = "temp_test_file.txt";
-    var file = try test_dir.createFile(tmp_file_name, .{});
+    var file = try tmp.dir.createFile(tmp_file_name, .{});
     defer {
         file.close();
-        test_dir.deleteFile(tmp_file_name) catch {};
+        tmp.dir.deleteFile(tmp_file_name) catch {};
     }
 
     // Verify that the file size changes and the file offset is not moved
@@ -157,12 +164,14 @@ test "setEndPos" {
 }
 
 test "updateTimes" {
-    var test_dir = getTestDir();
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
     const tmp_file_name = "just_a_temporary_file.txt";
-    var file = try test_dir.createFile(tmp_file_name, .{ .read = true });
+    var file = try tmp.dir.createFile(tmp_file_name, .{ .read = true });
     defer {
         file.close();
-        test_dir.deleteFile(tmp_file_name) catch {};
+        tmp.dir.deleteFile(tmp_file_name) catch {};
     }
     var stat_old = try file.stat();
     // Set atime and mtime to 5s before

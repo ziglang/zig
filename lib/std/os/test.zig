@@ -15,15 +15,18 @@ const a = std.testing.allocator;
 const builtin = @import("builtin");
 const AtomicRmwOp = builtin.AtomicRmwOp;
 const AtomicOrder = builtin.AtomicOrder;
-const getTestDir = std.testing.getTestDir;
+const tmpDir = std.testing.tmpDir;
+const Dir = std.fs.Dir;
 
 test "makePath, put some files in it, deleteTree" {
-    var test_dir = getTestDir();
-    try test_dir.makePath("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c");
-    try test_dir.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c" ++ fs.path.sep_str ++ "file.txt", "nonsense");
-    try test_dir.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "file2.txt", "blah");
-    try test_dir.deleteTree("os_test_tmp");
-    if (test_dir.openDir("os_test_tmp", .{})) |dir| {
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    try tmp.dir.makePath("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c");
+    try tmp.dir.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c" ++ fs.path.sep_str ++ "file.txt", "nonsense");
+    try tmp.dir.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "file2.txt", "blah");
+    try tmp.dir.deleteTree("os_test_tmp");
+    if (tmp.dir.openDir("os_test_tmp", .{})) |dir| {
         @panic("expected error");
     } else |err| {
         expect(err == error.FileNotFound);
@@ -33,17 +36,19 @@ test "makePath, put some files in it, deleteTree" {
 test "access file" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
-    var test_dir = getTestDir();
-    try test_dir.makePath("os_test_tmp");
-    if (test_dir.access("os_test_tmp" ++ fs.path.sep_str ++ "file.txt", .{})) |ok| {
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    try tmp.dir.makePath("os_test_tmp");
+    if (tmp.dir.access("os_test_tmp" ++ fs.path.sep_str ++ "file.txt", .{})) |ok| {
         @panic("expected error");
     } else |err| {
         expect(err == error.FileNotFound);
     }
 
-    try test_dir.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "file.txt", "");
-    try test_dir.access("os_test_tmp" ++ fs.path.sep_str ++ "file.txt", .{});
-    try test_dir.deleteTree("os_test_tmp");
+    try tmp.dir.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "file.txt", "");
+    try tmp.dir.access("os_test_tmp" ++ fs.path.sep_str ++ "file.txt", .{});
+    try tmp.dir.deleteTree("os_test_tmp");
 }
 
 fn testThreadIdFn(thread_id: *Thread.Id) void {
@@ -51,11 +56,13 @@ fn testThreadIdFn(thread_id: *Thread.Id) void {
 }
 
 test "sendfile" {
-    var test_dir = getTestDir();
-    try test_dir.makePath("os_test_tmp");
-    defer test_dir.deleteTree("os_test_tmp") catch {};
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
 
-    var dir = try test_dir.openDir("os_test_tmp", .{});
+    try tmp.dir.makePath("os_test_tmp");
+    defer tmp.dir.deleteTree("os_test_tmp") catch {};
+
+    var dir = try tmp.dir.openDir("os_test_tmp", .{});
     defer dir.close();
 
     const line1 = "line1\n";
@@ -119,23 +126,24 @@ test "fs.copyFile" {
     const dest_file = "tmp_test_copy_file2.txt";
     const dest_file2 = "tmp_test_copy_file3.txt";
 
-    const test_dir = getTestDir();
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
 
-    try test_dir.writeFile(src_file, data);
-    defer test_dir.deleteFile(src_file) catch {};
+    try tmp.dir.writeFile(src_file, data);
+    defer tmp.dir.deleteFile(src_file) catch {};
 
-    try test_dir.copyFile(src_file, test_dir, dest_file, .{});
-    defer test_dir.deleteFile(dest_file) catch {};
+    try tmp.dir.copyFile(src_file, tmp.dir, dest_file, .{});
+    defer tmp.dir.deleteFile(dest_file) catch {};
 
-    try test_dir.copyFile(src_file, test_dir, dest_file2, .{ .override_mode = File.default_mode });
-    defer test_dir.deleteFile(dest_file2) catch {};
+    try tmp.dir.copyFile(src_file, tmp.dir, dest_file2, .{ .override_mode = File.default_mode });
+    defer tmp.dir.deleteFile(dest_file2) catch {};
 
-    try expectFileContents(dest_file, data);
-    try expectFileContents(dest_file2, data);
+    try expectFileContents(tmp.dir, dest_file, data);
+    try expectFileContents(tmp.dir, dest_file2, data);
 }
 
-fn expectFileContents(file_path: []const u8, data: []const u8) !void {
-    const contents = try getTestDir().readFileAlloc(testing.allocator, file_path, 1000);
+fn expectFileContents(dir: Dir, file_path: []const u8, data: []const u8) !void {
+    const contents = try dir.readFileAlloc(testing.allocator, file_path, 1000);
     defer testing.allocator.free(contents);
 
     testing.expectEqualSlices(u8, data, contents);
@@ -199,18 +207,21 @@ test "AtomicFile" {
         \\ hello!
         \\ this is a test file
     ;
-    var test_dir = getTestDir();
+
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
     {
-        var af = try test_dir.atomicFile(test_out_file, .{});
+        var af = try tmp.dir.atomicFile(test_out_file, .{});
         defer af.deinit();
         try af.file.writeAll(test_content);
         try af.finish();
     }
-    const content = try test_dir.readFileAlloc(testing.allocator, test_out_file, 9999);
+    const content = try tmp.dir.readFileAlloc(testing.allocator, test_out_file, 9999);
     defer testing.allocator.free(content);
     expect(mem.eql(u8, content, test_content));
 
-    try test_dir.deleteFile(test_out_file);
+    try tmp.dir.deleteFile(test_out_file);
 }
 
 test "thread local storage" {
@@ -365,6 +376,9 @@ test "mmap" {
     if (builtin.os.tag == .windows or builtin.os.tag == .wasi)
         return error.SkipZigTest;
 
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
     // Simple mmap() call with non page-aligned size
     {
         const data = try os.mmap(
@@ -393,7 +407,7 @@ test "mmap" {
 
     // Create a file used for testing mmap() calls with a file descriptor
     {
-        const file = try fs.cwd().createFile(test_out_file, .{});
+        const file = try tmp.dir.createFile(test_out_file, .{});
         defer file.close();
 
         const stream = file.outStream();
@@ -406,7 +420,7 @@ test "mmap" {
 
     // Map the whole file
     {
-        const file = try fs.cwd().openFile(test_out_file, .{});
+        const file = try tmp.dir.openFile(test_out_file, .{});
         defer file.close();
 
         const data = try os.mmap(
@@ -430,7 +444,7 @@ test "mmap" {
 
     // Map the upper half of the file
     {
-        const file = try fs.cwd().openFile(test_out_file, .{});
+        const file = try tmp.dir.openFile(test_out_file, .{});
         defer file.close();
 
         const data = try os.mmap(
@@ -452,7 +466,7 @@ test "mmap" {
         }
     }
 
-    try fs.cwd().deleteFile(test_out_file);
+    try tmp.dir.deleteFile(test_out_file);
 }
 
 test "getenv" {
@@ -467,12 +481,15 @@ test "fcntl" {
     if (builtin.os.tag == .windows or builtin.os.tag == .wasi)
         return error.SkipZigTest;
 
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
     const test_out_file = "os_tmp_test";
 
-    const file = try fs.cwd().createFile(test_out_file, .{});
+    const file = try tmp.dir.createFile(test_out_file, .{});
     defer {
         file.close();
-        fs.cwd().deleteFile(test_out_file) catch {};
+        tmp.dir.deleteFile(test_out_file) catch {};
     }
 
     // Note: The test assumes createFile opens the file with O_CLOEXEC
