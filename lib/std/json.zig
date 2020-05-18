@@ -2434,7 +2434,6 @@ pub fn stringify(
 
             @compileError("Unable to stringify enum '" ++ @typeName(T) ++ "'");
         },
-        .ErrorSet => return out_stream.writeAll(@errorName(value)),
         .Union => {
             if (comptime std.meta.trait.hasFn("jsonStringify")(T)) {
                 return value.jsonStringify(options, out_stream);
@@ -2493,6 +2492,7 @@ pub fn stringify(
             try out_stream.writeByte('}');
             return;
         },
+        .ErrorSet => return stringify(@as([]const u8, @errorName(value)), options, out_stream),
         .Pointer => |ptr_info| switch (ptr_info.size) {
             .One => switch (@typeInfo(ptr_info.child)) {
                 .Array => {
@@ -2647,7 +2647,7 @@ test "stringify basic types" {
     try teststringify("42", @as(u128, 42), StringifyOptions{});
     try teststringify("4.2e+01", @as(f32, 42), StringifyOptions{});
     try teststringify("4.2e+01", @as(f64, 42), StringifyOptions{});
-    try teststringify("ItBroke", @as(anyerror, error.ItBroke), StringifyOptions{});
+    try teststringify("\"ItBroke\"", @as(anyerror, error.ItBroke), StringifyOptions{});
 }
 
 test "stringify string" {
