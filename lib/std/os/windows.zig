@@ -1240,7 +1240,49 @@ pub fn sliceToPrefixedFileW(s: []const u8) !PathSpace {
         }
     }
     const start_index = if (mem.startsWith(u8, s, "\\?") or !std.fs.path.isAbsolute(s)) 0 else blk: {
+        // '?' will return a BadPathName error, 'startsWith' will always return false.
+        // Do we intend to support '?'' later on ?
         const prefix = [_]u16{ '\\', '?', '?', '\\' };
+        mem.copy(u16, path_space.data[0..], &prefix);
+        break :blk prefix.len;
+    };
+    path_space.len = start_index + try std.unicode.utf8ToUtf16Le(path_space.data[start_index..], s);
+    if (path_space.len > path_space.data.len) return error.NameTooLong;
+    // > File I/O functions in the Windows API convert "/" to "\" as part of
+    // > converting the name to an NT-style name, except when using the "\\?\"
+    // > prefix as detailed in the following sections.
+    // from https://docs.microsoft.com/en-us/windows/desktop/FileIO/naming-a-file#maximum-path-length-limitation
+    // Because we want the larger maximum path length for absolute paths, we
+    // convert forward slashes to backward slashes here.
+    for (path_space.data[0..path_space.len]) |*elem| {
+        if (elem.* == '/') {
+            elem.* = '\\';
+        }
+    }
+    path_space.data[path_space.len] = 0;
+    return path_space;
+}
+
+pub fn cStrToAltPrefixedFileW(s: [*:0]const u8) !PathSpace {
+    // There's seems to be 2 differents prefix for NT-style name "\\?\" and "\??\".
+    // Which one is supported if any depends on the function.
+    // For instance, 'LoadLibraryW' supports "\\?\".
+    return sliceToAltPrefixedFileW(mem.spanZ(s));
+}
+pub fn sliceToAltPrefixedFileW(s: []const u8) !PathSpace {
+    // TODO https://github.com/ziglang/zig/issues/2765
+    // There's seems to be 2 differents prefix for NT-style name "\\?\" and "\??\".
+    // Which one is supported if any depends on the function.
+    // For instance, 'LoadLibraryW' supports "\\?\".
+    var path_space: PathSpace = undefined;
+    for (s) |byte| {
+        switch (byte) {
+            '*', '?', '"', '<', '>', '|' => return error.BadPathName,
+            else => {},
+        }
+    }
+    const start_index = if (!std.fs.path.isAbsolute(s)) 0 else blk: {
+        const prefix = [_]u16{ '\\', '\\', '?', '\\' };
         mem.copy(u16, path_space.data[0..], &prefix);
         break :blk prefix.len;
     };
@@ -1322,4 +1364,10 @@ pub fn unexpectedStatus(status: NTSTATUS) std.os.UnexpectedError {
         std.debug.dumpCurrentStackTrace(null);
     }
     return error.Unexpected;
+}
+
+test "" {
+    if (builtin.os.tag == .windows) {
+        _ = @import("windows/test.zig");
+    }
 }
