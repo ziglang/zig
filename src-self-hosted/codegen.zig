@@ -19,6 +19,24 @@ pub const Result = union(enum) {
     fail: *Module.ErrorMsg,
 };
 
+pub fn pltEntrySize(target: Target) u16 {
+    return switch (target.cpu.arch) {
+        .i386, .x86_64 => 5,
+        else => @panic("TODO implement pltEntrySize for more architectures"),
+    };
+}
+
+pub fn writePltEntry(target: Target, buf: []u8, addr: u32) void {
+    switch (target.cpu.arch) {
+        .i386, .x86_64 => {
+            // 9a xx xx xx xx    call addr
+            buf[0] = 0x9a;
+            mem.writeIntLittle(u32, buf[1..5], addr);
+        },
+        else => @panic("TODO implement pltEntrySize for more architectures"),
+    }
+}
+
 pub fn generateSymbol(
     bin_file: *link.ElfFile,
     src: usize,
@@ -203,7 +221,20 @@ const Function = struct {
 
             if (func_inst.val.cast(Value.Payload.Function)) |func_val| {
                 const func = func_val.func;
-                return self.fail(inst.base.src, "TODO implement calling function", .{});
+                const plt_index = func.owner_decl.link.offset_table_index.plt;
+                const plt = &self.bin_file.program_headers.items[self.bin_file.phdr_got_plt_index.?];
+                const plt_entry_size = pltEntrySize(self.target.*);
+                const plt_addr = @intCast(u32, plt.p_vaddr + func.owner_decl.link.offset_table_index.plt * plt_entry_size);
+                // ea xx xx xx xx    jmp addr
+                try self.code.resize(self.code.items.len + 5);
+                self.code.items[self.code.items.len - 5] = 0xea;
+                mem.writeIntLittle(u32, self.code.items[self.code.items.len - 4 ..][0..4], plt_addr);
+                const return_type = func.fn_type.fnReturnType();
+                switch (return_type.zigTypeTag()) {
+                    .Void => return MCValue{ .none = {} },
+                    .NoReturn => return MCValue{ .unreach = {} },
+                    else => return self.fail(inst.base.src, "TODO implement fn call with non-void return value", .{}),
+                }
             } else {
                 return self.fail(inst.base.src, "TODO implement calling weird function values", .{});
             }
@@ -575,7 +606,7 @@ const Function = struct {
                 if (typed_value.val.cast(Value.Payload.DeclRef)) |payload| {
                     const got = &self.bin_file.program_headers.items[self.bin_file.phdr_got_index.?];
                     const decl = payload.decl;
-                    const got_addr = got.p_vaddr + decl.link.offset_table_index * ptr_bytes;
+                    const got_addr = got.p_vaddr + decl.link.offset_table_index.got * ptr_bytes;
                     return MCValue{ .memory = got_addr };
                 }
                 return self.fail(src, "TODO codegen more kinds of const pointers", .{});

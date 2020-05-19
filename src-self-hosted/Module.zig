@@ -231,6 +231,7 @@ pub const Fn = struct {
         dependency_failure,
         success: Body,
     },
+    owner_decl: *Decl,
 
     /// This memory is temporary and points to stack memory for the duration
     /// of Fn analysis.
@@ -883,14 +884,6 @@ fn resolveDecl(
         };
         const arena_state = try decl_scope.arena.allocator.create(std.heap.ArenaAllocator.State);
 
-        const has_codegen_bits = typed_value.ty.hasCodeGenBits();
-        if (has_codegen_bits) {
-            // We don't fully codegen the decl until later, but we do need to reserve a global
-            // offset table index for it. This allows us to codegen decls out of dependency order,
-            // increasing how many computations can be done in parallel.
-            try self.bin_file.allocateDeclIndexes(new_decl);
-        }
-
         arena_state.* = decl_scope.arena.state;
 
         new_decl.typed_value = .{
@@ -900,7 +893,12 @@ fn resolveDecl(
             },
         };
         new_decl.analysis = .complete;
-        if (has_codegen_bits) {
+        if (typed_value.ty.hasCodeGenBits()) {
+            // We don't fully codegen the decl until later, but we do need to reserve a global
+            // offset table index for it. This allows us to codegen decls out of dependency order,
+            // increasing how many computations can be done in parallel.
+            try self.bin_file.allocateDeclIndexes(new_decl);
+
             // We ensureCapacity when scanning for decls.
             self.work_queue.writeItemAssumeCapacity(.{ .codegen_decl = new_decl });
         }
@@ -1329,6 +1327,7 @@ fn analyzeInstFn(self: *Module, scope: *Scope, fn_inst: *zir.Inst.Fn) InnerError
     new_func.* = .{
         .fn_type = fn_type,
         .analysis = .{ .queued = fn_inst },
+        .owner_decl = scope.decl(),
     };
     const fn_payload = try scope.arena().create(Value.Payload.Function);
     fn_payload.* = .{ .func = new_func };
