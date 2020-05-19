@@ -209,4 +209,57 @@ pub fn addCases(ctx: *TestContext) void {
             \\
         },
     );
+
+    ctx.addZIRCompareOutput(
+        "function call with no args no return value",
+        &[_][]const u8{
+            \\@noreturn = primitive(noreturn)
+            \\@void = primitive(void)
+            \\@usize = primitive(usize)
+            \\@0 = int(0)
+            \\@1 = int(1)
+            \\@2 = int(2)
+            \\@3 = int(3)
+            \\
+            \\@syscall_array = str("syscall")
+            \\@sysoutreg_array = str("={rax}")
+            \\@rax_array = str("{rax}")
+            \\@rdi_array = str("{rdi}")
+            \\@rcx_array = str("rcx")
+            \\@r11_array = str("r11")
+            \\@memory_array = str("memory")
+            \\
+            \\@exit0_fnty = fntype([], @noreturn)
+            \\@exit0 = fn(@exit0_fnty, {
+            \\  %SYS_exit_group = int(231)
+            \\  %exit_code = as(@usize, @0)
+            \\
+            \\  %syscall = ref(@syscall_array)
+            \\  %sysoutreg = ref(@sysoutreg_array)
+            \\  %rax = ref(@rax_array)
+            \\  %rdi = ref(@rdi_array)
+            \\  %rcx = ref(@rcx_array)
+            \\  %r11 = ref(@r11_array)
+            \\  %memory = ref(@memory_array)
+            \\
+            \\  %rc = asm(%syscall, @usize,
+            \\    volatile=1,
+            \\    output=%sysoutreg,
+            \\    inputs=[%rax, %rdi],
+            \\    clobbers=[%rcx, %r11, %memory],
+            \\    args=[%SYS_exit_group, %exit_code])
+            \\
+            \\  %99 = unreachable()
+            \\});
+            \\
+            \\@start_fnty = fntype([], @noreturn, cc=Naked)
+            \\@start = fn(@start_fnty, {
+            \\  %0 = call(@exit0, [])
+            \\})
+            \\@9 = str("_start")
+            \\@10 = ref(@9)
+            \\@11 = export(@10, @start)
+        },
+        &[_][]const u8{""},
+    );
 }

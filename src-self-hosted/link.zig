@@ -110,7 +110,6 @@ pub const ElfFile = struct {
     /// The index into the program headers of the global offset table.
     /// It needs PT_LOAD and Read flags.
     phdr_got_index: ?u16 = null,
-    phdr_got_plt_index: ?u16 = null,
     entry_addr: ?u64 = null,
 
     shstrtab: std.ArrayListUnmanaged(u8) = std.ArrayListUnmanaged(u8){},
@@ -119,7 +118,6 @@ pub const ElfFile = struct {
     text_section_index: ?u16 = null,
     symtab_section_index: ?u16 = null,
     got_section_index: ?u16 = null,
-    got_plt_section_index: ?u16 = null,
 
     /// The same order as in the file. ELF requires global symbols to all be after the
     /// local symbols, they cannot be mixed. So we must buffer all the global symbols and
@@ -132,16 +130,11 @@ pub const ElfFile = struct {
     /// If the vaddr of the executable program header changes, the entire
     /// offset table needs to be rewritten.
     offset_table: std.ArrayListUnmanaged(u64) = std.ArrayListUnmanaged(u64){},
-    /// Same order as in the file. The value is the absolute vaddr value.
-    /// If the vaddr of the executable program header changes, the entire
-    /// fn trampoline table needs to be rewritten.
-    fn_trampoline_table: std.ArrayListUnmanaged(u64) = std.ArrayListUnmanaged(u64){},
 
     phdr_table_dirty: bool = false,
     shdr_table_dirty: bool = false,
     shstrtab_dirty: bool = false,
     offset_table_count_dirty: bool = false,
-    fn_trampoline_table_count_dirty: bool = false,
 
     error_flags: ErrorFlags = ErrorFlags{},
 
@@ -157,18 +150,12 @@ pub const ElfFile = struct {
         /// If this field is 0, it means the codegen size = 0 and there is no symbol or
         /// offset table entry.
         local_sym_index: u32,
-        /// when size = 0 and there is no offset table index
-        offset_table_index: union {
-            unallocated: void,
-            /// This is an index into offset_table
-            got: u32,
-            /// This is an index into fn_trampoline_table
-            plt: u32,
-        },
+        /// This field is undefined for symbols with size = 0.
+        offset_table_index: u32,
 
         pub const empty = Decl{
             .local_sym_index = 0,
-            .offset_table_index = .{ .unallocated = {} },
+            .offset_table_index = undefined,
         };
     };
 
@@ -183,7 +170,6 @@ pub const ElfFile = struct {
         self.local_symbols.deinit(self.allocator);
         self.global_symbols.deinit(self.allocator);
         self.offset_table.deinit(self.allocator);
-        self.fn_trampoline_table.deinit(self.allocator);
         if (self.owns_file_handle) {
             if (self.file) |f| f.close();
         }
@@ -357,30 +343,6 @@ pub const ElfFile = struct {
             });
             self.phdr_table_dirty = true;
         }
-        if (self.phdr_got_plt_index == null) {
-            self.phdr_got_plt_index = @intCast(u16, self.program_headers.items.len);
-            const file_size = @as(u64, ptr_size) * self.options.symbol_count_hint;
-            // We really only need ptr alignment but since we are using PROGBITS, linux requires
-            // page align.
-            const p_align = 0x1000;
-            const off = self.findFreeSpace(file_size, p_align);
-            //std.debug.warn("found PT_LOAD free space 0x{x} to 0x{x}\n", .{ off, off + file_size });
-            // TODO instead of hard coding the vaddr, make a function to find a vaddr to put things at.
-            // we'll need to re-use that function anyway, in case the GOT grows and overlaps something
-            // else in virtual memory.
-            const default_got_plt_addr = 0x6000000;
-            try self.program_headers.append(self.allocator, .{
-                .p_type = elf.PT_LOAD,
-                .p_offset = off,
-                .p_filesz = file_size,
-                .p_vaddr = default_got_plt_addr,
-                .p_paddr = default_got_plt_addr,
-                .p_memsz = file_size,
-                .p_align = p_align,
-                .p_flags = elf.PF_R,
-            });
-            self.phdr_table_dirty = true;
-        }
         if (self.shstrtab_index == null) {
             self.shstrtab_index = @intCast(u16, self.sections.items.len);
             assert(self.shstrtab.items.len == 0);
@@ -426,24 +388,6 @@ pub const ElfFile = struct {
 
             try self.sections.append(self.allocator, .{
                 .sh_name = try self.makeString(".got"),
-                .sh_type = elf.SHT_PROGBITS,
-                .sh_flags = elf.SHF_ALLOC,
-                .sh_addr = phdr.p_vaddr,
-                .sh_offset = phdr.p_offset,
-                .sh_size = phdr.p_filesz,
-                .sh_link = 0,
-                .sh_info = 0,
-                .sh_addralign = phdr.p_align,
-                .sh_entsize = 0,
-            });
-            self.shdr_table_dirty = true;
-        }
-        if (self.got_plt_section_index == null) {
-            self.got_plt_section_index = @intCast(u16, self.sections.items.len);
-            const phdr = &self.program_headers.items[self.phdr_got_plt_index.?];
-
-            try self.sections.append(self.allocator, .{
-                .sh_name = try self.makeString(".got.plt"),
                 .sh_type = elf.SHT_PROGBITS,
                 .sh_flags = elf.SHF_ALLOC,
                 .sh_addr = phdr.p_vaddr,
@@ -640,7 +584,6 @@ pub const ElfFile = struct {
         assert(!self.shdr_table_dirty);
         assert(!self.shstrtab_dirty);
         assert(!self.offset_table_count_dirty);
-        assert(!self.fn_trampoline_table_count_dirty);
         const syms_sect = &self.sections.items[self.symtab_section_index.?];
         assert(syms_sect.sh_info == self.local_symbols.items.len);
     }
@@ -836,14 +779,10 @@ pub const ElfFile = struct {
     pub fn allocateDeclIndexes(self: *ElfFile, decl: *Module.Decl) !void {
         if (decl.link.local_sym_index != 0) return;
 
-        const is_fn = (decl.typed_value.most_recent.typed_value.ty.zigTypeTag() == .Fn);
-
         try self.local_symbols.ensureCapacity(self.allocator, self.local_symbols.items.len + 1);
         try self.offset_table.ensureCapacity(self.allocator, self.offset_table.items.len + 1);
-        try self.fn_trampoline_table.ensureCapacity(self.allocator, self.fn_trampoline_table.items.len + 1);
         const local_sym_index = self.local_symbols.items.len;
         const offset_table_index = self.offset_table.items.len;
-        const fn_trampoline_table_index = self.fn_trampoline_table.items.len;
         const phdr = &self.program_headers.items[self.phdr_load_re_index.?];
 
         self.local_symbols.appendAssumeCapacity(.{
@@ -854,20 +793,15 @@ pub const ElfFile = struct {
             .st_value = phdr.p_vaddr,
             .st_size = 0,
         });
-        if (is_fn) {
-            self.fn_trampoline_table.appendAssumeCapacity(0);
-            self.fn_trampoline_table_count_dirty = true;
-        } else {
-            self.offset_table.appendAssumeCapacity(0);
-            self.offset_table_count_dirty = true;
-        }
+        errdefer self.local_symbols.shrink(self.allocator, self.local_symbols.items.len - 1);
+        self.offset_table.appendAssumeCapacity(0);
+        errdefer self.offset_table.shrink(self.allocator, self.offset_table.items.len - 1);
+
+        self.offset_table_count_dirty = true;
 
         decl.link = .{
             .local_sym_index = @intCast(u32, local_sym_index),
-            .offset_table_index = if (is_fn)
-                .{ .plt = @intCast(u32, fn_trampoline_table_index) }
-            else
-                .{ .got = @intCast(u32, offset_table_index) },
+            .offset_table_index = @intCast(u32, offset_table_index),
         };
     }
 
@@ -885,7 +819,6 @@ pub const ElfFile = struct {
                 return;
             },
         };
-        const is_fn = (typed_value.ty.zigTypeTag() == .Fn);
 
         const required_alignment = typed_value.ty.abiAlignment(self.options.target);
 
@@ -905,13 +838,14 @@ pub const ElfFile = struct {
                 const file_offset = if (need_realloc) fo: {
                     const new_block = try self.allocateTextBlock(code.len, required_alignment);
                     local_sym.st_value = new_block.vaddr;
-                    if (is_fn) {
-                        self.fn_trampoline_table.items[decl.link.offset_table_index.plt] = new_block.vaddr;
-                        try self.writeFnTrampolineEntry(decl.link.offset_table_index.plt);
-                    } else {
-                        self.offset_table.items[decl.link.offset_table_index.got] = new_block.vaddr;
-                        try self.writeOffsetTableEntry(decl.link.offset_table_index.got);
-                    }
+                    self.offset_table.items[decl.link.offset_table_index] = new_block.vaddr;
+
+                    //std.debug.warn("{}: writing got index {}=0x{x}\n", .{
+                    //    decl.name,
+                    //    decl.link.offset_table_index,
+                    //    self.offset_table.items[decl.link.offset_table_index],
+                    //});
+                    try self.writeOffsetTableEntry(decl.link.offset_table_index);
 
                     break :fo new_block.file_offset;
                 } else existing_block.file_offset;
@@ -928,13 +862,11 @@ pub const ElfFile = struct {
             } else {
                 try self.local_symbols.ensureCapacity(self.allocator, self.local_symbols.items.len + 1);
                 try self.offset_table.ensureCapacity(self.allocator, self.offset_table.items.len + 1);
-                try self.fn_trampoline_table.ensureCapacity(self.allocator, self.fn_trampoline_table.items.len + 1);
                 const decl_name = mem.spanZ(decl.name);
                 const name_str_index = try self.makeString(decl_name);
                 const new_block = try self.allocateTextBlock(code.len, required_alignment);
                 const local_sym_index = self.local_symbols.items.len;
                 const offset_table_index = self.offset_table.items.len;
-                const fn_trampoline_table_index = self.fn_trampoline_table.items.len;
 
                 //std.debug.warn("add symbol for {} at vaddr 0x{x}, size {}\n", .{ decl.name, new_block.vaddr, code.len });
                 self.local_symbols.appendAssumeCapacity(.{
@@ -946,32 +878,17 @@ pub const ElfFile = struct {
                     .st_size = code.len,
                 });
                 errdefer self.local_symbols.shrink(self.allocator, self.local_symbols.items.len - 1);
-                if (is_fn) {
-                    self.fn_trampoline_table.appendAssumeCapacity(new_block.vaddr);
-                } else {
-                    self.offset_table.appendAssumeCapacity(new_block.vaddr);
-                }
-                errdefer if (is_fn) {
-                    self.fn_trampoline_table.shrink(self.allocator, self.fn_trampoline_table.items.len - 1);
-                } else {
-                    self.offset_table.shrink(self.allocator, self.offset_table.items.len - 1);
-                };
+                self.offset_table.appendAssumeCapacity(new_block.vaddr);
+                errdefer self.offset_table.shrink(self.allocator, self.offset_table.items.len - 1);
+
+                self.offset_table_count_dirty = true;
 
                 try self.writeSymbol(local_sym_index);
-                if (is_fn) {
-                    try self.writeFnTrampolineEntry(fn_trampoline_table_index);
-                    self.fn_trampoline_table_count_dirty = true;
-                } else {
-                    try self.writeOffsetTableEntry(offset_table_index);
-                    self.offset_table_count_dirty = true;
-                }
+                try self.writeOffsetTableEntry(offset_table_index);
 
                 decl.link = .{
                     .local_sym_index = @intCast(u32, local_sym_index),
-                    .offset_table_index = if (is_fn)
-                        .{ .plt = @intCast(u32, fn_trampoline_table_index) }
-                    else
-                        .{ .got = @intCast(u32, offset_table_index) },
+                    .offset_table_index = @intCast(u32, offset_table_index),
                 };
 
                 //std.debug.warn("writing new {} at vaddr 0x{x}\n", .{ decl.name, new_block.vaddr });
@@ -1099,40 +1016,6 @@ pub const ElfFile = struct {
             },
             else => return error.UnsupportedArchitecture,
         }
-    }
-
-    fn writeFnTrampolineEntry(self: *ElfFile, index: usize) !void {
-        const shdr = &self.sections.items[self.got_plt_section_index.?];
-        const phdr = &self.program_headers.items[self.phdr_got_plt_index.?];
-        const entry_size = codegen.pltEntrySize(self.options.target);
-        var entry_buf: [16]u8 = undefined;
-        assert(entry_size <= entry_buf.len);
-
-        if (self.fn_trampoline_table_count_dirty) {
-            // TODO Also detect virtual address collisions.
-            const allocated_size = self.allocatedSize(shdr.sh_offset);
-            const needed_size = self.local_symbols.items.len * entry_size;
-            if (needed_size > allocated_size) {
-                // Must move the entire .got.plt section.
-                const new_offset = self.findFreeSpace(needed_size, entry_size);
-                const amt = try self.file.?.copyRangeAll(shdr.sh_offset, self.file.?, new_offset, shdr.sh_size);
-                if (amt != shdr.sh_size) return error.InputOutput;
-                shdr.sh_offset = new_offset;
-                phdr.p_offset = new_offset;
-            }
-            shdr.sh_size = needed_size;
-            phdr.p_memsz = needed_size;
-            phdr.p_filesz = needed_size;
-
-            self.shdr_table_dirty = true; // TODO look into making only the one section dirty
-            self.phdr_table_dirty = true; // TODO look into making only the one program header dirty
-
-            self.fn_trampoline_table_count_dirty = false;
-        }
-        const off = shdr.sh_offset + @as(u64, entry_size) * index;
-        const vaddr = @intCast(u32, self.fn_trampoline_table.items[index]);
-        codegen.writePltEntry(self.options.target, &entry_buf, vaddr);
-        try self.file.?.pwriteAll(entry_buf[0..entry_size], off);
     }
 
     fn writeOffsetTableEntry(self: *ElfFile, index: usize) !void {
