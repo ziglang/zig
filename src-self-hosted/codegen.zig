@@ -465,7 +465,7 @@ const Function = struct {
                         return self.fail(src, "TODO decide whether to implement non-64-bit loads", .{});
                     }
                     const src_reg = @intToEnum(Reg(arch), @intCast(u8, r));
-                    // This is a varient of 8B /r. Since we're using 64-bit moves, we require a REX.
+                    // This is a variant of 8B /r. Since we're using 64-bit moves, we require a REX.
                     // This is thus three bytes: REX 0x8B R/M.
                     // If the destination is extended, the R field must be 1.
                     // If the *source* is extended, the B field must be 1.
