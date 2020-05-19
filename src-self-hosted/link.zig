@@ -740,6 +740,7 @@ pub const ElfFile = struct {
             const amt = try self.file.?.copyRangeAll(shdr.sh_offset, self.file.?, new_offset, text_size);
             if (amt != text_size) return error.InputOutput;
             shdr.sh_offset = new_offset;
+            phdr.p_offset = new_offset;
         }
         // Now that we know the code size, we need to update the program header for executable code
         shdr.sh_size = needed_size;
@@ -1034,6 +1035,7 @@ pub const ElfFile = struct {
                 const amt = try self.file.?.copyRangeAll(shdr.sh_offset, self.file.?, new_offset, shdr.sh_size);
                 if (amt != shdr.sh_size) return error.InputOutput;
                 shdr.sh_offset = new_offset;
+                phdr.p_offset = new_offset;
             }
             shdr.sh_size = needed_size;
             phdr.p_memsz = needed_size;
