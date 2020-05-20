@@ -10,6 +10,7 @@ const Module = @import("Module.zig");
 const link = @import("link.zig");
 const Package = @import("Package.zig");
 const zir = @import("zir.zig");
+const introspect = @import("introspect.zig");
 
 // TODO Improve async I/O enough that we feel comfortable doing this.
 //pub const io_mode = .evented;
@@ -33,6 +34,7 @@ const usage =
     \\  fmt        [source]      Parse file and render in canonical zig format
     \\  targets                  List available compilation targets
     \\  version                  Print version number and exit
+    \\  info                     Print lib path, std path, compiler id and version
     \\  zen                      Print zen of zig and exit
     \\
     \\
@@ -70,6 +72,11 @@ pub fn main() !void {
         // Need to set up the build script to give the version as a comptime value.
         std.debug.warn("TODO version command not implemented yet\n", .{});
         return error.Unimplemented;
+    } else if (mem.eql(u8, cmd, "info")) {
+        const zig_lib_dir = try introspect.resolveZigLibDir(arena);
+        const result = try std.fmt.allocPrint(arena, "zig_lib_dir = {}\n", .{zig_lib_dir});
+
+        try std.io.getStdOut().writeAll(result);
     } else if (mem.eql(u8, cmd, "zen")) {
         try io.getStdOut().writeAll(info_zen);
     } else if (mem.eql(u8, cmd, "help")) {

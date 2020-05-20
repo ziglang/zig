@@ -47,7 +47,6 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  translate-c [source]         convert c code to zig code\n"
         "  targets                      list available compilation targets\n"
         "  test [source]                create and run a test build\n"
-        "  info                         print std path, version and other useful info\n"
         "  version                      print version number and exit\n"
         "  zen                          print zen of zig and exit\n"
         "\n"
