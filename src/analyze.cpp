@@ -9449,7 +9449,7 @@ void src_assert_impl(bool ok, AstNode *source_node, char const *file, unsigned i
             buf_ptr(source_node->owner->data.structure.root_struct->path),
             (unsigned)source_node->line + 1, (unsigned)source_node->column + 1);
     }
-    fprintf(stderr, "in compiler source at %s:%d: ", file, line);
+    fprintf(stderr, "in compiler source at %s:%u: ", file, line);
     const char *msg = "assertion failed. This is a bug in the Zig compiler.";
     stage2_panic(msg, strlen(msg));
 }
