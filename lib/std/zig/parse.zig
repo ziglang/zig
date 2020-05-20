@@ -3296,11 +3296,9 @@ const Parser = struct {
             .index = p.tok_i,
             .ptr = &p.tokens[p.tok_i],
         };
-        if (p.tokens[p.tok_i].id == .Eof) {
-            return result;
-        }
         p.tok_i += 1;
         assert(result.ptr.id != .LineComment);
+        if (p.tok_i >= p.tokens.len) return result;
 
         while (true) {
             const next_tok = p.tokens[p.tok_i];
