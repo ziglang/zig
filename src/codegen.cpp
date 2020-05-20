@@ -870,10 +870,12 @@ static LLVMValueRef get_handle_value(CodeGen *g, LLVMValueRef ptr, ZigType *type
     }
 }
 
-static void ir_assert(bool ok, IrInstGen *source_instruction) {
+static void ir_assert_impl(bool ok, IrInstGen *source_instruction, const char *file, unsigned int line) {
     if (ok) return;
-    src_assert(ok, source_instruction->base.source_node);
+    src_assert_impl(ok, source_instruction->base.source_node, file, line);
 }
+
+#define ir_assert(OK, SOURCE_INSTRUCTION) ir_assert_impl((OK), (SOURCE_INSTRUCTION), __FILE__, __LINE__)
 
 static bool ir_want_fast_math(CodeGen *g, IrInstGen *instruction) {
     // TODO memoize
