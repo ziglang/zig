@@ -429,6 +429,14 @@ pub const Node = struct {
         InfixOp,
         PrefixOp,
         SuffixOp,
+        /// This is a suffix operation but to save memory we have a dedicated Node id for it.
+        ArrayInitializer,
+        /// ArrayInitializer but with `.` instead of a left-hand-side operand.
+        ArrayInitializerDot,
+        /// This is a suffix operation but to save memory we have a dedicated Node id for it.
+        StructInitializer,
+        /// StructInitializer but with `.` instead of a left-hand-side operand.
+        StructInitializerDot,
 
         // Control flow
         Switch,
@@ -1961,27 +1969,140 @@ pub const Node = struct {
         }
     };
 
+    pub const ArrayInitializer = struct {
+        base: Node = Node{ .id = .ArrayInitializer },
+        rtoken: TokenIndex,
+        lhs: *Node,
+        list: []*Node,
+
+        pub fn iterate(self: *const ArrayInitializer) Node.Iterator {
+            return .{ .parent_node = &self.base, .index = 0, .node = null };
+        }
+
+        pub fn iterateNext(self: *const ArrayInitializer, it: *Node.Iterator) ?*Node {
+            var i = it.index;
+            it.index += 1;
+
+            if (i < 1) return self.lhs;
+            i -= 1;
+
+            if (i < self.list.len) return self.list[i];
+            i -= self.list.len;
+
+            return null;
+        }
+
+        pub fn firstToken(self: *const ArrayInitializer) TokenIndex {
+            return self.lhs.firstToken();
+        }
+
+        pub fn lastToken(self: *const ArrayInitializer) TokenIndex {
+            return self.rtoken;
+        }
+    };
+
+    pub const ArrayInitializerDot = struct {
+        base: Node = Node{ .id = .ArrayInitializerDot },
+        dot: TokenIndex,
+        rtoken: TokenIndex,
+        list: []*Node,
+
+        pub fn iterate(self: *const ArrayInitializerDot) Node.Iterator {
+            return .{ .parent_node = &self.base, .index = 0, .node = null };
+        }
+
+        pub fn iterateNext(self: *const ArrayInitializerDot, it: *Node.Iterator) ?*Node {
+            var i = it.index;
+            it.index += 1;
+
+            if (i < self.list.len) return self.list[i];
+            i -= self.list.len;
+
+            return null;
+        }
+
+        pub fn firstToken(self: *const ArrayInitializerDot) TokenIndex {
+            return self.dot;
+        }
+
+        pub fn lastToken(self: *const ArrayInitializerDot) TokenIndex {
+            return self.rtoken;
+        }
+    };
+
+    pub const StructInitializer = struct {
+        base: Node = Node{ .id = .StructInitializer },
+        rtoken: TokenIndex,
+        lhs: *Node,
+        list: []*Node,
+
+        pub fn iterate(self: *const StructInitializer) Node.Iterator {
+            return .{ .parent_node = &self.base, .index = 0, .node = null };
+        }
+
+        pub fn iterateNext(self: *const StructInitializer, it: *Node.Iterator) ?*Node {
+            var i = it.index;
+            it.index += 1;
+
+            if (i < 1) return self.lhs;
+            i -= 1;
+
+            if (i < self.list.len) return self.list[i];
+            i -= self.list.len;
+
+            return null;
+        }
+
+        pub fn firstToken(self: *const StructInitializer) TokenIndex {
+            return self.lhs.firstToken();
+        }
+
+        pub fn lastToken(self: *const StructInitializer) TokenIndex {
+            return self.rtoken;
+        }
+    };
+
+    pub const StructInitializerDot = struct {
+        base: Node = Node{ .id = .StructInitializerDot },
+        dot: TokenIndex,
+        rtoken: TokenIndex,
+        list: []*Node,
+
+        pub fn iterate(self: *const StructInitializerDot) Node.Iterator {
+            return .{ .parent_node = &self.base, .index = 0, .node = null };
+        }
+
+        pub fn iterateNext(self: *const StructInitializerDot, it: *Node.Iterator) ?*Node {
+            var i = it.index;
+            it.index += 1;
+
+            if (i < self.list.len) return self.list[i];
+            i -= self.list.len;
+
+            return null;
+        }
+
+        pub fn firstToken(self: *const StructInitializerDot) TokenIndex {
+            return self.dot;
+        }
+
+        pub fn lastToken(self: *const StructInitializerDot) TokenIndex {
+            return self.rtoken;
+        }
+    };
+
     pub const SuffixOp = struct {
         base: Node = Node{ .id = .SuffixOp },
-        lhs: Lhs,
         op: Op,
+        lhs: *Node,
         rtoken: TokenIndex,
-
-        pub const Lhs = union(enum) {
-            node: *Node,
-            dot: TokenIndex,
-        };
 
         pub const Op = union(enum) {
             Call: Call,
             ArrayAccess: *Node,
             Slice: Slice,
-            ArrayInitializer: InitList,
-            StructInitializer: InitList,
             Deref,
             UnwrapOptional,
-
-            pub const InitList = LinkedList(*Node);
 
             pub const Call = struct {
                 params: ParamList,
@@ -2001,8 +2122,6 @@ pub const Node = struct {
             return .{ .parent_node = &self.base, .index = 0,
                 .node = switch(self.op) {
                     .Call => |call| call.params.first,
-                    .ArrayInitializer => |ai| ai.first,
-                    .StructInitializer => |si| si.first,
                     else => null,
                 },
             };
@@ -2012,13 +2131,8 @@ pub const Node = struct {
             var i = it.index;
             it.index += 1;
 
-            switch (self.lhs) {
-                .node => |node| {
-                    if (i == 0) return node;
-                    i -= 1;
-                },
-                .dot => {},
-            }
+            if (i == 0) return self.lhs;
+            i -= 1;
 
             switch (self.op) {
                 .Call => |call_info| {
@@ -2045,20 +2159,6 @@ pub const Node = struct {
                         i -= 1;
                     }
                 },
-                .ArrayInitializer => |exprs| {
-                    if (it.node) |child| {
-                        it.index -= 1;
-                        it.node = child.next;
-                        return child.data;
-                    }
-                },
-                .StructInitializer => |fields| {
-                    if (it.node) |child| {
-                        it.index -= 1;
-                        it.node = child.next;
-                        return child.data;
-                    }
-                },
                 .UnwrapOptional,
                 .Deref,
                 => {},
@@ -2072,10 +2172,7 @@ pub const Node = struct {
                 .Call => |*call_info| if (call_info.async_token) |async_token| return async_token,
                 else => {},
             }
-            switch (self.lhs) {
-                .node => |node| return node.firstToken(),
-                .dot => |dot| return dot,
-            }
+            return self.lhs.firstToken();
         }
 
         pub fn lastToken(self: *const SuffixOp) TokenIndex {

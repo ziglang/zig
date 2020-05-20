@@ -1287,50 +1287,105 @@ const Parser = struct {
 
     /// CurlySuffixExpr <- TypeExpr InitList?
     fn parseCurlySuffixExpr(p: *Parser) !?*Node {
-        const type_expr = (try p.parseTypeExpr()) orelse return null;
-        const suffix_op = (try p.parseInitList()) orelse return type_expr;
-        suffix_op.lhs.node = type_expr;
-        return &suffix_op.base;
+        const lhs = (try p.parseTypeExpr()) orelse return null;
+        const suffix_op = (try p.parseInitList(lhs)) orelse return lhs;
+        return suffix_op;
     }
 
     /// InitList
     ///     <- LBRACE FieldInit (COMMA FieldInit)* COMMA? RBRACE
     ///      / LBRACE Expr (COMMA Expr)* COMMA? RBRACE
     ///      / LBRACE RBRACE
-    fn parseInitList(p: *Parser) !?*Node.SuffixOp {
+    fn parseInitList(p: *Parser, lhs: *Node) !?*Node {
         const lbrace = p.eatToken(.LBrace) orelse return null;
-        var init_list = Node.SuffixOp.Op.InitList{};
-        var init_list_it = &init_list.first;
+        var init_list = std.ArrayList(*Node).init(p.gpa);
+        defer init_list.deinit();
 
-        const op: Node.SuffixOp.Op = blk: {
-            if (try p.parseFieldInit()) |field_init| {
-                init_list_it = try p.llpush(*Node, init_list_it, field_init);
-                while (p.eatToken(.Comma)) |_| {
-                    const next = (try p.parseFieldInit()) orelse break;
-                    init_list_it = try p.llpush(*Node, init_list_it, next);
-                }
-                break :blk .{ .StructInitializer = init_list };
+        if (try p.parseFieldInit()) |field_init| {
+            try init_list.append(field_init);
+            while (p.eatToken(.Comma)) |_| {
+                const next = (try p.parseFieldInit()) orelse break;
+                try init_list.append(next);
             }
+            const node = try p.arena.allocator.create(Node.StructInitializer);
+            node.* = .{
+                .lhs = lhs,
+                .rtoken = try p.expectToken(.RBrace),
+                .list = try p.arena.allocator.dupe(*Node, init_list.items),
+            };
+            return &node.base;
+        }
 
-            if (try p.parseExpr()) |expr| {
-                init_list_it = try p.llpush(*Node, init_list_it, expr);
-                while (p.eatToken(.Comma)) |_| {
-                    const next = (try p.parseExpr()) orelse break;
-                    init_list_it = try p.llpush(*Node, init_list_it, next);
-                }
-                break :blk .{ .ArrayInitializer = init_list };
+        if (try p.parseExpr()) |expr| {
+            try init_list.append(expr);
+            while (p.eatToken(.Comma)) |_| {
+                const next = (try p.parseExpr()) orelse break;
+                try init_list.append(next);
             }
+            const node = try p.arena.allocator.create(Node.ArrayInitializer);
+            node.* = .{
+                .lhs = lhs,
+                .rtoken = try p.expectToken(.RBrace),
+                .list = try p.arena.allocator.dupe(*Node, init_list.items),
+            };
+            return &node.base;
+        }
 
-            break :blk .{ .StructInitializer = init_list };
-        };
-
-        const node = try p.arena.allocator.create(Node.SuffixOp);
+        const node = try p.arena.allocator.create(Node.StructInitializer);
         node.* = .{
-            .lhs = .{ .node = undefined }, // set by caller
-            .op = op,
+            .lhs = lhs,
             .rtoken = try p.expectToken(.RBrace),
+            .list = &[0]*Node{},
         };
-        return node;
+        return &node.base;
+    }
+
+    /// InitList
+    ///     <- LBRACE FieldInit (COMMA FieldInit)* COMMA? RBRACE
+    ///      / LBRACE Expr (COMMA Expr)* COMMA? RBRACE
+    ///      / LBRACE RBRACE
+    fn parseAnonInitList(p: *Parser, dot: TokenIndex) !?*Node {
+        const lbrace = p.eatToken(.LBrace) orelse return null;
+        var init_list = std.ArrayList(*Node).init(p.gpa);
+        defer init_list.deinit();
+
+        if (try p.parseFieldInit()) |field_init| {
+            try init_list.append(field_init);
+            while (p.eatToken(.Comma)) |_| {
+                const next = (try p.parseFieldInit()) orelse break;
+                try init_list.append(next);
+            }
+            const node = try p.arena.allocator.create(Node.StructInitializerDot);
+            node.* = .{
+                .dot = dot,
+                .rtoken = try p.expectToken(.RBrace),
+                .list = try p.arena.allocator.dupe(*Node, init_list.items),
+            };
+            return &node.base;
+        }
+
+        if (try p.parseExpr()) |expr| {
+            try init_list.append(expr);
+            while (p.eatToken(.Comma)) |_| {
+                const next = (try p.parseExpr()) orelse break;
+                try init_list.append(next);
+            }
+            const node = try p.arena.allocator.create(Node.ArrayInitializerDot);
+            node.* = .{
+                .dot = dot,
+                .rtoken = try p.expectToken(.RBrace),
+                .list = try p.arena.allocator.dupe(*Node, init_list.items),
+            };
+            return &node.base;
+        }
+
+        const node = try p.arena.allocator.create(Node.StructInitializerDot);
+        node.* = .{
+            .dot = dot,
+            .rtoken = try p.expectToken(.RBrace),
+            .list = &[0]*Node{},
+        };
+        return &node.base;
     }
 
     /// TypeExpr <- PrefixTypeOp* ErrorUnionExpr
@@ -1378,7 +1433,7 @@ const Parser = struct {
 
             while (try p.parseSuffixOp()) |node| {
                 switch (node.id) {
-                    .SuffixOp => node.cast(Node.SuffixOp).?.lhs = .{ .node = res },
+                    .SuffixOp => node.cast(Node.SuffixOp).?.lhs = res,
                     .InfixOp => node.cast(Node.InfixOp).?.lhs = res,
                     else => unreachable,
                 }
@@ -1394,7 +1449,7 @@ const Parser = struct {
             };
             const node = try p.arena.allocator.create(Node.SuffixOp);
             node.* = .{
-                .lhs = .{ .node = res },
+                .lhs = res,
                 .op = .{
                     .Call = .{
                         .params = params.list,
@@ -1411,7 +1466,7 @@ const Parser = struct {
             while (true) {
                 if (try p.parseSuffixOp()) |node| {
                     switch (node.id) {
-                        .SuffixOp => node.cast(Node.SuffixOp).?.lhs = .{ .node = res },
+                        .SuffixOp => node.cast(Node.SuffixOp).?.lhs = res,
                         .InfixOp => node.cast(Node.InfixOp).?.lhs = res,
                         else => unreachable,
                     }
@@ -1421,7 +1476,7 @@ const Parser = struct {
                 if (try p.parseFnCallArguments()) |params| {
                     const call = try p.arena.allocator.create(Node.SuffixOp);
                     call.* = .{
-                        .lhs = .{ .node = res },
+                        .lhs = res,
                         .op = .{
                             .Call = .{
                                 .params = params.list,
@@ -1757,10 +1812,8 @@ const Parser = struct {
             return &node.base;
         }
 
-        // anon container literal
-        if (try p.parseInitList()) |node| {
-            node.lhs = .{ .dot = dot };
-            return &node.base;
+        if (try p.parseAnonInitList(dot)) |node| {
+            return node;
         }
 
         p.putBackToken(dot);
@@ -3282,8 +3335,7 @@ const Parser = struct {
     }
 
     fn expectToken(p: *Parser, id: Token.Id) Error!TokenIndex {
-        return (try p.expectTokenRecoverable(id)) orelse
-            error.ParseError;
+        return (try p.expectTokenRecoverable(id)) orelse error.ParseError;
     }
 
     fn expectTokenRecoverable(p: *Parser, id: Token.Id) !?TokenIndex {
