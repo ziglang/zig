@@ -5097,10 +5097,14 @@ static void ir_set_cursor_at_end(IrBuilderSrc *irb, IrBasicBlockSrc *basic_block
     irb->current_basic_block = basic_block;
 }
 
+static void ir_append_basic_block_gen(IrBuilderGen *irb, IrBasicBlockGen *bb) {
+    assert(!bb->already_appended);
+    bb->already_appended = true;
+    irb->exec->basic_block_list.append(bb);
+}
+
 static void ir_set_cursor_at_end_and_append_block_gen(IrBuilderGen *irb, IrBasicBlockGen *basic_block) {
-    assert(!basic_block->already_appended);
-    basic_block->already_appended = true;
-    irb->exec->basic_block_list.append(basic_block);
+    ir_append_basic_block_gen(irb, basic_block);
     ir_set_cursor_at_end_gen(irb, basic_block);
 }
 
@@ -13133,12 +13137,11 @@ static void ir_start_next_bb(IrAnalyze *ira) {
 
 static void ir_finish_bb(IrAnalyze *ira) {
     if (!ira->new_irb.current_basic_block->already_appended) {
-        ira->new_irb.current_basic_block->already_appended = true;
+        ir_append_basic_block_gen(&ira->new_irb, ira->new_irb.current_basic_block);
         if (ira->codegen->verbose_ir) {
             fprintf(stderr, "append new bb %s_%" PRIu32 "\n", ira->new_irb.current_basic_block->name_hint,
                     ira->new_irb.current_basic_block->debug_id);
         }
-        ira->new_irb.exec->basic_block_list.append(ira->new_irb.current_basic_block);
     }
     ira->instruction_index += 1;
     while (ira->instruction_index < ira->old_irb.current_basic_block->instruction_list.length) {
@@ -16573,7 +16576,7 @@ static IrInstGen *ir_analyze_cmp_optional_non_optional(IrAnalyze *ira, IrInst *s
     }
 
     ZigType *result_type = ira->codegen->builtin_types.entry_bool;
-    ira->new_irb.exec->basic_block_list.append(ira->new_irb.current_basic_block);
+    ir_append_basic_block_gen(&ira->new_irb, ira->new_irb.current_basic_block);
 
     IrBasicBlockGen *is_null_block = ir_create_basic_block_gen(ira, source_instr->scope, "CmpOptionalNonOptionalOptionalNull");
     IrBasicBlockGen *is_non_null_block = ir_create_basic_block_gen(ira, source_instr->scope, "CmpOptionalNonOptionalOptionalNotNull");
