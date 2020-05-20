@@ -21,6 +21,8 @@ pub fn SinglyLinkedList(comptime T: type) type {
             next: ?*Node = null,
             data: T,
 
+            pub const Data = T;
+
             pub fn init(data: T) Node {
                 return Node{
                     .data = data,
@@ -50,25 +52,6 @@ pub fn SinglyLinkedList(comptime T: type) type {
         };
 
         first: ?*Node = null,
-
-        /// Initialize a linked list.
-        ///
-        /// Returns:
-        ///     An empty linked list.
-        pub fn init() Self {
-            return Self{
-                .first = null,
-            };
-        }
-
-        /// Insert a new node after an existing one.
-        ///
-        /// Arguments:
-        ///     node: Pointer to a node in the list.
-        ///     new_node: Pointer to the new node to insert.
-        pub fn insertAfter(list: *Self, node: *Node, new_node: *Node) void {
-            node.insertAfter(new_node);
-        }
 
         /// Insert a new node at the head.
         ///
@@ -103,40 +86,6 @@ pub fn SinglyLinkedList(comptime T: type) type {
             const first = list.first orelse return null;
             list.first = first.next;
             return first;
-        }
-
-        /// Allocate a new node.
-        ///
-        /// Arguments:
-        ///     allocator: Dynamic memory allocator.
-        ///
-        /// Returns:
-        ///     A pointer to the new node.
-        pub fn allocateNode(list: *Self, allocator: *Allocator) !*Node {
-            return allocator.create(Node);
-        }
-
-        /// Deallocate a node.
-        ///
-        /// Arguments:
-        ///     node: Pointer to the node to deallocate.
-        ///     allocator: Dynamic memory allocator.
-        pub fn destroyNode(list: *Self, node: *Node, allocator: *Allocator) void {
-            allocator.destroy(node);
-        }
-
-        /// Allocate and initialize a node and its data.
-        ///
-        /// Arguments:
-        ///     data: The data to put inside the node.
-        ///     allocator: Dynamic memory allocator.
-        ///
-        /// Returns:
-        ///     A pointer to the new node.
-        pub fn createNode(list: *Self, data: T, allocator: *Allocator) !*Node {
-            var node = try list.allocateNode(allocator);
-            node.* = Node.init(data);
-            return node;
         }
     };
 }
