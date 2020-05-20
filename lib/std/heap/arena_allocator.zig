@@ -46,7 +46,7 @@ pub const ArenaAllocator = struct {
     }
 
     fn createNode(self: *ArenaAllocator, prev_len: usize, minimum_size: usize) !*BufNode {
-        const actual_min_size = minimum_size + @sizeOf(BufNode);
+        const actual_min_size = minimum_size + (@sizeOf(BufNode) + 16);
         const big_enough_len = prev_len + actual_min_size;
         const len = big_enough_len + big_enough_len / 2;
         const buf = try self.child_allocator.alignedAlloc(u8, @alignOf(BufNode), len);
