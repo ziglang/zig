@@ -15,6 +15,7 @@
 #include "softfloat.hpp"
 #include "util.hpp"
 #include "mem_list.hpp"
+#include "all_types.hpp"
 
 #include <errno.h>
 
@@ -16512,6 +16513,11 @@ static bool type_is_self_comparable(ZigType *ty, bool is_equality_cmp) {
 static IrInstGen *ir_try_evaluate_cmp_optional_non_optional_const(IrAnalyze *ira, IrInst *source_instr, ZigType *child_type,
         IrInstGen *optional, IrInstGen *non_optional, IrBinOp op_id)
 {
+    assert(optional->value->type->id == ZigTypeIdOptional);
+    assert(optional->value->type->data.maybe.child_type == non_optional->value->type);
+    assert(non_optional->value->type == child_type);
+    assert(op_id == IrBinOpCmpEq || op_id == IrBinOpCmpNotEq);
+
     if (instr_is_comptime(optional) && instr_is_comptime(non_optional)) {
         ZigValue *optional_val = ir_resolve_const(ira, optional, UndefBad);
         if (!optional_val) {
@@ -16542,6 +16548,11 @@ static IrInstGen *ir_try_evaluate_cmp_optional_non_optional_const(IrAnalyze *ira
 static IrInstGen *ir_evaluate_cmp_optional_non_optional(IrAnalyze *ira, IrInst *source_instr, ZigType *child_type,
         IrInstGen *optional, IrInstGen *non_optional, IrBinOp op_id)
 {
+    assert(optional->value->type->id == ZigTypeIdOptional);
+    assert(optional->value->type->data.maybe.child_type == non_optional->value->type);
+    assert(non_optional->value->type == child_type);
+    assert(op_id == IrBinOpCmpEq || op_id == IrBinOpCmpNotEq);
+
     ZigType *result_type = ira->codegen->builtin_types.entry_bool;
     ir_append_basic_block_gen(&ira->new_irb, ira->new_irb.current_basic_block);
 
@@ -16558,7 +16569,7 @@ static IrInstGen *ir_evaluate_cmp_optional_non_optional(IrAnalyze *ira, IrInst *
         return ira->codegen->invalid_inst_gen;
     }
     IrInstGen *non_null_cmp_result = ir_build_bin_op_gen(ira, source_instr, result_type, op_id,
-                                                         optional_unwrapped, non_optional, false);
+            optional_unwrapped, non_optional, false); // safety check unnecessary for comparison operators
     ir_build_br_gen(ira, source_instr, end_block);
 
 
@@ -16583,6 +16594,7 @@ static IrInstGen *ir_analyze_cmp_optional_non_optional(IrAnalyze *ira, IrInst *s
 {
     assert(op_id == IrBinOpCmpEq || op_id == IrBinOpCmpNotEq);
     assert(optional->value->type->id == ZigTypeIdOptional);
+    assert(get_src_ptr_type(optional->value->type) == nullptr);
 
     IrInstGen *non_optional;
     if (op1 == optional) {
