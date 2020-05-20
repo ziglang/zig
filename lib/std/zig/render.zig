@@ -1479,13 +1479,11 @@ fn renderExpression(
                 try renderToken(tree, stream, lparen, indent, start_col, Space.None); // (
 
                 // render all on one line, no trailing comma
-                var it = fn_proto.params.first;
-                while (it) |param_decl_node_node| : (it = param_decl_node_node.next) {
-                    const param_decl_node = param_decl_node_node.data;
-                    try renderParamDecl(allocator, stream, tree, indent, start_col, param_decl_node, Space.None);
+                for (fn_proto.params()) |param_decl, i| {
+                    try renderParamDecl(allocator, stream, tree, indent, start_col, param_decl, Space.None);
 
-                    if (param_decl_node_node.next != null) {
-                        const comma = tree.nextToken(param_decl_node.lastToken());
+                    if (i + 1 < fn_proto.params_len) {
+                        const comma = tree.nextToken(param_decl.lastToken());
                         try renderToken(tree, stream, comma, indent, start_col, Space.Space); // ,
                     }
                 }
@@ -1494,11 +1492,9 @@ fn renderExpression(
                 const new_indent = indent + indent_delta;
                 try renderToken(tree, stream, lparen, new_indent, start_col, Space.Newline); // (
 
-                var it = fn_proto.params.first;
-                while (it) |param_decl_node_node| : (it = param_decl_node_node.next) {
-                    const param_decl_node = param_decl_node_node.data;
+                for (fn_proto.params()) |param_decl| {
                     try stream.writeByteNTimes(' ', new_indent);
-                    try renderParamDecl(allocator, stream, tree, new_indent, start_col, param_decl_node, Space.Comma);
+                    try renderParamDecl(allocator, stream, tree, new_indent, start_col, param_decl, Space.Comma);
                 }
                 try stream.writeByteNTimes(' ', indent);
             }
@@ -2079,7 +2075,6 @@ fn renderExpression(
         .VarDecl,
         .Use,
         .TestDecl,
-        .ParamDecl,
         => unreachable,
     }
 }
@@ -2162,11 +2157,9 @@ fn renderParamDecl(
     tree: *ast.Tree,
     indent: usize,
     start_col: *usize,
-    base: *ast.Node,
+    param_decl: ast.Node.FnProto.ParamDecl,
     space: Space,
 ) (@TypeOf(stream).Error || Error)!void {
-    const param_decl = @fieldParentPtr(ast.Node.ParamDecl, "base", base);
-
     try renderDocComments(tree, stream, param_decl, indent, start_col);
 
     if (param_decl.comptime_token) |comptime_token| {

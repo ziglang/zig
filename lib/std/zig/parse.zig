@@ -71,7 +71,7 @@ const Parser = struct {
         const eof_token = p.eatToken(.Eof).?;
 
         const node = try Node.Root.create(&p.arena.allocator, decls.len, eof_token);
-        std.mem.copy(*ast.Node, node.decls(), decls);
+        std.mem.copy(*Node, node.decls(), decls);
 
         return node;
     }
@@ -96,8 +96,8 @@ const Parser = struct {
     ///      / ContainerField COMMA ContainerMembers
     ///      / ContainerField
     ///      /
-    fn parseContainerMembers(p: *Parser, top_level: bool) ![]*ast.Node {
-        var list = std.ArrayList(*ast.Node).init(p.gpa);
+    fn parseContainerMembers(p: *Parser, top_level: bool) ![]*Node {
+        var list = std.ArrayList(*Node).init(p.gpa);
         defer list.deinit();
 
         var field_state: union(enum) {
@@ -522,6 +522,7 @@ const Parser = struct {
         const name_token = p.eatToken(.Identifier);
         const lparen = try p.expectToken(.LParen);
         const params = try p.parseParamDeclList(&var_args_token);
+        defer p.gpa.free(params);
         const rparen = try p.expectToken(.RParen);
         const align_expr = try p.parseByteAlign();
         const section_expr = try p.parseLinkSection();
@@ -544,13 +545,13 @@ const Parser = struct {
         else
             R{ .Explicit = return_type_expr.? };
 
-        const fn_proto_node = try p.arena.allocator.create(Node.FnProto);
+        const fn_proto_node = try Node.FnProto.alloc(&p.arena.allocator, params.len);
         fn_proto_node.* = .{
             .doc_comments = null,
             .visib_token = null,
             .fn_token = fn_token,
             .name_token = name_token,
-            .params = params,
+            .params_len = params.len,
             .return_type = return_type,
             .var_args_token = var_args_token,
             .extern_export_inline_token = null,
@@ -562,6 +563,7 @@ const Parser = struct {
             .is_extern_prototype = is_extern,
             .is_async = is_async,
         };
+        std.mem.copy(Node.FnProto.ParamDecl, fn_proto_node.params(), params);
 
         return &fn_proto_node.base;
     }
@@ -621,7 +623,7 @@ const Parser = struct {
         var type_expr: ?*Node = null;
         if (p.eatToken(.Colon)) |_| {
             if (p.eatToken(.Keyword_var)) |var_tok| {
-                const node = try p.arena.allocator.create(ast.Node.VarType);
+                const node = try p.arena.allocator.create(Node.VarType);
                 node.* = .{ .token = var_tok };
                 type_expr = &node.base;
             } else {
@@ -1936,7 +1938,7 @@ const Parser = struct {
     }
 
     /// ParamDecl <- (KEYWORD_noalias / KEYWORD_comptime)? (IDENTIFIER COLON)? ParamType
-    fn parseParamDecl(p: *Parser) !?*Node {
+    fn parseParamDecl(p: *Parser, list: *std.ArrayList(Node.FnProto.ParamDecl)) !bool {
         const doc_comments = try p.parseDocComment();
         const noalias_token = p.eatToken(.Keyword_noalias);
         const comptime_token = if (noalias_token == null) p.eatToken(.Keyword_comptime) else null;
@@ -1951,31 +1953,30 @@ const Parser = struct {
             if (noalias_token == null and
                 comptime_token == null and
                 name_token == null and
-                doc_comments == null) return null;
+                doc_comments == null) return false;
             try p.errors.append(p.gpa, .{
                 .ExpectedParamType = .{ .token = p.tok_i },
             });
             return error.ParseError;
         };
 
-        const param_decl = try p.arena.allocator.create(Node.ParamDecl);
-        param_decl.* = .{
+        (try list.addOne()).* = .{
             .doc_comments = doc_comments,
             .comptime_token = comptime_token,
             .noalias_token = noalias_token,
             .name_token = name_token,
             .param_type = param_type,
         };
-        return &param_decl.base;
+        return true;
     }
 
     /// ParamType
     ///     <- KEYWORD_var
     ///      / DOT3
     ///      / TypeExpr
-    fn parseParamType(p: *Parser) !?Node.ParamDecl.ParamType {
+    fn parseParamType(p: *Parser) !?Node.FnProto.ParamDecl.ParamType {
         // TODO cast from tuple to error union is broken
-        const P = Node.ParamDecl.ParamType;
+        const P = Node.FnProto.ParamDecl.ParamType;
         if (try p.parseVarType()) |node| return P{ .var_type = node };
         if (p.eatToken(.Ellipsis3)) |token| return P{ .var_args = token };
         if (try p.parseTypeExpr()) |node| return P{ .type_expr = node };
@@ -2587,7 +2588,7 @@ const Parser = struct {
 
                 if (p.eatToken(.Ellipsis2) != null) {
                     const end_expr = try p.parseExpr();
-                    const sentinel: ?*ast.Node = if (p.eatToken(.Colon) != null)
+                    const sentinel: ?*Node = if (p.eatToken(.Colon) != null)
                         try p.parseExpr()
                     else
                         null;
@@ -2616,7 +2617,7 @@ const Parser = struct {
             if (p.eatToken(.Period)) |period| {
                 if (try p.parseIdentifier()) |identifier| {
                     // TODO: It's a bit weird to return an InfixOp from the SuffixOp parser.
-                    // Should there be an ast.Node.SuffixOp.FieldAccess variant? Or should
+                    // Should there be an Node.SuffixOp.FieldAccess variant? Or should
                     // this grammar rule be altered?
                     const node = try p.arena.allocator.create(Node.InfixOp);
                     node.* = .{
@@ -2652,13 +2653,13 @@ const Parser = struct {
     /// ExprList <- (Expr COMMA)* Expr?
     fn parseFnCallArguments(p: *Parser) !?AnnotatedParamList {
         if (p.eatToken(.LParen) == null) return null;
-        const list = try ListParseFn(Node.FnProto.ParamList, parseExpr)(p);
+        const list = try ListParseFn(std.SinglyLinkedList(*Node), parseExpr)(p);
         const rparen = try p.expectToken(.RParen);
         return AnnotatedParamList{ .list = list, .rparen = rparen };
     }
 
     const AnnotatedParamList = struct {
-        list: Node.FnProto.ParamList, // NOTE: may also be any other type SegmentedList(*Node, 2)
+        list: std.SinglyLinkedList(*Node),
         rparen: TokenIndex,
     };
 
@@ -2797,14 +2798,14 @@ const Parser = struct {
             .lbrace_token = lbrace,
             .rbrace_token = rbrace,
         };
-        std.mem.copy(*ast.Node, node.fieldsAndDecls(), members);
+        std.mem.copy(*Node, node.fieldsAndDecls(), members);
         return &node.base;
     }
 
     /// Holds temporary data until we are ready to construct the full ContainerDecl AST node.
     const ContainerDeclType = struct {
         kind_token: TokenIndex,
-        init_arg_expr: ast.Node.ContainerDecl.InitArg,
+        init_arg_expr: Node.ContainerDecl.InitArg,
     };
 
     /// ContainerDeclType
@@ -2893,14 +2894,11 @@ const Parser = struct {
     }
 
     /// ParamDeclList <- (ParamDecl COMMA)* ParamDecl?
-    fn parseParamDeclList(p: *Parser, var_args_token: *?TokenIndex) !Node.FnProto.ParamList {
-        var list = Node.FnProto.ParamList{};
-        var list_it = &list.first;
-        var last: ?*Node = null;
-        while (try p.parseParamDecl()) |node| {
-            last = node;
-            list_it = try p.llpush(*Node, list_it, node);
+    fn parseParamDeclList(p: *Parser, var_args_token: *?TokenIndex) ![]Node.FnProto.ParamDecl {
+        var list = std.ArrayList(Node.FnProto.ParamDecl).init(p.gpa);
+        defer list.deinit();
 
+        while (try p.parseParamDecl(&list)) {
             switch (p.tokens[p.tok_i].id) {
                 .Comma => _ = p.nextToken(),
                 // all possible delimiters
@@ -2914,13 +2912,13 @@ const Parser = struct {
                 },
             }
         }
-        if (last) |node| {
-            const param_type = node.cast(Node.ParamDecl).?.param_type;
+        if (list.items.len != 0) {
+            const param_type = list.items[list.items.len - 1].param_type;
             if (param_type == .var_args) {
                 var_args_token.* = param_type.var_args;
             }
         }
-        return list;
+        return list.toOwnedSlice();
     }
 
     const NodeParseFn = fn (p: *Parser) Error!?*Node;

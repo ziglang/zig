@@ -477,7 +477,6 @@ pub const Node = struct {
         ErrorTag,
         AsmInput,
         AsmOutput,
-        ParamDecl,
         FieldInitializer,
     };
 
@@ -533,7 +532,6 @@ pub const Node = struct {
             switch (n.id) {
                 .Root,
                 .ContainerField,
-                .ParamDecl,
                 .Block,
                 .Payload,
                 .PointerPayload,
@@ -819,7 +817,7 @@ pub const Node = struct {
             return @ptrCast(*ContainerDecl, bytes.ptr);
         }
 
-        pub fn free(self: *Decl, allocator: *mem.Allocator) void {
+        pub fn free(self: *ContainerDecl, allocator: *mem.Allocator) void {
             const bytes = @ptrCast([*]u8, self)[0..sizeInBytes(self.fields_and_decls_len)];
             allocator.free(bytes);
         }
@@ -979,13 +977,14 @@ pub const Node = struct {
         }
     };
 
+    /// The params are directly after the FnProto in memory.
     pub const FnProto = struct {
         base: Node = Node{ .id = .FnProto },
         doc_comments: ?*DocComment,
         visib_token: ?TokenIndex,
         fn_token: TokenIndex,
         name_token: ?TokenIndex,
-        params: ParamList,
+        params_len: NodeIndex,
         return_type: ReturnType,
         var_args_token: ?TokenIndex,
         extern_export_inline_token: ?TokenIndex,
@@ -997,16 +996,75 @@ pub const Node = struct {
         is_extern_prototype: bool = false, // TODO: Remove once extern fn rewriting is
         is_async: bool = false, // TODO: remove once async fn rewriting is
 
-        pub const ParamList = LinkedList(*Node);
-
         pub const ReturnType = union(enum) {
             Explicit: *Node,
             InferErrorSet: *Node,
             Invalid: TokenIndex,
         };
 
+        pub const ParamDecl = struct {
+            doc_comments: ?*DocComment,
+            comptime_token: ?TokenIndex,
+            noalias_token: ?TokenIndex,
+            name_token: ?TokenIndex,
+            param_type: ParamType,
+
+            pub const ParamType = union(enum) {
+                var_type: *Node,
+                var_args: TokenIndex,
+                type_expr: *Node,
+            };
+
+            pub fn iterate(self: *const ParamDecl) Node.Iterator {
+                return .{ .parent_node = &self.base, .index = 0, .node = null };
+            }
+
+            pub fn iterateNext(self: *const ParamDecl, it: *Node.Iterator) ?*Node {
+                var i = it.index;
+                it.index += 1;
+
+                if (i < 1) {
+                    switch (self.param_type) {
+                        .var_args => return null,
+                        .var_type, .type_expr => |node| return node,
+                    }
+                }
+                i -= 1;
+
+                return null;
+            }
+
+            pub fn firstToken(self: *const ParamDecl) TokenIndex {
+                if (self.comptime_token) |comptime_token| return comptime_token;
+                if (self.noalias_token) |noalias_token| return noalias_token;
+                if (self.name_token) |name_token| return name_token;
+                switch (self.param_type) {
+                    .var_args => |tok| return tok,
+                    .var_type, .type_expr => |node| return node.firstToken(),
+                }
+            }
+
+            pub fn lastToken(self: *const ParamDecl) TokenIndex {
+                switch (self.param_type) {
+                    .var_args => |tok| return tok,
+                    .var_type, .type_expr => |node| return node.lastToken(),
+                }
+            }
+        };
+
+        /// After this the caller must initialize the params list.
+        pub fn alloc(allocator: *mem.Allocator, params_len: NodeIndex) !*FnProto {
+            const bytes = try allocator.alignedAlloc(u8, @alignOf(FnProto), sizeInBytes(params_len));
+            return @ptrCast(*FnProto, bytes.ptr);
+        }
+
+        pub fn free(self: *FnProto, allocator: *mem.Allocator) void {
+            const bytes = @ptrCast([*]u8, self)[0..sizeInBytes(self.params_len)];
+            allocator.free(bytes);
+        }
+
         pub fn iterate(self: *const FnProto) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0, .node = self.params.first };
+            return .{ .parent_node = &self.base, .index = 0, .node = null };
         }
 
         pub fn iterateNext(self: *const FnProto, it: *Node.Iterator) ?*Node {
@@ -1018,11 +1076,17 @@ pub const Node = struct {
                 i -= 1;
             }
 
-            if (it.node) |param| {
-                it.index -= 1;
-                it.node = param.next;
-                return param.data;
+            if (i < self.params_len) {
+                switch (self.paramsConst()[i].param_type) {
+                    .var_type => |n| return n,
+                    .var_args => {
+                        i += 1;
+                        it.index += 1;
+                    },
+                    .type_expr => |n| return n,
+                }
             }
+            i -= self.params_len;
 
             if (self.align_expr) |align_expr| {
                 if (i < 1) return align_expr;
@@ -1064,6 +1128,20 @@ pub const Node = struct {
                 .Invalid => |tok| return tok,
             }
         }
+
+        pub fn params(self: *FnProto) []ParamDecl {
+            const decls_start = @ptrCast([*]u8, self) + @sizeOf(FnProto);
+            return @ptrCast([*]ParamDecl, decls_start)[0..self.params_len];
+        }
+
+        pub fn paramsConst(self: *const FnProto) []const ParamDecl {
+            const decls_start = @ptrCast([*]const u8, self) + @sizeOf(FnProto);
+            return @ptrCast([*]const ParamDecl, decls_start)[0..self.params_len];
+        }
+
+        fn sizeInBytes(params_len: NodeIndex) usize {
+            return @sizeOf(FnProto) + @sizeOf(ParamDecl) * @as(usize, params_len);
+        }
     };
 
     pub const AnyFrameType = struct {
@@ -1099,57 +1177,6 @@ pub const Node = struct {
         pub fn lastToken(self: *const AnyFrameType) TokenIndex {
             if (self.result) |result| return result.return_type.lastToken();
             return self.anyframe_token;
-        }
-    };
-
-    pub const ParamDecl = struct {
-        base: Node = Node{ .id = .ParamDecl },
-        doc_comments: ?*DocComment,
-        comptime_token: ?TokenIndex,
-        noalias_token: ?TokenIndex,
-        name_token: ?TokenIndex,
-        param_type: ParamType,
-
-        pub const ParamType = union(enum) {
-            var_type: *Node,
-            var_args: TokenIndex,
-            type_expr: *Node,
-        };
-
-        pub fn iterate(self: *const ParamDecl) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0, .node = null };
-        }
-
-        pub fn iterateNext(self: *const ParamDecl, it: *Node.Iterator) ?*Node {
-            var i = it.index;
-            it.index += 1;
-
-            if (i < 1) {
-                switch (self.param_type) {
-                    .var_args => return null,
-                    .var_type, .type_expr => |node| return node,
-                }
-            }
-            i -= 1;
-
-            return null;
-        }
-
-        pub fn firstToken(self: *const ParamDecl) TokenIndex {
-            if (self.comptime_token) |comptime_token| return comptime_token;
-            if (self.noalias_token) |noalias_token| return noalias_token;
-            if (self.name_token) |name_token| return name_token;
-            switch (self.param_type) {
-                .var_args => |tok| return tok,
-                .var_type, .type_expr => |node| return node.firstToken(),
-            }
-        }
-
-        pub fn lastToken(self: *const ParamDecl) TokenIndex {
-            switch (self.param_type) {
-                .var_args => |tok| return tok,
-                .var_type, .type_expr => |node| return node.lastToken(),
-            }
         }
     };
 
