@@ -16525,23 +16525,27 @@ static IrInstGen *ir_analyze_cmp_optional_non_optional(IrAnalyze *ira, IrInst *s
     }
 
     ZigType *child_type = optional->value->type->data.maybe.child_type;
-    bool child_type_does_not_match = (child_type != non_optional->value->type);
-    if (child_type_does_not_match || !type_is_self_comparable(child_type, true)) {
+    bool child_type_matches = (child_type == non_optional->value->type);
+    if (!child_type_matches || !type_is_self_comparable(child_type, true)) {
         ErrorMsg *msg = ir_add_error_node(ira, source_instr->source_node, buf_sprintf("cannot compare types '%s' and '%s'",
             buf_ptr(&op1->value->type->name),
             buf_ptr(&op2->value->type->name)));
 
-        if (child_type_does_not_match && non_optional->value->type->id == ZigTypeIdOptional) {
-            add_error_note(ira->codegen, msg, source_instr->source_node, buf_sprintf("only optional to non-optional comparison is allowed for non-pointer types"));
-        } else if (child_type_does_not_match) {
-            add_error_note(ira->codegen, msg, source_instr->source_node, buf_sprintf("optional child type '%s' must equal non-optional type '%s'",
-                buf_ptr(&child_type->name),
-                buf_ptr(&non_optional->value->type->name)));
+        if (!child_type_matches) {
+            if (non_optional->value->type->id == ZigTypeIdOptional) {
+                add_error_note(ira->codegen, msg, source_instr->source_node, buf_sprintf(
+                        "optional to optional comparison is only supported for optional pointer types"));
+            } else {
+                add_error_note(ira->codegen, msg, source_instr->source_node,
+                        buf_sprintf("optional child type '%s' must be the same as non-optional type '%s'",
+                                buf_ptr(&child_type->name),
+                                buf_ptr(&non_optional->value->type->name)));
+            }
         } else {
-            add_error_note(ira->codegen, msg, source_instr->source_node, buf_sprintf("operator not supported for type '%s'",
-                buf_ptr(&child_type->name)));
+            add_error_note(ira->codegen, msg, source_instr->source_node,
+                    buf_sprintf("operator not supported for type '%s'",
+                            buf_ptr(&child_type->name)));
         }
-
         return ira->codegen->invalid_inst_gen;
     }
 

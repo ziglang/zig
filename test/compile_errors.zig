@@ -7472,9 +7472,9 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
     , &[_][]const u8{
         ":4:12: error: cannot compare types '?i32' and 'comptime_int'",
-        ":4:12: note: optional child type 'i32' must equal non-optional type 'comptime_int'",
+        ":4:12: note: optional child type 'i32' must be the same as non-optional type 'comptime_int'",
         ":10:12: error: cannot compare types '?i32' and '?i32'",
-        ":10:12: note: only optional to non-optional comparison is allowed",
+        ":10:12: note: optional to optional comparison is only supported for optional pointer types",
         ":16:12: error: TODO add comparison of optional vector",
         ":22:12: error: cannot compare types '?[3]i32' and '[3]i32'",
         ":22:12: note: operator not supported for type '[3]i32'",
