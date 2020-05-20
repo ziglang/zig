@@ -16573,10 +16573,11 @@ static IrInstGen *ir_analyze_cmp_optional_non_optional(IrAnalyze *ira, IrInst *s
     }
 
     ZigType *result_type = ira->codegen->builtin_types.entry_bool;
+    ira->new_irb.exec->basic_block_list.append(ira->new_irb.current_basic_block);
 
-    IrBasicBlockGen *is_null_block = ir_create_basic_block_gen(ira, source_instr->scope, "CmpOptionalNonOptional optional is null");
-    IrBasicBlockGen *is_non_null_block = ir_create_basic_block_gen(ira, source_instr->scope, "CmpOptionalNonOptional optional is not null");
-    IrBasicBlockGen *end_block = ir_create_basic_block_gen(ira, source_instr->scope, "CmpOptionalNonOptional end");
+    IrBasicBlockGen *is_null_block = ir_create_basic_block_gen(ira, source_instr->scope, "CmpOptionalNonOptionalOptionalNull");
+    IrBasicBlockGen *is_non_null_block = ir_create_basic_block_gen(ira, source_instr->scope, "CmpOptionalNonOptionalOptionalNotNull");
+    IrBasicBlockGen *end_block = ir_create_basic_block_gen(ira, source_instr->scope, "CmpOptionalNonOptionalEnd");
 
     IrInstGen *non_null_bit = ir_build_test_non_null_gen(ira, source_instr, optional);
     ir_build_cond_br_gen(ira, source_instr, non_null_bit, is_non_null_block, is_null_block);
@@ -16593,8 +16594,13 @@ static IrInstGen *ir_analyze_cmp_optional_non_optional(IrAnalyze *ira, IrInst *s
     ir_build_br_gen(ira, source_instr, end_block);
 
     ir_set_cursor_at_end_gen(&ira->new_irb, end_block);
-    IrBasicBlockGen *incoming_blocks[] = {is_null_block, is_non_null_block};
-    IrInstGen *incoming_values[] = {is_null_result, non_null_cmp_result};
+    IrBasicBlockGen **incoming_blocks = heap::c_allocator.allocate_nonzero<IrBasicBlockGen *>(2);
+    incoming_blocks[0] = is_null_block;
+    incoming_blocks[1] = is_non_null_block;
+    IrInstGen **incoming_values = heap::c_allocator.allocate_nonzero<IrInstGen *>(2);
+    incoming_values[0] = is_null_result;
+    incoming_values[1] = non_null_cmp_result;
+
     return ir_build_phi_gen(ira, source_instr, 2, incoming_blocks, incoming_values, result_type);
 }
 

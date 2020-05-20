@@ -50,12 +50,11 @@ test "address of unwrap optional" {
 }
 
 test "equality compare optional with non-optional" {
-    //test_cmp_optional_non_optional();                  CAUSES ASSERTION ERROR I CANNOT TRACK AT RUNTIME.
+    test_cmp_optional_non_optional();
     comptime test_cmp_optional_non_optional();
 }
 
 fn test_cmp_optional_non_optional() void {
-    comptime{
     var ten: i32 = 10;
     var opt_ten: ?i32 = 10;
     var five: i32 = 5;
@@ -80,8 +79,6 @@ fn test_cmp_optional_non_optional() void {
     var mutable_state: i32 = 0;
     _ = blk1: { mutable_state += 1; break :blk1 @as(?f64, 10.0); } != blk2: { expect(mutable_state == 1); break :blk2 @as(f64, 5.0); };
     _ = blk1: { mutable_state += 1; break :blk1 @as(f64, 10.0); } != blk2: { expect(mutable_state == 2); break :blk2 @as(?f64, 5.0); };
-    }
-
 }
 test "passing an optional integer as a parameter" {
     const S = struct {
