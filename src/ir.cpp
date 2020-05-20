@@ -16567,14 +16567,15 @@ static IrInstGen *ir_evaluate_cmp_optional_non_optional(IrAnalyze *ira, IrInst *
     ir_build_br_gen(ira, source_instr, end_block);
 
     ir_set_cursor_at_end_gen(&ira->new_irb, end_block);
-    IrBasicBlockGen **incoming_blocks = heap::c_allocator.allocate_nonzero<IrBasicBlockGen *>(2);
+    int incoming_count = 2;
+    IrBasicBlockGen **incoming_blocks = heap::c_allocator.allocate_nonzero<IrBasicBlockGen *>(incoming_count);
     incoming_blocks[0] = null_block;
     incoming_blocks[1] = non_null_block;
-    IrInstGen **incoming_values = heap::c_allocator.allocate_nonzero<IrInstGen *>(2);
+    IrInstGen **incoming_values = heap::c_allocator.allocate_nonzero<IrInstGen *>(incoming_count);
     incoming_values[0] = null_result;
     incoming_values[1] = non_null_cmp_result;
 
-    return ir_build_phi_gen(ira, source_instr, 2, incoming_blocks, incoming_values, result_type);
+    return ir_build_phi_gen(ira, source_instr, incoming_count, incoming_blocks, incoming_values, result_type);
 }
 
 static IrInstGen *ir_analyze_cmp_optional_non_optional(IrAnalyze *ira, IrInst *source_instr,
