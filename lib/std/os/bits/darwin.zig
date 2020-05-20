@@ -1430,3 +1430,29 @@ pub const LOCK_SH = 1;
 pub const LOCK_EX = 2;
 pub const LOCK_UN = 8;
 pub const LOCK_NB = 4;
+
+pub const nfds_t = usize;
+pub const pollfd = extern struct {
+    fd: fd_t,
+    events: i16,
+    revents: i16,
+};
+
+pub const POLLIN = 0x001;
+pub const POLLPRI = 0x002;
+pub const POLLOUT = 0x004;
+pub const POLLRDNORM = 0x040;
+pub const POLLWRNORM = POLLOUT;
+pub const POLLRDBAND = 0x080;
+pub const POLLWRBAND = 0x100;
+
+pub const POLLEXTEND = 0x0200;
+pub const POLLATTRIB = 0x0400;
+pub const POLLNLINK = 0x0800;
+pub const POLLWRITE = 0x1000;
+
+pub const POLLERR = 0x008;
+pub const POLLHUP = 0x010;
+pub const POLLNVAL = 0x020;
+
+pub const POLLSTANDARD = POLLIN | POLLPRI | POLLOUT | POLLRDNORM | POLLRDBAND | POLLWRBAND | POLLERR | POLLHUP | POLLNVAL;
