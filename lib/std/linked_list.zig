@@ -49,6 +49,26 @@ pub fn SinglyLinkedList(comptime T: type) type {
                 node.next = next_node.next;
                 return next_node;
             }
+
+            /// Iterate over the singly-linked list from this node, until the final node is found.
+            /// This operation is O(N).
+            pub fn findLast(node: *Node) *Node {
+                var it = node;
+                while (true) {
+                    it = it.next orelse return it;
+                }
+            }
+
+            /// Iterate over each next node, returning the count of all nodes except the starting one.
+            /// This operation is O(N).
+            pub fn countChildren(node: *const Node) usize {
+                var count: usize = 0;
+                var it: ?*const Node = node;
+                while (it) |n| : (it = n.next) {
+                    count += 1;
+                }
+                return count;
+            }
         };
 
         first: ?*Node = null,
@@ -86,6 +106,16 @@ pub fn SinglyLinkedList(comptime T: type) type {
             const first = list.first orelse return null;
             list.first = first.next;
             return first;
+        }
+
+        /// Iterate over all nodes, returning the count.
+        /// This operation is O(N).
+        pub fn len(list: Self) usize {
+            if (list.first) |n| {
+                return 1 + n.countChildren();
+            } else {
+                return 0;
+            }
         }
     };
 }

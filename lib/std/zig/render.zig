@@ -915,8 +915,7 @@ fn renderExpression(
 
                     if (maybe_row_size) |row_size| {
                         // A place to store the width of each expression and its column's maximum
-                        const exprs_len = countLen(exprs.first);
-                        var widths = try allocator.alloc(usize, exprs_len + row_size);
+                        var widths = try allocator.alloc(usize, exprs.len() + row_size);
                         defer allocator.free(widths);
                         mem.set(usize, widths, 0);
 
@@ -1391,7 +1390,7 @@ fn renderExpression(
                 {
                     break :blk false;
                 }
-                const last_node = findLast(builtin_call.params.first.?).data;
+                const last_node = builtin_call.params.first.?.findLast().data;
                 const maybe_comma = tree.nextToken(last_node.lastToken());
                 break :blk tree.tokens[maybe_comma].id == .Comma;
             };
@@ -1615,7 +1614,7 @@ fn renderExpression(
 
             assert(switch_case.items.first != null);
             const src_has_trailing_comma = blk: {
-                const last_node = findLast(switch_case.items.first.?).data;
+                const last_node = switch_case.items.first.?.findLast().data;
                 const maybe_comma = tree.nextToken(last_node.lastToken());
                 break :blk tree.tokens[maybe_comma].id == .Comma;
             };
@@ -2509,20 +2508,4 @@ fn copyFixingWhitespace(stream: var, slice: []const u8) @TypeOf(stream).Error!vo
         '\r' => {},
         else => try stream.writeByte(byte),
     };
-}
-
-fn countLen(node: ?*std.SinglyLinkedList(*ast.Node).Node) usize {
-    var count: usize = 0;
-    var it = node;
-    while (it) |n| : (it = n.next) {
-        count += 1;
-    }
-    return count;
-}
-
-fn findLast(node: *std.SinglyLinkedList(*ast.Node).Node) *std.SinglyLinkedList(*ast.Node).Node {
-    var it = node;
-    while (true) {
-        it = it.next orelse return it;
-    }
 }
