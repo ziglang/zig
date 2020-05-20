@@ -36,7 +36,7 @@ pub const Tree = struct {
         return self.tokenSlicePtr(self.tokens[token_index]);
     }
 
-    pub fn tokenSlicePtr(self: *Tree, token: *const Token) []const u8 {
+    pub fn tokenSlicePtr(self: *Tree, token: Token) []const u8 {
         return self.source[token.start..token.end];
     }
 
@@ -89,7 +89,7 @@ pub const Tree = struct {
         return self.tokensOnSameLinePtr(self.tokens[token1_index], self.tokens[token2_index]);
     }
 
-    pub fn tokensOnSameLinePtr(self: *Tree, token1: *const Token, token2: *const Token) bool {
+    pub fn tokensOnSameLinePtr(self: *Tree, token1: Token, token2: Token) bool {
         return mem.indexOfScalar(u8, self.source[token1.end..token2.start], '\n') == null;
     }
 
