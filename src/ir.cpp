@@ -15,7 +15,6 @@
 #include "softfloat.hpp"
 #include "util.hpp"
 #include "mem_list.hpp"
-#include "all_types.hpp"
 
 #include <errno.h>
 
