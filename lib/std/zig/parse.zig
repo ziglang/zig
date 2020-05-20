@@ -878,34 +878,32 @@ const Parser = struct {
             return node;
         }
 
-        if (try p.parseAssignExpr()) |assign_expr| {
-            for_prefix.body = assign_expr;
+        for_prefix.body = try p.expectNode(parseAssignExpr, .{
+            .ExpectedBlockOrAssignment = .{ .token = p.tok_i },
+        });
 
-            if (p.eatToken(.Semicolon) != null) return node;
+        if (p.eatToken(.Semicolon) != null) return node;
 
-            if (p.eatToken(.Keyword_else)) |else_token| {
-                const statement_node = try p.expectNode(parseStatement, .{
-                    .ExpectedStatement = .{ .token = p.tok_i },
-                });
-
-                const else_node = try p.arena.allocator.create(Node.Else);
-                else_node.* = .{
-                    .else_token = else_token,
-                    .payload = null,
-                    .body = statement_node,
-                };
-                for_prefix.@"else" = else_node;
-                return node;
-            }
-
-            try p.errors.append(p.gpa, .{
-                .ExpectedSemiOrElse = .{ .token = p.tok_i },
+        if (p.eatToken(.Keyword_else)) |else_token| {
+            const statement_node = try p.expectNode(parseStatement, .{
+                .ExpectedStatement = .{ .token = p.tok_i },
             });
 
+            const else_node = try p.arena.allocator.create(Node.Else);
+            else_node.* = .{
+                .else_token = else_token,
+                .payload = null,
+                .body = statement_node,
+            };
+            for_prefix.@"else" = else_node;
             return node;
         }
 
-        return null;
+        try p.errors.append(p.gpa, .{
+            .ExpectedSemiOrElse = .{ .token = p.tok_i },
+        });
+
+        return node;
     }
 
     /// WhileStatement
@@ -939,36 +937,35 @@ const Parser = struct {
             return node;
         }
 
-        if (try p.parseAssignExpr()) |assign_expr_node| {
-            while_prefix.body = assign_expr_node;
 
-            if (p.eatToken(.Semicolon) != null) return node;
+        while_prefix.body = try p.expectNode(parseAssignExpr, .{
+            .ExpectedBlockOrAssignment = .{ .token = p.tok_i },
+        });
 
-            if (p.eatToken(.Keyword_else)) |else_token| {
-                const payload = try p.parsePayload();
+        if (p.eatToken(.Semicolon) != null) return node;
 
-                const statement_node = try p.expectNode(parseStatement, .{
-                    .ExpectedStatement = .{ .token = p.tok_i },
-                });
+        if (p.eatToken(.Keyword_else)) |else_token| {
+            const payload = try p.parsePayload();
 
-                const else_node = try p.arena.allocator.create(Node.Else);
-                else_node.* = .{
-                    .else_token = else_token,
-                    .payload = payload,
-                    .body = statement_node,
-                };
-                while_prefix.@"else" = else_node;
-                return node;
-            }
-
-            try p.errors.append(p.gpa, .{
-                .ExpectedSemiOrElse = .{ .token = p.tok_i },
+            const statement_node = try p.expectNode(parseStatement, .{
+                .ExpectedStatement = .{ .token = p.tok_i },
             });
 
+            const else_node = try p.arena.allocator.create(Node.Else);
+            else_node.* = .{
+                .else_token = else_token,
+                .payload = payload,
+                .body = statement_node,
+            };
+            while_prefix.@"else" = else_node;
             return node;
         }
 
-        return null;
+        try p.errors.append(p.gpa, .{
+            .ExpectedSemiOrElse = .{ .token = p.tok_i },
+        });
+
+        return node;
     }
 
     /// BlockExprStatement

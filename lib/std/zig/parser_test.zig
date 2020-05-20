@@ -210,6 +210,19 @@ test "recovery: invalid comptime" {
     });
 }
 
+test "recovery: missing block after for/while loops" {
+    try testError(
+        \\test "" { while (foo) }
+    , &[_]Error{
+        .ExpectedBlockOrAssignment,
+    });
+    try testError(
+        \\test "" { for (foo) |bar| }
+    , &[_]Error{
+        .ExpectedBlockOrAssignment,
+    });
+}
+
 test "zig fmt: if statment" {
     try testCanonical(
         \\test "" {
