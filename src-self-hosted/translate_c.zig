@@ -229,8 +229,7 @@ pub const Context = struct {
     global_scope: *Scope.Root,
     clang_context: *ZigClangASTContext,
     mangle_count: u32 = 0,
-    root_node: *ast.Node.Root,
-    root_decls_it: *?*std.SinglyLinkedList(*ast.Node).Node,
+    root_decls: std.ArrayListUnmanaged(*ast.Node),
 
     /// This one is different than the root scope's name table. This contains
     /// a list of names that we found by visiting all the top level decls without
@@ -318,13 +317,6 @@ pub fn translate(
     var arena = std.heap.ArenaAllocator.init(gpa);
     errdefer arena.deinit();
 
-    const root_node = try arena.allocator.create(ast.Node.Root);
-    root_node.* = .{
-        .decls = ast.Node.Root.DeclList{},
-        // initialized with the eof token at the end
-        .eof_token = undefined,
-    };
-
     var context = Context{
         .gpa = gpa,
         .arena = &arena.allocator,
@@ -338,8 +330,7 @@ pub fn translate(
         .global_names = std.StringHashMap(void).init(gpa),
         .tokens = .{},
         .errors = .{},
-        .root_node = root_node,
-        .root_decls_it = &root_node.decls.first,
+        .root_decls = .{},
     };
     context.global_scope.* = Scope.Root.init(&context);
     defer context.decl_table.deinit();
@@ -347,6 +338,7 @@ pub fn translate(
     defer context.tokens.deinit(gpa);
     defer context.errors.deinit(gpa);
     defer context.global_names.deinit();
+    defer context.root_decls.deinit(gpa);
 
     try prepopulateGlobalNameTable(ast_unit, &context);
 
@@ -363,7 +355,10 @@ pub fn translate(
         }
     }
 
-    root_node.eof_token = try appendToken(&context, .Eof, "");
+    const eof_token = try appendToken(&context, .Eof, "");
+    const root_node = try ast.Node.Root.create(&arena.allocator, context.root_decls.items.len, eof_token);
+    mem.copy(*ast.Node, root_node.decls(), context.root_decls.items);
+
     if (false) {
         std.debug.warn("debug source:\n{}\n==EOF==\ntokens:\n", .{source_buffer.items});
         for (context.tokens.items) |token| {
@@ -831,16 +826,8 @@ fn transRecordDecl(c: *Context, record_decl: *const ZigClangRecordDecl) Error!?*
         const container_tok = try appendToken(c, container_kind, container_kind_name);
         const lbrace_token = try appendToken(c, .LBrace, "{");
 
-        const container_node = try c.arena.create(ast.Node.ContainerDecl);
-        container_node.* = .{
-            .layout_token = layout_tok,
-            .kind_token = container_tok,
-            .init_arg_expr = .None,
-            .fields_and_decls = ast.Node.ContainerDecl.DeclList{},
-            .lbrace_token = lbrace_token,
-            .rbrace_token = undefined,
-        };
-        var container_fields_and_decls = c.llpusher(&container_node.fields_and_decls);
+        var fields_and_decls = std.ArrayList(*ast.Node).init(c.gpa);
+        defer fields_and_decls.deinit();
 
         var unnamed_field_count: u32 = 0;
         var it = ZigClangRecordDecl_field_begin(record_def);
@@ -915,10 +902,19 @@ fn transRecordDecl(c: *Context, record_decl: *const ZigClangRecordDecl) Error!?*
                 );
             }
 
-            try container_fields_and_decls.push(&field_node.base);
+            try fields_and_decls.append(&field_node.base);
             _ = try appendToken(c, .Comma, ",");
         }
-        container_node.rbrace_token = try appendToken(c, .RBrace, "}");
+        const container_node = try ast.Node.ContainerDecl.alloc(c.arena, fields_and_decls.items.len);
+        container_node.* = .{
+            .layout_token = layout_tok,
+            .kind_token = container_tok,
+            .init_arg_expr = .None,
+            .fields_and_decls_len = fields_and_decls.items.len,
+            .lbrace_token = lbrace_token,
+            .rbrace_token = try appendToken(c, .RBrace, "}"),
+        };
+        mem.copy(*ast.Node, container_node.fieldsAndDecls(), fields_and_decls.items);
         semicolon = try appendToken(c, .Semicolon, ";");
         break :blk &container_node.base;
     };
@@ -963,16 +959,8 @@ fn transEnumDecl(c: *Context, enum_decl: *const ZigClangEnumDecl) Error!?*ast.No
         const extern_tok = try appendToken(c, .Keyword_extern, "extern");
         const container_tok = try appendToken(c, .Keyword_enum, "enum");
 
-        const container_node = try c.arena.create(ast.Node.ContainerDecl);
-        container_node.* = .{
-            .layout_token = extern_tok,
-            .kind_token = container_tok,
-            .init_arg_expr = .None,
-            .fields_and_decls = ast.Node.ContainerDecl.DeclList{},
-            .lbrace_token = undefined,
-            .rbrace_token = undefined,
-        };
-        var container_node_fields_and_decls = c.llpusher(&container_node.fields_and_decls);
+        var fields_and_decls = std.ArrayList(*ast.Node).init(c.gpa);
+        defer fields_and_decls.deinit();
 
         const int_type = ZigClangEnumDecl_getIntegerType(enum_decl);
         // The underlying type may be null in case of forward-declared enum
@@ -981,7 +969,7 @@ fn transEnumDecl(c: *Context, enum_decl: *const ZigClangEnumDecl) Error!?*ast.No
 
         // default to c_int since msvc and gcc default to different types
         _ = try appendToken(c, .LParen, "(");
-        container_node.init_arg_expr = .{
+        const init_arg_expr = ast.Node.ContainerDecl.InitArg{
             .Type = if (int_type.ptr != null and
                 !isCBuiltinType(int_type, .UInt) and
                 !isCBuiltinType(int_type, .Int))
@@ -997,7 +985,7 @@ fn transEnumDecl(c: *Context, enum_decl: *const ZigClangEnumDecl) Error!?*ast.No
         };
         _ = try appendToken(c, .RParen, ")");
 
-        container_node.lbrace_token = try appendToken(c, .LBrace, "{");
+        const lbrace_token = try appendToken(c, .LBrace, "{");
 
         it = ZigClangEnumDecl_enumerator_begin(enum_def);
         end_it = ZigClangEnumDecl_enumerator_end(enum_def);
@@ -1029,7 +1017,7 @@ fn transEnumDecl(c: *Context, enum_decl: *const ZigClangEnumDecl) Error!?*ast.No
                 .align_expr = null,
             };
 
-            try container_node_fields_and_decls.push(&field_node.base);
+            try fields_and_decls.append(&field_node.base);
             _ = try appendToken(c, .Comma, ",");
 
             // In C each enum value is in the global namespace. So we put them there too.
@@ -1064,10 +1052,18 @@ fn transEnumDecl(c: *Context, enum_decl: *const ZigClangEnumDecl) Error!?*ast.No
             .align_expr = null,
         };
 
-        try container_node_fields_and_decls.push(&field_node.base);
+        try fields_and_decls.append(&field_node.base);
         _ = try appendToken(c, .Comma, ",");
-        container_node.rbrace_token = try appendToken(c, .RBrace, "}");
-
+        const container_node = try ast.Node.ContainerDecl.alloc(c.arena, fields_and_decls.items.len);
+        container_node.* = .{
+            .layout_token = extern_tok,
+            .kind_token = container_tok,
+            .init_arg_expr = init_arg_expr,
+            .fields_and_decls_len = fields_and_decls.items.len,
+            .lbrace_token = lbrace_token,
+            .rbrace_token = try appendToken(c, .RBrace, "}"),
+        };
+        mem.copy(*ast.Node, container_node.fieldsAndDecls(), fields_and_decls.items);
         break :blk &container_node.base;
     } else
         try transCreateNodeOpaqueType(c);
@@ -3474,7 +3470,7 @@ fn maybeSuppressResult(
 }
 
 fn addTopLevelDecl(c: *Context, name: []const u8, decl_node: *ast.Node) !void {
-    c.root_decls_it = try c.llpush(*ast.Node, c.root_decls_it, decl_node);
+    try c.root_decls.append(c.gpa, decl_node);
     _ = try c.global_scope.sym_table.put(name, decl_node);
 }
 
@@ -6119,9 +6115,7 @@ fn getContainer(c: *Context, node: *ast.Node) ?*ast.Node {
             return null;
         if (getContainerTypeOf(c, infix.lhs)) |ty_node| {
             if (ty_node.cast(ast.Node.ContainerDecl)) |container| {
-                var it = container.fields_and_decls.first;
-                while (it) |field_ref_node| : (it = field_ref_node.next) {
-                    const field_ref = field_ref_node.data;
+                for (container.fieldsAndDecls()) |field_ref| {
                     const field = field_ref.cast(ast.Node.ContainerField).?;
                     const ident = infix.rhs.cast(ast.Node.Identifier).?;
                     if (mem.eql(u8, tokenSlice(c, field.name_token), tokenSlice(c, ident.token))) {
@@ -6147,9 +6141,7 @@ fn getContainerTypeOf(c: *Context, ref: *ast.Node) ?*ast.Node {
             return null;
         if (getContainerTypeOf(c, infix.lhs)) |ty_node| {
             if (ty_node.cast(ast.Node.ContainerDecl)) |container| {
-                var it = container.fields_and_decls.first;
-                while (it) |field_ref_node| : (it = field_ref_node.next) {
-                    const field_ref = field_ref_node.data;
+                for (container.fieldsAndDecls()) |field_ref| {
                     const field = field_ref.cast(ast.Node.ContainerField).?;
                     const ident = infix.rhs.cast(ast.Node.Identifier).?;
                     if (mem.eql(u8, tokenSlice(c, field.name_token), tokenSlice(c, ident.token))) {
