@@ -9,6 +9,48 @@
 
 const std = @import("std");
 
+/// Contains constants for the C0 control codes of the ASCII encoding.
+/// https://en.wikipedia.org/wiki/C0_and_C1_control_codes
+pub const control_code = struct {
+    pub const NUL = 0x00;
+    pub const SOH = 0x01;
+    pub const STX = 0x02;
+    pub const ETX = 0x03;
+    pub const EOT = 0x04;
+    pub const ENQ = 0x05;
+    pub const ACK = 0x06;
+    pub const BEL = 0x07;
+    pub const BS = 0x08;
+    pub const TAB = 0x09;
+    pub const LF = 0x0A;
+    pub const VT = 0x0B;
+    pub const FF = 0x0C;
+    pub const CR = 0x0D;
+    pub const SO = 0x0E;
+    pub const SI = 0x0F;
+    pub const DLE = 0x10;
+    pub const DC1 = 0x11;
+    pub const DC2 = 0x12;
+    pub const DC3 = 0x13;
+    pub const DC4 = 0x14;
+    pub const NAK = 0x15;
+    pub const SYN = 0x16;
+    pub const ETB = 0x17;
+    pub const CAN = 0x18;
+    pub const EM = 0x19;
+    pub const SUB = 0x1A;
+    pub const ESC = 0x1B;
+    pub const FS = 0x1C;
+    pub const GS = 0x1D;
+    pub const RS = 0x1E;
+    pub const US = 0x1F;
+
+    pub const DEL = 0x7F;
+
+    pub const XON = 0x11;
+    pub const XOFF = 0x13;
+};
+
 const tIndex = enum(u3) {
     Alpha,
     Hex,

@@ -19,6 +19,31 @@ pub fn sleep(nanoseconds: u64) void {
         os.windows.kernel32.Sleep(ms);
         return;
     }
+    if (builtin.os.tag == .wasi) {
+        const w = std.os.wasi;
+        const userdata: w.userdata_t = 0x0123_45678;
+        const clock = w.subscription_clock_t{
+            .id = w.CLOCK_MONOTONIC,
+            .timeout = nanoseconds,
+            .precision = 0,
+            .flags = 0,
+        };
+        const in = w.subscription_t{
+            .userdata = userdata,
+            .u = w.subscription_u_t{
+                .tag = w.EVENTTYPE_CLOCK,
+                .u = w.subscription_u_u_t{
+                    .clock = clock,
+                },
+            },
+        };
+
+        var event: w.event_t = undefined;
+        var nevents: usize = undefined;
+        _ = w.poll_oneoff(&in, &event, 1, &nevents);
+        return;
+    }
+
     const s = nanoseconds / ns_per_s;
     const ns = nanoseconds % ns_per_s;
     std.os.nanosleep(s, ns);
@@ -202,7 +227,7 @@ test "sleep" {
 
 test "timestamp" {
     const ns_per_ms = (ns_per_s / ms_per_s);
-    const margin = 50;
+    const margin = ns_per_ms * 50;
 
     const time_0 = milliTimestamp();
     sleep(ns_per_ms);

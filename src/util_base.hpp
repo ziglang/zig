@@ -68,7 +68,7 @@ static inline void zig_assert(bool ok, const char *file, int line, const char *f
 #define ZIG_FALLTHROUGH
 #elif defined(__clang__)
 #define ZIG_FALLTHROUGH [[clang::fallthrough]]
-#elif defined(__GNUC__)
+#elif defined(__GNUC__) && __GNUC__ >= 7
 #define ZIG_FALLTHROUGH __attribute__((fallthrough))
 #else
 #define ZIG_FALLTHROUGH

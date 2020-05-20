@@ -314,6 +314,9 @@ pub fn PackedIntSliceEndian(comptime Int: type, comptime endian: builtin.Endian)
 }
 
 test "PackedIntArray" {
+    // TODO @setEvalBranchQuota generates panics in wasm32. Investigate.
+    if (builtin.arch == .wasm32) return error.SkipZigTest;
+
     @setEvalBranchQuota(10000);
     const max_bits = 256;
     const int_count = 19;
@@ -357,6 +360,9 @@ test "PackedIntArray init" {
 }
 
 test "PackedIntSlice" {
+    // TODO @setEvalBranchQuota generates panics in wasm32. Investigate.
+    if (builtin.arch == .wasm32) return error.SkipZigTest;
+
     @setEvalBranchQuota(10000);
     const max_bits = 256;
     const int_count = 19;

@@ -3,14 +3,70 @@ pub const STDIN_FILENO = 0;
 pub const STDOUT_FILENO = 1;
 pub const STDERR_FILENO = 2;
 
-pub const mode_t = u32;
+pub const mode_t = u0;
 
 pub const time_t = i64; // match https://github.com/CraneStation/wasi-libc
 
-pub const timespec = extern struct {
+pub const timespec = struct {
     tv_sec: time_t,
     tv_nsec: isize,
+
+    pub fn fromTimestamp(tm: timestamp_t) timespec {
+        const tv_sec: timestamp_t = tm / 1_000_000_000;
+        const tv_nsec = tm - tv_sec * 1_000_000_000;
+        return timespec{
+            .tv_sec = @intCast(time_t, tv_sec),
+            .tv_nsec = @intCast(isize, tv_nsec),
+        };
+    }
+
+    pub fn toTimestamp(ts: timespec) timestamp_t {
+        const tm = @intCast(timestamp_t, ts.tv_sec * 1_000_000_000) + @intCast(timestamp_t, ts.tv_nsec);
+        return tm;
+    }
 };
+
+pub const Stat = struct {
+    dev: device_t,
+    ino: inode_t,
+    mode: mode_t,
+    filetype: filetype_t,
+    nlink: linkcount_t,
+    size: filesize_t,
+    atim: timespec,
+    mtim: timespec,
+    ctim: timespec,
+
+    const Self = @This();
+
+    pub fn fromFilestat(stat: filestat_t) Self {
+        return Self{
+            .dev = stat.dev,
+            .ino = stat.ino,
+            .mode = 0,
+            .filetype = stat.filetype,
+            .nlink = stat.nlink,
+            .size = stat.size,
+            .atim = stat.atime(),
+            .mtim = stat.mtime(),
+            .ctim = stat.ctime(),
+        };
+    }
+
+    pub fn atime(self: Self) timespec {
+        return self.atim;
+    }
+
+    pub fn mtime(self: Self) timespec {
+        return self.mtim;
+    }
+
+    pub fn ctime(self: Self) timespec {
+        return self.ctim;
+    }
+};
+
+pub const AT_REMOVEDIR: u32 = 1; // there's no AT_REMOVEDIR in WASI, but we simulate here to match other OSes
 
 // As defined in the wasi_snapshot_preview1 spec file:
 // https://github.com/WebAssembly/WASI/blob/master/phases/snapshot/witx/typenames.witx
@@ -164,14 +220,26 @@ pub const filedelta_t = i64;
 pub const filesize_t = u64;
 
 pub const filestat_t = extern struct {
-    st_dev: device_t,
-    st_ino: inode_t,
-    st_filetype: filetype_t,
-    st_nlink: linkcount_t,
-    st_size: filesize_t,
-    st_atim: timestamp_t,
-    st_mtim: timestamp_t,
-    st_ctim: timestamp_t,
+    dev: device_t,
+    ino: inode_t,
+    filetype: filetype_t,
+    nlink: linkcount_t,
+    size: filesize_t,
+    atim: timestamp_t,
+    mtim: timestamp_t,
+    ctim: timestamp_t,
+
+    pub fn atime(self: filestat_t) timespec {
+        return timespec.fromTimestamp(self.atim);
+    }
+
+    pub fn mtime(self: filestat_t) timespec {
+        return timespec.fromTimestamp(self.mtim);
+    }
+
+    pub fn ctime(self: filestat_t) timespec {
+        return timespec.fromTimestamp(self.ctim);
+    }
 };
 
 pub const filetype_t = u8;
@@ -254,6 +322,35 @@ pub const RIGHT_PATH_REMOVE_DIRECTORY: rights_t = 0x0000000002000000;
 pub const RIGHT_PATH_UNLINK_FILE: rights_t = 0x0000000004000000;
 pub const RIGHT_POLL_FD_READWRITE: rights_t = 0x0000000008000000;
 pub const RIGHT_SOCK_SHUTDOWN: rights_t = 0x0000000010000000;
+pub const RIGHT_ALL: rights_t = RIGHT_FD_DATASYNC |
+    RIGHT_FD_READ |
+    RIGHT_FD_SEEK |
+    RIGHT_FD_FDSTAT_SET_FLAGS |
+    RIGHT_FD_SYNC |
+    RIGHT_FD_TELL |
+    RIGHT_FD_WRITE |
+    RIGHT_FD_ADVISE |
+    RIGHT_FD_ALLOCATE |
+    RIGHT_PATH_CREATE_DIRECTORY |
+    RIGHT_PATH_CREATE_FILE |
+    RIGHT_PATH_LINK_SOURCE |
+    RIGHT_PATH_LINK_TARGET |
+    RIGHT_PATH_OPEN |
+    RIGHT_FD_READDIR |
+    RIGHT_PATH_READLINK |
+    RIGHT_PATH_RENAME_SOURCE |
+    RIGHT_PATH_RENAME_TARGET |
+    RIGHT_PATH_FILESTAT_GET |
+    RIGHT_PATH_FILESTAT_SET_SIZE |
+    RIGHT_PATH_FILESTAT_SET_TIMES |
+    RIGHT_FD_FILESTAT_GET |
+    RIGHT_FD_FILESTAT_SET_SIZE |
+    RIGHT_FD_FILESTAT_SET_TIMES |
+    RIGHT_PATH_SYMLINK |
+    RIGHT_PATH_REMOVE_DIRECTORY |
+    RIGHT_PATH_UNLINK_FILE |
+    RIGHT_POLL_FD_READWRITE |
+    RIGHT_SOCK_SHUTDOWN;
 
 pub const roflags_t = u16;
 pub const SOCK_RECV_DATA_TRUNCATED: roflags_t = 0x0001;
@@ -306,7 +403,7 @@ pub const subscription_t = extern struct {
 };
 
 pub const subscription_clock_t = extern struct {
-    id: clock_id_t,
+    id: clockid_t,
     timeout: timestamp_t,
     precision: timestamp_t,
     flags: subclockflags_t,

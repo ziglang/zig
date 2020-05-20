@@ -191,8 +191,8 @@ pub fn LinearFifo(
         }
 
         /// Read the next item from the fifo
-        pub fn readItem(self: *Self) !T {
-            if (self.count == 0) return error.EndOfStream;
+        pub fn readItem(self: *Self) ?T {
+            if (self.count == 0) return null;
 
             const c = self.buf[self.head];
             self.discard(1);
@@ -282,7 +282,10 @@ pub fn LinearFifo(
         /// Write a single item to the fifo
         pub fn writeItem(self: *Self, item: T) !void {
             try self.ensureUnusedCapacity(1);
+            return self.writeItemAssumeCapacity(item);
+        }
 
+        pub fn writeItemAssumeCapacity(self: *Self, item: T) void {
             var tail = self.head + self.count;
             if (powers_of_two) {
                 tail &= self.buf.len - 1;
@@ -342,10 +345,10 @@ pub fn LinearFifo(
             }
         }
 
-        /// Peek at the item at `offset`
-        pub fn peekItem(self: Self, offset: usize) error{EndOfStream}!T {
-            if (offset >= self.count)
-                return error.EndOfStream;
+        /// Returns the item at `offset`.
+        /// Asserts offset is within bounds.
+        pub fn peekItem(self: Self, offset: usize) T {
+            assert(offset < self.count);
 
             var index = self.head + offset;
             if (powers_of_two) {
@@ -369,18 +372,18 @@ test "LinearFifo(u8, .Dynamic)" {
     {
         var i: usize = 0;
         while (i < 5) : (i += 1) {
-            try fifo.write(&[_]u8{try fifo.peekItem(i)});
+            try fifo.write(&[_]u8{fifo.peekItem(i)});
         }
         testing.expectEqual(@as(usize, 10), fifo.readableLength());
         testing.expectEqualSlices(u8, "HELLOHELLO", fifo.readableSlice(0));
     }
 
     {
-        testing.expectEqual(@as(u8, 'H'), try fifo.readItem());
-        testing.expectEqual(@as(u8, 'E'), try fifo.readItem());
-        testing.expectEqual(@as(u8, 'L'), try fifo.readItem());
-        testing.expectEqual(@as(u8, 'L'), try fifo.readItem());
-        testing.expectEqual(@as(u8, 'O'), try fifo.readItem());
+        testing.expectEqual(@as(u8, 'H'), fifo.readItem().?);
+        testing.expectEqual(@as(u8, 'E'), fifo.readItem().?);
+        testing.expectEqual(@as(u8, 'L'), fifo.readItem().?);
+        testing.expectEqual(@as(u8, 'L'), fifo.readItem().?);
+        testing.expectEqual(@as(u8, 'O'), fifo.readItem().?);
     }
     testing.expectEqual(@as(usize, 5), fifo.readableLength());
 
@@ -451,11 +454,11 @@ test "LinearFifo" {
             testing.expectEqual(@as(usize, 5), fifo.readableLength());
 
             {
-                testing.expectEqual(@as(T, 0), try fifo.readItem());
-                testing.expectEqual(@as(T, 1), try fifo.readItem());
-                testing.expectEqual(@as(T, 1), try fifo.readItem());
-                testing.expectEqual(@as(T, 0), try fifo.readItem());
-                testing.expectEqual(@as(T, 1), try fifo.readItem());
+                testing.expectEqual(@as(T, 0), fifo.readItem().?);
+                testing.expectEqual(@as(T, 1), fifo.readItem().?);
+                testing.expectEqual(@as(T, 1), fifo.readItem().?);
+                testing.expectEqual(@as(T, 0), fifo.readItem().?);
+                testing.expectEqual(@as(T, 1), fifo.readItem().?);
                 testing.expectEqual(@as(usize, 0), fifo.readableLength());
             }
 

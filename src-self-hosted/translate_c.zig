@@ -501,7 +501,7 @@ fn visitFnDecl(c: *Context, fn_decl: *const ZigClangFunctionDecl) Error!void {
         const param = @fieldParentPtr(ast.Node.ParamDecl, "base", p.*);
         const param_name = if (param.name_token) |name_tok|
             tokenSlice(c, name_tok)
-        else if (param.var_args_token != null) {
+        else if (param.param_type == .var_args) {
             assert(it.next() == null);
             _ = proto_node.params.pop();
             break;
@@ -668,7 +668,7 @@ fn transTypeDefAsBuiltin(c: *Context, typedef_decl: *const ZigClangTypedefNameDe
     return transCreateNodeIdentifier(c, builtin_name);
 }
 
-fn checkForBuiltinTypedef(checked_name: []const u8) !?[]const u8 {
+fn checkForBuiltinTypedef(checked_name: []const u8) ?[]const u8 {
     const table = [_][2][]const u8{
         .{ "uint8_t", "u8" },
         .{ "int8_t", "i8" },
@@ -703,7 +703,7 @@ fn transTypeDef(c: *Context, typedef_decl: *const ZigClangTypedefNameDecl, top_l
     // TODO https://github.com/ziglang/zig/issues/3756
     // TODO https://github.com/ziglang/zig/issues/1802
     const checked_name = if (isZigPrimitiveType(typedef_name)) try std.fmt.allocPrint(c.a(), "{}_{}", .{ typedef_name, c.getMangle() }) else typedef_name;
-    if (try checkForBuiltinTypedef(checked_name)) |builtin| {
+    if (checkForBuiltinTypedef(checked_name)) |builtin| {
         return transTypeDefAsBuiltin(c, typedef_decl, builtin);
     }
 
@@ -1411,7 +1411,7 @@ fn transDeclStmt(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangDeclStmt)
                 const underlying_type = ZigClangQualType_getTypePtr(underlying_qual);
 
                 const mangled_name = try block_scope.makeMangledName(c, name);
-                if (try checkForBuiltinTypedef(name)) |builtin| {
+                if (checkForBuiltinTypedef(name)) |builtin| {
                     try block_scope.variables.push(.{
                         .alias = builtin,
                         .name = mangled_name,
@@ -3103,6 +3103,7 @@ fn transCreateCompoundAssign(
         // common case
         // c: lhs += rhs
         // zig: lhs += rhs
+
         if ((is_mod or is_div) and is_signed) {
             const op_token = try appendToken(rp.c, .Equal, "=");
             const op_node = try rp.c.a().create(ast.Node.InfixOp);
@@ -4103,8 +4104,7 @@ fn transCreateNodeMacroFn(c: *Context, name: []const u8, ref: *ast.Node, proto_a
             .comptime_token = null,
             .noalias_token = param.noalias_token,
             .name_token = param_name_tok,
-            .type_node = param.type_node,
-            .var_args_token = null,
+            .param_type = param.param_type,
         };
         try fn_params.push(&param_node.base);
     }
@@ -4678,8 +4678,7 @@ fn finishTransFnProto(
             .comptime_token = null,
             .noalias_token = noalias_tok,
             .name_token = param_name_tok,
-            .type_node = type_node,
-            .var_args_token = null,
+            .param_type = .{ .type_expr = type_node },
         };
         try fn_params.push(&param_node.base);
 
@@ -4699,8 +4698,7 @@ fn finishTransFnProto(
             .comptime_token = null,
             .noalias_token = null,
             .name_token = null,
-            .type_node = undefined, // Note: Accessing this causes an access violation. Need to check .var_args_token first before trying this field
-            .var_args_token = try appendToken(rp.c, .Ellipsis3, "..."),
+            .param_type = .{ .var_args = try appendToken(rp.c, .Ellipsis3, "...") }
         };
         try fn_params.push(&var_arg_node.base);
     }
@@ -4816,6 +4814,7 @@ pub fn failDecl(c: *Context, loc: ZigClangSourceLocation, name: []const u8, comp
     const msg_tok = try appendTokenFmt(c, .StringLiteral, "\"" ++ format ++ "\"", args);
     const rparen_tok = try appendToken(c, .RParen, ")");
     const semi_tok = try appendToken(c, .Semicolon, ";");
+    _ = try appendTokenFmt(c, .LineComment, "// {}", .{c.locStr(loc)});
 
     const msg_node = try c.a().create(ast.Node.StringLiteral);
     msg_node.* = .{
@@ -5052,8 +5051,8 @@ fn transMacroDefine(c: *Context, it: *CTokenList.Iterator, source: []const u8, n
             c,
             source_loc,
             name,
-            "unable to translate C expr: unexpected token {}",
-            .{last.id},
+            "unable to translate C expr: unexpected token .{}",
+            .{@tagName(last.id)},
         );
 
     node.semicolon_token = try appendToken(c, .Semicolon, ";");
@@ -5108,8 +5107,7 @@ fn transMacroFnDefine(c: *Context, it: *CTokenList.Iterator, source: []const u8,
             .comptime_token = null,
             .noalias_token = null,
             .name_token = param_name_tok,
-            .type_node = &identifier.base,
-            .var_args_token = null,
+            .param_type = .{ .type_expr = &identifier.base },
         };
         try fn_params.push(&param_node.base);
 
@@ -5161,8 +5159,8 @@ fn transMacroFnDefine(c: *Context, it: *CTokenList.Iterator, source: []const u8,
             c,
             source_loc,
             name,
-            "unable to translate C expr: unexpected token {}",
-            .{last.id},
+            "unable to translate C expr: unexpected token .{}",
+            .{@tagName(last.id)},
         );
     _ = try appendToken(c, .Semicolon, ";");
     const type_of_arg = if (expr.id != .Block) expr else blk: {
@@ -5480,7 +5478,7 @@ fn parseCPrimaryExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8, 
                 };
                 return &node.base;
             } else {
-                const token = try appendTokenFmt(c, .IntegerLiteral, "0x{x}", .{source[tok.start + 1 .. tok.end - 1]});
+                const token = try appendTokenFmt(c, .IntegerLiteral, "0x{x}", .{source[tok.start+1..tok.end-1]});
                 const node = try c.a().create(ast.Node.IntegerLiteral);
                 node.* = .{
                     .token = token,
@@ -5730,8 +5728,8 @@ fn parseCPrimaryExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8, 
                 c,
                 source_loc,
                 source[first_tok.start..first_tok.end],
-                "unable to translate C expr: unexpected token {}",
-                .{tok.id},
+                "unable to translate C expr: unexpected token .{}",
+                .{@tagName(tok.id)},
             );
             return error.ParseError;
         },
