@@ -47,6 +47,7 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  translate-c [source]         convert c code to zig code\n"
         "  targets                      list available compilation targets\n"
         "  test [source]                create and run a test build\n"
+        "  info                         print lib path, std path, compiler id and version\n"
         "  version                      print version number and exit\n"
         "  zen                          print zen of zig and exit\n"
         "\n"
@@ -582,6 +583,8 @@ static int main0(int argc, char **argv) {
         return (term.how == TerminationIdClean) ? term.code : -1;
     } else if (argc >= 2 && strcmp(argv[1], "fmt") == 0) {
         return stage2_fmt(argc, argv);
+    } else if (argc >= 2 && strcmp(argv[1], "info") == 0) {
+        return stage2_info(argc, argv);
     } else if (argc >= 2 && (strcmp(argv[1], "cc") == 0 || strcmp(argv[1], "c++") == 0)) {
         emit_h = false;
         strip = true;

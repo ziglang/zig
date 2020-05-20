@@ -30,6 +30,7 @@ const usage =
     \\  build-obj  [source]      Create object from source or assembly
     \\  fmt        [source]      Parse file and render in canonical zig format
     \\  targets                  List available compilation targets
+    \\  info                     Print lib path, std path, compiler id and version
     \\  version                  Print version number and exit
     \\  zen                      Print zen of zig and exit
     \\
@@ -95,8 +96,9 @@ pub fn main() !void {
         const stdout = io.getStdOut().outStream();
         return @import("print_targets.zig").cmdTargets(arena, cmd_args, stdout, info.target);
     } else if (mem.eql(u8, cmd, "version")) {
-        std.io.getStdOut().writeAll(build_options.version ++ "\n") catch process.exit(1);
-        return;
+        try std.io.getStdOut().writeAll(build_options.version ++ "\n");
+    } else if (mem.eql(u8, cmd, "info")) {
+        try @import("print_info.zig").cmdInfo(arena, cmd_args, .SelfHosted, io.getStdOut().outStream());
     } else if (mem.eql(u8, cmd, "zen")) {
         try io.getStdOut().writeAll(info_zen);
     } else if (mem.eql(u8, cmd, "help")) {
