@@ -63,16 +63,20 @@ const Parser = struct {
 
     /// Root <- skip ContainerMembers eof
     fn parseRoot(p: *Parser) Allocator.Error!*Node.Root {
-        const node = try p.arena.allocator.create(Node.Root);
-        node.* = .{
-            .decls = try parseContainerMembers(p, true),
-            // parseContainerMembers will try to skip as much
-            // invalid tokens as it can so this can only be the EOF
-            .eof_token = p.eatToken(.Eof).?,
-        };
+        const decls = try parseContainerMembers(p, true);
+        defer p.gpa.free(decls);
+
+        // parseContainerMembers will try to skip as much
+        // invalid tokens as it can so this can only be the EOF
+        const eof_token = p.eatToken(.Eof).?;
+
+        const node = try Node.Root.create(&p.arena.allocator, decls.len, eof_token);
+        std.mem.copy(*ast.Node, node.decls(), decls);
+
         return node;
     }
 
+    /// Helper function for appending elements to a singly linked list.
     fn llpush(
         p: *Parser,
         comptime T: type,
@@ -92,9 +96,9 @@ const Parser = struct {
     ///      / ContainerField COMMA ContainerMembers
     ///      / ContainerField
     ///      /
-    fn parseContainerMembers(p: *Parser, top_level: bool) !Node.Root.DeclList {
-        var list = Node.Root.DeclList{};
-        var list_it = &list.first;
+    fn parseContainerMembers(p: *Parser, top_level: bool) ![]*ast.Node {
+        var list = std.ArrayList(*ast.Node).init(p.gpa);
+        defer list.deinit();
 
         var field_state: union(enum) {
             /// no fields have been seen
@@ -110,7 +114,7 @@ const Parser = struct {
 
         while (true) {
             if (try p.parseContainerDocComments()) |node| {
-                list_it = try p.llpush(*Node, list_it, node);
+                try list.append(node);
                 continue;
             }
 
@@ -127,7 +131,7 @@ const Parser = struct {
                     field_state = .{ .end = node.firstToken() };
                 }
                 node.cast(Node.TestDecl).?.doc_comments = doc_comments;
-                list_it = try p.llpush(*Node, list_it, node);
+                try list.append(node);
                 continue;
             }
 
@@ -142,7 +146,7 @@ const Parser = struct {
                     field_state = .{ .end = node.firstToken() };
                 }
                 node.cast(Node.Comptime).?.doc_comments = doc_comments;
-                list_it = try p.llpush(*Node, list_it, node);
+                try list.append(node);
                 continue;
             }
 
@@ -173,7 +177,7 @@ const Parser = struct {
                     },
                     else => unreachable,
                 }
-                list_it = try p.llpush(*Node, list_it, node);
+                try list.append(node);
                 if (try p.parseAppendedDocComment(node.lastToken())) |appended_comment| {
                     switch (node.id) {
                         .FnProto => {},
@@ -215,7 +219,7 @@ const Parser = struct {
 
                 const field = node.cast(Node.ContainerField).?;
                 field.doc_comments = doc_comments;
-                list_it = try p.llpush(*Node, list_it, node);
+                try list.append(node);
                 const comma = p.eatToken(.Comma) orelse {
                     // try to continue parsing
                     const index = p.tok_i;
@@ -275,7 +279,7 @@ const Parser = struct {
             }
         }
 
-        return list;
+        return list.toOwnedSlice();
     }
 
     /// Attempts to find next container member by searching for certain tokens
@@ -2778,24 +2782,36 @@ const Parser = struct {
 
     /// ContainerDeclAuto <- ContainerDeclType LBRACE ContainerMembers RBRACE
     fn parseContainerDeclAuto(p: *Parser) !?*Node {
-        const node = (try p.parseContainerDeclType()) orelse return null;
+        const container_decl_type = (try p.parseContainerDeclType()) orelse return null;
         const lbrace = try p.expectToken(.LBrace);
         const members = try p.parseContainerMembers(false);
+        defer p.gpa.free(members);
         const rbrace = try p.expectToken(.RBrace);
 
-        const decl_type = node.cast(Node.ContainerDecl).?;
-        decl_type.fields_and_decls = members;
-        decl_type.lbrace_token = lbrace;
-        decl_type.rbrace_token = rbrace;
-
-        return node;
+        const node = try Node.ContainerDecl.alloc(&p.arena.allocator, members.len);
+        node.* = .{
+            .layout_token = null,
+            .kind_token = container_decl_type.kind_token,
+            .init_arg_expr = container_decl_type.init_arg_expr,
+            .fields_and_decls_len = members.len,
+            .lbrace_token = lbrace,
+            .rbrace_token = rbrace,
+        };
+        std.mem.copy(*ast.Node, node.fieldsAndDecls(), members);
+        return &node.base;
     }
+
+    /// Holds temporary data until we are ready to construct the full ContainerDecl AST node.
+    const ContainerDeclType = struct {
+        kind_token: TokenIndex,
+        init_arg_expr: ast.Node.ContainerDecl.InitArg,
+    };
 
     /// ContainerDeclType
     ///     <- KEYWORD_struct
     ///      / KEYWORD_enum (LPAREN Expr RPAREN)?
     ///      / KEYWORD_union (LPAREN (KEYWORD_enum (LPAREN Expr RPAREN)? / Expr) RPAREN)?
-    fn parseContainerDeclType(p: *Parser) !?*Node {
+    fn parseContainerDeclType(p: *Parser) !?ContainerDeclType {
         const kind_token = p.nextToken();
 
         const init_arg_expr = switch (kind_token.ptr.id) {
@@ -2838,16 +2854,10 @@ const Parser = struct {
             },
         };
 
-        const node = try p.arena.allocator.create(Node.ContainerDecl);
-        node.* = .{
-            .layout_token = null,
+        return ContainerDeclType{
             .kind_token = kind_token.index,
             .init_arg_expr = init_arg_expr,
-            .fields_and_decls = undefined, // set by caller
-            .lbrace_token = undefined, // set by caller
-            .rbrace_token = undefined, // set by caller
         };
-        return &node.base;
     }
 
     /// ByteAlign <- KEYWORD_align LPAREN Expr RPAREN

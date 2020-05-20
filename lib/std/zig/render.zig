@@ -79,9 +79,10 @@ fn renderRoot(
     }
 
     var start_col: usize = 0;
-    var it = tree.root_node.decls.first orelse return;
+    var decl_i: ast.NodeIndex = 0;
+    const root_decls = tree.root_node.decls();
     while (true) {
-        var decl = it.data;
+        var decl = root_decls[decl_i];
 
         // This loop does the following:
         //
@@ -130,14 +131,15 @@ fn renderRoot(
             token_index = decl.firstToken();
 
             while (!fmt_active) {
-                it = it.next orelse {
+                decl_i += 1;
+                if (decl_i >= root_decls.len) {
                     // If there's no next reformatted `decl`, just copy the
                     // remaining input tokens and bail out.
                     const start = tree.tokens[copy_start_token_index].start;
                     try copyFixingWhitespace(stream, tree.source[start..]);
                     return;
-                };
-                decl = it.data;
+                }
+                decl = root_decls[decl_i];
                 var decl_first_token_index = decl.firstToken();
 
                 while (token_index < decl_first_token_index) : (token_index += 1) {
@@ -178,8 +180,9 @@ fn renderRoot(
         }
 
         try renderTopLevelDecl(allocator, stream, tree, 0, &start_col, decl);
-        it = it.next orelse return;
-        try renderExtraNewline(tree, stream, &start_col, it.data);
+        decl_i += 1;
+        if (decl_i >= root_decls.len) return;
+        try renderExtraNewline(tree, stream, &start_col, root_decls[decl_i]);
     }
 }
 
@@ -1189,7 +1192,7 @@ fn renderExpression(
                 },
             }
 
-            if (container_decl.fields_and_decls.first == null) {
+            if (container_decl.fields_and_decls_len == 0) {
                 try renderToken(tree, stream, container_decl.lbrace_token, indent + indent_delta, start_col, Space.None); // {
                 return renderToken(tree, stream, container_decl.rbrace_token, indent, start_col, space); // }
             }
@@ -1203,18 +1206,18 @@ fn renderExpression(
                 break :blk tree.tokens[maybe_comma].id == .Comma;
             };
 
+            const fields_and_decls = container_decl.fieldsAndDecls();
+
             // Check if the first declaration and the { are on the same line
             const src_has_newline = !tree.tokensOnSameLine(
                 container_decl.lbrace_token,
-                container_decl.fields_and_decls.first.?.data.firstToken(),
+                fields_and_decls[0].firstToken(),
             );
 
             // We can only print all the elements in-line if all the
             // declarations inside are fields
             const src_has_only_fields = blk: {
-                var it = container_decl.fields_and_decls.first;
-                while (it) |decl_node| : (it = decl_node.next) {
-                    const decl = decl_node.data;
+                for (fields_and_decls) |decl| {
                     if (decl.id != .ContainerField) break :blk false;
                 }
                 break :blk true;
@@ -1225,14 +1228,12 @@ fn renderExpression(
                 const new_indent = indent + indent_delta;
                 try renderToken(tree, stream, container_decl.lbrace_token, new_indent, start_col, .Newline); // {
 
-                var it = container_decl.fields_and_decls.first;
-                while (it) |decl_node| : (it = decl_node.next) {
-                    const decl = decl_node.data;
+                for (fields_and_decls) |decl, i| {
                     try stream.writeByteNTimes(' ', new_indent);
                     try renderContainerDecl(allocator, stream, tree, new_indent, start_col, decl, .Newline);
 
-                    if (decl_node.next) |next_decl| {
-                        try renderExtraNewline(tree, stream, start_col, next_decl.data);
+                    if (i + 1 < fields_and_decls.len) {
+                        try renderExtraNewline(tree, stream, start_col, fields_and_decls[i + 1]);
                     }
                 }
 
@@ -1245,10 +1246,8 @@ fn renderExpression(
                 const new_indent = indent + indent_delta;
                 try stream.writeByteNTimes(' ', new_indent);
 
-                var it = container_decl.fields_and_decls.first;
-                while (it) |decl_node| : (it = decl_node.next) {
-                    const decl = decl_node.data;
-                    const space_after_decl: Space = if (decl_node.next == null) .Newline else .Space;
+                for (fields_and_decls) |decl, i| {
+                    const space_after_decl: Space = if (i + 1 >= fields_and_decls.len) .Newline else .Space;
                     try renderContainerDecl(allocator, stream, tree, new_indent, start_col, decl, space_after_decl);
                 }
 
@@ -1257,9 +1256,7 @@ fn renderExpression(
                 // All the declarations on the same line
                 try renderToken(tree, stream, container_decl.lbrace_token, indent, start_col, .Space); // {
 
-                var it = container_decl.fields_and_decls.first;
-                while (it) |decl_node| : (it = decl_node.next) {
-                    const decl = decl_node.data;
+                for (fields_and_decls) |decl| {
                     try renderContainerDecl(allocator, stream, tree, indent, start_col, decl, .Space);
                 }
             }

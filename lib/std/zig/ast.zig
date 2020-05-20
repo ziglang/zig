@@ -6,6 +6,7 @@ const mem = std.mem;
 const Token = std.zig.Token;
 
 pub const TokenIndex = usize;
+pub const NodeIndex = usize;
 
 pub const Tree = struct {
     /// Reference to externally-owned data.
@@ -616,40 +617,62 @@ pub const Node = struct {
         }
     }
 
+    /// The decls data follows this struct in memory as an array of Node pointers.
     pub const Root = struct {
         base: Node = Node{ .id = .Root },
-        decls: DeclList,
         eof_token: TokenIndex,
+        decls_len: NodeIndex,
 
-        pub const DeclList = LinkedList(*Node);
+        /// After this the caller must initialize the decls list.
+        pub fn create(allocator: *mem.Allocator, decls_len: NodeIndex, eof_token: TokenIndex) !*Root {
+            const bytes = try allocator.alignedAlloc(u8, @alignOf(Root), sizeInBytes(decls_len));
+            const self = @ptrCast(*Root, bytes.ptr);
+            self.* = .{
+                .eof_token = eof_token,
+                .decls_len = decls_len,
+            };
+            return self;
+        }
+
+        pub fn destroy(self: *Decl, allocator: *mem.Allocator) void {
+            const bytes = @ptrCast([*]u8, self)[0..sizeInBytes(self.decls_len)];
+            allocator.free(bytes);
+        }
 
         pub fn iterate(self: *const Root) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0, .node = self.decls.first };
+            return .{ .parent_node = &self.base, .index = 0, .node = null };
         }
 
         pub fn iterateNext(self: *const Root, it: *Node.Iterator) ?*Node {
-            const decl = it.node orelse return null;
-            it.node = decl.next;
-            return decl.data;
+            var i = it.index;
+            it.index += 1;
+
+            if (i < self.decls_len) return self.declsConst()[i];
+            return null;
+        }
+
+        pub fn decls(self: *Root) []*Node {
+            const decls_start = @ptrCast([*]u8, self) + @sizeOf(Root);
+            return @ptrCast([*]*Node, decls_start)[0..self.decls_len];
+        }
+
+        pub fn declsConst(self: *const Root) []const *Node {
+            const decls_start = @ptrCast([*]const u8, self) + @sizeOf(Root);
+            return @ptrCast([*]const *Node, decls_start)[0..self.decls_len];
         }
 
         pub fn firstToken(self: *const Root) TokenIndex {
-            if (self.decls.first) |first| {
-                return first.data.firstToken();
-            } else {
-                return self.eof_token;
-            }
+            if (self.decls_len == 0) return self.eof_token;
+            return self.declsConst()[0].firstToken();
         }
 
         pub fn lastToken(self: *const Root) TokenIndex {
-            if (self.decls.first) |first| {
-                var node = first;
-                while (true) {
-                    node = node.next orelse return node.data.lastToken();
-                }
-            } else {
-                return self.eof_token;
-            }
+            if (self.decls_len == 0) return self.eof_token;
+            return self.declsConst()[self.decls_len - 1].lastToken();
+        }
+
+        fn sizeInBytes(decls_len: NodeIndex) usize {
+            return @sizeOf(Root) + @sizeOf(*Node) * @as(usize, decls_len);
         }
     };
 
@@ -777,14 +800,12 @@ pub const Node = struct {
 
     pub const ContainerDecl = struct {
         base: Node = Node{ .id = .ContainerDecl },
-        layout_token: ?TokenIndex,
         kind_token: TokenIndex,
-        init_arg_expr: InitArg,
-        fields_and_decls: DeclList,
+        layout_token: ?TokenIndex,
         lbrace_token: TokenIndex,
         rbrace_token: TokenIndex,
-
-        pub const DeclList = Root.DeclList;
+        fields_and_decls_len: NodeIndex,
+        init_arg_expr: InitArg,
 
         pub const InitArg = union(enum) {
             None,
@@ -792,8 +813,19 @@ pub const Node = struct {
             Type: *Node,
         };
 
+        /// After this the caller must initialize the fields_and_decls list.
+        pub fn alloc(allocator: *mem.Allocator, fields_and_decls_len: NodeIndex) !*ContainerDecl {
+            const bytes = try allocator.alignedAlloc(u8, @alignOf(ContainerDecl), sizeInBytes(fields_and_decls_len));
+            return @ptrCast(*ContainerDecl, bytes.ptr);
+        }
+
+        pub fn free(self: *Decl, allocator: *mem.Allocator) void {
+            const bytes = @ptrCast([*]u8, self)[0..sizeInBytes(self.fields_and_decls_len)];
+            allocator.free(bytes);
+        }
+
         pub fn iterate(self: *const ContainerDecl) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0, .node = self.fields_and_decls.first };
+            return .{ .parent_node = &self.base, .index = 0, .node = null };
         }
 
         pub fn iterateNext(self: *const ContainerDecl, it: *Node.Iterator) ?*Node {
@@ -808,10 +840,8 @@ pub const Node = struct {
                 .None, .Enum => {},
             }
 
-            if (it.node) |child| {
-                it.node = child.next;
-                return child.data;
-            }
+            if (i < self.fields_and_decls_len) return self.fieldsAndDeclsConst()[i];
+            i -= self.fields_and_decls_len;
 
             return null;
         }
@@ -825,6 +855,20 @@ pub const Node = struct {
 
         pub fn lastToken(self: *const ContainerDecl) TokenIndex {
             return self.rbrace_token;
+        }
+
+        pub fn fieldsAndDecls(self: *ContainerDecl) []*Node {
+            const decls_start = @ptrCast([*]u8, self) + @sizeOf(ContainerDecl);
+            return @ptrCast([*]*Node, decls_start)[0..self.fields_and_decls_len];
+        }
+
+        pub fn fieldsAndDeclsConst(self: *const ContainerDecl) []const *Node {
+            const decls_start = @ptrCast([*]const u8, self) + @sizeOf(ContainerDecl);
+            return @ptrCast([*]const *Node, decls_start)[0..self.fields_and_decls_len];
+        }
+
+        fn sizeInBytes(fields_and_decls_len: NodeIndex) usize {
+            return @sizeOf(ContainerDecl) + @sizeOf(*Node) * @as(usize, fields_and_decls_len);
         }
     };
 
@@ -1116,7 +1160,7 @@ pub const Node = struct {
         statements: StatementList,
         rbrace: TokenIndex,
 
-        pub const StatementList = Root.DeclList;
+        pub const StatementList = LinkedList(*Node);
 
         pub fn iterate(self: *const Block) Node.Iterator {
             return .{ .parent_node = &self.base, .index = 0, .node = self.statements.first };
@@ -2615,7 +2659,7 @@ pub const Node = struct {
 test "iterate" {
     var root = Node.Root{
         .base = Node{ .id = Node.Id.Root },
-        .decls = Node.Root.DeclList.init(std.testing.allocator),
+        .decls_len = 0,
         .eof_token = 0,
     };
     var base = &root.base;
