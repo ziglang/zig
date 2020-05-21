@@ -10,13 +10,6 @@ const Token = std.zig.Token;
 
 pub const Error = error{ParseError} || Allocator.Error;
 
-/// This is the maximum length of a list that will be copied into the ast.Tree
-/// arena when parsing. If the list is longer than this, the ast.Tree will have
-/// a reference to the memory allocated in the general purpose allocator, and
-/// will free it separately. Simply put, lists longer than this will elide the
-/// memcpy().
-const large_list_len = 512;
-
 /// Result should be freed with tree.deinit() when there are
 /// no more references to any of the tokens or nodes.
 pub fn parse(gpa: *Allocator, source: []const u8) Allocator.Error!*Tree {
@@ -39,11 +32,6 @@ pub fn parse(gpa: *Allocator, source: []const u8) Allocator.Error!*Tree {
         .tokens = tokens.items,
         .errors = .{},
         .tok_i = 0,
-        .owned_memory = .{},
-    };
-    defer parser.owned_memory.deinit(gpa);
-    errdefer for (parser.owned_memory.items) |list| {
-        gpa.free(list);
     };
     defer parser.errors.deinit(gpa);
     errdefer parser.arena.deinit();
@@ -58,7 +46,6 @@ pub fn parse(gpa: *Allocator, source: []const u8) Allocator.Error!*Tree {
         .source = source,
         .tokens = tokens.toOwnedSlice(),
         .errors = parser.errors.toOwnedSlice(gpa),
-        .owned_memory = parser.owned_memory.toOwnedSlice(gpa),
         .root_node = root_node,
         .arena = parser.arena.state,
     };
@@ -73,7 +60,6 @@ const Parser = struct {
     tokens: []const Token,
     tok_i: TokenIndex,
     errors: std.ArrayListUnmanaged(AstError),
-    owned_memory: std.ArrayListUnmanaged([]u8),
 
     /// Root <- skip ContainerMembers eof
     fn parseRoot(p: *Parser) Allocator.Error!*Node.Root {
@@ -1321,19 +1307,11 @@ const Parser = struct {
                 const next = (try p.parseFieldInit()) orelse break;
                 try init_list.append(next);
             }
-
-            const list = if (init_list.items.len > large_list_len) blk: {
-                try p.owned_memory.ensureCapacity(p.gpa, p.owned_memory.items.len + 1);
-                const list = init_list.toOwnedSlice();
-                p.owned_memory.appendAssumeCapacity(std.mem.sliceAsBytes(list));
-                break :blk list;
-            } else try p.arena.allocator.dupe(*Node, init_list.items);
-
             const node = try p.arena.allocator.create(Node.StructInitializer);
             node.* = .{
                 .lhs = lhs,
                 .rtoken = try p.expectToken(.RBrace),
-                .list = list,
+                .list = try p.arena.allocator.dupe(*Node, init_list.items),
             };
             return &node.base;
         }
@@ -1344,19 +1322,11 @@ const Parser = struct {
                 const next = (try p.parseExpr()) orelse break;
                 try init_list.append(next);
             }
-
-            const list = if (init_list.items.len > large_list_len) blk: {
-                try p.owned_memory.ensureCapacity(p.gpa, p.owned_memory.items.len + 1);
-                const list = init_list.toOwnedSlice();
-                p.owned_memory.appendAssumeCapacity(std.mem.sliceAsBytes(list));
-                break :blk list;
-            } else try p.arena.allocator.dupe(*Node, init_list.items);
-
             const node = try p.arena.allocator.create(Node.ArrayInitializer);
             node.* = .{
                 .lhs = lhs,
                 .rtoken = try p.expectToken(.RBrace),
-                .list = list,
+                .list = try p.arena.allocator.dupe(*Node, init_list.items),
             };
             return &node.base;
         }
@@ -1385,19 +1355,11 @@ const Parser = struct {
                 const next = (try p.parseFieldInit()) orelse break;
                 try init_list.append(next);
             }
-
-            const list = if (init_list.items.len > large_list_len) blk: {
-                try p.owned_memory.ensureCapacity(p.gpa, p.owned_memory.items.len + 1);
-                const list = init_list.toOwnedSlice();
-                p.owned_memory.appendAssumeCapacity(std.mem.sliceAsBytes(list));
-                break :blk list;
-            } else try p.arena.allocator.dupe(*Node, init_list.items);
-
             const node = try p.arena.allocator.create(Node.StructInitializerDot);
             node.* = .{
                 .dot = dot,
                 .rtoken = try p.expectToken(.RBrace),
-                .list = list,
+                .list = try p.arena.allocator.dupe(*Node, init_list.items),
             };
             return &node.base;
         }
@@ -1408,19 +1370,11 @@ const Parser = struct {
                 const next = (try p.parseExpr()) orelse break;
                 try init_list.append(next);
             }
-
-            const list = if (init_list.items.len > large_list_len) blk: {
-                try p.owned_memory.ensureCapacity(p.gpa, p.owned_memory.items.len + 1);
-                const list = init_list.toOwnedSlice();
-                p.owned_memory.appendAssumeCapacity(std.mem.sliceAsBytes(list));
-                break :blk list;
-            } else try p.arena.allocator.dupe(*Node, init_list.items);
-
             const node = try p.arena.allocator.create(Node.ArrayInitializerDot);
             node.* = .{
                 .dot = dot,
                 .rtoken = try p.expectToken(.RBrace),
-                .list = list,
+                .list = try p.arena.allocator.dupe(*Node, init_list.items),
             };
             return &node.base;
         }

@@ -18,8 +18,6 @@ pub const Tree = struct {
 
     arena: std.heap.ArenaAllocator.State,
     gpa: *mem.Allocator,
-    /// This keeps track of slices of memory that must be freed on deinit.
-    owned_memory: [][]u8,
 
     /// translate-c uses this to avoid having to emit correct newlines
     /// TODO get rid of this hack
@@ -28,10 +26,6 @@ pub const Tree = struct {
     pub fn deinit(self: *Tree) void {
         self.gpa.free(self.tokens);
         self.gpa.free(self.errors);
-        for (self.owned_memory) |list| {
-            self.gpa.free(list);
-        }
-        self.gpa.free(self.owned_memory);
         self.arena.promote(self.gpa).deinit();
     }
 
