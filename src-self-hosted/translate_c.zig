@@ -534,17 +534,13 @@ fn visitFnDecl(c: *Context, fn_decl: *const ZigClangFunctionDecl) Error!void {
     const block_node = try transCreateNodeBlock(rp.c, null);
     block_scope.setBlockNode(block_node);
 
-    var it = proto_node.params.first;
     var param_id: c_uint = 0;
-    var prev_node_link = &proto_node.params_first;
-    while (it) |p_node| : ({prev_node_link = &p_node.next; it = p_node.next;}) {
-        const p = p_node.data;
-        const param = @fieldParentPtr(ast.Node.ParamDecl, "base", p);
+    for (proto_node.params()) |param, i| {
         const param_name = if (param.name_token) |name_tok|
             tokenSlice(c, name_tok)
         else if (param.param_type == .var_args) {
-            assert(p_node.next == null);
-            prev_node_link.* = null;
+            assert(i + 1 == proto_node.params_len);
+            proto_node.params_len -= 1;
             break;
         } else
             return failDecl(c, fn_decl_loc, fn_name, "function {} parameter has no name", .{fn_name});
@@ -3843,7 +3839,7 @@ fn transCreateNodeFnCall(c: *Context, fn_expr: *ast.Node) !*ast.Node.SuffixOp {
     _ = try appendToken(c, .LParen, "(");
     const node = try c.arena.create(ast.Node.SuffixOp);
     node.* = .{
-        .lhs = .{ .node = fn_expr },
+        .lhs = fn_expr,
         .op = .{
             .Call = .{
                 .params = ast.Node.SuffixOp.Op.Call.ParamList{},
@@ -4129,41 +4125,36 @@ fn transCreateNodeMacroFn(c: *Context, name: []const u8, ref: *ast.Node, proto_a
     const name_tok = try appendIdentifier(c, name);
     _ = try appendToken(c, .LParen, "(");
 
-    var fn_params = ast.Node.FnProto.ParamList{};
-    var fn_params_list = &fn_params.first;
-    var it = proto_alias.params.first;
-    while (it) |pn_node| : (it = pn_node.next) {
-        const pn = pn_node.data;
-        if (pn_node != proto_alias.params.first.?) {
+    var fn_params = std.ArrayList(ast.Node.FnProto.ParamDecl).init(c.gpa);
+    defer fn_params.deinit();
+
+    for (proto_alias.params()) |param, i| {
+        if (i != 0) {
             _ = try appendToken(c, .Comma, ",");
         }
-        const param = pn.cast(ast.Node.ParamDecl).?;
-
         const param_name_tok = param.name_token orelse
             try appendTokenFmt(c, .Identifier, "arg_{}", .{c.getMangle()});
 
         _ = try appendToken(c, .Colon, ":");
 
-        const param_node = try c.arena.create(ast.Node.ParamDecl);
-        param_node.* = .{
+        (try fn_params.addOne()).* = .{
             .doc_comments = null,
             .comptime_token = null,
             .noalias_token = param.noalias_token,
             .name_token = param_name_tok,
             .param_type = param.param_type,
         };
-        fn_params_list = try c.llpush(*ast.Node, fn_params_list, &param_node.base);
     }
 
     _ = try appendToken(c, .RParen, ")");
 
-    const fn_proto = try c.arena.create(ast.Node.FnProto);
+    const fn_proto = try ast.Node.FnProto.alloc(c.arena, fn_params.items.len);
     fn_proto.* = .{
         .doc_comments = null,
         .visib_token = pub_tok,
         .fn_token = fn_tok,
         .name_token = name_tok,
-        .params = fn_params,
+        .params_len = fn_params.items.len,
         .return_type = proto_alias.return_type,
         .var_args_token = null,
         .extern_export_inline_token = inline_tok,
@@ -4173,6 +4164,7 @@ fn transCreateNodeMacroFn(c: *Context, name: []const u8, ref: *ast.Node, proto_a
         .section_expr = null,
         .callconv_expr = null,
     };
+    mem.copy(ast.Node.FnProto.ParamDecl, fn_proto.params(), fn_params.items);
 
     const block = try transCreateNodeBlock(c, null);
     var block_statements_it = &block.statements.first;
@@ -4182,13 +4174,10 @@ fn transCreateNodeMacroFn(c: *Context, name: []const u8, ref: *ast.Node, proto_a
     const call_expr = try transCreateNodeFnCall(c, unwrap_expr);
     var call_params_it = &call_expr.op.Call.params.first;
 
-    it = fn_params.first;
-    while (it) |pn_node| : (it = pn_node.next) {
-        const pn = pn_node.data;
-        if (fn_params.first.? != pn_node) {
+    for (fn_params.items) |param, i| {
+        if (i != 0) {
             _ = try appendToken(c, .Comma, ",");
         }
-        const param = pn.cast(ast.Node.ParamDecl).?;
         call_params_it = try c.llpush(*ast.Node, call_params_it, try transCreateNodeIdentifier(c, tokenSlice(c, param.name_token.?)),);
     }
     call_expr.rtoken = try appendToken(c, .RParen, ")");
@@ -4207,7 +4196,7 @@ fn transCreateNodeUnwrapNull(c: *Context, wrapped: *ast.Node) !*ast.Node {
     const node = try c.arena.create(ast.Node.SuffixOp);
     node.* = .{
         .op = .UnwrapOptional,
-        .lhs = .{ .node = wrapped },
+        .lhs = wrapped,
         .rtoken = qm,
     };
     return &node.base;
@@ -4697,9 +4686,10 @@ fn finishTransFnProto(
     const name_tok = if (fn_decl_context) |ctx| try appendIdentifier(rp.c, ctx.fn_name) else null;
     const lparen_tok = try appendToken(rp.c, .LParen, "(");
 
-    var fn_params = ast.Node.FnProto.ParamList{};
-    var fn_params_list = rp.c.llpusher(&fn_params);
+    var fn_params = std.ArrayList(ast.Node.FnProto.ParamDecl).init(rp.c.gpa);
+    defer fn_params.deinit();
     const param_count: usize = if (fn_proto_ty != null) ZigClangFunctionProtoType_getNumParams(fn_proto_ty.?) else 0;
+    try fn_params.ensureCapacity(param_count + 1); // +1 for possible var args node
 
     var i: usize = 0;
     while (i < param_count) : (i += 1) {
@@ -4723,15 +4713,13 @@ fn finishTransFnProto(
 
         const type_node = try transQualType(rp, param_qt, source_loc);
 
-        const param_node = try rp.c.arena.create(ast.Node.ParamDecl);
-        param_node.* = .{
+        fn_params.addOneAssumeCapacity().* = .{
             .doc_comments = null,
             .comptime_token = null,
             .noalias_token = noalias_tok,
             .name_token = param_name_tok,
             .param_type = .{ .type_expr = type_node },
         };
-        try fn_params_list.push(&param_node.base);
 
         if (i + 1 < param_count) {
             _ = try appendToken(rp.c, .Comma, ",");
@@ -4743,15 +4731,13 @@ fn finishTransFnProto(
             _ = try appendToken(rp.c, .Comma, ",");
         }
 
-        const var_arg_node = try rp.c.arena.create(ast.Node.ParamDecl);
-        var_arg_node.* = .{
+        fn_params.addOneAssumeCapacity().* = .{
             .doc_comments = null,
             .comptime_token = null,
             .noalias_token = null,
             .name_token = null,
             .param_type = .{ .var_args = try appendToken(rp.c, .Ellipsis3, "...") }
         };
-        try fn_params_list.push(&var_arg_node.base);
     }
 
     const rparen_tok = try appendToken(rp.c, .RParen, ")");
@@ -4818,13 +4804,13 @@ fn finishTransFnProto(
         }
     };
 
-    const fn_proto = try rp.c.arena.create(ast.Node.FnProto);
+    const fn_proto = try ast.Node.FnProto.alloc(rp.c.arena, fn_params.items.len);
     fn_proto.* = .{
         .doc_comments = null,
         .visib_token = pub_tok,
         .fn_token = fn_tok,
         .name_token = name_tok,
-        .params = fn_params,
+        .params_len = fn_params.items.len,
         .return_type = .{ .Explicit = return_type_node },
         .var_args_token = null, // TODO this field is broken in the AST data model
         .extern_export_inline_token = extern_export_inline_tok,
@@ -4834,6 +4820,7 @@ fn finishTransFnProto(
         .section_expr = linksection_expr,
         .callconv_expr = callconv_expr,
     };
+    mem.copy(ast.Node.FnProto.ParamDecl, fn_proto.params(), fn_params.items);
     return fn_proto;
 }
 
@@ -5130,8 +5117,10 @@ fn transMacroFnDefine(c: *Context, it: *CTokenList.Iterator, source: []const u8,
             .{},
         );
     }
-    var fn_params = ast.Node.FnProto.ParamList{};
-    var fn_params_it = &fn_params.first;
+
+    var fn_params = std.ArrayList(ast.Node.FnProto.ParamDecl).init(c.gpa);
+    defer fn_params.deinit();
+
     while (true) {
         const param_tok = it.next().?;
         if (param_tok.id != .Identifier) {
@@ -5154,15 +5143,13 @@ fn transMacroFnDefine(c: *Context, it: *CTokenList.Iterator, source: []const u8,
             .token = token_index,
         };
 
-        const param_node = try c.arena.create(ast.Node.ParamDecl);
-        param_node.* = .{
+        (try fn_params.addOne()).* = .{
             .doc_comments = null,
             .comptime_token = null,
             .noalias_token = null,
             .name_token = param_name_tok,
             .param_type = .{ .type_expr = &identifier.base },
         };
-        fn_params_it = try c.llpush(*ast.Node, fn_params_it, &param_node.base);
 
         if (it.peek().?.id != .Comma)
             break;
@@ -5186,13 +5173,13 @@ fn transMacroFnDefine(c: *Context, it: *CTokenList.Iterator, source: []const u8,
     type_of.rparen_token = try appendToken(c, .RParen, ")");
     var type_of_params = c.llpusher(&type_of.params);
 
-    const fn_proto = try c.arena.create(ast.Node.FnProto);
+    const fn_proto = try ast.Node.FnProto.alloc(c.arena, fn_params.items.len);
     fn_proto.* = .{
         .visib_token = pub_tok,
         .extern_export_inline_token = inline_tok,
         .fn_token = fn_tok,
         .name_token = name_tok,
-        .params = fn_params,
+        .params_len = fn_params.items.len,
         .return_type = .{ .Explicit = &type_of.base },
         .doc_comments = null,
         .var_args_token = null,
@@ -5202,6 +5189,7 @@ fn transMacroFnDefine(c: *Context, it: *CTokenList.Iterator, source: []const u8,
         .section_expr = null,
         .callconv_expr = null,
     };
+    mem.copy(ast.Node.FnProto.ParamDecl, fn_proto.params(), fn_params.items);
 
     const block = try transCreateNodeBlock(c, null);
     var block_statements = c.llpusher(&block.statements);
