@@ -73,10 +73,7 @@ pub fn main() !void {
         std.debug.warn("TODO version command not implemented yet\n", .{});
         return error.Unimplemented;
     } else if (mem.eql(u8, cmd, "info")) {
-        const zig_lib_dir = try introspect.resolveZigLibDir(arena);
-        const result = try std.fmt.allocPrint(arena, "zig_lib_dir = {}\n", .{zig_lib_dir});
-
-        try std.io.getStdOut().writeAll(result);
+        try @import("print_info.zig").cmdInfo(arena, io.getStdOut().outStream());
     } else if (mem.eql(u8, cmd, "zen")) {
         try io.getStdOut().writeAll(info_zen);
     } else if (mem.eql(u8, cmd, "help")) {
