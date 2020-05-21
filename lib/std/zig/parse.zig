@@ -6,6 +6,7 @@ const Node = ast.Node;
 const Tree = ast.Tree;
 const AstError = ast.Error;
 const TokenIndex = ast.TokenIndex;
+const NodeIndex = ast.NodeIndex;
 const Token = std.zig.Token;
 
 pub const Error = error{ParseError} || Allocator.Error;
@@ -70,7 +71,8 @@ const Parser = struct {
         // invalid tokens as it can so this can only be the EOF
         const eof_token = p.eatToken(.Eof).?;
 
-        const node = try Node.Root.create(&p.arena.allocator, decls.len, eof_token);
+        const decls_len = @intCast(NodeIndex, decls.len);
+        const node = try Node.Root.create(&p.arena.allocator, decls_len, eof_token);
         std.mem.copy(*Node, node.decls(), decls);
 
         return node;
@@ -545,13 +547,15 @@ const Parser = struct {
         else
             R{ .Explicit = return_type_expr.? };
 
-        const fn_proto_node = try Node.FnProto.alloc(&p.arena.allocator, params.len);
+        const params_len = @intCast(NodeIndex, params.len);
+
+        const fn_proto_node = try Node.FnProto.alloc(&p.arena.allocator, params_len);
         fn_proto_node.* = .{
             .doc_comments = null,
             .visib_token = null,
             .fn_token = fn_token,
             .name_token = name_token,
-            .params_len = params.len,
+            .params_len = params_len,
             .return_type = return_type,
             .var_args_token = var_args_token,
             .extern_export_inline_token = null,
@@ -1195,11 +1199,13 @@ const Parser = struct {
 
         const rbrace = try p.expectToken(.RBrace);
 
-        const block_node = try Node.Block.alloc(&p.arena.allocator, statements.items.len);
+        const statements_len = @intCast(NodeIndex, statements.items.len);
+
+        const block_node = try Node.Block.alloc(&p.arena.allocator, statements_len);
         block_node.* = .{
             .label = null,
             .lbrace = lbrace,
-            .statements_len = statements.items.len,
+            .statements_len = statements_len,
             .rbrace = rbrace,
         };
         std.mem.copy(*Node, block_node.statements(), statements.items);
@@ -2844,12 +2850,13 @@ const Parser = struct {
         defer p.gpa.free(members);
         const rbrace = try p.expectToken(.RBrace);
 
-        const node = try Node.ContainerDecl.alloc(&p.arena.allocator, members.len);
+        const members_len = @intCast(NodeIndex, members.len);
+        const node = try Node.ContainerDecl.alloc(&p.arena.allocator, members_len);
         node.* = .{
             .layout_token = null,
             .kind_token = container_decl_type.kind_token,
             .init_arg_expr = container_decl_type.init_arg_expr,
-            .fields_and_decls_len = members.len,
+            .fields_and_decls_len = members_len,
             .lbrace_token = lbrace,
             .rbrace_token = rbrace,
         };
