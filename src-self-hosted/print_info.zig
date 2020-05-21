@@ -28,12 +28,14 @@ pub const CompilerInfo = struct {
         const zig_lib_dir = try introspect.resolveZigLibDir(allocator);
         const zig_std_dir = try fs.path.join(allocator, &[_][]const u8{zig_lib_dir, "std"});
         const global_cache_dir = try getAppCacheDir(allocator, "zig");
+        defer allocator.free(global_cache_dir);
+        const self_hosted_cache_dir = try fs.path.join(allocator, &[_][]const u8{global_cache_dir, "self_hosted"}); // stage1 compiler uses $cache_dir/zig/stage1
         return CompilerInfo{
             .id = "test",
             .version = "0.7.0",
             .lib_dir = zig_lib_dir,
             .std_dir = zig_std_dir,
-            .global_cache_dir = global_cache_dir,
+            .global_cache_dir = self_hosted_cache_dir,
         };
     }
 
