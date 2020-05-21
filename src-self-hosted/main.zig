@@ -10,7 +10,6 @@ const Module = @import("Module.zig");
 const link = @import("link.zig");
 const Package = @import("Package.zig");
 const zir = @import("zir.zig");
-const introspect = @import("introspect.zig");
 
 // TODO Improve async I/O enough that we feel comfortable doing this.
 //pub const io_mode = .evented;
