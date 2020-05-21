@@ -9,11 +9,13 @@ const Allocator = std.mem.Allocator;
 const introspect = @import("introspect.zig");
 
 pub const CompilerInfo = struct {
-    /// Compiler id hash
-    id: []const u8,
+    // TODO: port compiler id hash from stage1
+    // /// Compiler id hash
+    // id: []const u8,
 
-    /// Compiler version
-    version: []const u8,
+    // TODO: figure out how to pass a constant from build.zig
+    // /// Compiler version
+    // version: []const u8,
 
     /// Path to lib/
     lib_dir: []const u8,
@@ -31,8 +33,6 @@ pub const CompilerInfo = struct {
         defer allocator.free(global_cache_dir);
         const self_hosted_cache_dir = try fs.path.join(allocator, &[_][]const u8{global_cache_dir, "self_hosted"}); // stage1 compiler uses $cache_dir/zig/stage1
         return CompilerInfo{
-            .id = "test",
-            .version = "0.7.0",
             .lib_dir = zig_lib_dir,
             .std_dir = zig_std_dir,
             .global_cache_dir = self_hosted_cache_dir,
