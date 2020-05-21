@@ -658,7 +658,7 @@ pub const Xoroshiro128 = struct {
         self.s[1] = s1;
     }
 
-    fn seed(self: *Xoroshiro128, init_s: u64) void {
+    pub fn seed(self: *Xoroshiro128, init_s: u64) void {
         // Xoroshiro requires 128-bits of seed.
         var gen = SplitMix64.init(init_s);
 
