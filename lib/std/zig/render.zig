@@ -358,21 +358,20 @@ fn renderExpression(
                 try renderToken(tree, stream, tree.nextToken(label), indent, start_col, Space.Space);
             }
 
-            if (block.statements.first == null) {
+            if (block.statements_len == 0) {
                 try renderToken(tree, stream, block.lbrace, indent + indent_delta, start_col, Space.None);
                 return renderToken(tree, stream, block.rbrace, indent, start_col, space);
             } else {
                 const block_indent = indent + indent_delta;
                 try renderToken(tree, stream, block.lbrace, block_indent, start_col, Space.Newline);
 
-                var it = block.statements.first;
-                while (it) |statement_node| : (it = statement_node.next) {
-                    const statement = statement_node.data;
+                const block_statements = block.statements();
+                for (block_statements) |statement, i| {
                     try stream.writeByteNTimes(' ', block_indent);
                     try renderStatement(allocator, stream, tree, block_indent, start_col, statement);
 
-                    if (statement_node.next) |next_statement| {
-                        try renderExtraNewline(tree, stream, start_col, next_statement.data);
+                    if (i + 1 < block_statements.len) {
+                        try renderExtraNewline(tree, stream, start_col, block_statements[i + 1]);
                     }
                 }
 

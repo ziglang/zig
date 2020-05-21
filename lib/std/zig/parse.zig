@@ -1178,8 +1178,9 @@ const Parser = struct {
     fn parseBlock(p: *Parser) !?*Node {
         const lbrace = p.eatToken(.LBrace) orelse return null;
 
-        var statements = Node.Block.StatementList{};
-        var statements_it = &statements.first;
+        var statements = std.ArrayList(*Node).init(p.gpa);
+        defer statements.deinit();
+
         while (true) {
             const statement = (p.parseStatement() catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
@@ -1189,18 +1190,19 @@ const Parser = struct {
                     continue;
                 },
             }) orelse break;
-            statements_it = try p.llpush(*Node, statements_it, statement);
+            try statements.append(statement);
         }
 
         const rbrace = try p.expectToken(.RBrace);
 
-        const block_node = try p.arena.allocator.create(Node.Block);
+        const block_node = try Node.Block.alloc(&p.arena.allocator, statements.items.len);
         block_node.* = .{
             .label = null,
             .lbrace = lbrace,
-            .statements = statements,
+            .statements_len = statements.items.len,
             .rbrace = rbrace,
         };
+        std.mem.copy(*Node, block_node.statements(), statements.items);
 
         return &block_node.base;
     }

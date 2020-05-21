@@ -804,6 +804,7 @@ pub const Node = struct {
         }
     };
 
+    /// The fields and decls Node pointers directly follow this struct in memory.
     pub const ContainerDecl = struct {
         base: Node = Node{ .id = .ContainerDecl },
         kind_token: TokenIndex,
@@ -1188,23 +1189,37 @@ pub const Node = struct {
         }
     };
 
+    /// The statements of the block follow Block directly in memory.
     pub const Block = struct {
         base: Node = Node{ .id = .Block },
-        label: ?TokenIndex,
+        statements_len: NodeIndex,
         lbrace: TokenIndex,
-        statements: StatementList,
         rbrace: TokenIndex,
+        label: ?TokenIndex,
 
-        pub const StatementList = LinkedList(*Node);
+        /// After this the caller must initialize the statements list.
+        pub fn alloc(allocator: *mem.Allocator, statements_len: NodeIndex) !*Block {
+            const bytes = try allocator.alignedAlloc(u8, @alignOf(Block), sizeInBytes(statements_len));
+            return @ptrCast(*Block, bytes.ptr);
+        }
+
+        pub fn free(self: *Block, allocator: *mem.Allocator) void {
+            const bytes = @ptrCast([*]u8, self)[0..sizeInBytes(self.statements_len)];
+            allocator.free(bytes);
+        }
 
         pub fn iterate(self: *const Block) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0, .node = self.statements.first };
+            return .{ .parent_node = &self.base, .index = 0, .node = null };
         }
 
         pub fn iterateNext(self: *const Block, it: *Node.Iterator) ?*Node {
-            const child = it.node orelse return null;
-            it.node = child.next;
-            return child.data;
+            var i = it.index;
+            it.index += 1;
+
+            if (i < self.statements_len) return self.statementsConst()[i];
+            i -= self.statements_len;
+
+            return null;
         }
 
         pub fn firstToken(self: *const Block) TokenIndex {
@@ -1217,6 +1232,20 @@ pub const Node = struct {
 
         pub fn lastToken(self: *const Block) TokenIndex {
             return self.rbrace;
+        }
+
+        pub fn statements(self: *Block) []*Node {
+            const decls_start = @ptrCast([*]u8, self) + @sizeOf(Block);
+            return @ptrCast([*]*Node, decls_start)[0..self.statements_len];
+        }
+
+        pub fn statementsConst(self: *const Block) []const *Node {
+            const decls_start = @ptrCast([*]const u8, self) + @sizeOf(Block);
+            return @ptrCast([*]const *Node, decls_start)[0..self.statements_len];
+        }
+
+        fn sizeInBytes(statements_len: NodeIndex) usize {
+            return @sizeOf(Block) + @sizeOf(*Node) * @as(usize, statements_len);
         }
     };
 
