@@ -1,8 +1,10 @@
 const std = @import("std");
 const io = std.io;
+const fs = std.fs;
 const json = std.json;
 const StringifyOptions = json.StringifyOptions;
 const Allocator = std.mem.Allocator;
+const introspect = @import("introspect.zig");
 
 pub const CompilerInfo = struct {
     /// Compiler id hash
@@ -19,20 +21,28 @@ pub const CompilerInfo = struct {
 
     /// Path to the global cache dir
     global_cache_dir: []const u8,
+
+    pub fn init(allocator: *Allocator) !CompilerInfo {
+        const zig_lib_dir = try introspect.resolveZigLibDir(allocator);
+        const zig_std_dir = try fs.path.join(allocator, &[_][]const u8{zig_lib_dir, "std"});
+        return CompilerInfo{
+            .id = "test",
+            .version = "0.7.0",
+            .lib_dir = zig_lib_dir,
+            .std_dir = zig_std_dir,
+            .global_cache_dir = "/global/"
+        };
+    }
+
+    pub fn deinit(self: *CompilerInfo, allocator: *Allocator) void {
+        allocator.free(self.lib_dir);
+        allocator.free(self.std_dir);
+    }
 };
 
-fn resolveCompilerInfo(allocator: *Allocator) CompilerInfo {
-    return CompilerInfo{
-        .id = "test",
-        .version = "0.7.0",
-        .lib_dir = "/some/path",
-        .std_dir = "/some/path/std",
-        .global_cache_dir = "/global/"
-    };
-}
-
 pub fn cmdInfo(allocator: *Allocator, stdout: var) !void {
-    const info = resolveCompilerInfo(allocator);
+    var info = try CompilerInfo.init(allocator);
+    defer info.deinit(allocator);
 
     var bos = io.bufferedOutStream(stdout);
     const bos_stream = bos.outStream();
