@@ -2054,7 +2054,8 @@ fn transInitListExprRecord(
 
     const ty_node = try transType(rp, ty, loc);
     const init_count = ZigClangInitListExpr_getNumInits(expr);
-    var init_node = try transCreateNodeStructInitializer(rp.c, ty_node);
+    var field_inits = std.ArrayList(*ast.Node).init(rp.c.gpa);
+    defer field_inits.deinit();
 
     var init_i: c_uint = 0;
     var it = ZigClangRecordDecl_field_begin(record_def);
@@ -2091,13 +2092,19 @@ fn transInitListExprRecord(
             .expr = try transExpr(rp, scope, elem_expr, .used, .r_value),
         };
 
-        try init_node.op.StructInitializer.push(&field_init_node.base);
+        try field_inits.append(&field_init_node.base);
         _ = try appendToken(rp.c, .Comma, ",");
     }
 
-    init_node.rtoken = try appendToken(rp.c, .RBrace, "}");
+    _ = try appendToken(c, .LBrace, "{");
 
-    return &init_node.base;
+    const node = try rp.c.arena.create(ast.Node.StructInitializer);
+    node.* = .{
+        .lhs = ty,
+        .rtoken = try appendToken(rp.c, .RBrace, "}"),
+        .list = try rp.c.arena.dupe(*ast.Node, field_inits.items),
+    };
+    return &node.base;
 }
 
 fn transCreateNodeArrayType(
@@ -4069,22 +4076,9 @@ fn transCreateNodeArrayInitializer(c: *Context, ty: *ast.Node) !*ast.Node.Suffix
     _ = try appendToken(c, .LBrace, "{");
     const node = try c.arena.create(ast.Node.SuffixOp);
     node.* = .{
-        .lhs = .{ .node = ty },
+        .lhs = ty,
         .op = .{
             .ArrayInitializer = ast.Node.SuffixOp.Op.InitList{},
-        },
-        .rtoken = undefined, // set after appending values
-    };
-    return node;
-}
-
-fn transCreateNodeStructInitializer(c: *Context, ty: *ast.Node) !*ast.Node.SuffixOp {
-    _ = try appendToken(c, .LBrace, "{");
-    const node = try c.arena.create(ast.Node.SuffixOp);
-    node.* = .{
-        .lhs = .{ .node = ty },
-        .op = .{
-            .StructInitializer = ast.Node.SuffixOp.Op.InitList{},
         },
         .rtoken = undefined, // set after appending values
     };
@@ -4405,7 +4399,7 @@ fn transCreateNodeShiftOp(
 fn transCreateNodePtrDeref(c: *Context, lhs: *ast.Node) !*ast.Node {
     const node = try c.arena.create(ast.Node.SuffixOp);
     node.* = .{
-        .lhs = .{ .node = lhs },
+        .lhs = lhs,
         .op = .Deref,
         .rtoken = try appendToken(c, .PeriodAsterisk, ".*"),
     };
@@ -4416,7 +4410,7 @@ fn transCreateNodeArrayAccess(c: *Context, lhs: *ast.Node) !*ast.Node.SuffixOp {
     _ = try appendToken(c, .LBrace, "[");
     const node = try c.arena.create(ast.Node.SuffixOp);
     node.* = .{
-        .lhs = .{ .node = lhs },
+        .lhs = lhs,
         .op = .{
             .ArrayAccess = undefined,
         },
