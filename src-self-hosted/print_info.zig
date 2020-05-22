@@ -11,13 +11,12 @@ const Allocator = std.mem.Allocator;
 const introspect = @import("introspect.zig");
 
 pub const CompilerInfo = struct {
-    // TODO: port compiler id hash from stage1
+    // TODO: port compiler id hash from cpp
     // /// Compiler id hash
     // id: []const u8,
 
-    // TODO: figure out how to pass a constant from build.zig
-    // /// Compiler version
-    // version: []const u8,
+    /// Compiler version
+    version: []const u8,
 
     /// Path to lib/
     lib_dir: []const u8,
@@ -28,16 +27,45 @@ pub const CompilerInfo = struct {
     /// Path to the global cache dir
     global_cache_dir: []const u8,
 
-    pub fn init(allocator: *Allocator) !CompilerInfo {
-        const zig_lib_dir = try introspect.resolveZigLibDir(allocator);
-        const zig_std_dir = try fs.path.join(allocator, &[_][]const u8{zig_lib_dir, "std"});
+    const CacheType = enum {
+        SelfHosted,
+        Stage1,
+    };
+
+    pub fn getVersionString() []const u8 {
+        // TODO: get this from build.zig somehow
+        return "0.6.0";
+    }
+
+    pub fn getCacheDir(allocator: *Allocator, cache_type: CacheType) ![]u8 {
         const global_cache_dir = try getAppCacheDir(allocator, "zig");
         defer allocator.free(global_cache_dir);
-        const self_hosted_cache_dir = try fs.path.join(allocator, &[_][]const u8{global_cache_dir, "self_hosted"}); // stage1 compiler uses $cache_dir/zig/stage1
+
+        const postfix = switch(cache_type) {
+            .SelfHosted => "self_hosted",
+            .Stage1 => "stage1",
+        };
+        return try fs.path.join(allocator, &[_][]const u8{global_cache_dir, postfix}); // stage1 compiler uses $cache_dir/zig/stage1
+    }
+
+    // TODO: add CacheType argument here to make it return correct cache dir for stage1
+    pub fn init(allocator: *Allocator) !CompilerInfo {
+        const version_str = CompilerInfo.getVersionString();
+
+        const zig_lib_dir = try introspect.resolveZigLibDir(allocator);
+        errdefer allocator.free(zig_lib_dir);
+
+        const zig_std_dir = try fs.path.join(allocator, &[_][]const u8{zig_lib_dir, "std"});
+        errdefer allocator.free(zig_std_dir);
+
+        const cache_dir = try CompilerInfo.getCacheDir(allocator, .SelfHosted);
+        errdefer allocator.free(cache_dir);
+
         return CompilerInfo{
+            .version = version_str,
             .lib_dir = zig_lib_dir,
             .std_dir = zig_std_dir,
-            .global_cache_dir = self_hosted_cache_dir,
+            .global_cache_dir = cache_dir,
         };
     }
 
