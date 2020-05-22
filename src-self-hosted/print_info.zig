@@ -1,5 +1,7 @@
 const builtin = @import("builtin");
 const std = @import("std");
+const mem = std.mem;
+const unicode = std.unicode;
 const io = std.io;
 const fs = std.fs;
 const os = std.os;
@@ -85,9 +87,9 @@ fn getAppCacheDir(allocator: *Allocator, appname: []const u8) GetAppCacheDirErro
                 os.windows.S_OK => {
                     defer os.windows.ole32.CoTaskMemFree(@ptrCast(*c_void, dir_path_ptr));
                     const global_dir = unicode.utf16leToUtf8Alloc(allocator, mem.spanZ(dir_path_ptr)) catch |err| switch (err) {
-                        error.UnexpectedSecondSurrogateHalf => return error.AppDataDirUnavailable,
-                        error.ExpectedSecondSurrogateHalf => return error.AppDataDirUnavailable,
-                        error.DanglingSurrogateHalf => return error.AppDataDirUnavailable,
+                        error.UnexpectedSecondSurrogateHalf => return error.AppCacheDirUnavailable,
+                        error.ExpectedSecondSurrogateHalf => return error.AppCacheDirUnavailable,
+                        error.DanglingSurrogateHalf => return error.AppCacheDirUnavailable,
                         error.OutOfMemory => return error.OutOfMemory,
                     };
                     defer allocator.free(global_dir);
