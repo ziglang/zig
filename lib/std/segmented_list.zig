@@ -229,12 +229,12 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
             while (i < end) {
                 const shelf_index = shelfIndex(i);
                 const copy_start = boxIndex(i, shelf_index);
-                const copy_end = std.math.min(shelfSize(shelf_index), copyStart + end - i);
+                const copy_end = std.math.min(shelfSize(shelf_index), copy_start + end - i);
 
                 std.mem.copy(
                     T,
                     dest[i - start ..],
-                    self.dynamic_segments[shelf][copy_start..copy_end],
+                    self.dynamic_segments[shelf_index][copy_start..copy_end],
                 );
 
                 i += (copy_end - copy_start);
