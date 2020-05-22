@@ -564,6 +564,10 @@ pub fn WriteFile(
                 .NOT_ENOUGH_QUOTA => return error.SystemResources,
                 .IO_PENDING => unreachable,
                 .BROKEN_PIPE => return error.BrokenPipe,
+                // https://github.com/ziglang/zig/issues/4196
+                // Prevents infinite loop when stderr/stdout is not available.
+                // Implementing a NoOpOutStream is not possible for now because we cannot coerce that to File.OutStream.
+                .INVALID_HANDLE => return error.Unexpected,
                 else => |err| return unexpectedError(err),
             }
         }
