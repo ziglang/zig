@@ -1552,28 +1552,35 @@ pub const Node = struct {
         }
     };
 
+    /// Items sub-nodes appear in memory directly following SwitchCase.
     pub const SwitchCase = struct {
         base: Node = Node{ .id = .SwitchCase },
-        items: ItemList,
         arrow_token: TokenIndex,
         payload: ?*Node,
         expr: *Node,
+        items_len: NodeIndex,
 
-        pub const ItemList = LinkedList(*Node);
+        /// After this the caller must initialize the fields_and_decls list.
+        pub fn alloc(allocator: *mem.Allocator, items_len: NodeIndex) !*SwitchCase {
+            const bytes = try allocator.alignedAlloc(u8, @alignOf(SwitchCase), sizeInBytes(items_len));
+            return @ptrCast(*SwitchCase, bytes.ptr);
+        }
+
+        pub fn free(self: *SwitchCase, allocator: *mem.Allocator) void {
+            const bytes = @ptrCast([*]u8, self)[0..sizeInBytes(self.items_len)];
+            allocator.free(bytes);
+        }
 
         pub fn iterate(self: *const SwitchCase) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0, .node = self.items.first };
+            return .{ .parent_node = &self.base, .index = 0, .node = null };
         }
 
         pub fn iterateNext(self: *const SwitchCase, it: *Node.Iterator) ?*Node {
             var i = it.index;
             it.index += 1;
 
-            if (it.node) |child| {
-                it.index -= 1;
-                it.node = child.next;
-                return child.data;
-            }
+            if (i < self.items_len) return self.itemsConst()[i];
+            i -= self.items_len;
 
             if (self.payload) |payload| {
                 if (i < 1) return payload;
@@ -1587,11 +1594,25 @@ pub const Node = struct {
         }
 
         pub fn firstToken(self: *const SwitchCase) TokenIndex {
-            return self.items.first.?.data.firstToken();
+            return self.itemsConst()[0].firstToken();
         }
 
         pub fn lastToken(self: *const SwitchCase) TokenIndex {
             return self.expr.lastToken();
+        }
+
+        pub fn items(self: *SwitchCase) []*Node {
+            const decls_start = @ptrCast([*]u8, self) + @sizeOf(SwitchCase);
+            return @ptrCast([*]*Node, decls_start)[0..self.items_len];
+        }
+
+        pub fn itemsConst(self: *const SwitchCase) []const *Node {
+            const decls_start = @ptrCast([*]const u8, self) + @sizeOf(SwitchCase);
+            return @ptrCast([*]const *Node, decls_start)[0..self.items_len];
+        }
+
+        fn sizeInBytes(items_len: NodeIndex) usize {
+            return @sizeOf(SwitchCase) + @sizeOf(*Node) * @as(usize, items_len);
         }
     };
 

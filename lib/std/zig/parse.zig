@@ -2205,30 +2205,31 @@ const Parser = struct {
     ///     <- SwitchItem (COMMA SwitchItem)* COMMA?
     ///      / KEYWORD_else
     fn parseSwitchCase(p: *Parser) !?*Node {
-        var list = Node.SwitchCase.ItemList{};
-        var list_it = &list.first;
+        var list = std.ArrayList(*Node).init(p.gpa);
+        defer list.deinit();
 
         if (try p.parseSwitchItem()) |first_item| {
-            list_it = try p.llpush(*Node, list_it, first_item);
+            try list.append(first_item);
             while (p.eatToken(.Comma) != null) {
                 const next_item = (try p.parseSwitchItem()) orelse break;
-                list_it = try p.llpush(*Node, list_it, next_item);
+                try list.append(next_item);
             }
         } else if (p.eatToken(.Keyword_else)) |else_token| {
             const else_node = try p.arena.allocator.create(Node.SwitchElse);
             else_node.* = .{
                 .token = else_token,
             };
-            list_it = try p.llpush(*Node, list_it, &else_node.base);
+            try list.append(&else_node.base);
         } else return null;
 
-        const node = try p.arena.allocator.create(Node.SwitchCase);
+        const node = try Node.SwitchCase.alloc(&p.arena.allocator, list.items.len);
         node.* = .{
-            .items = list,
+            .items_len = list.items.len,
             .arrow_token = undefined, // set by caller
             .payload = null,
             .expr = undefined, // set by caller
         };
+        std.mem.copy(*Node, node.items(), list.items);
         return &node.base;
     }
 

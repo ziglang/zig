@@ -1613,37 +1613,35 @@ fn renderExpression(
         .SwitchCase => {
             const switch_case = @fieldParentPtr(ast.Node.SwitchCase, "base", base);
 
-            assert(switch_case.items.first != null);
+            assert(switch_case.items_len != 0);
             const src_has_trailing_comma = blk: {
-                const last_node = switch_case.items.first.?.findLast().data;
+                const last_node = switch_case.items()[switch_case.items_len - 1];
                 const maybe_comma = tree.nextToken(last_node.lastToken());
                 break :blk tree.tokens[maybe_comma].id == .Comma;
             };
 
-            if (switch_case.items.first.?.next == null or !src_has_trailing_comma) {
-                var it = switch_case.items.first;
-                while (it) |node_node| : (it = node_node.next) {
-                    const node = node_node.data;
-                    if (node_node.next) |next_node| {
+            if (switch_case.items_len == 1 or !src_has_trailing_comma) {
+                const items = switch_case.items();
+                for (items) |node, i| {
+                    if (i + 1 < items.len) {
                         try renderExpression(allocator, stream, tree, indent, start_col, node, Space.None);
 
                         const comma_token = tree.nextToken(node.lastToken());
                         try renderToken(tree, stream, comma_token, indent, start_col, Space.Space); // ,
-                        try renderExtraNewline(tree, stream, start_col, next_node.data);
+                        try renderExtraNewline(tree, stream, start_col, items[i + 1]);
                     } else {
                         try renderExpression(allocator, stream, tree, indent, start_col, node, Space.Space);
                     }
                 }
             } else {
-                var it = switch_case.items.first;
-                while (it) |node_node| : (it = node_node.next) {
-                    const node = node_node.data;
-                    if (node_node.next) |next_node| {
+                const items = switch_case.items();
+                for (items) |node, i| {
+                    if (i + 1 < items.len) {
                         try renderExpression(allocator, stream, tree, indent, start_col, node, Space.None);
 
                         const comma_token = tree.nextToken(node.lastToken());
                         try renderToken(tree, stream, comma_token, indent, start_col, Space.Newline); // ,
-                        try renderExtraNewline(tree, stream, start_col, next_node.data);
+                        try renderExtraNewline(tree, stream, start_col, items[i + 1]);
                         try stream.writeByteNTimes(' ', indent);
                     } else {
                         try renderExpression(allocator, stream, tree, indent, start_col, node, Space.Comma);
