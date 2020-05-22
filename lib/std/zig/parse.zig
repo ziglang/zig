@@ -16,28 +16,32 @@ pub const Error = error{ParseError} || Allocator.Error;
 pub fn parse(gpa: *Allocator, source: []const u8) Allocator.Error!*Tree {
     // TODO optimization idea: ensureCapacity on the tokens list and
     // then appendAssumeCapacity inside the loop.
-    var tokens = std.ArrayList(Token).init(gpa);
-    defer tokens.deinit();
+    var token_ids = std.ArrayList(Token.Id).init(gpa);
+    defer token_ids.deinit();
+    var token_locs = std.ArrayList(Token.Loc).init(gpa);
+    defer token_locs.deinit();
 
     var tokenizer = std.zig.Tokenizer.init(source);
     while (true) {
-        const tree_token = try tokens.addOne();
-        tree_token.* = tokenizer.next();
-        if (tree_token.id == .Eof) break;
+        const token = tokenizer.next();
+        try token_ids.append(token.id);
+        try token_locs.append(token.loc);
+        if (token.id == .Eof) break;
     }
 
     var parser: Parser = .{
         .source = source,
         .arena = std.heap.ArenaAllocator.init(gpa),
         .gpa = gpa,
-        .tokens = tokens.items,
+        .token_ids = token_ids.items,
+        .token_locs = token_locs.items,
         .errors = .{},
         .tok_i = 0,
     };
     defer parser.errors.deinit(gpa);
     errdefer parser.arena.deinit();
 
-    while (tokens.items[parser.tok_i].id == .LineComment) parser.tok_i += 1;
+    while (token_ids.items[parser.tok_i] == .LineComment) parser.tok_i += 1;
 
     const root_node = try parser.parseRoot();
 
@@ -45,7 +49,8 @@ pub fn parse(gpa: *Allocator, source: []const u8) Allocator.Error!*Tree {
     tree.* = .{
         .gpa = gpa,
         .source = source,
-        .tokens = tokens.toOwnedSlice(),
+        .token_ids = token_ids.toOwnedSlice(),
+        .token_locs = token_locs.toOwnedSlice(),
         .errors = parser.errors.toOwnedSlice(gpa),
         .root_node = root_node,
         .arena = parser.arena.state,
@@ -58,9 +63,8 @@ const Parser = struct {
     arena: std.heap.ArenaAllocator,
     gpa: *Allocator,
     source: []const u8,
-    /// TODO: Optimization idea: have this be several arrays of the token fields rather
-    /// than an array of structs.
-    tokens: []const Token,
+    token_ids: []const Token.Id,
+    token_locs: []const Token.Loc,
     tok_i: TokenIndex,
     errors: std.ArrayListUnmanaged(AstError),
 
@@ -78,19 +82,6 @@ const Parser = struct {
         std.mem.copy(*Node, node.decls(), decls);
 
         return node;
-    }
-
-    /// Helper function for appending elements to a singly linked list.
-    fn llpush(
-        p: *Parser,
-        comptime T: type,
-        it: *?*std.SinglyLinkedList(T).Node,
-        data: T,
-    ) !*?*std.SinglyLinkedList(T).Node {
-        const llnode = try p.arena.allocator.create(std.SinglyLinkedList(T).Node);
-        llnode.* = .{ .data = data };
-        it.* = llnode;
-        return &llnode.next;
     }
 
     /// ContainerMembers
@@ -228,7 +219,7 @@ const Parser = struct {
                     // try to continue parsing
                     const index = p.tok_i;
                     p.findNextContainerMember();
-                    const next = p.tokens[p.tok_i].id;
+                    const next = p.token_ids[p.tok_i];
                     switch (next) {
                         .Eof => break,
                         else => {
@@ -257,7 +248,7 @@ const Parser = struct {
                 });
             }
 
-            const next = p.tokens[p.tok_i].id;
+            const next = p.token_ids[p.tok_i];
             switch (next) {
                 .Eof => break,
                 .Keyword_comptime => {
@@ -291,7 +282,7 @@ const Parser = struct {
         var level: u32 = 0;
         while (true) {
             const tok = p.nextToken();
-            switch (tok.ptr.id) {
+            switch (p.token_ids[tok]) {
                 // any of these can start a new top level declaration
                 .Keyword_test,
                 .Keyword_comptime,
@@ -308,7 +299,7 @@ const Parser = struct {
                 .Identifier,
                 => {
                     if (level == 0) {
-                        p.putBackToken(tok.index);
+                        p.putBackToken(tok);
                         return;
                     }
                 },
@@ -325,13 +316,13 @@ const Parser = struct {
                 .RBrace => {
                     if (level == 0) {
                         // end of container, exit
-                        p.putBackToken(tok.index);
+                        p.putBackToken(tok);
                         return;
                     }
                     level -= 1;
                 },
                 .Eof => {
-                    p.putBackToken(tok.index);
+                    p.putBackToken(tok);
                     return;
                 },
                 else => {},
@@ -344,11 +335,11 @@ const Parser = struct {
         var level: u32 = 0;
         while (true) {
             const tok = p.nextToken();
-            switch (tok.ptr.id) {
+            switch (p.token_ids[tok]) {
                 .LBrace => level += 1,
                 .RBrace => {
                     if (level == 0) {
-                        p.putBackToken(tok.index);
+                        p.putBackToken(tok);
                         return;
                     }
                     level -= 1;
@@ -359,7 +350,7 @@ const Parser = struct {
                     }
                 },
                 .Eof => {
-                    p.putBackToken(tok.index);
+                    p.putBackToken(tok);
                     return;
                 },
                 else => {},
@@ -454,8 +445,8 @@ const Parser = struct {
         }
 
         if (extern_export_inline_token) |token| {
-            if (p.tokens[token].id == .Keyword_inline or
-                p.tokens[token].id == .Keyword_noinline)
+            if (p.token_ids[token] == .Keyword_inline or
+                p.token_ids[token] == .Keyword_noinline)
             {
                 try p.errors.append(p.gpa, .{
                     .ExpectedFn = .{ .token = p.tok_i },
@@ -722,7 +713,7 @@ const Parser = struct {
 
         const defer_token = p.eatToken(.Keyword_defer) orelse p.eatToken(.Keyword_errdefer);
         if (defer_token) |token| {
-            const payload = if (p.tokens[token].id == .Keyword_errdefer)
+            const payload = if (p.token_ids[token] == .Keyword_errdefer)
                 try p.parsePayload()
             else
                 null;
@@ -2269,7 +2260,7 @@ const Parser = struct {
     ///      / EQUAL
     fn parseAssignOp(p: *Parser) !?*Node {
         const token = p.nextToken();
-        const op: Node.InfixOp.Op = switch (token.ptr.id) {
+        const op: Node.InfixOp.Op = switch (p.token_ids[token]) {
             .AsteriskEqual => .AssignMul,
             .SlashEqual => .AssignDiv,
             .PercentEqual => .AssignMod,
@@ -2285,14 +2276,14 @@ const Parser = struct {
             .MinusPercentEqual => .AssignSubWrap,
             .Equal => .Assign,
             else => {
-                p.putBackToken(token.index);
+                p.putBackToken(token);
                 return null;
             },
         };
 
         const node = try p.arena.allocator.create(Node.InfixOp);
         node.* = .{
-            .op_token = token.index,
+            .op_token = token,
             .lhs = undefined, // set by caller
             .op = op,
             .rhs = undefined, // set by caller
@@ -2309,7 +2300,7 @@ const Parser = struct {
     ///      / RARROWEQUAL
     fn parseCompareOp(p: *Parser) !?*Node {
         const token = p.nextToken();
-        const op: Node.InfixOp.Op = switch (token.ptr.id) {
+        const op: Node.InfixOp.Op = switch (p.token_ids[token]) {
             .EqualEqual => .EqualEqual,
             .BangEqual => .BangEqual,
             .AngleBracketLeft => .LessThan,
@@ -2317,12 +2308,12 @@ const Parser = struct {
             .AngleBracketLeftEqual => .LessOrEqual,
             .AngleBracketRightEqual => .GreaterOrEqual,
             else => {
-                p.putBackToken(token.index);
+                p.putBackToken(token);
                 return null;
             },
         };
 
-        return p.createInfixOp(token.index, op);
+        return p.createInfixOp(token, op);
     }
 
     /// BitwiseOp
@@ -2333,19 +2324,19 @@ const Parser = struct {
     ///      / KEYWORD_catch Payload?
     fn parseBitwiseOp(p: *Parser) !?*Node {
         const token = p.nextToken();
-        const op: Node.InfixOp.Op = switch (token.ptr.id) {
+        const op: Node.InfixOp.Op = switch (p.token_ids[token]) {
             .Ampersand => .BitAnd,
             .Caret => .BitXor,
             .Pipe => .BitOr,
             .Keyword_orelse => .UnwrapOptional,
             .Keyword_catch => .{ .Catch = try p.parsePayload() },
             else => {
-                p.putBackToken(token.index);
+                p.putBackToken(token);
                 return null;
             },
         };
 
-        return p.createInfixOp(token.index, op);
+        return p.createInfixOp(token, op);
     }
 
     /// BitShiftOp
@@ -2353,16 +2344,16 @@ const Parser = struct {
     ///      / RARROW2
     fn parseBitShiftOp(p: *Parser) !?*Node {
         const token = p.nextToken();
-        const op: Node.InfixOp.Op = switch (token.ptr.id) {
+        const op: Node.InfixOp.Op = switch (p.token_ids[token]) {
             .AngleBracketAngleBracketLeft => .BitShiftLeft,
             .AngleBracketAngleBracketRight => .BitShiftRight,
             else => {
-                p.putBackToken(token.index);
+                p.putBackToken(token);
                 return null;
             },
         };
 
-        return p.createInfixOp(token.index, op);
+        return p.createInfixOp(token, op);
     }
 
     /// AdditionOp
@@ -2373,19 +2364,19 @@ const Parser = struct {
     ///      / MINUSPERCENT
     fn parseAdditionOp(p: *Parser) !?*Node {
         const token = p.nextToken();
-        const op: Node.InfixOp.Op = switch (token.ptr.id) {
+        const op: Node.InfixOp.Op = switch (p.token_ids[token]) {
             .Plus => .Add,
             .Minus => .Sub,
             .PlusPlus => .ArrayCat,
             .PlusPercent => .AddWrap,
             .MinusPercent => .SubWrap,
             else => {
-                p.putBackToken(token.index);
+                p.putBackToken(token);
                 return null;
             },
         };
 
-        return p.createInfixOp(token.index, op);
+        return p.createInfixOp(token, op);
     }
 
     /// MultiplyOp
@@ -2397,7 +2388,7 @@ const Parser = struct {
     ///      / ASTERISKPERCENT
     fn parseMultiplyOp(p: *Parser) !?*Node {
         const token = p.nextToken();
-        const op: Node.InfixOp.Op = switch (token.ptr.id) {
+        const op: Node.InfixOp.Op = switch (p.token_ids[token]) {
             .PipePipe => .MergeErrorSets,
             .Asterisk => .Mul,
             .Slash => .Div,
@@ -2405,12 +2396,12 @@ const Parser = struct {
             .AsteriskAsterisk => .ArrayMult,
             .AsteriskPercent => .MulWrap,
             else => {
-                p.putBackToken(token.index);
+                p.putBackToken(token);
                 return null;
             },
         };
 
-        return p.createInfixOp(token.index, op);
+        return p.createInfixOp(token, op);
     }
 
     /// PrefixOp
@@ -2423,7 +2414,7 @@ const Parser = struct {
     ///      / KEYWORD_await
     fn parsePrefixOp(p: *Parser) !?*Node {
         const token = p.nextToken();
-        const op: Node.PrefixOp.Op = switch (token.ptr.id) {
+        const op: Node.PrefixOp.Op = switch (p.token_ids[token]) {
             .Bang => .BoolNot,
             .Minus => .Negation,
             .Tilde => .BitNot,
@@ -2432,14 +2423,14 @@ const Parser = struct {
             .Keyword_try => .Try,
             .Keyword_await => .Await,
             else => {
-                p.putBackToken(token.index);
+                p.putBackToken(token);
                 return null;
             },
         };
 
         const node = try p.arena.allocator.create(Node.PrefixOp);
         node.* = .{
-            .op_token = token.index,
+            .op_token = token,
             .op = op,
             .rhs = undefined, // set by caller
         };
@@ -2493,7 +2484,7 @@ const Parser = struct {
             // If the token encountered was **, there will be two nodes instead of one.
             // The attributes should be applied to the rightmost operator.
             const prefix_op = node.cast(Node.PrefixOp).?;
-            var ptr_info = if (p.tokens[prefix_op.op_token].id == .AsteriskAsterisk)
+            var ptr_info = if (p.token_ids[prefix_op.op_token] == .AsteriskAsterisk)
                 &prefix_op.rhs.cast(Node.PrefixOp).?.op.PtrType
             else
                 &prefix_op.op.PtrType;
@@ -2812,7 +2803,8 @@ const Parser = struct {
                 return null;
             };
             if (p.eatToken(.Identifier)) |ident| {
-                const token_slice = p.source[p.tokens[ident].start..p.tokens[ident].end];
+                const token_loc = p.token_locs[ident];
+                const token_slice = p.source[token_loc.start..token_loc.end];
                 if (!std.mem.eql(u8, token_slice, "c")) {
                     p.putBackToken(ident);
                 } else {
@@ -2879,7 +2871,7 @@ const Parser = struct {
     fn parseContainerDeclType(p: *Parser) !?ContainerDeclType {
         const kind_token = p.nextToken();
 
-        const init_arg_expr = switch (kind_token.ptr.id) {
+        const init_arg_expr = switch (p.token_ids[kind_token]) {
             .Keyword_struct => Node.ContainerDecl.InitArg{ .None = {} },
             .Keyword_enum => blk: {
                 if (p.eatToken(.LParen) != null) {
@@ -2914,13 +2906,13 @@ const Parser = struct {
                 break :blk Node.ContainerDecl.InitArg{ .None = {} };
             },
             else => {
-                p.putBackToken(kind_token.index);
+                p.putBackToken(kind_token);
                 return null;
             },
         };
 
         return ContainerDeclType{
-            .kind_token = kind_token.index,
+            .kind_token = kind_token,
             .init_arg_expr = init_arg_expr,
         };
     }
@@ -2973,7 +2965,7 @@ const Parser = struct {
                 while (try nodeParseFn(p)) |item| {
                     try list.append(item);
 
-                    switch (p.tokens[p.tok_i].id) {
+                    switch (p.token_ids[p.tok_i]) {
                         .Comma => _ = p.nextToken(),
                         // all possible delimiters
                         .Colon, .RParen, .RBrace, .RBracket => break,
@@ -2994,13 +2986,13 @@ const Parser = struct {
     fn SimpleBinOpParseFn(comptime token: Token.Id, comptime op: Node.InfixOp.Op) NodeParseFn {
         return struct {
             pub fn parse(p: *Parser) Error!?*Node {
-                const op_token = if (token == .Keyword_and) switch (p.tokens[p.tok_i].id) {
-                    .Keyword_and => p.nextToken().index,
+                const op_token = if (token == .Keyword_and) switch (p.token_ids[p.tok_i]) {
+                    .Keyword_and => p.nextToken(),
                     .Invalid_ampersands => blk: {
                         try p.errors.append(p.gpa, .{
                             .InvalidAnd = .{ .token = p.tok_i },
                         });
-                        break :blk p.nextToken().index;
+                        break :blk p.nextToken();
                     },
                     else => return null,
                 } else p.eatToken(token) orelse return null;
@@ -3104,7 +3096,7 @@ const Parser = struct {
             var tok_i = start_tok_i;
             var count: usize = 1; // including first_line
             while (true) : (tok_i += 1) {
-                switch (p.tokens[tok_i].id) {
+                switch (p.token_ids[tok_i]) {
                     .LineComment => continue,
                     .MultilineStringLiteralLine => count += 1,
                     else => break,
@@ -3118,7 +3110,7 @@ const Parser = struct {
             lines[0] = first_line;
             count = 1;
             while (true) : (tok_i += 1) {
-                switch (p.tokens[tok_i].id) {
+                switch (p.token_ids[tok_i]) {
                     .LineComment => continue,
                     .MultilineStringLiteralLine => {
                         lines[count] = tok_i;
@@ -3215,7 +3207,7 @@ const Parser = struct {
     }
 
     fn tokensOnSameLine(p: *Parser, token1: TokenIndex, token2: TokenIndex) bool {
-        return std.mem.indexOfScalar(u8, p.source[p.tokens[token1].end..p.tokens[token2].start], '\n') == null;
+        return std.mem.indexOfScalar(u8, p.source[p.token_locs[token1].end..p.token_locs[token2].start], '\n') == null;
     }
 
     /// Eat a single-line doc comment on the same line as another node
@@ -3239,7 +3231,7 @@ const Parser = struct {
                     .PrefixOp => {
                         var prefix_op = rightmost_op.cast(Node.PrefixOp).?;
                         // If the token encountered was **, there will be two nodes
-                        if (p.tokens[prefix_op.op_token].id == .AsteriskAsterisk) {
+                        if (p.token_ids[prefix_op.op_token] == .AsteriskAsterisk) {
                             rightmost_op = prefix_op.rhs;
                             prefix_op = rightmost_op.cast(Node.PrefixOp).?;
                         }
@@ -3328,11 +3320,7 @@ const Parser = struct {
     }
 
     fn eatToken(p: *Parser, id: Token.Id) ?TokenIndex {
-        return if (p.eatAnnotatedToken(id)) |token| token.index else null;
-    }
-
-    fn eatAnnotatedToken(p: *Parser, id: Token.Id) ?AnnotatedToken {
-        return if (p.tokens[p.tok_i].id == id) p.nextToken() else null;
+        return if (p.token_ids[p.tok_i] == id) p.nextToken() else null;
     }
 
     fn expectToken(p: *Parser, id: Token.Id) Error!TokenIndex {
@@ -3341,29 +3329,25 @@ const Parser = struct {
 
     fn expectTokenRecoverable(p: *Parser, id: Token.Id) !?TokenIndex {
         const token = p.nextToken();
-        if (token.ptr.id != id) {
+        if (p.token_ids[token] != id) {
             try p.errors.append(p.gpa, .{
-                .ExpectedToken = .{ .token = token.index, .expected_id = id },
+                .ExpectedToken = .{ .token = token, .expected_id = id },
             });
             // go back so that we can recover properly
-            p.putBackToken(token.index);
+            p.putBackToken(token);
             return null;
         }
-        return token.index;
+        return token;
     }
 
-    fn nextToken(p: *Parser) AnnotatedToken {
-        const result = AnnotatedToken{
-            .index = p.tok_i,
-            .ptr = &p.tokens[p.tok_i],
-        };
+    fn nextToken(p: *Parser) TokenIndex {
+        const result = p.tok_i;
         p.tok_i += 1;
-        assert(result.ptr.id != .LineComment);
-        if (p.tok_i >= p.tokens.len) return result;
+        assert(p.token_ids[result] != .LineComment);
+        if (p.tok_i >= p.token_ids.len) return result;
 
         while (true) {
-            const next_tok = p.tokens[p.tok_i];
-            if (next_tok.id != .LineComment) return result;
+            if (p.token_ids[p.tok_i] != .LineComment) return result;
             p.tok_i += 1;
         }
     }
@@ -3371,17 +3355,11 @@ const Parser = struct {
     fn putBackToken(p: *Parser, putting_back: TokenIndex) void {
         while (p.tok_i > 0) {
             p.tok_i -= 1;
-            const prev_tok = p.tokens[p.tok_i];
-            if (prev_tok.id == .LineComment) continue;
+            if (p.token_ids[p.tok_i] == .LineComment) continue;
             assert(putting_back == p.tok_i);
             return;
         }
     }
-
-    const AnnotatedToken = struct {
-        index: TokenIndex,
-        ptr: *const Token,
-    };
 
     fn expectNode(
         p: *Parser,

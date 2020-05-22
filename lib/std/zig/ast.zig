@@ -10,7 +10,8 @@ pub const NodeIndex = usize;
 pub const Tree = struct {
     /// Reference to externally-owned data.
     source: []const u8,
-    tokens: []const Token,
+    token_ids: []const Token.Id,
+    token_locs: []const Token.Loc,
     errors: []const Error,
     /// undefined on parse error (when errors field is not empty)
     root_node: *Node.Root,
@@ -23,26 +24,27 @@ pub const Tree = struct {
     generated: bool = false,
 
     pub fn deinit(self: *Tree) void {
-        self.gpa.free(self.tokens);
+        self.gpa.free(self.token_ids);
+        self.gpa.free(self.token_locs);
         self.gpa.free(self.errors);
         self.arena.promote(self.gpa).deinit();
     }
 
     pub fn renderError(self: *Tree, parse_error: *const Error, stream: var) !void {
-        return parse_error.render(self.tokens, stream);
+        return parse_error.render(self.token_ids, stream);
     }
 
     pub fn tokenSlice(self: *Tree, token_index: TokenIndex) []const u8 {
-        return self.tokenSlicePtr(self.tokens[token_index]);
+        return self.tokenSliceLoc(self.token_locs[token_index]);
     }
 
-    pub fn tokenSlicePtr(self: *Tree, token: Token) []const u8 {
+    pub fn tokenSliceLoc(self: *Tree, token: Token.Loc) []const u8 {
         return self.source[token.start..token.end];
     }
 
     pub fn getNodeSource(self: *const Tree, node: *const Node) []const u8 {
-        const first_token = self.tokens[node.firstToken()];
-        const last_token = self.tokens[node.lastToken()];
+        const first_token = self.token_locs[node.firstToken()];
+        const last_token = self.token_locs[node.lastToken()];
         return self.source[first_token.start..last_token.end];
     }
 
@@ -54,7 +56,7 @@ pub const Tree = struct {
     };
 
     /// Return the Location of the token relative to the offset specified by `start_index`.
-    pub fn tokenLocationPtr(self: *Tree, start_index: usize, token: Token) Location {
+    pub fn tokenLocationLoc(self: *Tree, start_index: usize, token: Token.Loc) Location {
         var loc = Location{
             .line = 0,
             .column = 0,
@@ -82,14 +84,14 @@ pub const Tree = struct {
     }
 
     pub fn tokenLocation(self: *Tree, start_index: usize, token_index: TokenIndex) Location {
-        return self.tokenLocationPtr(start_index, self.tokens[token_index]);
+        return self.tokenLocationLoc(start_index, self.token_locs[token_index]);
     }
 
     pub fn tokensOnSameLine(self: *Tree, token1_index: TokenIndex, token2_index: TokenIndex) bool {
-        return self.tokensOnSameLinePtr(self.tokens[token1_index], self.tokens[token2_index]);
+        return self.tokensOnSameLineLoc(self.token_locs[token1_index], self.token_locs[token2_index]);
     }
 
-    pub fn tokensOnSameLinePtr(self: *Tree, token1: Token, token2: Token) bool {
+    pub fn tokensOnSameLineLoc(self: *Tree, token1: Token.Loc, token2: Token.Loc) bool {
         return mem.indexOfScalar(u8, self.source[token1.end..token2.start], '\n') == null;
     }
 
@@ -100,7 +102,7 @@ pub const Tree = struct {
     /// Skips over comments
     pub fn prevToken(self: *Tree, token_index: TokenIndex) TokenIndex {
         var index = token_index - 1;
-        while (self.tokens[index].id == Token.Id.LineComment) {
+        while (self.token_ids[index] == Token.Id.LineComment) {
             index -= 1;
         }
         return index;
@@ -109,7 +111,7 @@ pub const Tree = struct {
     /// Skips over comments
     pub fn nextToken(self: *Tree, token_index: TokenIndex) TokenIndex {
         var index = token_index + 1;
-        while (self.tokens[index].id == Token.Id.LineComment) {
+        while (self.token_ids[index] == Token.Id.LineComment) {
             index += 1;
         }
         return index;
@@ -166,7 +168,7 @@ pub const Error = union(enum) {
     DeclBetweenFields: DeclBetweenFields,
     InvalidAnd: InvalidAnd,
 
-    pub fn render(self: *const Error, tokens: []const Token, stream: var) !void {
+    pub fn render(self: *const Error, tokens: []const Token.Id, stream: var) !void {
         switch (self.*) {
             .InvalidToken => |*x| return x.render(tokens, stream),
             .ExpectedContainerMembers => |*x| return x.render(tokens, stream),
@@ -321,7 +323,7 @@ pub const Error = union(enum) {
     pub const ExpectedCall = struct {
         node: *Node,
 
-        pub fn render(self: *const ExpectedCall, tokens: []const Token, stream: var) !void {
+        pub fn render(self: *const ExpectedCall, tokens: []const Token.Id, stream: var) !void {
             return stream.print("expected " ++ @tagName(Node.Id.Call) ++ ", found {}", .{
                 @tagName(self.node.id),
             });
@@ -331,7 +333,7 @@ pub const Error = union(enum) {
     pub const ExpectedCallOrFnProto = struct {
         node: *Node,
 
-        pub fn render(self: *const ExpectedCallOrFnProto, tokens: []const Token, stream: var) !void {
+        pub fn render(self: *const ExpectedCallOrFnProto, tokens: []const Token.Id, stream: var) !void {
             return stream.print("expected " ++ @tagName(Node.Id.Call) ++ " or " ++
                 @tagName(Node.Id.FnProto) ++ ", found {}", .{@tagName(self.node.id)});
         }
@@ -341,14 +343,14 @@ pub const Error = union(enum) {
         token: TokenIndex,
         expected_id: Token.Id,
 
-        pub fn render(self: *const ExpectedToken, tokens: []const Token, stream: var) !void {
+        pub fn render(self: *const ExpectedToken, tokens: []const Token.Id, stream: var) !void {
             const found_token = tokens[self.token];
-            switch (found_token.id) {
+            switch (found_token) {
                 .Invalid => {
                     return stream.print("expected '{}', found invalid bytes", .{self.expected_id.symbol()});
                 },
                 else => {
-                    const token_name = found_token.id.symbol();
+                    const token_name = found_token.symbol();
                     return stream.print("expected '{}', found '{}'", .{ self.expected_id.symbol(), token_name });
                 },
             }
@@ -359,11 +361,11 @@ pub const Error = union(enum) {
         token: TokenIndex,
         end_id: Token.Id,
 
-        pub fn render(self: *const ExpectedCommaOrEnd, tokens: []const Token, stream: var) !void {
+        pub fn render(self: *const ExpectedCommaOrEnd, tokens: []const Token.Id, stream: var) !void {
             const actual_token = tokens[self.token];
             return stream.print("expected ',' or '{}', found '{}'", .{
                 self.end_id.symbol(),
-                actual_token.id.symbol(),
+                actual_token.symbol(),
             });
         }
     };
@@ -374,9 +376,9 @@ pub const Error = union(enum) {
 
             token: TokenIndex,
 
-            pub fn render(self: *const ThisError, tokens: []const Token, stream: var) !void {
+            pub fn render(self: *const ThisError, tokens: []const Token.Id, stream: var) !void {
                 const actual_token = tokens[self.token];
-                return stream.print(msg, .{actual_token.id.symbol()});
+                return stream.print(msg, .{actual_token.symbol()});
             }
         };
     }
@@ -387,7 +389,7 @@ pub const Error = union(enum) {
 
             token: TokenIndex,
 
-            pub fn render(self: *const ThisError, tokens: []const Token, stream: var) !void {
+            pub fn render(self: *const ThisError, tokens: []const Token.Id, stream: var) !void {
                 return stream.writeAll(msg);
             }
         };

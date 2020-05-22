@@ -3181,7 +3181,7 @@ fn testParse(source: []const u8, allocator: *mem.Allocator, anything_changed: *b
     defer tree.deinit();
 
     for (tree.errors) |*parse_error| {
-        const token = tree.tokens[parse_error.loc()];
+        const token = tree.token_locs[parse_error.loc()];
         const loc = tree.tokenLocation(0, parse_error.loc());
         try stderr.print("(memory buffer):{}:{}: error: ", .{ loc.line + 1, loc.column + 1 });
         try tree.renderError(parse_error, stderr);

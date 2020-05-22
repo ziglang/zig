@@ -247,27 +247,6 @@ pub const Context = struct {
         }
     };
 
-    /// Helper function to append items to a singly linked list.
-    fn llpusher(c: *Context, list: *std.SinglyLinkedList(*ast.Node)) LinkedListPusher {
-        assert(list.first == null);
-        return .{
-            .c = c,
-            .it = &list.first,
-        };
-    }
-
-    fn llpush(
-        c: *Context,
-        comptime T: type,
-        it: *?*std.SinglyLinkedList(T).Node,
-        data: T,
-    ) !*?*std.SinglyLinkedList(T).Node {
-        const llnode = try c.arena.create(std.SinglyLinkedList(T).Node);
-        llnode.* = .{ .data = data };
-        it.* = llnode;
-        return &llnode.next;
-    }
-
     fn getMangle(c: *Context) u32 {
         c.mangle_count += 1;
         return c.mangle_count;
