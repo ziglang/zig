@@ -469,6 +469,7 @@ pub const WriteFileError = error{
     SystemResources,
     OperationAborted,
     BrokenPipe,
+    InvalidFd,
     Unexpected,
 };
 
@@ -542,6 +543,7 @@ pub fn WriteFile(
                 .NOT_ENOUGH_QUOTA => return error.SystemResources,
                 .IO_PENDING => unreachable,
                 .BROKEN_PIPE => return error.BrokenPipe,
+                .INVALID_HANDLE => return error.NotOpenForWriting,
                 else => |err| return unexpectedError(err),
             }
         }
