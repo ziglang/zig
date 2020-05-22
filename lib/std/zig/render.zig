@@ -1376,9 +1376,7 @@ fn renderExpression(
                 skip_first_indent = false;
             }
 
-            var it = multiline_str_literal.lines.first;
-            while (it) |t_node| : (it = t_node.next) {
-                const t = t_node.data;
+            for (multiline_str_literal.lines()) |t| {
                 if (!skip_first_indent) {
                     try stream.writeByteNTimes(' ', indent + indent_delta);
                 }

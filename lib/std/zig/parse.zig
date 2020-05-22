@@ -3105,15 +3105,34 @@ const Parser = struct {
         if (try p.parseStringLiteralSingle()) |node| return node;
 
         if (p.eatToken(.MultilineStringLiteralLine)) |first_line| {
-            const node = try p.arena.allocator.create(Node.MultilineStringLiteral);
-            node.* = .{
-                .lines = Node.MultilineStringLiteral.LineList{},
-            };
-            var lines_it = &node.lines.first;
-            lines_it = try p.llpush(TokenIndex, lines_it, first_line);
-            while (p.eatToken(.MultilineStringLiteralLine)) |line|
-                lines_it = try p.llpush(TokenIndex, lines_it, line);
+            const start_tok_i = p.tok_i;
+            var tok_i = start_tok_i;
+            var count: usize = 1; // including first_line
+            while (true) : (tok_i += 1) {
+                switch (p.tokens[tok_i].id) {
+                    .LineComment => continue,
+                    .MultilineStringLiteralLine => count += 1,
+                    else => break,
+                }
+            }
 
+            const node = try Node.MultilineStringLiteral.alloc(&p.arena.allocator, count);
+            node.* = .{ .lines_len = count };
+            const lines = node.lines();
+            tok_i = start_tok_i;
+            lines[0] = first_line;
+            count = 1;
+            while (true) : (tok_i += 1) {
+                switch (p.tokens[tok_i].id) {
+                    .LineComment => continue,
+                    .MultilineStringLiteralLine => {
+                        lines[count] = tok_i;
+                        count += 1;
+                    },
+                    else => break,
+                }
+            }
+            p.tok_i = tok_i;
             return &node.base;
         }
 
