@@ -1318,12 +1318,13 @@ const Parser = struct {
                 const next = (try p.parseFieldInit()) orelse break;
                 try init_list.append(next);
             }
-            const node = try p.arena.allocator.create(Node.StructInitializer);
+            const node = try Node.StructInitializer.alloc(&p.arena.allocator, init_list.items.len);
             node.* = .{
                 .lhs = lhs,
                 .rtoken = try p.expectToken(.RBrace),
-                .list = try p.arena.allocator.dupe(*Node, init_list.items),
+                .list_len = init_list.items.len,
             };
+            std.mem.copy(*Node, node.list(), init_list.items);
             return &node.base;
         }
 
@@ -1333,12 +1334,13 @@ const Parser = struct {
                 const next = (try p.parseExpr()) orelse break;
                 try init_list.append(next);
             }
-            const node = try p.arena.allocator.create(Node.ArrayInitializer);
+            const node = try Node.ArrayInitializer.alloc(&p.arena.allocator, init_list.items.len);
             node.* = .{
                 .lhs = lhs,
                 .rtoken = try p.expectToken(.RBrace),
-                .list = try p.arena.allocator.dupe(*Node, init_list.items),
+                .list_len = init_list.items.len,
             };
+            std.mem.copy(*Node, node.list(), init_list.items);
             return &node.base;
         }
 
@@ -1346,7 +1348,7 @@ const Parser = struct {
         node.* = .{
             .lhs = lhs,
             .rtoken = try p.expectToken(.RBrace),
-            .list = &[0]*Node{},
+            .list_len = 0,
         };
         return &node.base;
     }
@@ -1366,12 +1368,13 @@ const Parser = struct {
                 const next = (try p.parseFieldInit()) orelse break;
                 try init_list.append(next);
             }
-            const node = try p.arena.allocator.create(Node.StructInitializerDot);
+            const node = try Node.StructInitializerDot.alloc(&p.arena.allocator, init_list.items.len);
             node.* = .{
                 .dot = dot,
                 .rtoken = try p.expectToken(.RBrace),
-                .list = try p.arena.allocator.dupe(*Node, init_list.items),
+                .list_len = init_list.items.len,
             };
+            std.mem.copy(*Node, node.list(), init_list.items);
             return &node.base;
         }
 
@@ -1381,12 +1384,13 @@ const Parser = struct {
                 const next = (try p.parseExpr()) orelse break;
                 try init_list.append(next);
             }
-            const node = try p.arena.allocator.create(Node.ArrayInitializerDot);
+            const node = try Node.ArrayInitializerDot.alloc(&p.arena.allocator, init_list.items.len);
             node.* = .{
                 .dot = dot,
                 .rtoken = try p.expectToken(.RBrace),
-                .list = try p.arena.allocator.dupe(*Node, init_list.items),
+                .list_len = init_list.items.len,
             };
+            std.mem.copy(*Node, node.list(), init_list.items);
             return &node.base;
         }
 
@@ -1394,7 +1398,7 @@ const Parser = struct {
         node.* = .{
             .dot = dot,
             .rtoken = try p.expectToken(.RBrace),
-            .list = &[0]*Node{},
+            .list_len = 0,
         };
         return &node.base;
     }

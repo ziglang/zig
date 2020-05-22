@@ -620,13 +620,13 @@ fn renderExpression(
                 .ArrayInitializerDot => blk: {
                     const casted = @fieldParentPtr(ast.Node.ArrayInitializerDot, "base", base);
                     rtoken = casted.rtoken;
-                    exprs = casted.list;
+                    exprs = casted.list();
                     break :blk .{ .dot = casted.dot };
                 },
                 .ArrayInitializer => blk: {
                     const casted = @fieldParentPtr(ast.Node.ArrayInitializer, "base", base);
                     rtoken = casted.rtoken;
-                    exprs = casted.list;
+                    exprs = casted.list();
                     break :blk .{ .node = casted.lhs };
                 },
                 else => unreachable,
@@ -784,13 +784,13 @@ fn renderExpression(
                 .StructInitializerDot => blk: {
                     const casted = @fieldParentPtr(ast.Node.StructInitializerDot, "base", base);
                     rtoken = casted.rtoken;
-                    field_inits = casted.list;
+                    field_inits = casted.list();
                     break :blk .{ .dot = casted.dot };
                 },
                 .StructInitializer => blk: {
                     const casted = @fieldParentPtr(ast.Node.StructInitializer, "base", base);
                     rtoken = casted.rtoken;
-                    field_inits = casted.list;
+                    field_inits = casted.list();
                     break :blk .{ .node = casted.lhs };
                 },
                 else => unreachable,

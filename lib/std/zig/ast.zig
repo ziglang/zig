@@ -2067,11 +2067,23 @@ pub const Node = struct {
         }
     };
 
+    /// Elements occur directly in memory after ArrayInitializer.
     pub const ArrayInitializer = struct {
         base: Node = Node{ .id = .ArrayInitializer },
         rtoken: TokenIndex,
+        list_len: NodeIndex,
         lhs: *Node,
-        list: []*Node,
+
+        /// After this the caller must initialize the fields_and_decls list.
+        pub fn alloc(allocator: *mem.Allocator, list_len: NodeIndex) !*ArrayInitializer {
+            const bytes = try allocator.alignedAlloc(u8, @alignOf(ArrayInitializer), sizeInBytes(list_len));
+            return @ptrCast(*ArrayInitializer, bytes.ptr);
+        }
+
+        pub fn free(self: *ArrayInitializer, allocator: *mem.Allocator) void {
+            const bytes = @ptrCast([*]u8, self)[0..sizeInBytes(self.list_len)];
+            allocator.free(bytes);
+        }
 
         pub fn iterate(self: *const ArrayInitializer) Node.Iterator {
             return .{ .parent_node = &self.base, .index = 0, .node = null };
@@ -2084,8 +2096,8 @@ pub const Node = struct {
             if (i < 1) return self.lhs;
             i -= 1;
 
-            if (i < self.list.len) return self.list[i];
-            i -= self.list.len;
+            if (i < self.list_len) return self.listConst()[i];
+            i -= self.list_len;
 
             return null;
         }
@@ -2097,13 +2109,39 @@ pub const Node = struct {
         pub fn lastToken(self: *const ArrayInitializer) TokenIndex {
             return self.rtoken;
         }
+
+        pub fn list(self: *ArrayInitializer) []*Node {
+            const decls_start = @ptrCast([*]u8, self) + @sizeOf(ArrayInitializer);
+            return @ptrCast([*]*Node, decls_start)[0..self.list_len];
+        }
+
+        pub fn listConst(self: *const ArrayInitializer) []const *Node {
+            const decls_start = @ptrCast([*]const u8, self) + @sizeOf(ArrayInitializer);
+            return @ptrCast([*]const *Node, decls_start)[0..self.list_len];
+        }
+
+        fn sizeInBytes(list_len: NodeIndex) usize {
+            return @sizeOf(ArrayInitializer) + @sizeOf(*Node) * @as(usize, list_len);
+        }
     };
 
+    /// Elements occur directly in memory after ArrayInitializerDot.
     pub const ArrayInitializerDot = struct {
         base: Node = Node{ .id = .ArrayInitializerDot },
         dot: TokenIndex,
         rtoken: TokenIndex,
-        list: []*Node,
+        list_len: NodeIndex,
+
+        /// After this the caller must initialize the fields_and_decls list.
+        pub fn alloc(allocator: *mem.Allocator, list_len: NodeIndex) !*ArrayInitializerDot {
+            const bytes = try allocator.alignedAlloc(u8, @alignOf(ArrayInitializerDot), sizeInBytes(list_len));
+            return @ptrCast(*ArrayInitializerDot, bytes.ptr);
+        }
+
+        pub fn free(self: *ArrayInitializerDot, allocator: *mem.Allocator) void {
+            const bytes = @ptrCast([*]u8, self)[0..sizeInBytes(self.list_len)];
+            allocator.free(bytes);
+        }
 
         pub fn iterate(self: *const ArrayInitializerDot) Node.Iterator {
             return .{ .parent_node = &self.base, .index = 0, .node = null };
@@ -2113,8 +2151,8 @@ pub const Node = struct {
             var i = it.index;
             it.index += 1;
 
-            if (i < self.list.len) return self.list[i];
-            i -= self.list.len;
+            if (i < self.list_len) return self.listConst()[i];
+            i -= self.list_len;
 
             return null;
         }
@@ -2126,13 +2164,39 @@ pub const Node = struct {
         pub fn lastToken(self: *const ArrayInitializerDot) TokenIndex {
             return self.rtoken;
         }
+
+        pub fn list(self: *ArrayInitializerDot) []*Node {
+            const decls_start = @ptrCast([*]u8, self) + @sizeOf(ArrayInitializerDot);
+            return @ptrCast([*]*Node, decls_start)[0..self.list_len];
+        }
+
+        pub fn listConst(self: *const ArrayInitializerDot) []const *Node {
+            const decls_start = @ptrCast([*]const u8, self) + @sizeOf(ArrayInitializerDot);
+            return @ptrCast([*]const *Node, decls_start)[0..self.list_len];
+        }
+
+        fn sizeInBytes(list_len: NodeIndex) usize {
+            return @sizeOf(ArrayInitializerDot) + @sizeOf(*Node) * @as(usize, list_len);
+        }
     };
 
+    /// Elements occur directly in memory after StructInitializer.
     pub const StructInitializer = struct {
         base: Node = Node{ .id = .StructInitializer },
         rtoken: TokenIndex,
+        list_len: NodeIndex,
         lhs: *Node,
-        list: []*Node,
+
+        /// After this the caller must initialize the fields_and_decls list.
+        pub fn alloc(allocator: *mem.Allocator, list_len: NodeIndex) !*StructInitializer {
+            const bytes = try allocator.alignedAlloc(u8, @alignOf(StructInitializer), sizeInBytes(list_len));
+            return @ptrCast(*StructInitializer, bytes.ptr);
+        }
+
+        pub fn free(self: *StructInitializer, allocator: *mem.Allocator) void {
+            const bytes = @ptrCast([*]u8, self)[0..sizeInBytes(self.list_len)];
+            allocator.free(bytes);
+        }
 
         pub fn iterate(self: *const StructInitializer) Node.Iterator {
             return .{ .parent_node = &self.base, .index = 0, .node = null };
@@ -2145,8 +2209,8 @@ pub const Node = struct {
             if (i < 1) return self.lhs;
             i -= 1;
 
-            if (i < self.list.len) return self.list[i];
-            i -= self.list.len;
+            if (i < self.list_len) return self.listConst()[i];
+            i -= self.list_len;
 
             return null;
         }
@@ -2158,13 +2222,39 @@ pub const Node = struct {
         pub fn lastToken(self: *const StructInitializer) TokenIndex {
             return self.rtoken;
         }
+
+        pub fn list(self: *StructInitializer) []*Node {
+            const decls_start = @ptrCast([*]u8, self) + @sizeOf(StructInitializer);
+            return @ptrCast([*]*Node, decls_start)[0..self.list_len];
+        }
+
+        pub fn listConst(self: *const StructInitializer) []const *Node {
+            const decls_start = @ptrCast([*]const u8, self) + @sizeOf(StructInitializer);
+            return @ptrCast([*]const *Node, decls_start)[0..self.list_len];
+        }
+
+        fn sizeInBytes(list_len: NodeIndex) usize {
+            return @sizeOf(StructInitializer) + @sizeOf(*Node) * @as(usize, list_len);
+        }
     };
 
+    /// Elements occur directly in memory after StructInitializerDot.
     pub const StructInitializerDot = struct {
         base: Node = Node{ .id = .StructInitializerDot },
         dot: TokenIndex,
         rtoken: TokenIndex,
-        list: []*Node,
+        list_len: NodeIndex,
+
+        /// After this the caller must initialize the fields_and_decls list.
+        pub fn alloc(allocator: *mem.Allocator, list_len: NodeIndex) !*StructInitializerDot {
+            const bytes = try allocator.alignedAlloc(u8, @alignOf(StructInitializerDot), sizeInBytes(list_len));
+            return @ptrCast(*StructInitializerDot, bytes.ptr);
+        }
+
+        pub fn free(self: *StructInitializerDot, allocator: *mem.Allocator) void {
+            const bytes = @ptrCast([*]u8, self)[0..sizeInBytes(self.list_len)];
+            allocator.free(bytes);
+        }
 
         pub fn iterate(self: *const StructInitializerDot) Node.Iterator {
             return .{ .parent_node = &self.base, .index = 0, .node = null };
@@ -2174,8 +2264,8 @@ pub const Node = struct {
             var i = it.index;
             it.index += 1;
 
-            if (i < self.list.len) return self.list[i];
-            i -= self.list.len;
+            if (i < self.list_len) return self.listConst()[i];
+            i -= self.list_len;
 
             return null;
         }
@@ -2186,6 +2276,20 @@ pub const Node = struct {
 
         pub fn lastToken(self: *const StructInitializerDot) TokenIndex {
             return self.rtoken;
+        }
+
+        pub fn list(self: *StructInitializerDot) []*Node {
+            const decls_start = @ptrCast([*]u8, self) + @sizeOf(StructInitializerDot);
+            return @ptrCast([*]*Node, decls_start)[0..self.list_len];
+        }
+
+        pub fn listConst(self: *const StructInitializerDot) []const *Node {
+            const decls_start = @ptrCast([*]const u8, self) + @sizeOf(StructInitializerDot);
+            return @ptrCast([*]const *Node, decls_start)[0..self.list_len];
+        }
+
+        fn sizeInBytes(list_len: NodeIndex) usize {
+            return @sizeOf(StructInitializerDot) + @sizeOf(*Node) * @as(usize, list_len);
         }
     };
 
