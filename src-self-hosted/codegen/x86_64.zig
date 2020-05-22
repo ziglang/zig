@@ -6,8 +6,8 @@
 /// registers. This results in some very, very useful properties:
 ///
 /// Any 64-bit register can be turned into its 32-bit form by adding 16, and
-/// vice verse. This also works between 32-bit and 16-bit. With 8-bit, it works
-/// for all except for sp, bp, si, and di, which don't *have* an eight-bit
+/// vice versa. This also works between 32-bit and 16-bit forms. With 8-bit, it
+/// works for all except for sp, bp, si, and di, which don't *have* an 8-bit
 /// form.
 ///
 /// If (register & 8) is set, the register is extended.
