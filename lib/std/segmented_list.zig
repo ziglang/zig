@@ -438,7 +438,7 @@ fn testSegmentedList(comptime prealloc: usize, allocator: *Allocator) !void {
         var i: i32 = 0;
         while (i < 100) : (i += 1) {
             try list.push(i + 1);
-            control[i] = i + 1;
+            control[@intCast(usize, i)] = i + 1;
         }
 
         std.mem.set(i32, dest[0..], 0);
