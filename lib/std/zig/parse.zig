@@ -520,10 +520,9 @@ const Parser = struct {
                 p.putBackToken(token);
             return null;
         };
-        var var_args_token: ?TokenIndex = null;
         const name_token = p.eatToken(.Identifier);
         const lparen = try p.expectToken(.LParen);
-        const params = try p.parseParamDeclList(&var_args_token);
+        const params = try p.parseParamDeclList();
         defer p.gpa.free(params);
         const rparen = try p.expectToken(.RParen);
         const align_expr = try p.parseByteAlign();
@@ -547,15 +546,19 @@ const Parser = struct {
         else
             R{ .Explicit = return_type_expr.? };
 
-        const params_len = @intCast(NodeIndex, params.len);
+        const var_args_token = if (params.len > 0) blk: {
+            const param_type = params[params.len - 1].param_type;
+            break :blk if (param_type == .var_args) param_type.var_args else null;
+        } else
+            null;
 
-        const fn_proto_node = try Node.FnProto.alloc(&p.arena.allocator, params_len);
+        const fn_proto_node = try Node.FnProto.alloc(&p.arena.allocator, params.len);
         fn_proto_node.* = .{
             .doc_comments = null,
             .visib_token = null,
             .fn_token = fn_token,
             .name_token = name_token,
-            .params_len = params_len,
+            .params_len = params.len,
             .return_type = return_type,
             .var_args_token = var_args_token,
             .extern_export_inline_token = null,
@@ -1455,17 +1458,15 @@ const Parser = struct {
                 // ignore this, continue parsing
                 return res;
             };
-            const node = try p.arena.allocator.create(Node.SuffixOp);
+            defer p.gpa.free(params.list);
+            const node = try Node.Call.alloc(&p.arena.allocator, params.list.len);
             node.* = .{
                 .lhs = res,
-                .op = .{
-                    .Call = .{
-                        .params = params.list,
-                        .async_token = async_token,
-                    },
-                },
+                .params_len = params.list.len,
+                .async_token = async_token,
                 .rtoken = params.rparen,
             };
+            std.mem.copy(*Node, node.params(), params.list);
             return &node.base;
         }
         if (try p.parsePrimaryTypeExpr()) |expr| {
@@ -1482,17 +1483,15 @@ const Parser = struct {
                     continue;
                 }
                 if (try p.parseFnCallArguments()) |params| {
-                    const call = try p.arena.allocator.create(Node.SuffixOp);
+                    defer p.gpa.free(params.list);
+                    const call = try Node.Call.alloc(&p.arena.allocator, params.list.len);
                     call.* = .{
                         .lhs = res,
-                        .op = .{
-                            .Call = .{
-                                .params = params.list,
-                                .async_token = null,
-                            },
-                        },
+                        .params_len = params.list.len,
+                        .async_token = null,
                         .rtoken = params.rparen,
                     };
+                    std.mem.copy(*Node, call.params(), params.list);
                     res = &call.base;
                     continue;
                 }
@@ -1615,14 +1614,16 @@ const Parser = struct {
             return null;
         }
         const decls = try p.parseErrorTagList();
+        defer p.gpa.free(decls);
         const rbrace = try p.expectToken(.RBrace);
 
-        const node = try p.arena.allocator.create(Node.ErrorSetDecl);
+        const node = try Node.ErrorSetDecl.alloc(&p.arena.allocator, decls.len);
         node.* = .{
             .error_token = error_token,
-            .decls = decls,
+            .decls_len = decls.len,
             .rbrace_token = rbrace,
         };
+        std.mem.copy(*Node, node.decls(), decls);
         return &node.base;
     }
 
@@ -1769,19 +1770,25 @@ const Parser = struct {
         _ = try p.expectToken(.RParen);
         _ = try p.expectToken(.LBrace);
         const cases = try p.parseSwitchProngList();
+        defer p.gpa.free(cases);
         const rbrace = try p.expectToken(.RBrace);
 
-        const node = try p.arena.allocator.create(Node.Switch);
+        const node = try Node.Switch.alloc(&p.arena.allocator, cases.len);
         node.* = .{
             .switch_token = switch_token,
             .expr = expr_node,
-            .cases = cases,
+            .cases_len = cases.len,
             .rbrace = rbrace,
         };
+        std.mem.copy(*Node, node.cases(), cases);
         return &node.base;
     }
 
     /// AsmExpr <- KEYWORD_asm KEYWORD_volatile? LPAREN Expr AsmOutput? RPAREN
+    /// AsmOutput <- COLON AsmOutputList AsmInput?
+    /// AsmInput <- COLON AsmInputList AsmClobbers?
+    /// AsmClobbers <- COLON StringList
+    /// StringList <- (STRINGLITERAL COMMA)* STRINGLITERAL?
     fn parseAsmExpr(p: *Parser) !?*Node {
         const asm_token = p.eatToken(.Keyword_asm) orelse return null;
         const volatile_token = p.eatToken(.Keyword_volatile);
@@ -1790,19 +1797,39 @@ const Parser = struct {
             .ExpectedExpr = .{ .token = p.tok_i },
         });
 
+        var arena_outputs: []Node.Asm.Output = &[0]Node.Asm.Output{};
+        var arena_inputs: []Node.Asm.Input = &[0]Node.Asm.Input{};
+        var arena_clobbers: []*Node = &[0]*Node{};
+
+        if (p.eatToken(.Colon) != null) {
+            const outputs = try p.parseAsmOutputList();
+            defer p.gpa.free(outputs);
+            arena_outputs = try p.arena.allocator.dupe(Node.Asm.Output, outputs);
+
+            if (p.eatToken(.Colon) != null) {
+                const inputs = try p.parseAsmInputList();
+                defer p.gpa.free(inputs);
+                arena_inputs = try p.arena.allocator.dupe(Node.Asm.Input, inputs);
+
+                if (p.eatToken(.Colon) != null) {
+                    const clobbers = try ListParseFn(*Node, parseStringLiteral)(p);
+                    defer p.gpa.free(clobbers);
+                    arena_clobbers = try p.arena.allocator.dupe(*Node, clobbers);
+                }
+            }
+        }
+
         const node = try p.arena.allocator.create(Node.Asm);
         node.* = .{
             .asm_token = asm_token,
             .volatile_token = volatile_token,
             .template = template,
-            .outputs = Node.Asm.OutputList{},
-            .inputs = Node.Asm.InputList{},
-            .clobbers = Node.Asm.ClobberList{},
-            .rparen = undefined,
+            .outputs = arena_outputs,
+            .inputs = arena_inputs,
+            .clobbers = arena_clobbers,
+            .rparen = try p.expectToken(.RParen),
         };
 
-        try p.parseAsmOutput(node);
-        node.rparen = try p.expectToken(.RParen);
         return &node.base;
     }
 
@@ -1828,15 +1855,8 @@ const Parser = struct {
         return null;
     }
 
-    /// AsmOutput <- COLON AsmOutputList AsmInput?
-    fn parseAsmOutput(p: *Parser, asm_node: *Node.Asm) !void {
-        if (p.eatToken(.Colon) == null) return;
-        asm_node.outputs = try p.parseAsmOutputList();
-        try p.parseAsmInput(asm_node);
-    }
-
     /// AsmOutputItem <- LBRACKET IDENTIFIER RBRACKET STRINGLITERAL LPAREN (MINUSRARROW TypeExpr / IDENTIFIER) RPAREN
-    fn parseAsmOutputItem(p: *Parser) !?*Node.AsmOutput {
+    fn parseAsmOutputItem(p: *Parser) !?Node.Asm.Output {
         const lbracket = p.eatToken(.LBracket) orelse return null;
         const name = try p.expectNode(parseIdentifier, .{
             .ExpectedIdentifier = .{ .token = p.tok_i },
@@ -1848,7 +1868,7 @@ const Parser = struct {
         });
 
         _ = try p.expectToken(.LParen);
-        const kind: Node.AsmOutput.Kind = blk: {
+        const kind: Node.Asm.Output.Kind = blk: {
             if (p.eatToken(.Arrow) != null) {
                 const return_ident = try p.expectNode(parseTypeExpr, .{
                     .ExpectedTypeExpr = .{ .token = p.tok_i },
@@ -1862,26 +1882,17 @@ const Parser = struct {
         };
         const rparen = try p.expectToken(.RParen);
 
-        const node = try p.arena.allocator.create(Node.AsmOutput);
-        node.* = .{
+        return Node.Asm.Output{
             .lbracket = lbracket,
             .symbolic_name = name,
             .constraint = constraint,
             .kind = kind,
             .rparen = rparen,
         };
-        return node;
-    }
-
-    /// AsmInput <- COLON AsmInputList AsmClobbers?
-    fn parseAsmInput(p: *Parser, asm_node: *Node.Asm) !void {
-        if (p.eatToken(.Colon) == null) return;
-        asm_node.inputs = try p.parseAsmInputList();
-        try p.parseAsmClobbers(asm_node);
     }
 
     /// AsmInputItem <- LBRACKET IDENTIFIER RBRACKET STRINGLITERAL LPAREN Expr RPAREN
-    fn parseAsmInputItem(p: *Parser) !?*Node.AsmInput {
+    fn parseAsmInputItem(p: *Parser) !?Node.Asm.Input {
         const lbracket = p.eatToken(.LBracket) orelse return null;
         const name = try p.expectNode(parseIdentifier, .{
             .ExpectedIdentifier = .{ .token = p.tok_i },
@@ -1898,25 +1909,13 @@ const Parser = struct {
         });
         const rparen = try p.expectToken(.RParen);
 
-        const node = try p.arena.allocator.create(Node.AsmInput);
-        node.* = .{
+        return Node.Asm.Input{
             .lbracket = lbracket,
             .symbolic_name = name,
             .constraint = constraint,
             .expr = expr,
             .rparen = rparen,
         };
-        return node;
-    }
-
-    /// AsmClobbers <- COLON StringList
-    /// StringList <- (STRINGLITERAL COMMA)* STRINGLITERAL?
-    fn parseAsmClobbers(p: *Parser, asm_node: *Node.Asm) !void {
-        if (p.eatToken(.Colon) == null) return;
-        asm_node.clobbers = try ListParseFn(
-            Node.Asm.ClobberList,
-            parseStringLiteral,
-        )(p);
     }
 
     /// BreakLabel <- COLON IDENTIFIER
@@ -1999,7 +1998,7 @@ const Parser = struct {
     }
 
     /// ParamDecl <- (KEYWORD_noalias / KEYWORD_comptime)? (IDENTIFIER COLON)? ParamType
-    fn parseParamDecl(p: *Parser, list: *std.ArrayList(Node.FnProto.ParamDecl)) !bool {
+    fn parseParamDecl(p: *Parser) !?Node.FnProto.ParamDecl {
         const doc_comments = try p.parseDocComment();
         const noalias_token = p.eatToken(.Keyword_noalias);
         const comptime_token = if (noalias_token == null) p.eatToken(.Keyword_comptime) else null;
@@ -2014,21 +2013,23 @@ const Parser = struct {
             if (noalias_token == null and
                 comptime_token == null and
                 name_token == null and
-                doc_comments == null) return false;
+                doc_comments == null)
+            {
+                return null;
+            }
             try p.errors.append(p.gpa, .{
                 .ExpectedParamType = .{ .token = p.tok_i },
             });
             return error.ParseError;
         };
 
-        (try list.addOne()).* = .{
+        return Node.FnProto.ParamDecl{
             .doc_comments = doc_comments,
             .comptime_token = comptime_token,
             .noalias_token = noalias_token,
             .name_token = name_token,
             .param_type = param_type,
         };
-        return true;
     }
 
     /// ParamType
@@ -2714,13 +2715,14 @@ const Parser = struct {
     /// ExprList <- (Expr COMMA)* Expr?
     fn parseFnCallArguments(p: *Parser) !?AnnotatedParamList {
         if (p.eatToken(.LParen) == null) return null;
-        const list = try ListParseFn(std.SinglyLinkedList(*Node), parseExpr)(p);
+        const list = try ListParseFn(*Node, parseExpr)(p);
+        errdefer p.gpa.free(list);
         const rparen = try p.expectToken(.RParen);
         return AnnotatedParamList{ .list = list, .rparen = rparen };
     }
 
     const AnnotatedParamList = struct {
-        list: std.SinglyLinkedList(*Node),
+        list: []*Node,
         rparen: TokenIndex,
     };
 
@@ -2936,62 +2938,40 @@ const Parser = struct {
 
     /// IdentifierList <- (IDENTIFIER COMMA)* IDENTIFIER?
     /// Only ErrorSetDecl parses an IdentifierList
-    fn parseErrorTagList(p: *Parser) !Node.ErrorSetDecl.DeclList {
-        return ListParseFn(Node.ErrorSetDecl.DeclList, parseErrorTag)(p);
+    fn parseErrorTagList(p: *Parser) ![]*Node {
+        return ListParseFn(*Node, parseErrorTag)(p);
     }
 
     /// SwitchProngList <- (SwitchProng COMMA)* SwitchProng?
-    fn parseSwitchProngList(p: *Parser) !Node.Switch.CaseList {
-        return ListParseFn(Node.Switch.CaseList, parseSwitchProng)(p);
+    fn parseSwitchProngList(p: *Parser) ![]*Node {
+        return ListParseFn(*Node, parseSwitchProng)(p);
     }
 
     /// AsmOutputList <- (AsmOutputItem COMMA)* AsmOutputItem?
-    fn parseAsmOutputList(p: *Parser) Error!Node.Asm.OutputList {
-        return ListParseFn(Node.Asm.OutputList, parseAsmOutputItem)(p);
+    fn parseAsmOutputList(p: *Parser) Error![]Node.Asm.Output {
+        return ListParseFn(Node.Asm.Output, parseAsmOutputItem)(p);
     }
 
     /// AsmInputList <- (AsmInputItem COMMA)* AsmInputItem?
-    fn parseAsmInputList(p: *Parser) Error!Node.Asm.InputList {
-        return ListParseFn(Node.Asm.InputList, parseAsmInputItem)(p);
+    fn parseAsmInputList(p: *Parser) Error![]Node.Asm.Input {
+        return ListParseFn(Node.Asm.Input, parseAsmInputItem)(p);
     }
 
     /// ParamDeclList <- (ParamDecl COMMA)* ParamDecl?
-    fn parseParamDeclList(p: *Parser, var_args_token: *?TokenIndex) ![]Node.FnProto.ParamDecl {
-        var list = std.ArrayList(Node.FnProto.ParamDecl).init(p.gpa);
-        defer list.deinit();
-
-        while (try p.parseParamDecl(&list)) {
-            switch (p.tokens[p.tok_i].id) {
-                .Comma => _ = p.nextToken(),
-                // all possible delimiters
-                .Colon, .RParen, .RBrace, .RBracket => break,
-                else => {
-                    // this is likely just a missing comma,
-                    // continue parsing this list and give an error
-                    try p.errors.append(p.gpa, .{
-                        .ExpectedToken = .{ .token = p.tok_i, .expected_id = .Comma },
-                    });
-                },
-            }
-        }
-        if (list.items.len != 0) {
-            const param_type = list.items[list.items.len - 1].param_type;
-            if (param_type == .var_args) {
-                var_args_token.* = param_type.var_args;
-            }
-        }
-        return list.toOwnedSlice();
+    fn parseParamDeclList(p: *Parser) ![]Node.FnProto.ParamDecl {
+        return ListParseFn(Node.FnProto.ParamDecl, parseParamDecl)(p);
     }
 
     const NodeParseFn = fn (p: *Parser) Error!?*Node;
 
-    fn ListParseFn(comptime L: type, comptime nodeParseFn: var) ParseFn(L) {
+    fn ListParseFn(comptime E: type, comptime nodeParseFn: var) ParseFn([]E) {
         return struct {
-            pub fn parse(p: *Parser) !L {
-                var list = L{};
-                var list_it = &list.first;
-                while (try nodeParseFn(p)) |node| {
-                    list_it = try p.llpush(L.Node.Data, list_it, node);
+            pub fn parse(p: *Parser) ![]E {
+                var list = std.ArrayList(E).init(p.gpa);
+                defer list.deinit();
+
+                while (try nodeParseFn(p)) |item| {
+                    try list.append(item);
 
                     switch (p.tokens[p.tok_i].id) {
                         .Comma => _ = p.nextToken(),
@@ -3006,7 +2986,7 @@ const Parser = struct {
                         },
                     }
                 }
-                return list;
+                return list.toOwnedSlice();
             }
         }.parse;
     }
@@ -3053,12 +3033,15 @@ const Parser = struct {
             };
             return &node.base;
         };
-        const node = try p.arena.allocator.create(Node.BuiltinCall);
+        defer p.gpa.free(params.list);
+
+        const node = try Node.BuiltinCall.alloc(&p.arena.allocator, params.list.len);
         node.* = .{
             .builtin_token = token,
-            .params = params.list,
+            .params_len = params.list.len,
             .rparen_token = params.rparen,
         };
+        std.mem.copy(*Node, node.params(), params.list);
         return &node.base;
     }
 

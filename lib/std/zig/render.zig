@@ -187,7 +187,10 @@ fn renderRoot(
 }
 
 fn renderExtraNewline(tree: *ast.Tree, stream: var, start_col: *usize, node: *ast.Node) @TypeOf(stream).Error!void {
-    const first_token = node.firstToken();
+    return renderExtraNewlineToken(tree, stream, start_col, node.firstToken());
+}
+
+fn renderExtraNewlineToken(tree: *ast.Tree, stream: var, start_col: *usize, first_token: ast.TokenIndex,) @TypeOf(stream).Error!void {
     var prev_token = first_token;
     if (prev_token == 0) return;
     var newline_threshold: usize = 2;
@@ -902,74 +905,70 @@ fn renderExpression(
             return renderToken(tree, stream, rtoken, indent, start_col, space);
         },
 
+        .Call => {
+            const call = @fieldParentPtr(ast.Node.Call, "base", base);
+            if (call.async_token) |async_token| {
+                try renderToken(tree, stream, async_token, indent, start_col, Space.Space);
+            }
+
+            try renderExpression(allocator, stream, tree, indent, start_col, call.lhs, Space.None);
+
+            const lparen = tree.nextToken(call.lhs.lastToken());
+
+            if (call.params_len == 0) {
+                try renderToken(tree, stream, lparen, indent, start_col, Space.None);
+                return renderToken(tree, stream, call.rtoken, indent, start_col, space);
+            }
+
+            const src_has_trailing_comma = blk: {
+                const maybe_comma = tree.prevToken(call.rtoken);
+                break :blk tree.tokens[maybe_comma].id == .Comma;
+            };
+
+            if (src_has_trailing_comma) {
+                const new_indent = indent + indent_delta;
+                try renderToken(tree, stream, lparen, new_indent, start_col, Space.Newline);
+
+                const params = call.params();
+                for (params) |param_node, i| {
+                    const param_node_new_indent = if (param_node.id == .MultilineStringLiteral) blk: {
+                        break :blk indent;
+                    } else blk: {
+                        try stream.writeByteNTimes(' ', new_indent);
+                        break :blk new_indent;
+                    };
+
+                    if (i + 1 < params.len) {
+                        try renderExpression(allocator, stream, tree, param_node_new_indent, start_col, param_node, Space.None);
+                        const comma = tree.nextToken(param_node.lastToken());
+                        try renderToken(tree, stream, comma, new_indent, start_col, Space.Newline); // ,
+                        try renderExtraNewline(tree, stream, start_col, params[i + 1]);
+                    } else {
+                        try renderExpression(allocator, stream, tree, param_node_new_indent, start_col, param_node, Space.Comma);
+                        try stream.writeByteNTimes(' ', indent);
+                        return renderToken(tree, stream, call.rtoken, indent, start_col, space);
+                    }
+                }
+            }
+
+            try renderToken(tree, stream, lparen, indent, start_col, Space.None); // (
+
+            const params = call.params();
+            for (params) |param_node, i| {
+                try renderExpression(allocator, stream, tree, indent, start_col, param_node, Space.None);
+
+                if (i + 1 < params.len) {
+                    const comma = tree.nextToken(param_node.lastToken());
+                    try renderToken(tree, stream, comma, indent, start_col, Space.Space);
+                }
+            }
+            return renderToken(tree, stream, call.rtoken, indent, start_col, space);
+        },
+
         .SuffixOp => {
             const suffix_op = @fieldParentPtr(ast.Node.SuffixOp, "base", base);
 
             switch (suffix_op.op) {
-                .Call => |*call_info| {
-                    if (call_info.async_token) |async_token| {
-                        try renderToken(tree, stream, async_token, indent, start_col, Space.Space);
-                    }
-
-                    try renderExpression(allocator, stream, tree, indent, start_col, suffix_op.lhs, Space.None);
-
-                    const lparen = tree.nextToken(suffix_op.lhs.lastToken());
-
-                    if (call_info.params.first == null) {
-                        try renderToken(tree, stream, lparen, indent, start_col, Space.None);
-                        return renderToken(tree, stream, suffix_op.rtoken, indent, start_col, space);
-                    }
-
-                    const src_has_trailing_comma = blk: {
-                        const maybe_comma = tree.prevToken(suffix_op.rtoken);
-                        break :blk tree.tokens[maybe_comma].id == .Comma;
-                    };
-
-                    if (src_has_trailing_comma) {
-                        const new_indent = indent + indent_delta;
-                        try renderToken(tree, stream, lparen, new_indent, start_col, Space.Newline);
-
-                        var it = call_info.params.first;
-                        while (true) {
-                            const param_node_node = it.?;
-                            it = param_node_node.next;
-                            const param_node = param_node_node.data;
-
-                            const param_node_new_indent = if (param_node.id == .MultilineStringLiteral) blk: {
-                                break :blk indent;
-                            } else blk: {
-                                try stream.writeByteNTimes(' ', new_indent);
-                                break :blk new_indent;
-                            };
-
-                            if (it) |next_node| {
-                                try renderExpression(allocator, stream, tree, param_node_new_indent, start_col, param_node, Space.None);
-                                const comma = tree.nextToken(param_node.lastToken());
-                                try renderToken(tree, stream, comma, new_indent, start_col, Space.Newline); // ,
-                                try renderExtraNewline(tree, stream, start_col, next_node.data);
-                            } else {
-                                try renderExpression(allocator, stream, tree, param_node_new_indent, start_col, param_node, Space.Comma);
-                                try stream.writeByteNTimes(' ', indent);
-                                return renderToken(tree, stream, suffix_op.rtoken, indent, start_col, space);
-                            }
-                        }
-                    }
-
-                    try renderToken(tree, stream, lparen, indent, start_col, Space.None); // (
-
-                    var it = call_info.params.first;
-                    while (it) |param_node_node| : (it = param_node_node.next) {
-                        const param_node = param_node_node.data;
-                        try renderExpression(allocator, stream, tree, indent, start_col, param_node, Space.None);
-
-                        if (param_node_node.next != null) {
-                            const comma = tree.nextToken(param_node.lastToken());
-                            try renderToken(tree, stream, comma, indent, start_col, Space.Space);
-                        }
-                    }
-                    return renderToken(tree, stream, suffix_op.rtoken, indent, start_col, space);
-                },
-
                 .ArrayAccess => |index_expr| {
                     const lbracket = tree.nextToken(suffix_op.lhs.lastToken());
                     const rbracket = tree.nextToken(index_expr.lastToken());
@@ -1288,14 +1287,14 @@ fn renderExpression(
 
             const lbrace = tree.nextToken(err_set_decl.error_token);
 
-            if (err_set_decl.decls.first == null) {
+            if (err_set_decl.decls_len == 0) {
                 try renderToken(tree, stream, err_set_decl.error_token, indent, start_col, Space.None);
                 try renderToken(tree, stream, lbrace, indent, start_col, Space.None);
                 return renderToken(tree, stream, err_set_decl.rbrace_token, indent, start_col, space);
             }
 
-            if (err_set_decl.decls.first.?.next == null) blk: {
-                const node = err_set_decl.decls.first.?.data;
+            if (err_set_decl.decls_len == 1) blk: {
+                const node = err_set_decl.decls()[0];
 
                 // if there are any doc comments or same line comments
                 // don't try to put it all on one line
@@ -1322,16 +1321,15 @@ fn renderExpression(
                 try renderToken(tree, stream, lbrace, indent, start_col, Space.Newline); // {
                 const new_indent = indent + indent_delta;
 
-                var it = err_set_decl.decls.first;
-                while (it) |node_node| : (it = node_node.next) {
-                    const node = node_node.data;
+                const decls = err_set_decl.decls();
+                for (decls) |node, i| {
                     try stream.writeByteNTimes(' ', new_indent);
 
-                    if (node_node.next) |next_node| {
+                    if (i + 1 < decls.len) {
                         try renderExpression(allocator, stream, tree, new_indent, start_col, node, Space.None);
                         try renderToken(tree, stream, tree.nextToken(node.lastToken()), new_indent, start_col, Space.Newline); // ,
 
-                        try renderExtraNewline(tree, stream, start_col, next_node.data);
+                        try renderExtraNewline(tree, stream, start_col, decls[i + 1]);
                     } else {
                         try renderExpression(allocator, stream, tree, new_indent, start_col, node, Space.Comma);
                     }
@@ -1342,16 +1340,15 @@ fn renderExpression(
             } else {
                 try renderToken(tree, stream, lbrace, indent, start_col, Space.Space); // {
 
-                var it = err_set_decl.decls.first;
-                while (it) |node_node| : (it = node_node.next) {
-                    const node = node_node.data;
-                    if (node_node.next) |next_node| {
+                const decls = err_set_decl.decls();
+                for (decls) |node, i| {
+                    if (i + 1 < decls.len) {
                         try renderExpression(allocator, stream, tree, indent, start_col, node, Space.None);
 
                         const comma_token = tree.nextToken(node.lastToken());
                         assert(tree.tokens[comma_token].id == .Comma);
                         try renderToken(tree, stream, comma_token, indent, start_col, Space.Space); // ,
-                        try renderExtraNewline(tree, stream, start_col, next_node.data);
+                        try renderExtraNewline(tree, stream, start_col, decls[i + 1]);
                     } else {
                         try renderExpression(allocator, stream, tree, indent, start_col, node, Space.Space);
                     }
@@ -1401,12 +1398,8 @@ fn renderExpression(
             try renderToken(tree, stream, builtin_call.builtin_token, indent, start_col, Space.None); // @name
 
             const src_params_trailing_comma = blk: {
-                if (builtin_call.params.first == null or
-                    builtin_call.params.first.?.next == null)
-                {
-                    break :blk false;
-                }
-                const last_node = builtin_call.params.first.?.findLast().data;
+                if (builtin_call.params_len < 2) break :blk false;
+                const last_node = builtin_call.params()[builtin_call.params_len - 1];
                 const maybe_comma = tree.nextToken(last_node.lastToken());
                 break :blk tree.tokens[maybe_comma].id == .Comma;
             };
@@ -1417,12 +1410,11 @@ fn renderExpression(
                 try renderToken(tree, stream, lparen, indent, start_col, Space.None); // (
 
                 // render all on one line, no trailing comma
-                var it = builtin_call.params.first;
-                while (it) |param_node_node| : (it = param_node_node.next) {
-                    const param_node = param_node_node.data;
+                const params = builtin_call.params();
+                for (params) |param_node, i| {
                     try renderExpression(allocator, stream, tree, indent, start_col, param_node, Space.None);
 
-                    if (param_node_node.next != null) {
+                    if (i + 1 < params.len) {
                         const comma_token = tree.nextToken(param_node.lastToken());
                         try renderToken(tree, stream, comma_token, indent, start_col, Space.Space); // ,
                     }
@@ -1432,9 +1424,7 @@ fn renderExpression(
                 const new_indent = indent + indent_delta;
                 try renderToken(tree, stream, lparen, new_indent, start_col, Space.Newline); // (
 
-                var it = builtin_call.params.first;
-                while (it) |param_node_node| : (it = param_node_node.next) {
-                    const param_node = param_node_node.data;
+                for (builtin_call.params()) |param_node| {
                     try stream.writeByteNTimes(' ', new_indent);
                     try renderExpression(allocator, stream, tree, indent, start_col, param_node, Space.Comma);
                 }
@@ -1592,7 +1582,7 @@ fn renderExpression(
             const rparen = tree.nextToken(switch_node.expr.lastToken());
             const lbrace = tree.nextToken(rparen);
 
-            if (switch_node.cases.first == null) {
+            if (switch_node.cases_len == 0) {
                 try renderExpression(allocator, stream, tree, indent, start_col, switch_node.expr, Space.None);
                 try renderToken(tree, stream, rparen, indent, start_col, Space.Space); // )
                 try renderToken(tree, stream, lbrace, indent, start_col, Space.None); // {
@@ -1606,14 +1596,13 @@ fn renderExpression(
             try renderToken(tree, stream, rparen, indent, start_col, Space.Space); // )
             try renderToken(tree, stream, lbrace, new_indent, start_col, Space.Newline); // {
 
-            var it = switch_node.cases.first;
-            while (it) |node_node| : (it = node_node.next) {
-                const node = node_node.data;
+            const cases = switch_node.cases();
+            for (cases) |node, i| {
                 try stream.writeByteNTimes(' ', new_indent);
                 try renderExpression(allocator, stream, tree, new_indent, start_col, node, Space.Comma);
 
-                if (node_node.next) |next_node| {
-                    try renderExtraNewline(tree, stream, start_col, next_node.data);
+                if (i + 1 < cases.len) {
+                    try renderExtraNewline(tree, stream, start_col, cases[i + 1]);
                 }
             }
 
@@ -1929,7 +1918,7 @@ fn renderExpression(
                 try renderToken(tree, stream, tree.nextToken(asm_node.asm_token), indent, start_col, Space.None); // (
             }
 
-            if (asm_node.outputs.first == null and asm_node.inputs.first == null and asm_node.clobbers.first == null) {
+            if (asm_node.outputs.len == 0 and asm_node.inputs.len == 0 and asm_node.clobbers.len == 0) {
                 try renderExpression(allocator, stream, tree, indent, start_col, asm_node.template, Space.None);
                 return renderToken(tree, stream, asm_node.rparen, indent, start_col, space);
             }
@@ -1949,7 +1938,7 @@ fn renderExpression(
             const colon1 = tree.nextToken(asm_node.template.lastToken());
             const indent_extra = indent_once + 2;
 
-            const colon2 = if (asm_node.outputs.first == null) blk: {
+            const colon2 = if (asm_node.outputs.len == 0) blk: {
                 try renderToken(tree, stream, colon1, indent, start_col, Space.Newline); // :
                 try stream.writeByteNTimes(' ', indent_once);
 
@@ -1957,39 +1946,34 @@ fn renderExpression(
             } else blk: {
                 try renderToken(tree, stream, colon1, indent, start_col, Space.Space); // :
 
-                var it = asm_node.outputs.first;
-                while (true) {
-                    const asm_output_node = it.?;
-                    it = asm_output_node.next;
-                    const asm_output = asm_output_node.data;
-                    const node = &asm_output.base;
+                for (asm_node.outputs) |*asm_output, i| {
+                    if (i + 1 < asm_node.outputs.len) {
+                        const next_asm_output = asm_node.outputs[i + 1];
+                        try renderAsmOutput(allocator, stream, tree, indent_extra, start_col, asm_output, Space.None);
 
-                    if (asm_output_node.next) |next_asm_output| {
-                        try renderExpression(allocator, stream, tree, indent_extra, start_col, node, Space.None);
-                        const next_node = &next_asm_output.data.base;
-
-                        const comma = tree.prevToken(next_asm_output.data.firstToken());
+                        const comma = tree.prevToken(next_asm_output.firstToken());
                         try renderToken(tree, stream, comma, indent_extra, start_col, Space.Newline); // ,
-                        try renderExtraNewline(tree, stream, start_col, next_node);
+                        try renderExtraNewlineToken(tree, stream, start_col, next_asm_output.firstToken());
 
                         try stream.writeByteNTimes(' ', indent_extra);
-                    } else if (asm_node.inputs.first == null and asm_node.clobbers.first == null) {
-                        try renderExpression(allocator, stream, tree, indent_extra, start_col, node, Space.Newline);
+                    } else if (asm_node.inputs.len == 0 and asm_node.clobbers.len == 0) {
+                        try renderAsmOutput(allocator, stream, tree, indent_extra, start_col, asm_output, Space.Newline);
                         try stream.writeByteNTimes(' ', indent);
                         return renderToken(tree, stream, asm_node.rparen, indent, start_col, space);
                     } else {
-                        try renderExpression(allocator, stream, tree, indent_extra, start_col, node, Space.Newline);
+                        try renderAsmOutput(allocator, stream, tree, indent_extra, start_col, asm_output, Space.Newline);
                         try stream.writeByteNTimes(' ', indent_once);
-                        const comma_or_colon = tree.nextToken(node.lastToken());
+                        const comma_or_colon = tree.nextToken(asm_output.lastToken());
                         break :blk switch (tree.tokens[comma_or_colon].id) {
                             .Comma => tree.nextToken(comma_or_colon),
                             else => comma_or_colon,
                         };
                     }
                 }
+                unreachable;
             };
 
-            const colon3 = if (asm_node.inputs.first == null) blk: {
+            const colon3 = if (asm_node.inputs.len == 0) blk: {
                 try renderToken(tree, stream, colon2, indent, start_col, Space.Newline); // :
                 try stream.writeByteNTimes(' ', indent_once);
 
@@ -1997,46 +1981,37 @@ fn renderExpression(
             } else blk: {
                 try renderToken(tree, stream, colon2, indent, start_col, Space.Space); // :
 
-                var it = asm_node.inputs.first;
-                while (true) {
-                    const asm_input_node = it.?;
-                    it = asm_input_node.next;
-                    const node = &asm_input_node.data.base;
+                for (asm_node.inputs) |*asm_input, i| {
+                    if (i + 1 < asm_node.inputs.len) {
+                        const next_asm_input = &asm_node.inputs[i + 1];
+                        try renderAsmInput(allocator, stream, tree, indent_extra, start_col, asm_input, Space.None);
 
-                    if (it) |next_asm_input| {
-                        try renderExpression(allocator, stream, tree, indent_extra, start_col, node, Space.None);
-                        const next_node = &next_asm_input.data.base;
-
-                        const comma = tree.prevToken(next_asm_input.data.firstToken());
+                        const comma = tree.prevToken(next_asm_input.firstToken());
                         try renderToken(tree, stream, comma, indent_extra, start_col, Space.Newline); // ,
-                        try renderExtraNewline(tree, stream, start_col, next_node);
+                        try renderExtraNewlineToken(tree, stream, start_col, next_asm_input.firstToken());
 
                         try stream.writeByteNTimes(' ', indent_extra);
-                    } else if (asm_node.clobbers.first == null) {
-                        try renderExpression(allocator, stream, tree, indent_extra, start_col, node, Space.Newline);
+                    } else if (asm_node.clobbers.len == 0) {
+                        try renderAsmInput(allocator, stream, tree, indent_extra, start_col, asm_input, Space.Newline);
                         try stream.writeByteNTimes(' ', indent);
                         return renderToken(tree, stream, asm_node.rparen, indent, start_col, space); // )
                     } else {
-                        try renderExpression(allocator, stream, tree, indent_extra, start_col, node, Space.Newline);
+                        try renderAsmInput(allocator, stream, tree, indent_extra, start_col, asm_input, Space.Newline);
                         try stream.writeByteNTimes(' ', indent_once);
-                        const comma_or_colon = tree.nextToken(node.lastToken());
+                        const comma_or_colon = tree.nextToken(asm_input.lastToken());
                         break :blk switch (tree.tokens[comma_or_colon].id) {
                             .Comma => tree.nextToken(comma_or_colon),
                             else => comma_or_colon,
                         };
                     }
                 }
+                unreachable;
             };
 
             try renderToken(tree, stream, colon3, indent, start_col, Space.Space); // :
 
-            var it = asm_node.clobbers.first;
-            while (true) {
-                const clobber_node_node = it.?;
-                it = clobber_node_node.next;
-                const clobber_node = clobber_node_node.data;
-
-                if (it == null) {
+            for (asm_node.clobbers) |clobber_node, i| {
+                if (i + 1 >= asm_node.clobbers.len) {
                     try renderExpression(allocator, stream, tree, indent_extra, start_col, clobber_node, Space.Newline);
                     try stream.writeByteNTimes(' ', indent);
                     return renderToken(tree, stream, asm_node.rparen, indent, start_col, space);
@@ -2046,40 +2021,6 @@ fn renderExpression(
                     try renderToken(tree, stream, comma, indent_once, start_col, Space.Space); // ,
                 }
             }
-        },
-
-        .AsmInput => {
-            const asm_input = @fieldParentPtr(ast.Node.AsmInput, "base", base);
-
-            try stream.writeAll("[");
-            try renderExpression(allocator, stream, tree, indent, start_col, asm_input.symbolic_name, Space.None);
-            try stream.writeAll("] ");
-            try renderExpression(allocator, stream, tree, indent, start_col, asm_input.constraint, Space.None);
-            try stream.writeAll(" (");
-            try renderExpression(allocator, stream, tree, indent, start_col, asm_input.expr, Space.None);
-            return renderToken(tree, stream, asm_input.lastToken(), indent, start_col, space); // )
-        },
-
-        .AsmOutput => {
-            const asm_output = @fieldParentPtr(ast.Node.AsmOutput, "base", base);
-
-            try stream.writeAll("[");
-            try renderExpression(allocator, stream, tree, indent, start_col, asm_output.symbolic_name, Space.None);
-            try stream.writeAll("] ");
-            try renderExpression(allocator, stream, tree, indent, start_col, asm_output.constraint, Space.None);
-            try stream.writeAll(" (");
-
-            switch (asm_output.kind) {
-                ast.Node.AsmOutput.Kind.Variable => |variable_name| {
-                    try renderExpression(allocator, stream, tree, indent, start_col, &variable_name.base, Space.None);
-                },
-                ast.Node.AsmOutput.Kind.Return => |return_type| {
-                    try stream.writeAll("-> ");
-                    try renderExpression(allocator, stream, tree, indent, start_col, return_type, Space.None);
-                },
-            }
-
-            return renderToken(tree, stream, asm_output.lastToken(), indent, start_col, space); // )
         },
 
         .EnumLiteral => {
@@ -2096,6 +2037,52 @@ fn renderExpression(
         .TestDecl,
         => unreachable,
     }
+}
+
+fn renderAsmOutput(
+    allocator: *mem.Allocator,
+    stream: var,
+    tree: *ast.Tree,
+    indent: usize,
+    start_col: *usize,
+    asm_output: *const ast.Node.Asm.Output,
+    space: Space,
+) (@TypeOf(stream).Error || Error)!void {
+    try stream.writeAll("[");
+    try renderExpression(allocator, stream, tree, indent, start_col, asm_output.symbolic_name, Space.None);
+    try stream.writeAll("] ");
+    try renderExpression(allocator, stream, tree, indent, start_col, asm_output.constraint, Space.None);
+    try stream.writeAll(" (");
+
+    switch (asm_output.kind) {
+        ast.Node.Asm.Output.Kind.Variable => |variable_name| {
+            try renderExpression(allocator, stream, tree, indent, start_col, &variable_name.base, Space.None);
+        },
+        ast.Node.Asm.Output.Kind.Return => |return_type| {
+            try stream.writeAll("-> ");
+            try renderExpression(allocator, stream, tree, indent, start_col, return_type, Space.None);
+        },
+    }
+
+    return renderToken(tree, stream, asm_output.lastToken(), indent, start_col, space); // )
+}
+
+fn renderAsmInput(
+    allocator: *mem.Allocator,
+    stream: var,
+    tree: *ast.Tree,
+    indent: usize,
+    start_col: *usize,
+    asm_input: *const ast.Node.Asm.Input,
+    space: Space,
+) (@TypeOf(stream).Error || Error)!void {
+    try stream.writeAll("[");
+    try renderExpression(allocator, stream, tree, indent, start_col, asm_input.symbolic_name, Space.None);
+    try stream.writeAll("] ");
+    try renderExpression(allocator, stream, tree, indent, start_col, asm_input.constraint, Space.None);
+    try stream.writeAll(" (");
+    try renderExpression(allocator, stream, tree, indent, start_col, asm_input.expr, Space.None);
+    return renderToken(tree, stream, asm_input.lastToken(), indent, start_col, space); // )
 }
 
 fn renderVarDecl(

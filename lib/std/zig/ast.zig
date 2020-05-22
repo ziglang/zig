@@ -323,7 +323,7 @@ pub const Error = union(enum) {
         node: *Node,
 
         pub fn render(self: *const ExpectedCall, tokens: []const Token, stream: var) !void {
-            return stream.print("expected " ++ @tagName(@TagType(Node.SuffixOp.Op).Call) ++ ", found {}", .{
+            return stream.print("expected " ++ @tagName(Node.Id.Call) ++ ", found {}", .{
                 @tagName(self.node.id),
             });
         }
@@ -333,7 +333,7 @@ pub const Error = union(enum) {
         node: *Node,
 
         pub fn render(self: *const ExpectedCallOrFnProto, tokens: []const Token, stream: var) !void {
-            return stream.print("expected " ++ @tagName(@TagType(Node.SuffixOp.Op).Call) ++ " or " ++
+            return stream.print("expected " ++ @tagName(Node.Id.Call) ++ " or " ++
                 @tagName(Node.Id.FnProto) ++ ", found {}", .{@tagName(self.node.id)});
         }
     };
@@ -428,15 +428,19 @@ pub const Node = struct {
         // Operators
         InfixOp,
         PrefixOp,
+        /// Not all suffix operations are under this tag. To save memory, some
+        /// suffix operations have dedicated Node tags.
         SuffixOp,
-        /// This is a suffix operation but to save memory we have a dedicated Node id for it.
+        /// `T{a, b}`
         ArrayInitializer,
         /// ArrayInitializer but with `.` instead of a left-hand-side operand.
         ArrayInitializerDot,
-        /// This is a suffix operation but to save memory we have a dedicated Node id for it.
+        /// `T{.a = b}`
         StructInitializer,
         /// StructInitializer but with `.` instead of a left-hand-side operand.
         StructInitializerDot,
+        /// `foo()`
+        Call,
 
         // Control flow
         Switch,
@@ -483,8 +487,6 @@ pub const Node = struct {
         PointerIndexPayload,
         ContainerField,
         ErrorTag,
-        AsmInput,
-        AsmOutput,
         FieldInitializer,
     };
 
@@ -780,13 +782,22 @@ pub const Node = struct {
     pub const ErrorSetDecl = struct {
         base: Node = Node{ .id = .ErrorSetDecl },
         error_token: TokenIndex,
-        decls: DeclList,
         rbrace_token: TokenIndex,
+        decls_len: NodeIndex,
 
-        pub const DeclList = LinkedList(*Node);
+        /// After this the caller must initialize the decls list.
+        pub fn alloc(allocator: *mem.Allocator, decls_len: NodeIndex) !*ErrorSetDecl {
+            const bytes = try allocator.alignedAlloc(u8, @alignOf(ErrorSetDecl), sizeInBytes(decls_len));
+            return @ptrCast(*ErrorSetDecl, bytes.ptr);
+        }
+
+        pub fn free(self: *ErrorSetDecl, allocator: *mem.Allocator) void {
+            const bytes = @ptrCast([*]u8, self)[0..sizeInBytes(self.decls_len)];
+            allocator.free(bytes);
+        }
 
         pub fn iterate(self: *const ErrorSetDecl) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0, .node = self.decls.first };
+            return .{ .parent_node = &self.base, .index = 0, .node = null };
         }
 
         pub fn iterateNext(self: *const ErrorSetDecl, it: *Node.Iterator) ?*Node {
@@ -801,6 +812,20 @@ pub const Node = struct {
 
         pub fn lastToken(self: *const ErrorSetDecl) TokenIndex {
             return self.rbrace_token;
+        }
+
+        pub fn decls(self: *ErrorSetDecl) []*Node {
+            const decls_start = @ptrCast([*]u8, self) + @sizeOf(ErrorSetDecl);
+            return @ptrCast([*]*Node, decls_start)[0..self.decls_len];
+        }
+
+        pub fn declsConst(self: *const ErrorSetDecl) []const *Node {
+            const decls_start = @ptrCast([*]const u8, self) + @sizeOf(ErrorSetDecl);
+            return @ptrCast([*]const *Node, decls_start)[0..self.decls_len];
+        }
+
+        fn sizeInBytes(decls_len: NodeIndex) usize {
+            return @sizeOf(ErrorSetDecl) + @sizeOf(*Node) * @as(usize, decls_len);
         }
     };
 
@@ -1464,19 +1489,28 @@ pub const Node = struct {
         }
     };
 
+    /// The cases node pointers are found in memory after Switch.
+    /// They must be SwitchCase or SwitchElse nodes.
     pub const Switch = struct {
         base: Node = Node{ .id = .Switch },
         switch_token: TokenIndex,
+        rbrace: TokenIndex,
+        cases_len: NodeIndex,
         expr: *Node,
 
-        /// these must be SwitchCase nodes
-        cases: CaseList,
-        rbrace: TokenIndex,
+        /// After this the caller must initialize the fields_and_decls list.
+        pub fn alloc(allocator: *mem.Allocator, cases_len: NodeIndex) !*Switch {
+            const bytes = try allocator.alignedAlloc(u8, @alignOf(Switch), sizeInBytes(cases_len));
+            return @ptrCast(*Switch, bytes.ptr);
+        }
 
-        pub const CaseList = LinkedList(*Node);
+        pub fn free(self: *Switch, allocator: *mem.Allocator) void {
+            const bytes = @ptrCast([*]u8, self)[0..sizeInBytes(self.cases_len)];
+            allocator.free(bytes);
+        }
 
         pub fn iterate(self: *const Switch) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0, .node = self.cases.first };
+            return .{ .parent_node = &self.base, .index = 0, .node = null };
         }
 
         pub fn iterateNext(self: *const Switch, it: *Node.Iterator) ?*Node {
@@ -1501,6 +1535,20 @@ pub const Node = struct {
 
         pub fn lastToken(self: *const Switch) TokenIndex {
             return self.rbrace;
+        }
+
+        pub fn cases(self: *Switch) []*Node {
+            const decls_start = @ptrCast([*]u8, self) + @sizeOf(Switch);
+            return @ptrCast([*]*Node, decls_start)[0..self.cases_len];
+        }
+
+        pub fn casesConst(self: *const Switch) []const *Node {
+            const decls_start = @ptrCast([*]const u8, self) + @sizeOf(Switch);
+            return @ptrCast([*]const *Node, decls_start)[0..self.cases_len];
+        }
+
+        fn sizeInBytes(cases_len: NodeIndex) usize {
+            return @sizeOf(Switch) + @sizeOf(*Node) * @as(usize, cases_len);
         }
     };
 
@@ -2120,6 +2168,66 @@ pub const Node = struct {
         }
     };
 
+    /// Parameter nodes directly follow Call in memory.
+    pub const Call = struct {
+        base: Node = Node{ .id = .Call },
+        lhs: *Node,
+        rtoken: TokenIndex,
+        params_len: NodeIndex,
+        async_token: ?TokenIndex,
+
+        /// After this the caller must initialize the fields_and_decls list.
+        pub fn alloc(allocator: *mem.Allocator, params_len: NodeIndex) !*Call {
+            const bytes = try allocator.alignedAlloc(u8, @alignOf(Call), sizeInBytes(params_len));
+            return @ptrCast(*Call, bytes.ptr);
+        }
+
+        pub fn free(self: *Call, allocator: *mem.Allocator) void {
+            const bytes = @ptrCast([*]u8, self)[0..sizeInBytes(self.params_len)];
+            allocator.free(bytes);
+        }
+
+        pub fn iterate(self: *const Call) Node.Iterator {
+            return .{ .parent_node = &self.base, .index = 0, .node = null};
+        }
+
+        pub fn iterateNext(self: *const Call, it: *Node.Iterator) ?*Node {
+            var i = it.index;
+            it.index += 1;
+
+            if (i < 1) return self.lhs;
+            i -= 1;
+
+            if (i < self.params_len) return self.paramsConst()[i];
+            i -= self.params_len;
+
+            return null;
+        }
+
+        pub fn firstToken(self: *const Call) TokenIndex {
+            if (self.async_token) |async_token| return async_token;
+            return self.lhs.firstToken();
+        }
+
+        pub fn lastToken(self: *const Call) TokenIndex {
+            return self.rtoken;
+        }
+
+        pub fn params(self: *Call) []*Node {
+            const decls_start = @ptrCast([*]u8, self) + @sizeOf(Call);
+            return @ptrCast([*]*Node, decls_start)[0..self.params_len];
+        }
+
+        pub fn paramsConst(self: *const Call) []const *Node {
+            const decls_start = @ptrCast([*]const u8, self) + @sizeOf(Call);
+            return @ptrCast([*]const *Node, decls_start)[0..self.params_len];
+        }
+
+        fn sizeInBytes(params_len: NodeIndex) usize {
+            return @sizeOf(Call) + @sizeOf(*Node) * @as(usize, params_len);
+        }
+    };
+
     pub const SuffixOp = struct {
         base: Node = Node{ .id = .SuffixOp },
         op: Op,
@@ -2127,18 +2235,10 @@ pub const Node = struct {
         rtoken: TokenIndex,
 
         pub const Op = union(enum) {
-            Call: Call,
             ArrayAccess: *Node,
             Slice: Slice,
             Deref,
             UnwrapOptional,
-
-            pub const Call = struct {
-                params: ParamList,
-                async_token: ?TokenIndex,
-
-                pub const ParamList = LinkedList(*Node);
-            };
 
             pub const Slice = struct {
                 start: *Node,
@@ -2148,12 +2248,7 @@ pub const Node = struct {
         };
 
         pub fn iterate(self: *const SuffixOp) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0,
-                .node = switch(self.op) {
-                    .Call => |call| call.params.first,
-                    else => null,
-                },
-            };
+            return .{ .parent_node = &self.base, .index = 0, .node = null};
         }
 
         pub fn iterateNext(self: *const SuffixOp, it: *Node.Iterator) ?*Node {
@@ -2164,13 +2259,6 @@ pub const Node = struct {
             i -= 1;
 
             switch (self.op) {
-                .Call => |call_info| {
-                    if (it.node) |child| {
-                        it.index -= 1;
-                        it.node = child.next;
-                        return child.data;
-                    }
-                },
                 .ArrayAccess => |index_expr| {
                     if (i < 1) return index_expr;
                     i -= 1;
@@ -2197,10 +2285,6 @@ pub const Node = struct {
         }
 
         pub fn firstToken(self: *const SuffixOp) TokenIndex {
-            switch (self.op) {
-                .Call => |*call_info| if (call_info.async_token) |async_token| return async_token,
-                else => {},
-            }
             return self.lhs.firstToken();
         }
 
@@ -2396,22 +2480,36 @@ pub const Node = struct {
         }
     };
 
+    /// Parameters are in memory following BuiltinCall.
     pub const BuiltinCall = struct {
         base: Node = Node{ .id = .BuiltinCall },
+        params_len: NodeIndex,
         builtin_token: TokenIndex,
-        params: ParamList,
         rparen_token: TokenIndex,
 
-        pub const ParamList = LinkedList(*Node);
+        /// After this the caller must initialize the fields_and_decls list.
+        pub fn alloc(allocator: *mem.Allocator, params_len: NodeIndex) !*BuiltinCall {
+            const bytes = try allocator.alignedAlloc(u8, @alignOf(BuiltinCall), sizeInBytes(params_len));
+            return @ptrCast(*BuiltinCall, bytes.ptr);
+        }
+
+        pub fn free(self: *BuiltinCall, allocator: *mem.Allocator) void {
+            const bytes = @ptrCast([*]u8, self)[0..sizeInBytes(self.params_len)];
+            allocator.free(bytes);
+        }
 
         pub fn iterate(self: *const BuiltinCall) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0, .node = self.params.first };
+            return .{ .parent_node = &self.base, .index = 0, .node = null };
         }
 
         pub fn iterateNext(self: *const BuiltinCall, it: *Node.Iterator) ?*Node {
-            const param = it.node orelse return null;
-            it.node = param.next;
-            return param.data;
+            var i = it.index;
+            it.index += 1;
+
+            if (i < self.params_len) return self.paramsConst()[i];
+            i -= self.params_len;
+
+            return null;
         }
 
         pub fn firstToken(self: *const BuiltinCall) TokenIndex {
@@ -2420,6 +2518,20 @@ pub const Node = struct {
 
         pub fn lastToken(self: *const BuiltinCall) TokenIndex {
             return self.rparen_token;
+        }
+
+        pub fn params(self: *BuiltinCall) []*Node {
+            const decls_start = @ptrCast([*]u8, self) + @sizeOf(BuiltinCall);
+            return @ptrCast([*]*Node, decls_start)[0..self.params_len];
+        }
+
+        pub fn paramsConst(self: *const BuiltinCall) []const *Node {
+            const decls_start = @ptrCast([*]const u8, self) + @sizeOf(BuiltinCall);
+            return @ptrCast([*]const *Node, decls_start)[0..self.params_len];
+        }
+
+        fn sizeInBytes(params_len: NodeIndex) usize {
+            return @sizeOf(BuiltinCall) + @sizeOf(*Node) * @as(usize, params_len);
         }
     };
 
@@ -2554,106 +2666,102 @@ pub const Node = struct {
         }
     };
 
-    pub const AsmOutput = struct {
-        base: Node = Node{ .id = .AsmOutput },
-        lbracket: TokenIndex,
-        symbolic_name: *Node,
-        constraint: *Node,
-        kind: Kind,
-        rparen: TokenIndex,
-
-        pub const Kind = union(enum) {
-            Variable: *Identifier,
-            Return: *Node,
-        };
-
-        pub fn iterate(self: *const AsmOutput) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0, .node = null };
-        }
-
-        pub fn iterateNext(self: *const AsmOutput, it: *Node.Iterator) ?*Node {
-            var i = it.index;
-            it.index += 1;
-
-            if (i < 1) return self.symbolic_name;
-            i -= 1;
-
-            if (i < 1) return self.constraint;
-            i -= 1;
-
-            switch (self.kind) {
-                .Variable => |variable_name| {
-                    if (i < 1) return &variable_name.base;
-                    i -= 1;
-                },
-                .Return => |return_type| {
-                    if (i < 1) return return_type;
-                    i -= 1;
-                },
-            }
-
-            return null;
-        }
-
-        pub fn firstToken(self: *const AsmOutput) TokenIndex {
-            return self.lbracket;
-        }
-
-        pub fn lastToken(self: *const AsmOutput) TokenIndex {
-            return self.rparen;
-        }
-    };
-
-    pub const AsmInput = struct {
-        base: Node = Node{ .id = .AsmInput },
-        lbracket: TokenIndex,
-        symbolic_name: *Node,
-        constraint: *Node,
-        expr: *Node,
-        rparen: TokenIndex,
-
-        pub fn iterate(self: *const AsmInput) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0, .node = null };
-        }
-
-        pub fn iterateNext(self: *const AsmInput, it: *Node.Iterator) ?*Node {
-            var i = it.index;
-            it.index += 1;
-
-            if (i < 1) return self.symbolic_name;
-            i -= 1;
-
-            if (i < 1) return self.constraint;
-            i -= 1;
-
-            if (i < 1) return self.expr;
-            i -= 1;
-
-            return null;
-        }
-
-        pub fn firstToken(self: *const AsmInput) TokenIndex {
-            return self.lbracket;
-        }
-
-        pub fn lastToken(self: *const AsmInput) TokenIndex {
-            return self.rparen;
-        }
-    };
-
     pub const Asm = struct {
         base: Node = Node{ .id = .Asm },
         asm_token: TokenIndex,
+        rparen: TokenIndex,
         volatile_token: ?TokenIndex,
         template: *Node,
-        outputs: OutputList,
-        inputs: InputList,
-        clobbers: ClobberList,
-        rparen: TokenIndex,
+        outputs: []Output,
+        inputs: []Input,
+        /// A clobber node must be a StringLiteral or MultilineStringLiteral.
+        clobbers: []*Node,
 
-        pub const OutputList = LinkedList(*AsmOutput);
-        pub const InputList = LinkedList(*AsmInput);
-        pub const ClobberList = LinkedList(*Node);
+        pub const Output = struct {
+            lbracket: TokenIndex,
+            symbolic_name: *Node,
+            constraint: *Node,
+            kind: Kind,
+            rparen: TokenIndex,
+
+            pub const Kind = union(enum) {
+                Variable: *Identifier,
+                Return: *Node,
+            };
+
+            pub fn iterate(self: *const Output) Node.Iterator {
+                return .{ .parent_node = &self.base, .index = 0, .node = null };
+            }
+
+            pub fn iterateNext(self: *const Output, it: *Node.Iterator) ?*Node {
+                var i = it.index;
+                it.index += 1;
+
+                if (i < 1) return self.symbolic_name;
+                i -= 1;
+
+                if (i < 1) return self.constraint;
+                i -= 1;
+
+                switch (self.kind) {
+                    .Variable => |variable_name| {
+                        if (i < 1) return &variable_name.base;
+                        i -= 1;
+                    },
+                    .Return => |return_type| {
+                        if (i < 1) return return_type;
+                        i -= 1;
+                    },
+                }
+
+                return null;
+            }
+
+            pub fn firstToken(self: *const Output) TokenIndex {
+                return self.lbracket;
+            }
+
+            pub fn lastToken(self: *const Output) TokenIndex {
+                return self.rparen;
+            }
+        };
+
+        pub const Input = struct {
+            lbracket: TokenIndex,
+            symbolic_name: *Node,
+            constraint: *Node,
+            expr: *Node,
+            rparen: TokenIndex,
+
+            pub fn iterate(self: *const Input) Node.Iterator {
+                return .{ .parent_node = &self.base, .index = 0, .node = null };
+            }
+
+            pub fn iterateNext(self: *const Input, it: *Node.Iterator) ?*Node {
+                var i = it.index;
+                it.index += 1;
+
+                if (i < 1) return self.symbolic_name;
+                i -= 1;
+
+                if (i < 1) return self.constraint;
+                i -= 1;
+
+                if (i < 1) return self.expr;
+                i -= 1;
+
+                return null;
+            }
+
+            pub fn firstToken(self: *const Input) TokenIndex {
+                return self.lbracket;
+            }
+
+            pub fn lastToken(self: *const Input) TokenIndex {
+                return self.rparen;
+            }
+        };
+
 
         pub fn iterate(self: *const Asm) Node.Iterator {
             return .{ .parent_node = &self.base, .index = 0, .node = null};
@@ -2663,19 +2771,24 @@ pub const Node = struct {
             var i = it.index;
             it.index += 1;
 
-            var output: ?*LinkedList(*AsmOutput).Node = self.outputs.first;
-            while (output) |o| {
-                if (i < 1) return &o.data.base;
-                i -= 1;
-                output = o.next;
-            }
+            if (i < self.outputs.len * 3) switch (i % 3) {
+                0 => return self.outputs[i / 3].symbolic_name,
+                1 => return self.outputs[i / 3].constraint,
+                2 => switch (self.outputs[i / 3].kind) {
+                    .Variable => |variable_name| return &variable_name.base,
+                    .Return => |return_type| return return_type,
+                },
+                else => unreachable,
+            };
+            i -= self.outputs.len * 3;
 
-            var input: ?*LinkedList(*AsmInput).Node = self.inputs.first;
-            while (input) |o| {
-                if (i < 1) return &o.data.base;
-                i -= 1;
-                input = o.next;
-            }
+            if (i < self.inputs.len * 3) switch (i % 3) {
+                0 => return self.inputs[i / 3].symbolic_name,
+                1 => return self.inputs[i / 3].constraint,
+                2 => return self.inputs[i / 3].expr,
+                else => unreachable,
+            };
+            i -= self.inputs.len * 3;
 
             return null;
         }
