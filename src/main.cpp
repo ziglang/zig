@@ -19,6 +19,7 @@
 #include "dump_analysis.hpp"
 #include "mem_profile.hpp"
 
+#include <cstdlib>
 #include <stdio.h>
 
 static int print_error_usage(const char *arg0) {
@@ -47,6 +48,7 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  translate-c [source]         convert c code to zig code\n"
         "  targets                      list available compilation targets\n"
         "  test [source]                create and run a test build\n"
+        "  info                         print lib path, std path, compiler id and version\n"
         "  version                      print version number and exit\n"
         "  zen                          print zen of zig and exit\n"
         "\n"
@@ -172,6 +174,7 @@ enum Cmd {
     CmdTargets,
     CmdTest,
     CmdTranslateC,
+    CmdInfo,
     CmdVersion,
     CmdZen,
     CmdLibC,
@@ -1282,6 +1285,8 @@ static int main0(int argc, char **argv) {
             } else if (strcmp(arg, "run") == 0) {
                 cmd = CmdRun;
                 out_type = OutTypeExe;
+            } else if (strcmp(arg, "info") == 0) {
+                cmd = CmdInfo;
             } else if (strcmp(arg, "version") == 0) {
                 cmd = CmdVersion;
             } else if (strcmp(arg, "zen") == 0) {
@@ -1316,6 +1321,7 @@ static int main0(int argc, char **argv) {
                     }
                     break;
                 case CmdBuiltin:
+                case CmdInfo:
                 case CmdVersion:
                 case CmdZen:
                 case CmdTargets:
@@ -1832,6 +1838,8 @@ static int main0(int argc, char **argv) {
                 zig_unreachable();
             }
         }
+    case CmdInfo:
+        return stage2_cmd_info();
     case CmdVersion:
         printf("%s\n", ZIG_VERSION_STRING);
         return main_exit(root_progress_node, EXIT_SUCCESS);

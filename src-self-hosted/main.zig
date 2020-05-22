@@ -32,8 +32,8 @@ const usage =
     \\  build-obj  [source]      Create object from source or assembly
     \\  fmt        [source]      Parse file and render in canonical zig format
     \\  targets                  List available compilation targets
-    \\  version                  Print version number and exit
     \\  info                     Print lib path, std path, compiler id and version
+    \\  version                  Print version number and exit
     \\  zen                      Print zen of zig and exit
     \\
     \\

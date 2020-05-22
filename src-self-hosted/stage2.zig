@@ -387,6 +387,15 @@ fn detectNativeCpuWithLLVM(
     return result;
 }
 
+export fn stage2_cmd_info() c_int {
+    @import("print_info.zig").cmdInfo(std.heap.c_allocator, std.io.getStdOut().outStream()) catch |err| {
+        std.debug.warn("unable to print info: {}\n", .{@errorName(err)});
+        return -1;
+    };
+
+    return 0;
+}
+
 // ABI warning
 export fn stage2_cmd_targets(
     zig_triple: ?[*:0]const u8,
