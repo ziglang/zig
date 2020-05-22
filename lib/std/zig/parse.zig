@@ -58,6 +58,8 @@ const Parser = struct {
     arena: std.heap.ArenaAllocator,
     gpa: *Allocator,
     source: []const u8,
+    /// TODO: Optimization idea: have this be several arrays of the token fields rather
+    /// than an array of structs.
     tokens: []const Token,
     tok_i: TokenIndex,
     errors: std.ArrayListUnmanaged(AstError),
@@ -367,20 +369,13 @@ const Parser = struct {
 
     /// Eat a multiline container doc comment
     fn parseContainerDocComments(p: *Parser) !?*Node {
-        var lines = Node.DocComment.LineList{};
-        var lines_it: *?*Node.DocComment.LineList.Node = &lines.first;
-
-        while (p.eatToken(.ContainerDocComment)) |line| {
-            lines_it = try p.llpush(TokenIndex, lines_it, line);
+        if (p.eatToken(.ContainerDocComment)) |first_line| {
+            while (p.eatToken(.ContainerDocComment)) |_| {}
+            const node = try p.arena.allocator.create(Node.DocComment);
+            node.* = .{ .first_line = first_line };
+            return &node.base;
         }
-
-        if (lines.first == null) return null;
-
-        const node = try p.arena.allocator.create(Node.DocComment);
-        node.* = .{
-            .lines = lines,
-        };
-        return &node.base;
+        return null;
     }
 
     /// TestDecl <- KEYWORD_test STRINGLITERALSINGLE Block
@@ -3210,20 +3205,13 @@ const Parser = struct {
 
     /// Eat a multiline doc comment
     fn parseDocComment(p: *Parser) !?*Node.DocComment {
-        var lines = Node.DocComment.LineList{};
-        var lines_it = &lines.first;
-
-        while (p.eatToken(.DocComment)) |line| {
-            lines_it = try p.llpush(TokenIndex, lines_it, line);
+        if (p.eatToken(.DocComment)) |first_line| {
+            while (p.eatToken(.DocComment)) |_| {}
+            const node = try p.arena.allocator.create(Node.DocComment);
+            node.* = .{ .first_line = first_line };
+            return node;
         }
-
-        if (lines.first == null) return null;
-
-        const node = try p.arena.allocator.create(Node.DocComment);
-        node.* = .{
-            .lines = lines,
-        };
-        return node;
+        return null;
     }
 
     fn tokensOnSameLine(p: *Parser, token1: TokenIndex, token2: TokenIndex) bool {
@@ -3234,11 +3222,8 @@ const Parser = struct {
     fn parseAppendedDocComment(p: *Parser, after_token: TokenIndex) !?*Node.DocComment {
         const comment_token = p.eatToken(.DocComment) orelse return null;
         if (p.tokensOnSameLine(after_token, comment_token)) {
-            var lines = Node.DocComment.LineList{};
-            _ = try p.llpush(TokenIndex, &lines.first, comment_token);
-
             const node = try p.arena.allocator.create(Node.DocComment);
-            node.* = .{ .lines = lines };
+            node.* = .{ .first_line = comment_token };
             return node;
         }
         p.putBackToken(comment_token);

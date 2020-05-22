@@ -327,11 +327,18 @@ fn renderContainerDecl(allocator: *mem.Allocator, stream: var, tree: *ast.Tree, 
 
         .DocComment => {
             const comment = @fieldParentPtr(ast.Node.DocComment, "base", decl);
-            var it = comment.lines.first;
-            while (it) |node| : (it = node.next) {
-                try renderToken(tree, stream, node.data, indent, start_col, .Newline);
-                if (node.next != null) {
+            const kind = tree.tokens[comment.first_line].id;
+            try renderToken(tree, stream, comment.first_line, indent, start_col, .Newline);
+            var tok_i = comment.first_line + 1;
+            while (true) : (tok_i += 1) {
+                const tok_id = tree.tokens[tok_i].id;
+                if (tok_id == kind) {
                     try stream.writeByteNTimes(' ', indent);
+                    try renderToken(tree, stream, tok_i, indent, start_col, .Newline);
+                } else if (tok_id == .LineComment) {
+                    continue;
+                } else {
+                    break;
                 }
             }
         },
@@ -2428,17 +2435,32 @@ fn renderDocComments(
     start_col: *usize,
 ) (@TypeOf(stream).Error || Error)!void {
     const comment = node.doc_comments orelse return;
-    var it = comment.lines.first;
-    const first_token = node.firstToken();
-    while (it) |line_token_index_node| : (it = line_token_index_node.next) {
-        const line_token_index = line_token_index_node.data;
-        if (line_token_index < first_token) {
-            try renderToken(tree, stream, line_token_index, indent, start_col, Space.Newline);
-            try stream.writeByteNTimes(' ', indent);
-        } else {
-            try renderToken(tree, stream, line_token_index, indent, start_col, Space.NoComment);
-            try stream.writeAll("\n");
-            try stream.writeByteNTimes(' ', indent);
+    return renderDocCommentsToken(tree, stream, comment, node.firstToken(), indent, start_col);
+}
+
+fn renderDocCommentsToken(
+    tree: *ast.Tree,
+    stream: var,
+    comment: *ast.Node.DocComment,
+    first_token: ast.TokenIndex,
+    indent: usize,
+    start_col: *usize,
+) (@TypeOf(stream).Error || Error)!void {
+    var tok_i = comment.first_line;
+    while (true) : (tok_i += 1) {
+        switch (tree.tokens[tok_i].id) {
+            .DocComment, .ContainerDocComment => {
+                if (comment.first_line < first_token) {
+                    try renderToken(tree, stream, tok_i, indent, start_col, Space.Newline);
+                    try stream.writeByteNTimes(' ', indent);
+                } else {
+                    try renderToken(tree, stream, tok_i, indent, start_col, Space.NoComment);
+                    try stream.writeAll("\n");
+                    try stream.writeByteNTimes(' ', indent);
+                }
+            },
+            .LineComment => continue,
+            else => break,
         }
     }
 }

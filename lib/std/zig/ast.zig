@@ -1,7 +1,6 @@
 const std = @import("../std.zig");
 const assert = std.debug.assert;
 const testing = std.testing;
-const LinkedList = std.SinglyLinkedList;
 const mem = std.mem;
 const Token = std.zig.Token;
 
@@ -3013,9 +3012,10 @@ pub const Node = struct {
 
     pub const DocComment = struct {
         base: Node = Node{ .id = .DocComment },
-        lines: LineList,
-
-        pub const LineList = LinkedList(TokenIndex);
+        /// Points to the first doc comment token. API users are expected to iterate over the
+        /// tokens array, looking for more doc comments, ignoring line comments, and stopping
+        /// at the first other token.
+        first_line: TokenIndex,
 
         pub fn iterate(self: *const DocComment) Node.Iterator {
             return .{ .parent_node = &self.base, .index = 0 };
@@ -3026,14 +3026,13 @@ pub const Node = struct {
         }
 
         pub fn firstToken(self: *const DocComment) TokenIndex {
-            return self.lines.first.?.data;
+            return self.first_line;
         }
 
+        /// Returns the first doc comment line. Be careful, this may not be the desired behavior,
+        /// which would require the tokens array.
         pub fn lastToken(self: *const DocComment) TokenIndex {
-            var node = self.lines.first.?;
-            while (true) {
-                node = node.next orelse return node.data;
-            }
+            return self.first_line;
         }
     };
 
