@@ -320,10 +320,11 @@ fn printWithVisibleNewlines(source: []const u8) void {
 }
 
 fn printLine(line: []const u8) void {
-    switch (line[line.len - 1]) {
+    if (line.len != 0) switch (line[line.len - 1]) {
         ' ', '\t' => warn("{}⏎\n", .{line}), // Carriage return symbol,
-        else => warn("{}\n", .{line}),
-    }
+        else => {},
+    };
+    warn("{}\n", .{line});
 }
 
 test "" {
