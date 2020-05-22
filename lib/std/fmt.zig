@@ -610,6 +610,7 @@ pub fn formatBuf(
             }
             try out_stream.writeAll(buf);
         },
+        else => try out_stream.writeAll(buf),
     }
 }
 
