@@ -9,6 +9,48 @@
 
 const std = @import("std");
 
+/// Contains constants for the C0 control codes of the ASCII encoding.
+/// https://en.wikipedia.org/wiki/C0_and_C1_control_codes
+pub const control_code = struct {
+    pub const NUL = 0x00;
+    pub const SOH = 0x01;
+    pub const STX = 0x02;
+    pub const ETX = 0x03;
+    pub const EOT = 0x04;
+    pub const ENQ = 0x05;
+    pub const ACK = 0x06;
+    pub const BEL = 0x07;
+    pub const BS = 0x08;
+    pub const TAB = 0x09;
+    pub const LF = 0x0A;
+    pub const VT = 0x0B;
+    pub const FF = 0x0C;
+    pub const CR = 0x0D;
+    pub const SO = 0x0E;
+    pub const SI = 0x0F;
+    pub const DLE = 0x10;
+    pub const DC1 = 0x11;
+    pub const DC2 = 0x12;
+    pub const DC3 = 0x13;
+    pub const DC4 = 0x14;
+    pub const NAK = 0x15;
+    pub const SYN = 0x16;
+    pub const ETB = 0x17;
+    pub const CAN = 0x18;
+    pub const EM = 0x19;
+    pub const SUB = 0x1A;
+    pub const ESC = 0x1B;
+    pub const FS = 0x1C;
+    pub const GS = 0x1D;
+    pub const RS = 0x1E;
+    pub const US = 0x1F;
+
+    pub const DEL = 0x7F;
+
+    pub const XON = 0x11;
+    pub const XOFF = 0x13;
+};
+
 const tIndex = enum(u3) {
     Alpha,
     Hex,
@@ -227,6 +269,8 @@ test "ascii character classes" {
     testing.expect(isSpace(' '));
 }
 
+/// Allocates a lower case copy of `ascii_string`.
+/// Caller owns returned string and must free with `allocator`.
 pub fn allocLowerString(allocator: *std.mem.Allocator, ascii_string: []const u8) ![]u8 {
     const result = try allocator.alloc(u8, ascii_string.len);
     for (result) |*c, i| {
@@ -241,6 +285,23 @@ test "allocLowerString" {
     std.testing.expect(std.mem.eql(u8, "abcdefghijklmnopqrst0234+💩!", result));
 }
 
+/// Allocates an upper case copy of `ascii_string`.
+/// Caller owns returned string and must free with `allocator`.
+pub fn allocUpperString(allocator: *std.mem.Allocator, ascii_string: []const u8) ![]u8 {
+    const result = try allocator.alloc(u8, ascii_string.len);
+    for (result) |*c, i| {
+        c.* = toUpper(ascii_string[i]);
+    }
+    return result;
+}
+
+test "allocUpperString" {
+    const result = try allocUpperString(std.testing.allocator, "aBcDeFgHiJkLmNOPqrst0234+💩!");
+    defer std.testing.allocator.free(result);
+    std.testing.expect(std.mem.eql(u8, "ABCDEFGHIJKLMNOPQRST0234+💩!", result));
+}
+
+/// Compares strings `a` and `b` case insensitively and returns whether they are equal.
 pub fn eqlIgnoreCase(a: []const u8, b: []const u8) bool {
     if (a.len != b.len) return false;
     for (a) |a_c, i| {
@@ -255,7 +316,7 @@ test "eqlIgnoreCase" {
     std.testing.expect(!eqlIgnoreCase("hElLo!", "helro!"));
 }
 
-/// Finds `substr` in `container`, starting at `start_index`.
+/// Finds `substr` in `container`, ignoring case, starting at `start_index`.
 /// TODO boyer-moore algorithm
 pub fn indexOfIgnoreCasePos(container: []const u8, start_index: usize, substr: []const u8) ?usize {
     if (substr.len > container.len) return null;
@@ -268,7 +329,7 @@ pub fn indexOfIgnoreCasePos(container: []const u8, start_index: usize, substr: [
     return null;
 }
 
-/// Finds `substr` in `container`, starting at `start_index`.
+/// Finds `substr` in `container`, ignoring case, starting at index 0.
 pub fn indexOfIgnoreCase(container: []const u8, substr: []const u8) ?usize {
     return indexOfIgnoreCasePos(container, 0, substr);
 }

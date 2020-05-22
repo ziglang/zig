@@ -7046,6 +7046,32 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:2:1: note: function declared here",
     });
 
+    cases.add("function parameter is opaque",
+        \\const FooType = @OpaqueType();
+        \\export fn entry1() void {
+        \\    const someFuncPtr: fn (FooType) void = undefined;
+        \\}
+        \\
+        \\export fn entry2() void {
+        \\    const someFuncPtr: fn (@TypeOf(null)) void = undefined;
+        \\}
+        \\
+        \\fn foo(p: FooType) void {}
+        \\export fn entry3() void {
+        \\    _ = foo;
+        \\}
+        \\
+        \\fn bar(p: @TypeOf(null)) void {}
+        \\export fn entry4() void {
+        \\    _ = bar;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:3:28: error: parameter of opaque type 'FooType' not allowed",
+        "tmp.zig:7:28: error: parameter of type '(null)' not allowed",
+        "tmp.zig:10:11: error: parameter of opaque type 'FooType' not allowed",
+        "tmp.zig:15:11: error: parameter of type '(null)' not allowed",
+    });
+
     cases.add( // fixed bug #2032
         "compile diagnostic string for top level decl type",
         \\export fn entry() void {

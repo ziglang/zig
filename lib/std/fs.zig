@@ -12,6 +12,7 @@ const is_darwin = std.Target.current.os.tag.isDarwin();
 
 pub const path = @import("fs/path.zig");
 pub const File = @import("fs/file.zig").File;
+pub const wasi = @import("fs/wasi.zig");
 
 // TODO audit these APIs with respect to Dir and absolute paths
 
@@ -43,6 +44,8 @@ pub const MAX_PATH_BYTES = switch (builtin.os.tag) {
     // pair in the UTF-16LE, and we (over)account 3 bytes for it that way.
     // +1 for the null byte at the end, which can be encoded in 1 byte.
     .windows => os.windows.PATH_MAX_WIDE * 3 + 1,
+    // TODO work out what a reasonable value we should use here
+    .wasi => 4096,
     else => @compileError("Unsupported OS"),
 };
 
@@ -154,7 +157,7 @@ pub const AtomicFile = struct {
             try crypto.randomBytes(rand_buf[0..]);
             base64_encoder.encode(&tmp_path_buf, &rand_buf);
 
-            const file = dir.createFileZ(
+            const file = dir.createFile(
                 &tmp_path_buf,
                 .{ .mode = mode, .exclusive = true },
             ) catch |err| switch (err) {
@@ -181,7 +184,7 @@ pub const AtomicFile = struct {
             self.file_open = false;
         }
         if (self.file_exists) {
-            self.dir.deleteFileZ(&self.tmp_path_buf) catch {};
+            self.dir.deleteFile(&self.tmp_path_buf) catch {};
             self.file_exists = false;
         }
         if (self.close_dir_on_deinit) {
@@ -196,16 +199,8 @@ pub const AtomicFile = struct {
             self.file.close();
             self.file_open = false;
         }
-        if (std.Target.current.os.tag == .windows) {
-            const dest_path_w = try os.windows.sliceToPrefixedFileW(self.dest_basename);
-            const tmp_path_w = try os.windows.cStrToPrefixedFileW(&self.tmp_path_buf);
-            try os.renameatW(self.dir.fd, tmp_path_w.span(), self.dir.fd, dest_path_w.span(), os.windows.TRUE);
-            self.file_exists = false;
-        } else {
-            const dest_path_c = try os.toPosixPath(self.dest_basename);
-            try os.renameatZ(self.dir.fd, &self.tmp_path_buf, self.dir.fd, &dest_path_c);
-            self.file_exists = false;
-        }
+        try os.renameat(self.dir.fd, self.tmp_path_buf[0..], self.dir.fd, self.dest_basename);
+        self.file_exists = false;
     }
 };
 
@@ -521,6 +516,66 @@ pub const Dir = struct {
                 }
             }
         },
+        .wasi => struct {
+            dir: Dir,
+            buf: [8192]u8, // TODO align(@alignOf(os.wasi.dirent_t)),
+            cookie: u64,
+            index: usize,
+            end_index: usize,
+
+            const Self = @This();
+
+            pub const Error = IteratorError;
+
+            /// Memory such as file names referenced in this returned entry becomes invalid
+            /// with subsequent calls to `next`, as well as when this `Dir` is deinitialized.
+            pub fn next(self: *Self) Error!?Entry {
+                const w = os.wasi;
+                start_over: while (true) {
+                    if (self.index >= self.end_index) {
+                        var bufused: usize = undefined;
+                        switch (w.fd_readdir(self.dir.fd, &self.buf, self.buf.len, self.cookie, &bufused)) {
+                            w.ESUCCESS => {},
+                            w.EBADF => unreachable, // Dir is invalid or was opened without iteration ability
+                            w.EFAULT => unreachable,
+                            w.ENOTDIR => unreachable,
+                            w.EINVAL => unreachable,
+                            else => |err| return os.unexpectedErrno(err),
+                        }
+                        if (bufused == 0) return null;
+                        self.index = 0;
+                        self.end_index = bufused;
+                    }
+                    const entry = @ptrCast(*align(1) os.wasi.dirent_t, &self.buf[self.index]);
+                    const entry_size = @sizeOf(os.wasi.dirent_t);
+                    const name_index = self.index + entry_size;
+                    const name = mem.span(self.buf[name_index .. name_index + entry.d_namlen]);
+
+                    const next_index = name_index + entry.d_namlen;
+                    self.index = next_index;
+                    self.cookie = entry.d_next;
+
+                    // skip . and .. entries
+                    if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..")) {
+                        continue :start_over;
+                    }
+
+                    const entry_kind = switch (entry.d_type) {
+                        wasi.FILETYPE_BLOCK_DEVICE => Entry.Kind.BlockDevice,
+                        wasi.FILETYPE_CHARACTER_DEVICE => Entry.Kind.CharacterDevice,
+                        wasi.FILETYPE_DIRECTORY => Entry.Kind.Directory,
+                        wasi.FILETYPE_SYMBOLIC_LINK => Entry.Kind.SymLink,
+                        wasi.FILETYPE_REGULAR_FILE => Entry.Kind.File,
+                        wasi.FILETYPE_SOCKET_STREAM, wasi.FILETYPE_SOCKET_DGRAM => Entry.Kind.UnixDomainSocket,
+                        else => Entry.Kind.Unknown,
+                    };
+                    return Entry{
+                        .name = name,
+                        .kind = entry_kind,
+                    };
+                }
+            }
+        },
         else => @compileError("unimplemented"),
     };
 
@@ -546,6 +601,13 @@ pub const Dir = struct {
                 .first = true,
                 .buf = undefined,
                 .name_data = undefined,
+            },
+            .wasi => return Iterator{
+                .dir = self,
+                .cookie = os.wasi.DIRCOOKIE_START,
+                .index = 0,
+                .end_index = 0,
+                .buf = undefined,
             },
             else => @compileError("unimplemented"),
         }
@@ -584,8 +646,36 @@ pub const Dir = struct {
             const path_w = try os.windows.sliceToPrefixedFileW(sub_path);
             return self.openFileW(path_w.span(), flags);
         }
+        if (builtin.os.tag == .wasi) {
+            return self.openFileWasi(sub_path, flags);
+        }
         const path_c = try os.toPosixPath(sub_path);
         return self.openFileZ(&path_c, flags);
+    }
+
+    /// Save as `openFile` but WASI only.
+    pub fn openFileWasi(self: Dir, sub_path: []const u8, flags: File.OpenFlags) File.OpenError!File {
+        const w = os.wasi;
+        var fdflags: w.fdflags_t = 0x0;
+        var base: w.rights_t = 0x0;
+        if (flags.read) {
+            base |= w.RIGHT_FD_READ | w.RIGHT_FD_TELL | w.RIGHT_FD_SEEK | w.RIGHT_FD_FILESTAT_GET;
+        }
+        if (flags.write) {
+            fdflags |= w.FDFLAG_APPEND;
+            base |= w.RIGHT_FD_WRITE |
+                w.RIGHT_FD_TELL |
+                w.RIGHT_FD_SEEK |
+                w.RIGHT_FD_DATASYNC |
+                w.RIGHT_FD_FDSTAT_SET_FLAGS |
+                w.RIGHT_FD_SYNC |
+                w.RIGHT_FD_ALLOCATE |
+                w.RIGHT_FD_ADVISE |
+                w.RIGHT_FD_FILESTAT_SET_TIMES |
+                w.RIGHT_FD_FILESTAT_SET_SIZE;
+        }
+        const fd = try os.openatWasi(self.fd, sub_path, 0x0, fdflags, base, 0x0);
+        return File{ .handle = fd };
     }
 
     pub const openFileC = @compileError("deprecated: renamed to openFileZ");
@@ -671,11 +761,42 @@ pub const Dir = struct {
             const path_w = try os.windows.sliceToPrefixedFileW(sub_path);
             return self.createFileW(path_w.span(), flags);
         }
+        if (builtin.os.tag == .wasi) {
+            return self.createFileWasi(sub_path, flags);
+        }
         const path_c = try os.toPosixPath(sub_path);
         return self.createFileZ(&path_c, flags);
     }
 
     pub const createFileC = @compileError("deprecated: renamed to createFileZ");
+
+    /// Same as `createFile` but WASI only.
+    pub fn createFileWasi(self: Dir, sub_path: []const u8, flags: File.CreateFlags) File.OpenError!File {
+        const w = os.wasi;
+        var oflags = w.O_CREAT;
+        var base: w.rights_t = w.RIGHT_FD_WRITE |
+            w.RIGHT_FD_DATASYNC |
+            w.RIGHT_FD_SEEK |
+            w.RIGHT_FD_TELL |
+            w.RIGHT_FD_FDSTAT_SET_FLAGS |
+            w.RIGHT_FD_SYNC |
+            w.RIGHT_FD_ALLOCATE |
+            w.RIGHT_FD_ADVISE |
+            w.RIGHT_FD_FILESTAT_SET_TIMES |
+            w.RIGHT_FD_FILESTAT_SET_SIZE |
+            w.RIGHT_FD_FILESTAT_GET;
+        if (flags.read) {
+            base |= w.RIGHT_FD_READ;
+        }
+        if (flags.truncate) {
+            oflags |= w.O_TRUNC;
+        }
+        if (flags.exclusive) {
+            oflags |= w.O_EXCL;
+        }
+        const fd = try os.openatWasi(self.fd, sub_path, oflags, 0x0, base, 0x0);
+        return File{ .handle = fd };
+    }
 
     /// Same as `createFile` but the path parameter is null-terminated.
     pub fn createFileZ(self: Dir, sub_path_c: [*:0]const u8, flags: File.CreateFlags) File.OpenError!File {
@@ -820,6 +941,9 @@ pub const Dir = struct {
     /// Not all targets support this. For example, WASI does not have the concept
     /// of a current working directory.
     pub fn setAsCwd(self: Dir) !void {
+        if (builtin.os.tag == .wasi) {
+            @compileError("changing cwd is not currently possible in WASI");
+        }
         try os.fchdir(self.fd);
     }
 
@@ -842,6 +966,8 @@ pub const Dir = struct {
         if (builtin.os.tag == .windows) {
             const sub_path_w = try os.windows.sliceToPrefixedFileW(sub_path);
             return self.openDirW(sub_path_w.span().ptr, args);
+        } else if (builtin.os.tag == .wasi) {
+            return self.openDirWasi(sub_path, args);
         } else {
             const sub_path_c = try os.toPosixPath(sub_path);
             return self.openDirZ(&sub_path_c, args);
@@ -849,6 +975,44 @@ pub const Dir = struct {
     }
 
     pub const openDirC = @compileError("deprecated: renamed to openDirZ");
+
+    /// Same as `openDir` except only WASI.
+    pub fn openDirWasi(self: Dir, sub_path: []const u8, args: OpenDirOptions) OpenError!Dir {
+        const w = os.wasi;
+        var base: w.rights_t = w.RIGHT_FD_FILESTAT_GET | w.RIGHT_FD_FDSTAT_SET_FLAGS | w.RIGHT_FD_FILESTAT_SET_TIMES;
+        if (args.iterate) {
+            base |= w.RIGHT_FD_READDIR;
+        }
+        if (args.access_sub_paths) {
+            base |= w.RIGHT_PATH_CREATE_DIRECTORY |
+                w.RIGHT_PATH_CREATE_FILE |
+                w.RIGHT_PATH_LINK_SOURCE |
+                w.RIGHT_PATH_LINK_TARGET |
+                w.RIGHT_PATH_OPEN |
+                w.RIGHT_PATH_READLINK |
+                w.RIGHT_PATH_RENAME_SOURCE |
+                w.RIGHT_PATH_RENAME_TARGET |
+                w.RIGHT_PATH_FILESTAT_GET |
+                w.RIGHT_PATH_FILESTAT_SET_SIZE |
+                w.RIGHT_PATH_FILESTAT_SET_TIMES |
+                w.RIGHT_PATH_SYMLINK |
+                w.RIGHT_PATH_REMOVE_DIRECTORY |
+                w.RIGHT_PATH_UNLINK_FILE;
+        }
+        // TODO do we really need all the rights here?
+        const inheriting: w.rights_t = w.RIGHT_ALL ^ w.RIGHT_SOCK_SHUTDOWN;
+
+        const result = os.openatWasi(self.fd, sub_path, w.O_DIRECTORY, 0x0, base, inheriting);
+        const fd = result catch |err| switch (err) {
+            error.FileTooBig => unreachable, // can't happen for directories
+            error.IsDir => unreachable, // we're providing O_DIRECTORY
+            error.NoSpaceLeft => unreachable, // not providing O_CREAT
+            error.PathAlreadyExists => unreachable, // not providing O_CREAT
+            error.FileLocksNotSupported => unreachable, // locking folders is not supported
+            else => |e| return e,
+        };
+        return Dir{ .fd = fd };
+    }
 
     /// Same as `openDir` except the parameter is null-terminated.
     pub fn openDirZ(self: Dir, sub_path_c: [*:0]const u8, args: OpenDirOptions) OpenError!Dir {
@@ -997,9 +1161,15 @@ pub const Dir = struct {
         if (builtin.os.tag == .windows) {
             const sub_path_w = try os.windows.sliceToPrefixedFileW(sub_path);
             return self.deleteDirW(sub_path_w.span().ptr);
+        } else if (builtin.os.tag == .wasi) {
+            os.unlinkat(self.fd, sub_path, os.AT_REMOVEDIR) catch |err| switch (err) {
+                error.IsDir => unreachable, // not possible since we pass AT_REMOVEDIR
+                else => |e| return e,
+            };
+        } else {
+            const sub_path_c = try os.toPosixPath(sub_path);
+            return self.deleteDirZ(&sub_path_c);
         }
-        const sub_path_c = try os.toPosixPath(sub_path);
-        return self.deleteDirZ(&sub_path_c);
     }
 
     /// Same as `deleteDir` except the parameter is null-terminated.
@@ -1390,6 +1560,8 @@ pub const Dir = struct {
 pub fn cwd() Dir {
     if (builtin.os.tag == .windows) {
         return Dir{ .fd = os.windows.peb().ProcessParameters.CurrentDirectory.Handle };
+    } else if (builtin.os.tag == .wasi) {
+        @compileError("WASI doesn't have a concept of cwd(); use std.fs.wasi.PreopenList to get available Dir handles instead");
     } else {
         return Dir{ .fd = os.AT_FDCWD };
     }
@@ -1695,10 +1867,12 @@ pub fn realpathAlloc(allocator: *Allocator, pathname: []const u8) ![]u8 {
 }
 
 test "" {
-    _ = makeDirAbsolute;
-    _ = makeDirAbsoluteZ;
-    _ = copyFileAbsolute;
-    _ = updateFileAbsolute;
+    if (builtin.os.tag != .wasi) {
+        _ = makeDirAbsolute;
+        _ = makeDirAbsoluteZ;
+        _ = copyFileAbsolute;
+        _ = updateFileAbsolute;
+    }
     _ = Dir.copyFile;
     _ = @import("fs/test.zig");
     _ = @import("fs/path.zig");

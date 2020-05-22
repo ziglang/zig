@@ -538,8 +538,8 @@ enum ContainerFieldState {
 //     <- TestDecl ContainerMembers
 //      / TopLevelComptime ContainerMembers
 //      / KEYWORD_pub? TopLevelDecl ContainerMembers
-//      / KEYWORD_comptime? ContainerField COMMA ContainerMembers
-//      / KEYWORD_comptime? ContainerField
+//      / ContainerField COMMA ContainerMembers
+//      / ContainerField
 //      /
 static AstNodeContainerDecl ast_parse_container_members(ParseContext *pc) {
     AstNodeContainerDecl res = {};
@@ -862,7 +862,7 @@ static AstNode *ast_parse_var_decl(ParseContext *pc) {
     return res;
 }
 
-// ContainerField <- IDENTIFIER (COLON TypeExpr ByteAlign?)? (EQUAL Expr)?
+// ContainerField <- KEYWORD_comptime? IDENTIFIER (COLON TypeExpr ByteAlign?)? (EQUAL Expr)?
 static AstNode *ast_parse_container_field(ParseContext *pc) {
     Token *identifier = eat_token_if(pc, TokenIdSymbol);
     if (identifier == nullptr)
@@ -1609,7 +1609,6 @@ static AstNode *ast_parse_suffix_expr(ParseContext *pc) {
 //      / IfTypeExpr
 //      / INTEGER
 //      / KEYWORD_comptime TypeExpr
-//      / KEYWORD_nosuspend TypeExpr
 //      / KEYWORD_error DOT IDENTIFIER
 //      / KEYWORD_false
 //      / KEYWORD_null
@@ -1708,14 +1707,6 @@ static AstNode *ast_parse_primary_type_expr(ParseContext *pc) {
         AstNode *expr = ast_expect(pc, ast_parse_type_expr);
         AstNode *res = ast_create_node(pc, NodeTypeCompTime, comptime);
         res->data.comptime_expr.expr = expr;
-        return res;
-    }
-
-    Token *nosuspend = eat_token_if(pc, TokenIdKeywordNoSuspend);
-    if (nosuspend != nullptr) {
-        AstNode *expr = ast_expect(pc, ast_parse_type_expr);
-        AstNode *res = ast_create_node(pc, NodeTypeNoSuspend, nosuspend);
-        res->data.nosuspend_expr.expr = expr;
         return res;
     }
 

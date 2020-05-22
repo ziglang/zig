@@ -136,7 +136,7 @@ pub const Token = union(enum) {
 /// they are encountered. No copies or allocations are performed during parsing and the entire
 /// parsing state requires ~40-50 bytes of stack space.
 ///
-/// Conforms strictly to RFC8529.
+/// Conforms strictly to RFC8259.
 ///
 /// For a non-byte based wrapper, consider using TokenStream instead.
 pub const StreamingParser = struct {
@@ -2492,6 +2492,7 @@ pub fn stringify(
             try out_stream.writeByte('}');
             return;
         },
+        .ErrorSet => return stringify(@as([]const u8, @errorName(value)), options, out_stream),
         .Pointer => |ptr_info| switch (ptr_info.size) {
             .One => switch (@typeInfo(ptr_info.child)) {
                 .Array => {
@@ -2646,6 +2647,7 @@ test "stringify basic types" {
     try teststringify("42", @as(u128, 42), StringifyOptions{});
     try teststringify("4.2e+01", @as(f32, 42), StringifyOptions{});
     try teststringify("4.2e+01", @as(f64, 42), StringifyOptions{});
+    try teststringify("\"ItBroke\"", @as(anyerror, error.ItBroke), StringifyOptions{});
 }
 
 test "stringify string" {

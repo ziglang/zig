@@ -357,7 +357,7 @@ pub const StackIterator = struct {
     else
         0;
 
-    fn next(self: *StackIterator) ?usize {
+    pub fn next(self: *StackIterator) ?usize {
         var address = self.next_internal() orelse return null;
 
         if (self.first_address) |first_address| {

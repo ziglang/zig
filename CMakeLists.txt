@@ -329,7 +329,11 @@ if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
     if(MSVC)
         set(EXE_CFLAGS "${EXE_CFLAGS} /w")
     else()
-        set(EXE_CFLAGS "${EXE_CFLAGS} -Werror -Wall -Werror=implicit-fallthrough")
+        set(EXE_CFLAGS "${EXE_CFLAGS} -Werror -Wall")
+        # fallthrough support was added in GCC 7.0
+        if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 7.0)
+            set(EXE_CFLAGS "${EXE_CFLAGS} -Werror=implicit-fallthrough")
+        endif()
     endif()
 endif()
 

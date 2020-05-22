@@ -130,21 +130,55 @@ fn AES(comptime keysize: usize) type {
     return struct {
         const Self = @This();
 
+        pub const Encrypt = AESEncrypt(keysize);
+        pub const Decrypt = AESDecrypt(keysize);
+
         const nn = (keysize / 8) + 28;
-        enc: [nn]u32,
-        dec: [nn]u32,
+        enc: Encrypt,
+        dec: Decrypt,
 
         pub fn init(key: [keysize / 8]u8) Self {
             var ctx: Self = undefined;
-            expandKey(&key, ctx.enc[0..], ctx.dec[0..]);
+            ctx.enc = Encrypt.init(key);
+            ctx.dec = ctx.enc.toDecrypt();
             return ctx;
         }
 
         pub fn encrypt(ctx: Self, dst: []u8, src: []const u8) void {
-            encryptBlock(ctx.enc[0..], dst, src);
+            ctx.enc.encrypt(dst, src);
         }
         pub fn decrypt(ctx: Self, dst: []u8, src: []const u8) void {
-            decryptBlock(ctx.dec[0..], dst, src);
+            ctx.dec.decrypt(dst, src);
+        }
+        pub fn ctr(ctx: Self, dst: []u8, src: []const u8, iv: [16]u8) void {
+            ctx.enc.ctr(dst, src, iv);
+        }
+    };
+}
+
+fn AESEncrypt(comptime keysize: usize) type {
+    return struct {
+        const Self = @This();
+
+        const Decrypt = AESDecrypt(keysize);
+
+        const nn = (keysize / 8) + 28;
+        enc: [nn]u32,
+
+        pub fn init(key: [keysize / 8]u8) Self {
+            var ctx: Self = undefined;
+            expandKeyEncrypt(&key, ctx.enc[0..]);
+            return ctx;
+        }
+
+        pub fn toDecrypt(ctx: Self) Decrypt {
+            var dec: Decrypt = undefined;
+            expandKeyDecrypt(ctx.enc[0..], dec.dec[0..]);
+            return dec;
+        }
+
+        pub fn encrypt(ctx: Self, dst: []u8, src: []const u8) void {
+            encryptBlock(ctx.enc[0..], dst, src);
         }
         pub fn ctr(ctx: Self, dst: []u8, src: []const u8, iv: [16]u8) void {
             std.debug.assert(dst.len >= src.len);
@@ -159,6 +193,27 @@ fn AES(comptime keysize: usize) type {
 
                 n += xorBytes(dst[n..], src[n..], &keystream);
             }
+        }
+    };
+}
+
+fn AESDecrypt(comptime keysize: usize) type {
+    return struct {
+        const Self = @This();
+
+        const nn = (keysize / 8) + 28;
+        dec: [nn]u32,
+
+        pub fn init(key: [keysize / 8]u8) Self {
+            var ctx: Self = undefined;
+            var enc: [nn]u32 = undefined;
+            expandKeyEncrypt(key[0..], enc[0..]);
+            expandKeyDecrypt(enc[0..], ctx.dec[0..]);
+            return ctx;
+        }
+
+        pub fn decrypt(ctx: Self, dst: []u8, src: []const u8) void {
+            decryptBlock(ctx.dec[0..], dst, src);
         }
     };
 }
@@ -247,7 +302,7 @@ test "decrypt" {
 }
 
 // Key expansion algorithm. See FIPS-197, Figure 11.
-fn expandKey(key: []const u8, enc: []u32, dec: []u32) void {
+fn expandKeyEncrypt(key: []const u8, enc: []u32) void {
     var i: usize = 0;
     var nk = key.len / 4;
     while (i < nk) : (i += 1) {
@@ -262,9 +317,11 @@ fn expandKey(key: []const u8, enc: []u32, dec: []u32) void {
         }
         enc[i] = enc[i - nk] ^ t;
     }
+}
 
+fn expandKeyDecrypt(enc: []const u32, dec: []u32) void {
+    var i: usize = 0;
     var n = enc.len;
-    i = 0;
     while (i < n) : (i += 4) {
         var ei = n - i - 4;
         var j: usize = 0;
@@ -308,7 +365,8 @@ test "expand key" {
     };
     var enc: [exp_enc.len]u32 = undefined;
     var dec: [exp_dec.len]u32 = undefined;
-    expandKey(key[0..], enc[0..], dec[0..]);
+    expandKeyEncrypt(key[0..], enc[0..]);
+    expandKeyDecrypt(enc[0..], dec[0..]);
     testing.expectEqualSlices(u32, exp_enc[0..], enc[0..]);
     testing.expectEqualSlices(u32, exp_dec[0..], dec[0..]);
 }

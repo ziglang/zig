@@ -26,6 +26,8 @@ pub fn getCwdAlloc(allocator: *Allocator) ![]u8 {
 }
 
 test "getCwdAlloc" {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
     const cwd = try getCwdAlloc(testing.allocator);
     testing.allocator.free(cwd);
 }
@@ -69,9 +71,7 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
             return os.unexpectedErrno(environ_sizes_get_ret);
         }
 
-        // TODO: Verify that the documentation is incorrect
-        // https://github.com/WebAssembly/WASI/issues/27
-        var environ = try allocator.alloc(?[*:0]u8, environ_count + 1);
+        var environ = try allocator.alloc([*:0]u8, environ_count);
         defer allocator.free(environ);
         var environ_buf = try allocator.alloc(u8, environ_buf_size);
         defer allocator.free(environ_buf);
@@ -82,13 +82,11 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
         }
 
         for (environ) |env| {
-            if (env) |ptr| {
-                const pair = mem.spanZ(ptr);
-                var parts = mem.split(pair, "=");
-                const key = parts.next().?;
-                const value = parts.next().?;
-                try result.set(key, value);
-            }
+            const pair = mem.spanZ(env);
+            var parts = mem.split(pair, "=");
+            const key = parts.next().?;
+            const value = parts.next().?;
+            try result.set(key, value);
         }
         return result;
     } else if (builtin.link_libc) {

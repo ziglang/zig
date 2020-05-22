@@ -123,6 +123,9 @@ pub const cOutStream = @import("io/c_out_stream.zig").cOutStream;
 pub const CountingOutStream = @import("io/counting_out_stream.zig").CountingOutStream;
 pub const countingOutStream = @import("io/counting_out_stream.zig").countingOutStream;
 
+pub const MultiOutStream = @import("io/multi_out_stream.zig").MultiOutStream;
+pub const multiOutStream = @import("io/multi_out_stream.zig").multiOutStream;
+
 pub const BitInStream = @import("io/bit_in_stream.zig").BitInStream;
 pub const bitInStream = @import("io/bit_in_stream.zig").bitInStream;
 

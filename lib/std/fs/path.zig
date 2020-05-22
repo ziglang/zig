@@ -653,6 +653,8 @@ pub fn resolvePosix(allocator: *Allocator, paths: []const []const u8) ![]u8 {
 }
 
 test "resolve" {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
     const cwd = try process.getCwdAlloc(testing.allocator);
     defer testing.allocator.free(cwd);
     if (builtin.os.tag == .windows) {
@@ -667,10 +669,11 @@ test "resolve" {
 }
 
 test "resolveWindows" {
-    if (@import("builtin").arch == .aarch64) {
+    if (builtin.arch == .aarch64) {
         // TODO https://github.com/ziglang/zig/issues/3288
         return error.SkipZigTest;
     }
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
     if (builtin.os.tag == .windows) {
         const cwd = try process.getCwdAlloc(testing.allocator);
         defer testing.allocator.free(cwd);
@@ -715,6 +718,8 @@ test "resolveWindows" {
 }
 
 test "resolvePosix" {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
     try testResolvePosix(&[_][]const u8{ "/a/b", "c" }, "/a/b/c");
     try testResolvePosix(&[_][]const u8{ "/a/b", "c", "//d", "e///" }, "/d/e");
     try testResolvePosix(&[_][]const u8{ "/a/b/c", "..", "../" }, "/a");
@@ -1116,10 +1121,12 @@ pub fn relativePosix(allocator: *Allocator, from: []const u8, to: []const u8) ![
 }
 
 test "relative" {
-    if (@import("builtin").arch == .aarch64) {
+    if (builtin.arch == .aarch64) {
         // TODO https://github.com/ziglang/zig/issues/3288
         return error.SkipZigTest;
     }
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
     try testRelativeWindows("c:/blah\\blah", "d:/games", "D:\\games");
     try testRelativeWindows("c:/aaaa/bbbb", "c:/aaaa", "..");
     try testRelativeWindows("c:/aaaa/bbbb", "c:/cccc", "..\\..\\cccc");

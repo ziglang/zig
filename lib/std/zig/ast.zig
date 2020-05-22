@@ -129,6 +129,7 @@ pub const Error = union(enum) {
     ExpectedStatement: ExpectedStatement,
     ExpectedVarDeclOrFn: ExpectedVarDeclOrFn,
     ExpectedVarDecl: ExpectedVarDecl,
+    ExpectedFn: ExpectedFn,
     ExpectedReturnType: ExpectedReturnType,
     ExpectedAggregateKw: ExpectedAggregateKw,
     UnattachedDocComment: UnattachedDocComment,
@@ -164,7 +165,9 @@ pub const Error = union(enum) {
     ExpectedLoopExpr: ExpectedLoopExpr,
     ExpectedDerefOrUnwrap: ExpectedDerefOrUnwrap,
     ExpectedSuffixOp: ExpectedSuffixOp,
+    ExpectedBlockOrField: ExpectedBlockOrField,
     DeclBetweenFields: DeclBetweenFields,
+    InvalidAnd: InvalidAnd,
 
     pub fn render(self: *const Error, tokens: *Tree.TokenList, stream: var) !void {
         switch (self.*) {
@@ -177,6 +180,7 @@ pub const Error = union(enum) {
             .ExpectedStatement => |*x| return x.render(tokens, stream),
             .ExpectedVarDeclOrFn => |*x| return x.render(tokens, stream),
             .ExpectedVarDecl => |*x| return x.render(tokens, stream),
+            .ExpectedFn => |*x| return x.render(tokens, stream),
             .ExpectedReturnType => |*x| return x.render(tokens, stream),
             .ExpectedAggregateKw => |*x| return x.render(tokens, stream),
             .UnattachedDocComment => |*x| return x.render(tokens, stream),
@@ -212,7 +216,9 @@ pub const Error = union(enum) {
             .ExpectedLoopExpr => |*x| return x.render(tokens, stream),
             .ExpectedDerefOrUnwrap => |*x| return x.render(tokens, stream),
             .ExpectedSuffixOp => |*x| return x.render(tokens, stream),
+            .ExpectedBlockOrField => |*x| return x.render(tokens, stream),
             .DeclBetweenFields => |*x| return x.render(tokens, stream),
+            .InvalidAnd => |*x| return x.render(tokens, stream),
         }
     }
 
@@ -227,6 +233,7 @@ pub const Error = union(enum) {
             .ExpectedStatement => |x| return x.token,
             .ExpectedVarDeclOrFn => |x| return x.token,
             .ExpectedVarDecl => |x| return x.token,
+            .ExpectedFn => |x| return x.token,
             .ExpectedReturnType => |x| return x.token,
             .ExpectedAggregateKw => |x| return x.token,
             .UnattachedDocComment => |x| return x.token,
@@ -262,7 +269,9 @@ pub const Error = union(enum) {
             .ExpectedLoopExpr => |x| return x.token,
             .ExpectedDerefOrUnwrap => |x| return x.token,
             .ExpectedSuffixOp => |x| return x.token,
+            .ExpectedBlockOrField => |x| return x.token,
             .DeclBetweenFields => |x| return x.token,
+            .InvalidAnd => |x| return x.token,
         }
     }
 
@@ -274,6 +283,7 @@ pub const Error = union(enum) {
     pub const ExpectedStatement = SingleTokenError("Expected statement, found '{}'");
     pub const ExpectedVarDeclOrFn = SingleTokenError("Expected variable declaration or function, found '{}'");
     pub const ExpectedVarDecl = SingleTokenError("Expected variable declaration, found '{}'");
+    pub const ExpectedFn = SingleTokenError("Expected function, found '{}'");
     pub const ExpectedReturnType = SingleTokenError("Expected 'var' or return type expression, found '{}'");
     pub const ExpectedAggregateKw = SingleTokenError("Expected '" ++ Token.Id.Keyword_struct.symbol() ++ "', '" ++ Token.Id.Keyword_union.symbol() ++ "', or '" ++ Token.Id.Keyword_enum.symbol() ++ "', found '{}'");
     pub const ExpectedEqOrSemi = SingleTokenError("Expected '=' or ';', found '{}'");
@@ -299,6 +309,7 @@ pub const Error = union(enum) {
     pub const ExpectedLoopExpr = SingleTokenError("Expected loop expression, found '{}'");
     pub const ExpectedDerefOrUnwrap = SingleTokenError("Expected pointer dereference or optional unwrap, found '{}'");
     pub const ExpectedSuffixOp = SingleTokenError("Expected pointer dereference, optional unwrap, or field access, found '{}'");
+    pub const ExpectedBlockOrField = SingleTokenError("Expected block or field, found '{}'");
 
     pub const ExpectedParamType = SimpleError("Expected parameter type");
     pub const ExpectedPubItem = SimpleError("Expected function or variable declaration after pub");
@@ -308,6 +319,7 @@ pub const Error = union(enum) {
     pub const ExtraVolatileQualifier = SimpleError("Extra volatile qualifier");
     pub const ExtraAllowZeroQualifier = SimpleError("Extra allowzero qualifier");
     pub const DeclBetweenFields = SimpleError("Declarations are not allowed between container fields");
+    pub const InvalidAnd = SimpleError("`&&` is invalid. Note that `and` is boolean AND.");
 
     pub const ExpectedCall = struct {
         node: *Node,
@@ -335,9 +347,6 @@ pub const Error = union(enum) {
         pub fn render(self: *const ExpectedToken, tokens: *Tree.TokenList, stream: var) !void {
             const found_token = tokens.at(self.token);
             switch (found_token.id) {
-                .Invalid_ampersands => {
-                    return stream.print("`&&` is invalid. Note that `and` is boolean AND.", .{});
-                },
                 .Invalid => {
                     return stream.print("expected '{}', found invalid bytes", .{self.expected_id.symbol()});
                 },
@@ -888,6 +897,7 @@ pub const Node = struct {
         pub const ReturnType = union(enum) {
             Explicit: *Node,
             InferErrorSet: *Node,
+            Invalid: TokenIndex,
         };
 
         pub fn iterate(self: *FnProto, index: usize) ?*Node {
@@ -916,6 +926,7 @@ pub const Node = struct {
                     if (i < 1) return node;
                     i -= 1;
                 },
+                .Invalid => {},
             }
 
             if (self.body_node) |body_node| {
@@ -937,6 +948,7 @@ pub const Node = struct {
             if (self.body_node) |body_node| return body_node.lastToken();
             switch (self.return_type) {
                 .Explicit, .InferErrorSet => |node| return node.lastToken(),
+                .Invalid => |tok| return tok,
             }
         }
     };
@@ -978,14 +990,22 @@ pub const Node = struct {
         comptime_token: ?TokenIndex,
         noalias_token: ?TokenIndex,
         name_token: ?TokenIndex,
-        type_node: *Node,
-        var_args_token: ?TokenIndex,
+        param_type: ParamType,
+
+        pub const ParamType = union(enum) {
+            var_type: *Node,
+            var_args: TokenIndex,
+            type_expr: *Node,
+        };
 
         pub fn iterate(self: *ParamDecl, index: usize) ?*Node {
             var i = index;
 
             if (i < 1) {
-                return if (self.var_args_token == null) self.type_node else null;
+                switch (self.param_type) {
+                    .var_args => return null,
+                    .var_type, .type_expr => |node| return node,
+                }
             }
             i -= 1;
 
@@ -996,12 +1016,17 @@ pub const Node = struct {
             if (self.comptime_token) |comptime_token| return comptime_token;
             if (self.noalias_token) |noalias_token| return noalias_token;
             if (self.name_token) |name_token| return name_token;
-            return self.type_node.firstToken();
+            switch (self.param_type) {
+                .var_args => |tok| return tok,
+                .var_type, .type_expr => |node| return node.firstToken(),
+            }
         }
 
         pub fn lastToken(self: *const ParamDecl) TokenIndex {
-            if (self.var_args_token) |var_args_token| return var_args_token;
-            return self.type_node.lastToken();
+            switch (self.param_type) {
+                .var_args => |tok| return tok,
+                .var_type, .type_expr => |node| return node.lastToken(),
+            }
         }
     };
 

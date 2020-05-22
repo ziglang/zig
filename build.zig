@@ -51,6 +51,8 @@ pub fn build(b: *Builder) !void {
 
     var exe = b.addExecutable("zig", "src-self-hosted/main.zig");
     exe.setBuildMode(mode);
+    test_step.dependOn(&exe.step);
+    b.default_step.dependOn(&exe.step);
 
     const skip_release = b.option(bool, "skip-release", "Main test suite skips release builds") orelse false;
     const skip_release_small = b.option(bool, "skip-release-small", "Main test suite skips release-small builds") orelse skip_release;
@@ -58,21 +60,20 @@ pub fn build(b: *Builder) !void {
     const skip_release_safe = b.option(bool, "skip-release-safe", "Main test suite skips release-safe builds") orelse skip_release;
     const skip_non_native = b.option(bool, "skip-non-native", "Main test suite skips non-native builds") orelse false;
     const skip_libc = b.option(bool, "skip-libc", "Main test suite skips tests that link libc") orelse false;
-    const skip_self_hosted = (b.option(bool, "skip-self-hosted", "Main test suite skips building self hosted compiler") orelse false) or true; // TODO evented I/O good enough that this passes everywhere
-    if (!skip_self_hosted) {
-        test_step.dependOn(&exe.step);
-    }
 
     const only_install_lib_files = b.option(bool, "lib-files-only", "Only install library files") orelse false;
-    if (!only_install_lib_files and !skip_self_hosted) {
+    const enable_llvm = b.option(bool, "enable-llvm", "Build self-hosted compiler with LLVM backend enabled") orelse false;
+    if (enable_llvm) {
         var ctx = parseConfigH(b, config_h_text);
         ctx.llvm = try findLLVM(b, ctx.llvm_config_exe);
 
         try configureStage2(b, exe, ctx);
-
-        b.default_step.dependOn(&exe.step);
+    }
+    if (!only_install_lib_files) {
         exe.install();
     }
+    const link_libc = b.option(bool, "force-link-libc", "Force self-hosted compiler to link libc") orelse false;
+    if (link_libc) exe.linkLibC();
 
     b.installDirectory(InstallDirectoryOptions{
         .source_dir = "lib",
@@ -85,6 +86,7 @@ pub fn build(b: *Builder) !void {
 
     const is_wine_enabled = b.option(bool, "enable-wine", "Use Wine to run cross compiled Windows tests") orelse false;
     const is_qemu_enabled = b.option(bool, "enable-qemu", "Use QEMU to run cross compiled foreign architecture tests") orelse false;
+    const is_wasmtime_enabled = b.option(bool, "enable-wasmtime", "Use Wasmtime to enable and run WASI libstd tests") orelse false;
     const glibc_multi_dir = b.option([]const u8, "enable-foreign-glibc", "Provide directory with glibc installations to run cross compiled tests that link glibc");
 
     const test_stage2_step = b.step("test-stage2", "Run the stage2 compiler tests");
@@ -114,11 +116,12 @@ pub fn build(b: *Builder) !void {
     const fmt_step = b.step("test-fmt", "Run zig fmt against build.zig to make sure it works");
     fmt_step.dependOn(&fmt_build_zig.step);
 
-    test_step.dependOn(tests.addPkgTests(b, test_filter, "test/stage1/behavior.zig", "behavior", "Run the behavior tests", modes, false, skip_non_native, skip_libc, is_wine_enabled, is_qemu_enabled, glibc_multi_dir));
+    // TODO for the moment, skip wasm32-wasi until bugs are sorted out.
+    test_step.dependOn(tests.addPkgTests(b, test_filter, "test/stage1/behavior.zig", "behavior", "Run the behavior tests", modes, false, skip_non_native, skip_libc, is_wine_enabled, is_qemu_enabled, is_wasmtime_enabled, glibc_multi_dir));
 
-    test_step.dependOn(tests.addPkgTests(b, test_filter, "lib/std/std.zig", "std", "Run the standard library tests", modes, false, skip_non_native, skip_libc, is_wine_enabled, is_qemu_enabled, glibc_multi_dir));
+    test_step.dependOn(tests.addPkgTests(b, test_filter, "lib/std/std.zig", "std", "Run the standard library tests", modes, false, skip_non_native, skip_libc, is_wine_enabled, is_qemu_enabled, is_wasmtime_enabled, glibc_multi_dir));
 
-    test_step.dependOn(tests.addPkgTests(b, test_filter, "lib/std/special/compiler_rt.zig", "compiler-rt", "Run the compiler_rt tests", modes, true, skip_non_native, true, is_wine_enabled, is_qemu_enabled, glibc_multi_dir));
+    test_step.dependOn(tests.addPkgTests(b, test_filter, "lib/std/special/compiler_rt.zig", "compiler-rt", "Run the compiler_rt tests", modes, true, skip_non_native, true, is_wine_enabled, is_qemu_enabled, is_wasmtime_enabled, glibc_multi_dir));
 
     test_step.dependOn(tests.addCompareOutputTests(b, test_filter, modes));
     test_step.dependOn(tests.addStandaloneTests(b, test_filter, modes));
@@ -129,7 +132,7 @@ pub fn build(b: *Builder) !void {
     test_step.dependOn(tests.addTranslateCTests(b, test_filter));
     test_step.dependOn(tests.addRunTranslatedCTests(b, test_filter));
     // tests for this feature are disabled until we have the self-hosted compiler available
-    //test_step.dependOn(tests.addGenHTests(b, test_filter));
+    // test_step.dependOn(tests.addGenHTests(b, test_filter));
     test_step.dependOn(tests.addCompileErrorTests(b, test_filter, modes));
     test_step.dependOn(docs_step);
 }

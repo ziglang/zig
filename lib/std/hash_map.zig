@@ -10,7 +10,7 @@ const Wyhash = std.hash.Wyhash;
 const Allocator = mem.Allocator;
 const builtin = @import("builtin");
 
-const want_modification_safety = builtin.mode != .ReleaseFast;
+const want_modification_safety = std.debug.runtime_safety;
 const debug_u32 = if (want_modification_safety) u32 else void;
 
 pub fn AutoHashMap(comptime K: type, comptime V: type) type {
@@ -217,6 +217,10 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
             const put_result = self.internalPut(key);
             put_result.new_entry.kv.value = value;
             return put_result.old_kv;
+        }
+
+        pub fn putAssumeCapacityNoClobber(self: *Self, key: K, value: V) void {
+            assert(self.putAssumeCapacity(key, value) == null);
         }
 
         pub fn get(hm: *const Self, key: K) ?*KV {
