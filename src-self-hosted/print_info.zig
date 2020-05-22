@@ -27,9 +27,9 @@ pub const CompilerInfo = struct {
     /// Path to the global cache dir
     global_cache_dir: []const u8,
 
-    const CacheType = enum {
-        SelfHosted,
+    const CompilerType = enum {
         Stage1,
+        SelfHosted,
     };
 
     pub fn getVersionString() []const u8 {
@@ -37,11 +37,11 @@ pub const CompilerInfo = struct {
         return "0.6.0";
     }
 
-    pub fn getCacheDir(allocator: *Allocator, cache_type: CacheType) ![]u8 {
+    pub fn getCacheDir(allocator: *Allocator, compiler_type: CompilerType) ![]u8 {
         const global_cache_dir = try getAppCacheDir(allocator, "zig");
         defer allocator.free(global_cache_dir);
 
-        const postfix = switch(cache_type) {
+        const postfix = switch(compiler_type) {
             .SelfHosted => "self_hosted",
             .Stage1 => "stage1",
         };
@@ -49,7 +49,7 @@ pub const CompilerInfo = struct {
     }
 
     // TODO: add CacheType argument here to make it return correct cache dir for stage1
-    pub fn init(allocator: *Allocator) !CompilerInfo {
+    pub fn init(allocator: *Allocator, compiler_type: CompilerType) !CompilerInfo {
         const version_str = CompilerInfo.getVersionString();
 
         const zig_lib_dir = try introspect.resolveZigLibDir(allocator);
@@ -58,7 +58,7 @@ pub const CompilerInfo = struct {
         const zig_std_dir = try fs.path.join(allocator, &[_][]const u8{zig_lib_dir, "std"});
         errdefer allocator.free(zig_std_dir);
 
-        const cache_dir = try CompilerInfo.getCacheDir(allocator, .SelfHosted);
+        const cache_dir = try CompilerInfo.getCacheDir(allocator, compiler_type);
         errdefer allocator.free(cache_dir);
 
         return CompilerInfo{
@@ -76,8 +76,8 @@ pub const CompilerInfo = struct {
     }
 };
 
-pub fn cmdInfo(allocator: *Allocator, stdout: var) !void {
-    var info = try CompilerInfo.init(allocator);
+pub fn cmdInfo(allocator: *Allocator, compiler_type: CompilerInfo.CompilerType, stdout: var) !void {
+    var info = try CompilerInfo.init(allocator, compiler_type);
     defer info.deinit(allocator);
 
     var bos = io.bufferedOutStream(stdout);

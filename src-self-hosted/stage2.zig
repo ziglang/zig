@@ -388,7 +388,7 @@ fn detectNativeCpuWithLLVM(
 }
 
 export fn stage2_cmd_info() c_int {
-    @import("print_info.zig").cmdInfo(std.heap.c_allocator, std.io.getStdOut().outStream()) catch |err| {
+    @import("print_info.zig").cmdInfo(std.heap.c_allocator, .Stage1, std.io.getStdOut().outStream()) catch |err| {
         std.debug.warn("unable to print info: {}\n", .{@errorName(err)});
         return -1;
     };

@@ -72,7 +72,7 @@ pub fn main() !void {
         std.debug.warn("TODO version command not implemented yet\n", .{});
         return error.Unimplemented;
     } else if (mem.eql(u8, cmd, "info")) {
-        try @import("print_info.zig").cmdInfo(arena, io.getStdOut().outStream());
+        try @import("print_info.zig").cmdInfo(arena, .SelfHosted, io.getStdOut().outStream());
     } else if (mem.eql(u8, cmd, "zen")) {
         try io.getStdOut().writeAll(info_zen);
     } else if (mem.eql(u8, cmd, "help")) {
