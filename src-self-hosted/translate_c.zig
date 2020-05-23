@@ -2478,8 +2478,8 @@ fn transDoWhileLoop(
     };
 
     // In both cases above, we reserved 1 extra statement.
-    body_node.statements()[body_node.statements_len] = &if_node.base;
     body_node.statements_len += 1;
+    body_node.statements()[body_node.statements_len - 1] = &if_node.base;
     if (new)
         body_node.rbrace = try appendToken(rp.c, .RBrace, "}");
     while_node.body = &body_node.base;
