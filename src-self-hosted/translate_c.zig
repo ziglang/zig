@@ -2235,6 +2235,7 @@ fn transInitListExprArray(
     }
 
     const ty_node = try transCreateNodeArrayType(rp, loc, ZigClangQualType_getTypePtr(child_qt), 1);
+    _ = try appendToken(rp.c, .LBrace, "{");
     const filler_init_node = try ast.Node.ArrayInitializer.alloc(rp.c.arena, 1);
     filler_init_node.* = .{
         .lhs = ty_node,
