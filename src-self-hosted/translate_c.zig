@@ -1486,17 +1486,9 @@ fn transDeclStmtOne(rp: RestorePoint, scope: *Scope, decl: *const ZigClangDecl, 
             const underlying_type = ZigClangQualType_getTypePtr(underlying_qual);
 
             const mangled_name = try block_scope.makeMangledName(c, name);
-            if (checkForBuiltinTypedef(name)) |builtin| {
-                try block_scope.variables.append(.{
-                    .alias = builtin,
-                    .name = mangled_name,
-                });
-                @panic("what are we supposed to return here?");
-            } else {
-                const node = (try transCreateNodeTypedef(rp, typedef_decl, false, mangled_name)) orelse
-                    return error.UnsupportedTranslation;
-                return &node.base;
-            }
+            const node = (try transCreateNodeTypedef(rp, typedef_decl, false, mangled_name)) orelse
+                return error.UnsupportedTranslation;
+            return &node.base;
         },
         else => |kind| return revertAndWarn(
             rp,
