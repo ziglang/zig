@@ -743,15 +743,15 @@ fn printErrMsgToFile(
     const span_first = lok_token;
     const span_last = lok_token;
 
-    const first_token = tree.tokens[span_first];
-    const last_token = tree.tokens[span_last];
-    const start_loc = tree.tokenLocationPtr(0, first_token);
-    const end_loc = tree.tokenLocationPtr(first_token.end, last_token);
+    const first_token = tree.token_locs[span_first];
+    const last_token = tree.token_locs[span_last];
+    const start_loc = tree.tokenLocationLoc(0, first_token);
+    const end_loc = tree.tokenLocationLoc(first_token.end, last_token);
 
     var text_buf = std.ArrayList(u8).init(gpa);
     defer text_buf.deinit();
     const out_stream = text_buf.outStream();
-    try parse_error.render(tree.tokens, out_stream);
+    try parse_error.render(tree.token_ids, out_stream);
     const text = text_buf.span();
 
     const stream = file.outStream();
