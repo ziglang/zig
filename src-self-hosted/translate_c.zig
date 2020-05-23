@@ -592,19 +592,15 @@ fn visitFnDecl(c: *Context, fn_decl: *const ZigClangFunctionDecl) Error!void {
         } else
             return failDecl(c, fn_decl_loc, fn_name, "function {} parameter has no name", .{fn_name});
 
-        const mangled_param_name = try block_scope.makeMangledName(c, param_name);
-
         const c_param = ZigClangFunctionDecl_getParamDecl(fn_decl, param_id);
         const qual_type = ZigClangParmVarDecl_getOriginalType(c_param);
         const is_const = ZigClangQualType_isConstQualified(qual_type);
 
-        const arg_name = blk: {
-            const param_prefix = if (is_const) "" else "arg_";
-            const bare_arg_name = try std.fmt.allocPrint(c.arena, "{}{}", .{ param_prefix, mangled_param_name });
-            break :blk try block_scope.makeMangledName(c, bare_arg_name);
-        };
+        const mangled_param_name = try block_scope.makeMangledName(c, param_name);
 
         if (!is_const) {
+            const bare_arg_name = try std.fmt.allocPrint(c.arena, "arg_{}", .{ mangled_param_name });
+            const arg_name = try block_scope.makeMangledName(c, bare_arg_name);
             const node = try transCreateNodeVarDecl(c, false, false, mangled_param_name);
             node.eq_token = try appendToken(c, .Equal, "=");
             node.init_node = try transCreateNodeIdentifier(c, arg_name);
