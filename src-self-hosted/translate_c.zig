@@ -2554,9 +2554,8 @@ fn transForLoop(
 
 fn getSwitchCaseCount(stmt: *const ZigClangSwitchStmt) usize {
     const body = ZigClangSwitchStmt_getBody(stmt);
-    assert(ZigClangStmt_getStmtClass(body) == .StmtExprClass);
-    const stmt_expr = @ptrCast(*const ZigClangStmtExpr, body);
-    const comp = ZigClangStmtExpr_getSubStmt(stmt_expr);
+    assert(ZigClangStmt_getStmtClass(body) == .CompoundStmtClass);
+    const comp = @ptrCast(*const ZigClangCompoundStmt, body);
     // TODO https://github.com/ziglang/zig/issues/1738
     // return ZigClangCompoundStmt_body_end(comp) - ZigClangCompoundStmt_body_begin(comp);
     const start_addr = @ptrToInt(ZigClangCompoundStmt_body_begin(comp));
@@ -2614,19 +2613,17 @@ fn transSwitch(
     switch_scope.pending_block = try Scope.Block.init(rp.c, scope, null);
     try switch_scope.pending_block.statements.append(&switch_node.base);
 
-    _ = try transStmt(rp, &block_scope.base, ZigClangSwitchStmt_getBody(stmt), .unused, .r_value);
+    const last = try transStmt(rp, &block_scope.base, ZigClangSwitchStmt_getBody(stmt), .unused, .r_value);
     _ = try appendToken(rp.c, .Semicolon, ";");
 
     // take all pending statements
-    try switch_scope.pending_block.statements.appendSlice(block_scope.statements.items);
-    // TODO delete the following commented out code
-    //const last_block_stmts = last.cast(ast.Node.Block).?.statements();
-    //switch_scope.pending_block.statements.ensureCapacity(
-    //    switch_scope.pending_block.statements.items.len + last_block_stmts.len,
-    //);
-    //for (last_block_stmts) |n| {
-    //    switch_scope.pending_block.statements.appendAssumeCapacity(n);
-    //}
+    const last_block_stmts = last.cast(ast.Node.Block).?.statements();
+    try switch_scope.pending_block.statements.ensureCapacity(
+        switch_scope.pending_block.statements.items.len + last_block_stmts.len,
+    );
+    for (last_block_stmts) |n| {
+        switch_scope.pending_block.statements.appendAssumeCapacity(n);
+    }
 
     switch_scope.pending_block.label = try appendIdentifier(rp.c, "__switch");
     _ = try appendToken(rp.c, .Colon, ":");
