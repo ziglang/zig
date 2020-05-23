@@ -121,27 +121,20 @@ pub fn SinglyLinkedList(comptime T: type) type {
 }
 
 test "basic SinglyLinkedList test" {
-    const allocator = testing.allocator;
-    var list = SinglyLinkedList(u32).init();
+    const L = SinglyLinkedList(u32);
+    var list = L{};
 
-    var one = try list.createNode(1, allocator);
-    var two = try list.createNode(2, allocator);
-    var three = try list.createNode(3, allocator);
-    var four = try list.createNode(4, allocator);
-    var five = try list.createNode(5, allocator);
-    defer {
-        list.destroyNode(one, allocator);
-        list.destroyNode(two, allocator);
-        list.destroyNode(three, allocator);
-        list.destroyNode(four, allocator);
-        list.destroyNode(five, allocator);
-    }
+    var one = L.Node{.data = 1};
+    var two = L.Node{.data = 2};
+    var three = L.Node{.data = 3};
+    var four = L.Node{.data = 4};
+    var five = L.Node{.data = 5};
 
-    list.prepend(two); // {2}
-    list.insertAfter(two, five); // {2, 5}
-    list.prepend(one); // {1, 2, 5}
-    list.insertAfter(two, three); // {1, 2, 3, 5}
-    list.insertAfter(three, four); // {1, 2, 3, 4, 5}
+    list.prepend(&two); // {2}
+    two.insertAfter(&five); // {2, 5}
+    list.prepend(&one); // {1, 2, 5}
+    two.insertAfter(&three); // {1, 2, 3, 5}
+    three.insertAfter(&four); // {1, 2, 3, 4, 5}
 
     // Traverse forwards.
     {
@@ -154,7 +147,7 @@ test "basic SinglyLinkedList test" {
     }
 
     _ = list.popFirst(); // {2, 3, 4, 5}
-    _ = list.remove(five); // {2, 3, 4}
+    _ = list.remove(&five); // {2, 3, 4}
     _ = two.removeNext(); // {2, 4}
 
     testing.expect(list.first.?.data == 2);
