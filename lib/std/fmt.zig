@@ -6,7 +6,10 @@ const builtin = @import("builtin");
 const errol = @import("fmt/errol.zig");
 const lossyCast = std.math.lossyCast;
 
-pub const default_max_depth = 3;
+pub const default_max_depth: usize = if (@hasDecl(root, "fmt_max_depth"))
+    root.fmt_max_depth
+else
+    3;
 
 pub const Alignment = enum {
     Left,
