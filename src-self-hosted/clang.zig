@@ -22,7 +22,7 @@ pub const struct_ZigClangCompoundStmt = @Type(.Opaque);
 pub const struct_ZigClangConstantArrayType = @Type(.Opaque);
 pub const struct_ZigClangContinueStmt = @Type(.Opaque);
 pub const struct_ZigClangDecayedType = @Type(.Opaque);
-pub const struct_ZigClangDecl = @Type(.Opaque);
+pub const ZigClangDecl = @Type(.Opaque);
 pub const struct_ZigClangDeclRefExpr = @Type(.Opaque);
 pub const struct_ZigClangDeclStmt = @Type(.Opaque);
 pub const struct_ZigClangDefaultStmt = @Type(.Opaque);
@@ -781,7 +781,7 @@ pub extern fn ZigClangSourceManager_getCharacterData(self: ?*const struct_ZigCla
 pub extern fn ZigClangASTContext_getPointerType(self: ?*const struct_ZigClangASTContext, T: struct_ZigClangQualType) struct_ZigClangQualType;
 pub extern fn ZigClangASTUnit_getASTContext(self: ?*struct_ZigClangASTUnit) ?*struct_ZigClangASTContext;
 pub extern fn ZigClangASTUnit_getSourceManager(self: *struct_ZigClangASTUnit) *struct_ZigClangSourceManager;
-pub extern fn ZigClangASTUnit_visitLocalTopLevelDecls(self: *struct_ZigClangASTUnit, context: ?*c_void, Fn: ?fn (?*c_void, *const struct_ZigClangDecl) callconv(.C) bool) bool;
+pub extern fn ZigClangASTUnit_visitLocalTopLevelDecls(self: *struct_ZigClangASTUnit, context: ?*c_void, Fn: ?fn (?*c_void, *const ZigClangDecl) callconv(.C) bool) bool;
 pub extern fn ZigClangRecordType_getDecl(record_ty: ?*const struct_ZigClangRecordType) *const struct_ZigClangRecordDecl;
 pub extern fn ZigClangTagDecl_isThisDeclarationADefinition(self: *const ZigClangTagDecl) bool;
 pub extern fn ZigClangEnumType_getDecl(record_ty: ?*const struct_ZigClangEnumType) *const struct_ZigClangEnumDecl;
@@ -817,7 +817,7 @@ pub extern fn ZigClangEnumDecl_enumerator_end(*const ZigClangEnumDecl) ZigClangE
 pub extern fn ZigClangEnumDecl_enumerator_iterator_next(ZigClangEnumDecl_enumerator_iterator) ZigClangEnumDecl_enumerator_iterator;
 pub extern fn ZigClangEnumDecl_enumerator_iterator_deref(ZigClangEnumDecl_enumerator_iterator) *const ZigClangEnumConstantDecl;
 pub extern fn ZigClangEnumDecl_enumerator_iterator_neq(ZigClangEnumDecl_enumerator_iterator, ZigClangEnumDecl_enumerator_iterator) bool;
-pub extern fn ZigClangDecl_castToNamedDecl(decl: *const struct_ZigClangDecl) ?*const ZigClangNamedDecl;
+pub extern fn ZigClangDecl_castToNamedDecl(decl: *const ZigClangDecl) ?*const ZigClangNamedDecl;
 pub extern fn ZigClangNamedDecl_getName_bytes_begin(decl: ?*const struct_ZigClangNamedDecl) [*:0]const u8;
 pub extern fn ZigClangSourceLocation_eq(a: struct_ZigClangSourceLocation, b: struct_ZigClangSourceLocation) bool;
 pub extern fn ZigClangTypedefType_getDecl(self: ?*const struct_ZigClangTypedefType) *const struct_ZigClangTypedefNameDecl;
@@ -918,7 +918,6 @@ pub const ZigClangCompoundStmt = struct_ZigClangCompoundStmt;
 pub const ZigClangConstantArrayType = struct_ZigClangConstantArrayType;
 pub const ZigClangContinueStmt = struct_ZigClangContinueStmt;
 pub const ZigClangDecayedType = struct_ZigClangDecayedType;
-pub const ZigClangDecl = struct_ZigClangDecl;
 pub const ZigClangDeclRefExpr = struct_ZigClangDeclRefExpr;
 pub const ZigClangDeclStmt = struct_ZigClangDeclStmt;
 pub const ZigClangDefaultStmt = struct_ZigClangDefaultStmt;
@@ -1015,14 +1014,14 @@ pub extern fn ZigClangLoadFromCommandLine(
 ) ?*ZigClangASTUnit;
 
 pub extern fn ZigClangDecl_getKind(decl: *const ZigClangDecl) ZigClangDeclKind;
-pub extern fn ZigClangDecl_getDeclKindName(decl: *const struct_ZigClangDecl) [*:0]const u8;
+pub extern fn ZigClangDecl_getDeclKindName(decl: *const ZigClangDecl) [*:0]const u8;
 
 pub const ZigClangCompoundStmt_const_body_iterator = [*]const *ZigClangStmt;
 
 pub extern fn ZigClangCompoundStmt_body_begin(self: *const ZigClangCompoundStmt) ZigClangCompoundStmt_const_body_iterator;
 pub extern fn ZigClangCompoundStmt_body_end(self: *const ZigClangCompoundStmt) ZigClangCompoundStmt_const_body_iterator;
 
-pub const ZigClangDeclStmt_const_decl_iterator = [*]const *struct_ZigClangDecl;
+pub const ZigClangDeclStmt_const_decl_iterator = [*]const *ZigClangDecl;
 
 pub extern fn ZigClangDeclStmt_decl_begin(self: *const ZigClangDeclStmt) ZigClangDeclStmt_const_decl_iterator;
 pub extern fn ZigClangDeclStmt_decl_end(self: *const ZigClangDeclStmt) ZigClangDeclStmt_const_decl_iterator;

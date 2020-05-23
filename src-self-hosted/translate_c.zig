@@ -1443,78 +1443,91 @@ fn transCStyleCastExprClass(
     return maybeSuppressResult(rp, scope, result_used, cast_node);
 }
 
-fn transDeclStmt(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangDeclStmt) TransError!*ast.Node {
+fn transDeclStmtOne(rp: RestorePoint, scope: *Scope, decl: *const ZigClangDecl, block_scope: *Scope.Block,) TransError!*ast.Node {
     const c = rp.c;
-    const block_scope = scope.findBlockScope(c) catch unreachable;
+
+    switch (ZigClangDecl_getKind(decl)) {
+        .Var => {
+            const var_decl = @ptrCast(*const ZigClangVarDecl, decl);
+
+            const thread_local_token = if (ZigClangVarDecl_getTLSKind(var_decl) == .None)
+                null
+            else
+                try appendToken(c, .Keyword_threadlocal, "threadlocal");
+            const qual_type = ZigClangVarDecl_getTypeSourceInfo_getType(var_decl);
+            const name = try c.str(ZigClangNamedDecl_getName_bytes_begin(
+                @ptrCast(*const ZigClangNamedDecl, var_decl),
+            ));
+            const mangled_name = try block_scope.makeMangledName(c, name);
+            const node = try transCreateNodeVarDecl(c, false, ZigClangQualType_isConstQualified(qual_type), mangled_name);
+
+            _ = try appendToken(c, .Colon, ":");
+            const loc = ZigClangDecl_getLocation(decl);
+            node.type_node = try transQualType(rp, qual_type, loc);
+
+            node.eq_token = try appendToken(c, .Equal, "=");
+            var init_node = if (ZigClangVarDecl_getInit(var_decl)) |expr|
+                try transExprCoercing(rp, scope, expr, .used, .r_value)
+            else
+                try transCreateNodeUndefinedLiteral(c);
+            if (!qualTypeIsBoolean(qual_type) and isBoolRes(init_node)) {
+                const builtin_node = try rp.c.createBuiltinCall("@boolToInt", 1);
+                builtin_node.params()[0] = init_node;
+                builtin_node.rparen_token = try appendToken(rp.c, .RParen, ")");
+                init_node = &builtin_node.base;
+            }
+            node.init_node = init_node;
+            node.semicolon_token = try appendToken(c, .Semicolon, ";");
+            return &node.base;
+        },
+        .Typedef => {
+            const typedef_decl = @ptrCast(*const ZigClangTypedefNameDecl, decl);
+            const name = try c.str(ZigClangNamedDecl_getName_bytes_begin(
+                @ptrCast(*const ZigClangNamedDecl, typedef_decl),
+            ));
+
+            const underlying_qual = ZigClangTypedefNameDecl_getUnderlyingType(typedef_decl);
+            const underlying_type = ZigClangQualType_getTypePtr(underlying_qual);
+
+            const mangled_name = try block_scope.makeMangledName(c, name);
+            if (checkForBuiltinTypedef(name)) |builtin| {
+                try block_scope.variables.append(.{
+                    .alias = builtin,
+                    .name = mangled_name,
+                });
+                @panic("what are we supposed to return here?");
+            } else {
+                const node = (try transCreateNodeTypedef(rp, typedef_decl, false, mangled_name)) orelse
+                    return error.UnsupportedTranslation;
+                return &node.base;
+            }
+        },
+        else => |kind| return revertAndWarn(
+            rp,
+            error.UnsupportedTranslation,
+            ZigClangDecl_getLocation(decl),
+            "TODO implement translation of DeclStmt kind {}",
+            .{@tagName(kind)},
+        ),
+    }
+}
+
+fn transDeclStmt(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangDeclStmt) TransError!*ast.Node {
+    const block_scope = scope.findBlockScope(rp.c) catch unreachable;
 
     var it = ZigClangDeclStmt_decl_begin(stmt);
     const end_it = ZigClangDeclStmt_decl_end(stmt);
-    while (it != end_it) : (it += 1) {
-        switch (ZigClangDecl_getKind(it[0])) {
-            .Var => {
-                const var_decl = @ptrCast(*const ZigClangVarDecl, it[0]);
+    assert(it != end_it);
+    while (true) : (it += 1) {
+        const node = try transDeclStmtOne(rp, scope, it[0], block_scope);
 
-                const thread_local_token = if (ZigClangVarDecl_getTLSKind(var_decl) == .None)
-                    null
-                else
-                    try appendToken(c, .Keyword_threadlocal, "threadlocal");
-                const qual_type = ZigClangVarDecl_getTypeSourceInfo_getType(var_decl);
-                const name = try c.str(ZigClangNamedDecl_getName_bytes_begin(
-                    @ptrCast(*const ZigClangNamedDecl, var_decl),
-                ));
-                const mangled_name = try block_scope.makeMangledName(c, name);
-                const node = try transCreateNodeVarDecl(c, false, ZigClangQualType_isConstQualified(qual_type), mangled_name);
-
-                _ = try appendToken(c, .Colon, ":");
-                const loc = ZigClangStmt_getBeginLoc(@ptrCast(*const ZigClangStmt, stmt));
-                node.type_node = try transQualType(rp, qual_type, loc);
-
-                node.eq_token = try appendToken(c, .Equal, "=");
-                var init_node = if (ZigClangVarDecl_getInit(var_decl)) |expr|
-                    try transExprCoercing(rp, scope, expr, .used, .r_value)
-                else
-                    try transCreateNodeUndefinedLiteral(c);
-                if (!qualTypeIsBoolean(qual_type) and isBoolRes(init_node)) {
-                    const builtin_node = try rp.c.createBuiltinCall("@boolToInt", 1);
-                    builtin_node.params()[0] = init_node;
-                    builtin_node.rparen_token = try appendToken(rp.c, .RParen, ")");
-                    init_node = &builtin_node.base;
-                }
-                node.init_node = init_node;
-                node.semicolon_token = try appendToken(c, .Semicolon, ";");
-                try block_scope.statements.append(&node.base);
-            },
-            .Typedef => {
-                const typedef_decl = @ptrCast(*const ZigClangTypedefNameDecl, it[0]);
-                const name = try c.str(ZigClangNamedDecl_getName_bytes_begin(
-                    @ptrCast(*const ZigClangNamedDecl, typedef_decl),
-                ));
-
-                const underlying_qual = ZigClangTypedefNameDecl_getUnderlyingType(typedef_decl);
-                const underlying_type = ZigClangQualType_getTypePtr(underlying_qual);
-
-                const mangled_name = try block_scope.makeMangledName(c, name);
-                if (checkForBuiltinTypedef(name)) |builtin| {
-                    try block_scope.variables.append(.{
-                        .alias = builtin,
-                        .name = mangled_name,
-                    });
-                } else {
-                    const node = (try transCreateNodeTypedef(rp, typedef_decl, false, mangled_name)) orelse return error.UnsupportedTranslation;
-                    try block_scope.statements.append(&node.base);
-                }
-            },
-            else => |kind| return revertAndWarn(
-                rp,
-                error.UnsupportedTranslation,
-                ZigClangStmt_getBeginLoc(@ptrCast(*const ZigClangStmt, stmt)),
-                "TODO implement translation of DeclStmt kind {}",
-                .{@tagName(kind)},
-            ),
+        if (it + 1 == end_it) {
+            return node;
+        } else {
+            try block_scope.statements.append(node);
         }
     }
-
-    @panic("previously the code was returning the containing block scope node here and I do not understand why it would do that");
+    unreachable;
 }
 
 fn transDeclRefExpr(
@@ -2099,6 +2112,8 @@ fn transInitListExprRecord(
     var field_inits = std.ArrayList(*ast.Node).init(rp.c.gpa);
     defer field_inits.deinit();
 
+    _ = try appendToken(rp.c, .LBrace, "{");
+
     var init_i: c_uint = 0;
     var it = ZigClangRecordDecl_field_begin(record_def);
     const end_it = ZigClangRecordDecl_field_end(record_def);
@@ -2137,8 +2152,6 @@ fn transInitListExprRecord(
         try field_inits.append(&field_init_node.base);
         _ = try appendToken(rp.c, .Comma, ",");
     }
-
-    _ = try appendToken(rp.c, .LBrace, "{");
 
     const node = try ast.Node.StructInitializer.alloc(rp.c.arena, field_inits.items.len);
     node.* = .{
