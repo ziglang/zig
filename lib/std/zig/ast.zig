@@ -399,22 +399,6 @@ pub const Error = union(enum) {
 pub const Node = struct {
     id: Id,
 
-    /// All the child Node types use this same Iterator state for their iteration.
-    pub const Iterator = struct {
-        parent_node: *const Node,
-        index: usize,
-
-        pub fn next(it: *Iterator) ?*Node {
-            inline for (@typeInfo(Id).Enum.fields) |f| {
-                if (it.parent_node.id == @field(Id, f.name)) {
-                    const T = @field(Node, f.name);
-                    return @fieldParentPtr(T, "base", it.parent_node).iterateNext(it);
-                }
-            }
-            unreachable;
-        }
-    };
-
     pub const Id = enum {
         // Top level
         Root,
@@ -497,11 +481,11 @@ pub const Node = struct {
         return null;
     }
 
-    pub fn iterate(base: *Node) Iterator {
+    pub fn iterate(base: *Node, index: usize) ?*Node {
         inline for (@typeInfo(Id).Enum.fields) |f| {
             if (base.id == @field(Id, f.name)) {
                 const T = @field(Node, f.name);
-                return @fieldParentPtr(T, "base", base).iterate();
+                return @fieldParentPtr(T, "base", base).iterate(index);
             }
         }
         unreachable;
@@ -647,13 +631,8 @@ pub const Node = struct {
             allocator.free(bytes);
         }
 
-        pub fn iterate(self: *const Root) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0 };
-        }
-
-        pub fn iterateNext(self: *const Root, it: *Node.Iterator) ?*Node {
-            var i = it.index;
-            it.index += 1;
+        pub fn iterate(self: *const Root, index: usize) ?*Node {
+            var i = index;
 
             if (i < self.decls_len) return self.declsConst()[i];
             return null;
@@ -701,13 +680,8 @@ pub const Node = struct {
         init_node: ?*Node,
         semicolon_token: TokenIndex,
 
-        pub fn iterate(self: *const VarDecl) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0 };
-        }
-
-        pub fn iterateNext(self: *const VarDecl, it: *Node.Iterator) ?*Node {
-            var i = it.index;
-            it.index += 1;
+        pub fn iterate(self: *const VarDecl, index: usize) ?*Node {
+            var i = index;
 
             if (self.type_node) |type_node| {
                 if (i < 1) return type_node;
@@ -755,13 +729,8 @@ pub const Node = struct {
         expr: *Node,
         semicolon_token: TokenIndex,
 
-        pub fn iterate(self: *const Use) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0 };
-        }
-
-        pub fn iterateNext(self: *const Use, it: *Node.Iterator) ?*Node {
-            var i = it.index;
-            it.index += 1;
+        pub fn iterate(self: *const Use, index: usize) ?*Node {
+            var i = index;
 
             if (i < 1) return self.expr;
             i -= 1;
@@ -796,13 +765,8 @@ pub const Node = struct {
             allocator.free(bytes);
         }
 
-        pub fn iterate(self: *const ErrorSetDecl) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0 };
-        }
-
-        pub fn iterateNext(self: *const ErrorSetDecl, it: *Node.Iterator) ?*Node {
-            var i = it.index;
-            it.index += 1;
+        pub fn iterate(self: *const ErrorSetDecl, index: usize) ?*Node {
+            var i = index;
 
             if (i < self.decls_len) return self.declsConst()[i];
             i -= self.decls_len;
@@ -860,13 +824,8 @@ pub const Node = struct {
             allocator.free(bytes);
         }
 
-        pub fn iterate(self: *const ContainerDecl) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0 };
-        }
-
-        pub fn iterateNext(self: *const ContainerDecl, it: *Node.Iterator) ?*Node {
-            var i = it.index;
-            it.index += 1;
+        pub fn iterate(self: *const ContainerDecl, index: usize) ?*Node {
+            var i = index;
 
             switch (self.init_arg_expr) {
                 .Type => |t| {
@@ -917,13 +876,8 @@ pub const Node = struct {
         value_expr: ?*Node,
         align_expr: ?*Node,
 
-        pub fn iterate(self: *const ContainerField) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0 };
-        }
-
-        pub fn iterateNext(self: *const ContainerField, it: *Node.Iterator) ?*Node {
-            var i = it.index;
-            it.index += 1;
+        pub fn iterate(self: *const ContainerField, index: usize) ?*Node {
+            var i = index;
 
             if (self.type_expr) |type_expr| {
                 if (i < 1) return type_expr;
@@ -969,13 +923,8 @@ pub const Node = struct {
         doc_comments: ?*DocComment,
         name_token: TokenIndex,
 
-        pub fn iterate(self: *const ErrorTag) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0 };
-        }
-
-        pub fn iterateNext(self: *const ErrorTag, it: *Node.Iterator) ?*Node {
-            var i = it.index;
-            it.index += 1;
+        pub fn iterate(self: *const ErrorTag, index: usize) ?*Node {
+            var i = index;
 
             if (self.doc_comments) |comments| {
                 if (i < 1) return &comments.base;
@@ -998,11 +947,7 @@ pub const Node = struct {
         base: Node = Node{ .id = .Identifier },
         token: TokenIndex,
 
-        pub fn iterate(self: *const Identifier) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0 };
-        }
-
-        pub fn iterateNext(self: *const Identifier, it: *Node.Iterator) ?*Node {
+        pub fn iterate(self: *const Identifier, index: usize) ?*Node {
             return null;
         }
 
@@ -1053,13 +998,8 @@ pub const Node = struct {
                 type_expr: *Node,
             };
 
-            pub fn iterate(self: *const ParamDecl) Node.Iterator {
-                return .{ .parent_node = &self.base, .index = 0 };
-            }
-
-            pub fn iterateNext(self: *const ParamDecl, it: *Node.Iterator) ?*Node {
-                var i = it.index;
-                it.index += 1;
+            pub fn iterate(self: *const ParamDecl, index: usize) ?*Node {
+                var i = index;
 
                 if (i < 1) {
                     switch (self.param_type) {
@@ -1101,30 +1041,26 @@ pub const Node = struct {
             allocator.free(bytes);
         }
 
-        pub fn iterate(self: *const FnProto) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0 };
-        }
-
-        pub fn iterateNext(self: *const FnProto, it: *Node.Iterator) ?*Node {
-            var i = it.index;
-            it.index += 1;
+        pub fn iterate(self: *const FnProto, index: usize) ?*Node {
+            var i = index;
 
             if (self.lib_name) |lib_name| {
                 if (i < 1) return lib_name;
                 i -= 1;
             }
 
-            if (i < self.params_len) {
+            const params_len = switch (self.paramsConst()[self.params_len - 1].param_type) {
+                .var_type, .type_expr => self.params_len,
+                .var_args => self.params_len - 1,
+            };
+            if (i < params_len) {
                 switch (self.paramsConst()[i].param_type) {
                     .var_type => |n| return n,
-                    .var_args => {
-                        i += 1;
-                        it.index += 1;
-                    },
+                    .var_args => unreachable,
                     .type_expr => |n| return n,
                 }
             }
-            i -= self.params_len;
+            i -= params_len;
 
             if (self.align_expr) |align_expr| {
                 if (i < 1) return align_expr;
@@ -1192,13 +1128,8 @@ pub const Node = struct {
             return_type: *Node,
         };
 
-        pub fn iterate(self: *const AnyFrameType) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0 };
-        }
-
-        pub fn iterateNext(self: *const AnyFrameType, it: *Node.Iterator) ?*Node {
-            var i = it.index;
-            it.index += 1;
+        pub fn iterate(self: *const AnyFrameType, index: usize) ?*Node {
+            var i = index;
 
             if (self.result) |result| {
                 if (i < 1) return result.return_type;
@@ -1237,13 +1168,8 @@ pub const Node = struct {
             allocator.free(bytes);
         }
 
-        pub fn iterate(self: *const Block) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0 };
-        }
-
-        pub fn iterateNext(self: *const Block, it: *Node.Iterator) ?*Node {
-            var i = it.index;
-            it.index += 1;
+        pub fn iterate(self: *const Block, index: usize) ?*Node {
+            var i = index;
 
             if (i < self.statements_len) return self.statementsConst()[i];
             i -= self.statements_len;
@@ -1284,13 +1210,8 @@ pub const Node = struct {
         payload: ?*Node,
         expr: *Node,
 
-        pub fn iterate(self: *const Defer) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0 };
-        }
-
-        pub fn iterateNext(self: *const Defer, it: *Node.Iterator) ?*Node {
-            var i = it.index;
-            it.index += 1;
+        pub fn iterate(self: *const Defer, index: usize) ?*Node {
+            var i = index;
 
             if (i < 1) return self.expr;
             i -= 1;
@@ -1313,13 +1234,8 @@ pub const Node = struct {
         comptime_token: TokenIndex,
         expr: *Node,
 
-        pub fn iterate(self: *const Comptime) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0 };
-        }
-
-        pub fn iterateNext(self: *const Comptime, it: *Node.Iterator) ?*Node {
-            var i = it.index;
-            it.index += 1;
+        pub fn iterate(self: *const Comptime, index: usize) ?*Node {
+            var i = index;
 
             if (i < 1) return self.expr;
             i -= 1;
@@ -1341,13 +1257,8 @@ pub const Node = struct {
         nosuspend_token: TokenIndex,
         expr: *Node,
 
-        pub fn iterate(self: *const Nosuspend) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0 };
-        }
-
-        pub fn iterateNext(self: *const Nosuspend, it: *Node.Iterator) ?*Node {
-            var i = it.index;
-            it.index += 1;
+        pub fn iterate(self: *const Nosuspend, index: usize) ?*Node {
+            var i = index;
 
             if (i < 1) return self.expr;
             i -= 1;
@@ -1370,13 +1281,8 @@ pub const Node = struct {
         error_symbol: *Node,
         rpipe: TokenIndex,
 
-        pub fn iterate(self: *const Payload) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0 };
-        }
-
-        pub fn iterateNext(self: *const Payload, it: *Node.Iterator) ?*Node {
-            var i = it.index;
-            it.index += 1;
+        pub fn iterate(self: *const Payload, index: usize) ?*Node {
+            var i = index;
 
             if (i < 1) return self.error_symbol;
             i -= 1;
@@ -1400,13 +1306,8 @@ pub const Node = struct {
         value_symbol: *Node,
         rpipe: TokenIndex,
 
-        pub fn iterate(self: *const PointerPayload) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0 };
-        }
-
-        pub fn iterateNext(self: *const PointerPayload, it: *Node.Iterator) ?*Node {
-            var i = it.index;
-            it.index += 1;
+        pub fn iterate(self: *const PointerPayload, index: usize) ?*Node {
+            var i = index;
 
             if (i < 1) return self.value_symbol;
             i -= 1;
@@ -1431,13 +1332,8 @@ pub const Node = struct {
         index_symbol: ?*Node,
         rpipe: TokenIndex,
 
-        pub fn iterate(self: *const PointerIndexPayload) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0 };
-        }
-
-        pub fn iterateNext(self: *const PointerIndexPayload, it: *Node.Iterator) ?*Node {
-            var i = it.index;
-            it.index += 1;
+        pub fn iterate(self: *const PointerIndexPayload, index: usize) ?*Node {
+            var i = index;
 
             if (i < 1) return self.value_symbol;
             i -= 1;
@@ -1465,13 +1361,8 @@ pub const Node = struct {
         payload: ?*Node,
         body: *Node,
 
-        pub fn iterate(self: *const Else) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0 };
-        }
-
-        pub fn iterateNext(self: *const Else, it: *Node.Iterator) ?*Node {
-            var i = it.index;
-            it.index += 1;
+        pub fn iterate(self: *const Else, index: usize) ?*Node {
+            var i = index;
 
             if (self.payload) |payload| {
                 if (i < 1) return payload;
@@ -1513,13 +1404,8 @@ pub const Node = struct {
             allocator.free(bytes);
         }
 
-        pub fn iterate(self: *const Switch) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0 };
-        }
-
-        pub fn iterateNext(self: *const Switch, it: *Node.Iterator) ?*Node {
-            var i = it.index;
-            it.index += 1;
+        pub fn iterate(self: *const Switch, index: usize) ?*Node {
+            var i = index;
 
             if (i < 1) return self.expr;
             i -= 1;
@@ -1572,13 +1458,8 @@ pub const Node = struct {
             allocator.free(bytes);
         }
 
-        pub fn iterate(self: *const SwitchCase) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0 };
-        }
-
-        pub fn iterateNext(self: *const SwitchCase, it: *Node.Iterator) ?*Node {
-            var i = it.index;
-            it.index += 1;
+        pub fn iterate(self: *const SwitchCase, index: usize) ?*Node {
+            var i = index;
 
             if (i < self.items_len) return self.itemsConst()[i];
             i -= self.items_len;
@@ -1621,11 +1502,7 @@ pub const Node = struct {
         base: Node = Node{ .id = .SwitchElse },
         token: TokenIndex,
 
-        pub fn iterate(self: *const SwitchElse) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0 };
-        }
-
-        pub fn iterateNext(self: *const SwitchElse, it: *Node.Iterator) ?*Node {
+        pub fn iterate(self: *const SwitchElse, index: usize) ?*Node {
             return null;
         }
 
@@ -1649,13 +1526,8 @@ pub const Node = struct {
         body: *Node,
         @"else": ?*Else,
 
-        pub fn iterate(self: *const While) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0 };
-        }
-
-        pub fn iterateNext(self: *const While, it: *Node.Iterator) ?*Node {
-            var i = it.index;
-            it.index += 1;
+        pub fn iterate(self: *const While, index: usize) ?*Node {
+            var i = index;
 
             if (i < 1) return self.condition;
             i -= 1;
@@ -1712,13 +1584,8 @@ pub const Node = struct {
         body: *Node,
         @"else": ?*Else,
 
-        pub fn iterate(self: *const For) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0 };
-        }
-
-        pub fn iterateNext(self: *const For, it: *Node.Iterator) ?*Node {
-            var i = it.index;
-            it.index += 1;
+        pub fn iterate(self: *const For, index: usize) ?*Node {
+            var i = index;
 
             if (i < 1) return self.array_expr;
             i -= 1;
@@ -1766,13 +1633,8 @@ pub const Node = struct {
         body: *Node,
         @"else": ?*Else,
 
-        pub fn iterate(self: *const If) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0 };
-        }
-
-        pub fn iterateNext(self: *const If, it: *Node.Iterator) ?*Node {
-            var i = it.index;
-            it.index += 1;
+        pub fn iterate(self: *const If, index: usize) ?*Node {
+            var i = index;
 
             if (i < 1) return self.condition;
             i -= 1;
@@ -1859,13 +1721,8 @@ pub const Node = struct {
             UnwrapOptional,
         };
 
-        pub fn iterate(self: *const InfixOp) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0 };
-        }
-
-        pub fn iterateNext(self: *const InfixOp, it: *Node.Iterator) ?*Node {
-            var i = it.index;
-            it.index += 1;
+        pub fn iterate(self: *const InfixOp, index: usize) ?*Node {
+            var i = index;
 
             if (i < 1) return self.lhs;
             i -= 1;
@@ -1982,13 +1839,8 @@ pub const Node = struct {
             };
         };
 
-        pub fn iterate(self: *const PrefixOp) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0 };
-        }
-
-        pub fn iterateNext(self: *const PrefixOp, it: *Node.Iterator) ?*Node {
-            var i = it.index;
-            it.index += 1;
+        pub fn iterate(self: *const PrefixOp, index: usize) ?*Node {
+            var i = index;
 
             switch (self.op) {
                 .PtrType, .SliceType => |addr_of_info| {
@@ -2045,13 +1897,8 @@ pub const Node = struct {
         name_token: TokenIndex,
         expr: *Node,
 
-        pub fn iterate(self: *const FieldInitializer) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0 };
-        }
-
-        pub fn iterateNext(self: *const FieldInitializer, it: *Node.Iterator) ?*Node {
-            var i = it.index;
-            it.index += 1;
+        pub fn iterate(self: *const FieldInitializer, index: usize) ?*Node {
+            var i = index;
 
             if (i < 1) return self.expr;
             i -= 1;
@@ -2086,13 +1933,8 @@ pub const Node = struct {
             allocator.free(bytes);
         }
 
-        pub fn iterate(self: *const ArrayInitializer) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0 };
-        }
-
-        pub fn iterateNext(self: *const ArrayInitializer, it: *Node.Iterator) ?*Node {
-            var i = it.index;
-            it.index += 1;
+        pub fn iterate(self: *const ArrayInitializer, index: usize) ?*Node {
+            var i = index;
 
             if (i < 1) return self.lhs;
             i -= 1;
@@ -2144,13 +1986,8 @@ pub const Node = struct {
             allocator.free(bytes);
         }
 
-        pub fn iterate(self: *const ArrayInitializerDot) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0 };
-        }
-
-        pub fn iterateNext(self: *const ArrayInitializerDot, it: *Node.Iterator) ?*Node {
-            var i = it.index;
-            it.index += 1;
+        pub fn iterate(self: *const ArrayInitializerDot, index: usize) ?*Node {
+            var i = index;
 
             if (i < self.list_len) return self.listConst()[i];
             i -= self.list_len;
@@ -2199,13 +2036,8 @@ pub const Node = struct {
             allocator.free(bytes);
         }
 
-        pub fn iterate(self: *const StructInitializer) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0 };
-        }
-
-        pub fn iterateNext(self: *const StructInitializer, it: *Node.Iterator) ?*Node {
-            var i = it.index;
-            it.index += 1;
+        pub fn iterate(self: *const StructInitializer, index: usize) ?*Node {
+            var i = index;
 
             if (i < 1) return self.lhs;
             i -= 1;
@@ -2257,13 +2089,8 @@ pub const Node = struct {
             allocator.free(bytes);
         }
 
-        pub fn iterate(self: *const StructInitializerDot) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0 };
-        }
-
-        pub fn iterateNext(self: *const StructInitializerDot, it: *Node.Iterator) ?*Node {
-            var i = it.index;
-            it.index += 1;
+        pub fn iterate(self: *const StructInitializerDot, index: usize) ?*Node {
+            var i = index;
 
             if (i < self.list_len) return self.listConst()[i];
             i -= self.list_len;
@@ -2313,13 +2140,8 @@ pub const Node = struct {
             allocator.free(bytes);
         }
 
-        pub fn iterate(self: *const Call) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0};
-        }
-
-        pub fn iterateNext(self: *const Call, it: *Node.Iterator) ?*Node {
-            var i = it.index;
-            it.index += 1;
+        pub fn iterate(self: *const Call, index: usize) ?*Node {
+            var i = index;
 
             if (i < 1) return self.lhs;
             i -= 1;
@@ -2373,13 +2195,8 @@ pub const Node = struct {
             };
         };
 
-        pub fn iterate(self: *const SuffixOp) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0};
-        }
-
-        pub fn iterateNext(self: *const SuffixOp, it: *Node.Iterator) ?*Node {
-            var i = it.index;
-            it.index += 1;
+        pub fn iterate(self: *const SuffixOp, index: usize) ?*Node {
+            var i = index;
 
             if (i == 0) return self.lhs;
             i -= 1;
@@ -2425,13 +2242,8 @@ pub const Node = struct {
         expr: *Node,
         rparen: TokenIndex,
 
-        pub fn iterate(self: *const GroupedExpression) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0 };
-        }
-
-        pub fn iterateNext(self: *const GroupedExpression, it: *Node.Iterator) ?*Node {
-            var i = it.index;
-            it.index += 1;
+        pub fn iterate(self: *const GroupedExpression, index: usize) ?*Node {
+            var i = index;
 
             if (i < 1) return self.expr;
             i -= 1;
@@ -2460,13 +2272,8 @@ pub const Node = struct {
             Return,
         };
 
-        pub fn iterate(self: *const ControlFlowExpression) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0 };
-        }
-
-        pub fn iterateNext(self: *const ControlFlowExpression, it: *Node.Iterator) ?*Node {
-            var i = it.index;
-            it.index += 1;
+        pub fn iterate(self: *const ControlFlowExpression, index: usize) ?*Node {
+            var i = index;
 
             switch (self.kind) {
                 .Break, .Continue => |maybe_label| {
@@ -2513,13 +2320,8 @@ pub const Node = struct {
         suspend_token: TokenIndex,
         body: ?*Node,
 
-        pub fn iterate(self: *const Suspend) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0 };
-        }
-
-        pub fn iterateNext(self: *const Suspend, it: *Node.Iterator) ?*Node {
-            var i = it.index;
-            it.index += 1;
+        pub fn iterate(self: *const Suspend, index: usize) ?*Node {
+            var i = index;
 
             if (self.body) |body| {
                 if (i < 1) return body;
@@ -2546,11 +2348,7 @@ pub const Node = struct {
         base: Node = Node{ .id = .IntegerLiteral },
         token: TokenIndex,
 
-        pub fn iterate(self: *const IntegerLiteral) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0 };
-        }
-
-        pub fn iterateNext(self: *const IntegerLiteral, it: *Node.Iterator) ?*Node {
+        pub fn iterate(self: *const IntegerLiteral, index: usize) ?*Node {
             return null;
         }
 
@@ -2568,11 +2366,7 @@ pub const Node = struct {
         dot: TokenIndex,
         name: TokenIndex,
 
-        pub fn iterate(self: *const EnumLiteral) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0 };
-        }
-
-        pub fn iterateNext(self: *const EnumLiteral, it: *Node.Iterator) ?*Node {
+        pub fn iterate(self: *const EnumLiteral, index: usize) ?*Node {
             return null;
         }
 
@@ -2589,11 +2383,7 @@ pub const Node = struct {
         base: Node = Node{ .id = .FloatLiteral },
         token: TokenIndex,
 
-        pub fn iterate(self: *const FloatLiteral) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0 };
-        }
-
-        pub fn iterateNext(self: *const FloatLiteral, it: *Node.Iterator) ?*Node {
+        pub fn iterate(self: *const FloatLiteral, index: usize) ?*Node {
             return null;
         }
 
@@ -2624,13 +2414,8 @@ pub const Node = struct {
             allocator.free(bytes);
         }
 
-        pub fn iterate(self: *const BuiltinCall) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0 };
-        }
-
-        pub fn iterateNext(self: *const BuiltinCall, it: *Node.Iterator) ?*Node {
-            var i = it.index;
-            it.index += 1;
+        pub fn iterate(self: *const BuiltinCall, index: usize) ?*Node {
+            var i = index;
 
             if (i < self.params_len) return self.paramsConst()[i];
             i -= self.params_len;
@@ -2665,11 +2450,7 @@ pub const Node = struct {
         base: Node = Node{ .id = .StringLiteral },
         token: TokenIndex,
 
-        pub fn iterate(self: *const StringLiteral) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0 };
-        }
-
-        pub fn iterateNext(self: *const StringLiteral, it: *Node.Iterator) ?*Node {
+        pub fn iterate(self: *const StringLiteral, index: usize) ?*Node {
             return null;
         }
 
@@ -2698,11 +2479,7 @@ pub const Node = struct {
             allocator.free(bytes);
         }
 
-        pub fn iterate(self: *const MultilineStringLiteral) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0 };
-        }
-
-        pub fn iterateNext(self: *const MultilineStringLiteral, it: *Node.Iterator) ?*Node {
+        pub fn iterate(self: *const MultilineStringLiteral, index: usize) ?*Node {
             return null;
         }
 
@@ -2733,11 +2510,7 @@ pub const Node = struct {
         base: Node = Node{ .id = .CharLiteral },
         token: TokenIndex,
 
-        pub fn iterate(self: *const CharLiteral) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0 };
-        }
-
-        pub fn iterateNext(self: *const CharLiteral, it: *Node.Iterator) ?*Node {
+        pub fn iterate(self: *const CharLiteral, index: usize) ?*Node {
             return null;
         }
 
@@ -2754,11 +2527,7 @@ pub const Node = struct {
         base: Node = Node{ .id = .BoolLiteral },
         token: TokenIndex,
 
-        pub fn iterate(self: *const BoolLiteral) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0 };
-        }
-
-        pub fn iterateNext(self: *const BoolLiteral, it: *Node.Iterator) ?*Node {
+        pub fn iterate(self: *const BoolLiteral, index: usize) ?*Node {
             return null;
         }
 
@@ -2775,11 +2544,7 @@ pub const Node = struct {
         base: Node = Node{ .id = .NullLiteral },
         token: TokenIndex,
 
-        pub fn iterate(self: *const NullLiteral) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0 };
-        }
-
-        pub fn iterateNext(self: *const NullLiteral, it: *Node.Iterator) ?*Node {
+        pub fn iterate(self: *const NullLiteral, index: usize) ?*Node {
             return null;
         }
 
@@ -2796,11 +2561,7 @@ pub const Node = struct {
         base: Node = Node{ .id = .UndefinedLiteral },
         token: TokenIndex,
 
-        pub fn iterate(self: *const UndefinedLiteral) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0 };
-        }
-
-        pub fn iterateNext(self: *const UndefinedLiteral, it: *Node.Iterator) ?*Node {
+        pub fn iterate(self: *const UndefinedLiteral, index: usize) ?*Node {
             return null;
         }
 
@@ -2836,13 +2597,8 @@ pub const Node = struct {
                 Return: *Node,
             };
 
-            pub fn iterate(self: *const Output) Node.Iterator {
-                return .{ .parent_node = &self.base, .index = 0 };
-            }
-
-            pub fn iterateNext(self: *const Output, it: *Node.Iterator) ?*Node {
-                var i = it.index;
-                it.index += 1;
+            pub fn iterate(self: *const Output, index: usize) ?*Node {
+                var i = index;
 
                 if (i < 1) return self.symbolic_name;
                 i -= 1;
@@ -2880,13 +2636,8 @@ pub const Node = struct {
             expr: *Node,
             rparen: TokenIndex,
 
-            pub fn iterate(self: *const Input) Node.Iterator {
-                return .{ .parent_node = &self.base, .index = 0 };
-            }
-
-            pub fn iterateNext(self: *const Input, it: *Node.Iterator) ?*Node {
-                var i = it.index;
-                it.index += 1;
+            pub fn iterate(self: *const Input, index: usize) ?*Node {
+                var i = index;
 
                 if (i < 1) return self.symbolic_name;
                 i -= 1;
@@ -2910,13 +2661,8 @@ pub const Node = struct {
         };
 
 
-        pub fn iterate(self: *const Asm) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0};
-        }
-
-        pub fn iterateNext(self: *const Asm, it: *Node.Iterator) ?*Node {
-            var i = it.index;
-            it.index += 1;
+        pub fn iterate(self: *const Asm, index: usize) ?*Node {
+            var i = index;
 
             if (i < self.outputs.len * 3) switch (i % 3) {
                 0 => return self.outputs[i / 3].symbolic_name,
@@ -2953,11 +2699,7 @@ pub const Node = struct {
         base: Node = Node{ .id = .Unreachable },
         token: TokenIndex,
 
-        pub fn iterate(self: *const Unreachable) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0 };
-        }
-
-        pub fn iterateNext(self: *const Unreachable, it: *Node.Iterator) ?*Node {
+        pub fn iterate(self: *const Unreachable, index: usize) ?*Node {
             return null;
         }
 
@@ -2974,11 +2716,7 @@ pub const Node = struct {
         base: Node = Node{ .id = .ErrorType },
         token: TokenIndex,
 
-        pub fn iterate(self: *const ErrorType) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0 };
-        }
-
-        pub fn iterateNext(self: *const ErrorType, it: *Node.Iterator) ?*Node {
+        pub fn iterate(self: *const ErrorType, index: usize) ?*Node {
             return null;
         }
 
@@ -2995,11 +2733,7 @@ pub const Node = struct {
         base: Node = Node{ .id = .VarType },
         token: TokenIndex,
 
-        pub fn iterate(self: *const VarType) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0 };
-        }
-
-        pub fn iterateNext(self: *const VarType, it: *Node.Iterator) ?*Node {
+        pub fn iterate(self: *const VarType, index: usize) ?*Node {
             return null;
         }
 
@@ -3019,11 +2753,7 @@ pub const Node = struct {
         /// at the first other token.
         first_line: TokenIndex,
 
-        pub fn iterate(self: *const DocComment) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0 };
-        }
-
-        pub fn iterateNext(self: *const DocComment, it: *Node.Iterator) ?*Node {
+        pub fn iterate(self: *const DocComment, index: usize) ?*Node {
             return null;
         }
 
@@ -3045,13 +2775,8 @@ pub const Node = struct {
         name: *Node,
         body_node: *Node,
 
-        pub fn iterate(self: *const TestDecl) Node.Iterator {
-            return .{ .parent_node = &self.base, .index = 0 };
-        }
-
-        pub fn iterateNext(self: *const TestDecl, it: *Node.Iterator) ?*Node {
-            var i = it.index;
-            it.index += 1;
+        pub fn iterate(self: *const TestDecl, index: usize) ?*Node {
+            var i = index;
 
             if (i < 1) return self.body_node;
             i -= 1;
@@ -3076,6 +2801,5 @@ test "iterate" {
         .eof_token = 0,
     };
     var base = &root.base;
-    var it = base.iterate();
-    testing.expect(it.next() == null);
+    testing.expect(base.iterate(0) == null);
 }
