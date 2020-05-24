@@ -273,17 +273,19 @@ pub fn isIndexable(comptime T: type) bool {
         }
         return true;
     }
-    return comptime is(.Array)(T);
+    return comptime is(.Array)(T) or is(.Vector)(T);
 }
 
 test "std.meta.trait.isIndexable" {
     const array = [_]u8{0} ** 10;
     const slice = @as([]const u8, &array);
+    const vector: meta.Vector(2, u32) = [_]u32{0} ** 2;
 
     testing.expect(isIndexable(@TypeOf(array)));
     testing.expect(isIndexable(@TypeOf(&array)));
     testing.expect(isIndexable(@TypeOf(slice)));
     testing.expect(!isIndexable(meta.Child(@TypeOf(slice))));
+    testing.expect(isIndexable(@TypeOf(vector)));
 }
 
 pub fn isNumber(comptime T: type) bool {
