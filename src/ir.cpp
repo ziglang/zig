@@ -5303,7 +5303,7 @@ static ZigVar *create_local_var(CodeGen *codegen, AstNode *node, Scope *parent_s
                         bool want_err_msg = true;
                         if (tld->id == TldIdVar) {
                             ZigVar *var = reinterpret_cast<TldVar *>(tld)->var;
-                            if (var->var_type != nullptr && type_is_invalid(var->var_type)) {
+                            if (var != nullptr && var->var_type != nullptr && type_is_invalid(var->var_type)) {
                                 want_err_msg = false;
                             }
                         }

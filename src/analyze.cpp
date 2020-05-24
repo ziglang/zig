@@ -3614,7 +3614,7 @@ static void add_top_level_decl(CodeGen *g, ScopeDecls *decls_scope, Tld *tld) {
             Tld *other_tld = entry->value;
             if (other_tld->id == TldIdVar) {
                 ZigVar *var = reinterpret_cast<TldVar *>(other_tld)->var;
-                if (var->var_type != nullptr && type_is_invalid(var->var_type)) {
+                if (var != nullptr && var->var_type != nullptr && type_is_invalid(var->var_type)) {
                     return; // already reported compile error
                 }
             }
@@ -3896,7 +3896,7 @@ ZigVar *add_variable(CodeGen *g, AstNode *source_node, Scope *parent_scope, Buf 
                         bool want_err_msg = true;
                         if (tld->id == TldIdVar) {
                             ZigVar *var = reinterpret_cast<TldVar *>(tld)->var;
-                            if (var->var_type != nullptr && type_is_invalid(var->var_type)) {
+                            if (var != nullptr && var->var_type != nullptr && type_is_invalid(var->var_type)) {
                                 want_err_msg = false;
                             }
                         }
