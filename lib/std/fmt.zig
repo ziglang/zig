@@ -1,5 +1,4 @@
 const std = @import("std.zig");
-const root = @import("root");
 const math = std.math;
 const assert = std.debug.assert;
 const mem = std.mem;
@@ -7,10 +6,7 @@ const builtin = @import("builtin");
 const errol = @import("fmt/errol.zig");
 const lossyCast = std.math.lossyCast;
 
-pub const default_max_depth: usize = if (@hasDecl(root, "fmt_max_depth"))
-    root.fmt_max_depth
-else
-    3;
+pub var default_max_depth: usize = 3;
 
 pub const Alignment = enum {
     Left,
