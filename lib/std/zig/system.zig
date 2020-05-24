@@ -295,7 +295,13 @@ pub const NativeTargetInfo = struct {
                     var osreldate: u32 = undefined;
                     var len: usize = undefined;
 
-                    std.os.sysctlbynameZ("kern.osreldate", &osreldate, &len, null, 0) catch unreachable;
+                    std.os.sysctlbynameZ("kern.osreldate", &osreldate, &len, null, 0) catch |err| switch (err) {
+                        error.NameTooLong => unreachable, // constant, known good value
+                        error.PermissionDenied => unreachable, // only when setting values,
+                        error.SystemResources => unreachable, // memory already on the stack
+                        error.UnknownName => unreachable, // constant, known good value
+                        error.Unexpected => unreachable, // EFAULT: stack should be safe, EISDIR/ENOTDIR: constant, known good value
+                    };
 
                     // https://www.freebsd.org/doc/en_US.ISO8859-1/books/porters-handbook/versions.html
                     // Major * 100,000 has been convention since FreeBSD 2.2 (1997)
