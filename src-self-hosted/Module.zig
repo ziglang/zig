@@ -544,6 +544,7 @@ pub fn update(self: *Module) !void {
     self.analyzeRoot(self.root_scope) catch |err| switch (err) {
         error.AnalysisFail => {
             assert(self.totalErrorCount() != 0);
+            return err;
         },
         else => |e| return e,
     };
