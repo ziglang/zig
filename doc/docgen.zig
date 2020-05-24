@@ -776,7 +776,7 @@ fn tokenizeAndPrintRaw(docgen_tokenizer: *Tokenizer, out: var, source_token: Tok
         next_tok_is_fn = false;
 
         const token = tokenizer.next();
-        try writeEscaped(out, src[index..token.start]);
+        try writeEscaped(out, src[index..token.loc.start]);
         switch (token.id) {
             .Eof => break,
 
@@ -827,13 +827,13 @@ fn tokenizeAndPrintRaw(docgen_tokenizer: *Tokenizer, out: var, source_token: Tok
             .Keyword_while,
             => {
                 try out.writeAll("<span class=\"tok-kw\">");
-                try writeEscaped(out, src[token.start..token.end]);
+                try writeEscaped(out, src[token.loc.start..token.loc.end]);
                 try out.writeAll("</span>");
             },
 
             .Keyword_fn => {
                 try out.writeAll("<span class=\"tok-kw\">");
-                try writeEscaped(out, src[token.start..token.end]);
+                try writeEscaped(out, src[token.loc.start..token.loc.end]);
                 try out.writeAll("</span>");
                 next_tok_is_fn = true;
             },
@@ -844,7 +844,7 @@ fn tokenizeAndPrintRaw(docgen_tokenizer: *Tokenizer, out: var, source_token: Tok
             .Keyword_false,
             => {
                 try out.writeAll("<span class=\"tok-null\">");
-                try writeEscaped(out, src[token.start..token.end]);
+                try writeEscaped(out, src[token.loc.start..token.loc.end]);
                 try out.writeAll("</span>");
             },
 
@@ -853,13 +853,13 @@ fn tokenizeAndPrintRaw(docgen_tokenizer: *Tokenizer, out: var, source_token: Tok
             .CharLiteral,
             => {
                 try out.writeAll("<span class=\"tok-str\">");
-                try writeEscaped(out, src[token.start..token.end]);
+                try writeEscaped(out, src[token.loc.start..token.loc.end]);
                 try out.writeAll("</span>");
             },
 
             .Builtin => {
                 try out.writeAll("<span class=\"tok-builtin\">");
-                try writeEscaped(out, src[token.start..token.end]);
+                try writeEscaped(out, src[token.loc.start..token.loc.end]);
                 try out.writeAll("</span>");
             },
 
@@ -869,34 +869,34 @@ fn tokenizeAndPrintRaw(docgen_tokenizer: *Tokenizer, out: var, source_token: Tok
             .ShebangLine,
             => {
                 try out.writeAll("<span class=\"tok-comment\">");
-                try writeEscaped(out, src[token.start..token.end]);
+                try writeEscaped(out, src[token.loc.start..token.loc.end]);
                 try out.writeAll("</span>");
             },
 
             .Identifier => {
                 if (prev_tok_was_fn) {
                     try out.writeAll("<span class=\"tok-fn\">");
-                    try writeEscaped(out, src[token.start..token.end]);
+                    try writeEscaped(out, src[token.loc.start..token.loc.end]);
                     try out.writeAll("</span>");
                 } else {
                     const is_int = blk: {
-                        if (src[token.start] != 'i' and src[token.start] != 'u')
+                        if (src[token.loc.start] != 'i' and src[token.loc.start] != 'u')
                             break :blk false;
-                        var i = token.start + 1;
-                        if (i == token.end)
+                        var i = token.loc.start + 1;
+                        if (i == token.loc.end)
                             break :blk false;
-                        while (i != token.end) : (i += 1) {
+                        while (i != token.loc.end) : (i += 1) {
                             if (src[i] < '0' or src[i] > '9')
                                 break :blk false;
                         }
                         break :blk true;
                     };
-                    if (is_int or isType(src[token.start..token.end])) {
+                    if (is_int or isType(src[token.loc.start..token.loc.end])) {
                         try out.writeAll("<span class=\"tok-type\">");
-                        try writeEscaped(out, src[token.start..token.end]);
+                        try writeEscaped(out, src[token.loc.start..token.loc.end]);
                         try out.writeAll("</span>");
                     } else {
-                        try writeEscaped(out, src[token.start..token.end]);
+                        try writeEscaped(out, src[token.loc.start..token.loc.end]);
                     }
                 }
             },
@@ -905,7 +905,7 @@ fn tokenizeAndPrintRaw(docgen_tokenizer: *Tokenizer, out: var, source_token: Tok
             .FloatLiteral,
             => {
                 try out.writeAll("<span class=\"tok-number\">");
-                try writeEscaped(out, src[token.start..token.end]);
+                try writeEscaped(out, src[token.loc.start..token.loc.end]);
                 try out.writeAll("</span>");
             },
 
@@ -963,7 +963,7 @@ fn tokenizeAndPrintRaw(docgen_tokenizer: *Tokenizer, out: var, source_token: Tok
             .AngleBracketAngleBracketRight,
             .AngleBracketAngleBracketRightEqual,
             .Tilde,
-            => try writeEscaped(out, src[token.start..token.end]),
+            => try writeEscaped(out, src[token.loc.start..token.loc.end]),
 
             .Invalid, .Invalid_ampersands => return parseError(
                 docgen_tokenizer,
@@ -972,7 +972,7 @@ fn tokenizeAndPrintRaw(docgen_tokenizer: *Tokenizer, out: var, source_token: Tok
                 .{},
             ),
         }
-        index = token.end;
+        index = token.loc.end;
     }
     try out.writeAll("</code>");
 }
