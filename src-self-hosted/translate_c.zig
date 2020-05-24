@@ -135,12 +135,13 @@ const Scope = struct {
         /// Given the desired name, return a name that does not shadow anything from outer scopes.
         /// Inserts the returned name into the scope.
         fn makeMangledName(scope: *Block, c: *Context, name: []const u8) ![]const u8 {
-            var proposed_name = name;
+            const name_copy = try c.arena.dupe(u8, name);
+            var proposed_name = name_copy;
             while (scope.contains(proposed_name)) {
                 scope.mangle_count += 1;
                 proposed_name = try std.fmt.allocPrint(c.arena, "{}_{}", .{ name, scope.mangle_count });
             }
-            try scope.variables.append(.{ .name = name, .alias = proposed_name });
+            try scope.variables.append(.{ .name = name_copy, .alias = proposed_name });
             return proposed_name;
         }
 
