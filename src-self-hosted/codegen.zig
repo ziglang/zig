@@ -196,35 +196,36 @@ const Function = struct {
     }
 
     fn genCall(self: *Function, inst: *ir.Inst.Call) !MCValue {
-        if (inst.args.func.cast(ir.Inst.Constant)) |func_inst| {
-            if (inst.args.args.len != 0) {
-                return self.fail(inst.base.src, "TODO implement call with more than 0 parameters", .{});
-            }
-
-            if (func_inst.val.cast(Value.Payload.Function)) |func_val| {
-                const func = func_val.func;
-                const got = &self.bin_file.program_headers.items[self.bin_file.phdr_got_index.?];
-                const ptr_bits = self.target.cpu.arch.ptrBitWidth();
-                const ptr_bytes: u64 = @divExact(ptr_bits, 8);
-                const got_addr = @intCast(u32, got.p_vaddr + func.owner_decl.link.offset_table_index * ptr_bytes);
-                // ff 14 25 xx xx xx xx    call [addr]
-                try self.code.resize(self.code.items.len + 7);
-                self.code.items[self.code.items.len - 7 ..][0..3].* = [3]u8{ 0xff, 0x14, 0x25 };
-                mem.writeIntLittle(u32, self.code.items[self.code.items.len - 4 ..][0..4], got_addr);
-                const return_type = func.fn_type.fnReturnType();
-                switch (return_type.zigTypeTag()) {
-                    .Void => return MCValue{ .none = {} },
-                    .NoReturn => return MCValue{ .unreach = {} },
-                    else => return self.fail(inst.base.src, "TODO implement fn call with non-void return value", .{}),
-                }
-            } else {
-                return self.fail(inst.base.src, "TODO implement calling weird function values", .{});
-            }
-        } else {
-            return self.fail(inst.base.src, "TODO implement calling runtime known function pointer", .{});
-        }
-
         switch (self.target.cpu.arch) {
+            .x86_64, .i386 => {
+                if (inst.args.func.cast(ir.Inst.Constant)) |func_inst| {
+                    if (inst.args.args.len != 0) {
+                        return self.fail(inst.base.src, "TODO implement call with more than 0 parameters", .{});
+                    }
+
+                    if (func_inst.val.cast(Value.Payload.Function)) |func_val| {
+                        const func = func_val.func;
+                        const got = &self.bin_file.program_headers.items[self.bin_file.phdr_got_index.?];
+                        const ptr_bits = self.target.cpu.arch.ptrBitWidth();
+                        const ptr_bytes: u64 = @divExact(ptr_bits, 8);
+                        const got_addr = @intCast(u32, got.p_vaddr + func.owner_decl.link.offset_table_index * ptr_bytes);
+                        // ff 14 25 xx xx xx xx    call [addr]
+                        try self.code.resize(self.code.items.len + 7);
+                        self.code.items[self.code.items.len - 7 ..][0..3].* = [3]u8{ 0xff, 0x14, 0x25 };
+                        mem.writeIntLittle(u32, self.code.items[self.code.items.len - 4 ..][0..4], got_addr);
+                        const return_type = func.fn_type.fnReturnType();
+                        switch (return_type.zigTypeTag()) {
+                            .Void => return MCValue{ .none = {} },
+                            .NoReturn => return MCValue{ .unreach = {} },
+                            else => return self.fail(inst.base.src, "TODO implement fn call with non-void return value", .{}),
+                        }
+                    } else {
+                        return self.fail(inst.base.src, "TODO implement calling weird function values", .{});
+                    }
+                } else {
+                    return self.fail(inst.base.src, "TODO implement calling runtime known function pointer", .{});
+                }
+            },
             else => return self.fail(inst.base.src, "TODO implement call for {}", .{self.target.cpu.arch}),
         }
     }
