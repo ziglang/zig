@@ -193,7 +193,12 @@ fn renderExtraNewline(tree: *ast.Tree, stream: var, start_col: *usize, node: *as
     return renderExtraNewlineToken(tree, stream, start_col, node.firstToken());
 }
 
-fn renderExtraNewlineToken(tree: *ast.Tree, stream: var, start_col: *usize, first_token: ast.TokenIndex,) @TypeOf(stream).Error!void {
+fn renderExtraNewlineToken(
+    tree: *ast.Tree,
+    stream: var,
+    start_col: *usize,
+    first_token: ast.TokenIndex,
+) @TypeOf(stream).Error!void {
     var prev_token = first_token;
     if (prev_token == 0) return;
     var newline_threshold: usize = 2;
@@ -626,7 +631,7 @@ fn renderExpression(
         .ArrayInitializer, .ArrayInitializerDot => {
             var rtoken: ast.TokenIndex = undefined;
             var exprs: []*ast.Node = undefined;
-            const lhs: union(enum) {dot: ast.TokenIndex, node: *ast.Node } = switch (base.id){
+            const lhs: union(enum) { dot: ast.TokenIndex, node: *ast.Node } = switch (base.id) {
                 .ArrayInitializerDot => blk: {
                     const casted = @fieldParentPtr(ast.Node.ArrayInitializerDot, "base", base);
                     rtoken = casted.rtoken;
@@ -678,7 +683,7 @@ fn renderExpression(
                 for (exprs) |expr, i| {
                     if (i + 1 < exprs.len) {
                         const expr_last_token = expr.lastToken() + 1;
-                        const loc = tree.tokenLocation(tree.token_locs[expr_last_token].end, exprs[i+1].firstToken());
+                        const loc = tree.tokenLocation(tree.token_locs[expr_last_token].end, exprs[i + 1].firstToken());
                         if (loc.line != 0) break :blk count;
                         count += 1;
                     } else {
@@ -790,7 +795,7 @@ fn renderExpression(
         .StructInitializer, .StructInitializerDot => {
             var rtoken: ast.TokenIndex = undefined;
             var field_inits: []*ast.Node = undefined;
-            const lhs: union(enum) {dot: ast.TokenIndex, node: *ast.Node } = switch (base.id){
+            const lhs: union(enum) { dot: ast.TokenIndex, node: *ast.Node } = switch (base.id) {
                 .StructInitializerDot => blk: {
                     const casted = @fieldParentPtr(ast.Node.StructInitializerDot, "base", base);
                     rtoken = casted.rtoken;
@@ -1036,7 +1041,6 @@ fn renderExpression(
                     }
                     return renderToken(tree, stream, suffix_op.rtoken, indent, start_col, space); // ]
                 },
-
             }
         },
 
@@ -2185,7 +2189,7 @@ fn renderParamDecl(
         try renderToken(tree, stream, tree.nextToken(name_token), indent, start_col, Space.Space); // :
     }
     switch (param_decl.param_type) {
-        .var_args => |token|  try renderToken(tree, stream, token, indent, start_col, space),
+        .var_args => |token| try renderToken(tree, stream, token, indent, start_col, space),
         .var_type, .type_expr => |node| try renderExpression(allocator, stream, tree, indent, start_col, node, space),
     }
 }

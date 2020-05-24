@@ -124,11 +124,11 @@ test "basic SinglyLinkedList test" {
     const L = SinglyLinkedList(u32);
     var list = L{};
 
-    var one = L.Node{.data = 1};
-    var two = L.Node{.data = 2};
-    var three = L.Node{.data = 3};
-    var four = L.Node{.data = 4};
-    var five = L.Node{.data = 5};
+    var one = L.Node{ .data = 1 };
+    var two = L.Node{ .data = 2 };
+    var three = L.Node{ .data = 3 };
+    var four = L.Node{ .data = 4 };
+    var five = L.Node{ .data = 5 };
 
     list.prepend(&two); // {2}
     two.insertAfter(&five); // {2, 5}

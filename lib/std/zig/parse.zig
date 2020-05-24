@@ -3387,7 +3387,6 @@ fn ParseFn(comptime T: type) type {
     return fn (p: *Parser) Error!T;
 }
 
-
 test "std.zig.parser" {
     _ = @import("parser_test.zig");
 }

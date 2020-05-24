@@ -600,7 +600,7 @@ fn visitFnDecl(c: *Context, fn_decl: *const ZigClangFunctionDecl) Error!void {
         const mangled_param_name = try block_scope.makeMangledName(c, param_name);
 
         if (!is_const) {
-            const bare_arg_name = try std.fmt.allocPrint(c.arena, "arg_{}", .{ mangled_param_name });
+            const bare_arg_name = try std.fmt.allocPrint(c.arena, "arg_{}", .{mangled_param_name});
             const arg_name = try block_scope.makeMangledName(c, bare_arg_name);
             const node = try transCreateNodeVarDecl(c, false, false, mangled_param_name);
             node.eq_token = try appendToken(c, .Equal, "=");
@@ -1440,7 +1440,12 @@ fn transCStyleCastExprClass(
     return maybeSuppressResult(rp, scope, result_used, cast_node);
 }
 
-fn transDeclStmtOne(rp: RestorePoint, scope: *Scope, decl: *const ZigClangDecl, block_scope: *Scope.Block,) TransError!*ast.Node {
+fn transDeclStmtOne(
+    rp: RestorePoint,
+    scope: *Scope,
+    decl: *const ZigClangDecl,
+    block_scope: *Scope.Block,
+) TransError!*ast.Node {
     const c = rp.c;
 
     switch (ZigClangDecl_getKind(decl)) {
@@ -3259,7 +3264,6 @@ fn transCreateCompoundAssign(
         // common case
         // c: lhs += rhs
         // zig: lhs += rhs
-
         if ((is_mod or is_div) and is_signed) {
             const op_token = try appendToken(rp.c, .Equal, "=");
             const op_node = try rp.c.arena.create(ast.Node.InfixOp);
@@ -4791,7 +4795,7 @@ fn finishTransFnProto(
             .comptime_token = null,
             .noalias_token = null,
             .name_token = null,
-            .param_type = .{ .var_args = try appendToken(rp.c, .Ellipsis3, "...") }
+            .param_type = .{ .var_args = try appendToken(rp.c, .Ellipsis3, "...") },
         };
     }
 
@@ -5570,7 +5574,7 @@ fn parseCPrimaryExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8, 
                 };
                 return &node.base;
             } else {
-                const token = try appendTokenFmt(c, .IntegerLiteral, "0x{x}", .{source[tok.start+1..tok.end-1]});
+                const token = try appendTokenFmt(c, .IntegerLiteral, "0x{x}", .{source[tok.start + 1 .. tok.end - 1]});
                 const node = try c.arena.create(ast.Node.IntegerLiteral);
                 node.* = .{
                     .token = token,

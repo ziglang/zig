@@ -296,7 +296,7 @@ pub const Allocator = struct {
     }
 };
 
-var failAllocator = Allocator {
+var failAllocator = Allocator{
     .reallocFn = failAllocatorRealloc,
     .shrinkFn = failAllocatorShrink,
 };
