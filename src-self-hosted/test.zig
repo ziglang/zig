@@ -362,16 +362,13 @@ pub const TestContext = struct {
             module.update() catch break :f true;
             break :f false;
         };
-        if (!failed) {
-            std.debug.warn("Test '{}' compilation succeded, error expected.\n", .{case.name});
-            return error.DidNotFail;
-        }
         module_node.end();
         {
             var i = module.failed_files.iterator();
             var index: usize = 0;
             while (i.next()) |pair| : (index += 1) {
                 if (index == case.expected_file_errors.len) {
+                    std.debug.warn("Unexpected file error: {}\n", .{pair.value});
                     return error.UnexpectedError;
                 }
                 const v1 = pair.value.*;
@@ -391,6 +388,7 @@ pub const TestContext = struct {
             var index: usize = 0;
             while (i.next()) |pair| : (index += 1) {
                 if (index == case.expected_decl_errors.len) {
+                    std.debug.warn("Unexpected decl error: {}\n", .{pair.value});
                     return error.UnexpectedError;
                 }
                 const v1 = pair.value.*;
@@ -410,6 +408,7 @@ pub const TestContext = struct {
             var index: usize = 0;
             while (i.next()) |pair| : (index += 1) {
                 if (index == case.expected_export_errors.len) {
+                    std.debug.warn("Unexpected export error: {}\n", .{pair.value});
                     return error.UnexpectedError;
                 }
                 const v1 = pair.value.*;
