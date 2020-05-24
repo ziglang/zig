@@ -363,6 +363,7 @@ pub const TestContext = struct {
             break :f false;
         };
         if (!failed) {
+            std.debug.warn("Test '{}' compilation succeded, error expected.\n", .{case.name});
             return error.DidNotFail;
         }
         module_node.end();
