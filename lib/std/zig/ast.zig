@@ -706,7 +706,6 @@ pub const Node = struct {
             return null;
         }
 
-
         pub fn firstToken(self: *const VarDecl) TokenIndex {
             if (self.visib_token) |visib_token| return visib_token;
             if (self.thread_local_token) |thread_local_token| return thread_local_token;
@@ -1049,7 +1048,9 @@ pub const Node = struct {
                 i -= 1;
             }
 
-            const params_len = switch (self.paramsConst()[self.params_len - 1].param_type) {
+            const params_len: usize = if (self.params_len == 0)
+                0
+            else switch (self.paramsConst()[self.params_len - 1].param_type) {
                 .var_type, .type_expr => self.params_len,
                 .var_args => self.params_len - 1,
             };
@@ -2659,7 +2660,6 @@ pub const Node = struct {
                 return self.rparen;
             }
         };
-
 
         pub fn iterate(self: *const Asm, index: usize) ?*Node {
             var i = index;
