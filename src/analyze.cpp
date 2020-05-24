@@ -3612,6 +3612,12 @@ static void add_top_level_decl(CodeGen *g, ScopeDecls *decls_scope, Tld *tld) {
         auto entry = decls_scope->decl_table.put_unique(tld->name, tld);
         if (entry) {
             Tld *other_tld = entry->value;
+            if (other_tld->id == TldIdVar) {
+                ZigVar *var = reinterpret_cast<TldVar *>(other_tld)->var;
+                if (var != nullptr && var->var_type != nullptr && type_is_invalid(var->var_type)) {
+                    return; // already reported compile error
+                }
+            }
             ErrorMsg *msg = add_node_error(g, tld->source_node, buf_sprintf("redefinition of '%s'", buf_ptr(tld->name)));
             add_error_note(g, msg, other_tld->source_node, buf_sprintf("previous definition is here"));
             return;
@@ -3887,9 +3893,18 @@ ZigVar *add_variable(CodeGen *g, AstNode *source_node, Scope *parent_scope, Buf 
                 if (search_scope != nullptr) {
                     Tld *tld = find_decl(g, search_scope, name);
                     if (tld != nullptr && tld != src_tld) {
-                        ErrorMsg *msg = add_node_error(g, source_node,
-                                buf_sprintf("redefinition of '%s'", buf_ptr(name)));
-                        add_error_note(g, msg, tld->source_node, buf_sprintf("previous definition is here"));
+                        bool want_err_msg = true;
+                        if (tld->id == TldIdVar) {
+                            ZigVar *var = reinterpret_cast<TldVar *>(tld)->var;
+                            if (var != nullptr && var->var_type != nullptr && type_is_invalid(var->var_type)) {
+                                want_err_msg = false;
+                            }
+                        }
+                        if (want_err_msg) {
+                            ErrorMsg *msg = add_node_error(g, source_node,
+                                    buf_sprintf("redefinition of '%s'", buf_ptr(name)));
+                            add_error_note(g, msg, tld->source_node, buf_sprintf("previous definition is here"));
+                        }
                         variable_entry->var_type = g->builtin_types.entry_invalid;
                     }
                 }

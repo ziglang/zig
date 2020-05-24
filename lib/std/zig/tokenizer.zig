@@ -3,8 +3,12 @@ const mem = std.mem;
 
 pub const Token = struct {
     id: Id,
-    start: usize,
-    end: usize,
+    loc: Loc,
+
+    pub const Loc = struct {
+        start: usize,
+        end: usize,
+    };
 
     pub const Keyword = struct {
         bytes: []const u8,
@@ -426,8 +430,10 @@ pub const Tokenizer = struct {
         var state: State = .start;
         var result = Token{
             .id = .Eof,
-            .start = self.index,
-            .end = undefined,
+            .loc = .{
+                .start = self.index,
+                .end = undefined,
+            },
         };
         var seen_escape_digits: usize = undefined;
         var remaining_code_units: usize = undefined;
@@ -436,7 +442,7 @@ pub const Tokenizer = struct {
             switch (state) {
                 .start => switch (c) {
                     ' ', '\n', '\t', '\r' => {
-                        result.start = self.index + 1;
+                        result.loc.start = self.index + 1;
                     },
                     '"' => {
                         state = .string_literal;
@@ -686,7 +692,7 @@ pub const Tokenizer = struct {
                 .identifier => switch (c) {
                     'a'...'z', 'A'...'Z', '_', '0'...'9' => {},
                     else => {
-                        if (Token.getKeyword(self.buffer[result.start..self.index])) |id| {
+                        if (Token.getKeyword(self.buffer[result.loc.start..self.index])) |id| {
                             result.id = id;
                         }
                         break;
@@ -1313,7 +1319,7 @@ pub const Tokenizer = struct {
                 => {},
 
                 .identifier => {
-                    if (Token.getKeyword(self.buffer[result.start..self.index])) |id| {
+                    if (Token.getKeyword(self.buffer[result.loc.start..self.index])) |id| {
                         result.id = id;
                     }
                 },
@@ -1420,7 +1426,7 @@ pub const Tokenizer = struct {
             }
         }
 
-        result.end = self.index;
+        result.loc.end = self.index;
         return result;
     }
 
@@ -1430,8 +1436,10 @@ pub const Tokenizer = struct {
         if (invalid_length == 0) return;
         self.pending_invalid_token = .{
             .id = .Invalid,
-            .start = self.index,
-            .end = self.index + invalid_length,
+            .loc = .{
+                .start = self.index,
+                .end = self.index + invalid_length,
+            },
         };
     }
 

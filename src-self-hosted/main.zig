@@ -600,8 +600,7 @@ pub fn cmdFmt(gpa: *Allocator, args: []const []const u8) !void {
         };
         defer tree.deinit();
 
-        var error_it = tree.errors.iterator(0);
-        while (error_it.next()) |parse_error| {
+        for (tree.errors) |parse_error| {
             try printErrMsgToFile(gpa, parse_error, tree, "<stdin>", stderr_file, color);
         }
         if (tree.errors.len != 0) {
@@ -701,8 +700,7 @@ fn fmtPath(fmt: *Fmt, file_path: []const u8, check_mode: bool) FmtError!void {
     };
     defer tree.deinit();
 
-    var error_it = tree.errors.iterator(0);
-    while (error_it.next()) |parse_error| {
+    for (tree.errors) |parse_error| {
         try printErrMsgToFile(fmt.gpa, parse_error, tree, file_path, std.io.getStdErr(), fmt.color);
     }
     if (tree.errors.len != 0) {
@@ -730,7 +728,7 @@ fn fmtPath(fmt: *Fmt, file_path: []const u8, check_mode: bool) FmtError!void {
 
 fn printErrMsgToFile(
     gpa: *mem.Allocator,
-    parse_error: *const ast.Error,
+    parse_error: ast.Error,
     tree: *ast.Tree,
     path: []const u8,
     file: fs.File,
@@ -745,15 +743,15 @@ fn printErrMsgToFile(
     const span_first = lok_token;
     const span_last = lok_token;
 
-    const first_token = tree.tokens.at(span_first);
-    const last_token = tree.tokens.at(span_last);
-    const start_loc = tree.tokenLocationPtr(0, first_token);
-    const end_loc = tree.tokenLocationPtr(first_token.end, last_token);
+    const first_token = tree.token_locs[span_first];
+    const last_token = tree.token_locs[span_last];
+    const start_loc = tree.tokenLocationLoc(0, first_token);
+    const end_loc = tree.tokenLocationLoc(first_token.end, last_token);
 
     var text_buf = std.ArrayList(u8).init(gpa);
     defer text_buf.deinit();
     const out_stream = text_buf.outStream();
-    try parse_error.render(&tree.tokens, out_stream);
+    try parse_error.render(tree.token_ids, out_stream);
     const text = text_buf.span();
 
     const stream = file.outStream();

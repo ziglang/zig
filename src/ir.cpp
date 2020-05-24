@@ -5300,9 +5300,18 @@ static ZigVar *create_local_var(CodeGen *codegen, AstNode *node, Scope *parent_s
                 } else {
                     Tld *tld = find_decl(codegen, parent_scope, name);
                     if (tld != nullptr) {
-                        ErrorMsg *msg = add_node_error(codegen, node,
-                                buf_sprintf("redefinition of '%s'", buf_ptr(name)));
-                        add_error_note(codegen, msg, tld->source_node, buf_sprintf("previous definition is here"));
+                        bool want_err_msg = true;
+                        if (tld->id == TldIdVar) {
+                            ZigVar *var = reinterpret_cast<TldVar *>(tld)->var;
+                            if (var != nullptr && var->var_type != nullptr && type_is_invalid(var->var_type)) {
+                                want_err_msg = false;
+                            }
+                        }
+                        if (want_err_msg) {
+                            ErrorMsg *msg = add_node_error(codegen, node,
+                                    buf_sprintf("redefinition of '%s'", buf_ptr(name)));
+                            add_error_note(codegen, msg, tld->source_node, buf_sprintf("previous definition is here"));
+                        }
                         variable_entry->var_type = codegen->builtin_types.entry_invalid;
                     }
                 }
