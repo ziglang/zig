@@ -14,12 +14,15 @@ pub const Error = error{ParseError} || Allocator.Error;
 /// Result should be freed with tree.deinit() when there are
 /// no more references to any of the tokens or nodes.
 pub fn parse(gpa: *Allocator, source: []const u8) Allocator.Error!*Tree {
-    // TODO optimization idea: ensureCapacity on the tokens list and
-    // then appendAssumeCapacity inside the loop.
     var token_ids = std.ArrayList(Token.Id).init(gpa);
     defer token_ids.deinit();
     var token_locs = std.ArrayList(Token.Loc).init(gpa);
     defer token_locs.deinit();
+
+    // Empirically, the zig std lib has an 8:1 ratio of source bytes to token count.
+    const estimated_token_count = source.len / 8;
+    try token_ids.ensureCapacity(estimated_token_count);
+    try token_locs.ensureCapacity(estimated_token_count);
 
     var tokenizer = std.zig.Tokenizer.init(source);
     while (true) {
