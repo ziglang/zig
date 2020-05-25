@@ -417,7 +417,7 @@ pub fn ftruncate(fd: i32, length: u64) usize {
     }
 }
 
-pub fn pwrite(fd: i32, buf: [*]const u8, count: usize, offset: usize) usize {
+pub fn pwrite(fd: i32, buf: [*]const u8, count: usize, offset: u64) usize {
     if (@hasField(SYS, "pwrite64")) {
         if (require_aligned_register_pair) {
             return syscall6(
