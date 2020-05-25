@@ -15,8 +15,8 @@ pub const CompilerInfo = struct {
     // /// Compiler id hash
     // id: []const u8,
 
-    /// Compiler version
-    version: []const u8,
+    // /// Compiler version
+    // version: []const u8,
 
     /// Path to lib/
     lib_dir: []const u8,
@@ -50,8 +50,6 @@ pub const CompilerInfo = struct {
 
     // TODO: add CacheType argument here to make it return correct cache dir for stage1
     pub fn init(allocator: *Allocator, compiler_type: CompilerType) !CompilerInfo {
-        const version_str = CompilerInfo.getVersionString();
-
         const zig_lib_dir = try introspect.resolveZigLibDir(allocator);
         errdefer allocator.free(zig_lib_dir);
 
@@ -62,7 +60,6 @@ pub const CompilerInfo = struct {
         errdefer allocator.free(cache_dir);
 
         return CompilerInfo{
-            .version = version_str,
             .lib_dir = zig_lib_dir,
             .std_dir = zig_std_dir,
             .global_cache_dir = cache_dir,
