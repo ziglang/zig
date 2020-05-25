@@ -182,7 +182,7 @@ pub const InstallRawStep = struct {
     pub fn create(builder: *Builder, artifact: *LibExeObjStep, dest_filename: []const u8) *Self {
         const self = builder.allocator.create(Self) catch unreachable;
         self.* = Self{
-            .step = Step.init(builder.fmt("install raw binary {}", .{artifact.step.name}), builder.allocator, make),
+            .step = Step.init(.InstallRaw, builder.fmt("install raw binary {}", .{artifact.step.name}), builder.allocator, make),
             .builder = builder,
             .artifact = artifact,
             .dest_dir = switch (artifact.kind) {
