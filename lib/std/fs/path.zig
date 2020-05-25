@@ -7,7 +7,8 @@ const mem = std.mem;
 const fmt = std.fmt;
 const Allocator = mem.Allocator;
 const math = std.math;
-const windows = std.os.windows;
+const os = std.os;
+const windows = os.windows;
 const fs = std.fs;
 const process = std.process;
 
@@ -1176,4 +1177,39 @@ fn testRelativeWindows(from: []const u8, to: []const u8, expected_output: []cons
     const result = try relativeWindows(testing.allocator, from, to);
     defer testing.allocator.free(result);
     testing.expectEqualSlices(u8, expected_output, result);
+}
+
+/// Return full path to the executable that would be run if the given `command` was called.
+/// Caller owns returned memory.
+pub fn which(allocator: *mem.Allocator, command: []const u8) !?[]const u8 {
+    if (os.getenv("PATH")) |path| {
+        var it = mem.tokenize(path, &[_]u8{delimiter});
+        while (it.next()) |p| {
+            const fullpath = try join(allocator, &[_][]const u8{ p, command });
+            os.access(fullpath, os.F_OK | os.X_OK) catch {
+                allocator.free(fullpath);
+                continue;
+            };
+
+            return fullpath;
+        }
+    }
+
+    return null;
+}
+
+test "which" {
+    if (builtin.os.tag == .windows) {
+        const ping = try which(std.testing.allocator, "ping");
+        defer std.testing.allocator.free(ping);
+
+        std.testing.expect(ping != null);
+        std.testing.expectEqualStrings("C:\\Windows\\System32\\PING.EXE", ping.?);
+    } else {
+        const ls = try which(std.testing.allocator, "ls");
+        defer std.testing.allocator.free(ls);
+
+        std.testing.expect(ls != null);
+        std.testing.expectEqualStrings("/bin/ls", ls.?);
+    }
 }
