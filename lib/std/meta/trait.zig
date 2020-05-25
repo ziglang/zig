@@ -9,11 +9,7 @@ const meta = @import("../meta.zig");
 
 pub const TraitFn = fn (type) bool;
 
-//////Trait generators
-
-// TODO convert to tuples when #4335 is done
-pub const TraitList = []const TraitFn;
-pub fn multiTrait(comptime traits: TraitList) TraitFn {
+pub fn multiTrait(comptime traits: var) TraitFn {
     const Closure = struct {
         pub fn trait(comptime T: type) bool {
             inline for (traits) |t|
@@ -39,7 +35,7 @@ test "std.meta.trait.multiTrait" {
         }
     };
 
-    const isVector = multiTrait(&[_]TraitFn{
+    const isVector = multiTrait(.{
         hasFn("add"),
         hasField("x"),
         hasField("y"),
