@@ -291,7 +291,7 @@ pub const CacheHash = struct {
                 return error.FileTooBig;
             }
 
-            const contents = try self.allocator.alloc(u8, ch_file.stat.size);
+            const contents = try self.allocator.alloc(u8, @intCast(usize, ch_file.stat.size));
             errdefer self.allocator.free(contents);
 
             // Hash while reading from disk, to keep the contents in the cpu cache while
@@ -470,6 +470,10 @@ fn isProblematicTimestamp(fs_clock: i128) bool {
 }
 
 test "cache file and then recall it" {
+    if (std.Target.current.os.tag == .wasi) {
+        // https://github.com/ziglang/zig/issues/5437
+        return error.SkipZigTest;
+    }
     const cwd = fs.cwd();
 
     const temp_file = "test.txt";
@@ -530,6 +534,10 @@ test "give nonproblematic timestamp" {
 }
 
 test "check that changing a file makes cache fail" {
+    if (std.Target.current.os.tag == .wasi) {
+        // https://github.com/ziglang/zig/issues/5437
+        return error.SkipZigTest;
+    }
     const cwd = fs.cwd();
 
     const temp_file = "cache_hash_change_file_test.txt";
@@ -590,6 +598,10 @@ test "check that changing a file makes cache fail" {
 }
 
 test "no file inputs" {
+    if (std.Target.current.os.tag == .wasi) {
+        // https://github.com/ziglang/zig/issues/5437
+        return error.SkipZigTest;
+    }
     const cwd = fs.cwd();
     const temp_manifest_dir = "no_file_inputs_manifest_dir";
     defer cwd.deleteTree(temp_manifest_dir) catch unreachable;
@@ -621,6 +633,10 @@ test "no file inputs" {
 }
 
 test "CacheHashes with files added after initial hash work" {
+    if (std.Target.current.os.tag == .wasi) {
+        // https://github.com/ziglang/zig/issues/5437
+        return error.SkipZigTest;
+    }
     const cwd = fs.cwd();
 
     const temp_file1 = "cache_hash_post_file_test1.txt";
