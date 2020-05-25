@@ -2441,6 +2441,7 @@ pub const Step = struct {
         Run,
         CheckFile,
         InstallRaw,
+        Custom,
     };
 
     pub fn init(id: Id, name: []const u8, allocator: *Allocator, makeFn: fn (*Step) anyerror!void) Step {
@@ -2479,7 +2480,9 @@ pub const Step = struct {
 
     fn typeToId(comptime T: type) Id {
         inline for (@typeInfo(Id).Enum.fields) |f| {
-            if (std.mem.eql(u8, f.name, "TopLevel")) continue;
+            if (std.mem.eql(u8, f.name, "TopLevel") or
+                std.mem.eql(u8, f.name, "Custom")) continue;
+
             if (T == @field(ThisModule, f.name ++ "Step")) {
                 return @field(Id, f.name);
             }
