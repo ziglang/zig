@@ -330,7 +330,7 @@ pub fn formatType(
     }
 
     switch (@typeInfo(T)) {
-        .ComptimeInt, .Int, .Float => {
+        .ComptimeInt, .Int, .ComptimeFloat, .Float => {
             return formatValue(value, fmt, options, out_stream);
         },
         .Void => {
@@ -493,7 +493,7 @@ fn formatValue(
 
     const T = @TypeOf(value);
     switch (@typeInfo(T)) {
-        .Float => return formatFloatValue(value, fmt, options, out_stream),
+        .Float, .ComptimeFloat => return formatFloatValue(value, fmt, options, out_stream),
         .Int, .ComptimeInt => return formatIntValue(value, fmt, options, out_stream),
         .Bool => return formatBuf(if (value) "true" else "false", options, out_stream),
         else => comptime unreachable,
@@ -1592,6 +1592,18 @@ test "formatIntValue with comptime_int" {
     var fbs = std.io.fixedBufferStream(&buf);
     try formatIntValue(value, "", FormatOptions{}, fbs.outStream());
     std.testing.expect(mem.eql(u8, fbs.getWritten(), "123456789123456789"));
+}
+
+test "formatFloatValue with comptime_float" {
+    const value: comptime_float = 1.0;
+
+    var buf: [20]u8 = undefined;
+    var fbs = std.io.fixedBufferStream(&buf);
+    try formatFloatValue(value, "", FormatOptions{}, fbs.outStream());
+    std.testing.expect(mem.eql(u8, fbs.getWritten(), "1.0e+00"));
+
+    try testFmt("1.0e+00", "{}", .{value});
+    try testFmt("1.0e+00", "{}", .{1.0});
 }
 
 test "formatType max_depth" {
