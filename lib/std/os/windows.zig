@@ -1194,7 +1194,7 @@ pub fn peb() *PEB {
 /// This function returns the number of nanoseconds since the canonical epoch,
 /// which is the POSIX one (Jan 01, 1970 AD).
 pub fn fromSysTime(hns: i64) i128 {
-    const adjusted_epoch = @as(i128, hns + std.time.epoch.windows) * (std.time.ns_per_s / 100);
+    const adjusted_epoch: i128 = hns + std.time.epoch.windows * (std.time.ns_per_s / 100);
     return adjusted_epoch * 100;
 }
 
