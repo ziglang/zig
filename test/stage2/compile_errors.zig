@@ -13,15 +13,13 @@ pub fn addCases(ctx: *TestContext) !void {
     // https://github.com/ziglang/zig/issues/1364
     ctx.addZIRError("test", linux_x64,
         \\@noreturn = primitive(noreturn)
-        \\@void = primitive(void)
-        \\@usize = primitive(usize)
         \\
         \\@start_fnty = fntype([], @noreturn, cc=Naked)
         \\@start = fn(@start_fnty, {
         \\  %0 = call(%test, [])
         \\})
     , &[_]ErrorMsg{.{
-        .byte_offset = 168,
+        .byte_offset = 118,
         .msg = "unrecognized identifier: %test",
     }}, &[_]ErrorMsg{}, &[_]ErrorMsg{});
 
