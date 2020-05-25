@@ -122,7 +122,7 @@ test "std.event.Batch" {
 }
 
 fn sleepALittle(count: *usize) void {
-    std.time.sleep(1 * std.time.millisecond);
+    std.time.sleep(1 * std.time.ns_per_ms);
     _ = @atomicRmw(usize, count, .Add, 1, .SeqCst);
 }
 

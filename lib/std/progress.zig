@@ -31,10 +31,10 @@ pub const Progress = struct {
     output_buffer: [100]u8 = undefined,
 
     /// How many nanoseconds between writing updates to the terminal.
-    refresh_rate_ns: u64 = 50 * std.time.millisecond,
+    refresh_rate_ns: u64 = 50 * std.time.ns_per_ms,
 
     /// How many nanoseconds to keep the output hidden
-    initial_delay_ns: u64 = 500 * std.time.millisecond,
+    initial_delay_ns: u64 = 500 * std.time.ns_per_ms,
 
     done: bool = true,
 
@@ -282,24 +282,24 @@ test "basic functionality" {
         next_sub_task = (next_sub_task + 1) % sub_task_names.len;
 
         node.completeOne();
-        std.time.sleep(5 * std.time.millisecond);
+        std.time.sleep(5 * std.time.ns_per_ms);
         node.completeOne();
         node.completeOne();
-        std.time.sleep(5 * std.time.millisecond);
+        std.time.sleep(5 * std.time.ns_per_ms);
         node.completeOne();
         node.completeOne();
-        std.time.sleep(5 * std.time.millisecond);
+        std.time.sleep(5 * std.time.ns_per_ms);
 
         node.end();
 
-        std.time.sleep(5 * std.time.millisecond);
+        std.time.sleep(5 * std.time.ns_per_ms);
     }
     {
         var node = root_node.start("this is a really long name designed to activate the truncation code. let's find out if it works", null);
         node.activate();
-        std.time.sleep(10 * std.time.millisecond);
+        std.time.sleep(10 * std.time.ns_per_ms);
         progress.refresh();
-        std.time.sleep(10 * std.time.millisecond);
+        std.time.sleep(10 * std.time.ns_per_ms);
         node.end();
     }
 }

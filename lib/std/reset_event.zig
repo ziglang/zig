@@ -152,15 +152,15 @@ const PosixEvent = struct {
             if (comptime std.Target.current.isDarwin()) {
                 var tv: os.darwin.timeval = undefined;
                 assert(os.darwin.gettimeofday(&tv, null) == 0);
-                timeout_abs += @intCast(u64, tv.tv_sec) * time.second;
-                timeout_abs += @intCast(u64, tv.tv_usec) * time.microsecond;
+                timeout_abs += @intCast(u64, tv.tv_sec) * time.ns_per_s;
+                timeout_abs += @intCast(u64, tv.tv_usec) * time.us_per_s;
             } else {
                 os.clock_gettime(os.CLOCK_REALTIME, &ts) catch unreachable;
-                timeout_abs += @intCast(u64, ts.tv_sec) * time.second;
+                timeout_abs += @intCast(u64, ts.tv_sec) * time.ns_per_s;
                 timeout_abs += @intCast(u64, ts.tv_nsec);
             }
-            ts.tv_sec = @intCast(@TypeOf(ts.tv_sec), @divFloor(timeout_abs, time.second));
-            ts.tv_nsec = @intCast(@TypeOf(ts.tv_nsec), @mod(timeout_abs, time.second));
+            ts.tv_sec = @intCast(@TypeOf(ts.tv_sec), @divFloor(timeout_abs, time.ns_per_s));
+            ts.tv_nsec = @intCast(@TypeOf(ts.tv_nsec), @mod(timeout_abs, time.ns_per_s));
         }
 
         while (!self.is_set) {
