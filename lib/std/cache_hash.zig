@@ -1,18 +1,19 @@
-const Blake3 = @import("crypto.zig").Blake3;
-const fs = @import("fs.zig");
-const base64 = @import("base64.zig");
-const ArrayList = @import("array_list.zig").ArrayList;
-const debug = @import("debug.zig");
-const testing = @import("testing.zig");
-const mem = @import("mem.zig");
-const fmt = @import("fmt.zig");
-const Allocator = mem.Allocator;
-const os = @import("os.zig");
-const time = @import("time.zig");
+const std = @import("std.zig");
+const Blake3 = std.crypto.Blake3;
+const fs = std.fs;
+const base64 = std.base64;
+const ArrayList = std.ArrayList;
+const assert = std.debug.assert;
+const testing = std.testing;
+const mem = std.mem;
+const fmt = std.fmt;
+const Allocator = std.mem.Allocator;
 
 const base64_encoder = fs.base64_encoder;
 const base64_decoder = fs.base64_decoder;
-const BIN_DIGEST_LEN = 48;
+/// This is 70 more bits than UUIDs. For an analysis of probability of collisions, see:
+/// https://en.wikipedia.org/wiki/Universally_unique_identifier#Collisions
+const BIN_DIGEST_LEN = 24;
 const BASE64_DIGEST_LEN = base64.Base64Encoder.calcSize(BIN_DIGEST_LEN);
 
 const MANIFEST_FILE_SIZE_MAX = 50 * 1024 * 1024;
@@ -22,22 +23,23 @@ pub const File = struct {
     max_file_size: ?usize,
     stat: fs.File.Stat,
     bin_digest: [BIN_DIGEST_LEN]u8,
-    contents: ?[]const u8 = null,
+    contents: ?[]const u8,
 
-    pub fn deinit(self: *@This(), alloc: *Allocator) void {
+    pub fn deinit(self: *File, allocator: *Allocator) void {
         if (self.path) |owned_slice| {
-            alloc.free(owned_slice);
+            allocator.free(owned_slice);
             self.path = null;
         }
         if (self.contents) |contents| {
-            alloc.free(contents);
+            allocator.free(contents);
             self.contents = null;
         }
+        self.* = undefined;
     }
 };
 
 pub const CacheHash = struct {
-    alloc: *Allocator,
+    allocator: *Allocator,
     blake3: Blake3,
     manifest_dir: fs.Dir,
     manifest_file: ?fs.File,
@@ -45,24 +47,22 @@ pub const CacheHash = struct {
     files: ArrayList(File),
     b64_digest: [BASE64_DIGEST_LEN]u8,
 
-    pub fn init(alloc: *Allocator, manifest_dir_path: []const u8) !@This() {
-        try fs.cwd().makePath(manifest_dir_path);
-        const manifest_dir = try fs.cwd().openDir(manifest_dir_path, .{});
-
+    /// Be sure to call release after successful initialization.
+    pub fn init(allocator: *Allocator, dir: fs.Dir, manifest_dir_path: []const u8) !CacheHash {
         return CacheHash{
-            .alloc = alloc,
+            .allocator = allocator,
             .blake3 = Blake3.init(),
-            .manifest_dir = manifest_dir,
+            .manifest_dir = try dir.makeOpenPath(manifest_dir_path, .{}),
             .manifest_file = null,
             .manifest_dirty = false,
-            .files = ArrayList(File).init(alloc),
+            .files = ArrayList(File).init(allocator),
             .b64_digest = undefined,
         };
     }
 
     /// Record a slice of bytes as an dependency of the process being cached
-    pub fn addSlice(self: *@This(), val: []const u8) void {
-        debug.assert(self.manifest_file == null);
+    pub fn addSlice(self: *CacheHash, val: []const u8) void {
+        assert(self.manifest_file == null);
 
         self.blake3.update(val);
         self.blake3.update(&[_]u8{0});
@@ -70,8 +70,8 @@ pub const CacheHash = struct {
 
     /// Convert the input value into bytes and record it as a dependency of the
     /// process being cached
-    pub fn add(self: *@This(), val: var) void {
-        debug.assert(self.manifest_file == null);
+    pub fn add(self: *CacheHash, val: var) void {
+        assert(self.manifest_file == null);
 
         const valPtr = switch (@typeInfo(@TypeOf(val))) {
             .Int => &val,
@@ -96,16 +96,22 @@ pub const CacheHash = struct {
     /// ```
     /// var file_contents = cache_hash.files.items[file_index].contents.?;
     /// ```
-    pub fn addFile(self: *@This(), file_path: []const u8, max_file_size: ?usize) !usize {
-        debug.assert(self.manifest_file == null);
+    pub fn addFile(self: *CacheHash, file_path: []const u8, max_file_size: ?usize) !usize {
+        assert(self.manifest_file == null);
+
+        try self.files.ensureCapacity(self.files.items.len + 1);
+        const resolved_path = try fs.path.resolve(self.allocator, &[_][]const u8{file_path});
 
         const idx = self.files.items.len;
-        var cache_hash_file = try self.files.addOne();
-        cache_hash_file.path = try fs.path.resolve(self.alloc, &[_][]const u8{file_path});
-        cache_hash_file.max_file_size = max_file_size;
-        cache_hash_file.contents = null;
+        self.files.addOneAssumeCapacity().* = .{
+            .path = resolved_path,
+            .contents = null,
+            .max_file_size = max_file_size,
+            .stat = undefined,
+            .bin_digest = undefined,
+        };
 
-        self.addSlice(cache_hash_file.path.?);
+        self.addSlice(resolved_path);
 
         return idx;
     }
@@ -118,8 +124,8 @@ pub const CacheHash = struct {
     /// acquire the lock.
     ///
     /// The lock on the manifest file is released when `CacheHash.release` is called.
-    pub fn hit(self: *@This()) !?[BASE64_DIGEST_LEN]u8 {
-        debug.assert(self.manifest_file == null);
+    pub fn hit(self: *CacheHash) !?[BASE64_DIGEST_LEN]u8 {
+        assert(self.manifest_file == null);
 
         var bin_digest: [BIN_DIGEST_LEN]u8 = undefined;
         self.blake3.final(&bin_digest);
@@ -129,8 +135,8 @@ pub const CacheHash = struct {
         self.blake3 = Blake3.init();
         self.blake3.update(&bin_digest);
 
-        const manifest_file_path = try fmt.allocPrint(self.alloc, "{}.txt", .{self.b64_digest});
-        defer self.alloc.free(manifest_file_path);
+        const manifest_file_path = try fmt.allocPrint(self.allocator, "{}.txt", .{self.b64_digest});
+        defer self.allocator.free(manifest_file_path);
 
         if (self.files.items.len != 0) {
             self.manifest_file = try self.manifest_dir.createFile(manifest_file_path, .{
@@ -159,8 +165,8 @@ pub const CacheHash = struct {
             };
         }
 
-        const file_contents = try self.manifest_file.?.inStream().readAllAlloc(self.alloc, MANIFEST_FILE_SIZE_MAX);
-        defer self.alloc.free(file_contents);
+        const file_contents = try self.manifest_file.?.inStream().readAllAlloc(self.allocator, MANIFEST_FILE_SIZE_MAX);
+        defer self.allocator.free(file_contents);
 
         const input_file_count = self.files.items.len;
         var any_file_changed = false;
@@ -169,15 +175,17 @@ pub const CacheHash = struct {
         while (line_iter.next()) |line| {
             defer idx += 1;
 
-            var cache_hash_file: *File = undefined;
-            if (idx < input_file_count) {
-                cache_hash_file = &self.files.items[idx];
-            } else {
-                cache_hash_file = try self.files.addOne();
-                cache_hash_file.path = null;
-                cache_hash_file.max_file_size = null;
-                cache_hash_file.contents = null;
-            }
+            const cache_hash_file = if (idx < input_file_count) &self.files.items[idx] else blk: {
+                const new = try self.files.addOne();
+                new.* = .{
+                    .path = null,
+                    .contents = null,
+                    .max_file_size = null,
+                    .stat = undefined,
+                    .bin_digest = undefined,
+                };
+                break :blk new;
+            };
 
             var iter = mem.tokenize(line, " ");
             const inode = iter.next() orelse return error.InvalidFormat;
@@ -185,7 +193,7 @@ pub const CacheHash = struct {
             const digest_str = iter.next() orelse return error.InvalidFormat;
             const file_path = iter.rest();
 
-            cache_hash_file.stat.inode = fmt.parseInt(os.ino_t, mtime_nsec_str, 10) catch return error.InvalidFormat;
+            cache_hash_file.stat.inode = fmt.parseInt(fs.File.INode, mtime_nsec_str, 10) catch return error.InvalidFormat;
             cache_hash_file.stat.mtime = fmt.parseInt(i64, mtime_nsec_str, 10) catch return error.InvalidFormat;
             base64_decoder.decode(&cache_hash_file.bin_digest, digest_str) catch return error.InvalidFormat;
 
@@ -199,7 +207,7 @@ pub const CacheHash = struct {
             }
 
             if (cache_hash_file.path == null) {
-                cache_hash_file.path = try mem.dupe(self.alloc, u8, file_path);
+                cache_hash_file.path = try mem.dupe(self.allocator, u8, file_path);
             }
 
             const this_file = fs.cwd().openFile(cache_hash_file.path.?, .{ .read = true }) catch {
@@ -216,16 +224,16 @@ pub const CacheHash = struct {
 
                 cache_hash_file.stat = actual_stat;
 
-                if (is_problematic_timestamp(cache_hash_file.stat.mtime)) {
+                if (isProblematicTimestamp(cache_hash_file.stat.mtime)) {
                     cache_hash_file.stat.mtime = 0;
                     cache_hash_file.stat.inode = 0;
                 }
 
                 var actual_digest: [BIN_DIGEST_LEN]u8 = undefined;
-                cache_hash_file.contents = try hash_file(self.alloc, &actual_digest, &this_file, cache_hash_file.max_file_size);
+                try hashFile(this_file, &actual_digest);
 
                 if (!mem.eql(u8, &cache_hash_file.bin_digest, &actual_digest)) {
-                    mem.copy(u8, &cache_hash_file.bin_digest, &actual_digest);
+                    cache_hash_file.bin_digest = actual_digest;
                     // keep going until we have the input file digests
                     any_file_changed = true;
                 }
@@ -245,9 +253,9 @@ pub const CacheHash = struct {
 
             // Remove files not in the initial hash
             for (self.files.items[input_file_count..]) |*file| {
-                file.deinit(self.alloc);
+                file.deinit(self.allocator);
             }
-            try self.files.resize(input_file_count);
+            self.files.shrink(input_file_count);
 
             for (self.files.items) |file| {
                 self.blake3.update(&file.bin_digest);
@@ -258,10 +266,8 @@ pub const CacheHash = struct {
         if (idx < input_file_count) {
             self.manifest_dirty = true;
             while (idx < input_file_count) : (idx += 1) {
-                var cache_hash_file = &self.files.items[idx];
-                const contents = self.populate_file_hash(cache_hash_file) catch |err| {
-                    return error.CacheUnavailable;
-                };
+                const ch_file = &self.files.items[idx];
+                try self.populateFileHash(ch_file);
             }
             return null;
         }
@@ -269,59 +275,97 @@ pub const CacheHash = struct {
         return self.final();
     }
 
-    fn populate_file_hash_fetch(self: *@This(), otherAlloc: *mem.Allocator, cache_hash_file: *File) !?[]u8 {
-        debug.assert(cache_hash_file.path != null);
+    fn populateFileHash(self: *CacheHash, ch_file: *File) !void {
+        const file = try fs.cwd().openFile(ch_file.path.?, .{});
+        defer file.close();
 
-        const this_file = try fs.cwd().openFile(cache_hash_file.path.?, .{});
-        defer this_file.close();
+        ch_file.stat = try file.stat();
 
-        cache_hash_file.stat = try this_file.stat();
-
-        if (is_problematic_timestamp(cache_hash_file.stat.mtime)) {
-            cache_hash_file.stat.mtime = 0;
-            cache_hash_file.stat.inode = 0;
+        if (isProblematicTimestamp(ch_file.stat.mtime)) {
+            ch_file.stat.mtime = 0;
+            ch_file.stat.inode = 0;
         }
 
-        const contents = try hash_file(otherAlloc, &cache_hash_file.bin_digest, &this_file, cache_hash_file.max_file_size);
-        self.blake3.update(&cache_hash_file.bin_digest);
+        if (ch_file.max_file_size) |max_file_size| {
+            if (ch_file.stat.size > max_file_size) {
+                return error.FileTooBig;
+            }
 
-        return contents;
-    }
+            const contents = try self.allocator.alloc(u8, ch_file.stat.size);
+            errdefer self.allocator.free(contents);
 
-    fn populate_file_hash(self: *@This(), cache_hash_file: *File) !void {
-        cache_hash_file.contents = try self.populate_file_hash_fetch(self.alloc, cache_hash_file);
+            // Hash while reading from disk, to keep the contents in the cpu cache while
+            // doing hashing.
+            var blake3 = Blake3.init();
+            var off: usize = 0;
+            while (true) {
+                // give me everything you've got, captain
+                const bytes_read = try file.read(contents[off..]);
+                if (bytes_read == 0) break;
+                blake3.update(contents[off..][0..bytes_read]);
+                off += bytes_read;
+            }
+            blake3.final(&ch_file.bin_digest);
+
+            ch_file.contents = contents;
+        } else {
+            try hashFile(file, &ch_file.bin_digest);
+        }
+
+        self.blake3.update(&ch_file.bin_digest);
     }
 
     /// Add a file as a dependency of process being cached, after the initial hash has been
     /// calculated. This is useful for processes that don't know the all the files that
     /// are depended on ahead of time. For example, a source file that can import other files
     /// will need to be recompiled if the imported file is changed.
-    ///
-    /// Returns the contents of the file, allocated with the given allocator.
-    pub fn addFilePostFetch(self: *@This(), otherAlloc: *mem.Allocator, file_path: []const u8, max_file_size_opt: ?usize) !?[]u8 {
-        debug.assert(self.manifest_file != null);
+    pub fn addFilePostFetch(self: *CacheHash, file_path: []const u8, max_file_size: usize) ![]u8 {
+        assert(self.manifest_file != null);
 
-        var cache_hash_file = try self.files.addOne();
-        cache_hash_file.path = try fs.path.resolve(self.alloc, &[_][]const u8{file_path});
-        cache_hash_file.max_file_size = max_file_size_opt;
-        cache_hash_file.contents = null;
+        const resolved_path = try fs.path.resolve(self.allocator, &[_][]const u8{file_path});
+        errdefer self.allocator.free(resolved_path);
 
-        const contents = try self.populate_file_hash_fetch(otherAlloc, cache_hash_file);
+        const new_ch_file = try self.files.addOne();
+        new_ch_file.* = .{
+            .path = resolved_path,
+            .max_file_size = max_file_size,
+            .stat = undefined,
+            .bin_digest = undefined,
+            .contents = null,
+        };
+        errdefer self.files.shrink(self.files.items.len - 1);
 
-        return contents;
+        try self.populateFileHash(new_ch_file);
+
+        return new_ch_file.contents.?;
     }
 
     /// Add a file as a dependency of process being cached, after the initial hash has been
     /// calculated. This is useful for processes that don't know the all the files that
     /// are depended on ahead of time. For example, a source file that can import other files
     /// will need to be recompiled if the imported file is changed.
-    pub fn addFilePost(self: *@This(), file_path: []const u8) !void {
-        _ = try self.addFilePostFetch(self.alloc, file_path, null);
+    pub fn addFilePost(self: *CacheHash, file_path: []const u8) !void {
+        assert(self.manifest_file != null);
+
+        const resolved_path = try fs.path.resolve(self.allocator, &[_][]const u8{file_path});
+        errdefer self.allocator.free(resolved_path);
+
+        const new_ch_file = try self.files.addOne();
+        new_ch_file.* = .{
+            .path = resolved_path,
+            .max_file_size = null,
+            .stat = undefined,
+            .bin_digest = undefined,
+            .contents = null,
+        };
+        errdefer self.files.shrink(self.files.items.len - 1);
+
+        try self.populateFileHash(new_ch_file);
     }
 
     /// Returns a base64 encoded hash of the inputs.
-    pub fn final(self: *@This()) [BASE64_DIGEST_LEN]u8 {
-        debug.assert(self.manifest_file != null);
+    pub fn final(self: *CacheHash) [BASE64_DIGEST_LEN]u8 {
+        assert(self.manifest_file != null);
 
         // We don't close the manifest file yet, because we want to
         // keep it locked until the API user is done using it.
@@ -338,11 +382,11 @@ pub const CacheHash = struct {
         return out_digest;
     }
 
-    pub fn write_manifest(self: *@This()) !void {
-        debug.assert(self.manifest_file != null);
+    pub fn writeManifest(self: *CacheHash) !void {
+        assert(self.manifest_file != null);
 
         var encoded_digest: [BASE64_DIGEST_LEN]u8 = undefined;
-        var contents = ArrayList(u8).init(self.alloc);
+        var contents = ArrayList(u8).init(self.allocator);
         var outStream = contents.outStream();
         defer contents.deinit();
 
@@ -351,68 +395,78 @@ pub const CacheHash = struct {
             try outStream.print("{} {} {} {}\n", .{ file.stat.inode, file.stat.mtime, encoded_digest[0..], file.path });
         }
 
-        try self.manifest_file.?.seekTo(0);
-        try self.manifest_file.?.writeAll(contents.items);
+        try self.manifest_file.?.pwriteAll(contents.items, 0);
+        self.manifest_dirty = false;
     }
 
     /// Releases the manifest file and frees any memory the CacheHash was using.
     /// `CacheHash.hit` must be called first.
     ///
     /// Will also attempt to write to the manifest file if the manifest is dirty.
-    /// Writing to the manifest file is the only way that this file can return an
-    /// error.
-    pub fn release(self: *@This()) !void {
+    /// Writing to the manifest file can fail, but this function ignores those errors.
+    /// To detect failures from writing the manifest, one may explicitly call
+    /// `writeManifest` before `release`.
+    pub fn release(self: *CacheHash) void {
         if (self.manifest_file) |file| {
             if (self.manifest_dirty) {
-                try self.write_manifest();
+                // To handle these errors, API users should call
+                // writeManifest before release().
+                self.writeManifest() catch {};
             }
 
             file.close();
         }
 
         for (self.files.items) |*file| {
-            file.deinit(self.alloc);
+            file.deinit(self.allocator);
         }
         self.files.deinit();
         self.manifest_dir.close();
     }
 };
 
-/// Hash the file, and return the contents as an array
-fn hash_file(alloc: *Allocator, bin_digest: []u8, handle: *const fs.File, max_file_size_opt: ?usize) !?[]u8 {
+fn hashFile(file: fs.File, bin_digest: []u8) !void {
     var blake3 = Blake3.init();
-    var in_stream = handle.inStream();
+    var buf: [1024]u8 = undefined;
 
-    if (max_file_size_opt) |max_file_size| {
-        const contents = try in_stream.readAllAlloc(alloc, max_file_size);
-
-        blake3.update(contents);
-
-        blake3.final(bin_digest);
-
-        return contents;
-    } else {
-        var buf: [1024]u8 = undefined;
-
-        while (true) {
-            const bytes_read = try in_stream.read(buf[0..]);
-            if (bytes_read == 0) break;
-            blake3.update(buf[0..bytes_read]);
-        }
-
-        blake3.final(bin_digest);
-        return null;
+    while (true) {
+        const bytes_read = try file.read(&buf);
+        if (bytes_read == 0) break;
+        blake3.update(buf[0..bytes_read]);
     }
+
+    blake3.final(bin_digest);
 }
 
 /// If the wall clock time, rounded to the same precision as the
 /// mtime, is equal to the mtime, then we cannot rely on this mtime
 /// yet. We will instead save an mtime value that indicates the hash
 /// must be unconditionally computed.
-fn is_problematic_timestamp(file_mtime_ns: i64) bool {
-    const now_ms = time.milliTimestamp();
-    const file_mtime_ms = @divFloor(file_mtime_ns, time.millisecond);
-    return now_ms == file_mtime_ms;
+/// This function recognizes the precision of mtime by looking at trailing
+/// zero bits of the seconds and nanoseconds.
+fn isProblematicTimestamp(fs_clock: i128) bool {
+    const wall_clock = std.time.nanoTimestamp();
+
+    // We have to break the nanoseconds into seconds and remainder nanoseconds
+    // to detect precision of seconds, because looking at the zero bits in base
+    // 2 would not detect precision of the seconds value.
+    const fs_sec = @intCast(i64, @divFloor(fs_clock, std.time.ns_per_s));
+    const fs_nsec = @intCast(i64, @mod(fs_clock, std.time.ns_per_s));
+    var wall_sec = @intCast(i64, @divFloor(wall_clock, std.time.ns_per_s));
+    var wall_nsec = @intCast(i64, @mod(wall_clock, std.time.ns_per_s));
+
+    // First make all the least significant zero bits in the fs_clock, also zero bits in the wall clock.
+    if (fs_nsec == 0) {
+        wall_nsec = 0;
+        if (fs_sec == 0) {
+            wall_sec = 0;
+        } else {
+            wall_sec &= @as(i64, -1) << @intCast(u6, @ctz(i64, fs_sec));
+        }
+    } else {
+        wall_nsec &= @as(i64, -1) << @intCast(u6, @ctz(i64, fs_nsec));
+    }
+    return wall_nsec == fs_nsec and wall_sec == fs_sec;
 }
 
 test "cache file and then recall it" {
@@ -423,12 +477,16 @@ test "cache file and then recall it" {
 
     try cwd.writeFile(temp_file, "Hello, world!\n");
 
+    while (isProblematicTimestamp(std.time.nanoTimestamp())) {
+        std.time.sleep(1);
+    }
+
     var digest1: [BASE64_DIGEST_LEN]u8 = undefined;
     var digest2: [BASE64_DIGEST_LEN]u8 = undefined;
 
     {
-        var ch = try CacheHash.init(testing.allocator, temp_manifest_dir);
-        defer ch.release() catch unreachable;
+        var ch = try CacheHash.init(testing.allocator, cwd, temp_manifest_dir);
+        defer ch.release();
 
         ch.add(true);
         ch.add(@as(u16, 1234));
@@ -436,13 +494,13 @@ test "cache file and then recall it" {
         _ = try ch.addFile(temp_file, null);
 
         // There should be nothing in the cache
-        testing.expectEqual(@as(?[64]u8, null), try ch.hit());
+        testing.expectEqual(@as(?[32]u8, null), try ch.hit());
 
         digest1 = ch.final();
     }
     {
-        var ch = try CacheHash.init(testing.allocator, temp_manifest_dir);
-        defer ch.release() catch unreachable;
+        var ch = try CacheHash.init(testing.allocator, cwd, temp_manifest_dir);
+        defer ch.release();
 
         ch.add(true);
         ch.add(@as(u16, 1234));
@@ -460,13 +518,15 @@ test "cache file and then recall it" {
 }
 
 test "give problematic timestamp" {
-    const now_ns = @intCast(i64, time.milliTimestamp() * time.millisecond);
-    testing.expect(is_problematic_timestamp(now_ns));
+    var fs_clock = std.time.nanoTimestamp();
+    // to make it problematic, we make it only accurate to the second
+    fs_clock = @divTrunc(fs_clock, std.time.ns_per_s);
+    fs_clock *= std.time.ns_per_s;
+    testing.expect(isProblematicTimestamp(fs_clock));
 }
 
 test "give nonproblematic timestamp" {
-    const now_ns = @intCast(i64, time.milliTimestamp() * time.millisecond) - 1000;
-    testing.expect(!is_problematic_timestamp(now_ns));
+    testing.expect(!isProblematicTimestamp(std.time.nanoTimestamp() - std.time.ns_per_s));
 }
 
 test "check that changing a file makes cache fail" {
@@ -479,18 +539,22 @@ test "check that changing a file makes cache fail" {
 
     try cwd.writeFile(temp_file, original_temp_file_contents);
 
+    while (isProblematicTimestamp(std.time.nanoTimestamp())) {
+        std.time.sleep(1);
+    }
+
     var digest1: [BASE64_DIGEST_LEN]u8 = undefined;
     var digest2: [BASE64_DIGEST_LEN]u8 = undefined;
 
     {
-        var ch = try CacheHash.init(testing.allocator, temp_manifest_dir);
-        defer ch.release() catch unreachable;
+        var ch = try CacheHash.init(testing.allocator, cwd, temp_manifest_dir);
+        defer ch.release();
 
         ch.add("1234");
         const temp_file_idx = try ch.addFile(temp_file, 100);
 
         // There should be nothing in the cache
-        testing.expectEqual(@as(?[64]u8, null), try ch.hit());
+        testing.expectEqual(@as(?[32]u8, null), try ch.hit());
 
         testing.expect(mem.eql(u8, original_temp_file_contents, ch.files.items[temp_file_idx].contents.?));
 
@@ -499,17 +563,22 @@ test "check that changing a file makes cache fail" {
 
     try cwd.writeFile(temp_file, updated_temp_file_contents);
 
+    while (isProblematicTimestamp(std.time.nanoTimestamp())) {
+        std.time.sleep(1);
+    }
+
     {
-        var ch = try CacheHash.init(testing.allocator, temp_manifest_dir);
-        defer ch.release() catch unreachable;
+        var ch = try CacheHash.init(testing.allocator, cwd, temp_manifest_dir);
+        defer ch.release();
 
         ch.add("1234");
         const temp_file_idx = try ch.addFile(temp_file, 100);
 
         // A file that we depend on has been updated, so the cache should not contain an entry for it
-        testing.expectEqual(@as(?[64]u8, null), try ch.hit());
+        testing.expectEqual(@as(?[32]u8, null), try ch.hit());
 
-        testing.expect(mem.eql(u8, updated_temp_file_contents, ch.files.items[temp_file_idx].contents.?));
+        // The cache system does not keep the contents of re-hashed input files.
+        testing.expect(ch.files.items[temp_file_idx].contents == null);
 
         digest2 = ch.final();
     }
@@ -529,19 +598,19 @@ test "no file inputs" {
     var digest2: [BASE64_DIGEST_LEN]u8 = undefined;
 
     {
-        var ch = try CacheHash.init(testing.allocator, temp_manifest_dir);
-        defer ch.release() catch unreachable;
+        var ch = try CacheHash.init(testing.allocator, cwd, temp_manifest_dir);
+        defer ch.release();
 
         ch.add("1234");
 
         // There should be nothing in the cache
-        testing.expectEqual(@as(?[64]u8, null), try ch.hit());
+        testing.expectEqual(@as(?[32]u8, null), try ch.hit());
 
         digest1 = ch.final();
     }
     {
-        var ch = try CacheHash.init(testing.allocator, temp_manifest_dir);
-        defer ch.release() catch unreachable;
+        var ch = try CacheHash.init(testing.allocator, cwd, temp_manifest_dir);
+        defer ch.release();
 
         ch.add("1234");
 
@@ -561,55 +630,62 @@ test "CacheHashes with files added after initial hash work" {
     try cwd.writeFile(temp_file1, "Hello, world!\n");
     try cwd.writeFile(temp_file2, "Hello world the second!\n");
 
+    while (isProblematicTimestamp(std.time.nanoTimestamp())) {
+        std.time.sleep(1);
+    }
+
     var digest1: [BASE64_DIGEST_LEN]u8 = undefined;
     var digest2: [BASE64_DIGEST_LEN]u8 = undefined;
     var digest3: [BASE64_DIGEST_LEN]u8 = undefined;
 
     {
-        var ch = try CacheHash.init(testing.allocator, temp_manifest_dir);
-        defer ch.release() catch unreachable;
+        var ch = try CacheHash.init(testing.allocator, cwd, temp_manifest_dir);
+        defer ch.release();
 
         ch.add("1234");
         _ = try ch.addFile(temp_file1, null);
 
         // There should be nothing in the cache
-        testing.expectEqual(@as(?[64]u8, null), try ch.hit());
+        testing.expectEqual(@as(?[32]u8, null), try ch.hit());
 
         _ = try ch.addFilePost(temp_file2);
 
         digest1 = ch.final();
     }
     {
-        var ch = try CacheHash.init(testing.allocator, temp_manifest_dir);
-        defer ch.release() catch unreachable;
+        var ch = try CacheHash.init(testing.allocator, cwd, temp_manifest_dir);
+        defer ch.release();
 
         ch.add("1234");
         _ = try ch.addFile(temp_file1, null);
 
-        // A file that we depend on has been updated, so the cache should not contain an entry for it
         digest2 = (try ch.hit()).?;
     }
+    testing.expect(mem.eql(u8, &digest1, &digest2));
 
     // Modify the file added after initial hash
     try cwd.writeFile(temp_file2, "Hello world the second, updated\n");
 
+    while (isProblematicTimestamp(std.time.nanoTimestamp())) {
+        std.time.sleep(1);
+    }
+
     {
-        var ch = try CacheHash.init(testing.allocator, temp_manifest_dir);
-        defer ch.release() catch unreachable;
+        var ch = try CacheHash.init(testing.allocator, cwd, temp_manifest_dir);
+        defer ch.release();
 
         ch.add("1234");
         _ = try ch.addFile(temp_file1, null);
 
         // A file that we depend on has been updated, so the cache should not contain an entry for it
-        testing.expectEqual(@as(?[64]u8, null), try ch.hit());
+        testing.expectEqual(@as(?[32]u8, null), try ch.hit());
 
         _ = try ch.addFilePost(temp_file2);
 
         digest3 = ch.final();
     }
 
-    testing.expect(mem.eql(u8, digest1[0..], digest2[0..]));
-    testing.expect(!mem.eql(u8, digest1[0..], digest3[0..]));
+    testing.expect(!mem.eql(u8, &digest1, &digest3));
 
     try cwd.deleteTree(temp_manifest_dir);
     try cwd.deleteFile(temp_file1);
