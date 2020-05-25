@@ -363,24 +363,29 @@ pub const TestContext = struct {
             break :f false;
         };
         module_node.end();
+        var err: ?anyerror = null;
         {
             var i = module.failed_files.iterator();
             var index: usize = 0;
             while (i.next()) |pair| : (index += 1) {
                 if (index == case.expected_file_errors.len) {
                     std.debug.warn("Unexpected file error: {}\n", .{pair.value});
-                    return error.UnexpectedError;
+                    err = error.UnexpectedError;
                 }
                 const v1 = pair.value.*;
                 const v2 = case.expected_file_errors[index];
                 if (v1.byte_offset != v2.byte_offset) {
                     std.debug.warn("Expected error at {}, found it at {}\n", .{ v2.byte_offset, v1.byte_offset });
-                    return error.ExpectedErrorElsewhere;
+                    err = error.ExpectedErrorElsewhere;
                 }
                 if (!std.mem.eql(u8, v1.msg, v2.msg)) {
                     std.debug.warn("Expected '{}', found '{}'\n", .{ v2.msg, v1.msg });
-                    return error.ExpectedOtherError;
+                    err = error.ExpectedOtherError;
                 }
+            }
+            if (index != case.expected_file_errors.len) {
+                std.debug.warn("Expected an error ('{}'), but did not receive it\n", .{case.expected_file_errors[index]});
+                err = error.MissingError;
             }
         }
         {
@@ -389,18 +394,22 @@ pub const TestContext = struct {
             while (i.next()) |pair| : (index += 1) {
                 if (index == case.expected_decl_errors.len) {
                     std.debug.warn("Unexpected decl error: {}\n", .{pair.value});
-                    return error.UnexpectedError;
+                    err = error.UnexpectedError;
                 }
                 const v1 = pair.value.*;
                 const v2 = case.expected_decl_errors[index];
                 if (v1.byte_offset != v2.byte_offset) {
                     std.debug.warn("Expected error at {}, found it at {}\n", .{ v2.byte_offset, v1.byte_offset });
-                    return error.ExpectedErrorElsewhere;
+                    err = error.ExpectedErrorElsewhere;
                 }
                 if (!std.mem.eql(u8, v1.msg, v2.msg)) {
                     std.debug.warn("Expected '{}', found '{}'\n", .{ v2.msg, v1.msg });
-                    return error.ExpectedOtherError;
+                    err = error.ExpectedOtherError;
                 }
+            }
+            if (index != case.expected_decl_errors.len) {
+                std.debug.warn("Expected an error ('{}'), but did not receive it\n", .{case.expected_decl_errors[index]});
+                err = error.MissingError;
             }
         }
         {
@@ -409,19 +418,26 @@ pub const TestContext = struct {
             while (i.next()) |pair| : (index += 1) {
                 if (index == case.expected_export_errors.len) {
                     std.debug.warn("Unexpected export error: {}\n", .{pair.value});
-                    return error.UnexpectedError;
+                    err = error.UnexpectedError;
                 }
                 const v1 = pair.value.*;
                 const v2 = case.expected_export_errors[index];
                 if (v1.byte_offset != v2.byte_offset) {
                     std.debug.warn("Expected error at {}, found it at {}\n", .{ v2.byte_offset, v1.byte_offset });
-                    return error.ExpectedErrorElsewhere;
+                    err = error.ExpectedErrorElsewhere;
                 }
                 if (!std.mem.eql(u8, v1.msg, v2.msg)) {
                     std.debug.warn("Expected '{}', found '{}'\n", .{ v2.msg, v1.msg });
-                    return error.ExpectedOtherError;
+                    err = error.ExpectedOtherError;
                 }
             }
+            if (index != case.expected_export_errors.len) {
+                std.debug.warn("Expected an error ('{}'), but did not receive it\n", .{case.expected_export_errors[index]});
+                err = error.MissingError;
+            }
+        }
+        if (err) |e| {
+            return e;
         }
     }
 };
