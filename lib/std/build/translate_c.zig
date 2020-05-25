@@ -20,7 +20,7 @@ pub const TranslateCStep = struct {
     pub fn create(builder: *Builder, source: build.FileSource) *TranslateCStep {
         const self = builder.allocator.create(TranslateCStep) catch unreachable;
         self.* = TranslateCStep{
-            .step = Step.init("translate-c", builder.allocator, make),
+            .step = Step.init(.TranslateC, "translate-c", builder.allocator, make),
             .builder = builder,
             .source = source,
             .output_dir = null,

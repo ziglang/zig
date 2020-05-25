@@ -20,7 +20,7 @@ pub const WriteFileStep = struct {
     pub fn init(builder: *Builder) WriteFileStep {
         return WriteFileStep{
             .builder = builder,
-            .step = Step.init("writefile", builder.allocator, make),
+            .step = Step.init(.WriteFile, "writefile", builder.allocator, make),
             .files = ArrayList(File).init(builder.allocator),
             .output_dir = undefined,
         };

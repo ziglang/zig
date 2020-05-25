@@ -154,11 +154,11 @@ pub const Builder = struct {
             .dest_dir = env_map.get("DESTDIR"),
             .installed_files = ArrayList(InstalledFile).init(allocator),
             .install_tls = TopLevelStep{
-                .step = Step.initNoOp("install", allocator),
+                .step = Step.initNoOp(.TopLevel, "install", allocator),
                 .description = "Copy build artifacts to prefix path",
             },
             .uninstall_tls = TopLevelStep{
-                .step = Step.init("uninstall", allocator, makeUninstall),
+                .step = Step.init(.TopLevel, "uninstall", allocator, makeUninstall),
                 .description = "Remove build artifacts from prefix path",
             },
             .release_mode = null,
@@ -500,7 +500,7 @@ pub const Builder = struct {
     pub fn step(self: *Builder, name: []const u8, description: []const u8) *Step {
         const step_info = self.allocator.create(TopLevelStep) catch unreachable;
         step_info.* = TopLevelStep{
-            .step = Step.initNoOp(name, self.allocator),
+            .step = Step.initNoOp(.TopLevel, name, self.allocator),
             .description = description,
         };
         self.top_level_steps.append(step_info) catch unreachable;
@@ -1286,7 +1286,7 @@ pub const LibExeObjStep = struct {
             .root_src = root_src,
             .name = name,
             .frameworks = BufSet.init(builder.allocator),
-            .step = Step.init(name, builder.allocator, make),
+            .step = Step.init(.LibExeObj, name, builder.allocator, make),
             .version = ver,
             .out_filename = undefined,
             .out_h_filename = builder.fmt("{}.h", .{name}),
@@ -2223,7 +2223,7 @@ pub const LibExeObjStep = struct {
     }
 };
 
-const InstallArtifactStep = struct {
+pub const InstallArtifactStep = struct {
     step: Step,
     builder: *Builder,
     artifact: *LibExeObjStep,
@@ -2239,7 +2239,7 @@ const InstallArtifactStep = struct {
         const self = builder.allocator.create(Self) catch unreachable;
         self.* = Self{
             .builder = builder,
-            .step = Step.init(builder.fmt("install {}", .{artifact.step.name}), builder.allocator, make),
+            .step = Step.init(.InstallArtifact, builder.fmt("install {}", .{artifact.step.name}), builder.allocator, make),
             .artifact = artifact,
             .dest_dir = switch (artifact.kind) {
                 .Obj => unreachable,
@@ -2313,7 +2313,7 @@ pub const InstallFileStep = struct {
         builder.pushInstalledFile(dir, dest_rel_path);
         return InstallFileStep{
             .builder = builder,
-            .step = Step.init(builder.fmt("install {}", .{src_path}), builder.allocator, make),
+            .step = Step.init(.InstallFile, builder.fmt("install {}", .{src_path}), builder.allocator, make),
             .src_path = src_path,
             .dir = dir,
             .dest_rel_path = dest_rel_path,
@@ -2347,7 +2347,7 @@ pub const InstallDirStep = struct {
         builder.pushInstalledFile(options.install_dir, options.install_subdir);
         return InstallDirStep{
             .builder = builder,
-            .step = Step.init(builder.fmt("install {}/", .{options.source_dir}), builder.allocator, make),
+            .step = Step.init(.InstallDir, builder.fmt("install {}/", .{options.source_dir}), builder.allocator, make),
             .options = options,
         };
     }
@@ -2383,7 +2383,7 @@ pub const LogStep = struct {
     pub fn init(builder: *Builder, data: []const u8) LogStep {
         return LogStep{
             .builder = builder,
-            .step = Step.init(builder.fmt("log {}", .{data}), builder.allocator, make),
+            .step = Step.init(.Log, builder.fmt("log {}", .{data}), builder.allocator, make),
             .data = data,
         };
     }
@@ -2402,7 +2402,7 @@ pub const RemoveDirStep = struct {
     pub fn init(builder: *Builder, dir_path: []const u8) RemoveDirStep {
         return RemoveDirStep{
             .builder = builder,
-            .step = Step.init(builder.fmt("RemoveDir {}", .{dir_path}), builder.allocator, make),
+            .step = Step.init(.RemoveDir, builder.fmt("RemoveDir {}", .{dir_path}), builder.allocator, make),
             .dir_path = dir_path,
         };
     }
@@ -2418,15 +2418,35 @@ pub const RemoveDirStep = struct {
     }
 };
 
+const ThisModule = @This();
 pub const Step = struct {
+    id: Id,
     name: []const u8,
     makeFn: fn (self: *Step) anyerror!void,
     dependencies: ArrayList(*Step),
     loop_flag: bool,
     done_flag: bool,
 
-    pub fn init(name: []const u8, allocator: *Allocator, makeFn: fn (*Step) anyerror!void) Step {
+    pub const Id = enum {
+        TopLevel,
+        LibExeObj,
+        InstallArtifact,
+        InstallFile,
+        InstallDir,
+        Log,
+        RemoveDir,
+        Fmt,
+        TranslateC,
+        WriteFile,
+        Run,
+        CheckFile,
+        InstallRaw,
+        Custom,
+    };
+
+    pub fn init(id: Id, name: []const u8, allocator: *Allocator, makeFn: fn (*Step) anyerror!void) Step {
         return Step{
+            .id = id,
             .name = name,
             .makeFn = makeFn,
             .dependencies = ArrayList(*Step).init(allocator),
@@ -2434,8 +2454,8 @@ pub const Step = struct {
             .done_flag = false,
         };
     }
-    pub fn initNoOp(name: []const u8, allocator: *Allocator) Step {
-        return init(name, allocator, makeNoOp);
+    pub fn initNoOp(id: Id, name: []const u8, allocator: *Allocator) Step {
+        return init(id, name, allocator, makeNoOp);
     }
 
     pub fn make(self: *Step) !void {
@@ -2450,6 +2470,25 @@ pub const Step = struct {
     }
 
     fn makeNoOp(self: *Step) anyerror!void {}
+
+    pub fn cast(step: *Step, comptime T: type) ?*T {
+        if (step.id == comptime typeToId(T)) {
+            return @fieldParentPtr(T, "step", step);
+        }
+        return null;
+    }
+
+    fn typeToId(comptime T: type) Id {
+        inline for (@typeInfo(Id).Enum.fields) |f| {
+            if (std.mem.eql(u8, f.name, "TopLevel") or
+                std.mem.eql(u8, f.name, "Custom")) continue;
+
+            if (T == @field(ThisModule, f.name ++ "Step")) {
+                return @field(Id, f.name);
+            }
+        }
+        unreachable;
+    }
 };
 
 fn doAtomicSymLinks(allocator: *Allocator, output_path: []const u8, filename_major_only: []const u8, filename_name_only: []const u8) !void {

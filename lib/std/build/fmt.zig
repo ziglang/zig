@@ -14,7 +14,7 @@ pub const FmtStep = struct {
         const self = builder.allocator.create(FmtStep) catch unreachable;
         const name = "zig fmt";
         self.* = FmtStep{
-            .step = Step.init(name, builder.allocator, make),
+            .step = Step.init(.Fmt, name, builder.allocator, make),
             .builder = builder,
             .argv = builder.allocator.alloc([]u8, paths.len + 2) catch unreachable,
         };
