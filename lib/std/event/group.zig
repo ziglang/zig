@@ -145,7 +145,7 @@ fn testGroup(allocator: *Allocator) callconv(.Async) void {
     testing.expectError(error.ItBroke, another.wait());
 }
 fn sleepALittle(count: *usize) callconv(.Async) void {
-    std.time.sleep(1 * std.time.millisecond);
+    std.time.sleep(1 * std.time.ns_per_ms);
     _ = @atomicRmw(usize, count, .Add, 1, .SeqCst);
 }
 fn increaseByTen(count: *usize) callconv(.Async) void {

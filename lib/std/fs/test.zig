@@ -10,7 +10,7 @@ test "openSelfExe" {
     self_exe_file.close();
 }
 
-const FILE_LOCK_TEST_SLEEP_TIME = 5 * std.time.millisecond;
+const FILE_LOCK_TEST_SLEEP_TIME = 5 * std.time.ns_per_ms;
 
 test "open file with exclusive nonblocking lock twice" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
@@ -142,8 +142,8 @@ const FileLockTestContext = struct {
 
     // Output variables
     err: ?(File.OpenError || std.os.ReadError) = null,
-    start_time: u64 = 0,
-    end_time: u64 = 0,
+    start_time: i64 = 0,
+    end_time: i64 = 0,
     bytes_read: ?usize = null,
 
     fn overlaps(self: *const @This(), other: *const @This()) bool {

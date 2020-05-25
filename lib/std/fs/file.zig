@@ -227,14 +227,12 @@ pub const File = struct {
         size: u64,
         mode: Mode,
 
-        /// access time in nanoseconds
-        atime: i64,
-
-        /// last modification time in nanoseconds
-        mtime: i64,
-
-        /// creation time in nanoseconds
-        ctime: i64,
+        /// Access time in nanoseconds, relative to UTC 1970-01-01.
+        atime: i128,
+        /// Last modification time in nanoseconds, relative to UTC 1970-01-01.
+        mtime: i128,
+        /// Creation time in nanoseconds, relative to UTC 1970-01-01.
+        ctime: i128,
     };
 
     pub const StatError = os.FStatError;
@@ -270,9 +268,9 @@ pub const File = struct {
             .inode = st.ino,
             .size = @bitCast(u64, st.size),
             .mode = st.mode,
-            .atime = @as(i64, atime.tv_sec) * std.time.ns_per_s + atime.tv_nsec,
-            .mtime = @as(i64, mtime.tv_sec) * std.time.ns_per_s + mtime.tv_nsec,
-            .ctime = @as(i64, ctime.tv_sec) * std.time.ns_per_s + ctime.tv_nsec,
+            .atime = @as(i128, atime.tv_sec) * std.time.ns_per_s + atime.tv_nsec,
+            .mtime = @as(i128, mtime.tv_sec) * std.time.ns_per_s + mtime.tv_nsec,
+            .ctime = @as(i128, ctime.tv_sec) * std.time.ns_per_s + ctime.tv_nsec,
         };
     }
 
@@ -286,9 +284,9 @@ pub const File = struct {
     pub fn updateTimes(
         self: File,
         /// access timestamp in nanoseconds
-        atime: i64,
+        atime: i128,
         /// last modification timestamp in nanoseconds
-        mtime: i64,
+        mtime: i128,
     ) UpdateTimesError!void {
         if (builtin.os.tag == .windows) {
             const atime_ft = windows.nanoSecondsToFileTime(atime);
