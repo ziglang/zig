@@ -567,7 +567,11 @@ pub fn WriteFile(
                 // https://github.com/ziglang/zig/issues/4196
                 // Prevents infinite loop when stderr/stdout is not available.
                 // TODO Should implement a NoOpOutStream but this is not possible for now because we cannot coerce or cast to File.OutStream
-                .INVALID_HANDLE => return error.Unexpected,
+                .INVALID_HANDLE => {
+                    if (std.io.getStdOut().handle == handle) return error.BrokenPipe;
+                    if (std.io.getStdErr().handle == handle) return error.BrokenPipe;
+                    unreachable;
+                },
                 else => |err| return unexpectedError(err),
             }
         }
