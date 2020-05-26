@@ -31,6 +31,7 @@ pub const base64 = @import("base64.zig");
 pub const build = @import("build.zig");
 pub const builtin = @import("builtin.zig");
 pub const c = @import("c.zig");
+pub const cache_hash = @import("cache_hash.zig");
 pub const coff = @import("coff.zig");
 pub const crypto = @import("crypto.zig");
 pub const cstr = @import("cstr.zig");
