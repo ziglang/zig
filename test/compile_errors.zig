@@ -7445,4 +7445,20 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     , &[_][]const u8{
         ":2:75: error: operation caused overflow",
     });
+
+    cases.addCase(x: {
+        var tc = cases.create("align(N) expr function pointers is a compile error",
+            \\export fn foo() align(1) void {
+            \\    return;
+            \\}
+        , &[_][]const u8{
+            "tmp.zig:1:23: error: align(N) expr is not allowed on function prototypes in wasm32/wasm64",
+        });
+        tc.target = std.zig.CrossTarget{
+            .cpu_arch = .wasm32,
+            .os_tag = .freestanding,
+            .abi = .none,
+        };
+        break :x tc;
+    });
 }
