@@ -13,7 +13,6 @@ pub const Tree = struct {
     token_ids: []const Token.Id,
     token_locs: []const Token.Loc,
     errors: []const Error,
-    /// undefined on parse error (when errors field is not empty)
     root_node: *Node.Root,
 
     arena: std.heap.ArenaAllocator.State,
