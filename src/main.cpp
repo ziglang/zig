@@ -174,7 +174,6 @@ enum Cmd {
     CmdTargets,
     CmdTest,
     CmdTranslateC,
-    CmdInfo,
     CmdVersion,
     CmdZen,
     CmdLibC,
@@ -584,6 +583,8 @@ static int main0(int argc, char **argv) {
         return (term.how == TerminationIdClean) ? term.code : -1;
     } else if (argc >= 2 && strcmp(argv[1], "fmt") == 0) {
         return stage2_fmt(argc, argv);
+    } else if (argc >= 2 && strcmp(argv[1], "info") == 0) {
+        return stage2_info(argc, argv);
     } else if (argc >= 2 && (strcmp(argv[1], "cc") == 0 || strcmp(argv[1], "c++") == 0)) {
         emit_h = false;
         strip = true;
@@ -1285,8 +1286,6 @@ static int main0(int argc, char **argv) {
             } else if (strcmp(arg, "run") == 0) {
                 cmd = CmdRun;
                 out_type = OutTypeExe;
-            } else if (strcmp(arg, "info") == 0) {
-                cmd = CmdInfo;
             } else if (strcmp(arg, "version") == 0) {
                 cmd = CmdVersion;
             } else if (strcmp(arg, "zen") == 0) {
@@ -1321,7 +1320,6 @@ static int main0(int argc, char **argv) {
                     }
                     break;
                 case CmdBuiltin:
-                case CmdInfo:
                 case CmdVersion:
                 case CmdZen:
                 case CmdTargets:
@@ -1838,8 +1836,6 @@ static int main0(int argc, char **argv) {
                 zig_unreachable();
             }
         }
-    case CmdInfo:
-        return stage2_cmd_info();
     case CmdVersion:
         printf("%s\n", ZIG_VERSION_STRING);
         return main_exit(root_progress_node, EXIT_SUCCESS);

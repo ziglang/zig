@@ -27,7 +27,7 @@ void stage2_zen(const char **ptr, size_t *len) {
     stage2_panic(msg, strlen(msg));
 }
 
-int stage2_cmd_info() {
+int stage2_info(int argc, char** argv) {
     const char *msg = "stage0 called stage2_info";
     stage2_panic(msg, strlen(msg));
 }

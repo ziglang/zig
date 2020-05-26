@@ -1,5 +1,6 @@
 const builtin = @import("builtin");
 const std = @import("std");
+const process = std.process;
 const mem = std.mem;
 const unicode = std.unicode;
 const io = std.io;
@@ -10,6 +11,17 @@ const StringifyOptions = json.StringifyOptions;
 const Allocator = std.mem.Allocator;
 const introspect = @import("introspect.zig");
 
+const usage_info =
+    \\Usage: zig info [options]
+    \\
+    \\   Outputs path to zig lib dir, std dir and the global cache dir.
+    \\
+    \\Options:
+    \\   --help                 Print this help and exit
+    \\   --json                 Output as json instead of a table format
+    \\
+;
+
 pub const CompilerInfo = struct {
     // TODO: port compiler id hash from cpp
     // /// Compiler id hash
@@ -17,7 +29,6 @@ pub const CompilerInfo = struct {
 
     // /// Compiler version
     // version: []const u8,
-
     /// Path to lib/
     lib_dir: []const u8,
 
@@ -41,11 +52,11 @@ pub const CompilerInfo = struct {
         const global_cache_dir = try getAppCacheDir(allocator, "zig");
         defer allocator.free(global_cache_dir);
 
-        const postfix = switch(compiler_type) {
+        const postfix = switch (compiler_type) {
             .SelfHosted => "self_hosted",
             .Stage1 => "stage1",
         };
-        return try fs.path.join(allocator, &[_][]const u8{global_cache_dir, postfix}); // stage1 compiler uses $cache_dir/zig/stage1
+        return try fs.path.join(allocator, &[_][]const u8{ global_cache_dir, postfix }); // stage1 compiler uses $cache_dir/zig/stage1
     }
 
     // TODO: add CacheType argument here to make it return correct cache dir for stage1
@@ -53,7 +64,7 @@ pub const CompilerInfo = struct {
         const zig_lib_dir = try introspect.resolveZigLibDir(allocator);
         errdefer allocator.free(zig_lib_dir);
 
-        const zig_std_dir = try fs.path.join(allocator, &[_][]const u8{zig_lib_dir, "std"});
+        const zig_std_dir = try fs.path.join(allocator, &[_][]const u8{ zig_lib_dir, "std" });
         errdefer allocator.free(zig_std_dir);
 
         const cache_dir = try CompilerInfo.getCacheDir(allocator, compiler_type);
@@ -66,6 +77,22 @@ pub const CompilerInfo = struct {
         };
     }
 
+    pub fn toString(self: *CompilerInfo, out_stream: var) !void {
+        inline for (@typeInfo(CompilerInfo).Struct.fields) |field| {
+            try std.fmt.format(out_stream, "{: <16}\t{: <}\n", .{ field.name, @field(self, field.name) });
+        }
+    }
+
+    pub fn toJSON(self: *CompilerInfo, out_stream: var) !void {
+        const stringifyOptions = StringifyOptions{
+            .whitespace = StringifyOptions.Whitespace{
+                // Match indentation of zig targets
+                .indent = .{ .Space = 2 },
+            },
+        };
+        try json.stringify(self, stringifyOptions, out_stream);
+    }
+
     pub fn deinit(self: *CompilerInfo, allocator: *Allocator) void {
         allocator.free(self.lib_dir);
         allocator.free(self.std_dir);
@@ -73,22 +100,33 @@ pub const CompilerInfo = struct {
     }
 };
 
-pub fn cmdInfo(allocator: *Allocator, compiler_type: CompilerInfo.CompilerType, stdout: var) !void {
+pub fn cmdInfo(allocator: *Allocator, cmd_args: []const []const u8, compiler_type: CompilerInfo.CompilerType, stdout: var) !void {
     var info = try CompilerInfo.init(allocator, compiler_type);
     defer info.deinit(allocator);
 
     var bos = io.bufferedOutStream(stdout);
     const bos_stream = bos.outStream();
 
-    const stringifyOptions = StringifyOptions{
-        .whitespace = StringifyOptions.Whitespace{
-            // Match indentation of zig targets
-            .indent = .{ .Space = 2 }
-        },
-    };
-    try json.stringify(info, stringifyOptions, bos_stream);
+    var json_format = false;
+    for (cmd_args) |arg| {
+        if (mem.eql(u8, arg, "--json")) {
+            json_format = true;
+        } else if (mem.eql(u8, arg, "--help")) {
+            try stdout.writeAll(usage_info);
+            return;
+        } else {
+            std.debug.warn("Unknown argument passed to info command: {}\n", .{arg});
+            process.exit(1);
+        }
+    }
 
-    try bos_stream.writeByte('\n');
+    if (json_format) {
+        try info.toJSON(bos_stream);
+        try bos_stream.writeByte('\n');
+    } else {
+        try info.toString(bos_stream);
+    }
+
     try bos.flush();
 }
 
