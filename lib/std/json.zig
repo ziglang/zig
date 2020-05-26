@@ -2577,7 +2577,7 @@ pub fn stringify(
         .Array => return stringify(&value, options, out_stream),
         .Vector => |info| {
              const array: [info.len]info.child = value;
-             return stringify(array, options, out_stream);
+             return stringify(&array, options, out_stream);
         },
         else => @compileError("Unable to stringify type '" ++ @typeName(T) ++ "'"),
     }
