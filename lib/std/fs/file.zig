@@ -117,7 +117,7 @@ pub const File = struct {
         truncate: bool = true,
 
         /// Ensures that this open call creates the file, otherwise causes
-        /// `error.FileAlreadyExists` to be returned.
+        /// `error.PathAlreadyExists` to be returned.
         exclusive: bool = false,
 
         /// Open the file with a lock to prevent other processes from accessing it at the
