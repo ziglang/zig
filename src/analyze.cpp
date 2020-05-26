@@ -9418,15 +9418,16 @@ ZigLLVMDIType *get_llvm_di_type(CodeGen *g, ZigType *type) {
     return type->llvm_di_type;
 }
 
-void src_assert(bool ok, AstNode *source_node) {
+void src_assert_impl(bool ok, AstNode *source_node, char const *file, unsigned int line) {
     if (ok) return;
     if (source_node == nullptr) {
-        fprintf(stderr, "when analyzing (unknown source location): ");
+        fprintf(stderr, "when analyzing (unknown source location) ");
     } else {
-        fprintf(stderr, "when analyzing %s:%u:%u: ",
+        fprintf(stderr, "when analyzing %s:%u:%u ",
             buf_ptr(source_node->owner->data.structure.root_struct->path),
             (unsigned)source_node->line + 1, (unsigned)source_node->column + 1);
     }
+    fprintf(stderr, "in compiler source at %s:%u: ", file, line);
     const char *msg = "assertion failed. This is a bug in the Zig compiler.";
     stage2_panic(msg, strlen(msg));
 }

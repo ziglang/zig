@@ -224,8 +224,8 @@ static ErrorMsg *exec_add_error_node(CodeGen *codegen, IrExecutableSrc *exec, As
 static IrInstGen *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field_name,
     IrInst* source_instr, IrInstGen *container_ptr, IrInst *container_ptr_src,
     ZigType *container_type, bool initializing);
-static void ir_assert(bool ok, IrInst* source_instruction);
-static void ir_assert_gen(bool ok, IrInstGen *source_instruction);
+static void ir_assert_impl(bool ok, IrInst* source_instruction, const char *file, unsigned int line);
+static void ir_assert_gen_impl(bool ok, IrInstGen *source_instruction, const char *file, unsigned int line);
 static IrInstGen *ir_get_var_ptr(IrAnalyze *ira, IrInst *source_instr, ZigVar *var);
 static ZigType *ir_resolve_atomic_operand_type(IrAnalyze *ira, IrInstGen *op);
 static IrInstSrc *ir_lval_wrap(IrBuilderSrc *irb, Scope *scope, IrInstSrc *value, LVal lval, ResultLoc *result_loc);
@@ -285,6 +285,9 @@ static IrInstGen *ir_analyze_struct_value_field_value(IrAnalyze *ira, IrInst* so
     IrInstGen *struct_operand, TypeStructField *field);
 static bool value_cmp_numeric_val_any(ZigValue *left, Cmp predicate, ZigValue *right);
 static bool value_cmp_numeric_val_all(ZigValue *left, Cmp predicate, ZigValue *right);
+
+#define ir_assert(OK, SOURCE_INSTRUCTION) ir_assert_impl((OK), (SOURCE_INSTRUCTION), __FILE__, __LINE__)
+#define ir_assert_gen(OK, SOURCE_INSTRUCTION) ir_assert_gen_impl((OK), (SOURCE_INSTRUCTION), __FILE__, __LINE__)
 
 static void destroy_instruction_src(IrInstSrc *inst) {
     switch (inst->id) {
@@ -10316,14 +10319,14 @@ static ErrorMsg *ir_add_error(IrAnalyze *ira, IrInst *source_instruction, Buf *m
     return ir_add_error_node(ira, source_instruction->source_node, msg);
 }
 
-static void ir_assert(bool ok, IrInst *source_instruction) {
+static void ir_assert_impl(bool ok, IrInst *source_instruction, char const *file, unsigned int line) {
     if (ok) return;
-    src_assert(ok, source_instruction->source_node);
+    src_assert_impl(ok, source_instruction->source_node, file, line);
 }
 
-static void ir_assert_gen(bool ok, IrInstGen *source_instruction) {
+static void ir_assert_gen_impl(bool ok, IrInstGen *source_instruction, char const *file, unsigned int line) {
     if (ok) return;
-    src_assert(ok, source_instruction->base.source_node);
+    src_assert_impl(ok, source_instruction->base.source_node, file, line);
 }
 
 // This function takes a comptime ptr and makes the child const value conform to the type
