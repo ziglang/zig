@@ -1921,6 +1921,21 @@ static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_sc
     }
 
     if (fn_proto->align_expr != nullptr) {
+        if (target_is_wasm(g->zig_target)) {
+            // In Wasm, specifying alignment of function pointers makes little sense
+            // since function pointers are in fact indices to a Wasm table, therefore
+            // any alignment check on those is invalid. This can cause unexpected
+            // behaviour when checking expected alignment with `@ptrToInt(fn_ptr)`
+            // or similar. This commit proposes to make `align` expressions a
+            // compile error when compiled to Wasm architecture.
+            // 
+            // Some references:
+            // [1] [Mozilla: WebAssembly Tables](https://developer.mozilla.org/en-US/docs/WebAssembly/Understanding_the_text_format#WebAssembly_tables)
+            // [2] [Sunfishcode's Wasm Ref Manual](https://github.com/sunfishcode/wasm-reference-manual/blob/master/WebAssembly.md#indirect-call)
+            add_node_error(g, fn_proto->align_expr,
+                buf_sprintf("align(N) expr is not allowed on function prototypes in wasm32/wasm64"));
+            return g->builtin_types.entry_invalid;
+        }
         if (!analyze_const_align(g, child_scope, fn_proto->align_expr, &fn_type_id.alignment)) {
             return g->builtin_types.entry_invalid;
         }
