@@ -17,7 +17,7 @@ pub const Alignment = enum {
 pub const FormatOptions = struct {
     precision: ?usize = null,
     width: ?usize = null,
-    alignment: ?Alignment = null,
+    alignment: Alignment = .Left,
     fill: u8 = ' ',
 };
 
@@ -596,10 +596,9 @@ pub fn formatBuf(
     out_stream: var,
 ) !void {
     const width = options.width orelse buf.len;
-    const alignment = options.alignment orelse .Left;
     var padding = if (width > buf.len) (width - buf.len) else 0;
     const pad_byte = [1]u8{options.fill};
-    switch (alignment) {
+    switch (options.alignment) {
         .Left => {
             try out_stream.writeAll(buf);
             while (padding > 0) : (padding -= 1) {
