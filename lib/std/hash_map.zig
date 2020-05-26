@@ -473,46 +473,53 @@ test "iterator hash map" {
     var reset_map = AutoHashMap(i32, i32).init(std.testing.allocator);
     defer reset_map.deinit();
 
-    try reset_map.putNoClobber(1, 11);
-    try reset_map.putNoClobber(2, 22);
-    try reset_map.putNoClobber(3, 33);
+    try reset_map.putNoClobber(0, 11);
+    try reset_map.putNoClobber(1, 22);
+    try reset_map.putNoClobber(2, 33);
 
-    // TODO this test depends on the hashing algorithm, because it assumes the
-    // order of the elements in the hashmap. This should not be the case.
     var keys = [_]i32{
-        1,
-        3,
-        2,
+        0, 2, 1,
     };
+
     var values = [_]i32{
-        11,
-        33,
-        22,
+        11, 33, 22,
+    };
+
+    var buffer = [_]i32{
+        0, 0, 0,
     };
 
     var it = reset_map.iterator();
-    var count: usize = 0;
-    while (it.next()) |next| {
-        testing.expect(next.key == keys[count]);
-        testing.expect(next.value == values[count]);
-        count += 1;
-    }
+    const first_entry = it.next().?;
+    it.reset();
 
+    var count: usize = 0;
+    while (it.next()) |kv| : (count += 1) {
+        buffer[@intCast(usize, kv.key)] = kv.value;
+    }
     testing.expect(count == 3);
     testing.expect(it.next() == null);
+
+    for (buffer) |v, i| {
+        testing.expect(buffer[@intCast(usize, keys[i])] == values[i]);
+    }
+
     it.reset();
     count = 0;
-    while (it.next()) |next| {
-        testing.expect(next.key == keys[count]);
-        testing.expect(next.value == values[count]);
+    while (it.next()) |kv| {
+        buffer[@intCast(usize, kv.key)] = kv.value;
         count += 1;
-        if (count == 2) break;
+        if (count >= 2) break;
+    }
+
+    for (buffer[0..2]) |v, i| {
+        testing.expect(buffer[@intCast(usize, keys[i])] == values[i]);
     }
 
     it.reset();
     var entry = it.next().?;
-    testing.expect(entry.key == keys[0]);
-    testing.expect(entry.value == values[0]);
+    testing.expect(entry.key == first_entry.key);
+    testing.expect(entry.value == first_entry.value);
 }
 
 test "ensure capacity" {
