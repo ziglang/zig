@@ -25,6 +25,9 @@ fn noop1() align(1) void {}
 fn noop4() align(4) void {}
 
 test "function alignment" {
+    // function alignment is a compile error on wasm32/wasm64
+    if (builtin.arch == .wasm32 or builtin.arch == .wasm64) return error.SkipZigTest;
+
     expect(derp() == 1234);
     expect(@TypeOf(noop1) == fn () align(1) void);
     expect(@TypeOf(noop4) == fn () align(4) void);
@@ -117,6 +120,9 @@ fn sliceExpects4(slice: []align(4) u32) void {
 }
 
 test "implicitly decreasing fn alignment" {
+    // function alignment is a compile error on wasm32/wasm64
+    if (builtin.arch == .wasm32 or builtin.arch == .wasm64) return error.SkipZigTest;
+
     testImplicitlyDecreaseFnAlign(alignedSmall, 1234);
     testImplicitlyDecreaseFnAlign(alignedBig, 5678);
 }
@@ -133,8 +139,8 @@ fn alignedBig() align(16) i32 {
 }
 
 test "@alignCast functions" {
-    // TODO investigate why this fails when cross-compiled to wasm.
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    // function alignment is a compile error on wasm32/wasm64
+    if (builtin.arch == .wasm32 or builtin.arch == .wasm64) return error.SkipZigTest;
 
     expect(fnExpectsOnly1(simple4) == 0x19);
 }
@@ -149,6 +155,9 @@ fn simple4() align(4) i32 {
 }
 
 test "generic function with align param" {
+    // function alignment is a compile error on wasm32/wasm64
+    if (builtin.arch == .wasm32 or builtin.arch == .wasm64) return error.SkipZigTest;
+
     expect(whyWouldYouEverDoThis(1) == 0x1);
     expect(whyWouldYouEverDoThis(4) == 0x1);
     expect(whyWouldYouEverDoThis(8) == 0x1);
@@ -327,8 +336,8 @@ test "align(@alignOf(T)) T does not force resolution of T" {
 }
 
 test "align(N) on functions" {
-    // TODO investigate why this fails when cross-compiled to wasm.
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    // function alignment is a compile error on wasm32/wasm64
+    if (builtin.arch == .wasm32 or builtin.arch == .wasm64) return error.SkipZigTest;
 
     expect((@ptrToInt(overaligned_fn) & (0x1000 - 1)) == 0);
 }
