@@ -18,24 +18,16 @@ pub fn addCases(ctx: *TestContext) !void {
         \\@start = fn(@start_fnty, {
         \\  %0 = call(%test, [])
         \\})
-    , &[_]ErrorMsg{.{
-        .byte_offset = 118,
-        .msg = "unrecognized identifier: %test",
-    }}, &[_]ErrorMsg{}, &[_]ErrorMsg{});
+    , &[_][]const u8{"5:13:unrecognized identifier: %test"});
 
-    ctx.addZIRError("call with non-existent target", linux_x64,
-        \\@noreturn = primitive(noreturn)
-        \\
-        \\@start_fnty = fntype([], @noreturn, cc=Naked)
-        \\@start = fn(@start_fnty, {
-        \\  %0 = call(@notafunc, [])
-        \\})
-    , &[_]ErrorMsg{
-        .{
-            .byte_offset = 118,
-            .msg = "unrecognized identifier: @notafunc",
-        },
-    }, &[_]ErrorMsg{}, &[_]ErrorMsg{});
+    //  ctx.addZIRError("call with non-existent target", linux_x64,
+    //      \\@noreturn = primitive(noreturn)
+    //      \\
+    //      \\@start_fnty = fntype([], @noreturn, cc=Naked)
+    //      \\@start = fn(@start_fnty, {
+    //      \\  %0 = call(@notafunc, [])
+    //      \\})
+    //  , &[_][]const u8{"5:13:unrecognized identifier: @notafunc"});
 
     //try ctx.testCompileError(
     //    \\export fn entry() void {}
