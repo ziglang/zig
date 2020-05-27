@@ -134,7 +134,7 @@ pub const Decl = struct {
 
     /// Represents the position of the code in the output file.
     /// This is populated regardless of semantic analysis and code generation.
-    link: link.ElfFile.Decl = link.ElfFile.Decl.empty,
+    link: link.ElfFile.TextBlock = link.ElfFile.TextBlock.empty,
 
     /// The shallow set of other decls whose typed_value could possibly change if this Decl's
     /// typed_value is modified.
@@ -759,7 +759,7 @@ fn analyzeRoot(self: *Module, root_scope: *Scope.ZIRModule) !void {
 
             for (src_module.decls) |decl| {
                 if (decl.cast(zir.Inst.Export)) |export_inst| {
-                    _ = try self.resolveDecl(&root_scope.base, &export_inst.base, link.ElfFile.Decl.empty);
+                    _ = try self.resolveDecl(&root_scope.base, &export_inst.base, link.ElfFile.TextBlock.empty);
                 }
             }
         },
@@ -800,7 +800,7 @@ fn analyzeRoot(self: *Module, root_scope: *Scope.ZIRModule) !void {
                         }
                     }
                 } else if (src_decl.cast(zir.Inst.Export)) |export_inst| {
-                    _ = try self.resolveDecl(&root_scope.base, &export_inst.base, link.ElfFile.Decl.empty);
+                    _ = try self.resolveDecl(&root_scope.base, &export_inst.base, link.ElfFile.TextBlock.empty);
                 }
             }
         },
@@ -840,7 +840,7 @@ fn resolveDecl(
     self: *Module,
     scope: *Scope,
     old_inst: *zir.Inst,
-    bin_file_link: link.ElfFile.Decl,
+    bin_file_link: link.ElfFile.TextBlock,
 ) InnerError!*Decl {
     const hash = Decl.hashSimpleName(old_inst.name);
     if (self.decl_table.get(hash)) |kv| {
@@ -907,7 +907,7 @@ fn resolveDecl(
 }
 
 fn resolveCompleteDecl(self: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!*Decl {
-    const decl = try self.resolveDecl(scope, old_inst, link.ElfFile.Decl.empty);
+    const decl = try self.resolveDecl(scope, old_inst, link.ElfFile.TextBlock.empty);
     switch (decl.analysis) {
         .initial_in_progress => unreachable,
         .repeat_in_progress => unreachable,
