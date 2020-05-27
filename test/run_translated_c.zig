@@ -256,4 +256,17 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\  return 0;
         \\}
     , "");
+
+    cases.add("scoped for loops with shadowing",
+        \\#include <stdlib.h>
+        \\int main() {
+        \\    int count = 0;
+        \\    for (int x = 0; x < 2; x++)
+        \\        for (int x = 0; x < 2; x++)
+        \\            count++;
+        \\
+        \\    if (count != 4) abort();
+        \\    return 0;
+        \\}
+    ,"");
 }

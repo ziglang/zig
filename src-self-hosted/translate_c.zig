@@ -2515,7 +2515,7 @@ fn transForLoop(
     }
     var cond_scope = Scope.Condition{
         .base = .{
-            .parent = scope,
+            .parent = &loop_scope,
             .id = .Condition,
         },
     };
