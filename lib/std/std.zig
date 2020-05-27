@@ -8,6 +8,7 @@ pub const BloomFilter = @import("bloom_filter.zig").BloomFilter;
 pub const BufMap = @import("buf_map.zig").BufMap;
 pub const BufSet = @import("buf_set.zig").BufSet;
 pub const ChildProcess = @import("child_process.zig").ChildProcess;
+pub const ComptimeStringMap = @import("comptime_string_map.zig").ComptimeStringMap;
 pub const DynLib = @import("dynamic_library.zig").DynLib;
 pub const HashMap = @import("hash_map.zig").HashMap;
 pub const Mutex = @import("mutex.zig").Mutex;
