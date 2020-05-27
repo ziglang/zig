@@ -22,7 +22,11 @@ pub fn ComptimeStringMap(comptime V: type, comptime kvs: var) type {
             }
         }).lenAsc;
         for (kvs) |kv, i| {
-            sorted_kvs[i] = .{.key = kv.@"0", .value = kv.@"1"};
+            if (V != void) {
+                sorted_kvs[i] = .{.key = kv.@"0", .value = kv.@"1"};
+            } else {
+                sorted_kvs[i] = .{.key = kv.@"0", .value = {}};
+            }
         }
         std.sort.sort(KV, &sorted_kvs, lenAsc);
         const min_len = sorted_kvs[0].key.len;
@@ -128,6 +132,45 @@ fn testMap(comptime map: var) void {
     std.testing.expect(null == map.get("missing"));
     std.testing.expectEqual(TestEnum.D, map.get("these").?);
     std.testing.expectEqual(TestEnum.E, map.get("samelen").?);
+
+    std.testing.expect(!map.has("missing"));
+    std.testing.expect(map.has("these"));
+}
+
+test "ComptimeStringMap void value type, slice of structs" {
+    const KV = struct {
+        @"0": []const u8,
+    };
+    const slice: []const KV = &[_]KV{
+        .{.@"0" = "these"},
+        .{.@"0" = "have"},
+        .{.@"0" = "nothing"},
+        .{.@"0" = "incommon"},
+        .{.@"0" = "samelen"},
+    };
+    const map = ComptimeStringMap(void, slice);
+
+    testSet(map);
+}
+
+test "ComptimeStringMap void value type, list literal of list literals" {
+    const map = ComptimeStringMap(void, .{
+        .{"these"},
+        .{"have"},
+        .{"nothing"},
+        .{"incommon"},
+        .{"samelen"},
+    });
+
+    testSet(map);
+}
+
+fn testSet(comptime map: var) void {
+    std.testing.expectEqual({}, map.get("have").?);
+    std.testing.expectEqual({}, map.get("nothing").?);
+    std.testing.expect(null == map.get("missing"));
+    std.testing.expectEqual({}, map.get("these").?);
+    std.testing.expectEqual({}, map.get("samelen").?);
 
     std.testing.expect(!map.has("missing"));
     std.testing.expect(map.has("these"));
