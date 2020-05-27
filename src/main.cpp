@@ -19,7 +19,6 @@
 #include "dump_analysis.hpp"
 #include "mem_profile.hpp"
 
-#include <cstdlib>
 #include <stdio.h>
 
 static int print_error_usage(const char *arg0) {
