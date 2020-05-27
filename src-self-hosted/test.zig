@@ -446,6 +446,46 @@ pub const TestContext = struct {
                 }
             }
         }
+        {
+            var i = module.failed_decls.iterator();
+            while (i.next()) |pair| {
+                const v1 = pair.value.*;
+                var handled = false;
+                for (case.expected_errors) |e, index| {
+                    if (!handled_errors[index]) {
+                        if (v1.byte_offset == e.byte_offset and std.mem.eql(u8, v1.msg, e.msg)) {
+                            handled_errors[index] = true;
+                            handled = true;
+                            break;
+                        }
+                    }
+                }
+                if (!handled) {
+                    err = error.UnexpectedError;
+                    std.debug.warn("Unexpected decl error: {}\n", .{v1});
+                }
+            }
+        }
+        {
+            var i = module.failed_exports.iterator();
+            while (i.next()) |pair| {
+                const v1 = pair.value.*;
+                var handled = false;
+                for (case.expected_errors) |e, index| {
+                    if (!handled_errors[index]) {
+                        if (v1.byte_offset == e.byte_offset and std.mem.eql(u8, v1.msg, e.msg)) {
+                            handled_errors[index] = true;
+                            handled = true;
+                            break;
+                        }
+                    }
+                }
+                if (!handled) {
+                    err = error.UnexpectedError;
+                    std.debug.warn("Unexpected export error: {}\n", .{v1});
+                }
+            }
+        }
         for (handled_errors) |e, i| {
             if (!e) {
                 err = error.MissingExpectedError;
