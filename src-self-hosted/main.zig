@@ -657,6 +657,7 @@ const FmtError = error{
     ReadOnlyFileSystem,
     LinkQuotaExceeded,
     FileBusy,
+    InvalidFd,
 } || fs.File.OpenError;
 
 fn fmtPath(fmt: *Fmt, file_path: []const u8, check_mode: bool) FmtError!void {
