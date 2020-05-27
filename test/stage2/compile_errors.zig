@@ -11,7 +11,7 @@ const linux_x64 = std.zig.CrossTarget{
 pub fn addCases(ctx: *TestContext) !void {
     // TODO: re-enable these tests.
     // https://github.com/ziglang/zig/issues/1364
-    ctx.addZIRError("test", linux_x64,
+    ctx.addZIRError("call undefined local", linux_x64,
         \\@noreturn = primitive(noreturn)
         \\
         \\@start_fnty = fntype([], @noreturn, cc=Naked)
@@ -20,14 +20,32 @@ pub fn addCases(ctx: *TestContext) !void {
         \\})
     , &[_][]const u8{"5:13:unrecognized identifier: %test"});
 
-    //  ctx.addZIRError("call with non-existent target", linux_x64,
-    //      \\@noreturn = primitive(noreturn)
-    //      \\
-    //      \\@start_fnty = fntype([], @noreturn, cc=Naked)
-    //      \\@start = fn(@start_fnty, {
-    //      \\  %0 = call(@notafunc, [])
-    //      \\})
-    //  , &[_][]const u8{"5:13:unrecognized identifier: @notafunc"});
+    // TODO: fix this test
+    //    ctx.addZIRError("call with non-existent target", linux_x64,
+    //        \\@noreturn = primitive(noreturn)
+    //        \\
+    //        \\@start_fnty = fntype([], @noreturn, cc=Naked)
+    //        \\@start = fn(@start_fnty, {
+    //        \\  %0 = call(@notafunc, [])
+    //        \\})
+    //        \\@0 = str("_start")
+    //        \\@1 = ref(@0)
+    //        \\@2 = export(@1, @start)
+    //    , &[_][]const u8{"5:13:unrecognized identifier: @notafunc"});
+
+    // TODO: this error should occur at the call site, not the fntype decl
+    ctx.addZIRError("call naked function", linux_x64,
+        \\@noreturn = primitive(noreturn)
+        \\
+        \\@start_fnty = fntype([], @noreturn, cc=Naked)
+        \\@s = fn(@start_fnty, {})
+        \\@start = fn(@start_fnty, {
+        \\  %0 = call(@s, [])
+        \\})
+        \\@0 = str("_start")
+        \\@1 = ref(@0)
+        \\@2 = export(@1, @start)
+    , &[_][]const u8{"4:9:unable to call function with naked calling convention"});
 
     //try ctx.testCompileError(
     //    \\export fn entry() void {}
