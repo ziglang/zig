@@ -277,83 +277,79 @@ pub const Token = struct {
     };
 
     // TODO extensions
-    pub const keywords = [_]Keyword{
-        Keyword.init("auto", .Keyword_auto),
-        Keyword.init("break", .Keyword_break),
-        Keyword.init("case", .Keyword_case),
-        Keyword.init("char", .Keyword_char),
-        Keyword.init("const", .Keyword_const),
-        Keyword.init("continue", .Keyword_continue),
-        Keyword.init("default", .Keyword_default),
-        Keyword.init("do", .Keyword_do),
-        Keyword.init("double", .Keyword_double),
-        Keyword.init("else", .Keyword_else),
-        Keyword.init("enum", .Keyword_enum),
-        Keyword.init("extern", .Keyword_extern),
-        Keyword.init("float", .Keyword_float),
-        Keyword.init("for", .Keyword_for),
-        Keyword.init("goto", .Keyword_goto),
-        Keyword.init("if", .Keyword_if),
-        Keyword.init("int", .Keyword_int),
-        Keyword.init("long", .Keyword_long),
-        Keyword.init("register", .Keyword_register),
-        Keyword.init("return", .Keyword_return),
-        Keyword.init("short", .Keyword_short),
-        Keyword.init("signed", .Keyword_signed),
-        Keyword.init("sizeof", .Keyword_sizeof),
-        Keyword.init("static", .Keyword_static),
-        Keyword.init("struct", .Keyword_struct),
-        Keyword.init("switch", .Keyword_switch),
-        Keyword.init("typedef", .Keyword_typedef),
-        Keyword.init("union", .Keyword_union),
-        Keyword.init("unsigned", .Keyword_unsigned),
-        Keyword.init("void", .Keyword_void),
-        Keyword.init("volatile", .Keyword_volatile),
-        Keyword.init("while", .Keyword_while),
+    pub const keywords = std.ComptimeStringMap(Id, .{
+        .{"auto", .Keyword_auto},
+        .{"break", .Keyword_break},
+        .{"case", .Keyword_case},
+        .{"char", .Keyword_char},
+        .{"const", .Keyword_const},
+        .{"continue", .Keyword_continue},
+        .{"default", .Keyword_default},
+        .{"do", .Keyword_do},
+        .{"double", .Keyword_double},
+        .{"else", .Keyword_else},
+        .{"enum", .Keyword_enum},
+        .{"extern", .Keyword_extern},
+        .{"float", .Keyword_float},
+        .{"for", .Keyword_for},
+        .{"goto", .Keyword_goto},
+        .{"if", .Keyword_if},
+        .{"int", .Keyword_int},
+        .{"long", .Keyword_long},
+        .{"register", .Keyword_register},
+        .{"return", .Keyword_return},
+        .{"short", .Keyword_short},
+        .{"signed", .Keyword_signed},
+        .{"sizeof", .Keyword_sizeof},
+        .{"static", .Keyword_static},
+        .{"struct", .Keyword_struct},
+        .{"switch", .Keyword_switch},
+        .{"typedef", .Keyword_typedef},
+        .{"union", .Keyword_union},
+        .{"unsigned", .Keyword_unsigned},
+        .{"void", .Keyword_void},
+        .{"volatile", .Keyword_volatile},
+        .{"while", .Keyword_while},
 
         // ISO C99
-        Keyword.init("_Bool", .Keyword_bool),
-        Keyword.init("_Complex", .Keyword_complex),
-        Keyword.init("_Imaginary", .Keyword_imaginary),
-        Keyword.init("inline", .Keyword_inline),
-        Keyword.init("restrict", .Keyword_restrict),
+        .{"_Bool", .Keyword_bool},
+        .{"_Complex", .Keyword_complex},
+        .{"_Imaginary", .Keyword_imaginary},
+        .{"inline", .Keyword_inline},
+        .{"restrict", .Keyword_restrict},
 
         // ISO C11
-        Keyword.init("_Alignas", .Keyword_alignas),
-        Keyword.init("_Alignof", .Keyword_alignof),
-        Keyword.init("_Atomic", .Keyword_atomic),
-        Keyword.init("_Generic", .Keyword_generic),
-        Keyword.init("_Noreturn", .Keyword_noreturn),
-        Keyword.init("_Static_assert", .Keyword_static_assert),
-        Keyword.init("_Thread_local", .Keyword_thread_local),
+        .{"_Alignas", .Keyword_alignas},
+        .{"_Alignof", .Keyword_alignof},
+        .{"_Atomic", .Keyword_atomic},
+        .{"_Generic", .Keyword_generic},
+        .{"_Noreturn", .Keyword_noreturn},
+        .{"_Static_assert", .Keyword_static_assert},
+        .{"_Thread_local", .Keyword_thread_local},
 
         // Preprocessor directives
-        Keyword.init("include", .Keyword_include),
-        Keyword.init("define", .Keyword_define),
-        Keyword.init("ifdef", .Keyword_ifdef),
-        Keyword.init("ifndef", .Keyword_ifndef),
-        Keyword.init("error", .Keyword_error),
-        Keyword.init("pragma", .Keyword_pragma),
-    };
+        .{"include", .Keyword_include},
+        .{"define", .Keyword_define},
+        .{"ifdef", .Keyword_ifdef},
+        .{"ifndef", .Keyword_ifndef},
+        .{"error", .Keyword_error},
+        .{"pragma", .Keyword_pragma},
+    });
 
-    // TODO perfect hash at comptime
     // TODO do this in the preprocessor
     pub fn getKeyword(bytes: []const u8, pp_directive: bool) ?Id {
-        var hash = std.hash_map.hashString(bytes);
-        for (keywords) |kw| {
-            if (kw.hash == hash and mem.eql(u8, kw.bytes, bytes)) {
-                switch (kw.id) {
-                    .Keyword_include,
-                    .Keyword_define,
-                    .Keyword_ifdef,
-                    .Keyword_ifndef,
-                    .Keyword_error,
-                    .Keyword_pragma,
-                    => if (!pp_directive) return null,
-                    else => {},
-                }
-                return kw.id;
+        if (keywords.get(bytes)) |id| {
+            switch (id) {
+                .Keyword_include,
+                .Keyword_define,
+                .Keyword_ifdef,
+                .Keyword_ifndef,
+                .Keyword_error,
+                .Keyword_pragma,
+                => if (!pp_directive) return null,
+                else => {},
             }
+            return id;
         }
         return null;
     }
