@@ -55,7 +55,7 @@ test "std.meta.tagName" {
 pub fn stringToEnum(comptime T: type, str: []const u8) ?T {
     // Using ComptimeStringMap here is more performant, but it will start to take too
     // long to compile if the enum is large enough, due to the current limits of comptime
-	// performance when doing things like constructing lookup maps at comptime.
+    // performance when doing things like constructing lookup maps at comptime.
     // TODO The '100' here is arbitrary and should be increased when possible:
     // - https://github.com/ziglang/zig/issues/4055
     // - https://github.com/ziglang/zig/issues/3863
@@ -70,7 +70,7 @@ pub fn stringToEnum(comptime T: type, str: []const u8) ?T {
             };
             var kvs_array: [@typeInfo(T).Enum.fields.len]EnumKV = undefined;
             inline for (@typeInfo(T).Enum.fields) |enumField, i| {
-                kvs_array[i] = .{.@"0" = enumField.name, .@"1" = @field(T, enumField.name)};
+                kvs_array[i] = .{ .@"0" = enumField.name, .@"1" = @field(T, enumField.name) };
             }
             break :build_kvs kvs_array[0..];
         };
