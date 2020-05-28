@@ -442,6 +442,16 @@ pub const Module = struct {
 
     const InstPtrTable = std.AutoHashMap(*Inst, struct { index: usize, fn_body: ?*Module.Body });
 
+    /// TODO Look into making a table to speed this up.
+    pub fn findDecl(self: Module, name: []const u8) ?*Inst {
+        for (self.decls) |decl| {
+            if (mem.eql(u8, decl.name, name)) {
+                return decl;
+            }
+        }
+        return null;
+    }
+
     /// The allocator is used for temporary storage, but this function always returns
     /// with no resources allocated.
     pub fn writeToStream(self: Module, allocator: *Allocator, stream: var) !void {

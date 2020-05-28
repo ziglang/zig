@@ -128,6 +128,9 @@ pub const Decl = struct {
         /// Completed successfully before; the `typed_value.most_recent` can be accessed, and
         /// new semantic analysis is in progress.
         repeat_in_progress,
+        /// Failed before; the `typed_value.most_recent` is not available, and
+        /// new semantic analysis is in progress.
+        repeat_in_progress_novalue,
         /// Everything is done and updated.
         complete,
     },
@@ -136,18 +139,24 @@ pub const Decl = struct {
     /// This is populated regardless of semantic analysis and code generation.
     link: link.ElfFile.TextBlock = link.ElfFile.TextBlock.empty,
 
+    contents_hash: Hash,
+
     /// The shallow set of other decls whose typed_value could possibly change if this Decl's
     /// typed_value is modified.
     /// TODO look into using a lightweight map/set data structure rather than a linear array.
     dependants: ArrayListUnmanaged(*Decl) = ArrayListUnmanaged(*Decl){},
-
-    contents_hash: Hash,
+    /// The shallow set of other decls whose typed_value changing indicates that this Decl's
+    /// typed_value may need to be regenerated.
+    /// TODO look into using a lightweight map/set data structure rather than a linear array.
+    dependencies: ArrayListUnmanaged(*Decl) = ArrayListUnmanaged(*Decl){},
 
     pub fn destroy(self: *Decl, allocator: *Allocator) void {
         allocator.free(mem.spanZ(self.name));
         if (self.typedValueManaged()) |tvm| {
             tvm.deinit(allocator);
         }
+        self.dependants.deinit(allocator);
+        self.dependencies.deinit(allocator);
         allocator.destroy(self);
     }
 
@@ -204,6 +213,7 @@ pub const Decl = struct {
             .initial_in_progress,
             .initial_dependency_failure,
             .initial_sema_failure,
+            .repeat_in_progress_novalue,
             => return null,
             .codegen_failure,
             .codegen_failure_retryable,
@@ -213,6 +223,31 @@ pub const Decl = struct {
             .complete,
             => return &self.typed_value.most_recent,
         }
+    }
+
+    fn flagForRegeneration(self: *Decl) void {
+        if (self.typedValueManaged() == null) {
+            self.analysis = .repeat_in_progress_novalue;
+        } else {
+            self.analysis = .repeat_in_progress;
+        }
+    }
+
+    fn isFlaggedForRegeneration(self: *Decl) bool {
+        return switch (self.analysis) {
+            .repeat_in_progress, .repeat_in_progress_novalue => true,
+            else => false,
+        };
+    }
+
+    fn removeDependant(self: *Decl, other: *Decl) void {
+        for (self.dependants.items) |item, i| {
+            if (item == other) {
+                _ = self.dependants.swapRemove(i);
+                return;
+            }
+        }
+        unreachable;
     }
 };
 
@@ -266,12 +301,12 @@ pub const Scope = struct {
 
     /// Asserts the scope has a parent which is a DeclAnalysis and
     /// returns the Decl.
-    pub fn decl(self: *Scope) *Decl {
-        switch (self.tag) {
-            .block => return self.cast(Block).?.decl,
-            .decl => return self.cast(DeclAnalysis).?.decl,
-            .zir_module => unreachable,
-        }
+    pub fn decl(self: *Scope) ?*Decl {
+        return switch (self.tag) {
+            .block => self.cast(Block).?.decl,
+            .decl => self.cast(DeclAnalysis).?.decl,
+            .zir_module => null,
+        };
     }
 
     /// Asserts the scope has a parent which is a ZIRModule and
@@ -517,11 +552,7 @@ pub fn deinit(self: *Module) void {
     {
         var it = self.export_owners.iterator();
         while (it.next()) |kv| {
-            const export_list = kv.value;
-            for (export_list) |exp| {
-                allocator.destroy(exp);
-            }
-            allocator.free(export_list);
+            freeExportList(allocator, kv.value);
         }
         self.export_owners.deinit();
     }
@@ -530,6 +561,13 @@ pub fn deinit(self: *Module) void {
         allocator.destroy(self.root_scope);
     }
     self.* = undefined;
+}
+
+fn freeExportList(allocator: *Allocator, export_list: []*Export) void {
+    for (export_list) |exp| {
+        allocator.destroy(exp);
+    }
+    allocator.free(export_list);
 }
 
 pub fn target(self: Module) std.Target {
@@ -634,9 +672,9 @@ const InnerError = error{ OutOfMemory, AnalysisFail };
 pub fn performAllTheWork(self: *Module) error{OutOfMemory}!void {
     while (self.work_queue.readItem()) |work_item| switch (work_item) {
         .codegen_decl => |decl| switch (decl.analysis) {
-            .initial_in_progress,
-            .repeat_in_progress,
-            => unreachable,
+            .initial_in_progress => unreachable,
+            .repeat_in_progress => unreachable,
+            .repeat_in_progress_novalue => unreachable,
 
             .initial_sema_failure,
             .repeat_sema_failure,
@@ -684,6 +722,23 @@ pub fn performAllTheWork(self: *Module) error{OutOfMemory}!void {
             },
         },
     };
+}
+
+fn declareDeclDependency(self: *Module, depender: *Decl, dependee: *Decl) !void {
+    try depender.dependencies.ensureCapacity(self.allocator, depender.dependencies.items.len + 1);
+    try dependee.dependants.ensureCapacity(self.allocator, dependee.dependants.items.len + 1);
+
+    for (depender.dependencies.items) |item| {
+        if (item == dependee) break; // Already in the set.
+    } else {
+        depender.dependencies.appendAssumeCapacity(dependee);
+    }
+
+    for (dependee.dependants.items) |item| {
+        if (item == depender) break; // Already in the set.
+    } else {
+        dependee.dependants.appendAssumeCapacity(depender);
+    }
 }
 
 fn getSource(self: *Module, root_scope: *Scope.ZIRModule) ![:0]const u8 {
@@ -772,36 +827,104 @@ fn analyzeRoot(self: *Module, root_scope: *Scope.ZIRModule) !void {
         => {
             const src_module = try self.getSrcModule(root_scope);
 
-            // Look for changed decls.
+            // Look for changed decls. First we add all the decls that changed
+            // into the set.
+            var regen_decl_set = std.ArrayList(*Decl).init(self.allocator);
+            defer regen_decl_set.deinit();
+            try regen_decl_set.ensureCapacity(src_module.decls.len);
+
+            var exports_to_resolve = std.ArrayList(*zir.Inst).init(self.allocator);
+            defer exports_to_resolve.deinit();
+
             for (src_module.decls) |src_decl| {
                 const name_hash = Decl.hashSimpleName(src_decl.name);
                 if (self.decl_table.get(name_hash)) |kv| {
                     const decl = kv.value;
                     const new_contents_hash = Decl.hashSimpleName(src_decl.contents);
                     if (!mem.eql(u8, &new_contents_hash, &decl.contents_hash)) {
-                        // TODO recursive dependency management
-                        //std.debug.warn("noticed that '{}' changed\n", .{src_decl.name});
-                        self.decl_table.removeAssertDiscard(name_hash);
-                        const saved_link = decl.link;
-                        decl.destroy(self.allocator);
-                        if (self.export_owners.getValue(decl)) |exports| {
-                            @panic("TODO handle updating a decl that does an export");
-                        }
-                        const new_decl = self.resolveDecl(
-                            &root_scope.base,
-                            src_decl,
-                            saved_link,
-                        ) catch |err| switch (err) {
-                            error.OutOfMemory => return error.OutOfMemory,
-                            error.AnalysisFail => continue,
-                        };
-                        if (self.decl_exports.remove(decl)) |entry| {
-                            self.decl_exports.putAssumeCapacityNoClobber(new_decl, entry.value);
-                        }
+                        std.debug.warn("noticed that '{}' changed\n", .{src_decl.name});
+                        regen_decl_set.appendAssumeCapacity(decl);
                     }
                 } else if (src_decl.cast(zir.Inst.Export)) |export_inst| {
-                    _ = try self.resolveDecl(&root_scope.base, &export_inst.base, link.ElfFile.TextBlock.empty);
+                    try exports_to_resolve.append(&export_inst.base);
                 }
+            }
+
+            // Next, recursively chase the dependency graph, to populate the set.
+            {
+                var i: usize = 0;
+                while (i < regen_decl_set.items.len) : (i += 1) {
+                    const decl = regen_decl_set.items[i];
+                    if (decl.isFlaggedForRegeneration()) {
+                        // We already looked at this decl's dependency graph.
+                        continue;
+                    }
+                    decl.flagForRegeneration();
+                    // Remove itself from its dependencies, because we are about to destroy the
+                    // decl pointer.
+                    for (decl.dependencies.items) |dep| {
+                        dep.removeDependant(decl);
+                    }
+                    // Populate the set with decls that need to get regenerated because they
+                    // depend on this one.
+                    // TODO If it is only a function body that is modified, it should break the chain
+                    // and not cause its dependants to be regenerated.
+                    for (decl.dependants.items) |dep| {
+                        if (!dep.isFlaggedForRegeneration()) {
+                            regen_decl_set.appendAssumeCapacity(dep);
+                        }
+                    }
+                }
+            }
+
+            // Remove them all from the decl_table.
+            for (regen_decl_set.items) |decl| {
+                const decl_name = mem.spanZ(decl.name);
+                const old_name_hash = Decl.hashSimpleName(decl_name);
+                self.decl_table.removeAssertDiscard(old_name_hash);
+
+                if (self.export_owners.remove(decl)) |kv| {
+                    for (kv.value) |exp| {
+                        self.bin_file.deleteExport(exp.link);
+                    }
+                    freeExportList(self.allocator, kv.value);
+                }
+            }
+
+            // Regenerate the decls in the set.
+            const zir_module = try self.getSrcModule(root_scope);
+
+            while (regen_decl_set.popOrNull()) |decl| {
+                const decl_name = mem.spanZ(decl.name);
+                std.debug.warn("regenerating {}\n", .{decl_name});
+                const saved_link = decl.link;
+                const decl_exports_entry = if (self.decl_exports.remove(decl)) |kv| kv.value else null;
+                const src_decl = zir_module.findDecl(decl_name) orelse {
+                    @panic("TODO treat this as a deleted decl");
+                };
+
+                decl.destroy(self.allocator);
+
+                const new_decl = self.resolveDecl(
+                    &root_scope.base,
+                    src_decl,
+                    saved_link,
+                ) catch |err| switch (err) {
+                    error.OutOfMemory => return error.OutOfMemory,
+                    error.AnalysisFail => continue,
+                };
+                if (decl_exports_entry) |entry| {
+                    const gop = try self.decl_exports.getOrPut(new_decl);
+                    if (gop.found_existing) {
+                        self.allocator.free(entry);
+                    } else {
+                        gop.kv.value = entry;
+                    }
+                }
+            }
+
+            for (exports_to_resolve.items) |export_inst| {
+                _ = try self.resolveDecl(&root_scope.base, export_inst, link.ElfFile.TextBlock.empty);
             }
         },
     }
@@ -906,11 +1029,13 @@ fn resolveDecl(
     }
 }
 
+/// Declares a dependency on the decl.
 fn resolveCompleteDecl(self: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!*Decl {
     const decl = try self.resolveDecl(scope, old_inst, link.ElfFile.TextBlock.empty);
     switch (decl.analysis) {
         .initial_in_progress => unreachable,
         .repeat_in_progress => unreachable,
+        .repeat_in_progress_novalue => unreachable,
         .initial_dependency_failure,
         .repeat_dependency_failure,
         .initial_sema_failure,
@@ -919,8 +1044,12 @@ fn resolveCompleteDecl(self: *Module, scope: *Scope, old_inst: *zir.Inst) InnerE
         .codegen_failure_retryable,
         => return error.AnalysisFail,
 
-        .complete => return decl,
+        .complete => {},
     }
+    if (scope.decl()) |scope_decl| {
+        try self.declareDeclDependency(scope_decl, decl);
+    }
+    return decl;
 }
 
 fn resolveInst(self: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!*Inst {
@@ -998,7 +1127,7 @@ fn analyzeExport(self: *Module, scope: *Scope, export_inst: *zir.Inst.Export) In
     const new_export = try self.allocator.create(Export);
     errdefer self.allocator.destroy(new_export);
 
-    const owner_decl = scope.decl();
+    const owner_decl = scope.decl().?;
 
     new_export.* = .{
         .options = .{ .name = symbol_name },
@@ -1327,7 +1456,7 @@ fn analyzeInstFn(self: *Module, scope: *Scope, fn_inst: *zir.Inst.Fn) InnerError
     new_func.* = .{
         .fn_type = fn_type,
         .analysis = .{ .queued = fn_inst },
-        .owner_decl = scope.decl(),
+        .owner_decl = scope.decl().?,
     };
     const fn_payload = try scope.arena().create(Value.Payload.Function);
     fn_payload.* = .{ .func = new_func };

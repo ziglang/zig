@@ -126,6 +126,8 @@ pub const ElfFile = struct {
     local_symbols: std.ArrayListUnmanaged(elf.Elf64_Sym) = std.ArrayListUnmanaged(elf.Elf64_Sym){},
     global_symbols: std.ArrayListUnmanaged(elf.Elf64_Sym) = std.ArrayListUnmanaged(elf.Elf64_Sym){},
 
+    global_symbol_free_list: std.ArrayListUnmanaged(usize) = std.ArrayListUnmanaged(usize){},
+
     /// Same order as in the file. The value is the absolute vaddr value.
     /// If the vaddr of the executable program header changes, the entire
     /// offset table needs to be rewritten.
@@ -153,7 +155,7 @@ pub const ElfFile = struct {
     /// overcapacity can be negative. A simple way to have negative overcapacity is to
     /// allocate a fresh text block, which will have ideal capacity, and then grow it
     /// by 1 byte. It will then have -1 overcapacity.
-    free_list: std.ArrayListUnmanaged(*TextBlock) = std.ArrayListUnmanaged(*TextBlock){},
+    text_block_free_list: std.ArrayListUnmanaged(*TextBlock) = std.ArrayListUnmanaged(*TextBlock){},
     last_text_block: ?*TextBlock = null,
 
     /// `alloc_num / alloc_den` is the factor of padding when allocating.
@@ -229,6 +231,8 @@ pub const ElfFile = struct {
         self.shstrtab.deinit(self.allocator);
         self.local_symbols.deinit(self.allocator);
         self.global_symbols.deinit(self.allocator);
+        self.global_symbol_free_list.deinit(self.allocator);
+        self.text_block_free_list.deinit(self.allocator);
         self.offset_table.deinit(self.allocator);
         if (self.owns_file_handle) {
             if (self.file) |f| f.close();
@@ -775,12 +779,12 @@ pub const ElfFile = struct {
         var already_have_free_list_node = false;
         {
             var i: usize = 0;
-            while (i < self.free_list.items.len) {
-                if (self.free_list.items[i] == text_block) {
-                    _ = self.free_list.swapRemove(i);
+            while (i < self.text_block_free_list.items.len) {
+                if (self.text_block_free_list.items[i] == text_block) {
+                    _ = self.text_block_free_list.swapRemove(i);
                     continue;
                 }
-                if (self.free_list.items[i] == text_block.prev) {
+                if (self.text_block_free_list.items[i] == text_block.prev) {
                     already_have_free_list_node = true;
                 }
                 i += 1;
@@ -797,7 +801,7 @@ pub const ElfFile = struct {
             if (!already_have_free_list_node and prev.freeListEligible(self.*)) {
                 // The free list is heuristics, it doesn't have to be perfect, so we can
                 // ignore the OOM here.
-                self.free_list.append(self.allocator, prev) catch {};
+                self.text_block_free_list.append(self.allocator, prev) catch {};
             }
         } else {
             text_block.prev = null;
@@ -840,8 +844,8 @@ pub const ElfFile = struct {
         // The list is unordered. We'll just take the first thing that works.
         const vaddr = blk: {
             var i: usize = 0;
-            while (i < self.free_list.items.len) {
-                const big_block = self.free_list.items[i];
+            while (i < self.text_block_free_list.items.len) {
+                const big_block = self.text_block_free_list.items[i];
                 // We now have a pointer to a live text block that has too much capacity.
                 // Is it enough that we could fit this new text block?
                 const sym = self.local_symbols.items[big_block.local_sym_index];
@@ -856,7 +860,7 @@ pub const ElfFile = struct {
                     // should be deleted because the block that it points to has grown to take up
                     // more of the extra capacity.
                     if (!big_block.freeListEligible(self.*)) {
-                        _ = self.free_list.swapRemove(i);
+                        _ = self.text_block_free_list.swapRemove(i);
                     } else {
                         i += 1;
                     }
@@ -932,7 +936,7 @@ pub const ElfFile = struct {
             text_block.next = null;
         }
         if (free_list_removal) |i| {
-            _ = self.free_list.swapRemove(i);
+            _ = self.text_block_free_list.swapRemove(i);
         }
         return vaddr;
     }
@@ -958,9 +962,16 @@ pub const ElfFile = struct {
 
         self.offset_table_count_dirty = true;
 
-        //std.debug.warn("allocating symbol index {}\n", .{local_sym_index});
+        std.debug.warn("allocating symbol index {} for {}\n", .{local_sym_index, decl.name});
         decl.link.local_sym_index = @intCast(u32, local_sym_index);
         decl.link.offset_table_index = @intCast(u32, offset_table_index);
+    }
+
+    pub fn freeDecl(self: *ElfFile, decl: *Module.Decl) void {
+        self.freeTextBlock(&decl.link);
+        if (decl.link.local_sym_index != 0) {
+            @panic("TODO free the symbol entry and offset table entry");
+        }
     }
 
     pub fn updateDecl(self: *ElfFile, module: *Module, decl: *Module.Decl) !void {
@@ -993,11 +1004,11 @@ pub const ElfFile = struct {
                 !mem.isAlignedGeneric(u64, local_sym.st_value, required_alignment);
             if (need_realloc) {
                 const vaddr = try self.growTextBlock(&decl.link, code.len, required_alignment);
-                //std.debug.warn("growing {} from 0x{x} to 0x{x}\n", .{ decl.name, local_sym.st_value, vaddr });
+                std.debug.warn("growing {} from 0x{x} to 0x{x}\n", .{ decl.name, local_sym.st_value, vaddr });
                 if (vaddr != local_sym.st_value) {
                     local_sym.st_value = vaddr;
 
-                    //std.debug.warn("  (writing new offset table entry)\n", .{});
+                    std.debug.warn("  (writing new offset table entry)\n", .{});
                     self.offset_table.items[decl.link.offset_table_index] = vaddr;
                     try self.writeOffsetTableEntry(decl.link.offset_table_index);
                 }
@@ -1015,7 +1026,7 @@ pub const ElfFile = struct {
             const decl_name = mem.spanZ(decl.name);
             const name_str_index = try self.makeString(decl_name);
             const vaddr = try self.allocateTextBlock(&decl.link, code.len, required_alignment);
-            //std.debug.warn("allocated text block for {} at 0x{x}\n", .{ decl_name, vaddr });
+            std.debug.warn("allocated text block for {} at 0x{x}\n", .{ decl_name, vaddr });
             errdefer self.freeTextBlock(&decl.link);
 
             local_sym.* = .{
@@ -1048,7 +1059,10 @@ pub const ElfFile = struct {
         decl: *const Module.Decl,
         exports: []const *Module.Export,
     ) !void {
+        // In addition to ensuring capacity for global_symbols, we also ensure capacity for freeing all of
+        // them, so that deleting exports is guaranteed to succeed.
         try self.global_symbols.ensureCapacity(self.allocator, self.global_symbols.items.len + exports.len);
+        try self.global_symbol_free_list.ensureCapacity(self.allocator, self.global_symbols.items.len);
         const typed_value = decl.typed_value.most_recent.typed_value;
         if (decl.link.local_sym_index == 0) return;
         const decl_sym = self.local_symbols.items[decl.link.local_sym_index];
@@ -1095,20 +1109,28 @@ pub const ElfFile = struct {
                 };
             } else {
                 const name = try self.makeString(exp.options.name);
-                const i = self.global_symbols.items.len;
-                self.global_symbols.appendAssumeCapacity(.{
+                const i = if (self.global_symbol_free_list.popOrNull()) |i| i else blk: {
+                    _ = self.global_symbols.addOneAssumeCapacity();
+                    break :blk self.global_symbols.items.len - 1;
+                };
+                self.global_symbols.items[i] = .{
                     .st_name = name,
                     .st_info = (stb_bits << 4) | stt_bits,
                     .st_other = 0,
                     .st_shndx = self.text_section_index.?,
                     .st_value = decl_sym.st_value,
                     .st_size = decl_sym.st_size,
-                });
-                errdefer self.global_symbols.shrink(self.allocator, self.global_symbols.items.len - 1);
+                };
 
                 exp.link.sym_index = @intCast(u32, i);
             }
         }
+    }
+
+    pub fn deleteExport(self: *ElfFile, exp: Export) void {
+        const sym_index = exp.sym_index orelse return;
+        self.global_symbol_free_list.appendAssumeCapacity(sym_index);
+        self.global_symbols.items[sym_index].st_info = 0;
     }
 
     fn writeProgHeader(self: *ElfFile, index: usize) !void {
