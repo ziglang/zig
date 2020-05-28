@@ -363,12 +363,12 @@ test "std.meta.trait.hasDecls" {
         pub fn useless() void {}
     };
 
-    const tuple = .{"a", "b", "c"};
+    const tuple = .{ "a", "b", "c" };
 
     testing.expect(!hasDecls(TestStruct1, .{"a"}));
-    testing.expect(hasDecls(TestStruct2, .{"a", "b"}));
-    testing.expect(hasDecls(TestStruct2, .{"a", "b", "useless"}));
-    testing.expect(!hasDecls(TestStruct2, .{"a", "b", "c"}));
+    testing.expect(hasDecls(TestStruct2, .{ "a", "b" }));
+    testing.expect(hasDecls(TestStruct2, .{ "a", "b", "useless" }));
+    testing.expect(!hasDecls(TestStruct2, .{ "a", "b", "c" }));
     testing.expect(!hasDecls(TestStruct2, tuple));
 }
 
@@ -389,14 +389,13 @@ test "std.meta.trait.hasFields" {
         pub fn useless() void {}
     };
 
-
-    const tuple = .{"a", "b", "c"};
+    const tuple = .{ "a", "b", "c" };
 
     testing.expect(!hasFields(TestStruct1, .{"a"}));
-    testing.expect(hasFields(TestStruct2, .{"a", "b"}));
-    testing.expect(hasFields(TestStruct2, .{"a", "b", "c"}));
+    testing.expect(hasFields(TestStruct2, .{ "a", "b" }));
+    testing.expect(hasFields(TestStruct2, .{ "a", "b", "c" }));
     testing.expect(hasFields(TestStruct2, tuple));
-    testing.expect(!hasFields(TestStruct2, .{"a", "b", "useless"}));
+    testing.expect(!hasFields(TestStruct2, .{ "a", "b", "useless" }));
 }
 
 pub fn hasFunctions(comptime T: type, comptime names: var) bool {
@@ -414,10 +413,10 @@ test "std.meta.trait.hasFunctions" {
         fn b() void {}
     };
 
-    const tuple = .{"a", "b", "c"};
+    const tuple = .{ "a", "b", "c" };
 
     testing.expect(!hasFunctions(TestStruct1, .{"a"}));
-    testing.expect(hasFunctions(TestStruct2, .{"a", "b"}));
-    testing.expect(!hasFunctions(TestStruct2, .{"a", "b", "c"}));
+    testing.expect(hasFunctions(TestStruct2, .{ "a", "b" }));
+    testing.expect(!hasFunctions(TestStruct2, .{ "a", "b", "c" }));
     testing.expect(!hasFunctions(TestStruct2, tuple));
 }
