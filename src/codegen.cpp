@@ -2062,6 +2062,78 @@ static bool iter_function_params_c_abi(CodeGen *g, ZigType *fn_type, FnWalk *fn_
                 }
             }
             return true;
+        } else if (abi_class == X64CABIClass_SSE) {
+            // For now only handle structs with only floats/doubles in it.
+            if (ty->id != ZigTypeIdStruct) {
+                if (source_node != nullptr) {
+                    give_up_with_c_abi_error(g, source_node);
+                }
+                // otherwise allow codegen code to report a compile error
+                return false;
+            }
+
+            for (uint32_t i = 0; i < ty->data.structure.src_field_count; i += 1) {
+                if (ty->data.structure.fields[i]->type_entry->id != ZigTypeIdFloat) {
+                    if (source_node != nullptr) {
+                        give_up_with_c_abi_error(g, source_node);
+                    }
+                    // otherwise allow codegen code to report a compile error
+                    return false;
+                }
+            }
+
+            // The SystemV ABI says that we have to setup 1 FP register per f64.
+            // So two f32 can be passed in one f64, but 3 f32 have to be passed in 2 FP registers.
+            // To achieve this with LLVM API, we pass multiple f64 parameters to the LLVM function if
+            // the type is bigger than 8 bytes.
+
+            // Example:
+            // extern struct {
+            //      x: f32,
+            //      y: f32,
+            //      z: f32,
+            // };
+            // const ptr = (*f64)*Struct;
+            // Register 1: ptr.*
+            // Register 2: (ptr + 1).*
+
+            // One floating point register per f64 or 2 f32's
+            size_t number_of_fp_regs = (size_t)ceilf((float)ty_size / (float)8);
+
+            switch (fn_walk->id) {
+                case FnWalkIdAttrs: {
+                    fn_walk->data.attrs.gen_i += 1;
+                    break;
+                }
+                case FnWalkIdCall: {
+                    LLVMValueRef f64_ptr_to_struct = LLVMBuildBitCast(g->builder, val, LLVMPointerType(LLVMDoubleType(), 0), "");
+                    for (uint32_t i = 0; i < number_of_fp_regs; i += 1) {
+                        LLVMValueRef index = LLVMConstInt(g->builtin_types.entry_usize->llvm_type, i, false);
+                        LLVMValueRef indices[] = { index };
+                        LLVMValueRef adjusted_ptr_to_struct = LLVMBuildInBoundsGEP(g->builder, f64_ptr_to_struct, indices, 1, "");
+                        LLVMValueRef loaded = LLVMBuildLoad(g->builder, adjusted_ptr_to_struct, "");
+                        fn_walk->data.call.gen_param_values->append(loaded);
+                    }
+                    break;
+                }
+                case FnWalkIdTypes: {
+                    for (uint32_t i = 0; i < number_of_fp_regs; i += 1) {
+                        fn_walk->data.types.gen_param_types->append(get_llvm_type(g, g->builtin_types.entry_f64));
+                        fn_walk->data.types.param_di_types->append(get_llvm_di_type(g, g->builtin_types.entry_f64));
+                    }
+                    break;
+                }
+                case FnWalkIdVars:
+                case FnWalkIdInits: {
+                    // TODO: Handle exporting functions
+                    if (source_node != nullptr) {
+                        give_up_with_c_abi_error(g, source_node);
+                    }
+                    // otherwise allow codegen code to report a compile error
+                    return false;
+                }
+            }
+            return true;
         }
     }
     if (source_node != nullptr) {
