@@ -4256,6 +4256,7 @@ pub fn sendto(
             ENOTCONN => unreachable, // The socket is not connected, and no target has been given.
             ENOTSOCK => unreachable, // The file descriptor sockfd does not refer to a socket.
             EOPNOTSUPP => unreachable, // Some bit in the flags argument is inappropriate for the socket type.
+            EPERM => return error.PermissionDenied,
             EPIPE => return error.BrokenPipe,
             else => |err| return unexpectedErrno(err),
         }
