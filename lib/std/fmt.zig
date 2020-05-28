@@ -1707,7 +1707,7 @@ test "vector" {
         // https://github.com/ziglang/zig/issues/4486
         return error.SkipZigTest;
     }
-    if (builtin.arch != .wasm32) {
+    if (builtin.arch == .wasm32) {
         // https://github.com/ziglang/zig/issues/5339
         return error.SkipZigTest;
     }
