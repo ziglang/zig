@@ -516,6 +516,80 @@ test "mem.secureZero" {
     testing.expectEqualSlices(u8, a[0..], b[0..]);
 }
 
+/// Initializes all fields of the struct with their default value, or zero values if no default value is present.
+/// If the field is present in the provided initial values, it will have that value instead.
+/// Structs are initialized recursively.
+pub fn defaultInit(comptime T: type, init: var) T {
+    comptime const Init = @TypeOf(init);
+
+    switch (@typeInfo(T)) {
+        .Struct => |struct_info| {
+            switch (@typeInfo(Init)) {
+                .Struct => |init_info| {
+                    var value = std.mem.zeroes(T);
+
+                    inline for (init_info.fields) |field| {
+                        if (!@hasField(T, field.name)) {
+                            @compileError("Encountered an initializer for `" ++ field.name ++ "`, but it is not a field of " ++ @typeName(T));
+                        }
+                    }
+
+                    inline for (struct_info.fields) |field| {
+                        if (@hasField(Init, field.name)) {
+                            switch (@typeInfo(field.field_type)) {
+                                .Struct => {
+                                    @field(value, field.name) = defaultInit(field.field_type, @field(init, field.name));
+                                },
+                                else => {
+                                    @field(value, field.name) = @field(init, field.name);
+                                },
+                            }
+                        } else if (field.default_value != null) {
+                            @field(value, field.name) = field.default_value;
+                        }
+                    }
+
+                    return value;
+                },
+                else => {
+                    @compileError("The initializer must be a struct");
+                },
+            }
+        },
+        else => {
+            @compileError("Can't default init a " ++ @typeName(T));
+        },
+    }
+}
+
+test "mem.defaultInit" {
+    const I = struct {
+        d: f64,
+    };
+
+    const S = struct {
+        a: u32,
+        b: ?bool,
+        c: I,
+        e: [3]u8,
+        f: i64,
+    };
+
+    const s = defaultInit(S, .{
+        .a = 42,
+    });
+
+    testing.expectEqual(s, S{
+        .a = 42,
+        .b = null,
+        .c = .{
+            .d = 0,
+        },
+        .e = [3]u8{0, 0, 0},
+        .f = 0,
+    });
+}
+
 pub fn order(comptime T: type, lhs: []const T, rhs: []const T) math.Order {
     const n = math.min(lhs.len, rhs.len);
     var i: usize = 0;
