@@ -1531,6 +1531,40 @@ fn parseInternal(comptime T: type, token: Token, tokens: *TokenStream, options: 
                 else => return error.UnexpectedToken,
             }
         },
+        .Vector => |vectorInfo| {
+            switch (token) {
+                .ArrayBegin => {
+                    var r: T = undefined;
+                    var i: usize = 0;
+                    errdefer {
+                        while (true) : (i -= 1) {
+                            parseFree(vectorInfo.child, r[i], options);
+                            if (i == 0) break;
+                        }
+                    }
+                    while (i < vectorInfo.len) : (i += 1) {
+                        r[i] = try parse(vectorInfo.child, tokens, options);
+                    }
+                    const tok = (try tokens.next()) orelse return error.UnexpectedEndOfJson;
+                    switch (tok) {
+                        .ArrayEnd => {},
+                        else => return error.UnexpectedToken,
+                    }
+                    return r;
+                },
+                .String => |stringToken| {
+                    if (vectorInfo.child != u8) return error.UnexpectedToken;
+                    var r: T = undefined;
+                    const source_slice = stringToken.slice(tokens.slice, tokens.i - 1);
+                    switch (stringToken.escapes) {
+                        .None => mem.copy(u8, &r, source_slice),
+                        .Some => try unescapeString(&r, source_slice),
+                    }
+                    return r;
+                },
+                else => return error.UnexpectedToken,
+            }
+        },
         .Pointer => |ptrInfo| {
             const allocator = options.allocator orelse return error.AllocatorRequired;
             switch (ptrInfo.size) {
@@ -1624,6 +1658,11 @@ pub fn parseFree(comptime T: type, value: T, options: ParseOptions) void {
                 parseFree(arrayInfo.child, v, options);
             }
         },
+        .Vector => |vectorInfo| {
+            for (value) |v| {
+                parseFree(vectorInfo.child, v, options);
+            }
+        },
         .Pointer => |ptrInfo| {
             const allocator = options.allocator orelse unreachable;
             switch (ptrInfo.size) {
@@ -1669,6 +1708,12 @@ test "parse into enum" {
     testing.expectEqual(@as(T, .@"with\\escape"), try parse(T, &TokenStream.init("\"with\\\\escape\""), ParseOptions{}));
     testing.expectError(error.InvalidEnumTag, parse(T, &TokenStream.init("5"), ParseOptions{}));
     testing.expectError(error.InvalidEnumTag, parse(T, &TokenStream.init("\"Qux\""), ParseOptions{}));
+}
+
+test "parse into vector" {
+    const T = std.meta.Vector(3, u32);
+    const v: T = [3]u32{ 1, 2, 3 };
+    testing.expectEqual(v, try parse(T, &TokenStream.init("[1,2,3]"), ParseOptions{}));
 }
 
 test "parse into that allocates a slice" {
