@@ -484,25 +484,28 @@ pub fn argsWithAllocator(allocator: *mem.Allocator) ArgIterator.InitError!ArgIte
 
 test "args iterator" {
     var ga = std.testing.allocator;
-    var it = if (builtin.os.tag == .wasi) argsWithAllocator(ga) else args();
+    var it = if (builtin.os.tag == .wasi) try argsWithAllocator(ga) else args();
     defer it.deinit(); // no-op unless WASI
 
-    testing.expect(it.skip());
-    const prog_name = it.next(ga) orelse unreachable;
+    const prog_name = try it.next(ga) orelse unreachable;
     defer ga.free(prog_name);
 
-    const expected_bin_name = switch (builtin.os.tag) {
+    const expected_suffix = switch (builtin.os.tag) {
         .wasi => "test.wasm",
         .windows => "test.exe",
         else => "test",
     };
-    testing.expect(mem.eql(u8, expected_bin_name, prog_name));
+    const given_suffix = std.fs.path.basename(prog_name);
+
+    testing.expect(mem.eql(u8, expected_suffix, given_suffix));
+    testing.expectEqual(it.next(ga), null);
+    testing.expect(!it.skip());
 }
 
 /// Caller must call argsFree on result.
 pub fn argsAlloc(allocator: *mem.Allocator) ![][]u8 {
     // TODO refactor to only make 1 allocation.
-    var it = if (builtin.os.tag == .wasi) argsWithAllocator(allocator) else args();
+    var it = if (builtin.os.tag == .wasi) try argsWithAllocator(allocator) else args();
     defer it.deinit();
 
     var contents = std.ArrayList(u8).init(allocator);
