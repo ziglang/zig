@@ -33,8 +33,11 @@ pub const GetAppDataDirError = @import("fs/get_app_data_dir.zig").GetAppDataDirE
 
 pub const Watch = @import("fs/watch.zig").Watch;
 
-/// This represents the maximum size of a UTF-8 encoded file path.
-/// All file system operations which return a path are guaranteed to
+/// This represents the maximum size of a UTF-8 encoded file path that the
+/// operating system will accept. Paths, including those returned from file
+/// system operations, may be longer than this length, but such paths cannot
+/// be successfully passed back in other file system operations. However,
+/// all path components returned by file system operations are assumed to
 /// fit into a UTF-8 encoded array of this length.
 /// The byte count includes room for a null sentinel byte.
 pub const MAX_PATH_BYTES = switch (builtin.os.tag) {
@@ -1194,7 +1197,7 @@ pub const Dir = struct {
     /// Read value of a symbolic link.
     /// The return value is a slice of `buffer`, from index `0`.
     /// Asserts that the path parameter has no null bytes.
-    pub fn readLink(self: Dir, sub_path: []const u8, buffer: *[MAX_PATH_BYTES]u8) ![]u8 {
+    pub fn readLink(self: Dir, sub_path: []const u8, buffer: []u8) ![]u8 {
         const sub_path_c = try os.toPosixPath(sub_path);
         return self.readLinkZ(&sub_path_c, buffer);
     }
@@ -1202,7 +1205,7 @@ pub const Dir = struct {
     pub const readLinkC = @compileError("deprecated: renamed to readLinkZ");
 
     /// Same as `readLink`, except the `pathname` parameter is null-terminated.
-    pub fn readLinkZ(self: Dir, sub_path_c: [*:0]const u8, buffer: *[MAX_PATH_BYTES]u8) ![]u8 {
+    pub fn readLinkZ(self: Dir, sub_path_c: [*:0]const u8, buffer: []u8) ![]u8 {
         return os.readlinkatZ(self.fd, sub_path_c, buffer);
     }
 
@@ -1320,6 +1323,9 @@ pub const Dir = struct {
             var cleanup_dir = true;
             defer if (cleanup_dir) dir.close();
 
+            // Valid use of MAX_PATH_BYTES because dir_name_buf will only
+            // ever store a single path component that was returned from the
+            // filesystem.
             var dir_name_buf: [MAX_PATH_BYTES]u8 = undefined;
             var dir_name: []const u8 = sub_path;
 
@@ -1772,19 +1778,21 @@ pub fn walkPath(allocator: *Allocator, dir_path: []const u8) !Walker {
 
 pub const OpenSelfExeError = os.OpenError || os.windows.CreateFileError || SelfExePathError || os.FlockError;
 
-pub fn openSelfExe() OpenSelfExeError!File {
+pub fn openSelfExe(flags: File.OpenFlags) OpenSelfExeError!File {
     if (builtin.os.tag == .linux) {
-        return openFileAbsoluteZ("/proc/self/exe", .{});
+        return openFileAbsoluteZ("/proc/self/exe", flags);
     }
     if (builtin.os.tag == .windows) {
         const wide_slice = selfExePathW();
         const prefixed_path_w = try os.windows.wToPrefixedFileW(wide_slice);
-        return cwd().openFileW(prefixed_path_w.span(), .{});
+        return cwd().openFileW(prefixed_path_w.span(), flags);
     }
+    // Use of MAX_PATH_BYTES here is valid as the resulting path is immediately
+    // opened with no modification.
     var buf: [MAX_PATH_BYTES]u8 = undefined;
     const self_exe_path = try selfExePath(&buf);
     buf[self_exe_path.len] = 0;
-    return openFileAbsoluteZ(buf[0..self_exe_path.len :0].ptr, .{});
+    return openFileAbsoluteZ(buf[0..self_exe_path.len :0].ptr, flags);
 }
 
 pub const SelfExePathError = os.ReadLinkError || os.SysCtlError;
@@ -1792,6 +1800,13 @@ pub const SelfExePathError = os.ReadLinkError || os.SysCtlError;
 /// `selfExePath` except allocates the result on the heap.
 /// Caller owns returned memory.
 pub fn selfExePathAlloc(allocator: *Allocator) ![]u8 {
+    // Use of MAX_PATH_BYTES here is justified as, at least on one tested Linux
+    // system, readlink will completely fail to return a result larger than
+    // PATH_MAX even if given a sufficiently large buffer. This makes it
+    // fundamentally impossible to get the selfExePath of a program running in
+    // a very deeply nested directory chain in this way.
+    // TODO(#4812): Investigate other systems and whether it is possible to get
+    // this path by trying larger and larger buffers until one succeeds.
     var buf: [MAX_PATH_BYTES]u8 = undefined;
     return mem.dupe(allocator, u8, try selfExePath(&buf));
 }
@@ -1806,10 +1821,10 @@ pub fn selfExePathAlloc(allocator: *Allocator) ![]u8 {
 /// On Linux, depends on procfs being mounted. If the currently executing binary has
 /// been deleted, the file path looks something like `/a/b/c/exe (deleted)`.
 /// TODO make the return type of this a null terminated pointer
-pub fn selfExePath(out_buffer: *[MAX_PATH_BYTES]u8) SelfExePathError![]u8 {
+pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
     if (is_darwin) {
-        var u32_len: u32 = out_buffer.len;
-        const rc = std.c._NSGetExecutablePath(out_buffer, &u32_len);
+        var u32_len: u32 = @intCast(u32, math.min(out_buffer.len, math.maxInt(u32)));
+        const rc = std.c._NSGetExecutablePath(out_buffer.ptr, &u32_len);
         if (rc != 0) return error.NameTooLong;
         return mem.spanZ(@ptrCast([*:0]u8, out_buffer));
     }
@@ -1818,14 +1833,14 @@ pub fn selfExePath(out_buffer: *[MAX_PATH_BYTES]u8) SelfExePathError![]u8 {
         .freebsd, .dragonfly => {
             var mib = [4]c_int{ os.CTL_KERN, os.KERN_PROC, os.KERN_PROC_PATHNAME, -1 };
             var out_len: usize = out_buffer.len;
-            try os.sysctl(&mib, out_buffer, &out_len, null, 0);
+            try os.sysctl(&mib, out_buffer.ptr, &out_len, null, 0);
             // TODO could this slice from 0 to out_len instead?
             return mem.spanZ(@ptrCast([*:0]u8, out_buffer));
         },
         .netbsd => {
             var mib = [4]c_int{ os.CTL_KERN, os.KERN_PROC_ARGS, -1, os.KERN_PROC_PATHNAME };
             var out_len: usize = out_buffer.len;
-            try os.sysctl(&mib, out_buffer, &out_len, null, 0);
+            try os.sysctl(&mib, out_buffer.ptr, &out_len, null, 0);
             // TODO could this slice from 0 to out_len instead?
             return mem.spanZ(@ptrCast([*:0]u8, out_buffer));
         },
@@ -1848,13 +1863,20 @@ pub fn selfExePathW() [:0]const u16 {
 /// `selfExeDirPath` except allocates the result on the heap.
 /// Caller owns returned memory.
 pub fn selfExeDirPathAlloc(allocator: *Allocator) ![]u8 {
+    // Use of MAX_PATH_BYTES here is justified as, at least on one tested Linux
+    // system, readlink will completely fail to return a result larger than
+    // PATH_MAX even if given a sufficiently large buffer. This makes it
+    // fundamentally impossible to get the selfExeDirPath of a program running
+    // in a very deeply nested directory chain in this way.
+    // TODO(#4812): Investigate other systems and whether it is possible to get
+    // this path by trying larger and larger buffers until one succeeds.
     var buf: [MAX_PATH_BYTES]u8 = undefined;
     return mem.dupe(allocator, u8, try selfExeDirPath(&buf));
 }
 
 /// Get the directory path that contains the current executable.
 /// Returned value is a slice of out_buffer.
-pub fn selfExeDirPath(out_buffer: *[MAX_PATH_BYTES]u8) SelfExePathError![]const u8 {
+pub fn selfExeDirPath(out_buffer: []u8) SelfExePathError![]const u8 {
     const self_exe_path = try selfExePath(out_buffer);
     // Assume that the OS APIs return absolute paths, and therefore dirname
     // will not return null.
@@ -1864,6 +1886,12 @@ pub fn selfExeDirPath(out_buffer: *[MAX_PATH_BYTES]u8) SelfExePathError![]const 
 /// `realpath`, except caller must free the returned memory.
 /// TODO integrate with `Dir`
 pub fn realpathAlloc(allocator: *Allocator, pathname: []const u8) ![]u8 {
+    // Use of MAX_PATH_BYTES here is valid as the realpath function does not
+    // have a variant that takes an arbitrary-size buffer.
+    // TODO(#4812): Consider reimplementing realpath or using the POSIX.1-2008
+    // NULL out parameter (GNU's canonicalize_file_name) to handle overelong
+    // paths. musl supports passing NULL but restricts the output to PATH_MAX
+    // anyway.
     var buf: [MAX_PATH_BYTES]u8 = undefined;
     return mem.dupe(allocator, u8, try os.realpath(pathname, &buf));
 }

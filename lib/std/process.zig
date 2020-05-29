@@ -15,14 +15,34 @@ pub const changeCurDir = os.chdir;
 pub const changeCurDirC = os.chdirC;
 
 /// The result is a slice of `out_buffer`, from index `0`.
-pub fn getCwd(out_buffer: *[fs.MAX_PATH_BYTES]u8) ![]u8 {
+pub fn getCwd(out_buffer: []u8) ![]u8 {
     return os.getcwd(out_buffer);
 }
 
 /// Caller must free the returned memory.
 pub fn getCwdAlloc(allocator: *Allocator) ![]u8 {
-    var buf: [fs.MAX_PATH_BYTES]u8 = undefined;
-    return mem.dupe(allocator, u8, try os.getcwd(&buf));
+    // The use of MAX_PATH_BYTES here is just a heuristic: most paths will fit
+    // in stack_buf, avoiding an extra allocation in the common case.
+    var stack_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+    var heap_buf: ?[]u8 = null;
+    defer if (heap_buf) |buf| allocator.free(buf);
+
+    var current_buf: []u8 = &stack_buf;
+    while (true) {
+        if (os.getcwd(current_buf)) |slice| {
+            return mem.dupe(allocator, u8, slice);
+        } else |err| switch (err) {
+            error.NameTooLong => {
+                // The path is too long to fit in stack_buf. Allocate geometrically
+                // increasing buffers until we find one that works
+                const new_capacity = current_buf.len * 2;
+                if (heap_buf) |buf| allocator.free(buf);
+                current_buf = try allocator.alloc(u8, new_capacity);
+                heap_buf = current_buf;
+            },
+            else => |e| return e,
+        }
+    }
 }
 
 test "getCwdAlloc" {
