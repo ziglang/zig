@@ -1707,15 +1707,16 @@ test "vector" {
         // https://github.com/ziglang/zig/issues/4486
         return error.SkipZigTest;
     }
-    if (builtin.arch != .wasm32) {
-        // TODO investigate why this fails on wasm32
-        const vbool: std.meta.Vector(4, bool) = [_]bool{ true, false, true, false };
-        try testFmt("{ true, false, true, false }", "{}", .{vbool});
+    if (builtin.arch == .wasm32) {
+        // https://github.com/ziglang/zig/issues/5339
+        return error.SkipZigTest;
     }
 
+    const vbool: std.meta.Vector(4, bool) = [_]bool{ true, false, true, false };
     const vi64: std.meta.Vector(4, i64) = [_]i64{ -2, -1, 0, 1 };
     const vu64: std.meta.Vector(4, u64) = [_]u64{ 1000, 2000, 3000, 4000 };
 
+    try testFmt("{ true, false, true, false }", "{}", .{vbool});
     try testFmt("{ -2, -1, 0, 1 }", "{}", .{vi64});
     try testFmt("{ -   2, -   1, +   0, +   1 }", "{d:5}", .{vi64});
     try testFmt("{ 1000, 2000, 3000, 4000 }", "{}", .{vu64});
