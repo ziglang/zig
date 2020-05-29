@@ -47,7 +47,7 @@ _m_prefetch(void *__P)
 /// \param __P
 ///    A pointer specifying the memory address to be prefetched.
 static __inline__ void __attribute__((__always_inline__, __nodebug__))
-_m_prefetchw(void *__P)
+_m_prefetchw(volatile const void *__P)
 {
   __builtin_prefetch (__P, 1, 3 /* _MM_HINT_T0 */);
 }
