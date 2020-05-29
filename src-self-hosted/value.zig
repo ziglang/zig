@@ -666,6 +666,11 @@ pub const Value = extern union {
         return orderAgainstZero(lhs).compare(op);
     }
 
+    pub fn eql(a: Value, b: Value) bool {
+        // TODO non numerical comparisons
+        return compare(a, .eq, b);
+    }
+
     pub fn toBool(self: Value) bool {
         return switch (self.tag()) {
             .bool_true => true,

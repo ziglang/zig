@@ -126,7 +126,9 @@ pub const ElfFile = struct {
     local_symbols: std.ArrayListUnmanaged(elf.Elf64_Sym) = std.ArrayListUnmanaged(elf.Elf64_Sym){},
     global_symbols: std.ArrayListUnmanaged(elf.Elf64_Sym) = std.ArrayListUnmanaged(elf.Elf64_Sym){},
 
-    global_symbol_free_list: std.ArrayListUnmanaged(usize) = std.ArrayListUnmanaged(usize){},
+    local_symbol_free_list: std.ArrayListUnmanaged(u32) = std.ArrayListUnmanaged(u32){},
+    global_symbol_free_list: std.ArrayListUnmanaged(u32) = std.ArrayListUnmanaged(u32){},
+    offset_table_free_list: std.ArrayListUnmanaged(u32) = std.ArrayListUnmanaged(u32){},
 
     /// Same order as in the file. The value is the absolute vaddr value.
     /// If the vaddr of the executable program header changes, the entire
@@ -232,6 +234,8 @@ pub const ElfFile = struct {
         self.local_symbols.deinit(self.allocator);
         self.global_symbols.deinit(self.allocator);
         self.global_symbol_free_list.deinit(self.allocator);
+        self.local_symbol_free_list.deinit(self.allocator);
+        self.offset_table_free_list.deinit(self.allocator);
         self.text_block_free_list.deinit(self.allocator);
         self.offset_table.deinit(self.allocator);
         if (self.owns_file_handle) {
@@ -792,6 +796,7 @@ pub const ElfFile = struct {
         }
 
         if (self.last_text_block == text_block) {
+            // TODO shrink the .text section size here
             self.last_text_block = text_block.prev;
         }
 
@@ -944,33 +949,51 @@ pub const ElfFile = struct {
     pub fn allocateDeclIndexes(self: *ElfFile, decl: *Module.Decl) !void {
         if (decl.link.local_sym_index != 0) return;
 
+        // Here we also ensure capacity for the free lists so that they can be appended to without fail.
         try self.local_symbols.ensureCapacity(self.allocator, self.local_symbols.items.len + 1);
+        try self.local_symbol_free_list.ensureCapacity(self.allocator, self.local_symbols.items.len);
         try self.offset_table.ensureCapacity(self.allocator, self.offset_table.items.len + 1);
-        const local_sym_index = self.local_symbols.items.len;
-        const offset_table_index = self.offset_table.items.len;
+        try self.offset_table_free_list.ensureCapacity(self.allocator, self.local_symbols.items.len);
+
+        if (self.local_symbol_free_list.popOrNull()) |i| {
+            std.debug.warn("reusing symbol index {} for {}\n", .{i, decl.name});
+            decl.link.local_sym_index = i;
+        } else {
+            std.debug.warn("allocating symbol index {} for {}\n", .{self.local_symbols.items.len, decl.name});
+            decl.link.local_sym_index = @intCast(u32, self.local_symbols.items.len);
+            _ = self.local_symbols.addOneAssumeCapacity();
+        }
+
+        if (self.offset_table_free_list.popOrNull()) |i| {
+            decl.link.offset_table_index = i;
+        } else {
+            decl.link.offset_table_index = @intCast(u32, self.offset_table.items.len);
+            _ = self.offset_table.addOneAssumeCapacity();
+            self.offset_table_count_dirty = true;
+        }
+
         const phdr = &self.program_headers.items[self.phdr_load_re_index.?];
 
-        self.local_symbols.appendAssumeCapacity(.{
+        self.local_symbols.items[decl.link.local_sym_index] = .{
             .st_name = 0,
             .st_info = 0,
             .st_other = 0,
             .st_shndx = 0,
             .st_value = phdr.p_vaddr,
             .st_size = 0,
-        });
-        self.offset_table.appendAssumeCapacity(0);
-
-        self.offset_table_count_dirty = true;
-
-        std.debug.warn("allocating symbol index {} for {}\n", .{local_sym_index, decl.name});
-        decl.link.local_sym_index = @intCast(u32, local_sym_index);
-        decl.link.offset_table_index = @intCast(u32, offset_table_index);
+        };
+        self.offset_table.items[decl.link.offset_table_index] = 0;
     }
 
     pub fn freeDecl(self: *ElfFile, decl: *Module.Decl) void {
         self.freeTextBlock(&decl.link);
         if (decl.link.local_sym_index != 0) {
-            @panic("TODO free the symbol entry and offset table entry");
+            self.local_symbol_free_list.appendAssumeCapacity(decl.link.local_sym_index);
+            self.offset_table_free_list.appendAssumeCapacity(decl.link.offset_table_index);
+
+            self.local_symbols.items[decl.link.local_sym_index].st_info = 0;
+
+            decl.link.local_sym_index = 0;
         }
     }
 

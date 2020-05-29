@@ -92,13 +92,13 @@ pub const Type = extern union {
         return @fieldParentPtr(T, "base", self.ptr_otherwise);
     }
 
-    pub fn eql(self: Type, other: Type) bool {
-        //std.debug.warn("test {} == {}\n", .{ self, other });
+    pub fn eql(a: Type, b: Type) bool {
+        //std.debug.warn("test {} == {}\n", .{ a, b });
         // As a shortcut, if the small tags / addresses match, we're done.
-        if (self.tag_if_small_enough == other.tag_if_small_enough)
+        if (a.tag_if_small_enough == b.tag_if_small_enough)
             return true;
-        const zig_tag_a = self.zigTypeTag();
-        const zig_tag_b = self.zigTypeTag();
+        const zig_tag_a = a.zigTypeTag();
+        const zig_tag_b = b.zigTypeTag();
         if (zig_tag_a != zig_tag_b)
             return false;
         switch (zig_tag_a) {
@@ -111,24 +111,40 @@ pub const Type = extern union {
             .Undefined => return true,
             .Null => return true,
             .Pointer => {
-                const is_slice_a = isSlice(self);
-                const is_slice_b = isSlice(other);
+                const is_slice_a = isSlice(a);
+                const is_slice_b = isSlice(b);
                 if (is_slice_a != is_slice_b)
                     return false;
                 @panic("TODO implement more pointer Type equality comparison");
             },
             .Int => {
-                if (self.tag() != other.tag()) {
+                if (a.tag() != b.tag()) {
                     // Detect that e.g. u64 != usize, even if the bits match on a particular target.
                     return false;
                 }
                 // The target will not be branched upon, because we handled target-dependent cases above.
-                const info_a = self.intInfo(@as(Target, undefined));
-                const info_b = self.intInfo(@as(Target, undefined));
+                const info_a = a.intInfo(@as(Target, undefined));
+                const info_b = b.intInfo(@as(Target, undefined));
                 return info_a.signed == info_b.signed and info_a.bits == info_b.bits;
             },
+            .Array => {
+                if (a.arrayLen() != b.arrayLen())
+                    return false;
+                if (a.elemType().eql(b.elemType()))
+                    return false;
+                const sentinel_a = a.arraySentinel();
+                const sentinel_b = b.arraySentinel();
+                if (sentinel_a) |sa| {
+                    if (sentinel_b) |sb| {
+                        return sa.eql(sb);
+                    } else {
+                        return false;
+                    }
+                } else {
+                    return sentinel_b == null;
+                }
+            },
             .Float,
-            .Array,
             .Struct,
             .Optional,
             .ErrorUnion,
