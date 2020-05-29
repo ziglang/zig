@@ -1201,13 +1201,13 @@ pub fn which(allocator: *mem.Allocator, command: []const u8) !?[]const u8 {
 test "which" {
     if (builtin.os.tag == .windows) {
         const ping = try which(std.testing.allocator, "ping");
-        defer std.testing.allocator.free(ping);
+        defer std.testing.allocator.free(ping.?);
 
         std.testing.expect(ping != null);
         std.testing.expectEqualStrings("C:\\Windows\\System32\\PING.EXE", ping.?);
     } else {
         const ls = try which(std.testing.allocator, "ls");
-        defer std.testing.allocator.free(ls);
+        defer std.testing.allocator.free(ls.?);
 
         std.testing.expect(ls != null);
         std.testing.expectEqualStrings("/bin/ls", ls.?);
