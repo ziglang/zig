@@ -258,18 +258,6 @@ pub const ArgIteratorWasi = struct {
     }
 };
 
-test "process.ArgIteratorWasi" {
-    if (builtin.os.tag != .wasi) return error.SkipZigTest;
-
-    var ga = std.testing.allocator;
-    var args_it = try ArgIteratorWasi.init(ga);
-    defer args_it.deinit();
-
-    testing.expectEqual(@as(usize, 1), args_it.args.len);
-    const prog_name = args_it.next() orelse unreachable;
-    testing.expect(mem.eql(u8, "test.wasm", prog_name));
-}
-
 pub const ArgIteratorWindows = struct {
     index: usize,
     cmd_line: [*]const u8,
@@ -429,15 +417,9 @@ pub const ArgIterator = struct {
     inner: InnerType,
 
     /// Initialize the args iterator.
-    ///
-    /// On WASI, will panic if the default Wasm page allocator runs out of memory
-    /// or there is an error fetching the args from the runtime. If you want to
-    /// use custom allocator and handle the errors yourself, call `initWasi()` instead.
-    /// You also must remember to free the buffer with `deinitWasi()` call.
     pub fn init() ArgIterator {
         if (builtin.os.tag == .wasi) {
-            const allocator = std.heap.page_allocator;
-            return ArgIterator.initWasi(allocator) catch @panic("unexpected error occurred when initializing ArgIterator");
+            @compileError("In WASI, use initWithAllocator instead.");
         }
 
         return ArgIterator{ .inner = InnerType.init() };
@@ -445,10 +427,13 @@ pub const ArgIterator = struct {
 
     pub const InitError = ArgIteratorWasi.InitError;
 
-    /// If you are targeting WASI, you can call this to manually specify the allocator and
-    /// handle any errors.
-    pub fn initWasi(allocator: *mem.Allocator) InitError!ArgIterator {
-        return ArgIterator{ .inner = try InnerType.init(allocator) };
+    /// You must deinitialize iterator's internal buffers by calling `deinit` when done.
+    pub fn initWithAllocator(allocator: *mem.Allocator) InitError!ArgIterator {
+        if (builtin.os.tag == .wasi) {
+            return ArgIterator{ .inner = try InnerType.init(allocator) };
+        }
+
+        return ArgIterator{ .inner = InnerType.init() };
     }
 
     pub const NextError = ArgIteratorWindows.NextError;
@@ -478,10 +463,13 @@ pub const ArgIterator = struct {
         return self.inner.skip();
     }
 
-    /// If you are targeting WASI, call this to free the iterator's internal buffer
-    /// after you are done with it.
-    pub fn deinitWasi(self: *ArgIterator) void {
-        self.inner.deinit();
+    /// Call this to free the iterator's internal buffer if the iterator
+    /// was created with `initWithAllocator` function.
+    pub fn deinit(self: *ArgIterator) void {
+        // Unless we're targeting WASI, this is a no-op.
+        if (builtin.os.tag == .wasi) {
+            self.inner.deinit();
+        }
     }
 };
 
@@ -489,11 +477,33 @@ pub fn args() ArgIterator {
     return ArgIterator.init();
 }
 
+/// You must deinitialize iterator's internal buffers by calling `deinit` when done.
+pub fn argsWithAllocator(allocator: *mem.Allocator) ArgIterator.InitError!ArgIterator {
+    return ArgIterator.initWithAllocator(allocator);
+}
+
+test "args iterator" {
+    var ga = std.testing.allocator;
+    var it = if (builtin.os.tag == .wasi) argsWithAllocator(ga) else args();
+    defer it.deinit(); // no-op unless WASI
+
+    testing.expect(it.skip());
+    const prog_name = it.next(ga) orelse unreachable;
+    defer ga.free(prog_name);
+
+    const expected_bin_name = switch (builtin.os.tag) {
+        .wasi => "test.wasm",
+        .windows => "test.exe",
+        else => "test",
+    };
+    testing.expect(mem.eql(u8, expected_bin_name, prog_name));
+}
+
 /// Caller must call argsFree on result.
 pub fn argsAlloc(allocator: *mem.Allocator) ![][]u8 {
     // TODO refactor to only make 1 allocation.
-    var it = args();
-    defer if (builtin.os.tag == .wasi) it.deinitWasi();
+    var it = if (builtin.os.tag == .wasi) argsWithAllocator(allocator) else args();
+    defer it.deinit();
 
     var contents = std.ArrayList(u8).init(allocator);
     defer contents.deinit();
