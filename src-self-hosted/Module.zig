@@ -879,7 +879,7 @@ fn analyzeRoot(self: *Module, root_scope: *Scope.ZIRModule) !void {
                     deleted_decls.removeAssertDiscard(decl);
                     const new_contents_hash = Decl.hashSimpleName(src_decl.contents);
                     if (!mem.eql(u8, &new_contents_hash, &decl.contents_hash)) {
-                        std.debug.warn("noticed '{}' source changed\n", .{src_decl.name});
+                        //std.debug.warn("noticed '{}' source changed\n", .{src_decl.name});
                         decl.analysis = .outdated;
                         decl.contents_hash = new_contents_hash;
                         try self.work_queue.writeItem(.{ .re_analyze_decl = decl });
@@ -893,7 +893,7 @@ fn analyzeRoot(self: *Module, root_scope: *Scope.ZIRModule) !void {
                 // with when we delete decls because they are no longer referenced.
                 var it = deleted_decls.iterator();
                 while (it.next()) |kv| {
-                    std.debug.warn("noticed '{}' deleted from source\n", .{kv.key.name});
+                    //std.debug.warn("noticed '{}' deleted from source\n", .{kv.key.name});
                     try self.deleteDecl(kv.key);
                 }
             }
@@ -905,7 +905,7 @@ fn analyzeRoot(self: *Module, root_scope: *Scope.ZIRModule) !void {
 }
 
 fn deleteDecl(self: *Module, decl: *Decl) !void {
-    std.debug.warn("deleting decl '{}'\n", .{decl.name});
+    //std.debug.warn("deleting decl '{}'\n", .{decl.name});
     const name_hash = decl.fullyQualifiedNameHash();
     self.decl_table.removeAssertDiscard(name_hash);
     // Remove itself from its dependencies, because we are about to destroy the decl pointer.
@@ -1004,7 +1004,7 @@ fn reAnalyzeDecl(self: *Module, decl: *Decl, old_inst: *zir.Inst) InnerError!voi
 
         .outdated => {}, // Decl re-analysis
     }
-    std.debug.warn("re-analyzing {}\n", .{decl.name});
+    //std.debug.warn("re-analyzing {}\n", .{decl.name});
     decl.src = old_inst.src;
 
     // The exports this Decl performs will be re-discovered, so we remove them here
