@@ -10,115 +10,62 @@ pub const Token = struct {
         end: usize,
     };
 
-    pub const Keyword = struct {
-        bytes: []const u8,
-        id: Id,
-
-        fn init(bytes: []const u8, id: Id) Keyword {
-            return .{
-                .bytes = bytes,
-                .id = id,
-            };
-        }
-    };
-
-    pub const keywords = [_]Keyword{
-        Keyword.init("align", .Keyword_align),
-        Keyword.init("allowzero", .Keyword_allowzero),
-        Keyword.init("and", .Keyword_and),
-        Keyword.init("anyframe", .Keyword_anyframe),
-        Keyword.init("asm", .Keyword_asm),
-        Keyword.init("async", .Keyword_async),
-        Keyword.init("await", .Keyword_await),
-        Keyword.init("break", .Keyword_break),
-        Keyword.init("callconv", .Keyword_callconv),
-        Keyword.init("catch", .Keyword_catch),
-        Keyword.init("comptime", .Keyword_comptime),
-        Keyword.init("const", .Keyword_const),
-        Keyword.init("continue", .Keyword_continue),
-        Keyword.init("defer", .Keyword_defer),
-        Keyword.init("else", .Keyword_else),
-        Keyword.init("enum", .Keyword_enum),
-        Keyword.init("errdefer", .Keyword_errdefer),
-        Keyword.init("error", .Keyword_error),
-        Keyword.init("export", .Keyword_export),
-        Keyword.init("extern", .Keyword_extern),
-        Keyword.init("false", .Keyword_false),
-        Keyword.init("fn", .Keyword_fn),
-        Keyword.init("for", .Keyword_for),
-        Keyword.init("if", .Keyword_if),
-        Keyword.init("inline", .Keyword_inline),
-        Keyword.init("noalias", .Keyword_noalias),
-        Keyword.init("noasync", .Keyword_nosuspend), // TODO: remove this
-        Keyword.init("noinline", .Keyword_noinline),
-        Keyword.init("nosuspend", .Keyword_nosuspend),
-        Keyword.init("null", .Keyword_null),
-        Keyword.init("or", .Keyword_or),
-        Keyword.init("orelse", .Keyword_orelse),
-        Keyword.init("packed", .Keyword_packed),
-        Keyword.init("pub", .Keyword_pub),
-        Keyword.init("resume", .Keyword_resume),
-        Keyword.init("return", .Keyword_return),
-        Keyword.init("linksection", .Keyword_linksection),
-        Keyword.init("struct", .Keyword_struct),
-        Keyword.init("suspend", .Keyword_suspend),
-        Keyword.init("switch", .Keyword_switch),
-        Keyword.init("test", .Keyword_test),
-        Keyword.init("threadlocal", .Keyword_threadlocal),
-        Keyword.init("true", .Keyword_true),
-        Keyword.init("try", .Keyword_try),
-        Keyword.init("undefined", .Keyword_undefined),
-        Keyword.init("union", .Keyword_union),
-        Keyword.init("unreachable", .Keyword_unreachable),
-        Keyword.init("usingnamespace", .Keyword_usingnamespace),
-        Keyword.init("var", .Keyword_var),
-        Keyword.init("volatile", .Keyword_volatile),
-        Keyword.init("while", .Keyword_while),
-    };
+    pub const keywords = std.ComptimeStringMap(Id, .{
+        .{"align", .Keyword_align},
+        .{"allowzero", .Keyword_allowzero},
+        .{"and", .Keyword_and},
+        .{"anyframe", .Keyword_anyframe},
+        .{"asm", .Keyword_asm},
+        .{"async", .Keyword_async},
+        .{"await", .Keyword_await},
+        .{"break", .Keyword_break},
+        .{"callconv", .Keyword_callconv},
+        .{"catch", .Keyword_catch},
+        .{"comptime", .Keyword_comptime},
+        .{"const", .Keyword_const},
+        .{"continue", .Keyword_continue},
+        .{"defer", .Keyword_defer},
+        .{"else", .Keyword_else},
+        .{"enum", .Keyword_enum},
+        .{"errdefer", .Keyword_errdefer},
+        .{"error", .Keyword_error},
+        .{"export", .Keyword_export},
+        .{"extern", .Keyword_extern},
+        .{"false", .Keyword_false},
+        .{"fn", .Keyword_fn},
+        .{"for", .Keyword_for},
+        .{"if", .Keyword_if},
+        .{"inline", .Keyword_inline},
+        .{"noalias", .Keyword_noalias},
+        .{"noasync", .Keyword_nosuspend}, // TODO: remove this
+        .{"noinline", .Keyword_noinline},
+        .{"nosuspend", .Keyword_nosuspend},
+        .{"null", .Keyword_null},
+        .{"or", .Keyword_or},
+        .{"orelse", .Keyword_orelse},
+        .{"packed", .Keyword_packed},
+        .{"pub", .Keyword_pub},
+        .{"resume", .Keyword_resume},
+        .{"return", .Keyword_return},
+        .{"linksection", .Keyword_linksection},
+        .{"struct", .Keyword_struct},
+        .{"suspend", .Keyword_suspend},
+        .{"switch", .Keyword_switch},
+        .{"test", .Keyword_test},
+        .{"threadlocal", .Keyword_threadlocal},
+        .{"true", .Keyword_true},
+        .{"try", .Keyword_try},
+        .{"undefined", .Keyword_undefined},
+        .{"union", .Keyword_union},
+        .{"unreachable", .Keyword_unreachable},
+        .{"usingnamespace", .Keyword_usingnamespace},
+        .{"var", .Keyword_var},
+        .{"volatile", .Keyword_volatile},
+        .{"while", .Keyword_while},
+    });
 
     pub fn getKeyword(bytes: []const u8) ?Id {
-        const precomputed = comptime blk: {
-            @setEvalBranchQuota(2000);
-            var sorted_keywords = keywords;
-            const lenAsc = (struct {
-                fn lenAsc(a: Keyword, b: Keyword) bool {
-                    return a.bytes.len < b.bytes.len;
-                }
-            }).lenAsc;
-            std.sort.sort(Keyword, &sorted_keywords, lenAsc);
-            const min_len = sorted_keywords[0].bytes.len;
-            const max_len = sorted_keywords[sorted_keywords.len - 1].bytes.len;
-            var len_indexes: [max_len + 1]usize = undefined;
-            var len: usize = 0;
-            var kw_i: usize = 0;
-            while (len <= max_len) : (len += 1) {
-                // find the first keyword len == len
-                while (len > sorted_keywords[kw_i].bytes.len) {
-                    kw_i += 1;
-                }
-                len_indexes[len] = kw_i;
-            }
-            break :blk .{
-                .min_len = min_len,
-                .max_len = max_len,
-                .sorted_keywords = sorted_keywords,
-                .len_indexes = len_indexes,
-            };
-        };
-        if (bytes.len < precomputed.min_len or bytes.len > precomputed.max_len)
-            return null;
-
-        var i = precomputed.len_indexes[bytes.len];
-        while (true) {
-            const kw = precomputed.sorted_keywords[i];
-            if (kw.bytes.len != bytes.len)
-                return null;
-            if (mem.eql(u8, kw.bytes, bytes))
-                return kw.id;
-            i += 1;
-            if (i >= precomputed.sorted_keywords.len)
-                return null;
-        }
+        return keywords.get(bytes);
     }
 
     pub const Id = enum {

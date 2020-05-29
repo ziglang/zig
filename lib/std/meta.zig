@@ -53,12 +53,37 @@ test "std.meta.tagName" {
 }
 
 pub fn stringToEnum(comptime T: type, str: []const u8) ?T {
-    inline for (@typeInfo(T).Enum.fields) |enumField| {
-        if (mem.eql(u8, str, enumField.name)) {
-            return @field(T, enumField.name);
+    // Using ComptimeStringMap here is more performant, but it will start to take too
+    // long to compile if the enum is large enough, due to the current limits of comptime
+    // performance when doing things like constructing lookup maps at comptime.
+    // TODO The '100' here is arbitrary and should be increased when possible:
+    // - https://github.com/ziglang/zig/issues/4055
+    // - https://github.com/ziglang/zig/issues/3863
+    if (@typeInfo(T).Enum.fields.len <= 100) {
+        const kvs = comptime build_kvs: {
+            // In order to generate an array of structs that play nice with anonymous
+            // list literals, we need to give them "0" and "1" field names.
+            // TODO https://github.com/ziglang/zig/issues/4335
+            const EnumKV = struct {
+                @"0": []const u8,
+                @"1": T,
+            };
+            var kvs_array: [@typeInfo(T).Enum.fields.len]EnumKV = undefined;
+            inline for (@typeInfo(T).Enum.fields) |enumField, i| {
+                kvs_array[i] = .{ .@"0" = enumField.name, .@"1" = @field(T, enumField.name) };
+            }
+            break :build_kvs kvs_array[0..];
+        };
+        const map = std.ComptimeStringMap(T, kvs);
+        return map.get(str);
+    } else {
+        inline for (@typeInfo(T).Enum.fields) |enumField| {
+            if (mem.eql(u8, str, enumField.name)) {
+                return @field(T, enumField.name);
+            }
         }
+        return null;
     }
-    return null;
 }
 
 test "std.meta.stringToEnum" {
