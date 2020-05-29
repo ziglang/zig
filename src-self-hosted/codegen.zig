@@ -376,6 +376,34 @@ const Function = struct {
         }
     }
 
+    /// Encodes a REX prefix as specified, and appends it to the instruction
+    /// stream. This only modifies the instruction stream if at least one bit
+    /// is set true, which has a few implications:
+    ///
+    /// * The length of the instruction buffer will be modified *if* the
+    /// resulting REX is meaningful, but will remain the same if it is not.
+    /// * Deliberately inserting a "meaningless REX" requires explicit usage of
+    /// 0x40, and cannot be done via this function.
+    fn REX(self: *Function, arg: struct { B: bool = false, W: bool = false, X: bool = false, R: bool = false }) !void {
+        //  From section 2.2.1.2 of the manual, REX is encoded as b0100WRXB.
+        var value: u8 = 0x40;
+        if (arg.B) {
+            value |= 0x1;
+        }
+        if (arg.X) {
+            value |= 0x2;
+        }
+        if (arg.R) {
+            value |= 0x4;
+        }
+        if (arg.W) {
+            value |= 0x8;
+        }
+        if (value != 0x40) {
+            try self.code.append(value);
+        }
+    }
+
     fn genSetReg(self: *Function, src: usize, comptime arch: Target.Cpu.Arch, reg: Reg(arch), mcv: MCValue) error{ CodegenFail, OutOfMemory }!void {
         switch (arch) {
             .x86_64 => switch (mcv) {
@@ -395,24 +423,14 @@ const Function = struct {
                         // then three bits for the operand. Since we're zeroing a register, the two three-bit
                         // values will be identical, and the mode is three (the raw register value).
                         //
-                        if (reg.isExtended()) {
-                            // If we're accessing e.g. r8d, we need to use a REX prefix before the actual operation. Since
-                            // this is a 32-bit operation, the W flag is set to zero. X is also zero, as we're not using a SIB.
-                            // Both R and B are set, as we're extending, in effect, the register bits *and* the operand.
-                            //
-                            // From section 2.2.1.2 of the manual, REX is encoded as b0100WRXB. In this case, that's
-                            // b01000101, or 0x45.
-                            return self.code.appendSlice(&[_]u8{
-                                0x45,
-                                0x31,
-                                0xC0 | (@as(u8, reg.id() & 0b111) << 3) | @truncate(u3, reg.id()),
-                            });
-                        } else {
-                            return self.code.appendSlice(&[_]u8{
-                                0x31,
-                                0xC0 | (@as(u8, reg.id()) << 3) | reg.id(),
-                            });
-                        }
+                        // If we're accessing e.g. r8d, we need to use a REX prefix before the actual operation. Since
+                        // this is a 32-bit operation, the W flag is set to zero. X is also zero, as we're not using a SIB.
+                        // Both R and B are set, as we're extending, in effect, the register bits *and* the operand.
+                        try self.REX(.{ .R = reg.isExtended(), .B = reg.isExtended() });
+                        const id = @as(u8, reg.id() & 0b111);
+                        return self.code.appendSlice(&[_]u8{
+                            0x31, 0xC0 | id << 3 | id,
+                        });
                     }
                     if (x <= std.math.maxInt(u32)) {
                         // Next best case: if we set the lower four bytes, the upper four will be zeroed.
@@ -445,9 +463,9 @@ const Function = struct {
                     // Since we always need a REX here, let's just check if we also need to set REX.B.
                     //
                     // In this case, the encoding of the REX byte is 0b0100100B
-                    const REX = 0x48 | (if (reg.isExtended()) @as(u8, 0x01) else 0);
-                    try self.code.resize(self.code.items.len + 10);
-                    self.code.items[self.code.items.len - 10] = REX;
+
+                    try self.REX(.{ .W = true, .B = reg.isExtended() });
+                    try self.code.resize(self.code.items.len + 9);
                     self.code.items[self.code.items.len - 9] = 0xB8 | @as(u8, reg.id() & 0b111);
                     const imm_ptr = self.code.items[self.code.items.len - 8 ..][0..8];
                     mem.writeIntLittle(u64, imm_ptr, x);
@@ -463,12 +481,11 @@ const Function = struct {
                     // but the operation size is unchanged. Since we're using a disp32, we want mode 0 and lower three
                     // bits as five.
                     // REX 0x8D 0b00RRR101, where RRR is the lower three bits of the id.
-                    try self.code.resize(self.code.items.len + 7);
-                    const REX = 0x48 | if (reg.isExtended()) @as(u8, 1) else 0;
+                    try self.REX(.{ .W = true, .B = reg.isExtended() });
+                    try self.code.resize(self.code.items.len + 6);
                     const rip = self.code.items.len;
                     const big_offset = @intCast(i64, code_offset) - @intCast(i64, rip);
                     const offset = @intCast(i32, big_offset);
-                    self.code.items[self.code.items.len - 7] = REX;
                     self.code.items[self.code.items.len - 6] = 0x8D;
                     self.code.items[self.code.items.len - 5] = 0b101 | (@as(u8, reg.id() & 0b111) << 3);
                     const imm_ptr = self.code.items[self.code.items.len - 4 ..][0..4];
@@ -485,9 +502,9 @@ const Function = struct {
                     // If the *source* is extended, the B field must be 1.
                     // Since the register is being accessed directly, the R/M mode is three. The reg field (the middle
                     // three bits) contain the destination, and the R/M field (the lower three bits) contain the source.
-                    const REX = 0x48 | (if (reg.isExtended()) @as(u8, 4) else 0) | (if (src_reg.isExtended()) @as(u8, 1) else 0);
-                    const R = 0xC0 | (@as(u8, reg.id() & 0b111) << 3) | @truncate(u3, src_reg.id());
-                    try self.code.appendSlice(&[_]u8{ REX, 0x8B, R });
+                    try self.REX(.{ .W = true, .R = reg.isExtended(), .B = src_reg.isExtended() });
+                    const R = 0xC0 | (@as(u8, reg.id() & 0b111) << 3) | @as(u8, src_reg.id() & 0b111);
+                    try self.code.appendSlice(&[_]u8{ 0x8B, R });
                 },
                 .memory => |x| {
                     if (reg.size() != 64) {
@@ -501,10 +518,9 @@ const Function = struct {
                         // The SIB must be 0x25, to indicate a disp32 with no scaled index.
                         // 0b00RRR100, where RRR is the lower three bits of the register ID.
                         // The instruction is thus eight bytes; REX 0x8B 0b00RRR100 0x25 followed by a four-byte disp32.
-                        try self.code.resize(self.code.items.len + 8);
-                        const REX = 0x48 | if (reg.isExtended()) @as(u8, 1) else 0;
+                        try self.REX(.{ .W = true, .B = reg.isExtended() });
+                        try self.code.resize(self.code.items.len + 7);
                         const r = 0x04 | (@as(u8, reg.id() & 0b111) << 3);
-                        self.code.items[self.code.items.len - 8] = REX;
                         self.code.items[self.code.items.len - 7] = 0x8B;
                         self.code.items[self.code.items.len - 6] = r;
                         self.code.items[self.code.items.len - 5] = 0x25;
@@ -546,9 +562,9 @@ const Function = struct {
                             //
                             // Furthermore, if this is an extended register, both B and R must be set in the REX byte, as *both*
                             // register operands need to be marked as extended.
-                            const REX = 0x48 | if (reg.isExtended()) @as(u8, 0b0101) else 0;
+                            try self.REX(.{ .W = true, .B = reg.isExtended(), .R = reg.isExtended() });
                             const RM = (@as(u8, reg.id() & 0b111) << 3) | @truncate(u3, reg.id());
-                            try self.code.appendSlice(&[_]u8{ REX, 0x8B, RM });
+                            try self.code.appendSlice(&[_]u8{ 0x8B, RM });
                         }
                     }
                 },
