@@ -673,6 +673,7 @@ pub fn openSelfDebugInfo(allocator: *mem.Allocator) anyerror!DebugInfo {
 /// This takes ownership of coff_file: users of this function should not close
 /// it themselves, even on error.
 /// TODO resources https://github.com/ziglang/zig/issues/4353
+/// TODO it's weird to take ownership even on error, rework this code.
 fn readCoffDebugInfo(allocator: *mem.Allocator, coff_file: File) !ModuleDebugInfo {
     nosuspend {
         errdefer coff_file.close();
@@ -855,6 +856,7 @@ fn chopSlice(ptr: []const u8, offset: u64, size: u64) ![]const u8 {
 /// This takes ownership of elf_file: users of this function should not close
 /// it themselves, even on error.
 /// TODO resources https://github.com/ziglang/zig/issues/4353
+/// TODO it's weird to take ownership even on error, rework this code.
 pub fn readElfDebugInfo(allocator: *mem.Allocator, elf_file: File) !ModuleDebugInfo {
     nosuspend {
         const mapped_mem = try mapWholeFile(elf_file);
@@ -926,6 +928,7 @@ pub fn readElfDebugInfo(allocator: *mem.Allocator, elf_file: File) !ModuleDebugI
 /// TODO resources https://github.com/ziglang/zig/issues/4353
 /// This takes ownership of coff_file: users of this function should not close
 /// it themselves, even on error.
+/// TODO it's weird to take ownership even on error, rework this code.
 fn readMachODebugInfo(allocator: *mem.Allocator, macho_file: File) !ModuleDebugInfo {
     const mapped_mem = try mapWholeFile(macho_file);
 
@@ -1060,6 +1063,9 @@ const MachoSymbol = struct {
     }
 };
 
+/// `file` is expected to have been opened with .intended_io_mode == .blocking.
+/// Takes ownership of file, even on error.
+/// TODO it's weird to take ownership even on error, rework this code.
 fn mapWholeFile(file: File) ![]align(mem.page_size) const u8 {
     nosuspend {
         defer file.close();
@@ -1144,7 +1150,7 @@ pub const DebugInfo = struct {
                     errdefer self.allocator.destroy(obj_di);
 
                     const macho_path = mem.spanZ(std.c._dyld_get_image_name(i));
-                    const macho_file = fs.cwd().openFile(macho_path, .{ .always_blocking = true }) catch |err| switch (err) {
+                    const macho_file = fs.cwd().openFile(macho_path, .{ .intended_io_mode = .blocking }) catch |err| switch (err) {
                         error.FileNotFound => return error.MissingDebugInfo,
                         else => return err,
                     };
@@ -1290,9 +1296,9 @@ pub const DebugInfo = struct {
         errdefer self.allocator.destroy(obj_di);
 
         const elf_file = (if (ctx.name.len > 0)
-            fs.cwd().openFile(ctx.name, .{ .always_blocking = true })
+            fs.cwd().openFile(ctx.name, .{ .intended_io_mode = .blocking })
         else
-            fs.openSelfExe(.{ .always_blocking = true })) catch |err| switch (err) {
+            fs.openSelfExe(.{ .intended_io_mode = .blocking })) catch |err| switch (err) {
             error.FileNotFound => return error.MissingDebugInfo,
             else => return err,
         };
@@ -1333,7 +1339,7 @@ pub const ModuleDebugInfo = switch (builtin.os.tag) {
         }
 
         fn loadOFile(self: *@This(), o_file_path: []const u8) !DW.DwarfInfo {
-            const o_file = try fs.cwd().openFile(o_file_path, .{ .always_blocking = true });
+            const o_file = try fs.cwd().openFile(o_file_path, .{ .intended_io_mode = .blocking });
             const mapped_mem = try mapWholeFile(o_file);
 
             const hdr = @ptrCast(

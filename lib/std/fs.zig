@@ -1323,7 +1323,7 @@ pub const Dir = struct {
             var cleanup_dir = true;
             defer if (cleanup_dir) dir.close();
 
-            // Likely valid use of MAX_PATH_BYTES, as dir_name_buf will only
+            // Valid use of MAX_PATH_BYTES because dir_name_buf will only
             // ever store a single path component that was returned from the
             // filesystem.
             var dir_name_buf: [MAX_PATH_BYTES]u8 = undefined;
@@ -1785,14 +1785,14 @@ pub fn openSelfExe(flags: File.OpenFlags) OpenSelfExeError!File {
     if (builtin.os.tag == .windows) {
         const wide_slice = selfExePathW();
         const prefixed_path_w = try os.windows.wToPrefixedFileW(wide_slice);
-        return cwd().openFileW(prefix_path_w.span(), flags);
+        return cwd().openFileW(prefixed_path_w.span(), flags);
     }
     // Use of MAX_PATH_BYTES here is valid as the resulting path is immediately
     // opened with no modification.
     var buf: [MAX_PATH_BYTES]u8 = undefined;
     const self_exe_path = try selfExePath(&buf);
     buf[self_exe_path.len] = 0;
-    return openFileAbsoluteZ(self_exe_path[0..self_exe_path.len :0].ptr, flags);
+    return openFileAbsoluteZ(buf[0..self_exe_path.len :0].ptr, flags);
 }
 
 pub const SelfExePathError = os.ReadLinkError || os.SysCtlError;

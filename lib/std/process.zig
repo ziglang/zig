@@ -31,7 +31,7 @@ pub fn getCwdAlloc(allocator: *Allocator) ![]u8 {
     while (true) {
         if (os.getcwd(current_buf)) |slice| {
             return mem.dupe(allocator, u8, slice);
-        } else |err| switch(err) {
+        } else |err| switch (err) {
             error.NameTooLong => {
                 // The path is too long to fit in stack_buf. Allocate geometrically
                 // increasing buffers until we find one that works
@@ -40,7 +40,7 @@ pub fn getCwdAlloc(allocator: *Allocator) ![]u8 {
                 current_buf = try allocator.alloc(u8, new_capacity);
                 heap_buf = current_buf;
             },
-            else => return err,
+            else => |e| return e,
         }
     }
 }
