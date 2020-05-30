@@ -454,19 +454,17 @@ pub fn getAddressList(allocator: *mem.Allocator, name: []const u8, port: u16) !*
         const rc = sys.getaddrinfo(name_c.ptr, @ptrCast([*:0]const u8, port_c.ptr), &hints, &res);
         if (builtin.os.tag == .windows) {
             const ws2_32 = os.windows.ws2_32;
-            switch (rc) {
-                0 => {},
-                @enumToInt(ws2_32.WinsockError.WSATRY_AGAIN) => return error.TemporaryNameServerFailure,
-                @enumToInt(ws2_32.WinsockError.WSANO_RECOVERY) => return error.NameServerFailure,
-                @enumToInt(ws2_32.WinsockError.WSAEAFNOSUPPORT) => return error.AddressFamilyNotSupported,
-                @enumToInt(ws2_32.WinsockError.WSA_NOT_ENOUGH_MEMORY) => return error.OutOfMemory,
-                @enumToInt(ws2_32.WinsockError.WSAHOST_NOT_FOUND) => return error.UnknownHostName,
-                @enumToInt(ws2_32.WinsockError.WSATYPE_NOT_FOUND) => return error.ServiceUnavailable,
-                @enumToInt(ws2_32.WinsockError.WSAEINVAL) => unreachable,
-                @enumToInt(ws2_32.WinsockError.WSAESOCKTNOSUPPORT) => unreachable,
-                else => |err| return os.windows.unexpectedWSAError(
-                    std.meta.intToEnum(ws2_32.WinsockError, err) catch unreachable),
-            }
+            if (rc != 0) switch (@intToEnum(os.windows.ws2_32.WinsockError, @intCast(u16, rc))) {
+                .WSATRY_AGAIN => return error.TemporaryNameServerFailure,
+                .WSANO_RECOVERY => return error.NameServerFailure,
+                .WSAEAFNOSUPPORT => return error.AddressFamilyNotSupported,
+                .WSA_NOT_ENOUGH_MEMORY => return error.OutOfMemory,
+                .WSAHOST_NOT_FOUND => return error.UnknownHostName,
+                .WSATYPE_NOT_FOUND => return error.ServiceUnavailable,
+                .WSAEINVAL => unreachable,
+                .WSAESOCKTNOSUPPORT => unreachable,
+                else => |err| return os.windows.unexpectedWSAError(err),
+            };
         } else {
             switch (rc) {
                 @intToEnum(sys.EAI, 0) => {},
