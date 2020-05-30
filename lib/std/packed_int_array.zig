@@ -322,7 +322,7 @@ test "PackedIntArray" {
     const int_count = 19;
 
     comptime var bits = 0;
-    inline while (bits <= 256) : (bits += 1) {
+    inline while (bits <= max_bits) : (bits += 1) {
         //alternate unsigned and signed
         const even = bits % 2 == 0;
         const I = std.meta.Int(even, bits);
@@ -372,7 +372,7 @@ test "PackedIntSlice" {
     var buffer: [total_bytes]u8 = undefined;
 
     comptime var bits = 0;
-    inline while (bits <= 256) : (bits += 1) {
+    inline while (bits <= max_bits) : (bits += 1) {
         //alternate unsigned and signed
         const even = bits % 2 == 0;
         const I = std.meta.Int(even, bits);
