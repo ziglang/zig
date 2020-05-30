@@ -82,6 +82,8 @@ fn renderRoot(
     var start_col: usize = 0;
     var decl_i: ast.NodeIndex = 0;
     const root_decls = tree.root_node.decls();
+
+    if (root_decls.len == 0) return;
     while (true) {
         var decl = root_decls[decl_i];
 
