@@ -406,7 +406,8 @@ pub fn tcpConnectToHost(allocator: *mem.Allocator, name: []const u8, port: u16) 
 
 pub fn tcpConnectToAddress(address: Address) !fs.File {
     const nonblock = if (std.io.is_async) os.SOCK_NONBLOCK else 0;
-    const sock_flags = os.SOCK_STREAM | os.SOCK_CLOEXEC | nonblock;
+    const sock_flags = os.SOCK_STREAM | nonblock |
+        (if (builtin.os.tag == .windows) 0 else os.SOCK_CLOEXEC);
     const sockfd = try os.socket(address.any.family, sock_flags, os.IPPROTO_TCP);
     errdefer os.close(sockfd);
     try os.connect(sockfd, &address.any, address.getOsSockLen());
@@ -431,16 +432,16 @@ pub fn getAddressList(allocator: *mem.Allocator, name: []const u8, port: u16) !*
     const arena = &result.arena.allocator;
     errdefer result.arena.deinit();
 
-    if (builtin.link_libc) {
-        const c = std.c;
+    if (builtin.os.tag == .windows or builtin.link_libc) {
         const name_c = try std.cstr.addNullByte(allocator, name);
         defer allocator.free(name_c);
 
         const port_c = try std.fmt.allocPrint(allocator, "{}\x00", .{port});
         defer allocator.free(port_c);
 
+        const sys = if (builtin.os.tag == .windows) os.windows.ws2_32 else os.system;
         const hints = os.addrinfo{
-            .flags = c.AI_NUMERICSERV,
+            .flags = sys.AI_NUMERICSERV,
             .family = os.AF_UNSPEC,
             .socktype = os.SOCK_STREAM,
             .protocol = os.IPPROTO_TCP,
@@ -450,24 +451,42 @@ pub fn getAddressList(allocator: *mem.Allocator, name: []const u8, port: u16) !*
             .next = null,
         };
         var res: *os.addrinfo = undefined;
-        switch (os.system.getaddrinfo(name_c.ptr, @ptrCast([*:0]const u8, port_c.ptr), &hints, &res)) {
-            @intToEnum(os.system.EAI, 0) => {},
-            .ADDRFAMILY => return error.HostLacksNetworkAddresses,
-            .AGAIN => return error.TemporaryNameServerFailure,
-            .BADFLAGS => unreachable, // Invalid hints
-            .FAIL => return error.NameServerFailure,
-            .FAMILY => return error.AddressFamilyNotSupported,
-            .MEMORY => return error.OutOfMemory,
-            .NODATA => return error.HostLacksNetworkAddresses,
-            .NONAME => return error.UnknownHostName,
-            .SERVICE => return error.ServiceUnavailable,
-            .SOCKTYPE => unreachable, // Invalid socket type requested in hints
-            .SYSTEM => switch (os.errno(-1)) {
-                else => |e| return os.unexpectedErrno(e),
-            },
-            else => unreachable,
+        const rc = sys.getaddrinfo(name_c.ptr, @ptrCast([*:0]const u8, port_c.ptr), &hints, &res);
+        if (builtin.os.tag == .windows) {
+            const ws2_32 = os.windows.ws2_32;
+            switch (rc) {
+                0 => {},
+                @enumToInt(ws2_32.WinsockError.WSATRY_AGAIN) => return error.TemporaryNameServerFailure,
+                @enumToInt(ws2_32.WinsockError.WSANO_RECOVERY) => return error.NameServerFailure,
+                @enumToInt(ws2_32.WinsockError.WSAEAFNOSUPPORT) => return error.AddressFamilyNotSupported,
+                @enumToInt(ws2_32.WinsockError.WSA_NOT_ENOUGH_MEMORY) => return error.OutOfMemory,
+                @enumToInt(ws2_32.WinsockError.WSAHOST_NOT_FOUND) => return error.UnknownHostName,
+                @enumToInt(ws2_32.WinsockError.WSATYPE_NOT_FOUND) => return error.ServiceUnavailable,
+                @enumToInt(ws2_32.WinsockError.WSAEINVAL) => unreachable,
+                @enumToInt(ws2_32.WinsockError.WSAESOCKTNOSUPPORT) => unreachable,
+                else => |err| return os.windows.unexpectedWSAError(
+                    std.meta.intToEnum(ws2_32.WinsockError, err) catch unreachable),
+            }
+        } else {
+            switch (rc) {
+                @intToEnum(sys.EAI, 0) => {},
+                .ADDRFAMILY => return error.HostLacksNetworkAddresses,
+                .AGAIN => return error.TemporaryNameServerFailure,
+                .BADFLAGS => unreachable, // Invalid hints
+                .FAIL => return error.NameServerFailure,
+                .FAMILY => return error.AddressFamilyNotSupported,
+                .MEMORY => return error.OutOfMemory,
+                .NODATA => return error.HostLacksNetworkAddresses,
+                .NONAME => return error.UnknownHostName,
+                .SERVICE => return error.ServiceUnavailable,
+                .SOCKTYPE => unreachable, // Invalid socket type requested in hints
+                .SYSTEM => switch (os.errno(-1)) {
+                    else => |e| return os.unexpectedErrno(e),
+                },
+                else => unreachable,
+            }
         }
-        defer os.system.freeaddrinfo(res);
+        defer sys.freeaddrinfo(res);
 
         const addr_count = blk: {
             var count: usize = 0;

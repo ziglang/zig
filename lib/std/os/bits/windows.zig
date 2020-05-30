@@ -177,6 +177,8 @@ pub const sockaddr_un = ws2_32.sockaddr_un;
 pub const in6_addr = [16]u8;
 pub const in_addr = u32;
 
+pub const addrinfo = ws2_32.addrinfo;
+
 pub const AF_UNSPEC = ws2_32.AF_UNSPEC;
 pub const AF_UNIX = ws2_32.AF_UNIX;
 pub const AF_INET = ws2_32.AF_INET;

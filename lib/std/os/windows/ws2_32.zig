@@ -163,9 +163,31 @@ pub const IPPROTO_UDP = 17;
 pub const IPPROTO_ICMPV6 = 58;
 pub const IPPROTO_RM = 113;
 
+pub const AI_PASSIVE                = 0x00001;
+pub const AI_CANONNAME              = 0x00002;
+pub const AI_NUMERICHOST            = 0x00004;
+pub const AI_NUMERICSERV            = 0x00008;
+pub const AI_ADDRCONFIG             = 0x00400;
+pub const AI_V4MAPPED               = 0x00800;
+pub const AI_NON_AUTHORITATIVE      = 0x04000;
+pub const AI_SECURE                 = 0x08000;
+pub const AI_RETURN_PREFERRED_NAMES = 0x10000;
+pub const AI_DISABLE_IDN_ENCODING   = 0x80000;
+
 pub const sockaddr = extern struct {
     family: ADDRESS_FAMILY,
     data: [14]u8,
+};
+
+pub const addrinfo = extern struct {
+    flags: i32,
+    family: i32,
+    socktype: i32,
+    protocol: i32,
+    addrlen: usize,
+    canonname: ?[*:0]u8,
+    addr: ?*sockaddr,
+    next: ?*addrinfo,
 };
 
 /// IPv4 socket address
@@ -702,6 +724,11 @@ pub extern "ws2_32" fn WSAIoctl(
     lpOverlapped: ?*WSAOVERLAPPED,
     lpCompletionRoutine: ?WSAOVERLAPPED_COMPLETION_ROUTINE,
 ) callconv(.Stdcall) c_int;
+pub extern "ws2_32" fn socket(
+    af: c_int,
+    type: c_int,
+    protocol: c_int,
+) callconv(.Stdcall) SOCKET;
 pub extern "ws2_32" fn accept(
     s: SOCKET,
     addr: ?*sockaddr,
@@ -752,3 +779,12 @@ pub extern "ws2_32" fn WSASendTo(
     lpOverlapped: ?*WSAOVERLAPPED,
     lpCompletionRoutine: ?WSAOVERLAPPED_COMPLETION_ROUTINE,
 ) callconv(.Stdcall) c_int;
+pub extern "ws2_32" fn getaddrinfo(
+    pNodeName: [*:0]const u8,
+    pServiceName: [*:0]const u8,
+    pHints: *const addrinfo,
+    ppResult: **addrinfo,
+) callconv(.Stdcall) i32;
+pub extern "ws2_32" fn freeaddrinfo(
+    pAddrInfo: *addrinfo,
+) callconv(.Stdcall) void;

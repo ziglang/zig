@@ -69,6 +69,8 @@ else switch (builtin.os.tag) {
 
 pub usingnamespace @import("os/bits.zig");
 
+pub const socket_t = if (builtin.os.tag == .windows) windows.ws2_32.SOCKET else fd_t;
+
 /// See also `getenv`. Populated by startup code before main().
 /// TODO this is a footgun because the value will be undefined when using `zig build-lib`.
 /// https://github.com/ziglang/zig/issues/4524
@@ -2443,7 +2445,21 @@ pub const SocketError = error{
     SocketTypeNotSupported,
 } || UnexpectedError;
 
-pub fn socket(domain: u32, socket_type: u32, protocol: u32) SocketError!fd_t {
+pub fn socket(domain: u32, socket_type: u32, protocol: u32) SocketError!socket_t {
+    if (builtin.os.tag == .windows) {
+        // NOTE: cannot remove SOCK_NONBLOCK and SOCK_CLOEXEC from socket_type because
+        //       windows does not define this flags yet
+        const rc = windows.ws2_32.socket(@intCast(c_int, domain), @intCast(c_int, socket_type), @intCast(c_int, protocol));
+        if (rc != windows.ws2_32.INVALID_SOCKET) return rc;
+        switch (windows.ws2_32.WSAGetLastError()) {
+            .WSAEMFILE => return error.ProcessFdQuotaExceeded,
+            .WSAENOBUFS => return error.SystemResources,
+            .WSAEAFNOSUPPORT => return error.AddressFamilyNotSupported,
+            .WSAEPROTONOSUPPORT => return error.ProtocolNotSupported,
+            else => |err| return windows.unexpectedWSAError(err),
+        }
+    }
+
     const have_sock_flags = comptime !std.Target.current.isDarwin();
     const filtered_sock_type = if (!have_sock_flags)
         socket_type & ~@as(u32, SOCK_NONBLOCK | SOCK_CLOEXEC)
@@ -2818,7 +2834,29 @@ pub const ConnectError = error{
 } || UnexpectedError;
 
 /// Initiate a connection on a socket.
-pub fn connect(sockfd: fd_t, sock_addr: *const sockaddr, len: socklen_t) ConnectError!void {
+pub fn connect(sockfd: socket_t, sock_addr: *const sockaddr, len: socklen_t) ConnectError!void {
+    if (builtin.os.tag == .windows) {
+        const rc = windows.ws2_32.connect(sockfd, sock_addr, len);
+        if (rc == 0) return;
+        switch (windows.ws2_32.WSAGetLastError()) {
+            .WSAEADDRINUSE => return error.AddressInUse,
+            .WSAEADDRNOTAVAIL => return error.AddressNotAvailable,
+            .WSAECONNREFUSED => return error.ConnectionRefused,
+            .WSAETIMEDOUT => return error.ConnectionTimedOut,
+            .WSAEHOSTUNREACH // TODO: should we return NetworkUnreachable in this case as well?
+            ,.WSAENETUNREACH => return error.NetworkUnreachable,
+            .WSAEFAULT => unreachable,
+            .WSAEINVAL => unreachable,
+            .WSAEISCONN => unreachable,
+            .WSAENOTSOCK => unreachable,
+            .WSAEWOULDBLOCK => unreachable,
+            .WSAEACCES => unreachable,
+            .WSAENOBUFS => return error.SystemResources,
+            .WSAEAFNOSUPPORT => return error.AddressFamilyNotSupported,
+            else => |err| return windows.unexpectedWSAError(err),
+        }
+    }
+
     while (true) {
         switch (errno(system.connect(sockfd, sock_addr, len))) {
             0 => return,
