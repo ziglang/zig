@@ -391,6 +391,7 @@ pub fn GetQueuedCompletionStatus(
             .HANDLE_EOF => return GetQueuedCompletionStatusResult.EOF,
             else => |err| {
                 if (std.debug.runtime_safety) {
+                    @setEvalBranchQuota(2500);
                     std.debug.panic("unexpected error: {}\n", .{err});
                 }
             },
