@@ -18177,18 +18177,18 @@ static IrInstGen *ir_analyze_instruction_merge_err_sets(IrAnalyze *ira,
     if (type_is_invalid(op2_type))
         return ira->codegen->invalid_inst_gen;
 
-    if (type_is_global_error_set(op1_type) ||
-        type_is_global_error_set(op2_type))
-    {
-        return ir_const_type(ira, &instruction->base.base, ira->codegen->builtin_types.entry_global_error_set);
-    }
-
     if (!resolve_inferred_error_set(ira->codegen, op1_type, instruction->op1->child->base.source_node)) {
         return ira->codegen->invalid_inst_gen;
     }
 
     if (!resolve_inferred_error_set(ira->codegen, op2_type, instruction->op2->child->base.source_node)) {
         return ira->codegen->invalid_inst_gen;
+    }
+
+    if (type_is_global_error_set(op1_type) ||
+        type_is_global_error_set(op2_type))
+    {
+        return ir_const_type(ira, &instruction->base.base, ira->codegen->builtin_types.entry_global_error_set);
     }
 
     size_t errors_count = ira->codegen->errors_by_index.length;
