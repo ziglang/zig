@@ -1825,6 +1825,7 @@ enum BuiltinFnId {
     BuiltinFnIdAs,
     BuiltinFnIdCall,
     BuiltinFnIdBitSizeof,
+    BuiltinFnIdWasmMemorySize,
 };
 
 struct BuiltinFnEntry {
@@ -2075,6 +2076,7 @@ struct CodeGen {
     LLVMValueRef err_name_table;
     LLVMValueRef safety_crash_err_fn;
     LLVMValueRef return_err_fn;
+    LLVMValueRef wasm_memory_size;
     LLVMTypeRef anyframe_fn_type;
 
     // reminder: hash tables must be initialized before use
@@ -2748,6 +2750,7 @@ enum IrInstSrcId {
     IrInstSrcIdResume,
     IrInstSrcIdSpillBegin,
     IrInstSrcIdSpillEnd,
+    IrInstSrcIdWasmMemorySize,
 };
 
 // ir_render_* functions in codegen.cpp consume Gen instructions and produce LLVM IR.
@@ -2840,6 +2843,7 @@ enum IrInstGenId {
     IrInstGenIdVectorExtractElem,
     IrInstGenIdAlloca,
     IrInstGenIdConst,
+    IrInstGenIdWasmMemorySize,
 };
 
 // Common fields between IrInstSrc and IrInstGen. This allows future passes
@@ -3725,6 +3729,14 @@ struct IrInstGenMemcpy {
     IrInstGen *dest_ptr;
     IrInstGen *src_ptr;
     IrInstGen *count;
+};
+
+struct IrInstSrcWasmMemorySize {
+  IrInstSrc base;
+};
+
+struct IrInstGenWasmMemorySize {
+  IrInstGen base;
 };
 
 struct IrInstSrcSlice {
