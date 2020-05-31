@@ -2447,17 +2447,29 @@ pub const SocketError = error{
 
 pub fn socket(domain: u32, socket_type: u32, protocol: u32) SocketError!socket_t {
     if (builtin.os.tag == .windows) {
-        // NOTE: cannot remove SOCK_NONBLOCK and SOCK_CLOEXEC from socket_type because
-        //       windows does not define this flags yet
-        const rc = windows.ws2_32.socket(@intCast(c_int, domain), @intCast(c_int, socket_type), @intCast(c_int, protocol));
-        if (rc != windows.ws2_32.INVALID_SOCKET) return rc;
-        switch (windows.ws2_32.WSAGetLastError()) {
+        // NOTE: windows translates the SOCK_NONBLOCK/SOCK_CLOEXEC flags into windows-analagous operations
+        const filtered_sock_type = socket_type & ~@as(u32, SOCK_NONBLOCK | SOCK_CLOEXEC);
+        const flags : u32 = if ((socket_type & SOCK_CLOEXEC) != 0) windows.ws2_32.WSA_FLAG_NO_HANDLE_INHERIT else 0;
+        const rc = windows.ws2_32.WSASocketW(@intCast(c_int, domain), @intCast(c_int, filtered_sock_type),
+            @intCast(c_int, protocol), null, 0, flags);
+        if (rc == windows.ws2_32.INVALID_SOCKET) switch (windows.ws2_32.WSAGetLastError()) {
             .WSAEMFILE => return error.ProcessFdQuotaExceeded,
             .WSAENOBUFS => return error.SystemResources,
             .WSAEAFNOSUPPORT => return error.AddressFamilyNotSupported,
             .WSAEPROTONOSUPPORT => return error.ProtocolNotSupported,
             else => |err| return windows.unexpectedWSAError(err),
+        };
+        errdefer windows.closesocket(rc) catch unreachable;
+        if ((socket_type & SOCK_NONBLOCK) != 0) {
+            var mode : c_ulong = 1; // nonblocking
+            if (windows.ws2_32.SOCKET_ERROR == windows.ws2_32.ioctlsocket(rc, windows.ws2_32.FIONBIO, &mode)) {
+                switch (windows.ws2_32.WSAGetLastError()) {
+                    // have not identified any error codes that should be handled yet
+                    else => unreachable,
+                }
+            }
         }
+        return rc;
     }
 
     const have_sock_flags = comptime !std.Target.current.isDarwin();
@@ -2855,6 +2867,7 @@ pub fn connect(sockfd: socket_t, sock_addr: *const sockaddr, len: socklen_t) Con
             .WSAEAFNOSUPPORT => return error.AddressFamilyNotSupported,
             else => |err| return windows.unexpectedWSAError(err),
         }
+        return;
     }
 
     while (true) {

@@ -174,6 +174,8 @@ pub const AI_SECURE                 = 0x08000;
 pub const AI_RETURN_PREFERRED_NAMES = 0x10000;
 pub const AI_DISABLE_IDN_ENCODING   = 0x80000;
 
+pub const FIONBIO = -2147195266;
+
 pub const sockaddr = extern struct {
     family: ADDRESS_FAMILY,
     data: [14]u8,
@@ -724,11 +726,6 @@ pub extern "ws2_32" fn WSAIoctl(
     lpOverlapped: ?*WSAOVERLAPPED,
     lpCompletionRoutine: ?WSAOVERLAPPED_COMPLETION_ROUTINE,
 ) callconv(.Stdcall) c_int;
-pub extern "ws2_32" fn socket(
-    af: c_int,
-    type: c_int,
-    protocol: c_int,
-) callconv(.Stdcall) SOCKET;
 pub extern "ws2_32" fn accept(
     s: SOCKET,
     addr: ?*sockaddr,
@@ -788,3 +785,8 @@ pub extern "ws2_32" fn getaddrinfo(
 pub extern "ws2_32" fn freeaddrinfo(
     pAddrInfo: *addrinfo,
 ) callconv(.Stdcall) void;
+pub extern "ws2_32" fn ioctlsocket(
+    s: SOCKET,
+    cmd: c_long,
+    argp: *c_ulong,
+) callconv(.Stdcall) c_int;

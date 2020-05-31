@@ -452,37 +452,33 @@ pub fn getAddressList(allocator: *mem.Allocator, name: []const u8, port: u16) !*
         };
         var res: *os.addrinfo = undefined;
         const rc = sys.getaddrinfo(name_c.ptr, @ptrCast([*:0]const u8, port_c.ptr), &hints, &res);
-        if (builtin.os.tag == .windows) {
-            const ws2_32 = os.windows.ws2_32;
-            if (rc != 0) switch (@intToEnum(os.windows.ws2_32.WinsockError, @intCast(u16, rc))) {
-                .WSATRY_AGAIN => return error.TemporaryNameServerFailure,
-                .WSANO_RECOVERY => return error.NameServerFailure,
-                .WSAEAFNOSUPPORT => return error.AddressFamilyNotSupported,
-                .WSA_NOT_ENOUGH_MEMORY => return error.OutOfMemory,
-                .WSAHOST_NOT_FOUND => return error.UnknownHostName,
-                .WSATYPE_NOT_FOUND => return error.ServiceUnavailable,
-                .WSAEINVAL => unreachable,
-                .WSAESOCKTNOSUPPORT => unreachable,
-                else => |err| return os.windows.unexpectedWSAError(err),
-            };
-        } else {
-            switch (rc) {
-                @intToEnum(sys.EAI, 0) => {},
-                .ADDRFAMILY => return error.HostLacksNetworkAddresses,
-                .AGAIN => return error.TemporaryNameServerFailure,
-                .BADFLAGS => unreachable, // Invalid hints
-                .FAIL => return error.NameServerFailure,
-                .FAMILY => return error.AddressFamilyNotSupported,
-                .MEMORY => return error.OutOfMemory,
-                .NODATA => return error.HostLacksNetworkAddresses,
-                .NONAME => return error.UnknownHostName,
-                .SERVICE => return error.ServiceUnavailable,
-                .SOCKTYPE => unreachable, // Invalid socket type requested in hints
-                .SYSTEM => switch (os.errno(-1)) {
-                    else => |e| return os.unexpectedErrno(e),
-                },
-                else => unreachable,
-            }
+        if (builtin.os.tag == .windows) switch (@intToEnum(os.windows.ws2_32.WinsockError, @intCast(u16, rc))) {
+            @intToEnum(os.windows.ws2_32.WinsockError, 0) => {},
+            .WSATRY_AGAIN => return error.TemporaryNameServerFailure,
+            .WSANO_RECOVERY => return error.NameServerFailure,
+            .WSAEAFNOSUPPORT => return error.AddressFamilyNotSupported,
+            .WSA_NOT_ENOUGH_MEMORY => return error.OutOfMemory,
+            .WSAHOST_NOT_FOUND => return error.UnknownHostName,
+            .WSATYPE_NOT_FOUND => return error.ServiceUnavailable,
+            .WSAEINVAL => unreachable,
+            .WSAESOCKTNOSUPPORT => unreachable,
+            else => |err| return os.windows.unexpectedWSAError(err),
+        } else switch (rc) {
+            @intToEnum(sys.EAI, 0) => {},
+            .ADDRFAMILY => return error.HostLacksNetworkAddresses,
+            .AGAIN => return error.TemporaryNameServerFailure,
+            .BADFLAGS => unreachable, // Invalid hints
+            .FAIL => return error.NameServerFailure,
+            .FAMILY => return error.AddressFamilyNotSupported,
+            .MEMORY => return error.OutOfMemory,
+            .NODATA => return error.HostLacksNetworkAddresses,
+            .NONAME => return error.UnknownHostName,
+            .SERVICE => return error.ServiceUnavailable,
+            .SOCKTYPE => unreachable, // Invalid socket type requested in hints
+            .SYSTEM => switch (os.errno(-1)) {
+                else => |e| return os.unexpectedErrno(e),
+            },
+            else => unreachable,
         }
         defer sys.freeaddrinfo(res);
 
