@@ -1045,6 +1045,19 @@ static void gen_assertion(CodeGen *g, PanicMsgId msg_id, IrInstGen *source_instr
     return gen_assertion_scope(g, msg_id, source_instruction->base.scope);
 }
 
+static LLVMValueRef gen_wasm_memory_size(CodeGen *g) {
+    if (g->wasm_memory_size)
+      return g->wasm_memory_size;
+
+    // declare i32 @llvm.wasm.memory.size.i32(i32) nounwind readonly
+    LLVMTypeRef param_type = LLVMInt32Type();
+    LLVMTypeRef fn_type = LLVMFunctionType(LLVMInt32Type(), &param_type, 1, false);
+    g->wasm_memory_size = LLVMAddFunction(g->module, "llvm.wasm.memory.size.i32", fn_type);
+    assert(LLVMGetIntrinsicID(g->wasm_memory_size));
+
+    return g->wasm_memory_size;
+}
+
 static LLVMValueRef get_stacksave_fn_val(CodeGen *g) {
     if (g->stacksave_fn_val)
         return g->stacksave_fn_val;
@@ -5588,6 +5601,17 @@ static LLVMValueRef ir_render_memcpy(CodeGen *g, IrExecutableGen *executable, Ir
     return nullptr;
 }
 
+static LLVMValueRef ir_render_wasm_memory_size(CodeGen *g, IrExecutableGen *executable, IrInstGenWasmMemorySize *instruction) {
+    // When Wasm lands multi-memory support, we can relax this to permit the user specify
+    // memory index to inquire about. For now, we pass in the recommended default of index 0.
+    //
+    // More info:
+    // https://github.com/sunfishcode/wasm-reference-manual/blob/master/WebAssembly.md#current-linear-memory-size
+    LLVMValueRef zero = LLVMConstNull(g->builtin_types.entry_i32->llvm_type);
+    LLVMValueRef val = LLVMBuildCall(g->builder, gen_wasm_memory_size(g), &zero, 1, "");
+    return val;
+}
+
 static LLVMValueRef ir_render_slice(CodeGen *g, IrExecutableGen *executable, IrInstGenSlice *instruction) {
     Error err;
 
@@ -6798,6 +6822,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutableGen *executabl
             return ir_render_splat(g, executable, (IrInstGenSplat *) instruction);
         case IrInstGenIdVectorExtractElem:
             return ir_render_vector_extract_elem(g, executable, (IrInstGenVectorExtractElem *) instruction);
+        case IrInstGenIdWasmMemorySize:
+            return ir_render_wasm_memory_size(g, executable, (IrInstGenWasmMemorySize *) instruction);
     }
     zig_unreachable();
 }
@@ -8660,6 +8686,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdAs, "as", 2);
     create_builtin_fn(g, BuiltinFnIdCall, "call", 3);
     create_builtin_fn(g, BuiltinFnIdBitSizeof, "bitSizeOf", 1);
+    create_builtin_fn(g, BuiltinFnIdWasmMemorySize, "wasmMemorySize", 0);
 }
 
 static const char *bool_to_str(bool b) {
