@@ -223,6 +223,12 @@ test "recovery: missing block after for/while loops" {
     });
 }
 
+test "zig fmt: empty file" {
+    try testCanonical(
+        \\
+    );
+}
+
 test "zig fmt: if statment" {
     try testCanonical(
         \\test "" {
