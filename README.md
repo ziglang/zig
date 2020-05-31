@@ -44,7 +44,7 @@ Note that you can
 
 ##### POSIX
 
-```
+```shell
 mkdir build
 cd build
 cmake ..
@@ -53,7 +53,7 @@ make install
 
 ##### MacOS
 
-```
+```shell
 brew install cmake llvm
 brew outdated llvm || brew upgrade llvm
 mkdir build
