@@ -14096,7 +14096,8 @@ static IrInstGen *ir_analyze_enum_to_int(IrAnalyze *ira, IrInst *source_instr, I
 
     // If there is only one possible tag, then we know at comptime what it is.
     if (enum_type->data.enumeration.layout == ContainerLayoutAuto &&
-        enum_type->data.enumeration.src_field_count == 1)
+        enum_type->data.enumeration.src_field_count == 1 &&
+        !enum_type->data.enumeration.non_exhaustive)
     {
         IrInstGen *result = ir_const(ira, source_instr, tag_type);
         init_const_bigint(result->value, tag_type,
@@ -14136,7 +14137,8 @@ static IrInstGen *ir_analyze_union_to_tag(IrAnalyze *ira, IrInst* source_instr,
 
     // If there is only 1 possible tag, then we know at comptime what it is.
     if (wanted_type->data.enumeration.layout == ContainerLayoutAuto &&
-        wanted_type->data.enumeration.src_field_count == 1)
+        wanted_type->data.enumeration.src_field_count == 1 &&
+        !wanted_type->data.enumeration.non_exhaustive) // TODO are non-exhaustive union tag types supposed to be allowed?
     {
         IrInstGen *result = ir_const(ira, source_instr, wanted_type);
         result->value->special = ConstValSpecialStatic;
@@ -23814,7 +23816,8 @@ static IrInstGen *ir_analyze_instruction_switch_target(IrAnalyze *ira,
                 bigint_init_bigint(&result->value->data.x_enum_tag, &pointee_val->data.x_union.tag);
                 return result;
             }
-            if (tag_type->data.enumeration.src_field_count == 1) {
+            // TODO are non-exhaustive union tag types supposed to be allowed?
+            if (tag_type->data.enumeration.src_field_count == 1 && !tag_type->data.enumeration.non_exhaustive) {
                 IrInstGen *result = ir_const(ira, &switch_target_instruction->base.base, tag_type);
                 TypeEnumField *only_field = &tag_type->data.enumeration.fields[0];
                 bigint_init_bigint(&result->value->data.x_enum_tag, &only_field->value);
@@ -23829,7 +23832,7 @@ static IrInstGen *ir_analyze_instruction_switch_target(IrAnalyze *ira,
         case ZigTypeIdEnum: {
             if ((err = type_resolve(ira->codegen, target_type, ResolveStatusZeroBitsKnown)))
                 return ira->codegen->invalid_inst_gen;
-            if (target_type->data.enumeration.src_field_count == 1) {
+            if (target_type->data.enumeration.src_field_count == 1 && !target_type->data.enumeration.non_exhaustive) {
                 TypeEnumField *only_field = &target_type->data.enumeration.fields[0];
                 IrInstGen *result = ir_const(ira, &switch_target_instruction->base.base, target_type);
                 bigint_init_bigint(&result->value->data.x_enum_tag, &only_field->value);
