@@ -68,7 +68,10 @@ test "parse and render IPv4 addresses" {
 }
 
 test "resolve DNS" {
-    if (builtin.os.tag == .windows or builtin.os.tag == .wasi) {
+    if (std.builtin.os.tag == .windows) {
+        _ = try std.os.windows.WSAStartup(2, 2);
+    }
+    if (builtin.os.tag == .wasi) {
         // DNS resolution not implemented on Windows yet.
         return error.SkipZigTest;
     }

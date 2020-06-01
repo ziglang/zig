@@ -177,6 +177,8 @@ pub const sockaddr_un = ws2_32.sockaddr_un;
 pub const in6_addr = [16]u8;
 pub const in_addr = u32;
 
+pub const addrinfo = ws2_32.addrinfo;
+
 pub const AF_UNSPEC = ws2_32.AF_UNSPEC;
 pub const AF_UNIX = ws2_32.AF_UNIX;
 pub const AF_INET = ws2_32.AF_INET;
@@ -218,6 +220,15 @@ pub const SOCK_DGRAM = ws2_32.SOCK_DGRAM;
 pub const SOCK_RAW = ws2_32.SOCK_RAW;
 pub const SOCK_RDM = ws2_32.SOCK_RDM;
 pub const SOCK_SEQPACKET = ws2_32.SOCK_SEQPACKET;
+
+/// WARNING: this flag is not supported by windows socket functions directly,
+///          it is only supported by std.os.socket. Be sure that this value does
+///          not share any bits with any of the SOCK_* values.
+pub const SOCK_CLOEXEC = 0x10000;
+/// WARNING: this flag is not supported by windows socket functions directly,
+///          it is only supported by std.os.socket. Be sure that this value does
+///          not share any bits with any of the SOCK_* values.
+pub const SOCK_NONBLOCK = 0x20000;
 
 pub const IPPROTO_ICMP = ws2_32.IPPROTO_ICMP;
 pub const IPPROTO_IGMP = ws2_32.IPPROTO_IGMP;
