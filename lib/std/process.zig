@@ -15,14 +15,34 @@ pub const changeCurDir = os.chdir;
 pub const changeCurDirC = os.chdirC;
 
 /// The result is a slice of `out_buffer`, from index `0`.
-pub fn getCwd(out_buffer: *[fs.MAX_PATH_BYTES]u8) ![]u8 {
+pub fn getCwd(out_buffer: []u8) ![]u8 {
     return os.getcwd(out_buffer);
 }
 
 /// Caller must free the returned memory.
 pub fn getCwdAlloc(allocator: *Allocator) ![]u8 {
-    var buf: [fs.MAX_PATH_BYTES]u8 = undefined;
-    return mem.dupe(allocator, u8, try os.getcwd(&buf));
+    // The use of MAX_PATH_BYTES here is just a heuristic: most paths will fit
+    // in stack_buf, avoiding an extra allocation in the common case.
+    var stack_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+    var heap_buf: ?[]u8 = null;
+    defer if (heap_buf) |buf| allocator.free(buf);
+
+    var current_buf: []u8 = &stack_buf;
+    while (true) {
+        if (os.getcwd(current_buf)) |slice| {
+            return mem.dupe(allocator, u8, slice);
+        } else |err| switch (err) {
+            error.NameTooLong => {
+                // The path is too long to fit in stack_buf. Allocate geometrically
+                // increasing buffers until we find one that works
+                const new_capacity = current_buf.len * 2;
+                if (heap_buf) |buf| allocator.free(buf);
+                current_buf = try allocator.alloc(u8, new_capacity);
+                heap_buf = current_buf;
+            },
+            else => |e| return e,
+        }
+    }
 }
 
 test "getCwdAlloc" {
@@ -185,6 +205,79 @@ pub const ArgIteratorPosix = struct {
     }
 };
 
+pub const ArgIteratorWasi = struct {
+    allocator: *mem.Allocator,
+    index: usize,
+    args: [][]u8,
+
+    pub const InitError = error{OutOfMemory} || os.UnexpectedError;
+
+    /// You must call deinit to free the internal buffer of the
+    /// iterator after you are done.
+    pub fn init(allocator: *mem.Allocator) InitError!ArgIteratorWasi {
+        const fetched_args = try ArgIteratorWasi.internalInit(allocator);
+        return ArgIteratorWasi{
+            .allocator = allocator,
+            .index = 0,
+            .args = fetched_args,
+        };
+    }
+
+    fn internalInit(allocator: *mem.Allocator) InitError![][]u8 {
+        const w = os.wasi;
+        var count: usize = undefined;
+        var buf_size: usize = undefined;
+
+        switch (w.args_sizes_get(&count, &buf_size)) {
+            w.ESUCCESS => {},
+            else => |err| return os.unexpectedErrno(err),
+        }
+
+        var argv = try allocator.alloc([*:0]u8, count);
+        defer allocator.free(argv);
+
+        var argv_buf = try allocator.alloc(u8, buf_size);
+
+        switch (w.args_get(argv.ptr, argv_buf.ptr)) {
+            w.ESUCCESS => {},
+            else => |err| return os.unexpectedErrno(err),
+        }
+
+        var result_args = try allocator.alloc([]u8, count);
+        var i: usize = 0;
+        while (i < count) : (i += 1) {
+            result_args[i] = mem.spanZ(argv[i]);
+        }
+
+        return result_args;
+    }
+
+    pub fn next(self: *ArgIteratorWasi) ?[]const u8 {
+        if (self.index == self.args.len) return null;
+
+        const arg = self.args[self.index];
+        self.index += 1;
+        return arg;
+    }
+
+    pub fn skip(self: *ArgIteratorWasi) bool {
+        if (self.index == self.args.len) return false;
+
+        self.index += 1;
+        return true;
+    }
+
+    /// Call to free the internal buffer of the iterator.
+    pub fn deinit(self: *ArgIteratorWasi) void {
+        const last_item = self.args[self.args.len - 1];
+        const last_byte_addr = @ptrToInt(last_item.ptr) + last_item.len + 1; // null terminated
+        const first_item_ptr = self.args[0].ptr;
+        const len = last_byte_addr - @ptrToInt(first_item_ptr);
+        self.allocator.free(first_item_ptr[0..len]);
+        self.allocator.free(self.args);
+    }
+};
+
 pub const ArgIteratorWindows = struct {
     index: usize,
     cmd_line: [*]const u8,
@@ -335,14 +428,29 @@ pub const ArgIteratorWindows = struct {
 };
 
 pub const ArgIterator = struct {
-    const InnerType = if (builtin.os.tag == .windows) ArgIteratorWindows else ArgIteratorPosix;
+    const InnerType = switch (builtin.os.tag) {
+        .windows => ArgIteratorWindows,
+        .wasi => ArgIteratorWasi,
+        else => ArgIteratorPosix,
+    };
 
     inner: InnerType,
 
+    /// Initialize the args iterator.
     pub fn init() ArgIterator {
         if (builtin.os.tag == .wasi) {
-            // TODO: Figure out a compatible interface accomodating WASI
-            @compileError("ArgIterator is not yet supported in WASI. Use argsAlloc and argsFree instead.");
+            @compileError("In WASI, use initWithAllocator instead.");
+        }
+
+        return ArgIterator{ .inner = InnerType.init() };
+    }
+
+    pub const InitError = ArgIteratorWasi.InitError;
+
+    /// You must deinitialize iterator's internal buffers by calling `deinit` when done.
+    pub fn initWithAllocator(allocator: *mem.Allocator) InitError!ArgIterator {
+        if (builtin.os.tag == .wasi) {
+            return ArgIterator{ .inner = try InnerType.init(allocator) };
         }
 
         return ArgIterator{ .inner = InnerType.init() };
@@ -364,10 +472,24 @@ pub const ArgIterator = struct {
         return self.inner.next();
     }
 
+    /// If you only are targeting WASI, you can call this and not need an allocator.
+    pub fn nextWasi(self: *ArgIterator) ?[]const u8 {
+        return self.inner.next();
+    }
+
     /// Parse past 1 argument without capturing it.
     /// Returns `true` if skipped an arg, `false` if we are at the end.
     pub fn skip(self: *ArgIterator) bool {
         return self.inner.skip();
+    }
+
+    /// Call this to free the iterator's internal buffer if the iterator
+    /// was created with `initWithAllocator` function.
+    pub fn deinit(self: *ArgIterator) void {
+        // Unless we're targeting WASI, this is a no-op.
+        if (builtin.os.tag == .wasi) {
+            self.inner.deinit();
+        }
     }
 };
 
@@ -375,38 +497,37 @@ pub fn args() ArgIterator {
     return ArgIterator.init();
 }
 
+/// You must deinitialize iterator's internal buffers by calling `deinit` when done.
+pub fn argsWithAllocator(allocator: *mem.Allocator) ArgIterator.InitError!ArgIterator {
+    return ArgIterator.initWithAllocator(allocator);
+}
+
+test "args iterator" {
+    var ga = std.testing.allocator;
+    var it = if (builtin.os.tag == .wasi) try argsWithAllocator(ga) else args();
+    defer it.deinit(); // no-op unless WASI
+
+    const prog_name = try it.next(ga) orelse unreachable;
+    defer ga.free(prog_name);
+
+    const expected_suffix = switch (builtin.os.tag) {
+        .wasi => "test.wasm",
+        .windows => "test.exe",
+        else => "test",
+    };
+    const given_suffix = std.fs.path.basename(prog_name);
+
+    testing.expect(mem.eql(u8, expected_suffix, given_suffix));
+    testing.expectEqual(it.next(ga), null);
+    testing.expect(!it.skip());
+}
+
 /// Caller must call argsFree on result.
 pub fn argsAlloc(allocator: *mem.Allocator) ![][]u8 {
-    if (builtin.os.tag == .wasi) {
-        var count: usize = undefined;
-        var buf_size: usize = undefined;
-
-        const args_sizes_get_ret = os.wasi.args_sizes_get(&count, &buf_size);
-        if (args_sizes_get_ret != os.wasi.ESUCCESS) {
-            return os.unexpectedErrno(args_sizes_get_ret);
-        }
-
-        var argv = try allocator.alloc([*:0]u8, count);
-        defer allocator.free(argv);
-
-        var argv_buf = try allocator.alloc(u8, buf_size);
-        const args_get_ret = os.wasi.args_get(argv.ptr, argv_buf.ptr);
-        if (args_get_ret != os.wasi.ESUCCESS) {
-            return os.unexpectedErrno(args_get_ret);
-        }
-
-        var result_slice = try allocator.alloc([]u8, count);
-
-        var i: usize = 0;
-        while (i < count) : (i += 1) {
-            result_slice[i] = mem.spanZ(argv[i]);
-        }
-
-        return result_slice;
-    }
-
     // TODO refactor to only make 1 allocation.
-    var it = args();
+    var it = if (builtin.os.tag == .wasi) try argsWithAllocator(allocator) else args();
+    defer it.deinit();
+
     var contents = std.ArrayList(u8).init(allocator);
     defer contents.deinit();
 
@@ -442,16 +563,6 @@ pub fn argsAlloc(allocator: *mem.Allocator) ![][]u8 {
 }
 
 pub fn argsFree(allocator: *mem.Allocator, args_alloc: []const []u8) void {
-    if (builtin.os.tag == .wasi) {
-        const last_item = args_alloc[args_alloc.len - 1];
-        const last_byte_addr = @ptrToInt(last_item.ptr) + last_item.len + 1; // null terminated
-        const first_item_ptr = args_alloc[0].ptr;
-        const len = last_byte_addr - @ptrToInt(first_item_ptr);
-        allocator.free(first_item_ptr[0..len]);
-
-        return allocator.free(args_alloc);
-    }
-
     var total_bytes: usize = 0;
     for (args_alloc) |arg| {
         total_bytes += @sizeOf([]u8) + arg.len;

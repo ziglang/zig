@@ -1,4 +1,20 @@
 // zig fmt: off
+
+/// Definitions of all of the x64 registers. The order is very, very important.
+/// The registers are defined such that IDs go in descending order of 64-bit,
+/// 32-bit, 16-bit, and then 8-bit, and each set contains exactly sixteen
+/// registers. This results in some very, very useful properties:
+///
+/// Any 64-bit register can be turned into its 32-bit form by adding 16, and
+/// vice versa. This also works between 32-bit and 16-bit forms. With 8-bit, it
+/// works for all except for sp, bp, si, and di, which don't *have* an 8-bit
+/// form.
+///
+/// If (register & 8) is set, the register is extended.
+///
+/// The ID can be easily determined by figuring out what range the register is
+/// in, and then subtracting the base.
+/// 
 pub const Register = enum(u8) {
     // 0 through 15, 64-bit registers. 8-15 are extended.
     // id is just the int value.

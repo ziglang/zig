@@ -457,7 +457,7 @@ pub const Loop = struct {
                         => {
                             // Even poll() didn't work. The best we can do now is sleep for a
                             // small duration and then hope that something changed.
-                            std.time.sleep(1 * std.time.millisecond);
+                            std.time.sleep(1 * std.time.ns_per_ms);
                         },
                     };
                     resume @frame();

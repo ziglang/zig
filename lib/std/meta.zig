@@ -53,12 +53,37 @@ test "std.meta.tagName" {
 }
 
 pub fn stringToEnum(comptime T: type, str: []const u8) ?T {
-    inline for (@typeInfo(T).Enum.fields) |enumField| {
-        if (mem.eql(u8, str, enumField.name)) {
-            return @field(T, enumField.name);
+    // Using ComptimeStringMap here is more performant, but it will start to take too
+    // long to compile if the enum is large enough, due to the current limits of comptime
+    // performance when doing things like constructing lookup maps at comptime.
+    // TODO The '100' here is arbitrary and should be increased when possible:
+    // - https://github.com/ziglang/zig/issues/4055
+    // - https://github.com/ziglang/zig/issues/3863
+    if (@typeInfo(T).Enum.fields.len <= 100) {
+        const kvs = comptime build_kvs: {
+            // In order to generate an array of structs that play nice with anonymous
+            // list literals, we need to give them "0" and "1" field names.
+            // TODO https://github.com/ziglang/zig/issues/4335
+            const EnumKV = struct {
+                @"0": []const u8,
+                @"1": T,
+            };
+            var kvs_array: [@typeInfo(T).Enum.fields.len]EnumKV = undefined;
+            inline for (@typeInfo(T).Enum.fields) |enumField, i| {
+                kvs_array[i] = .{ .@"0" = enumField.name, .@"1" = @field(T, enumField.name) };
+            }
+            break :build_kvs kvs_array[0..];
+        };
+        const map = std.ComptimeStringMap(T, kvs);
+        return map.get(str);
+    } else {
+        inline for (@typeInfo(T).Enum.fields) |enumField| {
+            if (mem.eql(u8, str, enumField.name)) {
+                return @field(T, enumField.name);
+            }
         }
+        return null;
     }
-    return null;
 }
 
 test "std.meta.stringToEnum" {
@@ -102,9 +127,10 @@ test "std.meta.alignment" {
 pub fn Child(comptime T: type) type {
     return switch (@typeInfo(T)) {
         .Array => |info| info.child,
+        .Vector => |info| info.child,
         .Pointer => |info| info.child,
         .Optional => |info| info.child,
-        else => @compileError("Expected pointer, optional, or array type, found '" ++ @typeName(T) ++ "'"),
+        else => @compileError("Expected pointer, optional, array or vector type, found '" ++ @typeName(T) ++ "'"),
     };
 }
 
@@ -113,22 +139,25 @@ test "std.meta.Child" {
     testing.expect(Child(*u8) == u8);
     testing.expect(Child([]u8) == u8);
     testing.expect(Child(?u8) == u8);
+    testing.expect(Child(Vector(2, u8)) == u8);
 }
 
 /// Given a "memory span" type, returns the "element type".
 pub fn Elem(comptime T: type) type {
     switch (@typeInfo(T)) {
-        .Array => |info| return info.child,
+        .Array, => |info| return info.child,
+        .Vector, => |info| return info.child,
         .Pointer => |info| switch (info.size) {
             .One => switch (@typeInfo(info.child)) {
                 .Array => |array_info| return array_info.child,
+                .Vector => |vector_info| return vector_info.child,
                 else => {},
             },
             .Many, .C, .Slice => return info.child,
         },
         else => {},
     }
-    @compileError("Expected pointer, slice, or array, found '" ++ @typeName(T) ++ "'");
+    @compileError("Expected pointer, slice, array or vector type, found '" ++ @typeName(T) ++ "'");
 }
 
 test "std.meta.Elem" {
@@ -136,6 +165,8 @@ test "std.meta.Elem" {
     testing.expect(Elem([*]u8) == u8);
     testing.expect(Elem([]u8) == u8);
     testing.expect(Elem(*[10]u8) == u8);
+    testing.expect(Elem(Vector(2, u8)) == u8);
+    testing.expect(Elem(*Vector(2, u8)) == u8);
 }
 
 /// Given a type which can have a sentinel e.g. `[:0]u8`, returns the sentinel value,

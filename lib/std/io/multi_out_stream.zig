@@ -44,7 +44,7 @@ test "MultiOutStream" {
     var fbs1 = io.fixedBufferStream(&buf1);
     var buf2: [255]u8 = undefined;
     var fbs2 = io.fixedBufferStream(&buf2);
-    var stream = multiOutStream(.{fbs1.outStream(), fbs2.outStream()});
+    var stream = multiOutStream(.{ fbs1.outStream(), fbs2.outStream() });
     try stream.outStream().print("HI", .{});
     testing.expectEqualSlices(u8, "HI", fbs1.getWritten());
     testing.expectEqualSlices(u8, "HI", fbs2.getWritten());

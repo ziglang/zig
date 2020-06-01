@@ -21,7 +21,7 @@ pub const CheckFileStep = struct {
         const self = builder.allocator.create(CheckFileStep) catch unreachable;
         self.* = CheckFileStep{
             .builder = builder,
-            .step = Step.init("CheckFile", builder.allocator, make),
+            .step = Step.init(.CheckFile, "CheckFile", builder.allocator, make),
             .source = source,
             .expected_matches = expected_matches,
         };

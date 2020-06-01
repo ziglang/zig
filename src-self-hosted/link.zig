@@ -126,6 +126,10 @@ pub const ElfFile = struct {
     local_symbols: std.ArrayListUnmanaged(elf.Elf64_Sym) = std.ArrayListUnmanaged(elf.Elf64_Sym){},
     global_symbols: std.ArrayListUnmanaged(elf.Elf64_Sym) = std.ArrayListUnmanaged(elf.Elf64_Sym){},
 
+    local_symbol_free_list: std.ArrayListUnmanaged(u32) = std.ArrayListUnmanaged(u32){},
+    global_symbol_free_list: std.ArrayListUnmanaged(u32) = std.ArrayListUnmanaged(u32){},
+    offset_table_free_list: std.ArrayListUnmanaged(u32) = std.ArrayListUnmanaged(u32){},
+
     /// Same order as in the file. The value is the absolute vaddr value.
     /// If the vaddr of the executable program header changes, the entire
     /// offset table needs to be rewritten.
@@ -138,11 +142,39 @@ pub const ElfFile = struct {
 
     error_flags: ErrorFlags = ErrorFlags{},
 
+    /// A list of text blocks that have surplus capacity. This list can have false
+    /// positives, as functions grow and shrink over time, only sometimes being added
+    /// or removed from the freelist.
+    ///
+    /// A text block has surplus capacity when its overcapacity value is greater than
+    /// minimum_text_block_size * alloc_num / alloc_den. That is, when it has so
+    /// much extra capacity, that we could fit a small new symbol in it, itself with
+    /// ideal_capacity or more.
+    ///
+    /// Ideal capacity is defined by size * alloc_num / alloc_den.
+    ///
+    /// Overcapacity is measured by actual_capacity - ideal_capacity. Note that
+    /// overcapacity can be negative. A simple way to have negative overcapacity is to
+    /// allocate a fresh text block, which will have ideal capacity, and then grow it
+    /// by 1 byte. It will then have -1 overcapacity.
+    text_block_free_list: std.ArrayListUnmanaged(*TextBlock) = std.ArrayListUnmanaged(*TextBlock){},
+    last_text_block: ?*TextBlock = null,
+
+    /// `alloc_num / alloc_den` is the factor of padding when allocating.
+    const alloc_num = 4;
+    const alloc_den = 3;
+
+    /// In order for a slice of bytes to be considered eligible to keep metadata pointing at
+    /// it as a possible place to put new symbols, it must have enough room for this many bytes
+    /// (plus extra for reserved capacity).
+    const minimum_text_block_size = 64;
+    const min_text_capacity = minimum_text_block_size * alloc_num / alloc_den;
+
     pub const ErrorFlags = struct {
         no_entry_point_found: bool = false,
     };
 
-    pub const Decl = struct {
+    pub const TextBlock = struct {
         /// Each decl always gets a local symbol with the fully qualified name.
         /// The vaddr and size are found here directly.
         /// The file offset is found by computing the vaddr offset from the section vaddr
@@ -152,11 +184,43 @@ pub const ElfFile = struct {
         local_sym_index: u32,
         /// This field is undefined for symbols with size = 0.
         offset_table_index: u32,
+        /// Points to the previous and next neighbors, based on the `text_offset`.
+        /// This can be used to find, for example, the capacity of this `TextBlock`.
+        prev: ?*TextBlock,
+        next: ?*TextBlock,
 
-        pub const empty = Decl{
+        pub const empty = TextBlock{
             .local_sym_index = 0,
             .offset_table_index = undefined,
+            .prev = null,
+            .next = null,
         };
+
+        /// Returns how much room there is to grow in virtual address space.
+        /// File offset relocation happens transparently, so it is not included in
+        /// this calculation.
+        fn capacity(self: TextBlock, elf_file: ElfFile) u64 {
+            const self_sym = elf_file.local_symbols.items[self.local_sym_index];
+            if (self.next) |next| {
+                const next_sym = elf_file.local_symbols.items[next.local_sym_index];
+                return next_sym.st_value - self_sym.st_value;
+            } else {
+                // We are the last block. The capacity is limited only by virtual address space.
+                return std.math.maxInt(u32) - self_sym.st_value;
+            }
+        }
+
+        fn freeListEligible(self: TextBlock, elf_file: ElfFile) bool {
+            // No need to keep a free list node for the last block.
+            const next = self.next orelse return false;
+            const self_sym = elf_file.local_symbols.items[self.local_sym_index];
+            const next_sym = elf_file.local_symbols.items[next.local_sym_index];
+            const cap = next_sym.st_value - self_sym.st_value;
+            const ideal_cap = self_sym.st_size * alloc_num / alloc_den;
+            if (cap <= ideal_cap) return false;
+            const surplus = cap - ideal_cap;
+            return surplus >= min_text_capacity;
+        }
     };
 
     pub const Export = struct {
@@ -169,6 +233,10 @@ pub const ElfFile = struct {
         self.shstrtab.deinit(self.allocator);
         self.local_symbols.deinit(self.allocator);
         self.global_symbols.deinit(self.allocator);
+        self.global_symbol_free_list.deinit(self.allocator);
+        self.local_symbol_free_list.deinit(self.allocator);
+        self.offset_table_free_list.deinit(self.allocator);
+        self.text_block_free_list.deinit(self.allocator);
         self.offset_table.deinit(self.allocator);
         if (self.owns_file_handle) {
             if (self.file) |f| f.close();
@@ -192,10 +260,6 @@ pub const ElfFile = struct {
             .mode = determineMode(self.options),
         });
     }
-
-    // `alloc_num / alloc_den` is the factor of padding when allocation
-    const alloc_num = 4;
-    const alloc_den = 3;
 
     /// Returns end pos of collision, if any.
     fn detectAllocCollision(self: *ElfFile, start: u64, size: u64) ?u64 {
@@ -448,6 +512,13 @@ pub const ElfFile = struct {
             self.phdr_table_offset = self.findFreeSpace(self.program_headers.items.len * phsize, phalign);
             self.phdr_table_dirty = true;
         }
+        {
+            // Iterate over symbols, populating free_list and last_text_block.
+            if (self.local_symbols.items.len != 1) {
+                @panic("TODO implement setting up free_list and last_text_block from existing ELF file");
+            }
+            // We are starting with an empty file. The default values are correct, null and empty list.
+        }
     }
 
     /// Commit pending changes and write headers.
@@ -577,7 +648,6 @@ pub const ElfFile = struct {
             self.error_flags.no_entry_point_found = false;
             try self.writeElfHeader();
         }
-        // TODO find end pos and truncate
 
         // The point of flush() is to commit changes, so nothing should be dirty after this.
         assert(!self.phdr_table_dirty);
@@ -709,100 +779,222 @@ pub const ElfFile = struct {
         try self.file.?.pwriteAll(hdr_buf[0..index], 0);
     }
 
-    const AllocatedBlock = struct {
-        vaddr: u64,
-        file_offset: u64,
-        size_capacity: u64,
-    };
-
-    fn allocateTextBlock(self: *ElfFile, new_block_size: u64, alignment: u64) !AllocatedBlock {
-        const phdr = &self.program_headers.items[self.phdr_load_re_index.?];
-        const shdr = &self.sections.items[self.text_section_index.?];
-
-        // TODO Also detect virtual address collisions.
-        const text_capacity = self.allocatedSize(shdr.sh_offset);
-        // TODO instead of looping here, maintain a free list and a pointer to the end.
-        var last_start: u64 = phdr.p_vaddr;
-        var last_size: u64 = 0;
-        for (self.local_symbols.items) |sym| {
-            if (sym.st_value + sym.st_size > last_start + last_size) {
-                last_start = sym.st_value;
-                last_size = sym.st_size;
+    fn freeTextBlock(self: *ElfFile, text_block: *TextBlock) void {
+        var already_have_free_list_node = false;
+        {
+            var i: usize = 0;
+            while (i < self.text_block_free_list.items.len) {
+                if (self.text_block_free_list.items[i] == text_block) {
+                    _ = self.text_block_free_list.swapRemove(i);
+                    continue;
+                }
+                if (self.text_block_free_list.items[i] == text_block.prev) {
+                    already_have_free_list_node = true;
+                }
+                i += 1;
             }
         }
-        const end_vaddr = last_start + (last_size * alloc_num / alloc_den);
-        const aligned_start_vaddr = mem.alignForwardGeneric(u64, end_vaddr, alignment);
-        const needed_size = (aligned_start_vaddr + new_block_size) - phdr.p_vaddr;
-        if (needed_size > text_capacity) {
-            // Must move the entire text section.
-            const new_offset = self.findFreeSpace(needed_size, 0x1000);
-            const text_size = (last_start + last_size) - phdr.p_vaddr;
-            const amt = try self.file.?.copyRangeAll(shdr.sh_offset, self.file.?, new_offset, text_size);
-            if (amt != text_size) return error.InputOutput;
-            shdr.sh_offset = new_offset;
-            phdr.p_offset = new_offset;
+
+        if (self.last_text_block == text_block) {
+            // TODO shrink the .text section size here
+            self.last_text_block = text_block.prev;
         }
-        // Now that we know the code size, we need to update the program header for executable code
-        shdr.sh_size = needed_size;
-        phdr.p_memsz = needed_size;
-        phdr.p_filesz = needed_size;
 
-        self.phdr_table_dirty = true; // TODO look into making only the one program header dirty
-        self.shdr_table_dirty = true; // TODO look into making only the one section dirty
+        if (text_block.prev) |prev| {
+            prev.next = text_block.next;
 
-        return AllocatedBlock{
-            .vaddr = aligned_start_vaddr,
-            .file_offset = shdr.sh_offset + (aligned_start_vaddr - phdr.p_vaddr),
-            .size_capacity = text_capacity - needed_size,
-        };
+            if (!already_have_free_list_node and prev.freeListEligible(self.*)) {
+                // The free list is heuristics, it doesn't have to be perfect, so we can
+                // ignore the OOM here.
+                self.text_block_free_list.append(self.allocator, prev) catch {};
+            }
+        } else {
+            text_block.prev = null;
+        }
+
+        if (text_block.next) |next| {
+            next.prev = text_block.prev;
+        } else {
+            text_block.next = null;
+        }
     }
 
-    fn findAllocatedTextBlock(self: *ElfFile, sym: elf.Elf64_Sym) AllocatedBlock {
+    fn shrinkTextBlock(self: *ElfFile, text_block: *TextBlock, new_block_size: u64) void {
+        // TODO check the new capacity, and if it crosses the size threshold into a big enough
+        // capacity, insert a free list node for it.
+    }
+
+    fn growTextBlock(self: *ElfFile, text_block: *TextBlock, new_block_size: u64, alignment: u64) !u64 {
+        const sym = self.local_symbols.items[text_block.local_sym_index];
+        const align_ok = mem.alignBackwardGeneric(u64, sym.st_value, alignment) == sym.st_value;
+        const need_realloc = !align_ok or new_block_size > text_block.capacity(self.*);
+        if (!need_realloc) return sym.st_value;
+        return self.allocateTextBlock(text_block, new_block_size, alignment);
+    }
+
+    fn allocateTextBlock(self: *ElfFile, text_block: *TextBlock, new_block_size: u64, alignment: u64) !u64 {
         const phdr = &self.program_headers.items[self.phdr_load_re_index.?];
         const shdr = &self.sections.items[self.text_section_index.?];
+        const new_block_ideal_capacity = new_block_size * alloc_num / alloc_den;
 
-        // Find the next sym after this one.
-        // TODO look into using a hash map to speed up perf.
-        const text_capacity = self.allocatedSize(shdr.sh_offset);
-        var next_vaddr_start = phdr.p_vaddr + text_capacity;
-        for (self.local_symbols.items) |elem| {
-            if (elem.st_value < sym.st_value) continue;
-            if (elem.st_value < next_vaddr_start) next_vaddr_start = elem.st_value;
-        }
-        return .{
-            .vaddr = sym.st_value,
-            .file_offset = shdr.sh_offset + (sym.st_value - phdr.p_vaddr),
-            .size_capacity = next_vaddr_start - sym.st_value,
+        // We use these to indicate our intention to update metadata, placing the new block,
+        // and possibly removing a free list node.
+        // It would be simpler to do it inside the for loop below, but that would cause a
+        // problem if an error was returned later in the function. So this action
+        // is actually carried out at the end of the function, when errors are no longer possible.
+        var block_placement: ?*TextBlock = null;
+        var free_list_removal: ?usize = null;
+
+        // First we look for an appropriately sized free list node.
+        // The list is unordered. We'll just take the first thing that works.
+        const vaddr = blk: {
+            var i: usize = 0;
+            while (i < self.text_block_free_list.items.len) {
+                const big_block = self.text_block_free_list.items[i];
+                // We now have a pointer to a live text block that has too much capacity.
+                // Is it enough that we could fit this new text block?
+                const sym = self.local_symbols.items[big_block.local_sym_index];
+                const capacity = big_block.capacity(self.*);
+                const ideal_capacity = capacity * alloc_num / alloc_den;
+                const ideal_capacity_end_vaddr = sym.st_value + ideal_capacity;
+                const capacity_end_vaddr = sym.st_value + capacity;
+                const new_start_vaddr_unaligned = capacity_end_vaddr - new_block_ideal_capacity;
+                const new_start_vaddr = mem.alignBackwardGeneric(u64, new_start_vaddr_unaligned, alignment);
+                if (new_start_vaddr < ideal_capacity_end_vaddr) {
+                    // Additional bookkeeping here to notice if this free list node
+                    // should be deleted because the block that it points to has grown to take up
+                    // more of the extra capacity.
+                    if (!big_block.freeListEligible(self.*)) {
+                        _ = self.text_block_free_list.swapRemove(i);
+                    } else {
+                        i += 1;
+                    }
+                    continue;
+                }
+                // At this point we know that we will place the new block here. But the
+                // remaining question is whether there is still yet enough capacity left
+                // over for there to still be a free list node.
+                const remaining_capacity = new_start_vaddr - ideal_capacity_end_vaddr;
+                const keep_free_list_node = remaining_capacity >= min_text_capacity;
+
+                // Set up the metadata to be updated, after errors are no longer possible.
+                block_placement = big_block;
+                if (!keep_free_list_node) {
+                    free_list_removal = i;
+                }
+                break :blk new_start_vaddr;
+            } else if (self.last_text_block) |last| {
+                const sym = self.local_symbols.items[last.local_sym_index];
+                const ideal_capacity = sym.st_size * alloc_num / alloc_den;
+                const ideal_capacity_end_vaddr = sym.st_value + ideal_capacity;
+                const new_start_vaddr = mem.alignForwardGeneric(u64, ideal_capacity_end_vaddr, alignment);
+                // Set up the metadata to be updated, after errors are no longer possible.
+                block_placement = last;
+                break :blk new_start_vaddr;
+            } else {
+                break :blk phdr.p_vaddr;
+            }
         };
+
+        const expand_text_section = block_placement == null or block_placement.?.next == null;
+        if (expand_text_section) {
+            const text_capacity = self.allocatedSize(shdr.sh_offset);
+            const needed_size = (vaddr + new_block_size) - phdr.p_vaddr;
+            if (needed_size > text_capacity) {
+                // Must move the entire text section.
+                const new_offset = self.findFreeSpace(needed_size, 0x1000);
+                const text_size = if (self.last_text_block) |last| blk: {
+                    const sym = self.local_symbols.items[last.local_sym_index];
+                    break :blk (sym.st_value + sym.st_size) - phdr.p_vaddr;
+                } else 0;
+                const amt = try self.file.?.copyRangeAll(shdr.sh_offset, self.file.?, new_offset, text_size);
+                if (amt != text_size) return error.InputOutput;
+                shdr.sh_offset = new_offset;
+                phdr.p_offset = new_offset;
+            }
+            self.last_text_block = text_block;
+
+            shdr.sh_size = needed_size;
+            phdr.p_memsz = needed_size;
+            phdr.p_filesz = needed_size;
+
+            self.phdr_table_dirty = true; // TODO look into making only the one program header dirty
+            self.shdr_table_dirty = true; // TODO look into making only the one section dirty
+        }
+
+        // This function can also reallocate a text block.
+        // In this case we need to "unplug" it from its previous location before
+        // plugging it in to its new location.
+        if (text_block.prev) |prev| {
+            prev.next = text_block.next;
+        }
+        if (text_block.next) |next| {
+            next.prev = text_block.prev;
+        }
+
+        if (block_placement) |big_block| {
+            text_block.prev = big_block;
+            text_block.next = big_block.next;
+            big_block.next = text_block;
+        } else {
+            text_block.prev = null;
+            text_block.next = null;
+        }
+        if (free_list_removal) |i| {
+            _ = self.text_block_free_list.swapRemove(i);
+        }
+        return vaddr;
     }
 
     pub fn allocateDeclIndexes(self: *ElfFile, decl: *Module.Decl) !void {
         if (decl.link.local_sym_index != 0) return;
 
+        // Here we also ensure capacity for the free lists so that they can be appended to without fail.
         try self.local_symbols.ensureCapacity(self.allocator, self.local_symbols.items.len + 1);
+        try self.local_symbol_free_list.ensureCapacity(self.allocator, self.local_symbols.items.len);
         try self.offset_table.ensureCapacity(self.allocator, self.offset_table.items.len + 1);
-        const local_sym_index = self.local_symbols.items.len;
-        const offset_table_index = self.offset_table.items.len;
+        try self.offset_table_free_list.ensureCapacity(self.allocator, self.local_symbols.items.len);
+
+        if (self.local_symbol_free_list.popOrNull()) |i| {
+            //std.debug.warn("reusing symbol index {} for {}\n", .{i, decl.name});
+            decl.link.local_sym_index = i;
+        } else {
+            //std.debug.warn("allocating symbol index {} for {}\n", .{self.local_symbols.items.len, decl.name});
+            decl.link.local_sym_index = @intCast(u32, self.local_symbols.items.len);
+            _ = self.local_symbols.addOneAssumeCapacity();
+        }
+
+        if (self.offset_table_free_list.popOrNull()) |i| {
+            decl.link.offset_table_index = i;
+        } else {
+            decl.link.offset_table_index = @intCast(u32, self.offset_table.items.len);
+            _ = self.offset_table.addOneAssumeCapacity();
+            self.offset_table_count_dirty = true;
+        }
+
         const phdr = &self.program_headers.items[self.phdr_load_re_index.?];
 
-        self.local_symbols.appendAssumeCapacity(.{
+        self.local_symbols.items[decl.link.local_sym_index] = .{
             .st_name = 0,
             .st_info = 0,
             .st_other = 0,
             .st_shndx = 0,
             .st_value = phdr.p_vaddr,
             .st_size = 0,
-        });
-        errdefer self.local_symbols.shrink(self.allocator, self.local_symbols.items.len - 1);
-        self.offset_table.appendAssumeCapacity(0);
-        errdefer self.offset_table.shrink(self.allocator, self.offset_table.items.len - 1);
-
-        self.offset_table_count_dirty = true;
-
-        decl.link = .{
-            .local_sym_index = @intCast(u32, local_sym_index),
-            .offset_table_index = @intCast(u32, offset_table_index),
         };
+        self.offset_table.items[decl.link.offset_table_index] = 0;
+    }
+
+    pub fn freeDecl(self: *ElfFile, decl: *Module.Decl) void {
+        self.freeTextBlock(&decl.link);
+        if (decl.link.local_sym_index != 0) {
+            self.local_symbol_free_list.appendAssumeCapacity(decl.link.local_sym_index);
+            self.offset_table_free_list.appendAssumeCapacity(decl.link.offset_table_index);
+
+            self.local_symbols.items[decl.link.local_sym_index].st_info = 0;
+
+            decl.link.local_sym_index = 0;
+        }
     }
 
     pub fn updateDecl(self: *ElfFile, module: *Module, decl: *Module.Decl) !void {
@@ -822,80 +1014,60 @@ pub const ElfFile = struct {
 
         const required_alignment = typed_value.ty.abiAlignment(self.options.target);
 
-        const file_offset = blk: {
-            const stt_bits: u8 = switch (typed_value.ty.zigTypeTag()) {
-                .Fn => elf.STT_FUNC,
-                else => elf.STT_OBJECT,
-            };
-
-            if (decl.link.local_sym_index != 0) {
-                const local_sym = &self.local_symbols.items[decl.link.local_sym_index];
-                const existing_block = self.findAllocatedTextBlock(local_sym.*);
-                const need_realloc = local_sym.st_size == 0 or
-                    code.len > existing_block.size_capacity or
-                    !mem.isAlignedGeneric(u64, local_sym.st_value, required_alignment);
-                // TODO check for collision with another symbol
-                const file_offset = if (need_realloc) fo: {
-                    const new_block = try self.allocateTextBlock(code.len, required_alignment);
-                    local_sym.st_value = new_block.vaddr;
-                    self.offset_table.items[decl.link.offset_table_index] = new_block.vaddr;
-
-                    //std.debug.warn("{}: writing got index {}=0x{x}\n", .{
-                    //    decl.name,
-                    //    decl.link.offset_table_index,
-                    //    self.offset_table.items[decl.link.offset_table_index],
-                    //});
-                    try self.writeOffsetTableEntry(decl.link.offset_table_index);
-
-                    break :fo new_block.file_offset;
-                } else existing_block.file_offset;
-                local_sym.st_size = code.len;
-                local_sym.st_name = try self.updateString(local_sym.st_name, mem.spanZ(decl.name));
-                local_sym.st_info = (elf.STB_LOCAL << 4) | stt_bits;
-                local_sym.st_other = 0;
-                local_sym.st_shndx = self.text_section_index.?;
-                // TODO this write could be avoided if no fields of the symbol were changed.
-                try self.writeSymbol(decl.link.local_sym_index);
-
-                //std.debug.warn("updating {} at vaddr 0x{x}\n", .{ decl.name, local_sym.st_value });
-                break :blk file_offset;
-            } else {
-                try self.local_symbols.ensureCapacity(self.allocator, self.local_symbols.items.len + 1);
-                try self.offset_table.ensureCapacity(self.allocator, self.offset_table.items.len + 1);
-                const decl_name = mem.spanZ(decl.name);
-                const name_str_index = try self.makeString(decl_name);
-                const new_block = try self.allocateTextBlock(code.len, required_alignment);
-                const local_sym_index = self.local_symbols.items.len;
-                const offset_table_index = self.offset_table.items.len;
-
-                //std.debug.warn("add symbol for {} at vaddr 0x{x}, size {}\n", .{ decl.name, new_block.vaddr, code.len });
-                self.local_symbols.appendAssumeCapacity(.{
-                    .st_name = name_str_index,
-                    .st_info = (elf.STB_LOCAL << 4) | stt_bits,
-                    .st_other = 0,
-                    .st_shndx = self.text_section_index.?,
-                    .st_value = new_block.vaddr,
-                    .st_size = code.len,
-                });
-                errdefer self.local_symbols.shrink(self.allocator, self.local_symbols.items.len - 1);
-                self.offset_table.appendAssumeCapacity(new_block.vaddr);
-                errdefer self.offset_table.shrink(self.allocator, self.offset_table.items.len - 1);
-
-                self.offset_table_count_dirty = true;
-
-                try self.writeSymbol(local_sym_index);
-                try self.writeOffsetTableEntry(offset_table_index);
-
-                decl.link = .{
-                    .local_sym_index = @intCast(u32, local_sym_index),
-                    .offset_table_index = @intCast(u32, offset_table_index),
-                };
-
-                //std.debug.warn("writing new {} at vaddr 0x{x}\n", .{ decl.name, new_block.vaddr });
-                break :blk new_block.file_offset;
-            }
+        const stt_bits: u8 = switch (typed_value.ty.zigTypeTag()) {
+            .Fn => elf.STT_FUNC,
+            else => elf.STT_OBJECT,
         };
 
+        assert(decl.link.local_sym_index != 0); // Caller forgot to allocateDeclIndexes()
+        const local_sym = &self.local_symbols.items[decl.link.local_sym_index];
+        if (local_sym.st_size != 0) {
+            const capacity = decl.link.capacity(self.*);
+            const need_realloc = code.len > capacity or
+                !mem.isAlignedGeneric(u64, local_sym.st_value, required_alignment);
+            if (need_realloc) {
+                const vaddr = try self.growTextBlock(&decl.link, code.len, required_alignment);
+                //std.debug.warn("growing {} from 0x{x} to 0x{x}\n", .{ decl.name, local_sym.st_value, vaddr });
+                if (vaddr != local_sym.st_value) {
+                    local_sym.st_value = vaddr;
+
+                    //std.debug.warn("  (writing new offset table entry)\n", .{});
+                    self.offset_table.items[decl.link.offset_table_index] = vaddr;
+                    try self.writeOffsetTableEntry(decl.link.offset_table_index);
+                }
+            } else if (code.len < local_sym.st_size) {
+                self.shrinkTextBlock(&decl.link, code.len);
+            }
+            local_sym.st_size = code.len;
+            local_sym.st_name = try self.updateString(local_sym.st_name, mem.spanZ(decl.name));
+            local_sym.st_info = (elf.STB_LOCAL << 4) | stt_bits;
+            local_sym.st_other = 0;
+            local_sym.st_shndx = self.text_section_index.?;
+            // TODO this write could be avoided if no fields of the symbol were changed.
+            try self.writeSymbol(decl.link.local_sym_index);
+        } else {
+            const decl_name = mem.spanZ(decl.name);
+            const name_str_index = try self.makeString(decl_name);
+            const vaddr = try self.allocateTextBlock(&decl.link, code.len, required_alignment);
+            //std.debug.warn("allocated text block for {} at 0x{x}\n", .{ decl_name, vaddr });
+            errdefer self.freeTextBlock(&decl.link);
+
+            local_sym.* = .{
+                .st_name = name_str_index,
+                .st_info = (elf.STB_LOCAL << 4) | stt_bits,
+                .st_other = 0,
+                .st_shndx = self.text_section_index.?,
+                .st_value = vaddr,
+                .st_size = code.len,
+            };
+            self.offset_table.items[decl.link.offset_table_index] = vaddr;
+
+            try self.writeSymbol(decl.link.local_sym_index);
+            try self.writeOffsetTableEntry(decl.link.offset_table_index);
+        }
+
+        const section_offset = local_sym.st_value - self.program_headers.items[self.phdr_load_re_index.?].p_vaddr;
+        const file_offset = self.sections.items[self.text_section_index.?].sh_offset + section_offset;
         try self.file.?.pwriteAll(code, file_offset);
 
         // Since we updated the vaddr and the size, each corresponding export symbol also needs to be updated.
@@ -910,7 +1082,10 @@ pub const ElfFile = struct {
         decl: *const Module.Decl,
         exports: []const *Module.Export,
     ) !void {
+        // In addition to ensuring capacity for global_symbols, we also ensure capacity for freeing all of
+        // them, so that deleting exports is guaranteed to succeed.
         try self.global_symbols.ensureCapacity(self.allocator, self.global_symbols.items.len + exports.len);
+        try self.global_symbol_free_list.ensureCapacity(self.allocator, self.global_symbols.items.len);
         const typed_value = decl.typed_value.most_recent.typed_value;
         if (decl.link.local_sym_index == 0) return;
         const decl_sym = self.local_symbols.items[decl.link.local_sym_index];
@@ -957,20 +1132,28 @@ pub const ElfFile = struct {
                 };
             } else {
                 const name = try self.makeString(exp.options.name);
-                const i = self.global_symbols.items.len;
-                self.global_symbols.appendAssumeCapacity(.{
+                const i = if (self.global_symbol_free_list.popOrNull()) |i| i else blk: {
+                    _ = self.global_symbols.addOneAssumeCapacity();
+                    break :blk self.global_symbols.items.len - 1;
+                };
+                self.global_symbols.items[i] = .{
                     .st_name = name,
                     .st_info = (stb_bits << 4) | stt_bits,
                     .st_other = 0,
                     .st_shndx = self.text_section_index.?,
                     .st_value = decl_sym.st_value,
                     .st_size = decl_sym.st_size,
-                });
-                errdefer self.global_symbols.shrink(self.allocator, self.global_symbols.items.len - 1);
+                };
 
                 exp.link.sym_index = @intCast(u32, i);
             }
         }
+    }
+
+    pub fn deleteExport(self: *ElfFile, exp: Export) void {
+        const sym_index = exp.sym_index orelse return;
+        self.global_symbol_free_list.appendAssumeCapacity(sym_index);
+        self.global_symbols.items[sym_index].st_info = 0;
     }
 
     fn writeProgHeader(self: *ElfFile, index: usize) !void {

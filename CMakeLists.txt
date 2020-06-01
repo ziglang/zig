@@ -1,5 +1,11 @@
 cmake_minimum_required(VERSION 2.8.5)
 
+# Use ccache if possible
+FIND_PROGRAM(CCACHE_PROGRAM ccache)
+IF(CCACHE_PROGRAM)
+    MESSAGE(STATUS "Found ccache ${CCACHE_PROGRAM}")
+ENDIF()
+
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "Debug" CACHE STRING
         "Choose the type of build, options are: None Debug Release RelWithDebInfo MinSizeRel." FORCE)
@@ -47,6 +53,11 @@ set(ZIG_STATIC off CACHE BOOL "Attempt to build a static zig executable (not com
 set(ZIG_STATIC_LLVM off CACHE BOOL "Prefer linking against static LLVM libraries")
 set(ZIG_ENABLE_MEM_PROFILE off CACHE BOOL "Activate memory usage instrumentation")
 set(ZIG_PREFER_CLANG_CPP_DYLIB off CACHE BOOL "Try to link against -lclang-cpp")
+set(ZIG_USE_CCACHE off CACHE BOOL "Use ccache if available")
+
+if(CCACHE_PROGRAM AND ZIG_USE_CCACHE)
+    SET_PROPERTY(GLOBAL PROPERTY RULE_LAUNCH_COMPILE "${CCACHE_PROGRAM}")
+endif()
 
 if(ZIG_STATIC)
     set(ZIG_STATIC_LLVM "on")

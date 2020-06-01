@@ -17,7 +17,7 @@ pub const Alignment = enum {
 pub const FormatOptions = struct {
     precision: ?usize = null,
     width: ?usize = null,
-    alignment: ?Alignment = null,
+    alignment: Alignment = .Left,
     fill: u8 = ' ',
 };
 
@@ -330,7 +330,7 @@ pub fn formatType(
     }
 
     switch (@typeInfo(T)) {
-        .ComptimeInt, .Int, .Float => {
+        .ComptimeInt, .Int, .ComptimeFloat, .Float => {
             return formatValue(value, fmt, options, out_stream);
         },
         .Void => {
@@ -362,12 +362,21 @@ pub fn formatType(
             if (enumInfo.is_exhaustive) {
                 try out_stream.writeAll(".");
                 try out_stream.writeAll(@tagName(value));
-            } else {
-                // TODO: when @tagName works on exhaustive enums print known enum strings
-                try out_stream.writeAll("(");
-                try formatType(@enumToInt(value), fmt, options, out_stream, max_depth);
-                try out_stream.writeAll(")");
+                return;
             }
+
+            // Use @tagName only if value is one of known fields
+            inline for (enumInfo.fields) |enumField| {
+                if (@enumToInt(value) == enumField.value) {
+                    try out_stream.writeAll(".");
+                    try out_stream.writeAll(@tagName(value));
+                    return;
+                }
+            }
+
+            try out_stream.writeAll("(");
+            try formatType(@enumToInt(value), fmt, options, out_stream, max_depth);
+            try out_stream.writeAll(")");
         },
         .Union => {
             try out_stream.writeAll(@typeName(T));
@@ -493,7 +502,7 @@ fn formatValue(
 
     const T = @TypeOf(value);
     switch (@typeInfo(T)) {
-        .Float => return formatFloatValue(value, fmt, options, out_stream),
+        .Float, .ComptimeFloat => return formatFloatValue(value, fmt, options, out_stream),
         .Int, .ComptimeInt => return formatIntValue(value, fmt, options, out_stream),
         .Bool => return formatBuf(if (value) "true" else "false", options, out_stream),
         else => comptime unreachable,
@@ -587,10 +596,9 @@ pub fn formatBuf(
     out_stream: var,
 ) !void {
     const width = options.width orelse buf.len;
-    const alignment = options.alignment orelse .Left;
     var padding = if (width > buf.len) (width - buf.len) else 0;
     const pad_byte = [1]u8{options.fill};
-    switch (alignment) {
+    switch (options.alignment) {
         .Left => {
             try out_stream.writeAll(buf);
             while (padding > 0) : (padding -= 1) {
@@ -1308,6 +1316,8 @@ test "enum" {
     const value = Enum.Two;
     try testFmt("enum: Enum.Two\n", "enum: {}\n", .{value});
     try testFmt("enum: Enum.Two\n", "enum: {}\n", .{&value});
+    try testFmt("enum: Enum.One\n", "enum: {x}\n", .{Enum.One});
+    try testFmt("enum: Enum.Two\n", "enum: {X}\n", .{Enum.Two});
 }
 
 test "non-exhaustive enum" {
@@ -1316,11 +1326,12 @@ test "non-exhaustive enum" {
         Two = 0xbeef,
         _,
     };
-    try testFmt("enum: Enum(15)\n", "enum: {}\n", .{Enum.One});
-    try testFmt("enum: Enum(48879)\n", "enum: {}\n", .{Enum.Two});
+    try testFmt("enum: Enum.One\n", "enum: {}\n", .{Enum.One});
+    try testFmt("enum: Enum.Two\n", "enum: {}\n", .{Enum.Two});
     try testFmt("enum: Enum(4660)\n", "enum: {}\n", .{@intToEnum(Enum, 0x1234)});
-    try testFmt("enum: Enum(f)\n", "enum: {x}\n", .{Enum.One});
-    try testFmt("enum: Enum(beef)\n", "enum: {x}\n", .{Enum.Two});
+    try testFmt("enum: Enum.One\n", "enum: {x}\n", .{Enum.One});
+    try testFmt("enum: Enum.Two\n", "enum: {x}\n", .{Enum.Two});
+    try testFmt("enum: Enum.Two\n", "enum: {X}\n", .{Enum.Two});
     try testFmt("enum: Enum(1234)\n", "enum: {x}\n", .{@intToEnum(Enum, 0x1234)});
 }
 
@@ -1594,6 +1605,18 @@ test "formatIntValue with comptime_int" {
     std.testing.expect(mem.eql(u8, fbs.getWritten(), "123456789123456789"));
 }
 
+test "formatFloatValue with comptime_float" {
+    const value: comptime_float = 1.0;
+
+    var buf: [20]u8 = undefined;
+    var fbs = std.io.fixedBufferStream(&buf);
+    try formatFloatValue(value, "", FormatOptions{}, fbs.outStream());
+    std.testing.expect(mem.eql(u8, fbs.getWritten(), "1.0e+00"));
+
+    try testFmt("1.0e+00", "{}", .{value});
+    try testFmt("1.0e+00", "{}", .{1.0});
+}
+
 test "formatType max_depth" {
     const Vec2 = struct {
         const SelfType = @This();
@@ -1684,15 +1707,16 @@ test "vector" {
         // https://github.com/ziglang/zig/issues/4486
         return error.SkipZigTest;
     }
-    if (builtin.arch != .wasm32) {
-        // TODO investigate why this fails on wasm32
-        const vbool: std.meta.Vector(4, bool) = [_]bool{ true, false, true, false };
-        try testFmt("{ true, false, true, false }", "{}", .{vbool});
+    if (builtin.arch == .wasm32) {
+        // https://github.com/ziglang/zig/issues/5339
+        return error.SkipZigTest;
     }
 
+    const vbool: std.meta.Vector(4, bool) = [_]bool{ true, false, true, false };
     const vi64: std.meta.Vector(4, i64) = [_]i64{ -2, -1, 0, 1 };
     const vu64: std.meta.Vector(4, u64) = [_]u64{ 1000, 2000, 3000, 4000 };
 
+    try testFmt("{ true, false, true, false }", "{}", .{vbool});
     try testFmt("{ -2, -1, 0, 1 }", "{}", .{vi64});
     try testFmt("{ -   2, -   1, +   0, +   1 }", "{d:5}", .{vi64});
     try testFmt("{ 1000, 2000, 3000, 4000 }", "{}", .{vu64});

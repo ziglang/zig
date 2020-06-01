@@ -1193,23 +1193,23 @@ pub fn peb() *PEB {
 /// Universal Time (UTC).
 /// This function returns the number of nanoseconds since the canonical epoch,
 /// which is the POSIX one (Jan 01, 1970 AD).
-pub fn fromSysTime(hns: i64) i64 {
-    const adjusted_epoch = hns + std.time.epoch.windows * (std.time.ns_per_s / 100);
+pub fn fromSysTime(hns: i64) i128 {
+    const adjusted_epoch: i128 = hns + std.time.epoch.windows * (std.time.ns_per_s / 100);
     return adjusted_epoch * 100;
 }
 
-pub fn toSysTime(ns: i64) i64 {
+pub fn toSysTime(ns: i128) i64 {
     const hns = @divFloor(ns, 100);
-    return hns - std.time.epoch.windows * (std.time.ns_per_s / 100);
+    return @intCast(i64, hns) - std.time.epoch.windows * (std.time.ns_per_s / 100);
 }
 
-pub fn fileTimeToNanoSeconds(ft: FILETIME) i64 {
-    const hns = @bitCast(i64, (@as(u64, ft.dwHighDateTime) << 32) | ft.dwLowDateTime);
+pub fn fileTimeToNanoSeconds(ft: FILETIME) i128 {
+    const hns = (@as(i64, ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
     return fromSysTime(hns);
 }
 
 /// Converts a number of nanoseconds since the POSIX epoch to a Windows FILETIME.
-pub fn nanoSecondsToFileTime(ns: i64) FILETIME {
+pub fn nanoSecondsToFileTime(ns: i128) FILETIME {
     const adjusted = @bitCast(u64, toSysTime(ns));
     return FILETIME{
         .dwHighDateTime = @truncate(u32, adjusted >> 32),

@@ -21,6 +21,8 @@ pub fn SinglyLinkedList(comptime T: type) type {
             next: ?*Node = null,
             data: T,
 
+            pub const Data = T;
+
             pub fn init(data: T) Node {
                 return Node{
                     .data = data,
@@ -47,28 +49,29 @@ pub fn SinglyLinkedList(comptime T: type) type {
                 node.next = next_node.next;
                 return next_node;
             }
+
+            /// Iterate over the singly-linked list from this node, until the final node is found.
+            /// This operation is O(N).
+            pub fn findLast(node: *Node) *Node {
+                var it = node;
+                while (true) {
+                    it = it.next orelse return it;
+                }
+            }
+
+            /// Iterate over each next node, returning the count of all nodes except the starting one.
+            /// This operation is O(N).
+            pub fn countChildren(node: *const Node) usize {
+                var count: usize = 0;
+                var it: ?*const Node = node;
+                while (it) |n| : (it = n.next) {
+                    count += 1;
+                }
+                return count;
+            }
         };
 
         first: ?*Node = null,
-
-        /// Initialize a linked list.
-        ///
-        /// Returns:
-        ///     An empty linked list.
-        pub fn init() Self {
-            return Self{
-                .first = null,
-            };
-        }
-
-        /// Insert a new node after an existing one.
-        ///
-        /// Arguments:
-        ///     node: Pointer to a node in the list.
-        ///     new_node: Pointer to the new node to insert.
-        pub fn insertAfter(list: *Self, node: *Node, new_node: *Node) void {
-            node.insertAfter(new_node);
-        }
 
         /// Insert a new node at the head.
         ///
@@ -105,64 +108,33 @@ pub fn SinglyLinkedList(comptime T: type) type {
             return first;
         }
 
-        /// Allocate a new node.
-        ///
-        /// Arguments:
-        ///     allocator: Dynamic memory allocator.
-        ///
-        /// Returns:
-        ///     A pointer to the new node.
-        pub fn allocateNode(list: *Self, allocator: *Allocator) !*Node {
-            return allocator.create(Node);
-        }
-
-        /// Deallocate a node.
-        ///
-        /// Arguments:
-        ///     node: Pointer to the node to deallocate.
-        ///     allocator: Dynamic memory allocator.
-        pub fn destroyNode(list: *Self, node: *Node, allocator: *Allocator) void {
-            allocator.destroy(node);
-        }
-
-        /// Allocate and initialize a node and its data.
-        ///
-        /// Arguments:
-        ///     data: The data to put inside the node.
-        ///     allocator: Dynamic memory allocator.
-        ///
-        /// Returns:
-        ///     A pointer to the new node.
-        pub fn createNode(list: *Self, data: T, allocator: *Allocator) !*Node {
-            var node = try list.allocateNode(allocator);
-            node.* = Node.init(data);
-            return node;
+        /// Iterate over all nodes, returning the count.
+        /// This operation is O(N).
+        pub fn len(list: Self) usize {
+            if (list.first) |n| {
+                return 1 + n.countChildren();
+            } else {
+                return 0;
+            }
         }
     };
 }
 
 test "basic SinglyLinkedList test" {
-    const allocator = testing.allocator;
-    var list = SinglyLinkedList(u32).init();
+    const L = SinglyLinkedList(u32);
+    var list = L{};
 
-    var one = try list.createNode(1, allocator);
-    var two = try list.createNode(2, allocator);
-    var three = try list.createNode(3, allocator);
-    var four = try list.createNode(4, allocator);
-    var five = try list.createNode(5, allocator);
-    defer {
-        list.destroyNode(one, allocator);
-        list.destroyNode(two, allocator);
-        list.destroyNode(three, allocator);
-        list.destroyNode(four, allocator);
-        list.destroyNode(five, allocator);
-    }
+    var one = L.Node{ .data = 1 };
+    var two = L.Node{ .data = 2 };
+    var three = L.Node{ .data = 3 };
+    var four = L.Node{ .data = 4 };
+    var five = L.Node{ .data = 5 };
 
-    list.prepend(two); // {2}
-    list.insertAfter(two, five); // {2, 5}
-    list.prepend(one); // {1, 2, 5}
-    list.insertAfter(two, three); // {1, 2, 3, 5}
-    list.insertAfter(three, four); // {1, 2, 3, 4, 5}
+    list.prepend(&two); // {2}
+    two.insertAfter(&five); // {2, 5}
+    list.prepend(&one); // {1, 2, 5}
+    two.insertAfter(&three); // {1, 2, 3, 5}
+    three.insertAfter(&four); // {1, 2, 3, 4, 5}
 
     // Traverse forwards.
     {
@@ -175,7 +147,7 @@ test "basic SinglyLinkedList test" {
     }
 
     _ = list.popFirst(); // {2, 3, 4, 5}
-    _ = list.remove(five); // {2, 3, 4}
+    _ = list.remove(&five); // {2, 3, 4}
     _ = two.removeNext(); // {2, 4}
 
     testing.expect(list.first.?.data == 2);

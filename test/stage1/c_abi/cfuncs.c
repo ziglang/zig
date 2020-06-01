@@ -63,6 +63,20 @@ void zig_split_struct_ints(struct SplitStructInts);
 
 struct BigStruct zig_big_struct_both(struct BigStruct);
 
+typedef struct Vector3 {
+    float x;
+    float y;
+    float z;
+} Vector3;
+
+typedef struct Vector5 {
+    float x;
+    float y;
+    float z;
+    float w;
+    float q;
+} Vector5;
+
 void run_c_tests(void) {
     zig_u8(0xff);
     zig_u16(0xfffe);
@@ -225,4 +239,18 @@ struct BigStruct c_big_struct_both(struct BigStruct x) {
     assert_or_panic(x.e == 5);
     struct BigStruct y = {10, 11, 12, 13, 14};
     return y;
+}
+
+void c_small_struct_floats(Vector3 vec) {
+    assert_or_panic(vec.x == 3.0);
+    assert_or_panic(vec.y == 6.0);
+    assert_or_panic(vec.z == 12.0);
+}
+
+void c_big_struct_floats(Vector5 vec) {
+    assert_or_panic(vec.x == 76.0);
+    assert_or_panic(vec.y == -1.0);
+    assert_or_panic(vec.z == -12.0);
+    assert_or_panic(vec.w == 69);
+    assert_or_panic(vec.q == 55);
 }

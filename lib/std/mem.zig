@@ -296,7 +296,7 @@ pub const Allocator = struct {
     }
 };
 
-var failAllocator = Allocator {
+var failAllocator = Allocator{
     .reallocFn = failAllocatorRealloc,
     .shrinkFn = failAllocatorShrink,
 };
@@ -402,7 +402,9 @@ pub fn zeroes(comptime T: type) T {
             }
             return [_]info.child{zeroes(info.child)} ** info.len;
         },
-        .Vector,
+        .Vector => |info| {
+            return @splat(info.len, zeroes(info.child));
+        },
         .ErrorUnion,
         .ErrorSet,
         .Union,
@@ -458,6 +460,9 @@ test "mem.zeroes" {
         },
 
         array: [2]u32,
+        vector_u32: meta.Vector(2, u32),
+        vector_f32: meta.Vector(2, f32),
+        vector_bool: meta.Vector(2, bool),
         optional_int: ?u8,
         empty: void,
         sentinel: [3:0]u8,
@@ -484,6 +489,9 @@ test "mem.zeroes" {
     for (b.array) |e| {
         testing.expectEqual(@as(u32, 0), e);
     }
+    testing.expectEqual(@splat(2, @as(u32, 0)), b.vector_u32);
+    testing.expectEqual(@splat(2, @as(f32, 0.0)), b.vector_f32);
+    testing.expectEqual(@splat(2, @as(bool, false)), b.vector_bool);
     testing.expectEqual(@as(?u8, null), b.optional_int);
     for (b.sentinel) |e| {
         testing.expectEqual(@as(u8, 0), e);

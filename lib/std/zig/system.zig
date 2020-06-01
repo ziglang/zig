@@ -292,8 +292,27 @@ pub const NativeTargetInfo = struct {
                     }
                 },
                 .freebsd => {
-                    // Unimplemented, fall back to default.
-                    // https://github.com/ziglang/zig/issues/4582
+                    var osreldate: u32 = undefined;
+                    var len: usize = undefined;
+
+                    std.os.sysctlbynameZ("kern.osreldate", &osreldate, &len, null, 0) catch |err| switch (err) {
+                        error.NameTooLong => unreachable, // constant, known good value
+                        error.PermissionDenied => unreachable, // only when setting values,
+                        error.SystemResources => unreachable, // memory already on the stack
+                        error.UnknownName => unreachable, // constant, known good value
+                        error.Unexpected => unreachable, // EFAULT: stack should be safe, EISDIR/ENOTDIR: constant, known good value
+                    };
+
+                    // https://www.freebsd.org/doc/en_US.ISO8859-1/books/porters-handbook/versions.html
+                    // Major * 100,000 has been convention since FreeBSD 2.2 (1997)
+                    // Minor * 1(0),000 summed has been convention since FreeBSD 2.2 (1997)
+                    // e.g. 492101 = 4.11-STABLE = 4.(9+2)
+                    const major = osreldate / 100_000;
+                    const minor1 = osreldate % 100_000 / 10_000; // usually 0 since 5.1
+                    const minor2 = osreldate % 10_000 / 1_000; // 0 before 5.1, minor version since
+                    const patch = osreldate % 1_000;
+                    os.version_range.semver.min = .{ .major = major, .minor = minor1 + minor2, .patch = patch };
+                    os.version_range.semver.max = .{ .major = major, .minor = minor1 + minor2, .patch = patch };
                 },
                 else => {
                     // Unimplemented, fall back to default version range.

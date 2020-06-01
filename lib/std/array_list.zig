@@ -292,7 +292,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// Initialize with capacity to hold at least num elements.
         /// Deinitialize with `deinit` or use `toOwnedSlice`.
         pub fn initCapacity(allocator: *Allocator, num: usize) !Self {
-            var self = Self.init(allocator);
+            var self = Self{};
             try self.ensureCapacity(allocator, num);
             return self;
         }

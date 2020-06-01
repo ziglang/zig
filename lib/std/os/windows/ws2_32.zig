@@ -728,7 +728,7 @@ pub extern "ws2_32" fn WSARecvFrom(
     lpNumberOfBytesRecvd: ?*DWORD,
     lpFlags: *DWORD,
     lpFrom: ?*sockaddr,
-    lpFromlen: socklen_t,
+    lpFromlen: ?*socklen_t,
     lpOverlapped: ?*WSAOVERLAPPED,
     lpCompletionRoutine: ?WSAOVERLAPPED_COMPLETION_ROUTINE,
 ) callconv(.Stdcall) c_int;

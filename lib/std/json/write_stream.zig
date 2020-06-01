@@ -241,7 +241,7 @@ test "json write stream" {
     var w = std.json.writeStream(out, 10);
 
     try w.beginObject();
-    
+
     try w.objectField("object");
     try w.emitJson(try getJsonObject(&arena_allocator.allocator));
 

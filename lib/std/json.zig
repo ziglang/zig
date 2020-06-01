@@ -2575,6 +2575,10 @@ pub fn stringify(
             else => @compileError("Unable to stringify type '" ++ @typeName(T) ++ "'"),
         },
         .Array => return stringify(&value, options, out_stream),
+        .Vector => |info| {
+             const array: [info.len]info.child = value;
+             return stringify(&array, options, out_stream);
+        },
         else => @compileError("Unable to stringify type '" ++ @typeName(T) ++ "'"),
     }
     unreachable;
@@ -2762,3 +2766,8 @@ test "stringify struct with custom stringifier" {
         }
     }{ .foo = 42 }, StringifyOptions{});
 }
+
+test "stringify vector" {
+    try teststringify("[1,1]", @splat(2, @as(u32, 1)), StringifyOptions{});
+}
+

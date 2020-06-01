@@ -27,6 +27,7 @@ pub const File = struct {
     intended_io_mode: io.ModeOverride = io.default_mode,
 
     pub const Mode = os.mode_t;
+    pub const INode = os.ino_t;
 
     pub const default_mode = switch (builtin.os.tag) {
         .windows => 0,
@@ -215,26 +216,23 @@ pub const File = struct {
 
     pub const Stat = struct {
         /// A number that the system uses to point to the file metadata. This number is not guaranteed to be
-        /// unique across time, as some file systems may reuse an inode after it's file has been deleted.
+        /// unique across time, as some file systems may reuse an inode after its file has been deleted.
         /// Some systems may change the inode of a file over time.
         ///
         /// On Linux, the inode _is_ structure that stores the metadata, and the inode _number_ is what
         /// you see here: the index number of the inode.
         ///
         /// The FileIndex on Windows is similar. It is a number for a file that is unique to each filesystem.
-        inode: os.ino_t,
-
+        inode: INode,
         size: u64,
         mode: Mode,
 
-        /// access time in nanoseconds
-        atime: i64,
-
-        /// last modification time in nanoseconds
-        mtime: i64,
-
-        /// creation time in nanoseconds
-        ctime: i64,
+        /// Access time in nanoseconds, relative to UTC 1970-01-01.
+        atime: i128,
+        /// Last modification time in nanoseconds, relative to UTC 1970-01-01.
+        mtime: i128,
+        /// Creation time in nanoseconds, relative to UTC 1970-01-01.
+        ctime: i128,
     };
 
     pub const StatError = os.FStatError;
@@ -270,9 +268,9 @@ pub const File = struct {
             .inode = st.ino,
             .size = @bitCast(u64, st.size),
             .mode = st.mode,
-            .atime = @as(i64, atime.tv_sec) * std.time.ns_per_s + atime.tv_nsec,
-            .mtime = @as(i64, mtime.tv_sec) * std.time.ns_per_s + mtime.tv_nsec,
-            .ctime = @as(i64, ctime.tv_sec) * std.time.ns_per_s + ctime.tv_nsec,
+            .atime = @as(i128, atime.tv_sec) * std.time.ns_per_s + atime.tv_nsec,
+            .mtime = @as(i128, mtime.tv_sec) * std.time.ns_per_s + mtime.tv_nsec,
+            .ctime = @as(i128, ctime.tv_sec) * std.time.ns_per_s + ctime.tv_nsec,
         };
     }
 
@@ -286,9 +284,9 @@ pub const File = struct {
     pub fn updateTimes(
         self: File,
         /// access timestamp in nanoseconds
-        atime: i64,
+        atime: i128,
         /// last modification timestamp in nanoseconds
-        mtime: i64,
+        mtime: i128,
     ) UpdateTimesError!void {
         if (builtin.os.tag == .windows) {
             const atime_ft = windows.nanoSecondsToFileTime(atime);
