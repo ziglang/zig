@@ -161,15 +161,15 @@ const Parser = struct {
                     field_state = .{ .end = visib_token orelse node.firstToken() };
                 }
                 switch (node.id) {
-                    .FnProto => {
+                    .fn_proto => {
                         node.cast(Node.FnProto).?.doc_comments = doc_comments;
                         node.cast(Node.FnProto).?.visib_token = visib_token;
                     },
-                    .VarDecl => {
+                    .var_decl => {
                         node.cast(Node.VarDecl).?.doc_comments = doc_comments;
                         node.cast(Node.VarDecl).?.visib_token = visib_token;
                     },
-                    .Use => {
+                    .use => {
                         node.cast(Node.Use).?.doc_comments = doc_comments;
                         node.cast(Node.Use).?.visib_token = visib_token;
                     },
@@ -178,9 +178,9 @@ const Parser = struct {
                 try list.append(node);
                 if (try p.parseAppendedDocComment(node.lastToken())) |appended_comment| {
                     switch (node.id) {
-                        .FnProto => {},
-                        .VarDecl => node.cast(Node.VarDecl).?.doc_comments = appended_comment,
-                        .Use => node.cast(Node.Use).?.doc_comments = appended_comment,
+                        .fn_proto => {},
+                        .var_decl => node.cast(Node.VarDecl).?.doc_comments = appended_comment,
+                        .use => node.cast(Node.Use).?.doc_comments = appended_comment,
                         else => unreachable,
                     }
                 }
@@ -996,7 +996,7 @@ const Parser = struct {
 
     /// AssignExpr <- Expr (AssignOp Expr)?
     fn parseAssignExpr(p: *Parser) !?*Node {
-        return p.parseBinOpExpr(parseAssignOp, parseExpr, .Once);
+        return p.parseBinOpExpr(parseAssignOp, parseExpr, .once);
     }
 
     /// Expr <- KEYWORD_try* BoolOrExpr
@@ -1007,44 +1007,44 @@ const Parser = struct {
     /// BoolOrExpr <- BoolAndExpr (KEYWORD_or BoolAndExpr)*
     fn parseBoolOrExpr(p: *Parser) !?*Node {
         return p.parseBinOpExpr(
-            SimpleBinOpParseFn(.Keyword_or, Node.InfixOp.Op.BoolOr),
+            SimpleBinOpParseFn(.Keyword_or, .bool_or),
             parseBoolAndExpr,
-            .Infinitely,
+            .infinitely,
         );
     }
 
     /// BoolAndExpr <- CompareExpr (KEYWORD_and CompareExpr)*
     fn parseBoolAndExpr(p: *Parser) !?*Node {
         return p.parseBinOpExpr(
-            SimpleBinOpParseFn(.Keyword_and, .BoolAnd),
+            SimpleBinOpParseFn(.Keyword_and, .bool_and),
             parseCompareExpr,
-            .Infinitely,
+            .infinitely,
         );
     }
 
     /// CompareExpr <- BitwiseExpr (CompareOp BitwiseExpr)?
     fn parseCompareExpr(p: *Parser) !?*Node {
-        return p.parseBinOpExpr(parseCompareOp, parseBitwiseExpr, .Once);
+        return p.parseBinOpExpr(parseCompareOp, parseBitwiseExpr, .once);
     }
 
     /// BitwiseExpr <- BitShiftExpr (BitwiseOp BitShiftExpr)*
     fn parseBitwiseExpr(p: *Parser) !?*Node {
-        return p.parseBinOpExpr(parseBitwiseOp, parseBitShiftExpr, .Infinitely);
+        return p.parseBinOpExpr(parseBitwiseOp, parseBitShiftExpr, .infinitely);
     }
 
     /// BitShiftExpr <- AdditionExpr (BitShiftOp AdditionExpr)*
     fn parseBitShiftExpr(p: *Parser) !?*Node {
-        return p.parseBinOpExpr(parseBitShiftOp, parseAdditionExpr, .Infinitely);
+        return p.parseBinOpExpr(parseBitShiftOp, parseAdditionExpr, .infinitely);
     }
 
     /// AdditionExpr <- MultiplyExpr (AdditionOp MultiplyExpr)*
     fn parseAdditionExpr(p: *Parser) !?*Node {
-        return p.parseBinOpExpr(parseAdditionOp, parseMultiplyExpr, .Infinitely);
+        return p.parseBinOpExpr(parseAdditionOp, parseMultiplyExpr, .infinitely);
     }
 
     /// MultiplyExpr <- PrefixExpr (MultiplyOp PrefixExpr)*
     fn parseMultiplyExpr(p: *Parser) !?*Node {
-        return p.parseBinOpExpr(parseMultiplyOp, parsePrefixExpr, .Infinitely);
+        return p.parseBinOpExpr(parseMultiplyOp, parsePrefixExpr, .infinitely);
     }
 
     /// PrefixExpr <- PrefixOp* PrimaryExpr
@@ -1397,7 +1397,7 @@ const Parser = struct {
     fn parseErrorUnionExpr(p: *Parser) !?*Node {
         const suffix_expr = (try p.parseSuffixExpr()) orelse return null;
 
-        if (try SimpleBinOpParseFn(.Bang, Node.InfixOp.Op.ErrorUnion)(p)) |node| {
+        if (try SimpleBinOpParseFn(.Bang, .error_union)(p)) |node| {
             const error_union = node.cast(Node.InfixOp).?;
             const type_expr = try p.expectNode(parseTypeExpr, .{
                 .expected_type_expr = .{ .token = p.tok_i },
@@ -1433,8 +1433,8 @@ const Parser = struct {
 
             while (try p.parseSuffixOp()) |node| {
                 switch (node.id) {
-                    .SuffixOp => node.cast(Node.SuffixOp).?.lhs = res,
-                    .InfixOp => node.cast(Node.InfixOp).?.lhs = res,
+                    .suffix_op => node.cast(Node.SuffixOp).?.lhs = res,
+                    .infix_op => node.cast(Node.InfixOp).?.lhs = res,
                     else => unreachable,
                 }
                 res = node;
@@ -1464,8 +1464,8 @@ const Parser = struct {
             while (true) {
                 if (try p.parseSuffixOp()) |node| {
                     switch (node.id) {
-                        .SuffixOp => node.cast(Node.SuffixOp).?.lhs = res,
-                        .InfixOp => node.cast(Node.InfixOp).?.lhs = res,
+                        .suffix_op => node.cast(Node.SuffixOp).?.lhs = res,
+                        .infix_op => node.cast(Node.InfixOp).?.lhs = res,
                         else => unreachable,
                     }
                     res = node;
@@ -1556,7 +1556,7 @@ const Parser = struct {
             node.* = .{
                 .op_token = period.?,
                 .lhs = global_error_set,
-                .op = .Period,
+                .op = .period,
                 .rhs = identifier.?,
             };
             return &node.base;
@@ -2234,7 +2234,7 @@ const Parser = struct {
             node.* = .{
                 .op_token = token,
                 .lhs = expr,
-                .op = .Range,
+                .op = .range,
                 .rhs = range_end,
             };
             return &node.base;
@@ -2260,20 +2260,20 @@ const Parser = struct {
     fn parseAssignOp(p: *Parser) !?*Node {
         const token = p.nextToken();
         const op: Node.InfixOp.Op = switch (p.token_ids[token]) {
-            .AsteriskEqual => .AssignMul,
-            .SlashEqual => .AssignDiv,
-            .PercentEqual => .AssignMod,
-            .PlusEqual => .AssignAdd,
-            .MinusEqual => .AssignSub,
-            .AngleBracketAngleBracketLeftEqual => .AssignBitShiftLeft,
-            .AngleBracketAngleBracketRightEqual => .AssignBitShiftRight,
-            .AmpersandEqual => .AssignBitAnd,
-            .CaretEqual => .AssignBitXor,
-            .PipeEqual => .AssignBitOr,
-            .AsteriskPercentEqual => .AssignMulWrap,
-            .PlusPercentEqual => .AssignAddWrap,
-            .MinusPercentEqual => .AssignSubWrap,
-            .Equal => .Assign,
+            .AsteriskEqual => .assign_mul,
+            .SlashEqual => .assign_div,
+            .PercentEqual => .assign_mod,
+            .PlusEqual => .assign_add,
+            .MinusEqual => .assign_sub,
+            .AngleBracketAngleBracketLeftEqual => .assign_bit_shift_left,
+            .AngleBracketAngleBracketRightEqual => .assign_bit_shift_right,
+            .AmpersandEqual => .assign_bit_and,
+            .CaretEqual => .assign_bit_xor,
+            .PipeEqual => .assign_bit_or,
+            .AsteriskPercentEqual => .assign_mul_wrap,
+            .PlusPercentEqual => .assign_add_wrap,
+            .MinusPercentEqual => .assign_sub_wrap,
+            .Equal => .assign,
             else => {
                 p.putBackToken(token);
                 return null;
@@ -2300,12 +2300,12 @@ const Parser = struct {
     fn parseCompareOp(p: *Parser) !?*Node {
         const token = p.nextToken();
         const op: Node.InfixOp.Op = switch (p.token_ids[token]) {
-            .EqualEqual => .EqualEqual,
-            .BangEqual => .BangEqual,
-            .AngleBracketLeft => .LessThan,
-            .AngleBracketRight => .GreaterThan,
-            .AngleBracketLeftEqual => .LessOrEqual,
-            .AngleBracketRightEqual => .GreaterOrEqual,
+            .EqualEqual => .equal_equal,
+            .BangEqual => .bang_equal,
+            .AngleBracketLeft => .less_than,
+            .AngleBracketRight => .greater_than,
+            .AngleBracketLeftEqual => .less_or_equal,
+            .AngleBracketRightEqual => .greater_or_equal,
             else => {
                 p.putBackToken(token);
                 return null;
@@ -2324,10 +2324,10 @@ const Parser = struct {
     fn parseBitwiseOp(p: *Parser) !?*Node {
         const token = p.nextToken();
         const op: Node.InfixOp.Op = switch (p.token_ids[token]) {
-            .Ampersand => .BitAnd,
-            .Caret => .BitXor,
-            .Pipe => .BitOr,
-            .Keyword_orelse => .UnwrapOptional,
+            .Ampersand => .bit_and,
+            .Caret => .bit_xor,
+            .Pipe => .bit_or,
+            .Keyword_orelse => .unwrap_optional,
             .Keyword_catch => .{ .Catch = try p.parsePayload() },
             else => {
                 p.putBackToken(token);
@@ -2344,8 +2344,8 @@ const Parser = struct {
     fn parseBitShiftOp(p: *Parser) !?*Node {
         const token = p.nextToken();
         const op: Node.InfixOp.Op = switch (p.token_ids[token]) {
-            .AngleBracketAngleBracketLeft => .BitShiftLeft,
-            .AngleBracketAngleBracketRight => .BitShiftRight,
+            .AngleBracketAngleBracketLeft => .bit_shift_left,
+            .AngleBracketAngleBracketRight => .bit_shift_right,
             else => {
                 p.putBackToken(token);
                 return null;
@@ -2364,11 +2364,11 @@ const Parser = struct {
     fn parseAdditionOp(p: *Parser) !?*Node {
         const token = p.nextToken();
         const op: Node.InfixOp.Op = switch (p.token_ids[token]) {
-            .Plus => .Add,
-            .Minus => .Sub,
-            .PlusPlus => .ArrayCat,
-            .PlusPercent => .AddWrap,
-            .MinusPercent => .SubWrap,
+            .Plus => .add,
+            .Minus => .sub,
+            .PlusPlus => .array_cat,
+            .PlusPercent => .add_wrap,
+            .MinusPercent => .sub_wrap,
             else => {
                 p.putBackToken(token);
                 return null;
@@ -2388,12 +2388,12 @@ const Parser = struct {
     fn parseMultiplyOp(p: *Parser) !?*Node {
         const token = p.nextToken();
         const op: Node.InfixOp.Op = switch (p.token_ids[token]) {
-            .PipePipe => .MergeErrorSets,
-            .Asterisk => .Mul,
-            .Slash => .Div,
-            .Percent => .Mod,
-            .AsteriskAsterisk => .ArrayMult,
-            .AsteriskPercent => .MulWrap,
+            .PipePipe => .merge_error_sets,
+            .Asterisk => .mul,
+            .Slash => .div,
+            .Percent => .mod,
+            .AsteriskAsterisk => .array_mult,
+            .AsteriskPercent => .mul_wrap,
             else => {
                 p.putBackToken(token);
                 return null;
@@ -2414,11 +2414,11 @@ const Parser = struct {
     fn parsePrefixOp(p: *Parser) !?*Node {
         const token = p.nextToken();
         const op: Node.PrefixOp.Op = switch (p.token_ids[token]) {
-            .Bang => .BoolNot,
-            .Minus => .Negation,
-            .Tilde => .BitNot,
-            .MinusPercent => .NegationWrap,
-            .Ampersand => .AddressOf,
+            .Bang => .bool_not,
+            .Minus => .negation,
+            .Tilde => .bit_not,
+            .MinusPercent => .negation_wrap,
+            .Ampersand => .address_of,
             .Keyword_try => .Try,
             .Keyword_await => .Await,
             else => {
@@ -2453,7 +2453,7 @@ const Parser = struct {
             const node = try p.arena.allocator.create(Node.PrefixOp);
             node.* = .{
                 .op_token = token,
-                .op = .OptionalType,
+                .op = .optional_type,
                 .rhs = undefined, // set by caller
             };
             return &node.base;
@@ -2484,9 +2484,9 @@ const Parser = struct {
             // The attributes should be applied to the rightmost operator.
             const prefix_op = node.cast(Node.PrefixOp).?;
             var ptr_info = if (p.token_ids[prefix_op.op_token] == .AsteriskAsterisk)
-                &prefix_op.rhs.cast(Node.PrefixOp).?.op.PtrType
+                &prefix_op.rhs.cast(Node.PrefixOp).?.op.ptr_type
             else
-                &prefix_op.op.PtrType;
+                &prefix_op.op.ptr_type;
 
             while (true) {
                 if (p.eatToken(.Keyword_align)) |align_token| {
@@ -2564,8 +2564,8 @@ const Parser = struct {
 
         if (try p.parseArrayTypeStart()) |node| {
             switch (node.cast(Node.PrefixOp).?.op) {
-                .ArrayType => {},
-                .SliceType => |*slice_type| {
+                .array_type => {},
+                .slice_type => |*slice_type| {
                     // Collect pointer qualifiers in any order, but disallow duplicates
                     while (true) {
                         if (try p.parseByteAlign()) |align_expr| {
@@ -2646,7 +2646,7 @@ const Parser = struct {
                         null;
                     break :blk .{
                         .op = .{
-                            .Slice = .{
+                            .slice = .{
                                 .start = index_expr,
                                 .end = end_expr,
                                 .sentinel = sentinel,
@@ -2657,13 +2657,13 @@ const Parser = struct {
                 }
 
                 break :blk .{
-                    .op = .{ .ArrayAccess = index_expr },
+                    .op = .{ .array_access = index_expr },
                     .token = try p.expectToken(.RBracket),
                 };
             }
 
             if (p.eatToken(.PeriodAsterisk)) |period_asterisk| {
-                break :blk .{ .op = .Deref, .token = period_asterisk };
+                break :blk .{ .op = .deref, .token = period_asterisk };
             }
 
             if (p.eatToken(.Period)) |period| {
@@ -2675,13 +2675,13 @@ const Parser = struct {
                     node.* = .{
                         .op_token = period,
                         .lhs = undefined, // set by caller
-                        .op = .Period,
+                        .op = .period,
                         .rhs = identifier,
                     };
                     return &node.base;
                 }
                 if (p.eatToken(.QuestionMark)) |question_mark| {
-                    break :blk .{ .op = .UnwrapOptional, .token = question_mark };
+                    break :blk .{ .op = .unwrap_optional, .token = question_mark };
                 }
                 try p.errors.append(p.gpa, .{
                     .expected_suffix_op = .{ .token = p.tok_i },
@@ -2730,14 +2730,14 @@ const Parser = struct {
 
         const op: Node.PrefixOp.Op = if (expr) |len_expr|
             .{
-                .ArrayType = .{
+                .array_type = .{
                     .len_expr = len_expr,
                     .sentinel = sentinel,
                 },
             }
         else
             .{
-                .SliceType = Node.PrefixOp.PtrInfo{
+                .slice_type = .{
                     .allowzero_token = null,
                     .align_info = null,
                     .const_token = null,
@@ -2771,7 +2771,7 @@ const Parser = struct {
             const node = try p.arena.allocator.create(Node.PrefixOp);
             node.* = .{
                 .op_token = asterisk,
-                .op = .{ .PtrType = .{ .sentinel = sentinel } },
+                .op = .{ .ptr_type = .{ .sentinel = sentinel } },
                 .rhs = undefined, // set by caller
             };
             return &node.base;
@@ -2781,7 +2781,7 @@ const Parser = struct {
             const node = try p.arena.allocator.create(Node.PrefixOp);
             node.* = .{
                 .op_token = double_asterisk,
-                .op = .{ .PtrType = .{} },
+                .op = .{ .ptr_type = .{} },
                 .rhs = undefined, // set by caller
             };
 
@@ -2789,7 +2789,7 @@ const Parser = struct {
             const child = try p.arena.allocator.create(Node.PrefixOp);
             child.* = .{
                 .op_token = double_asterisk,
-                .op = .{ .PtrType = .{} },
+                .op = .{ .ptr_type = .{} },
                 .rhs = undefined, // set by caller
             };
             node.rhs = &child.base;
@@ -2811,7 +2811,7 @@ const Parser = struct {
                     const node = try p.arena.allocator.create(Node.PrefixOp);
                     node.* = .{
                         .op_token = lbracket,
-                        .op = .{ .PtrType = .{} },
+                        .op = .{ .ptr_type = .{} },
                         .rhs = undefined, // set by caller
                     };
                     return &node.base;
@@ -2827,7 +2827,7 @@ const Parser = struct {
             const node = try p.arena.allocator.create(Node.PrefixOp);
             node.* = .{
                 .op_token = lbracket,
-                .op = .{ .PtrType = .{ .sentinel = sentinel } },
+                .op = .{ .ptr_type = .{ .sentinel = sentinel } },
                 .rhs = undefined, // set by caller
             };
             return &node.base;
@@ -3227,7 +3227,7 @@ const Parser = struct {
             var rightmost_op = first_op;
             while (true) {
                 switch (rightmost_op.id) {
-                    .PrefixOp => {
+                    .prefix_op => {
                         var prefix_op = rightmost_op.cast(Node.PrefixOp).?;
                         // If the token encountered was **, there will be two nodes
                         if (p.token_ids[prefix_op.op_token] == .AsteriskAsterisk) {
@@ -3239,7 +3239,7 @@ const Parser = struct {
                             rightmost_op = rhs;
                         } else break;
                     },
-                    .AnyFrameType => {
+                    .any_frame_type => {
                         const prom = rightmost_op.cast(Node.AnyFrameType).?;
                         if (try opParseFn(p)) |rhs| {
                             prom.result.?.return_type = rhs;
@@ -3252,13 +3252,13 @@ const Parser = struct {
 
             // If any prefix op existed, a child node on the RHS is required
             switch (rightmost_op.id) {
-                .PrefixOp => {
+                .prefix_op => {
                     const prefix_op = rightmost_op.cast(Node.PrefixOp).?;
                     prefix_op.rhs = try p.expectNode(childParseFn, .{
                         .invalid_token = .{ .token = p.tok_i },
                     });
                 },
-                .AnyFrameType => {
+                .any_frame_type => {
                     const prom = rightmost_op.cast(Node.AnyFrameType).?;
                     prom.result.?.return_type = try p.expectNode(childParseFn, .{
                         .invalid_token = .{ .token = p.tok_i },
@@ -3281,8 +3281,8 @@ const Parser = struct {
         opParseFn: NodeParseFn,
         childParseFn: NodeParseFn,
         chain: enum {
-            Once,
-            Infinitely,
+            once,
+            infinitely,
         },
     ) Error!?*Node {
         var res = (try childParseFn(p)) orelse return null;
@@ -3299,8 +3299,8 @@ const Parser = struct {
             op.*.rhs = right;
 
             switch (chain) {
-                .Once => break,
-                .Infinitely => continue,
+                .once => break,
+                .infinitely => continue,
             }
         }
 
