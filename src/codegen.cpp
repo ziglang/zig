@@ -1047,8 +1047,9 @@ static void gen_assertion(CodeGen *g, PanicMsgId msg_id, IrInstGen *source_instr
 
 static LLVMValueRef gen_wasm_memory_size(CodeGen *g) {
     if (g->wasm_memory_size)
-      return g->wasm_memory_size;
+        return g->wasm_memory_size;
 
+    // TODO adjust for wasm64 as well
     // declare i32 @llvm.wasm.memory.size.i32(i32) nounwind readonly
     LLVMTypeRef param_type = LLVMInt32Type();
     LLVMTypeRef fn_type = LLVMFunctionType(LLVMInt32Type(), &param_type, 1, false);
@@ -1056,6 +1057,23 @@ static LLVMValueRef gen_wasm_memory_size(CodeGen *g) {
     assert(LLVMGetIntrinsicID(g->wasm_memory_size));
 
     return g->wasm_memory_size;
+}
+
+static LLVMValueRef gen_wasm_memory_grow(CodeGen *g) {
+    if (g->wasm_memory_grow)
+        return g->wasm_memory_grow;
+
+    // TODO adjust for wasm64 as well
+    // declare i32 @llvm.wasm.memory.grow.i32(i32, i32) nounwind
+    LLVMTypeRef param_types[] = {
+        LLVMInt32Type(),
+        LLVMInt32Type(),
+    };
+    LLVMTypeRef fn_type = LLVMFunctionType(LLVMInt32Type(), param_types, 2, false);
+    g->wasm_memory_grow = LLVMAddFunction(g->module, "llvm.wasm.memory.grow.i32", fn_type);
+    assert(LLVMGetIntrinsicID(g->wasm_memory_grow));
+
+    return g->wasm_memory_grow;
 }
 
 static LLVMValueRef get_stacksave_fn_val(CodeGen *g) {
@@ -5607,8 +5625,24 @@ static LLVMValueRef ir_render_wasm_memory_size(CodeGen *g, IrExecutableGen *exec
     //
     // More info:
     // https://github.com/sunfishcode/wasm-reference-manual/blob/master/WebAssembly.md#current-linear-memory-size
+    // TODO adjust for wasm64
     LLVMValueRef zero = LLVMConstNull(g->builtin_types.entry_i32->llvm_type);
     LLVMValueRef val = LLVMBuildCall(g->builder, gen_wasm_memory_size(g), &zero, 1, "");
+    return val;
+}
+
+static LLVMValueRef ir_render_wasm_memory_grow(CodeGen *g, IrExecutableGen *executable, IrInstGenWasmMemoryGrow *instruction) {
+    // When Wasm lands multi-memory support, we can relax this to permit the user specify
+    // memory index to inquire about. For now, we pass in the recommended default of index 0.
+    //
+    // More info:
+    // https://github.com/sunfishcode/wasm-reference-manual/blob/master/WebAssembly.md#grow-linear-memory-size
+    // TODO adjust for wasm64
+    LLVMValueRef params[] = {
+        LLVMConstNull(g->builtin_types.entry_i32->llvm_type),
+        ir_llvm_value(g, instruction->delta),
+    };
+    LLVMValueRef val = LLVMBuildCall(g->builder, gen_wasm_memory_grow(g), params, 2, "");
     return val;
 }
 
@@ -6824,6 +6858,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutableGen *executabl
             return ir_render_vector_extract_elem(g, executable, (IrInstGenVectorExtractElem *) instruction);
         case IrInstGenIdWasmMemorySize:
             return ir_render_wasm_memory_size(g, executable, (IrInstGenWasmMemorySize *) instruction);
+        case IrInstGenIdWasmMemoryGrow:
+            return ir_render_wasm_memory_grow(g, executable, (IrInstGenWasmMemoryGrow *) instruction);
     }
     zig_unreachable();
 }
@@ -8687,6 +8723,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdCall, "call", 3);
     create_builtin_fn(g, BuiltinFnIdBitSizeof, "bitSizeOf", 1);
     create_builtin_fn(g, BuiltinFnIdWasmMemorySize, "wasmMemorySize", 0);
+    create_builtin_fn(g, BuiltinFnIdWasmMemoryGrow, "wasmMemoryGrow", 1);
 }
 
 static const char *bool_to_str(bool b) {
