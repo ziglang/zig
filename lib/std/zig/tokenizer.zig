@@ -11,57 +11,57 @@ pub const Token = struct {
     };
 
     pub const keywords = std.ComptimeStringMap(Id, .{
-        .{"align", .Keyword_align},
-        .{"allowzero", .Keyword_allowzero},
-        .{"and", .Keyword_and},
-        .{"anyframe", .Keyword_anyframe},
-        .{"asm", .Keyword_asm},
-        .{"async", .Keyword_async},
-        .{"await", .Keyword_await},
-        .{"break", .Keyword_break},
-        .{"callconv", .Keyword_callconv},
-        .{"catch", .Keyword_catch},
-        .{"comptime", .Keyword_comptime},
-        .{"const", .Keyword_const},
-        .{"continue", .Keyword_continue},
-        .{"defer", .Keyword_defer},
-        .{"else", .Keyword_else},
-        .{"enum", .Keyword_enum},
-        .{"errdefer", .Keyword_errdefer},
-        .{"error", .Keyword_error},
-        .{"export", .Keyword_export},
-        .{"extern", .Keyword_extern},
-        .{"false", .Keyword_false},
-        .{"fn", .Keyword_fn},
-        .{"for", .Keyword_for},
-        .{"if", .Keyword_if},
-        .{"inline", .Keyword_inline},
-        .{"noalias", .Keyword_noalias},
-        .{"noasync", .Keyword_nosuspend}, // TODO: remove this
-        .{"noinline", .Keyword_noinline},
-        .{"nosuspend", .Keyword_nosuspend},
-        .{"null", .Keyword_null},
-        .{"or", .Keyword_or},
-        .{"orelse", .Keyword_orelse},
-        .{"packed", .Keyword_packed},
-        .{"pub", .Keyword_pub},
-        .{"resume", .Keyword_resume},
-        .{"return", .Keyword_return},
-        .{"linksection", .Keyword_linksection},
-        .{"struct", .Keyword_struct},
-        .{"suspend", .Keyword_suspend},
-        .{"switch", .Keyword_switch},
-        .{"test", .Keyword_test},
-        .{"threadlocal", .Keyword_threadlocal},
-        .{"true", .Keyword_true},
-        .{"try", .Keyword_try},
-        .{"undefined", .Keyword_undefined},
-        .{"union", .Keyword_union},
-        .{"unreachable", .Keyword_unreachable},
-        .{"usingnamespace", .Keyword_usingnamespace},
-        .{"var", .Keyword_var},
-        .{"volatile", .Keyword_volatile},
-        .{"while", .Keyword_while},
+        .{ "align", .Keyword_align },
+        .{ "allowzero", .Keyword_allowzero },
+        .{ "and", .Keyword_and },
+        .{ "anyframe", .Keyword_anyframe },
+        .{ "asm", .Keyword_asm },
+        .{ "async", .Keyword_async },
+        .{ "await", .Keyword_await },
+        .{ "break", .Keyword_break },
+        .{ "callconv", .Keyword_callconv },
+        .{ "catch", .Keyword_catch },
+        .{ "comptime", .Keyword_comptime },
+        .{ "const", .Keyword_const },
+        .{ "continue", .Keyword_continue },
+        .{ "defer", .Keyword_defer },
+        .{ "else", .Keyword_else },
+        .{ "enum", .Keyword_enum },
+        .{ "errdefer", .Keyword_errdefer },
+        .{ "error", .Keyword_error },
+        .{ "export", .Keyword_export },
+        .{ "extern", .Keyword_extern },
+        .{ "false", .Keyword_false },
+        .{ "fn", .Keyword_fn },
+        .{ "for", .Keyword_for },
+        .{ "if", .Keyword_if },
+        .{ "inline", .Keyword_inline },
+        .{ "noalias", .Keyword_noalias },
+        .{ "noasync", .Keyword_nosuspend }, // TODO: remove this
+        .{ "noinline", .Keyword_noinline },
+        .{ "nosuspend", .Keyword_nosuspend },
+        .{ "null", .Keyword_null },
+        .{ "or", .Keyword_or },
+        .{ "orelse", .Keyword_orelse },
+        .{ "packed", .Keyword_packed },
+        .{ "pub", .Keyword_pub },
+        .{ "resume", .Keyword_resume },
+        .{ "return", .Keyword_return },
+        .{ "linksection", .Keyword_linksection },
+        .{ "struct", .Keyword_struct },
+        .{ "suspend", .Keyword_suspend },
+        .{ "switch", .Keyword_switch },
+        .{ "test", .Keyword_test },
+        .{ "threadlocal", .Keyword_threadlocal },
+        .{ "true", .Keyword_true },
+        .{ "try", .Keyword_try },
+        .{ "undefined", .Keyword_undefined },
+        .{ "union", .Keyword_union },
+        .{ "unreachable", .Keyword_unreachable },
+        .{ "usingnamespace", .Keyword_usingnamespace },
+        .{ "var", .Keyword_var },
+        .{ "volatile", .Keyword_volatile },
+        .{ "while", .Keyword_while },
     });
 
     pub fn getKeyword(bytes: []const u8) ?Id {
@@ -1014,6 +1014,7 @@ pub const Tokenizer = struct {
                         state = .container_doc_comment;
                     },
                     '\n' => break,
+                    '\t' => state = .line_comment,
                     else => {
                         state = .line_comment;
                         self.checkLiteralCharacter();
@@ -1027,6 +1028,10 @@ pub const Tokenizer = struct {
                         result.id = .DocComment;
                         break;
                     },
+                    '\t' => {
+                        state = .doc_comment;
+                        result.id = .DocComment;
+                    },
                     else => {
                         state = .doc_comment;
                         result.id = .DocComment;
@@ -1035,6 +1040,7 @@ pub const Tokenizer = struct {
                 },
                 .line_comment, .doc_comment, .container_doc_comment => switch (c) {
                     '\n' => break,
+                    '\t' => {},
                     else => self.checkLiteralCharacter(),
                 },
                 .zero => switch (c) {
@@ -1674,6 +1680,24 @@ test "tokenizer - multiline string literal with literal tab" {
         \\\\foo	bar
     , &[_]Token.Id{
         .MultilineStringLiteralLine,
+    });
+}
+
+test "tokenizer - comments with literal tab" {
+    testTokenize(
+        \\//foo	bar
+        \\//!foo	bar
+        \\///foo	bar
+        \\//	foo
+        \\///	foo
+        \\///	/foo
+    , &[_]Token.Id{
+        .LineComment,
+        .ContainerDocComment,
+        .DocComment,
+        .LineComment,
+        .DocComment,
+        .DocComment,
     });
 }
 
