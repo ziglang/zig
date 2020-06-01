@@ -5,8 +5,8 @@ test "recovery: top level" {
         \\test "" {inline}
         \\test "" {inline}
     , &[_]Error{
-        .ExpectedInlinable,
-        .ExpectedInlinable,
+        .expected_inlinable,
+        .expected_inlinable,
     });
 }
 
@@ -17,8 +17,8 @@ test "recovery: block statements" {
         \\    inline;
         \\}
     , &[_]Error{
-        .InvalidToken,
-        .ExpectedInlinable,
+        .invalid_token,
+        .expected_inlinable,
     });
 }
 
@@ -34,10 +34,10 @@ test "recovery: missing comma" {
         \\    }
         \\}
     , &[_]Error{
-        .ExpectedToken,
-        .ExpectedToken,
-        .InvalidAnd,
-        .InvalidToken,
+        .expected_token,
+        .expected_token,
+        .invalid_and,
+        .invalid_token,
     });
 }
 
@@ -46,8 +46,8 @@ test "recovery: extra qualifier" {
         \\const a: *const const u8;
         \\test ""
     , &[_]Error{
-        .ExtraConstQualifier,
-        .ExpectedLBrace,
+        .extra_const_qualifier,
+        .expected_l_brace,
     });
 }
 
@@ -58,9 +58,9 @@ test "recovery: missing return type" {
         \\}
         \\test ""
     , &[_]Error{
-        .ExpectedReturnType,
-        .InvalidAnd,
-        .ExpectedLBrace,
+        .expected_return_type,
+        .invalid_and,
+        .expected_l_brace,
     });
 }
 
@@ -73,19 +73,19 @@ test "recovery: continue after invalid decl" {
         \\    async a && b;
         \\}
     , &[_]Error{
-        .ExpectedToken,
-        .ExpectedPubItem,
-        .ExpectedParamList,
-        .InvalidAnd,
+        .expected_token,
+        .expected_pub_item,
+        .expected_param_list,
+        .invalid_and,
     });
     try testError(
         \\threadlocal test "" {
         \\    @a && b;
         \\}
     , &[_]Error{
-        .ExpectedVarDecl,
-        .ExpectedParamList,
-        .InvalidAnd,
+        .expected_var_decl,
+        .expected_param_list,
+        .invalid_and,
     });
 }
 
@@ -93,14 +93,14 @@ test "recovery: invalid extern/inline" {
     try testError(
         \\inline test "" { a && b; }
     , &[_]Error{
-        .ExpectedFn,
-        .InvalidAnd,
+        .expected_fn,
+        .invalid_and,
     });
     try testError(
         \\extern "" test "" { a && b; }
     , &[_]Error{
-        .ExpectedVarDeclOrFn,
-        .InvalidAnd,
+        .expected_var_decl_or_fn,
+        .invalid_and,
     });
 }
 
@@ -112,12 +112,12 @@ test "recovery: missing semicolon" {
         \\    @foo
         \\}
     , &[_]Error{
-        .InvalidAnd,
-        .ExpectedToken,
-        .InvalidAnd,
-        .ExpectedToken,
-        .ExpectedParamList,
-        .ExpectedToken,
+        .invalid_and,
+        .expected_token,
+        .invalid_and,
+        .expected_token,
+        .expected_param_list,
+        .expected_token,
     });
 }
 
@@ -131,12 +131,12 @@ test "recovery: invalid container members" {
         \\    a && b
         \\}
     , &[_]Error{
-        .ExpectedExpr,
-        .ExpectedToken,
-        .ExpectedToken,
-        .ExpectedContainerMembers,
-        .InvalidAnd,
-        .ExpectedToken,
+        .expected_expr,
+        .expected_token,
+        .expected_token,
+        .expected_container_members,
+        .invalid_and,
+        .expected_token,
     });
 }
 
@@ -146,7 +146,7 @@ test "recovery: invalid parameter" {
         \\    a(comptime T: type)
         \\}
     , &[_]Error{
-        .ExpectedToken,
+        .expected_token,
     });
 }
 
@@ -157,10 +157,10 @@ test "recovery: extra '}' at top level" {
         \\    a && b;
         \\}
     , &[_]Error{
-        .ExpectedContainerMembers,
-        .ExpectedContainerMembers,
-        .ExpectedContainerMembers,
-        .InvalidAnd,
+        .expected_container_members,
+        .expected_container_members,
+        .expected_container_members,
+        .invalid_and,
     });
 }
 
@@ -170,7 +170,7 @@ test "recovery: mismatched bracket at top level" {
         \\    arr: 128]?G
         \\};
     , &[_]Error{
-        .ExpectedToken,
+        .expected_token,
     });
 }
 
@@ -180,9 +180,9 @@ test "recovery: invalid global error set access" {
         \\    error && foo;
         \\}
     , &[_]Error{
-        .ExpectedToken,
-        .ExpectedIdentifier,
-        .InvalidAnd,
+        .expected_token,
+        .expected_identifier,
+        .invalid_and,
     });
 }
 
@@ -195,10 +195,10 @@ test "recovery: missing semicolon after if, for, while stmt" {
         \\    a && b;
         \\}
     , &[_]Error{
-        .ExpectedSemiOrElse,
-        .ExpectedSemiOrElse,
-        .ExpectedSemiOrElse,
-        .InvalidAnd,
+        .expected_semi_or_else,
+        .expected_semi_or_else,
+        .expected_semi_or_else,
+        .invalid_and,
     });
 }
 
@@ -206,7 +206,7 @@ test "recovery: invalid comptime" {
     try testError(
         \\comptime
     , &[_]Error{
-        .ExpectedBlockOrField,
+        .expected_block_or_field,
     });
 }
 
@@ -214,12 +214,12 @@ test "recovery: missing block after for/while loops" {
     try testError(
         \\test "" { while (foo) }
     , &[_]Error{
-        .ExpectedBlockOrAssignment,
+        .expected_block_or_assignment,
     });
     try testError(
         \\test "" { for (foo) |bar| }
     , &[_]Error{
-        .ExpectedBlockOrAssignment,
+        .expected_block_or_assignment,
     });
 }
 
@@ -261,7 +261,7 @@ test "zig fmt: decl between fields" {
         \\    b: usize,
         \\};
     , &[_]Error{
-        .DeclBetweenFields,
+        .decl_between_fields,
     });
 }
 
@@ -3072,8 +3072,8 @@ test "zig fmt: extern without container keyword returns error" {
         \\const container = extern {};
         \\
     , &[_]Error{
-        .ExpectedExpr,
-        .ExpectedVarDeclOrFn,
+        .expected_expr,
+        .expected_var_decl_or_fn,
     });
 }
 

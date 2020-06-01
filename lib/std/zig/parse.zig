@@ -189,7 +189,7 @@ const Parser = struct {
 
             if (visib_token != null) {
                 try p.errors.append(p.gpa, .{
-                    .ExpectedPubItem = .{ .token = p.tok_i },
+                    .expected_pub_item = .{ .token = p.tok_i },
                 });
                 // ignore this pub
                 continue;
@@ -208,7 +208,7 @@ const Parser = struct {
                     .err, .seen => {},
                     .end => |tok| {
                         try p.errors.append(p.gpa, .{
-                            .DeclBetweenFields = .{ .token = tok },
+                            .decl_between_fields = .{ .token = tok },
                         });
                         // continue parsing, error will be reported later
                         field_state = .err;
@@ -233,7 +233,7 @@ const Parser = struct {
 
                             // add error and continue
                             try p.errors.append(p.gpa, .{
-                                .ExpectedToken = .{ .token = index, .expected_id = .Comma },
+                                .expected_token = .{ .token = index, .expected_id = .Comma },
                             });
                             continue;
                         },
@@ -247,7 +247,7 @@ const Parser = struct {
             // Dangling doc comment
             if (doc_comments != null) {
                 try p.errors.append(p.gpa, .{
-                    .UnattachedDocComment = .{ .token = doc_comments.?.firstToken() },
+                    .unattached_doc_comment = .{ .token = doc_comments.?.firstToken() },
                 });
             }
 
@@ -257,7 +257,7 @@ const Parser = struct {
                 .Keyword_comptime => {
                     _ = p.nextToken();
                     try p.errors.append(p.gpa, .{
-                        .ExpectedBlockOrField = .{ .token = p.tok_i },
+                        .expected_block_or_field = .{ .token = p.tok_i },
                     });
                 },
                 else => {
@@ -271,7 +271,7 @@ const Parser = struct {
                     // try to find the next declaration
                     p.findNextContainerMember();
                     try p.errors.append(p.gpa, .{
-                        .ExpectedContainerMembers = .{ .token = index },
+                        .expected_container_members = .{ .token = index },
                     });
                 },
             }
@@ -376,10 +376,10 @@ const Parser = struct {
     fn parseTestDecl(p: *Parser) !?*Node {
         const test_token = p.eatToken(.Keyword_test) orelse return null;
         const name_node = try p.expectNode(parseStringLiteralSingle, .{
-            .ExpectedStringLiteral = .{ .token = p.tok_i },
+            .expected_string_literal = .{ .token = p.tok_i },
         });
         const block_node = try p.expectNode(parseBlock, .{
-            .ExpectedLBrace = .{ .token = p.tok_i },
+            .expected_l_brace = .{ .token = p.tok_i },
         });
 
         const test_node = try p.arena.allocator.create(Node.TestDecl);
@@ -401,7 +401,7 @@ const Parser = struct {
         };
         p.putBackToken(lbrace);
         const block_node = try p.expectNode(parseBlockExpr, .{
-            .ExpectedLabelOrLBrace = .{ .token = p.tok_i },
+            .expected_label_or_l_brace = .{ .token = p.tok_i },
         });
 
         const comptime_node = try p.arena.allocator.create(Node.Comptime);
@@ -440,7 +440,7 @@ const Parser = struct {
                 // since parseBlock only return error.ParseError on
                 // a missing '}' we can assume this function was
                 // supposed to end here.
-                .ExpectedSemiOrLBrace = .{ .token = p.tok_i },
+                .expected_semi_or_l_brace = .{ .token = p.tok_i },
             })) |body_node| {
                 fn_node.body_node = body_node;
             }
@@ -452,7 +452,7 @@ const Parser = struct {
                 p.token_ids[token] == .Keyword_noinline)
             {
                 try p.errors.append(p.gpa, .{
-                    .ExpectedFn = .{ .token = p.tok_i },
+                    .expected_fn = .{ .token = p.tok_i },
                 });
                 return error.ParseError;
             }
@@ -471,7 +471,7 @@ const Parser = struct {
 
         if (thread_local_token != null) {
             try p.errors.append(p.gpa, .{
-                .ExpectedVarDecl = .{ .token = p.tok_i },
+                .expected_var_decl = .{ .token = p.tok_i },
             });
             // ignore this and try again;
             return error.ParseError;
@@ -479,7 +479,7 @@ const Parser = struct {
 
         if (extern_export_inline_token) |token| {
             try p.errors.append(p.gpa, .{
-                .ExpectedVarDeclOrFn = .{ .token = p.tok_i },
+                .expected_var_decl_or_fn = .{ .token = p.tok_i },
             });
             // ignore this and try again;
             return error.ParseError;
@@ -523,7 +523,7 @@ const Parser = struct {
             try p.expectNodeRecoverable(parseTypeExpr, .{
             // most likely the user forgot to specify the return type.
             // Mark return type as invalid and try to continue.
-            .ExpectedReturnType = .{ .token = p.tok_i },
+            .expected_return_type = .{ .token = p.tok_i },
         });
 
         // TODO https://github.com/ziglang/zig/issues/3750
@@ -573,7 +573,7 @@ const Parser = struct {
         const name_token = try p.expectToken(.Identifier);
         const type_node = if (p.eatToken(.Colon) != null)
             try p.expectNode(parseTypeExpr, .{
-                .ExpectedTypeExpr = .{ .token = p.tok_i },
+                .expected_type_expr = .{ .token = p.tok_i },
             })
         else
             null;
@@ -582,7 +582,7 @@ const Parser = struct {
         const eq_token = p.eatToken(.Equal);
         const init_node = if (eq_token != null) blk: {
             break :blk try p.expectNode(parseExpr, .{
-                .ExpectedExpr = .{ .token = p.tok_i },
+                .expected_expr = .{ .token = p.tok_i },
             });
         } else null;
         const semicolon_token = try p.expectToken(.Semicolon);
@@ -624,7 +624,7 @@ const Parser = struct {
                 type_expr = &node.base;
             } else {
                 type_expr = try p.expectNode(parseTypeExpr, .{
-                    .ExpectedTypeExpr = .{ .token = p.tok_i },
+                    .expected_type_expr = .{ .token = p.tok_i },
                 });
                 align_expr = try p.parseByteAlign();
             }
@@ -632,7 +632,7 @@ const Parser = struct {
 
         const value_expr = if (p.eatToken(.Equal)) |_|
             try p.expectNode(parseExpr, .{
-                .ExpectedExpr = .{ .token = p.tok_i },
+                .expected_expr = .{ .token = p.tok_i },
             })
         else
             null;
@@ -672,7 +672,7 @@ const Parser = struct {
 
         if (comptime_token) |token| {
             const block_expr = try p.expectNode(parseBlockExprStatement, .{
-                .ExpectedBlockOrAssignment = .{ .token = p.tok_i },
+                .expected_block_or_assignment = .{ .token = p.tok_i },
             });
 
             const node = try p.arena.allocator.create(Node.Comptime);
@@ -686,7 +686,7 @@ const Parser = struct {
 
         if (p.eatToken(.Keyword_nosuspend)) |nosuspend_token| {
             const block_expr = try p.expectNode(parseBlockExprStatement, .{
-                .ExpectedBlockOrAssignment = .{ .token = p.tok_i },
+                .expected_block_or_assignment = .{ .token = p.tok_i },
             });
 
             const node = try p.arena.allocator.create(Node.Nosuspend);
@@ -702,7 +702,7 @@ const Parser = struct {
 
             const body_node = if (semicolon == null) blk: {
                 break :blk try p.expectNode(parseBlockExprStatement, .{
-                    .ExpectedBlockOrExpression = .{ .token = p.tok_i },
+                    .expected_block_or_expression = .{ .token = p.tok_i },
                 });
             } else null;
 
@@ -721,7 +721,7 @@ const Parser = struct {
             else
                 null;
             const expr_node = try p.expectNode(parseBlockExprStatement, .{
-                .ExpectedBlockOrExpression = .{ .token = p.tok_i },
+                .expected_block_or_expression = .{ .token = p.tok_i },
             });
             const node = try p.arena.allocator.create(Node.Defer);
             node.* = .{
@@ -753,7 +753,7 @@ const Parser = struct {
         const block_expr = (try p.parseBlockExpr());
         const assign_expr = if (block_expr == null)
             try p.expectNode(parseAssignExpr, .{
-                .ExpectedBlockOrAssignment = .{ .token = p.tok_i },
+                .expected_block_or_assignment = .{ .token = p.tok_i },
             })
         else
             null;
@@ -764,7 +764,7 @@ const Parser = struct {
             const else_token = p.eatToken(.Keyword_else) orelse break :blk null;
             const payload = try p.parsePayload();
             const else_body = try p.expectNode(parseStatement, .{
-                .InvalidToken = .{ .token = p.tok_i },
+                .invalid_token = .{ .token = p.tok_i },
             });
 
             const node = try p.arena.allocator.create(Node.Else);
@@ -791,7 +791,7 @@ const Parser = struct {
                 return if_node;
             }
             try p.errors.append(p.gpa, .{
-                .ExpectedSemiOrElse = .{ .token = p.tok_i },
+                .expected_semi_or_else = .{ .token = p.tok_i },
             });
         }
 
@@ -819,7 +819,7 @@ const Parser = struct {
 
         if (label_token != null) {
             try p.errors.append(p.gpa, .{
-                .ExpectedLabelable = .{ .token = p.tok_i },
+                .expected_labelable = .{ .token = p.tok_i },
             });
             return error.ParseError;
         }
@@ -844,7 +844,7 @@ const Parser = struct {
 
         // If we've seen "inline", there should have been a "for" or "while"
         try p.errors.append(p.gpa, .{
-            .ExpectedInlinable = .{ .token = p.tok_i },
+            .expected_inlinable = .{ .token = p.tok_i },
         });
         return error.ParseError;
     }
@@ -861,7 +861,7 @@ const Parser = struct {
 
             if (p.eatToken(.Keyword_else)) |else_token| {
                 const statement_node = try p.expectNode(parseStatement, .{
-                    .InvalidToken = .{ .token = p.tok_i },
+                    .invalid_token = .{ .token = p.tok_i },
                 });
 
                 const else_node = try p.arena.allocator.create(Node.Else);
@@ -879,14 +879,14 @@ const Parser = struct {
         }
 
         for_prefix.body = try p.expectNode(parseAssignExpr, .{
-            .ExpectedBlockOrAssignment = .{ .token = p.tok_i },
+            .expected_block_or_assignment = .{ .token = p.tok_i },
         });
 
         if (p.eatToken(.Semicolon) != null) return node;
 
         if (p.eatToken(.Keyword_else)) |else_token| {
             const statement_node = try p.expectNode(parseStatement, .{
-                .ExpectedStatement = .{ .token = p.tok_i },
+                .expected_statement = .{ .token = p.tok_i },
             });
 
             const else_node = try p.arena.allocator.create(Node.Else);
@@ -900,7 +900,7 @@ const Parser = struct {
         }
 
         try p.errors.append(p.gpa, .{
-            .ExpectedSemiOrElse = .{ .token = p.tok_i },
+            .expected_semi_or_else = .{ .token = p.tok_i },
         });
 
         return node;
@@ -920,7 +920,7 @@ const Parser = struct {
                 const payload = try p.parsePayload();
 
                 const statement_node = try p.expectNode(parseStatement, .{
-                    .InvalidToken = .{ .token = p.tok_i },
+                    .invalid_token = .{ .token = p.tok_i },
                 });
 
                 const else_node = try p.arena.allocator.create(Node.Else);
@@ -937,9 +937,8 @@ const Parser = struct {
             return node;
         }
 
-
         while_prefix.body = try p.expectNode(parseAssignExpr, .{
-            .ExpectedBlockOrAssignment = .{ .token = p.tok_i },
+            .expected_block_or_assignment = .{ .token = p.tok_i },
         });
 
         if (p.eatToken(.Semicolon) != null) return node;
@@ -948,7 +947,7 @@ const Parser = struct {
             const payload = try p.parsePayload();
 
             const statement_node = try p.expectNode(parseStatement, .{
-                .ExpectedStatement = .{ .token = p.tok_i },
+                .expected_statement = .{ .token = p.tok_i },
             });
 
             const else_node = try p.arena.allocator.create(Node.Else);
@@ -962,7 +961,7 @@ const Parser = struct {
         }
 
         try p.errors.append(p.gpa, .{
-            .ExpectedSemiOrElse = .{ .token = p.tok_i },
+            .expected_semi_or_else = .{ .token = p.tok_i },
         });
 
         return node;
@@ -1083,7 +1082,7 @@ const Parser = struct {
 
         if (p.eatToken(.Keyword_comptime)) |token| {
             const expr_node = try p.expectNode(parseExpr, .{
-                .ExpectedExpr = .{ .token = p.tok_i },
+                .expected_expr = .{ .token = p.tok_i },
             });
             const node = try p.arena.allocator.create(Node.Comptime);
             node.* = .{
@@ -1096,7 +1095,7 @@ const Parser = struct {
 
         if (p.eatToken(.Keyword_nosuspend)) |token| {
             const expr_node = try p.expectNode(parseExpr, .{
-                .ExpectedExpr = .{ .token = p.tok_i },
+                .expected_expr = .{ .token = p.tok_i },
             });
             const node = try p.arena.allocator.create(Node.Nosuspend);
             node.* = .{
@@ -1119,7 +1118,7 @@ const Parser = struct {
 
         if (p.eatToken(.Keyword_resume)) |token| {
             const expr_node = try p.expectNode(parseExpr, .{
-                .ExpectedExpr = .{ .token = p.tok_i },
+                .expected_expr = .{ .token = p.tok_i },
             });
             const node = try p.arena.allocator.create(Node.PrefixOp);
             node.* = .{
@@ -1220,7 +1219,7 @@ const Parser = struct {
 
         // If we've seen "inline", there should have been a "for" or "while"
         try p.errors.append(p.gpa, .{
-            .ExpectedInlinable = .{ .token = p.tok_i },
+            .expected_inlinable = .{ .token = p.tok_i },
         });
         return error.ParseError;
     }
@@ -1231,13 +1230,13 @@ const Parser = struct {
         const for_prefix = node.cast(Node.For).?;
 
         const body_node = try p.expectNode(parseExpr, .{
-            .ExpectedExpr = .{ .token = p.tok_i },
+            .expected_expr = .{ .token = p.tok_i },
         });
         for_prefix.body = body_node;
 
         if (p.eatToken(.Keyword_else)) |else_token| {
             const body = try p.expectNode(parseExpr, .{
-                .ExpectedExpr = .{ .token = p.tok_i },
+                .expected_expr = .{ .token = p.tok_i },
             });
 
             const else_node = try p.arena.allocator.create(Node.Else);
@@ -1259,14 +1258,14 @@ const Parser = struct {
         const while_prefix = node.cast(Node.While).?;
 
         const body_node = try p.expectNode(parseExpr, .{
-            .ExpectedExpr = .{ .token = p.tok_i },
+            .expected_expr = .{ .token = p.tok_i },
         });
         while_prefix.body = body_node;
 
         if (p.eatToken(.Keyword_else)) |else_token| {
             const payload = try p.parsePayload();
             const body = try p.expectNode(parseExpr, .{
-                .ExpectedExpr = .{ .token = p.tok_i },
+                .expected_expr = .{ .token = p.tok_i },
             });
 
             const else_node = try p.arena.allocator.create(Node.Else);
@@ -1401,7 +1400,7 @@ const Parser = struct {
         if (try SimpleBinOpParseFn(.Bang, Node.InfixOp.Op.ErrorUnion)(p)) |node| {
             const error_union = node.cast(Node.InfixOp).?;
             const type_expr = try p.expectNode(parseTypeExpr, .{
-                .ExpectedTypeExpr = .{ .token = p.tok_i },
+                .expected_type_expr = .{ .token = p.tok_i },
             });
             error_union.lhs = suffix_expr;
             error_union.rhs = type_expr;
@@ -1429,7 +1428,7 @@ const Parser = struct {
                 return p.parsePrimaryTypeExpr();
             }
             var res = try p.expectNode(parsePrimaryTypeExpr, .{
-                .ExpectedPrimaryTypeExpr = .{ .token = p.tok_i },
+                .expected_primary_type_expr = .{ .token = p.tok_i },
             });
 
             while (try p.parseSuffixOp()) |node| {
@@ -1443,7 +1442,7 @@ const Parser = struct {
 
             const params = (try p.parseFnCallArguments()) orelse {
                 try p.errors.append(p.gpa, .{
-                    .ExpectedParamList = .{ .token = p.tok_i },
+                    .expected_param_list = .{ .token = p.tok_i },
                 });
                 // ignore this, continue parsing
                 return res;
@@ -1548,7 +1547,7 @@ const Parser = struct {
         if (p.eatToken(.Keyword_error)) |token| {
             const period = try p.expectTokenRecoverable(.Period);
             const identifier = try p.expectNodeRecoverable(parseIdentifier, .{
-                .ExpectedIdentifier = .{ .token = p.tok_i },
+                .expected_identifier = .{ .token = p.tok_i },
             });
             const global_error_set = try p.createLiteral(Node.ErrorType, token);
             if (period == null or identifier == null) return global_error_set;
@@ -1621,7 +1620,7 @@ const Parser = struct {
     fn parseGroupedExpr(p: *Parser) !?*Node {
         const lparen = p.eatToken(.LParen) orelse return null;
         const expr = try p.expectNode(parseExpr, .{
-            .ExpectedExpr = .{ .token = p.tok_i },
+            .expected_expr = .{ .token = p.tok_i },
         });
         const rparen = try p.expectToken(.RParen);
 
@@ -1687,7 +1686,7 @@ const Parser = struct {
 
         // If we've seen "inline", there should have been a "for" or "while"
         try p.errors.append(p.gpa, .{
-            .ExpectedInlinable = .{ .token = p.tok_i },
+            .expected_inlinable = .{ .token = p.tok_i },
         });
         return error.ParseError;
     }
@@ -1698,13 +1697,13 @@ const Parser = struct {
         const for_prefix = node.cast(Node.For).?;
 
         const type_expr = try p.expectNode(parseTypeExpr, .{
-            .ExpectedTypeExpr = .{ .token = p.tok_i },
+            .expected_type_expr = .{ .token = p.tok_i },
         });
         for_prefix.body = type_expr;
 
         if (p.eatToken(.Keyword_else)) |else_token| {
             const else_expr = try p.expectNode(parseTypeExpr, .{
-                .ExpectedTypeExpr = .{ .token = p.tok_i },
+                .expected_type_expr = .{ .token = p.tok_i },
             });
 
             const else_node = try p.arena.allocator.create(Node.Else);
@@ -1726,7 +1725,7 @@ const Parser = struct {
         const while_prefix = node.cast(Node.While).?;
 
         const type_expr = try p.expectNode(parseTypeExpr, .{
-            .ExpectedTypeExpr = .{ .token = p.tok_i },
+            .expected_type_expr = .{ .token = p.tok_i },
         });
         while_prefix.body = type_expr;
 
@@ -1734,7 +1733,7 @@ const Parser = struct {
             const payload = try p.parsePayload();
 
             const else_expr = try p.expectNode(parseTypeExpr, .{
-                .ExpectedTypeExpr = .{ .token = p.tok_i },
+                .expected_type_expr = .{ .token = p.tok_i },
             });
 
             const else_node = try p.arena.allocator.create(Node.Else);
@@ -1755,7 +1754,7 @@ const Parser = struct {
         const switch_token = p.eatToken(.Keyword_switch) orelse return null;
         _ = try p.expectToken(.LParen);
         const expr_node = try p.expectNode(parseExpr, .{
-            .ExpectedExpr = .{ .token = p.tok_i },
+            .expected_expr = .{ .token = p.tok_i },
         });
         _ = try p.expectToken(.RParen);
         _ = try p.expectToken(.LBrace);
@@ -1784,7 +1783,7 @@ const Parser = struct {
         const volatile_token = p.eatToken(.Keyword_volatile);
         _ = try p.expectToken(.LParen);
         const template = try p.expectNode(parseExpr, .{
-            .ExpectedExpr = .{ .token = p.tok_i },
+            .expected_expr = .{ .token = p.tok_i },
         });
 
         var arena_outputs: []Node.Asm.Output = &[0]Node.Asm.Output{};
@@ -1849,24 +1848,24 @@ const Parser = struct {
     fn parseAsmOutputItem(p: *Parser) !?Node.Asm.Output {
         const lbracket = p.eatToken(.LBracket) orelse return null;
         const name = try p.expectNode(parseIdentifier, .{
-            .ExpectedIdentifier = .{ .token = p.tok_i },
+            .expected_identifier = .{ .token = p.tok_i },
         });
         _ = try p.expectToken(.RBracket);
 
         const constraint = try p.expectNode(parseStringLiteral, .{
-            .ExpectedStringLiteral = .{ .token = p.tok_i },
+            .expected_string_literal = .{ .token = p.tok_i },
         });
 
         _ = try p.expectToken(.LParen);
         const kind: Node.Asm.Output.Kind = blk: {
             if (p.eatToken(.Arrow) != null) {
                 const return_ident = try p.expectNode(parseTypeExpr, .{
-                    .ExpectedTypeExpr = .{ .token = p.tok_i },
+                    .expected_type_expr = .{ .token = p.tok_i },
                 });
                 break :blk .{ .Return = return_ident };
             }
             const variable = try p.expectNode(parseIdentifier, .{
-                .ExpectedIdentifier = .{ .token = p.tok_i },
+                .expected_identifier = .{ .token = p.tok_i },
             });
             break :blk .{ .Variable = variable.cast(Node.Identifier).? };
         };
@@ -1885,17 +1884,17 @@ const Parser = struct {
     fn parseAsmInputItem(p: *Parser) !?Node.Asm.Input {
         const lbracket = p.eatToken(.LBracket) orelse return null;
         const name = try p.expectNode(parseIdentifier, .{
-            .ExpectedIdentifier = .{ .token = p.tok_i },
+            .expected_identifier = .{ .token = p.tok_i },
         });
         _ = try p.expectToken(.RBracket);
 
         const constraint = try p.expectNode(parseStringLiteral, .{
-            .ExpectedStringLiteral = .{ .token = p.tok_i },
+            .expected_string_literal = .{ .token = p.tok_i },
         });
 
         _ = try p.expectToken(.LParen);
         const expr = try p.expectNode(parseExpr, .{
-            .ExpectedExpr = .{ .token = p.tok_i },
+            .expected_expr = .{ .token = p.tok_i },
         });
         const rparen = try p.expectToken(.RParen);
 
@@ -1912,7 +1911,7 @@ const Parser = struct {
     fn parseBreakLabel(p: *Parser) !?*Node {
         _ = p.eatToken(.Colon) orelse return null;
         return p.expectNode(parseIdentifier, .{
-            .ExpectedIdentifier = .{ .token = p.tok_i },
+            .expected_identifier = .{ .token = p.tok_i },
         });
     }
 
@@ -1942,7 +1941,7 @@ const Parser = struct {
             return null;
         };
         const expr_node = try p.expectNode(parseExpr, .{
-            .ExpectedExpr = .{ .token = p.tok_i },
+            .expected_expr = .{ .token = p.tok_i },
         });
 
         const node = try p.arena.allocator.create(Node.FieldInitializer);
@@ -1959,7 +1958,7 @@ const Parser = struct {
         _ = p.eatToken(.Colon) orelse return null;
         _ = try p.expectToken(.LParen);
         const node = try p.expectNode(parseAssignExpr, .{
-            .ExpectedExprOrAssignment = .{ .token = p.tok_i },
+            .expected_expr_or_assignment = .{ .token = p.tok_i },
         });
         _ = try p.expectToken(.RParen);
         return node;
@@ -1970,7 +1969,7 @@ const Parser = struct {
         _ = p.eatToken(.Keyword_linksection) orelse return null;
         _ = try p.expectToken(.LParen);
         const expr_node = try p.expectNode(parseExpr, .{
-            .ExpectedExpr = .{ .token = p.tok_i },
+            .expected_expr = .{ .token = p.tok_i },
         });
         _ = try p.expectToken(.RParen);
         return expr_node;
@@ -1981,7 +1980,7 @@ const Parser = struct {
         _ = p.eatToken(.Keyword_callconv) orelse return null;
         _ = try p.expectToken(.LParen);
         const expr_node = try p.expectNode(parseExpr, .{
-            .ExpectedExpr = .{ .token = p.tok_i },
+            .expected_expr = .{ .token = p.tok_i },
         });
         _ = try p.expectToken(.RParen);
         return expr_node;
@@ -2008,7 +2007,7 @@ const Parser = struct {
                 return null;
             }
             try p.errors.append(p.gpa, .{
-                .ExpectedParamType = .{ .token = p.tok_i },
+                .expected_param_type = .{ .token = p.tok_i },
             });
             return error.ParseError;
         };
@@ -2040,7 +2039,7 @@ const Parser = struct {
         const if_token = p.eatToken(.Keyword_if) orelse return null;
         _ = try p.expectToken(.LParen);
         const condition = try p.expectNode(parseExpr, .{
-            .ExpectedExpr = .{ .token = p.tok_i },
+            .expected_expr = .{ .token = p.tok_i },
         });
         _ = try p.expectToken(.RParen);
         const payload = try p.parsePtrPayload();
@@ -2062,7 +2061,7 @@ const Parser = struct {
 
         _ = try p.expectToken(.LParen);
         const condition = try p.expectNode(parseExpr, .{
-            .ExpectedExpr = .{ .token = p.tok_i },
+            .expected_expr = .{ .token = p.tok_i },
         });
         _ = try p.expectToken(.RParen);
 
@@ -2089,12 +2088,12 @@ const Parser = struct {
 
         _ = try p.expectToken(.LParen);
         const array_expr = try p.expectNode(parseExpr, .{
-            .ExpectedExpr = .{ .token = p.tok_i },
+            .expected_expr = .{ .token = p.tok_i },
         });
         _ = try p.expectToken(.RParen);
 
         const payload = try p.expectNode(parsePtrIndexPayload, .{
-            .ExpectedPayload = .{ .token = p.tok_i },
+            .expected_payload = .{ .token = p.tok_i },
         });
 
         const node = try p.arena.allocator.create(Node.For);
@@ -2114,7 +2113,7 @@ const Parser = struct {
     fn parsePayload(p: *Parser) !?*Node {
         const lpipe = p.eatToken(.Pipe) orelse return null;
         const identifier = try p.expectNode(parseIdentifier, .{
-            .ExpectedIdentifier = .{ .token = p.tok_i },
+            .expected_identifier = .{ .token = p.tok_i },
         });
         const rpipe = try p.expectToken(.Pipe);
 
@@ -2132,7 +2131,7 @@ const Parser = struct {
         const lpipe = p.eatToken(.Pipe) orelse return null;
         const asterisk = p.eatToken(.Asterisk);
         const identifier = try p.expectNode(parseIdentifier, .{
-            .ExpectedIdentifier = .{ .token = p.tok_i },
+            .expected_identifier = .{ .token = p.tok_i },
         });
         const rpipe = try p.expectToken(.Pipe);
 
@@ -2151,14 +2150,14 @@ const Parser = struct {
         const lpipe = p.eatToken(.Pipe) orelse return null;
         const asterisk = p.eatToken(.Asterisk);
         const identifier = try p.expectNode(parseIdentifier, .{
-            .ExpectedIdentifier = .{ .token = p.tok_i },
+            .expected_identifier = .{ .token = p.tok_i },
         });
 
         const index = if (p.eatToken(.Comma) == null)
             null
         else
             try p.expectNode(parseIdentifier, .{
-                .ExpectedIdentifier = .{ .token = p.tok_i },
+                .expected_identifier = .{ .token = p.tok_i },
             });
 
         const rpipe = try p.expectToken(.Pipe);
@@ -2180,7 +2179,7 @@ const Parser = struct {
         const arrow = try p.expectToken(.EqualAngleBracketRight);
         const payload = try p.parsePtrPayload();
         const expr = try p.expectNode(parseAssignExpr, .{
-            .ExpectedExprOrAssignment = .{ .token = p.tok_i },
+            .expected_expr_or_assignment = .{ .token = p.tok_i },
         });
 
         const switch_case = node.cast(Node.SwitchCase).?;
@@ -2228,7 +2227,7 @@ const Parser = struct {
         const expr = (try p.parseExpr()) orelse return null;
         if (p.eatToken(.Ellipsis3)) |token| {
             const range_end = try p.expectNode(parseExpr, .{
-                .ExpectedExpr = .{ .token = p.tok_i },
+                .expected_expr = .{ .token = p.tok_i },
             });
 
             const node = try p.arena.allocator.create(Node.InfixOp);
@@ -2493,17 +2492,17 @@ const Parser = struct {
                 if (p.eatToken(.Keyword_align)) |align_token| {
                     const lparen = try p.expectToken(.LParen);
                     const expr_node = try p.expectNode(parseExpr, .{
-                        .ExpectedExpr = .{ .token = p.tok_i },
+                        .expected_expr = .{ .token = p.tok_i },
                     });
 
                     // Optional bit range
                     const bit_range = if (p.eatToken(.Colon)) |_| bit_range_value: {
                         const range_start = try p.expectNode(parseIntegerLiteral, .{
-                            .ExpectedIntegerLiteral = .{ .token = p.tok_i },
+                            .expected_integer_literal = .{ .token = p.tok_i },
                         });
                         _ = try p.expectToken(.Colon);
                         const range_end = try p.expectNode(parseIntegerLiteral, .{
-                            .ExpectedIntegerLiteral = .{ .token = p.tok_i },
+                            .expected_integer_literal = .{ .token = p.tok_i },
                         });
 
                         break :bit_range_value Node.PrefixOp.PtrInfo.Align.BitRange{
@@ -2515,7 +2514,7 @@ const Parser = struct {
 
                     if (ptr_info.align_info != null) {
                         try p.errors.append(p.gpa, .{
-                            .ExtraAlignQualifier = .{ .token = p.tok_i - 1 },
+                            .extra_align_qualifier = .{ .token = p.tok_i - 1 },
                         });
                         continue;
                     }
@@ -2530,7 +2529,7 @@ const Parser = struct {
                 if (p.eatToken(.Keyword_const)) |const_token| {
                     if (ptr_info.const_token != null) {
                         try p.errors.append(p.gpa, .{
-                            .ExtraConstQualifier = .{ .token = p.tok_i - 1 },
+                            .extra_const_qualifier = .{ .token = p.tok_i - 1 },
                         });
                         continue;
                     }
@@ -2540,7 +2539,7 @@ const Parser = struct {
                 if (p.eatToken(.Keyword_volatile)) |volatile_token| {
                     if (ptr_info.volatile_token != null) {
                         try p.errors.append(p.gpa, .{
-                            .ExtraVolatileQualifier = .{ .token = p.tok_i - 1 },
+                            .extra_volatile_qualifier = .{ .token = p.tok_i - 1 },
                         });
                         continue;
                     }
@@ -2550,7 +2549,7 @@ const Parser = struct {
                 if (p.eatToken(.Keyword_allowzero)) |allowzero_token| {
                     if (ptr_info.allowzero_token != null) {
                         try p.errors.append(p.gpa, .{
-                            .ExtraAllowZeroQualifier = .{ .token = p.tok_i - 1 },
+                            .extra_allow_zero_qualifier = .{ .token = p.tok_i - 1 },
                         });
                         continue;
                     }
@@ -2572,7 +2571,7 @@ const Parser = struct {
                         if (try p.parseByteAlign()) |align_expr| {
                             if (slice_type.align_info != null) {
                                 try p.errors.append(p.gpa, .{
-                                    .ExtraAlignQualifier = .{ .token = p.tok_i - 1 },
+                                    .extra_align_qualifier = .{ .token = p.tok_i - 1 },
                                 });
                                 continue;
                             }
@@ -2585,7 +2584,7 @@ const Parser = struct {
                         if (p.eatToken(.Keyword_const)) |const_token| {
                             if (slice_type.const_token != null) {
                                 try p.errors.append(p.gpa, .{
-                                    .ExtraConstQualifier = .{ .token = p.tok_i - 1 },
+                                    .extra_const_qualifier = .{ .token = p.tok_i - 1 },
                                 });
                                 continue;
                             }
@@ -2595,7 +2594,7 @@ const Parser = struct {
                         if (p.eatToken(.Keyword_volatile)) |volatile_token| {
                             if (slice_type.volatile_token != null) {
                                 try p.errors.append(p.gpa, .{
-                                    .ExtraVolatileQualifier = .{ .token = p.tok_i - 1 },
+                                    .extra_volatile_qualifier = .{ .token = p.tok_i - 1 },
                                 });
                                 continue;
                             }
@@ -2605,7 +2604,7 @@ const Parser = struct {
                         if (p.eatToken(.Keyword_allowzero)) |allowzero_token| {
                             if (slice_type.allowzero_token != null) {
                                 try p.errors.append(p.gpa, .{
-                                    .ExtraAllowZeroQualifier = .{ .token = p.tok_i - 1 },
+                                    .extra_allow_zero_qualifier = .{ .token = p.tok_i - 1 },
                                 });
                                 continue;
                             }
@@ -2636,7 +2635,7 @@ const Parser = struct {
         const op_and_token: OpAndToken = blk: {
             if (p.eatToken(.LBracket)) |_| {
                 const index_expr = try p.expectNode(parseExpr, .{
-                    .ExpectedExpr = .{ .token = p.tok_i },
+                    .expected_expr = .{ .token = p.tok_i },
                 });
 
                 if (p.eatToken(.Ellipsis2) != null) {
@@ -2685,7 +2684,7 @@ const Parser = struct {
                     break :blk .{ .op = .UnwrapOptional, .token = question_mark };
                 }
                 try p.errors.append(p.gpa, .{
-                    .ExpectedSuffixOp = .{ .token = p.tok_i },
+                    .expected_suffix_op = .{ .token = p.tok_i },
                 });
                 return null;
             }
@@ -2723,7 +2722,7 @@ const Parser = struct {
         const expr = try p.parseExpr();
         const sentinel = if (p.eatToken(.Colon)) |_|
             try p.expectNode(parseExpr, .{
-                .ExpectedExpr = .{ .token = p.tok_i },
+                .expected_expr = .{ .token = p.tok_i },
             })
         else
             null;
@@ -2765,7 +2764,7 @@ const Parser = struct {
         if (p.eatToken(.Asterisk)) |asterisk| {
             const sentinel = if (p.eatToken(.Colon)) |_|
                 try p.expectNode(parseExpr, .{
-                    .ExpectedExpr = .{ .token = p.tok_i },
+                    .expected_expr = .{ .token = p.tok_i },
                 })
             else
                 null;
@@ -2820,7 +2819,7 @@ const Parser = struct {
             }
             const sentinel = if (p.eatToken(.Colon)) |_|
                 try p.expectNode(parseExpr, .{
-                    .ExpectedExpr = .{ .token = p.tok_i },
+                    .expected_expr = .{ .token = p.tok_i },
                 })
             else
                 null;
@@ -2876,7 +2875,7 @@ const Parser = struct {
             .Keyword_enum => blk: {
                 if (p.eatToken(.LParen) != null) {
                     const expr = try p.expectNode(parseExpr, .{
-                        .ExpectedExpr = .{ .token = p.tok_i },
+                        .expected_expr = .{ .token = p.tok_i },
                     });
                     _ = try p.expectToken(.RParen);
                     break :blk Node.ContainerDecl.InitArg{ .Type = expr };
@@ -2888,7 +2887,7 @@ const Parser = struct {
                     if (p.eatToken(.Keyword_enum) != null) {
                         if (p.eatToken(.LParen) != null) {
                             const expr = try p.expectNode(parseExpr, .{
-                                .ExpectedExpr = .{ .token = p.tok_i },
+                                .expected_expr = .{ .token = p.tok_i },
                             });
                             _ = try p.expectToken(.RParen);
                             _ = try p.expectToken(.RParen);
@@ -2898,7 +2897,7 @@ const Parser = struct {
                         break :blk Node.ContainerDecl.InitArg{ .Enum = null };
                     }
                     const expr = try p.expectNode(parseExpr, .{
-                        .ExpectedExpr = .{ .token = p.tok_i },
+                        .expected_expr = .{ .token = p.tok_i },
                     });
                     _ = try p.expectToken(.RParen);
                     break :blk Node.ContainerDecl.InitArg{ .Type = expr };
@@ -2922,7 +2921,7 @@ const Parser = struct {
         _ = p.eatToken(.Keyword_align) orelse return null;
         _ = try p.expectToken(.LParen);
         const expr = try p.expectNode(parseExpr, .{
-            .ExpectedExpr = .{ .token = p.tok_i },
+            .expected_expr = .{ .token = p.tok_i },
         });
         _ = try p.expectToken(.RParen);
         return expr;
@@ -2973,7 +2972,7 @@ const Parser = struct {
                             // this is likely just a missing comma,
                             // continue parsing this list and give an error
                             try p.errors.append(p.gpa, .{
-                                .ExpectedToken = .{ .token = p.tok_i, .expected_id = .Comma },
+                                .expected_token = .{ .token = p.tok_i, .expected_id = .Comma },
                             });
                         },
                     }
@@ -2990,7 +2989,7 @@ const Parser = struct {
                     .Keyword_and => p.nextToken(),
                     .Invalid_ampersands => blk: {
                         try p.errors.append(p.gpa, .{
-                            .InvalidAnd = .{ .token = p.tok_i },
+                            .invalid_and = .{ .token = p.tok_i },
                         });
                         break :blk p.nextToken();
                     },
@@ -3015,7 +3014,7 @@ const Parser = struct {
         const token = p.eatToken(.Builtin) orelse return null;
         const params = (try p.parseFnCallArguments()) orelse {
             try p.errors.append(p.gpa, .{
-                .ExpectedParamList = .{ .token = p.tok_i },
+                .expected_param_list = .{ .token = p.tok_i },
             });
 
             // lets pretend this was an identifier so we can continue parsing
@@ -3163,7 +3162,7 @@ const Parser = struct {
             .visib_token = null,
             .use_token = token,
             .expr = try p.expectNode(parseExpr, .{
-                .ExpectedExpr = .{ .token = p.tok_i },
+                .expected_expr = .{ .token = p.tok_i },
             }),
             .semicolon_token = try p.expectToken(.Semicolon),
         };
@@ -3176,13 +3175,13 @@ const Parser = struct {
         const if_prefix = node.cast(Node.If).?;
 
         if_prefix.body = try p.expectNode(bodyParseFn, .{
-            .InvalidToken = .{ .token = p.tok_i },
+            .invalid_token = .{ .token = p.tok_i },
         });
 
         const else_token = p.eatToken(.Keyword_else) orelse return node;
         const payload = try p.parsePayload();
         const else_expr = try p.expectNode(bodyParseFn, .{
-            .InvalidToken = .{ .token = p.tok_i },
+            .invalid_token = .{ .token = p.tok_i },
         });
         const else_node = try p.arena.allocator.create(Node.Else);
         else_node.* = .{
@@ -3256,13 +3255,13 @@ const Parser = struct {
                 .PrefixOp => {
                     const prefix_op = rightmost_op.cast(Node.PrefixOp).?;
                     prefix_op.rhs = try p.expectNode(childParseFn, .{
-                        .InvalidToken = .{ .token = p.tok_i },
+                        .invalid_token = .{ .token = p.tok_i },
                     });
                 },
                 .AnyFrameType => {
                     const prom = rightmost_op.cast(Node.AnyFrameType).?;
                     prom.result.?.return_type = try p.expectNode(childParseFn, .{
-                        .InvalidToken = .{ .token = p.tok_i },
+                        .invalid_token = .{ .token = p.tok_i },
                     });
                 },
                 else => unreachable,
@@ -3290,7 +3289,7 @@ const Parser = struct {
 
         while (try opParseFn(p)) |node| {
             const right = try p.expectNode(childParseFn, .{
-                .InvalidToken = .{ .token = p.tok_i },
+                .invalid_token = .{ .token = p.tok_i },
             });
             const left = res;
             res = node;
@@ -3331,7 +3330,7 @@ const Parser = struct {
         const token = p.nextToken();
         if (p.token_ids[token] != id) {
             try p.errors.append(p.gpa, .{
-                .ExpectedToken = .{ .token = token, .expected_id = id },
+                .expected_token = .{ .token = token, .expected_id = id },
             });
             // go back so that we can recover properly
             p.putBackToken(token);
