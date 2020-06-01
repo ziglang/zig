@@ -29,7 +29,7 @@ pub fn parse(gpa: *Allocator, source: []const u8) Allocator.Error!*Tree {
         const token = tokenizer.next();
         try token_ids.append(token.id);
         try token_locs.append(token.loc);
-        if (token.id == .Eof) break;
+        if (token.id == .eof) break;
     }
 
     var parser: Parser = .{
@@ -44,7 +44,7 @@ pub fn parse(gpa: *Allocator, source: []const u8) Allocator.Error!*Tree {
     defer parser.errors.deinit(gpa);
     errdefer parser.arena.deinit();
 
-    while (token_ids.items[parser.tok_i] == .LineComment) parser.tok_i += 1;
+    while (token_ids.items[parser.tok_i] == .line_comment) parser.tok_i += 1;
 
     const root_node = try parser.parseRoot();
 
@@ -78,7 +78,7 @@ const Parser = struct {
 
         // parseContainerMembers will try to skip as much
         // invalid tokens as it can so this can only be the EOF
-        const eof_token = p.eatToken(.Eof).?;
+        const eof_token = p.eatToken(.eof).?;
 
         const decls_len = @intCast(NodeIndex, decls.len);
         const node = try Node.Root.create(&p.arena.allocator, decls_len, eof_token);
@@ -148,7 +148,7 @@ const Parser = struct {
                 continue;
             }
 
-            const visib_token = p.eatToken(.Keyword_pub);
+            const visib_token = p.eatToken(.keyword_pub);
 
             if (p.parseTopLevelDecl() catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
@@ -218,22 +218,22 @@ const Parser = struct {
                 const field = node.cast(Node.ContainerField).?;
                 field.doc_comments = doc_comments;
                 try list.append(node);
-                const comma = p.eatToken(.Comma) orelse {
+                const comma = p.eatToken(.comma) orelse {
                     // try to continue parsing
                     const index = p.tok_i;
                     p.findNextContainerMember();
                     const next = p.token_ids[p.tok_i];
                     switch (next) {
-                        .Eof => break,
+                        .eof => break,
                         else => {
-                            if (next == .RBrace) {
+                            if (next == .r_brace) {
                                 if (!top_level) break;
                                 _ = p.nextToken();
                             }
 
                             // add error and continue
                             try p.errors.append(p.gpa, .{
-                                .expected_token = .{ .token = index, .expected_id = .Comma },
+                                .expected_token = .{ .token = index, .expected_id = .comma },
                             });
                             continue;
                         },
@@ -253,8 +253,8 @@ const Parser = struct {
 
             const next = p.token_ids[p.tok_i];
             switch (next) {
-                .Eof => break,
-                .Keyword_comptime => {
+                .eof => break,
+                .keyword_comptime => {
                     _ = p.nextToken();
                     try p.errors.append(p.gpa, .{
                         .expected_block_or_field = .{ .token = p.tok_i },
@@ -262,7 +262,7 @@ const Parser = struct {
                 },
                 else => {
                     const index = p.tok_i;
-                    if (next == .RBrace) {
+                    if (next == .r_brace) {
                         if (!top_level) break;
                         _ = p.nextToken();
                     }
@@ -287,36 +287,36 @@ const Parser = struct {
             const tok = p.nextToken();
             switch (p.token_ids[tok]) {
                 // any of these can start a new top level declaration
-                .Keyword_test,
-                .Keyword_comptime,
-                .Keyword_pub,
-                .Keyword_export,
-                .Keyword_extern,
-                .Keyword_inline,
-                .Keyword_noinline,
-                .Keyword_usingnamespace,
-                .Keyword_threadlocal,
-                .Keyword_const,
-                .Keyword_var,
-                .Keyword_fn,
-                .Identifier,
+                .keyword_test,
+                .keyword_comptime,
+                .keyword_pub,
+                .keyword_export,
+                .keyword_extern,
+                .keyword_inline,
+                .keyword_noinline,
+                .keyword_usingnamespace,
+                .keyword_threadlocal,
+                .keyword_const,
+                .keyword_var,
+                .keyword_fn,
+                .identifier,
                 => {
                     if (level == 0) {
                         p.putBackToken(tok);
                         return;
                     }
                 },
-                .Comma, .Semicolon => {
+                .comma, .semicolon => {
                     // this decl was likely meant to end here
                     if (level == 0) {
                         return;
                     }
                 },
-                .LParen, .LBracket, .LBrace => level += 1,
-                .RParen, .RBracket => {
+                .l_paren, .l_bracket, .l_brace => level += 1,
+                .r_paren, .r_bracket => {
                     if (level != 0) level -= 1;
                 },
-                .RBrace => {
+                .r_brace => {
                     if (level == 0) {
                         // end of container, exit
                         p.putBackToken(tok);
@@ -324,7 +324,7 @@ const Parser = struct {
                     }
                     level -= 1;
                 },
-                .Eof => {
+                .eof => {
                     p.putBackToken(tok);
                     return;
                 },
@@ -339,20 +339,20 @@ const Parser = struct {
         while (true) {
             const tok = p.nextToken();
             switch (p.token_ids[tok]) {
-                .LBrace => level += 1,
-                .RBrace => {
+                .l_brace => level += 1,
+                .r_brace => {
                     if (level == 0) {
                         p.putBackToken(tok);
                         return;
                     }
                     level -= 1;
                 },
-                .Semicolon => {
+                .semicolon => {
                     if (level == 0) {
                         return;
                     }
                 },
-                .Eof => {
+                .eof => {
                     p.putBackToken(tok);
                     return;
                 },
@@ -363,8 +363,8 @@ const Parser = struct {
 
     /// Eat a multiline container doc comment
     fn parseContainerDocComments(p: *Parser) !?*Node {
-        if (p.eatToken(.ContainerDocComment)) |first_line| {
-            while (p.eatToken(.ContainerDocComment)) |_| {}
+        if (p.eatToken(.container_doc_comment)) |first_line| {
+            while (p.eatToken(.container_doc_comment)) |_| {}
             const node = try p.arena.allocator.create(Node.DocComment);
             node.* = .{ .first_line = first_line };
             return &node.base;
@@ -374,7 +374,7 @@ const Parser = struct {
 
     /// TestDecl <- KEYWORD_test STRINGLITERALSINGLE Block
     fn parseTestDecl(p: *Parser) !?*Node {
-        const test_token = p.eatToken(.Keyword_test) orelse return null;
+        const test_token = p.eatToken(.keyword_test) orelse return null;
         const name_node = try p.expectNode(parseStringLiteralSingle, .{
             .expected_string_literal = .{ .token = p.tok_i },
         });
@@ -394,8 +394,8 @@ const Parser = struct {
 
     /// TopLevelComptime <- KEYWORD_comptime BlockExpr
     fn parseTopLevelComptime(p: *Parser) !?*Node {
-        const tok = p.eatToken(.Keyword_comptime) orelse return null;
-        const lbrace = p.eatToken(.LBrace) orelse {
+        const tok = p.eatToken(.keyword_comptime) orelse return null;
+        const lbrace = p.eatToken(.l_brace) orelse {
             p.putBackToken(tok);
             return null;
         };
@@ -420,13 +420,13 @@ const Parser = struct {
     fn parseTopLevelDecl(p: *Parser) !?*Node {
         var lib_name: ?*Node = null;
         const extern_export_inline_token = blk: {
-            if (p.eatToken(.Keyword_export)) |token| break :blk token;
-            if (p.eatToken(.Keyword_extern)) |token| {
+            if (p.eatToken(.keyword_export)) |token| break :blk token;
+            if (p.eatToken(.keyword_extern)) |token| {
                 lib_name = try p.parseStringLiteralSingle();
                 break :blk token;
             }
-            if (p.eatToken(.Keyword_inline)) |token| break :blk token;
-            if (p.eatToken(.Keyword_noinline)) |token| break :blk token;
+            if (p.eatToken(.keyword_inline)) |token| break :blk token;
+            if (p.eatToken(.keyword_noinline)) |token| break :blk token;
             break :blk null;
         };
 
@@ -434,7 +434,7 @@ const Parser = struct {
             const fn_node = node.cast(Node.FnProto).?;
             fn_node.*.extern_export_inline_token = extern_export_inline_token;
             fn_node.*.lib_name = lib_name;
-            if (p.eatToken(.Semicolon)) |_| return node;
+            if (p.eatToken(.semicolon)) |_| return node;
 
             if (try p.expectNodeRecoverable(parseBlock, .{
                 // since parseBlock only return error.ParseError on
@@ -448,8 +448,8 @@ const Parser = struct {
         }
 
         if (extern_export_inline_token) |token| {
-            if (p.token_ids[token] == .Keyword_inline or
-                p.token_ids[token] == .Keyword_noinline)
+            if (p.token_ids[token] == .keyword_inline or
+                p.token_ids[token] == .keyword_noinline)
             {
                 try p.errors.append(p.gpa, .{
                     .expected_fn = .{ .token = p.tok_i },
@@ -458,7 +458,7 @@ const Parser = struct {
             }
         }
 
-        const thread_local_token = p.eatToken(.Keyword_threadlocal);
+        const thread_local_token = p.eatToken(.keyword_threadlocal);
 
         if (try p.parseVarDecl()) |node| {
             var var_decl = node.cast(Node.VarDecl).?;
@@ -494,30 +494,30 @@ const Parser = struct {
         var is_async = false;
         var is_extern = false;
         const cc_token: ?TokenIndex = blk: {
-            if (p.eatToken(.Keyword_extern)) |token| {
+            if (p.eatToken(.keyword_extern)) |token| {
                 is_extern = true;
                 break :blk token;
             }
-            if (p.eatToken(.Keyword_async)) |token| {
+            if (p.eatToken(.keyword_async)) |token| {
                 is_async = true;
                 break :blk token;
             }
             break :blk null;
         };
-        const fn_token = p.eatToken(.Keyword_fn) orelse {
+        const fn_token = p.eatToken(.keyword_fn) orelse {
             if (cc_token) |token|
                 p.putBackToken(token);
             return null;
         };
-        const name_token = p.eatToken(.Identifier);
-        const lparen = try p.expectToken(.LParen);
+        const name_token = p.eatToken(.identifier);
+        const lparen = try p.expectToken(.l_paren);
         const params = try p.parseParamDeclList();
         defer p.gpa.free(params);
-        const rparen = try p.expectToken(.RParen);
+        const rparen = try p.expectToken(.r_paren);
         const align_expr = try p.parseByteAlign();
         const section_expr = try p.parseLinkSection();
         const callconv_expr = try p.parseCallconv();
-        const exclamation_token = p.eatToken(.Bang);
+        const exclamation_token = p.eatToken(.bang);
 
         const return_type_expr = (try p.parseVarType()) orelse
             try p.expectNodeRecoverable(parseTypeExpr, .{
@@ -529,11 +529,11 @@ const Parser = struct {
         // TODO https://github.com/ziglang/zig/issues/3750
         const R = Node.FnProto.ReturnType;
         const return_type = if (return_type_expr == null)
-            R{ .Invalid = rparen }
+            R{ .invalid = rparen }
         else if (exclamation_token != null)
-            R{ .InferErrorSet = return_type_expr.? }
+            R{ .infer_error_set = return_type_expr.? }
         else
-            R{ .Explicit = return_type_expr.? };
+            R{ .explicit = return_type_expr.? };
 
         const var_args_token = if (params.len > 0) blk: {
             const param_type = params[params.len - 1].param_type;
@@ -566,12 +566,12 @@ const Parser = struct {
 
     /// VarDecl <- (KEYWORD_const / KEYWORD_var) IDENTIFIER (COLON TypeExpr)? ByteAlign? LinkSection? (EQUAL Expr)? SEMICOLON
     fn parseVarDecl(p: *Parser) !?*Node {
-        const mut_token = p.eatToken(.Keyword_const) orelse
-            p.eatToken(.Keyword_var) orelse
+        const mut_token = p.eatToken(.keyword_const) orelse
+            p.eatToken(.keyword_var) orelse
             return null;
 
-        const name_token = try p.expectToken(.Identifier);
-        const type_node = if (p.eatToken(.Colon) != null)
+        const name_token = try p.expectToken(.identifier);
+        const type_node = if (p.eatToken(.colon) != null)
             try p.expectNode(parseTypeExpr, .{
                 .expected_type_expr = .{ .token = p.tok_i },
             })
@@ -579,13 +579,13 @@ const Parser = struct {
             null;
         const align_node = try p.parseByteAlign();
         const section_node = try p.parseLinkSection();
-        const eq_token = p.eatToken(.Equal);
+        const eq_token = p.eatToken(.equal);
         const init_node = if (eq_token != null) blk: {
             break :blk try p.expectNode(parseExpr, .{
                 .expected_expr = .{ .token = p.tok_i },
             });
         } else null;
-        const semicolon_token = try p.expectToken(.Semicolon);
+        const semicolon_token = try p.expectToken(.semicolon);
 
         const node = try p.arena.allocator.create(Node.VarDecl);
         node.* = .{
@@ -609,16 +609,16 @@ const Parser = struct {
 
     /// ContainerField <- KEYWORD_comptime? IDENTIFIER (COLON TypeExpr ByteAlign?)? (EQUAL Expr)?
     fn parseContainerField(p: *Parser) !?*Node {
-        const comptime_token = p.eatToken(.Keyword_comptime);
-        const name_token = p.eatToken(.Identifier) orelse {
+        const comptime_token = p.eatToken(.keyword_comptime);
+        const name_token = p.eatToken(.identifier) orelse {
             if (comptime_token) |t| p.putBackToken(t);
             return null;
         };
 
         var align_expr: ?*Node = null;
         var type_expr: ?*Node = null;
-        if (p.eatToken(.Colon)) |_| {
-            if (p.eatToken(.Keyword_var)) |var_tok| {
+        if (p.eatToken(.colon)) |_| {
+            if (p.eatToken(.keyword_var)) |var_tok| {
                 const node = try p.arena.allocator.create(Node.VarType);
                 node.* = .{ .token = var_tok };
                 type_expr = &node.base;
@@ -630,7 +630,7 @@ const Parser = struct {
             }
         }
 
-        const value_expr = if (p.eatToken(.Equal)) |_|
+        const value_expr = if (p.eatToken(.equal)) |_|
             try p.expectNode(parseExpr, .{
                 .expected_expr = .{ .token = p.tok_i },
             })
@@ -661,7 +661,7 @@ const Parser = struct {
     ///      / SwitchExpr
     ///      / AssignExpr SEMICOLON
     fn parseStatement(p: *Parser) Error!?*Node {
-        const comptime_token = p.eatToken(.Keyword_comptime);
+        const comptime_token = p.eatToken(.keyword_comptime);
 
         const var_decl_node = try p.parseVarDecl();
         if (var_decl_node) |node| {
@@ -684,7 +684,7 @@ const Parser = struct {
             return &node.base;
         }
 
-        if (p.eatToken(.Keyword_nosuspend)) |nosuspend_token| {
+        if (p.eatToken(.keyword_nosuspend)) |nosuspend_token| {
             const block_expr = try p.expectNode(parseBlockExprStatement, .{
                 .expected_block_or_assignment = .{ .token = p.tok_i },
             });
@@ -697,8 +697,8 @@ const Parser = struct {
             return &node.base;
         }
 
-        if (p.eatToken(.Keyword_suspend)) |suspend_token| {
-            const semicolon = p.eatToken(.Semicolon);
+        if (p.eatToken(.keyword_suspend)) |suspend_token| {
+            const semicolon = p.eatToken(.semicolon);
 
             const body_node = if (semicolon == null) blk: {
                 break :blk try p.expectNode(parseBlockExprStatement, .{
@@ -714,9 +714,9 @@ const Parser = struct {
             return &node.base;
         }
 
-        const defer_token = p.eatToken(.Keyword_defer) orelse p.eatToken(.Keyword_errdefer);
+        const defer_token = p.eatToken(.keyword_defer) orelse p.eatToken(.keyword_errdefer);
         if (defer_token) |token| {
-            const payload = if (p.token_ids[token] == .Keyword_errdefer)
+            const payload = if (p.token_ids[token] == .keyword_errdefer)
                 try p.parsePayload()
             else
                 null;
@@ -736,7 +736,7 @@ const Parser = struct {
         if (try p.parseLabeledStatement()) |node| return node;
         if (try p.parseSwitchExpr()) |node| return node;
         if (try p.parseAssignExpr()) |node| {
-            _ = try p.expectTokenRecoverable(.Semicolon);
+            _ = try p.expectTokenRecoverable(.semicolon);
             return node;
         }
 
@@ -758,10 +758,10 @@ const Parser = struct {
         else
             null;
 
-        const semicolon = if (assign_expr != null) p.eatToken(.Semicolon) else null;
+        const semicolon = if (assign_expr != null) p.eatToken(.semicolon) else null;
 
         const else_node = if (semicolon == null) blk: {
-            const else_token = p.eatToken(.Keyword_else) orelse break :blk null;
+            const else_token = p.eatToken(.keyword_else) orelse break :blk null;
             const payload = try p.parsePayload();
             const else_body = try p.expectNode(parseStatement, .{
                 .invalid_token = .{ .token = p.tok_i },
@@ -829,7 +829,7 @@ const Parser = struct {
 
     /// LoopStatement <- KEYWORD_inline? (ForStatement / WhileStatement)
     fn parseLoopStatement(p: *Parser) !?*Node {
-        const inline_token = p.eatToken(.Keyword_inline);
+        const inline_token = p.eatToken(.keyword_inline);
 
         if (try p.parseForStatement()) |node| {
             node.cast(Node.For).?.inline_token = inline_token;
@@ -859,7 +859,7 @@ const Parser = struct {
         if (try p.parseBlockExpr()) |block_expr_node| {
             for_prefix.body = block_expr_node;
 
-            if (p.eatToken(.Keyword_else)) |else_token| {
+            if (p.eatToken(.keyword_else)) |else_token| {
                 const statement_node = try p.expectNode(parseStatement, .{
                     .invalid_token = .{ .token = p.tok_i },
                 });
@@ -882,9 +882,9 @@ const Parser = struct {
             .expected_block_or_assignment = .{ .token = p.tok_i },
         });
 
-        if (p.eatToken(.Semicolon) != null) return node;
+        if (p.eatToken(.semicolon) != null) return node;
 
-        if (p.eatToken(.Keyword_else)) |else_token| {
+        if (p.eatToken(.keyword_else)) |else_token| {
             const statement_node = try p.expectNode(parseStatement, .{
                 .expected_statement = .{ .token = p.tok_i },
             });
@@ -916,7 +916,7 @@ const Parser = struct {
         if (try p.parseBlockExpr()) |block_expr_node| {
             while_prefix.body = block_expr_node;
 
-            if (p.eatToken(.Keyword_else)) |else_token| {
+            if (p.eatToken(.keyword_else)) |else_token| {
                 const payload = try p.parsePayload();
 
                 const statement_node = try p.expectNode(parseStatement, .{
@@ -941,9 +941,9 @@ const Parser = struct {
             .expected_block_or_assignment = .{ .token = p.tok_i },
         });
 
-        if (p.eatToken(.Semicolon) != null) return node;
+        if (p.eatToken(.semicolon) != null) return node;
 
-        if (p.eatToken(.Keyword_else)) |else_token| {
+        if (p.eatToken(.keyword_else)) |else_token| {
             const payload = try p.parsePayload();
 
             const statement_node = try p.expectNode(parseStatement, .{
@@ -973,7 +973,7 @@ const Parser = struct {
     fn parseBlockExprStatement(p: *Parser) !?*Node {
         if (try p.parseBlockExpr()) |node| return node;
         if (try p.parseAssignExpr()) |node| {
-            _ = try p.expectTokenRecoverable(.Semicolon);
+            _ = try p.expectTokenRecoverable(.semicolon);
             return node;
         }
         return null;
@@ -1007,7 +1007,7 @@ const Parser = struct {
     /// BoolOrExpr <- BoolAndExpr (KEYWORD_or BoolAndExpr)*
     fn parseBoolOrExpr(p: *Parser) !?*Node {
         return p.parseBinOpExpr(
-            SimpleBinOpParseFn(.Keyword_or, .bool_or),
+            SimpleBinOpParseFn(.keyword_or, .bool_or),
             parseBoolAndExpr,
             .infinitely,
         );
@@ -1016,7 +1016,7 @@ const Parser = struct {
     /// BoolAndExpr <- CompareExpr (KEYWORD_and CompareExpr)*
     fn parseBoolAndExpr(p: *Parser) !?*Node {
         return p.parseBinOpExpr(
-            SimpleBinOpParseFn(.Keyword_and, .bool_and),
+            SimpleBinOpParseFn(.keyword_and, .bool_and),
             parseCompareExpr,
             .infinitely,
         );
@@ -1068,7 +1068,7 @@ const Parser = struct {
         if (try p.parseAsmExpr()) |node| return node;
         if (try p.parseIfExpr()) |node| return node;
 
-        if (p.eatToken(.Keyword_break)) |token| {
+        if (p.eatToken(.keyword_break)) |token| {
             const label = try p.parseBreakLabel();
             const expr_node = try p.parseExpr();
             const node = try p.arena.allocator.create(Node.ControlFlowExpression);
@@ -1080,7 +1080,7 @@ const Parser = struct {
             return &node.base;
         }
 
-        if (p.eatToken(.Keyword_comptime)) |token| {
+        if (p.eatToken(.keyword_comptime)) |token| {
             const expr_node = try p.expectNode(parseExpr, .{
                 .expected_expr = .{ .token = p.tok_i },
             });
@@ -1093,7 +1093,7 @@ const Parser = struct {
             return &node.base;
         }
 
-        if (p.eatToken(.Keyword_nosuspend)) |token| {
+        if (p.eatToken(.keyword_nosuspend)) |token| {
             const expr_node = try p.expectNode(parseExpr, .{
                 .expected_expr = .{ .token = p.tok_i },
             });
@@ -1105,7 +1105,7 @@ const Parser = struct {
             return &node.base;
         }
 
-        if (p.eatToken(.Keyword_continue)) |token| {
+        if (p.eatToken(.keyword_continue)) |token| {
             const label = try p.parseBreakLabel();
             const node = try p.arena.allocator.create(Node.ControlFlowExpression);
             node.* = .{
@@ -1116,7 +1116,7 @@ const Parser = struct {
             return &node.base;
         }
 
-        if (p.eatToken(.Keyword_resume)) |token| {
+        if (p.eatToken(.keyword_resume)) |token| {
             const expr_node = try p.expectNode(parseExpr, .{
                 .expected_expr = .{ .token = p.tok_i },
             });
@@ -1129,7 +1129,7 @@ const Parser = struct {
             return &node.base;
         }
 
-        if (p.eatToken(.Keyword_return)) |token| {
+        if (p.eatToken(.keyword_return)) |token| {
             const expr_node = try p.parseExpr();
             const node = try p.arena.allocator.create(Node.ControlFlowExpression);
             node.* = .{
@@ -1168,7 +1168,7 @@ const Parser = struct {
 
     /// Block <- LBRACE Statement* RBRACE
     fn parseBlock(p: *Parser) !?*Node {
-        const lbrace = p.eatToken(.LBrace) orelse return null;
+        const lbrace = p.eatToken(.l_brace) orelse return null;
 
         var statements = std.ArrayList(*Node).init(p.gpa);
         defer statements.deinit();
@@ -1185,7 +1185,7 @@ const Parser = struct {
             try statements.append(statement);
         }
 
-        const rbrace = try p.expectToken(.RBrace);
+        const rbrace = try p.expectToken(.r_brace);
 
         const statements_len = @intCast(NodeIndex, statements.items.len);
 
@@ -1203,7 +1203,7 @@ const Parser = struct {
 
     /// LoopExpr <- KEYWORD_inline? (ForExpr / WhileExpr)
     fn parseLoopExpr(p: *Parser) !?*Node {
-        const inline_token = p.eatToken(.Keyword_inline);
+        const inline_token = p.eatToken(.keyword_inline);
 
         if (try p.parseForExpr()) |node| {
             node.cast(Node.For).?.inline_token = inline_token;
@@ -1234,7 +1234,7 @@ const Parser = struct {
         });
         for_prefix.body = body_node;
 
-        if (p.eatToken(.Keyword_else)) |else_token| {
+        if (p.eatToken(.keyword_else)) |else_token| {
             const body = try p.expectNode(parseExpr, .{
                 .expected_expr = .{ .token = p.tok_i },
             });
@@ -1262,7 +1262,7 @@ const Parser = struct {
         });
         while_prefix.body = body_node;
 
-        if (p.eatToken(.Keyword_else)) |else_token| {
+        if (p.eatToken(.keyword_else)) |else_token| {
             const payload = try p.parsePayload();
             const body = try p.expectNode(parseExpr, .{
                 .expected_expr = .{ .token = p.tok_i },
@@ -1293,20 +1293,20 @@ const Parser = struct {
     ///      / LBRACE Expr (COMMA Expr)* COMMA? RBRACE
     ///      / LBRACE RBRACE
     fn parseInitList(p: *Parser, lhs: *Node) !?*Node {
-        const lbrace = p.eatToken(.LBrace) orelse return null;
+        const lbrace = p.eatToken(.l_brace) orelse return null;
         var init_list = std.ArrayList(*Node).init(p.gpa);
         defer init_list.deinit();
 
         if (try p.parseFieldInit()) |field_init| {
             try init_list.append(field_init);
-            while (p.eatToken(.Comma)) |_| {
+            while (p.eatToken(.comma)) |_| {
                 const next = (try p.parseFieldInit()) orelse break;
                 try init_list.append(next);
             }
             const node = try Node.StructInitializer.alloc(&p.arena.allocator, init_list.items.len);
             node.* = .{
                 .lhs = lhs,
-                .rtoken = try p.expectToken(.RBrace),
+                .rtoken = try p.expectToken(.r_brace),
                 .list_len = init_list.items.len,
             };
             std.mem.copy(*Node, node.list(), init_list.items);
@@ -1315,14 +1315,14 @@ const Parser = struct {
 
         if (try p.parseExpr()) |expr| {
             try init_list.append(expr);
-            while (p.eatToken(.Comma)) |_| {
+            while (p.eatToken(.comma)) |_| {
                 const next = (try p.parseExpr()) orelse break;
                 try init_list.append(next);
             }
             const node = try Node.ArrayInitializer.alloc(&p.arena.allocator, init_list.items.len);
             node.* = .{
                 .lhs = lhs,
-                .rtoken = try p.expectToken(.RBrace),
+                .rtoken = try p.expectToken(.r_brace),
                 .list_len = init_list.items.len,
             };
             std.mem.copy(*Node, node.list(), init_list.items);
@@ -1332,7 +1332,7 @@ const Parser = struct {
         const node = try p.arena.allocator.create(Node.StructInitializer);
         node.* = .{
             .lhs = lhs,
-            .rtoken = try p.expectToken(.RBrace),
+            .rtoken = try p.expectToken(.r_brace),
             .list_len = 0,
         };
         return &node.base;
@@ -1343,20 +1343,20 @@ const Parser = struct {
     ///      / LBRACE Expr (COMMA Expr)* COMMA? RBRACE
     ///      / LBRACE RBRACE
     fn parseAnonInitList(p: *Parser, dot: TokenIndex) !?*Node {
-        const lbrace = p.eatToken(.LBrace) orelse return null;
+        const lbrace = p.eatToken(.l_brace) orelse return null;
         var init_list = std.ArrayList(*Node).init(p.gpa);
         defer init_list.deinit();
 
         if (try p.parseFieldInit()) |field_init| {
             try init_list.append(field_init);
-            while (p.eatToken(.Comma)) |_| {
+            while (p.eatToken(.comma)) |_| {
                 const next = (try p.parseFieldInit()) orelse break;
                 try init_list.append(next);
             }
             const node = try Node.StructInitializerDot.alloc(&p.arena.allocator, init_list.items.len);
             node.* = .{
                 .dot = dot,
-                .rtoken = try p.expectToken(.RBrace),
+                .rtoken = try p.expectToken(.r_brace),
                 .list_len = init_list.items.len,
             };
             std.mem.copy(*Node, node.list(), init_list.items);
@@ -1365,14 +1365,14 @@ const Parser = struct {
 
         if (try p.parseExpr()) |expr| {
             try init_list.append(expr);
-            while (p.eatToken(.Comma)) |_| {
+            while (p.eatToken(.comma)) |_| {
                 const next = (try p.parseExpr()) orelse break;
                 try init_list.append(next);
             }
             const node = try Node.ArrayInitializerDot.alloc(&p.arena.allocator, init_list.items.len);
             node.* = .{
                 .dot = dot,
-                .rtoken = try p.expectToken(.RBrace),
+                .rtoken = try p.expectToken(.r_brace),
                 .list_len = init_list.items.len,
             };
             std.mem.copy(*Node, node.list(), init_list.items);
@@ -1382,7 +1382,7 @@ const Parser = struct {
         const node = try p.arena.allocator.create(Node.StructInitializerDot);
         node.* = .{
             .dot = dot,
-            .rtoken = try p.expectToken(.RBrace),
+            .rtoken = try p.expectToken(.r_brace),
             .list_len = 0,
         };
         return &node.base;
@@ -1397,7 +1397,7 @@ const Parser = struct {
     fn parseErrorUnionExpr(p: *Parser) !?*Node {
         const suffix_expr = (try p.parseSuffixExpr()) orelse return null;
 
-        if (try SimpleBinOpParseFn(.Bang, .error_union)(p)) |node| {
+        if (try SimpleBinOpParseFn(.bang, .error_union)(p)) |node| {
             const error_union = node.cast(Node.InfixOp).?;
             const type_expr = try p.expectNode(parseTypeExpr, .{
                 .expected_type_expr = .{ .token = p.tok_i },
@@ -1414,9 +1414,9 @@ const Parser = struct {
     ///     <- KEYWORD_async PrimaryTypeExpr SuffixOp* FnCallArguments
     ///      / PrimaryTypeExpr (SuffixOp / FnCallArguments)*
     fn parseSuffixExpr(p: *Parser) !?*Node {
-        const maybe_async = p.eatToken(.Keyword_async);
+        const maybe_async = p.eatToken(.keyword_async);
         if (maybe_async) |async_token| {
-            const token_fn = p.eatToken(.Keyword_fn);
+            const token_fn = p.eatToken(.keyword_fn);
             if (token_fn != null) {
                 // TODO: remove this hack when async fn rewriting is
                 // HACK: If we see the keyword `fn`, then we assume that
@@ -1517,7 +1517,7 @@ const Parser = struct {
     ///      / SwitchExpr
     fn parsePrimaryTypeExpr(p: *Parser) !?*Node {
         if (try p.parseBuiltinCall()) |node| return node;
-        if (p.eatToken(.CharLiteral)) |token| {
+        if (p.eatToken(.char_literal)) |token| {
             const node = try p.arena.allocator.create(Node.CharLiteral);
             node.* = .{
                 .token = token,
@@ -1534,7 +1534,7 @@ const Parser = struct {
         if (try p.parseIdentifier()) |node| return node;
         if (try p.parseIfTypeExpr()) |node| return node;
         if (try p.parseIntegerLiteral()) |node| return node;
-        if (p.eatToken(.Keyword_comptime)) |token| {
+        if (p.eatToken(.keyword_comptime)) |token| {
             const expr = (try p.parseTypeExpr()) orelse return null;
             const node = try p.arena.allocator.create(Node.Comptime);
             node.* = .{
@@ -1544,8 +1544,8 @@ const Parser = struct {
             };
             return &node.base;
         }
-        if (p.eatToken(.Keyword_error)) |token| {
-            const period = try p.expectTokenRecoverable(.Period);
+        if (p.eatToken(.keyword_error)) |token| {
+            const period = try p.expectTokenRecoverable(.period);
             const identifier = try p.expectNodeRecoverable(parseIdentifier, .{
                 .expected_identifier = .{ .token = p.tok_i },
             });
@@ -1561,9 +1561,9 @@ const Parser = struct {
             };
             return &node.base;
         }
-        if (p.eatToken(.Keyword_false)) |token| return p.createLiteral(Node.BoolLiteral, token);
-        if (p.eatToken(.Keyword_null)) |token| return p.createLiteral(Node.NullLiteral, token);
-        if (p.eatToken(.Keyword_anyframe)) |token| {
+        if (p.eatToken(.keyword_false)) |token| return p.createLiteral(Node.BoolLiteral, token);
+        if (p.eatToken(.keyword_null)) |token| return p.createLiteral(Node.NullLiteral, token);
+        if (p.eatToken(.keyword_anyframe)) |token| {
             const node = try p.arena.allocator.create(Node.AnyFrameType);
             node.* = .{
                 .anyframe_token = token,
@@ -1571,9 +1571,9 @@ const Parser = struct {
             };
             return &node.base;
         }
-        if (p.eatToken(.Keyword_true)) |token| return p.createLiteral(Node.BoolLiteral, token);
-        if (p.eatToken(.Keyword_undefined)) |token| return p.createLiteral(Node.UndefinedLiteral, token);
-        if (p.eatToken(.Keyword_unreachable)) |token| return p.createLiteral(Node.Unreachable, token);
+        if (p.eatToken(.keyword_true)) |token| return p.createLiteral(Node.BoolLiteral, token);
+        if (p.eatToken(.keyword_undefined)) |token| return p.createLiteral(Node.UndefinedLiteral, token);
+        if (p.eatToken(.keyword_unreachable)) |token| return p.createLiteral(Node.Unreachable, token);
         if (try p.parseStringLiteral()) |node| return node;
         if (try p.parseSwitchExpr()) |node| return node;
 
@@ -1582,8 +1582,8 @@ const Parser = struct {
 
     /// ContainerDecl <- (KEYWORD_extern / KEYWORD_packed)? ContainerDeclAuto
     fn parseContainerDecl(p: *Parser) !?*Node {
-        const layout_token = p.eatToken(.Keyword_extern) orelse
-            p.eatToken(.Keyword_packed);
+        const layout_token = p.eatToken(.keyword_extern) orelse
+            p.eatToken(.keyword_packed);
 
         const node = (try p.parseContainerDeclAuto()) orelse {
             if (layout_token) |token|
@@ -1596,15 +1596,15 @@ const Parser = struct {
 
     /// ErrorSetDecl <- KEYWORD_error LBRACE IdentifierList RBRACE
     fn parseErrorSetDecl(p: *Parser) !?*Node {
-        const error_token = p.eatToken(.Keyword_error) orelse return null;
-        if (p.eatToken(.LBrace) == null) {
+        const error_token = p.eatToken(.keyword_error) orelse return null;
+        if (p.eatToken(.l_brace) == null) {
             // Might parse as `KEYWORD_error DOT IDENTIFIER` later in PrimaryTypeExpr, so don't error
             p.putBackToken(error_token);
             return null;
         }
         const decls = try p.parseErrorTagList();
         defer p.gpa.free(decls);
-        const rbrace = try p.expectToken(.RBrace);
+        const rbrace = try p.expectToken(.r_brace);
 
         const node = try Node.ErrorSetDecl.alloc(&p.arena.allocator, decls.len);
         node.* = .{
@@ -1618,11 +1618,11 @@ const Parser = struct {
 
     /// GroupedExpr <- LPAREN Expr RPAREN
     fn parseGroupedExpr(p: *Parser) !?*Node {
-        const lparen = p.eatToken(.LParen) orelse return null;
+        const lparen = p.eatToken(.l_paren) orelse return null;
         const expr = try p.expectNode(parseExpr, .{
             .expected_expr = .{ .token = p.tok_i },
         });
-        const rparen = try p.expectToken(.RParen);
+        const rparen = try p.expectToken(.r_paren);
 
         const node = try p.arena.allocator.create(Node.GroupedExpression);
         node.* = .{
@@ -1670,7 +1670,7 @@ const Parser = struct {
 
     /// LoopTypeExpr <- KEYWORD_inline? (ForTypeExpr / WhileTypeExpr)
     fn parseLoopTypeExpr(p: *Parser) !?*Node {
-        const inline_token = p.eatToken(.Keyword_inline);
+        const inline_token = p.eatToken(.keyword_inline);
 
         if (try p.parseForTypeExpr()) |node| {
             node.cast(Node.For).?.inline_token = inline_token;
@@ -1701,7 +1701,7 @@ const Parser = struct {
         });
         for_prefix.body = type_expr;
 
-        if (p.eatToken(.Keyword_else)) |else_token| {
+        if (p.eatToken(.keyword_else)) |else_token| {
             const else_expr = try p.expectNode(parseTypeExpr, .{
                 .expected_type_expr = .{ .token = p.tok_i },
             });
@@ -1729,7 +1729,7 @@ const Parser = struct {
         });
         while_prefix.body = type_expr;
 
-        if (p.eatToken(.Keyword_else)) |else_token| {
+        if (p.eatToken(.keyword_else)) |else_token| {
             const payload = try p.parsePayload();
 
             const else_expr = try p.expectNode(parseTypeExpr, .{
@@ -1751,16 +1751,16 @@ const Parser = struct {
 
     /// SwitchExpr <- KEYWORD_switch LPAREN Expr RPAREN LBRACE SwitchProngList RBRACE
     fn parseSwitchExpr(p: *Parser) !?*Node {
-        const switch_token = p.eatToken(.Keyword_switch) orelse return null;
-        _ = try p.expectToken(.LParen);
+        const switch_token = p.eatToken(.keyword_switch) orelse return null;
+        _ = try p.expectToken(.l_paren);
         const expr_node = try p.expectNode(parseExpr, .{
             .expected_expr = .{ .token = p.tok_i },
         });
-        _ = try p.expectToken(.RParen);
-        _ = try p.expectToken(.LBrace);
+        _ = try p.expectToken(.r_paren);
+        _ = try p.expectToken(.l_brace);
         const cases = try p.parseSwitchProngList();
         defer p.gpa.free(cases);
-        const rbrace = try p.expectToken(.RBrace);
+        const rbrace = try p.expectToken(.r_brace);
 
         const node = try Node.Switch.alloc(&p.arena.allocator, cases.len);
         node.* = .{
@@ -1779,9 +1779,9 @@ const Parser = struct {
     /// AsmClobbers <- COLON StringList
     /// StringList <- (STRINGLITERAL COMMA)* STRINGLITERAL?
     fn parseAsmExpr(p: *Parser) !?*Node {
-        const asm_token = p.eatToken(.Keyword_asm) orelse return null;
-        const volatile_token = p.eatToken(.Keyword_volatile);
-        _ = try p.expectToken(.LParen);
+        const asm_token = p.eatToken(.keyword_asm) orelse return null;
+        const volatile_token = p.eatToken(.keyword_volatile);
+        _ = try p.expectToken(.l_paren);
         const template = try p.expectNode(parseExpr, .{
             .expected_expr = .{ .token = p.tok_i },
         });
@@ -1790,17 +1790,17 @@ const Parser = struct {
         var arena_inputs: []Node.Asm.Input = &[0]Node.Asm.Input{};
         var arena_clobbers: []*Node = &[0]*Node{};
 
-        if (p.eatToken(.Colon) != null) {
+        if (p.eatToken(.colon) != null) {
             const outputs = try p.parseAsmOutputList();
             defer p.gpa.free(outputs);
             arena_outputs = try p.arena.allocator.dupe(Node.Asm.Output, outputs);
 
-            if (p.eatToken(.Colon) != null) {
+            if (p.eatToken(.colon) != null) {
                 const inputs = try p.parseAsmInputList();
                 defer p.gpa.free(inputs);
                 arena_inputs = try p.arena.allocator.dupe(Node.Asm.Input, inputs);
 
-                if (p.eatToken(.Colon) != null) {
+                if (p.eatToken(.colon) != null) {
                     const clobbers = try ListParseFn(*Node, parseStringLiteral)(p);
                     defer p.gpa.free(clobbers);
                     arena_clobbers = try p.arena.allocator.dupe(*Node, clobbers);
@@ -1816,7 +1816,7 @@ const Parser = struct {
             .outputs = arena_outputs,
             .inputs = arena_inputs,
             .clobbers = arena_clobbers,
-            .rparen = try p.expectToken(.RParen),
+            .rparen = try p.expectToken(.r_paren),
         };
 
         return &node.base;
@@ -1824,10 +1824,10 @@ const Parser = struct {
 
     /// DOT IDENTIFIER
     fn parseAnonLiteral(p: *Parser) !?*Node {
-        const dot = p.eatToken(.Period) orelse return null;
+        const dot = p.eatToken(.period) orelse return null;
 
         // anon enum literal
-        if (p.eatToken(.Identifier)) |name| {
+        if (p.eatToken(.identifier)) |name| {
             const node = try p.arena.allocator.create(Node.EnumLiteral);
             node.* = .{
                 .dot = dot,
@@ -1846,19 +1846,19 @@ const Parser = struct {
 
     /// AsmOutputItem <- LBRACKET IDENTIFIER RBRACKET STRINGLITERAL LPAREN (MINUSRARROW TypeExpr / IDENTIFIER) RPAREN
     fn parseAsmOutputItem(p: *Parser) !?Node.Asm.Output {
-        const lbracket = p.eatToken(.LBracket) orelse return null;
+        const lbracket = p.eatToken(.l_bracket) orelse return null;
         const name = try p.expectNode(parseIdentifier, .{
             .expected_identifier = .{ .token = p.tok_i },
         });
-        _ = try p.expectToken(.RBracket);
+        _ = try p.expectToken(.r_bracket);
 
         const constraint = try p.expectNode(parseStringLiteral, .{
             .expected_string_literal = .{ .token = p.tok_i },
         });
 
-        _ = try p.expectToken(.LParen);
+        _ = try p.expectToken(.l_paren);
         const kind: Node.Asm.Output.Kind = blk: {
-            if (p.eatToken(.Arrow) != null) {
+            if (p.eatToken(.arrow) != null) {
                 const return_ident = try p.expectNode(parseTypeExpr, .{
                     .expected_type_expr = .{ .token = p.tok_i },
                 });
@@ -1869,7 +1869,7 @@ const Parser = struct {
             });
             break :blk .{ .Variable = variable.cast(Node.Identifier).? };
         };
-        const rparen = try p.expectToken(.RParen);
+        const rparen = try p.expectToken(.r_paren);
 
         return Node.Asm.Output{
             .lbracket = lbracket,
@@ -1882,21 +1882,21 @@ const Parser = struct {
 
     /// AsmInputItem <- LBRACKET IDENTIFIER RBRACKET STRINGLITERAL LPAREN Expr RPAREN
     fn parseAsmInputItem(p: *Parser) !?Node.Asm.Input {
-        const lbracket = p.eatToken(.LBracket) orelse return null;
+        const lbracket = p.eatToken(.l_bracket) orelse return null;
         const name = try p.expectNode(parseIdentifier, .{
             .expected_identifier = .{ .token = p.tok_i },
         });
-        _ = try p.expectToken(.RBracket);
+        _ = try p.expectToken(.r_bracket);
 
         const constraint = try p.expectNode(parseStringLiteral, .{
             .expected_string_literal = .{ .token = p.tok_i },
         });
 
-        _ = try p.expectToken(.LParen);
+        _ = try p.expectToken(.l_paren);
         const expr = try p.expectNode(parseExpr, .{
             .expected_expr = .{ .token = p.tok_i },
         });
-        const rparen = try p.expectToken(.RParen);
+        const rparen = try p.expectToken(.r_paren);
 
         return Node.Asm.Input{
             .lbracket = lbracket,
@@ -1909,7 +1909,7 @@ const Parser = struct {
 
     /// BreakLabel <- COLON IDENTIFIER
     fn parseBreakLabel(p: *Parser) !?*Node {
-        _ = p.eatToken(.Colon) orelse return null;
+        _ = p.eatToken(.colon) orelse return null;
         return p.expectNode(parseIdentifier, .{
             .expected_identifier = .{ .token = p.tok_i },
         });
@@ -1917,8 +1917,8 @@ const Parser = struct {
 
     /// BlockLabel <- IDENTIFIER COLON
     fn parseBlockLabel(p: *Parser, colon_token: *TokenIndex) ?TokenIndex {
-        const identifier = p.eatToken(.Identifier) orelse return null;
-        if (p.eatToken(.Colon)) |colon| {
+        const identifier = p.eatToken(.identifier) orelse return null;
+        if (p.eatToken(.colon)) |colon| {
             colon_token.* = colon;
             return identifier;
         }
@@ -1928,13 +1928,13 @@ const Parser = struct {
 
     /// FieldInit <- DOT IDENTIFIER EQUAL Expr
     fn parseFieldInit(p: *Parser) !?*Node {
-        const period_token = p.eatToken(.Period) orelse return null;
-        const name_token = p.eatToken(.Identifier) orelse {
+        const period_token = p.eatToken(.period) orelse return null;
+        const name_token = p.eatToken(.identifier) orelse {
             // Because of anon literals `.{` is also valid.
             p.putBackToken(period_token);
             return null;
         };
-        const eq_token = p.eatToken(.Equal) orelse {
+        const eq_token = p.eatToken(.equal) orelse {
             // `.Name` may also be an enum literal, which is a later rule.
             p.putBackToken(name_token);
             p.putBackToken(period_token);
@@ -1955,45 +1955,45 @@ const Parser = struct {
 
     /// WhileContinueExpr <- COLON LPAREN AssignExpr RPAREN
     fn parseWhileContinueExpr(p: *Parser) !?*Node {
-        _ = p.eatToken(.Colon) orelse return null;
-        _ = try p.expectToken(.LParen);
+        _ = p.eatToken(.colon) orelse return null;
+        _ = try p.expectToken(.l_paren);
         const node = try p.expectNode(parseAssignExpr, .{
             .expected_expr_or_assignment = .{ .token = p.tok_i },
         });
-        _ = try p.expectToken(.RParen);
+        _ = try p.expectToken(.r_paren);
         return node;
     }
 
     /// LinkSection <- KEYWORD_linksection LPAREN Expr RPAREN
     fn parseLinkSection(p: *Parser) !?*Node {
-        _ = p.eatToken(.Keyword_linksection) orelse return null;
-        _ = try p.expectToken(.LParen);
+        _ = p.eatToken(.keyword_linksection) orelse return null;
+        _ = try p.expectToken(.l_paren);
         const expr_node = try p.expectNode(parseExpr, .{
             .expected_expr = .{ .token = p.tok_i },
         });
-        _ = try p.expectToken(.RParen);
+        _ = try p.expectToken(.r_paren);
         return expr_node;
     }
 
     /// CallConv <- KEYWORD_callconv LPAREN Expr RPAREN
     fn parseCallconv(p: *Parser) !?*Node {
-        _ = p.eatToken(.Keyword_callconv) orelse return null;
-        _ = try p.expectToken(.LParen);
+        _ = p.eatToken(.keyword_callconv) orelse return null;
+        _ = try p.expectToken(.l_paren);
         const expr_node = try p.expectNode(parseExpr, .{
             .expected_expr = .{ .token = p.tok_i },
         });
-        _ = try p.expectToken(.RParen);
+        _ = try p.expectToken(.r_paren);
         return expr_node;
     }
 
     /// ParamDecl <- (KEYWORD_noalias / KEYWORD_comptime)? (IDENTIFIER COLON)? ParamType
     fn parseParamDecl(p: *Parser) !?Node.FnProto.ParamDecl {
         const doc_comments = try p.parseDocComment();
-        const noalias_token = p.eatToken(.Keyword_noalias);
-        const comptime_token = if (noalias_token == null) p.eatToken(.Keyword_comptime) else null;
+        const noalias_token = p.eatToken(.keyword_noalias);
+        const comptime_token = if (noalias_token == null) p.eatToken(.keyword_comptime) else null;
         const name_token = blk: {
-            const identifier = p.eatToken(.Identifier) orelse break :blk null;
-            if (p.eatToken(.Colon) != null) break :blk identifier;
+            const identifier = p.eatToken(.identifier) orelse break :blk null;
+            if (p.eatToken(.colon) != null) break :blk identifier;
             p.putBackToken(identifier); // ParamType may also be an identifier
             break :blk null;
         };
@@ -2029,19 +2029,19 @@ const Parser = struct {
         // TODO cast from tuple to error union is broken
         const P = Node.FnProto.ParamDecl.ParamType;
         if (try p.parseVarType()) |node| return P{ .var_type = node };
-        if (p.eatToken(.Ellipsis3)) |token| return P{ .var_args = token };
+        if (p.eatToken(.ellipsis_3)) |token| return P{ .var_args = token };
         if (try p.parseTypeExpr()) |node| return P{ .type_expr = node };
         return null;
     }
 
     /// IfPrefix <- KEYWORD_if LPAREN Expr RPAREN PtrPayload?
     fn parseIfPrefix(p: *Parser) !?*Node {
-        const if_token = p.eatToken(.Keyword_if) orelse return null;
-        _ = try p.expectToken(.LParen);
+        const if_token = p.eatToken(.keyword_if) orelse return null;
+        _ = try p.expectToken(.l_paren);
         const condition = try p.expectNode(parseExpr, .{
             .expected_expr = .{ .token = p.tok_i },
         });
-        _ = try p.expectToken(.RParen);
+        _ = try p.expectToken(.r_paren);
         const payload = try p.parsePtrPayload();
 
         const node = try p.arena.allocator.create(Node.If);
@@ -2057,13 +2057,13 @@ const Parser = struct {
 
     /// WhilePrefix <- KEYWORD_while LPAREN Expr RPAREN PtrPayload? WhileContinueExpr?
     fn parseWhilePrefix(p: *Parser) !?*Node {
-        const while_token = p.eatToken(.Keyword_while) orelse return null;
+        const while_token = p.eatToken(.keyword_while) orelse return null;
 
-        _ = try p.expectToken(.LParen);
+        _ = try p.expectToken(.l_paren);
         const condition = try p.expectNode(parseExpr, .{
             .expected_expr = .{ .token = p.tok_i },
         });
-        _ = try p.expectToken(.RParen);
+        _ = try p.expectToken(.r_paren);
 
         const payload = try p.parsePtrPayload();
         const continue_expr = try p.parseWhileContinueExpr();
@@ -2084,13 +2084,13 @@ const Parser = struct {
 
     /// ForPrefix <- KEYWORD_for LPAREN Expr RPAREN PtrIndexPayload
     fn parseForPrefix(p: *Parser) !?*Node {
-        const for_token = p.eatToken(.Keyword_for) orelse return null;
+        const for_token = p.eatToken(.keyword_for) orelse return null;
 
-        _ = try p.expectToken(.LParen);
+        _ = try p.expectToken(.l_paren);
         const array_expr = try p.expectNode(parseExpr, .{
             .expected_expr = .{ .token = p.tok_i },
         });
-        _ = try p.expectToken(.RParen);
+        _ = try p.expectToken(.r_paren);
 
         const payload = try p.expectNode(parsePtrIndexPayload, .{
             .expected_payload = .{ .token = p.tok_i },
@@ -2111,11 +2111,11 @@ const Parser = struct {
 
     /// Payload <- PIPE IDENTIFIER PIPE
     fn parsePayload(p: *Parser) !?*Node {
-        const lpipe = p.eatToken(.Pipe) orelse return null;
+        const lpipe = p.eatToken(.pipe) orelse return null;
         const identifier = try p.expectNode(parseIdentifier, .{
             .expected_identifier = .{ .token = p.tok_i },
         });
-        const rpipe = try p.expectToken(.Pipe);
+        const rpipe = try p.expectToken(.pipe);
 
         const node = try p.arena.allocator.create(Node.Payload);
         node.* = .{
@@ -2128,12 +2128,12 @@ const Parser = struct {
 
     /// PtrPayload <- PIPE ASTERISK? IDENTIFIER PIPE
     fn parsePtrPayload(p: *Parser) !?*Node {
-        const lpipe = p.eatToken(.Pipe) orelse return null;
-        const asterisk = p.eatToken(.Asterisk);
+        const lpipe = p.eatToken(.pipe) orelse return null;
+        const asterisk = p.eatToken(.asterisk);
         const identifier = try p.expectNode(parseIdentifier, .{
             .expected_identifier = .{ .token = p.tok_i },
         });
-        const rpipe = try p.expectToken(.Pipe);
+        const rpipe = try p.expectToken(.pipe);
 
         const node = try p.arena.allocator.create(Node.PointerPayload);
         node.* = .{
@@ -2147,20 +2147,20 @@ const Parser = struct {
 
     /// PtrIndexPayload <- PIPE ASTERISK? IDENTIFIER (COMMA IDENTIFIER)? PIPE
     fn parsePtrIndexPayload(p: *Parser) !?*Node {
-        const lpipe = p.eatToken(.Pipe) orelse return null;
-        const asterisk = p.eatToken(.Asterisk);
+        const lpipe = p.eatToken(.pipe) orelse return null;
+        const asterisk = p.eatToken(.asterisk);
         const identifier = try p.expectNode(parseIdentifier, .{
             .expected_identifier = .{ .token = p.tok_i },
         });
 
-        const index = if (p.eatToken(.Comma) == null)
+        const index = if (p.eatToken(.comma) == null)
             null
         else
             try p.expectNode(parseIdentifier, .{
                 .expected_identifier = .{ .token = p.tok_i },
             });
 
-        const rpipe = try p.expectToken(.Pipe);
+        const rpipe = try p.expectToken(.pipe);
 
         const node = try p.arena.allocator.create(Node.PointerIndexPayload);
         node.* = .{
@@ -2176,7 +2176,7 @@ const Parser = struct {
     /// SwitchProng <- SwitchCase EQUALRARROW PtrPayload? AssignExpr
     fn parseSwitchProng(p: *Parser) !?*Node {
         const node = (try p.parseSwitchCase()) orelse return null;
-        const arrow = try p.expectToken(.EqualAngleBracketRight);
+        const arrow = try p.expectToken(.equal_angle_bracket_right);
         const payload = try p.parsePtrPayload();
         const expr = try p.expectNode(parseAssignExpr, .{
             .expected_expr_or_assignment = .{ .token = p.tok_i },
@@ -2199,11 +2199,11 @@ const Parser = struct {
 
         if (try p.parseSwitchItem()) |first_item| {
             try list.append(first_item);
-            while (p.eatToken(.Comma) != null) {
+            while (p.eatToken(.comma) != null) {
                 const next_item = (try p.parseSwitchItem()) orelse break;
                 try list.append(next_item);
             }
-        } else if (p.eatToken(.Keyword_else)) |else_token| {
+        } else if (p.eatToken(.keyword_else)) |else_token| {
             const else_node = try p.arena.allocator.create(Node.SwitchElse);
             else_node.* = .{
                 .token = else_token,
@@ -2225,7 +2225,7 @@ const Parser = struct {
     /// SwitchItem <- Expr (DOT3 Expr)?
     fn parseSwitchItem(p: *Parser) !?*Node {
         const expr = (try p.parseExpr()) orelse return null;
-        if (p.eatToken(.Ellipsis3)) |token| {
+        if (p.eatToken(.ellipsis_3)) |token| {
             const range_end = try p.expectNode(parseExpr, .{
                 .expected_expr = .{ .token = p.tok_i },
             });
@@ -2260,20 +2260,20 @@ const Parser = struct {
     fn parseAssignOp(p: *Parser) !?*Node {
         const token = p.nextToken();
         const op: Node.InfixOp.Op = switch (p.token_ids[token]) {
-            .AsteriskEqual => .assign_mul,
-            .SlashEqual => .assign_div,
-            .PercentEqual => .assign_mod,
-            .PlusEqual => .assign_add,
-            .MinusEqual => .assign_sub,
-            .AngleBracketAngleBracketLeftEqual => .assign_bit_shift_left,
-            .AngleBracketAngleBracketRightEqual => .assign_bit_shift_right,
-            .AmpersandEqual => .assign_bit_and,
-            .CaretEqual => .assign_bit_xor,
-            .PipeEqual => .assign_bit_or,
-            .AsteriskPercentEqual => .assign_mul_wrap,
-            .PlusPercentEqual => .assign_add_wrap,
-            .MinusPercentEqual => .assign_sub_wrap,
-            .Equal => .assign,
+            .asterisk_equal => .assign_mul,
+            .slash_equal => .assign_div,
+            .percent_equal => .assign_mod,
+            .plus_equal => .assign_add,
+            .minus_equal => .assign_sub,
+            .angle_bracket_angle_bracket_left_equal => .assign_bit_shift_left,
+            .angle_bracket_angle_bracket_right_equal => .assign_bit_shift_right,
+            .ampersand_equal => .assign_bit_and,
+            .caret_equal => .assign_bit_xor,
+            .pipe_equal => .assign_bit_or,
+            .asterisk_percent_equal => .assign_mul_wrap,
+            .plus_percent_equal => .assign_add_wrap,
+            .minus_percent_equal => .assign_sub_wrap,
+            .equal => .assign,
             else => {
                 p.putBackToken(token);
                 return null;
@@ -2300,12 +2300,12 @@ const Parser = struct {
     fn parseCompareOp(p: *Parser) !?*Node {
         const token = p.nextToken();
         const op: Node.InfixOp.Op = switch (p.token_ids[token]) {
-            .EqualEqual => .equal_equal,
-            .BangEqual => .bang_equal,
-            .AngleBracketLeft => .less_than,
-            .AngleBracketRight => .greater_than,
-            .AngleBracketLeftEqual => .less_or_equal,
-            .AngleBracketRightEqual => .greater_or_equal,
+            .equal_equal => .equal_equal,
+            .bang_equal => .bang_equal,
+            .angle_bracket_left => .less_than,
+            .angle_bracket_right => .greater_than,
+            .angle_bracket_left_equal => .less_or_equal,
+            .angle_bracket_right_equal => .greater_or_equal,
             else => {
                 p.putBackToken(token);
                 return null;
@@ -2324,11 +2324,11 @@ const Parser = struct {
     fn parseBitwiseOp(p: *Parser) !?*Node {
         const token = p.nextToken();
         const op: Node.InfixOp.Op = switch (p.token_ids[token]) {
-            .Ampersand => .bit_and,
-            .Caret => .bit_xor,
-            .Pipe => .bit_or,
-            .Keyword_orelse => .unwrap_optional,
-            .Keyword_catch => .{ .Catch = try p.parsePayload() },
+            .ampersand => .bit_and,
+            .caret => .bit_xor,
+            .pipe => .bit_or,
+            .keyword_orelse => .unwrap_optional,
+            .keyword_catch => .{ .Catch = try p.parsePayload() },
             else => {
                 p.putBackToken(token);
                 return null;
@@ -2344,8 +2344,8 @@ const Parser = struct {
     fn parseBitShiftOp(p: *Parser) !?*Node {
         const token = p.nextToken();
         const op: Node.InfixOp.Op = switch (p.token_ids[token]) {
-            .AngleBracketAngleBracketLeft => .bit_shift_left,
-            .AngleBracketAngleBracketRight => .bit_shift_right,
+            .angle_bracket_angle_bracket_left => .bit_shift_left,
+            .angle_bracket_angle_bracket_right => .bit_shift_right,
             else => {
                 p.putBackToken(token);
                 return null;
@@ -2364,11 +2364,11 @@ const Parser = struct {
     fn parseAdditionOp(p: *Parser) !?*Node {
         const token = p.nextToken();
         const op: Node.InfixOp.Op = switch (p.token_ids[token]) {
-            .Plus => .add,
-            .Minus => .sub,
-            .PlusPlus => .array_cat,
-            .PlusPercent => .add_wrap,
-            .MinusPercent => .sub_wrap,
+            .plus => .add,
+            .minus => .sub,
+            .plus_plus => .array_cat,
+            .plus_percent => .add_wrap,
+            .minus_percent => .sub_wrap,
             else => {
                 p.putBackToken(token);
                 return null;
@@ -2388,12 +2388,12 @@ const Parser = struct {
     fn parseMultiplyOp(p: *Parser) !?*Node {
         const token = p.nextToken();
         const op: Node.InfixOp.Op = switch (p.token_ids[token]) {
-            .PipePipe => .merge_error_sets,
-            .Asterisk => .mul,
-            .Slash => .div,
-            .Percent => .mod,
-            .AsteriskAsterisk => .array_mult,
-            .AsteriskPercent => .mul_wrap,
+            .pipe_pipe => .merge_error_sets,
+            .asterisk => .mul,
+            .slash => .div,
+            .percent => .mod,
+            .asterisk_asterisk => .array_mult,
+            .asterisk_percent => .mul_wrap,
             else => {
                 p.putBackToken(token);
                 return null;
@@ -2414,13 +2414,13 @@ const Parser = struct {
     fn parsePrefixOp(p: *Parser) !?*Node {
         const token = p.nextToken();
         const op: Node.PrefixOp.Op = switch (p.token_ids[token]) {
-            .Bang => .bool_not,
-            .Minus => .negation,
-            .Tilde => .bit_not,
-            .MinusPercent => .negation_wrap,
-            .Ampersand => .address_of,
-            .Keyword_try => .Try,
-            .Keyword_await => .Await,
+            .bang => .bool_not,
+            .minus => .negation,
+            .tilde => .bit_not,
+            .minus_percent => .negation_wrap,
+            .ampersand => .address_of,
+            .keyword_try => .Try,
+            .keyword_await => .Await,
             else => {
                 p.putBackToken(token);
                 return null;
@@ -2449,7 +2449,7 @@ const Parser = struct {
     ///      / ArrayTypeStart (ByteAlign / KEYWORD_const / KEYWORD_volatile / KEYWORD_allowzero)*
     ///      / PtrTypeStart (KEYWORD_align LPAREN Expr (COLON INTEGER COLON INTEGER)? RPAREN / KEYWORD_const / KEYWORD_volatile / KEYWORD_allowzero)*
     fn parsePrefixTypeOp(p: *Parser) !?*Node {
-        if (p.eatToken(.QuestionMark)) |token| {
+        if (p.eatToken(.question_mark)) |token| {
             const node = try p.arena.allocator.create(Node.PrefixOp);
             node.* = .{
                 .op_token = token,
@@ -2463,8 +2463,8 @@ const Parser = struct {
         //       .return_type more difficult for the caller (see parsePrefixOpExpr helper).
         //       Consider making the AnyFrameType a member of PrefixOp and add a
         //       PrefixOp.AnyFrameType variant?
-        if (p.eatToken(.Keyword_anyframe)) |token| {
-            const arrow = p.eatToken(.Arrow) orelse {
+        if (p.eatToken(.keyword_anyframe)) |token| {
+            const arrow = p.eatToken(.arrow) orelse {
                 p.putBackToken(token);
                 return null;
             };
@@ -2483,24 +2483,24 @@ const Parser = struct {
             // If the token encountered was **, there will be two nodes instead of one.
             // The attributes should be applied to the rightmost operator.
             const prefix_op = node.cast(Node.PrefixOp).?;
-            var ptr_info = if (p.token_ids[prefix_op.op_token] == .AsteriskAsterisk)
+            var ptr_info = if (p.token_ids[prefix_op.op_token] == .asterisk_asterisk)
                 &prefix_op.rhs.cast(Node.PrefixOp).?.op.ptr_type
             else
                 &prefix_op.op.ptr_type;
 
             while (true) {
-                if (p.eatToken(.Keyword_align)) |align_token| {
-                    const lparen = try p.expectToken(.LParen);
+                if (p.eatToken(.keyword_align)) |align_token| {
+                    const lparen = try p.expectToken(.l_paren);
                     const expr_node = try p.expectNode(parseExpr, .{
                         .expected_expr = .{ .token = p.tok_i },
                     });
 
                     // Optional bit range
-                    const bit_range = if (p.eatToken(.Colon)) |_| bit_range_value: {
+                    const bit_range = if (p.eatToken(.colon)) |_| bit_range_value: {
                         const range_start = try p.expectNode(parseIntegerLiteral, .{
                             .expected_integer_literal = .{ .token = p.tok_i },
                         });
-                        _ = try p.expectToken(.Colon);
+                        _ = try p.expectToken(.colon);
                         const range_end = try p.expectNode(parseIntegerLiteral, .{
                             .expected_integer_literal = .{ .token = p.tok_i },
                         });
@@ -2510,7 +2510,7 @@ const Parser = struct {
                             .end = range_end,
                         };
                     } else null;
-                    _ = try p.expectToken(.RParen);
+                    _ = try p.expectToken(.r_paren);
 
                     if (ptr_info.align_info != null) {
                         try p.errors.append(p.gpa, .{
@@ -2526,7 +2526,7 @@ const Parser = struct {
 
                     continue;
                 }
-                if (p.eatToken(.Keyword_const)) |const_token| {
+                if (p.eatToken(.keyword_const)) |const_token| {
                     if (ptr_info.const_token != null) {
                         try p.errors.append(p.gpa, .{
                             .extra_const_qualifier = .{ .token = p.tok_i - 1 },
@@ -2536,7 +2536,7 @@ const Parser = struct {
                     ptr_info.const_token = const_token;
                     continue;
                 }
-                if (p.eatToken(.Keyword_volatile)) |volatile_token| {
+                if (p.eatToken(.keyword_volatile)) |volatile_token| {
                     if (ptr_info.volatile_token != null) {
                         try p.errors.append(p.gpa, .{
                             .extra_volatile_qualifier = .{ .token = p.tok_i - 1 },
@@ -2546,7 +2546,7 @@ const Parser = struct {
                     ptr_info.volatile_token = volatile_token;
                     continue;
                 }
-                if (p.eatToken(.Keyword_allowzero)) |allowzero_token| {
+                if (p.eatToken(.keyword_allowzero)) |allowzero_token| {
                     if (ptr_info.allowzero_token != null) {
                         try p.errors.append(p.gpa, .{
                             .extra_allow_zero_qualifier = .{ .token = p.tok_i - 1 },
@@ -2581,7 +2581,7 @@ const Parser = struct {
                             };
                             continue;
                         }
-                        if (p.eatToken(.Keyword_const)) |const_token| {
+                        if (p.eatToken(.keyword_const)) |const_token| {
                             if (slice_type.const_token != null) {
                                 try p.errors.append(p.gpa, .{
                                     .extra_const_qualifier = .{ .token = p.tok_i - 1 },
@@ -2591,7 +2591,7 @@ const Parser = struct {
                             slice_type.const_token = const_token;
                             continue;
                         }
-                        if (p.eatToken(.Keyword_volatile)) |volatile_token| {
+                        if (p.eatToken(.keyword_volatile)) |volatile_token| {
                             if (slice_type.volatile_token != null) {
                                 try p.errors.append(p.gpa, .{
                                     .extra_volatile_qualifier = .{ .token = p.tok_i - 1 },
@@ -2601,7 +2601,7 @@ const Parser = struct {
                             slice_type.volatile_token = volatile_token;
                             continue;
                         }
-                        if (p.eatToken(.Keyword_allowzero)) |allowzero_token| {
+                        if (p.eatToken(.keyword_allowzero)) |allowzero_token| {
                             if (slice_type.allowzero_token != null) {
                                 try p.errors.append(p.gpa, .{
                                     .extra_allow_zero_qualifier = .{ .token = p.tok_i - 1 },
@@ -2633,14 +2633,14 @@ const Parser = struct {
             token: TokenIndex,
         };
         const op_and_token: OpAndToken = blk: {
-            if (p.eatToken(.LBracket)) |_| {
+            if (p.eatToken(.l_bracket)) |_| {
                 const index_expr = try p.expectNode(parseExpr, .{
                     .expected_expr = .{ .token = p.tok_i },
                 });
 
-                if (p.eatToken(.Ellipsis2) != null) {
+                if (p.eatToken(.ellipsis_2) != null) {
                     const end_expr = try p.parseExpr();
-                    const sentinel: ?*Node = if (p.eatToken(.Colon) != null)
+                    const sentinel: ?*Node = if (p.eatToken(.colon) != null)
                         try p.parseExpr()
                     else
                         null;
@@ -2652,21 +2652,21 @@ const Parser = struct {
                                 .sentinel = sentinel,
                             },
                         },
-                        .token = try p.expectToken(.RBracket),
+                        .token = try p.expectToken(.r_bracket),
                     };
                 }
 
                 break :blk .{
                     .op = .{ .array_access = index_expr },
-                    .token = try p.expectToken(.RBracket),
+                    .token = try p.expectToken(.r_bracket),
                 };
             }
 
-            if (p.eatToken(.PeriodAsterisk)) |period_asterisk| {
+            if (p.eatToken(.period_asterisk)) |period_asterisk| {
                 break :blk .{ .op = .deref, .token = period_asterisk };
             }
 
-            if (p.eatToken(.Period)) |period| {
+            if (p.eatToken(.period)) |period| {
                 if (try p.parseIdentifier()) |identifier| {
                     // TODO: It's a bit weird to return an InfixOp from the SuffixOp parser.
                     // Should there be an Node.SuffixOp.FieldAccess variant? Or should
@@ -2680,7 +2680,7 @@ const Parser = struct {
                     };
                     return &node.base;
                 }
-                if (p.eatToken(.QuestionMark)) |question_mark| {
+                if (p.eatToken(.question_mark)) |question_mark| {
                     break :blk .{ .op = .unwrap_optional, .token = question_mark };
                 }
                 try p.errors.append(p.gpa, .{
@@ -2704,10 +2704,10 @@ const Parser = struct {
     /// FnCallArguments <- LPAREN ExprList RPAREN
     /// ExprList <- (Expr COMMA)* Expr?
     fn parseFnCallArguments(p: *Parser) !?AnnotatedParamList {
-        if (p.eatToken(.LParen) == null) return null;
+        if (p.eatToken(.l_paren) == null) return null;
         const list = try ListParseFn(*Node, parseExpr)(p);
         errdefer p.gpa.free(list);
-        const rparen = try p.expectToken(.RParen);
+        const rparen = try p.expectToken(.r_paren);
         return AnnotatedParamList{ .list = list, .rparen = rparen };
     }
 
@@ -2718,15 +2718,15 @@ const Parser = struct {
 
     /// ArrayTypeStart <- LBRACKET Expr? RBRACKET
     fn parseArrayTypeStart(p: *Parser) !?*Node {
-        const lbracket = p.eatToken(.LBracket) orelse return null;
+        const lbracket = p.eatToken(.l_bracket) orelse return null;
         const expr = try p.parseExpr();
-        const sentinel = if (p.eatToken(.Colon)) |_|
+        const sentinel = if (p.eatToken(.colon)) |_|
             try p.expectNode(parseExpr, .{
                 .expected_expr = .{ .token = p.tok_i },
             })
         else
             null;
-        const rbracket = try p.expectToken(.RBracket);
+        const rbracket = try p.expectToken(.r_bracket);
 
         const op: Node.PrefixOp.Op = if (expr) |len_expr|
             .{
@@ -2761,8 +2761,8 @@ const Parser = struct {
     ///      / PTRUNKNOWN
     ///      / PTRC
     fn parsePtrTypeStart(p: *Parser) !?*Node {
-        if (p.eatToken(.Asterisk)) |asterisk| {
-            const sentinel = if (p.eatToken(.Colon)) |_|
+        if (p.eatToken(.asterisk)) |asterisk| {
+            const sentinel = if (p.eatToken(.colon)) |_|
                 try p.expectNode(parseExpr, .{
                     .expected_expr = .{ .token = p.tok_i },
                 })
@@ -2777,7 +2777,7 @@ const Parser = struct {
             return &node.base;
         }
 
-        if (p.eatToken(.AsteriskAsterisk)) |double_asterisk| {
+        if (p.eatToken(.asterisk_asterisk)) |double_asterisk| {
             const node = try p.arena.allocator.create(Node.PrefixOp);
             node.* = .{
                 .op_token = double_asterisk,
@@ -2796,18 +2796,18 @@ const Parser = struct {
 
             return &node.base;
         }
-        if (p.eatToken(.LBracket)) |lbracket| {
-            const asterisk = p.eatToken(.Asterisk) orelse {
+        if (p.eatToken(.l_bracket)) |lbracket| {
+            const asterisk = p.eatToken(.asterisk) orelse {
                 p.putBackToken(lbracket);
                 return null;
             };
-            if (p.eatToken(.Identifier)) |ident| {
+            if (p.eatToken(.identifier)) |ident| {
                 const token_loc = p.token_locs[ident];
                 const token_slice = p.source[token_loc.start..token_loc.end];
                 if (!std.mem.eql(u8, token_slice, "c")) {
                     p.putBackToken(ident);
                 } else {
-                    _ = try p.expectToken(.RBracket);
+                    _ = try p.expectToken(.r_bracket);
                     const node = try p.arena.allocator.create(Node.PrefixOp);
                     node.* = .{
                         .op_token = lbracket,
@@ -2817,13 +2817,13 @@ const Parser = struct {
                     return &node.base;
                 }
             }
-            const sentinel = if (p.eatToken(.Colon)) |_|
+            const sentinel = if (p.eatToken(.colon)) |_|
                 try p.expectNode(parseExpr, .{
                     .expected_expr = .{ .token = p.tok_i },
                 })
             else
                 null;
-            _ = try p.expectToken(.RBracket);
+            _ = try p.expectToken(.r_bracket);
             const node = try p.arena.allocator.create(Node.PrefixOp);
             node.* = .{
                 .op_token = lbracket,
@@ -2838,10 +2838,10 @@ const Parser = struct {
     /// ContainerDeclAuto <- ContainerDeclType LBRACE ContainerMembers RBRACE
     fn parseContainerDeclAuto(p: *Parser) !?*Node {
         const container_decl_type = (try p.parseContainerDeclType()) orelse return null;
-        const lbrace = try p.expectToken(.LBrace);
+        const lbrace = try p.expectToken(.l_brace);
         const members = try p.parseContainerMembers(false);
         defer p.gpa.free(members);
-        const rbrace = try p.expectToken(.RBrace);
+        const rbrace = try p.expectToken(.r_brace);
 
         const members_len = @intCast(NodeIndex, members.len);
         const node = try Node.ContainerDecl.alloc(&p.arena.allocator, members_len);
@@ -2871,35 +2871,35 @@ const Parser = struct {
         const kind_token = p.nextToken();
 
         const init_arg_expr = switch (p.token_ids[kind_token]) {
-            .Keyword_struct => Node.ContainerDecl.InitArg{ .None = {} },
-            .Keyword_enum => blk: {
-                if (p.eatToken(.LParen) != null) {
+            .keyword_struct => Node.ContainerDecl.InitArg{ .None = {} },
+            .keyword_enum => blk: {
+                if (p.eatToken(.l_paren) != null) {
                     const expr = try p.expectNode(parseExpr, .{
                         .expected_expr = .{ .token = p.tok_i },
                     });
-                    _ = try p.expectToken(.RParen);
+                    _ = try p.expectToken(.r_paren);
                     break :blk Node.ContainerDecl.InitArg{ .Type = expr };
                 }
                 break :blk Node.ContainerDecl.InitArg{ .None = {} };
             },
-            .Keyword_union => blk: {
-                if (p.eatToken(.LParen) != null) {
-                    if (p.eatToken(.Keyword_enum) != null) {
-                        if (p.eatToken(.LParen) != null) {
+            .keyword_union => blk: {
+                if (p.eatToken(.l_paren) != null) {
+                    if (p.eatToken(.keyword_enum) != null) {
+                        if (p.eatToken(.l_paren) != null) {
                             const expr = try p.expectNode(parseExpr, .{
                                 .expected_expr = .{ .token = p.tok_i },
                             });
-                            _ = try p.expectToken(.RParen);
-                            _ = try p.expectToken(.RParen);
+                            _ = try p.expectToken(.r_paren);
+                            _ = try p.expectToken(.r_paren);
                             break :blk Node.ContainerDecl.InitArg{ .Enum = expr };
                         }
-                        _ = try p.expectToken(.RParen);
+                        _ = try p.expectToken(.r_paren);
                         break :blk Node.ContainerDecl.InitArg{ .Enum = null };
                     }
                     const expr = try p.expectNode(parseExpr, .{
                         .expected_expr = .{ .token = p.tok_i },
                     });
-                    _ = try p.expectToken(.RParen);
+                    _ = try p.expectToken(.r_paren);
                     break :blk Node.ContainerDecl.InitArg{ .Type = expr };
                 }
                 break :blk Node.ContainerDecl.InitArg{ .None = {} };
@@ -2918,12 +2918,12 @@ const Parser = struct {
 
     /// ByteAlign <- KEYWORD_align LPAREN Expr RPAREN
     fn parseByteAlign(p: *Parser) !?*Node {
-        _ = p.eatToken(.Keyword_align) orelse return null;
-        _ = try p.expectToken(.LParen);
+        _ = p.eatToken(.keyword_align) orelse return null;
+        _ = try p.expectToken(.l_paren);
         const expr = try p.expectNode(parseExpr, .{
             .expected_expr = .{ .token = p.tok_i },
         });
-        _ = try p.expectToken(.RParen);
+        _ = try p.expectToken(.r_paren);
         return expr;
     }
 
@@ -2965,14 +2965,14 @@ const Parser = struct {
                     try list.append(item);
 
                     switch (p.token_ids[p.tok_i]) {
-                        .Comma => _ = p.nextToken(),
+                        .comma => _ = p.nextToken(),
                         // all possible delimiters
-                        .Colon, .RParen, .RBrace, .RBracket => break,
+                        .colon, .r_paren, .r_brace, .r_bracket => break,
                         else => {
                             // this is likely just a missing comma,
                             // continue parsing this list and give an error
                             try p.errors.append(p.gpa, .{
-                                .expected_token = .{ .token = p.tok_i, .expected_id = .Comma },
+                                .expected_token = .{ .token = p.tok_i, .expected_id = .comma },
                             });
                         },
                     }
@@ -2985,9 +2985,9 @@ const Parser = struct {
     fn SimpleBinOpParseFn(comptime token: Token.Id, comptime op: Node.InfixOp.Op) NodeParseFn {
         return struct {
             pub fn parse(p: *Parser) Error!?*Node {
-                const op_token = if (token == .Keyword_and) switch (p.token_ids[p.tok_i]) {
-                    .Keyword_and => p.nextToken(),
-                    .Invalid_ampersands => blk: {
+                const op_token = if (token == .keyword_and) switch (p.token_ids[p.tok_i]) {
+                    .keyword_and => p.nextToken(),
+                    .invalid_ampersands => blk: {
                         try p.errors.append(p.gpa, .{
                             .invalid_and = .{ .token = p.tok_i },
                         });
@@ -3011,7 +3011,7 @@ const Parser = struct {
     // Helper parsers not included in the grammar
 
     fn parseBuiltinCall(p: *Parser) !?*Node {
-        const token = p.eatToken(.Builtin) orelse return null;
+        const token = p.eatToken(.builtin) orelse return null;
         const params = (try p.parseFnCallArguments()) orelse {
             try p.errors.append(p.gpa, .{
                 .expected_param_list = .{ .token = p.tok_i },
@@ -3038,7 +3038,7 @@ const Parser = struct {
 
     fn parseErrorTag(p: *Parser) !?*Node {
         const doc_comments = try p.parseDocComment(); // no need to rewind on failure
-        const token = p.eatToken(.Identifier) orelse return null;
+        const token = p.eatToken(.identifier) orelse return null;
 
         const node = try p.arena.allocator.create(Node.ErrorTag);
         node.* = .{
@@ -3049,7 +3049,7 @@ const Parser = struct {
     }
 
     fn parseIdentifier(p: *Parser) !?*Node {
-        const token = p.eatToken(.Identifier) orelse return null;
+        const token = p.eatToken(.identifier) orelse return null;
         const node = try p.arena.allocator.create(Node.Identifier);
         node.* = .{
             .token = token,
@@ -3058,7 +3058,7 @@ const Parser = struct {
     }
 
     fn parseVarType(p: *Parser) !?*Node {
-        const token = p.eatToken(.Keyword_var) orelse return null;
+        const token = p.eatToken(.keyword_var) orelse return null;
         const node = try p.arena.allocator.create(Node.VarType);
         node.* = .{
             .token = token,
@@ -3076,7 +3076,7 @@ const Parser = struct {
     }
 
     fn parseStringLiteralSingle(p: *Parser) !?*Node {
-        if (p.eatToken(.StringLiteral)) |token| {
+        if (p.eatToken(.string_literal)) |token| {
             const node = try p.arena.allocator.create(Node.StringLiteral);
             node.* = .{
                 .token = token,
@@ -3090,14 +3090,14 @@ const Parser = struct {
     fn parseStringLiteral(p: *Parser) !?*Node {
         if (try p.parseStringLiteralSingle()) |node| return node;
 
-        if (p.eatToken(.MultilineStringLiteralLine)) |first_line| {
+        if (p.eatToken(.multiline_string_literal_line)) |first_line| {
             const start_tok_i = p.tok_i;
             var tok_i = start_tok_i;
             var count: usize = 1; // including first_line
             while (true) : (tok_i += 1) {
                 switch (p.token_ids[tok_i]) {
-                    .LineComment => continue,
-                    .MultilineStringLiteralLine => count += 1,
+                    .line_comment => continue,
+                    .multiline_string_literal_line => count += 1,
                     else => break,
                 }
             }
@@ -3110,8 +3110,8 @@ const Parser = struct {
             count = 1;
             while (true) : (tok_i += 1) {
                 switch (p.token_ids[tok_i]) {
-                    .LineComment => continue,
-                    .MultilineStringLiteralLine => {
+                    .line_comment => continue,
+                    .multiline_string_literal_line => {
                         lines[count] = tok_i;
                         count += 1;
                     },
@@ -3126,7 +3126,7 @@ const Parser = struct {
     }
 
     fn parseIntegerLiteral(p: *Parser) !?*Node {
-        const token = p.eatToken(.IntegerLiteral) orelse return null;
+        const token = p.eatToken(.integer_literal) orelse return null;
         const node = try p.arena.allocator.create(Node.IntegerLiteral);
         node.* = .{
             .token = token,
@@ -3135,7 +3135,7 @@ const Parser = struct {
     }
 
     fn parseFloatLiteral(p: *Parser) !?*Node {
-        const token = p.eatToken(.FloatLiteral) orelse return null;
+        const token = p.eatToken(.float_literal) orelse return null;
         const node = try p.arena.allocator.create(Node.FloatLiteral);
         node.* = .{
             .token = token,
@@ -3144,7 +3144,7 @@ const Parser = struct {
     }
 
     fn parseTry(p: *Parser) !?*Node {
-        const token = p.eatToken(.Keyword_try) orelse return null;
+        const token = p.eatToken(.keyword_try) orelse return null;
         const node = try p.arena.allocator.create(Node.PrefixOp);
         node.* = .{
             .op_token = token,
@@ -3155,7 +3155,7 @@ const Parser = struct {
     }
 
     fn parseUse(p: *Parser) !?*Node {
-        const token = p.eatToken(.Keyword_usingnamespace) orelse return null;
+        const token = p.eatToken(.keyword_usingnamespace) orelse return null;
         const node = try p.arena.allocator.create(Node.Use);
         node.* = .{
             .doc_comments = null,
@@ -3164,7 +3164,7 @@ const Parser = struct {
             .expr = try p.expectNode(parseExpr, .{
                 .expected_expr = .{ .token = p.tok_i },
             }),
-            .semicolon_token = try p.expectToken(.Semicolon),
+            .semicolon_token = try p.expectToken(.semicolon),
         };
         return &node.base;
     }
@@ -3178,7 +3178,7 @@ const Parser = struct {
             .invalid_token = .{ .token = p.tok_i },
         });
 
-        const else_token = p.eatToken(.Keyword_else) orelse return node;
+        const else_token = p.eatToken(.keyword_else) orelse return node;
         const payload = try p.parsePayload();
         const else_expr = try p.expectNode(bodyParseFn, .{
             .invalid_token = .{ .token = p.tok_i },
@@ -3196,8 +3196,8 @@ const Parser = struct {
 
     /// Eat a multiline doc comment
     fn parseDocComment(p: *Parser) !?*Node.DocComment {
-        if (p.eatToken(.DocComment)) |first_line| {
-            while (p.eatToken(.DocComment)) |_| {}
+        if (p.eatToken(.doc_comment)) |first_line| {
+            while (p.eatToken(.doc_comment)) |_| {}
             const node = try p.arena.allocator.create(Node.DocComment);
             node.* = .{ .first_line = first_line };
             return node;
@@ -3211,7 +3211,7 @@ const Parser = struct {
 
     /// Eat a single-line doc comment on the same line as another node
     fn parseAppendedDocComment(p: *Parser, after_token: TokenIndex) !?*Node.DocComment {
-        const comment_token = p.eatToken(.DocComment) orelse return null;
+        const comment_token = p.eatToken(.doc_comment) orelse return null;
         if (p.tokensOnSameLine(after_token, comment_token)) {
             const node = try p.arena.allocator.create(Node.DocComment);
             node.* = .{ .first_line = comment_token };
@@ -3230,7 +3230,7 @@ const Parser = struct {
                     .prefix_op => {
                         var prefix_op = rightmost_op.cast(Node.PrefixOp).?;
                         // If the token encountered was **, there will be two nodes
-                        if (p.token_ids[prefix_op.op_token] == .AsteriskAsterisk) {
+                        if (p.token_ids[prefix_op.op_token] == .asterisk_asterisk) {
                             rightmost_op = prefix_op.rhs;
                             prefix_op = rightmost_op.cast(Node.PrefixOp).?;
                         }
@@ -3342,11 +3342,11 @@ const Parser = struct {
     fn nextToken(p: *Parser) TokenIndex {
         const result = p.tok_i;
         p.tok_i += 1;
-        assert(p.token_ids[result] != .LineComment);
+        assert(p.token_ids[result] != .line_comment);
         if (p.tok_i >= p.token_ids.len) return result;
 
         while (true) {
-            if (p.token_ids[p.tok_i] != .LineComment) return result;
+            if (p.token_ids[p.tok_i] != .line_comment) return result;
             p.tok_i += 1;
         }
     }
@@ -3354,7 +3354,7 @@ const Parser = struct {
     fn putBackToken(p: *Parser, putting_back: TokenIndex) void {
         while (p.tok_i > 0) {
             p.tok_i -= 1;
-            if (p.token_ids[p.tok_i] == .LineComment) continue;
+            if (p.token_ids[p.tok_i] == .line_comment) continue;
             assert(putting_back == p.tok_i);
             return;
         }

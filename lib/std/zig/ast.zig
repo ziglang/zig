@@ -101,7 +101,7 @@ pub const Tree = struct {
     /// Skips over comments
     pub fn prevToken(self: *Tree, token_index: TokenIndex) TokenIndex {
         var index = token_index - 1;
-        while (self.token_ids[index] == Token.Id.LineComment) {
+        while (self.token_ids[index] == .line_comment) {
             index -= 1;
         }
         return index;
@@ -110,7 +110,7 @@ pub const Tree = struct {
     /// Skips over comments
     pub fn nextToken(self: *Tree, token_index: TokenIndex) TokenIndex {
         var index = token_index + 1;
-        while (self.token_ids[index] == Token.Id.LineComment) {
+        while (self.token_ids[index] == .line_comment) {
             index += 1;
         }
         return index;
@@ -234,7 +234,7 @@ pub const Error = union(enum) {
     expected_var_decl: SingleTokenError("Expected variable declaration, found '{}'"),
     expected_fn: SingleTokenError("Expected function, found '{}'"),
     expected_return_type: SingleTokenError("Expected 'var' or return type expression, found '{}'"),
-    expected_aggregate_kw: SingleTokenError("Expected '" ++ Token.Id.Keyword_struct.symbol() ++ "', '" ++ Token.Id.Keyword_union.symbol() ++ "', or '" ++ Token.Id.Keyword_enum.symbol() ++ "', found '{}'"),
+    expected_aggregate_kw: SingleTokenError("Expected '" ++ Token.Id.keyword_struct.symbol() ++ "', '" ++ Token.Id.keyword_union.symbol() ++ "', or '" ++ Token.Id.keyword_enum.symbol() ++ "', found '{}'"),
     expected_eq_or_semi: SingleTokenError("Expected '=' or ';', found '{}'"),
     expected_semi_or_l_brace: SingleTokenError("Expected ';' or '{{', found '{}'"),
     expected_semi_or_else: SingleTokenError("Expected ';' or 'else', found '{}'"),
@@ -243,7 +243,7 @@ pub const Error = union(enum) {
     expected_colon_or_r_paren: SingleTokenError("Expected ':' or ')', found '{}'"),
     expected_labelable: SingleTokenError("Expected 'while', 'for', 'inline', 'suspend', or '{{', found '{}'"),
     expected_inlinable: SingleTokenError("Expected 'while' or 'for', found '{}'"),
-    expected_asm_output_return_or_type: SingleTokenError("Expected '->' or '" ++ Token.Id.Identifier.symbol() ++ "', found '{}'"),
+    expected_asm_output_return_or_type: SingleTokenError("Expected '->' or '" ++ Token.Id.identifier.symbol() ++ "', found '{}'"),
     expected_slice_or_r_bracket: SingleTokenError("Expected ']' or '..', found '{}'"),
     expected_type_expr: SingleTokenError("Expected type expression, found '{}'"),
     expected_primary_type_expr: SingleTokenError("Expected primary type expression, found '{}'"),
@@ -301,7 +301,7 @@ pub const Error = union(enum) {
         pub fn render(self: *const ThisError, tokens: []const Token.Id, stream: var) !void {
             const found_token = tokens[self.token];
             switch (found_token) {
-                .Invalid => {
+                .invalid => {
                     return stream.print("expected '{}', found invalid bytes", .{self.expected_id.symbol()});
                 },
                 else => {
@@ -937,9 +937,9 @@ pub const Node = struct {
         is_async: bool = false, // TODO: remove once async fn rewriting is
 
         pub const ReturnType = union(enum) {
-            Explicit: *Node,
-            InferErrorSet: *Node,
-            Invalid: TokenIndex,
+            explicit: *Node,
+            infer_error_set: *Node,
+            invalid: TokenIndex,
         };
 
         pub const ParamDecl = struct {
@@ -1032,11 +1032,11 @@ pub const Node = struct {
             }
 
             switch (self.return_type) {
-                .Explicit, .InferErrorSet => |node| {
+                .explicit, .infer_error_set => |node| {
                     if (i < 1) return node;
                     i -= 1;
                 },
-                .Invalid => {},
+                .invalid => {},
             }
 
             if (self.body_node) |body_node| {
@@ -1057,8 +1057,8 @@ pub const Node = struct {
         pub fn lastToken(self: *const FnProto) TokenIndex {
             if (self.body_node) |body_node| return body_node.lastToken();
             switch (self.return_type) {
-                .Explicit, .InferErrorSet => |node| return node.lastToken(),
-                .Invalid => |tok| return tok,
+                .explicit, .infer_error_set => |node| return node.lastToken(),
+                .invalid => |tok| return tok,
             }
         }
 
