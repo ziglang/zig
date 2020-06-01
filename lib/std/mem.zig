@@ -519,7 +519,7 @@ test "mem.secureZero" {
 /// Initializes all fields of the struct with their default value, or zero values if no default value is present.
 /// If the field is present in the provided initial values, it will have that value instead.
 /// Structs are initialized recursively.
-pub fn defaultInit(comptime T: type, init: var) T {
+pub fn zeroInit(comptime T: type, init: var) T {
     comptime const Init = @TypeOf(init);
 
     switch (@typeInfo(T)) {
@@ -538,7 +538,7 @@ pub fn defaultInit(comptime T: type, init: var) T {
                         if (@hasField(Init, field.name)) {
                             switch (@typeInfo(field.field_type)) {
                                 .Struct => {
-                                    @field(value, field.name) = defaultInit(field.field_type, @field(init, field.name));
+                                    @field(value, field.name) = zeroInit(field.field_type, @field(init, field.name));
                                 },
                                 else => {
                                     @field(value, field.name) = @field(init, field.name);
@@ -562,7 +562,7 @@ pub fn defaultInit(comptime T: type, init: var) T {
     }
 }
 
-test "mem.defaultInit" {
+test "zeroInit" {
     const I = struct {
         d: f64,
     };
@@ -575,7 +575,7 @@ test "mem.defaultInit" {
         f: i64,
     };
 
-    const s = defaultInit(S, .{
+    const s = zeroInit(S, .{
         .a = 42,
     });
 
@@ -585,7 +585,7 @@ test "mem.defaultInit" {
         .c = .{
             .d = 0,
         },
-        .e = [3]u8{0, 0, 0},
+        .e = [3]u8{ 0, 0, 0 },
         .f = 0,
     });
 }
