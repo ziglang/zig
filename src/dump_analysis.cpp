@@ -693,6 +693,18 @@ static void anal_dump_value(AnalDumpCtx *ctx, AstNode *source_node, ZigType *ty,
             }
             return;
         }
+        case ZigTypeIdOptional: {
+            if(optional_value_is_null(value)){
+                jw_string(&ctx->jw, "null");
+            } else {
+                jw_null(&ctx->jw);
+            }
+            return;
+        }
+        case ZigTypeIdInt: {
+            jw_bigint(&ctx->jw, &value->data.x_bigint);
+            return;
+        }
         default:
             jw_null(&ctx->jw);
             return;
