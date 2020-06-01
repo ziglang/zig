@@ -698,24 +698,25 @@ test "spanZ" {
     testing.expectEqual(@as(?[:0]u16, null), spanZ(@as(?[*:0]u16, null)));
 }
 
-/// Takes a pointer to an array, an array, a sentinel-terminated pointer,
+/// Takes a pointer to an array, an array, a vector, a sentinel-terminated pointer,
 /// or a slice, and returns the length.
 /// In the case of a sentinel-terminated array, it uses the array length.
 /// For C pointers it assumes it is a pointer-to-many with a 0 sentinel.
-pub fn len(ptr: var) usize {
-    return switch (@typeInfo(@TypeOf(ptr))) {
+pub fn len(value: var) usize {
+    return switch (@typeInfo(@TypeOf(value))) {
         .Array => |info| info.len,
+        .Vector => |info| info.len,
         .Pointer => |info| switch (info.size) {
             .One => switch (@typeInfo(info.child)) {
-                .Array => ptr.len,
+                .Array => value.len,
                 else => @compileError("invalid type given to std.mem.len"),
             },
             .Many => if (info.sentinel) |sentinel|
-                indexOfSentinel(info.child, sentinel, ptr)
+                indexOfSentinel(info.child, sentinel, value)
             else
                 @compileError("length of pointer with no sentinel"),
-            .C => indexOfSentinel(info.child, 0, ptr),
-            .Slice => ptr.len,
+            .C => indexOfSentinel(info.child, 0, value),
+            .Slice => value.len,
         },
         else => @compileError("invalid type given to std.mem.len"),
     };
@@ -737,6 +738,10 @@ test "len" {
         testing.expect(len(&array) == 5);
         array[2] = 0;
         testing.expect(len(&array) == 5);
+    }
+    {
+        const vector: meta.Vector(2, u32) = [2]u32{ 1, 2 };
+        testing.expect(len(vector) == 2);
     }
 }
 
