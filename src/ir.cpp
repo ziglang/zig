@@ -558,6 +558,8 @@ static void destroy_instruction_src(IrInstSrc *inst) {
             return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcCallArgs *>(inst));
         case IrInstSrcIdWasmMemorySize:
             return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcWasmMemorySize *>(inst));
+        case IrInstSrcIdWasmMemoryGrow:
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcWasmMemoryGrow *>(inst));
     }
     zig_unreachable();
 }
@@ -740,6 +742,8 @@ void destroy_instruction_gen(IrInstGen *inst) {
             return heap::c_allocator.destroy(reinterpret_cast<IrInstGenNegationWrapping *>(inst));
         case IrInstGenIdWasmMemorySize:
             return heap::c_allocator.destroy(reinterpret_cast<IrInstGenWasmMemorySize *>(inst));
+        case IrInstGenIdWasmMemoryGrow:
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenWasmMemoryGrow *>(inst));
     }
     zig_unreachable();
 }
@@ -1338,10 +1342,6 @@ static constexpr IrInstSrcId ir_inst_id(IrInstSrcBoolNot *) {
     return IrInstSrcIdBoolNot;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcWasmMemorySize *) {
-    return IrInstSrcIdWasmMemorySize;
-}
-
 static constexpr IrInstSrcId ir_inst_id(IrInstSrcMemset *) {
     return IrInstSrcIdMemset;
 }
@@ -1616,6 +1616,14 @@ static constexpr IrInstSrcId ir_inst_id(IrInstSrcSpillBegin *) {
 
 static constexpr IrInstSrcId ir_inst_id(IrInstSrcSpillEnd *) {
     return IrInstSrcIdSpillEnd;
+}
+
+static constexpr IrInstSrcId ir_inst_id(IrInstSrcWasmMemorySize *) {
+    return IrInstSrcIdWasmMemorySize;
+}
+
+static constexpr IrInstSrcId ir_inst_id(IrInstSrcWasmMemoryGrow *) {
+    return IrInstSrcIdWasmMemoryGrow;
 }
 
 
@@ -1965,6 +1973,10 @@ static constexpr IrInstGenId ir_inst_id(IrInstGenConst *) {
 
 static constexpr IrInstGenId ir_inst_id(IrInstGenWasmMemorySize *) {
   return IrInstGenIdWasmMemorySize;
+}
+
+static constexpr IrInstGenId ir_inst_id(IrInstGenWasmMemoryGrow *) {
+  return IrInstGenIdWasmMemoryGrow;
 }
 
 template<typename T>
@@ -3654,20 +3666,6 @@ static IrInstGen *ir_build_bool_not_gen(IrAnalyze *ira, IrInst *source_instr, Ir
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_wasm_memory_size_src(IrBuilderSrc *irb, Scope *scope, AstNode *source_node) {
-    IrInstSrcWasmMemorySize *instruction = ir_build_instruction<IrInstSrcWasmMemorySize>(irb, scope, source_node);
-
-    return &instruction->base;
-}
-
-static IrInstGen *ir_build_wasm_memory_size_gen(IrAnalyze *ira, IrInst *source_instr) {
-    IrInstGenWasmMemorySize *instruction = ir_build_inst_gen<IrInstGenWasmMemorySize>(&ira->new_irb,
-            source_instr->scope, source_instr->source_node);
-    instruction->base.value->type = ira->codegen->builtin_types.entry_i32;
-
-    return &instruction->base;
-}
-
 static IrInstSrc *ir_build_memset_src(IrBuilderSrc *irb, Scope *scope, AstNode *source_node,
     IrInstSrc *dest_ptr, IrInstSrc *byte, IrInstSrc *count)
 {
@@ -4986,6 +4984,41 @@ static IrInstGen *ir_build_vector_extract_elem(IrAnalyze *ira, IrInst *source_in
 
     return &instruction->base;
 }
+
+static IrInstSrc *ir_build_wasm_memory_size_src(IrBuilderSrc *irb, Scope *scope, AstNode *source_node) {
+    IrInstSrcWasmMemorySize *instruction = ir_build_instruction<IrInstSrcWasmMemorySize>(irb, scope, source_node);
+
+    return &instruction->base;
+}
+
+static IrInstGen *ir_build_wasm_memory_size_gen(IrAnalyze *ira, IrInst *source_instr) {
+    IrInstGenWasmMemorySize *instruction = ir_build_inst_gen<IrInstGenWasmMemorySize>(&ira->new_irb,
+            source_instr->scope, source_instr->source_node);
+    instruction->base.value->type = ira->codegen->builtin_types.entry_i32;
+
+    return &instruction->base;
+}
+
+static IrInstSrc *ir_build_wasm_memory_grow_src(IrBuilderSrc *irb, Scope *scope, AstNode *source_node, IrInstSrc *delta) {
+    IrInstSrcWasmMemoryGrow *instruction = ir_build_instruction<IrInstSrcWasmMemoryGrow>(irb, scope, source_node);
+    instruction->delta = delta;
+
+    ir_ref_instruction(delta, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstGen *ir_build_wasm_memory_grow_gen(IrAnalyze *ira, IrInst *source_instr, IrInstGen *delta) {
+    IrInstGenWasmMemoryGrow *instruction = ir_build_inst_gen<IrInstGenWasmMemoryGrow>(&ira->new_irb,
+            source_instr->scope, source_instr->source_node);
+    instruction->base.value->type = ira->codegen->builtin_types.entry_i32;
+    instruction->delta = delta;
+
+    ir_ref_inst_gen(delta);
+
+    return &instruction->base;
+}
+
 
 static void ir_count_defers(IrBuilderSrc *irb, Scope *inner_scope, Scope *outer_scope, size_t *results) {
     results[ReturnKindUnconditional] = 0;
@@ -6784,6 +6817,16 @@ static IrInstSrc *ir_gen_builtin_fn_call(IrBuilderSrc *irb, Scope *scope, AstNod
             {
                 IrInstSrc *ir_wasm_memory_size = ir_build_wasm_memory_size_src(irb, scope, node);
                 return ir_lval_wrap(irb, scope, ir_wasm_memory_size, lval, result_loc);
+            }
+        case BuiltinFnIdWasmMemoryGrow:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstSrc *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_inst_src)
+                    return arg0_value;
+
+                IrInstSrc *ir_wasm_memory_grow = ir_build_wasm_memory_grow_src(irb, scope, node, arg0_value);
+                return ir_lval_wrap(irb, scope, ir_wasm_memory_grow, lval, result_loc);
             }
         case BuiltinFnIdField:
             {
@@ -27683,13 +27726,35 @@ static IrInstGen *ir_analyze_instruction_has_field(IrAnalyze *ira, IrInstSrcHasF
 }
 
 static IrInstGen *ir_analyze_instruction_wasm_memory_size(IrAnalyze *ira, IrInstSrcWasmMemorySize *instruction) {
+    // TODO generate compile error for target_arch different than 32bit
     if (!target_is_wasm(ira->codegen->zig_target)) {
         ir_add_error_node(ira, instruction->base.base.source_node,
-            buf_sprintf("@wasmMemorySize is a wasm feature only"));
+            buf_sprintf("@wasmMemorySize is a wasm32 feature only"));
         return ira->codegen->invalid_inst_gen;
     }
 
     return ir_build_wasm_memory_size_gen(ira, &instruction->base.base);
+}
+
+static IrInstGen *ir_analyze_instruction_wasm_memory_grow(IrAnalyze *ira, IrInstSrcWasmMemoryGrow *instruction) {
+    // TODO generate compile error for target_arch different than 32bit
+    if (!target_is_wasm(ira->codegen->zig_target)) {
+        ir_add_error_node(ira, instruction->base.base.source_node,
+            buf_sprintf("@wasmMemoryGrow is a wasm32 feature only"));
+        return ira->codegen->invalid_inst_gen;
+    }
+
+    IrInstGen *delta = instruction->delta->child;
+    if (type_is_invalid(delta->value->type))
+        return ira->codegen->invalid_inst_gen;
+
+    ZigType *i32_type = ira->codegen->builtin_types.entry_i32;
+
+    IrInstGen *casted_delta = ir_implicit_cast(ira, delta, i32_type);
+    if (type_is_invalid(casted_delta->value->type))
+        return ira->codegen->invalid_inst_gen;
+
+    return ir_build_wasm_memory_grow_gen(ira, &instruction->base.base, casted_delta);
 }
 
 static IrInstGen *ir_analyze_instruction_breakpoint(IrAnalyze *ira, IrInstSrcBreakpoint *instruction) {
@@ -30922,6 +30987,8 @@ static IrInstGen *ir_analyze_instruction_base(IrAnalyze *ira, IrInstSrc *instruc
             return ir_analyze_instruction_spill_end(ira, (IrInstSrcSpillEnd *)instruction);
         case IrInstSrcIdWasmMemorySize:
             return ir_analyze_instruction_wasm_memory_size(ira, (IrInstSrcWasmMemorySize *)instruction);
+        case IrInstSrcIdWasmMemoryGrow:
+            return ir_analyze_instruction_wasm_memory_grow(ira, (IrInstSrcWasmMemoryGrow *)instruction);
     }
     zig_unreachable();
 }
@@ -31098,6 +31165,7 @@ bool ir_inst_gen_has_side_effects(IrInstGen *instruction) {
         case IrInstGenIdResume:
         case IrInstGenIdAwait:
         case IrInstGenIdSpillBegin:
+        case IrInstGenIdWasmMemoryGrow:
             return true;
 
         case IrInstGenIdPhi:
@@ -31230,6 +31298,7 @@ bool ir_inst_src_has_side_effects(IrInstSrc *instruction) {
         case IrInstSrcIdResume:
         case IrInstSrcIdAwait:
         case IrInstSrcIdSpillBegin:
+        case IrInstSrcIdWasmMemoryGrow:
             return true;
 
         case IrInstSrcIdPhi:

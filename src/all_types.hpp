@@ -1826,6 +1826,7 @@ enum BuiltinFnId {
     BuiltinFnIdCall,
     BuiltinFnIdBitSizeof,
     BuiltinFnIdWasmMemorySize,
+    BuiltinFnIdWasmMemoryGrow,
 };
 
 struct BuiltinFnEntry {
@@ -2077,6 +2078,7 @@ struct CodeGen {
     LLVMValueRef safety_crash_err_fn;
     LLVMValueRef return_err_fn;
     LLVMValueRef wasm_memory_size;
+    LLVMValueRef wasm_memory_grow;
     LLVMTypeRef anyframe_fn_type;
 
     // reminder: hash tables must be initialized before use
@@ -2751,6 +2753,7 @@ enum IrInstSrcId {
     IrInstSrcIdSpillBegin,
     IrInstSrcIdSpillEnd,
     IrInstSrcIdWasmMemorySize,
+    IrInstSrcIdWasmMemoryGrow,
 };
 
 // ir_render_* functions in codegen.cpp consume Gen instructions and produce LLVM IR.
@@ -2844,6 +2847,7 @@ enum IrInstGenId {
     IrInstGenIdAlloca,
     IrInstGenIdConst,
     IrInstGenIdWasmMemorySize,
+    IrInstGenIdWasmMemoryGrow,
 };
 
 // Common fields between IrInstSrc and IrInstGen. This allows future passes
@@ -3732,11 +3736,23 @@ struct IrInstGenMemcpy {
 };
 
 struct IrInstSrcWasmMemorySize {
-  IrInstSrc base;
+    IrInstSrc base;
 };
 
 struct IrInstGenWasmMemorySize {
-  IrInstGen base;
+    IrInstGen base;
+};
+
+struct IrInstSrcWasmMemoryGrow {
+    IrInstSrc base;
+
+    IrInstSrc *delta;
+};
+
+struct IrInstGenWasmMemoryGrow {
+    IrInstGen base;
+
+    IrInstGen *delta;
 };
 
 struct IrInstSrcSlice {
