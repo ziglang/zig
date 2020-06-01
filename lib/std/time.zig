@@ -53,7 +53,7 @@ pub fn sleep(nanoseconds: u64) void {
 /// before the epoch.
 /// See `std.os.clock_gettime` for a POSIX timestamp.
 pub fn timestamp() i64 {
-    return @divFloor(milliTimestamp(), ns_per_s);
+    return @divFloor(milliTimestamp(), ms_per_s);
 }
 
 /// Get a calendar timestamp, in milliseconds, relative to UTC 1970-01-01.
