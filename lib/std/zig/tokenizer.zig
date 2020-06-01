@@ -1014,7 +1014,7 @@ pub const Tokenizer = struct {
                         state = .container_doc_comment;
                     },
                     '\n' => break,
-                    '\t' => state = .line_comment,
+                    '\t', '\r' => state = .line_comment,
                     else => {
                         state = .line_comment;
                         self.checkLiteralCharacter();
@@ -1028,7 +1028,7 @@ pub const Tokenizer = struct {
                         result.id = .DocComment;
                         break;
                     },
-                    '\t' => {
+                    '\t', '\r' => {
                         state = .doc_comment;
                         result.id = .DocComment;
                     },
@@ -1040,7 +1040,7 @@ pub const Tokenizer = struct {
                 },
                 .line_comment, .doc_comment, .container_doc_comment => switch (c) {
                     '\n' => break,
-                    '\t' => {},
+                    '\t', '\r' => {},
                     else => self.checkLiteralCharacter(),
                 },
                 .zero => switch (c) {
