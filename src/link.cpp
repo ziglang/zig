@@ -2106,6 +2106,10 @@ static void construct_linker_job_wasm(LinkJob *lj) {
     lj->args.append("-z");
     lj->args.append(buf_ptr(buf_sprintf("stack-size=%" ZIG_PRI_usize, stack_size)));
 
+    // put stack before globals so that stack overflow results in segfault immediately before corrupting globals
+    // see https://github.com/ziglang/zig/issues/4496
+    lj->args.append("--stack-first");
+
     if (g->out_type != OutTypeExe) {
         lj->args.append("--no-entry"); // So lld doesn't look for _start.
 
