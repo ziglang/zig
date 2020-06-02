@@ -48,6 +48,7 @@ test "parse and render IPv6 addresses" {
     testing.expectError(error.InvalidEnd, net.Address.parseIp6("FF01:0:0:0:0:0:0:FB:", 0));
     testing.expectError(error.Incomplete, net.Address.parseIp6("FF01:", 0));
     testing.expectError(error.InvalidIpv4Mapping, net.Address.parseIp6("::123.123.123.123", 0));
+    // TODO Make this test pass on other operating systems.
     if (std.builtin.os.tag == .linux) {
         testing.expectError(error.Incomplete, net.Address.resolveIp6("ff01::fb%", 0));
         testing.expectError(error.Overflow, net.Address.resolveIp6("ff01::fb%wlp3s0s0s0s0s0s0s0s0", 0));
@@ -56,8 +57,9 @@ test "parse and render IPv6 addresses" {
 }
 
 test "invalid but parseable IPv6 scope ids" {
-    // Currently, resolveIp6 with alphanumerical scope IDs only works on Linux.
     if (std.builtin.os.tag != .linux) {
+        // Currently, resolveIp6 with alphanumerical scope IDs only works on Linux.
+        // TODO Make this test pass on other operating systems.
         return error.SkipZigTest;
     }
 

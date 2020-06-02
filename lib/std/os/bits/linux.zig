@@ -1719,21 +1719,21 @@ pub const ifmap = extern struct {
 };
 
 pub const ifreq = extern struct {
-    ifr_ifrn: extern union {
+    ifrn: extern union {
         name: [IFNAMESIZE]u8,
     },
-    ifr_ifru: extern union {
-        ifru_addr: sockaddr,
-        ifru_dstaddr: sockaddr,
-        ifru_broadaddr: sockaddr,
-        ifru_netmask: sockaddr,
-        ifru_hwaddr: sockaddr,
-        ifru_flags: i16,
-        ifru_ivalue: i32,
-        ifru_mtu: i32,
-        ifru_map: ifmap,
-        ifru_slave: [IFNAMESIZE - 1:0]u8,
-        ifru_newname: [IFNAMESIZE - 1:0]u8,
-        ifru_data: ?[*]u8,
+    ifru: extern union {
+        addr: sockaddr,
+        dstaddr: sockaddr,
+        broadaddr: sockaddr,
+        netmask: sockaddr,
+        hwaddr: sockaddr,
+        flags: i16,
+        ivalue: i32,
+        mtu: i32,
+        map: ifmap,
+        slave: [IFNAMESIZE - 1:0]u8,
+        newname: [IFNAMESIZE - 1:0]u8,
+        data: ?[*]u8,
     },
 };

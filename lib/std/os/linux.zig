@@ -1186,15 +1186,15 @@ pub fn getrusage(who: i32, usage: *rusage) usize {
 }
 
 pub fn tcgetattr(fd: fd_t, termios_p: *termios) usize {
-    return ioctl(fd, TCGETS, @ptrToInt(termios_p));
+    return syscall3(.ioctl, @bitCast(usize, @as(isize, fd)), TCGETS, @ptrToInt(termios_p));
 }
 
 pub fn tcsetattr(fd: fd_t, optional_action: TCSA, termios_p: *const termios) usize {
-    return ioctl(fd, TCSETS + @enumToInt(optional_action), @ptrToInt(termios_p));
+    return syscall3(.ioctl, @bitCast(usize, @as(isize, fd)), TCSETS + @enumToInt(optional_action), @ptrToInt(termios_p));
 }
 
-pub fn ioctl(fd: fd_t, request: i32, arg: var) usize {
-    return syscall3(.ioctl, @bitCast(usize, @as(isize, fd)), @bitCast(usize, @as(isize, request)), arg);
+pub fn ioctl(fd: fd_t, request: u32, arg: usize) usize {
+    return syscall3(.ioctl, @bitCast(usize, @as(isize, fd)), request, arg);
 }
 
 test "" {

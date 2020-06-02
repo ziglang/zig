@@ -2390,8 +2390,15 @@ pub fn isatty(handle: fd_t) bool {
         return true;
     }
     if (builtin.os.tag == .linux) {
-        var wsz: linux.winsize = undefined;
-        return linux.ioctl(handle, linux.TIOCGWINSZ, @ptrToInt(&wsz)) == 0;
+        while (true) {
+            var wsz: linux.winsize = undefined;
+            const fd = @bitCast(usize, @as(isize, handle));
+            switch (linux.syscall3(.ioctl, fd, linux.TIOCGWINSZ, @ptrToInt(&wsz))) {
+                0 => return true,
+                EINTR => continue,
+                else => return false,
+            }
+        }
     }
     unreachable;
 }
@@ -4880,12 +4887,15 @@ pub fn getrusage(who: i32) rusage {
 pub const TermiosGetError = error{NotATerminal} || UnexpectedError;
 
 pub fn tcgetattr(handle: fd_t) TermiosGetError!termios {
-    var term: termios = undefined;
-    switch (errno(system.tcgetattr(handle, &term))) {
-        0 => return term,
-        EBADF => unreachable,
-        ENOTTY => return error.NotATerminal,
-        else => |err| return unexpectedErrno(err),
+    while (true) {
+        var term: termios = undefined;
+        switch (errno(system.tcgetattr(handle, &term))) {
+            0 => return term,
+            EINTR => continue,
+            EBADF => unreachable,
+            ENOTTY => return error.NotATerminal,
+            else => |err| return unexpectedErrno(err),
+        }
     }
 }
 
@@ -4905,16 +4915,24 @@ pub fn tcsetattr(handle: fd_t, optional_action: TCSA, termios_p: termios) Termio
     }
 }
 
-pub fn ioctl(handle: fd_t, request: i32, arg: var) !void {
-    switch (errno(system.ioctl(handle, request, arg))) {
-        0 => {},
-        EINVAL => unreachable,
-        ENOTTY => unreachable,
-        ENXIO => unreachable,
-        EBADF => return error.BadFile,
-        EINTR => return error.CaughtSignal,
-        EIO => return error.FileSystem,
-        ENODEV => return error.NoDevice,
-        else => |err| return unexpectedErrno(err),
+const IoCtl_SIOCGIFINDEX_Error = error{
+    FileSystem,
+    InterfaceNotFound,
+} || UnexpectedError;
+
+pub fn ioctl_SIOCGIFINDEX(fd: fd_t, ifr: *ifreq) IoCtl_SIOCGIFINDEX_Error!void {
+    while (true) {
+        switch (errno(system.ioctl(fd, SIOCGIFINDEX, @ptrToInt(ifr)))) {
+            0 => return,
+            EINVAL => unreachable, // Bad parameters.
+            ENOTTY => unreachable,
+            ENXIO => unreachable,
+            EBADF => unreachable, // Always a race condition.
+            EFAULT => unreachable, // Bad pointer parameter.
+            EINTR => continue,
+            EIO => return error.FileSystem,
+            ENODEV => return error.InterfaceNotFound,
+            else => |err| return unexpectedErrno(err),
+        }
     }
 }

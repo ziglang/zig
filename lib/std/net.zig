@@ -22,7 +22,7 @@ pub const Address = extern union {
     //pub const localhost = initIp4(parseIp4("127.0.0.1") catch unreachable, 0);
 
     /// Parse the given IP address string into an Address value.
-    /// It is recommended to use Address.resolveIp instead, to handle
+    /// It is recommended to use `resolveIp` instead, to handle
     /// IPv6 link-local unix addresses.
     pub fn parseIp(name: []const u8, port: u16) !Address {
         if (parseIp4(name, port)) |ip4| return ip4 else |err| switch (err) {
@@ -78,6 +78,7 @@ pub const Address = extern union {
 
     /// Parse a given IPv6 address string into an Address.
     /// Assumes the Scope ID of the address is fully numeric.
+    /// For non-numeric addresses, see `resolveIp6`.
     pub fn parseIp6(buf: []const u8, port: u16) !Address {
         var result = Address{
             .in6 = os.sockaddr_in6{
@@ -185,8 +186,7 @@ pub const Address = extern union {
     }
 
     pub fn resolveIp6(buf: []const u8, port: u16) !Address {
-        // FIXME: this is a very bad implementation, since it's only a copy
-        // of parseIp6 with alphanumerical scope id support
+        // TODO: Unify the implementations of resolveIp6 and parseIp6.
         var result = Address{
             .in6 = os.sockaddr_in6{
                 .scope_id = 0,
@@ -543,17 +543,13 @@ fn if_nametoindex(name: []const u8) !u32 {
     var sockfd = try os.socket(os.AF_UNIX, os.SOCK_DGRAM | os.SOCK_CLOEXEC, 0);
     defer os.close(sockfd);
 
-    std.mem.copy(u8, &ifr.ifr_ifrn.name, name);
-    ifr.ifr_ifrn.name[name.len] = 0;
+    std.mem.copy(u8, &ifr.ifrn.name, name);
+    ifr.ifrn.name[name.len] = 0;
 
-    os.ioctl(sockfd, os.system.SIOCGIFINDEX, @ptrToInt(&ifr)) catch |err| {
-        switch (err) {
-            error.NoDevice => return error.InterfaceNotFound,
-            else => return err,
-        }
-    };
+    // TODO investigate if this needs to be integrated with evented I/O.
+    try os.ioctl_SIOCGIFINDEX(sockfd, &ifr);
 
-    return @bitCast(u32, ifr.ifr_ifru.ifru_ivalue);
+    return @bitCast(u32, ifr.ifru.ivalue);
 }
 
 pub const AddressList = struct {
