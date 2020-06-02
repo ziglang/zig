@@ -169,6 +169,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
         /// Increases capacity so that the hash map will be at most
         /// 60% full when expected_count items are put into it
         pub fn ensureCapacity(self: *Self, expected_count: usize) !void {
+            if (expected_count == 0) return;
             const optimized_capacity = optimizedCapacity(expected_count);
             return self.ensureCapacityExact(optimized_capacity);
         }
@@ -472,6 +473,9 @@ test "iterator hash map" {
 
     var reset_map = AutoHashMap(i32, i32).init(std.testing.allocator);
     defer reset_map.deinit();
+
+    // test ensureCapacity with a 0 parameter
+    try reset_map.ensureCapacity(0);
 
     try reset_map.putNoClobber(0, 11);
     try reset_map.putNoClobber(1, 22);
