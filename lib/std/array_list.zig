@@ -402,7 +402,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// Allocates more memory as necessary.
         pub fn appendNTimes(self: *Self, allocator: *Allocator, value: T, n: usize) !void {
             const old_len = self.items.len;
-            try self.resize(self.items.len + n);
+            try self.resize(allocator, self.items.len + n);
             mem.set(T, self.items[old_len..self.items.len], value);
         }
 
