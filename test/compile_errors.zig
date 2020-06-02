@@ -7495,4 +7495,22 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         ":22:12: error: cannot compare types '?[3]i32' and '[3]i32'",
         ":22:12: note: operator not supported for type '[3]i32'",
     });
+
+    cases.add("wasmMemorySize is a compile error in non-Wasm targets",
+        \\export fn foo() void {
+        \\    _ = @wasmMemorySize();
+        \\    return;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:2:9: error: @wasmMemorySize is a wasm32 feature only",
+    });
+
+    cases.add("wasmMemoryGrow is a compile error in non-Wasm targets",
+        \\export fn foo() void {
+        \\    _ = @wasmMemoryGrow(1);
+        \\    return;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:2:9: error: @wasmMemoryGrow is a wasm32 feature only",
+    });
 }
