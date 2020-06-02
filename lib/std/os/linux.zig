@@ -1193,6 +1193,10 @@ pub fn tcsetattr(fd: fd_t, optional_action: TCSA, termios_p: *const termios) usi
     return syscall3(.ioctl, @bitCast(usize, @as(isize, fd)), TCSETS + @enumToInt(optional_action), @ptrToInt(termios_p));
 }
 
+pub fn ioctl(fd: fd_t, request: u32, arg: usize) usize {
+    return syscall3(.ioctl, @bitCast(usize, @as(isize, fd)), request, arg);
+}
+
 test "" {
     if (builtin.os.tag == .linux) {
         _ = @import("linux/test.zig");
