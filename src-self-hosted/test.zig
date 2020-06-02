@@ -56,16 +56,27 @@ fn findOffset(src: []const u8, line: usize, column: usize) ?usize {
 }
 
 pub const TestContext = struct {
+    // TODO: remove these. They are deprecated.
     zir_cmp_output_cases: std.ArrayList(ZIRCompareOutputCase),
+    // TODO: remove
     zir_transform_cases: std.ArrayList(ZIRTransformCase),
+    // TODO: remove
     zir_error_cases: std.ArrayList(ZIRErrorCase),
 
+    /// TODO: find a way to treat cases as individual tests as far as
+    /// `zig test` is concerned. If we have 100 tests, they should *not* be
+    /// considered as *one*. "ZIR" isn't really a *test*, it's a *category* of
+    /// tests.
+    zir_cases: std.ArrayList(ZIRCase),
+
+    // TODO: remove
     pub const ZIRCompareOutputCase = struct {
         name: []const u8,
         src_list: []const []const u8,
         expected_stdout_list: []const []const u8,
     };
 
+    // TODO: remove
     pub const ZIRTransformCase = struct {
         name: []const u8,
         cross_target: std.zig.CrossTarget,
@@ -96,12 +107,90 @@ pub const TestContext = struct {
         }
     };
 
+    // TODO: remove
     pub const ZIRErrorCase = struct {
         name: []const u8,
         src: [:0]const u8,
         expected_errors: []const ErrorMsg,
         cross_target: std.zig.CrossTarget,
     };
+
+    pub const ZIRStageType = enum {
+        /// A transformation stage transforms the input ZIR and tests against
+        /// the expected output
+        Transformation,
+        /// An error stage attempts to compile bad code, and ensures that it
+        /// fails to compile, and for the expected reasons
+        Error,
+        /// An execution stage compiles and runs the input ZIR, feeding in
+        /// provided input and ensuring that the outputs match what is expected
+        Execution,
+        /// A compilation stage checks that the ZIR compiles without any issues
+        Compiles,
+    };
+
+    pub const ZIRStage = struct {
+        /// The input to the current stage. We simulate an incremental update
+        /// with the file's contents changed to this value each stage.
+        ///
+        /// This value can change entirely between stages, which would be akin
+        /// to deleting the source file and creating a new one from scratch; or
+        /// you can keep it mostly consistent, with small changes, testing the
+        /// effects of the incremental compilation.
+        src: [:0]const u8,
+        case: union(ZIRStageType) {
+            /// The expected output ZIR
+            Transformation: []const u8,
+            /// A slice containing the expected errors *in sequential order*.
+            Error: []const ErrorMsg,
+
+            /// Input to feed to the program, and expected outputs.
+            ///
+            /// If stdout, stderr, and exit_code are all null, addZIRCase will
+            /// discard the test. To test for successful compilation, use a
+            /// dedicated Compile stage instead.
+            Execution: struct {
+                stdin: ?[]const u8,
+                stdout: ?[]const u8,
+                stderr: ?[]const u8,
+                exit_code: ?u8,
+            },
+            /// A Compiles test checks only that compilation of the given ZIR
+            /// succeeds. To test outputs, use an Execution test. It is good to
+            /// use a Compiles test before an Execution, as the overhead should
+            /// be low (due to incremental compilation) and TODO: provide a way
+            /// to check changed / new / etc decls in testing mode
+            /// (usingnamespace a debug info struct with a comptime flag?)
+            Compiles: void,
+        },
+    };
+
+    /// A ZIRCase consists of a set of *stages*. A stage can transform ZIR,
+    /// compile it, ensure that compilation fails, and more. The same Module is
+    /// used for each stage, so each stage's source is treated as a single file
+    /// being updated by the test harness and incrementally compiled.
+    pub const ZIRCase = struct {
+        name: []const u8,
+        /// The platform the ZIR targets. For non-native platforms, an emulator
+        /// such as QEMU is required for tests to complete.
+        ///
+        target: std.zig.CrossTarget,
+        stages: []ZIRStage,
+    };
+
+    pub fn addZIRCase(
+        ctx: *TestContext,
+        name: []const u8,
+        target: std.zig.CrossTarget,
+        stages: []ZIRStage,
+    ) !void {
+        const case = .{
+            .name = name,
+            .target = target,
+            .stages = stages,
+        };
+        try ctx.cases.append(case);
+    }
 
     pub fn addZIRCompareOutput(
         ctx: *TestContext,
@@ -196,6 +285,14 @@ pub const TestContext = struct {
 
         const native_info = try std.zig.system.NativeTargetInfo.detect(std.heap.page_allocator, .{});
 
+        for (self.zir_cases.items) |case| {
+            std.testing.base_allocator_instance.reset();
+            const info = try std.zig.system.NativeTargetInfo.detect(std.testing.allocator, case.target);
+            try self.runOneZIRCase(std.testing.allocator, root_node, case, info.target);
+            try std.testing.allocator_instance.validate();
+        }
+
+        // TODO: wipe the rest of this function
         for (self.zir_cmp_output_cases.items) |case| {
             std.testing.base_allocator_instance.reset();
             try self.runOneZIRCmpOutputCase(std.testing.allocator, root_node, case, native_info.target);
@@ -212,6 +309,75 @@ pub const TestContext = struct {
             const info = try std.zig.system.NativeTargetInfo.detect(std.testing.allocator, case.cross_target);
             try self.runOneZIRErrorCase(std.testing.allocator, root_node, case, info.target);
             try std.testing.allocator_instance.validate();
+        }
+    }
+
+    fn runOneZIRCase(self: *TestContext, allocator: *Allocator, root_node: *std.Progress.Node, case: ZIRCase, target: std.Target) !void {
+        var tmp = std.testing.tmpDir(.{});
+        defer tmp.cleanup();
+
+        const tmp_src_path = "test_case.zir";
+        const root_pkg = try Package.create(allocator, tmp.dir, ".", tmp_src_path);
+        defer root_pkg.destroy();
+
+        var prg_node = root_node.start(case.name, case.stages.len);
+        prg_node.activate();
+        defer prg_node.end();
+
+        var module = try Module.init(allocator, .{
+            .target = target,
+            // This is an Executable, as opposed to e.g. a *library*. This does
+            // not mean no ZIR is generated.
+            //
+            // TODO: support tests for object file building, and library builds
+            // and linking. This will require a rework to support multi-file
+            // tests.
+            .output_mode = .Exe,
+            // TODO: support testing optimizations
+            .optimize_mode = .Debug,
+            .bin_file_dir = tmp.dir,
+            .bin_file_path = "test_case",
+            .root_pkg = root_pkg,
+        });
+        defer module.deinit();
+
+        for (case.stages) |s| {
+            // TODO: remove before committing. This is for ZLS ;)
+            const stage: ZIRStage = s;
+
+            var stage_node = prg_node.start("stage", 4);
+            stage_node.activate();
+            defer stage_node.end();
+
+            var sync_node = stage_node.start("write", null);
+            sync_node.activate();
+            try tmp.dir.writeFile(tmp_src_path, stage.src);
+            sync_node.end();
+
+            var module_node = stage_node.start("parse/analysis/codegen", null);
+            module_node.activate();
+            try module.update();
+            module_node.end();
+
+            switch (stage.case) {
+                .Transformation => |expected_output| {
+                    var emit_node = stage_node.start("emit", null);
+                    emit_node.activate();
+                    var new_zir_module = try zir.emit(allocator, module);
+                    defer new_zir_module.deinit(allocator);
+                    emit_node.end();
+
+                    var write_node = stage_node.start("write", null);
+                    write_node.activate();
+                    var out_zir = std.ArrayList(u8).init(allocator);
+                    defer out_zir.deinit();
+                    try new_zir_module.writeToStream(allocator, out_zir.outStream());
+                    write_node.end();
+
+                    std.testing.expectEqualSlices(u8, expected_output, out_zir.items);
+                },
+                else => return error.unimplemented,
+            }
         }
     }
 
@@ -426,6 +592,10 @@ pub const TestContext = struct {
             e.* = false;
         }
 
+        // TODO: check the input error list in sequential order, manually
+        // incrementing indices when needed. This would allow deduplicating the
+        // following three blocks into one, and the restriction it imposes on
+        // test writers is one that naturally flows anyways.
         {
             var i = module.failed_files.iterator();
             while (i.next()) |pair| {
