@@ -4997,7 +4997,7 @@ static IrInstSrc *ir_build_wasm_memory_size_src(IrBuilderSrc *irb, Scope *scope,
 static IrInstGen *ir_build_wasm_memory_size_gen(IrAnalyze *ira, IrInst *source_instr, IrInstGen *index) {
     IrInstGenWasmMemorySize *instruction = ir_build_inst_gen<IrInstGenWasmMemorySize>(&ira->new_irb,
             source_instr->scope, source_instr->source_node);
-    instruction->base.value->type = ira->codegen->builtin_types.entry_i32;
+    instruction->base.value->type = ira->codegen->builtin_types.entry_u32;
     instruction->index = index;
 
     ir_ref_inst_gen(index);
@@ -5019,7 +5019,7 @@ static IrInstSrc *ir_build_wasm_memory_grow_src(IrBuilderSrc *irb, Scope *scope,
 static IrInstGen *ir_build_wasm_memory_grow_gen(IrAnalyze *ira, IrInst *source_instr, IrInstGen *index, IrInstGen *delta) {
     IrInstGenWasmMemoryGrow *instruction = ir_build_inst_gen<IrInstGenWasmMemoryGrow>(&ira->new_irb,
             source_instr->scope, source_instr->source_node);
-    instruction->base.value->type = ira->codegen->builtin_types.entry_i32;
+    instruction->base.value->type = ira->codegen->builtin_types.entry_u32;
     instruction->index = index;
     instruction->delta = delta;
 
@@ -27757,9 +27757,9 @@ static IrInstGen *ir_analyze_instruction_wasm_memory_size(IrAnalyze *ira, IrInst
     if (type_is_invalid(index->value->type))
         return ira->codegen->invalid_inst_gen;
 
-    ZigType *i32_type = ira->codegen->builtin_types.entry_i32;
+    ZigType *u32 = ira->codegen->builtin_types.entry_u32;
 
-    IrInstGen *casted_index = ir_implicit_cast(ira, index, i32_type);
+    IrInstGen *casted_index = ir_implicit_cast(ira, index, u32);
     if (type_is_invalid(casted_index->value->type))
         return ira->codegen->invalid_inst_gen;
 
@@ -27778,9 +27778,9 @@ static IrInstGen *ir_analyze_instruction_wasm_memory_grow(IrAnalyze *ira, IrInst
     if (type_is_invalid(index->value->type))
         return ira->codegen->invalid_inst_gen;
 
-    ZigType *i32_type = ira->codegen->builtin_types.entry_i32;
+    ZigType *u32 = ira->codegen->builtin_types.entry_u32;
 
-    IrInstGen *casted_index = ir_implicit_cast(ira, index, i32_type);
+    IrInstGen *casted_index = ir_implicit_cast(ira, index, u32);
     if (type_is_invalid(casted_index->value->type))
         return ira->codegen->invalid_inst_gen;
 
@@ -27788,7 +27788,7 @@ static IrInstGen *ir_analyze_instruction_wasm_memory_grow(IrAnalyze *ira, IrInst
     if (type_is_invalid(delta->value->type))
         return ira->codegen->invalid_inst_gen;
 
-    IrInstGen *casted_delta = ir_implicit_cast(ira, delta, i32_type);
+    IrInstGen *casted_delta = ir_implicit_cast(ira, delta, u32);
     if (type_is_invalid(casted_delta->value->type))
         return ira->codegen->invalid_inst_gen;
 
