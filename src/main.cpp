@@ -1830,6 +1830,30 @@ static int main0(int argc, char **argv) {
                     fprintf(stderr, "\nTests failed. Use the following command to reproduce the failure:\n");
                     fprintf(stderr, "%s\n", buf_ptr(test_exe_path));
                 }
+
+                if (g->enable_cache) {
+#if defined(ZIG_OS_WINDOWS)
+                    buf_replace(&g->bin_file_output_path, '/', '\\');
+                    buf_replace(g->output_dir, '/', '\\');
+#endif
+                    if (final_output_dir_step != nullptr) {
+                        Buf *dest_basename = buf_alloc();
+                        os_path_split(&g->bin_file_output_path, nullptr, dest_basename);
+                        Buf *dest_path = buf_alloc();
+                        os_path_join(final_output_dir_step, dest_basename, dest_path);
+
+                        if ((err = os_update_file(&g->bin_file_output_path, dest_path))) {
+                            fprintf(stderr, "unable to copy %s to %s: %s\n", buf_ptr(&g->bin_file_output_path),
+                                    buf_ptr(dest_path), err_str(err));
+                            return main_exit(root_progress_node, EXIT_FAILURE);
+                        }
+                    } else {
+                        if (printf("%s\n", buf_ptr(g->output_dir)) < 0)
+                            return main_exit(root_progress_node, EXIT_FAILURE);
+                    }
+                }
+
+                
                 return main_exit(root_progress_node, (term.how == TerminationIdClean) ? term.code : -1);
             } else {
                 zig_unreachable();

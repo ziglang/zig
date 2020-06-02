@@ -2190,32 +2190,29 @@ pub const LibExeObjStep = struct {
             });
         }
 
-        if (self.kind == Kind.Test) {
-            try builder.spawnChild(zig_args.span());
-        } else {
-            try zig_args.append("--cache");
-            try zig_args.append("on");
+        try zig_args.append("--cache");
+        try zig_args.append("on");
 
-            const output_dir_nl = try builder.execFromStep(zig_args.span(), &self.step);
-            const build_output_dir = mem.trimRight(u8, output_dir_nl, "\r\n");
+        const output_dir_nl = try builder.execFromStep(zig_args.span(), &self.step);
 
-            if (self.output_dir) |output_dir| {
-                var src_dir = try std.fs.cwd().openDir(build_output_dir, .{ .iterate = true });
-                defer src_dir.close();
+        const build_output_dir = mem.trimRight(u8, output_dir_nl, "\r\n");
 
-                // Create the output directory if it doesn't exist.
-                try std.fs.cwd().makePath(output_dir);
+        if (self.output_dir) |output_dir| {
+            var src_dir = try std.fs.cwd().openDir(build_output_dir, .{ .iterate = true });
+            defer src_dir.close();
 
-                var dest_dir = try std.fs.cwd().openDir(output_dir, .{});
-                defer dest_dir.close();
+            // Create the output directory if it doesn't exist.
+            try std.fs.cwd().makePath(output_dir);
 
-                var it = src_dir.iterate();
-                while (try it.next()) |entry| {
-                    _ = try src_dir.updateFile(entry.name, dest_dir, entry.name, .{});
-                }
-            } else {
-                self.output_dir = build_output_dir;
+            var dest_dir = try std.fs.cwd().openDir(output_dir, .{});
+            defer dest_dir.close();
+
+            var it = src_dir.iterate();
+            while (try it.next()) |entry| {
+                _ = try src_dir.updateFile(entry.name, dest_dir, entry.name, .{});
             }
+        } else {
+            self.output_dir = build_output_dir;
         }
 
         if (self.kind == Kind.Lib and self.is_dynamic and self.target.wantSharedLibSymLinks()) {
@@ -2244,7 +2241,7 @@ pub const InstallArtifactStep = struct {
             .artifact = artifact,
             .dest_dir = switch (artifact.kind) {
                 .Obj => unreachable,
-                .Test => unreachable,
+                .Test => .Bin,
                 .Exe => .Bin,
                 .Lib => .Lib,
             },
