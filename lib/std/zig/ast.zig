@@ -2754,7 +2754,7 @@ pub const Node = struct {
 
 test "iterate" {
     var root = Node.Root{
-        .base = Node{ .id = Node.Id.Root },
+        .base = Node{ .id = Node.Id.root },
         .decls_len = 0,
         .eof_token = 0,
     };
