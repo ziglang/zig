@@ -5620,26 +5620,16 @@ static LLVMValueRef ir_render_memcpy(CodeGen *g, IrExecutableGen *executable, Ir
 }
 
 static LLVMValueRef ir_render_wasm_memory_size(CodeGen *g, IrExecutableGen *executable, IrInstGenWasmMemorySize *instruction) {
-    // When Wasm lands multi-memory support, we can relax this to permit the user specify
-    // memory index to inquire about. For now, we pass in the recommended default of index 0.
-    //
-    // More info:
-    // https://github.com/sunfishcode/wasm-reference-manual/blob/master/WebAssembly.md#current-linear-memory-size
     // TODO adjust for wasm64
-    LLVMValueRef zero = LLVMConstNull(g->builtin_types.entry_i32->llvm_type);
-    LLVMValueRef val = LLVMBuildCall(g->builder, gen_wasm_memory_size(g), &zero, 1, "");
+    LLVMValueRef param = ir_llvm_value(g, instruction->index);
+    LLVMValueRef val = LLVMBuildCall(g->builder, gen_wasm_memory_size(g), &param, 1, "");
     return val;
 }
 
 static LLVMValueRef ir_render_wasm_memory_grow(CodeGen *g, IrExecutableGen *executable, IrInstGenWasmMemoryGrow *instruction) {
-    // When Wasm lands multi-memory support, we can relax this to permit the user specify
-    // memory index to inquire about. For now, we pass in the recommended default of index 0.
-    //
-    // More info:
-    // https://github.com/sunfishcode/wasm-reference-manual/blob/master/WebAssembly.md#grow-linear-memory-size
     // TODO adjust for wasm64
     LLVMValueRef params[] = {
-        LLVMConstNull(g->builtin_types.entry_i32->llvm_type),
+        ir_llvm_value(g, instruction->index),
         ir_llvm_value(g, instruction->delta),
     };
     LLVMValueRef val = LLVMBuildCall(g->builder, gen_wasm_memory_grow(g), params, 2, "");
@@ -8722,8 +8712,8 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdAs, "as", 2);
     create_builtin_fn(g, BuiltinFnIdCall, "call", 3);
     create_builtin_fn(g, BuiltinFnIdBitSizeof, "bitSizeOf", 1);
-    create_builtin_fn(g, BuiltinFnIdWasmMemorySize, "wasmMemorySize", 0);
-    create_builtin_fn(g, BuiltinFnIdWasmMemoryGrow, "wasmMemoryGrow", 1);
+    create_builtin_fn(g, BuiltinFnIdWasmMemorySize, "wasmMemorySize", 1);
+    create_builtin_fn(g, BuiltinFnIdWasmMemoryGrow, "wasmMemoryGrow", 2);
 }
 
 static const char *bool_to_str(bool b) {

@@ -3737,21 +3737,27 @@ struct IrInstGenMemcpy {
 
 struct IrInstSrcWasmMemorySize {
     IrInstSrc base;
+
+    IrInstSrc *index;
 };
 
 struct IrInstGenWasmMemorySize {
     IrInstGen base;
+
+    IrInstGen *index;
 };
 
 struct IrInstSrcWasmMemoryGrow {
     IrInstSrc base;
 
+    IrInstSrc *index;
     IrInstSrc *delta;
 };
 
 struct IrInstGenWasmMemoryGrow {
     IrInstGen base;
 
+    IrInstGen *index;
     IrInstGen *delta;
 };
 

@@ -7498,7 +7498,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add("wasmMemorySize is a compile error in non-Wasm targets",
         \\export fn foo() void {
-        \\    _ = @wasmMemorySize();
+        \\    _ = @wasmMemorySize(0);
         \\    return;
         \\}
     , &[_][]const u8{
@@ -7507,7 +7507,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add("wasmMemoryGrow is a compile error in non-Wasm targets",
         \\export fn foo() void {
-        \\    _ = @wasmMemoryGrow(1);
+        \\    _ = @wasmMemoryGrow(0, 1);
         \\    return;
         \\}
     , &[_][]const u8{
