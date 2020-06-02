@@ -881,6 +881,21 @@ fn testAllocator(allocator: *mem.Allocator) !void {
         allocator.destroy(item);
     }
 
+    slice = allocator.shrink(slice, 200);
+    testing.expect(slice.len == 200);
+
+    for (slice) |*item, i| {
+        item.* = try allocator.dupeOne(@intCast(i32, i * 50));
+    }
+
+    slice = try allocator.realloc(slice, 15000);
+    testing.expect(slice.len == 15000);
+
+    for (slice[0..200]) |item, i| {
+        testing.expect(item.* == @intCast(i32, i * 50));
+        allocator.destroy(item);
+    }
+
     slice = allocator.shrink(slice, 50);
     testing.expect(slice.len == 50);
     slice = allocator.shrink(slice, 25);

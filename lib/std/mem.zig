@@ -294,6 +294,14 @@ pub const Allocator = struct {
         new_buf[m.len] = 0;
         return new_buf[0..m.len :0];
     }
+
+    /// Returns a pointer to allocated memory with the provided value.
+    /// Call `destroy` with the result to free the memory.
+    pub fn dupeOne(allocator: *Allocator, value: var) Error!*@TypeOf(value) {
+        const memory = try allocator.create(@TypeOf(value));
+        memory.* = value;
+        return memory;
+    }
 };
 
 var failAllocator = Allocator{
