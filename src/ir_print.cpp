@@ -1717,21 +1717,29 @@ static void ir_print_bool_not(IrPrintGen *irp, IrInstGenBoolNot *instruction) {
 }
 
 static void ir_print_wasm_memory_size(IrPrintSrc *irp, IrInstSrcWasmMemorySize *instruction) {
-    fprintf(irp->f, "@wasmMemorySize()");
+    fprintf(irp->f, "@wasmMemorySize(");
+    ir_print_other_inst_src(irp, instruction->index);
+    fprintf(irp->f, ")");
 }
 
 static void ir_print_wasm_memory_size(IrPrintGen *irp, IrInstGenWasmMemorySize *instruction) {
-    fprintf(irp->f, "@wasmMemorySize()");
+    fprintf(irp->f, "@wasmMemorySize(");
+    ir_print_other_inst_gen(irp, instruction->index);
+    fprintf(irp->f, ")");
 }
 
 static void ir_print_wasm_memory_grow(IrPrintSrc *irp, IrInstSrcWasmMemoryGrow *instruction) {
     fprintf(irp->f, "@wasmMemoryGrow(");
+    ir_print_other_inst_src(irp, instruction->index);
+    fprintf(irp->f, ", ");
     ir_print_other_inst_src(irp, instruction->delta);
     fprintf(irp->f, ")");
 }
 
 static void ir_print_wasm_memory_grow(IrPrintGen *irp, IrInstGenWasmMemoryGrow *instruction) {
     fprintf(irp->f, "@wasmMemoryGrow(");
+    ir_print_other_inst_gen(irp, instruction->index);
+    fprintf(irp->f, ", ");
     ir_print_other_inst_gen(irp, instruction->delta);
     fprintf(irp->f, ")");
 }

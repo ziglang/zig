@@ -352,7 +352,7 @@ const WasmPageAllocator = struct {
             return idx + extendedOffset();
         }
 
-        const prev_page_count = @wasmMemoryGrow(@intCast(u32, page_count));
+        const prev_page_count = @wasmMemoryGrow(0, @intCast(u32, page_count));
         if (prev_page_count <= 0) {
             return error.OutOfMemory;
         }
