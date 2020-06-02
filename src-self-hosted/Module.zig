@@ -743,7 +743,7 @@ pub fn performAllTheWork(self: *Module) error{OutOfMemory}!void {
                             self.allocator,
                             decl.src,
                             "unable to load source file '{}': {}",
-                            .{decl.scope.sub_file_path, @errorName(err)},
+                            .{ decl.scope.sub_file_path, @errorName(err) },
                         ));
                         decl.analysis = .codegen_failure_retryable;
                         continue;
@@ -756,7 +756,7 @@ pub fn performAllTheWork(self: *Module) error{OutOfMemory}!void {
                     error.OutOfMemory => return error.OutOfMemory,
                     error.AnalysisFail => continue,
                 };
-            }
+            },
         },
     };
 }
@@ -945,7 +945,7 @@ fn deleteDeclExports(self: *Module, decl: *Decl) void {
             var new_len = list.len;
             while (i < new_len) {
                 if (list[i].owner_decl == decl) {
-                    mem.copyBackwards(*Export, list[i..], list[i + 1..new_len]);
+                    mem.copyBackwards(*Export, list[i..], list[i + 1 .. new_len]);
                     new_len -= 1;
                 } else {
                     i += 1;
@@ -1494,13 +1494,11 @@ fn analyzeInstDeclRef(self: *Module, scope: *Scope, inst: *zir.Inst.DeclRef) Inn
     const decl_name = try self.resolveConstString(scope, inst.positionals.name);
     // This will need to get more fleshed out when there are proper structs & namespaces.
     const zir_module = scope.namespace();
-    for (zir_module.contents.module.decls) |src_decl| {
-        if (mem.eql(u8, src_decl.name, decl_name)) {
-            const decl = try self.resolveCompleteDecl(scope, src_decl);
-            return self.analyzeDeclRef(scope, inst.base.src, decl);
-        }
-    }
-    return self.fail(scope, inst.positionals.name.src, "use of undeclared identifier '{}'", .{decl_name});
+    const src_decl = zir_module.contents.module.findDecl(decl_name) orelse
+        return self.fail(scope, inst.positionals.name.src, "use of undeclared identifier '{}'", .{decl_name});
+
+    const decl = try self.resolveCompleteDecl(scope, src_decl);
+    return self.analyzeDeclRef(scope, inst.base.src, decl);
 }
 
 fn analyzeDeclRef(self: *Module, scope: *Scope, src: usize, decl: *Decl) InnerError!*Inst {

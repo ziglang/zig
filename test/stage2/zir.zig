@@ -9,6 +9,28 @@ const linux_x64 = std.zig.CrossTarget{
 };
 
 pub fn addCases(ctx: *TestContext) void {
+    ctx.addZIRTransform("referencing decls which appear later in the file", linux_x64,
+        \\@void = primitive(void)
+        \\@fnty = fntype([], @void, cc=C)
+        \\
+        \\@9 = str("entry")
+        \\@10 = ref(@9)
+        \\@11 = export(@10, @entry)
+        \\
+        \\@entry = fn(@fnty, {
+        \\  %11 = return()
+        \\})
+    ,
+        \\@0 = primitive(void)
+        \\@1 = fntype([], @0, cc=C)
+        \\@2 = fn(@1, {
+        \\  %0 = return()
+        \\})
+        \\@3 = str("entry")
+        \\@4 = ref(@3)
+        \\@5 = export(@4, @2)
+        \\
+    );
     ctx.addZIRTransform("elemptr, add, cmp, condbr, return, breakpoint", linux_x64,
         \\@void = primitive(void)
         \\@usize = primitive(usize)

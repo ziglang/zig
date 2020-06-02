@@ -964,14 +964,24 @@ const Parser = struct {
                 self.i = src;
                 return self.fail("unrecognized identifier: {}", .{bad_name});
             } else {
-                const name = try self.arena.allocator.create(Inst.Str);
-                name.* = .{
+                const name_array = try self.arena.allocator.create(Inst.Str);
+                name_array.* = .{
                     .base = .{
                         .name = try self.generateName(),
                         .src = src,
                         .tag = Inst.Str.base_tag,
                     },
                     .positionals = .{ .bytes = ident },
+                    .kw_args = .{},
+                };
+                const name = try self.arena.allocator.create(Inst.Ref);
+                name.* = .{
+                    .base = .{
+                        .name = try self.generateName(),
+                        .src = src,
+                        .tag = Inst.Ref.base_tag,
+                    },
+                    .positionals = .{ .operand = &name_array.base },
                     .kw_args = .{},
                 };
                 const declref = try self.arena.allocator.create(Inst.DeclRef);
@@ -984,7 +994,17 @@ const Parser = struct {
                     .positionals = .{ .name = &name.base },
                     .kw_args = .{},
                 };
-                return &declref.base;
+                const deref = try self.arena.allocator.create(Inst.Deref);
+                deref.* = .{
+                    .base = .{
+                        .name = try self.generateName(),
+                        .src = src,
+                        .tag = Inst.Deref.base_tag,
+                    },
+                    .positionals = .{ .ptr = &declref.base },
+                    .kw_args = .{},
+                };
+                return &deref.base;
             }
         };
         if (local_ref) {
