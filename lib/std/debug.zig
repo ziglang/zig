@@ -52,8 +52,7 @@ pub const LineInfo = struct {
 
 var stderr_mutex = std.Mutex.init();
 
-/// Tries to write to stderr, unbuffered, and ignores any error returned.
-/// Does not append a newline.
+/// Deprecated. Use `std.log` functions for logging.
 pub fn warn(comptime fmt: []const u8, args: var) void {
     const held = stderr_mutex.acquire();
     defer held.release();
