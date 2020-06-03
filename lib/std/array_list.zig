@@ -714,6 +714,9 @@ test "std.ArrayList.replaceRange" {
     try list_zero.replaceRange(1, 0, &new);
     try list_eq.replaceRange(1, 3, &new);
     try list_lt.replaceRange(1, 2, &new);
+
+    // after_range > new_items.len in function body
+    testing.expect(1 + 4 > new.len);
     try list_gt.replaceRange(1, 4, &new);
 
     testing.expectEqualSlices(i32, list_zero.items, &[_]i32{ 1, 0, 0, 0, 2, 3, 4, 5 });
