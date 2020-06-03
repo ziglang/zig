@@ -58,7 +58,7 @@ const HeaderEntry = struct {
         self.never_index = never_index orelse never_index_default(self.name);
     }
 
-    fn compare(a: HeaderEntry, b: HeaderEntry) bool {
+    fn compare(context: void, a: HeaderEntry, b: HeaderEntry) bool {
         if (a.name.ptr != b.name.ptr and a.name.len != b.name.len) {
             // Things beginning with a colon *must* be before others
             const a_is_colon = a.name[0] == ':';
@@ -342,7 +342,7 @@ pub const Headers = struct {
     }
 
     pub fn sort(self: *Self) void {
-        std.sort.sort(HeaderEntry, self.data.items, HeaderEntry.compare);
+        std.sort.sort(HeaderEntry, self.data.items, {}, HeaderEntry.compare);
         self.rebuild_index();
     }
 
