@@ -40,8 +40,8 @@ pub fn InStream(
             return index;
         }
 
-        /// Returns the number of bytes read. If the number read would be smaller than buf.len,
-        /// error.EndOfStream is returned instead.
+        /// Fills buf with bytes from the stream. If the number read
+        /// would be smaller than buf.len, returns error.EndOfStream.
         pub fn readNoEof(self: Self, buf: []u8) !void {
             const amt_read = try self.readAll(buf);
             if (amt_read < buf.len) return error.EndOfStream;
