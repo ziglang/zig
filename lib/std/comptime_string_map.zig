@@ -1,5 +1,6 @@
 const std = @import("std.zig");
 const mem = std.mem;
+const ascii = std.ascii;
 
 /// Like ComptimeStringHashMap but optimized for small sets of disparate string keys.
 /// Works by separating the keys by length at comptime and only checking strings of
@@ -23,9 +24,9 @@ pub fn ComptimeStringMap(comptime V: type, comptime kvs: var) type {
         }).lenAsc;
         for (kvs) |kv, i| {
             if (V != void) {
-                sorted_kvs[i] = .{.key = kv.@"0", .value = kv.@"1"};
+                sorted_kvs[i] = .{ .key = kv.@"0", .value = kv.@"1" };
             } else {
-                sorted_kvs[i] = .{.key = kv.@"0", .value = {}};
+                sorted_kvs[i] = .{ .key = kv.@"0", .value = {} };
             }
         }
         std.sort.sort(KV, &sorted_kvs, lenAsc);
@@ -51,10 +52,22 @@ pub fn ComptimeStringMap(comptime V: type, comptime kvs: var) type {
 
     return struct {
         pub fn has(str: []const u8) bool {
-            return get(str) != null;
+            return getImpl(str, true) != null;
+        }
+
+        pub fn hasCaseInsensitive(str: []const u8) bool {
+            return getImpl(str, false) != null;
         }
 
         pub fn get(str: []const u8) ?V {
+            return getImpl(str, true);
+        }
+
+        pub fn getCaseInsensitive(str: []const u8) ?V {
+            return getImpl(str, false);
+        }
+
+        fn getImpl(str: []const u8, comptime caseSensitive: bool) ?V {
             if (str.len < precomputed.min_len or str.len > precomputed.max_len)
                 return null;
 
@@ -63,8 +76,13 @@ pub fn ComptimeStringMap(comptime V: type, comptime kvs: var) type {
                 const kv = precomputed.sorted_kvs[i];
                 if (kv.key.len != str.len)
                     return null;
-                if (mem.eql(u8, kv.key, str))
-                    return kv.value;
+                if (caseSensitive) {
+                    if (mem.eql(u8, kv.key, str))
+                        return kv.value;
+                } else {
+                    if (ascii.eqlIgnoreCase(kv.key, str))
+                        return kv.value;
+                }
                 i += 1;
                 if (i >= precomputed.sorted_kvs.len)
                     return null;
@@ -83,11 +101,11 @@ const TestEnum = enum {
 
 test "ComptimeStringMap list literal of list literals" {
     const map = ComptimeStringMap(TestEnum, .{
-        .{"these", .D},
-        .{"have", .A},
-        .{"nothing", .B},
-        .{"incommon", .C},
-        .{"samelen", .E},
+        .{ "these", .D },
+        .{ "have", .A },
+        .{ "nothing", .B },
+        .{ "incommon", .C },
+        .{ "samelen", .E },
     });
 
     testMap(map);
@@ -99,11 +117,11 @@ test "ComptimeStringMap array of structs" {
         @"1": TestEnum,
     };
     const map = ComptimeStringMap(TestEnum, [_]KV{
-        .{.@"0" = "these", .@"1" = .D},
-        .{.@"0" = "have", .@"1" = .A},
-        .{.@"0" = "nothing", .@"1" = .B},
-        .{.@"0" = "incommon", .@"1" = .C},
-        .{.@"0" = "samelen", .@"1" = .E},
+        .{ .@"0" = "these", .@"1" = .D },
+        .{ .@"0" = "have", .@"1" = .A },
+        .{ .@"0" = "nothing", .@"1" = .B },
+        .{ .@"0" = "incommon", .@"1" = .C },
+        .{ .@"0" = "samelen", .@"1" = .E },
     });
 
     testMap(map);
@@ -115,11 +133,11 @@ test "ComptimeStringMap slice of structs" {
         @"1": TestEnum,
     };
     const slice: []const KV = &[_]KV{
-        .{.@"0" = "these", .@"1" = .D},
-        .{.@"0" = "have", .@"1" = .A},
-        .{.@"0" = "nothing", .@"1" = .B},
-        .{.@"0" = "incommon", .@"1" = .C},
-        .{.@"0" = "samelen", .@"1" = .E},
+        .{ .@"0" = "these", .@"1" = .D },
+        .{ .@"0" = "have", .@"1" = .A },
+        .{ .@"0" = "nothing", .@"1" = .B },
+        .{ .@"0" = "incommon", .@"1" = .C },
+        .{ .@"0" = "samelen", .@"1" = .E },
     };
     const map = ComptimeStringMap(TestEnum, slice);
 
@@ -135,6 +153,14 @@ fn testMap(comptime map: var) void {
 
     std.testing.expect(!map.has("missing"));
     std.testing.expect(map.has("these"));
+
+    std.testing.expectEqual(TestEnum.A, map.getCaseInsensitive("Have").?);
+    std.testing.expectEqual(TestEnum.B, map.getCaseInsensitive("Nothing").?);
+    std.testing.expect(null == map.getCaseInsensitive("Missing"));
+    std.testing.expectEqual(TestEnum.D, map.getCaseInsensitive("These").?);
+    std.testing.expectEqual(TestEnum.E, map.getCaseInsensitive("SameLen").?);
+
+    std.testing.expect(map.hasCaseInsensitive("These"));
 }
 
 test "ComptimeStringMap void value type, slice of structs" {
@@ -142,11 +168,11 @@ test "ComptimeStringMap void value type, slice of structs" {
         @"0": []const u8,
     };
     const slice: []const KV = &[_]KV{
-        .{.@"0" = "these"},
-        .{.@"0" = "have"},
-        .{.@"0" = "nothing"},
-        .{.@"0" = "incommon"},
-        .{.@"0" = "samelen"},
+        .{ .@"0" = "these" },
+        .{ .@"0" = "have" },
+        .{ .@"0" = "nothing" },
+        .{ .@"0" = "incommon" },
+        .{ .@"0" = "samelen" },
     };
     const map = ComptimeStringMap(void, slice);
 
@@ -174,4 +200,11 @@ fn testSet(comptime map: var) void {
 
     std.testing.expect(!map.has("missing"));
     std.testing.expect(map.has("these"));
+
+    std.testing.expectEqual({}, map.getCaseInsensitive("Have").?);
+    std.testing.expectEqual({}, map.getCaseInsensitive("Nothing").?);
+    std.testing.expect(null == map.getCaseInsensitive("Missing"));
+    std.testing.expectEqual({}, map.getCaseInsensitive("These").?);
+    std.testing.expectEqual({}, map.getCaseInsensitive("SameLen").?);
+    std.testing.expect(map.hasCaseInsensitive("These"));
 }
