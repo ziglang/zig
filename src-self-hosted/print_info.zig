@@ -83,16 +83,6 @@ pub const CompilerInfo = struct {
         }
     }
 
-    pub fn toJSON(self: *CompilerInfo, out_stream: var) !void {
-        const stringifyOptions = StringifyOptions{
-            .whitespace = StringifyOptions.Whitespace{
-                // Match indentation of zig targets
-                .indent = .{ .Space = 2 },
-            },
-        };
-        try json.stringify(self, stringifyOptions, out_stream);
-    }
-
     pub fn deinit(self: *CompilerInfo, allocator: *Allocator) void {
         allocator.free(self.lib_dir);
         allocator.free(self.std_dir);
@@ -121,7 +111,9 @@ pub fn cmdInfo(allocator: *Allocator, cmd_args: []const []const u8, compiler_typ
     }
 
     if (json_format) {
-        try info.toJSON(bos_stream);
+        try json.stringify(info, StringifyOptions{
+            .whitespace = StringifyOptions.Whitespace{ .indent = .{ .Space = 2 } },
+        }, bos_stream);
         try bos_stream.writeByte('\n');
     } else {
         try info.toString(bos_stream);
