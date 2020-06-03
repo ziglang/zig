@@ -836,7 +836,7 @@ fn linuxLookupName(
         key |= (MAXADDRS - @intCast(i32, i)) << DAS_ORDER_SHIFT;
         addr.sortkey = key;
     }
-    std.sort.sort(LookupAddr, addrs.span(), addrCmpLessThan);
+    std.sort.sort(LookupAddr, addrs.span(), {}, addrCmpLessThan);
 }
 
 const Policy = struct {
@@ -953,7 +953,7 @@ fn IN6_IS_ADDR_SITELOCAL(a: [16]u8) bool {
 }
 
 // Parameters `b` and `a` swapped to make this descending.
-fn addrCmpLessThan(b: LookupAddr, a: LookupAddr) bool {
+fn addrCmpLessThan(context: void, b: LookupAddr, a: LookupAddr) bool {
     return a.sortkey < b.sortkey;
 }
 
