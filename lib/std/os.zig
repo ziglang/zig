@@ -1734,7 +1734,7 @@ pub fn unlinkatW(dirfd: fd_t, sub_path_w: [*:0]const u16, flags: u32) UnlinkatEr
 
     const want_rmdir_behavior = (flags & AT_REMOVEDIR) != 0;
     const create_options_flags = if (want_rmdir_behavior)
-        @as(w.ULONG, w.FILE_DELETE_ON_CLOSE)
+        @as(w.ULONG, w.FILE_DELETE_ON_CLOSE | w.FILE_DIRECTORY_FILE)
     else
         @as(w.ULONG, w.FILE_DELETE_ON_CLOSE | w.FILE_NON_DIRECTORY_FILE);
 
@@ -1787,6 +1787,7 @@ pub fn unlinkatW(dirfd: fd_t, sub_path_w: [*:0]const u16, flags: u32) UnlinkatEr
         .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
         .INVALID_PARAMETER => unreachable,
         .FILE_IS_A_DIRECTORY => return error.IsDir,
+        .NOT_A_DIRECTORY => return error.NotDir,
         else => return w.unexpectedStatus(rc),
     }
 }
