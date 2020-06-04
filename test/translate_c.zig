@@ -3,6 +3,21 @@ const std = @import("std");
 const CrossTarget = std.zig.CrossTarget;
 
 pub fn addCases(cases: *tests.TranslateCContext) void {
+    cases.add("complex switch",
+        \\int main() {
+        \\    int i = 2;
+        \\    switch (i) {
+        \\        case 0: {
+        \\            case 2:{
+        \\                i += 2;}
+        \\            i += 1;
+        \\        }
+        \\    }
+        \\}
+    , &[_][]const u8{ // TODO properly translate this
+        \\pub const main = @compileError("unable to translate function");
+    });
+
     cases.add("correct semicolon after infixop",
         \\#define __ferror_unlocked_body(_fp) (((_fp)->_flags & _IO_ERR_SEEN) != 0)
     , &[_][]const u8{
