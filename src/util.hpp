@@ -96,6 +96,14 @@ static inline bool mem_eql_str(const char *mem, size_t mem_len, const char *str)
     return mem_eql_mem(mem, mem_len, str, strlen(str));
 }
 
+static inline bool str_eql_str(const char *a, const char* b) {
+    return mem_eql_mem(a, strlen(a), b, strlen(b));
+}
+
+static inline bool str_eql_str_ignore_case(const char *a, const char* b) {
+    return mem_eql_mem_ignore_case(a, strlen(a), b, strlen(b));
+}
+
 static inline bool is_power_of_2(uint64_t x) {
     return x != 0 && ((x & (~x + 1)) == x);
 }

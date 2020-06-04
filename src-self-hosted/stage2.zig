@@ -1271,3 +1271,5 @@ export fn stage2_clang_arg_next(it: *ClangArgIterator) Error {
     };
     return .None;
 }
+
+export const stage2_is_zig0 = false;

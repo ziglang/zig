@@ -322,3 +322,5 @@ enum Error stage2_clang_arg_next(struct Stage2ClangArgIterator *it) {
     const char *msg = "stage0 called stage2_clang_arg_next";
     stage2_panic(msg, strlen(msg));
 }
+
+const bool stage2_is_zig0 = true;

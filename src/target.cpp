@@ -1209,38 +1209,45 @@ const char *target_libc_generic_name(const ZigTarget *target) {
 }
 
 bool target_is_libc_lib_name(const ZigTarget *target, const char *name) {
-    if (strcmp(name, "c") == 0)
+    auto equal = str_eql_str;
+    if (target->os == OsMacOSX)
+        equal = str_eql_str_ignore_case;
+
+    if (equal(name, "c"))
         return true;
 
     if (target_abi_is_gnu(target->abi) && target->os == OsWindows) {
         // mingw-w64
 
-        if (strcmp(name, "m") == 0)
+        if (equal(name, "m"))
             return true;
 
         return false;
     }
 
     if (target_abi_is_gnu(target->abi) || target_abi_is_musl(target->abi) || target_os_is_darwin(target->os)) {
-        if (strcmp(name, "m") == 0)
+        if (equal(name, "m"))
             return true;
-        if (strcmp(name, "rt") == 0)
+        if (equal(name, "rt"))
             return true;
-        if (strcmp(name, "pthread") == 0)
+        if (equal(name, "pthread"))
             return true;
-        if (strcmp(name, "crypt") == 0)
+        if (equal(name, "crypt"))
             return true;
-        if (strcmp(name, "util") == 0)
+        if (equal(name, "util"))
             return true;
-        if (strcmp(name, "xnet") == 0)
+        if (equal(name, "xnet"))
             return true;
-        if (strcmp(name, "resolv") == 0)
+        if (equal(name, "resolv"))
             return true;
-        if (strcmp(name, "dl") == 0)
+        if (equal(name, "dl"))
             return true;
-        if (strcmp(name, "util") == 0)
+        if (equal(name, "util"))
             return true;
     }
+
+    if (target_os_is_darwin(target->os) && equal(name, "System"))
+        return true;
 
     return false;
 }
