@@ -2100,6 +2100,10 @@ static void construct_linker_job_wasm(LinkJob *lj) {
     CodeGen *g = lj->codegen;
 
     lj->args.append("-error-limit=0");
+    // Increase the default stack size to a more reasonable value of 1MB instead of
+    // the default of 1 Wasm page being 64KB.
+    lj->args.append("-z");
+    lj->args.append("stack-size=1048576");
 
     if (g->out_type != OutTypeExe) {
         lj->args.append("--no-entry"); // So lld doesn't look for _start.
