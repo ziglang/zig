@@ -1,28 +1,9 @@
 const std = @import("std");
 const link = @import("link.zig");
 const Module = @import("Module.zig");
-const ErrorMsg = Module.ErrorMsg;
 const Allocator = std.mem.Allocator;
 const zir = @import("zir.zig");
 const Package = @import("Package.zig");
-
-test "find-offset" {
-    std.testing.expectEqual(findOffset("hello123", 1, 8), 7);
-    const testmsg =
-        \\@noreturn = primitive(noreturn)
-        \\
-        \\@start_fnty = fntype([], @noreturn, cc=Naked)
-        \\@start = fn(@start_fnty, {
-        \\  %0 = call(@notafunc, [])
-        \\})
-    ;
-    std.testing.expectEqual(findOffset(testmsg, 2, 1), 32);
-    std.testing.expectEqual(findOffset(testmsg, 3, 1), 33);
-    std.testing.expectEqual(findOffset(testmsg, 3, 10), 42);
-    std.testing.expectEqual(findOffset(testmsg, 4, 1), 79);
-    std.testing.expectEqual(findOffset(testmsg, 5, 1), 106);
-    std.testing.expectEqual(findOffset(testmsg, 5, 13), 118);
-}
 
 test "self-hosted" {
     var ctx: TestContext = undefined;
@@ -34,26 +15,11 @@ test "self-hosted" {
     try ctx.run();
 }
 
-/// Finds the raw byte offset of line:column in src. This is not a performant implementation,
-/// as it should only ever be called rarely and it is better to focus on readability.
-fn findOffset(src: []const u8, line: usize, column: usize) ?usize {
-    // "0000000001"
-    // 1:10
-    //
-    var current_line: usize = 1;
-    var current_column: usize = 1;
-    for (src) |char, index| {
-        if (current_line == line and current_column == column) {
-            return index;
-        }
-        if (char == '\n') {
-            current_line += 1;
-            current_column = 0;
-        }
-        current_column += 1;
-    }
-    return null;
-}
+const ErrorMsg = struct {
+    msg: []const u8,
+    line: u32,
+    column: u32,
+};
 
 pub const TestContext = struct {
     // TODO: remove these. They are deprecated.
@@ -115,7 +81,7 @@ pub const TestContext = struct {
         cross_target: std.zig.CrossTarget,
     };
 
-    pub const ZIRStageType = enum {
+    pub const ZIRUpdateType = enum {
         /// A transformation stage transforms the input ZIR and tests against
         /// the expected output
         Transformation,
@@ -129,7 +95,7 @@ pub const TestContext = struct {
         Compiles,
     };
 
-    pub const ZIRStage = struct {
+    pub const ZIRUpdate = struct {
         /// The input to the current stage. We simulate an incremental update
         /// with the file's contents changed to this value each stage.
         ///
@@ -138,7 +104,7 @@ pub const TestContext = struct {
         /// you can keep it mostly consistent, with small changes, testing the
         /// effects of the incremental compilation.
         src: [:0]const u8,
-        case: union(ZIRStageType) {
+        case: union(ZIRUpdateType) {
             /// The expected output ZIR
             Transformation: []const u8,
             /// A slice containing the expected errors *in sequential order*.
@@ -175,14 +141,14 @@ pub const TestContext = struct {
         /// such as QEMU is required for tests to complete.
         ///
         target: std.zig.CrossTarget,
-        stages: []ZIRStage,
+        stages: []ZIRUpdate,
     };
 
     pub fn addZIRCase(
         ctx: *TestContext,
         name: []const u8,
         target: std.zig.CrossTarget,
-        stages: []ZIRStage,
+        stages: []ZIRUpdate,
     ) !void {
         const case = .{
             .name = name,
@@ -233,21 +199,34 @@ pub const TestContext = struct {
     ) void {
         var array = std.ArrayList(ErrorMsg).init(ctx.zir_error_cases.allocator);
         for (expected_errors) |e| {
-            const line_index = std.mem.indexOf(u8, e, ":");
+            var cur = e;
+            const err = cur[0..7];
+            if (!std.mem.eql(u8, err, "error: ")) {
+                std.debug.panic("Only error messages are currently supported, received {}\n", .{e});
+            }
+            cur = cur[7..];
+            var line_index = std.mem.indexOf(u8, cur, ":");
             if (line_index == null) {
-                std.debug.panic("Invalid test: error must be specified as 'line:column:msg', found '{}'", .{e});
+                std.debug.panic("Invalid test: error must be specified as 'error: line:column: msg', found '{}'", .{e});
             }
-            const column_index = std.mem.indexOf(u8, e[line_index.? + 1 ..], ":");
+            const line = std.fmt.parseInt(u32, cur[0..line_index.?], 10) catch @panic("Unable to parse line number");
+            cur = cur[line_index.? + 1 ..];
+            const column_index = std.mem.indexOf(u8, cur, ":");
             if (column_index == null) {
-                std.debug.panic("Invalid test: error must be specified as 'line:column:msg', found '{}'", .{e});
+                std.debug.panic("Invalid test: error must be specified as 'error: line:column: msg', found '{}'", .{e});
             }
-            const line = std.fmt.parseInt(usize, e[0..line_index.?], 10) catch @panic("Unable to parse line number");
-            const column = std.fmt.parseInt(usize, e[line_index.? + 1 ..][0..column_index.?], 10) catch @panic("Unable to parse column number");
-            const msg = e[line_index.? + 1 ..][column_index.? + 1 ..];
-            const offset = findOffset(src, line, column) orelse std.debug.panic("Unable to match {}:{} to byte offset!", .{ line, column });
-            array.append(ErrorMsg{
-                .byte_offset = offset,
+            const column = std.fmt.parseInt(u32, cur[0..column_index.?], 10) catch @panic("Unable to parse column number");
+            std.debug.assert(cur[column_index.? + 1] == ' ');
+            const msg = cur[column_index.? + 2 ..];
+
+            if (line == 0 or column == 0) {
+                @panic("Invalid test: error line and column must be specified starting at one!");
+            }
+
+            array.append(.{
                 .msg = msg,
+                .line = line - 1,
+                .column = column - 1,
             }) catch unreachable;
         }
         ctx.zir_error_cases.append(.{
@@ -264,6 +243,7 @@ pub const TestContext = struct {
             .zir_cmp_output_cases = std.ArrayList(ZIRCompareOutputCase).init(allocator),
             .zir_transform_cases = std.ArrayList(ZIRTransformCase).init(allocator),
             .zir_error_cases = std.ArrayList(ZIRErrorCase).init(allocator),
+            .zir_cases = std.ArrayList(ZIRCase).init(allocator),
         };
     }
 
@@ -274,6 +254,7 @@ pub const TestContext = struct {
             self.zir_error_cases.allocator.free(e.expected_errors);
         }
         self.zir_error_cases.deinit();
+        self.zir_cases.deinit();
         self.* = undefined;
     }
 
@@ -343,9 +324,9 @@ pub const TestContext = struct {
 
         for (case.stages) |s| {
             // TODO: remove before committing. This is for ZLS ;)
-            const stage: ZIRStage = s;
+            const stage: ZIRUpdate = s;
 
-            var stage_node = prg_node.start("stage", 4);
+            var stage_node = prg_node.start("update", 4);
             stage_node.activate();
             defer stage_node.end();
 
@@ -592,74 +573,33 @@ pub const TestContext = struct {
             e.* = false;
         }
 
-        // TODO: check the input error list in sequential order, manually
-        // incrementing indices when needed. This would allow deduplicating the
-        // following three blocks into one, and the restriction it imposes on
-        // test writers is one that naturally flows anyways.
-        {
-            var i = module.failed_files.iterator();
-            while (i.next()) |pair| {
-                const v1 = pair.value.*;
-                var handled = false;
-                for (case.expected_errors) |e, index| {
-                    if (!handled_errors[index]) {
-                        if (v1.byte_offset == e.byte_offset and std.mem.eql(u8, v1.msg, e.msg)) {
-                            handled_errors[index] = true;
-                            handled = true;
-                            break;
-                        }
+        var all_errors = try module.getAllErrorsAlloc();
+        defer all_errors.deinit(allocator);
+        for (all_errors.list) |e| {
+            var handled = false;
+            for (case.expected_errors) |ex, i| {
+                if (e.line == ex.line and e.column == ex.column and std.mem.eql(u8, ex.msg, e.msg)) {
+                    if (handled_errors[i]) {
+                        err = error.ErrorReceivedMultipleTimes;
+                        std.debug.warn("Received error multiple times: {}\n", .{e.msg});
+                    } else {
+                        handled_errors[i] = true;
+                        handled = true;
                     }
-                }
-                if (!handled) {
-                    err = error.UnexpectedError;
-                    std.debug.warn("Unexpected file error: {}\n", .{v1});
+                    break;
                 }
             }
-        }
-        {
-            var i = module.failed_decls.iterator();
-            while (i.next()) |pair| {
-                const v1 = pair.value.*;
-                var handled = false;
-                for (case.expected_errors) |e, index| {
-                    if (!handled_errors[index]) {
-                        if (v1.byte_offset == e.byte_offset and std.mem.eql(u8, v1.msg, e.msg)) {
-                            handled_errors[index] = true;
-                            handled = true;
-                            break;
-                        }
-                    }
-                }
-                if (!handled) {
-                    err = error.UnexpectedError;
-                    std.debug.warn("Unexpected decl error: {}\n", .{v1});
-                }
+            if (!handled) {
+                err = error.ErrorNotExpected;
+                std.debug.warn("Received an unexpected error: {}:{}: {}\n", .{ e.line, e.column, e.msg });
             }
         }
-        {
-            var i = module.failed_exports.iterator();
-            while (i.next()) |pair| {
-                const v1 = pair.value.*;
-                var handled = false;
-                for (case.expected_errors) |e, index| {
-                    if (!handled_errors[index]) {
-                        if (v1.byte_offset == e.byte_offset and std.mem.eql(u8, v1.msg, e.msg)) {
-                            handled_errors[index] = true;
-                            handled = true;
-                            break;
-                        }
-                    }
-                }
-                if (!handled) {
-                    err = error.UnexpectedError;
-                    std.debug.warn("Unexpected export error: {}\n", .{v1});
-                }
-            }
-        }
+
         for (handled_errors) |e, i| {
             if (!e) {
                 err = error.MissingExpectedError;
-                std.debug.warn("Did not receive error: {}\n", .{case.expected_errors[i].msg});
+                const er = case.expected_errors[i];
+                std.debug.warn("Did not receive error: {}:{}: {}\n", .{ er.line, er.column, er.msg });
             }
         }
 
