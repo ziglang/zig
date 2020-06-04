@@ -745,6 +745,7 @@ pub const RemoveDirectoryError = error{
     FileNotFound,
     DirNotEmpty,
     Unexpected,
+    NotDir,
 };
 
 pub fn RemoveDirectory(dir_path: []const u8) RemoveDirectoryError!void {
@@ -757,6 +758,7 @@ pub fn RemoveDirectoryW(dir_path_w: [*:0]const u16) RemoveDirectoryError!void {
         switch (kernel32.GetLastError()) {
             .PATH_NOT_FOUND => return error.FileNotFound,
             .DIR_NOT_EMPTY => return error.DirNotEmpty,
+            .DIRECTORY => return error.NotDir,
             else => |err| return unexpectedError(err),
         }
     }
