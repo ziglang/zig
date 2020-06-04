@@ -182,6 +182,7 @@ pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HAN
             .PIPE_BUSY => return error.PipeBusy,
             .OBJECT_PATH_SYNTAX_BAD => unreachable,
             .OBJECT_NAME_COLLISION => return error.PathAlreadyExists,
+            .FILE_IS_A_DIRECTORY => return error.IsDir,
             else => return unexpectedStatus(rc),
         }
     }
