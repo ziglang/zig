@@ -379,4 +379,7 @@ ZIG_EXTERN_C void stage2_clang_arg_iterator(struct Stage2ClangArgIterator *it,
 // ABI warning
 ZIG_EXTERN_C enum Error stage2_clang_arg_next(struct Stage2ClangArgIterator *it);
 
+// ABI warning
+ZIG_EXTERN_C const bool stage2_is_zig0;
+
 #endif
