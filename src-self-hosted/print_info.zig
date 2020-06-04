@@ -18,7 +18,7 @@ const usage_info =
     \\
     \\Options:
     \\   --help                 Print this help and exit
-    \\   --json                 Output as json instead of a table format
+    \\   --format [text|json]   Choose output format (defaults to text)
     \\
 ;
 
@@ -98,14 +98,30 @@ pub fn cmdInfo(allocator: *Allocator, cmd_args: []const []const u8, compiler_typ
     const bos_stream = bos.outStream();
 
     var json_format = false;
-    for (cmd_args) |arg| {
-        if (mem.eql(u8, arg, "--json")) {
-            json_format = true;
+
+    var i: usize = 0;
+    while (i < cmd_args.len) : (i += 1) {
+        const arg = cmd_args[i];
+        if (mem.eql(u8, arg, "--format")) {
+            if (cmd_args.len <= i + 1) {
+                std.debug.warn("expected [text|json] after --format\n", .{});
+                process.exit(1);
+            }
+            const format = cmd_args[i + 1];
+            i += 1;
+            if (mem.eql(u8, format, "text")) {
+                json_format = false;
+            } else if (mem.eql(u8, format, "json")) {
+                json_format = true;
+            } else {
+                std.debug.warn("expected [text|json] after --format, found '{}'\n", .{format});
+                process.exit(1);
+            }
         } else if (mem.eql(u8, arg, "--help")) {
             try stdout.writeAll(usage_info);
             return;
         } else {
-            std.debug.warn("Unknown argument passed to info command: {}\n", .{arg});
+            std.debug.warn("unrecognized parameter: '{}'\n", .{arg});
             process.exit(1);
         }
     }
