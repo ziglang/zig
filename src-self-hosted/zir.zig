@@ -27,7 +27,6 @@ pub const Inst = struct {
     pub const Tag = enum {
         breakpoint,
         call,
-        compileerror,
         /// Represents a pointer to a global decl by name.
         declref,
         /// The syntax `@foo` is equivalent to `declval("foo")`.
@@ -63,7 +62,6 @@ pub const Inst = struct {
             .call => Call,
             .declref => DeclRef,
             .declval => DeclVal,
-            .compileerror => CompileError,
             .str => Str,
             .int => Int,
             .ptrtoint => PtrToInt,
@@ -133,16 +131,6 @@ pub const Inst = struct {
 
         positionals: struct {
             name: []const u8,
-        },
-        kw_args: struct {},
-    };
-
-    pub const CompileError = struct {
-        pub const base_tag = Tag.compileerror;
-        base: Inst,
-
-        positionals: struct {
-            msg: []const u8,
         },
         kw_args: struct {},
     };
@@ -525,7 +513,6 @@ pub const Module = struct {
             .call => return self.writeInstToStreamGeneric(stream, .call, decl, inst_table),
             .declref => return self.writeInstToStreamGeneric(stream, .declref, decl, inst_table),
             .declval => return self.writeInstToStreamGeneric(stream, .declval, decl, inst_table),
-            .compileerror => return self.writeInstToStreamGeneric(stream, .compileerror, decl, inst_table),
             .str => return self.writeInstToStreamGeneric(stream, .str, decl, inst_table),
             .int => return self.writeInstToStreamGeneric(stream, .int, decl, inst_table),
             .ptrtoint => return self.writeInstToStreamGeneric(stream, .ptrtoint, decl, inst_table),
