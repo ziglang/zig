@@ -1295,10 +1295,13 @@ pub const DebugInfo = struct {
         const obj_di = try self.allocator.create(ModuleDebugInfo);
         errdefer self.allocator.destroy(obj_di);
 
-        const elf_file = (if (ctx.name.len > 0)
+        // TODO https://github.com/ziglang/zig/issues/5525
+        const copy = if (ctx.name.len > 0)
             fs.cwd().openFile(ctx.name, .{ .intended_io_mode = .blocking })
         else
-            fs.openSelfExe(.{ .intended_io_mode = .blocking })) catch |err| switch (err) {
+            fs.openSelfExe(.{ .intended_io_mode = .blocking });
+    
+        const elf_file = copy catch |err| switch (err) {
             error.FileNotFound => return error.MissingDebugInfo,
             else => return err,
         };
