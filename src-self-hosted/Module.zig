@@ -1097,6 +1097,9 @@ fn resolveDecl(self: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!*De
         const decl = kv.value;
         try self.reAnalyzeDecl(decl, old_inst);
         return decl;
+    } else if (old_inst.cast(zir.Inst.DeclVal)) |decl_val| {
+        // This is just a named reference to another decl.
+        return self.analyzeDeclVal(scope, decl_val);
     } else {
         const new_decl = blk: {
             try self.decl_table.ensureCapacity(self.decl_table.size + 1);
@@ -1443,6 +1446,7 @@ fn analyzeInst(self: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!*In
         .breakpoint => return self.analyzeInstBreakpoint(scope, old_inst.cast(zir.Inst.Breakpoint).?),
         .call => return self.analyzeInstCall(scope, old_inst.cast(zir.Inst.Call).?),
         .declref => return self.analyzeInstDeclRef(scope, old_inst.cast(zir.Inst.DeclRef).?),
+        .declval => return self.analyzeInstDeclVal(scope, old_inst.cast(zir.Inst.DeclVal).?),
         .str => {
             const bytes = old_inst.cast(zir.Inst.Str).?.positionals.bytes;
             // The bytes references memory inside the ZIR module, which can get deallocated
@@ -1499,6 +1503,24 @@ fn analyzeInstDeclRef(self: *Module, scope: *Scope, inst: *zir.Inst.DeclRef) Inn
 
     const decl = try self.resolveCompleteDecl(scope, src_decl);
     return self.analyzeDeclRef(scope, inst.base.src, decl);
+}
+
+fn analyzeDeclVal(self: *Module, scope: *Scope, inst: *zir.Inst.DeclVal) InnerError!*Decl {
+    const decl_name = inst.positionals.name;
+    // This will need to get more fleshed out when there are proper structs & namespaces.
+    const zir_module = scope.namespace();
+    const src_decl = zir_module.contents.module.findDecl(decl_name) orelse
+        return self.fail(scope, inst.base.src, "use of undeclared identifier '{}'", .{decl_name});
+
+    const decl = try self.resolveCompleteDecl(scope, src_decl);
+
+    return decl;
+}
+
+fn analyzeInstDeclVal(self: *Module, scope: *Scope, inst: *zir.Inst.DeclVal) InnerError!*Inst {
+    const decl = try self.analyzeDeclVal(scope, inst);
+    const ptr = try self.analyzeDeclRef(scope, inst.base.src, decl);
+    return self.analyzeDeref(scope, inst.base.src, ptr, inst.base.src);
 }
 
 fn analyzeDeclRef(self: *Module, scope: *Scope, src: usize, decl: *Decl) InnerError!*Inst {
@@ -1621,7 +1643,7 @@ fn analyzeInstFnType(self: *Module, scope: *Scope, fntype: *zir.Inst.FnType) Inn
 }
 
 fn analyzeInstPrimitive(self: *Module, scope: *Scope, primitive: *zir.Inst.Primitive) InnerError!*Inst {
-    return self.constType(scope, primitive.base.src, primitive.positionals.tag.toType());
+    return self.constInst(scope, primitive.base.src, primitive.positionals.tag.toTypedValue());
 }
 
 fn analyzeInstAs(self: *Module, scope: *Scope, as: *zir.Inst.As) InnerError!*Inst {
