@@ -200,24 +200,20 @@ pub const TestContext = struct {
         var array = std.ArrayList(ErrorMsg).init(ctx.zir_error_cases.allocator);
         for (expected_errors) |e| {
             var cur = e;
-            const err = cur[0..7];
-            if (!std.mem.eql(u8, err, "error: ")) {
-                std.debug.panic("Only error messages are currently supported, received {}\n", .{e});
-            }
-            cur = cur[7..];
             var line_index = std.mem.indexOf(u8, cur, ":");
             if (line_index == null) {
-                std.debug.panic("Invalid test: error must be specified as 'error: line:column: msg', found '{}'", .{e});
+                std.debug.panic("Invalid test: error must be specified as 'line:column: error: msg', found '{}'", .{e});
             }
             const line = std.fmt.parseInt(u32, cur[0..line_index.?], 10) catch @panic("Unable to parse line number");
             cur = cur[line_index.? + 1 ..];
             const column_index = std.mem.indexOf(u8, cur, ":");
             if (column_index == null) {
-                std.debug.panic("Invalid test: error must be specified as 'error: line:column: msg', found '{}'", .{e});
+                std.debug.panic("Invalid test: error must be specified as 'line:column: error: msg', found '{}'", .{e});
             }
             const column = std.fmt.parseInt(u32, cur[0..column_index.?], 10) catch @panic("Unable to parse column number");
-            std.debug.assert(cur[column_index.? + 1] == ' ');
-            const msg = cur[column_index.? + 2 ..];
+            cur = cur[column_index.? + 2 ..];
+            std.debug.assert(std.mem.eql(u8, cur[0..7], "error: "));
+            const msg = cur[7..];
 
             if (line == 0 or column == 0) {
                 @panic("Invalid test: error line and column must be specified starting at one!");
