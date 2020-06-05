@@ -27,6 +27,7 @@ pub const Inst = struct {
     pub const Tag = enum {
         breakpoint,
         call,
+        compileerror,
         /// Represents a pointer to a global decl by name.
         declref,
         /// The syntax `@foo` is equivalent to `declval("foo")`.
@@ -62,6 +63,7 @@ pub const Inst = struct {
             .call => Call,
             .declref => DeclRef,
             .declval => DeclVal,
+            .compileerror => CompileError,
             .str => Str,
             .int => Int,
             .ptrtoint => PtrToInt,
@@ -131,6 +133,16 @@ pub const Inst = struct {
 
         positionals: struct {
             name: []const u8,
+        },
+        kw_args: struct {},
+    };
+
+    pub const CompileError = struct {
+        pub const base_tag = Tag.compileerror;
+        base: Inst,
+
+        positionals: struct {
+            msg: []const u8,
         },
         kw_args: struct {},
     };
@@ -513,6 +525,7 @@ pub const Module = struct {
             .call => return self.writeInstToStreamGeneric(stream, .call, decl, inst_table),
             .declref => return self.writeInstToStreamGeneric(stream, .declref, decl, inst_table),
             .declval => return self.writeInstToStreamGeneric(stream, .declval, decl, inst_table),
+            .compileerror => return self.writeInstToStreamGeneric(stream, .compileerror, decl, inst_table),
             .str => return self.writeInstToStreamGeneric(stream, .str, decl, inst_table),
             .int => return self.writeInstToStreamGeneric(stream, .int, decl, inst_table),
             .ptrtoint => return self.writeInstToStreamGeneric(stream, .ptrtoint, decl, inst_table),
@@ -917,6 +930,7 @@ const Parser = struct {
         try requireEatBytes(self, ")");
 
         inst_specific.base.contents = self.source[contents_start..self.i];
+        //std.debug.warn("parsed {} = '{}'\n", .{ inst_specific.base.name, inst_specific.base.contents });
 
         return &inst_specific.base;
     }
@@ -1230,7 +1244,44 @@ const EmitZIR = struct {
                 var instructions = std.ArrayList(*Inst).init(self.allocator);
                 defer instructions.deinit();
 
-                try self.emitBody(module_fn.analysis.success, &inst_table, &instructions);
+                switch (module_fn.analysis) {
+                    .queued => unreachable,
+                    .in_progress => unreachable,
+                    .success => |body| {
+                        try self.emitBody(body, &inst_table, &instructions);
+                    },
+                    .sema_failure => {
+                        const err_msg = self.old_module.failed_decls.getValue(module_fn.owner_decl).?;
+                        const fail_inst = try self.arena.allocator.create(Inst.CompileError);
+                        fail_inst.* = .{
+                            .base = .{
+                                .name = try self.autoName(),
+                                .src = src,
+                                .tag = Inst.CompileError.base_tag,
+                            },
+                            .positionals = .{
+                                .msg = try self.arena.allocator.dupe(u8, err_msg.msg),
+                            },
+                            .kw_args = .{},
+                        };
+                        try instructions.append(&fail_inst.base);
+                    },
+                    .dependency_failure => {
+                        const fail_inst = try self.arena.allocator.create(Inst.CompileError);
+                        fail_inst.* = .{
+                            .base = .{
+                                .name = try self.autoName(),
+                                .src = src,
+                                .tag = Inst.CompileError.base_tag,
+                            },
+                            .positionals = .{
+                                .msg = try self.arena.allocator.dupe(u8, "depends on another failed Decl"),
+                            },
+                            .kw_args = .{},
+                        };
+                        try instructions.append(&fail_inst.base);
+                    },
+                }
 
                 const fn_type = try self.emitType(src, module_fn.fn_type);
 
