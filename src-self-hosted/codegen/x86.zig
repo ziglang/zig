@@ -7,7 +7,7 @@ pub const Register = enum(u8) {
     ax, cx, dx, bx, sp, bp, si, di,
     
     // 16-23, 8-bit registers. id is int value - 16.
-    al, bl, cl, dl, ah, ch, dh, bh,
+    al, cl, dl, bl, ah, ch, dh, bh,
 
     /// Returns the bit-width of the register.
     pub fn size(self: @This()) u7 {
