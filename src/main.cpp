@@ -126,6 +126,7 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  -l[lib]                      alias for --library\n"
         "  -rdynamic                    add all symbols to the dynamic symbol table\n"
         "  -rpath [path]                add directory to the runtime library search path\n"
+        "  --stack [size]               (linux, windows, Wasm) override default stack size\n"
         "  --subsystem [subsystem]      (windows) /SUBSYSTEM:<subsystem> to the linker\n"
         "  -F[dir]                      (darwin) add search path for frameworks\n"
         "  -framework [name]            (darwin) link against framework\n"
@@ -1231,6 +1232,8 @@ static int main0(int argc, char **argv) {
                     ver_patch = atoi(argv[i]);
                 } else if (strcmp(arg, "--test-cmd") == 0) {
                     test_exec_args.append(argv[i]);
+                } else if (strcmp(arg, "--stack") == 0) {
+                    stack_size_override = atoi(argv[i]);
                 } else if (strcmp(arg, "--subsystem") == 0) {
                     if (strcmp(argv[i], "console") == 0) {
                         subsystem = TargetSubsystemConsole;
