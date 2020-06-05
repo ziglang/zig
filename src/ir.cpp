@@ -21924,7 +21924,9 @@ static IrInstGen *ir_analyze_struct_field_ptr(IrAnalyze *ira, IrInst* source_ins
         case OnePossibleValueYes: {
             IrInstGen *elem = ir_const_move(ira, source_instr,
                  get_the_one_possible_value(ira->codegen, field_type));
-            return ir_get_ref(ira, source_instr, elem, false, false);
+            return ir_get_ref(ira, source_instr, elem,
+                struct_ptr->value->type->data.pointer.is_const,
+                struct_ptr->value->type->data.pointer.is_volatile);
         }
         case OnePossibleValueNo:
             break;
@@ -27097,10 +27099,8 @@ static IrInstGen *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstSrcSlice *i
 
     if (array_type->id == ZigTypeIdArray) {
         elem_type = array_type->data.array.child_type;
-        bool is_comptime_const = ptr_ptr->value->special == ConstValSpecialStatic &&
-            ptr_ptr->value->data.x_ptr.mut == ConstPtrMutComptimeConst;
         non_sentinel_slice_ptr_type = get_pointer_to_type_extra(ira->codegen, elem_type,
-            ptr_ptr_type->data.pointer.is_const || is_comptime_const,
+            ptr_ptr_type->data.pointer.is_const,
             ptr_ptr_type->data.pointer.is_volatile,
             PtrLenUnknown,
             ptr_ptr_type->data.pointer.explicit_alignment, 0, 0, false);
