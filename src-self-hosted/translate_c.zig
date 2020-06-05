@@ -2625,6 +2625,9 @@ fn transSwitch(
         const else_prong = try transCreateNodeSwitchCase(rp.c, try transCreateNodeSwitchElse(rp.c));
         else_prong.expr = &(try transCreateNodeBreak(rp.c, "__switch")).base;
         _ = try appendToken(rp.c, .Comma, ",");
+
+        if (switch_scope.case_index >= switch_scope.cases.len)
+            return revertAndWarn(rp, error.UnsupportedTranslation, ZigClangStmt_getBeginLoc(@ptrCast(*const ZigClangStmt, stmt)), "TODO complex switch cases", .{});
         switch_scope.cases[switch_scope.case_index] = &else_prong.base;
         switch_scope.case_index += 1;
     }
@@ -2666,6 +2669,9 @@ fn transCase(
     const switch_prong = try transCreateNodeSwitchCase(rp.c, expr);
     switch_prong.expr = &(try transCreateNodeBreak(rp.c, label)).base;
     _ = try appendToken(rp.c, .Comma, ",");
+
+    if (switch_scope.case_index >= switch_scope.cases.len)
+        return revertAndWarn(rp, error.UnsupportedTranslation, ZigClangStmt_getBeginLoc(@ptrCast(*const ZigClangStmt, stmt)), "TODO complex switch cases", .{});
     switch_scope.cases[switch_scope.case_index] = &switch_prong.base;
     switch_scope.case_index += 1;
 
@@ -2699,6 +2705,9 @@ fn transDefault(
     const else_prong = try transCreateNodeSwitchCase(rp.c, try transCreateNodeSwitchElse(rp.c));
     else_prong.expr = &(try transCreateNodeBreak(rp.c, label)).base;
     _ = try appendToken(rp.c, .Comma, ",");
+
+    if (switch_scope.case_index >= switch_scope.cases.len)
+        return revertAndWarn(rp, error.UnsupportedTranslation, ZigClangStmt_getBeginLoc(@ptrCast(*const ZigClangStmt, stmt)), "TODO complex switch cases", .{});
     switch_scope.cases[switch_scope.case_index] = &else_prong.base;
     switch_scope.case_index += 1;
 
