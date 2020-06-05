@@ -930,7 +930,6 @@ fn deleteDecl(self: *Module, decl: *Decl) !void {
     for (decl.dependants.items) |dep| {
         dep.removeDependency(decl);
         if (dep.analysis != .outdated) {
-            // TODO Move this failure possibility to the top of the function.
             try self.markOutdatedDecl(dep);
         }
     }
@@ -1104,7 +1103,7 @@ fn markOutdatedDecl(self: *Module, decl: *Decl) !void {
     //std.debug.warn("mark {} outdated\n", .{decl.name});
     try self.work_queue.writeItem(.{ .re_analyze_decl = decl });
     if (self.failed_decls.remove(decl)) |entry| {
-        entry.value.destroy(self.allocator);
+        self.allocator.destroy(entry.value);
     }
     decl.analysis = .outdated;
 }
