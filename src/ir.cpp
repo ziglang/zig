@@ -4997,7 +4997,7 @@ static IrInstSrc *ir_build_wasm_memory_size_src(IrBuilderSrc *irb, Scope *scope,
 static IrInstGen *ir_build_wasm_memory_size_gen(IrAnalyze *ira, IrInst *source_instr, IrInstGen *index) {
     IrInstGenWasmMemorySize *instruction = ir_build_inst_gen<IrInstGenWasmMemorySize>(&ira->new_irb,
             source_instr->scope, source_instr->source_node);
-    instruction->base.value->type = ira->codegen->builtin_types.entry_i32;
+    instruction->base.value->type = ira->codegen->builtin_types.entry_u32;
     instruction->index = index;
 
     ir_ref_inst_gen(index);
