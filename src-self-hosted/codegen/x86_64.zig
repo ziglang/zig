@@ -33,7 +33,7 @@ pub const Register = enum(u8) {
     
     // 48-63, 8-bit registers. 56-63 are extended.
     // id is int value - 48.
-    al, bl, cl, dl, ah, ch, dh, bh,
+    al, cl, dl, bl, ah, ch, dh, bh,
     r8b, r9b, r10b, r11b, r12b, r13b, r14b, r15b,
 
     /// Returns the bit-width of the register.
