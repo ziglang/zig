@@ -7652,7 +7652,7 @@ mem.set(u8, dest, c);{#endsyntax#}</pre>
       <p>
       This function is a low level intrinsic with no safety mechanisms usually useful for allocator
       designers targeting Wasm. So unless you are writing a new allocator from scratch, you should use
-      something like {#syntax#}@import("std").heap.WasmAllocator{#endsyntax#}.
+      something like {#syntax#}@import("std").heap.WasmPageAllocator{#endsyntax#}.
       </p>
       {#see_also|@wasmMemoryGrow#}
       {#header_close#}
@@ -7668,13 +7668,16 @@ mem.set(u8, dest, c);{#endsyntax#}</pre>
       <p>
       This function is a low level intrinsic with no safety mechanisms usually useful for allocator
       designers targeting Wasm. So unless you are writing a new allocator from scratch, you should use
-      something like {#syntax#}@import("std").heap.WasmAllocator{#endsyntax#}.
+      something like {#syntax#}@import("std").heap.WasmPageAllocator{#endsyntax#}.
       </p>
       {#code_begin|test#}
 const std = @import("std");
+const builtin = @import("builtin");
 const assert = std.debug.assert;
 
 test "@wasmMemoryGrow" {
+    if (builtin.arch != .wasm32) return error.SkipZigTest;
+
     var prev = @wasmMemorySize(0);
     assert(prev == @wasmMemoryGrow(0, 1));
     assert(prev + 1 == @wasmMemorySize(0));
