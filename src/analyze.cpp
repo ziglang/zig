@@ -6963,7 +6963,7 @@ bool const_values_equal(CodeGen *g, ZigValue *a, ZigValue *b) {
                 return const_values_equal(g, a->data.x_optional, b->data.x_optional);
             }
         case ZigTypeIdErrorUnion:
-            zig_panic("TODO");
+            return a->data.x_err_union.error_set == b->data.x_err_union.error_set && a->data.x_err_union.payload == b->data.x_err_union.payload;
         case ZigTypeIdBoundFn:
         case ZigTypeIdInvalid:
         case ZigTypeIdUnreachable:

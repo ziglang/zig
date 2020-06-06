@@ -2099,7 +2099,7 @@ fn unescapeString(output: []u8, input: []const u8) !void {
                 inIndex += 6;
             } else |err| {
                 // it might be a surrogate pair
-                if (err != error.Utf8CannotEncodeSurrogateHalf) {
+                if (err != error.UnicodeSurrogateHalf) {
                     return error.InvalidUnicodeHexSymbol;
                 }
                 // check if a second code unit is present
@@ -2532,15 +2532,17 @@ pub fn stringify(
                             '\r' => try out_stream.writeAll("\\r"),
                             '\t' => try out_stream.writeAll("\\t"),
                             else => {
-                                const ulen = std.unicode.utf8ByteSequenceLength(value[i]) catch unreachable;
                                 // control characters (only things left with 1 byte length) should always be printed as unicode escapes
-                                if (ulen == 1 or options.string.String.escape_unicode) {
-                                    const codepoint = std.unicode.utf8Decode(value[i .. i + ulen]) catch unreachable;
-                                    try outputUnicodeEscape(codepoint, out_stream);
+                                if ((value[i] < 128) or options.string.String.escape_unicode) {
+                                    var codepoint: u32 = undefined;
+                                    var ulen = std.unicode.utf8Decode(value[i..], &codepoint) catch unreachable;
+                                    try outputUnicodeEscape(@intCast(u21, codepoint), out_stream);
+                                    i += ulen - 1;
                                 } else {
+                                    var ulen = std.unicode.utf8ByteSequenceLength(value[i]) catch unreachable;
                                     try out_stream.writeAll(value[i .. i + ulen]);
+                                    i += ulen - 1;
                                 }
-                                i += ulen - 1;
                             },
                         }
                     }
