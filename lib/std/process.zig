@@ -156,7 +156,7 @@ pub const GetEnvVarOwnedError = error{
 pub fn getEnvVarOwned(allocator: *mem.Allocator, key: []const u8) GetEnvVarOwnedError![]u8 {
     if (builtin.os.tag == .windows) {
         const result_w = blk: {
-            const key_w = try std.unicode.utf8ToUtf16LeWithNull(allocator, key);
+            const key_w = std.unicode.utf8ToUtf16LeWithNull(allocator, key) catch return error.InvalidUtf8;
             defer allocator.free(key_w);
 
             break :blk std.os.getenvW(key_w) orelse return error.EnvironmentVariableNotFound;
