@@ -130,6 +130,44 @@ test "listen on a port, send bytes, receive bytes" {
     try await client_frame;
 }
 
+test "listen on ipv4 try connect on ipv6 then ipv4" {
+    if (!std.io.is_async) return error.SkipZigTest;
+
+    if (std.builtin.os.tag != .linux and !std.builtin.os.tag.isDarwin()) {
+        // TODO build abstractions for other operating systems
+        return error.SkipZigTest;
+    }
+
+    // TODO doing this at comptime crashed the compiler
+    const localhost = try net.Address.parseIp("127.0.0.1", 0);
+
+    var server = net.StreamServer.init(net.StreamServer.Options{});
+    defer server.deinit();
+    try server.listen(localhost);
+
+    var server_frame = async testServer(&server);
+    var client_frame = async testClientToHost(
+        testing.allocator,
+        "localhost",
+        server.listen_address.getPort(),
+    );
+
+    try await server_frame;
+    try await client_frame;
+}
+
+fn testClientToHost(allocator: *mem.Allocator, name: []const u8, port: u16) anyerror!void {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
+    const connection = try net.tcpConnectToHost(allocator, name, port);
+    defer connection.close();
+
+    var buf: [100]u8 = undefined;
+    const len = try connection.read(&buf);
+    const msg = buf[0..len];
+    testing.expect(mem.eql(u8, msg, "hello from server\n"));
+}
+
 fn testClient(addr: net.Address) anyerror!void {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
