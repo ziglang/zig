@@ -573,7 +573,15 @@ pub fn tcpConnectToHost(allocator: *mem.Allocator, name: []const u8, port: u16) 
 
     if (list.addrs.len == 0) return error.UnknownHostName;
 
-    return tcpConnectToAddress(list.addrs[0]);
+    for (list.addrs) |addr| {
+        return tcpConnectToAddress(addr) catch |err| switch (err) {
+            error.ConnectionRefused => {
+                continue;
+            },
+            else => return err,
+        };
+    }
+    return std.os.ConnectError.ConnectionRefused;
 }
 
 pub fn tcpConnectToAddress(address: Address) !fs.File {
