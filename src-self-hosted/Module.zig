@@ -576,6 +576,8 @@ pub fn update(self: *Module) !void {
     // TODO Use the cache hash file system to detect which source files changed.
     // Here we simulate a full cache miss.
     // Analyze the root source file now.
+    // Source files could have been loaded for any reason; to force a refresh we unload now.
+    self.root_scope.unload(self.allocator);
     self.analyzeRoot(self.root_scope) catch |err| switch (err) {
         error.AnalysisFail => {
             assert(self.totalErrorCount() != 0);
@@ -594,8 +596,11 @@ pub fn update(self: *Module) !void {
         try self.deleteDecl(decl);
     }
 
-    // Unload all the source files from memory.
-    self.root_scope.unload(self.allocator);
+    // If there are any errors, we anticipate the source files being loaded
+    // to report error messages. Otherwise we unload all source files to save memory.
+    if (self.totalErrorCount() == 0) {
+        self.root_scope.unload(self.allocator);
+    }
 
     try self.bin_file.flush();
     self.link_error_flags = self.bin_file.error_flags;
@@ -668,8 +673,8 @@ pub fn getAllErrorsAlloc(self: *Module) !AllErrors {
     assert(errors.items.len == self.totalErrorCount());
 
     return AllErrors{
-        .arena = arena.state,
         .list = try arena.allocator.dupe(AllErrors.Message, errors.items),
+        .arena = arena.state,
     };
 }
 
@@ -878,11 +883,11 @@ fn analyzeRoot(self: *Module, root_scope: *Scope.ZIRModule) !void {
                     const decl = kv.value;
                     deleted_decls.removeAssertDiscard(decl);
                     const new_contents_hash = Decl.hashSimpleName(src_decl.contents);
+                    //std.debug.warn("'{}' contents: '{}'\n", .{ src_decl.name, src_decl.contents });
                     if (!mem.eql(u8, &new_contents_hash, &decl.contents_hash)) {
-                        //std.debug.warn("noticed '{}' source changed\n", .{src_decl.name});
-                        decl.analysis = .outdated;
+                        //std.debug.warn("'{}' {x} => {x}\n", .{ src_decl.name, decl.contents_hash, new_contents_hash });
+                        try self.markOutdatedDecl(decl);
                         decl.contents_hash = new_contents_hash;
-                        try self.work_queue.writeItem(.{ .re_analyze_decl = decl });
                     }
                 } else if (src_decl.cast(zir.Inst.Export)) |export_inst| {
                     try exports_to_resolve.append(&export_inst.base);
@@ -905,6 +910,8 @@ fn analyzeRoot(self: *Module, root_scope: *Scope.ZIRModule) !void {
 }
 
 fn deleteDecl(self: *Module, decl: *Decl) !void {
+    try self.deletion_set.ensureCapacity(self.allocator, self.deletion_set.items.len + decl.dependencies.items.len);
+
     //std.debug.warn("deleting decl '{}'\n", .{decl.name});
     const name_hash = decl.fullyQualifiedNameHash();
     self.decl_table.removeAssertDiscard(name_hash);
@@ -916,16 +923,19 @@ fn deleteDecl(self: *Module, decl: *Decl) !void {
             // another reference to it may turn up.
             assert(!dep.deletion_flag);
             dep.deletion_flag = true;
-            try self.deletion_set.append(self.allocator, dep);
+            self.deletion_set.appendAssumeCapacity(dep);
         }
     }
     // Anything that depends on this deleted decl certainly needs to be re-analyzed.
     for (decl.dependants.items) |dep| {
         dep.removeDependency(decl);
         if (dep.analysis != .outdated) {
-            dep.analysis = .outdated;
-            try self.work_queue.writeItem(.{ .re_analyze_decl = dep });
+            // TODO Move this failure possibility to the top of the function.
+            try self.markOutdatedDecl(dep);
         }
+    }
+    if (self.failed_decls.remove(decl)) |entry| {
+        entry.value.destroy(self.allocator);
     }
     self.deleteDeclExports(decl);
     self.bin_file.freeDecl(decl);
@@ -1083,12 +1093,20 @@ fn reAnalyzeDecl(self: *Module, decl: *Decl, old_inst: *zir.Inst) InnerError!voi
                 .codegen_failure_retryable,
                 .complete,
                 => if (dep.generation != self.generation) {
-                    dep.analysis = .outdated;
-                    try self.work_queue.writeItem(.{ .re_analyze_decl = dep });
+                    try self.markOutdatedDecl(dep);
                 },
             }
         }
     }
+}
+
+fn markOutdatedDecl(self: *Module, decl: *Decl) !void {
+    //std.debug.warn("mark {} outdated\n", .{decl.name});
+    try self.work_queue.writeItem(.{ .re_analyze_decl = decl });
+    if (self.failed_decls.remove(decl)) |entry| {
+        entry.value.destroy(self.allocator);
+    }
+    decl.analysis = .outdated;
 }
 
 fn resolveDecl(self: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!*Decl {
@@ -1097,6 +1115,9 @@ fn resolveDecl(self: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!*De
         const decl = kv.value;
         try self.reAnalyzeDecl(decl, old_inst);
         return decl;
+    } else if (old_inst.cast(zir.Inst.DeclVal)) |decl_val| {
+        // This is just a named reference to another decl.
+        return self.analyzeDeclVal(scope, decl_val);
     } else {
         const new_decl = blk: {
             try self.decl_table.ensureCapacity(self.decl_table.size + 1);
@@ -1442,7 +1463,9 @@ fn analyzeInst(self: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!*In
     switch (old_inst.tag) {
         .breakpoint => return self.analyzeInstBreakpoint(scope, old_inst.cast(zir.Inst.Breakpoint).?),
         .call => return self.analyzeInstCall(scope, old_inst.cast(zir.Inst.Call).?),
+        .compileerror => return self.analyzeInstCompileError(scope, old_inst.cast(zir.Inst.CompileError).?),
         .declref => return self.analyzeInstDeclRef(scope, old_inst.cast(zir.Inst.DeclRef).?),
+        .declval => return self.analyzeInstDeclVal(scope, old_inst.cast(zir.Inst.DeclVal).?),
         .str => {
             const bytes = old_inst.cast(zir.Inst.Str).?.positionals.bytes;
             // The bytes references memory inside the ZIR module, which can get deallocated
@@ -1480,6 +1503,10 @@ fn analyzeInst(self: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!*In
     }
 }
 
+fn analyzeInstCompileError(self: *Module, scope: *Scope, inst: *zir.Inst.CompileError) InnerError!*Inst {
+    return self.fail(scope, inst.base.src, "{}", .{inst.positionals.msg});
+}
+
 fn analyzeInstBreakpoint(self: *Module, scope: *Scope, inst: *zir.Inst.Breakpoint) InnerError!*Inst {
     const b = try self.requireRuntimeBlock(scope, inst.base.src);
     return self.addNewInstArgs(b, inst.base.src, Type.initTag(.void), Inst.Breakpoint, Inst.Args(Inst.Breakpoint){});
@@ -1499,6 +1526,24 @@ fn analyzeInstDeclRef(self: *Module, scope: *Scope, inst: *zir.Inst.DeclRef) Inn
 
     const decl = try self.resolveCompleteDecl(scope, src_decl);
     return self.analyzeDeclRef(scope, inst.base.src, decl);
+}
+
+fn analyzeDeclVal(self: *Module, scope: *Scope, inst: *zir.Inst.DeclVal) InnerError!*Decl {
+    const decl_name = inst.positionals.name;
+    // This will need to get more fleshed out when there are proper structs & namespaces.
+    const zir_module = scope.namespace();
+    const src_decl = zir_module.contents.module.findDecl(decl_name) orelse
+        return self.fail(scope, inst.base.src, "use of undeclared identifier '{}'", .{decl_name});
+
+    const decl = try self.resolveCompleteDecl(scope, src_decl);
+
+    return decl;
+}
+
+fn analyzeInstDeclVal(self: *Module, scope: *Scope, inst: *zir.Inst.DeclVal) InnerError!*Inst {
+    const decl = try self.analyzeDeclVal(scope, inst);
+    const ptr = try self.analyzeDeclRef(scope, inst.base.src, decl);
+    return self.analyzeDeref(scope, inst.base.src, ptr, inst.base.src);
 }
 
 fn analyzeDeclRef(self: *Module, scope: *Scope, src: usize, decl: *Decl) InnerError!*Inst {
@@ -1621,7 +1666,7 @@ fn analyzeInstFnType(self: *Module, scope: *Scope, fntype: *zir.Inst.FnType) Inn
 }
 
 fn analyzeInstPrimitive(self: *Module, scope: *Scope, primitive: *zir.Inst.Primitive) InnerError!*Inst {
-    return self.constType(scope, primitive.base.src, primitive.positionals.tag.toType());
+    return self.constInst(scope, primitive.base.src, primitive.positionals.tag.toTypedValue());
 }
 
 fn analyzeInstAs(self: *Module, scope: *Scope, as: *zir.Inst.As) InnerError!*Inst {

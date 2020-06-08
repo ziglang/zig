@@ -17,18 +17,18 @@ pub fn ComptimeStringMap(comptime V: type, comptime kvs: var) type {
         };
         var sorted_kvs: [kvs.len]KV = undefined;
         const lenAsc = (struct {
-            fn lenAsc(a: KV, b: KV) bool {
+            fn lenAsc(context: void, a: KV, b: KV) bool {
                 return a.key.len < b.key.len;
             }
         }).lenAsc;
         for (kvs) |kv, i| {
             if (V != void) {
-                sorted_kvs[i] = .{.key = kv.@"0", .value = kv.@"1"};
+                sorted_kvs[i] = .{ .key = kv.@"0", .value = kv.@"1" };
             } else {
-                sorted_kvs[i] = .{.key = kv.@"0", .value = {}};
+                sorted_kvs[i] = .{ .key = kv.@"0", .value = {} };
             }
         }
-        std.sort.sort(KV, &sorted_kvs, lenAsc);
+        std.sort.sort(KV, &sorted_kvs, {}, lenAsc);
         const min_len = sorted_kvs[0].key.len;
         const max_len = sorted_kvs[sorted_kvs.len - 1].key.len;
         var len_indexes: [max_len + 1]usize = undefined;
@@ -83,11 +83,11 @@ const TestEnum = enum {
 
 test "ComptimeStringMap list literal of list literals" {
     const map = ComptimeStringMap(TestEnum, .{
-        .{"these", .D},
-        .{"have", .A},
-        .{"nothing", .B},
-        .{"incommon", .C},
-        .{"samelen", .E},
+        .{ "these", .D },
+        .{ "have", .A },
+        .{ "nothing", .B },
+        .{ "incommon", .C },
+        .{ "samelen", .E },
     });
 
     testMap(map);
@@ -99,11 +99,11 @@ test "ComptimeStringMap array of structs" {
         @"1": TestEnum,
     };
     const map = ComptimeStringMap(TestEnum, [_]KV{
-        .{.@"0" = "these", .@"1" = .D},
-        .{.@"0" = "have", .@"1" = .A},
-        .{.@"0" = "nothing", .@"1" = .B},
-        .{.@"0" = "incommon", .@"1" = .C},
-        .{.@"0" = "samelen", .@"1" = .E},
+        .{ .@"0" = "these", .@"1" = .D },
+        .{ .@"0" = "have", .@"1" = .A },
+        .{ .@"0" = "nothing", .@"1" = .B },
+        .{ .@"0" = "incommon", .@"1" = .C },
+        .{ .@"0" = "samelen", .@"1" = .E },
     });
 
     testMap(map);
@@ -115,11 +115,11 @@ test "ComptimeStringMap slice of structs" {
         @"1": TestEnum,
     };
     const slice: []const KV = &[_]KV{
-        .{.@"0" = "these", .@"1" = .D},
-        .{.@"0" = "have", .@"1" = .A},
-        .{.@"0" = "nothing", .@"1" = .B},
-        .{.@"0" = "incommon", .@"1" = .C},
-        .{.@"0" = "samelen", .@"1" = .E},
+        .{ .@"0" = "these", .@"1" = .D },
+        .{ .@"0" = "have", .@"1" = .A },
+        .{ .@"0" = "nothing", .@"1" = .B },
+        .{ .@"0" = "incommon", .@"1" = .C },
+        .{ .@"0" = "samelen", .@"1" = .E },
     };
     const map = ComptimeStringMap(TestEnum, slice);
 
@@ -142,11 +142,11 @@ test "ComptimeStringMap void value type, slice of structs" {
         @"0": []const u8,
     };
     const slice: []const KV = &[_]KV{
-        .{.@"0" = "these"},
-        .{.@"0" = "have"},
-        .{.@"0" = "nothing"},
-        .{.@"0" = "incommon"},
-        .{.@"0" = "samelen"},
+        .{ .@"0" = "these" },
+        .{ .@"0" = "have" },
+        .{ .@"0" = "nothing" },
+        .{ .@"0" = "incommon" },
+        .{ .@"0" = "samelen" },
     };
     const map = ComptimeStringMap(void, slice);
 

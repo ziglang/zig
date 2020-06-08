@@ -21,14 +21,17 @@ pub fn addCases(ctx: *TestContext) void {
         \\  %11 = return()
         \\})
     ,
-        \\@0 = primitive(void)
-        \\@1 = fntype([], @0, cc=C)
-        \\@2 = fn(@1, {
+        \\@void = primitive(void)
+        \\@fnty = fntype([], @void, cc=C)
+        \\@9 = str("entry")
+        \\@10 = ref(@9)
+        \\@unnamed$6 = str("entry")
+        \\@unnamed$7 = ref(@unnamed$6)
+        \\@unnamed$8 = export(@unnamed$7, @entry)
+        \\@unnamed$10 = fntype([], @void, cc=C)
+        \\@entry = fn(@unnamed$10, {
         \\  %0 = return()
         \\})
-        \\@3 = str("entry")
-        \\@4 = ref(@3)
-        \\@5 = export(@4, @2)
         \\
     );
     ctx.addZIRTransform("elemptr, add, cmp, condbr, return, breakpoint", linux_x64,
@@ -68,16 +71,143 @@ pub fn addCases(ctx: *TestContext) void {
         \\@10 = ref(@9)
         \\@11 = export(@10, @entry)
     ,
-        \\@0 = primitive(void)
-        \\@1 = fntype([], @0, cc=C)
-        \\@2 = fn(@1, {
+        \\@void = primitive(void)
+        \\@fnty = fntype([], @void, cc=C)
+        \\@0 = int(0)
+        \\@1 = int(1)
+        \\@2 = int(2)
+        \\@3 = int(3)
+        \\@unnamed$7 = fntype([], @void, cc=C)
+        \\@entry = fn(@unnamed$7, {
         \\  %0 = return()
         \\})
-        \\@3 = str("entry")
-        \\@4 = ref(@3)
-        \\@5 = export(@4, @2)
+        \\@a = str("2\x08\x01\n")
+        \\@9 = str("entry")
+        \\@10 = ref(@9)
+        \\@unnamed$14 = str("entry")
+        \\@unnamed$15 = ref(@unnamed$14)
+        \\@unnamed$16 = export(@unnamed$15, @entry)
         \\
     );
+
+    {
+        var case = ctx.addZIRMulti("reference cycle with compile error in the cycle", linux_x64);
+        case.addZIR(
+            \\@void = primitive(void)
+            \\@fnty = fntype([], @void, cc=C)
+            \\
+            \\@9 = str("entry")
+            \\@10 = ref(@9)
+            \\@11 = export(@10, @entry)
+            \\
+            \\@entry = fn(@fnty, {
+            \\  %0 = call(@a, [])
+            \\  %1 = return()
+            \\})
+            \\
+            \\@a = fn(@fnty, {
+            \\  %0 = call(@b, [])
+            \\  %1 = return()
+            \\})
+            \\
+            \\@b = fn(@fnty, {
+            \\  %0 = call(@a, [])
+            \\  %1 = return()
+            \\})
+        ,
+            \\@void = primitive(void)
+            \\@fnty = fntype([], @void, cc=C)
+            \\@9 = str("entry")
+            \\@10 = ref(@9)
+            \\@unnamed$6 = str("entry")
+            \\@unnamed$7 = ref(@unnamed$6)
+            \\@unnamed$8 = export(@unnamed$7, @entry)
+            \\@unnamed$12 = fntype([], @void, cc=C)
+            \\@entry = fn(@unnamed$12, {
+            \\  %0 = call(@a, [], modifier=auto)
+            \\  %1 = return()
+            \\})
+            \\@unnamed$17 = fntype([], @void, cc=C)
+            \\@a = fn(@unnamed$17, {
+            \\  %0 = call(@b, [], modifier=auto)
+            \\  %1 = return()
+            \\})
+            \\@unnamed$22 = fntype([], @void, cc=C)
+            \\@b = fn(@unnamed$22, {
+            \\  %0 = call(@a, [], modifier=auto)
+            \\  %1 = return()
+            \\})
+            \\
+        );
+        // Now we introduce a compile error
+        case.addError(
+            \\@void = primitive(void)
+            \\@fnty = fntype([], @void, cc=C)
+            \\
+            \\@9 = str("entry")
+            \\@10 = ref(@9)
+            \\@11 = export(@10, @entry)
+            \\
+            \\@entry = fn(@fnty, {
+            \\  %0 = call(@a, [])
+            \\  %1 = return()
+            \\})
+            \\
+            \\@a = fn(@fnty, {
+            \\  %0 = call(@b, [])
+            \\  %1 = return()
+            \\})
+            \\
+            \\@b = fn(@fnty, {
+            \\  %9 = compileerror("message")
+            \\  %0 = call(@a, [])
+            \\  %1 = return()
+            \\})
+        ,
+            &[_][]const u8{
+                ":19:21: error: message",
+            },
+        );
+        // Now we remove the call to `a`. `a` and `b` form a cycle, but no entry points are
+        // referencing either of them. This tests that the cycle is detected, and the error
+        // goes away.
+        case.addZIR(
+            \\@void = primitive(void)
+            \\@fnty = fntype([], @void, cc=C)
+            \\
+            \\@9 = str("entry")
+            \\@10 = ref(@9)
+            \\@11 = export(@10, @entry)
+            \\
+            \\@entry = fn(@fnty, {
+            \\  %1 = return()
+            \\})
+            \\
+            \\@a = fn(@fnty, {
+            \\  %0 = call(@b, [])
+            \\  %1 = return()
+            \\})
+            \\
+            \\@b = fn(@fnty, {
+            \\  %9 = compileerror("message")
+            \\  %0 = call(@a, [])
+            \\  %1 = return()
+            \\})
+        ,
+            \\@void = primitive(void)
+            \\@fnty = fntype([], @void, cc=C)
+            \\@9 = str("entry")
+            \\@10 = ref(@9)
+            \\@unnamed$6 = str("entry")
+            \\@unnamed$7 = ref(@unnamed$6)
+            \\@unnamed$8 = export(@unnamed$7, @entry)
+            \\@unnamed$10 = fntype([], @void, cc=C)
+            \\@entry = fn(@unnamed$10, {
+            \\  %0 = return()
+            \\})
+            \\
+        );
+    }
 
     if (std.Target.current.os.tag != .linux or
         std.Target.current.cpu.arch != .x86_64)
