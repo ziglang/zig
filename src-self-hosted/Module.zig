@@ -930,11 +930,12 @@ fn deleteDecl(self: *Module, decl: *Decl) !void {
     for (decl.dependants.items) |dep| {
         dep.removeDependency(decl);
         if (dep.analysis != .outdated) {
+            // TODO Move this failure possibility to the top of the function.
             try self.markOutdatedDecl(dep);
         }
     }
     if (self.failed_decls.remove(decl)) |entry| {
-        entry.value.destroy(self.allocator);
+        self.allocator.destroy(entry.value);
     }
     self.deleteDeclExports(decl);
     self.bin_file.freeDecl(decl);
