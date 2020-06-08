@@ -4,28 +4,37 @@ const maxInt = std.math.maxInt;
 
 pub const fd_t = c_int;
 pub const pid_t = c_int;
+pub const mode_t = c_uint;
 
 pub const in_port_t = u16;
 pub const sa_family_t = u8;
 pub const socklen_t = u32;
-pub const sockaddr = extern union {
-    in: sockaddr_in,
-    in6: sockaddr_in6,
+pub const sockaddr = extern struct {
+    len: u8,
+    family: sa_family_t,
+    data: [14]u8,
 };
 pub const sockaddr_in = extern struct {
-    len: u8,
-    family: sa_family_t,
+    len: u8 = @sizeOf(sockaddr_in),
+    family: sa_family_t = AF_INET,
     port: in_port_t,
     addr: u32,
-    zero: [8]u8,
+    zero: [8]u8 = [8]u8{ 0, 0, 0, 0, 0, 0, 0, 0 },
 };
 pub const sockaddr_in6 = extern struct {
-    len: u8,
-    family: sa_family_t,
+    len: u8 = @sizeOf(sockaddr_in6),
+    family: sa_family_t = AF_INET6,
     port: in_port_t,
     flowinfo: u32,
     addr: [16]u8,
     scope_id: u32,
+};
+
+/// UNIX domain socket
+pub const sockaddr_un = extern struct {
+    len: u8 = @sizeOf(sockaddr_un),
+    family: sa_family_t = AF_UNIX,
+    path: [104]u8,
 };
 
 pub const timeval = extern struct {
@@ -44,6 +53,15 @@ pub const mach_timebase_info_data = extern struct {
 };
 
 pub const off_t = i64;
+pub const ino_t = u64;
+
+pub const Flock = extern struct {
+    l_start: off_t,
+    l_len: off_t,
+    l_pid: pid_t,
+    l_type: i16,
+    l_whence: i16,
+};
 
 /// Renamed to Stat to not conflict with the stat function.
 /// atime, mtime, and ctime have functions to return `timespec`,
@@ -55,7 +73,7 @@ pub const Stat = extern struct {
     dev: i32,
     mode: u16,
     nlink: u16,
-    ino: u64,
+    ino: ino_t,
     uid: u32,
     gid: u32,
     rdev: i32,
@@ -107,7 +125,7 @@ pub const empty_sigset = sigset_t(0);
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with function name.
 pub const Sigaction = extern struct {
-    handler: extern fn (c_int) void,
+    handler: fn (c_int) callconv(.C) void,
     sa_mask: sigset_t,
     sa_flags: c_int,
 };
@@ -119,11 +137,10 @@ pub const dirent = extern struct {
     d_namlen: u16,
     d_type: u8,
     d_name: u8, // field address is address of first byte of name
-};
 
-pub const pthread_attr_t = extern struct {
-    __sig: c_long,
-    __opaque: [56]u8,
+    pub fn reclen(self: dirent) u16 {
+        return self.d_reclen;
+    }
 };
 
 /// Renamed from `kevent` to `Kevent` to avoid conflict with function name.
@@ -260,7 +277,6 @@ pub const SA_USERTRAMP = 0x0100;
 /// signal handler with SA_SIGINFO args with 64bit   regs information
 pub const SA_64REGSET = 0x0200;
 
-pub const O_LARGEFILE = 0x0000;
 pub const O_PATH = 0x0000;
 
 pub const F_OK = 0;
@@ -748,12 +764,43 @@ pub const SOCK_RDM = 4;
 pub const SOCK_SEQPACKET = 5;
 pub const SOCK_MAXADDRLEN = 255;
 
+/// Not actually supported by Darwin, but Zig supplies a shim.
+/// This numerical value is not ABI-stable. It need only not conflict
+/// with any other "SOCK_" bits.
+pub const SOCK_CLOEXEC = 1 << 15;
+/// Not actually supported by Darwin, but Zig supplies a shim.
+/// This numerical value is not ABI-stable. It need only not conflict
+/// with any other "SOCK_" bits.
+pub const SOCK_NONBLOCK = 1 << 16;
+
 pub const IPPROTO_ICMP = 1;
 pub const IPPROTO_ICMPV6 = 58;
 pub const IPPROTO_TCP = 6;
 pub const IPPROTO_UDP = 17;
 pub const IPPROTO_IP = 0;
 pub const IPPROTO_IPV6 = 41;
+
+pub const SOL_SOCKET = 0xffff;
+
+pub const SO_DEBUG = 0x0001;
+pub const SO_ACCEPTCONN = 0x0002;
+pub const SO_REUSEADDR = 0x0004;
+pub const SO_KEEPALIVE = 0x0008;
+pub const SO_DONTROUTE = 0x0010;
+pub const SO_BROADCAST = 0x0020;
+pub const SO_USELOOPBACK = 0x0040;
+pub const SO_LINGER = 0x1080;
+pub const SO_OOBINLINE = 0x0100;
+pub const SO_REUSEPORT = 0x0200;
+pub const SO_ACCEPTFILTER = 0x1000;
+pub const SO_SNDBUF = 0x1001;
+pub const SO_RCVBUF = 0x1002;
+pub const SO_SNDLOWAT = 0x1003;
+pub const SO_RCVLOWAT = 0x1004;
+pub const SO_SNDTIMEO = 0x1005;
+pub const SO_RCVTIMEO = 0x1006;
+pub const SO_ERROR = 0x1007;
+pub const SO_TYPE = 0x1008;
 
 fn wstatus(x: u32) u32 {
     return x & 0o177;
@@ -918,6 +965,9 @@ pub const ESOCKTNOSUPPORT = 44;
 
 /// Operation not supported
 pub const ENOTSUP = 45;
+
+/// Operation not supported. Alias of `ENOTSUP`.
+pub const EOPNOTSUPP = ENOTSUP;
 
 /// Protocol family not supported
 pub const EPFNOSUPPORT = 46;
@@ -1177,4 +1227,241 @@ pub fn S_ISSOCK(m: u32) bool {
 pub fn S_IWHT(m: u32) bool {
     return m & S_IFMT == S_IFWHT;
 }
+
 pub const HOST_NAME_MAX = 72;
+
+pub const AT_FDCWD = -2;
+
+/// Use effective ids in access check
+pub const AT_EACCESS = 0x0010;
+
+/// Act on the symlink itself not the target
+pub const AT_SYMLINK_NOFOLLOW = 0x0020;
+
+/// Act on target of symlink
+pub const AT_SYMLINK_FOLLOW = 0x0040;
+
+/// Path refers to directory
+pub const AT_REMOVEDIR = 0x0080;
+
+pub const addrinfo = extern struct {
+    flags: i32,
+    family: i32,
+    socktype: i32,
+    protocol: i32,
+    addrlen: socklen_t,
+    canonname: ?[*:0]u8,
+    addr: ?*sockaddr,
+    next: ?*addrinfo,
+};
+
+pub const RTLD_LAZY = 0x1;
+pub const RTLD_NOW = 0x2;
+pub const RTLD_LOCAL = 0x4;
+pub const RTLD_GLOBAL = 0x8;
+pub const RTLD_NOLOAD = 0x10;
+pub const RTLD_NODELETE = 0x80;
+pub const RTLD_FIRST = 0x100;
+
+pub const RTLD_NEXT = @intToPtr(*c_void, @bitCast(usize, @as(isize, -1)));
+pub const RTLD_DEFAULT = @intToPtr(*c_void, @bitCast(usize, @as(isize, -2)));
+pub const RTLD_SELF = @intToPtr(*c_void, @bitCast(usize, @as(isize, -3)));
+pub const RTLD_MAIN_ONLY = @intToPtr(*c_void, @bitCast(usize, @as(isize, -5)));
+
+/// duplicate file descriptor
+pub const F_DUPFD = 0;
+
+/// get file descriptor flags
+pub const F_GETFD = 1;
+
+/// set file descriptor flags
+pub const F_SETFD = 2;
+
+/// get file status flags
+pub const F_GETFL = 3;
+
+/// set file status flags
+pub const F_SETFL = 4;
+
+/// get SIGIO/SIGURG proc/pgrp
+pub const F_GETOWN = 5;
+
+/// set SIGIO/SIGURG proc/pgrp
+pub const F_SETOWN = 6;
+
+/// get record locking information
+pub const F_GETLK = 7;
+
+/// set record locking information
+pub const F_SETLK = 8;
+
+/// F_SETLK; wait if blocked
+pub const F_SETLKW = 9;
+
+/// F_SETLK; wait if blocked, return on timeout
+pub const F_SETLKWTIMEOUT = 10;
+pub const F_FLUSH_DATA = 40;
+
+/// Used for regression test
+pub const F_CHKCLEAN = 41;
+
+/// Preallocate storage
+pub const F_PREALLOCATE = 42;
+
+/// Truncate a file without zeroing space
+pub const F_SETSIZE = 43;
+
+/// Issue an advisory read async with no copy to user
+pub const F_RDADVISE = 44;
+
+/// turn read ahead off/on for this fd
+pub const F_RDAHEAD = 45;
+
+/// turn data caching off/on for this fd
+pub const F_NOCACHE = 48;
+
+/// file offset to device offset
+pub const F_LOG2PHYS = 49;
+
+/// return the full path of the fd
+pub const F_GETPATH = 50;
+
+/// fsync + ask the drive to flush to the media
+pub const F_FULLFSYNC = 51;
+
+/// find which component (if any) is a package
+pub const F_PATHPKG_CHECK = 52;
+
+/// "freeze" all fs operations
+pub const F_FREEZE_FS = 53;
+
+/// "thaw" all fs operations
+pub const F_THAW_FS = 54;
+
+/// turn data caching off/on (globally) for this file
+pub const F_GLOBAL_NOCACHE = 55;
+
+/// add detached signatures
+pub const F_ADDSIGS = 59;
+
+/// add signature from same file (used by dyld for shared libs)
+pub const F_ADDFILESIGS = 61;
+
+/// used in conjunction with F_NOCACHE to indicate that DIRECT, synchonous writes
+/// should not be used (i.e. its ok to temporaily create cached pages)
+pub const F_NODIRECT = 62;
+
+///Get the protection class of a file from the EA, returns int
+pub const F_GETPROTECTIONCLASS = 63;
+
+///Set the protection class of a file for the EA, requires int
+pub const F_SETPROTECTIONCLASS = 64;
+
+///file offset to device offset, extended
+pub const F_LOG2PHYS_EXT = 65;
+
+///get record locking information, per-process
+pub const F_GETLKPID = 66;
+
+///Mark the file as being the backing store for another filesystem
+pub const F_SETBACKINGSTORE = 70;
+
+///return the full path of the FD, but error in specific mtmd circumstances
+pub const F_GETPATH_MTMINFO = 71;
+
+///Returns the code directory, with associated hashes, to the caller
+pub const F_GETCODEDIR = 72;
+
+///No SIGPIPE generated on EPIPE
+pub const F_SETNOSIGPIPE = 73;
+
+///Status of SIGPIPE for this fd
+pub const F_GETNOSIGPIPE = 74;
+
+///For some cases, we need to rewrap the key for AKS/MKB
+pub const F_TRANSCODEKEY = 75;
+
+///file being written to a by single writer... if throttling enabled, writes
+///may be broken into smaller chunks with throttling in between
+pub const F_SINGLE_WRITER = 76;
+
+///Get the protection version number for this filesystem
+pub const F_GETPROTECTIONLEVEL = 77;
+
+///Add detached code signatures (used by dyld for shared libs)
+pub const F_FINDSIGS = 78;
+
+///Add signature from same file, only if it is signed by Apple (used by dyld for simulator)
+pub const F_ADDFILESIGS_FOR_DYLD_SIM = 83;
+
+///fsync + issue barrier to drive
+pub const F_BARRIERFSYNC = 85;
+
+///Add signature from same file, return end offset in structure on success
+pub const F_ADDFILESIGS_RETURN = 97;
+
+///Check if Library Validation allows this Mach-O file to be mapped into the calling process
+pub const F_CHECK_LV = 98;
+
+///Deallocate a range of the file
+pub const F_PUNCHHOLE = 99;
+
+///Trim an active file
+pub const F_TRIM_ACTIVE_FILE = 100;
+
+pub const FCNTL_FS_SPECIFIC_BASE = 0x00010000;
+
+///mark the dup with FD_CLOEXEC
+pub const F_DUPFD_CLOEXEC = 67;
+
+///close-on-exec flag
+pub const FD_CLOEXEC = 1;
+
+/// shared or read lock
+pub const F_RDLCK = 1;
+
+/// unlock
+pub const F_UNLCK = 2;
+
+/// exclusive or write lock
+pub const F_WRLCK = 3;
+
+pub const LOCK_SH = 1;
+pub const LOCK_EX = 2;
+pub const LOCK_UN = 8;
+pub const LOCK_NB = 4;
+
+pub const nfds_t = usize;
+pub const pollfd = extern struct {
+    fd: fd_t,
+    events: i16,
+    revents: i16,
+};
+
+pub const POLLIN = 0x001;
+pub const POLLPRI = 0x002;
+pub const POLLOUT = 0x004;
+pub const POLLRDNORM = 0x040;
+pub const POLLWRNORM = POLLOUT;
+pub const POLLRDBAND = 0x080;
+pub const POLLWRBAND = 0x100;
+
+pub const POLLEXTEND = 0x0200;
+pub const POLLATTRIB = 0x0400;
+pub const POLLNLINK = 0x0800;
+pub const POLLWRITE = 0x1000;
+
+pub const POLLERR = 0x008;
+pub const POLLHUP = 0x010;
+pub const POLLNVAL = 0x020;
+
+pub const POLLSTANDARD = POLLIN | POLLPRI | POLLOUT | POLLRDNORM | POLLRDBAND | POLLWRBAND | POLLERR | POLLHUP | POLLNVAL;
+
+pub const CLOCK_REALTIME = 0;
+pub const CLOCK_MONOTONIC = 6;
+pub const CLOCK_MONOTONIC_RAW = 4;
+pub const CLOCK_MONOTONIC_RAW_APPROX = 5;
+pub const CLOCK_UPTIME_RAW = 8;
+pub const CLOCK_UPTIME_RAW_APPROX = 9;
+pub const CLOCK_PROCESS_CPUTIME_ID = 12;
+pub const CLOCK_THREAD_CPUTIME_ID = 16;

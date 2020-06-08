@@ -5,8 +5,8 @@ const cmath = math.complex;
 const Complex = cmath.Complex;
 
 /// Returns the angular component (in radians) of z.
-pub fn arg(z: var) @typeOf(z.re) {
-    const T = @typeOf(z.re);
+pub fn arg(z: var) @TypeOf(z.re) {
+    const T = @TypeOf(z.re);
     return math.atan2(T, z.im, z.re);
 }
 

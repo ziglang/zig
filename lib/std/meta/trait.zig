@@ -1,5 +1,5 @@
 const std = @import("../std.zig");
-const builtin = @import("builtin");
+const builtin = std.builtin;
 const mem = std.mem;
 const debug = std.debug;
 const testing = std.testing;
@@ -7,20 +7,9 @@ const warn = debug.warn;
 
 const meta = @import("../meta.zig");
 
-//This is necessary if we want to return generic functions directly because of how the
-// the type erasure works. see:  #1375
-fn traitFnWorkaround(comptime T: type) bool {
-    return false;
-}
+pub const TraitFn = fn (type) bool;
 
-pub const TraitFn = @typeOf(traitFnWorkaround);
-///
-
-//////Trait generators
-
-//Need TraitList because compiler can't do varargs at comptime yet
-pub const TraitList = []const TraitFn;
-pub fn multiTrait(comptime traits: TraitList) TraitFn {
+pub fn multiTrait(comptime traits: var) TraitFn {
     const Closure = struct {
         pub fn trait(comptime T: type) bool {
             inline for (traits) |t|
@@ -46,7 +35,7 @@ test "std.meta.trait.multiTrait" {
         }
     };
 
-    const isVector = multiTrait([_]TraitFn{
+    const isVector = multiTrait(.{
         hasFn("add"),
         hasField("x"),
         hasField("y"),
@@ -55,15 +44,13 @@ test "std.meta.trait.multiTrait" {
     testing.expect(!isVector(u8));
 }
 
-///
 pub fn hasFn(comptime name: []const u8) TraitFn {
     const Closure = struct {
         pub fn trait(comptime T: type) bool {
             if (!comptime isContainer(T)) return false;
             if (!comptime @hasDecl(T, name)) return false;
-            const DeclType = @typeOf(@field(T, name));
-            const decl_type_id = @typeId(DeclType);
-            return decl_type_id == builtin.TypeId.Fn;
+            const DeclType = @TypeOf(@field(T, name));
+            return @typeInfo(DeclType) == .Fn;
         }
     };
     return Closure.trait;
@@ -79,15 +66,13 @@ test "std.meta.trait.hasFn" {
     testing.expect(!hasFn("useless")(u8));
 }
 
-///
 pub fn hasField(comptime name: []const u8) TraitFn {
     const Closure = struct {
         pub fn trait(comptime T: type) bool {
-            const info = @typeInfo(T);
-            const fields = switch (info) {
-                builtin.TypeId.Struct => |s| s.fields,
-                builtin.TypeId.Union => |u| u.fields,
-                builtin.TypeId.Enum => |e| e.fields,
+            const fields = switch (@typeInfo(T)) {
+                .Struct => |s| s.fields,
+                .Union => |u| u.fields,
+                .Enum => |e| e.fields,
                 else => return false,
             };
 
@@ -113,39 +98,53 @@ test "std.meta.trait.hasField" {
     testing.expect(!hasField("value")(u8));
 }
 
-///
 pub fn is(comptime id: builtin.TypeId) TraitFn {
     const Closure = struct {
         pub fn trait(comptime T: type) bool {
-            return id == @typeId(T);
+            return id == @typeInfo(T);
         }
     };
     return Closure.trait;
 }
 
 test "std.meta.trait.is" {
-    testing.expect(is(builtin.TypeId.Int)(u8));
-    testing.expect(!is(builtin.TypeId.Int)(f32));
-    testing.expect(is(builtin.TypeId.Pointer)(*u8));
-    testing.expect(is(builtin.TypeId.Void)(void));
-    testing.expect(!is(builtin.TypeId.Optional)(anyerror));
+    testing.expect(is(.Int)(u8));
+    testing.expect(!is(.Int)(f32));
+    testing.expect(is(.Pointer)(*u8));
+    testing.expect(is(.Void)(void));
+    testing.expect(!is(.Optional)(anyerror));
 }
 
-///
 pub fn isPtrTo(comptime id: builtin.TypeId) TraitFn {
     const Closure = struct {
         pub fn trait(comptime T: type) bool {
             if (!comptime isSingleItemPtr(T)) return false;
-            return id == @typeId(meta.Child(T));
+            return id == @typeInfo(meta.Child(T));
         }
     };
     return Closure.trait;
 }
 
 test "std.meta.trait.isPtrTo" {
-    testing.expect(!isPtrTo(builtin.TypeId.Struct)(struct {}));
-    testing.expect(isPtrTo(builtin.TypeId.Struct)(*struct {}));
-    testing.expect(!isPtrTo(builtin.TypeId.Struct)(**struct {}));
+    testing.expect(!isPtrTo(.Struct)(struct {}));
+    testing.expect(isPtrTo(.Struct)(*struct {}));
+    testing.expect(!isPtrTo(.Struct)(**struct {}));
+}
+
+pub fn isSliceOf(comptime id: builtin.TypeId) TraitFn {
+    const Closure = struct {
+        pub fn trait(comptime T: type) bool {
+            if (!comptime isSlice(T)) return false;
+            return id == @typeInfo(meta.Child(T));
+        }
+    };
+    return Closure.trait;
+}
+
+test "std.meta.trait.isSliceOf" {
+    testing.expect(!isSliceOf(.Struct)(struct {}));
+    testing.expect(isSliceOf(.Struct)([]struct {}));
+    testing.expect(!isSliceOf(.Struct)([][]struct {}));
 }
 
 ///////////Strait trait Fns
@@ -154,12 +153,10 @@ test "std.meta.trait.isPtrTo" {
 // Somewhat limited since we can't apply this logic to normal variables, fields, or
 //  Fns yet. Should be isExternType?
 pub fn isExtern(comptime T: type) bool {
-    const Extern = builtin.TypeInfo.ContainerLayout.Extern;
-    const info = @typeInfo(T);
-    return switch (info) {
-        builtin.TypeId.Struct => |s| s.layout == Extern,
-        builtin.TypeId.Union => |u| u.layout == Extern,
-        builtin.TypeId.Enum => |e| e.layout == Extern,
+    return switch (@typeInfo(T)) {
+        .Struct => |s| s.layout == .Extern,
+        .Union => |u| u.layout == .Extern,
+        .Enum => |e| e.layout == .Extern,
         else => false,
     };
 }
@@ -173,14 +170,11 @@ test "std.meta.trait.isExtern" {
     testing.expect(!isExtern(u8));
 }
 
-///
 pub fn isPacked(comptime T: type) bool {
-    const Packed = builtin.TypeInfo.ContainerLayout.Packed;
-    const info = @typeInfo(T);
-    return switch (info) {
-        builtin.TypeId.Struct => |s| s.layout == Packed,
-        builtin.TypeId.Union => |u| u.layout == Packed,
-        builtin.TypeId.Enum => |e| e.layout == Packed,
+    return switch (@typeInfo(T)) {
+        .Struct => |s| s.layout == .Packed,
+        .Union => |u| u.layout == .Packed,
+        .Enum => |e| e.layout == .Packed,
         else => false,
     };
 }
@@ -194,10 +188,9 @@ test "std.meta.trait.isPacked" {
     testing.expect(!isPacked(u8));
 }
 
-///
 pub fn isUnsignedInt(comptime T: type) bool {
-    return switch (@typeId(T)) {
-        builtin.TypeId.Int => !@typeInfo(T).Int.is_signed,
+    return switch (@typeInfo(T)) {
+        .Int => |i| !i.is_signed,
         else => false,
     };
 }
@@ -209,11 +202,10 @@ test "isUnsignedInt" {
     testing.expect(isUnsignedInt(f64) == false);
 }
 
-///
 pub fn isSignedInt(comptime T: type) bool {
-    return switch (@typeId(T)) {
-        builtin.TypeId.ComptimeInt => true,
-        builtin.TypeId.Int => @typeInfo(T).Int.is_signed,
+    return switch (@typeInfo(T)) {
+        .ComptimeInt => true,
+        .Int => |i| i.is_signed,
         else => false,
     };
 }
@@ -225,27 +217,24 @@ test "isSignedInt" {
     testing.expect(isSignedInt(f64) == false);
 }
 
-///
 pub fn isSingleItemPtr(comptime T: type) bool {
-    if (comptime is(builtin.TypeId.Pointer)(T)) {
-        const info = @typeInfo(T);
-        return info.Pointer.size == builtin.TypeInfo.Pointer.Size.One;
+    if (comptime is(.Pointer)(T)) {
+        return @typeInfo(T).Pointer.size == .One;
     }
     return false;
 }
 
 test "std.meta.trait.isSingleItemPtr" {
     const array = [_]u8{0} ** 10;
-    testing.expect(isSingleItemPtr(@typeOf(&array[0])));
-    testing.expect(!isSingleItemPtr(@typeOf(array)));
-    testing.expect(!isSingleItemPtr(@typeOf(array[0..1])));
+    comptime testing.expect(isSingleItemPtr(@TypeOf(&array[0])));
+    comptime testing.expect(!isSingleItemPtr(@TypeOf(array)));
+    var runtime_zero: usize = 0;
+    testing.expect(!isSingleItemPtr(@TypeOf(array[runtime_zero..1])));
 }
 
-///
 pub fn isManyItemPtr(comptime T: type) bool {
-    if (comptime is(builtin.TypeId.Pointer)(T)) {
-        const info = @typeInfo(T);
-        return info.Pointer.size == builtin.TypeInfo.Pointer.Size.Many;
+    if (comptime is(.Pointer)(T)) {
+        return @typeInfo(T).Pointer.size == .Many;
     }
     return false;
 }
@@ -253,54 +242,51 @@ pub fn isManyItemPtr(comptime T: type) bool {
 test "std.meta.trait.isManyItemPtr" {
     const array = [_]u8{0} ** 10;
     const mip = @ptrCast([*]const u8, &array[0]);
-    testing.expect(isManyItemPtr(@typeOf(mip)));
-    testing.expect(!isManyItemPtr(@typeOf(array)));
-    testing.expect(!isManyItemPtr(@typeOf(array[0..1])));
+    testing.expect(isManyItemPtr(@TypeOf(mip)));
+    testing.expect(!isManyItemPtr(@TypeOf(array)));
+    testing.expect(!isManyItemPtr(@TypeOf(array[0..1])));
 }
 
-///
 pub fn isSlice(comptime T: type) bool {
-    if (comptime is(builtin.TypeId.Pointer)(T)) {
-        const info = @typeInfo(T);
-        return info.Pointer.size == builtin.TypeInfo.Pointer.Size.Slice;
+    if (comptime is(.Pointer)(T)) {
+        return @typeInfo(T).Pointer.size == .Slice;
     }
     return false;
 }
 
 test "std.meta.trait.isSlice" {
     const array = [_]u8{0} ** 10;
-    testing.expect(isSlice(@typeOf(array[0..])));
-    testing.expect(!isSlice(@typeOf(array)));
-    testing.expect(!isSlice(@typeOf(&array[0])));
+    var runtime_zero: usize = 0;
+    testing.expect(isSlice(@TypeOf(array[runtime_zero..])));
+    testing.expect(!isSlice(@TypeOf(array)));
+    testing.expect(!isSlice(@TypeOf(&array[0])));
 }
 
-///
 pub fn isIndexable(comptime T: type) bool {
-    if (comptime is(builtin.TypeId.Pointer)(T)) {
-        const info = @typeInfo(T);
-        if (info.Pointer.size == builtin.TypeInfo.Pointer.Size.One) {
-            if (comptime is(builtin.TypeId.Array)(meta.Child(T))) return true;
-            return false;
+    if (comptime is(.Pointer)(T)) {
+        if (@typeInfo(T).Pointer.size == .One) {
+            return (comptime is(.Array)(meta.Child(T)));
         }
         return true;
     }
-    return comptime is(builtin.TypeId.Array)(T);
+    return comptime is(.Array)(T) or is(.Vector)(T);
 }
 
 test "std.meta.trait.isIndexable" {
     const array = [_]u8{0} ** 10;
-    const slice = array[0..];
+    const slice = @as([]const u8, &array);
+    const vector: meta.Vector(2, u32) = [_]u32{0} ** 2;
 
-    testing.expect(isIndexable(@typeOf(array)));
-    testing.expect(isIndexable(@typeOf(&array)));
-    testing.expect(isIndexable(@typeOf(slice)));
-    testing.expect(!isIndexable(meta.Child(@typeOf(slice))));
+    testing.expect(isIndexable(@TypeOf(array)));
+    testing.expect(isIndexable(@TypeOf(&array)));
+    testing.expect(isIndexable(@TypeOf(slice)));
+    testing.expect(!isIndexable(meta.Child(@TypeOf(slice))));
+    testing.expect(isIndexable(@TypeOf(vector)));
 }
 
-///
 pub fn isNumber(comptime T: type) bool {
-    return switch (@typeId(T)) {
-        builtin.TypeId.Int, builtin.TypeId.Float, builtin.TypeId.ComptimeInt, builtin.TypeId.ComptimeFloat => true,
+    return switch (@typeInfo(T)) {
+        .Int, .Float, .ComptimeInt, .ComptimeFloat => true,
         else => false,
     };
 }
@@ -313,35 +299,29 @@ test "std.meta.trait.isNumber" {
     testing.expect(isNumber(u32));
     testing.expect(isNumber(f32));
     testing.expect(isNumber(u64));
-    testing.expect(isNumber(@typeOf(102)));
-    testing.expect(isNumber(@typeOf(102.123)));
+    testing.expect(isNumber(@TypeOf(102)));
+    testing.expect(isNumber(@TypeOf(102.123)));
     testing.expect(!isNumber([]u8));
     testing.expect(!isNumber(NotANumber));
 }
 
-///
 pub fn isConstPtr(comptime T: type) bool {
-    if (!comptime is(builtin.TypeId.Pointer)(T)) return false;
-    const info = @typeInfo(T);
-    return info.Pointer.is_const;
+    if (!comptime is(.Pointer)(T)) return false;
+    return @typeInfo(T).Pointer.is_const;
 }
 
 test "std.meta.trait.isConstPtr" {
-    var t = u8(0);
-    const c = u8(0);
-    testing.expect(isConstPtr(*const @typeOf(t)));
-    testing.expect(isConstPtr(@typeOf(&c)));
-    testing.expect(!isConstPtr(*@typeOf(t)));
-    testing.expect(!isConstPtr(@typeOf(6)));
+    var t = @as(u8, 0);
+    const c = @as(u8, 0);
+    testing.expect(isConstPtr(*const @TypeOf(t)));
+    testing.expect(isConstPtr(@TypeOf(&c)));
+    testing.expect(!isConstPtr(*@TypeOf(t)));
+    testing.expect(!isConstPtr(@TypeOf(6)));
 }
 
-///
 pub fn isContainer(comptime T: type) bool {
-    const info = @typeInfo(T);
-    return switch (info) {
-        builtin.TypeId.Struct => true,
-        builtin.TypeId.Union => true,
-        builtin.TypeId.Enum => true,
+    return switch (@typeInfo(T)) {
+        .Struct, .Union, .Enum => true,
         else => false,
     };
 }
@@ -360,4 +340,79 @@ test "std.meta.trait.isContainer" {
     testing.expect(isContainer(TestUnion));
     testing.expect(isContainer(TestEnum));
     testing.expect(!isContainer(u8));
+}
+
+pub fn hasDecls(comptime T: type, comptime names: var) bool {
+    inline for (names) |name| {
+        if (!@hasDecl(T, name))
+            return false;
+    }
+    return true;
+}
+
+test "std.meta.trait.hasDecls" {
+    const TestStruct1 = struct {};
+    const TestStruct2 = struct {
+        pub var a: u32;
+        pub var b: u32;
+        c: bool,
+        pub fn useless() void {}
+    };
+
+    const tuple = .{ "a", "b", "c" };
+
+    testing.expect(!hasDecls(TestStruct1, .{"a"}));
+    testing.expect(hasDecls(TestStruct2, .{ "a", "b" }));
+    testing.expect(hasDecls(TestStruct2, .{ "a", "b", "useless" }));
+    testing.expect(!hasDecls(TestStruct2, .{ "a", "b", "c" }));
+    testing.expect(!hasDecls(TestStruct2, tuple));
+}
+
+pub fn hasFields(comptime T: type, comptime names: var) bool {
+    inline for (names) |name| {
+        if (!@hasField(T, name))
+            return false;
+    }
+    return true;
+}
+
+test "std.meta.trait.hasFields" {
+    const TestStruct1 = struct {};
+    const TestStruct2 = struct {
+        a: u32,
+        b: u32,
+        c: bool,
+        pub fn useless() void {}
+    };
+
+    const tuple = .{ "a", "b", "c" };
+
+    testing.expect(!hasFields(TestStruct1, .{"a"}));
+    testing.expect(hasFields(TestStruct2, .{ "a", "b" }));
+    testing.expect(hasFields(TestStruct2, .{ "a", "b", "c" }));
+    testing.expect(hasFields(TestStruct2, tuple));
+    testing.expect(!hasFields(TestStruct2, .{ "a", "b", "useless" }));
+}
+
+pub fn hasFunctions(comptime T: type, comptime names: var) bool {
+    inline for (names) |name| {
+        if (!hasFn(name)(T))
+            return false;
+    }
+    return true;
+}
+
+test "std.meta.trait.hasFunctions" {
+    const TestStruct1 = struct {};
+    const TestStruct2 = struct {
+        pub fn a() void {}
+        fn b() void {}
+    };
+
+    const tuple = .{ "a", "b", "c" };
+
+    testing.expect(!hasFunctions(TestStruct1, .{"a"}));
+    testing.expect(hasFunctions(TestStruct2, .{ "a", "b" }));
+    testing.expect(!hasFunctions(TestStruct2, .{ "a", "b", "c" }));
+    testing.expect(!hasFunctions(TestStruct2, tuple));
 }

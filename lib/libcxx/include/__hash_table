@@ -776,7 +776,7 @@ public:
     _LIBCPP_INLINE_VISIBILITY
     __bucket_list_deallocator()
         _NOEXCEPT_(is_nothrow_default_constructible<allocator_type>::value)
-        : __data_(0) {}
+        : __data_(0, __default_init_tag()) {}
 
     _LIBCPP_INLINE_VISIBILITY
     __bucket_list_deallocator(const allocator_type& __a, size_type __size)
@@ -825,10 +825,12 @@ private:
 
     allocator_type& __na_;
 
-    __hash_node_destructor& operator=(const __hash_node_destructor&);
-
 public:
     bool __value_constructed;
+
+    __hash_node_destructor(__hash_node_destructor const&) = default;
+    __hash_node_destructor& operator=(const __hash_node_destructor&) = delete;
+
 
     _LIBCPP_INLINE_VISIBILITY
     explicit __hash_node_destructor(allocator_type& __na,
@@ -1416,8 +1418,8 @@ __hash_table<_Tp, _Hash, _Equal, _Alloc>::__hash_table()
         is_nothrow_default_constructible<__node_allocator>::value &&
         is_nothrow_default_constructible<hasher>::value &&
         is_nothrow_default_constructible<key_equal>::value)
-    : __p2_(0),
-      __p3_(1.0f)
+    : __p2_(0, __default_init_tag()),
+      __p3_(1.0f, __default_init_tag())
 {
 }
 
@@ -1437,7 +1439,7 @@ __hash_table<_Tp, _Hash, _Equal, _Alloc>::__hash_table(const hasher& __hf,
                                                        const key_equal& __eql,
                                                        const allocator_type& __a)
     : __bucket_list_(nullptr, __bucket_list_deleter(__pointer_allocator(__a), 0)),
-      __p1_(__second_tag(), __node_allocator(__a)),
+      __p1_(__default_init_tag(), __node_allocator(__a)),
       __p2_(0, __hf),
       __p3_(1.0f, __eql)
 {
@@ -1446,9 +1448,9 @@ __hash_table<_Tp, _Hash, _Equal, _Alloc>::__hash_table(const hasher& __hf,
 template <class _Tp, class _Hash, class _Equal, class _Alloc>
 __hash_table<_Tp, _Hash, _Equal, _Alloc>::__hash_table(const allocator_type& __a)
     : __bucket_list_(nullptr, __bucket_list_deleter(__pointer_allocator(__a), 0)),
-      __p1_(__second_tag(), __node_allocator(__a)),
-      __p2_(0),
-      __p3_(1.0f)
+      __p1_(__default_init_tag(), __node_allocator(__a)),
+      __p2_(0, __default_init_tag()),
+      __p3_(1.0f, __default_init_tag())
 {
 }
 
@@ -1458,7 +1460,7 @@ __hash_table<_Tp, _Hash, _Equal, _Alloc>::__hash_table(const __hash_table& __u)
           __bucket_list_deleter(allocator_traits<__pointer_allocator>::
               select_on_container_copy_construction(
                   __u.__bucket_list_.get_deleter().__alloc()), 0)),
-      __p1_(__second_tag(), allocator_traits<__node_allocator>::
+      __p1_(__default_init_tag(), allocator_traits<__node_allocator>::
           select_on_container_copy_construction(__u.__node_alloc())),
       __p2_(0, __u.hash_function()),
       __p3_(__u.__p3_)
@@ -1469,7 +1471,7 @@ template <class _Tp, class _Hash, class _Equal, class _Alloc>
 __hash_table<_Tp, _Hash, _Equal, _Alloc>::__hash_table(const __hash_table& __u,
                                                        const allocator_type& __a)
     : __bucket_list_(nullptr, __bucket_list_deleter(__pointer_allocator(__a), 0)),
-      __p1_(__second_tag(), __node_allocator(__a)),
+      __p1_(__default_init_tag(), __node_allocator(__a)),
       __p2_(0, __u.hash_function()),
       __p3_(__u.__p3_)
 {
@@ -1503,7 +1505,7 @@ template <class _Tp, class _Hash, class _Equal, class _Alloc>
 __hash_table<_Tp, _Hash, _Equal, _Alloc>::__hash_table(__hash_table&& __u,
                                                        const allocator_type& __a)
     : __bucket_list_(nullptr, __bucket_list_deleter(__pointer_allocator(__a), 0)),
-      __p1_(__second_tag(), __node_allocator(__a)),
+      __p1_(__default_init_tag(), __node_allocator(__a)),
       __p2_(0, _VSTD::move(__u.hash_function())),
       __p3_(_VSTD::move(__u.__p3_))
 {

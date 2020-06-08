@@ -1,3 +1,0 @@
-.globl foo
-foo:
-ret

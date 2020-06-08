@@ -173,6 +173,7 @@ namespace std {
 
 #include <__config>
 #include <__string>
+#include <iosfwd>
 #include <algorithm>
 #include <iterator>
 #include <limits>
@@ -235,7 +236,7 @@ public:
 
     _LIBCPP_CONSTEXPR _LIBCPP_INLINE_VISIBILITY
     basic_string_view(const _CharT* __s)
-        : __data(__s), __size(_Traits::length(__s)) {}
+        : __data(__s), __size(std::__char_traits_length_checked<_Traits>(__s)) {}
 
     // [string.view.iterators], iterators
     _LIBCPP_CONSTEXPR _LIBCPP_INLINE_VISIBILITY
@@ -766,6 +767,12 @@ bool operator>=(typename common_type<basic_string_view<_CharT, _Traits> >::type 
 {
     return __lhs.compare(__rhs) >= 0;
 }
+
+
+template<class _CharT, class _Traits>
+basic_ostream<_CharT, _Traits>&
+operator<<(basic_ostream<_CharT, _Traits>& __os,
+           basic_string_view<_CharT, _Traits> __str);
 
 typedef basic_string_view<char>     string_view;
 #ifndef _LIBCPP_NO_HAS_CHAR8_T

@@ -10,5 +10,3 @@ struct ipc_perm {
 	unsigned long __unused1;
 	unsigned long __unused2;
 };
-
-#define IPC_64 0x100

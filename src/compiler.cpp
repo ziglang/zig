@@ -1,96 +1,20 @@
 #include "cache_hash.hpp"
 #include "os.hpp"
+#include "compiler.hpp"
 
 #include <stdio.h>
 
-static Buf saved_compiler_id = BUF_INIT;
-static Buf saved_app_data_dir = BUF_INIT;
-static Buf saved_stage1_path = BUF_INIT;
-static Buf saved_lib_dir = BUF_INIT;
-static Buf saved_special_dir = BUF_INIT;
-static Buf saved_std_dir = BUF_INIT;
-
-static Buf saved_dynamic_linker_path = BUF_INIT;
-static bool searched_for_dyn_linker = false;
-
-static Buf saved_libc_path = BUF_INIT;
-static bool searched_for_libc = false;
-
-Buf *get_stage1_cache_path(void) {
-    if (saved_stage1_path.list.length != 0) {
-        return &saved_stage1_path;
-    }
-    Error err;
-    if ((err = os_get_app_data_dir(&saved_app_data_dir, "zig"))) {
-        fprintf(stderr, "Unable to get app data dir: %s\n", err_str(err));
-        exit(1);
-    }
-    os_path_join(&saved_app_data_dir, buf_create_from_str("stage1"), &saved_stage1_path);
-    return &saved_stage1_path;
-}
-
-static void detect_dynamic_linker(Buf *lib_path) {
-#if defined(ZIG_OS_LINUX)
-    for (size_t i = 0; possible_ld_names[i] != NULL; i += 1) {
-        if (buf_ends_with_str(lib_path, possible_ld_names[i])) {
-            buf_init_from_buf(&saved_dynamic_linker_path, lib_path);
-            break;
-        }
-    }
-#endif
-}
-
-const Buf *get_self_libc_path(void) {
-    for (;;) {
-        if (saved_libc_path.list.length != 0) {
-            return &saved_libc_path;
-        }
-        if (searched_for_libc)
-            return nullptr;
-        ZigList<Buf *> lib_paths = {};
-        Error err;
-        if ((err = os_self_exe_shared_libs(lib_paths)))
-            return nullptr;
-        for (size_t i = 0; i < lib_paths.length; i += 1) {
-            Buf *lib_path = lib_paths.at(i);
-            if (buf_ends_with_str(lib_path, "libc.so.6")) {
-                buf_init_from_buf(&saved_libc_path, lib_path);
-                return &saved_libc_path;
-            }
-        }
-        searched_for_libc = true;
-    }
-}
-
-Buf *get_self_dynamic_linker_path(void) {
-    for (;;) {
-        if (saved_dynamic_linker_path.list.length != 0) {
-            return &saved_dynamic_linker_path;
-        }
-        if (searched_for_dyn_linker)
-            return nullptr;
-        ZigList<Buf *> lib_paths = {};
-        Error err;
-        if ((err = os_self_exe_shared_libs(lib_paths)))
-            return nullptr;
-        for (size_t i = 0; i < lib_paths.length; i += 1) {
-            Buf *lib_path = lib_paths.at(i);
-            detect_dynamic_linker(lib_path);
-        }
-        searched_for_dyn_linker = true;
-    }
-}
-
 Error get_compiler_id(Buf **result) {
+    static Buf saved_compiler_id = BUF_INIT;
+
     if (saved_compiler_id.list.length != 0) {
         *result = &saved_compiler_id;
         return ErrorNone;
     }
 
     Error err;
-    Buf *stage1_dir = get_stage1_cache_path();
     Buf *manifest_dir = buf_alloc();
-    os_path_join(stage1_dir, buf_create_from_str("exe"), manifest_dir);
+    os_path_join(get_global_cache_dir(), buf_create_from_str("exe"), manifest_dir);
 
     CacheHash cache_hash;
     CacheHash *ch = &cache_hash;
@@ -116,7 +40,6 @@ Error get_compiler_id(Buf **result) {
         return err;
     for (size_t i = 0; i < lib_paths.length; i += 1) {
         Buf *lib_path = lib_paths.at(i);
-        detect_dynamic_linker(lib_path);
         if ((err = cache_add_file(ch, lib_path)))
             return err;
     }
@@ -190,9 +113,9 @@ static int find_zig_lib_dir(Buf *out_path) {
 }
 
 Buf *get_zig_lib_dir(void) {
-    if (saved_lib_dir.list.length != 0) {
+    static Buf saved_lib_dir = BUF_INIT;
+    if (saved_lib_dir.list.length != 0)
         return &saved_lib_dir;
-    }
     buf_resize(&saved_lib_dir, 0);
 
     int err;
@@ -204,9 +127,9 @@ Buf *get_zig_lib_dir(void) {
 }
 
 Buf *get_zig_std_dir(Buf *zig_lib_dir) {
-    if (saved_std_dir.list.length != 0) {
+    static Buf saved_std_dir = BUF_INIT;
+    if (saved_std_dir.list.length != 0)
         return &saved_std_dir;
-    }
     buf_resize(&saved_std_dir, 0);
 
     os_path_join(zig_lib_dir, buf_create_from_str("std"), &saved_std_dir);
@@ -215,12 +138,51 @@ Buf *get_zig_std_dir(Buf *zig_lib_dir) {
 }
 
 Buf *get_zig_special_dir(Buf *zig_lib_dir) {
-    if (saved_special_dir.list.length != 0) {
+    static Buf saved_special_dir = BUF_INIT;
+    if (saved_special_dir.list.length != 0)
         return &saved_special_dir;
-    }
     buf_resize(&saved_special_dir, 0);
 
     os_path_join(get_zig_std_dir(zig_lib_dir), buf_sprintf("special"), &saved_special_dir);
 
     return &saved_special_dir;
+}
+
+Buf *get_global_cache_dir(void) {
+    static Buf saved_global_cache_dir = BUF_INIT;
+    if (saved_global_cache_dir.list.length != 0)
+        return &saved_global_cache_dir;
+    buf_resize(&saved_global_cache_dir, 0);
+
+    Buf app_data_dir = BUF_INIT;
+    Error err;
+    if ((err = os_get_app_data_dir(&app_data_dir, "zig"))) {
+        fprintf(stderr, "Unable to get application data dir: %s\n", err_str(err));
+        exit(1);
+    }
+    os_path_join(&app_data_dir, buf_create_from_str("stage1"), &saved_global_cache_dir);
+    buf_deinit(&app_data_dir);
+    return &saved_global_cache_dir;
+}
+
+FileExt classify_file_ext(const char *filename_ptr, size_t filename_len) {
+    if (mem_ends_with_str(filename_ptr, filename_len, ".c")) {
+        return FileExtC;
+    } else if (mem_ends_with_str(filename_ptr, filename_len, ".C") ||
+        mem_ends_with_str(filename_ptr, filename_len, ".cc") ||
+        mem_ends_with_str(filename_ptr, filename_len, ".cpp") ||
+        mem_ends_with_str(filename_ptr, filename_len, ".cxx"))
+    {
+        return FileExtCpp;
+    } else if (mem_ends_with_str(filename_ptr, filename_len, ".ll")) {
+        return FileExtLLVMIr;
+    } else if (mem_ends_with_str(filename_ptr, filename_len, ".bc")) {
+        return FileExtLLVMBitCode;
+    } else if (mem_ends_with_str(filename_ptr, filename_len, ".s") ||
+        mem_ends_with_str(filename_ptr, filename_len, ".S"))
+    {
+        return FileExtAsm;
+    }
+    // TODO look for .so, .so.X, .so.X.Y, .so.X.Y.Z
+    return FileExtUnknown;
 }

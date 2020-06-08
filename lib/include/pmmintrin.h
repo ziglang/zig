@@ -263,7 +263,7 @@ _mm_movedup_pd(__m128d __a)
 static __inline__ void __DEFAULT_FN_ATTRS
 _mm_monitor(void const *__p, unsigned __extensions, unsigned __hints)
 {
-  __builtin_ia32_monitor((void *)__p, __extensions, __hints);
+  __builtin_ia32_monitor(__p, __extensions, __hints);
 }
 
 /// Used with the MONITOR instruction to wait while the processor is in

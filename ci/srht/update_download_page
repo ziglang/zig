@@ -1,0 +1,80 @@
+#!/bin/sh
+
+set -x
+set -e
+
+VERSION="$1"
+SRCDIR="$(pwd)"
+NATIVE_TARBALL="zig-linux-$(uname -m)-$VERSION.tar.xz"
+
+# Check for all the builds being completed. It's expected that this script is run several times
+# before they are all complete.
+AARCH64_LINUX_JSON_URL="https://ziglang.org/builds/aarch64-linux-$VERSION.json"
+X86_64_LINUX_JSON_URL="https://ziglang.org/builds/x86_64-linux-$VERSION.json"
+X86_64_WINDOWS_JSON_URL="https://ziglang.org/builds/x86_64-windows-$VERSION.json"
+X86_64_MACOS_JSON_URL="https://ziglang.org/builds/x86_64-macos-$VERSION.json"
+X86_64_FREEBSD_JSON_URL="https://ziglang.org/builds/x86_64-freebsd-$VERSION.json"
+
+# If any of these fail, it's not really this job failing; rather we have detected
+# that this job will be called again later when other jobs have completed.
+curl --fail -I "$AARCH64_LINUX_JSON_URL" >/dev/null || exit 0
+curl --fail -I "$X86_64_LINUX_JSON_URL" >/dev/null || exit 0
+curl --fail -I "$X86_64_WINDOWS_JSON_URL" >/dev/null || exit 0
+curl --fail -I "$X86_64_MACOS_JSON_URL" >/dev/null || exit 0
+curl --fail -I "$X86_64_FREEBSD_JSON_URL" >/dev/null || exit 0
+
+# Without --user, this gave me:
+# ERROR: Could not install packages due to an EnvironmentError: [Errno 13] Permission denied
+pip3 install s3cmd --user
+S3CMD="$HOME/.local/bin/s3cmd"
+
+rm -rf .git
+
+cd "$HOME"
+wget "https://ziglang.org/builds/$NATIVE_TARBALL"
+tar xf "$NATIVE_TARBALL"
+ZIGDIR=$(basename $NATIVE_TARBALL .tar.xz)
+ZIG="$ZIGDIR/zig"
+LANGREF="$ZIGDIR/langref.html"
+SRCTARBALLDIR="zig-$VERSION"
+export SRC_TARBALL="$SRCTARBALLDIR.tar.xz"
+mv "$SRCDIR" "$SRCTARBALLDIR"
+tar cfJ "$SRC_TARBALL" "$SRCTARBALLDIR"
+export SRC_SHASUM=$(sha256sum $SRC_TARBALL | cut '-d ' -f1)
+export SRC_BYTESIZE=$(wc -c < $SRC_TARBALL)
+
+X86_64_WINDOWS_JSON=$(curl --fail "$X86_64_WINDOWS_JSON_URL" || exit 1)
+export X86_64_WINDOWS_TARBALL="$(echo "$X86_64_WINDOWS_JSON" | jq .tarball -r)"
+export X86_64_WINDOWS_BYTESIZE="$(echo "$X86_64_WINDOWS_JSON" | jq .size -r)"
+export X86_64_WINDOWS_SHASUM="$(echo "$X86_64_WINDOWS_JSON" | jq .shasum -r)"
+
+X86_64_MACOS_JSON=$(curl --fail "$X86_64_MACOS_JSON_URL" || exit 1)
+export X86_64_MACOS_TARBALL="$(echo "$X86_64_MACOS_JSON" | jq .tarball -r)"
+export X86_64_MACOS_BYTESIZE="$(echo "$X86_64_MACOS_JSON" | jq .size -r)"
+export X86_64_MACOS_SHASUM="$(echo "$X86_64_MACOS_JSON" | jq .shasum -r)"
+
+X86_64_LINUX_JSON=$(curl --fail "$X86_64_LINUX_JSON_URL" || exit 1)
+export X86_64_LINUX_TARBALL="$(echo "$X86_64_LINUX_JSON" | jq .tarball -r)"
+export X86_64_LINUX_BYTESIZE="$(echo "$X86_64_LINUX_JSON" | jq .size -r)"
+export X86_64_LINUX_SHASUM="$(echo "$X86_64_LINUX_JSON" | jq .shasum -r)"
+
+AARCH64_LINUX_JSON=$(curl --fail "$AARCH64_LINUX_JSON_URL" || exit 1)
+export AARCH64_LINUX_TARBALL="$(echo "$AARCH64_LINUX_JSON" | jq .tarball -r)"
+export AARCH64_LINUX_BYTESIZE="$(echo "$AARCH64_LINUX_JSON" | jq .size -r)"
+export AARCH64_LINUX_SHASUM="$(echo "$AARCH64_LINUX_JSON" | jq .shasum -r)"
+
+X86_64_FREEBSD_JSON=$(curl --fail "$X86_64_FREEBSD_JSON_URL" || exit 1)
+export X86_64_FREEBSD_TARBALL="$(echo "$X86_64_FREEBSD_JSON" | jq .tarball -r)"
+export X86_64_FREEBSD_BYTESIZE="$(echo "$X86_64_FREEBSD_JSON" | jq .size -r)"
+export X86_64_FREEBSD_SHASUM="$(echo "$X86_64_FREEBSD_JSON" | jq .shasum -r)"
+
+git clone https://github.com/ziglang/www.ziglang.org --depth 1
+cd www.ziglang.org
+export MASTER_DATE="$(date +%Y-%m-%d)"
+export MASTER_VERSION="$VERSION"
+"../$ZIG" run update-download-page.zig
+
+$S3CMD put -P --no-mime-magic --add-header="cache-control: public, max-age=31536000, immutable" "../$SRC_TARBALL" s3://ziglang.org/builds/
+$S3CMD put -P --no-mime-magic "../$LANGREF" s3://ziglang.org/documentation/master/index.html --add-header="Cache-Control: max-age=0, must-revalidate"
+$S3CMD put -P --no-mime-magic www/download/index.html s3://ziglang.org/download/index.html --add-header="Cache-Control: max-age=0, must-revalidate"
+$S3CMD put -P --no-mime-magic www/download/index.json s3://ziglang.org/download/index.json --add-header="Cache-Control: max-age=0, must-revalidate"

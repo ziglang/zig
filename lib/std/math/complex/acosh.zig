@@ -5,8 +5,8 @@ const cmath = math.complex;
 const Complex = cmath.Complex;
 
 /// Returns the hyperbolic arc-cosine of z.
-pub fn acosh(z: var) Complex(@typeOf(z.re)) {
-    const T = @typeOf(z.re);
+pub fn acosh(z: var) Complex(@TypeOf(z.re)) {
+    const T = @TypeOf(z.re);
     const q = cmath.acos(z);
     return Complex(T).new(-q.im, q.re);
 }

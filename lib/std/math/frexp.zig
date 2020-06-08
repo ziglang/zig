@@ -24,8 +24,8 @@ pub const frexp64_result = frexp_result(f64);
 ///  - frexp(+-0)   = +-0, 0
 ///  - frexp(+-inf) = +-inf, 0
 ///  - frexp(nan)   = nan, undefined
-pub fn frexp(x: var) frexp_result(@typeOf(x)) {
-    const T = @typeOf(x);
+pub fn frexp(x: var) frexp_result(@TypeOf(x)) {
+    const T = @TypeOf(x);
     return switch (T) {
         f32 => frexp32(x),
         f64 => frexp64(x),
@@ -108,11 +108,11 @@ fn frexp64(x: f64) frexp64_result {
 }
 
 test "math.frexp" {
-    const a = frexp(f32(1.3));
+    const a = frexp(@as(f32, 1.3));
     const b = frexp32(1.3);
     expect(a.significand == b.significand and a.exponent == b.exponent);
 
-    const c = frexp(f64(1.3));
+    const c = frexp(@as(f64, 1.3));
     const d = frexp64(1.3);
     expect(c.significand == d.significand and c.exponent == d.exponent);
 }

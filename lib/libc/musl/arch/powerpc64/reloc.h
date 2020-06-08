@@ -1,5 +1,3 @@
-#include <endian.h>
-
 #if __BYTE_ORDER == __LITTLE_ENDIAN
 #define ENDIAN_SUFFIX "le"
 #else
@@ -11,6 +9,7 @@
 #define TPOFF_K (-0x7000)
 
 #define REL_SYMBOLIC    R_PPC64_ADDR64
+#define REL_USYMBOLIC   R_PPC64_UADDR64
 #define REL_GOT         R_PPC64_GLOB_DAT
 #define REL_PLT         R_PPC64_JMP_SLOT
 #define REL_RELATIVE    R_PPC64_RELATIVE

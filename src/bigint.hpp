@@ -34,6 +34,7 @@ void bigint_init_signed(BigInt *dest, int64_t x);
 void bigint_init_bigint(BigInt *dest, const BigInt *src);
 void bigint_init_bigfloat(BigInt *dest, const BigFloat *op);
 void bigint_init_data(BigInt *dest, const uint64_t *digits, size_t digit_count, bool is_negative);
+void bigint_deinit(BigInt *bi);
 
 // panics if number won't fit
 uint64_t bigint_as_u64(const BigInt *bigint);
@@ -94,6 +95,7 @@ size_t bigint_bits_needed(const BigInt *op);
 Cmp bigint_cmp_zero(const BigInt *op);
 
 void bigint_incr(BigInt *value);
+void bigint_decr(BigInt *value);
 
 bool mul_u64_overflow(uint64_t op1, uint64_t op2, uint64_t *result);
 

@@ -60,7 +60,7 @@ inline namespace fundamentals_v1 {
      using is_detected_convertible = is_convertible<detected_t<Op, Args...>, To>;
   template <class To, template<class...> class Op, class... Args>
      constexpr bool is_detected_convertible_v
-       = is_detected_convertible<To, Op, Args...>::value;  
+       = is_detected_convertible<To, Op, Args...>::value;
 
 } // namespace fundamentals_v1
 } // namespace experimental
@@ -122,7 +122,7 @@ struct _DETECTOR<_Default, void_t<_Op<_Args...>>, _Op, _Args...> {
    using value_t = true_type;
    using type = _Op<_Args...>;
    };
-     
+
 
 template <template<class...> class _Op, class... _Args>
   using is_detected = typename _DETECTOR<nonesuch, void, _Op, _Args...>::value_t;
@@ -144,7 +144,7 @@ template <class Expected, template<class...> class _Op, class... _Args>
 template <class To, template<class...> class _Op, class... _Args>
   using is_detected_convertible = is_convertible<detected_t<_Op, _Args...>, To>;
 template <class To, template<class...> class _Op, class... _Args>
-  _LIBCPP_CONSTEXPR bool is_detected_convertible_v = is_detected_convertible<To, _Op, _Args...>::value;  
+  _LIBCPP_CONSTEXPR bool is_detected_convertible_v = is_detected_convertible<To, _Op, _Args...>::value;
 
 
 _LIBCPP_END_NAMESPACE_LFTS

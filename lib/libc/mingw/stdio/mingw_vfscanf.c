@@ -42,6 +42,8 @@
  EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+#define __LARGE_MBSTATE_T
+
 #include <limits.h>
 #include <stddef.h>
 #include <stdarg.h>

@@ -92,6 +92,8 @@ extern "C" {
 #define MADV_DODUMP      17
 #define MADV_WIPEONFORK  18
 #define MADV_KEEPONFORK  19
+#define MADV_COLD        20
+#define MADV_PAGEOUT     21
 #define MADV_HWPOISON    100
 #define MADV_SOFT_OFFLINE 101
 #endif

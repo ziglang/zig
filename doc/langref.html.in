@@ -1,12 +1,13 @@
 <!doctype html>
-<html>
+<html lang="en">
   <head>
     <meta charset="utf-8">
     <title>Documentation - The Zig Programming Language</title>
     <link rel="icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAgklEQVR4AWMYWuD7EllJIM4G4g4g5oIJ/odhOJ8wToOxSTXgNxDHoeiBMfA4+wGShjyYOCkG/IGqWQziEzYAoUAeiF9D5U+DxEg14DRU7jWIT5IBIOdCxf+A+CQZAAoopEB7QJwBCBwHiip8UYmRdrAlDpIMgApwQZNnNii5Dq0MBgCxxycBnwEd+wAAAABJRU5ErkJggg=="/>
-    <style type="text/css">
+    <style>
       body{
         font-family: system-ui, -apple-system, Roboto, "Segoe UI", sans-serif;
+        margin: 0;
       }
       a:not(:hover) {
         text-decoration: none;
@@ -80,9 +81,33 @@
           font-weight: bold;
       }
 
+      #main-wrapper {
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+      }
+
+      #contents-wrapper {
+        flex-grow: 1;
+        padding: 0 2em;
+      }
+
       #contents {
         max-width: 60em;
         margin: auto;
+      }
+
+      #index {
+        padding: 0 1em;
+      }
+
+      @media screen and (min-width: 1025px) {
+        #main-wrapper {
+            flex-direction: row;
+        }
+        #contents-wrapper, #index {
+            overflow: auto;
+        }
       }
 
       h1 a, h2 a, h3 a, h4 a, h5 a {
@@ -155,24 +180,32 @@
     </style>
   </head>
   <body>
-    <a href="https://ziglang.org/documentation/0.1.1">0.1.1</a> |
-    <a href="https://ziglang.org/documentation/0.2.0">0.2.0</a> |
-    <a href="https://ziglang.org/documentation/0.3.0">0.3.0</a> |
-    <a href="https://ziglang.org/documentation/0.4.0">0.4.0</a> |
-    <a href="https://ziglang.org/documentation/0.5.0">0.5.0</a> |
-    master
-    <div id="contents">
+    <div id="main-wrapper">
+      <div id="index">
+        <a href="https://ziglang.org/documentation/0.1.1/">0.1.1</a> |
+        <a href="https://ziglang.org/documentation/0.2.0/">0.2.0</a> |
+        <a href="https://ziglang.org/documentation/0.3.0/">0.3.0</a> |
+        <a href="https://ziglang.org/documentation/0.4.0/">0.4.0</a> |
+        <a href="https://ziglang.org/documentation/0.5.0/">0.5.0</a> |
+        <a href="https://ziglang.org/documentation/0.6.0/">0.6.0</a> |
+        master
+        <h1>Index</h1>
+        {#nav#}
+      </div>
+      <div id="contents-wrapper"><div id="contents">
       {#header_open|Introduction#}
       <p>
-      Zig is a general-purpose programming language designed for <strong>robustness</strong>,
-      <strong>optimality</strong>, and <strong>maintainability</strong>.
+      Zig is a general-purpose programming language and toolchain for maintaining
+      <strong>robust</strong>, <strong>optimal</strong>, and <strong>reusable</strong> software.
       </p>
       <ul>
         <li><strong>Robust</strong> - behavior is correct even for edge cases such as out of memory.</li>
         <li><strong>Optimal</strong> - write programs the best way they can behave and perform.</li>
-        <li><strong>Maintainable</strong> - precisely communicate intent to the compiler and other programmers.
-            The language imposes a low overhead to reading code and is resilient to changing requirements
-            and environments.</li>
+        <li><strong>Reusable</strong> - the same code works in many environments which have different
+          constraints.</li>
+        <li><strong>Maintainable</strong> - precisely communicate intent to the compiler and
+          other programmers. The language imposes a low overhead to reading code and is
+          resilient to changing requirements and environments.</li>
       </ul>
       <p>
       Often the most efficient way to learn something new is to see examples, so
@@ -192,21 +225,14 @@
       </p>
       {#header_close#}
 
-      {#header_open|Index#}
-      {#nav#}
-      {#header_close#}
-
       {#header_open|Hello World#}
 
       {#code_begin|exe|hello#}
 const std = @import("std");
 
 pub fn main() !void {
-    // If this program is run without stdout attached, exit with an error.
-    const stdout_file = try std.io.getStdOut();
-    // If this program encounters pipe failure when printing to stdout, exit
-    // with an error.
-    try stdout_file.write("Hello, world!\n");
+    const stdout = std.io.getStdOut().outStream();
+    try stdout.print("Hello, {}!\n", .{"world"});
 }
       {#code_end#}
       <p>
@@ -218,12 +244,11 @@ pub fn main() !void {
 const warn = @import("std").debug.warn;
 
 pub fn main() void {
-    warn("Hello, world!\n");
+    warn("Hello, world!\n", .{});
 }
       {#code_end#}
       <p>
-      Note that we also left off the {#syntax#}!{#endsyntax#} from the return type.
-      In Zig, if your main function cannot fail, you must use the {#syntax#}void{#endsyntax#} return type.
+      Note that you can leave off the {#syntax#}!{#endsyntax#} from the return type because {#syntax#}warn{#endsyntax#} cannot fail.
       </p>
       {#see_also|Values|@import|Errors|Root Source File#}
       {#header_close#}
@@ -290,41 +315,50 @@ const assert = std.debug.assert;
 pub fn main() void {
     // integers
     const one_plus_one: i32 = 1 + 1;
-    warn("1 + 1 = {}\n", one_plus_one);
+    warn("1 + 1 = {}\n", .{one_plus_one});
 
     // floats
     const seven_div_three: f32 = 7.0 / 3.0;
-    warn("7.0 / 3.0 = {}\n", seven_div_three);
+    warn("7.0 / 3.0 = {}\n", .{seven_div_three});
 
     // boolean
-    warn("{}\n{}\n{}\n",
+    warn("{}\n{}\n{}\n", .{
         true and false,
         true or false,
-        !true);
+        !true,
+    });
 
     // optional
     var optional_value: ?[]const u8 = null;
     assert(optional_value == null);
 
-    warn("\noptional 1\ntype: {}\nvalue: {}\n",
-        @typeName(@typeOf(optional_value)), optional_value);
+    warn("\noptional 1\ntype: {}\nvalue: {}\n", .{
+        @typeName(@TypeOf(optional_value)),
+        optional_value,
+    });
 
     optional_value = "hi";
     assert(optional_value != null);
 
-    warn("\noptional 2\ntype: {}\nvalue: {}\n",
-        @typeName(@typeOf(optional_value)), optional_value);
+    warn("\noptional 2\ntype: {}\nvalue: {}\n", .{
+        @typeName(@TypeOf(optional_value)),
+        optional_value,
+    });
 
     // error union
     var number_or_error: anyerror!i32 = error.ArgNotFound;
 
-    warn("\nerror union 1\ntype: {}\nvalue: {}\n",
-        @typeName(@typeOf(number_or_error)), number_or_error);
+    warn("\nerror union 1\ntype: {}\nvalue: {}\n", .{
+        @typeName(@TypeOf(number_or_error)),
+        number_or_error,
+    });
 
     number_or_error = 1234;
 
-    warn("\nerror union 2\ntype: {}\nvalue: {}\n",
-        @typeName(@typeOf(number_or_error)), number_or_error);
+    warn("\nerror union 2\ntype: {}\nvalue: {}\n", .{
+        @typeName(@TypeOf(number_or_error)),
+        number_or_error,
+    });
 }
       {#code_end#}
       {#header_open|Primitive Types#}
@@ -512,11 +546,11 @@ pub fn main() void {
       </div>
       <p>
       In addition to the integer types above, arbitrary bit-width integers can be referenced by using
-      an identifier of <code>i</code> or </code>u</code> followed by digits. For example, the identifier
+      an identifier of <code>i</code> or <code>u</code> followed by digits. For example, the identifier
       {#syntax#}i7{#endsyntax#} refers to a signed 7-bit integer. The maximum allowed bit-width of an
       integer type is {#syntax#}65535{#endsyntax#}.
       </p>
-      {#see_also|Integers|Floats|void|Errors|@IntType#}
+      {#see_also|Integers|Floats|void|Errors|@Type#}
       {#header_close#}
       {#header_open|Primitive Values#}
       <div class="table-wrapper">
@@ -547,7 +581,11 @@ pub fn main() void {
       {#header_close#}
       {#header_open|String Literals and Character Literals#}
       <p>
-      String literals are UTF-8 encoded byte arrays.
+      String literals are single-item constant {#link|Pointers#} to null-terminated UTF-8 encoded byte arrays.
+      The type of string literals encodes both the length, and the fact that they are null-terminated,
+      and thus they can be {#link|coerced|Type Coercion#} to both {#link|Slices#} and
+      {#link|Null-Terminated Pointers|Sentinel-Terminated Pointers#}.
+      Dereferencing string literals converts them to {#link|Arrays#}.
       </p>
       <p>
       Character literals have type {#syntax#}comptime_int{#endsyntax#}, the same as
@@ -559,20 +597,15 @@ const assert = @import("std").debug.assert;
 const mem = @import("std").mem;
 
 test "string literals" {
-    // In Zig a string literal is an array of bytes.
-    const normal_bytes = "hello";
-    assert(@typeOf(normal_bytes) == [5]u8);
-    assert(normal_bytes.len == 5);
-    assert(normal_bytes[1] == 'e');
+    const bytes = "hello";
+    assert(@TypeOf(bytes) == *const [5:0]u8);
+    assert(bytes.len == 5);
+    assert(bytes[1] == 'e');
+    assert(bytes[5] == 0);
     assert('e' == '\x65');
     assert('\u{1f4a9}' == 128169);
     assert('💯' == 128175);
     assert(mem.eql(u8, "hello", "h\x65llo"));
-
-    // A C string literal is a null terminated pointer.
-    const null_terminated_bytes = c"hello";
-    assert(@typeOf(null_terminated_bytes) == [*]const u8);
-    assert(null_terminated_bytes[5] == 0);
 }
       {#code_end#}
       {#see_also|Arrays|Zig Test|Source Encoding#}
@@ -642,23 +675,6 @@ const hello_world_in_c =
     \\}
 ;
       {#code_end#}
-      <p>
-      For a multiline C string literal, prepend <code>c</code> to each {#syntax#}\\{#endsyntax#}:
-      </p>
-      {#code_begin|syntax#}
-const c_string_literal =
-    c\\#include <stdio.h>
-    c\\
-    c\\int main(int argc, char **argv) {
-    c\\    printf("hello world\n");
-    c\\    return 0;
-    c\\}
-;
-      {#code_end#}
-      <p>
-      In this example the variable {#syntax#}c_string_literal{#endsyntax#} has type {#syntax#}[*]const u8{#endsyntax#} and
-      has a terminating null byte.
-      </p>
       {#see_also|@embedFile#}
       {#header_close#}
       {#header_close#}
@@ -712,7 +728,7 @@ test "init with undefined" {
 }
       {#code_end#}
       <p>
-      {#syntax#}undefined{#endsyntax#} can be {#link|implicitly cast|Implicit Casts#} to any type.
+      {#syntax#}undefined{#endsyntax#} can be {#link|coerced|Type Coercion#} to any type.
           Once this happens, it is no longer possible to detect that the value is {#syntax#}undefined{#endsyntax#}.
               {#syntax#}undefined{#endsyntax#} means the value could be anything, even something that is nonsense
                   according to the type. Translated into English, {#syntax#}undefined{#endsyntax#} means "Not a meaningful
@@ -869,6 +885,12 @@ const hex_int = 0xff;
 const another_hex_int = 0xFF;
 const octal_int = 0o755;
 const binary_int = 0b11110000;
+
+// underscores may be placed between two digits as a visual separator
+const one_billion = 1_000_000_000;
+const binary_mask = 0b1_1111_1111;
+const permissions = 0o7_5_5;
+const big_address = 0xFF80_0000_0000_0000;
       {#code_end#}
       {#header_close#}
       {#header_open|Runtime Integer Values#}
@@ -897,7 +919,7 @@ fn divide(a: i32, b: i32) i32 {
       </p>
       <p>
       Zig supports arbitrary bit-width integers, referenced by using
-      an identifier of <code>i</code> or </code>u</code> followed by digits. For example, the identifier
+      an identifier of <code>i</code> or <code>u</code> followed by digits. For example, the identifier
       {#syntax#}i7{#endsyntax#} refers to a signed 7-bit integer. The maximum allowed bit-width of an
       integer type is {#syntax#}65535{#endsyntax#}.
       </p>
@@ -920,7 +942,7 @@ fn divide(a: i32, b: i32) i32 {
       {#syntax#}f128{#endsyntax#}.
       </p>
       <p>
-      Float literals {#link|implicitly cast|Implicit Casts#} to any floating point type,
+      Float literals {#link|coerce|Type Coercion#} to any floating point type,
       and to any {#link|integer|Integers#} type when there is no fractional component.
       </p>
       {#code_begin|syntax#}
@@ -931,6 +953,11 @@ const yet_another = 123.0e+77;
 const hex_floating_point = 0x103.70p-5;
 const another_hex_float = 0x103.70;
 const yet_another_hex_float = 0x103.70P-5;
+
+// underscores may be placed between two digits as a visual separator
+const lightspeed = 299_792_458.000_000;
+const nanosecond = 0.000_000_001;
+const more_hex = 0x1234_5678.9ABC_CDEFp-10;
       {#code_end#}
       <p>
       There is no syntax for NaN, infinity, or negative infinity. For these special values,
@@ -949,15 +976,16 @@ const nan = std.math.nan(f128);
           but you can switch to {#syntax#}Optimized{#endsyntax#} mode on a per-block basis:</p>
       {#code_begin|obj|foo#}
       {#code_release_fast#}
-const builtin = @import("builtin");
-const big = f64(1 << 40);
+const std = @import("std");
+const builtin = std.builtin;
+const big = @as(f64, 1 << 40);
 
 export fn foo_strict(x: f64) f64 {
     return x + big - big;
 }
 
 export fn foo_optimized(x: f64) f64 {
-    @setFloatMode(builtin.FloatMode.Optimized);
+    @setFloatMode(.Optimized);
     return x + big - big;
 }
       {#code_end#}
@@ -973,8 +1001,8 @@ extern fn foo_optimized(x: f64) f64;
 
 pub fn main() void {
     const x = 0.001;
-    warn("optimized = {}\n", foo_optimized(x));
-    warn("strict = {}\n", foo_strict(x));
+    warn("optimized = {}\n", .{foo_optimized(x)});
+    warn("strict = {}\n", .{foo_strict(x)});
 }
       {#code_end#}
       {#see_also|@setFloatMode|Division by Zero#}
@@ -1038,7 +1066,7 @@ a +%= b{#endsyntax#}</pre></td>
             </ul>
           </td>
           <td>
-            <pre>{#syntax#}u32(std.math.maxInt(u32)) +% 1 == 0{#endsyntax#}</pre>
+            <pre>{#syntax#}@as(u32, std.math.maxInt(u32)) +% 1 == 0{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
@@ -1077,7 +1105,7 @@ a -%= b{#endsyntax#}</pre></td>
             </ul>
           </td>
           <td>
-            <pre>{#syntax#}u32(0) -% 1 == std.math.maxInt(u32){#endsyntax#}</pre>
+            <pre>{#syntax#}@as(u32, 0) -% 1 == std.math.maxInt(u32){#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
@@ -1112,7 +1140,7 @@ a -%= b{#endsyntax#}</pre></td>
             </ul>
           </td>
           <td>
-            <pre>{#syntax#}-%i32(std.math.minInt(i32)) == std.math.minInt(i32){#endsyntax#}</pre>
+            <pre>{#syntax#}-%@as(i32, std.math.minInt(i32)) == std.math.minInt(i32){#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
@@ -1151,7 +1179,7 @@ a *%= b{#endsyntax#}</pre></td>
             </ul>
           </td>
           <td>
-            <pre>{#syntax#}u8(200) *% 2 == 144{#endsyntax#}</pre>
+            <pre>{#syntax#}@as(u8, 200) *% 2 == 144{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
@@ -1303,7 +1331,7 @@ a ^= b{#endsyntax#}</pre></td>
             Bitwise NOT.
           </td>
           <td>
-            <pre>{#syntax#}~u8(0b10101111) == 0b01010000{#endsyntax#}</pre>
+            <pre>{#syntax#}~@as(u8, 0b10101111) == 0b01010000{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
@@ -1537,7 +1565,7 @@ value == null{#endsyntax#}</pre>
 const array1 = [_]u32{1,2};
 const array2 = [_]u32{3,4};
 const together = array1 ++ array2;
-mem.eql(u32, together, [_]u32{1,2,3,4}){#endsyntax#}</pre>
+mem.eql(u32, &together, &[_]u32{1,2,3,4}){#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
@@ -1616,9 +1644,7 @@ x{} x.* x.?
 ! * / % ** *% ||
 + - ++ +% -%
 << >>
-&
-^
-|
+& ^ |
 == != < > <= >=
 and
 or
@@ -1639,12 +1665,11 @@ comptime {
     assert(message.len == 5);
 }
 
-// a string literal is an array literal
+// A string literal is a pointer to an array literal.
 const same_message = "hello";
 
 comptime {
-    assert(mem.eql(u8, message, same_message));
-    assert(@typeOf(message) == @typeOf(same_message));
+    assert(mem.eql(u8, &message, same_message));
 }
 
 test "iterate over an array" {
@@ -1652,7 +1677,7 @@ test "iterate over an array" {
     for (message) |byte| {
         sum += byte;
     }
-    assert(sum == usize('h') + usize('e') + usize('l') * 2 + usize('o'));
+    assert(sum == 'h' + 'e' + 'l' * 2 + 'o');
 }
 
 // modifiable array
@@ -1672,7 +1697,7 @@ const part_one = [_]i32{ 1, 2, 3, 4 };
 const part_two = [_]i32{ 5, 6, 7, 8 };
 const all_of_it = part_one ++ part_two;
 comptime {
-    assert(mem.eql(i32, all_of_it, [_]i32{ 1, 2, 3, 4, 5, 6, 7, 8 }));
+    assert(mem.eql(i32, &all_of_it, &[_]i32{ 1, 2, 3, 4, 5, 6, 7, 8 }));
 }
 
 // remember that string literals are arrays
@@ -1734,6 +1759,43 @@ test "array initialization with function calls" {
       {#code_end#}
       {#see_also|for|Slices#}
 
+      {#header_open|Anonymous List Literals#}
+      <p>Similar to {#link|Enum Literals#} and {#link|Anonymous Struct Literals#}
+      the type can be omitted from array literals:</p>
+      {#code_begin|test|anon_list#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+test "anonymous list literal syntax" {
+    var array: [4]u8 = .{11, 22, 33, 44};
+    assert(array[0] == 11);
+    assert(array[1] == 22);
+    assert(array[2] == 33);
+    assert(array[3] == 44);
+}
+      {#code_end#}
+      <p>
+      If there is no type in the result location then an anonymous list literal actually
+      turns into a {#link|struct#} with numbered field names:
+      </p>
+      {#code_begin|test|infer_list_literal#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+test "fully anonymous list literal" {
+    dump(.{ @as(u32, 1234), @as(f64, 12.34), true, "hi"});
+}
+
+fn dump(args: var) void {
+    assert(args.@"0" == 1234);
+    assert(args.@"1" == 12.34);
+    assert(args.@"2");
+    assert(args.@"3"[0] == 'h');
+    assert(args.@"3"[1] == 'i');
+}
+      {#code_end#}
+      {#header_close#}
+
       {#header_open|Multidimensional Arrays#}
       <p>
       Mutlidimensional arrays can be created by nesting arrays:
@@ -1763,13 +1825,33 @@ test "multidimensional arrays" {
 }
       {#code_end#}
       {#header_close#}
+
+      {#header_open|Sentinel-Terminated Arrays#}
+      <p>
+      The syntax {#syntax#}[N:x]T{#endsyntax#} describes an array which has a sentinel element of value {#syntax#}x{#endsyntax#} at the
+      index corresponding to {#syntax#}len{#endsyntax#}.
+      </p>
+      {#code_begin|test|null_terminated_array#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+test "null terminated array" {
+    const array = [_:0]u8 {1, 2, 3, 4};
+
+    assert(@TypeOf(array) == [4:0]u8);
+    assert(array.len == 4);
+    assert(array[4] == 0);
+}
+      {#code_end#}
+      {#see_also|Sentinel-Terminated Pointers|Sentinel-Terminated Slices#}
+      {#header_close#}
       {#header_close#}
 
       {#header_open|Vectors#}
       <p>
       A vector is a group of {#link|Integers#}, {#link|Floats#}, or {#link|Pointers#} which are operated on
-      in parallel using a single instruction ({#link|SIMD#}). Vector types are created with the builtin
-      function {#link|@Vector#}.
+      in parallel using a single instruction ({#link|SIMD#}). Vector types are created with the builtin function {#link|@Type#},
+      or using the shorthand as {#syntax#}std.meta.Vector{#endsyntax#}.
       </p>
       <p>
       TODO talk about C ABI interop
@@ -1803,7 +1885,7 @@ test "multidimensional arrays" {
               <li>Supports slice syntax: {#syntax#}ptr[start..end]{#endsyntax#}</li>
               <li>Supports pointer arithmetic: {#syntax#}ptr + x{#endsyntax#}, {#syntax#}ptr - x{#endsyntax#}</li>
               <li>{#syntax#}T{#endsyntax#} must have a known size, which means that it cannot be
-              {#syntax#}c_void{#endsyntax#} or any other {#link|@OpaqueType#}.</li>
+              {#syntax#}c_void{#endsyntax#} or any other {#link|opaque type|Opaque Types#}.</li>
             </ul>
           </li>
       </ul>
@@ -1839,12 +1921,12 @@ test "address of syntax" {
     assert(x_ptr.* == 1234);
 
     // When you get the address of a const variable, you get a const pointer to a single item.
-    assert(@typeOf(x_ptr) == *const i32);
+    assert(@TypeOf(x_ptr) == *const i32);
 
     // If you want to mutate the value, you'd need an address of a mutable variable:
     var y: i32 = 5678;
     const y_ptr = &y;
-    assert(@typeOf(y_ptr) == *i32);
+    assert(@TypeOf(y_ptr) == *i32);
     y_ptr.* += 1;
     assert(y_ptr.* == 5679);
 }
@@ -1855,7 +1937,7 @@ test "pointer array access" {
     // does not support pointer arithmetic.
     var array = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
     const ptr = &array[2];
-    assert(@typeOf(ptr) == *u8);
+    assert(@TypeOf(ptr) == *u8);
 
     assert(array[2] == 3);
     ptr.* += 1;
@@ -1863,7 +1945,7 @@ test "pointer array access" {
 }
       {#code_end#}
       <p>
-        In Zig, we prefer slices over pointers to null-terminated arrays.
+        In Zig, we generally prefer {#link|Slices#} rather than {#link|Sentinel-Terminated Pointers#}.
         You can turn an array or pointer into a slice using slice syntax.
       </p>
       <p>
@@ -1905,10 +1987,10 @@ test "comptime pointers" {
 const assert = @import("std").debug.assert;
 
 test "@ptrToInt and @intToPtr" {
-    const ptr = @intToPtr(*i32, 0xdeadbeef);
+    const ptr = @intToPtr(*i32, 0xdeadbee0);
     const addr = @ptrToInt(ptr);
-    assert(@typeOf(addr) == usize);
-    assert(addr == 0xdeadbeef);
+    assert(@TypeOf(addr) == usize);
+    assert(addr == 0xdeadbee0);
 }
       {#code_end#}
       <p>Zig is able to preserve memory addresses in comptime code, as long as
@@ -1920,10 +2002,10 @@ test "comptime @intToPtr" {
     comptime {
         // Zig is able to do this at compile-time, as long as
         // ptr is never dereferenced.
-        const ptr = @intToPtr(*i32, 0xdeadbeef);
+        const ptr = @intToPtr(*i32, 0xdeadbee0);
         const addr = @ptrToInt(ptr);
-        assert(@typeOf(addr) == usize);
-        assert(addr == 0xdeadbeef);
+        assert(@TypeOf(addr) == usize);
+        assert(addr == 0xdeadbee0);
     }
 }
       {#code_end#}
@@ -1938,7 +2020,7 @@ const assert = @import("std").debug.assert;
 
 test "volatile" {
     const mmio_ptr = @intToPtr(*volatile u8, 0x12345678);
-    assert(@typeOf(mmio_ptr) == *volatile u8);
+    assert(@TypeOf(mmio_ptr) == *volatile u8);
 }
       {#code_end#}
       <p>
@@ -1953,7 +2035,8 @@ test "volatile" {
       conversions are not possible.
       </p>
       {#code_begin|test#}
-const assert = @import("std").debug.assert;
+const std = @import("std");
+const assert = std.debug.assert;
 
 test "pointer casting" {
     const bytes align(@alignOf(u32)) = [_]u8{ 0x12, 0x12, 0x12, 0x12 };
@@ -1962,7 +2045,7 @@ test "pointer casting" {
 
     // Even this example is contrived - there are better ways to do the above than
     // pointer casting. For example, using a slice narrowing cast:
-    const u32_value = @bytesToSlice(u32, bytes[0..])[0];
+    const u32_value = std.mem.bytesAsSlice(u32, bytes[0..])[0];
     assert(u32_value == 0x12121212);
 
     // And even another way, the most straightforward way to do it:
@@ -1990,20 +2073,20 @@ test "pointer child type" {
       alignment of the underlying type, it can be omitted from the type:
       </p>
       {#code_begin|test#}
-const assert = @import("std").debug.assert;
-const builtin = @import("builtin");
+const std = @import("std");
+const assert = std.debug.assert;
 
 test "variable alignment" {
     var x: i32 = 1234;
-    const align_of_i32 = @alignOf(@typeOf(x));
-    assert(@typeOf(&x) == *i32);
+    const align_of_i32 = @alignOf(@TypeOf(x));
+    assert(@TypeOf(&x) == *i32);
     assert(*i32 == *align(align_of_i32) i32);
-    if (builtin.arch == builtin.Arch.x86_64) {
+    if (std.Target.current.cpu.arch == .x86_64) {
         assert((*i32).alignment == 4);
     }
 }
       {#code_end#}
-      <p>In the same way that a {#syntax#}*i32{#endsyntax#} can be {#link|implicitly cast|Implicit Casts#} to a
+      <p>In the same way that a {#syntax#}*i32{#endsyntax#} can be {#link|coerced|Type Coercion#} to a
           {#syntax#}*const i32{#endsyntax#}, a pointer with a larger alignment can be implicitly
       cast to a pointer with a smaller alignment, but not vice versa.
       </p>
@@ -2017,10 +2100,11 @@ const assert = @import("std").debug.assert;
 var foo: u8 align(4) = 100;
 
 test "global variable alignment" {
-    assert(@typeOf(&foo).alignment == 4);
-    assert(@typeOf(&foo) == *align(4) u8);
-    const slice = (*[1]u8)(&foo)[0..];
-    assert(@typeOf(slice) == []align(4) u8);
+    assert(@TypeOf(&foo).alignment == 4);
+    assert(@TypeOf(&foo) == *align(4) u8);
+    const as_pointer_to_array: *[1]u8 = &foo;
+    const as_slice: []u8 = as_pointer_to_array;
+    assert(@TypeOf(as_slice) == []align(4) u8);
 }
 
 fn derp() align(@sizeOf(usize) * 2) i32 { return 1234; }
@@ -2029,8 +2113,8 @@ fn noop4() align(4) void {}
 
 test "function alignment" {
     assert(derp() == 1234);
-    assert(@typeOf(noop1) == fn() align(1) void);
-    assert(@typeOf(noop4) == fn() align(4) void);
+    assert(@TypeOf(noop1) == fn() align(1) void);
+    assert(@TypeOf(noop4) == fn() align(4) void);
     noop1();
     noop4();
 }
@@ -2042,16 +2126,16 @@ test "function alignment" {
       {#link|safety check|Incorrect Pointer Alignment#}:
       </p>
       {#code_begin|test_safety|incorrect alignment#}
-const assert = @import("std").debug.assert;
+const std = @import("std");
 
 test "pointer alignment safety" {
     var array align(4) = [_]u32{ 0x11111111, 0x11111111 };
-    const bytes = @sliceToBytes(array[0..]);
-    assert(foo(bytes) == 0x11111111);
+    const bytes = std.mem.sliceAsBytes(array[0..]);
+    std.debug.assert(foo(bytes) == 0x11111111);
 }
 fn foo(bytes: []u8) u32 {
     const slice4 = bytes[1..5];
-    const int_slice = @bytesToSlice(u32, @alignCast(4, slice4));
+    const int_slice = std.mem.bytesAsSlice(u32, @alignCast(4, slice4));
     return int_slice[0];
 }
       {#code_end#}
@@ -2061,8 +2145,10 @@ fn foo(bytes: []u8) u32 {
       <p>
       This pointer attribute allows a pointer to have address zero. This is only ever needed on the
       freestanding OS target, where the address zero is mappable. If you want to represent null pointers, use
-      {#link|Optional Pointers#} instead. In this code example, if the pointer did not have the
-      {#syntax#}allowzero{#endsyntax#} attribute, this would be a {#link|Pointer Cast Invalid Null#} panic:
+      {#link|Optional Pointers#} instead. {#link|Optional Pointers#} with {#syntax#}allowzero{#endsyntax#}
+      are not the same size as pointers. In this code example, if the pointer
+      did not have the {#syntax#}allowzero{#endsyntax#} attribute, this would be a
+      {#link|Pointer Cast Invalid Null#} panic:
       </p>
       {#code_begin|test|allowzero#}
 const std = @import("std");
@@ -2074,6 +2160,30 @@ test "allowzero" {
     assert(@ptrToInt(ptr) == 0);
 }
       {#code_end#}
+      {#header_close#}
+
+      {#header_open|Sentinel-Terminated Pointers#}
+      <p>
+      The syntax {#syntax#}[*:x]T{#endsyntax#} describes a pointer that
+      has a length determined by a sentinel value. This provides protection
+      against buffer overflow and overreads.
+      </p>
+      {#code_begin|exe_build_err#}
+      {#link_libc#}
+const std = @import("std");
+
+// This is also available as `std.c.printf`.
+pub extern "c" fn printf(format: [*:0]const u8, ...) c_int;
+
+pub fn main() anyerror!void {
+    _ = printf("Hello, world!\n"); // OK
+
+    const msg = "Hello, world!\n";
+    const non_null_terminated_msg: [msg.len]u8 = msg.*;
+    _ = printf(&non_null_terminated_msg);
+}
+      {#code_end#}
+      {#see_also|Sentinel-Terminated Slices|Sentinel-Terminated Arrays#}
       {#header_close#}
       {#header_close#}
 
@@ -2087,14 +2197,15 @@ test "basic slices" {
     // a slice is that the array's length is part of the type and known at
     // compile-time, whereas the slice's length is known at runtime.
     // Both can be accessed with the `len` field.
-    const slice = array[0..array.len];
+    var known_at_runtime_zero: usize = 0;
+    const slice = array[known_at_runtime_zero..array.len];
     assert(&slice[0] == &array[0]);
     assert(slice.len == array.len);
 
     // Using the address-of operator on a slice gives a pointer to a single
     // item, while using the `ptr` field gives an unknown length pointer.
-    assert(@typeOf(slice.ptr) == [*]i32);
-    assert(@typeOf(&slice[0]) == *i32);
+    assert(@TypeOf(slice.ptr) == [*]i32);
+    assert(@TypeOf(&slice[0]) == *i32);
     assert(@ptrToInt(slice.ptr) == @ptrToInt(&slice[0]));
 
     // Slices have array bounds checking. If you try to access something out
@@ -2107,14 +2218,16 @@ test "basic slices" {
       {#code_end#}
       <p>This is one reason we prefer slices to pointers.</p>
       {#code_begin|test|slices#}
-const assert = @import("std").debug.assert;
-const mem = @import("std").mem;
-const fmt = @import("std").fmt;
+const std = @import("std");
+const assert = std.debug.assert;
+const mem = std.mem;
+const fmt = std.fmt;
 
 test "using slices for strings" {
-    // Zig has no concept of strings. String literals are arrays of u8, and
-    // in general the string type is []u8 (slice of u8).
-    // Here we implicitly cast [5]u8 to []const u8
+    // Zig has no concept of strings. String literals are const pointers to
+    // arrays of u8, and by convention parameters that are "strings" are
+    // expected to be UTF-8 encoded slices of u8.
+    // Here we coerce [5]u8 to []const u8
     const hello: []const u8 = "hello";
     const world: []const u8 = "世界";
 
@@ -2122,7 +2235,7 @@ test "using slices for strings" {
     // You can use slice syntax on an array to convert an array into a slice.
     const all_together_slice = all_together[0..];
     // String concatenation example.
-    const hello_world = try fmt.bufPrint(all_together_slice, "{} {}", hello, world);
+    const hello_world = try fmt.bufPrint(all_together_slice, "{} {}", .{ hello, world });
 
     // Generally, you can use UTF-8 and not worry about whether something is a
     // string. If you don't need to deal with individual characters, no need
@@ -2139,26 +2252,40 @@ test "slice pointer" {
     slice[2] = 3;
     assert(slice[2] == 3);
     // The slice is mutable because we sliced a mutable pointer.
-    assert(@typeOf(slice) == []u8);
+    // Furthermore, it is actually a pointer to an array, since the start
+    // and end indexes were both comptime-known.
+    assert(@TypeOf(slice) == *[5]u8);
 
     // You can also slice a slice:
     const slice2 = slice[2..3];
     assert(slice2.len == 1);
     assert(slice2[0] == 3);
 }
-
-test "slice widening" {
-    // Zig supports slice widening and slice narrowing. Cast a slice of u8
-    // to a slice of anything else, and Zig will perform the length conversion.
-    const array align(@alignOf(u32)) = [_]u8{ 0x12, 0x12, 0x12, 0x12, 0x13, 0x13, 0x13, 0x13 };
-    const slice = @bytesToSlice(u32, array[0..]);
-    assert(slice.len == 2);
-    assert(slice[0] == 0x12121212);
-    assert(slice[1] == 0x13131313);
-}
       {#code_end#}
       {#see_also|Pointers|for|Arrays#}
+
+      {#header_open|Sentinel-Terminated Slices#}
+      <p>
+      The syntax {#syntax#}[:x]T{#endsyntax#} is a slice which has a runtime known length
+      and also guarantees a sentinel value at the element indexed by the length. The type does not
+      guarantee that there are no sentinel elements before that. Sentinel-terminated slices allow element
+      access to the {#syntax#}len{#endsyntax#} index.
+      </p>
+      {#code_begin|test|null_terminated_slice#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+test "null terminated slice" {
+    const slice: [:0]const u8 = "hello";
+
+    assert(slice.len == 5);
+    assert(slice[5] == 0);
+}
+      {#code_end#}
+      {#see_also|Sentinel-Terminated Pointers|Sentinel-Terminated Arrays#}
       {#header_close#}
+      {#header_close#}
+
       {#header_open|struct#}
       {#code_begin|test|structs#}
 // Declare a struct.
@@ -2353,7 +2480,7 @@ test "default struct initialization fields" {
       </p>
       {#code_begin|test#}
 const std = @import("std");
-const builtin = @import("builtin");
+const builtin = std.builtin;
 const assert = std.debug.assert;
 
 const Full = packed struct {
@@ -2526,7 +2653,8 @@ test "overaligned pointer to packed struct" {
       Don't worry, there will be a good solution for this use case in zig.
       </p>
       {#header_close#}
-      {#header_open|struct Naming#}
+
+      {#header_open|Struct Naming#}
       <p>Since all structs are anonymous, Zig infers the type name based on a few rules.</p>
       <ul>
           <li>If the struct is in the initialization expression of a variable, it gets named after
@@ -2540,15 +2668,62 @@ const std = @import("std");
 
 pub fn main() void {
     const Foo = struct {};
-    std.debug.warn("variable: {}\n", @typeName(Foo));
-    std.debug.warn("anonymous: {}\n", @typeName(struct {}));
-    std.debug.warn("function: {}\n", @typeName(List(i32)));
+    std.debug.warn("variable: {}\n", .{@typeName(Foo)});
+    std.debug.warn("anonymous: {}\n", .{@typeName(struct {})});
+    std.debug.warn("function: {}\n", .{@typeName(List(i32))});
 }
 
 fn List(comptime T: type) type {
     return struct {
         x: T,
     };
+}
+      {#code_end#}
+      {#header_close#}
+
+      {#header_open|Anonymous Struct Literals#}
+      <p>
+      Zig allows omitting the struct type of a literal. When the result is {#link|coerced|Type Coercion#},
+      the struct literal will directly instantiate the result location, with no copy:
+      </p>
+      {#code_begin|test|struct_result#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+const Point = struct {x: i32, y: i32};
+
+test "anonymous struct literal" {
+    var pt: Point = .{
+        .x = 13,
+        .y = 67,
+    };
+    assert(pt.x == 13);
+    assert(pt.y == 67);
+}
+      {#code_end#}
+      <p>
+      The struct type can be inferred. Here the result location does not include a type, and
+      so Zig infers the type:
+      </p>
+      {#code_begin|test|struct_anon#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+test "fully anonymous struct" {
+    dump(.{
+        .int = @as(u32, 1234),
+        .float = @as(f64, 12.34),
+        .b = true,
+        .s = "hi",
+    });
+}
+
+fn dump(args: var) void {
+    assert(args.int == 1234);
+    assert(args.float == 12.34);
+    assert(args.b);
+    assert(args.s[0] == 'h');
+    assert(args.s[1] == 'i');
 }
       {#code_end#}
       {#header_close#}
@@ -2641,14 +2816,10 @@ test "@TagType" {
     assert(@TagType(Small) == u2);
 }
 
-// @memberCount tells how many fields an enum has:
-test "@memberCount" {
-    assert(@memberCount(Small) == 4);
-}
-
-// @memberName tells the name of a field in an enum:
-test "@memberName" {
-    assert(mem.eql(u8, @memberName(Small, 1), "Two"));
+// @typeInfo tells us the field count and the fields names:
+test "@typeInfo" {
+    assert(@typeInfo(Small).Enum.fields.len == 4);
+    assert(mem.eql(u8, @typeInfo(Small).Enum.fields[1].name, "Two"));
 }
 
 // @tagName gives a []const u8 representation of an enum value:
@@ -2656,13 +2827,13 @@ test "@tagName" {
     assert(mem.eql(u8, @tagName(Small.Three), "Three"));
 }
       {#code_end#}
-      {#see_also|@memberName|@memberCount|@tagName|@sizeOf#}
+      {#see_also|@typeInfo|@tagName|@sizeOf#}
 
       {#header_open|extern enum#}
       <p>
       By default, enums are not guaranteed to be compatible with the C ABI:
       </p>
-      {#code_begin|obj_err|parameter of type 'Foo' not allowed in function with calling convention 'ccc'#}
+      {#code_begin|obj_err|parameter of type 'Foo' not allowed in function with calling convention 'C'#}
 const Foo = enum { A, B, C };
 export fn entry(foo: Foo) void { }
       {#code_end#}
@@ -2725,6 +2896,47 @@ test "switch using enum literals" {
 }
       {#code_end#}
       {#header_close#}
+
+      {#header_open|Non-exhaustive enum#}
+      <p>
+      A Non-exhaustive enum can be created by adding a trailing '_' field.
+      It  must specify a tag type and cannot consume every enumeration value.
+      </p>
+      <p>
+      {#link|@intToEnum#} on a non-exhaustive enum cannot fail.
+      </p>
+      <p>
+      A switch on a non-exhaustive enum can include a '_' prong as an alternative to an {#syntax#}else{#endsyntax#} prong
+      with the difference being that it makes it a compile error if all the known tag names are not handled by the switch.
+      </p>
+      {#code_begin|test#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+const Number = enum(u8) {
+    One,
+    Two,
+    Three,
+    _,
+};
+
+test "switch on non-exhaustive enum" {
+    const number = Number.One;
+    const result = switch (number) {
+        .One => true,
+        .Two,
+        .Three => false,
+        _ => false,
+    };
+    assert(result);
+    const is_one = switch (number) {
+        .One => true,
+        else => false,
+    };
+    assert(is_one);
+}
+      {#code_end#}
+      {#header_close#}
       {#header_close#}
 
       {#header_open|union#}
@@ -2778,6 +2990,7 @@ test "simple union" {
       This turns the union into a <em>tagged</em> union, which makes it eligible
       to use with {#link|switch#} expressions. One can use {#link|@TagType#} to
       obtain the enum type from the union type.
+      Tagged unions coerce to their tag type: {#link|Type Coercion: unions and enums#}.
       </p>
       {#code_begin|test#}
 const std = @import("std");
@@ -2794,7 +3007,7 @@ const ComplexType = union(ComplexTypeTag) {
 
 test "switch on tagged union" {
     const c = ComplexType{ .Ok = 42 };
-    assert(ComplexTypeTag(c) == ComplexTypeTag.Ok);
+    assert(@as(ComplexTypeTag, c) == ComplexTypeTag.Ok);
 
     switch (c) {
         ComplexTypeTag.Ok => |value| assert(value == 42),
@@ -2804,6 +3017,14 @@ test "switch on tagged union" {
 
 test "@TagType" {
     assert(@TagType(ComplexType) == ComplexTypeTag);
+}
+
+test "coerce to enum" {
+    const c1 = ComplexType{ .Ok = 42 };
+    const c2 = ComplexType.NotOk;
+
+    assert(c1 == .Ok);
+    assert(c2 == .NotOk);
 }
       {#code_end#}
       <p>In order to modify the payload of a tagged union in a switch expression,
@@ -2824,7 +3045,7 @@ const ComplexType = union(ComplexTypeTag) {
 
 test "modify tagged union in switch" {
     var c = ComplexType{ .Ok = 42 };
-    assert(ComplexTypeTag(c) == ComplexTypeTag.Ok);
+    assert(@as(ComplexTypeTag, c) == ComplexTypeTag.Ok);
 
     switch (c) {
         ComplexTypeTag.Ok => |*value| value.* += 1,
@@ -2897,6 +3118,32 @@ test "@tagName" {
       <p>A {#syntax#}packed union{#endsyntax#} has well-defined in-memory layout and is eligible
       to be in a {#link|packed struct#}.
       {#header_close#}
+
+      {#header_open|Anonymous Union Literals#}
+      <p>{#link|Anonymous Struct Literals#} syntax can be used to initialize unions without specifying
+      the type:</p>
+      {#code_begin|test|anon_union#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+const Number = union {
+    int: i32,
+    float: f64,
+};
+
+test "anonymous union literal syntax" {
+    var i: Number = .{.int = 42};
+    var f = makeNumber();
+    assert(i.int == 42);
+    assert(f.float == 12.34);
+}
+
+fn makeNumber() Number {
+    return .{.float = 12.34};
+}
+      {#code_end#}
+      {#header_close#}
+
       {#header_close#}
 
       {#header_open|blocks#}
@@ -2963,8 +3210,8 @@ test "separate scopes" {
 
       {#header_open|switch#}
       {#code_begin|test|switch#}
-const assert = @import("std").debug.assert;
-const builtin = @import("builtin");
+const std = @import("std");
+const assert = std.debug.assert;
 
 test "switch simple" {
     const a: u64 = 10;
@@ -3008,16 +3255,16 @@ test "switch simple" {
 }
 
 // Switch expressions can be used outside a function:
-const os_msg = switch (builtin.os) {
-    builtin.Os.linux => "we found a linux user",
+const os_msg = switch (std.Target.current.os.tag) {
+    .linux => "we found a linux user",
     else => "not a linux user",
 };
 
 // Inside a function, switch statements implicitly are compile-time
 // evaluated if the target expression is compile-time known.
 test "switch inside function" {
-    switch (builtin.os) {
-        builtin.Os.fuchsia => {
+    switch (std.Target.current.os.tag) {
+        .fuchsia => {
             // On an OS other than fuchsia, block is not even analyzed,
             // so this compile error is not triggered.
             // On fuchsia this compile error would be triggered.
@@ -3392,7 +3639,7 @@ test "for basics" {
     // This is zero-indexed.
     var sum2: i32 = 0;
     for (items) |value, i| {
-        assert(@typeOf(i) == usize);
+        assert(@TypeOf(i) == usize);
         sum2 += @intCast(i32, i);
     }
     assert(sum2 == 10);
@@ -3512,6 +3759,14 @@ fn typeNameLength(comptime T: type) usize {
 
 const assert = @import("std").debug.assert;
 
+test "if expression" {
+    // If expressions are used instead of a ternary expression.
+    const a: u32 = 5;
+    const b: u32 = 4;
+    const result = if (a != b) 47 else 3089;
+    assert(result == 47);
+}
+
 test "if boolean" {
     // If expressions test boolean conditions.
     const a: u32 = 5;
@@ -3523,10 +3778,6 @@ test "if boolean" {
     } else {
         unreachable;
     }
-
-    // If expressions are used instead of a ternary expression.
-    const result = if (a != b) 47 else 3089;
-    assert(result == 47);
 }
 
 test "if optional" {
@@ -3641,18 +3892,18 @@ test "defer basics" {
 // If multiple defer statements are specified, they will be executed in
 // the reverse order they were run.
 fn deferUnwindExample() void {
-    warn("\n");
+    warn("\n", .{});
 
     defer {
-        warn("1 ");
+        warn("1 ", .{});
     }
     defer {
-        warn("2 ");
+        warn("2 ", .{});
     }
     if (false) {
         // defers are not run if they are never executed.
         defer {
-            warn("3 ");
+            warn("3 ", .{});
         }
     }
 }
@@ -3667,15 +3918,15 @@ test "defer unwinding" {
 // This is especially useful in allowing a function to clean up properly
 // on error, and replaces goto error handling tactics as seen in c.
 fn deferErrorExample(is_error: bool) !void {
-    warn("\nstart of function\n");
+    warn("\nstart of function\n", .{});
 
     // This will always be executed on exit
     defer {
-        warn("end of function\n");
+        warn("end of function\n", .{});
     }
 
     errdefer {
-        warn("encountered an error!\n");
+        warn("encountered an error!\n", .{});
     }
 
     if (is_error) {
@@ -3735,7 +3986,7 @@ test "type of unreachable" {
         // However this assertion will still fail because
         // evaluating unreachable at compile-time is a compile error.
 
-        assert(@typeOf(unreachable) == noreturn);
+        assert(@TypeOf(unreachable) == noreturn);
     }
 }
       {#code_end#}
@@ -3768,7 +4019,7 @@ test "noreturn" {
       <p>Another use case for {#syntax#}noreturn{#endsyntax#} is the {#syntax#}exit{#endsyntax#} function:</p>
       {#code_begin|test#}
       {#target_windows#}
-pub extern "kernel32" stdcallcc fn ExitProcess(exit_code: c_uint) noreturn;
+pub extern "kernel32" fn ExitProcess(exit_code: c_uint) callconv(.Stdcall) noreturn;
 
 test "foo" {
     const value = bar() catch ExitProcess(1);
@@ -3802,8 +4053,8 @@ export fn sub(a: i8, b: i8) i8 { return a - b; }
 // The extern specifier is used to declare a function that will be resolved
 // at link time, when linking statically, or at runtime, when linking
 // dynamically.
-// The stdcallcc specifier changes the calling convention of the function.
-extern "kernel32" stdcallcc fn ExitProcess(exit_code: u32) noreturn;
+// The callconv specifier changes the calling convention of the function.
+extern "kernel32" fn ExitProcess(exit_code: u32) callconv(.Stdcall) noreturn;
 extern "c" fn atan2(a: f64, b: f64) f64;
 
 // The @setCold builtin tells the optimizer that a function is rarely called.
@@ -3812,9 +4063,9 @@ fn abort() noreturn {
     while (true) {}
 }
 
-// The nakedcc specifier makes a function not have any function prologue or epilogue.
+// The naked calling convention makes a function not have any function prologue or epilogue.
 // This can be useful when integrating with assembly.
-nakedcc fn _start() noreturn {
+fn _start() callconv(.Naked) noreturn {
     abort();
 }
 
@@ -3844,7 +4095,7 @@ test "function" {
 const assert = @import("std").debug.assert;
 
 comptime {
-    assert(@typeOf(foo) == fn()void);
+    assert(@TypeOf(foo) == fn()void);
     assert(@sizeOf(fn()void) == @sizeOf(?fn()void));
 }
 
@@ -3887,13 +4138,36 @@ test "pass struct to function" {
       For extern functions, Zig follows the C ABI for passing structs and unions by value.
       </p>
       {#header_close#}
+      {#header_open|Function Parameter Type Inference#}
+      <p>
+      Function parameters can be declared with {#syntax#}var{#endsyntax#} in place of the type.
+      In this case the parameter types will be inferred when the function is called.
+      Use {#link|@TypeOf#} and {#link|@typeInfo#} to get information about the inferred type.
+      </p>
+      {#code_begin|test#}
+const assert = @import("std").debug.assert;
+
+fn addFortyTwo(x: var) @TypeOf(x) {
+    return x + 42;
+}
+
+test "fn type inference" {
+    assert(addFortyTwo(1) == 43);
+    assert(@TypeOf(addFortyTwo(1)) == comptime_int);
+    var y: i64 = 2;
+    assert(addFortyTwo(y) == 44);
+    assert(@TypeOf(addFortyTwo(y)) == i64);
+}
+      {#code_end#}
+
+      {#header_close#}
       {#header_open|Function Reflection#}
       {#code_begin|test#}
 const assert = @import("std").debug.assert;
 
 test "fn reflection" {
-    assert(@typeOf(assert).ReturnType == void);
-    assert(@typeOf(assert).is_var_args == false);
+    assert(@TypeOf(assert).ReturnType == void);
+    assert(@TypeOf(assert).is_var_args == false);
 }
       {#code_end#}
       {#header_close#}
@@ -3911,7 +4185,7 @@ test "fn reflection" {
       However right now it is hard coded to be a {#syntax#}u16{#endsyntax#}. See <a href="https://github.com/ziglang/zig/issues/786">#768</a>.
       </p>
       <p>
-      You can {#link|implicitly cast|Implicit Casts#} an error from a subset to a superset:
+      You can {#link|coerce|Type Coercion#} an error from a subset to a superset:
       </p>
       {#code_begin|test#}
 const std = @import("std");
@@ -3926,7 +4200,7 @@ const AllocationError = error {
     OutOfMemory,
 };
 
-test "implicit cast subset to superset" {
+test "coerce subset to superset" {
     const err = foo(AllocationError.OutOfMemory);
     std.debug.assert(err == FileOpenError.OutOfMemory);
 }
@@ -3936,7 +4210,7 @@ fn foo(err: AllocationError) FileOpenError {
 }
       {#code_end#}
       <p>
-      But you cannot implicitly cast an error from a superset to a subset:
+      But you cannot {#link|coerce|Type Coercion#} an error from a superset to a subset:
       </p>
       {#code_begin|test_err|not a member of destination error set#}
 const FileOpenError = error {
@@ -3949,7 +4223,7 @@ const AllocationError = error {
     OutOfMemory,
 };
 
-test "implicit cast superset to subset" {
+test "coerce superset to subset" {
     foo(FileOpenError.OutOfMemory) catch {};
 }
 
@@ -3976,7 +4250,7 @@ const err = (error {FileNotFound}).FileNotFound;
       It is a superset of all other error sets and a subset of none of them.
       </p>
       <p>
-      You can implicitly cast any error set to the global one, and you can explicitly
+      You can {#link|coerce|Type Coercion#} any error set to the global one, and you can explicitly
       cast an error of the global error set to a non-global one. This inserts a language-level
       assert to make sure the error value is in fact in the destination error set.
       </p>
@@ -4047,7 +4321,7 @@ test "parse u64" {
       <p>
       Within the function definition, you can see some return statements that return
       an error, and at the bottom a return statement that returns a {#syntax#}u64{#endsyntax#}.
-          Both types {#link|implicitly cast|Implicit Casts#} to {#syntax#}anyerror!u64{#endsyntax#}.
+          Both types {#link|coerce|Type Coercion#} to {#syntax#}anyerror!u64{#endsyntax#}.
       </p>
       <p>
       What it looks like to use this function varies depending on what you're
@@ -4186,17 +4460,17 @@ const assert = @import("std").debug.assert;
 test "error union" {
     var foo: anyerror!i32 = undefined;
 
-    // Implicitly cast from child type of an error union:
+    // Coerce from child type of an error union:
     foo = 1234;
 
-    // Implicitly cast from an error set:
+    // Coerce from an error set:
     foo = error.SomeError;
 
     // Use compile-time reflection to access the payload type of an error union:
-    comptime assert(@typeOf(foo).Payload == i32);
+    comptime assert(@TypeOf(foo).Payload == i32);
 
     // Use compile-time reflection to access the error set type of an error union:
-    comptime assert(@typeOf(foo).ErrorSet == anyerror);
+    comptime assert(@TypeOf(foo).ErrorSet == anyerror);
 }
       {#code_end#}
       {#header_open|Merging Error Sets#}
@@ -4566,14 +4840,14 @@ fn doAThing(optional_foo: ?*Foo) void {
 const assert = @import("std").debug.assert;
 
 test "optional type" {
-    // Declare an optional and implicitly cast from null:
+    // Declare an optional and coerce from null:
     var foo: ?i32 = null;
 
-    // Implicitly cast from child type of an optional
+    // Coerce from child type of an optional
     foo = 1234;
 
     // Use compile-time reflection to access the child type of the optional:
-    comptime assert(@typeOf(foo).Child == i32);
+    comptime assert(@TypeOf(foo).Child == i32);
 }
       {#code_end#}
       {#header_close#}
@@ -4612,38 +4886,38 @@ test "optional pointers" {
       {#header_open|Casting#}
       <p>
       A <strong>type cast</strong> converts a value of one type to another.
-      Zig has {#link|Implicit Casts#} for conversions that are known to be completely safe and unambiguous,
+      Zig has {#link|Type Coercion#} for conversions that are known to be completely safe and unambiguous,
       and {#link|Explicit Casts#} for conversions that one would not want to happen on accident.
       There is also a third kind of type conversion called {#link|Peer Type Resolution#} for
       the case when a result type must be decided given multiple operand types.
       </p>
-      {#header_open|Implicit Casts#}
+      {#header_open|Type Coercion#}
       <p>
-      An implicit cast occurs when one type is expected, but different type is provided:
+      Type coercion occurs when one type is expected, but different type is provided:
       </p>
       {#code_begin|test#}
-test "implicit cast - variable declaration" {
+test "type coercion - variable declaration" {
     var a: u8 = 1;
     var b: u16 = a;
 }
 
-test "implicit cast - function call" {
+test "type coercion - function call" {
     var a: u8 = 1;
     foo(a);
 }
 
 fn foo(b: u16) void {}
 
-test "implicit cast - invoke a type as a function" {
+test "type coercion - @as builtin" {
     var a: u8 = 1;
-    var b = u16(a);
+    var b = @as(u16, a);
 }
       {#code_end#}
       <p>
-      Implicit casts are only allowed when it is completely unambiguous how to get from one type to another,
+      Type coercions are only allowed when it is completely unambiguous how to get from one type to another,
       and the transformation is guaranteed to be safe. There is one exception, which is {#link|C Pointers#}.
       </p>
-      {#header_open|Implicit Cast: Stricter Qualification#}
+      {#header_open|Type Coercion: Stricter Qualification#}
       <p>
       Values which have the same representation at runtime can be cast to increase the strictness
       of the qualifiers, no matter how nested the qualifiers are:
@@ -4658,7 +4932,7 @@ test "implicit cast - invoke a type as a function" {
       These casts are no-ops at runtime since the value representation does not change.
       </p>
       {#code_begin|test#}
-test "implicit cast - const qualification" {
+test "type coercion - const qualification" {
     var a: i32 = 1;
     var b: *i32 = &a;
     foo(b);
@@ -4667,7 +4941,7 @@ test "implicit cast - const qualification" {
 fn foo(a: *const i32) void {}
       {#code_end#}
       <p>
-      In addition, pointers implicitly cast to const optional pointers:
+      In addition, pointers coerce to const optional pointers:
       </p>
       {#code_begin|test#}
 const std = @import("std");
@@ -4675,16 +4949,16 @@ const assert = std.debug.assert;
 const mem = std.mem;
 
 test "cast *[1][*]const u8 to [*]const ?[*]const u8" {
-    const window_name = [1][*]const u8{c"window name"};
+    const window_name = [1][*]const u8{"window name"};
     const x: [*]const ?[*]const u8 = &window_name;
-    assert(mem.eql(u8, std.mem.toSliceConst(u8, x[0].?), "window name"));
+    assert(mem.eql(u8, std.mem.spanZ(@ptrCast([*:0]const u8, x[0].?)), "window name"));
 }
       {#code_end#}
       {#header_close#}
-      {#header_open|Implicit Cast: Integer and Float Widening#}
+      {#header_open|Type Coercion: Integer and Float Widening#}
       <p>
-      {#link|Integers#} implicitly cast to integer types which can represent every value of the old type, and likewise
-      {#link|Floats#} implicitly cast to float types which can represent every value of the old type.
+      {#link|Integers#} coerce to integer types which can represent every value of the old type, and likewise
+      {#link|Floats#} coerce to float types which can represent every value of the old type.
       </p>
       {#code_begin|test#}
 const std = @import("std");
@@ -4708,6 +4982,10 @@ test "implicit unsigned integer to signed integer" {
 }
 
 test "float widening" {
+    // Note: there is an open issue preventing this from working on aarch64:
+    // https://github.com/ziglang/zig/issues/3282
+    if (std.Target.current.cpu.arch == .aarch64) return error.SkipZigTest;
+
     var a: f16 = 12.34;
     var b: f32 = a;
     var c: f64 = b;
@@ -4716,8 +4994,8 @@ test "float widening" {
 }
       {#code_end#}
       {#header_close#}
-      {#header_open|Implicit Cast: Arrays and Pointers#}
-      {#code_begin|test#}
+      {#header_open|Type Coercion: Arrays and Pointers#}
+      {#code_begin|test|coerce_arrays_and_ptrs#}
 const std = @import("std");
 const assert = std.debug.assert;
 
@@ -4727,48 +5005,48 @@ const assert = std.debug.assert;
 // https://github.com/ziglang/zig/issues/265 is implemented.
 test "[N]T to []const T" {
     var x1: []const u8 = "hello";
-    var x2: []const u8 = [5]u8{ 'h', 'e', 'l', 'l', 111 };
+    var x2: []const u8 = &[5]u8{ 'h', 'e', 'l', 'l', 111 };
     assert(std.mem.eql(u8, x1, x2));
 
-    var y: []const f32 = [2]f32{ 1.2, 3.4 };
+    var y: []const f32 = &[2]f32{ 1.2, 3.4 };
     assert(y[0] == 1.2);
 }
 
 // Likewise, it works when the destination type is an error union.
 test "[N]T to E![]const T" {
     var x1: anyerror![]const u8 = "hello";
-    var x2: anyerror![]const u8 = [5]u8{ 'h', 'e', 'l', 'l', 111 };
+    var x2: anyerror![]const u8 = &[5]u8{ 'h', 'e', 'l', 'l', 111 };
     assert(std.mem.eql(u8, try x1, try x2));
 
-    var y: anyerror![]const f32 = [2]f32{ 1.2, 3.4 };
+    var y: anyerror![]const f32 = &[2]f32{ 1.2, 3.4 };
     assert((try y)[0] == 1.2);
 }
 
 // Likewise, it works when the destination type is an optional.
 test "[N]T to ?[]const T" {
     var x1: ?[]const u8 = "hello";
-    var x2: ?[]const u8 = [5]u8{ 'h', 'e', 'l', 'l', 111 };
+    var x2: ?[]const u8 = &[5]u8{ 'h', 'e', 'l', 'l', 111 };
     assert(std.mem.eql(u8, x1.?, x2.?));
 
-    var y: ?[]const f32 = [2]f32{ 1.2, 3.4 };
+    var y: ?[]const f32 = &[2]f32{ 1.2, 3.4 };
     assert(y.?[0] == 1.2);
 }
 
 // In this cast, the array length becomes the slice length.
 test "*[N]T to []T" {
-    var buf: [5]u8 = "hello";
+    var buf: [5]u8 = "hello".*;
     const x: []u8 = &buf;
     assert(std.mem.eql(u8, x, "hello"));
 
     const buf2 = [2]f32{ 1.2, 3.4 };
     const x2: []const f32 = &buf2;
-    assert(std.mem.eql(f32, x2, [2]f32{ 1.2, 3.4 }));
+    assert(std.mem.eql(f32, x2, &[2]f32{ 1.2, 3.4 }));
 }
 
-// Single-item pointers to arrays can be implicitly casted to
+// Single-item pointers to arrays can be coerced to
 // unknown length pointers.
 test "*[N]T to [*]T" {
-    var buf: [5]u8 = "hello";
+    var buf: [5]u8 = "hello".*;
     const x: [*]u8 = &buf;
     assert(x[4] == 'o');
     // x[5] would be an uncaught out of bounds pointer dereference!
@@ -4776,7 +5054,7 @@ test "*[N]T to [*]T" {
 
 // Likewise, it works when the destination type is an optional.
 test "*[N]T to ?[*]T" {
-    var buf: [5]u8 = "hello";
+    var buf: [5]u8 = "hello".*;
     const x: ?[*]u8 = &buf;
     assert(x.?[4] == 'o');
 }
@@ -4791,15 +5069,15 @@ test "*T to *[1]T" {
       {#code_end#}
       {#see_also|C Pointers#}
       {#header_close#}
-      {#header_open|Implicit Cast: Optionals#}
+      {#header_open|Type Coercion: Optionals#}
       <p>
-      The payload type of {#link|Optionals#}, as well as {#link|null#}, implicitly cast to the optional type.
+      The payload type of {#link|Optionals#}, as well as {#link|null#}, coerce to the optional type.
       </p>
       {#code_begin|test#}
 const std = @import("std");
 const assert = std.debug.assert;
 
-test "implicit casting to optionals" {
+test "coerce to optionals" {
     const x: ?i32 = 1234;
     const y: ?i32 = null;
 
@@ -4812,7 +5090,7 @@ test "implicit casting to optionals" {
 const std = @import("std");
 const assert = std.debug.assert;
 
-test "implicit casting to optionals wrapped in error union" {
+test "coerce to optionals wrapped in error union" {
     const x: anyerror!?i32 = 1234;
     const y: anyerror!?i32 = null;
 
@@ -4821,15 +5099,15 @@ test "implicit casting to optionals wrapped in error union" {
 }
       {#code_end#}
       {#header_close#}
-      {#header_open|Implicit Cast: Error Unions#}
+      {#header_open|Type Coercion: Error Unions#}
       <p>The payload type of an {#link|Error Union Type#} as well as the {#link|Error Set Type#}
-      implicitly cast to the error union type:
+      coerce to the error union type:
       </p>
       {#code_begin|test#}
 const std = @import("std");
 const assert = std.debug.assert;
 
-test "implicit casting to error unions" {
+test "coercion to error unions" {
     const x: anyerror!i32 = 1234;
     const y: anyerror!i32 = error.Failure;
 
@@ -4838,23 +5116,23 @@ test "implicit casting to error unions" {
 }
       {#code_end#}
       {#header_close#}
-      {#header_open|Implicit Cast: Compile-Time Known Numbers#}
+      {#header_open|Type Coercion: Compile-Time Known Numbers#}
       <p>When a number is {#link|comptime#}-known to be representable in the destination type,
-      it may be implicitly casted:
+      it may be coerced:
       </p>
       {#code_begin|test#}
 const std = @import("std");
 const assert = std.debug.assert;
 
-test "implicit casting large integer type to smaller one when value is comptime known to fit" {
+test "coercing large integer type to smaller one when value is comptime known to fit" {
     const x: u64 = 255;
     const y: u8 = x;
     assert(y == 255);
 }
       {#code_end#}
       {#header_close#}
-      {#header_open|Implicit Cast: unions and enums#}
-      <p>Tagged unions can be implicitly cast to enums, and enums can be implicitly casted to tagged unions
+      {#header_open|Type Coercion: unions and enums#}
+      <p>Tagged unions can be coerced to enums, and enums can be coerced to tagged unions
       when they are {#link|comptime#}-known to be a field of the union that has only one possible value, such as
       {#link|void#}:
       </p>
@@ -4874,7 +5152,7 @@ const U = union(E) {
     Three,
 };
 
-test "implicit casting between unions and enums" {
+test "coercion between unions and enums" {
     var u = U{ .Two = 12.34 };
     var e: E = u;
     assert(e == E.Two);
@@ -4886,20 +5164,20 @@ test "implicit casting between unions and enums" {
       {#code_end#}
       {#see_also|union|enum#}
       {#header_close#}
-      {#header_open|Implicit Cast: Zero Bit Types#}
-      <p>{#link|Zero Bit Types#} may be implicitly casted to single-item {#link|Pointers#},
+      {#header_open|Type Coercion: Zero Bit Types#}
+      <p>{#link|Zero Bit Types#} may be coerced to single-item {#link|Pointers#},
       regardless of const.</p>
       <p>TODO document the reasoning for this</p>
       <p>TODO document whether vice versa should work and why</p>
       {#code_begin|test#}
-test "implicit casting of zero bit types" {
+test "coercion of zero bit types" {
     var x: void = {};
     var y: *void = x;
     //var z: void = y; // TODO
 }
       {#code_end#}
       {#header_close#}
-      {#header_open|Implicit Cast: undefined#}
+      {#header_open|Type Coercion: undefined#}
       <p>{#link|undefined#} can be cast to any type.</p>
       {#header_close#}
       {#header_close#}
@@ -4915,7 +5193,6 @@ test "implicit casting of zero bit types" {
           <li>{#link|@bitCast#} - change type but maintain bit representation</li>
           <li>{#link|@alignCast#} - make a pointer have more alignment</li>
           <li>{#link|@boolToInt#} - convert true to 1 and false to 0</li>
-          <li>{#link|@bytesToSlice#} - convert a slice of bytes to a slice of another type</li>
           <li>{#link|@enumToInt#} - obtain the integer tag value of an enum or tagged union</li>
           <li>{#link|@errSetCast#} - convert to a smaller error set</li>
           <li>{#link|@errorToInt#} - obtain the integer value of an error code</li>
@@ -4928,7 +5205,6 @@ test "implicit casting of zero bit types" {
           <li>{#link|@intToPtr#} - convert an address to a pointer</li>
           <li>{#link|@ptrCast#} - convert between pointer types</li>
           <li>{#link|@ptrToInt#} - obtain the address of a pointer</li>
-          <li>{#link|@sliceToBytes#} - convert a slice of anything to a slice of bytes</li>
           <li>{#link|@truncate#} - convert between integer types, chopping off bits</li>
       </ul>
       {#header_close#}
@@ -4944,10 +5220,10 @@ test "implicit casting of zero bit types" {
         <li>Some {#link|binary operations|Table of Operators#}</li>
       </ul>
       <p>
-      This kind of type resolution chooses a type that all peer types can implicitly cast into. Here are
+      This kind of type resolution chooses a type that all peer types can coerce into. Here are
       some examples:
       </p>
-      {#code_begin|test#}
+      {#code_begin|test|peer_type_resolution#}
 const std = @import("std");
 const assert = std.debug.assert;
 const mem = std.mem;
@@ -4957,7 +5233,7 @@ test "peer resolve int widening" {
     var b: i16 = 34;
     var c = a + b;
     assert(c == 46);
-    assert(@typeOf(c) == i16);
+    assert(@TypeOf(c) == i16);
 }
 
 test "peer resolve arrays of different size to const slice" {
@@ -4975,8 +5251,8 @@ test "peer resolve array and const slice" {
     comptime testPeerResolveArrayConstSlice(true);
 }
 fn testPeerResolveArrayConstSlice(b: bool) void {
-    const value1 = if (b) "aoeu" else ([]const u8)("zz");
-    const value2 = if (b) ([]const u8)("zz") else "aoeu";
+    const value1 = if (b) "aoeu" else @as([]const u8, "zz");
+    const value2 = if (b) @as([]const u8, "zz") else "aoeu";
     assert(mem.eql(u8, value1, "aoeu"));
     assert(mem.eql(u8, value2, "zz"));
 }
@@ -4991,13 +5267,13 @@ test "peer type resolution: ?T and T" {
 }
 fn peerTypeTAndOptionalT(c: bool, b: bool) ?usize {
     if (c) {
-        return if (b) null else usize(0);
+        return if (b) null else @as(usize, 0);
     }
 
-    return usize(3);
+    return @as(usize, 3);
 }
 
-test "peer type resolution: [0]u8 and []const u8" {
+test "peer type resolution: *[0]u8 and []const u8" {
     assert(peerTypeEmptyArrayAndSlice(true, "hi").len == 0);
     assert(peerTypeEmptyArrayAndSlice(false, "hi").len == 1);
     comptime {
@@ -5007,20 +5283,20 @@ test "peer type resolution: [0]u8 and []const u8" {
 }
 fn peerTypeEmptyArrayAndSlice(a: bool, slice: []const u8) []const u8 {
     if (a) {
-        return [_]u8{};
+        return &[_]u8{};
     }
 
     return slice[0..1];
 }
-test "peer type resolution: [0]u8, []const u8, and anyerror![]u8" {
+test "peer type resolution: *[0]u8, []const u8, and anyerror![]u8" {
     {
-        var data = "hi";
+        var data = "hi".*;
         const slice = data[0..];
         assert((try peerTypeEmptyArrayAndSliceAndError(true, slice)).len == 0);
         assert((try peerTypeEmptyArrayAndSliceAndError(false, slice)).len == 1);
     }
     comptime {
-        var data = "hi";
+        var data = "hi".*;
         const slice = data[0..];
         assert((try peerTypeEmptyArrayAndSliceAndError(true, slice)).len == 0);
         assert((try peerTypeEmptyArrayAndSliceAndError(false, slice)).len == 1);
@@ -5028,15 +5304,15 @@ test "peer type resolution: [0]u8, []const u8, and anyerror![]u8" {
 }
 fn peerTypeEmptyArrayAndSliceAndError(a: bool, slice: []u8) anyerror![]u8 {
     if (a) {
-        return [_]u8{};
+        return &[_]u8{};
     }
 
     return slice[0..1];
 }
 
 test "peer type resolution: *const T and ?*T" {
-    const a = @intToPtr(*const usize, 0x123456789);
-    const b = @intToPtr(?*usize, 0x123456789);
+    const a = @intToPtr(*const usize, 0x123456780);
+    const b = @intToPtr(?*usize, 0x123456780);
     assert(a == b);
     assert(b == a);
 }
@@ -5088,7 +5364,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 
 test "turn HashMap into a set with void" {
-    var map = std.HashMap(i32, void, hash_i32, eql_i32).init(std.debug.global_allocator);
+    var map = std.HashMap(i32, void, hash_i32, eql_i32).init(std.testing.allocator);
     defer map.deinit();
 
     _ = try map.put(1, {});
@@ -5116,7 +5392,7 @@ fn eql_i32(a: i32, b: i32) bool {
       </p>
       <p>
       {#syntax#}void{#endsyntax#} is distinct from {#syntax#}c_void{#endsyntax#}, which is defined like this:
-              {#syntax#}pub const c_void = @OpaqueType();{#endsyntax#}.
+              {#syntax#}pub const c_void = @Type(.Opaque);{#endsyntax#}.
                   {#syntax#}void{#endsyntax#} has a known size of 0 bytes, and {#syntax#}c_void{#endsyntax#} has an unknown, but non-zero, size.
       </p>
       <p>
@@ -5257,11 +5533,9 @@ fn gimmeTheBiggerInteger(a: u64, b: u64) u64 {
         <li>In the function definition, the value is known at compile-time.</li>
       </ul>
       <p>
-      </p>
-      <p>
       For example, if we were to introduce another function to the above snippet:
       </p>
-      {#code_begin|test_err|cannot store runtime value in type 'type'#}
+      {#code_begin|test_err|values of type 'type' must be comptime known#}
 fn max(comptime T: type, a: T, b: T) T {
     return if (a > b) a else b;
 }
@@ -5558,7 +5832,7 @@ test "fibonacci" {
       </p>
       {#code_begin|test#}
 const first_25_primes = firstNPrimes(25);
-const sum_of_first_25_primes = sum(first_25_primes);
+const sum_of_first_25_primes = sum(&first_25_primes);
 
 fn firstNPrimes(comptime n: usize) [n]i32 {
     var prime_list: [n]i32 = undefined;
@@ -5657,7 +5931,7 @@ const a_number: i32 = 1234;
 const a_string = "foobar";
 
 pub fn main() void {
-    warn("here is a string: '{}' here is a number: {}\n", a_string, a_number);
+    warn("here is a string: '{}' here is a number: {}\n", .{a_string, a_number});
 }
       {#code_end#}
 
@@ -5667,7 +5941,7 @@ pub fn main() void {
 
       {#code_begin|syntax#}
 /// Calls print and then flushes the buffer.
-pub fn printf(self: *OutStream, comptime format: []const u8, args: ...) anyerror!void {
+pub fn printf(self: *OutStream, comptime format: []const u8, args: var) anyerror!void {
     const State = enum {
         Start,
         OpenBrace,
@@ -5754,13 +6028,16 @@ pub fn printf(self: *OutStream, arg0: i32, arg1: []const u8) !void {
       </p>
       {#code_begin|syntax#}
 pub fn printValue(self: *OutStream, value: var) !void {
-    const T = @typeOf(value);
-    if (@isInteger(T)) {
-        return self.printInt(T, value);
-    } else if (@isFloat(T)) {
-        return self.printFloat(T, value);
-    } else {
-        @compileError("Unable to print type '" ++ @typeName(T) ++ "'");
+    switch (@typeInfo(@TypeOf(value))) {
+        .Int => {
+            return self.printInt(T, value);
+        },
+        .Float => {
+            return self.printFloat(T, value);
+        },
+        else => {
+            @compileError("Unable to print type '" ++ @typeName(T) ++ "'");
+        },
     }
 }
       {#code_end#}
@@ -5774,8 +6051,11 @@ const a_number: i32 = 1234;
 const a_string = "foobar";
 
 test "printf too many arguments" {
-    warn("here is a string: '{}' here is a number: {}\n",
-        a_string, a_number, a_number);
+    warn("here is a string: '{}' here is a number: {}\n", .{
+        a_string,
+        a_number,
+        a_number,
+    });
 }
       {#code_end#}
       <p>
@@ -5783,7 +6063,7 @@ test "printf too many arguments" {
       </p>
       <p>
       Zig doesn't care whether the format argument is a string literal,
-      only that it is a compile-time known value that is implicitly castable to a {#syntax#}[]const u8{#endsyntax#}:
+      only that it is a compile-time known value that can be coerced to a {#syntax#}[]const u8{#endsyntax#}:
       </p>
       {#code_begin|exe|printf#}
 const warn = @import("std").debug.warn;
@@ -5793,7 +6073,7 @@ const a_string = "foobar";
 const fmt = "here is a string: '{}' here is a number: {}\n";
 
 pub fn main() void {
-    warn(fmt, a_string, a_number);
+    warn(fmt, .{a_string, a_number});
 }
       {#code_end#}
       <p>
@@ -5818,7 +6098,7 @@ pub fn main() void {
       {#target_linux_x86_64#}
 pub fn main() noreturn {
     const msg = "hello world\n";
-    _ = syscall3(SYS_write, STDOUT_FILENO, @ptrToInt(&msg), msg.len);
+    _ = syscall3(SYS_write, STDOUT_FILENO, @ptrToInt(msg), msg.len);
     _ = syscall1(SYS_exit, 0);
     unreachable;
 }
@@ -5881,7 +6161,7 @@ volatile (
 // Next is the output constraint string. This feature is still
 // considered unstable in Zig, and so LLVM/GCC documentation
 // must be used to understand the semantics.
-// http://releases.llvm.org/9.0.0/docs/LangRef.html#inline-asm-constraint-string
+// http://releases.llvm.org/10.0.0/docs/LangRef.html#inline-asm-constraint-string
 // https://gcc.gnu.org/onlinedocs/gcc/Extended-Asm.html
 // In this example, the constraint string means "the result value of
 // this inline assembly instruction is whatever is in $rax".
@@ -5922,7 +6202,7 @@ volatile (
       <p>
       Output constraints are still considered to be unstable in Zig, and
       so
-      <a href="http://releases.llvm.org/9.0.0/docs/LangRef.html#inline-asm-constraint-string">LLVM documentation</a>
+      <a href="http://releases.llvm.org/10.0.0/docs/LangRef.html#inline-asm-constraint-string">LLVM documentation</a>
       and
       <a href="https://gcc.gnu.org/onlinedocs/gcc/Extended-Asm.html">GCC documentation</a>
       must be used to understand the semantics.
@@ -5937,7 +6217,7 @@ volatile (
       <p>
       Input constraints are still considered to be unstable in Zig, and
       so
-      <a href="http://releases.llvm.org/9.0.0/docs/LangRef.html#inline-asm-constraint-string">LLVM documentation</a>
+      <a href="http://releases.llvm.org/10.0.0/docs/LangRef.html#inline-asm-constraint-string">LLVM documentation</a>
       and
       <a href="https://gcc.gnu.org/onlinedocs/gcc/Extended-Asm.html">GCC documentation</a>
       must be used to understand the semantics.
@@ -6067,7 +6347,7 @@ test "async function suspend with block" {
 
 fn testSuspendBlock() void {
     suspend {
-        comptime assert(@typeOf(@frame()) == *@Frame(testSuspendBlock));
+        comptime assert(@TypeOf(@frame()) == *@Frame(testSuspendBlock));
         the_frame = @frame();
     }
     result = true;
@@ -6134,7 +6414,7 @@ test "async and await" {
 
 fn amain() void {
     var frame = async func();
-    comptime assert(@typeOf(frame) == @Frame(func));
+    comptime assert(@TypeOf(frame) == @Frame(func));
 
     const ptr: anyframe->void = &frame;
     const any_ptr: anyframe = ptr;
@@ -6153,7 +6433,7 @@ fn func() void {
       </p>
       <p>
       {#syntax#}await{#endsyntax#} is a suspend point, and takes as an operand anything that
-      implicitly casts to {#syntax#}anyframe->T{#endsyntax#}.
+      coerces to {#syntax#}anyframe->T{#endsyntax#}.
       </p>
       <p>
       There is a common misconception that {#syntax#}await{#endsyntax#} resumes the target function.
@@ -6176,7 +6456,7 @@ test "async function await" {
     resume the_frame;
     seq('i');
     assert(final_result == 1234);
-    assert(std.mem.eql(u8, seq_points, "abcdefghi"));
+    assert(std.mem.eql(u8, &seq_points, "abcdefghi"));
 }
 fn amain() void {
     seq('b');
@@ -6231,7 +6511,7 @@ pub fn main() void {
 
 fn amainWrap() void {
     amain() catch |e| {
-        std.debug.warn("{}\n", e);
+        std.debug.warn("{}\n", .{e});
         if (@errorReturnTrace()) |trace| {
             std.debug.dumpStackTrace(trace.*);
         }
@@ -6240,7 +6520,7 @@ fn amainWrap() void {
 }
 
 fn amain() !void {
-    const allocator = std.heap.direct_allocator;
+    const allocator = std.heap.page_allocator;
     var download_frame = async fetchUrl(allocator, "https://example.com/");
     var awaited_download_frame = false;
     errdefer if (!awaited_download_frame) {
@@ -6261,8 +6541,8 @@ fn amain() !void {
     const download_text = try await download_frame;
     defer allocator.free(download_text);
 
-    std.debug.warn("download_text: {}\n", download_text);
-    std.debug.warn("file_text: {}\n", file_text);
+    std.debug.warn("download_text: {}\n", .{download_text});
+    std.debug.warn("file_text: {}\n", .{file_text});
 }
 
 var global_download_frame: anyframe = undefined;
@@ -6272,7 +6552,7 @@ fn fetchUrl(allocator: *Allocator, url: []const u8) ![]u8 {
     suspend {
         global_download_frame = @frame();
     }
-    std.debug.warn("fetchUrl returning\n");
+    std.debug.warn("fetchUrl returning\n", .{});
     return result;
 }
 
@@ -6283,7 +6563,7 @@ fn readFile(allocator: *Allocator, filename: []const u8) ![]u8 {
     suspend {
         global_file_frame = @frame();
     }
-    std.debug.warn("readFile returning\n");
+    std.debug.warn("readFile returning\n", .{});
     return result;
 }
       {#code_end#}
@@ -6301,7 +6581,7 @@ pub fn main() void {
 
 fn amainWrap() void {
     amain() catch |e| {
-        std.debug.warn("{}\n", e);
+        std.debug.warn("{}\n", .{e});
         if (@errorReturnTrace()) |trace| {
             std.debug.dumpStackTrace(trace.*);
         }
@@ -6310,7 +6590,7 @@ fn amainWrap() void {
 }
 
 fn amain() !void {
-    const allocator = std.heap.direct_allocator;
+    const allocator = std.heap.page_allocator;
     var download_frame = async fetchUrl(allocator, "https://example.com/");
     var awaited_download_frame = false;
     errdefer if (!awaited_download_frame) {
@@ -6331,21 +6611,21 @@ fn amain() !void {
     const download_text = try await download_frame;
     defer allocator.free(download_text);
 
-    std.debug.warn("download_text: {}\n", download_text);
-    std.debug.warn("file_text: {}\n", file_text);
+    std.debug.warn("download_text: {}\n", .{download_text});
+    std.debug.warn("file_text: {}\n", .{file_text});
 }
 
 fn fetchUrl(allocator: *Allocator, url: []const u8) ![]u8 {
     const result = try std.mem.dupe(allocator, u8, "this is the downloaded url contents");
     errdefer allocator.free(result);
-    std.debug.warn("fetchUrl returning\n");
+    std.debug.warn("fetchUrl returning\n", .{});
     return result;
 }
 
 fn readFile(allocator: *Allocator, filename: []const u8) ![]u8 {
     const result = try std.mem.dupe(allocator, u8, "this is the file contents");
     errdefer allocator.free(result);
-    std.debug.warn("readFile returning\n");
+    std.debug.warn("readFile returning\n", .{});
     return result;
 }
       {#code_end#}
@@ -6358,7 +6638,7 @@ fn readFile(allocator: *Allocator, filename: []const u8) ![]u8 {
       {#header_close#}
 
       {#header_close#}
-      {#header_open|Builtin Functions|3col#}
+        {#header_open|Builtin Functions|2col#}
       <p>
       Builtin functions are provided by the compiler and are prefixed with <code>@</code>.
       The {#syntax#}comptime{#endsyntax#} keyword on a parameter means that the parameter must be known
@@ -6400,16 +6680,12 @@ comptime {
       </p>
       {#see_also|Alignment#}
       {#header_close#}
-      {#header_open|@ArgType#}
-      <pre>{#syntax#}@ArgType(comptime T: type, comptime n: usize) type{#endsyntax#}</pre>
+
+      {#header_open|@as#}
+      <pre>{#syntax#}@as(comptime T: type, expression) T{#endsyntax#}</pre>
       <p>
-      This builtin function takes a function type and returns the type of the parameter at index {#syntax#}n{#endsyntax#}.
-      </p>
-      <p>
-      {#syntax#}T{#endsyntax#} must be a function type.
-      </p>
-      <p>
-      Note: This function is deprecated. Use {#link|@typeInfo#} instead.
+      Performs {#link|Type Coercion#}. This cast is allowed when the conversion is unambiguous and safe,
+      and is the preferred way to convert between types, whenever possible.
       </p>
       {#header_close#}
 
@@ -6437,7 +6713,7 @@ const assert = std.debug.assert;
 test "async fn pointer in a struct field" {
     var data: i32 = 1;
     const Foo = struct {
-        bar: async fn (*i32) void,
+        bar: fn (*i32) callconv(.Async) void,
     };
     var foo = Foo{ .bar = func };
     var bytes: [64]u8 align(@alignOf(@Frame(func))) = undefined;
@@ -6447,7 +6723,7 @@ test "async fn pointer in a struct field" {
     assert(data == 4);
 }
 
-async fn func(y: *i32) void {
+fn func(y: *i32) void {
     defer y.* += 2;
     y.* += 1;
     suspend;
@@ -6461,17 +6737,8 @@ async fn func(y: *i32) void {
       This builtin function atomically dereferences a pointer and returns the value.
       </p>
       <p>
-      {#syntax#}T{#endsyntax#} must be a pointer type, a {#syntax#}bool{#endsyntax#},
-      or an integer whose bit count meets these requirements:
-      </p>
-      <ul>
-          <li>At least 8</li>
-          <li>At most the same as usize</li>
-          <li>Power of 2</li>
-      </ul>
-      <p>
-      TODO right now bool is not accepted. Also I think we could make non powers of 2 work fine, maybe
-      we can remove this restriction
+      {#syntax#}T{#endsyntax#} must be a {#syntax#}bool{#endsyntax#}, a float,
+      an integer or an enum.
       </p>
       {#header_close#}
       {#header_open|@atomicRmw#}
@@ -6480,23 +6747,14 @@ async fn func(y: *i32) void {
       This builtin function atomically modifies memory and then returns the previous value.
       </p>
       <p>
-      {#syntax#}T{#endsyntax#} must be a pointer type, a {#syntax#}bool{#endsyntax#},
-      or an integer whose bit count meets these requirements:
-      </p>
-      <ul>
-          <li>At least 8</li>
-          <li>At most the same as usize</li>
-          <li>Power of 2</li>
-      </ul>
-      <p>
-      TODO right now bool is not accepted. Also I think we could make non powers of 2 work fine, maybe
-      we can remove this restriction
+      {#syntax#}T{#endsyntax#} must be a {#syntax#}bool{#endsyntax#}, a float,
+      an integer or an enum.
       </p>
       <p>
       Supported operations:
       </p>
       <ul>
-        <li>{#syntax#}.Xchg{#endsyntax#} - stores the operand unmodified.</li>
+        <li>{#syntax#}.Xchg{#endsyntax#} - stores the operand unmodified. Supports enums, integers and floats.</li>
         <li>{#syntax#}.Add{#endsyntax#} - for integers, twos complement wraparound addition.
             Also supports {#link|Floats#}.</li>
         <li>{#syntax#}.Sub{#endsyntax#} - for integers, twos complement wraparound subtraction.
@@ -6509,16 +6767,26 @@ async fn func(y: *i32) void {
         <li>{#syntax#}.Min{#endsyntax#} - stores the operand if it is smaller. Supports integers and floats.</li>
       </ul>
       {#header_close#}
+      {#header_open|@atomicStore#}
+      <pre>{#syntax#}@atomicStore(comptime T: type, ptr: *T, value: T, comptime ordering: builtin.AtomicOrder) void{#endsyntax#}</pre>
+      <p>
+      This builtin function atomically stores a value.
+      </p>
+      <p>
+      {#syntax#}T{#endsyntax#} must be a {#syntax#}bool{#endsyntax#}, a float,
+      an integer or an enum.
+      </p>
+      {#header_close#}
       {#header_open|@bitCast#}
       <pre>{#syntax#}@bitCast(comptime DestType: type, value: var) DestType{#endsyntax#}</pre>
       <p>
       Converts a value of one type to another type.
       </p>
       <p>
-      Asserts that {#syntax#}@sizeOf(@typeOf(value)) == @sizeOf(DestType){#endsyntax#}.
+      Asserts that {#syntax#}@sizeOf(@TypeOf(value)) == @sizeOf(DestType){#endsyntax#}.
       </p>
       <p>
-      Asserts that {#syntax#}@typeId(DestType) != @import("builtin").TypeId.Pointer{#endsyntax#}. Use {#syntax#}@ptrCast{#endsyntax#} or {#syntax#}@intToPtr{#endsyntax#} if you need this.
+      Asserts that {#syntax#}@typeInfo(DestType) != .Pointer{#endsyntax#}. Use {#syntax#}@ptrCast{#endsyntax#} or {#syntax#}@intToPtr{#endsyntax#} if you need this.
       </p>
       <p>
       Can be used for these things for example:
@@ -6557,6 +6825,19 @@ async fn func(y: *i32) void {
       </p>
       {#header_close#}
 
+      {#header_open|@bitSizeOf#}
+      <pre>{#syntax#}@bitSizeOf(comptime T: type) comptime_int{#endsyntax#}</pre>
+      <p>
+      This function returns the number of bits it takes to store {#syntax#}T{#endsyntax#} in memory.
+      The result is a target-specific compile time constant.
+      </p>
+      <p>
+      This function measures the size at runtime. For types that are disallowed at runtime, such as
+      {#syntax#}comptime_int{#endsyntax#} and {#syntax#}type{#endsyntax#}, the result is {#syntax#}0{#endsyntax#}.
+      </p>
+      {#see_also|@sizeOf|@typeInfo#}
+      {#header_close#}
+
       {#header_open|@breakpoint#}
       <pre>{#syntax#}@breakpoint(){#endsyntax#}</pre>
       <p>
@@ -6571,8 +6852,11 @@ async fn func(y: *i32) void {
       {#header_open|@mulAdd#}
       <pre>{#syntax#}@mulAdd(comptime T: type, a: T, b: T, c: T) T{#endsyntax#}</pre>
       <p>
-      Fused multiply add (for floats), similar to {#syntax#}(a * b) + c{#endsyntax#}, except
+      Fused multiply add, similar to {#syntax#}(a * b) + c{#endsyntax#}, except
       only rounds once, and is thus more accurate.
+      </p>
+      <p>
+      Supports Floats and Vectors of floats.
       </p>
       {#header_close#}
 
@@ -6614,16 +6898,66 @@ async fn func(y: *i32) void {
       {#see_also|@bitOffsetOf#}
       {#header_close#}
 
-      {#header_open|@bytesToSlice#}
-      <pre>{#syntax#}@bytesToSlice(comptime Element: type, bytes: []u8) []Element{#endsyntax#}</pre>
+      {#header_open|@call#}
+      <pre>{#syntax#}@call(options: std.builtin.CallOptions, function: var, args: var) var{#endsyntax#}</pre>
       <p>
-      Converts a slice of bytes or array of bytes into a slice of {#syntax#}Element{#endsyntax#}.
-      The resulting slice has the same {#link|pointer|Pointers#} properties as the parameter.
+      Calls a function, in the same way that invoking an expression with parentheses does:
       </p>
+      {#code_begin|test|call#}
+const assert = @import("std").debug.assert;
+
+test "noinline function call" {
+    assert(@call(.{}, add, .{3, 9}) == 12);
+}
+
+fn add(a: i32, b: i32) i32 {
+    return a + b;
+}
+      {#code_end#}
       <p>
-      Attempting to convert a number of bytes with a length that does not evenly divide into a slice of
-      elements results in safety-protected {#link|Undefined Behavior#}.
+      {#syntax#}@call{#endsyntax#} allows more flexibility than normal function call syntax does. The
+      {#syntax#}CallOptions{#endsyntax#} struct is reproduced here:
       </p>
+      {#code_begin|syntax#}
+pub const CallOptions = struct {
+    modifier: Modifier = .auto,
+    stack: ?[]align(std.Target.stack_align) u8 = null,
+
+    pub const Modifier = enum {
+        /// Equivalent to function call syntax.
+        auto,
+
+        /// Equivalent to async keyword used with function call syntax.
+        async_kw,
+
+        /// Prevents tail call optimization. This guarantees that the return
+        /// address will point to the callsite, as opposed to the callsite's
+        /// callsite. If the call is otherwise required to be tail-called
+        /// or inlined, a compile error is emitted instead.
+        never_tail,
+
+        /// Guarantees that the call will not be inlined. If the call is
+        /// otherwise required to be inlined, a compile error is emitted instead.
+        never_inline,
+
+        /// Asserts that the function call will not suspend. This allows a
+        /// non-async function to call an async function.
+        no_async,
+
+        /// Guarantees that the call will be generated with tail call optimization.
+        /// If this is not possible, a compile error is emitted instead.
+        always_tail,
+
+        /// Guarantees that the call will inlined at the callsite.
+        /// If this is not possible, a compile error is emitted instead.
+        always_inline,
+
+        /// Evaluates the call at compile-time. If the call cannot be completed at
+        /// compile-time, a compile error is emitted instead.
+        compile_time,
+    };
+};
+      {#code_end#}
       {#header_close#}
 
       {#header_open|@cDefine#}
@@ -6676,7 +7010,7 @@ async fn func(y: *i32) void {
       This function can only occur inside {#syntax#}@cImport{#endsyntax#}.
       </p>
       <p>
-      This appends <code>#include <$path>\n</code> to the {#syntax#}c_import{#endsyntax#}
+      This appends <code>#include &lt;$path&gt;\n</code> to the {#syntax#}c_import{#endsyntax#}
       temporary buffer.
       </p>
       {#see_also|Import from C Header File|@cImport|@cDefine|@cUndef#}
@@ -6722,9 +7056,10 @@ fn cmpxchgStrongButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_v
       more efficiently in machine instructions.
       </p>
       <p>
-      {#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("builtin").AtomicOrder{#endsyntax#}.
+      {#syntax#}T{#endsyntax#} must be a {#syntax#}bool{#endsyntax#}, a float,
+      an integer or an enum.
       </p>
-      <p>{#syntax#}@typeOf(ptr).alignment{#endsyntax#} must be {#syntax#}>= @sizeOf(T).{#endsyntax#}</p>
+      <p>{#syntax#}@TypeOf(ptr).alignment{#endsyntax#} must be {#syntax#}>= @sizeOf(T).{#endsyntax#}</p>
       {#see_also|Compile Variables|cmpxchgWeak#}
       {#header_close#}
       {#header_open|@cmpxchgWeak#}
@@ -6750,9 +7085,10 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       However if you need a stronger guarantee, use {#link|@cmpxchgStrong#}.
       </p>
       <p>
-      {#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("builtin").AtomicOrder{#endsyntax#}.
+      {#syntax#}T{#endsyntax#} must be a {#syntax#}bool{#endsyntax#}, a float,
+      an integer or an enum.
       </p>
-      <p>{#syntax#}@typeOf(ptr).alignment{#endsyntax#} must be {#syntax#}>= @sizeOf(T).{#endsyntax#}</p>
+      <p>{#syntax#}@TypeOf(ptr).alignment{#endsyntax#} must be {#syntax#}>= @sizeOf(T).{#endsyntax#}</p>
       {#see_also|Compile Variables|cmpxchgStrong#}
       {#header_close#}
 
@@ -6797,10 +7133,9 @@ const num1 = blk: {
 test "main" {
     @compileLog("comptime in main");
 
-    warn("Runtime in main, num1 = {}.\n", num1);
+    warn("Runtime in main, num1 = {}.\n", .{num1});
 }
       {#code_end#}
-      </p>
       <p>
       will ouput:
       </p>
@@ -6819,7 +7154,7 @@ const num1 = blk: {
 };
 
 test "main" {
-    warn("Runtime in main, num1 = {}.\n", num1);
+    warn("Runtime in main, num1 = {}.\n", .{num1});
 }
       {#code_end#}
       {#header_close#}
@@ -6872,7 +7207,7 @@ test "main" {
       <p>
       Floored division. Rounds toward negative infinity. For unsigned integers it is
       the same as {#syntax#}numerator / denominator{#endsyntax#}. Caller guarantees {#syntax#}denominator != 0{#endsyntax#} and
-              {#syntax#}!(@typeId(T) == builtin.TypeId.Int and T.is_signed and numerator == std.math.minInt(T) and denominator == -1){#endsyntax#}.
+              {#syntax#}!(@typeInfo(T) == .Int and T.is_signed and numerator == std.math.minInt(T) and denominator == -1){#endsyntax#}.
       </p>
       <ul>
           <li>{#syntax#}@divFloor(-5, 3) == -2{#endsyntax#}</li>
@@ -6886,7 +7221,7 @@ test "main" {
       <p>
       Truncated division. Rounds toward zero. For unsigned integers it is
       the same as {#syntax#}numerator / denominator{#endsyntax#}. Caller guarantees {#syntax#}denominator != 0{#endsyntax#} and
-              {#syntax#}!(@typeId(T) == builtin.TypeId.Int and T.is_signed and numerator == std.math.minInt(T) and denominator == -1){#endsyntax#}.
+              {#syntax#}!(@typeInfo(T) == .Int and T.is_signed and numerator == std.math.minInt(T) and denominator == -1){#endsyntax#}.
       </p>
       <ul>
           <li>{#syntax#}@divTrunc(-5, 3) == -1{#endsyntax#}</li>
@@ -6896,11 +7231,13 @@ test "main" {
       {#see_also|@divFloor|@divExact#}
       {#header_close#}
       {#header_open|@embedFile#}
-      <pre>{#syntax#}@embedFile(comptime path: []const u8) [X]u8{#endsyntax#}</pre>
+      <pre>{#syntax#}@embedFile(comptime path: []const u8) *const [X:0]u8{#endsyntax#}</pre>
       <p>
-      This function returns a compile time constant fixed-size array with length
-      equal to the byte count of the file given by {#syntax#}path{#endsyntax#}. The contents of the array
-      are the contents of the file.
+      This function returns a compile time constant pointer to null-terminated,
+      fixed-size array with length equal to the byte count of the file given by
+      {#syntax#}path{#endsyntax#}. The contents of the array are the contents of the file.
+      This is equivalent to a {#link|string literal|String Literals and Character Literals#}
+      with the file contents.
       </p>
       <p>
       {#syntax#}path{#endsyntax#} is absolute or relative to the current file, just like {#syntax#}@import{#endsyntax#}.
@@ -6944,7 +7281,7 @@ test "main" {
       {#header_close#}
 
       {#header_open|@errorToInt#}
-      <pre>{#syntax#}@errorToInt(err: var) @IntType(false, @sizeOf(anyerror) * 8){#endsyntax#}</pre>
+      <pre>{#syntax#}@errorToInt(err: var) std.meta.IntType(false, @sizeOf(anyerror) * 8){#endsyntax#}</pre>
       <p>
       Supports the following types:
       </p>
@@ -6972,24 +7309,22 @@ test "main" {
       {#header_close#}
 
       {#header_open|@export#}
-      <pre>{#syntax#}@export(comptime name: []const u8, target: var, linkage: builtin.GlobalLinkage) void{#endsyntax#}</pre>
+      <pre>{#syntax#}@export(target: var, comptime options: std.builtin.ExportOptions) void{#endsyntax#}</pre>
       <p>
       Creates a symbol in the output object file.
       </p>
       <p>
       This function can be called from a {#link|comptime#} block to conditionally export symbols.
       When {#syntax#}target{#endsyntax#} is a function with the C calling convention and
-      {#syntax#}linkage{#endsyntax#} is {#syntax#}Strong{#endsyntax#}, this is equivalent to
+      {#syntax#}options.linkage{#endsyntax#} is {#syntax#}Strong{#endsyntax#}, this is equivalent to
       the {#syntax#}export{#endsyntax#} keyword used on a function:
       </p>
       {#code_begin|obj#}
-const builtin = @import("builtin");
-
 comptime {
-    @export("foo", internalName, builtin.GlobalLinkage.Strong);
+    @export(internalName, .{ .name = "foo", .linkage = .Strong });
 }
 
-extern fn internalName() void {}
+fn internalName() callconv(.C) void {}
       {#code_end#}
       <p>This is equivalent to:</p>
       {#code_begin|obj#}
@@ -7076,7 +7411,7 @@ test "field access by string" {
       <pre>{#syntax#}@frame() *@Frame(func){#endsyntax#}</pre>
       <p>
       This function returns a pointer to the frame for a given function. This type
-      can be {#link|implicitly cast|Implicit Casts#} to {#syntax#}anyframe->T{#endsyntax#} and
+      can be {#link|coerced|Type Coercion#} to {#syntax#}anyframe->T{#endsyntax#} and
       to {#syntax#}anyframe{#endsyntax#}, where {#syntax#}T{#endsyntax#} is the return type
       of the function in scope.
       </p>
@@ -7100,7 +7435,7 @@ test "field access by string" {
 const std = @import("std");
 
 test "heap allocated frame" {
-    const frame = try std.heap.direct_allocator.create(@Frame(func));
+    const frame = try std.heap.page_allocator.create(@Frame(func));
     frame.* = async func();
 }
 
@@ -7212,33 +7547,16 @@ test "@hasDecl" {
       {#see_also|Compile Variables|@embedFile#}
       {#header_close#}
 
-      {#header_open|@inlineCall#}
-      <pre>{#syntax#}@inlineCall(function: X, args: ...) Y{#endsyntax#}</pre>
-      <p>
-      This calls a function, in the same way that invoking an expression with parentheses does:
-      </p>
-      {#code_begin|test#}
-const assert = @import("std").debug.assert;
-
-test "inline function call" {
-    assert(@inlineCall(add, 3, 9) == 12);
-}
-
-fn add(a: i32, b: i32) i32 { return a + b; }
-      {#code_end#}
-      <p>
-      Unlike a normal function call, however, {#syntax#}@inlineCall{#endsyntax#} guarantees that the call
-      will be inlined. If the call cannot be inlined, a compile error is emitted.
-      </p>
-      {#see_also|@noInlineCall#}
-      {#header_close#}
-
       {#header_open|@intCast#}
       <pre>{#syntax#}@intCast(comptime DestType: type, int: var) DestType{#endsyntax#}</pre>
       <p>
       Converts an integer to another integer while keeping the same numerical value.
       Attempting to convert a number which is out of range of the destination type results in
       safety-protected {#link|Undefined Behavior#}.
+      </p>
+      <p>
+      If {#syntax#}T{#endsyntax#} is {#syntax#}comptime_int{#endsyntax#},
+      then this is semantically equivalent to {#link|Type Coercion#}.
       </p>
       {#header_close#}
 
@@ -7255,7 +7573,7 @@ fn add(a: i32, b: i32) i32 { return a + b; }
       {#header_close#}
 
       {#header_open|@intToError#}
-      <pre>{#syntax#}@intToError(value: @IntType(false, @sizeOf(anyerror) * 8)) anyerror{#endsyntax#}</pre>
+      <pre>{#syntax#}@intToError(value: std.meta.IntType(false, @sizeOf(anyerror) * 8)) anyerror{#endsyntax#}</pre>
       <p>
       Converts from the integer representation of an error into {#link|The Global Error Set#} type.
       </p>
@@ -7286,44 +7604,6 @@ fn add(a: i32, b: i32) i32 { return a + b; }
       If the destination pointer type does not allow address zero and {#syntax#}address{#endsyntax#}
       is zero, this invokes safety-checked {#link|Undefined Behavior#}.
       </p>
-      {#header_close#}
-
-      {#header_open|@IntType#}
-      <pre>{#syntax#}@IntType(comptime is_signed: bool, comptime bit_count: u16) type{#endsyntax#}</pre>
-      <p>
-      This function returns an integer type with the given signness and bit count. The maximum
-      bit count for an integer type is {#syntax#}65535{#endsyntax#}.
-      </p>
-      <p>
-      Deprecated. Use {#link|@Type#}.
-      </p>
-      {#header_close#}
-
-      {#header_open|@memberCount#}
-      <pre>{#syntax#}@memberCount(comptime T: type) comptime_int{#endsyntax#}</pre>
-      <p>
-      This function returns the number of members in a struct, enum, or union type.
-      </p>
-      <p>
-      The result is a compile time constant.
-      </p>
-      <p>
-      It does not include functions, variables, or constants.
-      </p>
-      {#header_close#}
-      {#header_open|@memberName#}
-      <pre>{#syntax#}@memberName(comptime T: type, comptime index: usize) [N]u8{#endsyntax#}</pre>
-      <p>Returns the field name of a struct, union, or enum.</p>
-      <p>
-      The result is a compile time constant.
-      </p>
-      <p>
-      It does not include functions, variables, or constants.
-      </p>
-      {#header_close#}
-      {#header_open|@memberType#}
-      <pre>{#syntax#}@memberType(comptime T: type, comptime index: usize) type{#endsyntax#}</pre>
-      <p>Returns the field type of a struct or union.</p>
       {#header_close#}
 
       {#header_open|@memcpy#}
@@ -7386,101 +7666,13 @@ mem.set(u8, dest, c);{#endsyntax#}</pre>
       </p>
       {#header_close#}
 
-      {#header_open|@newStackCall#}
-      <pre>{#syntax#}@newStackCall(new_stack: []align(target_stack_align) u8, function: var, args: ...) var{#endsyntax#}</pre>
-      <p>
-      This calls a function, in the same way that invoking an expression with parentheses does. However,
-      instead of using the same stack as the caller, the function uses the stack provided in the {#syntax#}new_stack{#endsyntax#}
-      parameter.
-      </p>
-      <p>
-      The new stack must be aligned to {#syntax#}target_stack_align{#endsyntax#} bytes. This is a target-specific
-      number. A safe value that will work on all targets is {#syntax#}16{#endsyntax#}. This value can
-      also be obtained by using {#link|@sizeOf#} on the {#link|@Frame#} type of {#link|Async Functions#}.
-      </p>
-      {#code_begin|test#}
-const std = @import("std");
-const assert = std.debug.assert;
-
-var new_stack_bytes: [1024]u8 align(16) = undefined;
-
-test "calling a function with a new stack" {
-    const arg = 1234;
-
-    const a = @newStackCall(new_stack_bytes[0..512], targetFunction, arg);
-    const b = @newStackCall(new_stack_bytes[512..], targetFunction, arg);
-    _ = targetFunction(arg);
-
-    assert(arg == 1234);
-    assert(a < b);
-}
-
-fn targetFunction(x: i32) usize {
-    assert(x == 1234);
-
-    var local_variable: i32 = 42;
-    const ptr = &local_variable;
-    ptr.* += 1;
-
-    assert(local_variable == 43);
-    return @ptrToInt(ptr);
-}
-      {#code_end#}
-      {#header_close#}
-
-      {#header_open|@noInlineCall#}
-      <pre>{#syntax#}@noInlineCall(function: var, args: ...) var{#endsyntax#}</pre>
-      <p>
-      This calls a function, in the same way that invoking an expression with parentheses does:
-      </p>
-      {#code_begin|test#}
-const assert = @import("std").debug.assert;
-
-test "noinline function call" {
-    assert(@noInlineCall(add, 3, 9) == 12);
-}
-
-fn add(a: i32, b: i32) i32 {
-    return a + b;
-}
-      {#code_end#}
-      <p>
-      Unlike a normal function call, however, {#syntax#}@noInlineCall{#endsyntax#} guarantees that the call
-      will not be inlined. If the call must be inlined, a compile error is emitted.
-      </p>
-      {#see_also|@inlineCall#}
-      {#header_close#}
-
-      {#header_open|@OpaqueType#}
-      <pre>{#syntax#}@OpaqueType() type{#endsyntax#}</pre>
-      <p>
-      Creates a new type with an unknown (but non-zero) size and alignment.
-      </p>
-      <p>
-      This is typically used for type safety when interacting with C code that does not expose struct details.
-      Example:
-      </p>
-      {#code_begin|test_err|expected type '*Derp', found '*Wat'#}
-const Derp = @OpaqueType();
-const Wat = @OpaqueType();
-
-extern fn bar(d: *Derp) void;
-export fn foo(w: *Wat) void {
-    bar(w);
-}
-
-test "call foo" {
-    foo(undefined);
-}
-      {#code_end#}
-      {#header_close#}
-
       {#header_open|@panic#}
       <pre>{#syntax#}@panic(message: []const u8) noreturn{#endsyntax#}</pre>
       <p>
       Invokes the panic handler function. By default the panic handler function
       calls the public {#syntax#}panic{#endsyntax#} function exposed in the root source file, or
-          if there is not one specified, invokes the one provided in {#syntax#}std/special/panic.zig{#endsyntax#}.
+      if there is not one specified, the {#syntax#}std.builtin.default_panic{#endsyntax#}
+      function from {#syntax#}std/builtin.zig{#endsyntax#}.
       </p>
       <p>Generally it is better to use {#syntax#}@import("std").debug.panic{#endsyntax#}.
           However, {#syntax#}@panic{#endsyntax#} can be useful for 2 scenarios:
@@ -7718,7 +7910,7 @@ test "@setRuntimeSafety" {
       {#header_close#}
 
       {#header_open|@shuffle#}
-      <pre>{#syntax#}@shuffle(comptime E: type, a: @Vector(a_len, E), b: @Vector(b_len, E), comptime mask: @Vector(mask_len, i32)) @Vector(mask_len, E){#endsyntax#}</pre>
+      <pre>{#syntax#}@shuffle(comptime E: type, a: std.meta.Vector(a_len, E), b: std.meta.Vector(b_len, E), comptime mask: std.meta.Vector(mask_len, i32)) std.meta.Vector(mask_len, E){#endsyntax#}</pre>
       <p>
       Constructs a new {#link|vector|Vectors#} by selecting elements from {#syntax#}a{#endsyntax#} and
       {#syntax#}b{#endsyntax#} based on {#syntax#}mask{#endsyntax#}.
@@ -7728,7 +7920,7 @@ test "@setRuntimeSafety" {
       {#syntax#}b{#endsyntax#}. Positive numbers select from {#syntax#}a{#endsyntax#} starting at 0.
       Negative values select from {#syntax#}b{#endsyntax#}, starting at {#syntax#}-1{#endsyntax#} and going down.
       It is recommended to use the {#syntax#}~{#endsyntax#} operator from indexes from {#syntax#}b{#endsyntax#}
-      so that both indexes can start from {#syntax#}0{#endsyntax#} (i.e. {#syntax#}~i32(0){#endsyntax#} is
+      so that both indexes can start from {#syntax#}0{#endsyntax#} (i.e. {#syntax#}~@as(i32, 0){#endsyntax#} is
       {#syntax#}-1{#endsyntax#}).
       </p>
       <p>
@@ -7770,19 +7962,11 @@ test "@setRuntimeSafety" {
       This function measures the size at runtime. For types that are disallowed at runtime, such as
       {#syntax#}comptime_int{#endsyntax#} and {#syntax#}type{#endsyntax#}, the result is {#syntax#}0{#endsyntax#}.
       </p>
-      {#see_also|@typeInfo#}
-      {#header_close#}
-
-      {#header_open|@sliceToBytes#}
-      <pre>{#syntax#}@sliceToBytes(value: var) []u8{#endsyntax#}</pre>
-      <p>
-      Converts a slice or array to a slice of {#syntax#}u8{#endsyntax#}. The resulting slice has the same
-      {#link|pointer|Pointers#} properties as the parameter.
-      </p>
+      {#see_also|@bitSizeOf|@typeInfo#}
       {#header_close#}
 
       {#header_open|@splat#}
-      <pre>{#syntax#}@splat(comptime len: u32, scalar: var) @Vector(len, @typeOf(scalar)){#endsyntax#}</pre>
+      <pre>{#syntax#}@splat(comptime len: u32, scalar: var) std.meta.Vector(len, @TypeOf(scalar)){#endsyntax#}</pre>
       <p>
       Produces a vector of length {#syntax#}len{#endsyntax#} where each element is the value
       {#syntax#}scalar{#endsyntax#}:
@@ -7794,8 +7978,8 @@ const assert = std.debug.assert;
 test "vector @splat" {
     const scalar: u32 = 5;
     const result = @splat(4, scalar);
-    comptime assert(@typeOf(result) == @Vector(4, u32));
-    assert(std.mem.eql(u32, ([4]u32)(result), [_]u32{ 5, 5, 5, 5 }));
+    comptime assert(@TypeOf(result) == std.meta.Vector(4, u32));
+    assert(std.mem.eql(u32, &@as([4]u32, result), &[_]u32{ 5, 5, 5, 5 }));
 }
       {#code_end#}
       <p>
@@ -7806,94 +7990,146 @@ test "vector @splat" {
       {#header_close#}
 
       {#header_open|@sqrt#}
-      <pre>{#syntax#}@sqrt(comptime T: type, value: T) T{#endsyntax#}</pre>
+      <pre>{#syntax#}@sqrt(value: var) @TypeOf(value){#endsyntax#}</pre>
       <p>
       Performs the square root of a floating point number. Uses a dedicated hardware instruction
-      when available. Supports {#syntax#}f16{#endsyntax#}, {#syntax#}f32{#endsyntax#}, {#syntax#}f64{#endsyntax#}, and {#syntax#}f128{#endsyntax#}, as well as vectors.
+      when available.
+      </p>
+      <p>
+      Supports {#link|Floats#} and {#link|Vectors#} of floats, with the caveat that
+      <a href="https://github.com/ziglang/zig/issues/4026">some float operations are not yet implemented for all float types</a>.
       </p>
       {#header_close#}
       {#header_open|@sin#}
-      <pre>{#syntax#}@sin(comptime T: type, value: T) T{#endsyntax#}</pre>
+      <pre>{#syntax#}@sin(value: var) @TypeOf(value){#endsyntax#}</pre>
       <p>
       Sine trigometric function on a floating point number. Uses a dedicated hardware instruction
-      when available. Currently supports {#syntax#}f32{#endsyntax#} and {#syntax#}f64{#endsyntax#}.
+      when available.
+      </p>
+      <p>
+      Supports {#link|Floats#} and {#link|Vectors#} of floats, with the caveat that
+      <a href="https://github.com/ziglang/zig/issues/4026">some float operations are not yet implemented for all float types</a>.
       </p>
       {#header_close#}
       {#header_open|@cos#}
-      <pre>{#syntax#}@cos(comptime T: type, value: T) T{#endsyntax#}</pre>
+      <pre>{#syntax#}@cos(value: var) @TypeOf(value){#endsyntax#}</pre>
       <p>
       Cosine trigometric function on a floating point number. Uses a dedicated hardware instruction
-      when available. Currently supports {#syntax#}f32{#endsyntax#} and {#syntax#}f64{#endsyntax#}.
+      when available.
+      </p>
+      <p>
+      Supports {#link|Floats#} and {#link|Vectors#} of floats, with the caveat that
+      <a href="https://github.com/ziglang/zig/issues/4026">some float operations are not yet implemented for all float types</a>.
       </p>
       {#header_close#}
       {#header_open|@exp#}
-      <pre>{#syntax#}@exp(comptime T: type, value: T) T{#endsyntax#}</pre>
+      <pre>{#syntax#}@exp(value: var) @TypeOf(value){#endsyntax#}</pre>
       <p>
       Base-e exponential function on a floating point number. Uses a dedicated hardware instruction
-      when available. Currently supports {#syntax#}f32{#endsyntax#} and {#syntax#}f64{#endsyntax#}.
+      when available.
+      </p>
+      <p>
+      Supports {#link|Floats#} and {#link|Vectors#} of floats, with the caveat that
+      <a href="https://github.com/ziglang/zig/issues/4026">some float operations are not yet implemented for all float types</a>.
       </p>
       {#header_close#}
       {#header_open|@exp2#}
-      <pre>{#syntax#}@exp2(comptime T: type, value: T) T{#endsyntax#}</pre>
+      <pre>{#syntax#}@exp2(value: var) @TypeOf(value){#endsyntax#}</pre>
       <p>
       Base-2 exponential function on a floating point number. Uses a dedicated hardware instruction
-      when available. Currently supports {#syntax#}f32{#endsyntax#} and {#syntax#}f64{#endsyntax#}.
+      when available.
+      </p>
+      <p>
+      Supports {#link|Floats#} and {#link|Vectors#} of floats, with the caveat that
+      <a href="https://github.com/ziglang/zig/issues/4026">some float operations are not yet implemented for all float types</a>.
       </p>
       {#header_close#}
-      {#header_open|@ln#}
-      <pre>{#syntax#}@ln(comptime T: type, value: T) T{#endsyntax#}</pre>
+      {#header_open|@log#}
+      <pre>{#syntax#}@log(value: var) @TypeOf(value){#endsyntax#}</pre>
       <p>
       Returns the natural logarithm of a floating point number. Uses a dedicated hardware instruction
-      when available. Currently supports {#syntax#}f32{#endsyntax#} and {#syntax#}f64{#endsyntax#}.
+      when available.
+      </p>
+      <p>
+      Supports {#link|Floats#} and {#link|Vectors#} of floats, with the caveat that
+      <a href="https://github.com/ziglang/zig/issues/4026">some float operations are not yet implemented for all float types</a>.
       </p>
       {#header_close#}
       {#header_open|@log2#}
-      <pre>{#syntax#}@log2(comptime T: type, value: T) T{#endsyntax#}</pre>
+      <pre>{#syntax#}@log2(value: var) @TypeOf(value){#endsyntax#}</pre>
       <p>
       Returns the logarithm to the base 2 of a floating point number. Uses a dedicated hardware instruction
-      when available. Currently supports {#syntax#}f32{#endsyntax#} and {#syntax#}f64{#endsyntax#}.
+      when available.
+      </p>
+      <p>
+      Supports {#link|Floats#} and {#link|Vectors#} of floats, with the caveat that
+      <a href="https://github.com/ziglang/zig/issues/4026">some float operations are not yet implemented for all float types</a>.
       </p>
       {#header_close#}
       {#header_open|@log10#}
-      <pre>{#syntax#}@log10(comptime T: type, value: T) T{#endsyntax#}</pre>
+      <pre>{#syntax#}@log10(value: var) @TypeOf(value){#endsyntax#}</pre>
       <p>
       Returns the logarithm to the base 10 of a floating point number. Uses a dedicated hardware instruction
-      when available. Currently supports {#syntax#}f32{#endsyntax#} and {#syntax#}f64{#endsyntax#}.
+      when available.
+      </p>
+      <p>
+      Supports {#link|Floats#} and {#link|Vectors#} of floats, with the caveat that
+      <a href="https://github.com/ziglang/zig/issues/4026">some float operations are not yet implemented for all float types</a>.
       </p>
       {#header_close#}
       {#header_open|@fabs#}
-      <pre>{#syntax#}@fabs(comptime T: type, value: T) T{#endsyntax#}</pre>
+      <pre>{#syntax#}@fabs(value: var) @TypeOf(value){#endsyntax#}</pre>
       <p>
       Returns the absolute value of a floating point number. Uses a dedicated hardware instruction
-      when available. Currently supports {#syntax#}f32{#endsyntax#} and {#syntax#}f64{#endsyntax#}.
+      when available.
+      </p>
+      <p>
+      Supports {#link|Floats#} and {#link|Vectors#} of floats, with the caveat that
+      <a href="https://github.com/ziglang/zig/issues/4026">some float operations are not yet implemented for all float types</a>.
       </p>
       {#header_close#}
       {#header_open|@floor#}
-      <pre>{#syntax#}@floor(comptime T: type, value: T) T{#endsyntax#}</pre>
+      <pre>{#syntax#}@floor(value: var) @TypeOf(value){#endsyntax#}</pre>
       <p>
-      Returns the largest integral value not greater than the given floating point number. Uses a dedicated hardware instruction
-      when available. Currently supports {#syntax#}f32{#endsyntax#} and {#syntax#}f64{#endsyntax#}.
+      Returns the largest integral value not greater than the given floating point number.
+      Uses a dedicated hardware instruction when available.
+      </p>
+      <p>
+      Supports {#link|Floats#} and {#link|Vectors#} of floats, with the caveat that
+      <a href="https://github.com/ziglang/zig/issues/4026">some float operations are not yet implemented for all float types</a>.
       </p>
       {#header_close#}
       {#header_open|@ceil#}
-      <pre>{#syntax#}@ceil(comptime T: type, value: T) T{#endsyntax#}</pre>
+      <pre>{#syntax#}@ceil(value: var) @TypeOf(value){#endsyntax#}</pre>
       <p>
-      Returns the largest integral value not less than the given floating point number. Uses a dedicated hardware instruction
-      when available. Currently supports {#syntax#}f32{#endsyntax#} and {#syntax#}f64{#endsyntax#}.
+      Returns the largest integral value not less than the given floating point number.
+      Uses a dedicated hardware instruction when available.
+      </p>
+      <p>
+      Supports {#link|Floats#} and {#link|Vectors#} of floats, with the caveat that
+      <a href="https://github.com/ziglang/zig/issues/4026">some float operations are not yet implemented for all float types</a>.
       </p>
       {#header_close#}
       {#header_open|@trunc#}
-      <pre>{#syntax#}@trunc(comptime T: type, value: T) T{#endsyntax#}</pre>
+      <pre>{#syntax#}@trunc(value: var) @TypeOf(value){#endsyntax#}</pre>
       <p>
-      Rounds the given floating point number to an integer, towards zero. Uses a dedicated hardware instruction
-      when available. Currently supports {#syntax#}f32{#endsyntax#} and {#syntax#}f64{#endsyntax#}.
+      Rounds the given floating point number to an integer, towards zero.
+      Uses a dedicated hardware instruction when available.
+      </p>
+      <p>
+      Supports {#link|Floats#} and {#link|Vectors#} of floats, with the caveat that
+      <a href="https://github.com/ziglang/zig/issues/4026">some float operations are not yet implemented for all float types</a>.
       </p>
       {#header_close#}
       {#header_open|@round#}
-      <pre>{#syntax#}@round(comptime T: type, value: T) T{#endsyntax#}</pre>
+      <pre>{#syntax#}@round(value: var) @TypeOf(value){#endsyntax#}</pre>
       <p>
       Rounds the given floating point number to an integer, away from zero. Uses a dedicated hardware instruction
-      when available. Currently supports {#syntax#}f32{#endsyntax#} and {#syntax#}f64{#endsyntax#}.
+      when available.
+      </p>
+      <p>
+      Supports {#link|Floats#} and {#link|Vectors#} of floats, with the caveat that
+      <a href="https://github.com/ziglang/zig/issues/4026">some float operations are not yet implemented for all float types</a>.
       </p>
       {#header_close#}
 
@@ -7909,7 +8145,7 @@ test "vector @splat" {
       {#header_open|@tagName#}
       <pre>{#syntax#}@tagName(value: var) []const u8{#endsyntax#}</pre>
       <p>
-      Converts an enum value or union value to a slice of bytes representing the name.
+      Converts an enum value or union value to a slice of bytes representing the name.</p><p>If the enum is non-exhaustive and the tag value does not map to a name, it invokes safety-checked {#link|Undefined Behavior#}.
       </p>
       {#header_close#}
 
@@ -7953,9 +8189,7 @@ fn List(comptime T: type) type {
       {#code_end#}
       <p>
       When {#syntax#}@This(){#endsyntax#} is used at global scope, it returns a reference to the
-      current import. There is a proposal to remove the import type and use an empty struct
-      type instead. See
-      <a href="https://github.com/ziglang/zig/issues/1047">#1047</a> for details.
+      struct that corresponds to the current file.
       </p>
       {#header_close#}
 
@@ -7991,10 +8225,6 @@ test "integer truncation" {
       This function always truncates the significant bits of the integer, regardless
       of endianness on the target platform.
       </p>
-      <p>
-      If {#syntax#}T{#endsyntax#} is {#syntax#}comptime_int{#endsyntax#},
-      then this is semantically equivalent to an {#link|implicit cast|Implicit Casts#}.
-      </p>
       {#header_close#}
 
       {#header_open|@Type#}
@@ -8011,28 +8241,28 @@ test "integer truncation" {
           <li>{#syntax#}noreturn{#endsyntax#}</li>
           <li>{#syntax#}void{#endsyntax#}</li>
           <li>{#syntax#}bool{#endsyntax#}</li>
-          <li>{#link|Integers#}</li> - The maximum bit count for an integer type is {#syntax#}65535{#endsyntax#}.
+          <li>{#link|Integers#} - The maximum bit count for an integer type is {#syntax#}65535{#endsyntax#}.</li>
           <li>{#link|Floats#}</li>
           <li>{#link|Pointers#}</li>
           <li>{#syntax#}comptime_int{#endsyntax#}</li>
           <li>{#syntax#}comptime_float{#endsyntax#}</li>
-          <li>{#syntax#}@typeOf(undefined){#endsyntax#}</li>
-          <li>{#syntax#}@typeOf(null){#endsyntax#}</li>
+          <li>{#syntax#}@TypeOf(undefined){#endsyntax#}</li>
+          <li>{#syntax#}@TypeOf(null){#endsyntax#}</li>
+          <li>{#link|Arrays#}</li>
+          <li>{#link|Optionals#}</li>
+          <li>{#link|Error Union Type#}</li>
+          <li>{#link|Vectors#}</li>
+          <li>{#link|Opaque Types#}</li>
+          <li>AnyFrame</li>
       </ul>
       <p>
       For these types it is a
       <a href="https://github.com/ziglang/zig/issues/2907">TODO in the compiler to implement</a>:
       </p>
       <ul>
-          <li>Array</li>
-          <li>Optional</li>
-          <li>ErrorUnion</li>
           <li>ErrorSet</li>
           <li>Enum</li>
-          <li>Opaque</li>
           <li>FnFrame</li>
-          <li>AnyFrame</li>
-          <li>Vector</li>
           <li>EnumLiteral</li>
       </ul>
       <p>
@@ -8043,232 +8273,14 @@ test "integer truncation" {
           <li>{#link|union#}</li>
           <li>{#link|Functions#}</li>
           <li>BoundFn</li>
-          <li>ArgTuple</li>
           <li>{#link|struct#}</li>
       </ul>
       {#header_close#}
-
-      {#header_open|@typeId#}
-      <pre>{#syntax#}@typeId(comptime T: type) @import("builtin").TypeId{#endsyntax#}</pre>
-      <p>
-      Returns which kind of type something is. Possible values:
-      </p>
-      {#code_begin|syntax#}
-pub const TypeId = enum {
-    Type,
-    Void,
-    Bool,
-    NoReturn,
-    Int,
-    Float,
-    Pointer,
-    Array,
-    Struct,
-    ComptimeFloat,
-    ComptimeInt,
-    Undefined,
-    Null,
-    Optional,
-    ErrorUnion,
-    Error,
-    Enum,
-    Union,
-    Fn,
-    Block,
-    BoundFn,
-    ArgTuple,
-    Opaque,
-};
-      {#code_end#}
-      {#header_close#}
-
       {#header_open|@typeInfo#}
-      <pre>{#syntax#}@typeInfo(comptime T: type) @import("builtin").TypeInfo{#endsyntax#}</pre>
+      <pre>{#syntax#}@typeInfo(comptime T: type) @import("std").builtin.TypeInfo{#endsyntax#}</pre>
       <p>
-      Returns information on the type. Returns a value of the following union:
+      Provides type reflection.
       </p>
-      {#code_begin|syntax#}
-pub const TypeInfo = union(TypeId) {
-    Type: void,
-    Void: void,
-    Bool: void,
-    NoReturn: void,
-    Int: Int,
-    Float: Float,
-    Pointer: Pointer,
-    Array: Array,
-    Struct: Struct,
-    ComptimeFloat: void,
-    ComptimeInt: void,
-    Undefined: void,
-    Null: void,
-    Optional: Optional,
-    ErrorUnion: ErrorUnion,
-    ErrorSet: ErrorSet,
-    Enum: Enum,
-    Union: Union,
-    Fn: Fn,
-    BoundFn: Fn,
-    ArgTuple: void,
-    Opaque: void,
-    Promise: Promise,
-    Vector: Vector,
-    EnumLiteral: void,
-
-
-    pub const Int = struct {
-        is_signed: bool,
-        bits: comptime_int,
-    };
-
-    pub const Float = struct {
-        bits: comptime_int,
-    };
-
-    pub const Pointer = struct {
-        size: Size,
-        is_const: bool,
-        is_volatile: bool,
-        alignment: comptime_int,
-        child: type,
-        is_allowzero: bool,
-
-        pub const Size = enum {
-            One,
-            Many,
-            Slice,
-            C,
-        };
-    };
-
-    pub const Array = struct {
-        len: comptime_int,
-        child: type,
-    };
-
-    pub const ContainerLayout = enum {
-        Auto,
-        Extern,
-        Packed,
-    };
-
-    pub const StructField = struct {
-        name: []const u8,
-        offset: ?comptime_int,
-        field_type: type,
-    };
-
-    pub const Struct = struct {
-        layout: ContainerLayout,
-        fields: []StructField,
-        decls: []Declaration,
-    };
-
-    pub const Optional = struct {
-        child: type,
-    };
-
-    pub const ErrorUnion = struct {
-        error_set: type,
-        payload: type,
-    };
-
-    pub const Error = struct {
-        name: []const u8,
-        value: comptime_int,
-    };
-
-    pub const ErrorSet = ?[]Error;
-
-    pub const EnumField = struct {
-        name: []const u8,
-        value: comptime_int,
-    };
-
-    pub const Enum = struct {
-        layout: ContainerLayout,
-        tag_type: type,
-        fields: []EnumField,
-        decls: []Declaration,
-    };
-
-    pub const UnionField = struct {
-        name: []const u8,
-        enum_field: ?EnumField,
-        field_type: type,
-    };
-
-    pub const Union = struct {
-        layout: ContainerLayout,
-        tag_type: ?type,
-        fields: []UnionField,
-        decls: []Declaration,
-    };
-
-    pub const CallingConvention = enum {
-        Unspecified,
-        C,
-        Cold,
-        Naked,
-        Stdcall,
-        Async,
-    };
-
-    pub const FnArg = struct {
-        is_generic: bool,
-        is_noalias: bool,
-        arg_type: ?type,
-    };
-
-    pub const Fn = struct {
-        calling_convention: CallingConvention,
-        is_generic: bool,
-        is_var_args: bool,
-        return_type: ?type,
-        async_allocator_type: ?type,
-        args: []FnArg,
-    };
-
-    pub const Promise = struct {
-        child: ?type,
-    };
-
-    pub const Vector = struct {
-        len: comptime_int,
-        child: type,
-    };
-
-    pub const Declaration = struct {
-        name: []const u8,
-        is_pub: bool,
-        data: Data,
-
-        pub const Data = union(enum) {
-            Type: type,
-            Var: type,
-            Fn: FnDecl,
-
-            pub const FnDecl = struct {
-                fn_type: type,
-                inline_type: Inline,
-                calling_convention: CallingConvention,
-                is_var_args: bool,
-                is_extern: bool,
-                is_export: bool,
-                lib_name: ?[]const u8,
-                return_type: type,
-                arg_names: [][] const u8,
-
-                pub const Inline = enum {
-                    Auto,
-                    Always,
-                    Never,
-                };
-            };
-        };
-    };
-};
-      {#code_end#}
       <p>
       For {#link|structs|struct#}, {#link|unions|union#}, {#link|enums|enum#}, and
       {#link|error sets|Error Set Type#}, the fields are guaranteed to be in the same
@@ -8285,20 +8297,22 @@ pub const TypeInfo = union(TypeId) {
 
       {#header_close#}
 
-      {#header_open|@typeOf#}
-      <pre>{#syntax#}@typeOf(expression) type{#endsyntax#}</pre>
+      {#header_open|@TypeOf#}
+      <pre>{#syntax#}@TypeOf(...) type{#endsyntax#}</pre>
       <p>
-      This function returns a compile-time constant, which is the type of the
-      expression passed as an argument. The expression is evaluated.
+      {#syntax#}@TypeOf{#endsyntax#} is a special builtin function that takes any (nonzero) number of expressions
+      as parameters and returns the type of the result, using {#link|Peer Type Resolution#}.
       </p>
-      <p>{#syntax#}@typeOf{#endsyntax#} guarantees no run-time side-effects within the expression:</p>
+      <p>
+      The expressions are evaluated, however they are guaranteed to have no <em>runtime</em> side-effects:
+      </p>
       {#code_begin|test#}
 const std = @import("std");
 const assert = std.debug.assert;
 
 test "no runtime side effects" {
     var data: i32 = 0;
-    const T = @typeOf(foo(i32, &data));
+    const T = @TypeOf(foo(i32, &data));
     comptime assert(T == i32);
     assert(data == 0);
 }
@@ -8320,17 +8334,28 @@ fn foo(comptime T: type, ptr: *T) T {
       {#syntax#}@unionInit{#endsyntax#} forwards its {#link|result location|Result Location Semantics#} to {#syntax#}init_expr{#endsyntax#}.
       </p>
       {#header_close#}
-
-      {#header_open|@Vector#}
-      <pre>{#syntax#}@Vector(comptime len: u32, comptime ElemType: type) type{#endsyntax#}</pre>
-      <p>
-      This function returns a vector type for {#link|SIMD#}.
-      </p>
-      <p>
-      {#syntax#}ElemType{#endsyntax#} must be an {#link|integer|Integers#}, a {#link|float|Floats#}, or a
-      {#link|pointer|Pointers#}.
-      </p>
       {#header_close#}
+
+      {#header_open|Opaque Types#}
+      {#syntax#}@Type(.Opaque){#endsyntax#} creates a new type with an unknown (but non-zero) size and alignment.
+      </p>
+      <p>
+      This is typically used for type safety when interacting with C code that does not expose struct details.
+      Example:
+      </p>
+      {#code_begin|test_err|expected type '*Derp', found '*Wat'#}
+const Derp = @Type(.Opaque);
+const Wat = @Type(.Opaque);
+
+extern fn bar(d: *Derp) void;
+fn foo(w: *Wat) callconv(.C) void {
+    bar(w);
+}
+
+test "call foo" {
+    foo(undefined);
+}
+      {#code_end#}
       {#header_close#}
 
       {#header_open|Build Mode#}
@@ -8405,7 +8430,7 @@ pub fn build(b: *Builder) void {
       {#header_close#}
 
       {#header_open|Single Threaded Builds#}
-      <p>Zig has a compile option <code>--single-threaded</code> which has the following effects:
+      <p>Zig has a compile option <code>--single-threaded</code> which has the following effects:</p>
       <ul>
         <li>All {#link|Thread Local Variables#} are treated as {#link|Global Variables#}.</li>
         <li>The overhead of {#link|Async Functions#} becomes equivalent to function call overhead.</li>
@@ -8414,7 +8439,6 @@ pub fn build(b: *Builder) void {
           For example {#syntax#}std.Mutex{#endsyntax#} becomes
           an empty data structure and all of its functions become no-ops.</li>
       </ul>
-      </p>
       {#header_close#}
 
       {#header_open|Undefined Behavior#}
@@ -8458,7 +8482,7 @@ pub fn main() void {
       <p>At compile-time:</p>
       {#code_begin|test_err|index 5 outside array of size 5#}
 comptime {
-    const array = "hello";
+    const array: [5]u8 = "hello".*;
     const garbage = array[5];
 }
       {#code_end#}
@@ -8488,7 +8512,7 @@ const std = @import("std");
 pub fn main() void {
     var value: i32 = -1;
     var unsigned = @intCast(u32, value);
-    std.debug.warn("value: {}\n", unsigned);
+    std.debug.warn("value: {}\n", .{unsigned});
 }
       {#code_end#}
       <p>
@@ -8497,7 +8521,7 @@ pub fn main() void {
       {#header_close#}
       {#header_open|Cast Truncates Data#}
       <p>At compile-time:</p>
-      {#code_begin|test_err|integer value 300 cannot be implicitly casted to type 'u8'#}
+      {#code_begin|test_err|integer value 300 cannot be coerced to type 'u8'#}
 comptime {
     const spartan_count: u16 = 300;
     const byte = @intCast(u8, spartan_count);
@@ -8510,7 +8534,7 @@ const std = @import("std");
 pub fn main() void {
     var spartan_count: u16 = 300;
     const byte = @intCast(u8, spartan_count);
-    std.debug.warn("value: {}\n", byte);
+    std.debug.warn("value: {}\n", .{byte});
 }
       {#code_end#}
       <p>
@@ -8544,7 +8568,7 @@ const std = @import("std");
 pub fn main() void {
     var byte: u8 = 255;
     byte += 1;
-    std.debug.warn("value: {}\n", byte);
+    std.debug.warn("value: {}\n", .{byte});
 }
       {#code_end#}
       {#header_close#}
@@ -8567,11 +8591,11 @@ pub fn main() !void {
     var byte: u8 = 255;
 
     byte = if (math.add(u8, byte, 1)) |result| result else |err| {
-        warn("unable to add one: {}\n", @errorName(err));
+        warn("unable to add one: {}\n", .{@errorName(err)});
         return err;
     };
 
-    warn("result: {}\n", byte);
+    warn("result: {}\n", .{byte});
 }
       {#code_end#}
       {#header_close#}
@@ -8596,9 +8620,9 @@ pub fn main() void {
 
     var result: u8 = undefined;
     if (@addWithOverflow(u8, byte, 10, &result)) {
-        warn("overflowed result: {}\n", result);
+        warn("overflowed result: {}\n", .{result});
     } else {
-        warn("result: {}\n", result);
+        warn("result: {}\n", .{result});
     }
 }
       {#code_end#}
@@ -8633,7 +8657,7 @@ test "wraparound addition and subtraction" {
       <p>At compile-time:</p>
       {#code_begin|test_err|operation caused overflow#}
 comptime {
-    const x = @shlExact(u8(0b01010101), 2);
+    const x = @shlExact(@as(u8, 0b01010101), 2);
 }
       {#code_end#}
       <p>At runtime:</p>
@@ -8643,7 +8667,7 @@ const std = @import("std");
 pub fn main() void {
     var x: u8 = 0b01010101;
     var y = @shlExact(x, 2);
-    std.debug.warn("value: {}\n", y);
+    std.debug.warn("value: {}\n", .{y});
 }
       {#code_end#}
       {#header_close#}
@@ -8651,7 +8675,7 @@ pub fn main() void {
       <p>At compile-time:</p>
       {#code_begin|test_err|exact shift shifted out 1 bits#}
 comptime {
-    const x = @shrExact(u8(0b10101010), 2);
+    const x = @shrExact(@as(u8, 0b10101010), 2);
 }
       {#code_end#}
       <p>At runtime:</p>
@@ -8661,7 +8685,7 @@ const std = @import("std");
 pub fn main() void {
     var x: u8 = 0b10101010;
     var y = @shrExact(x, 2);
-    std.debug.warn("value: {}\n", y);
+    std.debug.warn("value: {}\n", .{y});
 }
       {#code_end#}
       {#header_close#}
@@ -8682,7 +8706,7 @@ pub fn main() void {
     var a: u32 = 1;
     var b: u32 = 0;
     var c = a / b;
-    std.debug.warn("value: {}\n", c);
+    std.debug.warn("value: {}\n", .{c});
 }
       {#code_end#}
       {#header_close#}
@@ -8703,7 +8727,7 @@ pub fn main() void {
     var a: u32 = 10;
     var b: u32 = 0;
     var c = a % b;
-    std.debug.warn("value: {}\n", c);
+    std.debug.warn("value: {}\n", .{c});
 }
       {#code_end#}
       {#header_close#}
@@ -8724,26 +8748,7 @@ pub fn main() void {
     var a: u32 = 10;
     var b: u32 = 3;
     var c = @divExact(a, b);
-    std.debug.warn("value: {}\n", c);
-}
-      {#code_end#}
-      {#header_close#}
-      {#header_open|Slice Widen Remainder#}
-      <p>At compile-time:</p>
-      {#code_begin|test_err|unable to convert#}
-comptime {
-    var bytes = [5]u8{ 1, 2, 3, 4, 5 };
-    var slice = @bytesToSlice(u32, bytes);
-}
-      {#code_end#}
-      <p>At runtime:</p>
-      {#code_begin|exe_err#}
-const std = @import("std");
-
-pub fn main() void {
-    var bytes = [5]u8{ 1, 2, 3, 4, 5 };
-    var slice = @bytesToSlice(u32, bytes[0..]);
-    std.debug.warn("value: {}\n", slice[0]);
+    std.debug.warn("value: {}\n", .{c});
 }
       {#code_end#}
       {#header_close#}
@@ -8762,7 +8767,7 @@ const std = @import("std");
 pub fn main() void {
     var optional_number: ?i32 = null;
     var number = optional_number.?;
-    std.debug.warn("value: {}\n", number);
+    std.debug.warn("value: {}\n", .{number});
 }
       {#code_end#}
       <p>One way to avoid this crash is to test for null instead of assuming non-null, with
@@ -8773,9 +8778,9 @@ pub fn main() void {
     const optional_number: ?i32 = null;
 
     if (optional_number) |number| {
-        warn("got number: {}\n", number);
+        warn("got number: {}\n", .{number});
     } else {
-        warn("it's null\n");
+        warn("it's null\n", .{});
     }
 }
       {#code_end#}
@@ -8798,7 +8803,7 @@ const std = @import("std");
 
 pub fn main() void {
     const number = getNumberOrFail() catch unreachable;
-    std.debug.warn("value: {}\n", number);
+    std.debug.warn("value: {}\n", .{number});
 }
 
 fn getNumberOrFail() !i32 {
@@ -8814,9 +8819,9 @@ pub fn main() void {
     const result = getNumberOrFail();
 
     if (result) |number| {
-        warn("got number: {}\n", number);
+        warn("got number: {}\n", .{number});
     } else |err| {
-        warn("got error: {}\n", @errorName(err));
+        warn("got error: {}\n", .{@errorName(err)});
     }
 }
 
@@ -8843,7 +8848,7 @@ pub fn main() void {
     var err = error.AnError;
     var number = @errorToInt(err) + 500;
     var invalid_err = @intToError(number);
-    std.debug.warn("value: {}\n", number);
+    std.debug.warn("value: {}\n", .{number});
 }
       {#code_end#}
       {#header_close#}
@@ -8873,7 +8878,7 @@ const Foo = enum {
 pub fn main() void {
     var a: u2 = 3;
     var b = @intToEnum(Foo, a);
-    std.debug.warn("value: {}\n", @tagName(b));
+    std.debug.warn("value: {}\n", .{@tagName(b)});
 }
       {#code_end#}
       {#header_close#}
@@ -8910,7 +8915,7 @@ pub fn main() void {
 }
 fn foo(set1: Set1) void {
     const x = @errSetCast(Set2, set1);
-    std.debug.warn("value: {}\n", x);
+    std.debug.warn("value: {}\n", .{x});
 }
       {#code_end#}
       {#header_close#}
@@ -8919,20 +8924,21 @@ fn foo(set1: Set1) void {
       <p>At compile-time:</p>
       {#code_begin|test_err|pointer address 0x1 is not aligned to 4 bytes#}
 comptime {
-    const ptr = @intToPtr(*i32, 0x1);
+    const ptr = @intToPtr(*align(1) i32, 0x1);
     const aligned = @alignCast(4, ptr);
 }
       {#code_end#}
       <p>At runtime:</p>
       {#code_begin|exe_err#}
+const mem = @import("std").mem;
 pub fn main() !void {
     var array align(4) = [_]u32{ 0x11111111, 0x11111111 };
-    const bytes = @sliceToBytes(array[0..]);
+    const bytes = mem.sliceAsBytes(array[0..]);
     if (foo(bytes) != 0x11111111) return error.Wrong;
 }
 fn foo(bytes: []u8) u32 {
     const slice4 = bytes[1..5];
-    const int_slice = @bytesToSlice(u32, @alignCast(4, slice4));
+    const int_slice = mem.bytesAsSlice(u32, @alignCast(4, slice4));
     return int_slice[0];
 }
       {#code_end#}
@@ -8966,7 +8972,7 @@ pub fn main() void {
 
 fn bar(f: *Foo) void {
     f.float = 12.34;
-    std.debug.warn("value: {}\n", f.float);
+    std.debug.warn("value: {}\n", .{f.float});
 }
       {#code_end#}
       <p>
@@ -8990,7 +8996,7 @@ pub fn main() void {
 
 fn bar(f: *Foo) void {
     f.* = Foo{ .float = 12.34 };
-    std.debug.warn("value: {}\n", f.float);
+    std.debug.warn("value: {}\n", .{f.float});
 }
       {#code_end#}
       <p>
@@ -9009,7 +9015,7 @@ pub fn main() void {
     var f = Foo{ .int = 42 };
     f = Foo{ .float = undefined };
     bar(&f);
-    std.debug.warn("value: {}\n", f.float);
+    std.debug.warn("value: {}\n", .{f.float});
 }
 
 fn bar(f: *Foo) void {
@@ -9087,9 +9093,8 @@ fn concat(allocator: *Allocator, a: []const u8, b: []const u8) ![]u8 {
       In the above example, 100 bytes of stack memory are used to initialize a
       {#syntax#}FixedBufferAllocator{#endsyntax#}, which is then passed to a function.
       As a convenience there is a global {#syntax#}FixedBufferAllocator{#endsyntax#}
-      available for quick tests at {#syntax#}std.debug.global_allocator{#endsyntax#},
-      however it is deprecated and should be avoided in favor of directly using a
-      {#syntax#}FixedBufferAllocator{#endsyntax#} as in the example above.
+      available for quick tests at {#syntax#}std.testing.allocator{#endsyntax#},
+      which will also do perform basic leak detection.
       </p>
       <p>
       Currently Zig has no general purpose allocator, but there is
@@ -9109,8 +9114,6 @@ fn concat(allocator: *Allocator, a: []const u8, b: []const u8) ![]u8 {
           </li>
           <li>Are you linking libc? In this case, {#syntax#}std.heap.c_allocator{#endsyntax#} is likely
               the right choice, at least for your main allocator.</li>
-          <li>Are you building for WebAssembly? In this case, {#syntax#}std.heap.wasm_allocator{#endsyntax#} is likely
-              the right choice for your main allocator as it uses WebAssembly's memory instructions.</li>
           <li>
               Is the maximum number of bytes that you will need bounded by a number known at
               {#link|comptime#}? In this case, use {#syntax#}std.heap.FixedBufferAllocator{#endsyntax#} or
@@ -9126,13 +9129,13 @@ fn concat(allocator: *Allocator, a: []const u8, b: []const u8) ![]u8 {
 const std = @import("std");
 
 pub fn main() !void {
-    var arena = std.heap.ArenaAllocator.init(std.heap.direct_allocator);
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
 
     const allocator = &arena.allocator;
 
     const ptr = try allocator.create(i32);
-    std.debug.warn("ptr={*}\n", ptr);
+    std.debug.warn("ptr={*}\n", .{ptr});
 }
               {#code_end#}
               When using this kind of allocator, there is no need to free anything manually. Everything
@@ -9149,7 +9152,7 @@ pub fn main() !void {
           </li>
           <li>
               Are you writing a test, and you want to make sure {#syntax#}error.OutOfMemory{#endsyntax#}
-              is handled correctly? In this case, use {#syntax#}std.debug.FailingAllocator{#endsyntax#}.
+              is handled correctly? In this case, use {#syntax#}std.testing.FailingAllocator{#endsyntax#}.
           </li>
           <li>
               Finally, if none of the above apply, you need a general purpose allocator. Zig does not
@@ -9197,7 +9200,7 @@ test "string literal to constant slice" {
       The location of memory allocated with {#syntax#}allocator.alloc{#endsyntax#} or
       {#syntax#}allocator.create{#endsyntax#} is determined by the allocator's implementation.
       </p>
-      </p>TODO: thread local variables</p>
+      <p>TODO: thread local variables</p>
       {#header_close#}
 
       {#header_open|Implementing an Allocator#}
@@ -9291,7 +9294,7 @@ test "string literal to constant slice" {
       </p>
       <p>
       Sometimes the lifetime of a pointer may be more complicated. For example, when using
-      {#syntax#}std.ArrayList(T).toSlice(){#endsyntax#}, the returned slice has a lifetime that remains
+      {#syntax#}std.ArrayList(T).span(){#endsyntax#}, the returned slice has a lifetime that remains
       valid until the next time the list is resized, such as by appending new elements.
       </p>
       <p>
@@ -9336,7 +9339,7 @@ const separator = if (builtin.os == builtin.Os.windows) '\\' else '/';
       </p>
       {#code_begin|test|detect_test#}
 const std = @import("std");
-const builtin = @import("builtin");
+const builtin = std.builtin;
 const assert = std.debug.assert;
 
 test "builtin.is_test" {
@@ -9434,22 +9437,6 @@ test "assert in release fast mode" {
       </ul>
       {#see_also|Primitive Types#}
       {#header_close#}
-      {#header_open|C String Literals#}
-      {#code_begin|exe#}
-      {#link_libc#}
-extern fn puts([*]const u8) void;
-
-pub fn main() void {
-    puts(c"this has a null terminator");
-    puts(
-        c\\and so
-        c\\does this
-        c\\multiline C string literal
-    );
-}
-      {#code_end#}
-      {#see_also|String Literals and Character Literals#}
-      {#header_close#}
 
       {#header_open|Import from C Header File#}
       <p>
@@ -9464,7 +9451,7 @@ const c = @cImport({
     @cInclude("stdio.h");
 });
 pub fn main() void {
-    _ = c.printf(c"hello\n");
+    _ = c.printf("hello\n");
 }
       {#code_end#}
       <p>
@@ -9476,7 +9463,7 @@ pub fn main() void {
 const builtin = @import("builtin");
 
 const c = @cImport({
-    @cDefine("NDEBUG", builtin.mode == builtin.Mode.ReleaseFast);
+    @cDefine("NDEBUG", builtin.mode == .ReleaseFast);
     if (something) {
         @cDefine("_GNU_SOURCE", {});
     }
@@ -9503,8 +9490,8 @@ const c = @cImport({
       <p>{#syntax#}[*c]T{#endsyntax#} - C pointer.</p>
       <ul>
         <li>Supports all the syntax of the other two pointer types.</li>
-        <li>Implicitly casts to other pointer types, as well as {#link|Optional Pointers#}.
-            When a C pointer is implicitly casted to a non-optional pointer, safety-checked
+        <li>Coerces to other pointer types, as well as {#link|Optional Pointers#}.
+            When a C pointer is coerced to a non-optional pointer, safety-checked
             {#link|Undefined Behavior#} occurs if the address is 0.
         </li>
         <li>Allows address 0. On non-freestanding targets, dereferencing address 0 is safety-checked
@@ -9512,7 +9499,7 @@ const c = @cImport({
             null, just like {#syntax#}?usize{#endsyntax#}. Note that creating an optional C pointer
             is unnecessary as one can use normal {#link|Optional Pointers#}.
         </li>
-        <li>Supports {#link|implicit casting|Implicit Casts#} to and from integers.</li>
+        <li>Supports {#link|Type Coercion#} to and from integers.</li>
         <li>Supports comparison with integers.</li>
         <li>Does not support Zig-only pointer attributes such as alignment. Use normal {#link|Pointers#}
         please!</li>
@@ -9563,7 +9550,7 @@ pub fn build(b: *Builder) void {
     const lib = b.addSharedLibrary("mathtest", "mathtest.zig", b.version(1, 0, 0));
 
     const exe = b.addExecutable("test", null);
-    exe.addCSourceFile("test.c", [_][]const u8{"-std=c99"});
+    exe.addCSourceFile("test.c", &[_][]const u8{"-std=c99"});
     exe.linkLibrary(lib);
     exe.linkSystemLibrary("c");
 
@@ -9628,7 +9615,7 @@ pub fn build(b: *Builder) void {
     const obj = b.addObject("base64", "base64.zig");
 
     const exe = b.addExecutable("test", null);
-    exe.addCSourceFile("test.c", [_][]const u8{"-std=c99"});
+    exe.addCSourceFile("test.c", &[_][]const u8{"-std=c99"});
     exe.addObject(obj);
     exe.linkSystemLibrary("c");
     exe.install();
@@ -9642,8 +9629,7 @@ all your base are belong to us</code></pre>
       {#header_close#}
       {#header_close#}
       {#header_open|WebAssembly#}
-      <p>Zig supports building for WebAssembly out of the box. There is also a specialized {#syntax#}std.heap.wasm_allocator{#endsyntax#}
-      memory allocator for WebAssembly environments.</p>
+      <p>Zig supports building for WebAssembly out of the box.</p>
       {#header_open|Freestanding#}
       <p>For host environments like the web browser and nodejs, build as a library using the freestanding OS target.
       Here's an example of running Zig code compiled to WebAssembly with nodejs.</p>
@@ -9671,17 +9657,19 @@ WebAssembly.instantiate(typedArray, {
     <pre><code>$ node test.js
 The result is 3</code></pre>
       {#header_open|WASI#}
-      <p>Zig's support for WebAssembly System Interface (WASI) is under active development. Example of using the standard library and reading command line arguments:</p>
+      <p>Zig's support for WebAssembly System Interface (WASI) is under active development.
+      Example of using the standard library and reading command line arguments:</p>
       {#code_begin|exe|wasi#}
       {#target_wasi#}
 const std = @import("std");
 
 pub fn main() !void {
-    const args = try std.process.argsAlloc(std.heap.wasm_allocator);
-    defer std.process.argsFree(std.heap.wasm_allocator, args);
+    // TODO a better default allocator that isn't as wasteful!
+    const args = try std.process.argsAlloc(std.heap.page_allocator);
+    defer std.process.argsFree(std.heap.page_allocator, args);
 
     for (args) |arg, i| {
-        std.debug.warn("{}: {}\n", i, arg);
+        std.debug.warn("{}: {}\n", .{i, arg});
     }
 }
       {#code_end#}
@@ -9937,7 +9925,7 @@ Available libcs:
       The Zig Standard Library ({#syntax#}@import("std"){#endsyntax#}) has architecture, environment, and operating system
       abstractions, and thus takes additional work to support more platforms.
       Not all standard library code requires operating system abstractions, however,
-      so things such as generic data structures work an all above platforms.
+      so things such as generic data structures work on all above platforms.
       </p>
       <p>The current list of targets supported by the Zig Standard Library is:</p>
       <ul>
@@ -10000,6 +9988,13 @@ coding style.
       conventions.
       </p>
       <p>
+      File names fall into two categories: types and namespaces. If the file
+      (implicity a struct) has top level fields, it should be named like any
+      other struct with fields using {#syntax#}TitleCase{#endsyntax#}. Otherwise,
+      it should use {#syntax#}snake_case{#endsyntax#}. Directory names should be
+      {#syntax#}snake_case{#endsyntax#}.
+      </p>
+      <p>
       These are general rules of thumb; if it makes sense to do something different,
       do what makes sense. For example, if there is an established convention such as
       {#syntax#}ENOENT{#endsyntax#}, follow the established convention.
@@ -10008,6 +10003,7 @@ coding style.
       {#header_open|Examples#}
       {#code_begin|syntax#}
 const namespace_name = @import("dir_name/file_name.zig");
+const TypeName = @import("dir_name/TypeName.zig");
 var global_var: i32 = undefined;
 const const_name = 42;
 const primitive_type_alias = f32;
@@ -10073,7 +10069,6 @@ fn readU32Be() u32 {}
       {#header_open|Keyword: pub#}
       <p>The {#syntax#}pub{#endsyntax#} in front of a top level declaration makes the
       declaration available to reference from a different file than the one it is declared in.</p>
-      <p><a href="https://github.com/ziglang/zig/issues/2059">TODO delete pub syntax for fields, or make it do something.</a></p>
       {#see_also|@import#}
       {#header_close#}
       {#header_close#}
@@ -10086,29 +10081,30 @@ ContainerMembers
     &lt;- TestDecl ContainerMembers
      / TopLevelComptime ContainerMembers
      / KEYWORD_pub? TopLevelDecl ContainerMembers
-     / KEYWORD_pub? ContainerField COMMA ContainerMembers
-     / KEYWORD_pub? ContainerField
+     / ContainerField COMMA ContainerMembers
+     / ContainerField
      /
 
-TestDecl &lt;- KEYWORD_test STRINGLITERAL Block
+TestDecl &lt;- KEYWORD_test STRINGLITERALSINGLE Block
 
 TopLevelComptime &lt;- KEYWORD_comptime BlockExpr
 
 TopLevelDecl
-    &lt;- (KEYWORD_export / KEYWORD_extern STRINGLITERAL? / KEYWORD_inline)? FnProto (SEMICOLON / Block)
-     / (KEYWORD_export / KEYWORD_extern STRINGLITERAL?)? KEYWORD_threadlocal? VarDecl
+    &lt;- (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE? / KEYWORD_inline)? FnProto (SEMICOLON / Block)
+     / (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE?)? KEYWORD_threadlocal? VarDecl
      / KEYWORD_usingnamespace Expr SEMICOLON
 
-FnProto &lt;- FnCC? KEYWORD_fn IDENTIFIER? LPAREN ParamDeclList RPAREN ByteAlign? LinkSection? EXCLAMATIONMARK? (KEYWORD_var / TypeExpr)
+FnProto &lt;- KEYWORD_fn IDENTIFIER? LPAREN ParamDeclList RPAREN ByteAlign? LinkSection? EXCLAMATIONMARK? (KEYWORD_var / TypeExpr)
 
 VarDecl &lt;- (KEYWORD_const / KEYWORD_var) IDENTIFIER (COLON TypeExpr)? ByteAlign? LinkSection? (EQUAL Expr)? SEMICOLON
 
-ContainerField &lt;- IDENTIFIER (COLON TypeExpr)? (EQUAL Expr)?
+ContainerField &lt;- KEYWORD_comptime? IDENTIFIER (COLON TypeExpr)? (EQUAL Expr)?
 
 # *** Block Level ***
 Statement
     &lt;- KEYWORD_comptime? VarDecl
      / KEYWORD_comptime BlockExprStatement
+     / KEYWORD_nosuspend BlockExprStatement
      / KEYWORD_suspend (SEMICOLON / BlockExprStatement)
      / KEYWORD_defer BlockExprStatement
      / KEYWORD_errdefer BlockExprStatement
@@ -10165,6 +10161,7 @@ PrimaryExpr
      / IfExpr
      / KEYWORD_break BreakLabel? Expr?
      / KEYWORD_comptime Expr
+     / KEYWORD_nosuspend Expr
      / KEYWORD_continue BreakLabel?
      / KEYWORD_resume Expr
      / KEYWORD_return Expr?
@@ -10202,6 +10199,7 @@ PrimaryTypeExpr
      / CHAR_LITERAL
      / ContainerDecl
      / DOT IDENTIFIER
+     / DOT InitList
      / ErrorSetDecl
      / FLOAT
      / FnProto
@@ -10214,7 +10212,7 @@ PrimaryTypeExpr
      / KEYWORD_error DOT IDENTIFIER
      / KEYWORD_false
      / KEYWORD_null
-     / KEYWORD_promise
+     / KEYWORD_anyframe
      / KEYWORD_true
      / KEYWORD_undefined
      / KEYWORD_unreachable
@@ -10264,13 +10262,6 @@ FieldInit &lt;- DOT IDENTIFIER EQUAL Expr
 WhileContinueExpr &lt;- COLON LPAREN AssignExpr RPAREN
 
 LinkSection &lt;- KEYWORD_linksection LPAREN Expr RPAREN
-
-# Fn specific
-FnCC
-    &lt;- KEYWORD_nakedcc
-     / KEYWORD_stdcallcc
-     / KEYWORD_extern
-     / KEYWORD_async
 
 ParamDecl &lt;- (KEYWORD_noalias / KEYWORD_comptime)? (IDENTIFIER COLON)? ParamType
 
@@ -10365,7 +10356,7 @@ PrefixOp
 
 PrefixTypeOp
     &lt;- QUESTIONMARK
-     / KEYWORD_promise MINUSRARROW
+     / KEYWORD_anyframe MINUSRARROW
      / ArrayTypeStart (ByteAlign / KEYWORD_const / KEYWORD_volatile / KEYWORD_allowzero)*
      / PtrTypeStart (KEYWORD_align LPAREN Expr (COLON INTEGER COLON INTEGER)? RPAREN / KEYWORD_const / KEYWORD_volatile / KEYWORD_allowzero)*
 
@@ -10427,7 +10418,6 @@ string_char
 
 line_comment &lt;- '//'[^\n]*
 line_string &lt;- ("\\\\" [^\n]* [ \n]*)+
-line_cstring &lt;- ("c\\\\" [^\n]* [ \n]*)+
 skip &lt;- ([ \n] / line_comment)*
 
 CHAR_LITERAL &lt;- "'" char_char "'" skip
@@ -10441,12 +10431,12 @@ INTEGER
      / "0o" [0-7]+ skip
      / "0x" hex+   skip
      /      [0-9]+ skip
+STRINGLITERALSINGLE &lt;- "\"" string_char* "\"" skip
 STRINGLITERAL
-    &lt;- "c"? "\"" string_char* "\"" skip
+    &lt;- STRINGLITERALSINGLE
      / line_string                 skip
-     / line_cstring                skip
 IDENTIFIER
-    &lt;- !keyword ("c" !["\\] / [A-Zabd-z_]) [A-Za-z0-9_]* skip
+    &lt;- !keyword [A-Za-z_] [A-Za-z0-9_]* skip
      / "@\"" string_char* "\""                            skip
 BUILTINIDENTIFIER &lt;- "@"[A-Za-z_][A-Za-z0-9_]* skip
 
@@ -10513,6 +10503,7 @@ end_of_word &lt;- ![a-zA-Z0-9_] skip
 KEYWORD_align       &lt;- 'align'       end_of_word
 KEYWORD_allowzero   &lt;- 'allowzero'   end_of_word
 KEYWORD_and         &lt;- 'and'         end_of_word
+KEYWORD_anyframe    &lt;- 'anyframe'    end_of_word
 KEYWORD_asm         &lt;- 'asm'         end_of_word
 KEYWORD_async       &lt;- 'async'       end_of_word
 KEYWORD_await       &lt;- 'await'       end_of_word
@@ -10533,18 +10524,16 @@ KEYWORD_fn          &lt;- 'fn'          end_of_word
 KEYWORD_for         &lt;- 'for'         end_of_word
 KEYWORD_if          &lt;- 'if'          end_of_word
 KEYWORD_inline      &lt;- 'inline'      end_of_word
-KEYWORD_nakedcc     &lt;- 'nakedcc'     end_of_word
 KEYWORD_noalias     &lt;- 'noalias'     end_of_word
+KEYWORD_nosuspend   &lt;- 'nosuspend'   end_of_word
 KEYWORD_null        &lt;- 'null'        end_of_word
 KEYWORD_or          &lt;- 'or'          end_of_word
 KEYWORD_orelse      &lt;- 'orelse'      end_of_word
 KEYWORD_packed      &lt;- 'packed'      end_of_word
-KEYWORD_promise     &lt;- 'promise'     end_of_word
 KEYWORD_pub         &lt;- 'pub'         end_of_word
 KEYWORD_resume      &lt;- 'resume'      end_of_word
 KEYWORD_return      &lt;- 'return'      end_of_word
 KEYWORD_linksection &lt;- 'linksection' end_of_word
-KEYWORD_stdcallcc   &lt;- 'stdcallcc'   end_of_word
 KEYWORD_struct      &lt;- 'struct'      end_of_word
 KEYWORD_suspend     &lt;- 'suspend'     end_of_word
 KEYWORD_switch      &lt;- 'switch'      end_of_word
@@ -10566,10 +10555,10 @@ keyword &lt;- KEYWORD_align / KEYWORD_and / KEYWORD_allowzero / KEYWORD_asm
          / KEYWORD_defer / KEYWORD_else / KEYWORD_enum / KEYWORD_errdefer
          / KEYWORD_error / KEYWORD_export / KEYWORD_extern / KEYWORD_false
          / KEYWORD_fn / KEYWORD_for / KEYWORD_if / KEYWORD_inline
-         / KEYWORD_nakedcc / KEYWORD_noalias / KEYWORD_null / KEYWORD_or
-         / KEYWORD_orelse / KEYWORD_packed / KEYWORD_promise / KEYWORD_pub
+         / KEYWORD_noalias / KEYWORD_null / KEYWORD_or
+         / KEYWORD_orelse / KEYWORD_packed / KEYWORD_anyframe / KEYWORD_pub
          / KEYWORD_resume / KEYWORD_return / KEYWORD_linksection
-         / KEYWORD_stdcallcc / KEYWORD_struct / KEYWORD_suspend
+         / KEYWORD_struct / KEYWORD_suspend
          / KEYWORD_switch / KEYWORD_test / KEYWORD_threadlocal / KEYWORD_true / KEYWORD_try
          / KEYWORD_undefined / KEYWORD_union / KEYWORD_unreachable
          / KEYWORD_usingnamespace / KEYWORD_var / KEYWORD_volatile / KEYWORD_while</code></pre>
@@ -10590,6 +10579,7 @@ keyword &lt;- KEYWORD_align / KEYWORD_and / KEYWORD_allowzero / KEYWORD_asm
         <li>Together we serve end users.</li>
       </ul>
       {#header_close#}
+      </div></div>
     </div>
   </body>
 </html>

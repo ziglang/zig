@@ -34,13 +34,13 @@ pub fn PackedIntIo(comptime Int: type, comptime endian: builtin.Endian) type {
 
     //we bitcast the desired Int type to an unsigned version of itself
     // to avoid issues with shifting signed ints.
-    const UnInt = @IntType(false, int_bits);
+    const UnInt = std.meta.Int(false, int_bits);
 
     //The maximum container int type
-    const MinIo = @IntType(false, min_io_bits);
+    const MinIo = std.meta.Int(false, min_io_bits);
 
     //The minimum container int type
-    const MaxIo = @IntType(false, max_io_bits);
+    const MaxIo = std.meta.Int(false, max_io_bits);
 
     return struct {
         pub fn get(bytes: []const u8, index: usize, bit_offset: u7) Int {
@@ -193,7 +193,7 @@ pub fn PackedIntArrayEndian(comptime Int: type, comptime endian: builtin.Endian,
         ///Initialize a packed array using an unpacked array
         /// or, more likely, an array literal.
         pub fn init(ints: [int_count]Int) Self {
-            var self = Self(undefined);
+            var self = @as(Self, undefined);
             for (ints) |int, i| self.set(i, int);
             return self;
         }
@@ -201,7 +201,7 @@ pub fn PackedIntArrayEndian(comptime Int: type, comptime endian: builtin.Endian,
         ///Return the Int stored at index
         pub fn get(self: Self, index: usize) Int {
             debug.assert(index < int_count);
-            return Io.get(self.bytes, index, 0);
+            return Io.get(&self.bytes, index, 0);
         }
 
         ///Copy int into the array at index
@@ -314,25 +314,28 @@ pub fn PackedIntSliceEndian(comptime Int: type, comptime endian: builtin.Endian)
 }
 
 test "PackedIntArray" {
+    // TODO @setEvalBranchQuota generates panics in wasm32. Investigate.
+    if (builtin.arch == .wasm32) return error.SkipZigTest;
+
     @setEvalBranchQuota(10000);
     const max_bits = 256;
     const int_count = 19;
 
     comptime var bits = 0;
-    inline while (bits <= 256) : (bits += 1) {
+    inline while (bits <= max_bits) : (bits += 1) {
         //alternate unsigned and signed
         const even = bits % 2 == 0;
-        const I = @IntType(even, bits);
+        const I = std.meta.Int(even, bits);
 
         const PackedArray = PackedIntArray(I, int_count);
         const expected_bytes = ((bits * int_count) + 7) / 8;
         testing.expect(@sizeOf(PackedArray) == expected_bytes);
 
-        var data = PackedArray(undefined);
+        var data = @as(PackedArray, undefined);
 
         //write values, counting up
-        var i = usize(0);
-        var count = I(0);
+        var i = @as(usize, 0);
+        var count = @as(I, 0);
         while (i < data.len()) : (i += 1) {
             data.set(i, count);
             if (bits > 0) count +%= 1;
@@ -352,11 +355,14 @@ test "PackedIntArray" {
 test "PackedIntArray init" {
     const PackedArray = PackedIntArray(u3, 8);
     var packed_array = PackedArray.init([_]u3{ 0, 1, 2, 3, 4, 5, 6, 7 });
-    var i = usize(0);
+    var i = @as(usize, 0);
     while (i < packed_array.len()) : (i += 1) testing.expect(packed_array.get(i) == i);
 }
 
 test "PackedIntSlice" {
+    // TODO @setEvalBranchQuota generates panics in wasm32. Investigate.
+    if (builtin.arch == .wasm32) return error.SkipZigTest;
+
     @setEvalBranchQuota(10000);
     const max_bits = 256;
     const int_count = 19;
@@ -366,17 +372,17 @@ test "PackedIntSlice" {
     var buffer: [total_bytes]u8 = undefined;
 
     comptime var bits = 0;
-    inline while (bits <= 256) : (bits += 1) {
+    inline while (bits <= max_bits) : (bits += 1) {
         //alternate unsigned and signed
         const even = bits % 2 == 0;
-        const I = @IntType(even, bits);
+        const I = std.meta.Int(even, bits);
         const P = PackedIntSlice(I);
 
         var data = P.init(&buffer, int_count);
 
         //write values, counting up
-        var i = usize(0);
-        var count = I(0);
+        var i = @as(usize, 0);
+        var count = @as(I, 0);
         while (i < data.len()) : (i += 1) {
             data.set(i, count);
             if (bits > 0) count +%= 1;
@@ -399,14 +405,14 @@ test "PackedIntSlice of PackedInt(Array/Slice)" {
 
     comptime var bits = 0;
     inline while (bits <= max_bits) : (bits += 1) {
-        const Int = @IntType(false, bits);
+        const Int = std.meta.Int(false, bits);
 
         const PackedArray = PackedIntArray(Int, int_count);
-        var packed_array = PackedArray(undefined);
+        var packed_array = @as(PackedArray, undefined);
 
         const limit = (1 << bits);
 
-        var i = usize(0);
+        var i = @as(usize, 0);
         while (i < packed_array.len()) : (i += 1) {
             packed_array.set(i, @intCast(Int, i % limit));
         }
@@ -463,20 +469,20 @@ test "PackedIntSlice accumulating bit offsets" {
     // anything
     {
         const PackedArray = PackedIntArray(u3, 16);
-        var packed_array = PackedArray(undefined);
+        var packed_array = @as(PackedArray, undefined);
 
         var packed_slice = packed_array.slice(0, packed_array.len());
-        var i = usize(0);
+        var i = @as(usize, 0);
         while (i < packed_array.len() - 1) : (i += 1) {
             packed_slice = packed_slice.slice(1, packed_slice.len());
         }
     }
     {
         const PackedArray = PackedIntArray(u11, 88);
-        var packed_array = PackedArray(undefined);
+        var packed_array = @as(PackedArray, undefined);
 
         var packed_slice = packed_array.slice(0, packed_array.len());
-        var i = usize(0);
+        var i = @as(usize, 0);
         while (i < packed_array.len() - 1) : (i += 1) {
             packed_slice = packed_slice.slice(1, packed_slice.len());
         }
@@ -493,7 +499,7 @@ test "PackedInt(Array/Slice) sliceCast" {
     var packed_slice_cast_9 = packed_array.slice(0, (packed_array.len() / 9) * 9).sliceCast(u9);
     const packed_slice_cast_3 = packed_slice_cast_9.sliceCast(u3);
 
-    var i = usize(0);
+    var i = @as(usize, 0);
     while (i < packed_slice_cast_2.len()) : (i += 1) {
         const val = switch (builtin.endian) {
             .Big => 0b01,
@@ -518,8 +524,8 @@ test "PackedInt(Array/Slice) sliceCast" {
     i = 0;
     while (i < packed_slice_cast_3.len()) : (i += 1) {
         const val = switch (builtin.endian) {
-            .Big => if (i % 2 == 0) u3(0b111) else u3(0b000),
-            .Little => if (i % 2 == 0) u3(0b111) else u3(0b000),
+            .Big => if (i % 2 == 0) @as(u3, 0b111) else @as(u3, 0b000),
+            .Little => if (i % 2 == 0) @as(u3, 0b111) else @as(u3, 0b000),
         };
         testing.expect(packed_slice_cast_3.get(i) == val);
     }
@@ -528,20 +534,11 @@ test "PackedInt(Array/Slice) sliceCast" {
 test "PackedInt(Array/Slice)Endian" {
     {
         const PackedArrayBe = PackedIntArrayEndian(u4, .Big, 8);
-        var packed_array_be = PackedArrayBe.init([_]u4{
-            0,
-            1,
-            2,
-            3,
-            4,
-            5,
-            6,
-            7,
-        });
+        var packed_array_be = PackedArrayBe.init([_]u4{ 0, 1, 2, 3, 4, 5, 6, 7 });
         testing.expect(packed_array_be.bytes[0] == 0b00000001);
         testing.expect(packed_array_be.bytes[1] == 0b00100011);
 
-        var i = usize(0);
+        var i = @as(usize, 0);
         while (i < packed_array_be.len()) : (i += 1) {
             testing.expect(packed_array_be.get(i) == i);
         }
@@ -563,23 +560,14 @@ test "PackedInt(Array/Slice)Endian" {
 
     {
         const PackedArrayBe = PackedIntArrayEndian(u11, .Big, 8);
-        var packed_array_be = PackedArrayBe.init([_]u11{
-            0,
-            1,
-            2,
-            3,
-            4,
-            5,
-            6,
-            7,
-        });
+        var packed_array_be = PackedArrayBe.init([_]u11{ 0, 1, 2, 3, 4, 5, 6, 7 });
         testing.expect(packed_array_be.bytes[0] == 0b00000000);
         testing.expect(packed_array_be.bytes[1] == 0b00000000);
         testing.expect(packed_array_be.bytes[2] == 0b00000100);
         testing.expect(packed_array_be.bytes[3] == 0b00000001);
         testing.expect(packed_array_be.bytes[4] == 0b00000000);
 
-        var i = usize(0);
+        var i = @as(usize, 0);
         while (i < packed_array_be.len()) : (i += 1) {
             testing.expect(packed_array_be.get(i) == i);
         }
@@ -611,7 +599,7 @@ test "PackedInt(Array/Slice)Endian" {
 // after this one is not mapped and will cause a segfault if we
 // don't account for the bounds.
 test "PackedIntArray at end of available memory" {
-    switch (builtin.os) {
+    switch (builtin.os.tag) {
         .linux, .macosx, .ios, .freebsd, .netbsd, .windows => {},
         else => return,
     }
@@ -622,7 +610,7 @@ test "PackedIntArray at end of available memory" {
         p: PackedArray,
     };
 
-    const allocator = std.heap.direct_allocator;
+    const allocator = std.testing.allocator;
 
     var pad = try allocator.create(Padded);
     defer allocator.destroy(pad);
@@ -630,13 +618,13 @@ test "PackedIntArray at end of available memory" {
 }
 
 test "PackedIntSlice at end of available memory" {
-    switch (builtin.os) {
+    switch (builtin.os.tag) {
         .linux, .macosx, .ios, .freebsd, .netbsd, .windows => {},
         else => return,
     }
     const PackedSlice = PackedIntSlice(u11);
 
-    const allocator = std.heap.direct_allocator;
+    const allocator = std.testing.allocator;
 
     var page = try allocator.alloc(u8, std.mem.page_size);
     defer allocator.free(page);

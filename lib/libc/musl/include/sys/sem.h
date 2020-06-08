@@ -25,15 +25,13 @@ extern "C" {
 #define SETVAL		16
 #define SETALL		17
 
-#include <endian.h>
-
 #include <bits/sem.h>
 
 #define _SEM_SEMUN_UNDEFINED 1
 
-#define SEM_STAT 18
+#define SEM_STAT (18 | (IPC_STAT & 0x100))
 #define SEM_INFO 19
-#define SEM_STAT_ANY 20
+#define SEM_STAT_ANY (20 | (IPC_STAT & 0x100))
 
 struct  seminfo {
 	int semmap;
@@ -60,6 +58,12 @@ int semop(int, struct sembuf *, size_t);
 
 #ifdef _GNU_SOURCE
 int semtimedop(int, struct sembuf *, size_t, const struct timespec *);
+#endif
+
+#if _REDIR_TIME64
+#ifdef _GNU_SOURCE
+__REDIR(semtimedop, __semtimedop_time64);
+#endif
 #endif
 
 #ifdef __cplusplus

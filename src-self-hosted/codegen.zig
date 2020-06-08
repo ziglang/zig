@@ -1,451 +1,647 @@
 const std = @import("std");
-const builtin = @import("builtin");
-const Compilation = @import("compilation.zig").Compilation;
-const llvm = @import("llvm.zig");
-const c = @import("c.zig");
-const ir = @import("ir.zig");
-const Value = @import("value.zig").Value;
-const Type = @import("type.zig").Type;
-const Scope = @import("scope.zig").Scope;
-const event = std.event;
+const mem = std.mem;
 const assert = std.debug.assert;
-const DW = std.dwarf;
-const maxInt = std.math.maxInt;
+const ir = @import("ir.zig");
+const Type = @import("type.zig").Type;
+const Value = @import("value.zig").Value;
+const TypedValue = @import("TypedValue.zig");
+const link = @import("link.zig");
+const Module = @import("Module.zig");
+const ErrorMsg = Module.ErrorMsg;
+const Target = std.Target;
+const Allocator = mem.Allocator;
 
-pub async fn renderToLlvm(comp: *Compilation, fn_val: *Value.Fn, code: *ir.Code) !void {
-    fn_val.base.ref();
-    defer fn_val.base.deref(comp);
-    defer code.destroy(comp.gpa());
+pub const Result = union(enum) {
+    /// The `code` parameter passed to `generateSymbol` has the value appended.
+    appended: void,
+    /// The value is available externally, `code` is unused.
+    externally_managed: []const u8,
+    fail: *Module.ErrorMsg,
+};
 
-    var output_path = try await (async comp.createRandomOutputPath(comp.target.objFileExt()) catch unreachable);
-    errdefer output_path.deinit();
+pub fn generateSymbol(
+    bin_file: *link.ElfFile,
+    src: usize,
+    typed_value: TypedValue,
+    code: *std.ArrayList(u8),
+) error{
+    OutOfMemory,
+    /// A Decl that this symbol depends on had a semantic analysis failure.
+    AnalysisFail,
+}!Result {
+    switch (typed_value.ty.zigTypeTag()) {
+        .Fn => {
+            const module_fn = typed_value.val.cast(Value.Payload.Function).?.func;
 
-    const llvm_handle = try comp.zig_compiler.getAnyLlvmContext();
-    defer llvm_handle.release(comp.zig_compiler);
+            var function = Function{
+                .target = &bin_file.options.target,
+                .bin_file = bin_file,
+                .mod_fn = module_fn,
+                .code = code,
+                .inst_table = std.AutoHashMap(*ir.Inst, Function.MCValue).init(bin_file.allocator),
+                .err_msg = null,
+            };
+            defer function.inst_table.deinit();
 
-    const context = llvm_handle.node.data;
+            for (module_fn.analysis.success.instructions) |inst| {
+                const new_inst = function.genFuncInst(inst) catch |err| switch (err) {
+                    error.CodegenFail => return Result{ .fail = function.err_msg.? },
+                    else => |e| return e,
+                };
+                try function.inst_table.putNoClobber(inst, new_inst);
+            }
 
-    const module = llvm.ModuleCreateWithNameInContext(comp.name.ptr(), context) orelse return error.OutOfMemory;
-    defer llvm.DisposeModule(module);
-
-    llvm.SetTarget(module, comp.llvm_triple.ptr());
-    llvm.SetDataLayout(module, comp.target_layout_str);
-
-    if (comp.target.getObjectFormat() == builtin.ObjectFormat.coff) {
-        llvm.AddModuleCodeViewFlag(module);
-    } else {
-        llvm.AddModuleDebugInfoFlag(module);
-    }
-
-    const builder = llvm.CreateBuilderInContext(context) orelse return error.OutOfMemory;
-    defer llvm.DisposeBuilder(builder);
-
-    const dibuilder = llvm.CreateDIBuilder(module, true) orelse return error.OutOfMemory;
-    defer llvm.DisposeDIBuilder(dibuilder);
-
-    // Don't use ZIG_VERSION_STRING here. LLVM misparses it when it includes
-    // the git revision.
-    const producer = try std.Buffer.allocPrint(
-        &code.arena.allocator,
-        "zig {}.{}.{}",
-        u32(c.ZIG_VERSION_MAJOR),
-        u32(c.ZIG_VERSION_MINOR),
-        u32(c.ZIG_VERSION_PATCH),
-    );
-    const flags = c"";
-    const runtime_version = 0;
-    const compile_unit_file = llvm.CreateFile(
-        dibuilder,
-        comp.name.ptr(),
-        comp.root_package.root_src_dir.ptr(),
-    ) orelse return error.OutOfMemory;
-    const is_optimized = comp.build_mode != builtin.Mode.Debug;
-    const compile_unit = llvm.CreateCompileUnit(
-        dibuilder,
-        DW.LANG_C99,
-        compile_unit_file,
-        producer.ptr(),
-        is_optimized,
-        flags,
-        runtime_version,
-        c"",
-        0,
-        !comp.strip,
-    ) orelse return error.OutOfMemory;
-
-    var ofile = ObjectFile{
-        .comp = comp,
-        .module = module,
-        .builder = builder,
-        .dibuilder = dibuilder,
-        .context = context,
-        .lock = event.Lock.init(comp.loop),
-        .arena = &code.arena.allocator,
-    };
-
-    try renderToLlvmModule(&ofile, fn_val, code);
-
-    // TODO module level assembly
-    //if (buf_len(&g->global_asm) != 0) {
-    //    LLVMSetModuleInlineAsm(g->module, buf_ptr(&g->global_asm));
-    //}
-
-    llvm.DIBuilderFinalize(dibuilder);
-
-    if (comp.verbose_llvm_ir) {
-        std.debug.warn("raw module:\n");
-        llvm.DumpModule(ofile.module);
-    }
-
-    // verify the llvm module when safety is on
-    if (std.debug.runtime_safety) {
-        var error_ptr: ?[*]u8 = null;
-        _ = llvm.VerifyModule(ofile.module, llvm.AbortProcessAction, &error_ptr);
-    }
-
-    assert(comp.emit_file_type == Compilation.Emit.Binary); // TODO support other types
-
-    const is_small = comp.build_mode == builtin.Mode.ReleaseSmall;
-    const is_debug = comp.build_mode == builtin.Mode.Debug;
-
-    var err_msg: [*]u8 = undefined;
-    // TODO integrate this with evented I/O
-    if (llvm.TargetMachineEmitToFile(
-        comp.target_machine,
-        module,
-        output_path.ptr(),
-        llvm.EmitBinary,
-        &err_msg,
-        is_debug,
-        is_small,
-    )) {
-        if (std.debug.runtime_safety) {
-            std.debug.panic("unable to write object file {}: {s}\n", output_path.toSliceConst(), err_msg);
-        }
-        return error.WritingObjectFileFailed;
-    }
-    //validate_inline_fns(g); TODO
-    fn_val.containing_object = output_path;
-    if (comp.verbose_llvm_ir) {
-        std.debug.warn("optimized module:\n");
-        llvm.DumpModule(ofile.module);
-    }
-    if (comp.verbose_link) {
-        std.debug.warn("created {}\n", output_path.toSliceConst());
+            if (function.err_msg) |em| {
+                return Result{ .fail = em };
+            } else {
+                return Result{ .appended = {} };
+            }
+        },
+        .Array => {
+            if (typed_value.val.cast(Value.Payload.Bytes)) |payload| {
+                if (typed_value.ty.arraySentinel()) |sentinel| {
+                    try code.ensureCapacity(code.items.len + payload.data.len + 1);
+                    code.appendSliceAssumeCapacity(payload.data);
+                    const prev_len = code.items.len;
+                    switch (try generateSymbol(bin_file, src, .{
+                        .ty = typed_value.ty.elemType(),
+                        .val = sentinel,
+                    }, code)) {
+                        .appended => return Result{ .appended = {} },
+                        .externally_managed => |slice| {
+                            code.appendSliceAssumeCapacity(slice);
+                            return Result{ .appended = {} };
+                        },
+                        .fail => |em| return Result{ .fail = em },
+                    }
+                } else {
+                    return Result{ .externally_managed = payload.data };
+                }
+            }
+            return Result{
+                .fail = try ErrorMsg.create(
+                    bin_file.allocator,
+                    src,
+                    "TODO implement generateSymbol for more kinds of arrays",
+                    .{},
+                ),
+            };
+        },
+        .Pointer => {
+            if (typed_value.val.cast(Value.Payload.DeclRef)) |payload| {
+                const decl = payload.decl;
+                if (decl.analysis != .complete) return error.AnalysisFail;
+                assert(decl.link.local_sym_index != 0);
+                // TODO handle the dependency of this symbol on the decl's vaddr.
+                // If the decl changes vaddr, then this symbol needs to get regenerated.
+                const vaddr = bin_file.local_symbols.items[decl.link.local_sym_index].st_value;
+                const endian = bin_file.options.target.cpu.arch.endian();
+                switch (bin_file.ptr_width) {
+                    .p32 => {
+                        try code.resize(4);
+                        mem.writeInt(u32, code.items[0..4], @intCast(u32, vaddr), endian);
+                    },
+                    .p64 => {
+                        try code.resize(8);
+                        mem.writeInt(u64, code.items[0..8], vaddr, endian);
+                    },
+                }
+                return Result{ .appended = {} };
+            }
+            return Result{
+                .fail = try ErrorMsg.create(
+                    bin_file.allocator,
+                    src,
+                    "TODO implement generateSymbol for pointer {}",
+                    .{typed_value.val},
+                ),
+            };
+        },
+        .Int => {
+            const info = typed_value.ty.intInfo(bin_file.options.target);
+            if (info.bits == 8 and !info.signed) {
+                const x = typed_value.val.toUnsignedInt();
+                try code.append(@intCast(u8, x));
+                return Result{ .appended = {} };
+            }
+            return Result{
+                .fail = try ErrorMsg.create(
+                    bin_file.allocator,
+                    src,
+                    "TODO implement generateSymbol for int type '{}'",
+                    .{typed_value.ty},
+                ),
+            };
+        },
+        else => |t| {
+            return Result{
+                .fail = try ErrorMsg.create(
+                    bin_file.allocator,
+                    src,
+                    "TODO implement generateSymbol for type '{}'",
+                    .{@tagName(t)},
+                ),
+            };
+        },
     }
 }
 
-pub const ObjectFile = struct {
-    comp: *Compilation,
-    module: *llvm.Module,
-    builder: *llvm.Builder,
-    dibuilder: *llvm.DIBuilder,
-    context: *llvm.Context,
-    lock: event.Lock,
-    arena: *std.mem.Allocator,
+const Function = struct {
+    bin_file: *link.ElfFile,
+    target: *const std.Target,
+    mod_fn: *const Module.Fn,
+    code: *std.ArrayList(u8),
+    inst_table: std.AutoHashMap(*ir.Inst, MCValue),
+    err_msg: ?*ErrorMsg,
 
-    fn gpa(self: *ObjectFile) *std.mem.Allocator {
-        return self.comp.gpa();
+    const MCValue = union(enum) {
+        none,
+        unreach,
+        /// A pointer-sized integer that fits in a register.
+        immediate: u64,
+        /// The constant was emitted into the code, at this offset.
+        embedded_in_code: usize,
+        /// The value is in a target-specific register. The value can
+        /// be @intToEnum casted to the respective Reg enum.
+        register: usize,
+        /// The value is in memory at a hard-coded address.
+        memory: u64,
+    };
+
+    fn genFuncInst(self: *Function, inst: *ir.Inst) !MCValue {
+        switch (inst.tag) {
+            .breakpoint => return self.genBreakpoint(inst.src),
+            .call => return self.genCall(inst.cast(ir.Inst.Call).?),
+            .unreach => return MCValue{ .unreach = {} },
+            .constant => unreachable, // excluded from function bodies
+            .assembly => return self.genAsm(inst.cast(ir.Inst.Assembly).?),
+            .ptrtoint => return self.genPtrToInt(inst.cast(ir.Inst.PtrToInt).?),
+            .bitcast => return self.genBitCast(inst.cast(ir.Inst.BitCast).?),
+            .ret => return self.genRet(inst.cast(ir.Inst.Ret).?),
+            .cmp => return self.genCmp(inst.cast(ir.Inst.Cmp).?),
+            .condbr => return self.genCondBr(inst.cast(ir.Inst.CondBr).?),
+            .isnull => return self.genIsNull(inst.cast(ir.Inst.IsNull).?),
+            .isnonnull => return self.genIsNonNull(inst.cast(ir.Inst.IsNonNull).?),
+        }
+    }
+
+    fn genBreakpoint(self: *Function, src: usize) !MCValue {
+        switch (self.target.cpu.arch) {
+            .i386, .x86_64 => {
+                try self.code.append(0xcc); // int3
+            },
+            else => return self.fail(src, "TODO implement @breakpoint() for {}", .{self.target.cpu.arch}),
+        }
+        return .none;
+    }
+
+    fn genCall(self: *Function, inst: *ir.Inst.Call) !MCValue {
+        switch (self.target.cpu.arch) {
+            .x86_64, .i386 => {
+                if (inst.args.func.cast(ir.Inst.Constant)) |func_inst| {
+                    if (inst.args.args.len != 0) {
+                        return self.fail(inst.base.src, "TODO implement call with more than 0 parameters", .{});
+                    }
+
+                    if (func_inst.val.cast(Value.Payload.Function)) |func_val| {
+                        const func = func_val.func;
+                        const got = &self.bin_file.program_headers.items[self.bin_file.phdr_got_index.?];
+                        const ptr_bits = self.target.cpu.arch.ptrBitWidth();
+                        const ptr_bytes: u64 = @divExact(ptr_bits, 8);
+                        const got_addr = @intCast(u32, got.p_vaddr + func.owner_decl.link.offset_table_index * ptr_bytes);
+                        // ff 14 25 xx xx xx xx    call [addr]
+                        try self.code.resize(self.code.items.len + 7);
+                        self.code.items[self.code.items.len - 7 ..][0..3].* = [3]u8{ 0xff, 0x14, 0x25 };
+                        mem.writeIntLittle(u32, self.code.items[self.code.items.len - 4 ..][0..4], got_addr);
+                        const return_type = func.fn_type.fnReturnType();
+                        switch (return_type.zigTypeTag()) {
+                            .Void => return MCValue{ .none = {} },
+                            .NoReturn => return MCValue{ .unreach = {} },
+                            else => return self.fail(inst.base.src, "TODO implement fn call with non-void return value", .{}),
+                        }
+                    } else {
+                        return self.fail(inst.base.src, "TODO implement calling weird function values", .{});
+                    }
+                } else {
+                    return self.fail(inst.base.src, "TODO implement calling runtime known function pointer", .{});
+                }
+            },
+            else => return self.fail(inst.base.src, "TODO implement call for {}", .{self.target.cpu.arch}),
+        }
+    }
+
+    fn genRet(self: *Function, inst: *ir.Inst.Ret) !MCValue {
+        switch (self.target.cpu.arch) {
+            .i386, .x86_64 => {
+                try self.code.append(0xc3); // ret
+            },
+            else => return self.fail(inst.base.src, "TODO implement return for {}", .{self.target.cpu.arch}),
+        }
+        return .unreach;
+    }
+
+    fn genCmp(self: *Function, inst: *ir.Inst.Cmp) !MCValue {
+        switch (self.target.cpu.arch) {
+            else => return self.fail(inst.base.src, "TODO implement cmp for {}", .{self.target.cpu.arch}),
+        }
+    }
+
+    fn genCondBr(self: *Function, inst: *ir.Inst.CondBr) !MCValue {
+        switch (self.target.cpu.arch) {
+            else => return self.fail(inst.base.src, "TODO implement condbr for {}", .{self.target.cpu.arch}),
+        }
+    }
+
+    fn genIsNull(self: *Function, inst: *ir.Inst.IsNull) !MCValue {
+        switch (self.target.cpu.arch) {
+            else => return self.fail(inst.base.src, "TODO implement isnull for {}", .{self.target.cpu.arch}),
+        }
+    }
+
+    fn genIsNonNull(self: *Function, inst: *ir.Inst.IsNonNull) !MCValue {
+        // Here you can specialize this instruction if it makes sense to, otherwise the default
+        // will call genIsNull and invert the result.
+        switch (self.target.cpu.arch) {
+            else => return self.fail(inst.base.src, "TODO call genIsNull and invert the result ", .{}),
+        }
+    }
+
+    fn genRelativeFwdJump(self: *Function, src: usize, amount: u32) !void {
+        switch (self.target.cpu.arch) {
+            .i386, .x86_64 => {
+                // TODO x86 treats the operands as signed
+                if (amount <= std.math.maxInt(u8)) {
+                    try self.code.resize(self.code.items.len + 2);
+                    self.code.items[self.code.items.len - 2] = 0xeb;
+                    self.code.items[self.code.items.len - 1] = @intCast(u8, amount);
+                } else {
+                    try self.code.resize(self.code.items.len + 5);
+                    self.code.items[self.code.items.len - 5] = 0xe9; // jmp rel32
+                    const imm_ptr = self.code.items[self.code.items.len - 4 ..][0..4];
+                    mem.writeIntLittle(u32, imm_ptr, amount);
+                }
+            },
+            else => return self.fail(src, "TODO implement relative forward jump for {}", .{self.target.cpu.arch}),
+        }
+    }
+
+    fn genAsm(self: *Function, inst: *ir.Inst.Assembly) !MCValue {
+        // TODO convert to inline function
+        switch (self.target.cpu.arch) {
+            .arm => return self.genAsmArch(.arm, inst),
+            .armeb => return self.genAsmArch(.armeb, inst),
+            .aarch64 => return self.genAsmArch(.aarch64, inst),
+            .aarch64_be => return self.genAsmArch(.aarch64_be, inst),
+            .aarch64_32 => return self.genAsmArch(.aarch64_32, inst),
+            .arc => return self.genAsmArch(.arc, inst),
+            .avr => return self.genAsmArch(.avr, inst),
+            .bpfel => return self.genAsmArch(.bpfel, inst),
+            .bpfeb => return self.genAsmArch(.bpfeb, inst),
+            .hexagon => return self.genAsmArch(.hexagon, inst),
+            .mips => return self.genAsmArch(.mips, inst),
+            .mipsel => return self.genAsmArch(.mipsel, inst),
+            .mips64 => return self.genAsmArch(.mips64, inst),
+            .mips64el => return self.genAsmArch(.mips64el, inst),
+            .msp430 => return self.genAsmArch(.msp430, inst),
+            .powerpc => return self.genAsmArch(.powerpc, inst),
+            .powerpc64 => return self.genAsmArch(.powerpc64, inst),
+            .powerpc64le => return self.genAsmArch(.powerpc64le, inst),
+            .r600 => return self.genAsmArch(.r600, inst),
+            .amdgcn => return self.genAsmArch(.amdgcn, inst),
+            .riscv32 => return self.genAsmArch(.riscv32, inst),
+            .riscv64 => return self.genAsmArch(.riscv64, inst),
+            .sparc => return self.genAsmArch(.sparc, inst),
+            .sparcv9 => return self.genAsmArch(.sparcv9, inst),
+            .sparcel => return self.genAsmArch(.sparcel, inst),
+            .s390x => return self.genAsmArch(.s390x, inst),
+            .tce => return self.genAsmArch(.tce, inst),
+            .tcele => return self.genAsmArch(.tcele, inst),
+            .thumb => return self.genAsmArch(.thumb, inst),
+            .thumbeb => return self.genAsmArch(.thumbeb, inst),
+            .i386 => return self.genAsmArch(.i386, inst),
+            .x86_64 => return self.genAsmArch(.x86_64, inst),
+            .xcore => return self.genAsmArch(.xcore, inst),
+            .nvptx => return self.genAsmArch(.nvptx, inst),
+            .nvptx64 => return self.genAsmArch(.nvptx64, inst),
+            .le32 => return self.genAsmArch(.le32, inst),
+            .le64 => return self.genAsmArch(.le64, inst),
+            .amdil => return self.genAsmArch(.amdil, inst),
+            .amdil64 => return self.genAsmArch(.amdil64, inst),
+            .hsail => return self.genAsmArch(.hsail, inst),
+            .hsail64 => return self.genAsmArch(.hsail64, inst),
+            .spir => return self.genAsmArch(.spir, inst),
+            .spir64 => return self.genAsmArch(.spir64, inst),
+            .kalimba => return self.genAsmArch(.kalimba, inst),
+            .shave => return self.genAsmArch(.shave, inst),
+            .lanai => return self.genAsmArch(.lanai, inst),
+            .wasm32 => return self.genAsmArch(.wasm32, inst),
+            .wasm64 => return self.genAsmArch(.wasm64, inst),
+            .renderscript32 => return self.genAsmArch(.renderscript32, inst),
+            .renderscript64 => return self.genAsmArch(.renderscript64, inst),
+            .ve => return self.genAsmArch(.ve, inst),
+        }
+    }
+
+    fn genAsmArch(self: *Function, comptime arch: Target.Cpu.Arch, inst: *ir.Inst.Assembly) !MCValue {
+        if (arch != .x86_64 and arch != .i386) {
+            return self.fail(inst.base.src, "TODO implement inline asm support for more architectures", .{});
+        }
+        for (inst.args.inputs) |input, i| {
+            if (input.len < 3 or input[0] != '{' or input[input.len - 1] != '}') {
+                return self.fail(inst.base.src, "unrecognized asm input constraint: '{}'", .{input});
+            }
+            const reg_name = input[1 .. input.len - 1];
+            const reg = parseRegName(arch, reg_name) orelse
+                return self.fail(inst.base.src, "unrecognized register: '{}'", .{reg_name});
+            const arg = try self.resolveInst(inst.args.args[i]);
+            try self.genSetReg(inst.base.src, arch, reg, arg);
+        }
+
+        if (mem.eql(u8, inst.args.asm_source, "syscall")) {
+            try self.code.appendSlice(&[_]u8{ 0x0f, 0x05 });
+        } else {
+            return self.fail(inst.base.src, "TODO implement support for more x86 assembly instructions", .{});
+        }
+
+        if (inst.args.output) |output| {
+            if (output.len < 4 or output[0] != '=' or output[1] != '{' or output[output.len - 1] != '}') {
+                return self.fail(inst.base.src, "unrecognized asm output constraint: '{}'", .{output});
+            }
+            const reg_name = output[2 .. output.len - 1];
+            const reg = parseRegName(arch, reg_name) orelse
+                return self.fail(inst.base.src, "unrecognized register: '{}'", .{reg_name});
+            return MCValue{ .register = @enumToInt(reg) };
+        } else {
+            return MCValue.none;
+        }
+    }
+
+    /// Encodes a REX prefix as specified, and appends it to the instruction
+    /// stream. This only modifies the instruction stream if at least one bit
+    /// is set true, which has a few implications:
+    ///
+    /// * The length of the instruction buffer will be modified *if* the
+    /// resulting REX is meaningful, but will remain the same if it is not.
+    /// * Deliberately inserting a "meaningless REX" requires explicit usage of
+    /// 0x40, and cannot be done via this function.
+    fn REX(self: *Function, arg: struct { B: bool = false, W: bool = false, X: bool = false, R: bool = false }) !void {
+        //  From section 2.2.1.2 of the manual, REX is encoded as b0100WRXB.
+        var value: u8 = 0x40;
+        if (arg.B) {
+            value |= 0x1;
+        }
+        if (arg.X) {
+            value |= 0x2;
+        }
+        if (arg.R) {
+            value |= 0x4;
+        }
+        if (arg.W) {
+            value |= 0x8;
+        }
+        if (value != 0x40) {
+            try self.code.append(value);
+        }
+    }
+
+    fn genSetReg(self: *Function, src: usize, comptime arch: Target.Cpu.Arch, reg: Reg(arch), mcv: MCValue) error{ CodegenFail, OutOfMemory }!void {
+        switch (arch) {
+            .x86_64 => switch (mcv) {
+                .none, .unreach => unreachable,
+                .immediate => |x| {
+                    if (reg.size() != 64) {
+                        return self.fail(src, "TODO decide whether to implement non-64-bit loads", .{});
+                    }
+                    // 32-bit moves zero-extend to 64-bit, so xoring the 32-bit
+                    // register is the fastest way to zero a register.
+                    if (x == 0) {
+                        // The encoding for `xor r32, r32` is `0x31 /r`.
+                        // Section 3.1.1.1 of the Intel x64 Manual states that "/r indicates that the
+                        // ModR/M byte of the instruction contains a register operand and an r/m operand."
+                        //
+                        // R/M bytes are composed of two bits for the mode, then three bits for the register,
+                        // then three bits for the operand. Since we're zeroing a register, the two three-bit
+                        // values will be identical, and the mode is three (the raw register value).
+                        //
+                        // If we're accessing e.g. r8d, we need to use a REX prefix before the actual operation. Since
+                        // this is a 32-bit operation, the W flag is set to zero. X is also zero, as we're not using a SIB.
+                        // Both R and B are set, as we're extending, in effect, the register bits *and* the operand.
+                        try self.REX(.{ .R = reg.isExtended(), .B = reg.isExtended() });
+                        const id = @as(u8, reg.id() & 0b111);
+                        return self.code.appendSlice(&[_]u8{
+                            0x31, 0xC0 | id << 3 | id,
+                        });
+                    }
+                    if (x <= std.math.maxInt(u32)) {
+                        // Next best case: if we set the lower four bytes, the upper four will be zeroed.
+                        //
+                        // The encoding for `mov IMM32 -> REG` is (0xB8 + R) IMM.
+                        if (reg.isExtended()) {
+                            // Just as with XORing, we need a REX prefix. This time though, we only
+                            // need the B bit set, as we're extending the opcode's register field,
+                            // and there is no Mod R/M byte.
+                            //
+                            // Thus, we need b01000001, or 0x41.
+                            try self.code.resize(self.code.items.len + 6);
+                            self.code.items[self.code.items.len - 6] = 0x41;
+                        } else {
+                            try self.code.resize(self.code.items.len + 5);
+                        }
+                        self.code.items[self.code.items.len - 5] = 0xB8 | @as(u8, reg.id() & 0b111);
+                        const imm_ptr = self.code.items[self.code.items.len - 4 ..][0..4];
+                        mem.writeIntLittle(u32, imm_ptr, @intCast(u32, x));
+                        return;
+                    }
+                    // Worst case: we need to load the 64-bit register with the IMM. GNU's assemblers calls
+                    // this `movabs`, though this is officially just a different variant of the plain `mov`
+                    // instruction.
+                    //
+                    // This encoding is, in fact, the *same* as the one used for 32-bit loads. The only
+                    // difference is that we set REX.W before the instruction, which extends the load to
+                    // 64-bit and uses the full bit-width of the register.
+                    //
+                    // Since we always need a REX here, let's just check if we also need to set REX.B.
+                    //
+                    // In this case, the encoding of the REX byte is 0b0100100B
+
+                    try self.REX(.{ .W = true, .B = reg.isExtended() });
+                    try self.code.resize(self.code.items.len + 9);
+                    self.code.items[self.code.items.len - 9] = 0xB8 | @as(u8, reg.id() & 0b111);
+                    const imm_ptr = self.code.items[self.code.items.len - 8 ..][0..8];
+                    mem.writeIntLittle(u64, imm_ptr, x);
+                },
+                .embedded_in_code => |code_offset| {
+                    if (reg.size() != 64) {
+                        return self.fail(src, "TODO decide whether to implement non-64-bit loads", .{});
+                    }
+                    // We need the offset from RIP in a signed i32 twos complement.
+                    // The instruction is 7 bytes long and RIP points to the next instruction.
+                    //
+                    // 64-bit LEA is encoded as REX.W 8D /r. If the register is extended, the REX byte is modified,
+                    // but the operation size is unchanged. Since we're using a disp32, we want mode 0 and lower three
+                    // bits as five.
+                    // REX 0x8D 0b00RRR101, where RRR is the lower three bits of the id.
+                    try self.REX(.{ .W = true, .B = reg.isExtended() });
+                    try self.code.resize(self.code.items.len + 6);
+                    const rip = self.code.items.len;
+                    const big_offset = @intCast(i64, code_offset) - @intCast(i64, rip);
+                    const offset = @intCast(i32, big_offset);
+                    self.code.items[self.code.items.len - 6] = 0x8D;
+                    self.code.items[self.code.items.len - 5] = 0b101 | (@as(u8, reg.id() & 0b111) << 3);
+                    const imm_ptr = self.code.items[self.code.items.len - 4 ..][0..4];
+                    mem.writeIntLittle(i32, imm_ptr, offset);
+                },
+                .register => |r| {
+                    if (reg.size() != 64) {
+                        return self.fail(src, "TODO decide whether to implement non-64-bit loads", .{});
+                    }
+                    const src_reg = @intToEnum(Reg(arch), @intCast(u8, r));
+                    // This is a variant of 8B /r. Since we're using 64-bit moves, we require a REX.
+                    // This is thus three bytes: REX 0x8B R/M.
+                    // If the destination is extended, the R field must be 1.
+                    // If the *source* is extended, the B field must be 1.
+                    // Since the register is being accessed directly, the R/M mode is three. The reg field (the middle
+                    // three bits) contain the destination, and the R/M field (the lower three bits) contain the source.
+                    try self.REX(.{ .W = true, .R = reg.isExtended(), .B = src_reg.isExtended() });
+                    const R = 0xC0 | (@as(u8, reg.id() & 0b111) << 3) | @as(u8, src_reg.id() & 0b111);
+                    try self.code.appendSlice(&[_]u8{ 0x8B, R });
+                },
+                .memory => |x| {
+                    if (reg.size() != 64) {
+                        return self.fail(src, "TODO decide whether to implement non-64-bit loads", .{});
+                    }
+                    if (x <= std.math.maxInt(u32)) {
+                        // Moving from memory to a register is a variant of `8B /r`.
+                        // Since we're using 64-bit moves, we require a REX.
+                        // This variant also requires a SIB, as it would otherwise be RIP-relative.
+                        // We want mode zero with the lower three bits set to four to indicate an SIB with no other displacement.
+                        // The SIB must be 0x25, to indicate a disp32 with no scaled index.
+                        // 0b00RRR100, where RRR is the lower three bits of the register ID.
+                        // The instruction is thus eight bytes; REX 0x8B 0b00RRR100 0x25 followed by a four-byte disp32.
+                        try self.REX(.{ .W = true, .B = reg.isExtended() });
+                        try self.code.resize(self.code.items.len + 7);
+                        const r = 0x04 | (@as(u8, reg.id() & 0b111) << 3);
+                        self.code.items[self.code.items.len - 7] = 0x8B;
+                        self.code.items[self.code.items.len - 6] = r;
+                        self.code.items[self.code.items.len - 5] = 0x25;
+                        const imm_ptr = self.code.items[self.code.items.len - 4 ..][0..4];
+                        mem.writeIntLittle(u32, imm_ptr, @intCast(u32, x));
+                    } else {
+                        // If this is RAX, we can use a direct load; otherwise, we need to load the address, then indirectly load
+                        // the value.
+                        if (reg.id() == 0) {
+                            // REX.W 0xA1 moffs64*
+                            // moffs64* is a 64-bit offset "relative to segment base", which really just means the
+                            // absolute address for all practical purposes.
+                            try self.code.resize(self.code.items.len + 10);
+                            // REX.W == 0x48
+                            self.code.items[self.code.items.len - 10] = 0x48;
+                            self.code.items[self.code.items.len - 9] = 0xA1;
+                            const imm_ptr = self.code.items[self.code.items.len - 8 ..][0..8];
+                            mem.writeIntLittle(u64, imm_ptr, x);
+                        } else {
+                            // This requires two instructions; a move imm as used above, followed by an indirect load using the register
+                            // as the address and the register as the destination.
+                            //
+                            // This cannot be used if the lower three bits of the id are equal to four or five, as there
+                            // is no way to possibly encode it. This means that RSP, RBP, R12, and R13 cannot be used with
+                            // this instruction.
+                            const id3 = @truncate(u3, reg.id());
+                            std.debug.assert(id3 != 4 and id3 != 5);
+
+                            // Rather than duplicate the logic used for the move, we just use a self-call with a new MCValue.
+                            try self.genSetReg(src, arch, reg, MCValue{ .immediate = x });
+
+                            // Now, the register contains the address of the value to load into it
+                            // Currently, we're only allowing 64-bit registers, so we need the `REX.W 8B /r` variant.
+                            // TODO: determine whether to allow other sized registers, and if so, handle them properly.
+                            // This operation requires three bytes: REX 0x8B R/M
+                            //
+                            // For this operation, we want R/M mode *zero* (use register indirectly), and the two register
+                            // values must match. Thus, it's 00ABCABC where ABC is the lower three bits of the register ID.
+                            //
+                            // Furthermore, if this is an extended register, both B and R must be set in the REX byte, as *both*
+                            // register operands need to be marked as extended.
+                            try self.REX(.{ .W = true, .B = reg.isExtended(), .R = reg.isExtended() });
+                            const RM = (@as(u8, reg.id() & 0b111) << 3) | @truncate(u3, reg.id());
+                            try self.code.appendSlice(&[_]u8{ 0x8B, RM });
+                        }
+                    }
+                },
+            },
+            else => return self.fail(src, "TODO implement genSetReg for more architectures", .{}),
+        }
+    }
+
+    fn genPtrToInt(self: *Function, inst: *ir.Inst.PtrToInt) !MCValue {
+        // no-op
+        return self.resolveInst(inst.args.ptr);
+    }
+
+    fn genBitCast(self: *Function, inst: *ir.Inst.BitCast) !MCValue {
+        const operand = try self.resolveInst(inst.args.operand);
+        return operand;
+    }
+
+    fn resolveInst(self: *Function, inst: *ir.Inst) !MCValue {
+        if (self.inst_table.getValue(inst)) |mcv| {
+            return mcv;
+        }
+        if (inst.cast(ir.Inst.Constant)) |const_inst| {
+            const mcvalue = try self.genTypedValue(inst.src, .{ .ty = inst.ty, .val = const_inst.val });
+            try self.inst_table.putNoClobber(inst, mcvalue);
+            return mcvalue;
+        } else {
+            return self.inst_table.getValue(inst).?;
+        }
+    }
+
+    fn genTypedValue(self: *Function, src: usize, typed_value: TypedValue) !MCValue {
+        const ptr_bits = self.target.cpu.arch.ptrBitWidth();
+        const ptr_bytes: u64 = @divExact(ptr_bits, 8);
+        const allocator = self.code.allocator;
+        switch (typed_value.ty.zigTypeTag()) {
+            .Pointer => {
+                if (typed_value.val.cast(Value.Payload.DeclRef)) |payload| {
+                    const got = &self.bin_file.program_headers.items[self.bin_file.phdr_got_index.?];
+                    const decl = payload.decl;
+                    const got_addr = got.p_vaddr + decl.link.offset_table_index * ptr_bytes;
+                    return MCValue{ .memory = got_addr };
+                }
+                return self.fail(src, "TODO codegen more kinds of const pointers", .{});
+            },
+            .Int => {
+                const info = typed_value.ty.intInfo(self.target.*);
+                if (info.bits > ptr_bits or info.signed) {
+                    return self.fail(src, "TODO const int bigger than ptr and signed int", .{});
+                }
+                return MCValue{ .immediate = typed_value.val.toUnsignedInt() };
+            },
+            .ComptimeInt => unreachable, // semantic analysis prevents this
+            .ComptimeFloat => unreachable, // semantic analysis prevents this
+            else => return self.fail(src, "TODO implement const of type '{}'", .{typed_value.ty}),
+        }
+    }
+
+    fn fail(self: *Function, src: usize, comptime format: []const u8, args: var) error{ CodegenFail, OutOfMemory } {
+        @setCold(true);
+        assert(self.err_msg == null);
+        self.err_msg = try ErrorMsg.create(self.code.allocator, src, format, args);
+        return error.CodegenFail;
     }
 };
 
-pub fn renderToLlvmModule(ofile: *ObjectFile, fn_val: *Value.Fn, code: *ir.Code) !void {
-    // TODO audit more of codegen.cpp:fn_llvm_value and port more logic
-    const llvm_fn_type = try fn_val.base.typ.getLlvmType(ofile.arena, ofile.context);
-    const llvm_fn = llvm.AddFunction(
-        ofile.module,
-        fn_val.symbol_name.ptr(),
-        llvm_fn_type,
-    ) orelse return error.OutOfMemory;
+const x86_64 = @import("codegen/x86_64.zig");
+const x86 = @import("codegen/x86.zig");
 
-    const want_fn_safety = fn_val.block_scope.?.safety.get(ofile.comp);
-    if (want_fn_safety and ofile.comp.haveLibC()) {
-        try addLLVMFnAttr(ofile, llvm_fn, "sspstrong");
-        try addLLVMFnAttrStr(ofile, llvm_fn, "stack-protector-buffer-size", "4");
-    }
-
-    // TODO
-    //if (fn_val.align_stack) |align_stack| {
-    //    try addLLVMFnAttrInt(ofile, llvm_fn, "alignstack", align_stack);
-    //}
-
-    const fn_type = fn_val.base.typ.cast(Type.Fn).?;
-    const fn_type_normal = &fn_type.key.data.Normal;
-
-    try addLLVMFnAttr(ofile, llvm_fn, "nounwind");
-    //add_uwtable_attr(g, fn_table_entry->llvm_value);
-    try addLLVMFnAttr(ofile, llvm_fn, "nobuiltin");
-
-    //if (g->build_mode == BuildModeDebug && fn_table_entry->fn_inline != FnInlineAlways) {
-    //    ZigLLVMAddFunctionAttr(fn_table_entry->llvm_value, "no-frame-pointer-elim", "true");
-    //    ZigLLVMAddFunctionAttr(fn_table_entry->llvm_value, "no-frame-pointer-elim-non-leaf", nullptr);
-    //}
-
-    //if (fn_table_entry->section_name) {
-    //    LLVMSetSection(fn_table_entry->llvm_value, buf_ptr(fn_table_entry->section_name));
-    //}
-    //if (fn_table_entry->align_bytes > 0) {
-    //    LLVMSetAlignment(fn_table_entry->llvm_value, (unsigned)fn_table_entry->align_bytes);
-    //} else {
-    //    // We'd like to set the best alignment for the function here, but on Darwin LLVM gives
-    //    // "Cannot getTypeInfo() on a type that is unsized!" assertion failure when calling
-    //    // any of the functions for getting alignment. Not specifying the alignment should
-    //    // use the ABI alignment, which is fine.
-    //}
-
-    //if (!type_has_bits(return_type)) {
-    //    // nothing to do
-    //} else if (type_is_codegen_pointer(return_type)) {
-    //    addLLVMAttr(fn_table_entry->llvm_value, 0, "nonnull");
-    //} else if (handle_is_ptr(return_type) &&
-    //        calling_convention_does_first_arg_return(fn_type->data.fn.fn_type_id.cc))
-    //{
-    //    addLLVMArgAttr(fn_table_entry->llvm_value, 0, "sret");
-    //    addLLVMArgAttr(fn_table_entry->llvm_value, 0, "nonnull");
-    //}
-
-    // TODO set parameter attributes
-
-    // TODO
-    //uint32_t err_ret_trace_arg_index = get_err_ret_trace_arg_index(g, fn_table_entry);
-    //if (err_ret_trace_arg_index != UINT32_MAX) {
-    //    addLLVMArgAttr(fn_table_entry->llvm_value, (unsigned)err_ret_trace_arg_index, "nonnull");
-    //}
-
-    const cur_ret_ptr = if (fn_type_normal.return_type.handleIsPtr()) llvm.GetParam(llvm_fn, 0) else null;
-
-    // build all basic blocks
-    for (code.basic_block_list.toSlice()) |bb| {
-        bb.llvm_block = llvm.AppendBasicBlockInContext(
-            ofile.context,
-            llvm_fn,
-            bb.name_hint,
-        ) orelse return error.OutOfMemory;
-    }
-    const entry_bb = code.basic_block_list.at(0);
-    llvm.PositionBuilderAtEnd(ofile.builder, entry_bb.llvm_block);
-
-    llvm.ClearCurrentDebugLocation(ofile.builder);
-
-    // TODO set up error return tracing
-    // TODO allocate temporary stack values
-
-    const var_list = fn_type.non_key.Normal.variable_list.toSliceConst();
-    // create debug variable declarations for variables and allocate all local variables
-    for (var_list) |var_scope, i| {
-        const var_type = switch (var_scope.data) {
-            Scope.Var.Data.Const => unreachable,
-            Scope.Var.Data.Param => |param| param.typ,
-        };
-        //    if (!type_has_bits(var->value->type)) {
-        //        continue;
-        //    }
-        //    if (ir_get_var_is_comptime(var))
-        //        continue;
-        //    if (type_requires_comptime(var->value->type))
-        //        continue;
-        //    if (var->src_arg_index == SIZE_MAX) {
-        //        var->value_ref = build_alloca(g, var->value->type, buf_ptr(&var->name), var->align_bytes);
-
-        //        var->di_loc_var = ZigLLVMCreateAutoVariable(g->dbuilder, get_di_scope(g, var->parent_scope),
-        //                buf_ptr(&var->name), import->di_file, (unsigned)(var->decl_node->line + 1),
-        //                var->value->type->di_type, !g->strip_debug_symbols, 0);
-
-        //    } else {
-        // it's a parameter
-        //        assert(var->gen_arg_index != SIZE_MAX);
-        //        TypeTableEntry *gen_type;
-        //        FnGenParamInfo *gen_info = &fn_table_entry->type_entry->data.fn.gen_param_info[var->src_arg_index];
-
-        if (var_type.handleIsPtr()) {
-            //            if (gen_info->is_byval) {
-            //                gen_type = var->value->type;
-            //            } else {
-            //                gen_type = gen_info->type;
-            //            }
-            var_scope.data.Param.llvm_value = llvm.GetParam(llvm_fn, @intCast(c_uint, i));
-        } else {
-            //            gen_type = var->value->type;
-            var_scope.data.Param.llvm_value = try renderAlloca(ofile, var_type, var_scope.name, Type.Pointer.Align.Abi);
-        }
-        //        if (var->decl_node) {
-        //            var->di_loc_var = ZigLLVMCreateParameterVariable(g->dbuilder, get_di_scope(g, var->parent_scope),
-        //                    buf_ptr(&var->name), import->di_file,
-        //                    (unsigned)(var->decl_node->line + 1),
-        //                    gen_type->di_type, !g->strip_debug_symbols, 0, (unsigned)(var->gen_arg_index + 1));
-        //        }
-
-        //    }
-    }
-
-    // TODO finishing error return trace setup. we have to do this after all the allocas.
-
-    // create debug variable declarations for parameters
-    // rely on the first variables in the variable_list being parameters.
-    //size_t next_var_i = 0;
-    for (fn_type.key.data.Normal.params) |param, i| {
-        //FnGenParamInfo *info = &fn_table_entry->type_entry->data.fn.gen_param_info[param_i];
-        //if (info->gen_index == SIZE_MAX)
-        //    continue;
-        const scope_var = var_list[i];
-        //assert(variable->src_arg_index != SIZE_MAX);
-        //next_var_i += 1;
-        //assert(variable);
-        //assert(variable->value_ref);
-
-        if (!param.typ.handleIsPtr()) {
-            //clear_debug_source_node(g);
-            const llvm_param = llvm.GetParam(llvm_fn, @intCast(c_uint, i));
-            _ = try renderStoreUntyped(
-                ofile,
-                llvm_param,
-                scope_var.data.Param.llvm_value,
-                Type.Pointer.Align.Abi,
-                Type.Pointer.Vol.Non,
-            );
-        }
-
-        //if (variable->decl_node) {
-        //    gen_var_debug_decl(g, variable);
-        //}
-    }
-
-    for (code.basic_block_list.toSlice()) |current_block| {
-        llvm.PositionBuilderAtEnd(ofile.builder, current_block.llvm_block);
-        for (current_block.instruction_list.toSlice()) |instruction| {
-            if (instruction.ref_count == 0 and !instruction.hasSideEffects()) continue;
-
-            instruction.llvm_value = try instruction.render(ofile, fn_val);
-        }
-        current_block.llvm_exit_block = llvm.GetInsertBlock(ofile.builder);
-    }
-}
-
-fn addLLVMAttr(
-    ofile: *ObjectFile,
-    val: *llvm.Value,
-    attr_index: llvm.AttributeIndex,
-    attr_name: []const u8,
-) !void {
-    const kind_id = llvm.GetEnumAttributeKindForName(attr_name.ptr, attr_name.len);
-    assert(kind_id != 0);
-    const llvm_attr = llvm.CreateEnumAttribute(ofile.context, kind_id, 0) orelse return error.OutOfMemory;
-    llvm.AddAttributeAtIndex(val, attr_index, llvm_attr);
-}
-
-fn addLLVMAttrStr(
-    ofile: *ObjectFile,
-    val: *llvm.Value,
-    attr_index: llvm.AttributeIndex,
-    attr_name: []const u8,
-    attr_val: []const u8,
-) !void {
-    const llvm_attr = llvm.CreateStringAttribute(
-        ofile.context,
-        attr_name.ptr,
-        @intCast(c_uint, attr_name.len),
-        attr_val.ptr,
-        @intCast(c_uint, attr_val.len),
-    ) orelse return error.OutOfMemory;
-    llvm.AddAttributeAtIndex(val, attr_index, llvm_attr);
-}
-
-fn addLLVMAttrInt(
-    val: *llvm.Value,
-    attr_index: llvm.AttributeIndex,
-    attr_name: []const u8,
-    attr_val: u64,
-) !void {
-    const kind_id = llvm.GetEnumAttributeKindForName(attr_name.ptr, attr_name.len);
-    assert(kind_id != 0);
-    const llvm_attr = llvm.CreateEnumAttribute(ofile.context, kind_id, attr_val) orelse return error.OutOfMemory;
-    llvm.AddAttributeAtIndex(val, attr_index, llvm_attr);
-}
-
-fn addLLVMFnAttr(ofile: *ObjectFile, fn_val: *llvm.Value, attr_name: []const u8) !void {
-    return addLLVMAttr(ofile, fn_val, maxInt(llvm.AttributeIndex), attr_name);
-}
-
-fn addLLVMFnAttrStr(ofile: *ObjectFile, fn_val: *llvm.Value, attr_name: []const u8, attr_val: []const u8) !void {
-    return addLLVMAttrStr(ofile, fn_val, maxInt(llvm.AttributeIndex), attr_name, attr_val);
-}
-
-fn addLLVMFnAttrInt(ofile: *ObjectFile, fn_val: *llvm.Value, attr_name: []const u8, attr_val: u64) !void {
-    return addLLVMAttrInt(ofile, fn_val, maxInt(llvm.AttributeIndex), attr_name, attr_val);
-}
-
-fn renderLoadUntyped(
-    ofile: *ObjectFile,
-    ptr: *llvm.Value,
-    alignment: Type.Pointer.Align,
-    vol: Type.Pointer.Vol,
-    name: [*]const u8,
-) !*llvm.Value {
-    const result = llvm.BuildLoad(ofile.builder, ptr, name) orelse return error.OutOfMemory;
-    switch (vol) {
-        Type.Pointer.Vol.Non => {},
-        Type.Pointer.Vol.Volatile => llvm.SetVolatile(result, 1),
-    }
-    llvm.SetAlignment(result, resolveAlign(ofile, alignment, llvm.GetElementType(llvm.TypeOf(ptr))));
-    return result;
-}
-
-fn renderLoad(ofile: *ObjectFile, ptr: *llvm.Value, ptr_type: *Type.Pointer, name: [*]const u8) !*llvm.Value {
-    return renderLoadUntyped(ofile, ptr, ptr_type.key.alignment, ptr_type.key.vol, name);
-}
-
-pub fn getHandleValue(ofile: *ObjectFile, ptr: *llvm.Value, ptr_type: *Type.Pointer) !?*llvm.Value {
-    const child_type = ptr_type.key.child_type;
-    if (!child_type.hasBits()) {
-        return null;
-    }
-    if (child_type.handleIsPtr()) {
-        return ptr;
-    }
-    return try renderLoad(ofile, ptr, ptr_type, c"");
-}
-
-pub fn renderStoreUntyped(
-    ofile: *ObjectFile,
-    value: *llvm.Value,
-    ptr: *llvm.Value,
-    alignment: Type.Pointer.Align,
-    vol: Type.Pointer.Vol,
-) !*llvm.Value {
-    const result = llvm.BuildStore(ofile.builder, value, ptr) orelse return error.OutOfMemory;
-    switch (vol) {
-        Type.Pointer.Vol.Non => {},
-        Type.Pointer.Vol.Volatile => llvm.SetVolatile(result, 1),
-    }
-    llvm.SetAlignment(result, resolveAlign(ofile, alignment, llvm.TypeOf(value)));
-    return result;
-}
-
-pub fn renderStore(
-    ofile: *ObjectFile,
-    value: *llvm.Value,
-    ptr: *llvm.Value,
-    ptr_type: *Type.Pointer,
-) !*llvm.Value {
-    return renderStoreUntyped(ofile, value, ptr, ptr_type.key.alignment, ptr_type.key.vol);
-}
-
-pub fn renderAlloca(
-    ofile: *ObjectFile,
-    var_type: *Type,
-    name: []const u8,
-    alignment: Type.Pointer.Align,
-) !*llvm.Value {
-    const llvm_var_type = try var_type.getLlvmType(ofile.arena, ofile.context);
-    const name_with_null = try std.cstr.addNullByte(ofile.arena, name);
-    const result = llvm.BuildAlloca(ofile.builder, llvm_var_type, name_with_null.ptr) orelse return error.OutOfMemory;
-    llvm.SetAlignment(result, resolveAlign(ofile, alignment, llvm_var_type));
-    return result;
-}
-
-pub fn resolveAlign(ofile: *ObjectFile, alignment: Type.Pointer.Align, llvm_type: *llvm.Type) u32 {
-    return switch (alignment) {
-        Type.Pointer.Align.Abi => return llvm.ABIAlignmentOfType(ofile.comp.target_data_ref, llvm_type),
-        Type.Pointer.Align.Override => |a| a,
+fn Reg(comptime arch: Target.Cpu.Arch) type {
+    return switch (arch) {
+        .i386 => x86.Register,
+        .x86_64 => x86_64.Register,
+        else => @compileError("TODO add more register enums"),
     };
+}
+
+fn parseRegName(comptime arch: Target.Cpu.Arch, name: []const u8) ?Reg(arch) {
+    return std.meta.stringToEnum(Reg(arch), name);
 }

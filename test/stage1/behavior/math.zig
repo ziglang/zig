@@ -4,12 +4,9 @@ const expectEqual = std.testing.expectEqual;
 const expectEqualSlices = std.testing.expectEqualSlices;
 const maxInt = std.math.maxInt;
 const minInt = std.math.minInt;
+const mem = std.mem;
 
 test "division" {
-    if (@import("builtin").arch == .riscv64) {
-        // TODO: https://github.com/ziglang/zig/issues/3338
-        return error.SkipZigTest;
-    }
     testDivision();
     comptime testDivision();
 }
@@ -186,9 +183,9 @@ fn testThreeExprInARow(f: bool, t: bool) void {
     assertFalse(90 >> 1 >> 2 != 90 >> 3);
     assertFalse(100 - 1 + 1000 != 1099);
     assertFalse(5 * 4 / 2 % 3 != 1);
-    assertFalse(i32(i32(5)) != 5);
+    assertFalse(@as(i32, @as(i32, 5)) != 5);
     assertFalse(!!false);
-    assertFalse(i32(7) != --(i32(7)));
+    assertFalse(@as(i32, 7) != --(@as(i32, 7)));
 }
 fn assertFalse(b: bool) void {
     expect(!b);
@@ -256,10 +253,10 @@ const DivResult = struct {
 
 test "binary not" {
     expect(comptime x: {
-        break :x ~u16(0b1010101010101010) == 0b0101010101010101;
+        break :x ~@as(u16, 0b1010101010101010) == 0b0101010101010101;
     });
     expect(comptime x: {
-        break :x ~u64(2147483647) == 18446744071562067968;
+        break :x ~@as(u64, 2147483647) == 18446744071562067968;
     });
     testBinaryNot(0b1010101010101010);
 }
@@ -269,7 +266,7 @@ fn testBinaryNot(x: u16) void {
 }
 
 test "small int addition" {
-    var x: @IntType(false, 2) = 0;
+    var x: u2 = 0;
     expect(x == 0);
 
     x += 1;
@@ -281,8 +278,8 @@ test "small int addition" {
     x += 1;
     expect(x == 3);
 
-    var result: @typeOf(x) = 3;
-    expect(@addWithOverflow(@typeOf(x), x, 1, &result));
+    var result: @TypeOf(x) = 3;
+    expect(@addWithOverflow(@TypeOf(x), x, 1, &result));
 
     expect(result == 0);
 }
@@ -410,6 +407,34 @@ test "quad hex float literal parsing accurate" {
     comptime S.doTheTest();
 }
 
+test "underscore separator parsing" {
+    expect(0_0_0_0 == 0);
+    expect(1_234_567 == 1234567);
+    expect(001_234_567 == 1234567);
+    expect(0_0_1_2_3_4_5_6_7 == 1234567);
+
+    expect(0b0_0_0_0 == 0);
+    expect(0b1010_1010 == 0b10101010);
+    expect(0b0000_1010_1010 == 0b10101010);
+    expect(0b1_0_1_0_1_0_1_0 == 0b10101010);
+
+    expect(0o0_0_0_0 == 0);
+    expect(0o1010_1010 == 0o10101010);
+    expect(0o0000_1010_1010 == 0o10101010);
+    expect(0o1_0_1_0_1_0_1_0 == 0o10101010);
+
+    expect(0x0_0_0_0 == 0);
+    expect(0x1010_1010 == 0x10101010);
+    expect(0x0000_1010_1010 == 0x10101010);
+    expect(0x1_0_1_0_1_0_1_0 == 0x10101010);
+
+    expect(123_456.789_000e1_0 == 123456.789000e10);
+    expect(0_1_2_3_4_5_6.7_8_9_0_0_0e0_0_1_0 == 123456.789000e10);
+
+    expect(0x1234_5678.9ABC_DEF0p-1_0 == 0x12345678.9ABCDEF0p-10);
+    expect(0x1_2_3_4_5_6_7_8.9_A_B_C_D_E_F_0p-0_0_0_1_0 == 0x12345678.9ABCDEF0p-10);
+}
+
 test "hex float literal within range" {
     const a = 0x1.0p16383;
     const b = 0x0.1p16387;
@@ -452,6 +477,25 @@ fn testShrExact(x: u8) void {
     expect(shifted == 0b00101101);
 }
 
+test "shift left/right on u0 operand" {
+    const S = struct {
+        fn doTheTest() void {
+            var x: u0 = 0;
+            var y: u0 = 0;
+            expectEqual(@as(u0, 0), x << 0);
+            expectEqual(@as(u0, 0), x >> 0);
+            expectEqual(@as(u0, 0), x << y);
+            expectEqual(@as(u0, 0), x >> y);
+            expectEqual(@as(u0, 0), @shlExact(x, 0));
+            expectEqual(@as(u0, 0), @shrExact(x, 0));
+            expectEqual(@as(u0, 0), @shlExact(x, y));
+            expectEqual(@as(u0, 0), @shrExact(x, y));
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
 test "comptime_int addition" {
     comptime {
         expect(35361831660712422535336160538497375248 + 101752735581729509668353361206450473702 == 137114567242441932203689521744947848950);
@@ -472,7 +516,7 @@ test "comptime_int multiplication" {
 
 test "comptime_int shifting" {
     comptime {
-        expect((u128(1) << 127) == 0x80000000000000000000000000000000);
+        expect((@as(u128, 1) << 127) == 0x80000000000000000000000000000000);
     }
 }
 
@@ -480,13 +524,13 @@ test "comptime_int multi-limb shift and mask" {
     comptime {
         var a = 0xefffffffa0000001eeeeeeefaaaaaaab;
 
-        expect(u32(a & 0xffffffff) == 0xaaaaaaab);
+        expect(@as(u32, a & 0xffffffff) == 0xaaaaaaab);
         a >>= 32;
-        expect(u32(a & 0xffffffff) == 0xeeeeeeef);
+        expect(@as(u32, a & 0xffffffff) == 0xeeeeeeef);
         a >>= 32;
-        expect(u32(a & 0xffffffff) == 0xa0000001);
+        expect(@as(u32, a & 0xffffffff) == 0xa0000001);
         a >>= 32;
-        expect(u32(a & 0xffffffff) == 0xefffffff);
+        expect(@as(u32, a & 0xffffffff) == 0xefffffff);
         a >>= 32;
 
         expect(a == 0);
@@ -552,7 +596,7 @@ fn should_not_be_zero(x: f128) void {
 
 test "comptime float rem int" {
     comptime {
-        var x = f32(1) % 2;
+        var x = @as(f32, 1) % 2;
         expect(x == 1.0);
     }
 }
@@ -568,15 +612,11 @@ test "remainder division" {
 }
 
 fn remdiv(comptime T: type) void {
-    expect(T(1) == T(1) % T(2));
-    expect(T(1) == T(7) % T(3));
+    expect(@as(T, 1) == @as(T, 1) % @as(T, 2));
+    expect(@as(T, 1) == @as(T, 7) % @as(T, 3));
 }
 
 test "@sqrt" {
-    if (@import("builtin").arch == .riscv64) {
-        // TODO: https://github.com/ziglang/zig/issues/3338
-        return error.SkipZigTest;
-    }
     testSqrt(f64, 12.0);
     comptime testSqrt(f64, 12.0);
     testSqrt(f32, 13.0);
@@ -586,12 +626,12 @@ test "@sqrt" {
 
     const x = 14.0;
     const y = x * x;
-    const z = @sqrt(@typeOf(y), y);
+    const z = @sqrt(y);
     comptime expect(z == x);
 }
 
 fn testSqrt(comptime T: type, x: T) void {
-    expect(@sqrt(T, x * x) == x);
+    expect(@sqrt(x * x) == x);
 }
 
 test "comptime_int param and return" {
@@ -609,8 +649,8 @@ fn comptimeAdd(comptime a: comptime_int, comptime b: comptime_int) comptime_int 
 test "vector integer addition" {
     const S = struct {
         fn doTheTest() void {
-            var a: @Vector(4, i32) = [_]i32{ 1, 2, 3, 4 };
-            var b: @Vector(4, i32) = [_]i32{ 5, 6, 7, 8 };
+            var a: std.meta.Vector(4, i32) = [_]i32{ 1, 2, 3, 4 };
+            var b: std.meta.Vector(4, i32) = [_]i32{ 5, 6, 7, 8 };
             var result = a + b;
             var result_array: [4]i32 = result;
             const expected = [_]i32{ 6, 8, 10, 12 };
@@ -622,10 +662,6 @@ test "vector integer addition" {
 }
 
 test "NaN comparison" {
-    if (@import("builtin").arch == .riscv64) {
-        // TODO: https://github.com/ziglang/zig/issues/3338
-        return error.SkipZigTest;
-    }
     testNanEqNan(f16);
     testNanEqNan(f32);
     testNanEqNan(f64);
@@ -652,4 +688,28 @@ test "128-bit multiplication" {
     var b: i128 = 2;
     var c = a * b;
     expect(c == 6);
+}
+
+test "vector comparison" {
+    const S = struct {
+        fn doTheTest() void {
+            var a: std.meta.Vector(6, i32) = [_]i32{ 1, 3, -1, 5, 7, 9 };
+            var b: std.meta.Vector(6, i32) = [_]i32{ -1, 3, 0, 6, 10, -10 };
+            expect(mem.eql(bool, &@as([6]bool, a < b), &[_]bool{ false, false, true, true, true, false }));
+            expect(mem.eql(bool, &@as([6]bool, a <= b), &[_]bool{ false, true, true, true, true, false }));
+            expect(mem.eql(bool, &@as([6]bool, a == b), &[_]bool{ false, true, false, false, false, false }));
+            expect(mem.eql(bool, &@as([6]bool, a != b), &[_]bool{ true, false, true, true, true, true }));
+            expect(mem.eql(bool, &@as([6]bool, a > b), &[_]bool{ true, false, false, false, false, true }));
+            expect(mem.eql(bool, &@as([6]bool, a >= b), &[_]bool{ true, true, false, false, false, true }));
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "compare undefined literal with comptime_int" {
+    var x = undefined == 1;
+    // x is now undefined with type bool
+    x = true;
+    expect(x);
 }

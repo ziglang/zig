@@ -1,6 +1,5 @@
 const std = @import("../std.zig");
 const Lock = std.event.Lock;
-const Loop = std.event.Loop;
 
 /// Thread-safe async/await lock that protects one piece of data.
 /// Functions which are waiting for the lock are suspended, and
@@ -21,9 +20,9 @@ pub fn Locked(comptime T: type) type {
             }
         };
 
-        pub fn init(loop: *Loop, data: T) Self {
+        pub fn init(data: T) Self {
             return Self{
-                .lock = Lock.init(loop),
+                .lock = Lock.init(),
                 .private_data = data,
             };
         }
@@ -32,10 +31,10 @@ pub fn Locked(comptime T: type) type {
             self.lock.deinit();
         }
 
-        pub async fn acquire(self: *Self) HeldLock {
+        pub fn acquire(self: *Self) callconv(.Async) HeldLock {
             return HeldLock{
                 // TODO guaranteed allocation elision
-                .held = await (async self.lock.acquire() catch unreachable),
+                .held = self.lock.acquire(),
                 .value = &self.private_data,
             };
         }

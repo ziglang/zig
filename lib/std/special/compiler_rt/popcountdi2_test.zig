@@ -20,8 +20,8 @@ test "popcountdi2" {
     test__popcountdi2(0);
     test__popcountdi2(1);
     test__popcountdi2(2);
-    test__popcountdi2(@bitCast(i64, u64(0xFFFFFFFFFFFFFFFD)));
-    test__popcountdi2(@bitCast(i64, u64(0xFFFFFFFFFFFFFFFE)));
-    test__popcountdi2(@bitCast(i64, u64(0xFFFFFFFFFFFFFFFF)));
+    test__popcountdi2(@bitCast(i64, @as(u64, 0xFFFFFFFFFFFFFFFD)));
+    test__popcountdi2(@bitCast(i64, @as(u64, 0xFFFFFFFFFFFFFFFE)));
+    test__popcountdi2(@bitCast(i64, @as(u64, 0xFFFFFFFFFFFFFFFF)));
     // TODO some fuzz testing
 }

@@ -32,7 +32,7 @@ const expect = std.testing.expect;
 ///  - pow(-inf, y)   = pow(-0, -y)
 ///  - pow(x, y)      = nan for finite x < 0 and finite non-integer y
 pub fn pow(comptime T: type, x: T, y: T) T {
-    if (@typeInfo(T) == builtin.TypeId.Int) {
+    if (@typeInfo(T) == .Int) {
         return math.powi(T, x, y) catch unreachable;
     }
 
@@ -145,7 +145,7 @@ pub fn pow(comptime T: type, x: T, y: T) T {
     var xe = r2.exponent;
     var x1 = r2.significand;
 
-    var i = @floatToInt(@IntType(true, T.bit_count), yi);
+    var i = @floatToInt(std.meta.Int(true, T.bit_count), yi);
     while (i != 0) : (i >>= 1) {
         const overflow_shift = math.floatExponentBits(T) + 1;
         if (xe < -(1 << overflow_shift) or (1 << overflow_shift) < xe) {
@@ -184,10 +184,6 @@ fn isOddInteger(x: f64) bool {
 }
 
 test "math.pow" {
-    if (builtin.os == .linux and builtin.arch == .arm and builtin.abi == .musleabihf) {
-        // TODO https://github.com/ziglang/zig/issues/3289
-        return error.SkipZigTest;
-    }
     const epsilon = 0.000001;
 
     expect(math.approxEq(f32, pow(f32, 0.0, 3.3), 0.0, epsilon));
@@ -206,10 +202,6 @@ test "math.pow" {
 }
 
 test "math.pow.special" {
-    if (builtin.os == .linux and builtin.arch == .arm and builtin.abi == .musleabihf) {
-        // TODO https://github.com/ziglang/zig/issues/3289
-        return error.SkipZigTest;
-    }
     const epsilon = 0.000001;
 
     expect(pow(f32, 4, 0.0) == 1.0);
@@ -252,10 +244,6 @@ test "math.pow.special" {
 }
 
 test "math.pow.overflow" {
-    if (builtin.os == .linux and builtin.arch == .arm and builtin.abi == .musleabihf) {
-        // TODO https://github.com/ziglang/zig/issues/3289
-        return error.SkipZigTest;
-    }
     expect(math.isPositiveInf(pow(f64, 2, 1 << 32)));
     expect(pow(f64, 2, -(1 << 32)) == 0);
     expect(math.isNegativeInf(pow(f64, -2, (1 << 32) + 1)));

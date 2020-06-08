@@ -3617,9 +3617,9 @@ DECLARE_INTERFACE_(IDirect3DRMWrap, IDirect3DRMObject)
 #define IDirect3DRMWrap_GetName(p,a,b)                          (p)->GetName(a,b)
 #define IDirect3DRMWrap_GetClassName(p,a,b)                     (p)->GetClassName(a,b)
 /*** IDirect3DRMWrap methods ***/
-#define IDirect3DRMWrap_Init(p,a,b,c,d,e,f,g,h,i,j,k,l,m,n,o)   (p)->Init(p,a,b,c,d,e,f,g,h,i,j,k,l,m,n,o)
-#define IDirect3DRMWrap_Apply(p,a)                              (p)->Apply(p,a)
-#define IDirect3DRMWrap_ApplyRelative(p,a,b)                    (p)->ApplyRelative(p,a,b)
+#define IDirect3DRMWrap_Init(p,a,b,c,d,e,f,g,h,i,j,k,l,m,n,o)   (p)->Init(a,b,c,d,e,f,g,h,i,j,k,l,m,n,o)
+#define IDirect3DRMWrap_Apply(p,a)                              (p)->Apply(a)
+#define IDirect3DRMWrap_ApplyRelative(p,a,b)                    (p)->ApplyRelative(a,b)
 #endif
 
 /*****************************************************************************

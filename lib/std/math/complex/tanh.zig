@@ -12,8 +12,8 @@ const cmath = math.complex;
 const Complex = cmath.Complex;
 
 /// Returns the hyperbolic tangent of z.
-pub fn tanh(z: var) @typeOf(z) {
-    const T = @typeOf(z.re);
+pub fn tanh(z: var) @TypeOf(z) {
+    const T = @TypeOf(z.re);
     return switch (T) {
         f32 => tanh32(z),
         f64 => tanh64(z),
@@ -76,7 +76,7 @@ fn tanh64(z: Complex(f64)) Complex(f64) {
             return Complex(f64).new(x, r);
         }
 
-        const xx = @bitCast(f64, (u64(hx - 0x40000000) << 32) | lx);
+        const xx = @bitCast(f64, (@as(u64, hx - 0x40000000) << 32) | lx);
         const r = if (math.isInf(y)) y else math.sin(y) * math.cos(y);
         return Complex(f64).new(xx, math.copysign(f64, 0, r));
     }
@@ -113,10 +113,6 @@ test "complex.ctanh32" {
 }
 
 test "complex.ctanh64" {
-    if (builtin.os == .linux and builtin.arch == .arm and builtin.abi == .musleabihf) {
-        // TODO https://github.com/ziglang/zig/issues/3289
-        return error.SkipZigTest;
-    }
     const a = Complex(f64).new(5, 3);
     const c = tanh(a);
 

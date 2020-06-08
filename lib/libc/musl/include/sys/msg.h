@@ -25,9 +25,9 @@ typedef unsigned long msglen_t;
 #define MSG_NOERROR 010000
 #define MSG_EXCEPT  020000
 
-#define MSG_STAT 11
+#define MSG_STAT (11 | (IPC_STAT & 0x100))
 #define MSG_INFO 12
-#define MSG_STAT_ANY 13
+#define MSG_STAT_ANY (13 | (IPC_STAT & 0x100))
 
 struct msginfo {
 	int msgpool, msgmap, msgmax, msgmnb, msgmni, msgssz, msgtql;

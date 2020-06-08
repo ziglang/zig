@@ -89,3 +89,6 @@ static inline long __syscall6(long n, long a, long b, long c, long d, long e, lo
 }
 
 #define SYSCALL_FADVISE_6_ARG
+
+#define SO_RCVTIMEO_OLD  18
+#define SO_SNDTIMEO_OLD  19

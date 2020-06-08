@@ -172,23 +172,20 @@ void __do_cleanup_pop(struct __ptcb *cb)
 struct start_args {
 	void *(*start_func)(void *);
 	void *start_arg;
-	pthread_attr_t *attr;
-	volatile int *perr;
+	volatile int control;
 	unsigned long sig_mask[_NSIG/8/sizeof(long)];
 };
 
 static int start(void *p)
 {
 	struct start_args *args = p;
-	if (args->attr) {
-		pthread_t self = __pthread_self();
-		int ret = -__syscall(SYS_sched_setscheduler, self->tid,
-			args->attr->_a_policy, &args->attr->_a_prio);
-		if (a_swap(args->perr, ret)==-2)
-			__wake(args->perr, 1, 1);
-		if (ret) {
-			self->detach_state = DT_DETACHED;
-			__pthread_exit(0);
+	int state = args->control;
+	if (state) {
+		if (a_cas(&args->control, 1, 2)==1)
+			__wait(&args->control, 0, 2, 1);
+		if (args->control) {
+			__syscall(SYS_set_tid_address, &args->control);
+			for (;;) __syscall(SYS_exit, 0);
 		}
 	}
 	__syscall(SYS_rt_sigprocmask, SIG_SETMASK, &args->sig_mask, 0, _NSIG/8);
@@ -233,7 +230,6 @@ int __pthread_create(pthread_t *restrict res, const pthread_attr_t *restrict att
 		| CLONE_PARENT_SETTID | CLONE_CHILD_CLEARTID | CLONE_DETACHED;
 	pthread_attr_t attr = { 0 };
 	sigset_t set;
-	volatile int err = -1;
 
 	if (!libc.can_do_threads) return ENOSYS;
 	self = __pthread_self();
@@ -325,13 +321,7 @@ int __pthread_create(pthread_t *restrict res, const pthread_attr_t *restrict att
 	struct start_args *args = (void *)stack;
 	args->start_func = entry;
 	args->start_arg = arg;
-	if (attr._a_sched) {
-		args->attr = &attr;
-		args->perr = &err;
-	} else {
-		args->attr = 0;
-		args->perr = 0;
-	}
+	args->control = attr._a_sched ? 1 : 0;
 
 	/* Application signals (but not the synccall signal) must be
 	 * blocked before the thread list lock can be taken, to ensure
@@ -349,29 +339,36 @@ int __pthread_create(pthread_t *restrict res, const pthread_attr_t *restrict att
 	libc.threads_minus_1++;
 	ret = __clone((c11 ? start_c11 : start), stack, flags, args, &new->tid, TP_ADJ(new), &__thread_list_lock);
 
-	/* If clone succeeded, new thread must be linked on the thread
-	 * list before unlocking it, even if scheduling may still fail. */
+	/* All clone failures translate to EAGAIN. If explicit scheduling
+	 * was requested, attempt it before unlocking the thread list so
+	 * that the failed thread is never exposed and so that we can
+	 * clean up all transient resource usage before returning. */
+	if (ret < 0) {
+		ret = -EAGAIN;
+	} else if (attr._a_sched) {
+		ret = __syscall(SYS_sched_setscheduler,
+			new->tid, attr._a_policy, &attr._a_prio);
+		if (a_swap(&args->control, ret ? 3 : 0)==2)
+			__wake(&args->control, 1, 1);
+		if (ret)
+			__wait(&args->control, 0, 3, 0);
+	}
+
 	if (ret >= 0) {
 		new->next = self->next;
 		new->prev = self;
 		new->next->prev = new;
 		new->prev->next = new;
+	} else {
+		libc.threads_minus_1--;
 	}
 	__tl_unlock();
 	__restore_sigs(&set);
 	__release_ptc();
 
 	if (ret < 0) {
-		libc.threads_minus_1--;
 		if (map) __munmap(map, size);
-		return EAGAIN;
-	}
-
-	if (attr._a_sched) {
-		if (a_cas(&err, -1, -2)==-1)
-			__wait(&err, 0, -2, 1);
-		ret = err;
-		if (ret) return ret;
+		return -ret;
 	}
 
 	*res = new;

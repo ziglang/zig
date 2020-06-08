@@ -5,10 +5,17 @@ const builtin = @import("builtin");
 var foo: u8 align(4) = 100;
 
 test "global variable alignment" {
-    expect(@typeOf(&foo).alignment == 4);
-    expect(@typeOf(&foo) == *align(4) u8);
-    const slice = (*[1]u8)(&foo)[0..];
-    expect(@typeOf(slice) == []align(4) u8);
+    comptime expect(@TypeOf(&foo).alignment == 4);
+    comptime expect(@TypeOf(&foo) == *align(4) u8);
+    {
+        const slice = @as(*[1]u8, &foo)[0..];
+        comptime expect(@TypeOf(slice) == *align(4) [1]u8);
+    }
+    {
+        var runtime_zero: usize = 0;
+        const slice = @as(*[1]u8, &foo)[runtime_zero..];
+        comptime expect(@TypeOf(slice) == []align(4) u8);
+    }
 }
 
 fn derp() align(@sizeOf(usize) * 2) i32 {
@@ -18,9 +25,12 @@ fn noop1() align(1) void {}
 fn noop4() align(4) void {}
 
 test "function alignment" {
+    // function alignment is a compile error on wasm32/wasm64
+    if (builtin.arch == .wasm32 or builtin.arch == .wasm64) return error.SkipZigTest;
+
     expect(derp() == 1234);
-    expect(@typeOf(noop1) == fn () align(1) void);
-    expect(@typeOf(noop4) == fn () align(4) void);
+    expect(@TypeOf(noop1) == fn () align(1) void);
+    expect(@TypeOf(noop4) == fn () align(4) void);
     noop1();
     noop4();
 }
@@ -31,7 +41,7 @@ var baz: packed struct {
 } = undefined;
 
 test "packed struct alignment" {
-    expect(@typeOf(&baz.b) == *align(1) u32);
+    expect(@TypeOf(&baz.b) == *align(1) u32);
 }
 
 const blah: packed struct {
@@ -41,7 +51,7 @@ const blah: packed struct {
 } = undefined;
 
 test "bit field alignment" {
-    expect(@typeOf(&blah.b) == *align(1:3:1) const u3);
+    expect(@TypeOf(&blah.b) == *align(1:3:1) const u3);
 }
 
 test "default alignment allows unspecified in type syntax" {
@@ -61,7 +71,7 @@ fn addUnaligned(a: *align(1) const u32, b: *align(1) const u32) u32 {
 test "implicitly decreasing slice alignment" {
     const a: u32 align(4) = 3;
     const b: u32 align(8) = 4;
-    expect(addUnalignedSlice((*const [1]u32)(&a)[0..], (*const [1]u32)(&b)[0..]) == 7);
+    expect(addUnalignedSlice(@as(*const [1]u32, &a)[0..], @as(*const [1]u32, &b)[0..]) == 7);
 }
 fn addUnalignedSlice(a: []align(1) const u32, b: []align(1) const u32) u32 {
     return a[0] + b[0];
@@ -79,20 +89,6 @@ fn testBytesAlign(b: u8) void {
     };
     const ptr = @ptrCast(*u32, &bytes[0]);
     expect(ptr.* == 0x33333333);
-}
-
-test "specifying alignment allows slice cast" {
-    testBytesAlignSlice(0x33);
-}
-fn testBytesAlignSlice(b: u8) void {
-    var bytes align(4) = [_]u8{
-        b,
-        b,
-        b,
-        b,
-    };
-    const slice: []u32 = @bytesToSlice(u32, bytes[0..]);
-    expect(slice[0] == 0x33333333);
 }
 
 test "@alignCast pointers" {
@@ -124,6 +120,9 @@ fn sliceExpects4(slice: []align(4) u32) void {
 }
 
 test "implicitly decreasing fn alignment" {
+    // function alignment is a compile error on wasm32/wasm64
+    if (builtin.arch == .wasm32 or builtin.arch == .wasm64) return error.SkipZigTest;
+
     testImplicitlyDecreaseFnAlign(alignedSmall, 1234);
     testImplicitlyDecreaseFnAlign(alignedBig, 5678);
 }
@@ -140,6 +139,9 @@ fn alignedBig() align(16) i32 {
 }
 
 test "@alignCast functions" {
+    // function alignment is a compile error on wasm32/wasm64
+    if (builtin.arch == .wasm32 or builtin.arch == .wasm64) return error.SkipZigTest;
+
     expect(fnExpectsOnly1(simple4) == 0x19);
 }
 fn fnExpectsOnly1(ptr: fn () align(1) i32) i32 {
@@ -153,6 +155,9 @@ fn simple4() align(4) i32 {
 }
 
 test "generic function with align param" {
+    // function alignment is a compile error on wasm32/wasm64
+    if (builtin.arch == .wasm32 or builtin.arch == .wasm64) return error.SkipZigTest;
+
     expect(whyWouldYouEverDoThis(1) == 0x1);
     expect(whyWouldYouEverDoThis(4) == 0x1);
     expect(whyWouldYouEverDoThis(8) == 0x1);
@@ -165,44 +170,45 @@ fn whyWouldYouEverDoThis(comptime align_bytes: u8) align(align_bytes) u8 {
 test "@ptrCast preserves alignment of bigger source" {
     var x: u32 align(16) = 1234;
     const ptr = @ptrCast(*u8, &x);
-    expect(@typeOf(ptr) == *align(16) u8);
+    expect(@TypeOf(ptr) == *align(16) u8);
 }
 
 test "runtime known array index has best alignment possible" {
     // take full advantage of over-alignment
     var array align(4) = [_]u8{ 1, 2, 3, 4 };
-    expect(@typeOf(&array[0]) == *align(4) u8);
-    expect(@typeOf(&array[1]) == *u8);
-    expect(@typeOf(&array[2]) == *align(2) u8);
-    expect(@typeOf(&array[3]) == *u8);
+    expect(@TypeOf(&array[0]) == *align(4) u8);
+    expect(@TypeOf(&array[1]) == *u8);
+    expect(@TypeOf(&array[2]) == *align(2) u8);
+    expect(@TypeOf(&array[3]) == *u8);
 
     // because align is too small but we still figure out to use 2
     var bigger align(2) = [_]u64{ 1, 2, 3, 4 };
-    expect(@typeOf(&bigger[0]) == *align(2) u64);
-    expect(@typeOf(&bigger[1]) == *align(2) u64);
-    expect(@typeOf(&bigger[2]) == *align(2) u64);
-    expect(@typeOf(&bigger[3]) == *align(2) u64);
+    expect(@TypeOf(&bigger[0]) == *align(2) u64);
+    expect(@TypeOf(&bigger[1]) == *align(2) u64);
+    expect(@TypeOf(&bigger[2]) == *align(2) u64);
+    expect(@TypeOf(&bigger[3]) == *align(2) u64);
 
     // because pointer is align 2 and u32 align % 2 == 0 we can assume align 2
     var smaller align(2) = [_]u32{ 1, 2, 3, 4 };
-    comptime expect(@typeOf(smaller[0..]) == []align(2) u32);
-    comptime expect(@typeOf(smaller[0..].ptr) == [*]align(2) u32);
-    testIndex(smaller[0..].ptr, 0, *align(2) u32);
-    testIndex(smaller[0..].ptr, 1, *align(2) u32);
-    testIndex(smaller[0..].ptr, 2, *align(2) u32);
-    testIndex(smaller[0..].ptr, 3, *align(2) u32);
+    var runtime_zero: usize = 0;
+    comptime expect(@TypeOf(smaller[runtime_zero..]) == []align(2) u32);
+    comptime expect(@TypeOf(smaller[runtime_zero..].ptr) == [*]align(2) u32);
+    testIndex(smaller[runtime_zero..].ptr, 0, *align(2) u32);
+    testIndex(smaller[runtime_zero..].ptr, 1, *align(2) u32);
+    testIndex(smaller[runtime_zero..].ptr, 2, *align(2) u32);
+    testIndex(smaller[runtime_zero..].ptr, 3, *align(2) u32);
 
     // has to use ABI alignment because index known at runtime only
-    testIndex2(array[0..].ptr, 0, *u8);
-    testIndex2(array[0..].ptr, 1, *u8);
-    testIndex2(array[0..].ptr, 2, *u8);
-    testIndex2(array[0..].ptr, 3, *u8);
+    testIndex2(array[runtime_zero..].ptr, 0, *u8);
+    testIndex2(array[runtime_zero..].ptr, 1, *u8);
+    testIndex2(array[runtime_zero..].ptr, 2, *u8);
+    testIndex2(array[runtime_zero..].ptr, 3, *u8);
 }
 fn testIndex(smaller: [*]align(2) u32, index: usize, comptime T: type) void {
-    comptime expect(@typeOf(&smaller[index]) == T);
+    comptime expect(@TypeOf(&smaller[index]) == T);
 }
 fn testIndex2(ptr: [*]align(4) u8, index: usize, comptime T: type) void {
-    comptime expect(@typeOf(&ptr[index]) == T);
+    comptime expect(@TypeOf(&ptr[index]) == T);
 }
 
 test "alignstack" {
@@ -221,14 +227,14 @@ test "alignment of structs" {
     }) == @alignOf(usize));
 }
 
-test "alignment of extern() void" {
+test "alignment of function with c calling convention" {
     var runtime_nothing = nothing;
     const casted1 = @ptrCast(*const u8, runtime_nothing);
-    const casted2 = @ptrCast(extern fn () void, casted1);
+    const casted2 = @ptrCast(fn () callconv(.C) void, casted1);
     casted2();
 }
 
-extern fn nothing() void {}
+fn nothing() callconv(.C) void {}
 
 test "return error union with 128-bit integer" {
     expect(3 == try give());
@@ -303,7 +309,7 @@ test "struct field explicit alignment" {
     var node: S.Node = undefined;
     node.massive_byte = 100;
     expect(node.massive_byte == 100);
-    comptime expect(@typeOf(&node.massive_byte) == *align(64) u8);
+    comptime expect(@TypeOf(&node.massive_byte) == *align(64) u8);
     expect(@ptrToInt(&node.massive_byte) % 64 == 0);
 }
 
@@ -330,6 +336,9 @@ test "align(@alignOf(T)) T does not force resolution of T" {
 }
 
 test "align(N) on functions" {
+    // function alignment is a compile error on wasm32/wasm64
+    if (builtin.arch == .wasm32 or builtin.arch == .wasm64) return error.SkipZigTest;
+
     expect((@ptrToInt(overaligned_fn) & (0x1000 - 1)) == 0);
 }
 fn overaligned_fn() align(0x1000) i32 {

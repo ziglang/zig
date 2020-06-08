@@ -5,12 +5,11 @@
  * See http://opensource.org/licenses/MIT
  */
 
-#include <stdlib.h>
+#include "util.hpp"
+#include "stage2.h"
+
 #include <stdio.h>
 #include <stdarg.h>
-
-#include "util.hpp"
-#include "userland.h"
 
 void zig_panic(const char *format, ...) {
     va_list ap;
@@ -119,3 +118,21 @@ Slice<uint8_t> SplitIterator_rest(SplitIterator *self) {
 SplitIterator memSplit(Slice<uint8_t> buffer, Slice<uint8_t> split_bytes) {
     return SplitIterator{0, buffer, split_bytes};
 }
+
+void zig_pretty_print_bytes(FILE *f, double n) {
+    if (n > 1024.0 * 1024.0 * 1024.0) {
+        fprintf(f, "%.03f GiB", n / 1024.0 / 1024.0 / 1024.0);
+        return;
+    }
+    if (n > 1024.0 * 1024.0) {
+        fprintf(f, "%.03f MiB", n / 1024.0 / 1024.0);
+        return;
+    }
+    if (n > 1024.0) {
+        fprintf(f, "%.03f KiB", n / 1024.0);
+        return;
+    }
+    fprintf(f, "%.03f bytes", n );
+    return;
+}
+

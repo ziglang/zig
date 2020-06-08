@@ -5,7 +5,7 @@
  * See http://opensource.org/licenses/MIT
  */
 
-#include "userland.h"
+#include "stage2.h"
 #include "cache_hash.hpp"
 #include "all_types.hpp"
 #include "buffer.hpp"
@@ -24,11 +24,21 @@ void cache_init(CacheHash *ch, Buf *manifest_dir) {
     ch->b64_digest = BUF_INIT;
 }
 
-void cache_str(CacheHash *ch, const char *ptr) {
+void cache_mem(CacheHash *ch, const char *ptr, size_t len) {
     assert(ch->manifest_file_path == nullptr);
     assert(ptr != nullptr);
+    blake2b_update(&ch->blake, ptr, len);
+}
+
+void cache_slice(CacheHash *ch, Slice<const char> slice) {
+    // mix the length into the hash so that two juxtaposed cached slices can't collide
+    cache_usize(ch, slice.len);
+    cache_mem(ch, slice.ptr, slice.len);
+}
+
+void cache_str(CacheHash *ch, const char *ptr) {
     // + 1 to include the null byte
-    blake2b_update(&ch->blake, ptr, strlen(ptr) + 1);
+    cache_mem(ch, ptr, strlen(ptr) + 1);
 }
 
 void cache_int(CacheHash *ch, int x) {

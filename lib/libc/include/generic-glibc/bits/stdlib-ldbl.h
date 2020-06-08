@@ -1,5 +1,5 @@
 /* -mlong-double-64 compatibility mode for <stdlib.h> functions.
-   Copyright (C) 2006-2019 Free Software Foundation, Inc.
+   Copyright (C) 2006-2020 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -14,7 +14,7 @@
 
    You should have received a copy of the GNU Lesser General Public
    License along with the GNU C Library; if not, see
-   <http://www.gnu.org/licenses/>.  */
+   <https://www.gnu.org/licenses/>.  */
 
 #ifndef _STDLIB_H
 # error "Never include <bits/stdlib-ldbl.h> directly; use <stdlib.h> instead."
@@ -28,7 +28,7 @@ __LDBL_REDIR1_DECL (strtold, strtod)
 __LDBL_REDIR1_DECL (strtold_l, strtod_l)
 #endif
 
-#if __GLIBC_USE (IEC_60559_BFP_EXT)
+#if __GLIBC_USE (IEC_60559_BFP_EXT_C2X)
 __LDBL_REDIR1_DECL (strfroml, strfromd)
 #endif
 

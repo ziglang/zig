@@ -86,15 +86,62 @@ pub const Allocator = struct {
     /// `ptr` should be the return value of `create`, or otherwise
     /// have the same address and alignment property.
     pub fn destroy(self: *Allocator, ptr: var) void {
-        const T = @typeOf(ptr).Child;
+        const T = @TypeOf(ptr).Child;
         if (@sizeOf(T) == 0) return;
         const non_const_ptr = @intToPtr([*]u8, @ptrToInt(ptr));
         const shrink_result = self.shrinkFn(self, non_const_ptr[0..@sizeOf(T)], @alignOf(T), 0, 1);
         assert(shrink_result.len == 0);
     }
 
+    /// Allocates an array of `n` items of type `T` and sets all the
+    /// items to `undefined`. Depending on the Allocator
+    /// implementation, it may be required to call `free` once the
+    /// memory is no longer needed, to avoid a resource leak. If the
+    /// `Allocator` implementation is unknown, then correct code will
+    /// call `free` when done.
+    ///
+    /// For allocating a single item, see `create`.
     pub fn alloc(self: *Allocator, comptime T: type, n: usize) Error![]T {
         return self.alignedAlloc(T, null, n);
+    }
+
+    pub fn allocWithOptions(
+        self: *Allocator,
+        comptime Elem: type,
+        n: usize,
+        /// null means naturally aligned
+        comptime optional_alignment: ?u29,
+        comptime optional_sentinel: ?Elem,
+    ) Error!AllocWithOptionsPayload(Elem, optional_alignment, optional_sentinel) {
+        if (optional_sentinel) |sentinel| {
+            const ptr = try self.alignedAlloc(Elem, optional_alignment, n + 1);
+            ptr[n] = sentinel;
+            return ptr[0..n :sentinel];
+        } else {
+            return self.alignedAlloc(Elem, optional_alignment, n);
+        }
+    }
+
+    fn AllocWithOptionsPayload(comptime Elem: type, comptime alignment: ?u29, comptime sentinel: ?Elem) type {
+        if (sentinel) |s| {
+            return [:s]align(alignment orelse @alignOf(Elem)) Elem;
+        } else {
+            return []align(alignment orelse @alignOf(Elem)) Elem;
+        }
+    }
+
+    /// Allocates an array of `n + 1` items of type `T` and sets the first `n`
+    /// items to `undefined` and the last item to `sentinel`. Depending on the
+    /// Allocator implementation, it may be required to call `free` once the
+    /// memory is no longer needed, to avoid a resource leak. If the
+    /// `Allocator` implementation is unknown, then correct code will
+    /// call `free` when done.
+    ///
+    /// For allocating a single item, see `create`.
+    ///
+    /// Deprecated; use `allocWithOptions`.
+    pub fn allocSentinel(self: *Allocator, comptime Elem: type, n: usize, comptime sentinel: Elem) Error![:sentinel]Elem {
+        return self.allocWithOptions(Elem, n, null, sentinel);
     }
 
     pub fn alignedAlloc(
@@ -110,11 +157,11 @@ pub const Allocator = struct {
         } else @alignOf(T);
 
         if (n == 0) {
-            return ([*]align(a) T)(undefined)[0..0];
+            return @as([*]align(a) T, undefined)[0..0];
         }
 
         const byte_count = math.mul(usize, @sizeOf(T), n) catch return Error.OutOfMemory;
-        const byte_slice = try self.reallocFn(self, ([*]u8)(undefined)[0..0], undefined, byte_count, a);
+        const byte_slice = try self.reallocFn(self, &[0]u8{}, undefined, byte_count, a);
         assert(byte_slice.len == byte_count);
         @memset(byte_slice.ptr, undefined, byte_slice.len);
         if (alignment == null) {
@@ -124,7 +171,7 @@ pub const Allocator = struct {
             // their own frame with @Frame(func).
             return @intToPtr([*]T, @ptrToInt(byte_slice.ptr))[0..n];
         } else {
-            return @bytesToSlice(T, @alignCast(a, byte_slice));
+            return mem.bytesAsSlice(T, @alignCast(a, byte_slice));
         }
     }
 
@@ -139,10 +186,10 @@ pub const Allocator = struct {
     /// If you need guaranteed success, call `shrink`.
     /// If `new_n` is 0, this is the same as `free` and it always succeeds.
     pub fn realloc(self: *Allocator, old_mem: var, new_n: usize) t: {
-        const Slice = @typeInfo(@typeOf(old_mem)).Pointer;
+        const Slice = @typeInfo(@TypeOf(old_mem)).Pointer;
         break :t Error![]align(Slice.alignment) Slice.child;
     } {
-        const old_alignment = @typeInfo(@typeOf(old_mem)).Pointer.alignment;
+        const old_alignment = @typeInfo(@TypeOf(old_mem)).Pointer.alignment;
         return self.alignedRealloc(old_mem, old_alignment, new_n);
     }
 
@@ -154,25 +201,26 @@ pub const Allocator = struct {
         old_mem: var,
         comptime new_alignment: u29,
         new_n: usize,
-    ) Error![]align(new_alignment) @typeInfo(@typeOf(old_mem)).Pointer.child {
-        const Slice = @typeInfo(@typeOf(old_mem)).Pointer;
+    ) Error![]align(new_alignment) @typeInfo(@TypeOf(old_mem)).Pointer.child {
+        const Slice = @typeInfo(@TypeOf(old_mem)).Pointer;
         const T = Slice.child;
         if (old_mem.len == 0) {
             return self.alignedAlloc(T, new_alignment, new_n);
         }
         if (new_n == 0) {
             self.free(old_mem);
-            return ([*]align(new_alignment) T)(undefined)[0..0];
+            return @as([*]align(new_alignment) T, undefined)[0..0];
         }
 
-        const old_byte_slice = @sliceToBytes(old_mem);
+        const old_byte_slice = mem.sliceAsBytes(old_mem);
         const byte_count = math.mul(usize, @sizeOf(T), new_n) catch return Error.OutOfMemory;
+        // Note: can't set shrunk memory to undefined as memory shouldn't be modified on realloc failure
         const byte_slice = try self.reallocFn(self, old_byte_slice, Slice.alignment, byte_count, new_alignment);
         assert(byte_slice.len == byte_count);
         if (new_n > old_mem.len) {
             @memset(byte_slice.ptr + old_byte_slice.len, undefined, byte_slice.len - old_byte_slice.len);
         }
-        return @bytesToSlice(T, @alignCast(new_alignment, byte_slice));
+        return mem.bytesAsSlice(T, @alignCast(new_alignment, byte_slice));
     }
 
     /// Prefer calling realloc to shrink if you can tolerate failure, such as
@@ -181,10 +229,10 @@ pub const Allocator = struct {
     /// Returned slice has same alignment as old_mem.
     /// Shrinking to 0 is the same as calling `free`.
     pub fn shrink(self: *Allocator, old_mem: var, new_n: usize) t: {
-        const Slice = @typeInfo(@typeOf(old_mem)).Pointer;
+        const Slice = @typeInfo(@TypeOf(old_mem)).Pointer;
         break :t []align(Slice.alignment) Slice.child;
     } {
-        const old_alignment = @typeInfo(@typeOf(old_mem)).Pointer.alignment;
+        const old_alignment = @typeInfo(@TypeOf(old_mem)).Pointer.alignment;
         return self.alignedShrink(old_mem, old_alignment, new_n);
     }
 
@@ -196,8 +244,8 @@ pub const Allocator = struct {
         old_mem: var,
         comptime new_alignment: u29,
         new_n: usize,
-    ) []align(new_alignment) @typeInfo(@typeOf(old_mem)).Pointer.child {
-        const Slice = @typeInfo(@typeOf(old_mem)).Pointer;
+    ) []align(new_alignment) @typeInfo(@TypeOf(old_mem)).Pointer.child {
+        const Slice = @typeInfo(@TypeOf(old_mem)).Pointer;
         const T = Slice.child;
 
         if (new_n == 0) {
@@ -212,27 +260,57 @@ pub const Allocator = struct {
         // new_n <= old_mem.len and the multiplication didn't overflow for that operation.
         const byte_count = @sizeOf(T) * new_n;
 
-        const old_byte_slice = @sliceToBytes(old_mem);
+        const old_byte_slice = mem.sliceAsBytes(old_mem);
+        @memset(old_byte_slice.ptr + byte_count, undefined, old_byte_slice.len - byte_count);
         const byte_slice = self.shrinkFn(self, old_byte_slice, Slice.alignment, byte_count, new_alignment);
         assert(byte_slice.len == byte_count);
-        return @bytesToSlice(T, @alignCast(new_alignment, byte_slice));
+        return mem.bytesAsSlice(T, @alignCast(new_alignment, byte_slice));
     }
 
+    /// Free an array allocated with `alloc`. To free a single item,
+    /// see `destroy`.
     pub fn free(self: *Allocator, memory: var) void {
-        const Slice = @typeInfo(@typeOf(memory)).Pointer;
-        const bytes = @sliceToBytes(memory);
-        if (bytes.len == 0) return;
+        const Slice = @typeInfo(@TypeOf(memory)).Pointer;
+        const bytes = mem.sliceAsBytes(memory);
+        const bytes_len = bytes.len + if (Slice.sentinel != null) @sizeOf(Slice.child) else 0;
+        if (bytes_len == 0) return;
         const non_const_ptr = @intToPtr([*]u8, @ptrToInt(bytes.ptr));
-        const shrink_result = self.shrinkFn(self, non_const_ptr[0..bytes.len], Slice.alignment, 0, 1);
+        @memset(non_const_ptr, undefined, bytes_len);
+        const shrink_result = self.shrinkFn(self, non_const_ptr[0..bytes_len], Slice.alignment, 0, 1);
         assert(shrink_result.len == 0);
     }
+
+    /// Copies `m` to newly allocated memory. Caller owns the memory.
+    pub fn dupe(allocator: *Allocator, comptime T: type, m: []const T) ![]T {
+        const new_buf = try allocator.alloc(T, m.len);
+        copy(T, new_buf, m);
+        return new_buf;
+    }
+
+    /// Copies `m` to newly allocated memory, with a null-terminated element. Caller owns the memory.
+    pub fn dupeZ(allocator: *Allocator, comptime T: type, m: []const T) ![:0]T {
+        const new_buf = try allocator.alloc(T, m.len + 1);
+        copy(T, new_buf, m);
+        new_buf[m.len] = 0;
+        return new_buf[0..m.len :0];
+    }
 };
 
-pub const Compare = enum {
-    LessThan,
-    Equal,
-    GreaterThan,
+var failAllocator = Allocator{
+    .reallocFn = failAllocatorRealloc,
+    .shrinkFn = failAllocatorShrink,
 };
+fn failAllocatorRealloc(self: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) ![]u8 {
+    return error.OutOfMemory;
+}
+fn failAllocatorShrink(self: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
+    @panic("failAllocatorShrink should never be called because it cannot allocate");
+}
+
+test "mem.Allocator basics" {
+    testing.expectError(error.OutOfMemory, failAllocator.alloc(u8, 1));
+    testing.expectError(error.OutOfMemory, failAllocator.allocSentinel(u8, 1, 0));
+}
 
 /// Copy all of source into dest at position 0.
 /// dest.len must be >= source.len.
@@ -268,6 +346,158 @@ pub fn set(comptime T: type, dest: []T, value: T) void {
         d.* = value;
 }
 
+/// Generally, Zig users are encouraged to explicitly initialize all fields of a struct explicitly rather than using this function.
+/// However, it is recognized that there are sometimes use cases for initializing all fields to a "zero" value. For example, when
+/// interfacing with a C API where this practice is more common and relied upon. If you are performing code review and see this
+/// function used, examine closely - it may be a code smell.
+/// Zero initializes the type.
+/// This can be used to zero initialize a any type for which it makes sense. Structs will be initialized recursively.
+pub fn zeroes(comptime T: type) T {
+    switch (@typeInfo(T)) {
+        .ComptimeInt, .Int, .ComptimeFloat, .Float => {
+            return @as(T, 0);
+        },
+        .Enum, .EnumLiteral => {
+            return @intToEnum(T, 0);
+        },
+        .Void => {
+            return {};
+        },
+        .Bool => {
+            return false;
+        },
+        .Optional, .Null => {
+            return null;
+        },
+        .Struct => |struct_info| {
+            if (@sizeOf(T) == 0) return T{};
+            if (comptime meta.containerLayout(T) == .Extern) {
+                var item: T = undefined;
+                @memset(@ptrCast([*]u8, &item), 0, @sizeOf(T));
+                return item;
+            } else {
+                var structure: T = undefined;
+                inline for (struct_info.fields) |field| {
+                    @field(structure, field.name) = zeroes(@TypeOf(@field(structure, field.name)));
+                }
+                return structure;
+            }
+        },
+        .Pointer => |ptr_info| {
+            switch (ptr_info.size) {
+                .Slice => {
+                    return &[_]ptr_info.child{};
+                },
+                .C => {
+                    return null;
+                },
+                .One, .Many => {
+                    @compileError("Can't set a non nullable pointer to zero.");
+                },
+            }
+        },
+        .Array => |info| {
+            if (info.sentinel) |sentinel| {
+                return [_:sentinel]info.child{zeroes(info.child)} ** info.len;
+            }
+            return [_]info.child{zeroes(info.child)} ** info.len;
+        },
+        .Vector => |info| {
+            return @splat(info.len, zeroes(info.child));
+        },
+        .ErrorUnion,
+        .ErrorSet,
+        .Union,
+        .Fn,
+        .BoundFn,
+        .Type,
+        .NoReturn,
+        .Undefined,
+        .Opaque,
+        .Frame,
+        .AnyFrame,
+        => {
+            @compileError("Can't set a " ++ @typeName(T) ++ " to zero.");
+        },
+    }
+}
+
+test "mem.zeroes" {
+    const C_struct = extern struct {
+        x: u32,
+        y: u32,
+    };
+
+    var a = zeroes(C_struct);
+    a.y += 10;
+
+    testing.expect(a.x == 0);
+    testing.expect(a.y == 10);
+
+    const ZigStruct = struct {
+        integral_types: struct {
+            integer_0: i0,
+            integer_8: i8,
+            integer_16: i16,
+            integer_32: i32,
+            integer_64: i64,
+            integer_128: i128,
+            unsigned_0: u0,
+            unsigned_8: u8,
+            unsigned_16: u16,
+            unsigned_32: u32,
+            unsigned_64: u64,
+            unsigned_128: u128,
+
+            float_32: f32,
+            float_64: f64,
+        },
+
+        pointers: struct {
+            optional: ?*u8,
+            c_pointer: [*c]u8,
+            slice: []u8,
+        },
+
+        array: [2]u32,
+        vector_u32: meta.Vector(2, u32),
+        vector_f32: meta.Vector(2, f32),
+        vector_bool: meta.Vector(2, bool),
+        optional_int: ?u8,
+        empty: void,
+        sentinel: [3:0]u8,
+    };
+
+    const b = zeroes(ZigStruct);
+    testing.expectEqual(@as(i8, 0), b.integral_types.integer_0);
+    testing.expectEqual(@as(i8, 0), b.integral_types.integer_8);
+    testing.expectEqual(@as(i16, 0), b.integral_types.integer_16);
+    testing.expectEqual(@as(i32, 0), b.integral_types.integer_32);
+    testing.expectEqual(@as(i64, 0), b.integral_types.integer_64);
+    testing.expectEqual(@as(i128, 0), b.integral_types.integer_128);
+    testing.expectEqual(@as(u8, 0), b.integral_types.unsigned_0);
+    testing.expectEqual(@as(u8, 0), b.integral_types.unsigned_8);
+    testing.expectEqual(@as(u16, 0), b.integral_types.unsigned_16);
+    testing.expectEqual(@as(u32, 0), b.integral_types.unsigned_32);
+    testing.expectEqual(@as(u64, 0), b.integral_types.unsigned_64);
+    testing.expectEqual(@as(u128, 0), b.integral_types.unsigned_128);
+    testing.expectEqual(@as(f32, 0), b.integral_types.float_32);
+    testing.expectEqual(@as(f64, 0), b.integral_types.float_64);
+    testing.expectEqual(@as(?*u8, null), b.pointers.optional);
+    testing.expectEqual(@as([*c]u8, null), b.pointers.c_pointer);
+    testing.expectEqual(@as([]u8, &[_]u8{}), b.pointers.slice);
+    for (b.array) |e| {
+        testing.expectEqual(@as(u32, 0), e);
+    }
+    testing.expectEqual(@splat(2, @as(u32, 0)), b.vector_u32);
+    testing.expectEqual(@splat(2, @as(f32, 0.0)), b.vector_f32);
+    testing.expectEqual(@splat(2, @as(bool, false)), b.vector_bool);
+    testing.expectEqual(@as(?u8, null), b.optional_int);
+    for (b.sentinel) |e| {
+        testing.expectEqual(@as(u8, 0), e);
+    }
+}
+
 pub fn secureZero(comptime T: type, s: []T) void {
     // NOTE: We do not use a volatile slice cast here since LLVM cannot
     // see that it can be replaced by a memset.
@@ -286,46 +516,104 @@ test "mem.secureZero" {
     testing.expectEqualSlices(u8, a[0..], b[0..]);
 }
 
-pub fn compare(comptime T: type, lhs: []const T, rhs: []const T) Compare {
+/// Initializes all fields of the struct with their default value, or zero values if no default value is present.
+/// If the field is present in the provided initial values, it will have that value instead.
+/// Structs are initialized recursively.
+pub fn zeroInit(comptime T: type, init: var) T {
+    comptime const Init = @TypeOf(init);
+
+    switch (@typeInfo(T)) {
+        .Struct => |struct_info| {
+            switch (@typeInfo(Init)) {
+                .Struct => |init_info| {
+                    var value = std.mem.zeroes(T);
+
+                    inline for (init_info.fields) |field| {
+                        if (!@hasField(T, field.name)) {
+                            @compileError("Encountered an initializer for `" ++ field.name ++ "`, but it is not a field of " ++ @typeName(T));
+                        }
+                    }
+
+                    inline for (struct_info.fields) |field| {
+                        if (@hasField(Init, field.name)) {
+                            switch (@typeInfo(field.field_type)) {
+                                .Struct => {
+                                    @field(value, field.name) = zeroInit(field.field_type, @field(init, field.name));
+                                },
+                                else => {
+                                    @field(value, field.name) = @field(init, field.name);
+                                },
+                            }
+                        } else if (field.default_value != null) {
+                            @field(value, field.name) = field.default_value;
+                        }
+                    }
+
+                    return value;
+                },
+                else => {
+                    @compileError("The initializer must be a struct");
+                },
+            }
+        },
+        else => {
+            @compileError("Can't default init a " ++ @typeName(T));
+        },
+    }
+}
+
+test "zeroInit" {
+    const I = struct {
+        d: f64,
+    };
+
+    const S = struct {
+        a: u32,
+        b: ?bool,
+        c: I,
+        e: [3]u8,
+        f: i64,
+    };
+
+    const s = zeroInit(S, .{
+        .a = 42,
+    });
+
+    testing.expectEqual(s, S{
+        .a = 42,
+        .b = null,
+        .c = .{
+            .d = 0,
+        },
+        .e = [3]u8{ 0, 0, 0 },
+        .f = 0,
+    });
+}
+
+pub fn order(comptime T: type, lhs: []const T, rhs: []const T) math.Order {
     const n = math.min(lhs.len, rhs.len);
     var i: usize = 0;
     while (i < n) : (i += 1) {
-        if (lhs[i] == rhs[i]) {
-            continue;
-        } else if (lhs[i] < rhs[i]) {
-            return Compare.LessThan;
-        } else if (lhs[i] > rhs[i]) {
-            return Compare.GreaterThan;
-        } else {
-            unreachable;
+        switch (math.order(lhs[i], rhs[i])) {
+            .eq => continue,
+            .lt => return .lt,
+            .gt => return .gt,
         }
     }
-
-    if (lhs.len == rhs.len) {
-        return Compare.Equal;
-    } else if (lhs.len < rhs.len) {
-        return Compare.LessThan;
-    } else if (lhs.len > rhs.len) {
-        return Compare.GreaterThan;
-    }
-    unreachable;
+    return math.order(lhs.len, rhs.len);
 }
 
-test "mem.compare" {
-    testing.expect(compare(u8, "abcd", "bee") == Compare.LessThan);
-    testing.expect(compare(u8, "abc", "abc") == Compare.Equal);
-    testing.expect(compare(u8, "abc", "abc0") == Compare.LessThan);
-    testing.expect(compare(u8, "", "") == Compare.Equal);
-    testing.expect(compare(u8, "", "a") == Compare.LessThan);
+test "order" {
+    testing.expect(order(u8, "abcd", "bee") == .lt);
+    testing.expect(order(u8, "abc", "abc") == .eq);
+    testing.expect(order(u8, "abc", "abc0") == .lt);
+    testing.expect(order(u8, "", "") == .eq);
+    testing.expect(order(u8, "", "a") == .lt);
 }
 
 /// Returns true if lhs < rhs, false otherwise
 pub fn lessThan(comptime T: type, lhs: []const T, rhs: []const T) bool {
-    var result = compare(T, lhs, rhs);
-    if (result == Compare.LessThan) {
-        return true;
-    } else
-        return false;
+    return order(T, lhs, rhs) == .lt;
 }
 
 test "mem.lessThan" {
@@ -346,18 +634,249 @@ pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
     return true;
 }
 
-pub fn len(comptime T: type, ptr: [*]const T) usize {
-    var count: usize = 0;
-    while (ptr[count] != 0) : (count += 1) {}
-    return count;
+/// Compares two slices and returns the index of the first inequality.
+/// Returns null if the slices are equal.
+pub fn indexOfDiff(comptime T: type, a: []const T, b: []const T) ?usize {
+    const shortest = math.min(a.len, b.len);
+    if (a.ptr == b.ptr)
+        return if (a.len == b.len) null else shortest;
+    var index: usize = 0;
+    while (index < shortest) : (index += 1) if (a[index] != b[index]) return index;
+    return if (a.len == b.len) null else shortest;
 }
 
-pub fn toSliceConst(comptime T: type, ptr: [*]const T) []const T {
-    return ptr[0..len(T, ptr)];
+test "indexOfDiff" {
+    testing.expectEqual(indexOfDiff(u8, "one", "one"), null);
+    testing.expectEqual(indexOfDiff(u8, "one two", "one"), 3);
+    testing.expectEqual(indexOfDiff(u8, "one", "one two"), 3);
+    testing.expectEqual(indexOfDiff(u8, "one twx", "one two"), 6);
+    testing.expectEqual(indexOfDiff(u8, "xne", "one"), 0);
 }
 
-pub fn toSlice(comptime T: type, ptr: [*]T) []T {
-    return ptr[0..len(T, ptr)];
+pub const toSliceConst = @compileError("deprecated; use std.mem.spanZ");
+pub const toSlice = @compileError("deprecated; use std.mem.spanZ");
+
+/// Takes a pointer to an array, a sentinel-terminated pointer, or a slice, and
+/// returns a slice. If there is a sentinel on the input type, there will be a
+/// sentinel on the output type. The constness of the output type matches
+/// the constness of the input type. `[*c]` pointers are assumed to be 0-terminated,
+/// and assumed to not allow null.
+pub fn Span(comptime T: type) type {
+    switch (@typeInfo(T)) {
+        .Optional => |optional_info| {
+            return ?Span(optional_info.child);
+        },
+        .Pointer => |ptr_info| {
+            var new_ptr_info = ptr_info;
+            switch (ptr_info.size) {
+                .One => switch (@typeInfo(ptr_info.child)) {
+                    .Array => |info| {
+                        new_ptr_info.child = info.child;
+                        new_ptr_info.sentinel = info.sentinel;
+                    },
+                    else => @compileError("invalid type given to std.mem.Span"),
+                },
+                .C => {
+                    new_ptr_info.sentinel = 0;
+                    new_ptr_info.is_allowzero = false;
+                },
+                .Many, .Slice => {},
+            }
+            new_ptr_info.size = .Slice;
+            return @Type(std.builtin.TypeInfo{ .Pointer = new_ptr_info });
+        },
+        else => @compileError("invalid type given to std.mem.Span"),
+    }
+}
+
+test "Span" {
+    testing.expect(Span(*[5]u16) == []u16);
+    testing.expect(Span(?*[5]u16) == ?[]u16);
+    testing.expect(Span(*const [5]u16) == []const u16);
+    testing.expect(Span(?*const [5]u16) == ?[]const u16);
+    testing.expect(Span([]u16) == []u16);
+    testing.expect(Span(?[]u16) == ?[]u16);
+    testing.expect(Span([]const u8) == []const u8);
+    testing.expect(Span(?[]const u8) == ?[]const u8);
+    testing.expect(Span([:1]u16) == [:1]u16);
+    testing.expect(Span(?[:1]u16) == ?[:1]u16);
+    testing.expect(Span([:1]const u8) == [:1]const u8);
+    testing.expect(Span(?[:1]const u8) == ?[:1]const u8);
+    testing.expect(Span([*:1]u16) == [:1]u16);
+    testing.expect(Span(?[*:1]u16) == ?[:1]u16);
+    testing.expect(Span([*:1]const u8) == [:1]const u8);
+    testing.expect(Span(?[*:1]const u8) == ?[:1]const u8);
+    testing.expect(Span([*c]u16) == [:0]u16);
+    testing.expect(Span(?[*c]u16) == ?[:0]u16);
+    testing.expect(Span([*c]const u8) == [:0]const u8);
+    testing.expect(Span(?[*c]const u8) == ?[:0]const u8);
+}
+
+/// Takes a pointer to an array, a sentinel-terminated pointer, or a slice, and
+/// returns a slice. If there is a sentinel on the input type, there will be a
+/// sentinel on the output type. The constness of the output type matches
+/// the constness of the input type.
+///
+/// When there is both a sentinel and an array length or slice length, the
+/// length value is used instead of the sentinel.
+pub fn span(ptr: var) Span(@TypeOf(ptr)) {
+    if (@typeInfo(@TypeOf(ptr)) == .Optional) {
+        if (ptr) |non_null| {
+            return span(non_null);
+        } else {
+            return null;
+        }
+    }
+    const Result = Span(@TypeOf(ptr));
+    const l = len(ptr);
+    if (@typeInfo(Result).Pointer.sentinel) |s| {
+        return ptr[0..l :s];
+    } else {
+        return ptr[0..l];
+    }
+}
+
+test "span" {
+    var array: [5]u16 = [_]u16{ 1, 2, 3, 4, 5 };
+    const ptr = @as([*:3]u16, array[0..2 :3]);
+    testing.expect(eql(u16, span(ptr), &[_]u16{ 1, 2 }));
+    testing.expect(eql(u16, span(&array), &[_]u16{ 1, 2, 3, 4, 5 }));
+    testing.expectEqual(@as(?[:0]u16, null), span(@as(?[*:0]u16, null)));
+}
+
+/// Same as `span`, except when there is both a sentinel and an array
+/// length or slice length, scans the memory for the sentinel value
+/// rather than using the length.
+pub fn spanZ(ptr: var) Span(@TypeOf(ptr)) {
+    if (@typeInfo(@TypeOf(ptr)) == .Optional) {
+        if (ptr) |non_null| {
+            return spanZ(non_null);
+        } else {
+            return null;
+        }
+    }
+    const Result = Span(@TypeOf(ptr));
+    const l = lenZ(ptr);
+    if (@typeInfo(Result).Pointer.sentinel) |s| {
+        return ptr[0..l :s];
+    } else {
+        return ptr[0..l];
+    }
+}
+
+test "spanZ" {
+    var array: [5]u16 = [_]u16{ 1, 2, 3, 4, 5 };
+    const ptr = @as([*:3]u16, array[0..2 :3]);
+    testing.expect(eql(u16, spanZ(ptr), &[_]u16{ 1, 2 }));
+    testing.expect(eql(u16, spanZ(&array), &[_]u16{ 1, 2, 3, 4, 5 }));
+    testing.expectEqual(@as(?[:0]u16, null), spanZ(@as(?[*:0]u16, null)));
+}
+
+/// Takes a pointer to an array, an array, a vector, a sentinel-terminated pointer,
+/// or a slice, and returns the length.
+/// In the case of a sentinel-terminated array, it uses the array length.
+/// For C pointers it assumes it is a pointer-to-many with a 0 sentinel.
+pub fn len(value: var) usize {
+    return switch (@typeInfo(@TypeOf(value))) {
+        .Array => |info| info.len,
+        .Vector => |info| info.len,
+        .Pointer => |info| switch (info.size) {
+            .One => switch (@typeInfo(info.child)) {
+                .Array => value.len,
+                else => @compileError("invalid type given to std.mem.len"),
+            },
+            .Many => if (info.sentinel) |sentinel|
+                indexOfSentinel(info.child, sentinel, value)
+            else
+                @compileError("length of pointer with no sentinel"),
+            .C => indexOfSentinel(info.child, 0, value),
+            .Slice => value.len,
+        },
+        else => @compileError("invalid type given to std.mem.len"),
+    };
+}
+
+test "len" {
+    testing.expect(len("aoeu") == 4);
+
+    {
+        var array: [5]u16 = [_]u16{ 1, 2, 3, 4, 5 };
+        testing.expect(len(&array) == 5);
+        testing.expect(len(array[0..3]) == 3);
+        array[2] = 0;
+        const ptr = @as([*:0]u16, array[0..2 :0]);
+        testing.expect(len(ptr) == 2);
+    }
+    {
+        var array: [5:0]u16 = [_:0]u16{ 1, 2, 3, 4, 5 };
+        testing.expect(len(&array) == 5);
+        array[2] = 0;
+        testing.expect(len(&array) == 5);
+    }
+    {
+        const vector: meta.Vector(2, u32) = [2]u32{ 1, 2 };
+        testing.expect(len(vector) == 2);
+    }
+}
+
+/// Takes a pointer to an array, an array, a sentinel-terminated pointer,
+/// or a slice, and returns the length.
+/// In the case of a sentinel-terminated array, it scans the array
+/// for a sentinel and uses that for the length, rather than using the array length.
+/// For C pointers it assumes it is a pointer-to-many with a 0 sentinel.
+pub fn lenZ(ptr: var) usize {
+    return switch (@typeInfo(@TypeOf(ptr))) {
+        .Array => |info| if (info.sentinel) |sentinel|
+            indexOfSentinel(info.child, sentinel, &ptr)
+        else
+            info.len,
+        .Pointer => |info| switch (info.size) {
+            .One => switch (@typeInfo(info.child)) {
+                .Array => |x| if (x.sentinel) |sentinel|
+                    indexOfSentinel(x.child, sentinel, ptr)
+                else
+                    ptr.len,
+                else => @compileError("invalid type given to std.mem.lenZ"),
+            },
+            .Many => if (info.sentinel) |sentinel|
+                indexOfSentinel(info.child, sentinel, ptr)
+            else
+                @compileError("length of pointer with no sentinel"),
+            .C => indexOfSentinel(info.child, 0, ptr),
+            .Slice => if (info.sentinel) |sentinel|
+                indexOfSentinel(info.child, sentinel, ptr.ptr)
+            else
+                ptr.len,
+        },
+        else => @compileError("invalid type given to std.mem.lenZ"),
+    };
+}
+
+test "lenZ" {
+    testing.expect(lenZ("aoeu") == 4);
+
+    {
+        var array: [5]u16 = [_]u16{ 1, 2, 3, 4, 5 };
+        testing.expect(lenZ(&array) == 5);
+        testing.expect(lenZ(array[0..3]) == 3);
+        array[2] = 0;
+        const ptr = @as([*:0]u16, array[0..2 :0]);
+        testing.expect(lenZ(ptr) == 2);
+    }
+    {
+        var array: [5:0]u16 = [_:0]u16{ 1, 2, 3, 4, 5 };
+        testing.expect(lenZ(&array) == 5);
+        array[2] = 0;
+        testing.expect(lenZ(&array) == 2);
+    }
+}
+
+pub fn indexOfSentinel(comptime Elem: type, comptime sentinel: Elem, ptr: [*:sentinel]const Elem) usize {
+    var i: usize = 0;
+    while (ptr[i] != sentinel) {
+        i += 1;
+    }
+    return i;
 }
 
 /// Returns true if all elements in a slice are equal to the scalar value provided
@@ -368,11 +887,14 @@ pub fn allEqual(comptime T: type, slice: []const T, scalar: T) bool {
     return true;
 }
 
-/// Copies ::m to newly allocated memory. Caller is responsible to free it.
+/// Deprecated, use `Allocator.dupe`.
 pub fn dupe(allocator: *Allocator, comptime T: type, m: []const T) ![]T {
-    const new_buf = try allocator.alloc(T, m.len);
-    copy(T, new_buf, m);
-    return new_buf;
+    return allocator.dupe(T, m);
+}
+
+/// Deprecated, use `Allocator.dupeZ`.
+pub fn dupeZ(allocator: *Allocator, comptime T: type, m: []const T) ![:0]T {
+    return allocator.dupeZ(T, m);
 }
 
 /// Remove values from the beginning of a slice.
@@ -505,15 +1027,15 @@ test "mem.indexOf" {
 pub fn readVarInt(comptime ReturnType: type, bytes: []const u8, endian: builtin.Endian) ReturnType {
     var result: ReturnType = 0;
     switch (endian) {
-        builtin.Endian.Big => {
+        .Big => {
             for (bytes) |b| {
                 result = (result << 8) | b;
             }
         },
-        builtin.Endian.Little => {
+        .Little => {
             const ShiftType = math.Log2Int(ReturnType);
             for (bytes) |b, index| {
-                result = result | (ReturnType(b) << @intCast(ShiftType, index * 8));
+                result = result | (@as(ReturnType, b) << @intCast(ShiftType, index * 8));
             }
         },
     }
@@ -538,13 +1060,13 @@ pub fn readIntForeign(comptime T: type, bytes: *const [@divExact(T.bit_count, 8)
 }
 
 pub const readIntLittle = switch (builtin.endian) {
-    builtin.Endian.Little => readIntNative,
-    builtin.Endian.Big => readIntForeign,
+    .Little => readIntNative,
+    .Big => readIntForeign,
 };
 
 pub const readIntBig = switch (builtin.endian) {
-    builtin.Endian.Little => readIntForeign,
-    builtin.Endian.Big => readIntNative,
+    .Little => readIntForeign,
+    .Big => readIntNative,
 };
 
 /// Asserts that bytes.len >= T.bit_count / 8. Reads the integer starting from index 0
@@ -555,8 +1077,7 @@ pub const readIntBig = switch (builtin.endian) {
 pub fn readIntSliceNative(comptime T: type, bytes: []const u8) T {
     const n = @divExact(T.bit_count, 8);
     assert(bytes.len >= n);
-    // TODO https://github.com/ziglang/zig/issues/863
-    return readIntNative(T, @ptrCast(*const [n]u8, bytes.ptr));
+    return readIntNative(T, bytes[0..n]);
 }
 
 /// Asserts that bytes.len >= T.bit_count / 8. Reads the integer starting from index 0
@@ -568,13 +1089,13 @@ pub fn readIntSliceForeign(comptime T: type, bytes: []const u8) T {
 }
 
 pub const readIntSliceLittle = switch (builtin.endian) {
-    builtin.Endian.Little => readIntSliceNative,
-    builtin.Endian.Big => readIntSliceForeign,
+    .Little => readIntSliceNative,
+    .Big => readIntSliceForeign,
 };
 
 pub const readIntSliceBig = switch (builtin.endian) {
-    builtin.Endian.Little => readIntSliceForeign,
-    builtin.Endian.Big => readIntSliceNative,
+    .Little => readIntSliceForeign,
+    .Big => readIntSliceNative,
 };
 
 /// Reads an integer from memory with bit count specified by T.
@@ -594,8 +1115,7 @@ pub fn readInt(comptime T: type, bytes: *const [@divExact(T.bit_count, 8)]u8, en
 pub fn readIntSlice(comptime T: type, bytes: []const u8, endian: builtin.Endian) T {
     const n = @divExact(T.bit_count, 8);
     assert(bytes.len >= n);
-    // TODO https://github.com/ziglang/zig/issues/863
-    return readInt(T, @ptrCast(*const [n]u8, bytes.ptr), endian);
+    return readInt(T, bytes[0..n], endian);
 }
 
 test "comptime read/write int" {
@@ -614,23 +1134,23 @@ test "comptime read/write int" {
 }
 
 test "readIntBig and readIntLittle" {
-    testing.expect(readIntSliceBig(u0, [_]u8{}) == 0x0);
-    testing.expect(readIntSliceLittle(u0, [_]u8{}) == 0x0);
+    testing.expect(readIntSliceBig(u0, &[_]u8{}) == 0x0);
+    testing.expect(readIntSliceLittle(u0, &[_]u8{}) == 0x0);
 
-    testing.expect(readIntSliceBig(u8, [_]u8{0x32}) == 0x32);
-    testing.expect(readIntSliceLittle(u8, [_]u8{0x12}) == 0x12);
+    testing.expect(readIntSliceBig(u8, &[_]u8{0x32}) == 0x32);
+    testing.expect(readIntSliceLittle(u8, &[_]u8{0x12}) == 0x12);
 
-    testing.expect(readIntSliceBig(u16, [_]u8{ 0x12, 0x34 }) == 0x1234);
-    testing.expect(readIntSliceLittle(u16, [_]u8{ 0x12, 0x34 }) == 0x3412);
+    testing.expect(readIntSliceBig(u16, &[_]u8{ 0x12, 0x34 }) == 0x1234);
+    testing.expect(readIntSliceLittle(u16, &[_]u8{ 0x12, 0x34 }) == 0x3412);
 
-    testing.expect(readIntSliceBig(u72, [_]u8{ 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0, 0x24 }) == 0x123456789abcdef024);
-    testing.expect(readIntSliceLittle(u72, [_]u8{ 0xec, 0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe }) == 0xfedcba9876543210ec);
+    testing.expect(readIntSliceBig(u72, &[_]u8{ 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0, 0x24 }) == 0x123456789abcdef024);
+    testing.expect(readIntSliceLittle(u72, &[_]u8{ 0xec, 0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe }) == 0xfedcba9876543210ec);
 
-    testing.expect(readIntSliceBig(i8, [_]u8{0xff}) == -1);
-    testing.expect(readIntSliceLittle(i8, [_]u8{0xfe}) == -2);
+    testing.expect(readIntSliceBig(i8, &[_]u8{0xff}) == -1);
+    testing.expect(readIntSliceLittle(i8, &[_]u8{0xfe}) == -2);
 
-    testing.expect(readIntSliceBig(i16, [_]u8{ 0xff, 0xfd }) == -3);
-    testing.expect(readIntSliceLittle(i16, [_]u8{ 0xfc, 0xff }) == -4);
+    testing.expect(readIntSliceBig(i16, &[_]u8{ 0xff, 0xfd }) == -3);
+    testing.expect(readIntSliceLittle(i16, &[_]u8{ 0xfc, 0xff }) == -4);
 }
 
 /// Writes an integer to memory, storing it in twos-complement.
@@ -651,13 +1171,13 @@ pub fn writeIntForeign(comptime T: type, buf: *[@divExact(T.bit_count, 8)]u8, va
 }
 
 pub const writeIntLittle = switch (builtin.endian) {
-    builtin.Endian.Little => writeIntNative,
-    builtin.Endian.Big => writeIntForeign,
+    .Little => writeIntNative,
+    .Big => writeIntForeign,
 };
 
 pub const writeIntBig = switch (builtin.endian) {
-    builtin.Endian.Little => writeIntForeign,
-    builtin.Endian.Big => writeIntNative,
+    .Little => writeIntForeign,
+    .Big => writeIntNative,
 };
 
 /// Writes an integer to memory, storing it in twos-complement.
@@ -680,8 +1200,11 @@ pub fn writeInt(comptime T: type, buffer: *[@divExact(T.bit_count, 8)]u8, value:
 pub fn writeIntSliceLittle(comptime T: type, buffer: []u8, value: T) void {
     assert(buffer.len >= @divExact(T.bit_count, 8));
 
+    if (T.bit_count == 0)
+        return set(u8, buffer, 0);
+
     // TODO I want to call writeIntLittle here but comptime eval facilities aren't good enough
-    const uint = @IntType(false, T.bit_count);
+    const uint = std.meta.Int(false, T.bit_count);
     var bits = @truncate(uint, value);
     for (buffer) |*b| {
         b.* = @truncate(u8, bits);
@@ -697,8 +1220,11 @@ pub fn writeIntSliceLittle(comptime T: type, buffer: []u8, value: T) void {
 pub fn writeIntSliceBig(comptime T: type, buffer: []u8, value: T) void {
     assert(buffer.len >= @divExact(T.bit_count, 8));
 
+    if (T.bit_count == 0)
+        return set(u8, buffer, 0);
+
     // TODO I want to call writeIntBig here but comptime eval facilities aren't good enough
-    const uint = @IntType(false, T.bit_count);
+    const uint = std.meta.Int(false, T.bit_count);
     var bits = @truncate(uint, value);
     var index: usize = buffer.len;
     while (index != 0) {
@@ -709,13 +1235,13 @@ pub fn writeIntSliceBig(comptime T: type, buffer: []u8, value: T) void {
 }
 
 pub const writeIntSliceNative = switch (builtin.endian) {
-    builtin.Endian.Little => writeIntSliceLittle,
-    builtin.Endian.Big => writeIntSliceBig,
+    .Little => writeIntSliceLittle,
+    .Big => writeIntSliceBig,
 };
 
 pub const writeIntSliceForeign = switch (builtin.endian) {
-    builtin.Endian.Little => writeIntSliceBig,
-    builtin.Endian.Big => writeIntSliceLittle,
+    .Little => writeIntSliceBig,
+    .Big => writeIntSliceLittle,
 };
 
 /// Writes a twos-complement integer to memory, with the specified endianness.
@@ -726,10 +1252,10 @@ pub const writeIntSliceForeign = switch (builtin.endian) {
 /// use writeInt instead.
 pub fn writeIntSlice(comptime T: type, buffer: []u8, value: T, endian: builtin.Endian) void {
     comptime assert(T.bit_count % 8 == 0);
-    switch (endian) {
-        builtin.Endian.Little => return writeIntSliceLittle(T, buffer, value),
-        builtin.Endian.Big => return writeIntSliceBig(T, buffer, value),
-    }
+    return switch (endian) {
+        .Little => writeIntSliceLittle(T, buffer, value),
+        .Big => writeIntSliceBig(T, buffer, value),
+    };
 }
 
 test "writeIntBig and writeIntLittle" {
@@ -739,34 +1265,34 @@ test "writeIntBig and writeIntLittle" {
     var buf9: [9]u8 = undefined;
 
     writeIntBig(u0, &buf0, 0x0);
-    testing.expect(eql(u8, buf0[0..], [_]u8{}));
+    testing.expect(eql(u8, buf0[0..], &[_]u8{}));
     writeIntLittle(u0, &buf0, 0x0);
-    testing.expect(eql(u8, buf0[0..], [_]u8{}));
+    testing.expect(eql(u8, buf0[0..], &[_]u8{}));
 
     writeIntBig(u8, &buf1, 0x12);
-    testing.expect(eql(u8, buf1[0..], [_]u8{0x12}));
+    testing.expect(eql(u8, buf1[0..], &[_]u8{0x12}));
     writeIntLittle(u8, &buf1, 0x34);
-    testing.expect(eql(u8, buf1[0..], [_]u8{0x34}));
+    testing.expect(eql(u8, buf1[0..], &[_]u8{0x34}));
 
     writeIntBig(u16, &buf2, 0x1234);
-    testing.expect(eql(u8, buf2[0..], [_]u8{ 0x12, 0x34 }));
+    testing.expect(eql(u8, buf2[0..], &[_]u8{ 0x12, 0x34 }));
     writeIntLittle(u16, &buf2, 0x5678);
-    testing.expect(eql(u8, buf2[0..], [_]u8{ 0x78, 0x56 }));
+    testing.expect(eql(u8, buf2[0..], &[_]u8{ 0x78, 0x56 }));
 
     writeIntBig(u72, &buf9, 0x123456789abcdef024);
-    testing.expect(eql(u8, buf9[0..], [_]u8{ 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0, 0x24 }));
+    testing.expect(eql(u8, buf9[0..], &[_]u8{ 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0, 0x24 }));
     writeIntLittle(u72, &buf9, 0xfedcba9876543210ec);
-    testing.expect(eql(u8, buf9[0..], [_]u8{ 0xec, 0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe }));
+    testing.expect(eql(u8, buf9[0..], &[_]u8{ 0xec, 0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe }));
 
     writeIntBig(i8, &buf1, -1);
-    testing.expect(eql(u8, buf1[0..], [_]u8{0xff}));
+    testing.expect(eql(u8, buf1[0..], &[_]u8{0xff}));
     writeIntLittle(i8, &buf1, -2);
-    testing.expect(eql(u8, buf1[0..], [_]u8{0xfe}));
+    testing.expect(eql(u8, buf1[0..], &[_]u8{0xfe}));
 
     writeIntBig(i16, &buf2, -3);
-    testing.expect(eql(u8, buf2[0..], [_]u8{ 0xff, 0xfd }));
+    testing.expect(eql(u8, buf2[0..], &[_]u8{ 0xff, 0xfd }));
     writeIntLittle(i16, &buf2, -4);
-    testing.expect(eql(u8, buf2[0..], [_]u8{ 0xfc, 0xff }));
+    testing.expect(eql(u8, buf2[0..], &[_]u8{ 0xfc, 0xff }));
 }
 
 /// Returns an iterator that iterates over the slices of `buffer` that are not
@@ -776,7 +1302,7 @@ test "writeIntBig and writeIntLittle" {
 /// If `buffer` is empty, the iterator will return null.
 /// If `delimiter_bytes` does not exist in buffer,
 /// the iterator will return `buffer`, null, in that order.
-/// See also the related function `separate`.
+/// See also the related function `split`.
 pub fn tokenize(buffer: []const u8, delimiter_bytes: []const u8) TokenIterator {
     return TokenIterator{
         .index = 0,
@@ -831,15 +1357,13 @@ test "mem.tokenize (multibyte)" {
 
 /// Returns an iterator that iterates over the slices of `buffer` that
 /// are separated by bytes in `delimiter`.
-/// separate("abc|def||ghi", "|")
+/// split("abc|def||ghi", "|")
 /// will return slices for "abc", "def", "", "ghi", null, in that order.
 /// If `delimiter` does not exist in buffer,
 /// the iterator will return `buffer`, null, in that order.
 /// The delimiter length must not be zero.
 /// See also the related function `tokenize`.
-/// It is planned to rename this function to `split` before 1.0.0, like this:
-/// pub fn split(buffer: []const u8, delimiter: []const u8) SplitIterator {
-pub fn separate(buffer: []const u8, delimiter: []const u8) SplitIterator {
+pub fn split(buffer: []const u8, delimiter: []const u8) SplitIterator {
     assert(delimiter.len != 0);
     return SplitIterator{
         .index = 0,
@@ -848,30 +1372,32 @@ pub fn separate(buffer: []const u8, delimiter: []const u8) SplitIterator {
     };
 }
 
-test "mem.separate" {
-    var it = separate("abc|def||ghi", "|");
+pub const separate = @compileError("deprecated: renamed to split (behavior remains unchanged)");
+
+test "mem.split" {
+    var it = split("abc|def||ghi", "|");
     testing.expect(eql(u8, it.next().?, "abc"));
     testing.expect(eql(u8, it.next().?, "def"));
     testing.expect(eql(u8, it.next().?, ""));
     testing.expect(eql(u8, it.next().?, "ghi"));
     testing.expect(it.next() == null);
 
-    it = separate("", "|");
+    it = split("", "|");
     testing.expect(eql(u8, it.next().?, ""));
     testing.expect(it.next() == null);
 
-    it = separate("|", "|");
+    it = split("|", "|");
     testing.expect(eql(u8, it.next().?, ""));
     testing.expect(eql(u8, it.next().?, ""));
     testing.expect(it.next() == null);
 
-    it = separate("hello", " ");
+    it = split("hello", " ");
     testing.expect(eql(u8, it.next().?, "hello"));
     testing.expect(it.next() == null);
 }
 
-test "mem.separate (multibyte)" {
-    var it = separate("a, b ,, c, d, e", ", ");
+test "mem.split (multibyte)" {
+    var it = split("a, b ,, c, d, e", ", ");
     testing.expect(eql(u8, it.next().?, "a"));
     testing.expect(eql(u8, it.next().?, "b ,"));
     testing.expect(eql(u8, it.next().?, "c"));
@@ -966,7 +1492,7 @@ pub const SplitIterator = struct {
 /// Naively combines a series of slices with a separator.
 /// Allocates memory for the result, which must be freed by the caller.
 pub fn join(allocator: *Allocator, separator: []const u8, slices: []const []const u8) ![]u8 {
-    if (slices.len == 0) return (([*]u8)(undefined))[0..0];
+    if (slices.len == 0) return &[0]u8{};
 
     const total_len = blk: {
         var sum: usize = separator.len * (slices.len - 1);
@@ -992,16 +1518,26 @@ pub fn join(allocator: *Allocator, separator: []const u8, slices: []const []cons
 }
 
 test "mem.join" {
-    var buf: [1024]u8 = undefined;
-    const a = &std.heap.FixedBufferAllocator.init(&buf).allocator;
-    testing.expect(eql(u8, try join(a, ",", [_][]const u8{ "a", "b", "c" }), "a,b,c"));
-    testing.expect(eql(u8, try join(a, ",", [_][]const u8{"a"}), "a"));
-    testing.expect(eql(u8, try join(a, ",", [_][]const u8{ "a", "", "b", "", "c" }), "a,,b,,c"));
+    {
+        const str = try join(testing.allocator, ",", &[_][]const u8{ "a", "b", "c" });
+        defer testing.allocator.free(str);
+        testing.expect(eql(u8, str, "a,b,c"));
+    }
+    {
+        const str = try join(testing.allocator, ",", &[_][]const u8{"a"});
+        defer testing.allocator.free(str);
+        testing.expect(eql(u8, str, "a"));
+    }
+    {
+        const str = try join(testing.allocator, ",", &[_][]const u8{ "a", "", "b", "", "c" });
+        defer testing.allocator.free(str);
+        testing.expect(eql(u8, str, "a,,b,,c"));
+    }
 }
 
 /// Copies each T from slices into a new slice that exactly holds all the elements.
 pub fn concat(allocator: *Allocator, comptime T: type, slices: []const []const T) ![]T {
-    if (slices.len == 0) return (([*]T)(undefined))[0..0];
+    if (slices.len == 0) return &[0]T{};
 
     const total_len = blk: {
         var sum: usize = 0;
@@ -1025,15 +1561,21 @@ pub fn concat(allocator: *Allocator, comptime T: type, slices: []const []const T
 }
 
 test "concat" {
-    var buf: [1024]u8 = undefined;
-    const a = &std.heap.FixedBufferAllocator.init(&buf).allocator;
-    testing.expect(eql(u8, try concat(a, u8, [_][]const u8{ "abc", "def", "ghi" }), "abcdefghi"));
-    testing.expect(eql(u32, try concat(a, u32, [_][]const u32{
-        [_]u32{ 0, 1 },
-        [_]u32{ 2, 3, 4 },
-        [_]u32{},
-        [_]u32{5},
-    }), [_]u32{ 0, 1, 2, 3, 4, 5 }));
+    {
+        const str = try concat(testing.allocator, u8, &[_][]const u8{ "abc", "def", "ghi" });
+        defer testing.allocator.free(str);
+        testing.expect(eql(u8, str, "abcdefghi"));
+    }
+    {
+        const str = try concat(testing.allocator, u32, &[_][]const u32{
+            &[_]u32{ 0, 1 },
+            &[_]u32{ 2, 3, 4 },
+            &[_]u32{},
+            &[_]u32{5},
+        });
+        defer testing.allocator.free(str);
+        testing.expect(eql(u32, str, &[_]u32{ 0, 1, 2, 3, 4, 5 }));
+    }
 }
 
 test "testStringEquality" {
@@ -1101,19 +1643,19 @@ fn testWriteIntImpl() void {
     var bytes: [8]u8 = undefined;
 
     writeIntSlice(u0, bytes[0..], 0, builtin.Endian.Big);
-    testing.expect(eql(u8, bytes, [_]u8{
+    testing.expect(eql(u8, &bytes, &[_]u8{
         0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00,
     }));
 
     writeIntSlice(u0, bytes[0..], 0, builtin.Endian.Little);
-    testing.expect(eql(u8, bytes, [_]u8{
+    testing.expect(eql(u8, &bytes, &[_]u8{
         0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00,
     }));
 
     writeIntSlice(u64, bytes[0..], 0x12345678CAFEBABE, builtin.Endian.Big);
-    testing.expect(eql(u8, bytes, [_]u8{
+    testing.expect(eql(u8, &bytes, &[_]u8{
         0x12,
         0x34,
         0x56,
@@ -1125,7 +1667,7 @@ fn testWriteIntImpl() void {
     }));
 
     writeIntSlice(u64, bytes[0..], 0xBEBAFECA78563412, builtin.Endian.Little);
-    testing.expect(eql(u8, bytes, [_]u8{
+    testing.expect(eql(u8, &bytes, &[_]u8{
         0x12,
         0x34,
         0x56,
@@ -1137,7 +1679,7 @@ fn testWriteIntImpl() void {
     }));
 
     writeIntSlice(u32, bytes[0..], 0x12345678, builtin.Endian.Big);
-    testing.expect(eql(u8, bytes, [_]u8{
+    testing.expect(eql(u8, &bytes, &[_]u8{
         0x00,
         0x00,
         0x00,
@@ -1149,7 +1691,7 @@ fn testWriteIntImpl() void {
     }));
 
     writeIntSlice(u32, bytes[0..], 0x78563412, builtin.Endian.Little);
-    testing.expect(eql(u8, bytes, [_]u8{
+    testing.expect(eql(u8, &bytes, &[_]u8{
         0x12,
         0x34,
         0x56,
@@ -1161,7 +1703,7 @@ fn testWriteIntImpl() void {
     }));
 
     writeIntSlice(u16, bytes[0..], 0x1234, builtin.Endian.Big);
-    testing.expect(eql(u8, bytes, [_]u8{
+    testing.expect(eql(u8, &bytes, &[_]u8{
         0x00,
         0x00,
         0x00,
@@ -1173,7 +1715,7 @@ fn testWriteIntImpl() void {
     }));
 
     writeIntSlice(u16, bytes[0..], 0x1234, builtin.Endian.Little);
-    testing.expect(eql(u8, bytes, [_]u8{
+    testing.expect(eql(u8, &bytes, &[_]u8{
         0x34,
         0x12,
         0x00,
@@ -1225,22 +1767,10 @@ pub fn reverse(comptime T: type, items: []T) void {
 }
 
 test "reverse" {
-    var arr = [_]i32{
-        5,
-        3,
-        1,
-        2,
-        4,
-    };
+    var arr = [_]i32{ 5, 3, 1, 2, 4 };
     reverse(i32, arr[0..]);
 
-    testing.expect(eql(i32, arr, [_]i32{
-        4,
-        2,
-        1,
-        3,
-        5,
-    }));
+    testing.expect(eql(i32, &arr, &[_]i32{ 4, 2, 1, 3, 5 }));
 }
 
 /// In-place rotation of the values in an array ([0 1 2 3] becomes [1 2 3 0] if we rotate by 1)
@@ -1252,100 +1782,94 @@ pub fn rotate(comptime T: type, items: []T, amount: usize) void {
 }
 
 test "rotate" {
-    var arr = [_]i32{
-        5,
-        3,
-        1,
-        2,
-        4,
-    };
+    var arr = [_]i32{ 5, 3, 1, 2, 4 };
     rotate(i32, arr[0..], 2);
 
-    testing.expect(eql(i32, arr, [_]i32{
-        1,
-        2,
-        4,
-        5,
-        3,
-    }));
+    testing.expect(eql(i32, &arr, &[_]i32{ 1, 2, 4, 5, 3 }));
 }
 
 /// Converts a little-endian integer to host endianness.
 pub fn littleToNative(comptime T: type, x: T) T {
     return switch (builtin.endian) {
-        builtin.Endian.Little => x,
-        builtin.Endian.Big => @byteSwap(T, x),
+        .Little => x,
+        .Big => @byteSwap(T, x),
     };
 }
 
 /// Converts a big-endian integer to host endianness.
 pub fn bigToNative(comptime T: type, x: T) T {
     return switch (builtin.endian) {
-        builtin.Endian.Little => @byteSwap(T, x),
-        builtin.Endian.Big => x,
+        .Little => @byteSwap(T, x),
+        .Big => x,
     };
 }
 
 /// Converts an integer from specified endianness to host endianness.
 pub fn toNative(comptime T: type, x: T, endianness_of_x: builtin.Endian) T {
     return switch (endianness_of_x) {
-        builtin.Endian.Little => littleToNative(T, x),
-        builtin.Endian.Big => bigToNative(T, x),
+        .Little => littleToNative(T, x),
+        .Big => bigToNative(T, x),
     };
 }
 
 /// Converts an integer which has host endianness to the desired endianness.
 pub fn nativeTo(comptime T: type, x: T, desired_endianness: builtin.Endian) T {
     return switch (desired_endianness) {
-        builtin.Endian.Little => nativeToLittle(T, x),
-        builtin.Endian.Big => nativeToBig(T, x),
+        .Little => nativeToLittle(T, x),
+        .Big => nativeToBig(T, x),
     };
 }
 
 /// Converts an integer which has host endianness to little endian.
 pub fn nativeToLittle(comptime T: type, x: T) T {
     return switch (builtin.endian) {
-        builtin.Endian.Little => x,
-        builtin.Endian.Big => @byteSwap(T, x),
+        .Little => x,
+        .Big => @byteSwap(T, x),
     };
 }
 
 /// Converts an integer which has host endianness to big endian.
 pub fn nativeToBig(comptime T: type, x: T) T {
     return switch (builtin.endian) {
-        builtin.Endian.Little => @byteSwap(T, x),
-        builtin.Endian.Big => x,
+        .Little => @byteSwap(T, x),
+        .Big => x,
     };
 }
 
 fn AsBytesReturnType(comptime P: type) type {
-    if (comptime !trait.isSingleItemPtr(P))
-        @compileError("expected single item " ++ "pointer, passed " ++ @typeName(P));
+    if (!trait.isSingleItemPtr(P))
+        @compileError("expected single item pointer, passed " ++ @typeName(P));
 
-    const size = usize(@sizeOf(meta.Child(P)));
-    const alignment = comptime meta.alignment(P);
+    const size = @sizeOf(meta.Child(P));
+    const alignment = meta.alignment(P);
 
-    if (comptime trait.isConstPtr(P))
+    if (alignment == 0) {
+        if (trait.isConstPtr(P))
+            return *const [size]u8;
+        return *[size]u8;
+    }
+
+    if (trait.isConstPtr(P))
         return *align(alignment) const [size]u8;
     return *align(alignment) [size]u8;
 }
 
-///Given a pointer to a single item, returns a slice of the underlying bytes, preserving constness.
-pub fn asBytes(ptr: var) AsBytesReturnType(@typeOf(ptr)) {
-    const P = @typeOf(ptr);
+/// Given a pointer to a single item, returns a slice of the underlying bytes, preserving constness.
+pub fn asBytes(ptr: var) AsBytesReturnType(@TypeOf(ptr)) {
+    const P = @TypeOf(ptr);
     return @ptrCast(AsBytesReturnType(P), ptr);
 }
 
 test "asBytes" {
-    const deadbeef = u32(0xDEADBEEF);
+    const deadbeef = @as(u32, 0xDEADBEEF);
     const deadbeef_bytes = switch (builtin.endian) {
-        builtin.Endian.Big => "\xDE\xAD\xBE\xEF",
-        builtin.Endian.Little => "\xEF\xBE\xAD\xDE",
+        .Big => "\xDE\xAD\xBE\xEF",
+        .Little => "\xEF\xBE\xAD\xDE",
     };
 
     testing.expect(eql(u8, asBytes(&deadbeef), deadbeef_bytes));
 
-    var codeface = u32(0xC0DEFACE);
+    var codeface = @as(u32, 0xC0DEFACE);
     for (asBytes(&codeface).*) |*b|
         b.* = 0;
     testing.expect(codeface == 0);
@@ -1364,32 +1888,39 @@ test "asBytes" {
         .d = 0xA1,
     };
     testing.expect(eql(u8, asBytes(&inst), "\xBE\xEF\xDE\xA1"));
+
+    const ZST = struct {};
+    const zero = ZST{};
+    testing.expect(eql(u8, asBytes(&zero), ""));
 }
 
 ///Given any value, returns a copy of its bytes in an array.
-pub fn toBytes(value: var) [@sizeOf(@typeOf(value))]u8 {
+pub fn toBytes(value: var) [@sizeOf(@TypeOf(value))]u8 {
     return asBytes(&value).*;
 }
 
 test "toBytes" {
-    var my_bytes = toBytes(u32(0x12345678));
+    var my_bytes = toBytes(@as(u32, 0x12345678));
     switch (builtin.endian) {
-        builtin.Endian.Big => testing.expect(eql(u8, my_bytes, "\x12\x34\x56\x78")),
-        builtin.Endian.Little => testing.expect(eql(u8, my_bytes, "\x78\x56\x34\x12")),
+        .Big => testing.expect(eql(u8, &my_bytes, "\x12\x34\x56\x78")),
+        .Little => testing.expect(eql(u8, &my_bytes, "\x78\x56\x34\x12")),
     }
 
     my_bytes[0] = '\x99';
     switch (builtin.endian) {
-        builtin.Endian.Big => testing.expect(eql(u8, my_bytes, "\x99\x34\x56\x78")),
-        builtin.Endian.Little => testing.expect(eql(u8, my_bytes, "\x99\x56\x34\x12")),
+        .Big => testing.expect(eql(u8, &my_bytes, "\x99\x34\x56\x78")),
+        .Little => testing.expect(eql(u8, &my_bytes, "\x99\x56\x34\x12")),
     }
 }
 
 fn BytesAsValueReturnType(comptime T: type, comptime B: type) type {
-    const size = usize(@sizeOf(T));
+    const size = @as(usize, @sizeOf(T));
 
-    if (comptime !trait.is(builtin.TypeId.Pointer)(B) or meta.Child(B) != [size]u8) {
-        @compileError("expected *[N]u8 " ++ ", passed " ++ @typeName(B));
+    if (comptime !trait.is(.Pointer)(B) or
+        (meta.Child(B) != [size]u8 and meta.Child(B) != [size:0]u8))
+    {
+        comptime var buf: [100]u8 = undefined;
+        @compileError(std.fmt.bufPrint(&buf, "expected *[{}]u8, passed " ++ @typeName(B), .{size}) catch unreachable);
     }
 
     const alignment = comptime meta.alignment(B);
@@ -1399,23 +1930,23 @@ fn BytesAsValueReturnType(comptime T: type, comptime B: type) type {
 
 ///Given a pointer to an array of bytes, returns a pointer to a value of the specified type
 /// backed by those bytes, preserving constness.
-pub fn bytesAsValue(comptime T: type, bytes: var) BytesAsValueReturnType(T, @typeOf(bytes)) {
-    return @ptrCast(BytesAsValueReturnType(T, @typeOf(bytes)), bytes);
+pub fn bytesAsValue(comptime T: type, bytes: var) BytesAsValueReturnType(T, @TypeOf(bytes)) {
+    return @ptrCast(BytesAsValueReturnType(T, @TypeOf(bytes)), bytes);
 }
 
 test "bytesAsValue" {
-    const deadbeef = u32(0xDEADBEEF);
+    const deadbeef = @as(u32, 0xDEADBEEF);
     const deadbeef_bytes = switch (builtin.endian) {
-        builtin.Endian.Big => "\xDE\xAD\xBE\xEF",
-        builtin.Endian.Little => "\xEF\xBE\xAD\xDE",
+        .Big => "\xDE\xAD\xBE\xEF",
+        .Little => "\xEF\xBE\xAD\xDE",
     };
 
-    testing.expect(deadbeef == bytesAsValue(u32, &deadbeef_bytes).*);
+    testing.expect(deadbeef == bytesAsValue(u32, deadbeef_bytes).*);
 
-    var codeface_bytes = switch (builtin.endian) {
-        builtin.Endian.Big => "\xC0\xDE\xFA\xCE",
-        builtin.Endian.Little => "\xCE\xFA\xDE\xC0",
-    };
+    var codeface_bytes: [4]u8 = switch (builtin.endian) {
+        .Big => "\xC0\xDE\xFA\xCE",
+        .Little => "\xCE\xFA\xDE\xC0",
+    }.*;
     var codeface = bytesAsValue(u32, &codeface_bytes);
     testing.expect(codeface.* == 0xC0DEFACE);
     codeface.* = 0;
@@ -1436,57 +1967,212 @@ test "bytesAsValue" {
         .d = 0xA1,
     };
     const inst_bytes = "\xBE\xEF\xDE\xA1";
-    const inst2 = bytesAsValue(S, &inst_bytes);
+    const inst2 = bytesAsValue(S, inst_bytes);
     testing.expect(meta.eql(inst, inst2.*));
 }
 
 ///Given a pointer to an array of bytes, returns a value of the specified type backed by a
 /// copy of those bytes.
 pub fn bytesToValue(comptime T: type, bytes: var) T {
-    return bytesAsValue(T, &bytes).*;
+    return bytesAsValue(T, bytes).*;
 }
 test "bytesToValue" {
     const deadbeef_bytes = switch (builtin.endian) {
-        builtin.Endian.Big => "\xDE\xAD\xBE\xEF",
-        builtin.Endian.Little => "\xEF\xBE\xAD\xDE",
+        .Big => "\xDE\xAD\xBE\xEF",
+        .Little => "\xEF\xBE\xAD\xDE",
     };
 
     const deadbeef = bytesToValue(u32, deadbeef_bytes);
-    testing.expect(deadbeef == u32(0xDEADBEEF));
+    testing.expect(deadbeef == @as(u32, 0xDEADBEEF));
 }
 
-fn SubArrayPtrReturnType(comptime T: type, comptime length: usize) type {
-    if (trait.isConstPtr(T))
-        return *const [length]meta.Child(meta.Child(T));
-    return *[length]meta.Child(meta.Child(T));
+//TODO copy also is_volatile, etc. I tried to use @typeInfo, modify child type, use @Type, but ran into issues.
+fn BytesAsSliceReturnType(comptime T: type, comptime bytesType: type) type {
+    if (!(trait.isSlice(bytesType) and meta.Child(bytesType) == u8) and !(trait.isPtrTo(.Array)(bytesType) and meta.Child(meta.Child(bytesType)) == u8)) {
+        @compileError("expected []u8 or *[_]u8, passed " ++ @typeName(bytesType));
+    }
+
+    if (trait.isPtrTo(.Array)(bytesType) and @typeInfo(meta.Child(bytesType)).Array.len % @sizeOf(T) != 0) {
+        @compileError("number of bytes in " ++ @typeName(bytesType) ++ " is not divisible by size of " ++ @typeName(T));
+    }
+
+    const alignment = meta.alignment(bytesType);
+
+    return if (trait.isConstPtr(bytesType)) []align(alignment) const T else []align(alignment) T;
 }
 
-///Given a pointer to an array, returns a pointer to a portion of that array, preserving constness.
-pub fn subArrayPtr(ptr: var, comptime start: usize, comptime length: usize) SubArrayPtrReturnType(@typeOf(ptr), length) {
-    assert(start + length <= ptr.*.len);
+pub fn bytesAsSlice(comptime T: type, bytes: var) BytesAsSliceReturnType(T, @TypeOf(bytes)) {
+    // let's not give an undefined pointer to @ptrCast
+    // it may be equal to zero and fail a null check
+    if (bytes.len == 0) {
+        return &[0]T{};
+    }
 
-    const ReturnType = SubArrayPtrReturnType(@typeOf(ptr), length);
-    const T = meta.Child(meta.Child(@typeOf(ptr)));
-    return @ptrCast(ReturnType, &ptr[start]);
+    const Bytes = @TypeOf(bytes);
+    const alignment = comptime meta.alignment(Bytes);
+
+    const cast_target = if (comptime trait.isConstPtr(Bytes)) [*]align(alignment) const T else [*]align(alignment) T;
+
+    return @ptrCast(cast_target, bytes)[0..@divExact(bytes.len, @sizeOf(T))];
 }
 
-test "subArrayPtr" {
-    const a1 = "abcdef";
-    const sub1 = subArrayPtr(&a1, 2, 3);
-    testing.expect(eql(u8, sub1.*, "cde"));
+test "bytesAsSlice" {
+    {
+        const bytes = [_]u8{ 0xDE, 0xAD, 0xBE, 0xEF };
+        const slice = bytesAsSlice(u16, bytes[0..]);
+        testing.expect(slice.len == 2);
+        testing.expect(bigToNative(u16, slice[0]) == 0xDEAD);
+        testing.expect(bigToNative(u16, slice[1]) == 0xBEEF);
+    }
+    {
+        const bytes = [_]u8{ 0xDE, 0xAD, 0xBE, 0xEF };
+        var runtime_zero: usize = 0;
+        const slice = bytesAsSlice(u16, bytes[runtime_zero..]);
+        testing.expect(slice.len == 2);
+        testing.expect(bigToNative(u16, slice[0]) == 0xDEAD);
+        testing.expect(bigToNative(u16, slice[1]) == 0xBEEF);
+    }
+}
 
-    var a2 = "abcdef";
-    var sub2 = subArrayPtr(&a2, 2, 3);
+test "bytesAsSlice keeps pointer alignment" {
+    {
+        var bytes = [_]u8{ 0x01, 0x02, 0x03, 0x04 };
+        const numbers = bytesAsSlice(u32, bytes[0..]);
+        comptime testing.expect(@TypeOf(numbers) == []align(@alignOf(@TypeOf(bytes))) u32);
+    }
+    {
+        var bytes = [_]u8{ 0x01, 0x02, 0x03, 0x04 };
+        var runtime_zero: usize = 0;
+        const numbers = bytesAsSlice(u32, bytes[runtime_zero..]);
+        comptime testing.expect(@TypeOf(numbers) == []align(@alignOf(@TypeOf(bytes))) u32);
+    }
+}
 
-    testing.expect(eql(u8, sub2, "cde"));
-    sub2[1] = 'X';
-    testing.expect(eql(u8, a2, "abcXef"));
+test "bytesAsSlice on a packed struct" {
+    const F = packed struct {
+        a: u8,
+    };
+
+    var b = [1]u8{9};
+    var f = bytesAsSlice(F, &b);
+    testing.expect(f[0].a == 9);
+}
+
+test "bytesAsSlice with specified alignment" {
+    var bytes align(4) = [_]u8{
+        0x33,
+        0x33,
+        0x33,
+        0x33,
+    };
+    const slice: []u32 = std.mem.bytesAsSlice(u32, bytes[0..]);
+    testing.expect(slice[0] == 0x33333333);
+}
+
+//TODO copy also is_volatile, etc. I tried to use @typeInfo, modify child type, use @Type, but ran into issues.
+fn SliceAsBytesReturnType(comptime sliceType: type) type {
+    if (!trait.isSlice(sliceType) and !trait.isPtrTo(.Array)(sliceType)) {
+        @compileError("expected []T or *[_]T, passed " ++ @typeName(sliceType));
+    }
+
+    const alignment = meta.alignment(sliceType);
+
+    return if (trait.isConstPtr(sliceType)) []align(alignment) const u8 else []align(alignment) u8;
+}
+
+pub fn sliceAsBytes(slice: var) SliceAsBytesReturnType(@TypeOf(slice)) {
+    const Slice = @TypeOf(slice);
+
+    // let's not give an undefined pointer to @ptrCast
+    // it may be equal to zero and fail a null check
+    if (slice.len == 0 and comptime meta.sentinel(Slice) == null) {
+        return &[0]u8{};
+    }
+
+    const alignment = comptime meta.alignment(Slice);
+
+    const cast_target = if (comptime trait.isConstPtr(Slice)) [*]align(alignment) const u8 else [*]align(alignment) u8;
+
+    return @ptrCast(cast_target, slice)[0 .. slice.len * @sizeOf(meta.Elem(Slice))];
+}
+
+test "sliceAsBytes" {
+    const bytes = [_]u16{ 0xDEAD, 0xBEEF };
+    const slice = sliceAsBytes(bytes[0..]);
+    testing.expect(slice.len == 4);
+    testing.expect(eql(u8, slice, switch (builtin.endian) {
+        .Big => "\xDE\xAD\xBE\xEF",
+        .Little => "\xAD\xDE\xEF\xBE",
+    }));
+}
+
+test "sliceAsBytes with sentinel slice" {
+    const empty_string: [:0]const u8 = "";
+    const bytes = sliceAsBytes(empty_string);
+    testing.expect(bytes.len == 0);
+}
+
+test "sliceAsBytes packed struct at runtime and comptime" {
+    const Foo = packed struct {
+        a: u4,
+        b: u4,
+    };
+    const S = struct {
+        fn doTheTest() void {
+            var foo: Foo = undefined;
+            var slice = sliceAsBytes(@as(*[1]Foo, &foo)[0..1]);
+            slice[0] = 0x13;
+            switch (builtin.endian) {
+                .Big => {
+                    testing.expect(foo.a == 0x1);
+                    testing.expect(foo.b == 0x3);
+                },
+                .Little => {
+                    testing.expect(foo.a == 0x3);
+                    testing.expect(foo.b == 0x1);
+                },
+            }
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "sliceAsBytes and bytesAsSlice back" {
+    testing.expect(@sizeOf(i32) == 4);
+
+    var big_thing_array = [_]i32{ 1, 2, 3, 4 };
+    const big_thing_slice: []i32 = big_thing_array[0..];
+
+    const bytes = sliceAsBytes(big_thing_slice);
+    testing.expect(bytes.len == 4 * 4);
+
+    bytes[4] = 0;
+    bytes[5] = 0;
+    bytes[6] = 0;
+    bytes[7] = 0;
+    testing.expect(big_thing_slice[1] == 0);
+
+    const big_thing_again = bytesAsSlice(i32, bytes);
+    testing.expect(big_thing_again[2] == 3);
+
+    big_thing_again[2] = -1;
+    testing.expect(bytes[8] == math.maxInt(u8));
+    testing.expect(bytes[9] == math.maxInt(u8));
+    testing.expect(bytes[10] == math.maxInt(u8));
+    testing.expect(bytes[11] == math.maxInt(u8));
 }
 
 /// Round an address up to the nearest aligned address
 /// The alignment must be a power of 2 and greater than 0.
 pub fn alignForward(addr: usize, alignment: usize) usize {
-    return alignBackward(addr + (alignment - 1), alignment);
+    return alignForwardGeneric(usize, addr, alignment);
+}
+
+/// Round an address up to the nearest aligned address
+/// The alignment must be a power of 2 and greater than 0.
+pub fn alignForwardGeneric(comptime T: type, addr: T, alignment: T) T {
+    return alignBackwardGeneric(T, addr + (alignment - 1), alignment);
 }
 
 test "alignForward" {
@@ -1507,8 +2193,14 @@ test "alignForward" {
 /// Round an address up to the previous aligned address
 /// The alignment must be a power of 2 and greater than 0.
 pub fn alignBackward(addr: usize, alignment: usize) usize {
-    assert(@popCount(usize, alignment) == 1);
-    // 000010000 // example addr
+    return alignBackwardGeneric(usize, addr, alignment);
+}
+
+/// Round an address up to the previous aligned address
+/// The alignment must be a power of 2 and greater than 0.
+pub fn alignBackwardGeneric(comptime T: type, addr: T, alignment: T) T {
+    assert(@popCount(T, alignment) == 1);
+    // 000010000 // example alignment
     // 000001111 // subtract 1
     // 111110000 // binary not
     return addr & ~(alignment - 1);
@@ -1517,7 +2209,11 @@ pub fn alignBackward(addr: usize, alignment: usize) usize {
 /// Given an address and an alignment, return true if the address is a multiple of the alignment
 /// The alignment must be a power of 2 and greater than 0.
 pub fn isAligned(addr: usize, alignment: usize) bool {
-    return alignBackward(addr, alignment) == addr;
+    return isAlignedGeneric(u64, addr, alignment);
+}
+
+pub fn isAlignedGeneric(comptime T: type, addr: T, alignment: T) bool {
+    return alignBackwardGeneric(T, addr, alignment) == addr;
 }
 
 test "isAligned" {
@@ -1534,4 +2230,9 @@ test "isAligned" {
     testing.expect(isAligned(4, 1));
     testing.expect(!isAligned(4, 8));
     testing.expect(!isAligned(4, 16));
+}
+
+test "freeing empty string with null-terminated sentinel" {
+    const empty_string = try dupeZ(testing.allocator, u8, "");
+    testing.allocator.free(empty_string);
 }

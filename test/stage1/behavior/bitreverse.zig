@@ -46,24 +46,24 @@ fn testBitReverse() void {
     expect(@bitReverse(u128, num128) == 0x818e868a828c84888f7b3d591e6a2c48);
 
     // using comptime_ints, signed, positive
-    expect(@bitReverse(u8, u8(0)) == 0);
-    expect(@bitReverse(i8, @bitCast(i8, u8(0x92))) == @bitCast(i8, u8(0x49)));
-    expect(@bitReverse(i16, @bitCast(i16, u16(0x1234))) == @bitCast(i16, u16(0x2c48)));
-    expect(@bitReverse(i24, @bitCast(i24, u24(0x123456))) == @bitCast(i24, u24(0x6a2c48)));
-    expect(@bitReverse(i32, @bitCast(i32, u32(0x12345678))) == @bitCast(i32, u32(0x1e6a2c48)));
-    expect(@bitReverse(i40, @bitCast(i40, u40(0x123456789a))) == @bitCast(i40, u40(0x591e6a2c48)));
-    expect(@bitReverse(i48, @bitCast(i48, u48(0x123456789abc))) == @bitCast(i48, u48(0x3d591e6a2c48)));
-    expect(@bitReverse(i56, @bitCast(i56, u56(0x123456789abcde))) == @bitCast(i56, u56(0x7b3d591e6a2c48)));
-    expect(@bitReverse(i64, @bitCast(i64, u64(0x123456789abcdef1))) == @bitCast(i64, u64(0x8f7b3d591e6a2c48)));
-    expect(@bitReverse(i128, @bitCast(i128, u128(0x123456789abcdef11121314151617181))) == @bitCast(i128, u128(0x818e868a828c84888f7b3d591e6a2c48)));
+    expect(@bitReverse(u8, @as(u8, 0)) == 0);
+    expect(@bitReverse(i8, @bitCast(i8, @as(u8, 0x92))) == @bitCast(i8, @as(u8, 0x49)));
+    expect(@bitReverse(i16, @bitCast(i16, @as(u16, 0x1234))) == @bitCast(i16, @as(u16, 0x2c48)));
+    expect(@bitReverse(i24, @bitCast(i24, @as(u24, 0x123456))) == @bitCast(i24, @as(u24, 0x6a2c48)));
+    expect(@bitReverse(i32, @bitCast(i32, @as(u32, 0x12345678))) == @bitCast(i32, @as(u32, 0x1e6a2c48)));
+    expect(@bitReverse(i40, @bitCast(i40, @as(u40, 0x123456789a))) == @bitCast(i40, @as(u40, 0x591e6a2c48)));
+    expect(@bitReverse(i48, @bitCast(i48, @as(u48, 0x123456789abc))) == @bitCast(i48, @as(u48, 0x3d591e6a2c48)));
+    expect(@bitReverse(i56, @bitCast(i56, @as(u56, 0x123456789abcde))) == @bitCast(i56, @as(u56, 0x7b3d591e6a2c48)));
+    expect(@bitReverse(i64, @bitCast(i64, @as(u64, 0x123456789abcdef1))) == @bitCast(i64, @as(u64, 0x8f7b3d591e6a2c48)));
+    expect(@bitReverse(i128, @bitCast(i128, @as(u128, 0x123456789abcdef11121314151617181))) == @bitCast(i128, @as(u128, 0x818e868a828c84888f7b3d591e6a2c48)));
 
     // using signed, negative. Compare to runtime ints returned from llvm.
     var neg8: i8 = -18;
-    expect(@bitReverse(i8, i8(-18)) == @bitReverse(i8, neg8));
+    expect(@bitReverse(i8, @as(i8, -18)) == @bitReverse(i8, neg8));
     var neg16: i16 = -32694;
-    expect(@bitReverse(i16, i16(-32694)) == @bitReverse(i16, neg16));
+    expect(@bitReverse(i16, @as(i16, -32694)) == @bitReverse(i16, neg16));
     var neg24: i24 = -6773785;
-    expect(@bitReverse(i24, i24(-6773785)) == @bitReverse(i24, neg24));
+    expect(@bitReverse(i24, @as(i24, -6773785)) == @bitReverse(i24, neg24));
     var neg32: i32 = -16773785;
-    expect(@bitReverse(i32, i32(-16773785)) == @bitReverse(i32, neg32));
+    expect(@bitReverse(i32, @as(i32, -16773785)) == @bitReverse(i32, neg32));
 }

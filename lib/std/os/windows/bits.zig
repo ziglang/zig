@@ -5,8 +5,8 @@ const std = @import("../../std.zig");
 const assert = std.debug.assert;
 const maxInt = std.math.maxInt;
 
-pub const ERROR = @import("error.zig");
-pub const STATUS = @import("status.zig");
+pub usingnamespace @import("win32error.zig");
+pub usingnamespace @import("ntstatus.zig");
 pub const LANG = @import("lang.zig");
 pub const SUBLANG = @import("sublang.zig");
 
@@ -19,32 +19,38 @@ pub const STD_OUTPUT_HANDLE = maxInt(DWORD) - 11 + 1;
 /// The standard error device. Initially, this is the active console screen buffer, CONOUT$.
 pub const STD_ERROR_HANDLE = maxInt(DWORD) - 12 + 1;
 
-pub const SHORT = c_short;
 pub const BOOL = c_int;
 pub const BOOLEAN = BYTE;
 pub const BYTE = u8;
 pub const CHAR = u8;
-pub const DWORD = u32;
+pub const UCHAR = u8;
 pub const FLOAT = f32;
 pub const HANDLE = *c_void;
 pub const HCRYPTPROV = ULONG_PTR;
-pub const HINSTANCE = *@OpaqueType();
-pub const HMODULE = *@OpaqueType();
-pub const FARPROC = *@OpaqueType();
+pub const HBRUSH = *@Type(.Opaque);
+pub const HCURSOR = *@Type(.Opaque);
+pub const HICON = *@Type(.Opaque);
+pub const HINSTANCE = *@Type(.Opaque);
+pub const HMENU = *@Type(.Opaque);
+pub const HMODULE = *@Type(.Opaque);
+pub const HWND = *@Type(.Opaque);
+pub const HDC = *@Type(.Opaque);
+pub const HGLRC = *@Type(.Opaque);
+pub const FARPROC = *@Type(.Opaque);
 pub const INT = c_int;
 pub const LPBYTE = *BYTE;
 pub const LPCH = *CHAR;
-pub const LPCSTR = [*]const CHAR;
-pub const LPCTSTR = [*]const TCHAR;
+pub const LPCSTR = [*:0]const CHAR;
+pub const LPCTSTR = [*:0]const TCHAR;
 pub const LPCVOID = *const c_void;
 pub const LPDWORD = *DWORD;
-pub const LPSTR = [*]CHAR;
+pub const LPSTR = [*:0]CHAR;
 pub const LPTSTR = if (UNICODE) LPWSTR else LPSTR;
 pub const LPVOID = *c_void;
-pub const LPWSTR = [*]WCHAR;
-pub const LPCWSTR = [*]const WCHAR;
+pub const LPWSTR = [*:0]WCHAR;
+pub const LPCWSTR = [*:0]const WCHAR;
 pub const PVOID = *c_void;
-pub const PWSTR = [*]WCHAR;
+pub const PWSTR = [*:0]WCHAR;
 pub const SIZE_T = usize;
 pub const TCHAR = if (UNICODE) WCHAR else u8;
 pub const UINT = c_uint;
@@ -53,23 +59,138 @@ pub const DWORD_PTR = ULONG_PTR;
 pub const UNICODE = false;
 pub const WCHAR = u16;
 pub const WORD = u16;
+pub const DWORD = u32;
+pub const DWORD64 = u64;
 pub const LARGE_INTEGER = i64;
+pub const ULARGE_INTEGER = u64;
+pub const USHORT = u16;
+pub const SHORT = i16;
 pub const ULONG = u32;
 pub const LONG = i32;
 pub const ULONGLONG = u64;
 pub const LONGLONG = i64;
 pub const HLOCAL = HANDLE;
 pub const LANGID = c_ushort;
-pub const NTSTATUS = ULONG;
 
-pub const va_list = *@OpaqueType();
+pub const WPARAM = usize;
+pub const LPARAM = ?*c_void;
+pub const LRESULT = ?*c_void;
+
+pub const va_list = *@Type(.Opaque);
 
 pub const TRUE = 1;
 pub const FALSE = 0;
 
+pub const DEVICE_TYPE = ULONG;
+pub const FILE_DEVICE_BEEP: DEVICE_TYPE = 0x0001;
+pub const FILE_DEVICE_CD_ROM: DEVICE_TYPE = 0x0002;
+pub const FILE_DEVICE_CD_ROM_FILE_SYSTEM: DEVICE_TYPE = 0x0003;
+pub const FILE_DEVICE_CONTROLLER: DEVICE_TYPE = 0x0004;
+pub const FILE_DEVICE_DATALINK: DEVICE_TYPE = 0x0005;
+pub const FILE_DEVICE_DFS: DEVICE_TYPE = 0x0006;
+pub const FILE_DEVICE_DISK: DEVICE_TYPE = 0x0007;
+pub const FILE_DEVICE_DISK_FILE_SYSTEM: DEVICE_TYPE = 0x0008;
+pub const FILE_DEVICE_FILE_SYSTEM: DEVICE_TYPE = 0x0009;
+pub const FILE_DEVICE_INPORT_PORT: DEVICE_TYPE = 0x000a;
+pub const FILE_DEVICE_KEYBOARD: DEVICE_TYPE = 0x000b;
+pub const FILE_DEVICE_MAILSLOT: DEVICE_TYPE = 0x000c;
+pub const FILE_DEVICE_MIDI_IN: DEVICE_TYPE = 0x000d;
+pub const FILE_DEVICE_MIDI_OUT: DEVICE_TYPE = 0x000e;
+pub const FILE_DEVICE_MOUSE: DEVICE_TYPE = 0x000f;
+pub const FILE_DEVICE_MULTI_UNC_PROVIDER: DEVICE_TYPE = 0x0010;
+pub const FILE_DEVICE_NAMED_PIPE: DEVICE_TYPE = 0x0011;
+pub const FILE_DEVICE_NETWORK: DEVICE_TYPE = 0x0012;
+pub const FILE_DEVICE_NETWORK_BROWSER: DEVICE_TYPE = 0x0013;
+pub const FILE_DEVICE_NETWORK_FILE_SYSTEM: DEVICE_TYPE = 0x0014;
+pub const FILE_DEVICE_NULL: DEVICE_TYPE = 0x0015;
+pub const FILE_DEVICE_PARALLEL_PORT: DEVICE_TYPE = 0x0016;
+pub const FILE_DEVICE_PHYSICAL_NETCARD: DEVICE_TYPE = 0x0017;
+pub const FILE_DEVICE_PRINTER: DEVICE_TYPE = 0x0018;
+pub const FILE_DEVICE_SCANNER: DEVICE_TYPE = 0x0019;
+pub const FILE_DEVICE_SERIAL_MOUSE_PORT: DEVICE_TYPE = 0x001a;
+pub const FILE_DEVICE_SERIAL_PORT: DEVICE_TYPE = 0x001b;
+pub const FILE_DEVICE_SCREEN: DEVICE_TYPE = 0x001c;
+pub const FILE_DEVICE_SOUND: DEVICE_TYPE = 0x001d;
+pub const FILE_DEVICE_STREAMS: DEVICE_TYPE = 0x001e;
+pub const FILE_DEVICE_TAPE: DEVICE_TYPE = 0x001f;
+pub const FILE_DEVICE_TAPE_FILE_SYSTEM: DEVICE_TYPE = 0x0020;
+pub const FILE_DEVICE_TRANSPORT: DEVICE_TYPE = 0x0021;
+pub const FILE_DEVICE_UNKNOWN: DEVICE_TYPE = 0x0022;
+pub const FILE_DEVICE_VIDEO: DEVICE_TYPE = 0x0023;
+pub const FILE_DEVICE_VIRTUAL_DISK: DEVICE_TYPE = 0x0024;
+pub const FILE_DEVICE_WAVE_IN: DEVICE_TYPE = 0x0025;
+pub const FILE_DEVICE_WAVE_OUT: DEVICE_TYPE = 0x0026;
+pub const FILE_DEVICE_8042_PORT: DEVICE_TYPE = 0x0027;
+pub const FILE_DEVICE_NETWORK_REDIRECTOR: DEVICE_TYPE = 0x0028;
+pub const FILE_DEVICE_BATTERY: DEVICE_TYPE = 0x0029;
+pub const FILE_DEVICE_BUS_EXTENDER: DEVICE_TYPE = 0x002a;
+pub const FILE_DEVICE_MODEM: DEVICE_TYPE = 0x002b;
+pub const FILE_DEVICE_VDM: DEVICE_TYPE = 0x002c;
+pub const FILE_DEVICE_MASS_STORAGE: DEVICE_TYPE = 0x002d;
+pub const FILE_DEVICE_SMB: DEVICE_TYPE = 0x002e;
+pub const FILE_DEVICE_KS: DEVICE_TYPE = 0x002f;
+pub const FILE_DEVICE_CHANGER: DEVICE_TYPE = 0x0030;
+pub const FILE_DEVICE_SMARTCARD: DEVICE_TYPE = 0x0031;
+pub const FILE_DEVICE_ACPI: DEVICE_TYPE = 0x0032;
+pub const FILE_DEVICE_DVD: DEVICE_TYPE = 0x0033;
+pub const FILE_DEVICE_FULLSCREEN_VIDEO: DEVICE_TYPE = 0x0034;
+pub const FILE_DEVICE_DFS_FILE_SYSTEM: DEVICE_TYPE = 0x0035;
+pub const FILE_DEVICE_DFS_VOLUME: DEVICE_TYPE = 0x0036;
+pub const FILE_DEVICE_SERENUM: DEVICE_TYPE = 0x0037;
+pub const FILE_DEVICE_TERMSRV: DEVICE_TYPE = 0x0038;
+pub const FILE_DEVICE_KSEC: DEVICE_TYPE = 0x0039;
+pub const FILE_DEVICE_FIPS: DEVICE_TYPE = 0x003a;
+pub const FILE_DEVICE_INFINIBAND: DEVICE_TYPE = 0x003b;
+// TODO: missing values?
+pub const FILE_DEVICE_VMBUS: DEVICE_TYPE = 0x003e;
+pub const FILE_DEVICE_CRYPT_PROVIDER: DEVICE_TYPE = 0x003f;
+pub const FILE_DEVICE_WPD: DEVICE_TYPE = 0x0040;
+pub const FILE_DEVICE_BLUETOOTH: DEVICE_TYPE = 0x0041;
+pub const FILE_DEVICE_MT_COMPOSITE: DEVICE_TYPE = 0x0042;
+pub const FILE_DEVICE_MT_TRANSPORT: DEVICE_TYPE = 0x0043;
+pub const FILE_DEVICE_BIOMETRIC: DEVICE_TYPE = 0x0044;
+pub const FILE_DEVICE_PMI: DEVICE_TYPE = 0x0045;
+pub const FILE_DEVICE_EHSTOR: DEVICE_TYPE = 0x0046;
+pub const FILE_DEVICE_DEVAPI: DEVICE_TYPE = 0x0047;
+pub const FILE_DEVICE_GPIO: DEVICE_TYPE = 0x0048;
+pub const FILE_DEVICE_USBEX: DEVICE_TYPE = 0x0049;
+pub const FILE_DEVICE_CONSOLE: DEVICE_TYPE = 0x0050;
+pub const FILE_DEVICE_NFP: DEVICE_TYPE = 0x0051;
+pub const FILE_DEVICE_SYSENV: DEVICE_TYPE = 0x0052;
+pub const FILE_DEVICE_VIRTUAL_BLOCK: DEVICE_TYPE = 0x0053;
+pub const FILE_DEVICE_POINT_OF_SERVICE: DEVICE_TYPE = 0x0054;
+pub const FILE_DEVICE_STORAGE_REPLICATION: DEVICE_TYPE = 0x0055;
+pub const FILE_DEVICE_TRUST_ENV: DEVICE_TYPE = 0x0056;
+pub const FILE_DEVICE_UCM: DEVICE_TYPE = 0x0057;
+pub const FILE_DEVICE_UCMTCPCI: DEVICE_TYPE = 0x0058;
+pub const FILE_DEVICE_PERSISTENT_MEMORY: DEVICE_TYPE = 0x0059;
+pub const FILE_DEVICE_NVDIMM: DEVICE_TYPE = 0x005a;
+pub const FILE_DEVICE_HOLOGRAPHIC: DEVICE_TYPE = 0x005b;
+pub const FILE_DEVICE_SDFXHCI: DEVICE_TYPE = 0x005c;
+
+/// https://docs.microsoft.com/en-us/windows-hardware/drivers/kernel/buffer-descriptions-for-i-o-control-codes
+pub const TransferType = enum(u2) {
+    METHOD_BUFFERED = 0,
+    METHOD_IN_DIRECT = 1,
+    METHOD_OUT_DIRECT = 2,
+    METHOD_NEITHER = 3,
+};
+
+pub const FILE_ANY_ACCESS = 0;
+pub const FILE_READ_ACCESS = 1;
+pub const FILE_WRITE_ACCESS = 2;
+
+/// https://docs.microsoft.com/en-us/windows-hardware/drivers/kernel/defining-i-o-control-codes
+pub fn CTL_CODE(deviceType: u16, function: u12, method: TransferType, access: u2) DWORD {
+    return (@as(DWORD, deviceType) << 16) |
+        (@as(DWORD, access) << 14) |
+        (@as(DWORD, function) << 2) |
+        @enumToInt(method);
+}
+
 pub const INVALID_HANDLE_VALUE = @intToPtr(HANDLE, maxInt(usize));
 
-pub const INVALID_FILE_ATTRIBUTES = DWORD(maxInt(DWORD));
+pub const INVALID_FILE_ATTRIBUTES = @as(DWORD, maxInt(DWORD));
 
 pub const FILE_ALL_INFORMATION = extern struct {
     BasicInformation: FILE_BASIC_INFORMATION,
@@ -115,6 +236,10 @@ pub const FILE_POSITION_INFORMATION = extern struct {
     CurrentByteOffset: LARGE_INTEGER,
 };
 
+pub const FILE_END_OF_FILE_INFORMATION = extern struct {
+    EndOfFile: LARGE_INTEGER,
+};
+
 pub const FILE_MODE_INFORMATION = extern struct {
     Mode: ULONG,
 };
@@ -128,8 +253,19 @@ pub const FILE_NAME_INFORMATION = extern struct {
     FileName: [1]WCHAR,
 };
 
+pub const FILE_RENAME_INFORMATION = extern struct {
+    ReplaceIfExists: BOOLEAN,
+    RootDirectory: ?HANDLE,
+    FileNameLength: ULONG,
+    FileName: [1]WCHAR,
+};
+
 pub const IO_STATUS_BLOCK = extern struct {
-    Status: usize,
+    // "DUMMYUNIONNAME" expands to "u"
+    u: extern union {
+        Status: NTSTATUS,
+        Pointer: ?*c_void,
+    },
     Information: ULONG_PTR,
 };
 
@@ -300,6 +436,62 @@ pub const FILE_SHARE_DELETE = 0x00000004;
 pub const FILE_SHARE_READ = 0x00000001;
 pub const FILE_SHARE_WRITE = 0x00000002;
 
+pub const DELETE = 0x00010000;
+pub const READ_CONTROL = 0x00020000;
+pub const WRITE_DAC = 0x00040000;
+pub const WRITE_OWNER = 0x00080000;
+pub const SYNCHRONIZE = 0x00100000;
+pub const STANDARD_RIGHTS_READ = READ_CONTROL;
+pub const STANDARD_RIGHTS_WRITE = READ_CONTROL;
+pub const STANDARD_RIGHTS_EXECUTE = READ_CONTROL;
+pub const STANDARD_RIGHTS_REQUIRED = DELETE | READ_CONTROL | WRITE_DAC | WRITE_OWNER;
+
+// disposition for NtCreateFile
+pub const FILE_SUPERSEDE = 0;
+pub const FILE_OPEN = 1;
+pub const FILE_CREATE = 2;
+pub const FILE_OPEN_IF = 3;
+pub const FILE_OVERWRITE = 4;
+pub const FILE_OVERWRITE_IF = 5;
+pub const FILE_MAXIMUM_DISPOSITION = 5;
+
+// flags for NtCreateFile and NtOpenFile
+pub const FILE_READ_DATA = 0x00000001;
+pub const FILE_LIST_DIRECTORY = 0x00000001;
+pub const FILE_WRITE_DATA = 0x00000002;
+pub const FILE_ADD_FILE = 0x00000002;
+pub const FILE_APPEND_DATA = 0x00000004;
+pub const FILE_ADD_SUBDIRECTORY = 0x00000004;
+pub const FILE_CREATE_PIPE_INSTANCE = 0x00000004;
+pub const FILE_READ_EA = 0x00000008;
+pub const FILE_WRITE_EA = 0x00000010;
+pub const FILE_EXECUTE = 0x00000020;
+pub const FILE_TRAVERSE = 0x00000020;
+pub const FILE_DELETE_CHILD = 0x00000040;
+pub const FILE_READ_ATTRIBUTES = 0x00000080;
+pub const FILE_WRITE_ATTRIBUTES = 0x00000100;
+
+pub const FILE_DIRECTORY_FILE = 0x00000001;
+pub const FILE_WRITE_THROUGH = 0x00000002;
+pub const FILE_SEQUENTIAL_ONLY = 0x00000004;
+pub const FILE_NO_INTERMEDIATE_BUFFERING = 0x00000008;
+pub const FILE_SYNCHRONOUS_IO_ALERT = 0x00000010;
+pub const FILE_SYNCHRONOUS_IO_NONALERT = 0x00000020;
+pub const FILE_NON_DIRECTORY_FILE = 0x00000040;
+pub const FILE_CREATE_TREE_CONNECTION = 0x00000080;
+pub const FILE_COMPLETE_IF_OPLOCKED = 0x00000100;
+pub const FILE_NO_EA_KNOWLEDGE = 0x00000200;
+pub const FILE_OPEN_FOR_RECOVERY = 0x00000400;
+pub const FILE_RANDOM_ACCESS = 0x00000800;
+pub const FILE_DELETE_ON_CLOSE = 0x00001000;
+pub const FILE_OPEN_BY_FILE_ID = 0x00002000;
+pub const FILE_OPEN_FOR_BACKUP_INTENT = 0x00004000;
+pub const FILE_NO_COMPRESSION = 0x00008000;
+pub const FILE_RESERVE_OPFILTER = 0x00100000;
+pub const FILE_TRANSACTED_MODE = 0x00200000;
+pub const FILE_OPEN_OFFLINE_FILE = 0x00400000;
+pub const FILE_OPEN_FOR_FREE_SPACE_QUERY = 0x00800000;
+
 pub const CREATE_ALWAYS = 2;
 pub const CREATE_NEW = 1;
 pub const OPEN_ALWAYS = 4;
@@ -325,6 +517,13 @@ pub const FILE_ATTRIBUTE_SPARSE_FILE = 0x200;
 pub const FILE_ATTRIBUTE_SYSTEM = 0x4;
 pub const FILE_ATTRIBUTE_TEMPORARY = 0x100;
 pub const FILE_ATTRIBUTE_VIRTUAL = 0x10000;
+
+// flags for CreateEvent
+pub const CREATE_EVENT_INITIAL_SET = 0x00000002;
+pub const CREATE_EVENT_MANUAL_RESET = 0x00000001;
+
+pub const EVENT_ALL_ACCESS = 0x1F0003;
+pub const EVENT_MODIFY_STATE = 0x0002;
 
 pub const PROCESS_INFORMATION = extern struct {
     hProcess: HANDLE,
@@ -371,7 +570,10 @@ pub const STARTF_USESTDHANDLES = 0x00000100;
 
 pub const INFINITE = 4294967295;
 
+pub const MAXIMUM_WAIT_OBJECTS = 64;
+
 pub const WAIT_ABANDONED = 0x00000080;
+pub const WAIT_ABANDONED_0 = WAIT_ABANDONED + 0;
 pub const WAIT_OBJECT_0 = 0x00000000;
 pub const WAIT_TIMEOUT = 0x00000102;
 pub const WAIT_FAILED = 0xFFFFFFFF;
@@ -425,7 +627,7 @@ pub const MEM_RESERVE_PLACEHOLDERS = 0x2;
 pub const MEM_DECOMMIT = 0x4000;
 pub const MEM_RELEASE = 0x8000;
 
-pub const PTHREAD_START_ROUTINE = extern fn (LPVOID) DWORD;
+pub const PTHREAD_START_ROUTINE = fn (LPVOID) callconv(.C) DWORD;
 pub const LPTHREAD_START_ROUTINE = PTHREAD_START_ROUTINE;
 
 pub const WIN32_FIND_DATAW = extern struct {
@@ -533,16 +735,16 @@ pub const KF_FLAG_SIMPLE_IDLIST = 256;
 pub const KF_FLAG_ALIAS_ONLY = -2147483648;
 
 pub const S_OK = 0;
-pub const E_NOTIMPL = @bitCast(c_long, c_ulong(0x80004001));
-pub const E_NOINTERFACE = @bitCast(c_long, c_ulong(0x80004002));
-pub const E_POINTER = @bitCast(c_long, c_ulong(0x80004003));
-pub const E_ABORT = @bitCast(c_long, c_ulong(0x80004004));
-pub const E_FAIL = @bitCast(c_long, c_ulong(0x80004005));
-pub const E_UNEXPECTED = @bitCast(c_long, c_ulong(0x8000FFFF));
-pub const E_ACCESSDENIED = @bitCast(c_long, c_ulong(0x80070005));
-pub const E_HANDLE = @bitCast(c_long, c_ulong(0x80070006));
-pub const E_OUTOFMEMORY = @bitCast(c_long, c_ulong(0x8007000E));
-pub const E_INVALIDARG = @bitCast(c_long, c_ulong(0x80070057));
+pub const E_NOTIMPL = @bitCast(c_long, @as(c_ulong, 0x80004001));
+pub const E_NOINTERFACE = @bitCast(c_long, @as(c_ulong, 0x80004002));
+pub const E_POINTER = @bitCast(c_long, @as(c_ulong, 0x80004003));
+pub const E_ABORT = @bitCast(c_long, @as(c_ulong, 0x80004004));
+pub const E_FAIL = @bitCast(c_long, @as(c_ulong, 0x80004005));
+pub const E_UNEXPECTED = @bitCast(c_long, @as(c_ulong, 0x8000FFFF));
+pub const E_ACCESSDENIED = @bitCast(c_long, @as(c_ulong, 0x80070005));
+pub const E_HANDLE = @bitCast(c_long, @as(c_ulong, 0x80070006));
+pub const E_OUTOFMEMORY = @bitCast(c_long, @as(c_ulong, 0x8007000E));
+pub const E_INVALIDARG = @bitCast(c_long, @as(c_ulong, 0x80070057));
 
 pub const FILE_FLAG_BACKUP_SEMANTICS = 0x02000000;
 pub const FILE_FLAG_DELETE_ON_CLOSE = 0x04000000;
@@ -582,7 +784,7 @@ pub const IMAGE_TLS_DIRECTORY = extern struct {
 pub const IMAGE_TLS_DIRECTORY64 = IMAGE_TLS_DIRECTORY;
 pub const IMAGE_TLS_DIRECTORY32 = IMAGE_TLS_DIRECTORY;
 
-pub const PIMAGE_TLS_CALLBACK = ?extern fn (PVOID, DWORD, PVOID) void;
+pub const PIMAGE_TLS_CALLBACK = ?fn (PVOID, DWORD, PVOID) callconv(.C) void;
 
 pub const PROV_RSA_FULL = 1;
 
@@ -608,9 +810,7 @@ pub const FILE_ACTION_MODIFIED = 0x00000003;
 pub const FILE_ACTION_RENAMED_OLD_NAME = 0x00000004;
 pub const FILE_ACTION_RENAMED_NEW_NAME = 0x00000005;
 
-pub const LPOVERLAPPED_COMPLETION_ROUTINE = ?extern fn (DWORD, DWORD, *OVERLAPPED) void;
-
-pub const FILE_LIST_DIRECTORY = 1;
+pub const LPOVERLAPPED_COMPLETION_ROUTINE = ?fn (DWORD, DWORD, *OVERLAPPED) callconv(.C) void;
 
 pub const FILE_NOTIFY_CHANGE_CREATION = 64;
 pub const FILE_NOTIFY_CHANGE_SIZE = 8;
@@ -663,7 +863,7 @@ pub const RTL_CRITICAL_SECTION = extern struct {
 pub const CRITICAL_SECTION = RTL_CRITICAL_SECTION;
 pub const INIT_ONCE = RTL_RUN_ONCE;
 pub const INIT_ONCE_STATIC_INIT = RTL_RUN_ONCE_INIT;
-pub const INIT_ONCE_FN = extern fn (InitOnce: *INIT_ONCE, Parameter: ?*c_void, Context: ?*c_void) BOOL;
+pub const INIT_ONCE_FN = fn (InitOnce: *INIT_ONCE, Parameter: ?*c_void, Context: ?*c_void) callconv(.C) BOOL;
 
 pub const RTL_RUN_ONCE = extern struct {
     Ptr: ?*c_void,
@@ -711,24 +911,633 @@ pub const EXCEPTION_RECORD = extern struct {
     ExceptionInformation: [15]usize,
 };
 
-pub const EXCEPTION_POINTERS = extern struct {
-    ExceptionRecord: *EXCEPTION_RECORD,
-    ContextRecord: *c_void,
+pub usingnamespace switch (builtin.arch) {
+    .i386 => struct {
+        pub const FLOATING_SAVE_AREA = extern struct {
+            ControlWord: DWORD,
+            StatusWord: DWORD,
+            TagWord: DWORD,
+            ErrorOffset: DWORD,
+            ErrorSelector: DWORD,
+            DataOffset: DWORD,
+            DataSelector: DWORD,
+            RegisterArea: [80]BYTE,
+            Cr0NpxState: DWORD,
+        };
+
+        pub const CONTEXT = extern struct {
+            ContextFlags: DWORD,
+            Dr0: DWORD,
+            Dr1: DWORD,
+            Dr2: DWORD,
+            Dr3: DWORD,
+            Dr6: DWORD,
+            Dr7: DWORD,
+            FloatSave: FLOATING_SAVE_AREA,
+            SegGs: DWORD,
+            SegFs: DWORD,
+            SegEs: DWORD,
+            SegDs: DWORD,
+            Edi: DWORD,
+            Esi: DWORD,
+            Ebx: DWORD,
+            Edx: DWORD,
+            Ecx: DWORD,
+            Eax: DWORD,
+            Ebp: DWORD,
+            Eip: DWORD,
+            SegCs: DWORD,
+            EFlags: DWORD,
+            Esp: DWORD,
+            SegSs: DWORD,
+            ExtendedRegisters: [512]BYTE,
+
+            pub fn getRegs(ctx: *const CONTEXT) struct { bp: usize, ip: usize } {
+                return .{ .bp = ctx.Ebp, .ip = ctx.Eip };
+            }
+        };
+
+        pub const PCONTEXT = *CONTEXT;
+    },
+    .x86_64 => struct {
+        pub const M128A = extern struct {
+            Low: ULONGLONG,
+            High: LONGLONG,
+        };
+
+        pub const XMM_SAVE_AREA32 = extern struct {
+            ControlWord: WORD,
+            StatusWord: WORD,
+            TagWord: BYTE,
+            Reserved1: BYTE,
+            ErrorOpcode: WORD,
+            ErrorOffset: DWORD,
+            ErrorSelector: WORD,
+            Reserved2: WORD,
+            DataOffset: DWORD,
+            DataSelector: WORD,
+            Reserved3: WORD,
+            MxCsr: DWORD,
+            MxCsr_Mask: DWORD,
+            FloatRegisters: [8]M128A,
+            XmmRegisters: [16]M128A,
+            Reserved4: [96]BYTE,
+        };
+
+        pub const CONTEXT = extern struct {
+            P1Home: DWORD64,
+            P2Home: DWORD64,
+            P3Home: DWORD64,
+            P4Home: DWORD64,
+            P5Home: DWORD64,
+            P6Home: DWORD64,
+            ContextFlags: DWORD,
+            MxCsr: DWORD,
+            SegCs: WORD,
+            SegDs: WORD,
+            SegEs: WORD,
+            SegFs: WORD,
+            SegGs: WORD,
+            SegSs: WORD,
+            EFlags: DWORD,
+            Dr0: DWORD64,
+            Dr1: DWORD64,
+            Dr2: DWORD64,
+            Dr3: DWORD64,
+            Dr6: DWORD64,
+            Dr7: DWORD64,
+            Rax: DWORD64,
+            Rcx: DWORD64,
+            Rdx: DWORD64,
+            Rbx: DWORD64,
+            Rsp: DWORD64,
+            Rbp: DWORD64,
+            Rsi: DWORD64,
+            Rdi: DWORD64,
+            R8: DWORD64,
+            R9: DWORD64,
+            R10: DWORD64,
+            R11: DWORD64,
+            R12: DWORD64,
+            R13: DWORD64,
+            R14: DWORD64,
+            R15: DWORD64,
+            Rip: DWORD64,
+            DUMMYUNIONNAME: extern union {
+                FltSave: XMM_SAVE_AREA32,
+                FloatSave: XMM_SAVE_AREA32,
+                DUMMYSTRUCTNAME: extern struct {
+                    Header: [2]M128A,
+                    Legacy: [8]M128A,
+                    Xmm0: M128A,
+                    Xmm1: M128A,
+                    Xmm2: M128A,
+                    Xmm3: M128A,
+                    Xmm4: M128A,
+                    Xmm5: M128A,
+                    Xmm6: M128A,
+                    Xmm7: M128A,
+                    Xmm8: M128A,
+                    Xmm9: M128A,
+                    Xmm10: M128A,
+                    Xmm11: M128A,
+                    Xmm12: M128A,
+                    Xmm13: M128A,
+                    Xmm14: M128A,
+                    Xmm15: M128A,
+                },
+            },
+            VectorRegister: [26]M128A,
+            VectorControl: DWORD64,
+            DebugControl: DWORD64,
+            LastBranchToRip: DWORD64,
+            LastBranchFromRip: DWORD64,
+            LastExceptionToRip: DWORD64,
+            LastExceptionFromRip: DWORD64,
+
+            pub fn getRegs(ctx: *const CONTEXT) struct { bp: usize, ip: usize } {
+                return .{ .bp = ctx.Rbp, .ip = ctx.Rip };
+            }
+        };
+
+        pub const PCONTEXT = *CONTEXT;
+    },
+    .aarch64 => struct {
+        pub const NEON128 = extern union {
+            DUMMYSTRUCTNAME: extern struct {
+                Low: ULONGLONG,
+                High: LONGLONG,
+            },
+            D: [2]f64,
+            S: [4]f32,
+            H: [8]WORD,
+            B: [16]BYTE,
+        };
+
+        pub const CONTEXT = extern struct {
+            ContextFlags: ULONG,
+            Cpsr: ULONG,
+            DUMMYUNIONNAME: extern union {
+                DUMMYSTRUCTNAME: extern struct {
+                    X0: DWORD64,
+                    X1: DWORD64,
+                    X2: DWORD64,
+                    X3: DWORD64,
+                    X4: DWORD64,
+                    X5: DWORD64,
+                    X6: DWORD64,
+                    X7: DWORD64,
+                    X8: DWORD64,
+                    X9: DWORD64,
+                    X10: DWORD64,
+                    X11: DWORD64,
+                    X12: DWORD64,
+                    X13: DWORD64,
+                    X14: DWORD64,
+                    X15: DWORD64,
+                    X16: DWORD64,
+                    X17: DWORD64,
+                    X18: DWORD64,
+                    X19: DWORD64,
+                    X20: DWORD64,
+                    X21: DWORD64,
+                    X22: DWORD64,
+                    X23: DWORD64,
+                    X24: DWORD64,
+                    X25: DWORD64,
+                    X26: DWORD64,
+                    X27: DWORD64,
+                    X28: DWORD64,
+                    Fp: DWORD64,
+                    Lr: DWORD64,
+                },
+                X: [31]DWORD64,
+            },
+            Sp: DWORD64,
+            Pc: DWORD64,
+            V: [32]NEON128,
+            Fpcr: DWORD,
+            Fpsr: DWORD,
+            Bcr: [8]DWORD,
+            Bvr: [8]DWORD64,
+            Wcr: [2]DWORD,
+            Wvr: [2]DWORD64,
+
+            pub fn getRegs(ctx: *const CONTEXT) struct { bp: usize, ip: usize } {
+                return .{
+                    .bp = ctx.DUMMYUNIONNAME.DUMMYSTRUCTNAME.Fp,
+                    .ip = ctx.Pc,
+                };
+            }
+        };
+
+        pub const PCONTEXT = *CONTEXT;
+    },
+    else => struct {
+        pub const PCONTEXT = *c_void;
+    },
 };
 
-pub const VECTORED_EXCEPTION_HANDLER = stdcallcc fn (ExceptionInfo: *EXCEPTION_POINTERS) c_long;
+pub const EXCEPTION_POINTERS = extern struct {
+    ExceptionRecord: *EXCEPTION_RECORD,
+    ContextRecord: PCONTEXT,
+};
+
+pub const VECTORED_EXCEPTION_HANDLER = fn (ExceptionInfo: *EXCEPTION_POINTERS) callconv(.Stdcall) c_long;
 
 pub const OBJECT_ATTRIBUTES = extern struct {
     Length: ULONG,
-    RootDirectory: HANDLE,
+    RootDirectory: ?HANDLE,
     ObjectName: *UNICODE_STRING,
     Attributes: ULONG,
     SecurityDescriptor: ?*c_void,
     SecurityQualityOfService: ?*c_void,
 };
 
+pub const OBJ_INHERIT = 0x00000002;
+pub const OBJ_PERMANENT = 0x00000010;
+pub const OBJ_EXCLUSIVE = 0x00000020;
+pub const OBJ_CASE_INSENSITIVE = 0x00000040;
+pub const OBJ_OPENIF = 0x00000080;
+pub const OBJ_OPENLINK = 0x00000100;
+pub const OBJ_KERNEL_HANDLE = 0x00000200;
+pub const OBJ_VALID_ATTRIBUTES = 0x000003F2;
+
 pub const UNICODE_STRING = extern struct {
-    Length: USHORT,
-    MaximumLength: USHORT,
+    Length: c_ushort,
+    MaximumLength: c_ushort,
     Buffer: [*]WCHAR,
 };
+
+const ACTIVATION_CONTEXT_DATA = @Type(.Opaque);
+const ASSEMBLY_STORAGE_MAP = @Type(.Opaque);
+const FLS_CALLBACK_INFO = @Type(.Opaque);
+const RTL_BITMAP = @Type(.Opaque);
+pub const PRTL_BITMAP = *RTL_BITMAP;
+const KAFFINITY = usize;
+
+pub const TEB = extern struct {
+    Reserved1: [12]PVOID,
+    ProcessEnvironmentBlock: *PEB,
+    Reserved2: [399]PVOID,
+    Reserved3: [1952]u8,
+    TlsSlots: [64]PVOID,
+    Reserved4: [8]u8,
+    Reserved5: [26]PVOID,
+    ReservedForOle: PVOID,
+    Reserved6: [4]PVOID,
+    TlsExpansionSlots: PVOID,
+};
+
+/// Process Environment Block
+/// Microsoft documentation of this is incomplete, the fields here are taken from various resources including:
+///  - https://github.com/wine-mirror/wine/blob/1aff1e6a370ee8c0213a0fd4b220d121da8527aa/include/winternl.h#L269
+///  - https://www.geoffchappell.com/studies/windows/win32/ntdll/structs/peb/index.htm
+pub const PEB = extern struct {
+    // Versions: All
+    InheritedAddressSpace: BOOLEAN,
+
+    // Versions: 3.51+
+    ReadImageFileExecOptions: BOOLEAN,
+    BeingDebugged: BOOLEAN,
+
+    // Versions: 5.2+ (previously was padding)
+    BitField: UCHAR,
+
+    // Versions: all
+    Mutant: HANDLE,
+    ImageBaseAddress: HMODULE,
+    Ldr: *PEB_LDR_DATA,
+    ProcessParameters: *RTL_USER_PROCESS_PARAMETERS,
+    SubSystemData: PVOID,
+    ProcessHeap: HANDLE,
+
+    // Versions: 5.1+
+    FastPebLock: *RTL_CRITICAL_SECTION,
+
+    // Versions: 5.2+
+    AtlThunkSListPtr: PVOID,
+    IFEOKey: PVOID,
+
+    // Versions: 6.0+
+
+    /// https://www.geoffchappell.com/studies/windows/win32/ntdll/structs/peb/crossprocessflags.htm
+    CrossProcessFlags: ULONG,
+
+    // Versions: 6.0+
+    union1: extern union {
+        KernelCallbackTable: PVOID,
+        UserSharedInfoPtr: PVOID,
+    },
+
+    // Versions: 5.1+
+    SystemReserved: ULONG,
+
+    // Versions: 5.1, (not 5.2, not 6.0), 6.1+
+    AtlThunkSListPtr32: ULONG,
+
+    // Versions: 6.1+
+    ApiSetMap: PVOID,
+
+    // Versions: all
+    TlsExpansionCounter: ULONG,
+    // note: there is padding here on 64 bit
+    TlsBitmap: PRTL_BITMAP,
+    TlsBitmapBits: [2]ULONG,
+    ReadOnlySharedMemoryBase: PVOID,
+
+    // Versions: 1703+
+    SharedData: PVOID,
+
+    // Versions: all
+    ReadOnlyStaticServerData: *PVOID,
+    AnsiCodePageData: PVOID,
+    OemCodePageData: PVOID,
+    UnicodeCaseTableData: PVOID,
+
+    // Versions: 3.51+
+    NumberOfProcessors: ULONG,
+    NtGlobalFlag: ULONG,
+
+    // Versions: all
+    CriticalSectionTimeout: LARGE_INTEGER,
+
+    // End of Original PEB size
+
+    // Fields appended in 3.51:
+    HeapSegmentReserve: ULONG_PTR,
+    HeapSegmentCommit: ULONG_PTR,
+    HeapDeCommitTotalFreeThreshold: ULONG_PTR,
+    HeapDeCommitFreeBlockThreshold: ULONG_PTR,
+    NumberOfHeaps: ULONG,
+    MaximumNumberOfHeaps: ULONG,
+    ProcessHeaps: *PVOID,
+
+    // Fields appended in 4.0:
+    GdiSharedHandleTable: PVOID,
+    ProcessStarterHelper: PVOID,
+    GdiDCAttributeList: ULONG,
+    // note: there is padding here on 64 bit
+    LoaderLock: *RTL_CRITICAL_SECTION,
+    OSMajorVersion: ULONG,
+    OSMinorVersion: ULONG,
+    OSBuildNumber: USHORT,
+    OSCSDVersion: USHORT,
+    OSPlatformId: ULONG,
+    ImageSubSystem: ULONG,
+    ImageSubSystemMajorVersion: ULONG,
+    ImageSubSystemMinorVersion: ULONG,
+    // note: there is padding here on 64 bit
+    ActiveProcessAffinityMask: KAFFINITY,
+    GdiHandleBuffer: [switch (@sizeOf(usize)) {
+        4 => 0x22,
+        8 => 0x3C,
+        else => unreachable,
+    }]ULONG,
+
+    // Fields appended in 5.0 (Windows 2000):
+    PostProcessInitRoutine: PVOID,
+    TlsExpansionBitmap: PRTL_BITMAP,
+    TlsExpansionBitmapBits: [32]ULONG,
+    SessionId: ULONG,
+    // note: there is padding here on 64 bit
+    // Versions: 5.1+
+    AppCompatFlags: ULARGE_INTEGER,
+    AppCompatFlagsUser: ULARGE_INTEGER,
+    ShimData: PVOID,
+    // Versions: 5.0+
+    AppCompatInfo: PVOID,
+    CSDVersion: UNICODE_STRING,
+
+    // Fields appended in 5.1 (Windows XP):
+    ActivationContextData: *const ACTIVATION_CONTEXT_DATA,
+    ProcessAssemblyStorageMap: *ASSEMBLY_STORAGE_MAP,
+    SystemDefaultActivationData: *const ACTIVATION_CONTEXT_DATA,
+    SystemAssemblyStorageMap: *ASSEMBLY_STORAGE_MAP,
+    MinimumStackCommit: ULONG_PTR,
+
+    // Fields appended in 5.2 (Windows Server 2003):
+    FlsCallback: *FLS_CALLBACK_INFO,
+    FlsListHead: LIST_ENTRY,
+    FlsBitmap: PRTL_BITMAP,
+    FlsBitmapBits: [4]ULONG,
+    FlsHighIndex: ULONG,
+
+    // Fields appended in 6.0 (Windows Vista):
+    WerRegistrationData: PVOID,
+    WerShipAssertPtr: PVOID,
+
+    // Fields appended in 6.1 (Windows 7):
+    pUnused: PVOID, // previously pContextData
+    pImageHeaderHash: PVOID,
+
+    /// TODO: https://www.geoffchappell.com/studies/windows/win32/ntdll/structs/peb/tracingflags.htm
+    TracingFlags: ULONG,
+
+    // Fields appended in 6.2 (Windows 8):
+    CsrServerReadOnlySharedMemoryBase: ULONGLONG,
+
+    // Fields appended in 1511:
+    TppWorkerpListLock: ULONG,
+    TppWorkerpList: LIST_ENTRY,
+    WaitOnAddressHashTable: [0x80]PVOID,
+
+    // Fields appended in 1709:
+    TelemetryCoverageHeader: PVOID,
+    CloudFileFlags: ULONG,
+};
+
+/// The `PEB_LDR_DATA` structure is the main record of what modules are loaded in a process.
+/// It is essentially the head of three double-linked lists of `LDR_DATA_TABLE_ENTRY` structures which each represent one loaded module.
+///
+/// Microsoft documentation of this is incomplete, the fields here are taken from various resources including:
+///  - https://www.geoffchappell.com/studies/windows/win32/ntdll/structs/peb_ldr_data.htm
+pub const PEB_LDR_DATA = extern struct {
+    // Versions: 3.51 and higher
+    /// The size in bytes of the structure
+    Length: ULONG,
+
+    /// TRUE if the structure is prepared.
+    Initialized: BOOLEAN,
+
+    SsHandle: PVOID,
+    InLoadOrderModuleList: LIST_ENTRY,
+    InMemoryOrderModuleList: LIST_ENTRY,
+    InInitializationOrderModuleList: LIST_ENTRY,
+
+    // Versions: 5.1 and higher
+
+    /// No known use of this field is known in Windows 8 and higher.
+    EntryInProgress: PVOID,
+
+    // Versions: 6.0 from Windows Vista SP1, and higher
+    ShutdownInProgress: BOOLEAN,
+
+    /// Though ShutdownThreadId is declared as a HANDLE,
+    /// it is indeed the thread ID as suggested by its name.
+    /// It is picked up from the UniqueThread member of the CLIENT_ID in the
+    /// TEB of the thread that asks to terminate the process.
+    ShutdownThreadId: HANDLE,
+};
+
+pub const RTL_USER_PROCESS_PARAMETERS = extern struct {
+    AllocationSize: ULONG,
+    Size: ULONG,
+    Flags: ULONG,
+    DebugFlags: ULONG,
+    ConsoleHandle: HANDLE,
+    ConsoleFlags: ULONG,
+    hStdInput: HANDLE,
+    hStdOutput: HANDLE,
+    hStdError: HANDLE,
+    CurrentDirectory: CURDIR,
+    DllPath: UNICODE_STRING,
+    ImagePathName: UNICODE_STRING,
+    CommandLine: UNICODE_STRING,
+    Environment: [*:0]WCHAR,
+    dwX: ULONG,
+    dwY: ULONG,
+    dwXSize: ULONG,
+    dwYSize: ULONG,
+    dwXCountChars: ULONG,
+    dwYCountChars: ULONG,
+    dwFillAttribute: ULONG,
+    dwFlags: ULONG,
+    dwShowWindow: ULONG,
+    WindowTitle: UNICODE_STRING,
+    Desktop: UNICODE_STRING,
+    ShellInfo: UNICODE_STRING,
+    RuntimeInfo: UNICODE_STRING,
+    DLCurrentDirectory: [0x20]RTL_DRIVE_LETTER_CURDIR,
+};
+
+pub const RTL_DRIVE_LETTER_CURDIR = extern struct {
+    Flags: c_ushort,
+    Length: c_ushort,
+    TimeStamp: ULONG,
+    DosPath: UNICODE_STRING,
+};
+
+pub const PPS_POST_PROCESS_INIT_ROUTINE = ?fn () callconv(.C) void;
+
+pub const FILE_BOTH_DIR_INFORMATION = extern struct {
+    NextEntryOffset: ULONG,
+    FileIndex: ULONG,
+    CreationTime: LARGE_INTEGER,
+    LastAccessTime: LARGE_INTEGER,
+    LastWriteTime: LARGE_INTEGER,
+    ChangeTime: LARGE_INTEGER,
+    EndOfFile: LARGE_INTEGER,
+    AllocationSize: LARGE_INTEGER,
+    FileAttributes: ULONG,
+    FileNameLength: ULONG,
+    EaSize: ULONG,
+    ShortNameLength: CHAR,
+    ShortName: [12]WCHAR,
+    FileName: [1]WCHAR,
+};
+pub const FILE_BOTH_DIRECTORY_INFORMATION = FILE_BOTH_DIR_INFORMATION;
+
+pub const IO_APC_ROUTINE = fn (PVOID, *IO_STATUS_BLOCK, ULONG) callconv(.C) void;
+
+pub const CURDIR = extern struct {
+    DosPath: UNICODE_STRING,
+    Handle: HANDLE,
+};
+
+pub const DUPLICATE_SAME_ACCESS = 2;
+
+pub const MODULEINFO = extern struct {
+    lpBaseOfDll: LPVOID,
+    SizeOfImage: DWORD,
+    EntryPoint: LPVOID,
+};
+pub const LPMODULEINFO = *MODULEINFO;
+
+pub const PSAPI_WS_WATCH_INFORMATION = extern struct {
+    FaultingPc: LPVOID,
+    FaultingVa: LPVOID,
+};
+pub const PPSAPI_WS_WATCH_INFORMATION = *PSAPI_WS_WATCH_INFORMATION;
+
+pub const PROCESS_MEMORY_COUNTERS = extern struct {
+    cb: DWORD,
+    PageFaultCount: DWORD,
+    PeakWorkingSetSize: SIZE_T,
+    WorkingSetSize: SIZE_T,
+    QuotaPeakPagedPoolUsage: SIZE_T,
+    QuotaPagedPoolUsage: SIZE_T,
+    QuotaPeakNonPagedPoolUsage: SIZE_T,
+    QuotaNonPagedPoolUsage: SIZE_T,
+    PagefileUsage: SIZE_T,
+    PeakPagefileUsage: SIZE_T,
+};
+pub const PPROCESS_MEMORY_COUNTERS = *PROCESS_MEMORY_COUNTERS;
+
+pub const PROCESS_MEMORY_COUNTERS_EX = extern struct {
+    cb: DWORD,
+    PageFaultCount: DWORD,
+    PeakWorkingSetSize: SIZE_T,
+    WorkingSetSize: SIZE_T,
+    QuotaPeakPagedPoolUsage: SIZE_T,
+    QuotaPagedPoolUsage: SIZE_T,
+    QuotaPeakNonPagedPoolUsage: SIZE_T,
+    QuotaNonPagedPoolUsage: SIZE_T,
+    PagefileUsage: SIZE_T,
+    PeakPagefileUsage: SIZE_T,
+    PrivateUsage: SIZE_T,
+};
+pub const PPROCESS_MEMORY_COUNTERS_EX = *PROCESS_MEMORY_COUNTERS_EX;
+
+pub const PERFORMANCE_INFORMATION = extern struct {
+    cb: DWORD,
+    CommitTotal: SIZE_T,
+    CommitLimit: SIZE_T,
+    CommitPeak: SIZE_T,
+    PhysicalTotal: SIZE_T,
+    PhysicalAvailable: SIZE_T,
+    SystemCache: SIZE_T,
+    KernelTotal: SIZE_T,
+    KernelPaged: SIZE_T,
+    KernelNonpaged: SIZE_T,
+    PageSize: SIZE_T,
+    HandleCount: DWORD,
+    ProcessCount: DWORD,
+    ThreadCount: DWORD,
+};
+pub const PPERFORMANCE_INFORMATION = *PERFORMANCE_INFORMATION;
+
+pub const PERFORMACE_INFORMATION = PERFORMANCE_INFORMATION;
+pub const PPERFORMACE_INFORMATION = *PERFORMANCE_INFORMATION;
+
+pub const ENUM_PAGE_FILE_INFORMATION = extern struct {
+    cb: DWORD,
+    Reserved: DWORD,
+    TotalSize: SIZE_T,
+    TotalInUse: SIZE_T,
+    PeakUsage: SIZE_T,
+};
+pub const PENUM_PAGE_FILE_INFORMATION = *ENUM_PAGE_FILE_INFORMATION;
+
+pub const PENUM_PAGE_FILE_CALLBACKW = ?fn (?LPVOID, PENUM_PAGE_FILE_INFORMATION, LPCWSTR) callconv(.C) BOOL;
+pub const PENUM_PAGE_FILE_CALLBACKA = ?fn (?LPVOID, PENUM_PAGE_FILE_INFORMATION, LPCSTR) callconv(.C) BOOL;
+
+pub const PSAPI_WS_WATCH_INFORMATION_EX = extern struct {
+    BasicInfo: PSAPI_WS_WATCH_INFORMATION,
+    FaultingThreadId: ULONG_PTR,
+    Flags: ULONG_PTR,
+};
+pub const PPSAPI_WS_WATCH_INFORMATION_EX = *PSAPI_WS_WATCH_INFORMATION_EX;
+
+pub const OSVERSIONINFOW = extern struct {
+    dwOSVersionInfoSize: ULONG,
+    dwMajorVersion: ULONG,
+    dwMinorVersion: ULONG,
+    dwBuildNumber: ULONG,
+    dwPlatformId: ULONG,
+    szCSDVersion: [128]WCHAR,
+};
+pub const POSVERSIONINFOW = *OSVERSIONINFOW;
+pub const LPOSVERSIONINFOW = *OSVERSIONINFOW;
+pub const RTL_OSVERSIONINFOW = OSVERSIONINFOW;
+pub const PRTL_OSVERSIONINFOW = *RTL_OSVERSIONINFOW;

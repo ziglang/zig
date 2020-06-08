@@ -1,3 +1,2 @@
 #undef __WORDSIZE
-#define __WORDSIZE 32
-/* FIXME */
+#define __WORDSIZE 64

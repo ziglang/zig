@@ -1,5 +1,6 @@
 const std = @import("std");
 const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 
 const Value = union(enum) {
     Int: u64,
@@ -14,7 +15,7 @@ const Agg = struct {
 const v1 = Value{ .Int = 1234 };
 const v2 = Value{ .Array = [_]u8{3} ** 9 };
 
-const err = (anyerror!Agg)(Agg{
+const err = @as(anyerror!Agg, Agg{
     .val1 = v1,
     .val2 = v2,
 });
@@ -110,11 +111,11 @@ fn doTest() void {
 }
 
 fn bar(value: Payload) i32 {
-    expect(Letter(value) == Letter.A);
+    expect(@as(Letter, value) == Letter.A);
     return switch (value) {
         Payload.A => |x| return x - 1244,
-        Payload.B => |x| if (x == 12.34) i32(20) else 21,
-        Payload.C => |x| if (x) i32(30) else 31,
+        Payload.B => |x| if (x == 12.34) @as(i32, 20) else 21,
+        Payload.C => |x| if (x) @as(i32, 30) else 31,
     };
 }
 
@@ -127,7 +128,7 @@ const MultipleChoice = union(enum(u32)) {
 test "simple union(enum(u32))" {
     var x = MultipleChoice.C;
     expect(x == MultipleChoice.C);
-    expect(@enumToInt(@TagType(MultipleChoice)(x)) == 60);
+    expect(@enumToInt(@as(@TagType(MultipleChoice), x)) == 60);
 }
 
 const MultipleChoice2 = union(enum(u32)) {
@@ -149,11 +150,11 @@ test "union(enum(u32)) with specified and unspecified tag values" {
 }
 
 fn testEnumWithSpecifiedAndUnspecifiedTagValues(x: MultipleChoice2) void {
-    expect(@enumToInt(@TagType(MultipleChoice2)(x)) == 60);
+    expect(@enumToInt(@as(@TagType(MultipleChoice2), x)) == 60);
     expect(1123 == switch (x) {
         MultipleChoice2.A => 1,
         MultipleChoice2.B => 2,
-        MultipleChoice2.C => |v| i32(1000) + v,
+        MultipleChoice2.C => |v| @as(i32, 1000) + v,
         MultipleChoice2.D => 4,
         MultipleChoice2.Unspecified1 => 5,
         MultipleChoice2.Unspecified2 => 6,
@@ -208,12 +209,12 @@ test "cast union to tag type of union" {
 }
 
 fn testCastUnionToTagType(x: TheUnion) void {
-    expect(TheTag(x) == TheTag.B);
+    expect(@as(TheTag, x) == TheTag.B);
 }
 
 test "cast tag type of union to union" {
     var x: Value2 = Letter2.B;
-    expect(Letter2(x) == Letter2.B);
+    expect(@as(Letter2, x) == Letter2.B);
 }
 const Letter2 = enum {
     A,
@@ -241,7 +242,7 @@ pub const PackThis = union(enum) {
 };
 
 test "constant packed union" {
-    testConstPackedUnion([_]PackThis{PackThis{ .StringLiteral = 1 }});
+    testConstPackedUnion(&[_]PackThis{PackThis{ .StringLiteral = 1 }});
 }
 
 fn testConstPackedUnion(expected_tokens: []const PackThis) void {
@@ -297,7 +298,7 @@ const TaggedUnionWithAVoid = union(enum) {
 
 fn testTaggedUnionInit(x: var) bool {
     const y = TaggedUnionWithAVoid{ .A = x };
-    return @TagType(TaggedUnionWithAVoid)(y) == TaggedUnionWithAVoid.A;
+    return @as(@TagType(TaggedUnionWithAVoid), y) == TaggedUnionWithAVoid.A;
 }
 
 pub const UnionEnumNoPayloads = union(enum) {
@@ -326,7 +327,7 @@ test "union with only 1 field casted to its enum type" {
     var e = Expr{ .Literal = Literal{ .Bool = true } };
     const Tag = @TagType(Expr);
     comptime expect(@TagType(Tag) == u0);
-    var t = Tag(e);
+    var t = @as(Tag, e);
     expect(t == Expr.Literal);
 }
 
@@ -346,7 +347,7 @@ test "union with only 1 field casted to its enum type which has enum value speci
 
     var e = Expr{ .Literal = Literal{ .Bool = true } };
     comptime expect(@TagType(Tag) == comptime_int);
-    var t = Tag(e);
+    var t = @as(Tag, e);
     expect(t == Expr.Literal);
     expect(@enumToInt(t) == 33);
     comptime expect(@enumToInt(t) == 33);
@@ -520,4 +521,151 @@ test "extern union doesn't trigger field check at comptime" {
 
     const x = U{ .x = 0x55AAAA55 };
     comptime expect(x.y == 0x55);
+}
+
+const Foo1 = union(enum) {
+    f: struct {
+        x: usize,
+    },
+};
+var glbl: Foo1 = undefined;
+
+test "global union with single field is correctly initialized" {
+    glbl = Foo1{
+        .f = @typeInfo(Foo1).Union.fields[0].field_type{ .x = 123 },
+    };
+    expect(glbl.f.x == 123);
+}
+
+pub const FooUnion = union(enum) {
+    U0: usize,
+    U1: u8,
+};
+
+var glbl_array: [2]FooUnion = undefined;
+
+test "initialize global array of union" {
+    glbl_array[1] = FooUnion{ .U1 = 2 };
+    glbl_array[0] = FooUnion{ .U0 = 1 };
+    expect(glbl_array[0].U0 == 1);
+    expect(glbl_array[1].U1 == 2);
+}
+
+test "anonymous union literal syntax" {
+    const S = struct {
+        const Number = union {
+            int: i32,
+            float: f64,
+        };
+
+        fn doTheTest() void {
+            var i: Number = .{ .int = 42 };
+            var f = makeNumber();
+            expect(i.int == 42);
+            expect(f.float == 12.34);
+        }
+
+        fn makeNumber() Number {
+            return .{ .float = 12.34 };
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "update the tag value for zero-sized unions" {
+    const S = union(enum) {
+        U0: void,
+        U1: void,
+    };
+    var x = S{ .U0 = {} };
+    expect(x == .U0);
+    x = S{ .U1 = {} };
+    expect(x == .U1);
+}
+
+test "function call result coerces from tagged union to the tag" {
+    const S = struct {
+        const Arch = union(enum) {
+            One,
+            Two: usize,
+        };
+
+        const ArchTag = @TagType(Arch);
+
+        fn doTheTest() void {
+            var x: ArchTag = getArch1();
+            expect(x == .One);
+
+            var y: ArchTag = getArch2();
+            expect(y == .Two);
+        }
+
+        pub fn getArch1() Arch {
+            return .One;
+        }
+
+        pub fn getArch2() Arch {
+            return .{ .Two = 99 };
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "0-sized extern union definition" {
+    const U = extern union {
+        a: void,
+        const f = 1;
+    };
+
+    expect(U.f == 1);
+}
+
+test "union initializer generates padding only if needed" {
+    // https://github.com/ziglang/zig/issues/5127
+    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
+
+    const U = union(enum) {
+        A: u24,
+    };
+
+    var v = U{ .A = 532 };
+    expect(v.A == 532);
+}
+
+test "runtime tag name with single field" {
+    const U = union(enum) {
+        A: i32,
+    };
+
+    var v = U{ .A = 42 };
+    expect(std.mem.eql(u8, @tagName(v), "A"));
+}
+
+test "cast from anonymous struct to union" {
+    const S = struct {
+        const U = union(enum) {
+            A: u32,
+            B: []const u8,
+            C: void,
+        };
+        fn doTheTest() void {
+            var y: u32 = 42;
+            const t0 = .{ .A = 123 };
+            const t1 = .{ .B = "foo" };
+            const t2 = .{ .C = {} };
+            const t3 = .{ .A = y };
+            const x0: U = t0;
+            var x1: U = t1;
+            const x2: U = t2;
+            var x3: U = t3;
+            expect(x0.A == 123);
+            expect(std.mem.eql(u8, x1.B, "foo"));
+            expect(x2 == .C);
+            expect(x3.A == y);
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
 }

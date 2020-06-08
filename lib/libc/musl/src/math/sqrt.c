@@ -179,7 +179,6 @@ double sqrt(double x)
 	ix1 = q1>>1;
 	if (q&1)
 		ix1 |= sign;
-	ix0 += m << 20;
-	INSERT_WORDS(z, ix0, ix1);
+	INSERT_WORDS(z, ix0 + ((uint32_t)m << 20), ix1);
 	return z;
 }

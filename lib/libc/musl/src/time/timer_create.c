@@ -1,5 +1,6 @@
 #include <time.h>
 #include <setjmp.h>
+#include <limits.h>
 #include "pthread_impl.h"
 
 struct ksigevent {
@@ -48,7 +49,6 @@ static void *start(void *arg)
 {
 	pthread_t self = __pthread_self();
 	struct start_args *args = arg;
-	int id = self->timer_id;
 	jmp_buf jb;
 
 	void (*notify)(union sigval) = args->sev->sigev_notify_function;
@@ -65,7 +65,7 @@ static void *start(void *arg)
 		}
 		if (self->timer_id < 0) break;
 	}
-	__syscall(SYS_timer_delete, id);
+	__syscall(SYS_timer_delete, self->timer_id & INT_MAX);
 	return 0;
 }
 

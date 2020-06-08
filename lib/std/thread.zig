@@ -1,31 +1,33 @@
-const builtin = @import("builtin");
 const std = @import("std.zig");
+const builtin = std.builtin;
 const os = std.os;
 const mem = std.mem;
 const windows = std.os.windows;
 const c = std.c;
 const assert = std.debug.assert;
 
+const bad_startfn_ret = "expected return type of startFn to be 'u8', 'noreturn', 'void', or '!void'";
+
 pub const Thread = struct {
     data: Data,
 
-    pub const use_pthreads = !windows.is_the_target and builtin.link_libc;
+    pub const use_pthreads = std.Target.current.os.tag != .windows and builtin.link_libc;
 
     /// Represents a kernel thread handle.
     /// May be an integer or a pointer depending on the platform.
     /// On Linux and POSIX, this is the same as Id.
     pub const Handle = if (use_pthreads)
         c.pthread_t
-    else switch (builtin.os) {
+    else switch (std.Target.current.os.tag) {
         .linux => i32,
         .windows => windows.HANDLE,
-        else => @compileError("Unsupported OS"),
+        else => void,
     };
 
     /// Represents a unique ID per thread.
     /// May be an integer or pointer depending on the platform.
     /// On Linux and POSIX, this is the same as Handle.
-    pub const Id = switch (builtin.os) {
+    pub const Id = switch (std.Target.current.os.tag) {
         .windows => windows.DWORD,
         else => Handle,
     };
@@ -35,7 +37,7 @@ pub const Thread = struct {
             handle: Thread.Handle,
             memory: []align(mem.page_size) u8,
         }
-    else switch (builtin.os) {
+    else switch (std.Target.current.os.tag) {
         .linux => struct {
             handle: Thread.Handle,
             memory: []align(mem.page_size) u8,
@@ -45,7 +47,7 @@ pub const Thread = struct {
             alloc_start: *c_void,
             heap_handle: windows.HANDLE,
         },
-        else => @compileError("Unsupported OS"),
+        else => struct {},
     };
 
     /// Returns the ID of the calling thread.
@@ -55,7 +57,7 @@ pub const Thread = struct {
         if (use_pthreads) {
             return c.pthread_self();
         } else
-            return switch (builtin.os) {
+            return switch (std.Target.current.os.tag) {
             .linux => os.linux.gettid(),
             .windows => windows.kernel32.GetCurrentThreadId(),
             else => @compileError("Unsupported OS"),
@@ -83,7 +85,7 @@ pub const Thread = struct {
                 else => unreachable,
             }
             os.munmap(self.data.memory);
-        } else switch (builtin.os) {
+        } else switch (std.Target.current.os.tag) {
             .linux => {
                 while (true) {
                     const pid_value = @atomicLoad(i32, &self.data.handle, .SeqCst);
@@ -99,7 +101,7 @@ pub const Thread = struct {
                 os.munmap(self.data.memory);
             },
             .windows => {
-                windows.WaitForSingleObject(self.data.handle, windows.INFINITE) catch unreachable;
+                windows.WaitForSingleObjectEx(self.data.handle, windows.INFINITE, false) catch unreachable;
                 windows.CloseHandle(self.data.handle);
                 windows.HeapFree(self.data.heap_handle, 0, self.data.alloc_start);
             },
@@ -138,7 +140,7 @@ pub const Thread = struct {
     };
 
     /// caller must call wait on the returned thread
-    /// fn startFn(@typeOf(context)) T
+    /// fn startFn(@TypeOf(context)) T
     /// where T is u8, noreturn, void, or !void
     /// caller must call wait on the returned thread
     pub fn spawn(context: var, comptime startFn: var) SpawnError!*Thread {
@@ -147,26 +149,45 @@ pub const Thread = struct {
         // https://github.com/ziglang/zig/issues/157
         const default_stack_size = 16 * 1024 * 1024;
 
-        const Context = @typeOf(context);
-        comptime assert(@ArgType(@typeOf(startFn), 0) == Context);
+        const Context = @TypeOf(context);
+        comptime assert(@typeInfo(@TypeOf(startFn)).Fn.args[0].arg_type.? == Context);
 
-        if (builtin.os == builtin.Os.windows) {
+        if (std.Target.current.os.tag == .windows) {
             const WinThread = struct {
                 const OuterContext = struct {
                     thread: Thread,
                     inner: Context,
                 };
-                extern fn threadMain(raw_arg: windows.LPVOID) windows.DWORD {
+                fn threadMain(raw_arg: windows.LPVOID) callconv(.C) windows.DWORD {
                     const arg = if (@sizeOf(Context) == 0) {} else @ptrCast(*Context, @alignCast(@alignOf(Context), raw_arg)).*;
-                    switch (@typeId(@typeOf(startFn).ReturnType)) {
-                        .Int => {
-                            return startFn(arg);
+
+                    switch (@typeInfo(@TypeOf(startFn).ReturnType)) {
+                        .NoReturn => {
+                            startFn(arg);
                         },
                         .Void => {
                             startFn(arg);
                             return 0;
                         },
-                        else => @compileError("expected return type of startFn to be 'u8', 'noreturn', 'void', or '!void'"),
+                        .Int => |info| {
+                            if (info.bits != 8) {
+                                @compileError(bad_startfn_ret);
+                            }
+                            return startFn(arg);
+                        },
+                        .ErrorUnion => |info| {
+                            if (info.payload != void) {
+                                @compileError(bad_startfn_ret);
+                            }
+                            startFn(arg) catch |err| {
+                                std.debug.warn("error: {}\n", .{@errorName(err)});
+                                if (@errorReturnTrace()) |trace| {
+                                    std.debug.dumpStackTrace(trace.*);
+                                }
+                            };
+                            return 0;
+                        },
+                        else => @compileError(bad_startfn_ret),
                     }
                 }
             };
@@ -198,27 +219,70 @@ pub const Thread = struct {
         }
 
         const MainFuncs = struct {
-            extern fn linuxThreadMain(ctx_addr: usize) u8 {
+            fn linuxThreadMain(ctx_addr: usize) callconv(.C) u8 {
                 const arg = if (@sizeOf(Context) == 0) {} else @intToPtr(*const Context, ctx_addr).*;
 
-                switch (@typeId(@typeOf(startFn).ReturnType)) {
-                    .Int => {
-                        return startFn(arg);
+                switch (@typeInfo(@TypeOf(startFn).ReturnType)) {
+                    .NoReturn => {
+                        startFn(arg);
                     },
                     .Void => {
                         startFn(arg);
                         return 0;
                     },
-                    else => @compileError("expected return type of startFn to be 'u8', 'noreturn', 'void', or '!void'"),
+                    .Int => |info| {
+                        if (info.bits != 8) {
+                            @compileError(bad_startfn_ret);
+                        }
+                        return startFn(arg);
+                    },
+                    .ErrorUnion => |info| {
+                        if (info.payload != void) {
+                            @compileError(bad_startfn_ret);
+                        }
+                        startFn(arg) catch |err| {
+                            std.debug.warn("error: {}\n", .{@errorName(err)});
+                            if (@errorReturnTrace()) |trace| {
+                                std.debug.dumpStackTrace(trace.*);
+                            }
+                        };
+                        return 0;
+                    },
+                    else => @compileError(bad_startfn_ret),
                 }
             }
-            extern fn posixThreadMain(ctx: ?*c_void) ?*c_void {
-                if (@sizeOf(Context) == 0) {
-                    _ = startFn({});
-                    return null;
-                } else {
-                    _ = startFn(@ptrCast(*const Context, @alignCast(@alignOf(Context), ctx)).*);
-                    return null;
+            fn posixThreadMain(ctx: ?*c_void) callconv(.C) ?*c_void {
+                const arg = if (@sizeOf(Context) == 0) {} else @ptrCast(*Context, @alignCast(@alignOf(Context), ctx)).*;
+
+                switch (@typeInfo(@TypeOf(startFn).ReturnType)) {
+                    .NoReturn => {
+                        startFn(arg);
+                    },
+                    .Void => {
+                        startFn(arg);
+                        return null;
+                    },
+                    .Int => |info| {
+                        if (info.bits != 8) {
+                            @compileError(bad_startfn_ret);
+                        }
+                        // pthreads don't support exit status, ignore value
+                        _ = startFn(arg);
+                        return null;
+                    },
+                    .ErrorUnion => |info| {
+                        if (info.payload != void) {
+                            @compileError(bad_startfn_ret);
+                        }
+                        startFn(arg) catch |err| {
+                            std.debug.warn("error: {}\n", .{@errorName(err)});
+                            if (@errorReturnTrace()) |trace| {
+                                std.debug.dumpStackTrace(trace.*);
+                            }
+                        };
+                        return null;
+                    },
+                    else => @compileError(bad_startfn_ret),
                 }
             }
         };
@@ -247,38 +311,73 @@ pub const Thread = struct {
             }
             // Finally, the Thread Local Storage, if any.
             if (!Thread.use_pthreads) {
-                if (os.linux.tls.tls_image) |tls_img| {
-                    l = mem.alignForward(l, @alignOf(usize));
-                    tls_start_offset = l;
-                    l += tls_img.alloc_size;
-                }
+                l = mem.alignForward(l, os.linux.tls.tls_image.alloc_align);
+                tls_start_offset = l;
+                l += os.linux.tls.tls_image.alloc_size;
             }
-            break :blk l;
+            // Round the size to the page size.
+            break :blk mem.alignForward(l, mem.page_size);
         };
-        // Map the whole stack with no rw permissions to avoid committing the
-        // whole region right away
-        const mmap_slice = os.mmap(
-            null,
-            mem.alignForward(mmap_len, mem.page_size),
-            os.PROT_NONE,
-            os.MAP_PRIVATE | os.MAP_ANONYMOUS,
-            -1,
-            0,
-        ) catch |err| switch (err) {
-            error.MemoryMappingNotSupported => unreachable,
-            error.AccessDenied => unreachable,
-            error.PermissionDenied => unreachable,
-            else => |e| return e,
-        };
-        errdefer os.munmap(mmap_slice);
 
-        // Map everything but the guard page as rw
-        os.mprotect(
-            mmap_slice,
-            os.PROT_READ | os.PROT_WRITE,
-        ) catch |err| switch (err) {
-            error.AccessDenied => unreachable,
-            else => |e| return e,
+        const mmap_slice = mem: {
+            if (std.Target.current.os.tag != .netbsd) {
+                // Map the whole stack with no rw permissions to avoid
+                // committing the whole region right away
+                const mmap_slice = os.mmap(
+                    null,
+                    mmap_len,
+                    os.PROT_NONE,
+                    os.MAP_PRIVATE | os.MAP_ANONYMOUS,
+                    -1,
+                    0,
+                ) catch |err| switch (err) {
+                    error.MemoryMappingNotSupported => unreachable,
+                    error.AccessDenied => unreachable,
+                    error.PermissionDenied => unreachable,
+                    else => |e| return e,
+                };
+                errdefer os.munmap(mmap_slice);
+
+                // Map everything but the guard page as rw
+                os.mprotect(
+                    mmap_slice[guard_end_offset..],
+                    os.PROT_READ | os.PROT_WRITE,
+                ) catch |err| switch (err) {
+                    error.AccessDenied => unreachable,
+                    else => |e| return e,
+                };
+
+                break :mem mmap_slice;
+            } else {
+                // NetBSD mprotect is very strict and doesn't allow to "upgrade"
+                // a PROT_NONE mapping to a RW one so let's allocate everything
+                // right away
+                const mmap_slice = os.mmap(
+                    null,
+                    mmap_len,
+                    os.PROT_READ | os.PROT_WRITE,
+                    os.MAP_PRIVATE | os.MAP_ANONYMOUS,
+                    -1,
+                    0,
+                ) catch |err| switch (err) {
+                    error.MemoryMappingNotSupported => unreachable,
+                    error.AccessDenied => unreachable,
+                    error.PermissionDenied => unreachable,
+                    else => |e| return e,
+                };
+                errdefer os.munmap(mmap_slice);
+
+                // Remap the guard page with no permissions
+                os.mprotect(
+                    mmap_slice[0..guard_end_offset],
+                    os.PROT_NONE,
+                ) catch |err| switch (err) {
+                    error.AccessDenied => unreachable,
+                    else => |e| return e,
+                };
+
+                break :mem mmap_slice;
+            }
         };
 
         const mmap_addr = @ptrToInt(mmap_slice.ptr);
@@ -299,7 +398,17 @@ pub const Thread = struct {
             if (c.pthread_attr_init(&attr) != 0) return error.SystemResources;
             defer assert(c.pthread_attr_destroy(&attr) == 0);
 
-            assert(c.pthread_attr_setstack(&attr, mmap_slice.ptr, stack_end_offset) == 0);
+            // Tell pthread where the effective stack start is and its size
+            assert(c.pthread_attr_setstack(
+                &attr,
+                mmap_slice.ptr + guard_end_offset,
+                stack_end_offset - guard_end_offset,
+            ) == 0);
+            // Even though pthread's man pages state that the guard size is
+            // ignored when the stack address is explicitly given, on some
+            // plaforms such as NetBSD we still have to zero it to prevent
+            // random crashes in pthread_join calls
+            assert(c.pthread_attr_setguardsize(&attr, 0) == 0);
 
             const err = c.pthread_create(&thread_ptr.data.handle, &attr, MainFuncs.posixThreadMain, @intToPtr(*c_void, arg));
             switch (err) {
@@ -309,16 +418,45 @@ pub const Thread = struct {
                 os.EINVAL => unreachable,
                 else => return os.unexpectedErrno(@intCast(usize, err)),
             }
-        } else if (os.linux.is_the_target) {
-            var flags: u32 = os.CLONE_VM | os.CLONE_FS | os.CLONE_FILES | os.CLONE_SIGHAND |
-                os.CLONE_THREAD | os.CLONE_SYSVSEM | os.CLONE_PARENT_SETTID | os.CLONE_CHILD_CLEARTID |
-                os.CLONE_DETACHED;
-            var newtls: usize = undefined;
-            if (os.linux.tls.tls_image) |tls_img| {
-                newtls = os.linux.tls.copyTLS(mmap_addr + tls_start_offset);
-                flags |= os.CLONE_SETTLS;
-            }
-            const rc = os.linux.clone(MainFuncs.linuxThreadMain, mmap_addr + stack_end_offset, flags, arg, &thread_ptr.data.handle, newtls, &thread_ptr.data.handle);
+        } else if (std.Target.current.os.tag == .linux) {
+            const flags: u32 = os.CLONE_VM | os.CLONE_FS | os.CLONE_FILES |
+                os.CLONE_SIGHAND | os.CLONE_THREAD | os.CLONE_SYSVSEM |
+                os.CLONE_PARENT_SETTID | os.CLONE_CHILD_CLEARTID |
+                os.CLONE_DETACHED | os.CLONE_SETTLS;
+            // This structure is only needed when targeting i386
+            var user_desc: if (std.Target.current.cpu.arch == .i386) os.linux.user_desc else void = undefined;
+
+            const tls_area = mmap_slice[tls_start_offset..];
+            const tp_value = os.linux.tls.prepareTLS(tls_area);
+
+            const newtls = blk: {
+                if (std.Target.current.cpu.arch == .i386) {
+                    user_desc = os.linux.user_desc{
+                        .entry_number = os.linux.tls.tls_image.gdt_entry_number,
+                        .base_addr = tp_value,
+                        .limit = 0xfffff,
+                        .seg_32bit = 1,
+                        .contents = 0, // Data
+                        .read_exec_only = 0,
+                        .limit_in_pages = 1,
+                        .seg_not_present = 0,
+                        .useable = 1,
+                    };
+                    break :blk @ptrToInt(&user_desc);
+                } else {
+                    break :blk tp_value;
+                }
+            };
+
+            const rc = os.linux.clone(
+                MainFuncs.linuxThreadMain,
+                mmap_addr + stack_end_offset,
+                flags,
+                arg,
+                &thread_ptr.data.handle,
+                newtls,
+                &thread_ptr.data.handle,
+            );
             switch (os.errno(rc)) {
                 0 => return thread_ptr,
                 os.EAGAIN => return error.ThreadQuotaExceeded,
@@ -335,27 +473,24 @@ pub const Thread = struct {
     }
 
     pub const CpuCountError = error{
-        OutOfMemory,
         PermissionDenied,
         SystemResources,
         Unexpected,
     };
 
     pub fn cpuCount() CpuCountError!usize {
-        if (os.linux.is_the_target) {
+        if (std.Target.current.os.tag == .linux) {
             const cpu_set = try os.sched_getaffinity(0);
-            return usize(os.CPU_COUNT(cpu_set)); // TODO should not need this usize cast
+            return @as(usize, os.CPU_COUNT(cpu_set)); // TODO should not need this usize cast
         }
-        if (os.windows.is_the_target) {
-            var system_info: windows.SYSTEM_INFO = undefined;
-            windows.kernel32.GetSystemInfo(&system_info);
-            return @intCast(usize, system_info.dwNumberOfProcessors);
+        if (std.Target.current.os.tag == .windows) {
+            return os.windows.peb().NumberOfProcessors;
         }
         var count: c_int = undefined;
         var count_len: usize = @sizeOf(c_int);
-        const name = if (os.darwin.is_the_target) c"hw.logicalcpu" else c"hw.ncpu";
-        os.sysctlbynameC(name, &count, &count_len, null, 0) catch |err| switch (err) {
-            error.NameTooLong => unreachable,
+        const name = if (comptime std.Target.current.isDarwin()) "hw.logicalcpu" else "hw.ncpu";
+        os.sysctlbynameZ(name, &count, &count_len, null, 0) catch |err| switch (err) {
+            error.NameTooLong, error.UnknownName => unreachable,
             else => |e| return e,
         };
         return @intCast(usize, count);

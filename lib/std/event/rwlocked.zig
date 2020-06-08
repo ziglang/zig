@@ -1,6 +1,5 @@
 const std = @import("../std.zig");
 const RwLock = std.event.RwLock;
-const Loop = std.event.Loop;
 
 /// Thread-safe async/await RW lock that protects one piece of data.
 /// Functions which are waiting for the lock are suspended, and
@@ -30,9 +29,9 @@ pub fn RwLocked(comptime T: type) type {
             }
         };
 
-        pub fn init(loop: *Loop, data: T) Self {
+        pub fn init(data: T) Self {
             return Self{
-                .lock = RwLock.init(loop),
+                .lock = RwLock.init(),
                 .locked_data = data,
             };
         }
@@ -41,16 +40,16 @@ pub fn RwLocked(comptime T: type) type {
             self.lock.deinit();
         }
 
-        pub async fn acquireRead(self: *Self) HeldReadLock {
+        pub fn acquireRead(self: *Self) callconv(.Async) HeldReadLock {
             return HeldReadLock{
-                .held = await (async self.lock.acquireRead() catch unreachable),
+                .held = self.lock.acquireRead(),
                 .value = &self.locked_data,
             };
         }
 
-        pub async fn acquireWrite(self: *Self) HeldWriteLock {
+        pub fn acquireWrite(self: *Self) callconv(.Async) HeldWriteLock {
             return HeldWriteLock{
-                .held = await (async self.lock.acquireWrite() catch unreachable),
+                .held = self.lock.acquireWrite(),
                 .value = &self.locked_data,
             };
         }

@@ -2,8 +2,8 @@
 //
 // https://github.com/llvm/llvm-project/blob/2ffb1b0413efa9a24eb3c49e710e36f92e2cb50b/compiler-rt/test/builtins/Unit/multf3_test.c
 
-const qnan128 = @bitCast(f128, u128(0x7fff800000000000) << 64);
-const inf128 = @bitCast(f128, u128(0x7fff000000000000) << 64);
+const qnan128 = @bitCast(f128, @as(u128, 0x7fff800000000000) << 64);
+const inf128 = @bitCast(f128, @as(u128, 0x7fff000000000000) << 64);
 
 const __multf3 = @import("mulXf3.zig").__multf3;
 
@@ -39,7 +39,7 @@ fn test__multf3(a: f128, b: f128, expected_hi: u64, expected_lo: u64) void {
 }
 
 fn makeNaN128(rand: u64) f128 {
-    const int_result = u128(0x7fff000000000000 | (rand & 0xffffffffffff)) << 64;
+    const int_result = @as(u128, 0x7fff000000000000 | (rand & 0xffffffffffff)) << 64;
     const float_result = @bitCast(f128, int_result);
     return float_result;
 }
@@ -55,15 +55,15 @@ test "multf3" {
 
     // any * any
     test__multf3(
-        @bitCast(f128, u128(0x40042eab345678439abcdefea5678234)),
-        @bitCast(f128, u128(0x3ffeedcb34a235253948765432134675)),
+        @bitCast(f128, @as(u128, 0x40042eab345678439abcdefea5678234)),
+        @bitCast(f128, @as(u128, 0x3ffeedcb34a235253948765432134675)),
         0x400423e7f9e3c9fc,
         0xd906c2c2a85777c4,
     );
 
     test__multf3(
-        @bitCast(f128, u128(0x3fcd353e45674d89abacc3a2ebf3ff50)),
-        @bitCast(f128, u128(0x3ff6ed8764648369535adf4be3214568)),
+        @bitCast(f128, @as(u128, 0x3fcd353e45674d89abacc3a2ebf3ff50)),
+        @bitCast(f128, @as(u128, 0x3ff6ed8764648369535adf4be3214568)),
         0x3fc52a163c6223fc,
         0xc94c4bf0430768b4,
     );
@@ -76,8 +76,8 @@ test "multf3" {
     );
 
     test__multf3(
-        @bitCast(f128, u128(0x3f154356473c82a9fabf2d22ace345df)),
-        @bitCast(f128, u128(0x3e38eda98765476743ab21da23d45679)),
+        @bitCast(f128, @as(u128, 0x3f154356473c82a9fabf2d22ace345df)),
+        @bitCast(f128, @as(u128, 0x3e38eda98765476743ab21da23d45679)),
         0x3d4f37c1a3137cae,
         0xfc6807048bc2836a,
     );

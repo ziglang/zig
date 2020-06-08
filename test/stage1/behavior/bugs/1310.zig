@@ -3,7 +3,7 @@ const expect = std.testing.expect;
 
 pub const VM = ?[*]const struct_InvocationTable_;
 pub const struct_InvocationTable_ = extern struct {
-    GetVM: ?extern fn (?[*]VM) c_int,
+    GetVM: ?fn (?[*]VM) callconv(.C) c_int,
 };
 
 pub const struct_VM_ = extern struct {
@@ -15,7 +15,7 @@ pub const struct_VM_ = extern struct {
 pub const InvocationTable_ = struct_InvocationTable_;
 pub const VM_ = struct_VM_;
 
-extern fn agent_callback(_vm: [*]VM, options: [*]u8) i32 {
+fn agent_callback(_vm: [*]VM, options: [*]u8) callconv(.C) i32 {
     return 11;
 }
 

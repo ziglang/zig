@@ -7,20 +7,20 @@
 
 int __fpclassifyl (long double _x){
 #if defined(__x86_64__) || defined(_AMD64_)
-    __mingw_fp_types_t hlp;
+    __mingw_ldbl_type_t hlp;
     unsigned int e;
-    hlp.ld = &_x;
-    e = hlp.ldt->lh.sign_exponent & 0x7fff;
+    hlp.x = _x;
+    e = hlp.lh.sign_exponent & 0x7fff;
     if (!e)
       {
-        unsigned int h = hlp.ldt->lh.high;
-        if (!(hlp.ldt->lh.low | h))
+        unsigned int h = hlp.lh.high;
+        if (!(hlp.lh.low | h))
           return FP_ZERO;
         else if (!(h & 0x80000000))
           return FP_SUBNORMAL;
       }
     else if (e == 0x7fff)
-      return (((hlp.ldt->lh.high & 0x7fffffff) | hlp.ldt->lh.low) == 0 ?
+      return (((hlp.lh.high & 0x7fffffff) | hlp.lh.low) == 0 ?
 	      FP_INFINITE : FP_NAN);
     return FP_NORMAL;
 #elif defined(__arm__) || defined(_ARM_) || defined(__aarch64__) || defined(_ARM64_)

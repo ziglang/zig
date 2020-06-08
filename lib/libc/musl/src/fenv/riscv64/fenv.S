@@ -45,8 +45,11 @@ fegetenv:
 .global fesetenv
 .type fesetenv, %function
 fesetenv:
+	li t2, -1
+	li t1, 0
+	beq a0, t2, 1f
 	lw t1, 0(a0)
-	fscsr t0, t1
+1:	fscsr t1
 	li a0, 0
 	ret
 

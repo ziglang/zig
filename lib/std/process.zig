@@ -1,9 +1,8 @@
-const builtin = @import("builtin");
 const std = @import("std.zig");
+const builtin = std.builtin;
 const os = std.os;
 const fs = std.fs;
 const BufMap = std.BufMap;
-const Buffer = std.Buffer;
 const mem = std.mem;
 const math = std.math;
 const Allocator = mem.Allocator;
@@ -16,37 +15,53 @@ pub const changeCurDir = os.chdir;
 pub const changeCurDirC = os.chdirC;
 
 /// The result is a slice of `out_buffer`, from index `0`.
-pub fn getCwd(out_buffer: *[fs.MAX_PATH_BYTES]u8) ![]u8 {
+pub fn getCwd(out_buffer: []u8) ![]u8 {
     return os.getcwd(out_buffer);
 }
 
 /// Caller must free the returned memory.
 pub fn getCwdAlloc(allocator: *Allocator) ![]u8 {
-    var buf: [fs.MAX_PATH_BYTES]u8 = undefined;
-    return mem.dupe(allocator, u8, try os.getcwd(&buf));
+    // The use of MAX_PATH_BYTES here is just a heuristic: most paths will fit
+    // in stack_buf, avoiding an extra allocation in the common case.
+    var stack_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+    var heap_buf: ?[]u8 = null;
+    defer if (heap_buf) |buf| allocator.free(buf);
+
+    var current_buf: []u8 = &stack_buf;
+    while (true) {
+        if (os.getcwd(current_buf)) |slice| {
+            return mem.dupe(allocator, u8, slice);
+        } else |err| switch (err) {
+            error.NameTooLong => {
+                // The path is too long to fit in stack_buf. Allocate geometrically
+                // increasing buffers until we find one that works
+                const new_capacity = current_buf.len * 2;
+                if (heap_buf) |buf| allocator.free(buf);
+                current_buf = try allocator.alloc(u8, new_capacity);
+                heap_buf = current_buf;
+            },
+            else => |e| return e,
+        }
+    }
 }
 
 test "getCwdAlloc" {
-    // at least call it so it gets compiled
-    var buf: [1000]u8 = undefined;
-    const allocator = &std.heap.FixedBufferAllocator.init(&buf).allocator;
-    _ = getCwdAlloc(allocator) catch undefined;
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
+    const cwd = try getCwdAlloc(testing.allocator);
+    testing.allocator.free(cwd);
 }
 
-/// Caller must free result when done.
-/// TODO make this go through libc when we have it
+/// Caller owns resulting `BufMap`.
 pub fn getEnvMap(allocator: *Allocator) !BufMap {
     var result = BufMap.init(allocator);
     errdefer result.deinit();
 
-    if (os.windows.is_the_target) {
-        const ptr = try os.windows.GetEnvironmentStringsW();
-        defer os.windows.FreeEnvironmentStringsW(ptr);
+    if (builtin.os.tag == .windows) {
+        const ptr = os.windows.peb().ProcessParameters.Environment;
 
         var i: usize = 0;
-        while (true) {
-            if (ptr[i] == 0) return result;
-
+        while (ptr[i] != 0) {
             const key_start = i;
 
             while (ptr[i] != 0 and ptr[i] != '=') : (i += 1) {}
@@ -66,7 +81,8 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
 
             try result.setMove(key, value);
         }
-    } else if (builtin.os == .wasi) {
+        return result;
+    } else if (builtin.os.tag == .wasi) {
         var environ_count: usize = undefined;
         var environ_buf_size: usize = undefined;
 
@@ -75,11 +91,9 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
             return os.unexpectedErrno(environ_sizes_get_ret);
         }
 
-        // TODO: Verify that the documentation is incorrect
-        // https://github.com/WebAssembly/WASI/issues/27
-        var environ = try allocator.alloc(?[*]u8, environ_count + 1);
+        var environ = try allocator.alloc([*:0]u8, environ_count);
         defer allocator.free(environ);
-        var environ_buf = try std.heap.wasm_allocator.alloc(u8, environ_buf_size);
+        var environ_buf = try allocator.alloc(u8, environ_buf_size);
         defer allocator.free(environ_buf);
 
         const environ_get_ret = os.wasi.environ_get(environ.ptr, environ_buf.ptr);
@@ -88,24 +102,36 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
         }
 
         for (environ) |env| {
-            if (env) |ptr| {
-                const pair = mem.toSlice(u8, ptr);
-                var parts = mem.separate(pair, "=");
-                const key = parts.next().?;
-                const value = parts.next().?;
-                try result.set(key, value);
-            }
+            const pair = mem.spanZ(env);
+            var parts = mem.split(pair, "=");
+            const key = parts.next().?;
+            const value = parts.next().?;
+            try result.set(key, value);
+        }
+        return result;
+    } else if (builtin.link_libc) {
+        var ptr = std.c.environ;
+        while (ptr.*) |line| : (ptr += 1) {
+            var line_i: usize = 0;
+            while (line[line_i] != 0 and line[line_i] != '=') : (line_i += 1) {}
+            const key = line[0..line_i];
+
+            var end_i: usize = line_i;
+            while (line[end_i] != 0) : (end_i += 1) {}
+            const value = line[line_i + 1 .. end_i];
+
+            try result.set(key, value);
         }
         return result;
     } else {
-        for (os.environ) |ptr| {
+        for (os.environ) |line| {
             var line_i: usize = 0;
-            while (ptr[line_i] != 0 and ptr[line_i] != '=') : (line_i += 1) {}
-            const key = ptr[0..line_i];
+            while (line[line_i] != 0 and line[line_i] != '=') : (line_i += 1) {}
+            const key = line[0..line_i];
 
             var end_i: usize = line_i;
-            while (ptr[end_i] != 0) : (end_i += 1) {}
-            const value = ptr[line_i + 1 .. end_i];
+            while (line[end_i] != 0) : (end_i += 1) {}
+            const value = line[line_i + 1 .. end_i];
 
             try result.set(key, value);
         }
@@ -114,7 +140,7 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
 }
 
 test "os.getEnvMap" {
-    var env = try getEnvMap(std.debug.global_allocator);
+    var env = try getEnvMap(std.testing.allocator);
     defer env.deinit();
 }
 
@@ -127,37 +153,20 @@ pub const GetEnvVarOwnedError = error{
 };
 
 /// Caller must free returned memory.
-/// TODO make this go through libc when we have it
 pub fn getEnvVarOwned(allocator: *mem.Allocator, key: []const u8) GetEnvVarOwnedError![]u8 {
-    if (os.windows.is_the_target) {
-        const key_with_null = try std.unicode.utf8ToUtf16LeWithNull(allocator, key);
-        defer allocator.free(key_with_null);
+    if (builtin.os.tag == .windows) {
+        const result_w = blk: {
+            const key_w = try std.unicode.utf8ToUtf16LeWithNull(allocator, key);
+            defer allocator.free(key_w);
 
-        var buf = try allocator.alloc(u16, 256);
-        defer allocator.free(buf);
-
-        while (true) {
-            const windows_buf_len = math.cast(os.windows.DWORD, buf.len) catch return error.OutOfMemory;
-            const result = os.windows.GetEnvironmentVariableW(
-                key_with_null.ptr,
-                buf.ptr,
-                windows_buf_len,
-            ) catch |err| switch (err) {
-                error.Unexpected => return error.EnvironmentVariableNotFound,
-                else => |e| return e,
-            };
-            if (result > buf.len) {
-                buf = try allocator.realloc(buf, result);
-                continue;
-            }
-
-            return std.unicode.utf16leToUtf8Alloc(allocator, buf[0..result]) catch |err| switch (err) {
-                error.DanglingSurrogateHalf => return error.InvalidUtf8,
-                error.ExpectedSecondSurrogateHalf => return error.InvalidUtf8,
-                error.UnexpectedSecondSurrogateHalf => return error.InvalidUtf8,
-                else => |e| return e,
-            };
-        }
+            break :blk std.os.getenvW(key_w) orelse return error.EnvironmentVariableNotFound;
+        };
+        return std.unicode.utf16leToUtf8Alloc(allocator, result_w) catch |err| switch (err) {
+            error.DanglingSurrogateHalf => return error.InvalidUtf8,
+            error.ExpectedSecondSurrogateHalf => return error.InvalidUtf8,
+            error.UnexpectedSecondSurrogateHalf => return error.InvalidUtf8,
+            else => |e| return e,
+        };
     } else {
         const result = os.getenv(key) orelse return error.EnvironmentVariableNotFound;
         return mem.dupe(allocator, u8, result);
@@ -165,7 +174,7 @@ pub fn getEnvVarOwned(allocator: *mem.Allocator, key: []const u8) GetEnvVarOwned
 }
 
 test "os.getEnvVarOwned" {
-    var ga = std.debug.global_allocator;
+    var ga = std.testing.allocator;
     testing.expectError(error.EnvironmentVariableNotFound, getEnvVarOwned(ga, "BADENV"));
 }
 
@@ -185,7 +194,7 @@ pub const ArgIteratorPosix = struct {
 
         const s = os.argv[self.index];
         self.index += 1;
-        return mem.toSlice(u8, s);
+        return mem.spanZ(s);
     }
 
     pub fn skip(self: *ArgIteratorPosix) bool {
@@ -193,6 +202,79 @@ pub const ArgIteratorPosix = struct {
 
         self.index += 1;
         return true;
+    }
+};
+
+pub const ArgIteratorWasi = struct {
+    allocator: *mem.Allocator,
+    index: usize,
+    args: [][]u8,
+
+    pub const InitError = error{OutOfMemory} || os.UnexpectedError;
+
+    /// You must call deinit to free the internal buffer of the
+    /// iterator after you are done.
+    pub fn init(allocator: *mem.Allocator) InitError!ArgIteratorWasi {
+        const fetched_args = try ArgIteratorWasi.internalInit(allocator);
+        return ArgIteratorWasi{
+            .allocator = allocator,
+            .index = 0,
+            .args = fetched_args,
+        };
+    }
+
+    fn internalInit(allocator: *mem.Allocator) InitError![][]u8 {
+        const w = os.wasi;
+        var count: usize = undefined;
+        var buf_size: usize = undefined;
+
+        switch (w.args_sizes_get(&count, &buf_size)) {
+            w.ESUCCESS => {},
+            else => |err| return os.unexpectedErrno(err),
+        }
+
+        var argv = try allocator.alloc([*:0]u8, count);
+        defer allocator.free(argv);
+
+        var argv_buf = try allocator.alloc(u8, buf_size);
+
+        switch (w.args_get(argv.ptr, argv_buf.ptr)) {
+            w.ESUCCESS => {},
+            else => |err| return os.unexpectedErrno(err),
+        }
+
+        var result_args = try allocator.alloc([]u8, count);
+        var i: usize = 0;
+        while (i < count) : (i += 1) {
+            result_args[i] = mem.spanZ(argv[i]);
+        }
+
+        return result_args;
+    }
+
+    pub fn next(self: *ArgIteratorWasi) ?[]const u8 {
+        if (self.index == self.args.len) return null;
+
+        const arg = self.args[self.index];
+        self.index += 1;
+        return arg;
+    }
+
+    pub fn skip(self: *ArgIteratorWasi) bool {
+        if (self.index == self.args.len) return false;
+
+        self.index += 1;
+        return true;
+    }
+
+    /// Call to free the internal buffer of the iterator.
+    pub fn deinit(self: *ArgIteratorWasi) void {
+        const last_item = self.args[self.args.len - 1];
+        const last_byte_addr = @ptrToInt(last_item.ptr) + last_item.len + 1; // null terminated
+        const first_item_ptr = self.args[0].ptr;
+        const len = last_byte_addr - @ptrToInt(first_item_ptr);
+        self.allocator.free(first_item_ptr[0..len]);
+        self.allocator.free(self.args);
     }
 };
 
@@ -274,7 +356,7 @@ pub const ArgIteratorWindows = struct {
     }
 
     fn internalNext(self: *ArgIteratorWindows, allocator: *Allocator) NextError![]u8 {
-        var buf = try Buffer.initSize(allocator, 0);
+        var buf = std.ArrayList(u8).init(allocator);
         defer buf.deinit();
 
         var backslash_count: usize = 0;
@@ -290,10 +372,10 @@ pub const ArgIteratorWindows = struct {
                     if (quote_is_real) {
                         self.seen_quote_count += 1;
                         if (self.seen_quote_count == self.quote_count and self.seen_quote_count % 2 == 1) {
-                            try buf.appendByte('"');
+                            try buf.append('"');
                         }
                     } else {
-                        try buf.appendByte('"');
+                        try buf.append('"');
                     }
                 },
                 '\\' => {
@@ -303,7 +385,7 @@ pub const ArgIteratorWindows = struct {
                     try self.emitBackslashes(&buf, backslash_count);
                     backslash_count = 0;
                     if (self.seen_quote_count % 2 == 1 and self.seen_quote_count != self.quote_count) {
-                        try buf.appendByte(byte);
+                        try buf.append(byte);
                     } else {
                         return buf.toOwnedSlice();
                     }
@@ -311,16 +393,16 @@ pub const ArgIteratorWindows = struct {
                 else => {
                     try self.emitBackslashes(&buf, backslash_count);
                     backslash_count = 0;
-                    try buf.appendByte(byte);
+                    try buf.append(byte);
                 },
             }
         }
     }
 
-    fn emitBackslashes(self: *ArgIteratorWindows, buf: *Buffer, emit_count: usize) !void {
+    fn emitBackslashes(self: *ArgIteratorWindows, buf: *std.ArrayList(u8), emit_count: usize) !void {
         var i: usize = 0;
         while (i < emit_count) : (i += 1) {
-            try buf.appendByte('\\');
+            try buf.append('\\');
         }
     }
 
@@ -346,14 +428,29 @@ pub const ArgIteratorWindows = struct {
 };
 
 pub const ArgIterator = struct {
-    const InnerType = if (builtin.os == .windows) ArgIteratorWindows else ArgIteratorPosix;
+    const InnerType = switch (builtin.os.tag) {
+        .windows => ArgIteratorWindows,
+        .wasi => ArgIteratorWasi,
+        else => ArgIteratorPosix,
+    };
 
     inner: InnerType,
 
+    /// Initialize the args iterator.
     pub fn init() ArgIterator {
-        if (builtin.os == .wasi) {
-            // TODO: Figure out a compatible interface accomodating WASI
-            @compileError("ArgIterator is not yet supported in WASI. Use argsAlloc and argsFree instead.");
+        if (builtin.os.tag == .wasi) {
+            @compileError("In WASI, use initWithAllocator instead.");
+        }
+
+        return ArgIterator{ .inner = InnerType.init() };
+    }
+
+    pub const InitError = ArgIteratorWasi.InitError;
+
+    /// You must deinitialize iterator's internal buffers by calling `deinit` when done.
+    pub fn initWithAllocator(allocator: *mem.Allocator) InitError!ArgIterator {
+        if (builtin.os.tag == .wasi) {
+            return ArgIterator{ .inner = try InnerType.init(allocator) };
         }
 
         return ArgIterator{ .inner = InnerType.init() };
@@ -363,7 +460,7 @@ pub const ArgIterator = struct {
 
     /// You must free the returned memory when done.
     pub fn next(self: *ArgIterator, allocator: *Allocator) ?(NextError![]u8) {
-        if (builtin.os == .windows) {
+        if (builtin.os.tag == .windows) {
             return self.inner.next(allocator);
         } else {
             return mem.dupe(allocator, u8, self.inner.next() orelse return null);
@@ -375,10 +472,24 @@ pub const ArgIterator = struct {
         return self.inner.next();
     }
 
+    /// If you only are targeting WASI, you can call this and not need an allocator.
+    pub fn nextWasi(self: *ArgIterator) ?[]const u8 {
+        return self.inner.next();
+    }
+
     /// Parse past 1 argument without capturing it.
     /// Returns `true` if skipped an arg, `false` if we are at the end.
     pub fn skip(self: *ArgIterator) bool {
         return self.inner.skip();
+    }
+
+    /// Call this to free the iterator's internal buffer if the iterator
+    /// was created with `initWithAllocator` function.
+    pub fn deinit(self: *ArgIterator) void {
+        // Unless we're targeting WASI, this is a no-op.
+        if (builtin.os.tag == .wasi) {
+            self.inner.deinit();
+        }
     }
 };
 
@@ -386,39 +497,38 @@ pub fn args() ArgIterator {
     return ArgIterator.init();
 }
 
+/// You must deinitialize iterator's internal buffers by calling `deinit` when done.
+pub fn argsWithAllocator(allocator: *mem.Allocator) ArgIterator.InitError!ArgIterator {
+    return ArgIterator.initWithAllocator(allocator);
+}
+
+test "args iterator" {
+    var ga = std.testing.allocator;
+    var it = if (builtin.os.tag == .wasi) try argsWithAllocator(ga) else args();
+    defer it.deinit(); // no-op unless WASI
+
+    const prog_name = try it.next(ga) orelse unreachable;
+    defer ga.free(prog_name);
+
+    const expected_suffix = switch (builtin.os.tag) {
+        .wasi => "test.wasm",
+        .windows => "test.exe",
+        else => "test",
+    };
+    const given_suffix = std.fs.path.basename(prog_name);
+
+    testing.expect(mem.eql(u8, expected_suffix, given_suffix));
+    testing.expectEqual(it.next(ga), null);
+    testing.expect(!it.skip());
+}
+
 /// Caller must call argsFree on result.
 pub fn argsAlloc(allocator: *mem.Allocator) ![][]u8 {
-    if (builtin.os == .wasi) {
-        var count: usize = undefined;
-        var buf_size: usize = undefined;
-
-        const args_sizes_get_ret = os.wasi.args_sizes_get(&count, &buf_size);
-        if (args_sizes_get_ret != os.wasi.ESUCCESS) {
-            return os.unexpectedErrno(args_sizes_get_ret);
-        }
-
-        var argv = try allocator.alloc([*]u8, count);
-        defer allocator.free(argv);
-
-        var argv_buf = try allocator.alloc(u8, buf_size);
-        const args_get_ret = os.wasi.args_get(argv.ptr, argv_buf.ptr);
-        if (args_get_ret != os.wasi.ESUCCESS) {
-            return os.unexpectedErrno(args_get_ret);
-        }
-
-        var result_slice = try allocator.alloc([]u8, count);
-
-        var i: usize = 0;
-        while (i < count) : (i += 1) {
-            result_slice[i] = mem.toSlice(u8, argv[i]);
-        }
-
-        return result_slice;
-    }
-
     // TODO refactor to only make 1 allocation.
-    var it = args();
-    var contents = try Buffer.initSize(allocator, 0);
+    var it = if (builtin.os.tag == .wasi) try argsWithAllocator(allocator) else args();
+    defer it.deinit();
+
+    var contents = std.ArrayList(u8).init(allocator);
     defer contents.deinit();
 
     var slice_list = std.ArrayList(usize).init(allocator);
@@ -427,18 +537,18 @@ pub fn argsAlloc(allocator: *mem.Allocator) ![][]u8 {
     while (it.next(allocator)) |arg_or_err| {
         const arg = try arg_or_err;
         defer allocator.free(arg);
-        try contents.append(arg);
+        try contents.appendSlice(arg);
         try slice_list.append(arg.len);
     }
 
-    const contents_slice = contents.toSliceConst();
-    const slice_sizes = slice_list.toSliceConst();
+    const contents_slice = contents.span();
+    const slice_sizes = slice_list.span();
     const slice_list_bytes = try math.mul(usize, @sizeOf([]u8), slice_sizes.len);
     const total_bytes = try math.add(usize, slice_list_bytes, contents_slice.len);
     const buf = try allocator.alignedAlloc(u8, @alignOf([]u8), total_bytes);
     errdefer allocator.free(buf);
 
-    const result_slice_list = @bytesToSlice([]u8, buf[0..slice_list_bytes]);
+    const result_slice_list = mem.bytesAsSlice([]u8, buf[0..slice_list_bytes]);
     const result_contents = buf[slice_list_bytes..];
     mem.copy(u8, result_contents, contents_slice);
 
@@ -453,16 +563,6 @@ pub fn argsAlloc(allocator: *mem.Allocator) ![][]u8 {
 }
 
 pub fn argsFree(allocator: *mem.Allocator, args_alloc: []const []u8) void {
-    if (builtin.os == .wasi) {
-        const last_item = args_alloc[args_alloc.len - 1];
-        const last_byte_addr = @ptrToInt(last_item.ptr) + last_item.len + 1; // null terminated
-        const first_item_ptr = args_alloc[0].ptr;
-        const len = last_byte_addr - @ptrToInt(first_item_ptr);
-        allocator.free(first_item_ptr[0..len]);
-
-        return allocator.free(args_alloc);
-    }
-
     var total_bytes: usize = 0;
     for (args_alloc) |arg| {
         total_bytes += @sizeOf([]u8) + arg.len;
@@ -473,14 +573,14 @@ pub fn argsFree(allocator: *mem.Allocator, args_alloc: []const []u8) void {
 }
 
 test "windows arg parsing" {
-    testWindowsCmdLine(c"a   b\tc d", [_][]const u8{ "a", "b", "c", "d" });
-    testWindowsCmdLine(c"\"abc\" d e", [_][]const u8{ "abc", "d", "e" });
-    testWindowsCmdLine(c"a\\\\\\b d\"e f\"g h", [_][]const u8{ "a\\\\\\b", "de fg", "h" });
-    testWindowsCmdLine(c"a\\\\\\\"b c d", [_][]const u8{ "a\\\"b", "c", "d" });
-    testWindowsCmdLine(c"a\\\\\\\\\"b c\" d e", [_][]const u8{ "a\\\\b c", "d", "e" });
-    testWindowsCmdLine(c"a   b\tc \"d f", [_][]const u8{ "a", "b", "c", "\"d", "f" });
+    testWindowsCmdLine("a   b\tc d", &[_][]const u8{ "a", "b", "c", "d" });
+    testWindowsCmdLine("\"abc\" d e", &[_][]const u8{ "abc", "d", "e" });
+    testWindowsCmdLine("a\\\\\\b d\"e f\"g h", &[_][]const u8{ "a\\\\\\b", "de fg", "h" });
+    testWindowsCmdLine("a\\\\\\\"b c d", &[_][]const u8{ "a\\\"b", "c", "d" });
+    testWindowsCmdLine("a\\\\\\\\\"b c\" d e", &[_][]const u8{ "a\\\\b c", "d", "e" });
+    testWindowsCmdLine("a   b\tc \"d f", &[_][]const u8{ "a", "b", "c", "\"d", "f" });
 
-    testWindowsCmdLine(c"\".\\..\\zig-cache\\build\" \"bin\\zig.exe\" \".\\..\" \".\\..\\zig-cache\" \"--help\"", [_][]const u8{
+    testWindowsCmdLine("\".\\..\\zig-cache\\build\" \"bin\\zig.exe\" \".\\..\" \".\\..\\zig-cache\" \"--help\"", &[_][]const u8{
         ".\\..\\zig-cache\\build",
         "bin\\zig.exe",
         ".\\..",
@@ -492,10 +592,11 @@ test "windows arg parsing" {
 fn testWindowsCmdLine(input_cmd_line: [*]const u8, expected_args: []const []const u8) void {
     var it = ArgIteratorWindows.initWithCmdLine(input_cmd_line);
     for (expected_args) |expected_arg| {
-        const arg = it.next(std.debug.global_allocator).? catch unreachable;
+        const arg = it.next(std.testing.allocator).? catch unreachable;
+        defer std.testing.allocator.free(arg);
         testing.expectEqualSlices(u8, expected_arg, arg);
     }
-    testing.expect(it.next(std.debug.global_allocator) == null);
+    testing.expect(it.next(std.testing.allocator) == null);
 }
 
 pub const UserInfo = struct {
@@ -505,7 +606,7 @@ pub const UserInfo = struct {
 
 /// POSIX function which gets a uid from username.
 pub fn getUserInfo(name: []const u8) !UserInfo {
-    return switch (builtin.os) {
+    return switch (builtin.os.tag) {
         .linux, .macosx, .watchos, .tvos, .ios, .freebsd, .netbsd => posixGetUserInfo(name),
         else => @compileError("Unsupported OS"),
     };
@@ -598,7 +699,7 @@ pub fn posixGetUserInfo(name: []const u8) !UserInfo {
 }
 
 pub fn getBaseAddress() usize {
-    switch (builtin.os) {
+    switch (builtin.os.tag) {
         .linux => {
             const base = os.system.getauxval(std.elf.AT_BASE);
             if (base != 0) {
@@ -612,5 +713,65 @@ pub fn getBaseAddress() usize {
         },
         .windows => return @ptrToInt(os.windows.kernel32.GetModuleHandleW(null)),
         else => @compileError("Unsupported OS"),
+    }
+}
+
+/// Caller owns the result value and each inner slice.
+/// TODO Remove the `Allocator` requirement from this API, which will remove the `Allocator`
+/// requirement from `std.zig.system.NativeTargetInfo.detect`. Most likely this will require
+/// introducing a new, lower-level function which takes a callback function, and then this
+/// function which takes an allocator can exist on top of it.
+pub fn getSelfExeSharedLibPaths(allocator: *Allocator) error{OutOfMemory}![][:0]u8 {
+    switch (builtin.link_mode) {
+        .Static => return &[_][:0]u8{},
+        .Dynamic => {},
+    }
+    const List = std.ArrayList([:0]u8);
+    switch (builtin.os.tag) {
+        .linux,
+        .freebsd,
+        .netbsd,
+        .dragonfly,
+        => {
+            var paths = List.init(allocator);
+            errdefer {
+                const slice = paths.toOwnedSlice();
+                for (slice) |item| {
+                    allocator.free(item);
+                }
+                allocator.free(slice);
+            }
+            try os.dl_iterate_phdr(&paths, error{OutOfMemory}, struct {
+                fn callback(info: *os.dl_phdr_info, size: usize, list: *List) !void {
+                    const name = info.dlpi_name orelse return;
+                    if (name[0] == '/') {
+                        const item = try mem.dupeZ(list.allocator, u8, mem.spanZ(name));
+                        errdefer list.allocator.free(item);
+                        try list.append(item);
+                    }
+                }
+            }.callback);
+            return paths.toOwnedSlice();
+        },
+        .macosx, .ios, .watchos, .tvos => {
+            var paths = List.init(allocator);
+            errdefer {
+                const slice = paths.toOwnedSlice();
+                for (slice) |item| {
+                    allocator.free(item);
+                }
+                allocator.free(slice);
+            }
+            const img_count = std.c._dyld_image_count();
+            var i: u32 = 0;
+            while (i < img_count) : (i += 1) {
+                const name = std.c._dyld_get_image_name(i);
+                const item = try mem.dupeZ(allocator, u8, mem.spanZ(name));
+                errdefer allocator.free(item);
+                try paths.append(item);
+            }
+            return paths.toOwnedSlice();
+        },
+        else => @compileError("getSelfExeSharedLibPaths unimplemented for this target"),
     }
 }

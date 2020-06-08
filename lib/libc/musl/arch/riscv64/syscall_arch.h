@@ -74,3 +74,5 @@ static inline long __syscall6(long n, long a, long b, long c, long d, long e, lo
 /* We don't have a clock_gettime function.
 #define VDSO_CGT_SYM "__vdso_clock_gettime"
 #define VDSO_CGT_VER "LINUX_2.6" */
+
+#define IPC_64 0

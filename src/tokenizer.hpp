@@ -28,9 +28,6 @@ enum TokenId {
     TokenIdBitShiftRight,
     TokenIdBitShiftRightEq,
     TokenIdBitXorEq,
-    TokenIdBracketStarBracket,
-    TokenIdBracketStarCBracket,
-    TokenIdBracketUnderscoreBracket,
     TokenIdCharLiteral,
     TokenIdCmpEq,
     TokenIdCmpGreaterOrEq,
@@ -43,7 +40,9 @@ enum TokenId {
     TokenIdDash,
     TokenIdDivEq,
     TokenIdDocComment,
+    TokenIdContainerDocComment,
     TokenIdDot,
+    TokenIdDotStar,
     TokenIdEllipsis2,
     TokenIdEllipsis3,
     TokenIdEof,
@@ -60,6 +59,7 @@ enum TokenId {
     TokenIdKeywordAwait,
     TokenIdKeywordBreak,
     TokenIdKeywordCatch,
+    TokenIdKeywordCallconv,
     TokenIdKeywordCompTime,
     TokenIdKeywordConst,
     TokenIdKeywordContinue,
@@ -77,9 +77,8 @@ enum TokenId {
     TokenIdKeywordInline,
     TokenIdKeywordNoInline,
     TokenIdKeywordLinkSection,
-    TokenIdKeywordNakedCC,
     TokenIdKeywordNoAlias,
-    TokenIdKeywordNoAsync,
+    TokenIdKeywordNoSuspend,
     TokenIdKeywordNull,
     TokenIdKeywordOr,
     TokenIdKeywordOrElse,
@@ -87,7 +86,6 @@ enum TokenId {
     TokenIdKeywordPub,
     TokenIdKeywordResume,
     TokenIdKeywordReturn,
-    TokenIdKeywordStdcallCC,
     TokenIdKeywordStruct,
     TokenIdKeywordSuspend,
     TokenIdKeywordSwitch,
@@ -126,6 +124,7 @@ enum TokenId {
     TokenIdStar,
     TokenIdStarStar,
     TokenIdStringLiteral,
+    TokenIdMultilineStringLiteral,
     TokenIdSymbol,
     TokenIdTilde,
     TokenIdTimesEq,
@@ -147,7 +146,6 @@ struct TokenIntLit {
 
 struct TokenStrLit {
     Buf str;
-    bool is_c_str;
 };
 
 struct TokenCharLit {
@@ -168,7 +166,7 @@ struct Token {
         // TokenIdFloatLiteral
         TokenFloatLit float_lit;
 
-        // TokenIdStringLiteral or TokenIdSymbol
+        // TokenIdStringLiteral, TokenIdMultilineStringLiteral or TokenIdSymbol
         TokenStrLit str_lit;
 
         // TokenIdCharLiteral

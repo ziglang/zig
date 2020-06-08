@@ -1256,6 +1256,8 @@ public:
     _LIBCPP_INLINE_VISIBILITY
     operator>>=(const _Expr& __v) const;
 
+    slice_array(slice_array const&) = default;
+
     _LIBCPP_INLINE_VISIBILITY
     const slice_array& operator=(const slice_array& __sa) const;
 
@@ -1505,11 +1507,6 @@ public:
 
 #endif  // _LIBCPP_CXX03_LANG
 
-//  gslice(const gslice&)            = default;
-//  gslice(gslice&&)                 = default;
-//  gslice& operator=(const gslice&) = default;
-//  gslice& operator=(gslice&&)      = default;
-
     _LIBCPP_INLINE_VISIBILITY
     size_t           start()  const {return __1d_.size() ? __1d_[0] : 0;}
 
@@ -1645,10 +1642,7 @@ public:
     _LIBCPP_INLINE_VISIBILITY
     void operator=(const value_type& __x) const;
 
-//  gslice_array(const gslice_array&)            = default;
-//  gslice_array(gslice_array&&)                 = default;
-//  gslice_array& operator=(const gslice_array&) = default;
-//  gslice_array& operator=(gslice_array&&)      = default;
+    gslice_array(const gslice_array&)            = default;
 
 private:
     gslice_array(const gslice& __gs, const valarray<value_type>& __v)
@@ -1977,16 +1971,13 @@ public:
     _LIBCPP_INLINE_VISIBILITY
     operator>>=(const _Expr& __v) const;
 
+    mask_array(const mask_array&) = default;
+
     _LIBCPP_INLINE_VISIBILITY
     const mask_array& operator=(const mask_array& __ma) const;
 
     _LIBCPP_INLINE_VISIBILITY
     void operator=(const value_type& __x) const;
-
-//  mask_array(const mask_array&)            = default;
-//  mask_array(mask_array&&)                 = default;
-//  mask_array& operator=(const mask_array&) = default;
-//  mask_array& operator=(mask_array&&)      = default;
 
 private:
     _LIBCPP_INLINE_VISIBILITY
@@ -2336,16 +2327,13 @@ public:
     _LIBCPP_INLINE_VISIBILITY
     operator>>=(const _Expr& __v) const;
 
+    indirect_array(const indirect_array&) = default;
+
     _LIBCPP_INLINE_VISIBILITY
     const indirect_array& operator=(const indirect_array& __ia) const;
 
     _LIBCPP_INLINE_VISIBILITY
     void operator=(const value_type& __x) const;
-
-//  indirect_array(const indirect_array&)            = default;
-//  indirect_array(indirect_array&&)                 = default;
-//  indirect_array& operator=(const indirect_array&) = default;
-//  indirect_array& operator=(indirect_array&&)      = default;
 
 private:
      _LIBCPP_INLINE_VISIBILITY

@@ -1,5 +1,5 @@
-const builtin = @import("builtin");
 const std = @import("std");
+const builtin = std.builtin;
 const expect = std.testing.expect;
 
 test "reinterpret bytes as integer with nonzero offset" {
@@ -13,7 +13,7 @@ fn testReinterpretBytesAsInteger() void {
         builtin.Endian.Little => 0xab785634,
         builtin.Endian.Big => 0x345678ab,
     };
-    expect(@ptrCast(*align(1) const u32, bytes[1..5].ptr).* == expected);
+    expect(@ptrCast(*align(1) const u32, bytes[1..5]).* == expected);
 }
 
 test "reinterpret bytes of an array into an extern struct" {
@@ -36,8 +36,12 @@ fn testReinterpretBytesAsExternStruct() void {
 }
 
 test "reinterpret struct field at comptime" {
-    const numLittle = comptime Bytes.init(0x12345678);
-    expect(std.mem.eql(u8, [_]u8{ 0x78, 0x56, 0x34, 0x12 }, numLittle.bytes));
+    const numNative = comptime Bytes.init(0x12345678);
+    if (builtin.endian != .Little) {
+        expect(std.mem.eql(u8, &[_]u8{ 0x12, 0x34, 0x56, 0x78 }, &numNative.bytes));
+    } else {
+        expect(std.mem.eql(u8, &[_]u8{ 0x78, 0x56, 0x34, 0x12 }, &numNative.bytes));
+    }
 }
 
 const Bytes = struct {
@@ -55,12 +59,12 @@ test "comptime ptrcast keeps larger alignment" {
     comptime {
         const a: u32 = 1234;
         const p = @ptrCast([*]const u8, &a);
-        std.debug.assert(@typeOf(p) == [*]align(@alignOf(u32)) const u8);
+        std.debug.assert(@TypeOf(p) == [*]align(@alignOf(u32)) const u8);
     }
 }
 
 test "implicit optional pointer to optional c_void pointer" {
-    var buf: [4]u8 = "aoeu";
+    var buf: [4]u8 = "aoeu".*;
     var x: ?[*]u8 = &buf;
     var y: ?*c_void = x;
     var z = @ptrCast(*[4]u8, y);

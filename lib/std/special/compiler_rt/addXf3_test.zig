@@ -3,8 +3,8 @@
 // https://github.com/llvm/llvm-project/blob/02d85149a05cb1f6dc49f0ba7a2ceca53718ae17/compiler-rt/test/builtins/Unit/addtf3_test.c
 // https://github.com/llvm/llvm-project/blob/02d85149a05cb1f6dc49f0ba7a2ceca53718ae17/compiler-rt/test/builtins/Unit/subtf3_test.c
 
-const qnan128 = @bitCast(f128, u128(0x7fff800000000000) << 64);
-const inf128 = @bitCast(f128, u128(0x7fff000000000000) << 64);
+const qnan128 = @bitCast(f128, @as(u128, 0x7fff800000000000) << 64);
+const inf128 = @bitCast(f128, @as(u128, 0x7fff000000000000) << 64);
 
 const __addtf3 = @import("addXf3.zig").__addtf3;
 
@@ -34,7 +34,7 @@ test "addtf3" {
     test__addtf3(qnan128, 0x1.23456789abcdefp+5, 0x7fff800000000000, 0x0);
 
     // NaN + any = NaN
-    test__addtf3(@bitCast(f128, (u128(0x7fff000000000000) << 64) | u128(0x800030000000)), 0x1.23456789abcdefp+5, 0x7fff800000000000, 0x0);
+    test__addtf3(@bitCast(f128, (@as(u128, 0x7fff000000000000) << 64) | @as(u128, 0x800030000000)), 0x1.23456789abcdefp+5, 0x7fff800000000000, 0x0);
 
     // inf + inf = inf
     test__addtf3(inf128, inf128, 0x7fff000000000000, 0x0);
@@ -75,7 +75,7 @@ test "subtf3" {
     test__subtf3(qnan128, 0x1.23456789abcdefp+5, 0x7fff800000000000, 0x0);
 
     // NaN + any = NaN
-    test__subtf3(@bitCast(f128, (u128(0x7fff000000000000) << 64) | u128(0x800030000000)), 0x1.23456789abcdefp+5, 0x7fff800000000000, 0x0);
+    test__subtf3(@bitCast(f128, (@as(u128, 0x7fff000000000000) << 64) | @as(u128, 0x800030000000)), 0x1.23456789abcdefp+5, 0x7fff800000000000, 0x0);
 
     // inf - any = inf
     test__subtf3(inf128, 0x1.23456789abcdefp+5, 0x7fff000000000000, 0x0);

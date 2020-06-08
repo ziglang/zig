@@ -8,8 +8,6 @@ __tlsdesc_static:
 	ldr r0,[r0]
 	bx lr
 
-.hidden __tls_get_new
-
 .global __tlsdesc_dynamic
 .hidden __tlsdesc_dynamic
 .type __tlsdesc_dynamic,%function
@@ -30,7 +28,11 @@ __tlsdesc_dynamic:
 #if __ARM_ARCH >= 5
 	blx r0          // r0 = tp
 #else
+#if __thumb__
+	add lr,pc,#1
+#else
 	mov lr,pc
+#endif
 	bx r0
 #endif
 #endif

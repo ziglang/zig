@@ -40,6 +40,9 @@ void rangeset_sort(RangeSet *rs) {
 }
 
 bool rangeset_spans(RangeSet *rs, BigInt *first, BigInt *last) {
+    if (rs->src_range_list.length == 0)
+        return false;
+
     rangeset_sort(rs);
 
     const Range *first_range = &rs->src_range_list.at(0).range;

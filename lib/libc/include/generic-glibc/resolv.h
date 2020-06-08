@@ -131,6 +131,7 @@ struct res_sym {
 #define RES_NOTLDQUERY	0x01000000	/* Do not look up unqualified name
 					   as a TLD.  */
 #define RES_NORELOAD    0x02000000 /* No automatic configuration reload.  */
+#define RES_TRUSTAD     0x04000000 /* Request AD bit, keep it in responses.  */
 
 #define RES_DEFAULT	(RES_RECURSE|RES_DEFNAMES|RES_DNSRCH)
 

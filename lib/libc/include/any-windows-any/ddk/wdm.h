@@ -369,19 +369,6 @@ InterlockedExchangeAdd(
 
 #endif // _M_AMD64
 
-#if defined(_M_AMD64) && !defined(RC_INVOKED) && !defined(MIDL_PASS)
-//#if !defined(_X86AMD64_) // FIXME: what's _X86AMD64_ used for?
-FORCEINLINE
-LONG64
-InterlockedAdd64(
-  IN OUT LONG64 volatile *Addend,
-  IN LONG64 Value)
-{
-  return InterlockedExchangeAdd64(Addend, Value) + Value;
-}
-//#endif
-#endif
-
 #endif /* !__INTERLOCKED_DECLARED */
 
 

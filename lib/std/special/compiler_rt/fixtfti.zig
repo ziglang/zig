@@ -1,7 +1,7 @@
 const fixint = @import("fixint.zig").fixint;
 const builtin = @import("builtin");
 
-pub extern fn __fixtfti(a: f128) i128 {
+pub fn __fixtfti(a: f128) callconv(.C) i128 {
     @setRuntimeSafety(builtin.is_test);
     return fixint(f128, i128, a);
 }

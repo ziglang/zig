@@ -1,0 +1,27 @@
+LIBRARY COMDLG32.DLL
+EXPORTS
+ChooseColorA@4
+ChooseColorW@4
+ChooseFontA@4
+ChooseFontW@4
+CommDlgExtendedError@0
+FindTextA@4
+FindTextW@4
+GetFileTitleA@12
+GetFileTitleW@12
+GetOpenFileNameA@4
+GetOpenFileNameW@4
+GetSaveFileNameA@4
+GetSaveFileNameW@4
+LoadAlterBitmap@12
+PageSetupDlgA@4
+PageSetupDlgW@4
+PrintDlgA@4
+PrintDlgExA@4
+PrintDlgExW@4
+PrintDlgW@4
+ReplaceTextA@4
+ReplaceTextW@4
+WantArrows@16
+dwLBSubclass@16
+dwOKSubclass@16

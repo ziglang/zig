@@ -2,19 +2,21 @@
 
 struct shmid_ds {
 	struct ipc_perm shm_perm;
-	int __unused1;
-	time_t shm_atime;
-	int __unused2;
-	time_t shm_dtime;
-	int __unused3;
-	time_t shm_ctime;
-	int __unused4;
+	unsigned long __shm_atime_hi;
+	unsigned long __shm_atime_lo;
+	unsigned long __shm_dtime_hi;
+	unsigned long __shm_dtime_lo;
+	unsigned long __shm_ctime_hi;
+	unsigned long __shm_ctime_lo;
 	size_t shm_segsz;
 	pid_t shm_cpid;
 	pid_t shm_lpid;
 	unsigned long shm_nattch;
 	unsigned long __pad1;
 	unsigned long __pad2;
+	time_t shm_atime;
+	time_t shm_dtime;
+	time_t shm_ctime;
 };
 
 struct shminfo {
@@ -26,4 +28,3 @@ struct shm_info {
 	unsigned long shm_tot, shm_rss, shm_swp;
 	unsigned long __swap_attempts, __swap_successes;
 };
-

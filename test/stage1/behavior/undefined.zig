@@ -1,5 +1,6 @@
-const expect = @import("std").testing.expect;
-const mem = @import("std").mem;
+const std = @import("std");
+const expect = std.testing.expect;
+const mem = std.mem;
 
 fn initStaticArray() [10]i32 {
     var array: [10]i32 = undefined;
@@ -64,5 +65,5 @@ test "assign undefined to struct with method" {
 
 test "type name of undefined" {
     const x = undefined;
-    expect(mem.eql(u8, @typeName(@typeOf(x)), "(undefined)"));
+    expect(mem.eql(u8, @typeName(@TypeOf(x)), "(undefined)"));
 }

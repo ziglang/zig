@@ -14,8 +14,8 @@ const maxInt = std.math.maxInt;
 /// Special Cases:
 ///  - fabs(+-inf) = +inf
 ///  - fabs(nan)   = nan
-pub fn fabs(x: var) @typeOf(x) {
-    const T = @typeOf(x);
+pub fn fabs(x: var) @TypeOf(x) {
+    const T = @TypeOf(x);
     return switch (T) {
         f16 => fabs16(x),
         f32 => fabs32(x),
@@ -50,10 +50,10 @@ fn fabs128(x: f128) f128 {
 }
 
 test "math.fabs" {
-    expect(fabs(f16(1.0)) == fabs16(1.0));
-    expect(fabs(f32(1.0)) == fabs32(1.0));
-    expect(fabs(f64(1.0)) == fabs64(1.0));
-    expect(fabs(f128(1.0)) == fabs128(1.0));
+    expect(fabs(@as(f16, 1.0)) == fabs16(1.0));
+    expect(fabs(@as(f32, 1.0)) == fabs32(1.0));
+    expect(fabs(@as(f64, 1.0)) == fabs64(1.0));
+    expect(fabs(@as(f128, 1.0)) == fabs128(1.0));
 }
 
 test "math.fabs16" {

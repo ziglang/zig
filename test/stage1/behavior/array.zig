@@ -1,6 +1,8 @@
 const std = @import("std");
-const expect = std.testing.expect;
+const testing = std.testing;
 const mem = std.mem;
+const expect = testing.expect;
+const expectEqual = testing.expectEqual;
 
 test "arrays" {
     var array: [5]u32 = undefined;
@@ -12,7 +14,7 @@ test "arrays" {
     }
 
     i = 0;
-    var accumulator = u32(0);
+    var accumulator = @as(u32, 0);
     while (i < 5) {
         accumulator += array[i];
 
@@ -20,17 +22,44 @@ test "arrays" {
     }
 
     expect(accumulator == 15);
-    expect(getArrayLen(array) == 5);
+    expect(getArrayLen(&array) == 5);
 }
 fn getArrayLen(a: []const u32) usize {
     return a.len;
+}
+
+test "array with sentinels" {
+    const S = struct {
+        fn doTheTest(is_ct: bool) void {
+            if (is_ct) {
+                var zero_sized: [0:0xde]u8 = [_:0xde]u8{};
+                // Disabled at runtime because of
+                // https://github.com/ziglang/zig/issues/4372
+                expectEqual(@as(u8, 0xde), zero_sized[0]);
+                var reinterpreted = @ptrCast(*[1]u8, &zero_sized);
+                expectEqual(@as(u8, 0xde), reinterpreted[0]);
+            }
+            var arr: [3:0x55]u8 = undefined;
+            // Make sure the sentinel pointer is pointing after the last element
+            if (!is_ct) {
+                const sentinel_ptr = @ptrToInt(&arr[3]);
+                const last_elem_ptr = @ptrToInt(&arr[2]);
+                expectEqual(@as(usize, 1), sentinel_ptr - last_elem_ptr);
+            }
+            // Make sure the sentinel is writeable
+            arr[3] = 0x55;
+        }
+    };
+
+    S.doTheTest(false);
+    comptime S.doTheTest(true);
 }
 
 test "void arrays" {
     var array: [4]void = undefined;
     array[0] = void{};
     array[1] = array[2];
-    expect(@sizeOf(@typeOf(array)) == 0);
+    expect(@sizeOf(@TypeOf(array)) == 0);
     expect(array.len == 4);
 }
 
@@ -109,12 +138,12 @@ test "array literal with specified size" {
 
 test "array child property" {
     var x: [5]i32 = undefined;
-    expect(@typeOf(x).Child == i32);
+    expect(@TypeOf(x).Child == i32);
 }
 
 test "array len property" {
     var x: [5]i32 = undefined;
-    expect(@typeOf(x).len == 5);
+    expect(@TypeOf(x).len == 5);
 }
 
 test "array len field" {
@@ -132,9 +161,16 @@ test "single-item pointer to array indexing and slicing" {
 }
 
 fn testSingleItemPtrArrayIndexSlice() void {
-    var array = "aaaa";
-    doSomeMangling(&array);
-    expect(mem.eql(u8, "azya", array));
+    {
+        var array: [4]u8 = "aaaa".*;
+        doSomeMangling(&array);
+        expect(mem.eql(u8, "azya", &array));
+    }
+    {
+        var array = "aaaa".*;
+        doSomeMangling(&array);
+        expect(mem.eql(u8, "azya", &array));
+    }
 }
 
 fn doSomeMangling(array: *[4]u8) void {
@@ -149,7 +185,7 @@ test "implicit cast single-item pointer" {
 
 fn testImplicitCastSingleItemPtr() void {
     var byte: u8 = 100;
-    const slice = (*[1]u8)(&byte)[0..];
+    const slice = @as(*[1]u8, &byte)[0..];
     slice[0] += 1;
     expect(byte == 101);
 }
@@ -175,29 +211,29 @@ fn plusOne(x: u32) u32 {
 
 test "runtime initialize array elem and then implicit cast to slice" {
     var two: i32 = 2;
-    const x: []const i32 = [_]i32{two};
+    const x: []const i32 = &[_]i32{two};
     expect(x[0] == 2);
 }
 
 test "array literal as argument to function" {
     const S = struct {
         fn entry(two: i32) void {
-            foo([_]i32{
+            foo(&[_]i32{
                 1,
                 2,
                 3,
             });
-            foo([_]i32{
+            foo(&[_]i32{
                 1,
                 two,
                 3,
             });
-            foo2(true, [_]i32{
+            foo2(true, &[_]i32{
                 1,
                 2,
                 3,
             });
-            foo2(true, [_]i32{
+            foo2(true, &[_]i32{
                 1,
                 two,
                 3,
@@ -223,17 +259,17 @@ test "double nested array to const slice cast in array literal" {
     const S = struct {
         fn entry(two: i32) void {
             const cases = [_][]const []const i32{
-                [_][]const i32{[_]i32{1}},
-                [_][]const i32{[_]i32{ 2, 3 }},
-                [_][]const i32{
-                    [_]i32{4},
-                    [_]i32{ 5, 6, 7 },
+                &[_][]const i32{&[_]i32{1}},
+                &[_][]const i32{&[_]i32{ 2, 3 }},
+                &[_][]const i32{
+                    &[_]i32{4},
+                    &[_]i32{ 5, 6, 7 },
                 },
             };
-            check(cases);
+            check(&cases);
 
             const cases2 = [_][]const i32{
-                [_]i32{1},
+                &[_]i32{1},
                 &[_]i32{ two, 3 },
             };
             expect(cases2.len == 2);
@@ -244,14 +280,14 @@ test "double nested array to const slice cast in array literal" {
             expect(cases2[1][1] == 3);
 
             const cases3 = [_][]const []const i32{
-                [_][]const i32{[_]i32{1}},
+                &[_][]const i32{&[_]i32{1}},
                 &[_][]const i32{&[_]i32{ two, 3 }},
-                [_][]const i32{
-                    [_]i32{4},
-                    [_]i32{ 5, 6, 7 },
+                &[_][]const i32{
+                    &[_]i32{4},
+                    &[_]i32{ 5, 6, 7 },
                 },
             };
-            check(cases3);
+            check(&cases3);
         }
 
         fn check(cases: []const []const []const i32) void {
@@ -294,7 +330,96 @@ test "read/write through global variable array of struct fields initialized via 
 }
 
 test "implicit cast zero sized array ptr to slice" {
-    var b = "";
-    const c: []const u8 = &b;
-    expect(c.len == 0);
+    {
+        var b = "".*;
+        const c: []const u8 = &b;
+        expect(c.len == 0);
+    }
+    {
+        var b: [0]u8 = "".*;
+        const c: []const u8 = &b;
+        expect(c.len == 0);
+    }
+}
+
+test "anonymous list literal syntax" {
+    const S = struct {
+        fn doTheTest() void {
+            var array: [4]u8 = .{ 1, 2, 3, 4 };
+            expect(array[0] == 1);
+            expect(array[1] == 2);
+            expect(array[2] == 3);
+            expect(array[3] == 4);
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "anonymous literal in array" {
+    const S = struct {
+        const Foo = struct {
+            a: usize = 2,
+            b: usize = 4,
+        };
+        fn doTheTest() void {
+            var array: [2]Foo = .{
+                .{ .a = 3 },
+                .{ .b = 3 },
+            };
+            expect(array[0].a == 3);
+            expect(array[0].b == 4);
+            expect(array[1].a == 2);
+            expect(array[1].b == 3);
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "access the null element of a null terminated array" {
+    const S = struct {
+        fn doTheTest() void {
+            var array: [4:0]u8 = .{ 'a', 'o', 'e', 'u' };
+            expect(array[4] == 0);
+            var len: usize = 4;
+            expect(array[len] == 0);
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "type deduction for array subscript expression" {
+    const S = struct {
+        fn doTheTest() void {
+            var array = [_]u8{ 0x55, 0xAA };
+            var v0 = true;
+            expectEqual(@as(u8, 0xAA), array[if (v0) 1 else 0]);
+            var v1 = false;
+            expectEqual(@as(u8, 0x55), array[if (v1) 1 else 0]);
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "sentinel element count towards the ABI size calculation" {
+    const S = struct {
+        fn doTheTest() void {
+            const T = packed struct {
+                fill_pre: u8 = 0x55,
+                data: [0:0]u8 = undefined,
+                fill_post: u8 = 0xAA,
+            };
+            var x = T{};
+            var as_slice = mem.asBytes(&x);
+            expectEqual(@as(usize, 3), as_slice.len);
+            expectEqual(@as(u8, 0x55), as_slice[0]);
+            expectEqual(@as(u8, 0xAA), as_slice[2]);
+        }
+    };
+
+    S.doTheTest();
+    comptime S.doTheTest();
 }

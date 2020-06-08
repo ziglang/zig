@@ -14,21 +14,21 @@ test "struct contains slice of itself" {
     var other_nodes = [_]Node{
         Node{
             .payload = 31,
-            .children = [_]Node{},
+            .children = &[_]Node{},
         },
         Node{
             .payload = 32,
-            .children = [_]Node{},
+            .children = &[_]Node{},
         },
     };
     var nodes = [_]Node{
         Node{
             .payload = 1,
-            .children = [_]Node{},
+            .children = &[_]Node{},
         },
         Node{
             .payload = 2,
-            .children = [_]Node{},
+            .children = &[_]Node{},
         },
         Node{
             .payload = 3,
@@ -51,21 +51,21 @@ test "struct contains aligned slice of itself" {
     var other_nodes = [_]NodeAligned{
         NodeAligned{
             .payload = 31,
-            .children = [_]NodeAligned{},
+            .children = &[_]NodeAligned{},
         },
         NodeAligned{
             .payload = 32,
-            .children = [_]NodeAligned{},
+            .children = &[_]NodeAligned{},
         },
     };
     var nodes = [_]NodeAligned{
         NodeAligned{
             .payload = 1,
-            .children = [_]NodeAligned{},
+            .children = &[_]NodeAligned{},
         },
         NodeAligned{
             .payload = 2,
-            .children = [_]NodeAligned{},
+            .children = &[_]NodeAligned{},
         },
         NodeAligned{
             .payload = 3,

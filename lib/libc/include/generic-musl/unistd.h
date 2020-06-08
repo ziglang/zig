@@ -176,6 +176,7 @@ long syscall(long, ...);
 int execvpe(const char *, char *const [], char *const []);
 int issetugid(void);
 int getentropy(void *, size_t);
+extern int optreset;
 #endif
 
 #ifdef _GNU_SOURCE
@@ -188,6 +189,7 @@ char *get_current_dir_name(void);
 int syncfs(int);
 int euidaccess(const char *, int);
 int eaccess(const char *, int);
+ssize_t copy_file_range(int, off_t *, int, off_t *, size_t, unsigned);
 #endif
 
 #if defined(_LARGEFILE64_SOURCE) || defined(_GNU_SOURCE)

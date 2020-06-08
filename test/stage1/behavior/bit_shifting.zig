@@ -2,9 +2,9 @@ const std = @import("std");
 const expect = std.testing.expect;
 
 fn ShardedTable(comptime Key: type, comptime mask_bit_count: comptime_int, comptime V: type) type {
-    expect(Key == @IntType(false, Key.bit_count));
+    expect(Key == std.meta.Int(false, Key.bit_count));
     expect(Key.bit_count >= mask_bit_count);
-    const ShardKey = @IntType(false, mask_bit_count);
+    const ShardKey = std.meta.Int(false, mask_bit_count);
     const shift_amount = Key.bit_count - ShardKey.bit_count;
     return struct {
         const Self = @This();
@@ -95,4 +95,8 @@ test "comptime shr of BigInt" {
         var n1 = 17908056155735594659;
         std.debug.assert(n1 >> 64 == 0);
     }
+}
+
+test "comptime shift safety check" {
+    const x = @as(usize, 42) << @sizeOf(usize);
 }

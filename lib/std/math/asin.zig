@@ -13,8 +13,8 @@ const expect = std.testing.expect;
 /// Special Cases:
 ///  - asin(+-0) = +-0
 ///  - asin(x)   = nan if x < -1 or x > 1
-pub fn asin(x: var) @typeOf(x) {
-    const T = @typeOf(x);
+pub fn asin(x: var) @TypeOf(x) {
+    const T = @TypeOf(x);
     return switch (T) {
         f32 => asin32(x),
         f64 => asin64(x),
@@ -142,8 +142,8 @@ fn asin64(x: f64) f64 {
 }
 
 test "math.asin" {
-    expect(asin(f32(0.0)) == asin32(0.0));
-    expect(asin(f64(0.0)) == asin64(0.0));
+    expect(asin(@as(f32, 0.0)) == asin32(0.0));
+    expect(asin(@as(f64, 0.0)) == asin64(0.0));
 }
 
 test "math.asin32" {

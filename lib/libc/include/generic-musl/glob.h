@@ -31,6 +31,9 @@ void globfree(glob_t *);
 #define GLOB_NOESCAPE 0x40
 #define	GLOB_PERIOD   0x80
 
+#define GLOB_TILDE       0x1000
+#define GLOB_TILDE_CHECK 0x4000
+
 #define GLOB_NOSPACE 1
 #define GLOB_ABORTED 2
 #define GLOB_NOMATCH 3

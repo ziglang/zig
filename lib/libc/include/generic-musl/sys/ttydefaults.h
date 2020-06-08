@@ -6,16 +6,11 @@
 #define TTYDEF_LFLAG (ECHO | ICANON | ISIG | IEXTEN | ECHOE|ECHOKE|ECHOCTL)
 #define TTYDEF_CFLAG (CREAD | CS7 | PARENB | HUPCL)
 #define TTYDEF_SPEED (B9600)
-#define CTRL(x) (x&037)
+#define CTRL(x) ((x)&037)
 #define CEOF CTRL('d')
 
-#ifdef _POSIX_VDISABLE
-#define CEOL _POSIX_VDISABLE
-#define CSTATUS _POSIX_VDISABLE
-#else
 #define CEOL '\0'
 #define CSTATUS '\0'
-#endif
 
 #define CERASE 0177
 #define CINTR CTRL('c')

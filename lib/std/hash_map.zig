@@ -10,7 +10,7 @@ const Wyhash = std.hash.Wyhash;
 const Allocator = mem.Allocator;
 const builtin = @import("builtin");
 
-const want_modification_safety = builtin.mode != builtin.Mode.ReleaseFast;
+const want_modification_safety = std.debug.runtime_safety;
 const debug_u32 = if (want_modification_safety) u32 else void;
 
 pub fn AutoHashMap(comptime K: type, comptime V: type) type {
@@ -36,11 +36,17 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
         size: usize,
         max_distance_from_start_index: usize,
         allocator: *Allocator,
-        // this is used to detect bugs where a hashtable is edited while an iterator is running.
+
+        /// This is used to detect bugs where a hashtable is edited while an iterator is running.
         modification_count: debug_u32,
 
         const Self = @This();
 
+        /// A *KV is a mutable pointer into this HashMap's internal storage.
+        /// Modifying the key is undefined behavior.
+        /// Modifying the value is harmless.
+        /// *KV pointers become invalid whenever this HashMap is modified,
+        /// and then any access to the *KV is undefined behavior.
         pub const KV = struct {
             key: K,
             value: V,
@@ -93,7 +99,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
 
         pub fn init(allocator: *Allocator) Self {
             return Self{
-                .entries = [_]Entry{},
+                .entries = &[_]Entry{},
                 .allocator = allocator,
                 .size = 0,
                 .max_distance_from_start_index = 0,
@@ -163,6 +169,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
         /// Increases capacity so that the hash map will be at most
         /// 60% full when expected_count items are put into it
         pub fn ensureCapacity(self: *Self, expected_count: usize) !void {
+            if (expected_count == 0) return;
             const optimized_capacity = optimizedCapacity(expected_count);
             return self.ensureCapacityExact(optimized_capacity);
         }
@@ -211,6 +218,10 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
             const put_result = self.internalPut(key);
             put_result.new_entry.kv.value = value;
             return put_result.old_kv;
+        }
+
+        pub fn putAssumeCapacityNoClobber(self: *Self, key: K, value: V) void {
+            assert(self.putAssumeCapacity(key, value) == null);
         }
 
         pub fn get(hm: *const Self, key: K) ?*KV {
@@ -401,7 +412,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
         }
 
         fn keyToIndex(hm: Self, key: K) usize {
-            return hm.constrainIndex(usize(hash(key)));
+            return hm.constrainIndex(@as(usize, hash(key)));
         }
 
         fn constrainIndex(hm: Self, i: usize) usize {
@@ -413,7 +424,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
 }
 
 test "basic hash map usage" {
-    var map = AutoHashMap(i32, i32).init(std.heap.direct_allocator);
+    var map = AutoHashMap(i32, i32).init(std.testing.allocator);
     defer map.deinit();
 
     testing.expect((try map.put(1, 11)) == null);
@@ -457,53 +468,66 @@ test "basic hash map usage" {
 }
 
 test "iterator hash map" {
-    var reset_map = AutoHashMap(i32, i32).init(std.heap.direct_allocator);
+    // https://github.com/ziglang/zig/issues/5127
+    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
+
+    var reset_map = AutoHashMap(i32, i32).init(std.testing.allocator);
     defer reset_map.deinit();
 
-    try reset_map.putNoClobber(1, 11);
-    try reset_map.putNoClobber(2, 22);
-    try reset_map.putNoClobber(3, 33);
+    // test ensureCapacity with a 0 parameter
+    try reset_map.ensureCapacity(0);
 
-    // TODO this test depends on the hashing algorithm, because it assumes the
-    // order of the elements in the hashmap. This should not be the case.
+    try reset_map.putNoClobber(0, 11);
+    try reset_map.putNoClobber(1, 22);
+    try reset_map.putNoClobber(2, 33);
+
     var keys = [_]i32{
-        1,
-        3,
-        2,
+        0, 2, 1,
     };
+
     var values = [_]i32{
-        11,
-        33,
-        22,
+        11, 33, 22,
+    };
+
+    var buffer = [_]i32{
+        0, 0, 0,
     };
 
     var it = reset_map.iterator();
-    var count: usize = 0;
-    while (it.next()) |next| {
-        testing.expect(next.key == keys[count]);
-        testing.expect(next.value == values[count]);
-        count += 1;
-    }
+    const first_entry = it.next().?;
+    it.reset();
 
+    var count: usize = 0;
+    while (it.next()) |kv| : (count += 1) {
+        buffer[@intCast(usize, kv.key)] = kv.value;
+    }
     testing.expect(count == 3);
     testing.expect(it.next() == null);
+
+    for (buffer) |v, i| {
+        testing.expect(buffer[@intCast(usize, keys[i])] == values[i]);
+    }
+
     it.reset();
     count = 0;
-    while (it.next()) |next| {
-        testing.expect(next.key == keys[count]);
-        testing.expect(next.value == values[count]);
+    while (it.next()) |kv| {
+        buffer[@intCast(usize, kv.key)] = kv.value;
         count += 1;
-        if (count == 2) break;
+        if (count >= 2) break;
+    }
+
+    for (buffer[0..2]) |v, i| {
+        testing.expect(buffer[@intCast(usize, keys[i])] == values[i]);
     }
 
     it.reset();
     var entry = it.next().?;
-    testing.expect(entry.key == keys[0]);
-    testing.expect(entry.value == values[0]);
+    testing.expect(entry.key == first_entry.key);
+    testing.expect(entry.value == first_entry.value);
 }
 
 test "ensure capacity" {
-    var map = AutoHashMap(i32, i32).init(std.heap.direct_allocator);
+    var map = AutoHashMap(i32, i32).init(std.testing.allocator);
     defer map.deinit();
 
     try map.ensureCapacity(20);

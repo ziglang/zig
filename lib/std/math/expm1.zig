@@ -18,8 +18,8 @@ const expect = std.testing.expect;
 ///  - expm1(+inf) = +inf
 ///  - expm1(-inf) = -1
 ///  - expm1(nan)  = nan
-pub fn expm1(x: var) @typeOf(x) {
-    const T = @typeOf(x);
+pub fn expm1(x: var) @TypeOf(x) {
+    const T = @TypeOf(x);
     return switch (T) {
         f32 => expm1_32(x),
         f64 => expm1_64(x),
@@ -287,8 +287,8 @@ fn expm1_64(x_: f64) f64 {
 }
 
 test "math.exp1m" {
-    expect(expm1(f32(0.0)) == expm1_32(0.0));
-    expect(expm1(f64(0.0)) == expm1_64(0.0));
+    expect(expm1(@as(f32, 0.0)) == expm1_32(0.0));
+    expect(expm1(@as(f64, 0.0)) == expm1_64(0.0));
 }
 
 test "math.expm1_32" {

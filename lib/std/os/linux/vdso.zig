@@ -22,7 +22,11 @@ pub fn lookup(vername: []const u8, name: []const u8) usize {
         }) {
             const this_ph = @intToPtr(*elf.Phdr, ph_addr);
             switch (this_ph.p_type) {
-                elf.PT_LOAD => base = vdso_addr + this_ph.p_offset - this_ph.p_vaddr,
+                // On WSL1 as well as older kernels, the VDSO ELF image is pre-linked in the upper half
+                // of the memory space (e.g. p_vaddr = 0xffffffffff700000 on WSL1).
+                // Wrapping operations are used on this line as well as subsequent calculations relative to base
+                // (lines 47, 78) to ensure no overflow check is tripped.
+                elf.PT_LOAD => base = vdso_addr +% this_ph.p_offset -% this_ph.p_vaddr,
                 elf.PT_DYNAMIC => maybe_dynv = @intToPtr([*]usize, vdso_addr + this_ph.p_offset),
                 else => {},
             }
@@ -40,7 +44,7 @@ pub fn lookup(vername: []const u8, name: []const u8) usize {
     {
         var i: usize = 0;
         while (dynv[i] != 0) : (i += 2) {
-            const p = base + dynv[i + 1];
+            const p = base +% dynv[i + 1];
             switch (dynv[i]) {
                 elf.DT_STRTAB => maybe_strings = @intToPtr([*]u8, p),
                 elf.DT_SYMTAB => maybe_syms = @intToPtr([*]elf.Sym, p),
@@ -62,15 +66,16 @@ pub fn lookup(vername: []const u8, name: []const u8) usize {
 
     var i: usize = 0;
     while (i < hashtab[1]) : (i += 1) {
-        if (0 == (u32(1) << @intCast(u5, syms[i].st_info & 0xf) & OK_TYPES)) continue;
-        if (0 == (u32(1) << @intCast(u5, syms[i].st_info >> 4) & OK_BINDS)) continue;
+        if (0 == (@as(u32, 1) << @intCast(u5, syms[i].st_info & 0xf) & OK_TYPES)) continue;
+        if (0 == (@as(u32, 1) << @intCast(u5, syms[i].st_info >> 4) & OK_BINDS)) continue;
         if (0 == syms[i].st_shndx) continue;
-        if (!mem.eql(u8, name, mem.toSliceConst(u8, strings + syms[i].st_name))) continue;
+        const sym_name = @ptrCast([*:0]const u8, strings + syms[i].st_name);
+        if (!mem.eql(u8, name, mem.spanZ(sym_name))) continue;
         if (maybe_versym) |versym| {
             if (!checkver(maybe_verdef.?, versym[i], vername, strings))
                 continue;
         }
-        return base + syms[i].st_value;
+        return base +% syms[i].st_value;
     }
 
     return 0;
@@ -87,5 +92,6 @@ fn checkver(def_arg: *elf.Verdef, vsym_arg: i32, vername: []const u8, strings: [
         def = @intToPtr(*elf.Verdef, @ptrToInt(def) + def.vd_next);
     }
     const aux = @intToPtr(*elf.Verdaux, @ptrToInt(def) + def.vd_aux);
-    return mem.eql(u8, vername, mem.toSliceConst(u8, strings + aux.vda_name));
+    const vda_name = @ptrCast([*:0]const u8, strings + aux.vda_name);
+    return mem.eql(u8, vername, mem.spanZ(vda_name));
 }

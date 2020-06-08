@@ -1,244 +1,243 @@
 const std = @import("std");
-const mem = std.mem;
-const builtin = @import("builtin");
-const Target = @import("target.zig").Target;
-const Compilation = @import("compilation.zig").Compilation;
-const introspect = @import("introspect.zig");
-const testing = std.testing;
-const errmsg = @import("errmsg.zig");
-const ZigCompiler = @import("compilation.zig").ZigCompiler;
+const link = @import("link.zig");
+const Module = @import("Module.zig");
+const Allocator = std.mem.Allocator;
+const zir = @import("zir.zig");
+const Package = @import("Package.zig");
 
-var ctx: TestContext = undefined;
-
-test "stage2" {
+test "self-hosted" {
+    var ctx: TestContext = undefined;
     try ctx.init();
     defer ctx.deinit();
 
-    try @import("../test/stage2/compile_errors.zig").addCases(&ctx);
-    try @import("../test/stage2/compare_output.zig").addCases(&ctx);
+    try @import("stage2_tests").addCases(&ctx);
 
     try ctx.run();
 }
 
-const file1 = "1.zig";
-const allocator = std.heap.c_allocator;
-
 pub const TestContext = struct {
-    loop: std.event.Loop,
-    zig_compiler: ZigCompiler,
-    zig_lib_dir: []u8,
-    file_index: std.atomic.Int(usize),
-    group: std.event.Group(anyerror!void),
-    any_err: anyerror!void,
+    zir_cmp_output_cases: std.ArrayList(ZIRCompareOutputCase),
+    zir_transform_cases: std.ArrayList(ZIRTransformCase),
 
-    const tmp_dir_name = "stage2_test_tmp";
+    pub const ZIRCompareOutputCase = struct {
+        name: []const u8,
+        src_list: []const []const u8,
+        expected_stdout_list: []const []const u8,
+    };
+
+    pub const ZIRTransformCase = struct {
+        name: []const u8,
+        src: [:0]const u8,
+        expected_zir: []const u8,
+        cross_target: std.zig.CrossTarget,
+    };
+
+    pub fn addZIRCompareOutput(
+        ctx: *TestContext,
+        name: []const u8,
+        src_list: []const []const u8,
+        expected_stdout_list: []const []const u8,
+    ) void {
+        ctx.zir_cmp_output_cases.append(.{
+            .name = name,
+            .src_list = src_list,
+            .expected_stdout_list = expected_stdout_list,
+        }) catch unreachable;
+    }
+
+    pub fn addZIRTransform(
+        ctx: *TestContext,
+        name: []const u8,
+        cross_target: std.zig.CrossTarget,
+        src: [:0]const u8,
+        expected_zir: []const u8,
+    ) void {
+        ctx.zir_transform_cases.append(.{
+            .name = name,
+            .src = src,
+            .expected_zir = expected_zir,
+            .cross_target = cross_target,
+        }) catch unreachable;
+    }
 
     fn init(self: *TestContext) !void {
-        self.* = TestContext{
-            .any_err = {},
-            .loop = undefined,
-            .zig_compiler = undefined,
-            .zig_lib_dir = undefined,
-            .group = undefined,
-            .file_index = std.atomic.Int(usize).init(0),
+        self.* = .{
+            .zir_cmp_output_cases = std.ArrayList(ZIRCompareOutputCase).init(std.heap.page_allocator),
+            .zir_transform_cases = std.ArrayList(ZIRTransformCase).init(std.heap.page_allocator),
         };
-
-        try self.loop.initSingleThreaded(allocator);
-        errdefer self.loop.deinit();
-
-        self.zig_compiler = try ZigCompiler.init(&self.loop);
-        errdefer self.zig_compiler.deinit();
-
-        self.group = std.event.Group(anyerror!void).init(&self.loop);
-        errdefer self.group.deinit();
-
-        self.zig_lib_dir = try introspect.resolveZigLibDir(allocator);
-        errdefer allocator.free(self.zig_lib_dir);
-
-        try std.fs.makePath(allocator, tmp_dir_name);
-        errdefer std.fs.deleteTree(allocator, tmp_dir_name) catch {};
     }
 
     fn deinit(self: *TestContext) void {
-        std.fs.deleteTree(allocator, tmp_dir_name) catch {};
-        allocator.free(self.zig_lib_dir);
-        self.zig_compiler.deinit();
-        self.loop.deinit();
+        self.zir_cmp_output_cases.deinit();
+        self.zir_transform_cases.deinit();
+        self.* = undefined;
     }
 
     fn run(self: *TestContext) !void {
-        const handle = try self.loop.call(waitForGroup, self);
-        defer cancel handle;
-        self.loop.run();
-        return self.any_err;
+        var progress = std.Progress{};
+        const root_node = try progress.start("zir", self.zir_cmp_output_cases.items.len +
+            self.zir_transform_cases.items.len);
+        defer root_node.end();
+
+        const native_info = try std.zig.system.NativeTargetInfo.detect(std.heap.page_allocator, .{});
+
+        for (self.zir_cmp_output_cases.items) |case| {
+            std.testing.base_allocator_instance.reset();
+            try self.runOneZIRCmpOutputCase(std.testing.allocator, root_node, case, native_info.target);
+            try std.testing.allocator_instance.validate();
+        }
+        for (self.zir_transform_cases.items) |case| {
+            std.testing.base_allocator_instance.reset();
+            const info = try std.zig.system.NativeTargetInfo.detect(std.testing.allocator, case.cross_target);
+            try self.runOneZIRTransformCase(std.testing.allocator, root_node, case, info.target);
+            try std.testing.allocator_instance.validate();
+        }
     }
 
-    async fn waitForGroup(self: *TestContext) void {
-        self.any_err = await (async self.group.wait() catch unreachable);
-    }
-
-    fn testCompileError(
+    fn runOneZIRCmpOutputCase(
         self: *TestContext,
-        source: []const u8,
-        path: []const u8,
-        line: usize,
-        column: usize,
-        msg: []const u8,
+        allocator: *Allocator,
+        root_node: *std.Progress.Node,
+        case: ZIRCompareOutputCase,
+        target: std.Target,
     ) !void {
-        var file_index_buf: [20]u8 = undefined;
-        const file_index = try std.fmt.bufPrint(file_index_buf[0..], "{}", self.file_index.incr());
-        const file1_path = try std.fs.path.join(allocator, [][]const u8{ tmp_dir_name, file_index, file1 });
+        var tmp = std.testing.tmpDir(.{});
+        defer tmp.cleanup();
 
-        if (std.fs.path.dirname(file1_path)) |dirname| {
-            try std.fs.makePath(allocator, dirname);
-        }
+        const tmp_src_path = "test-case.zir";
+        const root_pkg = try Package.create(allocator, tmp.dir, ".", tmp_src_path);
+        defer root_pkg.destroy();
 
-        // TODO async I/O
-        try std.io.writeFile(file1_path, source);
+        var prg_node = root_node.start(case.name, case.src_list.len);
+        prg_node.activate();
+        defer prg_node.end();
 
-        var comp = try Compilation.create(
-            &self.zig_compiler,
-            "test",
-            file1_path,
-            Target.Native,
-            Compilation.Kind.Obj,
-            builtin.Mode.Debug,
-            true, // is_static
-            self.zig_lib_dir,
-        );
-        errdefer comp.destroy();
+        var module = try Module.init(allocator, .{
+            .target = target,
+            .output_mode = .Exe,
+            .optimize_mode = .Debug,
+            .bin_file_dir = tmp.dir,
+            .bin_file_path = "a.out",
+            .root_pkg = root_pkg,
+        });
+        defer module.deinit();
 
-        comp.start();
+        for (case.src_list) |source, i| {
+            var src_node = prg_node.start("update", 2);
+            src_node.activate();
+            defer src_node.end();
 
-        try self.group.call(getModuleEvent, comp, source, path, line, column, msg);
-    }
+            try tmp.dir.writeFile(tmp_src_path, source);
 
-    fn testCompareOutputLibC(
-        self: *TestContext,
-        source: []const u8,
-        expected_output: []const u8,
-    ) !void {
-        var file_index_buf: [20]u8 = undefined;
-        const file_index = try std.fmt.bufPrint(file_index_buf[0..], "{}", self.file_index.incr());
-        const file1_path = try std.fs.path.join(allocator, [][]const u8{ tmp_dir_name, file_index, file1 });
+            var update_node = src_node.start("parse,analysis,codegen", null);
+            update_node.activate();
+            try module.makeBinFileWritable();
+            try module.update();
+            update_node.end();
 
-        const output_file = try std.fmt.allocPrint(allocator, "{}-out{}", file1_path, Target(Target.Native).exeFileExt());
-        if (std.fs.path.dirname(file1_path)) |dirname| {
-            try std.fs.makePath(allocator, dirname);
-        }
+            var exec_result = x: {
+                var exec_node = src_node.start("execute", null);
+                exec_node.activate();
+                defer exec_node.end();
 
-        // TODO async I/O
-        try std.io.writeFile(file1_path, source);
-
-        var comp = try Compilation.create(
-            &self.zig_compiler,
-            "test",
-            file1_path,
-            Target.Native,
-            Compilation.Kind.Exe,
-            builtin.Mode.Debug,
-            false,
-            self.zig_lib_dir,
-        );
-        errdefer comp.destroy();
-
-        _ = try comp.addLinkLib("c", true);
-        comp.link_out_file = output_file;
-        comp.start();
-
-        try self.group.call(getModuleEventSuccess, comp, output_file, expected_output);
-    }
-
-    async fn getModuleEventSuccess(
-        comp: *Compilation,
-        exe_file: []const u8,
-        expected_output: []const u8,
-    ) !void {
-        // TODO this should not be necessary
-        const exe_file_2 = try std.mem.dupe(allocator, u8, exe_file);
-
-        defer comp.destroy();
-        const build_event = await (async comp.events.get() catch unreachable);
-
-        switch (build_event) {
-            Compilation.Event.Ok => {
-                const argv = []const []const u8{exe_file_2};
-                // TODO use event loop
-                const child = try std.ChildProcess.exec(allocator, argv, null, null, 1024 * 1024);
-                switch (child.term) {
-                    .Exited => |code| {
-                        if (code != 0) {
-                            return error.BadReturnCode;
-                        }
-                    },
-                    else => {
-                        return error.Crashed;
-                    },
-                }
-                if (!mem.eql(u8, child.stdout, expected_output)) {
-                    return error.OutputMismatch;
-                }
-            },
-            Compilation.Event.Error => |err| return err,
-            Compilation.Event.Fail => |msgs| {
-                var stderr = try std.io.getStdErr();
-                try stderr.write("build incorrectly failed:\n");
-                for (msgs) |msg| {
-                    defer msg.destroy();
-                    try msg.printToFile(stderr, errmsg.Color.Auto);
-                }
-            },
-        }
-    }
-
-    async fn getModuleEvent(
-        comp: *Compilation,
-        source: []const u8,
-        path: []const u8,
-        line: usize,
-        column: usize,
-        text: []const u8,
-    ) !void {
-        defer comp.destroy();
-        const build_event = await (async comp.events.get() catch unreachable);
-
-        switch (build_event) {
-            Compilation.Event.Ok => {
-                @panic("build incorrectly succeeded");
-            },
-            Compilation.Event.Error => |err| {
-                @panic("build incorrectly failed");
-            },
-            Compilation.Event.Fail => |msgs| {
-                testing.expect(msgs.len != 0);
-                for (msgs) |msg| {
-                    if (mem.endsWith(u8, msg.realpath, path) and mem.eql(u8, msg.text, text)) {
-                        const span = msg.getSpan();
-                        const first_token = msg.getTree().tokens.at(span.first);
-                        const last_token = msg.getTree().tokens.at(span.first);
-                        const start_loc = msg.getTree().tokenLocationPtr(0, first_token);
-                        if (start_loc.line + 1 == line and start_loc.column + 1 == column) {
-                            return;
-                        }
+                try module.makeBinFileExecutable();
+                break :x try std.ChildProcess.exec(.{
+                    .allocator = allocator,
+                    .argv = &[_][]const u8{"./a.out"},
+                    .cwd_dir = tmp.dir,
+                });
+            };
+            defer allocator.free(exec_result.stdout);
+            defer allocator.free(exec_result.stderr);
+            switch (exec_result.term) {
+                .Exited => |code| {
+                    if (code != 0) {
+                        std.debug.warn("elf file exited with code {}\n", .{code});
+                        return error.BinaryBadExitCode;
                     }
-                }
-                std.debug.warn(
-                    "\n=====source:=======\n{}\n====expected:========\n{}:{}:{}: error: {}\n",
-                    source,
-                    path,
-                    line,
-                    column,
-                    text,
+                },
+                else => return error.BinaryCrashed,
+            }
+            const expected_stdout = case.expected_stdout_list[i];
+            if (!std.mem.eql(u8, expected_stdout, exec_result.stdout)) {
+                std.debug.panic(
+                    "update index {}, mismatched stdout\n====Expected (len={}):====\n{}\n====Actual (len={}):====\n{}\n========\n",
+                    .{ i, expected_stdout.len, expected_stdout, exec_result.stdout.len, exec_result.stdout },
                 );
-                std.debug.warn("\n====found:========\n");
-                var stderr = try std.io.getStdErr();
-                for (msgs) |msg| {
-                    defer msg.destroy();
-                    try msg.printToFile(stderr, errmsg.Color.Auto);
-                }
-                std.debug.warn("============\n");
-                return error.TestFailed;
-            },
+            }
         }
+    }
+
+    fn runOneZIRTransformCase(
+        self: *TestContext,
+        allocator: *Allocator,
+        root_node: *std.Progress.Node,
+        case: ZIRTransformCase,
+        target: std.Target,
+    ) !void {
+        var tmp = std.testing.tmpDir(.{});
+        defer tmp.cleanup();
+
+        var prg_node = root_node.start(case.name, 3);
+        prg_node.activate();
+        defer prg_node.end();
+
+        const tmp_src_path = "test-case.zir";
+        try tmp.dir.writeFile(tmp_src_path, case.src);
+
+        const root_pkg = try Package.create(allocator, tmp.dir, ".", tmp_src_path);
+        defer root_pkg.destroy();
+
+        var module = try Module.init(allocator, .{
+            .target = target,
+            .output_mode = .Obj,
+            .optimize_mode = .Debug,
+            .bin_file_dir = tmp.dir,
+            .bin_file_path = "test-case.o",
+            .root_pkg = root_pkg,
+        });
+        defer module.deinit();
+
+        var module_node = prg_node.start("parse/analysis/codegen", null);
+        module_node.activate();
+        try module.update();
+        module_node.end();
+
+        var emit_node = prg_node.start("emit", null);
+        emit_node.activate();
+        var new_zir_module = try zir.emit(allocator, module);
+        defer new_zir_module.deinit(allocator);
+        emit_node.end();
+
+        var write_node = prg_node.start("write", null);
+        write_node.activate();
+        var out_zir = std.ArrayList(u8).init(allocator);
+        defer out_zir.deinit();
+        try new_zir_module.writeToStream(allocator, out_zir.outStream());
+        write_node.end();
+
+        std.testing.expectEqualSlices(u8, case.expected_zir, out_zir.items);
     }
 };
+
+fn debugPrintErrors(src: []const u8, errors: var) void {
+    std.debug.warn("\n", .{});
+    var nl = true;
+    var line: usize = 1;
+    for (src) |byte| {
+        if (nl) {
+            std.debug.warn("{: >3}| ", .{line});
+            nl = false;
+        }
+        if (byte == '\n') {
+            nl = true;
+            line += 1;
+        }
+        std.debug.warn("{c}", .{byte});
+    }
+    std.debug.warn("\n", .{});
+    for (errors) |err_msg| {
+        const loc = std.zig.findLineColumn(src, err_msg.byte_offset);
+        std.debug.warn("{}:{}: error: {}\n", .{ loc.line + 1, loc.column + 1, err_msg.msg });
+    }
+}

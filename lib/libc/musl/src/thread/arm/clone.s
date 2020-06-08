@@ -20,13 +20,9 @@ __clone:
 	bx lr
 
 1:	mov r0,r6
-	tst r5,#1
-	bne 1f
-	mov lr,pc
-	mov pc,r5
+	bl 3f
 2:	mov r7,#1
 	svc 0
-
-1:	mov lr,pc
-	bx r5
 	b 2b
+
+3:	bx r5

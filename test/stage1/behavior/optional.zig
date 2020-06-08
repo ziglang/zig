@@ -1,4 +1,7 @@
-const expect = @import("std").testing.expect;
+const std = @import("std");
+const testing = std.testing;
+const expect = testing.expect;
+const expectEqual = testing.expectEqual;
 
 pub const EmptyStruct = struct {};
 
@@ -44,6 +47,28 @@ test "address of unwrap optional" {
     S.global = S.Foo{ .a = 1234 };
     const foo = S.getFoo() catch unreachable;
     expect(foo.a == 1234);
+}
+
+test "equality compare optional with non-optional" {
+    test_cmp_optional_non_optional();
+    comptime test_cmp_optional_non_optional();
+}
+
+fn test_cmp_optional_non_optional() void {
+    var ten: i32 = 10;
+    var opt_ten: ?i32 = 10;
+    var five: i32 = 5;
+    var int_n: ?i32 = null;
+
+    expect(int_n != ten);
+    expect(opt_ten == ten);
+    expect(opt_ten != five);
+
+    // test evaluation is always lexical
+    // ensure that the optional isn't always computed before the non-optional
+    var mutable_state: i32 = 0;
+    _ = blk1: { mutable_state += 1; break :blk1 @as(?f64, 10.0); } != blk2: { expect(mutable_state == 1); break :blk2 @as(f64, 5.0); };
+    _ = blk1: { mutable_state += 1; break :blk1 @as(f64, 10.0); } != blk2: { expect(mutable_state == 2); break :blk2 @as(?f64, 5.0); };
 }
 
 test "passing an optional integer as a parameter" {
@@ -118,4 +143,115 @@ test "self-referential struct through a slice of optional" {
 
     var n = S.Node.new();
     expect(n.data == null);
+}
+
+test "assigning to an unwrapped optional field in an inline loop" {
+    comptime var maybe_pos_arg: ?comptime_int = null;
+    inline for ("ab") |x| {
+        maybe_pos_arg = 0;
+        if (maybe_pos_arg.? != 0) {
+            @compileError("bad");
+        }
+        maybe_pos_arg.? = 10;
+    }
+}
+
+test "coerce an anon struct literal to optional struct" {
+    const S = struct {
+        const Struct = struct {
+            field: u32,
+        };
+        export fn doTheTest() void {
+            var maybe_dims: ?Struct = null;
+            maybe_dims = .{ .field = 1 };
+            expect(maybe_dims.?.field == 1);
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "optional with void type" {
+    const Foo = struct {
+        x: ?void,
+    };
+    var x = Foo{ .x = null };
+    expect(x.x == null);
+}
+
+test "0-bit child type coerced to optional return ptr result location" {
+    const S = struct {
+        fn doTheTest() void {
+            var y = Foo{};
+            var z = y.thing();
+            expect(z != null);
+        }
+
+        const Foo = struct {
+            pub const Bar = struct {
+                field: *Foo,
+            };
+
+            pub fn thing(self: *Foo) ?Bar {
+                return Bar{ .field = self };
+            }
+        };
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "0-bit child type coerced to optional" {
+    const S = struct {
+        fn doTheTest() void {
+            var it: Foo = .{
+                .list = undefined,
+            };
+            expect(it.foo() != null);
+        }
+
+        const Empty = struct {};
+        const Foo = struct {
+            list: [10]Empty,
+
+            fn foo(self: *Foo) ?*Empty {
+                const data = &self.list[0];
+                return data;
+            }
+        };
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "array of optional unaligned types" {
+    const Enum = enum { one, two, three };
+
+    const SomeUnion = union(enum) {
+        Num: Enum,
+        Other: u32,
+    };
+
+    const values = [_]?SomeUnion{
+        SomeUnion{ .Num = .one },
+        SomeUnion{ .Num = .two },
+        SomeUnion{ .Num = .three },
+        SomeUnion{ .Num = .one },
+        SomeUnion{ .Num = .two },
+        SomeUnion{ .Num = .three },
+    };
+
+    // The index must be a runtime value
+    var i: usize = 0;
+    expectEqual(Enum.one, values[i].?.Num);
+    i += 1;
+    expectEqual(Enum.two, values[i].?.Num);
+    i += 1;
+    expectEqual(Enum.three, values[i].?.Num);
+    i += 1;
+    expectEqual(Enum.one, values[i].?.Num);
+    i += 1;
+    expectEqual(Enum.two, values[i].?.Num);
+    i += 1;
+    expectEqual(Enum.three, values[i].?.Num);
 }

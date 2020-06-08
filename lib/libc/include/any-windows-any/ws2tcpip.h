@@ -319,7 +319,6 @@ WCHAR *gai_strerrorW(int);
 #define PADDRINFOEX __MINGW_NAME_AW(PADDRINFOEX)
 #define GetAddrInfoEx __MINGW_NAME_AW(GetAddrInfoEx)
 #define SetAddrInfoEx __MINGW_NAME_AW(SetAddrInfoEx)
-#define FreeAddrInfoEx __MINGW_NAME_AW(FreeAddrInfoEx)
 
   typedef struct addrinfoExA {
     int                ai_flags;
@@ -373,8 +372,13 @@ WINSOCK_API_LINKAGE int WSAAPI SetAddrInfoExW(PCWSTR pName,PCWSTR pServiceName,S
 					      LPLOOKUPSERVICE_COMPLETION_ROUTINE lpCompletionRoutine,
 					      LPHANDLE lpNameHandle);
 
-WINSOCK_API_LINKAGE void WSAAPI FreeAddrInfoExA(PADDRINFOEXA pAddrInfo);
+WINSOCK_API_LINKAGE void WSAAPI FreeAddrInfoEx(PADDRINFOEXA pAddrInfo);
 WINSOCK_API_LINKAGE void WSAAPI FreeAddrInfoExW(PADDRINFOEXW pAddrInfo);
+
+#define FreeAddrInfoExA FreeAddrInfoEx
+#ifdef UNICODE
+#  define FreeAddrInfoEx FreeAddrInfoExW
+#endif  /* UNICODE */
 
 #if INCL_WINSOCK_API_TYPEDEFS
 #define LPFN_GETADDRINFOEX __MINGW_NAME_AW(LPFN_GETADDRINFOEX)
@@ -443,8 +447,8 @@ WINSOCK_API_LINKAGE int WSAAPI WSASetSocketSecurity(
 
 #define InetNtopA inet_ntop
 
-WINSOCK_API_LINKAGE LPCWSTR WSAAPI InetNtopW(INT Family, PVOID pAddr, LPWSTR pStringBuf, size_t StringBufSIze);
-WINSOCK_API_LINKAGE LPCSTR WSAAPI InetNtopA(INT Family, PVOID pAddr, LPSTR pStringBuf, size_t StringBufSize);
+WINSOCK_API_LINKAGE LPCWSTR WSAAPI InetNtopW(INT Family, LPCVOID pAddr, LPWSTR pStringBuf, size_t StringBufSIze);
+WINSOCK_API_LINKAGE LPCSTR WSAAPI InetNtopA(INT Family, LPCVOID pAddr, LPSTR pStringBuf, size_t StringBufSize);
 
 #define InetNtop __MINGW_NAME_AW(InetNtop)
 

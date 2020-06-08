@@ -1,4 +1,4 @@
-/* Copyright (C) 2000-2019 Free Software Foundation, Inc.
+/* Copyright (C) 2000-2020 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
      Contributed by David Mosberger-Tang <davidm@hpl.hp.com>
 
@@ -14,7 +14,7 @@
 
    You should have received a copy of the GNU Lesser General Public
    License along with the GNU C Library; if not, see
-   <http://www.gnu.org/licenses/>.  */
+   <https://www.gnu.org/licenses/>.  */
 
 #include <sysdeps/generic/sysdep.h>
 

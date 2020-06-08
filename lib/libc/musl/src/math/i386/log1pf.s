@@ -10,16 +10,17 @@ log1pf:
 	cmp $0x00800000,%eax
 	jb 2f
 	fyl2xp1
+	fstps 4(%esp)
+	flds 4(%esp)
 	ret
 1:	fld1
 	faddp
 	fyl2x
+	fstps 4(%esp)
+	flds 4(%esp)
 	ret
 		# subnormal x, return x with underflow
-2:	fnstsw %ax
-	and $16,%ax
-	jnz 1f
-	fxch
+2:	fxch
 	fmul %st(1)
 	fstps 4(%esp)
-1:	ret
+	ret

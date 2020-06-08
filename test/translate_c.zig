@@ -1,40 +1,379 @@
 const tests = @import("tests.zig");
-const builtin = @import("builtin");
-
-// add_both - test for stage1 and stage2, in #include mode
-// add - test stage1 only, in #include mode
-// add_2 - test stage2 only, in #include mode
-// addC_both - test for stage1 and stage2, in -c mode
-// addC - test stage1 only, in -c mode
-// addC_2 - test stage2 only, in -c mode
+const std = @import("std");
+const CrossTarget = std.zig.CrossTarget;
 
 pub fn addCases(cases: *tests.TranslateCContext) void {
-    /////////////// Cases that pass for both stage1/stage2 ////////////////
-    cases.add_both("simple function prototypes",
+    cases.add("complex switch",
+        \\int main() {
+        \\    int i = 2;
+        \\    switch (i) {
+        \\        case 0: {
+        \\            case 2:{
+        \\                i += 2;}
+        \\            i += 1;
+        \\        }
+        \\    }
+        \\}
+    , &[_][]const u8{ // TODO properly translate this
+        \\pub const main = @compileError("unable to translate function");
+    });
+
+    cases.add("correct semicolon after infixop",
+        \\#define __ferror_unlocked_body(_fp) (((_fp)->_flags & _IO_ERR_SEEN) != 0)
+    , &[_][]const u8{
+        \\pub inline fn __ferror_unlocked_body(_fp: var) @TypeOf(((_fp.*._flags) & _IO_ERR_SEEN) != 0) {
+        \\    return ((_fp.*._flags) & _IO_ERR_SEEN) != 0;
+        \\}
+    });
+
+    cases.add("c booleans are just ints",
+        \\#define FOO(x) ((x >= 0) + (x >= 0))
+        \\#define BAR 1 && 2 > 4
+    , &[_][]const u8{
+        \\pub inline fn FOO(x: var) @TypeOf(@boolToInt(x >= 0) + @boolToInt(x >= 0)) {
+        \\    return @boolToInt(x >= 0) + @boolToInt(x >= 0);
+        \\}
+    ,
+        \\pub const BAR = (1 != 0) and (2 > 4);
+    });
+
+    cases.add("struct with aligned fields",
+        \\struct foo {
+        \\    __attribute__((aligned(1))) short bar;
+        \\};
+    , &[_][]const u8{
+        \\pub const struct_foo = extern struct {
+        \\    bar: c_short align(1),
+        \\};
+    });
+
+    cases.add("structs with VLAs are rejected",
+        \\struct foo { int x; int y[]; };
+        \\struct bar { int x; int y[0]; };
+    , &[_][]const u8{
+        \\pub const struct_foo = @Type(.Opaque);
+    ,
+        \\pub const struct_bar = @Type(.Opaque);
+    });
+
+    cases.add("nested loops without blocks",
+        \\void foo() {
+        \\    while (0) while (0) {}
+        \\    for (;;) while (0);
+        \\    for (;;) do {} while (0);
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() void {
+        \\    while (@as(c_int, 0) != 0) while (@as(c_int, 0) != 0) {};
+        \\    while (true) while (@as(c_int, 0) != 0) {};
+        \\    while (true) while (true) {
+        \\        if (!(@as(c_int, 0) != 0)) break;
+        \\    };
+        \\}
+    });
+
+    cases.add("macro comma operator",
+        \\#define foo (foo, bar)
+        \\#define bar(x) (&x, +3, 4 == 4, 5 * 6, baz(1, 2), 2 % 2, baz(1,2))
+    , &[_][]const u8{
+        \\pub const foo = blk: {
+        \\    _ = foo;
+        \\    break :blk bar;
+        \\};
+    ,
+        \\pub inline fn bar(x: var) @TypeOf(baz(1, 2)) {
+        \\    return blk: {
+        \\        _ = &x;
+        \\        _ = 3;
+        \\        _ = 4 == 4;
+        \\        _ = 5 * 6;
+        \\        _ = baz(1, 2);
+        \\        _ = 2 % 2;
+        \\        break :blk baz(1, 2);
+        \\    };
+        \\}
+    });
+
+    cases.add("macro keyword define",
+        \\#define foo 1
+        \\#define inline 2
+    , &[_][]const u8{
+        \\pub const foo = 1;
+    ,
+        \\pub const @"inline" = 2;
+    });
+
+    cases.add("macro line continuation",
+        \\#define FOO -\
+        \\BAR
+    , &[_][]const u8{
+        \\pub const FOO = -BAR;
+    });
+
+    cases.add("struct with atomic field",
+        \\struct arcan_shmif_cont {
+        \\        struct arcan_shmif_page* addr;
+        \\};
+        \\struct arcan_shmif_page {
+        \\        volatile _Atomic int abufused[12];
+        \\};
+    , &[_][]const u8{
+        \\pub const struct_arcan_shmif_page = //
+    ,
+        \\warning: unsupported type: 'Atomic'
+        \\    @Type(.Opaque); //
+    ,
+        \\ warning: struct demoted to opaque type - unable to translate type of field abufused
+    , // TODO should be `addr: *struct_arcan_shmif_page`
+        \\pub const struct_arcan_shmif_cont = extern struct {
+        \\    addr: [*c]struct_arcan_shmif_page,
+        \\};
+    });
+
+    cases.add("function prototype translated as optional",
+        \\typedef void (*fnptr_ty)(void);
+        \\typedef __attribute__((cdecl)) void (*fnptr_attr_ty)(void);
+        \\struct foo {
+        \\    __attribute__((cdecl)) void (*foo)(void);
+        \\    void (*bar)(void);
+        \\    fnptr_ty baz;
+        \\    fnptr_attr_ty qux;
+        \\};
+    , &[_][]const u8{
+        \\pub const fnptr_ty = ?fn () callconv(.C) void;
+        \\pub const fnptr_attr_ty = ?fn () callconv(.C) void;
+        \\pub const struct_foo = extern struct {
+        \\    foo: ?fn () callconv(.C) void,
+        \\    bar: ?fn () callconv(.C) void,
+        \\    baz: fnptr_ty,
+        \\    qux: fnptr_attr_ty,
+        \\};
+    });
+
+    cases.add("function prototype with parenthesis",
+        \\void (f0) (void *L);
+        \\void ((f1)) (void *L);
+        \\void (((f2))) (void *L);
+    , &[_][]const u8{
+        \\pub extern fn f0(L: ?*c_void) void;
+        \\pub extern fn f1(L: ?*c_void) void;
+        \\pub extern fn f2(L: ?*c_void) void;
+    });
+
+    cases.add("array initializer w/ typedef",
+        \\typedef unsigned char uuid_t[16];
+        \\static const uuid_t UUID_NULL __attribute__ ((unused)) = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+    , &[_][]const u8{
+        \\pub const uuid_t = [16]u8;
+        \\pub const UUID_NULL: uuid_t = [16]u8{
+        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
+        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
+        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
+        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
+        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
+        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
+        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
+        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
+        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
+        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
+        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
+        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
+        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
+        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
+        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
+        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
+        \\};
+    });
+
+    cases.add("empty declaration",
+        \\;
+    , &[_][]const u8{""});
+
+    cases.add("#define hex literal with capital X",
+        \\#define VAL 0XF00D
+    , &[_][]const u8{
+        \\pub const VAL = 0xF00D;
+    });
+
+    cases.add("anonymous struct & unions",
+        \\typedef struct {
+        \\    union {
+        \\        char x;
+        \\        struct { int y; };
+        \\    };
+        \\} outer;
+        \\void foo(outer *x) { x->y = x->x; }
+    , &[_][]const u8{
+        \\const struct_unnamed_3 = extern struct {
+        \\    y: c_int,
+        \\};
+        \\const union_unnamed_2 = extern union {
+        \\    x: u8,
+        \\    unnamed_0: struct_unnamed_3,
+        \\};
+        \\const struct_unnamed_1 = extern struct {
+        \\    unnamed_0: union_unnamed_2,
+        \\};
+        \\pub const outer = struct_unnamed_1;
+        \\pub export fn foo(arg_x: [*c]outer) void {
+        \\    var x = arg_x;
+        \\    x.*.unnamed_0.unnamed_0.y = @bitCast(c_int, @as(c_uint, x.*.unnamed_0.x));
+        \\}
+    });
+
+    cases.add("union initializer",
+        \\union { int x; char c[4]; }
+        \\  ua = {1},
+        \\  ub = {.c={'a','b','b','a'}};
+    , &[_][]const u8{
+        \\const union_unnamed_1 = extern union {
+        \\    x: c_int,
+        \\    c: [4]u8,
+        \\};
+        \\pub export var ua: union_unnamed_1 = union_unnamed_1{
+        \\    .x = @as(c_int, 1),
+        \\};
+        \\pub export var ub: union_unnamed_1 = union_unnamed_1{
+        \\    .c = [4]u8{
+        \\        @bitCast(u8, @truncate(i8, @as(c_int, 'a'))),
+        \\        @bitCast(u8, @truncate(i8, @as(c_int, 'b'))),
+        \\        @bitCast(u8, @truncate(i8, @as(c_int, 'b'))),
+        \\        @bitCast(u8, @truncate(i8, @as(c_int, 'a'))),
+        \\    },
+        \\};
+    });
+
+    cases.add("struct initializer - simple",
+        \\typedef struct { int x; } foo;
+        \\struct {double x,y,z;} s0 = {1.2, 1.3};
+        \\struct {int sec,min,hour,day,mon,year;} s1 = {.day=31,12,2014,.sec=30,15,17};
+        \\struct {int x,y;} s2 = {.y = 2, .x=1};
+        \\foo s3 = { 123 };
+    , &[_][]const u8{
+        \\const struct_unnamed_1 = extern struct {
+        \\    x: c_int,
+        \\};
+        \\pub const foo = struct_unnamed_1;
+        \\const struct_unnamed_2 = extern struct {
+        \\    x: f64,
+        \\    y: f64,
+        \\    z: f64,
+        \\};
+        \\pub export var s0: struct_unnamed_2 = struct_unnamed_2{
+        \\    .x = 1.2,
+        \\    .y = 1.3,
+        \\    .z = 0,
+        \\};
+        \\const struct_unnamed_3 = extern struct {
+        \\    sec: c_int,
+        \\    min: c_int,
+        \\    hour: c_int,
+        \\    day: c_int,
+        \\    mon: c_int,
+        \\    year: c_int,
+        \\};
+        \\pub export var s1: struct_unnamed_3 = struct_unnamed_3{
+        \\    .sec = @as(c_int, 30),
+        \\    .min = @as(c_int, 15),
+        \\    .hour = @as(c_int, 17),
+        \\    .day = @as(c_int, 31),
+        \\    .mon = @as(c_int, 12),
+        \\    .year = @as(c_int, 2014),
+        \\};
+        \\const struct_unnamed_4 = extern struct {
+        \\    x: c_int,
+        \\    y: c_int,
+        \\};
+        \\pub export var s2: struct_unnamed_4 = struct_unnamed_4{
+        \\    .x = @as(c_int, 1),
+        \\    .y = @as(c_int, 2),
+        \\};
+        \\pub export var s3: foo = foo{
+        \\    .x = @as(c_int, 123),
+        \\};
+    });
+
+    cases.add("simple ptrCast for casts between opaque types",
+        \\struct opaque;
+        \\struct opaque_2;
+        \\void function(struct opaque *opaque) {
+        \\    struct opaque_2 *cast = (struct opaque_2 *)opaque;
+        \\}
+    , &[_][]const u8{
+        \\pub const struct_opaque = @Type(.Opaque);
+        \\pub const struct_opaque_2 = @Type(.Opaque);
+        \\pub export fn function(arg_opaque_1: ?*struct_opaque) void {
+        \\    var opaque_1 = arg_opaque_1;
+        \\    var cast: ?*struct_opaque_2 = @ptrCast(?*struct_opaque_2, opaque_1);
+        \\}
+    });
+
+    cases.add("struct initializer - packed",
+        \\struct {int x,y,z;} __attribute__((packed)) s0 = {1, 2};
+    , &[_][]const u8{
+        \\const struct_unnamed_1 = packed struct {
+        \\    x: c_int,
+        \\    y: c_int,
+        \\    z: c_int,
+        \\};
+        \\pub export var s0: struct_unnamed_1 = struct_unnamed_1{
+        \\    .x = @as(c_int, 1),
+        \\    .y = @as(c_int, 2),
+        \\    .z = 0,
+        \\};
+    });
+
+    cases.add("align() attribute",
+        \\__attribute__ ((aligned(128)))
+        \\extern char my_array[16];
+        \\__attribute__ ((aligned(128)))
+        \\void my_fn(void) { }
+    , &[_][]const u8{
+        \\pub extern var my_array: [16]u8 align(128);
+        \\pub export fn my_fn() align(128) void {}
+    });
+
+    cases.add("linksection() attribute",
+        \\// Use the "segment,section" format to make this test pass when
+        \\// targeting the mach-o binary format
+        \\__attribute__ ((__section__("NEAR,.data")))
+        \\extern char my_array[16];
+        \\__attribute__ ((__section__("NEAR,.data")))
+        \\void my_fn(void) { }
+    , &[_][]const u8{
+        \\pub extern var my_array: [16]u8 linksection("NEAR,.data");
+        \\pub export fn my_fn() linksection("NEAR,.data") void {}
+    });
+
+    cases.add("simple function prototypes",
         \\void __attribute__((noreturn)) foo(void);
         \\int bar(void);
-    ,
+    , &[_][]const u8{
         \\pub extern fn foo() noreturn;
         \\pub extern fn bar() c_int;
-    );
+    });
 
-    cases.add_both("simple var decls",
+    cases.add("simple var decls",
         \\void foo(void) {
         \\    int a;
         \\    char b = 123;
         \\    const int c;
         \\    const unsigned d = 440;
+        \\    int e = 10;
+        \\    unsigned int f = 10u;
         \\}
-    ,
-        \\pub fn foo() void {
+    , &[_][]const u8{
+        \\pub export fn foo() void {
         \\    var a: c_int = undefined;
-        \\    var b: u8 = u8(123);
+        \\    var b: u8 = @bitCast(u8, @truncate(i8, @as(c_int, 123)));
         \\    const c: c_int = undefined;
-        \\    const d: c_uint = c_uint(440);
+        \\    const d: c_uint = @bitCast(c_uint, @as(c_int, 440));
+        \\    var e: c_int = 10;
+        \\    var f: c_uint = 10;
         \\}
-    );
+    });
 
-    cases.add_both("ignore result, explicit function arguments",
+    cases.add("ignore result, explicit function arguments",
         \\void foo(void) {
         \\    int a;
         \\    1;
@@ -43,54 +382,140 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    1 - 1;
         \\    a = 1;
         \\}
-    ,
-        \\pub fn foo() void {
+    , &[_][]const u8{
+        \\pub export fn foo() void {
         \\    var a: c_int = undefined;
-        \\    _ = 1;
-        \\    _ = c"hey";
-        \\    _ = (1 + 1);
-        \\    _ = (1 - 1);
+        \\    _ = @as(c_int, 1);
+        \\    _ = "hey";
+        \\    _ = (@as(c_int, 1) + @as(c_int, 1));
+        \\    _ = (@as(c_int, 1) - @as(c_int, 1));
         \\    a = 1;
         \\}
-    );
+    });
 
-    /////////////// Cases that pass for only stage2 ////////////////
-    // TODO: restore these tests after removing "import mode" concept
-    // https://github.com/ziglang/zig/issues/2780
+    cases.add("function with no prototype",
+        \\int foo() {
+        \\    return 5;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() c_int {
+        \\    return 5;
+        \\}
+    });
 
-    // cases.add_2("Parameterless function prototypes",
-    //     \\void a() {}
-    //     \\void b(void) {}
-    //     \\void c();
-    //     \\void d(void);
-    // ,
-    //     \\pub export fn a() void {}
-    //     \\pub export fn b() void {}
-    //     \\pub extern fn c(...) void;
-    //     \\pub extern fn d() void;
-    // );
+    cases.add("variables",
+        \\extern int extern_var;
+        \\static const int int_var = 13;
+        \\int foo;
+    , &[_][]const u8{
+        \\pub extern var extern_var: c_int;
+        \\pub const int_var: c_int = 13;
+        \\pub export var foo: c_int = undefined;
+    });
 
-    // cases.add_2("simple function definition",
-    //     \\void foo(void) {}
-    //     \\static void bar(void) {}
-    // ,
-    //     \\pub export fn foo() void {}
-    //     \\pub extern fn bar() void {}
-    // );
+    cases.add("const ptr initializer",
+        \\static const char *v0 = "0.0.0";
+    , &[_][]const u8{
+        \\pub var v0: [*c]const u8 = "0.0.0";
+    });
 
-    cases.add_2("parameterless function prototypes",
-        \\void a() {}
-        \\void b(void) {}
-        \\void c();
-        \\void d(void);
+    cases.add("static incomplete array inside function",
+        \\void foo(void) {
+        \\    static const char v2[] = "2.2.2";
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() void {
+        \\    const v2: [*c]const u8 = "2.2.2";
+        \\}
+    });
+
+    cases.add("simple function definition",
+        \\void foo(void) {}
+        \\static void bar(void) {}
+    , &[_][]const u8{
+        \\pub export fn foo() void {}
+        \\pub fn bar() callconv(.C) void {}
+    });
+
+    cases.add("typedef void",
+        \\typedef void Foo;
+        \\Foo fun(Foo *a);
+    , &[_][]const u8{
+        \\pub const Foo = c_void;
     ,
-        \\pub fn a(...) void {}
-        \\pub fn b() void {}
-        \\pub extern fn c(...) void;
-        \\pub extern fn d() void;
-    );
+        \\pub extern fn fun(a: ?*Foo) Foo;
+    });
 
-    /////////////// Cases for only stage1 which are TODO items for stage2 ////////////////
+    cases.add("duplicate typedef",
+        \\typedef long foo;
+        \\typedef int bar;
+        \\typedef long foo;
+        \\typedef int baz;
+    , &[_][]const u8{
+        \\pub const foo = c_long;
+        \\pub const bar = c_int;
+        \\pub const baz = c_int;
+    });
+
+    cases.add("casting pointers to ints and ints to pointers",
+        \\void foo(void);
+        \\void bar(void) {
+        \\    void *func_ptr = foo;
+        \\    void (*typed_func_ptr)(void) = (void (*)(void)) (unsigned long) func_ptr;
+        \\}
+    , &[_][]const u8{
+        \\pub extern fn foo() void;
+        \\pub export fn bar() void {
+        \\    var func_ptr: ?*c_void = @ptrCast(?*c_void, foo);
+        \\    var typed_func_ptr: ?fn () callconv(.C) void = @intToPtr(?fn () callconv(.C) void, @intCast(c_ulong, @ptrToInt(func_ptr)));
+        \\}
+    });
+
+    cases.add("noreturn attribute",
+        \\void foo(void) __attribute__((noreturn));
+    , &[_][]const u8{
+        \\pub extern fn foo() noreturn;
+    });
+
+    cases.add("add, sub, mul, div, rem",
+        \\int s() {
+        \\    int a, b, c;
+        \\    c = a + b;
+        \\    c = a - b;
+        \\    c = a * b;
+        \\    c = a / b;
+        \\    c = a % b;
+        \\}
+        \\unsigned u() {
+        \\    unsigned a, b, c;
+        \\    c = a + b;
+        \\    c = a - b;
+        \\    c = a * b;
+        \\    c = a / b;
+        \\    c = a % b;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn s() c_int {
+        \\    var a: c_int = undefined;
+        \\    var b: c_int = undefined;
+        \\    var c: c_int = undefined;
+        \\    c = (a + b);
+        \\    c = (a - b);
+        \\    c = (a * b);
+        \\    c = @divTrunc(a, b);
+        \\    c = @rem(a, b);
+        \\}
+        \\pub export fn u() c_uint {
+        \\    var a: c_uint = undefined;
+        \\    var b: c_uint = undefined;
+        \\    var c: c_uint = undefined;
+        \\    c = (a +% b);
+        \\    c = (a -% b);
+        \\    c = (a *% b);
+        \\    c = (a / b);
+        \\    c = (a % b);
+        \\}
+    });
 
     cases.add("typedef of function in struct field",
         \\typedef void lws_callback_function(void);
@@ -98,13 +523,13 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    void (*func)(void);
         \\    lws_callback_function *callback_http;
         \\};
-    ,
-        \\pub const lws_callback_function = extern fn () void;
+    , &[_][]const u8{
+        \\pub const lws_callback_function = fn () callconv(.C) void;
         \\pub const struct_Foo = extern struct {
-        \\    func: ?extern fn () void,
+        \\    func: ?fn () callconv(.C) void,
         \\    callback_http: ?lws_callback_function,
         \\};
-    );
+    });
 
     cases.add("pointer to struct demoted to opaque due to bit fields",
         \\struct Foo {
@@ -113,42 +538,255 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\struct Bar {
         \\    struct Foo *foo;
         \\};
+    , &[_][]const u8{
+        \\pub const struct_Foo = @Type(.Opaque);
     ,
-        \\pub const struct_Foo = @OpaqueType();
         \\pub const struct_Bar = extern struct {
         \\    foo: ?*struct_Foo,
         \\};
-    );
-
-    cases.add_both("simple function definition",
-        \\void foo(void) {}
-        \\static void bar(void) {}
-    ,
-        \\pub fn foo() void {}
-        \\pub fn bar() void {}
-    );
+    });
 
     cases.add("macro with left shift",
         \\#define REDISMODULE_READ (1<<0)
-    ,
+    , &[_][]const u8{
         \\pub const REDISMODULE_READ = 1 << 0;
-    );
+    });
 
-    cases.add_both("casting pointers to ints and ints to pointers",
-        \\void foo(void);
-        \\void bar(void) {
-        \\    void *func_ptr = foo;
-        \\    void (*typed_func_ptr)(void) = (void (*)(void)) (unsigned long) func_ptr;
-        \\}
+    cases.add("macro with right shift",
+        \\#define FLASH_SIZE         0x200000UL          /* 2 MB   */
+        \\#define FLASH_BANK_SIZE    (FLASH_SIZE >> 1)   /* 1 MB   */
+    , &[_][]const u8{
+        \\pub const FLASH_SIZE = @as(c_ulong, 0x200000);
     ,
-        \\pub extern fn foo() void;
-        \\pub fn bar() void {
-        \\    var func_ptr: ?*c_void = @ptrCast(?*c_void, foo);
-        \\    var typed_func_ptr: ?extern fn () void = @intToPtr(?extern fn () void, c_ulong(@ptrToInt(func_ptr)));
-        \\}
+        \\pub const FLASH_BANK_SIZE = FLASH_SIZE >> 1;
+    });
+
+    cases.add("double define struct",
+        \\typedef struct Bar Bar;
+        \\typedef struct Foo Foo;
+        \\
+        \\struct Foo {
+        \\    Foo *a;
+        \\};
+        \\
+        \\struct Bar {
+        \\    Foo *a;
+        \\};
+    , &[_][]const u8{
+        \\pub const struct_Foo = extern struct {
+        \\    a: [*c]Foo,
+        \\};
+    ,
+        \\pub const Foo = struct_Foo;
+    ,
+        \\pub const struct_Bar = extern struct {
+        \\    a: [*c]Foo,
+        \\};
+    ,
+        \\pub const Bar = struct_Bar;
+    });
+
+    cases.add("simple struct",
+        \\struct Foo {
+        \\    int x;
+        \\    char *y;
+        \\};
+    , &[_][]const u8{
+        \\const struct_Foo = extern struct {
+        \\    x: c_int,
+        \\    y: [*c]u8,
+        \\};
+    ,
+        \\pub const Foo = struct_Foo;
+    });
+
+    cases.add("self referential struct with function pointer",
+        \\struct Foo {
+        \\    void (*derp)(struct Foo *foo);
+        \\};
+    , &[_][]const u8{
+        \\pub const struct_Foo = extern struct {
+        \\    derp: ?fn ([*c]struct_Foo) callconv(.C) void,
+        \\};
+    ,
+        \\pub const Foo = struct_Foo;
+    });
+
+    cases.add("struct prototype used in func",
+        \\struct Foo;
+        \\struct Foo *some_func(struct Foo *foo, int x);
+    , &[_][]const u8{
+        \\pub const struct_Foo = @Type(.Opaque);
+    ,
+        \\pub extern fn some_func(foo: ?*struct_Foo, x: c_int) ?*struct_Foo;
+    ,
+        \\pub const Foo = struct_Foo;
+    });
+
+    cases.add("#define an unsigned integer literal",
+        \\#define CHANNEL_COUNT 24
+    , &[_][]const u8{
+        \\pub const CHANNEL_COUNT = 24;
+    });
+
+    cases.add("#define referencing another #define",
+        \\#define THING2 THING1
+        \\#define THING1 1234
+    , &[_][]const u8{
+        \\pub const THING1 = 1234;
+    ,
+        \\pub const THING2 = THING1;
+    });
+
+    cases.add("circular struct definitions",
+        \\struct Bar;
+        \\
+        \\struct Foo {
+        \\    struct Bar *next;
+        \\};
+        \\
+        \\struct Bar {
+        \\    struct Foo *next;
+        \\};
+    , &[_][]const u8{
+        \\pub const struct_Bar = extern struct {
+        \\    next: [*c]struct_Foo,
+        \\};
+    ,
+        \\pub const struct_Foo = extern struct {
+        \\    next: [*c]struct_Bar,
+        \\};
+    });
+
+    cases.add("#define string",
+        \\#define  foo  "a string"
+    , &[_][]const u8{
+        \\pub const foo = "a string";
+    });
+
+    cases.add("zig keywords in C code",
+        \\struct comptime {
+        \\    int defer;
+        \\};
+    , &[_][]const u8{
+        \\pub const struct_comptime = extern struct {
+        \\    @"defer": c_int,
+        \\};
+    ,
+        \\pub const @"comptime" = struct_comptime;
+    });
+
+    cases.add("macro with parens around negative number",
+        \\#define LUA_GLOBALSINDEX        (-10002)
+    , &[_][]const u8{
+        \\pub const LUA_GLOBALSINDEX = -10002;
+    });
+
+    cases.add(
+        "u integer suffix after 0 (zero) in macro definition",
+        "#define ZERO 0U",
+        &[_][]const u8{
+            "pub const ZERO = @as(c_uint, 0);",
+        },
     );
 
-    if (builtin.os != builtin.Os.windows) {
+    cases.add(
+        "l integer suffix after 0 (zero) in macro definition",
+        "#define ZERO 0L",
+        &[_][]const u8{
+            "pub const ZERO = @as(c_long, 0);",
+        },
+    );
+
+    cases.add(
+        "ul integer suffix after 0 (zero) in macro definition",
+        "#define ZERO 0UL",
+        &[_][]const u8{
+            "pub const ZERO = @as(c_ulong, 0);",
+        },
+    );
+
+    cases.add(
+        "lu integer suffix after 0 (zero) in macro definition",
+        "#define ZERO 0LU",
+        &[_][]const u8{
+            "pub const ZERO = @as(c_ulong, 0);",
+        },
+    );
+
+    cases.add(
+        "ll integer suffix after 0 (zero) in macro definition",
+        "#define ZERO 0LL",
+        &[_][]const u8{
+            "pub const ZERO = @as(c_longlong, 0);",
+        },
+    );
+
+    cases.add(
+        "ull integer suffix after 0 (zero) in macro definition",
+        "#define ZERO 0ULL",
+        &[_][]const u8{
+            "pub const ZERO = @as(c_ulonglong, 0);",
+        },
+    );
+
+    cases.add(
+        "llu integer suffix after 0 (zero) in macro definition",
+        "#define ZERO 0LLU",
+        &[_][]const u8{
+            "pub const ZERO = @as(c_ulonglong, 0);",
+        },
+    );
+
+    cases.add(
+        "bitwise not on u-suffixed 0 (zero) in macro definition",
+        "#define NOT_ZERO (~0U)",
+        &[_][]const u8{
+            "pub const NOT_ZERO = ~@as(c_uint, 0);",
+        },
+    );
+
+    cases.add("float suffixes",
+        \\#define foo 3.14f
+        \\#define bar 16.e-2l
+        \\#define FOO 0.12345
+        \\#define BAR .12345
+    , &[_][]const u8{
+        "pub const foo = @as(f32, 3.14);",
+        "pub const bar = @as(c_longdouble, 16.e-2);",
+        "pub const FOO = 0.12345;",
+        "pub const BAR = 0.12345;",
+    });
+
+    cases.add("comments",
+        \\#define foo 1 //foo
+        \\#define bar /* bar */ 2
+    , &[_][]const u8{
+        "pub const foo = 1;",
+        "pub const bar = 2;",
+    });
+
+    cases.add("string prefix",
+        \\#define foo L"hello"
+    , &[_][]const u8{
+        "pub const foo = \"hello\";",
+    });
+
+    cases.add("null statements",
+        \\void foo(void) {
+        \\    ;;;;;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() void {
+        \\    {}
+        \\    {}
+        \\    {}
+        \\    {}
+        \\    {}
+        \\}
+    });
+
+    if (std.Target.current.os.tag != .windows) {
         // Windows treats this as an enum with type c_int
         cases.add("big negative enum init values when C ABI supports long long enums",
             \\enum EnumWithInits {
@@ -176,7 +814,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
             \\    VAL22 = 0xFFFFFFFFFFFFFFFF + 1,
             \\    VAL23 = 0xFFFFFFFFFFFFFFFF,
             \\};
-        ,
+        , &[_][]const u8{
             \\pub const enum_EnumWithInits = extern enum(c_longlong) {
             \\    VAL01 = 0,
             \\    VAL02 = 1,
@@ -201,8 +839,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
             \\    VAL21 = 6917529027641081853,
             \\    VAL22 = 0,
             \\    VAL23 = -1,
+            \\    _,
             \\};
-        );
+        });
     }
 
     cases.add("predefined expressions",
@@ -211,1182 +850,131 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    __FUNCTION__;
         \\    __PRETTY_FUNCTION__;
         \\}
-    ,
-        \\pub fn foo() void {
-        \\    _ = c"foo";
-        \\    _ = c"foo";
-        \\    _ = c"void foo(void)";
+    , &[_][]const u8{
+        \\pub export fn foo() void {
+        \\    _ = "foo";
+        \\    _ = "foo";
+        \\    _ = "void foo(void)";
         \\}
-    );
-
-    cases.add("ignore result, no function arguments",
-        \\void foo() {
-        \\    int a;
-        \\    1;
-        \\    "hey";
-        \\    1 + 1;
-        \\    1 - 1;
-        \\    a = 1;
-        \\}
-    ,
-        \\pub fn foo() void {
-        \\    var a: c_int = undefined;
-        \\    _ = 1;
-        \\    _ = c"hey";
-        \\    _ = (1 + 1);
-        \\    _ = (1 - 1);
-        \\    a = 1;
-        \\}
-    );
-
-    cases.add("for loop with var init but empty body",
-        \\void foo(void) {
-        \\    for (int x = 0; x < 10; x++);
-        \\}
-    ,
-        \\pub fn foo() void {
-        \\    {
-        \\        var x: c_int = 0;
-        \\        while (x < 10) : (x += 1) {}
-        \\    }
-        \\}
-    );
-
-    cases.add("do while with empty body",
-        \\void foo(void) {
-        \\    do ; while (1);
-        \\}
-    , // TODO this should be if (1 != 0) break
-        \\pub fn foo() void {
-        \\    while (true) {
-        \\        {}
-        \\        if (!1) break;
-        \\    }
-        \\}
-    );
-
-    cases.add("for with empty body",
-        \\void foo(void) {
-        \\    for (;;);
-        \\}
-    ,
-        \\pub fn foo() void {
-        \\    while (true) {}
-        \\}
-    );
-
-    cases.add("while with empty body",
-        \\void foo(void) {
-        \\    while (1);
-        \\}
-    ,
-        \\pub fn foo() void {
-        \\    while (1 != 0) {}
-        \\}
-    );
-
-    cases.add("double define struct",
-        \\typedef struct Bar Bar;
-        \\typedef struct Foo Foo;
-        \\
-        \\struct Foo {
-        \\    Foo *a;
-        \\};
-        \\
-        \\struct Bar {
-        \\    Foo *a;
-        \\};
-    ,
-        \\pub const struct_Foo = extern struct {
-        \\    a: [*c]Foo,
-        \\};
-        \\pub const Foo = struct_Foo;
-        \\pub const struct_Bar = extern struct {
-        \\    a: [*c]Foo,
-        \\};
-    );
-
-    cases.addAllowWarnings("simple data types",
-        \\#include <stdint.h>
-        \\int foo(char a, unsigned char b, signed char c);
-        \\int foo(char a, unsigned char b, signed char c); // test a duplicate prototype
-        \\void bar(uint8_t a, uint16_t b, uint32_t c, uint64_t d);
-        \\void baz(int8_t a, int16_t b, int32_t c, int64_t d);
-    ,
-        \\pub extern fn foo(a: u8, b: u8, c: i8) c_int;
-    ,
-        \\pub extern fn bar(a: u8, b: u16, c: u32, d: u64) void;
-    ,
-        \\pub extern fn baz(a: i8, b: i16, c: i32, d: i64) void;
-    );
-
-    cases.add_both("noreturn attribute",
-        \\void foo(void) __attribute__((noreturn));
-    ,
-        \\pub extern fn foo() noreturn;
-    );
-
-    cases.addC("simple function",
-        \\int abs(int a) {
-        \\    return a < 0 ? -a : a;
-        \\}
-    ,
-        \\export fn abs(a: c_int) c_int {
-        \\    return if (a < 0) -a else a;
-        \\}
-    );
-
-    cases.add("enums",
-        \\enum Foo {
-        \\    FooA,
-        \\    FooB,
-        \\    Foo1,
-        \\};
-    ,
-        \\pub const enum_Foo = extern enum {
-        \\    A,
-        \\    B,
-        \\    @"1",
-        \\};
-    ,
-        \\pub const FooA = enum_Foo.A;
-    ,
-        \\pub const FooB = enum_Foo.B;
-    ,
-        \\pub const Foo1 = enum_Foo.@"1";
-    ,
-        \\pub const Foo = enum_Foo;
-    );
-
-    cases.add("enums",
-        \\enum Foo {
-        \\    FooA = 2,
-        \\    FooB = 5,
-        \\    Foo1,
-        \\};
-    ,
-        \\pub const enum_Foo = extern enum {
-        \\    A = 2,
-        \\    B = 5,
-        \\    @"1" = 6,
-        \\};
-    ,
-        \\pub const FooA = enum_Foo.A;
-    ,
-        \\pub const FooB = enum_Foo.B;
-    ,
-        \\pub const Foo1 = enum_Foo.@"1";
-    ,
-        \\pub const Foo = enum_Foo;
-    );
-
-    cases.add("restrict -> noalias",
-        \\void foo(void *restrict bar, void *restrict);
-    ,
-        \\pub extern fn foo(noalias bar: ?*c_void, noalias arg1: ?*c_void) void;
-    );
-
-    cases.add("simple struct",
-        \\struct Foo {
-        \\    int x;
-        \\    char *y;
-        \\};
-    ,
-        \\const struct_Foo = extern struct {
-        \\    x: c_int,
-        \\    y: [*c]u8,
-        \\};
-    ,
-        \\pub const Foo = struct_Foo;
-    );
-
-    cases.add("qualified struct and enum",
-        \\struct Foo {
-        \\    int x;
-        \\    int y;
-        \\};
-        \\enum Bar {
-        \\    BarA,
-        \\    BarB,
-        \\};
-        \\void func(struct Foo *a, enum Bar **b);
-    ,
-        \\pub const struct_Foo = extern struct {
-        \\    x: c_int,
-        \\    y: c_int,
-        \\};
-    ,
-        \\pub const enum_Bar = extern enum {
-        \\    A,
-        \\    B,
-        \\};
-    ,
-        \\pub const BarA = enum_Bar.A;
-    ,
-        \\pub const BarB = enum_Bar.B;
-    ,
-        \\pub extern fn func(a: [*c]struct_Foo, b: [*c]([*c]enum_Bar)) void;
-    ,
-        \\pub const Foo = struct_Foo;
-    ,
-        \\pub const Bar = enum_Bar;
-    );
+    });
 
     cases.add("constant size array",
         \\void func(int array[20]);
-    ,
+    , &[_][]const u8{
         \\pub extern fn func(array: [*c]c_int) void;
-    );
-
-    cases.add("self referential struct with function pointer",
-        \\struct Foo {
-        \\    void (*derp)(struct Foo *foo);
-        \\};
-    ,
-        \\pub const struct_Foo = extern struct {
-        \\    derp: ?extern fn ([*c]struct_Foo) void,
-        \\};
-    ,
-        \\pub const Foo = struct_Foo;
-    );
-
-    cases.add("struct prototype used in func",
-        \\struct Foo;
-        \\struct Foo *some_func(struct Foo *foo, int x);
-    ,
-        \\pub const struct_Foo = @OpaqueType();
-    ,
-        \\pub extern fn some_func(foo: ?*struct_Foo, x: c_int) ?*struct_Foo;
-    ,
-        \\pub const Foo = struct_Foo;
-    );
-
-    cases.add("#define a char literal",
-        \\#define A_CHAR  'a'
-    ,
-        \\pub const A_CHAR = 97;
-    );
-
-    cases.add("#define an unsigned integer literal",
-        \\#define CHANNEL_COUNT 24
-    ,
-        \\pub const CHANNEL_COUNT = 24;
-    );
-
-    cases.add("#define referencing another #define",
-        \\#define THING2 THING1
-        \\#define THING1 1234
-    ,
-        \\pub const THING1 = 1234;
-    ,
-        \\pub const THING2 = THING1;
-    );
-
-    cases.add("variables",
-        \\extern int extern_var;
-        \\static const int int_var = 13;
-    ,
-        \\pub extern var extern_var: c_int;
-    ,
-        \\pub const int_var: c_int = 13;
-    );
-
-    cases.add("circular struct definitions",
-        \\struct Bar;
-        \\
-        \\struct Foo {
-        \\    struct Bar *next;
-        \\};
-        \\
-        \\struct Bar {
-        \\    struct Foo *next;
-        \\};
-    ,
-        \\pub const struct_Bar = extern struct {
-        \\    next: [*c]struct_Foo,
-        \\};
-    ,
-        \\pub const struct_Foo = extern struct {
-        \\    next: [*c]struct_Bar,
-        \\};
-    );
-
-    cases.add("typedef void",
-        \\typedef void Foo;
-        \\Foo fun(Foo *a);
-    ,
-        \\pub const Foo = c_void;
-    ,
-        \\pub extern fn fun(a: ?*Foo) Foo;
-    );
-
-    cases.add("generate inline func for #define global extern fn",
-        \\extern void (*fn_ptr)(void);
-        \\#define foo fn_ptr
-        \\
-        \\extern char (*fn_ptr2)(int, float);
-        \\#define bar fn_ptr2
-    ,
-        \\pub extern var fn_ptr: ?extern fn () void;
-    ,
-        \\pub inline fn foo() void {
-        \\    return fn_ptr.?();
-        \\}
-    ,
-        \\pub extern var fn_ptr2: ?extern fn (c_int, f32) u8;
-    ,
-        \\pub inline fn bar(arg0: c_int, arg1: f32) u8 {
-        \\    return fn_ptr2.?(arg0, arg1);
-        \\}
-    );
-
-    cases.add("#define string",
-        \\#define  foo  "a string"
-    ,
-        \\pub const foo = c"a string";
-    );
+    });
 
     cases.add("__cdecl doesn't mess up function pointers",
         \\void foo(void (__cdecl *fn_ptr)(void));
-    ,
-        \\pub extern fn foo(fn_ptr: ?extern fn () void) void;
-    );
+    , &[_][]const u8{
+        \\pub extern fn foo(fn_ptr: ?fn () callconv(.C) void) void;
+    });
 
-    cases.add("comment after integer literal",
-        \\#define SDL_INIT_VIDEO 0x00000020  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
-    ,
-        \\pub const SDL_INIT_VIDEO = 32;
-    );
-
-    cases.add("u integer suffix after hex literal",
-        \\#define SDL_INIT_VIDEO 0x00000020u  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
-    ,
-        \\pub const SDL_INIT_VIDEO = c_uint(32);
-    );
-
-    cases.add("l integer suffix after hex literal",
-        \\#define SDL_INIT_VIDEO 0x00000020l  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
-    ,
-        \\pub const SDL_INIT_VIDEO = c_long(32);
-    );
-
-    cases.add("ul integer suffix after hex literal",
-        \\#define SDL_INIT_VIDEO 0x00000020ul  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
-    ,
-        \\pub const SDL_INIT_VIDEO = c_ulong(32);
-    );
-
-    cases.add("lu integer suffix after hex literal",
-        \\#define SDL_INIT_VIDEO 0x00000020lu  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
-    ,
-        \\pub const SDL_INIT_VIDEO = c_ulong(32);
-    );
-
-    cases.add("ll integer suffix after hex literal",
-        \\#define SDL_INIT_VIDEO 0x00000020ll  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
-    ,
-        \\pub const SDL_INIT_VIDEO = c_longlong(32);
-    );
-
-    cases.add("ull integer suffix after hex literal",
-        \\#define SDL_INIT_VIDEO 0x00000020ull  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
-    ,
-        \\pub const SDL_INIT_VIDEO = c_ulonglong(32);
-    );
-
-    cases.add("llu integer suffix after hex literal",
-        \\#define SDL_INIT_VIDEO 0x00000020llu  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
-    ,
-        \\pub const SDL_INIT_VIDEO = c_ulonglong(32);
-    );
-
-    cases.add("zig keywords in C code",
-        \\struct comptime {
-        \\    int defer;
-        \\};
-    ,
-        \\pub const struct_comptime = extern struct {
-        \\    @"defer": c_int,
-        \\};
-    ,
-        \\pub const @"comptime" = struct_comptime;
-    );
-
-    cases.add("macro defines string literal with hex",
-        \\#define FOO "aoeu\xab derp"
-        \\#define FOO2 "aoeu\x0007a derp"
-        \\#define FOO_CHAR '\xfF'
-    ,
-        \\pub const FOO = c"aoeu\xab derp";
-    ,
-        \\pub const FOO2 = c"aoeuz derp";
-    ,
-        \\pub const FOO_CHAR = 255;
-    );
-
-    cases.add("macro defines string literal with octal",
-        \\#define FOO "aoeu\023 derp"
-        \\#define FOO2 "aoeu\0234 derp"
-        \\#define FOO_CHAR '\077'
-    ,
-        \\pub const FOO = c"aoeu\x13 derp";
-    ,
-        \\pub const FOO2 = c"aoeu\x134 derp";
-    ,
-        \\pub const FOO_CHAR = 63;
-    );
-
-    cases.add("macro with parens around negative number",
-        \\#define LUA_GLOBALSINDEX        (-10002)
-    ,
-        \\pub const LUA_GLOBALSINDEX = -10002;
-    );
-
-    cases.addC("post increment",
-        \\unsigned foo1(unsigned a) {
-        \\    a++;
-        \\    return a;
-        \\}
-        \\int foo2(int a) {
-        \\    a++;
-        \\    return a;
-        \\}
-    ,
-        \\pub export fn foo1(_arg_a: c_uint) c_uint {
-        \\    var a = _arg_a;
-        \\    a +%= 1;
-        \\    return a;
-        \\}
-        \\pub export fn foo2(_arg_a: c_int) c_int {
-        \\    var a = _arg_a;
-        \\    a += 1;
-        \\    return a;
-        \\}
-    );
-
-    cases.addC("shift right assign",
-        \\int log2(unsigned a) {
-        \\    int i = 0;
-        \\    while (a > 0) {
-        \\        a >>= 1;
-        \\    }
-        \\    return i;
-        \\}
-    ,
-        \\pub export fn log2(_arg_a: c_uint) c_int {
-        \\    var a = _arg_a;
-        \\    var i: c_int = 0;
-        \\    while (a > c_uint(0)) {
-        \\        a >>= @import("std").math.Log2Int(c_uint)(1);
-        \\    }
-        \\    return i;
-        \\}
-    );
-
-    cases.addC("if statement",
-        \\int max(int a, int b) {
-        \\    if (a < b)
-        \\        return b;
-        \\
-        \\    if (a < b)
-        \\        return b;
-        \\    else
-        \\        return a;
-        \\
-        \\    if (a < b) ; else ;
-        \\}
-    ,
-        \\pub export fn max(a: c_int, b: c_int) c_int {
-        \\    if (a < b) return b;
-        \\    if (a < b) return b else return a;
-        \\    if (a < b) {} else {}
-        \\}
-    );
-
-    cases.addC("==, !=",
-        \\int max(int a, int b) {
-        \\    if (a == b)
-        \\        return a;
-        \\    if (a != b)
-        \\        return b;
-        \\    return a;
-        \\}
-    ,
-        \\pub export fn max(a: c_int, b: c_int) c_int {
-        \\    if (a == b) return a;
-        \\    if (a != b) return b;
-        \\    return a;
-        \\}
-    );
-
-    cases.addC("add, sub, mul, div, rem",
-        \\int s(int a, int b) {
-        \\    int c;
-        \\    c = a + b;
-        \\    c = a - b;
-        \\    c = a * b;
-        \\    c = a / b;
-        \\    c = a % b;
-        \\}
-        \\unsigned u(unsigned a, unsigned b) {
-        \\    unsigned c;
-        \\    c = a + b;
-        \\    c = a - b;
-        \\    c = a * b;
-        \\    c = a / b;
-        \\    c = a % b;
-        \\}
-    ,
-        \\pub export fn s(a: c_int, b: c_int) c_int {
-        \\    var c: c_int = undefined;
-        \\    c = (a + b);
-        \\    c = (a - b);
-        \\    c = (a * b);
-        \\    c = @divTrunc(a, b);
-        \\    c = @rem(a, b);
-        \\}
-        \\pub export fn u(a: c_uint, b: c_uint) c_uint {
-        \\    var c: c_uint = undefined;
-        \\    c = (a +% b);
-        \\    c = (a -% b);
-        \\    c = (a *% b);
-        \\    c = (a / b);
-        \\    c = (a % b);
-        \\}
-    );
-
-    cases.addC("bitwise binary operators",
-        \\int max(int a, int b) {
-        \\    return (a & b) ^ (a | b);
-        \\}
-    ,
-        \\pub export fn max(a: c_int, b: c_int) c_int {
-        \\    return (a & b) ^ (a | b);
-        \\}
-    );
-
-    cases.addC("logical and, logical or",
-        \\int max(int a, int b) {
-        \\    if (a < b || a == b)
-        \\        return b;
-        \\    if (a >= b && a == b)
-        \\        return a;
-        \\    return a;
-        \\}
-    ,
-        \\pub export fn max(a: c_int, b: c_int) c_int {
-        \\    if ((a < b) or (a == b)) return b;
-        \\    if ((a >= b) and (a == b)) return a;
-        \\    return a;
-        \\}
-    );
-
-    cases.addC("logical and, logical or on none bool values",
-        \\int and_or_none_bool(int a, float b, void *c) {
-        \\    if (a && b) return 0;
-        \\    if (b && c) return 1;
-        \\    if (a && c) return 2;
-        \\    if (a || b) return 3;
-        \\    if (b || c) return 4;
-        \\    if (a || c) return 5;
-        \\    return 6;
-        \\}
-    ,
-        \\pub export fn and_or_none_bool(a: c_int, b: f32, c: ?*c_void) c_int {
-        \\    if ((a != 0) and (b != 0)) return 0;
-        \\    if ((b != 0) and (c != null)) return 1;
-        \\    if ((a != 0) and (c != null)) return 2;
-        \\    if ((a != 0) or (b != 0)) return 3;
-        \\    if ((b != 0) or (c != null)) return 4;
-        \\    if ((a != 0) or (c != null)) return 5;
-        \\    return 6;
-        \\}
-    );
-
-    cases.addC("assign",
-        \\int max(int a) {
-        \\    int tmp;
-        \\    tmp = a;
-        \\    a = tmp;
-        \\}
-    ,
-        \\pub export fn max(_arg_a: c_int) c_int {
-        \\    var a = _arg_a;
-        \\    var tmp: c_int = undefined;
-        \\    tmp = a;
-        \\    a = tmp;
-        \\}
-    );
-
-    cases.addC("chaining assign",
-        \\void max(int a) {
-        \\    int b, c;
-        \\    c = b = a;
-        \\}
-    ,
-        \\pub export fn max(a: c_int) void {
-        \\    var b: c_int = undefined;
-        \\    var c: c_int = undefined;
-        \\    c = (x: {
-        \\        const _tmp = a;
-        \\        b = _tmp;
-        \\        break :x _tmp;
-        \\    });
-        \\}
-    );
-
-    cases.addC("shift right assign with a fixed size type",
-        \\#include <stdint.h>
-        \\int log2(uint32_t a) {
-        \\    int i = 0;
-        \\    while (a > 0) {
-        \\        a >>= 1;
-        \\    }
-        \\    return i;
-        \\}
-    ,
-        \\pub export fn log2(_arg_a: u32) c_int {
-        \\    var a = _arg_a;
-        \\    var i: c_int = 0;
-        \\    while (a > c_uint(0)) {
-        \\        a >>= u5(1);
-        \\    }
-        \\    return i;
-        \\}
-    );
-
-    cases.add("anonymous enum",
-        \\enum {
-        \\    One,
-        \\    Two,
-        \\};
-    ,
-        \\pub const One = 0;
-        \\pub const Two = 1;
-    );
-
-    cases.addC("function call",
-        \\static void bar(void) { }
-        \\static int baz(void) { return 0; }
-        \\void foo(void) {
-        \\    bar();
-        \\    baz();
-        \\}
-    ,
-        \\pub fn bar() void {}
-        \\pub fn baz() c_int {
-        \\    return 0;
-        \\}
-        \\pub export fn foo() void {
-        \\    bar();
-        \\    _ = baz();
-        \\}
-    );
-
-    cases.addC("field access expression",
-        \\struct Foo {
-        \\    int field;
-        \\};
-        \\int read_field(struct Foo *foo) {
-        \\    return foo->field;
-        \\}
-    ,
-        \\pub const struct_Foo = extern struct {
-        \\    field: c_int,
-        \\};
-        \\pub export fn read_field(foo: [*c]struct_Foo) c_int {
-        \\    return foo.?.field;
-        \\}
-    );
-
-    cases.addC("null statements",
-        \\void foo(void) {
-        \\    ;;;;;
-        \\}
-    ,
-        \\pub export fn foo() void {
-        \\    {}
-        \\    {}
-        \\    {}
-        \\    {}
-        \\    {}
-        \\}
-    );
-
-    cases.add("undefined array global",
-        \\int array[100];
-    ,
-        \\pub var array: [100]c_int = undefined;
-    );
-
-    cases.addC("array access",
-        \\int array[100];
-        \\int foo(int index) {
-        \\    return array[index];
-        \\}
-    ,
-        \\pub var array: [100]c_int = undefined;
-        \\pub export fn foo(index: c_int) c_int {
-        \\    return array[index];
-        \\}
-    );
-
-    cases.addC("c style cast",
-        \\int float_to_int(float a) {
-        \\    return (int)a;
-        \\}
-    ,
-        \\pub export fn float_to_int(a: f32) c_int {
-        \\    return c_int(a);
-        \\}
-    );
-
-    cases.addC("void cast",
-        \\void foo(int a) {
+    cases.add("void cast",
+        \\void foo() {
+        \\    int a;
         \\    (void) a;
         \\}
-    ,
-        \\pub export fn foo(a: c_int) void {
+    , &[_][]const u8{
+        \\pub export fn foo() void {
+        \\    var a: c_int = undefined;
         \\    _ = a;
         \\}
-    );
+    });
 
-    cases.addC("implicit cast to void *",
-        \\void *foo(unsigned short *x) {
+    cases.add("implicit cast to void *",
+        \\void *foo() {
+        \\    unsigned short *x;
         \\    return x;
         \\}
-    ,
-        \\pub export fn foo(x: [*c]c_ushort) ?*c_void {
+    , &[_][]const u8{
+        \\pub export fn foo() ?*c_void {
+        \\    var x: [*c]c_ushort = undefined;
         \\    return @ptrCast(?*c_void, x);
         \\}
-    );
+    });
 
-    cases.addC("sizeof",
-        \\#include <stddef.h>
-        \\size_t size_of(void) {
-        \\        return sizeof(int);
-        \\}
-    ,
-        \\pub export fn size_of() usize {
-        \\    return @sizeOf(c_int);
-        \\}
-    );
-
-    cases.addC("null pointer implicit cast",
+    cases.add("null pointer implicit cast",
         \\int* foo(void) {
         \\    return 0;
         \\}
-    ,
+    , &[_][]const u8{
         \\pub export fn foo() [*c]c_int {
         \\    return null;
         \\}
-    );
-
-    cases.addC("comma operator",
-        \\int foo(void) {
-        \\    return 1, 2;
-        \\}
-    ,
-        \\pub export fn foo() c_int {
-        \\    return x: {
-        \\        _ = 1;
-        \\        break :x 2;
-        \\    };
-        \\}
-    );
-
-    cases.addC("statement expression",
-        \\int foo(void) {
-        \\    return ({
-        \\        int a = 1;
-        \\        a;
-        \\    });
-        \\}
-    ,
-        \\pub export fn foo() c_int {
-        \\    return x: {
-        \\        var a: c_int = 1;
-        \\        break :x a;
-        \\    };
-        \\}
-    );
-
-    cases.addC("__extension__ cast",
-        \\int foo(void) {
-        \\    return __extension__ 1;
-        \\}
-    ,
-        \\pub export fn foo() c_int {
-        \\    return 1;
-        \\}
-    );
-
-    cases.addC("bitshift",
-        \\int foo(void) {
-        \\    return (1 << 2) >> 1;
-        \\}
-    ,
-        \\pub export fn foo() c_int {
-        \\    return (1 << @import("std").math.Log2Int(c_int)(2)) >> @import("std").math.Log2Int(c_int)(1);
-        \\}
-    );
-
-    cases.addC("compound assignment operators",
-        \\void foo(void) {
-        \\    int a = 0;
-        \\    a += (a += 1);
-        \\    a -= (a -= 1);
-        \\    a *= (a *= 1);
-        \\    a &= (a &= 1);
-        \\    a |= (a |= 1);
-        \\    a ^= (a ^= 1);
-        \\    a >>= (a >>= 1);
-        \\    a <<= (a <<= 1);
-        \\}
-    ,
-        \\pub export fn foo() void {
-        \\    var a: c_int = 0;
-        \\    a += (x: {
-        \\        const _ref = &a;
-        \\        _ref.* = (_ref.* + 1);
-        \\        break :x _ref.*;
-        \\    });
-        \\    a -= (x: {
-        \\        const _ref = &a;
-        \\        _ref.* = (_ref.* - 1);
-        \\        break :x _ref.*;
-        \\    });
-        \\    a *= (x: {
-        \\        const _ref = &a;
-        \\        _ref.* = (_ref.* * 1);
-        \\        break :x _ref.*;
-        \\    });
-        \\    a &= (x: {
-        \\        const _ref = &a;
-        \\        _ref.* = (_ref.* & 1);
-        \\        break :x _ref.*;
-        \\    });
-        \\    a |= (x: {
-        \\        const _ref = &a;
-        \\        _ref.* = (_ref.* | 1);
-        \\        break :x _ref.*;
-        \\    });
-        \\    a ^= (x: {
-        \\        const _ref = &a;
-        \\        _ref.* = (_ref.* ^ 1);
-        \\        break :x _ref.*;
-        \\    });
-        \\    a >>= @import("std").math.Log2Int(c_int)((x: {
-        \\        const _ref = &a;
-        \\        _ref.* = (_ref.* >> @import("std").math.Log2Int(c_int)(1));
-        \\        break :x _ref.*;
-        \\    }));
-        \\    a <<= @import("std").math.Log2Int(c_int)((x: {
-        \\        const _ref = &a;
-        \\        _ref.* = (_ref.* << @import("std").math.Log2Int(c_int)(1));
-        \\        break :x _ref.*;
-        \\    }));
-        \\}
-    );
-
-    cases.addC("compound assignment operators unsigned",
-        \\void foo(void) {
-        \\    unsigned a = 0;
-        \\    a += (a += 1);
-        \\    a -= (a -= 1);
-        \\    a *= (a *= 1);
-        \\    a &= (a &= 1);
-        \\    a |= (a |= 1);
-        \\    a ^= (a ^= 1);
-        \\    a >>= (a >>= 1);
-        \\    a <<= (a <<= 1);
-        \\}
-    ,
-        \\pub export fn foo() void {
-        \\    var a: c_uint = c_uint(0);
-        \\    a +%= (x: {
-        \\        const _ref = &a;
-        \\        _ref.* = (_ref.* +% c_uint(1));
-        \\        break :x _ref.*;
-        \\    });
-        \\    a -%= (x: {
-        \\        const _ref = &a;
-        \\        _ref.* = (_ref.* -% c_uint(1));
-        \\        break :x _ref.*;
-        \\    });
-        \\    a *%= (x: {
-        \\        const _ref = &a;
-        \\        _ref.* = (_ref.* *% c_uint(1));
-        \\        break :x _ref.*;
-        \\    });
-        \\    a &= (x: {
-        \\        const _ref = &a;
-        \\        _ref.* = (_ref.* & c_uint(1));
-        \\        break :x _ref.*;
-        \\    });
-        \\    a |= (x: {
-        \\        const _ref = &a;
-        \\        _ref.* = (_ref.* | c_uint(1));
-        \\        break :x _ref.*;
-        \\    });
-        \\    a ^= (x: {
-        \\        const _ref = &a;
-        \\        _ref.* = (_ref.* ^ c_uint(1));
-        \\        break :x _ref.*;
-        \\    });
-        \\    a >>= @import("std").math.Log2Int(c_uint)((x: {
-        \\        const _ref = &a;
-        \\        _ref.* = (_ref.* >> @import("std").math.Log2Int(c_uint)(1));
-        \\        break :x _ref.*;
-        \\    }));
-        \\    a <<= @import("std").math.Log2Int(c_uint)((x: {
-        \\        const _ref = &a;
-        \\        _ref.* = (_ref.* << @import("std").math.Log2Int(c_uint)(1));
-        \\        break :x _ref.*;
-        \\    }));
-        \\}
-    );
-
-    cases.addC("duplicate typedef",
-        \\typedef long foo;
-        \\typedef int bar;
-        \\typedef long foo;
-        \\typedef int baz;
-    ,
-        \\pub const foo = c_long;
-        \\pub const bar = c_int;
-        \\pub const baz = c_int;
-    );
-
-    cases.addC("post increment/decrement",
-        \\void foo(void) {
-        \\    int i = 0;
-        \\    unsigned u = 0;
-        \\    i++;
-        \\    i--;
-        \\    u++;
-        \\    u--;
-        \\    i = i++;
-        \\    i = i--;
-        \\    u = u++;
-        \\    u = u--;
-        \\}
-    ,
-        \\pub export fn foo() void {
-        \\    var i: c_int = 0;
-        \\    var u: c_uint = c_uint(0);
-        \\    i += 1;
-        \\    i -= 1;
-        \\    u +%= 1;
-        \\    u -%= 1;
-        \\    i = (x: {
-        \\        const _ref = &i;
-        \\        const _tmp = _ref.*;
-        \\        _ref.* += 1;
-        \\        break :x _tmp;
-        \\    });
-        \\    i = (x: {
-        \\        const _ref = &i;
-        \\        const _tmp = _ref.*;
-        \\        _ref.* -= 1;
-        \\        break :x _tmp;
-        \\    });
-        \\    u = (x: {
-        \\        const _ref = &u;
-        \\        const _tmp = _ref.*;
-        \\        _ref.* +%= 1;
-        \\        break :x _tmp;
-        \\    });
-        \\    u = (x: {
-        \\        const _ref = &u;
-        \\        const _tmp = _ref.*;
-        \\        _ref.* -%= 1;
-        \\        break :x _tmp;
-        \\    });
-        \\}
-    );
-
-    cases.addC("pre increment/decrement",
-        \\void foo(void) {
-        \\    int i = 0;
-        \\    unsigned u = 0;
-        \\    ++i;
-        \\    --i;
-        \\    ++u;
-        \\    --u;
-        \\    i = ++i;
-        \\    i = --i;
-        \\    u = ++u;
-        \\    u = --u;
-        \\}
-    ,
-        \\pub export fn foo() void {
-        \\    var i: c_int = 0;
-        \\    var u: c_uint = c_uint(0);
-        \\    i += 1;
-        \\    i -= 1;
-        \\    u +%= 1;
-        \\    u -%= 1;
-        \\    i = (x: {
-        \\        const _ref = &i;
-        \\        _ref.* += 1;
-        \\        break :x _ref.*;
-        \\    });
-        \\    i = (x: {
-        \\        const _ref = &i;
-        \\        _ref.* -= 1;
-        \\        break :x _ref.*;
-        \\    });
-        \\    u = (x: {
-        \\        const _ref = &u;
-        \\        _ref.* +%= 1;
-        \\        break :x _ref.*;
-        \\    });
-        \\    u = (x: {
-        \\        const _ref = &u;
-        \\        _ref.* -%= 1;
-        \\        break :x _ref.*;
-        \\    });
-        \\}
-    );
-
-    cases.addC("do loop",
-        \\void foo(void) {
-        \\    int a = 2;
-        \\    do {
-        \\        a--;
-        \\    } while (a != 0);
-        \\
-        \\    int b = 2;
-        \\    do
-        \\        b--;
-        \\    while (b != 0);
-        \\}
-    ,
-        \\pub export fn foo() void {
-        \\    var a: c_int = 2;
-        \\    while (true) {
-        \\        a -= 1;
-        \\        if (!(a != 0)) break;
-        \\    }
-        \\    var b: c_int = 2;
-        \\    while (true) {
-        \\        b -= 1;
-        \\        if (!(b != 0)) break;
-        \\    }
-        \\}
-    );
-
-    cases.addC("deref function pointer",
-        \\void foo(void) {}
-        \\int baz(void) { return 0; }
-        \\void bar(void) {
-        \\    void(*f)(void) = foo;
-        \\    int(*b)(void) = baz;
-        \\    f();
-        \\    (*(f))();
-        \\    foo();
-        \\    b();
-        \\    (*(b))();
-        \\    baz();
-        \\}
-    ,
-        \\pub export fn foo() void {}
-        \\pub export fn baz() c_int {
-        \\    return 0;
-        \\}
-        \\pub export fn bar() void {
-        \\    var f: ?extern fn () void = foo;
-        \\    var b: ?extern fn () c_int = baz;
-        \\    f.?();
-        \\    f.?();
-        \\    foo();
-        \\    _ = b.?();
-        \\    _ = b.?();
-        \\    _ = baz();
-        \\}
-    );
-
-    cases.addC("normal deref",
-        \\void foo(int *x) {
-        \\    *x = 1;
-        \\}
-    ,
-        \\pub export fn foo(x: [*c]c_int) void {
-        \\    x.?.* = 1;
-        \\}
-    );
+    });
 
     cases.add("simple union",
         \\union Foo {
         \\    int x;
         \\    double y;
         \\};
-    ,
+    , &[_][]const u8{
         \\pub const union_Foo = extern union {
         \\    x: c_int,
         \\    y: f64,
         \\};
     ,
         \\pub const Foo = union_Foo;
-    );
-
-    cases.add("address of operator",
-        \\int foo(void) {
-        \\    int x = 1234;
-        \\    int *ptr = &x;
-        \\    return *ptr;
-        \\}
-    ,
-        \\pub fn foo() c_int {
-        \\    var x: c_int = 1234;
-        \\    var ptr: [*c]c_int = &x;
-        \\    return ptr.?.*;
-        \\}
-    );
+    });
 
     cases.add("string literal",
         \\const char *foo(void) {
         \\    return "bar";
         \\}
-    ,
-        \\pub fn foo() [*c]const u8 {
-        \\    return c"bar";
+    , &[_][]const u8{
+        \\pub export fn foo() [*c]const u8 {
+        \\    return "bar";
         \\}
-    );
+    });
 
     cases.add("return void",
         \\void foo(void) {
         \\    return;
         \\}
-    ,
-        \\pub fn foo() void {
+    , &[_][]const u8{
+        \\pub export fn foo() void {
         \\    return;
         \\}
-    );
+    });
 
     cases.add("for loop",
         \\void foo(void) {
-        \\    for (int i = 0; i < 10; i += 1) { }
+        \\    for (int i = 0; i; i++) { }
         \\}
-    ,
-        \\pub fn foo() void {
+    , &[_][]const u8{
+        \\pub export fn foo() void {
         \\    {
         \\        var i: c_int = 0;
-        \\        while (i < 10) : (i += 1) {}
+        \\        while (i != 0) : (i += 1) {}
         \\    }
         \\}
-    );
+    });
 
     cases.add("empty for loop",
         \\void foo(void) {
         \\    for (;;) { }
         \\}
-    ,
-        \\pub fn foo() void {
+    , &[_][]const u8{
+        \\pub export fn foo() void {
         \\    while (true) {}
         \\}
-    );
+    });
+
+    cases.add("for loop with simple init expression",
+        \\void foo(void) {
+        \\    int i;
+        \\    for (i = 3; i; i--) { }
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() void {
+        \\    var i: c_int = undefined;
+        \\    {
+        \\        i = 3;
+        \\        while (i != 0) : (i -= 1) {}
+        \\    }
+        \\}
+    });
 
     cases.add("break statement",
         \\void foo(void) {
@@ -1394,13 +982,13 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\        break;
         \\    }
         \\}
-    ,
-        \\pub fn foo() void {
+    , &[_][]const u8{
+        \\pub export fn foo() void {
         \\    while (true) {
         \\        break;
         \\    }
         \\}
-    );
+    });
 
     cases.add("continue statement",
         \\void foo(void) {
@@ -1408,13 +996,444 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\        continue;
         \\    }
         \\}
-    ,
-        \\pub fn foo() void {
+    , &[_][]const u8{
+        \\pub export fn foo() void {
         \\    while (true) {
         \\        continue;
         \\    }
         \\}
-    );
+    });
+
+    cases.add("pointer casting",
+        \\float *ptrcast() {
+        \\    int *a;
+        \\    return (float *)a;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn ptrcast() [*c]f32 {
+        \\    var a: [*c]c_int = undefined;
+        \\    return @ptrCast([*c]f32, @alignCast(@alignOf(f32), a));
+        \\}
+    });
+
+    cases.add("pointer conversion with different alignment",
+        \\void test_ptr_cast() {
+        \\    void *p;
+        \\    {
+        \\        char *to_char = (char *)p;
+        \\        short *to_short = (short *)p;
+        \\        int *to_int = (int *)p;
+        \\        long long *to_longlong = (long long *)p;
+        \\    }
+        \\    {
+        \\        char *to_char = p;
+        \\        short *to_short = p;
+        \\        int *to_int = p;
+        \\        long long *to_longlong = p;
+        \\    }
+        \\}
+    , &[_][]const u8{
+        \\pub export fn test_ptr_cast() void {
+        \\    var p: ?*c_void = undefined;
+        \\    {
+        \\        var to_char: [*c]u8 = @ptrCast([*c]u8, @alignCast(@alignOf(u8), p));
+        \\        var to_short: [*c]c_short = @ptrCast([*c]c_short, @alignCast(@alignOf(c_short), p));
+        \\        var to_int: [*c]c_int = @ptrCast([*c]c_int, @alignCast(@alignOf(c_int), p));
+        \\        var to_longlong: [*c]c_longlong = @ptrCast([*c]c_longlong, @alignCast(@alignOf(c_longlong), p));
+        \\    }
+        \\    {
+        \\        var to_char: [*c]u8 = @ptrCast([*c]u8, @alignCast(@alignOf(u8), p));
+        \\        var to_short: [*c]c_short = @ptrCast([*c]c_short, @alignCast(@alignOf(c_short), p));
+        \\        var to_int: [*c]c_int = @ptrCast([*c]c_int, @alignCast(@alignOf(c_int), p));
+        \\        var to_longlong: [*c]c_longlong = @ptrCast([*c]c_longlong, @alignCast(@alignOf(c_longlong), p));
+        \\    }
+        \\}
+    });
+
+    cases.add("while on non-bool",
+        \\int while_none_bool() {
+        \\    int a;
+        \\    float b;
+        \\    void *c;
+        \\    while (a) return 0;
+        \\    while (b) return 1;
+        \\    while (c) return 2;
+        \\    return 3;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn while_none_bool() c_int {
+        \\    var a: c_int = undefined;
+        \\    var b: f32 = undefined;
+        \\    var c: ?*c_void = undefined;
+        \\    while (a != 0) return 0;
+        \\    while (b != 0) return 1;
+        \\    while (c != null) return 2;
+        \\    return 3;
+        \\}
+    });
+
+    cases.add("for on non-bool",
+        \\int for_none_bool() {
+        \\    int a;
+        \\    float b;
+        \\    void *c;
+        \\    for (;a;) return 0;
+        \\    for (;b;) return 1;
+        \\    for (;c;) return 2;
+        \\    return 3;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn for_none_bool() c_int {
+        \\    var a: c_int = undefined;
+        \\    var b: f32 = undefined;
+        \\    var c: ?*c_void = undefined;
+        \\    while (a != 0) return 0;
+        \\    while (b != 0) return 1;
+        \\    while (c != null) return 2;
+        \\    return 3;
+        \\}
+    });
+
+    cases.add("bitshift",
+        \\int foo(void) {
+        \\    return (1 << 2) >> 1;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() c_int {
+        \\    return (@as(c_int, 1) << @intCast(@import("std").math.Log2Int(c_int), 2)) >> @intCast(@import("std").math.Log2Int(c_int), 1);
+        \\}
+    });
+
+    cases.add("sizeof",
+        \\#include <stddef.h>
+        \\size_t size_of(void) {
+        \\        return sizeof(int);
+        \\}
+    , &[_][]const u8{
+        \\pub export fn size_of() usize {
+        \\    return @sizeOf(c_int);
+        \\}
+    });
+
+    cases.add("normal deref",
+        \\void foo() {
+        \\    int *x;
+        \\    *x = 1;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() void {
+        \\    var x: [*c]c_int = undefined;
+        \\    x.?.* = 1;
+        \\}
+    });
+
+    cases.add("address of operator",
+        \\int foo(void) {
+        \\    int x = 1234;
+        \\    int *ptr = &x;
+        \\    return *ptr;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() c_int {
+        \\    var x: c_int = 1234;
+        \\    var ptr: [*c]c_int = &x;
+        \\    return ptr.?.*;
+        \\}
+    });
+
+    cases.add("bin not",
+        \\int foo() {
+        \\    int x;
+        \\    return ~x;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() c_int {
+        \\    var x: c_int = undefined;
+        \\    return ~x;
+        \\}
+    });
+
+    cases.add("bool not",
+        \\int foo() {
+        \\    int a;
+        \\    float b;
+        \\    void *c;
+        \\    return !(a == 0);
+        \\    return !a;
+        \\    return !b;
+        \\    return !c;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() c_int {
+        \\    var a: c_int = undefined;
+        \\    var b: f32 = undefined;
+        \\    var c: ?*c_void = undefined;
+        \\    return !(a == @as(c_int, 0));
+        \\    return !(a != 0);
+        \\    return !(b != 0);
+        \\    return !(c != null);
+        \\}
+    });
+
+    cases.add("__extension__ cast",
+        \\int foo(void) {
+        \\    return __extension__ 1;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() c_int {
+        \\    return 1;
+        \\}
+    });
+
+    if (std.Target.current.os.tag != .windows) {
+        // sysv_abi not currently supported on windows
+        cases.add("Macro qualified functions",
+            \\void __attribute__((sysv_abi)) foo(void);
+        , &[_][]const u8{
+            \\pub extern fn foo() void;
+        });
+    }
+
+    cases.add("Forward-declared enum",
+        \\extern enum enum_ty my_enum;
+        \\enum enum_ty { FOO };
+    , &[_][]const u8{
+        \\pub const FOO = @enumToInt(enum_enum_ty.FOO);
+        \\pub const enum_enum_ty = extern enum(c_int) {
+        \\    FOO,
+        \\    _,
+        \\};
+        \\pub extern var my_enum: enum_enum_ty;
+    });
+
+    cases.add("Parameterless function pointers",
+        \\typedef void (*fn0)();
+        \\typedef void (*fn1)(char);
+    , &[_][]const u8{
+        \\pub const fn0 = ?fn (...) callconv(.C) void;
+        \\pub const fn1 = ?fn (u8) callconv(.C) void;
+    });
+
+    cases.addWithTarget("Calling convention", .{
+        .cpu_arch = .i386,
+        .os_tag = .linux,
+        .abi = .none,
+    },
+        \\void __attribute__((fastcall)) foo1(float *a);
+        \\void __attribute__((stdcall)) foo2(float *a);
+        \\void __attribute__((vectorcall)) foo3(float *a);
+        \\void __attribute__((cdecl)) foo4(float *a);
+        \\void __attribute__((thiscall)) foo5(float *a);
+    , &[_][]const u8{
+        \\pub fn foo1(a: [*c]f32) callconv(.Fastcall) void;
+        \\pub fn foo2(a: [*c]f32) callconv(.Stdcall) void;
+        \\pub fn foo3(a: [*c]f32) callconv(.Vectorcall) void;
+        \\pub extern fn foo4(a: [*c]f32) void;
+        \\pub fn foo5(a: [*c]f32) callconv(.Thiscall) void;
+    });
+
+    cases.addWithTarget("Calling convention", CrossTarget.parse(.{
+        .arch_os_abi = "arm-linux-none",
+        .cpu_features = "generic+v8_5a",
+    }) catch unreachable,
+        \\void __attribute__((pcs("aapcs"))) foo1(float *a);
+        \\void __attribute__((pcs("aapcs-vfp"))) foo2(float *a);
+    , &[_][]const u8{
+        \\pub fn foo1(a: [*c]f32) callconv(.AAPCS) void;
+        \\pub fn foo2(a: [*c]f32) callconv(.AAPCSVFP) void;
+    });
+
+    cases.addWithTarget("Calling convention", CrossTarget.parse(.{
+        .arch_os_abi = "aarch64-linux-none",
+        .cpu_features = "generic+v8_5a",
+    }) catch unreachable,
+        \\void __attribute__((aarch64_vector_pcs)) foo1(float *a);
+    , &[_][]const u8{
+        \\pub fn foo1(a: [*c]f32) callconv(.Vectorcall) void;
+    });
+
+    cases.add("Parameterless function prototypes",
+        \\void a() {}
+        \\void b(void) {}
+        \\void c();
+        \\void d(void);
+    , &[_][]const u8{
+        \\pub export fn a() void {}
+        \\pub export fn b() void {}
+        \\pub extern fn c(...) void;
+        \\pub extern fn d() void;
+    });
+
+    cases.add("variable declarations",
+        \\extern char arr0[] = "hello";
+        \\static char arr1[] = "hello";
+        \\char arr2[] = "hello";
+    , &[_][]const u8{
+        \\pub extern var arr0: [*c]u8 = "hello";
+        \\pub var arr1: [*c]u8 = "hello";
+        \\pub export var arr2: [*c]u8 = "hello";
+    });
+
+    cases.add("array initializer expr",
+        \\static void foo(void){
+        \\    char arr[10] ={1};
+        \\    char *arr1[10] ={0};
+        \\}
+    , &[_][]const u8{
+        \\pub fn foo() callconv(.C) void {
+        \\    var arr: [10]u8 = [1]u8{
+        \\        @bitCast(u8, @truncate(i8, @as(c_int, 1))),
+        \\    } ++ [1]u8{0} ** 9;
+        \\    var arr1: [10][*c]u8 = [1][*c]u8{
+        \\        null,
+        \\    } ++ [1][*c]u8{null} ** 9;
+        \\}
+    });
+
+    cases.add("enums",
+        \\typedef enum {
+        \\    a,
+        \\    b,
+        \\    c,
+        \\} d;
+        \\enum {
+        \\    e,
+        \\    f = 4,
+        \\    g,
+        \\} h = e;
+        \\struct Baz {
+        \\    enum {
+        \\        i,
+        \\        j,
+        \\        k,
+        \\    } l;
+        \\    d m;
+        \\};
+        \\enum i {
+        \\    n,
+        \\    o,
+        \\    p,
+        \\};
+    , &[_][]const u8{
+        \\pub const a = @enumToInt(enum_unnamed_1.a);
+        \\pub const b = @enumToInt(enum_unnamed_1.b);
+        \\pub const c = @enumToInt(enum_unnamed_1.c);
+        \\const enum_unnamed_1 = extern enum(c_int) {
+        \\    a,
+        \\    b,
+        \\    c,
+        \\    _,
+        \\};
+        \\pub const d = enum_unnamed_1;
+        \\pub const e = @enumToInt(enum_unnamed_2.e);
+        \\pub const f = @enumToInt(enum_unnamed_2.f);
+        \\pub const g = @enumToInt(enum_unnamed_2.g);
+        \\const enum_unnamed_2 = extern enum(c_int) {
+        \\    e = 0,
+        \\    f = 4,
+        \\    g = 5,
+        \\    _,
+        \\};
+        \\pub export var h: enum_unnamed_2 = @intToEnum(enum_unnamed_2, e);
+        \\pub const i = @enumToInt(enum_unnamed_3.i);
+        \\pub const j = @enumToInt(enum_unnamed_3.j);
+        \\pub const k = @enumToInt(enum_unnamed_3.k);
+        \\const enum_unnamed_3 = extern enum(c_int) {
+        \\    i,
+        \\    j,
+        \\    k,
+        \\    _,
+        \\};
+        \\pub const struct_Baz = extern struct {
+        \\    l: enum_unnamed_3,
+        \\    m: d,
+        \\};
+        \\pub const n = @enumToInt(enum_i.n);
+        \\pub const o = @enumToInt(enum_i.o);
+        \\pub const p = @enumToInt(enum_i.p);
+        \\pub const enum_i = extern enum(c_int) {
+        \\    n,
+        \\    o,
+        \\    p,
+        \\    _,
+        \\};
+    ,
+        \\pub const Baz = struct_Baz;
+    });
+
+    cases.add("#define a char literal",
+        \\#define A_CHAR  'a'
+    , &[_][]const u8{
+        \\pub const A_CHAR = 'a';
+    });
+
+    cases.add("comment after integer literal",
+        \\#define SDL_INIT_VIDEO 0x00000020  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
+    , &[_][]const u8{
+        \\pub const SDL_INIT_VIDEO = 0x00000020;
+    });
+
+    cases.add("u integer suffix after hex literal",
+        \\#define SDL_INIT_VIDEO 0x00000020u  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
+    , &[_][]const u8{
+        \\pub const SDL_INIT_VIDEO = @as(c_uint, 0x00000020);
+    });
+
+    cases.add("l integer suffix after hex literal",
+        \\#define SDL_INIT_VIDEO 0x00000020l  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
+    , &[_][]const u8{
+        \\pub const SDL_INIT_VIDEO = @as(c_long, 0x00000020);
+    });
+
+    cases.add("ul integer suffix after hex literal",
+        \\#define SDL_INIT_VIDEO 0x00000020ul  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
+    , &[_][]const u8{
+        \\pub const SDL_INIT_VIDEO = @as(c_ulong, 0x00000020);
+    });
+
+    cases.add("lu integer suffix after hex literal",
+        \\#define SDL_INIT_VIDEO 0x00000020lu  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
+    , &[_][]const u8{
+        \\pub const SDL_INIT_VIDEO = @as(c_ulong, 0x00000020);
+    });
+
+    cases.add("ll integer suffix after hex literal",
+        \\#define SDL_INIT_VIDEO 0x00000020ll  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
+    , &[_][]const u8{
+        \\pub const SDL_INIT_VIDEO = @as(c_longlong, 0x00000020);
+    });
+
+    cases.add("ull integer suffix after hex literal",
+        \\#define SDL_INIT_VIDEO 0x00000020ull  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
+    , &[_][]const u8{
+        \\pub const SDL_INIT_VIDEO = @as(c_ulonglong, 0x00000020);
+    });
+
+    cases.add("llu integer suffix after hex literal",
+        \\#define SDL_INIT_VIDEO 0x00000020llu  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
+    , &[_][]const u8{
+        \\pub const SDL_INIT_VIDEO = @as(c_ulonglong, 0x00000020);
+    });
+
+    cases.add("generate inline func for #define global extern fn",
+        \\extern void (*fn_ptr)(void);
+        \\#define foo fn_ptr
+        \\
+        \\extern char (*fn_ptr2)(int, float);
+        \\#define bar fn_ptr2
+    , &[_][]const u8{
+        \\pub extern var fn_ptr: ?fn () callconv(.C) void;
+    ,
+        \\pub inline fn foo() void {
+        \\    return fn_ptr.?();
+        \\}
+    ,
+        \\pub extern var fn_ptr2: ?fn (c_int, f32) callconv(.C) u8;
+    ,
+        \\pub inline fn bar(arg_1: c_int, arg_2: f32) u8 {
+        \\    return fn_ptr2.?(arg_1, arg_2);
+        \\}
+    });
 
     cases.add("macros with field targets",
         \\typedef unsigned int GLbitfield;
@@ -1429,118 +1448,748 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\extern union OpenGLProcs glProcs;
         \\#define glClearUnion glProcs.gl.Clear
         \\#define glClearPFN PFNGLCLEARPROC
-    ,
+    , &[_][]const u8{
         \\pub const GLbitfield = c_uint;
-    ,
-        \\pub const PFNGLCLEARPROC = ?extern fn (GLbitfield) void;
-    ,
-        \\pub const OpenGLProc = ?extern fn () void;
-    ,
+        \\pub const PFNGLCLEARPROC = ?fn (GLbitfield) callconv(.C) void;
+        \\pub const OpenGLProc = ?fn () callconv(.C) void;
+        \\const struct_unnamed_1 = extern struct {
+        \\    Clear: PFNGLCLEARPROC,
+        \\};
         \\pub const union_OpenGLProcs = extern union {
         \\    ptr: [1]OpenGLProc,
-        \\    gl: extern struct {
-        \\        Clear: PFNGLCLEARPROC,
-        \\    },
+        \\    gl: struct_unnamed_1,
         \\};
-    ,
         \\pub extern var glProcs: union_OpenGLProcs;
     ,
         \\pub const glClearPFN = PFNGLCLEARPROC;
     ,
-        \\pub inline fn glClearUnion(arg0: GLbitfield) void {
-        \\    return glProcs.gl.Clear.?(arg0);
+        \\pub inline fn glClearUnion(arg_2: GLbitfield) void {
+        \\    return glProcs.gl.Clear.?(arg_2);
         \\}
     ,
         \\pub const OpenGLProcs = union_OpenGLProcs;
-    );
-
-    cases.add("variable name shadowing",
-        \\int foo(void) {
-        \\    int x = 1;
-        \\    {
-        \\        int x = 2;
-        \\        x += 1;
-        \\    }
-        \\    return x;
-        \\}
-    ,
-        \\pub fn foo() c_int {
-        \\    var x: c_int = 1;
-        \\    {
-        \\        var x_0: c_int = 2;
-        \\        x_0 += 1;
-        \\    }
-        \\    return x;
-        \\}
-    );
-
-    cases.add("pointer casting",
-        \\float *ptrcast(int *a) {
-        \\    return (float *)a;
-        \\}
-    ,
-        \\fn ptrcast(a: [*c]c_int) [*c]f32 {
-        \\    return @ptrCast([*c]f32, @alignCast(@alignOf(f32), a));
-        \\}
-    );
-
-    cases.add("bin not",
-        \\int foo(int x) {
-        \\    return ~x;
-        \\}
-    ,
-        \\pub fn foo(x: c_int) c_int {
-        \\    return ~x;
-        \\}
-    );
-
-    cases.add("bool not",
-        \\int foo(int a, float b, void *c) {
-        \\    return !(a == 0);
-        \\    return !a;
-        \\    return !b;
-        \\    return !c;
-        \\}
-    ,
-        \\pub fn foo(a: c_int, b: f32, c: ?*c_void) c_int {
-        \\    return !(a == 0);
-        \\    return !(a != 0);
-        \\    return !(b != 0);
-        \\    return !(c != null);
-        \\}
-    );
-
-    cases.add("primitive types included in defined symbols",
-        \\int foo(int u32) {
-        \\    return u32;
-        \\}
-    ,
-        \\pub fn foo(u32_0: c_int) c_int {
-        \\    return u32_0;
-        \\}
-    );
-
-    cases.add("const ptr initializer",
-        \\static const char *v0 = "0.0.0";
-    ,
-        \\pub var v0: [*c]const u8 = c"0.0.0";
-    );
-
-    cases.add("static incomplete array inside function",
-        \\void foo(void) {
-        \\    static const char v2[] = "2.2.2";
-        \\}
-    ,
-        \\pub fn foo() void {
-        \\    const v2: [*c]const u8 = c"2.2.2";
-        \\}
-    );
+    });
 
     cases.add("macro pointer cast",
         \\#define NRF_GPIO ((NRF_GPIO_Type *) NRF_GPIO_BASE)
+    , &[_][]const u8{
+        \\pub const NRF_GPIO = (if (@typeInfo(@TypeOf(NRF_GPIO_BASE)) == .Pointer) @ptrCast([*c]NRF_GPIO_Type, @alignCast(@alignOf([*c]NRF_GPIO_Type.Child), NRF_GPIO_BASE)) else if (@typeInfo(@TypeOf(NRF_GPIO_BASE)) == .Int and @typeInfo([*c]NRF_GPIO_Type) == .Pointer) @intToPtr([*c]NRF_GPIO_Type, NRF_GPIO_BASE) else @as([*c]NRF_GPIO_Type, NRF_GPIO_BASE));
+    });
+
+    cases.add("basic macro function",
+        \\extern int c;
+        \\#define BASIC(c) (c*2)
+        \\#define FOO(L,b) (L + b)
+    , &[_][]const u8{
+        \\pub extern var c: c_int;
     ,
-        \\pub const NRF_GPIO = if (@typeId(@typeOf(NRF_GPIO_BASE)) == @import("builtin").TypeId.Pointer) @ptrCast([*c]NRF_GPIO_Type, NRF_GPIO_BASE) else if (@typeId(@typeOf(NRF_GPIO_BASE)) == @import("builtin").TypeId.Int) @intToPtr([*c]NRF_GPIO_Type, NRF_GPIO_BASE) else ([*c]NRF_GPIO_Type)(NRF_GPIO_BASE);
-    );
+        \\pub inline fn BASIC(c_1: var) @TypeOf(c_1 * 2) {
+        \\    return c_1 * 2;
+        \\}
+    ,
+        \\pub inline fn FOO(L: var, b: var) @TypeOf(L + b) {
+        \\    return L + b;
+        \\}
+    });
+
+    cases.add("macro defines string literal with hex",
+        \\#define FOO "aoeu\xab derp"
+        \\#define FOO2 "aoeu\x0007a derp"
+        \\#define FOO_CHAR '\xfF'
+    , &[_][]const u8{
+        \\pub const FOO = "aoeu\xab derp";
+    ,
+        \\pub const FOO2 = "aoeu\x7a derp";
+    ,
+        \\pub const FOO_CHAR = '\xff';
+    });
+
+    cases.add("macro add",
+        \\#define PERIPH_BASE               (0x40000000UL) /*!< Base address of : AHB/APB Peripherals                                                   */
+        \\#define D3_APB1PERIPH_BASE       (PERIPH_BASE + 0x18000000UL)
+        \\#define RCC_BASE              (D3_AHB1PERIPH_BASE + 0x4400UL)
+    , &[_][]const u8{
+        \\pub const PERIPH_BASE = @as(c_ulong, 0x40000000);
+    ,
+        \\pub const D3_APB1PERIPH_BASE = PERIPH_BASE + @as(c_ulong, 0x18000000);
+    ,
+        \\pub const RCC_BASE = D3_AHB1PERIPH_BASE + @as(c_ulong, 0x4400);
+    });
+
+    cases.add("variable aliasing",
+        \\static long a = 2;
+        \\static long b = 2;
+        \\static int c = 4;
+        \\void foo(char c) {
+        \\    int a;
+        \\    char b = 123;
+        \\    b = (char) a;
+        \\    {
+        \\        int d = 5;
+        \\    }
+        \\    unsigned d = 440;
+        \\}
+    , &[_][]const u8{
+        \\pub var a: c_long = @bitCast(c_long, @as(c_long, @as(c_int, 2)));
+        \\pub var b: c_long = @bitCast(c_long, @as(c_long, @as(c_int, 2)));
+        \\pub var c: c_int = 4;
+        \\pub export fn foo(arg_c_1: u8) void {
+        \\    var c_1 = arg_c_1;
+        \\    var a_2: c_int = undefined;
+        \\    var b_3: u8 = @bitCast(u8, @truncate(i8, @as(c_int, 123)));
+        \\    b_3 = @bitCast(u8, @truncate(i8, a_2));
+        \\    {
+        \\        var d: c_int = 5;
+        \\    }
+        \\    var d: c_uint = @bitCast(c_uint, @as(c_int, 440));
+        \\}
+    });
+
+    cases.add("comma operator",
+        \\int foo() {
+        \\    2, 4;
+        \\    return 2, 4, 6;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() c_int {
+        \\    _ = @as(c_int, 2);
+        \\    _ = @as(c_int, 4);
+        \\    _ = @as(c_int, 2);
+        \\    _ = @as(c_int, 4);
+        \\    return @as(c_int, 6);
+        \\}
+    });
+
+    cases.add("worst-case assign",
+        \\int foo() {
+        \\    int a;
+        \\    int b;
+        \\    a = b = 2;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() c_int {
+        \\    var a: c_int = undefined;
+        \\    var b: c_int = undefined;
+        \\    a = blk: {
+        \\        const tmp = @as(c_int, 2);
+        \\        b = tmp;
+        \\        break :blk tmp;
+        \\    };
+        \\}
+    });
+
+    cases.add("while loops",
+        \\int foo() {
+        \\    int a = 5;
+        \\    while (2)
+        \\        a = 2;
+        \\    while (4) {
+        \\        int a = 4;
+        \\        a = 9;
+        \\        return 6, a;
+        \\    }
+        \\    do {
+        \\        int a = 2;
+        \\        a = 12;
+        \\    } while (4);
+        \\    do
+        \\        a = 7;
+        \\    while (4);
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() c_int {
+        \\    var a: c_int = 5;
+        \\    while (@as(c_int, 2) != 0) a = 2;
+        \\    while (@as(c_int, 4) != 0) {
+        \\        var a_1: c_int = 4;
+        \\        a_1 = 9;
+        \\        _ = @as(c_int, 6);
+        \\        return a_1;
+        \\    }
+        \\    while (true) {
+        \\        var a_1: c_int = 2;
+        \\        a_1 = 12;
+        \\        if (!(@as(c_int, 4) != 0)) break;
+        \\    }
+        \\    while (true) {
+        \\        a = 7;
+        \\        if (!(@as(c_int, 4) != 0)) break;
+        \\    }
+        \\}
+    });
+
+    cases.add("for loops",
+        \\int foo() {
+        \\    for (int i = 2, b = 4; i + 2; i = 2) {
+        \\        int a = 2;
+        \\        a = 6, 5, 7;
+        \\    }
+        \\    char i = 2;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() c_int {
+        \\    {
+        \\        var i: c_int = 2;
+        \\        var b: c_int = 4;
+        \\        while ((i + @as(c_int, 2)) != 0) : (i = 2) {
+        \\            var a: c_int = 2;
+        \\            a = 6;
+        \\            _ = @as(c_int, 5);
+        \\            _ = @as(c_int, 7);
+        \\        }
+        \\    }
+        \\    var i: u8 = @bitCast(u8, @truncate(i8, @as(c_int, 2)));
+        \\}
+    });
+
+    cases.add("shadowing primitive types",
+        \\unsigned anyerror = 2;
+    , &[_][]const u8{
+        \\pub export var anyerror_1: c_uint = @bitCast(c_uint, @as(c_int, 2));
+    });
+
+    cases.add("floats",
+        \\float a = 3.1415;
+        \\double b = 3.1415;
+        \\int c = 3.1415;
+        \\double d = 3;
+    , &[_][]const u8{
+        \\pub export var a: f32 = @floatCast(f32, 3.1415);
+        \\pub export var b: f64 = 3.1415;
+        \\pub export var c: c_int = @floatToInt(c_int, 3.1415);
+        \\pub export var d: f64 = @intToFloat(f64, @as(c_int, 3));
+    });
+
+    cases.add("conditional operator",
+        \\int bar(void) {
+        \\    if (2 ? 5 : 5 ? 4 : 6) 2;
+        \\    return  2 ? 5 : 5 ? 4 : 6;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn bar() c_int {
+        \\    if ((if (@as(c_int, 2) != 0) @as(c_int, 5) else (if (@as(c_int, 5) != 0) @as(c_int, 4) else @as(c_int, 6))) != 0) _ = @as(c_int, 2);
+        \\    return if (@as(c_int, 2) != 0) @as(c_int, 5) else if (@as(c_int, 5) != 0) @as(c_int, 4) else @as(c_int, 6);
+        \\}
+    });
+
+    cases.add("switch on int",
+        \\int switch_fn(int i) {
+        \\    int res = 0;
+        \\    switch (i) {
+        \\        case 0:
+        \\            res = 1;
+        \\        case 1 ... 3:
+        \\            res = 2;
+        \\        default:
+        \\            res = 3 * i;
+        \\            break;
+        \\        case 4:
+        \\            res = 5;
+        \\    }
+        \\}
+    , &[_][]const u8{
+        \\pub export fn switch_fn(arg_i: c_int) c_int {
+        \\    var i = arg_i;
+        \\    var res: c_int = 0;
+        \\    __switch: {
+        \\        __case_2: {
+        \\            __default: {
+        \\                __case_1: {
+        \\                    __case_0: {
+        \\                        switch (i) {
+        \\                            @as(c_int, 0) => break :__case_0,
+        \\                            @as(c_int, 1)...@as(c_int, 3) => break :__case_1,
+        \\                            else => break :__default,
+        \\                            @as(c_int, 4) => break :__case_2,
+        \\                        }
+        \\                    }
+        \\                    res = 1;
+        \\                }
+        \\                res = 2;
+        \\            }
+        \\            res = (@as(c_int, 3) * i);
+        \\            break :__switch;
+        \\        }
+        \\        res = 5;
+        \\    }
+        \\}
+    });
+
+    if (std.Target.current.os.tag != .windows) {
+        // When clang uses the <arch>-windows-none triple it behaves as MSVC and
+        // interprets the inner `struct Bar` as an anonymous structure
+        cases.add("type referenced struct",
+            \\struct Foo {
+            \\    struct Bar{
+            \\        int b;
+            \\    };
+            \\    struct Bar c;
+            \\};
+        , &[_][]const u8{
+            \\pub const struct_Bar = extern struct {
+            \\    b: c_int,
+            \\};
+            \\pub const struct_Foo = extern struct {
+            \\    c: struct_Bar,
+            \\};
+        });
+    }
+
+    cases.add("undefined array global",
+        \\int array[100] = {};
+    , &[_][]const u8{
+        \\pub export var array: [100]c_int = [1]c_int{0} ** 100;
+    });
+
+    cases.add("restrict -> noalias",
+        \\void foo(void *restrict bar, void *restrict);
+    , &[_][]const u8{
+        \\pub extern fn foo(noalias bar: ?*c_void, noalias ?*c_void) void;
+    });
+
+    cases.add("assign",
+        \\int max(int a) {
+        \\    int tmp;
+        \\    tmp = a;
+        \\    a = tmp;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn max(arg_a: c_int) c_int {
+        \\    var a = arg_a;
+        \\    var tmp: c_int = undefined;
+        \\    tmp = a;
+        \\    a = tmp;
+        \\}
+    });
+
+    cases.add("chaining assign",
+        \\void max(int a) {
+        \\    int b, c;
+        \\    c = b = a;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn max(arg_a: c_int) void {
+        \\    var a = arg_a;
+        \\    var b: c_int = undefined;
+        \\    var c: c_int = undefined;
+        \\    c = blk: {
+        \\        const tmp = a;
+        \\        b = tmp;
+        \\        break :blk tmp;
+        \\    };
+        \\}
+    });
+
+    cases.add("anonymous enum",
+        \\enum {
+        \\    One,
+        \\    Two,
+        \\};
+    , &[_][]const u8{
+        \\pub const One = @enumToInt(enum_unnamed_1.One);
+        \\pub const Two = @enumToInt(enum_unnamed_1.Two);
+        \\const enum_unnamed_1 = extern enum(c_int) {
+        \\    One,
+        \\    Two,
+        \\    _,
+        \\};
+    });
+
+    cases.add("c style cast",
+        \\int float_to_int(float a) {
+        \\    return (int)a;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn float_to_int(arg_a: f32) c_int {
+        \\    var a = arg_a;
+        \\    return @floatToInt(c_int, a);
+        \\}
+    });
+
+    // TODO translate-c should in theory be able to figure out to drop all these casts
+    cases.add("escape sequences",
+        \\const char *escapes() {
+        \\char a = '\'',
+        \\    b = '\\',
+        \\    c = '\a',
+        \\    d = '\b',
+        \\    e = '\f',
+        \\    f = '\n',
+        \\    g = '\r',
+        \\    h = '\t',
+        \\    i = '\v',
+        \\    j = '\0',
+        \\    k = '\"';
+        \\    return "\'\\\a\b\f\n\r\t\v\0\"";
+        \\}
+        \\
+    , &[_][]const u8{
+        \\pub export fn escapes() [*c]const u8 {
+        \\    var a: u8 = @bitCast(u8, @truncate(i8, @as(c_int, '\'')));
+        \\    var b: u8 = @bitCast(u8, @truncate(i8, @as(c_int, '\\')));
+        \\    var c: u8 = @bitCast(u8, @truncate(i8, @as(c_int, '\x07')));
+        \\    var d: u8 = @bitCast(u8, @truncate(i8, @as(c_int, '\x08')));
+        \\    var e: u8 = @bitCast(u8, @truncate(i8, @as(c_int, '\x0c')));
+        \\    var f: u8 = @bitCast(u8, @truncate(i8, @as(c_int, '\n')));
+        \\    var g: u8 = @bitCast(u8, @truncate(i8, @as(c_int, '\r')));
+        \\    var h: u8 = @bitCast(u8, @truncate(i8, @as(c_int, '\t')));
+        \\    var i: u8 = @bitCast(u8, @truncate(i8, @as(c_int, '\x0b')));
+        \\    var j: u8 = @bitCast(u8, @truncate(i8, @as(c_int, '\x00')));
+        \\    var k: u8 = @bitCast(u8, @truncate(i8, @as(c_int, '\"')));
+        \\    return "\'\\\x07\x08\x0c\n\r\t\x0b\x00\"";
+        \\}
+    });
+
+    cases.add("do loop",
+        \\void foo(void) {
+        \\    int a = 2;
+        \\    do {
+        \\        a = a - 1;
+        \\    } while (a);
+        \\
+        \\    int b = 2;
+        \\    do
+        \\        b = b -1;
+        \\    while (b);
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() void {
+        \\    var a: c_int = 2;
+        \\    while (true) {
+        \\        a = (a - @as(c_int, 1));
+        \\        if (!(a != 0)) break;
+        \\    }
+        \\    var b: c_int = 2;
+        \\    while (true) {
+        \\        b = (b - @as(c_int, 1));
+        \\        if (!(b != 0)) break;
+        \\    }
+        \\}
+    });
+
+    cases.add("logical and, logical or, on non-bool values, extra parens",
+        \\enum Foo {
+        \\    FooA,
+        \\    FooB,
+        \\    FooC,
+        \\};
+        \\typedef int SomeTypedef;
+        \\int and_or_non_bool(int a, float b, void *c) {
+        \\    enum Foo d = FooA;
+        \\    int e = (a && b);
+        \\    int f = (b && c);
+        \\    int g = (a && c);
+        \\    int h = (a || b);
+        \\    int i = (b || c);
+        \\    int j = (a || c);
+        \\    int k = (a || d);
+        \\    int l = (d && b);
+        \\    int m = (c || d);
+        \\    SomeTypedef td = 44;
+        \\    int o = (td || b);
+        \\    int p = (c && td);
+        \\    return ((((((((((e + f) + g) + h) + i) + j) + k) + l) + m) + o) + p);
+        \\}
+    , &[_][]const u8{
+        \\pub const enum_Foo = extern enum(c_int) {
+        \\    A,
+        \\    B,
+        \\    C,
+        \\    _,
+        \\};
+        \\pub const SomeTypedef = c_int;
+        \\pub export fn and_or_non_bool(arg_a: c_int, arg_b: f32, arg_c: ?*c_void) c_int {
+        \\    var a = arg_a;
+        \\    var b = arg_b;
+        \\    var c = arg_c;
+        \\    var d: enum_Foo = @intToEnum(enum_Foo, FooA);
+        \\    var e: c_int = @boolToInt(((a != 0) and (b != 0)));
+        \\    var f: c_int = @boolToInt(((b != 0) and (c != null)));
+        \\    var g: c_int = @boolToInt(((a != 0) and (c != null)));
+        \\    var h: c_int = @boolToInt(((a != 0) or (b != 0)));
+        \\    var i: c_int = @boolToInt(((b != 0) or (c != null)));
+        \\    var j: c_int = @boolToInt(((a != 0) or (c != null)));
+        \\    var k: c_int = @boolToInt(((a != 0) or (@enumToInt(d) != 0)));
+        \\    var l: c_int = @boolToInt(((@enumToInt(d) != 0) and (b != 0)));
+        \\    var m: c_int = @boolToInt(((c != null) or (@enumToInt(d) != 0)));
+        \\    var td: SomeTypedef = 44;
+        \\    var o: c_int = @boolToInt(((td != 0) or (b != 0)));
+        \\    var p: c_int = @boolToInt(((c != null) and (td != 0)));
+        \\    return ((((((((((e + f) + g) + h) + i) + j) + k) + l) + m) + o) + p);
+        \\}
+    ,
+        \\pub const Foo = enum_Foo;
+    });
+
+    cases.add("qualified struct and enum",
+        \\struct Foo {
+        \\    int x;
+        \\    int y;
+        \\};
+        \\enum Bar {
+        \\    BarA,
+        \\    BarB,
+        \\};
+        \\void func(struct Foo *a, enum Bar **b);
+    , &[_][]const u8{
+        \\pub const struct_Foo = extern struct {
+        \\    x: c_int,
+        \\    y: c_int,
+        \\};
+    ,
+        \\pub const enum_Bar = extern enum(c_int) {
+        \\    A,
+        \\    B,
+        \\    _,
+        \\};
+        \\pub extern fn func(a: [*c]struct_Foo, b: [*c][*c]enum_Bar) void;
+    ,
+        \\pub const Foo = struct_Foo;
+        \\pub const Bar = enum_Bar;
+    });
+
+    cases.add("bitwise binary operators, simpler parens",
+        \\int max(int a, int b) {
+        \\    return (a & b) ^ (a | b);
+        \\}
+    , &[_][]const u8{
+        \\pub export fn max(arg_a: c_int, arg_b: c_int) c_int {
+        \\    var a = arg_a;
+        \\    var b = arg_b;
+        \\    return ((a & b) ^ (a | b));
+        \\}
+    });
+
+    cases.add("comparison operators (no if)", // TODO Come up with less contrived tests? Make sure to cover all these comparisons.
+        \\int test_comparisons(int a, int b) {
+        \\    int c = (a < b);
+        \\    int d = (a > b);
+        \\    int e = (a <= b);
+        \\    int f = (a >= b);
+        \\    int g = (c < d);
+        \\    int h = (e < f);
+        \\    int i = (g < h);
+        \\    return i;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn test_comparisons(arg_a: c_int, arg_b: c_int) c_int {
+        \\    var a = arg_a;
+        \\    var b = arg_b;
+        \\    var c: c_int = @boolToInt((a < b));
+        \\    var d: c_int = @boolToInt((a > b));
+        \\    var e: c_int = @boolToInt((a <= b));
+        \\    var f: c_int = @boolToInt((a >= b));
+        \\    var g: c_int = @boolToInt((c < d));
+        \\    var h: c_int = @boolToInt((e < f));
+        \\    var i: c_int = @boolToInt((g < h));
+        \\    return i;
+        \\}
+    });
+
+    cases.add("==, !=",
+        \\int max(int a, int b) {
+        \\    if (a == b)
+        \\        return a;
+        \\    if (a != b)
+        \\        return b;
+        \\    return a;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn max(arg_a: c_int, arg_b: c_int) c_int {
+        \\    var a = arg_a;
+        \\    var b = arg_b;
+        \\    if (a == b) return a;
+        \\    if (a != b) return b;
+        \\    return a;
+        \\}
+    });
+
+    cases.add("typedeffed bool expression",
+        \\typedef char* yes;
+        \\void foo(void) {
+        \\    yes a;
+        \\    if (a) 2;
+        \\}
+    , &[_][]const u8{
+        \\pub const yes = [*c]u8;
+        \\pub export fn foo() void {
+        \\    var a: yes = undefined;
+        \\    if (a != null) _ = @as(c_int, 2);
+        \\}
+    });
+
+    cases.add("statement expression",
+        \\int foo(void) {
+        \\    return ({
+        \\        int a = 1;
+        \\        a;
+        \\        a;
+        \\    });
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() c_int {
+        \\    return (blk: {
+        \\        var a: c_int = 1;
+        \\        _ = a;
+        \\        break :blk a;
+        \\    });
+        \\}
+    });
+
+    cases.add("field access expression",
+        \\#define ARROW a->b
+        \\#define DOT a.b
+        \\extern struct Foo {
+        \\    int b;
+        \\}a;
+        \\float b = 2.0f;
+        \\int foo(void) {
+        \\    struct Foo *c;
+        \\    a.b;
+        \\    c->b;
+        \\}
+    , &[_][]const u8{
+        \\pub const struct_Foo = extern struct {
+        \\    b: c_int,
+        \\};
+        \\pub extern var a: struct_Foo;
+        \\pub export var b: f32 = 2;
+        \\pub export fn foo() c_int {
+        \\    var c: [*c]struct_Foo = undefined;
+        \\    _ = a.b;
+        \\    _ = c.*.b;
+        \\}
+    ,
+        \\pub const DOT = a.b;
+    ,
+        \\pub const ARROW = a.*.b;
+    });
+
+    cases.add("array access",
+        \\#define ACCESS array[2]
+        \\int array[100] = {};
+        \\int foo(int index) {
+        \\    return array[index];
+        \\}
+    , &[_][]const u8{
+        \\pub export var array: [100]c_int = [1]c_int{0} ** 100;
+        \\pub export fn foo(arg_index: c_int) c_int {
+        \\    var index = arg_index;
+        \\    return array[@intCast(c_uint, index)];
+        \\}
+    ,
+        \\pub const ACCESS = array[2];
+    });
+
+    cases.add("cast signed array index to unsigned",
+        \\void foo() {
+        \\  int a[10], i = 0;
+        \\  a[i] = 0;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() void {
+        \\    var a: [10]c_int = undefined;
+        \\    var i: c_int = 0;
+        \\    a[@intCast(c_uint, i)] = 0;
+        \\}
+    });
+
+    cases.add("long long array index cast to usize",
+        \\void foo() {
+        \\  long long a[10], i = 0;
+        \\  a[i] = 0;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() void {
+        \\    var a: [10]c_longlong = undefined;
+        \\    var i: c_longlong = @bitCast(c_longlong, @as(c_longlong, @as(c_int, 0)));
+        \\    a[@intCast(usize, i)] = @bitCast(c_longlong, @as(c_longlong, @as(c_int, 0)));
+        \\}
+    });
+
+    cases.add("unsigned array index skips cast",
+        \\void foo() {
+        \\  unsigned int a[10], i = 0;
+        \\  a[i] = 0;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() void {
+        \\    var a: [10]c_uint = undefined;
+        \\    var i: c_uint = @bitCast(c_uint, @as(c_int, 0));
+        \\    a[i] = @bitCast(c_uint, @as(c_int, 0));
+        \\}
+    });
+
+    cases.add("macro call",
+        \\#define CALL(arg) bar(arg)
+    , &[_][]const u8{
+        \\pub inline fn CALL(arg: var) @TypeOf(bar(arg)) {
+        \\    return bar(arg);
+        \\}
+    });
+
+    cases.add("logical and, logical or",
+        \\int max(int a, int b) {
+        \\    if (a < b || a == b)
+        \\        return b;
+        \\    if (a >= b && a == b)
+        \\        return a;
+        \\    return a;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn max(arg_a: c_int, arg_b: c_int) c_int {
+        \\    var a = arg_a;
+        \\    var b = arg_b;
+        \\    if ((a < b) or (a == b)) return b;
+        \\    if ((a >= b) and (a == b)) return a;
+        \\    return a;
+        \\}
+    });
+
+    cases.add("simple if statement",
+        \\int max(int a, int b) {
+        \\    if (a < b)
+        \\        return b;
+        \\
+        \\    if (a < b)
+        \\        return b;
+        \\    else
+        \\        return a;
+        \\
+        \\    if (a < b) ; else ;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn max(arg_a: c_int, arg_b: c_int) c_int {
+        \\    var a = arg_a;
+        \\    var b = arg_b;
+        \\    if (a < b) return b;
+        \\    if (a < b) return b else return a;
+        \\    if (a < b) {} else {}
+        \\}
+    });
+
+    cases.add("if statements",
+        \\int foo() {
+        \\    if (2) {
+        \\        int a = 2;
+        \\    }
+        \\    if (2, 5) {
+        \\        int a = 2;
+        \\    }
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() c_int {
+        \\    if (@as(c_int, 2) != 0) {
+        \\        var a: c_int = 2;
+        \\    }
+        \\    if ((blk: {
+        \\        _ = @as(c_int, 2);
+        \\        break :blk @as(c_int, 5);
+        \\    }) != 0) {
+        \\        var a: c_int = 2;
+        \\    }
+        \\}
+    });
 
     cases.add("if on non-bool",
         \\enum SomeEnum { A, B, C };
@@ -1551,147 +2200,384 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    if (d) return 3;
         \\    return 4;
         \\}
-    ,
-        \\pub const A = enum_SomeEnum.A;
-        \\pub const B = enum_SomeEnum.B;
-        \\pub const C = enum_SomeEnum.C;
-        \\pub const enum_SomeEnum = extern enum {
+    , &[_][]const u8{
+        \\pub const enum_SomeEnum = extern enum(c_int) {
         \\    A,
         \\    B,
         \\    C,
+        \\    _,
         \\};
-        \\pub fn if_none_bool(a: c_int, b: f32, c: ?*c_void, d: enum_SomeEnum) c_int {
+        \\pub export fn if_none_bool(arg_a: c_int, arg_b: f32, arg_c: ?*c_void, arg_d: enum_SomeEnum) c_int {
+        \\    var a = arg_a;
+        \\    var b = arg_b;
+        \\    var c = arg_c;
+        \\    var d = arg_d;
         \\    if (a != 0) return 0;
         \\    if (b != 0) return 1;
         \\    if (c != null) return 2;
-        \\    if (d != @bitCast(enum_SomeEnum, @TagType(enum_SomeEnum)(0))) return 3;
+        \\    if (d != 0) return 3;
         \\    return 4;
         \\}
-    );
+    });
 
-    cases.add("while on non-bool",
-        \\int while_none_bool(int a, float b, void *c) {
-        \\    while (a) return 0;
-        \\    while (b) return 1;
-        \\    while (c) return 2;
-        \\    return 3;
-        \\}
-    ,
-        \\pub fn while_none_bool(a: c_int, b: f32, c: ?*c_void) c_int {
-        \\    while (a != 0) return 0;
-        \\    while (b != 0) return 1;
-        \\    while (c != null) return 2;
-        \\    return 3;
-        \\}
-    );
+    cases.add("simple data types",
+        \\#include <stdint.h>
+        \\int foo(char a, unsigned char b, signed char c);
+        \\int foo(char a, unsigned char b, signed char c); // test a duplicate prototype
+        \\void bar(uint8_t a, uint16_t b, uint32_t c, uint64_t d);
+        \\void baz(int8_t a, int16_t b, int32_t c, int64_t d);
+    , &[_][]const u8{
+        \\pub extern fn foo(a: u8, b: u8, c: i8) c_int;
+        \\pub extern fn bar(a: u8, b: u16, c: u32, d: u64) void;
+        \\pub extern fn baz(a: i8, b: i16, c: i32, d: i64) void;
+    });
 
-    cases.add("for on non-bool",
-        \\int for_none_bool(int a, float b, void *c) {
-        \\    for (;a;) return 0;
-        \\    for (;b;) return 1;
-        \\    for (;c;) return 2;
-        \\    return 3;
+    cases.add("simple function",
+        \\int abs(int a) {
+        \\    return a < 0 ? -a : a;
         \\}
-    ,
-        \\pub fn for_none_bool(a: c_int, b: f32, c: ?*c_void) c_int {
-        \\    while (a != 0) return 0;
-        \\    while (b != 0) return 1;
-        \\    while (c != null) return 2;
-        \\    return 3;
+    , &[_][]const u8{
+        \\pub export fn abs(arg_a: c_int) c_int {
+        \\    var a = arg_a;
+        \\    return if (a < @as(c_int, 0)) -a else a;
         \\}
-    );
+    });
 
-    cases.add("switch on int",
-        \\int switch_fn(int i) {
-        \\    int res = 0;
-        \\    switch (i) {
-        \\        case 0:
-        \\            res = 1;
-        \\        case 1:
-        \\            res = 2;
-        \\        default:
-        \\            res = 3 * i;
-        \\            break;
-        \\        case 2:
-        \\            res = 5;
+    cases.add("post increment",
+        \\unsigned foo1(unsigned a) {
+        \\    a++;
+        \\    return a;
+        \\}
+        \\int foo2(int a) {
+        \\    a++;
+        \\    return a;
+        \\}
+        \\int *foo3(int *a) {
+        \\    a++;
+        \\    return a;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo1(arg_a: c_uint) c_uint {
+        \\    var a = arg_a;
+        \\    a +%= 1;
+        \\    return a;
+        \\}
+        \\pub export fn foo2(arg_a: c_int) c_int {
+        \\    var a = arg_a;
+        \\    a += 1;
+        \\    return a;
+        \\}
+        \\pub export fn foo3(arg_a: [*c]c_int) [*c]c_int {
+        \\    var a = arg_a;
+        \\    a += 1;
+        \\    return a;
+        \\}
+    });
+
+    cases.add("deref function pointer",
+        \\void foo(void) {}
+        \\int baz(void) { return 0; }
+        \\void bar(void) {
+        \\    void(*f)(void) = foo;
+        \\    int(*b)(void) = baz;
+        \\    f();
+        \\    (*(f))();
+        \\    foo();
+        \\    b();
+        \\    (*(b))();
+        \\    baz();
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() void {}
+        \\pub export fn baz() c_int {
+        \\    return 0;
+        \\}
+        \\pub export fn bar() void {
+        \\    var f: ?fn () callconv(.C) void = foo;
+        \\    var b: ?fn () callconv(.C) c_int = baz;
+        \\    f.?();
+        \\    (f).?();
+        \\    foo();
+        \\    _ = b.?();
+        \\    _ = (b).?();
+        \\    _ = baz();
+        \\}
+    });
+
+    cases.add("pre increment/decrement",
+        \\void foo(void) {
+        \\    int i = 0;
+        \\    unsigned u = 0;
+        \\    ++i;
+        \\    --i;
+        \\    ++u;
+        \\    --u;
+        \\    i = ++i;
+        \\    i = --i;
+        \\    u = ++u;
+        \\    u = --u;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() void {
+        \\    var i: c_int = 0;
+        \\    var u: c_uint = @bitCast(c_uint, @as(c_int, 0));
+        \\    i += 1;
+        \\    i -= 1;
+        \\    u +%= 1;
+        \\    u -%= 1;
+        \\    i = (blk: {
+        \\        const ref = &i;
+        \\        ref.* += 1;
+        \\        break :blk ref.*;
+        \\    });
+        \\    i = (blk: {
+        \\        const ref = &i;
+        \\        ref.* -= 1;
+        \\        break :blk ref.*;
+        \\    });
+        \\    u = (blk: {
+        \\        const ref = &u;
+        \\        ref.* +%= 1;
+        \\        break :blk ref.*;
+        \\    });
+        \\    u = (blk: {
+        \\        const ref = &u;
+        \\        ref.* -%= 1;
+        \\        break :blk ref.*;
+        \\    });
+        \\}
+    });
+
+    cases.add("shift right assign",
+        \\int log2(unsigned a) {
+        \\    int i = 0;
+        \\    while (a > 0) {
+        \\        a >>= 1;
         \\    }
+        \\    return i;
         \\}
-    ,
-        \\pub fn switch_fn(i: c_int) c_int {
-        \\    var res: c_int = 0;
-        \\    __switch: {
-        \\        __case_2: {
-        \\            __default: {
-        \\                __case_1: {
-        \\                    __case_0: {
-        \\                        switch (i) {
-        \\                            0 => break :__case_0,
-        \\                            1 => break :__case_1,
-        \\                            else => break :__default,
-        \\                            2 => break :__case_2,
-        \\                        }
-        \\                    }
-        \\                    res = 1;
-        \\                }
-        \\                res = 2;
-        \\            }
-        \\            res = (3 * i);
-        \\            break :__switch;
-        \\        }
-        \\        res = 5;
+    , &[_][]const u8{
+        \\pub export fn log2(arg_a: c_uint) c_int {
+        \\    var a = arg_a;
+        \\    var i: c_int = 0;
+        \\    while (a > @bitCast(c_uint, @as(c_int, 0))) {
+        \\        a >>= @intCast(@import("std").math.Log2Int(c_int), 1);
         \\    }
+        \\    return i;
         \\}
-    );
+    });
 
-    cases.addC(
-        "u integer suffix after 0 (zero) in macro definition",
-        "#define ZERO 0U",
-        "pub const ZERO = c_uint(0);",
-    );
+    cases.add("shift right assign with a fixed size type",
+        \\#include <stdint.h>
+        \\int log2(uint32_t a) {
+        \\    int i = 0;
+        \\    while (a > 0) {
+        \\        a >>= 1;
+        \\    }
+        \\    return i;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn log2(arg_a: u32) c_int {
+        \\    var a = arg_a;
+        \\    var i: c_int = 0;
+        \\    while (a > @bitCast(c_uint, @as(c_int, 0))) {
+        \\        a >>= @intCast(@import("std").math.Log2Int(c_int), 1);
+        \\    }
+        \\    return i;
+        \\}
+    });
 
-    cases.addC(
-        "l integer suffix after 0 (zero) in macro definition",
-        "#define ZERO 0L",
-        "pub const ZERO = c_long(0);",
-    );
+    cases.add("compound assignment operators",
+        \\void foo(void) {
+        \\    int a = 0;
+        \\    unsigned b = 0;
+        \\    a += (a += 1);
+        \\    a -= (a -= 1);
+        \\    a *= (a *= 1);
+        \\    a &= (a &= 1);
+        \\    a |= (a |= 1);
+        \\    a ^= (a ^= 1);
+        \\    a >>= (a >>= 1);
+        \\    a <<= (a <<= 1);
+        \\    a /= (a /= 1);
+        \\    a %= (a %= 1);
+        \\    b /= (b /= 1);
+        \\    b %= (b %= 1);
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() void {
+        \\    var a: c_int = 0;
+        \\    var b: c_uint = @bitCast(c_uint, @as(c_int, 0));
+        \\    a += (blk: {
+        \\        const ref = &a;
+        \\        ref.* = ref.* + @as(c_int, 1);
+        \\        break :blk ref.*;
+        \\    });
+        \\    a -= (blk: {
+        \\        const ref = &a;
+        \\        ref.* = ref.* - @as(c_int, 1);
+        \\        break :blk ref.*;
+        \\    });
+        \\    a *= (blk: {
+        \\        const ref = &a;
+        \\        ref.* = ref.* * @as(c_int, 1);
+        \\        break :blk ref.*;
+        \\    });
+        \\    a &= (blk: {
+        \\        const ref = &a;
+        \\        ref.* = ref.* & @as(c_int, 1);
+        \\        break :blk ref.*;
+        \\    });
+        \\    a |= (blk: {
+        \\        const ref = &a;
+        \\        ref.* = ref.* | @as(c_int, 1);
+        \\        break :blk ref.*;
+        \\    });
+        \\    a ^= (blk: {
+        \\        const ref = &a;
+        \\        ref.* = ref.* ^ @as(c_int, 1);
+        \\        break :blk ref.*;
+        \\    });
+        \\    a >>= @intCast(@import("std").math.Log2Int(c_int), (blk: {
+        \\        const ref = &a;
+        \\        ref.* = ref.* >> @intCast(@import("std").math.Log2Int(c_int), @as(c_int, 1));
+        \\        break :blk ref.*;
+        \\    }));
+        \\    a <<= @intCast(@import("std").math.Log2Int(c_int), (blk: {
+        \\        const ref = &a;
+        \\        ref.* = ref.* << @intCast(@import("std").math.Log2Int(c_int), @as(c_int, 1));
+        \\        break :blk ref.*;
+        \\    }));
+        \\    a = @divTrunc(a, (blk: {
+        \\        const ref = &a;
+        \\        ref.* = @divTrunc(ref.*, @as(c_int, 1));
+        \\        break :blk ref.*;
+        \\    }));
+        \\    a = @rem(a, (blk: {
+        \\        const ref = &a;
+        \\        ref.* = @rem(ref.*, @as(c_int, 1));
+        \\        break :blk ref.*;
+        \\    }));
+        \\    b /= (blk: {
+        \\        const ref = &b;
+        \\        ref.* = ref.* / @bitCast(c_uint, @as(c_int, 1));
+        \\        break :blk ref.*;
+        \\    });
+        \\    b %= (blk: {
+        \\        const ref = &b;
+        \\        ref.* = ref.* % @bitCast(c_uint, @as(c_int, 1));
+        \\        break :blk ref.*;
+        \\    });
+        \\}
+    });
 
-    cases.addC(
-        "ul integer suffix after 0 (zero) in macro definition",
-        "#define ZERO 0UL",
-        "pub const ZERO = c_ulong(0);",
-    );
+    cases.add("compound assignment operators unsigned",
+        \\void foo(void) {
+        \\    unsigned a = 0;
+        \\    a += (a += 1);
+        \\    a -= (a -= 1);
+        \\    a *= (a *= 1);
+        \\    a &= (a &= 1);
+        \\    a |= (a |= 1);
+        \\    a ^= (a ^= 1);
+        \\    a >>= (a >>= 1);
+        \\    a <<= (a <<= 1);
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() void {
+        \\    var a: c_uint = @bitCast(c_uint, @as(c_int, 0));
+        \\    a +%= (blk: {
+        \\        const ref = &a;
+        \\        ref.* = ref.* +% @bitCast(c_uint, @as(c_int, 1));
+        \\        break :blk ref.*;
+        \\    });
+        \\    a -%= (blk: {
+        \\        const ref = &a;
+        \\        ref.* = ref.* -% @bitCast(c_uint, @as(c_int, 1));
+        \\        break :blk ref.*;
+        \\    });
+        \\    a *%= (blk: {
+        \\        const ref = &a;
+        \\        ref.* = ref.* *% @bitCast(c_uint, @as(c_int, 1));
+        \\        break :blk ref.*;
+        \\    });
+        \\    a &= (blk: {
+        \\        const ref = &a;
+        \\        ref.* = ref.* & @bitCast(c_uint, @as(c_int, 1));
+        \\        break :blk ref.*;
+        \\    });
+        \\    a |= (blk: {
+        \\        const ref = &a;
+        \\        ref.* = ref.* | @bitCast(c_uint, @as(c_int, 1));
+        \\        break :blk ref.*;
+        \\    });
+        \\    a ^= (blk: {
+        \\        const ref = &a;
+        \\        ref.* = ref.* ^ @bitCast(c_uint, @as(c_int, 1));
+        \\        break :blk ref.*;
+        \\    });
+        \\    a >>= @intCast(@import("std").math.Log2Int(c_uint), (blk: {
+        \\        const ref = &a;
+        \\        ref.* = ref.* >> @intCast(@import("std").math.Log2Int(c_int), @as(c_int, 1));
+        \\        break :blk ref.*;
+        \\    }));
+        \\    a <<= @intCast(@import("std").math.Log2Int(c_uint), (blk: {
+        \\        const ref = &a;
+        \\        ref.* = ref.* << @intCast(@import("std").math.Log2Int(c_int), @as(c_int, 1));
+        \\        break :blk ref.*;
+        \\    }));
+        \\}
+    });
 
-    cases.addC(
-        "lu integer suffix after 0 (zero) in macro definition",
-        "#define ZERO 0LU",
-        "pub const ZERO = c_ulong(0);",
-    );
+    cases.add("post increment/decrement",
+        \\void foo(void) {
+        \\    int i = 0;
+        \\    unsigned u = 0;
+        \\    i++;
+        \\    i--;
+        \\    u++;
+        \\    u--;
+        \\    i = i++;
+        \\    i = i--;
+        \\    u = u++;
+        \\    u = u--;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() void {
+        \\    var i: c_int = 0;
+        \\    var u: c_uint = @bitCast(c_uint, @as(c_int, 0));
+        \\    i += 1;
+        \\    i -= 1;
+        \\    u +%= 1;
+        \\    u -%= 1;
+        \\    i = (blk: {
+        \\        const ref = &i;
+        \\        const tmp = ref.*;
+        \\        ref.* += 1;
+        \\        break :blk tmp;
+        \\    });
+        \\    i = (blk: {
+        \\        const ref = &i;
+        \\        const tmp = ref.*;
+        \\        ref.* -= 1;
+        \\        break :blk tmp;
+        \\    });
+        \\    u = (blk: {
+        \\        const ref = &u;
+        \\        const tmp = ref.*;
+        \\        ref.* +%= 1;
+        \\        break :blk tmp;
+        \\    });
+        \\    u = (blk: {
+        \\        const ref = &u;
+        \\        const tmp = ref.*;
+        \\        ref.* -%= 1;
+        \\        break :blk tmp;
+        \\    });
+        \\}
+    });
 
-    cases.addC(
-        "ll integer suffix after 0 (zero) in macro definition",
-        "#define ZERO 0LL",
-        "pub const ZERO = c_longlong(0);",
-    );
-
-    cases.addC(
-        "ull integer suffix after 0 (zero) in macro definition",
-        "#define ZERO 0ULL",
-        "pub const ZERO = c_ulonglong(0);",
-    );
-
-    cases.addC(
-        "llu integer suffix after 0 (zero) in macro definition",
-        "#define ZERO 0LLU",
-        "pub const ZERO = c_ulonglong(0);",
-    );
-
-    cases.addC(
-        "bitwise not on u-suffixed 0 (zero) in macro definition",
-        "#define NOT_ZERO (~0U)",
-        "pub const NOT_ZERO = ~c_uint(0);",
-    );
-
-    cases.addC("implicit casts",
+    cases.add("implicit casts",
         \\#include <stdbool.h>
         \\
         \\void fn_int(int x);
@@ -1701,7 +2587,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\void fn_bool(bool x);
         \\void fn_ptr(void *x);
         \\
-        \\void call(int q) {
+        \\void call() {
         \\    fn_int(3.0f);
         \\    fn_int(3.0);
         \\    fn_int(3.0L);
@@ -1719,107 +2605,380 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    fn_int(&fn_int);
         \\    fn_ptr(42);
         \\}
-    ,
+    , &[_][]const u8{
         \\pub extern fn fn_int(x: c_int) void;
         \\pub extern fn fn_f32(x: f32) void;
         \\pub extern fn fn_f64(x: f64) void;
         \\pub extern fn fn_char(x: u8) void;
         \\pub extern fn fn_bool(x: bool) void;
         \\pub extern fn fn_ptr(x: ?*c_void) void;
-        \\pub export fn call(q: c_int) void {
-        \\    fn_int(@floatToInt(c_int, 3.000000));
-        \\    fn_int(@floatToInt(c_int, 3.000000));
-        \\    fn_int(@floatToInt(c_int, 3.000000));
-        \\    fn_int(1094861636);
-        \\    fn_f32(@intToFloat(f32, 3));
-        \\    fn_f64(@intToFloat(f64, 3));
-        \\    fn_char(u8('3'));
-        \\    fn_char(u8('\x01'));
-        \\    fn_char(u8(0));
-        \\    fn_f32(3.000000);
-        \\    fn_f64(3.000000);
-        \\    fn_bool(true);
-        \\    fn_bool(false);
+        \\pub export fn call() void {
+        \\    fn_int(@floatToInt(c_int, 3));
+        \\    fn_int(@floatToInt(c_int, 3));
+        \\    fn_int(@floatToInt(c_int, 3));
+        \\    fn_int(@as(c_int, 1094861636));
+        \\    fn_f32(@intToFloat(f32, @as(c_int, 3)));
+        \\    fn_f64(@intToFloat(f64, @as(c_int, 3)));
+        \\    fn_char(@bitCast(u8, @truncate(i8, @as(c_int, '3'))));
+        \\    fn_char(@bitCast(u8, @truncate(i8, @as(c_int, '\x01'))));
+        \\    fn_char(@bitCast(u8, @truncate(i8, @as(c_int, 0))));
+        \\    fn_f32(3);
+        \\    fn_f64(3);
+        \\    fn_bool(@as(c_int, 123) != 0);
+        \\    fn_bool(@as(c_int, 0) != 0);
         \\    fn_bool(@ptrToInt(&fn_int) != 0);
         \\    fn_int(@intCast(c_int, @ptrToInt(&fn_int)));
-        \\    fn_ptr(@intToPtr(?*c_void, 42));
+        \\    fn_ptr(@intToPtr(?*c_void, @as(c_int, 42)));
         \\}
-    );
+    });
 
-    cases.addC("pointer conversion with different alignment",
-        \\void test_ptr_cast() {
-        \\    void *p;
-        \\    {
-        \\        char *to_char = (char *)p;
-        \\        short *to_short = (short *)p;
-        \\        int *to_int = (int *)p;
-        \\        long long *to_longlong = (long long *)p;
-        \\    }
-        \\    {
-        \\        char *to_char = p;
-        \\        short *to_short = p;
-        \\        int *to_int = p;
-        \\        long long *to_longlong = p;
-        \\    }
+    cases.add("function call",
+        \\static void bar(void) { }
+        \\void foo(int *(baz)(void)) {
+        \\    bar();
+        \\    baz();
+        \\}
+    , &[_][]const u8{
+        \\pub fn bar() callconv(.C) void {}
+        \\pub export fn foo(arg_baz: ?fn () callconv(.C) [*c]c_int) void {
+        \\    var baz = arg_baz;
+        \\    bar();
+        \\    _ = baz.?();
+        \\}
+    });
+
+    cases.add("macro defines string literal with octal",
+        \\#define FOO "aoeu\023 derp"
+        \\#define FOO2 "aoeu\0234 derp"
+        \\#define FOO_CHAR '\077'
+    , &[_][]const u8{
+        \\pub const FOO = "aoeu\x13 derp";
+    ,
+        \\pub const FOO2 = "aoeu\x134 derp";
+    ,
+        \\pub const FOO_CHAR = '\x3f';
+    });
+
+    cases.add("enums",
+        \\enum Foo {
+        \\    FooA = 2,
+        \\    FooB = 5,
+        \\    Foo1,
+        \\};
+    , &[_][]const u8{
+        \\pub const FooA = @enumToInt(enum_Foo.A);
+        \\pub const FooB = @enumToInt(enum_Foo.B);
+        \\pub const Foo1 = @enumToInt(enum_Foo.@"1");
+        \\pub const enum_Foo = extern enum(c_int) {
+        \\    A = 2,
+        \\    B = 5,
+        \\    @"1" = 6,
+        \\    _,
+        \\};
+    ,
+        \\pub const Foo = enum_Foo;
+    });
+
+    cases.add("macro cast",
+        \\#define FOO(bar) baz((void *)(baz))
+        \\#define BAR (void*) a
+    , &[_][]const u8{
+        \\pub inline fn FOO(bar: var) @TypeOf(baz((if (@typeInfo(@TypeOf(baz)) == .Pointer) @ptrCast(?*c_void, @alignCast(@alignOf(?*c_void.Child), baz)) else if (@typeInfo(@TypeOf(baz)) == .Int and @typeInfo(?*c_void) == .Pointer) @intToPtr(?*c_void, baz) else @as(?*c_void, baz)))) {
+        \\    return baz((if (@typeInfo(@TypeOf(baz)) == .Pointer) @ptrCast(?*c_void, @alignCast(@alignOf(?*c_void.Child), baz)) else if (@typeInfo(@TypeOf(baz)) == .Int and @typeInfo(?*c_void) == .Pointer) @intToPtr(?*c_void, baz) else @as(?*c_void, baz)));
         \\}
     ,
-        \\pub export fn test_ptr_cast() void {
-        \\    var p: ?*c_void = undefined;
-        \\    {
-        \\        var to_char: [*c]u8 = @ptrCast([*c]u8, @alignCast(@alignOf(u8), p));
-        \\        var to_short: [*c]c_short = @ptrCast([*c]c_short, @alignCast(@alignOf(c_short), p));
-        \\        var to_int: [*c]c_int = @ptrCast([*c]c_int, @alignCast(@alignOf(c_int), p));
-        \\        var to_longlong: [*c]c_longlong = @ptrCast([*c]c_longlong, @alignCast(@alignOf(c_longlong), p));
-        \\    }
-        \\    {
-        \\        var to_char: [*c]u8 = @ptrCast([*c]u8, @alignCast(@alignOf(u8), p));
-        \\        var to_short: [*c]c_short = @ptrCast([*c]c_short, @alignCast(@alignOf(c_short), p));
-        \\        var to_int: [*c]c_int = @ptrCast([*c]c_int, @alignCast(@alignOf(c_int), p));
-        \\        var to_longlong: [*c]c_longlong = @ptrCast([*c]c_longlong, @alignCast(@alignOf(c_longlong), p));
-        \\    }
-        \\}
-    );
+        \\pub const BAR = (if (@typeInfo(@TypeOf(a)) == .Pointer) @ptrCast(?*c_void, @alignCast(@alignOf(?*c_void.Child), a)) else if (@typeInfo(@TypeOf(a)) == .Int and @typeInfo(?*c_void) == .Pointer) @intToPtr(?*c_void, a) else @as(?*c_void, a));
+    });
 
-    cases.addC("escape sequences",
-        \\const char *escapes() {
-        \\char a = '\'',
-        \\    b = '\\',
-        \\    c = '\a',
-        \\    d = '\b',
-        \\    e = '\f',
-        \\    f = '\n',
-        \\    g = '\r',
-        \\    h = '\t',
-        \\    i = '\v',
-        \\    j = '\0',
-        \\    k = '\"';
-        \\    return "\'\\\a\b\f\n\r\t\v\0\"";
+    cases.add("macro conditional operator",
+        \\#define FOO a ? b : c
+    , &[_][]const u8{
+        \\pub const FOO = if (a) b else c;
+    });
+
+    cases.add("do while as expr",
+        \\static void foo(void) {
+        \\    if (1)
+        \\        do {} while (0);
         \\}
+    , &[_][]const u8{
+        \\pub fn foo() callconv(.C) void {
+        \\    if (@as(c_int, 1) != 0) while (true) {
+        \\        if (!(@as(c_int, 0) != 0)) break;
+        \\    };
+        \\}
+    });
+
+    cases.add("macro comparisions",
+        \\#define MIN(a, b) ((b) < (a) ? (b) : (a))
+        \\#define MAX(a, b) ((b) > (a) ? (b) : (a))
+    , &[_][]const u8{
+        \\pub inline fn MIN(a: var, b: var) @TypeOf(if (b < a) b else a) {
+        \\    return if (b < a) b else a;
+        \\}
+    ,
+        \\pub inline fn MAX(a: var, b: var) @TypeOf(if (b > a) b else a) {
+        \\    return if (b > a) b else a;
+        \\}
+    });
+
+    // TODO: detect to use different block labels here
+    cases.add("nested assignment",
+        \\int foo(int *p, int x) {
+        \\    return *p++ = x;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo(arg_p: [*c]c_int, arg_x: c_int) c_int {
+        \\    var p = arg_p;
+        \\    var x = arg_x;
+        \\    return blk: {
+        \\        const tmp = x;
+        \\        (blk: {
+        \\            const ref = &p;
+        \\            const tmp_1 = ref.*;
+        \\            ref.* += 1;
+        \\            break :blk tmp_1;
+        \\        }).?.* = tmp;
+        \\        break :blk tmp;
+        \\    };
+        \\}
+    });
+
+    cases.add("widening and truncating integer casting to different signedness",
+        \\unsigned long foo(void) {
+        \\    return -1;
+        \\}
+        \\unsigned short bar(long x) {
+        \\    return x;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() c_ulong {
+        \\    return @bitCast(c_ulong, @as(c_long, -@as(c_int, 1)));
+        \\}
+        \\pub export fn bar(arg_x: c_long) c_ushort {
+        \\    var x = arg_x;
+        \\    return @bitCast(c_ushort, @truncate(c_short, x));
+        \\}
+    });
+
+    cases.add("arg name aliasing decl which comes after",
+        \\int foo(int bar) {
+        \\    bar = 2;
+        \\}
+        \\int bar = 4;
+    , &[_][]const u8{
+        \\pub export fn foo(arg_bar_1: c_int) c_int {
+        \\    var bar_1 = arg_bar_1;
+        \\    bar_1 = 2;
+        \\}
+        \\pub export var bar: c_int = 4;
+    });
+
+    cases.add("arg name aliasing macro which comes after",
+        \\int foo(int bar) {
+        \\    bar = 2;
+        \\}
+        \\#define bar 4
+    , &[_][]const u8{
+        \\pub export fn foo(arg_bar_1: c_int) c_int {
+        \\    var bar_1 = arg_bar_1;
+        \\    bar_1 = 2;
+        \\}
+    ,
+        \\pub const bar = 4;
+    });
+
+    cases.add("don't export inline functions",
+        \\inline void a(void) {}
+        \\static void b(void) {}
+        \\void c(void) {}
+        \\static void foo() {}
+    , &[_][]const u8{
+        \\pub fn a() callconv(.C) void {}
+        \\pub fn b() callconv(.C) void {}
+        \\pub export fn c() void {}
+        \\pub fn foo() callconv(.C) void {}
+    });
+
+    cases.add("casting away const and volatile",
+        \\void foo(int *a) {}
+        \\void bar(const int *a) {
+        \\    foo((int *)a);
+        \\}
+        \\void baz(volatile int *a) {
+        \\    foo((int *)a);
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo(arg_a: [*c]c_int) void {
+        \\    var a = arg_a;
+        \\}
+        \\pub export fn bar(arg_a: [*c]const c_int) void {
+        \\    var a = arg_a;
+        \\    foo(@intToPtr([*c]c_int, @ptrToInt(a)));
+        \\}
+        \\pub export fn baz(arg_a: [*c]volatile c_int) void {
+        \\    var a = arg_a;
+        \\    foo(@intToPtr([*c]c_int, @ptrToInt(a)));
+        \\}
+    });
+
+    cases.add("handling of _Bool type",
+        \\_Bool foo(_Bool x) {
+        \\    _Bool a = x != 1;
+        \\    _Bool b = a != 0;
+        \\    _Bool c = foo;
+        \\    return foo(c != b);
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo(arg_x: bool) bool {
+        \\    var x = arg_x;
+        \\    var a: bool = (@intCast(c_int, @bitCast(i1, @intCast(u1, @boolToInt(x)))) != @as(c_int, 1));
+        \\    var b: bool = (@intCast(c_int, @bitCast(i1, @intCast(u1, @boolToInt(a)))) != @as(c_int, 0));
+        \\    var c: bool = @ptrToInt(foo) != 0;
+        \\    return foo((@intCast(c_int, @bitCast(i1, @intCast(u1, @boolToInt(c)))) != @intCast(c_int, @bitCast(i1, @intCast(u1, @boolToInt(b))))));
+        \\}
+    });
+
+    cases.add("Don't make const parameters mutable",
+        \\int max(const int x, int y) {
+        \\    return (x > y) ? x : y;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn max(x: c_int, arg_y: c_int) c_int {
+        \\    var y = arg_y;
+        \\    return if (x > y) x else y;
+        \\}
+    });
+
+    cases.add("string concatenation in macros",
+        \\#define FOO "hello"
+        \\#define BAR FOO " world"
+        \\#define BAZ "oh, " FOO
+    , &[_][]const u8{
+        \\pub const FOO = "hello";
+    ,
+        \\pub const BAR = FOO ++ " world";
+    ,
+        \\pub const BAZ = "oh, " ++ FOO;
+    });
+
+    cases.add("string concatenation in macros: two defines",
+        \\#define FOO "hello"
+        \\#define BAZ " world"
+        \\#define BAR FOO BAZ
+    , &[_][]const u8{
+        \\pub const FOO = "hello";
+    ,
+        \\pub const BAZ = " world";
+    ,
+        \\pub const BAR = FOO ++ BAZ;
+    });
+
+    cases.add("string concatenation in macros: two strings",
+        \\#define FOO "a" "b"
+        \\#define BAR FOO "c"
+    , &[_][]const u8{
+        \\pub const FOO = "a" ++ "b";
+    ,
+        \\pub const BAR = FOO ++ "c";
+    });
+
+    cases.add("string concatenation in macros: three strings",
+        \\#define FOO "a" "b" "c"
+    , &[_][]const u8{
+        \\pub const FOO = "a" ++ ("b" ++ "c");
+    });
+
+    cases.add("multibyte character literals",
+        \\#define FOO 'abcd'
+    , &[_][]const u8{
+        \\pub const FOO = 0x61626364;
+    });
+
+    cases.add("Make sure casts are grouped",
+        \\typedef struct
+        \\{
+        \\    int i;
+        \\}
+        \\*_XPrivDisplay;
+        \\typedef struct _XDisplay Display;
+        \\#define DefaultScreen(dpy) (((_XPrivDisplay)(dpy))->default_screen)
         \\
-    ,
-        \\pub export fn escapes() [*c]const u8 {
-        \\    var a: u8 = u8('\'');
-        \\    var b: u8 = u8('\\');
-        \\    var c: u8 = u8('\x07');
-        \\    var d: u8 = u8('\x08');
-        \\    var e: u8 = u8('\x0c');
-        \\    var f: u8 = u8('\n');
-        \\    var g: u8 = u8('\r');
-        \\    var h: u8 = u8('\t');
-        \\    var i: u8 = u8('\x0b');
-        \\    var j: u8 = u8('\x00');
-        \\    var k: u8 = u8('\"');
-        \\    return c"\'\\\x07\x08\x0c\n\r\t\x0b\x00\"";
+    , &[_][]const u8{
+        \\pub inline fn DefaultScreen(dpy: var) @TypeOf((if (@typeInfo(@TypeOf(dpy)) == .Pointer) @ptrCast(_XPrivDisplay, @alignCast(@alignOf(_XPrivDisplay.Child), dpy)) else if (@typeInfo(@TypeOf(dpy)) == .Int and @typeInfo(_XPrivDisplay) == .Pointer) @intToPtr(_XPrivDisplay, dpy) else @as(_XPrivDisplay, dpy)).*.default_screen) {
+        \\    return (if (@typeInfo(@TypeOf(dpy)) == .Pointer) @ptrCast(_XPrivDisplay, @alignCast(@alignOf(_XPrivDisplay.Child), dpy)) else if (@typeInfo(@TypeOf(dpy)) == .Int and @typeInfo(_XPrivDisplay) == .Pointer) @intToPtr(_XPrivDisplay, dpy) else @as(_XPrivDisplay, dpy)).*.default_screen;
         \\}
-        \\
-    );
+    });
 
-    /////////////// Cases for only stage1 because stage2 behavior is better ////////////////
-    cases.addC("Parameterless function prototypes",
-        \\void foo() {}
-        \\void bar(void) {}
+    cases.add("macro integer literal casts",
+        \\#define NULL ((void*)0)
+        \\#define FOO ((int)0x8000)
+    , &[_][]const u8{
+        \\pub const NULL = (if (@typeInfo(?*c_void) == .Pointer) @intToPtr(?*c_void, 0) else @as(?*c_void, 0));
     ,
-        \\pub export fn foo() void {}
-        \\pub export fn bar() void {}
-    );
+        \\pub const FOO = (if (@typeInfo(c_int) == .Pointer) @intToPtr(c_int, 0x8000) else @as(c_int, 0x8000));
+    });
+
+    if (std.Target.current.abi == .msvc) {
+        cases.add("nameless struct fields",
+            \\typedef struct NAMED
+            \\{
+            \\    long name;
+            \\} NAMED;
+            \\
+            \\typedef struct ONENAMEWITHSTRUCT
+            \\{
+            \\    NAMED;
+            \\    long b;
+            \\} ONENAMEWITHSTRUCT;
+        , &[_][]const u8{
+            \\pub const struct_NAMED = extern struct {
+            \\    name: c_long,
+            \\};
+            \\pub const NAMED = struct_NAMED;
+            \\pub const struct_ONENAMEWITHSTRUCT = extern struct {
+            \\    unnamed_0: struct_NAMED,
+            \\    b: c_long,
+            \\};
+        });
+    } else {
+        cases.add("nameless struct fields",
+            \\typedef struct NAMED
+            \\{
+            \\    long name;
+            \\} NAMED;
+            \\
+            \\typedef struct ONENAMEWITHSTRUCT
+            \\{
+            \\    NAMED;
+            \\    long b;
+            \\} ONENAMEWITHSTRUCT;
+        , &[_][]const u8{
+            \\pub const struct_NAMED = extern struct {
+            \\    name: c_long,
+            \\};
+            \\pub const NAMED = struct_NAMED;
+            \\pub const struct_ONENAMEWITHSTRUCT = extern struct {
+            \\    b: c_long,
+            \\};
+        });
+    }
+
+    cases.add("unnamed fields have predictabile names",
+        \\struct a {
+        \\    struct {};
+        \\};
+        \\struct b {
+        \\    struct {};
+        \\};
+    , &[_][]const u8{
+        \\const struct_unnamed_1 = extern struct {};
+        \\pub const struct_a = extern struct {
+        \\    unnamed_0: struct_unnamed_1,
+        \\};
+        \\const struct_unnamed_2 = extern struct {};
+        \\pub const struct_b = extern struct {
+        \\    unnamed_0: struct_unnamed_2,
+        \\};
+    });
 }

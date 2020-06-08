@@ -1,4 +1,0 @@
-# RUN: rm -rf %t && mkdir %t
-# RUN: yaml2obj < %p/Inputs/no-ipi-stream-obj.obj.yaml > %t/no-ipi-stream-obj.obj
-# RUN: llvm-pdbutil yaml2pdb %p/Inputs/no-ipi-stream-pdb.pdb.yaml -pdb=%t/no-ipi-stream-pdb.pdb
-# RUN: lld-link -safeseh:no /dll /noentry /debug %t/no-ipi-stream-obj.obj

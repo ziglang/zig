@@ -1,5 +1,7 @@
 #include <sys/stat.h>
 
+#if !_REDIR_TIME64
+
 int __fxstat(int ver, int fd, struct stat *buf)
 {
 	return fstat(fd, buf);
@@ -24,6 +26,8 @@ weak_alias(__fxstat, __fxstat64);
 weak_alias(__fxstatat, __fxstatat64);
 weak_alias(__lxstat, __lxstat64);
 weak_alias(__xstat, __xstat64);
+
+#endif
 
 int __xmknod(int ver, const char *path, mode_t mode, dev_t *dev)
 {

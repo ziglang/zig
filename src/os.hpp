@@ -27,6 +27,8 @@
 #define ZIG_OS_FREEBSD
 #elif defined(__NetBSD__)
 #define ZIG_OS_NETBSD
+#elif defined(__DragonFly__)
+#define ZIG_OS_DRAGONFLY
 #else
 #define ZIG_OS_UNKNOWN
 #endif
@@ -39,10 +41,6 @@
 #define ZIG_ARCH_ARM
 #else
 #define ZIG_ARCH_UNKNOWN
-#endif
-
-#ifdef ZIG_OS_LINUX
-extern const char *possible_ld_names[];
 #endif
 
 #if defined(ZIG_OS_WINDOWS)
@@ -91,13 +89,15 @@ struct Termination {
 #endif
 
 struct OsTimeStamp {
-    uint64_t sec;
-    uint64_t nsec;
+    int64_t sec;
+    int64_t nsec;
 };
 
 struct OsFileAttr {
     OsTimeStamp mtime;
+    uint64_t size;
     uint64_t inode;
+    uint32_t mode;
 };
 
 int os_init(void);
@@ -119,6 +119,7 @@ Error ATTRIBUTE_MUST_USE os_make_path(Buf *path);
 Error ATTRIBUTE_MUST_USE os_make_dir(Buf *path);
 
 Error ATTRIBUTE_MUST_USE os_file_open_r(Buf *full_path, OsFile *out_file, OsFileAttr *attr);
+Error ATTRIBUTE_MUST_USE os_file_open_w(Buf *full_path, OsFile *out_file, OsFileAttr *attr, uint32_t mode);
 Error ATTRIBUTE_MUST_USE os_file_open_lock_rw(Buf *full_path, OsFile *out_file);
 Error ATTRIBUTE_MUST_USE os_file_read(OsFile file, void *ptr, size_t *len);
 Error ATTRIBUTE_MUST_USE os_file_read_all(OsFile file, Buf *contents);
@@ -127,6 +128,8 @@ void os_file_close(OsFile *file);
 
 Error ATTRIBUTE_MUST_USE os_write_file(Buf *full_path, Buf *contents);
 Error ATTRIBUTE_MUST_USE os_copy_file(Buf *src_path, Buf *dest_path);
+Error ATTRIBUTE_MUST_USE os_update_file(Buf *src_path, Buf *dest_path);
+Error ATTRIBUTE_MUST_USE os_dump_file(Buf *src_path, FILE *dest_file);
 
 Error ATTRIBUTE_MUST_USE os_fetch_file(FILE *file, Buf *out_contents);
 Error ATTRIBUTE_MUST_USE os_fetch_file_path(Buf *full_path, Buf *out_contents);
@@ -149,10 +152,6 @@ bool os_is_sep(uint8_t c);
 Error ATTRIBUTE_MUST_USE os_self_exe_path(Buf *out_path);
 
 Error ATTRIBUTE_MUST_USE os_get_app_data_dir(Buf *out_path, const char *appname);
-
-Error ATTRIBUTE_MUST_USE os_get_win32_ucrt_include_path(ZigWindowsSDK *sdk, Buf *output_buf);
-Error ATTRIBUTE_MUST_USE os_get_win32_ucrt_lib_path(ZigWindowsSDK *sdk, Buf *output_buf, ZigLLVM_ArchType platform_type);
-Error ATTRIBUTE_MUST_USE os_get_win32_kern32_path(ZigWindowsSDK *sdk, Buf *output_buf, ZigLLVM_ArchType platform_type);
 
 Error ATTRIBUTE_MUST_USE os_self_exe_shared_libs(ZigList<Buf *> &paths);
 

@@ -1,19 +1,3 @@
-struct msghdr {
-	void *msg_name;
-	socklen_t msg_namelen;
-	struct iovec *msg_iov;
-	int msg_iovlen;
-	void *msg_control;
-	socklen_t msg_controllen;
-	int msg_flags;
-};
-
-struct cmsghdr {
-	socklen_t cmsg_len;
-	int cmsg_level;
-	int cmsg_type;
-};
-
 #define SOCK_STREAM    2
 #define SOCK_DGRAM     1
 
@@ -32,8 +16,6 @@ struct cmsghdr {
 #define SO_RCVBUF       0x1002
 #define SO_SNDLOWAT     0x1003
 #define SO_RCVLOWAT     0x1004
-#define SO_RCVTIMEO     0x1006
-#define SO_SNDTIMEO     0x1005
 #define SO_ERROR        0x1007
 #define SO_TYPE         0x1008
 #define SO_ACCEPTCONN   0x1009

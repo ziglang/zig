@@ -1,8 +1,9 @@
 const uefi = @import("std").os.uefi;
 const Guid = uefi.Guid;
 
-pub const HIIHandle = *@OpaqueType();
+pub const HIIHandle = *@Type(.Opaque);
 
+/// The header found at the start of each package.
 pub const HIIPackageHeader = packed struct {
     length: u24,
     type: u8,
@@ -22,8 +23,11 @@ pub const HIIPackageHeader = packed struct {
     pub const type_system_end: u8 = 0xff;
 };
 
+/// The header found at the start of each package list.
 pub const HIIPackageList = extern struct {
     package_list_guid: Guid,
+
+    /// The size of the package list (in bytes), including the header.
     package_list_length: u32,
 
     // TODO implement iterator

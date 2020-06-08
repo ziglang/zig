@@ -1,4 +1,3 @@
-#define MINGW_HAS_SECURE_API 1
 #include <sec_api/stdio_s.h>
 
 int __cdecl _vswprintf_p(wchar_t *_DstBuf, size_t _MaxCount, const wchar_t *_Format, va_list _ArgList)

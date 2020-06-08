@@ -192,6 +192,7 @@ _Qp_uitoq c
 _Qp_uxtoq c
 _Qp_xtoq c
 ___brk_addr c
+___tls_get_addr ld
 __acos_finite m
 __acosf128_finite m
 __acosf_finite m
@@ -511,6 +512,7 @@ __libc_memalign c
 __libc_pvalloc c
 __libc_realloc c
 __libc_sa_len c
+__libc_stack_end ld
 __libc_start_main c
 __libc_valloc c
 __libpthread_version_placeholder pthread
@@ -696,6 +698,7 @@ __open_2 c
 __openat64_2 c
 __openat_2 c
 __overflow c
+__parse_hwcap_and_convert_at_platform ld
 __pipe c
 __poll c
 __poll_chk c
@@ -815,6 +818,7 @@ __sqrtf_finite m
 __sqrtl_finite m
 __sqrtsf2 c
 __stack_chk_fail c
+__stack_chk_guard ld
 __statfs c
 __stpcpy c
 __stpcpy_chk c
@@ -903,6 +907,9 @@ __sysctl c
 __syslog_chk c
 __sysv_signal c
 __timezone c
+__tls_get_addr ld
+__tls_get_addr_opt ld
+__tls_get_offset ld
 __toascii_l c
 __tolower_l c
 __toupper_l c
@@ -999,6 +1006,7 @@ __ynf128_finite m
 __ynf_finite m
 __ynl_finite m
 _authenticate c
+_dl_mcount ld
 _dl_mcount_wrapper c
 _dl_mcount_wrapper_check c
 _environ c
@@ -1024,6 +1032,7 @@ _pthread_cleanup_pop pthread
 _pthread_cleanup_pop_restore pthread
 _pthread_cleanup_push pthread
 _pthread_cleanup_push_defer pthread
+_r_debug ld
 _res c
 _res_hconf c
 _rpc_dtablesize c
@@ -1825,6 +1834,7 @@ fopen c
 fopen64 c
 fopencookie c
 fork c
+forkpty util
 fpathconf c
 fprintf c
 fputc c
@@ -2405,7 +2415,11 @@ logf32 m
 logf32x m
 logf64 m
 logf64x m
+login util
+login_tty util
 logl m
+logout util
+logwtmp util
 longjmp c
 lrand48 c
 lrand48_r c
@@ -2611,6 +2625,7 @@ openat c
 openat64 c
 opendir c
 openlog c
+openpty util
 optarg c
 opterr c
 optind c
@@ -2734,6 +2749,7 @@ pthread_barrierattr_getpshared pthread
 pthread_barrierattr_init pthread
 pthread_barrierattr_setpshared pthread
 pthread_cancel pthread
+pthread_clockjoin_np pthread
 pthread_cond_broadcast c
 pthread_cond_clockwait pthread
 pthread_cond_destroy c

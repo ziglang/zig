@@ -17,8 +17,8 @@ const maxInt = std.math.maxInt;
 ///  - cosh(+-0)   = 1
 ///  - cosh(+-inf) = +inf
 ///  - cosh(nan)   = nan
-pub fn cosh(x: var) @typeOf(x) {
-    const T = @typeOf(x);
+pub fn cosh(x: var) @TypeOf(x) {
+    const T = @TypeOf(x);
     return switch (T) {
         f32 => cosh32(x),
         f64 => cosh64(x),
@@ -56,7 +56,7 @@ fn cosh32(x: f32) f32 {
 
 fn cosh64(x: f64) f64 {
     const u = @bitCast(u64, x);
-    const w = @intCast(u32, u >> 32);
+    const w = @intCast(u32, u >> 32) & (maxInt(u32) >> 1);
     const ax = @bitCast(f64, u & (maxInt(u64) >> 1));
 
     // TODO: Shouldn't need this explicit check.
@@ -88,8 +88,8 @@ fn cosh64(x: f64) f64 {
 }
 
 test "math.cosh" {
-    expect(cosh(f32(1.5)) == cosh32(1.5));
-    expect(cosh(f64(1.5)) == cosh64(1.5));
+    expect(cosh(@as(f32, 1.5)) == cosh32(1.5));
+    expect(cosh(@as(f64, 1.5)) == cosh64(1.5));
 }
 
 test "math.cosh32" {
@@ -99,6 +99,10 @@ test "math.cosh32" {
     expect(math.approxEq(f32, cosh32(0.2), 1.020067, epsilon));
     expect(math.approxEq(f32, cosh32(0.8923), 1.425225, epsilon));
     expect(math.approxEq(f32, cosh32(1.5), 2.352410, epsilon));
+    expect(math.approxEq(f32, cosh32(-0.0), 1.0, epsilon));
+    expect(math.approxEq(f32, cosh32(-0.2), 1.020067, epsilon));
+    expect(math.approxEq(f32, cosh32(-0.8923), 1.425225, epsilon));
+    expect(math.approxEq(f32, cosh32(-1.5), 2.352410, epsilon));
 }
 
 test "math.cosh64" {
@@ -108,6 +112,10 @@ test "math.cosh64" {
     expect(math.approxEq(f64, cosh64(0.2), 1.020067, epsilon));
     expect(math.approxEq(f64, cosh64(0.8923), 1.425225, epsilon));
     expect(math.approxEq(f64, cosh64(1.5), 2.352410, epsilon));
+    expect(math.approxEq(f64, cosh64(-0.0), 1.0, epsilon));
+    expect(math.approxEq(f64, cosh64(-0.2), 1.020067, epsilon));
+    expect(math.approxEq(f64, cosh64(-0.8923), 1.425225, epsilon));
+    expect(math.approxEq(f64, cosh64(-1.5), 2.352410, epsilon));
 }
 
 test "math.cosh32.special" {

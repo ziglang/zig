@@ -1,6 +1,7 @@
 const std = @import("std");
 const expect = std.testing.expect;
 const expectError = std.testing.expectError;
+const expectEqual = std.testing.expectEqual;
 
 test "switch with numbers" {
     testSwitchWithNumbers(13);
@@ -68,7 +69,7 @@ test "switch statement" {
 }
 fn nonConstSwitch(foo: SwitchStatmentFoo) void {
     const val = switch (foo) {
-        SwitchStatmentFoo.A => i32(1),
+        SwitchStatmentFoo.A => @as(i32, 1),
         SwitchStatmentFoo.B => 2,
         SwitchStatmentFoo.C => 3,
         SwitchStatmentFoo.D => 4,
@@ -127,7 +128,7 @@ test "switch with multiple expressions" {
     const x = switch (returnsFive()) {
         1, 2, 3 => 1,
         4, 5, 6 => 2,
-        else => i32(3),
+        else => @as(i32, 3),
     };
     expect(x == 2);
 }
@@ -186,7 +187,7 @@ fn testSwitchHandleAllCases() void {
 
 fn testSwitchHandleAllCasesExhaustive(x: u2) u2 {
     return switch (x) {
-        0 => u2(3),
+        0 => @as(u2, 3),
         1 => 2,
         2 => 1,
         3 => 0,
@@ -195,7 +196,7 @@ fn testSwitchHandleAllCasesExhaustive(x: u2) u2 {
 
 fn testSwitchHandleAllCasesRange(x: u8) u8 {
     return switch (x) {
-        0...100 => u8(0),
+        0...100 => @as(u8, 0),
         101...200 => 1,
         201, 203 => 2,
         202 => 4,
@@ -406,7 +407,7 @@ test "switch prongs with cases with identical payload types" {
         fn doTheSwitch1(u: Union) void {
             switch (u) {
                 .A, .C => |e| {
-                    expect(@typeOf(e) == usize);
+                    expect(@TypeOf(e) == usize);
                     expect(e == 8);
                 },
                 .B => |e| @panic("fail"),
@@ -416,7 +417,7 @@ test "switch prongs with cases with identical payload types" {
             switch (u) {
                 .A, .C => |e| @panic("fail"),
                 .B => |e| {
-                    expect(@typeOf(e) == isize);
+                    expect(@TypeOf(e) == isize);
                     expect(e == -8);
                 },
             }
@@ -433,4 +434,84 @@ test "switch with disjoint range" {
         127...255 => {},
         126...126 => {},
     }
+}
+
+var state: u32 = 0;
+fn poll() void {
+    switch (state) {
+        0 => {
+            state = 1;
+        },
+        else => {
+            state += 1;
+        },
+    }
+}
+
+test "switch on global mutable var isn't constant-folded" {
+    while (state < 2) {
+        poll();
+    }
+}
+
+test "switch on pointer type" {
+    const S = struct {
+        const X = struct {
+            field: u32,
+        };
+
+        const P1 = @intToPtr(*X, 0x400);
+        const P2 = @intToPtr(*X, 0x800);
+        const P3 = @intToPtr(*X, 0xC00);
+
+        fn doTheTest(arg: *X) i32 {
+            switch (arg) {
+                P1 => return 1,
+                P2 => return 2,
+                else => return 3,
+            }
+        }
+    };
+
+    expect(1 == S.doTheTest(S.P1));
+    expect(2 == S.doTheTest(S.P2));
+    expect(3 == S.doTheTest(S.P3));
+    comptime expect(1 == S.doTheTest(S.P1));
+    comptime expect(2 == S.doTheTest(S.P2));
+    comptime expect(3 == S.doTheTest(S.P3));
+}
+
+test "switch on error set with single else" {
+    const S = struct {
+        fn doTheTest() void {
+            var some: error{Foo} = error.Foo;
+            expect(switch (some) {
+                else => |a| true,
+            });
+        }
+    };
+
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "while copies its payload" {
+    const S = struct {
+        fn doTheTest() void {
+            var tmp: union(enum) {
+                A: u8,
+                B: u32,
+            } = .{ .A = 42 };
+            switch (tmp) {
+                .A => |value| {
+                    // Modify the original union
+                    tmp = .{ .B = 0x10101010 };
+                    expectEqual(@as(u8, 42), value);
+                },
+                else => unreachable,
+            }
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
 }

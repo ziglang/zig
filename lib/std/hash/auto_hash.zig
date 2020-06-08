@@ -22,16 +22,16 @@ pub const HashStrategy = enum {
 
 /// Helper function to hash a pointer and mutate the strategy if needed.
 pub fn hashPointer(hasher: var, key: var, comptime strat: HashStrategy) void {
-    const info = @typeInfo(@typeOf(key));
+    const info = @typeInfo(@TypeOf(key));
 
     switch (info.Pointer.size) {
-        builtin.TypeInfo.Pointer.Size.One => switch (strat) {
+        .One => switch (strat) {
             .Shallow => hash(hasher, @ptrToInt(key), .Shallow),
             .Deep => hash(hasher, key.*, .Shallow),
             .DeepRecursive => hash(hasher, key.*, .DeepRecursive),
         },
 
-        builtin.TypeInfo.Pointer.Size.Slice => switch (strat) {
+        .Slice => switch (strat) {
             .Shallow => {
                 hashPointer(hasher, key.ptr, .Shallow);
                 hash(hasher, key.len, .Shallow);
@@ -40,8 +40,8 @@ pub fn hashPointer(hasher: var, key: var, comptime strat: HashStrategy) void {
             .DeepRecursive => hashArray(hasher, key, .DeepRecursive),
         },
 
-        builtin.TypeInfo.Pointer.Size.Many,
-        builtin.TypeInfo.Pointer.Size.C,
+        .Many,
+        .C,
         => switch (strat) {
             .Shallow => hash(hasher, @ptrToInt(key), .Shallow),
             else => @compileError(
@@ -74,12 +74,11 @@ pub fn hashArray(hasher: var, key: var, comptime strat: HashStrategy) void {
 /// Provides generic hashing for any eligible type.
 /// Strategy is provided to determine if pointers should be followed or not.
 pub fn hash(hasher: var, key: var, comptime strat: HashStrategy) void {
-    const Key = @typeOf(key);
+    const Key = @TypeOf(key);
     switch (@typeInfo(Key)) {
         .NoReturn,
         .Opaque,
         .Undefined,
-        .ArgTuple,
         .Void,
         .Null,
         .BoundFn,
@@ -92,16 +91,16 @@ pub fn hash(hasher: var, key: var, comptime strat: HashStrategy) void {
 
         // Help the optimizer see that hashing an int is easy by inlining!
         // TODO Check if the situation is better after #561 is resolved.
-        .Int => @inlineCall(hasher.update, std.mem.asBytes(&key)),
+        .Int => @call(.{ .modifier = .always_inline }, hasher.update, .{std.mem.asBytes(&key)}),
 
-        .Float => |info| hash(hasher, @bitCast(@IntType(false, info.bits), key), strat),
+        .Float => |info| hash(hasher, @bitCast(std.meta.Int(false, info.bits), key), strat),
 
         .Bool => hash(hasher, @boolToInt(key), strat),
         .Enum => hash(hasher, @enumToInt(key), strat),
         .ErrorSet => hash(hasher, @errorToInt(key), strat),
         .AnyFrame, .Fn => hash(hasher, @ptrToInt(key), strat),
 
-        .Pointer => @inlineCall(hashPointer, hasher, key, strat),
+        .Pointer => @call(.{ .modifier = .always_inline }, hashPointer, .{ hasher, key, strat }),
 
         .Optional => if (key) |k| hash(hasher, k, strat),
 
@@ -114,11 +113,9 @@ pub fn hash(hasher: var, key: var, comptime strat: HashStrategy) void {
                 hasher.update(mem.asBytes(&key));
             } else {
                 // Otherwise, hash every element.
-                // TODO remove the copy to an array once field access is done.
-                const array: [info.len]info.child = key;
                 comptime var i = 0;
                 inline while (i < info.len) : (i += 1) {
-                    hash(hasher, array[i], strat);
+                    hash(hasher, key[i], strat);
                 }
             }
         },
@@ -165,7 +162,7 @@ pub fn hash(hasher: var, key: var, comptime strat: HashStrategy) void {
 /// Only hashes `key` itself, pointers are not followed.
 /// Slices are rejected to avoid ambiguity on the user's intention.
 pub fn autoHash(hasher: var, key: var) void {
-    const Key = @typeOf(key);
+    const Key = @TypeOf(key);
     if (comptime meta.trait.isSlice(Key)) {
         comptime assert(@hasDecl(std, "StringHashMap")); // detect when the following message needs updated
         const extra_help = if (Key == []const u8)
@@ -235,13 +232,15 @@ test "hash pointer" {
 test "hash slice shallow" {
     // Allocate one array dynamically so that we're assured it is not merged
     // with the other by the optimization passes.
-    const array1 = try std.heap.direct_allocator.create([6]u32);
-    defer std.heap.direct_allocator.destroy(array1);
+    const array1 = try std.testing.allocator.create([6]u32);
+    defer std.testing.allocator.destroy(array1);
     array1.* = [_]u32{ 1, 2, 3, 4, 5, 6 };
     const array2 = [_]u32{ 1, 2, 3, 4, 5, 6 };
-    const a = array1[0..];
-    const b = array2[0..];
-    const c = array1[0..3];
+    // TODO audit deep/shallow - maybe it has the wrong behavior with respect to array pointers and slices
+    var runtime_zero: usize = 0;
+    const a = array1[runtime_zero..];
+    const b = array2[runtime_zero..];
+    const c = array1[runtime_zero..3];
     testing.expect(testHashShallow(a) == testHashShallow(a));
     testing.expect(testHashShallow(a) != testHashShallow(array1));
     testing.expect(testHashShallow(a) != testHashShallow(b));
@@ -251,8 +250,8 @@ test "hash slice shallow" {
 test "hash slice deep" {
     // Allocate one array dynamically so that we're assured it is not merged
     // with the other by the optimization passes.
-    const array1 = try std.heap.direct_allocator.create([6]u32);
-    defer std.heap.direct_allocator.destroy(array1);
+    const array1 = try std.testing.allocator.create([6]u32);
+    defer std.testing.allocator.destroy(array1);
     array1.* = [_]u32{ 1, 2, 3, 4, 5, 6 };
     const array2 = [_]u32{ 1, 2, 3, 4, 5, 6 };
     const a = array1[0..];
@@ -279,7 +278,7 @@ test "hash struct deep" {
         }
     };
 
-    const allocator = std.heap.direct_allocator;
+    const allocator = std.testing.allocator;
     const foo = try Foo.init(allocator, 123, 1.0, true);
     const bar = try Foo.init(allocator, 123, 1.0, true);
     const baz = try Foo.init(allocator, 123, 1.0, false);
@@ -306,7 +305,7 @@ test "hash struct deep" {
 test "testHash optional" {
     const a: ?u32 = 123;
     const b: ?u32 = null;
-    testing.expectEqual(testHash(a), testHash(u32(123)));
+    testing.expectEqual(testHash(a), testHash(@as(u32, 123)));
     testing.expect(testHash(a) != testHash(b));
     testing.expectEqual(testHash(b), 0);
 }
@@ -315,9 +314,9 @@ test "testHash array" {
     const a = [_]u32{ 1, 2, 3 };
     const h = testHash(a);
     var hasher = Wyhash.init(0);
-    autoHash(&hasher, u32(1));
-    autoHash(&hasher, u32(2));
-    autoHash(&hasher, u32(3));
+    autoHash(&hasher, @as(u32, 1));
+    autoHash(&hasher, @as(u32, 2));
+    autoHash(&hasher, @as(u32, 3));
     testing.expectEqual(h, hasher.final());
 }
 
@@ -330,9 +329,9 @@ test "testHash struct" {
     const f = Foo{};
     const h = testHash(f);
     var hasher = Wyhash.init(0);
-    autoHash(&hasher, u32(1));
-    autoHash(&hasher, u32(2));
-    autoHash(&hasher, u32(3));
+    autoHash(&hasher, @as(u32, 1));
+    autoHash(&hasher, @as(u32, 2));
+    autoHash(&hasher, @as(u32, 3));
     testing.expectEqual(h, hasher.final());
 }
 
@@ -356,15 +355,15 @@ test "testHash union" {
 
 test "testHash vector" {
     // Disabled because of #3317
-    if (@import("builtin").arch == .mipsel) return error.SkipZigTest;
+    if (@import("builtin").arch == .mipsel or @import("builtin").arch == .mips) return error.SkipZigTest;
 
-    const a: @Vector(4, u32) = [_]u32{ 1, 2, 3, 4 };
-    const b: @Vector(4, u32) = [_]u32{ 1, 2, 3, 5 };
+    const a: meta.Vector(4, u32) = [_]u32{ 1, 2, 3, 4 };
+    const b: meta.Vector(4, u32) = [_]u32{ 1, 2, 3, 5 };
     testing.expect(testHash(a) == testHash(a));
     testing.expect(testHash(a) != testHash(b));
 
-    const c: @Vector(4, u31) = [_]u31{ 1, 2, 3, 4 };
-    const d: @Vector(4, u31) = [_]u31{ 1, 2, 3, 5 };
+    const c: meta.Vector(4, u31) = [_]u31{ 1, 2, 3, 4 };
+    const d: meta.Vector(4, u31) = [_]u31{ 1, 2, 3, 5 };
     testing.expect(testHash(c) == testHash(c));
     testing.expect(testHash(c) != testHash(d));
 }

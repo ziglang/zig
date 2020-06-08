@@ -7,14 +7,57 @@ const std = @import("../std.zig");
 
 fn ok(comptime s: []const u8) void {
     std.testing.expect(std.json.validate(s));
+
+    var p = std.json.Parser.init(std.testing.allocator, false);
+    defer p.deinit();
+
+    var tree = p.parse(s) catch unreachable;
+    defer tree.deinit();
 }
 
 fn err(comptime s: []const u8) void {
     std.testing.expect(!std.json.validate(s));
+
+    var p = std.json.Parser.init(std.testing.allocator, false);
+    defer p.deinit();
+
+    if (p.parse(s)) |_| {
+        unreachable;
+    } else |_| {}
+}
+
+fn utf8Error(comptime s: []const u8) void {
+    std.testing.expect(!std.json.validate(s));
+
+    var p = std.json.Parser.init(std.testing.allocator, false);
+    defer p.deinit();
+
+    if (p.parse(s)) |_| {
+        unreachable;
+    } else |e| {
+        std.testing.expect(e == error.InvalidUtf8Byte);
+    }
 }
 
 fn any(comptime s: []const u8) void {
-    std.testing.expect(true);
+    _ = std.json.validate(s);
+
+    var p = std.json.Parser.init(std.testing.allocator, false);
+    defer p.deinit();
+
+    var tree = p.parse(s) catch return;
+    defer tree.deinit();
+}
+
+fn anyStreamingErrNonStreaming(comptime s: []const u8) void {
+    _ = std.json.validate(s);
+
+    var p = std.json.Parser.init(std.testing.allocator, false);
+    defer p.deinit();
+
+    if (p.parse(s)) |_| {
+        unreachable;
+    } else |_| {}
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -289,12 +332,18 @@ test "y_string_1_2_3_bytes_UTF-8_sequences" {
 }
 
 test "y_string_accepted_surrogate_pair" {
+    // https://github.com/ziglang/zig/issues/5127
+    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
+
     ok(
         \\["\uD801\udc37"]
     );
 }
 
 test "y_string_accepted_surrogate_pairs" {
+    // https://github.com/ziglang/zig/issues/5127
+    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
+
     ok(
         \\["\ud83d\ude39\ud83d\udc8d"]
     );
@@ -361,6 +410,9 @@ test "y_string_in_array_with_leading_space" {
 }
 
 test "y_string_last_surrogates_1_and_2" {
+    // https://github.com/ziglang/zig/issues/5127
+    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
+
     ok(
         \\["\uDBFF\uDFFF"]
     );
@@ -421,6 +473,9 @@ test "y_string_space" {
 }
 
 test "y_string_surrogates_U+1D11E_MUSICAL_SYMBOL_G_CLEF" {
+    // https://github.com/ziglang/zig/issues/5127
+    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
+
     ok(
         \\["\uD834\uDd1e"]
     );
@@ -463,60 +518,90 @@ test "y_string_unescaped_char_delete" {
 }
 
 test "y_string_unicode_2" {
+    // https://github.com/ziglang/zig/issues/5127
+    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
+
     ok(
         \\["⍂㈴⍂"]
     );
 }
 
 test "y_string_unicodeEscapedBackslash" {
+    // https://github.com/ziglang/zig/issues/5127
+    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
+
     ok(
         \\["\u005C"]
     );
 }
 
 test "y_string_unicode_escaped_double_quote" {
+    // https://github.com/ziglang/zig/issues/5127
+    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
+
     ok(
         \\["\u0022"]
     );
 }
 
 test "y_string_unicode" {
+    // https://github.com/ziglang/zig/issues/5127
+    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
+
     ok(
         \\["\uA66D"]
     );
 }
 
 test "y_string_unicode_U+10FFFE_nonchar" {
+    // https://github.com/ziglang/zig/issues/5127
+    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
+
     ok(
         \\["\uDBFF\uDFFE"]
     );
 }
 
 test "y_string_unicode_U+1FFFE_nonchar" {
+    // https://github.com/ziglang/zig/issues/5127
+    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
+
     ok(
         \\["\uD83F\uDFFE"]
     );
 }
 
 test "y_string_unicode_U+200B_ZERO_WIDTH_SPACE" {
+    // https://github.com/ziglang/zig/issues/5127
+    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
+
     ok(
         \\["\u200B"]
     );
 }
 
 test "y_string_unicode_U+2064_invisible_plus" {
+    // https://github.com/ziglang/zig/issues/5127
+    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
+
     ok(
         \\["\u2064"]
     );
 }
 
 test "y_string_unicode_U+FDD0_nonchar" {
+    // https://github.com/ziglang/zig/issues/5127
+    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
+
     ok(
         \\["\uFDD0"]
     );
 }
 
 test "y_string_unicode_U+FFFE_nonchar" {
+    // https://github.com/ziglang/zig/issues/5127
+    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
+
     ok(
         \\["\uFFFE"]
     );
@@ -611,9 +696,9 @@ test "n_array_colon_instead_of_comma" {
 }
 
 test "n_array_comma_after_close" {
-    //err(
-    //    \\[""],
-    //);
+    err(
+        \\[""],
+    );
 }
 
 test "n_array_comma_and_number" {
@@ -641,9 +726,9 @@ test "n_array_extra_close" {
 }
 
 test "n_array_extra_comma" {
-    //err(
-    //    \\["",]
-    //);
+    err(
+        \\["",]
+    );
 }
 
 test "n_array_incomplete_invalid_value" {
@@ -1762,49 +1847,70 @@ test "i_number_very_big_negative_int" {
 }
 
 test "i_object_key_lone_2nd_surrogate" {
-    any(
+    anyStreamingErrNonStreaming(
         \\{"\uDFAA":0}
     );
 }
 
 test "i_string_1st_surrogate_but_2nd_missing" {
-    any(
+    // https://github.com/ziglang/zig/issues/5127
+    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
+
+    anyStreamingErrNonStreaming(
         \\["\uDADA"]
     );
 }
 
 test "i_string_1st_valid_surrogate_2nd_invalid" {
-    any(
+    // https://github.com/ziglang/zig/issues/5127
+    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
+
+    anyStreamingErrNonStreaming(
         \\["\uD888\u1234"]
     );
 }
 
 test "i_string_incomplete_surrogate_and_escape_valid" {
-    any(
+    // https://github.com/ziglang/zig/issues/5127
+    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
+
+    anyStreamingErrNonStreaming(
         \\["\uD800\n"]
     );
 }
 
 test "i_string_incomplete_surrogate_pair" {
-    any(
+    // https://github.com/ziglang/zig/issues/5127
+    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
+
+    anyStreamingErrNonStreaming(
         \\["\uDd1ea"]
     );
 }
 
 test "i_string_incomplete_surrogates_escape_valid" {
-    any(
+    // https://github.com/ziglang/zig/issues/5127
+    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
+
+    anyStreamingErrNonStreaming(
         \\["\uD800\uD800\n"]
     );
 }
 
 test "i_string_invalid_lonely_surrogate" {
-    any(
+    // https://github.com/ziglang/zig/issues/5127
+    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
+
+    anyStreamingErrNonStreaming(
         \\["\ud800"]
     );
 }
 
 test "i_string_invalid_surrogate" {
-    any(
+    // https://github.com/ziglang/zig/issues/5127
+    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
+
+    anyStreamingErrNonStreaming(
         \\["\ud800abc"]
     );
 }
@@ -1816,7 +1922,10 @@ test "i_string_invalid_utf-8" {
 }
 
 test "i_string_inverted_surrogates_U+1D11E" {
-    any(
+    // https://github.com/ziglang/zig/issues/5127
+    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
+
+    anyStreamingErrNonStreaming(
         \\["\uDd1e\uD834"]
     );
 }
@@ -1828,7 +1937,10 @@ test "i_string_iso_latin_1" {
 }
 
 test "i_string_lone_second_surrogate" {
-    any(
+    // https://github.com/ziglang/zig/issues/5127
+    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
+
+    anyStreamingErrNonStreaming(
         \\["\uDFAA"]
     );
 }
@@ -1901,4 +2013,56 @@ test "i_structure_UTF-8_BOM_empty_object" {
     any(
         \\ï»¿{}
     );
+}
+
+test "truncated UTF-8 sequence" {
+    utf8Error("\"\xc2\"");
+    utf8Error("\"\xdf\"");
+    utf8Error("\"\xed\xa0\"");
+    utf8Error("\"\xf0\x80\"");
+    utf8Error("\"\xf0\x80\x80\"");
+}
+
+test "invalid continuation byte" {
+    utf8Error("\"\xc2\x00\"");
+    utf8Error("\"\xc2\x7f\"");
+    utf8Error("\"\xc2\xc0\"");
+    utf8Error("\"\xc3\xc1\"");
+    utf8Error("\"\xc4\xf5\"");
+    utf8Error("\"\xc5\xff\"");
+    utf8Error("\"\xe4\x80\x00\"");
+    utf8Error("\"\xe5\x80\x10\"");
+    utf8Error("\"\xe6\x80\xc0\"");
+    utf8Error("\"\xe7\x80\xf5\"");
+    utf8Error("\"\xe8\x00\x80\"");
+    utf8Error("\"\xf2\x00\x80\x80\"");
+    utf8Error("\"\xf0\x80\x00\x80\"");
+    utf8Error("\"\xf1\x80\xc0\x80\"");
+    utf8Error("\"\xf2\x80\x80\x00\"");
+    utf8Error("\"\xf3\x80\x80\xc0\"");
+    utf8Error("\"\xf4\x80\x80\xf5\"");
+}
+
+test "disallowed overlong form" {
+    utf8Error("\"\xc0\x80\"");
+    utf8Error("\"\xc0\x90\"");
+    utf8Error("\"\xc1\x80\"");
+    utf8Error("\"\xc1\x90\"");
+    utf8Error("\"\xe0\x80\x80\"");
+    utf8Error("\"\xf0\x80\x80\x80\"");
+}
+
+test "out of UTF-16 range" {
+    utf8Error("\"\xf4\x90\x80\x80\"");
+    utf8Error("\"\xf5\x80\x80\x80\"");
+    utf8Error("\"\xf6\x80\x80\x80\"");
+    utf8Error("\"\xf7\x80\x80\x80\"");
+    utf8Error("\"\xf8\x80\x80\x80\"");
+    utf8Error("\"\xf9\x80\x80\x80\"");
+    utf8Error("\"\xfa\x80\x80\x80\"");
+    utf8Error("\"\xfb\x80\x80\x80\"");
+    utf8Error("\"\xfc\x80\x80\x80\"");
+    utf8Error("\"\xfd\x80\x80\x80\"");
+    utf8Error("\"\xfe\x80\x80\x80\"");
+    utf8Error("\"\xff\x80\x80\x80\"");
 }

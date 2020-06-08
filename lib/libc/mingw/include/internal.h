@@ -152,10 +152,6 @@ extern char *** __MINGW_IMP_SYMBOL(__initenv);
 #include <crtdbg.h>
 #include <errno.h>
 
-  void * __cdecl _encode_pointer(void *);
-  void * __cdecl _encoded_null();
-  void * __cdecl _decode_pointer(void *);
-
   BOOL __cdecl _ValidateImageBase (PBYTE pImageBase);
   PIMAGE_SECTION_HEADER __cdecl _FindPESection (PBYTE pImageBase, DWORD_PTR rva);
   BOOL __cdecl _IsNonwritableInCurrentImage (PBYTE pTarget);

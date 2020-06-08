@@ -80,8 +80,8 @@ extern "C" {
   char *__cdecl setlocale(int _Category,const char *_Locale);
   _CRTIMP struct lconv *__cdecl localeconv(void);
   _CRTIMP _locale_t __cdecl _get_current_locale(void);
-  _locale_t __cdecl _create_locale(int _Category,const char *_Locale);
-  void __cdecl _free_locale(_locale_t _Locale);
+  _CRTIMP _locale_t __cdecl _create_locale(int _Category,const char *_Locale);
+  _CRTIMP void __cdecl _free_locale(_locale_t _Locale);
   _locale_t __cdecl __get_current_locale(void);
   _locale_t __cdecl __create_locale(int _Category,const char *_Locale);
   void __cdecl __free_locale(_locale_t _Locale);

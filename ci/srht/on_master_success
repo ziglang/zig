@@ -1,0 +1,39 @@
+#!/bin/sh
+
+# This script must run on a lot of different platforms.
+# It assumes that the following things are installed:
+# * curl
+# * jq
+# * cat
+
+# We do not set -x because this would leak the oauth access token.
+set +x
+
+set -e
+
+VERSION="$1"
+OAUTH_TOKEN="$2"
+YML_FILE="tmp.yml"
+
+cat <<EOF >"$YML_FILE"
+image: alpine/latest
+packages:
+  - py3-pip
+  - curl
+  - jq
+  - xz
+secrets:
+  - 6c60aaee-92e7-4e7d-812c-114817689b4d
+sources:
+  - https://github.com/ziglang/zig
+tasks:
+  - build: cd zig && ./ci/srht/update_download_page $VERSION
+EOF
+
+jq <$YML_FILE -sR '{
+      "manifest": .,
+    }' | curl \
+  -H Authorization:"token $OAUTH_TOKEN" \
+  -H Content-Type:application/json \
+  -X POST \
+  -d @- "https://builds.sr.ht/api/jobs"

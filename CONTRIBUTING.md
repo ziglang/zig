@@ -51,23 +51,28 @@ knowledge of Zig internals.**
 
 ### Editing Source Code
 
-First, build the Stage 1 compiler as described in [the Building section](#building).
+First, build the Stage 1 compiler as described in [Building from Source](README.md#Building-from-Source).
 
-One modification you may want to make is adding `-DZIG_SKIP_INSTALL_LIB_FILES=ON`
-to the cmake line. If you use the build directory as a working directory to run
-tests with, zig will find the lib files in the source directory, and they will not
-be "installed" every time you run `make`. This will allow you to make modifications
-directly to the standard library, for example, and have them effective immediately.
-Note that if you already ran `make` or `make install` with the default cmake
-settings, there will already be a `lib/` directory in your build directory. When
-executed from the build directory, zig will find this instead of the source lib/
-directory. Remove the unwanted directory so that the desired one can be found.
+Zig locates lib files relative to executable path by searching up the
+filesystem tree for a sub-path of `lib/zig/std/std.zig` or `lib/std/std.zig`.
+Typically the former is an install and the latter a git working tree which
+contains the build directory.
+
+During development it is not necessary to perform installs when modifying
+stage1 or userland sources and in fact it is faster and simpler to run,
+test and debug from a git working tree.
+
+- `make` is typically sufficient to build zig during development iterations.
+- `make install` performs a build __and__ install.
+- `msbuild -p:Configuration=Release INSTALL.vcxproj` on Windows performs a
+build and install. To avoid install, pass cmake option `-DZIG_SKIP_INSTALL_LIB_FILES=ON`.
 
 To test changes, do the following from the build directory:
 
-1. Run `make install` (on POSIX) or
+1. Run `make` (on POSIX) or
    `msbuild -p:Configuration=Release INSTALL.vcxproj` (on Windows).
-2. `bin/zig build test` (on POSIX) or `bin\zig.exe build test` (on Windows).
+2. `$BUILD_DIR/zig build test` (on POSIX) or
+   `$BUILD_DIR/Release\zig.exe build test` (on Windows).
 
 That runs the whole test suite, which does a lot of extra testing that you
 likely won't always need, and can take upwards of 1 hour. This is what the
@@ -85,8 +90,8 @@ Another example is choosing a different set of things to test. For example,
 not the other ones. Combining this suggestion with the previous one, you could
 do this:
 
-`bin/zig build test-std -Dskip-release` (on POSIX) or
-`bin\zig.exe build test-std -Dskip-release` (on Windows).
+`$BUILD_DIR/bin/zig build test-std -Dskip-release` (on POSIX) or
+`$BUILD_DIR/Release\zig.exe build test-std -Dskip-release` (on Windows).
 
 This will run only the standard library tests, in debug mode only, for all
 targets (it will cross-compile the tests for non-native targets but not run
@@ -123,3 +128,61 @@ When developing on Linux, another option is available to you: `-Denable-wine`.
 This will enable running behavior tests and std lib tests with Wine. It's
 recommended for Linux users to install Wine and enable this testing option 
 when editing the standard library or anything Windows-related.
+
+#### Improving Translate-C
+
+Please read the [Editing Source Code](#editing-source-code) section as a
+prerequisite to this one.
+
+`translate-c` is a feature provided by Zig that converts C source code into
+Zig source code. It powers the `zig translate-c` command as well as
+[@cImport](https://ziglang.org/documentation/master/#cImport), allowing Zig
+code to not only take advantage of function prototypes defined in .h files,
+but also `static inline` functions written in C, and even some macros.
+
+This feature works by using libclang API to parse and semantically analyze
+C/C++ files, and then based on the provided AST and type information,
+generating Zig AST, and finally using the mechanisms of `zig fmt` to render
+the Zig AST to a file.
+
+The relevant tests for this feature are:
+
+ * `test/run_translated_c.zig` - each test case is C code with a `main` function. The C code
+   is translated into Zig code, compiled, and run, and tests that the expected output is the
+   same, and that the program exits cleanly. This kind of test coverage is preferred, when
+   possible, because it makes sure that the resulting Zig code is actually viable.
+
+ * `test/translate_c.zig` - each test case is C code, with a list of expected strings which
+   must be found in the resulting Zig code. This kind of test is more precise in what it
+   measures, but does not provide test coverage of whether the resulting Zig code is valid.
+
+This feature is self-hosted, even though Zig is not fully self-hosted yet. In the Zig source
+repo, we maintain a C API on top of Clang's C++ API:
+
+ * `src/zig_clang.h` - the C API that we maintain on top of Clang's C++ API. This
+   file does not include any Clang's C++ headers. Instead, C types and C enums are defined
+   here.
+
+ * `src/zig_clang.cpp` - a lightweight wrapper that fulfills the C API on top of the
+   C++ API. It takes advantage of `static_assert` to make sure we get compile errors when
+   Clang's C++ API changes. This one file necessarily does include Clang's C++ headers, which
+   makes it the slowest-to-compile source file in all of Zig's codebase.
+
+ * `src-self-hosted/clang.zig` - the Zig equivalent of `src/zig_clang.h`. This is a manually
+   maintained list of types and functions that are ABI-compatible with the Clang C API we
+   maintain. In theory this could be generated by running translate-c on `src/zig_clang.h`,
+   but that would introduce a dependency cycle, since we are using this file to implement
+   translate-c.
+
+Finally, the actual source code for the translate-c feature is
+`src-self-hosted/translate_c.zig`. This code uses the Clang C API exposed by
+`src-self-hosted/clang.zig`, and produces Zig AST.
+
+The steps for contributing to translate-c look like this:
+
+ 1. Identify a test case you want to improve. Add it as a run-translated-c test
+    case (usually preferable), or as a translate-c test case.
+
+ 2. Edit `src-self-hosted/translate_c.zig` to improve the behavior.
+
+ 3. Run the relevant tests: `./zig build test-run-translated-c test-translate-c`

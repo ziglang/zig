@@ -7,58 +7,48 @@
 # CLANG_LIBRARIES
 # CLANG_LIBDIRS
 
-if(MSVC)
-  find_package(CLANG REQUIRED CONFIG)
+find_path(CLANG_INCLUDE_DIRS NAMES clang/Frontend/ASTUnit.h
+  PATHS
+    /usr/lib/llvm/10/include
+    /usr/lib/llvm-10/include
+    /usr/lib/llvm-10.0/include
+    /usr/local/llvm100/include
+    /usr/local/llvm10/include
+    /mingw64/include
+)
 
-  set(CLANG_LIBRARIES
-      clangFrontendTool
-      clangCodeGen
-      clangFrontend
-      clangDriver
-      clangSerialization
-      clangSema
-      clangStaticAnalyzerFrontend
-      clangStaticAnalyzerCheckers
-      clangStaticAnalyzerCore
-      clangAnalysis
-      clangASTMatchers
-      clangAST
-      clangParse
-      clangSema
-      clangBasic
-      clangEdit
-      clangLex
-      clangARCMigrate
-      clangRewriteFrontend
-      clangRewrite
-      clangCrossTU
-      clangIndex
+if(ZIG_PREFER_CLANG_CPP_DYLIB)
+  find_library(CLANG_LIBRARIES
+    NAMES
+      clang-cpp-10.0
+      clang-cpp100
+      clang-cpp
+    PATHS
+      ${CLANG_LIBDIRS}
+      /usr/lib/llvm-10/lib
+      /usr/local/llvm100/lib
+      /usr/local/llvm10/lib
   )
+endif()
 
-else()
-  find_path(CLANG_INCLUDE_DIRS NAMES clang/Frontend/ASTUnit.h
-      PATHS
-          /usr/lib/llvm/9/include
-          /usr/lib/llvm-9/include
-          /usr/lib/llvm-9.0/include
-          /usr/local/llvm90/include
-          /mingw64/include)
-
+if(NOT CLANG_LIBRARIES)
   macro(FIND_AND_ADD_CLANG_LIB _libname_)
-      string(TOUPPER ${_libname_} _prettylibname_)
-      find_library(CLANG_${_prettylibname_}_LIB NAMES ${_libname_}
-          PATHS
-              ${CLANG_LIBDIRS}
-              /usr/lib/llvm/9/lib
-              /usr/lib/llvm-9/lib
-              /usr/lib/llvm-9.0/lib
-              /usr/local/llvm90/lib
-              /mingw64/lib
-              /c/msys64/mingw64/lib
-              c:\\msys64\\mingw64\\lib)
-      if(CLANG_${_prettylibname_}_LIB)
-          set(CLANG_LIBRARIES ${CLANG_LIBRARIES} ${CLANG_${_prettylibname_}_LIB})
-      endif()
+    string(TOUPPER ${_libname_} _prettylibname_)
+    find_library(CLANG_${_prettylibname_}_LIB NAMES ${_libname_}
+      PATHS
+        ${CLANG_LIBDIRS}
+        /usr/lib/llvm/10/lib
+        /usr/lib/llvm-10/lib
+        /usr/lib/llvm-10.0/lib
+        /usr/local/llvm100/lib
+        /usr/local/llvm10/lib
+        /mingw64/lib
+        /c/msys64/mingw64/lib
+        c:\\msys64\\mingw64\\lib
+    )
+    if(CLANG_${_prettylibname_}_LIB)
+      set(CLANG_LIBRARIES ${CLANG_LIBRARIES} ${CLANG_${_prettylibname_}_LIB})
+    endif()
   endmacro(FIND_AND_ADD_CLANG_LIB)
 
   FIND_AND_ADD_CLANG_LIB(clangFrontendTool)
@@ -86,6 +76,6 @@ else()
 endif()
 
 include(FindPackageHandleStandardArgs)
-find_package_handle_standard_args(CLANG DEFAULT_MSG CLANG_LIBRARIES CLANG_INCLUDE_DIRS)
+find_package_handle_standard_args(clang DEFAULT_MSG CLANG_LIBRARIES CLANG_INCLUDE_DIRS)
 
 mark_as_advanced(CLANG_INCLUDE_DIRS CLANG_LIBRARIES CLANG_LIBDIRS)

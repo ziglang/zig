@@ -47,6 +47,9 @@ class __bit_reference
     friend class __bit_const_reference<_Cp>;
     friend class __bit_iterator<_Cp, false>;
 public:
+    _LIBCPP_INLINE_VISIBILITY
+    __bit_reference(const __bit_reference&) = default;
+
     _LIBCPP_INLINE_VISIBILITY operator bool() const _NOEXCEPT
         {return static_cast<bool>(*__seg_ & __mask_);}
     _LIBCPP_INLINE_VISIBILITY bool operator ~() const _NOEXCEPT
@@ -133,6 +136,9 @@ class __bit_const_reference
     friend class __bit_iterator<_Cp, true>;
 public:
     _LIBCPP_INLINE_VISIBILITY
+    __bit_const_reference(const __bit_const_reference&) = default;
+
+    _LIBCPP_INLINE_VISIBILITY
     __bit_const_reference(const __bit_reference<_Cp>& __x) _NOEXCEPT
         : __seg_(__x.__seg_), __mask_(__x.__mask_) {}
 
@@ -147,7 +153,7 @@ private:
     __bit_const_reference(__storage_pointer __s, __storage_type __m) _NOEXCEPT
         : __seg_(__s), __mask_(__m) {}
 
-    __bit_const_reference& operator=(const __bit_const_reference& __x);
+    __bit_const_reference& operator=(const __bit_const_reference&) = delete;
 };
 
 // find
@@ -332,7 +338,7 @@ __fill_n_false(__bit_iterator<_Cp, false> __first, typename _Cp::size_type __n)
     }
     // do middle whole words
     __storage_type __nw = __n / __bits_per_word;
-    _VSTD::memset(_VSTD::__to_raw_pointer(__first.__seg_), 0, __nw * sizeof(__storage_type));
+    _VSTD::memset(_VSTD::__to_address(__first.__seg_), 0, __nw * sizeof(__storage_type));
     __n -= __nw * __bits_per_word;
     // do last partial word
     if (__n > 0)
@@ -362,7 +368,7 @@ __fill_n_true(__bit_iterator<_Cp, false> __first, typename _Cp::size_type __n)
     }
     // do middle whole words
     __storage_type __nw = __n / __bits_per_word;
-    _VSTD::memset(_VSTD::__to_raw_pointer(__first.__seg_), -1, __nw * sizeof(__storage_type));
+    _VSTD::memset(_VSTD::__to_address(__first.__seg_), -1, __nw * sizeof(__storage_type));
     __n -= __nw * __bits_per_word;
     // do last partial word
     if (__n > 0)
@@ -429,8 +435,8 @@ __copy_aligned(__bit_iterator<_Cp, _IsConst> __first, __bit_iterator<_Cp, _IsCon
         // __first.__ctz_ == 0;
         // do middle words
         __storage_type __nw = __n / __bits_per_word;
-        _VSTD::memmove(_VSTD::__to_raw_pointer(__result.__seg_),
-                       _VSTD::__to_raw_pointer(__first.__seg_),
+        _VSTD::memmove(_VSTD::__to_address(__result.__seg_),
+                       _VSTD::__to_address(__first.__seg_),
                        __nw * sizeof(__storage_type));
         __n -= __nw * __bits_per_word;
         __result.__seg_ += __nw;
@@ -570,8 +576,8 @@ __copy_backward_aligned(__bit_iterator<_Cp, _IsConst> __first, __bit_iterator<_C
         __storage_type __nw = __n / __bits_per_word;
         __result.__seg_ -= __nw;
         __last.__seg_ -= __nw;
-        _VSTD::memmove(_VSTD::__to_raw_pointer(__result.__seg_),
-                       _VSTD::__to_raw_pointer(__last.__seg_),
+        _VSTD::memmove(_VSTD::__to_address(__result.__seg_),
+                       _VSTD::__to_address(__last.__seg_),
                        __nw * sizeof(__storage_type));
         __n -= __nw * __bits_per_word;
         // do last word
@@ -1108,8 +1114,12 @@ public:
 #endif
     {}
 
+    // avoid re-declaring a copy constructor for the non-const version.
+    using __type_for_copy_to_const =
+      _If<_IsConst, __bit_iterator<_Cp, false>, struct __private_nat>;
+
     _LIBCPP_INLINE_VISIBILITY
-    __bit_iterator(const __bit_iterator<_Cp, false>& __it) _NOEXCEPT
+    __bit_iterator(const __type_for_copy_to_const& __it) _NOEXCEPT
         : __seg_(__it.__seg_), __ctz_(__it.__ctz_) {}
 
     _LIBCPP_INLINE_VISIBILITY reference operator*() const _NOEXCEPT

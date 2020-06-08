@@ -490,7 +490,7 @@ protected:
     _LIBCPP_INLINE_VISIBILITY
     __forward_list_base()
         _NOEXCEPT_(is_nothrow_default_constructible<__node_allocator>::value)
-        : __before_begin_(__begin_node()) {}
+        : __before_begin_(__begin_node(), __default_init_tag()) {}
     _LIBCPP_INLINE_VISIBILITY
     explicit __forward_list_base(const allocator_type& __a)
         : __before_begin_(__begin_node(), __node_allocator(__a)) {}
@@ -670,13 +670,13 @@ public:
     template <class _InputIterator>
         forward_list(_InputIterator __f, _InputIterator __l,
                      typename enable_if<
-                       __is_input_iterator<_InputIterator>::value
+                       __is_cpp17_input_iterator<_InputIterator>::value
                      >::type* = nullptr);
     template <class _InputIterator>
         forward_list(_InputIterator __f, _InputIterator __l,
                      const allocator_type& __a,
                      typename enable_if<
-                       __is_input_iterator<_InputIterator>::value
+                       __is_cpp17_input_iterator<_InputIterator>::value
                      >::type* = nullptr);
     forward_list(const forward_list& __x);
     forward_list(const forward_list& __x, const allocator_type& __a);
@@ -711,7 +711,7 @@ public:
     template <class _InputIterator>
         typename enable_if
         <
-            __is_input_iterator<_InputIterator>::value,
+            __is_cpp17_input_iterator<_InputIterator>::value,
             void
         >::type
         assign(_InputIterator __f, _InputIterator __l);
@@ -792,7 +792,7 @@ public:
         _LIBCPP_INLINE_VISIBILITY
         typename enable_if
         <
-            __is_input_iterator<_InputIterator>::value,
+            __is_cpp17_input_iterator<_InputIterator>::value,
             iterator
         >::type
         insert_after(const_iterator __p, _InputIterator __f, _InputIterator __l);
@@ -950,7 +950,7 @@ template <class _Tp, class _Alloc>
 template <class _InputIterator>
 forward_list<_Tp, _Alloc>::forward_list(_InputIterator __f, _InputIterator __l,
                                         typename enable_if<
-                                          __is_input_iterator<_InputIterator>::value
+                                          __is_cpp17_input_iterator<_InputIterator>::value
                                         >::type*)
 {
     insert_after(cbefore_begin(), __f, __l);
@@ -961,7 +961,7 @@ template <class _InputIterator>
 forward_list<_Tp, _Alloc>::forward_list(_InputIterator __f, _InputIterator __l,
                                         const allocator_type& __a,
                                         typename enable_if<
-                                          __is_input_iterator<_InputIterator>::value
+                                          __is_cpp17_input_iterator<_InputIterator>::value
                                         >::type*)
     : base(__a)
 {
@@ -1074,7 +1074,7 @@ template <class _Tp, class _Alloc>
 template <class _InputIterator>
 typename enable_if
 <
-    __is_input_iterator<_InputIterator>::value,
+    __is_cpp17_input_iterator<_InputIterator>::value,
     void
 >::type
 forward_list<_Tp, _Alloc>::assign(_InputIterator __f, _InputIterator __l)
@@ -1270,7 +1270,7 @@ template <class _Tp, class _Alloc>
 template <class _InputIterator>
 typename enable_if
 <
-    __is_input_iterator<_InputIterator>::value,
+    __is_cpp17_input_iterator<_InputIterator>::value,
     typename forward_list<_Tp, _Alloc>::iterator
 >::type
 forward_list<_Tp, _Alloc>::insert_after(const_iterator __p,
@@ -1525,7 +1525,7 @@ forward_list<_Tp, _Alloc>::remove(const value_type& __v)
         else
             ++__i;
     }
-    
+
     return (__remove_return_type) __count_removed;
 }
 
@@ -1553,7 +1553,7 @@ forward_list<_Tp, _Alloc>::remove_if(_Predicate __pred)
         else
             ++__i;
     }
-    
+
     return (__remove_return_type) __count_removed;
 }
 
@@ -1573,7 +1573,7 @@ forward_list<_Tp, _Alloc>::unique(_BinaryPredicate __binary_pred)
             __deleted_nodes.splice_after(__deleted_nodes.before_begin(), *this, __i, __j);
         __i = __j;
     }
-    
+
     return (__remove_return_type) __count_removed;
 }
 

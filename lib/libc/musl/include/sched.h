@@ -18,10 +18,16 @@ extern "C" {
 
 struct sched_param {
 	int sched_priority;
-	int sched_ss_low_priority;
-	struct timespec sched_ss_repl_period;
-	struct timespec sched_ss_init_budget;
-	int sched_ss_max_repl;
+	int __reserved1;
+#if _REDIR_TIME64
+	long __reserved2[4];
+#else
+	struct {
+		time_t __reserved1;
+		long __reserved2;
+	} __reserved2[2];
+#endif
+	int __reserved3;
 };
 
 int    sched_get_priority_max(int);
@@ -47,6 +53,7 @@ int     sched_yield(void);
 #define CLONE_FS	0x00000200
 #define CLONE_FILES	0x00000400
 #define CLONE_SIGHAND	0x00000800
+#define CLONE_PIDFD	0x00001000
 #define CLONE_PTRACE	0x00002000
 #define CLONE_VFORK	0x00004000
 #define CLONE_PARENT	0x00008000
@@ -128,6 +135,10 @@ __CPU_op_func_S(XOR, ^)
 #define CPU_ZERO(set) CPU_ZERO_S(sizeof(cpu_set_t),set)
 #define CPU_EQUAL(s1,s2) CPU_EQUAL_S(sizeof(cpu_set_t),s1,s2)
 
+#endif
+
+#if _REDIR_TIME64
+__REDIR(sched_rr_get_interval, __sched_rr_get_interval_time64);
 #endif
 
 #ifdef __cplusplus

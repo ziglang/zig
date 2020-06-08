@@ -3,7 +3,6 @@ const assert = std.debug.assert;
 const testing = std.testing;
 const builtin = @import("builtin");
 const Lock = std.event.Lock;
-const Loop = std.event.Loop;
 
 /// This is a value that starts out unavailable, until resolve() is called
 /// While it is unavailable, functions suspend when they try to get() it,
@@ -13,20 +12,21 @@ pub fn Future(comptime T: type) type {
     return struct {
         lock: Lock,
         data: T,
+        available: Available,
 
-        /// TODO make this an enum
-        /// 0 - not started
-        /// 1 - started
-        /// 2 - finished
-        available: u8,
+        const Available = enum(u8) {
+            NotStarted,
+            Started,
+            Finished,
+        };
 
         const Self = @This();
         const Queue = std.atomic.Queue(anyframe);
 
-        pub fn init(loop: *Loop) Self {
+        pub fn init() Self {
             return Self{
-                .lock = Lock.initLocked(loop),
-                .available = 0,
+                .lock = Lock.initLocked(),
+                .available = .NotStarted,
                 .data = undefined,
             };
         }
@@ -34,8 +34,8 @@ pub fn Future(comptime T: type) type {
         /// Obtain the value. If it's not available, wait until it becomes
         /// available.
         /// Thread-safe.
-        pub async fn get(self: *Self) *T {
-            if (@atomicLoad(u8, &self.available, .SeqCst) == 2) {
+        pub fn get(self: *Self) callconv(.Async) *T {
+            if (@atomicLoad(Available, &self.available, .SeqCst) == .Finished) {
                 return &self.data;
             }
             const held = self.lock.acquire();
@@ -47,7 +47,7 @@ pub fn Future(comptime T: type) type {
         /// Gets the data without waiting for it. If it's available, a pointer is
         /// returned. Otherwise, null is returned.
         pub fn getOrNull(self: *Self) ?*T {
-            if (@atomicLoad(u8, &self.available, .SeqCst) == 2) {
+            if (@atomicLoad(Available, &self.available, .SeqCst) == .Finished) {
                 return &self.data;
             } else {
                 return null;
@@ -59,15 +59,15 @@ pub fn Future(comptime T: type) type {
         /// should start working on the data.
         /// It's not required to call start() before resolve() but it can be useful since
         /// this method is thread-safe.
-        pub async fn start(self: *Self) ?*T {
-            const state = @cmpxchgStrong(u8, &self.available, 0, 1, .SeqCst, .SeqCst) orelse return null;
+        pub fn start(self: *Self) callconv(.Async) ?*T {
+            const state = @cmpxchgStrong(Available, &self.available, .NotStarted, .Started, .SeqCst, .SeqCst) orelse return null;
             switch (state) {
-                1 => {
+                .Started => {
                     const held = self.lock.acquire();
                     held.release();
                     return &self.data;
                 },
-                2 => return &self.data,
+                .Finished => return &self.data,
                 else => unreachable,
             }
         }
@@ -75,8 +75,8 @@ pub fn Future(comptime T: type) type {
         /// Make the data become available. May be called only once.
         /// Before calling this, modify the `data` property.
         pub fn resolve(self: *Self) void {
-            const prev = @atomicRmw(u8, &self.available, .Xchg, 2, .SeqCst);
-            assert(prev == 0 or prev == 1); // resolve() called twice
+            const prev = @atomicRmw(Available, &self.available, .Xchg, .Finished, .SeqCst);
+            assert(prev != .Finished); // resolve() called twice
             Lock.Held.release(Lock.Held{ .lock = &self.lock });
         }
     };
@@ -86,21 +86,15 @@ test "std.event.Future" {
     // https://github.com/ziglang/zig/issues/1908
     if (builtin.single_threaded) return error.SkipZigTest;
     // https://github.com/ziglang/zig/issues/3251
-    if (std.os.freebsd.is_the_target) return error.SkipZigTest;
+    if (builtin.os.tag == .freebsd) return error.SkipZigTest;
+    // TODO provide a way to run tests in evented I/O mode
+    if (!std.io.is_async) return error.SkipZigTest;
 
-    const allocator = std.heap.direct_allocator;
-
-    var loop: Loop = undefined;
-    try loop.initMultiThreaded(allocator);
-    defer loop.deinit();
-
-    const handle = async testFuture(&loop);
-
-    loop.run();
+    const handle = async testFuture();
 }
 
-fn testFuture(loop: *Loop) void {
-    var future = Future(i32).init(loop);
+fn testFuture() void {
+    var future = Future(i32).init();
 
     var a = async waitOnFuture(&future);
     var b = async waitOnFuture(&future);

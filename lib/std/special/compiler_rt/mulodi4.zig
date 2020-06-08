@@ -3,10 +3,10 @@ const compiler_rt = @import("../compiler_rt.zig");
 const maxInt = std.math.maxInt;
 const minInt = std.math.minInt;
 
-pub extern fn __mulodi4(a: i64, b: i64, overflow: *c_int) i64 {
+pub fn __mulodi4(a: i64, b: i64, overflow: *c_int) callconv(.C) i64 {
     @setRuntimeSafety(builtin.is_test);
 
-    const min = @bitCast(i64, u64(1 << (i64.bit_count - 1)));
+    const min = @bitCast(i64, @as(u64, 1 << (i64.bit_count - 1)));
     const max = ~min;
 
     overflow.* = 0;

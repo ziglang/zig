@@ -8,7 +8,7 @@
 #ifndef ERROR_HPP
 #define ERROR_HPP
 
-#include "userland.h"
+#include "stage2.h"
 
 const char *err_str(Error err);
 

@@ -1055,7 +1055,7 @@ operator<<(basic_ostream<_CharT, _Traits>& __os,
 template<class _CharT, class _Traits>
 basic_ostream<_CharT, _Traits>&
 operator<<(basic_ostream<_CharT, _Traits>& __os,
-           const basic_string_view<_CharT, _Traits> __sv)
+           basic_string_view<_CharT, _Traits> __sv)
 {
     return _VSTD::__put_character_sequence(__os, __sv.data(), __sv.size());
 }

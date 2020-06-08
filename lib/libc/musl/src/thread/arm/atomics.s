@@ -15,10 +15,10 @@ __a_barrier_oldkuser:
 	mov r1,r0
 	mov r2,sp
 	ldr ip,=0xffff0fc0
-	mov lr,pc
-	mov pc,ip
+	bl 1f
 	pop {r0,r1,r2,r3,ip,lr}
 	bx lr
+1:	bx ip
 
 .global __a_barrier_v6
 .hidden __a_barrier_v6

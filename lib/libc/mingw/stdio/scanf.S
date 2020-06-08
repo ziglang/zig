@@ -164,6 +164,7 @@ __argtos:
     call *20(%ebp)
 
     /* Restore stack.  */
+    addl $(iOffset + iBytes), %esp
     popl %edi
     leave
 

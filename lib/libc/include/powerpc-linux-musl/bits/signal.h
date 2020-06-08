@@ -28,7 +28,7 @@ struct sigcontext {
 	int signal;
 	unsigned long handler;
 	unsigned long oldmask;
-	void *regs;
+	struct pt_regs *regs;
 };
 
 typedef struct {

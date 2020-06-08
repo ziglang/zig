@@ -47,7 +47,7 @@ comptime {
     expect(max_f64(1.2, 3.4) == 3.4);
 }
 
-fn max_var(a: var, b: var) @typeOf(a + b) {
+fn max_var(a: var, b: var) @TypeOf(a + b) {
     return if (a > b) a else b;
 }
 
@@ -120,8 +120,8 @@ fn aGenericFn(comptime T: type, comptime a: T, b: T) T {
 }
 
 test "generic fn with implicit cast" {
-    expect(getFirstByte(u8, [_]u8{13}) == 13);
-    expect(getFirstByte(u16, [_]u16{
+    expect(getFirstByte(u8, &[_]u8{13}) == 13);
+    expect(getFirstByte(u16, &[_]u16{
         0,
         13,
     }) == 0);

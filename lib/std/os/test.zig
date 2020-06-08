@@ -1,7 +1,8 @@
 const std = @import("../std.zig");
 const os = std.os;
 const testing = std.testing;
-const expect = std.testing.expect;
+const expect = testing.expect;
+const expectEqual = testing.expectEqual;
 const io = std.io;
 const fs = std.fs;
 const mem = std.mem;
@@ -9,18 +10,23 @@ const elf = std.elf;
 const File = std.fs.File;
 const Thread = std.Thread;
 
-const a = std.debug.global_allocator;
+const a = std.testing.allocator;
 
 const builtin = @import("builtin");
 const AtomicRmwOp = builtin.AtomicRmwOp;
 const AtomicOrder = builtin.AtomicOrder;
+const tmpDir = std.testing.tmpDir;
+const Dir = std.fs.Dir;
 
 test "makePath, put some files in it, deleteTree" {
-    try fs.makePath(a, "os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c");
-    try io.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c" ++ fs.path.sep_str ++ "file.txt", "nonsense");
-    try io.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "file2.txt", "blah");
-    try fs.deleteTree(a, "os_test_tmp");
-    if (fs.Dir.open(a, "os_test_tmp")) |dir| {
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    try tmp.dir.makePath("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c");
+    try tmp.dir.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c" ++ fs.path.sep_str ++ "file.txt", "nonsense");
+    try tmp.dir.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "file2.txt", "blah");
+    try tmp.dir.deleteTree("os_test_tmp");
+    if (tmp.dir.openDir("os_test_tmp", .{})) |dir| {
         @panic("expected error");
     } else |err| {
         expect(err == error.FileNotFound);
@@ -28,20 +34,119 @@ test "makePath, put some files in it, deleteTree" {
 }
 
 test "access file" {
-    try fs.makePath(a, "os_test_tmp");
-    if (File.access("os_test_tmp" ++ fs.path.sep_str ++ "file.txt")) |ok| {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    try tmp.dir.makePath("os_test_tmp");
+    if (tmp.dir.access("os_test_tmp" ++ fs.path.sep_str ++ "file.txt", .{})) |ok| {
         @panic("expected error");
     } else |err| {
         expect(err == error.FileNotFound);
     }
 
-    try io.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "file.txt", "");
-    try os.access("os_test_tmp" ++ fs.path.sep_str ++ "file.txt", os.F_OK);
-    try fs.deleteTree(a, "os_test_tmp");
+    try tmp.dir.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "file.txt", "");
+    try tmp.dir.access("os_test_tmp" ++ fs.path.sep_str ++ "file.txt", .{});
+    try tmp.dir.deleteTree("os_test_tmp");
 }
 
 fn testThreadIdFn(thread_id: *Thread.Id) void {
     thread_id.* = Thread.getCurrentId();
+}
+
+test "sendfile" {
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    try tmp.dir.makePath("os_test_tmp");
+    defer tmp.dir.deleteTree("os_test_tmp") catch {};
+
+    var dir = try tmp.dir.openDir("os_test_tmp", .{});
+    defer dir.close();
+
+    const line1 = "line1\n";
+    const line2 = "second line\n";
+    var vecs = [_]os.iovec_const{
+        .{
+            .iov_base = line1,
+            .iov_len = line1.len,
+        },
+        .{
+            .iov_base = line2,
+            .iov_len = line2.len,
+        },
+    };
+
+    var src_file = try dir.createFile("sendfile1.txt", .{ .read = true });
+    defer src_file.close();
+
+    try src_file.writevAll(&vecs);
+
+    var dest_file = try dir.createFile("sendfile2.txt", .{ .read = true });
+    defer dest_file.close();
+
+    const header1 = "header1\n";
+    const header2 = "second header\n";
+    const trailer1 = "trailer1\n";
+    const trailer2 = "second trailer\n";
+    var hdtr = [_]os.iovec_const{
+        .{
+            .iov_base = header1,
+            .iov_len = header1.len,
+        },
+        .{
+            .iov_base = header2,
+            .iov_len = header2.len,
+        },
+        .{
+            .iov_base = trailer1,
+            .iov_len = trailer1.len,
+        },
+        .{
+            .iov_base = trailer2,
+            .iov_len = trailer2.len,
+        },
+    };
+
+    var written_buf: [100]u8 = undefined;
+    try dest_file.writeFileAll(src_file, .{
+        .in_offset = 1,
+        .in_len = 10,
+        .headers_and_trailers = &hdtr,
+        .header_count = 2,
+    });
+    const amt = try dest_file.preadAll(&written_buf, 0);
+    expect(mem.eql(u8, written_buf[0..amt], "header1\nsecond header\nine1\nsecontrailer1\nsecond trailer\n"));
+}
+
+test "fs.copyFile" {
+    const data = "u6wj+JmdF3qHsFPE BUlH2g4gJCmEz0PP";
+    const src_file = "tmp_test_copy_file.txt";
+    const dest_file = "tmp_test_copy_file2.txt";
+    const dest_file2 = "tmp_test_copy_file3.txt";
+
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    try tmp.dir.writeFile(src_file, data);
+    defer tmp.dir.deleteFile(src_file) catch {};
+
+    try tmp.dir.copyFile(src_file, tmp.dir, dest_file, .{});
+    defer tmp.dir.deleteFile(dest_file) catch {};
+
+    try tmp.dir.copyFile(src_file, tmp.dir, dest_file2, .{ .override_mode = File.default_mode });
+    defer tmp.dir.deleteFile(dest_file2) catch {};
+
+    try expectFileContents(tmp.dir, dest_file, data);
+    try expectFileContents(tmp.dir, dest_file2, data);
+}
+
+fn expectFileContents(dir: Dir, file_path: []const u8, data: []const u8) !void {
+    const contents = try dir.readFileAlloc(testing.allocator, file_path, 1000);
+    defer testing.allocator.free(contents);
+
+    testing.expectEqualSlices(u8, data, contents);
 }
 
 test "std.Thread.getCurrentId" {
@@ -53,7 +158,7 @@ test "std.Thread.getCurrentId" {
     thread.wait();
     if (Thread.use_pthreads) {
         expect(thread_current_id == thread_id);
-    } else if (os.windows.is_the_target) {
+    } else if (builtin.os.tag == .windows) {
         expect(Thread.getCurrentId() != thread_current_id);
     } else {
         // If the thread completes very quickly, then thread_id can be 0. See the
@@ -90,28 +195,33 @@ fn start2(ctx: *i32) u8 {
 }
 
 test "cpu count" {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
     const cpu_count = try Thread.cpuCount();
     expect(cpu_count >= 1);
 }
 
 test "AtomicFile" {
-    var buffer: [1024]u8 = undefined;
-    const allocator = &std.heap.FixedBufferAllocator.init(buffer[0..]).allocator;
     const test_out_file = "tmp_atomic_file_test_dest.txt";
     const test_content =
         \\ hello!
         \\ this is a test file
     ;
+
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
     {
-        var af = try fs.AtomicFile.init(test_out_file, File.default_mode);
+        var af = try tmp.dir.atomicFile(test_out_file, .{});
         defer af.deinit();
-        try af.file.write(test_content);
+        try af.file.writeAll(test_content);
         try af.finish();
     }
-    const content = try io.readFileAlloc(allocator, test_out_file);
+    const content = try tmp.dir.readFileAlloc(testing.allocator, test_out_file, 9999);
+    defer testing.allocator.free(content);
     expect(mem.eql(u8, content, test_content));
 
-    try fs.deleteFile(test_out_file);
+    try tmp.dir.deleteFile(test_out_file);
 }
 
 test "thread local storage" {
@@ -137,22 +247,26 @@ test "getrandom" {
     try os.getrandom(&buf_b);
     // If this test fails the chance is significantly higher that there is a bug than
     // that two sets of 50 bytes were equal.
-    expect(!mem.eql(u8, buf_a, buf_b));
+    expect(!mem.eql(u8, &buf_a, &buf_b));
 }
 
 test "getcwd" {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
     // at least call it so it gets compiled
     var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
     _ = os.getcwd(&buf) catch undefined;
 }
 
 test "realpath" {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
     var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
     testing.expectError(error.FileNotFound, fs.realpath("definitely_bogus_does_not_exist1234", &buf));
 }
 
 test "sigaltstack" {
-    if (builtin.os == .windows or builtin.os == .wasi) return error.SkipZigTest;
+    if (builtin.os.tag == .windows or builtin.os.tag == .wasi) return error.SkipZigTest;
 
     var st: os.stack_t = undefined;
     try os.sigaltstack(null, &st);
@@ -166,16 +280,19 @@ test "sigaltstack" {
 // analyzed
 const dl_phdr_info = if (@hasDecl(os, "dl_phdr_info")) os.dl_phdr_info else c_void;
 
-export fn iter_fn(info: *dl_phdr_info, size: usize, data: ?*usize) i32 {
-    if (builtin.os == .windows or builtin.os == .wasi or builtin.os == .macosx)
-        return 0;
+const IterFnError = error{
+    MissingPtLoadSegment,
+    MissingLoad,
+    BadElfMagic,
+    FailedConsistencyCheck,
+};
 
-    var counter = data.?;
+fn iter_fn(info: *dl_phdr_info, size: usize, counter: *usize) IterFnError!void {
     // Count how many libraries are loaded
-    counter.* += usize(1);
+    counter.* += @as(usize, 1);
 
     // The image should contain at least a PT_LOAD segment
-    if (info.dlpi_phnum < 1) return -1;
+    if (info.dlpi_phnum < 1) return error.MissingPtLoadSegment;
 
     // Quick & dirty validation of the phdr pointers, make sure we're not
     // pointing to some random gibberish
@@ -186,33 +303,32 @@ export fn iter_fn(info: *dl_phdr_info, size: usize, data: ?*usize) i32 {
 
         if (phdr.p_type != elf.PT_LOAD) continue;
 
+        const reloc_addr = info.dlpi_addr + phdr.p_vaddr;
         // Find the ELF header
-        const elf_header = @intToPtr(*elf.Ehdr, phdr.p_vaddr - phdr.p_offset);
+        const elf_header = @intToPtr(*elf.Ehdr, reloc_addr - phdr.p_offset);
         // Validate the magic
-        if (!mem.eql(u8, elf_header.e_ident[0..4], "\x7fELF")) return -1;
+        if (!mem.eql(u8, elf_header.e_ident[0..4], "\x7fELF")) return error.BadElfMagic;
         // Consistency check
-        if (elf_header.e_phnum != info.dlpi_phnum) return -1;
+        if (elf_header.e_phnum != info.dlpi_phnum) return error.FailedConsistencyCheck;
 
         found_load = true;
         break;
     }
 
-    if (!found_load) return -1;
-
-    return 42;
+    if (!found_load) return error.MissingLoad;
 }
 
 test "dl_iterate_phdr" {
-    if (builtin.os == .windows or builtin.os == .wasi or builtin.os == .macosx)
+    if (builtin.os.tag == .windows or builtin.os.tag == .wasi or builtin.os.tag == .macosx)
         return error.SkipZigTest;
 
     var counter: usize = 0;
-    expect(os.dl_iterate_phdr(usize, iter_fn, &counter) != 0);
+    try os.dl_iterate_phdr(&counter, IterFnError, iter_fn);
     expect(counter != 0);
 }
 
 test "gethostname" {
-    if (os.windows.is_the_target)
+    if (builtin.os.tag == .windows or builtin.os.tag == .wasi)
         return error.SkipZigTest;
 
     var buf: [os.HOST_NAME_MAX]u8 = undefined;
@@ -221,11 +337,11 @@ test "gethostname" {
 }
 
 test "pipe" {
-    if (os.windows.is_the_target)
+    if (builtin.os.tag == .windows or builtin.os.tag == .wasi)
         return error.SkipZigTest;
 
     var fds = try os.pipe();
-    try os.write(fds[1], "hello");
+    expect((try os.write(fds[1], "hello")) == 5);
     var buf: [16]u8 = undefined;
     expect((try os.read(fds[0], buf[0..])) == 5);
     testing.expectEqualSlices(u8, buf[0..5], "hello");
@@ -234,6 +350,161 @@ test "pipe" {
 }
 
 test "argsAlloc" {
-    var args = try std.process.argsAlloc(std.heap.direct_allocator);
-    std.heap.direct_allocator.free(args);
+    var args = try std.process.argsAlloc(std.testing.allocator);
+    std.process.argsFree(std.testing.allocator, args);
+}
+
+test "memfd_create" {
+    // memfd_create is linux specific.
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    const fd = std.os.memfd_create("test", 0) catch |err| switch (err) {
+        // Related: https://github.com/ziglang/zig/issues/4019
+        error.SystemOutdated => return error.SkipZigTest,
+        else => |e| return e,
+    };
+    defer std.os.close(fd);
+    expect((try std.os.write(fd, "test")) == 4);
+    try std.os.lseek_SET(fd, 0);
+
+    var buf: [10]u8 = undefined;
+    const bytes_read = try std.os.read(fd, &buf);
+    expect(bytes_read == 4);
+    expect(mem.eql(u8, buf[0..4], "test"));
+}
+
+test "mmap" {
+    if (builtin.os.tag == .windows or builtin.os.tag == .wasi)
+        return error.SkipZigTest;
+
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    // Simple mmap() call with non page-aligned size
+    {
+        const data = try os.mmap(
+            null,
+            1234,
+            os.PROT_READ | os.PROT_WRITE,
+            os.MAP_ANONYMOUS | os.MAP_PRIVATE,
+            -1,
+            0,
+        );
+        defer os.munmap(data);
+
+        testing.expectEqual(@as(usize, 1234), data.len);
+
+        // By definition the data returned by mmap is zero-filled
+        testing.expect(mem.eql(u8, data, &[_]u8{0x00} ** 1234));
+
+        // Make sure the memory is writeable as requested
+        std.mem.set(u8, data, 0x55);
+        testing.expect(mem.eql(u8, data, &[_]u8{0x55} ** 1234));
+    }
+
+    const test_out_file = "os_tmp_test";
+    // Must be a multiple of 4096 so that the test works with mmap2
+    const alloc_size = 8 * 4096;
+
+    // Create a file used for testing mmap() calls with a file descriptor
+    {
+        const file = try tmp.dir.createFile(test_out_file, .{});
+        defer file.close();
+
+        const stream = file.outStream();
+
+        var i: u32 = 0;
+        while (i < alloc_size / @sizeOf(u32)) : (i += 1) {
+            try stream.writeIntNative(u32, i);
+        }
+    }
+
+    // Map the whole file
+    {
+        const file = try tmp.dir.openFile(test_out_file, .{});
+        defer file.close();
+
+        const data = try os.mmap(
+            null,
+            alloc_size,
+            os.PROT_READ,
+            os.MAP_PRIVATE,
+            file.handle,
+            0,
+        );
+        defer os.munmap(data);
+
+        var mem_stream = io.fixedBufferStream(data);
+        const stream = mem_stream.inStream();
+
+        var i: u32 = 0;
+        while (i < alloc_size / @sizeOf(u32)) : (i += 1) {
+            testing.expectEqual(i, try stream.readIntNative(u32));
+        }
+    }
+
+    // Map the upper half of the file
+    {
+        const file = try tmp.dir.openFile(test_out_file, .{});
+        defer file.close();
+
+        const data = try os.mmap(
+            null,
+            alloc_size / 2,
+            os.PROT_READ,
+            os.MAP_PRIVATE,
+            file.handle,
+            alloc_size / 2,
+        );
+        defer os.munmap(data);
+
+        var mem_stream = io.fixedBufferStream(data);
+        const stream = mem_stream.inStream();
+
+        var i: u32 = alloc_size / 2 / @sizeOf(u32);
+        while (i < alloc_size / @sizeOf(u32)) : (i += 1) {
+            testing.expectEqual(i, try stream.readIntNative(u32));
+        }
+    }
+
+    try tmp.dir.deleteFile(test_out_file);
+}
+
+test "getenv" {
+    if (builtin.os.tag == .windows) {
+        expect(os.getenvW(&[_:0]u16{ 'B', 'O', 'G', 'U', 'S', 0x11, 0x22, 0x33, 0x44, 0x55 }) == null);
+    } else {
+        expect(os.getenvZ("BOGUSDOESNOTEXISTENVVAR") == null);
+    }
+}
+
+test "fcntl" {
+    if (builtin.os.tag == .windows or builtin.os.tag == .wasi)
+        return error.SkipZigTest;
+
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    const test_out_file = "os_tmp_test";
+
+    const file = try tmp.dir.createFile(test_out_file, .{});
+    defer {
+        file.close();
+        tmp.dir.deleteFile(test_out_file) catch {};
+    }
+
+    // Note: The test assumes createFile opens the file with O_CLOEXEC
+    {
+        const flags = try os.fcntl(file.handle, os.F_GETFD, 0);
+        expect((flags & os.FD_CLOEXEC) != 0);
+    }
+    {
+        _ = try os.fcntl(file.handle, os.F_SETFD, 0);
+        const flags = try os.fcntl(file.handle, os.F_GETFD, 0);
+        expect((flags & os.FD_CLOEXEC) == 0);
+    }
+    {
+        _ = try os.fcntl(file.handle, os.F_SETFD, os.FD_CLOEXEC);
+        const flags = try os.fcntl(file.handle, os.F_GETFD, 0);
+        expect((flags & os.FD_CLOEXEC) != 0);
+    }
 }

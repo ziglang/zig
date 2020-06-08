@@ -8,6 +8,5 @@ struct msqid_ds {
 	msglen_t msg_qbytes;
 	pid_t msg_lspid;
 	pid_t msg_lrpid;
-	unsigned long __pad1;
-	unsigned long __pad2;
+	unsigned long __unused[2];
 };

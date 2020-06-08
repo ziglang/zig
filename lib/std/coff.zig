@@ -56,12 +56,11 @@ pub const Coff = struct {
     pub fn loadHeader(self: *Coff) !void {
         const pe_pointer_offset = 0x3C;
 
-        var file_stream = self.in_file.inStream();
-        const in = &file_stream.stream;
+        const in = self.in_file.inStream();
 
         var magic: [2]u8 = undefined;
         try in.readNoEof(magic[0..]);
-        if (!mem.eql(u8, magic, "MZ"))
+        if (!mem.eql(u8, &magic, "MZ"))
             return error.InvalidPEMagic;
 
         // Seek to PE File Header (coff header)
@@ -71,7 +70,7 @@ pub const Coff = struct {
 
         var pe_header_magic: [4]u8 = undefined;
         try in.readNoEof(pe_header_magic[0..]);
-        if (!mem.eql(u8, pe_header_magic, [_]u8{ 'P', 'E', 0, 0 }))
+        if (!mem.eql(u8, &pe_header_magic, &[_]u8{ 'P', 'E', 0, 0 }))
             return error.InvalidPEHeader;
 
         self.coff_header = CoffHeader{
@@ -89,11 +88,11 @@ pub const Coff = struct {
             else => return error.InvalidMachine,
         }
 
-        try self.loadOptionalHeader(&file_stream);
+        try self.loadOptionalHeader();
     }
 
-    fn loadOptionalHeader(self: *Coff, file_stream: *File.InStream) !void {
-        const in = &file_stream.stream;
+    fn loadOptionalHeader(self: *Coff) !void {
+        const in = self.in_file.inStream();
         self.pe_header.magic = try in.readIntLittle(u16);
         // For now we're only interested in finding the reference to the .pdb,
         // so we'll skip most of this header, which size is different in 32
@@ -136,8 +135,7 @@ pub const Coff = struct {
         const debug_dir = &self.pe_header.data_directory[DEBUG_DIRECTORY];
         const file_offset = debug_dir.virtual_address - header.virtual_address + header.pointer_to_raw_data;
 
-        var file_stream = self.in_file.inStream();
-        const in = &file_stream.stream;
+        const in = self.in_file.inStream();
         try self.in_file.seekTo(file_offset);
 
         // Find the correct DebugDirectoryEntry, and where its data is stored.
@@ -147,7 +145,7 @@ pub const Coff = struct {
         blk: while (i < debug_dir_entry_count) : (i += 1) {
             const debug_dir_entry = try in.readStruct(DebugDirectoryEntry);
             if (debug_dir_entry.type == IMAGE_DEBUG_TYPE_CODEVIEW) {
-                for (self.sections.toSlice()) |*section| {
+                for (self.sections.span()) |*section| {
                     const section_start = section.header.virtual_address;
                     const section_size = section.header.misc.virtual_size;
                     const rva = debug_dir_entry.address_of_raw_data;
@@ -163,7 +161,7 @@ pub const Coff = struct {
         var cv_signature: [4]u8 = undefined; // CodeView signature
         try in.readNoEof(cv_signature[0..]);
         // 'RSDS' indicates PDB70 format, used by lld.
-        if (!mem.eql(u8, cv_signature, "RSDS"))
+        if (!mem.eql(u8, &cv_signature, "RSDS"))
             return error.InvalidPEMagic;
         try in.readNoEof(self.guid[0..]);
         self.age = try in.readIntLittle(u32);
@@ -179,17 +177,16 @@ pub const Coff = struct {
         if (byte != 0 and i == buffer.len)
             return error.NameTooLong;
 
-        return i;
+        return @as(usize, i);
     }
 
     pub fn loadSections(self: *Coff) !void {
-        if (self.sections.len == self.coff_header.number_of_sections)
+        if (self.sections.items.len == self.coff_header.number_of_sections)
             return;
 
         try self.sections.ensureCapacity(self.coff_header.number_of_sections);
 
-        var file_stream = self.in_file.inStream();
-        const in = &file_stream.stream;
+        const in = self.in_file.inStream();
 
         var name: [8]u8 = undefined;
 
@@ -214,7 +211,7 @@ pub const Coff = struct {
     }
 
     pub fn getSection(self: *Coff, comptime name: []const u8) ?*Section {
-        for (self.sections.toSlice()) |*sec| {
+        for (self.sections.span()) |*sec| {
             if (mem.eql(u8, sec.header.name[0..name.len], name)) {
                 return sec;
             }

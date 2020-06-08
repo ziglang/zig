@@ -1,5 +1,5 @@
 /* Assembly macros for 64-bit PowerPC.
-   Copyright (C) 2002-2019 Free Software Foundation, Inc.
+   Copyright (C) 2002-2020 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -14,7 +14,7 @@
 
    You should have received a copy of the GNU Lesser General Public
    License along with the GNU C Library; if not, see
-   <http://www.gnu.org/licenses/>.  */
+   <https://www.gnu.org/licenses/>.  */
 
 #include <sysdeps/powerpc/sysdep.h>
 
@@ -341,6 +341,30 @@ LT_LABELSUFFIX(name,_name_end): ; \
 #undef	PSEUDO_END_ERRVAL
 #define	PSEUDO_END_ERRVAL(name) \
   END (name)
+
+#ifdef SHARED
+# if IS_IN (rtld)
+	 /* Inside ld.so we use the local alias to avoid runtime GOT
+	    relocations.  */
+#  define __GLRO_DEF(var)				\
+.LC__ ## var:						\
+	.tc _rtld_local_ro[TC],_rtld_local_ro
+# else
+#  define __GLRO_DEF(var)				\
+.LC__ ## var:						\
+	.tc _rtld_global_ro[TC],_rtld_global_ro
+# endif
+# define __GLRO(rOUT, var, offset)		\
+	ld	rOUT,.LC__ ## var@toc(r2);	\
+	lwz	rOUT,offset(rOUT)
+#else
+# define __GLRO_DEF(var)			\
+.LC__ ## var:					\
+	.tc _ ## var[TC],_ ## var
+# define __GLRO(rOUT, var, offset)		\
+	ld	rOUT,.LC__ ## var@toc(r2);	\
+	lwz	rOUT,0(rOUT)
+#endif
 
 #else /* !__ASSEMBLER__ */
 

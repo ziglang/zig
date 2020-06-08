@@ -57,6 +57,37 @@ const char *err_str(Error err) {
         case ErrorNoCCompilerInstalled: return "no C compiler installed";
         case ErrorNotLazy: return "not lazy";
         case ErrorIsAsync: return "is async";
+        case ErrorImportOutsidePkgPath: return "import of file outside package path";
+        case ErrorUnknownCpu: return "unknown CPU";
+        case ErrorUnknownCpuFeature: return "unknown CPU feature";
+        case ErrorInvalidCpuFeatures: return "invalid CPU features";
+        case ErrorInvalidLlvmCpuFeaturesFormat: return "invalid LLVM CPU features format";
+        case ErrorUnknownApplicationBinaryInterface: return "unknown application binary interface";
+        case ErrorASTUnitFailure: return "compiler bug: clang encountered a compile error, but the libclang API does not expose the error. See https://github.com/ziglang/zig/issues/4455 for more details";
+        case ErrorBadPathName: return "bad path name";
+        case ErrorSymLinkLoop: return "sym link loop";
+        case ErrorProcessFdQuotaExceeded: return "process fd quota exceeded";
+        case ErrorSystemFdQuotaExceeded: return "system fd quota exceeded";
+        case ErrorNoDevice: return "no device";
+        case ErrorDeviceBusy: return "device busy";
+        case ErrorUnableToSpawnCCompiler: return "unable to spawn system C compiler";
+        case ErrorCCompilerExitCode: return "system C compiler exited with failure code";
+        case ErrorCCompilerCrashed: return "system C compiler crashed";
+        case ErrorCCompilerCannotFindHeaders: return "system C compiler cannot find libc headers";
+        case ErrorLibCRuntimeNotFound: return "libc runtime not found";
+        case ErrorLibCStdLibHeaderNotFound: return "libc std lib headers not found";
+        case ErrorLibCKernel32LibNotFound: return "kernel32 library not found";
+        case ErrorUnsupportedArchitecture: return "unsupported architecture";
+        case ErrorWindowsSdkNotFound: return "Windows SDK not found";
+        case ErrorUnknownDynamicLinkerPath: return "unknown dynamic linker path";
+        case ErrorTargetHasNoDynamicLinker: return "target has no dynamic linker";
+        case ErrorInvalidAbiVersion: return "invalid C ABI version";
+        case ErrorInvalidOperatingSystemVersion: return "invalid operating system version";
+        case ErrorUnknownClangOption: return "unknown Clang option";
+        case ErrorNestedResponseFile: return "nested response file";
+        case ErrorZigIsTheCCompiler: return "Zig was not provided with libc installation information, and so it does not know where the libc paths are on the system. Zig attempted to use the system C compiler to find out where the libc paths are, but discovered that Zig is being used as the system C compiler.";
+        case ErrorFileBusy: return "file is busy";
+        case ErrorLocked: return "file is locked by another process";
     }
     return "(invalid error)";
 }

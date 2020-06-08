@@ -1,12 +1,14 @@
-const builtin = @import("builtin");
-const expect = @import("std").testing.expect;
+const std = @import("std");
+const builtin = std.builtin;
+const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 
-test "@sizeOf and @typeOf" {
-    const y: @typeOf(x) = 120;
-    expect(@sizeOf(@typeOf(y)) == 2);
+test "@sizeOf and @TypeOf" {
+    const y: @TypeOf(x) = 120;
+    expect(@sizeOf(@TypeOf(y)) == 2);
 }
 const x: u16 = 13;
-const z: @typeOf(x) = 19;
+const z: @TypeOf(x) = 19;
 
 const A = struct {
     a: u8,
@@ -71,8 +73,8 @@ test "@bitOffsetOf" {
 test "@sizeOf on compile-time types" {
     expect(@sizeOf(comptime_int) == 0);
     expect(@sizeOf(comptime_float) == 0);
-    expect(@sizeOf(@typeOf(.hi)) == 0);
-    expect(@sizeOf(@typeOf(type)) == 0);
+    expect(@sizeOf(@TypeOf(.hi)) == 0);
+    expect(@sizeOf(@TypeOf(type)) == 0);
 }
 
 test "@sizeOf(T) == 0 doesn't force resolving struct size" {
@@ -90,7 +92,7 @@ test "@sizeOf(T) == 0 doesn't force resolving struct size" {
     expect(@sizeOf(S.Bar) == 8);
 }
 
-test "@typeOf() has no runtime side effects" {
+test "@TypeOf() has no runtime side effects" {
     const S = struct {
         fn foo(comptime T: type, ptr: *T) T {
             ptr.* += 1;
@@ -98,12 +100,35 @@ test "@typeOf() has no runtime side effects" {
         }
     };
     var data: i32 = 0;
-    const T = @typeOf(S.foo(i32, &data));
+    const T = @TypeOf(S.foo(i32, &data));
     comptime expect(T == i32);
     expect(data == 0);
 }
 
-test "branching logic inside @typeOf" {
+test "@TypeOf() with multiple arguments" {
+    {
+        var var_1: u32 = undefined;
+        var var_2: u8 = undefined;
+        var var_3: u64 = undefined;
+        comptime expect(@TypeOf(var_1, var_2, var_3) == u64);
+    }
+    {
+        var var_1: f16 = undefined;
+        var var_2: f32 = undefined;
+        var var_3: f64 = undefined;
+        comptime expect(@TypeOf(var_1, var_2, var_3) == f64);
+    }
+    {
+        var var_1: u16 = undefined;
+        comptime expect(@TypeOf(var_1, 0xffff) == u16);
+    }
+    {
+        var var_1: f32 = undefined;
+        comptime expect(@TypeOf(var_1, 3.1415) == f32);
+    }
+}
+
+test "branching logic inside @TypeOf" {
     const S = struct {
         var data: i32 = 0;
         fn foo() anyerror!i32 {
@@ -111,7 +136,7 @@ test "branching logic inside @typeOf" {
             return undefined;
         }
     };
-    const T = @typeOf(S.foo() catch undefined);
+    const T = @TypeOf(S.foo() catch undefined);
     comptime expect(T == i32);
     expect(S.data == 0);
 }
@@ -123,4 +148,65 @@ fn fn1(alpha: bool) void {
 
 test "lazy @sizeOf result is checked for definedness" {
     const f = fn1;
+}
+
+test "@bitSizeOf" {
+    expect(@bitSizeOf(u2) == 2);
+    expect(@bitSizeOf(u8) == @sizeOf(u8) * 8);
+    expect(@bitSizeOf(struct {
+        a: u2,
+    }) == 8);
+    expect(@bitSizeOf(packed struct {
+        a: u2,
+    }) == 2);
+}
+
+test "@sizeOf comparison against zero" {
+    const S0 = struct {
+        f: *@This(),
+    };
+    const U0 = union {
+        f: *@This(),
+    };
+    const S1 = struct {
+        fn H(comptime T: type) type {
+            return struct {
+                x: T,
+            };
+        }
+        f0: H(*@This()),
+        f1: H(**@This()),
+        f2: H(***@This()),
+    };
+    const U1 = union {
+        fn H(comptime T: type) type {
+            return struct {
+                x: T,
+            };
+        }
+        f0: H(*@This()),
+        f1: H(**@This()),
+        f2: H(***@This()),
+    };
+    const S = struct {
+        fn doTheTest(comptime T: type, comptime result: bool) void {
+            expectEqual(result, @sizeOf(T) > 0);
+        }
+    };
+    // Zero-sized type
+    S.doTheTest(u0, false);
+    S.doTheTest(*u0, false);
+    // Non byte-sized type
+    S.doTheTest(u1, true);
+    S.doTheTest(*u1, true);
+    // Regular type
+    S.doTheTest(u8, true);
+    S.doTheTest(*u8, true);
+    S.doTheTest(f32, true);
+    S.doTheTest(*f32, true);
+    // Container with ptr pointing to themselves
+    S.doTheTest(S0, true);
+    S.doTheTest(U0, true);
+    S.doTheTest(S1, true);
+    S.doTheTest(U1, true);
 }

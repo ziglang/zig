@@ -1,36 +1,36 @@
 usingnamespace @import("../bits.zig");
 
-pub fn syscall0(number: usize) usize {
+pub fn syscall0(number: SYS) usize {
     return asm volatile ("syscall"
         : [ret] "={rax}" (-> usize)
-        : [number] "{rax}" (number)
+        : [number] "{rax}" (@enumToInt(number))
         : "rcx", "r11", "memory"
     );
 }
 
-pub fn syscall1(number: usize, arg1: usize) usize {
+pub fn syscall1(number: SYS, arg1: usize) usize {
     return asm volatile ("syscall"
         : [ret] "={rax}" (-> usize)
-        : [number] "{rax}" (number),
+        : [number] "{rax}" (@enumToInt(number)),
           [arg1] "{rdi}" (arg1)
         : "rcx", "r11", "memory"
     );
 }
 
-pub fn syscall2(number: usize, arg1: usize, arg2: usize) usize {
+pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
     return asm volatile ("syscall"
         : [ret] "={rax}" (-> usize)
-        : [number] "{rax}" (number),
+        : [number] "{rax}" (@enumToInt(number)),
           [arg1] "{rdi}" (arg1),
           [arg2] "{rsi}" (arg2)
         : "rcx", "r11", "memory"
     );
 }
 
-pub fn syscall3(number: usize, arg1: usize, arg2: usize, arg3: usize) usize {
+pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
     return asm volatile ("syscall"
         : [ret] "={rax}" (-> usize)
-        : [number] "{rax}" (number),
+        : [number] "{rax}" (@enumToInt(number)),
           [arg1] "{rdi}" (arg1),
           [arg2] "{rsi}" (arg2),
           [arg3] "{rdx}" (arg3)
@@ -38,10 +38,10 @@ pub fn syscall3(number: usize, arg1: usize, arg2: usize, arg3: usize) usize {
     );
 }
 
-pub fn syscall4(number: usize, arg1: usize, arg2: usize, arg3: usize, arg4: usize) usize {
+pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize) usize {
     return asm volatile ("syscall"
         : [ret] "={rax}" (-> usize)
-        : [number] "{rax}" (number),
+        : [number] "{rax}" (@enumToInt(number)),
           [arg1] "{rdi}" (arg1),
           [arg2] "{rsi}" (arg2),
           [arg3] "{rdx}" (arg3),
@@ -50,10 +50,10 @@ pub fn syscall4(number: usize, arg1: usize, arg2: usize, arg3: usize, arg4: usiz
     );
 }
 
-pub fn syscall5(number: usize, arg1: usize, arg2: usize, arg3: usize, arg4: usize, arg5: usize) usize {
+pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize, arg5: usize) usize {
     return asm volatile ("syscall"
         : [ret] "={rax}" (-> usize)
-        : [number] "{rax}" (number),
+        : [number] "{rax}" (@enumToInt(number)),
           [arg1] "{rdi}" (arg1),
           [arg2] "{rsi}" (arg2),
           [arg3] "{rdx}" (arg3),
@@ -64,7 +64,7 @@ pub fn syscall5(number: usize, arg1: usize, arg2: usize, arg3: usize, arg4: usiz
 }
 
 pub fn syscall6(
-    number: usize,
+    number: SYS,
     arg1: usize,
     arg2: usize,
     arg3: usize,
@@ -74,7 +74,7 @@ pub fn syscall6(
 ) usize {
     return asm volatile ("syscall"
         : [ret] "={rax}" (-> usize)
-        : [number] "{rax}" (number),
+        : [number] "{rax}" (@enumToInt(number)),
           [arg1] "{rdi}" (arg1),
           [arg2] "{rsi}" (arg2),
           [arg3] "{rdx}" (arg3),
@@ -86,14 +86,14 @@ pub fn syscall6(
 }
 
 /// This matches the libc clone function.
-pub extern fn clone(func: extern fn (arg: usize) u8, stack: usize, flags: usize, arg: usize, ptid: *i32, tls: usize, ctid: *i32) usize;
+pub extern fn clone(func: fn (arg: usize) callconv(.C) u8, stack: usize, flags: usize, arg: usize, ptid: *i32, tls: usize, ctid: *i32) usize;
 
 pub const restore = restore_rt;
 
-pub nakedcc fn restore_rt() void {
+pub fn restore_rt() callconv(.Naked) void {
     return asm volatile ("syscall"
         :
-        : [number] "{rax}" (usize(SYS_rt_sigreturn))
+        : [number] "{rax}" (@enumToInt(SYS.rt_sigreturn))
         : "rcx", "r11", "memory"
     );
 }

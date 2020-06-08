@@ -9,11 +9,7 @@
 #if defined(_GNU_SOURCE) || defined(_BSD_SOURCE)
 
 typedef unsigned long greg_t, gregset_t[48];
-
-typedef struct {
-	double fpregs[32];
-	double fpscr;
-} fpregset_t;
+typedef double fpregset_t[33];
 
 typedef struct {
 #ifdef __GNUC__
@@ -36,7 +32,7 @@ typedef struct sigcontext {
 	int _pad0;
 	unsigned long handler;
 	unsigned long oldmask;
-	void *regs;
+	struct pt_regs *regs;
 	gregset_t gp_regs;
 	fpregset_t fp_regs;
 	vrregset_t *v_regs;

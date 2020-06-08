@@ -52,34 +52,34 @@ test "mulodi4" {
 
     test__mulodi4(0x7FFFFFFFFFFFFFFF, -2, 2, 1);
     test__mulodi4(-2, 0x7FFFFFFFFFFFFFFF, 2, 1);
-    test__mulodi4(0x7FFFFFFFFFFFFFFF, -1, @bitCast(i64, u64(0x8000000000000001)), 0);
-    test__mulodi4(-1, 0x7FFFFFFFFFFFFFFF, @bitCast(i64, u64(0x8000000000000001)), 0);
+    test__mulodi4(0x7FFFFFFFFFFFFFFF, -1, @bitCast(i64, @as(u64, 0x8000000000000001)), 0);
+    test__mulodi4(-1, 0x7FFFFFFFFFFFFFFF, @bitCast(i64, @as(u64, 0x8000000000000001)), 0);
     test__mulodi4(0x7FFFFFFFFFFFFFFF, 0, 0, 0);
     test__mulodi4(0, 0x7FFFFFFFFFFFFFFF, 0, 0);
     test__mulodi4(0x7FFFFFFFFFFFFFFF, 1, 0x7FFFFFFFFFFFFFFF, 0);
     test__mulodi4(1, 0x7FFFFFFFFFFFFFFF, 0x7FFFFFFFFFFFFFFF, 0);
-    test__mulodi4(0x7FFFFFFFFFFFFFFF, 2, @bitCast(i64, u64(0x8000000000000001)), 1);
-    test__mulodi4(2, 0x7FFFFFFFFFFFFFFF, @bitCast(i64, u64(0x8000000000000001)), 1);
+    test__mulodi4(0x7FFFFFFFFFFFFFFF, 2, @bitCast(i64, @as(u64, 0x8000000000000001)), 1);
+    test__mulodi4(2, 0x7FFFFFFFFFFFFFFF, @bitCast(i64, @as(u64, 0x8000000000000001)), 1);
 
-    test__mulodi4(@bitCast(i64, u64(0x8000000000000000)), -2, @bitCast(i64, u64(0x8000000000000000)), 1);
-    test__mulodi4(-2, @bitCast(i64, u64(0x8000000000000000)), @bitCast(i64, u64(0x8000000000000000)), 1);
-    test__mulodi4(@bitCast(i64, u64(0x8000000000000000)), -1, @bitCast(i64, u64(0x8000000000000000)), 1);
-    test__mulodi4(-1, @bitCast(i64, u64(0x8000000000000000)), @bitCast(i64, u64(0x8000000000000000)), 1);
-    test__mulodi4(@bitCast(i64, u64(0x8000000000000000)), 0, 0, 0);
-    test__mulodi4(0, @bitCast(i64, u64(0x8000000000000000)), 0, 0);
-    test__mulodi4(@bitCast(i64, u64(0x8000000000000000)), 1, @bitCast(i64, u64(0x8000000000000000)), 0);
-    test__mulodi4(1, @bitCast(i64, u64(0x8000000000000000)), @bitCast(i64, u64(0x8000000000000000)), 0);
-    test__mulodi4(@bitCast(i64, u64(0x8000000000000000)), 2, @bitCast(i64, u64(0x8000000000000000)), 1);
-    test__mulodi4(2, @bitCast(i64, u64(0x8000000000000000)), @bitCast(i64, u64(0x8000000000000000)), 1);
+    test__mulodi4(@bitCast(i64, @as(u64, 0x8000000000000000)), -2, @bitCast(i64, @as(u64, 0x8000000000000000)), 1);
+    test__mulodi4(-2, @bitCast(i64, @as(u64, 0x8000000000000000)), @bitCast(i64, @as(u64, 0x8000000000000000)), 1);
+    test__mulodi4(@bitCast(i64, @as(u64, 0x8000000000000000)), -1, @bitCast(i64, @as(u64, 0x8000000000000000)), 1);
+    test__mulodi4(-1, @bitCast(i64, @as(u64, 0x8000000000000000)), @bitCast(i64, @as(u64, 0x8000000000000000)), 1);
+    test__mulodi4(@bitCast(i64, @as(u64, 0x8000000000000000)), 0, 0, 0);
+    test__mulodi4(0, @bitCast(i64, @as(u64, 0x8000000000000000)), 0, 0);
+    test__mulodi4(@bitCast(i64, @as(u64, 0x8000000000000000)), 1, @bitCast(i64, @as(u64, 0x8000000000000000)), 0);
+    test__mulodi4(1, @bitCast(i64, @as(u64, 0x8000000000000000)), @bitCast(i64, @as(u64, 0x8000000000000000)), 0);
+    test__mulodi4(@bitCast(i64, @as(u64, 0x8000000000000000)), 2, @bitCast(i64, @as(u64, 0x8000000000000000)), 1);
+    test__mulodi4(2, @bitCast(i64, @as(u64, 0x8000000000000000)), @bitCast(i64, @as(u64, 0x8000000000000000)), 1);
 
-    test__mulodi4(@bitCast(i64, u64(0x8000000000000001)), -2, @bitCast(i64, u64(0x8000000000000001)), 1);
-    test__mulodi4(-2, @bitCast(i64, u64(0x8000000000000001)), @bitCast(i64, u64(0x8000000000000001)), 1);
-    test__mulodi4(@bitCast(i64, u64(0x8000000000000001)), -1, 0x7FFFFFFFFFFFFFFF, 0);
-    test__mulodi4(-1, @bitCast(i64, u64(0x8000000000000001)), 0x7FFFFFFFFFFFFFFF, 0);
-    test__mulodi4(@bitCast(i64, u64(0x8000000000000001)), 0, 0, 0);
-    test__mulodi4(0, @bitCast(i64, u64(0x8000000000000001)), 0, 0);
-    test__mulodi4(@bitCast(i64, u64(0x8000000000000001)), 1, @bitCast(i64, u64(0x8000000000000001)), 0);
-    test__mulodi4(1, @bitCast(i64, u64(0x8000000000000001)), @bitCast(i64, u64(0x8000000000000001)), 0);
-    test__mulodi4(@bitCast(i64, u64(0x8000000000000001)), 2, @bitCast(i64, u64(0x8000000000000000)), 1);
-    test__mulodi4(2, @bitCast(i64, u64(0x8000000000000001)), @bitCast(i64, u64(0x8000000000000000)), 1);
+    test__mulodi4(@bitCast(i64, @as(u64, 0x8000000000000001)), -2, @bitCast(i64, @as(u64, 0x8000000000000001)), 1);
+    test__mulodi4(-2, @bitCast(i64, @as(u64, 0x8000000000000001)), @bitCast(i64, @as(u64, 0x8000000000000001)), 1);
+    test__mulodi4(@bitCast(i64, @as(u64, 0x8000000000000001)), -1, 0x7FFFFFFFFFFFFFFF, 0);
+    test__mulodi4(-1, @bitCast(i64, @as(u64, 0x8000000000000001)), 0x7FFFFFFFFFFFFFFF, 0);
+    test__mulodi4(@bitCast(i64, @as(u64, 0x8000000000000001)), 0, 0, 0);
+    test__mulodi4(0, @bitCast(i64, @as(u64, 0x8000000000000001)), 0, 0);
+    test__mulodi4(@bitCast(i64, @as(u64, 0x8000000000000001)), 1, @bitCast(i64, @as(u64, 0x8000000000000001)), 0);
+    test__mulodi4(1, @bitCast(i64, @as(u64, 0x8000000000000001)), @bitCast(i64, @as(u64, 0x8000000000000001)), 0);
+    test__mulodi4(@bitCast(i64, @as(u64, 0x8000000000000001)), 2, @bitCast(i64, @as(u64, 0x8000000000000000)), 1);
+    test__mulodi4(2, @bitCast(i64, @as(u64, 0x8000000000000001)), @bitCast(i64, @as(u64, 0x8000000000000000)), 1);
 }

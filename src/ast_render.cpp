@@ -147,9 +147,9 @@ static const char *token_to_ptr_len_str(Token *tok) {
         case TokenIdStar:
         case TokenIdStarStar:
             return "*";
-        case TokenIdBracketStarBracket:
+        case TokenIdLBracket:
             return "[*]";
-        case TokenIdBracketStarCBracket:
+        case TokenIdSymbol:
             return "[*c]";
         default:
             zig_unreachable();
@@ -220,6 +220,8 @@ static const char *node_type_str(NodeType node_type) {
             return "SwitchRange";
         case NodeTypeCompTime:
             return "CompTime";
+        case NodeTypeNoSuspend:
+            return "NoSuspend";
         case NodeTypeBreak:
             return "Break";
         case NodeTypeContinue:
@@ -268,6 +270,8 @@ static const char *node_type_str(NodeType node_type) {
             return "EnumLiteral";
         case NodeTypeErrorSetField:
             return "ErrorSetField";
+        case NodeTypeVarFieldType:
+            return "VarFieldType";
     }
     zig_unreachable();
 }
@@ -486,6 +490,11 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                     render_node_grouped(ar, node->data.fn_proto.section_expr);
                     fprintf(ar->f, ")");
                 }
+                if (node->data.fn_proto.callconv_expr) {
+                    fprintf(ar->f, " callconv(");
+                    render_node_grouped(ar, node->data.fn_proto.callconv_expr);
+                    fprintf(ar->f, ")");
+                }
 
                 if (node->data.fn_proto.return_var_token != nullptr) {
                     fprintf(ar->f, "var");
@@ -562,7 +571,7 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
             {
                 const char *defer_str = defer_string(node->data.defer.kind);
                 fprintf(ar->f, "%s ", defer_str);
-                render_node_grouped(ar, node->data.return_expr.expr);
+                render_node_grouped(ar, node->data.defer.expr);
                 break;
             }
         case NodeTypeVariableDeclaration:
@@ -619,9 +628,6 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
             break;
         case NodeTypeStringLiteral:
             {
-                if (node->data.string_literal.c) {
-                    fprintf(ar->f, "c");
-                }
                 Buf tmp_buf = BUF_INIT;
                 string_literal_escape(node->data.string_literal.buf, &tmp_buf);
                 fprintf(ar->f, "\"%s\"", buf_ptr(&tmp_buf));
@@ -703,14 +709,29 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 switch (node->data.fn_call_expr.modifier) {
                     case CallModifierNone:
                         break;
-                    case CallModifierBuiltin:
-                        fprintf(ar->f, "@");
+                    case CallModifierNoSuspend:
+                        fprintf(ar->f, "nosuspend ");
                         break;
                     case CallModifierAsync:
                         fprintf(ar->f, "async ");
                         break;
-                    case CallModifierNoAsync:
-                        fprintf(ar->f, "noasync ");
+                    case CallModifierNeverTail:
+                        fprintf(ar->f, "notail ");
+                        break;
+                    case CallModifierNeverInline:
+                        fprintf(ar->f, "noinline ");
+                        break;
+                    case CallModifierAlwaysTail:
+                        fprintf(ar->f, "tail ");
+                        break;
+                    case CallModifierAlwaysInline:
+                        fprintf(ar->f, "inline ");
+                        break;
+                    case CallModifierCompileTime:
+                        fprintf(ar->f, "comptime ");
+                        break;
+                    case CallModifierBuiltin:
+                        fprintf(ar->f, "@");
                         break;
                 }
                 AstNode *fn_ref_node = node->data.fn_call_expr.fn_ref_expr;
@@ -821,7 +842,9 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 break;
             }
         case NodeTypeContainerInitExpr:
-            render_node_ungrouped(ar, node->data.container_init_expr.type);
+            if (node->data.container_init_expr.type != nullptr) {
+                render_node_ungrouped(ar, node->data.container_init_expr.type);
+            }
             if (node->data.container_init_expr.kind == ContainerInitKindStruct) {
                 fprintf(ar->f, "{\n");
                 ar->indent += ar->indent_size;
@@ -883,7 +906,9 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
             {
                 AstNodeAsmExpr *asm_expr = &node->data.asm_expr;
                 const char *volatile_str = (asm_expr->volatile_token != nullptr) ? " volatile" : "";
-                fprintf(ar->f, "asm%s (\"%s\"\n", volatile_str, buf_ptr(&asm_expr->asm_template->data.str_lit.str));
+                fprintf(ar->f, "asm%s (", volatile_str);
+                render_node_ungrouped(ar, asm_expr->asm_template);
+                fprintf(ar->f, ")");
                 print_indent(ar);
                 fprintf(ar->f, ": ");
                 for (size_t i = 0; i < asm_expr->output_list.length; i += 1) {
@@ -1068,6 +1093,12 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 render_node_grouped(ar, node->data.comptime_expr.expr);
                 break;
             }
+        case NodeTypeNoSuspend:
+            {
+                fprintf(ar->f, "nosuspend ");
+                render_node_grouped(ar, node->data.nosuspend_expr.expr);
+                break;
+            }
         case NodeTypeForExpr:
             {
                 if (node->data.for_expr.name != nullptr) {
@@ -1137,10 +1168,20 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
 
                 for (size_t i = 0; i < node->data.err_set_decl.decls.length; i += 1) {
                     AstNode *field_node = node->data.err_set_decl.decls.at(i);
-                    assert(field_node->type == NodeTypeSymbol);
-                    print_indent(ar);
-                    print_symbol(ar, field_node->data.symbol_expr.symbol);
-                    fprintf(ar->f, ",\n");
+                    switch (field_node->type) {
+                        case NodeTypeSymbol:
+                            print_indent(ar);
+                            print_symbol(ar, field_node->data.symbol_expr.symbol);
+                            fprintf(ar->f, ",\n");
+                            break;
+                        case NodeTypeErrorSetField:
+                            print_indent(ar);
+                            print_symbol(ar, field_node->data.err_set_field.field_name->data.symbol_expr.symbol);
+                            fprintf(ar->f, ",\n");
+                            break;
+                        default:
+                            zig_unreachable();
+                    }
                 }
 
                 ar->indent -= ar->indent_size;
@@ -1175,6 +1216,10 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 fprintf(ar->f, ".%s", buf_ptr(&node->data.enum_literal.identifier->data.str_lit.str));
                 break;
             }
+        case NodeTypeVarFieldType: {
+            fprintf(ar->f, "var");
+            break;
+        }
         case NodeTypeParamDecl:
         case NodeTypeTestDecl:
         case NodeTypeStructField:

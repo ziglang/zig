@@ -85,3 +85,6 @@ static inline long __syscall6(long n, long a, long b, long c, long d, long e, lo
 	:: "memory", "cr0", "r9", "r10", "r11", "r12");
 	return r3;
 }
+
+#define SO_RCVTIMEO_OLD  18
+#define SO_SNDTIMEO_OLD  19

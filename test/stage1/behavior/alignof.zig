@@ -15,3 +15,24 @@ test "@alignOf(T) before referencing T" {
         comptime expect(@alignOf(Foo) == 4);
     }
 }
+
+test "comparison of @alignOf(T) against zero" {
+    {
+        const T = struct { x: u32 };
+        expect(!(@alignOf(T) == 0));
+        expect(@alignOf(T) != 0);
+        expect(!(@alignOf(T) < 0));
+        expect(!(@alignOf(T) <= 0));
+        expect(@alignOf(T) > 0);
+        expect(@alignOf(T) >= 0);
+    }
+    {
+        const T = struct {};
+        expect(@alignOf(T) == 0);
+        expect(!(@alignOf(T) != 0));
+        expect(!(@alignOf(T) < 0));
+        expect(@alignOf(T) <= 0);
+        expect(!(@alignOf(T) > 0));
+        expect(@alignOf(T) >= 0);
+    }
+}

@@ -11,53 +11,16 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
-#include <assert.h>
 #include <ctype.h>
 
 #if defined(_MSC_VER)
-
 #include <intrin.h>  
-
-#define ATTRIBUTE_COLD __declspec(noinline)
-#define ATTRIBUTE_PRINTF(a, b)
-#define ATTRIBUTE_RETURNS_NOALIAS __declspec(restrict)
-#define ATTRIBUTE_NORETURN __declspec(noreturn)
-#define ATTRIBUTE_MUST_USE
-
-#else
-
-#define ATTRIBUTE_COLD         __attribute__((cold))
-#define ATTRIBUTE_PRINTF(a, b) __attribute__((format(printf, a, b)))
-#define ATTRIBUTE_RETURNS_NOALIAS __attribute__((__malloc__))
-#define ATTRIBUTE_NORETURN __attribute__((noreturn))
-#define ATTRIBUTE_MUST_USE __attribute__((warn_unused_result))
-
 #endif
 
-#include "softfloat.hpp"
-
-#define BREAKPOINT __asm("int $0x03")
-
-ATTRIBUTE_COLD
-ATTRIBUTE_NORETURN
-ATTRIBUTE_PRINTF(1, 2)
-void zig_panic(const char *format, ...);
-
-static inline void zig_assert(bool ok, const char *file, int line, const char *func) {
-    if (!ok) {
-        zig_panic("Assertion failed at %s:%d in %s. This is a bug in the Zig compiler.", file, line, func);
-    }
-}
-
-#ifdef _WIN32
-#define __func__ __FUNCTION__
-#endif
-
-#define zig_unreachable() zig_panic("Unreachable at %s:%d in %s. This is a bug in the Zig compiler.", __FILE__, __LINE__, __func__)
-
-// Assertions in stage1 are always on, and they call zig @panic.
-#undef assert
-#define assert(ok) zig_assert(ok, __FILE__, __LINE__, __func__)
+#include "config.h"
+#include "util_base.hpp"
+#include "heap.hpp"
+#include "mem.hpp"
 
 #if defined(_MSC_VER)
 static inline int clzll(unsigned long long mask) {
@@ -93,55 +56,6 @@ static inline int ctzll(unsigned long long mask) {
 #define clzll(x) __builtin_clzll(x)
 #define ctzll(x) __builtin_ctzll(x)
 #endif
-
-
-template<typename T>
-ATTRIBUTE_RETURNS_NOALIAS static inline T *allocate_nonzero(size_t count) {
-#ifndef NDEBUG
-    // make behavior when size == 0 portable
-    if (count == 0)
-        return nullptr;
-#endif
-    T *ptr = reinterpret_cast<T*>(malloc(count * sizeof(T)));
-    if (!ptr)
-        zig_panic("allocation failed");
-    return ptr;
-}
-
-template<typename T>
-ATTRIBUTE_RETURNS_NOALIAS static inline T *allocate(size_t count) {
-#ifndef NDEBUG
-    // make behavior when size == 0 portable
-    if (count == 0)
-        return nullptr;
-#endif
-    T *ptr = reinterpret_cast<T*>(calloc(count, sizeof(T)));
-    if (!ptr)
-        zig_panic("allocation failed");
-    return ptr;
-}
-
-template<typename T>
-static inline T *reallocate(T *old, size_t old_count, size_t new_count) {
-    T *ptr = reallocate_nonzero(old, old_count, new_count);
-    if (new_count > old_count) {
-        memset(&ptr[old_count], 0, (new_count - old_count) * sizeof(T));
-    }
-    return ptr;
-}
-
-template<typename T>
-static inline T *reallocate_nonzero(T *old, size_t old_count, size_t new_count) {
-#ifndef NDEBUG
-    // make behavior when size == 0 portable
-    if (new_count == 0 && old == nullptr)
-        return nullptr;
-#endif
-    T *ptr = reinterpret_cast<T*>(realloc(old, new_count * sizeof(T)));
-    if (!ptr)
-        zig_panic("allocation failed");
-    return ptr;
-}
 
 template <typename T, size_t n>
 constexpr size_t array_length(const T (&)[n]) {
@@ -186,6 +100,15 @@ static inline bool is_power_of_2(uint64_t x) {
     return x != 0 && ((x & (~x + 1)) == x);
 }
 
+static inline bool mem_ends_with_mem(const char *mem, size_t mem_len, const char *end, size_t end_len) {
+    if (mem_len < end_len) return false;
+    return memcmp(mem + mem_len - end_len, end, end_len) == 0;
+}
+
+static inline bool mem_ends_with_str(const char *mem, size_t mem_len, const char *str) {
+    return mem_ends_with_mem(mem, mem_len, str, strlen(str));
+}
+
 static inline uint64_t round_to_next_power_of_2(uint64_t x) {
     --x;
     x |= x >> 1;
@@ -208,22 +131,7 @@ static inline uint8_t log2_u64(uint64_t x) {
     return (63 - clzll(x));
 }
 
-static inline float16_t zig_double_to_f16(double x) {
-    float64_t y;
-    static_assert(sizeof(x) == sizeof(y), "");
-    memcpy(&y, &x, sizeof(x));
-    return f64_to_f16(y);
-}
-
-
-// Return value is safe to coerce to float even when |x| is NaN or Infinity.
-static inline double zig_f16_to_double(float16_t x) {
-    float64_t y = f16_to_f64(x);
-    double z;
-    static_assert(sizeof(y) == sizeof(z), "");
-    memcpy(&z, &y, sizeof(y));
-    return z;
-}
+void zig_pretty_print_bytes(FILE *f, double n);
 
 template<typename T>
 struct Optional {
@@ -272,7 +180,7 @@ struct Slice {
     }
 
     static inline Slice<T> alloc(size_t n) {
-        return {allocate_nonzero<T>(n), n};
+        return {heap::c_allocator.allocate_nonzero<T>(n), n};
     }
 };
 

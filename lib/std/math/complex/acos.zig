@@ -5,10 +5,10 @@ const cmath = math.complex;
 const Complex = cmath.Complex;
 
 /// Returns the arc-cosine of z.
-pub fn acos(z: var) Complex(@typeOf(z.re)) {
-    const T = @typeOf(z.re);
+pub fn acos(z: var) Complex(@TypeOf(z.re)) {
+    const T = @TypeOf(z.re);
     const q = cmath.asin(z);
-    return Complex(T).new(T(math.pi) / 2 - q.re, -q.im);
+    return Complex(T).new(@as(T, math.pi) / 2 - q.re, -q.im);
 }
 
 const epsilon = 0.0001;

@@ -94,7 +94,7 @@ fn Blake2s(comptime out_len: usize) type {
             var off: usize = 0;
 
             // Partial buffer exists from previous update. Copy into buffer then hash.
-            if (d.buf_len != 0 and d.buf_len + b.len > 64) {
+            if (d.buf_len != 0 and d.buf_len + b.len >= 64) {
                 off += 64 - d.buf_len;
                 mem.copy(u8, d.buf[d.buf_len..], b[0..off]);
                 d.t += 64;
@@ -123,8 +123,7 @@ fn Blake2s(comptime out_len: usize) type {
             const rr = d.h[0 .. out_len / 32];
 
             for (rr) |s, j| {
-                // TODO https://github.com/ziglang/zig/issues/863
-                mem.writeIntSliceLittle(u32, out[4 * j .. 4 * j + 4], s);
+                mem.writeIntLittle(u32, out[4 * j ..][0..4], s);
             }
         }
 
@@ -135,8 +134,7 @@ fn Blake2s(comptime out_len: usize) type {
             var v: [16]u32 = undefined;
 
             for (m) |*r, i| {
-                // TODO https://github.com/ziglang/zig/issues/863
-                r.* = mem.readIntSliceLittle(u32, b[4 * i .. 4 * i + 4]);
+                r.* = mem.readIntLittle(u32, b[4 * i ..][0..4]);
             }
 
             var k: usize = 0;
@@ -164,13 +162,13 @@ fn Blake2s(comptime out_len: usize) type {
             inline while (j < 10) : (j += 1) {
                 inline for (rounds) |r| {
                     v[r.a] = v[r.a] +% v[r.b] +% m[sigma[j][r.x]];
-                    v[r.d] = math.rotr(u32, v[r.d] ^ v[r.a], usize(16));
+                    v[r.d] = math.rotr(u32, v[r.d] ^ v[r.a], @as(usize, 16));
                     v[r.c] = v[r.c] +% v[r.d];
-                    v[r.b] = math.rotr(u32, v[r.b] ^ v[r.c], usize(12));
+                    v[r.b] = math.rotr(u32, v[r.b] ^ v[r.c], @as(usize, 12));
                     v[r.a] = v[r.a] +% v[r.b] +% m[sigma[j][r.y]];
-                    v[r.d] = math.rotr(u32, v[r.d] ^ v[r.a], usize(8));
+                    v[r.d] = math.rotr(u32, v[r.d] ^ v[r.a], @as(usize, 8));
                     v[r.c] = v[r.c] +% v[r.d];
-                    v[r.b] = math.rotr(u32, v[r.b] ^ v[r.c], usize(7));
+                    v[r.b] = math.rotr(u32, v[r.b] ^ v[r.c], @as(usize, 7));
                 }
             }
 
@@ -256,7 +254,7 @@ test "blake2s256 aligned final" {
     var out: [Blake2s256.digest_length]u8 = undefined;
 
     var h = Blake2s256.init();
-    h.update(block);
+    h.update(&block);
     h.final(out[0..]);
 }
 
@@ -331,7 +329,7 @@ fn Blake2b(comptime out_len: usize) type {
             var off: usize = 0;
 
             // Partial buffer exists from previous update. Copy into buffer then hash.
-            if (d.buf_len != 0 and d.buf_len + b.len > 128) {
+            if (d.buf_len != 0 and d.buf_len + b.len >= 128) {
                 off += 128 - d.buf_len;
                 mem.copy(u8, d.buf[d.buf_len..], b[0..off]);
                 d.t += 128;
@@ -358,8 +356,7 @@ fn Blake2b(comptime out_len: usize) type {
             const rr = d.h[0 .. out_len / 64];
 
             for (rr) |s, j| {
-                // TODO https://github.com/ziglang/zig/issues/863
-                mem.writeIntSliceLittle(u64, out[8 * j .. 8 * j + 8], s);
+                mem.writeIntLittle(u64, out[8 * j ..][0..8], s);
             }
         }
 
@@ -370,7 +367,7 @@ fn Blake2b(comptime out_len: usize) type {
             var v: [16]u64 = undefined;
 
             for (m) |*r, i| {
-                r.* = mem.readIntSliceLittle(u64, b[8 * i .. 8 * i + 8]);
+                r.* = mem.readIntLittle(u64, b[8 * i ..][0..8]);
             }
 
             var k: usize = 0;
@@ -398,13 +395,13 @@ fn Blake2b(comptime out_len: usize) type {
             inline while (j < 12) : (j += 1) {
                 inline for (rounds) |r| {
                     v[r.a] = v[r.a] +% v[r.b] +% m[sigma[j][r.x]];
-                    v[r.d] = math.rotr(u64, v[r.d] ^ v[r.a], usize(32));
+                    v[r.d] = math.rotr(u64, v[r.d] ^ v[r.a], @as(usize, 32));
                     v[r.c] = v[r.c] +% v[r.d];
-                    v[r.b] = math.rotr(u64, v[r.b] ^ v[r.c], usize(24));
+                    v[r.b] = math.rotr(u64, v[r.b] ^ v[r.c], @as(usize, 24));
                     v[r.a] = v[r.a] +% v[r.b] +% m[sigma[j][r.y]];
-                    v[r.d] = math.rotr(u64, v[r.d] ^ v[r.a], usize(16));
+                    v[r.d] = math.rotr(u64, v[r.d] ^ v[r.a], @as(usize, 16));
                     v[r.c] = v[r.c] +% v[r.d];
-                    v[r.b] = math.rotr(u64, v[r.b] ^ v[r.c], usize(63));
+                    v[r.b] = math.rotr(u64, v[r.b] ^ v[r.c], @as(usize, 63));
                 }
             }
 
@@ -490,6 +487,6 @@ test "blake2b512 aligned final" {
     var out: [Blake2b512.digest_length]u8 = undefined;
 
     var h = Blake2b512.init();
-    h.update(block);
+    h.update(&block);
     h.final(out[0..]);
 }

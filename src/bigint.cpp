@@ -93,7 +93,7 @@ static void to_twos_complement(BigInt *dest, const BigInt *op, size_t bit_count)
         if (dest->data.digit == 0) dest->digit_count = 0;
         return;
     }
-    dest->data.digits = allocate_nonzero<uint64_t>(dest->digit_count);
+    dest->data.digits = heap::c_allocator.allocate_nonzero<uint64_t>(dest->digit_count);
     for (size_t i = 0; i < digits_to_copy; i += 1) {
         uint64_t digit = (i < op->digit_count) ? op_digits[i] : 0;
         dest->data.digits[i] = digit;
@@ -174,7 +174,7 @@ void bigint_init_data(BigInt *dest, const uint64_t *digits, size_t digit_count, 
 
     dest->digit_count = digit_count;
     dest->is_negative = is_negative;
-    dest->data.digits = allocate_nonzero<uint64_t>(digit_count);
+    dest->data.digits = heap::c_allocator.allocate_nonzero<uint64_t>(digit_count);
     memcpy(dest->data.digits, digits, sizeof(uint64_t) * digit_count);
 
     bigint_normalize(dest);
@@ -191,8 +191,13 @@ void bigint_init_bigint(BigInt *dest, const BigInt *src) {
     }
     dest->is_negative = src->is_negative;
     dest->digit_count = src->digit_count;
-    dest->data.digits = allocate_nonzero<uint64_t>(dest->digit_count);
+    dest->data.digits = heap::c_allocator.allocate_nonzero<uint64_t>(dest->digit_count);
     memcpy(dest->data.digits, src->data.digits, sizeof(uint64_t) * dest->digit_count);
+}
+
+void bigint_deinit(BigInt *bi) {
+    if (bi->digit_count > 1)
+        heap::c_allocator.deallocate(bi->data.digits, bi->digit_count);
 }
 
 void bigint_init_bigfloat(BigInt *dest, const BigFloat *op) {
@@ -222,7 +227,7 @@ void bigint_init_bigfloat(BigInt *dest, const BigFloat *op) {
     f128M_rem(&abs_val, &max_u64, &remainder);
 
     dest->digit_count = 2;
-    dest->data.digits = allocate_nonzero<uint64_t>(dest->digit_count);
+    dest->data.digits = heap::c_allocator.allocate_nonzero<uint64_t>(dest->digit_count);
     dest->data.digits[0] = f128M_to_ui64(&remainder, softfloat_round_minMag, false);
     dest->data.digits[1] = f128M_to_ui64(&amt, softfloat_round_minMag, false);
     bigint_normalize(dest);
@@ -238,6 +243,7 @@ bool bigint_fits_in_bits(const BigInt *bn, size_t bit_count, bool is_signed) {
     }
 
     if (!is_signed) {
+        if(bn->is_negative) return false;
         size_t full_bits = bn->digit_count * 64;
         size_t leading_zero_count = bigint_clz(bn, full_bits);
         return bit_count >= full_bits - leading_zero_count;
@@ -340,7 +346,7 @@ void bigint_read_twos_complement(BigInt *dest, const uint8_t *buf, size_t bit_co
     if (dest->digit_count == 1) {
         digits = &dest->data.digit;
     } else {
-        digits = allocate_nonzero<uint64_t>(dest->digit_count);
+        digits = heap::c_allocator.allocate_nonzero<uint64_t>(dest->digit_count);
         dest->data.digits = digits;
     }
 
@@ -459,7 +465,7 @@ void bigint_add(BigInt *dest, const BigInt *op1, const BigInt *op2) {
         }
         size_t i = 1;
         uint64_t first_digit = dest->data.digit;
-        dest->data.digits = allocate_nonzero<uint64_t>(max(op1->digit_count, op2->digit_count) + 1);
+        dest->data.digits = heap::c_allocator.allocate_nonzero<uint64_t>(max(op1->digit_count, op2->digit_count) + 1);
         dest->data.digits[0] = first_digit;
 
         for (;;) {
@@ -527,7 +533,7 @@ void bigint_add(BigInt *dest, const BigInt *op1, const BigInt *op2) {
         return;
     }
     uint64_t first_digit = dest->data.digit;
-    dest->data.digits = allocate_nonzero<uint64_t>(bigger_op->digit_count);
+    dest->data.digits = heap::c_allocator.allocate_nonzero<uint64_t>(bigger_op->digit_count);
     dest->data.digits[0] = first_digit;
     size_t i = 1;
 
@@ -1027,7 +1033,7 @@ static void bigint_unsigned_division(const BigInt *op1, const BigInt *op2, BigIn
         if (lhsWords == 1) {
             Quotient->data.digit = Make_64(Q[1], Q[0]);
         } else {
-            Quotient->data.digits = allocate<uint64_t>(lhsWords);
+            Quotient->data.digits = heap::c_allocator.allocate<uint64_t>(lhsWords);
             for (size_t i = 0; i < lhsWords; i += 1) {
                 Quotient->data.digits[i] = Make_64(Q[i*2+1], Q[i*2]);
             }
@@ -1041,7 +1047,7 @@ static void bigint_unsigned_division(const BigInt *op1, const BigInt *op2, BigIn
         if (rhsWords == 1) {
             Remainder->data.digit = Make_64(R[1], R[0]);
         } else {
-            Remainder->data.digits = allocate<uint64_t>(rhsWords);
+            Remainder->data.digits = heap::c_allocator.allocate<uint64_t>(rhsWords);
             for (size_t i = 0; i < rhsWords; i += 1) {
                 Remainder->data.digits[i] = Make_64(R[i*2+1], R[i*2]);
             }
@@ -1213,7 +1219,7 @@ void bigint_or(BigInt *dest, const BigInt *op1, const BigInt *op2) {
             return;
         }
         dest->digit_count = max(op1->digit_count, op2->digit_count);
-        dest->data.digits = allocate_nonzero<uint64_t>(dest->digit_count);
+        dest->data.digits = heap::c_allocator.allocate_nonzero<uint64_t>(dest->digit_count);
         for (size_t i = 0; i < dest->digit_count; i += 1) {
             uint64_t digit = 0;
             if (i < op1->digit_count) {
@@ -1257,7 +1263,7 @@ void bigint_and(BigInt *dest, const BigInt *op1, const BigInt *op2) {
         }
 
         dest->digit_count = max(op1->digit_count, op2->digit_count);
-        dest->data.digits = allocate_nonzero<uint64_t>(dest->digit_count);
+        dest->data.digits = heap::c_allocator.allocate_nonzero<uint64_t>(dest->digit_count);
 
         size_t i = 0;
         for (; i < op1->digit_count && i < op2->digit_count; i += 1) {
@@ -1303,7 +1309,7 @@ void bigint_xor(BigInt *dest, const BigInt *op1, const BigInt *op2) {
             return;
         }
         dest->digit_count = max(op1->digit_count, op2->digit_count);
-        dest->data.digits = allocate_nonzero<uint64_t>(dest->digit_count);
+        dest->data.digits = heap::c_allocator.allocate_nonzero<uint64_t>(dest->digit_count);
         size_t i = 0;
         for (; i < op1->digit_count && i < op2->digit_count; i += 1) {
             dest->data.digits[i] = op1_digits[i] ^ op2_digits[i];
@@ -1353,7 +1359,7 @@ void bigint_shl(BigInt *dest, const BigInt *op1, const BigInt *op2) {
     uint64_t digit_shift_count = shift_amt / 64;
     uint64_t leftover_shift_count = shift_amt % 64;
 
-    dest->data.digits = allocate<uint64_t>(op1->digit_count + digit_shift_count + 1);
+    dest->data.digits = heap::c_allocator.allocate<uint64_t>(op1->digit_count + digit_shift_count + 1);
     dest->digit_count = digit_shift_count;
     uint64_t carry = 0;
     for (size_t i = 0; i < op1->digit_count; i += 1) {
@@ -1416,7 +1422,7 @@ void bigint_shr(BigInt *dest, const BigInt *op1, const BigInt *op2) {
     if (dest->digit_count == 1) {
         digits = &dest->data.digit;
     } else {
-        digits = allocate<uint64_t>(dest->digit_count);
+        digits = heap::c_allocator.allocate<uint64_t>(dest->digit_count);
         dest->data.digits = digits;
     }
 
@@ -1425,7 +1431,7 @@ void bigint_shr(BigInt *dest, const BigInt *op1, const BigInt *op2) {
         uint64_t digit = op1_digits[op_digit_index];
         size_t dest_digit_index = op_digit_index - digit_shift_count;
         digits[dest_digit_index] = carry | (digit >> leftover_shift_count);
-        carry = digit << (64 - leftover_shift_count);
+        carry = (leftover_shift_count != 0) ? (digit << (64 - leftover_shift_count)) : 0;
 
         if (dest_digit_index == 0) { break; }
         op_digit_index -= 1;
@@ -1487,7 +1493,7 @@ void bigint_not(BigInt *dest, const BigInt *op, size_t bit_count, bool is_signed
     }
     dest->digit_count = (bit_count + 63) / 64;
     assert(dest->digit_count >= op->digit_count);
-    dest->data.digits = allocate_nonzero<uint64_t>(dest->digit_count);
+    dest->data.digits = heap::c_allocator.allocate_nonzero<uint64_t>(dest->digit_count);
     size_t i = 0;
     for (; i < op->digit_count; i += 1) {
         dest->data.digits[i] = ~op_digits[i];
@@ -1754,3 +1760,27 @@ void bigint_incr(BigInt *x) {
     bigint_add(x, &copy, &one);
 }
 
+void bigint_decr(BigInt *x) {
+    if (x->digit_count == 0) {
+        bigint_init_signed(x, -1);
+        return;
+    }
+
+    if (x->digit_count == 1) {
+        if (x->is_negative && x->data.digit != UINT64_MAX) {
+            x->data.digit += 1;
+            return;
+        } else if (!x->is_negative && x->data.digit != 0) {
+            x->data.digit -= 1;
+            return;
+        }
+    }
+
+    BigInt copy;
+    bigint_init_bigint(&copy, x);
+
+    BigInt neg_one;
+    bigint_init_signed(&neg_one, -1);
+
+    bigint_add(x, &copy, &neg_one);
+}

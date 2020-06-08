@@ -5,7 +5,7 @@ const maxInt = std.math.maxInt;
 
 /// Returns whether x is an infinity, ignoring sign.
 pub fn isInf(x: var) bool {
-    const T = @typeOf(x);
+    const T = @TypeOf(x);
     switch (T) {
         f16 => {
             const bits = @bitCast(u16, x);
@@ -31,7 +31,7 @@ pub fn isInf(x: var) bool {
 
 /// Returns whether x is an infinity with a positive sign.
 pub fn isPositiveInf(x: var) bool {
-    const T = @typeOf(x);
+    const T = @TypeOf(x);
     switch (T) {
         f16 => {
             return @bitCast(u16, x) == 0x7C00;
@@ -53,7 +53,7 @@ pub fn isPositiveInf(x: var) bool {
 
 /// Returns whether x is an infinity with a negative sign.
 pub fn isNegativeInf(x: var) bool {
-    const T = @typeOf(x);
+    const T = @TypeOf(x);
     switch (T) {
         f16 => {
             return @bitCast(u16, x) == 0xFC00;
@@ -74,14 +74,14 @@ pub fn isNegativeInf(x: var) bool {
 }
 
 test "math.isInf" {
-    expect(!isInf(f16(0.0)));
-    expect(!isInf(f16(-0.0)));
-    expect(!isInf(f32(0.0)));
-    expect(!isInf(f32(-0.0)));
-    expect(!isInf(f64(0.0)));
-    expect(!isInf(f64(-0.0)));
-    expect(!isInf(f128(0.0)));
-    expect(!isInf(f128(-0.0)));
+    expect(!isInf(@as(f16, 0.0)));
+    expect(!isInf(@as(f16, -0.0)));
+    expect(!isInf(@as(f32, 0.0)));
+    expect(!isInf(@as(f32, -0.0)));
+    expect(!isInf(@as(f64, 0.0)));
+    expect(!isInf(@as(f64, -0.0)));
+    expect(!isInf(@as(f128, 0.0)));
+    expect(!isInf(@as(f128, -0.0)));
     expect(isInf(math.inf(f16)));
     expect(isInf(-math.inf(f16)));
     expect(isInf(math.inf(f32)));
@@ -93,14 +93,14 @@ test "math.isInf" {
 }
 
 test "math.isPositiveInf" {
-    expect(!isPositiveInf(f16(0.0)));
-    expect(!isPositiveInf(f16(-0.0)));
-    expect(!isPositiveInf(f32(0.0)));
-    expect(!isPositiveInf(f32(-0.0)));
-    expect(!isPositiveInf(f64(0.0)));
-    expect(!isPositiveInf(f64(-0.0)));
-    expect(!isPositiveInf(f128(0.0)));
-    expect(!isPositiveInf(f128(-0.0)));
+    expect(!isPositiveInf(@as(f16, 0.0)));
+    expect(!isPositiveInf(@as(f16, -0.0)));
+    expect(!isPositiveInf(@as(f32, 0.0)));
+    expect(!isPositiveInf(@as(f32, -0.0)));
+    expect(!isPositiveInf(@as(f64, 0.0)));
+    expect(!isPositiveInf(@as(f64, -0.0)));
+    expect(!isPositiveInf(@as(f128, 0.0)));
+    expect(!isPositiveInf(@as(f128, -0.0)));
     expect(isPositiveInf(math.inf(f16)));
     expect(!isPositiveInf(-math.inf(f16)));
     expect(isPositiveInf(math.inf(f32)));
@@ -112,14 +112,14 @@ test "math.isPositiveInf" {
 }
 
 test "math.isNegativeInf" {
-    expect(!isNegativeInf(f16(0.0)));
-    expect(!isNegativeInf(f16(-0.0)));
-    expect(!isNegativeInf(f32(0.0)));
-    expect(!isNegativeInf(f32(-0.0)));
-    expect(!isNegativeInf(f64(0.0)));
-    expect(!isNegativeInf(f64(-0.0)));
-    expect(!isNegativeInf(f128(0.0)));
-    expect(!isNegativeInf(f128(-0.0)));
+    expect(!isNegativeInf(@as(f16, 0.0)));
+    expect(!isNegativeInf(@as(f16, -0.0)));
+    expect(!isNegativeInf(@as(f32, 0.0)));
+    expect(!isNegativeInf(@as(f32, -0.0)));
+    expect(!isNegativeInf(@as(f64, 0.0)));
+    expect(!isNegativeInf(@as(f64, -0.0)));
+    expect(!isNegativeInf(@as(f128, 0.0)));
+    expect(!isNegativeInf(@as(f128, -0.0)));
     expect(!isNegativeInf(math.inf(f16)));
     expect(isNegativeInf(-math.inf(f16)));
     expect(!isNegativeInf(math.inf(f32)));

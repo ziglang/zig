@@ -7,7 +7,6 @@ extern "C" {
 
 #include <stdint.h>
 #include <netinet/in.h>
-#include <endian.h>
 
 struct ip6_hdr {
 	union {

@@ -1,5 +1,3 @@
-#include <endian.h>
-
 #if __mips_isa_rev >= 6
 #define ISA_SUFFIX "r6"
 #else

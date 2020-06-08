@@ -1,16 +1,19 @@
 const uefi = @import("std").os.uefi;
 const Guid = uefi.Guid;
+const Status = uefi.Status;
 
-/// UEFI Specification, Version 2.8, 37.5
+/// Random Number Generator protocol
 pub const RNGProtocol = extern struct {
-    _get_info: extern fn (*const RNGProtocol, *usize, [*]align(8) Guid) usize,
-    _get_rng: extern fn (*const RNGProtocol, ?*align(8) const Guid, usize, [*]u8) usize,
+    _get_info: fn (*const RNGProtocol, *usize, [*]align(8) Guid) callconv(.C) Status,
+    _get_rng: fn (*const RNGProtocol, ?*align(8) const Guid, usize, [*]u8) callconv(.C) Status,
 
-    pub fn getInfo(self: *const RNGProtocol, list_size: *usize, list: [*]align(8) Guid) usize {
+    /// Returns information about the random number generation implementation.
+    pub fn getInfo(self: *const RNGProtocol, list_size: *usize, list: [*]align(8) Guid) Status {
         return self._get_info(self, list_size, list);
     }
 
-    pub fn getRNG(self: *const RNGProtocol, algo: ?*align(8) const Guid, value_length: usize, value: [*]u8) usize {
+    /// Produces and returns an RNG value using either the default or specified RNG algorithm.
+    pub fn getRNG(self: *const RNGProtocol, algo: ?*align(8) const Guid, value_length: usize, value: [*]u8) Status {
         return self._get_rng(self, algo, value_length, value);
     }
 

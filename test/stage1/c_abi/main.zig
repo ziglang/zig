@@ -119,12 +119,12 @@ export fn zig_bool(x: bool) void {
 extern fn c_array([10]u8) void;
 
 test "C ABI array" {
-    var array: [10]u8 = "1234567890";
+    var array: [10]u8 = "1234567890".*;
     c_array(array);
 }
 
 export fn zig_array(x: [10]u8) void {
-    expect(std.mem.eql(u8, x, "1234567890"));
+    expect(std.mem.eql(u8, &x, "1234567890"));
 }
 
 const BigStruct = extern struct {
@@ -260,4 +260,38 @@ export fn zig_big_struct_both(x: BigStruct) BigStruct {
         .e = 24,
     };
     return s;
+}
+
+const Vector3 = extern struct {
+    x: f32,
+    y: f32,
+    z: f32,
+};
+extern fn c_small_struct_floats(Vector3) void;
+
+const Vector5 = extern struct {
+    x: f32,
+    y: f32,
+    z: f32,
+    w: f32,
+    q: f32,
+};
+extern fn c_big_struct_floats(Vector5) void;
+
+test "C ABI structs of floats as parameter" {
+    var v3 = Vector3{
+        .x = 3.0,
+        .y = 6.0,
+        .z = 12.0,
+    };
+    c_small_struct_floats(v3);
+
+    var v5 = Vector5{
+        .x = 76.0,
+        .y = -1.0,
+        .z = -12.0,
+        .w = 69.0,
+        .q = 55,
+    };
+    c_big_struct_floats(v5);
 }

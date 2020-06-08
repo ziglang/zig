@@ -409,7 +409,7 @@ public:
     static const mask xdigit = _ISxdigit;
     static const mask blank  = _ISblank;
 #if defined(__mips__)
-    static const mask __regex_word = static_cast<char_class_type>(_ISbit(15));
+    static const mask __regex_word = static_cast<mask>(_ISbit(15));
 #else
     static const mask __regex_word = 0x80;
 #endif

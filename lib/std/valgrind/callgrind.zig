@@ -1,4 +1,4 @@
-const std = @import("../index.zig");
+const std = @import("../std.zig");
 const valgrind = std.valgrind;
 
 pub const CallgrindClientRequest = extern enum {
@@ -20,7 +20,7 @@ fn doCallgrindClientRequestStmt(request: CallgrindClientRequest, a1: usize, a2: 
 
 /// Dump current state of cost centers, and zero them afterwards
 pub fn dumpStats() void {
-    doCallgrindClientRequestStmt(CallgrindClientRequest.DumpStats, 0, 0, 0, 0, 0);
+    doCallgrindClientRequestStmt(.DumpStats, 0, 0, 0, 0, 0);
 }
 
 /// Dump current state of cost centers, and zero them afterwards.
@@ -28,12 +28,12 @@ pub fn dumpStats() void {
 /// the dump. This string is written as a description field into the
 /// profile data dump.
 pub fn dumpStatsAt(pos_str: [*]u8) void {
-    doCallgrindClientRequestStmt(CallgrindClientRequest.DumpStatsAt, @ptrToInt(pos_str), 0, 0, 0, 0);
+    doCallgrindClientRequestStmt(.DumpStatsAt, @ptrToInt(pos_str), 0, 0, 0, 0);
 }
 
 /// Zero cost centers
 pub fn zeroStats() void {
-    doCallgrindClientRequestStmt(CallgrindClientRequest.ZeroStats, 0, 0, 0, 0, 0);
+    doCallgrindClientRequestStmt(.ZeroStats, 0, 0, 0, 0, 0);
 }
 
 /// Toggles collection state.
@@ -41,7 +41,7 @@ pub fn zeroStats() void {
 /// should be noted or if they are to be ignored. Events are noted
 /// by increment of counters in a cost center
 pub fn toggleCollect() void {
-    doCallgrindClientRequestStmt(CallgrindClientRequest.ToggleCollect, 0, 0, 0, 0, 0);
+    doCallgrindClientRequestStmt(.ToggleCollect, 0, 0, 0, 0, 0);
 }
 
 /// Start full callgrind instrumentation if not already switched on.
@@ -49,7 +49,7 @@ pub fn toggleCollect() void {
 /// this will lead to an artificial cache warmup phase afterwards with
 /// cache misses which would not have happened in reality.
 pub fn startInstrumentation() void {
-    doCallgrindClientRequestStmt(CallgrindClientRequest.StartInstrumentation, 0, 0, 0, 0, 0);
+    doCallgrindClientRequestStmt(.StartInstrumentation, 0, 0, 0, 0, 0);
 }
 
 /// Stop full callgrind instrumentation if not already switched off.
@@ -60,5 +60,5 @@ pub fn startInstrumentation() void {
 /// To start Callgrind in this mode to ignore the setup phase, use
 /// the option "--instr-atstart=no".
 pub fn stopInstrumentation() void {
-    doCallgrindClientRequestStmt(CallgrindClientRequest.StopInstrumentation, 0, 0, 0, 0, 0);
+    doCallgrindClientRequestStmt(.StopInstrumentation, 0, 0, 0, 0, 0);
 }

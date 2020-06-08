@@ -1,5 +1,6 @@
 const std = @import("std");
 const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 const mem = std.mem;
 
 test "continue in for loop" {
@@ -26,12 +27,12 @@ test "for loop with pointer elem var" {
     var target: [source.len]u8 = undefined;
     mem.copy(u8, target[0..], source);
     mangleString(target[0..]);
-    expect(mem.eql(u8, target, "bcdefgh"));
+    expect(mem.eql(u8, &target, "bcdefgh"));
 
     for (source) |*c, i|
-        expect(@typeOf(c) == *const u8);
+        expect(@TypeOf(c) == *const u8);
     for (target) |*c, i|
-        expect(@typeOf(c) == *u8);
+        expect(@TypeOf(c) == *u8);
 }
 
 fn mangleString(s: []u8) void {
@@ -64,7 +65,7 @@ test "basic for loop" {
         buffer[buf_index] = @intCast(u8, index);
         buf_index += 1;
     }
-    const unknown_size: []const u8 = array;
+    const unknown_size: []const u8 = &array;
     for (unknown_size) |item| {
         buffer[buf_index] = item;
         buf_index += 1;
@@ -74,7 +75,7 @@ test "basic for loop" {
         buf_index += 1;
     }
 
-    expect(mem.eql(u8, buffer[0..buf_index], expected_result));
+    expect(mem.eql(u8, buffer[0..buf_index], &expected_result));
 }
 
 test "break from outer for loop" {
@@ -139,6 +140,33 @@ test "for with null and T peer types and inferred result location type" {
             }
         }
     };
-    S.doTheTest([_]u8{ 1, 2 });
-    comptime S.doTheTest([_]u8{ 1, 2 });
+    S.doTheTest(&[_]u8{ 1, 2 });
+    comptime S.doTheTest(&[_]u8{ 1, 2 });
+}
+
+test "for copies its payload" {
+    const S = struct {
+        fn doTheTest() void {
+            var x = [_]usize{ 1, 2, 3 };
+            for (x) |value, i| {
+                // Modify the original array
+                x[i] += 99;
+                expectEqual(value, i + 1);
+            }
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "for on slice with allowzero ptr" {
+    const S = struct {
+        fn doTheTest(slice: []const u8) void {
+            var ptr = @ptrCast([*]allowzero const u8, slice.ptr)[0..slice.len];
+            for (ptr) |x, i| expect(x == i + 1);
+            for (ptr) |*x, i| expect(x.* == i + 1);
+        }
+    };
+    S.doTheTest(&[_]u8{ 1, 2, 3, 4 });
+    comptime S.doTheTest(&[_]u8{ 1, 2, 3, 4 });
 }

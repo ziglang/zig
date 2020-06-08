@@ -1,7 +1,0 @@
---- !mach-o
-arch:            armv7
-file-type:       MH_DYLIB
-install-name:    /usr/lib/libSystem.B.dylib
-exports:
-  - name:            _printf
-  - name:            dyld_stub_binder

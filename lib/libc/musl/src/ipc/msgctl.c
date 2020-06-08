@@ -18,16 +18,23 @@ int msgctl(int q, int cmd, struct msqid_ds *buf)
 	}
 #endif
 #ifndef SYS_ipc
-	int r = __syscall(SYS_msgctl, q, cmd | IPC_64, buf);
+	int r = __syscall(SYS_msgctl, q, IPC_CMD(cmd), buf);
 #else
-	int r = __syscall(SYS_ipc, IPCOP_msgctl, q, cmd | IPC_64, 0, buf, 0);
+	int r = __syscall(SYS_ipc, IPCOP_msgctl, q, IPC_CMD(cmd), 0, buf, 0);
 #endif
 #ifdef SYSCALL_IPC_BROKEN_MODE
-	if (r >= 0) switch (cmd) {
+	if (r >= 0) switch (cmd | IPC_TIME64) {
 	case IPC_STAT:
 	case MSG_STAT:
 	case MSG_STAT_ANY:
 		buf->msg_perm.mode >>= 16;
+	}
+#endif
+#if IPC_TIME64
+	if (r >= 0 && (cmd&IPC_TIME64)) {
+		IPC_HILO(buf, msg_stime);
+		IPC_HILO(buf, msg_rtime);
+		IPC_HILO(buf, msg_ctime);
 	}
 #endif
 	return __syscall_ret(r);

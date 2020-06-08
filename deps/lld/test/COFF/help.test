@@ -1,3 +1,0 @@
-# RUN: lld-link /help | FileCheck %s
-
-CHECK: OVERVIEW: LLVM Linker

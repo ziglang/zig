@@ -6,8 +6,6 @@ __tlsdesc_static:
 	mov 4(%eax),%eax
 	ret
 
-.hidden __tls_get_new
-
 .global __tlsdesc_dynamic
 .hidden __tlsdesc_dynamic
 .type __tlsdesc_dynamic,@function

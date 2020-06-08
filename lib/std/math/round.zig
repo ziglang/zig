@@ -15,8 +15,8 @@ const math = std.math;
 ///  - round(+-0)   = +-0
 ///  - round(+-inf) = +-inf
 ///  - round(nan)   = nan
-pub fn round(x: var) @typeOf(x) {
-    const T = @typeOf(x);
+pub fn round(x: var) @TypeOf(x) {
+    const T = @TypeOf(x);
     return switch (T) {
         f32 => round32(x),
         f64 => round64(x),
@@ -91,8 +91,8 @@ fn round64(x_: f64) f64 {
 }
 
 test "math.round" {
-    expect(round(f32(1.3)) == round32(1.3));
-    expect(round(f64(1.3)) == round64(1.3));
+    expect(round(@as(f32, 1.3)) == round32(1.3));
+    expect(round(@as(f64, 1.3)) == round64(1.3));
 }
 
 test "math.round32" {

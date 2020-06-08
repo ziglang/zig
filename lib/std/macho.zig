@@ -24,6 +24,17 @@ pub const load_command = extern struct {
     cmdsize: u32,
 };
 
+pub const uuid_command = extern struct {
+    /// LC_UUID
+    cmd: u32,
+
+    /// sizeof(struct uuid_command)
+    cmdsize: u32,
+
+    /// the 128-bit uuid
+    uuid: [16]u8,
+};
+
 /// The symtab_command contains the offsets and sizes of the link-edit 4.3BSD
 /// "stab" style symbol table information as described in the header files
 /// <nlist.h> and <stab.h>.

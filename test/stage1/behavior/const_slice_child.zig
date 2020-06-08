@@ -1,17 +1,17 @@
 const std = @import("std");
 const debug = std.debug;
-const expect = std.testing.expect;
+const testing = std.testing;
+const expect = testing.expect;
 
 var argv: [*]const [*]const u8 = undefined;
 
 test "const slice child" {
     const strs = [_][*]const u8{
-        c"one",
-        c"two",
-        c"three",
+        "one",
+        "two",
+        "three",
     };
-    // TODO this should implicitly cast
-    argv = @ptrCast([*]const [*]const u8, &strs);
+    argv = &strs;
     bar(strs.len);
 }
 
@@ -23,7 +23,8 @@ fn foo(args: [][]const u8) void {
 }
 
 fn bar(argc: usize) void {
-    const args = debug.global_allocator.alloc([]const u8, argc) catch unreachable;
+    const args = testing.allocator.alloc([]const u8, argc) catch unreachable;
+    defer testing.allocator.free(args);
     for (args) |_, i| {
         const ptr = argv[i];
         args[i] = ptr[0..strlen(ptr)];

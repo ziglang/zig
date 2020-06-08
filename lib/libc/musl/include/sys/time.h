@@ -56,6 +56,20 @@ int adjtime (const struct timeval *, struct timeval *);
 	(void)0 )
 #endif
 
+#if _REDIR_TIME64
+__REDIR(gettimeofday, __gettimeofday_time64);
+__REDIR(getitimer, __getitimer_time64);
+__REDIR(setitimer, __setitimer_time64);
+__REDIR(utimes, __utimes_time64);
+#if defined(_GNU_SOURCE) || defined(_BSD_SOURCE)
+__REDIR(futimes, __futimes_time64);
+__REDIR(futimesat, __futimesat_time64);
+__REDIR(lutimes, __lutimes_time64);
+__REDIR(settimeofday, __settimeofday_time64);
+__REDIR(adjtime, __adjtime64);
+#endif
+#endif
+
 #ifdef __cplusplus
 }
 #endif

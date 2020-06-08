@@ -7,8 +7,6 @@
 const std = @import("../std.zig");
 const math = std.math;
 const testing = std.testing;
-const builtin = @import("builtin");
-const TypeId = builtin.TypeId;
 const maxInt = std.math.maxInt;
 
 /// Returns the base-10 logarithm of x.
@@ -18,23 +16,23 @@ const maxInt = std.math.maxInt;
 ///  - log10(0)     = -inf
 ///  - log10(x)     = nan if x < 0
 ///  - log10(nan)   = nan
-pub fn log10(x: var) @typeOf(x) {
-    const T = @typeOf(x);
-    switch (@typeId(T)) {
-        TypeId.ComptimeFloat => {
-            return @typeOf(1.0)(log10_64(x));
+pub fn log10(x: var) @TypeOf(x) {
+    const T = @TypeOf(x);
+    switch (@typeInfo(T)) {
+        .ComptimeFloat => {
+            return @as(comptime_float, log10_64(x));
         },
-        TypeId.Float => {
+        .Float => {
             return switch (T) {
                 f32 => log10_32(x),
                 f64 => log10_64(x),
                 else => @compileError("log10 not implemented for " ++ @typeName(T)),
             };
         },
-        TypeId.ComptimeInt => {
-            return @typeOf(1)(math.floor(log10_64(f64(x))));
+        .ComptimeInt => {
+            return @as(comptime_int, math.floor(log10_64(@as(f64, x))));
         },
-        TypeId.Int => {
+        .Int => {
             return @floatToInt(T, math.floor(log10_64(@intToFloat(f64, x))));
         },
         else => @compileError("log10 not implemented for " ++ @typeName(T)),
@@ -143,7 +141,7 @@ pub fn log10_64(x_: f64) f64 {
     hx += 0x3FF00000 - 0x3FE6A09E;
     k += @intCast(i32, hx >> 20) - 0x3FF;
     hx = (hx & 0x000FFFFF) + 0x3FE6A09E;
-    ix = (u64(hx) << 32) | (ix & 0xFFFFFFFF);
+    ix = (@as(u64, hx) << 32) | (ix & 0xFFFFFFFF);
     x = @bitCast(f64, ix);
 
     const f = x - 1.0;
@@ -158,7 +156,7 @@ pub fn log10_64(x_: f64) f64 {
     // hi + lo = f - hfsq + s * (hfsq + R) ~ log(1 + f)
     var hi = f - hfsq;
     var hii = @bitCast(u64, hi);
-    hii &= u64(maxInt(u64)) << 32;
+    hii &= @as(u64, maxInt(u64)) << 32;
     hi = @bitCast(f64, hii);
     const lo = f - hi - hfsq + s * (hfsq + R);
 
@@ -177,8 +175,8 @@ pub fn log10_64(x_: f64) f64 {
 }
 
 test "math.log10" {
-    testing.expect(log10(f32(0.2)) == log10_32(0.2));
-    testing.expect(log10(f64(0.2)) == log10_64(0.2));
+    testing.expect(log10(@as(f32, 0.2)) == log10_32(0.2));
+    testing.expect(log10(@as(f64, 0.2)) == log10_64(0.2));
 }
 
 test "math.log10_32" {

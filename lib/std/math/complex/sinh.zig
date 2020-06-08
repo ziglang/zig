@@ -14,8 +14,8 @@ const Complex = cmath.Complex;
 const ldexp_cexp = @import("ldexp.zig").ldexp_cexp;
 
 /// Returns the hyperbolic sine of z.
-pub fn sinh(z: var) @typeOf(z) {
-    const T = @typeOf(z.re);
+pub fn sinh(z: var) @TypeOf(z) {
+    const T = @TypeOf(z.re);
     return switch (T) {
         f32 => sinh32(z),
         f64 => sinh64(z),
@@ -164,10 +164,6 @@ test "complex.csinh32" {
 }
 
 test "complex.csinh64" {
-    if (builtin.os == .linux and builtin.arch == .arm and builtin.abi == .musleabihf) {
-        // TODO https://github.com/ziglang/zig/issues/3289
-        return error.SkipZigTest;
-    }
     const a = Complex(f64).new(5, 3);
     const c = sinh(a);
 

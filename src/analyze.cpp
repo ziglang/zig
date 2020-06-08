@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Copyright (c) 2015 Andrew Kelley
  *
  * This file is part of zig, which is MIT licensed.
@@ -80,7 +80,7 @@ ErrorMsg *add_error_note(CodeGen *g, ErrorMsg *parent_msg, const AstNode *node, 
 }
 
 ZigType *new_type_table_entry(ZigTypeId id) {
-    ZigType *entry = allocate<ZigType>(1);
+    ZigType *entry = heap::c_allocator.create<ZigType>();
     entry->id = id;
     return entry;
 }
@@ -106,6 +106,7 @@ static ScopeExpr *find_expr_scope(Scope *scope) {
             case ScopeIdDecls:
             case ScopeIdFnDef:
             case ScopeIdCompTime:
+            case ScopeIdNoSuspend:
             case ScopeIdVarDecl:
             case ScopeIdCImport:
             case ScopeIdSuspend:
@@ -118,6 +119,12 @@ static ScopeExpr *find_expr_scope(Scope *scope) {
                 continue;
         }
     }
+}
+
+static void update_progress_display(CodeGen *g) {
+    stage2_progress_update_node(g->sub_progress_node,
+        g->resolve_queue_index + g->fn_defs_index,
+        g->resolve_queue.length + g->fn_defs.length);
 }
 
 ScopeDecls *get_container_scope(ZigType *type_entry) {
@@ -134,8 +141,7 @@ void init_scope(CodeGen *g, Scope *dest, ScopeId id, AstNode *source_node, Scope
 static ScopeDecls *create_decls_scope(CodeGen *g, AstNode *node, Scope *parent, ZigType *container_type,
         ZigType *import, Buf *bare_name)
 {
-    assert(node == nullptr || node->type == NodeTypeContainerDecl || node->type == NodeTypeFnCallExpr);
-    ScopeDecls *scope = allocate<ScopeDecls>(1);
+    ScopeDecls *scope = heap::c_allocator.create<ScopeDecls>();
     init_scope(g, &scope->base, ScopeIdDecls, node, parent);
     scope->decl_table.init(4);
     scope->container_type = container_type;
@@ -146,7 +152,7 @@ static ScopeDecls *create_decls_scope(CodeGen *g, AstNode *node, Scope *parent, 
 
 ScopeBlock *create_block_scope(CodeGen *g, AstNode *node, Scope *parent) {
     assert(node->type == NodeTypeBlock);
-    ScopeBlock *scope = allocate<ScopeBlock>(1);
+    ScopeBlock *scope = heap::c_allocator.create<ScopeBlock>();
     init_scope(g, &scope->base, ScopeIdBlock, node, parent);
     scope->name = node->data.block.name;
     return scope;
@@ -154,20 +160,20 @@ ScopeBlock *create_block_scope(CodeGen *g, AstNode *node, Scope *parent) {
 
 ScopeDefer *create_defer_scope(CodeGen *g, AstNode *node, Scope *parent) {
     assert(node->type == NodeTypeDefer);
-    ScopeDefer *scope = allocate<ScopeDefer>(1);
+    ScopeDefer *scope = heap::c_allocator.create<ScopeDefer>();
     init_scope(g, &scope->base, ScopeIdDefer, node, parent);
     return scope;
 }
 
 ScopeDeferExpr *create_defer_expr_scope(CodeGen *g, AstNode *node, Scope *parent) {
     assert(node->type == NodeTypeDefer);
-    ScopeDeferExpr *scope = allocate<ScopeDeferExpr>(1);
+    ScopeDeferExpr *scope = heap::c_allocator.create<ScopeDeferExpr>();
     init_scope(g, &scope->base, ScopeIdDeferExpr, node, parent);
     return scope;
 }
 
 Scope *create_var_scope(CodeGen *g, AstNode *node, Scope *parent, ZigVar *var) {
-    ScopeVarDecl *scope = allocate<ScopeVarDecl>(1);
+    ScopeVarDecl *scope = heap::c_allocator.create<ScopeVarDecl>();
     init_scope(g, &scope->base, ScopeIdVarDecl, node, parent);
     scope->var = var;
     return &scope->base;
@@ -175,14 +181,14 @@ Scope *create_var_scope(CodeGen *g, AstNode *node, Scope *parent, ZigVar *var) {
 
 ScopeCImport *create_cimport_scope(CodeGen *g, AstNode *node, Scope *parent) {
     assert(node->type == NodeTypeFnCallExpr);
-    ScopeCImport *scope = allocate<ScopeCImport>(1);
+    ScopeCImport *scope = heap::c_allocator.create<ScopeCImport>();
     init_scope(g, &scope->base, ScopeIdCImport, node, parent);
     buf_resize(&scope->buf, 0);
     return scope;
 }
 
 ScopeLoop *create_loop_scope(CodeGen *g, AstNode *node, Scope *parent) {
-    ScopeLoop *scope = allocate<ScopeLoop>(1);
+    ScopeLoop *scope = heap::c_allocator.create<ScopeLoop>();
     init_scope(g, &scope->base, ScopeIdLoop, node, parent);
     if (node->type == NodeTypeWhileExpr) {
         scope->name = node->data.while_expr.name;
@@ -194,8 +200,8 @@ ScopeLoop *create_loop_scope(CodeGen *g, AstNode *node, Scope *parent) {
     return scope;
 }
 
-Scope *create_runtime_scope(CodeGen *g, AstNode *node, Scope *parent, IrInstruction *is_comptime) {
-    ScopeRuntime *scope = allocate<ScopeRuntime>(1);
+Scope *create_runtime_scope(CodeGen *g, AstNode *node, Scope *parent, IrInstSrc *is_comptime) {
+    ScopeRuntime *scope = heap::c_allocator.create<ScopeRuntime>();
     scope->is_comptime = is_comptime;
     init_scope(g, &scope->base, ScopeIdRuntime, node, parent);
     return &scope->base;
@@ -203,37 +209,43 @@ Scope *create_runtime_scope(CodeGen *g, AstNode *node, Scope *parent, IrInstruct
 
 ScopeSuspend *create_suspend_scope(CodeGen *g, AstNode *node, Scope *parent) {
     assert(node->type == NodeTypeSuspend);
-    ScopeSuspend *scope = allocate<ScopeSuspend>(1);
+    ScopeSuspend *scope = heap::c_allocator.create<ScopeSuspend>();
     init_scope(g, &scope->base, ScopeIdSuspend, node, parent);
     return scope;
 }
 
 ScopeFnDef *create_fndef_scope(CodeGen *g, AstNode *node, Scope *parent, ZigFn *fn_entry) {
-    ScopeFnDef *scope = allocate<ScopeFnDef>(1);
+    ScopeFnDef *scope = heap::c_allocator.create<ScopeFnDef>();
     init_scope(g, &scope->base, ScopeIdFnDef, node, parent);
     scope->fn_entry = fn_entry;
     return scope;
 }
 
 Scope *create_comptime_scope(CodeGen *g, AstNode *node, Scope *parent) {
-    ScopeCompTime *scope = allocate<ScopeCompTime>(1);
+    ScopeCompTime *scope = heap::c_allocator.create<ScopeCompTime>();
     init_scope(g, &scope->base, ScopeIdCompTime, node, parent);
     return &scope->base;
 }
 
+Scope *create_nosuspend_scope(CodeGen *g, AstNode *node, Scope *parent) {
+    ScopeNoSuspend *scope = heap::c_allocator.create<ScopeNoSuspend>();
+    init_scope(g, &scope->base, ScopeIdNoSuspend, node, parent);
+    return &scope->base;
+}
+
 Scope *create_typeof_scope(CodeGen *g, AstNode *node, Scope *parent) {
-    ScopeTypeOf *scope = allocate<ScopeTypeOf>(1);
+    ScopeTypeOf *scope = heap::c_allocator.create<ScopeTypeOf>();
     init_scope(g, &scope->base, ScopeIdTypeOf, node, parent);
     return &scope->base;
 }
 
 ScopeExpr *create_expr_scope(CodeGen *g, AstNode *node, Scope *parent) {
-    ScopeExpr *scope = allocate<ScopeExpr>(1);
+    ScopeExpr *scope = heap::c_allocator.create<ScopeExpr>();
     init_scope(g, &scope->base, ScopeIdExpr, node, parent);
     ScopeExpr *parent_expr = find_expr_scope(parent);
     if (parent_expr != nullptr) {
         size_t new_len = parent_expr->children_len + 1;
-        parent_expr->children_ptr = reallocate_nonzero<ScopeExpr *>(
+        parent_expr->children_ptr = heap::c_allocator.reallocate_nonzero<ScopeExpr *>(
                 parent_expr->children_ptr, parent_expr->children_len, new_len);
         parent_expr->children_ptr[parent_expr->children_len] = scope;
         parent_expr->children_len = new_len;
@@ -318,7 +330,6 @@ AstNode *type_decl_node(ZigType *type_entry) {
         case ZigTypeIdErrorSet:
         case ZigTypeIdFn:
         case ZigTypeIdBoundFn:
-        case ZigTypeIdArgTuple:
         case ZigTypeIdVector:
         case ZigTypeIdAnyFrame:
             return nullptr;
@@ -340,6 +351,8 @@ bool type_is_resolved(ZigType *type_entry, ResolveStatus status) {
             switch (status) {
                 case ResolveStatusInvalid:
                     zig_unreachable();
+                case ResolveStatusBeingInferred:
+                    zig_unreachable();
                 case ResolveStatusUnstarted:
                 case ResolveStatusZeroBitsKnown:
                     return true;
@@ -350,11 +363,14 @@ bool type_is_resolved(ZigType *type_entry, ResolveStatus status) {
                 case ResolveStatusLLVMFull:
                     return type_entry->llvm_type != nullptr;
             }
+            zig_unreachable();
         case ZigTypeIdOpaque:
             return status < ResolveStatusSizeKnown;
         case ZigTypeIdPointer:
             switch (status) {
                 case ResolveStatusInvalid:
+                    zig_unreachable();
+                case ResolveStatusBeingInferred:
                     zig_unreachable();
                 case ResolveStatusUnstarted:
                     return true;
@@ -366,6 +382,7 @@ bool type_is_resolved(ZigType *type_entry, ResolveStatus status) {
                 case ResolveStatusLLVMFull:
                     return type_entry->llvm_type != nullptr;
             }
+            zig_unreachable();
         case ZigTypeIdMetaType:
         case ZigTypeIdVoid:
         case ZigTypeIdBool:
@@ -383,7 +400,6 @@ bool type_is_resolved(ZigType *type_entry, ResolveStatus status) {
         case ZigTypeIdErrorSet:
         case ZigTypeIdFn:
         case ZigTypeIdBoundFn:
-        case ZigTypeIdArgTuple:
         case ZigTypeIdVector:
         case ZigTypeIdAnyFrame:
             return true;
@@ -411,7 +427,7 @@ uint32_t get_abi_alignment(CodeGen *g, ZigType *type_entry) {
 }
 
 static bool is_slice(ZigType *type) {
-    return type->id == ZigTypeIdStruct && type->data.structure.is_slice;
+    return type->id == ZigTypeIdStruct && type->data.structure.special == StructSpecialSlice;
 }
 
 ZigType *get_smallest_unsigned_int_type(CodeGen *g, uint64_t x) {
@@ -443,18 +459,6 @@ ZigType *get_any_frame_type(CodeGen *g, ZigType *result_type) {
     return entry;
 }
 
-static const char *ptr_len_to_star_str(PtrLen ptr_len) {
-    switch (ptr_len) {
-        case PtrLenSingle:
-            return "*";
-        case PtrLenUnknown:
-            return "[*]";
-        case PtrLenC:
-            return "[*c]";
-    }
-    zig_unreachable();
-}
-
 ZigType *get_fn_frame_type(CodeGen *g, ZigFn *fn) {
     if (fn->frame_type != nullptr) {
         return fn->frame_type;
@@ -474,9 +478,47 @@ ZigType *get_fn_frame_type(CodeGen *g, ZigFn *fn) {
     return entry;
 }
 
-ZigType *get_pointer_to_type_extra(CodeGen *g, ZigType *child_type, bool is_const,
+static void append_ptr_type_attrs(Buf *type_name, ZigType *ptr_type) {
+    const char *const_str = ptr_type->data.pointer.is_const ? "const " : "";
+    const char *volatile_str = ptr_type->data.pointer.is_volatile ? "volatile " : "";
+    const char *allow_zero_str;
+    if (ptr_type->data.pointer.ptr_len == PtrLenC) {
+        assert(ptr_type->data.pointer.allow_zero);
+        allow_zero_str = "";
+    } else {
+        allow_zero_str = ptr_type->data.pointer.allow_zero ? "allowzero " : "";
+    }
+    if (ptr_type->data.pointer.explicit_alignment != 0 || ptr_type->data.pointer.host_int_bytes != 0 ||
+            ptr_type->data.pointer.vector_index != VECTOR_INDEX_NONE)
+    {
+        buf_appendf(type_name, "align(");
+        if (ptr_type->data.pointer.explicit_alignment != 0) {
+            buf_appendf(type_name, "%" PRIu32, ptr_type->data.pointer.explicit_alignment);
+        }
+        if (ptr_type->data.pointer.host_int_bytes != 0) {
+            buf_appendf(type_name, ":%" PRIu32 ":%" PRIu32, ptr_type->data.pointer.bit_offset_in_host, ptr_type->data.pointer.host_int_bytes);
+        }
+        if (ptr_type->data.pointer.vector_index == VECTOR_INDEX_RUNTIME) {
+            buf_appendf(type_name, ":?");
+        } else if (ptr_type->data.pointer.vector_index != VECTOR_INDEX_NONE) {
+            buf_appendf(type_name, ":%" PRIu32, ptr_type->data.pointer.vector_index);
+        }
+        buf_appendf(type_name, ") ");
+    }
+    buf_appendf(type_name, "%s%s%s", const_str, volatile_str, allow_zero_str);
+    if (ptr_type->data.pointer.inferred_struct_field != nullptr) {
+        buf_appendf(type_name, " field '%s' of %s)",
+                buf_ptr(ptr_type->data.pointer.inferred_struct_field->field_name),
+                buf_ptr(&ptr_type->data.pointer.inferred_struct_field->inferred_struct_type->name));
+    } else {
+        buf_appendf(type_name, "%s", buf_ptr(&ptr_type->data.pointer.child_type->name));
+    }
+}
+
+ZigType *get_pointer_to_type_extra2(CodeGen *g, ZigType *child_type, bool is_const,
         bool is_volatile, PtrLen ptr_len, uint32_t byte_alignment,
-        uint32_t bit_offset_in_host, uint32_t host_int_bytes, bool allow_zero)
+        uint32_t bit_offset_in_host, uint32_t host_int_bytes, bool allow_zero,
+        uint32_t vector_index, InferredStructField *inferred_struct_field, ZigValue *sentinel)
 {
     assert(ptr_len != PtrLenC || allow_zero);
     assert(!type_is_invalid(child_type));
@@ -488,7 +530,7 @@ ZigType *get_pointer_to_type_extra(CodeGen *g, ZigType *child_type, bool is_cons
             byte_alignment = 0;
     }
 
-    if (host_int_bytes != 0) {
+    if (host_int_bytes != 0 && vector_index == VECTOR_INDEX_NONE) {
         uint32_t child_type_bits = type_size_bits(g, child_type);
         if (host_int_bytes * 8 == child_type_bits) {
             assert(bit_offset_in_host == 0);
@@ -498,8 +540,12 @@ ZigType *get_pointer_to_type_extra(CodeGen *g, ZigType *child_type, bool is_cons
 
     TypeId type_id = {};
     ZigType **parent_pointer = nullptr;
-    if (host_int_bytes != 0 || is_volatile || byte_alignment != 0 || ptr_len != PtrLenSingle || allow_zero) {
+    if (host_int_bytes != 0 || is_volatile || byte_alignment != 0 || ptr_len != PtrLenSingle ||
+        allow_zero || vector_index != VECTOR_INDEX_NONE || inferred_struct_field != nullptr ||
+        sentinel != nullptr)
+    {
         type_id.id = ZigTypeIdPointer;
+        type_id.data.pointer.codegen = g;
         type_id.data.pointer.child_type = child_type;
         type_id.data.pointer.is_const = is_const;
         type_id.data.pointer.is_volatile = is_volatile;
@@ -508,6 +554,9 @@ ZigType *get_pointer_to_type_extra(CodeGen *g, ZigType *child_type, bool is_cons
         type_id.data.pointer.host_int_bytes = host_int_bytes;
         type_id.data.pointer.ptr_len = ptr_len;
         type_id.data.pointer.allow_zero = allow_zero;
+        type_id.data.pointer.vector_index = vector_index;
+        type_id.data.pointer.inferred_struct_field = inferred_struct_field;
+        type_id.data.pointer.sentinel = sentinel;
 
         auto existing_entry = g->type_table.maybe_get(type_id);
         if (existing_entry)
@@ -523,35 +572,42 @@ ZigType *get_pointer_to_type_extra(CodeGen *g, ZigType *child_type, bool is_cons
 
     ZigType *entry = new_type_table_entry(ZigTypeIdPointer);
 
-    const char *star_str = ptr_len_to_star_str(ptr_len);
-    const char *const_str = is_const ? "const " : "";
-    const char *volatile_str = is_volatile ? "volatile " : "";
-    const char *allow_zero_str;
-    if (ptr_len == PtrLenC) {
-        assert(allow_zero);
-        allow_zero_str = "";
-    } else {
-        allow_zero_str = allow_zero ? "allowzero " : "";
-    }
     buf_resize(&entry->name, 0);
-    if (host_int_bytes == 0 && byte_alignment == 0) {
-        buf_appendf(&entry->name, "%s%s%s%s%s",
-                star_str, const_str, volatile_str, allow_zero_str, buf_ptr(&child_type->name));
-    } else if (host_int_bytes == 0) {
-        buf_appendf(&entry->name, "%salign(%" PRIu32 ") %s%s%s%s", star_str, byte_alignment,
-                const_str, volatile_str, allow_zero_str, buf_ptr(&child_type->name));
-    } else if (byte_alignment == 0) {
-        buf_appendf(&entry->name, "%salign(:%" PRIu32 ":%" PRIu32 ") %s%s%s%s", star_str,
-                bit_offset_in_host, host_int_bytes, const_str, volatile_str, allow_zero_str,
-                buf_ptr(&child_type->name));
-    } else {
-        buf_appendf(&entry->name, "%salign(%" PRIu32 ":%" PRIu32 ":%" PRIu32 ") %s%s%s%s", star_str, byte_alignment,
-                bit_offset_in_host, host_int_bytes, const_str, volatile_str, allow_zero_str,
-                buf_ptr(&child_type->name));
+    if (inferred_struct_field != nullptr) {
+        buf_appendf(&entry->name, "(");
+    }
+    switch (ptr_len) {
+        case PtrLenSingle:
+            assert(sentinel == nullptr);
+            buf_appendf(&entry->name, "*");
+            break;
+        case PtrLenUnknown:
+            buf_appendf(&entry->name, "[*");
+            break;
+        case PtrLenC:
+            assert(sentinel == nullptr);
+            buf_appendf(&entry->name, "[*c]");
+            break;
+    }
+    if (sentinel != nullptr) {
+        buf_appendf(&entry->name, ":");
+        render_const_value(g, &entry->name, sentinel);
+    }
+    switch (ptr_len) {
+        case PtrLenSingle:
+        case PtrLenC:
+            break;
+        case PtrLenUnknown:
+            buf_appendf(&entry->name, "]");
+            break;
     }
 
-    if (type_is_resolved(child_type, ResolveStatusZeroBitsKnown)) {
-        if (type_has_bits(child_type)) {
+    if (inferred_struct_field != nullptr) {
+        entry->abi_size = SIZE_MAX;
+        entry->size_in_bits = SIZE_MAX;
+        entry->abi_align = UINT32_MAX;
+    } else if (type_is_resolved(child_type, ResolveStatusZeroBitsKnown)) {
+        if (type_has_bits(g, child_type)) {
             entry->abi_size = g->builtin_types.entry_usize->abi_size;
             entry->size_in_bits = g->builtin_types.entry_usize->size_in_bits;
             entry->abi_align = g->builtin_types.entry_usize->abi_align;
@@ -575,6 +631,11 @@ ZigType *get_pointer_to_type_extra(CodeGen *g, ZigType *child_type, bool is_cons
     entry->data.pointer.bit_offset_in_host = bit_offset_in_host;
     entry->data.pointer.host_int_bytes = host_int_bytes;
     entry->data.pointer.allow_zero = allow_zero;
+    entry->data.pointer.vector_index = vector_index;
+    entry->data.pointer.inferred_struct_field = inferred_struct_field;
+    entry->data.pointer.sentinel = sentinel;
+
+    append_ptr_type_attrs(&entry->name, entry);
 
     if (parent_pointer) {
         *parent_pointer = entry;
@@ -584,27 +645,47 @@ ZigType *get_pointer_to_type_extra(CodeGen *g, ZigType *child_type, bool is_cons
     return entry;
 }
 
+ZigType *get_pointer_to_type_extra(CodeGen *g, ZigType *child_type, bool is_const,
+        bool is_volatile, PtrLen ptr_len, uint32_t byte_alignment,
+        uint32_t bit_offset_in_host, uint32_t host_int_bytes, bool allow_zero)
+{
+    return get_pointer_to_type_extra2(g, child_type, is_const, is_volatile, ptr_len,
+            byte_alignment, bit_offset_in_host, host_int_bytes, allow_zero, VECTOR_INDEX_NONE, nullptr, nullptr);
+}
+
 ZigType *get_pointer_to_type(CodeGen *g, ZigType *child_type, bool is_const) {
-    return get_pointer_to_type_extra(g, child_type, is_const, false, PtrLenSingle, 0, 0, 0, false);
+    return get_pointer_to_type_extra2(g, child_type, is_const, false, PtrLenSingle, 0, 0, 0, false,
+            VECTOR_INDEX_NONE, nullptr, nullptr);
 }
 
 ZigType *get_optional_type(CodeGen *g, ZigType *child_type) {
+    ZigType *result = get_optional_type2(g, child_type);
+    if (result == nullptr) {
+        codegen_report_errors_and_exit(g);
+    }
+    return result;
+}
+
+ZigType *get_optional_type2(CodeGen *g, ZigType *child_type) {
     if (child_type->optional_parent != nullptr) {
         return child_type->optional_parent;
     }
 
-    assert(type_is_resolved(child_type, ResolveStatusSizeKnown));
+    Error err;
+    if ((err = type_resolve(g, child_type, ResolveStatusSizeKnown))) {
+        return nullptr;
+    }
 
     ZigType *entry = new_type_table_entry(ZigTypeIdOptional);
 
     buf_resize(&entry->name, 0);
     buf_appendf(&entry->name, "?%s", buf_ptr(&child_type->name));
 
-    if (!type_has_bits(child_type)) {
+    if (!type_has_bits(g, child_type)) {
         entry->size_in_bits = g->builtin_types.entry_bool->size_in_bits;
         entry->abi_size = g->builtin_types.entry_bool->abi_size;
         entry->abi_align = g->builtin_types.entry_bool->abi_align;
-    } else if (type_is_nonnull_ptr(child_type) || child_type->id == ZigTypeIdErrorSet) {
+    } else if (type_is_nonnull_ptr(g, child_type) || child_type->id == ZigTypeIdErrorSet) {
         // This is an optimization but also is necessary for calling C
         // functions where all pointers are optional pointers.
         // Function types are technically pointers.
@@ -669,8 +750,8 @@ ZigType *get_error_union_type(CodeGen *g, ZigType *err_set_type, ZigType *payloa
     entry->data.error_union.err_set_type = err_set_type;
     entry->data.error_union.payload_type = payload_type;
 
-    if (!type_has_bits(payload_type)) {
-        if (type_has_bits(err_set_type)) {
+    if (!type_has_bits(g, payload_type)) {
+        if (type_has_bits(g, err_set_type)) {
             entry->size_in_bits = err_set_type->size_in_bits;
             entry->abi_size = err_set_type->abi_size;
             entry->abi_align = err_set_type->abi_align;
@@ -679,7 +760,7 @@ ZigType *get_error_union_type(CodeGen *g, ZigType *err_set_type, ZigType *payloa
             entry->abi_size = 0;
             entry->abi_align = 0;
         }
-    } else if (!type_has_bits(err_set_type)) {
+    } else if (!type_has_bits(g, err_set_type)) {
         entry->size_in_bits = payload_type->size_in_bits;
         entry->abi_size = payload_type->abi_size;
         entry->abi_align = payload_type->abi_align;
@@ -701,29 +782,43 @@ ZigType *get_error_union_type(CodeGen *g, ZigType *err_set_type, ZigType *payloa
     return entry;
 }
 
-ZigType *get_array_type(CodeGen *g, ZigType *child_type, uint64_t array_size) {
+ZigType *get_array_type(CodeGen *g, ZigType *child_type, uint64_t array_size, ZigValue *sentinel) {
+    Error err;
+
     TypeId type_id = {};
     type_id.id = ZigTypeIdArray;
+    type_id.data.array.codegen = g;
     type_id.data.array.child_type = child_type;
     type_id.data.array.size = array_size;
+    type_id.data.array.sentinel = sentinel;
     auto existing_entry = g->type_table.maybe_get(type_id);
     if (existing_entry) {
         return existing_entry->value;
     }
 
-    assert(type_is_resolved(child_type, ResolveStatusSizeKnown));
+    size_t full_array_size = array_size + ((sentinel != nullptr) ? 1 : 0);
+
+    if (full_array_size != 0 && (err = type_resolve(g, child_type, ResolveStatusSizeKnown))) {
+        codegen_report_errors_and_exit(g);
+    }
 
     ZigType *entry = new_type_table_entry(ZigTypeIdArray);
 
     buf_resize(&entry->name, 0);
-    buf_appendf(&entry->name, "[%" ZIG_PRI_u64 "]%s", array_size, buf_ptr(&child_type->name));
+    buf_appendf(&entry->name, "[%" ZIG_PRI_u64, array_size);
+    if (sentinel != nullptr) {
+        buf_appendf(&entry->name, ":");
+        render_const_value(g, &entry->name, sentinel);
+    }
+    buf_appendf(&entry->name, "]%s", buf_ptr(&child_type->name));
 
-    entry->size_in_bits = child_type->size_in_bits * array_size;
-    entry->abi_align = child_type->abi_align;
-    entry->abi_size = child_type->abi_size * array_size;
+    entry->size_in_bits = child_type->size_in_bits * full_array_size;
+    entry->abi_align = (full_array_size == 0) ? 0 : child_type->abi_align;
+    entry->abi_size = child_type->abi_size * full_array_size;
 
     entry->data.array.child_type = child_type;
     entry->data.array.len = array_size;
+    entry->data.array.sentinel = sentinel;
 
     g->type_table.put(type_id, entry);
     return entry;
@@ -740,10 +835,14 @@ ZigType *get_slice_type(CodeGen *g, ZigType *ptr_type) {
 
     ZigType *entry = new_type_table_entry(ZigTypeIdStruct);
 
-    // replace the & with [] to go from a ptr type name to a slice type name
     buf_resize(&entry->name, 0);
-    size_t name_offset = (ptr_type->data.pointer.ptr_len == PtrLenSingle) ? 1 : 3;
-    buf_appendf(&entry->name, "[]%s", buf_ptr(&ptr_type->name) + name_offset);
+    buf_appendf(&entry->name, "[");
+    if (ptr_type->data.pointer.sentinel != nullptr) {
+        buf_appendf(&entry->name, ":");
+        render_const_value(g, &entry->name, ptr_type->data.pointer.sentinel);
+    }
+    buf_appendf(&entry->name, "]");
+    append_ptr_type_attrs(&entry->name, ptr_type);
 
     unsigned element_count = 2;
     Buf *ptr_field_name = buf_create_from_str("ptr");
@@ -751,22 +850,24 @@ ZigType *get_slice_type(CodeGen *g, ZigType *ptr_type) {
 
     entry->data.structure.resolve_status = ResolveStatusSizeKnown;
     entry->data.structure.layout = ContainerLayoutAuto;
-    entry->data.structure.is_slice = true;
+    entry->data.structure.special = StructSpecialSlice;
     entry->data.structure.src_field_count = element_count;
     entry->data.structure.gen_field_count = element_count;
-    entry->data.structure.fields = allocate<TypeStructField>(element_count);
+    entry->data.structure.fields = alloc_type_struct_fields(element_count);
     entry->data.structure.fields_by_name.init(element_count);
-    entry->data.structure.fields[slice_ptr_index].name = ptr_field_name;
-    entry->data.structure.fields[slice_ptr_index].type_entry = ptr_type;
-    entry->data.structure.fields[slice_ptr_index].src_index = slice_ptr_index;
-    entry->data.structure.fields[slice_ptr_index].gen_index = 0;
-    entry->data.structure.fields[slice_len_index].name = len_field_name;
-    entry->data.structure.fields[slice_len_index].type_entry = g->builtin_types.entry_usize;
-    entry->data.structure.fields[slice_len_index].src_index = slice_len_index;
-    entry->data.structure.fields[slice_len_index].gen_index = 1;
+    entry->data.structure.fields[slice_ptr_index]->name = ptr_field_name;
+    entry->data.structure.fields[slice_ptr_index]->type_entry = ptr_type;
+    entry->data.structure.fields[slice_ptr_index]->src_index = slice_ptr_index;
+    entry->data.structure.fields[slice_ptr_index]->gen_index = 0;
+    entry->data.structure.fields[slice_ptr_index]->offset = 0;
+    entry->data.structure.fields[slice_len_index]->name = len_field_name;
+    entry->data.structure.fields[slice_len_index]->type_entry = g->builtin_types.entry_usize;
+    entry->data.structure.fields[slice_len_index]->src_index = slice_len_index;
+    entry->data.structure.fields[slice_len_index]->gen_index = 1;
+    entry->data.structure.fields[slice_len_index]->offset = ptr_type->abi_size;
 
-    entry->data.structure.fields_by_name.put(ptr_field_name, &entry->data.structure.fields[slice_ptr_index]);
-    entry->data.structure.fields_by_name.put(len_field_name, &entry->data.structure.fields[slice_len_index]);
+    entry->data.structure.fields_by_name.put(ptr_field_name, entry->data.structure.fields[slice_ptr_index]);
+    entry->data.structure.fields_by_name.put(len_field_name, entry->data.structure.fields[slice_len_index]);
 
     switch (type_requires_comptime(g, ptr_type)) {
         case ReqCompTimeInvalid:
@@ -777,29 +878,13 @@ ZigType *get_slice_type(CodeGen *g, ZigType *ptr_type) {
             entry->data.structure.requires_comptime = true;
     }
 
-    if (!type_has_bits(ptr_type)) {
+    if (!type_has_bits(g, ptr_type)) {
         entry->data.structure.gen_field_count = 1;
-        entry->data.structure.fields[slice_ptr_index].gen_index = SIZE_MAX;
-        entry->data.structure.fields[slice_len_index].gen_index = 0;
+        entry->data.structure.fields[slice_ptr_index]->gen_index = SIZE_MAX;
+        entry->data.structure.fields[slice_len_index]->gen_index = 0;
     }
 
-    ZigType *child_type = ptr_type->data.pointer.child_type;
-    if (ptr_type->data.pointer.is_const || ptr_type->data.pointer.is_volatile ||
-        ptr_type->data.pointer.explicit_alignment != 0 || ptr_type->data.pointer.allow_zero)
-    {
-        ZigType *peer_ptr_type = get_pointer_to_type_extra(g, child_type, false, false,
-                PtrLenUnknown, 0, 0, 0, false);
-        ZigType *peer_slice_type = get_slice_type(g, peer_ptr_type);
-
-        entry->size_in_bits = peer_slice_type->size_in_bits;
-        entry->abi_size = peer_slice_type->abi_size;
-        entry->abi_align = peer_slice_type->abi_align;
-
-        *parent_pointer = entry;
-        return entry;
-    }
-
-    if (type_has_bits(ptr_type)) {
+    if (type_has_bits(g, ptr_type)) {
         entry->size_in_bits = ptr_type->size_in_bits + g->builtin_types.entry_usize->size_in_bits;
         entry->abi_size = ptr_type->abi_size + g->builtin_types.entry_usize->abi_size;
         entry->abi_align = ptr_type->abi_align;
@@ -856,24 +941,20 @@ ZigType *get_bound_fn_type(CodeGen *g, ZigFn *fn_entry) {
 
 const char *calling_convention_name(CallingConvention cc) {
     switch (cc) {
-        case CallingConventionUnspecified: return "undefined";
-        case CallingConventionC: return "ccc";
-        case CallingConventionCold: return "coldcc";
-        case CallingConventionNaked: return "nakedcc";
-        case CallingConventionStdcall: return "stdcallcc";
-        case CallingConventionAsync: return "async";
-    }
-    zig_unreachable();
-}
-
-static const char *calling_convention_fn_type_str(CallingConvention cc) {
-    switch (cc) {
-        case CallingConventionUnspecified: return "";
-        case CallingConventionC: return "extern ";
-        case CallingConventionCold: return "coldcc ";
-        case CallingConventionNaked: return "nakedcc ";
-        case CallingConventionStdcall: return "stdcallcc ";
-        case CallingConventionAsync: return "async ";
+        case CallingConventionUnspecified: return "Unspecified";
+        case CallingConventionC: return "C";
+        case CallingConventionCold: return "Cold";
+        case CallingConventionNaked: return "Naked";
+        case CallingConventionAsync: return "Async";
+        case CallingConventionInterrupt: return "Interrupt";
+        case CallingConventionSignal: return "Signal";
+        case CallingConventionStdcall: return "Stdcall";
+        case CallingConventionFastcall: return "Fastcall";
+        case CallingConventionVectorcall: return "Vectorcall";
+        case CallingConventionThiscall: return "Thiscall";
+        case CallingConventionAPCS: return "Apcs";
+        case CallingConventionAAPCS: return "Aapcs";
+        case CallingConventionAAPCSVFP: return "Aapcsvfp";
     }
     zig_unreachable();
 }
@@ -886,7 +967,15 @@ bool calling_convention_allows_zig_types(CallingConvention cc) {
         case CallingConventionC:
         case CallingConventionCold:
         case CallingConventionNaked:
+        case CallingConventionInterrupt:
+        case CallingConventionSignal:
         case CallingConventionStdcall:
+        case CallingConventionFastcall:
+        case CallingConventionVectorcall:
+        case CallingConventionThiscall:
+        case CallingConventionAPCS:
+        case CallingConventionAAPCS:
+        case CallingConventionAAPCSVFP:
             return false;
     }
     zig_unreachable();
@@ -894,10 +983,7 @@ bool calling_convention_allows_zig_types(CallingConvention cc) {
 
 ZigType *get_stack_trace_type(CodeGen *g) {
     if (g->stack_trace_type == nullptr) {
-        ConstExprValue *stack_trace_type_val = get_builtin_value(g, "StackTrace");
-        assert(stack_trace_type_val->type->id == ZigTypeIdMetaType);
-
-        g->stack_trace_type = stack_trace_type_val->data.x_type;
+        g->stack_trace_type = get_builtin_type(g, "StackTrace");
         assertNoError(type_resolve(g, g->stack_trace_type, ResolveStatusZeroBitsKnown));
     }
     return g->stack_trace_type;
@@ -905,23 +991,23 @@ ZigType *get_stack_trace_type(CodeGen *g) {
 
 bool want_first_arg_sret(CodeGen *g, FnTypeId *fn_type_id) {
     if (fn_type_id->cc == CallingConventionUnspecified) {
-        return handle_is_ptr(fn_type_id->return_type);
+        return handle_is_ptr(g, fn_type_id->return_type);
     }
     if (fn_type_id->cc != CallingConventionC) {
         return false;
     }
-    if (type_is_c_abi_int(g, fn_type_id->return_type)) {
+    if (type_is_c_abi_int_bail(g, fn_type_id->return_type)) {
         return false;
     }
-    if (g->zig_target->arch == ZigLLVM_x86) {
+    if (g->zig_target->arch == ZigLLVM_x86 ||
+        g->zig_target->arch == ZigLLVM_x86_64 ||
+        target_is_arm(g->zig_target) ||
+        target_is_riscv(g->zig_target) ||
+        target_is_wasm(g->zig_target))
+    {
         X64CABIClass abi_class = type_c_abi_x86_64_class(g, fn_type_id->return_type);
-        return abi_class == X64CABIClass_MEMORY;
-    } else if (g->zig_target->arch == ZigLLVM_x86_64) {
-        X64CABIClass abi_class = type_c_abi_x86_64_class(g, fn_type_id->return_type);
-        return abi_class == X64CABIClass_MEMORY;
-    } else if (target_is_arm(g->zig_target) || target_is_riscv(g->zig_target)) {
-        return type_size(g, fn_type_id->return_type) > 16;
-    } else if (g->zig_target->arch == ZigLLVM_mipsel) {
+        return abi_class == X64CABIClass_MEMORY || abi_class == X64CABIClass_MEMORY_nobyval;
+    } else if (g->zig_target->arch == ZigLLVM_mips || g->zig_target->arch == ZigLLVM_mipsel) {
         return false;
     }
     zig_panic("TODO implement C ABI for this architecture. See https://github.com/ziglang/zig/issues/1481");
@@ -946,8 +1032,6 @@ ZigType *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
 
     // populate the name of the type
     buf_resize(&fn_type->name, 0);
-    const char *cc_str = calling_convention_fn_type_str(fn_type->data.fn.fn_type_id.cc);
-    buf_appendf(&fn_type->name, "%s", cc_str);
     buf_appendf(&fn_type->name, "fn(");
     for (size_t i = 0; i < fn_type_id->param_count; i += 1) {
         FnTypeParamInfo *param_info = &fn_type_id->param_info[i];
@@ -965,6 +1049,9 @@ ZigType *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
     buf_appendf(&fn_type->name, ")");
     if (fn_type_id->alignment != 0) {
         buf_appendf(&fn_type->name, " align(%" PRIu32 ")", fn_type_id->alignment);
+    }
+    if (fn_type_id->cc != CallingConventionUnspecified) {
+        buf_appendf(&fn_type->name, " callconv(.%s)", calling_convention_name(fn_type_id->cc));
     }
     buf_appendf(&fn_type->name, " %s", buf_ptr(&fn_type_id->return_type->name));
 
@@ -1034,34 +1121,58 @@ ZigType *get_partial_container_type(CodeGen *g, Scope *scope, ContainerKind kind
     return entry;
 }
 
-ConstExprValue *analyze_const_value(CodeGen *g, Scope *scope, AstNode *node, ZigType *type_entry,
+ZigValue *analyze_const_value(CodeGen *g, Scope *scope, AstNode *node, ZigType *type_entry,
         Buf *type_name, UndefAllowed undef)
 {
+    Error err;
+
+    ZigValue *result = g->pass1_arena->create<ZigValue>();
+    ZigValue *result_ptr = g->pass1_arena->create<ZigValue>();
+    result->special = ConstValSpecialUndef;
+    result->type = (type_entry == nullptr) ? g->builtin_types.entry_var : type_entry;
+    result_ptr->special = ConstValSpecialStatic;
+    result_ptr->type = get_pointer_to_type(g, result->type, false);
+    result_ptr->data.x_ptr.mut = ConstPtrMutComptimeVar;
+    result_ptr->data.x_ptr.special = ConstPtrSpecialRef;
+    result_ptr->data.x_ptr.data.ref.pointee = result;
+
     size_t backward_branch_count = 0;
     size_t backward_branch_quota = default_backward_branch_quota;
-    return ir_eval_const_value(g, scope, node, type_entry,
+    if ((err = ir_eval_const_value(g, scope, node, result_ptr,
             &backward_branch_count, &backward_branch_quota,
-            nullptr, nullptr, node, type_name, nullptr, nullptr, undef);
+            nullptr, nullptr, node, type_name, nullptr, nullptr, undef)))
+    {
+        return g->invalid_inst_gen->value;
+    }
+    return result;
 }
 
-Error type_val_resolve_zero_bits(CodeGen *g, ConstExprValue *type_val, ZigType *parent_type,
-        ConstExprValue *parent_type_val, bool *is_zero_bits)
+Error type_val_resolve_zero_bits(CodeGen *g, ZigValue *type_val, ZigType *parent_type,
+        ZigValue *parent_type_val, bool *is_zero_bits)
 {
     Error err;
     if (type_val->special != ConstValSpecialLazy) {
         assert(type_val->special == ConstValSpecialStatic);
-        if ((type_val->data.x_type->id == ZigTypeIdStruct &&
-            type_val->data.x_type->data.structure.resolve_loop_flag_zero_bits) ||
-            (type_val->data.x_type->id == ZigTypeIdUnion &&
-             type_val->data.x_type->data.unionation.resolve_loop_flag_zero_bits) ||
-            type_val->data.x_type->id == ZigTypeIdPointer)
+
+        // Self-referencing types via pointers are allowed and have non-zero size
+        ZigType *ty = type_val->data.x_type;
+        while (ty->id == ZigTypeIdPointer &&
+               !ty->data.pointer.resolve_loop_flag_zero_bits)
         {
-            // Does a struct/union which contains a pointer field to itself have bits? Yes.
+            ty = ty->data.pointer.child_type;
+        }
+
+        if ((ty->id == ZigTypeIdStruct && ty->data.structure.resolve_loop_flag_zero_bits) ||
+            (ty->id == ZigTypeIdUnion && ty->data.unionation.resolve_loop_flag_zero_bits) ||
+            (ty->id == ZigTypeIdPointer && ty->data.pointer.resolve_loop_flag_zero_bits))
+        {
             *is_zero_bits = false;
             return ErrorNone;
         }
+
         if ((err = type_resolve(g, type_val->data.x_type, ResolveStatusZeroBitsKnown)))
             return err;
+
         *is_zero_bits = (type_val->data.x_type->abi_size == 0);
         return ErrorNone;
     }
@@ -1069,11 +1180,12 @@ Error type_val_resolve_zero_bits(CodeGen *g, ConstExprValue *type_val, ZigType *
         case LazyValueIdInvalid:
         case LazyValueIdAlignOf:
         case LazyValueIdSizeOf:
+        case LazyValueIdTypeInfoDecls:
             zig_unreachable();
         case LazyValueIdPtrType: {
             LazyValuePtrType *lazy_ptr_type = reinterpret_cast<LazyValuePtrType *>(type_val->data.x_lazy);
 
-            if (parent_type_val == &lazy_ptr_type->elem_type->value) {
+            if (parent_type_val == lazy_ptr_type->elem_type->value) {
                 // Does a struct which contains a pointer field to itself have bits? Yes.
                 *is_zero_bits = false;
                 return ErrorNone;
@@ -1081,9 +1193,25 @@ Error type_val_resolve_zero_bits(CodeGen *g, ConstExprValue *type_val, ZigType *
                 if (parent_type_val == nullptr) {
                     parent_type_val = type_val;
                 }
-                return type_val_resolve_zero_bits(g, &lazy_ptr_type->elem_type->value, parent_type,
+                return type_val_resolve_zero_bits(g, lazy_ptr_type->elem_type->value, parent_type,
                         parent_type_val, is_zero_bits);
             }
+        }
+        case LazyValueIdArrayType: {
+            LazyValueArrayType *lazy_array_type =
+                reinterpret_cast<LazyValueArrayType *>(type_val->data.x_lazy);
+
+            // The sentinel counts as an extra element
+            if (lazy_array_type->length == 0 && lazy_array_type->sentinel == nullptr) {
+                *is_zero_bits = true;
+                return ErrorNone;
+            }
+
+            if ((err = type_val_resolve_zero_bits(g, lazy_array_type->elem_type->value,
+                                                  parent_type, nullptr, is_zero_bits)))
+                return err;
+
+            return ErrorNone;
         }
         case LazyValueIdOptType:
         case LazyValueIdSliceType:
@@ -1099,9 +1227,13 @@ Error type_val_resolve_zero_bits(CodeGen *g, ConstExprValue *type_val, ZigType *
     zig_unreachable();
 }
 
-Error type_val_resolve_is_opaque_type(CodeGen *g, ConstExprValue *type_val, bool *is_opaque_type) {
+Error type_val_resolve_is_opaque_type(CodeGen *g, ZigValue *type_val, bool *is_opaque_type) {
     if (type_val->special != ConstValSpecialLazy) {
         assert(type_val->special == ConstValSpecialStatic);
+        if (type_val->data.x_type == g->builtin_types.entry_var) {
+            *is_opaque_type = false;
+            return ErrorNone;
+        }
         *is_opaque_type = (type_val->data.x_type->id == ZigTypeIdOpaque);
         return ErrorNone;
     }
@@ -1109,19 +1241,21 @@ Error type_val_resolve_is_opaque_type(CodeGen *g, ConstExprValue *type_val, bool
         case LazyValueIdInvalid:
         case LazyValueIdAlignOf:
         case LazyValueIdSizeOf:
+        case LazyValueIdTypeInfoDecls:
             zig_unreachable();
         case LazyValueIdSliceType:
         case LazyValueIdPtrType:
         case LazyValueIdFnType:
         case LazyValueIdOptType:
         case LazyValueIdErrUnionType:
+        case LazyValueIdArrayType:
             *is_opaque_type = false;
             return ErrorNone;
     }
     zig_unreachable();
 }
 
-static ReqCompTime type_val_resolve_requires_comptime(CodeGen *g, ConstExprValue *type_val) {
+static ReqCompTime type_val_resolve_requires_comptime(CodeGen *g, ZigValue *type_val) {
     if (type_val->special != ConstValSpecialLazy) {
         return type_requires_comptime(g, type_val->data.x_type);
     }
@@ -1129,24 +1263,29 @@ static ReqCompTime type_val_resolve_requires_comptime(CodeGen *g, ConstExprValue
         case LazyValueIdInvalid:
         case LazyValueIdAlignOf:
         case LazyValueIdSizeOf:
+        case LazyValueIdTypeInfoDecls:
             zig_unreachable();
         case LazyValueIdSliceType: {
             LazyValueSliceType *lazy_slice_type = reinterpret_cast<LazyValueSliceType *>(type_val->data.x_lazy);
-            return type_val_resolve_requires_comptime(g, &lazy_slice_type->elem_type->value);
+            return type_val_resolve_requires_comptime(g, lazy_slice_type->elem_type->value);
         }
         case LazyValueIdPtrType: {
             LazyValuePtrType *lazy_ptr_type = reinterpret_cast<LazyValuePtrType *>(type_val->data.x_lazy);
-            return type_val_resolve_requires_comptime(g, &lazy_ptr_type->elem_type->value);
+            return type_val_resolve_requires_comptime(g, lazy_ptr_type->elem_type->value);
         }
         case LazyValueIdOptType: {
             LazyValueOptType *lazy_opt_type = reinterpret_cast<LazyValueOptType *>(type_val->data.x_lazy);
-            return type_val_resolve_requires_comptime(g, &lazy_opt_type->payload_type->value);
+            return type_val_resolve_requires_comptime(g, lazy_opt_type->payload_type->value);
+        }
+        case LazyValueIdArrayType: {
+            LazyValueArrayType *lazy_array_type = reinterpret_cast<LazyValueArrayType *>(type_val->data.x_lazy);
+            return type_val_resolve_requires_comptime(g, lazy_array_type->elem_type->value);
         }
         case LazyValueIdFnType: {
             LazyValueFnType *lazy_fn_type = reinterpret_cast<LazyValueFnType *>(type_val->data.x_lazy);
             if (lazy_fn_type->is_generic)
                 return ReqCompTimeYes;
-            switch (type_val_resolve_requires_comptime(g, &lazy_fn_type->return_type->value)) {
+            switch (type_val_resolve_requires_comptime(g, lazy_fn_type->return_type->value)) {
                 case ReqCompTimeInvalid:
                     return ReqCompTimeInvalid;
                 case ReqCompTimeYes:
@@ -1159,7 +1298,7 @@ static ReqCompTime type_val_resolve_requires_comptime(CodeGen *g, ConstExprValue
                 AstNode *param_node = lazy_fn_type->proto_node->data.fn_proto.params.at(i);
                 bool param_is_var_args = param_node->data.param_decl.is_var_args;
                 if (param_is_var_args) break;
-                switch (type_val_resolve_requires_comptime(g, &lazy_fn_type->param_types[i]->value)) {
+                switch (type_val_resolve_requires_comptime(g, lazy_fn_type->param_types[i]->value)) {
                     case ReqCompTimeInvalid:
                         return ReqCompTimeInvalid;
                     case ReqCompTimeYes:
@@ -1173,13 +1312,13 @@ static ReqCompTime type_val_resolve_requires_comptime(CodeGen *g, ConstExprValue
         case LazyValueIdErrUnionType: {
             LazyValueErrUnionType *lazy_err_union_type =
                 reinterpret_cast<LazyValueErrUnionType *>(type_val->data.x_lazy);
-            return type_val_resolve_requires_comptime(g, &lazy_err_union_type->payload_type->value);
+            return type_val_resolve_requires_comptime(g, lazy_err_union_type->payload_type->value);
         }
     }
     zig_unreachable();
 }
 
-Error type_val_resolve_abi_size(CodeGen *g, AstNode *source_node, ConstExprValue *type_val,
+Error type_val_resolve_abi_size(CodeGen *g, AstNode *source_node, ZigValue *type_val,
         size_t *abi_size, size_t *size_in_bits)
 {
     Error err;
@@ -1198,11 +1337,12 @@ start_over:
         case LazyValueIdInvalid:
         case LazyValueIdAlignOf:
         case LazyValueIdSizeOf:
+        case LazyValueIdTypeInfoDecls:
             zig_unreachable();
         case LazyValueIdSliceType: {
             LazyValueSliceType *lazy_slice_type = reinterpret_cast<LazyValueSliceType *>(type_val->data.x_lazy);
             bool is_zero_bits;
-            if ((err = type_val_resolve_zero_bits(g, &lazy_slice_type->elem_type->value, nullptr,
+            if ((err = type_val_resolve_zero_bits(g, lazy_slice_type->elem_type->value, nullptr,
                 nullptr, &is_zero_bits)))
             {
                 return err;
@@ -1219,7 +1359,7 @@ start_over:
         case LazyValueIdPtrType: {
             LazyValuePtrType *lazy_ptr_type = reinterpret_cast<LazyValuePtrType *>(type_val->data.x_lazy);
             bool is_zero_bits;
-            if ((err = type_val_resolve_zero_bits(g, &lazy_ptr_type->elem_type->value, nullptr,
+            if ((err = type_val_resolve_zero_bits(g, lazy_ptr_type->elem_type->value, nullptr,
                 nullptr, &is_zero_bits)))
             {
                 return err;
@@ -1239,6 +1379,7 @@ start_over:
             return ErrorNone;
         case LazyValueIdOptType:
         case LazyValueIdErrUnionType:
+        case LazyValueIdArrayType:
             if ((err = ir_resolve_lazy(g, source_node, type_val)))
                 return err;
             goto start_over;
@@ -1246,7 +1387,7 @@ start_over:
     zig_unreachable();
 }
 
-Error type_val_resolve_abi_align(CodeGen *g, ConstExprValue *type_val, uint32_t *abi_align) {
+Error type_val_resolve_abi_align(CodeGen *g, AstNode *source_node, ZigValue *type_val, uint32_t *abi_align) {
     Error err;
     if (type_val->special != ConstValSpecialLazy) {
         assert(type_val->special == ConstValSpecialStatic);
@@ -1264,6 +1405,7 @@ Error type_val_resolve_abi_align(CodeGen *g, ConstExprValue *type_val, uint32_t 
         case LazyValueIdInvalid:
         case LazyValueIdAlignOf:
         case LazyValueIdSizeOf:
+        case LazyValueIdTypeInfoDecls:
             zig_unreachable();
         case LazyValueIdSliceType:
         case LazyValueIdPtrType:
@@ -1271,14 +1413,21 @@ Error type_val_resolve_abi_align(CodeGen *g, ConstExprValue *type_val, uint32_t 
             *abi_align = g->builtin_types.entry_usize->abi_align;
             return ErrorNone;
         case LazyValueIdOptType: {
-            LazyValueOptType *lazy_opt_type = reinterpret_cast<LazyValueOptType *>(type_val->data.x_lazy);
-            return type_val_resolve_abi_align(g, &lazy_opt_type->payload_type->value, abi_align);
+            if ((err = ir_resolve_lazy(g, nullptr, type_val)))
+                return err;
+
+            return type_val_resolve_abi_align(g, source_node, type_val, abi_align);
+        }
+        case LazyValueIdArrayType: {
+            LazyValueArrayType *lazy_array_type =
+                reinterpret_cast<LazyValueArrayType *>(type_val->data.x_lazy);
+            return type_val_resolve_abi_align(g, source_node, lazy_array_type->elem_type->value, abi_align);
         }
         case LazyValueIdErrUnionType: {
             LazyValueErrUnionType *lazy_err_union_type =
                 reinterpret_cast<LazyValueErrUnionType *>(type_val->data.x_lazy);
             uint32_t payload_abi_align;
-            if ((err = type_val_resolve_abi_align(g, &lazy_err_union_type->payload_type->value,
+            if ((err = type_val_resolve_abi_align(g, source_node, lazy_err_union_type->payload_type->value,
                             &payload_abi_align)))
             {
                 return err;
@@ -1291,7 +1440,7 @@ Error type_val_resolve_abi_align(CodeGen *g, ConstExprValue *type_val, uint32_t 
     zig_unreachable();
 }
 
-static OnePossibleValue type_val_resolve_has_one_possible_value(CodeGen *g, ConstExprValue *type_val) {
+static OnePossibleValue type_val_resolve_has_one_possible_value(CodeGen *g, ZigValue *type_val) {
     if (type_val->special != ConstValSpecialLazy) {
         return type_has_one_possible_value(g, type_val->data.x_type);
     }
@@ -1299,11 +1448,19 @@ static OnePossibleValue type_val_resolve_has_one_possible_value(CodeGen *g, Cons
         case LazyValueIdInvalid:
         case LazyValueIdAlignOf:
         case LazyValueIdSizeOf:
+        case LazyValueIdTypeInfoDecls:
             zig_unreachable();
         case LazyValueIdSliceType: // it has the len field
         case LazyValueIdOptType: // it has the optional bit
         case LazyValueIdFnType:
             return OnePossibleValueNo;
+        case LazyValueIdArrayType: {
+            LazyValueArrayType *lazy_array_type =
+                reinterpret_cast<LazyValueArrayType *>(type_val->data.x_lazy);
+            if (lazy_array_type->length == 0)
+                return OnePossibleValueYes;
+            return type_val_resolve_has_one_possible_value(g, lazy_array_type->elem_type->value);
+        }
         case LazyValueIdPtrType: {
             Error err;
             bool zero_bits;
@@ -1319,13 +1476,13 @@ static OnePossibleValue type_val_resolve_has_one_possible_value(CodeGen *g, Cons
         case LazyValueIdErrUnionType: {
             LazyValueErrUnionType *lazy_err_union_type =
                 reinterpret_cast<LazyValueErrUnionType *>(type_val->data.x_lazy);
-            switch (type_val_resolve_has_one_possible_value(g, &lazy_err_union_type->err_set_type->value)) {
+            switch (type_val_resolve_has_one_possible_value(g, lazy_err_union_type->err_set_type->value)) {
                 case OnePossibleValueInvalid:
                     return OnePossibleValueInvalid;
                 case OnePossibleValueNo:
                     return OnePossibleValueNo;
                 case OnePossibleValueYes:
-                    return type_val_resolve_has_one_possible_value(g, &lazy_err_union_type->payload_type->value);
+                    return type_val_resolve_has_one_possible_value(g, lazy_err_union_type->payload_type->value);
             }
         }
     }
@@ -1333,7 +1490,7 @@ static OnePossibleValue type_val_resolve_has_one_possible_value(CodeGen *g, Cons
 }
 
 ZigType *analyze_type_expr(CodeGen *g, Scope *scope, AstNode *node) {
-    ConstExprValue *result = analyze_const_value(g, scope, node, g->builtin_types.entry_type,
+    ZigValue *result = analyze_const_value(g, scope, node, g->builtin_types.entry_type,
             nullptr, UndefBad);
     if (type_is_invalid(result->type))
         return g->builtin_types.entry_invalid;
@@ -1345,8 +1502,6 @@ ZigType *analyze_type_expr(CodeGen *g, Scope *scope, AstNode *node) {
 ZigType *get_generic_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
     ZigType *fn_type = new_type_table_entry(ZigTypeIdFn);
     buf_resize(&fn_type->name, 0);
-    const char *cc_str = calling_convention_fn_type_str(fn_type->data.fn.fn_type_id.cc);
-    buf_appendf(&fn_type->name, "%s", cc_str);
     buf_appendf(&fn_type->name, "fn(");
     size_t i = 0;
     for (; i < fn_type_id->next_param_index; i += 1) {
@@ -1358,7 +1513,11 @@ ZigType *get_generic_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
         const char *comma_str = (i == 0) ? "" : ",";
         buf_appendf(&fn_type->name, "%svar", comma_str);
     }
-    buf_appendf(&fn_type->name, ")var");
+    buf_append_str(&fn_type->name, ")");
+    if (fn_type_id->cc != CallingConventionUnspecified) {
+        buf_appendf(&fn_type->name, " callconv(.%s)", calling_convention_name(fn_type_id->cc));
+    }
+    buf_append_str(&fn_type->name, " var");
 
     fn_type->data.fn.fn_type_id = *fn_type_id;
     fn_type->data.fn.is_generic = true;
@@ -1368,25 +1527,27 @@ ZigType *get_generic_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
     return fn_type;
 }
 
-void init_fn_type_id(FnTypeId *fn_type_id, AstNode *proto_node, size_t param_count_alloc) {
+CallingConvention cc_from_fn_proto(AstNodeFnProto *fn_proto) {
+    // Compatible with the C ABI
+    if (fn_proto->is_extern || fn_proto->is_export)
+        return CallingConventionC;
+
+    return CallingConventionUnspecified;
+}
+
+void init_fn_type_id(FnTypeId *fn_type_id, AstNode *proto_node, CallingConvention cc, size_t param_count_alloc) {
     assert(proto_node->type == NodeTypeFnProto);
     AstNodeFnProto *fn_proto = &proto_node->data.fn_proto;
 
-    if (fn_proto->cc == CallingConventionUnspecified) {
-        bool extern_abi = fn_proto->is_extern || fn_proto->is_export;
-        fn_type_id->cc = extern_abi ? CallingConventionC : CallingConventionUnspecified;
-    } else {
-        fn_type_id->cc = fn_proto->cc;
-    }
-
+    fn_type_id->cc = cc;
     fn_type_id->param_count = fn_proto->params.length;
-    fn_type_id->param_info = allocate<FnTypeParamInfo>(param_count_alloc);
+    fn_type_id->param_info = heap::c_allocator.allocate<FnTypeParamInfo>(param_count_alloc);
     fn_type_id->next_param_index = 0;
     fn_type_id->is_var_args = fn_proto->is_var_args;
 }
 
 static bool analyze_const_align(CodeGen *g, Scope *scope, AstNode *node, uint32_t *result) {
-    ConstExprValue *align_result = analyze_const_value(g, scope, node, get_align_amt_type(g),
+    ZigValue *align_result = analyze_const_value(g, scope, node, get_align_amt_type(g),
             nullptr, UndefBad);
     if (type_is_invalid(align_result->type))
         return false;
@@ -1409,15 +1570,15 @@ static bool analyze_const_string(CodeGen *g, Scope *scope, AstNode *node, Buf **
     ZigType *ptr_type = get_pointer_to_type_extra(g, g->builtin_types.entry_u8, true, false,
             PtrLenUnknown, 0, 0, 0, false);
     ZigType *str_type = get_slice_type(g, ptr_type);
-    ConstExprValue *result_val = analyze_const_value(g, scope, node, str_type, nullptr, UndefBad);
+    ZigValue *result_val = analyze_const_value(g, scope, node, str_type, nullptr, UndefBad);
     if (type_is_invalid(result_val->type))
         return false;
 
-    ConstExprValue *ptr_field = &result_val->data.x_struct.fields[slice_ptr_index];
-    ConstExprValue *len_field = &result_val->data.x_struct.fields[slice_len_index];
+    ZigValue *ptr_field = result_val->data.x_struct.fields[slice_ptr_index];
+    ZigValue *len_field = result_val->data.x_struct.fields[slice_len_index];
 
     assert(ptr_field->data.x_ptr.special == ConstPtrSpecialBaseArray);
-    ConstExprValue *array_val = ptr_field->data.x_ptr.data.base_array.array_val;
+    ZigValue *array_val = ptr_field->data.x_ptr.data.base_array.array_val;
     if (array_val->data.x_array.special == ConstArraySpecialBuf) {
         *out_buffer = array_val->data.x_array.data.s_buf;
         return true;
@@ -1428,7 +1589,7 @@ static bool analyze_const_string(CodeGen *g, Scope *scope, AstNode *node, Buf **
     buf_resize(result, len);
     for (size_t i = 0; i < len; i += 1) {
         size_t new_index = ptr_field->data.x_ptr.data.base_array.elem_index + i;
-        ConstExprValue *char_val = &array_val->data.x_array.data.s_none.elements[new_index];
+        ZigValue *char_val = &array_val->data.x_array.data.s_none.elements[new_index];
         if (char_val->special == ConstValSpecialUndef) {
             add_node_error(g, node, buf_sprintf("use of undefined value"));
             return false;
@@ -1459,7 +1620,6 @@ static Error emit_error_unless_type_allowed_in_packed_container(CodeGen *g, ZigT
         case ZigTypeIdErrorUnion:
         case ZigTypeIdErrorSet:
         case ZigTypeIdBoundFn:
-        case ZigTypeIdArgTuple:
         case ZigTypeIdOpaque:
         case ZigTypeIdFnFrame:
         case ZigTypeIdAnyFrame:
@@ -1511,15 +1671,16 @@ static Error emit_error_unless_type_allowed_in_packed_container(CodeGen *g, ZigT
                     return ErrorSemanticAnalyzeFail;
             }
             zig_unreachable();
-        case ZigTypeIdOptional:
-            if (get_codegen_ptr_type(type_entry) != nullptr) {
-                return ErrorNone;
-            } else {
-                add_node_error(g, source_node,
-                    buf_sprintf("type '%s' not allowed in packed %s; no guaranteed in-memory representation",
-                        buf_ptr(&type_entry->name), container_name));
-                return ErrorSemanticAnalyzeFail;
-            }
+        case ZigTypeIdOptional: {
+            ZigType *ptr_type;
+            if ((err = get_codegen_ptr_type(g, type_entry, &ptr_type))) return err;
+            if (ptr_type != nullptr) return ErrorNone;
+
+            add_node_error(g, source_node,
+                buf_sprintf("type '%s' not allowed in packed %s; no guaranteed in-memory representation",
+                    buf_ptr(&type_entry->name), container_name));
+            return ErrorSemanticAnalyzeFail;
+        }
         case ZigTypeIdEnum: {
             AstNode *decl_node = type_entry->data.enumeration.decl_node;
             if (decl_node->data.container_decl.init_arg_expr != nullptr) {
@@ -1562,7 +1723,6 @@ Error type_allowed_in_extern(CodeGen *g, ZigType *type_entry, bool *result) {
         case ZigTypeIdErrorUnion:
         case ZigTypeIdErrorSet:
         case ZigTypeIdBoundFn:
-        case ZigTypeIdArgTuple:
         case ZigTypeIdVoid:
         case ZigTypeIdFnFrame:
         case ZigTypeIdAnyFrame:
@@ -1594,13 +1754,12 @@ Error type_allowed_in_extern(CodeGen *g, ZigType *type_entry, bool *result) {
         case ZigTypeIdArray:
             return type_allowed_in_extern(g, type_entry->data.array.child_type, result);
         case ZigTypeIdFn:
-            *result = type_entry->data.fn.fn_type_id.cc == CallingConventionC ||
-                 type_entry->data.fn.fn_type_id.cc == CallingConventionStdcall;
+            *result = !calling_convention_allows_zig_types(type_entry->data.fn.fn_type_id.cc);
             return ErrorNone;
         case ZigTypeIdPointer:
             if ((err = type_resolve(g, type_entry, ResolveStatusZeroBitsKnown)))
                 return err;
-            if (!type_has_bits(type_entry)) {
+            if (!type_has_bits(g, type_entry)) {
                 *result = false;
                 return ErrorNone;
             }
@@ -1616,7 +1775,7 @@ Error type_allowed_in_extern(CodeGen *g, ZigType *type_entry, bool *result) {
                 *result = false;
                 return ErrorNone;
             }
-            if (!type_is_nonnull_ptr(child_type)) {
+            if (!type_is_nonnull_ptr(g, child_type)) {
                 *result = false;
                 return ErrorNone;
             }
@@ -1637,7 +1796,7 @@ Error type_allowed_in_extern(CodeGen *g, ZigType *type_entry, bool *result) {
 ZigType *get_auto_err_set_type(CodeGen *g, ZigFn *fn_entry) {
     ZigType *err_set_type = new_type_table_entry(ZigTypeIdErrorSet);
     buf_resize(&err_set_type->name, 0);
-    buf_appendf(&err_set_type->name, "@typeOf(%s).ReturnType.ErrorSet", buf_ptr(&fn_entry->symbol_name));
+    buf_appendf(&err_set_type->name, "@TypeOf(%s).ReturnType.ErrorSet", buf_ptr(&fn_entry->symbol_name));
     err_set_type->data.error_set.err_count = 0;
     err_set_type->data.error_set.errors = nullptr;
     err_set_type->data.error_set.infer_fn = fn_entry;
@@ -1649,13 +1808,15 @@ ZigType *get_auto_err_set_type(CodeGen *g, ZigFn *fn_entry) {
     return err_set_type;
 }
 
-static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_scope, ZigFn *fn_entry) {
+static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_scope, ZigFn *fn_entry,
+        CallingConvention cc)
+{
     assert(proto_node->type == NodeTypeFnProto);
     AstNodeFnProto *fn_proto = &proto_node->data.fn_proto;
     Error err;
 
     FnTypeId fn_type_id = {0};
-    init_fn_type_id(&fn_type_id, proto_node, proto_node->data.fn_proto.params.length);
+    init_fn_type_id(&fn_type_id, proto_node, cc, proto_node->data.fn_proto.params.length);
 
     for (; fn_type_id.next_param_index < fn_type_id.param_count; fn_type_id.next_param_index += 1) {
         AstNode *param_node = fn_proto->params.at(fn_type_id.next_param_index);
@@ -1687,12 +1848,9 @@ static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_sc
             if (fn_type_id.cc == CallingConventionC) {
                 fn_type_id.param_count = fn_type_id.next_param_index;
                 continue;
-            } else if (calling_convention_allows_zig_types(fn_type_id.cc)) {
-                return get_generic_fn_type(g, &fn_type_id);
             } else {
                 add_node_error(g, param_node,
-                        buf_sprintf("var args not allowed in function with calling convention '%s'",
-                            calling_convention_name(fn_type_id.cc)));
+                        buf_sprintf("var args only allowed in functions with C calling convention"));
                 return g->builtin_types.entry_invalid;
             }
         } else if (param_node->data.param_decl.var_token != nullptr) {
@@ -1712,7 +1870,7 @@ static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_sc
         if (!calling_convention_allows_zig_types(fn_type_id.cc)) {
             if ((err = type_resolve(g, type_entry, ResolveStatusZeroBitsKnown)))
                 return g->builtin_types.entry_invalid;
-            if (!type_has_bits(type_entry)) {
+            if (!type_has_bits(g, type_entry)) {
                 add_node_error(g, param_node->data.param_decl.type,
                     buf_sprintf("parameter of type '%s' has 0 bits; not allowed in function with calling convention '%s'",
                         buf_ptr(&type_entry->name), calling_convention_name(fn_type_id.cc)));
@@ -1733,57 +1891,51 @@ static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_sc
             }
         }
 
-        switch (type_entry->id) {
-            case ZigTypeIdInvalid:
-                zig_unreachable();
-            case ZigTypeIdUnreachable:
-            case ZigTypeIdUndefined:
-            case ZigTypeIdNull:
-            case ZigTypeIdArgTuple:
-            case ZigTypeIdOpaque:
+        if(!is_valid_param_type(type_entry)){
+            if(type_entry->id == ZigTypeIdOpaque){
+                add_node_error(g, param_node->data.param_decl.type,
+                    buf_sprintf("parameter of opaque type '%s' not allowed", buf_ptr(&type_entry->name)));
+            } else {
                 add_node_error(g, param_node->data.param_decl.type,
                     buf_sprintf("parameter of type '%s' not allowed", buf_ptr(&type_entry->name)));
-                return g->builtin_types.entry_invalid;
-            case ZigTypeIdComptimeFloat:
-            case ZigTypeIdComptimeInt:
-            case ZigTypeIdEnumLiteral:
-            case ZigTypeIdBoundFn:
-            case ZigTypeIdMetaType:
-            case ZigTypeIdVoid:
-            case ZigTypeIdBool:
-            case ZigTypeIdInt:
-            case ZigTypeIdFloat:
-            case ZigTypeIdPointer:
-            case ZigTypeIdArray:
-            case ZigTypeIdStruct:
-            case ZigTypeIdOptional:
-            case ZigTypeIdErrorUnion:
-            case ZigTypeIdErrorSet:
-            case ZigTypeIdEnum:
-            case ZigTypeIdUnion:
-            case ZigTypeIdFn:
-            case ZigTypeIdVector:
-            case ZigTypeIdFnFrame:
-            case ZigTypeIdAnyFrame:
-                switch (type_requires_comptime(g, type_entry)) {
-                    case ReqCompTimeNo:
-                        break;
-                    case ReqCompTimeYes:
-                        add_node_error(g, param_node->data.param_decl.type,
-                            buf_sprintf("parameter of type '%s' must be declared comptime",
-                            buf_ptr(&type_entry->name)));
-                        return g->builtin_types.entry_invalid;
-                    case ReqCompTimeInvalid:
-                        return g->builtin_types.entry_invalid;
-                }
-                break;
+            }
+
+            return g->builtin_types.entry_invalid;
         }
+
+        switch (type_requires_comptime(g, type_entry)) {
+            case ReqCompTimeNo:
+                break;
+            case ReqCompTimeYes:
+                add_node_error(g, param_node->data.param_decl.type,
+                    buf_sprintf("parameter of type '%s' must be declared comptime",
+                    buf_ptr(&type_entry->name)));
+                return g->builtin_types.entry_invalid;
+            case ReqCompTimeInvalid:
+                return g->builtin_types.entry_invalid;
+        }
+
         FnTypeParamInfo *param_info = &fn_type_id.param_info[fn_type_id.next_param_index];
         param_info->type = type_entry;
         param_info->is_noalias = param_node->data.param_decl.is_noalias;
     }
 
     if (fn_proto->align_expr != nullptr) {
+        if (target_is_wasm(g->zig_target)) {
+            // In Wasm, specifying alignment of function pointers makes little sense
+            // since function pointers are in fact indices to a Wasm table, therefore
+            // any alignment check on those is invalid. This can cause unexpected
+            // behaviour when checking expected alignment with `@ptrToInt(fn_ptr)`
+            // or similar. This commit proposes to make `align` expressions a
+            // compile error when compiled to Wasm architecture.
+            // 
+            // Some references:
+            // [1] [Mozilla: WebAssembly Tables](https://developer.mozilla.org/en-US/docs/WebAssembly/Understanding_the_text_format#WebAssembly_tables)
+            // [2] [Sunfishcode's Wasm Ref Manual](https://github.com/sunfishcode/wasm-reference-manual/blob/master/WebAssembly.md#indirect-call)
+            add_node_error(g, fn_proto->align_expr,
+                buf_sprintf("align(N) expr is not allowed on function prototypes in wasm32/wasm64"));
+            return g->builtin_types.entry_invalid;
+        }
         if (!analyze_const_align(g, child_scope, fn_proto->align_expr, &fn_type_id.alignment)) {
             return g->builtin_types.entry_invalid;
         }
@@ -1808,30 +1960,14 @@ static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_sc
         return g->builtin_types.entry_invalid;
     }
 
-    switch (specified_return_type->id) {
-        case ZigTypeIdInvalid:
-            zig_unreachable();
-
-        case ZigTypeIdUndefined:
-        case ZigTypeIdNull:
-        case ZigTypeIdArgTuple:
-            add_node_error(g, fn_proto->return_type,
-                buf_sprintf("return type '%s' not allowed", buf_ptr(&specified_return_type->name)));
-            return g->builtin_types.entry_invalid;
-
-        case ZigTypeIdOpaque:
-        {
-            ErrorMsg* msg = add_node_error(g, fn_proto->return_type,
-                buf_sprintf("opaque return type '%s' not allowed", buf_ptr(&specified_return_type->name)));
-            Tld *tld = find_decl(g, &fn_entry->fndef_scope->base, &specified_return_type->name);
-            if (tld != nullptr) {
-                add_error_note(g, msg, tld->source_node, buf_sprintf("declared here"));
-            }
-            return g->builtin_types.entry_invalid;
+    if(!is_valid_return_type(specified_return_type)){
+        ErrorMsg* msg = add_node_error(g, fn_proto->return_type,
+            buf_sprintf("%s return type '%s' not allowed", type_id_name(specified_return_type->id), buf_ptr(&specified_return_type->name)));
+        Tld *tld = find_decl(g, &fn_entry->fndef_scope->base, &specified_return_type->name);
+        if (tld != nullptr) {
+            add_error_note(g, msg, tld->source_node, buf_sprintf("type declared here"));
         }
-
-        default:
-            break;
+        return g->builtin_types.entry_invalid;
     }
 
     if (fn_proto->auto_err_set) {
@@ -1860,48 +1996,43 @@ static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_sc
         }
     }
 
-    switch (fn_type_id.return_type->id) {
-        case ZigTypeIdInvalid:
-        case ZigTypeIdUndefined:
-        case ZigTypeIdNull:
-        case ZigTypeIdArgTuple:
-        case ZigTypeIdOpaque:
-            zig_unreachable();
-
-        case ZigTypeIdComptimeFloat:
-        case ZigTypeIdComptimeInt:
-        case ZigTypeIdEnumLiteral:
-        case ZigTypeIdBoundFn:
-        case ZigTypeIdMetaType:
-        case ZigTypeIdUnreachable:
-        case ZigTypeIdVoid:
-        case ZigTypeIdBool:
-        case ZigTypeIdInt:
-        case ZigTypeIdFloat:
-        case ZigTypeIdPointer:
-        case ZigTypeIdArray:
-        case ZigTypeIdStruct:
-        case ZigTypeIdOptional:
-        case ZigTypeIdErrorUnion:
-        case ZigTypeIdErrorSet:
-        case ZigTypeIdEnum:
-        case ZigTypeIdUnion:
-        case ZigTypeIdFn:
-        case ZigTypeIdVector:
-        case ZigTypeIdFnFrame:
-        case ZigTypeIdAnyFrame:
-            switch (type_requires_comptime(g, fn_type_id.return_type)) {
-                case ReqCompTimeInvalid:
-                    return g->builtin_types.entry_invalid;
-                case ReqCompTimeYes:
-                    return get_generic_fn_type(g, &fn_type_id);
-                case ReqCompTimeNo:
-                    break;
-            }
+    switch (type_requires_comptime(g, fn_type_id.return_type)) {
+        case ReqCompTimeInvalid:
+            return g->builtin_types.entry_invalid;
+        case ReqCompTimeYes:
+            return get_generic_fn_type(g, &fn_type_id);
+        case ReqCompTimeNo:
             break;
     }
 
     return get_fn_type(g, &fn_type_id);
+}
+
+bool is_valid_return_type(ZigType* type) {
+    switch (type->id) {
+        case ZigTypeIdInvalid:
+        case ZigTypeIdUndefined:
+        case ZigTypeIdNull:
+        case ZigTypeIdOpaque:
+            return false;
+        default:
+            return true;
+    }
+    zig_unreachable();
+}
+
+bool is_valid_param_type(ZigType* type) {
+    switch (type->id) {
+        case ZigTypeIdInvalid:
+        case ZigTypeIdUndefined:
+        case ZigTypeIdNull:
+        case ZigTypeIdOpaque:
+        case ZigTypeIdUnreachable:
+            return false;
+        default:
+            return true;
+    }
+    zig_unreachable();
 }
 
 bool type_is_invalid(ZigType *type_entry) {
@@ -1914,6 +2045,8 @@ bool type_is_invalid(ZigType *type_entry) {
             return type_entry->data.unionation.resolve_status == ResolveStatusInvalid;
         case ZigTypeIdEnum:
             return type_entry->data.enumeration.resolve_status == ResolveStatusInvalid;
+        case ZigTypeIdFnFrame:
+            return type_entry->data.frame.reported_loop_err;
         default:
             return false;
     }
@@ -1936,18 +2069,18 @@ static ZigType *get_struct_type(CodeGen *g, const char *type_name, SrcField fiel
     struct_type->data.structure.src_field_count = field_count;
     struct_type->data.structure.gen_field_count = 0;
     struct_type->data.structure.resolve_status = ResolveStatusSizeKnown;
-    struct_type->data.structure.fields = allocate<TypeStructField>(field_count);
+    struct_type->data.structure.fields = alloc_type_struct_fields(field_count);
     struct_type->data.structure.fields_by_name.init(field_count);
 
     size_t abi_align = min_abi_align;
     for (size_t i = 0; i < field_count; i += 1) {
-        TypeStructField *field = &struct_type->data.structure.fields[i];
+        TypeStructField *field = struct_type->data.structure.fields[i];
         field->name = buf_create_from_str(fields[i].name);
         field->type_entry = fields[i].ty;
         field->src_index = i;
         field->align = fields[i].align;
 
-        if (type_has_bits(field->type_entry)) {
+        if (type_has_bits(g, field->type_entry)) {
             assert(type_is_resolved(field->type_entry, ResolveStatusSizeKnown));
             unsigned field_abi_align = max(field->align, field->type_entry->abi_align);
             if (field_abi_align > abi_align) {
@@ -1961,8 +2094,8 @@ static ZigType *get_struct_type(CodeGen *g, const char *type_name, SrcField fiel
 
     size_t next_offset = 0;
     for (size_t i = 0; i < field_count; i += 1) {
-        TypeStructField *field = &struct_type->data.structure.fields[i];
-        if (!type_has_bits(field->type_entry))
+        TypeStructField *field = struct_type->data.structure.fields[i];
+        if (!type_has_bits(g, field->type_entry))
             continue;
 
         field->offset = next_offset;
@@ -1970,7 +2103,7 @@ static ZigType *get_struct_type(CodeGen *g, const char *type_name, SrcField fiel
         // find the next non-zero-byte field for offset calculations
         size_t next_src_field_index = i + 1;
         for (; next_src_field_index < field_count; next_src_field_index += 1) {
-            if (type_has_bits(struct_type->data.structure.fields[next_src_field_index].type_entry))
+            if (type_has_bits(g, struct_type->data.structure.fields[next_src_field_index]->type_entry))
                 break;
         }
         size_t next_abi_align;
@@ -1978,7 +2111,7 @@ static ZigType *get_struct_type(CodeGen *g, const char *type_name, SrcField fiel
             next_abi_align = abi_align;
         } else {
             next_abi_align = max(fields[next_src_field_index].align,
-                    struct_type->data.structure.fields[next_src_field_index].type_entry->abi_align);
+                    struct_type->data.structure.fields[next_src_field_index]->type_entry->abi_align);
         }
         next_offset = next_field_offset(next_offset, abi_align, field->type_entry->abi_size, next_abi_align);
     }
@@ -2043,14 +2176,13 @@ static Error resolve_struct_type(CodeGen *g, ZigType *struct_type) {
     }
 
     assert(struct_type->data.structure.fields || struct_type->data.structure.src_field_count == 0);
-    assert(decl_node->type == NodeTypeContainerDecl);
 
     size_t field_count = struct_type->data.structure.src_field_count;
 
     bool packed = (struct_type->data.structure.layout == ContainerLayoutPacked);
     struct_type->data.structure.resolve_loop_flag_other = true;
 
-    uint32_t *host_int_bytes = packed ? allocate<uint32_t>(struct_type->data.structure.gen_field_count) : nullptr;
+    uint32_t *host_int_bytes = packed ? heap::c_allocator.allocate<uint32_t>(struct_type->data.structure.gen_field_count) : nullptr;
 
     size_t packed_bits_offset = 0;
     size_t next_offset = 0;
@@ -2061,7 +2193,7 @@ static Error resolve_struct_type(CodeGen *g, ZigType *struct_type) {
 
     // Calculate offsets
     for (size_t i = 0; i < field_count; i += 1) {
-        TypeStructField *field = &struct_type->data.structure.fields[i];
+        TypeStructField *field = struct_type->data.structure.fields[i];
         if (field->gen_index == SIZE_MAX)
             continue;
 
@@ -2072,7 +2204,7 @@ static Error resolve_struct_type(CodeGen *g, ZigType *struct_type) {
             ZigType *field_type = resolve_struct_field_type(g, field);
             if (field_type == nullptr) {
                 struct_type->data.structure.resolve_status = ResolveStatusInvalid;
-                return err;
+                return ErrorSemanticAnalyzeFail;
             }
             if ((err = type_resolve(g, field->type_entry, ResolveStatusSizeKnown))) {
                 struct_type->data.structure.resolve_status = ResolveStatusInvalid;
@@ -2130,12 +2262,12 @@ static Error resolve_struct_type(CodeGen *g, ZigType *struct_type) {
             gen_field_index += 1;
             size_t next_src_field_index = i + 1;
             for (; next_src_field_index < field_count; next_src_field_index += 1) {
-                if (struct_type->data.structure.fields[next_src_field_index].gen_index != SIZE_MAX) {
+                if (struct_type->data.structure.fields[next_src_field_index]->gen_index != SIZE_MAX) {
                     break;
                 }
             }
             size_t next_align = (next_src_field_index == field_count) ?
-                abi_align : struct_type->data.structure.fields[next_src_field_index].align;
+                abi_align : struct_type->data.structure.fields[next_src_field_index]->align;
             next_offset = next_field_offset(next_offset, abi_align, field_abi_size, next_align);
             size_in_bits = next_offset * 8;
         }
@@ -2158,11 +2290,11 @@ static Error resolve_struct_type(CodeGen *g, ZigType *struct_type) {
 
     // Resolve types for fields
     for (size_t i = 0; i < field_count; i += 1) {
-        TypeStructField *field = &struct_type->data.structure.fields[i];
+        TypeStructField *field = struct_type->data.structure.fields[i];
         ZigType *field_type = resolve_struct_field_type(g, field);
         if (field_type == nullptr) {
             struct_type->data.structure.resolve_status = ResolveStatusInvalid;
-            return err;
+            return ErrorSemanticAnalyzeFail;
         }
 
         if ((err = type_resolve(g, field_type, ResolveStatusSizeKnown))) {
@@ -2232,7 +2364,7 @@ static Error resolve_union_alignment(CodeGen *g, ZigType *union_type) {
                         &field->align))
             {
                 union_type->data.unionation.resolve_status = ResolveStatusInvalid;
-                return err;
+                return ErrorSemanticAnalyzeFail;
             }
             add_node_error(g, field->decl_node,
                 buf_create_from_str("TODO implement field alignment syntax for unions. https://github.com/ziglang/zig/issues/3125"));
@@ -2245,7 +2377,7 @@ static Error resolve_union_alignment(CodeGen *g, ZigType *union_type) {
             }
             field->align = field->type_entry->abi_align;
         } else {
-            if ((err = type_val_resolve_abi_align(g, field->type_val, &field->align))) {
+            if ((err = type_val_resolve_abi_align(g, field->decl_node, field->type_val, &field->align))) {
                 if (g->trace_err != nullptr) {
                     g->trace_err = add_error_note(g, g->trace_err, field->decl_node,
                         buf_create_from_str("while checking this field"));
@@ -2268,7 +2400,7 @@ static Error resolve_union_alignment(CodeGen *g, ZigType *union_type) {
     union_type->data.unionation.most_aligned_union_member = most_aligned_union_member;
 
     ZigType *tag_type = union_type->data.unionation.tag_type;
-    if (tag_type != nullptr && type_has_bits(tag_type)) {
+    if (tag_type != nullptr && type_has_bits(g, tag_type)) {
         if ((err = type_resolve(g, tag_type, ResolveStatusAlignmentKnown))) {
             union_type->data.unionation.resolve_status = ResolveStatusInvalid;
             return ErrorSemanticAnalyzeFail;
@@ -2359,6 +2491,7 @@ static Error resolve_union_type(CodeGen *g, ZigType *union_type) {
             union_type->data.unionation.resolve_status = ResolveStatusInvalid;
             return ErrorSemanticAnalyzeFail;
         }
+
         if (is_packed) {
             if ((err = emit_error_unless_type_allowed_in_packed_union(g, field_type, union_field->decl_node))) {
                 union_type->data.unionation.resolve_status = ResolveStatusInvalid;
@@ -2369,7 +2502,7 @@ static Error resolve_union_type(CodeGen *g, ZigType *union_type) {
         if (type_is_invalid(union_type))
             return ErrorSemanticAnalyzeFail;
 
-        if (!type_has_bits(field_type))
+        if (!type_has_bits(g, field_type))
             continue;
 
         union_abi_size = max(union_abi_size, field_type->abi_size);
@@ -2388,7 +2521,7 @@ static Error resolve_union_type(CodeGen *g, ZigType *union_type) {
     union_type->data.unionation.union_abi_size = union_abi_size;
 
     ZigType *tag_type = union_type->data.unionation.tag_type;
-    if (tag_type != nullptr && type_has_bits(tag_type)) {
+    if (tag_type != nullptr && type_has_bits(g, tag_type)) {
         if ((err = type_resolve(g, tag_type, ResolveStatusSizeKnown))) {
             union_type->data.unionation.resolve_status = ResolveStatusInvalid;
             return ErrorSemanticAnalyzeFail;
@@ -2464,14 +2597,7 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
         return ErrorSemanticAnalyzeFail;
     }
 
-    enum_type->data.enumeration.src_field_count = field_count;
-    enum_type->data.enumeration.fields = allocate<TypeEnumField>(field_count);
-    enum_type->data.enumeration.fields_by_name.init(field_count);
-
     Scope *scope = &enum_type->data.enumeration.decls_scope->base;
-
-    HashMap<BigInt, AstNode *, bigint_hash, bigint_eql> occupied_tag_values = {};
-    occupied_tag_values.init(field_count);
 
     ZigType *tag_int_type;
     if (enum_type->data.enumeration.layout == ContainerLayoutExtern) {
@@ -2507,13 +2633,14 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
                                     buf_ptr(&wanted_tag_int_type->name)));
                     add_error_note(g, msg, decl_node->data.container_decl.init_arg_expr,
                         buf_sprintf("any integral type of size 8, 16, 32, 64 or 128 bit is valid"));
-                    return ErrorNone;
+                    return ErrorSemanticAnalyzeFail;
                 }
             }
             tag_int_type = wanted_tag_int_type;
         }
     }
 
+    enum_type->data.enumeration.non_exhaustive = false;
     enum_type->data.enumeration.tag_int_type = tag_int_type;
     enum_type->size_in_bits = tag_int_type->size_in_bits;
     enum_type->abi_size = tag_int_type->abi_size;
@@ -2521,6 +2648,31 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
 
     BigInt bi_one;
     bigint_init_unsigned(&bi_one, 1);
+
+    AstNode *last_field_node = decl_node->data.container_decl.fields.at(field_count - 1);
+    if (buf_eql_str(last_field_node->data.struct_field.name, "_")) {
+        field_count -= 1;
+        if (field_count > 1 && log2_u64(field_count) == enum_type->size_in_bits) {
+            add_node_error(g, last_field_node, buf_sprintf("non-exhaustive enum specifies every value"));
+            enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;
+        }
+        if (decl_node->data.container_decl.init_arg_expr == nullptr) {
+            add_node_error(g, last_field_node, buf_sprintf("non-exhaustive enum must specify size"));
+            enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;
+        }
+        if (last_field_node->data.struct_field.value != nullptr) {
+            add_node_error(g, last_field_node, buf_sprintf("value assigned to '_' field of non-exhaustive enum"));
+            enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;
+        }
+        enum_type->data.enumeration.non_exhaustive = true;
+    }
+
+    enum_type->data.enumeration.src_field_count = field_count;
+    enum_type->data.enumeration.fields = heap::c_allocator.allocate<TypeEnumField>(field_count);
+    enum_type->data.enumeration.fields_by_name.init(field_count);
+
+    HashMap<BigInt, AstNode *, bigint_hash, bigint_eql> occupied_tag_values = {};
+    occupied_tag_values.init(field_count);
 
     TypeEnumField *last_enum_field = nullptr;
 
@@ -2543,6 +2695,11 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
                     buf_sprintf("consider 'union(enum)' here"));
         }
 
+        if (buf_eql_str(type_enum_field->name, "_")) {
+            add_node_error(g, field_node, buf_sprintf("'_' field of non-exhaustive enum must be last"));
+            enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;
+        }
+
         auto field_entry = enum_type->data.enumeration.fields_by_name.put_unique(type_enum_field->name, type_enum_field);
         if (field_entry != nullptr) {
             ErrorMsg *msg = add_node_error(g, field_node,
@@ -2556,7 +2713,7 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
 
         if (tag_value != nullptr) {
             // A user-specified value is available
-            ConstExprValue *result = analyze_const_value(g, scope, tag_value, tag_int_type,
+            ZigValue *result = analyze_const_value(g, scope, tag_value, tag_int_type,
                     nullptr, UndefBad);
             if (type_is_invalid(result->type)) {
                 enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;
@@ -2594,7 +2751,7 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
 
         // Make sure the value is unique
         auto entry = occupied_tag_values.put_unique(type_enum_field->value, field_node);
-        if (entry != nullptr) {
+        if (entry != nullptr && enum_type->data.enumeration.layout != ContainerLayoutExtern) {
             enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;
 
             Buf *val_buf = buf_alloc();
@@ -2631,7 +2788,6 @@ static Error resolve_struct_zero_bits(CodeGen *g, ZigType *struct_type) {
         return ErrorNone;
 
     AstNode *decl_node = struct_type->data.structure.decl_node;
-    assert(decl_node->type == NodeTypeContainerDecl);
 
     if (struct_type->data.structure.resolve_loop_flag_zero_bits) {
         if (struct_type->data.structure.resolve_status != ResolveStatusInvalid) {
@@ -2642,29 +2798,55 @@ static Error resolve_struct_zero_bits(CodeGen *g, ZigType *struct_type) {
         }
         return ErrorSemanticAnalyzeFail;
     }
-
     struct_type->data.structure.resolve_loop_flag_zero_bits = true;
 
-    assert(!struct_type->data.structure.fields);
-    size_t field_count = decl_node->data.container_decl.fields.length;
-    struct_type->data.structure.src_field_count = (uint32_t)field_count;
-    struct_type->data.structure.fields = allocate<TypeStructField>(field_count);
+    size_t field_count;
+    if (decl_node->type == NodeTypeContainerDecl) {
+        field_count = decl_node->data.container_decl.fields.length;
+        struct_type->data.structure.src_field_count = (uint32_t)field_count;
+
+        src_assert(struct_type->data.structure.fields == nullptr, decl_node);
+        struct_type->data.structure.fields = alloc_type_struct_fields(field_count);
+    } else if (is_anon_container(struct_type)) {
+        field_count = struct_type->data.structure.src_field_count;
+
+        src_assert(field_count == 0 || struct_type->data.structure.fields != nullptr, decl_node);
+    } else zig_unreachable();
+
     struct_type->data.structure.fields_by_name.init(field_count);
 
     Scope *scope = &struct_type->data.structure.decls_scope->base;
 
     size_t gen_field_index = 0;
     for (size_t i = 0; i < field_count; i += 1) {
-        AstNode *field_node = decl_node->data.container_decl.fields.at(i);
-        TypeStructField *type_struct_field = &struct_type->data.structure.fields[i];
-        type_struct_field->name = field_node->data.struct_field.name;
-        type_struct_field->decl_node = field_node;
+        TypeStructField *type_struct_field = struct_type->data.structure.fields[i];
 
-        if (field_node->data.struct_field.type == nullptr) {
-            add_node_error(g, field_node, buf_sprintf("struct field missing type"));
-            struct_type->data.structure.resolve_status = ResolveStatusInvalid;
-            return ErrorSemanticAnalyzeFail;
-        }
+        AstNode *field_node;
+        if (decl_node->type == NodeTypeContainerDecl) {
+            field_node = decl_node->data.container_decl.fields.at(i);
+            type_struct_field->name = field_node->data.struct_field.name;
+            type_struct_field->decl_node = field_node;
+            if (field_node->data.struct_field.comptime_token != nullptr) {
+                if (field_node->data.struct_field.value == nullptr) {
+                    add_token_error(g, field_node->owner,
+                        field_node->data.struct_field.comptime_token,
+                        buf_sprintf("comptime struct field missing initialization value"));
+                    struct_type->data.structure.resolve_status = ResolveStatusInvalid;
+                    return ErrorSemanticAnalyzeFail;
+                }
+                type_struct_field->is_comptime = true;
+            }
+
+            if (field_node->data.struct_field.type == nullptr) {
+                add_node_error(g, field_node, buf_sprintf("struct field missing type"));
+                struct_type->data.structure.resolve_status = ResolveStatusInvalid;
+                return ErrorSemanticAnalyzeFail;
+            }
+        } else if (is_anon_container(struct_type)) {
+            field_node = type_struct_field->decl_node;
+
+            src_assert(type_struct_field->type_entry != nullptr, field_node);
+        } else zig_unreachable();
 
         auto field_entry = struct_type->data.structure.fields_by_name.put_unique(type_struct_field->name, type_struct_field);
         if (field_entry != nullptr) {
@@ -2675,16 +2857,21 @@ static Error resolve_struct_zero_bits(CodeGen *g, ZigType *struct_type) {
             return ErrorSemanticAnalyzeFail;
         }
 
-        ConstExprValue *field_type_val = analyze_const_value(g, scope,
-                field_node->data.struct_field.type, g->builtin_types.entry_type, nullptr, LazyOkNoUndef);
-        if (type_is_invalid(field_type_val->type)) {
-            struct_type->data.structure.resolve_status = ResolveStatusInvalid;
-            return ErrorSemanticAnalyzeFail;
-        }
-        assert(field_type_val->special != ConstValSpecialRuntime);
-        type_struct_field->type_val = field_type_val;
-        if (struct_type->data.structure.resolve_status == ResolveStatusInvalid)
-            return ErrorSemanticAnalyzeFail;
+        ZigValue *field_type_val;
+        if (decl_node->type == NodeTypeContainerDecl) {
+            field_type_val = analyze_const_value(g, scope,
+                    field_node->data.struct_field.type, g->builtin_types.entry_type, nullptr, LazyOkNoUndef);
+            if (type_is_invalid(field_type_val->type)) {
+                struct_type->data.structure.resolve_status = ResolveStatusInvalid;
+                return ErrorSemanticAnalyzeFail;
+            }
+            assert(field_type_val->special != ConstValSpecialRuntime);
+            type_struct_field->type_val = field_type_val;
+            if (struct_type->data.structure.resolve_status == ResolveStatusInvalid)
+                return ErrorSemanticAnalyzeFail;
+        } else if (is_anon_container(struct_type)) {
+            field_type_val = type_struct_field->type_val;
+        } else zig_unreachable();
 
         bool field_is_opaque_type;
         if ((err = type_val_resolve_is_opaque_type(g, field_type_val, &field_is_opaque_type))) {
@@ -2692,7 +2879,7 @@ static Error resolve_struct_zero_bits(CodeGen *g, ZigType *struct_type) {
             return ErrorSemanticAnalyzeFail;
         }
         if (field_is_opaque_type) {
-            add_node_error(g, field_node->data.struct_field.type,
+            add_node_error(g, field_node,
                 buf_sprintf("opaque types have unknown size and therefore cannot be directly embedded in structs"));
             struct_type->data.structure.resolve_status = ResolveStatusInvalid;
             return ErrorSemanticAnalyzeFail;
@@ -2700,6 +2887,9 @@ static Error resolve_struct_zero_bits(CodeGen *g, ZigType *struct_type) {
 
         type_struct_field->src_index = i;
         type_struct_field->gen_index = SIZE_MAX;
+
+        if (type_struct_field->is_comptime)
+            continue;
 
         switch (type_val_resolve_requires_comptime(g, field_type_val)) {
             case ReqCompTimeYes:
@@ -2768,28 +2958,28 @@ static Error resolve_struct_alignment(CodeGen *g, ZigType *struct_type) {
     }
 
     struct_type->data.structure.resolve_loop_flag_other = true;
-    assert(decl_node->type == NodeTypeContainerDecl);
 
     size_t field_count = struct_type->data.structure.src_field_count;
     bool packed = struct_type->data.structure.layout == ContainerLayoutPacked;
 
     for (size_t i = 0; i < field_count; i += 1) {
-        TypeStructField *field = &struct_type->data.structure.fields[i];
+        TypeStructField *field = struct_type->data.structure.fields[i];
         if (field->gen_index == SIZE_MAX)
             continue;
 
-        AstNode *align_expr = field->decl_node->data.struct_field.align_expr;
+        AstNode *align_expr = (field->decl_node->type == NodeTypeStructField) ?
+            field->decl_node->data.struct_field.align_expr : nullptr;
         if (align_expr != nullptr) {
             if (!analyze_const_align(g, &struct_type->data.structure.decls_scope->base, align_expr,
                         &field->align))
             {
                 struct_type->data.structure.resolve_status = ResolveStatusInvalid;
-                return err;
+                return ErrorSemanticAnalyzeFail;
             }
         } else if (packed) {
             field->align = 1;
         } else {
-            if ((err = type_val_resolve_abi_align(g, field->type_val, &field->align))) {
+            if ((err = type_val_resolve_abi_align(g, field->decl_node, field->type_val, &field->align))) {
                 if (g->trace_err != nullptr) {
                     g->trace_err = add_error_note(g, g->trace_err, field->decl_node,
                         buf_create_from_str("while checking this field"));
@@ -2806,7 +2996,7 @@ static Error resolve_struct_alignment(CodeGen *g, ZigType *struct_type) {
         }
     }
 
-    if (!type_has_bits(struct_type)) {
+    if (!type_has_bits(g, struct_type)) {
         assert(struct_type->abi_align == 0);
     }
 
@@ -2855,7 +3045,7 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
         return ErrorSemanticAnalyzeFail;
     }
     union_type->data.unionation.src_field_count = field_count;
-    union_type->data.unionation.fields = allocate<TypeUnionField>(field_count);
+    union_type->data.unionation.fields = heap::c_allocator.allocate<TypeUnionField>(field_count);
     union_type->data.unionation.fields_by_name.init(field_count);
 
     Scope *scope = &union_type->data.unionation.decls_scope->base;
@@ -2874,7 +3064,7 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
     if (create_enum_type) {
         occupied_tag_values.init(field_count);
 
-        di_enumerators = allocate<ZigLLVMDIEnumerator*>(field_count);
+        di_enumerators = heap::c_allocator.allocate<ZigLLVMDIEnumerator*>(field_count);
 
         ZigType *tag_int_type;
         if (enum_type_node != nullptr) {
@@ -2907,7 +3097,7 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
         tag_type->data.enumeration.decl_node = decl_node;
         tag_type->data.enumeration.layout = ContainerLayoutAuto;
         tag_type->data.enumeration.src_field_count = field_count;
-        tag_type->data.enumeration.fields = allocate<TypeEnumField>(field_count);
+        tag_type->data.enumeration.fields = heap::c_allocator.allocate<TypeEnumField>(field_count);
         tag_type->data.enumeration.fields_by_name.init(field_count);
         tag_type->data.enumeration.decls_scope = union_type->data.unionation.decls_scope;
     } else if (enum_type_node != nullptr) {
@@ -2927,7 +3117,7 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
             return err;
         }
         tag_type = enum_type;
-        covered_enum_fields = allocate<bool>(enum_type->data.enumeration.src_field_count);
+        covered_enum_fields = heap::c_allocator.allocate<bool>(enum_type->data.enumeration.src_field_count);
     } else {
         tag_type = nullptr;
     }
@@ -2964,7 +3154,7 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
                 return ErrorSemanticAnalyzeFail;
             }
         } else {
-            ConstExprValue *field_type_val = analyze_const_value(g, scope,
+            ZigValue *field_type_val = analyze_const_value(g, scope,
                     field_node->data.struct_field.type, g->builtin_types.entry_type, nullptr, LazyOkNoUndef);
             if (type_is_invalid(field_type_val->type)) {
                 union_type->data.unionation.resolve_status = ResolveStatusInvalid;
@@ -2981,7 +3171,7 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
                 return ErrorSemanticAnalyzeFail;
             }
             if (field_is_opaque_type) {
-                add_node_error(g, field_node->data.struct_field.type,
+                add_node_error(g, field_node,
                     buf_create_from_str(
                         "opaque types have unknown size and therefore cannot be directly embedded in unions"));
                 union_type->data.unionation.resolve_status = ResolveStatusInvalid;
@@ -3030,7 +3220,7 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
             // In a second pass we will fill in the unspecified ones.
             if (tag_value != nullptr) {
                 ZigType *tag_int_type = tag_type->data.enumeration.tag_int_type;
-                ConstExprValue *result = analyze_const_value(g, scope, tag_value, tag_int_type,
+                ZigValue *result = analyze_const_value(g, scope, tag_value, tag_int_type,
                         nullptr, UndefBad);
                 if (type_is_invalid(result->type)) {
                     union_type->data.unionation.resolve_status = ResolveStatusInvalid;
@@ -3065,7 +3255,7 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
             }
             covered_enum_fields[union_field->enum_field->decl_index] = true;
         } else {
-            union_field->enum_field = allocate<TypeEnumField>(1);
+            union_field->enum_field = heap::c_allocator.create<TypeEnumField>();
             union_field->enum_field->name = field_name;
             union_field->enum_field->decl_index = i;
             bigint_init_unsigned(&union_field->enum_field->value, i);
@@ -3186,15 +3376,16 @@ static void get_fully_qualified_decl_name(CodeGen *g, Buf *buf, Tld *tld, bool i
     }
 }
 
-ZigFn *create_fn_raw(CodeGen *g, FnInline inline_value) {
-    ZigFn *fn_entry = allocate<ZigFn>(1);
+static ZigFn *create_fn_raw(CodeGen *g, FnInline inline_value) {
+    ZigFn *fn_entry = heap::c_allocator.create<ZigFn>();
+    fn_entry->ir_executable = heap::c_allocator.create<IrExecutableSrc>();
 
     fn_entry->prealloc_backward_branch_quota = default_backward_branch_quota;
 
     fn_entry->analyzed_executable.backward_branch_count = &fn_entry->prealloc_bbc;
     fn_entry->analyzed_executable.backward_branch_quota = &fn_entry->prealloc_backward_branch_quota;
     fn_entry->analyzed_executable.fn_entry = fn_entry;
-    fn_entry->ir_executable.fn_entry = fn_entry;
+    fn_entry->ir_executable->fn_entry = fn_entry;
     fn_entry->fn_inline = inline_value;
 
     return fn_entry;
@@ -3215,32 +3406,6 @@ ZigFn *create_fn(CodeGen *g, AstNode *proto_node) {
     return fn_entry;
 }
 
-static bool scope_is_root_decls(Scope *scope) {
-    while (scope) {
-        if (scope->id == ScopeIdDecls) {
-            ScopeDecls *scope_decls = (ScopeDecls *)scope;
-            return is_top_level_struct(scope_decls->container_type);
-        }
-        scope = scope->parent;
-    }
-    zig_unreachable();
-}
-
-void typecheck_panic_fn(CodeGen *g, TldFn *tld_fn, ZigFn *panic_fn) {
-    ConstExprValue *panic_fn_type_val = get_builtin_value(g, "PanicFn");
-    assert(panic_fn_type_val != nullptr);
-    assert(panic_fn_type_val->type->id == ZigTypeIdMetaType);
-    ZigType *panic_fn_type = panic_fn_type_val->data.x_type;
-
-    AstNode *fake_decl = allocate<AstNode>(1);
-    *fake_decl = *panic_fn->proto_node;
-    fake_decl->type = NodeTypeSymbol;
-    fake_decl->data.symbol_expr.symbol = tld_fn->base.name;
-
-    // call this for the side effects of casting to panic_fn_type
-    analyze_const_value(g, tld_fn->base.parent_scope, fake_decl, panic_fn_type, nullptr, UndefBad);
-}
-
 ZigType *get_test_fn_type(CodeGen *g) {
     if (g->test_fn_type)
         return g->test_fn_type;
@@ -3259,21 +3424,19 @@ void add_var_export(CodeGen *g, ZigVar *var, const char *symbol_name, GlobalLink
     global_export->linkage = linkage;
 }
 
-void add_fn_export(CodeGen *g, ZigFn *fn_table_entry, const char *symbol_name, GlobalLinkageId linkage, bool ccc) {
-    if (ccc) {
-        if (strcmp(symbol_name, "main") == 0 && g->libc_link_lib != nullptr) {
-            g->have_c_main = true;
-        } else if (strcmp(symbol_name, "WinMain") == 0 &&
-            g->zig_target->os == OsWindows)
-        {
+void add_fn_export(CodeGen *g, ZigFn *fn_table_entry, const char *symbol_name, GlobalLinkageId linkage, CallingConvention cc) {
+    if (cc == CallingConventionC && strcmp(symbol_name, "main") == 0 && g->libc_link_lib != nullptr) {
+        g->have_c_main = true;
+    } else if (cc == CallingConventionStdcall && g->zig_target->os == OsWindows) {
+        if (strcmp(symbol_name, "WinMain") == 0) {
             g->have_winmain = true;
-        } else if (strcmp(symbol_name, "WinMainCRTStartup") == 0 &&
-            g->zig_target->os == OsWindows)
-        {
+        } else if (strcmp(symbol_name, "wWinMain") == 0) {
+            g->have_wwinmain = true;
+        } else if (strcmp(symbol_name, "WinMainCRTStartup") == 0) {
             g->have_winmain_crt_startup = true;
-        } else if (strcmp(symbol_name, "DllMainCRTStartup") == 0 &&
-            g->zig_target->os == OsWindows)
-        {
+        } else if (strcmp(symbol_name, "wWinMainCRTStartup") == 0) {
+            g->have_wwinmain_crt_startup = true;
+        } else if (strcmp(symbol_name, "DllMainCRTStartup") == 0) {
             g->have_dllmain_crt_startup = true;
         }
     }
@@ -3285,7 +3448,6 @@ void add_fn_export(CodeGen *g, ZigFn *fn_table_entry, const char *symbol_name, G
 }
 
 static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
-    ZigType *import = tld_fn->base.import;
     AstNode *source_node = tld_fn->base.source_node;
     if (source_node->type == NodeTypeFnProto) {
         AstNodeFnProto *fn_proto = &source_node->data.fn_proto;
@@ -3302,11 +3464,6 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
             get_fully_qualified_decl_name(g, &fn_table_entry->symbol_name, &tld_fn->base, false);
         }
 
-        if (fn_proto->is_export) {
-            bool ccc = (fn_proto->cc == CallingConventionUnspecified || fn_proto->cc == CallingConventionC);
-            add_fn_export(g, fn_table_entry, buf_ptr(&fn_table_entry->symbol_name), GlobalLinkageIdStrong, ccc);
-        }
-
         if (!is_extern) {
             fn_table_entry->fndef_scope = create_fndef_scope(g,
                 fn_table_entry->body_node, tld_fn->base.parent_scope, fn_table_entry);
@@ -3320,22 +3477,75 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
             }
         } else {
             fn_table_entry->inferred_async_node = inferred_async_none;
-            g->external_prototypes.put_unique(tld_fn->base.name, &tld_fn->base);
+            g->external_symbol_names.put_unique(tld_fn->base.name, &tld_fn->base);
         }
 
         Scope *child_scope = fn_table_entry->fndef_scope ? &fn_table_entry->fndef_scope->base : tld_fn->base.parent_scope;
 
-        fn_table_entry->type_entry = analyze_fn_type(g, source_node, child_scope, fn_table_entry);
+        CallingConvention cc;
+        if (fn_proto->callconv_expr != nullptr) {
+            ZigType *cc_enum_value = get_builtin_type(g, "CallingConvention");
+
+            ZigValue *result_val = analyze_const_value(g, child_scope, fn_proto->callconv_expr,
+                cc_enum_value, nullptr, UndefBad);
+            if (type_is_invalid(result_val->type)) {
+                fn_table_entry->type_entry = g->builtin_types.entry_invalid;
+                tld_fn->base.resolution = TldResolutionInvalid;
+                return;
+            }
+
+            cc = (CallingConvention)bigint_as_u32(&result_val->data.x_enum_tag);
+        } else {
+            cc = cc_from_fn_proto(fn_proto);
+        }
 
         if (fn_proto->section_expr != nullptr) {
             if (!analyze_const_string(g, child_scope, fn_proto->section_expr, &fn_table_entry->section_name)) {
                 fn_table_entry->type_entry = g->builtin_types.entry_invalid;
+                tld_fn->base.resolution = TldResolutionInvalid;
+                return;
             }
         }
 
-        if (fn_table_entry->type_entry->id == ZigTypeIdInvalid) {
+        fn_table_entry->type_entry = analyze_fn_type(g, source_node, child_scope, fn_table_entry, cc);
+
+        if (type_is_invalid(fn_table_entry->type_entry)) {
             tld_fn->base.resolution = TldResolutionInvalid;
             return;
+        }
+
+        const CallingConvention fn_cc = fn_table_entry->type_entry->data.fn.fn_type_id.cc;
+
+        if (fn_proto->is_export) {
+            switch (fn_cc) {
+                case CallingConventionAsync:
+                    add_node_error(g, fn_def_node,
+                        buf_sprintf("exported function cannot be async"));
+                    fn_table_entry->type_entry = g->builtin_types.entry_invalid;
+                    tld_fn->base.resolution = TldResolutionInvalid;
+                    return;
+                case CallingConventionC:
+                case CallingConventionCold:
+                case CallingConventionNaked:
+                case CallingConventionInterrupt:
+                case CallingConventionSignal:
+                case CallingConventionStdcall:
+                case CallingConventionFastcall:
+                case CallingConventionVectorcall:
+                case CallingConventionThiscall:
+                case CallingConventionAPCS:
+                case CallingConventionAAPCS:
+                case CallingConventionAAPCSVFP:
+                    add_fn_export(g, fn_table_entry, buf_ptr(&fn_table_entry->symbol_name),
+                                  GlobalLinkageIdStrong, fn_cc);
+                    break;
+                case CallingConventionUnspecified:
+                    // An exported function without a specific calling
+                    // convention defaults to C
+                    add_fn_export(g, fn_table_entry, buf_ptr(&fn_table_entry->symbol_name),
+                                  GlobalLinkageIdStrong, CallingConventionC);
+                    break;
+            }
         }
 
         if (!fn_table_entry->type_entry->data.fn.is_generic) {
@@ -3346,21 +3556,8 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
         // if the calling convention implies that it cannot be async, we save that for later
         // and leave the value to be nullptr to indicate that we have not emitted possible
         // compile errors for improperly calling async functions.
-        if (fn_table_entry->type_entry->data.fn.fn_type_id.cc == CallingConventionAsync) {
+        if (fn_cc == CallingConventionAsync) {
             fn_table_entry->inferred_async_node = fn_table_entry->proto_node;
-        }
-
-        if (scope_is_root_decls(tld_fn->base.parent_scope) &&
-            (import == g->root_import || import->data.structure.root_struct->package == g->panic_package))
-        {
-            if (g->have_pub_main && buf_eql_str(tld_fn->base.name, "main")) {
-                g->main_fn = fn_table_entry;
-            } else if ((import->data.structure.root_struct->package == g->panic_package || g->have_pub_panic) &&
-                    buf_eql_str(tld_fn->base.name, "panic"))
-            {
-                g->panic_fn = fn_table_entry;
-                g->panic_tld_fn = tld_fn;
-            }
         }
     } else if (source_node->type == NodeTypeTestDecl) {
         ZigFn *fn_table_entry = create_fn_raw(g, FnInlineAuto);
@@ -3399,10 +3596,16 @@ static void add_top_level_decl(CodeGen *g, ScopeDecls *decls_scope, Tld *tld) {
         assert(tld->source_node->type == NodeTypeFnProto);
         is_export = tld->source_node->data.fn_proto.is_export;
 
-        if (!is_export && !tld->source_node->data.fn_proto.is_extern &&
+        if (!tld->source_node->data.fn_proto.is_extern &&
             tld->source_node->data.fn_proto.fn_def_node == nullptr)
         {
             add_node_error(g, tld->source_node, buf_sprintf("non-extern function has no body"));
+            return;
+        }
+        if (!tld->source_node->data.fn_proto.is_extern &&
+            tld->source_node->data.fn_proto.is_var_args)
+        {
+            add_node_error(g, tld->source_node, buf_sprintf("non-extern function is variadic"));
             return;
         }
     } else if (tld->id == TldIdUsingNamespace) {
@@ -3424,6 +3627,12 @@ static void add_top_level_decl(CodeGen *g, ScopeDecls *decls_scope, Tld *tld) {
         auto entry = decls_scope->decl_table.put_unique(tld->name, tld);
         if (entry) {
             Tld *other_tld = entry->value;
+            if (other_tld->id == TldIdVar) {
+                ZigVar *var = reinterpret_cast<TldVar *>(other_tld)->var;
+                if (var != nullptr && var->var_type != nullptr && type_is_invalid(var->var_type)) {
+                    return; // already reported compile error
+                }
+            }
             ErrorMsg *msg = add_node_error(g, tld->source_node, buf_sprintf("redefinition of '%s'", buf_ptr(tld->name)));
             add_error_note(g, msg, other_tld->source_node, buf_sprintf("previous definition is here"));
             return;
@@ -3444,7 +3653,7 @@ static void preview_test_decl(CodeGen *g, AstNode *node, ScopeDecls *decls_scope
         return;
 
     ZigType *import = get_scope_import(&decls_scope->base);
-    if (import->data.structure.root_struct->package != g->root_package)
+    if (import->data.structure.root_struct->package != g->main_pkg)
         return;
 
     Buf *decl_name_buf = node->data.test_decl.name;
@@ -3456,7 +3665,7 @@ static void preview_test_decl(CodeGen *g, AstNode *node, ScopeDecls *decls_scope
         return;
     }
 
-    TldFn *tld_fn = allocate<TldFn>(1);
+    TldFn *tld_fn = heap::c_allocator.create<TldFn>();
     init_tld(&tld_fn->base, TldIdFn, test_name, VisibModPrivate, node, &decls_scope->base);
     g->resolve_queue.append(&tld_fn->base);
 }
@@ -3464,7 +3673,7 @@ static void preview_test_decl(CodeGen *g, AstNode *node, ScopeDecls *decls_scope
 static void preview_comptime_decl(CodeGen *g, AstNode *node, ScopeDecls *decls_scope) {
     assert(node->type == NodeTypeCompTime);
 
-    TldCompTime *tld_comptime = allocate<TldCompTime>(1);
+    TldCompTime *tld_comptime = heap::c_allocator.create<TldCompTime>();
     init_tld(&tld_comptime->base, TldIdCompTime, nullptr, VisibModPrivate, node, &decls_scope->base);
     g->resolve_queue.append(&tld_comptime->base);
 }
@@ -3480,12 +3689,14 @@ void init_tld(Tld *tld, TldId id, Buf *name, VisibMod visib_mod, AstNode *source
     tld->parent_scope = parent_scope;
 }
 
-void update_compile_var(CodeGen *g, Buf *name, ConstExprValue *value) {
-    Tld *tld = get_container_scope(g->compile_var_import)->decl_table.get(name);
+void update_compile_var(CodeGen *g, Buf *name, ZigValue *value) {
+    ScopeDecls *builtin_scope = get_container_scope(g->compile_var_import);
+    Tld *tld = find_container_decl(g, builtin_scope, name);
+    assert(tld != nullptr);
     resolve_top_level_decl(g, tld, tld->source_node, false);
-    assert(tld->id == TldIdVar);
+    assert(tld->id == TldIdVar && tld->resolution == TldResolutionOk);
     TldVar *tld_var = (TldVar *)tld;
-    tld_var->var->const_value = value;
+    copy_const_val(g, tld_var->var->const_value, value);
     tld_var->var->var_type = value->type;
     tld_var->var->align_bytes = get_abi_alignment(g, value->type);
 }
@@ -3505,7 +3716,7 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
             {
                 Buf *name = node->data.variable_declaration.symbol;
                 VisibMod visib_mod = node->data.variable_declaration.visib_mod;
-                TldVar *tld_var = allocate<TldVar>(1);
+                TldVar *tld_var = heap::c_allocator.create<TldVar>();
                 init_tld(&tld_var->base, TldIdVar, name, visib_mod, node, &decls_scope->base);
                 tld_var->extern_lib_name = node->data.variable_declaration.lib_name;
                 add_top_level_decl(g, decls_scope, &tld_var->base);
@@ -3521,7 +3732,7 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
                 }
 
                 VisibMod visib_mod = node->data.fn_proto.visib_mod;
-                TldFn *tld_fn = allocate<TldFn>(1);
+                TldFn *tld_fn = heap::c_allocator.create<TldFn>();
                 init_tld(&tld_fn->base, TldIdFn, fn_name, visib_mod, node, &decls_scope->base);
                 tld_fn->extern_lib_name = node->data.fn_proto.lib_name;
                 add_top_level_decl(g, decls_scope, &tld_fn->base);
@@ -3530,7 +3741,7 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
             }
         case NodeTypeUsingNamespace: {
             VisibMod visib_mod = node->data.using_namespace.visib_mod;
-            TldUsingNamespace *tld_using_namespace = allocate<TldUsingNamespace>(1);
+            TldUsingNamespace *tld_using_namespace = heap::c_allocator.create<TldUsingNamespace>();
             init_tld(&tld_using_namespace->base, TldIdUsingNamespace, nullptr, visib_mod, node, &decls_scope->base);
             add_top_level_decl(g, decls_scope, &tld_using_namespace->base);
             decls_scope->use_decls.append(tld_using_namespace);
@@ -3542,6 +3753,7 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
         case NodeTypeCompTime:
             preview_comptime_decl(g, node, decls_scope);
             break;
+        case NodeTypeNoSuspend:
         case NodeTypeParamDecl:
         case NodeTypeReturnExpr:
         case NodeTypeDefer:
@@ -3590,6 +3802,7 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
         case NodeTypeEnumLiteral:
         case NodeTypeAnyFrameType:
         case NodeTypeErrorSetField:
+        case NodeTypeVarFieldType:
             zig_unreachable();
     }
 }
@@ -3617,7 +3830,6 @@ ZigType *validate_var_type(CodeGen *g, AstNode *source_node, ZigType *type_entry
         case ZigTypeIdUnreachable:
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
-        case ZigTypeIdArgTuple:
         case ZigTypeIdOpaque:
             add_node_error(g, source_node, buf_sprintf("variable of type '%s' not allowed",
                 buf_ptr(&type_entry->name)));
@@ -3651,18 +3863,17 @@ ZigType *validate_var_type(CodeGen *g, AstNode *source_node, ZigType *type_entry
 // Set name to nullptr to make the variable anonymous (not visible to programmer).
 // TODO merge with definition of add_local_var in ir.cpp
 ZigVar *add_variable(CodeGen *g, AstNode *source_node, Scope *parent_scope, Buf *name,
-    bool is_const, ConstExprValue *const_value, Tld *src_tld, ZigType *var_type)
+    bool is_const, ZigValue *const_value, Tld *src_tld, ZigType *var_type)
 {
     Error err;
     assert(const_value != nullptr);
     assert(var_type != nullptr);
 
-    ZigVar *variable_entry = allocate<ZigVar>(1);
+    ZigVar *variable_entry = heap::c_allocator.create<ZigVar>();
     variable_entry->const_value = const_value;
     variable_entry->var_type = var_type;
     variable_entry->parent_scope = parent_scope;
     variable_entry->shadowable = false;
-    variable_entry->mem_slot_index = SIZE_MAX;
     variable_entry->src_arg_index = SIZE_MAX;
 
     assert(name);
@@ -3697,9 +3908,18 @@ ZigVar *add_variable(CodeGen *g, AstNode *source_node, Scope *parent_scope, Buf 
                 if (search_scope != nullptr) {
                     Tld *tld = find_decl(g, search_scope, name);
                     if (tld != nullptr && tld != src_tld) {
-                        ErrorMsg *msg = add_node_error(g, source_node,
-                                buf_sprintf("redefinition of '%s'", buf_ptr(name)));
-                        add_error_note(g, msg, tld->source_node, buf_sprintf("previous definition is here"));
+                        bool want_err_msg = true;
+                        if (tld->id == TldIdVar) {
+                            ZigVar *var = reinterpret_cast<TldVar *>(tld)->var;
+                            if (var != nullptr && var->var_type != nullptr && type_is_invalid(var->var_type)) {
+                                want_err_msg = false;
+                            }
+                        }
+                        if (want_err_msg) {
+                            ErrorMsg *msg = add_node_error(g, source_node,
+                                    buf_sprintf("redefinition of '%s'", buf_ptr(name)));
+                            add_error_note(g, msg, tld->source_node, buf_sprintf("previous definition is here"));
+                        }
                         variable_entry->var_type = g->builtin_types.entry_invalid;
                     }
                 }
@@ -3723,6 +3943,16 @@ ZigVar *add_variable(CodeGen *g, AstNode *source_node, Scope *parent_scope, Buf 
 
 
     return variable_entry;
+}
+
+static void validate_export_var_type(CodeGen *g, ZigType* type, AstNode *source_node) {
+    switch (type->id) {
+        case ZigTypeIdMetaType:
+            add_node_error(g, source_node, buf_sprintf("cannot export variable of type 'type'"));
+            break;
+        default:
+            break;
+    }
 }
 
 static void resolve_decl_var(CodeGen *g, TldVar *tld_var, bool allow_lazy) {
@@ -3749,11 +3979,11 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var, bool allow_lazy) {
 
     assert(!is_export || !is_extern);
 
-    ConstExprValue *init_value = nullptr;
+    ZigValue *init_value = nullptr;
 
     // TODO more validation for types that can't be used for export/extern variables
     ZigType *implicit_type = nullptr;
-    if (explicit_type && explicit_type->id == ZigTypeIdInvalid) {
+    if (explicit_type != nullptr && type_is_invalid(explicit_type)) {
         implicit_type = explicit_type;
     } else if (var_decl->expr) {
         init_value = analyze_const_value(g, tld_var->base.parent_scope, var_decl->expr, explicit_type,
@@ -3787,7 +4017,7 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var, bool allow_lazy) {
     ZigType *type = explicit_type ? explicit_type : implicit_type;
     assert(type != nullptr); // should have been caught by the parser
 
-    ConstExprValue *init_val = (init_value != nullptr) ? init_value : create_const_runtime(type);
+    ZigValue *init_val = (init_value != nullptr) ? init_value : create_const_runtime(g, type);
 
     tld_var->var = add_variable(g, source_node, tld_var->base.parent_scope, var_decl->symbol,
             is_const, init_val, &tld_var->base, type);
@@ -3804,8 +4034,8 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var, bool allow_lazy) {
     }
 
     if (var_decl->section_expr != nullptr) {
-        if (!analyze_const_string(g, tld_var->base.parent_scope, var_decl->section_expr, &tld_var->section_name)) {
-            tld_var->section_name = nullptr;
+        if (!analyze_const_string(g, tld_var->base.parent_scope, var_decl->section_expr, &tld_var->var->section_name)) {
+            tld_var->var->section_name = nullptr;
         }
     }
 
@@ -3814,7 +4044,12 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var, bool allow_lazy) {
     }
 
     if (is_export) {
+        validate_export_var_type(g, type, source_node);
         add_var_export(g, tld_var->var, tld_var->var->name, GlobalLinkageIdStrong);
+    }
+
+    if (is_extern) {
+        g->external_symbol_names.put_unique(tld_var->base.name, &tld_var->base);
     }
 
     g->global_vars.append(tld_var);
@@ -3834,7 +4069,7 @@ static void add_symbols_from_container(CodeGen *g, TldUsingNamespace *src_using_
         }
     }
 
-    ConstExprValue *use_expr = src_using_namespace->using_namespace_value;
+    ZigValue *use_expr = src_using_namespace->using_namespace_value;
     if (type_is_invalid(use_expr->type)) {
         dest_decls_scope->any_imports_failed = true;
         return;
@@ -3911,7 +4146,7 @@ static void preview_use_decl(CodeGen *g, TldUsingNamespace *using_namespace, Sco
 
     using_namespace->base.resolution = TldResolutionResolving;
     assert(using_namespace->base.source_node->type == NodeTypeUsingNamespace);
-    ConstExprValue *result = analyze_const_value(g, &dest_decls_scope->base,
+    ZigValue *result = analyze_const_value(g, &dest_decls_scope->base,
         using_namespace->base.source_node->data.using_namespace.expr, g->builtin_types.entry_type,
         nullptr, UndefBad);
     using_namespace->using_namespace_value = result;
@@ -3919,7 +4154,7 @@ static void preview_use_decl(CodeGen *g, TldUsingNamespace *using_namespace, Sco
     if (type_is_invalid(result->type)) {
         dest_decls_scope->any_imports_failed = true;
         using_namespace->base.resolution = TldResolutionInvalid;
-        using_namespace->using_namespace_value = &g->invalid_instruction->value;
+        using_namespace->using_namespace_value = g->invalid_inst_gen->value;
         return;
     }
 
@@ -3928,7 +4163,7 @@ static void preview_use_decl(CodeGen *g, TldUsingNamespace *using_namespace, Sco
             buf_sprintf("expected struct, enum, or union; found '%s'", buf_ptr(&result->data.x_type->name)));
         dest_decls_scope->any_imports_failed = true;
         using_namespace->base.resolution = TldResolutionInvalid;
-        using_namespace->using_namespace_value = &g->invalid_instruction->value;
+        using_namespace->using_namespace_value = g->invalid_inst_gen->value;
         return;
     }
 }
@@ -3939,6 +4174,7 @@ void resolve_top_level_decl(CodeGen *g, Tld *tld, AstNode *source_node, bool all
         return;
 
     tld->resolution = TldResolutionResolving;
+    update_progress_display(g);
 
     switch (tld->id) {
         case TldIdVar: {
@@ -4080,13 +4316,22 @@ TypeEnumField *find_enum_type_field(ZigType *enum_type, Buf *name) {
 
 TypeStructField *find_struct_type_field(ZigType *type_entry, Buf *name) {
     assert(type_entry->id == ZigTypeIdStruct);
-    assert(type_is_resolved(type_entry, ResolveStatusZeroBitsKnown));
-    if (type_entry->data.structure.src_field_count == 0)
+    if (type_entry->data.structure.resolve_status == ResolveStatusBeingInferred) {
+        for (size_t i = 0; i < type_entry->data.structure.src_field_count; i += 1) {
+            TypeStructField *field = type_entry->data.structure.fields[i];
+            if (buf_eql_buf(field->name, name))
+                return field;
+        }
         return nullptr;
-    auto entry = type_entry->data.structure.fields_by_name.maybe_get(name);
-    if (entry == nullptr)
-        return nullptr;
-    return entry->value;
+    } else {
+        assert(type_is_resolved(type_entry, ResolveStatusZeroBitsKnown));
+        if (type_entry->data.structure.src_field_count == 0)
+            return nullptr;
+        auto entry = type_entry->data.structure.fields_by_name.maybe_get(name);
+        if (entry == nullptr)
+            return nullptr;
+        return entry->value;
+    }
 }
 
 TypeUnionField *find_union_type_field(ZigType *type_entry, Buf *name) {
@@ -4129,7 +4374,7 @@ bool is_container(ZigType *type_entry) {
         case ZigTypeIdInvalid:
             zig_unreachable();
         case ZigTypeIdStruct:
-            return !type_entry->data.structure.is_slice;
+            return type_entry->data.structure.special != StructSpecialSlice;
         case ZigTypeIdEnum:
         case ZigTypeIdUnion:
             return true;
@@ -4151,7 +4396,6 @@ bool is_container(ZigType *type_entry) {
         case ZigTypeIdErrorSet:
         case ZigTypeIdFn:
         case ZigTypeIdBoundFn:
-        case ZigTypeIdArgTuple:
         case ZigTypeIdOpaque:
         case ZigTypeIdVector:
         case ZigTypeIdFnFrame:
@@ -4196,15 +4440,50 @@ ZigType *get_src_ptr_type(ZigType *type) {
     return nullptr;
 }
 
-ZigType *get_codegen_ptr_type(ZigType *type) {
+Error get_codegen_ptr_type(CodeGen *g, ZigType *type, ZigType **result) {
+    Error err;
+
     ZigType *ty = get_src_ptr_type(type);
-    if (ty == nullptr || !type_has_bits(ty))
-        return nullptr;
-    return ty;
+    if (ty == nullptr) {
+        *result = nullptr;
+        return ErrorNone;
+    }
+
+    bool has_bits;
+    if ((err = type_has_bits2(g, ty, &has_bits))) return err;
+    if (!has_bits) {
+        *result = nullptr;
+        return ErrorNone;
+    }
+
+    *result = ty;
+    return ErrorNone;
 }
 
-bool type_is_nonnull_ptr(ZigType *type) {
-    return get_codegen_ptr_type(type) == type && !ptr_allows_addr_zero(type);
+ZigType *get_codegen_ptr_type_bail(CodeGen *g, ZigType *type) {
+    Error err;
+    ZigType *result;
+    if ((err = get_codegen_ptr_type(g, type, &result))) {
+        codegen_report_errors_and_exit(g);
+    }
+    return result;
+}
+
+bool type_is_nonnull_ptr(CodeGen *g, ZigType *type) {
+    Error err;
+    bool result;
+    if ((err = type_is_nonnull_ptr2(g, type, &result))) {
+        codegen_report_errors_and_exit(g);
+    }
+    return result;
+}
+
+Error type_is_nonnull_ptr2(CodeGen *g, ZigType *type, bool *result) {
+    Error err;
+    ZigType *ptr_type;
+    if ((err = get_codegen_ptr_type(g, type, &ptr_type))) return err;
+    *result = ptr_type == type && !ptr_allows_addr_zero(type);
+    return ErrorNone;
 }
 
 static uint32_t get_async_frame_align_bytes(CodeGen *g) {
@@ -4215,14 +4494,21 @@ static uint32_t get_async_frame_align_bytes(CodeGen *g) {
 }
 
 uint32_t get_ptr_align(CodeGen *g, ZigType *type) {
-    ZigType *ptr_type = get_src_ptr_type(type);
+    ZigType *ptr_type;
+    if (type->id == ZigTypeIdStruct) {
+        assert(type->data.structure.special == StructSpecialSlice);
+        TypeStructField *ptr_field = type->data.structure.fields[slice_ptr_index];
+        ptr_type = resolve_struct_field_type(g, ptr_field);
+    } else {
+        ptr_type = get_src_ptr_type(type);
+    }
     if (ptr_type->id == ZigTypeIdPointer) {
         return (ptr_type->data.pointer.explicit_alignment == 0) ?
             get_abi_alignment(g, ptr_type->data.pointer.child_type) : ptr_type->data.pointer.explicit_alignment;
     } else if (ptr_type->id == ZigTypeIdFn) {
         // I tried making this use LLVMABIAlignmentOfType but it trips this assertion in LLVM:
         // "Cannot getTypeInfo() on a type that is unsized!"
-        // when getting the alignment of `?extern fn() void`.
+        // when getting the alignment of `?fn() callconv(.C) void`.
         // See http://lists.llvm.org/pipermail/llvm-dev/2018-September/126142.html
         return (ptr_type->data.fn.fn_type_id.alignment == 0) ? 1 : ptr_type->data.fn.fn_type_id.alignment;
     } else if (ptr_type->id == ZigTypeIdAnyFrame) {
@@ -4232,8 +4518,15 @@ uint32_t get_ptr_align(CodeGen *g, ZigType *type) {
     }
 }
 
-bool get_ptr_const(ZigType *type) {
-    ZigType *ptr_type = get_src_ptr_type(type);
+bool get_ptr_const(CodeGen *g, ZigType *type) {
+    ZigType *ptr_type;
+    if (type->id == ZigTypeIdStruct) {
+        assert(type->data.structure.special == StructSpecialSlice);
+        TypeStructField *ptr_field = type->data.structure.fields[slice_ptr_index];
+        ptr_type = resolve_struct_field_type(g, ptr_field);
+    } else {
+        ptr_type = get_src_ptr_type(type);
+    }
     if (ptr_type->id == ZigTypeIdPointer) {
         return ptr_type->data.pointer.is_const;
     } else if (ptr_type->id == ZigTypeIdFn) {
@@ -4254,7 +4547,8 @@ AstNode *get_param_decl_node(ZigFn *fn_entry, size_t index) {
         return nullptr;
 }
 
-static void define_local_param_variables(CodeGen *g, ZigFn *fn_table_entry) {
+static Error define_local_param_variables(CodeGen *g, ZigFn *fn_table_entry) {
+    Error err;
     ZigType *fn_type = fn_table_entry->type_entry;
     assert(!fn_type->data.fn.is_generic);
     FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
@@ -4273,22 +4567,31 @@ static void define_local_param_variables(CodeGen *g, ZigFn *fn_table_entry) {
         }
 
         ZigType *param_type = param_info->type;
-        bool is_noalias = param_info->is_noalias;
+        if ((err = type_resolve(g, param_type, ResolveStatusSizeKnown))) {
+            return err;
+        }
 
-        if (is_noalias && get_codegen_ptr_type(param_type) == nullptr) {
-            add_node_error(g, param_decl_node, buf_sprintf("noalias on non-pointer parameter"));
+        bool is_noalias = param_info->is_noalias;
+        if (is_noalias) {
+            ZigType *ptr_type;
+            if ((err = get_codegen_ptr_type(g, param_type, &ptr_type))) return err;
+            if (ptr_type == nullptr) {
+                add_node_error(g, param_decl_node, buf_sprintf("noalias on non-pointer parameter"));
+            }
         }
 
         ZigVar *var = add_variable(g, param_decl_node, fn_table_entry->child_scope,
-                param_name, true, create_const_runtime(param_type), nullptr, param_type);
+                param_name, true, create_const_runtime(g, param_type), nullptr, param_type);
         var->src_arg_index = i;
         fn_table_entry->child_scope = var->child_scope;
         var->shadowable = var->shadowable || is_var_args;
 
-        if (type_has_bits(param_type)) {
+        if (type_has_bits(g, param_type)) {
             fn_table_entry->variable_list.append(var);
         }
     }
+
+    return ErrorNone;
 }
 
 bool resolve_inferred_error_set(CodeGen *g, ZigType *err_set_type, AstNode *source_node) {
@@ -4299,7 +4602,9 @@ bool resolve_inferred_error_set(CodeGen *g, ZigType *err_set_type, AstNode *sour
             return false;
         } else if (infer_fn->anal_state == FnAnalStateReady) {
             analyze_fn_body(g, infer_fn);
-            if (err_set_type->data.error_set.incomplete) {
+            if (infer_fn->anal_state == FnAnalStateInvalid ||
+                err_set_type->data.error_set.incomplete)
+            {
                 assert(g->errors.length != 0);
                 return false;
             }
@@ -4375,7 +4680,7 @@ void add_async_error_notes(CodeGen *g, ErrorMsg *msg, ZigFn *fn) {
 static Error analyze_callee_async(CodeGen *g, ZigFn *fn, ZigFn *callee, AstNode *call_node,
         bool must_not_be_async, CallModifier modifier)
 {
-    if (modifier == CallModifierNoAsync)
+    if (modifier == CallModifierNoSuspend)
         return ErrorNone;
     bool callee_is_async = false;
     switch (callee->type_entry->data.fn.fn_type_id.cc) {
@@ -4397,6 +4702,10 @@ static Error analyze_callee_async(CodeGen *g, ZigFn *fn, ZigFn *callee, AstNode 
         if (callee->anal_state == FnAnalStateComplete) {
             analyze_fn_async(g, callee, true);
             if (callee->anal_state == FnAnalStateInvalid) {
+                if (g->trace_err != nullptr) {
+                    g->trace_err = add_error_note(g, g->trace_err, call_node,
+                        buf_sprintf("while checking if '%s' is async", buf_ptr(&fn->symbol_name)));
+                }
                 return ErrorSemanticAnalyzeFail;
             }
             callee_is_async = fn_is_async(callee);
@@ -4414,12 +4723,19 @@ static Error analyze_callee_async(CodeGen *g, ZigFn *fn, ZigFn *callee, AstNode 
         }
     }
     if (callee_is_async) {
+        bool bad_recursion = (fn->inferred_async_node == inferred_async_none);
         fn->inferred_async_node = call_node;
         fn->inferred_async_fn = callee;
         if (must_not_be_async) {
             ErrorMsg *msg = add_node_error(g, fn->proto_node,
                 buf_sprintf("function with calling convention '%s' cannot be async",
                     calling_convention_name(fn->type_entry->data.fn.fn_type_id.cc)));
+            add_async_error_notes(g, msg, fn);
+            return ErrorSemanticAnalyzeFail;
+        }
+        if (bad_recursion) {
+            ErrorMsg *msg = add_node_error(g, fn->proto_node,
+                buf_sprintf("recursive function cannot be async"));
             add_async_error_notes(g, msg, fn);
             return ErrorSemanticAnalyzeFail;
         }
@@ -4463,12 +4779,12 @@ static void analyze_fn_async(CodeGen *g, ZigFn *fn, bool resolve_frame) {
     }
 
     for (size_t i = 0; i < fn->call_list.length; i += 1) {
-        IrInstructionCallGen *call = fn->call_list.at(i);
+        IrInstGenCall *call = fn->call_list.at(i);
         if (call->fn_entry == nullptr) {
             // TODO function pointer call here, could be anything
             continue;
         }
-        switch (analyze_callee_async(g, fn, call->fn_entry, call->base.source_node, must_not_be_async,
+        switch (analyze_callee_async(g, fn, call->fn_entry, call->base.base.source_node, must_not_be_async,
                     call->modifier))
         {
             case ErrorSemanticAnalyzeFail:
@@ -4486,10 +4802,9 @@ static void analyze_fn_async(CodeGen *g, ZigFn *fn, bool resolve_frame) {
         }
     }
     for (size_t i = 0; i < fn->await_list.length; i += 1) {
-        IrInstructionAwaitGen *await = fn->await_list.at(i);
-        // TODO If this is a noasync await, it doesn't count
-        // https://github.com/ziglang/zig/issues/3157
-        switch (analyze_callee_async(g, fn, await->target_fn, await->base.source_node, must_not_be_async,
+        IrInstGenAwait *await = fn->await_list.at(i);
+        if (await->is_nosuspend) continue;
+        switch (analyze_callee_async(g, fn, await->target_fn, await->base.base.source_node, must_not_be_async,
                     CallModifierNone))
         {
             case ErrorSemanticAnalyzeFail:
@@ -4514,8 +4829,14 @@ static void analyze_fn_ir(CodeGen *g, ZigFn *fn, AstNode *return_type_node) {
     assert(!fn_type->data.fn.is_generic);
     FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
 
-    ZigType *block_return_type = ir_analyze(g, &fn->ir_executable,
-            &fn->analyzed_executable, fn_type_id->return_type, return_type_node);
+    if (fn->analyzed_executable.begin_scope == nullptr) {
+        fn->analyzed_executable.begin_scope = &fn->def_scope->base;
+    }
+    if (fn->analyzed_executable.source_node == nullptr) {
+        fn->analyzed_executable.source_node = fn->body_node;
+    }
+    ZigType *block_return_type = ir_analyze(g, fn->ir_executable,
+            &fn->analyzed_executable, fn_type_id->return_type, return_type_node, nullptr);
     fn->src_implicit_return_type = block_return_type;
 
     if (type_is_invalid(block_return_type) || fn->analyzed_executable.first_err_trace_msg != nullptr) {
@@ -4529,38 +4850,41 @@ static void analyze_fn_ir(CodeGen *g, ZigFn *fn, AstNode *return_type_node) {
         if (return_err_set_type->data.error_set.infer_fn != nullptr &&
             return_err_set_type->data.error_set.incomplete)
         {
-            ZigType *inferred_err_set_type;
+            // The inferred error set type is null if the function doesn't
+            // return any error
+            ZigType *inferred_err_set_type = nullptr;
+
             if (fn->src_implicit_return_type->id == ZigTypeIdErrorSet) {
                 inferred_err_set_type = fn->src_implicit_return_type;
             } else if (fn->src_implicit_return_type->id == ZigTypeIdErrorUnion) {
                 inferred_err_set_type = fn->src_implicit_return_type->data.error_union.err_set_type;
-            } else {
-                add_node_error(g, return_type_node,
-                        buf_sprintf("function with inferred error set must return at least one possible error"));
-                fn->anal_state = FnAnalStateInvalid;
-                return;
             }
 
-            if (inferred_err_set_type->data.error_set.infer_fn != nullptr &&
-                inferred_err_set_type->data.error_set.incomplete)
-            {
-                if (!resolve_inferred_error_set(g, inferred_err_set_type, return_type_node)) {
-                    fn->anal_state = FnAnalStateInvalid;
-                    return;
-                }
-            }
-
-            return_err_set_type->data.error_set.incomplete = false;
-            if (type_is_global_error_set(inferred_err_set_type)) {
-                return_err_set_type->data.error_set.err_count = UINT32_MAX;
-            } else {
-                return_err_set_type->data.error_set.err_count = inferred_err_set_type->data.error_set.err_count;
-                if (inferred_err_set_type->data.error_set.err_count > 0) {
-                    return_err_set_type->data.error_set.errors = allocate<ErrorTableEntry *>(inferred_err_set_type->data.error_set.err_count);
-                    for (uint32_t i = 0; i < inferred_err_set_type->data.error_set.err_count; i += 1) {
-                        return_err_set_type->data.error_set.errors[i] = inferred_err_set_type->data.error_set.errors[i];
+            if (inferred_err_set_type != nullptr) {
+                if (inferred_err_set_type->data.error_set.infer_fn != nullptr &&
+                    inferred_err_set_type->data.error_set.incomplete)
+                {
+                    if (!resolve_inferred_error_set(g, inferred_err_set_type, return_type_node)) {
+                        fn->anal_state = FnAnalStateInvalid;
+                        return;
                     }
                 }
+
+                return_err_set_type->data.error_set.incomplete = false;
+                if (type_is_global_error_set(inferred_err_set_type)) {
+                    return_err_set_type->data.error_set.err_count = UINT32_MAX;
+                } else {
+                    return_err_set_type->data.error_set.err_count = inferred_err_set_type->data.error_set.err_count;
+                    if (inferred_err_set_type->data.error_set.err_count > 0) {
+                        return_err_set_type->data.error_set.errors = heap::c_allocator.allocate<ErrorTableEntry *>(inferred_err_set_type->data.error_set.err_count);
+                        for (uint32_t i = 0; i < inferred_err_set_type->data.error_set.err_count; i += 1) {
+                            return_err_set_type->data.error_set.errors[i] = inferred_err_set_type->data.error_set.errors[i];
+                        }
+                    }
+                }
+            } else {
+                return_err_set_type->data.error_set.incomplete = false;
+                return_err_set_type->data.error_set.err_count = 0;
             }
         }
     }
@@ -4580,7 +4904,7 @@ static void analyze_fn_ir(CodeGen *g, ZigFn *fn, AstNode *return_type_node) {
 
     if (g->verbose_ir) {
         fprintf(stderr, "fn %s() { // (analyzed)\n", buf_ptr(&fn->symbol_name));
-        ir_print(g, stderr, &fn->analyzed_executable, 4, IrPassGen);
+        ir_print_gen(g, stderr, &fn->analyzed_executable, 4);
         fprintf(stderr, "}\n");
     }
     fn->anal_state = FnAnalStateComplete;
@@ -4592,6 +4916,7 @@ static void analyze_fn_body(CodeGen *g, ZigFn *fn_table_entry) {
         return;
 
     fn_table_entry->anal_state = FnAnalStateProbing;
+    update_progress_display(g);
 
     AstNode *return_type_node = (fn_table_entry->proto_node != nullptr) ?
         fn_table_entry->proto_node->data.fn_proto.return_type : fn_table_entry->fndef_scope->base.source_node;
@@ -4600,21 +4925,29 @@ static void analyze_fn_body(CodeGen *g, ZigFn *fn_table_entry) {
     if (!fn_table_entry->child_scope)
         fn_table_entry->child_scope = &fn_table_entry->fndef_scope->base;
 
-    define_local_param_variables(g, fn_table_entry);
+    if (define_local_param_variables(g, fn_table_entry) != ErrorNone) {
+        fn_table_entry->anal_state = FnAnalStateInvalid;
+        return;
+    }
 
     ZigType *fn_type = fn_table_entry->type_entry;
     assert(!fn_type->data.fn.is_generic);
 
-    ir_gen_fn(g, fn_table_entry);
-    if (fn_table_entry->ir_executable.first_err_trace_msg != nullptr) {
+    if (!ir_gen_fn(g, fn_table_entry)) {
         fn_table_entry->anal_state = FnAnalStateInvalid;
         return;
     }
+
+    if (fn_table_entry->ir_executable->first_err_trace_msg != nullptr) {
+        fn_table_entry->anal_state = FnAnalStateInvalid;
+        return;
+    }
+
     if (g->verbose_ir) {
         fprintf(stderr, "\n");
         ast_render(stderr, fn_table_entry->body_node, 4);
         fprintf(stderr, "\nfn %s() { // (IR)\n", buf_ptr(&fn_table_entry->symbol_name));
-        ir_print(g, stderr, &fn_table_entry->ir_executable, 4, IrPassSrc);
+        ir_print_src(g, stderr, fn_table_entry->ir_executable, 4);
         fprintf(stderr, "}\n");
     }
 
@@ -4680,7 +5013,7 @@ ZigType *add_source_file(CodeGen *g, ZigPackage *package, Buf *resolved_path, Bu
     Buf *bare_name = buf_alloc();
     os_path_extname(src_basename, bare_name, nullptr);
 
-    RootStruct *root_struct = allocate<RootStruct>(1);
+    RootStruct *root_struct = heap::c_allocator.create<RootStruct>();
     root_struct->package = package;
     root_struct->source_code = source_code;
     root_struct->line_offsets = tokenization.line_offsets;
@@ -4702,34 +5035,12 @@ ZigType *add_source_file(CodeGen *g, ZigPackage *package, Buf *resolved_path, Bu
         ast_print(stderr, root_node, 0);
     }
 
-    if (source_kind == SourceKindRoot || package == g->panic_package) {
-        // Look for panic and main
-        for (size_t decl_i = 0; decl_i < root_node->data.container_decl.decls.length; decl_i += 1) {
-            AstNode *top_level_decl = root_node->data.container_decl.decls.at(decl_i);
-
-            if (top_level_decl->type == NodeTypeFnDef) {
-                AstNode *proto_node = top_level_decl->data.fn_def.fn_proto;
-                assert(proto_node->type == NodeTypeFnProto);
-                Buf *proto_name = proto_node->data.fn_proto.name;
-
-                bool is_pub = (proto_node->data.fn_proto.visib_mod == VisibModPub);
-                if (is_pub) {
-                    if (buf_eql_str(proto_name, "main")) {
-                        g->have_pub_main = true;
-                    } else if (buf_eql_str(proto_name, "panic")) {
-                        g->have_pub_panic = true;
-                    }
-                }
-            }
-        }
-    }
-
     for (size_t decl_i = 0; decl_i < root_node->data.container_decl.decls.length; decl_i += 1) {
         AstNode *top_level_decl = root_node->data.container_decl.decls.at(decl_i);
         scan_decls(g, import_entry->data.structure.decls_scope, top_level_decl);
     }
 
-    TldContainer *tld_container = allocate<TldContainer>(1);
+    TldContainer *tld_container = heap::c_allocator.create<TldContainer>();
     init_tld(&tld_container->base, TldIdContainer, namespace_name, VisibModPub, root_node, nullptr);
     tld_container->type_entry = import_entry;
     tld_container->decls_scope = import_entry->data.structure.decls_scope;
@@ -4795,15 +5106,35 @@ ZigType *get_int_type(CodeGen *g, bool is_signed, uint32_t size_in_bits) {
     return new_entry;
 }
 
-bool is_valid_vector_elem_type(ZigType *elem_type) {
-    return elem_type->id == ZigTypeIdInt ||
+Error is_valid_vector_elem_type(CodeGen *g, ZigType *elem_type, bool *result) {
+    if (elem_type->id == ZigTypeIdInt ||
         elem_type->id == ZigTypeIdFloat ||
-        elem_type->id == ZigTypeIdBool ||
-        get_codegen_ptr_type(elem_type) != nullptr;
+        elem_type->id == ZigTypeIdBool)
+    {
+        *result = true;
+        return ErrorNone;
+    }
+
+    Error err;
+    ZigType *ptr_type;
+    if ((err = get_codegen_ptr_type(g, elem_type, &ptr_type))) return err;
+    if (ptr_type != nullptr) {
+        *result = true;
+        return ErrorNone;
+    }
+
+    *result = false;
+    return ErrorNone;
 }
 
 ZigType *get_vector_type(CodeGen *g, uint32_t len, ZigType *elem_type) {
-    assert(is_valid_vector_elem_type(elem_type));
+    Error err;
+
+    bool valid_vector_elem;
+    if ((err = is_valid_vector_elem_type(g, elem_type, &valid_vector_elem))) {
+        codegen_report_errors_and_exit(g);
+    }
+    assert(valid_vector_elem);
 
     TypeId type_id = {};
     type_id.id = ZigTypeIdVector;
@@ -4817,7 +5148,7 @@ ZigType *get_vector_type(CodeGen *g, uint32_t len, ZigType *elem_type) {
     }
 
     ZigType *entry = new_type_table_entry(ZigTypeIdVector);
-    if ((len != 0) && type_has_bits(elem_type)) {
+    if ((len != 0) && type_has_bits(g, elem_type)) {
         // Vectors can only be ints, floats, bools, or pointers. ints (inc. bools) and floats have trivially resolvable
         // llvm type refs. pointers we will use usize instead.
         LLVMTypeRef example_vector_llvm_type;
@@ -4833,6 +5164,7 @@ ZigType *get_vector_type(CodeGen *g, uint32_t len, ZigType *elem_type) {
     }
     entry->data.vector.len = len;
     entry->data.vector.elem_type = elem_type;
+    entry->data.vector.padding = 0;
 
     buf_resize(&entry->name, 0);
     buf_appendf(&entry->name, "@Vector(%u, %s)", len, buf_ptr(&elem_type->name));
@@ -4849,7 +5181,7 @@ ZigType *get_c_int_type(CodeGen *g, CIntType c_int_type) {
     return *get_c_int_type_ptr(g, c_int_type);
 }
 
-bool handle_is_ptr(ZigType *type_entry) {
+bool handle_is_ptr(CodeGen *g, ZigType *type_entry) {
     switch (type_entry->id) {
         case ZigTypeIdInvalid:
         case ZigTypeIdMetaType:
@@ -4859,7 +5191,6 @@ bool handle_is_ptr(ZigType *type_entry) {
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
         case ZigTypeIdBoundFn:
-        case ZigTypeIdArgTuple:
         case ZigTypeIdOpaque:
              zig_unreachable();
         case ZigTypeIdUnreachable:
@@ -4877,15 +5208,15 @@ bool handle_is_ptr(ZigType *type_entry) {
         case ZigTypeIdArray:
         case ZigTypeIdStruct:
         case ZigTypeIdFnFrame:
-             return type_has_bits(type_entry);
+             return type_has_bits(g, type_entry);
         case ZigTypeIdErrorUnion:
-             return type_has_bits(type_entry->data.error_union.payload_type);
+             return type_has_bits(g, type_entry->data.error_union.payload_type);
         case ZigTypeIdOptional:
-             return type_has_bits(type_entry->data.maybe.child_type) &&
-                    !type_is_nonnull_ptr(type_entry->data.maybe.child_type) &&
+             return type_has_bits(g, type_entry->data.maybe.child_type) &&
+                    !type_is_nonnull_ptr(g, type_entry->data.maybe.child_type) &&
                     type_entry->data.maybe.child_type->id != ZigTypeIdErrorSet;
         case ZigTypeIdUnion:
-             return type_has_bits(type_entry) && type_entry->data.unionation.gen_field_count != 0;
+             return type_has_bits(g, type_entry) && type_entry->data.unionation.gen_field_count != 0;
 
     }
     zig_unreachable();
@@ -4943,12 +5274,12 @@ bool fn_type_id_eql(FnTypeId *a, FnTypeId *b) {
     return true;
 }
 
-static uint32_t hash_const_val_error_set(ConstExprValue *const_val) {
+static uint32_t hash_const_val_error_set(ZigValue *const_val) {
     assert(const_val->data.x_err_set != nullptr);
     return const_val->data.x_err_set->value ^ 2630160122;
 }
 
-static uint32_t hash_const_val_ptr(ConstExprValue *const_val) {
+static uint32_t hash_const_val_ptr(ZigValue *const_val) {
     uint32_t hash_val = 0;
     switch (const_val->data.x_ptr.mut) {
         case ConstPtrMutRuntimeVar:
@@ -4973,7 +5304,11 @@ static uint32_t hash_const_val_ptr(ConstExprValue *const_val) {
             hash_val += (uint32_t)1764906839;
             hash_val += hash_ptr(const_val->data.x_ptr.data.base_array.array_val);
             hash_val += hash_size(const_val->data.x_ptr.data.base_array.elem_index);
-            hash_val += const_val->data.x_ptr.data.base_array.is_cstr ? 1297263887 : 200363492;
+            return hash_val;
+        case ConstPtrSpecialSubArray:
+            hash_val += (uint32_t)2643358777;
+            hash_val += hash_ptr(const_val->data.x_ptr.data.base_array.array_val);
+            hash_val += hash_size(const_val->data.x_ptr.data.base_array.elem_index);
             return hash_val;
         case ConstPtrSpecialBaseStruct:
             hash_val += (uint32_t)3518317043;
@@ -5010,7 +5345,7 @@ static uint32_t hash_const_val_ptr(ConstExprValue *const_val) {
     zig_unreachable();
 }
 
-static uint32_t hash_const_val(ConstExprValue *const_val) {
+static uint32_t hash_const_val(ZigValue *const_val) {
     assert(const_val->special == ConstValSpecialStatic);
     switch (const_val->type->id) {
         case ZigTypeIdOpaque:
@@ -5032,7 +5367,7 @@ static uint32_t hash_const_val(ConstExprValue *const_val) {
                 return result;
             }
         case ZigTypeIdEnumLiteral:
-            return buf_hash(const_val->data.x_enum_literal) * 2691276464;
+            return buf_hash(const_val->data.x_enum_literal) * (uint32_t)2691276464;
         case ZigTypeIdEnum:
             {
                 uint32_t result = 31643936;
@@ -5079,9 +5414,6 @@ static uint32_t hash_const_val(ConstExprValue *const_val) {
                 memcpy(&ints[0], &f128, 16);
                 return ints[0] ^ ints[1] ^ ints[2] ^ ints[3] ^ 0xed8b3dfb;
             }
-        case ZigTypeIdArgTuple:
-            return (uint32_t)const_val->data.x_arg_tuple.start_index * (uint32_t)281907309 +
-                (uint32_t)const_val->data.x_arg_tuple.end_index * (uint32_t)2290442768;
         case ZigTypeIdFn:
             assert(const_val->data.x_ptr.mut == ConstPtrMutComptimeConst);
             assert(const_val->data.x_ptr.special == ConstPtrSpecialFunction);
@@ -5102,13 +5434,13 @@ static uint32_t hash_const_val(ConstExprValue *const_val) {
             // TODO better hashing algorithm
             return 2709806591;
         case ZigTypeIdOptional:
-            if (get_codegen_ptr_type(const_val->type) != nullptr) {
-                return hash_const_val_ptr(const_val) * 1992916303;
+            if (get_src_ptr_type(const_val->type) != nullptr) {
+                return hash_const_val_ptr(const_val) * (uint32_t)1992916303;
             } else if (const_val->type->data.maybe.child_type->id == ZigTypeIdErrorSet) {
-                return hash_const_val_error_set(const_val) * 3147031929;
+                return hash_const_val_error_set(const_val) * (uint32_t)3147031929;
             } else {
                 if (const_val->data.x_optional) {
-                    return hash_const_val(const_val->data.x_optional) * 1992916303;
+                    return hash_const_val(const_val->data.x_optional) * (uint32_t)1992916303;
                 } else {
                     return 4016830364;
                 }
@@ -5127,7 +5459,10 @@ static uint32_t hash_const_val(ConstExprValue *const_val) {
         case ZigTypeIdAnyFrame:
             // TODO better hashing algorithm
             return 3747294894;
-        case ZigTypeIdBoundFn:
+        case ZigTypeIdBoundFn: {
+            assert(const_val->data.x_bound_fn.fn != nullptr);
+            return 3677364617 ^ hash_ptr(const_val->data.x_bound_fn.fn);
+        }
         case ZigTypeIdInvalid:
         case ZigTypeIdUnreachable:
             zig_unreachable();
@@ -5139,7 +5474,7 @@ uint32_t generic_fn_type_id_hash(GenericFnTypeId *id) {
     uint32_t result = 0;
     result += hash_ptr(id->fn_entry);
     for (size_t i = 0; i < id->param_count; i += 1) {
-        ConstExprValue *generic_param = &id->params[i];
+        ZigValue *generic_param = &id->params[i];
         if (generic_param->special != ConstValSpecialRuntime) {
             result += hash_const_val(generic_param);
             result += hash_ptr(generic_param->type);
@@ -5153,8 +5488,8 @@ bool generic_fn_type_id_eql(GenericFnTypeId *a, GenericFnTypeId *b) {
     if (a->fn_entry != b->fn_entry) return false;
     if (a->param_count != b->param_count) return false;
     for (size_t i = 0; i < a->param_count; i += 1) {
-        ConstExprValue *a_val = &a->params[i];
-        ConstExprValue *b_val = &b->params[i];
+        ZigValue *a_val = &a->params[i];
+        ZigValue *b_val = &b->params[i];
         if (a_val->type != b_val->type) return false;
         if (a_val->special != ConstValSpecialRuntime && b_val->special != ConstValSpecialRuntime) {
             assert(a_val->special == ConstValSpecialStatic);
@@ -5169,8 +5504,10 @@ bool generic_fn_type_id_eql(GenericFnTypeId *a, GenericFnTypeId *b) {
     return true;
 }
 
-static bool can_mutate_comptime_var_state(ConstExprValue *value) {
+static bool can_mutate_comptime_var_state(ZigValue *value) {
     assert(value != nullptr);
+    if (value->special == ConstValSpecialUndef)
+        return false;
     switch (value->type->id) {
         case ZigTypeIdInvalid:
             zig_unreachable();
@@ -5199,6 +5536,8 @@ static bool can_mutate_comptime_var_state(ConstExprValue *value) {
             return value->data.x_ptr.mut == ConstPtrMutComptimeVar;
 
         case ZigTypeIdArray:
+            if (value->special == ConstValSpecialUndef)
+                return false;
             if (value->type->data.array.len == 0)
                 return false;
             switch (value->data.x_array.special) {
@@ -5215,13 +5554,13 @@ static bool can_mutate_comptime_var_state(ConstExprValue *value) {
             zig_unreachable();
         case ZigTypeIdStruct:
             for (uint32_t i = 0; i < value->type->data.structure.src_field_count; i += 1) {
-                if (can_mutate_comptime_var_state(&value->data.x_struct.fields[i]))
+                if (can_mutate_comptime_var_state(value->data.x_struct.fields[i]))
                     return true;
             }
             return false;
 
         case ZigTypeIdOptional:
-            if (get_codegen_ptr_type(value->type) != nullptr)
+            if (get_src_ptr_type(value->type) != nullptr)
                 return value->data.x_ptr.mut == ConstPtrMutComptimeVar;
             if (value->data.x_optional == nullptr)
                 return false;
@@ -5235,9 +5574,6 @@ static bool can_mutate_comptime_var_state(ConstExprValue *value) {
 
         case ZigTypeIdUnion:
             return can_mutate_comptime_var_state(value->data.x_union.payload);
-
-        case ZigTypeIdArgTuple:
-            zig_panic("TODO var args at comptime is currently not supported");
     }
     zig_unreachable();
 }
@@ -5278,9 +5614,6 @@ static bool return_type_is_cacheable(ZigType *return_type) {
 
         case ZigTypeIdErrorUnion:
             return return_type_is_cacheable(return_type->data.error_union.payload_type);
-
-        case ZigTypeIdArgTuple:
-            zig_panic("TODO var args at comptime is currently not supported");
     }
     zig_unreachable();
 }
@@ -5364,12 +5697,35 @@ bool fn_eval_eql(Scope *a, Scope *b) {
     return false;
 }
 
+// Deprecated. Use type_has_bits2.
+bool type_has_bits(CodeGen *g, ZigType *type_entry) {
+    Error err;
+    bool result;
+    if ((err = type_has_bits2(g, type_entry, &result))) {
+        codegen_report_errors_and_exit(g);
+    }
+    return result;
+}
+
 // Whether the type has bits at runtime.
-bool type_has_bits(ZigType *type_entry) {
-    assert(type_entry != nullptr);
-    assert(!type_is_invalid(type_entry));
-    assert(type_is_resolved(type_entry, ResolveStatusZeroBitsKnown));
-    return type_entry->abi_size != 0;
+Error type_has_bits2(CodeGen *g, ZigType *type_entry, bool *result) {
+    Error err;
+
+    if (type_is_invalid(type_entry))
+        return ErrorSemanticAnalyzeFail;
+
+    if (type_entry->id == ZigTypeIdStruct &&
+        type_entry->data.structure.resolve_status == ResolveStatusBeingInferred)
+    {
+        *result = true;
+        return ErrorNone;
+    }
+
+    if ((err = type_resolve(g, type_entry, ResolveStatusZeroBitsKnown)))
+        return err;
+
+    *result = type_entry->abi_size != 0;
+    return ErrorNone;
 }
 
 // Whether you can infer the value based solely on the type.
@@ -5378,6 +5734,12 @@ OnePossibleValue type_has_one_possible_value(CodeGen *g, ZigType *type_entry) {
 
     if (type_entry->one_possible_value != OnePossibleValueInvalid)
         return type_entry->one_possible_value;
+
+    if (type_entry->id == ZigTypeIdStruct &&
+        type_entry->data.structure.resolve_status == ResolveStatusBeingInferred)
+    {
+        return OnePossibleValueNo;
+    }
 
     Error err;
     if ((err = type_resolve(g, type_entry, ResolveStatusZeroBitsKnown)))
@@ -5391,7 +5753,6 @@ OnePossibleValue type_has_one_possible_value(CodeGen *g, ZigType *type_entry) {
         case ZigTypeIdEnumLiteral:
         case ZigTypeIdMetaType:
         case ZigTypeIdBoundFn:
-        case ZigTypeIdArgTuple:
         case ZigTypeIdOptional:
         case ZigTypeIdFn:
         case ZigTypeIdBool:
@@ -5410,13 +5771,20 @@ OnePossibleValue type_has_one_possible_value(CodeGen *g, ZigType *type_entry) {
                 return OnePossibleValueYes;
             return type_has_one_possible_value(g, type_entry->data.array.child_type);
         case ZigTypeIdStruct:
+            // If the recursive function call asks, then we are not one possible value.
+            type_entry->one_possible_value = OnePossibleValueNo;
             for (size_t i = 0; i < type_entry->data.structure.src_field_count; i += 1) {
-                TypeStructField *field = &type_entry->data.structure.fields[i];
+                TypeStructField *field = type_entry->data.structure.fields[i];
+                if (field->is_comptime) {
+                    // If this field is comptime then the field can only be one possible value
+                    continue;
+                }
                 OnePossibleValue opv = (field->type_entry != nullptr) ?
                     type_has_one_possible_value(g, field->type_entry) :
                     type_val_resolve_has_one_possible_value(g, field->type_val);
                 switch (opv) {
                     case OnePossibleValueInvalid:
+                        type_entry->one_possible_value = OnePossibleValueInvalid;
                         return OnePossibleValueInvalid;
                     case OnePossibleValueNo:
                         return OnePossibleValueNo;
@@ -5424,12 +5792,13 @@ OnePossibleValue type_has_one_possible_value(CodeGen *g, ZigType *type_entry) {
                         continue;
                 }
             }
+            type_entry->one_possible_value = OnePossibleValueYes;
             return OnePossibleValueYes;
         case ZigTypeIdErrorSet:
         case ZigTypeIdEnum:
         case ZigTypeIdInt:
         case ZigTypeIdVector:
-            return type_has_bits(type_entry) ? OnePossibleValueNo : OnePossibleValueYes;
+            return type_has_bits(g, type_entry) ? OnePossibleValueNo : OnePossibleValueYes;
         case ZigTypeIdPointer: {
             ZigType *elem_type = type_entry->data.pointer.child_type;
             // If the recursive function call asks, then we are not one possible value.
@@ -5450,8 +5819,54 @@ OnePossibleValue type_has_one_possible_value(CodeGen *g, ZigType *type_entry) {
     zig_unreachable();
 }
 
+ZigValue *get_the_one_possible_value(CodeGen *g, ZigType *type_entry) {
+    auto entry = g->one_possible_values.maybe_get(type_entry);
+    if (entry != nullptr) {
+        return entry->value;
+    }
+    ZigValue *result = g->pass1_arena->create<ZigValue>();
+    result->type = type_entry;
+    result->special = ConstValSpecialStatic;
+
+    if (result->type->id == ZigTypeIdStruct) {
+        // The fields array cannot be left unpopulated
+        const ZigType *struct_type = result->type;
+        const size_t field_count = struct_type->data.structure.src_field_count;
+        result->data.x_struct.fields = alloc_const_vals_ptrs(g, field_count);
+        for (size_t i = 0; i < field_count; i += 1) {
+            TypeStructField *field = struct_type->data.structure.fields[i];
+            if (field->is_comptime) {
+                copy_const_val(g, result->data.x_struct.fields[i], field->init_val);
+                continue;
+            }
+            ZigType *field_type = resolve_struct_field_type(g, field);
+            assert(field_type != nullptr);
+            result->data.x_struct.fields[i] = get_the_one_possible_value(g, field_type);
+        }
+    } else if (result->type->id == ZigTypeIdArray) {
+        // The elements array cannot be left unpopulated
+        ZigType *array_type = result->type;
+        ZigType *elem_type = array_type->data.array.child_type;
+        const size_t elem_count = array_type->data.array.len;
+
+        result->data.x_array.data.s_none.elements = g->pass1_arena->allocate<ZigValue>(elem_count);
+        for (size_t i = 0; i < elem_count; i += 1) {
+            ZigValue *elem_val = &result->data.x_array.data.s_none.elements[i];
+            copy_const_val(g, elem_val, get_the_one_possible_value(g, elem_type));
+        }
+    } else if (result->type->id == ZigTypeIdPointer) {
+        result->data.x_ptr.special = ConstPtrSpecialRef;
+        result->data.x_ptr.data.ref.pointee = get_the_one_possible_value(g, result->type->data.pointer.child_type);
+    }
+    g->one_possible_values.put(type_entry, result);
+    return result;
+}
+
 ReqCompTime type_requires_comptime(CodeGen *g, ZigType *ty) {
     Error err;
+    if (ty == g->builtin_types.entry_var) {
+        return ReqCompTimeYes;
+    }
     switch (ty->id) {
         case ZigTypeIdInvalid:
             zig_unreachable();
@@ -5462,7 +5877,6 @@ ReqCompTime type_requires_comptime(CodeGen *g, ZigType *ty) {
         case ZigTypeIdNull:
         case ZigTypeIdMetaType:
         case ZigTypeIdBoundFn:
-        case ZigTypeIdArgTuple:
             return ReqCompTimeYes;
         case ZigTypeIdArray:
             return type_requires_comptime(g, ty->data.array.child_type);
@@ -5510,109 +5924,95 @@ ReqCompTime type_requires_comptime(CodeGen *g, ZigType *ty) {
     zig_unreachable();
 }
 
-void init_const_str_lit(CodeGen *g, ConstExprValue *const_val, Buf *str) {
+void init_const_str_lit(CodeGen *g, ZigValue *const_val, Buf *str) {
     auto entry = g->string_literals_table.maybe_get(str);
     if (entry != nullptr) {
-        memcpy(const_val, entry->value, sizeof(ConstExprValue));
+        memcpy(const_val, entry->value, sizeof(ZigValue));
         return;
     }
 
+    // first we build the underlying array
+    ZigValue *array_val = g->pass1_arena->create<ZigValue>();
+    array_val->special = ConstValSpecialStatic;
+    array_val->type = get_array_type(g, g->builtin_types.entry_u8, buf_len(str), g->intern.for_zero_byte());
+    array_val->data.x_array.special = ConstArraySpecialBuf;
+    array_val->data.x_array.data.s_buf = str;
+
+    // then make the pointer point to it
     const_val->special = ConstValSpecialStatic;
-    const_val->type = get_array_type(g, g->builtin_types.entry_u8, buf_len(str));
-    const_val->data.x_array.special = ConstArraySpecialBuf;
-    const_val->data.x_array.data.s_buf = str;
+    const_val->type = get_pointer_to_type_extra2(g, array_val->type, true, false,
+            PtrLenSingle, 0, 0, 0, false, VECTOR_INDEX_NONE, nullptr, nullptr);
+    const_val->data.x_ptr.special = ConstPtrSpecialRef;
+    const_val->data.x_ptr.data.ref.pointee = array_val;
 
     g->string_literals_table.put(str, const_val);
 }
 
-ConstExprValue *create_const_str_lit(CodeGen *g, Buf *str) {
-    ConstExprValue *const_val = create_const_vals(1);
+ZigValue *create_const_str_lit(CodeGen *g, Buf *str) {
+    ZigValue *const_val = g->pass1_arena->create<ZigValue>();
     init_const_str_lit(g, const_val, str);
     return const_val;
 }
 
-void init_const_c_str_lit(CodeGen *g, ConstExprValue *const_val, Buf *str) {
-    // first we build the underlying array
-    size_t len_with_null = buf_len(str) + 1;
-    ConstExprValue *array_val = create_const_vals(1);
-    array_val->special = ConstValSpecialStatic;
-    array_val->type = get_array_type(g, g->builtin_types.entry_u8, len_with_null);
-    // TODO buf optimization
-    array_val->data.x_array.data.s_none.elements = create_const_vals(len_with_null);
-    for (size_t i = 0; i < buf_len(str); i += 1) {
-        ConstExprValue *this_char = &array_val->data.x_array.data.s_none.elements[i];
-        this_char->special = ConstValSpecialStatic;
-        this_char->type = g->builtin_types.entry_u8;
-        bigint_init_unsigned(&this_char->data.x_bigint, (uint8_t)buf_ptr(str)[i]);
-    }
-    ConstExprValue *null_char = &array_val->data.x_array.data.s_none.elements[len_with_null - 1];
-    null_char->special = ConstValSpecialStatic;
-    null_char->type = g->builtin_types.entry_u8;
-    bigint_init_unsigned(&null_char->data.x_bigint, 0);
-
-    // then make the pointer point to it
-    const_val->special = ConstValSpecialStatic;
-    // TODO make this `[*]null u8` instead of `[*]u8`
-    const_val->type = get_pointer_to_type_extra(g, g->builtin_types.entry_u8, true, false,
-            PtrLenUnknown, 0, 0, 0, false);
-    const_val->data.x_ptr.special = ConstPtrSpecialBaseArray;
-    const_val->data.x_ptr.data.base_array.array_val = array_val;
-    const_val->data.x_ptr.data.base_array.elem_index = 0;
-    const_val->data.x_ptr.data.base_array.is_cstr = true;
-}
-ConstExprValue *create_const_c_str_lit(CodeGen *g, Buf *str) {
-    ConstExprValue *const_val = create_const_vals(1);
-    init_const_c_str_lit(g, const_val, str);
-    return const_val;
-}
-
-void init_const_bigint(ConstExprValue *const_val, ZigType *type, const BigInt *bigint) {
+void init_const_bigint(ZigValue *const_val, ZigType *type, const BigInt *bigint) {
     const_val->special = ConstValSpecialStatic;
     const_val->type = type;
     bigint_init_bigint(&const_val->data.x_bigint, bigint);
 }
 
-ConstExprValue *create_const_bigint(ZigType *type, const BigInt *bigint) {
-    ConstExprValue *const_val = create_const_vals(1);
+ZigValue *create_const_bigint(CodeGen *g, ZigType *type, const BigInt *bigint) {
+    ZigValue *const_val = g->pass1_arena->create<ZigValue>();
     init_const_bigint(const_val, type, bigint);
     return const_val;
 }
 
 
-void init_const_unsigned_negative(ConstExprValue *const_val, ZigType *type, uint64_t x, bool negative) {
+void init_const_unsigned_negative(ZigValue *const_val, ZigType *type, uint64_t x, bool negative) {
     const_val->special = ConstValSpecialStatic;
     const_val->type = type;
     bigint_init_unsigned(&const_val->data.x_bigint, x);
     const_val->data.x_bigint.is_negative = negative;
 }
 
-ConstExprValue *create_const_unsigned_negative(ZigType *type, uint64_t x, bool negative) {
-    ConstExprValue *const_val = create_const_vals(1);
+ZigValue *create_const_unsigned_negative(CodeGen *g, ZigType *type, uint64_t x, bool negative) {
+    ZigValue *const_val = g->pass1_arena->create<ZigValue>();
     init_const_unsigned_negative(const_val, type, x, negative);
     return const_val;
 }
 
-void init_const_usize(CodeGen *g, ConstExprValue *const_val, uint64_t x) {
+void init_const_usize(CodeGen *g, ZigValue *const_val, uint64_t x) {
     return init_const_unsigned_negative(const_val, g->builtin_types.entry_usize, x, false);
 }
 
-ConstExprValue *create_const_usize(CodeGen *g, uint64_t x) {
-    return create_const_unsigned_negative(g->builtin_types.entry_usize, x, false);
+ZigValue *create_const_usize(CodeGen *g, uint64_t x) {
+    return create_const_unsigned_negative(g, g->builtin_types.entry_usize, x, false);
 }
 
-void init_const_signed(ConstExprValue *const_val, ZigType *type, int64_t x) {
+void init_const_signed(ZigValue *const_val, ZigType *type, int64_t x) {
     const_val->special = ConstValSpecialStatic;
     const_val->type = type;
     bigint_init_signed(&const_val->data.x_bigint, x);
 }
 
-ConstExprValue *create_const_signed(ZigType *type, int64_t x) {
-    ConstExprValue *const_val = create_const_vals(1);
+ZigValue *create_const_signed(CodeGen *g, ZigType *type, int64_t x) {
+    ZigValue *const_val = g->pass1_arena->create<ZigValue>();
     init_const_signed(const_val, type, x);
     return const_val;
 }
 
-void init_const_float(ConstExprValue *const_val, ZigType *type, double value) {
+void init_const_null(ZigValue *const_val, ZigType *type) {
+    const_val->special = ConstValSpecialStatic;
+    const_val->type = type;
+    const_val->data.x_optional = nullptr;
+}
+
+ZigValue *create_const_null(CodeGen *g, ZigType *type) {
+    ZigValue *const_val = g->pass1_arena->create<ZigValue>();
+    init_const_null(const_val, type);
+    return const_val;
+}
+
+void init_const_float(ZigValue *const_val, ZigType *type, double value) {
     const_val->special = ConstValSpecialStatic;
     const_val->type = type;
     if (type->id == ZigTypeIdComptimeFloat) {
@@ -5639,61 +6039,61 @@ void init_const_float(ConstExprValue *const_val, ZigType *type, double value) {
     }
 }
 
-ConstExprValue *create_const_float(ZigType *type, double value) {
-    ConstExprValue *const_val = create_const_vals(1);
+ZigValue *create_const_float(CodeGen *g, ZigType *type, double value) {
+    ZigValue *const_val = g->pass1_arena->create<ZigValue>();
     init_const_float(const_val, type, value);
     return const_val;
 }
 
-void init_const_enum(ConstExprValue *const_val, ZigType *type, const BigInt *tag) {
+void init_const_enum(ZigValue *const_val, ZigType *type, const BigInt *tag) {
     const_val->special = ConstValSpecialStatic;
     const_val->type = type;
     bigint_init_bigint(&const_val->data.x_enum_tag, tag);
 }
 
-ConstExprValue *create_const_enum(ZigType *type, const BigInt *tag) {
-    ConstExprValue *const_val = create_const_vals(1);
+ZigValue *create_const_enum(CodeGen *g, ZigType *type, const BigInt *tag) {
+    ZigValue *const_val = g->pass1_arena->create<ZigValue>();
     init_const_enum(const_val, type, tag);
     return const_val;
 }
 
 
-void init_const_bool(CodeGen *g, ConstExprValue *const_val, bool value) {
+void init_const_bool(CodeGen *g, ZigValue *const_val, bool value) {
     const_val->special = ConstValSpecialStatic;
     const_val->type = g->builtin_types.entry_bool;
     const_val->data.x_bool = value;
 }
 
-ConstExprValue *create_const_bool(CodeGen *g, bool value) {
-    ConstExprValue *const_val = create_const_vals(1);
+ZigValue *create_const_bool(CodeGen *g, bool value) {
+    ZigValue *const_val = g->pass1_arena->create<ZigValue>();
     init_const_bool(g, const_val, value);
     return const_val;
 }
 
-void init_const_runtime(ConstExprValue *const_val, ZigType *type) {
+void init_const_runtime(ZigValue *const_val, ZigType *type) {
     const_val->special = ConstValSpecialRuntime;
     const_val->type = type;
 }
 
-ConstExprValue *create_const_runtime(ZigType *type) {
-    ConstExprValue *const_val = create_const_vals(1);
+ZigValue *create_const_runtime(CodeGen *g, ZigType *type) {
+    ZigValue *const_val = g->pass1_arena->create<ZigValue>();
     init_const_runtime(const_val, type);
     return const_val;
 }
 
-void init_const_type(CodeGen *g, ConstExprValue *const_val, ZigType *type_value) {
+void init_const_type(CodeGen *g, ZigValue *const_val, ZigType *type_value) {
     const_val->special = ConstValSpecialStatic;
     const_val->type = g->builtin_types.entry_type;
     const_val->data.x_type = type_value;
 }
 
-ConstExprValue *create_const_type(CodeGen *g, ZigType *type_value) {
-    ConstExprValue *const_val = create_const_vals(1);
+ZigValue *create_const_type(CodeGen *g, ZigType *type_value) {
+    ZigValue *const_val = g->pass1_arena->create<ZigValue>();
     init_const_type(g, const_val, type_value);
     return const_val;
 }
 
-void init_const_slice(CodeGen *g, ConstExprValue *const_val, ConstExprValue *array_val,
+void init_const_slice(CodeGen *g, ZigValue *const_val, ZigValue *array_val,
         size_t start, size_t len, bool is_const)
 {
     assert(array_val->type->id == ZigTypeIdArray);
@@ -5703,20 +6103,20 @@ void init_const_slice(CodeGen *g, ConstExprValue *const_val, ConstExprValue *arr
 
     const_val->special = ConstValSpecialStatic;
     const_val->type = get_slice_type(g, ptr_type);
-    const_val->data.x_struct.fields = create_const_vals(2);
+    const_val->data.x_struct.fields = alloc_const_vals_ptrs(g, 2);
 
-    init_const_ptr_array(g, &const_val->data.x_struct.fields[slice_ptr_index], array_val, start, is_const,
+    init_const_ptr_array(g, const_val->data.x_struct.fields[slice_ptr_index], array_val, start, is_const,
             PtrLenUnknown);
-    init_const_usize(g, &const_val->data.x_struct.fields[slice_len_index], len);
+    init_const_usize(g, const_val->data.x_struct.fields[slice_len_index], len);
 }
 
-ConstExprValue *create_const_slice(CodeGen *g, ConstExprValue *array_val, size_t start, size_t len, bool is_const) {
-    ConstExprValue *const_val = create_const_vals(1);
+ZigValue *create_const_slice(CodeGen *g, ZigValue *array_val, size_t start, size_t len, bool is_const) {
+    ZigValue *const_val = g->pass1_arena->create<ZigValue>();
     init_const_slice(g, const_val, array_val, start, len, is_const);
     return const_val;
 }
 
-void init_const_ptr_array(CodeGen *g, ConstExprValue *const_val, ConstExprValue *array_val,
+void init_const_ptr_array(CodeGen *g, ZigValue *const_val, ZigValue *array_val,
         size_t elem_index, bool is_const, PtrLen ptr_len)
 {
     assert(array_val->type->id == ZigTypeIdArray);
@@ -5730,28 +6130,28 @@ void init_const_ptr_array(CodeGen *g, ConstExprValue *const_val, ConstExprValue 
     const_val->data.x_ptr.data.base_array.elem_index = elem_index;
 }
 
-ConstExprValue *create_const_ptr_array(CodeGen *g, ConstExprValue *array_val, size_t elem_index, bool is_const,
+ZigValue *create_const_ptr_array(CodeGen *g, ZigValue *array_val, size_t elem_index, bool is_const,
         PtrLen ptr_len)
 {
-    ConstExprValue *const_val = create_const_vals(1);
+    ZigValue *const_val = g->pass1_arena->create<ZigValue>();
     init_const_ptr_array(g, const_val, array_val, elem_index, is_const, ptr_len);
     return const_val;
 }
 
-void init_const_ptr_ref(CodeGen *g, ConstExprValue *const_val, ConstExprValue *pointee_val, bool is_const) {
+void init_const_ptr_ref(CodeGen *g, ZigValue *const_val, ZigValue *pointee_val, bool is_const) {
     const_val->special = ConstValSpecialStatic;
     const_val->type = get_pointer_to_type(g, pointee_val->type, is_const);
     const_val->data.x_ptr.special = ConstPtrSpecialRef;
     const_val->data.x_ptr.data.ref.pointee = pointee_val;
 }
 
-ConstExprValue *create_const_ptr_ref(CodeGen *g, ConstExprValue *pointee_val, bool is_const) {
-    ConstExprValue *const_val = create_const_vals(1);
+ZigValue *create_const_ptr_ref(CodeGen *g, ZigValue *pointee_val, bool is_const) {
+    ZigValue *const_val = g->pass1_arena->create<ZigValue>();
     init_const_ptr_ref(g, const_val, pointee_val, is_const);
     return const_val;
 }
 
-void init_const_ptr_hard_coded_addr(CodeGen *g, ConstExprValue *const_val, ZigType *pointee_type,
+void init_const_ptr_hard_coded_addr(CodeGen *g, ZigValue *const_val, ZigType *pointee_type,
         size_t addr, bool is_const)
 {
     const_val->special = ConstValSpecialStatic;
@@ -5760,42 +6160,51 @@ void init_const_ptr_hard_coded_addr(CodeGen *g, ConstExprValue *const_val, ZigTy
     const_val->data.x_ptr.data.hard_coded_addr.addr = addr;
 }
 
-ConstExprValue *create_const_ptr_hard_coded_addr(CodeGen *g, ZigType *pointee_type,
+ZigValue *create_const_ptr_hard_coded_addr(CodeGen *g, ZigType *pointee_type,
         size_t addr, bool is_const)
 {
-    ConstExprValue *const_val = create_const_vals(1);
+    ZigValue *const_val = g->pass1_arena->create<ZigValue>();
     init_const_ptr_hard_coded_addr(g, const_val, pointee_type, addr, is_const);
     return const_val;
 }
 
-void init_const_arg_tuple(CodeGen *g, ConstExprValue *const_val, size_t arg_index_start, size_t arg_index_end) {
-    const_val->special = ConstValSpecialStatic;
-    const_val->type = g->builtin_types.entry_arg_tuple;
-    const_val->data.x_arg_tuple.start_index = arg_index_start;
-    const_val->data.x_arg_tuple.end_index = arg_index_end;
+ZigValue **alloc_const_vals_ptrs(CodeGen *g, size_t count) {
+    return realloc_const_vals_ptrs(g, nullptr, 0, count);
 }
 
-ConstExprValue *create_const_arg_tuple(CodeGen *g, size_t arg_index_start, size_t arg_index_end) {
-    ConstExprValue *const_val = create_const_vals(1);
-    init_const_arg_tuple(g, const_val, arg_index_start, arg_index_end);
-    return const_val;
-}
+ZigValue **realloc_const_vals_ptrs(CodeGen *g, ZigValue **ptr, size_t old_count, size_t new_count) {
+    assert(new_count >= old_count);
 
-
-ConstExprValue *create_const_vals(size_t count) {
-    ConstGlobalRefs *global_refs = allocate<ConstGlobalRefs>(count);
-    ConstExprValue *vals = allocate<ConstExprValue>(count);
-    for (size_t i = 0; i < count; i += 1) {
-        vals[i].global_refs = &global_refs[i];
+    size_t new_item_count = new_count - old_count;
+    ZigValue **result = heap::c_allocator.reallocate(ptr, old_count, new_count);
+    ZigValue *vals = g->pass1_arena->allocate<ZigValue>(new_item_count);
+    for (size_t i = old_count; i < new_count; i += 1) {
+        result[i] = &vals[i - old_count];
     }
-    return vals;
+    return result;
+}
+
+TypeStructField **alloc_type_struct_fields(size_t count) {
+    return realloc_type_struct_fields(nullptr, 0, count);
+}
+
+TypeStructField **realloc_type_struct_fields(TypeStructField **ptr, size_t old_count, size_t new_count) {
+    assert(new_count >= old_count);
+
+    size_t new_item_count = new_count - old_count;
+    TypeStructField **result = heap::c_allocator.reallocate(ptr, old_count, new_count);
+    TypeStructField *vals = heap::c_allocator.allocate<TypeStructField>(new_item_count);
+    for (size_t i = old_count; i < new_count; i += 1) {
+        result[i] = &vals[i - old_count];
+    }
+    return result;
 }
 
 static ZigType *get_async_fn_type(CodeGen *g, ZigType *orig_fn_type) {
     if (orig_fn_type->data.fn.fn_type_id.cc == CallingConventionAsync)
         return orig_fn_type;
 
-    ZigType *fn_type = allocate_nonzero<ZigType>(1);
+    ZigType *fn_type = heap::c_allocator.allocate_nonzero<ZigType>(1);
     *fn_type = *orig_fn_type;
     fn_type->data.fn.fn_type_id.cc = CallingConventionAsync;
     fn_type->llvm_type = nullptr;
@@ -5821,6 +6230,7 @@ static void mark_suspension_point(Scope *scope) {
             case ScopeIdDecls:
             case ScopeIdFnDef:
             case ScopeIdCompTime:
+            case ScopeIdNoSuspend:
             case ScopeIdCImport:
             case ScopeIdSuspend:
             case ScopeIdTypeOf:
@@ -5841,11 +6251,14 @@ static void mark_suspension_point(Scope *scope) {
                 continue;
             }
             case ScopeIdExpr: {
+                ScopeExpr *parent_expr_scope = reinterpret_cast<ScopeExpr *>(scope);
                 if (!looking_for_exprs) {
+                    if (parent_expr_scope->spill_harder) {
+                        parent_expr_scope->need_spill = MemoizedBoolTrue;
+                    }
                     // Now we're only looking for a block, to see if it's in a loop (see the case ScopeIdBlock)
                     continue;
                 }
-                ScopeExpr *parent_expr_scope = reinterpret_cast<ScopeExpr *>(scope);
                 if (child_expr_scope != nullptr) {
                     for (size_t i = 0; parent_expr_scope->children_ptr[i] != child_expr_scope; i += 1) {
                         assert(i < parent_expr_scope->children_len);
@@ -5879,6 +6292,15 @@ static bool scope_needs_spill(Scope *scope) {
             return true;
     }
     zig_unreachable();
+}
+
+static ZigType *resolve_type_isf(ZigType *ty) {
+    if (ty->id != ZigTypeIdPointer) return ty;
+    InferredStructField *isf = ty->data.pointer.inferred_struct_field;
+    if (isf == nullptr) return ty;
+    TypeStructField *field = find_struct_type_field(isf->inferred_struct_type, isf->field_name);
+    assert(field != nullptr);
+    return field->type_entry;
 }
 
 static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
@@ -5942,7 +6364,7 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
 
             fields.append({"@stack_trace", get_stack_trace_type(g), 0});
             fields.append({"@instruction_addresses",
-                    get_array_type(g, g->builtin_types.entry_usize, stack_trace_ptr_count), 0});
+                    get_array_type(g, g->builtin_types.entry_usize, stack_trace_ptr_count, nullptr), 0});
         }
 
         frame_type->data.frame.locals_struct = get_struct_type(g, buf_ptr(&frame_type->name),
@@ -5957,12 +6379,13 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
     ZigType *fn_type = get_async_fn_type(g, fn->type_entry);
 
     if (fn->analyzed_executable.need_err_code_spill) {
-        IrInstructionAllocaGen *alloca_gen = allocate<IrInstructionAllocaGen>(1);
-        alloca_gen->base.id = IrInstructionIdAllocaGen;
-        alloca_gen->base.source_node = fn->proto_node;
-        alloca_gen->base.scope = fn->child_scope;
-        alloca_gen->base.value.type = get_pointer_to_type(g, g->builtin_types.entry_global_error_set, false);
-        alloca_gen->base.ref_count = 1;
+        IrInstGenAlloca *alloca_gen = heap::c_allocator.create<IrInstGenAlloca>();
+        alloca_gen->base.id = IrInstGenIdAlloca;
+        alloca_gen->base.base.source_node = fn->proto_node;
+        alloca_gen->base.base.scope = fn->child_scope;
+        alloca_gen->base.value = g->pass1_arena->create<ZigValue>();
+        alloca_gen->base.value->type = get_pointer_to_type(g, g->builtin_types.entry_global_error_set, false);
+        alloca_gen->base.base.ref_count = 1;
         alloca_gen->name_hint = "";
         fn->alloca_gen_list.append(alloca_gen);
         fn->err_code_spill = &alloca_gen->base;
@@ -5970,18 +6393,21 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
 
     ZigType *largest_call_frame_type = nullptr;
     // Later we'll change this to be largest_call_frame_type instead of void.
-    IrInstruction *all_calls_alloca = ir_create_alloca(g, &fn->fndef_scope->base, fn->body_node,
+    IrInstGen *all_calls_alloca = ir_create_alloca(g, &fn->fndef_scope->base, fn->body_node,
             fn, g->builtin_types.entry_void, "@async_call_frame");
 
     for (size_t i = 0; i < fn->call_list.length; i += 1) {
-        IrInstructionCallGen *call = fn->call_list.at(i);
+        IrInstGenCall *call = fn->call_list.at(i);
         if (call->new_stack != nullptr) {
             // don't need to allocate a frame for this
             continue;
         }
         ZigFn *callee = call->fn_entry;
         if (callee == nullptr) {
-            add_node_error(g, call->base.source_node,
+            if (call->fn_ref->value->type->data.fn.fn_type_id.cc != CallingConventionAsync) {
+                continue;
+            }
+            add_node_error(g, call->base.base.source_node,
                 buf_sprintf("function is not comptime-known; @asyncCall required"));
             return ErrorSemanticAnalyzeFail;
         }
@@ -5991,14 +6417,14 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
         if (callee->anal_state == FnAnalStateProbing) {
             ErrorMsg *msg = add_node_error(g, fn->proto_node,
                 buf_sprintf("unable to determine async function frame of '%s'", buf_ptr(&fn->symbol_name)));
-            g->trace_err = add_error_note(g, msg, call->base.source_node,
+            g->trace_err = add_error_note(g, msg, call->base.base.source_node,
                 buf_sprintf("analysis of function '%s' depends on the frame", buf_ptr(&callee->symbol_name)));
             return ErrorSemanticAnalyzeFail;
         }
 
         ZigType *callee_frame_type = get_fn_frame_type(g, callee);
         frame_type->data.frame.resolve_loop_type = callee_frame_type;
-        frame_type->data.frame.resolve_loop_src_node = call->base.source_node;
+        frame_type->data.frame.resolve_loop_src_node = call->base.base.source_node;
 
         analyze_fn_body(g, callee);
         if (callee->anal_state == FnAnalStateInvalid) {
@@ -6014,7 +6440,7 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
         if (!fn_is_async(callee))
             continue;
 
-        mark_suspension_point(call->base.scope);
+        mark_suspension_point(call->base.base.scope);
 
         if ((err = type_resolve(g, callee_frame_type, ResolveStatusSizeKnown))) {
             return err;
@@ -6028,7 +6454,7 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
         call->frame_result_loc = all_calls_alloca;
     }
     if (largest_call_frame_type != nullptr) {
-        all_calls_alloca->value.type = get_pointer_to_type(g, largest_call_frame_type, false);
+        all_calls_alloca->value->type = get_pointer_to_type(g, largest_call_frame_type, false);
     }
 
     // Since this frame is async, an await might represent a suspend point, and
@@ -6036,10 +6462,11 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
     // For example: foo() + await z
     // The funtion call result of foo() must be spilled.
     for (size_t i = 0; i < fn->await_list.length; i += 1) {
-        IrInstructionAwaitGen *await = fn->await_list.at(i);
-        // TODO If this is a noasync await, it doesn't suspend
-        // https://github.com/ziglang/zig/issues/3157
-        if (await->base.value.special != ConstValSpecialRuntime) {
+        IrInstGenAwait *await = fn->await_list.at(i);
+        if (await->is_nosuspend) {
+            continue;
+        }
+        if (await->base.value->special != ConstValSpecialRuntime) {
             // Known at comptime. No spill, no suspend.
             continue;
         }
@@ -6058,51 +6485,60 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
         }
         // This await is a suspend point, but it might not need a spill.
         // We do need to mark the ExprScope as having a suspend point in it.
-        mark_suspension_point(await->base.scope);
+        mark_suspension_point(await->base.base.scope);
 
         if (await->result_loc != nullptr) {
             // If there's a result location, that is the spill
             continue;
         }
-        if (await->base.ref_count == 0)
+        if (await->base.base.ref_count == 0)
             continue;
-        if (!type_has_bits(await->base.value.type))
+        if (!type_has_bits(g, await->base.value->type))
             continue;
-        await->result_loc = ir_create_alloca(g, await->base.scope, await->base.source_node, fn,
-                await->base.value.type, "");
+        await->result_loc = ir_create_alloca(g, await->base.base.scope, await->base.base.source_node, fn,
+                await->base.value->type, "");
     }
     for (size_t block_i = 0; block_i < fn->analyzed_executable.basic_block_list.length; block_i += 1) {
-        IrBasicBlock *block = fn->analyzed_executable.basic_block_list.at(block_i);
+        IrBasicBlockGen *block = fn->analyzed_executable.basic_block_list.at(block_i);
         for (size_t instr_i = 0; instr_i < block->instruction_list.length; instr_i += 1) {
-            IrInstruction *instruction = block->instruction_list.at(instr_i);
-            if (instruction->id == IrInstructionIdSuspendFinish) {
-                mark_suspension_point(instruction->scope);
+            IrInstGen *instruction = block->instruction_list.at(instr_i);
+            if (instruction->id == IrInstGenIdSuspendFinish) {
+                mark_suspension_point(instruction->base.scope);
             }
         }
     }
     // Now that we've marked all the expr scopes that have to spill, we go over the instructions
     // and spill the relevant ones.
     for (size_t block_i = 0; block_i < fn->analyzed_executable.basic_block_list.length; block_i += 1) {
-        IrBasicBlock *block = fn->analyzed_executable.basic_block_list.at(block_i);
+        IrBasicBlockGen *block = fn->analyzed_executable.basic_block_list.at(block_i);
         for (size_t instr_i = 0; instr_i < block->instruction_list.length; instr_i += 1) {
-            IrInstruction *instruction = block->instruction_list.at(instr_i);
-            if (instruction->id == IrInstructionIdAwaitGen ||
-                instruction->id == IrInstructionIdVarPtr ||
-                instruction->id == IrInstructionIdDeclRef ||
-                instruction->id == IrInstructionIdAllocaGen)
+            IrInstGen *instruction = block->instruction_list.at(instr_i);
+            if (instruction->id == IrInstGenIdAwait ||
+                instruction->id == IrInstGenIdVarPtr ||
+                instruction->id == IrInstGenIdAlloca ||
+                instruction->id == IrInstGenIdSpillBegin ||
+                instruction->id == IrInstGenIdSpillEnd)
             {
                 // This instruction does its own spilling specially, or otherwise doesn't need it.
                 continue;
             }
-            if (instruction->value.special != ConstValSpecialRuntime)
+            if (instruction->id == IrInstGenIdCast &&
+                reinterpret_cast<IrInstGenCast *>(instruction)->cast_op == CastOpNoop)
+            {
+                // The IR instruction exists only to change the type according to Zig. No spill needed.
                 continue;
-            if (instruction->ref_count == 0)
+            }
+            if (instruction->value->special != ConstValSpecialRuntime)
                 continue;
-            if (!type_has_bits(instruction->value.type))
+            if (instruction->base.ref_count == 0)
                 continue;
-            if (scope_needs_spill(instruction->scope)) {
-                instruction->spill = ir_create_alloca(g, instruction->scope, instruction->source_node,
-                        fn, instruction->value.type, "");
+            if ((err = type_resolve(g, instruction->value->type, ResolveStatusZeroBitsKnown)))
+                return ErrorSemanticAnalyzeFail;
+            if (!type_has_bits(g, instruction->value->type))
+                continue;
+            if (scope_needs_spill(instruction->base.scope)) {
+                instruction->spill = ir_create_alloca(g, instruction->base.scope, instruction->base.source_node,
+                        fn, instruction->value->type, "");
             }
         }
     }
@@ -6137,7 +6573,10 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
         } else {
             param_name = buf_sprintf("@arg%" ZIG_PRI_usize, arg_i);
         }
-        ZigType *param_type = param_info->type;
+        ZigType *param_type = resolve_type_isf(param_info->type);
+        if ((err = type_resolve(g, param_type, ResolveStatusSizeKnown))) {
+            return err;
+        }
 
         fields.append({buf_ptr(param_name), param_type, 0});
     }
@@ -6145,21 +6584,21 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
     if (codegen_fn_has_err_ret_tracing_stack(g, fn, true)) {
         fields.append({"@stack_trace", get_stack_trace_type(g), 0});
         fields.append({"@instruction_addresses",
-                get_array_type(g, g->builtin_types.entry_usize, stack_trace_ptr_count), 0});
+                get_array_type(g, g->builtin_types.entry_usize, stack_trace_ptr_count, nullptr), 0});
     }
 
     for (size_t alloca_i = 0; alloca_i < fn->alloca_gen_list.length; alloca_i += 1) {
-        IrInstructionAllocaGen *instruction = fn->alloca_gen_list.at(alloca_i);
+        IrInstGenAlloca *instruction = fn->alloca_gen_list.at(alloca_i);
         instruction->field_index = SIZE_MAX;
-        ZigType *ptr_type = instruction->base.value.type;
+        ZigType *ptr_type = instruction->base.value->type;
         assert(ptr_type->id == ZigTypeIdPointer);
-        ZigType *child_type = ptr_type->data.pointer.child_type;
-        if (!type_has_bits(child_type))
+        ZigType *child_type = resolve_type_isf(ptr_type->data.pointer.child_type);
+        if (!type_has_bits(g, child_type))
             continue;
-        if (instruction->base.ref_count == 0)
+        if (instruction->base.base.ref_count == 0)
             continue;
-        if (instruction->base.value.special != ConstValSpecialRuntime) {
-            if (const_ptr_pointee(nullptr, g, &instruction->base.value, nullptr)->special !=
+        if (instruction->base.value->special != ConstValSpecialRuntime) {
+            if (const_ptr_pointee(nullptr, g, instruction->base.value, nullptr)->special !=
                     ConstValSpecialRuntime)
             {
                 continue;
@@ -6167,7 +6606,7 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
         }
 
         frame_type->data.frame.resolve_loop_type = child_type;
-        frame_type->data.frame.resolve_loop_src_node = instruction->base.source_node;
+        frame_type->data.frame.resolve_loop_src_node = instruction->base.base.source_node;
         if ((err = type_resolve(g, child_type, ResolveStatusSizeKnown))) {
             return err;
         }
@@ -6211,12 +6650,27 @@ static Error resolve_pointer_zero_bits(CodeGen *g, ZigType *ty) {
     }
     ty->data.pointer.resolve_loop_flag_zero_bits = true;
 
-    ZigType *elem_type = ty->data.pointer.child_type;
+    ZigType *elem_type;
+    InferredStructField *isf = ty->data.pointer.inferred_struct_field;
+    if (isf != nullptr) {
+        TypeStructField *field = find_struct_type_field(isf->inferred_struct_type, isf->field_name);
+        assert(field != nullptr);
+        if (field->is_comptime) {
+            ty->abi_size = 0;
+            ty->size_in_bits = 0;
+            ty->abi_align = 0;
+            return ErrorNone;
+        }
+        elem_type = field->type_entry;
+    } else {
+        elem_type = ty->data.pointer.child_type;
+    }
 
-    if ((err = type_resolve(g, elem_type, ResolveStatusZeroBitsKnown)))
+    bool has_bits;
+    if ((err = type_has_bits2(g, elem_type, &has_bits)))
         return err;
 
-    if (type_has_bits(elem_type)) {
+    if (has_bits) {
         ty->abi_size = g->builtin_types.entry_usize->abi_size;
         ty->size_in_bits = g->builtin_types.entry_usize->size_in_bits;
         ty->abi_align = g->builtin_types.entry_usize->abi_align;
@@ -6234,6 +6688,8 @@ Error type_resolve(CodeGen *g, ZigType *ty, ResolveStatus status) {
     switch (status) {
         case ResolveStatusUnstarted:
             return ErrorNone;
+        case ResolveStatusBeingInferred:
+            zig_unreachable();
         case ResolveStatusInvalid:
             zig_unreachable();
         case ResolveStatusZeroBitsKnown:
@@ -6288,26 +6744,37 @@ Error type_resolve(CodeGen *g, ZigType *ty, ResolveStatus status) {
 }
 
 bool ir_get_var_is_comptime(ZigVar *var) {
+    if (var->is_comptime_memoized)
+        return var->is_comptime_memoized_value;
+
+    var->is_comptime_memoized = true;
+
     // The is_comptime field can be left null, which means not comptime.
-    if (var->is_comptime == nullptr)
-        return false;
+    if (var->is_comptime == nullptr) {
+        var->is_comptime_memoized_value = false;
+        return var->is_comptime_memoized_value;
+    }
     // When the is_comptime field references an instruction that has to get analyzed, this
     // is the value.
     if (var->is_comptime->child != nullptr) {
-        assert(var->is_comptime->child->value.type->id == ZigTypeIdBool);
-        return var->is_comptime->child->value.data.x_bool;
+        assert(var->is_comptime->child->value->type->id == ZigTypeIdBool);
+        var->is_comptime_memoized_value = var->is_comptime->child->value->data.x_bool;
+        var->is_comptime = nullptr;
+        return var->is_comptime_memoized_value;
     }
     // As an optimization, is_comptime values which are constant are allowed
     // to be omitted from analysis. In this case, there is no child instruction
     // and we simply look at the unanalyzed const parent instruction.
-    assert(var->is_comptime->value.type->id == ZigTypeIdBool);
-    return var->is_comptime->value.data.x_bool;
+    assert(var->is_comptime->id == IrInstSrcIdConst);
+    IrInstSrcConst *const_inst = reinterpret_cast<IrInstSrcConst *>(var->is_comptime);
+    assert(const_inst->value->type->id == ZigTypeIdBool);
+    var->is_comptime_memoized_value = const_inst->value->data.x_bool;
+    var->is_comptime = nullptr;
+    return var->is_comptime_memoized_value;
 }
 
-bool const_values_equal_ptr(ConstExprValue *a, ConstExprValue *b) {
+bool const_values_equal_ptr(ZigValue *a, ZigValue *b) {
     if (a->data.x_ptr.special != b->data.x_ptr.special)
-        return false;
-    if (a->data.x_ptr.mut != b->data.x_ptr.mut)
         return false;
     switch (a->data.x_ptr.special) {
         case ConstPtrSpecialInvalid:
@@ -6317,22 +6784,15 @@ bool const_values_equal_ptr(ConstExprValue *a, ConstExprValue *b) {
                 return false;
             return true;
         case ConstPtrSpecialBaseArray:
-            if (a->data.x_ptr.data.base_array.array_val != b->data.x_ptr.data.base_array.array_val &&
-                a->data.x_ptr.data.base_array.array_val->global_refs !=
-                b->data.x_ptr.data.base_array.array_val->global_refs)
-            {
+        case ConstPtrSpecialSubArray:
+            if (a->data.x_ptr.data.base_array.array_val != b->data.x_ptr.data.base_array.array_val) {
                 return false;
             }
             if (a->data.x_ptr.data.base_array.elem_index != b->data.x_ptr.data.base_array.elem_index)
                 return false;
-            if (a->data.x_ptr.data.base_array.is_cstr != b->data.x_ptr.data.base_array.is_cstr)
-                return false;
             return true;
         case ConstPtrSpecialBaseStruct:
-            if (a->data.x_ptr.data.base_struct.struct_val != b->data.x_ptr.data.base_struct.struct_val &&
-                a->data.x_ptr.data.base_struct.struct_val->global_refs !=
-                b->data.x_ptr.data.base_struct.struct_val->global_refs)
-            {
+            if (a->data.x_ptr.data.base_struct.struct_val != b->data.x_ptr.data.base_struct.struct_val) {
                 return false;
             }
             if (a->data.x_ptr.data.base_struct.field_index != b->data.x_ptr.data.base_struct.field_index)
@@ -6340,27 +6800,21 @@ bool const_values_equal_ptr(ConstExprValue *a, ConstExprValue *b) {
             return true;
         case ConstPtrSpecialBaseErrorUnionCode:
             if (a->data.x_ptr.data.base_err_union_code.err_union_val !=
-                b->data.x_ptr.data.base_err_union_code.err_union_val &&
-                a->data.x_ptr.data.base_err_union_code.err_union_val->global_refs !=
-                b->data.x_ptr.data.base_err_union_code.err_union_val->global_refs)
+                b->data.x_ptr.data.base_err_union_code.err_union_val)
             {
                 return false;
             }
             return true;
         case ConstPtrSpecialBaseErrorUnionPayload:
             if (a->data.x_ptr.data.base_err_union_payload.err_union_val !=
-                b->data.x_ptr.data.base_err_union_payload.err_union_val &&
-                a->data.x_ptr.data.base_err_union_payload.err_union_val->global_refs !=
-                b->data.x_ptr.data.base_err_union_payload.err_union_val->global_refs)
+                b->data.x_ptr.data.base_err_union_payload.err_union_val)
             {
                 return false;
             }
             return true;
         case ConstPtrSpecialBaseOptionalPayload:
             if (a->data.x_ptr.data.base_optional_payload.optional_val !=
-                b->data.x_ptr.data.base_optional_payload.optional_val &&
-                a->data.x_ptr.data.base_optional_payload.optional_val->global_refs !=
-                b->data.x_ptr.data.base_optional_payload.optional_val->global_refs)
+                b->data.x_ptr.data.base_optional_payload.optional_val)
             {
                 return false;
             }
@@ -6379,9 +6833,17 @@ bool const_values_equal_ptr(ConstExprValue *a, ConstExprValue *b) {
     zig_unreachable();
 }
 
-static bool const_values_equal_array(CodeGen *g, ConstExprValue *a, ConstExprValue *b, size_t len) {
-    assert(a->data.x_array.special != ConstArraySpecialUndef);
-    assert(b->data.x_array.special != ConstArraySpecialUndef);
+static bool const_values_equal_array(CodeGen *g, ZigValue *a, ZigValue *b, size_t len) {
+    if (a->data.x_array.special == ConstArraySpecialUndef &&
+        b->data.x_array.special == ConstArraySpecialUndef)
+    {
+        return true;
+    }
+    if (a->data.x_array.special == ConstArraySpecialUndef ||
+        b->data.x_array.special == ConstArraySpecialUndef)
+    {
+        return false;
+    }
     if (a->data.x_array.special == ConstArraySpecialBuf &&
         b->data.x_array.special == ConstArraySpecialBuf)
     {
@@ -6390,8 +6852,8 @@ static bool const_values_equal_array(CodeGen *g, ConstExprValue *a, ConstExprVal
     expand_undef_array(g, a);
     expand_undef_array(g, b);
 
-    ConstExprValue *a_elems = a->data.x_array.data.s_none.elements;
-    ConstExprValue *b_elems = b->data.x_array.data.s_none.elements;
+    ZigValue *a_elems = a->data.x_array.data.s_none.elements;
+    ZigValue *b_elems = b->data.x_array.data.s_none.elements;
 
     for (size_t i = 0; i < len; i += 1) {
         if (!const_values_equal(g, &a_elems[i], &b_elems[i]))
@@ -6401,8 +6863,21 @@ static bool const_values_equal_array(CodeGen *g, ConstExprValue *a, ConstExprVal
     return true;
 }
 
-bool const_values_equal(CodeGen *g, ConstExprValue *a, ConstExprValue *b) {
-    assert(a->type->id == b->type->id);
+bool const_values_equal(CodeGen *g, ZigValue *a, ZigValue *b) {
+    if (a->type->id != b->type->id) return false;
+    if (a->type == b->type) {
+        switch (type_has_one_possible_value(g, a->type)) {
+            case OnePossibleValueInvalid:
+                zig_unreachable();
+            case OnePossibleValueNo:
+                break;
+            case OnePossibleValueYes:
+                return true;
+        }
+    }
+    if (a->special == ConstValSpecialUndef || b->special == ConstValSpecialUndef) {
+        return a->special == b->special;
+    }
     assert(a->special == ConstValSpecialStatic);
     assert(b->special == ConstValSpecialStatic);
     switch (a->type->id) {
@@ -6417,7 +6892,7 @@ bool const_values_equal(CodeGen *g, ConstExprValue *a, ConstExprValue *b) {
             if (bigint_cmp(&union1->tag, &union2->tag) == CmpEQ) {
                 TypeUnionField *field = find_union_field_by_tag(a->type, &union1->tag);
                 assert(field != nullptr);
-                if (!type_has_bits(field->type_entry))
+                if (!type_has_bits(g, field->type_entry))
                     return true;
                 assert(find_union_field_by_tag(a->type, &union2->tag) != nullptr);
                 return const_values_equal(g, union1->payload, union2->payload);
@@ -6465,8 +6940,8 @@ bool const_values_equal(CodeGen *g, ConstExprValue *a, ConstExprValue *b) {
         }
         case ZigTypeIdStruct:
             for (size_t i = 0; i < a->type->data.structure.src_field_count; i += 1) {
-                ConstExprValue *field_a = &a->data.x_struct.fields[i];
-                ConstExprValue *field_b = &b->data.x_struct.fields[i];
+                ZigValue *field_a = a->data.x_struct.fields[i];
+                ZigValue *field_b = b->data.x_struct.fields[i];
                 if (!const_values_equal(g, field_a, field_b))
                     return false;
             }
@@ -6480,7 +6955,7 @@ bool const_values_equal(CodeGen *g, ConstExprValue *a, ConstExprValue *b) {
         case ZigTypeIdNull:
             zig_panic("TODO");
         case ZigTypeIdOptional:
-            if (get_codegen_ptr_type(a->type) != nullptr)
+            if (get_src_ptr_type(a->type) != nullptr)
                 return const_values_equal_ptr(a, b);
             if (a->data.x_optional == nullptr || b->data.x_optional == nullptr) {
                 return (a->data.x_optional == nullptr && b->data.x_optional == nullptr);
@@ -6489,9 +6964,6 @@ bool const_values_equal(CodeGen *g, ConstExprValue *a, ConstExprValue *b) {
             }
         case ZigTypeIdErrorUnion:
             zig_panic("TODO");
-        case ZigTypeIdArgTuple:
-            return a->data.x_arg_tuple.start_index == b->data.x_arg_tuple.start_index &&
-                   a->data.x_arg_tuple.end_index == b->data.x_arg_tuple.end_index;
         case ZigTypeIdBoundFn:
         case ZigTypeIdInvalid:
         case ZigTypeIdUnreachable:
@@ -6537,7 +7009,7 @@ void eval_min_max_value_int(CodeGen *g, ZigType *int_type, BigInt *bigint, bool 
     }
 }
 
-void eval_min_max_value(CodeGen *g, ZigType *type_entry, ConstExprValue *const_val, bool is_max) {
+void eval_min_max_value(CodeGen *g, ZigType *type_entry, ZigValue *const_val, bool is_max) {
     if (type_entry->id == ZigTypeIdInt) {
         const_val->special = ConstValSpecialStatic;
         eval_min_max_value_int(g, type_entry, &const_val->data.x_bigint, is_max);
@@ -6551,7 +7023,7 @@ void eval_min_max_value(CodeGen *g, ZigType *type_entry, ConstExprValue *const_v
     }
 }
 
-static void render_const_val_ptr(CodeGen *g, Buf *buf, ConstExprValue *const_val, ZigType *type_entry) {
+static void render_const_val_ptr(CodeGen *g, Buf *buf, ZigValue *const_val, ZigType *type_entry) {
     if (type_entry->id == ZigTypeIdPointer && type_entry->data.pointer.child_type->id == ZigTypeIdOpaque) {
         buf_append_buf(buf, &type_entry->name);
         return;
@@ -6570,15 +7042,11 @@ static void render_const_val_ptr(CodeGen *g, Buf *buf, ConstExprValue *const_val
             render_const_value(g, buf, const_ptr_pointee(nullptr, g, const_val, nullptr));
             return;
         case ConstPtrSpecialBaseArray:
-            if (const_val->data.x_ptr.data.base_array.is_cstr) {
-                buf_appendf(buf, "*(c str lit)");
-                return;
-            } else {
-                buf_appendf(buf, "*");
-                // TODO we need a source node for const_ptr_pointee because it can generate compile errors
-                render_const_value(g, buf, const_ptr_pointee(nullptr, g, const_val, nullptr));
-                return;
-            }
+        case ConstPtrSpecialSubArray:
+            buf_appendf(buf, "*");
+            // TODO we need a source node for const_ptr_pointee because it can generate compile errors
+            render_const_value(g, buf, const_ptr_pointee(nullptr, g, const_val, nullptr));
+            return;
         case ConstPtrSpecialHardCodedAddr:
             buf_appendf(buf, "(%s)(%" ZIG_PRI_x64 ")", buf_ptr(&type_entry->name),
                     const_val->data.x_ptr.data.hard_coded_addr.addr);
@@ -6599,7 +7067,7 @@ static void render_const_val_ptr(CodeGen *g, Buf *buf, ConstExprValue *const_val
     zig_unreachable();
 }
 
-static void render_const_val_err_set(CodeGen *g, Buf *buf, ConstExprValue *const_val, ZigType *type_entry) {
+static void render_const_val_err_set(CodeGen *g, Buf *buf, ZigValue *const_val, ZigType *type_entry) {
     if (const_val->data.x_err_set == nullptr) {
         buf_append_str(buf, "null");
     } else {
@@ -6607,7 +7075,7 @@ static void render_const_val_err_set(CodeGen *g, Buf *buf, ConstExprValue *const
     }
 }
 
-static void render_const_val_array(CodeGen *g, Buf *buf, Buf *type_name, ConstExprValue *const_val, uint64_t start, uint64_t len) {
+static void render_const_val_array(CodeGen *g, Buf *buf, Buf *type_name, ZigValue *const_val, uint64_t start, uint64_t len) {
     ConstArrayValue *array = &const_val->data.x_array;
     switch (array->special) {
         case ConstArraySpecialUndef:
@@ -6631,8 +7099,9 @@ static void render_const_val_array(CodeGen *g, Buf *buf, Buf *type_name, ConstEx
             return;
         }
         case ConstArraySpecialNone: {
-            ConstExprValue *base = &array->data.s_none.elements[start];
             assert(start + len <= const_val->type->data.array.len);
+            ZigValue *base = &array->data.s_none.elements[start];
+            assert(len == 0 || base != nullptr);
 
             buf_appendf(buf, "%s{", buf_ptr(type_name));
             for (uint64_t i = 0; i < len; i += 1) {
@@ -6646,7 +7115,11 @@ static void render_const_val_array(CodeGen *g, Buf *buf, Buf *type_name, ConstEx
     zig_unreachable();
 }
 
-void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
+void render_const_value(CodeGen *g, Buf *buf, ZigValue *const_val) {
+    if (const_val == nullptr) {
+        buf_appendf(buf, "(invalid nullptr value)");
+        return;
+    }
     switch (const_val->special) {
         case ConstValSpecialRuntime:
             buf_appendf(buf, "(runtime value)");
@@ -6754,7 +7227,7 @@ void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
             }
         case ZigTypeIdOptional:
             {
-                if (get_codegen_ptr_type(const_val->type) != nullptr)
+                if (get_src_ptr_type(const_val->type) != nullptr)
                     return render_const_val_ptr(g, buf, const_val, type_entry->data.maybe.child_type);
                 if (type_entry->data.maybe.child_type->id == ZigTypeIdErrorSet)
                     return render_const_val_err_set(g, buf, const_val, type_entry->data.maybe.child_type);
@@ -6774,17 +7247,17 @@ void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
         case ZigTypeIdStruct:
             {
                 if (is_slice(type_entry)) {
-                    ConstExprValue *len_val = &const_val->data.x_struct.fields[slice_len_index];
+                    ZigValue *len_val = const_val->data.x_struct.fields[slice_len_index];
                     size_t len = bigint_as_usize(&len_val->data.x_bigint);
 
-                    ConstExprValue *ptr_val = &const_val->data.x_struct.fields[slice_ptr_index];
+                    ZigValue *ptr_val = const_val->data.x_struct.fields[slice_ptr_index];
                     if (ptr_val->special == ConstValSpecialUndef) {
                         assert(len == 0);
                         buf_appendf(buf, "((%s)(undefined))[0..0]", buf_ptr(&type_entry->name));
                         return;
                     }
                     assert(ptr_val->data.x_ptr.special == ConstPtrSpecialBaseArray);
-                    ConstExprValue *array = ptr_val->data.x_ptr.data.base_array.array_val;
+                    ZigValue *array = ptr_val->data.x_ptr.data.base_array.array_val;
                     size_t start = ptr_val->data.x_ptr.data.base_array.elem_index;
 
                     render_const_val_array(g, buf, &type_entry->name, array, start, len);
@@ -6823,11 +7296,6 @@ void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
             }
         case ZigTypeIdErrorSet:
             return render_const_val_err_set(g, buf, const_val, type_entry);
-        case ZigTypeIdArgTuple:
-            {
-                buf_appendf(buf, "(args value)");
-                return;
-            }
         case ZigTypeIdFnFrame:
             buf_appendf(buf, "(TODO: async function frame value)");
             return;
@@ -6890,7 +7358,6 @@ uint32_t type_id_hash(TypeId x) {
         case ZigTypeIdUnion:
         case ZigTypeIdFn:
         case ZigTypeIdBoundFn:
-        case ZigTypeIdArgTuple:
         case ZigTypeIdFnFrame:
         case ZigTypeIdAnyFrame:
             zig_unreachable();
@@ -6898,16 +7365,19 @@ uint32_t type_id_hash(TypeId x) {
             return hash_ptr(x.data.error_union.err_set_type) ^ hash_ptr(x.data.error_union.payload_type);
         case ZigTypeIdPointer:
             return hash_ptr(x.data.pointer.child_type) +
-                ((x.data.pointer.ptr_len == PtrLenSingle) ? (uint32_t)1120226602 : (uint32_t)3200913342) +
+                (uint32_t)x.data.pointer.ptr_len * 1120226602u +
                 (x.data.pointer.is_const ? (uint32_t)2749109194 : (uint32_t)4047371087) +
                 (x.data.pointer.is_volatile ? (uint32_t)536730450 : (uint32_t)1685612214) +
                 (x.data.pointer.allow_zero ? (uint32_t)3324284834 : (uint32_t)3584904923) +
                 (((uint32_t)x.data.pointer.alignment) ^ (uint32_t)0x777fbe0e) +
                 (((uint32_t)x.data.pointer.bit_offset_in_host) ^ (uint32_t)2639019452) +
-                (((uint32_t)x.data.pointer.host_int_bytes) ^ (uint32_t)529908881);
+                (((uint32_t)x.data.pointer.vector_index) ^ (uint32_t)0x19199716) +
+                (((uint32_t)x.data.pointer.host_int_bytes) ^ (uint32_t)529908881) *
+                (x.data.pointer.sentinel ? hash_const_val(x.data.pointer.sentinel) : (uint32_t)2955491856);
         case ZigTypeIdArray:
-            return hash_ptr(x.data.array.child_type) +
-                ((uint32_t)x.data.array.size ^ (uint32_t)2122979968);
+            return hash_ptr(x.data.array.child_type) *
+                ((uint32_t)x.data.array.size ^ (uint32_t)2122979968) *
+                (x.data.array.sentinel ? hash_const_val(x.data.array.sentinel) : (uint32_t)1927201585);
         case ZigTypeIdInt:
             return (x.data.integer.is_signed ? (uint32_t)2652528194 : (uint32_t)163929201) +
                     (((uint32_t)x.data.integer.bit_count) ^ (uint32_t)2998081557);
@@ -6939,7 +7409,6 @@ bool type_id_eql(TypeId a, TypeId b) {
         case ZigTypeIdUnion:
         case ZigTypeIdFn:
         case ZigTypeIdBoundFn:
-        case ZigTypeIdArgTuple:
         case ZigTypeIdOpaque:
         case ZigTypeIdFnFrame:
         case ZigTypeIdAnyFrame:
@@ -6956,10 +7425,30 @@ bool type_id_eql(TypeId a, TypeId b) {
                 a.data.pointer.allow_zero == b.data.pointer.allow_zero &&
                 a.data.pointer.alignment == b.data.pointer.alignment &&
                 a.data.pointer.bit_offset_in_host == b.data.pointer.bit_offset_in_host &&
-                a.data.pointer.host_int_bytes == b.data.pointer.host_int_bytes;
+                a.data.pointer.vector_index == b.data.pointer.vector_index &&
+                a.data.pointer.host_int_bytes == b.data.pointer.host_int_bytes &&
+                (
+                    a.data.pointer.sentinel == b.data.pointer.sentinel ||
+                    (a.data.pointer.sentinel != nullptr && b.data.pointer.sentinel != nullptr &&
+                     const_values_equal(a.data.pointer.codegen, a.data.pointer.sentinel, b.data.pointer.sentinel))
+                ) &&
+                (
+                    a.data.pointer.inferred_struct_field == b.data.pointer.inferred_struct_field ||
+                    (a.data.pointer.inferred_struct_field != nullptr &&
+                        b.data.pointer.inferred_struct_field != nullptr &&
+                     a.data.pointer.inferred_struct_field->inferred_struct_type ==
+                        b.data.pointer.inferred_struct_field->inferred_struct_type &&
+                     buf_eql_buf(a.data.pointer.inferred_struct_field->field_name,
+                        b.data.pointer.inferred_struct_field->field_name))
+                );
         case ZigTypeIdArray:
             return a.data.array.child_type == b.data.array.child_type &&
-                a.data.array.size == b.data.array.size;
+                a.data.array.size == b.data.array.size &&
+                (
+                    a.data.array.sentinel == b.data.array.sentinel ||
+                    (a.data.array.sentinel != nullptr && b.data.array.sentinel != nullptr &&
+                     const_values_equal(a.data.array.codegen, a.data.array.sentinel, b.data.array.sentinel))
+                );
         case ZigTypeIdInt:
             return a.data.integer.is_signed == b.data.integer.is_signed &&
                 a.data.integer.bit_count == b.data.integer.bit_count;
@@ -7030,7 +7519,7 @@ bool zig_llvm_fn_key_eql(ZigLLVMFnKey a, ZigLLVMFnKey b) {
     zig_unreachable();
 }
 
-static void init_const_undefined(CodeGen *g, ConstExprValue *const_val) {
+static void init_const_undefined(CodeGen *g, ZigValue *const_val) {
     Error err;
     ZigType *wanted_type = const_val->type;
     if (wanted_type->id == ZigTypeIdArray) {
@@ -7043,10 +7532,10 @@ static void init_const_undefined(CodeGen *g, ConstExprValue *const_val) {
 
         const_val->special = ConstValSpecialStatic;
         size_t field_count = wanted_type->data.structure.src_field_count;
-        const_val->data.x_struct.fields = create_const_vals(field_count);
+        const_val->data.x_struct.fields = alloc_const_vals_ptrs(g, field_count);
         for (size_t i = 0; i < field_count; i += 1) {
-            ConstExprValue *field_val = &const_val->data.x_struct.fields[i];
-            field_val->type = wanted_type->data.structure.fields[i].type_entry;
+            ZigValue *field_val = const_val->data.x_struct.fields[i];
+            field_val->type = resolve_struct_field_type(g, wanted_type->data.structure.fields[i]);
             assert(field_val->type);
             init_const_undefined(g, field_val);
             field_val->parent.id = ConstParentIdStruct;
@@ -7058,14 +7547,14 @@ static void init_const_undefined(CodeGen *g, ConstExprValue *const_val) {
     }
 }
 
-void expand_undef_struct(CodeGen *g, ConstExprValue *const_val) {
+void expand_undef_struct(CodeGen *g, ZigValue *const_val) {
     if (const_val->special == ConstValSpecialUndef) {
         init_const_undefined(g, const_val);
     }
 }
 
 // Canonicalize the array value as ConstArraySpecialNone
-void expand_undef_array(CodeGen *g, ConstExprValue *const_val) {
+void expand_undef_array(CodeGen *g, ZigValue *const_val) {
     size_t elem_count;
     ZigType *elem_type;
     if (const_val->type->id == ZigTypeIdArray) {
@@ -7086,9 +7575,9 @@ void expand_undef_array(CodeGen *g, ConstExprValue *const_val) {
             return;
         case ConstArraySpecialUndef: {
             const_val->data.x_array.special = ConstArraySpecialNone;
-            const_val->data.x_array.data.s_none.elements = create_const_vals(elem_count);
+            const_val->data.x_array.data.s_none.elements = g->pass1_arena->allocate<ZigValue>(elem_count);
             for (size_t i = 0; i < elem_count; i += 1) {
-                ConstExprValue *element_val = &const_val->data.x_array.data.s_none.elements[i];
+                ZigValue *element_val = &const_val->data.x_array.data.s_none.elements[i];
                 element_val->type = elem_type;
                 init_const_undefined(g, element_val);
                 element_val->parent.id = ConstParentIdArray;
@@ -7105,9 +7594,9 @@ void expand_undef_array(CodeGen *g, ConstExprValue *const_val) {
 
             const_val->data.x_array.special = ConstArraySpecialNone;
             assert(elem_count == buf_len(buf));
-            const_val->data.x_array.data.s_none.elements = create_const_vals(elem_count);
+            const_val->data.x_array.data.s_none.elements = g->pass1_arena->allocate<ZigValue>(elem_count);
             for (size_t i = 0; i < elem_count; i += 1) {
-                ConstExprValue *this_char = &const_val->data.x_array.data.s_none.elements[i];
+                ZigValue *this_char = &const_val->data.x_array.data.s_none.elements[i];
                 this_char->special = ConstValSpecialStatic;
                 this_char->type = g->builtin_types.entry_u8;
                 bigint_init_unsigned(&this_char->data.x_bigint, (uint8_t)buf_ptr(buf)[i]);
@@ -7142,7 +7631,6 @@ static const ZigTypeId all_type_ids[] = {
     ZigTypeIdUnion,
     ZigTypeIdFn,
     ZigTypeIdBoundFn,
-    ZigTypeIdArgTuple,
     ZigTypeIdOpaque,
     ZigTypeIdFnFrame,
     ZigTypeIdAnyFrame,
@@ -7180,7 +7668,7 @@ size_t type_id_index(ZigType *entry) {
         case ZigTypeIdArray:
             return 7;
         case ZigTypeIdStruct:
-            if (entry->data.structure.is_slice)
+            if (entry->data.structure.special == StructSpecialSlice)
                 return 6;
             return 8;
         case ZigTypeIdComptimeFloat:
@@ -7205,18 +7693,16 @@ size_t type_id_index(ZigType *entry) {
             return 18;
         case ZigTypeIdBoundFn:
             return 19;
-        case ZigTypeIdArgTuple:
-            return 20;
         case ZigTypeIdOpaque:
-            return 21;
+            return 20;
         case ZigTypeIdFnFrame:
-            return 22;
+            return 21;
         case ZigTypeIdAnyFrame:
-            return 23;
+            return 22;
         case ZigTypeIdVector:
-            return 24;
+            return 23;
         case ZigTypeIdEnumLiteral:
-            return 25;
+            return 24;
     }
     zig_unreachable();
 }
@@ -7267,8 +7753,6 @@ const char *type_id_name(ZigTypeId id) {
             return "Fn";
         case ZigTypeIdBoundFn:
             return "BoundFn";
-        case ZigTypeIdArgTuple:
-            return "ArgTuple";
         case ZigTypeIdOpaque:
             return "Opaque";
         case ZigTypeIdVector:
@@ -7282,16 +7766,20 @@ const char *type_id_name(ZigTypeId id) {
 }
 
 LinkLib *create_link_lib(Buf *name) {
-    LinkLib *link_lib = allocate<LinkLib>(1);
+    LinkLib *link_lib = heap::c_allocator.create<LinkLib>();
     link_lib->name = name;
     return link_lib;
 }
 
 LinkLib *add_link_lib(CodeGen *g, Buf *name) {
     bool is_libc = buf_eql_str(name, "c");
+    bool is_libcpp = buf_eql_str(name, "c++") || buf_eql_str(name, "c++abi");
 
     if (is_libc && g->libc_link_lib != nullptr)
         return g->libc_link_lib;
+
+    if (is_libcpp && g->libcpp_link_lib != nullptr)
+        return g->libcpp_link_lib;
 
     for (size_t i = 0; i < g->link_libs_list.length; i += 1) {
         LinkLib *existing_lib = g->link_libs_list.at(i);
@@ -7305,6 +7793,8 @@ LinkLib *add_link_lib(CodeGen *g, Buf *name) {
 
     if (is_libc)
         g->libc_link_lib = link_lib;
+    if (is_libcpp)
+        g->libcpp_link_lib = link_lib;
 
     return link_lib;
 }
@@ -7365,14 +7855,22 @@ bool err_ptr_eql(const ErrorTableEntry *a, const ErrorTableEntry *b) {
     return a == b;
 }
 
-ConstExprValue *get_builtin_value(CodeGen *codegen, const char *name) {
-    Tld *tld = get_container_scope(codegen->compile_var_import)->decl_table.get(buf_create_from_str(name));
+ZigValue *get_builtin_value(CodeGen *codegen, const char *name) {
+    ScopeDecls *builtin_scope = get_container_scope(codegen->compile_var_import);
+    Tld *tld = find_container_decl(codegen, builtin_scope, buf_create_from_str(name));
+    assert(tld != nullptr);
     resolve_top_level_decl(codegen, tld, nullptr, false);
-    assert(tld->id == TldIdVar);
+    assert(tld->id == TldIdVar && tld->resolution == TldResolutionOk);
     TldVar *tld_var = (TldVar *)tld;
-    ConstExprValue *var_value = tld_var->var->const_value;
+    ZigValue *var_value = tld_var->var->const_value;
     assert(var_value != nullptr);
     return var_value;
+}
+
+ZigType *get_builtin_type(CodeGen *codegen, const char *name) {
+    ZigValue *type_val = get_builtin_value(codegen, name);
+    assert(type_val->type->id == ZigTypeIdMetaType);
+    return type_val->data.x_type;
 }
 
 bool type_is_global_error_set(ZigType *err_set_type) {
@@ -7478,7 +7976,7 @@ static X64CABIClass type_system_V_abi_x86_64_class(CodeGen *g, ZigType *ty, size
             }
             X64CABIClass working_class = X64CABIClass_Unknown;
             for (uint32_t i = 0; i < ty->data.structure.src_field_count; i += 1) {
-                X64CABIClass field_class = type_c_abi_x86_64_class(g, ty->data.structure.fields->type_entry);
+                X64CABIClass field_class = type_c_abi_x86_64_class(g, ty->data.structure.fields[0]->type_entry);
                 if (field_class == X64CABIClass_Unknown)
                     return X64CABIClass_Unknown;
                 if (i == 0 || field_class == X64CABIClass_MEMORY || working_class == X64CABIClass_SSE) {
@@ -7519,40 +8017,69 @@ static X64CABIClass type_system_V_abi_x86_64_class(CodeGen *g, ZigType *ty, size
 }
 
 X64CABIClass type_c_abi_x86_64_class(CodeGen *g, ZigType *ty) {
+    Error err;
+
     const size_t ty_size = type_size(g, ty);
-    if (get_codegen_ptr_type(ty) != nullptr)
+    ZigType *ptr_type;
+    if ((err = get_codegen_ptr_type(g, ty, &ptr_type))) return X64CABIClass_Unknown;
+    if (ptr_type != nullptr)
         return X64CABIClass_INTEGER;
 
     if (g->zig_target->os == OsWindows || g->zig_target->os == OsUefi) {
         return type_windows_abi_x86_64_class(g, ty, ty_size);
+    } else if (g->zig_target->arch == ZigLLVM_aarch64 ||
+            g->zig_target->arch == ZigLLVM_aarch64_be)
+    {
+        X64CABIClass result = type_system_V_abi_x86_64_class(g, ty, ty_size);
+        return (result == X64CABIClass_MEMORY) ? X64CABIClass_MEMORY_nobyval : result;
     } else {
         return type_system_V_abi_x86_64_class(g, ty, ty_size);
     }
 }
 
 // NOTE this does not depend on x86_64
-bool type_is_c_abi_int(CodeGen *g, ZigType *ty) {
-    return (ty->id == ZigTypeIdInt ||
+Error type_is_c_abi_int(CodeGen *g, ZigType *ty, bool *result) {
+    if (ty->id == ZigTypeIdInt ||
         ty->id == ZigTypeIdFloat ||
         ty->id == ZigTypeIdBool ||
         ty->id == ZigTypeIdEnum ||
         ty->id == ZigTypeIdVoid ||
-        ty->id == ZigTypeIdUnreachable ||
-        get_codegen_ptr_type(ty) != nullptr);
+        ty->id == ZigTypeIdUnreachable)
+    {
+        *result = true;
+        return ErrorNone;
+    }
+
+    Error err;
+    ZigType *ptr_type;
+    if ((err = get_codegen_ptr_type(g, ty, &ptr_type))) return err;
+    *result = ptr_type != nullptr;
+    return ErrorNone;
+}
+
+bool type_is_c_abi_int_bail(CodeGen *g, ZigType *ty) {
+    Error err;
+    bool result;
+    if ((err = type_is_c_abi_int(g, ty, &result)))
+        codegen_report_errors_and_exit(g);
+
+    return result;
 }
 
 uint32_t get_host_int_bytes(CodeGen *g, ZigType *struct_type, TypeStructField *field) {
     assert(struct_type->id == ZigTypeIdStruct);
-    assert(type_is_resolved(struct_type, ResolveStatusSizeKnown));
+    if (struct_type->data.structure.layout != ContainerLayoutAuto) {
+        assert(type_is_resolved(struct_type, ResolveStatusSizeKnown));
+    }
     if (struct_type->data.structure.host_int_bytes == nullptr)
         return 0;
     return struct_type->data.structure.host_int_bytes[field->gen_index];
 }
 
 Error ensure_const_val_repr(IrAnalyze *ira, CodeGen *codegen, AstNode *source_node,
-        ConstExprValue *const_val, ZigType *wanted_type)
+        ZigValue *const_val, ZigType *wanted_type)
 {
-    ConstExprValue ptr_val = {};
+    ZigValue ptr_val = {};
     ptr_val.special = ConstValSpecialStatic;
     ptr_val.type = get_pointer_to_type(codegen, wanted_type, true);
     ptr_val.data.x_ptr.mut = ConstPtrMutComptimeConst;
@@ -7603,13 +8130,14 @@ Buf *type_h_name(ZigType *t) {
 static void resolve_llvm_types_slice(CodeGen *g, ZigType *type, ResolveStatus wanted_resolve_status) {
     if (type->data.structure.resolve_status >= wanted_resolve_status) return;
 
-    ZigType *ptr_type = type->data.structure.fields[slice_ptr_index].type_entry;
+    ZigType *ptr_type = type->data.structure.fields[slice_ptr_index]->type_entry;
     ZigType *child_type = ptr_type->data.pointer.child_type;
     ZigType *usize_type = g->builtin_types.entry_usize;
 
     bool done = false;
     if (ptr_type->data.pointer.is_const || ptr_type->data.pointer.is_volatile ||
-        ptr_type->data.pointer.explicit_alignment != 0 || ptr_type->data.pointer.allow_zero)
+        ptr_type->data.pointer.explicit_alignment != 0 || ptr_type->data.pointer.allow_zero ||
+        ptr_type->data.pointer.sentinel != nullptr)
     {
         ZigType *peer_ptr_type = get_pointer_to_type_extra(g, child_type, false, false,
                 PtrLenUnknown, 0, 0, 0, false);
@@ -7625,10 +8153,11 @@ static void resolve_llvm_types_slice(CodeGen *g, ZigType *type, ResolveStatus wa
     // If the child type is []const T then we need to make sure the type ref
     // and debug info is the same as if the child type were []T.
     if (is_slice(child_type)) {
-        ZigType *child_ptr_type = child_type->data.structure.fields[slice_ptr_index].type_entry;
+        ZigType *child_ptr_type = child_type->data.structure.fields[slice_ptr_index]->type_entry;
         assert(child_ptr_type->id == ZigTypeIdPointer);
         if (child_ptr_type->data.pointer.is_const || child_ptr_type->data.pointer.is_volatile ||
-            child_ptr_type->data.pointer.explicit_alignment != 0 || child_ptr_type->data.pointer.allow_zero)
+            child_ptr_type->data.pointer.explicit_alignment != 0 || child_ptr_type->data.pointer.allow_zero ||
+            child_ptr_type->data.pointer.sentinel != nullptr)
         {
             ZigType *grand_child_type = child_ptr_type->data.pointer.child_type;
             ZigType *bland_child_ptr_type = get_pointer_to_type_extra(g, grand_child_type, false, false,
@@ -7665,7 +8194,7 @@ static void resolve_llvm_types_slice(CodeGen *g, ZigType *type, ResolveStatus wa
         if (ResolveStatusLLVMFwdDecl >= wanted_resolve_status) return;
     }
 
-    if (!type_has_bits(child_type)) {
+    if (!type_has_bits(g, child_type)) {
         LLVMTypeRef element_types[] = {
             usize_llvm_type,
         };
@@ -7762,7 +8291,6 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
     ZigLLVMDIScope *di_scope;
     unsigned line;
     if (decl_node != nullptr) {
-        assert(decl_node->type == NodeTypeContainerDecl);
         Scope *scope = &struct_type->data.structure.decls_scope->base;
         ZigType *import = get_scope_import(scope);
         di_file = import->data.structure.root_struct->di_file;
@@ -7775,7 +8303,7 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
     }
 
     if (struct_type->data.structure.resolve_status < ResolveStatusLLVMFwdDecl) {
-        struct_type->llvm_type = type_has_bits(struct_type) ?
+        struct_type->llvm_type = type_has_bits(g, struct_type) ?
             LLVMStructCreateNamed(LLVMGetGlobalContext(), buf_ptr(&struct_type->name)) : LLVMVoidType();
         unsigned dwarf_kind = ZigLLVMTag_DW_structure_type();
         struct_type->llvm_di_type = ZigLLVMCreateReplaceableCompositeType(g->dbuilder,
@@ -7794,7 +8322,7 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
 
     size_t field_count = struct_type->data.structure.src_field_count;
     // Every field could potentially have a generated padding field after it.
-    LLVMTypeRef *element_types = allocate<LLVMTypeRef>(field_count * 2);
+    LLVMTypeRef *element_types = heap::c_allocator.allocate<LLVMTypeRef>(field_count * 2);
 
     bool packed = (struct_type->data.structure.layout == ContainerLayoutPacked);
     size_t packed_bits_offset = 0;
@@ -7803,9 +8331,9 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
 
     // trigger all the recursive get_llvm_type calls
     for (size_t i = 0; i < field_count; i += 1) {
-        TypeStructField *field = &struct_type->data.structure.fields[i];
+        TypeStructField *field = struct_type->data.structure.fields[i];
         ZigType *field_type = field->type_entry;
-        if (!type_has_bits(field_type))
+        if (!type_has_bits(g, field_type))
             continue;
         (void)get_llvm_type(g, field_type);
         if (struct_type->data.structure.resolve_status >= wanted_resolve_status) return;
@@ -7817,8 +8345,9 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
     // inserting padding bytes where LLVM would do it automatically.
     size_t llvm_struct_abi_align = 0;
     for (size_t i = 0; i < field_count; i += 1) {
-        ZigType *field_type = struct_type->data.structure.fields[i].type_entry;
-        if (!type_has_bits(field_type))
+        TypeStructField *field = struct_type->data.structure.fields[i];
+        ZigType *field_type = field->type_entry;
+        if (field->is_comptime || !type_has_bits(g, field_type))
             continue;
         LLVMTypeRef field_llvm_type = get_llvm_type(g, field_type);
         size_t llvm_field_abi_align = LLVMABIAlignmentOfType(g->target_data_ref, field_llvm_type);
@@ -7826,10 +8355,10 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
     }
 
     for (size_t i = 0; i < field_count; i += 1) {
-        TypeStructField *field = &struct_type->data.structure.fields[i];
+        TypeStructField *field = struct_type->data.structure.fields[i];
         ZigType *field_type = field->type_entry;
 
-        if (!type_has_bits(field_type)) {
+        if (field->is_comptime || !type_has_bits(g, field_type)) {
             field->gen_index = SIZE_MAX;
             continue;
         }
@@ -7876,23 +8405,23 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
             // find the next non-zero-byte field for offset calculations
             size_t next_src_field_index = i + 1;
             for (; next_src_field_index < field_count; next_src_field_index += 1) {
-                if (type_has_bits(struct_type->data.structure.fields[next_src_field_index].type_entry))
+                if (type_has_bits(g, struct_type->data.structure.fields[next_src_field_index]->type_entry))
                     break;
             }
             size_t next_abi_align;
             if (next_src_field_index == field_count) {
                 next_abi_align = struct_type->abi_align;
             } else {
-                if (struct_type->data.structure.fields[next_src_field_index].align == 0) {
-                    next_abi_align = struct_type->data.structure.fields[next_src_field_index].type_entry->abi_align;
+                if (struct_type->data.structure.fields[next_src_field_index]->align == 0) {
+                    next_abi_align = struct_type->data.structure.fields[next_src_field_index]->type_entry->abi_align;
                 } else {
-                    next_abi_align = struct_type->data.structure.fields[next_src_field_index].align;
+                    next_abi_align = struct_type->data.structure.fields[next_src_field_index]->align;
                 }
             }
             size_t llvm_next_abi_align = (next_src_field_index == field_count) ?
                 llvm_struct_abi_align :
                 LLVMABIAlignmentOfType(g->target_data_ref,
-                        get_llvm_type(g, struct_type->data.structure.fields[next_src_field_index].type_entry));
+                        get_llvm_type(g, struct_type->data.structure.fields[next_src_field_index]->type_entry));
 
             size_t next_offset = next_field_offset(field->offset, struct_type->abi_align,
                     field_type->abi_size, next_abi_align);
@@ -7922,16 +8451,18 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
         gen_field_index += 1;
     }
 
-    if (type_has_bits(struct_type)) {
+    if (type_has_bits(g, struct_type)) {
         assert(struct_type->data.structure.gen_field_count == gen_field_index);
         LLVMStructSetBody(struct_type->llvm_type, element_types,
                 (unsigned)struct_type->data.structure.gen_field_count, packed);
     }
 
-    ZigLLVMDIType **di_element_types = allocate<ZigLLVMDIType*>(debug_field_count);
+    ZigLLVMDIType **di_element_types = heap::c_allocator.allocate<ZigLLVMDIType*>(debug_field_count);
     size_t debug_field_index = 0;
     for (size_t i = 0; i < field_count; i += 1) {
-        TypeStructField *field = &struct_type->data.structure.fields[i];
+        TypeStructField *field = struct_type->data.structure.fields[i];
+        //fprintf(stderr, "%s at gen index %zu\n", buf_ptr(field->name), field->gen_index);
+
         size_t gen_field_index = field->gen_index;
         if (gen_field_index == SIZE_MAX) {
             continue;
@@ -7965,7 +8496,7 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
         }
         unsigned line;
         if (decl_node != nullptr) {
-            AstNode *field_node = decl_node->data.container_decl.fields.at(i);
+            AstNode *field_node = field->decl_node;
             line = field_node->line + 1;
         } else {
             line = 0;
@@ -8032,7 +8563,7 @@ static void resolve_llvm_types_enum(CodeGen *g, ZigType *enum_type, ResolveStatu
     ZigType *import = get_scope_import(scope);
     AstNode *decl_node = enum_type->data.enumeration.decl_node;
 
-    if (!type_has_bits(enum_type)) {
+    if (!type_has_bits(g, enum_type)) {
         enum_type->llvm_type = g->builtin_types.entry_void->llvm_type;
         enum_type->llvm_di_type = make_empty_namespace_llvm_di_type(g, import, buf_ptr(&enum_type->name),
                 decl_node);
@@ -8042,8 +8573,8 @@ static void resolve_llvm_types_enum(CodeGen *g, ZigType *enum_type, ResolveStatu
 
     uint32_t field_count = enum_type->data.enumeration.src_field_count;
 
-    assert(enum_type->data.enumeration.fields);
-    ZigLLVMDIEnumerator **di_enumerators = allocate<ZigLLVMDIEnumerator*>(field_count);
+    assert(field_count == 0 || enum_type->data.enumeration.fields != nullptr);
+    ZigLLVMDIEnumerator **di_enumerators = heap::c_allocator.allocate<ZigLLVMDIEnumerator*>(field_count);
 
     for (uint32_t i = 0; i < field_count; i += 1) {
         TypeEnumField *enum_field = &enum_type->data.enumeration.fields[i];
@@ -8110,11 +8641,11 @@ static void resolve_llvm_types_union(CodeGen *g, ZigType *union_type, ResolveSta
         if (ResolveStatusLLVMFwdDecl >= wanted_resolve_status) return;
     }
 
-    ZigLLVMDIType **union_inner_di_types = allocate<ZigLLVMDIType*>(gen_field_count);
+    ZigLLVMDIType **union_inner_di_types = heap::c_allocator.allocate<ZigLLVMDIType*>(gen_field_count);
     uint32_t field_count = union_type->data.unionation.src_field_count;
     for (uint32_t i = 0; i < field_count; i += 1) {
         TypeUnionField *union_field = &union_type->data.unionation.fields[i];
-        if (!type_has_bits(union_field->type_entry))
+        if (!type_has_bits(g, union_field->type_entry))
             continue;
 
         ZigLLVMDIType *field_di_type = get_llvm_di_type(g, union_field->type_entry);
@@ -8133,13 +8664,13 @@ static void resolve_llvm_types_union(CodeGen *g, ZigType *union_type, ResolveSta
 
     }
 
-    if (tag_type == nullptr || !type_has_bits(tag_type)) {
+    if (tag_type == nullptr || !type_has_bits(g, tag_type)) {
         assert(most_aligned_union_member != nullptr);
 
         size_t padding_bytes = union_type->data.unionation.union_abi_size - most_aligned_union_member->type_entry->abi_size;
         if (padding_bytes > 0) {
             ZigType *u8_type = get_int_type(g, false, 8);
-            ZigType *padding_array = get_array_type(g, u8_type, padding_bytes);
+            ZigType *padding_array = get_array_type(g, u8_type, padding_bytes, nullptr);
             LLVMTypeRef union_element_types[] = {
                 most_aligned_union_member->type_entry->llvm_type,
                 get_llvm_type(g, padding_array),
@@ -8173,7 +8704,7 @@ static void resolve_llvm_types_union(CodeGen *g, ZigType *union_type, ResolveSta
         union_type_ref = get_llvm_type(g, most_aligned_union_member->type_entry);
     } else {
         ZigType *u8_type = get_int_type(g, false, 8);
-        ZigType *padding_array = get_array_type(g, u8_type, padding_bytes);
+        ZigType *padding_array = get_array_type(g, u8_type, padding_bytes, nullptr);
         LLVMTypeRef union_element_types[] = {
             get_llvm_type(g, most_aligned_union_member->type_entry),
             get_llvm_type(g, padding_array),
@@ -8243,7 +8774,7 @@ static void resolve_llvm_types_pointer(CodeGen *g, ZigType *type, ResolveStatus 
     if (resolve_pointer_zero_bits(g, type) != ErrorNone)
         zig_unreachable();
 
-    if (!type_has_bits(type)) {
+    if (!type_has_bits(g, type)) {
         type->llvm_type = g->builtin_types.entry_void->llvm_type;
         type->llvm_di_type = g->builtin_types.entry_void->llvm_di_type;
         return;
@@ -8253,11 +8784,21 @@ static void resolve_llvm_types_pointer(CodeGen *g, ZigType *type, ResolveStatus 
 
     if (type->data.pointer.is_const || type->data.pointer.is_volatile ||
         type->data.pointer.explicit_alignment != 0 || type->data.pointer.ptr_len != PtrLenSingle ||
-        type->data.pointer.bit_offset_in_host != 0 || type->data.pointer.allow_zero)
+        type->data.pointer.bit_offset_in_host != 0 || type->data.pointer.allow_zero ||
+        type->data.pointer.vector_index != VECTOR_INDEX_NONE || type->data.pointer.sentinel != nullptr)
     {
         assertNoError(type_resolve(g, elem_type, ResolveStatusLLVMFwdDecl));
-        ZigType *peer_type = get_pointer_to_type_extra(g, elem_type, false, false,
-                PtrLenSingle, 0, 0, type->data.pointer.host_int_bytes, false);
+        ZigType *peer_type;
+        if (type->data.pointer.vector_index == VECTOR_INDEX_NONE) {
+            peer_type = get_pointer_to_type_extra2(g, elem_type, false, false,
+                PtrLenSingle, 0, 0, type->data.pointer.host_int_bytes, false,
+                VECTOR_INDEX_NONE, nullptr, nullptr);
+        } else {
+            uint32_t host_vec_len = type->data.pointer.host_int_bytes;
+            ZigType *host_vec_type = get_vector_type(g, host_vec_len, elem_type);
+            peer_type = get_pointer_to_type_extra2(g, host_vec_type, false, false,
+                PtrLenSingle, 0, 0, 0, false, VECTOR_INDEX_NONE, nullptr, nullptr);
+        }
         type->llvm_type = get_llvm_type(g, peer_type);
         type->llvm_di_type = get_llvm_di_type(g, peer_type);
         assertNoError(type_resolve(g, elem_type, wanted_resolve_status));
@@ -8286,7 +8827,7 @@ static void resolve_llvm_types_pointer(CodeGen *g, ZigType *type, ResolveStatus 
 static void resolve_llvm_types_integer(CodeGen *g, ZigType *type) {
     if (type->llvm_di_type != nullptr) return;
 
-    if (!type_has_bits(type)) {
+    if (!type_has_bits(g, type)) {
         type->llvm_type = g->builtin_types.entry_void->llvm_type;
         type->llvm_di_type = g->builtin_types.entry_void->llvm_di_type;
         return;
@@ -8322,14 +8863,14 @@ static void resolve_llvm_types_optional(CodeGen *g, ZigType *type, ResolveStatus
     ZigLLVMDIType *bool_llvm_di_type = get_llvm_di_type(g, g->builtin_types.entry_bool);
 
     ZigType *child_type = type->data.maybe.child_type;
-    if (!type_has_bits(child_type)) {
+    if (!type_has_bits(g, child_type)) {
         type->llvm_type = bool_llvm_type;
         type->llvm_di_type = bool_llvm_di_type;
         type->data.maybe.resolve_status = ResolveStatusLLVMFull;
         return;
     }
 
-    if (type_is_nonnull_ptr(child_type) || child_type->id == ZigTypeIdErrorSet) {
+    if (type_is_nonnull_ptr(g, child_type) || child_type->id == ZigTypeIdErrorSet) {
         type->llvm_type = get_llvm_type(g, child_type);
         type->llvm_di_type = get_llvm_di_type(g, child_type);
         type->data.maybe.resolve_status = ResolveStatusLLVMFull;
@@ -8351,7 +8892,6 @@ static void resolve_llvm_types_optional(CodeGen *g, ZigType *type, ResolveStatus
         if (ResolveStatusLLVMFwdDecl >= wanted_resolve_status) return;
     }
 
-    LLVMTypeRef child_llvm_type = get_llvm_type(g, child_type);
     ZigLLVMDIType *child_llvm_di_type = get_llvm_di_type(g, child_type);
     if (type->data.maybe.resolve_status >= wanted_resolve_status) return;
 
@@ -8361,35 +8901,28 @@ static void resolve_llvm_types_optional(CodeGen *g, ZigType *type, ResolveStatus
     };
     LLVMStructSetBody(type->llvm_type, elem_types, 2, false);
 
-    uint64_t val_debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, child_llvm_type);
-    uint64_t val_debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, child_llvm_type);
-    uint64_t val_offset_in_bits = 8*LLVMOffsetOfElement(g->target_data_ref, type->llvm_type, 0);
+    uint64_t val_offset_in_bits = 8*LLVMOffsetOfElement(g->target_data_ref, type->llvm_type, maybe_child_index);
+    uint64_t maybe_offset_in_bits = 8*LLVMOffsetOfElement(g->target_data_ref, type->llvm_type, maybe_null_index);
 
-    uint64_t maybe_debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, bool_llvm_type);
-    uint64_t maybe_debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, bool_llvm_type);
-    uint64_t maybe_offset_in_bits = 8*LLVMOffsetOfElement(g->target_data_ref, type->llvm_type, 1);
-
-    uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, type->llvm_type);
-    uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, type->llvm_type);
-
-    ZigLLVMDIType *di_element_types[] = {
+    ZigLLVMDIType *di_element_types[2];
+    di_element_types[maybe_child_index] =
         ZigLLVMCreateDebugMemberType(g->dbuilder, ZigLLVMTypeToScope(type->llvm_di_type),
                 "val", di_file, line,
-                val_debug_size_in_bits,
-                val_debug_align_in_bits,
+                8 * child_type->abi_size,
+                8 * child_type->abi_align,
                 val_offset_in_bits,
-                ZigLLVM_DIFlags_Zero, child_llvm_di_type),
+                ZigLLVM_DIFlags_Zero, child_llvm_di_type);
+    di_element_types[maybe_null_index] = 
         ZigLLVMCreateDebugMemberType(g->dbuilder, ZigLLVMTypeToScope(type->llvm_di_type),
                 "maybe", di_file, line,
-                maybe_debug_size_in_bits,
-                maybe_debug_align_in_bits,
+                8*g->builtin_types.entry_bool->abi_size,
+                8*g->builtin_types.entry_bool->abi_align,
                 maybe_offset_in_bits,
-                ZigLLVM_DIFlags_Zero, bool_llvm_di_type),
-    };
+                ZigLLVM_DIFlags_Zero, bool_llvm_di_type);
     ZigLLVMDIType *replacement_di_type = ZigLLVMCreateDebugStructType(g->dbuilder,
             compile_unit_scope,
             buf_ptr(&type->name),
-            di_file, line, debug_size_in_bits, debug_align_in_bits, ZigLLVM_DIFlags_Zero,
+            di_file, line, 8 * type->abi_size, 8 * type->abi_align, ZigLLVM_DIFlags_Zero,
             nullptr, di_element_types, 2, 0, nullptr, "");
 
     ZigLLVMReplaceTemporary(g->dbuilder, type->llvm_di_type, replacement_di_type);
@@ -8403,11 +8936,11 @@ static void resolve_llvm_types_error_union(CodeGen *g, ZigType *type) {
     ZigType *payload_type = type->data.error_union.payload_type;
     ZigType *err_set_type = type->data.error_union.err_set_type;
 
-    if (!type_has_bits(payload_type)) {
-        assert(type_has_bits(err_set_type));
+    if (!type_has_bits(g, payload_type)) {
+        assert(type_has_bits(g, err_set_type));
         type->llvm_type = get_llvm_type(g, err_set_type);
         type->llvm_di_type = get_llvm_di_type(g, err_set_type);
-    } else if (!type_has_bits(err_set_type)) {
+    } else if (!type_has_bits(g, err_set_type)) {
         type->llvm_type = get_llvm_type(g, payload_type);
         type->llvm_di_type = get_llvm_di_type(g, payload_type);
     } else {
@@ -8477,7 +9010,7 @@ static void resolve_llvm_types_error_union(CodeGen *g, ZigType *type) {
 static void resolve_llvm_types_array(CodeGen *g, ZigType *type) {
     if (type->llvm_di_type != nullptr) return;
 
-    if (!type_has_bits(type)) {
+    if (!type_has_bits(g, type)) {
         type->llvm_type = g->builtin_types.entry_void->llvm_type;
         type->llvm_di_type = g->builtin_types.entry_void->llvm_di_type;
         return;
@@ -8485,14 +9018,16 @@ static void resolve_llvm_types_array(CodeGen *g, ZigType *type) {
 
     ZigType *elem_type = type->data.array.child_type;
 
+    uint64_t extra_len_from_sentinel = (type->data.array.sentinel != nullptr) ? 1 : 0;
+    uint64_t full_len = type->data.array.len + extra_len_from_sentinel;
     // TODO https://github.com/ziglang/zig/issues/1424
-    type->llvm_type = LLVMArrayType(get_llvm_type(g, elem_type), (unsigned)type->data.array.len);
+    type->llvm_type = LLVMArrayType(get_llvm_type(g, elem_type), (unsigned)full_len);
 
     uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, type->llvm_type);
     uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, type->llvm_type);
 
     type->llvm_di_type = ZigLLVMCreateDebugArrayType(g->dbuilder, debug_size_in_bits,
-            debug_align_in_bits, get_llvm_di_type(g, elem_type), (int)type->data.array.len);
+            debug_align_in_bits, get_llvm_di_type(g, elem_type), (int)full_len);
 }
 
 static void resolve_llvm_types_fn_type(CodeGen *g, ZigType *fn_type) {
@@ -8501,7 +9036,7 @@ static void resolve_llvm_types_fn_type(CodeGen *g, ZigType *fn_type) {
     FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
     bool first_arg_return = want_first_arg_sret(g, fn_type_id);
     bool is_async = fn_type_id->cc == CallingConventionAsync;
-    bool is_c_abi = fn_type_id->cc == CallingConventionC;
+    bool is_c_abi = !calling_convention_allows_zig_types(fn_type_id->cc);
     bool prefix_arg_error_return_trace = g->have_err_ret_tracing && fn_type_can_fail(fn_type_id);
     // +1 for maybe making the first argument the return value
     // +1 for maybe first argument the error return trace
@@ -8515,13 +9050,13 @@ static void resolve_llvm_types_fn_type(CodeGen *g, ZigType *fn_type) {
     ZigType *gen_return_type;
     if (is_async) {
         gen_return_type = g->builtin_types.entry_void;
-        param_di_types.append(get_llvm_di_type(g, gen_return_type));
-    } else if (!type_has_bits(fn_type_id->return_type)) {
+        param_di_types.append(nullptr);
+    } else if (!type_has_bits(g, fn_type_id->return_type)) {
         gen_return_type = g->builtin_types.entry_void;
-        param_di_types.append(get_llvm_di_type(g, gen_return_type));
+        param_di_types.append(nullptr);
     } else if (first_arg_return) {
         gen_return_type = g->builtin_types.entry_void;
-        param_di_types.append(get_llvm_di_type(g, gen_return_type));
+        param_di_types.append(nullptr);
         ZigType *gen_type = get_pointer_to_type(g, fn_type_id->return_type, false);
         gen_param_types.append(get_llvm_type(g, gen_type));
         param_di_types.append(get_llvm_di_type(g, gen_type));
@@ -8537,7 +9072,7 @@ static void resolve_llvm_types_fn_type(CodeGen *g, ZigType *fn_type) {
         param_di_types.append(get_llvm_di_type(g, gen_type));
     }
     if (is_async) {
-        fn_type->data.fn.gen_param_info = allocate<FnGenParamInfo>(2);
+        fn_type->data.fn.gen_param_info = heap::c_allocator.allocate<FnGenParamInfo>(2);
 
         ZigType *frame_type = get_any_frame_type(g, fn_type_id->return_type);
         gen_param_types.append(get_llvm_type(g, frame_type));
@@ -8554,7 +9089,7 @@ static void resolve_llvm_types_fn_type(CodeGen *g, ZigType *fn_type) {
         fn_type->data.fn.gen_param_info[1].gen_index = 1;
         fn_type->data.fn.gen_param_info[1].type = g->builtin_types.entry_usize;
     } else {
-        fn_type->data.fn.gen_param_info = allocate<FnGenParamInfo>(fn_type_id->param_count);
+        fn_type->data.fn.gen_param_info = heap::c_allocator.allocate<FnGenParamInfo>(fn_type_id->param_count);
         for (size_t i = 0; i < fn_type_id->param_count; i += 1) {
             FnTypeParamInfo *src_param_info = &fn_type->data.fn.fn_type_id.param_info[i];
             ZigType *type_entry = src_param_info->type;
@@ -8563,11 +9098,11 @@ static void resolve_llvm_types_fn_type(CodeGen *g, ZigType *fn_type) {
             gen_param_info->src_index = i;
             gen_param_info->gen_index = SIZE_MAX;
 
-            if (is_c_abi || !type_has_bits(type_entry))
+            if (is_c_abi || !type_has_bits(g, type_entry))
                 continue;
 
             ZigType *gen_type;
-            if (handle_is_ptr(type_entry)) {
+            if (handle_is_ptr(g, type_entry)) {
                 gen_type = get_pointer_to_type(g, type_entry, true);
                 gen_param_info->is_byval = true;
             } else {
@@ -8597,11 +9132,15 @@ static void resolve_llvm_types_fn_type(CodeGen *g, ZigType *fn_type) {
 
     fn_type->data.fn.raw_type_ref = LLVMFunctionType(get_llvm_type(g, gen_return_type),
             gen_param_types.items, (unsigned int)gen_param_types.length, fn_type_id->is_var_args);
-    fn_type->llvm_type = LLVMPointerType(fn_type->data.fn.raw_type_ref, 0);
+    const unsigned fn_addrspace = ZigLLVMDataLayoutGetProgramAddressSpace(g->target_data_ref);
+    fn_type->llvm_type = LLVMPointerType(fn_type->data.fn.raw_type_ref, fn_addrspace);
     fn_type->data.fn.raw_di_type = ZigLLVMCreateSubroutineType(g->dbuilder, param_di_types.items, (int)param_di_types.length, 0);
     fn_type->llvm_di_type = ZigLLVMCreateDebugPointerType(g->dbuilder, fn_type->data.fn.raw_di_type,
             LLVMStoreSizeOfType(g->target_data_ref, fn_type->llvm_type),
             LLVMABIAlignmentOfType(g->target_data_ref, fn_type->llvm_type), "");
+
+    gen_param_types.deinit();
+    param_di_types.deinit();
 }
 
 void resolve_llvm_types_fn(CodeGen *g, ZigFn *fn) {
@@ -8620,7 +9159,7 @@ void resolve_llvm_types_fn(CodeGen *g, ZigFn *fn) {
     ZigList<ZigLLVMDIType *> param_di_types = {};
     ZigList<LLVMTypeRef> gen_param_types = {};
     // first "parameter" is return value
-    param_di_types.append(get_llvm_di_type(g, gen_return_type));
+    param_di_types.append(nullptr);
 
     ZigType *frame_type = get_fn_frame_type(g, fn);
     ZigType *ptr_type = get_pointer_to_type(g, frame_type, false);
@@ -8636,6 +9175,9 @@ void resolve_llvm_types_fn(CodeGen *g, ZigFn *fn) {
     fn->raw_type_ref = LLVMFunctionType(get_llvm_type(g, gen_return_type),
             gen_param_types.items, gen_param_types.length, false);
     fn->raw_di_type = ZigLLVMCreateSubroutineType(g->dbuilder, param_di_types.items, (int)param_di_types.length, 0);
+
+    param_di_types.deinit();
+    gen_param_types.deinit();
 }
 
 static void resolve_llvm_types_anyerror(CodeGen *g) {
@@ -8660,6 +9202,8 @@ static void resolve_llvm_types_anyerror(CodeGen *g) {
             tag_debug_align_in_bits,
             err_enumerators.items, err_enumerators.length,
             get_llvm_di_type(g, g->err_tag_type), "");
+
+    err_enumerators.deinit();
 }
 
 static void resolve_llvm_types_async_frame(CodeGen *g, ZigType *frame_type, ResolveStatus wanted_resolve_status) {
@@ -8698,7 +9242,8 @@ static void resolve_llvm_types_any_frame(CodeGen *g, ZigType *any_frame_type, Re
 
     ZigType *result_type = any_frame_type->data.any_frame.result_type;
     ZigType *ptr_result_type = (result_type == nullptr) ? nullptr : get_pointer_to_type(g, result_type, false);
-    LLVMTypeRef ptr_fn_llvm_type = LLVMPointerType(fn_type, 0);
+    const unsigned fn_addrspace = ZigLLVMDataLayoutGetProgramAddressSpace(g->target_data_ref);
+    LLVMTypeRef ptr_fn_llvm_type = LLVMPointerType(fn_type, fn_addrspace);
     if (result_type == nullptr) {
         g->anyframe_fn_type = ptr_fn_llvm_type;
     }
@@ -8711,7 +9256,7 @@ static void resolve_llvm_types_any_frame(CodeGen *g, ZigType *any_frame_type, Re
     field_types.append(usize_type_ref); // resume_index
     field_types.append(usize_type_ref); // awaiter
 
-    bool have_result_type = result_type != nullptr && type_has_bits(result_type);
+    bool have_result_type = result_type != nullptr && type_has_bits(g, result_type);
     if (have_result_type) {
         field_types.append(get_llvm_type(g, ptr_result_type)); // result_ptr_callee
         field_types.append(get_llvm_type(g, ptr_result_type)); // result_ptr_awaiter
@@ -8805,6 +9350,9 @@ static void resolve_llvm_types_any_frame(CodeGen *g, ZigType *any_frame_type, Re
             nullptr, di_element_types.items, di_element_types.length, 0, nullptr, "");
 
     ZigLLVMReplaceTemporary(g->dbuilder, frame_header_di_type, replacement_di_type);
+
+    field_types.deinit();
+    di_element_types.deinit();
 }
 
 static void resolve_llvm_types(CodeGen *g, ZigType *type, ResolveStatus wanted_resolve_status) {
@@ -8818,7 +9366,6 @@ static void resolve_llvm_types(CodeGen *g, ZigType *type, ResolveStatus wanted_r
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
         case ZigTypeIdBoundFn:
-        case ZigTypeIdArgTuple:
             zig_unreachable();
         case ZigTypeIdFloat:
         case ZigTypeIdOpaque:
@@ -8828,7 +9375,7 @@ static void resolve_llvm_types(CodeGen *g, ZigType *type, ResolveStatus wanted_r
             assert(type->llvm_di_type != nullptr);
             return;
         case ZigTypeIdStruct:
-            if (type->data.structure.is_slice)
+            if (type->data.structure.special == StructSpecialSlice)
                 return resolve_llvm_types_slice(g, type, wanted_resolve_status);
             else
                 return resolve_llvm_types_struct(g, type, wanted_resolve_status, nullptr);
@@ -8862,7 +9409,7 @@ static void resolve_llvm_types(CodeGen *g, ZigType *type, ResolveStatus wanted_r
             if (type->llvm_di_type != nullptr) return;
 
             type->llvm_type = LLVMVectorType(get_llvm_type(g, type->data.vector.elem_type), type->data.vector.len);
-            type->llvm_di_type = ZigLLVMDIBuilderCreateVectorType(g->dbuilder, type->size_in_bits,
+            type->llvm_di_type = ZigLLVMDIBuilderCreateVectorType(g->dbuilder, 8 * type->abi_size,
                     type->abi_align, get_llvm_di_type(g, type->data.vector.elem_type), type->data.vector.len);
             return;
         }
@@ -8886,30 +9433,438 @@ ZigLLVMDIType *get_llvm_di_type(CodeGen *g, ZigType *type) {
     return type->llvm_di_type;
 }
 
-void src_assert(bool ok, AstNode *source_node) {
+void src_assert_impl(bool ok, AstNode *source_node, char const *file, unsigned int line) {
     if (ok) return;
     if (source_node == nullptr) {
-        fprintf(stderr, "when analyzing (unknown source location): ");
+        fprintf(stderr, "when analyzing (unknown source location) ");
     } else {
-        fprintf(stderr, "when analyzing %s:%u:%u: ",
+        fprintf(stderr, "when analyzing %s:%u:%u ",
             buf_ptr(source_node->owner->data.structure.root_struct->path),
             (unsigned)source_node->line + 1, (unsigned)source_node->column + 1);
     }
+    fprintf(stderr, "in compiler source at %s:%u: ", file, line);
     const char *msg = "assertion failed. This is a bug in the Zig compiler.";
     stage2_panic(msg, strlen(msg));
 }
 
-IrInstruction *ir_create_alloca(CodeGen *g, Scope *scope, AstNode *source_node, ZigFn *fn,
-        ZigType *var_type, const char *name_hint)
+Error analyze_import(CodeGen *g, ZigType *source_import, Buf *import_target_str,
+        ZigType **out_import, Buf **out_import_target_path, Buf *out_full_path)
 {
-    IrInstructionAllocaGen *alloca_gen = allocate<IrInstructionAllocaGen>(1);
-    alloca_gen->base.id = IrInstructionIdAllocaGen;
-    alloca_gen->base.source_node = source_node;
-    alloca_gen->base.scope = scope;
-    alloca_gen->base.value.type = get_pointer_to_type(g, var_type, false);
-    alloca_gen->base.ref_count = 1;
-    alloca_gen->name_hint = name_hint;
-    fn->alloca_gen_list.append(alloca_gen);
-    return &alloca_gen->base;
+    Error err;
+
+    Buf *search_dir;
+    ZigPackage *cur_scope_pkg = source_import->data.structure.root_struct->package;
+    assert(cur_scope_pkg);
+    ZigPackage *target_package;
+    auto package_entry = cur_scope_pkg->package_table.maybe_get(import_target_str);
+    SourceKind source_kind;
+    if (package_entry) {
+        target_package = package_entry->value;
+        *out_import_target_path = &target_package->root_src_path;
+        search_dir = &target_package->root_src_dir;
+        source_kind = SourceKindPkgMain;
+    } else {
+        // try it as a filename
+        target_package = cur_scope_pkg;
+        *out_import_target_path = import_target_str;
+
+        // search relative to importing file
+        search_dir = buf_alloc();
+        os_path_dirname(source_import->data.structure.root_struct->path, search_dir);
+
+        source_kind = SourceKindNonRoot;
+    }
+
+    buf_resize(out_full_path, 0);
+    os_path_join(search_dir, *out_import_target_path, out_full_path);
+
+    Buf *import_code = buf_alloc();
+    Buf *resolved_path = buf_alloc();
+
+    Buf *resolve_paths[] = { out_full_path, };
+    *resolved_path = os_path_resolve(resolve_paths, 1);
+
+    auto import_entry = g->import_table.maybe_get(resolved_path);
+    if (import_entry) {
+        *out_import = import_entry->value;
+        return ErrorNone;
+    }
+
+    if (source_kind == SourceKindNonRoot) {
+        Buf *pkg_root_src_dir = &cur_scope_pkg->root_src_dir;
+        Buf resolved_root_src_dir = os_path_resolve(&pkg_root_src_dir, 1);
+        if (!buf_starts_with_buf(resolved_path, &resolved_root_src_dir)) {
+            return ErrorImportOutsidePkgPath;
+        }
+    }
+
+    if ((err = file_fetch(g, resolved_path, import_code))) {
+        return err;
+    }
+
+    *out_import = add_source_file(g, target_package, resolved_path, import_code, source_kind);
+    return ErrorNone;
+}
+
+
+void IrExecutableSrc::src() {
+    if (this->source_node != nullptr) {
+        this->source_node->src();
+    }
+    if (this->parent_exec != nullptr) {
+        this->parent_exec->src();
+    }
+}
+
+void IrExecutableGen::src() {
+    IrExecutableGen *it;
+    for (it = this; it != nullptr && it->source_node != nullptr; it = it->parent_exec) {
+        it->source_node->src();
+    }
+}
+
+bool is_anon_container(ZigType *ty) {
+    return ty->id == ZigTypeIdStruct && (
+        ty->data.structure.special == StructSpecialInferredTuple ||
+        ty->data.structure.special == StructSpecialInferredStruct);
+}
+
+bool is_opt_err_set(ZigType *ty) {
+    return ty->id == ZigTypeIdErrorSet ||
+        (ty->id == ZigTypeIdOptional && ty->data.maybe.child_type->id == ZigTypeIdErrorSet);
+}
+
+// Returns whether the x_optional field of ZigValue is active.
+bool type_has_optional_repr(ZigType *ty) {
+    if (ty->id != ZigTypeIdOptional) {
+        return false;
+    } else if (get_src_ptr_type(ty) != nullptr) {
+        return false;
+    } else if (is_opt_err_set(ty)) {
+        return false;
+    } else {
+        return true;
+    }
+}
+
+void copy_const_val(CodeGen *g, ZigValue *dest, ZigValue *src) {
+    uint32_t prev_align = dest->llvm_align;
+    ConstParent prev_parent = dest->parent;
+    memcpy(dest, src, sizeof(ZigValue));
+    dest->llvm_align = prev_align;
+    if (src->special != ConstValSpecialStatic)
+        return;
+    dest->parent = prev_parent;
+    if (dest->type->id == ZigTypeIdStruct) {
+        dest->data.x_struct.fields = alloc_const_vals_ptrs(g, dest->type->data.structure.src_field_count);
+        for (size_t i = 0; i < dest->type->data.structure.src_field_count; i += 1) {
+            copy_const_val(g, dest->data.x_struct.fields[i], src->data.x_struct.fields[i]);
+            dest->data.x_struct.fields[i]->parent.id = ConstParentIdStruct;
+            dest->data.x_struct.fields[i]->parent.data.p_struct.struct_val = dest;
+            dest->data.x_struct.fields[i]->parent.data.p_struct.field_index = i;
+        }
+    } else if (dest->type->id == ZigTypeIdArray) {
+        switch (dest->data.x_array.special) {
+            case ConstArraySpecialNone: {
+                dest->data.x_array.data.s_none.elements = g->pass1_arena->allocate<ZigValue>(dest->type->data.array.len);
+                for (uint64_t i = 0; i < dest->type->data.array.len; i += 1) {
+                    copy_const_val(g, &dest->data.x_array.data.s_none.elements[i], &src->data.x_array.data.s_none.elements[i]);
+                    dest->data.x_array.data.s_none.elements[i].parent.id = ConstParentIdArray;
+                    dest->data.x_array.data.s_none.elements[i].parent.data.p_array.array_val = dest;
+                    dest->data.x_array.data.s_none.elements[i].parent.data.p_array.elem_index = i;
+                }
+                break;
+            }
+            case ConstArraySpecialUndef: {
+                // Nothing to copy; the above memcpy did everything we needed.
+                break;
+            }
+            case ConstArraySpecialBuf: {
+                dest->data.x_array.data.s_buf = buf_create_from_buf(src->data.x_array.data.s_buf);
+                break;
+            }
+        }
+    } else if (type_has_optional_repr(dest->type) && dest->data.x_optional != nullptr) {
+        dest->data.x_optional = g->pass1_arena->create<ZigValue>();
+        copy_const_val(g, dest->data.x_optional, src->data.x_optional);
+        dest->data.x_optional->parent.id = ConstParentIdOptionalPayload;
+        dest->data.x_optional->parent.data.p_optional_payload.optional_val = dest;
+    }
+}
+
+bool optional_value_is_null(ZigValue *val) {
+    assert(val->special == ConstValSpecialStatic);
+    if (get_src_ptr_type(val->type) != nullptr) {
+        if (val->data.x_ptr.special == ConstPtrSpecialNull) {
+            return true;
+        } else if (val->data.x_ptr.special == ConstPtrSpecialHardCodedAddr) {
+            return val->data.x_ptr.data.hard_coded_addr.addr == 0;
+        } else {
+            return false;
+        }
+    } else if (is_opt_err_set(val->type)) {
+        return val->data.x_err_set == nullptr;
+    } else {
+        return val->data.x_optional == nullptr;
+    }
+}
+
+bool type_is_numeric(ZigType *ty) {
+    switch (ty->id) {
+        case ZigTypeIdInvalid:
+            zig_unreachable();
+        case ZigTypeIdComptimeFloat:
+        case ZigTypeIdComptimeInt:
+        case ZigTypeIdInt:
+        case ZigTypeIdFloat:
+        case ZigTypeIdUndefined:
+            return true;
+
+        case ZigTypeIdVector:
+            return type_is_numeric(ty->data.vector.elem_type);
+
+        case ZigTypeIdMetaType:
+        case ZigTypeIdVoid:
+        case ZigTypeIdBool:
+        case ZigTypeIdUnreachable:
+        case ZigTypeIdPointer:
+        case ZigTypeIdArray:
+        case ZigTypeIdStruct:
+        case ZigTypeIdNull:
+        case ZigTypeIdOptional:
+        case ZigTypeIdErrorUnion:
+        case ZigTypeIdErrorSet:
+        case ZigTypeIdEnum:
+        case ZigTypeIdUnion:
+        case ZigTypeIdFn:
+        case ZigTypeIdBoundFn:
+        case ZigTypeIdOpaque:
+        case ZigTypeIdFnFrame:
+        case ZigTypeIdAnyFrame:
+        case ZigTypeIdEnumLiteral:
+            return false;
+    }
+    zig_unreachable();
+}
+
+static void dump_value_indent_error_set(ZigValue *val, int indent) {
+    fprintf(stderr, "<TODO dump value>\n");
+}
+
+static void dump_value_indent(ZigValue *val, int indent);
+
+static void dump_value_indent_ptr(ZigValue *val, int indent) {
+    switch (val->data.x_ptr.special) {
+        case ConstPtrSpecialInvalid:
+            fprintf(stderr, "<!invalid ptr!>\n");
+            return;
+        case ConstPtrSpecialNull:
+            fprintf(stderr, "<null>\n");
+            return;
+        case ConstPtrSpecialRef:
+            fprintf(stderr, "<ref\n");
+            dump_value_indent(val->data.x_ptr.data.ref.pointee, indent + 1);
+            break;
+        case ConstPtrSpecialBaseStruct: {
+            ZigValue *struct_val = val->data.x_ptr.data.base_struct.struct_val;
+            size_t field_index = val->data.x_ptr.data.base_struct.field_index;
+            fprintf(stderr, "<struct %p field %zu\n", struct_val, field_index);
+            if (struct_val != nullptr) {
+                ZigValue *field_val = struct_val->data.x_struct.fields[field_index];
+                if (field_val != nullptr) {
+                    dump_value_indent(field_val, indent + 1);
+                } else {
+                    for (int i = 0; i < indent; i += 1) {
+                        fprintf(stderr, " ");
+                    }
+                    fprintf(stderr, "(invalid null field)\n");
+                }
+            }
+            break;
+        }
+        case ConstPtrSpecialBaseOptionalPayload: {
+            ZigValue *optional_val = val->data.x_ptr.data.base_optional_payload.optional_val;
+            fprintf(stderr, "<optional %p payload\n", optional_val);
+            if (optional_val != nullptr) {
+                dump_value_indent(optional_val, indent + 1);
+            }
+            break;
+        }
+        default:
+            fprintf(stderr, "TODO dump more pointer things\n");
+    }
+    for (int i = 0; i < indent; i += 1) {
+        fprintf(stderr, " ");
+    }
+    fprintf(stderr, ">\n");
+}
+
+static void dump_value_indent(ZigValue *val, int indent) {
+    for (int i = 0; i < indent; i += 1) {
+        fprintf(stderr, " ");
+    }
+    fprintf(stderr, "Value@%p(", val);
+    if (val->type != nullptr) {
+        fprintf(stderr, "%s)", buf_ptr(&val->type->name));
+    } else {
+        fprintf(stderr, "type=nullptr)");
+    }
+    switch (val->special) {
+        case ConstValSpecialUndef:
+            fprintf(stderr, "[undefined]\n");
+            return;
+        case ConstValSpecialLazy:
+            fprintf(stderr, "[lazy]\n");
+            return;
+        case ConstValSpecialRuntime:
+            fprintf(stderr, "[runtime]\n");
+            return;
+        case ConstValSpecialStatic:
+            break;
+    }
+    if (val->type == nullptr)
+        return;
+    switch (val->type->id) {
+        case ZigTypeIdInvalid:
+            fprintf(stderr, "<invalid>\n");
+            return;
+        case ZigTypeIdUnreachable:
+            fprintf(stderr, "<unreachable>\n");
+            return;
+        case ZigTypeIdUndefined:
+            fprintf(stderr, "<undefined>\n");
+            return;
+        case ZigTypeIdVoid:
+            fprintf(stderr, "<{}>\n");
+            return;
+        case ZigTypeIdMetaType:
+            fprintf(stderr, "<%s>\n", buf_ptr(&val->data.x_type->name));
+            return;
+        case ZigTypeIdBool:
+            fprintf(stderr, "<%s>\n", val->data.x_bool ? "true" : "false");
+            return;
+        case ZigTypeIdComptimeInt:
+        case ZigTypeIdInt: {
+            Buf *tmp_buf = buf_alloc();
+            bigint_append_buf(tmp_buf, &val->data.x_bigint, 10);
+            fprintf(stderr, "<%s>\n", buf_ptr(tmp_buf));
+            buf_destroy(tmp_buf);
+            return;
+        }
+        case ZigTypeIdComptimeFloat:
+        case ZigTypeIdFloat:
+            fprintf(stderr, "<TODO dump number>\n");
+            return;
+
+        case ZigTypeIdStruct:
+            fprintf(stderr, "<struct\n");
+            for (size_t i = 0; i < val->type->data.structure.src_field_count; i += 1) {
+                for (int j = 0; j < indent; j += 1) {
+                    fprintf(stderr, " ");
+                }
+                fprintf(stderr, "%s: ", buf_ptr(val->type->data.structure.fields[i]->name));
+                if (val->data.x_struct.fields == nullptr) {
+                    fprintf(stderr, "<null>\n");
+                } else {
+                    dump_value_indent(val->data.x_struct.fields[i], 1);
+                }
+            }
+            for (int i = 0; i < indent; i += 1) {
+                fprintf(stderr, " ");
+            }
+            fprintf(stderr, ">\n");
+            return;
+
+        case ZigTypeIdOptional:
+            if (get_src_ptr_type(val->type) != nullptr) {
+                return dump_value_indent_ptr(val, indent);
+            } else if (val->type->data.maybe.child_type->id == ZigTypeIdErrorSet) {
+                return dump_value_indent_error_set(val, indent);
+            } else {
+                fprintf(stderr, "<\n");
+                dump_value_indent(val->data.x_optional, indent + 1);
+
+                for (int i = 0; i < indent; i += 1) {
+                    fprintf(stderr, " ");
+                }
+                fprintf(stderr, ">\n");
+                return;
+            }
+        case ZigTypeIdErrorUnion:
+            if (val->data.x_err_union.payload != nullptr) {
+                fprintf(stderr, "<\n");
+                dump_value_indent(val->data.x_err_union.payload, indent + 1);
+            } else {
+                fprintf(stderr, "<\n");
+                dump_value_indent(val->data.x_err_union.error_set, 0);
+            }
+            for (int i = 0; i < indent; i += 1) {
+                fprintf(stderr, " ");
+            }
+            fprintf(stderr, ">\n");
+            return;
+
+        case ZigTypeIdPointer:
+            return dump_value_indent_ptr(val, indent);
+
+        case ZigTypeIdErrorSet:
+            return dump_value_indent_error_set(val, indent);
+
+        case ZigTypeIdVector:
+        case ZigTypeIdArray:
+        case ZigTypeIdNull:
+        case ZigTypeIdEnum:
+        case ZigTypeIdUnion:
+        case ZigTypeIdFn:
+        case ZigTypeIdBoundFn:
+        case ZigTypeIdOpaque:
+        case ZigTypeIdFnFrame:
+        case ZigTypeIdAnyFrame:
+        case ZigTypeIdEnumLiteral:
+            fprintf(stderr, "<TODO dump value>\n");
+            return;
+    }
+    zig_unreachable();
+}
+
+void ZigValue::dump() {
+    dump_value_indent(this, 0);
+}
+
+// float ops that take a single argument
+//TODO Powi, Pow, minnum, maxnum, maximum, minimum, copysign, lround, llround, lrint, llrint
+const char *float_op_to_name(BuiltinFnId op) {
+    switch (op) {
+    case BuiltinFnIdSqrt:
+        return "sqrt";
+    case BuiltinFnIdSin:
+        return "sin";
+    case BuiltinFnIdCos:
+        return "cos";
+    case BuiltinFnIdExp:
+        return "exp";
+    case BuiltinFnIdExp2:
+        return "exp2";
+    case BuiltinFnIdLog:
+        return "log";
+    case BuiltinFnIdLog10:
+        return "log10";
+    case BuiltinFnIdLog2:
+        return "log2";
+    case BuiltinFnIdFabs:
+        return "fabs";
+    case BuiltinFnIdFloor:
+        return "floor";
+    case BuiltinFnIdCeil:
+        return "ceil";
+    case BuiltinFnIdTrunc:
+        return "trunc";
+    case BuiltinFnIdNearbyInt:
+        return "nearbyint";
+    case BuiltinFnIdRound:
+        return "round";
+    default:
+        zig_unreachable();
+    }
 }
 

@@ -5,27 +5,58 @@ set -e
 
 BUILDDIR="$(pwd)"
 
-sudo sh -c 'echo "deb http://apt.llvm.org/xenial/ llvm-toolchain-xenial-9 main" >> /etc/apt/sources.list'
+sudo sh -c 'echo "deb http://apt.llvm.org/bionic/ llvm-toolchain-bionic-10 main" >> /etc/apt/sources.list'
 wget -O - http://apt.llvm.org/llvm-snapshot.gpg.key|sudo apt-key add -
 sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
 sudo apt-get update -q
 
 sudo apt-get remove -y llvm-*
 sudo rm -rf /usr/local/*
-sudo apt-get install -y libxml2-dev libclang-9-dev llvm-9 llvm-9-dev cmake s3cmd gcc-7 g++-7 qemu
+sudo apt-get install -y libxml2-dev libclang-10-dev llvm-10 llvm-10-dev liblld-10-dev cmake s3cmd gcc-7 g++-7 ninja-build
+
+QEMUBASE="qemu-linux-x86_64-5.0.0-z2"
+wget https://ziglang.org/deps/$QEMUBASE.tar.xz
+tar xf $QEMUBASE.tar.xz
+PATH=$PWD/$QEMUBASE/bin:$PATH
+
+WASMTIME="wasmtime-v0.15.0-x86_64-linux"
+wget https://github.com/bytecodealliance/wasmtime/releases/download/v0.15.0/$WASMTIME.tar.xz
+tar xf $WASMTIME.tar.xz
+PATH=$PWD/$WASMTIME:$PATH
+
+# Make the `zig version` number consistent.
+# This will affect the cmake command below.
+git config core.abbrev 9
+
+# This patch is a workaround for
+# https://bugs.llvm.org/show_bug.cgi?id=44870 / https://github.com/llvm/llvm-project/issues/191
+# It only applies to the apt.llvm.org packages.
+patch <<'END_PATCH'
+--- CMakeLists.txt
++++ CMakeLists.txt
+@@ -369,6 +369,7 @@ target_link_libraries(zig_cpp LINK_PUBLIC
+     ${CLANG_LIBRARIES}
+     ${LLD_LIBRARIES}
+     ${LLVM_LIBRARIES}
++    "-Wl,/usr/lib/llvm-10/lib/LLVMPolly.so"
+ )
+ 
+ add_library(opt_c_util STATIC ${OPTIMIZED_C_SOURCES})
+END_PATCH
 
 export CC=gcc-7
 export CXX=g++-7
 mkdir build
 cd build
-cmake .. -DCMAKE_BUILD_TYPE=Release
-make -j2 install
-./zig build test -Denable-qemu
+cmake .. -DCMAKE_BUILD_TYPE=Release -GNinja
+ninja install
+./zig build test -Denable-qemu -Denable-wasmtime
+VERSION="$(./zig version)"
 
 if [ "${BUILD_REASON}" != "PullRequest" ]; then
   ARTIFACTSDIR="$BUILDDIR/artifacts"
   mkdir "$ARTIFACTSDIR"
-  docker run -i --mount type=bind,source="$ARTIFACTSDIR",target=/z ziglang/static-base:llvm9-1 -j2 $BUILD_SOURCEVERSION
+  docker run -i --mount type=bind,source="$ARTIFACTSDIR",target=/z ziglang/static-base:llvm10-x86_64-1 -j2 $BUILD_SOURCEVERSION
   TARBALL="$(ls $ARTIFACTSDIR)"
   mv "$DOWNLOADSECUREFILE_SECUREFILEPATH" "$HOME/.s3cfg"
   s3cmd put -P --add-header="cache-control: public, max-age=31536000, immutable" "$ARTIFACTSDIR/$TARBALL" s3://ziglang.org/builds/
@@ -40,7 +71,7 @@ if [ "${BUILD_REASON}" != "PullRequest" ]; then
   echo "\"size\": \"$BYTESIZE\"}" >>$JSONFILE
 
   s3cmd put -P --add-header="Cache-Control: max-age=0, must-revalidate" "$JSONFILE" "s3://ziglang.org/builds/$JSONFILE"
-  s3cmd put -P "$JSONFILE" "s3://ziglang.org/builds/linux-$VERSION.json"
+  s3cmd put -P "$JSONFILE" "s3://ziglang.org/builds/x86_64-linux-$VERSION.json"
 
   # `set -x` causes these variables to be mangled.
   # See https://developercommunity.visualstudio.com/content/problem/375679/pipeline-variable-incorrectly-inserts-single-quote.html
@@ -48,4 +79,5 @@ if [ "${BUILD_REASON}" != "PullRequest" ]; then
   echo "##vso[task.setvariable variable=tarball;isOutput=true]$TARBALL"
   echo "##vso[task.setvariable variable=shasum;isOutput=true]$SHASUM"
   echo "##vso[task.setvariable variable=bytesize;isOutput=true]$BYTESIZE"
+  echo "##vso[task.setvariable variable=version;isOutput=true]$VERSION"
 fi

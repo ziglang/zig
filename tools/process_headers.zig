@@ -1,20 +1,19 @@
-// To get started, run this tool with no args and read the help message.
-//
-// The build systems of musl-libc and glibc require specifying a single target
-// architecture. Meanwhile, Zig supports out-of-the-box cross compilation for
-// every target. So the process to create libc headers that Zig ships is to use
-// this tool.
-// First, use the musl/glibc build systems to create installations of all the
-// targets in the `glibc_targets`/`musl_targets` variables.
-// Next, run this tool to create a new directory which puts .h files into
-// <arch> subdirectories, with `generic` being files that apply to all architectures.
-// You'll then have to manually update Zig source repo with these new files.
+//! To get started, run this tool with no args and read the help message.
+//!
+//! The build systems of musl-libc and glibc require specifying a single target
+//! architecture. Meanwhile, Zig supports out-of-the-box cross compilation for
+//! every target. So the process to create libc headers that Zig ships is to use
+//! this tool.
+//! First, use the musl/glibc build systems to create installations of all the
+//! targets in the `glibc_targets`/`musl_targets` variables.
+//! Next, run this tool to create a new directory which puts .h files into
+//! <arch> subdirectories, with `generic` being files that apply to all architectures.
+//! You'll then have to manually update Zig source repo with these new files.
 
 const std = @import("std");
-const builtin = @import("builtin");
-const Arch = builtin.Arch;
-const Abi = builtin.Abi;
-const Os = builtin.Os;
+const Arch = std.Target.Cpu.Arch;
+const Abi = std.Target.Abi;
+const OsTag = std.Target.Os.Tag;
 const assert = std.debug.assert;
 
 const LibCTarget = struct {
@@ -29,12 +28,12 @@ const MultiArch = union(enum) {
     mips,
     mips64,
     powerpc64,
-    specific: @TagType(Arch),
+    specific: Arch,
 
     fn eql(a: MultiArch, b: MultiArch) bool {
         if (@enumToInt(a) != @enumToInt(b))
             return false;
-        if (@TagType(MultiArch)(a) != .specific)
+        if (a != .specific)
             return true;
         return a.specific == b.specific;
     }
@@ -56,113 +55,113 @@ const MultiAbi = union(enum) {
 const glibc_targets = [_]LibCTarget{
     LibCTarget{
         .name = "aarch64_be-linux-gnu",
-        .arch = MultiArch {.specific = Arch.aarch64_be},
-        .abi = MultiAbi {.specific = Abi.gnu},
+        .arch = MultiArch{ .specific = Arch.aarch64_be },
+        .abi = MultiAbi{ .specific = Abi.gnu },
     },
     LibCTarget{
         .name = "aarch64-linux-gnu",
-        .arch = MultiArch {.specific = Arch.aarch64},
-        .abi = MultiAbi {.specific = Abi.gnu},
+        .arch = MultiArch{ .specific = Arch.aarch64 },
+        .abi = MultiAbi{ .specific = Abi.gnu },
     },
     LibCTarget{
         .name = "armeb-linux-gnueabi",
-        .arch = MultiArch {.specific = Arch.armeb},
-        .abi = MultiAbi {.specific = Abi.gnueabi},
+        .arch = MultiArch{ .specific = Arch.armeb },
+        .abi = MultiAbi{ .specific = Abi.gnueabi },
     },
     LibCTarget{
         .name = "armeb-linux-gnueabihf",
-        .arch = MultiArch {.specific = Arch.armeb},
-        .abi = MultiAbi {.specific = Abi.gnueabihf},
+        .arch = MultiArch{ .specific = Arch.armeb },
+        .abi = MultiAbi{ .specific = Abi.gnueabihf },
     },
     LibCTarget{
         .name = "arm-linux-gnueabi",
-        .arch = MultiArch {.specific = Arch.arm},
-        .abi = MultiAbi {.specific = Abi.gnueabi},
+        .arch = MultiArch{ .specific = Arch.arm },
+        .abi = MultiAbi{ .specific = Abi.gnueabi },
     },
     LibCTarget{
         .name = "arm-linux-gnueabihf",
-        .arch = MultiArch {.specific = Arch.arm},
-        .abi = MultiAbi {.specific = Abi.gnueabihf},
+        .arch = MultiArch{ .specific = Arch.arm },
+        .abi = MultiAbi{ .specific = Abi.gnueabihf },
     },
     LibCTarget{
         .name = "i686-linux-gnu",
-        .arch = MultiArch {.specific = Arch.i386},
-        .abi = MultiAbi {.specific = Abi.gnu},
+        .arch = MultiArch{ .specific = Arch.i386 },
+        .abi = MultiAbi{ .specific = Abi.gnu },
     },
     LibCTarget{
         .name = "mips64el-linux-gnu-n32",
-        .arch = MultiArch {.specific = Arch.mips64el},
-        .abi = MultiAbi {.specific = Abi.gnuabin32},
+        .arch = MultiArch{ .specific = Arch.mips64el },
+        .abi = MultiAbi{ .specific = Abi.gnuabin32 },
     },
     LibCTarget{
         .name = "mips64el-linux-gnu-n64",
-        .arch = MultiArch {.specific = Arch.mips64el},
-        .abi = MultiAbi {.specific = Abi.gnuabi64},
+        .arch = MultiArch{ .specific = Arch.mips64el },
+        .abi = MultiAbi{ .specific = Abi.gnuabi64 },
     },
     LibCTarget{
         .name = "mips64-linux-gnu-n32",
-        .arch = MultiArch {.specific = Arch.mips64},
-        .abi = MultiAbi {.specific = Abi.gnuabin32},
+        .arch = MultiArch{ .specific = Arch.mips64 },
+        .abi = MultiAbi{ .specific = Abi.gnuabin32 },
     },
     LibCTarget{
         .name = "mips64-linux-gnu-n64",
-        .arch = MultiArch {.specific = Arch.mips64},
-        .abi = MultiAbi {.specific = Abi.gnuabi64},
+        .arch = MultiArch{ .specific = Arch.mips64 },
+        .abi = MultiAbi{ .specific = Abi.gnuabi64 },
     },
     LibCTarget{
         .name = "mipsel-linux-gnu",
-        .arch = MultiArch {.specific = Arch.mipsel},
-        .abi = MultiAbi {.specific = Abi.gnu},
+        .arch = MultiArch{ .specific = Arch.mipsel },
+        .abi = MultiAbi{ .specific = Abi.gnu },
     },
     LibCTarget{
         .name = "mips-linux-gnu",
-        .arch = MultiArch {.specific = Arch.mips},
-        .abi = MultiAbi {.specific = Abi.gnu},
+        .arch = MultiArch{ .specific = Arch.mips },
+        .abi = MultiAbi{ .specific = Abi.gnu },
     },
     LibCTarget{
         .name = "powerpc64le-linux-gnu",
-        .arch = MultiArch {.specific = Arch.powerpc64le},
-        .abi = MultiAbi {.specific = Abi.gnu},
+        .arch = MultiArch{ .specific = Arch.powerpc64le },
+        .abi = MultiAbi{ .specific = Abi.gnu },
     },
     LibCTarget{
         .name = "powerpc64-linux-gnu",
-        .arch = MultiArch {.specific = Arch.powerpc64},
-        .abi = MultiAbi {.specific = Abi.gnu},
+        .arch = MultiArch{ .specific = Arch.powerpc64 },
+        .abi = MultiAbi{ .specific = Abi.gnu },
     },
     LibCTarget{
         .name = "powerpc-linux-gnu",
-        .arch = MultiArch {.specific = Arch.powerpc},
-        .abi = MultiAbi {.specific = Abi.gnu},
+        .arch = MultiArch{ .specific = Arch.powerpc },
+        .abi = MultiAbi{ .specific = Abi.gnu },
     },
     LibCTarget{
         .name = "riscv64-linux-gnu-rv64imac-lp64",
-        .arch = MultiArch {.specific = Arch.riscv64},
-        .abi = MultiAbi {.specific = Abi.gnu},
+        .arch = MultiArch{ .specific = Arch.riscv64 },
+        .abi = MultiAbi{ .specific = Abi.gnu },
     },
     LibCTarget{
         .name = "s390x-linux-gnu",
-        .arch = MultiArch {.specific = Arch.s390x},
-        .abi = MultiAbi {.specific = Abi.gnu},
+        .arch = MultiArch{ .specific = Arch.s390x },
+        .abi = MultiAbi{ .specific = Abi.gnu },
     },
     LibCTarget{
         .name = "sparc64-linux-gnu",
-        .arch = MultiArch {.specific = Arch.sparc},
-        .abi = MultiAbi {.specific = Abi.gnu},
+        .arch = MultiArch{ .specific = Arch.sparc },
+        .abi = MultiAbi{ .specific = Abi.gnu },
     },
     LibCTarget{
         .name = "sparcv9-linux-gnu",
-        .arch = MultiArch {.specific = Arch.sparcv9},
-        .abi = MultiAbi {.specific = Abi.gnu},
+        .arch = MultiArch{ .specific = Arch.sparcv9 },
+        .abi = MultiAbi{ .specific = Abi.gnu },
     },
     LibCTarget{
         .name = "x86_64-linux-gnu",
-        .arch = MultiArch {.specific = Arch.x86_64},
-        .abi = MultiAbi {.specific = Abi.gnu},
+        .arch = MultiArch{ .specific = Arch.x86_64 },
+        .abi = MultiAbi{ .specific = Abi.gnu },
     },
     LibCTarget{
         .name = "x86_64-linux-gnu-x32",
-        .arch = MultiArch {.specific = Arch.x86_64},
-        .abi = MultiAbi {.specific = Abi.gnux32},
+        .arch = MultiArch{ .specific = Arch.x86_64 },
+        .abi = MultiAbi{ .specific = Abi.gnux32 },
     },
 };
 
@@ -221,13 +220,13 @@ const musl_targets = [_]LibCTarget{
 
 const DestTarget = struct {
     arch: MultiArch,
-    os: Os,
+    os: OsTag,
     abi: Abi,
 
     fn hash(a: DestTarget) u32 {
         return @enumToInt(a.arch) +%
-            (@enumToInt(a.os) *% u32(4202347608)) +%
-            (@enumToInt(a.abi) *% u32(4082223418));
+            (@enumToInt(a.os) *% @as(u32, 4202347608)) +%
+            (@enumToInt(a.abi) *% @as(u32, 4082223418));
     }
 
     fn eql(a: DestTarget, b: DestTarget) bool {
@@ -258,7 +257,7 @@ const LibCVendor = enum {
 };
 
 pub fn main() !void {
-    var arena = std.heap.ArenaAllocator.init(std.heap.direct_allocator);
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     const allocator = &arena.allocator;
     const args = try std.process.argsAlloc(allocator);
     var search_paths = std.ArrayList([]const u8).init(allocator);
@@ -270,7 +269,7 @@ pub fn main() !void {
         if (std.mem.eql(u8, args[arg_i], "--help"))
             usageAndExit(args[0]);
         if (arg_i + 1 >= args.len) {
-            std.debug.warn("expected argument after '{}'\n", args[arg_i]);
+            std.debug.warn("expected argument after '{}'\n", .{args[arg_i]});
             usageAndExit(args[0]);
         }
 
@@ -283,7 +282,7 @@ pub fn main() !void {
             assert(opt_abi == null);
             opt_abi = args[arg_i + 1];
         } else {
-            std.debug.warn("unrecognized argument: {}\n", args[arg_i]);
+            std.debug.warn("unrecognized argument: {}\n", .{args[arg_i]});
             usageAndExit(args[0]);
         }
 
@@ -297,16 +296,16 @@ pub fn main() !void {
     else if (std.mem.eql(u8, abi_name, "glibc"))
         LibCVendor.glibc
     else {
-        std.debug.warn("unrecognized C ABI: {}\n", abi_name);
+        std.debug.warn("unrecognized C ABI: {}\n", .{abi_name});
         usageAndExit(args[0]);
     };
-    const generic_name = try std.fmt.allocPrint(allocator, "generic-{}", abi_name);
+    const generic_name = try std.fmt.allocPrint(allocator, "generic-{}", .{abi_name});
 
     // TODO compiler crashed when I wrote this the canonical way
     var libc_targets: []const LibCTarget = undefined;
     switch (vendor) {
-        .musl => libc_targets = musl_targets,
-        .glibc => libc_targets = glibc_targets,
+        .musl => libc_targets = &musl_targets,
+        .glibc => libc_targets = &glibc_targets,
     }
 
     var path_table = PathTable.init(allocator);
@@ -325,7 +324,7 @@ pub fn main() !void {
             },
             .os = .linux,
         };
-        search: for (search_paths.toSliceConst()) |search_path| {
+        search: for (search_paths.span()) |search_path| {
             var sub_path: []const []const u8 = undefined;
             switch (vendor) {
                 .musl => {
@@ -340,15 +339,17 @@ pub fn main() !void {
             try dir_stack.append(target_include_dir);
 
             while (dir_stack.popOrNull()) |full_dir_name| {
-                var dir = std.fs.Dir.open(allocator, full_dir_name) catch |err| switch (err) {
+                var dir = std.fs.cwd().openDirList(full_dir_name) catch |err| switch (err) {
                     error.FileNotFound => continue :search,
                     error.AccessDenied => continue :search,
                     else => return err,
                 };
                 defer dir.close();
 
-                while (try dir.next()) |entry| {
-                    const full_path = try std.fs.path.join(allocator, [_][]const u8{ full_dir_name, entry.name });
+                var dir_it = dir.iterate();
+
+                while (try dir_it.next()) |entry| {
+                    const full_path = try std.fs.path.join(allocator, &[_][]const u8{ full_dir_name, entry.name });
                     switch (entry.kind) {
                         .Directory => try dir_stack.append(full_path),
                         .File => {
@@ -365,12 +366,11 @@ pub fn main() !void {
                             if (gop.found_existing) {
                                 max_bytes_saved += raw_bytes.len;
                                 gop.kv.value.hit_count += 1;
-                                std.debug.warn(
-                                    "duplicate: {} {} ({Bi:2})\n",
+                                std.debug.warn("duplicate: {} {} ({Bi:2})\n", .{
                                     libc_target.name,
                                     rel_path,
                                     raw_bytes.len,
-                                );
+                                });
                             } else {
                                 gop.kv.value = Contents{
                                     .bytes = trimmed,
@@ -388,17 +388,17 @@ pub fn main() !void {
                             };
                             assert((try target_to_hash.put(dest_target, hash)) == null);
                         },
-                        else => std.debug.warn("warning: weird file: {}\n", full_path),
+                        else => std.debug.warn("warning: weird file: {}\n", .{full_path}),
                     }
                 }
             }
             break;
         } else {
-            std.debug.warn("warning: libc target not found: {}\n", libc_target.name);
+            std.debug.warn("warning: libc target not found: {}\n", .{libc_target.name});
         }
     }
-    std.debug.warn("summary: {Bi:2} could be reduced to {Bi:2}\n", total_bytes, total_bytes - max_bytes_saved);
-    try std.fs.makePath(allocator, out_dir);
+    std.debug.warn("summary: {Bi:2} could be reduced to {Bi:2}\n", .{ total_bytes, total_bytes - max_bytes_saved });
+    try std.fs.cwd().makePath(out_dir);
 
     var missed_opportunity_bytes: usize = 0;
     // iterate path_table. for each path, put all the hashes into a list. sort by hit_count.
@@ -414,19 +414,19 @@ pub fn main() !void {
                 try contents_list.append(contents);
             }
         }
-        std.sort.sort(*Contents, contents_list.toSlice(), Contents.hitCountLessThan);
+        std.sort.sort(*Contents, contents_list.span(), Contents.hitCountLessThan);
         var best_contents = contents_list.popOrNull().?;
         if (best_contents.hit_count > 1) {
             // worth it to make it generic
-            const full_path = try std.fs.path.join(allocator, [_][]const u8{ out_dir, generic_name, path_kv.key });
-            try std.fs.makePath(allocator, std.fs.path.dirname(full_path).?);
-            try std.io.writeFile(full_path, best_contents.bytes);
+            const full_path = try std.fs.path.join(allocator, &[_][]const u8{ out_dir, generic_name, path_kv.key });
+            try std.fs.cwd().makePath(std.fs.path.dirname(full_path).?);
+            try std.fs.cwd().writeFile(full_path, best_contents.bytes);
             best_contents.is_generic = true;
             while (contents_list.popOrNull()) |contender| {
                 if (contender.hit_count > 1) {
                     const this_missed_bytes = contender.hit_count * contender.bytes.len;
                     missed_opportunity_bytes += this_missed_bytes;
-                    std.debug.warn("Missed opportunity ({Bi:2}): {}\n", this_missed_bytes, path_kv.key);
+                    std.debug.warn("Missed opportunity ({Bi:2}): {}\n", .{ this_missed_bytes, path_kv.key });
                 } else break;
             }
         }
@@ -440,25 +440,23 @@ pub fn main() !void {
                 .specific => |a| @tagName(a),
                 else => @tagName(dest_target.arch),
             };
-            const out_subpath = try std.fmt.allocPrint(
-                allocator,
-                "{}-{}-{}",
+            const out_subpath = try std.fmt.allocPrint(allocator, "{}-{}-{}", .{
                 arch_name,
                 @tagName(dest_target.os),
                 @tagName(dest_target.abi),
-            );
-            const full_path = try std.fs.path.join(allocator, [_][]const u8{ out_dir, out_subpath, path_kv.key });
-            try std.fs.makePath(allocator, std.fs.path.dirname(full_path).?);
-            try std.io.writeFile(full_path, contents.bytes);
+            });
+            const full_path = try std.fs.path.join(allocator, &[_][]const u8{ out_dir, out_subpath, path_kv.key });
+            try std.fs.cwd().makePath(std.fs.path.dirname(full_path).?);
+            try std.fs.cwd().writeFile(full_path, contents.bytes);
         }
     }
 }
 
 fn usageAndExit(arg0: []const u8) noreturn {
-    std.debug.warn("Usage: {} [--search-path <dir>] --out <dir> --abi <name>\n", arg0);
-    std.debug.warn("--search-path can be used any number of times.\n");
-    std.debug.warn("    subdirectories of search paths look like, e.g. x86_64-linux-gnu\n");
-    std.debug.warn("--out is a dir that will be created, and populated with the results\n");
-    std.debug.warn("--abi is either musl or glibc\n");
+    std.debug.warn("Usage: {} [--search-path <dir>] --out <dir> --abi <name>\n", .{arg0});
+    std.debug.warn("--search-path can be used any number of times.\n", .{});
+    std.debug.warn("    subdirectories of search paths look like, e.g. x86_64-linux-gnu\n", .{});
+    std.debug.warn("--out is a dir that will be created, and populated with the results\n", .{});
+    std.debug.warn("--abi is either musl or glibc\n", .{});
     std.process.exit(1);
 }

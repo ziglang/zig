@@ -8,14 +8,14 @@ test "bool literals" {
 test "cast bool to int" {
     const t = true;
     const f = false;
-    expect(@boolToInt(t) == u32(1));
-    expect(@boolToInt(f) == u32(0));
+    expect(@boolToInt(t) == @as(u32, 1));
+    expect(@boolToInt(f) == @as(u32, 0));
     nonConstCastBoolToInt(t, f);
 }
 
 fn nonConstCastBoolToInt(t: bool, f: bool) void {
-    expect(@boolToInt(t) == u32(1));
-    expect(@boolToInt(f) == u32(0));
+    expect(@boolToInt(t) == @as(u32, 1));
+    expect(@boolToInt(f) == @as(u32, 0));
 }
 
 test "bool cmp" {

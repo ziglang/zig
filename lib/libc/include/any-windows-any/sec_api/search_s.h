@@ -8,8 +8,6 @@
 
 #include <search.h>
 
-#if defined(MINGW_HAS_SECURE_API)
-
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -26,5 +24,4 @@ extern "C" {
 }
 #endif
 
-#endif
 #endif

@@ -63,7 +63,7 @@ pub const Md5 = struct {
         var off: usize = 0;
 
         // Partial buffer exists from previous update. Copy into buffer then hash.
-        if (d.buf_len != 0 and d.buf_len + b.len > 64) {
+        if (d.buf_len != 0 and d.buf_len + b.len >= 64) {
             off += 64 - d.buf_len;
             mem.copy(u8, d.buf[d.buf_len..], b[0..off]);
 
@@ -112,8 +112,7 @@ pub const Md5 = struct {
         d.round(d.buf[0..]);
 
         for (d.s) |s, j| {
-            // TODO https://github.com/ziglang/zig/issues/863
-            mem.writeIntSliceLittle(u32, out[4 * j .. 4 * j + 4], s);
+            mem.writeIntLittle(u32, out[4 * j ..][0..4], s);
         }
     }
 
@@ -126,10 +125,10 @@ pub const Md5 = struct {
         while (i < 16) : (i += 1) {
             // NOTE: Performing or's separately improves perf by ~10%
             s[i] = 0;
-            s[i] |= u32(b[i * 4 + 0]);
-            s[i] |= u32(b[i * 4 + 1]) << 8;
-            s[i] |= u32(b[i * 4 + 2]) << 16;
-            s[i] |= u32(b[i * 4 + 3]) << 24;
+            s[i] |= @as(u32, b[i * 4 + 0]);
+            s[i] |= @as(u32, b[i * 4 + 1]) << 8;
+            s[i] |= @as(u32, b[i * 4 + 2]) << 16;
+            s[i] |= @as(u32, b[i * 4 + 3]) << 24;
         }
 
         var v: [4]u32 = [_]u32{
@@ -276,6 +275,6 @@ test "md5 aligned final" {
     var out: [Md5.digest_length]u8 = undefined;
 
     var h = Md5.init();
-    h.update(block);
+    h.update(&block);
     h.final(out[0..]);
 }

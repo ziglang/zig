@@ -105,7 +105,7 @@ pub fn vec3(x: f32, y: f32, z: f32) Vec3 {
 
 test "constant expressions" {
     var array: [array_size]u8 = undefined;
-    expect(@sizeOf(@typeOf(array)) == 20);
+    expect(@sizeOf(@TypeOf(array)) == 20);
 }
 const array_size: u8 = 20;
 
@@ -405,19 +405,19 @@ test "float literal at compile time not lossy" {
 }
 
 test "f32 at compile time is lossy" {
-    expect(f32(1 << 24) + 1 == 1 << 24);
+    expect(@as(f32, 1 << 24) + 1 == 1 << 24);
 }
 
 test "f64 at compile time is lossy" {
-    expect(f64(1 << 53) + 1 == 1 << 53);
+    expect(@as(f64, 1 << 53) + 1 == 1 << 53);
 }
 
 test "f128 at compile time is lossy" {
-    expect(f128(10384593717069655257060992658440192.0) + 1 == 10384593717069655257060992658440192.0);
+    expect(@as(f128, 10384593717069655257060992658440192.0) + 1 == 10384593717069655257060992658440192.0);
 }
 
 comptime {
-    expect(f128(1 << 113) == 10384593717069655257060992658440192);
+    expect(@as(f128, 1 << 113) == 10384593717069655257060992658440192);
 }
 
 pub fn TypeWithCompTimeSlice(comptime field_name: []const u8) type {
@@ -434,9 +434,9 @@ test "string literal used as comptime slice is memoized" {
 }
 
 test "comptime slice of undefined pointer of length 0" {
-    const slice1 = ([*]i32)(undefined)[0..0];
+    const slice1 = @as([*]i32, undefined)[0..0];
     expect(slice1.len == 0);
-    const slice2 = ([*]i32)(undefined)[100..100];
+    const slice2 = @as([*]i32, undefined)[100..100];
     expect(slice2.len == 0);
 }
 
@@ -444,10 +444,10 @@ fn copyWithPartialInline(s: []u32, b: []u8) void {
     comptime var i: usize = 0;
     inline while (i < 4) : (i += 1) {
         s[i] = 0;
-        s[i] |= u32(b[i * 4 + 0]) << 24;
-        s[i] |= u32(b[i * 4 + 1]) << 16;
-        s[i] |= u32(b[i * 4 + 2]) << 8;
-        s[i] |= u32(b[i * 4 + 3]) << 0;
+        s[i] |= @as(u32, b[i * 4 + 0]) << 24;
+        s[i] |= @as(u32, b[i * 4 + 1]) << 16;
+        s[i] |= @as(u32, b[i * 4 + 2]) << 8;
+        s[i] |= @as(u32, b[i * 4 + 3]) << 0;
     }
 }
 
@@ -524,7 +524,7 @@ test "comptime slice of slice preserves comptime var" {
 test "comptime slice of pointer preserves comptime var" {
     comptime {
         var buff: [10]u8 = undefined;
-        var a = buff[0..].ptr;
+        var a = @ptrCast([*]u8, &buff);
         a[0..1][0] = 1;
         expect(buff[0..][0..][0] == 1);
     }
@@ -557,14 +557,14 @@ test "array concat of slices gives slice" {
 
 test "comptime shlWithOverflow" {
     const ct_shifted: u64 = comptime amt: {
-        var amt = u64(0);
-        _ = @shlWithOverflow(u64, ~u64(0), 16, &amt);
+        var amt = @as(u64, 0);
+        _ = @shlWithOverflow(u64, ~@as(u64, 0), 16, &amt);
         break :amt amt;
     };
 
     const rt_shifted: u64 = amt: {
-        var amt = u64(0);
-        _ = @shlWithOverflow(u64, ~u64(0), 16, &amt);
+        var amt = @as(u64, 0);
+        _ = @shlWithOverflow(u64, ~@as(u64, 0), 16, &amt);
         break :amt amt;
     };
 
@@ -598,7 +598,7 @@ test "pointer to type" {
         var T: type = i32;
         expect(T == i32);
         var ptr = &T;
-        expect(@typeOf(ptr) == *type);
+        expect(@TypeOf(ptr) == *type);
         ptr.* = f32;
         expect(T == f32);
         expect(*T == *f32);
@@ -654,8 +654,8 @@ test "call method with comptime pass-by-non-copying-value self parameter" {
     expect(b == 2);
 }
 
-test "@tagName of @typeId" {
-    const str = @tagName(@typeId(u8));
+test "@tagName of @typeInfo" {
+    const str = @tagName(@typeInfo(u8));
     expect(std.mem.eql(u8, str, "Int"));
 }
 
@@ -670,10 +670,10 @@ fn loopNTimes(comptime n: usize) void {
 }
 
 test "variable inside inline loop that has different types on different iterations" {
-    testVarInsideInlineLoop(true, u32(42));
+    testVarInsideInlineLoop(.{true, @as(u32, 42)});
 }
 
-fn testVarInsideInlineLoop(args: ...) void {
+fn testVarInsideInlineLoop(args: var) void {
     comptime var i = 0;
     inline while (i < args.len) : (i += 1) {
         const x = args[i];
@@ -711,16 +711,6 @@ test "bit shift a u1" {
     expect(y == 1);
 }
 
-test "@bytesToslice on a packed struct" {
-    const F = packed struct {
-        a: u8,
-    };
-
-    var b = [1]u8{9};
-    var f = @bytesToSlice(F, b);
-    expect(f[0].a == 9);
-}
-
 test "comptime pointer cast array and then slice" {
     const array = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8 };
 
@@ -736,7 +726,7 @@ test "comptime pointer cast array and then slice" {
 
 test "slice bounds in comptime concatenation" {
     const bs = comptime blk: {
-        const b = c"........1........";
+        const b = "........1........";
         break :blk b[8..9];
     };
     const str = "" ++ bs;
@@ -757,11 +747,11 @@ test "comptime bitwise operators" {
         expect(-3 | -1 == -1);
         expect(3 ^ -1 == -4);
         expect(-3 ^ -1 == 2);
-        expect(~i8(-1) == 0);
-        expect(~i128(-1) == 0);
+        expect(~@as(i8, -1) == 0);
+        expect(~@as(i128, -1) == 0);
         expect(18446744073709551615 & 18446744073709551611 == 18446744073709551611);
         expect(-18446744073709551615 & -18446744073709551611 == -18446744073709551615);
-        expect(~u128(0) == 0xffffffffffffffffffffffffffffffff);
+        expect(~@as(u128, 0) == 0xffffffffffffffffffffffffffffffff);
     }
 }
 
@@ -774,12 +764,12 @@ test "*align(1) u16 is the same as *align(1:0:2) u16" {
 
 test "array concatenation forces comptime" {
     var a = oneItem(3) ++ oneItem(4);
-    expect(std.mem.eql(i32, a, [_]i32{ 3, 4 }));
+    expect(std.mem.eql(i32, &a, &[_]i32{ 3, 4 }));
 }
 
 test "array multiplication forces comptime" {
     var a = oneItem(3) ** scalar(2);
-    expect(std.mem.eql(i32, a, [_]i32{ 3, 3 }));
+    expect(std.mem.eql(i32, &a, &[_]i32{ 3, 3 }));
 }
 
 fn oneItem(x: i32) [1]i32 {
@@ -802,5 +792,43 @@ test "comptime assign int to optional int" {
         x = 2;
         x.? *= 10;
         expectEqual(20, x.?);
+    }
+}
+
+test "return 0 from function that has u0 return type" {
+    const S = struct {
+        fn foo_zero() u0 {
+            return 0;
+        }
+    };
+    comptime {
+        if (S.foo_zero() != 0) {
+            @compileError("test failed");
+        }
+    }
+}
+
+test "two comptime calls with array default initialized to undefined" {
+    const S = struct {
+        const CrossTarget = struct {
+            dynamic_linker: DynamicLinker = DynamicLinker{},
+
+            pub fn parse() void {
+                var result: CrossTarget = .{ };
+                result.getCpuArch();
+            }
+
+            pub fn getCpuArch(self: CrossTarget) void { }
+        };
+
+        const DynamicLinker = struct {
+            buffer: [255]u8 = undefined,
+        };
+
+    };
+
+    comptime {
+        S.CrossTarget.parse();
+        S.CrossTarget.parse();
     }
 }

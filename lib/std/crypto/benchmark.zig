@@ -1,7 +1,7 @@
 // zig run benchmark.zig --release-fast --override-lib-dir ..
 
 const builtin = @import("builtin");
-const std = @import("../std.zig");
+const std = @import("std");
 const time = std.time;
 const Timer = time.Timer;
 const crypto = std.crypto;
@@ -23,8 +23,10 @@ const hashes = [_]Crypto{
     Crypto{ .ty = crypto.Sha512, .name = "sha512" },
     Crypto{ .ty = crypto.Sha3_256, .name = "sha3-256" },
     Crypto{ .ty = crypto.Sha3_512, .name = "sha3-512" },
+    Crypto{ .ty = crypto.gimli.Hash, .name = "gimli-hash" },
     Crypto{ .ty = crypto.Blake2s256, .name = "blake2s" },
     Crypto{ .ty = crypto.Blake2b512, .name = "blake2b" },
+    Crypto{ .ty = crypto.Blake3, .name = "blake3" },
 };
 
 pub fn benchmarkHash(comptime Hash: var, comptime bytes: comptime_int) !u64 {
@@ -67,7 +69,7 @@ pub fn benchmarkMac(comptime Mac: var, comptime bytes: comptime_int) !u64 {
     var timer = try Timer.start();
     const start = timer.lap();
     while (offset < bytes) : (offset += in.len) {
-        Mac.create(key[0..], in[0..], key);
+        Mac.create(key[0..], in[0..], key[0..]);
     }
     const end = timer.read();
 
@@ -94,7 +96,7 @@ pub fn benchmarkKeyExchange(comptime DhKeyExchange: var, comptime exchange_count
     {
         var i: usize = 0;
         while (i < exchange_count) : (i += 1) {
-            _ = DhKeyExchange.create(out[0..], out, in);
+            _ = DhKeyExchange.create(out[0..], out[0..], in[0..]);
         }
     }
     const end = timer.read();
@@ -114,26 +116,24 @@ fn usage() void {
         \\  --seed   [int]
         \\  --help
         \\
-    );
+    , .{});
 }
 
 fn mode(comptime x: comptime_int) comptime_int {
-    return if (builtin.mode == builtin.Mode.Debug) x / 64 else x;
+    return if (builtin.mode == .Debug) x / 64 else x;
 }
 
 // TODO(#1358): Replace with builtin formatted padding when available.
 fn printPad(stdout: var, s: []const u8) !void {
     var i: usize = 0;
     while (i < 12 - s.len) : (i += 1) {
-        try stdout.print(" ");
+        try stdout.print(" ", .{});
     }
-    try stdout.print("{}", s);
+    try stdout.print("{}", .{s});
 }
 
 pub fn main() !void {
-    var stdout_file = try std.io.getStdOut();
-    var stdout_out_stream = stdout_file.outStream();
-    const stdout = &stdout_out_stream.stream;
+    const stdout = std.io.getStdOut().outStream();
 
     var buffer: [1024]u8 = undefined;
     var fixed = std.heap.FixedBufferAllocator.init(buffer[0..]);
@@ -144,7 +144,7 @@ pub fn main() !void {
     var i: usize = 1;
     while (i < args.len) : (i += 1) {
         if (std.mem.eql(u8, args[i], "--mode")) {
-            try stdout.print("{}\n", builtin.mode);
+            try stdout.print("{}\n", .{builtin.mode});
             return;
         } else if (std.mem.eql(u8, args[i], "--seed")) {
             i += 1;
@@ -176,7 +176,7 @@ pub fn main() !void {
         if (filter == null or std.mem.indexOf(u8, H.name, filter.?) != null) {
             const throughput = try benchmarkHash(H.ty, mode(32 * MiB));
             try printPad(stdout, H.name);
-            try stdout.print(": {} MiB/s\n", throughput / (1 * MiB));
+            try stdout.print(": {} MiB/s\n", .{throughput / (1 * MiB)});
         }
     }
 
@@ -184,7 +184,7 @@ pub fn main() !void {
         if (filter == null or std.mem.indexOf(u8, M.name, filter.?) != null) {
             const throughput = try benchmarkMac(M.ty, mode(128 * MiB));
             try printPad(stdout, M.name);
-            try stdout.print(": {} MiB/s\n", throughput / (1 * MiB));
+            try stdout.print(": {} MiB/s\n", .{throughput / (1 * MiB)});
         }
     }
 
@@ -192,7 +192,7 @@ pub fn main() !void {
         if (filter == null or std.mem.indexOf(u8, E.name, filter.?) != null) {
             const throughput = try benchmarkKeyExchange(E.ty, mode(1000));
             try printPad(stdout, E.name);
-            try stdout.print(": {} exchanges/s\n", throughput);
+            try stdout.print(": {} exchanges/s\n", .{throughput});
         }
     }
 }
