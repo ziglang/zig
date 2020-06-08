@@ -910,6 +910,8 @@ fn analyzeRoot(self: *Module, root_scope: *Scope.ZIRModule) !void {
 }
 
 fn deleteDecl(self: *Module, decl: *Decl) !void {
+    try self.deletion_set.ensureCapacity(self.allocator, self.deletion_set.items.len + decl.dependencies.items.len);
+
     //std.debug.warn("deleting decl '{}'\n", .{decl.name});
     const name_hash = decl.fullyQualifiedNameHash();
     self.decl_table.removeAssertDiscard(name_hash);
@@ -921,15 +923,19 @@ fn deleteDecl(self: *Module, decl: *Decl) !void {
             // another reference to it may turn up.
             assert(!dep.deletion_flag);
             dep.deletion_flag = true;
-            try self.deletion_set.append(self.allocator, dep);
+            self.deletion_set.appendAssumeCapacity(dep);
         }
     }
     // Anything that depends on this deleted decl certainly needs to be re-analyzed.
     for (decl.dependants.items) |dep| {
         dep.removeDependency(decl);
         if (dep.analysis != .outdated) {
+            // TODO Move this failure possibility to the top of the function.
             try self.markOutdatedDecl(dep);
         }
+    }
+    if (self.failed_decls.remove(decl)) |entry| {
+        self.allocator.destroy(entry.value);
     }
     self.deleteDeclExports(decl);
     self.bin_file.freeDecl(decl);
