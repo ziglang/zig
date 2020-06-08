@@ -53,7 +53,7 @@ pub const LineInfo = struct {
 /// Tries to write to stderr, unbuffered, and ignores any error returned.
 /// Does not append a newline.
 var stderr_file: File = undefined;
-var stderr_file_out_stream: File.OutStream = undefined;
+var stderr_file_writer: File.Writer = undefined;
 
 var stderr_stream: ?*File.OutStream = null;
 var stderr_mutex = std.Mutex.init();
@@ -70,8 +70,8 @@ pub fn getStderrStream() *File.OutStream {
         return st;
     } else {
         stderr_file = io.getStdErr();
-        stderr_file_out_stream = stderr_file.outStream();
-        const st = &stderr_file_out_stream;
+        stderr_file_writer = stderr_file.outStream();
+        const st = &stderr_file_writer;
         stderr_stream = st;
         return st;
     }

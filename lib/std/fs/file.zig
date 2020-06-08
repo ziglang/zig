@@ -648,9 +648,17 @@ pub const File = struct {
         return .{ .context = file };
     }
 
-    pub const OutStream = io.OutStream(File, WriteError, write);
+    pub const Writer = io.Writer(File, WriteError, write);
 
-    pub fn outStream(file: File) OutStream {
+    /// Deprecated: use `Writer`
+    pub const OutStream = Writer;
+
+    pub fn writer(file: File) Writer {
+        return .{ .context = file };
+    }
+
+    /// Deprecated: use `writer`
+    pub fn outStream(file: File) Writer {
         return .{ .context = file };
     }
 

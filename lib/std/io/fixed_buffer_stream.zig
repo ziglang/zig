@@ -18,7 +18,9 @@ pub fn FixedBufferStream(comptime Buffer: type) type {
         pub const GetSeekPosError = error{};
 
         pub const InStream = io.InStream(*Self, ReadError, read);
-        pub const OutStream = io.OutStream(*Self, WriteError, write);
+        pub const Writer = io.Writer(*Self, WriteError, write);
+        /// Deprecated: use `Writer`
+        pub const OutStream = Writer;
 
         pub const SeekableStream = io.SeekableStream(
             *Self,
@@ -36,6 +38,11 @@ pub fn FixedBufferStream(comptime Buffer: type) type {
             return .{ .context = self };
         }
 
+        pub fn writer(self: *Self) Writer {
+            return .{ .context = self };
+        }
+
+        /// Deprecated: use `writer`
         pub fn outStream(self: *Self) OutStream {
             return .{ .context = self };
         }
@@ -126,7 +133,7 @@ fn NonSentinelSpan(comptime T: type) type {
 test "FixedBufferStream output" {
     var buf: [255]u8 = undefined;
     var fbs = fixedBufferStream(&buf);
-    const stream = fbs.outStream();
+    const stream = fbs.writer();
 
     try stream.print("{}{}!", .{ "Hello", "World" });
     testing.expectEqualSlices(u8, "HelloWorld!", fbs.getWritten());
@@ -136,19 +143,19 @@ test "FixedBufferStream output 2" {
     var buffer: [10]u8 = undefined;
     var fbs = fixedBufferStream(&buffer);
 
-    try fbs.outStream().writeAll("Hello");
+    try fbs.writer().writeAll("Hello");
     testing.expect(mem.eql(u8, fbs.getWritten(), "Hello"));
 
-    try fbs.outStream().writeAll("world");
+    try fbs.writer().writeAll("world");
     testing.expect(mem.eql(u8, fbs.getWritten(), "Helloworld"));
 
-    testing.expectError(error.NoSpaceLeft, fbs.outStream().writeAll("!"));
+    testing.expectError(error.NoSpaceLeft, fbs.writer().writeAll("!"));
     testing.expect(mem.eql(u8, fbs.getWritten(), "Helloworld"));
 
     fbs.reset();
     testing.expect(fbs.getWritten().len == 0);
 
-    testing.expectError(error.NoSpaceLeft, fbs.outStream().writeAll("Hello world!"));
+    testing.expectError(error.NoSpaceLeft, fbs.writer().writeAll("Hello world!"));
     testing.expect(mem.eql(u8, fbs.getWritten(), "Hello worl"));
 }
 
