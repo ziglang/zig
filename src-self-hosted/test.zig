@@ -27,9 +27,32 @@ pub const TestContext = struct {
 
     pub const ZIRTransformCase = struct {
         name: []const u8,
-        src: [:0]const u8,
-        expected_zir: []const u8,
         cross_target: std.zig.CrossTarget,
+        updates: std.ArrayList(Update),
+
+        pub const Update = struct {
+            expected: Expected,
+            src: [:0]const u8,
+        };
+
+        pub const Expected = union(enum) {
+            zir: []const u8,
+            errors: []const []const u8,
+        };
+
+        pub fn addZIR(case: *ZIRTransformCase, src: [:0]const u8, zir_text: []const u8) void {
+            case.updates.append(.{
+                .src = src,
+                .expected = .{ .zir = zir_text },
+            }) catch unreachable;
+        }
+
+        pub fn addError(case: *ZIRTransformCase, src: [:0]const u8, errors: []const []const u8) void {
+            case.updates.append(.{
+                .src = src,
+                .expected = .{ .errors = errors },
+            }) catch unreachable;
+        }
     };
 
     pub fn addZIRCompareOutput(
@@ -52,12 +75,30 @@ pub const TestContext = struct {
         src: [:0]const u8,
         expected_zir: []const u8,
     ) void {
-        ctx.zir_transform_cases.append(.{
+        const case = ctx.zir_transform_cases.addOne() catch unreachable;
+        case.* = .{
             .name = name,
-            .src = src,
-            .expected_zir = expected_zir,
             .cross_target = cross_target,
+            .updates = std.ArrayList(ZIRTransformCase.Update).init(std.heap.page_allocator),
+        };
+        case.updates.append(.{
+            .src = src,
+            .expected = .{ .zir = expected_zir },
         }) catch unreachable;
+    }
+
+    pub fn addZIRMulti(
+        ctx: *TestContext,
+        name: []const u8,
+        cross_target: std.zig.CrossTarget,
+    ) *ZIRTransformCase {
+        const case = ctx.zir_transform_cases.addOne() catch unreachable;
+        case.* = .{
+            .name = name,
+            .cross_target = cross_target,
+            .updates = std.ArrayList(ZIRTransformCase.Update).init(std.heap.page_allocator),
+        };
+        return case;
     }
 
     fn init(self: *TestContext) !void {
@@ -178,13 +219,11 @@ pub const TestContext = struct {
         var tmp = std.testing.tmpDir(.{});
         defer tmp.cleanup();
 
-        var prg_node = root_node.start(case.name, 3);
-        prg_node.activate();
-        defer prg_node.end();
+        var update_node = root_node.start(case.name, case.updates.items.len);
+        update_node.activate();
+        defer update_node.end();
 
         const tmp_src_path = "test-case.zir";
-        try tmp.dir.writeFile(tmp_src_path, case.src);
-
         const root_pkg = try Package.create(allocator, tmp.dir, ".", tmp_src_path);
         defer root_pkg.destroy();
 
@@ -198,25 +237,68 @@ pub const TestContext = struct {
         });
         defer module.deinit();
 
-        var module_node = prg_node.start("parse/analysis/codegen", null);
-        module_node.activate();
-        try module.update();
-        module_node.end();
+        for (case.updates.items) |update| {
+            var prg_node = update_node.start("", 3);
+            prg_node.activate();
+            defer prg_node.end();
 
-        var emit_node = prg_node.start("emit", null);
-        emit_node.activate();
-        var new_zir_module = try zir.emit(allocator, module);
-        defer new_zir_module.deinit(allocator);
-        emit_node.end();
+            try tmp.dir.writeFile(tmp_src_path, update.src);
 
-        var write_node = prg_node.start("write", null);
-        write_node.activate();
-        var out_zir = std.ArrayList(u8).init(allocator);
-        defer out_zir.deinit();
-        try new_zir_module.writeToStream(allocator, out_zir.outStream());
-        write_node.end();
+            var module_node = prg_node.start("parse/analysis/codegen", null);
+            module_node.activate();
+            try module.update();
+            module_node.end();
 
-        std.testing.expectEqualSlices(u8, case.expected_zir, out_zir.items);
+            switch (update.expected) {
+                .zir => |expected_zir| {
+                    var emit_node = prg_node.start("emit", null);
+                    emit_node.activate();
+                    var new_zir_module = try zir.emit(allocator, module);
+                    defer new_zir_module.deinit(allocator);
+                    emit_node.end();
+
+                    var write_node = prg_node.start("write", null);
+                    write_node.activate();
+                    var out_zir = std.ArrayList(u8).init(allocator);
+                    defer out_zir.deinit();
+                    try new_zir_module.writeToStream(allocator, out_zir.outStream());
+                    write_node.end();
+
+                    std.testing.expectEqualSlices(u8, expected_zir, out_zir.items);
+                },
+                .errors => |expected_errors| {
+                    var all_errors = try module.getAllErrorsAlloc();
+                    defer all_errors.deinit(module.allocator);
+                    for (expected_errors) |expected_error| {
+                        for (all_errors.list) |full_err_msg| {
+                            const text = try std.fmt.allocPrint(allocator, ":{}:{}: error: {}", .{
+                                full_err_msg.line + 1,
+                                full_err_msg.column + 1,
+                                full_err_msg.msg,
+                            });
+                            defer allocator.free(text);
+                            if (std.mem.eql(u8, text, expected_error)) {
+                                break;
+                            }
+                        } else {
+                            std.debug.warn(
+                                "{}\nExpected this error:\n================\n{}\n================\nBut found these errors:\n================\n",
+                                .{ case.name, expected_error },
+                            );
+                            for (all_errors.list) |full_err_msg| {
+                                std.debug.warn(":{}:{}: error: {}\n", .{
+                                    full_err_msg.line + 1,
+                                    full_err_msg.column + 1,
+                                    full_err_msg.msg,
+                                });
+                            }
+                            std.debug.warn("================\nTest failed\n", .{});
+                            std.process.exit(1);
+                        }
+                    }
+                },
+            }
+        }
     }
 };
 

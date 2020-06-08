@@ -673,8 +673,8 @@ pub fn getAllErrorsAlloc(self: *Module) !AllErrors {
     assert(errors.items.len == self.totalErrorCount());
 
     return AllErrors{
-        .arena = arena.state,
         .list = try arena.allocator.dupe(AllErrors.Message, errors.items),
+        .arena = arena.state,
     };
 }
 
@@ -935,7 +935,7 @@ fn deleteDecl(self: *Module, decl: *Decl) !void {
         }
     }
     if (self.failed_decls.remove(decl)) |entry| {
-        self.allocator.destroy(entry.value);
+        entry.value.destroy(self.allocator);
     }
     self.deleteDeclExports(decl);
     self.bin_file.freeDecl(decl);
@@ -1104,7 +1104,7 @@ fn markOutdatedDecl(self: *Module, decl: *Decl) !void {
     //std.debug.warn("mark {} outdated\n", .{decl.name});
     try self.work_queue.writeItem(.{ .re_analyze_decl = decl });
     if (self.failed_decls.remove(decl)) |entry| {
-        self.allocator.destroy(entry.value);
+        entry.value.destroy(self.allocator);
     }
     decl.analysis = .outdated;
 }
