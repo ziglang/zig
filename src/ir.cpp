@@ -29043,11 +29043,24 @@ static Error buf_read_value_bytes(IrAnalyze *ira, CodeGen *codegen, AstNode *sou
         case ZigTypeIdStruct:
             switch (val->type->data.structure.layout) {
                 case ContainerLayoutAuto: {
-                    ErrorMsg *msg = opt_ir_add_error_node(ira, codegen, source_node,
-                        buf_sprintf("non-extern, non-packed struct '%s' cannot have its bytes reinterpreted",
-                            buf_ptr(&val->type->name)));
-                    add_error_note(codegen, msg, val->type->data.structure.decl_node,
-                            buf_sprintf("declared here"));
+                    switch(val->type->data.structure.special){
+                        case StructSpecialNone:
+                        case StructSpecialInferredTuple:
+                        case StructSpecialInferredStruct: {
+                            ErrorMsg *msg = opt_ir_add_error_node(ira, codegen, source_node,
+                                buf_sprintf("non-extern, non-packed struct '%s' cannot have its bytes reinterpreted",
+                                    buf_ptr(&val->type->name)));
+                            add_error_note(codegen, msg, val->type->data.structure.decl_node,
+                                    buf_sprintf("declared here"));
+                            break;
+                        }
+                        case StructSpecialSlice: {
+                            opt_ir_add_error_node(ira, codegen, source_node,
+                                buf_sprintf("slice '%s' cannot have its bytes reinterpreted",
+                                    buf_ptr(&val->type->name)));
+                            break;
+                        }
+                    }
                     return ErrorSemanticAnalyzeFail;
                 }
                 case ContainerLayoutExtern: {
