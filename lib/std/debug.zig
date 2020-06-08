@@ -1003,7 +1003,7 @@ fn readMachODebugInfo(allocator: *mem.Allocator, macho_file: File) !ModuleDebugI
     // Even though lld emits symbols in ascending order, this debug code
     // should work for programs linked in any valid way.
     // This sort is so that we can binary search later.
-    std.sort.sort(MachoSymbol, symbols, MachoSymbol.addressLessThan);
+    std.sort.sort(MachoSymbol, symbols, {}, MachoSymbol.addressLessThan);
 
     return ModuleDebugInfo{
         .base_address = undefined,
@@ -1058,7 +1058,7 @@ const MachoSymbol = struct {
         return self.nlist.n_value;
     }
 
-    fn addressLessThan(lhs: MachoSymbol, rhs: MachoSymbol) bool {
+    fn addressLessThan(context: void, lhs: MachoSymbol, rhs: MachoSymbol) bool {
         return lhs.address() < rhs.address();
     }
 };
@@ -1300,7 +1300,7 @@ pub const DebugInfo = struct {
             fs.cwd().openFile(ctx.name, .{ .intended_io_mode = .blocking })
         else
             fs.openSelfExe(.{ .intended_io_mode = .blocking });
-    
+
         const elf_file = copy catch |err| switch (err) {
             error.FileNotFound => return error.MissingDebugInfo,
             else => return err,
