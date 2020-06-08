@@ -49,7 +49,7 @@ pub fn render(allocator: *mem.Allocator, stream: var, tree: *ast.Tree) (@TypeOf(
         .source_index = 0,
         .source = tree.source,
     };
-    const my_stream_stream: std.io.OutStream(*MyStream, MyStream.StreamError, MyStream.write) = .{
+    const my_stream_stream: std.io.Writer(*MyStream, MyStream.StreamError, MyStream.write) = .{
         .context = &my_stream,
     };
 
