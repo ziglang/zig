@@ -556,6 +556,10 @@ static void destroy_instruction_src(IrInstSrc *inst) {
             return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcSpillEnd *>(inst));
         case IrInstSrcIdCallArgs:
             return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcCallArgs *>(inst));
+        case IrInstSrcIdWasmMemorySize:
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcWasmMemorySize *>(inst));
+        case IrInstSrcIdWasmMemoryGrow:
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcWasmMemoryGrow *>(inst));
     }
     zig_unreachable();
 }
@@ -736,6 +740,10 @@ void destroy_instruction_gen(IrInstGen *inst) {
             return heap::c_allocator.destroy(reinterpret_cast<IrInstGenNegation *>(inst));
         case IrInstGenIdNegationWrapping:
             return heap::c_allocator.destroy(reinterpret_cast<IrInstGenNegationWrapping *>(inst));
+        case IrInstGenIdWasmMemorySize:
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenWasmMemorySize *>(inst));
+        case IrInstGenIdWasmMemoryGrow:
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenWasmMemoryGrow *>(inst));
     }
     zig_unreachable();
 }
@@ -1610,6 +1618,14 @@ static constexpr IrInstSrcId ir_inst_id(IrInstSrcSpillEnd *) {
     return IrInstSrcIdSpillEnd;
 }
 
+static constexpr IrInstSrcId ir_inst_id(IrInstSrcWasmMemorySize *) {
+    return IrInstSrcIdWasmMemorySize;
+}
+
+static constexpr IrInstSrcId ir_inst_id(IrInstSrcWasmMemoryGrow *) {
+    return IrInstSrcIdWasmMemoryGrow;
+}
+
 
 static constexpr IrInstGenId ir_inst_id(IrInstGenDeclVar *) {
     return IrInstGenIdDeclVar;
@@ -1953,6 +1969,14 @@ static constexpr IrInstGenId ir_inst_id(IrInstGenAlloca *) {
 
 static constexpr IrInstGenId ir_inst_id(IrInstGenConst *) {
     return IrInstGenIdConst;
+}
+
+static constexpr IrInstGenId ir_inst_id(IrInstGenWasmMemorySize *) {
+  return IrInstGenIdWasmMemorySize;
+}
+
+static constexpr IrInstGenId ir_inst_id(IrInstGenWasmMemoryGrow *) {
+  return IrInstGenIdWasmMemoryGrow;
 }
 
 template<typename T>
@@ -4961,6 +4985,51 @@ static IrInstGen *ir_build_vector_extract_elem(IrAnalyze *ira, IrInst *source_in
     return &instruction->base;
 }
 
+static IrInstSrc *ir_build_wasm_memory_size_src(IrBuilderSrc *irb, Scope *scope, AstNode *source_node, IrInstSrc *index) {
+    IrInstSrcWasmMemorySize *instruction = ir_build_instruction<IrInstSrcWasmMemorySize>(irb, scope, source_node);
+    instruction->index = index;
+
+    ir_ref_instruction(index, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstGen *ir_build_wasm_memory_size_gen(IrAnalyze *ira, IrInst *source_instr, IrInstGen *index) {
+    IrInstGenWasmMemorySize *instruction = ir_build_inst_gen<IrInstGenWasmMemorySize>(&ira->new_irb,
+            source_instr->scope, source_instr->source_node);
+    instruction->base.value->type = ira->codegen->builtin_types.entry_u32;
+    instruction->index = index;
+
+    ir_ref_inst_gen(index);
+
+    return &instruction->base;
+}
+
+static IrInstSrc *ir_build_wasm_memory_grow_src(IrBuilderSrc *irb, Scope *scope, AstNode *source_node, IrInstSrc *index, IrInstSrc *delta) {
+    IrInstSrcWasmMemoryGrow *instruction = ir_build_instruction<IrInstSrcWasmMemoryGrow>(irb, scope, source_node);
+    instruction->index = index;
+    instruction->delta = delta;
+
+    ir_ref_instruction(index, irb->current_basic_block);
+    ir_ref_instruction(delta, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstGen *ir_build_wasm_memory_grow_gen(IrAnalyze *ira, IrInst *source_instr, IrInstGen *index, IrInstGen *delta) {
+    IrInstGenWasmMemoryGrow *instruction = ir_build_inst_gen<IrInstGenWasmMemoryGrow>(&ira->new_irb,
+            source_instr->scope, source_instr->source_node);
+    instruction->base.value->type = ira->codegen->builtin_types.entry_i32;
+    instruction->index = index;
+    instruction->delta = delta;
+
+    ir_ref_inst_gen(index);
+    ir_ref_inst_gen(delta);
+
+    return &instruction->base;
+}
+
+
 static void ir_count_defers(IrBuilderSrc *irb, Scope *inner_scope, Scope *outer_scope, size_t *results) {
     results[ReturnKindUnconditional] = 0;
     results[ReturnKindError] = 0;
@@ -6753,6 +6822,31 @@ static IrInstSrc *ir_gen_builtin_fn_call(IrBuilderSrc *irb, Scope *scope, AstNod
 
                 IrInstSrc *ir_memset = ir_build_memset_src(irb, scope, node, arg0_value, arg1_value, arg2_value);
                 return ir_lval_wrap(irb, scope, ir_memset, lval, result_loc);
+            }
+        case BuiltinFnIdWasmMemorySize:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstSrc *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_inst_src)
+                    return arg0_value;
+
+                IrInstSrc *ir_wasm_memory_size = ir_build_wasm_memory_size_src(irb, scope, node, arg0_value);
+                return ir_lval_wrap(irb, scope, ir_wasm_memory_size, lval, result_loc);
+            }
+        case BuiltinFnIdWasmMemoryGrow:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstSrc *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_inst_src)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                IrInstSrc *arg1_value = ir_gen_node(irb, arg1_node, scope);
+                if (arg1_value == irb->codegen->invalid_inst_src)
+                    return arg1_value;
+
+                IrInstSrc *ir_wasm_memory_grow = ir_build_wasm_memory_grow_src(irb, scope, node, arg0_value, arg1_value);
+                return ir_lval_wrap(irb, scope, ir_wasm_memory_grow, lval, result_loc);
             }
         case BuiltinFnIdField:
             {
@@ -21924,7 +22018,9 @@ static IrInstGen *ir_analyze_struct_field_ptr(IrAnalyze *ira, IrInst* source_ins
         case OnePossibleValueYes: {
             IrInstGen *elem = ir_const_move(ira, source_instr,
                  get_the_one_possible_value(ira->codegen, field_type));
-            return ir_get_ref(ira, source_instr, elem, false, false);
+            return ir_get_ref(ira, source_instr, elem,
+                struct_ptr->value->type->data.pointer.is_const,
+                struct_ptr->value->type->data.pointer.is_volatile);
         }
         case OnePossibleValueNo:
             break;
@@ -27097,10 +27193,8 @@ static IrInstGen *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstSrcSlice *i
 
     if (array_type->id == ZigTypeIdArray) {
         elem_type = array_type->data.array.child_type;
-        bool is_comptime_const = ptr_ptr->value->special == ConstValSpecialStatic &&
-            ptr_ptr->value->data.x_ptr.mut == ConstPtrMutComptimeConst;
         non_sentinel_slice_ptr_type = get_pointer_to_type_extra(ira->codegen, elem_type,
-            ptr_ptr_type->data.pointer.is_const || is_comptime_const,
+            ptr_ptr_type->data.pointer.is_const,
             ptr_ptr_type->data.pointer.is_volatile,
             PtrLenUnknown,
             ptr_ptr_type->data.pointer.explicit_alignment, 0, 0, false);
@@ -27649,6 +27743,56 @@ static IrInstGen *ir_analyze_instruction_has_field(IrAnalyze *ira, IrInstSrcHasF
         return ira->codegen->invalid_inst_gen;
     }
     return ir_const_bool(ira, &instruction->base.base, result);
+}
+
+static IrInstGen *ir_analyze_instruction_wasm_memory_size(IrAnalyze *ira, IrInstSrcWasmMemorySize *instruction) {
+    // TODO generate compile error for target_arch different than 32bit
+    if (!target_is_wasm(ira->codegen->zig_target)) {
+        ir_add_error_node(ira, instruction->base.base.source_node,
+            buf_sprintf("@wasmMemorySize is a wasm32 feature only"));
+        return ira->codegen->invalid_inst_gen;
+    }
+
+    IrInstGen *index = instruction->index->child;
+    if (type_is_invalid(index->value->type))
+        return ira->codegen->invalid_inst_gen;
+
+    ZigType *u32 = ira->codegen->builtin_types.entry_u32;
+
+    IrInstGen *casted_index = ir_implicit_cast(ira, index, u32);
+    if (type_is_invalid(casted_index->value->type))
+        return ira->codegen->invalid_inst_gen;
+
+    return ir_build_wasm_memory_size_gen(ira, &instruction->base.base, casted_index);
+}
+
+static IrInstGen *ir_analyze_instruction_wasm_memory_grow(IrAnalyze *ira, IrInstSrcWasmMemoryGrow *instruction) {
+    // TODO generate compile error for target_arch different than 32bit
+    if (!target_is_wasm(ira->codegen->zig_target)) {
+        ir_add_error_node(ira, instruction->base.base.source_node,
+            buf_sprintf("@wasmMemoryGrow is a wasm32 feature only"));
+        return ira->codegen->invalid_inst_gen;
+    }
+
+    IrInstGen *index = instruction->index->child;
+    if (type_is_invalid(index->value->type))
+        return ira->codegen->invalid_inst_gen;
+
+    ZigType *u32 = ira->codegen->builtin_types.entry_u32;
+
+    IrInstGen *casted_index = ir_implicit_cast(ira, index, u32);
+    if (type_is_invalid(casted_index->value->type))
+        return ira->codegen->invalid_inst_gen;
+
+    IrInstGen *delta = instruction->delta->child;
+    if (type_is_invalid(delta->value->type))
+        return ira->codegen->invalid_inst_gen;
+
+    IrInstGen *casted_delta = ir_implicit_cast(ira, delta, u32);
+    if (type_is_invalid(casted_delta->value->type))
+        return ira->codegen->invalid_inst_gen;
+
+    return ir_build_wasm_memory_grow_gen(ira, &instruction->base.base, casted_index, casted_delta);
 }
 
 static IrInstGen *ir_analyze_instruction_breakpoint(IrAnalyze *ira, IrInstSrcBreakpoint *instruction) {
@@ -30892,6 +31036,10 @@ static IrInstGen *ir_analyze_instruction_base(IrAnalyze *ira, IrInstSrc *instruc
             return ir_analyze_instruction_spill_begin(ira, (IrInstSrcSpillBegin *)instruction);
         case IrInstSrcIdSpillEnd:
             return ir_analyze_instruction_spill_end(ira, (IrInstSrcSpillEnd *)instruction);
+        case IrInstSrcIdWasmMemorySize:
+            return ir_analyze_instruction_wasm_memory_size(ira, (IrInstSrcWasmMemorySize *)instruction);
+        case IrInstSrcIdWasmMemoryGrow:
+            return ir_analyze_instruction_wasm_memory_grow(ira, (IrInstSrcWasmMemoryGrow *)instruction);
     }
     zig_unreachable();
 }
@@ -31068,6 +31216,7 @@ bool ir_inst_gen_has_side_effects(IrInstGen *instruction) {
         case IrInstGenIdResume:
         case IrInstGenIdAwait:
         case IrInstGenIdSpillBegin:
+        case IrInstGenIdWasmMemoryGrow:
             return true;
 
         case IrInstGenIdPhi:
@@ -31117,6 +31266,7 @@ bool ir_inst_gen_has_side_effects(IrInstGen *instruction) {
         case IrInstGenIdBinaryNot:
         case IrInstGenIdNegation:
         case IrInstGenIdNegationWrapping:
+        case IrInstGenIdWasmMemorySize:
             return false;
 
         case IrInstGenIdAsm:
@@ -31199,6 +31349,7 @@ bool ir_inst_src_has_side_effects(IrInstSrc *instruction) {
         case IrInstSrcIdResume:
         case IrInstSrcIdAwait:
         case IrInstSrcIdSpillBegin:
+        case IrInstSrcIdWasmMemoryGrow:
             return true;
 
         case IrInstSrcIdPhi:
@@ -31283,6 +31434,7 @@ bool ir_inst_src_has_side_effects(IrInstSrc *instruction) {
         case IrInstSrcIdHasDecl:
         case IrInstSrcIdAlloca:
         case IrInstSrcIdSpillEnd:
+        case IrInstSrcIdWasmMemorySize:
             return false;
 
         case IrInstSrcIdAsm:

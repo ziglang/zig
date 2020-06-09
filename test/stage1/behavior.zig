@@ -50,6 +50,7 @@ comptime {
     _ = @import("behavior/bugs/4769_b.zig");
     _ = @import("behavior/bugs/4769_c.zig");
     _ = @import("behavior/bugs/4954.zig");
+    _ = @import("behavior/bugs/5474.zig");
     _ = @import("behavior/bugs/5487.zig");
     _ = @import("behavior/bugs/394.zig");
     _ = @import("behavior/bugs/421.zig");
@@ -125,6 +126,9 @@ comptime {
     _ = @import("behavior/var_args.zig");
     _ = @import("behavior/vector.zig");
     _ = @import("behavior/void.zig");
+    if (builtin.arch == .wasm32) {
+        _ = @import("behavior/wasm.zig");
+    }
     _ = @import("behavior/while.zig");
     _ = @import("behavior/widening.zig");
 }

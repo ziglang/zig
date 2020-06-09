@@ -7504,4 +7504,22 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     , &[_][]const u8{
         ":3:52: error: slice '[]const u8' cannot have its bytes reinterpreted",
     });
+
+    cases.add("wasmMemorySize is a compile error in non-Wasm targets",
+        \\export fn foo() void {
+        \\    _ = @wasmMemorySize(0);
+        \\    return;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:2:9: error: @wasmMemorySize is a wasm32 feature only",
+    });
+
+    cases.add("wasmMemoryGrow is a compile error in non-Wasm targets",
+        \\export fn foo() void {
+        \\    _ = @wasmMemoryGrow(0, 1);
+        \\    return;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:2:9: error: @wasmMemoryGrow is a wasm32 feature only",
+    });
 }

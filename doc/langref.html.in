@@ -7643,6 +7643,49 @@ mem.copy(u8, dest[0..byte_count], source[0..byte_count]);{#endsyntax#}</pre>
 mem.set(u8, dest, c);{#endsyntax#}</pre>
       {#header_close#}
 
+      {#header_open|@wasmMemorySize#}
+      <pre>{#syntax#}@wasmMemorySize(index: u32) u32{#endsyntax#}</pre>
+      <p>
+      This function returns the size of the Wasm memory identified by {#syntax#}index{#endsyntax#} as
+      an unsigned value in units of Wasm pages. Note that each Wasm page is 64KB in size.
+      </p>
+      <p>
+      This function is a low level intrinsic with no safety mechanisms usually useful for allocator
+      designers targeting Wasm. So unless you are writing a new allocator from scratch, you should use
+      something like {#syntax#}@import("std").heap.WasmPageAllocator{#endsyntax#}.
+      </p>
+      {#see_also|@wasmMemoryGrow#}
+      {#header_close#}
+
+      {#header_open|@wasmMemoryGrow#}
+      <pre>{#syntax#}@wasmMemoryGrow(index: u32, delta: u32) i32{#endsyntax#}</pre>
+      <p>
+      This function increases the size of the Wasm memory identified by {#syntax#}index{#endsyntax#} by
+      {#syntax#}delta{#endsyntax#} in units of unsigned number of Wasm pages. Note that each Wasm page
+      is 64KB in size. On success, returns previous memory size; on failure, if the allocation fails,
+      returns -1.
+      </p>
+      <p>
+      This function is a low level intrinsic with no safety mechanisms usually useful for allocator
+      designers targeting Wasm. So unless you are writing a new allocator from scratch, you should use
+      something like {#syntax#}@import("std").heap.WasmPageAllocator{#endsyntax#}.
+      </p>
+      {#code_begin|test#}
+const std = @import("std");
+const builtin = @import("builtin");
+const assert = std.debug.assert;
+
+test "@wasmMemoryGrow" {
+    if (builtin.arch != .wasm32) return error.SkipZigTest;
+
+    var prev = @wasmMemorySize(0);
+    assert(prev == @wasmMemoryGrow(0, 1));
+    assert(prev + 1 == @wasmMemorySize(0));
+}
+      {#code_end#}
+      {#see_also|@wasmMemorySize#}
+      {#header_close#}
+
       {#header_open|@mod#}
       <pre>{#syntax#}@mod(numerator: T, denominator: T) T{#endsyntax#}</pre>
       <p>
