@@ -1214,7 +1214,11 @@ test "int.specifier" {
     }
     {
         const value: u21 = 'あ';
-        try testFmt("u8: あ\n", "u8: {c}\n", .{value});
+        try testFmt("codepoint: あ\n", "codepoint: {c}\n", .{value});
+    }
+    {
+        const value: u21 = 2097151;
+        try testFmt("codepoint: <codepoint too large>\n", "codepoint: {c}\n", .{value});
     }
     {
         const value: u8 = 0b1100;
