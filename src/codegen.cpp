@@ -1045,6 +1045,37 @@ static void gen_assertion(CodeGen *g, PanicMsgId msg_id, IrInstGen *source_instr
     return gen_assertion_scope(g, msg_id, source_instruction->base.scope);
 }
 
+static LLVMValueRef gen_wasm_memory_size(CodeGen *g) {
+    if (g->wasm_memory_size)
+        return g->wasm_memory_size;
+
+    // TODO adjust for wasm64 as well
+    // declare i32 @llvm.wasm.memory.size.i32(i32) nounwind readonly
+    LLVMTypeRef param_type = LLVMInt32Type();
+    LLVMTypeRef fn_type = LLVMFunctionType(LLVMInt32Type(), &param_type, 1, false);
+    g->wasm_memory_size = LLVMAddFunction(g->module, "llvm.wasm.memory.size.i32", fn_type);
+    assert(LLVMGetIntrinsicID(g->wasm_memory_size));
+
+    return g->wasm_memory_size;
+}
+
+static LLVMValueRef gen_wasm_memory_grow(CodeGen *g) {
+    if (g->wasm_memory_grow)
+        return g->wasm_memory_grow;
+
+    // TODO adjust for wasm64 as well
+    // declare i32 @llvm.wasm.memory.grow.i32(i32, i32) nounwind
+    LLVMTypeRef param_types[] = {
+        LLVMInt32Type(),
+        LLVMInt32Type(),
+    };
+    LLVMTypeRef fn_type = LLVMFunctionType(LLVMInt32Type(), param_types, 2, false);
+    g->wasm_memory_grow = LLVMAddFunction(g->module, "llvm.wasm.memory.grow.i32", fn_type);
+    assert(LLVMGetIntrinsicID(g->wasm_memory_grow));
+
+    return g->wasm_memory_grow;
+}
+
 static LLVMValueRef get_stacksave_fn_val(CodeGen *g) {
     if (g->stacksave_fn_val)
         return g->stacksave_fn_val;
@@ -5588,6 +5619,23 @@ static LLVMValueRef ir_render_memcpy(CodeGen *g, IrExecutableGen *executable, Ir
     return nullptr;
 }
 
+static LLVMValueRef ir_render_wasm_memory_size(CodeGen *g, IrExecutableGen *executable, IrInstGenWasmMemorySize *instruction) {
+    // TODO adjust for wasm64
+    LLVMValueRef param = ir_llvm_value(g, instruction->index);
+    LLVMValueRef val = LLVMBuildCall(g->builder, gen_wasm_memory_size(g), &param, 1, "");
+    return val;
+}
+
+static LLVMValueRef ir_render_wasm_memory_grow(CodeGen *g, IrExecutableGen *executable, IrInstGenWasmMemoryGrow *instruction) {
+    // TODO adjust for wasm64
+    LLVMValueRef params[] = {
+        ir_llvm_value(g, instruction->index),
+        ir_llvm_value(g, instruction->delta),
+    };
+    LLVMValueRef val = LLVMBuildCall(g->builder, gen_wasm_memory_grow(g), params, 2, "");
+    return val;
+}
+
 static LLVMValueRef ir_render_slice(CodeGen *g, IrExecutableGen *executable, IrInstGenSlice *instruction) {
     Error err;
 
@@ -6798,6 +6846,10 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutableGen *executabl
             return ir_render_splat(g, executable, (IrInstGenSplat *) instruction);
         case IrInstGenIdVectorExtractElem:
             return ir_render_vector_extract_elem(g, executable, (IrInstGenVectorExtractElem *) instruction);
+        case IrInstGenIdWasmMemorySize:
+            return ir_render_wasm_memory_size(g, executable, (IrInstGenWasmMemorySize *) instruction);
+        case IrInstGenIdWasmMemoryGrow:
+            return ir_render_wasm_memory_grow(g, executable, (IrInstGenWasmMemoryGrow *) instruction);
     }
     zig_unreachable();
 }
@@ -8660,6 +8712,8 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdAs, "as", 2);
     create_builtin_fn(g, BuiltinFnIdCall, "call", 3);
     create_builtin_fn(g, BuiltinFnIdBitSizeof, "bitSizeOf", 1);
+    create_builtin_fn(g, BuiltinFnIdWasmMemorySize, "wasmMemorySize", 1);
+    create_builtin_fn(g, BuiltinFnIdWasmMemoryGrow, "wasmMemoryGrow", 2);
 }
 
 static const char *bool_to_str(bool b) {

@@ -250,11 +250,6 @@ const PageAllocator = struct {
     }
 };
 
-// TODO Exposed LLVM intrinsics is a bug
-// See: https://github.com/ziglang/zig/issues/2291
-extern fn @"llvm.wasm.memory.size.i32"(u32) u32;
-extern fn @"llvm.wasm.memory.grow.i32"(u32, u32) i32;
-
 const WasmPageAllocator = struct {
     comptime {
         if (!std.Target.current.isWasm()) {
@@ -357,7 +352,7 @@ const WasmPageAllocator = struct {
             return idx + extendedOffset();
         }
 
-        const prev_page_count = @"llvm.wasm.memory.grow.i32"(0, @intCast(u32, page_count));
+        const prev_page_count = @wasmMemoryGrow(0, @intCast(u32, page_count));
         if (prev_page_count <= 0) {
             return error.OutOfMemory;
         }

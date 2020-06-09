@@ -321,6 +321,10 @@ const char* ir_inst_src_type_str(IrInstSrcId id) {
             return "SrcSpillBegin";
         case IrInstSrcIdSpillEnd:
             return "SrcSpillEnd";
+        case IrInstSrcIdWasmMemorySize:
+            return "SrcWasmMemorySize";
+        case IrInstSrcIdWasmMemoryGrow:
+            return "SrcWasmMemoryGrow";
     }
     zig_unreachable();
 }
@@ -501,6 +505,10 @@ const char* ir_inst_gen_type_str(IrInstGenId id) {
             return "GenNegation";
         case IrInstGenIdNegationWrapping:
             return "GenNegationWrapping";
+        case IrInstGenIdWasmMemorySize:
+            return "GenWasmMemorySize";
+        case IrInstGenIdWasmMemoryGrow:
+            return "GenWasmMemoryGrow";
     }
     zig_unreachable();
 }
@@ -1706,6 +1714,34 @@ static void ir_print_bool_not(IrPrintSrc *irp, IrInstSrcBoolNot *instruction) {
 static void ir_print_bool_not(IrPrintGen *irp, IrInstGenBoolNot *instruction) {
     fprintf(irp->f, "! ");
     ir_print_other_inst_gen(irp, instruction->value);
+}
+
+static void ir_print_wasm_memory_size(IrPrintSrc *irp, IrInstSrcWasmMemorySize *instruction) {
+    fprintf(irp->f, "@wasmMemorySize(");
+    ir_print_other_inst_src(irp, instruction->index);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_wasm_memory_size(IrPrintGen *irp, IrInstGenWasmMemorySize *instruction) {
+    fprintf(irp->f, "@wasmMemorySize(");
+    ir_print_other_inst_gen(irp, instruction->index);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_wasm_memory_grow(IrPrintSrc *irp, IrInstSrcWasmMemoryGrow *instruction) {
+    fprintf(irp->f, "@wasmMemoryGrow(");
+    ir_print_other_inst_src(irp, instruction->index);
+    fprintf(irp->f, ", ");
+    ir_print_other_inst_src(irp, instruction->delta);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_wasm_memory_grow(IrPrintGen *irp, IrInstGenWasmMemoryGrow *instruction) {
+    fprintf(irp->f, "@wasmMemoryGrow(");
+    ir_print_other_inst_gen(irp, instruction->index);
+    fprintf(irp->f, ", ");
+    ir_print_other_inst_gen(irp, instruction->delta);
+    fprintf(irp->f, ")");
 }
 
 static void ir_print_memset(IrPrintSrc *irp, IrInstSrcMemset *instruction) {
@@ -2952,6 +2988,12 @@ static void ir_print_inst_src(IrPrintSrc *irp, IrInstSrc *instruction, bool trai
         case IrInstSrcIdClz:
             ir_print_clz(irp, (IrInstSrcClz *)instruction);
             break;
+        case IrInstSrcIdWasmMemorySize:
+            ir_print_wasm_memory_size(irp, (IrInstSrcWasmMemorySize *)instruction);
+            break;
+        case IrInstSrcIdWasmMemoryGrow:
+            ir_print_wasm_memory_grow(irp, (IrInstSrcWasmMemoryGrow *)instruction);
+            break;
     }
     fprintf(irp->f, "\n");
 }
@@ -3218,6 +3260,12 @@ static void ir_print_inst_gen(IrPrintGen *irp, IrInstGen *instruction, bool trai
             break;
         case IrInstGenIdNegationWrapping:
             ir_print_negation_wrapping(irp, (IrInstGenNegationWrapping *)instruction);
+            break;
+        case IrInstGenIdWasmMemorySize:
+            ir_print_wasm_memory_size(irp, (IrInstGenWasmMemorySize *)instruction);
+            break;
+        case IrInstGenIdWasmMemoryGrow:
+            ir_print_wasm_memory_grow(irp, (IrInstGenWasmMemoryGrow *)instruction);
             break;
     }
     fprintf(irp->f, "\n");
