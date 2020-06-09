@@ -24,16 +24,16 @@ pub const Packing = enum {
 ///  which will be called when the deserializer is used to deserialize
 ///  that type. It will pass a pointer to the type instance to deserialize
 ///  into and a pointer to the deserializer struct.
-pub fn Deserializer(comptime endian: builtin.Endian, comptime packing: Packing, comptime InStreamType: type) type {
+pub fn Deserializer(comptime endian: builtin.Endian, comptime packing: Packing, comptime ReaderType: type) type {
     return struct {
-        in_stream: if (packing == .Bit) io.BitInStream(endian, InStreamType) else InStreamType,
+        in_stream: if (packing == .Bit) io.BitReader(endian, ReaderType) else ReaderType,
 
         const Self = @This();
 
-        pub fn init(in_stream: InStreamType) Self {
+        pub fn init(in_stream: ReaderType) Self {
             return Self{
                 .in_stream = switch (packing) {
-                    .Bit => io.bitInStream(endian, in_stream),
+                    .Bit => io.bitReader(endian, in_stream),
                     .Byte => in_stream,
                 },
             };
@@ -45,7 +45,7 @@ pub fn Deserializer(comptime endian: builtin.Endian, comptime packing: Packing, 
         }
 
         //@BUG: inferred error issue. See: #1386
-        fn deserializeInt(self: *Self, comptime T: type) (InStreamType.Error || error{EndOfStream})!T {
+        fn deserializeInt(self: *Self, comptime T: type) (ReaderType.Error || error{EndOfStream})!T {
             comptime assert(trait.is(.Int)(T) or trait.is(.Float)(T));
 
             const u8_bit_count = 8;
@@ -368,7 +368,7 @@ fn testIntSerializerDeserializer(comptime endian: builtin.Endian, comptime packi
     var _serializer = serializer(endian, packing, out.outStream());
 
     var in = io.fixedBufferStream(&data_mem);
-    var _deserializer = deserializer(endian, packing, in.inStream());
+    var _deserializer = deserializer(endian, packing, in.reader());
 
     comptime var i = 0;
     inline while (i <= max_test_bitsize) : (i += 1) {
@@ -425,7 +425,7 @@ fn testIntSerializerDeserializerInfNaN(
     var _serializer = serializer(endian, packing, out.outStream());
 
     var in = io.fixedBufferStream(&data_mem);
-    var _deserializer = deserializer(endian, packing, in.inStream());
+    var _deserializer = deserializer(endian, packing, in.reader());
 
     //@TODO: isInf/isNan not currently implemented for f128.
     try _serializer.serialize(std.math.nan(f16));
@@ -554,7 +554,7 @@ fn testSerializerDeserializer(comptime endian: builtin.Endian, comptime packing:
     var _serializer = serializer(endian, packing, out.outStream());
 
     var in = io.fixedBufferStream(&data_mem);
-    var _deserializer = deserializer(endian, packing, in.inStream());
+    var _deserializer = deserializer(endian, packing, in.reader());
 
     try _serializer.serialize(my_inst);
 
@@ -589,7 +589,7 @@ fn testBadData(comptime endian: builtin.Endian, comptime packing: io.Packing) !v
     var _serializer = serializer(endian, packing, out.outStream());
 
     var in = io.fixedBufferStream(&data_mem);
-    var _deserializer = deserializer(endian, packing, in.inStream());
+    var _deserializer = deserializer(endian, packing, in.reader());
 
     try _serializer.serialize(@as(u14, 3));
     testing.expectError(error.InvalidEnumTag, _deserializer.deserialize(A));

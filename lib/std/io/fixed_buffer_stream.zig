@@ -4,8 +4,8 @@ const testing = std.testing;
 const mem = std.mem;
 const assert = std.debug.assert;
 
-/// This turns a byte buffer into an `io.OutStream`, `io.InStream`, or `io.SeekableStream`.
-/// If the supplied byte buffer is const, then `io.OutStream` is not available.
+/// This turns a byte buffer into an `io.Writer`, `io.Reader`, or `io.SeekableStream`.
+/// If the supplied byte buffer is const, then `io.Writer` is not available.
 pub fn FixedBufferStream(comptime Buffer: type) type {
     return struct {
         /// `Buffer` is either a `[]u8` or `[]const u8`.
@@ -17,6 +17,8 @@ pub fn FixedBufferStream(comptime Buffer: type) type {
         pub const SeekError = error{};
         pub const GetSeekPosError = error{};
 
+        pub const Reader = io.Reader(*Self, ReadError, read);
+        /// Deprecated: use `Reader`
         pub const InStream = io.InStream(*Self, ReadError, read);
         pub const Writer = io.Writer(*Self, WriteError, write);
         /// Deprecated: use `Writer`
@@ -34,6 +36,11 @@ pub fn FixedBufferStream(comptime Buffer: type) type {
 
         const Self = @This();
 
+        pub fn reader(self: *Self) Reader {
+            return .{ .context = self };
+        }
+
+        /// Deprecated: use `inStream`
         pub fn inStream(self: *Self) InStream {
             return .{ .context = self };
         }
@@ -165,14 +172,14 @@ test "FixedBufferStream input" {
 
     var dest: [4]u8 = undefined;
 
-    var read = try fbs.inStream().read(dest[0..4]);
+    var read = try fbs.reader().read(dest[0..4]);
     testing.expect(read == 4);
     testing.expect(mem.eql(u8, dest[0..4], bytes[0..4]));
 
-    read = try fbs.inStream().read(dest[0..4]);
+    read = try fbs.reader().read(dest[0..4]);
     testing.expect(read == 3);
     testing.expect(mem.eql(u8, dest[0..3], bytes[4..7]));
 
-    read = try fbs.inStream().read(dest[0..4]);
+    read = try fbs.reader().read(dest[0..4]);
     testing.expect(read == 0);
 }

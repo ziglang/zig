@@ -615,8 +615,8 @@ pub fn getUserInfo(name: []const u8) !UserInfo {
 /// TODO this reads /etc/passwd. But sometimes the user/id mapping is in something else
 /// like NIS, AD, etc. See `man nss` or look at an strace for `id myuser`.
 pub fn posixGetUserInfo(name: []const u8) !UserInfo {
-    var in_stream = try io.InStream.open("/etc/passwd", null);
-    defer in_stream.close();
+    var reader = try io.Reader.open("/etc/passwd", null);
+    defer reader.close();
 
     const State = enum {
         Start,
@@ -633,7 +633,7 @@ pub fn posixGetUserInfo(name: []const u8) !UserInfo {
     var gid: u32 = 0;
 
     while (true) {
-        const amt_read = try in_stream.read(buf[0..]);
+        const amt_read = try reader.read(buf[0..]);
         for (buf[0..amt_read]) |byte| {
             switch (state) {
                 .Start => switch (byte) {
