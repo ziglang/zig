@@ -804,32 +804,43 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.v2)] = .{
         .llvm_name = "armv2",
         .description = "ARMv2 architecture",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = featureSet(&[_]Feature{
+            .strict_align,
+        }),
     };
     result[@enumToInt(Feature.v2a)] = .{
         .llvm_name = "armv2a",
         .description = "ARMv2a architecture",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = featureSet(&[_]Feature{
+            .strict_align,
+        }),
     };
     result[@enumToInt(Feature.v3)] = .{
         .llvm_name = "armv3",
         .description = "ARMv3 architecture",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = featureSet(&[_]Feature{
+            .strict_align,
+        }),
     };
     result[@enumToInt(Feature.v3m)] = .{
         .llvm_name = "armv3m",
         .description = "ARMv3m architecture",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = featureSet(&[_]Feature{
+            .strict_align,
+        }),
     };
     result[@enumToInt(Feature.v4)] = .{
         .llvm_name = "armv4",
         .description = "ARMv4 architecture",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = featureSet(&[_]Feature{
+            .strict_align,
+        }),
     };
     result[@enumToInt(Feature.v4t)] = .{
         .llvm_name = "armv4t",
         .description = "ARMv4t architecture",
         .dependencies = featureSet(&[_]Feature{
+            .strict_align,
             .has_v4t,
         }),
     };
@@ -837,6 +848,7 @@ pub const all_features = blk: {
         .llvm_name = "armv5t",
         .description = "ARMv5t architecture",
         .dependencies = featureSet(&[_]Feature{
+            .strict_align,
             .has_v5t,
         }),
     };
@@ -844,6 +856,7 @@ pub const all_features = blk: {
         .llvm_name = "armv5te",
         .description = "ARMv5te architecture",
         .dependencies = featureSet(&[_]Feature{
+            .strict_align,
             .has_v5te,
         }),
     };
@@ -851,6 +864,7 @@ pub const all_features = blk: {
         .llvm_name = "armv5tej",
         .description = "ARMv5tej architecture",
         .dependencies = featureSet(&[_]Feature{
+            .strict_align,
             .has_v5te,
         }),
     };
