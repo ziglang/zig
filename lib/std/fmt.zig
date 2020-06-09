@@ -530,8 +530,10 @@ pub fn formatIntValue(
     } else if (comptime std.mem.eql(u8, fmt, "c")) {
         if (@TypeOf(int_value).bit_count <= 8) {
             return formatAsciiChar(@as(u8, int_value), options, out_stream);
+        } else if (@TypeOf(int_value).bit_count <= 32) {
+            return formatUnicodeCodepoint(@as(u21, int_value), options, out_stream);
         } else {
-            @compileError("Cannot print integer that is larger than 8 bits as a ascii");
+            @compileError("Cannot print character that is larger than 21 bits as unicode codepoint");
         }
     } else if (comptime std.mem.eql(u8, fmt, "b")) {
         radix = 2;
@@ -588,6 +590,19 @@ pub fn formatAsciiChar(
     out_stream: var,
 ) !void {
     return out_stream.writeAll(@as(*const [1]u8, &c));
+}
+
+pub fn formatUnicodeCodepoint(
+    c: u21,
+    options: FormatOptions,
+    out_stream: var,
+) !void {
+    var result: [4]u8 = undefined;
+    const len = std.unicode.utf8Encode(c, &result) catch |e| switch (e) {
+        error.CodepointTooLarge => return out_stream.writeAll("<codepoint too large>"),
+        error.Utf8CannotEncodeSurrogateHalf => return out_stream.writeAll("<invalid codepoint>"),
+    };
+    return out_stream.writeAll(result[0..len]);
 }
 
 pub fn formatBuf(
@@ -1196,6 +1211,10 @@ test "int.specifier" {
     {
         const value: u8 = 'a';
         try testFmt("u8: a\n", "u8: {c}\n", .{value});
+    }
+    {
+        const value: u21 = 'あ';
+        try testFmt("u8: あ\n", "u8: {c}\n", .{value});
     }
     {
         const value: u8 = 0b1100;
