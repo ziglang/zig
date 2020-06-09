@@ -486,6 +486,15 @@ test "LinearFifo" {
                 const n = fifo.read(&readBuf);
                 testing.expectEqual(@as(usize, 3), n); // NOTE: It should be the number of items.
             }
+            
+            // Test partial writes via OutStream API
+            if(T == u8 and (bt == .Static or bt == .Slice)) {
+                const data = [_]T{ 1, } ** 34;
+                testing.expectEqual(@as(usize, 32), try fifo.outStream().write(&data));
+                testing.expectError(error.NoSpaceLeft, fifo.outStream().write(data[32..]));
+                fifo.discard(32);
+                testing.expectEqual(@as(usize, 2), try fifo.outStream().write(data[32..]));
+            }
         }
     }
 }
