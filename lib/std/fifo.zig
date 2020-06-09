@@ -216,11 +216,15 @@ pub fn LinearFifo(
         }
 
         /// Same as `read` except it returns an error union
-        /// The purpose of this function existing is to match `std.io.InStream` API.
+        /// The purpose of this function existing is to match `std.io.Reader` API.
         fn readFn(self: *Self, dest: []u8) error{}!usize {
             return self.read(dest);
         }
 
+        pub fn reader(self: *Self) std.io.Reader(*Self, error{}, readFn) {
+            return .{ .context = self };
+        }
+        /// Deprecated: `use reader`
         pub fn inStream(self: *Self) std.io.InStream(*Self, error{}, readFn) {
             return .{ .context = self };
         }
@@ -431,10 +435,10 @@ test "LinearFifo(u8, .Dynamic)" {
     {
         try fifo.outStream().writeAll("This is a test");
         var result: [30]u8 = undefined;
-        testing.expectEqualSlices(u8, "This", (try fifo.inStream().readUntilDelimiterOrEof(&result, ' ')).?);
-        testing.expectEqualSlices(u8, "is", (try fifo.inStream().readUntilDelimiterOrEof(&result, ' ')).?);
-        testing.expectEqualSlices(u8, "a", (try fifo.inStream().readUntilDelimiterOrEof(&result, ' ')).?);
-        testing.expectEqualSlices(u8, "test", (try fifo.inStream().readUntilDelimiterOrEof(&result, ' ')).?);
+        testing.expectEqualSlices(u8, "This", (try fifo.reader().readUntilDelimiterOrEof(&result, ' ')).?);
+        testing.expectEqualSlices(u8, "is", (try fifo.reader().readUntilDelimiterOrEof(&result, ' ')).?);
+        testing.expectEqualSlices(u8, "a", (try fifo.reader().readUntilDelimiterOrEof(&result, ' ')).?);
+        testing.expectEqualSlices(u8, "test", (try fifo.reader().readUntilDelimiterOrEof(&result, ' ')).?);
     }
 }
 

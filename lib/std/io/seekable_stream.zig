@@ -1,5 +1,4 @@
 const std = @import("../std.zig");
-const InStream = std.io.InStream;
 
 pub fn SeekableStream(
     comptime Context: type,
