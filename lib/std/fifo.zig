@@ -304,14 +304,26 @@ pub fn LinearFifo(
             return self.writeAssumeCapacity(src);
         }
 
-        /// Same as `write` except it returns the number of bytes written, which is always the same
-        /// as `bytes.len`. The purpose of this function existing is to match `std.io.OutStream` API.
-        fn appendWrite(self: *Self, bytes: []const u8) error{OutOfMemory}!usize {
-            try self.write(bytes);
-            return bytes.len;
+        /// Same as `write` except it returns the number of bytes written, which may be less than
+        /// `bytes.len`. If 0 bytes are written, return NoSpaceLeft. The purpose of this function
+        /// existing is to match `std.io.OutStream` API.
+        fn appendWrite(self: *Self, bytes: []const u8) error{NoSpaceLeft,OutOfMemory}!usize {
+            if(bytes.len == 0) return 0;
+            
+            //if we're dynamic, we can just grow
+            if(buffer_type == .Dynamic) {
+                try self.write(bytes);
+                return bytes.len;
+            }
+            
+            const written = math.min(self.writableLength(), bytes.len);
+            if(written == 0) return error.NoSpaceLeft;
+            try self.write(bytes[0..written]);
+            return written;
         }
-
-        pub fn outStream(self: *Self) std.io.OutStream(*Self, error{OutOfMemory}, appendWrite) {
+        
+        
+        pub fn outStream(self: *Self) std.io.OutStream(*Self, error{NoSpaceLeft,OutOfMemory}, appendWrite) {
             return .{ .context = self };
         }
 
