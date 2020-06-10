@@ -1,4 +1,4 @@
-const std = @import("std.zig");
+const std = @import("std");
 const debug = std.debug;
 const assert = debug.assert;
 const testing = std.testing;
@@ -153,6 +153,88 @@ test "basic SinglyLinkedList test" {
     testing.expect(list.first.?.data == 2);
     testing.expect(list.first.?.next.?.data == 4);
     testing.expect(list.first.?.next.?.next == null);
+}
+
+/// Simpler singly-linked list with no seperate head structure.
+/// Instead the last node points to to the first. 
+///
+/// Using a head without surrounding struct is optional,
+/// otherwise the first element can be used as the head.
+///
+/// Use with @fieldParentPtr(), like so:
+/// 
+/// const Number = struct {
+///     list: ListHead,
+///     value: i32,
+/// };
+/// fn number(list: *ListHead) Number {
+///     return @fieldParentPtr(Number, "list", list);
+/// }
+pub const ListHead = struct {
+    next: *ListHead,
+
+    pub fn init(list: *ListHead) void {
+        list.next = list;
+    }
+
+    pub fn insert(list: *ListHead, new: *ListHead) void {
+        new.next = list.next;
+        list.next = new;
+    }
+
+    pub fn last(list: *ListHead) *ListHead {
+        var cur = list;
+        while (cur.next != list) : (cur = cur.next) {}
+        return cur;
+    }
+
+    /// Insert at end
+    pub fn push(list: *ListHead, new: *ListHead) void {
+        list.last().insert(new);
+    }
+
+    /// Read from end, and remove from list
+    pub fn pop(list: *ListHead) *ListHead {
+        var cur = list;
+        var prev = list;
+        while (cur.next != list) : (cur = cur.next) {
+            prev = cur;
+        }
+        prev.next = list;
+        return cur;
+    }
+
+    pub fn isEmpty(list: *ListHead) bool {
+        if (list.next == null) return true;
+        return false;
+    }
+};
+
+const ListHeadTest = struct {
+    list: ListHead,
+    value: u32,
+};
+
+fn listHeadTest(list: *ListHead) *ListHeadTest {
+     return @fieldParentPtr(ListHeadTest, "list", list);
+}
+
+test "ListHead" {
+    const expect = testing.expect;
+
+    var a: ListHeadTest = undefined;
+    var b: ListHeadTest = undefined;
+    var c: ListHeadTest = undefined;
+    a.value = 1;
+    b.value = 2;
+    c.value = 3;
+
+    a.list.init();
+    a.list.push(&b.list);
+    a.list.push(&c.list);
+    expect(listHeadTest(a.list.last()).value == 3);
+    expect(listHeadTest(a.list.pop()).value == 3);
+    expect(listHeadTest(a.list.last()).value == 2);
 }
 
 /// A tail queue is headed by a pair of pointers, one to the head of the

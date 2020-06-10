@@ -21,6 +21,7 @@ pub const Progress = @import("progress.zig").Progress;
 pub const ResetEvent = @import("reset_event.zig").ResetEvent;
 pub const SegmentedList = @import("segmented_list.zig").SegmentedList;
 pub const SinglyLinkedList = @import("linked_list.zig").SinglyLinkedList;
+pub const ListHead = @import("linked_list.zig").ListHead;
 pub const SpinLock = @import("spinlock.zig").SpinLock;
 pub const StringHashMap = @import("hash_map.zig").StringHashMap;
 pub const TailQueue = @import("linked_list.zig").TailQueue;
