@@ -86,7 +86,7 @@ const usage_build_generic =
     \\       zig build-obj <options> [files]
     \\
     \\Supported file types:
-    \\     (planned)      .zig    Zig source code
+    \\                    .zig    Zig source code
     \\                    .zir    Zig Intermediate Representation code
     \\     (planned)        .o    ELF object file
     \\     (planned)        .o    MACH-O (macOS) object file

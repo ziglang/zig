@@ -78,8 +78,8 @@ pub const Value = extern union {
         pub const no_payload_count = @enumToInt(last_no_payload_tag) + 1;
     };
 
-    pub fn initTag(comptime small_tag: Tag) Value {
-        comptime assert(@enumToInt(small_tag) < Tag.no_payload_count);
+    pub fn initTag(small_tag: Tag) Value {
+        assert(@enumToInt(small_tag) < Tag.no_payload_count);
         return .{ .tag_if_small_enough = @enumToInt(small_tag) };
     }
 

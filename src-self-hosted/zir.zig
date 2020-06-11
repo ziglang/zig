@@ -14,20 +14,24 @@ const IrModule = @import("Module.zig");
 
 /// These are instructions that correspond to the ZIR text format. See `ir.Inst` for
 /// in-memory, analyzed instructions with types and values.
+/// TODO Separate into Decl and Inst. Decl will have extra fields, and will make the
+/// undefined default field value of contents_hash no longer needed.
 pub const Inst = struct {
     tag: Tag,
     /// Byte offset into the source.
     src: usize,
     name: []const u8,
 
-    /// Slice into the source of the part after the = and before the next instruction.
-    contents: []const u8 = &[0]u8{},
+    /// Hash of slice into the source of the part after the = and before the next instruction.
+    contents_hash: std.zig.SrcHash = undefined,
 
     /// These names are used directly as the instruction names in the text format.
     pub const Tag = enum {
         breakpoint,
         call,
         compileerror,
+        /// Special case, has no textual representation.
+        @"const",
         /// Represents a pointer to a global decl by name.
         declref,
         /// The syntax `@foo` is equivalent to `declval("foo")`.
@@ -43,10 +47,10 @@ pub const Inst = struct {
         @"unreachable",
         @"return",
         @"fn",
+        fntype,
         @"export",
         primitive,
         ref,
-        fntype,
         intcast,
         bitcast,
         elemptr,
@@ -64,6 +68,7 @@ pub const Inst = struct {
             .declref => DeclRef,
             .declval => DeclVal,
             .compileerror => CompileError,
+            .@"const" => Const,
             .str => Str,
             .int => Int,
             .ptrtoint => PtrToInt,
@@ -143,6 +148,16 @@ pub const Inst = struct {
 
         positionals: struct {
             msg: []const u8,
+        },
+        kw_args: struct {},
+    };
+
+    pub const Const = struct {
+        pub const base_tag = Tag.@"const";
+        base: Inst,
+
+        positionals: struct {
+            typed_value: TypedValue,
         },
         kw_args: struct {},
     };
@@ -253,6 +268,19 @@ pub const Inst = struct {
         kw_args: struct {},
     };
 
+    pub const FnType = struct {
+        pub const base_tag = Tag.fntype;
+        base: Inst,
+
+        positionals: struct {
+            param_types: []*Inst,
+            return_type: *Inst,
+        },
+        kw_args: struct {
+            cc: std.builtin.CallingConvention = .Unspecified,
+        },
+    };
+
     pub const Export = struct {
         pub const base_tag = Tag.@"export";
         base: Inst,
@@ -346,19 +374,6 @@ pub const Inst = struct {
                 };
             }
         };
-    };
-
-    pub const FnType = struct {
-        pub const base_tag = Tag.fntype;
-        base: Inst,
-
-        positionals: struct {
-            param_types: []*Inst,
-            return_type: *Inst,
-        },
-        kw_args: struct {
-            cc: std.builtin.CallingConvention = .Unspecified,
-        },
     };
 
     pub const IntCast = struct {
@@ -526,6 +541,7 @@ pub const Module = struct {
             .declref => return self.writeInstToStreamGeneric(stream, .declref, decl, inst_table),
             .declval => return self.writeInstToStreamGeneric(stream, .declval, decl, inst_table),
             .compileerror => return self.writeInstToStreamGeneric(stream, .compileerror, decl, inst_table),
+            .@"const" => return self.writeInstToStreamGeneric(stream, .@"const", decl, inst_table),
             .str => return self.writeInstToStreamGeneric(stream, .str, decl, inst_table),
             .int => return self.writeInstToStreamGeneric(stream, .int, decl, inst_table),
             .ptrtoint => return self.writeInstToStreamGeneric(stream, .ptrtoint, decl, inst_table),
@@ -619,6 +635,7 @@ pub const Module = struct {
             bool => return stream.writeByte("01"[@boolToInt(param)]),
             []u8, []const u8 => return std.zig.renderStringLiteral(param, stream),
             BigIntConst => return stream.print("{}", .{param}),
+            TypedValue => unreachable, // this is a special case
             else => |T| @compileError("unimplemented: rendering parameter of type " ++ @typeName(T)),
         }
     }
@@ -929,7 +946,7 @@ const Parser = struct {
         }
         try requireEatBytes(self, ")");
 
-        inst_specific.base.contents = self.source[contents_start..self.i];
+        inst_specific.base.contents_hash = std.zig.hashSrc(self.source[contents_start..self.i]);
         //std.debug.warn("parsed {} = '{}'\n", .{ inst_specific.base.name, inst_specific.base.contents });
 
         return &inst_specific.base;
@@ -978,6 +995,7 @@ const Parser = struct {
             *Inst => return parseParameterInst(self, body_ctx),
             []u8, []const u8 => return self.parseStringLiteral(),
             BigIntConst => return self.parseIntegerLiteral(),
+            TypedValue => return self.fail("'const' is a special instruction; not legal in ZIR text", .{}),
             else => @compileError("Unimplemented: ir parseParameterGeneric for type " ++ @typeName(T)),
         }
         return self.fail("TODO parse parameter {}", .{@typeName(T)});
