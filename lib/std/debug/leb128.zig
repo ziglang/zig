@@ -1,8 +1,11 @@
 const std = @import("std");
 const testing = std.testing;
 
-///Read a single unsigned LEB128 value from the given reader as type T,
-/// or error.Overflow if the value cannot fit.
+//@TODO: you can take *slice and alter slice.ptr
+// make sign bits check more efficient
+// add wrapper readLEB128 and write LEB128 that infer from type?
+// or use assertions?
+
 pub fn readULEB128(comptime T: type, reader: var) !T {
     const U = if (T.bit_count < 8) u8 else T;
     const ShiftT = std.math.Log2Int(U);
@@ -25,14 +28,11 @@ pub fn readULEB128(comptime T: type, reader: var) !T {
     }
 
     //only applies in the case that we extended to u8
-    if (U != T) {
-        if (value > std.math.maxInt(T)) return error.Overflow;
-    }
+    if (value > std.math.maxInt(T)) return error.Overflow;
 
     return @truncate(T, value);
 }
 
-///Write a single unsigned integer as unsigned LEB128 to the given writer.
 pub fn writeULEB128(writer: var, uint_value: var) !void {
     const T = @TypeOf(uint_value);
     const U = if (T.bit_count < 8) u8 else T;
@@ -50,27 +50,22 @@ pub fn writeULEB128(writer: var, uint_value: var) !void {
     }
 }
 
-///Read a single unsinged integer from the given memory as type T.
-/// The provided slice reference will be updated to point to the byte after the last byte read.
-pub fn readULEB128Mem(comptime T: type, ptr: *[]const u8) !T {
-    var buf = std.io.fixedBufferStream(ptr.*);
+pub fn readULEB128Mem(comptime T: type, ptr: *[*]const u8) !T {
+    const max_group = (T.bit_count + 6) / 7;
+    var buf = std.io.fixedBufferStream(ptr.*[0 .. max_group + 1]);
     const value = try readULEB128(T, buf.reader());
-    ptr.*.ptr += buf.pos;
+    ptr.* += @intCast(usize, try buf.getPos());
     return value;
 }
 
-///Write a single unsigned LEB128 integer to the given memory as unsigned LEB128,
-/// returning the number of bytes written.
 pub fn writeULEB128Mem(ptr: []u8, uint_value: var) !usize {
     const T = @TypeOf(uint_value);
     const max_group = (T.bit_count + 6) / 7;
     var buf = std.io.fixedBufferStream(ptr);
     try writeULEB128(buf.writer(), uint_value);
-    return buf.pos;
+    return try buf.getPos();
 }
 
-///Read a single signed LEB128 value from the given reader as type T,
-/// or error.Overflow if the value cannot fit.
 pub fn readILEB128(comptime T: type, reader: var) !T {
     const S = if (T.bit_count < 8) i8 else T;
     const U = std.meta.Int(false, S.bit_count);
@@ -85,24 +80,23 @@ pub fn readILEB128(comptime T: type, reader: var) !T {
         const byte = try reader.readByte();
         var temp = @as(U, byte & 0x7f);
 
-        const shift = group * 7;
-        if (@shlWithOverflow(U, temp, shift, &temp)) {
+        if (@shlWithOverflow(U, temp, group * 7, &temp)) {
             //Overflow is ok so long as the sign bit is set and this is the last byte
             if (byte & 0x80 != 0) return error.Overflow;
             if (@bitCast(S, temp) >= 0) return error.Overflow;
 
             //and all the overflowed bits are 1
-            const remaining_shift = @intCast(u3, U.bit_count - @as(u16, shift));
-            const remaining_bits = @bitCast(i8, byte | 0x80) >> remaining_shift;
-            if (remaining_bits != -1) return error.Overflow;
+            const check_bits_shift = @intCast(u3, U.bit_count - @as(u16, group * 7));
+            const check_bits_remaining = 7 - check_bits_shift;
+            const check_bits = byte >> check_bits_shift;
+            const num_consecutive_ones = @ctz(u8, ~check_bits);
+            if (num_consecutive_ones < check_bits_remaining) return error.Overflow;
         }
 
         value |= temp;
         if (byte & 0x80 == 0) {
-            const needs_sign_ext = group + 1 < max_group;
-            if (byte & 0x40 != 0 and needs_sign_ext) {
-                const ones = @as(S, -1);
-                value |= @bitCast(U, ones) << (shift + 7);
+            if (byte & 0x40 != 0 and group + 1 < max_group) {
+                value |= @bitCast(U, @as(S, -1)) << ((group + 1) * 7);
             }
             break;
         }
@@ -110,16 +104,12 @@ pub fn readILEB128(comptime T: type, reader: var) !T {
         return error.Overflow;
     }
 
-    const result = @bitCast(S, value);
     //Only applies if we extended to i8
-    if (S != T) {
-        if (result > std.math.maxInt(T) or result < std.math.minInt(T)) return error.Overflow;
-    }
+    if (@bitCast(S, value) > std.math.maxInt(T) or @bitCast(S, value) < std.math.minInt(T)) return error.Overflow;
 
-    return @truncate(T, result);
+    return @truncate(T, @bitCast(S, value));
 }
 
-///Write a single signed integer as signed LEB128 to the given writer.
 pub fn writeILEB128(writer: var, int_value: var) !void {
     const T = @TypeOf(int_value);
     const S = if (T.bit_count < 8) i8 else T;
@@ -141,22 +131,19 @@ pub fn writeILEB128(writer: var, int_value: var) !void {
     }
 }
 
-///Read a single singed LEB128 integer from the given memory as type T.
-/// The provided slice reference will be updated to point to the byte after the last byte read.
-pub fn readILEB128Mem(comptime T: type, ptr: *[]const u8) !T {
-    var buf = std.io.fixedBufferStream(ptr.*);
+pub fn readILEB128Mem(comptime T: type, ptr: *[*]const u8) !T {
+    const max_group = (T.bit_count + 6) / 7;
+    var buf = std.io.fixedBufferStream(ptr.*[0 .. max_group + 1]);
     const value = try readILEB128(T, buf.reader());
-    ptr.*.ptr += buf.pos;
+    ptr.* += @intCast(usize, try buf.getPos());
     return value;
 }
 
-///Write a single signed LEB128 integer to the given memory as unsigned LEB128,
-/// returning the number of bytes written.
 pub fn writeILEB128Mem(ptr: []u8, int_value: var) !usize {
     const T = @TypeOf(int_value);
     var buf = std.io.fixedBufferStream(ptr);
     try writeILEB128(buf.writer(), int_value);
-    return buf.pos;
+    return try buf.getPos();
 }
 
 //tests
@@ -173,7 +160,7 @@ fn test_read_stream_uleb128(comptime T: type, encoded: []const u8) !T {
 fn test_read_ileb128(comptime T: type, encoded: []const u8) !T {
     var reader = std.io.fixedBufferStream(encoded);
     const v1 = try readILEB128(T, reader.reader());
-    var in_ptr = encoded;
+    var in_ptr = encoded.ptr;
     const v2 = try readILEB128Mem(T, &in_ptr);
     testing.expectEqual(v1, v2);
     return v1;
@@ -182,7 +169,7 @@ fn test_read_ileb128(comptime T: type, encoded: []const u8) !T {
 fn test_read_uleb128(comptime T: type, encoded: []const u8) !T {
     var reader = std.io.fixedBufferStream(encoded);
     const v1 = try readULEB128(T, reader.reader());
-    var in_ptr = encoded;
+    var in_ptr = encoded.ptr;
     const v2 = try readULEB128Mem(T, &in_ptr);
     testing.expectEqual(v1, v2);
     return v1;
@@ -190,7 +177,7 @@ fn test_read_uleb128(comptime T: type, encoded: []const u8) !T {
 
 fn test_read_ileb128_seq(comptime T: type, comptime N: usize, encoded: []const u8) !void {
     var reader = std.io.fixedBufferStream(encoded);
-    var in_ptr = encoded;
+    var in_ptr = encoded.ptr;
     var i: usize = 0;
     while (i < N) : (i += 1) {
         const v1 = try readILEB128(T, reader.reader());
@@ -201,7 +188,7 @@ fn test_read_ileb128_seq(comptime T: type, comptime N: usize, encoded: []const u
 
 fn test_read_uleb128_seq(comptime T: type, comptime N: usize, encoded: []const u8) !void {
     var reader = std.io.fixedBufferStream(encoded);
-    var in_ptr = encoded;
+    var in_ptr = encoded.ptr;
     var i: usize = 0;
     while (i < N) : (i += 1) {
         const v1 = try readULEB128(T, reader.reader());
@@ -298,6 +285,8 @@ test "deserialize unsigned LEB128" {
 fn test_write_leb128(value: var) !void {
     const T = @TypeOf(value);
 
+    if (T.bit_count == 0) std.debug.warn("{}\n", .{@typeName(T)});
+
     const writeStream = if (T.is_signed) writeILEB128 else writeULEB128;
     const writeMem = if (T.is_signed) writeILEB128Mem else writeULEB128Mem;
     const readStream = if (T.is_signed) readILEB128 else readULEB128;
@@ -335,13 +324,13 @@ fn test_write_leb128(value: var) !void {
 
     //mem read
     var buf_ref: []u8 = buf[0..];
-    const mr = try readMem(T, &buf_ref);
+    const mr = try readMem(T, &buf_ref.ptr);
     testing.expect(@ptrToInt(buf_ref.ptr) - @ptrToInt(&buf) == w2_pos);
     testing.expect(mr == value);
 
     //bigger type mem read
     buf_ref = buf[0..];
-    const bmr = try readMem(T, &buf_ref);
+    const bmr = try readMem(T, &buf_ref.ptr);
     testing.expect(@ptrToInt(buf_ref.ptr) - @ptrToInt(&buf) == w2_pos);
     testing.expect(bmr == value);
 }
