@@ -146,3 +146,17 @@ pub const PreopenList = struct {
         return self.buffer.toOwnedSlice();
     }
 };
+
+test "extracting WASI preopens" {
+    if (@import("builtin").os.tag != .wasi) return error.SkipZigTest;
+
+    var preopens = PreopenList.init(std.testing.allocator);
+    defer preopens.deinit();
+
+    try preopens.populate();
+
+    std.testing.expectEqual(@as(usize, 1), preopens.asSlice().len);
+    const preopen = preopens.find(".") orelse unreachable;
+    std.testing.expect(std.mem.eql(u8, ".", preopen.@"type".Dir));
+    std.testing.expectEqual(@as(usize, 3), preopen.fd);
+}
