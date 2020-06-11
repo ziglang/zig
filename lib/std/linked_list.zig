@@ -205,8 +205,7 @@ pub const ListHead = struct {
     }
 
     pub fn isEmpty(list: *ListHead) bool {
-        if (list.next == null) return true;
-        return false;
+        return list.next == list;
     }
 };
 
@@ -235,6 +234,9 @@ test "ListHead" {
     expect(listHeadTest(a.list.last()).value == 3);
     expect(listHeadTest(a.list.pop()).value == 3);
     expect(listHeadTest(a.list.last()).value == 2);
+    expect(listHeadTest(a.list.pop()).value == 2);
+    expect(listHeadTest(a.list.pop()).value == 1);
+    expect(a.list.isEmpty());
 }
 
 /// A tail queue is headed by a pair of pointers, one to the head of the
