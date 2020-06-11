@@ -1638,6 +1638,24 @@ pub const tcflag_t = u32;
 
 pub const NCCS = 32;
 
+pub const VINTR = 0;
+pub const VQUIT = 1;
+pub const VERASE = 2;
+pub const VKILL = 3;
+pub const VEOF = 4;
+pub const VTIME = 5;
+pub const VMIN = 6;
+pub const VSWTC = 7;
+pub const VSTART = 8;
+pub const VSTOP = 9;
+pub const VSUSP = 10;
+pub const VEOL = 11;
+pub const VREPRINT = 12;
+pub const VDISCARD = 13;
+pub const VWERASE = 14;
+pub const VLNEXT = 15;
+pub const VEOL2 = 16;
+
 pub const IGNBRK = 1;
 pub const BRKINT = 2;
 pub const IGNPAR = 4;
