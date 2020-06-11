@@ -35,6 +35,14 @@ pub const Preopen = struct {
             .@"type" = .{ .Dir = path },
         };
     }
+
+    pub fn format(self: Self, comptime fmt: []const u8, options: std.fmt.FormatOptions, out_stream: var) !void {
+        try out_stream.print("{{ .fd = {}, ", .{self.fd});
+        switch (self.@"type") {
+            PreopenType.Dir => |path| try out_stream.print(".Dir = '{}'", .{path}),
+        }
+        return out_stream.print(" }}", .{});
+    }
 };
 
 /// Dynamically-sized array list of WASI preopens. This struct is a
