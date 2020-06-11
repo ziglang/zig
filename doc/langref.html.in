@@ -9702,7 +9702,7 @@ The result is 3</code></pre>
       {#header_open|WASI#}
       <p>Zig's support for WebAssembly System Interface (WASI) is under active development.
       Example of using the standard library and reading command line arguments:</p>
-      {#code_begin|exe|wasi#}
+      {#code_begin|exe|args#}
       {#target_wasi#}
 const std = @import("std");
 
@@ -9716,10 +9716,31 @@ pub fn main() !void {
     }
 }
       {#code_end#}
-     <pre><code>$ wasmer run wasi.wasm 123 hello
-0: wasi.wasm
+      <pre><code>$ wasmtime args.wasm 123 hello
+0: args.wasm
 1: 123
 2: hello</code></pre>
+      <p>A more interesting example would be extracting the list of preopens from the runtime.
+      This is now supported in the standard library via {#syntax#}std.fs.wasi.PreopenList{#endsyntax#}:</p>
+      {#code_begin|exe|preopens#}
+      {#target_wasi#}
+const std = @import("std");
+const PreopenList = std.fs.wasi.PreopenList;
+
+pub fn main() !void {
+    var preopens = PreopenList.init(std.heap.page_allocator);
+    defer preopens.deinit();
+
+    try preopens.populate();
+
+    for (preopens.asSlice()) |preopen, i| {
+        std.debug.warn("{}: {}\n", .{ i, preopen });
+    }
+}
+      {#code_end#}
+      <pre><code>$ wasmtime --dir=. preopens.wasm
+0: { .fd = 3, .Dir = '.' }
+</code></pre>
       {#header_close#}
       {#header_close#}
       {#header_open|Targets#}
