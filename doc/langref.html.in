@@ -9293,8 +9293,8 @@ test "string literal to constant slice" {
       the function will accept an {#syntax#}*Allocator{#endsyntax#} parameter.
       </p>
       <p>
-      Sometimes the lifetime of a pointer may be more complicated. For example, when using
-      {#syntax#}std.ArrayList(T).span(){#endsyntax#}, the returned slice has a lifetime that remains
+      Sometimes the lifetime of a pointer may be more complicated. For example, the
+      {#syntax#}std.ArrayList(T).items{#endsyntax#} slice has a lifetime that remains
       valid until the next time the list is resized, such as by appending new elements.
       </p>
       <p>
