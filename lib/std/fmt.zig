@@ -868,11 +868,14 @@ pub fn formatBytes(
         return out_stream.writeAll("0B");
     }
 
+    const is_float = comptime std.meta.trait.is(.Float)(@TypeOf(value));
     const mags_si = " kMGTPEZY";
     const mags_iec = " KMGTPEZY";
+
+    const log2 = if (is_float) @floatToInt(usize, math.log2(value)) else math.log2(value);
     const magnitude = switch (radix) {
-        1000 => math.min(math.log2(value) / comptime math.log2(1000), mags_si.len - 1),
-        1024 => math.min(math.log2(value) / 10, mags_iec.len - 1),
+        1000 => math.min(log2 / comptime math.log2(1000), mags_si.len - 1),
+        1024 => math.min(log2 / 10, mags_iec.len - 1),
         else => unreachable,
     };
     const new_value = lossyCast(f64, value) / math.pow(f64, lossyCast(f64, radix), lossyCast(f64, magnitude));
