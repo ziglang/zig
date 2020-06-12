@@ -12,8 +12,14 @@ const start_sym_name = if (builtin.arch.isMIPS()) "__start" else "_start";
 
 comptime {
     if (builtin.output_mode == .Lib and builtin.link_mode == .Dynamic) {
-        if (builtin.os.tag == .windows and !@hasDecl(root, "_DllMainCRTStartup")) {
-            @export(_DllMainCRTStartup, .{ .name = "_DllMainCRTStartup" });
+        if (builtin.os.tag == .windows) {
+            if (!builtin.single_threaded) {
+                _ = @import("start_windows_tls.zig");
+            }
+
+            if (!@hasDecl(root, "_DllMainCRTStartup")) {
+                @export(_DllMainCRTStartup, .{ .name = "_DllMainCRTStartup" });
+            }
         }
     } else if (builtin.output_mode == .Exe or @hasDecl(root, "main")) {
         if (builtin.link_libc and @hasDecl(root, "main")) {
@@ -21,6 +27,10 @@ comptime {
                 @export(main, .{ .name = "main", .linkage = .Weak });
             }
         } else if (builtin.os.tag == .windows) {
+            if (!builtin.single_threaded) {
+                _ = @import("start_windows_tls.zig");
+            }
+
             if (!@hasDecl(root, "WinMain") and !@hasDecl(root, "WinMainCRTStartup") and
                 !@hasDecl(root, "wWinMain") and !@hasDecl(root, "wWinMainCRTStartup"))
             {
@@ -41,10 +51,6 @@ fn _DllMainCRTStartup(
     fdwReason: std.os.windows.DWORD,
     lpReserved: std.os.windows.LPVOID,
 ) callconv(.Stdcall) std.os.windows.BOOL {
-    if (!builtin.single_threaded) {
-        _ = @import("start_windows_tls.zig");
-    }
-
     if (@hasDecl(root, "DllMain")) {
         return root.DllMain(hinstDLL, fdwReason, lpReserved);
     }
@@ -125,10 +131,6 @@ fn _start() callconv(.Naked) noreturn {
 
 fn WinMainCRTStartup() callconv(.Stdcall) noreturn {
     @setAlignStack(16);
-    if (!builtin.single_threaded) {
-        _ = @import("start_windows_tls.zig");
-    }
-
     std.debug.maybeEnableSegfaultHandler();
 
     std.os.windows.kernel32.ExitProcess(initEventLoopAndCallMain());
