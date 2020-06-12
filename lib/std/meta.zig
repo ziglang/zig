@@ -145,8 +145,8 @@ test "std.meta.Child" {
 /// Given a "memory span" type, returns the "element type".
 pub fn Elem(comptime T: type) type {
     switch (@typeInfo(T)) {
-        .Array, => |info| return info.child,
-        .Vector, => |info| return info.child,
+        .Array => |info| return info.child,
+        .Vector => |info| return info.child,
         .Pointer => |info| switch (info.size) {
             .One => switch (@typeInfo(info.child)) {
                 .Array => |array_info| return array_info.child,
@@ -658,7 +658,7 @@ pub fn refAllDecls(comptime T: type) void {
 /// Returns a slice of pointers to public declarations of a namespace.
 pub fn declList(comptime Namespace: type, comptime Decl: type) []const *const Decl {
     const S = struct {
-        fn declNameLessThan(lhs: *const Decl, rhs: *const Decl) bool {
+        fn declNameLessThan(context: void, lhs: *const Decl, rhs: *const Decl) bool {
             return mem.lessThan(u8, lhs.name, rhs.name);
         }
     };
@@ -668,7 +668,7 @@ pub fn declList(comptime Namespace: type, comptime Decl: type) []const *const De
         for (decls) |decl, i| {
             array[i] = &@field(Namespace, decl.name);
         }
-        std.sort.sort(*const Decl, &array, S.declNameLessThan);
+        std.sort.sort(*const Decl, &array, {}, S.declNameLessThan);
         return &array;
     }
 }

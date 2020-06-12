@@ -352,7 +352,7 @@ pub fn main() anyerror!void {
     }
     // Some options have multiple matches. As an example, "-Wl,foo" matches both
     // "W" and "Wl,". So we sort this list in order of descending priority.
-    std.sort.sort(*json.ObjectMap, all_objects.span(), objectLessThan);
+    std.sort.sort(*json.ObjectMap, all_objects.span(), {}, objectLessThan);
 
     var stdout_bos = std.io.bufferedOutStream(std.io.getStdOut().outStream());
     const stdout = stdout_bos.outStream();
@@ -544,7 +544,7 @@ fn syntaxMatchesWithEql(syntax: Syntax) bool {
     };
 }
 
-fn objectLessThan(a: *json.ObjectMap, b: *json.ObjectMap) bool {
+fn objectLessThan(context: void, a: *json.ObjectMap, b: *json.ObjectMap) bool {
     // Priority is determined by exact matches first, followed by prefix matches in descending
     // length, with key as a final tiebreaker.
     const a_syntax = objSyntax(a);

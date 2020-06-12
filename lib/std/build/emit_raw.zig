@@ -92,7 +92,7 @@ const BinaryElfOutput = struct {
             }
         }
 
-        sort.sort(*BinaryElfSegment, self.segments.span(), segmentSortCompare);
+        sort.sort(*BinaryElfSegment, self.segments.span(), {}, segmentSortCompare);
 
         if (self.segments.items.len > 0) {
             const firstSegment = self.segments.items[0];
@@ -117,7 +117,7 @@ const BinaryElfOutput = struct {
             }
         }
 
-        sort.sort(*BinaryElfSection, self.sections.span(), sectionSortCompare);
+        sort.sort(*BinaryElfSection, self.sections.span(), {}, sectionSortCompare);
 
         return self;
     }
@@ -131,7 +131,7 @@ const BinaryElfOutput = struct {
             ((shdr.sh_flags & elf.SHF_ALLOC) == elf.SHF_ALLOC);
     }
 
-    fn segmentSortCompare(left: *BinaryElfSegment, right: *BinaryElfSegment) bool {
+    fn segmentSortCompare(context: void, left: *BinaryElfSegment, right: *BinaryElfSegment) bool {
         if (left.physicalAddress < right.physicalAddress) {
             return true;
         }
@@ -141,7 +141,7 @@ const BinaryElfOutput = struct {
         return false;
     }
 
-    fn sectionSortCompare(left: *BinaryElfSection, right: *BinaryElfSection) bool {
+    fn sectionSortCompare(context: void, left: *BinaryElfSection, right: *BinaryElfSection) bool {
         return left.binaryOffset < right.binaryOffset;
     }
 };
