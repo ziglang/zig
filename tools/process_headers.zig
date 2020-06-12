@@ -242,7 +242,7 @@ const Contents = struct {
     hash: []const u8,
     is_generic: bool,
 
-    fn hitCountLessThan(lhs: *const Contents, rhs: *const Contents) bool {
+    fn hitCountLessThan(context: void, lhs: *const Contents, rhs: *const Contents) bool {
         return lhs.hit_count < rhs.hit_count;
     }
 };
@@ -414,7 +414,7 @@ pub fn main() !void {
                 try contents_list.append(contents);
             }
         }
-        std.sort.sort(*Contents, contents_list.span(), Contents.hitCountLessThan);
+        std.sort.sort(*Contents, contents_list.span(), {}, Contents.hitCountLessThan);
         var best_contents = contents_list.popOrNull().?;
         if (best_contents.hit_count > 1) {
             // worth it to make it generic

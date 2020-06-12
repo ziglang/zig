@@ -225,14 +225,14 @@ pub fn main() !void {
         var list = std.ArrayList([]const u8).init(allocator);
         var it = global_fn_set.iterator();
         while (it.next()) |kv| try list.append(kv.key);
-        std.sort.sort([]const u8, list.span(), strCmpLessThan);
+        std.sort.sort([]const u8, list.span(), {}, strCmpLessThan);
         break :blk list.span();
     };
     const global_ver_list = blk: {
         var list = std.ArrayList([]const u8).init(allocator);
         var it = global_ver_set.iterator();
         while (it.next()) |kv| try list.append(kv.key);
-        std.sort.sort([]const u8, list.span(), versionLessThan);
+        std.sort.sort([]const u8, list.span(), {}, versionLessThan);
         break :blk list.span();
     };
     {
@@ -311,11 +311,11 @@ pub fn main() !void {
     }
 }
 
-pub fn strCmpLessThan(a: []const u8, b: []const u8) bool {
+pub fn strCmpLessThan(context: void, a: []const u8, b: []const u8) bool {
     return std.mem.order(u8, a, b) == .lt;
 }
 
-pub fn versionLessThan(a: []const u8, b: []const u8) bool {
+pub fn versionLessThan(context: void, a: []const u8, b: []const u8) bool {
     const sep_chars = "GLIBC_.";
     var a_tokens = std.mem.tokenize(a, sep_chars);
     var b_tokens = std.mem.tokenize(b, sep_chars);
