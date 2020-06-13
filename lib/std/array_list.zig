@@ -162,19 +162,24 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             mem.copy(T, self.items[oldlen..], items);
         }
 
-        /// Same as `append` except it returns the number of bytes written, which is always the same
-        /// as `m.len`. The purpose of this function existing is to match `std.io.OutStream` API.
-        /// This function may be called only when `T` is `u8`.
-        fn appendWrite(self: *Self, m: []const u8) !usize {
-            try self.appendSlice(m);
-            return m.len;
-        }
+        pub usingnamespace if (T != u8) struct { } else struct {
+            pub const Writer = std.io.Writer(*Self, error{OutOfMemory}, appendWrite);
 
-        /// Initializes an OutStream which will append to the list.
-        /// This function may be called only when `T` is `u8`.
-        pub fn outStream(self: *Self) std.io.OutStream(*Self, error{OutOfMemory}, appendWrite) {
-            return .{ .context = self };
-        }
+            /// Initializes a Writer which will append to the list.
+            pub fn writer(self: *Self) Writer {
+                return .{ .context = self };
+            }
+
+            /// Deprecated: use `writer`
+            pub const outStream = writer;
+
+            /// Same as `append` except it returns the number of bytes written, which is always the same
+            /// as `m.len`. The purpose of this function existing is to match `std.io.Writer` API.
+            fn appendWrite(self: *Self, m: []const u8) !usize {
+                try self.appendSlice(m);
+                return m.len;
+            }
+        };
 
         /// Append a value to the list `n` times.
         /// Allocates more memory as necessary.
@@ -693,4 +698,16 @@ test "std.ArrayList.shrink still sets length on error.OutOfMemory" {
 
     list.shrink(1);
     testing.expect(list.items.len == 1);
+}
+
+test "std.ArrayList.writer" {
+    var list = ArrayList(u8).init(std.testing.allocator);
+    defer list.deinit();
+
+    const writer = list.writer();
+    try writer.writeAll("a");
+    try writer.writeAll("bc");
+    try writer.writeAll("d");
+    try writer.writeAll("efg");
+    testing.expectEqualSlices(u8, list.items, "abcdefg");
 }
