@@ -1911,7 +1911,7 @@ const Parser = struct {
     /// BreakLabel <- COLON IDENTIFIER
     fn parseBreakLabel(p: *Parser) !?*Node {
         _ = p.eatToken(.Colon) orelse return null;
-        return p.expectNode(parseIdentifier, .{
+        return try p.expectNode(parseIdentifier, .{
             .ExpectedIdentifier = .{ .token = p.tok_i },
         });
     }
