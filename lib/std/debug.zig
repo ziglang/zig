@@ -57,12 +57,8 @@ var stderr_mutex = std.Mutex.init();
 pub fn warn(comptime fmt: []const u8, args: var) void {
     const held = stderr_mutex.acquire();
     defer held.release();
-    const stderr = getStderrStream();
+    const stderr = io.getStdErr().writer();
     nosuspend stderr.print(fmt, args) catch return;
-}
-
-pub fn getStderrStream() File.OutStream {
-    return io.getStdErr().outStream();
 }
 
 pub fn getStderrMutex() *std.Mutex {
@@ -102,7 +98,7 @@ pub fn detectTTYConfig() TTY.Config {
 /// TODO multithreaded awareness
 pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
     nosuspend {
-        const stderr = getStderrStream();
+        const stderr = io.getStdErr().writer();
         if (builtin.strip_debug_info) {
             stderr.print("Unable to dump stack trace: debug info stripped\n", .{}) catch return;
             return;
@@ -123,7 +119,7 @@ pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
 /// TODO multithreaded awareness
 pub fn dumpStackTraceFromBase(bp: usize, ip: usize) void {
     nosuspend {
-        const stderr = getStderrStream();
+        const stderr = io.getStdErr().writer();
         if (builtin.strip_debug_info) {
             stderr.print("Unable to dump stack trace: debug info stripped\n", .{}) catch return;
             return;
@@ -193,7 +189,7 @@ pub fn captureStackTrace(first_address: ?usize, stack_trace: *builtin.StackTrace
 /// TODO multithreaded awareness
 pub fn dumpStackTrace(stack_trace: builtin.StackTrace) void {
     nosuspend {
-        const stderr = getStderrStream();
+        const stderr = io.getStdErr().writer();
         if (builtin.strip_debug_info) {
             stderr.print("Unable to dump stack trace: debug info stripped\n", .{}) catch return;
             return;
@@ -261,7 +257,7 @@ pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, c
                 const held = panic_mutex.acquire();
                 defer held.release();
 
-                const stderr = getStderrStream();
+                const stderr = io.getStdErr().writer();
                 stderr.print(format ++ "\n", args) catch os.abort();
                 if (trace) |t| {
                     dumpStackTrace(t.*);
@@ -286,7 +282,7 @@ pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, c
             // A panic happened while trying to print a previous panic message,
             // we're still holding the mutex but that's fine as we're going to
             // call abort()
-            const stderr = getStderrStream();
+            const stderr = io.getStdErr().writer();
             stderr.print("Panicked during a panic. Aborting.\n", .{}) catch os.abort();
         },
         else => {
