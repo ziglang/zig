@@ -6,8 +6,11 @@
  */
 
 #include "os.hpp"
+#include "buffer.hpp"
 #include "util.hpp"
 #include "error.hpp"
+#include "util_base.hpp"
+#include <stdint.h>
 
 #if defined(_WIN32)
 
@@ -1426,7 +1429,8 @@ Error os_make_path(Buf *path) {
 
 Error os_make_dir(Buf *path) {
 #if defined(ZIG_OS_WINDOWS)
-    if (!CreateDirectory(buf_ptr(path), NULL)) {
+    PathSpace path_space = slice_to_prefixed_file_w({ (uint8_t*)buf_ptr(path), buf_len(path) });
+    if (!CreateDirectoryW(&path_space.data.items[0], NULL)) {
         if (GetLastError() == ERROR_ALREADY_EXISTS)
             return ErrorPathAlreadyExists;
         if (GetLastError() == ERROR_PATH_NOT_FOUND)
@@ -1719,6 +1723,26 @@ static uint8_t utf8CodepointSequenceLength(uint32_t c) {
     zig_unreachable();
 }
 
+// Ported from std.unicode.utf8ByteSequenceLength
+static uint8_t utf8ByteSequenceLength(uint8_t first_byte) {
+    switch (clzll(~first_byte)) {
+        case 0:
+            return 1;
+            break;
+        case 2:
+            return 2;
+            break;
+        case 3:
+            return 3;
+            break;
+        case 4:
+            return 4;
+            break;
+        default:
+            zig_unreachable();
+    }
+}
+
 // Ported from std/unicode.zig
 static size_t utf8Encode(uint32_t c, Slice<uint8_t> out) {
     size_t length = utf8CodepointSequenceLength(c);
@@ -1753,6 +1777,80 @@ static size_t utf8Encode(uint32_t c, Slice<uint8_t> out) {
     return length;
 }
 
+// Ported from std.unicode.utf8Decode2
+static uint32_t utf8Decode2(Slice<uint8_t> bytes) {
+    assert(bytes.len == 2);
+    assert((bytes.at(0) & 0b11100000) == 0b11000000);
+
+    uint32_t value = bytes.at(0) & 0b00011111;
+    assert((bytes.at(1) & 0b11000000) == 0b10000000);
+    value <<= 6;
+    value |= bytes.at(1) & 0b00111111;
+
+    assert(value >= 0x80);
+    return value;
+}
+
+// Ported from std.unicode.utf8Decode3
+static uint32_t utf8Decode3(Slice<uint8_t> bytes) {
+    assert(bytes.len == 3);
+    assert((bytes.at(0) & 0b11110000) == 0b11100000);
+
+    uint32_t value = bytes.at(0) & 0b00001111;
+    assert((bytes.at(1) & 0b11000000) == 0b10000000);
+    value <<= 6;
+    value |= bytes.at(1) & 0b00111111;
+
+    assert((bytes.at(2) & 0b11000000) == 0b10000000);
+    value <<= 6;
+    value |= bytes.at(2) & 0b00111111;
+
+    assert(value >= 0x80);
+    assert(value < 0xd800 || value > 0xdfff);
+    return value;
+}
+
+// Ported from std.unicode.utf8Decode4
+static uint32_t utf8Decode4(Slice<uint8_t> bytes) {
+    assert(bytes.len == 4);
+    assert((bytes.at(0) & 0b11111000) == 0b11110000);
+
+    uint32_t value = bytes.at(0) & 0b00000111;
+    assert((bytes.at(1) & 0b11000000) == 0b10000000);
+    value <<= 6;
+    value |= bytes.at(1) & 0b00111111;
+
+    assert((bytes.at(2) & 0b11000000) == 0b10000000);
+    value <<= 6;
+    value |= bytes.at(2) & 0b00111111;
+
+    assert((bytes.at(3) & 0b11000000) == 0b10000000);
+    value <<= 6;
+    value |= bytes.at(3) & 0b00111111;
+
+    assert(value >= 0x10000 && value <= 0x10FFFF);
+    return value;
+}
+
+// Ported from std.unicode.utf8Decode
+static uint32_t utf8Decode(Slice<uint8_t> bytes) {
+    switch (bytes.len) {
+        case 1:
+            return bytes.at(0);
+            break;
+        case 2:
+            return utf8Decode2(bytes);
+            break;
+        case 3:
+            return utf8Decode3(bytes);
+            break;
+        case 4:
+            return utf8Decode4(bytes);
+            break;
+        default:
+            zig_unreachable();
+    }
+}
 // Ported from std.unicode.utf16leToUtf8Alloc
 static void utf16le_ptr_to_utf8(Buf *out, WCHAR *utf16le) {
     // optimistically guess that it will all be ascii.
@@ -1769,6 +1867,60 @@ static void utf16le_ptr_to_utf8(Buf *out, WCHAR *utf16le) {
         utf8Encode(codepoint, {(uint8_t*)buf_ptr(out)+out_index, buf_len(out)-out_index});
         out_index += utf8_len;
     }
+}
+
+// Ported from std.unicode.utf8ToUtf16Le
+static size_t utf8_to_utf16le(WCHAR *utf16_le, Slice<uint8_t> utf8) {
+    size_t dest_i = 0;
+    size_t src_i = 0;
+    while (src_i < utf8.len) {
+        uint8_t n = utf8ByteSequenceLength(utf8.at(src_i));
+        size_t next_src_i = src_i + n;
+        uint32_t codepoint = utf8Decode(utf8.slice(src_i, next_src_i));
+        if (codepoint < 0x10000) {
+            utf16_le[dest_i] = codepoint;
+            dest_i += 1;
+        } else {
+            WCHAR high = ((codepoint - 0x10000) >> 10) + 0xD800;
+            WCHAR low = (codepoint & 0x3FF) + 0xDC00;
+            utf16_le[dest_i] = high;
+            utf16_le[dest_i + 1] = low;
+            dest_i += 2;
+        }
+        src_i = next_src_i;
+    }
+    return dest_i;
+}
+
+// Ported from std.os.windows.sliceToPrefixedFileW
+PathSpace slice_to_prefixed_file_w(Slice<uint8_t> path) {
+    PathSpace path_space;
+    for (size_t idx = 0; idx < path.len; idx++) {
+        assert(path.ptr[idx] != '*' && path.ptr[idx] != '?' && path.ptr[idx] != '"' &&
+               path.ptr[idx] != '<' && path.ptr[idx] != '>' && path.ptr[idx] != '|');
+    }
+
+    size_t start_index;
+    if (memStartsWith(path, str("\\?")) || !isAbsoluteWindows(path)) {
+        start_index = 0;
+    } else {
+        static WCHAR prefix[4] = { u'\\', u'?', u'?', u'\\' };
+        memCopy(path_space.data.slice(), Slice<WCHAR> { prefix, 4 });
+        start_index = 4;
+    }
+
+    path_space.len = start_index + utf8_to_utf16le(path_space.data.slice().sliceFrom(start_index).ptr, path);
+    assert(path_space.len <= path_space.data.len);
+
+    Slice<WCHAR> path_slice = path_space.data.slice().slice(0, path_space.len);
+    for (size_t elem_idx = 0; elem_idx < path_slice.len; elem_idx += 1) {
+        if (path_slice.at(elem_idx) == '/') {
+            path_slice.at(elem_idx) = '\\';
+        }
+    }
+
+    path_space.data.items[path_space.len] = 0;
+    return path_space;
 }
 #endif
 
