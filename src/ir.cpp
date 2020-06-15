@@ -15127,46 +15127,6 @@ static IrInstGen *ir_analyze_cast(IrAnalyze *ira, IrInst *source_instr,
         }
     }
 
-    // *[N]T to E![]T
-    if (wanted_type->id == ZigTypeIdErrorUnion &&
-        is_slice(wanted_type->data.error_union.payload_type) &&
-        actual_type->id == ZigTypeIdPointer &&
-        actual_type->data.pointer.ptr_len == PtrLenSingle &&
-        actual_type->data.pointer.child_type->id == ZigTypeIdArray)
-    {
-        ZigType *slice_type = wanted_type->data.error_union.payload_type;
-        ZigType *slice_ptr_type = slice_type->data.structure.fields[slice_ptr_index]->type_entry;
-        assert(slice_ptr_type->id == ZigTypeIdPointer);
-        ZigType *array_type = actual_type->data.pointer.child_type;
-        bool const_ok = (slice_ptr_type->data.pointer.is_const || array_type->data.array.len == 0
-                || !actual_type->data.pointer.is_const);
-        if (const_ok && types_match_const_cast_only(ira, slice_ptr_type->data.pointer.child_type,
-            array_type->data.array.child_type, source_node,
-            !slice_ptr_type->data.pointer.is_const).id == ConstCastResultIdOk)
-        {
-            // If the pointers both have ABI align, it works.
-            bool ok_align = slice_ptr_type->data.pointer.explicit_alignment == 0 &&
-                actual_type->data.pointer.explicit_alignment == 0;
-            if (!ok_align) {
-                // If either one has non ABI align, we have to resolve them both
-                if ((err = type_resolve(ira->codegen, actual_type->data.pointer.child_type,
-                                ResolveStatusAlignmentKnown)))
-                {
-                    return ira->codegen->invalid_inst_gen;
-                }
-                if ((err = type_resolve(ira->codegen, slice_ptr_type->data.pointer.child_type,
-                                ResolveStatusAlignmentKnown)))
-                {
-                    return ira->codegen->invalid_inst_gen;
-                }
-                ok_align = get_ptr_align(ira->codegen, actual_type) >= get_ptr_align(ira->codegen, slice_ptr_type);
-            }
-            if (ok_align) {
-                return ir_resolve_ptr_of_array_to_slice(ira, source_instr, value, slice_type, nullptr);
-            }
-        }
-    }
-
     // @Vector(N,T1) to @Vector(N,T2)
     if (actual_type->id == ZigTypeIdVector && wanted_type->id == ZigTypeIdVector) {
         if (actual_type->data.vector.len == wanted_type->data.vector.len &&
