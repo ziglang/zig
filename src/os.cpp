@@ -7,6 +7,7 @@
 
 #include "os.hpp"
 #include "buffer.hpp"
+#include "heap.hpp"
 #include "util.hpp"
 #include "error.hpp"
 #include "util_base.hpp"
@@ -78,6 +79,7 @@ typedef SSIZE_T ssize_t;
 
 #if defined(ZIG_OS_WINDOWS)
 static void utf16le_ptr_to_utf8(Buf *out, WCHAR *utf16le);
+static size_t utf8_to_utf16le(WCHAR *utf16_le, Slice<uint8_t> utf8);
 static uint64_t windows_perf_freq;
 #elif defined(__MACH__)
 static clock_serv_t macos_calendar_clock;
@@ -153,15 +155,21 @@ static void os_spawn_process_windows(ZigList<const char *> &args, Termination *t
     os_windows_create_command_line(&command_line, args);
 
     PROCESS_INFORMATION piProcInfo = {0};
-    STARTUPINFO siStartInfo = {0};
-    siStartInfo.cb = sizeof(STARTUPINFO);
+    STARTUPINFOW siStartInfo = {0};
+    siStartInfo.cb = sizeof(STARTUPINFOW);
 
-    const char *exe = args.at(0);
-    BOOL success = CreateProcessA(exe, buf_ptr(&command_line), nullptr, nullptr, TRUE, 0, nullptr, nullptr,
+    Slice<uint8_t> exe_slice = str(args.at(0));
+    auto exe_utf16_slice = Slice<WCHAR>::alloc(exe_slice.len + 1);
+    exe_utf16_slice.ptr[utf8_to_utf16le(exe_utf16_slice.ptr, exe_slice)] = 0;
+
+    auto command_line_utf16 = Slice<WCHAR>::alloc(buf_len(&command_line) + 1);
+    command_line_utf16.ptr[utf8_to_utf16le(command_line_utf16.ptr, buf_to_slice(&command_line))] = 0;
+
+    BOOL success = CreateProcessW(exe_utf16_slice.ptr, command_line_utf16.ptr, nullptr, nullptr, TRUE, CREATE_UNICODE_ENVIRONMENT, nullptr, nullptr,
             &siStartInfo, &piProcInfo);
 
     if (!success) {
-        zig_panic("CreateProcess failed. exe: %s command_line: %s", exe, buf_ptr(&command_line));
+        zig_panic("CreateProcess failed. exe: %s command_line: %s", args.at(0), buf_ptr(&command_line));
     }
 
     WaitForSingleObject(piProcInfo.hProcess, INFINITE);
@@ -274,7 +282,7 @@ void os_path_join(Buf *dirname, Buf *basename, Buf *out_full_path) {
 
 Error os_path_real(Buf *rel_path, Buf *out_abs_path) {
 #if defined(ZIG_OS_WINDOWS)
-    PathSpace rel_path_space = slice_to_prefixed_file_w({ (uint8_t*)buf_ptr(rel_path), buf_len(rel_path) });
+    PathSpace rel_path_space = slice_to_prefixed_file_w(buf_to_slice(rel_path));
     PathSpace out_abs_path_space;
 
     if (_wfullpath(&out_abs_path_space.data.items[0], &rel_path_space.data.items[0], PATH_MAX_WIDE) == nullptr) {
@@ -780,7 +788,7 @@ Error os_fetch_file(FILE *f, Buf *out_buf) {
 
 Error os_file_exists(Buf *full_path, bool *result) {
 #if defined(ZIG_OS_WINDOWS)
-    PathSpace path_space = slice_to_prefixed_file_w({ (uint8_t*)buf_ptr(full_path), buf_len(full_path) });
+    PathSpace path_space = slice_to_prefixed_file_w(buf_to_slice(full_path));
     *result = GetFileAttributesW(&path_space.data.items[0]) != INVALID_FILE_ATTRIBUTES;
     return ErrorNone;
 #else
@@ -1338,8 +1346,8 @@ Error os_rename(Buf *src_path, Buf *dest_path) {
         return ErrorNone;
     }
 #if defined(ZIG_OS_WINDOWS)
-    PathSpace src_path_space = slice_to_prefixed_file_w({ (uint8_t*)buf_ptr(src_path), buf_len(src_path) });
-    PathSpace dest_path_space = slice_to_prefixed_file_w({ (uint8_t*)buf_ptr(dest_path), buf_len(dest_path) });
+    PathSpace src_path_space = slice_to_prefixed_file_w(buf_to_slice(src_path));
+    PathSpace dest_path_space = slice_to_prefixed_file_w(buf_to_slice(dest_path));
     if (!MoveFileExW(&src_path_space.data.items[0], &dest_path_space.data.items[0], MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
         return ErrorFileSystem;
     }
@@ -1436,7 +1444,14 @@ Error os_make_path(Buf *path) {
 
 Error os_make_dir(Buf *path) {
 #if defined(ZIG_OS_WINDOWS)
-    PathSpace path_space = slice_to_prefixed_file_w({ (uint8_t*)buf_ptr(path), buf_len(path) });
+    PathSpace path_space = slice_to_prefixed_file_w(buf_to_slice(path));
+    if (memEql(buf_to_slice(path), str("C:\\dev\\tést"))) {
+        for (size_t i = 0; i < path_space.len; i++) {
+            fprintf(stderr, "%d ", path_space.data.items[i]);
+        }
+        fprintf(stderr, "\n");
+    }
+    
     if (!CreateDirectoryW(&path_space.data.items[0], NULL)) {
         if (GetLastError() == ERROR_ALREADY_EXISTS)
             return ErrorPathAlreadyExists;
@@ -1727,22 +1742,11 @@ static uint8_t utf8CodepointSequenceLength(uint32_t c) {
 
 // Ported from std.unicode.utf8ByteSequenceLength
 static uint8_t utf8ByteSequenceLength(uint8_t first_byte) {
-    switch (clzll(~first_byte)) {
-        case 0:
-            return 1;
-            break;
-        case 2:
-            return 2;
-            break;
-        case 3:
-            return 3;
-            break;
-        case 4:
-            return 4;
-            break;
-        default:
-            zig_unreachable();
-    }
+    if (first_byte < 0b10000000) return 1;
+    if ((first_byte & 0b11100000) == 0b11000000) return 2;
+    if ((first_byte & 0b11110000) == 0b11100000) return 3;
+    if ((first_byte & 0b11111000) == 0b11110000) return 4;
+    zig_unreachable();
 }
 
 // Ported from std/unicode.zig
@@ -2016,7 +2020,7 @@ Error os_self_exe_shared_libs(ZigList<Buf *> &paths) {
 
 Error os_file_open_rw(Buf *full_path, OsFile *out_file, OsFileAttr *attr, bool need_write, uint32_t mode) {
 #if defined(ZIG_OS_WINDOWS)
-    PathSpace path_space = slice_to_prefixed_file_w({ (uint8_t*)buf_ptr(full_path), buf_len(full_path) });
+    PathSpace path_space = slice_to_prefixed_file_w(buf_to_slice(full_path));
     HANDLE result = CreateFileW(&path_space.data.items[0],
             need_write ? (GENERIC_READ|GENERIC_WRITE) : GENERIC_READ,
             need_write ? 0 : FILE_SHARE_READ,
@@ -2121,7 +2125,7 @@ Error os_file_open_w(Buf *full_path, OsFile *out_file, OsFileAttr *attr, uint32_
 
 Error os_file_open_lock_rw(Buf *full_path, OsFile *out_file) {
 #if defined(ZIG_OS_WINDOWS)
-    PathSpace path_space = slice_to_prefixed_file_w({ (uint8_t*)buf_ptr(full_path), buf_len(full_path) });
+    PathSpace path_space = slice_to_prefixed_file_w(buf_to_slice(full_path));
     for (;;) {
         HANDLE result = CreateFileW(&path_space.data.items[0], GENERIC_READ | GENERIC_WRITE,
             0, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
