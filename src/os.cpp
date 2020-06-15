@@ -1037,7 +1037,12 @@ Error os_exec_process(ZigList<const char *> &args,
 }
 
 Error os_write_file(Buf *full_path, Buf *contents) {
+#if defined(ZIG_OS_WINDOWS)
+    PathSpace path_space = slice_to_prefixed_file_w(buf_to_slice(full_path));
+    FILE *f = _wfopen(&path_space.data.items[0], L"wb");
+#else
     FILE *f = fopen(buf_ptr(full_path), "wb");
+#endif
     if (!f) {
         zig_panic("os_write_file failed for %s", buf_ptr(full_path));
     }
@@ -1072,7 +1077,12 @@ static Error copy_open_files(FILE *src_f, FILE *dest_f) {
 Error os_dump_file(Buf *src_path, FILE *dest_file) {
     Error err;
 
+#if defined(ZIG_OS_WINDOWS)
+    PathSpace path_space = slice_to_prefixed_file_w(buf_to_slice(src_path));
+    FILE *src_f = _wfopen(&path_space.data.items[0], L"rb");
+#else
     FILE *src_f = fopen(buf_ptr(src_path), "rb");
+#endif
     if (!src_f) {
         int err = errno;
         if (err == ENOENT) {
@@ -1189,7 +1199,12 @@ Error os_update_file(Buf *src_path, Buf *dst_path) {
 }
 
 Error os_copy_file(Buf *src_path, Buf *dest_path) {
+#if defined(ZIG_OS_WINDOWS)
+    PathSpace src_path_space = slice_to_prefixed_file_w(buf_to_slice(src_path));
+    FILE *src_f = _wfopen(&src_path_space.data.items[0], L"rb");
+#else
     FILE *src_f = fopen(buf_ptr(src_path), "rb");
+#endif
     if (!src_f) {
         int err = errno;
         if (err == ENOENT) {
@@ -1200,7 +1215,12 @@ Error os_copy_file(Buf *src_path, Buf *dest_path) {
             return ErrorFileSystem;
         }
     }
+#if defined(ZIG_OS_WINDOWS)
+    PathSpace dest_path_space = slice_to_prefixed_file_w(buf_to_slice(dest_path));
+    FILE *dest_f = _wfopen(&dest_path_space.data.items[0], L"wb");
+#else
     FILE *dest_f = fopen(buf_ptr(dest_path), "wb");
+#endif
     if (!dest_f) {
         int err = errno;
         if (err == ENOENT) {
@@ -1221,7 +1241,12 @@ Error os_copy_file(Buf *src_path, Buf *dest_path) {
 }
 
 Error os_fetch_file_path(Buf *full_path, Buf *out_contents) {
+#if defined(ZIG_OS_WINDOWS)
+    PathSpace path_space = slice_to_prefixed_file_w(buf_to_slice(full_path));
+    FILE *f = _wfopen(&path_space.data.items[0], L"rb");
+#else
     FILE *f = fopen(buf_ptr(full_path), "rb");
+#endif
     if (!f) {
         switch (errno) {
             case EACCES:
