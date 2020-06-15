@@ -242,6 +242,7 @@ pub const malloc_min_align = @alignOf(extern union {
 });
 
 pub extern "c" fn aligned_alloc(alignment: usize, size: usize) ?*c_void;
+pub extern "c" fn calloc(usize, usize) ?*align(malloc_min_align) c_void;
 pub extern "c" fn malloc(usize) ?*align(malloc_min_align) c_void;
 pub extern "c" fn realloc(?*align(malloc_min_align) c_void, usize) ?*align(malloc_min_align) c_void;
 pub extern "c" fn free(*c_void) void;
