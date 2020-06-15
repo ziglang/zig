@@ -11,6 +11,7 @@
 #include "error.hpp"
 #include "util_base.hpp"
 #include <stdint.h>
+#include <stdio.h>
 
 #if defined(_WIN32)
 
@@ -76,6 +77,7 @@ typedef SSIZE_T ssize_t;
 #endif
 
 #if defined(ZIG_OS_WINDOWS)
+static void utf16le_ptr_to_utf8(Buf *out, WCHAR *utf16le);
 static uint64_t windows_perf_freq;
 #elif defined(__MACH__)
 static clock_serv_t macos_calendar_clock;
@@ -272,11 +274,13 @@ void os_path_join(Buf *dirname, Buf *basename, Buf *out_full_path) {
 
 Error os_path_real(Buf *rel_path, Buf *out_abs_path) {
 #if defined(ZIG_OS_WINDOWS)
-    buf_resize(out_abs_path, 4096);
-    if (_fullpath(buf_ptr(out_abs_path), buf_ptr(rel_path), buf_len(out_abs_path)) == nullptr) {
-        zig_panic("_fullpath failed");
+    PathSpace rel_path_space = slice_to_prefixed_file_w({ (uint8_t*)buf_ptr(rel_path), buf_len(rel_path) });
+    PathSpace out_abs_path_space;
+
+    if (_wfullpath(&out_abs_path_space.data.items[0], &rel_path_space.data.items[0], PATH_MAX_WIDE) == nullptr) {
+        zig_panic("_wfullpath failed");
     }
-    buf_resize(out_abs_path, strlen(buf_ptr(out_abs_path)));
+    utf16le_ptr_to_utf8(out_abs_path, &out_abs_path_space.data.items[0]);
     return ErrorNone;
 #elif defined(ZIG_OS_POSIX)
     buf_resize(out_abs_path, PATH_MAX + 1);
@@ -1234,11 +1238,11 @@ Error os_fetch_file_path(Buf *full_path, Buf *out_contents) {
 
 Error os_get_cwd(Buf *out_cwd) {
 #if defined(ZIG_OS_WINDOWS)
-    char buf[4096];
-    if (GetCurrentDirectory(4096, buf) == 0) {
+    PathSpace path_space;
+    if (GetCurrentDirectoryW(PATH_MAX_WIDE, &path_space.data.items[0]) == 0) {
         zig_panic("GetCurrentDirectory failed");
     }
-    buf_init_from_str(out_cwd, buf);
+    utf16le_ptr_to_utf8(out_cwd, &path_space.data.items[0]);
     return ErrorNone;
 #elif defined(ZIG_OS_POSIX)
     char buf[PATH_MAX];
@@ -1538,18 +1542,13 @@ int os_init(void) {
 
 Error os_self_exe_path(Buf *out_path) {
 #if defined(ZIG_OS_WINDOWS)
-    buf_resize(out_path, 256);
-    for (;;) {
-        DWORD copied_amt = GetModuleFileName(nullptr, buf_ptr(out_path), buf_len(out_path));
-        if (copied_amt <= 0) {
-            return ErrorFileNotFound;
-        }
-        if (copied_amt < buf_len(out_path)) {
-            buf_resize(out_path, copied_amt);
-            return ErrorNone;
-        }
-        buf_resize(out_path, buf_len(out_path) * 2);
+    PathSpace path_space;
+    DWORD copied_amt = GetModuleFileNameW(nullptr, &path_space.data.items[0], PATH_MAX_WIDE);
+    if (copied_amt <= 0) {
+        return ErrorFileNotFound;
     }
+    utf16le_ptr_to_utf8(out_path, &path_space.data.items[0]);
+    return ErrorNone;
 
 #elif defined(ZIG_OS_DARWIN)
     // How long is the executable's path?

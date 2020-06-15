@@ -155,8 +155,10 @@ Error ATTRIBUTE_MUST_USE os_get_app_data_dir(Buf *out_path, const char *appname)
 
 Error ATTRIBUTE_MUST_USE os_self_exe_shared_libs(ZigList<Buf *> &paths);
 
+const size_t PATH_MAX_WIDE = 32767;
+
 struct PathSpace {
-    Array<wchar_t, 32767> data;
+    Array<wchar_t, PATH_MAX_WIDE> data;
     size_t len;
 };
 
