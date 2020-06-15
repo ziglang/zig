@@ -82,24 +82,24 @@ pub const TestContext = struct {
     };
 
     pub const ZIRUpdateType = enum {
-        /// A transformation stage transforms the input ZIR and tests against
+        /// A transformation update transforms the input ZIR and tests against
         /// the expected output
         Transformation,
-        /// An error stage attempts to compile bad code, and ensures that it
+        /// An error update attempts to compile bad code, and ensures that it
         /// fails to compile, and for the expected reasons
         Error,
-        /// An execution stage compiles and runs the input ZIR, feeding in
+        /// An execution update compiles and runs the input ZIR, feeding in
         /// provided input and ensuring that the outputs match what is expected
         Execution,
-        /// A compilation stage checks that the ZIR compiles without any issues
+        /// A compilation update checks that the ZIR compiles without any issues
         Compiles,
     };
 
     pub const ZIRUpdate = struct {
-        /// The input to the current stage. We simulate an incremental update
-        /// with the file's contents changed to this value each stage.
+        /// The input to the current update. We simulate an incremental update
+        /// with the file's contents changed to this value each update.
         ///
-        /// This value can change entirely between stages, which would be akin
+        /// This value can change entirely between updates, which would be akin
         /// to deleting the source file and creating a new one from scratch; or
         /// you can keep it mostly consistent, with small changes, testing the
         /// effects of the incremental compilation.
@@ -114,7 +114,7 @@ pub const TestContext = struct {
             ///
             /// If stdout, stderr, and exit_code are all null, addZIRCase will
             /// discard the test. To test for successful compilation, use a
-            /// dedicated Compile stage instead.
+            /// dedicated Compile update instead.
             Execution: struct {
                 stdin: ?[]const u8,
                 stdout: ?[]const u8,
@@ -131,9 +131,9 @@ pub const TestContext = struct {
         },
     };
 
-    /// A ZIRCase consists of a set of *stages*. A stage can transform ZIR,
+    /// A ZIRCase consists of a set of *updates*. A update can transform ZIR,
     /// compile it, ensure that compilation fails, and more. The same Module is
-    /// used for each stage, so each stage's source is treated as a single file
+    /// used for each update, so each update's source is treated as a single file
     /// being updated by the test harness and incrementally compiled.
     pub const ZIRCase = struct {
         name: []const u8,
@@ -141,19 +141,19 @@ pub const TestContext = struct {
         /// such as QEMU is required for tests to complete.
         ///
         target: std.zig.CrossTarget,
-        stages: []const ZIRUpdate,
+        updates: []const ZIRUpdate,
     };
 
     pub fn addZIRCase(
         ctx: *TestContext,
         name: []const u8,
         target: std.zig.CrossTarget,
-        stages: []const ZIRUpdate,
+        updates: []const ZIRUpdate,
     ) void {
         const case = ZIRCase{
             .name = name,
             .target = target,
-            .stages = stages,
+            .updates = updates,
         };
         ctx.zir_cases.append(case) catch |err| std.debug.panic("Error: {}", .{err});
     }
@@ -297,7 +297,7 @@ pub const TestContext = struct {
         const root_pkg = try Package.create(allocator, tmp.dir, ".", tmp_src_path);
         defer root_pkg.destroy();
 
-        var prg_node = root_node.start(case.name, case.stages.len);
+        var prg_node = root_node.start(case.name, case.updates.len);
         prg_node.activate();
         defer prg_node.end();
 
@@ -318,33 +318,33 @@ pub const TestContext = struct {
         });
         defer module.deinit();
 
-        for (case.stages) |s| {
+        for (case.updates) |s| {
             // TODO: remove before committing. This is for ZLS ;)
-            const stage: ZIRUpdate = s;
+            const update: ZIRUpdate = s;
 
-            var stage_node = prg_node.start("update", 4);
-            stage_node.activate();
-            defer stage_node.end();
+            var update_node = prg_node.start("update", 4);
+            update_node.activate();
+            defer update_node.end();
 
-            var sync_node = stage_node.start("write", null);
+            var sync_node = update_node.start("write", null);
             sync_node.activate();
-            try tmp.dir.writeFile(tmp_src_path, stage.src);
+            try tmp.dir.writeFile(tmp_src_path, update.src);
             sync_node.end();
 
-            var module_node = stage_node.start("parse/analysis/codegen", null);
+            var module_node = update_node.start("parse/analysis/codegen", null);
             module_node.activate();
             try module.update();
             module_node.end();
 
-            switch (stage.case) {
+            switch (update.case) {
                 .Transformation => |expected_output| {
-                    var emit_node = stage_node.start("emit", null);
+                    var emit_node = update_node.start("emit", null);
                     emit_node.activate();
                     var new_zir_module = try zir.emit(allocator, module);
                     defer new_zir_module.deinit(allocator);
                     emit_node.end();
 
-                    var write_node = stage_node.start("write", null);
+                    var write_node = update_node.start("write", null);
                     write_node.activate();
                     var out_zir = std.ArrayList(u8).init(allocator);
                     defer out_zir.deinit();
