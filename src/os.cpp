@@ -776,7 +776,8 @@ Error os_fetch_file(FILE *f, Buf *out_buf) {
 
 Error os_file_exists(Buf *full_path, bool *result) {
 #if defined(ZIG_OS_WINDOWS)
-    *result = GetFileAttributes(buf_ptr(full_path)) != INVALID_FILE_ATTRIBUTES;
+    PathSpace path_space = slice_to_prefixed_file_w({ (uint8_t*)buf_ptr(full_path), buf_len(full_path) });
+    *result = GetFileAttributesW(&path_space.data.items[0]) != INVALID_FILE_ATTRIBUTES;
     return ErrorNone;
 #else
     *result = access(buf_ptr(full_path), F_OK) != -1;
@@ -1333,7 +1334,9 @@ Error os_rename(Buf *src_path, Buf *dest_path) {
         return ErrorNone;
     }
 #if defined(ZIG_OS_WINDOWS)
-    if (!MoveFileExA(buf_ptr(src_path), buf_ptr(dest_path), MOVEFILE_REPLACE_EXISTING)) {
+    PathSpace src_path_space = slice_to_prefixed_file_w({ (uint8_t*)buf_ptr(src_path), buf_len(src_path) });
+    PathSpace dest_path_space = slice_to_prefixed_file_w({ (uint8_t*)buf_ptr(dest_path), buf_len(dest_path) });
+    if (!MoveFileExW(&src_path_space.data.items[0], &dest_path_space.data.items[0], MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
         return ErrorFileSystem;
     }
 #else
@@ -2014,8 +2017,8 @@ Error os_self_exe_shared_libs(ZigList<Buf *> &paths) {
 
 Error os_file_open_rw(Buf *full_path, OsFile *out_file, OsFileAttr *attr, bool need_write, uint32_t mode) {
 #if defined(ZIG_OS_WINDOWS)
-    // TODO use CreateFileW
-    HANDLE result = CreateFileA(buf_ptr(full_path),
+    PathSpace path_space = slice_to_prefixed_file_w({ (uint8_t*)buf_ptr(full_path), buf_len(full_path) });
+    HANDLE result = CreateFileW(&path_space.data.items[0],
             need_write ? (GENERIC_READ|GENERIC_WRITE) : GENERIC_READ,
             need_write ? 0 : FILE_SHARE_READ,
             nullptr,
@@ -2119,8 +2122,9 @@ Error os_file_open_w(Buf *full_path, OsFile *out_file, OsFileAttr *attr, uint32_
 
 Error os_file_open_lock_rw(Buf *full_path, OsFile *out_file) {
 #if defined(ZIG_OS_WINDOWS)
+    PathSpace path_space = slice_to_prefixed_file_w({ (uint8_t*)buf_ptr(full_path), buf_len(full_path) });
     for (;;) {
-        HANDLE result = CreateFileA(buf_ptr(full_path), GENERIC_READ | GENERIC_WRITE,
+        HANDLE result = CreateFileW(&path_space.data.items[0], GENERIC_READ | GENERIC_WRITE,
             0, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
 
         if (result == INVALID_HANDLE_VALUE) {
