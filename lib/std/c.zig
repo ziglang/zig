@@ -229,9 +229,21 @@ pub extern "c" fn getdirentries(fd: fd_t, buf_ptr: [*]u8, nbytes: usize, basep: 
 pub extern "c" fn setgid(ruid: c_uint, euid: c_uint) c_int;
 pub extern "c" fn setuid(uid: c_uint) c_int;
 
+/// The order and contiguity of storage allocated by successive calls
+/// to the calloc , malloc , and realloc functions is unspecified.  The
+/// pointer returned if the allocation succeeds is suitably aligned so
+/// that it may be assigned to a pointer to any type of object and then
+/// used to access such an object in the space allocated (until the space
+/// is explicitly freed or reallocated).
+pub const malloc_min_align = @alignOf(extern union {
+    a: *c_void,
+    b: c_long,
+    c: c_longdouble,
+});
+
 pub extern "c" fn aligned_alloc(alignment: usize, size: usize) ?*c_void;
-pub extern "c" fn malloc(usize) ?*c_void;
-pub extern "c" fn realloc(?*c_void, usize) ?*c_void;
+pub extern "c" fn malloc(usize) ?*align(malloc_min_align) c_void;
+pub extern "c" fn realloc(?*align(malloc_min_align) c_void, usize) ?*align(malloc_min_align) c_void;
 pub extern "c" fn free(*c_void) void;
 pub extern "c" fn posix_memalign(memptr: **c_void, alignment: usize, size: usize) c_int;
 
