@@ -38,7 +38,6 @@ pub const TestContext = struct {
     };
 
     // TODO: remove
-
     pub const ZIRErrorCase = struct {
         name: []const u8,
         src: [:0]const u8,
@@ -71,7 +70,7 @@ pub const TestContext = struct {
         src: [:0]const u8,
         case: union(ZIRUpdateType) {
             /// The expected output ZIR
-            Transformation: []const u8,
+            Transformation: [:0]const u8,
             /// A slice containing the expected errors *in sequential order*.
             Error: []const ErrorMsg,
 
@@ -106,21 +105,30 @@ pub const TestContext = struct {
         /// such as QEMU is required for tests to complete.
         ///
         target: std.zig.CrossTarget,
-        updates: []const ZIRUpdate,
+        updates: std.ArrayList(ZIRUpdate),
+
+        pub fn addTransform(self: *ZIRCase, src: [:0]const u8, result: [:0]const u8) void {
+            self.updates.append(.{
+                .src = src,
+                .case = .{ .Transformation = result },
+            }) catch unreachable;
+        }
+
+        pub fn addError(self: *ZIRCase, src: [:0]const u8, errors: []const []const u8) void {}
     };
 
-    pub fn addZIRCase(
+    pub fn addZIRMulti(
         ctx: *TestContext,
         name: []const u8,
         target: std.zig.CrossTarget,
-        updates: []const ZIRUpdate,
-    ) void {
+    ) *ZIRCase {
         const case = ZIRCase{
             .name = name,
             .target = target,
-            .updates = updates,
+            .updates = std.ArrayList(ZIRUpdate).init(ctx.zir_cases.allocator),
         };
-        ctx.zir_cases.append(case) catch |err| std.debug.panic("Error: {}", .{err});
+        ctx.zir_cases.append(case) catch unreachable;
+        return &ctx.zir_cases.items[ctx.zir_cases.items.len - 1];
     }
 
     pub fn addZIRCompareOutput(
@@ -134,6 +142,17 @@ pub const TestContext = struct {
             .src_list = src_list,
             .expected_stdout_list = expected_stdout_list,
         }) catch unreachable;
+    }
+
+    pub fn addZIRTransform(
+        ctx: *TestContext,
+        name: []const u8,
+        target: std.zig.CrossTarget,
+        src: [:0]const u8,
+        result: [:0]const u8,
+    ) void {
+        var c = ctx.addZIRMulti(name, target);
+        c.addTransform(src, result);
     }
 
     pub fn addZIRError(
@@ -194,6 +213,9 @@ pub const TestContext = struct {
             self.zir_error_cases.allocator.free(e.expected_errors);
         }
         self.zir_error_cases.deinit();
+        for (self.zir_cases.items) |c| {
+            c.updates.deinit();
+        }
         self.zir_cases.deinit();
         self.* = undefined;
     }
@@ -234,7 +256,7 @@ pub const TestContext = struct {
         const root_pkg = try Package.create(allocator, tmp.dir, ".", tmp_src_path);
         defer root_pkg.destroy();
 
-        var prg_node = root_node.start(case.name, case.updates.len);
+        var prg_node = root_node.start(case.name, case.updates.items.len);
         prg_node.activate();
         defer prg_node.end();
 
@@ -255,7 +277,7 @@ pub const TestContext = struct {
         });
         defer module.deinit();
 
-        for (case.updates) |s| {
+        for (case.updates.items) |s| {
             // TODO: remove before committing. This is for ZLS ;)
             const update: ZIRUpdate = s;
 
