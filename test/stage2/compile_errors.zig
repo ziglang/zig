@@ -1,8 +1,29 @@
 const TestContext = @import("../../src-self-hosted/test.zig").TestContext;
+const std = @import("std");
+
+const ErrorMsg = @import("../../src-self-hosted/Module.zig").ErrorMsg;
+
+const linux_x64 = std.zig.CrossTarget{
+    .cpu_arch = .x86_64,
+    .os_tag = .linux,
+};
 
 pub fn addCases(ctx: *TestContext) !void {
     // TODO: re-enable these tests.
     // https://github.com/ziglang/zig/issues/1364
+    ctx.addZIRError("test", linux_x64,
+        \\@noreturn = primitive(noreturn)
+        \\@void = primitive(void)
+        \\@usize = primitive(usize)
+        \\
+        \\@start_fnty = fntype([], @noreturn, cc=Naked)
+        \\@start = fn(@start_fnty, {
+        \\  %0 = call(%test, [])
+        \\})
+    , &[_]ErrorMsg{.{
+        .byte_offset = 168,
+        .msg = "unrecognized identifier: %test",
+    }}, &[_]ErrorMsg{}, &[_]ErrorMsg{});
 
     //try ctx.testCompileError(
     //    \\export fn entry() void {}

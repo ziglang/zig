@@ -1,6 +1,7 @@
 const std = @import("std");
 const link = @import("link.zig");
 const Module = @import("Module.zig");
+const ErrorMsg = Module.ErrorMsg;
 const Allocator = std.mem.Allocator;
 const zir = @import("zir.zig");
 const Package = @import("Package.zig");
@@ -18,6 +19,7 @@ test "self-hosted" {
 pub const TestContext = struct {
     zir_cmp_output_cases: std.ArrayList(ZIRCompareOutputCase),
     zir_transform_cases: std.ArrayList(ZIRTransformCase),
+    zir_error_cases: std.ArrayList(ZIRErrorCase),
 
     pub const ZIRCompareOutputCase = struct {
         name: []const u8,
@@ -55,6 +57,15 @@ pub const TestContext = struct {
         }
     };
 
+    pub const ZIRErrorCase = struct {
+        name: []const u8,
+        src: [:0]const u8,
+        expected_file_errors: []const ErrorMsg,
+        expected_decl_errors: []const ErrorMsg,
+        expected_export_errors: []const ErrorMsg,
+        cross_target: std.zig.CrossTarget,
+    };
+
     pub fn addZIRCompareOutput(
         ctx: *TestContext,
         name: []const u8,
@@ -87,30 +98,38 @@ pub const TestContext = struct {
         }) catch unreachable;
     }
 
-    pub fn addZIRMulti(
+    pub fn addZIRError(
         ctx: *TestContext,
         name: []const u8,
         cross_target: std.zig.CrossTarget,
-    ) *ZIRTransformCase {
-        const case = ctx.zir_transform_cases.addOne() catch unreachable;
-        case.* = .{
+        src: [:0]const u8,
+        expected_file_errors: []const ErrorMsg,
+        expected_decl_errors: []const ErrorMsg,
+        expected_export_errors: []const ErrorMsg,
+    ) void {
+        ctx.zir_error_cases.append(.{
             .name = name,
+            .src = src,
+            .expected_file_errors = expected_file_errors,
+            .expected_decl_errors = expected_decl_errors,
+            .expected_export_errors = expected_export_errors,
             .cross_target = cross_target,
-            .updates = std.ArrayList(ZIRTransformCase.Update).init(std.heap.page_allocator),
-        };
-        return case;
+        }) catch unreachable;
     }
 
     fn init(self: *TestContext) !void {
+        const allocator = std.heap.page_allocator;
         self.* = .{
-            .zir_cmp_output_cases = std.ArrayList(ZIRCompareOutputCase).init(std.heap.page_allocator),
-            .zir_transform_cases = std.ArrayList(ZIRTransformCase).init(std.heap.page_allocator),
+            .zir_cmp_output_cases = std.ArrayList(ZIRCompareOutputCase).init(allocator),
+            .zir_transform_cases = std.ArrayList(ZIRTransformCase).init(allocator),
+            .zir_error_cases = std.ArrayList(ZIRErrorCase).init(allocator),
         };
     }
 
     fn deinit(self: *TestContext) void {
         self.zir_cmp_output_cases.deinit();
         self.zir_transform_cases.deinit();
+        self.zir_error_cases.deinit();
         self.* = undefined;
     }
 
@@ -131,6 +150,12 @@ pub const TestContext = struct {
             std.testing.base_allocator_instance.reset();
             const info = try std.zig.system.NativeTargetInfo.detect(std.testing.allocator, case.cross_target);
             try self.runOneZIRTransformCase(std.testing.allocator, root_node, case, info.target);
+            try std.testing.allocator_instance.validate();
+        }
+        for (self.zir_error_cases.items) |case| {
+            std.testing.base_allocator_instance.reset();
+            const info = try std.zig.system.NativeTargetInfo.detect(std.testing.allocator, case.cross_target);
+            try self.runOneZIRErrorCase(std.testing.allocator, root_node, case, info.target);
             try std.testing.allocator_instance.validate();
         }
     }
@@ -297,6 +322,105 @@ pub const TestContext = struct {
                         }
                     }
                 },
+            }
+        }
+    }
+
+    fn runOneZIRErrorCase(
+        self: *TestContext,
+        allocator: *Allocator,
+        root_node: *std.Progress.Node,
+        case: ZIRErrorCase,
+        target: std.Target,
+    ) !void {
+        var tmp = std.testing.tmpDir(.{});
+        defer tmp.cleanup();
+
+        var prg_node = root_node.start(case.name, 1);
+        prg_node.activate();
+        defer prg_node.end();
+
+        const tmp_src_path = "test-case.zir";
+        try tmp.dir.writeFile(tmp_src_path, case.src);
+
+        const root_pkg = try Package.create(allocator, tmp.dir, ".", tmp_src_path);
+        defer root_pkg.destroy();
+
+        var module = try Module.init(allocator, .{
+            .target = target,
+            .output_mode = .Obj,
+            .optimize_mode = .Debug,
+            .bin_file_dir = tmp.dir,
+            .bin_file_path = "test-case.o",
+            .root_pkg = root_pkg,
+        });
+        defer module.deinit();
+
+        var module_node = prg_node.start("parse/analysis/codegen", null);
+        module_node.activate();
+        const failed = f: {
+            module.update() catch break :f true;
+            break :f false;
+        };
+        if (!failed) {
+            return error.DidNotFail;
+        }
+        module_node.end();
+        {
+            var i = module.failed_files.iterator();
+            var index: usize = 0;
+            while (i.next()) |pair| : (index += 1) {
+                if (index == case.expected_file_errors.len) {
+                    return error.UnexpectedError;
+                }
+                const v1 = pair.value.*;
+                const v2 = case.expected_file_errors[index];
+                if (v1.byte_offset != v2.byte_offset) {
+                    std.debug.warn("Expected error at {}, found it at {}\n", .{ v2.byte_offset, v1.byte_offset });
+                    return error.ExpectedErrorElsewhere;
+                }
+                if (!std.mem.eql(u8, v1.msg, v2.msg)) {
+                    std.debug.warn("Expected '{}', found '{}'\n", .{ v2.msg, v1.msg });
+                    return error.ExpectedOtherError;
+                }
+            }
+        }
+        {
+            var i = module.failed_decls.iterator();
+            var index: usize = 0;
+            while (i.next()) |pair| : (index += 1) {
+                if (index == case.expected_decl_errors.len) {
+                    return error.UnexpectedError;
+                }
+                const v1 = pair.value.*;
+                const v2 = case.expected_decl_errors[index];
+                if (v1.byte_offset != v2.byte_offset) {
+                    std.debug.warn("Expected error at {}, found it at {}\n", .{ v2.byte_offset, v1.byte_offset });
+                    return error.ExpectedErrorElsewhere;
+                }
+                if (!std.mem.eql(u8, v1.msg, v2.msg)) {
+                    std.debug.warn("Expected '{}', found '{}'\n", .{ v2.msg, v1.msg });
+                    return error.ExpectedOtherError;
+                }
+            }
+        }
+        {
+            var i = module.failed_exports.iterator();
+            var index: usize = 0;
+            while (i.next()) |pair| : (index += 1) {
+                if (index == case.expected_export_errors.len) {
+                    return error.UnexpectedError;
+                }
+                const v1 = pair.value.*;
+                const v2 = case.expected_export_errors[index];
+                if (v1.byte_offset != v2.byte_offset) {
+                    std.debug.warn("Expected error at {}, found it at {}\n", .{ v2.byte_offset, v1.byte_offset });
+                    return error.ExpectedErrorElsewhere;
+                }
+                if (!std.mem.eql(u8, v1.msg, v2.msg)) {
+                    std.debug.warn("Expected '{}', found '{}'\n", .{ v2.msg, v1.msg });
+                    return error.ExpectedOtherError;
+                }
             }
         }
     }
