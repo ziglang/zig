@@ -1,5 +1,6 @@
 const std = @import("std");
 const TestContext = @import("../../src-self-hosted/test.zig").TestContext;
+const ZIRUpdate = TestContext.ZIRUpdate;
 // self-hosted does not yet support PE executable files / COFF object files
 // or mach-o files. So we do the ZIR transform test cases cross compiling for
 // x86_64-linux.
@@ -9,86 +10,57 @@ const linux_x64 = std.zig.CrossTarget{
 };
 
 pub fn addCases(ctx: *TestContext) void {
-    ctx.addZIRTransform("referencing decls which appear later in the file", linux_x64,
-        \\@void = primitive(void)
-        \\@fnty = fntype([], @void, cc=C)
-        \\
-        \\@9 = str("entry")
-        \\@10 = ref(@9)
-        \\@11 = export(@10, @entry)
-        \\
-        \\@entry = fn(@fnty, {
-        \\  %11 = return()
-        \\})
-    ,
-        \\@void = primitive(void)
-        \\@fnty = fntype([], @void, cc=C)
-        \\@9 = str("entry")
-        \\@10 = ref(@9)
-        \\@unnamed$6 = str("entry")
-        \\@unnamed$7 = ref(@unnamed$6)
-        \\@unnamed$8 = export(@unnamed$7, @entry)
-        \\@unnamed$10 = fntype([], @void, cc=C)
-        \\@entry = fn(@unnamed$10, {
-        \\  %0 = return()
-        \\})
-        \\
-    );
-    ctx.addZIRTransform("elemptr, add, cmp, condbr, return, breakpoint", linux_x64,
-        \\@void = primitive(void)
-        \\@usize = primitive(usize)
-        \\@fnty = fntype([], @void, cc=C)
-        \\@0 = int(0)
-        \\@1 = int(1)
-        \\@2 = int(2)
-        \\@3 = int(3)
-        \\
-        \\@entry = fn(@fnty, {
-        \\  %a = str("\x32\x08\x01\x0a")
-        \\  %aref = ref(%a)
-        \\  %eptr0 = elemptr(%aref, @0)
-        \\  %eptr1 = elemptr(%aref, @1)
-        \\  %eptr2 = elemptr(%aref, @2)
-        \\  %eptr3 = elemptr(%aref, @3)
-        \\  %v0 = deref(%eptr0)
-        \\  %v1 = deref(%eptr1)
-        \\  %v2 = deref(%eptr2)
-        \\  %v3 = deref(%eptr3)
-        \\  %x0 = add(%v0, %v1)
-        \\  %x1 = add(%v2, %v3)
-        \\  %result = add(%x0, %x1)
-        \\
-        \\  %expected = int(69)
-        \\  %ok = cmp(%result, eq, %expected)
-        \\  %10 = condbr(%ok, {
-        \\    %11 = return()
-        \\  }, {
-        \\    %12 = breakpoint()
-        \\  })
-        \\})
-        \\
-        \\@9 = str("entry")
-        \\@10 = ref(@9)
-        \\@11 = export(@10, @entry)
-    ,
-        \\@void = primitive(void)
-        \\@fnty = fntype([], @void, cc=C)
-        \\@0 = int(0)
-        \\@1 = int(1)
-        \\@2 = int(2)
-        \\@3 = int(3)
-        \\@unnamed$7 = fntype([], @void, cc=C)
-        \\@entry = fn(@unnamed$7, {
-        \\  %0 = return()
-        \\})
-        \\@a = str("2\x08\x01\n")
-        \\@9 = str("entry")
-        \\@10 = ref(@9)
-        \\@unnamed$14 = str("entry")
-        \\@unnamed$15 = ref(@unnamed$14)
-        \\@unnamed$16 = export(@unnamed$15, @entry)
-        \\
-    );
+    ctx.addZIRCase("elemptr, add, cmp, condbr, return, breakpoint", linux_x64, &[_]ZIRUpdate{ZIRUpdate{
+        .src =
+            \\@void = primitive(void)
+            \\@usize = primitive(usize)
+            \\@fnty = fntype([], @void, cc=C)
+            \\@0 = int(0)
+            \\@1 = int(1)
+            \\@2 = int(2)
+            \\@3 = int(3)
+            \\
+            \\@entry = fn(@fnty, {
+            \\  %a = str("\x32\x08\x01\x0a")
+            \\  %aref = ref(%a)
+            \\  %eptr0 = elemptr(%aref, @0)
+            \\  %eptr1 = elemptr(%aref, @1)
+            \\  %eptr2 = elemptr(%aref, @2)
+            \\  %eptr3 = elemptr(%aref, @3)
+            \\  %v0 = deref(%eptr0)
+            \\  %v1 = deref(%eptr1)
+            \\  %v2 = deref(%eptr2)
+            \\  %v3 = deref(%eptr3)
+            \\  %x0 = add(%v0, %v1)
+            \\  %x1 = add(%v2, %v3)
+            \\  %result = add(%x0, %x1)
+            \\
+            \\  %expected = int(69)
+            \\  %ok = cmp(%result, eq, %expected)
+            \\  %10 = condbr(%ok, {
+            \\    %11 = return()
+            \\  }, {
+            \\    %12 = breakpoint()
+            \\  })
+            \\})
+            \\
+            \\@9 = str("entry")
+            \\@10 = ref(@9)
+            \\@11 = export(@10, @entry)
+        ,
+        .case = .{
+            .Transformation =
+                \\@0 = primitive(void)
+                \\@1 = fntype([], @0, cc=C)
+                \\@2 = fn(@1, {
+                \\  %0 = return()
+                \\})
+                \\@3 = str("entry")
+                \\@4 = ref(@3)
+                \\@5 = export(@4, @2)
+                \\
+                    },
+    }});
 
     {
         var case = ctx.addZIRMulti("reference cycle with compile error in the cycle", linux_x64);

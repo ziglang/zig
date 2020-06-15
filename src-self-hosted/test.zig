@@ -141,21 +141,21 @@ pub const TestContext = struct {
         /// such as QEMU is required for tests to complete.
         ///
         target: std.zig.CrossTarget,
-        stages: []ZIRUpdate,
+        stages: []const ZIRUpdate,
     };
 
     pub fn addZIRCase(
         ctx: *TestContext,
         name: []const u8,
         target: std.zig.CrossTarget,
-        stages: []ZIRUpdate,
-    ) !void {
-        const case = .{
+        stages: []const ZIRUpdate,
+    ) void {
+        const case = ZIRCase{
             .name = name,
             .target = target,
             .stages = stages,
         };
-        try ctx.cases.append(case);
+        ctx.zir_cases.append(case) catch |err| std.debug.panic("Error: {}", .{err});
     }
 
     pub fn addZIRCompareOutput(
