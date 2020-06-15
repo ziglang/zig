@@ -50,14 +50,10 @@ pub const LineInfo = struct {
     }
 };
 
-/// Tries to write to stderr, unbuffered, and ignores any error returned.
-/// Does not append a newline.
-var stderr_file: File = undefined;
-var stderr_file_writer: File.Writer = undefined;
-
-var stderr_stream: ?*File.OutStream = null;
 var stderr_mutex = std.Mutex.init();
 
+/// Tries to write to stderr, unbuffered, and ignores any error returned.
+/// Does not append a newline.
 pub fn warn(comptime fmt: []const u8, args: var) void {
     const held = stderr_mutex.acquire();
     defer held.release();
@@ -65,16 +61,8 @@ pub fn warn(comptime fmt: []const u8, args: var) void {
     nosuspend stderr.print(fmt, args) catch return;
 }
 
-pub fn getStderrStream() *File.OutStream {
-    if (stderr_stream) |st| {
-        return st;
-    } else {
-        stderr_file = io.getStdErr();
-        stderr_file_writer = stderr_file.outStream();
-        const st = &stderr_file_writer;
-        stderr_stream = st;
-        return st;
-    }
+pub fn getStderrStream() File.OutStream {
+    return io.getStdErr().outStream();
 }
 
 pub fn getStderrMutex() *std.Mutex {
@@ -99,6 +87,7 @@ pub fn detectTTYConfig() TTY.Config {
     if (process.getEnvVarOwned(allocator, "ZIG_DEBUG_COLOR")) |_| {
         return .escape_codes;
     } else |_| {
+        const stderr_file = io.getStdErr();
         if (stderr_file.supportsAnsiEscapeCodes()) {
             return .escape_codes;
         } else if (builtin.os.tag == .windows and stderr_file.isTty()) {
@@ -458,6 +447,7 @@ pub const TTY = struct {
                     .Reset => out_stream.writeAll(RESET) catch return,
                 },
                 .windows_api => if (builtin.os.tag == .windows) {
+                    const stderr_file = io.getStdErr();
                     const S = struct {
                         var attrs: windows.WORD = undefined;
                         var init_attrs = false;
