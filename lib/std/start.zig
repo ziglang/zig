@@ -24,7 +24,15 @@ comptime {
             if (!@hasDecl(root, "WinMain") and !@hasDecl(root, "WinMainCRTStartup") and
                 !@hasDecl(root, "wWinMain") and !@hasDecl(root, "wWinMainCRTStartup"))
             {
+                @export(WinStartup, .{ .name = "WinMainCRTStartup" });
+            } else if (@hasDecl(root, "WinMain") and !@hasDecl(root, "WinMainCRTStartup") and
+                !@hasDecl(root, "wWinMain") and !@hasDecl(root, "wWinMainCRTStartup"))
+            {
                 @export(WinMainCRTStartup, .{ .name = "WinMainCRTStartup" });
+            } else if (@hasDecl(root, "wWinMain") and !@hasDecl(root, "wWinMainCRTStartup") and
+                !@hasDecl(root, "WinMain") and !@hasDecl(root, "WinMainCRTStartup"))
+            {
+                @export(wWinMainCRTStartup, .{ .name = "wWinMainCRTStartup" });
             }
         } else if (builtin.os.tag == .uefi) {
             if (!@hasDecl(root, "EfiMain")) @export(EfiMain, .{ .name = "EfiMain" });
@@ -123,6 +131,17 @@ fn _start() callconv(.Naked) noreturn {
     @call(.{ .modifier = .never_inline }, posixCallMainAndExit, .{});
 }
 
+fn WinStartup() callconv(.Stdcall) noreturn {
+    @setAlignStack(16);
+    if (!builtin.single_threaded) {
+        _ = @import("start_windows_tls.zig");
+    }
+
+    std.debug.maybeEnableSegfaultHandler();
+
+    std.os.windows.kernel32.ExitProcess(initEventLoopAndCallMain(u8, callMain));
+}
+
 fn WinMainCRTStartup() callconv(.Stdcall) noreturn {
     @setAlignStack(16);
     if (!builtin.single_threaded) {
@@ -131,7 +150,20 @@ fn WinMainCRTStartup() callconv(.Stdcall) noreturn {
 
     std.debug.maybeEnableSegfaultHandler();
 
-    std.os.windows.kernel32.ExitProcess(initEventLoopAndCallMain());
+    const result = initEventLoopAndCallMain(std.os.windows.INT, callWinMain);
+    std.os.windows.kernel32.ExitProcess(@bitCast(std.os.windows.UINT, result));
+}
+
+fn wWinMainCRTStartup() callconv(.Stdcall) noreturn {
+    @setAlignStack(16);
+    if (!builtin.single_threaded) {
+        _ = @import("start_windows_tls.zig");
+    }
+
+    std.debug.maybeEnableSegfaultHandler();
+
+    const result = initEventLoopAndCallMain(std.os.windows.INT, callWWinMain);
+    std.os.windows.kernel32.ExitProcess(@bitCast(std.os.windows.UINT, result));
 }
 
 // TODO https://github.com/ziglang/zig/issues/265
@@ -185,7 +217,7 @@ fn callMainWithArgs(argc: usize, argv: [*][*:0]u8, envp: [][*:0]u8) u8 {
 
     std.debug.maybeEnableSegfaultHandler();
 
-    return initEventLoopAndCallMain();
+    return initEventLoopAndCallMain(u8, callMain);
 }
 
 fn main(c_argc: i32, c_argv: [*][*:0]u8, c_envp: [*:null]?[*:0]u8) callconv(.C) i32 {
@@ -200,7 +232,7 @@ const bad_main_ret = "expected return type of main to be 'void', '!void', 'noret
 
 // This is marked inline because for some reason LLVM in release mode fails to inline it,
 // and we want fewer call frames in stack traces.
-inline fn initEventLoopAndCallMain() u8 {
+inline fn initEventLoopAndCallMain(comptime Out: type, comptime mainFunc: fn () Out) Out {
     if (std.event.Loop.instance) |loop| {
         if (!@hasDecl(root, "event_loop")) {
             loop.init() catch |err| {
@@ -214,7 +246,7 @@ inline fn initEventLoopAndCallMain() u8 {
 
             var result: u8 = undefined;
             var frame: @Frame(callMainAsync) = undefined;
-            _ = @asyncCall(&frame, &result, callMainAsync, loop);
+            _ = @asyncCall(&frame, &result, callMainAsync, u8, mainFunc, loop);
             loop.run();
             return result;
         }
@@ -222,13 +254,13 @@ inline fn initEventLoopAndCallMain() u8 {
 
     // This is marked inline because for some reason LLVM in release mode fails to inline it,
     // and we want fewer call frames in stack traces.
-    return @call(.{ .modifier = .always_inline }, callMain, .{});
+    return @call(.{ .modifier = .always_inline }, mainFunc, .{});
 }
-fn callMainAsync(loop: *std.event.Loop) callconv(.Async) u8 {
+fn callMainAsync(comptime Out: type, comptime mainProc: fn () Out, loop: *std.event.Loop) callconv(.Async) Out {
     // This prevents the event loop from terminating at least until main() has returned.
     loop.beginOneEvent();
     defer loop.finishOneEvent();
-    return callMain();
+    return mainProc();
 }
 
 // This is not marked inline because it is called with @asyncCall when
@@ -269,4 +301,26 @@ pub fn callMain() u8 {
         },
         else => @compileError(bad_main_ret),
     }
+}
+
+pub fn callWinMain() std.os.windows.INT {
+    const hInstance = std.os.windows.kernel32.GetModuleHandleA(null);
+    const lpCmdLine = std.os.windows.kernel32.GetCommandLineA();
+
+    // There's no (documented) way to get the nCmdShow parameter, so we're
+    // using this fairly standard default.
+    const nCmdShow = std.os.windows.user32.SW_SHOW;
+
+    return root.WinMain(hInstance, null, lpCmdLine, nCmdShow);
+}
+
+pub fn callWWinMain() std.os.windows.INT {
+    const hInstance = std.os.windows.kernel32.GetModuleHandleA(null);
+    const lpCmdLine = std.os.windows.kernel32.GetCommandLineW();
+
+    // There's no (documented) way to get the nCmdShow parameter, so we're
+    // using this fairly standard default.
+    const nCmdShow = std.os.windows.user32.SW_SHOW;
+
+    return root.wWinMain(hInstance, null, lpCmdLine, nCmdShow);
 }

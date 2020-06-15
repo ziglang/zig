@@ -79,6 +79,7 @@ pub extern "kernel32" fn FormatMessageW(dwFlags: DWORD, lpSource: ?LPVOID, dwMes
 pub extern "kernel32" fn FreeEnvironmentStringsW(penv: [*:0]u16) callconv(.Stdcall) BOOL;
 
 pub extern "kernel32" fn GetCommandLineA() callconv(.Stdcall) LPSTR;
+pub extern "kernel32" fn GetCommandLineW() callconv(.Stdcall) LPWSTR;
 
 pub extern "kernel32" fn GetConsoleMode(in_hConsoleHandle: HANDLE, out_lpMode: *DWORD) callconv(.Stdcall) BOOL;
 

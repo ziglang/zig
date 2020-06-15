@@ -2459,11 +2459,7 @@ static void add_win_link_args(LinkJob *lj, bool is_library, bool *have_windows_d
     } else {
         lj->args.append("-NODEFAULTLIB");
         if (!is_library) {
-            if (lj->codegen->have_winmain) {
-                lj->args.append("-ENTRY:WinMain");
-            } else if (lj->codegen->have_wwinmain) {
-                lj->args.append("-ENTRY:wWinMain");
-            } else if (lj->codegen->have_wwinmain_crt_startup) {
+            if (lj->codegen->have_wwinmain_crt_startup) {
                 lj->args.append("-ENTRY:wWinMainCRTStartup");
             } else {
                 lj->args.append("-ENTRY:WinMainCRTStartup");
