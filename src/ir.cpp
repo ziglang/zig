@@ -286,6 +286,7 @@ static IrInstGen *ir_analyze_struct_value_field_value(IrAnalyze *ira, IrInst* so
     IrInstGen *struct_operand, TypeStructField *field);
 static bool value_cmp_numeric_val_any(ZigValue *left, Cmp predicate, ZigValue *right);
 static bool value_cmp_numeric_val_all(ZigValue *left, Cmp predicate, ZigValue *right);
+static void memoize_field_init_val(CodeGen *codegen, ZigType *container_type, TypeStructField *field);
 
 #define ir_assert(OK, SOURCE_INSTRUCTION) ir_assert_impl((OK), (SOURCE_INSTRUCTION), __FILE__, __LINE__)
 #define ir_assert_gen(OK, SOURCE_INSTRUCTION) ir_assert_gen_impl((OK), (SOURCE_INSTRUCTION), __FILE__, __LINE__)
@@ -14703,10 +14704,139 @@ static IrInstGen *ir_analyze_struct_literal_to_array(IrAnalyze *ira, IrInst* sou
 }
 
 static IrInstGen *ir_analyze_struct_literal_to_struct(IrAnalyze *ira, IrInst* source_instr,
-        IrInstGen *value, ZigType *wanted_type)
+        IrInstGen *struct_operand, ZigType *wanted_type)
 {
-    ir_add_error(ira, source_instr, buf_sprintf("TODO: type coercion of anon struct literal to struct"));
-    return ira->codegen->invalid_inst_gen;
+    Error err;
+
+    IrInstGen *struct_ptr = ir_get_ref(ira, source_instr, struct_operand, true, false);
+    if (type_is_invalid(struct_ptr->value->type))
+        return ira->codegen->invalid_inst_gen;
+
+    if (wanted_type->data.structure.resolve_status == ResolveStatusBeingInferred) {
+        ir_add_error(ira, source_instr, buf_sprintf("type coercion of anon struct literal to inferred struct"));
+        return ira->codegen->invalid_inst_gen;
+    }
+
+    if ((err = type_resolve(ira->codegen, wanted_type, ResolveStatusSizeKnown)))
+        return ira->codegen->invalid_inst_gen;
+
+    size_t actual_field_count = wanted_type->data.structure.src_field_count;
+    size_t instr_field_count = struct_operand->value->type->data.structure.src_field_count;
+
+    bool need_comptime = ir_should_inline(ira->old_irb.exec, source_instr->scope)
+        || type_requires_comptime(ira->codegen, wanted_type) == ReqCompTimeYes;
+    bool is_comptime = true;
+
+    // Determine if the struct_operand will be comptime.
+    // Also emit compile errors for missing fields and duplicate fields.
+    AstNode **field_assign_nodes = heap::c_allocator.allocate<AstNode *>(actual_field_count);
+    ZigValue **field_values = heap::c_allocator.allocate<ZigValue *>(actual_field_count);
+    IrInstGen **casted_fields = heap::c_allocator.allocate<IrInstGen *>(actual_field_count);
+    IrInstGen *const_result = ir_const(ira, source_instr, wanted_type);
+
+    for (size_t i = 0; i < instr_field_count; i += 1) {
+        TypeStructField *src_field = struct_operand->value->type->data.structure.fields[i];
+        TypeStructField *dst_field = find_struct_type_field(wanted_type, src_field->name);
+        if (dst_field == nullptr) {
+            ErrorMsg *msg = ir_add_error(ira, source_instr, buf_sprintf("no field named '%s' in struct '%s'",
+                    buf_ptr(src_field->name), buf_ptr(&wanted_type->name)));
+            if (wanted_type->data.structure.decl_node) {
+                add_error_note(ira->codegen, msg, wanted_type->data.structure.decl_node,
+                    buf_sprintf("struct '%s' declared here", buf_ptr(&wanted_type->name)));
+            }
+            add_error_note(ira->codegen, msg, src_field->decl_node,
+                buf_sprintf("field '%s' declared here", buf_ptr(src_field->name)));
+            return ira->codegen->invalid_inst_gen;
+        }
+
+        ir_assert(src_field->decl_node != nullptr, source_instr);
+        AstNode *existing_assign_node = field_assign_nodes[dst_field->src_index];
+        if (existing_assign_node != nullptr) {
+            ErrorMsg *msg = ir_add_error(ira, source_instr, buf_sprintf("duplicate field"));
+            add_error_note(ira->codegen, msg, existing_assign_node, buf_sprintf("other field here"));
+            return ira->codegen->invalid_inst_gen;
+        }
+        field_assign_nodes[dst_field->src_index] = src_field->decl_node;
+
+        IrInstGen *field_ptr = ir_analyze_struct_field_ptr(ira, source_instr, src_field, struct_ptr,
+                struct_operand->value->type, false);
+        if (type_is_invalid(field_ptr->value->type))
+            return ira->codegen->invalid_inst_gen;
+        IrInstGen *field_value = ir_get_deref(ira, source_instr, field_ptr, nullptr);
+        if (type_is_invalid(field_value->value->type))
+            return ira->codegen->invalid_inst_gen;
+        IrInstGen *casted_value = ir_implicit_cast(ira, field_value, dst_field->type_entry);
+        if (type_is_invalid(casted_value->value->type))
+            return ira->codegen->invalid_inst_gen;
+
+        casted_fields[dst_field->src_index] = casted_value;
+        if (need_comptime || instr_is_comptime(casted_value)) {
+            ZigValue *field_val = ir_resolve_const(ira, casted_value, UndefOk);
+            if (field_val == nullptr)
+                return ira->codegen->invalid_inst_gen;
+            field_val->parent.id = ConstParentIdStruct;
+            field_val->parent.data.p_struct.struct_val = const_result->value;
+            field_val->parent.data.p_struct.field_index = dst_field->src_index;
+            field_values[dst_field->src_index] = field_val;
+        } else {
+            is_comptime = false;
+        }
+    }
+
+    bool any_missing = false;
+    for (size_t i = 0; i < actual_field_count; i += 1) {
+        if (field_assign_nodes[i] != nullptr) continue;
+
+        // look for a default field value
+        TypeStructField *field = wanted_type->data.structure.fields[i];
+        memoize_field_init_val(ira->codegen, wanted_type, field);
+        if (field->init_val == nullptr) {
+            ir_add_error(ira, source_instr,
+                buf_sprintf("missing field: '%s'", buf_ptr(field->name)));
+            any_missing = true;
+            continue;
+        }
+        if (type_is_invalid(field->init_val->type))
+            return ira->codegen->invalid_inst_gen;
+        ZigValue *init_val_copy = ira->codegen->pass1_arena->create<ZigValue>();
+        copy_const_val(ira->codegen, init_val_copy, field->init_val);
+        init_val_copy->parent.id = ConstParentIdStruct;
+        init_val_copy->parent.data.p_struct.struct_val = const_result->value;
+        init_val_copy->parent.data.p_struct.field_index = i;
+        field_values[i] = init_val_copy;
+        casted_fields[i] = ir_const_move(ira, source_instr, init_val_copy);
+    }
+    if (any_missing)
+        return ira->codegen->invalid_inst_gen;
+
+    if (is_comptime) {
+        heap::c_allocator.deallocate(field_assign_nodes, actual_field_count);
+        IrInstGen *const_result = ir_const(ira, source_instr, wanted_type);
+        const_result->value->data.x_struct.fields = field_values;
+        return const_result;
+    }
+
+    IrInstGen *result_loc_inst = ir_resolve_result(ira, source_instr, no_result_loc(),
+        wanted_type, nullptr, true, true);
+    if (type_is_invalid(result_loc_inst->value->type) || result_loc_inst->value->type->id == ZigTypeIdUnreachable) {
+        return ira->codegen->invalid_inst_gen;
+    }
+
+    for (size_t i = 0; i < actual_field_count; i += 1) {
+        TypeStructField *field = wanted_type->data.structure.fields[i];
+        IrInstGen *field_ptr = ir_analyze_struct_field_ptr(ira, source_instr, field, result_loc_inst, wanted_type, true);
+        if (type_is_invalid(field_ptr->value->type))
+            return ira->codegen->invalid_inst_gen;
+        IrInstGen *store_ptr_inst = ir_analyze_store_ptr(ira, source_instr, field_ptr, casted_fields[i], true);
+        if (type_is_invalid(store_ptr_inst->value->type))
+            return ira->codegen->invalid_inst_gen;
+    }
+
+    heap::c_allocator.deallocate(field_assign_nodes, actual_field_count);
+    heap::c_allocator.deallocate(field_values, actual_field_count);
+    heap::c_allocator.deallocate(casted_fields, actual_field_count);
+
+    return ir_get_deref(ira, source_instr, result_loc_inst, nullptr);
 }
 
 static IrInstGen *ir_analyze_struct_literal_to_union(IrAnalyze *ira, IrInst* source_instr,
@@ -14727,7 +14857,7 @@ static IrInstGen *ir_analyze_struct_literal_to_union(IrAnalyze *ira, IrInst* sou
     TypeUnionField *union_field = find_union_type_field(union_type, only_field->name);
     if (union_field == nullptr) {
         ir_add_error_node(ira, only_field->decl_node,
-            buf_sprintf("no member named '%s' in union '%s'",
+            buf_sprintf("no field named '%s' in union '%s'",
                 buf_ptr(only_field->name), buf_ptr(&union_type->name)));
         return ira->codegen->invalid_inst_gen;
     }
@@ -22407,7 +22537,7 @@ static IrInstGen *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstSrcFiel
                     usize, ConstPtrMutComptimeConst, ptr_is_const, ptr_is_volatile, 0);
         } else {
             ir_add_error_node(ira, source_node,
-                buf_sprintf("no member named '%s' in '%s'", buf_ptr(field_name),
+                buf_sprintf("no field named '%s' in '%s'", buf_ptr(field_name),
                     buf_ptr(&container_type->name)));
             return ira->codegen->invalid_inst_gen;
         }
@@ -23834,7 +23964,7 @@ static IrInstGen *ir_analyze_union_init(IrAnalyze *ira, IrInst* source_instructi
     TypeUnionField *type_field = find_union_type_field(union_type, field_name);
     if (type_field == nullptr) {
         ir_add_error_node(ira, field_source_node,
-            buf_sprintf("no member named '%s' in union '%s'",
+            buf_sprintf("no field named '%s' in union '%s'",
                 buf_ptr(field_name), buf_ptr(&union_type->name)));
         return ira->codegen->invalid_inst_gen;
     }
@@ -23930,7 +24060,7 @@ static IrInstGen *ir_analyze_container_init_fields(IrAnalyze *ira, IrInst *sourc
         TypeStructField *type_field = find_struct_type_field(container_type, field->name);
         if (!type_field) {
             ir_add_error_node(ira, field->source_node,
-                buf_sprintf("no member named '%s' in struct '%s'",
+                buf_sprintf("no field named '%s' in struct '%s'",
                     buf_ptr(field->name), buf_ptr(&container_type->name)));
             return ira->codegen->invalid_inst_gen;
         }
@@ -23965,7 +24095,7 @@ static IrInstGen *ir_analyze_container_init_fields(IrAnalyze *ira, IrInst *sourc
         memoize_field_init_val(ira->codegen, container_type, field);
         if (field->init_val == nullptr) {
             ir_add_error(ira, source_instr,
-                buf_sprintf("missing field: '%s'", buf_ptr(container_type->data.structure.fields[i]->name)));
+                buf_sprintf("missing field: '%s'", buf_ptr(field->name)));
             any_missing = true;
             continue;
         }
