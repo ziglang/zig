@@ -50,31 +50,15 @@ pub const LineInfo = struct {
     }
 };
 
-/// Tries to write to stderr, unbuffered, and ignores any error returned.
-/// Does not append a newline.
-var stderr_file: File = undefined;
-var stderr_file_writer: File.Writer = undefined;
-
-var stderr_stream: ?*File.OutStream = null;
 var stderr_mutex = std.Mutex.init();
 
+/// Tries to write to stderr, unbuffered, and ignores any error returned.
+/// Does not append a newline.
 pub fn warn(comptime fmt: []const u8, args: var) void {
     const held = stderr_mutex.acquire();
     defer held.release();
-    const stderr = getStderrStream();
+    const stderr = io.getStdErr().writer();
     nosuspend stderr.print(fmt, args) catch return;
-}
-
-pub fn getStderrStream() *File.OutStream {
-    if (stderr_stream) |st| {
-        return st;
-    } else {
-        stderr_file = io.getStdErr();
-        stderr_file_writer = stderr_file.outStream();
-        const st = &stderr_file_writer;
-        stderr_stream = st;
-        return st;
-    }
 }
 
 pub fn getStderrMutex() *std.Mutex {
@@ -99,6 +83,7 @@ pub fn detectTTYConfig() TTY.Config {
     if (process.getEnvVarOwned(allocator, "ZIG_DEBUG_COLOR")) |_| {
         return .escape_codes;
     } else |_| {
+        const stderr_file = io.getStdErr();
         if (stderr_file.supportsAnsiEscapeCodes()) {
             return .escape_codes;
         } else if (builtin.os.tag == .windows and stderr_file.isTty()) {
@@ -113,7 +98,7 @@ pub fn detectTTYConfig() TTY.Config {
 /// TODO multithreaded awareness
 pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
     nosuspend {
-        const stderr = getStderrStream();
+        const stderr = io.getStdErr().writer();
         if (builtin.strip_debug_info) {
             stderr.print("Unable to dump stack trace: debug info stripped\n", .{}) catch return;
             return;
@@ -134,7 +119,7 @@ pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
 /// TODO multithreaded awareness
 pub fn dumpStackTraceFromBase(bp: usize, ip: usize) void {
     nosuspend {
-        const stderr = getStderrStream();
+        const stderr = io.getStdErr().writer();
         if (builtin.strip_debug_info) {
             stderr.print("Unable to dump stack trace: debug info stripped\n", .{}) catch return;
             return;
@@ -204,7 +189,7 @@ pub fn captureStackTrace(first_address: ?usize, stack_trace: *builtin.StackTrace
 /// TODO multithreaded awareness
 pub fn dumpStackTrace(stack_trace: builtin.StackTrace) void {
     nosuspend {
-        const stderr = getStderrStream();
+        const stderr = io.getStdErr().writer();
         if (builtin.strip_debug_info) {
             stderr.print("Unable to dump stack trace: debug info stripped\n", .{}) catch return;
             return;
@@ -272,7 +257,7 @@ pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, c
                 const held = panic_mutex.acquire();
                 defer held.release();
 
-                const stderr = getStderrStream();
+                const stderr = io.getStdErr().writer();
                 stderr.print(format ++ "\n", args) catch os.abort();
                 if (trace) |t| {
                     dumpStackTrace(t.*);
@@ -297,7 +282,7 @@ pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, c
             // A panic happened while trying to print a previous panic message,
             // we're still holding the mutex but that's fine as we're going to
             // call abort()
-            const stderr = getStderrStream();
+            const stderr = io.getStdErr().writer();
             stderr.print("Panicked during a panic. Aborting.\n", .{}) catch os.abort();
         },
         else => {
@@ -458,6 +443,7 @@ pub const TTY = struct {
                     .Reset => out_stream.writeAll(RESET) catch return,
                 },
                 .windows_api => if (builtin.os.tag == .windows) {
+                    const stderr_file = io.getStdErr();
                     const S = struct {
                         var attrs: windows.WORD = undefined;
                         var init_attrs = false;
