@@ -6,8 +6,13 @@
  */
 
 #include "os.hpp"
+#include "buffer.hpp"
+#include "heap.hpp"
 #include "util.hpp"
 #include "error.hpp"
+#include "util_base.hpp"
+#include <stdint.h>
+#include <stdio.h>
 
 #if defined(_WIN32)
 
@@ -73,6 +78,8 @@ typedef SSIZE_T ssize_t;
 #endif
 
 #if defined(ZIG_OS_WINDOWS)
+static void utf16le_ptr_to_utf8(Buf *out, WCHAR *utf16le);
+static size_t utf8_to_utf16le(WCHAR *utf16_le, Slice<uint8_t> utf8);
 static uint64_t windows_perf_freq;
 #elif defined(__MACH__)
 static clock_serv_t macos_calendar_clock;
@@ -148,15 +155,21 @@ static void os_spawn_process_windows(ZigList<const char *> &args, Termination *t
     os_windows_create_command_line(&command_line, args);
 
     PROCESS_INFORMATION piProcInfo = {0};
-    STARTUPINFO siStartInfo = {0};
-    siStartInfo.cb = sizeof(STARTUPINFO);
+    STARTUPINFOW siStartInfo = {0};
+    siStartInfo.cb = sizeof(STARTUPINFOW);
 
-    const char *exe = args.at(0);
-    BOOL success = CreateProcessA(exe, buf_ptr(&command_line), nullptr, nullptr, TRUE, 0, nullptr, nullptr,
+    Slice<uint8_t> exe_slice = str(args.at(0));
+    auto exe_utf16_slice = Slice<WCHAR>::alloc(exe_slice.len + 1);
+    exe_utf16_slice.ptr[utf8_to_utf16le(exe_utf16_slice.ptr, exe_slice)] = 0;
+
+    auto command_line_utf16 = Slice<WCHAR>::alloc(buf_len(&command_line) + 1);
+    command_line_utf16.ptr[utf8_to_utf16le(command_line_utf16.ptr, buf_to_slice(&command_line))] = 0;
+
+    BOOL success = CreateProcessW(exe_utf16_slice.ptr, command_line_utf16.ptr, nullptr, nullptr, TRUE, CREATE_UNICODE_ENVIRONMENT, nullptr, nullptr,
             &siStartInfo, &piProcInfo);
 
     if (!success) {
-        zig_panic("CreateProcess failed. exe: %s command_line: %s", exe, buf_ptr(&command_line));
+        zig_panic("CreateProcess failed. exe: %s command_line: %s", args.at(0), buf_ptr(&command_line));
     }
 
     WaitForSingleObject(piProcInfo.hProcess, INFINITE);
@@ -269,11 +282,13 @@ void os_path_join(Buf *dirname, Buf *basename, Buf *out_full_path) {
 
 Error os_path_real(Buf *rel_path, Buf *out_abs_path) {
 #if defined(ZIG_OS_WINDOWS)
-    buf_resize(out_abs_path, 4096);
-    if (_fullpath(buf_ptr(out_abs_path), buf_ptr(rel_path), buf_len(out_abs_path)) == nullptr) {
-        zig_panic("_fullpath failed");
+    PathSpace rel_path_space = slice_to_prefixed_file_w(buf_to_slice(rel_path));
+    PathSpace out_abs_path_space;
+
+    if (_wfullpath(&out_abs_path_space.data.items[0], &rel_path_space.data.items[0], PATH_MAX_WIDE) == nullptr) {
+        zig_panic("_wfullpath failed");
     }
-    buf_resize(out_abs_path, strlen(buf_ptr(out_abs_path)));
+    utf16le_ptr_to_utf8(out_abs_path, &out_abs_path_space.data.items[0]);
     return ErrorNone;
 #elif defined(ZIG_OS_POSIX)
     buf_resize(out_abs_path, PATH_MAX + 1);
@@ -773,7 +788,8 @@ Error os_fetch_file(FILE *f, Buf *out_buf) {
 
 Error os_file_exists(Buf *full_path, bool *result) {
 #if defined(ZIG_OS_WINDOWS)
-    *result = GetFileAttributes(buf_ptr(full_path)) != INVALID_FILE_ATTRIBUTES;
+    PathSpace path_space = slice_to_prefixed_file_w(buf_to_slice(full_path));
+    *result = GetFileAttributesW(&path_space.data.items[0]) != INVALID_FILE_ATTRIBUTES;
     return ErrorNone;
 #else
     *result = access(buf_ptr(full_path), F_OK) != -1;
@@ -1021,7 +1037,12 @@ Error os_exec_process(ZigList<const char *> &args,
 }
 
 Error os_write_file(Buf *full_path, Buf *contents) {
+#if defined(ZIG_OS_WINDOWS)
+    PathSpace path_space = slice_to_prefixed_file_w(buf_to_slice(full_path));
+    FILE *f = _wfopen(&path_space.data.items[0], L"wb");
+#else
     FILE *f = fopen(buf_ptr(full_path), "wb");
+#endif
     if (!f) {
         zig_panic("os_write_file failed for %s", buf_ptr(full_path));
     }
@@ -1056,7 +1077,12 @@ static Error copy_open_files(FILE *src_f, FILE *dest_f) {
 Error os_dump_file(Buf *src_path, FILE *dest_file) {
     Error err;
 
+#if defined(ZIG_OS_WINDOWS)
+    PathSpace path_space = slice_to_prefixed_file_w(buf_to_slice(src_path));
+    FILE *src_f = _wfopen(&path_space.data.items[0], L"rb");
+#else
     FILE *src_f = fopen(buf_ptr(src_path), "rb");
+#endif
     if (!src_f) {
         int err = errno;
         if (err == ENOENT) {
@@ -1173,7 +1199,12 @@ Error os_update_file(Buf *src_path, Buf *dst_path) {
 }
 
 Error os_copy_file(Buf *src_path, Buf *dest_path) {
+#if defined(ZIG_OS_WINDOWS)
+    PathSpace src_path_space = slice_to_prefixed_file_w(buf_to_slice(src_path));
+    FILE *src_f = _wfopen(&src_path_space.data.items[0], L"rb");
+#else
     FILE *src_f = fopen(buf_ptr(src_path), "rb");
+#endif
     if (!src_f) {
         int err = errno;
         if (err == ENOENT) {
@@ -1184,7 +1215,12 @@ Error os_copy_file(Buf *src_path, Buf *dest_path) {
             return ErrorFileSystem;
         }
     }
+#if defined(ZIG_OS_WINDOWS)
+    PathSpace dest_path_space = slice_to_prefixed_file_w(buf_to_slice(dest_path));
+    FILE *dest_f = _wfopen(&dest_path_space.data.items[0], L"wb");
+#else
     FILE *dest_f = fopen(buf_ptr(dest_path), "wb");
+#endif
     if (!dest_f) {
         int err = errno;
         if (err == ENOENT) {
@@ -1205,7 +1241,12 @@ Error os_copy_file(Buf *src_path, Buf *dest_path) {
 }
 
 Error os_fetch_file_path(Buf *full_path, Buf *out_contents) {
+#if defined(ZIG_OS_WINDOWS)
+    PathSpace path_space = slice_to_prefixed_file_w(buf_to_slice(full_path));
+    FILE *f = _wfopen(&path_space.data.items[0], L"rb");
+#else
     FILE *f = fopen(buf_ptr(full_path), "rb");
+#endif
     if (!f) {
         switch (errno) {
             case EACCES:
@@ -1230,11 +1271,11 @@ Error os_fetch_file_path(Buf *full_path, Buf *out_contents) {
 
 Error os_get_cwd(Buf *out_cwd) {
 #if defined(ZIG_OS_WINDOWS)
-    char buf[4096];
-    if (GetCurrentDirectory(4096, buf) == 0) {
+    PathSpace path_space;
+    if (GetCurrentDirectoryW(PATH_MAX_WIDE, &path_space.data.items[0]) == 0) {
         zig_panic("GetCurrentDirectory failed");
     }
-    buf_init_from_str(out_cwd, buf);
+    utf16le_ptr_to_utf8(out_cwd, &path_space.data.items[0]);
     return ErrorNone;
 #elif defined(ZIG_OS_POSIX)
     char buf[PATH_MAX];
@@ -1330,7 +1371,9 @@ Error os_rename(Buf *src_path, Buf *dest_path) {
         return ErrorNone;
     }
 #if defined(ZIG_OS_WINDOWS)
-    if (!MoveFileExA(buf_ptr(src_path), buf_ptr(dest_path), MOVEFILE_REPLACE_EXISTING)) {
+    PathSpace src_path_space = slice_to_prefixed_file_w(buf_to_slice(src_path));
+    PathSpace dest_path_space = slice_to_prefixed_file_w(buf_to_slice(dest_path));
+    if (!MoveFileExW(&src_path_space.data.items[0], &dest_path_space.data.items[0], MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
         return ErrorFileSystem;
     }
 #else
@@ -1426,7 +1469,15 @@ Error os_make_path(Buf *path) {
 
 Error os_make_dir(Buf *path) {
 #if defined(ZIG_OS_WINDOWS)
-    if (!CreateDirectory(buf_ptr(path), NULL)) {
+    PathSpace path_space = slice_to_prefixed_file_w(buf_to_slice(path));
+    if (memEql(buf_to_slice(path), str("C:\\dev\\tést"))) {
+        for (size_t i = 0; i < path_space.len; i++) {
+            fprintf(stderr, "%d ", path_space.data.items[i]);
+        }
+        fprintf(stderr, "\n");
+    }
+    
+    if (!CreateDirectoryW(&path_space.data.items[0], NULL)) {
         if (GetLastError() == ERROR_ALREADY_EXISTS)
             return ErrorPathAlreadyExists;
         if (GetLastError() == ERROR_PATH_NOT_FOUND)
@@ -1531,18 +1582,13 @@ int os_init(void) {
 
 Error os_self_exe_path(Buf *out_path) {
 #if defined(ZIG_OS_WINDOWS)
-    buf_resize(out_path, 256);
-    for (;;) {
-        DWORD copied_amt = GetModuleFileName(nullptr, buf_ptr(out_path), buf_len(out_path));
-        if (copied_amt <= 0) {
-            return ErrorFileNotFound;
-        }
-        if (copied_amt < buf_len(out_path)) {
-            buf_resize(out_path, copied_amt);
-            return ErrorNone;
-        }
-        buf_resize(out_path, buf_len(out_path) * 2);
+    PathSpace path_space;
+    DWORD copied_amt = GetModuleFileNameW(nullptr, &path_space.data.items[0], PATH_MAX_WIDE);
+    if (copied_amt <= 0) {
+        return ErrorFileNotFound;
     }
+    utf16le_ptr_to_utf8(out_path, &path_space.data.items[0]);
+    return ErrorNone;
 
 #elif defined(ZIG_OS_DARWIN)
     // How long is the executable's path?
@@ -1719,6 +1765,15 @@ static uint8_t utf8CodepointSequenceLength(uint32_t c) {
     zig_unreachable();
 }
 
+// Ported from std.unicode.utf8ByteSequenceLength
+static uint8_t utf8ByteSequenceLength(uint8_t first_byte) {
+    if (first_byte < 0b10000000) return 1;
+    if ((first_byte & 0b11100000) == 0b11000000) return 2;
+    if ((first_byte & 0b11110000) == 0b11100000) return 3;
+    if ((first_byte & 0b11111000) == 0b11110000) return 4;
+    zig_unreachable();
+}
+
 // Ported from std/unicode.zig
 static size_t utf8Encode(uint32_t c, Slice<uint8_t> out) {
     size_t length = utf8CodepointSequenceLength(c);
@@ -1753,6 +1808,80 @@ static size_t utf8Encode(uint32_t c, Slice<uint8_t> out) {
     return length;
 }
 
+// Ported from std.unicode.utf8Decode2
+static uint32_t utf8Decode2(Slice<uint8_t> bytes) {
+    assert(bytes.len == 2);
+    assert((bytes.at(0) & 0b11100000) == 0b11000000);
+
+    uint32_t value = bytes.at(0) & 0b00011111;
+    assert((bytes.at(1) & 0b11000000) == 0b10000000);
+    value <<= 6;
+    value |= bytes.at(1) & 0b00111111;
+
+    assert(value >= 0x80);
+    return value;
+}
+
+// Ported from std.unicode.utf8Decode3
+static uint32_t utf8Decode3(Slice<uint8_t> bytes) {
+    assert(bytes.len == 3);
+    assert((bytes.at(0) & 0b11110000) == 0b11100000);
+
+    uint32_t value = bytes.at(0) & 0b00001111;
+    assert((bytes.at(1) & 0b11000000) == 0b10000000);
+    value <<= 6;
+    value |= bytes.at(1) & 0b00111111;
+
+    assert((bytes.at(2) & 0b11000000) == 0b10000000);
+    value <<= 6;
+    value |= bytes.at(2) & 0b00111111;
+
+    assert(value >= 0x80);
+    assert(value < 0xd800 || value > 0xdfff);
+    return value;
+}
+
+// Ported from std.unicode.utf8Decode4
+static uint32_t utf8Decode4(Slice<uint8_t> bytes) {
+    assert(bytes.len == 4);
+    assert((bytes.at(0) & 0b11111000) == 0b11110000);
+
+    uint32_t value = bytes.at(0) & 0b00000111;
+    assert((bytes.at(1) & 0b11000000) == 0b10000000);
+    value <<= 6;
+    value |= bytes.at(1) & 0b00111111;
+
+    assert((bytes.at(2) & 0b11000000) == 0b10000000);
+    value <<= 6;
+    value |= bytes.at(2) & 0b00111111;
+
+    assert((bytes.at(3) & 0b11000000) == 0b10000000);
+    value <<= 6;
+    value |= bytes.at(3) & 0b00111111;
+
+    assert(value >= 0x10000 && value <= 0x10FFFF);
+    return value;
+}
+
+// Ported from std.unicode.utf8Decode
+static uint32_t utf8Decode(Slice<uint8_t> bytes) {
+    switch (bytes.len) {
+        case 1:
+            return bytes.at(0);
+            break;
+        case 2:
+            return utf8Decode2(bytes);
+            break;
+        case 3:
+            return utf8Decode3(bytes);
+            break;
+        case 4:
+            return utf8Decode4(bytes);
+            break;
+        default:
+            zig_unreachable();
+    }
+}
 // Ported from std.unicode.utf16leToUtf8Alloc
 static void utf16le_ptr_to_utf8(Buf *out, WCHAR *utf16le) {
     // optimistically guess that it will all be ascii.
@@ -1769,6 +1898,60 @@ static void utf16le_ptr_to_utf8(Buf *out, WCHAR *utf16le) {
         utf8Encode(codepoint, {(uint8_t*)buf_ptr(out)+out_index, buf_len(out)-out_index});
         out_index += utf8_len;
     }
+}
+
+// Ported from std.unicode.utf8ToUtf16Le
+static size_t utf8_to_utf16le(WCHAR *utf16_le, Slice<uint8_t> utf8) {
+    size_t dest_i = 0;
+    size_t src_i = 0;
+    while (src_i < utf8.len) {
+        uint8_t n = utf8ByteSequenceLength(utf8.at(src_i));
+        size_t next_src_i = src_i + n;
+        uint32_t codepoint = utf8Decode(utf8.slice(src_i, next_src_i));
+        if (codepoint < 0x10000) {
+            utf16_le[dest_i] = codepoint;
+            dest_i += 1;
+        } else {
+            WCHAR high = ((codepoint - 0x10000) >> 10) + 0xD800;
+            WCHAR low = (codepoint & 0x3FF) + 0xDC00;
+            utf16_le[dest_i] = high;
+            utf16_le[dest_i + 1] = low;
+            dest_i += 2;
+        }
+        src_i = next_src_i;
+    }
+    return dest_i;
+}
+
+// Ported from std.os.windows.sliceToPrefixedFileW
+PathSpace slice_to_prefixed_file_w(Slice<uint8_t> path) {
+    PathSpace path_space;
+    for (size_t idx = 0; idx < path.len; idx++) {
+        assert(path.ptr[idx] != '*' && path.ptr[idx] != '?' && path.ptr[idx] != '"' &&
+               path.ptr[idx] != '<' && path.ptr[idx] != '>' && path.ptr[idx] != '|');
+    }
+
+    size_t start_index;
+    if (memStartsWith(path, str("\\?")) || !isAbsoluteWindows(path)) {
+        start_index = 0;
+    } else {
+        static WCHAR prefix[4] = { u'\\', u'?', u'?', u'\\' };
+        memCopy(path_space.data.slice(), Slice<WCHAR> { prefix, 4 });
+        start_index = 4;
+    }
+
+    path_space.len = start_index + utf8_to_utf16le(path_space.data.slice().sliceFrom(start_index).ptr, path);
+    assert(path_space.len <= path_space.data.len);
+
+    Slice<WCHAR> path_slice = path_space.data.slice().slice(0, path_space.len);
+    for (size_t elem_idx = 0; elem_idx < path_slice.len; elem_idx += 1) {
+        if (path_slice.at(elem_idx) == '/') {
+            path_slice.at(elem_idx) = '\\';
+        }
+    }
+
+    path_space.data.items[path_space.len] = 0;
+    return path_space;
 }
 #endif
 
@@ -1862,8 +2045,8 @@ Error os_self_exe_shared_libs(ZigList<Buf *> &paths) {
 
 Error os_file_open_rw(Buf *full_path, OsFile *out_file, OsFileAttr *attr, bool need_write, uint32_t mode) {
 #if defined(ZIG_OS_WINDOWS)
-    // TODO use CreateFileW
-    HANDLE result = CreateFileA(buf_ptr(full_path),
+    PathSpace path_space = slice_to_prefixed_file_w(buf_to_slice(full_path));
+    HANDLE result = CreateFileW(&path_space.data.items[0],
             need_write ? (GENERIC_READ|GENERIC_WRITE) : GENERIC_READ,
             need_write ? 0 : FILE_SHARE_READ,
             nullptr,
@@ -1967,8 +2150,9 @@ Error os_file_open_w(Buf *full_path, OsFile *out_file, OsFileAttr *attr, uint32_
 
 Error os_file_open_lock_rw(Buf *full_path, OsFile *out_file) {
 #if defined(ZIG_OS_WINDOWS)
+    PathSpace path_space = slice_to_prefixed_file_w(buf_to_slice(full_path));
     for (;;) {
-        HANDLE result = CreateFileA(buf_ptr(full_path), GENERIC_READ | GENERIC_WRITE,
+        HANDLE result = CreateFileW(&path_space.data.items[0], GENERIC_READ | GENERIC_WRITE,
             0, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
 
         if (result == INVALID_HANDLE_VALUE) {

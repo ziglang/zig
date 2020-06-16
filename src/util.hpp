@@ -159,7 +159,7 @@ struct Slice {
 
     inline T &at(size_t i) {
         assert(i < len);
-        return &ptr[i];
+        return ptr[i];
     }
 
     inline Slice<T> slice(size_t start, size_t end) {
