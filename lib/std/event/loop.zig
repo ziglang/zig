@@ -754,6 +754,16 @@ pub const Loop = struct {
         }
     }
 
+    pub fn connect(self: *Loop, sockfd: os.socket_t, sock_addr: *const os.sockaddr, len: os.socklen_t) os.ConnectError!void {
+        os.connect(sockfd, sock_addr, len) catch |err| switch (err) {
+            error.WouldBlock => {
+                self.waitUntilFdWritable(sockfd);
+                return os.getsockoptError(sockfd);
+            },
+            else => return err,
+        };
+    }
+
     /// Performs an async `os.open` using a separate thread.
     pub fn openZ(self: *Loop, file_path: [*:0]const u8, flags: u32, mode: os.mode_t) os.OpenError!os.fd_t {
         var req_node = Request.Node{
