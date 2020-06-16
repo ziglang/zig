@@ -1661,18 +1661,23 @@ pub const StreamServer = struct {
 
     /// If this function succeeds, the returned `Connection` is a caller-managed resource.
     pub fn accept(self: *StreamServer) AcceptError!Connection {
-        const nonblock = if (std.io.is_async) os.SOCK_NONBLOCK else 0;
-        const accept_flags = nonblock | os.SOCK_CLOEXEC;
         var accepted_addr: Address = undefined;
         var adr_len: os.socklen_t = @sizeOf(Address);
-        if (os.accept(self.sockfd.?, &accepted_addr.any, &adr_len, accept_flags)) |fd| {
+        const accept_result = blk: {
+            if (std.io.is_async) {
+                const loop = std.event.Loop.instance orelse return error.UnexpectedError;
+                break :blk loop.accept(self.sockfd.?, &accepted_addr.any, &adr_len, os.SOCK_CLOEXEC);
+            } else {
+                break :blk os.accept(self.sockfd.?, &accepted_addr.any, &adr_len, os.SOCK_CLOEXEC);
+            }
+        };
+
+        if (accept_result) |fd| {
             return Connection{
                 .file = fs.File{ .handle = fd },
                 .address = accepted_addr,
             };
         } else |err| switch (err) {
-            // We only give SOCK_NONBLOCK when I/O mode is async, in which case this error
-            // is handled by os.accept4.
             error.WouldBlock => unreachable,
             else => |e| return e,
         }
