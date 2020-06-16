@@ -9,8 +9,6 @@ const linux_x64 = std.zig.CrossTarget{
 };
 
 pub fn addCases(ctx: *TestContext) !void {
-    // TODO: re-enable these tests.
-    // https://github.com/ziglang/zig/issues/1364
     ctx.addZIRError("call undefined local", linux_x64,
         \\@noreturn = primitive(noreturn)
         \\
@@ -46,6 +44,10 @@ pub fn addCases(ctx: *TestContext) !void {
         \\@1 = ref(@0)
         \\@2 = export(@1, @start)
     , &[_][]const u8{":4:9: error: unable to call function with naked calling convention"});
+
+    // TODO: re-enable these tests.
+    // https://github.com/ziglang/zig/issues/1364
+    // TODO: add Zig AST -> ZIR testing pipeline
 
     //try ctx.testCompileError(
     //    \\export fn entry() void {}

@@ -6,8 +6,7 @@ const zir = @import("zir.zig");
 const Package = @import("Package.zig");
 
 test "self-hosted" {
-    var ctx: TestContext = undefined;
-    try ctx.init();
+    var ctx = TestContext.init();
     defer ctx.deinit();
 
     try @import("stage2_tests").addCases(&ctx);
@@ -93,10 +92,11 @@ pub const TestContext = struct {
         name: []const u8,
         /// The platform the ZIR targets. For non-native platforms, an emulator
         /// such as QEMU is required for tests to complete.
-        ///
         target: std.zig.CrossTarget,
         updates: std.ArrayList(ZIRUpdate),
 
+        /// Adds a subcase in which the module is updated with new ZIR, and the
+        /// resulting ZIR is validated.
         pub fn addTransform(self: *ZIRCase, src: [:0]const u8, result: [:0]const u8) void {
             self.updates.append(.{
                 .src = src,
@@ -104,9 +104,10 @@ pub const TestContext = struct {
             }) catch unreachable;
         }
 
-        /// TODO: document
+        /// Adds a subcase in which the module is updated with invalid ZIR, and
+        /// ensures that compilation fails for the expected reasons.
         ///
-        /// Errors must be specified in sequential order
+        /// Errors must be specified in sequential order.
         pub fn addError(self: *ZIRCase, src: [:0]const u8, errors: []const []const u8) void {
             var array = self.updates.allocator.alloc(ErrorMsg, errors.len) catch unreachable;
             for (errors) |e, i| {
@@ -194,9 +195,9 @@ pub const TestContext = struct {
         c.addError(src, expected_errors);
     }
 
-    fn init(self: *TestContext) !void {
+    fn init() TestContext {
         const allocator = std.heap.page_allocator;
-        self.* = .{
+        return .{
             .zir_cmp_output_cases = std.ArrayList(ZIRCompareOutputCase).init(allocator),
             .zir_cases = std.ArrayList(ZIRCase).init(allocator),
         };
@@ -267,10 +268,7 @@ pub const TestContext = struct {
         });
         defer module.deinit();
 
-        for (case.updates.items) |s| {
-            // TODO: remove before committing. This is for ZLS ;)
-            const update: ZIRUpdate = s;
-
+        for (case.updates.items) |update| {
             var update_node = prg_node.start("update", 4);
             update_node.activate();
             defer update_node.end();
