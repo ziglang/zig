@@ -684,7 +684,7 @@ fn fmtPath(fmt: *Fmt, file_path: []const u8, check_mode: bool) FmtError!void {
     if (fmt.seen.exists(real_path)) return;
     try fmt.seen.put(real_path);
 
-    const source_code = fs.cwd().readFileAlloc(fmt.gpa, real_path, max_src_size) catch |err| switch (err) {
+    const source_file = fs.cwd().openFile(real_path, .{}) catch |err| switch (err) {
         error.IsDir, error.AccessDenied => {
             var dir = try fs.cwd().openDir(file_path, .{ .iterate = true });
             defer dir.close();
@@ -704,6 +704,13 @@ fn fmtPath(fmt: *Fmt, file_path: []const u8, check_mode: bool) FmtError!void {
             fmt.any_error = true;
             return;
         },
+    };
+    defer source_file.close();
+
+    const source_code = source_file.reader().readAllAlloc(fmt.gpa, max_src_size) catch |err| {
+        std.debug.warn("unable to read '{}': {}\n", .{ file_path, err });
+        fmt.any_error = true;
+        return;
     };
     defer fmt.gpa.free(source_code);
 
@@ -729,7 +736,7 @@ fn fmtPath(fmt: *Fmt, file_path: []const u8, check_mode: bool) FmtError!void {
             fmt.any_error = true;
         }
     } else {
-        const baf = try io.BufferedAtomicFile.create(fmt.gpa, fs.cwd(), real_path, .{});
+        const baf = try io.BufferedAtomicFile.create(fmt.gpa, fs.cwd(), real_path, .{ .mode = try source_file.mode() });
         defer baf.destroy();
 
         const anything_changed = try std.zig.render(fmt.gpa, baf.stream(), tree);
