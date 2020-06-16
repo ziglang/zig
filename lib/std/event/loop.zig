@@ -822,23 +822,35 @@ pub const Loop = struct {
 
     /// Performs an async `os.read` using a separate thread.
     /// `fd` must block and not return EAGAIN.
-    pub fn read(self: *Loop, fd: os.fd_t, buf: []u8) os.ReadError!usize {
-        var req_node = Request.Node{
-            .data = .{
-                .msg = .{
-                    .read = .{
-                        .fd = fd,
-                        .buf = buf,
-                        .result = undefined,
+    pub fn read(self: *Loop, fd: os.fd_t, buf: []u8, simulate_evented: bool) os.ReadError!usize {
+        if (simulate_evented) {
+            var req_node = Request.Node{
+                .data = .{
+                    .msg = .{
+                        .read = .{
+                            .fd = fd,
+                            .buf = buf,
+                            .result = undefined,
+                        },
                     },
+                    .finish = .{ .TickNode = .{ .data = @frame() } },
                 },
-                .finish = .{ .TickNode = .{ .data = @frame() } },
-            },
-        };
-        suspend {
-            self.posixFsRequest(&req_node);
+            };
+            suspend {
+                self.posixFsRequest(&req_node);
+            }
+            return req_node.data.msg.read.result;
+        } else {
+            while (true) {
+                return os.read(fd, buf) catch |err| switch (err) {
+                    error.WouldBlock => {
+                        self.waitUntilFdReadable(fd);
+                        continue;
+                    },
+                    else => return err,
+                };
+            }
         }
-        return req_node.data.msg.read.result;
     }
 
     /// Performs an async `os.readv` using a separate thread.
