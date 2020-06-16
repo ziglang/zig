@@ -18,20 +18,20 @@ pub fn addCases(ctx: *TestContext) !void {
         \\@start = fn(@start_fnty, {
         \\  %0 = call(%test, [])
         \\})
-    , &[_][]const u8{":5:13: error: unrecognized identifier: %test"});
+ // TODO: address inconsistency in this message and the one in the next test
+            , &[_][]const u8{":5:13: error: unrecognized identifier: %test"});
 
-    // TODO: fix this test
-    //    ctx.addZIRError("call with non-existent target", linux_x64,
-    //        \\@noreturn = primitive(noreturn)
-    //        \\
-    //        \\@start_fnty = fntype([], @noreturn, cc=Naked)
-    //        \\@start = fn(@start_fnty, {
-    //        \\  %0 = call(@notafunc, [])
-    //        \\})
-    //        \\@0 = str("_start")
-    //        \\@1 = ref(@0)
-    //        \\@2 = export(@1, @start)
-    //    , &[_][]const u8{"5:13:unrecognized identifier: @notafunc"});
+    ctx.addZIRError("call with non-existent target", linux_x64,
+        \\@noreturn = primitive(noreturn)
+        \\
+        \\@start_fnty = fntype([], @noreturn, cc=Naked)
+        \\@start = fn(@start_fnty, {
+        \\  %0 = call(@notafunc, [])
+        \\})
+        \\@0 = str("_start")
+        \\@1 = ref(@0)
+        \\@2 = export(@1, @start)
+    , &[_][]const u8{":5:13: error: use of undeclared identifier 'notafunc'"});
 
     // TODO: this error should occur at the call site, not the fntype decl
     ctx.addZIRError("call naked function", linux_x64,

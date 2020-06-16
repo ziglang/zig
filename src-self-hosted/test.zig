@@ -110,20 +110,25 @@ pub const TestContext = struct {
         pub fn addError(self: *ZIRCase, src: [:0]const u8, errors: []const []const u8) void {
             var array = self.updates.allocator.alloc(ErrorMsg, errors.len) catch unreachable;
             for (errors) |e, i| {
+                if (e[0] != ':') {
+                    std.debug.panic("Invalid test: error must be specified as follows:\n:line:column: error: message\n=========\n", .{});
+                }
                 var cur = e[1..];
                 var line_index = std.mem.indexOf(u8, cur, ":");
                 if (line_index == null) {
-                    std.debug.panic("Invalid test: error must be specified as ':line:column: error: msg', found '{}'", .{e});
+                    std.debug.panic("Invalid test: error must be specified as follows:\n:line:column: error: message\n=========\n", .{});
                 }
                 const line = std.fmt.parseInt(u32, cur[0..line_index.?], 10) catch @panic("Unable to parse line number");
                 cur = cur[line_index.? + 1 ..];
                 const column_index = std.mem.indexOf(u8, cur, ":");
                 if (column_index == null) {
-                    std.debug.panic("Invalid test: error must be specified as ':line:column: error: msg', found '{}'", .{e});
+                    std.debug.panic("Invalid test: error must be specified as follows:\n:line:column: error: message\n=========\n", .{});
                 }
                 const column = std.fmt.parseInt(u32, cur[0..column_index.?], 10) catch @panic("Unable to parse column number");
                 cur = cur[column_index.? + 2 ..];
-                std.debug.assert(std.mem.eql(u8, cur[0..7], "error: "));
+                if (!std.mem.eql(u8, cur[0..7], "error: ")) {
+                    std.debug.panic("Invalid test: error must be specified as follows:\n:line:column: error: message\n=========\n", .{});
+                }
                 const msg = cur[7..];
 
                 if (line == 0 or column == 0) {
@@ -312,7 +317,7 @@ pub const TestContext = struct {
                                 break;
                             }
                         } else {
-                            std.debug.warn("{}\nUnexpected error:\n================\n{}:{}: {}\n================\nTest failed.\n", .{ case.name, a.line + 1, a.column + 1, a.msg });
+                            std.debug.warn("{}\nUnexpected error:\n================\n:{}:{}: error: {}\n================\nTest failed.\n", .{ case.name, a.line + 1, a.column + 1, a.msg });
                             std.process.exit(1);
                         }
                     }
