@@ -92,7 +92,7 @@ pub fn addCases(ctx: *TestContext) void {
 
     {
         var case = ctx.addZIRMulti("reference cycle with compile error in the cycle", linux_x64);
-        case.addZIR(
+        case.addTransform(
             \\@void = primitive(void)
             \\@fnty = fntype([], @void, cc=C)
             \\
@@ -171,7 +171,7 @@ pub fn addCases(ctx: *TestContext) void {
         // Now we remove the call to `a`. `a` and `b` form a cycle, but no entry points are
         // referencing either of them. This tests that the cycle is detected, and the error
         // goes away.
-        case.addZIR(
+        case.addTransform(
             \\@void = primitive(void)
             \\@fnty = fntype([], @void, cc=C)
             \\

@@ -1,8 +1,53 @@
 const TestContext = @import("../../src-self-hosted/test.zig").TestContext;
+const std = @import("std");
+
+const ErrorMsg = @import("../../src-self-hosted/Module.zig").ErrorMsg;
+
+const linux_x64 = std.zig.CrossTarget{
+    .cpu_arch = .x86_64,
+    .os_tag = .linux,
+};
 
 pub fn addCases(ctx: *TestContext) !void {
+    ctx.addZIRError("call undefined local", linux_x64,
+        \\@noreturn = primitive(noreturn)
+        \\
+        \\@start_fnty = fntype([], @noreturn, cc=Naked)
+        \\@start = fn(@start_fnty, {
+        \\  %0 = call(%test, [])
+        \\})
+ // TODO: address inconsistency in this message and the one in the next test
+            , &[_][]const u8{":5:13: error: unrecognized identifier: %test"});
+
+    ctx.addZIRError("call with non-existent target", linux_x64,
+        \\@noreturn = primitive(noreturn)
+        \\
+        \\@start_fnty = fntype([], @noreturn, cc=Naked)
+        \\@start = fn(@start_fnty, {
+        \\  %0 = call(@notafunc, [])
+        \\})
+        \\@0 = str("_start")
+        \\@1 = ref(@0)
+        \\@2 = export(@1, @start)
+    , &[_][]const u8{":5:13: error: use of undeclared identifier 'notafunc'"});
+
+    // TODO: this error should occur at the call site, not the fntype decl
+    ctx.addZIRError("call naked function", linux_x64,
+        \\@noreturn = primitive(noreturn)
+        \\
+        \\@start_fnty = fntype([], @noreturn, cc=Naked)
+        \\@s = fn(@start_fnty, {})
+        \\@start = fn(@start_fnty, {
+        \\  %0 = call(@s, [])
+        \\})
+        \\@0 = str("_start")
+        \\@1 = ref(@0)
+        \\@2 = export(@1, @start)
+    , &[_][]const u8{":4:9: error: unable to call function with naked calling convention"});
+
     // TODO: re-enable these tests.
     // https://github.com/ziglang/zig/issues/1364
+    // TODO: add Zig AST -> ZIR testing pipeline
 
     //try ctx.testCompileError(
     //    \\export fn entry() void {}
