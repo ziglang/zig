@@ -114,7 +114,37 @@ pub const TestContext = struct {
             }) catch unreachable;
         }
 
-        pub fn addError(self: *ZIRCase, src: [:0]const u8, errors: []const []const u8) void {}
+        pub fn addError(self: *ZIRCase, src: [:0]const u8, errors: []const []const u8) void {
+            var array = self.updates.allocator.alloc(ErrorMsg, errors.len) catch unreachable;
+            for (errors) |e, i| {
+                var cur = e[1..];
+                var line_index = std.mem.indexOf(u8, cur, ":");
+                if (line_index == null) {
+                    std.debug.panic("Invalid test: error must be specified as ':line:column: error: msg', found '{}'", .{e});
+                }
+                const line = std.fmt.parseInt(u32, cur[0..line_index.?], 10) catch @panic("Unable to parse line number");
+                cur = cur[line_index.? + 1 ..];
+                const column_index = std.mem.indexOf(u8, cur, ":");
+                if (column_index == null) {
+                    std.debug.panic("Invalid test: error must be specified as ':line:column: error: msg', found '{}'", .{e});
+                }
+                const column = std.fmt.parseInt(u32, cur[0..column_index.?], 10) catch @panic("Unable to parse column number");
+                cur = cur[column_index.? + 2 ..];
+                std.debug.assert(std.mem.eql(u8, cur[0..7], "error: "));
+                const msg = cur[7..];
+
+                if (line == 0 or column == 0) {
+                    @panic("Invalid test: error line and column must be specified starting at one!");
+                }
+
+                array[i] = .{
+                    .msg = msg,
+                    .line = line - 1,
+                    .column = column - 1,
+                };
+            }
+            self.updates.append(.{ .src = src, .case = .{ .Error = array } }) catch unreachable;
+        }
     };
 
     pub fn addZIRMulti(
@@ -161,42 +191,7 @@ pub const TestContext = struct {
         cross_target: std.zig.CrossTarget,
         src: [:0]const u8,
         expected_errors: []const []const u8,
-    ) void {
-        var array = std.ArrayList(ErrorMsg).init(ctx.zir_error_cases.allocator);
-        for (expected_errors) |e| {
-            var cur = e;
-            var line_index = std.mem.indexOf(u8, cur, ":");
-            if (line_index == null) {
-                std.debug.panic("Invalid test: error must be specified as 'line:column: error: msg', found '{}'", .{e});
-            }
-            const line = std.fmt.parseInt(u32, cur[0..line_index.?], 10) catch @panic("Unable to parse line number");
-            cur = cur[line_index.? + 1 ..];
-            const column_index = std.mem.indexOf(u8, cur, ":");
-            if (column_index == null) {
-                std.debug.panic("Invalid test: error must be specified as 'line:column: error: msg', found '{}'", .{e});
-            }
-            const column = std.fmt.parseInt(u32, cur[0..column_index.?], 10) catch @panic("Unable to parse column number");
-            cur = cur[column_index.? + 2 ..];
-            std.debug.assert(std.mem.eql(u8, cur[0..7], "error: "));
-            const msg = cur[7..];
-
-            if (line == 0 or column == 0) {
-                @panic("Invalid test: error line and column must be specified starting at one!");
-            }
-
-            array.append(.{
-                .msg = msg,
-                .line = line - 1,
-                .column = column - 1,
-            }) catch unreachable;
-        }
-        ctx.zir_error_cases.append(.{
-            .name = name,
-            .src = src,
-            .expected_errors = array.toOwnedSlice(),
-            .cross_target = cross_target,
-        }) catch unreachable;
-    }
+    ) void {}
 
     fn init(self: *TestContext) !void {
         const allocator = std.heap.page_allocator;
@@ -214,6 +209,11 @@ pub const TestContext = struct {
         }
         self.zir_error_cases.deinit();
         for (self.zir_cases.items) |c| {
+            for (c.updates.items) |u| {
+                if (u.case == .Error) {
+                    c.updates.allocator.free(u.case.Error);
+                }
+            }
             c.updates.deinit();
         }
         self.zir_cases.deinit();
@@ -268,11 +268,11 @@ pub const TestContext = struct {
             // TODO: support tests for object file building, and library builds
             // and linking. This will require a rework to support multi-file
             // tests.
-            .output_mode = .Exe,
+            .output_mode = .Obj,
             // TODO: support testing optimizations
             .optimize_mode = .Debug,
             .bin_file_dir = tmp.dir,
-            .bin_file_path = "test_case",
+            .bin_file_path = "test_case.o",
             .root_pkg = root_pkg,
         });
         defer module.deinit();
@@ -312,6 +312,35 @@ pub const TestContext = struct {
 
                     std.testing.expectEqualSlices(u8, expected_output, out_zir.items);
                 },
+                .Error => |e| {
+                    var handled_errors = try allocator.alloc(bool, e.len);
+                    defer allocator.free(handled_errors);
+                    for (handled_errors) |*h| {
+                        h.* = false;
+                    }
+                    var all_errors = try module.getAllErrorsAlloc();
+                    defer all_errors.deinit(allocator);
+                    for (all_errors.list) |a| {
+                        for (e) |ex, i| {
+                            if (a.line == ex.line and a.column == ex.column and std.mem.eql(u8, ex.msg, a.msg)) {
+                                handled_errors[i] = true;
+                                break;
+                            }
+                        } else {
+                            std.debug.warn("{}\nUnexpected error:\n================\n{}:{}: {}\n================\nTest failed.\n", .{ case.name, a.line + 1, a.column + 1, a.msg });
+                            std.process.exit(1);
+                        }
+                    }
+
+                    for (handled_errors) |h, i| {
+                        if (!h) {
+                            const er = e[i];
+                            std.debug.warn("{}\nDid not receive error:\n================\n{}:{}: {}\n================\nTest failed.\n", .{ case.name, er.line, er.column, er.msg });
+                            std.process.exit(1);
+                        }
+                    }
+                },
+
                 else => return error.unimplemented,
             }
         }
@@ -423,10 +452,7 @@ pub const TestContext = struct {
 
         var module_node = prg_node.start("parse/analysis/codegen", null);
         module_node.activate();
-        const failed = f: {
-            module.update() catch break :f true;
-            break :f false;
-        };
+        try module.update();
         module_node.end();
         var err: ?anyerror = null;
 
