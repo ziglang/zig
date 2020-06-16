@@ -312,10 +312,12 @@ pub const File = struct {
     pub fn read(self: File, buffer: []u8) ReadError!usize {
         if (is_windows) {
             return windows.ReadFile(self.handle, buffer, null, self.intended_io_mode);
-        } else if (self.capable_io_mode != self.intended_io_mode) {
-            return std.event.Loop.instance.?.read(self.handle, buffer);
-        } else {
+        }
+
+        if (self.intended_io_mode == .blocking or !std.io.is_async) {
             return os.read(self.handle, buffer);
+        } else {
+            return std.event.Loop.instance.?.read(self.handle, buffer, self.capable_io_mode != self.intended_io_mode);
         }
     }
 
