@@ -24,8 +24,6 @@ const ErrorMsg = struct {
 pub const TestContext = struct {
     // TODO: remove these. They are deprecated.
     zir_cmp_output_cases: std.ArrayList(ZIRCompareOutputCase),
-    // TODO: remove
-    zir_error_cases: std.ArrayList(ZIRErrorCase),
 
     /// TODO: find a way to treat cases as individual tests (shouldn't show "1 test passed" if there are 200 cases)
     zir_cases: std.ArrayList(ZIRCase),
@@ -35,14 +33,6 @@ pub const TestContext = struct {
         name: []const u8,
         src_list: []const []const u8,
         expected_stdout_list: []const []const u8,
-    };
-
-    // TODO: remove
-    pub const ZIRErrorCase = struct {
-        name: []const u8,
-        src: [:0]const u8,
-        expected_errors: []const ErrorMsg,
-        cross_target: std.zig.CrossTarget,
     };
 
     pub const ZIRUpdateType = enum {
@@ -114,6 +104,9 @@ pub const TestContext = struct {
             }) catch unreachable;
         }
 
+        /// TODO: document
+        ///
+        /// Errors must be specified in sequential order
         pub fn addError(self: *ZIRCase, src: [:0]const u8, errors: []const []const u8) void {
             var array = self.updates.allocator.alloc(ErrorMsg, errors.len) catch unreachable;
             for (errors) |e, i| {
@@ -188,26 +181,24 @@ pub const TestContext = struct {
     pub fn addZIRError(
         ctx: *TestContext,
         name: []const u8,
-        cross_target: std.zig.CrossTarget,
+        target: std.zig.CrossTarget,
         src: [:0]const u8,
         expected_errors: []const []const u8,
-    ) void {}
+    ) void {
+        var c = ctx.addZIRMulti(name, target);
+        c.addError(src, expected_errors);
+    }
 
     fn init(self: *TestContext) !void {
         const allocator = std.heap.page_allocator;
         self.* = .{
             .zir_cmp_output_cases = std.ArrayList(ZIRCompareOutputCase).init(allocator),
-            .zir_error_cases = std.ArrayList(ZIRErrorCase).init(allocator),
             .zir_cases = std.ArrayList(ZIRCase).init(allocator),
         };
     }
 
     fn deinit(self: *TestContext) void {
         self.zir_cmp_output_cases.deinit();
-        for (self.zir_error_cases.items) |e| {
-            self.zir_error_cases.allocator.free(e.expected_errors);
-        }
-        self.zir_error_cases.deinit();
         for (self.zir_cases.items) |c| {
             for (c.updates.items) |u| {
                 if (u.case == .Error) {
@@ -238,12 +229,6 @@ pub const TestContext = struct {
         for (self.zir_cmp_output_cases.items) |case| {
             std.testing.base_allocator_instance.reset();
             try self.runOneZIRCmpOutputCase(std.testing.allocator, root_node, case, native_info.target);
-            try std.testing.allocator_instance.validate();
-        }
-        for (self.zir_error_cases.items) |case| {
-            std.testing.base_allocator_instance.reset();
-            const info = try std.zig.system.NativeTargetInfo.detect(std.testing.allocator, case.cross_target);
-            try self.runOneZIRErrorCase(std.testing.allocator, root_node, case, info.target);
             try std.testing.allocator_instance.validate();
         }
     }
@@ -419,103 +404,4 @@ pub const TestContext = struct {
             }
         }
     }
-
-    fn runOneZIRErrorCase(
-        self: *TestContext,
-        allocator: *Allocator,
-        root_node: *std.Progress.Node,
-        case: ZIRErrorCase,
-        target: std.Target,
-    ) !void {
-        var tmp = std.testing.tmpDir(.{});
-        defer tmp.cleanup();
-
-        var prg_node = root_node.start(case.name, 1);
-        prg_node.activate();
-        defer prg_node.end();
-
-        const tmp_src_path = "test-case.zir";
-        try tmp.dir.writeFile(tmp_src_path, case.src);
-
-        const root_pkg = try Package.create(allocator, tmp.dir, ".", tmp_src_path);
-        defer root_pkg.destroy();
-
-        var module = try Module.init(allocator, .{
-            .target = target,
-            .output_mode = .Obj,
-            .optimize_mode = .Debug,
-            .bin_file_dir = tmp.dir,
-            .bin_file_path = "test-case.o",
-            .root_pkg = root_pkg,
-        });
-        defer module.deinit();
-
-        var module_node = prg_node.start("parse/analysis/codegen", null);
-        module_node.activate();
-        try module.update();
-        module_node.end();
-        var err: ?anyerror = null;
-
-        var handled_errors = allocator.alloc(bool, case.expected_errors.len) catch unreachable;
-        defer allocator.free(handled_errors);
-        for (handled_errors) |*e| {
-            e.* = false;
-        }
-
-        var all_errors = try module.getAllErrorsAlloc();
-        defer all_errors.deinit(allocator);
-        for (all_errors.list) |e| {
-            var handled = false;
-            for (case.expected_errors) |ex, i| {
-                if (e.line == ex.line and e.column == ex.column and std.mem.eql(u8, ex.msg, e.msg)) {
-                    if (handled_errors[i]) {
-                        err = error.ErrorReceivedMultipleTimes;
-                        std.debug.warn("Received error multiple times: {}\n", .{e.msg});
-                    } else {
-                        handled_errors[i] = true;
-                        handled = true;
-                    }
-                    break;
-                }
-            }
-            if (!handled) {
-                err = error.ErrorNotExpected;
-                std.debug.warn("Received an unexpected error: {}:{}: {}\n", .{ e.line, e.column, e.msg });
-            }
-        }
-
-        for (handled_errors) |e, i| {
-            if (!e) {
-                err = error.MissingExpectedError;
-                const er = case.expected_errors[i];
-                std.debug.warn("Did not receive error: {}:{}: {}\n", .{ er.line, er.column, er.msg });
-            }
-        }
-
-        if (err) |e| {
-            return e;
-        }
-    }
 };
-
-fn debugPrintErrors(src: []const u8, errors: var) void {
-    std.debug.warn("\n", .{});
-    var nl = true;
-    var line: usize = 1;
-    for (src) |byte| {
-        if (nl) {
-            std.debug.warn("{: >3}| ", .{line});
-            nl = false;
-        }
-        if (byte == '\n') {
-            nl = true;
-            line += 1;
-        }
-        std.debug.warn("{c}", .{byte});
-    }
-    std.debug.warn("\n", .{});
-    for (errors) |err_msg| {
-        const loc = std.zig.findLineColumn(src, err_msg.byte_offset);
-        std.debug.warn("{}:{}: error: {}\n", .{ loc.line + 1, loc.column + 1, err_msg.msg });
-    }
-}

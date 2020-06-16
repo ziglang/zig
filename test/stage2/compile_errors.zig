@@ -18,7 +18,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\@start = fn(@start_fnty, {
         \\  %0 = call(%test, [])
         \\})
-    , &[_][]const u8{"5:13: error: unrecognized identifier: %test"});
+    , &[_][]const u8{":5:13: error: unrecognized identifier: %test"});
 
     // TODO: fix this test
     //    ctx.addZIRError("call with non-existent target", linux_x64,
@@ -45,7 +45,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\@0 = str("_start")
         \\@1 = ref(@0)
         \\@2 = export(@1, @start)
-    , &[_][]const u8{"4:9: error: unable to call function with naked calling convention"});
+    , &[_][]const u8{":4:9: error: unable to call function with naked calling convention"});
 
     //try ctx.testCompileError(
     //    \\export fn entry() void {}
