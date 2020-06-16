@@ -527,11 +527,11 @@ pub fn connectUnixSocket(path: []const u8) !fs.File {
 
     var addr = try std.net.Address.initUnix(path);
 
-    try os.connect(
-        sockfd,
-        &addr.any,
-        addr.getOsSockLen(),
-    );
+    if (std.io.is_async) {
+        try loop.connect(sockfd, &addr.any, addr.getOsSockLen());
+    } else {
+        try os.connect(sockfd, &addr.any, addr.getOsSockLen());
+    }
 
     return fs.File{
         .handle = sockfd,
@@ -590,7 +590,13 @@ pub fn tcpConnectToAddress(address: Address) !fs.File {
         (if (builtin.os.tag == .windows) 0 else os.SOCK_CLOEXEC);
     const sockfd = try os.socket(address.any.family, sock_flags, os.IPPROTO_TCP);
     errdefer os.close(sockfd);
-    try os.connect(sockfd, &address.any, address.getOsSockLen());
+
+    if (std.io.is_async) {
+        const loop = std.event.Loop.instance orelse return error.WouldBlock;
+        try loop.connect(sockfd, &address.any, address.getOsSockLen());
+    } else {
+        try os.connect(sockfd, &address.any, address.getOsSockLen());
+    }
 
     return fs.File{ .handle = sockfd };
 }
