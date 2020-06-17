@@ -37,7 +37,7 @@ decl_exports: std.AutoHashMap(*Decl, []*Export),
 /// This table owns the Export memory.
 export_owners: std.AutoHashMap(*Decl, []*Export),
 /// Maps fully qualified namespaced names to the Decl struct for them.
-decl_table: std.AutoHashMap(Scope.NameHash, *Decl),
+decl_table: DeclTable,
 
 optimize_mode: std.builtin.Mode,
 link_error_flags: link.ElfFile.ErrorFlags = .{},
@@ -65,6 +65,8 @@ generation: u32 = 0,
 /// Candidates for deletion. After a semantic analysis update completes, this list
 /// contains Decls that need to be deleted if they end up having no references to them.
 deletion_set: std.ArrayListUnmanaged(*Decl) = .{},
+
+const DeclTable = std.HashMap(Scope.NameHash, *Decl, Scope.name_hash_hash, Scope.name_hash_eql);
 
 const WorkItem = union(enum) {
     /// Write the machine code for a Decl to the output file.
@@ -417,6 +419,14 @@ pub const Scope = struct {
         }
     }
 
+    fn name_hash_hash(x: NameHash) u32 {
+        return @truncate(u32, @bitCast(u128, x));
+    }
+
+    fn name_hash_eql(a: NameHash, b: NameHash) bool {
+        return @bitCast(u128, a) == @bitCast(u128, b);
+    }
+
     pub const Tag = enum {
         /// .zir source code.
         zir_module,
@@ -711,7 +721,7 @@ pub fn init(gpa: *Allocator, options: InitOptions) !Module {
         .bin_file_path = options.bin_file_path,
         .bin_file = bin_file,
         .optimize_mode = options.optimize_mode,
-        .decl_table = std.AutoHashMap(Scope.NameHash, *Decl).init(gpa),
+        .decl_table = DeclTable.init(gpa),
         .decl_exports = std.AutoHashMap(*Decl, []*Export).init(gpa),
         .export_owners = std.AutoHashMap(*Decl, []*Export).init(gpa),
         .failed_decls = std.AutoHashMap(*Decl, *ErrorMsg).init(gpa),
