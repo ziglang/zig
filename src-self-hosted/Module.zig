@@ -1743,13 +1743,13 @@ fn analyzeFnBody(self: *Module, decl: *Decl, func: *Fn) !void {
     const fn_zir = func.analysis.queued;
     defer fn_zir.arena.promote(self.allocator).deinit();
     func.analysis = .{ .in_progress = {} };
-    std.debug.warn("set {} to in_progress\n", .{decl.name});
+    //std.debug.warn("set {} to in_progress\n", .{decl.name});
 
     try self.analyzeBody(&inner_block.base, fn_zir.body);
 
     const instructions = try arena.allocator.dupe(*Inst, inner_block.instructions.items);
     func.analysis = .{ .success = .{ .instructions = instructions } };
-    std.debug.warn("set {} to success\n", .{decl.name});
+    //std.debug.warn("set {} to success\n", .{decl.name});
 }
 
 fn reAnalyzeDecl(self: *Module, decl: *Decl, old_inst: *zir.Inst) InnerError!void {
