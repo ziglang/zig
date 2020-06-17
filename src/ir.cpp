@@ -15409,6 +15409,27 @@ static IrInstGen *ir_analyze_cast(IrAnalyze *ira, IrInst *source_instr,
         }
     }
 
+    // cast from *T to []T
+    // *T -> *[1]T -> []T
+    // TODO this should also cover cast to E![]T
+    if (is_slice(wanted_type) &&
+        actual_type->id == ZigTypeIdPointer && actual_type->data.pointer.ptr_len == PtrLenSingle)
+    {
+        // first, cast *T to *[1]T
+        ZigType *array_type = get_array_type(ira->codegen, actual_type->data.pointer.child_type, 1, nullptr);
+        ZigType *ptr_to_array_type = get_pointer_to_type(ira->codegen, array_type, actual_type->data.pointer.is_const);
+        IrInstGen *cast1 = ir_analyze_cast(ira, source_instr, ptr_to_array_type, value);
+        if (type_is_invalid(cast1->value->type))
+            return ira->codegen->invalid_inst_gen;
+
+        // then, cast *[1]T to []T
+        IrInstGen *cast2 = ir_analyze_cast(ira, source_instr, wanted_type, cast1);
+        if (type_is_invalid(cast2->value->type))
+            return ira->codegen->invalid_inst_gen;
+
+        return cast2;
+    }
+
     // [:x]T to [*:x]T
     // [:x]T to [*c]T
     if (wanted_type->id == ZigTypeIdPointer && is_slice(actual_type) &&
