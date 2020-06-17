@@ -64,6 +64,7 @@ comptime {
     _ = @import("behavior/bugs/726.zig");
     _ = @import("behavior/bugs/828.zig");
     _ = @import("behavior/bugs/920.zig");
+    _ = @import("behavior/bugs/5516.zig");
     _ = @import("behavior/byteswap.zig");
     _ = @import("behavior/byval_arg_var.zig");
     _ = @import("behavior/call.zig");
