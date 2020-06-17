@@ -15415,19 +15415,30 @@ static IrInstGen *ir_analyze_cast(IrAnalyze *ira, IrInst *source_instr,
     if (is_slice(wanted_type) &&
         actual_type->id == ZigTypeIdPointer && actual_type->data.pointer.ptr_len == PtrLenSingle)
     {
-        // first, cast *T to *[1]T
-        ZigType *array_type = get_array_type(ira->codegen, actual_type->data.pointer.child_type, 1, nullptr);
-        ZigType *ptr_to_array_type = get_pointer_to_type(ira->codegen, array_type, actual_type->data.pointer.is_const);
-        IrInstGen *cast1 = ir_analyze_cast(ira, source_instr, ptr_to_array_type, value);
-        if (type_is_invalid(cast1->value->type))
-            return ira->codegen->invalid_inst_gen;
+          ZigType *slice_type = wanted_type;
+          ZigType *slice_ptr_type = slice_type->data.structure.fields[slice_ptr_index]->type_entry;
+          assert(slice_ptr_type->id == ZigTypeIdPointer);
+          ZigType *array_type = get_array_type(ira->codegen, actual_type->data.pointer.child_type, 1, nullptr);
+          ZigType *ptr_to_array_type = get_pointer_to_type(ira->codegen, array_type, actual_type->data.pointer.is_const);
 
-        // then, cast *[1]T to []T
-        IrInstGen *cast2 = ir_analyze_cast(ira, source_instr, wanted_type, cast1);
-        if (type_is_invalid(cast2->value->type))
-            return ira->codegen->invalid_inst_gen;
+          bool const_ok = (slice_ptr_type->data.pointer.is_const || array_type->data.array.len == 0
+                  || !ptr_to_array_type->data.pointer.is_const);
+          if (const_ok && types_match_const_cast_only(ira, slice_ptr_type->data.pointer.child_type,
+              array_type->data.array.child_type, source_node,
+              !slice_ptr_type->data.pointer.is_const).id == ConstCastResultIdOk)
+          {
+              // first, cast *T to *[1]T
+              IrInstGen *cast1 = ir_analyze_cast(ira, source_instr, ptr_to_array_type, value);
+              if (type_is_invalid(cast1->value->type))
+                  return ira->codegen->invalid_inst_gen;
 
-        return cast2;
+              // then, cast *[1]T to []T
+              IrInstGen *cast2 = ir_analyze_cast(ira, source_instr, wanted_type, cast1);
+              if (type_is_invalid(cast2->value->type))
+                  return ira->codegen->invalid_inst_gen;
+
+              return cast2;
+          }
     }
 
     // [:x]T to [*:x]T
