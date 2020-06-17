@@ -215,3 +215,7 @@ pub const InstallRawStep = struct {
         try emitRaw(builder.allocator, full_src_path, full_dest_path);
     }
 };
+
+test "" {
+    std.meta.refAllDecls(InstallRawStep);
+}
