@@ -25,6 +25,9 @@ pub const Inst = struct {
     /// Hash of slice into the source of the part after the = and before the next instruction.
     contents_hash: std.zig.SrcHash = undefined,
 
+    /// Pre-allocated field for mapping ZIR text instructions to post-analysis instructions.
+    analyzed_inst: *ir.Inst = undefined,
+
     /// These names are used directly as the instruction names in the text format.
     pub const Tag = enum {
         breakpoint,
@@ -37,6 +40,8 @@ pub const Inst = struct {
         /// The syntax `@foo` is equivalent to `declval("foo")`.
         /// declval is equivalent to declref followed by deref.
         declval,
+        /// Same as declval but the parameter is a `*Module.Decl` rather than a name.
+        declval_in_module,
         str,
         int,
         ptrtoint,
@@ -46,6 +51,7 @@ pub const Inst = struct {
         @"asm",
         @"unreachable",
         @"return",
+        returnvoid,
         @"fn",
         fntype,
         @"export",
@@ -67,6 +73,7 @@ pub const Inst = struct {
             .call => Call,
             .declref => DeclRef,
             .declval => DeclVal,
+            .declval_in_module => DeclValInModule,
             .compileerror => CompileError,
             .@"const" => Const,
             .str => Str,
@@ -78,6 +85,7 @@ pub const Inst = struct {
             .@"asm" => Asm,
             .@"unreachable" => Unreachable,
             .@"return" => Return,
+            .returnvoid => ReturnVoid,
             .@"fn" => Fn,
             .@"export" => Export,
             .primitive => Primitive,
@@ -138,6 +146,16 @@ pub const Inst = struct {
 
         positionals: struct {
             name: []const u8,
+        },
+        kw_args: struct {},
+    };
+
+    pub const DeclValInModule = struct {
+        pub const base_tag = Tag.declval_in_module;
+        base: Inst,
+
+        positionals: struct {
+            decl: *IrModule.Decl,
         },
         kw_args: struct {},
     };
@@ -251,6 +269,16 @@ pub const Inst = struct {
 
     pub const Return = struct {
         pub const base_tag = Tag.@"return";
+        base: Inst,
+
+        positionals: struct {
+            operand: *Inst,
+        },
+        kw_args: struct {},
+    };
+
+    pub const ReturnVoid = struct {
+        pub const base_tag = Tag.returnvoid;
         base: Inst,
 
         positionals: struct {},
@@ -492,11 +520,19 @@ pub const Module = struct {
 
     const InstPtrTable = std.AutoHashMap(*Inst, struct { inst: *Inst, index: ?usize });
 
+    const DeclAndIndex = struct {
+        decl: *Inst,
+        index: usize,
+    };
+
     /// TODO Look into making a table to speed this up.
-    pub fn findDecl(self: Module, name: []const u8) ?*Inst {
-        for (self.decls) |decl| {
+    pub fn findDecl(self: Module, name: []const u8) ?DeclAndIndex {
+        for (self.decls) |decl, i| {
             if (mem.eql(u8, decl.name, name)) {
-                return decl;
+                return DeclAndIndex{
+                    .decl = decl,
+                    .index = i,
+                };
             }
         }
         return null;
@@ -540,6 +576,7 @@ pub const Module = struct {
             .call => return self.writeInstToStreamGeneric(stream, .call, decl, inst_table),
             .declref => return self.writeInstToStreamGeneric(stream, .declref, decl, inst_table),
             .declval => return self.writeInstToStreamGeneric(stream, .declval, decl, inst_table),
+            .declval_in_module => return self.writeInstToStreamGeneric(stream, .declval_in_module, decl, inst_table),
             .compileerror => return self.writeInstToStreamGeneric(stream, .compileerror, decl, inst_table),
             .@"const" => return self.writeInstToStreamGeneric(stream, .@"const", decl, inst_table),
             .str => return self.writeInstToStreamGeneric(stream, .str, decl, inst_table),
@@ -551,6 +588,7 @@ pub const Module = struct {
             .@"asm" => return self.writeInstToStreamGeneric(stream, .@"asm", decl, inst_table),
             .@"unreachable" => return self.writeInstToStreamGeneric(stream, .@"unreachable", decl, inst_table),
             .@"return" => return self.writeInstToStreamGeneric(stream, .@"return", decl, inst_table),
+            .returnvoid => return self.writeInstToStreamGeneric(stream, .returnvoid, decl, inst_table),
             .@"fn" => return self.writeInstToStreamGeneric(stream, .@"fn", decl, inst_table),
             .@"export" => return self.writeInstToStreamGeneric(stream, .@"export", decl, inst_table),
             .ref => return self.writeInstToStreamGeneric(stream, .ref, decl, inst_table),
@@ -636,6 +674,7 @@ pub const Module = struct {
             []u8, []const u8 => return std.zig.renderStringLiteral(param, stream),
             BigIntConst => return stream.print("{}", .{param}),
             TypedValue => unreachable, // this is a special case
+            *IrModule.Decl => unreachable, // this is a special case
             else => |T| @compileError("unimplemented: rendering parameter of type " ++ @typeName(T)),
         }
     }
@@ -649,6 +688,8 @@ pub const Module = struct {
             }
         } else if (inst.cast(Inst.DeclVal)) |decl_val| {
             try stream.print("@{}", .{decl_val.positionals.name});
+        } else if (inst.cast(Inst.DeclValInModule)) |decl_val| {
+            try stream.print("@{}", .{decl_val.positionals.decl.name});
         } else {
             //try stream.print("?", .{});
             unreachable;
@@ -996,6 +1037,7 @@ const Parser = struct {
             []u8, []const u8 => return self.parseStringLiteral(),
             BigIntConst => return self.parseIntegerLiteral(),
             TypedValue => return self.fail("'const' is a special instruction; not legal in ZIR text", .{}),
+            *IrModule.Decl => return self.fail("'declval_in_module' is a special instruction; not legal in ZIR text", .{}),
             else => @compileError("Unimplemented: ir parseParameterGeneric for type " ++ @typeName(T)),
         }
         return self.fail("TODO parse parameter {}", .{@typeName(T)});
@@ -1105,7 +1147,7 @@ const EmitZIR = struct {
         }
         std.sort.sort(*IrModule.Decl, src_decls.items, {}, (struct {
             fn lessThan(context: void, a: *IrModule.Decl, b: *IrModule.Decl) bool {
-                return a.src < b.src;
+                return a.src_index < b.src_index;
             }
         }).lessThan);
 
@@ -1113,7 +1155,7 @@ const EmitZIR = struct {
         for (src_decls.items) |ir_decl| {
             if (self.old_module.export_owners.getValue(ir_decl)) |exports| {
                 for (exports) |module_export| {
-                    const declval = try self.emitDeclVal(ir_decl.src, mem.spanZ(module_export.exported_decl.name));
+                    const declval = try self.emitDeclVal(ir_decl.src(), mem.spanZ(module_export.exported_decl.name));
                     const symbol_name = try self.emitStringLiteral(module_export.src, module_export.options.name);
                     const export_inst = try self.arena.allocator.create(Inst.Export);
                     export_inst.* = .{
@@ -1131,7 +1173,7 @@ const EmitZIR = struct {
                     try self.decls.append(self.allocator, &export_inst.base);
                 }
             } else {
-                const new_decl = try self.emitTypedValue(ir_decl.src, ir_decl.typed_value.most_recent.typed_value);
+                const new_decl = try self.emitTypedValue(ir_decl.src(), ir_decl.typed_value.most_recent.typed_value);
                 new_decl.name = try self.arena.allocator.dupe(u8, mem.spanZ(ir_decl.name));
             }
         }
@@ -1301,7 +1343,7 @@ const EmitZIR = struct {
                     },
                 }
 
-                const fn_type = try self.emitType(src, module_fn.fn_type);
+                const fn_type = try self.emitType(src, typed_value.ty);
 
                 const arena_instrs = try self.arena.allocator.alloc(*Inst, instructions.items.len);
                 mem.copy(*Inst, arena_instrs, instructions.items);
@@ -1399,7 +1441,23 @@ const EmitZIR = struct {
                     break :blk &new_inst.base;
                 },
                 .unreach => try self.emitTrivial(inst.src, Inst.Unreachable),
-                .ret => try self.emitTrivial(inst.src, Inst.Return),
+                .ret => blk: {
+                    const old_inst = inst.cast(ir.Inst.Ret).?;
+                    const new_inst = try self.arena.allocator.create(Inst.Return);
+                    new_inst.* = .{
+                        .base = .{
+                            .name = try self.autoName(),
+                            .src = inst.src,
+                            .tag = Inst.Return.base_tag,
+                        },
+                        .positionals = .{
+                            .operand = try self.resolveInst(inst_table, old_inst.args.operand),
+                        },
+                        .kw_args = .{},
+                    };
+                    break :blk &new_inst.base;
+                },
+                .retvoid => try self.emitTrivial(inst.src, Inst.ReturnVoid),
                 .constant => unreachable, // excluded from function bodies
                 .assembly => blk: {
                     const old_inst = inst.cast(ir.Inst.Assembly).?;

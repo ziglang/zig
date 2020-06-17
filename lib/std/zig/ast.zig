@@ -2260,6 +2260,8 @@ pub const Node = struct {
         }
     };
 
+    /// TODO break this into separate Break, Continue, Return AST Nodes to save memory.
+    /// Could be further broken into LabeledBreak, LabeledContinue, and ReturnVoid to save even more.
     pub const ControlFlowExpression = struct {
         base: Node = Node{ .id = .ControlFlowExpression },
         ltoken: TokenIndex,

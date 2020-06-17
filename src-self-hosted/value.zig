@@ -49,6 +49,7 @@ pub const Value = extern union {
         null_type,
         undefined_type,
         fn_noreturn_no_args_type,
+        fn_void_no_args_type,
         fn_naked_noreturn_no_args_type,
         fn_ccc_void_no_args_type,
         single_const_pointer_to_comptime_int_type,
@@ -107,6 +108,109 @@ pub const Value = extern union {
         return @fieldParentPtr(T, "base", self.ptr_otherwise);
     }
 
+    pub fn copy(self: Value, allocator: *Allocator) error{OutOfMemory}!Value {
+        if (self.tag_if_small_enough < Tag.no_payload_count) {
+            return Value{ .tag_if_small_enough = self.tag_if_small_enough };
+        } else switch (self.ptr_otherwise.tag) {
+            .u8_type,
+            .i8_type,
+            .isize_type,
+            .usize_type,
+            .c_short_type,
+            .c_ushort_type,
+            .c_int_type,
+            .c_uint_type,
+            .c_long_type,
+            .c_ulong_type,
+            .c_longlong_type,
+            .c_ulonglong_type,
+            .c_longdouble_type,
+            .f16_type,
+            .f32_type,
+            .f64_type,
+            .f128_type,
+            .c_void_type,
+            .bool_type,
+            .void_type,
+            .type_type,
+            .anyerror_type,
+            .comptime_int_type,
+            .comptime_float_type,
+            .noreturn_type,
+            .null_type,
+            .undefined_type,
+            .fn_noreturn_no_args_type,
+            .fn_void_no_args_type,
+            .fn_naked_noreturn_no_args_type,
+            .fn_ccc_void_no_args_type,
+            .single_const_pointer_to_comptime_int_type,
+            .const_slice_u8_type,
+            .undef,
+            .zero,
+            .the_one_possible_value,
+            .null_value,
+            .bool_true,
+            .bool_false,
+            => unreachable,
+
+            .ty => {
+                const payload = @fieldParentPtr(Payload.Ty, "base", self.ptr_otherwise);
+                const new_payload = try allocator.create(Payload.Ty);
+                new_payload.* = .{
+                    .base = payload.base,
+                    .ty = try payload.ty.copy(allocator),
+                };
+                return Value{ .ptr_otherwise = &new_payload.base };
+            },
+            .int_u64 => return self.copyPayloadShallow(allocator, Payload.Int_u64),
+            .int_i64 => return self.copyPayloadShallow(allocator, Payload.Int_i64),
+            .int_big_positive => {
+                @panic("TODO implement copying of big ints");
+            },
+            .int_big_negative => {
+                @panic("TODO implement copying of big ints");
+            },
+            .function => return self.copyPayloadShallow(allocator, Payload.Function),
+            .ref_val => {
+                const payload = @fieldParentPtr(Payload.RefVal, "base", self.ptr_otherwise);
+                const new_payload = try allocator.create(Payload.RefVal);
+                new_payload.* = .{
+                    .base = payload.base,
+                    .val = try payload.val.copy(allocator),
+                };
+                return Value{ .ptr_otherwise = &new_payload.base };
+            },
+            .decl_ref => return self.copyPayloadShallow(allocator, Payload.DeclRef),
+            .elem_ptr => {
+                const payload = @fieldParentPtr(Payload.ElemPtr, "base", self.ptr_otherwise);
+                const new_payload = try allocator.create(Payload.ElemPtr);
+                new_payload.* = .{
+                    .base = payload.base,
+                    .array_ptr = try payload.array_ptr.copy(allocator),
+                    .index = payload.index,
+                };
+                return Value{ .ptr_otherwise = &new_payload.base };
+            },
+            .bytes => return self.copyPayloadShallow(allocator, Payload.Bytes),
+            .repeated => {
+                const payload = @fieldParentPtr(Payload.Repeated, "base", self.ptr_otherwise);
+                const new_payload = try allocator.create(Payload.Repeated);
+                new_payload.* = .{
+                    .base = payload.base,
+                    .val = try payload.val.copy(allocator),
+                };
+                return Value{ .ptr_otherwise = &new_payload.base };
+            },
+        }
+    }
+
+    fn copyPayloadShallow(self: Value, allocator: *Allocator, comptime T: type) error{OutOfMemory}!Value {
+        const payload = @fieldParentPtr(T, "base", self.ptr_otherwise);
+        const new_payload = try allocator.create(T);
+        new_payload.* = payload.*;
+        return Value{ .ptr_otherwise = &new_payload.base };
+    }
+
     pub fn format(
         self: Value,
         comptime fmt: []const u8,
@@ -144,6 +248,7 @@ pub const Value = extern union {
             .null_type => return out_stream.writeAll("@TypeOf(null)"),
             .undefined_type => return out_stream.writeAll("@TypeOf(undefined)"),
             .fn_noreturn_no_args_type => return out_stream.writeAll("fn() noreturn"),
+            .fn_void_no_args_type => return out_stream.writeAll("fn() void"),
             .fn_naked_noreturn_no_args_type => return out_stream.writeAll("fn() callconv(.Naked) noreturn"),
             .fn_ccc_void_no_args_type => return out_stream.writeAll("fn() callconv(.C) void"),
             .single_const_pointer_to_comptime_int_type => return out_stream.writeAll("*const comptime_int"),
@@ -229,6 +334,7 @@ pub const Value = extern union {
             .null_type => Type.initTag(.@"null"),
             .undefined_type => Type.initTag(.@"undefined"),
             .fn_noreturn_no_args_type => Type.initTag(.fn_noreturn_no_args),
+            .fn_void_no_args_type => Type.initTag(.fn_void_no_args),
             .fn_naked_noreturn_no_args_type => Type.initTag(.fn_naked_noreturn_no_args),
             .fn_ccc_void_no_args_type => Type.initTag(.fn_ccc_void_no_args),
             .single_const_pointer_to_comptime_int_type => Type.initTag(.single_const_pointer_to_comptime_int),
@@ -286,6 +392,7 @@ pub const Value = extern union {
             .null_type,
             .undefined_type,
             .fn_noreturn_no_args_type,
+            .fn_void_no_args_type,
             .fn_naked_noreturn_no_args_type,
             .fn_ccc_void_no_args_type,
             .single_const_pointer_to_comptime_int_type,
@@ -345,6 +452,7 @@ pub const Value = extern union {
             .null_type,
             .undefined_type,
             .fn_noreturn_no_args_type,
+            .fn_void_no_args_type,
             .fn_naked_noreturn_no_args_type,
             .fn_ccc_void_no_args_type,
             .single_const_pointer_to_comptime_int_type,
@@ -405,6 +513,7 @@ pub const Value = extern union {
             .null_type,
             .undefined_type,
             .fn_noreturn_no_args_type,
+            .fn_void_no_args_type,
             .fn_naked_noreturn_no_args_type,
             .fn_ccc_void_no_args_type,
             .single_const_pointer_to_comptime_int_type,
@@ -470,6 +579,7 @@ pub const Value = extern union {
             .null_type,
             .undefined_type,
             .fn_noreturn_no_args_type,
+            .fn_void_no_args_type,
             .fn_naked_noreturn_no_args_type,
             .fn_ccc_void_no_args_type,
             .single_const_pointer_to_comptime_int_type,
@@ -564,6 +674,7 @@ pub const Value = extern union {
             .null_type,
             .undefined_type,
             .fn_noreturn_no_args_type,
+            .fn_void_no_args_type,
             .fn_naked_noreturn_no_args_type,
             .fn_ccc_void_no_args_type,
             .single_const_pointer_to_comptime_int_type,
@@ -620,6 +731,7 @@ pub const Value = extern union {
             .null_type,
             .undefined_type,
             .fn_noreturn_no_args_type,
+            .fn_void_no_args_type,
             .fn_naked_noreturn_no_args_type,
             .fn_ccc_void_no_args_type,
             .single_const_pointer_to_comptime_int_type,
@@ -721,6 +833,7 @@ pub const Value = extern union {
             .null_type,
             .undefined_type,
             .fn_noreturn_no_args_type,
+            .fn_void_no_args_type,
             .fn_naked_noreturn_no_args_type,
             .fn_ccc_void_no_args_type,
             .single_const_pointer_to_comptime_int_type,
@@ -783,6 +896,7 @@ pub const Value = extern union {
             .null_type,
             .undefined_type,
             .fn_noreturn_no_args_type,
+            .fn_void_no_args_type,
             .fn_naked_noreturn_no_args_type,
             .fn_ccc_void_no_args_type,
             .single_const_pointer_to_comptime_int_type,
@@ -862,6 +976,7 @@ pub const Value = extern union {
             .null_type,
             .undefined_type,
             .fn_noreturn_no_args_type,
+            .fn_void_no_args_type,
             .fn_naked_noreturn_no_args_type,
             .fn_ccc_void_no_args_type,
             .single_const_pointer_to_comptime_int_type,
@@ -927,11 +1042,6 @@ pub const Value = extern union {
         pub const ArraySentinel0_u8_Type = struct {
             base: Payload = Payload{ .tag = .array_sentinel_0_u8_type },
             len: u64,
-        };
-
-        pub const SingleConstPtrType = struct {
-            base: Payload = Payload{ .tag = .single_const_ptr_type },
-            elem_type: *Type,
         };
 
         /// Represents a pointer to another immutable value.

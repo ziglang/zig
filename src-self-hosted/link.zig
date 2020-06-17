@@ -956,10 +956,10 @@ pub const ElfFile = struct {
         try self.offset_table_free_list.ensureCapacity(self.allocator, self.local_symbols.items.len);
 
         if (self.local_symbol_free_list.popOrNull()) |i| {
-            //std.debug.warn("reusing symbol index {} for {}\n", .{i, decl.name});
+            std.debug.warn("reusing symbol index {} for {}\n", .{i, decl.name});
             decl.link.local_sym_index = i;
         } else {
-            //std.debug.warn("allocating symbol index {} for {}\n", .{self.local_symbols.items.len, decl.name});
+            std.debug.warn("allocating symbol index {} for {}\n", .{self.local_symbols.items.len, decl.name});
             decl.link.local_sym_index = @intCast(u32, self.local_symbols.items.len);
             _ = self.local_symbols.addOneAssumeCapacity();
         }
@@ -1002,7 +1002,7 @@ pub const ElfFile = struct {
         defer code_buffer.deinit();
 
         const typed_value = decl.typed_value.most_recent.typed_value;
-        const code = switch (try codegen.generateSymbol(self, decl.src, typed_value, &code_buffer)) {
+        const code = switch (try codegen.generateSymbol(self, decl.src(), typed_value, &code_buffer)) {
             .externally_managed => |x| x,
             .appended => code_buffer.items,
             .fail => |em| {
@@ -1027,11 +1027,11 @@ pub const ElfFile = struct {
                 !mem.isAlignedGeneric(u64, local_sym.st_value, required_alignment);
             if (need_realloc) {
                 const vaddr = try self.growTextBlock(&decl.link, code.len, required_alignment);
-                //std.debug.warn("growing {} from 0x{x} to 0x{x}\n", .{ decl.name, local_sym.st_value, vaddr });
+                std.debug.warn("growing {} from 0x{x} to 0x{x}\n", .{ decl.name, local_sym.st_value, vaddr });
                 if (vaddr != local_sym.st_value) {
                     local_sym.st_value = vaddr;
 
-                    //std.debug.warn("  (writing new offset table entry)\n", .{});
+                    std.debug.warn("  (writing new offset table entry)\n", .{});
                     self.offset_table.items[decl.link.offset_table_index] = vaddr;
                     try self.writeOffsetTableEntry(decl.link.offset_table_index);
                 }
@@ -1049,7 +1049,7 @@ pub const ElfFile = struct {
             const decl_name = mem.spanZ(decl.name);
             const name_str_index = try self.makeString(decl_name);
             const vaddr = try self.allocateTextBlock(&decl.link, code.len, required_alignment);
-            //std.debug.warn("allocated text block for {} at 0x{x}\n", .{ decl_name, vaddr });
+            std.debug.warn("allocated text block for {} at 0x{x}\n", .{ decl_name, vaddr });
             errdefer self.freeTextBlock(&decl.link);
 
             local_sym.* = .{

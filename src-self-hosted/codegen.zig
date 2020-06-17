@@ -178,6 +178,7 @@ const Function = struct {
             .ptrtoint => return self.genPtrToInt(inst.cast(ir.Inst.PtrToInt).?),
             .bitcast => return self.genBitCast(inst.cast(ir.Inst.BitCast).?),
             .ret => return self.genRet(inst.cast(ir.Inst.Ret).?),
+            .retvoid => return self.genRetVoid(inst.cast(ir.Inst.RetVoid).?),
             .cmp => return self.genCmp(inst.cast(ir.Inst.Cmp).?),
             .condbr => return self.genCondBr(inst.cast(ir.Inst.CondBr).?),
             .isnull => return self.genIsNull(inst.cast(ir.Inst.IsNull).?),
@@ -213,7 +214,7 @@ const Function = struct {
                         try self.code.resize(self.code.items.len + 7);
                         self.code.items[self.code.items.len - 7 ..][0..3].* = [3]u8{ 0xff, 0x14, 0x25 };
                         mem.writeIntLittle(u32, self.code.items[self.code.items.len - 4 ..][0..4], got_addr);
-                        const return_type = func.fn_type.fnReturnType();
+                        const return_type = func.owner_decl.typed_value.most_recent.typed_value.ty.fnReturnType();
                         switch (return_type.zigTypeTag()) {
                             .Void => return MCValue{ .none = {} },
                             .NoReturn => return MCValue{ .unreach = {} },
@@ -230,14 +231,26 @@ const Function = struct {
         }
     }
 
-    fn genRet(self: *Function, inst: *ir.Inst.Ret) !MCValue {
+    fn ret(self: *Function, src: usize, mcv: MCValue) !MCValue {
+        if (mcv != .none) {
+            return self.fail(src, "TODO implement return with non-void operand", .{});
+        }
         switch (self.target.cpu.arch) {
             .i386, .x86_64 => {
                 try self.code.append(0xc3); // ret
             },
-            else => return self.fail(inst.base.src, "TODO implement return for {}", .{self.target.cpu.arch}),
+            else => return self.fail(src, "TODO implement return for {}", .{self.target.cpu.arch}),
         }
         return .unreach;
+    }
+
+    fn genRet(self: *Function, inst: *ir.Inst.Ret) !MCValue {
+        const operand = try self.resolveInst(inst.args.operand);
+        return self.ret(inst.base.src, operand);
+    }
+
+    fn genRetVoid(self: *Function, inst: *ir.Inst.RetVoid) !MCValue {
+        return self.ret(inst.base.src, .none);
     }
 
     fn genCmp(self: *Function, inst: *ir.Inst.Cmp) !MCValue {

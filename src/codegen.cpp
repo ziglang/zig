@@ -7473,6 +7473,12 @@ static LLVMValueRef gen_const_val(CodeGen *g, ZigValue *const_val, const char *n
                             continue;
                         }
                         ZigValue *field_val = const_val->data.x_struct.fields[i];
+                        if (field_val == nullptr) {
+                            add_node_error(g, type_struct_field->decl_node,
+                                    buf_sprintf("compiler bug: generating const value for struct field '%s'",
+                                        buf_ptr(type_struct_field->name)));
+                            codegen_report_errors_and_exit(g);
+                        }
                         ZigType *field_type = field_val->type;
                         assert(field_type != nullptr);
                         if ((err = ensure_const_val_repr(nullptr, g, nullptr, field_val, field_type))) {
