@@ -3223,7 +3223,7 @@ const Parser = struct {
     }
 
     /// Op* Child
-    fn parsePrefixOpExpr(p: *Parser, opParseFn: NodeParseFn, childParseFn: NodeParseFn) Error!?*Node {
+    fn parsePrefixOpExpr(p: *Parser, comptime opParseFn: NodeParseFn, comptime childParseFn: NodeParseFn) Error!?*Node {
         if (try opParseFn(p)) |first_op| {
             var rightmost_op = first_op;
             while (true) {
