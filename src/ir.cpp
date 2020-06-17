@@ -13,6 +13,7 @@
 #include "os.hpp"
 #include "range_set.hpp"
 #include "softfloat.hpp"
+#include "softfloat_ext.hpp"
 #include "util.hpp"
 #include "mem_list.hpp"
 #include "all_types.hpp"
@@ -30303,6 +30304,21 @@ static ErrorMsg *ir_eval_float_op(IrAnalyze *ira, IrInst* source_instr, BuiltinF
         case BuiltinFnIdSqrt:
             f128M_sqrt(in, out);
             break;
+        case BuiltinFnIdFabs:
+            f128M_abs(in, out);
+            break;
+        case BuiltinFnIdFloor:
+            f128M_roundToInt(in, softfloat_round_min, false, out);
+            break;
+        case BuiltinFnIdCeil:
+            f128M_roundToInt(in, softfloat_round_max, false, out);
+        break;
+        case BuiltinFnIdTrunc:
+            f128M_trunc(in, out);
+            break;
+        case BuiltinFnIdRound: 
+            f128M_roundToInt(in, softfloat_round_near_maxMag, false, out);
+            break;
         case BuiltinFnIdNearbyInt:
         case BuiltinFnIdSin:
         case BuiltinFnIdCos:
@@ -30311,11 +30327,6 @@ static ErrorMsg *ir_eval_float_op(IrAnalyze *ira, IrInst* source_instr, BuiltinF
         case BuiltinFnIdLog:
         case BuiltinFnIdLog10:
         case BuiltinFnIdLog2:
-        case BuiltinFnIdFabs:
-        case BuiltinFnIdFloor:
-        case BuiltinFnIdCeil:
-        case BuiltinFnIdTrunc:
-        case BuiltinFnIdRound:
             return ir_add_error(ira, source_instr,
                 buf_sprintf("compiler bug: TODO: implement '%s' for type '%s'. See https://github.com/ziglang/zig/issues/4026",
                     float_op_to_name(fop), buf_ptr(&float_type->name)));
