@@ -325,6 +325,8 @@ const char* ir_inst_src_type_str(IrInstSrcId id) {
             return "SrcWasmMemorySize";
         case IrInstSrcIdWasmMemoryGrow:
             return "SrcWasmMemoryGrow";
+        case IrInstSrcIdSrc:
+            return "SrcSrc";
     }
     zig_unreachable();
 }
@@ -1744,6 +1746,10 @@ static void ir_print_wasm_memory_grow(IrPrintGen *irp, IrInstGenWasmMemoryGrow *
     fprintf(irp->f, ")");
 }
 
+static void ir_print_builtin_src(IrPrintSrc *irp, IrInstSrcSrc *instruction) {
+    fprintf(irp->f, "@src()");
+}
+
 static void ir_print_memset(IrPrintSrc *irp, IrInstSrcMemset *instruction) {
     fprintf(irp->f, "@memset(");
     ir_print_other_inst_src(irp, instruction->dest_ptr);
@@ -2993,6 +2999,9 @@ static void ir_print_inst_src(IrPrintSrc *irp, IrInstSrc *instruction, bool trai
             break;
         case IrInstSrcIdWasmMemoryGrow:
             ir_print_wasm_memory_grow(irp, (IrInstSrcWasmMemoryGrow *)instruction);
+            break;
+        case IrInstSrcIdSrc:
+            ir_print_builtin_src(irp, (IrInstSrcSrc *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

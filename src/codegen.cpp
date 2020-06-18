@@ -8714,6 +8714,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdBitSizeof, "bitSizeOf", 1);
     create_builtin_fn(g, BuiltinFnIdWasmMemorySize, "wasmMemorySize", 1);
     create_builtin_fn(g, BuiltinFnIdWasmMemoryGrow, "wasmMemoryGrow", 2);
+    create_builtin_fn(g, BuiltinFnIdSrc, "src", 0);
 }
 
 static const char *bool_to_str(bool b) {

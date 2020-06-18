@@ -561,6 +561,8 @@ static void destroy_instruction_src(IrInstSrc *inst) {
             return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcWasmMemorySize *>(inst));
         case IrInstSrcIdWasmMemoryGrow:
             return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcWasmMemoryGrow *>(inst));
+        case IrInstSrcIdSrc:
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcSrc *>(inst));
     }
     zig_unreachable();
 }
@@ -1627,6 +1629,9 @@ static constexpr IrInstSrcId ir_inst_id(IrInstSrcWasmMemoryGrow *) {
     return IrInstSrcIdWasmMemoryGrow;
 }
 
+static constexpr IrInstSrcId ir_inst_id(IrInstSrcSrc *) {
+    return IrInstSrcIdSrc;
+}
 
 static constexpr IrInstGenId ir_inst_id(IrInstGenDeclVar *) {
     return IrInstGenIdDeclVar;
@@ -5030,6 +5035,11 @@ static IrInstGen *ir_build_wasm_memory_grow_gen(IrAnalyze *ira, IrInst *source_i
     return &instruction->base;
 }
 
+static IrInstSrc *ir_build_src(IrBuilderSrc *irb, Scope *scope, AstNode *source_node) {
+    IrInstSrcSrc *instruction = ir_build_instruction<IrInstSrcSrc>(irb, scope, source_node);
+
+    return &instruction->base;
+}
 
 static void ir_count_defers(IrBuilderSrc *irb, Scope *inner_scope, Scope *outer_scope, size_t *results) {
     results[ReturnKindUnconditional] = 0;
@@ -7449,6 +7459,11 @@ static IrInstSrc *ir_gen_builtin_fn_call(IrBuilderSrc *irb, Scope *scope, AstNod
 
                 return ir_gen_union_init_expr(irb, scope, node, union_type_inst, name_inst, init_node,
                         lval, result_loc);
+            }
+        case BuiltinFnIdSrc:
+            {
+                IrInstSrc *src_inst = ir_build_src(irb, scope, node);
+                return ir_lval_wrap(irb, scope, src_inst, lval, result_loc);
             }
     }
     zig_unreachable();
@@ -30859,6 +30874,64 @@ static IrInstGen *ir_analyze_instruction_spill_end(IrAnalyze *ira, IrInstSrcSpil
     return ir_build_spill_end_gen(ira, &instruction->base.base, begin, operand->value->type);
 }
 
+static IrInstGen *ir_analyze_instruction_src(IrAnalyze *ira, IrInstSrcSrc *instruction) {
+    ZigFn *fn_entry = scope_fn_entry(instruction->base.base.scope);
+    if (fn_entry == nullptr) {
+        ir_add_error(ira, &instruction->base.base, buf_sprintf("@src outside function"));
+        return ira->codegen->invalid_inst_gen;
+    }
+
+    ZigType *u8_ptr = get_pointer_to_type_extra(
+        ira->codegen, ira->codegen->builtin_types.entry_u8,
+        true, false, PtrLenUnknown,
+        0, 0, 0, false);
+    ZigType *u8_slice = get_slice_type(ira->codegen, u8_ptr);
+
+    ZigType *source_location_type = get_builtin_type(ira->codegen, "SourceLocation");
+    if (type_resolve(ira->codegen, source_location_type, ResolveStatusSizeKnown)) {
+        zig_unreachable();
+    }
+
+    ZigValue *result = ira->codegen->pass1_arena->create<ZigValue>();
+    result->special = ConstValSpecialStatic;
+    result->type = source_location_type;
+
+    ZigValue **fields = alloc_const_vals_ptrs(ira->codegen, 4);
+    result->data.x_struct.fields = fields;
+
+    // file: []const u8
+    ensure_field_index(source_location_type, "file", 0);
+    fields[0]->special = ConstValSpecialStatic;
+    fields[0]->type = u8_slice;
+
+    ZigType *import = instruction->base.base.source_node->owner;
+    Buf *path = import->data.structure.root_struct->path;
+    ZigValue *file_name = create_const_str_lit(ira->codegen, path)->data.x_ptr.data.ref.pointee;
+    init_const_slice(ira->codegen, fields[0], file_name, 0, buf_len(path), true);
+
+    // fn_name: []const u8
+    ensure_field_index(source_location_type, "fn_name", 1);
+    fields[1]->special = ConstValSpecialStatic;
+    fields[1]->type = u8_slice;
+
+    ZigValue *fn_name = create_const_str_lit(ira->codegen, &fn_entry->symbol_name)->data.x_ptr.data.ref.pointee;
+    init_const_slice(ira->codegen, fields[1], fn_name, 0, buf_len(&fn_entry->symbol_name), true);
+
+    // line: u32
+    ensure_field_index(source_location_type, "line", 2);
+    fields[2]->special = ConstValSpecialStatic;
+    fields[2]->type = ira->codegen->builtin_types.entry_u32;
+    bigint_init_unsigned(&fields[2]->data.x_bigint, instruction->base.base.source_node->line + 1);
+
+    // column: u32
+    ensure_field_index(source_location_type, "column", 3);
+    fields[3]->special = ConstValSpecialStatic;
+    fields[3]->type = ira->codegen->builtin_types.entry_u32;
+    bigint_init_unsigned(&fields[3]->data.x_bigint, instruction->base.base.source_node->column + 1);
+
+    return ir_const_move(ira, &instruction->base.base, result);
+}
+
 static IrInstGen *ir_analyze_instruction_base(IrAnalyze *ira, IrInstSrc *instruction) {
     switch (instruction->id) {
         case IrInstSrcIdInvalid:
@@ -31130,6 +31203,8 @@ static IrInstGen *ir_analyze_instruction_base(IrAnalyze *ira, IrInstSrc *instruc
             return ir_analyze_instruction_wasm_memory_size(ira, (IrInstSrcWasmMemorySize *)instruction);
         case IrInstSrcIdWasmMemoryGrow:
             return ir_analyze_instruction_wasm_memory_grow(ira, (IrInstSrcWasmMemoryGrow *)instruction);
+        case IrInstSrcIdSrc:
+            return ir_analyze_instruction_src(ira, (IrInstSrcSrc *)instruction);
     }
     zig_unreachable();
 }
@@ -31525,6 +31600,7 @@ bool ir_inst_src_has_side_effects(IrInstSrc *instruction) {
         case IrInstSrcIdAlloca:
         case IrInstSrcIdSpillEnd:
         case IrInstSrcIdWasmMemorySize:
+        case IrInstSrcIdSrc:
             return false;
 
         case IrInstSrcIdAsm:

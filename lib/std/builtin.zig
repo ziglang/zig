@@ -131,6 +131,15 @@ pub const CallingConvention = enum {
     AAPCSVFP,
 };
 
+/// This data structure is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+pub const SourceLocation = struct {
+    file: []const u8,
+    fn_name: []const u8,
+    line: u32,
+    column: u32,
+};
+
 pub const TypeId = @TagType(TypeInfo);
 
 /// This data structure is used by the Zig language code generation and
