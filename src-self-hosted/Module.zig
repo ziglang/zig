@@ -16,6 +16,7 @@ const zir = @import("zir.zig");
 const Module = @This();
 const Inst = ir.Inst;
 const ast = std.zig.ast;
+const trace = @import("tracy.zig").trace;
 
 /// General-purpose allocator.
 allocator: *Allocator,
@@ -796,6 +797,9 @@ pub fn target(self: Module) std.Target {
 
 /// Detect changes to source files, perform semantic analysis, and update the output files.
 pub fn update(self: *Module) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
     self.generation += 1;
 
     // TODO Use the cache hash file system to detect which source files changed.
@@ -1050,6 +1054,9 @@ fn ensureDeclAnalyzed(self: *Module, decl: *Decl) InnerError!void {
 }
 
 fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
     const file_scope = decl.scope.cast(Scope.File).?;
     const tree = try self.getAstTree(file_scope);
     const ast_node = tree.root_node.decls()[decl.src_index];
@@ -1330,6 +1337,9 @@ fn astGenIntegerLiteral(self: *Module, scope: *Scope, int_lit: *ast.Node.Integer
 }
 
 fn astGenBlock(self: *Module, scope: *Scope, block_node: *ast.Node.Block) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
     if (block_node.label) |label| {
         return self.failTok(scope, label, "TODO implement labeled blocks", .{});
     }
@@ -1526,6 +1536,9 @@ fn getSrcModule(self: *Module, root_scope: *Scope.ZIRModule) !*zir.Module {
 }
 
 fn getAstTree(self: *Module, root_scope: *Scope.File) !*ast.Tree {
+    const tracy = trace(@src());
+    defer tracy.end();
+
     switch (root_scope.status) {
         .never_loaded, .unloaded_success => {
             try self.failed_files.ensureCapacity(self.failed_files.size + 1);
@@ -1739,6 +1752,9 @@ fn deleteDeclExports(self: *Module, decl: *Decl) void {
 }
 
 fn analyzeFnBody(self: *Module, decl: *Decl, func: *Fn) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
     // Use the Decl's arena for function memory.
     var arena = decl.typed_value.most_recent.arena.?.promote(self.allocator);
     defer decl.typed_value.most_recent.arena.?.* = arena.state;

@@ -72,8 +72,21 @@ pub fn build(b: *Builder) !void {
     if (!only_install_lib_files) {
         exe.install();
     }
+    const tracy = b.option([]const u8, "tracy", "Enable Tracy integration. Supply path to Tracy source");
     const link_libc = b.option(bool, "force-link-libc", "Force self-hosted compiler to link libc") orelse false;
     if (link_libc) exe.linkLibC();
+
+    exe.addBuildOption(bool, "enable_tracy", tracy != null);
+    if (tracy) |tracy_path| {
+        const client_cpp = fs.path.join(
+            b.allocator,
+            &[_][]const u8{ tracy_path, "TracyClient.cpp" },
+        ) catch unreachable;
+        exe.addIncludeDir(tracy_path);
+        exe.addCSourceFile(client_cpp, &[_][]const u8{ "-DTRACY_ENABLE=1", "-fno-sanitize=undefined" });
+        exe.linkSystemLibraryName("c++");
+        exe.linkLibC();
+    }
 
     b.installDirectory(InstallDirectoryOptions{
         .source_dir = "lib",

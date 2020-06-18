@@ -10,6 +10,7 @@ const Module = @import("Module.zig");
 const ErrorMsg = Module.ErrorMsg;
 const Target = std.Target;
 const Allocator = mem.Allocator;
+const trace = @import("tracy.zig").trace;
 
 pub const Result = union(enum) {
     /// The `code` parameter passed to `generateSymbol` has the value appended.
@@ -29,6 +30,9 @@ pub fn generateSymbol(
     /// A Decl that this symbol depends on had a semantic analysis failure.
     AnalysisFail,
 }!Result {
+    const tracy = trace(@src());
+    defer tracy.end();
+
     switch (typed_value.ty.zigTypeTag()) {
         .Fn => {
             const module_fn = typed_value.val.cast(Value.Payload.Function).?.func;
