@@ -209,7 +209,7 @@ pub const File = struct {
     /// TODO: integrate with async I/O
     pub fn mode(self: File) ModeError!Mode {
         if (builtin.os.tag == .windows) {
-            return {};
+            return 0;
         }
         return (try self.stat()).mode;
     }
