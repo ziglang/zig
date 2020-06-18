@@ -134,8 +134,8 @@ pub const CallingConvention = enum {
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
 pub const SourceLocation = struct {
-    file: []const u8,
-    fn_name: []const u8,
+    file: [:0]const u8,
+    fn_name: [:0]const u8,
     line: u32,
     column: u32,
 };

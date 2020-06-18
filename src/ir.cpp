@@ -30881,10 +30881,10 @@ static IrInstGen *ir_analyze_instruction_src(IrAnalyze *ira, IrInstSrcSrc *instr
         return ira->codegen->invalid_inst_gen;
     }
 
-    ZigType *u8_ptr = get_pointer_to_type_extra(
+    ZigType *u8_ptr = get_pointer_to_type_extra2(
         ira->codegen, ira->codegen->builtin_types.entry_u8,
         true, false, PtrLenUnknown,
-        0, 0, 0, false);
+        0, 0, 0, false, VECTOR_INDEX_NONE, nullptr, ira->codegen->intern.for_zero_byte());
     ZigType *u8_slice = get_slice_type(ira->codegen, u8_ptr);
 
     ZigType *source_location_type = get_builtin_type(ira->codegen, "SourceLocation");
@@ -30899,23 +30899,23 @@ static IrInstGen *ir_analyze_instruction_src(IrAnalyze *ira, IrInstSrcSrc *instr
     ZigValue **fields = alloc_const_vals_ptrs(ira->codegen, 4);
     result->data.x_struct.fields = fields;
 
-    // file: []const u8
+    // file: [:0]const u8
     ensure_field_index(source_location_type, "file", 0);
     fields[0]->special = ConstValSpecialStatic;
-    fields[0]->type = u8_slice;
 
     ZigType *import = instruction->base.base.source_node->owner;
     Buf *path = import->data.structure.root_struct->path;
     ZigValue *file_name = create_const_str_lit(ira->codegen, path)->data.x_ptr.data.ref.pointee;
     init_const_slice(ira->codegen, fields[0], file_name, 0, buf_len(path), true);
+    fields[0]->type = u8_slice;
 
-    // fn_name: []const u8
+    // fn_name: [:0]const u8
     ensure_field_index(source_location_type, "fn_name", 1);
     fields[1]->special = ConstValSpecialStatic;
-    fields[1]->type = u8_slice;
 
     ZigValue *fn_name = create_const_str_lit(ira->codegen, &fn_entry->symbol_name)->data.x_ptr.data.ref.pointee;
     init_const_slice(ira->codegen, fields[1], fn_name, 0, buf_len(&fn_entry->symbol_name), true);
+    fields[1]->type = u8_slice;
 
     // line: u32
     ensure_field_index(source_location_type, "line", 2);
