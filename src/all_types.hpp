@@ -1827,6 +1827,7 @@ enum BuiltinFnId {
     BuiltinFnIdBitSizeof,
     BuiltinFnIdWasmMemorySize,
     BuiltinFnIdWasmMemoryGrow,
+    BuiltinFnIdSrc,
 };
 
 struct BuiltinFnEntry {
@@ -2754,6 +2755,7 @@ enum IrInstSrcId {
     IrInstSrcIdSpillEnd,
     IrInstSrcIdWasmMemorySize,
     IrInstSrcIdWasmMemoryGrow,
+    IrInstSrcIdSrc,
 };
 
 // ir_render_* functions in codegen.cpp consume Gen instructions and produce LLVM IR.
@@ -3759,6 +3761,10 @@ struct IrInstGenWasmMemoryGrow {
 
     IrInstGen *index;
     IrInstGen *delta;
+};
+
+struct IrInstSrcSrc {
+    IrInstSrc base;
 };
 
 struct IrInstSrcSlice {
