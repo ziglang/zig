@@ -69,6 +69,12 @@ pub const unicode = @import("unicode.zig");
 pub const valgrind = @import("valgrind.zig");
 pub const zig = @import("zig.zig");
 pub const start = @import("start.zig");
+/// Standard input
+pub const in = io.getStdIn().inStream();
+/// Standard output
+pub const out = io.getStdOut().outStream();
+/// Standard error
+pub const err = io.getStdErr().outStream();
 
 // This forces the start.zig file to be imported, and the comptime logic inside that
 // file decides whether to export any appropriate start symbols.
