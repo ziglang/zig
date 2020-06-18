@@ -9475,8 +9475,14 @@ void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_pa
         const char *libcxx_include_path = buf_ptr(buf_sprintf("%s" OS_SEP "libcxx" OS_SEP "include",
                 buf_ptr(g->zig_lib_dir)));
 
+        const char *libcxxabi_include_path = buf_ptr(buf_sprintf("%s" OS_SEP "libcxxabi" OS_SEP "include",
+                buf_ptr(g->zig_lib_dir)));
+
         args.append("-isystem");
         args.append(libcxx_include_path);
+
+        args.append("-isystem");
+        args.append(libcxxabi_include_path);
 
         if (target_abi_is_musl(g->zig_target->abi)) {
             args.append("-D_LIBCPP_HAS_MUSL_LIBC");
