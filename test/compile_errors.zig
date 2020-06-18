@@ -2,6 +2,14 @@ const tests = @import("tests.zig");
 const std = @import("std");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.add("@src outside function",
+        \\comptime {
+        \\    @src();
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:2:5: error: @src outside function",
+    });
+
     cases.add("call assigned to constant",
         \\const Foo = struct {
         \\    x: i32,

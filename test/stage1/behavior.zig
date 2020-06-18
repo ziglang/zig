@@ -131,4 +131,5 @@ comptime {
     }
     _ = @import("behavior/while.zig");
     _ = @import("behavior/widening.zig");
+    _ = @import("behavior/src.zig");
 }
