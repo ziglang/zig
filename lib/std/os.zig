@@ -4660,12 +4660,7 @@ pub fn recvfrom(
             ENOTCONN => unreachable,
             ENOTSOCK => unreachable,
             EINTR => continue,
-            EAGAIN => if (std.event.Loop.instance) |loop| {
-                loop.waitUntilFdReadable(sockfd);
-                continue;
-            } else {
-                return error.WouldBlock;
-            },
+            EAGAIN => return error.WouldBlock,
             ENOMEM => return error.SystemResources,
             ECONNREFUSED => return error.ConnectionRefused,
             else => |err| return unexpectedErrno(err),
