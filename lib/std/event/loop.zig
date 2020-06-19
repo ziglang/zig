@@ -956,23 +956,35 @@ pub const Loop = struct {
 
     /// Performs an async `os.write` using a separate thread.
     /// `fd` must block and not return EAGAIN.
-    pub fn write(self: *Loop, fd: os.fd_t, bytes: []const u8) os.WriteError!usize {
-        var req_node = Request.Node{
-            .data = .{
-                .msg = .{
-                    .write = .{
-                        .fd = fd,
-                        .bytes = bytes,
-                        .result = undefined,
+    pub fn write(self: *Loop, fd: os.fd_t, bytes: []const u8, simulate_evented: bool) os.WriteError!usize {
+        if (simulate_evented) {
+            var req_node = Request.Node{
+                .data = .{
+                    .msg = .{
+                        .write = .{
+                            .fd = fd,
+                            .bytes = bytes,
+                            .result = undefined,
+                        },
                     },
+                    .finish = .{ .TickNode = .{ .data = @frame() } },
                 },
-                .finish = .{ .TickNode = .{ .data = @frame() } },
-            },
-        };
-        suspend {
-            self.posixFsRequest(&req_node);
+            };
+            suspend {
+                self.posixFsRequest(&req_node);
+            }
+            return req_node.data.msg.write.result;
+        } else {
+            while (true) {
+                return os.write(fd, bytes) catch |err| switch (err) {
+                    error.WouldBlock => {
+                        self.waitUntilFdWritable(fd);
+                        continue;
+                    },
+                    else => return err,
+                };
+            }
         }
-        return req_node.data.msg.write.result;
     }
 
     /// Performs an async `os.writev` using a separate thread.

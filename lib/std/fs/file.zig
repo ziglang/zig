@@ -547,10 +547,12 @@ pub const File = struct {
     pub fn write(self: File, bytes: []const u8) WriteError!usize {
         if (is_windows) {
             return windows.WriteFile(self.handle, bytes, null, self.intended_io_mode);
-        } else if (self.capable_io_mode != self.intended_io_mode) {
-            return std.event.Loop.instance.?.write(self.handle, bytes);
-        } else {
+        }
+
+        if (self.intended_io_mode == .blocking) {
             return os.write(self.handle, bytes);
+        } else {
+            return std.event.Loop.instance.?.write(self.handle, bytes, self.capable_io_mode != self.intended_io_mode);
         }
     }
 
