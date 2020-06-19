@@ -652,10 +652,62 @@ pub fn resolvePosix(allocator: *Allocator, paths: []const []const u8) ![]u8 {
     return allocator.shrink(result, result_index);
 }
 
+pub const ResolveRelativeError = error{AbsolutePath} || Allocator.Error;
+
+/// This function is like a series of `cd` statements executed one after another.
+/// It resolves "." and ".." relative to ".".
+/// The result does not have a trailing path separator.
+/// It does not dereference symlinks, and always returns a relative path. If the
+/// resolution leads to ".", returns null instead.
+pub fn resolveRelative(allocator: *Allocator, paths: []const []const u8) ResolveRelativeError!?[]u8 {
+    var max_size: usize = 0;
+    for (paths) |p, i| {
+        if (isAbsolute(p)) {
+            return ResolveRelativeError.AbsolutePath;
+        }
+        max_size += p.len + 1;
+    }
+
+    var result_index: usize = 0;
+    var result = try allocator.alloc(u8, max_size);
+    errdefer allocator.free(result);
+
+    for (paths) |p, i| {
+        var it = mem.tokenize(p, "/");
+        while (it.next()) |component| {
+            if (mem.eql(u8, component, ".")) {
+                continue;
+            } else if (mem.eql(u8, component, "..")) {
+                while (true) {
+                    if (result_index == 0)
+                        break;
+                    result_index -= 1;
+                    if (result[result_index] == '/')
+                        break;
+                }
+            } else {
+                if (result_index > 0) {
+                    result[result_index] = '/';
+                    result_index += 1;
+                }
+                mem.copy(u8, result[result_index..], component);
+                result_index += component.len;
+            }
+        }
+    }
+
+    if (result_index == 0) {
+        allocator.free(result);
+        return null;
+    }
+
+    return allocator.shrink(result, result_index);
+}
+
 /// Similar to `resolve`, however, resolves the paths with respect to the provided
 /// `Dir` handle.
-/// This function, unlike `resolve`, will perform one syscall to get the path of
-/// the specified `dir` handle.
+/// Unlike `resolve`, will perform one syscall to get the path of the
+/// specified `dir` handle.
 pub fn resolveat(allocator: *Allocator, dir: fs.Dir, paths: []const []const u8) ![]u8 {
     var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
     const dir_path = try std.os.realpathat(dir.fd, "", &buffer);
@@ -758,6 +810,45 @@ fn testResolvePosix(paths: []const []const u8, expected: []const u8) !void {
     const actual = try resolvePosix(testing.allocator, paths);
     defer testing.allocator.free(actual);
     return testing.expect(mem.eql(u8, actual, expected));
+}
+
+test "resolveRelative" {
+    try testResolveRelative(&[_][]const u8{ "a/b", "c" }, "a/b/c");
+    try testResolveRelative(&[_][]const u8{ "a/b", "./../" }, "a");
+    try testResolveRelative(&[_][]const u8{ "a/b", "..", ".." }, null);
+    try testResolveRelative(&[_][]const u8{"./"}, null);
+    try testResolveRelative(&[_][]const u8{ "..", "../" }, null);
+    try testResolveRelative(&[_][]const u8{ "./a", "/" }, ResolveRelativeError.AbsolutePath);
+}
+
+fn testResolveRelative(paths: []const []const u8, expected: var) !void {
+    const res = resolveRelative(testing.allocator, paths);
+
+    if (@typeInfo(@TypeOf(expected)) == .ErrorSet) {
+        return testing.expectError(expected, res);
+    }
+
+    const actual = try res;
+    defer if (actual) |a| testing.allocator.free(a);
+
+    return switch (@typeInfo(@TypeOf(expected))) {
+        .Null => testing.expectEqual(actual, expected),
+        else => |_| testing.expect(mem.eql(u8, actual.?, expected)),
+    };
+}
+
+test "resolveat" {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
+    const cwd = fs.cwd();
+
+    const a = try resolveat(testing.allocator, cwd, &[_][]const u8{});
+    defer testing.allocator.free(a);
+
+    const b = try resolve(testing.allocator, &[_][]const u8{});
+    defer testing.allocator.free(b);
+
+    testing.expect(mem.eql(u8, a, b));
 }
 
 /// If the path is a file in the current directory (no directory component)
