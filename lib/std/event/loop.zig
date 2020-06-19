@@ -877,24 +877,36 @@ pub const Loop = struct {
 
     /// Performs an async `os.pread` using a separate thread.
     /// `fd` must block and not return EAGAIN.
-    pub fn pread(self: *Loop, fd: os.fd_t, buf: []u8, offset: u64) os.PReadError!usize {
-        var req_node = Request.Node{
-            .data = .{
-                .msg = .{
-                    .pread = .{
-                        .fd = fd,
-                        .buf = buf,
-                        .offset = offset,
-                        .result = undefined,
+    pub fn pread(self: *Loop, fd: os.fd_t, buf: []u8, offset: u64, simulate_evented: bool) os.PReadError!usize {
+        if (simulate_evented) {
+            var req_node = Request.Node{
+                .data = .{
+                    .msg = .{
+                        .pread = .{
+                            .fd = fd,
+                            .buf = buf,
+                            .offset = offset,
+                            .result = undefined,
+                        },
                     },
+                    .finish = .{ .TickNode = .{ .data = @frame() } },
                 },
-                .finish = .{ .TickNode = .{ .data = @frame() } },
-            },
-        };
-        suspend {
-            self.posixFsRequest(&req_node);
+            };
+            suspend {
+                self.posixFsRequest(&req_node);
+            }
+            return req_node.data.msg.pread.result;
+        } else {
+            while (true) {
+                return os.pread(fd, buf, offset) catch |err| switch (err) {
+                    error.WouldBlock => {
+                        self.waitUntilFdReadable(fd);
+                        continue;
+                    },
+                    else => return err,
+                };
+            }
         }
-        return req_node.data.msg.pread.result;
     }
 
     /// Performs an async `os.preadv` using a separate thread.

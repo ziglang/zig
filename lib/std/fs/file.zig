@@ -336,10 +336,12 @@ pub const File = struct {
     pub fn pread(self: File, buffer: []u8, offset: u64) PReadError!usize {
         if (is_windows) {
             return windows.ReadFile(self.handle, buffer, offset, self.intended_io_mode);
-        } else if (self.capable_io_mode != self.intended_io_mode) {
-            return std.event.Loop.instance.?.pread(self.handle, buffer, offset);
-        } else {
+        }
+
+        if (self.intended_io_mode == .blocking) {
             return os.pread(self.handle, buffer, offset);
+        } else {
+            return std.event.Loop.instance.?.pread(self.handle, buffer, offset, self.capable_io_mode != self.intended_io_mode);
         }
     }
 
