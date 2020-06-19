@@ -1020,9 +1020,43 @@ pub const Loop = struct {
         }
     }
 
+    /// Performs an async `os.pwrite` using a separate thread.
+    /// `fd` must block and not return EAGAIN.
+    pub fn pwrite(self: *Loop, fd: os.fd_t, bytes: []const u8, offset: u64, simulate_evented: bool) os.PWriteError!usize {
+        if (simulate_evented) {
+            var req_node = Request.Node{
+                .data = .{
+                    .msg = .{
+                        .pwrite = .{
+                            .fd = fd,
+                            .bytes = bytes,
+                            .offset = offset,
+                            .result = undefined,
+                        },
+                    },
+                    .finish = .{ .TickNode = .{ .data = @frame() } },
+                },
+            };
+            suspend {
+                self.posixFsRequest(&req_node);
+            }
+            return req_node.data.msg.pwrite.result;
+        } else {
+            while (true) {
+                return os.pwrite(fd, bytes, offset) catch |err| switch (err) {
+                    error.WouldBlock => {
+                        self.waitUntilFdWritable(fd);
+                        continue;
+                    },
+                    else => return err,
+                };
+            }
+        }
+    }
+
     /// Performs an async `os.pwritev` using a separate thread.
     /// `fd` must block and not return EAGAIN.
-    pub fn pwritev(self: *Loop, fd: os.fd_t, iov: []const os.iovec_const, offset: u64) os.WriteError!usize {
+    pub fn pwritev(self: *Loop, fd: os.fd_t, iov: []const os.iovec_const, offset: u64) os.PWriteError!usize {
         var req_node = Request.Node{
             .data = .{
                 .msg = .{
@@ -1194,6 +1228,9 @@ pub const Loop = struct {
                     .writev => |*msg| {
                         msg.result = os.writev(msg.fd, msg.iov);
                     },
+                    .pwrite => |*msg| {
+                        msg.result = os.pwrite(msg.fd, msg.bytes, msg.offset);
+                    },
                     .pwritev => |*msg| {
                         msg.result = os.pwritev(msg.fd, msg.iov, msg.offset);
                     },
@@ -1263,6 +1300,7 @@ pub const Loop = struct {
             readv: ReadV,
             write: Write,
             writev: WriteV,
+            pwrite: PWrite,
             pwritev: PWriteV,
             pread: PRead,
             preadv: PReadV,
@@ -1304,6 +1342,15 @@ pub const Loop = struct {
                 result: Error!usize,
 
                 pub const Error = os.WriteError;
+            };
+
+            pub const PWrite = struct {
+                fd: os.fd_t,
+                bytes: []const u8,
+                offset: usize,
+                result: Error!usize,
+
+                pub const Error = os.PWriteError;
             };
 
             pub const PWriteV = struct {
