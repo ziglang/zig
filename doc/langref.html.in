@@ -231,7 +231,7 @@
 const std = @import("std");
 
 pub fn main() !void {
-      const stdout = std.out();
+      const stdout = std.io.out();
       try stdout.print("Hello, {}!\n", .{"world"});
 }
       {#code_end#}

@@ -101,6 +101,21 @@ pub fn getStdIn() File {
     };
 }
 
+/// Standard input stream
+pub fn in() Reader(fs.File, os.ReadError, fs.File.read) {
+    return getStdIn().reader();
+}
+
+/// Standard output stream
+pub fn out() Writer(fs.File, os.WriteError, fs.File.write) {
+    return getStdOut().writer();
+}
+
+/// Standard error stream
+pub fn err() Writer(fs.File, os.WriteError, fs.File.write) {
+    return getStdErr().writer();
+}
+
 pub const Reader = @import("io/reader.zig").Reader;
 /// Deprecated: use `Reader`
 pub const InStream = Reader;

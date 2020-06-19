@@ -69,20 +69,6 @@ pub const unicode = @import("unicode.zig");
 pub const valgrind = @import("valgrind.zig");
 pub const zig = @import("zig.zig");
 pub const start = @import("start.zig");
-/// Standard input
-pub fn in() io.Reader(fs.File, os.ReadError, fs.File.read) {
-    return io.getStdIn().reader();
-}
-
-/// Standard output
-pub fn out() io.Writer(fs.File, os.WriteError, fs.File.write) {
-    return io.getStdOut().writer();
-}
-
-/// Standard error
-pub fn err() io.Writer(fs.File, os.WriteError, fs.File.write) {
-    return io.getStdErr().writer();
-}
 
 // This forces the start.zig file to be imported, and the comptime logic inside that
 // file decides whether to export any appropriate start symbols.
