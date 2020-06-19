@@ -1314,16 +1314,19 @@ fn astGenStringLiteral(self: *Module, scope: *Scope, str_lit: *ast.Node.StringLi
 fn astGenIntegerLiteral(self: *Module, scope: *Scope, int_lit: *ast.Node.IntegerLiteral) InnerError!*zir.Inst {
     const arena = scope.arena();
     const tree = scope.tree();
-    const bytes = tree.tokenSlice(int_lit.token);
+    var bytes = tree.tokenSlice(int_lit.token);
+    const base = if (mem.startsWith(u8, bytes, "0x"))
+        16
+    else if (mem.startsWith(u8, bytes, "0o"))
+        8
+    else if (mem.startsWith(u8, bytes, "0b"))
+        2
+    else
+        @as(u8, 10);
 
-    if (mem.startsWith(u8, bytes, "0x")) {
-        return self.failTok(scope, int_lit.token, "TODO implement 0x int prefix", .{});
-    } else if (mem.startsWith(u8, bytes, "0o")) {
-        return self.failTok(scope, int_lit.token, "TODO implement 0o int prefix", .{});
-    } else if (mem.startsWith(u8, bytes, "0b")) {
-        return self.failTok(scope, int_lit.token, "TODO implement 0b int prefix", .{});
-    }
-    if (std.fmt.parseInt(u64, bytes, 10)) |small_int| {
+    if (base != 10) bytes = bytes[2..];
+
+    if (std.fmt.parseInt(u64, bytes, base)) |small_int| {
         const int_payload = try arena.create(Value.Payload.Int_u64);
         int_payload.* = .{ .int = small_int };
         const src = tree.token_locs[int_lit.token].start;
