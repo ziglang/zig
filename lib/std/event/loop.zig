@@ -1077,6 +1077,27 @@ pub const Loop = struct {
         }
     }
 
+    pub fn sendto(
+        self: *Loop,
+        /// The file descriptor of the sending socket.
+        sockfd: os.fd_t,
+        /// Message to send.
+        buf: []const u8,
+        flags: u32,
+        dest_addr: ?*const os.sockaddr,
+        addrlen: os.socklen_t,
+    ) os.SendError!usize {
+        while (true) {
+            return os.sendto(sockfd, buf, flags, dest_addr, addrlen) catch |err| switch (err) {
+                error.WouldBlock => {
+                    self.waitUntilFdWritable(sockfd);
+                    continue;
+                },
+                else => return err,
+            };
+        }
+    }
+
     /// Performs an async `os.faccessatZ` using a separate thread.
     /// `fd` must block and not return EAGAIN.
     pub fn faccessatZ(

@@ -1348,7 +1348,11 @@ fn resMSendRc(
                 if (answers[i].len == 0) {
                     var j: usize = 0;
                     while (j < ns.len) : (j += 1) {
-                        _ = os.sendto(fd, queries[i], os.MSG_NOSIGNAL, &ns[j].any, sl) catch undefined;
+                        if (std.io.is_async) {
+                            _ = std.event.Loop.instance.?.sendto(fd, queries[i], os.MSG_NOSIGNAL, &ns[j].any, sl) catch undefined;
+                        } else {
+                            _ = os.sendto(fd, queries[i], os.MSG_NOSIGNAL, &ns[j].any, sl) catch undefined;
+                        }
                     }
                 }
             }
@@ -1389,7 +1393,11 @@ fn resMSendRc(
                 0, 3 => {},
                 2 => if (servfail_retry != 0) {
                     servfail_retry -= 1;
-                    _ = os.sendto(fd, queries[i], os.MSG_NOSIGNAL, &ns[j].any, sl) catch undefined;
+                    if (std.io.is_async) {
+                        _ = std.event.Loop.instance.?.sendto(fd, queries[i], os.MSG_NOSIGNAL, &ns[j].any, sl) catch undefined;
+                    } else {
+                        _ = os.sendto(fd, queries[i], os.MSG_NOSIGNAL, &ns[j].any, sl) catch undefined;
+                    }
                 },
                 else => continue,
             }
