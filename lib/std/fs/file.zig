@@ -209,7 +209,7 @@ pub const File = struct {
     /// TODO: integrate with async I/O
     pub fn mode(self: File) ModeError!Mode {
         if (builtin.os.tag == .windows) {
-            return {};
+            return 0;
         }
         return (try self.stat()).mode;
     }
@@ -304,6 +304,33 @@ pub const File = struct {
             },
         };
         try os.futimens(self.handle, &times);
+    }
+
+    /// On success, caller owns returned buffer.
+    /// If the file is larger than `max_bytes`, returns `error.FileTooBig`.
+    pub fn readAllAlloc(self: File, allocator: *mem.Allocator, stat_size: u64, max_bytes: usize) ![]u8 {
+        return self.readAllAllocOptions(allocator, stat_size, max_bytes, @alignOf(u8), null);
+    }
+
+    /// On success, caller owns returned buffer.
+    /// If the file is larger than `max_bytes`, returns `error.FileTooBig`.
+    /// Allows specifying alignment and a sentinel value.
+    pub fn readAllAllocOptions(
+        self: File,
+        allocator: *mem.Allocator,
+        stat_size: u64,
+        max_bytes: usize,
+        comptime alignment: u29,
+        comptime optional_sentinel: ?u8,
+    ) !(if (optional_sentinel) |s| [:s]align(alignment) u8 else []align(alignment) u8) {
+        const size = math.cast(usize, stat_size) catch math.maxInt(usize);
+        if (size > max_bytes) return error.FileTooBig;
+
+        const buf = try allocator.allocWithOptions(u8, size, alignment, optional_sentinel);
+        errdefer allocator.free(buf);
+
+        try self.inStream().readNoEof(buf);
+        return buf;
     }
 
     pub const ReadError = os.ReadError;

@@ -1229,14 +1229,9 @@ pub const Dir = struct {
         var file = try self.openFile(file_path, .{});
         defer file.close();
 
-        const size = math.cast(usize, try file.getEndPos()) catch math.maxInt(usize);
-        if (size > max_bytes) return error.FileTooBig;
+        const stat_size = try file.getEndPos();
 
-        const buf = try allocator.allocWithOptions(u8, size, alignment, optional_sentinel);
-        errdefer allocator.free(buf);
-
-        try file.inStream().readNoEof(buf);
-        return buf;
+        return file.readAllAllocOptions(allocator, stat_size, max_bytes, alignment, optional_sentinel);
     }
 
     pub const DeleteTreeError = error{
