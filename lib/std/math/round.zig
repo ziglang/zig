@@ -20,6 +20,7 @@ pub fn round(x: var) @TypeOf(x) {
     return switch (T) {
         f32 => round32(x),
         f64 => round64(x),
+        f128 => round128(x),
         else => @compileError("round not implemented for " ++ @typeName(T)),
     };
 }
@@ -90,9 +91,43 @@ fn round64(x_: f64) f64 {
     }
 }
 
+fn round128(x_: f128) f128 {
+    var x = x_;
+    const u = @bitCast(u128, x);
+    const e = (u >> 112) & 0x7FFF;
+    var y: f128 = undefined;
+
+    if (e >= 0x3FFF + 112) {
+        return x;
+    }
+    if (u >> 127 != 0) {
+        x = -x;
+    }
+    if (e < 0x3FFF - 1) {
+        math.forceEval(x + math.f64_toint);
+        return 0 * @bitCast(f128, u);
+    }
+
+    y = x + math.f128_toint - math.f128_toint - x;
+    if (y > 0.5) {
+        y = y + x - 1;
+    } else if (y <= -0.5) {
+        y = y + x + 1;
+    } else {
+        y = y + x;
+    }
+
+    if (u >> 127 != 0) {
+        return -y;
+    } else {
+        return y;
+    }
+}
+
 test "math.round" {
     expect(round(@as(f32, 1.3)) == round32(1.3));
     expect(round(@as(f64, 1.3)) == round64(1.3));
+    expect(round(@as(f128, 1.3)) == round128(1.3));
 }
 
 test "math.round32" {
@@ -109,6 +144,13 @@ test "math.round64" {
     expect(round64(1.8) == 2.0);
 }
 
+test "math.round128" {
+    expect(round128(1.3) == 1.0);
+    expect(round128(-1.3) == -1.0);
+    expect(round128(0.2) == 0.0);
+    expect(round128(1.8) == 2.0);
+}
+
 test "math.round32.special" {
     expect(round32(0.0) == 0.0);
     expect(round32(-0.0) == -0.0);
@@ -123,4 +165,12 @@ test "math.round64.special" {
     expect(math.isPositiveInf(round64(math.inf(f64))));
     expect(math.isNegativeInf(round64(-math.inf(f64))));
     expect(math.isNan(round64(math.nan(f64))));
+}
+
+test "math.round128.special" {
+    expect(round128(0.0) == 0.0);
+    expect(round128(-0.0) == -0.0);
+    expect(math.isPositiveInf(round128(math.inf(f128))));
+    expect(math.isNegativeInf(round128(-math.inf(f128))));
+    expect(math.isNan(round128(math.nan(f128))));
 }

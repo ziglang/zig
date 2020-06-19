@@ -122,6 +122,11 @@ pub fn forceEval(value: var) void {
             const p = @ptrCast(*volatile f64, &x);
             p.* = x;
         },
+        f128 => {
+            var x: f128 = undefined;
+            const p = @ptrCast(*volatile f128, &x);
+            p.* = x;
+        },
         else => {
             @compileError("forceEval not implemented for " ++ @typeName(T));
         },
