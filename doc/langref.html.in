@@ -3874,7 +3874,7 @@ test "if error union" {
 const std = @import("std");
 const assert = std.debug.assert;
 const info = std.log.info;
-const scope = .defer;
+const scope = .defer_test;
 
 // defer will execute an expression at the end of the current scope.
 fn deferExample() usize {
