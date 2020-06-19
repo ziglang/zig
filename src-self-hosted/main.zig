@@ -707,7 +707,13 @@ fn fmtPath(fmt: *Fmt, file_path: []const u8, check_mode: bool) FmtError!void {
     };
     defer source_file.close();
 
-    const source_code = source_file.reader().readAllAlloc(fmt.gpa, max_src_size) catch |err| {
+    const stat = source_file.stat() catch |err| {
+        std.debug.warn("unable to stat '{}': {}\n", .{ file_path, err });
+        fmt.any_error = true;
+        return;
+    };
+
+    const source_code = source_file.readAllAlloc(fmt.gpa, stat.size, max_src_size) catch |err| {
         std.debug.warn("unable to read '{}': {}\n", .{ file_path, err });
         fmt.any_error = true;
         return;
@@ -736,7 +742,7 @@ fn fmtPath(fmt: *Fmt, file_path: []const u8, check_mode: bool) FmtError!void {
             fmt.any_error = true;
         }
     } else {
-        const baf = try io.BufferedAtomicFile.create(fmt.gpa, fs.cwd(), real_path, .{ .mode = try source_file.mode() });
+        const baf = try io.BufferedAtomicFile.create(fmt.gpa, fs.cwd(), real_path, .{ .mode = stat.mode });
         defer baf.destroy();
 
         const anything_changed = try std.zig.render(fmt.gpa, baf.stream(), tree);
