@@ -201,6 +201,7 @@ pub const Inst = struct {
     };
 
     pub const PtrToInt = struct {
+        pub const builtin_name = "@ptrToInt";
         pub const base_tag = Tag.ptrtoint;
         base: Inst,
 
