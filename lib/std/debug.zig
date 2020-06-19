@@ -52,9 +52,13 @@ pub const LineInfo = struct {
 
 var stderr_mutex = std.Mutex.init();
 
-/// Tries to write to stderr, unbuffered, and ignores any error returned.
-/// Does not append a newline.
-pub fn warn(comptime fmt: []const u8, args: var) void {
+/// Deprecated. Use `std.log` functions for logging or `std.debug.print` for
+/// "printf debugging".
+pub const warn = print;
+
+/// Print to stderr, unbuffered, and silently returning on failure. Intended
+/// for use in "printf debugging." Use `std.log` functions for proper logging.
+pub fn print(comptime fmt: []const u8, args: var) void {
     const held = stderr_mutex.acquire();
     defer held.release();
     const stderr = io.getStdErr().writer();
