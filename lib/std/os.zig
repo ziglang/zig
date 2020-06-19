@@ -4571,14 +4571,8 @@ pub fn sendto(
         const rc = system.sendto(sockfd, buf.ptr, buf.len, flags, dest_addr, addrlen);
         switch (errno(rc)) {
             0 => return @intCast(usize, rc),
-
             EACCES => return error.AccessDenied,
-            EAGAIN => if (std.event.Loop.instance) |loop| {
-                loop.waitUntilFdWritable(sockfd);
-                continue;
-            } else {
-                return error.WouldBlock;
-            },
+            EAGAIN => return error.WouldBlock,
             EALREADY => return error.FastOpenAlreadyInProgress,
             EBADF => unreachable, // always a race condition
             ECONNRESET => return error.ConnectionResetByPeer,
