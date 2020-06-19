@@ -265,6 +265,29 @@ test "realpath" {
     testing.expectError(error.FileNotFound, fs.realpath("definitely_bogus_does_not_exist1234", &buf));
 }
 
+test "realpathat" {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
+    const cwd = fs.cwd();
+
+    var buf1: [fs.MAX_PATH_BYTES]u8 = undefined;
+    const cwd_path = try os.getcwd(&buf1);
+
+    var buf2: [fs.MAX_PATH_BYTES]u8 = undefined;
+    const cwd_realpathat = try os.realpathat(cwd.fd, "", &buf2);
+    testing.expect(mem.eql(u8, cwd_path, cwd_realpathat));
+    const cwd_realpathat2 = try os.realpathat(cwd.fd, ".", &buf2); // shouldn't change a thing
+    testing.expect(mem.eql(u8, cwd_path, cwd_realpathat2));
+
+    // Now, open an actual Dir{"."} since on Unix `realpathat` behaves
+    // in a special way when `fd` equals `cwd.fd`
+    const dir = try cwd.openDir(".", .{});
+    const cwd_realpathat3 = try os.realpathat(dir.fd, "", &buf2);
+    testing.expect(mem.eql(u8, cwd_path, cwd_realpathat3));
+    const cwd_realpathat4 = try os.realpathat(dir.fd, ".", &buf2); // shouldn't change a thing
+    testing.expect(mem.eql(u8, cwd_path, cwd_realpathat4));
+}
+
 test "sigaltstack" {
     if (builtin.os.tag == .windows or builtin.os.tag == .wasi) return error.SkipZigTest;
 
