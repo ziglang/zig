@@ -989,23 +989,35 @@ pub const Loop = struct {
 
     /// Performs an async `os.writev` using a separate thread.
     /// `fd` must block and not return EAGAIN.
-    pub fn writev(self: *Loop, fd: os.fd_t, iov: []const os.iovec_const) os.WriteError!usize {
-        var req_node = Request.Node{
-            .data = .{
-                .msg = .{
-                    .writev = .{
-                        .fd = fd,
-                        .iov = iov,
-                        .result = undefined,
+    pub fn writev(self: *Loop, fd: os.fd_t, iov: []const os.iovec_const, simulate_evented: bool) os.WriteError!usize {
+        if (simulate_evented) {
+            var req_node = Request.Node{
+                .data = .{
+                    .msg = .{
+                        .writev = .{
+                            .fd = fd,
+                            .iov = iov,
+                            .result = undefined,
+                        },
                     },
+                    .finish = .{ .TickNode = .{ .data = @frame() } },
                 },
-                .finish = .{ .TickNode = .{ .data = @frame() } },
-            },
-        };
-        suspend {
-            self.posixFsRequest(&req_node);
+            };
+            suspend {
+                self.posixFsRequest(&req_node);
+            }
+            return req_node.data.msg.writev.result;
+        } else {
+            while (true) {
+                return os.writev(fd, iov) catch |err| switch (err) {
+                    error.WouldBlock => {
+                        self.waitUntilFdWritable(fd);
+                        continue;
+                    },
+                    else => return err,
+                };
+            }
         }
-        return req_node.data.msg.writev.result;
     }
 
     /// Performs an async `os.pwritev` using a separate thread.
