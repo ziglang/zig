@@ -1384,18 +1384,35 @@ fn astGenAsm(self: *Module, scope: *Scope, asm_node: *ast.Node.Asm) InnerError!*
 fn astGenBuiltinCall(self: *Module, scope: *Scope, call: *ast.Node.BuiltinCall) InnerError!*zir.Inst {
     const tree = scope.tree();
     const builtin_name = tree.tokenSlice(call.builtin_token);
+    const src = tree.token_locs[call.builtin_token].start;
 
-    if (mem.eql(u8, builtin_name, "@ptrToInt")) {
-        if (call.params_len != 1) {
-            return self.failTok(scope, call.builtin_token, "expected 1 parameter, found {}", .{call.params_len});
+    inline for (std.meta.declarations(zir.Inst)) |inst| {
+        if (inst.data != .Type) continue;
+        const T = inst.data.Type;
+        if (!@hasDecl(T, "builtin_name")) continue;
+        if (std.mem.eql(u8, builtin_name, T.builtin_name)) {
+            var value: T = undefined;
+            const positionals = @typeInfo(std.meta.fieldInfo(T, "positionals").field_type).Struct;
+            if (positionals.fields.len == 0) {
+                return self.addZIRInst(scope, src, T, value.positionals, value.kw_args);
+            }
+            const arg_count: ?usize = if (positionals.fields[0].field_type == []*zir.Inst) null else positionals.fields.len;
+            if (arg_count) |some| {
+                if (call.params_len != some) {
+                    return self.failTok(scope, call.builtin_token, "expected {} parameter, found {}", .{ some, call.params_len });
+                }
+                const params = call.params();
+                inline for (positionals.fields) |p, i| {
+                    @field(value.positionals, p.name) = try self.astGenExpr(scope, params[i]);
+                }
+            } else {
+                return self.failTok(scope, call.builtin_token, "TODO var args builtin '{}'", .{builtin_name});
+            }
+
+            return self.addZIRInst(scope, src, T, value.positionals, .{});
         }
-        const src = tree.token_locs[call.builtin_token].start;
-        return self.addZIRInst(scope, src, zir.Inst.PtrToInt, .{
-            .ptr = try self.astGenExpr(scope, call.params()[0]),
-        }, .{});
-    } else {
-        return self.failTok(scope, call.builtin_token, "TODO implement builtin call for '{}'", .{builtin_name});
     }
+    return self.failTok(scope, call.builtin_token, "TODO implement builtin call for '{}'", .{builtin_name});
 }
 
 fn astGenCall(self: *Module, scope: *Scope, call: *ast.Node.Call) InnerError!*zir.Inst {
