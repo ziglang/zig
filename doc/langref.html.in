@@ -236,15 +236,15 @@ pub fn main() !void {
 }
       {#code_end#}
       <p>
-      Usually you don't want to write to stdout. You want to write to stderr. And you
-      don't care if it fails. It's more like a <em>logging message</em> that you want
-      to emit. For that you can use a simpler API:
+      Usually you don't want to write to stdout. You want to write to stderr, you
+      don't care if it fails, and you want to see where it came from. It's more like a
+      <em>log message</em> that you want to emit. For that you can use a simpler API:
       </p>
       {#code_begin|exe|hello#}
 const info = @import("std").log.info;
 
 pub fn main() void {
-    info("Hello, world!\n", .{});
+    info(.hello, "Hello, world!\n", .{});
 }
       {#code_end#}
       <p>
@@ -313,16 +313,18 @@ const os = std.os;
 const assert = std.debug.assert;
 
 pub fn main() void {
+    const scope = .values;
+
     // integers
     const one_plus_one: i32 = 1 + 1;
-    info("1 + 1 = {}\n", .{one_plus_one});
+    info(scope, "1 + 1 = {}\n", .{one_plus_one});
 
     // floats
     const seven_div_three: f32 = 7.0 / 3.0;
-    info("7.0 / 3.0 = {}\n", .{seven_div_three});
+    info(scope, "7.0 / 3.0 = {}\n", .{seven_div_three});
 
     // boolean
-    info("{}\n{}\n{}\n", .{
+    info(scope, "{}\n{}\n{}\n", .{
         true and false,
         true or false,
         !true,
@@ -332,7 +334,7 @@ pub fn main() void {
     var optional_value: ?[]const u8 = null;
     assert(optional_value == null);
 
-    info("\noptional 1\ntype: {}\nvalue: {}\n", .{
+    info(scope, "\noptional 1\ntype: {}\nvalue: {}\n", .{
         @typeName(@TypeOf(optional_value)),
         optional_value,
     });
@@ -340,7 +342,7 @@ pub fn main() void {
     optional_value = "hi";
     assert(optional_value != null);
 
-    info("\noptional 2\ntype: {}\nvalue: {}\n", .{
+    info(scope, "\noptional 2\ntype: {}\nvalue: {}\n", .{
         @typeName(@TypeOf(optional_value)),
         optional_value,
     });
@@ -348,14 +350,14 @@ pub fn main() void {
     // error union
     var number_or_error: anyerror!i32 = error.ArgNotFound;
 
-    info("\nerror union 1\ntype: {}\nvalue: {}\n", .{
+    info(scope, "\nerror union 1\ntype: {}\nvalue: {}\n", .{
         @typeName(@TypeOf(number_or_error)),
         number_or_error,
     });
 
     number_or_error = 1234;
 
-    info("\nerror union 2\ntype: {}\nvalue: {}\n", .{
+    info(scope, "\nerror union 2\ntype: {}\nvalue: {}\n", .{
         @typeName(@TypeOf(number_or_error)),
         number_or_error,
     });
@@ -995,14 +997,15 @@ export fn foo_optimized(x: f64) f64 {
       {#code_begin|exe|float_mode#}
       {#code_link_object|foo#}
 const info = @import("std").log.info;
+const scope = .float_mode;
 
 extern fn foo_strict(x: f64) f64;
 extern fn foo_optimized(x: f64) f64;
 
 pub fn main() void {
     const x = 0.001;
-    info("optimized = {}\n", .{foo_optimized(x)});
-    info("strict = {}\n", .{foo_strict(x)});
+    info(scope, "optimized = {}\n", .{foo_optimized(x)});
+    info(scope, "strict = {}\n", .{foo_strict(x)});
 }
       {#code_end#}
       {#see_also|@setFloatMode|Division by Zero#}
@@ -2665,12 +2668,13 @@ test "overaligned pointer to packed struct" {
       </ul>
       {#code_begin|exe|struct_name#}
 const std = @import("std");
+const scope = .struct_name;
 
 pub fn main() void {
     const Foo = struct {};
-    std.log.info("variable: {}\n", .{@typeName(Foo)});
-    std.log.info("anonymous: {}\n", .{@typeName(struct {})});
-    std.log.info("function: {}\n", .{@typeName(List(i32))});
+    std.log.info(scope, "variable: {}\n", .{@typeName(Foo)});
+    std.log.info(scope, "anonymous: {}\n", .{@typeName(struct {})});
+    std.log.info(scope, "function: {}\n", .{@typeName(List(i32))});
 }
 
 fn List(comptime T: type) type {
@@ -3870,6 +3874,7 @@ test "if error union" {
 const std = @import("std");
 const assert = std.debug.assert;
 const info = std.log.info;
+const scope = .defer;
 
 // defer will execute an expression at the end of the current scope.
 fn deferExample() usize {
@@ -3892,18 +3897,18 @@ test "defer basics" {
 // If multiple defer statements are specified, they will be executed in
 // the reverse order they were run.
 fn deferUnwindExample() void {
-    info("\n", .{});
+    info(scope, "\n", .{});
 
     defer {
-        info("1 ", .{});
+        info(scope, "1 ", .{});
     }
     defer {
-        info("2 ", .{});
+        info(scope, "2 ", .{});
     }
     if (false) {
         // defers are not run if they are never executed.
         defer {
-            info("3 ", .{});
+            info(scope, "3 ", .{});
         }
     }
 }
@@ -3918,15 +3923,15 @@ test "defer unwinding" {
 // This is especially useful in allowing a function to clean up properly
 // on error, and replaces goto error handling tactics as seen in c.
 fn deferErrorExample(is_error: bool) !void {
-    info("\nstart of function\n", .{});
+    info(scope, "\nstart of function\n", .{});
 
     // This will always be executed on exit
     defer {
-        info("end of function\n", .{});
+        info(scope, "end of function\n", .{});
     }
 
     errdefer {
-        info("encountered an error!\n", .{});
+        info(scope, "encountered an error!\n", .{});
     }
 
     if (is_error) {
@@ -5926,12 +5931,13 @@ const Node = struct {
       </p>
       {#code_begin|exe|printf#}
 const info = @import("std").log.info;
+const scope = .printf;
 
 const a_number: i32 = 1234;
 const a_string = "foobar";
 
 pub fn main() void {
-    info("here is a string: '{}' here is a number: {}\n", .{a_string, a_number});
+    info(scope, "here is a string: '{}' here is a number: {}\n", .{a_string, a_number});
 }
       {#code_end#}
 
@@ -6046,12 +6052,13 @@ pub fn printValue(self: *OutStream, value: var) !void {
       </p>
       {#code_begin|test_err|Unused arguments#}
 const info = @import("std").log.info;
+const scope = .unused_arguments;
 
 const a_number: i32 = 1234;
 const a_string = "foobar";
 
 test "printf too many arguments" {
-    info("here is a string: '{}' here is a number: {}\n", .{
+    info(scope, "here is a string: '{}' here is a number: {}\n", .{
         a_string,
         a_number,
         a_number,
@@ -6067,13 +6074,14 @@ test "printf too many arguments" {
       </p>
       {#code_begin|exe|printf#}
 const info = @import("std").log.info;
+const scope = .printf;
 
 const a_number: i32 = 1234;
 const a_string = "foobar";
 const fmt = "here is a string: '{}' here is a number: {}\n";
 
 pub fn main() void {
-    info(fmt, .{a_string, a_number});
+    info(scope, fmt, .{a_string, a_number});
 }
       {#code_end#}
       <p>
@@ -6497,6 +6505,7 @@ fn seq(c: u8) void {
       </p>
       {#code_begin|exe|async#}
 const std = @import("std");
+const scope = .async;
 const Allocator = std.mem.Allocator;
 
 pub fn main() void {
@@ -6511,7 +6520,7 @@ pub fn main() void {
 
 fn amainWrap() void {
     amain() catch |e| {
-        std.log.info("{}\n", .{e});
+        std.log.info(scope, "{}\n", .{e});
         if (@errorReturnTrace()) |trace| {
             std.debug.dumpStackTrace(trace.*);
         }
@@ -6573,6 +6582,7 @@ fn readFile(allocator: *Allocator, filename: []const u8) ![]u8 {
       </p>
       {#code_begin|exe|blocking#}
 const std = @import("std");
+const scope = .blocking;
 const Allocator = std.mem.Allocator;
 
 pub fn main() void {
@@ -6581,7 +6591,7 @@ pub fn main() void {
 
 fn amainWrap() void {
     amain() catch |e| {
-        std.log.info("{}\n", .{e});
+        std.log.info(scope, "{}\n", .{e});
         if (@errorReturnTrace()) |trace| {
             std.debug.dumpStackTrace(trace.*);
         }
@@ -7122,6 +7132,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       </p>
       {#code_begin|test_err|found compile log statement#}
 const info = @import("std").log.info;
+const scope = .compile_log;
 
 const num1 = blk: {
     var val1: i32 = 99;
@@ -7133,7 +7144,7 @@ const num1 = blk: {
 test "main" {
     @compileLog("comptime in main");
 
-    info("Runtime in main, num1 = {}.\n", .{num1});
+    info(scope, "Runtime in main, num1 = {}.\n", .{num1});
 }
       {#code_end#}
       <p>
@@ -7146,6 +7157,7 @@ test "main" {
       </p>
       {#code_begin|test#}
 const info = @import("std").log.info;
+const scope = .no_compile_log;
 
 const num1 = blk: {
     var val1: i32 = 99;
@@ -7154,7 +7166,7 @@ const num1 = blk: {
 };
 
 test "main" {
-    info("Runtime in main, num1 = {}.\n", .{num1});
+    info(scope, "Runtime in main, num1 = {}.\n", .{num1});
 }
       {#code_end#}
       {#header_close#}
@@ -8551,11 +8563,12 @@ comptime {
       <p>At runtime:</p>
       {#code_begin|exe_err#}
 const std = @import("std");
+const scope = .invalid_negative_to_unsigned;
 
 pub fn main() void {
     var value: i32 = -1;
     var unsigned = @intCast(u32, value);
-    std.log.info("value: {}\n", .{unsigned});
+    std.log.info(scope, "value: {}\n", .{unsigned});
 }
       {#code_end#}
       <p>
@@ -8573,11 +8586,12 @@ comptime {
       <p>At runtime:</p>
       {#code_begin|exe_err#}
 const std = @import("std");
+const scope = .invalid_out_of_range;
 
 pub fn main() void {
     var spartan_count: u16 = 300;
     const byte = @intCast(u8, spartan_count);
-    std.log.info("value: {}\n", .{byte});
+    std.log.info(scope, "value: {}\n", .{byte});
 }
       {#code_end#}
       <p>
@@ -8607,11 +8621,12 @@ comptime {
       <p>At runtime:</p>
       {#code_begin|exe_err#}
 const std = @import("std");
+const scope = .overflow;
 
 pub fn main() void {
     var byte: u8 = 255;
     byte += 1;
-    std.log.info("value: {}\n", .{byte});
+    std.log.info(scope, "value: {}\n", .{byte});
 }
       {#code_end#}
       {#header_close#}
@@ -8630,15 +8645,16 @@ pub fn main() void {
       {#code_begin|exe_err#}
 const math = @import("std").math;
 const info = @import("std").log.info;
+const scope = .catch_overflow;
 pub fn main() !void {
     var byte: u8 = 255;
 
     byte = if (math.add(u8, byte, 1)) |result| result else |err| {
-        info("unable to add one: {}\n", .{@errorName(err)});
+        info(scope, "unable to add one: {}\n", .{@errorName(err)});
         return err;
     };
 
-    info("result: {}\n", .{byte});
+    info(scope, "result: {}\n", .{byte});
 }
       {#code_end#}
       {#header_close#}
@@ -8658,14 +8674,15 @@ pub fn main() !void {
       </p>
       {#code_begin|exe#}
 const info = @import("std").log.info;
+const scope = .add_with_overflow;
 pub fn main() void {
     var byte: u8 = 255;
 
     var result: u8 = undefined;
     if (@addWithOverflow(u8, byte, 10, &result)) {
-        info("overflowed result: {}\n", .{result});
+        info(scope, "overflowed result: {}\n", .{result});
     } else {
-        info("result: {}\n", .{result});
+        info(scope, "result: {}\n", .{result});
     }
 }
       {#code_end#}
@@ -8706,11 +8723,12 @@ comptime {
       <p>At runtime:</p>
       {#code_begin|exe_err#}
 const std = @import("std");
+const scope = .exact_left_shift_overflow;
 
 pub fn main() void {
     var x: u8 = 0b01010101;
     var y = @shlExact(x, 2);
-    std.log.info("value: {}\n", .{y});
+    std.log.info(scope, "value: {}\n", .{y});
 }
       {#code_end#}
       {#header_close#}
@@ -8724,11 +8742,12 @@ comptime {
       <p>At runtime:</p>
       {#code_begin|exe_err#}
 const std = @import("std");
+const scope = .exact_right_shift_overflow;
 
 pub fn main() void {
     var x: u8 = 0b10101010;
     var y = @shrExact(x, 2);
-    std.log.info("value: {}\n", .{y});
+    std.log.info(scope, "value: {}\n", .{y});
 }
       {#code_end#}
       {#header_close#}
@@ -8744,12 +8763,13 @@ comptime {
       <p>At runtime:</p>
       {#code_begin|exe_err#}
 const std = @import("std");
+const scope = .divide_by_zero;
 
 pub fn main() void {
     var a: u32 = 1;
     var b: u32 = 0;
     var c = a / b;
-    std.log.info("value: {}\n", .{c});
+    std.log.info(scope, "value: {}\n", .{c});
 }
       {#code_end#}
       {#header_close#}
@@ -8765,12 +8785,13 @@ comptime {
       <p>At runtime:</p>
       {#code_begin|exe_err#}
 const std = @import("std");
+const scope = .rem_divide_by_zero;
 
 pub fn main() void {
     var a: u32 = 10;
     var b: u32 = 0;
     var c = a % b;
-    std.log.info("value: {}\n", .{c});
+    std.log.info(scope, "value: {}\n", .{c});
 }
       {#code_end#}
       {#header_close#}
@@ -8786,12 +8807,13 @@ comptime {
       <p>At runtime:</p>
       {#code_begin|exe_err#}
 const std = @import("std");
+const scope = .exact_div_remainder;
 
 pub fn main() void {
     var a: u32 = 10;
     var b: u32 = 3;
     var c = @divExact(a, b);
-    std.log.info("value: {}\n", .{c});
+    std.log.info(scope, "value: {}\n", .{c});
 }
       {#code_end#}
       {#header_close#}
@@ -8806,24 +8828,26 @@ comptime {
       <p>At runtime:</p>
       {#code_begin|exe_err#}
 const std = @import("std");
+const scope = .unwrap_null;
 
 pub fn main() void {
     var optional_number: ?i32 = null;
     var number = optional_number.?;
-    std.log.info("value: {}\n", .{number});
+    std.log.info(scope, "value: {}\n", .{number});
 }
       {#code_end#}
       <p>One way to avoid this crash is to test for null instead of assuming non-null, with
       the {#syntax#}if{#endsyntax#} expression:</p>
       {#code_begin|exe|test#}
 const info = @import("std").log.info;
+const scope = .test_null;
 pub fn main() void {
     const optional_number: ?i32 = null;
 
     if (optional_number) |number| {
-        info("got number: {}\n", .{number});
+        info(scope, "got number: {}\n", .{number});
     } else {
-        info("it's null\n", .{});
+        info(scope, "it's null\n", .{});
     }
 }
       {#code_end#}
@@ -8843,10 +8867,11 @@ fn getNumberOrFail() !i32 {
       <p>At runtime:</p>
       {#code_begin|exe_err#}
 const std = @import("std");
+const scope = .unwrap_error;
 
 pub fn main() void {
     const number = getNumberOrFail() catch unreachable;
-    std.log.info("value: {}\n", .{number});
+    std.log.info(scope, "value: {}\n", .{number});
 }
 
 fn getNumberOrFail() !i32 {
@@ -8857,14 +8882,15 @@ fn getNumberOrFail() !i32 {
       the {#syntax#}if{#endsyntax#} expression:</p>
       {#code_begin|exe#}
 const info = @import("std").log.info;
+const scope = .test_error;
 
 pub fn main() void {
     const result = getNumberOrFail();
 
     if (result) |number| {
-        info("got number: {}\n", .{number});
+        info(scope, "got number: {}\n", .{number});
     } else |err| {
-        info("got error: {}\n", .{@errorName(err)});
+        info(scope, "got error: {}\n", .{@errorName(err)});
     }
 }
 
@@ -8886,12 +8912,13 @@ comptime {
       <p>At runtime:</p>
       {#code_begin|exe_err#}
 const std = @import("std");
+const scope = .invalid_error;
 
 pub fn main() void {
     var err = error.AnError;
     var number = @errorToInt(err) + 500;
     var invalid_err = @intToError(number);
-    std.log.info("value: {}\n", .{number});
+    std.log.info(scope, "value: {}\n", .{number});
 }
       {#code_end#}
       {#header_close#}
@@ -8911,6 +8938,7 @@ comptime {
       <p>At runtime:</p>
       {#code_begin|exe_err#}
 const std = @import("std");
+const scope = .invalid_enum;
 
 const Foo = enum {
     A,
@@ -8921,7 +8949,7 @@ const Foo = enum {
 pub fn main() void {
     var a: u2 = 3;
     var b = @intToEnum(Foo, a);
-    std.log.info("value: {}\n", .{@tagName(b)});
+    std.log.info(scope, "value: {}\n", .{@tagName(b)});
 }
       {#code_end#}
       {#header_close#}
@@ -8944,6 +8972,7 @@ comptime {
       <p>At runtime:</p>
       {#code_begin|exe_err#}
 const std = @import("std");
+const scope = .invalid_error_cast;
 
 const Set1 = error{
     A,
@@ -8958,7 +8987,7 @@ pub fn main() void {
 }
 fn foo(set1: Set1) void {
     const x = @errSetCast(Set2, set1);
-    std.log.info("value: {}\n", .{x});
+    std.log.info(scope, "value: {}\n", .{x});
 }
       {#code_end#}
       {#header_close#}
@@ -9002,6 +9031,7 @@ const Foo = union {
       <p>At runtime:</p>
       {#code_begin|exe_err#}
 const std = @import("std");
+const scope = .wrong_union_field;
 
 const Foo = union {
     float: f32,
@@ -9015,7 +9045,7 @@ pub fn main() void {
 
 fn bar(f: *Foo) void {
     f.float = 12.34;
-    std.log.info("value: {}\n", .{f.float});
+    std.log.info(scope, "value: {}\n", .{f.float});
 }
       {#code_end#}
       <p>
@@ -9026,6 +9056,7 @@ fn bar(f: *Foo) void {
       </p>
       {#code_begin|exe#}
 const std = @import("std");
+const scope = .assign_entire_union;
 
 const Foo = union {
     float: f32,
@@ -9039,7 +9070,7 @@ pub fn main() void {
 
 fn bar(f: *Foo) void {
     f.* = Foo{ .float = 12.34 };
-    std.log.info("value: {}\n", .{f.float});
+    std.log.info(scope, "value: {}\n", .{f.float});
 }
       {#code_end#}
       <p>
@@ -9048,6 +9079,7 @@ fn bar(f: *Foo) void {
       </p>
       {#code_begin|exe#}
 const std = @import("std");
+const scope = .change_active_field;
 
 const Foo = union {
     float: f32,
@@ -9058,7 +9090,7 @@ pub fn main() void {
     var f = Foo{ .int = 42 };
     f = Foo{ .float = undefined };
     bar(&f);
-    std.log.info("value: {}\n", .{f.float});
+    std.log.info(scope, "value: {}\n", .{f.float});
 }
 
 fn bar(f: *Foo) void {
@@ -9170,6 +9202,7 @@ fn concat(allocator: *Allocator, a: []const u8, b: []const u8) ![]u8 {
               In this case, it is recommended to follow this pattern:
               {#code_begin|exe|cli_allocation#}
 const std = @import("std");
+const std = .cli_allocation;
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -9178,7 +9211,7 @@ pub fn main() !void {
     const allocator = &arena.allocator;
 
     const ptr = try allocator.create(i32);
-    std.log.info("ptr={*}\n", .{ptr});
+    std.log.info(scope, "ptr={*}\n", .{ptr});
 }
               {#code_end#}
               When using this kind of allocator, there is no need to free anything manually. Everything
@@ -9705,6 +9738,7 @@ The result is 3</code></pre>
       {#code_begin|exe|args#}
       {#target_wasi#}
 const std = @import("std");
+const scope = .args;
 
 pub fn main() !void {
     // TODO a better default allocator that isn't as wasteful!
@@ -9712,7 +9746,7 @@ pub fn main() !void {
     defer std.process.argsFree(std.heap.page_allocator, args);
 
     for (args) |arg, i| {
-        std.log.info("{}: {}\n", .{i, arg});
+        std.log.info(scope, "{}: {}\n", .{i, arg});
     }
 }
       {#code_end#}
@@ -9725,6 +9759,7 @@ pub fn main() !void {
       {#code_begin|exe|preopens#}
       {#target_wasi#}
 const std = @import("std");
+const scope = .preopens;
 const PreopenList = std.fs.wasi.PreopenList;
 
 pub fn main() !void {
@@ -9734,7 +9769,7 @@ pub fn main() !void {
     try preopens.populate();
 
     for (preopens.asSlice()) |preopen, i| {
-        std.log.info("{}: {}\n", .{ i, preopen });
+        std.log.info(scope, "{}: {}\n", .{ i, preopen });
     }
 }
       {#code_end#}
