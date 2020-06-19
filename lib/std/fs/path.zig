@@ -652,6 +652,22 @@ pub fn resolvePosix(allocator: *Allocator, paths: []const []const u8) ![]u8 {
     return allocator.shrink(result, result_index);
 }
 
+/// Similar to `resolve`, however, resolves the paths with respect to the provided
+/// `Dir` handle.
+/// This function, unlike `resolve`, will perform one syscall to get the path of
+/// the specified `dir` handle.
+pub fn resolveat(allocator: *Allocator, dir: fs.Dir, paths: []const []const u8) ![]u8 {
+    var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
+    const dir_path = try std.os.realpathat(dir.fd, "", &buffer);
+
+    var new_paths = std.ArrayList([]const u8).init(allocator);
+    defer new_paths.deinit();
+    try new_paths.append(dir_path);
+    try new_paths.appendSlice(paths);
+
+    return resolve(allocator, new_paths.items);
+}
+
 test "resolve" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 

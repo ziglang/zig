@@ -41,6 +41,7 @@ pub const File = struct {
 pub const CacheHash = struct {
     allocator: *Allocator,
     blake3: Blake3,
+    work_dir: fs.Dir,
     manifest_dir: fs.Dir,
     manifest_file: ?fs.File,
     manifest_dirty: bool,
@@ -48,11 +49,13 @@ pub const CacheHash = struct {
     b64_digest: [BASE64_DIGEST_LEN]u8,
 
     /// Be sure to call release after successful initialization.
-    pub fn init(allocator: *Allocator, dir: fs.Dir, manifest_dir_path: []const u8) !CacheHash {
+    pub fn init(allocator: *Allocator, work_dir: fs.Dir, manifest_dir_path: []const u8) !CacheHash {
         return CacheHash{
             .allocator = allocator,
             .blake3 = Blake3.init(),
-            .manifest_dir = try dir.makeOpenPath(manifest_dir_path, .{}),
+            // TODO should claim ownership of `work_dir`?
+            .work_dir = work_dir,
+            .manifest_dir = try work_dir.makeOpenPath(manifest_dir_path, .{}),
             .manifest_file = null,
             .manifest_dirty = false,
             .files = ArrayList(File).init(allocator),
@@ -100,7 +103,7 @@ pub const CacheHash = struct {
         assert(self.manifest_file == null);
 
         try self.files.ensureCapacity(self.files.items.len + 1);
-        const resolved_path = try fs.path.resolve(self.allocator, &[_][]const u8{file_path});
+        const resolved_path = try fs.path.resolveat(self.allocator, self.work_dir, &[_][]const u8{file_path});
 
         const idx = self.files.items.len;
         self.files.addOneAssumeCapacity().* = .{
@@ -210,7 +213,7 @@ pub const CacheHash = struct {
                 cache_hash_file.path = try mem.dupe(self.allocator, u8, file_path);
             }
 
-            const this_file = fs.cwd().openFile(cache_hash_file.path.?, .{ .read = true }) catch {
+            const this_file = self.work_dir.openFile(cache_hash_file.path.?, .{ .read = true }) catch {
                 return error.CacheUnavailable;
             };
             defer this_file.close();
@@ -276,7 +279,7 @@ pub const CacheHash = struct {
     }
 
     fn populateFileHash(self: *CacheHash, ch_file: *File) !void {
-        const file = try fs.cwd().openFile(ch_file.path.?, .{});
+        const file = try self.work_dir.openFile(ch_file.path.?, .{});
         defer file.close();
 
         ch_file.stat = try file.stat();
@@ -322,7 +325,7 @@ pub const CacheHash = struct {
     pub fn addFilePostFetch(self: *CacheHash, file_path: []const u8, max_file_size: usize) ![]u8 {
         assert(self.manifest_file != null);
 
-        const resolved_path = try fs.path.resolve(self.allocator, &[_][]const u8{file_path});
+        const resolved_path = try fs.path.resolveat(self.allocator, self.work_dir, &[_][]const u8{file_path});
         errdefer self.allocator.free(resolved_path);
 
         const new_ch_file = try self.files.addOne();
@@ -347,7 +350,7 @@ pub const CacheHash = struct {
     pub fn addFilePost(self: *CacheHash, file_path: []const u8) !void {
         assert(self.manifest_file != null);
 
-        const resolved_path = try fs.path.resolve(self.allocator, &[_][]const u8{file_path});
+        const resolved_path = try fs.path.resolveat(self.allocator, self.work_dir, &[_][]const u8{file_path});
         errdefer self.allocator.free(resolved_path);
 
         const new_ch_file = try self.files.addOne();
