@@ -519,10 +519,12 @@ pub const File = struct {
             if (iovecs.len == 0) return @as(usize, 0);
             const first = iovecs[0];
             return windows.WriteFile(self.handle, first.iov_base[0..first.iov_len], offset, self.intended_io_mode);
-        } else if (self.capable_io_mode != self.intended_io_mode) {
-            return std.event.Loop.instance.?.pwritev(self.handle, iovecs, offset);
-        } else {
+        }
+
+        if (self.intended_io_mode == .blocking) {
             return os.pwritev(self.handle, iovecs, offset);
+        } else {
+            return std.event.Loop.instance.?.pwritev(self.handle, iovecs, offset, self.capable_io_mode != self.intended_io_mode);
         }
     }
 

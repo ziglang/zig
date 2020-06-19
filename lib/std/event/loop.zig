@@ -1011,7 +1011,7 @@ pub const Loop = struct {
 
     /// Performs an async `os.pwrite` using a separate thread.
     /// `fd` must block and not return EAGAIN.
-    pub fn pwrite(self: *Loop, fd: os.fd_t, bytes: []const u8, offset: u64, simulate_evented: bool) os.PWriteError!usize {
+    pub fn pwrite(self: *Loop, fd: os.fd_t, bytes: []const u8, offset: u64, simulate_evented: bool) os.PerformsWriteError!usize {
         if (simulate_evented) {
             var req_node = Request.Node{
                 .data = .{
@@ -1045,24 +1045,36 @@ pub const Loop = struct {
 
     /// Performs an async `os.pwritev` using a separate thread.
     /// `fd` must block and not return EAGAIN.
-    pub fn pwritev(self: *Loop, fd: os.fd_t, iov: []const os.iovec_const, offset: u64) os.PWriteError!usize {
-        var req_node = Request.Node{
-            .data = .{
-                .msg = .{
-                    .pwritev = .{
-                        .fd = fd,
-                        .iov = iov,
-                        .offset = offset,
-                        .result = undefined,
+    pub fn pwritev(self: *Loop, fd: os.fd_t, iov: []const os.iovec_const, offset: u64, simulate_evented: bool) os.PWriteError!usize {
+        if (simulate_evented) {
+            var req_node = Request.Node{
+                .data = .{
+                    .msg = .{
+                        .pwritev = .{
+                            .fd = fd,
+                            .iov = iov,
+                            .offset = offset,
+                            .result = undefined,
+                        },
                     },
+                    .finish = .{ .TickNode = .{ .data = @frame() } },
                 },
-                .finish = .{ .TickNode = .{ .data = @frame() } },
-            },
-        };
-        suspend {
-            self.posixFsRequest(&req_node);
+            };
+            suspend {
+                self.posixFsRequest(&req_node);
+            }
+            return req_node.data.msg.pwritev.result;
+        } else {
+            while (true) {
+                return os.pwritev(fd, iov, offset) catch |err| switch (err) {
+                    error.WouldBlock => {
+                        self.waitUntilFdWritable(fd);
+                        continue;
+                    },
+                    else => return err,
+                };
+            }
         }
-        return req_node.data.msg.pwritev.result;
     }
 
     /// Performs an async `os.faccessatZ` using a separate thread.
