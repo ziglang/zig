@@ -109,7 +109,7 @@ fn log(
         } else if (builtin.mode != .ReleaseSmall) {
             const held = std.debug.getStderrMutex().acquire();
             defer held.release();
-            const stderr = io.getStdErr().writer();
+            const stderr = std.io.getStdErr().writer();
             nosuspend stderr.print(format, args) catch return;
         }
     }
