@@ -276,16 +276,17 @@ test "realpathat" {
     var buf2: [fs.MAX_PATH_BYTES]u8 = undefined;
     const cwd_realpathat = try os.realpathat(cwd.fd, "", &buf2);
     testing.expect(mem.eql(u8, cwd_path, cwd_realpathat));
-    const cwd_realpathat2 = try os.realpathat(cwd.fd, ".", &buf2); // shouldn't change a thing
-    testing.expect(mem.eql(u8, cwd_path, cwd_realpathat2));
 
     // Now, open an actual Dir{"."} since on Unix `realpathat` behaves
     // in a special way when `fd` equals `cwd.fd`
-    const dir = try cwd.openDir(".", .{});
-    const cwd_realpathat3 = try os.realpathat(dir.fd, "", &buf2);
-    testing.expect(mem.eql(u8, cwd_path, cwd_realpathat3));
-    const cwd_realpathat4 = try os.realpathat(dir.fd, ".", &buf2); // shouldn't change a thing
-    testing.expect(mem.eql(u8, cwd_path, cwd_realpathat4));
+    var dir = try cwd.openDir(".", .{});
+    defer dir.close();
+
+    const cwd_realpathat2 = try os.realpathat(dir.fd, "", &buf2);
+    testing.expect(mem.eql(u8, cwd_path, cwd_realpathat2));
+
+    // Finally, try getting a path for something that doesn't exist
+    testing.expectError(error.FileNotFound, os.realpathat(dir.fd, "definitely_bogus_does_not_exist1234", &buf2));
 }
 
 test "sigaltstack" {
