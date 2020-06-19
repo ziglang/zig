@@ -1454,7 +1454,10 @@ fn resMSendRc(
 
         while (true) {
             var sl_copy = sl;
-            const rlen = os.recvfrom(fd, answer_bufs[next], 0, &sa.any, &sl_copy) catch break;
+            const rlen = if (std.io.is_async)
+                std.event.Loop.instance.?.recvfrom(fd, answer_bufs[next], 0, &sa.any, &sl_copy) catch break
+            else
+                os.recvfrom(fd, answer_bufs[next], 0, &sa.any, &sl_copy) catch break;
 
             // Ignore non-identifiable packets
             if (rlen < 4) continue;

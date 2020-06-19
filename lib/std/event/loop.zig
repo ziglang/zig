@@ -1109,6 +1109,24 @@ pub const Loop = struct {
         }
     }
 
+    pub fn recvfrom(
+        sockfd: os.fd_t,
+        buf: []u8,
+        flags: u32,
+        src_addr: ?*os.sockaddr,
+        addrlen: ?*os.socklen_t,
+    ) os.RecvFromError!usize {
+        while (true) {
+            return os.recvfrom(sockfd, buf, flags, src_addr, addrlen) catch |err| switch (err) {
+                error.WouldBlock => {
+                    self.waitUntilFdReadable(sockfd);
+                    continue;
+                },
+                else => return err,
+            };
+        }
+    }
+
     /// Performs an async `os.faccessatZ` using a separate thread.
     /// `fd` must block and not return EAGAIN.
     pub fn faccessatZ(
