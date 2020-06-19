@@ -901,7 +901,13 @@ pub fn WSAStartup(majorVersion: u8, minorVersion: u8) !ws2_32.WSADATA {
     var wsadata: ws2_32.WSADATA = undefined;
     return switch (ws2_32.WSAStartup((@as(WORD, minorVersion) << 8) | majorVersion, &wsadata)) {
         0 => wsadata,
-        else => |err| unexpectedWSAError(@intToEnum(ws2_32.WinsockError, @intCast(u16, err))),
+        else => |err_int| switch (@intToEnum(ws2_32.WinsockError, @intCast(u16, err_int))) {
+            .WSASYSNOTREADY => return error.SystemNotAvailable,
+            .WSAVERNOTSUPPORTED => return error.VersionNotSupported,
+            .WSAEINPROGRESS => return error.BlockingOperationInProgress,
+            .WSAEPROCLIM => return error.SystemResources,
+            else => |err| return unexpectedWSAError(err),
+        },
     };
 }
 
@@ -909,6 +915,9 @@ pub fn WSACleanup() !void {
     return switch (ws2_32.WSACleanup()) {
         0 => {},
         ws2_32.SOCKET_ERROR => switch (ws2_32.WSAGetLastError()) {
+            .WSANOTINITIALISED => return error.NotInitialized,
+            .WSAENETDOWN => return error.NetworkNotAvailable,
+            .WSAEINPROGRESS => return error.BlockingOperationInProgress,
             else => |err| return unexpectedWSAError(err),
         },
         else => unreachable,
