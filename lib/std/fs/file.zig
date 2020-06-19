@@ -464,10 +464,12 @@ pub const File = struct {
     pub fn pwrite(self: File, bytes: []const u8, offset: u64) PWriteError!usize {
         if (is_windows) {
             return windows.WriteFile(self.handle, bytes, offset, self.intended_io_mode);
-        } else if (self.capable_io_mode != self.intended_io_mode) {
-            return std.event.Loop.instance.?.pwrite(self.handle, bytes, offset);
-        } else {
+        }
+
+        if (self.intended_io_mode == .blocking) {
             return os.pwrite(self.handle, bytes, offset);
+        } else {
+            return std.event.Loop.instance.?.pwrite(self.handle, bytes, offset, self.capable_io_mode != self.intended_io_mode);
         }
     }
 
