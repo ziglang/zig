@@ -237,18 +237,18 @@ pub fn main() !void {
       {#code_end#}
       <p>
       Usually you don't want to write to stdout. You want to write to stderr. And you
-      don't care if it fails. It's more like a <em>warning message</em> that you want
+      don't care if it fails. It's more like a <em>logging message</em> that you want
       to emit. For that you can use a simpler API:
       </p>
       {#code_begin|exe|hello#}
-const warn = @import("std").debug.warn;
+const info = @import("std").log.info;
 
 pub fn main() void {
-    warn("Hello, world!\n", .{});
+    info("Hello, world!\n", .{});
 }
       {#code_end#}
       <p>
-      Note that you can leave off the {#syntax#}!{#endsyntax#} from the return type because {#syntax#}warn{#endsyntax#} cannot fail.
+      Note that you can leave off the {#syntax#}!{#endsyntax#} from the return type because logging cannot fail.
       </p>
       {#see_also|Values|@import|Errors|Root Source File#}
       {#header_close#}
@@ -307,7 +307,7 @@ const Timestamp = struct {
       {#header_open|Values#}
       {#code_begin|exe|values#}
 // Top-level declarations are order-independent:
-const warn = std.debug.warn;
+const info = std.log.info;
 const std = @import("std");
 const os = std.os;
 const assert = std.debug.assert;
@@ -315,14 +315,14 @@ const assert = std.debug.assert;
 pub fn main() void {
     // integers
     const one_plus_one: i32 = 1 + 1;
-    warn("1 + 1 = {}\n", .{one_plus_one});
+    info("1 + 1 = {}\n", .{one_plus_one});
 
     // floats
     const seven_div_three: f32 = 7.0 / 3.0;
-    warn("7.0 / 3.0 = {}\n", .{seven_div_three});
+    info("7.0 / 3.0 = {}\n", .{seven_div_three});
 
     // boolean
-    warn("{}\n{}\n{}\n", .{
+    info("{}\n{}\n{}\n", .{
         true and false,
         true or false,
         !true,
@@ -332,7 +332,7 @@ pub fn main() void {
     var optional_value: ?[]const u8 = null;
     assert(optional_value == null);
 
-    warn("\noptional 1\ntype: {}\nvalue: {}\n", .{
+    info("\noptional 1\ntype: {}\nvalue: {}\n", .{
         @typeName(@TypeOf(optional_value)),
         optional_value,
     });
@@ -340,7 +340,7 @@ pub fn main() void {
     optional_value = "hi";
     assert(optional_value != null);
 
-    warn("\noptional 2\ntype: {}\nvalue: {}\n", .{
+    info("\noptional 2\ntype: {}\nvalue: {}\n", .{
         @typeName(@TypeOf(optional_value)),
         optional_value,
     });
@@ -348,14 +348,14 @@ pub fn main() void {
     // error union
     var number_or_error: anyerror!i32 = error.ArgNotFound;
 
-    warn("\nerror union 1\ntype: {}\nvalue: {}\n", .{
+    info("\nerror union 1\ntype: {}\nvalue: {}\n", .{
         @typeName(@TypeOf(number_or_error)),
         number_or_error,
     });
 
     number_or_error = 1234;
 
-    warn("\nerror union 2\ntype: {}\nvalue: {}\n", .{
+    info("\nerror union 2\ntype: {}\nvalue: {}\n", .{
         @typeName(@TypeOf(number_or_error)),
         number_or_error,
     });
@@ -994,15 +994,15 @@ export fn foo_optimized(x: f64) f64 {
       which operates in strict mode.</p>
       {#code_begin|exe|float_mode#}
       {#code_link_object|foo#}
-const warn = @import("std").debug.warn;
+const info = @import("std").log.info;
 
 extern fn foo_strict(x: f64) f64;
 extern fn foo_optimized(x: f64) f64;
 
 pub fn main() void {
     const x = 0.001;
-    warn("optimized = {}\n", .{foo_optimized(x)});
-    warn("strict = {}\n", .{foo_strict(x)});
+    info("optimized = {}\n", .{foo_optimized(x)});
+    info("strict = {}\n", .{foo_strict(x)});
 }
       {#code_end#}
       {#see_also|@setFloatMode|Division by Zero#}
@@ -2668,9 +2668,9 @@ const std = @import("std");
 
 pub fn main() void {
     const Foo = struct {};
-    std.debug.warn("variable: {}\n", .{@typeName(Foo)});
-    std.debug.warn("anonymous: {}\n", .{@typeName(struct {})});
-    std.debug.warn("function: {}\n", .{@typeName(List(i32))});
+    std.log.info("variable: {}\n", .{@typeName(Foo)});
+    std.log.info("anonymous: {}\n", .{@typeName(struct {})});
+    std.log.info("function: {}\n", .{@typeName(List(i32))});
 }
 
 fn List(comptime T: type) type {
@@ -3869,7 +3869,7 @@ test "if error union" {
       {#code_begin|test|defer#}
 const std = @import("std");
 const assert = std.debug.assert;
-const warn = std.debug.warn;
+const info = std.log.info;
 
 // defer will execute an expression at the end of the current scope.
 fn deferExample() usize {
@@ -3892,18 +3892,18 @@ test "defer basics" {
 // If multiple defer statements are specified, they will be executed in
 // the reverse order they were run.
 fn deferUnwindExample() void {
-    warn("\n", .{});
+    info("\n", .{});
 
     defer {
-        warn("1 ", .{});
+        info("1 ", .{});
     }
     defer {
-        warn("2 ", .{});
+        info("2 ", .{});
     }
     if (false) {
         // defers are not run if they are never executed.
         defer {
-            warn("3 ", .{});
+            info("3 ", .{});
         }
     }
 }
@@ -3918,15 +3918,15 @@ test "defer unwinding" {
 // This is especially useful in allowing a function to clean up properly
 // on error, and replaces goto error handling tactics as seen in c.
 fn deferErrorExample(is_error: bool) !void {
-    warn("\nstart of function\n", .{});
+    info("\nstart of function\n", .{});
 
     // This will always be executed on exit
     defer {
-        warn("end of function\n", .{});
+        info("end of function\n", .{});
     }
 
     errdefer {
-        warn("encountered an error!\n", .{});
+        info("encountered an error!\n", .{});
     }
 
     if (is_error) {
@@ -5925,13 +5925,13 @@ const Node = struct {
       Putting all of this together, let's see how {#syntax#}printf{#endsyntax#} works in Zig.
       </p>
       {#code_begin|exe|printf#}
-const warn = @import("std").debug.warn;
+const info = @import("std").log.info;
 
 const a_number: i32 = 1234;
 const a_string = "foobar";
 
 pub fn main() void {
-    warn("here is a string: '{}' here is a number: {}\n", .{a_string, a_number});
+    info("here is a string: '{}' here is a number: {}\n", .{a_string, a_number});
 }
       {#code_end#}
 
@@ -6045,13 +6045,13 @@ pub fn printValue(self: *OutStream, value: var) !void {
       And now, what happens if we give too many arguments to {#syntax#}printf{#endsyntax#}?
       </p>
       {#code_begin|test_err|Unused arguments#}
-const warn = @import("std").debug.warn;
+const info = @import("std").log.info;
 
 const a_number: i32 = 1234;
 const a_string = "foobar";
 
 test "printf too many arguments" {
-    warn("here is a string: '{}' here is a number: {}\n", .{
+    info("here is a string: '{}' here is a number: {}\n", .{
         a_string,
         a_number,
         a_number,
@@ -6066,14 +6066,14 @@ test "printf too many arguments" {
       only that it is a compile-time known value that can be coerced to a {#syntax#}[]const u8{#endsyntax#}:
       </p>
       {#code_begin|exe|printf#}
-const warn = @import("std").debug.warn;
+const info = @import("std").log.info;
 
 const a_number: i32 = 1234;
 const a_string = "foobar";
 const fmt = "here is a string: '{}' here is a number: {}\n";
 
 pub fn main() void {
-    warn(fmt, .{a_string, a_number});
+    info(fmt, .{a_string, a_number});
 }
       {#code_end#}
       <p>
@@ -6511,7 +6511,7 @@ pub fn main() void {
 
 fn amainWrap() void {
     amain() catch |e| {
-        std.debug.warn("{}\n", .{e});
+        std.log.info("{}\n", .{e});
         if (@errorReturnTrace()) |trace| {
             std.debug.dumpStackTrace(trace.*);
         }
@@ -6541,8 +6541,8 @@ fn amain() !void {
     const download_text = try await download_frame;
     defer allocator.free(download_text);
 
-    std.debug.warn("download_text: {}\n", .{download_text});
-    std.debug.warn("file_text: {}\n", .{file_text});
+    std.log.info("download_text: {}\n", .{download_text});
+    std.log.info("file_text: {}\n", .{file_text});
 }
 
 var global_download_frame: anyframe = undefined;
@@ -6552,7 +6552,7 @@ fn fetchUrl(allocator: *Allocator, url: []const u8) ![]u8 {
     suspend {
         global_download_frame = @frame();
     }
-    std.debug.warn("fetchUrl returning\n", .{});
+    std.log.info("fetchUrl returning\n", .{});
     return result;
 }
 
@@ -6563,7 +6563,7 @@ fn readFile(allocator: *Allocator, filename: []const u8) ![]u8 {
     suspend {
         global_file_frame = @frame();
     }
-    std.debug.warn("readFile returning\n", .{});
+    std.log.info("readFile returning\n", .{});
     return result;
 }
       {#code_end#}
@@ -6581,7 +6581,7 @@ pub fn main() void {
 
 fn amainWrap() void {
     amain() catch |e| {
-        std.debug.warn("{}\n", .{e});
+        std.log.info("{}\n", .{e});
         if (@errorReturnTrace()) |trace| {
             std.debug.dumpStackTrace(trace.*);
         }
@@ -6611,21 +6611,21 @@ fn amain() !void {
     const download_text = try await download_frame;
     defer allocator.free(download_text);
 
-    std.debug.warn("download_text: {}\n", .{download_text});
-    std.debug.warn("file_text: {}\n", .{file_text});
+    std.log.info("download_text: {}\n", .{download_text});
+    std.log.info("file_text: {}\n", .{file_text});
 }
 
 fn fetchUrl(allocator: *Allocator, url: []const u8) ![]u8 {
     const result = try std.mem.dupe(allocator, u8, "this is the downloaded url contents");
     errdefer allocator.free(result);
-    std.debug.warn("fetchUrl returning\n", .{});
+    std.log.info("fetchUrl returning\n", .{});
     return result;
 }
 
 fn readFile(allocator: *Allocator, filename: []const u8) ![]u8 {
     const result = try std.mem.dupe(allocator, u8, "this is the file contents");
     errdefer allocator.free(result);
-    std.debug.warn("readFile returning\n", .{});
+    std.log.info("readFile returning\n", .{});
     return result;
 }
       {#code_end#}
@@ -7121,7 +7121,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       compile-time executing code.
       </p>
       {#code_begin|test_err|found compile log statement#}
-const warn = @import("std").debug.warn;
+const info = @import("std").log.info;
 
 const num1 = blk: {
     var val1: i32 = 99;
@@ -7133,7 +7133,7 @@ const num1 = blk: {
 test "main" {
     @compileLog("comptime in main");
 
-    warn("Runtime in main, num1 = {}.\n", .{num1});
+    info("Runtime in main, num1 = {}.\n", .{num1});
 }
       {#code_end#}
       <p>
@@ -7145,7 +7145,7 @@ test "main" {
       program compiles successfully and the generated executable prints:
       </p>
       {#code_begin|test#}
-const warn = @import("std").debug.warn;
+const info = @import("std").log.info;
 
 const num1 = blk: {
     var val1: i32 = 99;
@@ -7154,7 +7154,7 @@ const num1 = blk: {
 };
 
 test "main" {
-    warn("Runtime in main, num1 = {}.\n", .{num1});
+    info("Runtime in main, num1 = {}.\n", .{num1});
 }
       {#code_end#}
       {#header_close#}
@@ -8555,7 +8555,7 @@ const std = @import("std");
 pub fn main() void {
     var value: i32 = -1;
     var unsigned = @intCast(u32, value);
-    std.debug.warn("value: {}\n", .{unsigned});
+    std.log.info("value: {}\n", .{unsigned});
 }
       {#code_end#}
       <p>
@@ -8577,7 +8577,7 @@ const std = @import("std");
 pub fn main() void {
     var spartan_count: u16 = 300;
     const byte = @intCast(u8, spartan_count);
-    std.debug.warn("value: {}\n", .{byte});
+    std.log.info("value: {}\n", .{byte});
 }
       {#code_end#}
       <p>
@@ -8611,7 +8611,7 @@ const std = @import("std");
 pub fn main() void {
     var byte: u8 = 255;
     byte += 1;
-    std.debug.warn("value: {}\n", .{byte});
+    std.log.info("value: {}\n", .{byte});
 }
       {#code_end#}
       {#header_close#}
@@ -8629,16 +8629,16 @@ pub fn main() void {
       <p>Example of catching an overflow for addition:</p>
       {#code_begin|exe_err#}
 const math = @import("std").math;
-const warn = @import("std").debug.warn;
+const info = @import("std").log.info;
 pub fn main() !void {
     var byte: u8 = 255;
 
     byte = if (math.add(u8, byte, 1)) |result| result else |err| {
-        warn("unable to add one: {}\n", .{@errorName(err)});
+        info("unable to add one: {}\n", .{@errorName(err)});
         return err;
     };
 
-    warn("result: {}\n", .{byte});
+    info("result: {}\n", .{byte});
 }
       {#code_end#}
       {#header_close#}
@@ -8657,15 +8657,15 @@ pub fn main() !void {
       Example of {#link|@addWithOverflow#}:
       </p>
       {#code_begin|exe#}
-const warn = @import("std").debug.warn;
+const info = @import("std").log.info;
 pub fn main() void {
     var byte: u8 = 255;
 
     var result: u8 = undefined;
     if (@addWithOverflow(u8, byte, 10, &result)) {
-        warn("overflowed result: {}\n", .{result});
+        info("overflowed result: {}\n", .{result});
     } else {
-        warn("result: {}\n", .{result});
+        info("result: {}\n", .{result});
     }
 }
       {#code_end#}
@@ -8710,7 +8710,7 @@ const std = @import("std");
 pub fn main() void {
     var x: u8 = 0b01010101;
     var y = @shlExact(x, 2);
-    std.debug.warn("value: {}\n", .{y});
+    std.log.info("value: {}\n", .{y});
 }
       {#code_end#}
       {#header_close#}
@@ -8728,7 +8728,7 @@ const std = @import("std");
 pub fn main() void {
     var x: u8 = 0b10101010;
     var y = @shrExact(x, 2);
-    std.debug.warn("value: {}\n", .{y});
+    std.log.info("value: {}\n", .{y});
 }
       {#code_end#}
       {#header_close#}
@@ -8749,7 +8749,7 @@ pub fn main() void {
     var a: u32 = 1;
     var b: u32 = 0;
     var c = a / b;
-    std.debug.warn("value: {}\n", .{c});
+    std.log.info("value: {}\n", .{c});
 }
       {#code_end#}
       {#header_close#}
@@ -8770,7 +8770,7 @@ pub fn main() void {
     var a: u32 = 10;
     var b: u32 = 0;
     var c = a % b;
-    std.debug.warn("value: {}\n", .{c});
+    std.log.info("value: {}\n", .{c});
 }
       {#code_end#}
       {#header_close#}
@@ -8791,7 +8791,7 @@ pub fn main() void {
     var a: u32 = 10;
     var b: u32 = 3;
     var c = @divExact(a, b);
-    std.debug.warn("value: {}\n", .{c});
+    std.log.info("value: {}\n", .{c});
 }
       {#code_end#}
       {#header_close#}
@@ -8810,20 +8810,20 @@ const std = @import("std");
 pub fn main() void {
     var optional_number: ?i32 = null;
     var number = optional_number.?;
-    std.debug.warn("value: {}\n", .{number});
+    std.log.info("value: {}\n", .{number});
 }
       {#code_end#}
       <p>One way to avoid this crash is to test for null instead of assuming non-null, with
       the {#syntax#}if{#endsyntax#} expression:</p>
       {#code_begin|exe|test#}
-const warn = @import("std").debug.warn;
+const info = @import("std").log.info;
 pub fn main() void {
     const optional_number: ?i32 = null;
 
     if (optional_number) |number| {
-        warn("got number: {}\n", .{number});
+        info("got number: {}\n", .{number});
     } else {
-        warn("it's null\n", .{});
+        info("it's null\n", .{});
     }
 }
       {#code_end#}
@@ -8846,7 +8846,7 @@ const std = @import("std");
 
 pub fn main() void {
     const number = getNumberOrFail() catch unreachable;
-    std.debug.warn("value: {}\n", .{number});
+    std.log.info("value: {}\n", .{number});
 }
 
 fn getNumberOrFail() !i32 {
@@ -8856,15 +8856,15 @@ fn getNumberOrFail() !i32 {
       <p>One way to avoid this crash is to test for an error instead of assuming a successful result, with
       the {#syntax#}if{#endsyntax#} expression:</p>
       {#code_begin|exe#}
-const warn = @import("std").debug.warn;
+const info = @import("std").log.info;
 
 pub fn main() void {
     const result = getNumberOrFail();
 
     if (result) |number| {
-        warn("got number: {}\n", .{number});
+        info("got number: {}\n", .{number});
     } else |err| {
-        warn("got error: {}\n", .{@errorName(err)});
+        info("got error: {}\n", .{@errorName(err)});
     }
 }
 
@@ -8891,7 +8891,7 @@ pub fn main() void {
     var err = error.AnError;
     var number = @errorToInt(err) + 500;
     var invalid_err = @intToError(number);
-    std.debug.warn("value: {}\n", .{number});
+    std.log.info("value: {}\n", .{number});
 }
       {#code_end#}
       {#header_close#}
@@ -8921,7 +8921,7 @@ const Foo = enum {
 pub fn main() void {
     var a: u2 = 3;
     var b = @intToEnum(Foo, a);
-    std.debug.warn("value: {}\n", .{@tagName(b)});
+    std.log.info("value: {}\n", .{@tagName(b)});
 }
       {#code_end#}
       {#header_close#}
@@ -8958,7 +8958,7 @@ pub fn main() void {
 }
 fn foo(set1: Set1) void {
     const x = @errSetCast(Set2, set1);
-    std.debug.warn("value: {}\n", .{x});
+    std.log.info("value: {}\n", .{x});
 }
       {#code_end#}
       {#header_close#}
@@ -9015,7 +9015,7 @@ pub fn main() void {
 
 fn bar(f: *Foo) void {
     f.float = 12.34;
-    std.debug.warn("value: {}\n", .{f.float});
+    std.log.info("value: {}\n", .{f.float});
 }
       {#code_end#}
       <p>
@@ -9039,7 +9039,7 @@ pub fn main() void {
 
 fn bar(f: *Foo) void {
     f.* = Foo{ .float = 12.34 };
-    std.debug.warn("value: {}\n", .{f.float});
+    std.log.info("value: {}\n", .{f.float});
 }
       {#code_end#}
       <p>
@@ -9058,7 +9058,7 @@ pub fn main() void {
     var f = Foo{ .int = 42 };
     f = Foo{ .float = undefined };
     bar(&f);
-    std.debug.warn("value: {}\n", .{f.float});
+    std.log.info("value: {}\n", .{f.float});
 }
 
 fn bar(f: *Foo) void {
@@ -9178,7 +9178,7 @@ pub fn main() !void {
     const allocator = &arena.allocator;
 
     const ptr = try allocator.create(i32);
-    std.debug.warn("ptr={*}\n", .{ptr});
+    std.log.info("ptr={*}\n", .{ptr});
 }
               {#code_end#}
               When using this kind of allocator, there is no need to free anything manually. Everything
@@ -9712,7 +9712,7 @@ pub fn main() !void {
     defer std.process.argsFree(std.heap.page_allocator, args);
 
     for (args) |arg, i| {
-        std.debug.warn("{}: {}\n", .{i, arg});
+        std.log.info("{}: {}\n", .{i, arg});
     }
 }
       {#code_end#}
@@ -9734,7 +9734,7 @@ pub fn main() !void {
     try preopens.populate();
 
     for (preopens.asSlice()) |preopen, i| {
-        std.debug.warn("{}: {}\n", .{ i, preopen });
+        std.log.info("{}: {}\n", .{ i, preopen });
     }
 }
       {#code_end#}
