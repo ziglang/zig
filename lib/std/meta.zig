@@ -250,7 +250,7 @@ test "std.meta.containerLayout" {
     testing.expect(containerLayout(U3) == .Extern);
 }
 
-pub fn declarations(comptime T: type) []TypeInfo.Declaration {
+pub fn declarations(comptime T: type) []const TypeInfo.Declaration {
     return switch (@typeInfo(T)) {
         .Struct => |info| info.decls,
         .Enum => |info| info.decls,
@@ -274,7 +274,7 @@ test "std.meta.declarations" {
         fn a() void {}
     };
 
-    const decls = comptime [_][]TypeInfo.Declaration{
+    const decls = comptime [_][]const TypeInfo.Declaration{
         declarations(E1),
         declarations(S1),
         declarations(U1),
@@ -323,10 +323,10 @@ test "std.meta.declarationInfo" {
 }
 
 pub fn fields(comptime T: type) switch (@typeInfo(T)) {
-    .Struct => []TypeInfo.StructField,
-    .Union => []TypeInfo.UnionField,
-    .ErrorSet => []TypeInfo.Error,
-    .Enum => []TypeInfo.EnumField,
+    .Struct => []const TypeInfo.StructField,
+    .Union => []const TypeInfo.UnionField,
+    .ErrorSet => []const TypeInfo.Error,
+    .Enum => []const TypeInfo.EnumField,
     else => @compileError("Expected struct, union, error set or enum type, found '" ++ @typeName(T) ++ "'"),
 } {
     return switch (@typeInfo(T)) {

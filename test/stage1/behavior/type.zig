@@ -213,3 +213,26 @@ test "Type.AnyFrame" {
         anyframe->anyframe->u8,
     });
 }
+
+test "Type.EnumLiteral" {
+    testTypes(&[_]type{
+        @TypeOf(.Dummy),
+    });
+}
+
+fn add(a: i32, b: i32) i32 {
+    return a + b;
+}
+
+test "Type.Frame" {
+    testTypes(&[_]type{
+        @Frame(add),
+    });
+}
+
+test "Type.ErrorSet" {
+    // error sets don't compare equal so just check if they compile
+    _ = @Type(@typeInfo(error{}));
+    _ = @Type(@typeInfo(error{A}));
+    _ = @Type(@typeInfo(error{ A, B, C }));
+}

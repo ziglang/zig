@@ -202,7 +202,7 @@ fn testUnion() void {
     expect(typeinfo_info.Union.fields[4].enum_field != null);
     expect(typeinfo_info.Union.fields[4].enum_field.?.value == 4);
     expect(typeinfo_info.Union.fields[4].field_type == @TypeOf(@typeInfo(u8).Int));
-    expect(typeinfo_info.Union.decls.len == 20);
+    expect(typeinfo_info.Union.decls.len == 21);
 
     const TestNoTagUnion = union {
         Foo: void,
@@ -388,4 +388,17 @@ test "@typeInfo does not force declarations into existence" {
 test "defaut value for a var-typed field" {
     const S = struct { x: var };
     expect(@typeInfo(S).Struct.fields[0].default_value == null);
+}
+
+fn add(a: i32, b: i32) i32 {
+    return a + b;
+}
+
+test "type info for async frames" {
+    switch (@typeInfo(@Frame(add))) {
+        .Frame => |frame| {
+            expect(frame.function == add);
+        },
+        else => unreachable,
+    }
 }
