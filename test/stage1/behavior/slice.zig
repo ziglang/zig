@@ -280,6 +280,11 @@ test "slice syntax resulting in pointer-to-array" {
             expect(slice[0] == 5);
             comptime expect(@TypeOf(src_slice[0..2]) == *align(4) [2]u8);
         }
+
+        fn testConcatStrLiterals() void {
+            expectEqualSlices("a"[0..] ++ "b"[0..], "ab");
+            expectEqualSlices("a"[0..:0] ++ "b"[0..:0], "ab");
+        }
     };
 
     S.doTheTest();
