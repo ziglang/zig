@@ -684,8 +684,21 @@ fn fmtPath(fmt: *Fmt, file_path: []const u8, check_mode: bool) FmtError!void {
     if (fmt.seen.exists(real_path)) return;
     try fmt.seen.put(real_path);
 
-    const source_file = fs.cwd().openFile(real_path, .{}) catch |err| switch (err) {
-        error.IsDir, error.AccessDenied => {
+    const source_file = fs.cwd().openFile(real_path, .{}) catch |err| {
+        std.debug.warn("unable to open '{}': {}\n", .{ file_path, err });
+        fmt.any_error = true;
+        return;
+    };
+    defer source_file.close();
+
+    const stat = source_file.stat() catch |err| {
+        std.debug.warn("unable to stat '{}': {}\n", .{ file_path, err });
+        fmt.any_error = true;
+        return;
+    };
+
+    const source_code = source_file.readAllAlloc(fmt.gpa, stat.size, max_src_size) catch |err| switch (err) {
+        error.IsDir => {
             var dir = try fs.cwd().openDir(file_path, .{ .iterate = true });
             defer dir.close();
 
@@ -700,23 +713,10 @@ fn fmtPath(fmt: *Fmt, file_path: []const u8, check_mode: bool) FmtError!void {
             return;
         },
         else => {
-            std.debug.warn("unable to open '{}': {}\n", .{ file_path, err });
+            std.debug.warn("unable to read '{}': {}\n", .{ file_path, err });
             fmt.any_error = true;
             return;
         },
-    };
-    defer source_file.close();
-
-    const stat = source_file.stat() catch |err| {
-        std.debug.warn("unable to stat '{}': {}\n", .{ file_path, err });
-        fmt.any_error = true;
-        return;
-    };
-
-    const source_code = source_file.readAllAlloc(fmt.gpa, stat.size, max_src_size) catch |err| {
-        std.debug.warn("unable to read '{}': {}\n", .{ file_path, err });
-        fmt.any_error = true;
-        return;
     };
     defer fmt.gpa.free(source_code);
 
