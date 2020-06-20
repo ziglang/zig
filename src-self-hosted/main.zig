@@ -547,7 +547,7 @@ const Fmt = struct {
     color: Color,
     gpa: *Allocator,
 
-    const SeenMap = std.BufSet;
+    const SeenMap = std.AutoHashMap(fs.File.INode, void);
 };
 
 pub fn cmdFmt(gpa: *Allocator, args: []const []const u8) !void {
@@ -644,7 +644,14 @@ pub fn cmdFmt(gpa: *Allocator, args: []const []const u8) !void {
     };
 
     for (input_files.span()) |file_path| {
-        try fmtPath(&fmt, file_path, check_flag);
+        // Get the real path here to avoid Windows failing on relative file paths with . or .. in them.
+        const real_path = fs.realpathAlloc(gpa, file_path) catch |err| {
+            std.debug.warn("unable to open '{}': {}\n", .{ file_path, err });
+            process.exit(1);
+        };
+        defer gpa.free(real_path);
+
+        try fmtPath(&fmt, file_path, check_flag, fs.cwd(), real_path);
     }
     if (fmt.any_error) {
         process.exit(1);
@@ -673,20 +680,9 @@ const FmtError = error{
     EndOfStream,
 } || fs.File.OpenError;
 
-fn fmtPath(fmt: *Fmt, file_path: []const u8, check_mode: bool) FmtError!void {
-    // get the real path here to avoid Windows failing on relative file paths with . or .. in them
-    const real_path = fs.realpathAlloc(fmt.gpa, file_path) catch |err| {
-        std.debug.warn("unable to open '{}': {}\n", .{ file_path, err });
-        fmt.any_error = true;
-        return;
-    };
-    defer fmt.gpa.free(real_path);
-
-    if (fmt.seen.exists(real_path)) return;
-    try fmt.seen.put(real_path);
-
-    fmtPathFile(fmt, file_path, check_mode, real_path) catch |err| switch (err) {
-        error.IsDir, error.AccessDenied => return fmtPathDir(fmt, file_path, check_mode, real_path),
+fn fmtPath(fmt: *Fmt, file_path: []const u8, check_mode: bool, dir: fs.Dir, sub_path: []const u8) FmtError!void {
+    fmtPathFile(fmt, file_path, check_mode, dir, sub_path) catch |err| switch (err) {
+        error.IsDir, error.AccessDenied => return fmtPathDir(fmt, file_path, check_mode, dir, sub_path),
         else => {
             std.debug.warn("unable to format '{}': {}\n", .{ file_path, err });
             fmt.any_error = true;
@@ -695,29 +691,30 @@ fn fmtPath(fmt: *Fmt, file_path: []const u8, check_mode: bool) FmtError!void {
     };
 }
 
-fn fmtPathDir(fmt: *Fmt, file_path: []const u8, check_mode: bool, parent_real_path: []const u8) FmtError!void {
-    var dir = try fs.cwd().openDir(parent_real_path, .{ .iterate = true });
+fn fmtPathDir(
+    fmt: *Fmt,
+    file_path: []const u8,
+    check_mode: bool,
+    parent_dir: fs.Dir,
+    parent_sub_path: []const u8,
+) FmtError!void {
+    var dir = try parent_dir.openDir(parent_sub_path, .{ .iterate = true });
     defer dir.close();
+
+    const stat = try dir.stat();
+    if (try fmt.seen.put(stat.inode, {})) |_| return;
 
     var dir_it = dir.iterate();
     while (try dir_it.next()) |entry| {
         const is_dir = entry.kind == .Directory;
         if (is_dir or mem.endsWith(u8, entry.name, ".zig")) {
             const full_path = try fs.path.join(fmt.gpa, &[_][]const u8{ file_path, entry.name });
-            const sub_real_path = fs.realpathAlloc(fmt.gpa, full_path) catch |err| {
-                std.debug.warn("unable to open '{}': {}\n", .{ file_path, err });
-                fmt.any_error = true;
-                return;
-            };
-            defer fmt.gpa.free(sub_real_path);
-
-            if (fmt.seen.exists(sub_real_path)) return;
-            try fmt.seen.put(sub_real_path);
+            defer fmt.gpa.free(full_path);
 
             if (is_dir) {
-                try fmtPathDir(fmt, full_path, check_mode, sub_real_path);
+                try fmtPathDir(fmt, full_path, check_mode, dir, entry.name);
             } else {
-                fmtPathFile(fmt, full_path, check_mode, sub_real_path) catch |err| {
+                fmtPathFile(fmt, full_path, check_mode, dir, entry.name) catch |err| {
                     std.debug.warn("unable to format '{}': {}\n", .{ full_path, err });
                     fmt.any_error = true;
                     return;
@@ -727,8 +724,14 @@ fn fmtPathDir(fmt: *Fmt, file_path: []const u8, check_mode: bool, parent_real_pa
     }
 }
 
-fn fmtPathFile(fmt: *Fmt, file_path: []const u8, check_mode: bool, real_path: []const u8) FmtError!void {
-    const source_file = try fs.cwd().openFile(real_path, .{});
+fn fmtPathFile(
+    fmt: *Fmt,
+    file_path: []const u8,
+    check_mode: bool,
+    dir: fs.Dir,
+    sub_path: []const u8,
+) FmtError!void {
+    const source_file = try dir.openFile(sub_path, .{});
     defer source_file.close();
 
     const stat = try source_file.stat();
@@ -742,6 +745,9 @@ fn fmtPathFile(fmt: *Fmt, file_path: []const u8, check_mode: bool, real_path: []
         else => |e| return e,
     };
     defer fmt.gpa.free(source_code);
+
+    // Add to set after no longer possible to get error.IsDir.
+    if (try fmt.seen.put(stat.inode, {})) |_| return;
 
     const tree = try std.zig.parse(fmt.gpa, source_code);
     defer tree.deinit();
@@ -761,7 +767,7 @@ fn fmtPathFile(fmt: *Fmt, file_path: []const u8, check_mode: bool, real_path: []
             fmt.any_error = true;
         }
     } else {
-        const baf = try io.BufferedAtomicFile.create(fmt.gpa, fs.cwd(), real_path, .{ .mode = stat.mode });
+        const baf = try io.BufferedAtomicFile.create(fmt.gpa, dir, sub_path, .{ .mode = stat.mode });
         defer baf.destroy();
 
         const anything_changed = try std.zig.render(fmt.gpa, baf.stream(), tree);

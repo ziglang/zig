@@ -1545,6 +1545,17 @@ pub const Dir = struct {
             return AtomicFile.init(dest_path, options.mode, self, false);
         }
     }
+
+    pub const Stat = File.Stat;
+    pub const StatError = File.StatError;
+
+    pub fn stat(self: Dir) StatError!Stat {
+        const file: File = .{
+            .handle = self.fd,
+            .capable_io_mode = .blocking,
+        };
+        return file.stat();
+    }
 };
 
 /// Returns an handle to the current working directory. It is not opened with iteration capability.
