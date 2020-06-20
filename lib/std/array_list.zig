@@ -162,7 +162,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             mem.copy(T, self.items[oldlen..], items);
         }
 
-        pub usingnamespace if (T != u8) struct { } else struct {
+        pub usingnamespace if (T != u8) struct {} else struct {
             pub const Writer = std.io.Writer(*Self, error{OutOfMemory}, appendWrite);
 
             /// Initializes a Writer which will append to the list.
