@@ -8204,7 +8204,7 @@ test "vector @splat" {
       {#header_open|@This#}
       <pre>{#syntax#}@This() type{#endsyntax#}</pre>
       <p>
-      Returns the innermost struct or union that this function call is inside.
+      Returns the innermost struct, enum, or union that this function call is inside.
       This can be useful for an anonymous struct that needs to refer to itself:
       </p>
       {#code_begin|test#}
