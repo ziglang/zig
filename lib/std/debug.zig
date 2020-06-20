@@ -65,6 +65,14 @@ pub fn print(comptime fmt: []const u8, args: var) void {
     nosuspend stderr.print(fmt, args) catch return;
 }
 
+/// Add todo mark, it will prevent compilation in release mode.
+pub fn todo(comptime desc: []const u8) noreturn {
+    if (builtin.mode != .Debug and !@hasDecl(root, "allow_todo_in_release")) {
+        @compileError("TODO: " ++ desc);
+    }
+    @panic("TODO: " ++ desc);
+}
+
 pub fn getStderrMutex() *std.Mutex {
     return &stderr_mutex;
 }
