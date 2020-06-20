@@ -670,11 +670,12 @@ const FmtError = error{
     ReadOnlyFileSystem,
     LinkQuotaExceeded,
     FileBusy,
+    EndOfStream,
 } || fs.File.OpenError;
 
 fn fmtPath(fmt: *Fmt, file_path: []const u8, check_mode: bool) FmtError!void {
     // get the real path here to avoid Windows failing on relative file paths with . or .. in them
-    var real_path = fs.realpathAlloc(fmt.gpa, file_path) catch |err| {
+    const real_path = fs.realpathAlloc(fmt.gpa, file_path) catch |err| {
         std.debug.warn("unable to open '{}': {}\n", .{ file_path, err });
         fmt.any_error = true;
         return;
@@ -684,47 +685,65 @@ fn fmtPath(fmt: *Fmt, file_path: []const u8, check_mode: bool) FmtError!void {
     if (fmt.seen.exists(real_path)) return;
     try fmt.seen.put(real_path);
 
-    const source_file = fs.cwd().openFile(real_path, .{}) catch |err| {
-        std.debug.warn("unable to open '{}': {}\n", .{ file_path, err });
-        fmt.any_error = true;
-        return;
-    };
-    defer source_file.close();
-
-    const stat = source_file.stat() catch |err| {
-        std.debug.warn("unable to stat '{}': {}\n", .{ file_path, err });
-        fmt.any_error = true;
-        return;
-    };
-
-    const source_code = source_file.readAllAlloc(fmt.gpa, stat.size, max_src_size) catch |err| switch (err) {
-        error.IsDir => {
-            var dir = try fs.cwd().openDir(file_path, .{ .iterate = true });
-            defer dir.close();
-
-            var dir_it = dir.iterate();
-
-            while (try dir_it.next()) |entry| {
-                if (entry.kind == .Directory or mem.endsWith(u8, entry.name, ".zig")) {
-                    const full_path = try fs.path.join(fmt.gpa, &[_][]const u8{ file_path, entry.name });
-                    try fmtPath(fmt, full_path, check_mode);
-                }
-            }
-            return;
-        },
+    fmtPathFile(fmt, file_path, check_mode, real_path) catch |err| switch (err) {
+        error.IsDir, error.AccessDenied => return fmtPathDir(fmt, file_path, check_mode, real_path),
         else => {
-            std.debug.warn("unable to read '{}': {}\n", .{ file_path, err });
+            std.debug.warn("unable to format '{}': {}\n", .{ file_path, err });
             fmt.any_error = true;
             return;
         },
     };
+}
+
+fn fmtPathDir(fmt: *Fmt, file_path: []const u8, check_mode: bool, parent_real_path: []const u8) FmtError!void {
+    var dir = try fs.cwd().openDir(parent_real_path, .{ .iterate = true });
+    defer dir.close();
+
+    var dir_it = dir.iterate();
+    while (try dir_it.next()) |entry| {
+        const is_dir = entry.kind == .Directory;
+        if (is_dir or mem.endsWith(u8, entry.name, ".zig")) {
+            const full_path = try fs.path.join(fmt.gpa, &[_][]const u8{ file_path, entry.name });
+            const sub_real_path = fs.realpathAlloc(fmt.gpa, full_path) catch |err| {
+                std.debug.warn("unable to open '{}': {}\n", .{ file_path, err });
+                fmt.any_error = true;
+                return;
+            };
+            defer fmt.gpa.free(sub_real_path);
+
+            if (fmt.seen.exists(sub_real_path)) return;
+            try fmt.seen.put(sub_real_path);
+
+            if (is_dir) {
+                try fmtPathDir(fmt, full_path, check_mode, sub_real_path);
+            } else {
+                fmtPathFile(fmt, full_path, check_mode, sub_real_path) catch |err| {
+                    std.debug.warn("unable to format '{}': {}\n", .{ full_path, err });
+                    fmt.any_error = true;
+                    return;
+                };
+            }
+        }
+    }
+}
+
+fn fmtPathFile(fmt: *Fmt, file_path: []const u8, check_mode: bool, real_path: []const u8) FmtError!void {
+    const source_file = try fs.cwd().openFile(real_path, .{});
+    defer source_file.close();
+
+    const stat = try source_file.stat();
+
+    if (stat.kind == .Directory)
+        return error.IsDir;
+
+    const source_code = source_file.readAllAlloc(fmt.gpa, stat.size, max_src_size) catch |err| switch (err) {
+        error.ConnectionResetByPeer => unreachable,
+        error.ConnectionTimedOut => unreachable,
+        else => |e| return e,
+    };
     defer fmt.gpa.free(source_code);
 
-    const tree = std.zig.parse(fmt.gpa, source_code) catch |err| {
-        std.debug.warn("error parsing file '{}': {}\n", .{ file_path, err });
-        fmt.any_error = true;
-        return;
-    };
+    const tree = try std.zig.parse(fmt.gpa, source_code);
     defer tree.deinit();
 
     for (tree.errors) |parse_error| {

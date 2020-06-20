@@ -261,17 +261,7 @@ pub const Dir = struct {
         name: []const u8,
         kind: Kind,
 
-        pub const Kind = enum {
-            BlockDevice,
-            CharacterDevice,
-            Directory,
-            NamedPipe,
-            SymLink,
-            File,
-            UnixDomainSocket,
-            Whiteout,
-            Unknown,
-        };
+        pub const Kind = File.Kind;
     };
 
     const IteratorError = error{AccessDenied} || os.UnexpectedError;

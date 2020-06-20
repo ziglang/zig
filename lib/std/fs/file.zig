@@ -29,6 +29,18 @@ pub const File = struct {
     pub const Mode = os.mode_t;
     pub const INode = os.ino_t;
 
+    pub const Kind = enum {
+        BlockDevice,
+        CharacterDevice,
+        Directory,
+        NamedPipe,
+        SymLink,
+        File,
+        UnixDomainSocket,
+        Whiteout,
+        Unknown,
+    };
+
     pub const default_mode = switch (builtin.os.tag) {
         .windows => 0,
         .wasi => 0,
@@ -219,13 +231,14 @@ pub const File = struct {
         /// unique across time, as some file systems may reuse an inode after its file has been deleted.
         /// Some systems may change the inode of a file over time.
         ///
-        /// On Linux, the inode _is_ structure that stores the metadata, and the inode _number_ is what
+        /// On Linux, the inode is a structure that stores the metadata, and the inode _number_ is what
         /// you see here: the index number of the inode.
         ///
         /// The FileIndex on Windows is similar. It is a number for a file that is unique to each filesystem.
         inode: INode,
         size: u64,
         mode: Mode,
+        kind: Kind,
 
         /// Access time in nanoseconds, relative to UTC 1970-01-01.
         atime: i128,
@@ -254,6 +267,7 @@ pub const File = struct {
                 .inode = info.InternalInformation.IndexNumber,
                 .size = @bitCast(u64, info.StandardInformation.EndOfFile),
                 .mode = 0,
+                .kind = if (info.StandardInformation.Directory == 0) .File else .Directory,
                 .atime = windows.fromSysTime(info.BasicInformation.LastAccessTime),
                 .mtime = windows.fromSysTime(info.BasicInformation.LastWriteTime),
                 .ctime = windows.fromSysTime(info.BasicInformation.CreationTime),
@@ -268,6 +282,16 @@ pub const File = struct {
             .inode = st.ino,
             .size = @bitCast(u64, st.size),
             .mode = st.mode,
+            .kind = switch (st.mode & os.S_IFMT) {
+                os.S_IFBLK => .BlockDevice,
+                os.S_IFCHR => .CharacterDevice,
+                os.S_IFDIR => .Directory,
+                os.S_IFIFO => .NamedPipe,
+                os.S_IFLNK => .SymLink,
+                os.S_IFREG => .File,
+                os.S_IFSOCK => .UnixDomainSocket,
+                else => .Unknown,
+            },
             .atime = @as(i128, atime.tv_sec) * std.time.ns_per_s + atime.tv_nsec,
             .mtime = @as(i128, mtime.tv_sec) * std.time.ns_per_s + mtime.tv_nsec,
             .ctime = @as(i128, ctime.tv_sec) * std.time.ns_per_s + ctime.tv_nsec,
