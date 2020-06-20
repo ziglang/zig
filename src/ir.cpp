@@ -826,12 +826,11 @@ static ZigValue *const_ptr_pointee_unchecked_no_isf(CodeGen *g, ZigValue *const_
             ZigValue *array_val = const_val->data.x_ptr.data.base_array.array_val;
             size_t elem_index = const_val->data.x_ptr.data.base_array.elem_index;
 
-            // TODO handle sentinel terminated arrays
             expand_undef_array(g, array_val);
             result = g->pass1_arena->create<ZigValue>();
             result->special = array_val->special;
             result->type = get_array_type(g, array_val->type->data.array.child_type,
-                    array_val->type->data.array.len - elem_index, nullptr);
+                    array_val->type->data.array.len - elem_index, array_val->type->data.array.sentinel);
             result->data.x_array.special = ConstArraySpecialNone;
             result->data.x_array.data.s_none.elements = &array_val->data.x_array.data.s_none.elements[elem_index];
             result->parent.id = ConstParentIdArray;
