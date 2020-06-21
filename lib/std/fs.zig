@@ -1517,9 +1517,9 @@ pub const Dir = struct {
 
         var size: ?u64 = null;
         const mode = options.override_mode orelse blk: {
-            const stat = try in_file.stat();
-            size = stat.size;
-            break :blk stat.mode;
+            const st = try in_file.stat();
+            size = st.size;
+            break :blk st.mode;
         };
 
         var atomic_file = try dest_dir.atomicFile(dest_path, .{ .mode = mode });
