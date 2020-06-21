@@ -3540,7 +3540,7 @@ static LLVMValueRef ir_render_int_to_enum(CodeGen *g, IrExecutableGen *executabl
 
         for (size_t field_i = 0; field_i < field_count; field_i += 1) {
             TypeEnumField *type_enum_field = &wanted_type->data.enumeration.fields[field_i];
-            
+
             Buf *name = type_enum_field->name;
             auto entry = occupied_tag_values.put_unique(type_enum_field->value, name);
             if (entry != nullptr) {
@@ -3654,7 +3654,7 @@ static LLVMValueRef ir_gen_negation(CodeGen *g, IrInstGen *inst, IrInstGen *oper
         } else if (scalar_type->data.integral.is_signed) {
             return LLVMBuildNSWNeg(g->builder, llvm_operand, "");
         } else {
-            return LLVMBuildNUWNeg(g->builder, llvm_operand, "");
+            zig_unreachable();
         }
     } else {
         zig_unreachable();
@@ -3984,7 +3984,7 @@ static LLVMValueRef ir_render_elem_ptr(CodeGen *g, IrExecutableGen *executable, 
             assert(array_type->data.pointer.child_type->id == ZigTypeIdArray);
             array_type = array_type->data.pointer.child_type;
         }
-        
+
         assert(array_type->data.array.len != 0 || array_type->data.array.sentinel != nullptr);
 
         if (safety_check_on) {
@@ -5258,7 +5258,7 @@ static LLVMValueRef get_enum_tag_name_function(CodeGen *g, ZigType *enum_type) {
 
     for (size_t field_i = 0; field_i < field_count; field_i += 1) {
         TypeEnumField *type_enum_field = &enum_type->data.enumeration.fields[field_i];
-        
+
         Buf *name = type_enum_field->name;
         auto entry = occupied_tag_values.put_unique(type_enum_field->value, name);
         if (entry != nullptr) {
@@ -5471,7 +5471,7 @@ static LLVMTypeRef get_atomic_abi_type(CodeGen *g, IrInstGen *instruction) {
         }
         auto bit_count = operand_type->data.integral.bit_count;
         bool is_signed = operand_type->data.integral.is_signed;
-        
+
         ir_assert(bit_count != 0, instruction);
         if (bit_count == 1 || !is_power_of_2(bit_count)) {
             return get_llvm_type(g, get_int_type(g, is_signed, operand_type->abi_size * 8));
@@ -9265,7 +9265,7 @@ static void init(CodeGen *g) {
             abi_name = (g->zig_target->arch == ZigLLVM_riscv32) ? "ilp32" : "lp64";
         }
     }
-    
+
     g->target_machine = ZigLLVMCreateTargetMachine(target_ref, buf_ptr(&g->llvm_triple_str),
             target_specific_cpu_args, target_specific_features, opt_level, reloc_mode,
             to_llvm_code_model(g), g->function_sections, float_abi, abi_name);
