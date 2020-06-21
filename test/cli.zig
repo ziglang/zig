@@ -165,4 +165,8 @@ fn testZigFmt(zig_exe: []const u8, dir_path: []const u8) !void {
     // running it on the dir, only the new file should be changed
     testing.expect(std.mem.startsWith(u8, run_result2.stderr, fmt2_zig_path));
     testing.expect(run_result2.stderr.len == fmt2_zig_path.len + 1 and run_result2.stderr[run_result2.stderr.len - 1] == '\n');
+
+    const run_result3 = try exec(dir_path, &[_][]const u8{ zig_exe, "fmt", dir_path });
+    // both files have been formatted, nothing should change now
+    testing.expect(run_result3.stderr.len == 0);
 }
