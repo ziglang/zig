@@ -546,6 +546,7 @@ const Fmt = struct {
     any_error: bool,
     color: Color,
     gpa: *Allocator,
+    out_buffer: std.ArrayList(u8),
 
     const SeenMap = std.AutoHashMap(fs.File.INode, void);
 };
@@ -641,7 +642,10 @@ pub fn cmdFmt(gpa: *Allocator, args: []const []const u8) !void {
         .seen = Fmt.SeenMap.init(gpa),
         .any_error = false,
         .color = color,
+        .out_buffer = std.ArrayList(u8).init(gpa),
     };
+    defer fmt.seen.deinit();
+    defer fmt.out_buffer.deinit();
 
     for (input_files.span()) |file_path| {
         // Get the real path here to avoid Windows failing on relative file paths with . or .. in them.
@@ -767,14 +771,19 @@ fn fmtPathFile(
             fmt.any_error = true;
         }
     } else {
-        const baf = try io.BufferedAtomicFile.create(fmt.gpa, dir, sub_path, .{ .mode = stat.mode });
-        defer baf.destroy();
+        // As a heuristic, we make enough capacity for the same as the input source.
+        try fmt.out_buffer.ensureCapacity(source_code.len);
+        fmt.out_buffer.items.len = 0;
+        const anything_changed = try std.zig.render(fmt.gpa, fmt.out_buffer.writer(), tree);
+        if (!anything_changed)
+            return; // Good thing we didn't waste any file system access on this.
 
-        const anything_changed = try std.zig.render(fmt.gpa, baf.stream(), tree);
-        if (anything_changed) {
-            std.debug.warn("{}\n", .{file_path});
-            try baf.finish();
-        }
+        var af = try dir.atomicFile(sub_path, .{ .mode = stat.mode });
+        defer af.deinit();
+
+        try af.file.writeAll(fmt.out_buffer.items);
+        try af.finish();
+        std.debug.warn("{}\n", .{file_path});
     }
 }
 
