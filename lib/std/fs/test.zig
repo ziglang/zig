@@ -1,7 +1,44 @@
 const std = @import("../std.zig");
+const testing = std.testing;
 const builtin = std.builtin;
 const fs = std.fs;
+const mem = std.mem;
+
 const File = std.fs.File;
+const tmpDir = testing.tmpDir;
+
+test "readAllAlloc" {
+    var tmp_dir = tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    var file = try tmp_dir.dir.createFile("test_file", .{ .read = true });
+    defer file.close();
+
+    const buf1 = try file.readAllAlloc(testing.allocator, 0, 1024);
+    defer testing.allocator.free(buf1);
+    testing.expect(buf1.len == 0);
+
+    const write_buf: []const u8 = "this is a test.\nthis is a test.\nthis is a test.\nthis is a test.\n";
+    try file.writeAll(write_buf);
+    try file.seekTo(0);
+    const file_size = try file.getEndPos();
+
+    // max_bytes > file_size
+    const buf2 = try file.readAllAlloc(testing.allocator, file_size, 1024);
+    defer testing.allocator.free(buf2);
+    testing.expectEqual(write_buf.len, buf2.len);
+    testing.expect(std.mem.eql(u8, write_buf, buf2));
+    try file.seekTo(0);
+
+    // max_bytes == file_size
+    const buf3 = try file.readAllAlloc(testing.allocator, file_size, write_buf.len);
+    defer testing.allocator.free(buf3);
+    testing.expectEqual(write_buf.len, buf3.len);
+    testing.expect(std.mem.eql(u8, write_buf, buf3));
+
+    // max_bytes < file_size
+    testing.expectError(error.FileTooBig, file.readAllAlloc(testing.allocator, file_size, write_buf.len - 1));
+}
 
 test "openSelfExe" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
@@ -116,7 +153,7 @@ test "create file, lock and read from multiple process at once" {
 test "open file with exclusive nonblocking lock twice (absolute paths)" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
-    const allocator = std.testing.allocator;
+    const allocator = testing.allocator;
 
     const file_paths: [1][]const u8 = .{"zig-test-absolute-paths.txt"};
     const filename = try fs.path.resolve(allocator, &file_paths);
@@ -126,7 +163,7 @@ test "open file with exclusive nonblocking lock twice (absolute paths)" {
 
     const file2 = fs.createFileAbsolute(filename, .{ .lock = .Exclusive, .lock_nonblocking = true });
     file1.close();
-    std.testing.expectError(error.WouldBlock, file2);
+    testing.expectError(error.WouldBlock, file2);
 
     try fs.deleteFileAbsolute(filename);
 }
@@ -187,7 +224,7 @@ const FileLockTestContext = struct {
 };
 
 fn run_lock_file_test(contexts: []FileLockTestContext) !void {
-    var threads = std.ArrayList(*std.Thread).init(std.testing.allocator);
+    var threads = std.ArrayList(*std.Thread).init(testing.allocator);
     defer {
         for (threads.items) |thread| {
             thread.wait();

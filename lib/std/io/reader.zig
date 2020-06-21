@@ -40,8 +40,7 @@ pub fn Reader(
             return index;
         }
 
-        /// Returns the number of bytes read. If the number read would be smaller than buf.len,
-        /// error.EndOfStream is returned instead.
+        /// If the number read would be smaller than `buf.len`, `error.EndOfStream` is returned instead.
         pub fn readNoEof(self: Self, buf: []u8) !void {
             const amt_read = try self.readAll(buf);
             if (amt_read < buf.len) return error.EndOfStream;
