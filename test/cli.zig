@@ -148,11 +148,7 @@ fn testMissingOutputPath(zig_exe: []const u8, dir_path: []const u8) !void {
 fn testZigFmt(zig_exe: []const u8, dir_path: []const u8) !void {
     _ = try exec(dir_path, &[_][]const u8{ zig_exe, "init-exe" });
 
-    const unformatted_code =
-        \\fn square(num: i32) i32 {
-        \\return num * num;
-        \\}
-    ;
+    const unformatted_code = "    // no reason for indent";
 
     const fmt1_zig_path = try fs.path.join(a, &[_][]const u8{ dir_path, "fmt1.zig" });
     try fs.cwd().writeFile(fmt1_zig_path, unformatted_code);
