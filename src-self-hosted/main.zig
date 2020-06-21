@@ -736,7 +736,8 @@ fn fmtPathFile(
     sub_path: []const u8,
 ) FmtError!void {
     const source_file = try dir.openFile(sub_path, .{});
-    defer source_file.close();
+    var file_closed = false;
+    errdefer if (!file_closed) source_file.close();
 
     const stat = try source_file.stat();
 
@@ -748,6 +749,8 @@ fn fmtPathFile(
         error.ConnectionTimedOut => unreachable,
         else => |e| return e,
     };
+    source_file.close();
+    file_closed = true;
     defer fmt.gpa.free(source_code);
 
     // Add to set after no longer possible to get error.IsDir.
