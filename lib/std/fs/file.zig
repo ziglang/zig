@@ -364,7 +364,7 @@ pub const File = struct {
         const buf = try allocator.allocWithOptions(u8, size, alignment, optional_sentinel);
         errdefer allocator.free(buf);
 
-        try self.inStream().readNoEof(buf);
+        try self.reader().readNoEof(buf);
         return buf;
     }
 
