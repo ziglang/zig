@@ -341,6 +341,17 @@ pub const File = struct {
         try os.futimens(self.handle, &times);
     }
 
+    /// Reads entire contents into a caller owned returned buffer.
+    /// This is a convenience wrapper for `readAllAlloc` that allocates exactly the file size.
+    /// If the file size is larger than what `usize` for the given architecture
+    /// can store, returns `error.FileTooBig`. In this case, you should call `readAll` or
+    /// `readAllAlloc` sequentially and store the file contents in chunks.
+    pub fn readToEnd(self: File, allocator: *mem.Allocator) ![]u8 {
+        const file_size = try self.getEndPos();
+        const max_bytes = math.cast(usize, file_size) catch return error.FileTooBig;
+        return self.readAllAlloc(allocator, file_size, max_bytes);
+    }
+
     /// On success, caller owns returned buffer.
     /// If the file is larger than `max_bytes`, returns `error.FileTooBig`.
     pub fn readAllAlloc(self: File, allocator: *mem.Allocator, stat_size: u64, max_bytes: usize) ![]u8 {
@@ -364,7 +375,7 @@ pub const File = struct {
         const buf = try allocator.allocWithOptions(u8, size, alignment, optional_sentinel);
         errdefer allocator.free(buf);
 
-        try self.inStream().readNoEof(buf);
+        try self.reader().readNoEof(buf);
         return buf;
     }
 
