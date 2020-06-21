@@ -12602,28 +12602,28 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
         if (prev_type->id == ZigTypeIdPointer &&
             prev_type->data.pointer.ptr_len == PtrLenSingle &&
             prev_type->data.pointer.child_type->id == ZigTypeIdArray &&
-            ((cur_type->id == ZigTypeIdPointer && cur_type->data.pointer.ptr_len == PtrLenUnknown))) 
+            ((cur_type->id == ZigTypeIdPointer && cur_type->data.pointer.ptr_len == PtrLenUnknown)))
         {
-            prev_inst = cur_inst;   
+            prev_inst = cur_inst;
 
             if (prev_type->data.pointer.is_const && !cur_type->data.pointer.is_const) {
                 // const array pointer and non-const unknown pointer
                 make_the_pointer_const = true;
             }
-            continue; 
+            continue;
         }
 
         // *[N]T to [*]T
         if (cur_type->id == ZigTypeIdPointer &&
             cur_type->data.pointer.ptr_len == PtrLenSingle &&
             cur_type->data.pointer.child_type->id == ZigTypeIdArray &&
-            ((prev_type->id == ZigTypeIdPointer && prev_type->data.pointer.ptr_len == PtrLenUnknown))) 
+            ((prev_type->id == ZigTypeIdPointer && prev_type->data.pointer.ptr_len == PtrLenUnknown)))
         {
             if (cur_type->data.pointer.is_const && !prev_type->data.pointer.is_const) {
                 // const array pointer and non-const unknown pointer
                 make_the_pointer_const = true;
             }
-            continue;   
+            continue;
         }
 
         // *[N]T to []T
@@ -20987,16 +20987,23 @@ static IrInstGen *ir_analyze_negation(IrAnalyze *ira, IrInstSrcUnOp *instruction
     if (type_is_invalid(expr_type))
         return ira->codegen->invalid_inst_gen;
 
-    if (!(expr_type->id == ZigTypeIdInt || expr_type->id == ZigTypeIdComptimeInt ||
-        expr_type->id == ZigTypeIdFloat || expr_type->id == ZigTypeIdComptimeFloat ||
-        expr_type->id == ZigTypeIdVector))
-    {
-        ir_add_error(ira, &instruction->base.base,
-            buf_sprintf("negation of type '%s'", buf_ptr(&expr_type->name)));
-        return ira->codegen->invalid_inst_gen;
-    }
-
     bool is_wrap_op = (instruction->op_id == IrUnOpNegationWrap);
+
+    switch (expr_type->id) {
+        case ZigTypeIdComptimeInt:
+        case ZigTypeIdFloat:
+        case ZigTypeIdComptimeFloat:
+        case ZigTypeIdVector:
+            break;
+        case ZigTypeIdInt:
+            if (is_wrap_op || expr_type->data.integral.is_signed)
+                break;
+            ZIG_FALLTHROUGH;
+        default:
+            ir_add_error(ira, &instruction->base.base,
+                buf_sprintf("negation of type '%s'", buf_ptr(&expr_type->name)));
+            return ira->codegen->invalid_inst_gen;
+    }
 
     ZigType *scalar_type = (expr_type->id == ZigTypeIdVector) ? expr_type->data.vector.elem_type : expr_type;
 
@@ -30380,7 +30387,7 @@ static ErrorMsg *ir_eval_float_op(IrAnalyze *ira, IrInst* source_instr, BuiltinF
         case BuiltinFnIdTrunc:
             f128M_trunc(in, out);
             break;
-        case BuiltinFnIdRound: 
+        case BuiltinFnIdRound:
             f128M_roundToInt(in, softfloat_round_near_maxMag, false, out);
             break;
         case BuiltinFnIdNearbyInt:

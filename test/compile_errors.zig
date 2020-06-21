@@ -7530,4 +7530,13 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     , &[_][]const u8{
         "tmp.zig:2:9: error: @wasmMemoryGrow is a wasm32 feature only",
     });
+
+    cases.add("Issue #5586: Make unary minus for unsigned types a compile error",
+        \\export fn f(x: u32) u32 {
+        \\    const y = -%x;
+        \\    return -y;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:3:12: error: negation of type 'u32'"
+    });
 }
