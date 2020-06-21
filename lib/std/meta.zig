@@ -694,16 +694,14 @@ pub fn Vector(comptime len: u32, comptime child: type) type {
     });
 }
 
-/// Given a type and value, cast the value to the type as c would
+/// Given a type and value, cast the value to the type as c would.
+/// This is for translate-c and is not intended for general use.
 pub fn cast(comptime DestType: type, target: var) DestType {
     const TargetType = @TypeOf(target);
     switch (@typeInfo(DestType)) {
-        .Pointer => |_| {
+        .Pointer => {
             switch (@typeInfo(TargetType)) {
-                .Int => |_| {
-                    return @intToPtr(DestType, target);
-                },
-                .ComptimeInt => |_| {
+                .Int, .ComptimeInt => {
                     return @intToPtr(DestType, target);
                 },
                 .Pointer => |ptr| {
@@ -720,10 +718,7 @@ pub fn cast(comptime DestType: type, target: var) DestType {
         .Optional => |opt| {
             if (@typeInfo(opt.child) == .Pointer) {
                 switch (@typeInfo(TargetType)) {
-                    .Int => |_| {
-                        return @intToPtr(DestType, target);
-                    },
-                    .ComptimeInt => |_| {
+                    .Int, .ComptimeInt => {
                         return @intToPtr(DestType, target);
                     },
                     .Pointer => |ptr| {
@@ -738,19 +733,14 @@ pub fn cast(comptime DestType: type, target: var) DestType {
                 }
             }
         },
-        .Enum => |_| {
+        .Enum, .EnumLiteral => {
             if (@typeInfo(TargetType) == .Int or @typeInfo(TargetType) == .ComptimeInt) {
                 return @intToEnum(DestType, target);
             }
         },
-        .EnumLiteral => |_| {
-            if (@typeInfo(TargetType) == .Int or @typeInfo(TargetType) == .ComptimeInt) {
-                return @intToEnum(DestType, target);
-            }
-        },
-        .Int => |_| {
+        .Int, .ComptimeInt => {
             switch (@typeInfo(TargetType)) {
-                .Pointer => |_| {
+                .Pointer => {
                     return @as(DestType, @ptrToInt(target));
                 },
                 .Optional => |opt| {
@@ -758,10 +748,7 @@ pub fn cast(comptime DestType: type, target: var) DestType {
                         return @as(DestType, @ptrToInt(target));
                     }
                 },
-                .Enum => |_| {
-                    return @as(DestType, @enumToInt(target));
-                },
-                .EnumLiteral => |_| {
+                .Enum, .EnumLiteral => {
                     return @as(DestType, @enumToInt(target));
                 },
                 else => {},

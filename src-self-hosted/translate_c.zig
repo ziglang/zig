@@ -5670,12 +5670,8 @@ fn parseCPrimaryExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8, 
 
             //(@import("std").meta.cast(dest, x))
             const import_fn_call = try c.createBuiltinCall("@import", 1);
-            const std_token = try appendToken(c, .StringLiteral, "\"std\"");
-            const std_node = try c.arena.create(ast.Node.StringLiteral);
-            std_node.* = .{
-                .token = std_token,
-            };
-            import_fn_call.params()[0] = &std_node.base;
+            const std_node = try transCreateNodeStringLiteral(c, "\"std\"");
+            import_fn_call.params()[0] = std_node;
             import_fn_call.rparen_token = try appendToken(c, .RParen, ")");
             const inner_field_access = try transCreateNodeFieldAccess(c, &import_fn_call.base, "meta");
             const outer_field_access = try transCreateNodeFieldAccess(c, inner_field_access, "cast");
