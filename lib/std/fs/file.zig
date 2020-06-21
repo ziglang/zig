@@ -348,8 +348,7 @@ pub const File = struct {
     /// `readAllAlloc` sequentially and store the file contents in chunks.
     pub fn readToEnd(self: File, allocator: *mem.Allocator) ![]u8 {
         const file_size = try self.getEndPos();
-        const max_bytes = math.cast(usize, file_size) catch return error.FileTooBig;
-        return self.readAllAlloc(allocator, file_size, max_bytes);
+        return self.readAllAlloc(allocator, file_size, math.maxInt(usize));
     }
 
     /// On success, caller owns returned buffer.
