@@ -126,7 +126,10 @@ pub fn build(b: *Builder) !void {
     test_step.dependOn(tests.addCompareOutputTests(b, test_filter, modes));
     test_step.dependOn(tests.addStandaloneTests(b, test_filter, modes));
     test_step.dependOn(tests.addStackTraceTests(b, test_filter, modes));
-    test_step.dependOn(tests.addCliTests(b, test_filter, modes));
+    const test_cli = tests.addCliTests(b, test_filter, modes);
+    const test_cli_step = b.step("test-cli", "Run zig cli tests");
+    test_cli_step.dependOn(test_cli);
+    test_step.dependOn(test_cli);
     test_step.dependOn(tests.addAssembleAndLinkTests(b, test_filter, modes));
     test_step.dependOn(tests.addRuntimeSafetyTests(b, test_filter, modes));
     test_step.dependOn(tests.addTranslateCTests(b, test_filter));
