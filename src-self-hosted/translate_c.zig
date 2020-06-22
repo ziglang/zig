@@ -5668,161 +5668,23 @@ fn parseCPrimaryExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8, 
 
             const lparen = try appendToken(c, .LParen, "(");
 
-            if (saw_integer_literal) {
-                //(  if (@typeInfo(dest) == .Pointer))
-                //    @intToPtr(dest, x)
-                //else
-                //    @as(dest, x) )
-                const if_node = try transCreateNodeIf(c);
-                const type_info_node = try c.createBuiltinCall("@typeInfo", 1);
-                type_info_node.params()[0] = inner_node;
-                type_info_node.rparen_token = try appendToken(c, .LParen, ")");
-                const cmp_node = try c.arena.create(ast.Node.InfixOp);
-                cmp_node.* = .{
-                    .op_token = try appendToken(c, .EqualEqual, "=="),
-                    .lhs = &type_info_node.base,
-                    .op = .EqualEqual,
-                    .rhs = try transCreateNodeEnumLiteral(c, "Pointer"),
-                };
-                if_node.condition = &cmp_node.base;
-                _ = try appendToken(c, .RParen, ")");
+            //(@import("std").meta.cast(dest, x))
+            const import_fn_call = try c.createBuiltinCall("@import", 1);
+            const std_node = try transCreateNodeStringLiteral(c, "\"std\"");
+            import_fn_call.params()[0] = std_node;
+            import_fn_call.rparen_token = try appendToken(c, .RParen, ")");
+            const inner_field_access = try transCreateNodeFieldAccess(c, &import_fn_call.base, "meta");
+            const outer_field_access = try transCreateNodeFieldAccess(c, inner_field_access, "cast");
 
-                const int_to_ptr = try c.createBuiltinCall("@intToPtr", 2);
-                int_to_ptr.params()[0] = inner_node;
-                int_to_ptr.params()[1] = node_to_cast;
-                int_to_ptr.rparen_token = try appendToken(c, .RParen, ")");
-                if_node.body = &int_to_ptr.base;
-
-                const else_node = try transCreateNodeElse(c);
-                if_node.@"else" = else_node;
-
-                const as_node = try c.createBuiltinCall("@as", 2);
-                as_node.params()[0] = inner_node;
-                as_node.params()[1] = node_to_cast;
-                as_node.rparen_token = try appendToken(c, .RParen, ")");
-                else_node.body = &as_node.base;
-
-                const group_node = try c.arena.create(ast.Node.GroupedExpression);
-                group_node.* = .{
-                    .lparen = lparen,
-                    .expr = &if_node.base,
-                    .rparen = try appendToken(c, .RParen, ")"),
-                };
-                return &group_node.base;
-            }
-
-            //(  if (@typeInfo(@TypeOf(x)) == .Pointer)
-            //    @ptrCast(dest, @alignCast(@alignOf(dest.Child), x))
-            //else if (@typeInfo(@TypeOf(x)) == .Int and @typeInfo(dest) == .Pointer))
-            //    @intToPtr(dest, x)
-            //else
-            //    @as(dest, x) )
-
-            const if_1 = try transCreateNodeIf(c);
-            const type_info_1 = try c.createBuiltinCall("@typeInfo", 1);
-            const type_of_1 = try c.createBuiltinCall("@TypeOf", 1);
-            type_info_1.params()[0] = &type_of_1.base;
-            type_of_1.params()[0] = node_to_cast;
-            type_of_1.rparen_token = try appendToken(c, .RParen, ")");
-            type_info_1.rparen_token = try appendToken(c, .RParen, ")");
-
-            const cmp_1 = try c.arena.create(ast.Node.InfixOp);
-            cmp_1.* = .{
-                .op_token = try appendToken(c, .EqualEqual, "=="),
-                .lhs = &type_info_1.base,
-                .op = .EqualEqual,
-                .rhs = try transCreateNodeEnumLiteral(c, "Pointer"),
-            };
-            if_1.condition = &cmp_1.base;
-            _ = try appendToken(c, .RParen, ")");
-
-            const period_tok = try appendToken(c, .Period, ".");
-            const child_ident = try transCreateNodeIdentifier(c, "Child");
-            const inner_node_child = try c.arena.create(ast.Node.InfixOp);
-            inner_node_child.* = .{
-                .op_token = period_tok,
-                .lhs = inner_node,
-                .op = .Period,
-                .rhs = child_ident,
-            };
-
-            const align_of = try c.createBuiltinCall("@alignOf", 1);
-            align_of.params()[0] = &inner_node_child.base;
-            align_of.rparen_token = try appendToken(c, .RParen, ")");
-            // hack to get zig fmt to render a comma in builtin calls
-            _ = try appendToken(c, .Comma, ",");
-
-            const align_cast = try c.createBuiltinCall("@alignCast", 2);
-            align_cast.params()[0] = &align_of.base;
-            align_cast.params()[1] = node_to_cast;
-            align_cast.rparen_token = try appendToken(c, .RParen, ")");
-
-            const ptr_cast = try c.createBuiltinCall("@ptrCast", 2);
-            ptr_cast.params()[0] = inner_node;
-            ptr_cast.params()[1] = &align_cast.base;
-            ptr_cast.rparen_token = try appendToken(c, .RParen, ")");
-            if_1.body = &ptr_cast.base;
-
-            const else_1 = try transCreateNodeElse(c);
-            if_1.@"else" = else_1;
-
-            const if_2 = try transCreateNodeIf(c);
-            const type_info_2 = try c.createBuiltinCall("@typeInfo", 1);
-            const type_of_2 = try c.createBuiltinCall("@TypeOf", 1);
-            type_info_2.params()[0] = &type_of_2.base;
-            type_of_2.params()[0] = node_to_cast;
-            type_of_2.rparen_token = try appendToken(c, .RParen, ")");
-            type_info_2.rparen_token = try appendToken(c, .RParen, ")");
-
-            const cmp_2 = try c.arena.create(ast.Node.InfixOp);
-            cmp_2.* = .{
-                .op_token = try appendToken(c, .EqualEqual, "=="),
-                .lhs = &type_info_2.base,
-                .op = .EqualEqual,
-                .rhs = try transCreateNodeEnumLiteral(c, "Int"),
-            };
-            if_2.condition = &cmp_2.base;
-            const cmp_4 = try c.arena.create(ast.Node.InfixOp);
-            cmp_4.* = .{
-                .op_token = try appendToken(c, .Keyword_and, "and"),
-                .lhs = &cmp_2.base,
-                .op = .BoolAnd,
-                .rhs = undefined,
-            };
-            const type_info_3 = try c.createBuiltinCall("@typeInfo", 1);
-            type_info_3.params()[0] = inner_node;
-            type_info_3.rparen_token = try appendToken(c, .LParen, ")");
-            const cmp_3 = try c.arena.create(ast.Node.InfixOp);
-            cmp_3.* = .{
-                .op_token = try appendToken(c, .EqualEqual, "=="),
-                .lhs = &type_info_3.base,
-                .op = .EqualEqual,
-                .rhs = try transCreateNodeEnumLiteral(c, "Pointer"),
-            };
-            cmp_4.rhs = &cmp_3.base;
-            if_2.condition = &cmp_4.base;
-            else_1.body = &if_2.base;
-            _ = try appendToken(c, .RParen, ")");
-
-            const int_to_ptr = try c.createBuiltinCall("@intToPtr", 2);
-            int_to_ptr.params()[0] = inner_node;
-            int_to_ptr.params()[1] = node_to_cast;
-            int_to_ptr.rparen_token = try appendToken(c, .RParen, ")");
-            if_2.body = &int_to_ptr.base;
-
-            const else_2 = try transCreateNodeElse(c);
-            if_2.@"else" = else_2;
-
-            const as = try c.createBuiltinCall("@as", 2);
-            as.params()[0] = inner_node;
-            as.params()[1] = node_to_cast;
-            as.rparen_token = try appendToken(c, .RParen, ")");
-            else_2.body = &as.base;
+            const cast_fn_call = try c.createCall(outer_field_access, 2);
+            cast_fn_call.params()[0] = inner_node;
+            cast_fn_call.params()[1] = node_to_cast;
+            cast_fn_call.rtoken = try appendToken(c, .RParen, ")");
 
             const group_node = try c.arena.create(ast.Node.GroupedExpression);
             group_node.* = .{
                 .lparen = lparen,
-                .expr = &if_1.base,
+                .expr = &cast_fn_call.base,
                 .rparen = try appendToken(c, .RParen, ")"),
             };
             return &group_node.base;
