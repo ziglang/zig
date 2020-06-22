@@ -18,6 +18,19 @@ const AtomicOrder = builtin.AtomicOrder;
 const tmpDir = std.testing.tmpDir;
 const Dir = std.fs.Dir;
 
+test "readlinkat" {
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    // create file
+    try tmp.dir.writeFile("file.txt", "nonsense");
+
+    // create a symbolic link
+    try os.symlinkat("file.txt", tmp.dir.fd, "link");
+
+    // TODO read the link
+}
+
 test "makePath, put some files in it, deleteTree" {
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
