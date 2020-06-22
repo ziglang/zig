@@ -281,8 +281,6 @@ pub const ArgIteratorWasi = struct {
 pub const ArgIteratorWindows = struct {
     index: usize,
     cmd_line: [*]const u8,
-    in_quote: bool,
-    seen_quote_count: usize,
 
     pub const NextError = error{OutOfMemory};
 
@@ -294,8 +292,6 @@ pub const ArgIteratorWindows = struct {
         return ArgIteratorWindows{
             .index = 0,
             .cmd_line = cmd_line,
-            .in_quote = false,
-            .seen_quote_count = 0,
         };
     }
 
@@ -326,6 +322,7 @@ pub const ArgIteratorWindows = struct {
         }
 
         var backslash_count: usize = 0;
+        var in_quote = false;
         while (true) : (self.index += 1) {
             const byte = self.cmd_line[self.index];
             switch (byte) {
@@ -333,14 +330,14 @@ pub const ArgIteratorWindows = struct {
                 '"' => {
                     const quote_is_real = backslash_count % 2 == 0;
                     if (quote_is_real) {
-                        self.seen_quote_count += 1;
+                        in_quote = !in_quote;
                     }
                 },
                 '\\' => {
                     backslash_count += 1;
                 },
                 ' ', '\t' => {
-                    if (self.seen_quote_count % 2 == 0) {
+                    if (!in_quote) {
                         return true;
                     }
                     backslash_count = 0;
@@ -358,6 +355,7 @@ pub const ArgIteratorWindows = struct {
         defer buf.deinit();
 
         var backslash_count: usize = 0;
+        var in_quote = false;
         while (true) : (self.index += 1) {
             const byte = self.cmd_line[self.index];
             switch (byte) {
@@ -368,7 +366,7 @@ pub const ArgIteratorWindows = struct {
                     backslash_count = 0;
 
                     if (quote_is_real) {
-                        self.seen_quote_count += 1;
+                        in_quote = !in_quote;
                     } else {
                         try buf.append('"');
                     }
@@ -379,7 +377,7 @@ pub const ArgIteratorWindows = struct {
                 ' ', '\t' => {
                     try self.emitBackslashes(&buf, backslash_count);
                     backslash_count = 0;
-                    if (self.seen_quote_count % 2 == 1) {
+                    if (in_quote) {
                         try buf.append(byte);
                     } else {
                         return buf.toOwnedSlice();
