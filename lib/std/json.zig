@@ -1629,7 +1629,7 @@ pub fn parseFree(comptime T: type, value: T, options: ParseOptions) void {
             switch (ptrInfo.size) {
                 .One => {
                     parseFree(ptrInfo.child, value.*, options);
-                    allocator.destroy(v);
+                    allocator.destroy(value);
                 },
                 .Slice => {
                     for (value) |v| {
