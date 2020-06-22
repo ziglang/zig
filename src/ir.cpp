@@ -28861,7 +28861,37 @@ static IrInstGen *ir_analyze_instruction_check_switch_prongs(IrAnalyze *ira,
         ir_add_error(ira, &instruction->base.base,
             buf_sprintf("else prong required when switching on type '%s'", buf_ptr(&switch_type->name)));
         return ira->codegen->invalid_inst_gen;
-    }
+    } else if(switch_type->id == ZigTypeIdMetaType) {
+        HashMap<const ZigType*, IrInstGen*, type_ptr_hash, type_ptr_eql> prevs;
+        // HashMap doubles capacity when reaching 60% capacity,
+        // because we know the size at init we can avoid reallocation by doubling it here
+        prevs.init(instruction->range_count * 2);
+        for (size_t range_i = 0; range_i < instruction->range_count; range_i += 1) {
+            IrInstSrcCheckSwitchProngsRange *range = &instruction->ranges[range_i];
+
+            IrInstGen *value = range->start->child;
+            IrInstGen *casted_value = ir_implicit_cast(ira, value, switch_type);
+            if (type_is_invalid(casted_value->value->type)) {
+                prevs.deinit();
+                return ira->codegen->invalid_inst_gen;
+            }
+
+            ZigValue *const_expr_val = ir_resolve_const(ira, casted_value, UndefBad);
+            if (!const_expr_val) {
+                prevs.deinit();
+                return ira->codegen->invalid_inst_gen;
+            }
+
+            auto entry = prevs.put_unique(const_expr_val->data.x_type, value);
+            if(entry != nullptr) {
+                ErrorMsg *msg = ir_add_error(ira, &value->base, buf_sprintf("duplicate switch value"));
+                add_error_note(ira->codegen, msg, entry->value->base.source_node, buf_sprintf("previous value is here"));
+                prevs.deinit();
+                return ira->codegen->invalid_inst_gen;
+            }
+        }
+        prevs.deinit();
+    } 
     return ir_const_void(ira, &instruction->base.base);
 }
 
