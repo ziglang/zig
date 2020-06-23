@@ -18,6 +18,25 @@ const AtomicOrder = builtin.AtomicOrder;
 const tmpDir = std.testing.tmpDir;
 const Dir = std.fs.Dir;
 
+test "readlinkat" {
+    // enable when `readlinkat` and `symlinkat` are implemented on Windows
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    // create file
+    try tmp.dir.writeFile("file.txt", "nonsense");
+
+    // create a symbolic link
+    try os.symlinkat("file.txt", tmp.dir.fd, "link");
+
+    // read the link
+    var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
+    const read_link = try os.readlinkat(tmp.dir.fd, "link", buffer[0..]);
+    expect(mem.eql(u8, "file.txt", read_link));
+}
+
 test "makePath, put some files in it, deleteTree" {
     var tmp = tmpDir(.{});
     defer tmp.cleanup();

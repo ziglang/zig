@@ -937,7 +937,6 @@ const Parser = struct {
             return node;
         }
 
-
         while_prefix.body = try p.expectNode(parseAssignExpr, .{
             .ExpectedBlockOrAssignment = .{ .token = p.tok_i },
         });

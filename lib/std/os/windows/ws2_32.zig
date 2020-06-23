@@ -163,16 +163,16 @@ pub const IPPROTO_UDP = 17;
 pub const IPPROTO_ICMPV6 = 58;
 pub const IPPROTO_RM = 113;
 
-pub const AI_PASSIVE                = 0x00001;
-pub const AI_CANONNAME              = 0x00002;
-pub const AI_NUMERICHOST            = 0x00004;
-pub const AI_NUMERICSERV            = 0x00008;
-pub const AI_ADDRCONFIG             = 0x00400;
-pub const AI_V4MAPPED               = 0x00800;
-pub const AI_NON_AUTHORITATIVE      = 0x04000;
-pub const AI_SECURE                 = 0x08000;
+pub const AI_PASSIVE = 0x00001;
+pub const AI_CANONNAME = 0x00002;
+pub const AI_NUMERICHOST = 0x00004;
+pub const AI_NUMERICSERV = 0x00008;
+pub const AI_ADDRCONFIG = 0x00400;
+pub const AI_V4MAPPED = 0x00800;
+pub const AI_NON_AUTHORITATIVE = 0x04000;
+pub const AI_SECURE = 0x08000;
 pub const AI_RETURN_PREFERRED_NAMES = 0x10000;
-pub const AI_DISABLE_IDN_ENCODING   = 0x80000;
+pub const AI_DISABLE_IDN_ENCODING = 0x80000;
 
 pub const FIONBIO = -2147195266;
 

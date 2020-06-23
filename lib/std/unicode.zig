@@ -235,6 +235,22 @@ pub const Utf8Iterator = struct {
             else => unreachable,
         }
     }
+
+    /// Look ahead at the next n codepoints without advancing the iterator.
+    /// If fewer than n codepoints are available, then return the remainder of the string.
+    pub fn peek(it: *Utf8Iterator, n: usize) []const u8 {
+        const original_i = it.i;
+        defer it.i = original_i;
+
+        var end_ix = original_i;
+        var found: usize = 0;
+        while (found < n) : (found += 1) {
+            const next_codepoint = it.nextCodepointSlice() orelse return it.bytes[original_i..];
+            end_ix += next_codepoint.len;
+        }
+
+        return it.bytes[original_i..end_ix];
+    }
 };
 
 pub const Utf16LeIterator = struct {
@@ -449,6 +465,31 @@ fn testMiscInvalidUtf8() void {
     testError("\xed\xa0\x80", error.Utf8EncodesSurrogateHalf);
     testError("\xed\xbf\xbf", error.Utf8EncodesSurrogateHalf);
     testValid("\xee\x80\x80", 0xe000);
+}
+
+test "utf8 iterator peeking" {
+    comptime testUtf8Peeking();
+    testUtf8Peeking();
+}
+
+fn testUtf8Peeking() void {
+    const s = Utf8View.initComptime("noël");
+    var it = s.iterator();
+
+    testing.expect(std.mem.eql(u8, "n", it.nextCodepointSlice().?));
+
+    testing.expect(std.mem.eql(u8, "o", it.peek(1)));
+    testing.expect(std.mem.eql(u8, "oë", it.peek(2)));
+    testing.expect(std.mem.eql(u8, "oël", it.peek(3)));
+    testing.expect(std.mem.eql(u8, "oël", it.peek(4)));
+    testing.expect(std.mem.eql(u8, "oël", it.peek(10)));
+
+    testing.expect(std.mem.eql(u8, "o", it.nextCodepointSlice().?));
+    testing.expect(std.mem.eql(u8, "ë", it.nextCodepointSlice().?));
+    testing.expect(std.mem.eql(u8, "l", it.nextCodepointSlice().?));
+    testing.expect(it.nextCodepointSlice() == null);
+
+    testing.expect(std.mem.eql(u8, &[_]u8{}, it.peek(1)));
 }
 
 fn testError(bytes: []const u8, expected_err: anyerror) void {

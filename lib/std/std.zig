@@ -49,6 +49,7 @@ pub const heap = @import("heap.zig");
 pub const http = @import("http.zig");
 pub const io = @import("io.zig");
 pub const json = @import("json.zig");
+pub const log = @import("log.zig");
 pub const macho = @import("macho.zig");
 pub const math = @import("math.zig");
 pub const mem = @import("mem.zig");

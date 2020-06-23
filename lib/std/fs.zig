@@ -261,17 +261,7 @@ pub const Dir = struct {
         name: []const u8,
         kind: Kind,
 
-        pub const Kind = enum {
-            BlockDevice,
-            CharacterDevice,
-            Directory,
-            NamedPipe,
-            SymLink,
-            File,
-            UnixDomainSocket,
-            Whiteout,
-            Unknown,
-        };
+        pub const Kind = File.Kind;
     };
 
     const IteratorError = error{AccessDenied} || os.UnexpectedError;
@@ -1229,14 +1219,9 @@ pub const Dir = struct {
         var file = try self.openFile(file_path, .{});
         defer file.close();
 
-        const size = math.cast(usize, try file.getEndPos()) catch math.maxInt(usize);
-        if (size > max_bytes) return error.FileTooBig;
+        const stat_size = try file.getEndPos();
 
-        const buf = try allocator.allocWithOptions(u8, size, alignment, optional_sentinel);
-        errdefer allocator.free(buf);
-
-        try file.inStream().readNoEof(buf);
-        return buf;
+        return file.readAllAllocOptions(allocator, stat_size, max_bytes, alignment, optional_sentinel);
     }
 
     pub const DeleteTreeError = error{
@@ -1532,9 +1517,9 @@ pub const Dir = struct {
 
         var size: ?u64 = null;
         const mode = options.override_mode orelse blk: {
-            const stat = try in_file.stat();
-            size = stat.size;
-            break :blk stat.mode;
+            const st = try in_file.stat();
+            size = st.size;
+            break :blk st.mode;
         };
 
         var atomic_file = try dest_dir.atomicFile(dest_path, .{ .mode = mode });
@@ -1559,6 +1544,17 @@ pub const Dir = struct {
         } else {
             return AtomicFile.init(dest_path, options.mode, self, false);
         }
+    }
+
+    pub const Stat = File.Stat;
+    pub const StatError = File.StatError;
+
+    pub fn stat(self: Dir) StatError!Stat {
+        const file: File = .{
+            .handle = self.fd,
+            .capable_io_mode = .blocking,
+        };
+        return file.stat();
     }
 };
 

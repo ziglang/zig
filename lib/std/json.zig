@@ -1535,7 +1535,7 @@ fn parseInternal(comptime T: type, token: Token, tokens: *TokenStream, options: 
             const allocator = options.allocator orelse return error.AllocatorRequired;
             switch (ptrInfo.size) {
                 .One => {
-                    const r: T = allocator.create(ptrInfo.child);
+                    const r: T = try allocator.create(ptrInfo.child);
                     r.* = try parseInternal(ptrInfo.child, token, tokens, options);
                     return r;
                 },
@@ -1629,7 +1629,7 @@ pub fn parseFree(comptime T: type, value: T, options: ParseOptions) void {
             switch (ptrInfo.size) {
                 .One => {
                     parseFree(ptrInfo.child, value.*, options);
-                    allocator.destroy(v);
+                    allocator.destroy(value);
                 },
                 .Slice => {
                     for (value) |v| {
@@ -2576,8 +2576,8 @@ pub fn stringify(
         },
         .Array => return stringify(&value, options, out_stream),
         .Vector => |info| {
-             const array: [info.len]info.child = value;
-             return stringify(&array, options, out_stream);
+            const array: [info.len]info.child = value;
+            return stringify(&array, options, out_stream);
         },
         else => @compileError("Unable to stringify type '" ++ @typeName(T) ++ "'"),
     }
@@ -2770,4 +2770,3 @@ test "stringify struct with custom stringifier" {
 test "stringify vector" {
     try teststringify("[1,1]", @splat(2, @as(u32, 1)), StringifyOptions{});
 }
-
