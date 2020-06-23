@@ -163,7 +163,6 @@ test "extracting WASI preopens" {
 
     std.testing.expectEqual(@as(usize, 1), preopens.asSlice().len);
     const preopen = preopens.find(PreopenType{ .Dir = "." }) orelse unreachable;
-    std.debug.print("\n{}\n", .{preopen});
-    std.testing.expect(!preopen.@"type".eql(PreopenType{ .Dir = "." }));
+    std.testing.expect(preopen.@"type".eql(PreopenType{ .Dir = "." }));
     std.testing.expectEqual(@as(usize, 3), preopen.fd);
 }
