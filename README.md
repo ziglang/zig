@@ -51,6 +51,18 @@ cmake ..
 make install
 ```
 
+Some special considerations for specific hosts:
+
+###### Archlinux
+
+  Currently, the Clang package distributed via official Pacman sources isn't built with shared libraries, therefore, it is not possible to link
+  against individual Clang libs. Instead, one should link against `libclang-cpp.so`. More on this [here](https://bugs.archlinux.org/task/66283).
+  Thus, when building on Archlinux, you need to pass `ZIG_PREFER_CLANG_CPP_DYLIB` flag set to true like so:
+  
+  ```
+  cmake .. -DZIG_PREFER_CLANG_CPP_DYLIB=true
+  ```
+
 ##### MacOS
 
 ```
