@@ -1520,15 +1520,17 @@ pub const SymLinkError = error{
 /// If `sym_link_path` exists, it will not be overwritten.
 /// See also `symlinkC` and `symlinkW`.
 pub fn symlink(target_path: []const u8, sym_link_path: []const u8) SymLinkError!void {
+    if (builtin.os.tag == .wasi) {
+        @compileError("symlink is not supported in WASI; use symlinkat instead");
+    }
     if (builtin.os.tag == .windows) {
         const target_path_w = try windows.sliceToPrefixedFileW(target_path);
         const sym_link_path_w = try windows.sliceToPrefixedFileW(sym_link_path);
         return windows.CreateSymbolicLinkW(sym_link_path_w.span().ptr, target_path_w.span().ptr, 0);
-    } else {
-        const target_path_c = try toPosixPath(target_path);
-        const sym_link_path_c = try toPosixPath(sym_link_path);
-        return symlinkZ(&target_path_c, &sym_link_path_c);
     }
+    const target_path_c = try toPosixPath(target_path);
+    const sym_link_path_c = try toPosixPath(sym_link_path);
+    return symlinkZ(&target_path_c, &sym_link_path_c);
 }
 
 pub const symlinkC = @compileError("deprecated: renamed to symlinkZ");
@@ -1561,15 +1563,65 @@ pub fn symlinkZ(target_path: [*:0]const u8, sym_link_path: [*:0]const u8) SymLin
     }
 }
 
+/// Similar to `symlink`, however, creates a symbolic link named `sym_link_path` which contains the string
+/// `target_path` **relative** to `newdirfd` directory handle.
+/// A symbolic link (also known as a soft link) may point to an existing file or to a nonexistent
+/// one; the latter case is known as a dangling link.
+/// If `sym_link_path` exists, it will not be overwritten.
+/// See also `symlinkatWasi`, `symlinkatZ` and `symlinkatW`.
 pub fn symlinkat(target_path: []const u8, newdirfd: fd_t, sym_link_path: []const u8) SymLinkError!void {
+    if (builtin.os.tag == .wasi) {
+        return symlinkatWasi(target_path, newdirfd, sym_link_path);
+    }
+    if (builtin.os.tag == .windows) {
+        const target_path_w = try windows.sliceToPrefixedFileW(target_path);
+        const sym_link_path_w = try windows.sliceToPrefixedFileW(sym_link_path);
+        return symlinkatW(target_path_w.span().ptr, newdirfd, sym_link_path_w.span().ptr);
+    }
     const target_path_c = try toPosixPath(target_path);
     const sym_link_path_c = try toPosixPath(sym_link_path);
-    return symlinkatZ(target_path_c, newdirfd, sym_link_path_c);
+    return symlinkatZ(&target_path_c, newdirfd, &sym_link_path_c);
 }
 
 pub const symlinkatC = @compileError("deprecated: renamed to symlinkatZ");
 
+/// WASI-only. The same as `symlinkat` but targeting WASI.
+/// See also `symlinkat`.
+pub fn symlinkatWasi(target_path: []const u8, newdirfd: fd_t, sym_link_path: []const u8) SymLinkError!void {
+    switch (wasi.path_symlink(target_path.ptr, target_path.len, newdirfd, sym_link_path.ptr, sym_link_path.len)) {
+        wasi.ESUCCESS => {},
+        wasi.EFAULT => unreachable,
+        wasi.EINVAL => unreachable,
+        wasi.EACCES => return error.AccessDenied,
+        wasi.EPERM => return error.AccessDenied,
+        wasi.EDQUOT => return error.DiskQuota,
+        wasi.EEXIST => return error.PathAlreadyExists,
+        wasi.EIO => return error.FileSystem,
+        wasi.ELOOP => return error.SymLinkLoop,
+        wasi.ENAMETOOLONG => return error.NameTooLong,
+        wasi.ENOENT => return error.FileNotFound,
+        wasi.ENOTDIR => return error.NotDir,
+        wasi.ENOMEM => return error.SystemResources,
+        wasi.ENOSPC => return error.NoSpaceLeft,
+        wasi.EROFS => return error.ReadOnlyFileSystem,
+        else => |err| return unexpectedErrno(err),
+    }
+}
+
+/// Windows-only. The same as `symlinkat` except the paths are null-terminated, WTF-16 encoded.
+/// See also `symlinkat`.
+pub fn symlinkatW(target_path: [*:0]const u16, newdirfd: fd_t, sym_link_path: [*:0]const u16) SymlinkError!void {
+    @compileError("TODO implement on Windows");
+}
+
+/// The same as `symlinkat` except the parameters are null-terminated pointers.
+/// See also `symlinkat`.
 pub fn symlinkatZ(target_path: [*:0]const u8, newdirfd: fd_t, sym_link_path: [*:0]const u8) SymLinkError!void {
+    if (builtin.os.tag == .windows) {
+        const target_path_w = try windows.cStrToPrefixedFileW(target_path);
+        const sym_link_path_w = try windows.cStrToPrefixedFileW(sym_link_path);
+        return symlinkatW(target_path_w.span().ptr, newdirfd, sym_link_path.span().ptr);
+    }
     switch (errno(system.symlinkat(target_path, newdirfd, sym_link_path))) {
         0 => return,
         EFAULT => unreachable,
@@ -2291,12 +2343,54 @@ pub fn readlinkZ(file_path: [*:0]const u8, out_buffer: []u8) ReadLinkError![]u8 
     }
 }
 
+/// Similar to `readlink` except reads value of a symbolink link **relative** to `dirfd` directory handle.
+/// The return value is a slice of `out_buffer` from index 0.
+/// See also `readlinkatWasi`, `realinkatZ` and `realinkatW`.
+pub fn readlinkat(dirfd: fd_t, file_path: []const u8, out_buffer: []u8) ReadLinkError![]u8 {
+    if (builtin.os.tag == .wasi) {
+        return readlinkatWasi(dirfd, file_path, out_buffer);
+    }
+    if (builtin.os.tag == .windows) {
+        const file_path_w = try windows.cStrToPrefixedFileW(file_path);
+        return readlinkatW(dirfd, file_path.span().ptr, out_buffer);
+    }
+    const file_path_c = try toPosixPath(file_path);
+    return readlinkatZ(dirfd, &file_path_c, out_buffer);
+}
+
 pub const readlinkatC = @compileError("deprecated: renamed to readlinkatZ");
 
+/// WASI-only. Same as `readlinkat` but targets WASI.
+/// See also `readlinkat`.
+pub fn readlinkatWasi(dirfd: fd_t, file_path: []const u8, out_buffer: []u8) ReadLinkError![]u8 {
+    var bufused: usize = undefined;
+    switch (wasi.path_readlink(dirfd, file_path.ptr, file_path.len, out_buffer.ptr, out_buffer.len, &bufused)) {
+        wasi.ESUCCESS => return out_buffer[0..bufused],
+        wasi.EACCES => return error.AccessDenied,
+        wasi.EFAULT => unreachable,
+        wasi.EINVAL => unreachable,
+        wasi.EIO => return error.FileSystem,
+        wasi.ELOOP => return error.SymLinkLoop,
+        wasi.ENAMETOOLONG => return error.NameTooLong,
+        wasi.ENOENT => return error.FileNotFound,
+        wasi.ENOMEM => return error.SystemResources,
+        wasi.ENOTDIR => return error.NotDir,
+        else => |err| return unexpectedErrno(err),
+    }
+}
+
+/// Windows-only. Same as `readlinkat` except `file_path` is null-terminated, WTF16 encoded.
+/// See also `readlinkat`.
+pub fn readlinkatW(dirfd: fd_t, file_path: [*:0]const u16, out_buffer: []u8) ReadLinkError![]u8 {
+    @compileError("TODO implement on Windows");
+}
+
+/// Same as `readlinkat` except `file_path` is null-terminated.
+/// See also `readlinkat`.
 pub fn readlinkatZ(dirfd: fd_t, file_path: [*:0]const u8, out_buffer: []u8) ReadLinkError![]u8 {
     if (builtin.os.tag == .windows) {
         const file_path_w = try windows.cStrToPrefixedFileW(file_path);
-        @compileError("TODO implement readlink for Windows");
+        return readlinkatW(dirfd, file_path_w.span().ptr, out_buffer);
     }
     const rc = system.readlinkat(dirfd, file_path, out_buffer.ptr, out_buffer.len);
     switch (errno(rc)) {

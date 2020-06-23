@@ -102,6 +102,7 @@ pub extern "c" fn pipe2(fds: *[2]fd_t, flags: u32) c_int;
 pub extern "c" fn mkdir(path: [*:0]const u8, mode: c_uint) c_int;
 pub extern "c" fn mkdirat(dirfd: fd_t, path: [*:0]const u8, mode: u32) c_int;
 pub extern "c" fn symlink(existing: [*:0]const u8, new: [*:0]const u8) c_int;
+pub extern "c" fn symlinkat(oldpath: [*:0]const u8, newdirfd: fd_t, newpath: [*:0]const u8) c_int;
 pub extern "c" fn rename(old: [*:0]const u8, new: [*:0]const u8) c_int;
 pub extern "c" fn renameat(olddirfd: fd_t, old: [*:0]const u8, newdirfd: fd_t, new: [*:0]const u8) c_int;
 pub extern "c" fn chdir(path: [*:0]const u8) c_int;
