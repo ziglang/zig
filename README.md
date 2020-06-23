@@ -56,7 +56,7 @@ Some special considerations for specific hosts:
 ###### Archlinux
 
 The Clang package distributed via official Pacman sources isn't built with static libraries, therefore, it is not possible to statically link
-  against individual Clang libs. Instead, one should link against `libclang-cpp.so`. More on this [here](https://bugs.archlinux.org/task/66283).
+  against individual Clang libs. Instead, one should link against the shared lib `libclang-cpp.so`.
   Thus, when building on Archlinux, you need to pass `ZIG_PREFER_CLANG_CPP_DYLIB` flag set to true like so:
   
   ```
