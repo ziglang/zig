@@ -4095,7 +4095,7 @@ struct IrInstSrcCheckSwitchProngs {
     IrInstSrc *target_value;
     IrInstSrcCheckSwitchProngsRange *ranges;
     size_t range_count;
-    bool have_else_prong;
+    AstNode* else_prong;
     bool have_underscore_prong;
 };
 
