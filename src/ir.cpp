@@ -28700,6 +28700,10 @@ static IrInstGen *ir_analyze_instruction_check_switch_prongs(IrAnalyze *ira,
                             buf_ptr(enum_field->name)));
                 }
             }
+        } else if(!switch_type->data.enumeration.non_exhaustive && switch_type->data.enumeration.src_field_count == instruction->range_count) {
+            ir_add_error_node(ira, instruction->else_prong, 
+                buf_sprintf("unreachable else prong, all cases already handled"));
+            return ira->codegen->invalid_inst_gen;
         }
     } else if (switch_type->id == ZigTypeIdErrorSet) {
         if (!resolve_inferred_error_set(ira->codegen, switch_type, target_value->base.source_node)) {
@@ -28808,16 +28812,20 @@ static IrInstGen *ir_analyze_instruction_check_switch_prongs(IrAnalyze *ira,
                 return ira->codegen->invalid_inst_gen;
             }
         }
-        if (instruction->else_prong == nullptr) {
+
             BigInt min_val;
             eval_min_max_value_int(ira->codegen, switch_type, &min_val, false);
             BigInt max_val;
             eval_min_max_value_int(ira->codegen, switch_type, &max_val, true);
-            if (!rangeset_spans(&rs, &min_val, &max_val)) {
+        bool handles_all_cases = rangeset_spans(&rs, &min_val, &max_val);
+        if (!handles_all_cases && instruction->else_prong == nullptr) {
                 ir_add_error(ira, &instruction->base.base, buf_sprintf("switch must handle all possibilities"));
                 return ira->codegen->invalid_inst_gen;
+        } else if(handles_all_cases && instruction->else_prong != nullptr) {
+            ir_add_error_node(ira, instruction->else_prong, 
+                buf_sprintf("unreachable else prong, all cases already handled"));
+            return ira->codegen->invalid_inst_gen;
             }
-        }
     } else if (switch_type->id == ZigTypeIdBool) {
         int seenTrue = 0;
         int seenFalse = 0;
@@ -28849,6 +28857,12 @@ static IrInstGen *ir_analyze_instruction_check_switch_prongs(IrAnalyze *ira,
         }
         if (((seenTrue < 1) || (seenFalse < 1)) && instruction->else_prong == nullptr) {
             ir_add_error(ira, &instruction->base.base, buf_sprintf("switch must handle all possibilities"));
+            return ira->codegen->invalid_inst_gen;
+        }
+
+        if(seenTrue == 1 && seenFalse == 1 && instruction->else_prong != nullptr) {
+            ir_add_error_node(ira, instruction->else_prong, 
+                buf_sprintf("unreachable else prong, all cases already handled"));
             return ira->codegen->invalid_inst_gen;
         }
     } else if (instruction->else_prong == nullptr) {
