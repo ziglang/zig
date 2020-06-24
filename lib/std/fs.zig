@@ -931,6 +931,24 @@ pub const Dir = struct {
         return self.openDir(sub_path, open_dir_options);
     }
 
+    /// This function returns the canonicalized absolute pathname of `pathname`
+    /// relative to this `Dir`. If `pathname` is absolute, ignores this `Dir` handle
+    /// and returns the canonicalized absolute pathname of `pathname` argument.
+    /// Caller must free the returned memory.
+    pub fn realpath(self: Dir, allocator: *Allocator, pathname: []const u8) ![]u8 {
+        if (builtin.os.tag == .wasi) {
+            @compileError("Dir.realpath is unsupported in WASI");
+        }
+        // Use of MAX_PATH_BYTES here is valid as the realpath function does not
+        // have a variant that takes an arbitrary-size buffer.
+        // TODO(#4812): Consider reimplementing realpath or using the POSIX.1-2008
+        // NULL out parameter (GNU's canonicalize_file_name) to handle overelong
+        // paths. musl supports passing NULL but restricts the output to PATH_MAX
+        // anyway.
+        var buf: [MAX_PATH_BYTES]u8 = undefined;
+        return mem.dupe(allocator, u8, try os.realpathat(self.fd, pathname, &buf));
+    }
+
     /// Changes the current working directory to the open directory handle.
     /// This modifies global state and can have surprising effects in multi-
     /// threaded applications. Most applications and especially libraries should
@@ -1903,7 +1921,7 @@ pub fn selfExeDirPath(out_buffer: []u8) SelfExePathError![]const u8 {
 }
 
 /// `realpath`, except caller must free the returned memory.
-/// TODO integrate with `Dir`
+/// See also `Dir.realpath`.
 pub fn realpathAlloc(allocator: *Allocator, pathname: []const u8) ![]u8 {
     // Use of MAX_PATH_BYTES here is valid as the realpath function does not
     // have a variant that takes an arbitrary-size buffer.

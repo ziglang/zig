@@ -40,6 +40,30 @@ test "fstatat" {
     expectEqual(stat, statat);
 }
 
+test "realpathat" {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
+    const cwd = fs.cwd();
+
+    var buf1: [fs.MAX_PATH_BYTES]u8 = undefined;
+    const cwd_path = try os.getcwd(&buf1);
+
+    var buf2: [fs.MAX_PATH_BYTES]u8 = undefined;
+    const cwd_realpathat = try os.realpathat(cwd.fd, "", &buf2);
+    testing.expect(mem.eql(u8, cwd_path, cwd_realpathat));
+
+    // Now, open an actual Dir{"."} since on Unix `realpathat` behaves
+    // in a special way when `fd` equals `cwd.fd`
+    var dir = try cwd.openDir(".", .{});
+    defer dir.close();
+
+    const cwd_realpathat2 = try os.realpathat(dir.fd, "", &buf2);
+    testing.expect(mem.eql(u8, cwd_path, cwd_realpathat2));
+
+    // Finally, try getting a path for something that doesn't exist
+    testing.expectError(error.FileNotFound, os.realpathat(dir.fd, "definitely_bogus_does_not_exist1234", &buf2));
+}
+
 test "readlinkat" {
     // enable when `readlinkat` and `symlinkat` are implemented on Windows
     if (builtin.os.tag == .windows) return error.SkipZigTest;

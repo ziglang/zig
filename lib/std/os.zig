@@ -3981,6 +3981,45 @@ pub fn realpath(pathname: []const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealPathE
 
 pub const realpathC = @compileError("deprecated: renamed realpathZ");
 
+fn fdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
+    switch (builtin.os.tag) {
+        .wasi => @compileError("getting absolute path of an fd is unsupported in WASI"),
+        .windows => {
+            var wide_buf: [windows.PATH_MAX_WIDE]u16 = undefined;
+            const wide_slice = try windows.GetFinalPathNameByHandleW(fd, &wide_buf, wide_buf.len, windows.VOLUME_NAME_DOS);
+
+            // Windows returns \\?\ prepended to the path.
+            // We strip it to make this function consistent across platforms.
+            const prefix = [_]u16{ '\\', '\\', '?', '\\' };
+            const start_index = if (mem.startsWith(u16, wide_slice, &prefix)) prefix.len else 0;
+
+            // Trust that Windows gives us valid UTF-16LE.
+            const end_index = std.unicode.utf16leToUtf8(out_buffer, wide_slice[start_index..]) catch unreachable;
+            return out_buffer[0..end_index];
+        },
+        .macosx, .ios, .watchos, .tvos => {
+            // On macOS, we can use F_GETPATH fcntl command to query the OS for
+            // the path to the file descriptor.
+            @memset(out_buffer, 0, MAX_PATH_BYTES);
+            switch (errno(system.fcntl(fd, F_GETPATH, out_buffer))) {
+                0 => {},
+                EBADF => return error.FileNotFound,
+                // TODO man pages for fcntl on macOS don't really tell you what
+                // errno values to expect when command is F_GETPATH...
+                else => |err| return unexpectedErrno(err),
+            }
+            const len = mem.indexOfScalar(u8, out_buffer[0..], @as(u8, 0)) orelse MAX_PATH_BYTES;
+            return out_buffer[0..len];
+        },
+        else => {
+            var procfs_buf: ["/proc/self/fd/-2147483648".len:0]u8 = undefined;
+            const proc_path = std.fmt.bufPrint(procfs_buf[0..], "/proc/self/fd/{}\x00", .{fd}) catch unreachable;
+
+            return readlinkZ(@ptrCast([*:0]const u8, proc_path.ptr), out_buffer);
+        },
+    }
+}
+
 /// Same as `realpath` except `pathname` is null-terminated.
 pub fn realpathZ(pathname: [*:0]const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
     if (builtin.os.tag == .windows) {
@@ -3994,10 +4033,7 @@ pub fn realpathZ(pathname: [*:0]const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealP
         };
         defer close(fd);
 
-        var procfs_buf: ["/proc/self/fd/-2147483648".len:0]u8 = undefined;
-        const proc_path = std.fmt.bufPrint(procfs_buf[0..], "/proc/self/fd/{}\x00", .{fd}) catch unreachable;
-
-        return readlinkZ(@ptrCast([*:0]const u8, proc_path.ptr), out_buffer);
+        return fdPath(fd, out_buffer);
     }
     const result_path = std.c.realpath(pathname, out_buffer) orelse switch (std.c._errno().*) {
         EINVAL => unreachable,
@@ -4029,17 +4065,52 @@ pub fn realpathW(pathname: [*:0]const u16, out_buffer: *[MAX_PATH_BYTES]u8) Real
     );
     defer windows.CloseHandle(h_file);
 
-    var wide_buf: [windows.PATH_MAX_WIDE]u16 = undefined;
-    const wide_slice = try windows.GetFinalPathNameByHandleW(h_file, &wide_buf, wide_buf.len, windows.VOLUME_NAME_DOS);
+    return fdPath(h_file, out_buffer);
+}
 
-    // Windows returns \\?\ prepended to the path.
-    // We strip it to make this function consistent across platforms.
-    const prefix = [_]u16{ '\\', '\\', '?', '\\' };
-    const start_index = if (mem.startsWith(u16, wide_slice, &prefix)) prefix.len else 0;
+/// Similar to `realpath`, however, returns the canonicalized absolute pathname of
+/// a `pathname` relative to a file descriptor `fd`.
+/// If `pathname` is an absolute path, ignores `fd` and reverts to calling
+/// `realpath` on the `pathname` argument.
+/// In Unix, if `fd` was obtained using `std.fs.cwd()` call, reverts to calling
+/// `std.os.getcwd()` to obtain file descriptor's path.
+pub fn realpathat(fd: fd_t, pathname: []const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
+    if (builtin.os.tag == .wasi) {
+        @compileError("realpathat is unsupported in WASI");
+    }
+    if (std.fs.path.isAbsolute(pathname)) {
+        return realpath(pathname, out_buffer);
+    }
 
-    // Trust that Windows gives us valid UTF-16LE.
-    const end_index = std.unicode.utf16leToUtf8(out_buffer, wide_slice[start_index..]) catch unreachable;
-    return out_buffer[0..end_index];
+    var buffer: [MAX_PATH_BYTES]u8 = undefined;
+    var fd_path: []const u8 = undefined;
+    if (@hasDecl(@This(), "AT_FDCWD")) {
+        if (fd == @field(@This(), "AT_FDCWD")) {
+            fd_path = getcwd(buffer[0..]) catch |err| {
+                return switch (err) {
+                    GetCwdError.NameTooLong => error.NameTooLong,
+                    GetCwdError.CurrentWorkingDirectoryUnlinked => error.FileNotFound,
+                    else => |e| e,
+                };
+            };
+        } else {
+            fd_path = try fdPath(fd, &buffer);
+        }
+    } else {
+        fd_path = try fdPath(fd, &buffer);
+    }
+
+    const total_len = fd_path.len + pathname.len + 1; // +1 to account for path separator
+    if (total_len >= MAX_PATH_BYTES) {
+        return error.NameTooLong;
+    }
+
+    var unnormalized: [MAX_PATH_BYTES]u8 = undefined;
+    mem.copy(u8, unnormalized[0..], fd_path);
+    unnormalized[fd_path.len] = std.fs.path.sep;
+    mem.copy(u8, unnormalized[fd_path.len + 1 ..], pathname);
+
+    return realpath(unnormalized[0..total_len], out_buffer);
 }
 
 /// Spurious wakeups are possible and no precision of timing is guaranteed.

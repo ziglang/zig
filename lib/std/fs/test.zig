@@ -50,6 +50,26 @@ fn contains(entries: *const std.ArrayList(Dir.Entry), el: Dir.Entry) bool {
     return false;
 }
 
+test "Dir.realpath" {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
+    var tmp_dir = tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    var file = try tmp_dir.dir.createFile("test_file", .{});
+    defer file.close();
+
+    const abs_file_path = try tmp_dir.dir.realpath(testing.allocator, "test_file");
+    defer testing.allocator.free(abs_file_path);
+
+    const dir_path = try tmp_dir.dir.realpath(testing.allocator, "");
+    defer testing.allocator.free(dir_path);
+    const expected_path = try fs.path.join(testing.allocator, &[_][]const u8{ dir_path, "test_file" });
+    defer testing.allocator.free(expected_path);
+
+    testing.expect(mem.eql(u8, abs_file_path, expected_path));
+}
+
 test "readAllAlloc" {
     var tmp_dir = tmpDir(.{});
     defer tmp_dir.cleanup();
