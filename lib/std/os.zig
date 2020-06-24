@@ -1667,13 +1667,13 @@ pub const UnlinkError = error{
 pub fn unlink(file_path: []const u8) UnlinkError!void {
     if (builtin.os.tag == .wasi) {
         @compileError("unlink is not supported in WASI; use unlinkat instead");
-    }
-    if (builtin.os.tag == .windows) {
+    } else if (builtin.os.tag == .windows) {
         const file_path_w = try windows.sliceToPrefixedFileW(file_path);
         return windows.DeleteFileW(file_path_w.span().ptr);
+    } else {
+        const file_path_c = try toPosixPath(file_path);
+        return unlinkZ(&file_path_c);
     }
-    const file_path_c = try toPosixPath(file_path);
-    return unlinkZ(&file_path_c);
 }
 
 pub const unlinkC = @compileError("deprecated: renamed to unlinkZ");
@@ -1874,15 +1874,15 @@ const RenameError = error{
 pub fn rename(old_path: []const u8, new_path: []const u8) RenameError!void {
     if (builtin.os.tag == .wasi) {
         @compileError("rename is not supported in WASI; use renameat instead");
-    }
-    if (builtin.os.tag == .windows) {
+    } else if (builtin.os.tag == .windows) {
         const old_path_w = try windows.sliceToPrefixedFileW(old_path);
         const new_path_w = try windows.sliceToPrefixedFileW(new_path);
         return renameW(old_path_w.span().ptr, new_path_w.span().ptr);
+    } else {
+        const old_path_c = try toPosixPath(old_path);
+        const new_path_c = try toPosixPath(new_path);
+        return renameZ(&old_path_c, &new_path_c);
     }
-    const old_path_c = try toPosixPath(old_path);
-    const new_path_c = try toPosixPath(new_path);
-    return renameZ(&old_path_c, &new_path_c);
 }
 
 pub const renameC = @compileError("deprecated: renamed to renameZ");
@@ -2153,14 +2153,14 @@ pub fn mkdiratW(dir_fd: fd_t, sub_path_w: [*:0]const u16, mode: u32) MakeDirErro
 pub fn mkdir(dir_path: []const u8, mode: u32) MakeDirError!void {
     if (builtin.os.tag == .wasi) {
         @compileError("mkdir is not supported in WASI; use mkdirat instead");
-    }
-    if (builtin.os.tag == .windows) {
+    } else if (builtin.os.tag == .windows) {
         const sub_dir_handle = try windows.CreateDirectory(null, dir_path, null);
         windows.CloseHandle(sub_dir_handle);
         return;
+    } else {
+        const dir_path_c = try toPosixPath(dir_path);
+        return mkdirZ(&dir_path_c, mode);
     }
-    const dir_path_c = try toPosixPath(dir_path);
-    return mkdirZ(&dir_path_c, mode);
 }
 
 /// Same as `mkdir` but the parameter is a null-terminated UTF8-encoded string.
@@ -2208,13 +2208,13 @@ pub const DeleteDirError = error{
 pub fn rmdir(dir_path: []const u8) DeleteDirError!void {
     if (builtin.os.tag == .wasi) {
         @compileError("rmdir is not supported in WASI; use unlinkat instead");
-    }
-    if (builtin.os.tag == .windows) {
+    } else if (builtin.os.tag == .windows) {
         const dir_path_w = try windows.sliceToPrefixedFileW(dir_path);
         return windows.RemoveDirectoryW(dir_path_w.span().ptr);
+    } else {
+        const dir_path_c = try toPosixPath(dir_path);
+        return rmdirZ(&dir_path_c);
     }
-    const dir_path_c = try toPosixPath(dir_path);
-    return rmdirZ(&dir_path_c);
 }
 
 pub const rmdirC = @compileError("deprecated: renamed to rmdirZ");
@@ -2259,13 +2259,13 @@ pub const ChangeCurDirError = error{
 pub fn chdir(dir_path: []const u8) ChangeCurDirError!void {
     if (builtin.os.tag == .wasi) {
         @compileError("chdir is not supported in WASI");
-    }
-    if (builtin.os.tag == .windows) {
+    } else if (builtin.os.tag == .windows) {
         const dir_path_w = try windows.sliceToPrefixedFileW(dir_path);
         @compileError("TODO implement chdir for Windows");
+    } else {
+        const dir_path_c = try toPosixPath(dir_path);
+        return chdirZ(&dir_path_c);
     }
-    const dir_path_c = try toPosixPath(dir_path);
-    return chdirZ(&dir_path_c);
 }
 
 pub const chdirC = @compileError("deprecated: renamed to chdirZ");
@@ -2325,13 +2325,13 @@ pub const ReadLinkError = error{
 pub fn readlink(file_path: []const u8, out_buffer: []u8) ReadLinkError![]u8 {
     if (builtin.os.tag == .wasi) {
         @compileError("readlink is not supported in WASI; use readlinkat instead");
-    }
-    if (builtin.os.tag == .windows) {
+    } else if (builtin.os.tag == .windows) {
         const file_path_w = try windows.sliceToPrefixedFileW(file_path);
         return readlinkW(file_path_w.span().ptr, out_buffer);
+    } else {
+        const file_path_c = try toPosixPath(file_path);
+        return readlinkZ(&file_path_c, out_buffer);
     }
-    const file_path_c = try toPosixPath(file_path);
-    return readlinkZ(&file_path_c, out_buffer);
 }
 
 pub const readlinkC = @compileError("deprecated: renamed to readlinkZ");
@@ -3089,6 +3089,9 @@ pub fn fstat(fd: fd_t) FStatError!Stat {
             else => |err| return unexpectedErrno(err),
         }
     }
+    if (builtin.os.tag == .windows) {
+        @compileError("fstat is not yet implemented on Windows");
+    }
 
     var stat: Stat = undefined;
     switch (errno(system.fstat(fd, &stat))) {
@@ -3109,9 +3112,12 @@ pub const FStatAtError = FStatError || error{ NameTooLong, FileNotFound };
 pub fn fstatat(dirfd: fd_t, pathname: []const u8, flags: u32) FStatAtError!Stat {
     if (builtin.os.tag == .wasi) {
         return fstatatWasi(dirfd, pathname, flags);
+    } else if (builtin.os.tag == .windows) {
+        @compileError("fstatat is not yet implemented on Windows");
+    } else {
+        const pathname_c = try toPosixPath(pathname);
+        return fstatatZ(dirfd, &pathname_c, flags);
     }
-    const pathname_c = try toPosixPath(pathname);
-    return fstatatZ(dirfd, &pathname_c, flags);
 }
 
 pub const fstatatC = @compileError("deprecated: renamed to fstatatZ");
