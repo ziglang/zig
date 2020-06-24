@@ -310,7 +310,6 @@ pub const TestContext = struct {
                             }
                         }
                     }
-                    std.testing.expectEqualSlices(u8, expected_output, out_zir.items);
                 },
                 .Error => |e| {
                     var handled_errors = try allocator.alloc(bool, e.len);
