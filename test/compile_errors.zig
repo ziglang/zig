@@ -4362,6 +4362,40 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:5:14: note: previous value is here",
     });
 
+    cases.add("switch expression - duplicate type",
+        \\fn foo(comptime T: type, x: T) u8 {
+        \\    return switch (T) {
+        \\        u32 => 0,
+        \\        u64 => 1,
+        \\        u32 => 2,
+        \\        else => 3,
+        \\    };
+        \\}
+        \\export fn entry() usize { return @sizeOf(@TypeOf(foo(u32, 0))); }
+    , &[_][]const u8{
+        "tmp.zig:5:9: error: duplicate switch value",
+        "tmp.zig:3:9: note: previous value is here",
+    });
+
+    cases.add("switch expression - duplicate type (struct alias)",
+        \\const Test = struct {
+        \\    bar: i32,
+        \\};
+        \\const Test2 = Test;
+        \\fn foo(comptime T: type, x: T) u8 {
+        \\    return switch (T) {
+        \\        Test => 0,
+        \\        u64 => 1,
+        \\        Test2 => 2,
+        \\        else => 3,
+        \\    };
+        \\}
+        \\export fn entry() usize { return @sizeOf(@TypeOf(foo(u32, 0))); }
+    , &[_][]const u8{
+        "tmp.zig:9:9: error: duplicate switch value",
+        "tmp.zig:7:9: note: previous value is here",
+    });
+
     cases.add("switch expression - switch on pointer type with no else",
         \\fn foo(x: *u8) void {
         \\    switch (x) {

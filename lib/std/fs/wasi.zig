@@ -5,11 +5,37 @@ const Allocator = mem.Allocator;
 
 usingnamespace std.os.wasi;
 
+/// Type-tag of WASI preopen.
+///
+/// WASI currently offers only `Dir` as a valid preopen resource.
+pub const PreopenTypeTag = enum {
+    Dir,
+};
+
 /// Type of WASI preopen.
 ///
 /// WASI currently offers only `Dir` as a valid preopen resource.
-pub const PreopenType = enum {
-    Dir,
+pub const PreopenType = union(PreopenTypeTag) {
+    /// Preopened directory type.
+    Dir: []const u8,
+
+    const Self = @This();
+
+    pub fn eql(self: Self, other: PreopenType) bool {
+        if (!mem.eql(u8, @tagName(self), @tagName(other))) return false;
+
+        switch (self) {
+            PreopenTypeTag.Dir => |this_path| return mem.eql(u8, this_path, other.Dir),
+        }
+    }
+
+    pub fn format(self: Self, comptime fmt: []const u8, options: std.fmt.FormatOptions, out_stream: var) !void {
+        try out_stream.print("PreopenType{{ ", .{});
+        switch (self) {
+            PreopenType.Dir => |path| try out_stream.print(".Dir = '{}'", .{path}),
+        }
+        return out_stream.print(" }}", .{});
+    }
 };
 
 /// WASI preopen struct. This struct consists of a WASI file descriptor
@@ -20,28 +46,14 @@ pub const Preopen = struct {
     fd: fd_t,
 
     /// Type of the preopen.
-    @"type": union(PreopenType) {
-        /// Path to a preopened directory.
-        Dir: []const u8,
-    },
+    @"type": PreopenType,
 
-    const Self = @This();
-
-    /// Construct new `Preopen` instance of type `PreopenType.Dir` from
-    /// WASI file descriptor and WASI path.
-    pub fn newDir(fd: fd_t, path: []const u8) Self {
-        return Self{
+    /// Construct new `Preopen` instance.
+    pub fn new(fd: fd_t, preopen_type: PreopenType) Preopen {
+        return Preopen{
             .fd = fd,
-            .@"type" = .{ .Dir = path },
+            .@"type" = preopen_type,
         };
-    }
-
-    pub fn format(self: Self, comptime fmt: []const u8, options: std.fmt.FormatOptions, out_stream: var) !void {
-        try out_stream.print("{{ .fd = {}, ", .{self.fd});
-        switch (self.@"type") {
-            PreopenType.Dir => |path| try out_stream.print(".Dir = '{}'", .{path}),
-        }
-        return out_stream.print(" }}", .{});
     }
 };
 
@@ -113,24 +125,18 @@ pub const PreopenList = struct {
                 ESUCCESS => {},
                 else => |err| return os.unexpectedErrno(err),
             }
-            const preopen = Preopen.newDir(fd, path_buf);
+            const preopen = Preopen.new(fd, PreopenType{ .Dir = path_buf });
             try self.buffer.append(preopen);
             fd += 1;
         }
     }
 
-    /// Find preopen by path. If the preopen exists, return it.
+    /// Find preopen by type. If the preopen exists, return it.
     /// Otherwise, return `null`.
-    ///
-    /// TODO make the function more generic by searching by `PreopenType` union. This will
-    /// be needed in the future when WASI extends its capabilities to resources
-    /// other than preopened directories.
-    pub fn find(self: Self, path: []const u8) ?*const Preopen {
-        for (self.buffer.items) |preopen| {
-            switch (preopen.@"type") {
-                PreopenType.Dir => |preopen_path| {
-                    if (mem.eql(u8, path, preopen_path)) return &preopen;
-                },
+    pub fn find(self: Self, preopen_type: PreopenType) ?*const Preopen {
+        for (self.buffer.items) |*preopen| {
+            if (preopen.@"type".eql(preopen_type)) {
+                return preopen;
             }
         }
         return null;
@@ -156,7 +162,7 @@ test "extracting WASI preopens" {
     try preopens.populate();
 
     std.testing.expectEqual(@as(usize, 1), preopens.asSlice().len);
-    const preopen = preopens.find(".") orelse unreachable;
-    std.testing.expect(std.mem.eql(u8, ".", preopen.@"type".Dir));
+    const preopen = preopens.find(PreopenType{ .Dir = "." }) orelse unreachable;
+    std.testing.expect(preopen.@"type".eql(PreopenType{ .Dir = "." }));
     std.testing.expectEqual(@as(usize, 3), preopen.fd);
 }

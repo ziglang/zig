@@ -9738,7 +9738,7 @@ pub fn main() !void {
 }
       {#code_end#}
       <pre><code>$ wasmtime --dir=. preopens.wasm
-0: { .fd = 3, .Dir = '.' }
+0: Preopen{ .fd = 3, .type = PreopenType{ .Dir = '.' } }
 </code></pre>
       {#header_close#}
       {#header_close#}
