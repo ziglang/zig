@@ -6689,7 +6689,7 @@ comptime {
       {#header_close#}
 
       {#header_open|@asyncCall#}
-      <pre>{#syntax#}@asyncCall(frame_buffer: []align(@alignOf(@Frame(anyAsyncFunction))) u8, result_ptr, function_ptr, args: ...) anyframe->T{#endsyntax#}</pre>
+      <pre>{#syntax#}@asyncCall(frame_buffer: []align(@alignOf(@Frame(anyAsyncFunction))) u8, result_ptr, function_ptr, args: var) anyframe->T{#endsyntax#}</pre>
       <p>
       {#syntax#}@asyncCall{#endsyntax#} performs an {#syntax#}async{#endsyntax#} call on a function pointer,
       which may or may not be an {#link|async function|Async Functions#}.
@@ -6716,7 +6716,7 @@ test "async fn pointer in a struct field" {
     };
     var foo = Foo{ .bar = func };
     var bytes: [64]u8 align(@alignOf(@Frame(func))) = undefined;
-    const f = @asyncCall(&bytes, {}, foo.bar, &data);
+    const f = @asyncCall(&bytes, {}, foo.bar, .{&data});
     assert(data == 2);
     resume f;
     assert(data == 4);
