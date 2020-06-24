@@ -1099,6 +1099,7 @@ pub const Dir = struct {
             .OBJECT_NAME_INVALID => unreachable,
             .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
             .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
+            .NOT_A_DIRECTORY => return error.NotDir,
             .INVALID_PARAMETER => unreachable,
             else => return w.unexpectedStatus(rc),
         }
