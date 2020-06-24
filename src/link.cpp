@@ -2377,17 +2377,6 @@ static Error find_mingw_lib_def(LinkJob *lj, const char *name, Buf *out_path) {
         return err;
     }
 
-    if (!does_exist && target_is_arm(g->zig_target)) {
-        // Try lib32 or lib64
-        const bool is_32 = target_arch_pointer_bit_width(g->zig_target->arch) == 32;
-        lib_path = is_32 ? "lib32" : "lib64";
-        buf_resize(&override_path, 0);
-        buf_appendf(&override_path, "%s" OS_SEP "libc" OS_SEP "mingw" OS_SEP "%s" OS_SEP "%s.def", buf_ptr(g->zig_lib_dir), lib_path, name);
-        if ((err = os_file_exists(&override_path, &does_exist)) != ErrorNone) {
-            return err;
-        }
-    }
-
     if (!does_exist) {
         // Try the generic version
         buf_resize(&override_path, 0);
