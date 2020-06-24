@@ -7,5 +7,22 @@ pacman -Su --needed --noconfirm
 pacman -S --needed --noconfirm wget p7zip python3-pip
 pip install s3cmd
 wget -nv "https://ziglang.org/deps/llvm%2bclang%2blld-10.0.0-x86_64-windows-msvc-release-mt.tar.xz"
-tar xf llvm+clang+lld-10.0.0-x86_64-windows-msvc-release-mt.tar.xz
+
+which tar
+echo TAR_ID is $TAR_PID
+find / -name tar
+
+echo PATH is $PATH
+/usr/bin/tar xf llvm+clang+lld-10.0.0-x86_64-windows-msvc-release-mt.tar.xz &
+TAR_PID=$!
+
+
+while true; do
+    #ls -l llvm+clang+lld-10.0.0-x86_64-windows-msvc-release-mt || echo "no dir yet"
+    ps $TAR_PID
+    ls -l
+    du -s .
+    sleep 10
+done
+
 echo TAR DONE
