@@ -3268,7 +3268,14 @@ fn transCreateCompoundAssign(
     const lhs = ZigClangCompoundAssignOperator_getLHS(stmt);
     const rhs = ZigClangCompoundAssignOperator_getRHS(stmt);
     const loc = ZigClangCompoundAssignOperator_getBeginLoc(stmt);
-    const is_signed = cIsSignedInteger(getExprQualType(rp.c, lhs));
+    const lhs_qt = getExprQualType(rp.c, lhs);
+    const rhs_qt = getExprQualType(rp.c, rhs);
+    const is_signed = cIsSignedInteger(lhs_qt);
+    const requires_int_cast = blk: {
+        const are_integers = cIsInteger(lhs_qt) and cIsInteger(rhs_qt);
+        const are_same_sign = cIsSignedInteger(lhs_qt) == cIsSignedInteger(rhs_qt);
+        break :blk are_integers and !are_same_sign;
+    };
     if (used == .unused) {
         // common case
         // c: lhs += rhs
@@ -3295,15 +3302,18 @@ fn transCreateCompoundAssign(
 
         const lhs_node = try transExpr(rp, scope, lhs, .used, .l_value);
         const eq_token = try appendToken(rp.c, assign_tok_id, assign_bytes);
-        var rhs_node = if (is_shift)
+        var rhs_node = if (is_shift or requires_int_cast)
             try transExprCoercing(rp, scope, rhs, .used, .r_value)
         else
             try transExpr(rp, scope, rhs, .used, .r_value);
 
-        if (is_shift) {
+        if (is_shift or requires_int_cast) {
             const cast_node = try rp.c.createBuiltinCall("@intCast", 2);
-            const rhs_type = try qualTypeToLog2IntRef(rp, getExprQualType(rp.c, rhs), loc);
-            cast_node.params()[0] = rhs_type;
+            const cast_to_type = if (is_shift)
+                try qualTypeToLog2IntRef(rp, getExprQualType(rp.c, rhs), loc)
+            else
+                try transQualType(rp, getExprQualType(rp.c, lhs), loc);
+            cast_node.params()[0] = cast_to_type;
             _ = try appendToken(rp.c, .Comma, ",");
             cast_node.params()[1] = rhs_node;
             cast_node.rparen_token = try appendToken(rp.c, .RParen, ")");
@@ -3358,10 +3368,13 @@ fn transCreateCompoundAssign(
         const bin_token = try appendToken(rp.c, bin_tok_id, bin_bytes);
         var rhs_node = try transExpr(rp, scope, rhs, .used, .r_value);
 
-        if (is_shift) {
+        if (is_shift or requires_int_cast) {
             const cast_node = try rp.c.createBuiltinCall("@intCast", 2);
-            const rhs_type = try qualTypeToLog2IntRef(rp, getExprQualType(rp.c, rhs), loc);
-            cast_node.params()[0] = rhs_type;
+            const cast_to_type = if (is_shift)
+                try qualTypeToLog2IntRef(rp, getExprQualType(rp.c, rhs), loc)
+            else
+                try transQualType(rp, getExprQualType(rp.c, lhs), loc);
+            cast_node.params()[0] = cast_to_type;
             _ = try appendToken(rp.c, .Comma, ",");
             cast_node.params()[1] = rhs_node;
             cast_node.rparen_token = try appendToken(rp.c, .RParen, ")");
