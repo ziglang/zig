@@ -228,17 +228,6 @@ pub fn addCases(ctx: *TestContext) void {
             \\@2 = int(2)
             \\@3 = int(3)
             \\
-            \\@syscall_array = str("syscall")
-            \\@sysoutreg_array = str("={rax}")
-            \\@rax_array = str("{rax}")
-            \\@rdi_array = str("{rdi}")
-            \\@rcx_array = str("rcx")
-            \\@r11_array = str("r11")
-            \\@rdx_array = str("{rdx}")
-            \\@rsi_array = str("{rsi}")
-            \\@memory_array = str("memory")
-            \\@len_array = str("len")
-            \\
             \\@msg = str("Hello, world!\n")
             \\
             \\@start_fnty = fntype([], @noreturn, cc=Naked)
@@ -246,24 +235,23 @@ pub fn addCases(ctx: *TestContext) void {
             \\  %SYS_exit_group = int(231)
             \\  %exit_code = as(@usize, @0)
             \\
-            \\  %syscall = ref(@syscall_array)
-            \\  %sysoutreg = ref(@sysoutreg_array)
-            \\  %rax = ref(@rax_array)
-            \\  %rdi = ref(@rdi_array)
-            \\  %rcx = ref(@rcx_array)
-            \\  %rdx = ref(@rdx_array)
-            \\  %rsi = ref(@rsi_array)
-            \\  %r11 = ref(@r11_array)
-            \\  %memory = ref(@memory_array)
+            \\  %syscall = str("syscall")
+            \\  %sysoutreg = str("={rax}")
+            \\  %rax = str("{rax}")
+            \\  %rdi = str("{rdi}")
+            \\  %rcx = str("rcx")
+            \\  %rdx = str("{rdx}")
+            \\  %rsi = str("{rsi}")
+            \\  %r11 = str("r11")
+            \\  %memory = str("memory")
             \\
             \\  %SYS_write = as(@usize, @1)
             \\  %STDOUT_FILENO = as(@usize, @1)
             \\
-            \\  %msg_ptr = ref(@msg)
-            \\  %msg_addr = ptrtoint(%msg_ptr)
+            \\  %msg_addr = ptrtoint(@msg)
             \\
-            \\  %len_name = ref(@len_array)
-            \\  %msg_len_ptr = fieldptr(%msg_ptr, %len_name)
+            \\  %len_name = str("len")
+            \\  %msg_len_ptr = fieldptr(@msg, %len_name)
             \\  %msg_len = deref(%msg_len_ptr)
             \\  %rc_write = asm(%syscall, @usize,
             \\    volatile=1,
@@ -283,8 +271,7 @@ pub fn addCases(ctx: *TestContext) void {
             \\});
             \\
             \\@9 = str("_start")
-            \\@10 = ref(@9)
-            \\@11 = export(@10, @start)
+            \\@11 = export(@9, "start")
         ,
             \\@noreturn = primitive(noreturn)
             \\@void = primitive(void)
@@ -293,17 +280,6 @@ pub fn addCases(ctx: *TestContext) void {
             \\@1 = int(1)
             \\@2 = int(2)
             \\@3 = int(3)
-            \\
-            \\@syscall_array = str("syscall")
-            \\@sysoutreg_array = str("={rax}")
-            \\@rax_array = str("{rax}")
-            \\@rdi_array = str("{rdi}")
-            \\@rcx_array = str("rcx")
-            \\@r11_array = str("r11")
-            \\@rdx_array = str("{rdx}")
-            \\@rsi_array = str("{rsi}")
-            \\@memory_array = str("memory")
-            \\@len_array = str("len")
             \\
             \\@msg = str("Hello, world!\n")
             \\@msg2 = str("HELL WORLD\n")
@@ -313,24 +289,23 @@ pub fn addCases(ctx: *TestContext) void {
             \\  %SYS_exit_group = int(231)
             \\  %exit_code = as(@usize, @0)
             \\
-            \\  %syscall = ref(@syscall_array)
-            \\  %sysoutreg = ref(@sysoutreg_array)
-            \\  %rax = ref(@rax_array)
-            \\  %rdi = ref(@rdi_array)
-            \\  %rcx = ref(@rcx_array)
-            \\  %rdx = ref(@rdx_array)
-            \\  %rsi = ref(@rsi_array)
-            \\  %r11 = ref(@r11_array)
-            \\  %memory = ref(@memory_array)
+            \\  %syscall = str("syscall")
+            \\  %sysoutreg = str("={rax}")
+            \\  %rax = str("{rax}")
+            \\  %rdi = str("{rdi}")
+            \\  %rcx = str("rcx")
+            \\  %rdx = str("{rdx}")
+            \\  %rsi = str("{rsi}")
+            \\  %r11 = str("r11")
+            \\  %memory = str("memory")
             \\
             \\  %SYS_write = as(@usize, @1)
             \\  %STDOUT_FILENO = as(@usize, @1)
             \\
-            \\  %msg_ptr = ref(@msg2)
-            \\  %msg_addr = ptrtoint(%msg_ptr)
+            \\  %msg_addr = ptrtoint(@msg2)
             \\
-            \\  %len_name = ref(@len_array)
-            \\  %msg_len_ptr = fieldptr(%msg_ptr, %len_name)
+            \\  %len_name = str("len")
+            \\  %msg_len_ptr = fieldptr(@msg2, %len_name)
             \\  %msg_len = deref(%msg_len_ptr)
             \\  %rc_write = asm(%syscall, @usize,
             \\    volatile=1,
@@ -350,8 +325,7 @@ pub fn addCases(ctx: *TestContext) void {
             \\});
             \\
             \\@9 = str("_start")
-            \\@10 = ref(@9)
-            \\@11 = export(@10, @start)
+            \\@11 = export(@9, "start")
         ,
             \\@noreturn = primitive(noreturn)
             \\@void = primitive(void)
@@ -361,17 +335,6 @@ pub fn addCases(ctx: *TestContext) void {
             \\@2 = int(2)
             \\@3 = int(3)
             \\
-            \\@syscall_array = str("syscall")
-            \\@sysoutreg_array = str("={rax}")
-            \\@rax_array = str("{rax}")
-            \\@rdi_array = str("{rdi}")
-            \\@rcx_array = str("rcx")
-            \\@r11_array = str("r11")
-            \\@rdx_array = str("{rdx}")
-            \\@rsi_array = str("{rsi}")
-            \\@memory_array = str("memory")
-            \\@len_array = str("len")
-            \\
             \\@msg = str("Hello, world!\n")
             \\@msg2 = str("Editing the same msg2 decl but this time with a much longer message which will\ncause the data to need to be relocated in virtual address space.\n")
             \\
@@ -380,24 +343,23 @@ pub fn addCases(ctx: *TestContext) void {
             \\  %SYS_exit_group = int(231)
             \\  %exit_code = as(@usize, @0)
             \\
-            \\  %syscall = ref(@syscall_array)
-            \\  %sysoutreg = ref(@sysoutreg_array)
-            \\  %rax = ref(@rax_array)
-            \\  %rdi = ref(@rdi_array)
-            \\  %rcx = ref(@rcx_array)
-            \\  %rdx = ref(@rdx_array)
-            \\  %rsi = ref(@rsi_array)
-            \\  %r11 = ref(@r11_array)
-            \\  %memory = ref(@memory_array)
+            \\  %syscall = str("syscall")
+            \\  %sysoutreg = str("={rax}")
+            \\  %rax = str("{rax}")
+            \\  %rdi = str("{rdi}")
+            \\  %rcx = str("rcx")
+            \\  %rdx = str("{rdx}")
+            \\  %rsi = str("{rsi}")
+            \\  %r11 = str("r11")
+            \\  %memory = str("memory")
             \\
             \\  %SYS_write = as(@usize, @1)
             \\  %STDOUT_FILENO = as(@usize, @1)
             \\
-            \\  %msg_ptr = ref(@msg2)
-            \\  %msg_addr = ptrtoint(%msg_ptr)
+            \\  %msg_addr = ptrtoint(@msg2)
             \\
-            \\  %len_name = ref(@len_array)
-            \\  %msg_len_ptr = fieldptr(%msg_ptr, %len_name)
+            \\  %len_name = str("len")
+            \\  %msg_len_ptr = fieldptr(@msg2, %len_name)
             \\  %msg_len = deref(%msg_len_ptr)
             \\  %rc_write = asm(%syscall, @usize,
             \\    volatile=1,
@@ -417,8 +379,7 @@ pub fn addCases(ctx: *TestContext) void {
             \\});
             \\
             \\@9 = str("_start")
-            \\@10 = ref(@9)
-            \\@11 = export(@10, @start)
+            \\@11 = export(@9, "start")
         },
         &[_][]const u8{
             \\Hello, world!

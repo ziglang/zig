@@ -504,7 +504,7 @@ fn updateModule(gpa: *Allocator, module: *Module, zir_out_path: ?[]const u8) !vo
             });
         }
     } else {
-        std.debug.print("Update completed in {} ms\n", .{update_nanos / std.time.ns_per_ms});
+        std.log.info(.compiler, "Update completed in {} ms\n", .{update_nanos / std.time.ns_per_ms});
     }
 
     if (zir_out_path) |zop| {

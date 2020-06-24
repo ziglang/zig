@@ -30,7 +30,7 @@ pub const Inst = struct {
     /// Byte offset into the source.
     src: usize,
     /// Pre-allocated field for mapping ZIR text instructions to post-analysis instructions.
-    analyzed_inst: *ir.Inst = undefined,
+    analyzed_inst: ?*ir.Inst = null,
 
     /// These names are used directly as the instruction names in the text format.
     pub const Tag = enum {
@@ -536,6 +536,18 @@ pub const Module = struct {
     pub fn findDecl(self: Module, name: []const u8) ?DeclAndIndex {
         for (self.decls) |decl, i| {
             if (mem.eql(u8, decl.name, name)) {
+                return DeclAndIndex{
+                    .decl = decl,
+                    .index = i,
+                };
+            }
+        }
+        return null;
+    }
+
+    pub fn findInstDecl(self: Module, inst: *Inst) ?DeclAndIndex {
+        for (self.decls) |decl, i| {
+            if (decl.inst == inst) {
                 return DeclAndIndex{
                     .decl = decl,
                     .index = i,
