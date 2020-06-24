@@ -7328,6 +7328,12 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\        const slice = target[0..3 :0];
         \\    }
         \\}
+        \\export fn buf_slice() void {
+        \\    comptime {
+        \\        const buf = @typeName(usize);
+        \\        const slice = buf[0..2:0];
+        \\    }
+        \\}
     , &[_][]const u8{
         ":4:29: error: slice-sentinel does not match memory at target index",
         ":11:29: error: slice-sentinel does not match memory at target index",
@@ -7336,6 +7342,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         ":32:29: error: slice-sentinel does not match memory at target index",
         ":39:29: error: slice-sentinel does not match memory at target index",
         ":46:29: error: slice-sentinel does not match memory at target index",
+        ":52:26: error: slice-sentinel does not match memory at target index",
     });
 
     cases.add("comptime slice-sentinel does not match memory at target index (terminated)",
@@ -7454,6 +7461,15 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         ":32:29: error: slice-sentinel does not match target-sentinel",
         ":39:29: error: slice-sentinel does not match target-sentinel",
         ":46:29: error: slice-sentinel does not match target-sentinel",
+    });
+
+    cases.add("comptime slice-sentinel of undefined value",
+        \\export fn foo() void {
+        \\    const buf: [100]u8 = undefined;
+        \\    const slice = buf[0..50:0];
+        \\}
+    , &[_][]const u8{
+        ":3:22: error: trying to slice array with undefined value",
     });
 
     cases.add("issue #4207: coerce from non-terminated-slice to terminated-pointer",

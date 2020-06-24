@@ -27725,13 +27725,28 @@ done_with_return_type:
             uint64_t target_len = 0;
             ZigValue *target_sentinel = nullptr;
             ZigValue *target_elements = nullptr;
+            Buf *target_buffer = nullptr;
 
             for (;;) {
                 if (target->type->id == ZigTypeIdArray) {
                     // handle `[N]T`
                     target_len = target->type->data.array.len;
                     target_sentinel = target->type->data.array.sentinel;
-                    target_elements = target->data.x_array.data.s_none.elements;
+
+                    switch(target->data.x_array.special) {
+                        case ConstArraySpecialUndef:
+                            ir_add_error(ira, &instruction->base.base, buf_sprintf("trying to slice array with undefined value"));
+                            return ira->codegen->invalid_inst_gen;
+                        break;
+                        case ConstArraySpecialBuf:
+                            target_buffer = target->data.x_array.data.s_buf;
+                        break;
+                        case ConstArraySpecialNone:
+                            target_elements = target->data.x_array.data.s_none.elements;
+                        break;
+                        default:
+                            zig_unreachable();
+                    }
                     break;
                 } else if (target->type->id == ZigTypeIdPointer && target->type->data.pointer.child_type->id == ZigTypeIdArray) {
                     // handle `*[N]T`
@@ -27789,10 +27804,6 @@ done_with_return_type:
                     ir_add_error(ira, &instruction->base.base, buf_sprintf("slice-sentinel is out of bounds"));
                     return ira->codegen->invalid_inst_gen;
                 }
-                if (!const_values_equal(ira->codegen, sentinel_val, &target_elements[end_scalar])) {
-                    ir_add_error(ira, &instruction->base.base, buf_sprintf("slice-sentinel does not match memory at target index"));
-                    return ira->codegen->invalid_inst_gen;
-                }
             } else {
                 assert(end_scalar <= target_len);
                 if (end_scalar == target_len) {
@@ -27800,11 +27811,27 @@ done_with_return_type:
                         ir_add_error(ira, &instruction->base.base, buf_sprintf("slice-sentinel does not match target-sentinel"));
                         return ira->codegen->invalid_inst_gen;
                     }
-                } else {
-                    if (!const_values_equal(ira->codegen, sentinel_val, &target_elements[end_scalar])) {
-                        ir_add_error(ira, &instruction->base.base, buf_sprintf("slice-sentinel does not match memory at target index"));
-                        return ira->codegen->invalid_inst_gen;
-                    }
+                }
+            }
+
+            if (target_elements == nullptr && target_buffer == nullptr) {
+                ir_add_error(ira, &instruction->base.base, buf_sprintf("trying to slice array with undefined value"));
+                return ira->codegen->invalid_inst_gen;
+            }
+
+            if (target_elements == nullptr) {
+                assert(target_buffer != nullptr);
+                assert(sentinel_val->type == ira->codegen->builtin_types.entry_u8);
+
+                if (!bigint_fits_in_bits(&sentinel_val->data.x_bigint, 8, false) ||
+                    bigint_as_signed(&sentinel_val->data.x_bigint) != buf_ptr(target_buffer)[end_scalar]) {
+                    ir_add_error(ira, &instruction->base.base, buf_sprintf("slice-sentinel does not match memory at target index"));
+                    return ira->codegen->invalid_inst_gen;
+                }
+            } else {
+                if (!const_values_equal(ira->codegen, sentinel_val, &target_elements[end_scalar])) {
+                    ir_add_error(ira, &instruction->base.base, buf_sprintf("slice-sentinel does not match memory at target index"));
+                    return ira->codegen->invalid_inst_gen;
                 }
             }
         }

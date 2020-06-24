@@ -4,6 +4,14 @@ const expectEqualSlices = std.testing.expectEqualSlices;
 const expectEqual = std.testing.expectEqual;
 const mem = std.mem;
 
+test "compile time slice of u8 array" {
+    comptime {
+        const arr = @typeName(usize);
+        const slice = arr[0..arr.len:0];
+        expect(mem.eql(u8, slice, "usize"));
+    }
+}
+
 const x = @intToPtr([*]i32, 0x1000)[0..0x500];
 const y = x[0x100..];
 test "compile time slice of pointer to hard coded address" {
