@@ -487,7 +487,9 @@ fn buildOutputType(
 }
 
 fn updateModule(gpa: *Allocator, module: *Module, zir_out_path: ?[]const u8) !void {
+    var timer = try std.time.Timer.start();
     try module.update();
+    const update_nanos = timer.read();
 
     var errors = try module.getAllErrorsAlloc();
     defer errors.deinit(module.allocator);
@@ -501,6 +503,8 @@ fn updateModule(gpa: *Allocator, module: *Module, zir_out_path: ?[]const u8) !vo
                 full_err_msg.msg,
             });
         }
+    } else {
+        std.debug.print("Update completed in {} ms\n", .{update_nanos / std.time.ns_per_ms});
     }
 
     if (zir_out_path) |zop| {

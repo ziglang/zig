@@ -74,9 +74,9 @@ const DeclTable = std.HashMap(Scope.NameHash, *Decl, Scope.name_hash_hash, Scope
 const WorkItem = union(enum) {
     /// Write the machine code for a Decl to the output file.
     codegen_decl: *Decl,
-    /// Decl has been determined to be outdated; perform semantic analysis again.
-    re_analyze_decl: *Decl,
     /// The Decl needs to be analyzed and possibly export itself.
+    /// It may have already be analyzed, or it may have been determined
+    /// to be outdated; in this case perform semantic analysis again.
     analyze_decl: *Decl,
 };
 
@@ -403,6 +403,17 @@ pub const Scope = struct {
         }
     }
 
+    /// Asserts the scope is a namespace Scope and removes the Decl from the namespace.
+    pub fn removeDecl(base: *Scope, child: *Decl) void {
+        switch (base.tag) {
+            .file => return @fieldParentPtr(File, "base", base).removeDecl(child),
+            .zir_module => return @fieldParentPtr(ZIRModule, "base", base).removeDecl(child),
+            .block => unreachable,
+            .gen_zir => unreachable,
+            .decl => unreachable,
+        }
+    }
+
     /// Asserts the scope is a File or ZIRModule and deinitializes it, then deallocates it.
     pub fn destroy(base: *Scope, allocator: *Allocator) void {
         switch (base.tag) {
@@ -462,6 +473,9 @@ pub const Scope = struct {
             loaded_success,
         },
 
+        /// Direct children of the file.
+        decls: ArrayListUnmanaged(*Decl),
+
         pub fn unload(self: *File, allocator: *Allocator) void {
             switch (self.status) {
                 .never_loaded,
@@ -484,8 +498,18 @@ pub const Scope = struct {
         }
 
         pub fn deinit(self: *File, allocator: *Allocator) void {
+            self.decls.deinit(allocator);
             self.unload(allocator);
             self.* = undefined;
+        }
+
+        pub fn removeDecl(self: *File, child: *Decl) void {
+            for (self.decls.items) |item, i| {
+                if (item == child) {
+                    _ = self.decls.swapRemove(i);
+                    return;
+                }
+            }
         }
 
         pub fn dumpSrc(self: *File, src: usize) void {
@@ -540,6 +564,11 @@ pub const Scope = struct {
             loaded_success,
         },
 
+        /// Even though .zir files only have 1 module, this set is still needed
+        /// because of anonymous Decls, which can exist in the global set, but
+        /// not this one.
+        decls: ArrayListUnmanaged(*Decl),
+
         pub fn unload(self: *ZIRModule, allocator: *Allocator) void {
             switch (self.status) {
                 .never_loaded,
@@ -569,8 +598,18 @@ pub const Scope = struct {
         }
 
         pub fn deinit(self: *ZIRModule, allocator: *Allocator) void {
+            self.decls.deinit(allocator);
             self.unload(allocator);
             self.* = undefined;
+        }
+
+        pub fn removeDecl(self: *ZIRModule, child: *Decl) void {
+            for (self.decls.items) |item, i| {
+                if (item == child) {
+                    _ = self.decls.swapRemove(i);
+                    return;
+                }
+            }
         }
 
         pub fn dumpSrc(self: *ZIRModule, src: usize) void {
@@ -700,6 +739,7 @@ pub fn init(gpa: *Allocator, options: InitOptions) !Module {
                 .source = .{ .unloaded = {} },
                 .contents = .{ .not_available = {} },
                 .status = .never_loaded,
+                .decls = .{},
             };
             break :blk &root_scope.base;
         } else if (mem.endsWith(u8, options.root_pkg.root_src_path, ".zir")) {
@@ -709,6 +749,7 @@ pub fn init(gpa: *Allocator, options: InitOptions) !Module {
                 .source = .{ .unloaded = {} },
                 .contents = .{ .not_available = {} },
                 .status = .never_loaded,
+                .decls = .{},
             };
             break :blk &root_scope.base;
         } else {
@@ -828,13 +869,14 @@ pub fn update(self: *Module) !void {
     try self.performAllTheWork();
 
     // Process the deletion set.
-    while (self.deletion_set.popOrNull()) |decl| {
+    for (self.deletion_set.items) |decl| {
         if (decl.dependants.items.len != 0) {
             decl.deletion_flag = false;
             continue;
         }
         try self.deleteDecl(decl);
     }
+    self.deletion_set.shrink(self.allocator, 0);
 
     self.link_error_flags = self.bin_file.error_flags;
 
@@ -969,49 +1011,6 @@ pub fn performAllTheWork(self: *Module) error{OutOfMemory}!void {
                 };
             },
         },
-        .re_analyze_decl => |decl| switch (decl.analysis) {
-            .unreferenced => unreachable,
-            .in_progress => unreachable,
-
-            .sema_failure,
-            .codegen_failure,
-            .dependency_failure,
-            .complete,
-            .codegen_failure_retryable,
-            .sema_failure_retryable,
-            => continue,
-
-            .outdated => {
-                if (decl.scope.cast(Scope.File)) |file_scope| {
-                    @panic("TODO re_analyze_decl for .zig files");
-                } else if (decl.scope.cast(Scope.ZIRModule)) |zir_scope| {
-                    const zir_module = self.getSrcModule(zir_scope) catch |err| switch (err) {
-                        error.OutOfMemory => return error.OutOfMemory,
-                        else => {
-                            try self.failed_decls.ensureCapacity(self.failed_decls.size + 1);
-                            self.failed_decls.putAssumeCapacityNoClobber(decl, try ErrorMsg.create(
-                                self.allocator,
-                                decl.src(),
-                                "unable to load source file '{}': {}",
-                                .{ zir_scope.sub_file_path, @errorName(err) },
-                            ));
-                            decl.analysis = .codegen_failure_retryable;
-                            continue;
-                        },
-                    };
-                    const decl_name = mem.spanZ(decl.name);
-                    // We already detected deletions, so we know this will be found.
-                    const src_decl_and_index = zir_module.findDecl(decl_name).?;
-                    decl.src_index = src_decl_and_index.index;
-                    self.reAnalyzeDecl(decl, src_decl_and_index.decl.inst) catch |err| switch (err) {
-                        error.OutOfMemory => return error.OutOfMemory,
-                        error.AnalysisFail => continue,
-                    };
-                } else {
-                    unreachable;
-                }
-            },
-        },
         .analyze_decl => |decl| {
             self.ensureDeclAnalyzed(decl) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
@@ -1022,9 +1021,12 @@ pub fn performAllTheWork(self: *Module) error{OutOfMemory}!void {
 }
 
 fn ensureDeclAnalyzed(self: *Module, decl: *Decl) InnerError!void {
-    switch (decl.analysis) {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const subsequent_analysis = switch (decl.analysis) {
+        .complete => return,
         .in_progress => unreachable,
-        .outdated => unreachable,
 
         .sema_failure,
         .sema_failure_retryable,
@@ -1033,29 +1035,73 @@ fn ensureDeclAnalyzed(self: *Module, decl: *Decl) InnerError!void {
         .codegen_failure_retryable,
         => return error.AnalysisFail,
 
-        .complete => return,
+        .outdated => blk: {
+            //std.debug.warn("re-analyzing {}\n", .{decl.name});
 
-        .unreferenced => {
-            self.astGenAndAnalyzeDecl(decl) catch |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
-                error.AnalysisFail => return error.AnalysisFail,
-                else => {
-                    try self.failed_decls.ensureCapacity(self.failed_decls.size + 1);
-                    self.failed_decls.putAssumeCapacityNoClobber(decl, try ErrorMsg.create(
-                        self.allocator,
-                        decl.src(),
-                        "unable to analyze: {}",
-                        .{@errorName(err)},
-                    ));
-                    decl.analysis = .sema_failure_retryable;
-                    return error.AnalysisFail;
-                },
-            };
+            // The exports this Decl performs will be re-discovered, so we remove them here
+            // prior to re-analysis.
+            self.deleteDeclExports(decl);
+            // Dependencies will be re-discovered, so we remove them here prior to re-analysis.
+            for (decl.dependencies.items) |dep| {
+                dep.removeDependant(decl);
+                if (dep.dependants.items.len == 0) {
+                    // We don't perform a deletion here, because this Decl or another one
+                    // may end up referencing it before the update is complete.
+                    assert(!dep.deletion_flag);
+                    dep.deletion_flag = true;
+                    try self.deletion_set.append(self.allocator, dep);
+                }
+            }
+            decl.dependencies.shrink(self.allocator, 0);
+
+            break :blk true;
         },
+
+        .unreferenced => false,
+    };
+
+    const type_changed = self.astGenAndAnalyzeDecl(decl) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        error.AnalysisFail => return error.AnalysisFail,
+        else => {
+            try self.failed_decls.ensureCapacity(self.failed_decls.size + 1);
+            self.failed_decls.putAssumeCapacityNoClobber(decl, try ErrorMsg.create(
+                self.allocator,
+                decl.src(),
+                "unable to analyze: {}",
+                .{@errorName(err)},
+            ));
+            decl.analysis = .sema_failure_retryable;
+            return error.AnalysisFail;
+        },
+    };
+
+    if (subsequent_analysis) {
+        // We may need to chase the dependants and re-analyze them.
+        // However, if the decl is a function, and the type is the same, we do not need to.
+        if (type_changed or decl.typed_value.most_recent.typed_value.val.tag() != .function) {
+            for (decl.dependants.items) |dep| {
+                switch (dep.analysis) {
+                    .unreferenced => unreachable,
+                    .in_progress => unreachable,
+                    .outdated => continue, // already queued for update
+
+                    .dependency_failure,
+                    .sema_failure,
+                    .sema_failure_retryable,
+                    .codegen_failure,
+                    .codegen_failure_retryable,
+                    .complete,
+                    => if (dep.generation != self.generation) {
+                        try self.markOutdatedDecl(dep);
+                    },
+                }
+            }
+        }
     }
 }
 
-fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !void {
+fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -1170,6 +1216,16 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !void {
             };
             fn_payload.* = .{ .func = new_func };
 
+            var prev_type_has_bits = false;
+            var type_changed = true;
+
+            if (decl.typedValueManaged()) |tvm| {
+                prev_type_has_bits = tvm.typed_value.ty.hasCodeGenBits();
+                type_changed = !tvm.typed_value.ty.eql(fn_type);
+
+                tvm.deinit(self.allocator);
+            }
+
             decl_arena_state.* = decl_arena.state;
             decl.typed_value = .{
                 .most_recent = .{
@@ -1183,11 +1239,15 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !void {
             decl.analysis = .complete;
             decl.generation = self.generation;
 
-            // We don't fully codegen the decl until later, but we do need to reserve a global
-            // offset table index for it. This allows us to codegen decls out of dependency order,
-            // increasing how many computations can be done in parallel.
-            try self.bin_file.allocateDeclIndexes(decl);
-            try self.work_queue.writeItem(.{ .codegen_decl = decl });
+            if (fn_type.hasCodeGenBits()) {
+                // We don't fully codegen the decl until later, but we do need to reserve a global
+                // offset table index for it. This allows us to codegen decls out of dependency order,
+                // increasing how many computations can be done in parallel.
+                try self.bin_file.allocateDeclIndexes(decl);
+                try self.work_queue.writeItem(.{ .codegen_decl = decl });
+            } else if (prev_type_has_bits) {
+                self.bin_file.freeDecl(decl);
+            }
 
             if (fn_proto.extern_export_inline_token) |maybe_export_token| {
                 if (tree.token_ids[maybe_export_token] == .Keyword_export) {
@@ -1198,6 +1258,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !void {
                     try self.analyzeExport(&block_scope.base, export_src, name, decl);
                 }
             }
+            return type_changed;
         },
         .VarDecl => @panic("TODO var decl"),
         .Comptime => @panic("TODO comptime decl"),
@@ -1602,40 +1663,63 @@ fn getAstTree(self: *Module, root_scope: *Scope.File) !*ast.Tree {
 }
 
 fn analyzeRootSrcFile(self: *Module, root_scope: *Scope.File) !void {
-    switch (root_scope.status) {
-        .never_loaded => {
-            const tree = try self.getAstTree(root_scope);
-            const decls = tree.root_node.decls();
+    // We may be analyzing it for the first time, or this may be
+    // an incremental update. This code handles both cases.
+    const tree = try self.getAstTree(root_scope);
+    const decls = tree.root_node.decls();
 
-            try self.work_queue.ensureUnusedCapacity(decls.len);
+    try self.work_queue.ensureUnusedCapacity(decls.len);
+    try root_scope.decls.ensureCapacity(self.allocator, decls.len);
 
-            for (decls) |src_decl, decl_i| {
-                if (src_decl.cast(ast.Node.FnProto)) |fn_proto| {
-                    // We will create a Decl for it regardless of analysis status.
-                    const name_tok = fn_proto.name_token orelse
-                        @panic("TODO handle missing function name in the parser");
-                    const name_loc = tree.token_locs[name_tok];
-                    const name = tree.tokenSliceLoc(name_loc);
-                    const name_hash = root_scope.fullyQualifiedNameHash(name);
-                    const contents_hash = std.zig.hashSrc(tree.getNodeSource(src_decl));
-                    const new_decl = try self.createNewDecl(&root_scope.base, name, decl_i, name_hash, contents_hash);
-                    if (fn_proto.extern_export_inline_token) |maybe_export_token| {
-                        if (tree.token_ids[maybe_export_token] == .Keyword_export) {
-                            self.work_queue.writeItemAssumeCapacity(.{ .analyze_decl = new_decl });
-                        }
+    // Keep track of the decls that we expect to see in this file so that
+    // we know which ones have been deleted.
+    var deleted_decls = std.AutoHashMap(*Decl, void).init(self.allocator);
+    defer deleted_decls.deinit();
+    try deleted_decls.ensureCapacity(root_scope.decls.items.len);
+    for (root_scope.decls.items) |file_decl| {
+        deleted_decls.putAssumeCapacityNoClobber(file_decl, {});
+    }
+
+    for (decls) |src_decl, decl_i| {
+        if (src_decl.cast(ast.Node.FnProto)) |fn_proto| {
+            // We will create a Decl for it regardless of analysis status.
+            const name_tok = fn_proto.name_token orelse
+                @panic("TODO handle missing function name in the parser");
+            const name_loc = tree.token_locs[name_tok];
+            const name = tree.tokenSliceLoc(name_loc);
+            const name_hash = root_scope.fullyQualifiedNameHash(name);
+            const contents_hash = std.zig.hashSrc(tree.getNodeSource(src_decl));
+            if (self.decl_table.get(name_hash)) |kv| {
+                const decl = kv.value;
+                // Update the AST Node index of the decl, even if its contents are unchanged, it may
+                // have been re-ordered.
+                decl.src_index = decl_i;
+                deleted_decls.removeAssertDiscard(decl);
+                if (!srcHashEql(decl.contents_hash, contents_hash)) {
+                    try self.markOutdatedDecl(decl);
+                    decl.contents_hash = contents_hash;
+                }
+            } else {
+                const new_decl = try self.createNewDecl(&root_scope.base, name, decl_i, name_hash, contents_hash);
+                root_scope.decls.appendAssumeCapacity(new_decl);
+                if (fn_proto.extern_export_inline_token) |maybe_export_token| {
+                    if (tree.token_ids[maybe_export_token] == .Keyword_export) {
+                        self.work_queue.writeItemAssumeCapacity(.{ .analyze_decl = new_decl });
                     }
                 }
-                // TODO also look for global variable declarations
-                // TODO also look for comptime blocks and exported globals
             }
-        },
-
-        .unloaded_parse_failure,
-        .unloaded_success,
-        .loaded_success,
-        => {
-            @panic("TODO process update");
-        },
+        }
+        // TODO also look for global variable declarations
+        // TODO also look for comptime blocks and exported globals
+    }
+    {
+        // Handle explicitly deleted decls from the source code. Not to be confused
+        // with when we delete decls because they are no longer referenced.
+        var it = deleted_decls.iterator();
+        while (it.next()) |kv| {
+            //std.debug.warn("noticed '{}' deleted from source\n", .{kv.key.name});
+            try self.deleteDecl(kv.key);
+        }
     }
 }
 
@@ -1684,7 +1768,7 @@ fn analyzeRootZIRModule(self: *Module, root_scope: *Scope.ZIRModule) !void {
                     const decl = kv.value;
                     deleted_decls.removeAssertDiscard(decl);
                     //std.debug.warn("'{}' contents: '{}'\n", .{ src_decl.name, src_decl.contents });
-                    if (!mem.eql(u8, &src_decl.contents_hash, &decl.contents_hash)) {
+                    if (!srcHashEql(src_decl.contents_hash, decl.contents_hash)) {
                         try self.markOutdatedDecl(decl);
                         decl.contents_hash = src_decl.contents_hash;
                     }
@@ -1710,6 +1794,10 @@ fn analyzeRootZIRModule(self: *Module, root_scope: *Scope.ZIRModule) !void {
 
 fn deleteDecl(self: *Module, decl: *Decl) !void {
     try self.deletion_set.ensureCapacity(self.allocator, self.deletion_set.items.len + decl.dependencies.items.len);
+
+    // Remove from the namespace it resides in. In the case of an anonymous Decl it will
+    // not be present in the set, and this does nothing.
+    decl.scope.removeDecl(decl);
 
     //std.debug.warn("deleting decl '{}'\n", .{decl.name});
     const name_hash = decl.fullyQualifiedNameHash();
@@ -1799,110 +1887,9 @@ fn analyzeFnBody(self: *Module, decl: *Decl, func: *Fn) !void {
     //std.debug.warn("set {} to success\n", .{decl.name});
 }
 
-fn reAnalyzeDecl(self: *Module, decl: *Decl, old_inst: *zir.Inst) InnerError!void {
-    switch (decl.analysis) {
-        .unreferenced => unreachable,
-        .in_progress => unreachable,
-        .dependency_failure,
-        .sema_failure,
-        .sema_failure_retryable,
-        .codegen_failure,
-        .codegen_failure_retryable,
-        .complete,
-        => return,
-
-        .outdated => {}, // Decl re-analysis
-    }
-    //std.debug.warn("re-analyzing {}\n", .{decl.name});
-
-    // The exports this Decl performs will be re-discovered, so we remove them here
-    // prior to re-analysis.
-    self.deleteDeclExports(decl);
-    // Dependencies will be re-discovered, so we remove them here prior to re-analysis.
-    for (decl.dependencies.items) |dep| {
-        dep.removeDependant(decl);
-        if (dep.dependants.items.len == 0) {
-            // We don't perform a deletion here, because this Decl or another one
-            // may end up referencing it before the update is complete.
-            assert(!dep.deletion_flag);
-            dep.deletion_flag = true;
-            try self.deletion_set.append(self.allocator, dep);
-        }
-    }
-    decl.dependencies.shrink(self.allocator, 0);
-    var decl_scope: Scope.DeclAnalysis = .{
-        .decl = decl,
-        .arena = std.heap.ArenaAllocator.init(self.allocator),
-    };
-    errdefer decl_scope.arena.deinit();
-
-    const typed_value = self.analyzeConstInst(&decl_scope.base, old_inst) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
-        error.AnalysisFail => {
-            switch (decl.analysis) {
-                .in_progress => decl.analysis = .dependency_failure,
-                else => {},
-            }
-            decl.generation = self.generation;
-            return error.AnalysisFail;
-        },
-    };
-    const arena_state = try decl_scope.arena.allocator.create(std.heap.ArenaAllocator.State);
-    arena_state.* = decl_scope.arena.state;
-
-    var prev_type_has_bits = false;
-    var type_changed = true;
-
-    if (decl.typedValueManaged()) |tvm| {
-        prev_type_has_bits = tvm.typed_value.ty.hasCodeGenBits();
-        type_changed = !tvm.typed_value.ty.eql(typed_value.ty);
-
-        tvm.deinit(self.allocator);
-    }
-    decl.typed_value = .{
-        .most_recent = .{
-            .typed_value = typed_value,
-            .arena = arena_state,
-        },
-    };
-    decl.analysis = .complete;
-    decl.generation = self.generation;
-    if (typed_value.ty.hasCodeGenBits()) {
-        // We don't fully codegen the decl until later, but we do need to reserve a global
-        // offset table index for it. This allows us to codegen decls out of dependency order,
-        // increasing how many computations can be done in parallel.
-        try self.bin_file.allocateDeclIndexes(decl);
-        try self.work_queue.writeItem(.{ .codegen_decl = decl });
-    } else if (prev_type_has_bits) {
-        self.bin_file.freeDecl(decl);
-    }
-
-    // If the decl is a function, and the type is the same, we do not need
-    // to chase the dependants.
-    if (type_changed or typed_value.val.tag() != .function) {
-        for (decl.dependants.items) |dep| {
-            switch (dep.analysis) {
-                .unreferenced => unreachable,
-                .in_progress => unreachable,
-                .outdated => continue, // already queued for update
-
-                .dependency_failure,
-                .sema_failure,
-                .sema_failure_retryable,
-                .codegen_failure,
-                .codegen_failure_retryable,
-                .complete,
-                => if (dep.generation != self.generation) {
-                    try self.markOutdatedDecl(dep);
-                },
-            }
-        }
-    }
-}
-
 fn markOutdatedDecl(self: *Module, decl: *Decl) !void {
     //std.debug.warn("mark {} outdated\n", .{decl.name});
-    try self.work_queue.writeItem(.{ .re_analyze_decl = decl });
+    try self.work_queue.writeItem(.{ .analyze_decl = decl });
     if (self.failed_decls.remove(decl)) |entry| {
         entry.value.destroy(self.allocator);
     }
@@ -2381,11 +2368,10 @@ fn createAnonymousDecl(
     decl_arena: *std.heap.ArenaAllocator,
     typed_value: TypedValue,
 ) !*Decl {
-    var name_buf: [32]u8 = undefined;
     const name_index = self.getNextAnonNameIndex();
-    const name = std.fmt.bufPrint(&name_buf, "unnamed_{}", .{name_index}) catch unreachable;
-    const name_hash = scope.namespace().fullyQualifiedNameHash(name);
     const scope_decl = scope.decl().?;
+    const name = try std.fmt.allocPrint(self.allocator, "{}${}", .{ scope_decl.name, name_index });
+    const name_hash = scope.namespace().fullyQualifiedNameHash(name);
     const src_hash: std.zig.SrcHash = undefined;
     const new_decl = try self.createNewDecl(scope, name, scope_decl.src_index, name_hash, src_hash);
     const decl_arena_state = try decl_arena.allocator.create(std.heap.ArenaAllocator.State);
@@ -3360,3 +3346,7 @@ pub const ErrorMsg = struct {
         self.* = undefined;
     }
 };
+
+fn srcHashEql(a: std.zig.SrcHash, b: std.zig.SrcHash) bool {
+    return @bitCast(u128, a) == @bitCast(u128, b);
+}
