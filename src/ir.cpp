@@ -12603,6 +12603,7 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
             prev_type->data.pointer.child_type->id == ZigTypeIdArray &&
             ((cur_type->id == ZigTypeIdPointer && cur_type->data.pointer.ptr_len == PtrLenUnknown)))
         {
+            convert_to_const_slice = false;
             prev_inst = cur_inst;
 
             if (prev_type->data.pointer.is_const && !cur_type->data.pointer.is_const) {
