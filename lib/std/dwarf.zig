@@ -359,7 +359,7 @@ fn parseFormValue(allocator: *mem.Allocator, in_stream: var, form_id: u64, endia
             const F = @TypeOf(async parseFormValue(allocator, in_stream, child_form_id, endian, is_64));
             var frame = try allocator.create(F);
             defer allocator.destroy(frame);
-            return await @asyncCall(frame, {}, parseFormValue, allocator, in_stream, child_form_id, endian, is_64);
+            return await @asyncCall(frame, {}, parseFormValue, .{ allocator, in_stream, child_form_id, endian, is_64 });
         },
         else => error.InvalidDebugInfo,
     };
