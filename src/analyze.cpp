@@ -9597,6 +9597,12 @@ void copy_const_val(CodeGen *g, ZigValue *dest, ZigValue *src) {
                 break;
             }
         }
+    } else if (dest->type->id == ZigTypeIdUnion) {
+        bigint_init_bigint(&dest->data.x_union.tag, &src->data.x_union.tag);
+        dest->data.x_union.payload = g->pass1_arena->create<ZigValue>();
+        copy_const_val(g, dest->data.x_union.payload, src->data.x_union.payload);
+        dest->data.x_union.payload->parent.id = ConstParentIdUnion;
+        dest->data.x_union.payload->parent.data.p_union.union_val = dest;
     } else if (type_has_optional_repr(dest->type) && dest->data.x_optional != nullptr) {
         dest->data.x_optional = g->pass1_arena->create<ZigValue>();
         copy_const_val(g, dest->data.x_optional, src->data.x_optional);

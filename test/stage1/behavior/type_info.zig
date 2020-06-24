@@ -402,3 +402,11 @@ test "type info for async frames" {
         else => unreachable,
     }
 }
+
+test "type info: value is correctly copied" {
+    comptime {
+        var ptrInfo = @typeInfo([]u32);
+        ptrInfo.Pointer.size = .One;
+        expect(@typeInfo([]u32).Pointer.size == .Slice);
+    }
+}
