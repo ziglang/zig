@@ -40,12 +40,20 @@ jobs:
   timeoutInMinutes: 360
 
   steps:
+  - powershell: |
+      (New-Object Net.WebClient).DownloadFile("https://github.com/msys2/msys2-installer/releases/download/2020-06-02/msys2-base-x86_64-20200602.sfx.exe", "sfx.exe")
+      .\sfx.exe -y -o\
+      del sfx.exe
+    displayName: Download/Extract/Install MSYS2
   - script: |
-      git clone https://github.com/msys2/msys2-ci-base.git %CD:~0,2%\msys64
-      %CD:~0,2%\msys64\usr\bin\rm -rf %CD:~0,2%\msys64\.git
-      set PATH=%CD:~0,2%\msys64\usr\bin;C:\Windows\system32;C:\Windows;C:\Windows\System32\Wbem
-      %CD:~0,2%\msys64\usr\bin\pacman --noconfirm -Syyuu
-    displayName: Install and Update MSYS2
+      @REM install updated filesystem package first without dependency checking
+      @REM because of: https://github.com/msys2/MSYS2-packages/issues/2021
+      %CD:~0,2%\msys64\usr\bin\bash -lc "pacman --noconfirm -Sydd filesystem"
+    displayName: Workaround filesystem dash MSYS2 dependency issue
+  - script: |
+      %CD:~0,2%\msys64\usr\bin\bash -lc "pacman --noconfirm -Syuu"
+      %CD:~0,2%\msys64\usr\bin\bash -lc "pacman --noconfirm -Syuu"
+    displayName: Update MSYS2
   - task: DownloadSecureFile@1
     inputs:
       secureFile: s3cfg
