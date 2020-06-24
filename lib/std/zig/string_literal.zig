@@ -104,7 +104,6 @@ pub fn parse(
                     return error.InvalidCharacter;
                 },
             },
-            else => unreachable,
         }
     }
     unreachable;
