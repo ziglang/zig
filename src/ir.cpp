@@ -6260,7 +6260,7 @@ static IrInstSrc *ir_gen_async_call(IrBuilderSrc *irb, Scope *scope, AstNode *aw
     if (args == irb->codegen->invalid_inst_src)
         return args;
 
-    IrInstSrc *call = ir_build_async_call_extra(irb, scope, call_node, modifier, fn_ref, bytes, ret_ptr, args, result_loc);
+    IrInstSrc *call = ir_build_async_call_extra(irb, scope, call_node, modifier, fn_ref, ret_ptr, bytes, args, result_loc);
     return ir_lval_wrap(irb, scope, call, lval, result_loc);
 }
 
@@ -20277,7 +20277,7 @@ static IrInstGen *ir_analyze_fn_call(IrAnalyze *ira, IrInst* source_instr,
         // Fork a scope of the function with known values for the parameters.
         Scope *parent_scope = fn_entry->fndef_scope->base.parent;
         ZigFn *impl_fn = create_fn(ira->codegen, fn_proto_node);
-        
+        impl_fn->param_source_nodes = heap::c_allocator.allocate<AstNode *>(new_fn_arg_count);
         buf_init_from_buf(&impl_fn->symbol_name, &fn_entry->symbol_name);
         impl_fn->fndef_scope = create_fndef_scope(ira->codegen, impl_fn->body_node, parent_scope, impl_fn);
         impl_fn->child_scope = &impl_fn->fndef_scope->base;
@@ -20772,11 +20772,17 @@ static IrInstGen *ir_analyze_async_call_extra(IrAnalyze *ira, IrInst* source_ins
             return ira->codegen->invalid_inst_gen;
     }
 
+    IrInstGen *first_arg_ptr = nullptr;
+    IrInst *first_arg_ptr_src = nullptr;
     ZigFn *fn = nullptr;
     if (instr_is_comptime(fn_ref)) {
         if (fn_ref->value->type->id == ZigTypeIdBoundFn) {
             assert(fn_ref->value->special == ConstValSpecialStatic);
             fn = fn_ref->value->data.x_bound_fn.fn;
+            first_arg_ptr = fn_ref->value->data.x_bound_fn.first_arg;
+            first_arg_ptr_src = fn_ref->value->data.x_bound_fn.first_arg_src;
+            if (type_is_invalid(first_arg_ptr->value->type))
+                return ira->codegen->invalid_inst_gen;
         } else {
             fn = ir_resolve_fn(ira, fn_ref);
         }
@@ -20795,9 +20801,8 @@ static IrInstGen *ir_analyze_async_call_extra(IrAnalyze *ira, IrInst* source_ins
     if (casted_new_stack != nullptr && type_is_invalid(casted_new_stack->value->type))
         return ira->codegen->invalid_inst_gen;
 
-    IrInstGen *result =  ir_analyze_async_call(ira, source_instr, fn, fn_type, fn_ref, args_ptr, args_len,
-        casted_new_stack, true, ret_ptr_uncasted, result_loc);
-    return ir_finish_anal(ira, result);
+    return ir_analyze_fn_call(ira, source_instr, fn, fn_type, fn_ref, first_arg_ptr, first_arg_ptr_src,
+        modifier, casted_new_stack, &new_stack->base, true, args_ptr, args_len, ret_ptr_uncasted, result_loc);
 }
 
 static bool ir_extract_tuple_call_args(IrAnalyze *ira, IrInst *source_instr, IrInstGen *args, IrInstGen ***args_ptr, size_t *args_len) {

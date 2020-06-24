@@ -1144,13 +1144,26 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:2:15: error: @Type not available for 'TypeInfo.Struct'",
     });
 
+    cases.add("wrong type for argument tuple to @asyncCall",
+        \\export fn entry1() void {
+        \\    var frame: @Frame(foo) = undefined;
+        \\    @asyncCall(&frame, {}, foo, {});
+        \\}
+        \\
+        \\fn foo() i32 {
+        \\    return 0;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:3:33: error: expected tuple or struct, found 'void'",
+    });
+
     cases.add("wrong type for result ptr to @asyncCall",
         \\export fn entry() void {
         \\    _ = async amain();
         \\}
         \\fn amain() i32 {
         \\    var frame: @Frame(foo) = undefined;
-        \\    return await @asyncCall(&frame, false, foo);
+        \\    return await @asyncCall(&frame, false, foo, .{});
         \\}
         \\fn foo() i32 {
         \\    return 1234;
@@ -1291,7 +1304,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\export fn entry() void {
         \\    var ptr: fn () callconv(.Async) void = func;
         \\    var bytes: [64]u8 = undefined;
-        \\    _ = @asyncCall(&bytes, {}, ptr);
+        \\    _ = @asyncCall(&bytes, {}, ptr, .{});
         \\}
         \\fn func() callconv(.Async) void {}
     , &[_][]const u8{
@@ -1467,7 +1480,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\export fn entry() void {
         \\    var ptr = afunc;
         \\    var bytes: [100]u8 align(16) = undefined;
-        \\    _ = @asyncCall(&bytes, {}, ptr);
+        \\    _ = @asyncCall(&bytes, {}, ptr, .{});
         \\}
         \\fn afunc() void { }
     , &[_][]const u8{
