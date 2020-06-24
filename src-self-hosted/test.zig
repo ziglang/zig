@@ -298,6 +298,18 @@ pub const TestContext = struct {
                     try new_zir_module.writeToStream(allocator, out_zir.outStream());
                     write_node.end();
 
+                    if (expected_output.len != out_zir.items.len) {
+                        std.debug.warn("{}\nTransformed ZIR length differs:\n================\nExpected:\n================\n{}\n================\nFound: {}\n================\nTest failed.\n", .{ case.name, expected_output, out_zir.items });
+                        std.process.exit(1);
+                    }
+                    for (expected_output) |e, i| {
+                        if (out_zir.items[i] != e) {
+                            if (expected_output.len != out_zir.items.len) {
+                                std.debug.warn("{}\nTransformed ZIR differs:\n================\nExpected:\n================\n{}\n================\nFound: {}\n================\nTest failed.\n", .{ case.name, expected_output, out_zir.items });
+                                std.process.exit(1);
+                            }
+                        }
+                    }
                     std.testing.expectEqualSlices(u8, expected_output, out_zir.items);
                 },
                 .Error => |e| {
