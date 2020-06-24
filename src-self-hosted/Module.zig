@@ -2378,6 +2378,7 @@ fn createAnonymousDecl(
     const name_index = self.getNextAnonNameIndex();
     const scope_decl = scope.decl().?;
     const name = try std.fmt.allocPrint(self.allocator, "{}${}", .{ scope_decl.name, name_index });
+    defer self.allocator.free(name);
     const name_hash = scope.namespace().fullyQualifiedNameHash(name);
     const src_hash: std.zig.SrcHash = undefined;
     const new_decl = try self.createNewDecl(scope, name, scope_decl.src_index, name_hash, src_hash);
