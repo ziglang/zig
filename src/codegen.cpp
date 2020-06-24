@@ -2301,9 +2301,8 @@ static LLVMValueRef get_merge_err_ret_traces_fn_val(CodeGen *g) {
 
     addLLVMArgAttr(fn_val, (unsigned)1, "noalias");
     addLLVMArgAttr(fn_val, (unsigned)1, "readonly");
-    if (g->build_mode == BuildModeDebug) {
-        ZigLLVMAddFunctionAttr(fn_val, "no-frame-pointer-elim", "true");
-        ZigLLVMAddFunctionAttr(fn_val, "no-frame-pointer-elim-non-leaf", nullptr);
+    if (codegen_have_frame_pointer(g)) {
+        ZigLLVMAddFunctionAttr(fn_val, "frame-pointer", "all");
     }
 
     // this is above the ZigLLVMClearCurrentDebugLocation
