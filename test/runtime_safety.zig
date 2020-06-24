@@ -280,7 +280,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\pub fn main() void {
         \\    var bytes: [1]u8 align(16) = undefined;
         \\    var ptr = other;
-        \\    var frame = @asyncCall(&bytes, {}, ptr);
+        \\    var frame = @asyncCall(&bytes, {}, ptr, .{});
         \\}
         \\fn other() callconv(.Async) void {
         \\    suspend;
