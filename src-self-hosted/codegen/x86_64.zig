@@ -70,31 +70,45 @@ pub const Register = enum(u8) {
 
 pub const SysV = struct {
     const Type = @import("../type.zig").Type;
-    const Function = @import("../codegen.zig").Function;
+    const Target = @import("std").Target;
     pub const ParameterClass = enum {
         INTEGER,
+        DUAL_INTEGER,
         SSE,
-        SSEUP,
-        X87,
-        X87UP,
-        COMPLEX_X87,
         NO_CLASS,
         MEMORY,
-        pub fn classify(param_types: []Type, index: usize) @This() {
+        pub fn classify(target: *const Target, param_types: []Type, index: usize) @This() {
             const T = param_types[index];
-            if (T.isInt() or T.tag() == .bool or T.isSinglePointer() or T.isCPtr()) {
+            if ((T.isInt() and T.intInfo(target.*).bits <= 128) or T.tag() == .bool or T.isSinglePointer() or T.isCPtr()) {
                 var i: usize = 0;
                 var ints: u3 = 1;
                 while (i < index) : (i += 1) {
                     const oT = param_types[i];
-                    if (oT.isInt() or oT.tag() == .bool or oT.isSinglePointer() or oT.isCPtr()) {
+                    if (oT.isInt()) {
+                        const bits = oT.intInfo(target.*).bits;
+                        if (bits > 128) {
+                            // TODO; this'll require refactoring...
+                            return .NO_CLASS;
+                        }
+                        ints += if (bits <= 64) @as(u2, 1) else 2;
+                    }
+                    if (oT.tag() == .bool or oT.isSinglePointer() or oT.isCPtr()) {
                         ints += 1;
                     }
                 }
                 if (ints > 6) {
                     return .MEMORY;
                 }
-                return .INTEGER;
+                return if (T.intInfo(target.*).bits > 64) .DUAL_INTEGER else .INTEGER;
+            }
+            if (T.isSlice()) {
+                return .DUAL_INTEGER;
+            }
+            if (T.isFloat()) {
+                const bits = T.floatBits(target.*);
+                if (bits <= 64) {
+                    return .SSE;
+                }
             }
             return .NO_CLASS;
         }

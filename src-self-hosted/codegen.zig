@@ -209,7 +209,7 @@ const Function = struct {
                     if (index >= param_types.len) {
                         return self.fail(src, "attempt to access non-existent argument {}", .{index});
                     }
-                    return switch (x86_64.SysV.ParameterClass.classify(param_types, index)) {
+                    return switch (x86_64.SysV.ParameterClass.classify(self.target, param_types, index)) {
                         .NO_CLASS => self.fail(src, "TODO implement classifying parameter type {}", .{param_types[index]}),
                         .INTEGER => MCValue{ .register = @enumToInt(x86_64.SysV.integerParameter(param_types, index)) },
                         else => |e| self.fail(src, "TODO implement receiving parameter class {}", .{e}),
@@ -250,7 +250,7 @@ const Function = struct {
                                         return self.fail(inst.base.src, "expected {}, found {}", .{ T, arg.ty });
                                     }
                                     const val = try self.resolveInst(inst.args.args[i]);
-                                    const class = x86_64.SysV.ParameterClass.classify(param_types, i);
+                                    const class = x86_64.SysV.ParameterClass.classify(self.target, param_types, i);
                                     switch (class) {
                                         .INTEGER => {
                                             const reg = x86_64.SysV.integerParameter(param_types, i);

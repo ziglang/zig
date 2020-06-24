@@ -184,35 +184,36 @@ pub fn addCases(ctx: *TestContext) !void {
         \\@11 = export(@9, "start")
     , "Hello, world!\n");
 
-    //    ctx.exe("function call with args", linux_x64).addCompareOutput(
-    //        \\export fn _start() noreturn {
-    //        \\    print(@ptrToInt("Hello, World!\n"), 14);
-    //        \\
-    //        \\    exit();
-    //        \\}
-    //        \\
-    //        \\fn print(arg: usize, len: usize) void {
-    //        \\    asm volatile ("syscall"
-    //        \\        :
-    //        \\        : [number] "{rax}" (1),
-    //        \\          [arg1] "{rdi}" (1),
-    //        \\          [arg2] "{rsi}" (arg),
-    //        \\          [arg3] "{rdx}" (len)
-    //        \\        : "rcx", "r11", "memory"
-    //        \\    );
-    //        \\    return;
-    //        \\}
-    //        \\
-    //        \\fn exit() noreturn {
-    //        \\    asm volatile ("syscall"
-    //        \\        :
-    //        \\        : [number] "{rax}" (231),
-    //        \\          [arg1] "{rdi}" (0)
-    //        \\        : "rcx", "r11", "memory"
-    //        \\    );
-    //        \\    unreachable;
-    //        \\}
-    //    ,
-    //        "Hello, World!\n",
-    //    );
+    //   ctx.compareOutput(
+    //       "function call with args",
+    //       \\export fn _start() noreturn {
+    //       \\    print(@ptrToInt("Hello, World!\n"), 14);
+    //       \\
+    //       \\    exit();
+    //       \\}
+    //       \\
+    //       \\fn print(arg: usize, len: usize) void {
+    //       \\    asm volatile ("syscall"
+    //       \\        :
+    //       \\        : [number] "{rax}" (1),
+    //       \\          [arg1] "{rdi}" (1),
+    //       \\          [arg2] "{rsi}" (arg),
+    //       \\          [arg3] "{rdx}" (len)
+    //       \\        : "rcx", "r11", "memory"
+    //       \\    );
+    //       \\    return;
+    //       \\}
+    //       \\
+    //       \\fn exit() noreturn {
+    //       \\    asm volatile ("syscall"
+    //       \\        :
+    //       \\        : [number] "{rax}" (231),
+    //       \\          [arg1] "{rdi}" (0)
+    //       \\        : "rcx", "r11", "memory"
+    //       \\    );
+    //       \\    unreachable;
+    //       \\}
+    //   ,
+    //       "Hello, World!\n",
+    // );
 }
