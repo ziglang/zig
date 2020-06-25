@@ -17,9 +17,9 @@ pub fn addCases(ctx: *TestContext) !void {
     }
 
     {
-        var case = ctx.addExe("hello world with updates", linux_x64);
+        var case = try ctx.addExe("hello world with updates", linux_x64, .Zig);
         // Regular old hello world
-        case.addCompareOutput(
+        try case.addCompareOutput(
             \\export fn _start() noreturn {
             \\    print();
             \\
@@ -51,7 +51,7 @@ pub fn addCases(ctx: *TestContext) !void {
             "Hello, World!\n",
         );
         // Now change the message only
-        case.addCompareOutput(
+        try case.addCompareOutput(
             \\export fn _start() noreturn {
             \\    print();
             \\
@@ -83,7 +83,7 @@ pub fn addCases(ctx: *TestContext) !void {
             "What is up? This is a longer message that will force the data to be relocated in virtual address space.\n",
         );
         // Now we print it twice.
-        case.addCompareOutput(
+        try case.addCompareOutput(
             \\export fn _start() noreturn {
             \\    print();
             \\    print();

@@ -8,8 +8,8 @@ const linux_x64 = std.zig.CrossTarget{
     .os_tag = .linux,
 };
 
-pub fn addCases(ctx: *TestContext) void {
-    ctx.addZIRTransform("referencing decls which appear later in the file", linux_x64,
+pub fn addCases(ctx: *TestContext) !void {
+    try ctx.addTransform("referencing decls which appear later in the file", linux_x64, .ZIR,
         \\@void = primitive(void)
         \\@fnty = fntype([], @void, cc=C)
         \\
@@ -32,7 +32,7 @@ pub fn addCases(ctx: *TestContext) void {
         \\})
         \\
     );
-    ctx.addZIRTransform("elemptr, add, cmp, condbr, return, breakpoint", linux_x64,
+    try ctx.addTransform("elemptr, add, cmp, condbr, return, breakpoint", linux_x64, .ZIR,
         \\@void = primitive(void)
         \\@usize = primitive(usize)
         \\@fnty = fntype([], @void, cc=C)
@@ -86,8 +86,8 @@ pub fn addCases(ctx: *TestContext) void {
     );
 
     {
-        var case = ctx.addObjZIR("reference cycle with compile error in the cycle", linux_x64);
-        case.addTransform(
+        var case = try ctx.addObj("reference cycle with compile error in the cycle", linux_x64, .ZIR);
+        try case.addTransform(
             \\@void = primitive(void)
             \\@fnty = fntype([], @void, cc=C)
             \\
@@ -133,7 +133,7 @@ pub fn addCases(ctx: *TestContext) void {
             \\
         );
         // Now we introduce a compile error
-        case.addError(
+        try case.addError(
             \\@void = primitive(void)
             \\@fnty = fntype([], @void, cc=C)
             \\
@@ -163,7 +163,7 @@ pub fn addCases(ctx: *TestContext) void {
         // Now we remove the call to `a`. `a` and `b` form a cycle, but no entry points are
         // referencing either of them. This tests that the cycle is detected, and the error
         // goes away.
-        case.addTransform(
+        try case.addTransform(
             \\@void = primitive(void)
             \\@fnty = fntype([], @void, cc=C)
             \\
@@ -207,7 +207,7 @@ pub fn addCases(ctx: *TestContext) void {
         return;
     }
 
-    ctx.addZIRCompareOutput("hello world ZIR",
+    try ctx.addCompareOutput("hello world ZIR", .ZIR,
         \\@noreturn = primitive(noreturn)
         \\@void = primitive(void)
         \\@usize = primitive(usize)
@@ -265,7 +265,7 @@ pub fn addCases(ctx: *TestContext) void {
         \\
     );
 
-    ctx.addZIRCompareOutput("function call with no args no return value",
+    try ctx.addCompareOutput("function call with no args no return value", .ZIR,
         \\@noreturn = primitive(noreturn)
         \\@void = primitive(void)
         \\@usize = primitive(usize)
