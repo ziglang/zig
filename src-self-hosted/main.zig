@@ -38,6 +38,29 @@ const usage =
     \\
 ;
 
+pub fn log(
+    comptime level: std.log.Level,
+    comptime scope: @TypeOf(.EnumLiteral),
+    comptime format: []const u8,
+    args: var,
+) void {
+    if (@enumToInt(level) > @enumToInt(std.log.level))
+        return;
+
+    const scope_prefix = "(" ++ switch (scope) {
+        // Uncomment to hide logs
+        //.compiler,
+        .link => return,
+
+        else => @tagName(scope),
+    } ++ "): ";
+
+    const prefix = "[" ++ @tagName(level) ++ "] " ++ scope_prefix;
+
+    // Print the message to stderr, silently ignoring any errors
+    std.debug.print(prefix ++ format, args);
+}
+
 pub fn main() !void {
     // TODO general purpose allocator in the zig std lib
     const gpa = if (std.builtin.link_libc) std.heap.c_allocator else std.heap.page_allocator;
@@ -86,7 +109,7 @@ const usage_build_generic =
     \\       zig build-obj <options> [files]
     \\
     \\Supported file types:
-    \\     (planned)      .zig    Zig source code
+    \\                    .zig    Zig source code
     \\                    .zir    Zig Intermediate Representation code
     \\     (planned)        .o    ELF object file
     \\     (planned)        .o    MACH-O (macOS) object file
@@ -407,21 +430,7 @@ fn buildOutputType(
             std.debug.warn("-fno-emit-bin not supported yet", .{});
             process.exit(1);
         },
-        .yes_default_path => switch (output_mode) {
-            .Exe => try std.fmt.allocPrint(arena, "{}{}", .{ root_name, target_info.target.exeFileExt() }),
-            .Lib => blk: {
-                const suffix = switch (link_mode orelse .Static) {
-                    .Static => target_info.target.staticLibSuffix(),
-                    .Dynamic => target_info.target.dynamicLibSuffix(),
-                };
-                break :blk try std.fmt.allocPrint(arena, "{}{}{}", .{
-                    target_info.target.libPrefix(),
-                    root_name,
-                    suffix,
-                });
-            },
-            .Obj => try std.fmt.allocPrint(arena, "{}{}", .{ root_name, target_info.target.oFileExt() }),
-        },
+        .yes_default_path => try std.zig.binNameAlloc(arena, root_name, target_info.target, output_mode, link_mode),
         .yes => |p| p,
     };
 
@@ -450,6 +459,7 @@ fn buildOutputType(
         .link_mode = link_mode,
         .object_format = object_format,
         .optimize_mode = build_mode,
+        .keep_source_files_loaded = zir_out_path != null,
     });
     defer module.deinit();
 
@@ -487,7 +497,9 @@ fn buildOutputType(
 }
 
 fn updateModule(gpa: *Allocator, module: *Module, zir_out_path: ?[]const u8) !void {
+    var timer = try std.time.Timer.start();
     try module.update();
+    const update_nanos = timer.read();
 
     var errors = try module.getAllErrorsAlloc();
     defer errors.deinit(module.allocator);
@@ -501,6 +513,8 @@ fn updateModule(gpa: *Allocator, module: *Module, zir_out_path: ?[]const u8) !vo
                 full_err_msg.msg,
             });
         }
+    } else {
+        std.log.info(.compiler, "Update completed in {} ms\n", .{update_nanos / std.time.ns_per_ms});
     }
 
     if (zir_out_path) |zop| {

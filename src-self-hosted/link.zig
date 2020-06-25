@@ -369,7 +369,7 @@ pub const ElfFile = struct {
             const file_size = self.options.program_code_size_hint;
             const p_align = 0x1000;
             const off = self.findFreeSpace(file_size, p_align);
-            //std.debug.warn("found PT_LOAD free space 0x{x} to 0x{x}\n", .{ off, off + file_size });
+            //std.log.debug(.link, "found PT_LOAD free space 0x{x} to 0x{x}\n", .{ off, off + file_size });
             try self.program_headers.append(self.allocator, .{
                 .p_type = elf.PT_LOAD,
                 .p_offset = off,
@@ -390,7 +390,7 @@ pub const ElfFile = struct {
             // page align.
             const p_align = 0x1000;
             const off = self.findFreeSpace(file_size, p_align);
-            //std.debug.warn("found PT_LOAD free space 0x{x} to 0x{x}\n", .{ off, off + file_size });
+            //std.log.debug(.link, "found PT_LOAD free space 0x{x} to 0x{x}\n", .{ off, off + file_size });
             // TODO instead of hard coding the vaddr, make a function to find a vaddr to put things at.
             // we'll need to re-use that function anyway, in case the GOT grows and overlaps something
             // else in virtual memory.
@@ -412,7 +412,7 @@ pub const ElfFile = struct {
             assert(self.shstrtab.items.len == 0);
             try self.shstrtab.append(self.allocator, 0); // need a 0 at position 0
             const off = self.findFreeSpace(self.shstrtab.items.len, 1);
-            //std.debug.warn("found shstrtab free space 0x{x} to 0x{x}\n", .{ off, off + self.shstrtab.items.len });
+            //std.log.debug(.link, "found shstrtab free space 0x{x} to 0x{x}\n", .{ off, off + self.shstrtab.items.len });
             try self.sections.append(self.allocator, .{
                 .sh_name = try self.makeString(".shstrtab"),
                 .sh_type = elf.SHT_STRTAB,
@@ -470,7 +470,7 @@ pub const ElfFile = struct {
             const each_size: u64 = if (small_ptr) @sizeOf(elf.Elf32_Sym) else @sizeOf(elf.Elf64_Sym);
             const file_size = self.options.symbol_count_hint * each_size;
             const off = self.findFreeSpace(file_size, min_align);
-            //std.debug.warn("found symtab free space 0x{x} to 0x{x}\n", .{ off, off + file_size });
+            //std.log.debug(.link, "found symtab free space 0x{x} to 0x{x}\n", .{ off, off + file_size });
 
             try self.sections.append(self.allocator, .{
                 .sh_name = try self.makeString(".symtab"),
@@ -586,7 +586,7 @@ pub const ElfFile = struct {
                     shstrtab_sect.sh_offset = self.findFreeSpace(needed_size, 1);
                 }
                 shstrtab_sect.sh_size = needed_size;
-                //std.debug.warn("shstrtab start=0x{x} end=0x{x}\n", .{ shstrtab_sect.sh_offset, shstrtab_sect.sh_offset + needed_size });
+                //std.log.debug(.link, "shstrtab start=0x{x} end=0x{x}\n", .{ shstrtab_sect.sh_offset, shstrtab_sect.sh_offset + needed_size });
 
                 try self.file.?.pwriteAll(self.shstrtab.items, shstrtab_sect.sh_offset);
                 if (!self.shdr_table_dirty) {
@@ -632,7 +632,7 @@ pub const ElfFile = struct {
 
                     for (buf) |*shdr, i| {
                         shdr.* = self.sections.items[i];
-                        //std.debug.warn("writing section {}\n", .{shdr.*});
+                        //std.log.debug(.link, "writing section {}\n", .{shdr.*});
                         if (foreign_endian) {
                             bswapAllFields(elf.Elf64_Shdr, shdr);
                         }
@@ -956,10 +956,10 @@ pub const ElfFile = struct {
         try self.offset_table_free_list.ensureCapacity(self.allocator, self.local_symbols.items.len);
 
         if (self.local_symbol_free_list.popOrNull()) |i| {
-            //std.debug.warn("reusing symbol index {} for {}\n", .{i, decl.name});
+            //std.log.debug(.link, "reusing symbol index {} for {}\n", .{i, decl.name});
             decl.link.local_sym_index = i;
         } else {
-            //std.debug.warn("allocating symbol index {} for {}\n", .{self.local_symbols.items.len, decl.name});
+            //std.log.debug(.link, "allocating symbol index {} for {}\n", .{self.local_symbols.items.len, decl.name});
             decl.link.local_sym_index = @intCast(u32, self.local_symbols.items.len);
             _ = self.local_symbols.addOneAssumeCapacity();
         }
@@ -1002,7 +1002,7 @@ pub const ElfFile = struct {
         defer code_buffer.deinit();
 
         const typed_value = decl.typed_value.most_recent.typed_value;
-        const code = switch (try codegen.generateSymbol(self, decl.src, typed_value, &code_buffer)) {
+        const code = switch (try codegen.generateSymbol(self, decl.src(), typed_value, &code_buffer)) {
             .externally_managed => |x| x,
             .appended => code_buffer.items,
             .fail => |em| {
@@ -1027,11 +1027,11 @@ pub const ElfFile = struct {
                 !mem.isAlignedGeneric(u64, local_sym.st_value, required_alignment);
             if (need_realloc) {
                 const vaddr = try self.growTextBlock(&decl.link, code.len, required_alignment);
-                //std.debug.warn("growing {} from 0x{x} to 0x{x}\n", .{ decl.name, local_sym.st_value, vaddr });
+                //std.log.debug(.link, "growing {} from 0x{x} to 0x{x}\n", .{ decl.name, local_sym.st_value, vaddr });
                 if (vaddr != local_sym.st_value) {
                     local_sym.st_value = vaddr;
 
-                    //std.debug.warn("  (writing new offset table entry)\n", .{});
+                    //std.log.debug(.link, "  (writing new offset table entry)\n", .{});
                     self.offset_table.items[decl.link.offset_table_index] = vaddr;
                     try self.writeOffsetTableEntry(decl.link.offset_table_index);
                 }
@@ -1049,7 +1049,7 @@ pub const ElfFile = struct {
             const decl_name = mem.spanZ(decl.name);
             const name_str_index = try self.makeString(decl_name);
             const vaddr = try self.allocateTextBlock(&decl.link, code.len, required_alignment);
-            //std.debug.warn("allocated text block for {} at 0x{x}\n", .{ decl_name, vaddr });
+            //std.log.debug(.link, "allocated text block for {} at 0x{x}\n", .{ decl_name, vaddr });
             errdefer self.freeTextBlock(&decl.link);
 
             local_sym.* = .{
@@ -1307,7 +1307,6 @@ pub const ElfFile = struct {
             .p32 => @sizeOf(elf.Elf32_Sym),
             .p64 => @sizeOf(elf.Elf64_Sym),
         };
-        //std.debug.warn("symtab start=0x{x} end=0x{x}\n", .{ syms_sect.sh_offset, syms_sect.sh_offset + needed_size });
         const foreign_endian = self.options.target.cpu.arch.endian() != std.Target.current.cpu.arch.endian();
         const global_syms_off = syms_sect.sh_offset + self.local_symbols.items.len * sym_size;
         switch (self.ptr_width) {

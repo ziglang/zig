@@ -21,3 +21,11 @@ pub const Managed = struct {
         self.* = undefined;
     }
 };
+
+/// Assumes arena allocation. Does a recursive copy.
+pub fn copy(self: TypedValue, allocator: *Allocator) error{OutOfMemory}!TypedValue {
+    return TypedValue{
+        .ty = try self.ty.copy(allocator),
+        .val = try self.val.copy(allocator),
+    };
+}

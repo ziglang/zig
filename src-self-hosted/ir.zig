@@ -26,6 +26,7 @@ pub const Inst = struct {
         isnull,
         ptrtoint,
         ret,
+        retvoid,
         unreach,
     };
 
@@ -145,6 +146,14 @@ pub const Inst = struct {
 
     pub const Ret = struct {
         pub const base_tag = Tag.ret;
+        base: Inst,
+        args: struct {
+            operand: *Inst,
+        },
+    };
+
+    pub const RetVoid = struct {
+        pub const base_tag = Tag.retvoid;
         base: Inst,
         args: void,
     };

@@ -27,9 +27,8 @@ pub fn addCases(ctx: *TestContext) !void {
         \\  %0 = call(@notafunc, [])
         \\})
         \\@0 = str("_start")
-        \\@1 = ref(@0)
-        \\@2 = export(@1, @start)
-    , &[_][]const u8{":5:13: error: use of undeclared identifier 'notafunc'"});
+        \\@1 = export(@0, "start")
+    , &[_][]const u8{":5:13: error: decl 'notafunc' not found"});
 
     // TODO: this error should occur at the call site, not the fntype decl
     ctx.addZIRError("call naked function", linux_x64,
@@ -41,8 +40,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\  %0 = call(@s, [])
         \\})
         \\@0 = str("_start")
-        \\@1 = ref(@0)
-        \\@2 = export(@1, @start)
+        \\@1 = export(@0, "start")
     , &[_][]const u8{":4:9: error: unable to call function with naked calling convention"});
 
     // TODO: re-enable these tests.
