@@ -7571,6 +7571,16 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return -y;
         \\}
     , &[_][]const u8{
-        "tmp.zig:3:12: error: negation of type 'u32'"
+        "tmp.zig:3:12: error: negation of type 'u32'",
+    });
+
+    cases.add("Issue #5618: coercion of ?*c_void to *c_void must fail.",
+        \\export fn foo() void {
+        \\    var u: ?*c_void = null;
+        \\    var v: *c_void = undefined;
+        \\    v = u;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:4:9: error: expected type '*c_void', found '?*c_void'",
     });
 }
