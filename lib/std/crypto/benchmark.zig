@@ -123,15 +123,6 @@ fn mode(comptime x: comptime_int) comptime_int {
     return if (builtin.mode == .Debug) x / 64 else x;
 }
 
-// TODO(#1358): Replace with builtin formatted padding when available.
-fn printPad(stdout: var, s: []const u8) !void {
-    var i: usize = 0;
-    while (i < 12 - s.len) : (i += 1) {
-        try stdout.print(" ", .{});
-    }
-    try stdout.print("{}", .{s});
-}
-
 pub fn main() !void {
     const stdout = std.io.getStdOut().outStream();
 
@@ -175,24 +166,21 @@ pub fn main() !void {
     inline for (hashes) |H| {
         if (filter == null or std.mem.indexOf(u8, H.name, filter.?) != null) {
             const throughput = try benchmarkHash(H.ty, mode(32 * MiB));
-            try printPad(stdout, H.name);
-            try stdout.print(": {} MiB/s\n", .{throughput / (1 * MiB)});
+            try stdout.print("{:>11}: {:5} MiB/s\n", .{H.name, throughput / (1 * MiB)});
         }
     }
 
     inline for (macs) |M| {
         if (filter == null or std.mem.indexOf(u8, M.name, filter.?) != null) {
             const throughput = try benchmarkMac(M.ty, mode(128 * MiB));
-            try printPad(stdout, M.name);
-            try stdout.print(": {} MiB/s\n", .{throughput / (1 * MiB)});
+            try stdout.print("{:>11}: {:5} MiB/s\n", .{M.name, throughput / (1 * MiB)});
         }
     }
 
     inline for (exchanges) |E| {
         if (filter == null or std.mem.indexOf(u8, E.name, filter.?) != null) {
             const throughput = try benchmarkKeyExchange(E.ty, mode(1000));
-            try printPad(stdout, E.name);
-            try stdout.print(": {} exchanges/s\n", .{throughput});
+            try stdout.print("{:>11}: {:5} exchanges/s\n", .{E.name, throughput});
         }
     }
 }
