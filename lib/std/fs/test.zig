@@ -56,11 +56,10 @@ test "Dir.realpath" {
     var tmp_dir = tmpDir(.{});
     defer tmp_dir.cleanup();
 
-    // We need to open with File.Lock.Shared as otherwise `std.os.realpath` will
-    // error out with sharing violation on Windows.
-    // TODO is this a bug on Windows?
     var file = try tmp_dir.dir.createFile("test_file", .{ .lock = File.Lock.Shared });
-    defer file.close();
+    // We need to close the file immediately as otherwise on Windows we'll end up
+    // with a sharing violation.
+    file.close();
 
     const abs_file_path = try tmp_dir.dir.realpath(testing.allocator, "test_file");
     defer testing.allocator.free(abs_file_path);
