@@ -66,26 +66,26 @@ pub const TestContext = struct {
 
         /// Adds a subcase in which the module is updated with new ZIR, and the
         /// resulting ZIR is validated.
-        pub fn addTransform(self: *Case, src: [:0]const u8, result: [:0]const u8) !void {
-            try self.updates.append(.{
+        pub fn addTransform(self: *Case, src: [:0]const u8, result: [:0]const u8) void {
+            self.updates.append(.{
                 .src = src,
                 .case = .{ .Transformation = result },
-            });
+            }) catch unreachable;
         }
 
-        pub fn addCompareOutput(self: *Case, src: [:0]const u8, result: []const u8) !void {
-            try self.updates.append(.{
+        pub fn addCompareOutput(self: *Case, src: [:0]const u8, result: []const u8) void {
+            self.updates.append(.{
                 .src = src,
                 .case = .{ .Execution = result },
-            });
+            }) catch unreachable;
         }
 
         /// Adds a subcase in which the module is updated with invalid ZIR, and
         /// ensures that compilation fails for the expected reasons.
         ///
         /// Errors must be specified in sequential order.
-        pub fn addError(self: *Case, src: [:0]const u8, errors: []const []const u8) !void {
-            var array = try self.updates.allocator.alloc(ErrorMsg, errors.len);
+        pub fn addError(self: *Case, src: [:0]const u8, errors: []const []const u8) void {
+            var array = self.updates.allocator.alloc(ErrorMsg, errors.len) catch unreachable;
             for (errors) |e, i| {
                 if (e[0] != ':') {
                     @panic("Invalid test: error must be specified as follows:\n:line:column: error: message\n=========\n");
@@ -118,7 +118,7 @@ pub const TestContext = struct {
                     .column = column - 1,
                 };
             }
-            try self.updates.append(.{ .src = src, .case = .{ .Error = array } });
+            self.updates.append(.{ .src = src, .case = .{ .Error = array } }) catch unreachable;
         }
     };
 
@@ -127,15 +127,14 @@ pub const TestContext = struct {
         name: []const u8,
         target: std.zig.CrossTarget,
         T: TestType,
-    ) !*Case {
-        const case = Case{
+    ) *Case {
+        ctx.cases.append(Case{
             .name = name,
             .target = target,
             .updates = std.ArrayList(Update).init(ctx.cases.allocator),
             .output_mode = .Exe,
             .@"type" = T,
-        };
-        try ctx.cases.append(case);
+        }) catch unreachable;
         return &ctx.cases.items[ctx.cases.items.len - 1];
     }
 
@@ -144,14 +143,14 @@ pub const TestContext = struct {
         name: []const u8,
         target: std.zig.CrossTarget,
         T: TestType,
-    ) !*Case {
-        try ctx.cases.append(Case{
+    ) *Case {
+        ctx.cases.append(Case{
             .name = name,
             .target = target,
             .updates = std.ArrayList(Update).init(ctx.cases.allocator),
             .output_mode = .Obj,
             .@"type" = T,
-        });
+        }) catch unreachable;
         return &ctx.cases.items[ctx.cases.items.len - 1];
     }
 
@@ -161,9 +160,8 @@ pub const TestContext = struct {
         T: TestType,
         src: [:0]const u8,
         expected_stdout: []const u8,
-    ) !void {
-        var c = try ctx.addExe(name, .{}, T);
-        try c.addCompareOutput(src, expected_stdout);
+    ) void {
+        ctx.addExe(name, .{}, T).addCompareOutput(src, expected_stdout);
     }
 
     pub fn addTransform(
@@ -173,9 +171,8 @@ pub const TestContext = struct {
         T: TestType,
         src: [:0]const u8,
         result: [:0]const u8,
-    ) !void {
-        var c = try ctx.addObj(name, target, T);
-        try c.addTransform(src, result);
+    ) void {
+        ctx.addObj(name, target, T).addTransform(src, result);
     }
 
     pub fn addError(
@@ -185,16 +182,13 @@ pub const TestContext = struct {
         T: TestType,
         src: [:0]const u8,
         expected_errors: []const []const u8,
-    ) !void {
-        var c = try ctx.addObj(name, target, T);
-        try c.addError(src, expected_errors);
+    ) void {
+        ctx.addObj(name, target, T).addError(src, expected_errors);
     }
 
     fn init() TestContext {
         const allocator = std.heap.page_allocator;
-        return .{
-            .cases = std.ArrayList(Case).init(allocator),
-        };
+        return .{ .cases = std.ArrayList(Case).init(allocator) };
     }
 
     fn deinit(self: *TestContext) void {
