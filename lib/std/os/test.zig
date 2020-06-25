@@ -18,6 +18,28 @@ const AtomicOrder = builtin.AtomicOrder;
 const tmpDir = std.testing.tmpDir;
 const Dir = std.fs.Dir;
 
+test "fstatat" {
+    // enable when `fstat` and `fstatat` are implemented on Windows
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    // create dummy file
+    const contents = "nonsense";
+    try tmp.dir.writeFile("file.txt", contents);
+
+    // fetch file's info on the opened fd directly
+    const file = try tmp.dir.openFile("file.txt", .{});
+    const stat = try os.fstat(file.handle);
+    defer file.close();
+
+    // now repeat but using `fstatat` instead
+    const flags = if (builtin.os.tag == .wasi) 0x0 else os.AT_SYMLINK_NOFOLLOW;
+    const statat = try os.fstatat(tmp.dir.fd, "file.txt", flags);
+    expectEqual(stat, statat);
+}
+
 test "readlinkat" {
     // enable when `readlinkat` and `symlinkat` are implemented on Windows
     if (builtin.os.tag == .windows) return error.SkipZigTest;
