@@ -226,30 +226,42 @@ pub const TestContext = struct {
 
         for (self.zir_cases.items) |case| {
             std.testing.base_allocator_instance.reset();
+
+            var prg_node = root_node.start(case.name, case.updates.items.len);
+            prg_node.activate();
+            defer prg_node.end();
+
+            // So that we can see which test case failed when the leak checker goes off.
+            progress.refresh();
+
             const info = try std.zig.system.NativeTargetInfo.detect(std.testing.allocator, case.target);
-            try self.runOneZIRCase(std.testing.allocator, root_node, case, info.target);
+            try self.runOneZIRCase(std.testing.allocator, &prg_node, case, info.target);
             try std.testing.allocator_instance.validate();
         }
 
         // TODO: wipe the rest of this function
         for (self.zir_cmp_output_cases.items) |case| {
             std.testing.base_allocator_instance.reset();
-            try self.runOneZIRCmpOutputCase(std.testing.allocator, root_node, case, native_info.target);
+
+            var prg_node = root_node.start(case.name, case.src_list.len);
+            prg_node.activate();
+            defer prg_node.end();
+
+            // So that we can see which test case failed when the leak checker goes off.
+            progress.refresh();
+
+            try self.runOneZIRCmpOutputCase(std.testing.allocator, &prg_node, case, native_info.target);
             try std.testing.allocator_instance.validate();
         }
     }
 
-    fn runOneZIRCase(self: *TestContext, allocator: *Allocator, root_node: *std.Progress.Node, case: ZIRCase, target: std.Target) !void {
+    fn runOneZIRCase(self: *TestContext, allocator: *Allocator, prg_node: *std.Progress.Node, case: ZIRCase, target: std.Target) !void {
         var tmp = std.testing.tmpDir(.{});
         defer tmp.cleanup();
 
         const tmp_src_path = "test_case.zir";
         const root_pkg = try Package.create(allocator, tmp.dir, ".", tmp_src_path);
         defer root_pkg.destroy();
-
-        var prg_node = root_node.start(case.name, case.updates.items.len);
-        prg_node.activate();
-        defer prg_node.end();
 
         var module = try Module.init(allocator, .{
             .target = target,
@@ -265,6 +277,7 @@ pub const TestContext = struct {
             .bin_file_dir = tmp.dir,
             .bin_file_path = "test_case.o",
             .root_pkg = root_pkg,
+            .keep_source_files_loaded = true,
         });
         defer module.deinit();
 
@@ -329,7 +342,7 @@ pub const TestContext = struct {
                     }
                 },
 
-                else => return error.unimplemented,
+                else => return error.Unimplemented,
             }
         }
     }
@@ -337,7 +350,7 @@ pub const TestContext = struct {
     fn runOneZIRCmpOutputCase(
         self: *TestContext,
         allocator: *Allocator,
-        root_node: *std.Progress.Node,
+        prg_node: *std.Progress.Node,
         case: ZIRCompareOutputCase,
         target: std.Target,
     ) !void {
@@ -347,10 +360,6 @@ pub const TestContext = struct {
         const tmp_src_path = "test-case.zir";
         const root_pkg = try Package.create(allocator, tmp.dir, ".", tmp_src_path);
         defer root_pkg.destroy();
-
-        var prg_node = root_node.start(case.name, case.src_list.len);
-        prg_node.activate();
-        defer prg_node.end();
 
         var module = try Module.init(allocator, .{
             .target = target,

@@ -69,6 +69,8 @@ next_anon_name_index: usize = 0,
 /// contains Decls that need to be deleted if they end up having no references to them.
 deletion_set: std.ArrayListUnmanaged(*Decl) = .{},
 
+keep_source_files_loaded: bool,
+
 const DeclTable = std.HashMap(Scope.NameHash, *Decl, Scope.name_hash_hash, Scope.name_hash_eql);
 
 const WorkItem = union(enum) {
@@ -580,11 +582,13 @@ pub const Scope = struct {
                 .loaded_success => {
                     self.contents.module.deinit(allocator);
                     allocator.destroy(self.contents.module);
+                    self.contents = .{ .not_available = {} };
                     self.status = .unloaded_success;
                 },
                 .loaded_sema_failure => {
                     self.contents.module.deinit(allocator);
                     allocator.destroy(self.contents.module);
+                    self.contents = .{ .not_available = {} };
                     self.status = .unloaded_sema_failure;
                 },
             }
@@ -719,6 +723,7 @@ pub const InitOptions = struct {
     link_mode: ?std.builtin.LinkMode = null,
     object_format: ?std.builtin.ObjectFormat = null,
     optimize_mode: std.builtin.Mode = .Debug,
+    keep_source_files_loaded: bool = false,
 };
 
 pub fn init(gpa: *Allocator, options: InitOptions) !Module {
@@ -772,6 +777,7 @@ pub fn init(gpa: *Allocator, options: InitOptions) !Module {
         .failed_files = std.AutoHashMap(*Scope, *ErrorMsg).init(gpa),
         .failed_exports = std.AutoHashMap(*Export, *ErrorMsg).init(gpa),
         .work_queue = std.fifo.LinearFifo(WorkItem, .Dynamic).init(gpa),
+        .keep_source_files_loaded = options.keep_source_files_loaded,
     };
 }
 
@@ -869,21 +875,22 @@ pub fn update(self: *Module) !void {
     try self.performAllTheWork();
 
     // Process the deletion set.
-    for (self.deletion_set.items) |decl| {
+    while (self.deletion_set.popOrNull()) |decl| {
         if (decl.dependants.items.len != 0) {
             decl.deletion_flag = false;
             continue;
         }
         try self.deleteDecl(decl);
     }
-    self.deletion_set.shrink(self.allocator, 0);
 
     self.link_error_flags = self.bin_file.error_flags;
 
     // If there are any errors, we anticipate the source files being loaded
     // to report error messages. Otherwise we unload all source files to save memory.
     if (self.totalErrorCount() == 0) {
-        self.root_scope.unload(self.allocator);
+        if (!self.keep_source_files_loaded) {
+            self.root_scope.unload(self.allocator);
+        }
         try self.bin_file.flush();
     }
 }
@@ -1025,7 +1032,6 @@ fn ensureDeclAnalyzed(self: *Module, decl: *Decl) InnerError!void {
     defer tracy.end();
 
     const subsequent_analysis = switch (decl.analysis) {
-        .complete => return,
         .in_progress => unreachable,
 
         .sema_failure,
@@ -1035,7 +1041,11 @@ fn ensureDeclAnalyzed(self: *Module, decl: *Decl) InnerError!void {
         .codegen_failure_retryable,
         => return error.AnalysisFail,
 
-        .outdated => blk: {
+        .complete, .outdated => blk: {
+            if (decl.generation == self.generation) {
+                assert(decl.analysis == .complete);
+                return;
+            }
             //std.debug.warn("re-analyzing {}\n", .{decl.name});
 
             // The exports this Decl performs will be re-discovered, so we remove them here
@@ -1044,10 +1054,9 @@ fn ensureDeclAnalyzed(self: *Module, decl: *Decl) InnerError!void {
             // Dependencies will be re-discovered, so we remove them here prior to re-analysis.
             for (decl.dependencies.items) |dep| {
                 dep.removeDependant(decl);
-                if (dep.dependants.items.len == 0) {
+                if (dep.dependants.items.len == 0 and !dep.deletion_flag) {
                     // We don't perform a deletion here, because this Decl or another one
                     // may end up referencing it before the update is complete.
-                    assert(!dep.deletion_flag);
                     dep.deletion_flag = true;
                     try self.deletion_set.append(self.allocator, dep);
                 }
@@ -1773,6 +1782,9 @@ fn analyzeRootZIRModule(self: *Module, root_scope: *Scope.ZIRModule) !void {
             }
         }
     }
+    for (exports_to_resolve.items) |export_decl| {
+        _ = try self.resolveZirDecl(&root_scope.base, export_decl);
+    }
     {
         // Handle explicitly deleted decls from the source code. Not to be confused
         // with when we delete decls because they are no longer referenced.
@@ -1781,9 +1793,6 @@ fn analyzeRootZIRModule(self: *Module, root_scope: *Scope.ZIRModule) !void {
             //std.debug.warn("noticed '{}' deleted from source\n", .{kv.key.name});
             try self.deleteDecl(kv.key);
         }
-    }
-    for (exports_to_resolve.items) |export_decl| {
-        _ = try self.resolveZirDecl(&root_scope.base, export_decl);
     }
 }
 
@@ -1800,10 +1809,9 @@ fn deleteDecl(self: *Module, decl: *Decl) !void {
     // Remove itself from its dependencies, because we are about to destroy the decl pointer.
     for (decl.dependencies.items) |dep| {
         dep.removeDependant(decl);
-        if (dep.dependants.items.len == 0) {
+        if (dep.dependants.items.len == 0 and !dep.deletion_flag) {
             // We don't recursively perform a deletion here, because during the update,
             // another reference to it may turn up.
-            assert(!dep.deletion_flag);
             dep.deletion_flag = true;
             self.deletion_set.appendAssumeCapacity(dep);
         }
@@ -2026,9 +2034,10 @@ fn resolveInst(self: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!*In
     };
     const decl = try self.resolveCompleteZirDecl(scope, entry.decl);
     const decl_ref = try self.analyzeDeclRef(scope, old_inst.src, decl);
-    const result = try self.analyzeDeref(scope, old_inst.src, decl_ref, old_inst.src);
-    old_inst.analyzed_inst = result;
-    return result;
+    // Note: it would be tempting here to store the result into old_inst.analyzed_inst field,
+    // but this would prevent the analyzeDeclRef from happening, which is needed to properly
+    // detect Decl dependencies and dependency failures on updates.
+    return self.analyzeDeref(scope, old_inst.src, decl_ref, old_inst.src);
 }
 
 fn requireRuntimeBlock(self: *Module, scope: *Scope, src: usize) !*Scope.Block {

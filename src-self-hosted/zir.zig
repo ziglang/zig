@@ -710,8 +710,9 @@ pub const Module = struct {
         } else if (inst.cast(Inst.DeclValInModule)) |decl_val| {
             try stream.print("@{}", .{decl_val.positionals.decl.name});
         } else {
-            //try stream.print("?", .{});
-            unreachable;
+            // This should be unreachable in theory, but since ZIR is used for debugging the compiler
+            // we output some debug text instead.
+            try stream.print("?{}?", .{@tagName(inst.tag)});
         }
     }
 };
@@ -1175,6 +1176,39 @@ const EmitZIR = struct {
 
         // Emit all the decls.
         for (src_decls.items) |ir_decl| {
+            switch (ir_decl.analysis) {
+                .unreferenced => continue,
+                .complete => {},
+                .in_progress => unreachable,
+                .outdated => unreachable,
+
+                .sema_failure,
+                .sema_failure_retryable,
+                .codegen_failure,
+                .dependency_failure,
+                .codegen_failure_retryable,
+                => if (self.old_module.failed_decls.getValue(ir_decl)) |err_msg| {
+                    const fail_inst = try self.arena.allocator.create(Inst.CompileError);
+                    fail_inst.* = .{
+                        .base = .{
+                            .src = ir_decl.src(),
+                            .tag = Inst.CompileError.base_tag,
+                        },
+                        .positionals = .{
+                            .msg = try self.arena.allocator.dupe(u8, err_msg.msg),
+                        },
+                        .kw_args = .{},
+                    };
+                    const decl = try self.arena.allocator.create(Decl);
+                    decl.* = .{
+                        .name = mem.spanZ(ir_decl.name),
+                        .contents_hash = undefined,
+                        .inst = &fail_inst.base,
+                    };
+                    try self.decls.append(self.allocator, decl);
+                    continue;
+                },
+            }
             if (self.old_module.export_owners.getValue(ir_decl)) |exports| {
                 for (exports) |module_export| {
                     const symbol_name = try self.emitStringLiteral(module_export.src, module_export.options.name);
@@ -1199,20 +1233,27 @@ const EmitZIR = struct {
         }
     }
 
-    fn resolveInst(self: *EmitZIR, inst_table: *std.AutoHashMap(*ir.Inst, *Inst), inst: *ir.Inst) !*Inst {
+    const ZirBody = struct {
+        inst_table: *std.AutoHashMap(*ir.Inst, *Inst),
+        instructions: *std.ArrayList(*Inst),
+    };
+
+    fn resolveInst(self: *EmitZIR, new_body: ZirBody, inst: *ir.Inst) !*Inst {
         if (inst.cast(ir.Inst.Constant)) |const_inst| {
-            const new_decl = if (const_inst.val.cast(Value.Payload.Function)) |func_pl| blk: {
+            const new_inst = if (const_inst.val.cast(Value.Payload.Function)) |func_pl| blk: {
                 const owner_decl = func_pl.func.owner_decl;
                 break :blk try self.emitDeclVal(inst.src, mem.spanZ(owner_decl.name));
             } else if (const_inst.val.cast(Value.Payload.DeclRef)) |declref| blk: {
-                break :blk try self.emitDeclRef(inst.src, declref.decl);
+                const decl_ref = try self.emitDeclRef(inst.src, declref.decl);
+                try new_body.instructions.append(decl_ref);
+                break :blk decl_ref;
             } else blk: {
                 break :blk (try self.emitTypedValue(inst.src, .{ .ty = inst.ty, .val = const_inst.val })).inst;
             };
-            try inst_table.putNoClobber(inst, new_decl);
-            return new_decl;
+            try new_body.inst_table.putNoClobber(inst, new_inst);
+            return new_inst;
         } else {
-            return inst_table.getValue(inst).?;
+            return new_body.inst_table.getValue(inst).?;
         }
     }
 
@@ -1419,6 +1460,10 @@ const EmitZIR = struct {
         inst_table: *std.AutoHashMap(*ir.Inst, *Inst),
         instructions: *std.ArrayList(*Inst),
     ) Allocator.Error!void {
+        const new_body = ZirBody{
+            .inst_table = inst_table,
+            .instructions = instructions,
+        };
         for (body.instructions) |inst| {
             const new_inst = switch (inst.tag) {
                 .breakpoint => try self.emitTrivial(inst.src, Inst.Breakpoint),
@@ -1428,7 +1473,7 @@ const EmitZIR = struct {
 
                     const args = try self.arena.allocator.alloc(*Inst, old_inst.args.args.len);
                     for (args) |*elem, i| {
-                        elem.* = try self.resolveInst(inst_table, old_inst.args.args[i]);
+                        elem.* = try self.resolveInst(new_body, old_inst.args.args[i]);
                     }
                     new_inst.* = .{
                         .base = .{
@@ -1436,7 +1481,7 @@ const EmitZIR = struct {
                             .tag = Inst.Call.base_tag,
                         },
                         .positionals = .{
-                            .func = try self.resolveInst(inst_table, old_inst.args.func),
+                            .func = try self.resolveInst(new_body, old_inst.args.func),
                             .args = args,
                         },
                         .kw_args = .{},
@@ -1453,7 +1498,7 @@ const EmitZIR = struct {
                             .tag = Inst.Return.base_tag,
                         },
                         .positionals = .{
-                            .operand = try self.resolveInst(inst_table, old_inst.args.operand),
+                            .operand = try self.resolveInst(new_body, old_inst.args.operand),
                         },
                         .kw_args = .{},
                     };
@@ -1477,7 +1522,7 @@ const EmitZIR = struct {
 
                     const args = try self.arena.allocator.alloc(*Inst, old_inst.args.args.len);
                     for (args) |*elem, i| {
-                        elem.* = try self.resolveInst(inst_table, old_inst.args.args[i]);
+                        elem.* = try self.resolveInst(new_body, old_inst.args.args[i]);
                     }
 
                     new_inst.* = .{
@@ -1511,7 +1556,7 @@ const EmitZIR = struct {
                             .tag = Inst.PtrToInt.base_tag,
                         },
                         .positionals = .{
-                            .ptr = try self.resolveInst(inst_table, old_inst.args.ptr),
+                            .ptr = try self.resolveInst(new_body, old_inst.args.ptr),
                         },
                         .kw_args = .{},
                     };
@@ -1527,7 +1572,7 @@ const EmitZIR = struct {
                         },
                         .positionals = .{
                             .dest_type = (try self.emitType(inst.src, inst.ty)).inst,
-                            .operand = try self.resolveInst(inst_table, old_inst.args.operand),
+                            .operand = try self.resolveInst(new_body, old_inst.args.operand),
                         },
                         .kw_args = .{},
                     };
@@ -1542,8 +1587,8 @@ const EmitZIR = struct {
                             .tag = Inst.Cmp.base_tag,
                         },
                         .positionals = .{
-                            .lhs = try self.resolveInst(inst_table, old_inst.args.lhs),
-                            .rhs = try self.resolveInst(inst_table, old_inst.args.rhs),
+                            .lhs = try self.resolveInst(new_body, old_inst.args.lhs),
+                            .rhs = try self.resolveInst(new_body, old_inst.args.rhs),
                             .op = old_inst.args.op,
                         },
                         .kw_args = .{},
@@ -1569,7 +1614,7 @@ const EmitZIR = struct {
                             .tag = Inst.CondBr.base_tag,
                         },
                         .positionals = .{
-                            .condition = try self.resolveInst(inst_table, old_inst.args.condition),
+                            .condition = try self.resolveInst(new_body, old_inst.args.condition),
                             .true_body = .{ .instructions = true_body.toOwnedSlice() },
                             .false_body = .{ .instructions = false_body.toOwnedSlice() },
                         },
@@ -1586,7 +1631,7 @@ const EmitZIR = struct {
                             .tag = Inst.IsNull.base_tag,
                         },
                         .positionals = .{
-                            .operand = try self.resolveInst(inst_table, old_inst.args.operand),
+                            .operand = try self.resolveInst(new_body, old_inst.args.operand),
                         },
                         .kw_args = .{},
                     };
@@ -1601,7 +1646,7 @@ const EmitZIR = struct {
                             .tag = Inst.IsNonNull.base_tag,
                         },
                         .positionals = .{
-                            .operand = try self.resolveInst(inst_table, old_inst.args.operand),
+                            .operand = try self.resolveInst(new_body, old_inst.args.operand),
                         },
                         .kw_args = .{},
                     };

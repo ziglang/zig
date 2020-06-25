@@ -38,6 +38,30 @@ const usage =
     \\
 ;
 
+pub fn log(
+    comptime level: std.log.Level,
+    comptime scope: @TypeOf(.EnumLiteral),
+    comptime format: []const u8,
+    args: var,
+) void {
+    if (@enumToInt(level) > @enumToInt(std.log.level))
+        return;
+
+    const scope_prefix = "(" ++ switch (scope) {
+        // Uncomment to hide logs
+        //.compiler,
+        .link,
+        => return,
+
+        else => @tagName(scope),
+    } ++ "): ";
+
+    const prefix = "[" ++ @tagName(level) ++ "] " ++ scope_prefix;
+
+    // Print the message to stderr, silently ignoring any errors
+    std.debug.print(prefix ++ format, args);
+}
+
 pub fn main() !void {
     // TODO general purpose allocator in the zig std lib
     const gpa = if (std.builtin.link_libc) std.heap.c_allocator else std.heap.page_allocator;
@@ -450,6 +474,7 @@ fn buildOutputType(
         .link_mode = link_mode,
         .object_format = object_format,
         .optimize_mode = build_mode,
+        .keep_source_files_loaded = zir_out_path != null,
     });
     defer module.deinit();
 

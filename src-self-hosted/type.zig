@@ -113,6 +113,12 @@ pub const Type = extern union {
             .Undefined => return true,
             .Null => return true,
             .Pointer => {
+                // Hot path for common case:
+                if (a.cast(Payload.SingleConstPointer)) |a_payload| {
+                    if (b.cast(Payload.SingleConstPointer)) |b_payload| {
+                        return eql(a_payload.pointee_type, b_payload.pointee_type);
+                    }
+                }
                 const is_slice_a = isSlice(a);
                 const is_slice_b = isSlice(b);
                 if (is_slice_a != is_slice_b)

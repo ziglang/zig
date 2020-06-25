@@ -1,6 +1,6 @@
 pub const std = @import("std");
 
-pub const enable = @import("build_options").enable_tracy;
+pub const enable = if (std.builtin.is_test) false else @import("build_options").enable_tracy;
 
 extern fn ___tracy_emit_zone_begin_callstack(
     srcloc: *const ___tracy_source_location_data,
