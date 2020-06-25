@@ -9,7 +9,7 @@ const linux_x64 = std.zig.CrossTarget{
 };
 
 pub fn addCases(ctx: *TestContext) !void {
-    ctx.addZIRError("call undefined local", linux_x64,
+    try ctx.addError("call undefined local", linux_x64, .ZIR,
         \\@noreturn = primitive(noreturn)
         \\
         \\@start_fnty = fntype([], @noreturn, cc=Naked)
@@ -19,7 +19,7 @@ pub fn addCases(ctx: *TestContext) !void {
  // TODO: address inconsistency in this message and the one in the next test
             , &[_][]const u8{":5:13: error: unrecognized identifier: %test"});
 
-    ctx.addZIRError("call with non-existent target", linux_x64,
+    try ctx.addError("call with non-existent target", linux_x64, .ZIR,
         \\@noreturn = primitive(noreturn)
         \\
         \\@start_fnty = fntype([], @noreturn, cc=Naked)
@@ -31,7 +31,7 @@ pub fn addCases(ctx: *TestContext) !void {
     , &[_][]const u8{":5:13: error: decl 'notafunc' not found"});
 
     // TODO: this error should occur at the call site, not the fntype decl
-    ctx.addZIRError("call naked function", linux_x64,
+    try ctx.addError("call naked function", linux_x64, .ZIR,
         \\@noreturn = primitive(noreturn)
         \\
         \\@start_fnty = fntype([], @noreturn, cc=Naked)
@@ -45,17 +45,15 @@ pub fn addCases(ctx: *TestContext) !void {
 
     // TODO: re-enable these tests.
     // https://github.com/ziglang/zig/issues/1364
-    // TODO: add Zig AST -> ZIR testing pipeline
 
-    //try ctx.testCompileError(
-    //    \\export fn entry() void {}
-    //    \\export fn entry() void {}
-    //, "1.zig", 2, 8, "exported symbol collision: 'entry'");
+    //  try ctx.addError("Export same symbol twice", linux_x64, .Zig,
+    //      \\export fn entry() void {}
+    //      \\export fn entry() void {}
+    //  , &[_][]const u8{":2:1: error: exported symbol collision"});
 
-    //try ctx.testCompileError(
-    //    \\fn() void {}
-    //, "1.zig", 1, 1, "missing function name");
-
+    //    try ctx.addError("Missing function name", linux_x64, .Zig,
+    //        \\fn() void {}
+    //    , &[_][]const u8{":1:3: error: missing function name"});
     //try ctx.testCompileError(
     //    \\comptime {
     //    \\    return;
