@@ -86,7 +86,7 @@ pub fn addCases(ctx: *TestContext) void {
     );
 
     {
-        var case = ctx.addZIRMulti("reference cycle with compile error in the cycle", linux_x64);
+        var case = ctx.addObjZIR("reference cycle with compile error in the cycle", linux_x64);
         case.addTransform(
             \\@void = primitive(void)
             \\@fnty = fntype([], @void, cc=C)
@@ -207,109 +207,101 @@ pub fn addCases(ctx: *TestContext) void {
         return;
     }
 
-    ctx.addZIRCompareOutput(
-        "hello world ZIR",
-        &[_][]const u8{
-            \\@noreturn = primitive(noreturn)
-            \\@void = primitive(void)
-            \\@usize = primitive(usize)
-            \\@0 = int(0)
-            \\@1 = int(1)
-            \\@2 = int(2)
-            \\@3 = int(3)
-            \\
-            \\@msg = str("Hello, world!\n")
-            \\
-            \\@start_fnty = fntype([], @noreturn, cc=Naked)
-            \\@start = fn(@start_fnty, {
-            \\  %SYS_exit_group = int(231)
-            \\  %exit_code = as(@usize, @0)
-            \\
-            \\  %syscall = str("syscall")
-            \\  %sysoutreg = str("={rax}")
-            \\  %rax = str("{rax}")
-            \\  %rdi = str("{rdi}")
-            \\  %rcx = str("rcx")
-            \\  %rdx = str("{rdx}")
-            \\  %rsi = str("{rsi}")
-            \\  %r11 = str("r11")
-            \\  %memory = str("memory")
-            \\
-            \\  %SYS_write = as(@usize, @1)
-            \\  %STDOUT_FILENO = as(@usize, @1)
-            \\
-            \\  %msg_addr = ptrtoint(@msg)
-            \\
-            \\  %len_name = str("len")
-            \\  %msg_len_ptr = fieldptr(@msg, %len_name)
-            \\  %msg_len = deref(%msg_len_ptr)
-            \\  %rc_write = asm(%syscall, @usize,
-            \\    volatile=1,
-            \\    output=%sysoutreg,
-            \\    inputs=[%rax, %rdi, %rsi, %rdx],
-            \\    clobbers=[%rcx, %r11, %memory],
-            \\    args=[%SYS_write, %STDOUT_FILENO, %msg_addr, %msg_len])
-            \\
-            \\  %rc_exit = asm(%syscall, @usize,
-            \\    volatile=1,
-            \\    output=%sysoutreg,
-            \\    inputs=[%rax, %rdi],
-            \\    clobbers=[%rcx, %r11, %memory],
-            \\    args=[%SYS_exit_group, %exit_code])
-            \\
-            \\  %99 = unreachable()
-            \\});
-            \\
-            \\@9 = str("_start")
-            \\@11 = export(@9, "start")
-        },
-        &[_][]const u8{
-            \\Hello, world!
-            \\
-        },
+    ctx.addZIRCompareOutput("hello world ZIR",
+        \\@noreturn = primitive(noreturn)
+        \\@void = primitive(void)
+        \\@usize = primitive(usize)
+        \\@0 = int(0)
+        \\@1 = int(1)
+        \\@2 = int(2)
+        \\@3 = int(3)
+        \\
+        \\@msg = str("Hello, world!\n")
+        \\
+        \\@start_fnty = fntype([], @noreturn, cc=Naked)
+        \\@start = fn(@start_fnty, {
+        \\  %SYS_exit_group = int(231)
+        \\  %exit_code = as(@usize, @0)
+        \\
+        \\  %syscall = str("syscall")
+        \\  %sysoutreg = str("={rax}")
+        \\  %rax = str("{rax}")
+        \\  %rdi = str("{rdi}")
+        \\  %rcx = str("rcx")
+        \\  %rdx = str("{rdx}")
+        \\  %rsi = str("{rsi}")
+        \\  %r11 = str("r11")
+        \\  %memory = str("memory")
+        \\
+        \\  %SYS_write = as(@usize, @1)
+        \\  %STDOUT_FILENO = as(@usize, @1)
+        \\
+        \\  %msg_addr = ptrtoint(@msg)
+        \\
+        \\  %len_name = str("len")
+        \\  %msg_len_ptr = fieldptr(@msg, %len_name)
+        \\  %msg_len = deref(%msg_len_ptr)
+        \\  %rc_write = asm(%syscall, @usize,
+        \\    volatile=1,
+        \\    output=%sysoutreg,
+        \\    inputs=[%rax, %rdi, %rsi, %rdx],
+        \\    clobbers=[%rcx, %r11, %memory],
+        \\    args=[%SYS_write, %STDOUT_FILENO, %msg_addr, %msg_len])
+        \\
+        \\  %rc_exit = asm(%syscall, @usize,
+        \\    volatile=1,
+        \\    output=%sysoutreg,
+        \\    inputs=[%rax, %rdi],
+        \\    clobbers=[%rcx, %r11, %memory],
+        \\    args=[%SYS_exit_group, %exit_code])
+        \\
+        \\  %99 = unreachable()
+        \\});
+        \\
+        \\@9 = str("_start")
+        \\@11 = export(@9, "start")
+    ,
+        \\Hello, world!
+        \\
     );
 
-    ctx.addZIRCompareOutput(
-        "function call with no args no return value",
-        &[_][]const u8{
-            \\@noreturn = primitive(noreturn)
-            \\@void = primitive(void)
-            \\@usize = primitive(usize)
-            \\@0 = int(0)
-            \\@1 = int(1)
-            \\@2 = int(2)
-            \\@3 = int(3)
-            \\
-            \\@exit0_fnty = fntype([], @noreturn)
-            \\@exit0 = fn(@exit0_fnty, {
-            \\  %SYS_exit_group = int(231)
-            \\  %exit_code = as(@usize, @0)
-            \\
-            \\  %syscall = str("syscall")
-            \\  %sysoutreg = str("={rax}")
-            \\  %rax = str("{rax}")
-            \\  %rdi = str("{rdi}")
-            \\  %rcx = str("rcx")
-            \\  %r11 = str("r11")
-            \\  %memory = str("memory")
-            \\
-            \\  %rc = asm(%syscall, @usize,
-            \\    volatile=1,
-            \\    output=%sysoutreg,
-            \\    inputs=[%rax, %rdi],
-            \\    clobbers=[%rcx, %r11, %memory],
-            \\    args=[%SYS_exit_group, %exit_code])
-            \\
-            \\  %99 = unreachable()
-            \\});
-            \\
-            \\@start_fnty = fntype([], @noreturn, cc=Naked)
-            \\@start = fn(@start_fnty, {
-            \\  %0 = call(@exit0, [])
-            \\})
-            \\@9 = str("_start")
-            \\@11 = export(@9, "start")
-        },
-        &[_][]const u8{""},
-    );
+    ctx.addZIRCompareOutput("function call with no args no return value",
+        \\@noreturn = primitive(noreturn)
+        \\@void = primitive(void)
+        \\@usize = primitive(usize)
+        \\@0 = int(0)
+        \\@1 = int(1)
+        \\@2 = int(2)
+        \\@3 = int(3)
+        \\
+        \\@exit0_fnty = fntype([], @noreturn)
+        \\@exit0 = fn(@exit0_fnty, {
+        \\  %SYS_exit_group = int(231)
+        \\  %exit_code = as(@usize, @0)
+        \\
+        \\  %syscall = str("syscall")
+        \\  %sysoutreg = str("={rax}")
+        \\  %rax = str("{rax}")
+        \\  %rdi = str("{rdi}")
+        \\  %rcx = str("rcx")
+        \\  %r11 = str("r11")
+        \\  %memory = str("memory")
+        \\
+        \\  %rc = asm(%syscall, @usize,
+        \\    volatile=1,
+        \\    output=%sysoutreg,
+        \\    inputs=[%rax, %rdi],
+        \\    clobbers=[%rcx, %r11, %memory],
+        \\    args=[%SYS_exit_group, %exit_code])
+        \\
+        \\  %99 = unreachable()
+        \\});
+        \\
+        \\@start_fnty = fntype([], @noreturn, cc=Naked)
+        \\@start = fn(@start_fnty, {
+        \\  %0 = call(@exit0, [])
+        \\})
+        \\@9 = str("_start")
+        \\@11 = export(@9, "start")
+    , "");
 }

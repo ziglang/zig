@@ -50,8 +50,7 @@ pub fn log(
     const scope_prefix = "(" ++ switch (scope) {
         // Uncomment to hide logs
         //.compiler,
-        .link,
-        => return,
+        .link => return,
 
         else => @tagName(scope),
     } ++ "): ";
@@ -431,21 +430,7 @@ fn buildOutputType(
             std.debug.warn("-fno-emit-bin not supported yet", .{});
             process.exit(1);
         },
-        .yes_default_path => switch (output_mode) {
-            .Exe => try std.fmt.allocPrint(arena, "{}{}", .{ root_name, target_info.target.exeFileExt() }),
-            .Lib => blk: {
-                const suffix = switch (link_mode orelse .Static) {
-                    .Static => target_info.target.staticLibSuffix(),
-                    .Dynamic => target_info.target.dynamicLibSuffix(),
-                };
-                break :blk try std.fmt.allocPrint(arena, "{}{}{}", .{
-                    target_info.target.libPrefix(),
-                    root_name,
-                    suffix,
-                });
-            },
-            .Obj => try std.fmt.allocPrint(arena, "{}{}", .{ root_name, target_info.target.oFileExt() }),
-        },
+        .yes_default_path => try std.zig.binNameAlloc(arena, root_name, target_info.target, output_mode, link_mode),
         .yes => |p| p,
     };
 
