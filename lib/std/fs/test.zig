@@ -40,6 +40,39 @@ test "readAllAlloc" {
     testing.expectError(error.FileTooBig, file.readAllAlloc(testing.allocator, file_size, write_buf.len - 1));
 }
 
+test "directory operations on files" {
+    var tmp_dir = tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    const test_file_name = "test_file";
+
+    var file = try tmp_dir.dir.createFile(test_file_name, .{ .read = true });
+    file.close();
+
+    testing.expectError(error.PathAlreadyExists, tmp_dir.dir.makeDir(test_file_name));
+    testing.expectError(error.NotDir, tmp_dir.dir.openDir(test_file_name, .{}));
+    testing.expectError(error.NotDir, tmp_dir.dir.deleteDir(test_file_name));
+
+    if (builtin.os.tag != .wasi) {
+        // TODO: use Dir's realpath function once that exists
+        const absolute_path = blk: {
+            const relative_path = try fs.path.join(testing.allocator, &[_][]const u8{ "zig-cache", "tmp", tmp_dir.sub_path[0..], test_file_name });
+            defer testing.allocator.free(relative_path);
+            break :blk try fs.realpathAlloc(testing.allocator, relative_path);
+        };
+        defer testing.allocator.free(absolute_path);
+
+        testing.expectError(error.PathAlreadyExists, fs.makeDirAbsolute(absolute_path));
+        testing.expectError(error.NotDir, fs.deleteDirAbsolute(absolute_path));
+    }
+
+    // ensure the file still exists and is a file as a sanity check
+    file = try tmp_dir.dir.openFile(test_file_name, .{});
+    const stat = try file.stat();
+    testing.expect(stat.kind == .File);
+    file.close();
+}
+
 test "openSelfExe" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
