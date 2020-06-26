@@ -459,10 +459,20 @@ const Function = struct {
                     if (!needed[@enumToInt(reg)]) {
                         const arg = try self.resolveInst(inst.args.args[index]);
                         try self.genSetReg(inst.base.src, arch, reg, arg);
-                        if (arg == .register) {
-                            needed[arg.register] = false;
-                        }
                         handled[index] = true;
+                        if (arg == .register) {
+                            var i: u5 = 0;
+                            while (i < inst.args.inputs.len) : (i += 1) {
+                                if (!handled[i]) {
+                                    const a = try self.resolveInst(inst.args.args[i]);
+                                    if (a == .register and a.register == arg.register) {
+                                        break;
+                                    }
+                                }
+                            } else {
+                                needed[arg.register] = false;
+                            }
+                        }
                         moved_any = true;
                     }
                 }

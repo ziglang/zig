@@ -183,6 +183,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\@9 = str("_start")
         \\@11 = export(@9, "start")
     , "Hello, world!\n");
+
     //    ctx.exe("function call with args", linux_x64).addCompareOutput(
     //        \\export fn _start() noreturn {
     //        \\    print(@ptrToInt("Hello, World!\n"), 14);
