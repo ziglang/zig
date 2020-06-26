@@ -34,7 +34,7 @@ pub const TestContext = struct {
         /// effects of the incremental compilation.
         src: [:0]const u8,
         case: union(enum) {
-            /// A transformation update transforms the input ZIR and tests against
+            /// A transformation update transforms the input and tests against
             /// the expected output ZIR.
             Transformation: [:0]const u8,
             /// An error update attempts to compile bad code, and ensures that it
@@ -43,6 +43,7 @@ pub const TestContext = struct {
             Error: []const ErrorMsg,
             /// An execution update compiles and runs the input, testing the
             /// stdout against the expected results
+            /// This is a slice containing the expected message.
             Execution: []const u8,
         },
     };
@@ -56,16 +57,20 @@ pub const TestContext = struct {
     /// update, so each update's source is treated as a single file being
     /// updated by the test harness and incrementally compiled.
     pub const Case = struct {
+        /// The name of the test case. This is shown if a test fails, and
+        /// otherwise ignored.
         name: []const u8,
         /// The platform the test targets. For non-native platforms, an emulator
         /// such as QEMU is required for tests to complete.
         target: std.zig.CrossTarget,
+        /// In order to be able to run e.g. Execution updates, this must be set
+        /// to Executable.
         output_mode: std.builtin.OutputMode,
         updates: std.ArrayList(Update),
         @"type": TestType,
 
-        /// Adds a subcase in which the module is updated with new ZIR, and the
-        /// resulting ZIR is validated.
+        /// Adds a subcase in which the module is updated with `src`, and the
+        /// resulting ZIR is validated against `result`.
         pub fn addTransform(self: *Case, src: [:0]const u8, result: [:0]const u8) void {
             self.updates.append(.{
                 .src = src,
@@ -73,6 +78,8 @@ pub const TestContext = struct {
             }) catch unreachable;
         }
 
+        /// Adds a subcase in which the module is updated with `src`, compiled,
+        /// run, and the output is tested against `result`.
         pub fn addCompareOutput(self: *Case, src: [:0]const u8, result: []const u8) void {
             self.updates.append(.{
                 .src = src,
@@ -80,10 +87,10 @@ pub const TestContext = struct {
             }) catch unreachable;
         }
 
-        /// Adds a subcase in which the module is updated with invalid ZIR, and
-        /// ensures that compilation fails for the expected reasons.
-        ///
-        /// Errors must be specified in sequential order.
+        /// Adds a subcase in which the module is updated with `src`, which
+        /// should contain invalid input, and ensures that compilation fails
+        /// for the expected reasons, given in sequential order in `errors` in
+        /// the form `:error: line:column: message`.
         pub fn addError(self: *Case, src: [:0]const u8, errors: []const []const u8) void {
             var array = self.updates.allocator.alloc(ErrorMsg, errors.len) catch unreachable;
             for (errors) |e, i| {
@@ -121,6 +128,8 @@ pub const TestContext = struct {
             self.updates.append(.{ .src = src, .case = .{ .Error = array } }) catch unreachable;
         }
 
+        /// Adds a subcase in which the module is updated with `src`, and
+        /// asserts that it compiles without issue
         pub fn compiles(self: *Case, src: [:0]const u8) void {
             self.addError(src, &[_][]const u8{});
         }
@@ -142,10 +151,12 @@ pub const TestContext = struct {
         return &ctx.cases.items[ctx.cases.items.len - 1];
     }
 
+    /// Adds a test case for Zig input, producing an executable
     pub fn exe(ctx: *TestContext, name: []const u8, target: std.zig.CrossTarget) *Case {
         return ctx.addExe(name, target, .Zig);
     }
 
+    /// Adds a test case for ZIR input, producing an executable
     pub fn exeZIR(ctx: *TestContext, name: []const u8, target: std.zig.CrossTarget) *Case {
         return ctx.addExe(name, target, .ZIR);
     }
@@ -166,10 +177,12 @@ pub const TestContext = struct {
         return &ctx.cases.items[ctx.cases.items.len - 1];
     }
 
+    /// Adds a test case for Zig input, producing an object file
     pub fn obj(ctx: *TestContext, name: []const u8, target: std.zig.CrossTarget) *Case {
         return ctx.addObj(name, target, .Zig);
     }
 
+    /// Adds a test case for ZIR input, producing an object file
     pub fn objZIR(ctx: *TestContext, name: []const u8, target: std.zig.CrossTarget) *Case {
         return ctx.addObj(name, target, .ZIR);
     }
@@ -184,6 +197,8 @@ pub const TestContext = struct {
         ctx.addExe(name, .{}, T).addCompareOutput(src, expected_stdout);
     }
 
+    /// Adds a test case that compiles the Zig source given in `src`, executes
+    /// it, runs it, and tests the output against `expected_stdout`
     pub fn compareOutput(
         ctx: *TestContext,
         name: []const u8,
@@ -193,6 +208,8 @@ pub const TestContext = struct {
         return ctx.addCompareOutput(name, .Zig, src, expected_stdout);
     }
 
+    /// Adds a test case that compiles the ZIR source given in `src`, executes
+    /// it, runs it, and tests the output against `expected_stdout`
     pub fn compareOutputZIR(
         ctx: *TestContext,
         name: []const u8,
@@ -213,6 +230,8 @@ pub const TestContext = struct {
         ctx.addObj(name, target, T).addTransform(src, result);
     }
 
+    /// Adds a test case that compiles the Zig given in `src` to ZIR and tests
+    /// the ZIR against `result`
     pub fn transform(
         ctx: *TestContext,
         name: []const u8,
@@ -223,6 +242,8 @@ pub const TestContext = struct {
         ctx.addTransform(name, target, .Zig, src, result);
     }
 
+    /// Adds a test case that cleans up the ZIR source given in `src`, and
+    /// tests the resulting ZIR against `result`
     pub fn transformZIR(
         ctx: *TestContext,
         name: []const u8,
@@ -244,6 +265,9 @@ pub const TestContext = struct {
         ctx.addObj(name, target, T).addError(src, expected_errors);
     }
 
+    /// Adds a test case that ensures that the Zig given in `src` fails to
+    /// compile for the expected reasons, given in sequential order in
+    /// `expected_errors` in the form `:error: line:column: message`.
     pub fn compileError(
         ctx: *TestContext,
         name: []const u8,
@@ -254,6 +278,9 @@ pub const TestContext = struct {
         ctx.addError(name, target, .Zig, src, expected_errors);
     }
 
+    /// Adds a test case that ensures that the ZIR given in `src` fails to
+    /// compile for the expected reasons, given in sequential order in
+    /// `expected_errors` in the form `:error: line:column: message`.
     pub fn compileErrorZIR(
         ctx: *TestContext,
         name: []const u8,
@@ -274,6 +301,33 @@ pub const TestContext = struct {
         ctx.addObj(name, target, T).compiles(src);
     }
 
+    /// Adds a test case that asserts that the Zig given in `src` compiles
+    /// without any errors.
+    pub fn compiles(
+        ctx: *TestContext,
+        name: []const u8,
+        target: std.zig.CrossTarget,
+        src: [:0]const u8,
+    ) void {
+        ctx.addCompiles(name, target, .Zig, src);
+    }
+
+    /// Adds a test case that asserts that the ZIR given in `src` compiles
+    /// without any errors.
+    pub fn compilesZIR(
+        ctx: *TestContext,
+        name: []const u8,
+        target: std.zig.CrossTarget,
+        src: [:0]const u8,
+    ) void {
+        ctx.addCompiles(name, target, .ZIR, src);
+    }
+
+    /// Adds a test case that first ensures that the Zig given in `src` fails
+    /// to compile for the reasons given in sequential order in
+    /// `expected_errors` in the form `:error: line:column: message`, then
+    /// asserts that fixing the source (updating with `fixed_src`) isn't broken
+    /// by incremental compilation.
     pub fn incrementalFailure(
         ctx: *TestContext,
         name: []const u8,
@@ -287,6 +341,11 @@ pub const TestContext = struct {
         case.compiles(fixed_src);
     }
 
+    /// Adds a test case that first ensures that the ZIR given in `src` fails
+    /// to compile for the reasons given in sequential order in
+    /// `expected_errors` in the form `:error: line:column: message`, then
+    /// asserts that fixing the source (updating with `fixed_src`) isn't broken
+    /// by incremental compilation.
     pub fn incrementalFailureZIR(
         ctx: *TestContext,
         name: []const u8,
@@ -298,24 +357,6 @@ pub const TestContext = struct {
         var case = ctx.addObj(name, target, .ZIR);
         case.addError(src, expected_errors);
         case.compiles(fixed_src);
-    }
-
-    pub fn compiles(
-        ctx: *TestContext,
-        name: []const u8,
-        target: std.zig.CrossTarget,
-        src: [:0]const u8,
-    ) void {
-        ctx.addCompiles(name, target, .Zig, src);
-    }
-
-    pub fn compilesZIR(
-        ctx: *TestContext,
-        name: []const u8,
-        target: std.zig.CrossTarget,
-        src: [:0]const u8,
-    ) void {
-        ctx.addCompiles(name, target, .ZIR, src);
     }
 
     fn init() TestContext {
