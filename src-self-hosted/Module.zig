@@ -15,6 +15,7 @@ const ir = @import("ir.zig");
 const zir = @import("zir.zig");
 const Module = @This();
 const Inst = ir.Inst;
+const Body = ir.Body;
 const ast = std.zig.ast;
 const trace = @import("tracy.zig").trace;
 
@@ -649,11 +650,19 @@ pub const Scope = struct {
     pub const Block = struct {
         pub const base_tag: Tag = .block;
         base: Scope = Scope{ .tag = base_tag },
+        parent: ?*Block,
         func: ?*Fn,
         decl: *Decl,
         instructions: ArrayListUnmanaged(*Inst),
         /// Points to the arena allocator of DeclAnalysis
         arena: *Allocator,
+        label: ?Label = null,
+
+        pub const Label = struct {
+            name: []const u8,
+            results: ArrayListUnmanaged(*Inst),
+            block_inst: *Inst.Block,
+        };
     };
 
     /// This is a temporary structure, references to it are valid only
@@ -674,10 +683,6 @@ pub const Scope = struct {
         arena: std.heap.ArenaAllocator,
         instructions: std.ArrayList(*zir.Inst),
     };
-};
-
-pub const Body = struct {
-    instructions: []*Inst,
 };
 
 pub const AllErrors = struct {
@@ -1139,13 +1144,16 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
 
             const body_node = fn_proto.body_node orelse
                 return self.failTok(&fn_type_scope.base, fn_proto.fn_token, "TODO implement extern functions", .{});
-            if (fn_proto.params_len != 0) {
-                return self.failTok(
-                    &fn_type_scope.base,
-                    fn_proto.params()[0].name_token.?,
-                    "TODO implement function parameters",
-                    .{},
-                );
+
+            const param_decls = fn_proto.params();
+            const param_types = try fn_type_scope.arena.allocator.alloc(*zir.Inst, param_decls.len);
+            for (param_decls) |param_decl, i| {
+                const param_type_node = switch (param_decl.param_type) {
+                    .var_type => |node| return self.failNode(&fn_type_scope.base, node, "TODO implement anytype parameter", .{}),
+                    .var_args => |tok| return self.failTok(&fn_type_scope.base, tok, "TODO implement var args", .{}),
+                    .type_expr => |node| node,
+                };
+                param_types[i] = try self.astGenExpr(&fn_type_scope.base, param_type_node);
             }
             if (fn_proto.lib_name) |lib_name| {
                 return self.failNode(&fn_type_scope.base, lib_name, "TODO implement function library name", .{});
@@ -1174,7 +1182,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
             const fn_src = tree.token_locs[fn_proto.fn_token].start;
             const fn_type_inst = try self.addZIRInst(&fn_type_scope.base, fn_src, zir.Inst.FnType, .{
                 .return_type = return_type_inst,
-                .param_types = &[0]*zir.Inst{},
+                .param_types = param_types,
             }, .{});
             _ = try self.addZIRInst(&fn_type_scope.base, fn_src, zir.Inst.Return, .{ .operand = fn_type_inst }, .{});
 
@@ -1184,6 +1192,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
             const decl_arena_state = try decl_arena.allocator.create(std.heap.ArenaAllocator.State);
 
             var block_scope: Scope.Block = .{
+                .parent = null,
                 .func = null,
                 .decl = decl,
                 .instructions = .{},
@@ -1302,8 +1311,23 @@ fn astGenExpr(self: *Module, scope: *Scope, ast_node: *ast.Node) InnerError!*zir
         .Call => return self.astGenCall(scope, @fieldParentPtr(ast.Node.Call, "base", ast_node)),
         .Unreachable => return self.astGenUnreachable(scope, @fieldParentPtr(ast.Node.Unreachable, "base", ast_node)),
         .ControlFlowExpression => return self.astGenControlFlowExpression(scope, @fieldParentPtr(ast.Node.ControlFlowExpression, "base", ast_node)),
+        .If => return self.astGenIf(scope, @fieldParentPtr(ast.Node.If, "base", ast_node)),
         else => return self.failNode(scope, ast_node, "TODO implement astGenExpr for {}", .{@tagName(ast_node.id)}),
     }
+}
+
+fn astGenIf(self: *Module, scope: *Scope, if_node: *ast.Node.If) InnerError!*zir.Inst {
+    if (if_node.payload) |payload| {
+        return self.failNode(scope, payload, "TODO implement astGenIf for optionals", .{});
+    }
+    if (if_node.@"else") |else_node| {
+        if (else_node.payload) |payload| {
+            return self.failNode(scope, payload, "TODO implement astGenIf for error unions", .{});
+        }
+    }
+    const cond = try self.astGenExpr(scope, if_node.condition);
+    const body = try self.astGenExpr(scope, if_node.condition);
+    return self.failNode(scope, if_node.condition, "TODO implement astGenIf", .{});
 }
 
 fn astGenControlFlowExpression(
@@ -1351,7 +1375,18 @@ fn astGenIdent(self: *Module, scope: *Scope, ident: *ast.Node.Identifier) InnerE
                 ),
                 error.InvalidCharacter => break :integer,
             };
-            return self.failNode(scope, &ident.base, "TODO implement arbitrary integer bitwidth types", .{});
+            const val = switch (bit_count) {
+                8 => if (is_signed) Value.initTag(.i8_type) else Value.initTag(.u8_type),
+                16 => if (is_signed) Value.initTag(.i16_type) else Value.initTag(.u16_type),
+                32 => if (is_signed) Value.initTag(.i32_type) else Value.initTag(.u32_type),
+                64 => if (is_signed) Value.initTag(.i64_type) else Value.initTag(.u64_type),
+                else => return self.failNode(scope, &ident.base, "TODO implement arbitrary integer bitwidth types", .{}),
+            };
+            const src = tree.token_locs[ident.token].start;
+            return self.addZIRInstConst(scope, src, .{
+                .ty = Type.initTag(.type),
+                .val = val,
+            });
         }
     }
 
@@ -1494,16 +1529,18 @@ fn astGenBuiltinCall(self: *Module, scope: *Scope, call: *ast.Node.BuiltinCall) 
 
 fn astGenCall(self: *Module, scope: *Scope, call: *ast.Node.Call) InnerError!*zir.Inst {
     const tree = scope.tree();
-
-    if (call.params_len != 0) {
-        return self.failNode(scope, &call.base, "TODO implement fn calls with parameters", .{});
-    }
     const lhs = try self.astGenExpr(scope, call.lhs);
+
+    const param_nodes = call.params();
+    const args = try scope.cast(Scope.GenZIR).?.arena.allocator.alloc(*zir.Inst, param_nodes.len);
+    for (param_nodes) |param_node, i| {
+        args[i] = try self.astGenExpr(scope, param_node);
+    }
 
     const src = tree.token_locs[call.lhs.firstToken()].start;
     return self.addZIRInst(scope, src, zir.Inst.Call, .{
         .func = lhs,
-        .args = &[0]*zir.Inst{},
+        .args = args,
     }, .{});
 }
 
@@ -1871,6 +1908,7 @@ fn analyzeFnBody(self: *Module, decl: *Decl, func: *Fn) !void {
     var arena = decl.typed_value.most_recent.arena.?.promote(self.allocator);
     defer decl.typed_value.most_recent.arena.?.* = arena.state;
     var inner_block: Scope.Block = .{
+        .parent = null,
         .func = func,
         .decl = decl,
         .instructions = .{},
@@ -2323,7 +2361,10 @@ fn analyzeInstConst(self: *Module, scope: *Scope, const_inst: *zir.Inst.Const) I
 
 fn analyzeInst(self: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!*Inst {
     switch (old_inst.tag) {
+        .arg => return self.analyzeInstArg(scope, old_inst.cast(zir.Inst.Arg).?),
+        .block => return self.analyzeInstBlock(scope, old_inst.cast(zir.Inst.Block).?),
         .breakpoint => return self.analyzeInstBreakpoint(scope, old_inst.cast(zir.Inst.Breakpoint).?),
+        .breakvoid => return self.analyzeInstBreakVoid(scope, old_inst.cast(zir.Inst.BreakVoid).?),
         .call => return self.analyzeInstCall(scope, old_inst.cast(zir.Inst.Call).?),
         .compileerror => return self.analyzeInstCompileError(scope, old_inst.cast(zir.Inst.CompileError).?),
         .@"const" => return self.analyzeInstConst(scope, old_inst.cast(zir.Inst.Const).?),
@@ -2436,9 +2477,103 @@ fn analyzeInstCompileError(self: *Module, scope: *Scope, inst: *zir.Inst.Compile
     return self.fail(scope, inst.base.src, "{}", .{inst.positionals.msg});
 }
 
+fn analyzeInstArg(self: *Module, scope: *Scope, inst: *zir.Inst.Arg) InnerError!*Inst {
+    const b = try self.requireRuntimeBlock(scope, inst.base.src);
+    const fn_ty = b.func.?.owner_decl.typed_value.most_recent.typed_value.ty;
+    const param_count = fn_ty.fnParamLen();
+    if (inst.positionals.index >= param_count) {
+        return self.fail(scope, inst.base.src, "parameter index {} outside list of length {}", .{
+            inst.positionals.index,
+            param_count,
+        });
+    }
+    const param_type = fn_ty.fnParamType(inst.positionals.index);
+    return self.addNewInstArgs(b, inst.base.src, param_type, Inst.Arg, .{
+        .index = inst.positionals.index,
+    });
+}
+
+fn analyzeInstBlock(self: *Module, scope: *Scope, inst: *zir.Inst.Block) InnerError!*Inst {
+    const parent_block = scope.cast(Scope.Block).?;
+
+    // Reserve space for a Block instruction so that generated Break instructions can
+    // point to it, even if it doesn't end up getting used because the code ends up being
+    // comptime evaluated.
+    const block_inst = try parent_block.arena.create(Inst.Block);
+    block_inst.* = .{
+        .base = .{
+            .tag = Inst.Block.base_tag,
+            .ty = undefined, // Set after analysis.
+            .src = inst.base.src,
+        },
+        .args = undefined,
+    };
+
+    var child_block: Scope.Block = .{
+        .parent = parent_block,
+        .func = parent_block.func,
+        .decl = parent_block.decl,
+        .instructions = .{},
+        .arena = parent_block.arena,
+        // TODO @as here is working around a miscompilation compiler bug :(
+        .label = @as(?Scope.Block.Label, Scope.Block.Label{
+            .name = inst.positionals.label,
+            .results = .{},
+            .block_inst = block_inst,
+        }),
+    };
+    const label = &child_block.label.?;
+
+    defer child_block.instructions.deinit(self.allocator);
+    defer label.results.deinit(self.allocator);
+
+    try self.analyzeBody(&child_block.base, inst.positionals.body);
+
+    // Blocks must terminate with noreturn instruction.
+    assert(child_block.instructions.items.len != 0);
+    assert(child_block.instructions.items[child_block.instructions.items.len - 1].tag.isNoReturn());
+
+    if (label.results.items.len <= 1) {
+        // No need to add the Block instruction; we can add the instructions to the parent block directly.
+        // Blocks are terminated with a noreturn instruction which we do not want to include.
+        const instrs = child_block.instructions.items;
+        try parent_block.instructions.appendSlice(self.allocator, instrs[0 .. instrs.len - 1]);
+        if (label.results.items.len == 1) {
+            return label.results.items[0];
+        } else {
+            return self.constNoReturn(scope, inst.base.src);
+        }
+    }
+
+    // Need to set the type and emit the Block instruction. This allows machine code generation
+    // to emit a jump instruction to after the block when it encounters the break.
+    try parent_block.instructions.append(self.allocator, &block_inst.base);
+    block_inst.base.ty = try self.resolvePeerTypes(scope, label.results.items);
+    block_inst.args.body = .{ .instructions = try parent_block.arena.dupe(*Inst, child_block.instructions.items) };
+    return &block_inst.base;
+}
+
 fn analyzeInstBreakpoint(self: *Module, scope: *Scope, inst: *zir.Inst.Breakpoint) InnerError!*Inst {
     const b = try self.requireRuntimeBlock(scope, inst.base.src);
     return self.addNewInstArgs(b, inst.base.src, Type.initTag(.void), Inst.Breakpoint, {});
+}
+
+fn analyzeInstBreakVoid(self: *Module, scope: *Scope, inst: *zir.Inst.BreakVoid) InnerError!*Inst {
+    const label_name = inst.positionals.label;
+    const void_inst = try self.constVoid(scope, inst.base.src);
+
+    var opt_block = scope.cast(Scope.Block);
+    while (opt_block) |block| {
+        if (block.label) |*label| {
+            if (mem.eql(u8, label.name, label_name)) {
+                try label.results.append(self.allocator, void_inst);
+                return self.constNoReturn(scope, inst.base.src);
+            }
+        }
+        opt_block = block.parent;
+    } else {
+        return self.fail(scope, inst.base.src, "use of undeclared label '{}'", .{label_name});
+    }
 }
 
 fn analyzeInstDeclRefStr(self: *Module, scope: *Scope, inst: *zir.Inst.DeclRefStr) InnerError!*Inst {
@@ -2602,35 +2737,38 @@ fn analyzeInstFn(self: *Module, scope: *Scope, fn_inst: *zir.Inst.Fn) InnerError
 fn analyzeInstFnType(self: *Module, scope: *Scope, fntype: *zir.Inst.FnType) InnerError!*Inst {
     const return_type = try self.resolveType(scope, fntype.positionals.return_type);
 
-    if (return_type.zigTypeTag() == .NoReturn and
-        fntype.positionals.param_types.len == 0 and
-        fntype.kw_args.cc == .Unspecified)
-    {
-        return self.constType(scope, fntype.base.src, Type.initTag(.fn_noreturn_no_args));
+    // Hot path for some common function types.
+    if (fntype.positionals.param_types.len == 0) {
+        if (return_type.zigTypeTag() == .NoReturn and fntype.kw_args.cc == .Unspecified) {
+            return self.constType(scope, fntype.base.src, Type.initTag(.fn_noreturn_no_args));
+        }
+
+        if (return_type.zigTypeTag() == .Void and fntype.kw_args.cc == .Unspecified) {
+            return self.constType(scope, fntype.base.src, Type.initTag(.fn_void_no_args));
+        }
+
+        if (return_type.zigTypeTag() == .NoReturn and fntype.kw_args.cc == .Naked) {
+            return self.constType(scope, fntype.base.src, Type.initTag(.fn_naked_noreturn_no_args));
+        }
+
+        if (return_type.zigTypeTag() == .Void and fntype.kw_args.cc == .C) {
+            return self.constType(scope, fntype.base.src, Type.initTag(.fn_ccc_void_no_args));
+        }
     }
 
-    if (return_type.zigTypeTag() == .Void and
-        fntype.positionals.param_types.len == 0 and
-        fntype.kw_args.cc == .Unspecified)
-    {
-        return self.constType(scope, fntype.base.src, Type.initTag(.fn_void_no_args));
+    const arena = scope.arena();
+    const param_types = try arena.alloc(Type, fntype.positionals.param_types.len);
+    for (fntype.positionals.param_types) |param_type, i| {
+        param_types[i] = try self.resolveType(scope, param_type);
     }
 
-    if (return_type.zigTypeTag() == .NoReturn and
-        fntype.positionals.param_types.len == 0 and
-        fntype.kw_args.cc == .Naked)
-    {
-        return self.constType(scope, fntype.base.src, Type.initTag(.fn_naked_noreturn_no_args));
-    }
-
-    if (return_type.zigTypeTag() == .Void and
-        fntype.positionals.param_types.len == 0 and
-        fntype.kw_args.cc == .C)
-    {
-        return self.constType(scope, fntype.base.src, Type.initTag(.fn_ccc_void_no_args));
-    }
-
-    return self.fail(scope, fntype.base.src, "TODO implement fntype instruction more", .{});
+    const payload = try arena.create(Type.Payload.Function);
+    payload.* = .{
+        .cc = fntype.kw_args.cc,
+        .return_type = return_type,
+        .param_types = param_types,
+    };
+    return self.constType(scope, fntype.base.src, Type.initPayload(&payload.base));
 }
 
 fn analyzeInstPrimitive(self: *Module, scope: *Scope, primitive: *zir.Inst.Primitive) InnerError!*Inst {
@@ -2757,10 +2895,17 @@ fn analyzeInstElemPtr(self: *Module, scope: *Scope, inst: *zir.Inst.ElemPtr) Inn
 }
 
 fn analyzeInstAdd(self: *Module, scope: *Scope, inst: *zir.Inst.Add) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
+
     const lhs = try self.resolveInst(scope, inst.positionals.lhs);
     const rhs = try self.resolveInst(scope, inst.positionals.rhs);
 
     if (lhs.ty.zigTypeTag() == .Int and rhs.ty.zigTypeTag() == .Int) {
+        if (!lhs.ty.eql(rhs.ty)) {
+            return self.fail(scope, inst.base.src, "TODO implement peer type resolution", .{});
+        }
+
         if (lhs.value()) |lhs_val| {
             if (rhs.value()) |rhs_val| {
                 // TODO is this a performance issue? maybe we should try the operation without
@@ -2776,10 +2921,6 @@ fn analyzeInstAdd(self: *Module, scope: *Scope, inst: *zir.Inst.Add) InnerError!
                 var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
                 result_bigint.add(lhs_bigint, rhs_bigint);
                 const result_limbs = result_bigint.limbs[0..result_bigint.len];
-
-                if (!lhs.ty.eql(rhs.ty)) {
-                    return self.fail(scope, inst.base.src, "TODO implement peer type resolution", .{});
-                }
 
                 const val_payload = if (result_bigint.positive) blk: {
                     const val_payload = try scope.arena().create(Value.Payload.IntBigPositive);
@@ -2797,6 +2938,12 @@ fn analyzeInstAdd(self: *Module, scope: *Scope, inst: *zir.Inst.Add) InnerError!
                 });
             }
         }
+
+        const b = try self.requireRuntimeBlock(scope, inst.base.src);
+        return self.addNewInstArgs(b, inst.base.src, lhs.ty, Inst.Add, .{
+            .lhs = lhs,
+            .rhs = rhs,
+        });
     }
 
     return self.fail(scope, inst.base.src, "TODO implement more analyze add", .{});
@@ -2936,6 +3083,7 @@ fn analyzeInstCondBr(self: *Module, scope: *Scope, inst: *zir.Inst.CondBr) Inner
     const parent_block = try self.requireRuntimeBlock(scope, inst.base.src);
 
     var true_block: Scope.Block = .{
+        .parent = parent_block,
         .func = parent_block.func,
         .decl = parent_block.decl,
         .instructions = .{},
@@ -2945,6 +3093,7 @@ fn analyzeInstCondBr(self: *Module, scope: *Scope, inst: *zir.Inst.CondBr) Inner
     try self.analyzeBody(&true_block.base, inst.positionals.true_body);
 
     var false_block: Scope.Block = .{
+        .parent = parent_block,
         .func = parent_block.func,
         .decl = parent_block.decl,
         .instructions = .{},
@@ -3178,7 +3327,7 @@ fn cmpNumeric(
     const casted_lhs = try self.coerce(scope, dest_type, lhs);
     const casted_rhs = try self.coerce(scope, dest_type, lhs);
 
-    return self.addNewInstArgs(b, src, dest_type, Inst.Cmp, .{
+    return self.addNewInstArgs(b, src, Type.initTag(.bool), Inst.Cmp, .{
         .lhs = casted_lhs,
         .rhs = casted_rhs,
         .op = op,
@@ -3195,6 +3344,12 @@ fn makeIntType(self: *Module, scope: *Scope, signed: bool, bits: u16) !Type {
         int_payload.* = .{ .bits = bits };
         return Type.initPayload(&int_payload.base);
     }
+}
+
+fn resolvePeerTypes(self: *Module, scope: *Scope, instructions: []*Inst) !Type {
+    if (instructions.len == 0)
+        return Type.initTag(.noreturn);
+    return self.fail(scope, instructions[0].src, "TODO peer type resolution", .{});
 }
 
 fn coerce(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) !*Inst {
@@ -3238,7 +3393,10 @@ fn coerce(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) !*Inst {
             if (inst.value()) |val| {
                 return self.constInst(scope, inst.src, .{ .ty = dest_type, .val = val });
             } else {
-                return self.fail(scope, inst.src, "TODO implement runtime integer widening", .{});
+                return self.fail(scope, inst.src, "TODO implement runtime integer widening ({} to {})", .{
+                    inst.ty,
+                    dest_type,
+                });
             }
         } else {
             return self.fail(scope, inst.src, "TODO implement more int widening {} to {}", .{ inst.ty, dest_type });

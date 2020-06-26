@@ -34,7 +34,13 @@ pub const Inst = struct {
 
     /// These names are used directly as the instruction names in the text format.
     pub const Tag = enum {
+        /// Function parameter value.
+        arg,
+        /// A labeled block of code, which can return a value.
+        block,
         breakpoint,
+        /// Same as `break` but without an operand; the operand is assumed to be the void value.
+        breakvoid,
         call,
         compileerror,
         /// Special case, has no textual representation.
@@ -75,7 +81,10 @@ pub const Inst = struct {
 
     pub fn TagToType(tag: Tag) type {
         return switch (tag) {
+            .arg => Arg,
+            .block => Block,
             .breakpoint => Breakpoint,
+            .breakvoid => BreakVoid,
             .call => Call,
             .declref => DeclRef,
             .declref_str => DeclRefStr,
@@ -115,11 +124,42 @@ pub const Inst = struct {
         return @fieldParentPtr(T, "base", base);
     }
 
+    pub const Arg = struct {
+        pub const base_tag = Tag.arg;
+        base: Inst,
+
+        positionals: struct {
+            index: usize,
+        },
+        kw_args: struct {},
+    };
+
+    pub const Block = struct {
+        pub const base_tag = Tag.block;
+        base: Inst,
+
+        positionals: struct {
+            label: []const u8,
+            body: Module.Body,
+        },
+        kw_args: struct {},
+    };
+
     pub const Breakpoint = struct {
         pub const base_tag = Tag.breakpoint;
         base: Inst,
 
         positionals: struct {},
+        kw_args: struct {},
+    };
+
+    pub const BreakVoid = struct {
+        pub const base_tag = Tag.breakvoid;
+        base: Inst,
+
+        positionals: struct {
+            label: []const u8,
+        },
         kw_args: struct {},
     };
 
@@ -347,6 +387,14 @@ pub const Inst = struct {
         kw_args: struct {},
 
         pub const Builtin = enum {
+            i8,
+            u8,
+            i16,
+            u16,
+            i32,
+            u32,
+            i64,
+            u64,
             isize,
             usize,
             c_short,
@@ -378,6 +426,14 @@ pub const Inst = struct {
 
             pub fn toTypedValue(self: Builtin) TypedValue {
                 return switch (self) {
+                    .i8 => .{ .ty = Type.initTag(.type), .val = Value.initTag(.i8_type) },
+                    .u8 => .{ .ty = Type.initTag(.type), .val = Value.initTag(.u8_type) },
+                    .i16 => .{ .ty = Type.initTag(.type), .val = Value.initTag(.i16_type) },
+                    .u16 => .{ .ty = Type.initTag(.type), .val = Value.initTag(.u16_type) },
+                    .i32 => .{ .ty = Type.initTag(.type), .val = Value.initTag(.i32_type) },
+                    .u32 => .{ .ty = Type.initTag(.type), .val = Value.initTag(.u32_type) },
+                    .i64 => .{ .ty = Type.initTag(.type), .val = Value.initTag(.i64_type) },
+                    .u64 => .{ .ty = Type.initTag(.type), .val = Value.initTag(.u64_type) },
                     .isize => .{ .ty = Type.initTag(.type), .val = Value.initTag(.isize_type) },
                     .usize => .{ .ty = Type.initTag(.type), .val = Value.initTag(.usize_type) },
                     .c_short => .{ .ty = Type.initTag(.type), .val = Value.initTag(.c_short_type) },
@@ -591,7 +647,10 @@ pub const Module = struct {
     ) @TypeOf(stream).Error!void {
         // TODO I tried implementing this with an inline for loop and hit a compiler bug
         switch (inst.tag) {
+            .arg => return self.writeInstToStreamGeneric(stream, .arg, inst, inst_table),
+            .block => return self.writeInstToStreamGeneric(stream, .block, inst, inst_table),
             .breakpoint => return self.writeInstToStreamGeneric(stream, .breakpoint, inst, inst_table),
+            .breakvoid => return self.writeInstToStreamGeneric(stream, .breakvoid, inst, inst_table),
             .call => return self.writeInstToStreamGeneric(stream, .call, inst, inst_table),
             .declref => return self.writeInstToStreamGeneric(stream, .declref, inst, inst_table),
             .declref_str => return self.writeInstToStreamGeneric(stream, .declref_str, inst, inst_table),
@@ -691,7 +750,7 @@ pub const Module = struct {
             },
             bool => return stream.writeByte("01"[@boolToInt(param)]),
             []u8, []const u8 => return std.zig.renderStringLiteral(param, stream),
-            BigIntConst => return stream.print("{}", .{param}),
+            BigIntConst, usize => return stream.print("{}", .{param}),
             TypedValue => unreachable, // this is a special case
             *IrModule.Decl => unreachable, // this is a special case
             else => |T| @compileError("unimplemented: rendering parameter of type " ++ @typeName(T)),
@@ -718,7 +777,7 @@ pub const Module = struct {
 };
 
 pub fn parse(allocator: *Allocator, source: [:0]const u8) Allocator.Error!Module {
-    var global_name_map = std.StringHashMap(usize).init(allocator);
+    var global_name_map = std.StringHashMap(*Inst).init(allocator);
     defer global_name_map.deinit();
 
     var parser: Parser = .{
@@ -752,22 +811,24 @@ const Parser = struct {
     i: usize,
     source: [:0]const u8,
     decls: std.ArrayListUnmanaged(*Decl),
-    global_name_map: *std.StringHashMap(usize),
+    global_name_map: *std.StringHashMap(*Inst),
     error_msg: ?ErrorMsg = null,
     unnamed_index: usize,
 
     const Body = struct {
         instructions: std.ArrayList(*Inst),
-        name_map: std.StringHashMap(usize),
+        name_map: *std.StringHashMap(*Inst),
     };
 
-    fn parseBody(self: *Parser) !Module.Body {
+    fn parseBody(self: *Parser, body_ctx: ?*Body) !Module.Body {
+        var name_map = std.StringHashMap(*Inst).init(self.allocator);
+        defer name_map.deinit();
+
         var body_context = Body{
             .instructions = std.ArrayList(*Inst).init(self.allocator),
-            .name_map = std.StringHashMap(usize).init(self.allocator),
+            .name_map = if (body_ctx) |bctx| bctx.name_map else &name_map,
         };
         defer body_context.instructions.deinit();
-        defer body_context.name_map.deinit();
 
         try requireEatBytes(self, "{");
         skipSpace(self);
@@ -782,7 +843,7 @@ const Parser = struct {
                 skipSpace(self);
                 const decl = try parseInstruction(self, &body_context, ident);
                 const ident_index = body_context.instructions.items.len;
-                if (try body_context.name_map.put(ident, ident_index)) |_| {
+                if (try body_context.name_map.put(ident, decl.inst)) |_| {
                     return self.fail("redefinition of identifier '{}'", .{ident});
                 }
                 try body_context.instructions.append(decl.inst);
@@ -866,12 +927,12 @@ const Parser = struct {
                     skipSpace(self);
                     try requireEatBytes(self, "=");
                     skipSpace(self);
-                    const inst = try parseInstruction(self, null, ident);
+                    const decl = try parseInstruction(self, null, ident);
                     const ident_index = self.decls.items.len;
-                    if (try self.global_name_map.put(ident, ident_index)) |_| {
+                    if (try self.global_name_map.put(ident, decl.inst)) |_| {
                         return self.fail("redefinition of identifier '{}'", .{ident});
                     }
-                    try self.decls.append(self.allocator, inst);
+                    try self.decls.append(self.allocator, decl);
                 },
                 ' ', '\n' => self.i += 1,
                 0 => break,
@@ -1032,7 +1093,7 @@ const Parser = struct {
             };
         }
         switch (T) {
-            Module.Body => return parseBody(self),
+            Module.Body => return parseBody(self, body_ctx),
             bool => {
                 const bool_value = switch (self.source[self.i]) {
                     '0' => false,
@@ -1060,6 +1121,10 @@ const Parser = struct {
             *Inst => return parseParameterInst(self, body_ctx),
             []u8, []const u8 => return self.parseStringLiteral(),
             BigIntConst => return self.parseIntegerLiteral(),
+            usize => {
+                const big_int = try self.parseIntegerLiteral();
+                return big_int.to(usize) catch |err| return self.fail("integer literal: {}", .{@errorName(err)});
+            },
             TypedValue => return self.fail("'const' is a special instruction; not legal in ZIR text", .{}),
             *IrModule.Decl => return self.fail("'declval_in_module' is a special instruction; not legal in ZIR text", .{}),
             else => @compileError("Unimplemented: ir parseParameterGeneric for type " ++ @typeName(T)),
@@ -1075,7 +1140,7 @@ const Parser = struct {
         };
         const map = if (local_ref)
             if (body_ctx) |bc|
-                &bc.name_map
+                bc.name_map
             else
                 return self.fail("referencing a % instruction in global scope", .{})
         else
@@ -1107,11 +1172,7 @@ const Parser = struct {
                 return &declval.base;
             }
         };
-        if (local_ref) {
-            return body_ctx.?.instructions.items[kv.value];
-        } else {
-            return self.decls.items[kv.value].inst;
-        }
+        return kv.value;
     }
 
     fn generateName(self: *Parser) ![]u8 {
@@ -1456,7 +1517,7 @@ const EmitZIR = struct {
 
     fn emitBody(
         self: *EmitZIR,
-        body: IrModule.Body,
+        body: ir.Body,
         inst_table: *std.AutoHashMap(*ir.Inst, *Inst),
         instructions: *std.ArrayList(*Inst),
     ) Allocator.Error!void {
@@ -1466,6 +1527,57 @@ const EmitZIR = struct {
         };
         for (body.instructions) |inst| {
             const new_inst = switch (inst.tag) {
+                .add => blk: {
+                    const old_inst = inst.cast(ir.Inst.Add).?;
+                    const new_inst = try self.arena.allocator.create(Inst.Add);
+                    new_inst.* = .{
+                        .base = .{
+                            .src = inst.src,
+                            .tag = Inst.Add.base_tag,
+                        },
+                        .positionals = .{
+                            .lhs = try self.resolveInst(new_body, old_inst.args.lhs),
+                            .rhs = try self.resolveInst(new_body, old_inst.args.rhs),
+                        },
+                        .kw_args = .{},
+                    };
+                    break :blk &new_inst.base;
+                },
+                .arg => blk: {
+                    const old_inst = inst.cast(ir.Inst.Arg).?;
+                    const new_inst = try self.arena.allocator.create(Inst.Arg);
+                    new_inst.* = .{
+                        .base = .{
+                            .src = inst.src,
+                            .tag = Inst.Arg.base_tag,
+                        },
+                        .positionals = .{ .index = old_inst.args.index },
+                        .kw_args = .{},
+                    };
+                    break :blk &new_inst.base;
+                },
+                .block => blk: {
+                    const old_inst = inst.cast(ir.Inst.Block).?;
+                    const new_inst = try self.arena.allocator.create(Inst.Block);
+
+                    var block_body = std.ArrayList(*Inst).init(self.allocator);
+                    defer block_body.deinit();
+
+                    try self.emitBody(old_inst.args.body, inst_table, &block_body);
+
+                    new_inst.* = .{
+                        .base = .{
+                            .src = inst.src,
+                            .tag = Inst.Block.base_tag,
+                        },
+                        .positionals = .{
+                            .label = try self.autoName(),
+                            .body = .{ .instructions = block_body.toOwnedSlice() },
+                        },
+                        .kw_args = .{},
+                    };
+                    break :blk &new_inst.base;
+                },
                 .breakpoint => try self.emitTrivial(inst.src, Inst.Breakpoint),
                 .call => blk: {
                     const old_inst = inst.cast(ir.Inst.Call).?;
@@ -1660,6 +1772,14 @@ const EmitZIR = struct {
 
     fn emitType(self: *EmitZIR, src: usize, ty: Type) Allocator.Error!*Decl {
         switch (ty.tag()) {
+            .i8 => return self.emitPrimitive(src, .i8),
+            .u8 => return self.emitPrimitive(src, .u8),
+            .i16 => return self.emitPrimitive(src, .i16),
+            .u16 => return self.emitPrimitive(src, .u16),
+            .i32 => return self.emitPrimitive(src, .i32),
+            .u32 => return self.emitPrimitive(src, .u32),
+            .i64 => return self.emitPrimitive(src, .i64),
+            .u64 => return self.emitPrimitive(src, .u64),
             .isize => return self.emitPrimitive(src, .isize),
             .usize => return self.emitPrimitive(src, .usize),
             .c_short => return self.emitPrimitive(src, .c_short),

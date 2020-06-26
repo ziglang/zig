@@ -174,6 +174,9 @@ const Function = struct {
 
     fn genFuncInst(self: *Function, inst: *ir.Inst) !MCValue {
         switch (inst.tag) {
+            .add => return self.genAdd(inst.cast(ir.Inst.Add).?),
+            .arg => return self.genArg(inst.src),
+            .block => return self.genBlock(inst.cast(ir.Inst.Block).?),
             .breakpoint => return self.genBreakpoint(inst.src),
             .call => return self.genCall(inst.cast(ir.Inst.Call).?),
             .unreach => return MCValue{ .unreach = {} },
@@ -188,6 +191,19 @@ const Function = struct {
             .isnull => return self.genIsNull(inst.cast(ir.Inst.IsNull).?),
             .isnonnull => return self.genIsNonNull(inst.cast(ir.Inst.IsNonNull).?),
         }
+    }
+
+    fn genAdd(self: *Function, inst: *ir.Inst.Add) !MCValue {
+        switch (self.target.cpu.arch) {
+            else => return self.fail(inst.base.src, "TODO implement add for {}", .{self.target.cpu.arch}),
+        }
+    }
+
+    fn genArg(self: *Function, src: usize) !MCValue {
+        switch (self.target.cpu.arch) {
+            else => return self.fail(src, "TODO implement function parameters for {}", .{self.target.cpu.arch}),
+        }
+        return .none;
     }
 
     fn genBreakpoint(self: *Function, src: usize) !MCValue {
@@ -299,6 +315,12 @@ const Function = struct {
                 }
             },
             else => return self.fail(src, "TODO implement relative forward jump for {}", .{self.target.cpu.arch}),
+        }
+    }
+
+    fn genBlock(self: *Function, inst: *ir.Inst.Block) !MCValue {
+        switch (self.target.cpu.arch) {
+            else => return self.fail(inst.base.src, "TODO implement codegen Block for {}", .{self.target.cpu.arch}),
         }
     }
 
