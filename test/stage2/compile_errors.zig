@@ -86,12 +86,18 @@ pub fn addCases(ctx: *TestContext) !void {
             \\export fn entry() void {}
         );
     }
+    {
+        var case = ctx.obj("missing function name", linux_x64);
+        case.addError(
+            \\fn() void {}
+        , &[_][]const u8{":1:3: error: missing function name"});
+        case.compiles(
+            \\fn a() void {}
+        );
+    }
     // TODO: re-enable these tests.
     // https://github.com/ziglang/zig/issues/1364
 
-    //    ctx.addError("Missing function name", linux_x64, .Zig,
-    //        \\fn() void {}
-    //    , &[_][]const u8{":1:3: error: missing function name"});
     //ctx.testCompileError(
     //    \\comptime {
     //    \\    return;
