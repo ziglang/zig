@@ -119,12 +119,7 @@ test "directory operations on files" {
     testing.expectError(error.NotDir, tmp_dir.dir.deleteDir(test_file_name));
 
     if (builtin.os.tag != .wasi) {
-        // TODO: use Dir's realpath function once that exists
-        const absolute_path = blk: {
-            const relative_path = try fs.path.join(testing.allocator, &[_][]const u8{ "zig-cache", "tmp", tmp_dir.sub_path[0..], test_file_name });
-            defer testing.allocator.free(relative_path);
-            break :blk try fs.realpathAlloc(testing.allocator, relative_path);
-        };
+        const absolute_path = try tmp_dir.dir.realpath(testing.allocator, test_file_name);
         defer testing.allocator.free(absolute_path);
 
         testing.expectError(error.PathAlreadyExists, fs.makeDirAbsolute(absolute_path));
