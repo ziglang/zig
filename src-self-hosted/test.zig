@@ -90,7 +90,7 @@ pub const TestContext = struct {
         /// Adds a subcase in which the module is updated with `src`, which
         /// should contain invalid input, and ensures that compilation fails
         /// for the expected reasons, given in sequential order in `errors` in
-        /// the form `:error: line:column: message`.
+        /// the form `:line:column: error: message`.
         pub fn addError(self: *Case, src: [:0]const u8, errors: []const []const u8) void {
             var array = self.updates.allocator.alloc(ErrorMsg, errors.len) catch unreachable;
             for (errors) |e, i| {
@@ -267,7 +267,7 @@ pub const TestContext = struct {
 
     /// Adds a test case that ensures that the Zig given in `src` fails to
     /// compile for the expected reasons, given in sequential order in
-    /// `expected_errors` in the form `:error: line:column: message`.
+    /// `expected_errors` in the form `:line:column: error: message`.
     pub fn compileError(
         ctx: *TestContext,
         name: []const u8,
@@ -280,7 +280,7 @@ pub const TestContext = struct {
 
     /// Adds a test case that ensures that the ZIR given in `src` fails to
     /// compile for the expected reasons, given in sequential order in
-    /// `expected_errors` in the form `:error: line:column: message`.
+    /// `expected_errors` in the form `:line:column: error: message`.
     pub fn compileErrorZIR(
         ctx: *TestContext,
         name: []const u8,
@@ -325,7 +325,7 @@ pub const TestContext = struct {
 
     /// Adds a test case that first ensures that the Zig given in `src` fails
     /// to compile for the reasons given in sequential order in
-    /// `expected_errors` in the form `:error: line:column: message`, then
+    /// `expected_errors` in the form `:line:column: error: message`, then
     /// asserts that fixing the source (updating with `fixed_src`) isn't broken
     /// by incremental compilation.
     pub fn incrementalFailure(
@@ -343,7 +343,7 @@ pub const TestContext = struct {
 
     /// Adds a test case that first ensures that the ZIR given in `src` fails
     /// to compile for the reasons given in sequential order in
-    /// `expected_errors` in the form `:error: line:column: message`, then
+    /// `expected_errors` in the form `:line:column: error: message`, then
     /// asserts that fixing the source (updating with `fixed_src`) isn't broken
     /// by incremental compilation.
     pub fn incrementalFailureZIR(
