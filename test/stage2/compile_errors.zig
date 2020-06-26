@@ -9,7 +9,7 @@ const linux_x64 = std.zig.CrossTarget{
 };
 
 pub fn addCases(ctx: *TestContext) !void {
-    ctx.addError("call undefined local", linux_x64, .ZIR,
+    ctx.compileErrorZIR("call undefined local", linux_x64,
         \\@noreturn = primitive(noreturn)
         \\
         \\@start_fnty = fntype([], @noreturn, cc=Naked)
@@ -19,7 +19,7 @@ pub fn addCases(ctx: *TestContext) !void {
  // TODO: address inconsistency in this message and the one in the next test
             , &[_][]const u8{":5:13: error: unrecognized identifier: %test"});
 
-    ctx.addError("call with non-existent target", linux_x64, .ZIR,
+    ctx.compileErrorZIR("call with non-existent target", linux_x64,
         \\@noreturn = primitive(noreturn)
         \\
         \\@start_fnty = fntype([], @noreturn, cc=Naked)
@@ -31,7 +31,7 @@ pub fn addCases(ctx: *TestContext) !void {
     , &[_][]const u8{":5:13: error: decl 'notafunc' not found"});
 
     // TODO: this error should occur at the call site, not the fntype decl
-    ctx.addError("call naked function", linux_x64, .ZIR,
+    ctx.compileErrorZIR("call naked function", linux_x64,
         \\@noreturn = primitive(noreturn)
         \\
         \\@start_fnty = fntype([], @noreturn, cc=Naked)

@@ -138,6 +138,14 @@ pub const TestContext = struct {
         return &ctx.cases.items[ctx.cases.items.len - 1];
     }
 
+    pub fn exe(ctx: *TestContext, name: []const u8, target: std.zig.CrossTarget) *Case {
+        return ctx.addExe(name, target, .Zig);
+    }
+
+    pub fn exeZIR(ctx: *TestContext, name: []const u8, target: std.zig.CrossTarget) *Case {
+        return ctx.addExe(name, target, .ZIR);
+    }
+
     pub fn addObj(
         ctx: *TestContext,
         name: []const u8,
@@ -154,6 +162,14 @@ pub const TestContext = struct {
         return &ctx.cases.items[ctx.cases.items.len - 1];
     }
 
+    pub fn obj(ctx: *TestContext, name: []const u8, target: std.zig.CrossTarget) *Case {
+        return ctx.addObj(name, target, .Zig);
+    }
+
+    pub fn objZIR(ctx: *TestContext, name: []const u8, target: std.zig.CrossTarget) *Case {
+        return ctx.addObj(name, target, .ZIR);
+    }
+
     pub fn addCompareOutput(
         ctx: *TestContext,
         name: []const u8,
@@ -162,6 +178,24 @@ pub const TestContext = struct {
         expected_stdout: []const u8,
     ) void {
         ctx.addExe(name, .{}, T).addCompareOutput(src, expected_stdout);
+    }
+
+    pub fn compareOutput(
+        ctx: *TestContext,
+        name: []const u8,
+        src: [:0]const u8,
+        expected_stdout: []const u8,
+    ) void {
+        return ctx.addCompareOutput(name, .Zig, src, expected_stdout);
+    }
+
+    pub fn compareOutputZIR(
+        ctx: *TestContext,
+        name: []const u8,
+        src: [:0]const u8,
+        expected_stdout: []const u8,
+    ) void {
+        ctx.addCompareOutput(name, .ZIR, src, expected_stdout);
     }
 
     pub fn addTransform(
@@ -175,6 +209,26 @@ pub const TestContext = struct {
         ctx.addObj(name, target, T).addTransform(src, result);
     }
 
+    pub fn transform(
+        ctx: *TestContext,
+        name: []const u8,
+        target: std.zig.CrossTarget,
+        src: [:0]const u8,
+        result: [:0]const u8,
+    ) void {
+        ctx.addTransform(name, target, .Zig, src, result);
+    }
+
+    pub fn transformZIR(
+        ctx: *TestContext,
+        name: []const u8,
+        target: std.zig.CrossTarget,
+        src: [:0]const u8,
+        result: [:0]const u8,
+    ) void {
+        ctx.addTransform(name, target, .ZIR, src, result);
+    }
+
     pub fn addError(
         ctx: *TestContext,
         name: []const u8,
@@ -184,6 +238,26 @@ pub const TestContext = struct {
         expected_errors: []const []const u8,
     ) void {
         ctx.addObj(name, target, T).addError(src, expected_errors);
+    }
+
+    pub fn compileError(
+        ctx: *TestContext,
+        name: []const u8,
+        target: std.zig.CrossTarget,
+        src: [:0]const u8,
+        expected_errors: []const []const u8,
+    ) void {
+        ctx.addError(name, target, .Zig, src, expected_errors);
+    }
+
+    pub fn compileErrorZIR(
+        ctx: *TestContext,
+        name: []const u8,
+        target: std.zig.CrossTarget,
+        src: [:0]const u8,
+        expected_errors: []const []const u8,
+    ) void {
+        ctx.addError(name, target, .ZIR, src, expected_errors);
     }
 
     fn init() TestContext {
