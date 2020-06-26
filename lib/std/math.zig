@@ -310,12 +310,75 @@ test "math.min" {
     }
 }
 
-pub fn max(x: var, y: var) @TypeOf(x, y) {
-    return if (x > y) x else y;
+/// Given two types, returns the biggest one which is capable of holding the
+/// full range of the maximum value.
+pub fn Max(comptime A: type, comptime B: type) type {
+    switch (@typeInfo(A)) {
+        .Int => |a_info| switch (@typeInfo(B)) {
+            .Int => |b_info| if (!a_info.is_signed and !b_info.is_signed) {
+                if (a_info.bits > b_info.bits) {
+                    return A;
+                } else {
+                    return B;
+                }
+            },
+            else => {},
+        },
+        else => {},
+    }
+    return @TypeOf(@as(A, 0) + @as(B, 0));
+}
+
+pub fn max(x: var, y: var) Max(@TypeOf(x), @TypeOf(y)) {
+    const Result = Max(@TypeOf(x), @TypeOf(y));
+    if (x > y) {
+        // TODO Zig should allow this as an implicit cast because x is immutable and in this
+        // scope it is known to fit in the return type.
+        switch (@typeInfo(Result)) {
+            .Int => return @intCast(Result, x),
+            else => return x,
+        }
+    } else {
+        // TODO Zig should allow this as an implicit cast because y is immutable and in this
+        // scope it is known to fit in the return type.
+        switch (@typeInfo(Result)) {
+            .Int => return @intCast(Result, y),
+            else => return y,
+        }
+    }
 }
 
 test "math.max" {
     testing.expect(max(@as(i32, -1), @as(i32, 2)) == 2);
+    {
+        var a: u16 = 999;
+        var b: u32 = 10;
+        var result = max(a, b);
+        testing.expect(@TypeOf(result) == u32);
+        testing.expect(result == a);
+    }
+    {
+        var a: f64 = 10.34;
+        var b: f32 = 999.12;
+        var result = max(a, b);
+        testing.expect(@TypeOf(result) == f64);
+        std.debug.print("result = {}\n", .{result});
+        testing.expect(result == b);
+    }
+    {
+        var a: i8 = -127;
+        var b: i16 = -200;
+        var result = max(a, b);
+        testing.expect(@TypeOf(result) == i16);
+        testing.expect(result == a);
+    }
+    {
+        const a = 10.34;
+        var b: f32 = 999.12;
+        var result = max(a, b);
+        testing.expect(@TypeOf(result) == f32);
+        testing.expect(result == b);
+    }
 }
 
 pub fn clamp(val: var, lower: var, upper: var) @TypeOf(val, lower, upper) {
