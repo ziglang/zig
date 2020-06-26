@@ -444,7 +444,18 @@ pub const TestContext = struct {
             var module_node = update_node.start("parse/analysis/codegen", null);
             module_node.activate();
             try module.makeBinFileWritable();
-            try module.update();
+            module.update() catch |err| {
+                if (err == error.AnalysisFail and update.case != .Error) {
+                    std.debug.assert(module.totalErrorCount() > 0);
+                    std.debug.warn("{}\nCompilation failed:\n================\n", .{case.name});
+                    var all_errors = try module.getAllErrorsAlloc();
+                    for (all_errors.list) |a| {
+                        std.debug.warn(":{}:{}: error: {}\n", .{ a.line + 1, a.column + 1, a.msg });
+                    }
+                    std.debug.warn("================\nTest failed.\n", .{});
+                    std.process.exit(1);
+                }
+            };
             module_node.end();
 
             switch (update.case) {
