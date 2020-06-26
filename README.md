@@ -51,6 +51,8 @@ cmake ..
 make install
 ```
 
+Need help? [Troubleshooting Build Issues](https://github.com/ziglang/zig/wiki/Troubleshooting-Build-Issues)
+
 ##### MacOS
 
 ```
