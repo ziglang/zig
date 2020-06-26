@@ -23,8 +23,8 @@ pub const Cpu = std.Target.Cpu;
 
 /// `explicit_subsystem` is missing when the subsystem is automatically
 /// detected, so Zig standard library has the subsystem detection logic
-/// here. This should generally be used rather than `explicit_subsystem`.  On
-/// non-Windows targets, this is `null`.
+/// here. This should generally be used rather than `explicit_subsystem`.
+/// On non-Windows targets, this is `null`.
 pub const subsystem: ?SubSystem = blk: {
     if (@hasDecl(@This(), "explicit_subsystem")) break :blk explicit_subsystem;
     switch (os.tag) {
