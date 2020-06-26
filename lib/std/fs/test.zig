@@ -73,6 +73,38 @@ test "directory operations on files" {
     file.close();
 }
 
+test "file operations on directories" {
+    var tmp_dir = tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    const test_dir_name = "test_dir";
+
+    try tmp_dir.dir.makeDir(test_dir_name);
+
+    testing.expectError(error.IsDir, tmp_dir.dir.createFile(test_dir_name, .{}));
+    testing.expectError(error.IsDir, tmp_dir.dir.deleteFile(test_dir_name));
+    testing.expectError(error.IsDir, tmp_dir.dir.readFileAlloc(testing.allocator, test_dir_name, std.math.maxInt(usize)));
+    // note: the `.write = true` is necessary to ensure the error occurs on all platforms
+    testing.expectError(error.IsDir, tmp_dir.dir.openFile(test_dir_name, .{ .write = true }));
+
+    if (builtin.os.tag != .wasi) {
+        // TODO: use Dir's realpath function once that exists
+        const absolute_path = blk: {
+            const relative_path = try fs.path.join(testing.allocator, &[_][]const u8{ "zig-cache", "tmp", tmp_dir.sub_path[0..], test_dir_name });
+            defer testing.allocator.free(relative_path);
+            break :blk try fs.realpathAlloc(testing.allocator, relative_path);
+        };
+        defer testing.allocator.free(absolute_path);
+
+        testing.expectError(error.IsDir, fs.createFileAbsolute(absolute_path, .{}));
+        testing.expectError(error.IsDir, fs.deleteFileAbsolute(absolute_path));
+    }
+
+    // ensure the directory still exists as a sanity check
+    var dir = try tmp_dir.dir.openDir(test_dir_name, .{});
+    dir.close();
+}
+
 test "openSelfExe" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
