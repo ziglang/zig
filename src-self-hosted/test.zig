@@ -274,6 +274,32 @@ pub const TestContext = struct {
         ctx.addObj(name, target, T).compiles(src);
     }
 
+    pub fn incrementalFailure(
+        ctx: *TestContext,
+        name: []const u8,
+        target: std.zig.CrossTarget,
+        src: [:0]const u8,
+        expected_errors: []const []const u8,
+        fixed_src: [:0]const u8,
+    ) void {
+        var case = ctx.addObj(name, target, .Zig);
+        case.addError(src, expected_errors);
+        case.compiles(fixed_src);
+    }
+
+    pub fn incrementalFailureZIR(
+        ctx: *TestContext,
+        name: []const u8,
+        target: std.zig.CrossTarget,
+        src: [:0]const u8,
+        expected_errors: []const []const u8,
+        fixed_src: [:0]const u8,
+    ) void {
+        var case = ctx.addObj(name, target, .ZIR);
+        case.addError(src, expected_errors);
+        case.compiles(fixed_src);
+    }
+
     pub fn compiles(
         ctx: *TestContext,
         name: []const u8,
