@@ -902,6 +902,9 @@ pub fn update(self: *Module) !void {
             self.root_scope.unload(self.allocator);
         }
         try self.bin_file.flush();
+    } else {
+        // performAllTheWork failed.
+        return error.AnalysisFail;
     }
 }
 
