@@ -775,3 +775,14 @@ test "std.meta.cast" {
     testing.expect(cast(u8, E.Two) == 2);
     testing.expect(cast(*u64, &i).* == @as(u64, 10));
 }
+
+pub fn iff(comptime predicate: bool, comptime ifTrue: type, comptime ifFalse: type) type {
+    return if (predicate) ifTrue else ifFalse;
+}
+
+test "std.meta.iff" {
+   const t1 = iff(true, bool, u32);
+   const t2 = iff(false, bool, u32);
+   testing.expect(t1 == bool);
+   testing.expect(t2 == u32);
+}
