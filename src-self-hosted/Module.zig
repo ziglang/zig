@@ -2120,6 +2120,20 @@ fn analyzeExport(self: *Module, scope: *Scope, src: usize, symbol_name: []const 
         else => return self.fail(scope, src, "unable to export type '{}'", .{typed_value.ty}),
     }
 
+    var already_exported = false;
+    {
+        var it = self.decl_exports.iterator();
+        while (it.next()) |kv| {
+            const export_list = kv.value;
+            for (export_list) |e| {
+                if (std.mem.eql(u8, e.options.name, symbol_name)) {
+                    already_exported = true;
+                    break;
+                }
+            }
+        }
+    }
+
     try self.decl_exports.ensureCapacity(self.decl_exports.size + 1);
     try self.export_owners.ensureCapacity(self.export_owners.size + 1);
 
@@ -2155,19 +2169,29 @@ fn analyzeExport(self: *Module, scope: *Scope, src: usize, symbol_name: []const 
     de_gop.kv.value[de_gop.kv.value.len - 1] = new_export;
     errdefer de_gop.kv.value = self.allocator.shrink(de_gop.kv.value, de_gop.kv.value.len - 1);
 
-    self.bin_file.updateDeclExports(self, exported_decl, de_gop.kv.value) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
-        else => {
-            try self.failed_exports.ensureCapacity(self.failed_exports.size + 1);
-            self.failed_exports.putAssumeCapacityNoClobber(new_export, try ErrorMsg.create(
-                self.allocator,
-                src,
-                "unable to export: {}",
-                .{@errorName(err)},
-            ));
-            new_export.status = .failed_retryable;
-        },
-    };
+    if (already_exported) {
+        try self.failed_exports.ensureCapacity(self.failed_exports.size + 1);
+        self.failed_exports.putAssumeCapacityNoClobber(new_export, try ErrorMsg.create(
+            self.allocator,
+            src,
+            "exported symbol collision: {}",
+            .{symbol_name},
+        ));
+    } else {
+        self.bin_file.updateDeclExports(self, exported_decl, de_gop.kv.value) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            else => {
+                try self.failed_exports.ensureCapacity(self.failed_exports.size + 1);
+                self.failed_exports.putAssumeCapacityNoClobber(new_export, try ErrorMsg.create(
+                    self.allocator,
+                    src,
+                    "unable to export: {}",
+                    .{@errorName(err)},
+                ));
+                new_export.status = .failed_retryable;
+            },
+        };
+    }
 }
 
 fn addNewInstArgs(

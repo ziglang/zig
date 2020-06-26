@@ -43,13 +43,37 @@ pub fn addCases(ctx: *TestContext) !void {
         \\@1 = export(@0, "start")
     , &[_][]const u8{":4:9: error: unable to call function with naked calling convention"});
 
+    {
+        var case = ctx.objZIR("exported symbol collision", linux_x64);
+        // First, ensure we receive the error correctly
+        case.addError(
+            \\@noreturn = primitive(noreturn)
+            \\
+            \\@start_fnty = fntype([], @noreturn)
+            \\@start = fn(@start_fnty, {})
+            \\
+            \\@0 = str("_start")
+            \\@1 = export(@0, "start")
+            \\@2 = export(@0, "start")
+        , &[_][]const u8{":8:13: error: exported symbol collision: _start"});
+        // Next, ensure everything works properly on the next compilation with the problem fixed
+        case.compiles(
+            \\@noreturn = primitive(noreturn)
+            \\
+            \\@start_fnty = fntype([], @noreturn)
+            \\@start = fn(@start_fnty, {})
+            \\
+            \\@0 = str("_start")
+            \\@1 = export(@0, "start")
+        );
+    }
     // TODO: re-enable these tests.
     // https://github.com/ziglang/zig/issues/1364
 
-    //  ctx.addError("Export same symbol twice", linux_x64, .Zig,
-    //      \\export fn entry() void {}
-    //      \\export fn entry() void {}
-    //  , &[_][]const u8{":2:1: error: exported symbol collision"});
+    //     ctx.compileError("Export same symbol twice", linux_x64,
+    //         \\export fn entry() void {}
+    //         \\export fn entry() void {}
+    //     , &[_][]const u8{":2:1: error: exported symbol collision"});
 
     //    ctx.addError("Missing function name", linux_x64, .Zig,
     //        \\fn() void {}
