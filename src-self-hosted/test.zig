@@ -120,6 +120,10 @@ pub const TestContext = struct {
             }
             self.updates.append(.{ .src = src, .case = .{ .Error = array } }) catch unreachable;
         }
+
+        pub fn compiles(self: *Case, src: [:0]const u8) void {
+            self.addError(src, &[_][]const u8{});
+        }
     };
 
     pub fn addExe(
@@ -258,6 +262,34 @@ pub const TestContext = struct {
         expected_errors: []const []const u8,
     ) void {
         ctx.addError(name, target, .ZIR, src, expected_errors);
+    }
+
+    pub fn addCompiles(
+        ctx: *TestContext,
+        name: []const u8,
+        target: std.zig.CrossTarget,
+        T: TestType,
+        src: [:0]const u8,
+    ) void {
+        ctx.addObj(name, target, T).compiles(src);
+    }
+
+    pub fn compiles(
+        ctx: *TestContext,
+        name: []const u8,
+        target: std.zig.CrossTarget,
+        src: [:0]const u8,
+    ) void {
+        ctx.addCompiles(name, target, .Zig, src);
+    }
+
+    pub fn compilesZIR(
+        ctx: *TestContext,
+        name: []const u8,
+        target: std.zig.CrossTarget,
+        src: [:0]const u8,
+    ) void {
+        ctx.addCompiles(name, target, .ZIR, src);
     }
 
     fn init() TestContext {
