@@ -2731,10 +2731,19 @@ fn analyzeInstCall(self: *Module, scope: *Scope, inst: *zir.Inst.Call) InnerErro
     const casted_args = try scope.arena().alloc(*Inst, fn_params_len);
     for (inst.positionals.args) |src_arg, i| {
         const uncasted_arg = try self.resolveInst(scope, src_arg);
-        casted_args[i] = self.coerce(scope, fn_param_types[i], uncasted_arg) catch |err| return if (err == error.NotCoercable)
-            self.fail(scope, inst.base.src, "expected {}, found {}", .{ fn_param_types[i], uncasted_arg.ty })
-        else
-            @errSetCast(InnerError, err);
+        casted_args[i] = self.coerce(scope, fn_param_types[i], uncasted_arg) catch {
+            const block = scope.cast(Scope.Block).?;
+            block.func.?.analysis = .sema_failure;
+            const err_msg = try ErrorMsg.create(self.allocator, inst.base.src, "expected {}, found {}", .{ fn_param_types[i], uncasted_arg.ty });
+            {
+                errdefer err_msg.destroy(self.allocator);
+                try self.failed_decls.ensureCapacity(self.failed_decls.size + 1);
+            }
+            if (self.failed_decls.putAssumeCapacity(block.decl, err_msg)) |kv| {
+                kv.value.destroy(self.allocator);
+            }
+            return error.AnalysisFail;
+        };
     }
 
     const b = try self.requireRuntimeBlock(scope, inst.base.src);
@@ -2816,7 +2825,7 @@ fn analyzeInstPrimitive(self: *Module, scope: *Scope, primitive: *zir.Inst.Primi
 fn analyzeInstAs(self: *Module, scope: *Scope, as: *zir.Inst.As) InnerError!*Inst {
     const dest_type = try self.resolveType(scope, as.positionals.dest_type);
     const new_inst = try self.resolveInst(scope, as.positionals.value);
-    return self.coerce(scope, dest_type, new_inst) catch error.AnalysisFail;
+    return self.coerce(scope, dest_type, new_inst);
 }
 
 fn analyzeInstPtrToInt(self: *Module, scope: *Scope, ptrtoint: *zir.Inst.PtrToInt) InnerError!*Inst {
@@ -2892,7 +2901,7 @@ fn analyzeInstIntCast(self: *Module, scope: *Scope, intcast: *zir.Inst.IntCast) 
     }
 
     if (dest_is_comptime_int or new_inst.value() != null) {
-        return self.coerce(scope, dest_type, new_inst) catch error.AnalysisFail;
+        return self.coerce(scope, dest_type, new_inst);
     }
 
     return self.fail(scope, intcast.base.src, "TODO implement analyze widen or shorten int", .{});
@@ -2907,7 +2916,7 @@ fn analyzeInstBitCast(self: *Module, scope: *Scope, inst: *zir.Inst.BitCast) Inn
 fn analyzeInstElemPtr(self: *Module, scope: *Scope, inst: *zir.Inst.ElemPtr) InnerError!*Inst {
     const array_ptr = try self.resolveInst(scope, inst.positionals.array_ptr);
     const uncasted_index = try self.resolveInst(scope, inst.positionals.index);
-    const elem_index = self.coerce(scope, Type.initTag(.usize), uncasted_index) catch return error.AnalysisFail;
+    const elem_index = try self.coerce(scope, Type.initTag(.usize), uncasted_index);
 
     if (array_ptr.ty.isSinglePointer() and array_ptr.ty.elemType().zigTypeTag() == .Array) {
         if (array_ptr.value()) |array_ptr_val| {
@@ -3024,7 +3033,7 @@ fn analyzeInstAsm(self: *Module, scope: *Scope, assembly: *zir.Inst.Asm) InnerEr
     }
     for (args) |*elem, i| {
         const arg = try self.resolveInst(scope, assembly.kw_args.args[i]);
-        elem.* = self.coerce(scope, Type.initTag(.usize), arg) catch return error.AnalysisFail;
+        elem.* = try self.coerce(scope, Type.initTag(.usize), arg);
     }
 
     const b = try self.requireRuntimeBlock(scope, assembly.base.src);
@@ -3110,7 +3119,7 @@ fn analyzeInstIsNonNull(self: *Module, scope: *Scope, inst: *zir.Inst.IsNonNull)
 
 fn analyzeInstCondBr(self: *Module, scope: *Scope, inst: *zir.Inst.CondBr) InnerError!*Inst {
     const uncasted_cond = try self.resolveInst(scope, inst.positionals.condition);
-    const cond = self.coerce(scope, Type.initTag(.bool), uncasted_cond) catch return error.AnalysisFail;
+    const cond = try self.coerce(scope, Type.initTag(.bool), uncasted_cond);
 
     if (try self.resolveDefinedValue(scope, cond)) |cond_val| {
         const body = if (cond_val.toBool()) &inst.positionals.true_body else &inst.positionals.false_body;
@@ -3259,8 +3268,8 @@ fn cmpNumeric(
                 break :x rhs.ty;
             }
         };
-        const casted_lhs = self.coerce(scope, dest_type, lhs) catch return error.AnalysisFail;
-        const casted_rhs = self.coerce(scope, dest_type, rhs) catch return error.AnalysisFail;
+        const casted_lhs = try self.coerce(scope, dest_type, lhs);
+        const casted_rhs = try self.coerce(scope, dest_type, rhs);
         return self.addNewInstArgs(b, src, dest_type, Inst.Cmp, .{
             .lhs = casted_lhs,
             .rhs = casted_rhs,
@@ -3362,8 +3371,8 @@ fn cmpNumeric(
         };
         break :blk try self.makeIntType(scope, dest_int_is_signed, casted_bits);
     };
-    const casted_lhs = self.coerce(scope, dest_type, lhs) catch return error.AnalysisFail;
-    const casted_rhs = self.coerce(scope, dest_type, lhs) catch return error.AnalysisFail;
+    const casted_lhs = try self.coerce(scope, dest_type, lhs);
+    const casted_rhs = try self.coerce(scope, dest_type, lhs);
 
     return self.addNewInstArgs(b, src, Type.initTag(.bool), Inst.Cmp, .{
         .lhs = casted_lhs,
@@ -3443,7 +3452,7 @@ fn coerce(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) !*Inst {
 
     // Not coercable
     if ((inst.ty.isSinglePointer() or inst.ty.isSlice() or inst.ty.isCPtr() or inst.ty.isFloat()) and dest_type.isInt()) {
-        return error.NotCoercable;
+        return self.fail(scope, inst.src, "cannot coerce {} to {}", .{ inst.ty, dest_type });
     }
 
     // TODO: when we remove this, all callers should be switched to `try self.coerce` instead of `self.coerce catch return error.AnalysisFail`
