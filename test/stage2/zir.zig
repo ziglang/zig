@@ -304,4 +304,28 @@ pub fn addCases(ctx: *TestContext) !void {
         \\@9 = str("_start")
         \\@11 = export(@9, "start")
     , "");
+    //  ctx.compilesZIR("new", linux_x64,
+    //      \\@void = primitive(void)
+    //      \\@i32 = primitive(i32)
+    //      \\@fnty = fntype([@i32, @i32], @void)
+    //      \\
+    //      \\@0 = str("entry")
+    //      \\@1 = export(@0, "entry")
+    //      \\
+    //      \\@entry = fn(@fnty, {
+    //      \\  %0 = arg(0)
+    //      \\  %1 = arg(1)
+    //      \\  %2 = add(%0, %1)
+    //      \\  %3 = int(7)
+    //      \\  %4 = block("if", {
+    //      \\    %neq = cmp(%2, neq, %3)
+    //      \\    %5 = condbr(%neq, {
+    //      \\      %6 = unreachable()
+    //      \\    }, {
+    //      \\      %7 = breakvoid("if")
+    //      \\    })
+    //      \\  })
+    //      \\  %11 = returnvoid()
+    //      \\})
+    //  );
 }

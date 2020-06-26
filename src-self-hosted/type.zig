@@ -852,6 +852,64 @@ pub const Type = extern union {
         };
     }
 
+    pub fn isInt(self: Type) bool {
+        return self.isUnsignedInt() or self.isSignedInt() or self.tag() == .comptime_int;
+    }
+
+    /// Returns true if and only if the type is a fixed-width, unsigned integer.
+    pub fn isUnsignedInt(self: Type) bool {
+        return switch (self.tag()) {
+            .f16,
+            .f32,
+            .f64,
+            .f128,
+            .c_longdouble,
+            .c_void,
+            .bool,
+            .void,
+            .type,
+            .anyerror,
+            .comptime_int,
+            .comptime_float,
+            .noreturn,
+            .@"null",
+            .@"undefined",
+            .fn_noreturn_no_args,
+            .fn_void_no_args,
+            .fn_naked_noreturn_no_args,
+            .fn_ccc_void_no_args,
+            .function,
+            .array,
+            .single_const_pointer,
+            .single_const_pointer_to_comptime_int,
+            .array_u8_sentinel_0,
+            .const_slice_u8,
+            .i8,
+            .i16,
+            .i32,
+            .i64,
+            .isize,
+            .c_short,
+            .c_int,
+            .c_long,
+            .c_longlong,
+            .int_signed,
+            => false,
+
+            .u8,
+            .u16,
+            .u32,
+            .u64,
+            .usize,
+            .c_ushort,
+            .c_uint,
+            .c_ulong,
+            .c_ulonglong,
+            .int_unsigned,
+            => true,
+        };
+    }
+
     /// Returns true if and only if the type is a fixed-width, signed integer.
     pub fn isSignedInt(self: Type) bool {
         return switch (self.tag()) {
