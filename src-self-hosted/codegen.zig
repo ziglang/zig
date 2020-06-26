@@ -426,15 +426,50 @@ const Function = struct {
         if (arch != .x86_64 and arch != .i386) {
             return self.fail(inst.base.src, "TODO implement inline asm support for more architectures", .{});
         }
-        for (inst.args.inputs) |input, i| {
-            if (input.len < 3 or input[0] != '{' or input[input.len - 1] != '}') {
-                return self.fail(inst.base.src, "unrecognized asm input constraint: '{}'", .{input});
+        if (inst.args.inputs.len > 16) {
+            return self.fail(inst.base.src, "TODO support more than 16 inputs to inline asm?", .{});
+        }
+        var handled: [16]bool = [1]bool{false} ** 16;
+        var needed: [16]bool = [1]bool{false} ** 16;
+        // First pass: determine needed registers
+        for (inst.args.args) |input| {
+            const arg = try self.resolveInst(input);
+            if (arg == .register) {
+                needed[arg.register] = true;
             }
-            const reg_name = input[1 .. input.len - 1];
-            const reg = parseRegName(arch, reg_name) orelse
-                return self.fail(inst.base.src, "unrecognized register: '{}'", .{reg_name});
-            const arg = try self.resolveInst(inst.args.args[i]);
-            try self.genSetReg(inst.base.src, arch, reg, arg);
+        }
+        // Next, loop over all input. Those that target unneeded registers are
+        // moved into place. If their source is a register, it's marked as no
+        // longer needed. If we stall, error out.
+        var any_missed = true;
+        while (any_missed) {
+            var moved_any = false;
+            any_missed = false;
+            var index: u5 = 0;
+            while (index < inst.args.inputs.len) : (index += 1) {
+                if (!handled[index]) {
+                    any_missed = true;
+                    const input = inst.args.inputs[index];
+                    if (input.len < 3 or input[0] != '{' or input[input.len - 1] != '}') {
+                        return self.fail(inst.base.src, "unrecognized asm input constraint: '{}'", .{input});
+                    }
+                    const reg_name = input[1 .. input.len - 1];
+                    const reg = parseRegName(arch, reg_name) orelse
+                        return self.fail(inst.base.src, "unrecognized register: '{}'", .{reg_name});
+                    if (!needed[@enumToInt(reg)]) {
+                        const arg = try self.resolveInst(inst.args.args[index]);
+                        try self.genSetReg(inst.base.src, arch, reg, arg);
+                        if (arg == .register) {
+                            needed[arg.register] = false;
+                        }
+                        handled[index] = true;
+                        moved_any = true;
+                    }
+                }
+            }
+            if (any_missed and !moved_any) {
+                return self.fail(inst.base.src, "TODO better register shuffling", .{});
+            }
         }
 
         if (mem.eql(u8, inst.args.asm_source, "syscall")) {
