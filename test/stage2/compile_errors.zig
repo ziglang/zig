@@ -88,6 +88,71 @@ pub fn addCases(ctx: *TestContext) !void {
     //     \\fn a() void {}
     // );
 
+    ctx.compileErrorZIR("function call with args", linux_x64,
+        \\@noreturn = primitive(noreturn)
+        \\@void = primitive(void)
+        \\@usize = primitive(usize)
+        \\
+        \\@0 = int(0)
+        \\@1 = int(1)
+        \\@2 = int(2)
+        \\@3 = int(3)
+        \\
+        \\@rax = str("{rax}")
+        \\@rdi = str("{rdi}")
+        \\@rcx = str("rcx")
+        \\@rdx = str("{rdx}")
+        \\@rsi = str("{rsi}")
+        \\@r11 = str("r11")
+        \\@memory = str("memory")
+        \\
+        \\@sysoutreg = str("={rax}")
+        \\
+        \\@syscall = str("syscall")
+        \\
+        \\@write_fnty = fntype([@usize, @usize], @void, cc=C)
+        \\@write = fn(@write_fnty, {
+        \\  %0 = arg(0)
+        \\  %1 = arg(1)
+        \\
+        \\  %SYS_write = as(@usize, @1)
+        \\  %STDOUT_FILENO = as(@usize, @1)
+        \\
+        \\  %rc_write = asm(@syscall, @usize,
+        \\    volatile=1,
+        \\    output=@sysoutreg,
+        \\    inputs=[@rax, @rdi, @rsi, @rdx],
+        \\    clobbers=[@rcx, @r11, @memory],
+        \\    args=[%SYS_write, %STDOUT_FILENO, %0, %1])
+        \\})
+        \\
+        \\@start_fnty = fntype([], @noreturn, cc=Naked)
+        \\@start = fn(@start_fnty, {
+        \\  %SYS_exit_group = int(231)
+        \\  %exit_code = as(@usize, @0)
+        \\
+        \\  %msg = str("Hello, world!\n")
+        \\  %msg_addr = ptrtoint(%msg)
+        \\  %len_name = str("len")
+        \\  %msg_len_ptr = fieldptr(%msg, %len_name)
+        \\  %msg_len = deref(%msg_len_ptr)
+        \\
+        \\  %nothing = call(@write, [%msg, %msg_len])
+        \\
+        \\  %rc_exit = asm(@syscall, @usize,
+        \\    volatile=1,
+        \\    output=@sysoutreg,
+        \\    inputs=[@rax, @rdi],
+        \\    clobbers=[@rcx, @r11, @memory],
+        \\    args=[%SYS_exit_group, %exit_code])
+        \\
+        \\  %99 = unreachable()
+        \\});
+        \\
+        \\@9 = str("_start")
+        \\@11 = export(@9, "start")
+    , &[_][]const u8{":49:19: error: expected usize, found *const [14:0]u8"});
+
     // TODO: re-enable these tests.
     // https://github.com/ziglang/zig/issues/1364
 

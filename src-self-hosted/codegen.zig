@@ -205,8 +205,7 @@ const Function = struct {
             .x86_64 => switch (self.target.os.tag) {
                 .linux => {
                     const index = inst.args.index;
-                    const fn_type = self.mod_fn.owner_decl.typed_value.most_recent.typed_value.ty;
-                    const param_types = fn_type.cast(Type.Payload.Function).?.param_types;
+                    const param_types = self.mod_fn.owner_decl.typed_value.most_recent.typed_value.ty.cast(Type.Payload.Function).?.param_types;
                     if (index >= param_types.len) {
                         return self.fail(src, "attempt to access non-existent argument {}", .{index});
                     }
@@ -235,10 +234,35 @@ const Function = struct {
 
     fn genCall(self: *Function, inst: *ir.Inst.Call) !MCValue {
         switch (self.target.cpu.arch) {
-            .x86_64, .i386 => {
+            .x86_64 => {
                 if (inst.args.func.cast(ir.Inst.Constant)) |func_inst| {
-                    if (inst.args.args.len != 0) {
-                        return self.fail(inst.base.src, "TODO implement call with more than 0 parameters", .{});
+                    const args = inst.args.args;
+                    if (args.len != 0) {
+                        switch (self.target.os.tag) {
+                            .linux => {
+                                const param_types = inst.args.func.cast(ir.Inst.Constant).?.val.cast(Value.Payload.Function).?.func.owner_decl.typed_value.most_recent.typed_value.ty.cast(Type.Payload.Function).?.param_types;
+                                if (param_types.len != args.len) {
+                                    return self.fail(inst.base.src, "expected {} arguments, found {}", .{ param_types.len, args.len });
+                                }
+                                for (args) |arg, i| {
+                                    const T = param_types[i];
+                                    if (!arg.ty.eql(T)) {
+                                        return self.fail(inst.base.src, "expected {}, found {}", .{ T, arg.ty });
+                                    }
+                                    const val = try self.resolveInst(inst.args.args[i]);
+                                    const class = x86_64.SysV.ParameterClass.classify(param_types, i);
+                                    switch (class) {
+                                        .INTEGER => {
+                                            const reg = x86_64.SysV.integerParameter(param_types, i);
+                                            try self.genSetReg(inst.base.src, .x86_64, reg, val);
+                                        },
+                                        .NO_CLASS => return self.fail(inst.base.src, "TODO implement classification of {}", .{T}),
+                                        else => return self.fail(inst.base.src, "TODO implement passing {}", .{class}),
+                                    }
+                                }
+                            },
+                            else => return self.fail(inst.base.src, "TODO implement call with more than 0 parameters", .{}),
+                        }
                     }
 
                     if (func_inst.val.cast(Value.Payload.Function)) |func_val| {
