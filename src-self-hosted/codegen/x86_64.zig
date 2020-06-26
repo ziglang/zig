@@ -67,3 +67,57 @@ pub const Register = enum(u8) {
 };
 
 // zig fmt: on
+
+pub const SysV = struct {
+    const Type = @import("../type.zig").Type;
+    const Function = @import("../codegen.zig").Function;
+    pub const ParameterClass = enum {
+        INTEGER,
+        SSE,
+        SSEUP,
+        X87,
+        X87UP,
+        COMPLEX_X87,
+        NO_CLASS,
+        MEMORY,
+        pub fn classify(param_types: []Type, index: usize) @This() {
+            const T = param_types[index];
+            if (T.isInt() or T.tag() == .bool or T.isSinglePointer() or T.isCPtr()) {
+                var i: usize = 0;
+                var ints: u3 = 1;
+                while (i < index) : (i += 1) {
+                    const oT = param_types[i];
+                    if (oT.isInt() or oT.tag() == .bool or oT.isSinglePointer() or oT.isCPtr()) {
+                        ints += 1;
+                    }
+                }
+                if (ints > 6) {
+                    return .MEMORY;
+                }
+                return .INTEGER;
+            }
+            return .NO_CLASS;
+        }
+    };
+
+    pub const IntegerRegs = [6]Register{
+        .rdi,
+        .rsi,
+        .rdx,
+        .rcx,
+        .r8,
+        .r9,
+    };
+
+    pub fn integerParameter(param_types: []Type, index: usize) Register {
+        var i: usize = 0;
+        var ints: u3 = 0;
+        while (i < index) : (i += 1) {
+            const oT = param_types[i];
+            if (oT.isInt() or oT.tag() == .bool or oT.isSinglePointer() or oT.isCPtr()) {
+                ints += 1;
+            }
+        }
+        return IntegerRegs[ints];
+    }
+};

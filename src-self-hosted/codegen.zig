@@ -202,68 +202,21 @@ const Function = struct {
     fn genArg(self: *Function, inst: *ir.Inst.Arg) !MCValue {
         const src = inst.base.src;
         switch (self.target.cpu.arch) {
-            .x86_64 => {
-                switch (self.target.os.tag) {
-                    .linux => {
-                        const ParameterClass = enum {
-                            INTEGER,
-                            SSE,
-                            SSEUP,
-                            X87,
-                            X87UP,
-                            COMPLEX_X87,
-                            NO_CLASS,
-                            MEMORY,
-                        };
-
-                        const IntegerRegs = [6]x86_64.Register{
-                            .rdi,
-                            .rsi,
-                            .rdx,
-                            .rcx,
-                            .r8,
-                            .r9,
-                        };
-                        const index = inst.args.index;
-                        const fn_type = self.mod_fn.owner_decl.typed_value.most_recent.typed_value.ty;
-                        const param_types = fn_type.cast(Type.Payload.Function).?.param_types;
-                        if (index >= param_types.len) {
-                            return self.fail(src, "attempt to access non-existent argument {}", .{index});
-                        }
-                        const T = param_types[index];
-                        var class: ParameterClass = .NO_CLASS;
-                        if (T.isInt() or T.tag() == .bool or T.isSinglePointer() or T.isCPtr()) {
-                            class = .INTEGER;
-                            var i: usize = 0;
-                            var ints: u3 = 1;
-                            while (i < index) : (i += 1) {
-                                const oT = param_types[i];
-                                if (oT.isInt() or oT.tag() == .bool or oT.isSinglePointer() or oT.isCPtr()) {
-                                    ints += 1;
-                                }
-                            }
-                            if (ints > 6) {
-                                class = .MEMORY;
-                            }
-                        }
-                        switch (class) {
-                            .NO_CLASS => return self.fail(src, "TODO implement classifying parameter type {}", .{T}),
-                            .INTEGER => {
-                                var i: usize = 0;
-                                var ints: u3 = 0;
-                                while (i < index) : (i += 1) {
-                                    const oT = param_types[i];
-                                    if (oT.isInt() or oT.tag() == .bool or oT.isSinglePointer() or oT.isCPtr()) {
-                                        ints += 1;
-                                    }
-                                }
-                                return MCValue{ .register = @enumToInt(IntegerRegs[ints]) };
-                            },
-                            else => return self.fail(src, "TODO implement receiving parameter type {}", .{T}),
-                        }
-                    },
-                    else => return self.fail(src, "TODO implement function parameters for {}", .{self.target.cpu.arch}),
-                }
+            .x86_64 => switch (self.target.os.tag) {
+                .linux => {
+                    const index = inst.args.index;
+                    const fn_type = self.mod_fn.owner_decl.typed_value.most_recent.typed_value.ty;
+                    const param_types = fn_type.cast(Type.Payload.Function).?.param_types;
+                    if (index >= param_types.len) {
+                        return self.fail(src, "attempt to access non-existent argument {}", .{index});
+                    }
+                    return switch (x86_64.SysV.ParameterClass.classify(param_types, index)) {
+                        .NO_CLASS => self.fail(src, "TODO implement classifying parameter type {}", .{param_types[index]}),
+                        .INTEGER => MCValue{ .register = @enumToInt(x86_64.SysV.integerParameter(param_types, index)) },
+                        else => |e| self.fail(src, "TODO implement receiving parameter class {}", .{e}),
+                    };
+                },
+                else => return self.fail(src, "TODO implement function parameters for {}", .{self.target.os.tag}),
             },
             else => return self.fail(src, "TODO implement function parameters for {}", .{self.target.cpu.arch}),
         }
