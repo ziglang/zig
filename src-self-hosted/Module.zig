@@ -1733,10 +1733,15 @@ fn analyzeRootSrcFile(self: *Module, root_scope: *Scope.File) !void {
                 // Update the AST Node index of the decl, even if its contents are unchanged, it may
                 // have been re-ordered.
                 decl.src_index = decl_i;
-                deleted_decls.removeAssertDiscard(decl);
-                if (!srcHashEql(decl.contents_hash, contents_hash)) {
-                    try self.markOutdatedDecl(decl);
-                    decl.contents_hash = contents_hash;
+                if (deleted_decls.remove(decl) == null) {
+                    const err_msg = try ErrorMsg.create(self.allocator, tree.token_locs[name_tok].start, "redefinition of '{}'", .{decl.name});
+                    errdefer err_msg.destroy(self.allocator);
+                    try self.failed_decls.putNoClobber(decl, err_msg);
+                } else {
+                    if (!srcHashEql(decl.contents_hash, contents_hash)) {
+                        try self.markOutdatedDecl(decl);
+                        decl.contents_hash = contents_hash;
+                    }
                 }
             } else {
                 const new_decl = try self.createNewDecl(&root_scope.base, name, decl_i, name_hash, contents_hash);

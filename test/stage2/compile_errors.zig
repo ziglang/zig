@@ -67,13 +67,27 @@ pub fn addCases(ctx: *TestContext) !void {
             \\@1 = export(@0, "start")
         );
     }
+    // TODO: need to make sure this works with other variants of export.
+    // As is, the same error occurs without export.
+    {
+        var case = ctx.obj("exported symbol collision", linux_x64);
+        case.addError(
+            \\export fn entry() void {}
+            \\export fn entry() void {}
+        , &[_][]const u8{":2:11: error: redefinition of 'entry'"});
+        case.compiles(
+            \\export fn entry() void {}
+        );
+        case.addError(
+            \\fn entry() void {}
+            \\fn entry() void {}
+        , &[_][]const u8{":2:4: error: redefinition of 'entry'"});
+        case.compiles(
+            \\export fn entry() void {}
+        );
+    }
     // TODO: re-enable these tests.
     // https://github.com/ziglang/zig/issues/1364
-
-    //     ctx.compileError("Export same symbol twice", linux_x64,
-    //         \\export fn entry() void {}
-    //         \\export fn entry() void {}
-    //     , &[_][]const u8{":2:1: error: exported symbol collision"});
 
     //    ctx.addError("Missing function name", linux_x64, .Zig,
     //        \\fn() void {}
