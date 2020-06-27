@@ -77,7 +77,7 @@ pub const ArenaAllocator = struct {
             }
             const result = cur_buf[adjusted_index..new_end_index];
             self.state.end_index = new_end_index;
-            return result[0..mem.alignAllocLen(result.len, n, len_align)];
+            return result;
         }
     }
 };

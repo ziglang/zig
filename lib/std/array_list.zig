@@ -220,7 +220,6 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             }
 
             const new_memory = try self.allocator.reallocAtLeast(self.allocatedSlice(), better_capacity);
-            assert(new_memory.len >= better_capacity);
             self.items.ptr = new_memory.ptr;
             self.capacity = new_memory.len;
         }
@@ -443,7 +442,6 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             }
 
             const new_memory = try allocator.reallocAtLeast(self.allocatedSlice(), better_capacity);
-            assert(new_memory.len >= better_capacity);
             self.items.ptr = new_memory.ptr;
             self.capacity = new_memory.len;
         }

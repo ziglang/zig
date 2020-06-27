@@ -25,7 +25,7 @@ usingnamespace if (comptime @hasDecl(c, "malloc_size")) struct {
     pub const supports_malloc_size = false;
 };
 
-pub const c_allocator = mem.getAllocatorPtr(&c_allocator_state);
+pub const c_allocator = &c_allocator_state;
 var c_allocator_state = Allocator{
     .allocFn = cAlloc,
     .resizeFn = cResize,
@@ -38,7 +38,7 @@ fn cAlloc(self: *Allocator, len: usize, ptr_align: u29, len_align: u29) Allocato
         return ptr[0..len];
     }
     const full_len = init: {
-        if (comptime supports_malloc_size) {
+        if (supports_malloc_size) {
             const s = malloc_size(ptr);
             assert(s >= len);
             break :init s;
@@ -56,24 +56,23 @@ fn cResize(self: *Allocator, buf: []u8, new_len: usize, len_align: u29) Allocato
     if (new_len <= buf.len) {
         return mem.alignAllocLen(buf.len, new_len, len_align);
     }
-    if (comptime supports_malloc_size) {
+    if (supports_malloc_size) {
         const full_len = malloc_size(buf.ptr);
         if (new_len <= full_len) {
             return mem.alignAllocLen(full_len, new_len, len_align);
         }
     }
-    // TODO: could we still use realloc? are there any cases where we can guarantee that realloc won't move memory?
     return error.OutOfMemory;
 }
 
 /// This allocator makes a syscall directly for every allocation and free.
 /// Thread-safe and lock-free.
 pub const page_allocator = if (std.Target.current.isWasm())
-    mem.getAllocatorPtr(&wasm_page_allocator_state)
+    &wasm_page_allocator_state
 else if (std.Target.current.os.tag == .freestanding)
     root.os.heap.page_allocator
 else
-    mem.getAllocatorPtr(&page_allocator_state);
+    &page_allocator_state;
 
 var page_allocator_state = Allocator{
     .allocFn = PageAllocator.alloc,
@@ -507,9 +506,9 @@ pub const FixedBufferAllocator = struct {
         return sliceContainsSlice(self.buffer, slice);
     }
 
-    // NOTE: this will not work in all cases, if the last allocation had an adjusted_index
-    //       then we won't be able to determine what the last allocation was.  This is because
-    //       the alignForward operation done in alloc is not reverisible.
+    /// NOTE: this will not work in all cases, if the last allocation had an adjusted_index
+    ///       then we won't be able to determine what the last allocation was.  This is because
+    ///       the alignForward operation done in alloc is not reverisible.
     pub fn isLastAllocation(self: *FixedBufferAllocator, buf: []u8) bool {
         return buf.ptr + buf.len == self.buffer.ptr + self.end_index;
     }
@@ -525,7 +524,7 @@ pub const FixedBufferAllocator = struct {
         const result = self.buffer[adjusted_index..new_end_index];
         self.end_index = new_end_index;
 
-        return result[0..mem.alignAllocLen(result.len, n, len_align)];
+        return result;
     }
 
     fn resize(allocator: *Allocator, buf: []u8, new_size: usize, len_align: u29) Allocator.Error!usize {
@@ -544,13 +543,12 @@ pub const FixedBufferAllocator = struct {
             return if (new_size == 0) 0 else mem.alignAllocLen(buf.len - sub, new_size, len_align);
         }
 
-        var add = new_size - buf.len;
+        const add = new_size - buf.len;
         if (add + self.end_index > self.buffer.len) {
-            //add = self.buffer.len - self.end_index;
             return error.OutOfMemory;
         }
         self.end_index += add;
-        return mem.alignAllocLen(buf.len + add, new_size, len_align);
+        return new_size;
     }
 
     pub fn reset(self: *FixedBufferAllocator) void {
@@ -735,7 +733,7 @@ test "ArenaAllocator" {
 
 var test_fixed_buffer_allocator_memory: [800000 * @sizeOf(u64)]u8 = undefined;
 test "FixedBufferAllocator" {
-    var fixed_buffer_allocator = mem.sanityWrap(FixedBufferAllocator.init(test_fixed_buffer_allocator_memory[0..]));
+    var fixed_buffer_allocator = mem.validationWrap(FixedBufferAllocator.init(test_fixed_buffer_allocator_memory[0..]));
 
     try testAllocator(&fixed_buffer_allocator.allocator);
     try testAllocatorAligned(&fixed_buffer_allocator.allocator, 16);
@@ -802,8 +800,8 @@ test "ThreadSafeFixedBufferAllocator" {
 }
 
 fn testAllocator(base_allocator: *mem.Allocator) !void {
-    var sanityAllocator = mem.sanityWrap(base_allocator);
-    const allocator = &sanityAllocator.allocator;
+    var validationAllocator = mem.validationWrap(base_allocator);
+    const allocator = &validationAllocator.allocator;
 
     var slice = try allocator.alloc(*i32, 100);
     testing.expect(slice.len == 100);
@@ -833,8 +831,8 @@ fn testAllocator(base_allocator: *mem.Allocator) !void {
 }
 
 fn testAllocatorAligned(base_allocator: *mem.Allocator, comptime alignment: u29) !void {
-    var sanityAllocator = mem.sanityWrap(base_allocator);
-    const allocator = &sanityAllocator.allocator;
+    var validationAllocator = mem.validationWrap(base_allocator);
+    const allocator = &validationAllocator.allocator;
 
     // initial
     var slice = try allocator.alignedAlloc(u8, alignment, 10);
@@ -860,8 +858,8 @@ fn testAllocatorAligned(base_allocator: *mem.Allocator, comptime alignment: u29)
 }
 
 fn testAllocatorLargeAlignment(base_allocator: *mem.Allocator) mem.Allocator.Error!void {
-    var sanityAllocator = mem.sanityWrap(base_allocator);
-    const allocator = &sanityAllocator.allocator;
+    var validationAllocator = mem.validationWrap(base_allocator);
+    const allocator = &validationAllocator.allocator;
 
     //Maybe a platform's page_size is actually the same as or
     //  very near usize?
@@ -892,8 +890,8 @@ fn testAllocatorLargeAlignment(base_allocator: *mem.Allocator) mem.Allocator.Err
 }
 
 fn testAllocatorAlignedShrink(base_allocator: *mem.Allocator) mem.Allocator.Error!void {
-    var sanityAllocator = mem.sanityWrap(base_allocator);
-    const allocator = &sanityAllocator.allocator;
+    var validationAllocator = mem.validationWrap(base_allocator);
+    const allocator = &validationAllocator.allocator;
 
     var debug_buffer: [1000]u8 = undefined;
     const debug_allocator = &FixedBufferAllocator.init(&debug_buffer).allocator;

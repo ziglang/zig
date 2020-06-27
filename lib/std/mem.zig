@@ -141,6 +141,9 @@ pub const Allocator = struct {
         const new_mem = try self.callAllocFn(new_len, new_alignment, len_align);
         @memcpy(new_mem.ptr, old_mem.ptr, std.math.min(new_len, old_mem.len));
         // DISABLED TO AVOID BUGS IN TRANSLATE C
+        // use './zig build test-translate-c' to reproduce, some of the symbols in the
+        // generated C code will be a sequence of 0xaa (the undefined value), meaning
+        // it is printing data that has been freed
         //@memset(old_mem.ptr, undefined, old_mem.len);
         _ = self.shrinkBytes(old_mem, 0, 0);
         return new_mem;
@@ -214,6 +217,7 @@ pub const Allocator = struct {
         return self.allocWithOptions(Elem, n, null, sentinel);
     }
 
+    /// Deprecated: use `allocAdvanced`
     pub fn alignedAlloc(
         self: *Allocator,
         comptime T: type,
@@ -221,11 +225,11 @@ pub const Allocator = struct {
         comptime alignment: ?u29,
         n: usize,
     ) Error![]align(alignment orelse @alignOf(T)) T {
-        return self.alignedAlloc2(T, alignment, n, .exact);
+        return self.allocAdvanced(T, alignment, n, .exact);
     }
 
-    const Exact = enum {exact,atLeast};
-    pub fn alignedAlloc2(
+    const Exact = enum {exact,at_least};
+    pub fn allocAdvanced(
         self: *Allocator,
         comptime T: type,
         /// null means naturally aligned
@@ -234,7 +238,7 @@ pub const Allocator = struct {
         exact: Exact,
     ) Error![]align(alignment orelse @alignOf(T)) T {
         const a = if (alignment) |a| blk: {
-            if (a == @alignOf(T)) return alignedAlloc2(self, T, null, n, exact);
+            if (a == @alignOf(T)) return allocAdvanced(self, T, null, n, exact);
             break :blk a;
         } else @alignOf(T);
 
@@ -248,7 +252,10 @@ pub const Allocator = struct {
         // functions that heap-allocate their own frame with @Frame(func).
         const sizeOfT = if (alignment == null) @intCast(u29, @divExact(byte_count, n)) else @sizeOf(T);
         const byte_slice = try self.callAllocFn(byte_count, a, if (exact == .exact) @as(u29, 0) else sizeOfT);
-        assert(if (exact == .exact) byte_slice.len == byte_count else byte_slice.len >= byte_count);
+        switch (exact) {
+            .exact => assert(byte_slice.len == byte_count),
+            .at_least => assert(byte_slice.len >= byte_count),
+        }
         @memset(byte_slice.ptr, undefined, byte_slice.len);
         if (alignment == null) {
             // This if block is a workaround (see comment above)
@@ -273,7 +280,7 @@ pub const Allocator = struct {
         break :t Error![]align(Slice.alignment) Slice.child;
     } {
         const old_alignment = @typeInfo(@TypeOf(old_mem)).Pointer.alignment;
-        return self.alignedRealloc2(old_mem, old_alignment, new_n, .exact);
+        return self.reallocAdvanced(old_mem, old_alignment, new_n, .exact);
     }
 
     pub fn reallocAtLeast(self: *Allocator, old_mem: var, new_n: usize) t: {
@@ -281,25 +288,23 @@ pub const Allocator = struct {
         break :t Error![]align(Slice.alignment) Slice.child;
     } {
         const old_alignment = @typeInfo(@TypeOf(old_mem)).Pointer.alignment;
-        return self.alignedRealloc2(old_mem, old_alignment, new_n, .atLeast);
+        return self.reallocAdvanced(old_mem, old_alignment, new_n, .at_least);
     }
 
-    /// This is the same as `realloc`, except caller may additionally request
-    /// a new alignment, which can be larger, smaller, or the same as the old
-    /// allocation.
+    // Deprecated: use `reallocAdvanced`
     pub fn alignedRealloc(
         self: *Allocator,
         old_mem: var,
         comptime new_alignment: u29,
         new_n: usize,
     ) Error![]align(new_alignment) @typeInfo(@TypeOf(old_mem)).Pointer.child {
-        return self.alignedRealloc2(old_mem, new_alignment, new_n, .exact);
+        return self.reallocAdvanced(old_mem, new_alignment, new_n, .exact);
     }
 
     /// This is the same as `realloc`, except caller may additionally request
     /// a new alignment, which can be larger, smaller, or the same as the old
     /// allocation.
-    pub fn alignedRealloc2(
+    pub fn reallocAdvanced(
         self: *Allocator,
         old_mem: var,
         comptime new_alignment: u29,
@@ -309,7 +314,7 @@ pub const Allocator = struct {
         const Slice = @typeInfo(@TypeOf(old_mem)).Pointer;
         const T = Slice.child;
         if (old_mem.len == 0) {
-            return self.alignedAlloc2(T, new_alignment, new_n, exact);
+            return self.allocAdvanced(T, new_alignment, new_n, exact);
         }
         if (new_n == 0) {
             self.free(old_mem);
@@ -392,24 +397,9 @@ pub const Allocator = struct {
     }
 };
 
-/// Given a pointer to an allocator, return the *Allocator for it. `allocatorStatePtr` can
-/// either be a `*Allocator`, in which case it is returned as-is, otherwise, the address of
-/// the `allocator` field is returned.
-pub fn getAllocatorPtr(allocatorStatePtr: var) *Allocator {
-    // allocator must be a pointer or else this function will return a copy of the allocator which
-    // is not what this is for
-    const T = @TypeOf(allocatorStatePtr);
-    switch (@typeInfo(T)) {
-        .Pointer => {},
-        else => @compileError("getAllocatorPtr expects a pointer to an allocator but got: " ++ @typeName(T)),
-    }
-    if (T == *Allocator)
-        return allocatorStatePtr;
-    return &allocatorStatePtr.allocator;
-}
-
-/// Detects and asserts if the std.mem.Allocator interface is violated
-pub fn SanityAllocator(comptime T: type) type { return struct {
+/// Detects and asserts if the std.mem.Allocator interface is violated by the caller
+/// or the allocator.
+pub fn ValidationAllocator(comptime T: type) type { return struct {
     const Self = @This();
     allocator: Allocator,
     underlying_allocator: T,
@@ -424,7 +414,8 @@ pub fn SanityAllocator(comptime T: type) type { return struct {
     }
     fn getUnderlyingAllocatorPtr(self: *@This()) *Allocator {
         if (T == *Allocator) return self.underlying_allocator;
-        return getAllocatorPtr(&self.underlying_allocator);
+        if (*T == *Allocator) return &self.underlying_allocator;
+        return &self.underlying_allocator.allocator;
     }
     pub fn alloc(allocator: *Allocator, n: usize, ptr_align: u29, len_align: u29) Allocator.Error![]u8 {
         assert(n > 0);
@@ -436,6 +427,7 @@ pub fn SanityAllocator(comptime T: type) type { return struct {
 
         const self = @fieldParentPtr(@This(), "allocator", allocator);
         const result = try self.getUnderlyingAllocatorPtr().callAllocFn(n, ptr_align, len_align);
+        assert(mem.isAligned(@ptrToInt(result.ptr), ptr_align));
         if (len_align == 0) {
             assert(result.len == n);
         } else {
@@ -467,8 +459,8 @@ pub fn SanityAllocator(comptime T: type) type { return struct {
     };
 };}
 
-pub fn sanityWrap(allocator: var) SanityAllocator(@TypeOf(allocator)) {
-    return SanityAllocator(@TypeOf(allocator)).init(allocator);
+pub fn validationWrap(allocator: var) ValidationAllocator(@TypeOf(allocator)) {
+    return ValidationAllocator(@TypeOf(allocator)).init(allocator);
 }
 
 /// An allocator helper function.  Adjusts an allocation length satisfy `len_align`.
@@ -2377,6 +2369,8 @@ test "alignForward" {
     testing.expect(alignForward(17, 8) == 24);
 }
 
+/// Round an address up to the previous aligned address
+/// Unlike `alignBackward`, `alignment` can be any positive number, not just a power of 2.
 pub fn alignBackwardAnyAlign(i: usize, alignment: usize) usize {
     if (@popCount(usize, alignment) == 1)
         return alignBackward(i, alignment);
