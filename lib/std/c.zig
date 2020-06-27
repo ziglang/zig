@@ -233,6 +233,17 @@ pub extern "c" fn setuid(uid: c_uint) c_int;
 
 pub extern "c" fn aligned_alloc(alignment: usize, size: usize) ?*c_void;
 pub extern "c" fn malloc(usize) ?*c_void;
+
+pub usingnamespace switch (builtin.os.tag) {
+    .linux, .freebsd, .kfreebsd, .netbsd, .openbsd => struct {
+        pub extern "c" fn malloc_usable_size(?*const c_void) usize;
+    },
+    .macosx, .ios, .watchos, .tvos => struct {
+        pub extern "c" fn malloc_size(?*const c_void) usize;
+    },
+    else => struct {},
+};
+
 pub extern "c" fn realloc(?*c_void, usize) ?*c_void;
 pub extern "c" fn free(*c_void) void;
 pub extern "c" fn posix_memalign(memptr: **c_void, alignment: usize, size: usize) c_int;

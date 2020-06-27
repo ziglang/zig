@@ -20,8 +20,8 @@ pub const ArenaAllocator = struct {
         pub fn promote(self: State, child_allocator: *Allocator) ArenaAllocator {
             return .{
                 .allocator = Allocator{
-                    .reallocFn = realloc,
-                    .shrinkFn = shrink,
+                    .allocFn = alloc,
+                    .resizeFn = Allocator.noResize,
                 },
                 .child_allocator = child_allocator,
                 .state = self,
@@ -61,38 +61,23 @@ pub const ArenaAllocator = struct {
         return buf_node;
     }
 
-    fn alloc(allocator: *Allocator, n: usize, alignment: u29) ![]u8 {
+    fn alloc(allocator: *Allocator, n: usize, ptr_align: u29, len_align: u29) ![]u8 {
         const self = @fieldParentPtr(ArenaAllocator, "allocator", allocator);
 
-        var cur_node = if (self.state.buffer_list.first) |first_node| first_node else try self.createNode(0, n + alignment);
+        var cur_node = if (self.state.buffer_list.first) |first_node| first_node else try self.createNode(0, n + ptr_align);
         while (true) {
             const cur_buf = cur_node.data[@sizeOf(BufNode)..];
             const addr = @ptrToInt(cur_buf.ptr) + self.state.end_index;
-            const adjusted_addr = mem.alignForward(addr, alignment);
+            const adjusted_addr = mem.alignForward(addr, ptr_align);
             const adjusted_index = self.state.end_index + (adjusted_addr - addr);
             const new_end_index = adjusted_index + n;
             if (new_end_index > cur_buf.len) {
-                cur_node = try self.createNode(cur_buf.len, n + alignment);
+                cur_node = try self.createNode(cur_buf.len, n + ptr_align);
                 continue;
             }
             const result = cur_buf[adjusted_index..new_end_index];
             self.state.end_index = new_end_index;
             return result;
         }
-    }
-
-    fn realloc(allocator: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) ![]u8 {
-        if (new_size <= old_mem.len and new_align <= new_size) {
-            // We can't do anything with the memory, so tell the client to keep it.
-            return error.OutOfMemory;
-        } else {
-            const result = try alloc(allocator, new_size, new_align);
-            @memcpy(result.ptr, old_mem.ptr, std.math.min(old_mem.len, result.len));
-            return result;
-        }
-    }
-
-    fn shrink(allocator: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
-        return old_mem[0..new_size];
     }
 };

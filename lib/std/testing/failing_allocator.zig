@@ -39,43 +39,38 @@ pub const FailingAllocator = struct {
             .allocations = 0,
             .deallocations = 0,
             .allocator = mem.Allocator{
-                .reallocFn = realloc,
-                .shrinkFn = shrink,
+                .allocFn = alloc,
+                .resizeFn = resize,
             },
         };
     }
 
-    fn realloc(allocator: *mem.Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) ![]u8 {
+    fn alloc(allocator: *std.mem.Allocator, len: usize, ptr_align: u29, len_align: u29) error{OutOfMemory}![]u8 {
         const self = @fieldParentPtr(FailingAllocator, "allocator", allocator);
         if (self.index == self.fail_index) {
             return error.OutOfMemory;
         }
-        const result = try self.internal_allocator.reallocFn(
-            self.internal_allocator,
-            old_mem,
-            old_align,
-            new_size,
-            new_align,
-        );
-        if (new_size < old_mem.len) {
-            self.freed_bytes += old_mem.len - new_size;
-            if (new_size == 0)
-                self.deallocations += 1;
-        } else if (new_size > old_mem.len) {
-            self.allocated_bytes += new_size - old_mem.len;
-            if (old_mem.len == 0)
-                self.allocations += 1;
-        }
+        const result = try self.internal_allocator.callAllocFn(len, ptr_align, len_align);
+        self.allocated_bytes += result.len;
+        self.allocations += 1;
         self.index += 1;
         return result;
     }
 
-    fn shrink(allocator: *mem.Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
+    fn resize(allocator: *std.mem.Allocator, old_mem: []u8, new_len: usize, len_align: u29) error{OutOfMemory}!usize {
         const self = @fieldParentPtr(FailingAllocator, "allocator", allocator);
-        const r = self.internal_allocator.shrinkFn(self.internal_allocator, old_mem, old_align, new_size, new_align);
-        self.freed_bytes += old_mem.len - r.len;
-        if (new_size == 0)
+        const r = self.internal_allocator.callResizeFn(old_mem, new_len, len_align) catch |e| {
+            std.debug.assert(new_len > old_mem.len);
+            return e;
+        };
+        if (new_len == 0) {
             self.deallocations += 1;
+            self.freed_bytes += old_mem.len;
+        } else if (r < old_mem.len) {
+            self.freed_bytes += old_mem.len - r;
+        } else {
+            self.allocated_bytes += r - old_mem.len;
+        }
         return r;
     }
 };
