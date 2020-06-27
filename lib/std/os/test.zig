@@ -59,135 +59,8 @@ test "readlinkat" {
     expect(mem.eql(u8, "file.txt", read_link));
 }
 
-test "makePath, put some files in it, deleteTree" {
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
-
-    try tmp.dir.makePath("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c");
-    try tmp.dir.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c" ++ fs.path.sep_str ++ "file.txt", "nonsense");
-    try tmp.dir.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "file2.txt", "blah");
-    try tmp.dir.deleteTree("os_test_tmp");
-    if (tmp.dir.openDir("os_test_tmp", .{})) |dir| {
-        @panic("expected error");
-    } else |err| {
-        expect(err == error.FileNotFound);
-    }
-}
-
-test "access file" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
-
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
-
-    try tmp.dir.makePath("os_test_tmp");
-    if (tmp.dir.access("os_test_tmp" ++ fs.path.sep_str ++ "file.txt", .{})) |ok| {
-        @panic("expected error");
-    } else |err| {
-        expect(err == error.FileNotFound);
-    }
-
-    try tmp.dir.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "file.txt", "");
-    try tmp.dir.access("os_test_tmp" ++ fs.path.sep_str ++ "file.txt", .{});
-    try tmp.dir.deleteTree("os_test_tmp");
-}
-
 fn testThreadIdFn(thread_id: *Thread.Id) void {
     thread_id.* = Thread.getCurrentId();
-}
-
-test "sendfile" {
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
-
-    try tmp.dir.makePath("os_test_tmp");
-    defer tmp.dir.deleteTree("os_test_tmp") catch {};
-
-    var dir = try tmp.dir.openDir("os_test_tmp", .{});
-    defer dir.close();
-
-    const line1 = "line1\n";
-    const line2 = "second line\n";
-    var vecs = [_]os.iovec_const{
-        .{
-            .iov_base = line1,
-            .iov_len = line1.len,
-        },
-        .{
-            .iov_base = line2,
-            .iov_len = line2.len,
-        },
-    };
-
-    var src_file = try dir.createFile("sendfile1.txt", .{ .read = true });
-    defer src_file.close();
-
-    try src_file.writevAll(&vecs);
-
-    var dest_file = try dir.createFile("sendfile2.txt", .{ .read = true });
-    defer dest_file.close();
-
-    const header1 = "header1\n";
-    const header2 = "second header\n";
-    const trailer1 = "trailer1\n";
-    const trailer2 = "second trailer\n";
-    var hdtr = [_]os.iovec_const{
-        .{
-            .iov_base = header1,
-            .iov_len = header1.len,
-        },
-        .{
-            .iov_base = header2,
-            .iov_len = header2.len,
-        },
-        .{
-            .iov_base = trailer1,
-            .iov_len = trailer1.len,
-        },
-        .{
-            .iov_base = trailer2,
-            .iov_len = trailer2.len,
-        },
-    };
-
-    var written_buf: [100]u8 = undefined;
-    try dest_file.writeFileAll(src_file, .{
-        .in_offset = 1,
-        .in_len = 10,
-        .headers_and_trailers = &hdtr,
-        .header_count = 2,
-    });
-    const amt = try dest_file.preadAll(&written_buf, 0);
-    expect(mem.eql(u8, written_buf[0..amt], "header1\nsecond header\nine1\nsecontrailer1\nsecond trailer\n"));
-}
-
-test "fs.copyFile" {
-    const data = "u6wj+JmdF3qHsFPE BUlH2g4gJCmEz0PP";
-    const src_file = "tmp_test_copy_file.txt";
-    const dest_file = "tmp_test_copy_file2.txt";
-    const dest_file2 = "tmp_test_copy_file3.txt";
-
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
-
-    try tmp.dir.writeFile(src_file, data);
-    defer tmp.dir.deleteFile(src_file) catch {};
-
-    try tmp.dir.copyFile(src_file, tmp.dir, dest_file, .{});
-    defer tmp.dir.deleteFile(dest_file) catch {};
-
-    try tmp.dir.copyFile(src_file, tmp.dir, dest_file2, .{ .override_mode = File.default_mode });
-    defer tmp.dir.deleteFile(dest_file2) catch {};
-
-    try expectFileContents(tmp.dir, dest_file, data);
-    try expectFileContents(tmp.dir, dest_file2, data);
-}
-
-fn expectFileContents(dir: Dir, file_path: []const u8, data: []const u8) !void {
-    const contents = try dir.readFileAlloc(testing.allocator, file_path, 1000);
-    defer testing.allocator.free(contents);
-
-    testing.expectEqualSlices(u8, data, contents);
 }
 
 test "std.Thread.getCurrentId" {
@@ -242,29 +115,6 @@ test "cpu count" {
     expect(cpu_count >= 1);
 }
 
-test "AtomicFile" {
-    const test_out_file = "tmp_atomic_file_test_dest.txt";
-    const test_content =
-        \\ hello!
-        \\ this is a test file
-    ;
-
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
-
-    {
-        var af = try tmp.dir.atomicFile(test_out_file, .{});
-        defer af.deinit();
-        try af.file.writeAll(test_content);
-        try af.finish();
-    }
-    const content = try tmp.dir.readFileAlloc(testing.allocator, test_out_file, 9999);
-    defer testing.allocator.free(content);
-    expect(mem.eql(u8, content, test_content));
-
-    try tmp.dir.deleteFile(test_out_file);
-}
-
 test "thread local storage" {
     if (builtin.single_threaded) return error.SkipZigTest;
     const thread1 = try Thread.spawn({}, testTls);
@@ -297,13 +147,6 @@ test "getcwd" {
     // at least call it so it gets compiled
     var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
     _ = os.getcwd(&buf) catch undefined;
-}
-
-test "realpath" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
-
-    var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-    testing.expectError(error.FileNotFound, fs.realpath("definitely_bogus_does_not_exist1234", &buf));
 }
 
 test "sigaltstack" {
