@@ -61,15 +61,31 @@ test "Dir.realpath" {
     // with a sharing violation.
     file.close();
 
-    const abs_file_path = try tmp_dir.dir.realpath(testing.allocator, "test_file");
-    defer testing.allocator.free(abs_file_path);
+    // First, test non-alloc version
+    {
+        var buf1: [fs.MAX_PATH_BYTES]u8 = undefined;
+        const abs_file_path = try tmp_dir.dir.realpath("test_file", buf1[0..]);
 
-    const dir_path = try tmp_dir.dir.realpath(testing.allocator, "");
-    defer testing.allocator.free(dir_path);
-    const expected_path = try fs.path.join(testing.allocator, &[_][]const u8{ dir_path, "test_file" });
-    defer testing.allocator.free(expected_path);
+        var buf2: [fs.MAX_PATH_BYTES]u8 = undefined;
+        const dir_path = try tmp_dir.dir.realpath("", buf2[0..]);
+        const expected_path = try fs.path.join(testing.allocator, &[_][]const u8{ dir_path, "test_file" });
+        defer testing.allocator.free(expected_path);
 
-    testing.expect(mem.eql(u8, abs_file_path, expected_path));
+        testing.expect(mem.eql(u8, abs_file_path, expected_path));
+    }
+
+    // Next, test alloc version
+    {
+        const abs_file_path = try tmp_dir.dir.realpathAlloc(testing.allocator, "test_file");
+        defer testing.allocator.free(abs_file_path);
+
+        const dir_path = try tmp_dir.dir.realpathAlloc(testing.allocator, "");
+        defer testing.allocator.free(dir_path);
+        const expected_path = try fs.path.join(testing.allocator, &[_][]const u8{ dir_path, "test_file" });
+        defer testing.allocator.free(expected_path);
+
+        testing.expect(mem.eql(u8, abs_file_path, expected_path));
+    }
 }
 
 test "readAllAlloc" {
@@ -119,7 +135,7 @@ test "directory operations on files" {
     testing.expectError(error.NotDir, tmp_dir.dir.deleteDir(test_file_name));
 
     if (builtin.os.tag != .wasi) {
-        const absolute_path = try tmp_dir.dir.realpath(testing.allocator, test_file_name);
+        const absolute_path = try tmp_dir.dir.realpathAlloc(testing.allocator, test_file_name);
         defer testing.allocator.free(absolute_path);
 
         testing.expectError(error.PathAlreadyExists, fs.makeDirAbsolute(absolute_path));

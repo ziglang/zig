@@ -934,8 +934,65 @@ pub const Dir = struct {
     /// This function returns the canonicalized absolute pathname of `pathname`
     /// relative to this `Dir`. If `pathname` is absolute, ignores this `Dir` handle
     /// and returns the canonicalized absolute pathname of `pathname` argument.
-    /// Caller must free the returned memory.
-    pub fn realpath(self: Dir, allocator: *Allocator, pathname: []const u8) ![]u8 {
+    /// See also `realpath`.
+    pub fn realpath(self: Dir, pathname: []const u8, out_buffer: []u8) ![]u8 {
+        if (builtin.os.tag == .wasi) {
+            @compileError("Dir.realpath is unsupported in WASI");
+        }
+        if (builtin.os.tag == .windows) {
+            const pathname_w = try os.windows.sliceToPrefixedFileW(pathname);
+            return self.realpathW(pathname_w.span().ptr, out_buffer);
+        }
+        const pathname_c = try os.toPosixPath(pathname);
+        return self.realpathZ(&pathname_c, out_buffer);
+    }
+
+    /// Same as `Dir.realpath` except `pathname` is null-terminated.
+    /// See also `Dir.realpath`, `realpathZ`.
+    pub fn realpathZ(self: Dir, pathname: [*:0]const u8, out_buffer: []u8) ![]u8 {
+        // Use of MAX_PATH_BYTES here is valid as the realpath function does not
+        // have a variant that takes an arbitrary-size buffer.
+        // TODO(#4812): Consider reimplementing realpath or using the POSIX.1-2008
+        // NULL out parameter (GNU's canonicalize_file_name) to handle overelong
+        // paths. musl supports passing NULL but restricts the output to PATH_MAX
+        // anyway.
+        var buf: [MAX_PATH_BYTES]u8 = undefined;
+        const out_path = try os.realpathatZ(self.fd, pathname, &buf);
+
+        if (out_path.len > out_buffer.len) {
+            return error.NameTooLong;
+        }
+
+        mem.copy(u8, out_buffer, out_path);
+
+        return out_buffer[0..out_path.len];
+    }
+
+    /// Windows-only. Same as `Dir.realpath` except `pathname` is null-terminated,
+    /// WTF16 encoded.
+    /// See also `Dir.realpath`, `realpathW`.
+    pub fn realpathW(self: Dir, pathname: [*:0]const u16, out_buffer: []u8) ![]u8 {
+        // Use of MAX_PATH_BYTES here is valid as the realpath function does not
+        // have a variant that takes an arbitrary-size buffer.
+        // TODO(#4812): Consider reimplementing realpath or using the POSIX.1-2008
+        // NULL out parameter (GNU's canonicalize_file_name) to handle overelong
+        // paths. musl supports passing NULL but restricts the output to PATH_MAX
+        // anyway.
+        var buf: [MAX_PATH_BYTES]u8 = undefined;
+        const out_path = try os.realpathatW(self.fd, pathname, &buf);
+
+        if (out_path.len > out_buffer.len) {
+            return error.NameTooLong;
+        }
+
+        mem.copy(u8, out_buffer, out_path);
+
+        return out_buffer[0..out_path.len];
+    }
+
+    /// Same as `Dir.realpath` except caller must free the returned memory.
+    /// See also `Dir.realpath`, `realpathAlloc`.
+    pub fn realpathAlloc(self: Dir, allocator: *Allocator, pathname: []const u8) ![]u8 {
         if (builtin.os.tag == .wasi) {
             @compileError("Dir.realpath is unsupported in WASI");
         }

@@ -4074,33 +4074,47 @@ pub fn realpathW(pathname: [*:0]const u16, out_buffer: *[MAX_PATH_BYTES]u8) Real
 /// `realpath` on the `pathname` argument.
 /// In Unix, if `fd` was obtained using `std.fs.cwd()` call, reverts to calling
 /// `std.os.getcwd()` to obtain file descriptor's path.
+/// See also `realpath`, `realpathatZ`, and `realpathatW`.
 pub fn realpathat(fd: fd_t, pathname: []const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
     if (builtin.os.tag == .wasi) {
         @compileError("realpathat is unsupported in WASI");
     }
-    if (std.fs.path.isAbsolute(pathname)) {
-        return realpath(pathname, out_buffer);
+    if (builtin.os.tag == .windows) {
+        const pathname_w = try windows.sliceToPrefixedFileW(pathname);
+        return realpathatW(fd, pathname_w.span().ptr, out_buffer);
+    }
+    const pathname_c = try toPosixPath(pathname);
+    return realpathatZ(fd, &pathname_c, out_buffer);
+}
+
+/// Same as `realpathat` except `pathname` is null-terminated.
+/// If `fd` was obtained using `std.fs.cwd()` call, reverts to calling
+/// `std.os.getcwd()` to obtain file descriptor's path.
+/// See also `realpathat`.
+pub fn realpathatZ(fd: fd_t, pathname: [*:0]const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
+    if (builtin.os.tag == .windows) {
+        const pathname_w = try windows.cStrToPrefixedFileW(pathname);
+        return realpathatW(fd, pathname_w.span().ptr, out_buffer);
+    }
+    if (std.fs.path.isAbsolutePosixZ(pathname)) {
+        return realpathZ(pathname, out_buffer);
     }
 
     var buffer: [MAX_PATH_BYTES]u8 = undefined;
     var fd_path: []const u8 = undefined;
-    if (@hasDecl(@This(), "AT_FDCWD")) {
-        if (fd == @field(@This(), "AT_FDCWD")) {
-            fd_path = getcwd(buffer[0..]) catch |err| {
-                return switch (err) {
-                    GetCwdError.NameTooLong => error.NameTooLong,
-                    GetCwdError.CurrentWorkingDirectoryUnlinked => error.FileNotFound,
-                    else => |e| e,
-                };
+    if (fd == @field(@This(), "AT_FDCWD")) {
+        fd_path = getcwd(buffer[0..]) catch |err| {
+            return switch (err) {
+                GetCwdError.NameTooLong => error.NameTooLong,
+                GetCwdError.CurrentWorkingDirectoryUnlinked => error.FileNotFound,
+                else => |e| e,
             };
-        } else {
-            fd_path = try fdPath(fd, &buffer);
-        }
+        };
     } else {
         fd_path = try fdPath(fd, &buffer);
     }
 
-    const total_len = fd_path.len + pathname.len + 1; // +1 to account for path separator
+    const total_len = fd_path.len + mem.lenZ(pathname) + 1; // +1 to account for path separator
     if (total_len >= MAX_PATH_BYTES) {
         return error.NameTooLong;
     }
@@ -4108,9 +4122,39 @@ pub fn realpathat(fd: fd_t, pathname: []const u8, out_buffer: *[MAX_PATH_BYTES]u
     var unnormalized: [MAX_PATH_BYTES]u8 = undefined;
     mem.copy(u8, unnormalized[0..], fd_path);
     unnormalized[fd_path.len] = std.fs.path.sep;
-    mem.copy(u8, unnormalized[fd_path.len + 1 ..], pathname);
+    mem.copy(u8, unnormalized[fd_path.len + 1 ..], mem.spanZ(pathname));
 
-    return realpath(unnormalized[0..total_len], out_buffer);
+    const unnormalized_c = try toPosixPath(unnormalized[0..total_len]);
+
+    return realpathZ(&unnormalized_c, out_buffer);
+}
+
+/// Windows-only. Same as `realpathat` except `pathname` is null-terminated, WTF16 encoded.
+/// See also `realpathat`.
+pub fn realpathatW(fd: fd_t, pathname: [*:0]const u16, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
+    if (std.fs.path.isAbsoluteWindowsW(pathname)) {
+        return realpathW(pathname, out_buffer);
+    }
+
+    var buffer: [MAX_PATH_BYTES]u8 = undefined;
+    const fd_path = try fdPath(fd, &buffer);
+
+    // Convert UTF16LE to UTF8
+    var pathname_u8: [MAX_PATH_BYTES]u8 = undefined;
+    const end_index = std.unicode.utf16leToUtf8(pathname_u8[0..], wide_slice[start_index..]) catch unreachable;
+    const total_len = fd_path.len + end_index + 1; // +1 to account for path separator
+    if (total_len >= MAX_PATH_BYTES) {
+        return error.NameTooLong;
+    }
+
+    var unnormalized: [MAX_PATH_BYTES]u8 = undefined;
+    mem.copy(u8, unnormalized[0..], fd_path);
+    unnormalized[fd_path.len] = std.fs.path.sep;
+    mem.copy(u8, unnormalized[fd_path.len + 1 ..], pathname_u8[0..end_index]);
+
+    const unnormalized_w = try windows.sliceToPrefixedFileW(unnormalized[0..total_len]);
+
+    return realpathW(unnormalized_w.span().ptr, out_buffer);
 }
 
 /// Spurious wakeups are possible and no precision of timing is guaranteed.
