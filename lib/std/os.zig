@@ -4141,7 +4141,7 @@ pub fn realpathatW(fd: fd_t, pathname: [*:0]const u16, out_buffer: *[MAX_PATH_BY
 
     // Convert UTF16LE to UTF8
     var pathname_u8: [MAX_PATH_BYTES]u8 = undefined;
-    const end_index = std.unicode.utf16leToUtf8(pathname_u8[0..], wide_slice[start_index..]) catch unreachable;
+    const end_index = std.unicode.utf16leToUtf8(pathname_u8[0..], mem.spanZ(pathname)) catch unreachable;
     const total_len = fd_path.len + end_index + 1; // +1 to account for path separator
     if (total_len >= MAX_PATH_BYTES) {
         return error.NameTooLong;
