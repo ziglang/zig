@@ -257,6 +257,10 @@ pub fn Min(comptime A: type, comptime B: type) type {
     return @TypeOf(@as(A, 0) + @as(B, 0));
 }
 
+test "math.Min" {
+    testing.expect(Min(u8, u16) == u8);
+}
+
 /// Returns the smaller number. When one of the parameter's type's full range fits in the other,
 /// the return type is the smaller type.
 pub fn min(x: var, y: var) Min(@TypeOf(x), @TypeOf(y)) {
@@ -310,12 +314,63 @@ test "math.min" {
     }
 }
 
+/// Given two types, returns the biggest one which is capable of holding the
+/// full range of the maximum value.
+pub fn Max(comptime A: type, comptime B: type) type {
+    switch (@typeInfo(A)) {
+        .Int => |a_info| switch (@typeInfo(B)) {
+            .Int => |b_info| if (!a_info.is_signed and !b_info.is_signed) {
+                if (a_info.bits > b_info.bits) {
+                    return A;
+                } else {
+                    return B;
+                }
+            },
+            else => {},
+        },
+        else => {},
+    }
+    return @TypeOf(@as(A, 0) + @as(B, 0));
+}
+
+test "math.Max" {
+    testing.expect(Max(u8, u16) == u16);
+}
+
 pub fn max(x: var, y: var) @TypeOf(x, y) {
     return if (x > y) x else y;
 }
 
 test "math.max" {
     testing.expect(max(@as(i32, -1), @as(i32, 2)) == 2);
+    {
+        var a: u16 = 999;
+        var b: u32 = 10;
+        var result = max(a, b);
+        testing.expect(@TypeOf(result) == u32);
+        testing.expect(result == a);
+    }
+    {
+        var a: f64 = 10.34;
+        var b: f32 = 999.12;
+        var result = max(a, b);
+        testing.expect(@TypeOf(result) == f64);
+        testing.expect(result == b);
+    }
+    {
+        var a: i8 = -127;
+        var b: i16 = -200;
+        var result = max(a, b);
+        testing.expect(@TypeOf(result) == i16);
+        testing.expect(result == a);
+    }
+    {
+        const a = 10.34;
+        var b: f32 = 999.12;
+        var result = max(a, b);
+        testing.expect(@TypeOf(result) == f32);
+        testing.expect(result == b);
+    }
 }
 
 pub fn clamp(val: var, lower: var, upper: var) @TypeOf(val, lower, upper) {
