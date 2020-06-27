@@ -1134,7 +1134,8 @@ pub const Dir = struct {
                 // non-Linux POSIX systems return EPERM when trying to delete a directory, so
                 // we need to handle that case specifically and translate the error
                 .macosx, .ios, .freebsd, .netbsd, .dragonfly => {
-                    const fstat = os.fstatatZ(self.fd, sub_path_c, 0) catch return e;
+                    // Don't follow symlinks to match unlinkat (which acts on symlinks rather than follows them)
+                    const fstat = os.fstatatZ(self.fd, sub_path_c, os.AT_SYMLINK_NOFOLLOW) catch return e;
                     const is_dir = fstat.mode & os.S_IFMT == os.S_IFDIR;
                     return if (is_dir) error.IsDir else e;
                 },
