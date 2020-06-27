@@ -70,7 +70,7 @@ pub fn addCases(ctx: *TestContext) !void {
     );
 
     // TODO: need to make sure this works with other variants of export.
-    ctx.incrementalFailure("function redefinition", linux_x64,
+    ctx.incrementalFailure("exported symbol collision", linux_x64,
         \\export fn entry() void {}
         \\export fn entry() void {}
     , &[_][]const u8{":2:11: error: redefinition of 'entry'"},

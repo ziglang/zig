@@ -851,8 +851,6 @@ pub fn update(self: *Module) !void {
 
     self.generation += 1;
 
-    self.clearErrors();
-
     // TODO Use the cache hash file system to detect which source files changed.
     // Until then we simulate a full cache miss. Source files could have been loaded for any reason;
     // to force a refresh we unload now.
@@ -914,31 +912,6 @@ pub fn totalErrorCount(self: *Module) usize {
         self.failed_files.size +
         self.failed_exports.size;
     return if (total == 0) @boolToInt(self.link_error_flags.no_entry_point_found) else total;
-}
-
-pub fn clearErrors(self: *Module) void {
-    const allocator = self.allocator;
-    {
-        var it = self.failed_decls.iterator();
-        while (it.next()) |kv| {
-            kv.value.destroy(allocator);
-        }
-        self.failed_decls.clear();
-    }
-    {
-        var it = self.failed_files.iterator();
-        while (it.next()) |kv| {
-            kv.value.destroy(allocator);
-        }
-        self.failed_files.clear();
-    }
-    {
-        var it = self.failed_exports.iterator();
-        while (it.next()) |kv| {
-            kv.value.destroy(allocator);
-        }
-        self.failed_exports.clear();
-    }
 }
 
 pub fn getAllErrorsAlloc(self: *Module) !AllErrors {
@@ -1899,6 +1872,9 @@ fn deleteDeclExports(self: *Module, decl: *Decl) void {
         }
 
         self.bin_file.deleteExport(exp.link);
+        if (self.failed_exports.remove(exp)) |entry| {
+            entry.value.destroy(self.allocator);
+        }
         self.allocator.destroy(exp);
     }
     self.allocator.free(kv.value);
@@ -2191,6 +2167,7 @@ fn analyzeExport(self: *Module, scope: *Scope, src: usize, symbol_name: []const 
             "exported symbol collision: {}",
             .{symbol_name},
         ));
+        new_export.status = .failed;
     } else {
         self.bin_file.updateDeclExports(self, exported_decl, de_gop.kv.value) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
