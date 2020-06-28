@@ -32,6 +32,9 @@ bin_file_path: []const u8,
 /// Decl pointers to details about them being exported.
 /// The Export memory is owned by the `export_owners` table; the slice itself is owned by this table.
 decl_exports: std.AutoHashMap(*Decl, []*Export),
+/// We track which export is associated with the given symbol name for quick
+/// detection of symbol collisions.
+symbol_exports: std.StringHashMap(*Export),
 /// This models the Decls that perform exports, so that `decl_exports` can be updated when a Decl
 /// is modified. Note that the key of this table is not the Decl being exported, but the Decl that
 /// is performing the export of another Decl.
@@ -772,6 +775,7 @@ pub fn init(gpa: *Allocator, options: InitOptions) !Module {
         .optimize_mode = options.optimize_mode,
         .decl_table = DeclTable.init(gpa),
         .decl_exports = std.AutoHashMap(*Decl, []*Export).init(gpa),
+        .symbol_exports = std.StringHashMap(*Export).init(gpa),
         .export_owners = std.AutoHashMap(*Decl, []*Export).init(gpa),
         .failed_decls = std.AutoHashMap(*Decl, *ErrorMsg).init(gpa),
         .failed_files = std.AutoHashMap(*Scope, *ErrorMsg).init(gpa),
@@ -829,6 +833,7 @@ pub fn deinit(self: *Module) void {
         }
         self.export_owners.deinit();
     }
+    self.symbol_exports.deinit();
     self.root_scope.destroy(allocator);
     self.* = undefined;
 }
@@ -1869,6 +1874,7 @@ fn deleteDeclExports(self: *Module, decl: *Decl) void {
         if (self.failed_exports.remove(exp)) |entry| {
             entry.value.destroy(self.allocator);
         }
+        _ = self.symbol_exports.remove(exp.options.name);
         self.allocator.destroy(exp);
     }
     self.allocator.free(kv.value);
@@ -2104,20 +2110,6 @@ fn analyzeExport(self: *Module, scope: *Scope, src: usize, symbol_name: []const 
         else => return self.fail(scope, src, "unable to export type '{}'", .{typed_value.ty}),
     }
 
-    var already_exported = false;
-    {
-        var it = self.decl_exports.iterator();
-        while (it.next()) |kv| {
-            const export_list = kv.value;
-            for (export_list) |e| {
-                if (std.mem.eql(u8, e.options.name, symbol_name)) {
-                    already_exported = true;
-                    break;
-                }
-            }
-        }
-    }
-
     try self.decl_exports.ensureCapacity(self.decl_exports.size + 1);
     try self.export_owners.ensureCapacity(self.export_owners.size + 1);
 
@@ -2153,7 +2145,7 @@ fn analyzeExport(self: *Module, scope: *Scope, src: usize, symbol_name: []const 
     de_gop.kv.value[de_gop.kv.value.len - 1] = new_export;
     errdefer de_gop.kv.value = self.allocator.shrink(de_gop.kv.value, de_gop.kv.value.len - 1);
 
-    if (already_exported) {
+    if (self.symbol_exports.get(symbol_name)) |_| {
         try self.failed_exports.ensureCapacity(self.failed_exports.size + 1);
         self.failed_exports.putAssumeCapacityNoClobber(new_export, try ErrorMsg.create(
             self.allocator,
@@ -2161,9 +2153,12 @@ fn analyzeExport(self: *Module, scope: *Scope, src: usize, symbol_name: []const 
             "exported symbol collision: {}",
             .{symbol_name},
         ));
+        // TODO: add a note
         new_export.status = .failed;
         return;
     }
+
+    try self.symbol_exports.putNoClobber(symbol_name, new_export);
     self.bin_file.updateDeclExports(self, exported_decl, de_gop.kv.value) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => {
