@@ -465,8 +465,19 @@ pub const TestContext = struct {
 
                     var test_node = update_node.start("assert", null);
                     test_node.activate();
-                    std.testing.expectEqualSlices(u8, expected_output, out_zir.items);
-                    test_node.end();
+                    defer test_node.end();
+                    if (expected_output.len != out_zir.items.len) {
+                        std.debug.warn("{}\nTransformed ZIR length differs:\n================\nExpected:\n================\n{}\n================\nFound: {}\n================\nTest failed.\n", .{ case.name, expected_output, out_zir.items });
+                        std.process.exit(1);
+                    }
+                    for (expected_output) |e, i| {
+                        if (out_zir.items[i] != e) {
+                            if (expected_output.len != out_zir.items.len) {
+                                std.debug.warn("{}\nTransformed ZIR differs:\n================\nExpected:\n================\n{}\n================\nFound: {}\n================\nTest failed.\n", .{ case.name, expected_output, out_zir.items });
+                                std.process.exit(1);
+                            }
+                        }
+                    }
                 },
                 .Error => |e| {
                     var test_node = update_node.start("assert", null);
