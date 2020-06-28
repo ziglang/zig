@@ -714,6 +714,11 @@ test "PageAllocator" {
         slice[127] = 0x34;
         allocator.free(slice);
     }
+    {
+        var buf = try allocator.alloc(u8, mem.page_size + 1);
+        defer allocator.free(buf);
+        buf = try allocator.realloc(buf, 1); // shrink past the page boundary
+    }
 }
 
 test "HeapAllocator" {
