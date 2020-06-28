@@ -116,9 +116,6 @@ pub const Allocator = struct {
         if (isAligned(@ptrToInt(old_mem.ptr), new_alignment)) {
             if (new_byte_count <= old_mem.len) {
                 const shrunk_len = self.shrinkBytes(old_mem, new_byte_count, len_align);
-                if (shrunk_len < old_mem.len) {
-                    @memset(old_mem.ptr + shrunk_len, undefined, old_mem.len - shrunk_len);
-                }
                 return old_mem.ptr[0..shrunk_len];
             }
             if (self.callResizeFn(old_mem, new_byte_count, len_align)) |resized_len| {
