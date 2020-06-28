@@ -214,7 +214,7 @@ inline fn initEventLoopAndCallMain() u8 {
 
             var result: u8 = undefined;
             var frame: @Frame(callMainAsync) = undefined;
-            _ = @asyncCall(&frame, &result, callMainAsync, loop);
+            _ = @asyncCall(&frame, &result, callMainAsync, .{loop});
             loop.run();
             return result;
         }

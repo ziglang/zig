@@ -2641,6 +2641,7 @@ enum IrInstSrcId {
     IrInstSrcIdCall,
     IrInstSrcIdCallArgs,
     IrInstSrcIdCallExtra,
+    IrInstSrcIdAsyncCallExtra,
     IrInstSrcIdConst,
     IrInstSrcIdReturn,
     IrInstSrcIdContainerInitList,
@@ -3251,6 +3252,20 @@ struct IrInstSrcCallExtra {
 
     IrInstSrc *options;
     IrInstSrc *fn_ref;
+    IrInstSrc *args;
+    ResultLoc *result_loc;
+};
+
+// This is a pass1 instruction, used by @asyncCall, when the args node
+// is not a literal.
+// `args` is expected to be either a struct or a tuple.
+struct IrInstSrcAsyncCallExtra {
+    IrInstSrc base;
+
+    CallModifier modifier;
+    IrInstSrc *fn_ref;
+    IrInstSrc *ret_ptr;
+    IrInstSrc *new_stack;
     IrInstSrc *args;
     ResultLoc *result_loc;
 };

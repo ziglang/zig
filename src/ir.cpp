@@ -310,6 +310,8 @@ static void destroy_instruction_src(IrInstSrc *inst) {
             return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcCall *>(inst));
         case IrInstSrcIdCallExtra:
             return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcCallExtra *>(inst));
+        case IrInstSrcIdAsyncCallExtra:
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcAsyncCallExtra *>(inst));
         case IrInstSrcIdUnOp:
             return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcUnOp *>(inst));
         case IrInstSrcIdCondBr:
@@ -1171,6 +1173,10 @@ static constexpr IrInstSrcId ir_inst_id(IrInstSrcCallArgs *) {
 
 static constexpr IrInstSrcId ir_inst_id(IrInstSrcCallExtra *) {
     return IrInstSrcIdCallExtra;
+}
+
+static constexpr IrInstSrcId ir_inst_id(IrInstSrcAsyncCallExtra *) {
+    return IrInstSrcIdAsyncCallExtra;
 }
 
 static constexpr IrInstSrcId ir_inst_id(IrInstSrcConst *) {
@@ -2437,6 +2443,25 @@ static IrInstSrc *ir_build_call_extra(IrBuilderSrc *irb, Scope *scope, AstNode *
 
     ir_ref_instruction(options, irb->current_basic_block);
     ir_ref_instruction(fn_ref, irb->current_basic_block);
+    ir_ref_instruction(args, irb->current_basic_block);
+
+    return &call_instruction->base;
+}
+
+static IrInstSrc *ir_build_async_call_extra(IrBuilderSrc *irb, Scope *scope, AstNode *source_node,
+        CallModifier modifier, IrInstSrc *fn_ref, IrInstSrc *ret_ptr, IrInstSrc *new_stack, IrInstSrc *args, ResultLoc *result_loc)
+{
+    IrInstSrcAsyncCallExtra *call_instruction = ir_build_instruction<IrInstSrcAsyncCallExtra>(irb, scope, source_node);
+    call_instruction->modifier = modifier;
+    call_instruction->fn_ref = fn_ref;
+    call_instruction->ret_ptr = ret_ptr;
+    call_instruction->new_stack = new_stack;
+    call_instruction->args = args;
+    call_instruction->result_loc = result_loc;
+
+    ir_ref_instruction(fn_ref, irb->current_basic_block);
+    if (ret_ptr != nullptr) ir_ref_instruction(ret_ptr, irb->current_basic_block);
+    ir_ref_instruction(new_stack, irb->current_basic_block);
     ir_ref_instruction(args, irb->current_basic_block);
 
     return &call_instruction->base;
@@ -6183,11 +6208,10 @@ static IrInstSrc *ir_gen_this(IrBuilderSrc *irb, Scope *orig_scope, AstNode *nod
 static IrInstSrc *ir_gen_async_call(IrBuilderSrc *irb, Scope *scope, AstNode *await_node, AstNode *call_node,
         LVal lval, ResultLoc *result_loc)
 {
-    size_t arg_offset = 3;
-    if (call_node->data.fn_call_expr.params.length < arg_offset) {
+    if (call_node->data.fn_call_expr.params.length != 4) {
         add_node_error(irb->codegen, call_node,
-            buf_sprintf("expected at least %" ZIG_PRI_usize " arguments, found %" ZIG_PRI_usize,
-                arg_offset, call_node->data.fn_call_expr.params.length));
+            buf_sprintf("expected 4 arguments, found %" ZIG_PRI_usize,
+                call_node->data.fn_call_expr.params.length));
         return irb->codegen->invalid_inst_src;
     }
 
@@ -6206,20 +6230,37 @@ static IrInstSrc *ir_gen_async_call(IrBuilderSrc *irb, Scope *scope, AstNode *aw
     if (fn_ref == irb->codegen->invalid_inst_src)
         return fn_ref;
 
-    size_t arg_count = call_node->data.fn_call_expr.params.length - arg_offset;
-    IrInstSrc **args = heap::c_allocator.allocate<IrInstSrc*>(arg_count);
-    for (size_t i = 0; i < arg_count; i += 1) {
-        AstNode *arg_node = call_node->data.fn_call_expr.params.at(i + arg_offset);
-        IrInstSrc *arg = ir_gen_node(irb, arg_node, scope);
-        if (arg == irb->codegen->invalid_inst_src)
-            return arg;
-        args[i] = arg;
-    }
-
     CallModifier modifier = (await_node == nullptr) ? CallModifierAsync : CallModifierNone;
     bool is_async_call_builtin = true;
-    IrInstSrc *call = ir_build_call_src(irb, scope, call_node, nullptr, fn_ref, arg_count, args,
-            ret_ptr, modifier, is_async_call_builtin, bytes, result_loc);
+    AstNode *args_node = call_node->data.fn_call_expr.params.at(3);
+    if (args_node->type == NodeTypeContainerInitExpr) {
+        if (args_node->data.container_init_expr.kind == ContainerInitKindArray ||
+            args_node->data.container_init_expr.entries.length == 0)
+        {
+            size_t arg_count = args_node->data.container_init_expr.entries.length;
+            IrInstSrc **args = heap::c_allocator.allocate<IrInstSrc*>(arg_count);
+            for (size_t i = 0; i < arg_count; i += 1) {
+                AstNode *arg_node = args_node->data.container_init_expr.entries.at(i);
+                IrInstSrc *arg = ir_gen_node(irb, arg_node, scope);
+                if (arg == irb->codegen->invalid_inst_src)
+                    return arg;
+                args[i] = arg;
+            }
+
+            IrInstSrc *call = ir_build_call_src(irb, scope, call_node, nullptr, fn_ref, arg_count, args,
+                ret_ptr, modifier, is_async_call_builtin, bytes, result_loc);
+            return ir_lval_wrap(irb, scope, call, lval, result_loc);
+        } else {
+            exec_add_error_node(irb->codegen, irb->exec, args_node,
+                    buf_sprintf("TODO: @asyncCall with anon struct literal"));
+            return irb->codegen->invalid_inst_src;
+        }
+    }
+    IrInstSrc *args = ir_gen_node(irb, args_node, scope);
+    if (args == irb->codegen->invalid_inst_src)
+        return args;
+
+    IrInstSrc *call = ir_build_async_call_extra(irb, scope, call_node, modifier, fn_ref, ret_ptr, bytes, args, result_loc);
     return ir_lval_wrap(irb, scope, call, lval, result_loc);
 }
 
@@ -20721,36 +20762,102 @@ static IrInstGen *ir_analyze_call_extra(IrAnalyze *ira, IrInst* source_instr,
         modifier, stack, stack_src, false, args_ptr, args_len, nullptr, result_loc);
 }
 
-static IrInstGen *ir_analyze_instruction_call_extra(IrAnalyze *ira, IrInstSrcCallExtra *instruction) {
-    IrInstGen *args = instruction->args->child;
+static IrInstGen *ir_analyze_async_call_extra(IrAnalyze *ira, IrInst* source_instr, CallModifier modifier,
+        IrInstSrc *pass1_fn_ref, IrInstSrc *ret_ptr, IrInstSrc *new_stack, IrInstGen **args_ptr, size_t args_len, ResultLoc *result_loc)
+{
+    IrInstGen *fn_ref = pass1_fn_ref->child;
+    if (type_is_invalid(fn_ref->value->type))
+        return ira->codegen->invalid_inst_gen;
+
+    if (ir_should_inline(ira->old_irb.exec, source_instr->scope)) {
+        ir_add_error(ira, source_instr, buf_sprintf("TODO: comptime @asyncCall"));
+            return ira->codegen->invalid_inst_gen;
+    }
+
+    IrInstGen *first_arg_ptr = nullptr;
+    IrInst *first_arg_ptr_src = nullptr;
+    ZigFn *fn = nullptr;
+    if (instr_is_comptime(fn_ref)) {
+        if (fn_ref->value->type->id == ZigTypeIdBoundFn) {
+            assert(fn_ref->value->special == ConstValSpecialStatic);
+            fn = fn_ref->value->data.x_bound_fn.fn;
+            first_arg_ptr = fn_ref->value->data.x_bound_fn.first_arg;
+            first_arg_ptr_src = fn_ref->value->data.x_bound_fn.first_arg_src;
+            if (type_is_invalid(first_arg_ptr->value->type))
+                return ira->codegen->invalid_inst_gen;
+        } else {
+            fn = ir_resolve_fn(ira, fn_ref);
+        }
+    }
+
+    IrInstGen *ret_ptr_uncasted = nullptr;
+    if (ret_ptr != nullptr) {
+        ret_ptr_uncasted = ret_ptr->child;
+        if (type_is_invalid(ret_ptr_uncasted->value->type))
+            return ira->codegen->invalid_inst_gen;
+    }
+
+    ZigType *fn_type = (fn != nullptr) ? fn->type_entry : fn_ref->value->type;
+    IrInstGen *casted_new_stack = analyze_casted_new_stack(ira, source_instr, new_stack->child,
+            &new_stack->base, true, fn);
+    if (casted_new_stack != nullptr && type_is_invalid(casted_new_stack->value->type))
+        return ira->codegen->invalid_inst_gen;
+
+    return ir_analyze_fn_call(ira, source_instr, fn, fn_type, fn_ref, first_arg_ptr, first_arg_ptr_src,
+        modifier, casted_new_stack, &new_stack->base, true, args_ptr, args_len, ret_ptr_uncasted, result_loc);
+}
+
+static bool ir_extract_tuple_call_args(IrAnalyze *ira, IrInst *source_instr, IrInstGen *args, IrInstGen ***args_ptr, size_t *args_len) {
     ZigType *args_type = args->value->type;
     if (type_is_invalid(args_type))
-        return ira->codegen->invalid_inst_gen;
+        return false;
 
     if (args_type->id != ZigTypeIdStruct) {
         ir_add_error(ira, &args->base,
             buf_sprintf("expected tuple or struct, found '%s'", buf_ptr(&args_type->name)));
-        return ira->codegen->invalid_inst_gen;
+        return false;
     }
 
-    IrInstGen **args_ptr = nullptr;
-    size_t args_len = 0;
-
     if (is_tuple(args_type)) {
-        args_len = args_type->data.structure.src_field_count;
-        args_ptr = heap::c_allocator.allocate<IrInstGen *>(args_len);
-        for (size_t i = 0; i < args_len; i += 1) {
+        *args_len = args_type->data.structure.src_field_count;
+        *args_ptr = heap::c_allocator.allocate<IrInstGen *>(*args_len);
+        for (size_t i = 0; i < *args_len; i += 1) {
             TypeStructField *arg_field = args_type->data.structure.fields[i];
-            args_ptr[i] = ir_analyze_struct_value_field_value(ira, &instruction->base.base, args, arg_field);
-            if (type_is_invalid(args_ptr[i]->value->type))
-                return ira->codegen->invalid_inst_gen;
+            (*args_ptr)[i] = ir_analyze_struct_value_field_value(ira, source_instr, args, arg_field);
+            if (type_is_invalid((*args_ptr)[i]->value->type))
+                return false;
         }
     } else {
         ir_add_error(ira, &args->base, buf_sprintf("TODO: struct args"));
+        return false;
+    }
+    return true;
+}
+
+static IrInstGen *ir_analyze_instruction_call_extra(IrAnalyze *ira, IrInstSrcCallExtra *instruction) {
+    IrInstGen *args = instruction->args->child;
+    IrInstGen **args_ptr = nullptr;
+    size_t args_len = 0;
+    if (!ir_extract_tuple_call_args(ira, &instruction->base.base, args, &args_ptr, &args_len)) {
         return ira->codegen->invalid_inst_gen;
     }
+
     IrInstGen *result = ir_analyze_call_extra(ira, &instruction->base.base, instruction->options,
             instruction->fn_ref, args_ptr, args_len, instruction->result_loc);
+    heap::c_allocator.deallocate(args_ptr, args_len);
+    return result;
+}
+
+static IrInstGen *ir_analyze_instruction_async_call_extra(IrAnalyze *ira, IrInstSrcAsyncCallExtra *instruction) {
+    IrInstGen *args = instruction->args->child;
+    IrInstGen **args_ptr = nullptr;
+    size_t args_len = 0;
+    if (!ir_extract_tuple_call_args(ira, &instruction->base.base, args, &args_ptr, &args_len)) {
+        return ira->codegen->invalid_inst_gen;
+    }
+
+    IrInstGen *result = ir_analyze_async_call_extra(ira, &instruction->base.base, instruction->modifier,
+            instruction->fn_ref, instruction->ret_ptr, instruction->new_stack, args_ptr, args_len, instruction->result_loc);
     heap::c_allocator.deallocate(args_ptr, args_len);
     return result;
 }
@@ -31103,6 +31210,8 @@ static IrInstGen *ir_analyze_instruction_base(IrAnalyze *ira, IrInstSrc *instruc
             return ir_analyze_instruction_call_args(ira, (IrInstSrcCallArgs *)instruction);
         case IrInstSrcIdCallExtra:
             return ir_analyze_instruction_call_extra(ira, (IrInstSrcCallExtra *)instruction);
+        case IrInstSrcIdAsyncCallExtra:
+            return ir_analyze_instruction_async_call_extra(ira, (IrInstSrcAsyncCallExtra *)instruction);
         case IrInstSrcIdBr:
             return ir_analyze_instruction_br(ira, (IrInstSrcBr *)instruction);
         case IrInstSrcIdCondBr:
@@ -31612,6 +31721,7 @@ bool ir_inst_src_has_side_effects(IrInstSrc *instruction) {
         case IrInstSrcIdDeclVar:
         case IrInstSrcIdStorePtr:
         case IrInstSrcIdCallExtra:
+        case IrInstSrcIdAsyncCallExtra:
         case IrInstSrcIdCall:
         case IrInstSrcIdCallArgs:
         case IrInstSrcIdReturn:
