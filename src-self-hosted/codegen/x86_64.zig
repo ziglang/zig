@@ -68,24 +68,3 @@ pub const Register = enum(u8) {
 };
 
 // zig fmt: on
-
-/// After argument values have been computed, they are placed either in registers
-/// or pushed on the stack. The way values are passed depends on the class.
-pub const ParameterClass = enum {
-    /// Integral types that fit into one of the general purpose registers.
-    integer,
-    /// Types that fit into a vector register.
-    sse,
-    /// Types that fit into a vector register and can be passed
-    /// and returned in the upper bytes of it.
-    sse_up,
-    /// Types  that  will  be  returned  via  the  x87FPU.
-    x87,
-    /// Types  that  will  be  returned  via  the  x87FPU and can be passed and returned
-    /// in the upper bytes of it.
-    x87_up,
-    /// Types that will be returned via the x87FPU.
-    complex_x87,
-    /// Types that will be passed and returned in mem-ory via the stack.
-    memory,
-};

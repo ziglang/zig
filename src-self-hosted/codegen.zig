@@ -54,7 +54,7 @@ pub fn generateSymbol(
                     // Prepare the function parameters
                     switch (bin_file.options.target.cpu.arch) {
                         .x86_64 => {
-                            const integer_registers = [_]Reg(.x86_64){.rdi, .rsi, .rdx, .rcx, .r8, .r9};
+                            const integer_registers = [_]Reg(.x86_64){ .rdi, .rsi, .rdx, .rcx, .r8, .r9 };
                             var next_int_reg: usize = 0;
 
                             for (param_types) |param_type, src_i| {
@@ -64,7 +64,7 @@ pub fn generateSymbol(
                                             try mc_args.append(.{ .stack_offset = next_stack_offset });
                                             next_stack_offset += param_type.abiSize(bin_file.options.target);
                                         } else {
-                                            try mc_args.append(.{ .register = @enumToInt(integer_registers[next_int_reg])});
+                                            try mc_args.append(.{ .register = @enumToInt(integer_registers[next_int_reg]) });
                                             next_int_reg += 1;
                                         }
                                     },
@@ -75,10 +75,9 @@ pub fn generateSymbol(
                                             "TODO implement function parameters of type {}",
                                             .{@tagName(param_type.zigTypeTag())},
                                         ),
-                                    }
+                                    },
                                 }
                             }
-
                         },
                         else => return Result{
                             .fail = try ErrorMsg.create(
@@ -113,7 +112,7 @@ pub fn generateSymbol(
 
             function.gen() catch |err| switch (err) {
                 error.CodegenFail => return Result{ .fail = function.err_msg.? },
-                else => |e| return e,            
+                else => |e| return e,
             };
 
             if (function.err_msg) |em| {
@@ -689,7 +688,7 @@ const Function = struct {
                 },
                 .stack_offset => |off| {
                     return self.fail(src, "TODO implement genSetReg for stack variables", .{});
-                }
+                },
             },
             else => return self.fail(src, "TODO implement genSetReg for more architectures", .{}),
         }
