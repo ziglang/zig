@@ -391,8 +391,10 @@ pub const TestContext = struct {
             prg_node.activate();
             defer prg_node.end();
 
-            // So that we can see which test case failed when the leak checker goes off.
-            progress.refresh();
+            // So that we can see which test case failed when the leak checker goes off,
+            // or there's an internal error
+            progress.initial_delay_ns = 0;
+            progress.refresh_rate_ns = 0;
 
             const info = try std.zig.system.NativeTargetInfo.detect(std.testing.allocator, case.target);
             try self.runOneCase(std.testing.allocator, &prg_node, case, info.target);
@@ -407,10 +409,6 @@ pub const TestContext = struct {
         const tmp_src_path = if (case.type == .Zig) "test_case.zig" else if (case.type == .ZIR) "test_case.zir" else unreachable;
         const root_pkg = try Package.create(allocator, tmp.dir, ".", tmp_src_path);
         defer root_pkg.destroy();
-
-        var prg_node = root_node.start(case.name, case.updates.items.len);
-        prg_node.activate();
-        defer prg_node.end();
 
         const bin_name = try std.zig.binNameAlloc(allocator, "test_case", target, case.output_mode, null);
         defer allocator.free(bin_name);
@@ -434,7 +432,7 @@ pub const TestContext = struct {
         defer module.deinit();
 
         for (case.updates.items) |update, update_index| {
-            var update_node = prg_node.start("update", 4);
+            var update_node = root_node.start("update", 3);
             update_node.activate();
             defer update_node.end();
 
@@ -451,6 +449,7 @@ pub const TestContext = struct {
 
             switch (update.case) {
                 .Transformation => |expected_output| {
+                    update_node.estimated_total_items = 5;
                     var emit_node = update_node.start("emit", null);
                     emit_node.activate();
                     var new_zir_module = try zir.emit(allocator, module);
@@ -464,9 +463,15 @@ pub const TestContext = struct {
                     try new_zir_module.writeToStream(allocator, out_zir.outStream());
                     write_node.end();
 
+                    var test_node = update_node.start("assert", null);
+                    test_node.activate();
                     std.testing.expectEqualSlices(u8, expected_output, out_zir.items);
+                    test_node.end();
                 },
                 .Error => |e| {
+                    var test_node = update_node.start("assert", null);
+                    test_node.activate();
+                    defer test_node.end();
                     var handled_errors = try allocator.alloc(bool, e.len);
                     defer allocator.free(handled_errors);
                     for (handled_errors) |*h| {
@@ -495,6 +500,7 @@ pub const TestContext = struct {
                     }
                 },
                 .Execution => |expected_stdout| {
+                    update_node.estimated_total_items = 4;
                     var exec_result = x: {
                         var exec_node = update_node.start("execute", null);
                         exec_node.activate();
@@ -511,6 +517,10 @@ pub const TestContext = struct {
                             .cwd_dir = tmp.dir,
                         });
                     };
+                    var test_node = update_node.start("test", null);
+                    test_node.activate();
+                    defer test_node.end();
+
                     defer allocator.free(exec_result.stdout);
                     defer allocator.free(exec_result.stderr);
                     switch (exec_result.term) {
