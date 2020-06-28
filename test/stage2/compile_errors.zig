@@ -88,7 +88,7 @@ pub fn addCases(ctx: *TestContext) !void {
     //     \\fn a() void {}
     // );
 
-    ctx.compileErrorZIR("function call with args", linux_x64,
+    ctx.compileErrorZIR("wrong arg type", linux_x64,
         \\@noreturn = primitive(noreturn)
         \\@void = primitive(void)
         \\@usize = primitive(usize)
