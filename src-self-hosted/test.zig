@@ -21,9 +21,10 @@ const ErrorMsg = struct {
 };
 
 pub const TestContext = struct {
-    zir_cases: std.ArrayList(Case),
+    /// TODO: find a way to treat cases as individual tests (shouldn't show "1 test passed" if there are 200 cases)
+    cases: std.ArrayList(Case),
 
-    pub const ZIRUpdate = struct {
+    pub const Update = struct {
         /// The input to the current update. We simulate an incremental update
         /// with the file's contents changed to this value each update.
         ///
@@ -33,35 +34,43 @@ pub const TestContext = struct {
         /// effects of the incremental compilation.
         src: [:0]const u8,
         case: union(enum) {
-            /// A transformation update transforms the input ZIR and tests against
+            /// A transformation update transforms the input and tests against
             /// the expected output ZIR.
             Transformation: [:0]const u8,
             /// An error update attempts to compile bad code, and ensures that it
             /// fails to compile, and for the expected reasons.
             /// A slice containing the expected errors *in sequential order*.
             Error: []const ErrorMsg,
-            /// An execution update compiles and runs the input ZIR, feeding in
-            /// provided input and ensuring that the stdout match what is expected.
+            /// An execution update compiles and runs the input, testing the
+            /// stdout against the expected results
+            /// This is a slice containing the expected message.
             Execution: []const u8,
         },
     };
 
-    /// A Case consists of a set of *updates*. A update can transform ZIR,
-    /// compile it, ensure that compilation fails, and more. The same Module is
-    /// used for each update, so each update's source is treated as a single file
-    /// being updated by the test harness and incrementally compiled.
+    pub const TestType = enum {
+        Zig,
+        ZIR,
+    };
+
+    /// A Case consists of a set of *updates*. The same Module is used for each
+    /// update, so each update's source is treated as a single file being
+    /// updated by the test harness and incrementally compiled.
     pub const Case = struct {
+        /// The name of the test case. This is shown if a test fails, and
+        /// otherwise ignored.
         name: []const u8,
-        /// The platform the ZIR targets. For non-native platforms, an emulator
+        /// The platform the test targets. For non-native platforms, an emulator
         /// such as QEMU is required for tests to complete.
         target: std.zig.CrossTarget,
-        updates: std.ArrayList(ZIRUpdate),
+        /// In order to be able to run e.g. Execution updates, this must be set
+        /// to Executable.
         output_mode: std.builtin.OutputMode,
-        /// Either ".zir" or ".zig"
-        extension: [4]u8,
+        updates: std.ArrayList(Update),
+        extension: TestType,
 
-        /// Adds a subcase in which the module is updated with new ZIR, and the
-        /// resulting ZIR is validated.
+        /// Adds a subcase in which the module is updated with `src`, and the
+        /// resulting ZIR is validated against `result`.
         pub fn addTransform(self: *Case, src: [:0]const u8, result: [:0]const u8) void {
             self.updates.append(.{
                 .src = src,
@@ -69,6 +78,8 @@ pub const TestContext = struct {
             }) catch unreachable;
         }
 
+        /// Adds a subcase in which the module is updated with `src`, compiled,
+        /// run, and the output is tested against `result`.
         pub fn addCompareOutput(self: *Case, src: [:0]const u8, result: []const u8) void {
             self.updates.append(.{
                 .src = src,
@@ -76,31 +87,31 @@ pub const TestContext = struct {
             }) catch unreachable;
         }
 
-        /// Adds a subcase in which the module is updated with invalid ZIR, and
-        /// ensures that compilation fails for the expected reasons.
-        ///
-        /// Errors must be specified in sequential order.
+        /// Adds a subcase in which the module is updated with `src`, which
+        /// should contain invalid input, and ensures that compilation fails
+        /// for the expected reasons, given in sequential order in `errors` in
+        /// the form `:line:column: error: message`.
         pub fn addError(self: *Case, src: [:0]const u8, errors: []const []const u8) void {
             var array = self.updates.allocator.alloc(ErrorMsg, errors.len) catch unreachable;
             for (errors) |e, i| {
                 if (e[0] != ':') {
-                    std.debug.panic("Invalid test: error must be specified as follows:\n:line:column: error: message\n=========\n", .{});
+                    @panic("Invalid test: error must be specified as follows:\n:line:column: error: message\n=========\n");
                 }
                 var cur = e[1..];
                 var line_index = std.mem.indexOf(u8, cur, ":");
                 if (line_index == null) {
-                    std.debug.panic("Invalid test: error must be specified as follows:\n:line:column: error: message\n=========\n", .{});
+                    @panic("Invalid test: error must be specified as follows:\n:line:column: error: message\n=========\n");
                 }
                 const line = std.fmt.parseInt(u32, cur[0..line_index.?], 10) catch @panic("Unable to parse line number");
                 cur = cur[line_index.? + 1 ..];
                 const column_index = std.mem.indexOf(u8, cur, ":");
                 if (column_index == null) {
-                    std.debug.panic("Invalid test: error must be specified as follows:\n:line:column: error: message\n=========\n", .{});
+                    @panic("Invalid test: error must be specified as follows:\n:line:column: error: message\n=========\n");
                 }
                 const column = std.fmt.parseInt(u32, cur[0..column_index.?], 10) catch @panic("Unable to parse column number");
                 cur = cur[column_index.? + 2 ..];
                 if (!std.mem.eql(u8, cur[0..7], "error: ")) {
-                    std.debug.panic("Invalid test: error must be specified as follows:\n:line:column: error: message\n=========\n", .{});
+                    @panic("Invalid test: error must be specified as follows:\n:line:column: error: message\n=========\n");
                 }
                 const msg = cur[7..];
 
@@ -116,123 +127,245 @@ pub const TestContext = struct {
             }
             self.updates.append(.{ .src = src, .case = .{ .Error = array } }) catch unreachable;
         }
+
+        /// Adds a subcase in which the module is updated with `src`, and
+        /// asserts that it compiles without issue
+        pub fn compiles(self: *Case, src: [:0]const u8) void {
+            self.addError(src, &[_][]const u8{});
+        }
     };
-
-    pub fn addExeZIR(
-        ctx: *TestContext,
-        name: []const u8,
-        target: std.zig.CrossTarget,
-    ) *Case {
-        const case = Case{
-            .name = name,
-            .target = target,
-            .updates = std.ArrayList(ZIRUpdate).init(ctx.zir_cases.allocator),
-            .output_mode = .Exe,
-            .extension = ".zir".*,
-        };
-        ctx.zir_cases.append(case) catch unreachable;
-        return &ctx.zir_cases.items[ctx.zir_cases.items.len - 1];
-    }
-
-    pub fn addObjZIR(
-        ctx: *TestContext,
-        name: []const u8,
-        target: std.zig.CrossTarget,
-    ) *Case {
-        const case = Case{
-            .name = name,
-            .target = target,
-            .updates = std.ArrayList(ZIRUpdate).init(ctx.zir_cases.allocator),
-            .output_mode = .Obj,
-            .extension = ".zir".*,
-        };
-        ctx.zir_cases.append(case) catch unreachable;
-        return &ctx.zir_cases.items[ctx.zir_cases.items.len - 1];
-    }
 
     pub fn addExe(
         ctx: *TestContext,
         name: []const u8,
         target: std.zig.CrossTarget,
+        T: TestType,
     ) *Case {
-        const case = Case{
+        ctx.cases.append(Case{
             .name = name,
             .target = target,
-            .updates = std.ArrayList(ZIRUpdate).init(ctx.zir_cases.allocator),
+            .updates = std.ArrayList(Update).init(ctx.cases.allocator),
             .output_mode = .Exe,
-            .extension = ".zig".*,
-        };
-        ctx.zir_cases.append(case) catch unreachable;
-        return &ctx.zir_cases.items[ctx.zir_cases.items.len - 1];
+            .extension = T,
+        }) catch unreachable;
+        return &ctx.cases.items[ctx.cases.items.len - 1];
+    }
+
+    /// Adds a test case for Zig input, producing an executable
+    pub fn exe(ctx: *TestContext, name: []const u8, target: std.zig.CrossTarget) *Case {
+        return ctx.addExe(name, target, .Zig);
+    }
+
+    /// Adds a test case for ZIR input, producing an executable
+    pub fn exeZIR(ctx: *TestContext, name: []const u8, target: std.zig.CrossTarget) *Case {
+        return ctx.addExe(name, target, .ZIR);
     }
 
     pub fn addObj(
         ctx: *TestContext,
         name: []const u8,
         target: std.zig.CrossTarget,
+        T: TestType,
     ) *Case {
-        const case = Case{
+        ctx.cases.append(Case{
             .name = name,
             .target = target,
-            .updates = std.ArrayList(ZIRUpdate).init(ctx.zir_cases.allocator),
+            .updates = std.ArrayList(Update).init(ctx.cases.allocator),
             .output_mode = .Obj,
-            .extension = ".zig".*,
-        };
-        ctx.zir_cases.append(case) catch unreachable;
-        return &ctx.zir_cases.items[ctx.zir_cases.items.len - 1];
+            .extension = T,
+        }) catch unreachable;
+        return &ctx.cases.items[ctx.cases.items.len - 1];
     }
 
-    pub fn addZIRCompareOutput(
-        ctx: *TestContext,
-        name: []const u8,
-        src: [:0]const u8,
-        expected_stdout: []const u8,
-    ) void {
-        var c = ctx.addExeZIR(name, .{});
-        c.addCompareOutput(src, expected_stdout);
+    /// Adds a test case for Zig input, producing an object file
+    pub fn obj(ctx: *TestContext, name: []const u8, target: std.zig.CrossTarget) *Case {
+        return ctx.addObj(name, target, .Zig);
+    }
+
+    /// Adds a test case for ZIR input, producing an object file
+    pub fn objZIR(ctx: *TestContext, name: []const u8, target: std.zig.CrossTarget) *Case {
+        return ctx.addObj(name, target, .ZIR);
     }
 
     pub fn addCompareOutput(
         ctx: *TestContext,
         name: []const u8,
+        T: TestType,
         src: [:0]const u8,
         expected_stdout: []const u8,
     ) void {
-        var c = ctx.addExe(name, .{});
-        c.addCompareOutput(src, expected_stdout);
+        ctx.addExe(name, .{}, T).addCompareOutput(src, expected_stdout);
     }
 
-    pub fn addZIRTransform(
+    /// Adds a test case that compiles the Zig source given in `src`, executes
+    /// it, runs it, and tests the output against `expected_stdout`
+    pub fn compareOutput(
+        ctx: *TestContext,
+        name: []const u8,
+        src: [:0]const u8,
+        expected_stdout: []const u8,
+    ) void {
+        return ctx.addCompareOutput(name, .Zig, src, expected_stdout);
+    }
+
+    /// Adds a test case that compiles the ZIR source given in `src`, executes
+    /// it, runs it, and tests the output against `expected_stdout`
+    pub fn compareOutputZIR(
+        ctx: *TestContext,
+        name: []const u8,
+        src: [:0]const u8,
+        expected_stdout: []const u8,
+    ) void {
+        ctx.addCompareOutput(name, .ZIR, src, expected_stdout);
+    }
+
+    pub fn addTransform(
+        ctx: *TestContext,
+        name: []const u8,
+        target: std.zig.CrossTarget,
+        T: TestType,
+        src: [:0]const u8,
+        result: [:0]const u8,
+    ) void {
+        ctx.addObj(name, target, T).addTransform(src, result);
+    }
+
+    /// Adds a test case that compiles the Zig given in `src` to ZIR and tests
+    /// the ZIR against `result`
+    pub fn transform(
         ctx: *TestContext,
         name: []const u8,
         target: std.zig.CrossTarget,
         src: [:0]const u8,
         result: [:0]const u8,
     ) void {
-        var c = ctx.addObjZIR(name, target);
-        c.addTransform(src, result);
+        ctx.addTransform(name, target, .Zig, src, result);
     }
 
-    pub fn addZIRError(
+    /// Adds a test case that cleans up the ZIR source given in `src`, and
+    /// tests the resulting ZIR against `result`
+    pub fn transformZIR(
+        ctx: *TestContext,
+        name: []const u8,
+        target: std.zig.CrossTarget,
+        src: [:0]const u8,
+        result: [:0]const u8,
+    ) void {
+        ctx.addTransform(name, target, .ZIR, src, result);
+    }
+
+    pub fn addError(
+        ctx: *TestContext,
+        name: []const u8,
+        target: std.zig.CrossTarget,
+        T: TestType,
+        src: [:0]const u8,
+        expected_errors: []const []const u8,
+    ) void {
+        ctx.addObj(name, target, T).addError(src, expected_errors);
+    }
+
+    /// Adds a test case that ensures that the Zig given in `src` fails to
+    /// compile for the expected reasons, given in sequential order in
+    /// `expected_errors` in the form `:line:column: error: message`.
+    pub fn compileError(
         ctx: *TestContext,
         name: []const u8,
         target: std.zig.CrossTarget,
         src: [:0]const u8,
         expected_errors: []const []const u8,
     ) void {
-        var c = ctx.addObjZIR(name, target);
-        c.addError(src, expected_errors);
+        ctx.addError(name, target, .Zig, src, expected_errors);
+    }
+
+    /// Adds a test case that ensures that the ZIR given in `src` fails to
+    /// compile for the expected reasons, given in sequential order in
+    /// `expected_errors` in the form `:line:column: error: message`.
+    pub fn compileErrorZIR(
+        ctx: *TestContext,
+        name: []const u8,
+        target: std.zig.CrossTarget,
+        src: [:0]const u8,
+        expected_errors: []const []const u8,
+    ) void {
+        ctx.addError(name, target, .ZIR, src, expected_errors);
+    }
+
+    pub fn addCompiles(
+        ctx: *TestContext,
+        name: []const u8,
+        target: std.zig.CrossTarget,
+        T: TestType,
+        src: [:0]const u8,
+    ) void {
+        ctx.addObj(name, target, T).compiles(src);
+    }
+
+    /// Adds a test case that asserts that the Zig given in `src` compiles
+    /// without any errors.
+    pub fn compiles(
+        ctx: *TestContext,
+        name: []const u8,
+        target: std.zig.CrossTarget,
+        src: [:0]const u8,
+    ) void {
+        ctx.addCompiles(name, target, .Zig, src);
+    }
+
+    /// Adds a test case that asserts that the ZIR given in `src` compiles
+    /// without any errors.
+    pub fn compilesZIR(
+        ctx: *TestContext,
+        name: []const u8,
+        target: std.zig.CrossTarget,
+        src: [:0]const u8,
+    ) void {
+        ctx.addCompiles(name, target, .ZIR, src);
+    }
+
+    /// Adds a test case that first ensures that the Zig given in `src` fails
+    /// to compile for the reasons given in sequential order in
+    /// `expected_errors` in the form `:line:column: error: message`, then
+    /// asserts that fixing the source (updating with `fixed_src`) isn't broken
+    /// by incremental compilation.
+    pub fn incrementalFailure(
+        ctx: *TestContext,
+        name: []const u8,
+        target: std.zig.CrossTarget,
+        src: [:0]const u8,
+        expected_errors: []const []const u8,
+        fixed_src: [:0]const u8,
+    ) void {
+        var case = ctx.addObj(name, target, .Zig);
+        case.addError(src, expected_errors);
+        case.compiles(fixed_src);
+    }
+
+    /// Adds a test case that first ensures that the ZIR given in `src` fails
+    /// to compile for the reasons given in sequential order in
+    /// `expected_errors` in the form `:line:column: error: message`, then
+    /// asserts that fixing the source (updating with `fixed_src`) isn't broken
+    /// by incremental compilation.
+    pub fn incrementalFailureZIR(
+        ctx: *TestContext,
+        name: []const u8,
+        target: std.zig.CrossTarget,
+        src: [:0]const u8,
+        expected_errors: []const []const u8,
+        fixed_src: [:0]const u8,
+    ) void {
+        var case = ctx.addObj(name, target, .ZIR);
+        case.addError(src, expected_errors);
+        case.compiles(fixed_src);
     }
 
     fn init() TestContext {
         const allocator = std.heap.page_allocator;
-        return .{
-            .zir_cases = std.ArrayList(Case).init(allocator),
-        };
+        return .{ .cases = std.ArrayList(Case).init(allocator) };
     }
 
     fn deinit(self: *TestContext) void {
-        for (self.zir_cases.items) |c| {
+        for (self.cases.items) |c| {
             for (c.updates.items) |u| {
                 if (u.case == .Error) {
                     c.updates.allocator.free(u.case.Error);
@@ -240,26 +373,28 @@ pub const TestContext = struct {
             }
             c.updates.deinit();
         }
-        self.zir_cases.deinit();
+        self.cases.deinit();
         self.* = undefined;
     }
 
     fn run(self: *TestContext) !void {
         var progress = std.Progress{};
-        const root_node = try progress.start("zir", self.zir_cases.items.len);
+        const root_node = try progress.start("tests", self.cases.items.len);
         defer root_node.end();
 
         const native_info = try std.zig.system.NativeTargetInfo.detect(std.heap.page_allocator, .{});
 
-        for (self.zir_cases.items) |case| {
+        for (self.cases.items) |case| {
             std.testing.base_allocator_instance.reset();
 
             var prg_node = root_node.start(case.name, case.updates.items.len);
             prg_node.activate();
             defer prg_node.end();
 
-            // So that we can see which test case failed when the leak checker goes off.
-            progress.refresh();
+            // So that we can see which test case failed when the leak checker goes off,
+            // or there's an internal error
+            progress.initial_delay_ns = 0;
+            progress.refresh_rate_ns = 0;
 
             const info = try std.zig.system.NativeTargetInfo.detect(std.testing.allocator, case.target);
             try self.runOneCase(std.testing.allocator, &prg_node, case, info.target);
@@ -267,17 +402,15 @@ pub const TestContext = struct {
         }
     }
 
-    fn runOneCase(self: *TestContext, allocator: *Allocator, prg_node: *std.Progress.Node, case: Case, target: std.Target) !void {
+    fn runOneCase(self: *TestContext, allocator: *Allocator, root_node: *std.Progress.Node, case: Case, target: std.Target) !void {
         var tmp = std.testing.tmpDir(.{});
         defer tmp.cleanup();
 
-        const root_name = "test_case";
-        const tmp_src_path = try std.fmt.allocPrint(allocator, "{}{}", .{ root_name, case.extension });
-        defer allocator.free(tmp_src_path);
+        const tmp_src_path = if (case.extension == .Zig) "test_case.zig" else if (case.extension == .ZIR) "test_case.zir" else unreachable;
         const root_pkg = try Package.create(allocator, tmp.dir, ".", tmp_src_path);
         defer root_pkg.destroy();
 
-        const bin_name = try std.zig.binNameAlloc(allocator, root_name, target, case.output_mode, null);
+        const bin_name = try std.zig.binNameAlloc(allocator, "test_case", target, case.output_mode, null);
         defer allocator.free(bin_name);
 
         var module = try Module.init(allocator, .{
@@ -299,7 +432,7 @@ pub const TestContext = struct {
         defer module.deinit();
 
         for (case.updates.items) |update, update_index| {
-            var update_node = prg_node.start("update", 4);
+            var update_node = root_node.start("update", 3);
             update_node.activate();
             defer update_node.end();
 
@@ -316,6 +449,7 @@ pub const TestContext = struct {
 
             switch (update.case) {
                 .Transformation => |expected_output| {
+                    update_node.estimated_total_items = 5;
                     var emit_node = update_node.start("emit", null);
                     emit_node.activate();
                     var new_zir_module = try zir.emit(allocator, module);
@@ -329,9 +463,26 @@ pub const TestContext = struct {
                     try new_zir_module.writeToStream(allocator, out_zir.outStream());
                     write_node.end();
 
-                    std.testing.expectEqualSlices(u8, expected_output, out_zir.items);
+                    var test_node = update_node.start("assert", null);
+                    test_node.activate();
+                    defer test_node.end();
+                    if (expected_output.len != out_zir.items.len) {
+                        std.debug.warn("{}\nTransformed ZIR length differs:\n================\nExpected:\n================\n{}\n================\nFound: {}\n================\nTest failed.\n", .{ case.name, expected_output, out_zir.items });
+                        std.process.exit(1);
+                    }
+                    for (expected_output) |e, i| {
+                        if (out_zir.items[i] != e) {
+                            if (expected_output.len != out_zir.items.len) {
+                                std.debug.warn("{}\nTransformed ZIR differs:\n================\nExpected:\n================\n{}\n================\nFound: {}\n================\nTest failed.\n", .{ case.name, expected_output, out_zir.items });
+                                std.process.exit(1);
+                            }
+                        }
+                    }
                 },
                 .Error => |e| {
+                    var test_node = update_node.start("assert", null);
+                    test_node.activate();
+                    defer test_node.end();
                     var handled_errors = try allocator.alloc(bool, e.len);
                     defer allocator.free(handled_errors);
                     for (handled_errors) |*h| {
@@ -360,6 +511,7 @@ pub const TestContext = struct {
                     }
                 },
                 .Execution => |expected_stdout| {
+                    update_node.estimated_total_items = 4;
                     var exec_result = x: {
                         var exec_node = update_node.start("execute", null);
                         exec_node.activate();
@@ -376,6 +528,10 @@ pub const TestContext = struct {
                             .cwd_dir = tmp.dir,
                         });
                     };
+                    var test_node = update_node.start("test", null);
+                    test_node.activate();
+                    defer test_node.end();
+
                     defer allocator.free(exec_result.stdout);
                     defer allocator.free(exec_result.stderr);
                     switch (exec_result.term) {

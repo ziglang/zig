@@ -17,7 +17,7 @@ pub fn addCases(ctx: *TestContext) !void {
     }
 
     {
-        var case = ctx.addExe("hello world with updates", linux_x64);
+        var case = ctx.exe("hello world with updates", linux_x64);
         // Regular old hello world
         case.addCompareOutput(
             \\export fn _start() noreturn {

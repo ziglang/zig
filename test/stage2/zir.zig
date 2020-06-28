@@ -8,8 +8,8 @@ const linux_x64 = std.zig.CrossTarget{
     .os_tag = .linux,
 };
 
-pub fn addCases(ctx: *TestContext) void {
-    ctx.addZIRTransform("referencing decls which appear later in the file", linux_x64,
+pub fn addCases(ctx: *TestContext) !void {
+    ctx.transformZIR("referencing decls which appear later in the file", linux_x64,
         \\@void = primitive(void)
         \\@fnty = fntype([], @void, cc=C)
         \\
@@ -32,7 +32,7 @@ pub fn addCases(ctx: *TestContext) void {
         \\})
         \\
     );
-    ctx.addZIRTransform("elemptr, add, cmp, condbr, return, breakpoint", linux_x64,
+    ctx.transformZIR("elemptr, add, cmp, condbr, return, breakpoint", linux_x64,
         \\@void = primitive(void)
         \\@usize = primitive(usize)
         \\@fnty = fntype([], @void, cc=C)
@@ -86,7 +86,7 @@ pub fn addCases(ctx: *TestContext) void {
     );
 
     {
-        var case = ctx.addObjZIR("reference cycle with compile error in the cycle", linux_x64);
+        var case = ctx.objZIR("reference cycle with compile error in the cycle", linux_x64);
         case.addTransform(
             \\@void = primitive(void)
             \\@fnty = fntype([], @void, cc=C)
@@ -207,7 +207,7 @@ pub fn addCases(ctx: *TestContext) void {
         return;
     }
 
-    ctx.addZIRCompareOutput("hello world ZIR",
+    ctx.compareOutputZIR("hello world ZIR",
         \\@noreturn = primitive(noreturn)
         \\@void = primitive(void)
         \\@usize = primitive(usize)
@@ -265,7 +265,7 @@ pub fn addCases(ctx: *TestContext) void {
         \\
     );
 
-    ctx.addZIRCompareOutput("function call with no args no return value",
+    ctx.compareOutputZIR("function call with no args no return value",
         \\@noreturn = primitive(noreturn)
         \\@void = primitive(void)
         \\@usize = primitive(usize)

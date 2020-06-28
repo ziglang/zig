@@ -9,7 +9,7 @@ const linux_x64 = std.zig.CrossTarget{
 };
 
 pub fn addCases(ctx: *TestContext) !void {
-    ctx.addZIRError("call undefined local", linux_x64,
+    ctx.compileErrorZIR("call undefined local", linux_x64,
         \\@noreturn = primitive(noreturn)
         \\
         \\@start_fnty = fntype([], @noreturn, cc=Naked)
@@ -19,7 +19,7 @@ pub fn addCases(ctx: *TestContext) !void {
  // TODO: address inconsistency in this message and the one in the next test
             , &[_][]const u8{":5:13: error: unrecognized identifier: %test"});
 
-    ctx.addZIRError("call with non-existent target", linux_x64,
+    ctx.compileErrorZIR("call with non-existent target", linux_x64,
         \\@noreturn = primitive(noreturn)
         \\
         \\@start_fnty = fntype([], @noreturn, cc=Naked)
@@ -31,7 +31,7 @@ pub fn addCases(ctx: *TestContext) !void {
     , &[_][]const u8{":5:13: error: decl 'notafunc' not found"});
 
     // TODO: this error should occur at the call site, not the fntype decl
-    ctx.addZIRError("call naked function", linux_x64,
+    ctx.compileErrorZIR("call naked function", linux_x64,
         \\@noreturn = primitive(noreturn)
         \\
         \\@start_fnty = fntype([], @noreturn, cc=Naked)
@@ -43,56 +43,91 @@ pub fn addCases(ctx: *TestContext) !void {
         \\@1 = export(@0, "start")
     , &[_][]const u8{":4:9: error: unable to call function with naked calling convention"});
 
+    ctx.incrementalFailureZIR("exported symbol collision", linux_x64,
+        \\@noreturn = primitive(noreturn)
+        \\
+        \\@start_fnty = fntype([], @noreturn)
+        \\@start = fn(@start_fnty, {})
+        \\
+        \\@0 = str("_start")
+        \\@1 = export(@0, "start")
+        \\@2 = export(@0, "start")
+    , &[_][]const u8{":8:13: error: exported symbol collision: _start"},
+        \\@noreturn = primitive(noreturn)
+        \\
+        \\@start_fnty = fntype([], @noreturn)
+        \\@start = fn(@start_fnty, {})
+        \\
+        \\@0 = str("_start")
+        \\@1 = export(@0, "start")
+    );
+
+    ctx.compileError("function redefinition", linux_x64,
+        \\fn entry() void {}
+        \\fn entry() void {}
+    , &[_][]const u8{":2:4: error: redefinition of 'entry'"});
+
+    //ctx.incrementalFailure("function redefinition", linux_x64,
+    //    \\fn entry() void {}
+    //    \\fn entry() void {}
+    //, &[_][]const u8{":2:4: error: redefinition of 'entry'"},
+    //    \\fn entry() void {}
+    //);
+
+    //// TODO: need to make sure this works with other variants of export.
+    //ctx.incrementalFailure("exported symbol collision", linux_x64,
+    //    \\export fn entry() void {}
+    //    \\export fn entry() void {}
+    //, &[_][]const u8{":2:11: error: redefinition of 'entry'"},
+    //    \\export fn entry() void {}
+    //);
+
+    // ctx.incrementalFailure("missing function name", linux_x64,
+    //     \\fn() void {}
+    // , &[_][]const u8{":1:3: error: missing function name"},
+    //     \\fn a() void {}
+    // );
+
     // TODO: re-enable these tests.
     // https://github.com/ziglang/zig/issues/1364
-    // TODO: add Zig AST -> ZIR testing pipeline
 
-    //try ctx.testCompileError(
-    //    \\export fn entry() void {}
-    //    \\export fn entry() void {}
-    //, "1.zig", 2, 8, "exported symbol collision: 'entry'");
-
-    //try ctx.testCompileError(
-    //    \\fn() void {}
-    //, "1.zig", 1, 1, "missing function name");
-
-    //try ctx.testCompileError(
+    //ctx.testCompileError(
     //    \\comptime {
     //    \\    return;
     //    \\}
     //, "1.zig", 2, 5, "return expression outside function definition");
 
-    //try ctx.testCompileError(
+    //ctx.testCompileError(
     //    \\export fn entry() void {
     //    \\    defer return;
     //    \\}
     //, "1.zig", 2, 11, "cannot return from defer expression");
 
-    //try ctx.testCompileError(
+    //ctx.testCompileError(
     //    \\export fn entry() c_int {
     //    \\    return 36893488147419103232;
     //    \\}
     //, "1.zig", 2, 12, "integer value '36893488147419103232' cannot be stored in type 'c_int'");
 
-    //try ctx.testCompileError(
+    //ctx.testCompileError(
     //    \\comptime {
     //    \\    var a: *align(4) align(4) i32 = 0;
     //    \\}
     //, "1.zig", 2, 22, "Extra align qualifier");
 
-    //try ctx.testCompileError(
+    //ctx.testCompileError(
     //    \\comptime {
     //    \\    var b: *const const i32 = 0;
     //    \\}
     //, "1.zig", 2, 19, "Extra align qualifier");
 
-    //try ctx.testCompileError(
+    //ctx.testCompileError(
     //    \\comptime {
     //    \\    var c: *volatile volatile i32 = 0;
     //    \\}
     //, "1.zig", 2, 22, "Extra align qualifier");
 
-    //try ctx.testCompileError(
+    //ctx.testCompileError(
     //    \\comptime {
     //    \\    var d: *allowzero allowzero i32 = 0;
     //    \\}

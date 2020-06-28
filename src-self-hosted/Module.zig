@@ -33,6 +33,9 @@ bin_file_path: []const u8,
 /// Decl pointers to details about them being exported.
 /// The Export memory is owned by the `export_owners` table; the slice itself is owned by this table.
 decl_exports: std.AutoHashMap(*Decl, []*Export),
+/// We track which export is associated with the given symbol name for quick
+/// detection of symbol collisions.
+symbol_exports: std.StringHashMap(*Export),
 /// This models the Decls that perform exports, so that `decl_exports` can be updated when a Decl
 /// is modified. Note that the key of this table is not the Decl being exported, but the Decl that
 /// is performing the export of another Decl.
@@ -777,6 +780,7 @@ pub fn init(gpa: *Allocator, options: InitOptions) !Module {
         .optimize_mode = options.optimize_mode,
         .decl_table = DeclTable.init(gpa),
         .decl_exports = std.AutoHashMap(*Decl, []*Export).init(gpa),
+        .symbol_exports = std.StringHashMap(*Export).init(gpa),
         .export_owners = std.AutoHashMap(*Decl, []*Export).init(gpa),
         .failed_decls = std.AutoHashMap(*Decl, *ErrorMsg).init(gpa),
         .failed_files = std.AutoHashMap(*Scope, *ErrorMsg).init(gpa),
@@ -834,6 +838,7 @@ pub fn deinit(self: *Module) void {
         }
         self.export_owners.deinit();
     }
+    self.symbol_exports.deinit();
     self.root_scope.destroy(allocator);
     self.* = undefined;
 }
@@ -1732,8 +1737,10 @@ fn analyzeRootSrcFile(self: *Module, root_scope: *Scope.File) !void {
     for (decls) |src_decl, decl_i| {
         if (src_decl.cast(ast.Node.FnProto)) |fn_proto| {
             // We will create a Decl for it regardless of analysis status.
-            const name_tok = fn_proto.name_token orelse
-                @panic("TODO handle missing function name in the parser");
+            const name_tok = fn_proto.name_token orelse {
+                @panic("TODO missing function name");
+            };
+
             const name_loc = tree.token_locs[name_tok];
             const name = tree.tokenSliceLoc(name_loc);
             const name_hash = root_scope.fullyQualifiedNameHash(name);
@@ -1743,10 +1750,16 @@ fn analyzeRootSrcFile(self: *Module, root_scope: *Scope.File) !void {
                 // Update the AST Node index of the decl, even if its contents are unchanged, it may
                 // have been re-ordered.
                 decl.src_index = decl_i;
-                deleted_decls.removeAssertDiscard(decl);
-                if (!srcHashEql(decl.contents_hash, contents_hash)) {
-                    try self.markOutdatedDecl(decl);
-                    decl.contents_hash = contents_hash;
+                if (deleted_decls.remove(decl) == null) {
+                    decl.analysis = .sema_failure;
+                    const err_msg = try ErrorMsg.create(self.allocator, tree.token_locs[name_tok].start, "redefinition of '{}'", .{decl.name});
+                    errdefer err_msg.destroy(self.allocator);
+                    try self.failed_decls.putNoClobber(decl, err_msg);
+                } else {
+                    if (!srcHashEql(decl.contents_hash, contents_hash)) {
+                        try self.markOutdatedDecl(decl);
+                        decl.contents_hash = contents_hash;
+                    }
                 }
             } else {
                 const new_decl = try self.createNewDecl(&root_scope.base, name, decl_i, name_hash, contents_hash);
@@ -1895,6 +1908,10 @@ fn deleteDeclExports(self: *Module, decl: *Decl) void {
         }
 
         self.bin_file.deleteExport(exp.link);
+        if (self.failed_exports.remove(exp)) |entry| {
+            entry.value.destroy(self.allocator);
+        }
+        _ = self.symbol_exports.remove(exp.options.name);
         self.allocator.destroy(exp);
     }
     self.allocator.free(kv.value);
@@ -2130,6 +2147,7 @@ fn analyzeExport(self: *Module, scope: *Scope, src: usize, symbol_name: []const 
         .Fn => {},
         else => return self.fail(scope, src, "unable to export type '{}'", .{typed_value.ty}),
     }
+
     try self.decl_exports.ensureCapacity(self.decl_exports.size + 1);
     try self.export_owners.ensureCapacity(self.export_owners.size + 1);
 
@@ -2165,6 +2183,20 @@ fn analyzeExport(self: *Module, scope: *Scope, src: usize, symbol_name: []const 
     de_gop.kv.value[de_gop.kv.value.len - 1] = new_export;
     errdefer de_gop.kv.value = self.allocator.shrink(de_gop.kv.value, de_gop.kv.value.len - 1);
 
+    if (self.symbol_exports.get(symbol_name)) |_| {
+        try self.failed_exports.ensureCapacity(self.failed_exports.size + 1);
+        self.failed_exports.putAssumeCapacityNoClobber(new_export, try ErrorMsg.create(
+            self.allocator,
+            src,
+            "exported symbol collision: {}",
+            .{symbol_name},
+        ));
+        // TODO: add a note
+        new_export.status = .failed;
+        return;
+    }
+
+    try self.symbol_exports.putNoClobber(symbol_name, new_export);
     self.bin_file.updateDeclExports(self, exported_decl, de_gop.kv.value) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => {
