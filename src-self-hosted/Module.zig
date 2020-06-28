@@ -2162,21 +2162,21 @@ fn analyzeExport(self: *Module, scope: *Scope, src: usize, symbol_name: []const 
             .{symbol_name},
         ));
         new_export.status = .failed;
-    } else {
-        self.bin_file.updateDeclExports(self, exported_decl, de_gop.kv.value) catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
-            else => {
-                try self.failed_exports.ensureCapacity(self.failed_exports.size + 1);
-                self.failed_exports.putAssumeCapacityNoClobber(new_export, try ErrorMsg.create(
-                    self.allocator,
-                    src,
-                    "unable to export: {}",
-                    .{@errorName(err)},
-                ));
-                new_export.status = .failed_retryable;
-            },
-        };
+        return;
     }
+    self.bin_file.updateDeclExports(self, exported_decl, de_gop.kv.value) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => {
+            try self.failed_exports.ensureCapacity(self.failed_exports.size + 1);
+            self.failed_exports.putAssumeCapacityNoClobber(new_export, try ErrorMsg.create(
+                self.allocator,
+                src,
+                "unable to export: {}",
+                .{@errorName(err)},
+            ));
+            new_export.status = .failed_retryable;
+        },
+    };
 }
 
 fn addNewInstArgs(
