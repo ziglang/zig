@@ -62,26 +62,31 @@ pub fn addCases(ctx: *TestContext) !void {
         \\@1 = export(@0, "start")
     );
 
-    ctx.incrementalFailure("function redefinition", linux_x64,
+    ctx.compileError("function redefinition", linux_x64,
         \\fn entry() void {}
         \\fn entry() void {}
-    , &[_][]const u8{":2:4: error: redefinition of 'entry'"},
-        \\fn entry() void {}
-    );
+    , &[_][]const u8{":2:4: error: redefinition of 'entry'"});
 
-    // TODO: need to make sure this works with other variants of export.
-    ctx.incrementalFailure("exported symbol collision", linux_x64,
-        \\export fn entry() void {}
-        \\export fn entry() void {}
-    , &[_][]const u8{":2:11: error: redefinition of 'entry'"},
-        \\export fn entry() void {}
-    );
+    //ctx.incrementalFailure("function redefinition", linux_x64,
+    //    \\fn entry() void {}
+    //    \\fn entry() void {}
+    //, &[_][]const u8{":2:4: error: redefinition of 'entry'"},
+    //    \\fn entry() void {}
+    //);
 
-    ctx.incrementalFailure("missing function name", linux_x64,
-        \\fn() void {}
-    , &[_][]const u8{":1:3: error: missing function name"},
-        \\fn a() void {}
-    );
+    //// TODO: need to make sure this works with other variants of export.
+    //ctx.incrementalFailure("exported symbol collision", linux_x64,
+    //    \\export fn entry() void {}
+    //    \\export fn entry() void {}
+    //, &[_][]const u8{":2:11: error: redefinition of 'entry'"},
+    //    \\export fn entry() void {}
+    //);
+
+    // ctx.incrementalFailure("missing function name", linux_x64,
+    //     \\fn() void {}
+    // , &[_][]const u8{":1:3: error: missing function name"},
+    //     \\fn a() void {}
+    // );
 
     // TODO: re-enable these tests.
     // https://github.com/ziglang/zig/issues/1364

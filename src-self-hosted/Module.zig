@@ -1696,13 +1696,7 @@ fn analyzeRootSrcFile(self: *Module, root_scope: *Scope.File) !void {
         if (src_decl.cast(ast.Node.FnProto)) |fn_proto| {
             // We will create a Decl for it regardless of analysis status.
             const name_tok = fn_proto.name_token orelse {
-                const err_msg = try ErrorMsg.create(self.allocator, tree.token_locs[fn_proto.firstToken()].end, "missing function name", .{});
-                // TODO: cache a single invalid decl in the Module?
-                const new_decl = try self.createNewDecl(&root_scope.base, "", decl_i, [1]u8{0} ** 16, [1]u8{0} ** 16);
-                root_scope.decls.appendAssumeCapacity(new_decl);
-                errdefer err_msg.destroy(self.allocator);
-                try self.failed_decls.putNoClobber(new_decl, err_msg);
-                continue;
+                @panic("TODO missing function name");
             };
 
             const name_loc = tree.token_locs[name_tok];
