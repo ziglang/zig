@@ -83,8 +83,13 @@ test "file operations on directories" {
 
     testing.expectError(error.IsDir, tmp_dir.dir.createFile(test_dir_name, .{}));
     testing.expectError(error.IsDir, tmp_dir.dir.deleteFile(test_dir_name));
-    testing.expectError(error.IsDir, tmp_dir.dir.readFileAlloc(testing.allocator, test_dir_name, std.math.maxInt(usize)));
-    // note: the `.write = true` is necessary to ensure the error occurs on all platforms
+    // Currently, WASI will return error.Unexpected (via ENOTCAPABLE) when attempting fd_read on a directory handle.
+    // TODO: Re-enable on WASI once https://github.com/bytecodealliance/wasmtime/issues/1935 is resolved.
+    if (builtin.os.tag != .wasi) {
+        testing.expectError(error.IsDir, tmp_dir.dir.readFileAlloc(testing.allocator, test_dir_name, std.math.maxInt(usize)));
+    }
+    // Note: The `.write = true` is necessary to ensure the error occurs on all platforms.
+    // TODO: Add a read-only test as well, see https://github.com/ziglang/zig/issues/5732
     testing.expectError(error.IsDir, tmp_dir.dir.openFile(test_dir_name, .{ .write = true }));
 
     if (builtin.os.tag != .wasi) {
