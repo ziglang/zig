@@ -285,7 +285,7 @@ const WasmPageAllocator = struct {
         // Revisit if this is settled: https://github.com/ziglang/zig/issues/3806
         const not_found = std.math.maxInt(usize);
 
-        fn useRecycled(self: FreeBlock, num_pages: usize) usize {
+        fn useRecycled(self: FreeBlock, num_pages: usize, alignment: u29) usize {
             @setCold(true);
             for (self.data) |segment, i| {
                 const spills_into_next = @bitCast(i128, segment) < 0;
@@ -298,7 +298,8 @@ const WasmPageAllocator = struct {
                     var count: usize = 0;
                     while (j + count < self.totalPages() and self.getBit(j + count) == .free) {
                         count += 1;
-                        if (count >= num_pages) {
+                        const addr = j * mem.page_size;
+                        if (count >= num_pages and mem.isAligned(addr, alignment)) {
                             self.setBits(j, num_pages, .used);
                             return j;
                         }
@@ -329,29 +330,36 @@ const WasmPageAllocator = struct {
 
     fn alloc(allocator: *Allocator, len: usize, alignment: u29, len_align: u29) error{OutOfMemory}![]u8 {
         const page_count = nPages(len);
-        const page_idx = try allocPages(page_count);
+        const page_idx = try allocPages(page_count, alignment);
         return @intToPtr([*]u8, page_idx * mem.page_size)
             [0..alignPageAllocLen(page_count * mem.page_size, len, len_align)];
     }
-    fn allocPages(page_count: usize) !usize {
+    fn allocPages(page_count: usize, alignment: u29) !usize {
         {
-            const idx = conventional.useRecycled(page_count);
+            const idx = conventional.useRecycled(page_count, alignment);
             if (idx != FreeBlock.not_found) {
                 return idx;
             }
         }
 
-        const idx = extended.useRecycled(page_count);
+        const idx = extended.useRecycled(page_count, alignment);
         if (idx != FreeBlock.not_found) {
             return idx + extendedOffset();
         }
 
-        const prev_page_count = @wasmMemoryGrow(0, @intCast(u32, page_count));
-        if (prev_page_count <= 0) {
+        const next_page_idx = @wasmMemorySize(0);
+        const next_page_addr = next_page_idx * mem.page_size;
+        const aligned_addr = mem.alignForward(next_page_addr, alignment);
+        const drop_page_count = @divExact(aligned_addr - next_page_addr, mem.page_size);
+        const result = @wasmMemoryGrow(0, @intCast(u32, drop_page_count + page_count));
+        if (result <= 0)
             return error.OutOfMemory;
+        assert(result == next_page_idx);
+        const aligned_page_idx = next_page_idx + drop_page_count;
+        if (drop_page_count > 0) {
+            freePages(next_page_idx, aligned_page_idx);
         }
-
-        return @intCast(usize, prev_page_count);
+        return @intCast(usize, aligned_page_idx);
     }
 
     fn freePages(start: usize, end: usize) void {
