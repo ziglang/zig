@@ -296,6 +296,7 @@ pub const ReadError = error{
     BrokenPipe,
     ConnectionResetByPeer,
     ConnectionTimedOut,
+    NotOpenForReading,
 
     /// This error occurs when no global event loop is configured,
     /// and reading from the file descriptor would block.
@@ -359,7 +360,7 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
             } else {
                 return error.WouldBlock;
             },
-            EBADF => unreachable, // Always a race condition.
+            EBADF => return error.NotOpenForReading, // Can be a race condition.
             EIO => return error.InputOutput,
             EISDIR => return error.IsDir,
             ENOBUFS => return error.SystemResources,
@@ -420,7 +421,7 @@ pub fn readv(fd: fd_t, iov: []const iovec) ReadError!usize {
             } else {
                 return error.WouldBlock;
             },
-            EBADF => unreachable, // always a race condition
+            EBADF => return error.NotOpenForReading, // can be a race condition
             EIO => return error.InputOutput,
             EISDIR => return error.IsDir,
             ENOBUFS => return error.SystemResources,
@@ -483,7 +484,7 @@ pub fn pread(fd: fd_t, buf: []u8, offset: u64) PReadError!usize {
             } else {
                 return error.WouldBlock;
             },
-            EBADF => unreachable, // Always a race condition.
+            EBADF => return error.NotOpenForReading, // Can be a race condition.
             EIO => return error.InputOutput,
             EISDIR => return error.IsDir,
             ENOBUFS => return error.SystemResources,
@@ -623,7 +624,7 @@ pub fn preadv(fd: fd_t, iov: []const iovec, offset: u64) PReadError!usize {
             } else {
                 return error.WouldBlock;
             },
-            EBADF => unreachable, // always a race condition
+            EBADF => return error.NotOpenForReading, // can be a race condition
             EIO => return error.InputOutput,
             EISDIR => return error.IsDir,
             ENOBUFS => return error.SystemResources,
@@ -645,6 +646,7 @@ pub const WriteError = error{
     BrokenPipe,
     SystemResources,
     OperationAborted,
+    NotOpenForWriting,
 
     /// This error occurs when no global event loop is configured,
     /// and reading from the file descriptor would block.
@@ -720,7 +722,7 @@ pub fn write(fd: fd_t, bytes: []const u8) WriteError!usize {
             } else {
                 return error.WouldBlock;
             },
-            EBADF => unreachable, // Always a race condition.
+            EBADF => return error.NotOpenForWriting, // can be a race condition.
             EDESTADDRREQ => unreachable, // `connect` was never called.
             EDQUOT => return error.DiskQuota,
             EFBIG => return error.FileTooBig,
@@ -792,7 +794,7 @@ pub fn writev(fd: fd_t, iov: []const iovec_const) WriteError!usize {
             } else {
                 return error.WouldBlock;
             },
-            EBADF => unreachable, // Always a race condition.
+            EBADF => return error.NotOpenForWriting, // Can be a race condition.
             EDESTADDRREQ => unreachable, // `connect` was never called.
             EDQUOT => return error.DiskQuota,
             EFBIG => return error.FileTooBig,
@@ -880,7 +882,7 @@ pub fn pwrite(fd: fd_t, bytes: []const u8, offset: u64) PWriteError!usize {
             } else {
                 return error.WouldBlock;
             },
-            EBADF => unreachable, // Always a race condition.
+            EBADF => return error.NotOpenForWriting, // Can be a race condition.
             EDESTADDRREQ => unreachable, // `connect` was never called.
             EDQUOT => return error.DiskQuota,
             EFBIG => return error.FileTooBig,
@@ -967,7 +969,7 @@ pub fn pwritev(fd: fd_t, iov: []const iovec_const, offset: u64) PWriteError!usiz
             } else {
                 return error.WouldBlock;
             },
-            EBADF => unreachable, // Always a race condition.
+            EBADF => return error.NotOpenForWriting, // Can be a race condition.
             EDESTADDRREQ => unreachable, // `connect` was never called.
             EDQUOT => return error.DiskQuota,
             EFBIG => return error.FileTooBig,
@@ -1162,7 +1164,7 @@ pub fn dup2(old_fd: fd_t, new_fd: fd_t) !void {
             EBUSY, EINTR => continue,
             EMFILE => return error.ProcessFdQuotaExceeded,
             EINVAL => unreachable, // invalid parameters passed to dup2
-            EBADF => unreachable, // always a race condition
+            EBADF => unreachable, // invalid file descriptor
             else => |err| return unexpectedErrno(err),
         }
     }
