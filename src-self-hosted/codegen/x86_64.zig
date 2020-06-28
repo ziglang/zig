@@ -1,20 +1,21 @@
+const Type = @import("../Type.zig");
+
 // zig fmt: off
 
-/// Definitions of all of the x64 registers. The order is very, very important.
+/// Definitions of all of the x64 registers. The order is semantically meaningful.
 /// The registers are defined such that IDs go in descending order of 64-bit,
 /// 32-bit, 16-bit, and then 8-bit, and each set contains exactly sixteen
-/// registers. This results in some very, very useful properties:
+/// registers. This results in some useful properties:
 ///
 /// Any 64-bit register can be turned into its 32-bit form by adding 16, and
 /// vice versa. This also works between 32-bit and 16-bit forms. With 8-bit, it
-/// works for all except for sp, bp, si, and di, which don't *have* an 8-bit
+/// works for all except for sp, bp, si, and di, which do *not* have an 8-bit
 /// form.
 ///
 /// If (register & 8) is set, the register is extended.
 ///
 /// The ID can be easily determined by figuring out what range the register is
 /// in, and then subtracting the base.
-/// 
 pub const Register = enum(u8) {
     // 0 through 15, 64-bit registers. 8-15 are extended.
     // id is just the int value.
@@ -67,3 +68,24 @@ pub const Register = enum(u8) {
 };
 
 // zig fmt: on
+
+/// After argument values have been computed, they are placed either in registers
+/// or pushed on the stack. The way values are passed depends on the class.
+pub const ParameterClass = enum {
+    /// Integral types that fit into one of the general purpose registers.
+    integer,
+    /// Types that fit into a vector register.
+    sse,
+    /// Types that fit into a vector register and can be passed
+    /// and returned in the upper bytes of it.
+    sse_up,
+    /// Types  that  will  be  returned  via  the  x87FPU.
+    x87,
+    /// Types  that  will  be  returned  via  the  x87FPU and can be passed and returned
+    /// in the upper bytes of it.
+    x87_up,
+    /// Types that will be returned via the x87FPU.
+    complex_x87,
+    /// Types that will be passed and returned in mem-ory via the stack.
+    memory,
+};
