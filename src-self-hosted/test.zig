@@ -67,7 +67,7 @@ pub const TestContext = struct {
         /// to Executable.
         output_mode: std.builtin.OutputMode,
         updates: std.ArrayList(Update),
-        @"type": TestType,
+        extension: TestType,
 
         /// Adds a subcase in which the module is updated with `src`, and the
         /// resulting ZIR is validated against `result`.
@@ -146,7 +146,7 @@ pub const TestContext = struct {
             .target = target,
             .updates = std.ArrayList(Update).init(ctx.cases.allocator),
             .output_mode = .Exe,
-            .@"type" = T,
+            .extension = T,
         }) catch unreachable;
         return &ctx.cases.items[ctx.cases.items.len - 1];
     }
@@ -172,7 +172,7 @@ pub const TestContext = struct {
             .target = target,
             .updates = std.ArrayList(Update).init(ctx.cases.allocator),
             .output_mode = .Obj,
-            .@"type" = T,
+            .extension = T,
         }) catch unreachable;
         return &ctx.cases.items[ctx.cases.items.len - 1];
     }
@@ -406,7 +406,7 @@ pub const TestContext = struct {
         var tmp = std.testing.tmpDir(.{});
         defer tmp.cleanup();
 
-        const tmp_src_path = if (case.type == .Zig) "test_case.zig" else if (case.type == .ZIR) "test_case.zir" else unreachable;
+        const tmp_src_path = if (case.extension == .Zig) "test_case.zig" else if (case.extension == .ZIR) "test_case.zir" else unreachable;
         const root_pkg = try Package.create(allocator, tmp.dir, ".", tmp_src_path);
         defer root_pkg.destroy();
 
