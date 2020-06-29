@@ -248,7 +248,7 @@ pub fn main() !void {
       </p>
       <p>
         Following the <code>hello.zig</code> Zig code sample, the {#link|Zig Build System#} is used
-        to build an executable program from the <code>hello.zig</code> source code. Then, the 
+        to build an executable program from the <code>hello.zig</code> source code. Then, the
         <code>hello</code> program is executed showing its output <code>Hello, world!</code>. The
         lines beginning with <code>$</code> represent command line prompts and a command.
         Everything else is program output.
@@ -293,7 +293,7 @@ pub fn main() !void {
       <p>
         In Zig, a function's block of statements and expressions are surrounded by <code>{</code> and
         <code>}</code> curly-braces. Inside of the <code>main</code> function are expressions that perform
-        the task of outputting <code>Hello, world!</code> to standard output. 
+        the task of outputting <code>Hello, world!</code> to standard output.
       </p>
       <p>
         First, a constant identifier, <code>stdout</code>, is initialized to represent standard output's
@@ -5138,6 +5138,22 @@ test "float widening" {
 }
       {#code_end#}
       {#header_close#}
+      {#header_open|Type Coercion: Coercion Float to Int#}
+      <p>
+      A compiler error is appropriate because this ambiguous expression leaves the compiler
+      two choices about the coercion.
+      <ul>
+        <li> Cast {#syntax#}54.0{#endsyntax#} to {#syntax#}comptime_int{#endsyntax#} resulting in {#syntax#}@as(comptime_int, 10){#endsyntax#}, which is casted to {#syntax#}@as(f32, 10){#endsyntax#}</li>
+        <li> Cast {#syntax#}5{#endsyntax#} to {#syntax#}comptime_float{#endsyntax#} resulting in {#syntax#}@as(comptime_float, 10.8){#endsyntax#}, which is casted to {#syntax#}@as(f32, 10.8){#endsyntax#}</li>
+      </ul>
+      </p>
+      {#code_begin|test_err#}
+// Compile time coercion of float to int
+test "implicit cast to comptime_int" {
+    var f: f32 = 54.0 / 5;
+}
+      {#code_end#}
+      {#header_close#}
       {#header_open|Type Coercion: Arrays and Pointers#}
       {#code_begin|test|coerce_arrays_and_ptrs#}
 const std = @import("std");
@@ -8179,7 +8195,7 @@ const expect = std.testing.expect;
 test "@src" {
     doTheTest();
 }
-    
+
 fn doTheTest() void {
     const src = @src();
 
