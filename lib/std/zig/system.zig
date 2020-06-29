@@ -499,6 +499,7 @@ pub const NativeTargetInfo = struct {
             error.PipeBusy => unreachable,
             error.FileLocksNotSupported => unreachable,
             error.WouldBlock => unreachable,
+            error.NotCapable => unreachable, // we don't support WASI here (not yet at least)
 
             error.IsDir,
             error.NotDir,
@@ -790,6 +791,7 @@ pub const NativeTargetInfo = struct {
                     var it = mem.tokenize(rpath_list, ":");
                     while (it.next()) |rpath| {
                         var dir = fs.cwd().openDir(rpath, .{}) catch |err| switch (err) {
+                            error.NotCapable => unreachable, // we don't support WASI here (not yet at least)
                             error.NameTooLong => unreachable,
                             error.InvalidUtf8 => unreachable,
                             error.BadPathName => unreachable,
@@ -817,6 +819,7 @@ pub const NativeTargetInfo = struct {
                             &link_buf,
                         ) catch |err| switch (err) {
                             error.NameTooLong => unreachable,
+                            error.NotCapable => unreachable, // we don't support WASI here (not yet at least)
 
                             error.AccessDenied,
                             error.FileNotFound,
@@ -851,6 +854,7 @@ pub const NativeTargetInfo = struct {
             const len = file.pread(buf[i .. buf.len - i], offset + i) catch |err| switch (err) {
                 error.OperationAborted => unreachable, // Windows-only
                 error.WouldBlock => unreachable, // Did not request blocking mode
+                error.NotCapable => unreachable, // WASI only, and we don't support it here yet
                 error.SystemResources => return error.SystemResources,
                 error.IsDir => return error.UnableToReadElfFile,
                 error.BrokenPipe => return error.UnableToReadElfFile,

@@ -4012,6 +4012,7 @@ pub fn realpathZ(pathname: [*:0]const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealP
     if (builtin.os.tag == .linux and !builtin.link_libc) {
         const fd = openZ(pathname, linux.O_PATH | linux.O_NONBLOCK | linux.O_CLOEXEC, 0) catch |err| switch (err) {
             error.FileLocksNotSupported => unreachable,
+            error.NotCapable => unreachable, // WASI only
             else => |e| return e,
         };
         defer close(fd);
