@@ -329,7 +329,7 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
             wasi.EINVAL => unreachable,
             wasi.EFAULT => unreachable,
             wasi.EAGAIN => unreachable,
-            wasi.EBADF => unreachable, // Always a race condition.
+            wasi.EBADF => return error.NotOpenForReading, // Can be a race condition.
             wasi.EIO => return error.InputOutput,
             wasi.EISDIR => return error.IsDir,
             wasi.ENOBUFS => return error.SystemResources,
@@ -398,7 +398,7 @@ pub fn readv(fd: fd_t, iov: []const iovec) ReadError!usize {
             wasi.EINVAL => unreachable,
             wasi.EFAULT => unreachable,
             wasi.EAGAIN => unreachable, // currently not support in WASI
-            wasi.EBADF => unreachable, // always a race condition
+            wasi.EBADF => return error.NotOpenForReading, // can be a race condition
             wasi.EIO => return error.InputOutput,
             wasi.EISDIR => return error.IsDir,
             wasi.ENOBUFS => return error.SystemResources,
@@ -458,7 +458,7 @@ pub fn pread(fd: fd_t, buf: []u8, offset: u64) PReadError!usize {
             wasi.EINVAL => unreachable,
             wasi.EFAULT => unreachable,
             wasi.EAGAIN => unreachable,
-            wasi.EBADF => unreachable, // Always a race condition.
+            wasi.EBADF => return error.NotOpenForReading, // Can be a race condition.
             wasi.EIO => return error.InputOutput,
             wasi.EISDIR => return error.IsDir,
             wasi.ENOBUFS => return error.SystemResources,
@@ -597,7 +597,7 @@ pub fn preadv(fd: fd_t, iov: []const iovec, offset: u64) PReadError!usize {
             wasi.EINVAL => unreachable,
             wasi.EFAULT => unreachable,
             wasi.EAGAIN => unreachable,
-            wasi.EBADF => unreachable, // always a race condition
+            wasi.EBADF => return error.NotOpenForReading, // can be a race condition
             wasi.EIO => return error.InputOutput,
             wasi.EISDIR => return error.IsDir,
             wasi.ENOBUFS => return error.SystemResources,
@@ -691,7 +691,7 @@ pub fn write(fd: fd_t, bytes: []const u8) WriteError!usize {
             wasi.EINVAL => unreachable,
             wasi.EFAULT => unreachable,
             wasi.EAGAIN => unreachable,
-            wasi.EBADF => unreachable, // Always a race condition.
+            wasi.EBADF => return error.NotOpenForWriting, // can be a race condition.
             wasi.EDESTADDRREQ => unreachable, // `connect` was never called.
             wasi.EDQUOT => return error.DiskQuota,
             wasi.EFBIG => return error.FileTooBig,
@@ -768,7 +768,7 @@ pub fn writev(fd: fd_t, iov: []const iovec_const) WriteError!usize {
             wasi.EINVAL => unreachable,
             wasi.EFAULT => unreachable,
             wasi.EAGAIN => unreachable,
-            wasi.EBADF => unreachable, // Always a race condition.
+            wasi.EBADF => return error.NotOpenForWriting, // can be a race condition.
             wasi.EDESTADDRREQ => unreachable, // `connect` was never called.
             wasi.EDQUOT => return error.DiskQuota,
             wasi.EFBIG => return error.FileTooBig,
@@ -847,7 +847,7 @@ pub fn pwrite(fd: fd_t, bytes: []const u8, offset: u64) PWriteError!usize {
             wasi.EINVAL => unreachable,
             wasi.EFAULT => unreachable,
             wasi.EAGAIN => unreachable,
-            wasi.EBADF => unreachable, // Always a race condition.
+            wasi.EBADF => return error.NotOpenForWriting, // can be a race condition.
             wasi.EDESTADDRREQ => unreachable, // `connect` was never called.
             wasi.EDQUOT => return error.DiskQuota,
             wasi.EFBIG => return error.FileTooBig,
@@ -940,7 +940,7 @@ pub fn pwritev(fd: fd_t, iov: []const iovec_const, offset: u64) PWriteError!usiz
             wasi.EINVAL => unreachable,
             wasi.EFAULT => unreachable,
             wasi.EAGAIN => unreachable,
-            wasi.EBADF => unreachable, // Always a race condition.
+            wasi.EBADF => return error.NotOpenForWriting, // Can be a race condition.
             wasi.EDESTADDRREQ => unreachable, // `connect` was never called.
             wasi.EDQUOT => return error.DiskQuota,
             wasi.EFBIG => return error.FileTooBig,
