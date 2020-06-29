@@ -264,7 +264,13 @@ pub const Dir = struct {
         pub const Kind = File.Kind;
     };
 
-    const IteratorError = error{AccessDenied} || os.UnexpectedError;
+    const IteratorError = error{
+        AccessDenied,
+
+        /// WASI-only. This error occurs when the underlying `Dir` file descriptor does
+        /// not hold the required rights to call `fd_readdir` on it.
+        NotCapable,
+    } || os.UnexpectedError;
 
     pub const Iterator = switch (builtin.os.tag) {
         .macosx, .ios, .freebsd, .netbsd, .dragonfly => struct {
@@ -535,14 +541,15 @@ pub const Dir = struct {
                             w.EFAULT => unreachable,
                             w.ENOTDIR => unreachable,
                             w.EINVAL => unreachable,
+                            w.ENOTCAPABLE => return error.NotCapable,
                             else => |err| return os.unexpectedErrno(err),
                         }
                         if (bufused == 0) return null;
                         self.index = 0;
                         self.end_index = bufused;
                     }
-                    const entry = @ptrCast(*align(1) os.wasi.dirent_t, &self.buf[self.index]);
-                    const entry_size = @sizeOf(os.wasi.dirent_t);
+                    const entry = @ptrCast(*align(1) w.dirent_t, &self.buf[self.index]);
+                    const entry_size = @sizeOf(w.dirent_t);
                     const name_index = self.index + entry_size;
                     const name = mem.span(self.buf[name_index .. name_index + entry.d_namlen]);
 
@@ -556,12 +563,12 @@ pub const Dir = struct {
                     }
 
                     const entry_kind = switch (entry.d_type) {
-                        wasi.FILETYPE_BLOCK_DEVICE => Entry.Kind.BlockDevice,
-                        wasi.FILETYPE_CHARACTER_DEVICE => Entry.Kind.CharacterDevice,
-                        wasi.FILETYPE_DIRECTORY => Entry.Kind.Directory,
-                        wasi.FILETYPE_SYMBOLIC_LINK => Entry.Kind.SymLink,
-                        wasi.FILETYPE_REGULAR_FILE => Entry.Kind.File,
-                        wasi.FILETYPE_SOCKET_STREAM, wasi.FILETYPE_SOCKET_DGRAM => Entry.Kind.UnixDomainSocket,
+                        w.FILETYPE_BLOCK_DEVICE => Entry.Kind.BlockDevice,
+                        w.FILETYPE_CHARACTER_DEVICE => Entry.Kind.CharacterDevice,
+                        w.FILETYPE_DIRECTORY => Entry.Kind.Directory,
+                        w.FILETYPE_SYMBOLIC_LINK => Entry.Kind.SymLink,
+                        w.FILETYPE_REGULAR_FILE => Entry.Kind.File,
+                        w.FILETYPE_SOCKET_STREAM, wasi.FILETYPE_SOCKET_DGRAM => Entry.Kind.UnixDomainSocket,
                         else => Entry.Kind.Unknown,
                     };
                     return Entry{
@@ -621,6 +628,7 @@ pub const Dir = struct {
         InvalidUtf8,
         BadPathName,
         DeviceBusy,
+        NotCapable,
     } || os.UnexpectedError;
 
     pub fn close(self: *Dir) void {
@@ -1105,7 +1113,7 @@ pub const Dir = struct {
         }
     }
 
-    pub const DeleteFileError = os.UnlinkError;
+    pub const DeleteFileError = os.UnlinkatError;
 
     /// Delete a file name and possibly the file it refers to, based on an open directory handle.
     /// Asserts that the path parameter has no null bytes.
@@ -1147,6 +1155,7 @@ pub const Dir = struct {
         ReadOnlyFileSystem,
         InvalidUtf8,
         BadPathName,
+        NotCapable,
         Unexpected,
     };
 
@@ -1249,6 +1258,7 @@ pub const Dir = struct {
         /// On Windows, file paths cannot contain these characters:
         /// '/', '*', '?', '"', '<', '>', '|'
         BadPathName,
+        NotCapable,
     } || os.UnexpectedError;
 
     /// Whether `full_path` describes a symlink, file, or directory, this function
@@ -1276,6 +1286,7 @@ pub const Dir = struct {
                 error.FileBusy,
                 error.BadPathName,
                 error.Unexpected,
+                error.NotCapable,
                 => |e| return e,
             }
             var dir = self.openDir(sub_path, .{ .iterate = true }) catch |err| switch (err) {
@@ -1301,6 +1312,7 @@ pub const Dir = struct {
                 error.InvalidUtf8,
                 error.BadPathName,
                 error.DeviceBusy,
+                error.NotCapable,
                 => |e| return e,
             };
             var cleanup_dir_parent: ?Dir = null;
@@ -1342,6 +1354,7 @@ pub const Dir = struct {
                         error.FileBusy,
                         error.BadPathName,
                         error.Unexpected,
+                        error.NotCapable,
                         => |e| return e,
                     }
 
@@ -1368,6 +1381,7 @@ pub const Dir = struct {
                         error.InvalidUtf8,
                         error.BadPathName,
                         error.DeviceBusy,
+                        error.NotCapable,
                         => |e| return e,
                     };
                     if (cleanup_dir_parent) |*d| d.close();
