@@ -15,7 +15,6 @@ pub const ArenaAllocator = struct {
     /// as a memory-saving optimization.
     pub const State = struct {
         buffer_list: std.SinglyLinkedList([]u8) = @as(std.SinglyLinkedList([]u8), .{}),
-        /// The first available index in the front buffer of `buffer_list`
         end_index: usize = 0,
 
         pub fn promote(self: State, child_allocator: *Allocator) ArenaAllocator {
@@ -46,36 +45,39 @@ pub const ArenaAllocator = struct {
         }
     }
 
-    fn getBufNodeAddr(buf: []u8) usize {
-        return mem.alignBackward(@ptrToInt(buf.ptr) + buf.len - @sizeOf(BufNode), @alignOf(BufNode));
-    }
-
-    fn allocBuf(self: *ArenaAllocator, len: usize, ptr_align: u29) ![]u8 {
-        const alloc_len = len + @sizeOf(BufNode) + @alignOf(BufNode) - 1;
-        const buf = try self.child_allocator.callAllocFn(alloc_len, ptr_align, 1);
-        const buf_node = @intToPtr(*BufNode, getBufNodeAddr(buf));
-        buf_node.* = .{ .data = buf, .next = null };
-        assert(@ptrToInt(buf_node) - @ptrToInt(buf.ptr) >= len);
+    fn createNode(self: *ArenaAllocator, prev_len: usize, minimum_size: usize) !*BufNode {
+        const actual_min_size = minimum_size + (@sizeOf(BufNode) + 16);
+        const big_enough_len = prev_len + actual_min_size;
+        const len = big_enough_len + big_enough_len / 2;
+        const buf = try self.child_allocator.alignedAlloc(u8, @alignOf(BufNode), len);
+        const buf_node_slice = mem.bytesAsSlice(BufNode, buf[0..@sizeOf(BufNode)]);
+        const buf_node = &buf_node_slice[0];
+        buf_node.* = BufNode{
+            .data = buf,
+            .next = null,
+        };
         self.state.buffer_list.prepend(buf_node);
-        self.state.end_index = len;
-        return buf[0..len];
+        self.state.end_index = 0;
+        return buf_node;
     }
 
     fn alloc(allocator: *Allocator, n: usize, ptr_align: u29, len_align: u29) ![]u8 {
         const self = @fieldParentPtr(ArenaAllocator, "allocator", allocator);
 
-        if (self.state.buffer_list.first) |node_full_buf| {
-            assert(self.state.end_index > 0);
-            const cur_buf = node_full_buf.data[0..
-                getBufNodeAddr(node_full_buf.data) - @ptrToInt(node_full_buf.data.ptr)];
+        var cur_node = if (self.state.buffer_list.first) |first_node| first_node else try self.createNode(0, n + ptr_align);
+        while (true) {
+            const cur_buf = cur_node.data[@sizeOf(BufNode)..];
             const addr = @ptrToInt(cur_buf.ptr) + self.state.end_index;
-            const aligned_index = self.state.end_index + (mem.alignForward(addr, ptr_align) - addr);
-            const aligned_end_index = aligned_index + n;
-            if (aligned_end_index <= cur_buf.len) {
-                self.state.end_index = aligned_end_index;
-                return cur_buf[aligned_index..aligned_end_index];
+            const adjusted_addr = mem.alignForward(addr, ptr_align);
+            const adjusted_index = self.state.end_index + (adjusted_addr - addr);
+            const new_end_index = adjusted_index + n;
+            if (new_end_index > cur_buf.len) {
+                cur_node = try self.createNode(cur_buf.len, n + ptr_align);
+                continue;
             }
+            const result = cur_buf[adjusted_index..new_end_index];
+            self.state.end_index = new_end_index;
+            return result;
         }
-        return try self.allocBuf(n, ptr_align);
     }
 };
