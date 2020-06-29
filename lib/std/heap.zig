@@ -8,6 +8,7 @@ const os = std.os;
 const builtin = @import("builtin");
 const c = std.c;
 const maxInt = std.math.maxInt;
+const Alloc = std.alloc.Alloc;
 
 pub const LoggingAllocator = @import("heap/logging_allocator.zig").LoggingAllocator;
 pub const loggingAllocator = @import("heap/logging_allocator.zig").loggingAllocator;
@@ -15,55 +16,8 @@ pub const ArenaAllocator = @import("heap/arena_allocator.zig").ArenaAllocator;
 
 const Allocator = mem.Allocator;
 
-usingnamespace if (comptime @hasDecl(c, "malloc_size")) struct {
-    pub const supports_malloc_size = true;
-    pub const malloc_size = c.malloc_size;
-} else if (comptime @hasDecl(c, "malloc_usable_size")) struct {
-    pub const supports_malloc_size = true;
-    pub const malloc_size = c.malloc_usable_size;
-} else struct {
-    pub const supports_malloc_size = false;
-};
-
-pub const c_allocator = &c_allocator_state;
-var c_allocator_state = Allocator{
-    .allocFn = cAlloc,
-    .resizeFn = cResize,
-};
-
-fn cAlloc(self: *Allocator, len: usize, ptr_align: u29, len_align: u29) Allocator.Error![]u8 {
-    assert(ptr_align <= @alignOf(c_longdouble));
-    const ptr = @ptrCast([*]u8, c.malloc(len) orelse return error.OutOfMemory);
-    if (len_align == 0) {
-        return ptr[0..len];
-    }
-    const full_len = init: {
-        if (supports_malloc_size) {
-            const s = malloc_size(ptr);
-            assert(s >= len);
-            break :init s;
-        }
-        break :init len;
-    };
-    return ptr[0..mem.alignBackwardAnyAlign(full_len, len_align)];
-}
-
-fn cResize(self: *Allocator, buf: []u8, new_len: usize, len_align: u29) Allocator.Error!usize {
-    if (new_len == 0) {
-        c.free(buf.ptr);
-        return 0;
-    }
-    if (new_len <= buf.len) {
-        return mem.alignAllocLen(buf.len, new_len, len_align);
-    }
-    if (supports_malloc_size) {
-        const full_len = malloc_size(buf.ptr);
-        if (new_len <= full_len) {
-            return mem.alignAllocLen(full_len, new_len, len_align);
-        }
-    }
-    return error.OutOfMemory;
-}
+var c_allocator_state = mem.makeMemSliceAllocator(Alloc.c.aligned().exact().slice().init);
+pub const c_allocator = &c_allocator_state.allocator;
 
 /// This allocator makes a syscall directly for every allocation and free.
 /// Thread-safe and lock-free.
@@ -71,17 +25,24 @@ pub const page_allocator = if (std.Target.current.isWasm())
     &wasm_page_allocator_state
 else if (std.Target.current.os.tag == .freestanding)
     root.os.heap.page_allocator
+else if (std.Target.current.os.tag == .windows)
+    &page_allocator_state
 else
-    &page_allocator_state;
+    &page_allocator_state.allocator;
 
-var page_allocator_state = Allocator{
+var page_allocator_state = if (std.Target.current.os.tag == .windows) Allocator{
     .allocFn = PageAllocator.alloc,
     .resizeFn = PageAllocator.resize,
-};
+}
+// NOTE: add '.log()' in between calls to debug allocations
+else mem.makeMemSliceAllocator(Alloc.mmap.aligned().exact().slice().init);
+
 var wasm_page_allocator_state = Allocator{
     .allocFn = WasmPageAllocator.alloc,
     .resizeFn = WasmPageAllocator.resize,
 };
+// TODO: this is not used yet
+var windows_heap_allocator = mem.makeMemSliceAllocator(Alloc.windowsGlobalHeap.aligned().exact().slice().init);
 
 pub const direct_allocator = @compileError("deprecated; use std.heap.page_allocator");
 

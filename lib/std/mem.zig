@@ -2434,3 +2434,45 @@ test "freeing empty string with null-terminated sentinel" {
     const empty_string = try dupeZ(testing.allocator, u8, "");
     testing.allocator.free(empty_string);
 }
+
+/// Create a mem.Allocator from a SliceAllocator
+pub fn makeMemSliceAllocator(allocator: var) MemSliceAllocator(@TypeOf(allocator)) {
+    return MemSliceAllocator(@TypeOf(allocator)).init(allocator);
+}
+pub fn MemSliceAllocator(comptime T: type) type { return struct {
+    allocator: Allocator,
+    sliceAllocator: T,
+    pub fn init(sliceAllocator: T) @This() {
+        return .{
+            .allocator = .{
+                .allocFn = alloc,
+                .resizeFn = resize,
+            },
+            .sliceAllocator = sliceAllocator,
+        };
+    }
+
+    pub fn alloc(allocator: *Allocator, n: usize, ptr_align: u29, len_align: u29) Allocator.Error![]u8 {
+        const self = @fieldParentPtr(@This(), "allocator", allocator);
+        return try self.sliceAllocator.allocAligned(n, ptr_align);
+    }
+
+    pub fn resize(allocator: *Allocator, buf: []u8, new_len: usize, len_align: u29) Allocator.Error!usize {
+        const self = @fieldParentPtr(@This(), "allocator", allocator);
+        if (new_len == 0) {
+            self.sliceAllocator.dealloc(@alignCast(T.alignment, buf));
+            return 0;
+        }
+        if (new_len > buf.len) {
+            if (comptime std.alloc.implements(T, "extendInPlace")) {
+                try self.sliceAllocator.extendInPlace(@alignCast(T.alignment, buf), new_len);
+                return new_len;
+            }
+            return error.OutOfMemory;
+        }
+        if (new_len < buf.len) {
+            self.sliceAllocator.shrinkInPlace(@alignCast(T.alignment, buf), new_len);
+        }
+        return new_len;
+    }
+};}
