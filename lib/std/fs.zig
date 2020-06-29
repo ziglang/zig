@@ -1272,6 +1272,7 @@ pub const Dir = struct {
             if (self.deleteFile(sub_path)) {
                 return;
             } else |err| switch (err) {
+                error.DirNotEmpty => unreachable,
                 error.FileNotFound => return,
                 error.IsDir => {},
                 error.AccessDenied => got_access_denied = true,
@@ -1341,6 +1342,7 @@ pub const Dir = struct {
 
                         // Impossible because we do not pass any path separators.
                         error.NotDir => unreachable,
+                        error.DirNotEmpty => unreachable,
 
                         error.IsDir => {},
                         error.AccessDenied => got_access_denied = true,

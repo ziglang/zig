@@ -551,6 +551,7 @@ fn preadNoEof(file: std.fs.File, buf: []u8, offset: u64) !void {
             error.InputOutput => return error.FileSystem,
             error.Unexpected => return error.Unexpected,
             error.WouldBlock => return error.Unexpected,
+            error.NotCapable => unreachable, // NotCapable mainly pertains WASI target so it's a bug if we hit it here
         };
         if (len == 0) return error.UnexpectedEndOfFile;
         i += len;

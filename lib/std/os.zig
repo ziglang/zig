@@ -1589,11 +1589,11 @@ pub fn symlinkZ(target_path: [*:0]const u8, sym_link_path: [*:0]const u8) SymLin
     }
 }
 
-pub const SymlinkatError = error{
+pub const SymLinkAtError = error{
     /// WASI-only. This error occurs when the file descriptor does
     /// not hold the required rights to create a new symbolic link relative to it.
     NotCapable,
-} || SymlinkError;
+} || SymLinkError;
 
 /// Similar to `symlink`, however, creates a symbolic link named `sym_link_path` which contains the string
 /// `target_path` **relative** to `newdirfd` directory handle.
@@ -1601,7 +1601,7 @@ pub const SymlinkatError = error{
 /// one; the latter case is known as a dangling link.
 /// If `sym_link_path` exists, it will not be overwritten.
 /// See also `symlinkatWasi`, `symlinkatZ` and `symlinkatW`.
-pub fn symlinkat(target_path: []const u8, newdirfd: fd_t, sym_link_path: []const u8) SymLinkatError!void {
+pub fn symlinkat(target_path: []const u8, newdirfd: fd_t, sym_link_path: []const u8) SymLinkAtError!void {
     if (builtin.os.tag == .wasi) {
         return symlinkatWasi(target_path, newdirfd, sym_link_path);
     }
@@ -1619,7 +1619,7 @@ pub const symlinkatC = @compileError("deprecated: renamed to symlinkatZ");
 
 /// WASI-only. The same as `symlinkat` but targeting WASI.
 /// See also `symlinkat`.
-pub fn symlinkatWasi(target_path: []const u8, newdirfd: fd_t, sym_link_path: []const u8) SymLinkatError!void {
+pub fn symlinkatWasi(target_path: []const u8, newdirfd: fd_t, sym_link_path: []const u8) SymLinkAtError!void {
     switch (wasi.path_symlink(target_path.ptr, target_path.len, newdirfd, sym_link_path.ptr, sym_link_path.len)) {
         wasi.ESUCCESS => {},
         wasi.EFAULT => unreachable,
@@ -1643,13 +1643,13 @@ pub fn symlinkatWasi(target_path: []const u8, newdirfd: fd_t, sym_link_path: []c
 
 /// Windows-only. The same as `symlinkat` except the paths are null-terminated, WTF-16 encoded.
 /// See also `symlinkat`.
-pub fn symlinkatW(target_path: [*:0]const u16, newdirfd: fd_t, sym_link_path: [*:0]const u16) SymlinkatError!void {
+pub fn symlinkatW(target_path: [*:0]const u16, newdirfd: fd_t, sym_link_path: [*:0]const u16) SymLinkAtError!void {
     @compileError("TODO implement on Windows");
 }
 
 /// The same as `symlinkat` except the parameters are null-terminated pointers.
 /// See also `symlinkat`.
-pub fn symlinkatZ(target_path: [*:0]const u8, newdirfd: fd_t, sym_link_path: [*:0]const u8) SymLinkatError!void {
+pub fn symlinkatZ(target_path: [*:0]const u8, newdirfd: fd_t, sym_link_path: [*:0]const u8) SymLinkAtError!void {
     if (builtin.os.tag == .windows) {
         const target_path_w = try windows.cStrToPrefixedFileW(target_path);
         const sym_link_path_w = try windows.cStrToPrefixedFileW(sym_link_path);
