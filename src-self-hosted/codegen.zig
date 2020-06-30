@@ -104,11 +104,18 @@ pub fn generateSymbol(
                 .bin_file = bin_file,
                 .mod_fn = module_fn,
                 .code = code,
-                .inst_table = std.AutoHashMap(*ir.Inst, Function.MCValue).init(bin_file.allocator),
                 .err_msg = null,
                 .args = mc_args.items,
+                .branch_stack = .{},
             };
-            defer function.inst_table.deinit();
+            defer {
+                assert(function.branch_stack.items.len == 1);
+                function.branch_stack.items[0].inst_table.deinit();
+                function.branch_stack.deinit(bin_file.allocator);
+            }
+            try function.branch_stack.append(bin_file.allocator, .{
+                .inst_table = std.AutoHashMap(*ir.Inst, Function.MCValue).init(bin_file.allocator),
+            });
 
             function.gen() catch |err| switch (err) {
                 error.CodegenFail => return Result{ .fail = function.err_msg.? },
@@ -215,13 +222,29 @@ const Function = struct {
     target: *const std.Target,
     mod_fn: *const Module.Fn,
     code: *std.ArrayList(u8),
-    inst_table: std.AutoHashMap(*ir.Inst, MCValue),
     err_msg: ?*ErrorMsg,
     args: []MCValue,
 
+    /// Whenever there is a runtime branch, we push a Branch onto this stack,
+    /// and pop it off when the runtime branch joins. This provides an "overlay"
+    /// of the table of mappings from instructions to `MCValue` from within the branch.
+    /// This way we can modify the `MCValue` for an instruction in different ways
+    /// within different branches. Special consideration is needed when a branch
+    /// joins with its parent, to make sure all instructions have the same MCValue
+    /// across each runtime branch upon joining.
+    branch_stack: std.ArrayListUnmanaged(Branch),
+
+    const Branch = struct {
+        inst_table: std.AutoHashMap(*ir.Inst, MCValue),
+    };
+
     const MCValue = union(enum) {
+        /// No runtime bits. `void` types, empty structs, u0, enums with 1 tag, etc.
         none,
+        /// Control flow will not allow this value to be observed.
         unreach,
+        /// No more references to this value remain.
+        dead,
         /// A pointer-sized integer that fits in a register.
         immediate: u64,
         /// The constant was emitted into the code, at this offset.
@@ -292,9 +315,10 @@ const Function = struct {
     }
 
     fn genArch(self: *Function, comptime arch: std.Target.Cpu.Arch) !void {
+        const inst_table = &self.branch_stack.items[0].inst_table;
         for (self.mod_fn.analysis.success.instructions) |inst| {
             const new_inst = try self.genFuncInst(inst, arch);
-            try self.inst_table.putNoClobber(inst, new_inst);
+            try inst_table.putNoClobber(inst, new_inst);
         }
     }
 
@@ -525,7 +549,9 @@ const Function = struct {
     fn genSetReg(self: *Function, src: usize, comptime arch: Target.Cpu.Arch, reg: Reg(arch), mcv: MCValue) error{ CodegenFail, OutOfMemory }!void {
         switch (arch) {
             .x86_64 => switch (mcv) {
-                .none, .unreach => unreachable,
+                .dead => unreachable,
+                .none => unreachable,
+                .unreach => unreachable,
                 .immediate => |x| {
                     if (reg.size() != 64) {
                         return self.fail(src, "TODO decide whether to implement non-64-bit loads", .{});
@@ -708,12 +734,26 @@ const Function = struct {
         if (self.inst_table.get(inst)) |mcv| {
             return mcv;
         }
+        // Constants have static lifetimes, so they are always memoized in the outer most table.
         if (inst.cast(ir.Inst.Constant)) |const_inst| {
-            const mcvalue = try self.genTypedValue(inst.src, .{ .ty = inst.ty, .val = const_inst.val });
-            try self.inst_table.putNoClobber(inst, mcvalue);
-            return mcvalue;
-        } else {
-            return self.inst_table.get(inst).?;
+            const branch = &self.branch_stack.items[0];
+            const gop = try branch.inst_table.getOrPut(inst);
+            if (!gop.found_existing) {
+                const mcv = try self.genTypedValue(inst.src, .{ .ty = inst.ty, .val = const_inst.val });
+                try branch.inst_table.putNoClobber(inst, mcv);
+                gop.kv.value = mcv;
+                return mcv;
+            }
+            return gop.kv.value;
+        }
+
+        // Treat each stack item as a "layer" on top of the previous one.
+        var i: usize = self.branch_stack.items.len;
+        while (true) {
+            i -= 1;
+            if (self.branch_stack.items[i].inst_table.getValue(inst)) |mcv| {
+                return mcv;
+            }
         }
     }
 

@@ -10,6 +10,16 @@ const Module = @import("Module.zig");
 /// a memory location for the value to survive after a const instruction.
 pub const Inst = struct {
     tag: Tag,
+    /// Each bit represents the index of an `Inst` parameter in the `args` field.
+    /// If a bit is set, it marks the end of the lifetime of the corresponding 
+    /// instruction parameter. For example, 0b00000101 means that the first and
+    /// third `Inst` parameters' lifetimes end after this instruction, and will
+    /// not have any more following references.
+    /// The most significant bit being set means that the instruction itself is
+    /// never referenced, in other words its lifetime ends as soon as it finishes.
+    /// If the byte is `0xff`, it means this is a special case and this data is
+    /// encoded elsewhere.
+    deaths: u8 = 0xff,
     ty: Type,
     /// Byte offset into the source.
     src: usize,
@@ -165,6 +175,12 @@ pub const Inst = struct {
             true_body: Body,
             false_body: Body,
         },
+        /// Set of instructions whose lifetimes end at the start of one of the branches.
+        /// The `true` branch is first: `deaths[0..true_death_count]`.
+        /// The `false` branch is next: `(deaths + true_death_count)[..false_death_count]`.
+        deaths: [*]*Inst = undefined,
+        true_death_count: u32 = 0,
+        false_death_count: u32 = 0,
     };
 
     pub const Constant = struct {

@@ -18,6 +18,7 @@ const Inst = ir.Inst;
 const Body = ir.Body;
 const ast = std.zig.ast;
 const trace = @import("tracy.zig").trace;
+const liveness = @import("liveness.zig");
 
 /// General-purpose allocator.
 allocator: *Allocator,
@@ -986,6 +987,11 @@ pub fn performAllTheWork(self: *Module) error{OutOfMemory}!void {
                         .sema_failure, .dependency_failure => continue,
                         .success => {},
                     }
+                    // Here we tack on additional allocations to the Decl's arena. The allocations are
+                    // lifetime annotations in the ZIR.
+                    var decl_arena = decl.typed_value.most_recent.arena.?.promote(self.allocator);
+                    defer decl.typed_value.most_recent.arena.?.* = decl_arena.state;
+                    try liveness.analyze(self.allocator, &decl_arena.allocator, payload.func.analysis.success);
                 }
 
                 assert(decl.typed_value.most_recent.typed_value.ty.hasCodeGenBits());
