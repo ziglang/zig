@@ -1,4 +1,4 @@
-const std = @import("std.zig");
+const std = @import("std");
 const assert = std.debug.assert;
 const testing = std.testing;
 
@@ -541,17 +541,14 @@ fn testOverflow() void {
     testing.expect((shlExact(i32, 0b11, 4) catch unreachable) == 0b110000);
 }
 
-pub fn absInt(x: var) !@TypeOf(x) {
+pub fn absInt(x: var) std.meta.IntType(false, @TypeOf(x).bit_count) {
     const T = @TypeOf(x);
     comptime assert(@typeInfo(T) == .Int); // must pass an integer to absInt
     comptime assert(T.is_signed); // must pass a signed integer to absInt
+    const ResT = std.meta.IntType(false, @TypeOf(x).bit_count);
 
-    if (x == minInt(@TypeOf(x))) {
-        return error.Overflow;
-    } else {
-        @setRuntimeSafety(false);
-        return if (x < 0) -x else x;
-    }
+    @setRuntimeSafety(false);
+    return if (x < 0) @bitCast(ResT, x *% -1) else @bitCast(ResT, x);
 }
 
 test "math.absInt" {
@@ -559,8 +556,9 @@ test "math.absInt" {
     comptime testAbsInt();
 }
 fn testAbsInt() void {
-    testing.expect((absInt(@as(i32, -10)) catch unreachable) == 10);
-    testing.expect((absInt(@as(i32, 10)) catch unreachable) == 10);
+    testing.expect(absInt(@as(i32, -10)) == 10);
+    testing.expect(absInt(@as(i32, 10)) == 10);
+    testing.expect(absInt(@as(i8, -128)) == 128);
 }
 
 pub const absFloat = fabs;
