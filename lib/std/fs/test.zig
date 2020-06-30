@@ -3,9 +3,46 @@ const testing = std.testing;
 const builtin = std.builtin;
 const fs = std.fs;
 const mem = std.mem;
+const wasi = std.os.wasi;
 
+const Dir = std.fs.Dir;
 const File = std.fs.File;
 const tmpDir = testing.tmpDir;
+
+test "Dir.Iterator" {
+    var tmp_dir = tmpDir(.{ .iterate = true });
+    defer tmp_dir.cleanup();
+
+    // First, create a couple of entries to iterate over.
+    const file = try tmp_dir.dir.createFile("some_file", .{});
+    file.close();
+
+    try tmp_dir.dir.makeDir("some_dir");
+
+    // Create iterator.
+    var iter = tmp_dir.dir.iterate();
+    var entries = std.ArrayList(Dir.Entry).init(testing.allocator);
+    defer entries.deinit();
+
+    while (try iter.next()) |entry| {
+        try entries.append(entry);
+    }
+
+    testing.expect(entries.items.len == 2); // note that the Iterator skips '.' and '..'
+    testing.expect(contains(&entries, Dir.Entry{ .name = "some_file", .kind = Dir.Entry.Kind.File }));
+    testing.expect(contains(&entries, Dir.Entry{ .name = "some_dir", .kind = Dir.Entry.Kind.Directory }));
+}
+
+fn entry_eql(lhs: Dir.Entry, rhs: Dir.Entry) bool {
+    return mem.eql(u8, lhs.name, rhs.name) and lhs.kind == rhs.kind;
+}
+
+fn contains(entries: *const std.ArrayList(Dir.Entry), el: Dir.Entry) bool {
+    for (entries.items) |entry| {
+        if (entry_eql(entry, el)) return true;
+    }
+    return false;
+}
 
 test "readAllAlloc" {
     var tmp_dir = tmpDir(.{});
@@ -237,7 +274,7 @@ test "fs.copyFile" {
     try expectFileContents(tmp.dir, dest_file2, data);
 }
 
-fn expectFileContents(dir: fs.Dir, file_path: []const u8, data: []const u8) !void {
+fn expectFileContents(dir: Dir, file_path: []const u8, data: []const u8) !void {
     const contents = try dir.readFileAlloc(testing.allocator, file_path, 1000);
     defer testing.allocator.free(contents);
 
