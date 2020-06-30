@@ -1,5 +1,27 @@
 // Codes are from https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-erref/18d8fbe8-a967-4f1c-ae50-99ca8e491d2d
 pub const Win32Error = extern enum(u16) {
+    const fmt = @import("std").fmt;
+
+    pub fn format(
+        self: Win32Error,
+        comptime fmt_str: []const u8,
+        options: fmt.FormatOptions,
+        writer: var,
+    ) !void {
+        try writer.writeAll(@typeName(Win32Error));
+        
+        @setEvalBranchQuota(3000);
+        inline for (@typeInfo(Win32Error).Enum.fields) |enumField| {
+            if (@enumToInt(self) == enumField.value) {
+                try writer.writeAll(".");
+                try writer.writeAll(@tagName(self));
+                return;
+            }
+        }
+
+        try writer.print("({})", .{ @enumToInt(self) });
+    }
+
     /// The operation completed successfully.
     SUCCESS = 0,
 
