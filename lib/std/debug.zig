@@ -56,6 +56,11 @@ var stderr_mutex = std.Mutex.init();
 /// "printf debugging".
 pub const warn = print;
 
+/// Triggers a "bruh moment".
+pub fn bruh() noreturn {
+    @panic("bruh moment");
+}
+
 /// Print to stderr, unbuffered, and silently returning on failure. Intended
 /// for use in "printf debugging." Use `std.log` functions for proper logging.
 pub fn print(comptime fmt: []const u8, args: var) void {
