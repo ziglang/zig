@@ -364,7 +364,6 @@ pub const ChildProcess = struct {
                 error.FileTooBig => unreachable,
                 error.DeviceBusy => unreachable,
                 error.FileLocksNotSupported => unreachable,
-                error.NotCapable => unreachable, // until WASI comes up with multi-processing (if ever)
                 else => |e| return e,
             }
         else

@@ -264,13 +264,7 @@ pub const Dir = struct {
         pub const Kind = File.Kind;
     };
 
-    const IteratorError = error{
-        AccessDenied,
-
-        /// WASI-only. This error occurs when the underlying `Dir` file descriptor does
-        /// not hold the required rights to call `fd_readdir` on it.
-        NotCapable,
-    } || os.UnexpectedError;
+    const IteratorError = error{AccessDenied} || os.UnexpectedError;
 
     pub const Iterator = switch (builtin.os.tag) {
         .macosx, .ios, .freebsd, .netbsd, .dragonfly => struct {
@@ -541,7 +535,7 @@ pub const Dir = struct {
                             w.EFAULT => unreachable,
                             w.ENOTDIR => unreachable,
                             w.EINVAL => unreachable,
-                            w.ENOTCAPABLE => return error.NotCapable,
+                            w.ENOTCAPABLE => return error.AccessDenied,
                             else => |err| return os.unexpectedErrno(err),
                         }
                         if (bufused == 0) return null;
@@ -628,7 +622,6 @@ pub const Dir = struct {
         InvalidUtf8,
         BadPathName,
         DeviceBusy,
-        NotCapable,
     } || os.UnexpectedError;
 
     pub fn close(self: *Dir) void {
@@ -1113,7 +1106,7 @@ pub const Dir = struct {
         }
     }
 
-    pub const DeleteFileError = os.UnlinkatError;
+    pub const DeleteFileError = os.UnlinkError;
 
     /// Delete a file name and possibly the file it refers to, based on an open directory handle.
     /// Asserts that the path parameter has no null bytes.
@@ -1155,7 +1148,6 @@ pub const Dir = struct {
         ReadOnlyFileSystem,
         InvalidUtf8,
         BadPathName,
-        NotCapable,
         Unexpected,
     };
 
@@ -1258,7 +1250,6 @@ pub const Dir = struct {
         /// On Windows, file paths cannot contain these characters:
         /// '/', '*', '?', '"', '<', '>', '|'
         BadPathName,
-        NotCapable,
     } || os.UnexpectedError;
 
     /// Whether `full_path` describes a symlink, file, or directory, this function
@@ -1272,7 +1263,6 @@ pub const Dir = struct {
             if (self.deleteFile(sub_path)) {
                 return;
             } else |err| switch (err) {
-                error.DirNotEmpty => unreachable,
                 error.FileNotFound => return,
                 error.IsDir => {},
                 error.AccessDenied => got_access_denied = true,
@@ -1287,7 +1277,6 @@ pub const Dir = struct {
                 error.FileBusy,
                 error.BadPathName,
                 error.Unexpected,
-                error.NotCapable,
                 => |e| return e,
             }
             var dir = self.openDir(sub_path, .{ .iterate = true }) catch |err| switch (err) {
@@ -1313,7 +1302,6 @@ pub const Dir = struct {
                 error.InvalidUtf8,
                 error.BadPathName,
                 error.DeviceBusy,
-                error.NotCapable,
                 => |e| return e,
             };
             var cleanup_dir_parent: ?Dir = null;
@@ -1342,7 +1330,6 @@ pub const Dir = struct {
 
                         // Impossible because we do not pass any path separators.
                         error.NotDir => unreachable,
-                        error.DirNotEmpty => unreachable,
 
                         error.IsDir => {},
                         error.AccessDenied => got_access_denied = true,
@@ -1356,7 +1343,6 @@ pub const Dir = struct {
                         error.FileBusy,
                         error.BadPathName,
                         error.Unexpected,
-                        error.NotCapable,
                         => |e| return e,
                     }
 
@@ -1383,7 +1369,6 @@ pub const Dir = struct {
                         error.InvalidUtf8,
                         error.BadPathName,
                         error.DeviceBusy,
-                        error.NotCapable,
                         => |e| return e,
                     };
                     if (cleanup_dir_parent) |*d| d.close();

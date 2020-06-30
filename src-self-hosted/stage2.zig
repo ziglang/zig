@@ -163,7 +163,6 @@ export fn stage2_render_ast(tree: *ast.Tree, output_file: *FILE) Error {
         error.OutOfMemory => return .OutOfMemory,
         error.Unexpected => return .Unexpected,
         error.InputOutput => return .FileSystem,
-        error.NotCapable => unreachable, // we should handle this when we're able to cross-compile Zig to WASI
     };
     return .None;
 }
@@ -607,7 +606,6 @@ export fn stage2_libc_parse(stage1_libc: *Stage2LibCInstallation, libc_file_z: [
         error.NotDir => return .NotDir,
         error.DeviceBusy => return .DeviceBusy,
         error.FileLocksNotSupported => unreachable,
-        error.NotCapable => unreachable, // we should handle this when we're able to cross-compile Zig to WASI
     };
     stage1_libc.initFromStage2(libc);
     return .None;
@@ -651,7 +649,6 @@ export fn stage2_libc_render(stage1_libc: *Stage2LibCInstallation, output_file: 
         error.AccessDenied => return .AccessDenied,
         error.Unexpected => return .Unexpected,
         error.InputOutput => return .FileSystem,
-        error.NotCapable => unreachable, // we should handle this when we're able to cross-compile Zig to WASI
     };
     return .None;
 }
