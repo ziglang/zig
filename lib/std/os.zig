@@ -300,6 +300,10 @@ pub const ReadError = error{
     /// This error occurs when no global event loop is configured,
     /// and reading from the file descriptor would block.
     WouldBlock,
+
+    /// In WASI, this error occurs when the file descriptor does
+    /// not hold the required rights to read from it.
+    AccessDenied,
 } || UnexpectedError;
 
 /// Returns the number of bytes that were read, which can be less than
@@ -335,6 +339,7 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
             wasi.ENOMEM => return error.SystemResources,
             wasi.ECONNRESET => return error.ConnectionResetByPeer,
             wasi.ETIMEDOUT => return error.ConnectionTimedOut,
+            wasi.ENOTCAPABLE => return error.AccessDenied,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -402,6 +407,7 @@ pub fn readv(fd: fd_t, iov: []const iovec) ReadError!usize {
             wasi.EISDIR => return error.IsDir,
             wasi.ENOBUFS => return error.SystemResources,
             wasi.ENOMEM => return error.SystemResources,
+            wasi.ENOTCAPABLE => return error.AccessDenied,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -466,6 +472,7 @@ pub fn pread(fd: fd_t, buf: []u8, offset: u64) PReadError!usize {
             wasi.ENXIO => return error.Unseekable,
             wasi.ESPIPE => return error.Unseekable,
             wasi.EOVERFLOW => return error.Unseekable,
+            wasi.ENOTCAPABLE => return error.AccessDenied,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -500,8 +507,11 @@ pub fn pread(fd: fd_t, buf: []u8, offset: u64) PReadError!usize {
 pub const TruncateError = error{
     FileTooBig,
     InputOutput,
-    CannotTruncate,
     FileBusy,
+
+    /// In WASI, this error occurs when the file descriptor does
+    /// not hold the required rights to call `ftruncate` on it.
+    AccessDenied,
 } || UnexpectedError;
 
 pub fn ftruncate(fd: fd_t, length: u64) TruncateError!void {
@@ -522,7 +532,7 @@ pub fn ftruncate(fd: fd_t, length: u64) TruncateError!void {
         switch (rc) {
             .SUCCESS => return,
             .INVALID_HANDLE => unreachable, // Handle not open for writing
-            .ACCESS_DENIED => return error.CannotTruncate,
+            .ACCESS_DENIED => return error.AccessDenied,
             else => return windows.unexpectedStatus(rc),
         }
     }
@@ -532,10 +542,11 @@ pub fn ftruncate(fd: fd_t, length: u64) TruncateError!void {
             wasi.EINTR => unreachable,
             wasi.EFBIG => return error.FileTooBig,
             wasi.EIO => return error.InputOutput,
-            wasi.EPERM => return error.CannotTruncate,
+            wasi.EPERM => return error.AccessDenied,
             wasi.ETXTBSY => return error.FileBusy,
             wasi.EBADF => unreachable, // Handle not open for writing
             wasi.EINVAL => unreachable, // Handle not open for writing
+            wasi.ENOTCAPABLE => return error.AccessDenied,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -554,7 +565,7 @@ pub fn ftruncate(fd: fd_t, length: u64) TruncateError!void {
             EINTR => continue,
             EFBIG => return error.FileTooBig,
             EIO => return error.InputOutput,
-            EPERM => return error.CannotTruncate,
+            EPERM => return error.AccessDenied,
             ETXTBSY => return error.FileBusy,
             EBADF => unreachable, // Handle not open for writing
             EINVAL => unreachable, // Handle not open for writing
@@ -604,6 +615,7 @@ pub fn preadv(fd: fd_t, iov: []const iovec, offset: u64) PReadError!usize {
             wasi.ENXIO => return error.Unseekable,
             wasi.ESPIPE => return error.Unseekable,
             wasi.EOVERFLOW => return error.Unseekable,
+            wasi.ENOTCAPABLE => return error.AccessDenied,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -641,6 +653,9 @@ pub const WriteError = error{
     FileTooBig,
     InputOutput,
     NoSpaceLeft,
+
+    /// In WASI, this error may occur when the file descriptor does
+    /// not hold the required rights to write to it.
     AccessDenied,
     BrokenPipe,
     SystemResources,
@@ -697,6 +712,7 @@ pub fn write(fd: fd_t, bytes: []const u8) WriteError!usize {
             wasi.ENOSPC => return error.NoSpaceLeft,
             wasi.EPERM => return error.AccessDenied,
             wasi.EPIPE => return error.BrokenPipe,
+            wasi.ENOTCAPABLE => return error.AccessDenied,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -774,6 +790,7 @@ pub fn writev(fd: fd_t, iov: []const iovec_const) WriteError!usize {
             wasi.ENOSPC => return error.NoSpaceLeft,
             wasi.EPERM => return error.AccessDenied,
             wasi.EPIPE => return error.BrokenPipe,
+            wasi.ENOTCAPABLE => return error.AccessDenied,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -856,6 +873,7 @@ pub fn pwrite(fd: fd_t, bytes: []const u8, offset: u64) PWriteError!usize {
             wasi.ENXIO => return error.Unseekable,
             wasi.ESPIPE => return error.Unseekable,
             wasi.EOVERFLOW => return error.Unseekable,
+            wasi.ENOTCAPABLE => return error.AccessDenied,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -949,6 +967,7 @@ pub fn pwritev(fd: fd_t, iov: []const iovec_const, offset: u64) PWriteError!usiz
             wasi.ENXIO => return error.Unseekable,
             wasi.ESPIPE => return error.Unseekable,
             wasi.EOVERFLOW => return error.Unseekable,
+            wasi.ENOTCAPABLE => return error.AccessDenied,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -984,6 +1003,8 @@ pub fn pwritev(fd: fd_t, iov: []const iovec_const, offset: u64) PWriteError!usiz
 }
 
 pub const OpenError = error{
+    /// In WASI, this error may occur when the file descriptor does
+    /// not hold the required rights to open a new resource relative to it.
     AccessDenied,
     SymLinkLoop,
     ProcessFdQuotaExceeded,
@@ -1113,6 +1134,7 @@ pub fn openatWasi(dir_fd: fd_t, file_path: []const u8, oflags: oflags_t, fdflags
             wasi.EPERM => return error.AccessDenied,
             wasi.EEXIST => return error.PathAlreadyExists,
             wasi.EBUSY => return error.DeviceBusy,
+            wasi.ENOTCAPABLE => return error.AccessDenied,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -1499,6 +1521,8 @@ pub fn getcwd(out_buffer: []u8) GetCwdError![]u8 {
 }
 
 pub const SymLinkError = error{
+    /// In WASI, this error may occur when the file descriptor does
+    /// not hold the required rights to create a new symbolic link relative to it.
     AccessDenied,
     DiskQuota,
     PathAlreadyExists,
@@ -1604,13 +1628,14 @@ pub fn symlinkatWasi(target_path: []const u8, newdirfd: fd_t, sym_link_path: []c
         wasi.ENOMEM => return error.SystemResources,
         wasi.ENOSPC => return error.NoSpaceLeft,
         wasi.EROFS => return error.ReadOnlyFileSystem,
+        wasi.ENOTCAPABLE => return error.AccessDenied,
         else => |err| return unexpectedErrno(err),
     }
 }
 
 /// Windows-only. The same as `symlinkat` except the paths are null-terminated, WTF-16 encoded.
 /// See also `symlinkat`.
-pub fn symlinkatW(target_path: [*:0]const u16, newdirfd: fd_t, sym_link_path: [*:0]const u16) SymlinkError!void {
+pub fn symlinkatW(target_path: [*:0]const u16, newdirfd: fd_t, sym_link_path: [*:0]const u16) SymLinkError!void {
     @compileError("TODO implement on Windows");
 }
 
@@ -1644,6 +1669,9 @@ pub fn symlinkatZ(target_path: [*:0]const u8, newdirfd: fd_t, sym_link_path: [*:
 
 pub const UnlinkError = error{
     FileNotFound,
+
+    /// In WASI, this error may occur when the file descriptor does
+    /// not hold the required rights to unlink a resource by path relative to it.
     AccessDenied,
     FileBusy,
     FileSystem,
@@ -1747,6 +1775,7 @@ pub fn unlinkatWasi(dirfd: fd_t, file_path: []const u8, flags: u32) UnlinkatErro
         wasi.ENOMEM => return error.SystemResources,
         wasi.EROFS => return error.ReadOnlyFileSystem,
         wasi.ENOTEMPTY => return error.DirNotEmpty,
+        wasi.ENOTCAPABLE => return error.AccessDenied,
 
         wasi.EINVAL => unreachable, // invalid flags, or pathname has . as last component
         wasi.EBADF => unreachable, // always a race condition
@@ -1849,6 +1878,8 @@ pub fn unlinkatW(dirfd: fd_t, sub_path_w: [*:0]const u16, flags: u32) UnlinkatEr
 }
 
 const RenameError = error{
+    /// In WASI, this error may occur when the file descriptor does
+    /// not hold the required rights to rename a resource by path relative to it.
     AccessDenied,
     FileBusy,
     DiskQuota,
@@ -1968,6 +1999,7 @@ pub fn renameatWasi(old_dir_fd: fd_t, old_path: []const u8, new_dir_fd: fd_t, ne
         wasi.ENOTEMPTY => return error.PathAlreadyExists,
         wasi.EROFS => return error.ReadOnlyFileSystem,
         wasi.EXDEV => return error.RenameAcrossMountPoints,
+        wasi.ENOTCAPABLE => return error.AccessDenied,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -2066,23 +2098,6 @@ pub fn renameatW(
     }
 }
 
-pub const MakeDirError = error{
-    AccessDenied,
-    DiskQuota,
-    PathAlreadyExists,
-    SymLinkLoop,
-    LinkQuotaExceeded,
-    NameTooLong,
-    FileNotFound,
-    SystemResources,
-    NoSpaceLeft,
-    NotDir,
-    ReadOnlyFileSystem,
-    InvalidUtf8,
-    BadPathName,
-    NoDevice,
-} || UnexpectedError;
-
 pub fn mkdirat(dir_fd: fd_t, sub_dir_path: []const u8, mode: u32) MakeDirError!void {
     if (builtin.os.tag == .windows) {
         const sub_dir_path_w = try windows.sliceToPrefixedFileW(sub_dir_path);
@@ -2114,6 +2129,7 @@ pub fn mkdiratWasi(dir_fd: fd_t, sub_dir_path: []const u8, mode: u32) MakeDirErr
         wasi.ENOSPC => return error.NoSpaceLeft,
         wasi.ENOTDIR => return error.NotDir,
         wasi.EROFS => return error.ReadOnlyFileSystem,
+        wasi.ENOTCAPABLE => return error.AccessDenied,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -2147,6 +2163,25 @@ pub fn mkdiratW(dir_fd: fd_t, sub_path_w: [*:0]const u16, mode: u32) MakeDirErro
     const sub_dir_handle = try windows.CreateDirectoryW(dir_fd, sub_path_w, null);
     windows.CloseHandle(sub_dir_handle);
 }
+
+pub const MakeDirError = error{
+    /// In WASI, this error may occur when the file descriptor does
+    /// not hold the required rights to create a new directory relative to it.
+    AccessDenied,
+    DiskQuota,
+    PathAlreadyExists,
+    SymLinkLoop,
+    LinkQuotaExceeded,
+    NameTooLong,
+    FileNotFound,
+    SystemResources,
+    NoSpaceLeft,
+    NotDir,
+    ReadOnlyFileSystem,
+    InvalidUtf8,
+    BadPathName,
+    NoDevice,
+} || UnexpectedError;
 
 /// Create a directory.
 /// `mode` is ignored on Windows.
@@ -2311,6 +2346,8 @@ pub fn fchdir(dirfd: fd_t) FchdirError!void {
 }
 
 pub const ReadLinkError = error{
+    /// In WASI, this error may occur when the file descriptor does
+    /// not hold the required rights to read value of a symbolic link relative to it.
     AccessDenied,
     FileSystem,
     SymLinkLoop,
@@ -2396,6 +2433,7 @@ pub fn readlinkatWasi(dirfd: fd_t, file_path: []const u8, out_buffer: []u8) Read
         wasi.ENOENT => return error.FileNotFound,
         wasi.ENOMEM => return error.SystemResources,
         wasi.ENOTDIR => return error.NotDir,
+        wasi.ENOTCAPABLE => return error.AccessDenied,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -3073,6 +3111,9 @@ pub fn waitpid(pid: i32, flags: u32) u32 {
 
 pub const FStatError = error{
     SystemResources,
+
+    /// In WASI, this error may occur when the file descriptor does
+    /// not hold the required rights to get its filestat information.
     AccessDenied,
 } || UnexpectedError;
 
@@ -3086,6 +3127,7 @@ pub fn fstat(fd: fd_t) FStatError!Stat {
             wasi.EBADF => unreachable, // Always a race condition.
             wasi.ENOMEM => return error.SystemResources,
             wasi.EACCES => return error.AccessDenied,
+            wasi.ENOTCAPABLE => return error.AccessDenied,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -3136,6 +3178,7 @@ pub fn fstatatWasi(dirfd: fd_t, pathname: []const u8, flags: u32) FStatAtError!S
         wasi.ENAMETOOLONG => return error.NameTooLong,
         wasi.ENOENT => return error.FileNotFound,
         wasi.ENOTDIR => return error.FileNotFound,
+        wasi.ENOTCAPABLE => return error.AccessDenied,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -3641,7 +3684,13 @@ pub fn gettimeofday(tv: ?*timeval, tz: ?*timezone) void {
     }
 }
 
-pub const SeekError = error{Unseekable} || UnexpectedError;
+pub const SeekError = error{
+    Unseekable,
+
+    /// In WASI, this error may occur when the file descriptor does
+    /// not hold the required rights to seek on it.
+    AccessDenied,
+} || UnexpectedError;
 
 /// Repositions read/write file offset relative to the beginning.
 pub fn lseek_SET(fd: fd_t, offset: u64) SeekError!void {
@@ -3669,6 +3718,7 @@ pub fn lseek_SET(fd: fd_t, offset: u64) SeekError!void {
             wasi.EOVERFLOW => return error.Unseekable,
             wasi.ESPIPE => return error.Unseekable,
             wasi.ENXIO => return error.Unseekable,
+            wasi.ENOTCAPABLE => return error.AccessDenied,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -3710,6 +3760,7 @@ pub fn lseek_CUR(fd: fd_t, offset: i64) SeekError!void {
             wasi.EOVERFLOW => return error.Unseekable,
             wasi.ESPIPE => return error.Unseekable,
             wasi.ENXIO => return error.Unseekable,
+            wasi.ENOTCAPABLE => return error.AccessDenied,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -3750,6 +3801,7 @@ pub fn lseek_END(fd: fd_t, offset: i64) SeekError!void {
             wasi.EOVERFLOW => return error.Unseekable,
             wasi.ESPIPE => return error.Unseekable,
             wasi.ENXIO => return error.Unseekable,
+            wasi.ENOTCAPABLE => return error.AccessDenied,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -3790,6 +3842,7 @@ pub fn lseek_CUR_get(fd: fd_t) SeekError!u64 {
             wasi.EOVERFLOW => return error.Unseekable,
             wasi.ESPIPE => return error.Unseekable,
             wasi.ENXIO => return error.Unseekable,
+            wasi.ENOTCAPABLE => return error.AccessDenied,
             else => |err| return unexpectedErrno(err),
         }
     }
