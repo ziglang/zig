@@ -95,6 +95,7 @@ ZigLLVM_OSType get_llvm_os_type(Os os_type);
 
 bool target_is_arm(const ZigTarget *target);
 bool target_is_mips(const ZigTarget *target);
+bool target_is_ppc(const ZigTarget *target);
 bool target_allows_addr_zero(const ZigTarget *target);
 bool target_has_valgrind_support(const ZigTarget *target);
 bool target_os_is_darwin(Os os);
