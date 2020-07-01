@@ -5,6 +5,7 @@ const fs = std.fs;
 const mem = std.mem;
 const wasi = std.os.wasi;
 
+const ArenaAllocator = std.heap.ArenaAllocator;
 const Dir = std.fs.Dir;
 const File = std.fs.File;
 const tmpDir = testing.tmpDir;
@@ -19,13 +20,18 @@ test "Dir.Iterator" {
 
     try tmp_dir.dir.makeDir("some_dir");
 
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+
+    var entries = std.ArrayList(Dir.Entry).init(&arena.allocator);
+
     // Create iterator.
     var iter = tmp_dir.dir.iterate();
-    var entries = std.ArrayList(Dir.Entry).init(testing.allocator);
-    defer entries.deinit();
-
     while (try iter.next()) |entry| {
-        try entries.append(entry);
+        // We cannot just store `entry` as on Windows, we're re-using the name buffer
+        // which means we'll actually share the `name` pointer between entries!
+        const name = try mem.dupe(&arena.allocator, u8, entry.name);
+        try entries.append(Dir.Entry{ .name = name, .kind = entry.kind });
     }
 
     testing.expect(entries.items.len == 2); // note that the Iterator skips '.' and '..'
