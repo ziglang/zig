@@ -1111,10 +1111,18 @@ pub const Dir = struct {
     /// Delete a file name and possibly the file it refers to, based on an open directory handle.
     /// Asserts that the path parameter has no null bytes.
     pub fn deleteFile(self: Dir, sub_path: []const u8) DeleteFileError!void {
-        os.unlinkat(self.fd, sub_path, 0) catch |err| switch (err) {
-            error.DirNotEmpty => unreachable, // not passing AT_REMOVEDIR
-            else => |e| return e,
-        };
+        if (builtin.os.tag == .windows) {
+            const sub_path_w = try os.windows.sliceToPrefixedFileW(sub_path);
+            return self.deleteFileW(sub_path_w.span().ptr);
+        } else if (builtin.os.tag == .wasi) {
+            os.unlinkatWasi(self.fd, sub_path, 0) catch |err| switch (err) {
+                error.DirNotEmpty => unreachable, // not passing AT_REMOVEDIR
+                else => |e| return e,
+            };
+        } else {
+            const sub_path_c = try os.toPosixPath(sub_path);
+            return self.deleteFileZ(&sub_path_c);
+        }
     }
 
     pub const deleteFileC = @compileError("deprecated: renamed to deleteFileZ");
@@ -1123,6 +1131,17 @@ pub const Dir = struct {
     pub fn deleteFileZ(self: Dir, sub_path_c: [*:0]const u8) DeleteFileError!void {
         os.unlinkatZ(self.fd, sub_path_c, 0) catch |err| switch (err) {
             error.DirNotEmpty => unreachable, // not passing AT_REMOVEDIR
+            error.AccessDenied => |e| switch (builtin.os.tag) {
+                // non-Linux POSIX systems return EPERM when trying to delete a directory, so
+                // we need to handle that case specifically and translate the error
+                .macosx, .ios, .freebsd, .netbsd, .dragonfly => {
+                    // Don't follow symlinks to match unlinkat (which acts on symlinks rather than follows them)
+                    const fstat = os.fstatatZ(self.fd, sub_path_c, os.AT_SYMLINK_NOFOLLOW) catch return e;
+                    const is_dir = fstat.mode & os.S_IFMT == os.S_IFDIR;
+                    return if (is_dir) error.IsDir else e;
+                },
+                else => return e,
+            },
             else => |e| return e,
         };
     }
