@@ -8030,7 +8030,29 @@ test "vector @splat" {
       </p>
       {#see_also|Vectors|@shuffle#}
       {#header_close#}
+      {#header_open|@src#}
+      <pre>{#syntax#}@src() std.builtin.SourceLocation{#endsyntax#}</pre>
+      <p>
+      Returns a {#syntax#}SourceLocation{#endsyntax#} struct representing the function's name and location in the source code. This must be called in a function.
+      </p>
+      {#code_begin|test#}
+const std = @import("std");
+const expect = std.testing.expect;
 
+test "@src" {
+    doTheTest();
+}
+    
+fn doTheTest() void {
+    const src = @src();
+
+    expect(src.line == 9);
+    expect(src.column == 17);
+    expect(std.mem.endsWith(u8, src.fn_name, "doTheTest"));
+    expect(std.mem.endsWith(u8, src.file, "test.zig"));
+}
+      {#code_end#}
+      {#header_close#}
       {#header_open|@sqrt#}
       <pre>{#syntax#}@sqrt(value: var) @TypeOf(value){#endsyntax#}</pre>
       <p>
