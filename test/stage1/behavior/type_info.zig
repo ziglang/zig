@@ -251,14 +251,13 @@ fn testStruct() void {
 }
 
 const TestStruct = packed struct {
-    const Self = @This();
-
     fieldA: usize,
     fieldB: void,
     fieldC: *Self,
     fieldD: u32 = 4,
 
     pub fn foo(self: *const Self) void {}
+    const Self = @This();
 };
 
 test "type info: function type info" {
