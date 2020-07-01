@@ -116,6 +116,21 @@ fn _start() callconv(.Naked) noreturn {
                 : [argc] "=r" (-> [*]usize)
             );
         },
+        .powerpc64le => {
+            // Before returning the stack pointer, we have to set up a backchain
+            // and a few other registers required by the ELFv2 ABI.
+            // TODO: Support powerpc64 (big endian) on ELFv2.
+            starting_stack_ptr = asm (
+                \\ mr 4, 1
+                \\ subi 1, 1, 32
+                \\ li 5, 0
+                \\ std 5, 0(1)
+                \\ mr %[argc], 4
+                : [argc] "=r" (-> [*]usize)
+                :
+                : "r4", "r5"
+            );
+        },
         else => @compileError("unsupported arch"),
     }
     // If LLVM inlines stack variables into _start, they will overwrite
