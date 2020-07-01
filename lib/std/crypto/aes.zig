@@ -147,9 +147,11 @@ fn AES(comptime keysize: usize) type {
         pub fn encrypt(ctx: Self, dst: []u8, src: []const u8) void {
             ctx.enc.encrypt(dst, src);
         }
+        
         pub fn decrypt(ctx: Self, dst: []u8, src: []const u8) void {
             ctx.dec.decrypt(dst, src);
         }
+        
         pub fn ctr(ctx: Self, dst: []u8, src: []const u8, iv: [16]u8) void {
             ctx.enc.ctr(dst, src, iv);
         }
@@ -180,6 +182,7 @@ fn AESEncrypt(comptime keysize: usize) type {
         pub fn encrypt(ctx: Self, dst: []u8, src: []const u8) void {
             encryptBlock(ctx.enc[0..], dst, src);
         }
+
         pub fn ctr(ctx: Self, dst: []u8, src: []const u8, iv: [16]u8) void {
             std.debug.assert(dst.len >= src.len);
 
@@ -192,6 +195,28 @@ fn AESEncrypt(comptime keysize: usize) type {
                 std.mem.writeIntBig(u128, ctrbuf[0..], ctr_i +% 1);
 
                 n += xorBytes(dst[n..], src[n..], &keystream);
+            }
+        }
+
+        pub fn ige(ctx: Self, dst: []u8, src: []const u8, iv: [(keysize / 8) * 2]u8) void {
+            std.debug.assert(dst.len == src.len);
+            std.debug.assert(@mod(dst.len, 16) == 0);
+            
+            const b = keysize / 8;
+            var c: [b]u8 = undefined;
+            var m: [b]u8 = undefined;
+
+            std.mem.copy(u8, &c, iv[0..b]);
+            std.mem.copy(u8, &m, iv[b..]);
+
+            var o: usize = 0;
+            while (o < src.len) : (o += b) {
+                _ = xorBytes(dst[o..o+b], src[o..o+b], &c);
+                ctx.encrypt(dst[o..o+b], dst[o..o+b]);
+                _ = xorBytes(dst[o..o+b], dst[o..o+b], &m);
+
+                std.mem.copy(u8, &c, dst[o..o+b]);
+                std.mem.copy(u8, &m, src[o..o+b]);
             }
         }
     };
@@ -214,6 +239,29 @@ fn AESDecrypt(comptime keysize: usize) type {
 
         pub fn decrypt(ctx: Self, dst: []u8, src: []const u8) void {
             decryptBlock(ctx.dec[0..], dst, src);
+        }
+
+        pub fn ige(ctx: Self, dst: []u8, src: []const u8, iv: [(keysize / 8) * 2]u8) void {
+            std.debug.assert(src.len >= dst.len);
+            
+            const b = keysize / 8;
+            var c: [b]u8 = undefined;
+            var m: [b]u8 = undefined;
+
+            std.mem.copy(u8, &c, iv[0..b]);
+            std.mem.copy(u8, &m, iv[b..]);
+
+            var o: usize = 0;
+            while (o < src.len) : (o += b) {
+                const t = src[o..o+b];
+
+                _ = xorBytes(dst[o..o+b], src[o..o+b], &m);
+                ctx.decrypt(dst[o..o+b], dst[o..o+b]);
+                _ = xorBytes(dst[o..o+b], dst[o..o+b], &c);
+
+                std.mem.copy(u8, &m, dst[o..o+b]);
+                std.mem.copy(u8, &c, t);
+            }
         }
     };
 }
@@ -240,6 +288,37 @@ test "ctr" {
         var aes = AES128.init(key);
         aes.ctr(out[0..], in[0..], iv);
         testing.expectEqualSlices(u8, exp_out[0..], out[0..]);
+    }
+}
+
+test "ige" {
+    {
+        // https://fossies.org/linux/openssl/test/igetest.c#41
+        const key = [_]u8{ 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f };
+        const iv = [_]u8{
+            0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
+            0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f
+        };
+        const in = [_]u8{
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+        };
+        const exp_out = [_]u8 {
+            0x1a, 0x85, 0x19, 0xa6, 0x55, 0x7b, 0xe6, 0x52, 0xe9, 0xda, 0x8e, 0x43, 0xda, 0x4e, 0xf4, 0x45,
+            0x3c, 0xf4, 0x56, 0xb4, 0xca, 0x48, 0x8a, 0xa3, 0x83, 0xc7, 0x9c, 0x98, 0xb3, 0x47, 0x97, 0xcb
+        };
+
+        var enc_out: [exp_out.len]u8 = undefined;
+        var dec_out: [exp_out.len]u8 = undefined;
+        var aes = AES128.init(key);
+        
+        // Encrypt
+        aes.enc.ige(enc_out[0..], in[0..], iv);
+        testing.expectEqualSlices(u8, exp_out[0..], enc_out[0..]);
+
+        // Decrypt
+        aes.dec.ige(dec_out[0..], enc_out[0..], iv);
+        testing.expectEqualSlices(u8, in[0..], dec_out[0..]);
     }
 }
 
