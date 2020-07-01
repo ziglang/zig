@@ -133,11 +133,12 @@ fn AES(comptime keysize: usize) type {
         pub const Encrypt = AESEncrypt(keysize);
         pub const Decrypt = AESDecrypt(keysize);
 
-        const nn = (keysize / 8) + 28;
+        const blocklen = keysize / 8;
+        const nn = blocklen + 28;
         enc: Encrypt,
         dec: Decrypt,
 
-        pub fn init(key: [keysize / 8]u8) Self {
+        pub fn init(key: [blocklen]u8) Self {
             var ctx: Self = undefined;
             ctx.enc = Encrypt.init(key);
             ctx.dec = ctx.enc.toDecrypt();
@@ -164,10 +165,11 @@ fn AESEncrypt(comptime keysize: usize) type {
 
         const Decrypt = AESDecrypt(keysize);
 
-        const nn = (keysize / 8) + 28;
+        const blocklen = keysize / 8;
+        const nn = blocklen + 28;
         enc: [nn]u32,
 
-        pub fn init(key: [keysize / 8]u8) Self {
+        pub fn init(key: [blocklen]u8) Self {
             var ctx: Self = undefined;
             expandKeyEncrypt(&key, ctx.enc[0..]);
             return ctx;
@@ -198,25 +200,29 @@ fn AESEncrypt(comptime keysize: usize) type {
             }
         }
 
-        pub fn ige(ctx: Self, dst: []u8, src: []const u8, iv: [(keysize / 8) * 2]u8) void {
-            std.debug.assert(dst.len == src.len);
-            std.debug.assert(@mod(dst.len, 16) == 0);
-            
-            const b = keysize / 8;
-            var c: [b]u8 = undefined;
-            var m: [b]u8 = undefined;
+        // Encrypt a `[]const u8` using the AES-IGE (Infinite Garbled Extension)
+        // block cipher mode. The length of `src` must be divisible by `blocklen`.
+        pub fn ige(ctx: Self, dst: []u8, src: []const u8, iv: [blocklen * 2]u8) void {
+            std.debug.assert(dst.len >= src.len);
+            std.debug.assert(@mod(src.len, blocklen) == 0);
 
-            std.mem.copy(u8, &c, iv[0..b]);
-            std.mem.copy(u8, &m, iv[b..]);
+            var c: [blocklen]u8 = undefined;
+            var m: [blocklen]u8 = undefined;
+
+            std.mem.copy(u8, &c, iv[0..blocklen]);
+            std.mem.copy(u8, &m, iv[blocklen..]);
 
             var o: usize = 0;
-            while (o < src.len) : (o += b) {
-                _ = xorBytes(dst[o..o+b], src[o..o+b], &c);
-                ctx.encrypt(dst[o..o+b], dst[o..o+b]);
-                _ = xorBytes(dst[o..o+b], dst[o..o+b], &m);
+            while (o < src.len) : (o += blocklen) {
+                const t = src[o..][0..blocklen];
+                const d = dst[o..][0..blocklen];
 
-                std.mem.copy(u8, &c, dst[o..o+b]);
-                std.mem.copy(u8, &m, src[o..o+b]);
+                _ = xorBytes(d, t, &c);
+                ctx.encrypt(d, d);
+                _ = xorBytes(d, d, &m);
+
+                std.mem.copy(u8, &c, d);
+                std.mem.copy(u8, &m, t);
             }
         }
     };
@@ -226,10 +232,11 @@ fn AESDecrypt(comptime keysize: usize) type {
     return struct {
         const Self = @This();
 
-        const nn = (keysize / 8) + 28;
+        const blocklen = keysize / 8;
+        const nn = blocklen + 28;
         dec: [nn]u32,
 
-        pub fn init(key: [keysize / 8]u8) Self {
+        pub fn init(key: [blocklen]u8) Self {
             var ctx: Self = undefined;
             var enc: [nn]u32 = undefined;
             expandKeyEncrypt(key[0..], enc[0..]);
@@ -241,25 +248,28 @@ fn AESDecrypt(comptime keysize: usize) type {
             decryptBlock(ctx.dec[0..], dst, src);
         }
 
-        pub fn ige(ctx: Self, dst: []u8, src: []const u8, iv: [(keysize / 8) * 2]u8) void {
-            std.debug.assert(src.len >= dst.len);
-            
-            const b = keysize / 8;
-            var c: [b]u8 = undefined;
-            var m: [b]u8 = undefined;
+        // Decrypt a `[]const u8` using the AES-IGE (Infinite Garbled Extension)
+        // block cipher mode. The length of `src` must be divisible by `blocklen`.
+        pub fn ige(ctx: Self, dst: []u8, src: []const u8, iv: [blocklen * 2]u8) void {
+            std.debug.assert(dst.len >= src.len);
+            std.debug.assert(@mod(src.len, blocklen) == 0);
 
-            std.mem.copy(u8, &c, iv[0..b]);
-            std.mem.copy(u8, &m, iv[b..]);
+            var c: [blocklen]u8 = undefined;
+            var m: [blocklen]u8 = undefined;
+
+            std.mem.copy(u8, &c, iv[0..blocklen]);
+            std.mem.copy(u8, &m, iv[blocklen..]);
 
             var o: usize = 0;
-            while (o < src.len) : (o += b) {
-                const t = src[o..o+b];
+            while (o < src.len) : (o += blocklen) {
+                const t = src[o..][0..blocklen];
+                const d = dst[o..][0..blocklen];
 
-                _ = xorBytes(dst[o..o+b], src[o..o+b], &m);
-                ctx.decrypt(dst[o..o+b], dst[o..o+b]);
-                _ = xorBytes(dst[o..o+b], dst[o..o+b], &c);
+                _ = xorBytes(d, t, &m);
+                ctx.decrypt(d, d);
+                _ = xorBytes(d, d, &c);
 
-                std.mem.copy(u8, &m, dst[o..o+b]);
+                std.mem.copy(u8, &m, d);
                 std.mem.copy(u8, &c, t);
             }
         }
