@@ -535,14 +535,15 @@ pub const Dir = struct {
                             w.EFAULT => unreachable,
                             w.ENOTDIR => unreachable,
                             w.EINVAL => unreachable,
+                            w.ENOTCAPABLE => return error.AccessDenied,
                             else => |err| return os.unexpectedErrno(err),
                         }
                         if (bufused == 0) return null;
                         self.index = 0;
                         self.end_index = bufused;
                     }
-                    const entry = @ptrCast(*align(1) os.wasi.dirent_t, &self.buf[self.index]);
-                    const entry_size = @sizeOf(os.wasi.dirent_t);
+                    const entry = @ptrCast(*align(1) w.dirent_t, &self.buf[self.index]);
+                    const entry_size = @sizeOf(w.dirent_t);
                     const name_index = self.index + entry_size;
                     const name = mem.span(self.buf[name_index .. name_index + entry.d_namlen]);
 
@@ -556,12 +557,12 @@ pub const Dir = struct {
                     }
 
                     const entry_kind = switch (entry.d_type) {
-                        wasi.FILETYPE_BLOCK_DEVICE => Entry.Kind.BlockDevice,
-                        wasi.FILETYPE_CHARACTER_DEVICE => Entry.Kind.CharacterDevice,
-                        wasi.FILETYPE_DIRECTORY => Entry.Kind.Directory,
-                        wasi.FILETYPE_SYMBOLIC_LINK => Entry.Kind.SymLink,
-                        wasi.FILETYPE_REGULAR_FILE => Entry.Kind.File,
-                        wasi.FILETYPE_SOCKET_STREAM, wasi.FILETYPE_SOCKET_DGRAM => Entry.Kind.UnixDomainSocket,
+                        w.FILETYPE_BLOCK_DEVICE => Entry.Kind.BlockDevice,
+                        w.FILETYPE_CHARACTER_DEVICE => Entry.Kind.CharacterDevice,
+                        w.FILETYPE_DIRECTORY => Entry.Kind.Directory,
+                        w.FILETYPE_SYMBOLIC_LINK => Entry.Kind.SymLink,
+                        w.FILETYPE_REGULAR_FILE => Entry.Kind.File,
+                        w.FILETYPE_SOCKET_STREAM, wasi.FILETYPE_SOCKET_DGRAM => Entry.Kind.UnixDomainSocket,
                         else => Entry.Kind.Unknown,
                     };
                     return Entry{
@@ -1110,10 +1111,18 @@ pub const Dir = struct {
     /// Delete a file name and possibly the file it refers to, based on an open directory handle.
     /// Asserts that the path parameter has no null bytes.
     pub fn deleteFile(self: Dir, sub_path: []const u8) DeleteFileError!void {
-        os.unlinkat(self.fd, sub_path, 0) catch |err| switch (err) {
-            error.DirNotEmpty => unreachable, // not passing AT_REMOVEDIR
-            else => |e| return e,
-        };
+        if (builtin.os.tag == .windows) {
+            const sub_path_w = try os.windows.sliceToPrefixedFileW(sub_path);
+            return self.deleteFileW(sub_path_w.span().ptr);
+        } else if (builtin.os.tag == .wasi) {
+            os.unlinkatWasi(self.fd, sub_path, 0) catch |err| switch (err) {
+                error.DirNotEmpty => unreachable, // not passing AT_REMOVEDIR
+                else => |e| return e,
+            };
+        } else {
+            const sub_path_c = try os.toPosixPath(sub_path);
+            return self.deleteFileZ(&sub_path_c);
+        }
     }
 
     pub const deleteFileC = @compileError("deprecated: renamed to deleteFileZ");
@@ -1122,6 +1131,17 @@ pub const Dir = struct {
     pub fn deleteFileZ(self: Dir, sub_path_c: [*:0]const u8) DeleteFileError!void {
         os.unlinkatZ(self.fd, sub_path_c, 0) catch |err| switch (err) {
             error.DirNotEmpty => unreachable, // not passing AT_REMOVEDIR
+            error.AccessDenied => |e| switch (builtin.os.tag) {
+                // non-Linux POSIX systems return EPERM when trying to delete a directory, so
+                // we need to handle that case specifically and translate the error
+                .macosx, .ios, .freebsd, .netbsd, .dragonfly => {
+                    // Don't follow symlinks to match unlinkat (which acts on symlinks rather than follows them)
+                    const fstat = os.fstatatZ(self.fd, sub_path_c, os.AT_SYMLINK_NOFOLLOW) catch return e;
+                    const is_dir = fstat.mode & os.S_IFMT == os.S_IFDIR;
+                    return if (is_dir) error.IsDir else e;
+                },
+                else => return e,
+            },
             else => |e| return e,
         };
     }
