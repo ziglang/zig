@@ -7530,7 +7530,7 @@ test "@hasDecl" {
       source file than the one they are declared in.
       </p>
       <p>
-      {#syntax#}path{#endsyntax#} can be a relative or absolute path, or it can be the name of a package.
+      {#syntax#}path{#endsyntax#} can be a relative path or it can be the name of a package.
       If it is a relative path, it is relative to the file that contains the {#syntax#}@import{#endsyntax#}
       function call.
       </p>
