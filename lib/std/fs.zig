@@ -535,14 +535,15 @@ pub const Dir = struct {
                             w.EFAULT => unreachable,
                             w.ENOTDIR => unreachable,
                             w.EINVAL => unreachable,
+                            w.ENOTCAPABLE => return error.AccessDenied,
                             else => |err| return os.unexpectedErrno(err),
                         }
                         if (bufused == 0) return null;
                         self.index = 0;
                         self.end_index = bufused;
                     }
-                    const entry = @ptrCast(*align(1) os.wasi.dirent_t, &self.buf[self.index]);
-                    const entry_size = @sizeOf(os.wasi.dirent_t);
+                    const entry = @ptrCast(*align(1) w.dirent_t, &self.buf[self.index]);
+                    const entry_size = @sizeOf(w.dirent_t);
                     const name_index = self.index + entry_size;
                     const name = mem.span(self.buf[name_index .. name_index + entry.d_namlen]);
 
@@ -556,12 +557,12 @@ pub const Dir = struct {
                     }
 
                     const entry_kind = switch (entry.d_type) {
-                        wasi.FILETYPE_BLOCK_DEVICE => Entry.Kind.BlockDevice,
-                        wasi.FILETYPE_CHARACTER_DEVICE => Entry.Kind.CharacterDevice,
-                        wasi.FILETYPE_DIRECTORY => Entry.Kind.Directory,
-                        wasi.FILETYPE_SYMBOLIC_LINK => Entry.Kind.SymLink,
-                        wasi.FILETYPE_REGULAR_FILE => Entry.Kind.File,
-                        wasi.FILETYPE_SOCKET_STREAM, wasi.FILETYPE_SOCKET_DGRAM => Entry.Kind.UnixDomainSocket,
+                        w.FILETYPE_BLOCK_DEVICE => Entry.Kind.BlockDevice,
+                        w.FILETYPE_CHARACTER_DEVICE => Entry.Kind.CharacterDevice,
+                        w.FILETYPE_DIRECTORY => Entry.Kind.Directory,
+                        w.FILETYPE_SYMBOLIC_LINK => Entry.Kind.SymLink,
+                        w.FILETYPE_REGULAR_FILE => Entry.Kind.File,
+                        w.FILETYPE_SOCKET_STREAM, wasi.FILETYPE_SOCKET_DGRAM => Entry.Kind.UnixDomainSocket,
                         else => Entry.Kind.Unknown,
                     };
                     return Entry{

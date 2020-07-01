@@ -859,6 +859,7 @@ pub const NativeTargetInfo = struct {
                 error.ConnectionTimedOut => return error.UnableToReadElfFile,
                 error.Unexpected => return error.Unexpected,
                 error.InputOutput => return error.FileSystem,
+                error.AccessDenied => return error.Unexpected,
             };
             if (len == 0) return error.UnexpectedEndOfFile;
             i += len;
