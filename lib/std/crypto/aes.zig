@@ -200,8 +200,8 @@ fn AESEncrypt(comptime keysize: usize) type {
             }
         }
 
-        // Encrypt a `[]const u8` using the AES-IGE (Infinite Garbled Extension)
-        // block cipher mode. The length of `src` must be divisible by `blocklen`.
+        /// Encrypt a `[]const u8` using the AES-IGE (Infinite Garbled Extension)
+        /// block cipher mode. The length of `src` must be divisible by `blocklen`.
         pub fn ige(ctx: Self, dst: []u8, src: []const u8, iv: [blocklen * 2]u8) void {
             std.debug.assert(dst.len >= src.len);
             std.debug.assert(@mod(src.len, blocklen) == 0);
@@ -248,8 +248,8 @@ fn AESDecrypt(comptime keysize: usize) type {
             decryptBlock(ctx.dec[0..], dst, src);
         }
 
-        // Decrypt a `[]const u8` using the AES-IGE (Infinite Garbled Extension)
-        // block cipher mode. The length of `src` must be divisible by `blocklen`.
+        /// Decrypt a `[]const u8` using the AES-IGE (Infinite Garbled Extension)
+        /// block cipher mode. The length of `src` must be divisible by `blocklen`.
         pub fn ige(ctx: Self, dst: []u8, src: []const u8, iv: [blocklen * 2]u8) void {
             std.debug.assert(dst.len >= src.len);
             std.debug.assert(@mod(src.len, blocklen) == 0);
