@@ -1003,7 +1003,7 @@ pub const Dir = struct {
         // paths. musl supports passing NULL but restricts the output to PATH_MAX
         // anyway.
         var buf: [MAX_PATH_BYTES]u8 = undefined;
-        return mem.dupe(allocator, u8, try os.realpathat(self.fd, pathname, &buf));
+        return allocator.dupe(u8, try os.realpathat(self.fd, pathname, &buf));
     }
 
     /// Changes the current working directory to the open directory handle.
