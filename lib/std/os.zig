@@ -4193,6 +4193,7 @@ pub fn realpathatWasi(fd: fd_t, pathname: []const u8, out_buffer: *[MAX_PATH_BYT
                     break;
             }
         } else {
+            if (result_index >= MAX_PATH_BYTES) return error.NameTooLong;
             if (result_index > 0) {
                 out_buffer[result_index] = '/';
                 result_index += 1;

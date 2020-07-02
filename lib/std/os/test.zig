@@ -64,6 +64,29 @@ test "realpathat" {
     testing.expectError(error.FileNotFound, os.realpathat(dir.fd, "definitely_bogus_does_not_exist1234", &buf2));
 }
 
+test "realpathatWasi" {
+    if (builtin.os.tag != .wasi) return error.SkipZigTest;
+
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    // create some dirs
+    try tmp.dir.makeDir("a");
+    try tmp.dir.makeDir("b");
+
+    // create file in "a/"
+    try tmp.dir.writeFile("a/file.txt", "nonsense");
+
+    // create a symlink "b/c" -> "a"
+    try os.symlinkat("a", tmp.dir.fd, "b/c");
+
+    // get realpath of "b/c/file.txt"
+    var buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+    const realpath = try os.realpathatWasi(tmp.dir.fd, "b/c/file.txt", &buf);
+
+    testing.expect(mem.eql(u8, "a/file.txt", realpath));
+}
+
 test "readlinkat" {
     // enable when `readlinkat` and `symlinkat` are implemented on Windows
     if (builtin.os.tag == .windows) return error.SkipZigTest;
