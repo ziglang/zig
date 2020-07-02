@@ -4068,13 +4068,17 @@ pub fn realpathW(pathname: [*:0]const u16, out_buffer: *[MAX_PATH_BYTES]u8) Real
     return fdPath(h_file, out_buffer);
 }
 
-/// Similar to `realpath`, however, returns the canonicalized absolute pathname of
-/// a `pathname` relative to a file descriptor `fd`.
-/// If `pathname` is an absolute path, ignores `fd` and reverts to calling
-/// `realpath` on the `pathname` argument.
-/// In Unix, if `fd` was obtained using `std.fs.cwd()` call, reverts to calling
-/// `std.os.getcwd()` to obtain file descriptor's path.
-/// See also `realpath`, `realpathatZ`, and `realpathatW`.
+/// This function will depend differently on different hosts.
+/// In WASI, it calls `realpathatWasi` which observes WASI capability-oriented
+/// security model and returns `error.AccessDenied` if the `pathname` is absolute
+/// or an attempt is made at escaping beyond the input `fd` file descriptor.
+/// On all other hosts, this function is similar to `realpath`, however, returns
+/// the canonicalized absolute pathname of a `pathname` relative to a file descriptor
+/// `fd`. If `pathname` is an absolute path, ignores `fd` and reverts to calling
+/// `realpath` on the `pathname` argument. In particular, on Unix, if `fd` was
+/// obtained using `std.fs.cwd()` call, reverts to calling `std.os.getcwd()` to
+/// obtain file descriptor's path.
+/// See also `realpath`, `realpathatZ`, `realpathatW`, and `realpathatWasi`.
 pub fn realpathat(fd: fd_t, pathname: []const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
     if (builtin.os.tag == .wasi) {
         return realpathatWasi(fd, pathname, out_buffer);
@@ -4085,51 +4089,6 @@ pub fn realpathat(fd: fd_t, pathname: []const u8, out_buffer: *[MAX_PATH_BYTES]u
     }
     const pathname_c = try toPosixPath(pathname);
     return realpathatZ(fd, &pathname_c, out_buffer);
-}
-
-pub fn realpathatWasi(fd: fd_t, pathname: []const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
-    // We'll proceed in two steps.
-    // First, we'll try opening the path as-is, and check if that works OK.
-    // Then, this will imply the path was valid under WASI's capability-oriented
-    // security model, and no path traversal attack was attempted.
-    // Second, since we've verified we're OK wrt sandboxing rules, we can
-    // analyze the path component-by-component working out the canonicalized path
-    // in the process.
-    _ = openatWasi(fd, pathname, 0x0, 0x0, 0x0, 0x0) catch |err| switch (err) {
-        error.FileLocksNotSupported => unreachable,
-        else => |e| return e,
-    };
-
-    var result_index: usize = 0;
-    var path_it = mem.tokenize(pathname, "/");
-    while (path_it.next()) |component| {
-        if (mem.eql(u8, component, ".")) {
-            continue;
-        } else if (mem.eql(u8, component, "..")) {
-            while (true) {
-                if (result_index == 0)
-                    break;
-                result_index -= 1;
-                if (out_buffer[result_index] == '/')
-                    break;
-            }
-        } else {
-            if (result_index > 0) {
-                out_buffer[result_index] = '/';
-                result_index += 1;
-            }
-            // TODO handle symlinks
-            mem.copy(u8, out_buffer[result_index..], component);
-            result_index += component.len;
-        }
-    }
-
-    if (result_index == 0) {
-        out_buffer[result_index] = '.';
-        result_index += 1;
-    }
-
-    return out_buffer[0..result_index];
 }
 
 /// Same as `realpathat` except `pathname` is null-terminated.
@@ -4200,6 +4159,67 @@ pub fn realpathatW(fd: fd_t, pathname: [*:0]const u16, out_buffer: *[MAX_PATH_BY
     const unnormalized_w = try windows.sliceToPrefixedFileW(unnormalized[0..total_len]);
 
     return realpathW(unnormalized_w.span().ptr, out_buffer);
+}
+
+/// WASI-only. Similar to `realpathat` except it returns the canonicalized relative pathname
+/// of a `pathname` relative to a file descriptor `fd`.
+/// Since this is targeting WASI, it observes WASI capability-oriented security model and
+/// returns `error.AccessDenied` if the `pathname` is absolute or an attempt is made at
+/// escaping beyond the input `fd` file descriptor.
+pub fn realpathatWasi(fd: fd_t, pathname: []const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
+    // We'll proceed in two steps.
+    // First, we'll try opening the path as-is, and check if that works OK.
+    // Then, this will imply the path was valid under WASI's capability-oriented
+    // security model, and no path traversal attack was attempted.
+    // Second, since we've verified we're OK wrt sandboxing rules, we can
+    // analyze the path component-by-component working out the canonicalized path
+    // in the process.
+    _ = openatWasi(fd, pathname, 0x0, 0x0, 0x0, 0x0) catch |err| switch (err) {
+        error.FileLocksNotSupported => unreachable,
+        else => |e| return e,
+    };
+
+    var result_index: usize = 0;
+    var path_it = mem.tokenize(pathname, "/");
+    while (path_it.next()) |component| {
+        if (mem.eql(u8, component, ".")) {
+            continue;
+        } else if (mem.eql(u8, component, "..")) {
+            while (true) {
+                if (result_index == 0)
+                    break;
+                result_index -= 1;
+                if (out_buffer[result_index] == '/')
+                    break;
+            }
+        } else {
+            if (result_index > 0) {
+                out_buffer[result_index] = '/';
+                result_index += 1;
+            }
+
+            mem.copy(u8, out_buffer[result_index..], component);
+            const tmp_result_index = result_index + component.len;
+
+            const stat = try fstatatWasi(fd, out_buffer[0..tmp_result_index], 0x0);
+            if (stat.filetype == wasi.FILETYPE_SYMBOLIC_LINK) {
+                var buf: [MAX_PATH_BYTES]u8 = undefined;
+                const target = try readlinkatWasi(fd, out_buffer[0..tmp_result_index], buf[0..]);
+
+                mem.copy(u8, out_buffer[0..], target);
+                result_index = target.len;
+            } else {
+                result_index = tmp_result_index;
+            }
+        }
+    }
+
+    if (result_index == 0) {
+        out_buffer[result_index] = '.';
+        result_index += 1;
+    }
+
+    return out_buffer[0..result_index];
 }
 
 /// Spurious wakeups are possible and no precision of timing is guaranteed.

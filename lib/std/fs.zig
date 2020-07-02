@@ -931,10 +931,16 @@ pub const Dir = struct {
         return self.openDir(sub_path, open_dir_options);
     }
 
-    /// This function returns the canonicalized absolute pathname of `pathname`
-    /// relative to this `Dir`. If `pathname` is absolute, ignores this `Dir` handle
-    /// and returns the canonicalized absolute pathname of `pathname` argument.
-    /// See also `realpath`.
+    /// This function behaves differently on different hosts.
+    /// In WASI, returns the canonicalized relative pathname of `pathname` relative
+    /// to this `Dir`. If `pathname` is absolute, or an attempt is made at
+    /// escaping beyond this `Dir`, return `error.AccessDenied`.
+    /// On other hosts, this function returns the canonicalized absolute pathname of
+    /// `pathname` relative to this `Dir`. If `pathname` is absolute, ignores this
+    /// `Dir` handle and returns the canonicalized absolute pathname of `pathname`
+    /// argument.
+    /// See also `Dir.realpathZ`, `Dir.realpathW`, `Dir.realpathWasi`,
+    /// and `Dir.realpathAlloc`.
     pub fn realpath(self: Dir, pathname: []const u8, out_buffer: []u8) ![]u8 {
         if (builtin.os.tag == .wasi) {
             return self.realpathWasi(pathname, out_buffer);
@@ -945,21 +951,6 @@ pub const Dir = struct {
         }
         const pathname_c = try os.toPosixPath(pathname);
         return self.realpathZ(&pathname_c, out_buffer);
-    }
-
-    pub fn realpathWasi(self: Dir, pathname: []const u8, out_buffer: []u8) ![]u8 {
-        // Use of MAX_PATH_BYTES here is valid as the realpath function does not
-        // have a variant that takes an arbitrary-size buffer.
-        var buf: [MAX_PATH_BYTES]u8 = undefined;
-        const out_path = try os.realpathatWasi(self.fd, pathname, &buf);
-
-        if (out_path.len > out_buffer.len) {
-            return error.NameTooLong;
-        }
-
-        mem.copy(u8, out_buffer, out_path);
-
-        return out_buffer[0..out_path.len];
     }
 
     /// Same as `Dir.realpath` except `pathname` is null-terminated.
@@ -1005,8 +996,27 @@ pub const Dir = struct {
         return out_buffer[0..out_path.len];
     }
 
+    /// WASI-only. Returns the canonicalized relative pathname of `pathname` relative
+    /// to this `Dir`. If `pathname` is absolute, or an attempt is made at
+    /// escaping beyond this `Dir`, return `error.AccessDenied`.
+    /// See also `Dir.realpath`, and `Dir.realpathAlloc`.
+    pub fn realpathWasi(self: Dir, pathname: []const u8, out_buffer: []u8) ![]u8 {
+        // Use of MAX_PATH_BYTES here is valid as the realpath function does not
+        // have a variant that takes an arbitrary-size buffer.
+        var buf: [MAX_PATH_BYTES]u8 = undefined;
+        const out_path = try os.realpathatWasi(self.fd, pathname, &buf);
+
+        if (out_path.len > out_buffer.len) {
+            return error.NameTooLong;
+        }
+
+        mem.copy(u8, out_buffer, out_path);
+
+        return out_buffer[0..out_path.len];
+    }
+
     /// Same as `Dir.realpath` except caller must free the returned memory.
-    /// See also `Dir.realpath`, `realpathAlloc`.
+    /// See also `Dir.realpath`.
     pub fn realpathAlloc(self: Dir, allocator: *Allocator, pathname: []const u8) ![]u8 {
         // Use of MAX_PATH_BYTES here is valid as the realpath function does not
         // have a variant that takes an arbitrary-size buffer.
