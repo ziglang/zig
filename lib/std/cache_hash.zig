@@ -8,6 +8,7 @@ const testing = std.testing;
 const mem = std.mem;
 const fmt = std.fmt;
 const Allocator = std.mem.Allocator;
+const tmpDir = testing.tmpDir;
 
 const base64_encoder = fs.base64_encoder;
 const base64_decoder = fs.base64_decoder;
@@ -41,6 +42,7 @@ pub const File = struct {
 pub const CacheHash = struct {
     allocator: *Allocator,
     blake3: Blake3,
+    work_dir: fs.Dir,
     manifest_dir: fs.Dir,
     manifest_file: ?fs.File,
     manifest_dirty: bool,
@@ -48,11 +50,12 @@ pub const CacheHash = struct {
     b64_digest: [BASE64_DIGEST_LEN]u8,
 
     /// Be sure to call release after successful initialization.
-    pub fn init(allocator: *Allocator, dir: fs.Dir, manifest_dir_path: []const u8) !CacheHash {
+    pub fn init(allocator: *Allocator, work_dir: fs.Dir, manifest_dir_path: []const u8) !CacheHash {
         return CacheHash{
             .allocator = allocator,
             .blake3 = Blake3.init(),
-            .manifest_dir = try dir.makeOpenPath(manifest_dir_path, .{}),
+            .work_dir = work_dir,
+            .manifest_dir = try work_dir.makeOpenPath(manifest_dir_path, .{}),
             .manifest_file = null,
             .manifest_dirty = false,
             .files = ArrayList(File).init(allocator),
@@ -100,7 +103,7 @@ pub const CacheHash = struct {
         assert(self.manifest_file == null);
 
         try self.files.ensureCapacity(self.files.items.len + 1);
-        const resolved_path = try fs.path.resolve(self.allocator, &[_][]const u8{file_path});
+        const resolved_path = try self.work_dir.realpathAlloc(self.allocator, file_path);
 
         const idx = self.files.items.len;
         self.files.addOneAssumeCapacity().* = .{
@@ -210,7 +213,7 @@ pub const CacheHash = struct {
                 cache_hash_file.path = try self.allocator.dupe(u8, file_path);
             }
 
-            const this_file = fs.cwd().openFile(cache_hash_file.path.?, .{ .read = true }) catch {
+            const this_file = self.work_dir.openFile(cache_hash_file.path.?, .{ .read = true }) catch {
                 return error.CacheUnavailable;
             };
             defer this_file.close();
@@ -276,7 +279,7 @@ pub const CacheHash = struct {
     }
 
     fn populateFileHash(self: *CacheHash, ch_file: *File) !void {
-        const file = try fs.cwd().openFile(ch_file.path.?, .{});
+        const file = try self.work_dir.openFile(ch_file.path.?, .{});
         defer file.close();
 
         ch_file.stat = try file.stat();
@@ -322,7 +325,7 @@ pub const CacheHash = struct {
     pub fn addFilePostFetch(self: *CacheHash, file_path: []const u8, max_file_size: usize) ![]u8 {
         assert(self.manifest_file != null);
 
-        const resolved_path = try fs.path.resolve(self.allocator, &[_][]const u8{file_path});
+        const resolved_path = try self.work_dir.realpathAlloc(self.allocator, file_path);
         errdefer self.allocator.free(resolved_path);
 
         const new_ch_file = try self.files.addOne();
@@ -347,7 +350,7 @@ pub const CacheHash = struct {
     pub fn addFilePost(self: *CacheHash, file_path: []const u8) !void {
         assert(self.manifest_file != null);
 
-        const resolved_path = try fs.path.resolve(self.allocator, &[_][]const u8{file_path});
+        const resolved_path = try self.work_dir.realpathAlloc(self.allocator, file_path);
         errdefer self.allocator.free(resolved_path);
 
         const new_ch_file = try self.files.addOne();
@@ -470,16 +473,13 @@ fn isProblematicTimestamp(fs_clock: i128) bool {
 }
 
 test "cache file and then recall it" {
-    if (std.Target.current.os.tag == .wasi) {
-        // https://github.com/ziglang/zig/issues/5437
-        return error.SkipZigTest;
-    }
-    const cwd = fs.cwd();
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
 
     const temp_file = "test.txt";
     const temp_manifest_dir = "temp_manifest_dir";
 
-    try cwd.writeFile(temp_file, "Hello, world!\n");
+    try tmp.dir.writeFile(temp_file, "Hello, world!\n");
 
     while (isProblematicTimestamp(std.time.nanoTimestamp())) {
         std.time.sleep(1);
@@ -489,7 +489,7 @@ test "cache file and then recall it" {
     var digest2: [BASE64_DIGEST_LEN]u8 = undefined;
 
     {
-        var ch = try CacheHash.init(testing.allocator, cwd, temp_manifest_dir);
+        var ch = try CacheHash.init(testing.allocator, tmp.dir, temp_manifest_dir);
         defer ch.release();
 
         ch.add(true);
@@ -503,7 +503,7 @@ test "cache file and then recall it" {
         digest1 = ch.final();
     }
     {
-        var ch = try CacheHash.init(testing.allocator, cwd, temp_manifest_dir);
+        var ch = try CacheHash.init(testing.allocator, tmp.dir, temp_manifest_dir);
         defer ch.release();
 
         ch.add(true);
@@ -516,9 +516,6 @@ test "cache file and then recall it" {
     }
 
     testing.expectEqual(digest1, digest2);
-
-    try cwd.deleteTree(temp_manifest_dir);
-    try cwd.deleteFile(temp_file);
 }
 
 test "give problematic timestamp" {
@@ -534,18 +531,15 @@ test "give nonproblematic timestamp" {
 }
 
 test "check that changing a file makes cache fail" {
-    if (std.Target.current.os.tag == .wasi) {
-        // https://github.com/ziglang/zig/issues/5437
-        return error.SkipZigTest;
-    }
-    const cwd = fs.cwd();
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
 
     const temp_file = "cache_hash_change_file_test.txt";
     const temp_manifest_dir = "cache_hash_change_file_manifest_dir";
     const original_temp_file_contents = "Hello, world!\n";
     const updated_temp_file_contents = "Hello, world; but updated!\n";
 
-    try cwd.writeFile(temp_file, original_temp_file_contents);
+    try tmp.dir.writeFile(temp_file, original_temp_file_contents);
 
     while (isProblematicTimestamp(std.time.nanoTimestamp())) {
         std.time.sleep(1);
@@ -555,7 +549,7 @@ test "check that changing a file makes cache fail" {
     var digest2: [BASE64_DIGEST_LEN]u8 = undefined;
 
     {
-        var ch = try CacheHash.init(testing.allocator, cwd, temp_manifest_dir);
+        var ch = try CacheHash.init(testing.allocator, tmp.dir, temp_manifest_dir);
         defer ch.release();
 
         ch.add("1234");
@@ -569,14 +563,14 @@ test "check that changing a file makes cache fail" {
         digest1 = ch.final();
     }
 
-    try cwd.writeFile(temp_file, updated_temp_file_contents);
+    try tmp.dir.writeFile(temp_file, updated_temp_file_contents);
 
     while (isProblematicTimestamp(std.time.nanoTimestamp())) {
         std.time.sleep(1);
     }
 
     {
-        var ch = try CacheHash.init(testing.allocator, cwd, temp_manifest_dir);
+        var ch = try CacheHash.init(testing.allocator, tmp.dir, temp_manifest_dir);
         defer ch.release();
 
         ch.add("1234");
@@ -592,25 +586,19 @@ test "check that changing a file makes cache fail" {
     }
 
     testing.expect(!mem.eql(u8, digest1[0..], digest2[0..]));
-
-    try cwd.deleteTree(temp_manifest_dir);
-    try cwd.deleteFile(temp_file);
 }
 
 test "no file inputs" {
-    if (std.Target.current.os.tag == .wasi) {
-        // https://github.com/ziglang/zig/issues/5437
-        return error.SkipZigTest;
-    }
-    const cwd = fs.cwd();
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
     const temp_manifest_dir = "no_file_inputs_manifest_dir";
-    defer cwd.deleteTree(temp_manifest_dir) catch unreachable;
 
     var digest1: [BASE64_DIGEST_LEN]u8 = undefined;
     var digest2: [BASE64_DIGEST_LEN]u8 = undefined;
 
     {
-        var ch = try CacheHash.init(testing.allocator, cwd, temp_manifest_dir);
+        var ch = try CacheHash.init(testing.allocator, tmp.dir, temp_manifest_dir);
         defer ch.release();
 
         ch.add("1234");
@@ -621,7 +609,7 @@ test "no file inputs" {
         digest1 = ch.final();
     }
     {
-        var ch = try CacheHash.init(testing.allocator, cwd, temp_manifest_dir);
+        var ch = try CacheHash.init(testing.allocator, tmp.dir, temp_manifest_dir);
         defer ch.release();
 
         ch.add("1234");
@@ -633,18 +621,15 @@ test "no file inputs" {
 }
 
 test "CacheHashes with files added after initial hash work" {
-    if (std.Target.current.os.tag == .wasi) {
-        // https://github.com/ziglang/zig/issues/5437
-        return error.SkipZigTest;
-    }
-    const cwd = fs.cwd();
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
 
     const temp_file1 = "cache_hash_post_file_test1.txt";
     const temp_file2 = "cache_hash_post_file_test2.txt";
     const temp_manifest_dir = "cache_hash_post_file_manifest_dir";
 
-    try cwd.writeFile(temp_file1, "Hello, world!\n");
-    try cwd.writeFile(temp_file2, "Hello world the second!\n");
+    try tmp.dir.writeFile(temp_file1, "Hello, world!\n");
+    try tmp.dir.writeFile(temp_file2, "Hello world the second!\n");
 
     while (isProblematicTimestamp(std.time.nanoTimestamp())) {
         std.time.sleep(1);
@@ -655,7 +640,7 @@ test "CacheHashes with files added after initial hash work" {
     var digest3: [BASE64_DIGEST_LEN]u8 = undefined;
 
     {
-        var ch = try CacheHash.init(testing.allocator, cwd, temp_manifest_dir);
+        var ch = try CacheHash.init(testing.allocator, tmp.dir, temp_manifest_dir);
         defer ch.release();
 
         ch.add("1234");
@@ -669,7 +654,7 @@ test "CacheHashes with files added after initial hash work" {
         digest1 = ch.final();
     }
     {
-        var ch = try CacheHash.init(testing.allocator, cwd, temp_manifest_dir);
+        var ch = try CacheHash.init(testing.allocator, tmp.dir, temp_manifest_dir);
         defer ch.release();
 
         ch.add("1234");
@@ -680,14 +665,14 @@ test "CacheHashes with files added after initial hash work" {
     testing.expect(mem.eql(u8, &digest1, &digest2));
 
     // Modify the file added after initial hash
-    try cwd.writeFile(temp_file2, "Hello world the second, updated\n");
+    try tmp.dir.writeFile(temp_file2, "Hello world the second, updated\n");
 
     while (isProblematicTimestamp(std.time.nanoTimestamp())) {
         std.time.sleep(1);
     }
 
     {
-        var ch = try CacheHash.init(testing.allocator, cwd, temp_manifest_dir);
+        var ch = try CacheHash.init(testing.allocator, tmp.dir, temp_manifest_dir);
         defer ch.release();
 
         ch.add("1234");
@@ -702,8 +687,4 @@ test "CacheHashes with files added after initial hash work" {
     }
 
     testing.expect(!mem.eql(u8, &digest1, &digest3));
-
-    try cwd.deleteTree(temp_manifest_dir);
-    try cwd.deleteFile(temp_file1);
-    try cwd.deleteFile(temp_file2);
 }
