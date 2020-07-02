@@ -1352,7 +1352,7 @@ pub fn utf8BlockForCodepoint(c: u21) !Utf8Block {
         0xE0100...0xE01EF => .VariationSelectorsSupplement,
         0xF0000...0xFFFFF => .SupplementaryPrivateUseAreaA,
         0x100000...0x10FFFF => .SupplementaryPrivateUseAreaB,
-        else => error.InvalidUtf8
+        else => error.InvalidCodepoint
     };
 }
 
