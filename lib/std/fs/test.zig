@@ -30,7 +30,7 @@ test "Dir.Iterator" {
     while (try iter.next()) |entry| {
         // We cannot just store `entry` as on Windows, we're re-using the name buffer
         // which means we'll actually share the `name` pointer between entries!
-        const name = try mem.dupe(&arena.allocator, u8, entry.name);
+        const name = try arena.allocator.dupe(u8, entry.name);
         try entries.append(Dir.Entry{ .name = name, .kind = entry.kind });
     }
 
