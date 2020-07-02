@@ -4077,7 +4077,7 @@ pub fn realpathW(pathname: [*:0]const u16, out_buffer: *[MAX_PATH_BYTES]u8) Real
 /// See also `realpath`, `realpathatZ`, and `realpathatW`.
 pub fn realpathat(fd: fd_t, pathname: []const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
     if (builtin.os.tag == .wasi) {
-        @compileError("realpathat is unsupported in WASI");
+        return realpathatWasi(fd, pathname, out_buffer);
     }
     if (builtin.os.tag == .windows) {
         const pathname_w = try windows.sliceToPrefixedFileW(pathname);
@@ -4085,6 +4085,51 @@ pub fn realpathat(fd: fd_t, pathname: []const u8, out_buffer: *[MAX_PATH_BYTES]u
     }
     const pathname_c = try toPosixPath(pathname);
     return realpathatZ(fd, &pathname_c, out_buffer);
+}
+
+pub fn realpathatWasi(fd: fd_t, pathname: []const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
+    // We'll proceed in two steps.
+    // First, we'll try opening the path as-is, and check if that works OK.
+    // Then, this will imply the path was valid under WASI's capability-oriented
+    // security model, and no path traversal attack was attempted.
+    // Second, since we've verified we're OK wrt sandboxing rules, we can
+    // analyze the path component-by-component working out the canonicalized path
+    // in the process.
+    _ = openatWasi(fd, pathname, 0x0, 0x0, 0x0, 0x0) catch |err| switch (err) {
+        error.FileLocksNotSupported => unreachable,
+        else => |e| return e,
+    };
+
+    var result_index: usize = 0;
+    var path_it = mem.tokenize(pathname, "/");
+    while (path_it.next()) |component| {
+        if (mem.eql(u8, component, ".")) {
+            continue;
+        } else if (mem.eql(u8, component, "..")) {
+            while (true) {
+                if (result_index == 0)
+                    break;
+                result_index -= 1;
+                if (out_buffer[result_index] == '/')
+                    break;
+            }
+        } else {
+            if (result_index > 0) {
+                out_buffer[result_index] = '/';
+                result_index += 1;
+            }
+            // TODO handle symlinks
+            mem.copy(u8, out_buffer[result_index..], component);
+            result_index += component.len;
+        }
+    }
+
+    if (result_index == 0) {
+        out_buffer[result_index] = '.';
+        result_index += 1;
+    }
+
+    return out_buffer[0..result_index];
 }
 
 /// Same as `realpathat` except `pathname` is null-terminated.

@@ -937,7 +937,7 @@ pub const Dir = struct {
     /// See also `realpath`.
     pub fn realpath(self: Dir, pathname: []const u8, out_buffer: []u8) ![]u8 {
         if (builtin.os.tag == .wasi) {
-            @compileError("Dir.realpath is unsupported in WASI");
+            return self.realpathWasi(pathname, out_buffer);
         }
         if (builtin.os.tag == .windows) {
             const pathname_w = try os.windows.sliceToPrefixedFileW(pathname);
@@ -945,6 +945,21 @@ pub const Dir = struct {
         }
         const pathname_c = try os.toPosixPath(pathname);
         return self.realpathZ(&pathname_c, out_buffer);
+    }
+
+    pub fn realpathWasi(self: Dir, pathname: []const u8, out_buffer: []u8) ![]u8 {
+        // Use of MAX_PATH_BYTES here is valid as the realpath function does not
+        // have a variant that takes an arbitrary-size buffer.
+        var buf: [MAX_PATH_BYTES]u8 = undefined;
+        const out_path = try os.realpathatWasi(self.fd, pathname, &buf);
+
+        if (out_path.len > out_buffer.len) {
+            return error.NameTooLong;
+        }
+
+        mem.copy(u8, out_buffer, out_path);
+
+        return out_buffer[0..out_path.len];
     }
 
     /// Same as `Dir.realpath` except `pathname` is null-terminated.
@@ -993,9 +1008,6 @@ pub const Dir = struct {
     /// Same as `Dir.realpath` except caller must free the returned memory.
     /// See also `Dir.realpath`, `realpathAlloc`.
     pub fn realpathAlloc(self: Dir, allocator: *Allocator, pathname: []const u8) ![]u8 {
-        if (builtin.os.tag == .wasi) {
-            @compileError("Dir.realpath is unsupported in WASI");
-        }
         // Use of MAX_PATH_BYTES here is valid as the realpath function does not
         // have a variant that takes an arbitrary-size buffer.
         // TODO(#4812): Consider reimplementing realpath or using the POSIX.1-2008
