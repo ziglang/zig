@@ -37,6 +37,68 @@ pub fn generateSymbol(
         .Fn => {
             const module_fn = typed_value.val.cast(Value.Payload.Function).?.func;
 
+            const fn_type = module_fn.owner_decl.typed_value.most_recent.typed_value.ty;
+            const param_types = try bin_file.allocator.alloc(Type, fn_type.fnParamLen());
+            defer bin_file.allocator.free(param_types);
+            fn_type.fnParamTypes(param_types);
+            // A parameter may be broken into multiple machine code parameters, so we don't
+            // know the size up front.
+            var mc_args = try std.ArrayList(Function.MCValue).initCapacity(bin_file.allocator, param_types.len);
+            defer mc_args.deinit();
+
+            var next_stack_offset: u64 = 0;
+
+            switch (fn_type.fnCallingConvention()) {
+                .Naked => assert(mc_args.items.len == 0),
+                .Unspecified, .C => {
+                    // Prepare the function parameters
+                    switch (bin_file.options.target.cpu.arch) {
+                        .x86_64 => {
+                            const integer_registers = [_]Reg(.x86_64){ .rdi, .rsi, .rdx, .rcx, .r8, .r9 };
+                            var next_int_reg: usize = 0;
+
+                            for (param_types) |param_type, src_i| {
+                                switch (param_type.zigTypeTag()) {
+                                    .Bool, .Int => {
+                                        if (next_int_reg >= integer_registers.len) {
+                                            try mc_args.append(.{ .stack_offset = next_stack_offset });
+                                            next_stack_offset += param_type.abiSize(bin_file.options.target);
+                                        } else {
+                                            try mc_args.append(.{ .register = @enumToInt(integer_registers[next_int_reg]) });
+                                            next_int_reg += 1;
+                                        }
+                                    },
+                                    else => return Result{
+                                        .fail = try ErrorMsg.create(
+                                            bin_file.allocator,
+                                            src,
+                                            "TODO implement function parameters of type {}",
+                                            .{@tagName(param_type.zigTypeTag())},
+                                        ),
+                                    },
+                                }
+                            }
+                        },
+                        else => return Result{
+                            .fail = try ErrorMsg.create(
+                                bin_file.allocator,
+                                src,
+                                "TODO implement function parameters for {}",
+                                .{bin_file.options.target.cpu.arch},
+                            ),
+                        },
+                    }
+                },
+                else => return Result{
+                    .fail = try ErrorMsg.create(
+                        bin_file.allocator,
+                        src,
+                        "TODO implement {} calling convention",
+                        .{fn_type.fnCallingConvention()},
+                    ),
+                },
+            }
+
             var function = Function{
                 .target = &bin_file.options.target,
                 .bin_file = bin_file,
@@ -44,16 +106,14 @@ pub fn generateSymbol(
                 .code = code,
                 .inst_table = std.AutoHashMap(*ir.Inst, Function.MCValue).init(bin_file.allocator),
                 .err_msg = null,
+                .args = mc_args.items,
             };
             defer function.inst_table.deinit();
 
-            for (module_fn.analysis.success.instructions) |inst| {
-                const new_inst = function.genFuncInst(inst) catch |err| switch (err) {
-                    error.CodegenFail => return Result{ .fail = function.err_msg.? },
-                    else => |e| return e,
-                };
-                try function.inst_table.putNoClobber(inst, new_inst);
-            }
+            function.gen() catch |err| switch (err) {
+                error.CodegenFail => return Result{ .fail = function.err_msg.? },
+                else => |e| return e,
+            };
 
             if (function.err_msg) |em| {
                 return Result{ .fail = em };
@@ -157,6 +217,7 @@ const Function = struct {
     code: *std.ArrayList(u8),
     inst_table: std.AutoHashMap(*ir.Inst, MCValue),
     err_msg: ?*ErrorMsg,
+    args: []MCValue,
 
     const MCValue = union(enum) {
         none,
@@ -170,44 +231,119 @@ const Function = struct {
         register: usize,
         /// The value is in memory at a hard-coded address.
         memory: u64,
+        /// The value is one of the stack variables.
+        stack_offset: u64,
     };
 
-    fn genFuncInst(self: *Function, inst: *ir.Inst) !MCValue {
-        switch (inst.tag) {
-            .add => return self.genAdd(inst.cast(ir.Inst.Add).?),
-            .arg => return self.genArg(inst.src),
-            .block => return self.genBlock(inst.cast(ir.Inst.Block).?),
-            .breakpoint => return self.genBreakpoint(inst.src),
-            .call => return self.genCall(inst.cast(ir.Inst.Call).?),
-            .unreach => return MCValue{ .unreach = {} },
-            .constant => unreachable, // excluded from function bodies
-            .assembly => return self.genAsm(inst.cast(ir.Inst.Assembly).?),
-            .ptrtoint => return self.genPtrToInt(inst.cast(ir.Inst.PtrToInt).?),
-            .bitcast => return self.genBitCast(inst.cast(ir.Inst.BitCast).?),
-            .ret => return self.genRet(inst.cast(ir.Inst.Ret).?),
-            .retvoid => return self.genRetVoid(inst.cast(ir.Inst.RetVoid).?),
-            .cmp => return self.genCmp(inst.cast(ir.Inst.Cmp).?),
-            .condbr => return self.genCondBr(inst.cast(ir.Inst.CondBr).?),
-            .isnull => return self.genIsNull(inst.cast(ir.Inst.IsNull).?),
-            .isnonnull => return self.genIsNonNull(inst.cast(ir.Inst.IsNonNull).?),
+    fn gen(self: *Function) !void {
+        switch (self.target.cpu.arch) {
+            .arm => return self.genArch(.arm),
+            .armeb => return self.genArch(.armeb),
+            .aarch64 => return self.genArch(.aarch64),
+            .aarch64_be => return self.genArch(.aarch64_be),
+            .aarch64_32 => return self.genArch(.aarch64_32),
+            .arc => return self.genArch(.arc),
+            .avr => return self.genArch(.avr),
+            .bpfel => return self.genArch(.bpfel),
+            .bpfeb => return self.genArch(.bpfeb),
+            .hexagon => return self.genArch(.hexagon),
+            .mips => return self.genArch(.mips),
+            .mipsel => return self.genArch(.mipsel),
+            .mips64 => return self.genArch(.mips64),
+            .mips64el => return self.genArch(.mips64el),
+            .msp430 => return self.genArch(.msp430),
+            .powerpc => return self.genArch(.powerpc),
+            .powerpc64 => return self.genArch(.powerpc64),
+            .powerpc64le => return self.genArch(.powerpc64le),
+            .r600 => return self.genArch(.r600),
+            .amdgcn => return self.genArch(.amdgcn),
+            .riscv32 => return self.genArch(.riscv32),
+            .riscv64 => return self.genArch(.riscv64),
+            .sparc => return self.genArch(.sparc),
+            .sparcv9 => return self.genArch(.sparcv9),
+            .sparcel => return self.genArch(.sparcel),
+            .s390x => return self.genArch(.s390x),
+            .tce => return self.genArch(.tce),
+            .tcele => return self.genArch(.tcele),
+            .thumb => return self.genArch(.thumb),
+            .thumbeb => return self.genArch(.thumbeb),
+            .i386 => return self.genArch(.i386),
+            .x86_64 => return self.genArch(.x86_64),
+            .xcore => return self.genArch(.xcore),
+            .nvptx => return self.genArch(.nvptx),
+            .nvptx64 => return self.genArch(.nvptx64),
+            .le32 => return self.genArch(.le32),
+            .le64 => return self.genArch(.le64),
+            .amdil => return self.genArch(.amdil),
+            .amdil64 => return self.genArch(.amdil64),
+            .hsail => return self.genArch(.hsail),
+            .hsail64 => return self.genArch(.hsail64),
+            .spir => return self.genArch(.spir),
+            .spir64 => return self.genArch(.spir64),
+            .kalimba => return self.genArch(.kalimba),
+            .shave => return self.genArch(.shave),
+            .lanai => return self.genArch(.lanai),
+            .wasm32 => return self.genArch(.wasm32),
+            .wasm64 => return self.genArch(.wasm64),
+            .renderscript32 => return self.genArch(.renderscript32),
+            .renderscript64 => return self.genArch(.renderscript64),
+            .ve => return self.genArch(.ve),
         }
     }
 
-    fn genAdd(self: *Function, inst: *ir.Inst.Add) !MCValue {
-        switch (self.target.cpu.arch) {
+    fn genArch(self: *Function, comptime arch: std.Target.Cpu.Arch) !void {
+        for (self.mod_fn.analysis.success.instructions) |inst| {
+            const new_inst = try self.genFuncInst(inst, arch);
+            try self.inst_table.putNoClobber(inst, new_inst);
+        }
+    }
+
+    fn genFuncInst(self: *Function, inst: *ir.Inst, comptime arch: std.Target.Cpu.Arch) !MCValue {
+        switch (inst.tag) {
+            .add => return self.genAdd(inst.cast(ir.Inst.Add).?, arch),
+            .arg => return self.genArg(inst.cast(ir.Inst.Arg).?),
+            .block => return self.genBlock(inst.cast(ir.Inst.Block).?, arch),
+            .breakpoint => return self.genBreakpoint(inst.src, arch),
+            .call => return self.genCall(inst.cast(ir.Inst.Call).?, arch),
+            .unreach => return MCValue{ .unreach = {} },
+            .constant => unreachable, // excluded from function bodies
+            .assembly => return self.genAsm(inst.cast(ir.Inst.Assembly).?, arch),
+            .ptrtoint => return self.genPtrToInt(inst.cast(ir.Inst.PtrToInt).?),
+            .bitcast => return self.genBitCast(inst.cast(ir.Inst.BitCast).?),
+            .ret => return self.genRet(inst.cast(ir.Inst.Ret).?, arch),
+            .retvoid => return self.genRetVoid(inst.cast(ir.Inst.RetVoid).?, arch),
+            .cmp => return self.genCmp(inst.cast(ir.Inst.Cmp).?, arch),
+            .condbr => return self.genCondBr(inst.cast(ir.Inst.CondBr).?, arch),
+            .isnull => return self.genIsNull(inst.cast(ir.Inst.IsNull).?, arch),
+            .isnonnull => return self.genIsNonNull(inst.cast(ir.Inst.IsNonNull).?, arch),
+        }
+    }
+
+    fn genAdd(self: *Function, inst: *ir.Inst.Add, comptime arch: std.Target.Cpu.Arch) !MCValue {
+        const lhs = try self.resolveInst(inst.args.lhs);
+        const rhs = try self.resolveInst(inst.args.rhs);
+        switch (arch) {
+            .i386, .x86_64 => {
+                // const lhs_reg = try self.instAsReg(lhs);
+                // const rhs_reg = try self.instAsReg(rhs);
+                // const result = try self.allocateReg();
+
+                // try self.code.append(??);
+
+                // lhs_reg.release();
+                // rhs_reg.release();
+                return self.fail(inst.base.src, "TODO implement register allocation", .{});
+            },
             else => return self.fail(inst.base.src, "TODO implement add for {}", .{self.target.cpu.arch}),
         }
     }
 
-    fn genArg(self: *Function, src: usize) !MCValue {
-        switch (self.target.cpu.arch) {
-            else => return self.fail(src, "TODO implement function parameters for {}", .{self.target.cpu.arch}),
-        }
-        return .none;
+    fn genArg(self: *Function, inst: *ir.Inst.Arg) !MCValue {
+        return self.args[inst.args.index];
     }
 
-    fn genBreakpoint(self: *Function, src: usize) !MCValue {
-        switch (self.target.cpu.arch) {
+    fn genBreakpoint(self: *Function, src: usize, comptime arch: std.Target.Cpu.Arch) !MCValue {
+        switch (arch) {
             .i386, .x86_64 => {
                 try self.code.append(0xcc); // int3
             },
@@ -216,8 +352,8 @@ const Function = struct {
         return .none;
     }
 
-    fn genCall(self: *Function, inst: *ir.Inst.Call) !MCValue {
-        switch (self.target.cpu.arch) {
+    fn genCall(self: *Function, inst: *ir.Inst.Call, comptime arch: std.Target.Cpu.Arch) !MCValue {
+        switch (arch) {
             .x86_64, .i386 => {
                 if (inst.args.func.cast(ir.Inst.Constant)) |func_inst| {
                     if (inst.args.args.len != 0) {
@@ -251,11 +387,11 @@ const Function = struct {
         }
     }
 
-    fn ret(self: *Function, src: usize, mcv: MCValue) !MCValue {
+    fn ret(self: *Function, src: usize, comptime arch: std.Target.Cpu.Arch, mcv: MCValue) !MCValue {
         if (mcv != .none) {
             return self.fail(src, "TODO implement return with non-void operand", .{});
         }
-        switch (self.target.cpu.arch) {
+        switch (arch) {
             .i386, .x86_64 => {
                 try self.code.append(0xc3); // ret
             },
@@ -264,43 +400,43 @@ const Function = struct {
         return .unreach;
     }
 
-    fn genRet(self: *Function, inst: *ir.Inst.Ret) !MCValue {
+    fn genRet(self: *Function, inst: *ir.Inst.Ret, comptime arch: std.Target.Cpu.Arch) !MCValue {
         const operand = try self.resolveInst(inst.args.operand);
-        return self.ret(inst.base.src, operand);
+        return self.ret(inst.base.src, arch, operand);
     }
 
-    fn genRetVoid(self: *Function, inst: *ir.Inst.RetVoid) !MCValue {
-        return self.ret(inst.base.src, .none);
+    fn genRetVoid(self: *Function, inst: *ir.Inst.RetVoid, comptime arch: std.Target.Cpu.Arch) !MCValue {
+        return self.ret(inst.base.src, arch, .none);
     }
 
-    fn genCmp(self: *Function, inst: *ir.Inst.Cmp) !MCValue {
-        switch (self.target.cpu.arch) {
+    fn genCmp(self: *Function, inst: *ir.Inst.Cmp, comptime arch: std.Target.Cpu.Arch) !MCValue {
+        switch (arch) {
             else => return self.fail(inst.base.src, "TODO implement cmp for {}", .{self.target.cpu.arch}),
         }
     }
 
-    fn genCondBr(self: *Function, inst: *ir.Inst.CondBr) !MCValue {
-        switch (self.target.cpu.arch) {
+    fn genCondBr(self: *Function, inst: *ir.Inst.CondBr, comptime arch: std.Target.Cpu.Arch) !MCValue {
+        switch (arch) {
             else => return self.fail(inst.base.src, "TODO implement condbr for {}", .{self.target.cpu.arch}),
         }
     }
 
-    fn genIsNull(self: *Function, inst: *ir.Inst.IsNull) !MCValue {
-        switch (self.target.cpu.arch) {
+    fn genIsNull(self: *Function, inst: *ir.Inst.IsNull, comptime arch: std.Target.Cpu.Arch) !MCValue {
+        switch (arch) {
             else => return self.fail(inst.base.src, "TODO implement isnull for {}", .{self.target.cpu.arch}),
         }
     }
 
-    fn genIsNonNull(self: *Function, inst: *ir.Inst.IsNonNull) !MCValue {
+    fn genIsNonNull(self: *Function, inst: *ir.Inst.IsNonNull, comptime arch: std.Target.Cpu.Arch) !MCValue {
         // Here you can specialize this instruction if it makes sense to, otherwise the default
         // will call genIsNull and invert the result.
-        switch (self.target.cpu.arch) {
+        switch (arch) {
             else => return self.fail(inst.base.src, "TODO call genIsNull and invert the result ", .{}),
         }
     }
 
-    fn genRelativeFwdJump(self: *Function, src: usize, amount: u32) !void {
-        switch (self.target.cpu.arch) {
+    fn genRelativeFwdJump(self: *Function, src: usize, comptime arch: std.Target.Cpu.Arch, amount: u32) !void {
+        switch (arch) {
             .i386, .x86_64 => {
                 // TODO x86 treats the operands as signed
                 if (amount <= std.math.maxInt(u8)) {
@@ -318,70 +454,13 @@ const Function = struct {
         }
     }
 
-    fn genBlock(self: *Function, inst: *ir.Inst.Block) !MCValue {
-        switch (self.target.cpu.arch) {
+    fn genBlock(self: *Function, inst: *ir.Inst.Block, comptime arch: std.Target.Cpu.Arch) !MCValue {
+        switch (arch) {
             else => return self.fail(inst.base.src, "TODO implement codegen Block for {}", .{self.target.cpu.arch}),
         }
     }
 
-    fn genAsm(self: *Function, inst: *ir.Inst.Assembly) !MCValue {
-        // TODO convert to inline function
-        switch (self.target.cpu.arch) {
-            .arm => return self.genAsmArch(.arm, inst),
-            .armeb => return self.genAsmArch(.armeb, inst),
-            .aarch64 => return self.genAsmArch(.aarch64, inst),
-            .aarch64_be => return self.genAsmArch(.aarch64_be, inst),
-            .aarch64_32 => return self.genAsmArch(.aarch64_32, inst),
-            .arc => return self.genAsmArch(.arc, inst),
-            .avr => return self.genAsmArch(.avr, inst),
-            .bpfel => return self.genAsmArch(.bpfel, inst),
-            .bpfeb => return self.genAsmArch(.bpfeb, inst),
-            .hexagon => return self.genAsmArch(.hexagon, inst),
-            .mips => return self.genAsmArch(.mips, inst),
-            .mipsel => return self.genAsmArch(.mipsel, inst),
-            .mips64 => return self.genAsmArch(.mips64, inst),
-            .mips64el => return self.genAsmArch(.mips64el, inst),
-            .msp430 => return self.genAsmArch(.msp430, inst),
-            .powerpc => return self.genAsmArch(.powerpc, inst),
-            .powerpc64 => return self.genAsmArch(.powerpc64, inst),
-            .powerpc64le => return self.genAsmArch(.powerpc64le, inst),
-            .r600 => return self.genAsmArch(.r600, inst),
-            .amdgcn => return self.genAsmArch(.amdgcn, inst),
-            .riscv32 => return self.genAsmArch(.riscv32, inst),
-            .riscv64 => return self.genAsmArch(.riscv64, inst),
-            .sparc => return self.genAsmArch(.sparc, inst),
-            .sparcv9 => return self.genAsmArch(.sparcv9, inst),
-            .sparcel => return self.genAsmArch(.sparcel, inst),
-            .s390x => return self.genAsmArch(.s390x, inst),
-            .tce => return self.genAsmArch(.tce, inst),
-            .tcele => return self.genAsmArch(.tcele, inst),
-            .thumb => return self.genAsmArch(.thumb, inst),
-            .thumbeb => return self.genAsmArch(.thumbeb, inst),
-            .i386 => return self.genAsmArch(.i386, inst),
-            .x86_64 => return self.genAsmArch(.x86_64, inst),
-            .xcore => return self.genAsmArch(.xcore, inst),
-            .nvptx => return self.genAsmArch(.nvptx, inst),
-            .nvptx64 => return self.genAsmArch(.nvptx64, inst),
-            .le32 => return self.genAsmArch(.le32, inst),
-            .le64 => return self.genAsmArch(.le64, inst),
-            .amdil => return self.genAsmArch(.amdil, inst),
-            .amdil64 => return self.genAsmArch(.amdil64, inst),
-            .hsail => return self.genAsmArch(.hsail, inst),
-            .hsail64 => return self.genAsmArch(.hsail64, inst),
-            .spir => return self.genAsmArch(.spir, inst),
-            .spir64 => return self.genAsmArch(.spir64, inst),
-            .kalimba => return self.genAsmArch(.kalimba, inst),
-            .shave => return self.genAsmArch(.shave, inst),
-            .lanai => return self.genAsmArch(.lanai, inst),
-            .wasm32 => return self.genAsmArch(.wasm32, inst),
-            .wasm64 => return self.genAsmArch(.wasm64, inst),
-            .renderscript32 => return self.genAsmArch(.renderscript32, inst),
-            .renderscript64 => return self.genAsmArch(.renderscript64, inst),
-            .ve => return self.genAsmArch(.ve, inst),
-        }
-    }
-
-    fn genAsmArch(self: *Function, comptime arch: Target.Cpu.Arch, inst: *ir.Inst.Assembly) !MCValue {
+    fn genAsm(self: *Function, inst: *ir.Inst.Assembly, comptime arch: Target.Cpu.Arch) !MCValue {
         if (arch != .x86_64 and arch != .i386) {
             return self.fail(inst.base.src, "TODO implement inline asm support for more architectures", .{});
         }
@@ -606,6 +685,9 @@ const Function = struct {
                             try self.code.appendSlice(&[_]u8{ 0x8B, RM });
                         }
                     }
+                },
+                .stack_offset => |off| {
+                    return self.fail(src, "TODO implement genSetReg for stack variables", .{});
                 },
             },
             else => return self.fail(src, "TODO implement genSetReg for more architectures", .{}),

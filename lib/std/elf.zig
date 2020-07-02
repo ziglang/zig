@@ -552,6 +552,7 @@ fn preadNoEof(file: std.fs.File, buf: []u8, offset: u64) !void {
             error.Unexpected => return error.Unexpected,
             error.WouldBlock => return error.Unexpected,
             error.NotOpenForReading => return error.Unexpected,
+            error.AccessDenied => return error.Unexpected,
         };
         if (len == 0) return error.UnexpectedEndOfFile;
         i += len;

@@ -116,9 +116,6 @@ pub const Allocator = struct {
         if (isAligned(@ptrToInt(old_mem.ptr), new_alignment)) {
             if (new_byte_count <= old_mem.len) {
                 const shrunk_len = self.shrinkBytes(old_mem, new_byte_count, len_align);
-                if (shrunk_len < old_mem.len) {
-                    @memset(old_mem.ptr + shrunk_len, undefined, old_mem.len - shrunk_len);
-                }
                 return old_mem.ptr[0..shrunk_len];
             }
             if (self.callResizeFn(old_mem, new_byte_count, len_align)) |resized_len| {
@@ -723,8 +720,8 @@ pub fn zeroInit(comptime T: type, init: var) T {
                                     @field(value, field.name) = @field(init, field.name);
                                 },
                             }
-                        } else if (field.default_value != null) {
-                            @field(value, field.name) = field.default_value;
+                        } else if (field.default_value) |default_value| {
+                            @field(value, field.name) = default_value;
                         }
                     }
 
@@ -751,7 +748,7 @@ test "zeroInit" {
         b: ?bool,
         c: I,
         e: [3]u8,
-        f: i64,
+        f: i64 = -1,
     };
 
     const s = zeroInit(S, .{
@@ -765,7 +762,7 @@ test "zeroInit" {
             .d = 0,
         },
         .e = [3]u8{ 0, 0, 0 },
-        .f = 0,
+        .f = -1,
     });
 }
 

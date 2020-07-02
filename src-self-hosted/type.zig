@@ -535,6 +535,76 @@ pub const Type = extern union {
         };
     }
 
+    /// Asserts the type has the ABI size already resolved.
+    pub fn abiSize(self: Type, target: Target) u64 {
+        return switch (self.tag()) {
+            .fn_noreturn_no_args => unreachable, // represents machine code; not a pointer
+            .fn_void_no_args => unreachable, // represents machine code; not a pointer
+            .fn_naked_noreturn_no_args => unreachable, // represents machine code; not a pointer
+            .fn_ccc_void_no_args => unreachable, // represents machine code; not a pointer
+            .function => unreachable, // represents machine code; not a pointer
+            .c_void => unreachable,
+            .void => unreachable,
+            .type => unreachable,
+            .comptime_int => unreachable,
+            .comptime_float => unreachable,
+            .noreturn => unreachable,
+            .@"null" => unreachable,
+            .@"undefined" => unreachable,
+
+            .u8,
+            .i8,
+            .bool,
+            => return 1,
+
+            .array_u8_sentinel_0 => @fieldParentPtr(Payload.Array_u8_Sentinel0, "base", self.ptr_otherwise).len,
+            .array => {
+                const payload = @fieldParentPtr(Payload.Array, "base", self.ptr_otherwise);
+                const elem_size = std.math.max(payload.elem_type.abiAlignment(target), payload.elem_type.abiSize(target));
+                return payload.len * elem_size;
+            },
+            .i16, .u16 => return 2,
+            .i32, .u32 => return 4,
+            .i64, .u64 => return 8,
+
+            .isize,
+            .usize,
+            .single_const_pointer_to_comptime_int,
+            .const_slice_u8,
+            .single_const_pointer,
+            => return @divExact(target.cpu.arch.ptrBitWidth(), 8),
+
+            .c_short => return @divExact(CType.short.sizeInBits(target), 8),
+            .c_ushort => return @divExact(CType.ushort.sizeInBits(target), 8),
+            .c_int => return @divExact(CType.int.sizeInBits(target), 8),
+            .c_uint => return @divExact(CType.uint.sizeInBits(target), 8),
+            .c_long => return @divExact(CType.long.sizeInBits(target), 8),
+            .c_ulong => return @divExact(CType.ulong.sizeInBits(target), 8),
+            .c_longlong => return @divExact(CType.longlong.sizeInBits(target), 8),
+            .c_ulonglong => return @divExact(CType.ulonglong.sizeInBits(target), 8),
+
+            .f16 => return 2,
+            .f32 => return 4,
+            .f64 => return 8,
+            .f128 => return 16,
+            .c_longdouble => return 16,
+
+            .anyerror => return 2, // TODO revisit this when we have the concept of the error tag type
+
+
+            .int_signed, .int_unsigned => {
+                const bits: u16 = if (self.cast(Payload.IntSigned)) |pl|
+                    pl.bits
+                else if (self.cast(Payload.IntUnsigned)) |pl|
+                    pl.bits
+                else
+                    unreachable;
+
+                return std.math.ceilPowerOfTwoPromote(u16, (bits + 7) / 8);
+            },
+        };
+    }
+
     pub fn isSinglePointer(self: Type) bool {
         return switch (self.tag()) {
             .u8,
