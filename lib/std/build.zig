@@ -512,7 +512,7 @@ pub const Builder = struct {
         if (self.release_mode != null) {
             @panic("setPreferredReleaseMode must be called before standardReleaseOptions and may not be called twice");
         }
-        const description = self.fmt("create a release build ({})", .{@tagName(mode)});
+        const description = self.fmt("Create a release build ({})", .{@tagName(mode)});
         self.is_release = self.option(bool, "release", description) orelse false;
         self.release_mode = if (self.is_release) mode else builtin.Mode.Debug;
     }
@@ -522,9 +522,9 @@ pub const Builder = struct {
     pub fn standardReleaseOptions(self: *Builder) builtin.Mode {
         if (self.release_mode) |mode| return mode;
 
-        const release_safe = self.option(bool, "release-safe", "optimizations on and safety on") orelse false;
-        const release_fast = self.option(bool, "release-fast", "optimizations on and safety off") orelse false;
-        const release_small = self.option(bool, "release-small", "size optimizations on and safety off") orelse false;
+        const release_safe = self.option(bool, "release-safe", "Optimizations on and safety on") orelse false;
+        const release_fast = self.option(bool, "release-fast", "Optimizations on and safety off") orelse false;
+        const release_small = self.option(bool, "release-small", "Size optimizations on and safety off") orelse false;
 
         const mode = if (release_safe and !release_fast and !release_small)
             builtin.Mode.ReleaseSafe
@@ -555,7 +555,7 @@ pub const Builder = struct {
         const triple = self.option(
             []const u8,
             "target",
-            "The CPU architecture, OS, and ABI to build for.",
+            "The CPU architecture, OS, and ABI to build for",
         ) orelse return args.default_target;
 
         // TODO add cpu and features as part of the target triple
