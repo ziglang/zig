@@ -4179,6 +4179,10 @@ pub fn realpathatWasi(fd: fd_t, pathname: []const u8, out_buffer: *[MAX_PATH_BYT
         else => |e| return e,
     };
 
+    return realpathatWasiUnchecked(fd, pathname, out_buffer);
+}
+
+fn realpathatWasiUnchecked(fd: fd_t, pathname: []const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
     var result_index: usize = 0;
     var path_it = mem.tokenize(pathname, "/");
     while (path_it.next()) |component| {
@@ -4206,9 +4210,14 @@ pub fn realpathatWasi(fd: fd_t, pathname: []const u8, out_buffer: *[MAX_PATH_BYT
             if (stat.filetype == wasi.FILETYPE_SYMBOLIC_LINK) {
                 var buf: [MAX_PATH_BYTES]u8 = undefined;
                 const target = try readlinkatWasi(fd, out_buffer[0..tmp_result_index], buf[0..]);
+                mem.copy(u8, out_buffer[result_index..], target);
 
-                mem.copy(u8, out_buffer[0..], target);
-                result_index = target.len;
+                // OK, we've dereferenced the symlink, now, call `realpathatWasi` recursively
+                // to work out the target's canonical form.
+                const target_canon = try realpathatWasiUnchecked(fd, out_buffer[0 .. result_index + target.len], &buf);
+                mem.copy(u8, out_buffer[0..], target_canon);
+
+                result_index = target_canon.len;
             } else {
                 result_index = tmp_result_index;
             }

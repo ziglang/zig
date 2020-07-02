@@ -71,20 +71,22 @@ test "realpathatWasi" {
     defer tmp.cleanup();
 
     // create some dirs
-    try tmp.dir.makeDir("a");
-    try tmp.dir.makeDir("b");
+    try tmp.dir.makePath("a/b");
 
-    // create file in "a/"
-    try tmp.dir.writeFile("a/file.txt", "nonsense");
+    // create file in "a/b"
+    try tmp.dir.writeFile("a/b/file.txt", "nonsense");
 
-    // create a symlink "b/c" -> "a"
-    try os.symlinkat("a", tmp.dir.fd, "b/c");
+    // create a symlink "a/c" -> "a/b"
+    var subdir = try tmp.dir.openDir("a", .{});
+    defer subdir.close();
 
-    // get realpath of "b/c/file.txt"
+    try os.symlinkat("b", subdir.fd, "c");
+
+    // get realpath of "a/c/file.txt"
     var buf: [fs.MAX_PATH_BYTES]u8 = undefined;
-    const realpath = try os.realpathatWasi(tmp.dir.fd, "b/c/file.txt", &buf);
+    const realpath = try os.realpathatWasi(tmp.dir.fd, "a/c/file.txt", &buf);
 
-    testing.expect(mem.eql(u8, "a/file.txt", realpath));
+    testing.expect(mem.eql(u8, "a/b/file.txt", realpath));
 }
 
 test "readlinkat" {
