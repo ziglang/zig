@@ -366,6 +366,7 @@ pub fn formatType(
             }
 
             // Use @tagName only if value is one of known fields
+            @setEvalBranchQuota(3 * enumInfo.fields.len);
             inline for (enumInfo.fields) |enumField| {
                 if (@enumToInt(value) == enumField.value) {
                     try writer.writeAll(".");
@@ -1321,6 +1322,9 @@ test "enum" {
     try testFmt("enum: Enum.Two\n", "enum: {}\n", .{&value});
     try testFmt("enum: Enum.One\n", "enum: {x}\n", .{Enum.One});
     try testFmt("enum: Enum.Two\n", "enum: {X}\n", .{Enum.Two});
+
+    // test very large enum to verify ct branch quota is large enough
+    try testFmt("enum: Win32Error.INVALID_FUNCTION\n", "enum: {}\n", .{std.os.windows.Win32Error.INVALID_FUNCTION});
 }
 
 test "non-exhaustive enum" {
