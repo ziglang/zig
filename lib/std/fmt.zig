@@ -995,47 +995,75 @@ pub fn formatIntBuf(out_buf: []u8, value: var, base: u8, uppercase: bool, option
     return fbs.pos;
 }
 
-pub fn parseInt(comptime T: type, buf: []const u8, radix: u8) !T {
-    if (!T.is_signed) return parseUnsigned(T, buf, radix);
-    if (buf.len == 0) return @as(T, 0);
-    if (buf[0] == '-') {
-        return math.negate(try parseUnsigned(T, buf[1..], radix));
-    } else if (buf[0] == '+') {
-        return parseUnsigned(T, buf[1..], radix);
-    } else {
-        return parseUnsigned(T, buf, radix);
-    }
-}
-
-test "parseInt" {
-    std.testing.expect((parseInt(i32, "-10", 10) catch unreachable) == -10);
-    std.testing.expect((parseInt(i32, "+10", 10) catch unreachable) == 10);
-    std.testing.expect(if (parseInt(i32, " 10", 10)) |_| false else |err| err == error.InvalidCharacter);
-    std.testing.expect(if (parseInt(i32, "10 ", 10)) |_| false else |err| err == error.InvalidCharacter);
-    std.testing.expect(if (parseInt(u32, "-10", 10)) |_| false else |err| err == error.InvalidCharacter);
-    std.testing.expect((parseInt(u8, "255", 10) catch unreachable) == 255);
-    std.testing.expect(if (parseInt(u8, "256", 10)) |_| false else |err| err == error.Overflow);
-}
-
-pub const ParseUnsignedError = error{
+pub const ParseIntError = error{
     /// The result cannot fit in the type specified
     Overflow,
 
-    /// The input had a byte that was not a digit
+    /// The input was empty or had a byte that was not a digit
     InvalidCharacter,
 };
 
-pub fn parseUnsigned(comptime T: type, buf: []const u8, radix: u8) ParseUnsignedError!T {
+pub fn parseInt(comptime T: type, buf: []const u8, radix: u8) ParseIntError!T {
+    if (buf.len == 0) return error.InvalidCharacter;
+    if (buf[0] == '+') return parseWithSign(T, buf[1..], radix, .Pos);
+    if (buf[0] == '-') return parseWithSign(T, buf[1..], radix, .Neg);
+    return parseWithSign(T, buf, radix, .Pos);
+}
+
+test "parseInt" {
+    std.testing.expect((try parseInt(i32, "-10", 10)) == -10);
+    std.testing.expect((try parseInt(i32, "+10", 10)) == 10);
+    std.testing.expect((try parseInt(u32, "+10", 10)) == 10);
+    std.testing.expectError(error.Overflow, parseInt(u32, "-10", 10));
+    std.testing.expectError(error.InvalidCharacter, parseInt(u32, " 10", 10));
+    std.testing.expectError(error.InvalidCharacter, parseInt(u32, "10 ", 10));
+    std.testing.expect((try parseInt(u8, "255", 10)) == 255);
+    std.testing.expectError(error.Overflow, parseInt(u8, "256", 10));
+
+    // +0 and -0 should work for unsigned
+    std.testing.expect((try parseInt(u8, "-0", 10)) == 0);
+    std.testing.expect((try parseInt(u8, "+0", 10)) == 0);
+
+    // ensure minInt is parsed correctly
+    std.testing.expect((try parseInt(i8, "-128", 10)) == math.minInt(i8));
+    std.testing.expect((try parseInt(i43, "-4398046511104", 10)) == math.minInt(i43));
+
+    // empty string or bare +- is invalid
+    std.testing.expectError(error.InvalidCharacter, parseInt(u32, "", 10));
+    std.testing.expectError(error.InvalidCharacter, parseInt(i32, "", 10));
+    std.testing.expectError(error.InvalidCharacter, parseInt(u32, "+", 10));
+    std.testing.expectError(error.InvalidCharacter, parseInt(i32, "+", 10));
+    std.testing.expectError(error.InvalidCharacter, parseInt(u32, "-", 10));
+    std.testing.expectError(error.InvalidCharacter, parseInt(i32, "-", 10));
+}
+
+fn parseWithSign(
+    comptime T: type,
+    buf: []const u8,
+    radix: u8,
+    comptime sign: enum { Pos, Neg },
+) ParseIntError!T {
+    if (buf.len == 0) return error.InvalidCharacter;
+
+    const add = switch (sign) {
+        .Pos => math.add,
+        .Neg => math.sub,
+    };
+    
     var x: T = 0;
 
     for (buf) |c| {
         const digit = try charToDigit(c, radix);
 
         if (x != 0) x = try math.mul(T, x, try math.cast(T, radix));
-        x = try math.add(T, x, try math.cast(T, digit));
+        x = try add(T, x, try math.cast(T, digit));
     }
 
     return x;
+}
+
+pub fn parseUnsigned(comptime T: type, buf: []const u8, radix: u8) ParseIntError!T {
+    return parseWithSign(T, buf, radix, .Pos);
 }
 
 test "parseUnsigned" {
@@ -1063,6 +1091,13 @@ test "parseUnsigned" {
     std.testing.expect((try parseUnsigned(u1, "001", 16)) == 1);
     std.testing.expect((try parseUnsigned(u2, "3", 16)) == 3);
     std.testing.expectError(error.Overflow, parseUnsigned(u2, "4", 16));
+
+    // parseUnsigned does not expect a sign
+    std.testing.expectError(error.InvalidCharacter, parseUnsigned(u8, "+0", 10));
+    std.testing.expectError(error.InvalidCharacter, parseUnsigned(u8, "-0", 10));
+
+    // test empty string error
+    std.testing.expectError(error.InvalidCharacter, parseUnsigned(u8, "", 10));
 }
 
 pub const parseFloat = @import("fmt/parse_float.zig").parseFloat;
