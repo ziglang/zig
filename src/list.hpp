@@ -19,6 +19,9 @@ struct ZigList {
         ensure_capacity(length + 1);
         items[length++] = item;
     }
+    void append_assuming_capacity(const T& item) {
+        items[length++] = item;
+    }
     // remember that the pointer to this item is invalid after you
     // modify the length of the list
     const T & at(size_t index) const {
