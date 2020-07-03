@@ -1038,6 +1038,7 @@ pub fn parseWithSign(comptime T: type, buf: []const u8, radix: u8, negative: boo
             x = try math.add(T, x, math.negate(try math.cast(T, digit)));
         } else {
             x = try math.add(T, x, try math.cast(T, digit));
+        }
     }
 
     return x;
