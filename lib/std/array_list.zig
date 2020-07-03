@@ -210,6 +210,14 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             self.capacity = new_len;
         }
 
+        /// Reduce length to `new_len`.
+        /// Invalidates element pointers.
+        /// Keeps capacity the same.
+        pub fn shrinkRetainingCapacity(self: *Self, new_len: usize) void {
+            assert(new_len <= self.items.len);
+            self.items.len = new_len;
+        }
+
         pub fn ensureCapacity(self: *Self, new_capacity: usize) !void {
             var better_capacity = self.capacity;
             if (better_capacity >= new_capacity) return;
@@ -430,6 +438,14 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
                 },
             };
             self.capacity = new_len;
+        }
+
+        /// Reduce length to `new_len`.
+        /// Invalidates element pointers.
+        /// Keeps capacity the same.
+        pub fn shrinkRetainingCapacity(self: *Self, new_len: usize) void {
+            assert(new_len <= self.items.len);
+            self.items.len = new_len;
         }
 
         pub fn ensureCapacity(self: *Self, allocator: *Allocator, new_capacity: usize) !void {

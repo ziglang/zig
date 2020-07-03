@@ -1278,7 +1278,7 @@ pub const DebugInfo = struct {
             else => return error.MissingDebugInfo,
         }
 
-        if (self.address_map.getValue(ctx.base_address)) |obj_di| {
+        if (self.address_map.get(ctx.base_address)) |obj_di| {
             return obj_di;
         }
 
