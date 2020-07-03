@@ -54,6 +54,7 @@ set(ZIG_STATIC_LLVM off CACHE BOOL "Prefer linking against static LLVM libraries
 set(ZIG_ENABLE_MEM_PROFILE off CACHE BOOL "Activate memory usage instrumentation")
 set(ZIG_PREFER_CLANG_CPP_DYLIB off CACHE BOOL "Try to link against -lclang-cpp")
 set(ZIG_WORKAROUND_4799 off CACHE BOOL "workaround for https://github.com/ziglang/zig/issues/4799")
+set(ZIG_WORKAROUND_POLLY_SO off CACHE STRING "workaround for https://github.com/ziglang/zig/issues/4799")
 set(ZIG_USE_CCACHE off CACHE BOOL "Use ccache if available")
 
 if(CCACHE_PROGRAM AND ZIG_USE_CCACHE)
@@ -409,6 +410,9 @@ target_link_libraries(zig_cpp LINK_PUBLIC
     ${LLD_LIBRARIES}
     ${LLVM_LIBRARIES}
 )
+if(ZIG_WORKAROUND_POLLY_SO)
+  target_link_libraries(zig_cpp LINK_PUBLIC "-Wl,${ZIG_WORKAROUND_POLLY_SO}")
+endif()
 
 add_library(opt_c_util STATIC ${OPTIMIZED_C_SOURCES})
 set_target_properties(opt_c_util PROPERTIES
