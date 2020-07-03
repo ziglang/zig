@@ -1035,7 +1035,7 @@ pub fn parseWithSign(comptime T: type, buf: []const u8, radix: u8, negative: boo
 
         if (x != 0) x = try math.mul(T, x, try math.cast(T, radix));
         if (negative) {
-            x = try math.add(T, x, math.negate(try math.cast(T, digit)));
+            x = try math.add(T, x, try math.negate(try math.cast(T, digit)));
         } else {
             x = try math.add(T, x, try math.cast(T, digit));
         }
