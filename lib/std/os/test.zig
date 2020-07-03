@@ -16,6 +16,7 @@ const builtin = @import("builtin");
 const AtomicRmwOp = builtin.AtomicRmwOp;
 const AtomicOrder = builtin.AtomicOrder;
 const tmpDir = std.testing.tmpDir;
+const TmpDir = std.testing.TmpDir;
 const Dir = std.fs.Dir;
 
 test "fstatat" {
@@ -41,31 +42,46 @@ test "fstatat" {
 }
 
 test "realpathat" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
 
-    const cwd = fs.cwd();
+    // create some dirs
+    try tmp.dir.makePath("a/b");
 
-    var buf1: [fs.MAX_PATH_BYTES]u8 = undefined;
-    const cwd_path = try os.getcwd(&buf1);
+    try testRealpathat(tmp, "a", "a");
+    try testRealpathat(tmp, "a/b/..", "a");
+    try testRealpathat(tmp, "a/b", "a/b");
 
-    var buf2: [fs.MAX_PATH_BYTES]u8 = undefined;
-    const cwd_realpathat = try os.realpathat(cwd.fd, "", &buf2);
-    testing.expect(mem.eql(u8, cwd_path, cwd_realpathat));
+    if (builtin.os.tag == .wasi) {
+        try testRealpathat(tmp, "a/..", ".");
+    } else {
+        try testRealpathat(tmp, "a/..", "");
+    }
 
-    // Now, open an actual Dir{"."} since on Unix `realpathat` behaves
-    // in a special way when `fd` equals `cwd.fd`
-    var dir = try cwd.openDir(".", .{});
-    defer dir.close();
-
-    const cwd_realpathat2 = try os.realpathat(dir.fd, "", &buf2);
-    testing.expect(mem.eql(u8, cwd_path, cwd_realpathat2));
-
-    // Finally, try getting a path for something that doesn't exist
-    testing.expectError(error.FileNotFound, os.realpathat(dir.fd, "definitely_bogus_does_not_exist1234", &buf2));
+    var buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+    testing.expectError(error.FileNotFound, os.realpathat(tmp.dir.fd, "definitely_bogus_does_not_exist1234", &buf));
 }
 
-test "realpathatWasi" {
-    if (builtin.os.tag != .wasi) return error.SkipZigTest;
+fn testRealpathat(tmp: TmpDir, pathname: []const u8, expected: []const u8) !void {
+    var buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+    const given = try os.realpathat(tmp.dir.fd, pathname, &buf);
+
+    if (builtin.os.tag == .wasi) {
+        testing.expect(mem.eql(u8, given, expected));
+    } else {
+        const absolute_path = blk: {
+            const relative_path = try fs.path.join(testing.allocator, &[_][]const u8{ "zig-cache", "tmp", tmp.sub_path[0..], expected });
+            defer testing.allocator.free(relative_path);
+            break :blk try fs.realpathAlloc(testing.allocator, relative_path);
+        };
+        defer testing.allocator.free(absolute_path);
+        testing.expect(mem.eql(u8, given, absolute_path));
+    }
+}
+
+test "realpathat with symlinks" {
+    // TODO enable when `symlinkat` is implemented on Windows
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
@@ -83,10 +99,7 @@ test "realpathatWasi" {
     try os.symlinkat("b", subdir.fd, "c");
 
     // get realpath of "a/c/file.txt"
-    var buf: [fs.MAX_PATH_BYTES]u8 = undefined;
-    const realpath = try os.realpathatWasi(tmp.dir.fd, "a/c/file.txt", &buf);
-
-    testing.expect(mem.eql(u8, "a/b/file.txt", realpath));
+    try testRealpathat(tmp, "a/c/file.txt", "a/b/file.txt");
 }
 
 test "readlinkat" {
