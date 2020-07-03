@@ -996,14 +996,14 @@ pub fn formatIntBuf(out_buf: []u8, value: var, base: u8, uppercase: bool, option
 }
 
 pub fn parseInt(comptime T: type, buf: []const u8, radix: u8) !T {
-    if (!T.is_signed) return parseUnsigned(T, buf, radix);
+    if (!T.is_signed) return parseWithSign(T, buf, radix, true);
     if (buf.len == 0) return @as(T, 0);
-    if (buf[0] == '-') {
-        return math.negate(try parseUnsigned(T, buf[1..], radix));
-    } else if (buf[0] == '+') {
-        return parseUnsigned(T, buf[1..], radix);
+    if (buf[0] == '+') {
+        return parseWithSign(T, buf[1..], radix, false);
+    } else if (buf[0] == '-') {
+        return parseWithSign(T, buf[1..], radix, true);
     } else {
-        return parseUnsigned(T, buf, radix);
+        return parseWithSign(T, buf, radix, false);
     }
 }
 
@@ -1015,9 +1015,11 @@ test "parseInt" {
     std.testing.expect(if (parseInt(u32, "-10", 10)) |_| false else |err| err == error.InvalidCharacter);
     std.testing.expect((parseInt(u8, "255", 10) catch unreachable) == 255);
     std.testing.expect(if (parseInt(u8, "256", 10)) |_| false else |err| err == error.Overflow);
+    std.testing.expect((parseInt(i8, "-128", 10) catch unreachable) == -128);
+    std.testing.expect((parseInt(i16, "-32768", 10) catch unreachable) == -32768);
 }
 
-pub const ParseUnsignedError = error{
+pub const ParseIntError = error{
     /// The result cannot fit in the type specified
     Overflow,
 
@@ -1025,17 +1027,24 @@ pub const ParseUnsignedError = error{
     InvalidCharacter,
 };
 
-pub fn parseUnsigned(comptime T: type, buf: []const u8, radix: u8) ParseUnsignedError!T {
+pub fn parseWithSign(comptime T: type, buf: []const u8, radix: u8, negative: bool) ParseIntError!T {
     var x: T = 0;
 
     for (buf) |c| {
         const digit = try charToDigit(c, radix);
 
         if (x != 0) x = try math.mul(T, x, try math.cast(T, radix));
-        x = try math.add(T, x, try math.cast(T, digit));
+        if (negative) {
+            x = try math.add(T, x, math.negate(try math.cast(T, digit)));
+        } else {
+            x = try math.add(T, x, try math.cast(T, digit));
     }
 
     return x;
+}
+
+pub fn parseUnsigned(comptime T: type, buf: []const u8, radix: u8) !T {
+    return parseWithSign(T, buf, radix, false);
 }
 
 test "parseUnsigned" {
