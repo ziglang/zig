@@ -45,6 +45,26 @@ public:
     void put(const K &key, const V &value) {
         _modification_count += 1;
 
+        // This allows us to take a pointer to an entry in `internal_put` which
+        // will not become a dead pointer when the array list is appended.
+        _entries.ensure_capacity(_entries.length + 1);
+
+        if (_index_bytes == nullptr) {
+            if (_entries.length < 16) {
+                _entries.append({HashFunction(key), 0, key, value});
+                return;
+            } else {
+                _indexes_len = 32;
+                _index_bytes = heap::c_allocator.allocate<uint8_t>(_indexes_len);
+                _max_distance_from_start_index = 0;
+                for (size_t i = 0; i < _entries.length; i += 1) {
+                    Entry *entry = &_entries.items[i];
+                    put_index(entry, i, _index_bytes);
+                }
+                return internal_put(key, value, _index_bytes);
+            }
+        }
+
         // if we would get too full (60%), double the indexes size
         if ((_entries.length + 1) * 5 >= _indexes_len * 3) {
             heap::c_allocator.deallocate(_index_bytes,
@@ -72,10 +92,6 @@ public:
                 }
             }
         }
-
-        // This allows us to take a pointer to an entry in `internal_put` which
-        // will not become a dead pointer when the array list is appended.
-        _entries.ensure_capacity(_entries.length + 1);
 
         switch (capacity_index_size(_indexes_len)) {
             case 1: return internal_put(key, value, (uint8_t*)_index_bytes);
@@ -114,6 +130,16 @@ public:
 
     bool maybe_remove(const K &key) {
         _modification_count += 1;
+        if (_index_bytes == nullptr) {
+            uint32_t hash = HashFunction(key);
+            for (size_t i = 0; i < _entries.length; i += 1) {
+                if (_entries.items[i].hash == hash && EqualFn(_entries.items[i].key, key)) {
+                    _entries.swap_remove(i);
+                    return true;
+                }
+            }
+            return false;
+        }
         switch (capacity_index_size(_indexes_len)) {
             case 1: return internal_remove(key, (uint8_t*)_index_bytes);
             case 2: return internal_remove(key, (uint16_t*)_index_bytes);
@@ -170,11 +196,16 @@ private:
     void init_capacity(size_t capacity) {
         _entries = {};
         _entries.ensure_capacity(capacity);
-        // So that at capacity it will only be 60% full.
-        _indexes_len = capacity * 5 / 3;
-        size_t sz = capacity_index_size(_indexes_len);
-        // This zero initializes _index_bytes which sets them all to empty.
-        _index_bytes = heap::c_allocator.allocate<uint8_t>(_indexes_len * sz);
+        _indexes_len = 0;
+        if (capacity >= 16) {
+            // So that at capacity it will only be 60% full.
+            _indexes_len = capacity * 5 / 3;
+            size_t sz = capacity_index_size(_indexes_len);
+            // This zero initializes _index_bytes which sets them all to empty.
+            _index_bytes = heap::c_allocator.allocate<uint8_t>(_indexes_len * sz);
+        } else {
+            _index_bytes = nullptr;
+        }
 
         _max_distance_from_start_index = 0;
         _modification_count = 0;
@@ -290,6 +321,15 @@ private:
     }
 
     Entry *internal_get(const K &key) const {
+        if (_index_bytes == nullptr) {
+            uint32_t hash = HashFunction(key);
+            for (size_t i = 0; i < _entries.length; i += 1) {
+                if (_entries.items[i].hash == hash && EqualFn(_entries.items[i].key, key)) {
+                    return &_entries.items[i];
+                }
+            }
+            return nullptr;
+        }
         switch (capacity_index_size(_indexes_len)) {
             case 1: return internal_get2(key, (uint8_t*)_index_bytes);
             case 2: return internal_get2(key, (uint16_t*)_index_bytes);
