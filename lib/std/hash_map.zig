@@ -382,22 +382,24 @@ pub fn HashMapUnmanaged(
             try self.entries.ensureCapacity(allocator, new_capacity);
             if (new_capacity <= linear_scan_max) return;
 
-            // Resize if indexes would be more than 60% full.
+            // Ensure that the indexes will be at most 60% full if
+            // `new_capacity` items are put into it.
             const needed_len = new_capacity * 5 / 3;
             if (self.index_header) |header| {
                 if (needed_len > header.indexes_len) {
-                    var new_indexes_len = header.indexes_len;
-                    while (true) {
-                        new_indexes_len *= new_indexes_len / 2 + 8;
-                        if (new_indexes_len >= needed_len) break;
-                    }
+                    // An overflow here would mean the amount of memory required would not
+                    // be representable in the address space.
+                    const new_indexes_len = math.ceilPowerOfTwo(usize, needed_len) catch unreachable;
                     const new_header = try IndexHeader.alloc(allocator, new_indexes_len);
                     self.insertAllEntriesIntoNewHeader(new_header);
                     header.free(allocator);
                     self.index_header = new_header;
                 }
             } else {
-                const header = try IndexHeader.alloc(allocator, needed_len);
+                // An overflow here would mean the amount of memory required would not
+                // be representable in the address space.
+                const new_indexes_len = math.ceilPowerOfTwo(usize, needed_len) catch unreachable;
+                const header = try IndexHeader.alloc(allocator, new_indexes_len);
                 self.insertAllEntriesIntoNewHeader(header);
                 self.index_header = header;
             }
@@ -540,10 +542,10 @@ pub fn HashMapUnmanaged(
         fn removeInternal(self: *Self, key: K, header: *IndexHeader, comptime I: type) ?Entry {
             const indexes = header.indexes(I);
             const h = hash(key);
-            const start_index = header.hashToIndex(h);
+            const start_index = header.constrainIndex(h);
             var roll_over: usize = 0;
             while (roll_over <= header.max_distance_from_start_index) : (roll_over += 1) {
-                const index_index = (start_index + roll_over) % header.indexes_len;
+                const index_index = header.constrainIndex(start_index + roll_over);
                 var index = &indexes[index_index];
                 if (index.isEmpty())
                     return null;
@@ -564,7 +566,7 @@ pub fn HashMapUnmanaged(
                 // Now we have to shift over the following indexes.
                 roll_over += 1;
                 while (roll_over < header.indexes_len) : (roll_over += 1) {
-                    const next_index_index = (start_index + roll_over) % header.indexes_len;
+                    const next_index_index = header.constrainIndex(start_index + roll_over);
                     const next_index = &indexes[next_index_index];
                     if (next_index.isEmpty() or next_index.distance_from_start_index == 0) {
                         index.setEmpty();
@@ -588,10 +590,10 @@ pub fn HashMapUnmanaged(
             indexes: []Index(I),
         ) void {
             const h = if (store_hash) self.entries.items[new_entry_index].hash else hash(self.entries.items[new_entry_index].key);
-            const start_index = header.hashToIndex(h);
+            const start_index = header.constrainIndex(h);
             var roll_over: usize = 0;
             while (roll_over <= header.max_distance_from_start_index) : (roll_over += 1) {
-                const index_index = (start_index + roll_over) % header.indexes_len;
+                const index_index = header.constrainIndex(start_index + roll_over);
                 const index = &indexes[index_index];
                 if (index.entry_index == old_entry_index) {
                     index.entry_index = @intCast(I, new_entry_index);
@@ -605,14 +607,14 @@ pub fn HashMapUnmanaged(
         fn getOrPutInternal(self: *Self, key: K, header: *IndexHeader, comptime I: type) GetOrPutResult {
             const indexes = header.indexes(I);
             const h = hash(key);
-            const start_index = header.hashToIndex(h);
+            const start_index = header.constrainIndex(h);
             var roll_over: usize = 0;
             var distance_from_start_index: usize = 0;
             while (roll_over <= header.indexes_len) : ({
                 roll_over += 1;
                 distance_from_start_index += 1;
             }) {
-                const index_index = (start_index + roll_over) % header.indexes_len;
+                const index_index = header.constrainIndex(start_index + roll_over);
                 const index = indexes[index_index];
                 if (index.isEmpty()) {
                     indexes[index_index] = .{
@@ -670,7 +672,7 @@ pub fn HashMapUnmanaged(
                         roll_over += 1;
                         distance_from_start_index += 1;
                     }) {
-                        const next_index_index = (start_index + roll_over) % header.indexes_len;
+                        const next_index_index = header.constrainIndex(start_index + roll_over);
                         const next_index = indexes[next_index_index];
                         if (next_index.isEmpty()) {
                             header.maybeBumpMax(distance_from_start_index);
@@ -702,10 +704,10 @@ pub fn HashMapUnmanaged(
         fn getInternal(self: Self, key: K, header: *IndexHeader, comptime I: type) ?*Entry {
             const indexes = header.indexes(I);
             const h = hash(key);
-            const start_index = header.hashToIndex(h);
+            const start_index = header.constrainIndex(h);
             var roll_over: usize = 0;
             while (roll_over <= header.max_distance_from_start_index) : (roll_over += 1) {
-                const index_index = (start_index + roll_over) % header.indexes_len;
+                const index_index = header.constrainIndex(start_index + roll_over);
                 const index = indexes[index_index];
                 if (index.isEmpty())
                     return null;
@@ -731,7 +733,7 @@ pub fn HashMapUnmanaged(
             const indexes = header.indexes(I);
             entry_loop: for (self.entries.items) |entry, i| {
                 const h = if (store_hash) entry.hash else hash(entry.key);
-                const start_index = header.hashToIndex(h);
+                const start_index = header.constrainIndex(h);
                 var entry_index = i;
                 var roll_over: usize = 0;
                 var distance_from_start_index: usize = 0;
@@ -739,7 +741,7 @@ pub fn HashMapUnmanaged(
                     roll_over += 1;
                     distance_from_start_index += 1;
                 }) {
-                    const index_index = (start_index + roll_over) % header.indexes_len;
+                    const index_index = header.constrainIndex(start_index + roll_over);
                     const next_index = indexes[index_index];
                     if (next_index.isEmpty()) {
                         header.maybeBumpMax(distance_from_start_index);
@@ -814,8 +816,10 @@ const IndexHeader = struct {
     max_distance_from_start_index: usize,
     indexes_len: usize,
 
-    fn hashToIndex(header: IndexHeader, h: u32) usize {
-        return @as(usize, h) % header.indexes_len;
+    fn constrainIndex(header: IndexHeader, i: usize) usize {
+        // This is an optimization for modulo of power of two integers;
+        // it requires `indexes_len` to always be a power of two.
+        return i & (header.indexes_len - 1);
     }
 
     fn indexes(header: *IndexHeader, comptime I: type) []Index(I) {
