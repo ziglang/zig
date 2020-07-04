@@ -310,7 +310,7 @@ pub fn eql(a: []const u8, b: []const u8) bool {
     return true;
 }
 
-test "eqlIgnoreCase" {
+test "eql" {
     std.testing.expect(eql("Hello", "Hello"));
     std.testing.expect(!eql("hElLo!", "hello! "));
     std.testing.expect(!eql("hElLo!", "helro!"));
