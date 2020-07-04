@@ -458,7 +458,7 @@ pub fn HashMapUnmanaged(
         }
 
         /// Inserts a new `Entry` into the hash map, returning the previous one, if any.
-        /// If insertion happuns, asserts there is enough capacity without allocating.
+        /// If insertion happens, asserts there is enough capacity without allocating.
         pub fn fetchPutAssumeCapacity(self: *Self, key: K, value: V) ?Entry {
             const gop = self.getOrPutAssumeCapacity(key);
             var result: ?Entry = null;

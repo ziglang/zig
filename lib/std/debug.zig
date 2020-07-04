@@ -1132,7 +1132,7 @@ pub const DebugInfo = struct {
                 const seg_end = seg_start + segment_cmd.vmsize;
 
                 if (rebased_address >= seg_start and rebased_address < seg_end) {
-                    if (self.address_map.getValue(base_address)) |obj_di| {
+                    if (self.address_map.get(base_address)) |obj_di| {
                         return obj_di;
                     }
 
@@ -1204,7 +1204,7 @@ pub const DebugInfo = struct {
             const seg_end = seg_start + info.SizeOfImage;
 
             if (address >= seg_start and address < seg_end) {
-                if (self.address_map.getValue(seg_start)) |obj_di| {
+                if (self.address_map.get(seg_start)) |obj_di| {
                     return obj_di;
                 }
 
@@ -1441,7 +1441,7 @@ pub const ModuleDebugInfo = switch (builtin.os.tag) {
                 const o_file_path = mem.spanZ(self.strings[symbol.ofile.?.n_strx..]);
 
                 // Check if its debug infos are already in the cache
-                var o_file_di = self.ofiles.getValue(o_file_path) orelse
+                var o_file_di = self.ofiles.get(o_file_path) orelse
                     (self.loadOFile(o_file_path) catch |err| switch (err) {
                     error.FileNotFound,
                     error.MissingDebugInfo,

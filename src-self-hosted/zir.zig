@@ -758,7 +758,7 @@ pub const Module = struct {
     }
 
     fn writeInstParamToStream(self: Module, stream: var, inst: *Inst, inst_table: *const InstPtrTable) !void {
-        if (inst_table.getValue(inst)) |info| {
+        if (inst_table.get(inst)) |info| {
             if (info.index) |i| {
                 try stream.print("%{}", .{info.index});
             } else {
@@ -843,7 +843,7 @@ const Parser = struct {
                 skipSpace(self);
                 const decl = try parseInstruction(self, &body_context, ident);
                 const ident_index = body_context.instructions.items.len;
-                if (try body_context.name_map.put(ident, decl.inst)) |_| {
+                if (try body_context.name_map.fetchPut(ident, decl.inst)) |_| {
                     return self.fail("redefinition of identifier '{}'", .{ident});
                 }
                 try body_context.instructions.append(decl.inst);
@@ -929,7 +929,7 @@ const Parser = struct {
                     skipSpace(self);
                     const decl = try parseInstruction(self, null, ident);
                     const ident_index = self.decls.items.len;
-                    if (try self.global_name_map.put(ident, decl.inst)) |_| {
+                    if (try self.global_name_map.fetchPut(ident, decl.inst)) |_| {
                         return self.fail("redefinition of identifier '{}'", .{ident});
                     }
                     try self.decls.append(self.allocator, decl);
@@ -1153,7 +1153,7 @@ const Parser = struct {
             else => continue,
         };
         const ident = self.source[name_start..self.i];
-        const kv = map.get(ident) orelse {
+        return map.get(ident) orelse {
             const bad_name = self.source[name_start - 1 .. self.i];
             const src = name_start - 1;
             if (local_ref) {
@@ -1172,7 +1172,6 @@ const Parser = struct {
                 return &declval.base;
             }
         };
-        return kv.value;
     }
 
     fn generateName(self: *Parser) ![]u8 {
@@ -1219,13 +1218,12 @@ const EmitZIR = struct {
         // by the hash table.
         var src_decls = std.ArrayList(*IrModule.Decl).init(self.allocator);
         defer src_decls.deinit();
-        try src_decls.ensureCapacity(self.old_module.decl_table.size);
-        try self.decls.ensureCapacity(self.allocator, self.old_module.decl_table.size);
-        try self.names.ensureCapacity(self.old_module.decl_table.size);
+        try src_decls.ensureCapacity(self.old_module.decl_table.items().len);
+        try self.decls.ensureCapacity(self.allocator, self.old_module.decl_table.items().len);
+        try self.names.ensureCapacity(self.old_module.decl_table.items().len);
 
-        var decl_it = self.old_module.decl_table.iterator();
-        while (decl_it.next()) |kv| {
-            const decl = kv.value;
+        for (self.old_module.decl_table.items()) |entry| {
+            const decl = entry.value;
             src_decls.appendAssumeCapacity(decl);
             self.names.putAssumeCapacityNoClobber(mem.spanZ(decl.name), {});
         }
@@ -1248,7 +1246,7 @@ const EmitZIR = struct {
                 .codegen_failure,
                 .dependency_failure,
                 .codegen_failure_retryable,
-                => if (self.old_module.failed_decls.getValue(ir_decl)) |err_msg| {
+                => if (self.old_module.failed_decls.get(ir_decl)) |err_msg| {
                     const fail_inst = try self.arena.allocator.create(Inst.CompileError);
                     fail_inst.* = .{
                         .base = .{
@@ -1270,7 +1268,7 @@ const EmitZIR = struct {
                     continue;
                 },
             }
-            if (self.old_module.export_owners.getValue(ir_decl)) |exports| {
+            if (self.old_module.export_owners.get(ir_decl)) |exports| {
                 for (exports) |module_export| {
                     const symbol_name = try self.emitStringLiteral(module_export.src, module_export.options.name);
                     const export_inst = try self.arena.allocator.create(Inst.Export);
@@ -1314,7 +1312,7 @@ const EmitZIR = struct {
             try new_body.inst_table.putNoClobber(inst, new_inst);
             return new_inst;
         } else {
-            return new_body.inst_table.getValue(inst).?;
+            return new_body.inst_table.get(inst).?;
         }
     }
 
@@ -1424,7 +1422,7 @@ const EmitZIR = struct {
                         try self.emitBody(body, &inst_table, &instructions);
                     },
                     .sema_failure => {
-                        const err_msg = self.old_module.failed_decls.getValue(module_fn.owner_decl).?;
+                        const err_msg = self.old_module.failed_decls.get(module_fn.owner_decl).?;
                         const fail_inst = try self.arena.allocator.create(Inst.CompileError);
                         fail_inst.* = .{
                             .base = .{
@@ -1841,7 +1839,7 @@ const EmitZIR = struct {
             self.next_auto_name += 1;
             const gop = try self.names.getOrPut(proposed_name);
             if (!gop.found_existing) {
-                gop.kv.value = {};
+                gop.entry.value = {};
                 return proposed_name;
             }
         }
@@ -1861,9 +1859,9 @@ const EmitZIR = struct {
                 },
                 .kw_args = .{},
             };
-            gop.kv.value = try self.emitUnnamedDecl(&primitive_inst.base);
+            gop.entry.value = try self.emitUnnamedDecl(&primitive_inst.base);
         }
-        return gop.kv.value;
+        return gop.entry.value;
     }
 
     fn emitStringLiteral(self: *EmitZIR, src: usize, str: []const u8) !*Decl {

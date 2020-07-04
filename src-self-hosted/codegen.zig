@@ -705,7 +705,7 @@ const Function = struct {
     }
 
     fn resolveInst(self: *Function, inst: *ir.Inst) !MCValue {
-        if (self.inst_table.getValue(inst)) |mcv| {
+        if (self.inst_table.get(inst)) |mcv| {
             return mcv;
         }
         if (inst.cast(ir.Inst.Constant)) |const_inst| {
@@ -713,7 +713,7 @@ const Function = struct {
             try self.inst_table.putNoClobber(inst, mcvalue);
             return mcvalue;
         } else {
-            return self.inst_table.getValue(inst).?;
+            return self.inst_table.get(inst).?;
         }
     }
 
