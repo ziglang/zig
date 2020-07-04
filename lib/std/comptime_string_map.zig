@@ -11,31 +11,31 @@ const ascii = std.ascii;
 /// TODO: https://github.com/ziglang/zig/issues/4335
 pub fn ComptimeStringMap(comptime V: type, comptime kvs: var) type {
     const precomputed = comptime blk: {
-        @setEvalBranchQuota(2000);
+        @setEvalBranchQuota(5000);
         const KV = struct {
             key: []const u8,
             value: V,
         };
         var sorted_kvs: [kvs.len]KV = undefined;
         const lenAsc = (struct {
-            fn lenAsc(a: KV, b: KV) bool {
+            fn lenAsc(context: void, a: KV, b: KV) bool {
                 return a.key.len < b.key.len;
             }
         }).lenAsc;
-        for (kvs) |kv, i| {
+        inline for (kvs) |kv, i| {
             if (V != void) {
                 sorted_kvs[i] = .{ .key = kv.@"0", .value = kv.@"1" };
             } else {
                 sorted_kvs[i] = .{ .key = kv.@"0", .value = {} };
             }
         }
-        std.sort.sort(KV, &sorted_kvs, lenAsc);
+        std.sort.sort(KV, &sorted_kvs, {}, lenAsc);
         const min_len = sorted_kvs[0].key.len;
         const max_len = sorted_kvs[sorted_kvs.len - 1].key.len;
         var len_indexes: [max_len + 1]usize = undefined;
         var len: usize = 0;
         var i: usize = 0;
-        while (len <= max_len) : (len += 1) {
+        inline while (len <= max_len) : (len += 1) {
             // find the first keyword len == len
             while (len > sorted_kvs[i].key.len) {
                 i += 1;
@@ -51,42 +51,48 @@ pub fn ComptimeStringMap(comptime V: type, comptime kvs: var) type {
     };
 
     return struct {
-        pub fn has(str: []const u8) bool {
-            return getImpl(str, true) != null;
-        }
-
-        pub fn hasCaseInsensitive(str: []const u8) bool {
-            return getImpl(str, false) != null;
-        }
-
-        pub fn get(str: []const u8) ?V {
-            return getImpl(str, true);
-        }
-
-        pub fn getCaseInsensitive(str: []const u8) ?V {
-            return getImpl(str, false);
-        }
-
-        fn getImpl(str: []const u8, comptime caseSensitive: bool) ?V {
+        pub fn getWithEqlFn(str: []const u8, eql: fn (a: []const u8, b: []const u8) bool) ?V {
             if (str.len < precomputed.min_len or str.len > precomputed.max_len)
                 return null;
 
             var i = precomputed.len_indexes[str.len];
             while (true) {
                 const kv = precomputed.sorted_kvs[i];
-                if (kv.key.len != str.len)
-                    return null;
-                if (caseSensitive) {
-                    if (mem.eql(u8, kv.key, str))
-                        return kv.value;
-                } else {
-                    if (ascii.eqlIgnoreCase(kv.key, str))
-                        return kv.value;
+                if (eql(kv.key, str)) {
+                    return kv.value;
                 }
                 i += 1;
                 if (i >= precomputed.sorted_kvs.len)
                     return null;
             }
+        }
+
+        pub fn has(str: []const u8) bool {
+            return getWithEqlFn(str, ascii.eql) != null;
+        }
+
+        pub fn get(str: []const u8) ?V {
+            return getWithEqlFn(str, ascii.eql);
+        }
+
+        pub fn hasCaseInsensitive(str: []const u8) bool {
+            return getWithEqlFn(str, ascii.eqlIgnoreCase) != null;
+        }
+
+        pub fn getCaseInsensitive(str: []const u8) ?V {
+            return getWithEqlFn(str, ascii.eqlIgnoreCase);
+        }
+
+        pub fn getMinLen() usize {
+            return precomputed.min_len;
+        }
+
+        pub fn getMaxLen() usize {
+            return precomputed.max_len;
+        }
+
+        pub fn getItems() []const std.meta.Elem(@TypeOf(precomputed.sorted_kvs)) {
+            return precomputed.sorted_kvs[0..];
         }
     };
 }
@@ -189,6 +195,9 @@ test "ComptimeStringMap void value type, list literal of list literals" {
     });
 
     testSet(map);
+    std.testing.expect(map.getMinLen() == 4);
+    std.testing.expect(map.getMaxLen() == 8);
+    std.testing.expect(map.getItems().len == 5);
 }
 
 fn testSet(comptime map: var) void {

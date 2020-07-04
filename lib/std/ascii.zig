@@ -301,6 +301,21 @@ test "allocUpperString" {
     std.testing.expect(std.mem.eql(u8, "ABCDEFGHIJKLMNOPQRST0234+💩!", result));
 }
 
+/// Compares strings `a` and `b` case sensitively and returns whether they are equal.
+pub fn eql(a: []const u8, b: []const u8) bool {
+    if (a.len != b.len) return false;
+    for (a) |a_c, i| {
+        if (a_c != b[i]) return false;
+    }
+    return true;
+}
+
+test "eqlIgnoreCase" {
+    std.testing.expect(eql("Hello", "Hello"));
+    std.testing.expect(!eql("hElLo!", "hello! "));
+    std.testing.expect(!eql("hElLo!", "helro!"));
+}
+
 /// Compares strings `a` and `b` case insensitively and returns whether they are equal.
 pub fn eqlIgnoreCase(a: []const u8, b: []const u8) bool {
     if (a.len != b.len) return false;
