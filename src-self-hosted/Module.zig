@@ -1317,7 +1317,25 @@ fn astGenExpr(self: *Module, scope: *Scope, ast_node: *ast.Node) InnerError!*zir
         .Unreachable => return self.astGenUnreachable(scope, @fieldParentPtr(ast.Node.Unreachable, "base", ast_node)),
         .ControlFlowExpression => return self.astGenControlFlowExpression(scope, @fieldParentPtr(ast.Node.ControlFlowExpression, "base", ast_node)),
         .If => return self.astGenIf(scope, @fieldParentPtr(ast.Node.If, "base", ast_node)),
+        .InfixOp => return self.astGenInfixOp(scope, @fieldParentPtr(ast.Node.InfixOp, "base", ast_node)),
         else => return self.failNode(scope, ast_node, "TODO implement astGenExpr for {}", .{@tagName(ast_node.id)}),
+    }
+}
+
+fn astGenInfixOp(self: *Module, scope: *Scope, infix_node: *ast.Node.InfixOp) InnerError!*zir.Inst {
+    switch (infix_node.op) {
+        .Add => {
+            const lhs = try self.astGenExpr(scope, infix_node.lhs);
+            const rhs = try self.astGenExpr(scope, infix_node.rhs);
+
+            const tree = scope.tree();
+            const src = tree.token_locs[infix_node.op_token].start;
+
+            return self.addZIRInst(scope, src, zir.Inst.Add, .{ .lhs = lhs, .rhs = rhs }, .{});
+        },
+        else => |op| {
+            return self.failNode(scope, &infix_node.base, "TODO implement infix operator {}", .{op});
+        },
     }
 }
 
@@ -2933,7 +2951,9 @@ fn analyzeInstAdd(self: *Module, scope: *Scope, inst: *zir.Inst.Add) InnerError!
     const lhs = try self.resolveInst(scope, inst.positionals.lhs);
     const rhs = try self.resolveInst(scope, inst.positionals.rhs);
 
-    if (lhs.ty.zigTypeTag() == .Int and rhs.ty.zigTypeTag() == .Int) {
+    if ((lhs.ty.zigTypeTag() == .Int or lhs.ty.zigTypeTag() == .ComptimeInt) and
+        (rhs.ty.zigTypeTag() == .Int or rhs.ty.zigTypeTag() == .ComptimeInt))
+    {
         if (!lhs.ty.eql(rhs.ty)) {
             return self.fail(scope, inst.base.src, "TODO implement peer type resolution", .{});
         }
@@ -2977,8 +2997,7 @@ fn analyzeInstAdd(self: *Module, scope: *Scope, inst: *zir.Inst.Add) InnerError!
             .rhs = rhs,
         });
     }
-
-    return self.fail(scope, inst.base.src, "TODO implement more analyze add", .{});
+    return self.fail(scope, inst.base.src, "TODO analyze add for {} + {}", .{ lhs.ty.zigTypeTag(), rhs.ty.zigTypeTag() });
 }
 
 fn analyzeInstDeref(self: *Module, scope: *Scope, deref: *zir.Inst.Deref) InnerError!*Inst {
