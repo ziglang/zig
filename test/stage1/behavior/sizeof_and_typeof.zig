@@ -18,6 +18,8 @@ const A = struct {
     e: u5,
     f: u16,
     g: u16,
+    h: u9,
+    i: u7,
 };
 
 const P = packed struct {
@@ -53,6 +55,8 @@ test "@byteOffsetOf" {
     expect(@ptrToInt(&a.e) - @ptrToInt(&a) == @byteOffsetOf(A, "e"));
     expect(@ptrToInt(&a.f) - @ptrToInt(&a) == @byteOffsetOf(A, "f"));
     expect(@ptrToInt(&a.g) - @ptrToInt(&a) == @byteOffsetOf(A, "g"));
+    expect(@ptrToInt(&a.h) - @ptrToInt(&a) == @byteOffsetOf(A, "h"));
+    expect(@ptrToInt(&a.i) - @ptrToInt(&a) == @byteOffsetOf(A, "i"));
 }
 
 test "@byteOffsetOf packed struct, array length not power of 2 or multiple of native pointer width in bytes" {
