@@ -58,6 +58,8 @@ pub fn ComptimeStringMap(comptime V: type, comptime kvs: var) type {
             var i = precomputed.len_indexes[str.len];
             while (true) {
                 const kv = precomputed.sorted_kvs[i];
+                if (kv.key.len != str.len)
+                    return null;
                 if (eql(kv.key, str)) {
                     return kv.value;
                 }
