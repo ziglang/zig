@@ -30,7 +30,7 @@ pub fn getCwdAlloc(allocator: *Allocator) ![]u8 {
     var current_buf: []u8 = &stack_buf;
     while (true) {
         if (os.getcwd(current_buf)) |slice| {
-            return mem.dupe(allocator, u8, slice);
+            return allocator.dupe(u8, slice);
         } else |err| switch (err) {
             error.NameTooLong => {
                 // The path is too long to fit in stack_buf. Allocate geometrically
@@ -169,7 +169,7 @@ pub fn getEnvVarOwned(allocator: *mem.Allocator, key: []const u8) GetEnvVarOwned
         };
     } else {
         const result = os.getenv(key) orelse return error.EnvironmentVariableNotFound;
-        return mem.dupe(allocator, u8, result);
+        return allocator.dupe(u8, result);
     }
 }
 
@@ -436,7 +436,7 @@ pub const ArgIterator = struct {
         if (builtin.os.tag == .windows) {
             return self.inner.next(allocator);
         } else {
-            return mem.dupe(allocator, u8, self.inner.next() orelse return null);
+            return allocator.dupe(u8, self.inner.next() orelse return null);
         }
     }
 
@@ -718,7 +718,7 @@ pub fn getSelfExeSharedLibPaths(allocator: *Allocator) error{OutOfMemory}![][:0]
                 fn callback(info: *os.dl_phdr_info, size: usize, list: *List) !void {
                     const name = info.dlpi_name orelse return;
                     if (name[0] == '/') {
-                        const item = try mem.dupeZ(list.allocator, u8, mem.spanZ(name));
+                        const item = try list.allocator.dupeZ(u8, mem.spanZ(name));
                         errdefer list.allocator.free(item);
                         try list.append(item);
                     }
@@ -739,7 +739,7 @@ pub fn getSelfExeSharedLibPaths(allocator: *Allocator) error{OutOfMemory}![][:0]
             var i: u32 = 0;
             while (i < img_count) : (i += 1) {
                 const name = std.c._dyld_get_image_name(i);
-                const item = try mem.dupeZ(allocator, u8, mem.spanZ(name));
+                const item = try allocator.dupeZ(u8, mem.spanZ(name));
                 errdefer allocator.free(item);
                 try paths.append(item);
             }

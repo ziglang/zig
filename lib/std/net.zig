@@ -682,7 +682,7 @@ pub fn getAddressList(allocator: *mem.Allocator, name: []const u8, port: u16) !*
 
             if (info.canonname) |n| {
                 if (result.canon_name == null) {
-                    result.canon_name = try mem.dupe(arena, u8, mem.spanZ(n));
+                    result.canon_name = try arena.dupe(u8, mem.spanZ(n));
                 }
             }
             i += 1;

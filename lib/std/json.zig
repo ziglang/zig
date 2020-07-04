@@ -1567,7 +1567,7 @@ fn parseInternal(comptime T: type, token: Token, tokens: *TokenStream, options: 
                             if (ptrInfo.child != u8) return error.UnexpectedToken;
                             const source_slice = stringToken.slice(tokens.slice, tokens.i - 1);
                             switch (stringToken.escapes) {
-                                .None => return mem.dupe(allocator, u8, source_slice),
+                                .None => return allocator.dupe(u8, source_slice),
                                 .Some => |some_escapes| {
                                     const output = try allocator.alloc(u8, stringToken.decodedLength());
                                     errdefer allocator.free(output);
@@ -2043,7 +2043,7 @@ pub const Parser = struct {
     fn parseString(p: *Parser, allocator: *Allocator, s: std.meta.TagPayloadType(Token, Token.String), input: []const u8, i: usize) !Value {
         const slice = s.slice(input, i);
         switch (s.escapes) {
-            .None => return Value{ .String = if (p.copy_strings) try mem.dupe(allocator, u8, slice) else slice },
+            .None => return Value{ .String = if (p.copy_strings) try allocator.dupe(u8, slice) else slice },
             .Some => |some_escapes| {
                 const output = try allocator.alloc(u8, s.decodedLength());
                 errdefer allocator.free(output);

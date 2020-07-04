@@ -360,7 +360,7 @@ pub fn Watch(comptime V: type) type {
 
         fn addFileWindows(self: *Self, file_path: []const u8, value: V) !?V {
             // TODO we might need to convert dirname and basename to canonical file paths ("short"?)
-            const dirname = try std.mem.dupe(self.allocator, u8, std.fs.path.dirname(file_path) orelse ".");
+            const dirname = try self.allocator.dupe(u8, std.fs.path.dirname(file_path) orelse ".");
             var dirname_consumed = false;
             defer if (!dirname_consumed) self.allocator.free(dirname);
 

@@ -207,7 +207,7 @@ pub const CacheHash = struct {
             }
 
             if (cache_hash_file.path == null) {
-                cache_hash_file.path = try mem.dupe(self.allocator, u8, file_path);
+                cache_hash_file.path = try self.allocator.dupe(u8, file_path);
             }
 
             const this_file = fs.cwd().openFile(cache_hash_file.path.?, .{ .read = true }) catch {
