@@ -1534,7 +1534,12 @@ fn astGenBuiltinCall(self: *Module, scope: *Scope, call: *ast.Node.BuiltinCall) 
             const arg_count: ?usize = if (positionals.fields[0].field_type == []*zir.Inst) null else positionals.fields.len;
             if (arg_count) |some| {
                 if (call.params_len != some) {
-                    return self.failTok(scope, call.builtin_token, "expected {} parameter, found {}", .{ some, call.params_len });
+                    return self.failTok(
+                        scope,
+                        call.builtin_token,
+                        "expected {} parameter{}, found {}",
+                        .{ some, if (some == 1) "" else "s", call.params_len },
+                    );
                 }
                 const params = call.params();
                 inline for (positionals.fields) |p, i| {
