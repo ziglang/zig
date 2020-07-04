@@ -1105,7 +1105,7 @@ pub const Const = struct {
         assert(base <= 16);
 
         if (self.eqZero()) {
-            return mem.dupe(allocator, u8, "0");
+            return allocator.dupe(u8, "0");
         }
         const string = try allocator.alloc(u8, self.sizeInBaseUpperBound(base));
         errdefer allocator.free(string);

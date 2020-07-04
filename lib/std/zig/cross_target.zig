@@ -497,7 +497,7 @@ pub const CrossTarget = struct {
 
     pub fn zigTriple(self: CrossTarget, allocator: *mem.Allocator) error{OutOfMemory}![]u8 {
         if (self.isNative()) {
-            return mem.dupe(allocator, u8, "native");
+            return allocator.dupe(u8, "native");
         }
 
         const arch_name = if (self.cpu_arch) |arch| @tagName(arch) else "native";

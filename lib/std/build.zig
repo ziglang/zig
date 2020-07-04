@@ -286,7 +286,7 @@ pub const Builder = struct {
     }
 
     pub fn dupe(self: *Builder, bytes: []const u8) []u8 {
-        return mem.dupe(self.allocator, u8, bytes) catch unreachable;
+        return self.allocator.dupe(u8, bytes) catch unreachable;
     }
 
     pub fn dupePath(self: *Builder, bytes: []const u8) []u8 {

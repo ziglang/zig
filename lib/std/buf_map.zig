@@ -79,7 +79,7 @@ pub const BufMap = struct {
     }
 
     fn copy(self: BufMap, value: []const u8) ![]u8 {
-        return mem.dupe(self.hash_map.allocator, u8, value);
+        return self.hash_map.allocator.dupe(u8, value);
     }
 };
 

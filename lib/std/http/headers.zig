@@ -38,7 +38,7 @@ const HeaderEntry = struct {
         return Self{
             .allocator = allocator,
             .name = name, // takes reference
-            .value = try mem.dupe(allocator, u8, value),
+            .value = try allocator.dupe(u8, value),
             .never_index = never_index orelse never_index_default(name),
         };
     }
@@ -161,7 +161,7 @@ pub const Headers = struct {
             var dex = &kv.value;
             try dex.append(n - 1);
         } else {
-            const name_dup = try mem.dupe(self.allocator, u8, name);
+            const name_dup = try self.allocator.dupe(u8, name);
             errdefer self.allocator.free(name_dup);
             entry = try HeaderEntry.init(self.allocator, name_dup, value, never_index);
             errdefer entry.deinit();
