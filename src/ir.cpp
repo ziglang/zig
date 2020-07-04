@@ -24631,7 +24631,7 @@ static IrInstGen *ir_analyze_instruction_field_parent_ptr(IrAnalyze *ira,
     return ir_build_field_parent_ptr_gen(ira, &instruction->base.base, casted_field_ptr, field, result_type);
 }
 
-static TypeStructField *validate_byte_offset(IrAnalyze *ira,
+static TypeStructField *validate_host_int_byte_offset(IrAnalyze *ira,
         IrInstGen *type_value,
         IrInstGen *field_name_value,
         size_t *byte_offset)
@@ -24679,11 +24679,12 @@ static IrInstGen *ir_analyze_instruction_byte_offset_of(IrAnalyze *ira, IrInstSr
         return ira->codegen->invalid_inst_gen;
 
     IrInstGen *field_name_value = instruction->field_name->child;
-    size_t byte_offset = 0;
-    if (!validate_byte_offset(ira, type_value, field_name_value, &byte_offset))
+    size_t host_int_byte_offset = 0;
+    TypeStructField *field = nullptr;
+    if (!(field = validate_host_int_byte_offset(ira, type_value, field_name_value, &host_int_byte_offset)))
         return ira->codegen->invalid_inst_gen;
 
-
+    size_t byte_offset = host_int_byte_offset + (field->bit_offset_in_host / 8);
     return ir_const_unsigned(ira, &instruction->base.base, byte_offset);
 }
 
@@ -24692,12 +24693,12 @@ static IrInstGen *ir_analyze_instruction_bit_offset_of(IrAnalyze *ira, IrInstSrc
     if (type_is_invalid(type_value->value->type))
         return ira->codegen->invalid_inst_gen;
     IrInstGen *field_name_value = instruction->field_name->child;
-    size_t byte_offset = 0;
+    size_t host_int_byte_offset = 0;
     TypeStructField *field = nullptr;
-    if (!(field = validate_byte_offset(ira, type_value, field_name_value, &byte_offset)))
+    if (!(field = validate_host_int_byte_offset(ira, type_value, field_name_value, &host_int_byte_offset)))
         return ira->codegen->invalid_inst_gen;
 
-    size_t bit_offset = byte_offset * 8 + field->bit_offset_in_host;
+    size_t bit_offset = host_int_byte_offset * 8 + field->bit_offset_in_host;
     return ir_const_unsigned(ira, &instruction->base.base, bit_offset);
 }
 
