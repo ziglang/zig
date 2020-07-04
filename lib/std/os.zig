@@ -4145,7 +4145,18 @@ pub fn realpathatW(fd: fd_t, pathname: [*:0]const u16, out_buffer: *[MAX_PATH_BY
 
     // Convert UTF16LE to UTF8
     var pathname_u8: [MAX_PATH_BYTES]u8 = undefined;
-    const end_index = std.unicode.utf16leToUtf8(pathname_u8[0..], mem.spanZ(pathname)) catch unreachable;
+    const end_index = std.unicode.utf16leToUtf8(pathname_u8[0..], mem.spanZ(pathname)) catch |_| {
+        return error.BadPathName;
+    };
+
+    // Check for illegal path characters
+    for (pathname_u8[0..end_index]) |byte| {
+        switch (byte) {
+            '*', '?', '"', '<', '>', '|' => return error.BadPathName,
+            else => {},
+        }
+    }
+
     const total_len = fd_path.len + end_index + 1; // +1 to account for path separator
     if (total_len >= MAX_PATH_BYTES) {
         return error.NameTooLong;
@@ -4156,9 +4167,16 @@ pub fn realpathatW(fd: fd_t, pathname: [*:0]const u16, out_buffer: *[MAX_PATH_BY
     unnormalized[fd_path.len] = std.fs.path.sep;
     mem.copy(u8, unnormalized[fd_path.len + 1 ..], pathname_u8[0..end_index]);
 
-    const unnormalized_w = try windows.sliceToPrefixedFileW(unnormalized[0..total_len]);
+    // Since we are resolving path relative to some fd, if `pathname` is relative, it may well
+    // consist of relative components '.' and '..'. Hence, we don't want to prepend '\\?\' which
+    // forces a fully-qualified path only in all Windows syscalls. Instead, we simply convert `u8`
+    // to `u16`, and feed that into `realpathW`.
+    var unnormalized_w: [windows.PATH_MAX_WIDE:0]u16 = undefined;
+    const len = try std.unicode.utf8ToUtf16Le(unnormalized_w[0..], unnormalized[0..total_len]);
+    if (len > unnormalized_w.len) return error.NameTooLong;
+    unnormalized_w[len] = 0;
 
-    return realpathW(unnormalized_w.span().ptr, out_buffer);
+    return realpathW(unnormalized_w[0..len :0].ptr, out_buffer);
 }
 
 /// WASI-only. Similar to `realpathat` except it returns the canonicalized relative pathname
