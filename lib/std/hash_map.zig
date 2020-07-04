@@ -293,18 +293,22 @@ pub fn HashMapUnmanaged(
 
         pub fn clearRetainingCapacity(self: *Self) void {
             self.entries.items.len = 0;
-            if (self.header) |header| {
+            if (self.index_header) |header| {
                 header.max_distance_from_start_index = 0;
-                const indexes = header.indexes(u8);
-                @memset(indexes.ptr, 0xff, indexes.len);
+                switch (header.capacityIndexType()) {
+                    .u8 => mem.set(Index(u8), header.indexes(u8), Index(u8).empty),
+                    .u16 => mem.set(Index(u16), header.indexes(u16), Index(u16).empty),
+                    .u32 => mem.set(Index(u32), header.indexes(u32), Index(u32).empty),
+                    .usize => mem.set(Index(usize), header.indexes(usize), Index(usize).empty),
+                }
             }
         }
 
         pub fn clearAndFree(self: *Self, allocator: *Allocator) void {
             self.entries.shrink(allocator, 0);
-            if (self.header) |header| {
+            if (self.index_header) |header| {
                 header.free(allocator);
-                self.header = null;
+                self.index_header = null;
             }
         }
 
@@ -378,13 +382,13 @@ pub fn HashMapUnmanaged(
             try self.entries.ensureCapacity(allocator, new_capacity);
             if (new_capacity <= linear_scan_max) return;
 
-            // Resize if indexes would be more than 75% full.
-            const needed_len = new_capacity * 4 / 3;
+            // Resize if indexes would be more than 60% full.
+            const needed_len = new_capacity * 5 / 3;
             if (self.index_header) |header| {
                 if (needed_len > header.indexes_len) {
                     var new_indexes_len = header.indexes_len;
                     while (true) {
-                        new_indexes_len += new_indexes_len / 2 + 8;
+                        new_indexes_len *= new_indexes_len / 2 + 8;
                         if (new_indexes_len >= needed_len) break;
                     }
                     const new_header = try IndexHeader.alloc(allocator, new_indexes_len);
@@ -788,6 +792,11 @@ fn Index(comptime I: type) type {
         distance_from_start_index: I,
 
         const Self = @This();
+
+        const empty = Self{
+            .entry_index = math.maxInt(I),
+            .distance_from_start_index = undefined,
+        };
 
         fn isEmpty(idx: Self) bool {
             return idx.entry_index == math.maxInt(I);

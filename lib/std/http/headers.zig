@@ -118,13 +118,12 @@ pub const Headers = struct {
         };
     }
 
-    pub fn deinit(self: Self) void {
+    pub fn deinit(self: *Self) void {
         {
-            var it = self.index.iterator();
-            while (it.next()) |kv| {
-                var dex = &kv.value;
+            for (self.index.items()) |*entry| {
+                const dex = &entry.value;
                 dex.deinit();
-                self.allocator.free(kv.key);
+                self.allocator.free(entry.key);
             }
             self.index.deinit();
         }
@@ -134,6 +133,7 @@ pub const Headers = struct {
             }
             self.data.deinit();
         }
+        self.* = undefined;
     }
 
     pub fn clone(self: Self, allocator: *Allocator) !Self {
@@ -155,10 +155,10 @@ pub const Headers = struct {
         const n = self.data.items.len + 1;
         try self.data.ensureCapacity(n);
         var entry: HeaderEntry = undefined;
-        if (self.index.get(name)) |kv| {
+        if (self.index.getEntry(name)) |kv| {
             entry = try HeaderEntry.init(self.allocator, kv.key, value, never_index);
             errdefer entry.deinit();
-            var dex = &kv.value;
+            const dex = &kv.value;
             try dex.append(n - 1);
         } else {
             const name_dup = try mem.dupe(self.allocator, u8, name);
@@ -195,7 +195,7 @@ pub const Headers = struct {
     /// Returns boolean indicating if something was deleted.
     pub fn delete(self: *Self, name: []const u8) bool {
         if (self.index.remove(name)) |kv| {
-            var dex = &kv.value;
+            const dex = &kv.value;
             // iterate backwards
             var i = dex.items.len;
             while (i > 0) {
@@ -207,7 +207,7 @@ pub const Headers = struct {
             }
             dex.deinit();
             self.allocator.free(kv.key);
-            self.rebuild_index();
+            self.rebuildIndex();
             return true;
         } else {
             return false;
@@ -216,45 +216,52 @@ pub const Headers = struct {
 
     /// Removes the element at the specified index.
     /// Moves items down to fill the empty space.
+    /// TODO this implementation can be replaced by adding
+    /// orderedRemove to the new hash table implementation as an
+    /// alternative to swapRemove.
     pub fn orderedRemove(self: *Self, i: usize) void {
         const removed = self.data.orderedRemove(i);
-        const kv = self.index.get(removed.name).?;
-        var dex = &kv.value;
+        const kv = self.index.getEntry(removed.name).?;
+        const dex = &kv.value;
         if (dex.items.len == 1) {
             // was last item; delete the index
-            _ = self.index.remove(kv.key);
             dex.deinit();
             removed.deinit();
-            self.allocator.free(kv.key);
+            const key = kv.key;
+            _ = self.index.remove(key); // invalidates `kv` and `dex`
+            self.allocator.free(key);
         } else {
             dex.shrink(dex.items.len - 1);
             removed.deinit();
         }
         // if it was the last item; no need to rebuild index
         if (i != self.data.items.len) {
-            self.rebuild_index();
+            self.rebuildIndex();
         }
     }
 
     /// Removes the element at the specified index.
     /// The empty slot is filled from the end of the list.
+    /// TODO this implementation can be replaced by simply using the
+    /// new hash table which does swap removal.
     pub fn swapRemove(self: *Self, i: usize) void {
         const removed = self.data.swapRemove(i);
-        const kv = self.index.get(removed.name).?;
-        var dex = &kv.value;
+        const kv = self.index.getEntry(removed.name).?;
+        const dex = &kv.value;
         if (dex.items.len == 1) {
             // was last item; delete the index
-            _ = self.index.remove(kv.key);
             dex.deinit();
             removed.deinit();
-            self.allocator.free(kv.key);
+            const key = kv.key;
+            _ = self.index.remove(key); // invalidates `kv` and `dex`
+            self.allocator.free(key);
         } else {
             dex.shrink(dex.items.len - 1);
             removed.deinit();
         }
         // if it was the last item; no need to rebuild index
         if (i != self.data.items.len) {
-            self.rebuild_index();
+            self.rebuildIndex();
         }
     }
 
@@ -266,11 +273,7 @@ pub const Headers = struct {
     /// Returns a list of indices containing headers with the given name.
     /// The returned list should not be modified by the caller.
     pub fn getIndices(self: Self, name: []const u8) ?HeaderIndexList {
-        if (self.index.get(name)) |kv| {
-            return kv.value;
-        } else {
-            return null;
-        }
+        return self.index.get(name);
     }
 
     /// Returns a slice containing each header with the given name.
@@ -325,25 +328,20 @@ pub const Headers = struct {
         return buf;
     }
 
-    fn rebuild_index(self: *Self) void {
-        { // clear out the indexes
-            var it = self.index.iterator();
-            while (it.next()) |kv| {
-                var dex = &kv.value;
-                dex.items.len = 0; // keeps capacity available
-            }
+    fn rebuildIndex(self: *Self) void {
+        // clear out the indexes
+        for (self.index.items()) |*entry| {
+            entry.value.shrinkRetainingCapacity(0);
         }
-        { // fill up indexes again; we know capacity is fine from before
-            for (self.data.span()) |entry, i| {
-                var dex = &self.index.get(entry.name).?.value;
-                dex.appendAssumeCapacity(i);
-            }
+        // fill up indexes again; we know capacity is fine from before
+        for (self.data.items) |entry, i| {
+            self.index.getEntry(entry.name).?.value.appendAssumeCapacity(i);
         }
     }
 
     pub fn sort(self: *Self) void {
         std.sort.sort(HeaderEntry, self.data.items, {}, HeaderEntry.compare);
-        self.rebuild_index();
+        self.rebuildIndex();
     }
 
     pub fn format(
