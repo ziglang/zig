@@ -34,15 +34,6 @@ pub fn build(b: *Builder) !void {
 
     const test_step = b.step("test", "Run all the tests");
 
-    const config_h_text = if (b.option(
-        []const u8,
-        "config_h",
-        "Path to the generated config.h",
-    )) |config_h_path|
-        try std.fs.cwd().readFileAlloc(b.allocator, toNativePathSep(b, config_h_path), max_config_h_bytes)
-    else
-        try findAndReadConfigH(b);
-
     var test_stage2 = b.addTest("src-self-hosted/test.zig");
     test_stage2.setBuildMode(.Debug); // note this is only the mode of the test harness
     test_stage2.addPackagePath("stage2_tests", "test/stage2/test.zig");
@@ -58,6 +49,7 @@ pub fn build(b: *Builder) !void {
 
     const only_install_lib_files = b.option(bool, "lib-files-only", "Only install library files") orelse false;
     const enable_llvm = b.option(bool, "enable-llvm", "Build self-hosted compiler with LLVM backend enabled") orelse false;
+    const config_h_path_option = b.option([]const u8, "config_h", "Path to the generated config.h");
 
     if (!only_install_lib_files) {
         var exe = b.addExecutable("zig", "src-self-hosted/main.zig");
@@ -66,6 +58,11 @@ pub fn build(b: *Builder) !void {
         b.default_step.dependOn(&exe.step);
 
         if (enable_llvm) {
+            const config_h_text = if (config_h_path_option) |config_h_path|
+                try std.fs.cwd().readFileAlloc(b.allocator, toNativePathSep(b, config_h_path), max_config_h_bytes)
+            else
+                try findAndReadConfigH(b);
+
             var ctx = parseConfigH(b, config_h_text);
             ctx.llvm = try findLLVM(b, ctx.llvm_config_exe);
 
