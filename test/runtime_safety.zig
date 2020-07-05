@@ -757,6 +757,16 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\}
     );
 
+    cases.addRuntimeSafety("unsigned integer not fitting in cast to signed integer - same bit count",
+        \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+        \\    @import("std").os.exit(126);
+        \\}
+        \\pub fn main() void {
+        \\    var value: u8 = 245;
+        \\    var casted = @intCast(i8, value);
+        \\}
+    );
+
     cases.addRuntimeSafety("unwrap error",
         \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
         \\    if (@import("std").mem.eql(u8, message, "attempt to unwrap error: Whatever")) {

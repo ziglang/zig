@@ -244,7 +244,7 @@ pub fn __udivsi3(n: u32, d: u32) callconv(.C) u32 {
         //      r.all -= d.all;
         //      carry = 1;
         // }
-        const s = @intCast(i32, d -% r -% 1) >> @intCast(u5, n_uword_bits - 1);
+        const s = @bitCast(i32, d -% r -% 1) >> @intCast(u5, n_uword_bits - 1);
         carry = @intCast(u32, s & 1);
         r -= d & @bitCast(u32, s);
     }
