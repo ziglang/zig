@@ -4,7 +4,7 @@ const testing = @import("std").testing;
 fn test__clzsi2(a: u32, expected: i32) void {
     var nakedClzsi2 = clzsi2.__clzsi2;
     var actualClzsi2 = @ptrCast(fn (a: i32) callconv(.C) i32, nakedClzsi2);
-    var x = @intCast(i32, a);
+    var x = @bitCast(i32, a);
     var result = actualClzsi2(x);
     testing.expectEqual(expected, result);
 }
