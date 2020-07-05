@@ -1535,9 +1535,11 @@ static LLVMValueRef gen_widen_or_shorten(CodeGen *g, bool want_runtime_safety, Z
         zig_unreachable();
     }
 
-    if (actual_type->id == ZigTypeIdInt &&
-        !wanted_type->data.integral.is_signed && actual_type->data.integral.is_signed &&
-        want_runtime_safety)
+    if (actual_type->id == ZigTypeIdInt && want_runtime_safety && (
+        // negative to unsigned
+        (!wanted_type->data.integral.is_signed && actual_type->data.integral.is_signed) ||
+        // unsigned would become negative
+        (wanted_type->data.integral.is_signed && !actual_type->data.integral.is_signed && actual_bits == wanted_bits)))
     {
         LLVMValueRef zero = LLVMConstNull(get_llvm_type(g, actual_type));
         LLVMValueRef ok_bit = LLVMBuildICmp(g->builder, LLVMIntSGE, expr_val, zero, "");
@@ -1547,7 +1549,7 @@ static LLVMValueRef gen_widen_or_shorten(CodeGen *g, bool want_runtime_safety, Z
         LLVMBuildCondBr(g->builder, ok_bit, ok_block, fail_block);
 
         LLVMPositionBuilderAtEnd(g->builder, fail_block);
-        gen_safety_crash(g, PanicMsgIdCastNegativeToUnsigned);
+        gen_safety_crash(g, actual_type->data.integral.is_signed ? PanicMsgIdCastNegativeToUnsigned : PanicMsgIdCastTruncatedData);
 
         LLVMPositionBuilderAtEnd(g->builder, ok_block);
     }
