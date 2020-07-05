@@ -101,6 +101,38 @@ pub const Target = struct {
                     return @enumToInt(ver) >= @enumToInt(self.min) and @enumToInt(ver) <= @enumToInt(self.max);
                 }
             };
+
+            /// This function is defined to serialize a Zig source code representation of this
+            /// type, that, when parsed, will deserialize into the same data.
+            pub fn format(
+                self: WindowsVersion,
+                comptime fmt: []const u8,
+                options: std.fmt.FormatOptions,
+                out_stream: var,
+            ) !void {
+                if (fmt.len > 0 and fmt[0] == 's') { 
+                    if (
+                        @enumToInt(self) >= @enumToInt(WindowsVersion.nt4) and @enumToInt(self) <= @enumToInt(WindowsVersion.win10_19h1)
+                    ) {
+                        try std.fmt.format(out_stream, ".{}", .{@tagName(self)});
+                    } else {
+                        try std.fmt.format(out_stream,
+                            "@intToEnum(Target.Os.WindowsVersion, {})",
+                            .{ @enumToInt(self) }
+                        );
+                    }
+                } else {
+                    if (
+                        @enumToInt(self) >= @enumToInt(WindowsVersion.nt4) and @enumToInt(self) <= @enumToInt(WindowsVersion.win10_19h1)
+                    ) {
+                        try std.fmt.format(out_stream, "WindowsVersion.{}", .{@tagName(self)});
+                    } else {
+                        try std.fmt.format(out_stream, "WindowsVersion(", .{@typeName(@This())});
+                        try std.fmt.format(out_stream, "{}", .{@enumToInt(self)});
+                        try out_stream.writeAll(")");
+                    }
+                }
+            }
         };
 
         pub const LinuxVersionRange = struct {

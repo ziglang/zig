@@ -653,23 +653,6 @@ export fn stage2_libc_render(stage1_libc: *Stage2LibCInstallation, output_file: 
     return .None;
 }
 
-fn enumToString(value: var, type_name: []const u8) ![]const u8 {
-    switch (@typeInfo(@TypeOf(value))) {
-        .Enum => |e| {
-            if (e.is_exhaustive) {
-                return std.fmt.allocPrint(std.heap.c_allocator, ".{}", .{@tagName(value)});
-            } else {
-                return std.fmt.allocPrint(
-                    std.heap.c_allocator,
-                    "@intToEnum({}, {})",
-                    .{ type_name, @enumToInt(value) },
-                );
-            }
-        },
-        else => unreachable,
-    }
-}
-
 // ABI warning
 const Stage2Target = extern struct {
     arch: c_int,
@@ -887,13 +870,13 @@ const Stage2Target = extern struct {
 
             .windows => try os_builtin_str_buffer.outStream().print(
                 \\ .windows = .{{
-                \\        .min = {},
-                \\        .max = {},
+                \\        .min = {s},
+                \\        .max = {s},
                 \\    }}}},
                 \\
             , .{
-                try enumToString(target.os.version_range.windows.min, "Target.Os.WindowsVersion"),
-                try enumToString(target.os.version_range.windows.max, "Target.Os.WindowsVersion"),
+                target.os.version_range.windows.min,
+                target.os.version_range.windows.max,
             }),
         }
         try os_builtin_str_buffer.appendSlice("};\n");
