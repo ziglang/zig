@@ -14,14 +14,12 @@ pub const BufSet = struct {
         return self;
     }
 
-    pub fn deinit(self: *const BufSet) void {
-        var it = self.hash_map.iterator();
-        while (true) {
-            const entry = it.next() orelse break;
+    pub fn deinit(self: *BufSet) void {
+        for (self.hash_map.items()) |entry| {
             self.free(entry.key);
         }
-
         self.hash_map.deinit();
+        self.* = undefined;
     }
 
     pub fn put(self: *BufSet, key: []const u8) !void {

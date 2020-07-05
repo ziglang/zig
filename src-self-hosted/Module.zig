@@ -75,7 +75,7 @@ deletion_set: std.ArrayListUnmanaged(*Decl) = .{},
 
 keep_source_files_loaded: bool,
 
-const DeclTable = std.HashMap(Scope.NameHash, *Decl, Scope.name_hash_hash, Scope.name_hash_eql);
+const DeclTable = std.HashMap(Scope.NameHash, *Decl, Scope.name_hash_hash, Scope.name_hash_eql, false);
 
 const WorkItem = union(enum) {
     /// Write the machine code for a Decl to the output file.
@@ -795,49 +795,38 @@ pub fn deinit(self: *Module) void {
     const allocator = self.allocator;
     self.deletion_set.deinit(allocator);
     self.work_queue.deinit();
-    {
-        var it = self.decl_table.iterator();
-        while (it.next()) |kv| {
-            kv.value.destroy(allocator);
-        }
-        self.decl_table.deinit();
+
+    for (self.decl_table.items()) |entry| {
+        entry.value.destroy(allocator);
     }
-    {
-        var it = self.failed_decls.iterator();
-        while (it.next()) |kv| {
-            kv.value.destroy(allocator);
-        }
-        self.failed_decls.deinit();
+    self.decl_table.deinit();
+
+    for (self.failed_decls.items()) |entry| {
+        entry.value.destroy(allocator);
     }
-    {
-        var it = self.failed_files.iterator();
-        while (it.next()) |kv| {
-            kv.value.destroy(allocator);
-        }
-        self.failed_files.deinit();
+    self.failed_decls.deinit();
+
+    for (self.failed_files.items()) |entry| {
+        entry.value.destroy(allocator);
     }
-    {
-        var it = self.failed_exports.iterator();
-        while (it.next()) |kv| {
-            kv.value.destroy(allocator);
-        }
-        self.failed_exports.deinit();
+    self.failed_files.deinit();
+
+    for (self.failed_exports.items()) |entry| {
+        entry.value.destroy(allocator);
     }
-    {
-        var it = self.decl_exports.iterator();
-        while (it.next()) |kv| {
-            const export_list = kv.value;
-            allocator.free(export_list);
-        }
-        self.decl_exports.deinit();
+    self.failed_exports.deinit();
+
+    for (self.decl_exports.items()) |entry| {
+        const export_list = entry.value;
+        allocator.free(export_list);
     }
-    {
-        var it = self.export_owners.iterator();
-        while (it.next()) |kv| {
-            freeExportList(allocator, kv.value);
-        }
-        self.export_owners.deinit();
+    self.decl_exports.deinit();
+
+    for (self.export_owners.items()) |entry| {
+        freeExportList(allocator, entry.value);
     }
+    self.export_owners.deinit();
+
     self.symbol_exports.deinit();
     self.root_scope.destroy(allocator);
     self.* = undefined;
@@ -918,9 +907,9 @@ pub fn makeBinFileWritable(self: *Module) !void {
 }
 
 pub fn totalErrorCount(self: *Module) usize {
-    const total = self.failed_decls.size +
-        self.failed_files.size +
-        self.failed_exports.size;
+    const total = self.failed_decls.items().len +
+        self.failed_files.items().len +
+        self.failed_exports.items().len;
     return if (total == 0) @boolToInt(self.link_error_flags.no_entry_point_found) else total;
 }
 
@@ -931,32 +920,23 @@ pub fn getAllErrorsAlloc(self: *Module) !AllErrors {
     var errors = std.ArrayList(AllErrors.Message).init(self.allocator);
     defer errors.deinit();
 
-    {
-        var it = self.failed_files.iterator();
-        while (it.next()) |kv| {
-            const scope = kv.key;
-            const err_msg = kv.value;
-            const source = try scope.getSource(self);
-            try AllErrors.add(&arena, &errors, scope.subFilePath(), source, err_msg.*);
-        }
+    for (self.failed_files.items()) |entry| {
+        const scope = entry.key;
+        const err_msg = entry.value;
+        const source = try scope.getSource(self);
+        try AllErrors.add(&arena, &errors, scope.subFilePath(), source, err_msg.*);
     }
-    {
-        var it = self.failed_decls.iterator();
-        while (it.next()) |kv| {
-            const decl = kv.key;
-            const err_msg = kv.value;
-            const source = try decl.scope.getSource(self);
-            try AllErrors.add(&arena, &errors, decl.scope.subFilePath(), source, err_msg.*);
-        }
+    for (self.failed_decls.items()) |entry| {
+        const decl = entry.key;
+        const err_msg = entry.value;
+        const source = try decl.scope.getSource(self);
+        try AllErrors.add(&arena, &errors, decl.scope.subFilePath(), source, err_msg.*);
     }
-    {
-        var it = self.failed_exports.iterator();
-        while (it.next()) |kv| {
-            const decl = kv.key.owner_decl;
-            const err_msg = kv.value;
-            const source = try decl.scope.getSource(self);
-            try AllErrors.add(&arena, &errors, decl.scope.subFilePath(), source, err_msg.*);
-        }
+    for (self.failed_exports.items()) |entry| {
+        const decl = entry.key.owner_decl;
+        const err_msg = entry.value;
+        const source = try decl.scope.getSource(self);
+        try AllErrors.add(&arena, &errors, decl.scope.subFilePath(), source, err_msg.*);
     }
 
     if (errors.items.len == 0 and self.link_error_flags.no_entry_point_found) {
@@ -1016,7 +996,7 @@ pub fn performAllTheWork(self: *Module) error{OutOfMemory}!void {
                         decl.analysis = .dependency_failure;
                     },
                     else => {
-                        try self.failed_decls.ensureCapacity(self.failed_decls.size + 1);
+                        try self.failed_decls.ensureCapacity(self.failed_decls.items().len + 1);
                         self.failed_decls.putAssumeCapacityNoClobber(decl, try ErrorMsg.create(
                             self.allocator,
                             decl.src(),
@@ -1086,7 +1066,7 @@ fn ensureDeclAnalyzed(self: *Module, decl: *Decl) InnerError!void {
             error.OutOfMemory => return error.OutOfMemory,
             error.AnalysisFail => return error.AnalysisFail,
             else => {
-                try self.failed_decls.ensureCapacity(self.failed_decls.size + 1);
+                try self.failed_decls.ensureCapacity(self.failed_decls.items().len + 1);
                 self.failed_decls.putAssumeCapacityNoClobber(decl, try ErrorMsg.create(
                     self.allocator,
                     decl.src(),
@@ -1636,7 +1616,7 @@ fn declareDeclDependency(self: *Module, depender: *Decl, dependee: *Decl) !void 
 fn getSrcModule(self: *Module, root_scope: *Scope.ZIRModule) !*zir.Module {
     switch (root_scope.status) {
         .never_loaded, .unloaded_success => {
-            try self.failed_files.ensureCapacity(self.failed_files.size + 1);
+            try self.failed_files.ensureCapacity(self.failed_files.items().len + 1);
 
             const source = try root_scope.getSource(self);
 
@@ -1677,7 +1657,7 @@ fn getAstTree(self: *Module, root_scope: *Scope.File) !*ast.Tree {
 
     switch (root_scope.status) {
         .never_loaded, .unloaded_success => {
-            try self.failed_files.ensureCapacity(self.failed_files.size + 1);
+            try self.failed_files.ensureCapacity(self.failed_files.items().len + 1);
 
             const source = try root_scope.getSource(self);
 
@@ -1745,8 +1725,7 @@ fn analyzeRootSrcFile(self: *Module, root_scope: *Scope.File) !void {
             const name = tree.tokenSliceLoc(name_loc);
             const name_hash = root_scope.fullyQualifiedNameHash(name);
             const contents_hash = std.zig.hashSrc(tree.getNodeSource(src_decl));
-            if (self.decl_table.get(name_hash)) |kv| {
-                const decl = kv.value;
+            if (self.decl_table.get(name_hash)) |decl| {
                 // Update the AST Node index of the decl, even if its contents are unchanged, it may
                 // have been re-ordered.
                 decl.src_index = decl_i;
@@ -1774,14 +1753,11 @@ fn analyzeRootSrcFile(self: *Module, root_scope: *Scope.File) !void {
         // TODO also look for global variable declarations
         // TODO also look for comptime blocks and exported globals
     }
-    {
-        // Handle explicitly deleted decls from the source code. Not to be confused
-        // with when we delete decls because they are no longer referenced.
-        var it = deleted_decls.iterator();
-        while (it.next()) |kv| {
-            //std.debug.warn("noticed '{}' deleted from source\n", .{kv.key.name});
-            try self.deleteDecl(kv.key);
-        }
+    // Handle explicitly deleted decls from the source code. Not to be confused
+    // with when we delete decls because they are no longer referenced.
+    for (deleted_decls.items()) |entry| {
+        //std.debug.warn("noticed '{}' deleted from source\n", .{entry.key.name});
+        try self.deleteDecl(entry.key);
     }
 }
 
@@ -1800,18 +1776,14 @@ fn analyzeRootZIRModule(self: *Module, root_scope: *Scope.ZIRModule) !void {
     // we know which ones have been deleted.
     var deleted_decls = std.AutoHashMap(*Decl, void).init(self.allocator);
     defer deleted_decls.deinit();
-    try deleted_decls.ensureCapacity(self.decl_table.size);
-    {
-        var it = self.decl_table.iterator();
-        while (it.next()) |kv| {
-            deleted_decls.putAssumeCapacityNoClobber(kv.value, {});
-        }
+    try deleted_decls.ensureCapacity(self.decl_table.items().len);
+    for (self.decl_table.items()) |entry| {
+        deleted_decls.putAssumeCapacityNoClobber(entry.value, {});
     }
 
     for (src_module.decls) |src_decl, decl_i| {
         const name_hash = root_scope.fullyQualifiedNameHash(src_decl.name);
-        if (self.decl_table.get(name_hash)) |kv| {
-            const decl = kv.value;
+        if (self.decl_table.get(name_hash)) |decl| {
             deleted_decls.removeAssertDiscard(decl);
             //std.debug.warn("'{}' contents: '{}'\n", .{ src_decl.name, src_decl.contents });
             if (!srcHashEql(src_decl.contents_hash, decl.contents_hash)) {
@@ -1835,14 +1807,11 @@ fn analyzeRootZIRModule(self: *Module, root_scope: *Scope.ZIRModule) !void {
     for (exports_to_resolve.items) |export_decl| {
         _ = try self.resolveZirDecl(&root_scope.base, export_decl);
     }
-    {
-        // Handle explicitly deleted decls from the source code. Not to be confused
-        // with when we delete decls because they are no longer referenced.
-        var it = deleted_decls.iterator();
-        while (it.next()) |kv| {
-            //std.debug.warn("noticed '{}' deleted from source\n", .{kv.key.name});
-            try self.deleteDecl(kv.key);
-        }
+    // Handle explicitly deleted decls from the source code. Not to be confused
+    // with when we delete decls because they are no longer referenced.
+    for (deleted_decls.items()) |entry| {
+        //std.debug.warn("noticed '{}' deleted from source\n", .{entry.key.name});
+        try self.deleteDecl(entry.key);
     }
 }
 
@@ -1888,7 +1857,7 @@ fn deleteDeclExports(self: *Module, decl: *Decl) void {
     const kv = self.export_owners.remove(decl) orelse return;
 
     for (kv.value) |exp| {
-        if (self.decl_exports.get(exp.exported_decl)) |decl_exports_kv| {
+        if (self.decl_exports.getEntry(exp.exported_decl)) |decl_exports_kv| {
             // Remove exports with owner_decl matching the regenerating decl.
             const list = decl_exports_kv.value;
             var i: usize = 0;
@@ -1983,7 +1952,7 @@ fn createNewDecl(
     name_hash: Scope.NameHash,
     contents_hash: std.zig.SrcHash,
 ) !*Decl {
-    try self.decl_table.ensureCapacity(self.decl_table.size + 1);
+    try self.decl_table.ensureCapacity(self.decl_table.items().len + 1);
     const new_decl = try self.allocateNewDecl(scope, src_index, contents_hash);
     errdefer self.allocator.destroy(new_decl);
     new_decl.name = try mem.dupeZ(self.allocator, u8, decl_name);
@@ -2043,7 +2012,7 @@ fn resolveZirDecl(self: *Module, scope: *Scope, src_decl: *zir.Decl) InnerError!
 
 fn resolveZirDeclHavingIndex(self: *Module, scope: *Scope, src_decl: *zir.Decl, src_index: usize) InnerError!*Decl {
     const name_hash = scope.namespace().fullyQualifiedNameHash(src_decl.name);
-    const decl = self.decl_table.getValue(name_hash).?;
+    const decl = self.decl_table.get(name_hash).?;
     decl.src_index = src_index;
     try self.ensureDeclAnalyzed(decl);
     return decl;
@@ -2148,8 +2117,8 @@ fn analyzeExport(self: *Module, scope: *Scope, src: usize, symbol_name: []const 
         else => return self.fail(scope, src, "unable to export type '{}'", .{typed_value.ty}),
     }
 
-    try self.decl_exports.ensureCapacity(self.decl_exports.size + 1);
-    try self.export_owners.ensureCapacity(self.export_owners.size + 1);
+    try self.decl_exports.ensureCapacity(self.decl_exports.items().len + 1);
+    try self.export_owners.ensureCapacity(self.export_owners.items().len + 1);
 
     const new_export = try self.allocator.create(Export);
     errdefer self.allocator.destroy(new_export);
@@ -2168,23 +2137,23 @@ fn analyzeExport(self: *Module, scope: *Scope, src: usize, symbol_name: []const 
     // Add to export_owners table.
     const eo_gop = self.export_owners.getOrPut(owner_decl) catch unreachable;
     if (!eo_gop.found_existing) {
-        eo_gop.kv.value = &[0]*Export{};
+        eo_gop.entry.value = &[0]*Export{};
     }
-    eo_gop.kv.value = try self.allocator.realloc(eo_gop.kv.value, eo_gop.kv.value.len + 1);
-    eo_gop.kv.value[eo_gop.kv.value.len - 1] = new_export;
-    errdefer eo_gop.kv.value = self.allocator.shrink(eo_gop.kv.value, eo_gop.kv.value.len - 1);
+    eo_gop.entry.value = try self.allocator.realloc(eo_gop.entry.value, eo_gop.entry.value.len + 1);
+    eo_gop.entry.value[eo_gop.entry.value.len - 1] = new_export;
+    errdefer eo_gop.entry.value = self.allocator.shrink(eo_gop.entry.value, eo_gop.entry.value.len - 1);
 
     // Add to exported_decl table.
     const de_gop = self.decl_exports.getOrPut(exported_decl) catch unreachable;
     if (!de_gop.found_existing) {
-        de_gop.kv.value = &[0]*Export{};
+        de_gop.entry.value = &[0]*Export{};
     }
-    de_gop.kv.value = try self.allocator.realloc(de_gop.kv.value, de_gop.kv.value.len + 1);
-    de_gop.kv.value[de_gop.kv.value.len - 1] = new_export;
-    errdefer de_gop.kv.value = self.allocator.shrink(de_gop.kv.value, de_gop.kv.value.len - 1);
+    de_gop.entry.value = try self.allocator.realloc(de_gop.entry.value, de_gop.entry.value.len + 1);
+    de_gop.entry.value[de_gop.entry.value.len - 1] = new_export;
+    errdefer de_gop.entry.value = self.allocator.shrink(de_gop.entry.value, de_gop.entry.value.len - 1);
 
     if (self.symbol_exports.get(symbol_name)) |_| {
-        try self.failed_exports.ensureCapacity(self.failed_exports.size + 1);
+        try self.failed_exports.ensureCapacity(self.failed_exports.items().len + 1);
         self.failed_exports.putAssumeCapacityNoClobber(new_export, try ErrorMsg.create(
             self.allocator,
             src,
@@ -2197,10 +2166,10 @@ fn analyzeExport(self: *Module, scope: *Scope, src: usize, symbol_name: []const 
     }
 
     try self.symbol_exports.putNoClobber(symbol_name, new_export);
-    self.bin_file.updateDeclExports(self, exported_decl, de_gop.kv.value) catch |err| switch (err) {
+    self.bin_file.updateDeclExports(self, exported_decl, de_gop.entry.value) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => {
-            try self.failed_exports.ensureCapacity(self.failed_exports.size + 1);
+            try self.failed_exports.ensureCapacity(self.failed_exports.items().len + 1);
             self.failed_exports.putAssumeCapacityNoClobber(new_export, try ErrorMsg.create(
                 self.allocator,
                 src,
@@ -2494,7 +2463,7 @@ fn getNextAnonNameIndex(self: *Module) usize {
 fn lookupDeclName(self: *Module, scope: *Scope, ident_name: []const u8) ?*Decl {
     const namespace = scope.namespace();
     const name_hash = namespace.fullyQualifiedNameHash(ident_name);
-    return self.decl_table.getValue(name_hash);
+    return self.decl_table.get(name_hash);
 }
 
 fn analyzeInstExport(self: *Module, scope: *Scope, export_inst: *zir.Inst.Export) InnerError!*Inst {
@@ -3489,8 +3458,8 @@ fn failNode(
 fn failWithOwnedErrorMsg(self: *Module, scope: *Scope, src: usize, err_msg: *ErrorMsg) InnerError {
     {
         errdefer err_msg.destroy(self.allocator);
-        try self.failed_decls.ensureCapacity(self.failed_decls.size + 1);
-        try self.failed_files.ensureCapacity(self.failed_files.size + 1);
+        try self.failed_decls.ensureCapacity(self.failed_decls.items().len + 1);
+        try self.failed_files.ensureCapacity(self.failed_files.items().len + 1);
     }
     switch (scope.tag) {
         .decl => {

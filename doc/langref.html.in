@@ -5363,25 +5363,17 @@ const std = @import("std");
 const assert = std.debug.assert;
 
 test "turn HashMap into a set with void" {
-    var map = std.HashMap(i32, void, hash_i32, eql_i32).init(std.testing.allocator);
+    var map = std.AutoHashMap(i32, void).init(std.testing.allocator);
     defer map.deinit();
 
-    _ = try map.put(1, {});
-    _ = try map.put(2, {});
+    try map.put(1, {});
+    try map.put(2, {});
 
     assert(map.contains(2));
     assert(!map.contains(3));
 
     _ = map.remove(2);
     assert(!map.contains(2));
-}
-
-fn hash_i32(x: i32) u32 {
-    return @bitCast(u32, x);
-}
-
-fn eql_i32(a: i32, b: i32) bool {
-    return a == b;
 }
       {#code_end#}
       <p>Note that this is different from using a dummy value for the hash map value.

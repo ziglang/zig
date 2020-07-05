@@ -20,7 +20,7 @@ pub const Error = error{OutOfMemory};
 const TypeError = Error || error{UnsupportedType};
 const TransError = TypeError || error{UnsupportedTranslation};
 
-const DeclTable = std.HashMap(usize, []const u8, addrHash, addrEql);
+const DeclTable = std.HashMap(usize, []const u8, addrHash, addrEql, false);
 
 fn addrHash(x: usize) u32 {
     switch (@typeInfo(usize).Int.bits) {
@@ -776,8 +776,8 @@ fn checkForBuiltinTypedef(checked_name: []const u8) ?[]const u8 {
 }
 
 fn transTypeDef(c: *Context, typedef_decl: *const ZigClangTypedefNameDecl, top_level_visit: bool) Error!?*ast.Node {
-    if (c.decl_table.get(@ptrToInt(ZigClangTypedefNameDecl_getCanonicalDecl(typedef_decl)))) |kv|
-        return transCreateNodeIdentifier(c, kv.value); // Avoid processing this decl twice
+    if (c.decl_table.get(@ptrToInt(ZigClangTypedefNameDecl_getCanonicalDecl(typedef_decl)))) |name|
+        return transCreateNodeIdentifier(c, name); // Avoid processing this decl twice
     const rp = makeRestorePoint(c);
 
     const typedef_name = try c.str(ZigClangNamedDecl_getName_bytes_begin(@ptrCast(*const ZigClangNamedDecl, typedef_decl)));
@@ -818,8 +818,8 @@ fn transCreateNodeTypedef(rp: RestorePoint, typedef_decl: *const ZigClangTypedef
 }
 
 fn transRecordDecl(c: *Context, record_decl: *const ZigClangRecordDecl) Error!?*ast.Node {
-    if (c.decl_table.get(@ptrToInt(ZigClangRecordDecl_getCanonicalDecl(record_decl)))) |kv|
-        return try transCreateNodeIdentifier(c, kv.value); // Avoid processing this decl twice
+    if (c.decl_table.get(@ptrToInt(ZigClangRecordDecl_getCanonicalDecl(record_decl)))) |name|
+        return try transCreateNodeIdentifier(c, name); // Avoid processing this decl twice
     const record_loc = ZigClangRecordDecl_getLocation(record_decl);
 
     var bare_name = try c.str(ZigClangNamedDecl_getName_bytes_begin(@ptrCast(*const ZigClangNamedDecl, record_decl)));
@@ -969,7 +969,7 @@ fn transRecordDecl(c: *Context, record_decl: *const ZigClangRecordDecl) Error!?*
 
 fn transEnumDecl(c: *Context, enum_decl: *const ZigClangEnumDecl) Error!?*ast.Node {
     if (c.decl_table.get(@ptrToInt(ZigClangEnumDecl_getCanonicalDecl(enum_decl)))) |name|
-        return try transCreateNodeIdentifier(c, name.value); // Avoid processing this decl twice
+        return try transCreateNodeIdentifier(c, name); // Avoid processing this decl twice
     const rp = makeRestorePoint(c);
     const enum_loc = ZigClangEnumDecl_getLocation(enum_decl);
 
@@ -2130,7 +2130,7 @@ fn transInitListExprRecord(
         var raw_name = try rp.c.str(ZigClangNamedDecl_getName_bytes_begin(@ptrCast(*const ZigClangNamedDecl, field_decl)));
         if (ZigClangFieldDecl_isAnonymousStructOrUnion(field_decl)) {
             const name = rp.c.decl_table.get(@ptrToInt(ZigClangFieldDecl_getCanonicalDecl(field_decl))).?;
-            raw_name = try mem.dupe(rp.c.arena, u8, name.value);
+            raw_name = try mem.dupe(rp.c.arena, u8, name);
         }
         const field_name_tok = try appendIdentifier(rp.c, raw_name);
 
@@ -2855,7 +2855,7 @@ fn transMemberExpr(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangMemberE
             const field_decl = @ptrCast(*const struct_ZigClangFieldDecl, member_decl);
             if (ZigClangFieldDecl_isAnonymousStructOrUnion(field_decl)) {
                 const name = rp.c.decl_table.get(@ptrToInt(ZigClangFieldDecl_getCanonicalDecl(field_decl))).?;
-                break :blk try mem.dupe(rp.c.arena, u8, name.value);
+                break :blk try mem.dupe(rp.c.arena, u8, name);
             }
         }
         const decl = @ptrCast(*const ZigClangNamedDecl, member_decl);
@@ -6040,8 +6040,8 @@ fn getContainer(c: *Context, node: *ast.Node) ?*ast.Node {
     } else if (node.id == .PrefixOp) {
         return node;
     } else if (node.cast(ast.Node.Identifier)) |ident| {
-        if (c.global_scope.sym_table.get(tokenSlice(c, ident.token))) |kv| {
-            if (kv.value.cast(ast.Node.VarDecl)) |var_decl|
+        if (c.global_scope.sym_table.get(tokenSlice(c, ident.token))) |value| {
+            if (value.cast(ast.Node.VarDecl)) |var_decl|
                 return getContainer(c, var_decl.init_node.?);
         }
     } else if (node.cast(ast.Node.InfixOp)) |infix| {
@@ -6064,8 +6064,8 @@ fn getContainer(c: *Context, node: *ast.Node) ?*ast.Node {
 
 fn getContainerTypeOf(c: *Context, ref: *ast.Node) ?*ast.Node {
     if (ref.cast(ast.Node.Identifier)) |ident| {
-        if (c.global_scope.sym_table.get(tokenSlice(c, ident.token))) |kv| {
-            if (kv.value.cast(ast.Node.VarDecl)) |var_decl| {
+        if (c.global_scope.sym_table.get(tokenSlice(c, ident.token))) |value| {
+            if (value.cast(ast.Node.VarDecl)) |var_decl| {
                 if (var_decl.type_node) |ty|
                     return getContainer(c, ty);
             }
@@ -6104,8 +6104,7 @@ fn getFnProto(c: *Context, ref: *ast.Node) ?*ast.Node.FnProto {
 }
 
 fn addMacros(c: *Context) !void {
-    var macro_it = c.global_scope.macro_table.iterator();
-    while (macro_it.next()) |kv| {
+    for (c.global_scope.macro_table.items()) |kv| {
         if (getFnProto(c, kv.value)) |proto_node| {
             // If a macro aliases a global variable which is a function pointer, we conclude that
             // the macro is intended to represent a function that assumes the function pointer

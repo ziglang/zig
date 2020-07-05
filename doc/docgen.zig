@@ -392,7 +392,7 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
                             .n = header_stack_size,
                         },
                     });
-                    if (try urls.put(urlized, tag_token)) |entry| {
+                    if (try urls.fetchPut(urlized, tag_token)) |entry| {
                         parseError(tokenizer, tag_token, "duplicate header url: #{}", .{urlized}) catch {};
                         parseError(tokenizer, entry.value, "other tag here", .{}) catch {};
                         return error.ParseError;

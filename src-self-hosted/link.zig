@@ -1071,7 +1071,7 @@ pub const ElfFile = struct {
         try self.file.?.pwriteAll(code, file_offset);
 
         // Since we updated the vaddr and the size, each corresponding export symbol also needs to be updated.
-        const decl_exports = module.decl_exports.getValue(decl) orelse &[0]*Module.Export{};
+        const decl_exports = module.decl_exports.get(decl) orelse &[0]*Module.Export{};
         return self.updateDeclExports(module, decl, decl_exports);
     }
 
@@ -1093,7 +1093,7 @@ pub const ElfFile = struct {
         for (exports) |exp| {
             if (exp.options.section) |section_name| {
                 if (!mem.eql(u8, section_name, ".text")) {
-                    try module.failed_exports.ensureCapacity(module.failed_exports.size + 1);
+                    try module.failed_exports.ensureCapacity(module.failed_exports.items().len + 1);
                     module.failed_exports.putAssumeCapacityNoClobber(
                         exp,
                         try Module.ErrorMsg.create(self.allocator, 0, "Unimplemented: ExportOptions.section", .{}),
@@ -1111,7 +1111,7 @@ pub const ElfFile = struct {
                 },
                 .Weak => elf.STB_WEAK,
                 .LinkOnce => {
-                    try module.failed_exports.ensureCapacity(module.failed_exports.size + 1);
+                    try module.failed_exports.ensureCapacity(module.failed_exports.items().len + 1);
                     module.failed_exports.putAssumeCapacityNoClobber(
                         exp,
                         try Module.ErrorMsg.create(self.allocator, 0, "Unimplemented: GlobalLinkage.LinkOnce", .{}),

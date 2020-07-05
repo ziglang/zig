@@ -720,7 +720,7 @@ fn fmtPathDir(
     defer dir.close();
 
     const stat = try dir.stat();
-    if (try fmt.seen.put(stat.inode, {})) |_| return;
+    if (try fmt.seen.fetchPut(stat.inode, {})) |_| return;
 
     var dir_it = dir.iterate();
     while (try dir_it.next()) |entry| {
@@ -768,7 +768,7 @@ fn fmtPathFile(
     defer fmt.gpa.free(source_code);
 
     // Add to set after no longer possible to get error.IsDir.
-    if (try fmt.seen.put(stat.inode, {})) |_| return;
+    if (try fmt.seen.fetchPut(stat.inode, {})) |_| return;
 
     const tree = try std.zig.parse(fmt.gpa, source_code);
     defer tree.deinit();

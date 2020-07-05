@@ -422,12 +422,12 @@ pub const Builder = struct {
             .type_id = type_id,
             .description = description,
         };
-        if ((self.available_options_map.put(name, available_option) catch unreachable) != null) {
+        if ((self.available_options_map.fetchPut(name, available_option) catch unreachable) != null) {
             panic("Option '{}' declared twice", .{name});
         }
         self.available_options_list.append(available_option) catch unreachable;
 
-        const entry = self.user_input_options.get(name) orelse return null;
+        const entry = self.user_input_options.getEntry(name) orelse return null;
         entry.value.used = true;
         switch (type_id) {
             TypeId.Bool => switch (entry.value.value) {
@@ -634,7 +634,7 @@ pub const Builder = struct {
     pub fn addUserInputOption(self: *Builder, name: []const u8, value: []const u8) !bool {
         const gop = try self.user_input_options.getOrPut(name);
         if (!gop.found_existing) {
-            gop.kv.value = UserInputOption{
+            gop.entry.value = UserInputOption{
                 .name = name,
                 .value = UserValue{ .Scalar = value },
                 .used = false,
@@ -643,7 +643,7 @@ pub const Builder = struct {
         }
 
         // option already exists
-        switch (gop.kv.value.value) {
+        switch (gop.entry.value.value) {
             UserValue.Scalar => |s| {
                 // turn it into a list
                 var list = ArrayList([]const u8).init(self.allocator);
@@ -675,7 +675,7 @@ pub const Builder = struct {
     pub fn addUserInputFlag(self: *Builder, name: []const u8) !bool {
         const gop = try self.user_input_options.getOrPut(name);
         if (!gop.found_existing) {
-            gop.kv.value = UserInputOption{
+            gop.entry.value = UserInputOption{
                 .name = name,
                 .value = UserValue{ .Flag = {} },
                 .used = false,
@@ -684,7 +684,7 @@ pub const Builder = struct {
         }
 
         // option already exists
-        switch (gop.kv.value.value) {
+        switch (gop.entry.value.value) {
             UserValue.Scalar => |s| {
                 warn("Flag '-D{}' conflicts with option '-D{}={}'.\n", .{ name, name, s });
                 return true;
