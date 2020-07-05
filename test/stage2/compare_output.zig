@@ -118,4 +118,29 @@ pub fn addCases(ctx: *TestContext) !void {
             \\
         );
     }
+
+    {
+        var case = ctx.exe("adding numbers", linux_x64);
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (1),
+            \\          [arg1] "{rdi}" (1),
+            \\          [arg2] "{rsi}" (@ptrToInt("Hello, World!\n")),
+            \\          [arg3] "{rdx}" (10 + 4)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (@as(usize, 230) + @as(usize, 1)),
+            \\          [arg1] "{rdi}" (0)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "Hello, World!\n",
+        );
+    }
 }

@@ -290,6 +290,7 @@ pub const Inst = struct {
 
     pub const As = struct {
         pub const base_tag = Tag.as;
+        pub const builtin_name = "@as";
         base: Inst,
 
         positionals: struct {
