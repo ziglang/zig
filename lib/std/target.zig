@@ -102,6 +102,8 @@ pub const Target = struct {
                 }
             };
 
+            /// This function is defined to serialize a Zig source code representation of this
+            /// type, that, when parsed, will deserialize into the same data.
             pub fn format(
                 self: WindowsVersion,
                 comptime fmt: []const u8,
