@@ -415,9 +415,6 @@ pub const TestContext = struct {
 
         var module = try Module.init(allocator, .{
             .target = target,
-            // This is an Executable, as opposed to e.g. a *library*. This does
-            // not mean no ZIR is generated.
-            //
             // TODO: support tests for object file building, and library builds
             // and linking. This will require a rework to support multi-file
             // tests.
