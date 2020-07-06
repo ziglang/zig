@@ -1,15 +1,15 @@
 const std = @import("std");
 const TestContext = @import("../../src-self-hosted/test.zig").TestContext;
-// self-hosted does not yet support PE executable files / COFF object files
-// or mach-o files. So we do the ZIR transform test cases cross compiling for
-// x86_64-linux.
-const linux_x64 = std.zig.CrossTarget{
-    .cpu_arch = .x86_64,
-    .os_tag = .linux,
-};
 
 pub fn addCases(ctx: *TestContext) !void {
-    ctx.transformZIR("referencing decls which appear later in the file", linux_x64,
+    // self-hosted does not yet support PE executable files / COFF object files
+    // or mach-o files. So we do the ZIR transform test cases cross compiling for
+    // x86_64-linux.
+    ctx.case_target = std.zig.CrossTarget{
+        .cpu_arch = .x86_64,
+        .os_tag = .linux,
+    };
+    ctx.transformZIR("referencing decls which appear later in the file",
         \\@void = primitive(void)
         \\@fnty = fntype([], @void, cc=C)
         \\
@@ -32,7 +32,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\})
         \\
     );
-    ctx.transformZIR("elemptr, add, cmp, condbr, return, breakpoint", linux_x64,
+    ctx.transformZIR("elemptr, add, cmp, condbr, return, breakpoint",
         \\@void = primitive(void)
         \\@usize = primitive(usize)
         \\@fnty = fntype([], @void, cc=C)
@@ -86,7 +86,7 @@ pub fn addCases(ctx: *TestContext) !void {
     );
 
     {
-        var case = ctx.objZIR("reference cycle with compile error in the cycle", linux_x64);
+        var case = ctx.objZIR("reference cycle with compile error in the cycle");
         case.addTransform(
             \\@void = primitive(void)
             \\@fnty = fntype([], @void, cc=C)

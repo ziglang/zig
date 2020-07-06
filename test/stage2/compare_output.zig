@@ -1,11 +1,5 @@
 const std = @import("std");
 const TestContext = @import("../../src-self-hosted/test.zig").TestContext;
-// self-hosted does not yet support PE executable files / COFF object files
-// or mach-o files. So we do these test cases cross compiling for x86_64-linux.
-const linux_x64 = std.zig.CrossTarget{
-    .cpu_arch = .x86_64,
-    .os_tag = .linux,
-};
 
 pub fn addCases(ctx: *TestContext) !void {
     if (std.Target.current.os.tag != .linux or
@@ -16,8 +10,17 @@ pub fn addCases(ctx: *TestContext) !void {
         return;
     }
 
+    // self-hosted does not yet support PE executable files / COFF object files
+    // or mach-o files. So we do these test cases cross compiling for x86_64-linux.
+    // case_target affects cases added; changing its value after adding a case
+    // does nothing.
+    ctx.case_target = std.zig.CrossTarget{
+        .cpu_arch = .x86_64,
+        .os_tag = .linux,
+    };
+
     {
-        var case = ctx.exe("hello world with updates", linux_x64);
+        var case = ctx.exe("hello world with updates");
         // Regular old hello world
         case.addCompareOutput(
             \\export fn _start() noreturn {
@@ -120,7 +123,7 @@ pub fn addCases(ctx: *TestContext) !void {
     }
 
     {
-        var case = ctx.exe("adding numbers", linux_x64);
+        var case = ctx.exe("adding numbers");
         case.addCompareOutput(
             \\export fn _start() noreturn {
             \\    asm volatile ("syscall"

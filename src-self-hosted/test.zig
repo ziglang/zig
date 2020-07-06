@@ -21,6 +21,7 @@ const ErrorMsg = struct {
 };
 
 pub const TestContext = struct {
+    case_target: ?std.zig.CrossTarget,
     /// TODO: find a way to treat cases as individual tests (shouldn't show "1 test passed" if there are 200 cases)
     cases: std.ArrayList(Case),
 
@@ -138,12 +139,11 @@ pub const TestContext = struct {
     pub fn addExe(
         ctx: *TestContext,
         name: []const u8,
-        target: std.zig.CrossTarget,
         T: TestType,
     ) *Case {
         ctx.cases.append(Case{
             .name = name,
-            .target = target,
+            .target = ctx.case_target.?,
             .updates = std.ArrayList(Update).init(ctx.cases.allocator),
             .output_mode = .Exe,
             .extension = T,
@@ -152,24 +152,23 @@ pub const TestContext = struct {
     }
 
     /// Adds a test case for Zig input, producing an executable
-    pub fn exe(ctx: *TestContext, name: []const u8, target: std.zig.CrossTarget) *Case {
-        return ctx.addExe(name, target, .Zig);
+    pub fn exe(ctx: *TestContext, name: []const u8) *Case {
+        return ctx.addExe(name, .Zig);
     }
 
     /// Adds a test case for ZIR input, producing an executable
-    pub fn exeZIR(ctx: *TestContext, name: []const u8, target: std.zig.CrossTarget) *Case {
-        return ctx.addExe(name, target, .ZIR);
+    pub fn exeZIR(ctx: *TestContext, name: []const u8) *Case {
+        return ctx.addExe(name, .ZIR);
     }
 
     pub fn addObj(
         ctx: *TestContext,
         name: []const u8,
-        target: std.zig.CrossTarget,
         T: TestType,
     ) *Case {
         ctx.cases.append(Case{
             .name = name,
-            .target = target,
+            .target = ctx.case_target.?,
             .updates = std.ArrayList(Update).init(ctx.cases.allocator),
             .output_mode = .Obj,
             .extension = T,
@@ -178,13 +177,13 @@ pub const TestContext = struct {
     }
 
     /// Adds a test case for Zig input, producing an object file
-    pub fn obj(ctx: *TestContext, name: []const u8, target: std.zig.CrossTarget) *Case {
-        return ctx.addObj(name, target, .Zig);
+    pub fn obj(ctx: *TestContext, name: []const u8) *Case {
+        return ctx.addObj(name, .Zig);
     }
 
     /// Adds a test case for ZIR input, producing an object file
-    pub fn objZIR(ctx: *TestContext, name: []const u8, target: std.zig.CrossTarget) *Case {
-        return ctx.addObj(name, target, .ZIR);
+    pub fn objZIR(ctx: *TestContext, name: []const u8) *Case {
+        return ctx.addObj(name, .ZIR);
     }
 
     pub fn addCompareOutput(
@@ -194,7 +193,7 @@ pub const TestContext = struct {
         src: [:0]const u8,
         expected_stdout: []const u8,
     ) void {
-        ctx.addExe(name, .{}, T).addCompareOutput(src, expected_stdout);
+        ctx.addExe(name, T).addCompareOutput(src, expected_stdout);
     }
 
     /// Adds a test case that compiles the Zig source given in `src`, executes
@@ -222,12 +221,11 @@ pub const TestContext = struct {
     pub fn addTransform(
         ctx: *TestContext,
         name: []const u8,
-        target: std.zig.CrossTarget,
         T: TestType,
         src: [:0]const u8,
         result: [:0]const u8,
     ) void {
-        ctx.addObj(name, target, T).addTransform(src, result);
+        ctx.addObj(name, T).addTransform(src, result);
     }
 
     /// Adds a test case that compiles the Zig given in `src` to ZIR and tests
@@ -235,11 +233,10 @@ pub const TestContext = struct {
     pub fn transform(
         ctx: *TestContext,
         name: []const u8,
-        target: std.zig.CrossTarget,
         src: [:0]const u8,
         result: [:0]const u8,
     ) void {
-        ctx.addTransform(name, target, .Zig, src, result);
+        ctx.addTransform(name, .Zig, src, result);
     }
 
     /// Adds a test case that cleans up the ZIR source given in `src`, and
@@ -247,22 +244,20 @@ pub const TestContext = struct {
     pub fn transformZIR(
         ctx: *TestContext,
         name: []const u8,
-        target: std.zig.CrossTarget,
         src: [:0]const u8,
         result: [:0]const u8,
     ) void {
-        ctx.addTransform(name, target, .ZIR, src, result);
+        ctx.addTransform(name, .ZIR, src, result);
     }
 
     pub fn addError(
         ctx: *TestContext,
         name: []const u8,
-        target: std.zig.CrossTarget,
         T: TestType,
         src: [:0]const u8,
         expected_errors: []const []const u8,
     ) void {
-        ctx.addObj(name, target, T).addError(src, expected_errors);
+        ctx.addObj(name, T).addError(src, expected_errors);
     }
 
     /// Adds a test case that ensures that the Zig given in `src` fails to
@@ -271,11 +266,10 @@ pub const TestContext = struct {
     pub fn compileError(
         ctx: *TestContext,
         name: []const u8,
-        target: std.zig.CrossTarget,
         src: [:0]const u8,
         expected_errors: []const []const u8,
     ) void {
-        ctx.addError(name, target, .Zig, src, expected_errors);
+        ctx.addError(name, .Zig, src, expected_errors);
     }
 
     /// Adds a test case that ensures that the ZIR given in `src` fails to
@@ -284,21 +278,19 @@ pub const TestContext = struct {
     pub fn compileErrorZIR(
         ctx: *TestContext,
         name: []const u8,
-        target: std.zig.CrossTarget,
         src: [:0]const u8,
         expected_errors: []const []const u8,
     ) void {
-        ctx.addError(name, target, .ZIR, src, expected_errors);
+        ctx.addError(name, .ZIR, src, expected_errors);
     }
 
     pub fn addCompiles(
         ctx: *TestContext,
         name: []const u8,
-        target: std.zig.CrossTarget,
         T: TestType,
         src: [:0]const u8,
     ) void {
-        ctx.addObj(name, target, T).compiles(src);
+        ctx.addObj(name, T).compiles(src);
     }
 
     /// Adds a test case that asserts that the Zig given in `src` compiles
@@ -306,10 +298,9 @@ pub const TestContext = struct {
     pub fn compiles(
         ctx: *TestContext,
         name: []const u8,
-        target: std.zig.CrossTarget,
         src: [:0]const u8,
     ) void {
-        ctx.addCompiles(name, target, .Zig, src);
+        ctx.addCompiles(name, .Zig, src);
     }
 
     /// Adds a test case that asserts that the ZIR given in `src` compiles
@@ -317,10 +308,9 @@ pub const TestContext = struct {
     pub fn compilesZIR(
         ctx: *TestContext,
         name: []const u8,
-        target: std.zig.CrossTarget,
         src: [:0]const u8,
     ) void {
-        ctx.addCompiles(name, target, .ZIR, src);
+        ctx.addCompiles(name, .ZIR, src);
     }
 
     /// Adds a test case that first ensures that the Zig given in `src` fails
@@ -331,12 +321,11 @@ pub const TestContext = struct {
     pub fn incrementalFailure(
         ctx: *TestContext,
         name: []const u8,
-        target: std.zig.CrossTarget,
         src: [:0]const u8,
         expected_errors: []const []const u8,
         fixed_src: [:0]const u8,
     ) void {
-        var case = ctx.addObj(name, target, .Zig);
+        var case = ctx.addObj(name, .Zig);
         case.addError(src, expected_errors);
         case.compiles(fixed_src);
     }
@@ -349,19 +338,21 @@ pub const TestContext = struct {
     pub fn incrementalFailureZIR(
         ctx: *TestContext,
         name: []const u8,
-        target: std.zig.CrossTarget,
         src: [:0]const u8,
         expected_errors: []const []const u8,
         fixed_src: [:0]const u8,
     ) void {
-        var case = ctx.addObj(name, target, .ZIR);
+        var case = ctx.addObj(name, .ZIR);
         case.addError(src, expected_errors);
         case.compiles(fixed_src);
     }
 
     fn init() TestContext {
         const allocator = std.heap.page_allocator;
-        return .{ .cases = std.ArrayList(Case).init(allocator) };
+        return .{
+            .cases = std.ArrayList(Case).init(allocator),
+            .case_target = null,
+        };
     }
 
     fn deinit(self: *TestContext) void {
