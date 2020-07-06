@@ -51,6 +51,7 @@ pub const Inst = struct {
         ptrtoint,
         ret,
         retvoid,
+        sub,
         unreach,
 
         /// Returns whether the instruction is one of the control flow "noreturn" types.
@@ -64,12 +65,13 @@ pub const Inst = struct {
                 .bitcast,
                 .block,
                 .breakpoint,
+                .call,
                 .cmp,
                 .constant,
                 .isnonnull,
                 .isnull,
                 .ptrtoint,
-                .call,
+                .sub,
                 => false,
 
                 .condbr,
@@ -240,6 +242,16 @@ pub const Inst = struct {
         pub const base_tag = Tag.retvoid;
         base: Inst,
         args: void,
+    };
+
+    pub const Sub = struct {
+        pub const base_tag = Tag.sub;
+        base: Inst,
+
+        args: struct {
+            lhs: *Inst,
+            rhs: *Inst,
+        },
     };
 
     pub const Unreach = struct {

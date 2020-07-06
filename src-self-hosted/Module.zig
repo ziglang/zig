@@ -2402,6 +2402,7 @@ fn analyzeInst(self: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!*In
         .bitcast => return self.analyzeInstBitCast(scope, old_inst.cast(zir.Inst.BitCast).?),
         .elemptr => return self.analyzeInstElemPtr(scope, old_inst.cast(zir.Inst.ElemPtr).?),
         .add => return self.analyzeInstAdd(scope, old_inst.cast(zir.Inst.Add).?),
+        .sub => return self.analyzeInstSub(scope, old_inst.cast(zir.Inst.Sub).?),
         .cmp => return self.analyzeInstCmp(scope, old_inst.cast(zir.Inst.Cmp).?),
         .condbr => return self.analyzeInstCondBr(scope, old_inst.cast(zir.Inst.CondBr).?),
         .isnull => return self.analyzeInstIsNull(scope, old_inst.cast(zir.Inst.IsNull).?),
@@ -2901,6 +2902,10 @@ fn analyzeInstElemPtr(self: *Module, scope: *Scope, inst: *zir.Inst.ElemPtr) Inn
     }
 
     return self.fail(scope, inst.base.src, "TODO implement more analyze elemptr", .{});
+}
+
+fn analyzeInstSub(self: *Module, scope: *Scope, inst: *zir.Inst.Sub) InnerError!*Inst {
+    return self.fail(scope, inst.base.src, "TODO implement analysis of sub", .{});
 }
 
 fn analyzeInstAdd(self: *Module, scope: *Scope, inst: *zir.Inst.Add) InnerError!*Inst {

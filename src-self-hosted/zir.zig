@@ -73,6 +73,7 @@ pub const Inst = struct {
         bitcast,
         elemptr,
         add,
+        sub,
         cmp,
         condbr,
         isnull,
@@ -110,6 +111,7 @@ pub const Inst = struct {
             .bitcast => BitCast,
             .elemptr => ElemPtr,
             .add => Add,
+            .sub => Sub,
             .cmp => Cmp,
             .condbr => CondBr,
             .isnull => IsNull,
@@ -512,6 +514,17 @@ pub const Inst = struct {
         kw_args: struct {},
     };
 
+    pub const Sub = struct {
+        pub const base_tag = Tag.sub;
+        base: Inst,
+
+        positionals: struct {
+            lhs: *Inst,
+            rhs: *Inst,
+        },
+        kw_args: struct {},
+    };
+
     pub const Cmp = struct {
         pub const base_tag = Tag.cmp;
         base: Inst,
@@ -677,6 +690,7 @@ pub const Module = struct {
             .bitcast => return self.writeInstToStreamGeneric(stream, .bitcast, inst, inst_table),
             .elemptr => return self.writeInstToStreamGeneric(stream, .elemptr, inst, inst_table),
             .add => return self.writeInstToStreamGeneric(stream, .add, inst, inst_table),
+            .sub => return self.writeInstToStreamGeneric(stream, .sub, inst, inst_table),
             .cmp => return self.writeInstToStreamGeneric(stream, .cmp, inst, inst_table),
             .condbr => return self.writeInstToStreamGeneric(stream, .condbr, inst, inst_table),
             .isnull => return self.writeInstToStreamGeneric(stream, .isnull, inst, inst_table),
@@ -1533,6 +1547,22 @@ const EmitZIR = struct {
                         .base = .{
                             .src = inst.src,
                             .tag = Inst.Add.base_tag,
+                        },
+                        .positionals = .{
+                            .lhs = try self.resolveInst(new_body, old_inst.args.lhs),
+                            .rhs = try self.resolveInst(new_body, old_inst.args.rhs),
+                        },
+                        .kw_args = .{},
+                    };
+                    break :blk &new_inst.base;
+                },
+                .sub => blk: {
+                    const old_inst = inst.cast(ir.Inst.Sub).?;
+                    const new_inst = try self.arena.allocator.create(Inst.Sub);
+                    new_inst.* = .{
+                        .base = .{
+                            .src = inst.src,
+                            .tag = Inst.Sub.base_tag,
                         },
                         .positionals = .{
                             .lhs = try self.resolveInst(new_body, old_inst.args.lhs),

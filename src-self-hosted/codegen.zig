@@ -285,11 +285,39 @@ const Function = struct {
         memory: u64,
         /// The value is one of the stack variables.
         stack_offset: u64,
+        /// The value is the compare flag, with this operator
+        /// applied on top of it.
+        compare_flag: std.math.CompareOperator,
 
         fn isMemory(mcv: MCValue) bool {
             return switch (mcv) {
                 .embedded_in_code, .memory, .stack_offset => true,
                 else => false,
+            };
+        }
+
+        fn isImmediate(mcv: MCValue) bool {
+            return switch (mcv) {
+                .immediate => true,
+                else => false,
+            };
+        }
+
+        fn isMutable(mcv: MCValue) bool {
+            return switch (mcv) {
+                .none => unreachable,
+                .unreach => unreachable,
+                .dead => unreachable,
+
+                .immediate,
+                .embedded_in_code,
+                .memory,
+                .compare_flag,
+                => false,
+
+                .register,
+                .stack_offset,
+                => true,
             };
         }
     };
@@ -362,20 +390,21 @@ const Function = struct {
         switch (inst.tag) {
             .add => return self.genAdd(inst.cast(ir.Inst.Add).?, arch),
             .arg => return self.genArg(inst.cast(ir.Inst.Arg).?),
+            .assembly => return self.genAsm(inst.cast(ir.Inst.Assembly).?, arch),
+            .bitcast => return self.genBitCast(inst.cast(ir.Inst.BitCast).?),
             .block => return self.genBlock(inst.cast(ir.Inst.Block).?, arch),
             .breakpoint => return self.genBreakpoint(inst.src, arch),
             .call => return self.genCall(inst.cast(ir.Inst.Call).?, arch),
-            .unreach => return MCValue{ .unreach = {} },
-            .constant => unreachable, // excluded from function bodies
-            .assembly => return self.genAsm(inst.cast(ir.Inst.Assembly).?, arch),
-            .ptrtoint => return self.genPtrToInt(inst.cast(ir.Inst.PtrToInt).?),
-            .bitcast => return self.genBitCast(inst.cast(ir.Inst.BitCast).?),
-            .ret => return self.genRet(inst.cast(ir.Inst.Ret).?, arch),
-            .retvoid => return self.genRetVoid(inst.cast(ir.Inst.RetVoid).?, arch),
             .cmp => return self.genCmp(inst.cast(ir.Inst.Cmp).?, arch),
             .condbr => return self.genCondBr(inst.cast(ir.Inst.CondBr).?, arch),
-            .isnull => return self.genIsNull(inst.cast(ir.Inst.IsNull).?, arch),
+            .constant => unreachable, // excluded from function bodies
             .isnonnull => return self.genIsNonNull(inst.cast(ir.Inst.IsNonNull).?, arch),
+            .isnull => return self.genIsNull(inst.cast(ir.Inst.IsNull).?, arch),
+            .ptrtoint => return self.genPtrToInt(inst.cast(ir.Inst.PtrToInt).?),
+            .ret => return self.genRet(inst.cast(ir.Inst.Ret).?, arch),
+            .retvoid => return self.genRetVoid(inst.cast(ir.Inst.RetVoid).?, arch),
+            .sub => return self.genSub(inst.cast(ir.Inst.Sub).?, arch),
+            .unreach => return MCValue{ .unreach = {} },
         }
     }
 
@@ -385,96 +414,136 @@ const Function = struct {
             return MCValue.dead;
         switch (arch) {
             .x86_64 => {
-                // Biggest encoding of ADD is 8 bytes.
-                try self.code.ensureCapacity(self.code.items.len + 8);
+                return try self.genX8664BinMath(&inst.base, inst.args.lhs, inst.args.rhs, 0, 0x00);
+            },
+            else => return self.fail(inst.base.src, "TODO implement add for {}", .{self.target.cpu.arch}),
+        }
+    }
 
-                // In x86, ADD has 2 operands, destination and source.
-                // Either one, but not both, can be a memory operand.
-                // Source operand can be an immediate, 8 bits or 32 bits.
-                // So, if either one of the operands dies with this instruction, we can use it
-                // as the result MCValue.
-                var dst_mcv: MCValue = undefined;
-                var src_mcv: MCValue = undefined;
-                if (inst.base.operandDies(0)) {
-                    // LHS dies; use it as the destination.
-                    dst_mcv = try self.resolveInst(inst.args.lhs);
-                    // Both operands cannot be memory.
-                    if (dst_mcv.isMemory()) {
-                        src_mcv = try self.resolveInstImmOrReg(inst.args.rhs);
-                    } else {
-                        src_mcv = try self.resolveInst(inst.args.rhs);
-                    }
-                } else if (inst.base.operandDies(1)) {
-                    // RHS dies; use it as the destination.
-                    dst_mcv = try self.resolveInst(inst.args.rhs);
-                    // Both operands cannot be memory.
-                    if (dst_mcv.isMemory()) {
-                        src_mcv = try self.resolveInstImmOrReg(inst.args.lhs);
-                    } else {
-                        src_mcv = try self.resolveInst(inst.args.lhs);
-                    }
-                } else {
-                    const lhs = try self.resolveInst(inst.args.lhs);
-                    const rhs = try self.resolveInst(inst.args.rhs);
-                    if (lhs.isMemory()) {
-                        dst_mcv = try self.copyToNewRegister(inst.base.src, lhs);
-                        src_mcv = rhs;
-                    } else {
-                        dst_mcv = try self.copyToNewRegister(inst.base.src, rhs);
-                        src_mcv = lhs;
-                    }
+    fn genSub(self: *Function, inst: *ir.Inst.Sub, comptime arch: std.Target.Cpu.Arch) !MCValue {
+        // No side effects, so if it's unreferenced, do nothing.
+        if (inst.base.isUnused())
+            return MCValue.dead;
+        switch (arch) {
+            .x86_64 => {
+                return try self.genX8664BinMath(&inst.base, inst.args.lhs, inst.args.rhs, 5, 0x28);
+            },
+            else => return self.fail(inst.base.src, "TODO implement sub for {}", .{self.target.cpu.arch}),
+        }
+    }
+
+    /// ADD, SUB
+    fn genX8664BinMath(self: *Function, inst: *ir.Inst, op_lhs: *ir.Inst, op_rhs: *ir.Inst, opx: u8, mr: u8) !MCValue {
+        try self.code.ensureCapacity(self.code.items.len + 8);
+
+        const lhs = try self.resolveInst(op_lhs);
+        const rhs = try self.resolveInst(op_rhs);
+
+        // There are 2 operands, destination and source.
+        // Either one, but not both, can be a memory operand.
+        // Source operand can be an immediate, 8 bits or 32 bits.
+        // So, if either one of the operands dies with this instruction, we can use it
+        // as the result MCValue.
+        var dst_mcv: MCValue = undefined;
+        var src_mcv: MCValue = undefined;
+        var src_inst: *ir.Inst = undefined;
+        if (inst.operandDies(0) and lhs.isMutable()) {
+            // LHS dies; use it as the destination.
+            // Both operands cannot be memory.
+            src_inst = op_rhs;
+            if (lhs.isMemory() and rhs.isMemory()) {
+                dst_mcv = try self.copyToNewRegister(op_lhs);
+                src_mcv = rhs;
+            } else {
+                dst_mcv = lhs;
+                src_mcv = rhs;
+            }
+        } else if (inst.operandDies(1) and rhs.isMutable()) {
+            // RHS dies; use it as the destination.
+            // Both operands cannot be memory.
+            src_inst = op_lhs;
+            if (lhs.isMemory() and rhs.isMemory()) {
+                dst_mcv = try self.copyToNewRegister(op_rhs);
+                src_mcv = lhs;
+            } else {
+                dst_mcv = rhs;
+                src_mcv = lhs;
+            }
+        } else {
+            if (lhs.isMemory()) {
+                dst_mcv = try self.copyToNewRegister(op_lhs);
+                src_mcv = rhs;
+                src_inst = op_rhs;
+            } else {
+                dst_mcv = try self.copyToNewRegister(op_rhs);
+                src_mcv = lhs;
+                src_inst = op_lhs;
+            }
+        }
+        // This instruction supports only signed 32-bit immediates at most. If the immediate
+        // value is larger than this, we put it in a register.
+        // A potential opportunity for future optimization here would be keeping track
+        // of the fact that the instruction is available both as an immediate
+        // and as a register.
+        switch (src_mcv) {
+            .immediate => |imm| {
+                if (imm > std.math.maxInt(u31)) {
+                    src_mcv = try self.copyToNewRegister(src_inst);
                 }
-                // x86 ADD supports only signed 32-bit immediates at most. If the immediate
-                // value is larger than this, we put it in a register.
-                // A potential opportunity for future optimization here would be keeping track
-                // of the fact that the instruction is available both as an immediate
-                // and as a register.
+            },
+            else => {},
+        }
+
+        try self.genX8664BinMathCode(inst.src, dst_mcv, src_mcv, opx, mr);
+
+        return dst_mcv;
+    }
+
+    fn genX8664BinMathCode(self: *Function, src: usize, dst_mcv: MCValue, src_mcv: MCValue, opx: u8, mr: u8) !void {
+        switch (dst_mcv) {
+            .none => unreachable,
+            .dead, .unreach, .immediate => unreachable,
+            .compare_flag => unreachable,
+            .register => |dst_reg_usize| {
+                const dst_reg = @intToEnum(Reg(.x86_64), @intCast(u8, dst_reg_usize));
                 switch (src_mcv) {
-                    .immediate => |imm| {
-                        if (imm > std.math.maxInt(u31)) {
-                            src_mcv = try self.copyToNewRegister(inst.base.src, src_mcv);
-                        }
-                    },
-                    else => {},
-                }
-
-                switch (dst_mcv) {
                     .none => unreachable,
-                    .dead, .unreach, .immediate => unreachable,
-                    .register => |dst_reg_usize| {
-                        const dst_reg = @intToEnum(Reg(arch), @intCast(@TagType(Reg(arch)), dst_reg_usize));
-                        switch (src_mcv) {
-                            .none => unreachable,
-                            .dead, .unreach => unreachable,
-                            .register => |src_reg_usize| {
-                                const src_reg = @intToEnum(Reg(arch), @intCast(@TagType(Reg(arch)), src_reg_usize));
-                                self.rex(.{ .b = dst_reg.isExtended(), .r = src_reg.isExtended(), .w = dst_reg.size() == 64 });
-                                self.code.appendSliceAssumeCapacity(&[_]u8{ 0x1, 0xC0 | (@as(u8, src_reg.id() & 0b111) << 3) | @as(u8, dst_reg.id() & 0b111) });
-                            },
-                            .immediate => |imm| {
-                                const imm32 = @intCast(u31, imm); // We handle this case above.
-                                // 81 /0 id
-                                if (imm32 <= std.math.maxInt(u7)) {
-                                    self.rex(.{ .b = dst_reg.isExtended(), .w = dst_reg.size() == 64 });
-                                    self.code.appendSliceAssumeCapacity(&[_]u8{ 0x83, 0xC0 | @as(u8, dst_reg.id() & 0b111), @intCast(u8, imm32)});
-                                } else {
-                                    self.rex(.{ .r = dst_reg.isExtended(), .w = dst_reg.size() == 64 });
-                                    self.code.appendSliceAssumeCapacity(&[_]u8{ 0x81, 0xC0 | @as(u8, dst_reg.id() & 0b111) });
-                                    std.mem.writeIntLittle(u32, self.code.addManyAsArrayAssumeCapacity(4), imm32);
-                                }
-                            },
-                            .embedded_in_code, .memory, .stack_offset => {
-                                return self.fail(inst.base.src, "TODO implement x86 add source memory", .{});
-                            },
+                    .dead, .unreach => unreachable,
+                    .register => |src_reg_usize| {
+                        const src_reg = @intToEnum(Reg(.x86_64), @intCast(u8, src_reg_usize));
+                        self.rex(.{ .b = dst_reg.isExtended(), .r = src_reg.isExtended(), .w = dst_reg.size() == 64 });
+                        self.code.appendSliceAssumeCapacity(&[_]u8{ mr + 0x1, 0xC0 | (@as(u8, src_reg.id() & 0b111) << 3) | @as(u8, dst_reg.id() & 0b111) });
+                    },
+                    .immediate => |imm| {
+                        const imm32 = @intCast(u31, imm); // This case must be handled before calling genX8664BinMathCode.
+                        // 81 /opx id
+                        if (imm32 <= std.math.maxInt(u7)) {
+                            self.rex(.{ .b = dst_reg.isExtended(), .w = dst_reg.size() == 64 });
+                            self.code.appendSliceAssumeCapacity(&[_]u8{
+                                0x83,
+                                0xC0 | (opx << 3) | @truncate(u3, dst_reg.id()),
+                                @intCast(u8, imm32),
+                            });
+                        } else {
+                            self.rex(.{ .r = dst_reg.isExtended(), .w = dst_reg.size() == 64 });
+                            self.code.appendSliceAssumeCapacity(&[_]u8{
+                                0x81,
+                                0xC0 | (opx << 3) | @truncate(u3, dst_reg.id()),
+                            });
+                            std.mem.writeIntLittle(u32, self.code.addManyAsArrayAssumeCapacity(4), imm32);
                         }
                     },
                     .embedded_in_code, .memory, .stack_offset => {
-                        return self.fail(inst.base.src, "TODO implement x86 add destination memory", .{});
+                        return self.fail(src, "TODO implement x86 ADD/SUB/CMP source memory", .{});
+                    },
+                    .compare_flag => {
+                        return self.fail(src, "TODO implement x86 ADD/SUB/CMP source compare flag", .{});
                     },
                 }
-                return dst_mcv;
             },
-            else => return self.fail(inst.base.src, "TODO implement add for {}", .{self.target.cpu.arch}),
+            .embedded_in_code, .memory, .stack_offset => {
+                return self.fail(src, "TODO implement x86 ADD/SUB/CMP destination memory", .{});
+            },
         }
     }
 
@@ -550,7 +619,29 @@ const Function = struct {
     }
 
     fn genCmp(self: *Function, inst: *ir.Inst.Cmp, comptime arch: std.Target.Cpu.Arch) !MCValue {
+        // No side effects, so if it's unreferenced, do nothing.
+        if (inst.base.isUnused())
+            return MCValue.dead;
         switch (arch) {
+            .x86_64 => {
+                try self.code.ensureCapacity(self.code.items.len + 8);
+
+                const lhs = try self.resolveInst(inst.args.lhs);
+                const rhs = try self.resolveInst(inst.args.rhs);
+
+                // There are 2 operands, destination and source.
+                // Either one, but not both, can be a memory operand.
+                // Source operand can be an immediate, 8 bits or 32 bits.
+                const dst_mcv = if (lhs.isImmediate() or (lhs.isMemory() and rhs.isMemory()))
+                    try self.copyToNewRegister(inst.args.lhs)
+                else
+                    lhs;
+                // This instruction supports only signed 32-bit immediates at most.
+                const src_mcv = try self.limitImmediateType(inst.args.rhs, i32);
+
+                try self.genX8664BinMathCode(inst.base.src, dst_mcv, src_mcv, 7, 0x38);
+                return MCValue{.compare_flag = inst.args.op};
+            },
             else => return self.fail(inst.base.src, "TODO implement cmp for {}", .{self.target.cpu.arch}),
         }
     }
@@ -668,6 +759,9 @@ const Function = struct {
                 .dead => unreachable,
                 .none => unreachable,
                 .unreach => unreachable,
+                .compare_flag => |op| {
+                    return self.fail(src, "TODO set register with compare flag value", .{});
+                },
                 .immediate => |x| {
                     if (reg.size() != 64) {
                         return self.fail(src, "TODO decide whether to implement non-64-bit loads", .{});
@@ -871,13 +965,34 @@ const Function = struct {
         }
     }
 
-    fn resolveInstImmOrReg(self: *Function, inst: *ir.Inst) !MCValue {
-        return self.fail(inst.src, "TODO implement resolveInstImmOrReg", .{});
+    fn copyToNewRegister(self: *Function, inst: *ir.Inst) !MCValue {
+        return self.fail(inst.src, "TODO implement copyToNewRegister", .{});
     }
 
-    fn copyToNewRegister(self: *Function, src: usize, mcv: MCValue) !MCValue {
-        return self.fail(src, "TODO implement copyToNewRegister", .{});
+    /// If the MCValue is an immediate, and it does not fit within this type,
+    /// we put it in a register.
+    /// A potential opportunity for future optimization here would be keeping track
+    /// of the fact that the instruction is available both as an immediate
+    /// and as a register.
+    fn limitImmediateType(self: *Function, inst: *ir.Inst, comptime T: type) !MCValue {
+        const mcv = try self.resolveInst(inst);
+        const ti = @typeInfo(T).Int;
+        switch (mcv) {
+            .immediate => |imm| {
+                // This immediate is unsigned.
+                const U = @Type(.{ .Int = .{
+                    .bits = ti.bits - @boolToInt(ti.is_signed),
+                    .is_signed = false,
+                }});
+                if (imm >= std.math.maxInt(U)) {
+                    return self.copyToNewRegister(inst);
+                }
+            },
+            else => {},
+        }
+        return mcv;
     }
+
 
     fn genTypedValue(self: *Function, src: usize, typed_value: TypedValue) !MCValue {
         const ptr_bits = self.target.cpu.arch.ptrBitWidth();
