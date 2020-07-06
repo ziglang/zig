@@ -15,6 +15,10 @@ pub fn AutoHashMap(comptime K: type, comptime V: type) type {
     return HashMap(K, V, getAutoHashFn(K), getAutoEqlFn(K), autoEqlIsCheap(K));
 }
 
+pub fn AutoHashMapUnmanaged(comptime K: type, comptime V: type) type {
+    return HashMapUnmanaged(K, V, getAutoHashFn(K), getAutoEqlFn(K), autoEqlIsCheap(K));
+}
+
 /// Builtin hashmap for strings as keys.
 pub fn StringHashMap(comptime V: type) type {
     return HashMap([]const u8, V, hashString, eqlString, true);
