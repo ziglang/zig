@@ -2,6 +2,7 @@ const std = @import("std");
 const Value = @import("value.zig").Value;
 const Type = @import("type.zig").Type;
 const Module = @import("Module.zig");
+const assert = std.debug.assert;
 
 /// These are in-memory, analyzed instructions. See `zir.Inst` for the representation
 /// of instructions that correspond to the ZIR text format.
@@ -12,17 +13,27 @@ pub const Inst = struct {
     tag: Tag,
     /// Each bit represents the index of an `Inst` parameter in the `args` field.
     /// If a bit is set, it marks the end of the lifetime of the corresponding 
-    /// instruction parameter. For example, 0b00000101 means that the first and
+    /// instruction parameter. For example, 0b000_00101 means that the first and
     /// third `Inst` parameters' lifetimes end after this instruction, and will
     /// not have any more following references.
     /// The most significant bit being set means that the instruction itself is
     /// never referenced, in other words its lifetime ends as soon as it finishes.
-    /// If the byte is `0xff`, it means this is a special case and this data is
-    /// encoded elsewhere.
-    deaths: u8 = 0xff,
+    /// If bit 7 (0b1xxx_xxxx) is set, it means this instruction itself is unreferenced.
+    /// If bit 6 (0bx1xx_xxxx) is set, it means this is a special case and the
+    /// lifetimes of operands are encoded elsewhere.
+    deaths: u8 = undefined,
     ty: Type,
     /// Byte offset into the source.
     src: usize,
+
+    pub fn isUnused(self: Inst) bool {
+        return (self.deaths & 0b1000_0000) != 0;
+    }
+
+    pub fn operandDies(self: Inst, index: u3) bool {
+        assert(index < 6);
+        return @truncate(u1, self.deaths << index) != 0;
+    }
 
     pub const Tag = enum {
         add,

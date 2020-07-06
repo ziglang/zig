@@ -46,7 +46,14 @@ pub fn generateSymbol(
             var mc_args = try std.ArrayList(Function.MCValue).initCapacity(bin_file.allocator, param_types.len);
             defer mc_args.deinit();
 
-            var next_stack_offset: u64 = 0;
+            var branch_stack = std.ArrayList(Function.Branch).init(bin_file.allocator);
+            defer {
+                assert(branch_stack.items.len == 1);
+                branch_stack.items[0].deinit(bin_file.allocator);
+                branch_stack.deinit();
+            }
+            const branch = try branch_stack.addOne();
+            branch.* = .{};
 
             switch (fn_type.fnCallingConvention()) {
                 .Naked => assert(mc_args.items.len == 0),
@@ -61,8 +68,8 @@ pub fn generateSymbol(
                                 switch (param_type.zigTypeTag()) {
                                     .Bool, .Int => {
                                         if (next_int_reg >= integer_registers.len) {
-                                            try mc_args.append(.{ .stack_offset = next_stack_offset });
-                                            next_stack_offset += param_type.abiSize(bin_file.options.target);
+                                            try mc_args.append(.{ .stack_offset = branch.next_stack_offset });
+                                            branch.next_stack_offset += @intCast(u32, param_type.abiSize(bin_file.options.target));
                                         } else {
                                             try mc_args.append(.{ .register = @enumToInt(integer_registers[next_int_reg]) });
                                             next_int_reg += 1;
@@ -100,23 +107,17 @@ pub fn generateSymbol(
             }
 
             var function = Function{
+                .gpa = bin_file.allocator,
                 .target = &bin_file.options.target,
                 .bin_file = bin_file,
                 .mod_fn = module_fn,
                 .code = code,
                 .err_msg = null,
                 .args = mc_args.items,
-                .branch_stack = .{},
+                .branch_stack = &branch_stack,
             };
-            defer {
-                assert(function.branch_stack.items.len == 1);
-                function.branch_stack.items[0].inst_table.deinit();
-                function.branch_stack.deinit(bin_file.allocator);
-            }
-            try function.branch_stack.append(bin_file.allocator, .{
-                .inst_table = std.AutoHashMap(*ir.Inst, Function.MCValue).init(bin_file.allocator),
-            });
 
+            branch.max_end_stack = branch.next_stack_offset;
             function.gen() catch |err| switch (err) {
                 error.CodegenFail => return Result{ .fail = function.err_msg.? },
                 else => |e| return e,
@@ -218,6 +219,7 @@ pub fn generateSymbol(
 }
 
 const Function = struct {
+    gpa: *Allocator,
     bin_file: *link.ElfFile,
     target: *const std.Target,
     mod_fn: *const Module.Fn,
@@ -232,10 +234,37 @@ const Function = struct {
     /// within different branches. Special consideration is needed when a branch
     /// joins with its parent, to make sure all instructions have the same MCValue
     /// across each runtime branch upon joining.
-    branch_stack: std.ArrayListUnmanaged(Branch),
+    branch_stack: *std.ArrayList(Branch),
 
     const Branch = struct {
-        inst_table: std.AutoHashMap(*ir.Inst, MCValue),
+        inst_table: std.AutoHashMapUnmanaged(*ir.Inst, MCValue) = .{},
+
+        /// The key is an enum value of an arch-specific register.
+        registers: std.AutoHashMapUnmanaged(usize, RegisterAllocation) = .{},
+
+        /// Maps offset to what is stored there.
+        stack: std.AutoHashMapUnmanaged(usize, StackAllocation) = .{},
+        /// Offset from the stack base, representing the end of the stack frame.
+        max_end_stack: u32 = 0,
+        /// Represents the current end stack offset. If there is no existing slot
+        /// to place a new stack allocation, it goes here, and then bumps `max_end_stack`.
+        next_stack_offset: u32 = 0,
+
+        fn deinit(self: *Branch, gpa: *Allocator) void {
+            self.inst_table.deinit(gpa);
+            self.registers.deinit(gpa);
+            self.stack.deinit(gpa);
+            self.* = undefined;
+        }
+    };
+
+    const RegisterAllocation = struct {
+        inst: *ir.Inst,
+    };
+
+    const StackAllocation = struct {
+        inst: *ir.Inst,
+        size: u32,
     };
 
     const MCValue = union(enum) {
@@ -256,6 +285,13 @@ const Function = struct {
         memory: u64,
         /// The value is one of the stack variables.
         stack_offset: u64,
+
+        fn isMemory(mcv: MCValue) bool {
+            return switch (mcv) {
+                .embedded_in_code, .memory, .stack_offset => true,
+                else => false,
+            };
+        }
     };
 
     fn gen(self: *Function) !void {
@@ -318,7 +354,7 @@ const Function = struct {
         const inst_table = &self.branch_stack.items[0].inst_table;
         for (self.mod_fn.analysis.success.instructions) |inst| {
             const new_inst = try self.genFuncInst(inst, arch);
-            try inst_table.putNoClobber(inst, new_inst);
+            try inst_table.putNoClobber(self.gpa, inst, new_inst);
         }
     }
 
@@ -344,19 +380,99 @@ const Function = struct {
     }
 
     fn genAdd(self: *Function, inst: *ir.Inst.Add, comptime arch: std.Target.Cpu.Arch) !MCValue {
-        const lhs = try self.resolveInst(inst.args.lhs);
-        const rhs = try self.resolveInst(inst.args.rhs);
+        // No side effects, so if it's unreferenced, do nothing.
+        if (inst.base.isUnused())
+            return MCValue.dead;
         switch (arch) {
-            .i386, .x86_64 => {
-                // const lhs_reg = try self.instAsReg(lhs);
-                // const rhs_reg = try self.instAsReg(rhs);
-                // const result = try self.allocateReg();
+            .x86_64 => {
+                // Biggest encoding of ADD is 8 bytes.
+                try self.code.ensureCapacity(self.code.items.len + 8);
 
-                // try self.code.append(??);
+                // In x86, ADD has 2 operands, destination and source.
+                // Either one, but not both, can be a memory operand.
+                // Source operand can be an immediate, 8 bits or 32 bits.
+                // So, if either one of the operands dies with this instruction, we can use it
+                // as the result MCValue.
+                var dst_mcv: MCValue = undefined;
+                var src_mcv: MCValue = undefined;
+                if (inst.base.operandDies(0)) {
+                    // LHS dies; use it as the destination.
+                    dst_mcv = try self.resolveInst(inst.args.lhs);
+                    // Both operands cannot be memory.
+                    if (dst_mcv.isMemory()) {
+                        src_mcv = try self.resolveInstImmOrReg(inst.args.rhs);
+                    } else {
+                        src_mcv = try self.resolveInst(inst.args.rhs);
+                    }
+                } else if (inst.base.operandDies(1)) {
+                    // RHS dies; use it as the destination.
+                    dst_mcv = try self.resolveInst(inst.args.rhs);
+                    // Both operands cannot be memory.
+                    if (dst_mcv.isMemory()) {
+                        src_mcv = try self.resolveInstImmOrReg(inst.args.lhs);
+                    } else {
+                        src_mcv = try self.resolveInst(inst.args.lhs);
+                    }
+                } else {
+                    const lhs = try self.resolveInst(inst.args.lhs);
+                    const rhs = try self.resolveInst(inst.args.rhs);
+                    if (lhs.isMemory()) {
+                        dst_mcv = try self.copyToNewRegister(inst.base.src, lhs);
+                        src_mcv = rhs;
+                    } else {
+                        dst_mcv = try self.copyToNewRegister(inst.base.src, rhs);
+                        src_mcv = lhs;
+                    }
+                }
+                // x86 ADD supports only signed 32-bit immediates at most. If the immediate
+                // value is larger than this, we put it in a register.
+                // A potential opportunity for future optimization here would be keeping track
+                // of the fact that the instruction is available both as an immediate
+                // and as a register.
+                switch (src_mcv) {
+                    .immediate => |imm| {
+                        if (imm > std.math.maxInt(u31)) {
+                            src_mcv = try self.copyToNewRegister(inst.base.src, src_mcv);
+                        }
+                    },
+                    else => {},
+                }
 
-                // lhs_reg.release();
-                // rhs_reg.release();
-                return self.fail(inst.base.src, "TODO implement register allocation", .{});
+                switch (dst_mcv) {
+                    .none => unreachable,
+                    .dead, .unreach, .immediate => unreachable,
+                    .register => |dst_reg_usize| {
+                        const dst_reg = @intToEnum(Reg(arch), @intCast(@TagType(Reg(arch)), dst_reg_usize));
+                        switch (src_mcv) {
+                            .none => unreachable,
+                            .dead, .unreach => unreachable,
+                            .register => |src_reg_usize| {
+                                const src_reg = @intToEnum(Reg(arch), @intCast(@TagType(Reg(arch)), src_reg_usize));
+                                self.rex(.{ .b = dst_reg.isExtended(), .r = src_reg.isExtended(), .w = dst_reg.size() == 64 });
+                                self.code.appendSliceAssumeCapacity(&[_]u8{ 0x1, 0xC0 | (@as(u8, src_reg.id() & 0b111) << 3) | @as(u8, dst_reg.id() & 0b111) });
+                            },
+                            .immediate => |imm| {
+                                const imm32 = @intCast(u31, imm); // We handle this case above.
+                                // 81 /0 id
+                                if (imm32 <= std.math.maxInt(u7)) {
+                                    self.rex(.{ .b = dst_reg.isExtended(), .w = dst_reg.size() == 64 });
+                                    self.code.appendSliceAssumeCapacity(&[_]u8{ 0x83, 0xC0 | @as(u8, dst_reg.id() & 0b111), @intCast(u8, imm32)});
+                                } else {
+                                    self.rex(.{ .r = dst_reg.isExtended(), .w = dst_reg.size() == 64 });
+                                    self.code.appendSliceAssumeCapacity(&[_]u8{ 0x81, 0xC0 | @as(u8, dst_reg.id() & 0b111) });
+                                    std.mem.writeIntLittle(u32, self.code.addManyAsArrayAssumeCapacity(4), imm32);
+                                }
+                            },
+                            .embedded_in_code, .memory, .stack_offset => {
+                                return self.fail(inst.base.src, "TODO implement x86 add source memory", .{});
+                            },
+                        }
+                    },
+                    .embedded_in_code, .memory, .stack_offset => {
+                        return self.fail(inst.base.src, "TODO implement x86 add destination memory", .{});
+                    },
+                }
+                return dst_mcv;
             },
             else => return self.fail(inst.base.src, "TODO implement add for {}", .{self.target.cpu.arch}),
         }
@@ -526,23 +642,23 @@ const Function = struct {
     /// resulting REX is meaningful, but will remain the same if it is not.
     /// * Deliberately inserting a "meaningless REX" requires explicit usage of
     /// 0x40, and cannot be done via this function.
-    fn REX(self: *Function, arg: struct { B: bool = false, W: bool = false, X: bool = false, R: bool = false }) !void {
+    fn rex(self: *Function, arg: struct { b: bool = false, w: bool = false, x: bool = false, r: bool = false }) void {
         //  From section 2.2.1.2 of the manual, REX is encoded as b0100WRXB.
         var value: u8 = 0x40;
-        if (arg.B) {
+        if (arg.b) {
             value |= 0x1;
         }
-        if (arg.X) {
+        if (arg.x) {
             value |= 0x2;
         }
-        if (arg.R) {
+        if (arg.r) {
             value |= 0x4;
         }
-        if (arg.W) {
+        if (arg.w) {
             value |= 0x8;
         }
         if (value != 0x40) {
-            try self.code.append(value);
+            self.code.appendAssumeCapacity(value);
         }
     }
 
@@ -570,11 +686,11 @@ const Function = struct {
                         // If we're accessing e.g. r8d, we need to use a REX prefix before the actual operation. Since
                         // this is a 32-bit operation, the W flag is set to zero. X is also zero, as we're not using a SIB.
                         // Both R and B are set, as we're extending, in effect, the register bits *and* the operand.
-                        try self.REX(.{ .R = reg.isExtended(), .B = reg.isExtended() });
+                        try self.code.ensureCapacity(self.code.items.len + 3);
+                        self.rex(.{ .r = reg.isExtended(), .b = reg.isExtended() });
                         const id = @as(u8, reg.id() & 0b111);
-                        return self.code.appendSlice(&[_]u8{
-                            0x31, 0xC0 | id << 3 | id,
-                        });
+                        self.code.appendSliceAssumeCapacity(&[_]u8{ 0x31, 0xC0 | id << 3 | id });
+                        return;
                     }
                     if (x <= std.math.maxInt(u32)) {
                         // Next best case: if we set the lower four bytes, the upper four will be zeroed.
@@ -607,9 +723,9 @@ const Function = struct {
                     // Since we always need a REX here, let's just check if we also need to set REX.B.
                     //
                     // In this case, the encoding of the REX byte is 0b0100100B
-
-                    try self.REX(.{ .W = true, .B = reg.isExtended() });
-                    try self.code.resize(self.code.items.len + 9);
+                    try self.code.ensureCapacity(self.code.items.len + 10);
+                    self.rex(.{ .w = true, .b = reg.isExtended() });
+                    self.code.items.len += 9;
                     self.code.items[self.code.items.len - 9] = 0xB8 | @as(u8, reg.id() & 0b111);
                     const imm_ptr = self.code.items[self.code.items.len - 8 ..][0..8];
                     mem.writeIntLittle(u64, imm_ptr, x);
@@ -620,13 +736,13 @@ const Function = struct {
                     }
                     // We need the offset from RIP in a signed i32 twos complement.
                     // The instruction is 7 bytes long and RIP points to the next instruction.
-                    //
+                    try self.code.ensureCapacity(self.code.items.len + 7);
                     // 64-bit LEA is encoded as REX.W 8D /r. If the register is extended, the REX byte is modified,
                     // but the operation size is unchanged. Since we're using a disp32, we want mode 0 and lower three
                     // bits as five.
                     // REX 0x8D 0b00RRR101, where RRR is the lower three bits of the id.
-                    try self.REX(.{ .W = true, .B = reg.isExtended() });
-                    try self.code.resize(self.code.items.len + 6);
+                    self.rex(.{ .w = true, .b = reg.isExtended() });
+                    self.code.items.len += 6;
                     const rip = self.code.items.len;
                     const big_offset = @intCast(i64, code_offset) - @intCast(i64, rip);
                     const offset = @intCast(i32, big_offset);
@@ -646,9 +762,10 @@ const Function = struct {
                     // If the *source* is extended, the B field must be 1.
                     // Since the register is being accessed directly, the R/M mode is three. The reg field (the middle
                     // three bits) contain the destination, and the R/M field (the lower three bits) contain the source.
-                    try self.REX(.{ .W = true, .R = reg.isExtended(), .B = src_reg.isExtended() });
+                    try self.code.ensureCapacity(self.code.items.len + 3);
+                    self.rex(.{ .w = true, .r = reg.isExtended(), .b = src_reg.isExtended() });
                     const R = 0xC0 | (@as(u8, reg.id() & 0b111) << 3) | @as(u8, src_reg.id() & 0b111);
-                    try self.code.appendSlice(&[_]u8{ 0x8B, R });
+                    self.code.appendSliceAssumeCapacity(&[_]u8{ 0x8B, R });
                 },
                 .memory => |x| {
                     if (reg.size() != 64) {
@@ -662,14 +779,14 @@ const Function = struct {
                         // The SIB must be 0x25, to indicate a disp32 with no scaled index.
                         // 0b00RRR100, where RRR is the lower three bits of the register ID.
                         // The instruction is thus eight bytes; REX 0x8B 0b00RRR100 0x25 followed by a four-byte disp32.
-                        try self.REX(.{ .W = true, .B = reg.isExtended() });
-                        try self.code.resize(self.code.items.len + 7);
-                        const r = 0x04 | (@as(u8, reg.id() & 0b111) << 3);
-                        self.code.items[self.code.items.len - 7] = 0x8B;
-                        self.code.items[self.code.items.len - 6] = r;
-                        self.code.items[self.code.items.len - 5] = 0x25;
-                        const imm_ptr = self.code.items[self.code.items.len - 4 ..][0..4];
-                        mem.writeIntLittle(u32, imm_ptr, @intCast(u32, x));
+                        try self.code.ensureCapacity(self.code.items.len + 8);
+                        self.rex(.{ .w = true, .b = reg.isExtended() });
+                        self.code.appendSliceAssumeCapacity(&[_]u8{
+                            0x8B,
+                            0x04 | (@as(u8, reg.id() & 0b111) << 3), // R
+                            0x25,
+                        });
+                        mem.writeIntLittle(u32, self.code.addManyAsArrayAssumeCapacity(4), @intCast(u32, x));
                     } else {
                         // If this is RAX, we can use a direct load; otherwise, we need to load the address, then indirectly load
                         // the value.
@@ -700,15 +817,15 @@ const Function = struct {
                             // Currently, we're only allowing 64-bit registers, so we need the `REX.W 8B /r` variant.
                             // TODO: determine whether to allow other sized registers, and if so, handle them properly.
                             // This operation requires three bytes: REX 0x8B R/M
-                            //
+                            try self.code.ensureCapacity(self.code.items.len + 3);
                             // For this operation, we want R/M mode *zero* (use register indirectly), and the two register
                             // values must match. Thus, it's 00ABCABC where ABC is the lower three bits of the register ID.
                             //
                             // Furthermore, if this is an extended register, both B and R must be set in the REX byte, as *both*
                             // register operands need to be marked as extended.
-                            try self.REX(.{ .W = true, .B = reg.isExtended(), .R = reg.isExtended() });
+                            self.rex(.{ .w = true, .b = reg.isExtended(), .r = reg.isExtended() });
                             const RM = (@as(u8, reg.id() & 0b111) << 3) | @truncate(u3, reg.id());
-                            try self.code.appendSlice(&[_]u8{ 0x8B, RM });
+                            self.code.appendSliceAssumeCapacity(&[_]u8{ 0x8B, RM });
                         }
                     }
                 },
@@ -731,36 +848,40 @@ const Function = struct {
     }
 
     fn resolveInst(self: *Function, inst: *ir.Inst) !MCValue {
-        if (self.inst_table.get(inst)) |mcv| {
-            return mcv;
-        }
         // Constants have static lifetimes, so they are always memoized in the outer most table.
         if (inst.cast(ir.Inst.Constant)) |const_inst| {
             const branch = &self.branch_stack.items[0];
-            const gop = try branch.inst_table.getOrPut(inst);
+            const gop = try branch.inst_table.getOrPut(self.gpa, inst);
             if (!gop.found_existing) {
                 const mcv = try self.genTypedValue(inst.src, .{ .ty = inst.ty, .val = const_inst.val });
-                try branch.inst_table.putNoClobber(inst, mcv);
-                gop.kv.value = mcv;
+                try branch.inst_table.putNoClobber(self.gpa, inst, mcv);
+                gop.entry.value = mcv;
                 return mcv;
             }
-            return gop.kv.value;
+            return gop.entry.value;
         }
 
         // Treat each stack item as a "layer" on top of the previous one.
         var i: usize = self.branch_stack.items.len;
         while (true) {
             i -= 1;
-            if (self.branch_stack.items[i].inst_table.getValue(inst)) |mcv| {
+            if (self.branch_stack.items[i].inst_table.get(inst)) |mcv| {
                 return mcv;
             }
         }
     }
 
+    fn resolveInstImmOrReg(self: *Function, inst: *ir.Inst) !MCValue {
+        return self.fail(inst.src, "TODO implement resolveInstImmOrReg", .{});
+    }
+
+    fn copyToNewRegister(self: *Function, src: usize, mcv: MCValue) !MCValue {
+        return self.fail(src, "TODO implement copyToNewRegister", .{});
+    }
+
     fn genTypedValue(self: *Function, src: usize, typed_value: TypedValue) !MCValue {
         const ptr_bits = self.target.cpu.arch.ptrBitWidth();
         const ptr_bytes: u64 = @divExact(ptr_bits, 8);
-        const allocator = self.code.allocator;
         switch (typed_value.ty.zigTypeTag()) {
             .Pointer => {
                 if (typed_value.val.cast(Value.Payload.DeclRef)) |payload| {
@@ -787,7 +908,7 @@ const Function = struct {
     fn fail(self: *Function, src: usize, comptime format: []const u8, args: var) error{ CodegenFail, OutOfMemory } {
         @setCold(true);
         assert(self.err_msg == null);
-        self.err_msg = try ErrorMsg.create(self.code.allocator, src, format, args);
+        self.err_msg = try ErrorMsg.create(self.bin_file.allocator, src, format, args);
         return error.CodegenFail;
     }
 };

@@ -123,7 +123,7 @@ fn analyzeInst(arena: *std.mem.Allocator, table: *std.AutoHashMap(*ir.Inst, void
             if (arg_index >= 6) {
                 @compileError("out of bits to mark deaths of operands");
             }
-            const prev = try table.put(@field(inst.args, field.name), {});
+            const prev = try table.fetchPut(@field(inst.args, field.name), {});
             if (prev == null) {
                 // Death.
                 inst.base.deaths |= 1 << arg_index;

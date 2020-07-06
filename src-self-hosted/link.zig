@@ -1007,7 +1007,7 @@ pub const ElfFile = struct {
             .appended => code_buffer.items,
             .fail => |em| {
                 decl.analysis = .codegen_failure;
-                _ = try module.failed_decls.put(decl, em);
+                _ = try module.failed_decls.put(module.gpa, decl, em);
                 return;
             },
         };
@@ -1093,7 +1093,7 @@ pub const ElfFile = struct {
         for (exports) |exp| {
             if (exp.options.section) |section_name| {
                 if (!mem.eql(u8, section_name, ".text")) {
-                    try module.failed_exports.ensureCapacity(module.failed_exports.items().len + 1);
+                    try module.failed_exports.ensureCapacity(module.gpa, module.failed_exports.items().len + 1);
                     module.failed_exports.putAssumeCapacityNoClobber(
                         exp,
                         try Module.ErrorMsg.create(self.allocator, 0, "Unimplemented: ExportOptions.section", .{}),
@@ -1111,7 +1111,7 @@ pub const ElfFile = struct {
                 },
                 .Weak => elf.STB_WEAK,
                 .LinkOnce => {
-                    try module.failed_exports.ensureCapacity(module.failed_exports.items().len + 1);
+                    try module.failed_exports.ensureCapacity(module.gpa, module.failed_exports.items().len + 1);
                     module.failed_exports.putAssumeCapacityNoClobber(
                         exp,
                         try Module.ErrorMsg.create(self.allocator, 0, "Unimplemented: GlobalLinkage.LinkOnce", .{}),
