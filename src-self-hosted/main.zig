@@ -50,7 +50,10 @@ pub fn log(
     const scope_prefix = "(" ++ switch (scope) {
         // Uncomment to hide logs
         //.compiler,
-        .link => return,
+        .module,
+        .liveness,
+        .link,
+        => return,
 
         else => @tagName(scope),
     } ++ "): ";

@@ -25,22 +25,25 @@ fn analyzeWithTable(arena: *std.mem.Allocator, table: *std.AutoHashMap(*ir.Inst,
     while (i != 0) {
         i -= 1;
         const base = body.instructions[i];
-
-        // Obtain the corresponding instruction type based on the tag type.
-        inline for (std.meta.declarations(ir.Inst)) |decl| {
-            switch (decl.data) {
-                .Type => |T| {
-                    if (@hasDecl(T, "base_tag")) {
-                        if (T.base_tag == base.tag) {
-                            return analyzeInst(arena, table, T, @fieldParentPtr(T, "base", base));
-                        }
-                    }
-                },
-                else => continue,
-            }
-        }
-        unreachable;
+        try analyzeInstGeneric(arena, table, base);
     }
+}
+
+fn analyzeInstGeneric(arena: *std.mem.Allocator, table: *std.AutoHashMap(*ir.Inst, void), base: *ir.Inst) error{OutOfMemory}!void {
+    // Obtain the corresponding instruction type based on the tag type.
+    inline for (std.meta.declarations(ir.Inst)) |decl| {
+        switch (decl.data) {
+            .Type => |T| {
+                if (@hasDecl(T, "base_tag")) {
+                    if (T.base_tag == base.tag) {
+                        return analyzeInst(arena, table, T, @fieldParentPtr(T, "base", base));
+                    }
+                }
+            },
+            else => {},
+        }
+    }
+    unreachable;
 }
 
 fn analyzeInst(arena: *std.mem.Allocator, table: *std.AutoHashMap(*ir.Inst, void), comptime T: type, inst: *T) error{OutOfMemory}!void {
@@ -131,4 +134,6 @@ fn analyzeInst(arena: *std.mem.Allocator, table: *std.AutoHashMap(*ir.Inst, void
             arg_index += 1;
         }
     }
+
+    std.log.debug(.liveness, "analyze {}: 0b{b}\n", .{inst.base.tag, inst.base.deaths});
 }

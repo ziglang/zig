@@ -867,15 +867,16 @@ pub fn update(self: *Module) !void {
         try self.deleteDecl(decl);
     }
 
+    // This is needed before reading the error flags.
+    try self.bin_file.flush();
+
     self.link_error_flags = self.bin_file.error_flags;
+    std.log.debug(.module, "link_error_flags: {}\n", .{self.link_error_flags});
 
     // If there are any errors, we anticipate the source files being loaded
     // to report error messages. Otherwise we unload all source files to save memory.
-    if (self.totalErrorCount() == 0) {
-        if (!self.keep_source_files_loaded) {
-            self.root_scope.unload(self.gpa);
-        }
-        try self.bin_file.flush();
+    if (self.totalErrorCount() == 0 and !self.keep_source_files_loaded) {
+        self.root_scope.unload(self.gpa);
     }
 }
 
@@ -975,6 +976,7 @@ pub fn performAllTheWork(self: *Module) error{OutOfMemory}!void {
                     // lifetime annotations in the ZIR.
                     var decl_arena = decl.typed_value.most_recent.arena.?.promote(self.gpa);
                     defer decl.typed_value.most_recent.arena.?.* = decl_arena.state;
+                    std.log.debug(.module, "analyze liveness of {}\n", .{decl.name});
                     try liveness.analyze(self.gpa, &decl_arena.allocator, payload.func.analysis.success);
                 }
 
