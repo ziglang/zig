@@ -453,6 +453,8 @@ pub const Dir = struct {
 
             pub const Error = IteratorError;
 
+            /// Memory such as file names referenced in this returned entry becomes invalid
+            /// with subsequent calls to `next`, as well as when this `Dir` is deinitialized.
             pub fn next(self: *Self) Error!?Entry {
                 start_over: while (true) {
                     const w = os.windows;
