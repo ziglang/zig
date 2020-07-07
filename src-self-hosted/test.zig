@@ -462,6 +462,19 @@ pub const TestContext = struct {
             try module.update();
             module_node.end();
 
+            if (update.case != .Error) {
+                var all_errors = try module.getAllErrorsAlloc();
+                defer all_errors.deinit(allocator);
+                if (all_errors.list.len != 0) {
+                    std.debug.warn("\nErrors occurred updating the module:\n================\n", .{});
+                    for (all_errors.list) |err| {
+                        std.debug.warn(":{}:{}: error: {}\n================\n", .{ err.line + 1, err.column + 1, err.msg });
+                    }
+                    std.debug.warn("Test failed.\n", .{});
+                    std.process.exit(1);
+                }
+            }
+
             switch (update.case) {
                 .Transformation => |expected_output| {
                     var label: []const u8 = "ZIR";
@@ -472,13 +485,13 @@ pub const TestContext = struct {
                         defer allocator.free(out);
 
                         if (expected_output.len != out.len) {
-                            std.debug.warn("{}\nTransformed {} length differs:\n================\nExpected:\n================\n{}\n================\nFound:\n================\n{}\n================\nTest failed.\n", .{ case.name, label, expected_output, out });
+                            std.debug.warn("\nTransformed {} length differs:\n================\nExpected:\n================\n{}\n================\nFound:\n================\n{}\n================\nTest failed.\n", .{ label, expected_output, out });
                             std.process.exit(1);
                         }
                         for (expected_output) |e, i| {
                             if (out[i] != e) {
                                 if (expected_output.len != out.len) {
-                                    std.debug.warn("{}\nTransformed {} differs:\n================\nExpected:\n================\n{}\n================\nFound:\n================\n{}\n================\nTest failed.\n", .{ case.name, label, expected_output, out });
+                                    std.debug.warn("\nTransformed {} differs:\n================\nExpected:\n================\n{}\n================\nFound:\n================\n{}\n================\nTest failed.\n", .{ label, expected_output, out });
                                     std.process.exit(1);
                                 }
                             }
