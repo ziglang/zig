@@ -64,10 +64,11 @@ pub const TestContext = struct {
         /// such as QEMU is required for tests to complete.
         target: std.zig.CrossTarget,
         /// In order to be able to run e.g. Execution updates, this must be set
-        /// to Executable.
+        /// to Executable. This is ignored when generating C output.
         output_mode: std.builtin.OutputMode,
         updates: std.ArrayList(Update),
         extension: TestType,
+        c_standard: ?Module.CStandard = null,
 
         /// Adds a subcase in which the module is updated with `src`, and the
         /// resulting ZIR is validated against `result`.
@@ -185,6 +186,22 @@ pub const TestContext = struct {
     /// Adds a test case for ZIR input, producing an object file
     pub fn objZIR(ctx: *TestContext, name: []const u8, target: std.zig.CrossTarget) *Case {
         return ctx.addObj(name, target, .ZIR);
+    }
+
+    pub fn addC(ctx: *TestContext, name: []const u8, target: std.zig.CrossTarget, T: TestType, standard: Module.CStandard) *Case {
+        ctx.cases.append(Case{
+            .name = name,
+            .target = target,
+            .updates = std.ArrayList(Update).init(ctx.cases.allocator),
+            .output_mode = .Obj,
+            .extension = T,
+            .c_standard = standard,
+        }) catch unreachable;
+        return &ctx.cases.items[ctx.cases.items.len - 1];
+    }
+
+    pub fn c11(ctx: *TestContext, name: []const u8, target: std.zig.CrossTarget, src: [:0]const u8, c: [:0]const u8) void {
+        ctx.addC(name, target, .Zig, .C11).addTransform(src, c);
     }
 
     pub fn addCompareOutput(
@@ -425,6 +442,7 @@ pub const TestContext = struct {
             .bin_file_path = bin_name,
             .root_pkg = root_pkg,
             .keep_source_files_loaded = true,
+            .c_standard = case.c_standard,
         });
         defer module.deinit();
 
@@ -463,14 +481,15 @@ pub const TestContext = struct {
                     var test_node = update_node.start("assert", null);
                     test_node.activate();
                     defer test_node.end();
+                    const label = if (case.c_standard) |_| "C" else "ZIR";
                     if (expected_output.len != out_zir.items.len) {
-                        std.debug.warn("{}\nTransformed ZIR length differs:\n================\nExpected:\n================\n{}\n================\nFound: {}\n================\nTest failed.\n", .{ case.name, expected_output, out_zir.items });
+                        std.debug.warn("{}\nTransformed {} length differs:\n================\nExpected:\n================\n{}\n================\nFound:\n================\n{}\n================\nTest failed.\n", .{ case.name, label, expected_output, out_zir.items });
                         std.process.exit(1);
                     }
                     for (expected_output) |e, i| {
                         if (out_zir.items[i] != e) {
                             if (expected_output.len != out_zir.items.len) {
-                                std.debug.warn("{}\nTransformed ZIR differs:\n================\nExpected:\n================\n{}\n================\nFound: {}\n================\nTest failed.\n", .{ case.name, expected_output, out_zir.items });
+                                std.debug.warn("{}\nTransformed {} differs:\n================\nExpected:\n================\n{}\n================\nFound:\n================\n{}\n================\nTest failed.\n", .{ case.name, label, expected_output, out_zir.items });
                                 std.process.exit(1);
                             }
                         }
