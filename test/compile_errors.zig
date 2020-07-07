@@ -2,6 +2,15 @@ const tests = @import("tests.zig");
 const std = @import("std");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.add("extern variable has no type",
+        \\extern var foo;
+        \\pub export fn entry() void {
+        \\    foo;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:1:1: error: unable to infer variable type",
+    });
+
     cases.add("@src outside function",
         \\comptime {
         \\    @src();
