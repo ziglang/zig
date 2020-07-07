@@ -300,6 +300,23 @@ pub const Builder = struct {
         return the_copy;
     }
 
+    pub fn dupePkg(self: *Builder, package: Pkg) Pkg {
+        var the_copy = Pkg{
+            .name = self.dupe(package.name),
+            .path = self.dupePath(package.path),
+        };
+
+        if (package.dependencies) |dependencies| {
+            const new_dependencies = self.allocator.alloc(Pkg, dependencies.len) catch unreachable;
+            the_copy.dependencies = new_dependencies;
+
+            for (dependencies) |dep_package, i| {
+                new_dependencies[i] = self.dupePkg(dep_package);
+            }
+        }
+        return the_copy;
+    }
+
     pub fn addWriteFile(self: *Builder, file_path: []const u8, data: []const u8) *WriteFileStep {
         const write_file_step = self.addWriteFiles();
         write_file_step.add(file_path, data);
@@ -1734,7 +1751,7 @@ pub const LibExeObjStep = struct {
     }
 
     pub fn addPackage(self: *LibExeObjStep, package: Pkg) void {
-        self.packages.append(package) catch unreachable;
+        self.packages.append(self.dupePkg(package)) catch unreachable;
     }
 
     pub fn addPackagePath(self: *LibExeObjStep, name: []const u8, pkg_index_path: []const u8) void {
@@ -2559,6 +2576,47 @@ pub const InstalledFile = struct {
     dir: InstallDir,
     path: []const u8,
 };
+
+test "Builder.dupePkg()" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    var builder = try Builder.create(
+        &arena.allocator,
+        "test",
+        "test",
+        "test",
+    );
+    defer builder.destroy();
+
+    var pkg_dep = Pkg{
+        .name = "pkg_dep",
+        .path = "/not/a/pkg_dep.zig",
+    };
+    var pkg_top = Pkg{
+        .name = "pkg_top",
+        .path = "/not/a/pkg_top.zig",
+        .dependencies = &[_]Pkg{pkg_dep},
+    };
+    const dupe = builder.dupePkg(pkg_top);
+
+    const original_deps = pkg_top.dependencies.?;
+    const dupe_deps = dupe.dependencies.?;
+
+    // probably the same top level package details
+    std.testing.expectEqualStrings(pkg_top.name, dupe.name);
+
+    // probably the same dependencies
+    std.testing.expectEqual(original_deps.len, dupe_deps.len);
+    std.testing.expectEqual(original_deps[0].name, pkg_dep.name);
+
+    // could segfault otherwise if pointers in duplicated package's fields are
+    // the same as those in stack allocated package's fields
+    std.testing.expect(dupe_deps.ptr != original_deps.ptr);
+    std.testing.expect(dupe.name.ptr != pkg_top.name.ptr);
+    std.testing.expect(dupe.path.ptr != pkg_top.path.ptr);
+    std.testing.expect(dupe_deps[0].name.ptr != pkg_dep.name.ptr);
+    std.testing.expect(dupe_deps[0].path.ptr != pkg_dep.path.ptr);
+}
 
 test "" {
     // The only purpose of this test is to get all these untested functions
