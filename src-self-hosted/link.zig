@@ -7,6 +7,7 @@ const Module = @import("Module.zig");
 const fs = std.fs;
 const elf = std.elf;
 const codegen = @import("codegen.zig");
+const cgen = @import("cgen.zig");
 
 const default_entry_addr = 0x8000000;
 
@@ -229,7 +230,7 @@ pub const File = struct {
         }
 
         pub fn updateDecl(self: *File.C, module: *Module, decl: *Module.Decl) !void {
-            return error.Unimplemented;
+            try cgen.generate(self, decl, self.options.c_standard.?);
         }
     };
 

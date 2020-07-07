@@ -481,7 +481,10 @@ pub const TestContext = struct {
                     if (case.c_standard) |cstd| {
                         label = @tagName(cstd);
                         var c: *link.File.C = module.bin_file.cast(link.File.C).?;
-                        var out = c.file.?.reader().readAllAlloc(allocator, 1024 * 1024) catch @panic("Unable to read C output!");
+                        c.file.?.close();
+                        var file = try tmp.dir.openFile(bin_name, .{ .read = true });
+                        defer file.close();
+                        var out = file.reader().readAllAlloc(allocator, 1024 * 1024) catch @panic("Unable to read C output!");
                         defer allocator.free(out);
 
                         if (expected_output.len != out.len) {
