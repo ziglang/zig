@@ -93,6 +93,9 @@ pub fn openCFile(allocator: *Allocator, file: fs.File, options: Options) !File.C
         .file = file,
         .options = options,
         .owns_file_handle = false,
+        .main = std.ArrayList(u8).init(allocator),
+        .header = std.ArrayList(u8).init(allocator),
+        .called = std.StringHashMap(void).init(allocator),
     };
     errdefer self.deinit();
     return self;
@@ -165,9 +168,7 @@ pub const File = struct {
     pub fn flush(base: *File) !void {
         try switch (base.tag) {
             .Elf => @fieldParentPtr(Elf, "base", base).flush(),
-            .C => {
-                //TODO
-            },
+            .C => @fieldParentPtr(C, "base", base).flush(),
             else => unreachable,
         };
     }
@@ -208,9 +209,12 @@ pub const File = struct {
         base: File = File{ .tag = base_tag },
 
         allocator: *Allocator,
+        header: std.ArrayList(u8),
+        main: std.ArrayList(u8),
         file: ?fs.File,
         owns_file_handle: bool,
         options: Options,
+        called: std.StringHashMap(void),
 
         pub fn makeWritable(self: *File.C, dir: fs.Dir, sub_path: []const u8) !void {
             assert(self.owns_file_handle);
@@ -223,6 +227,9 @@ pub const File = struct {
         }
 
         pub fn deinit(self: *File.C) void {
+            self.main.deinit();
+            self.header.deinit();
+            self.called.deinit();
             if (self.owns_file_handle) {
                 if (self.file) |f|
                     f.close();
@@ -231,6 +238,21 @@ pub const File = struct {
 
         pub fn updateDecl(self: *File.C, module: *Module, decl: *Module.Decl) !void {
             try cgen.generate(self, decl, self.options.c_standard.?);
+        }
+
+        pub fn flush(self: *File.C) !void {
+            const writer = self.file.?.writer();
+            if (self.header.items.len > 0) {
+                try self.header.append('\n');
+            }
+            try writer.writeAll(self.header.items);
+            if (self.main.items.len > 1) {
+                const last_two = self.main.items[self.main.items.len - 2 ..];
+                if (std.mem.eql(u8, last_two, "\n\n")) {
+                    self.main.items.len -= 1;
+                }
+            }
+            try writer.writeAll(self.main.items);
         }
     };
 

@@ -9,13 +9,26 @@ const linux_x64 = std.zig.CrossTarget{
 };
 
 pub fn addCases(ctx: *TestContext) !void {
-    // These tests should work on every platform
     ctx.c11("empty start function", linux_x64,
         \\export fn _start() noreturn {}
     ,
-    // A newline is always generated after every function; this ensures, among
-    // other things, that there is always a newline at the end of the file
-    \\_Noreturn void _start(void) {}
+        \\_Noreturn void _start(void) {}
+        \\
+    );
+    ctx.c11("less empty start function", linux_x64,
+        \\fn main() noreturn {}
+        \\
+        \\export fn _start() noreturn {
+        \\	main();
+        \\}
+    ,
+        \\_Noreturn void main(void);
+        \\
+        \\_Noreturn void _start(void) {
+        \\	main();
+        \\}
+        \\
+        \\_Noreturn void main(void) {}
         \\
     );
 }
