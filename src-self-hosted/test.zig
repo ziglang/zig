@@ -482,6 +482,7 @@ pub const TestContext = struct {
                         label = @tagName(cstd);
                         var c: *link.File.C = module.bin_file.cast(link.File.C).?;
                         c.file.?.close();
+                        c.file = null;
                         var file = try tmp.dir.openFile(bin_name, .{ .read = true });
                         defer file.close();
                         var out = file.reader().readAllAlloc(allocator, 1024 * 1024) catch @panic("Unable to read C output!");
