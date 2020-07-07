@@ -218,6 +218,11 @@ pub fn generateSymbol(
     }
 }
 
+const InnerError = error {
+    OutOfMemory,
+    CodegenFail,
+};
+
 const Function = struct {
     gpa: *Allocator,
     bin_file: *link.ElfFile,
@@ -379,8 +384,12 @@ const Function = struct {
     }
 
     fn genArch(self: *Function, comptime arch: std.Target.Cpu.Arch) !void {
+        return self.genBody(self.mod_fn.analysis.success, arch);
+    }
+
+    fn genBody(self: *Function, body: ir.Body, comptime arch: std.Target.Cpu.Arch) InnerError!void {
         const inst_table = &self.branch_stack.items[0].inst_table;
-        for (self.mod_fn.analysis.success.instructions) |inst| {
+        for (body.instructions) |inst| {
             const new_inst = try self.genFuncInst(inst, arch);
             try inst_table.putNoClobber(self.gpa, inst, new_inst);
         }
@@ -394,6 +403,7 @@ const Function = struct {
             .bitcast => return self.genBitCast(inst.cast(ir.Inst.BitCast).?),
             .block => return self.genBlock(inst.cast(ir.Inst.Block).?, arch),
             .breakpoint => return self.genBreakpoint(inst.src, arch),
+            .breakvoid => return self.genBreakVoid(inst.cast(ir.Inst.BreakVoid).?, arch),
             .call => return self.genCall(inst.cast(ir.Inst.Call).?, arch),
             .cmp => return self.genCmp(inst.cast(ir.Inst.Cmp).?, arch),
             .condbr => return self.genCondBr(inst.cast(ir.Inst.CondBr).?, arch),
@@ -686,9 +696,16 @@ const Function = struct {
     }
 
     fn genBlock(self: *Function, inst: *ir.Inst.Block, comptime arch: std.Target.Cpu.Arch) !MCValue {
+        // A block is nothing but a setup to be able to jump to the end.
+        try self.genBody(inst.args.body, arch);
+        return self.fail(inst.base.src, "TODO process jump relocs after block end", .{});
+    }
+
+    fn genBreakVoid(self: *Function, inst: *ir.Inst.BreakVoid, comptime arch: std.Target.Cpu.Arch) !MCValue {
         switch (arch) {
-            else => return self.fail(inst.base.src, "TODO implement codegen Block for {}", .{self.target.cpu.arch}),
+            else => return self.fail(inst.base.src, "TODO implement breakvoid for {}", .{self.target.cpu.arch}),
         }
+        return .none;
     }
 
     fn genAsm(self: *Function, inst: *ir.Inst.Assembly, comptime arch: Target.Cpu.Arch) !MCValue {

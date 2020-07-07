@@ -1608,6 +1608,22 @@ const EmitZIR = struct {
                     break :blk &new_inst.base;
                 },
                 .breakpoint => try self.emitTrivial(inst.src, Inst.Breakpoint),
+                .breakvoid => blk: {
+                    const old_inst = inst.cast(ir.Inst.BreakVoid).?;
+                    const new_block = inst_table.get(&old_inst.args.block.base).?;
+                    const new_inst = try self.arena.allocator.create(Inst.BreakVoid);
+                    new_inst.* = .{
+                        .base = .{
+                            .src = inst.src,
+                            .tag = Inst.BreakVoid.base_tag,
+                        },
+                        .positionals = .{
+                            .label = new_block.cast(Inst.Block).?.positionals.label,
+                        },
+                        .kw_args = .{},
+                    };
+                    break :blk &new_inst.base;
+                },
                 .call => blk: {
                     const old_inst = inst.cast(ir.Inst.Call).?;
                     const new_inst = try self.arena.allocator.create(Inst.Call);

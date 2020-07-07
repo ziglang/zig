@@ -35,6 +35,10 @@ pub const Inst = struct {
         return @truncate(u1, self.deaths << index) != 0;
     }
 
+    pub fn specialOperandDeaths(self: Inst) bool {
+        return (self.deaths & 0b1000_0000) != 0;
+    }
+
     pub const Tag = enum {
         add,
         arg,
@@ -42,6 +46,7 @@ pub const Inst = struct {
         bitcast,
         block,
         breakpoint,
+        breakvoid,
         call,
         cmp,
         condbr,
@@ -74,6 +79,7 @@ pub const Inst = struct {
                 .sub,
                 => false,
 
+                .breakvoid,
                 .condbr,
                 .ret,
                 .retvoid,
@@ -157,6 +163,14 @@ pub const Inst = struct {
         pub const base_tag = Tag.breakpoint;
         base: Inst,
         args: void,
+    };
+
+    pub const BreakVoid = struct {
+        pub const base_tag = Tag.breakvoid;
+        base: Inst,
+        args: struct {
+            block: *Block,
+        },
     };
 
     pub const Call = struct {

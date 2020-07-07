@@ -2545,18 +2545,6 @@ fn analyzeInstBlock(self: *Module, scope: *Scope, inst: *zir.Inst.Block) InnerEr
     assert(child_block.instructions.items.len != 0);
     assert(child_block.instructions.items[child_block.instructions.items.len - 1].tag.isNoReturn());
 
-    if (label.results.items.len <= 1) {
-        // No need to add the Block instruction; we can add the instructions to the parent block directly.
-        // Blocks are terminated with a noreturn instruction which we do not want to include.
-        const instrs = child_block.instructions.items;
-        try parent_block.instructions.appendSlice(self.gpa, instrs[0 .. instrs.len - 1]);
-        if (label.results.items.len == 1) {
-            return label.results.items[0];
-        } else {
-            return self.constNoReturn(scope, inst.base.src);
-        }
-    }
-
     // Need to set the type and emit the Block instruction. This allows machine code generation
     // to emit a jump instruction to after the block when it encounters the break.
     try parent_block.instructions.append(self.gpa, &block_inst.base);
@@ -2579,7 +2567,10 @@ fn analyzeInstBreakVoid(self: *Module, scope: *Scope, inst: *zir.Inst.BreakVoid)
         if (block.label) |*label| {
             if (mem.eql(u8, label.name, label_name)) {
                 try label.results.append(self.gpa, void_inst);
-                return self.constNoReturn(scope, inst.base.src);
+                const b = try self.requireRuntimeBlock(scope, inst.base.src);
+                return self.addNewInstArgs(b, inst.base.src, Type.initTag(.noreturn), Inst.BreakVoid, .{
+                    .block = label.block_inst,
+                });
             }
         }
         opt_block = block.parent;
@@ -3366,6 +3357,8 @@ fn makeIntType(self: *Module, scope: *Scope, signed: bool, bits: u16) !Type {
 fn resolvePeerTypes(self: *Module, scope: *Scope, instructions: []*Inst) !Type {
     if (instructions.len == 0)
         return Type.initTag(.noreturn);
+    if (instructions.len == 1)
+        return instructions[0].ty;
     return self.fail(scope, instructions[0].src, "TODO peer type resolution", .{});
 }
 
