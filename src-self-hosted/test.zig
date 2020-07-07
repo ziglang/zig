@@ -494,10 +494,8 @@ pub const TestContext = struct {
                         }
                         for (expected_output) |e, i| {
                             if (out[i] != e) {
-                                if (expected_output.len != out.len) {
-                                    std.debug.warn("\nTransformed {} differs:\n================\nExpected:\n================\n{}\n================\nFound:\n================\n{}\n================\nTest failed.\n", .{ label, expected_output, out });
-                                    std.process.exit(1);
-                                }
+                                std.debug.warn("\nTransformed {} differs:\n================\nExpected:\n================\n{}\n================\nFound:\n================\n{}\n================\nTest failed.\n", .{ label, expected_output, out });
+                                std.process.exit(1);
                             }
                         }
                     } else {
@@ -525,10 +523,8 @@ pub const TestContext = struct {
                         }
                         for (expected_output) |e, i| {
                             if (out_zir.items[i] != e) {
-                                if (expected_output.len != out_zir.items.len) {
-                                    std.debug.warn("{}\nTransformed {} differs:\n================\nExpected:\n================\n{}\n================\nFound:\n================\n{}\n================\nTest failed.\n", .{ case.name, label, expected_output, out_zir.items });
-                                    std.process.exit(1);
-                                }
+                                std.debug.warn("{}\nTransformed {} differs:\n================\nExpected:\n================\n{}\n================\nFound:\n================\n{}\n================\nTest failed.\n", .{ case.name, label, expected_output, out_zir.items });
+                                std.process.exit(1);
                             }
                         }
                     }
