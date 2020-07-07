@@ -8393,6 +8393,7 @@ fn foo(comptime T: type, ptr: *T) T {
       {#header_close#}
 
       {#header_open|Opaque Types#}
+      <p>
       {#syntax#}@Type(.Opaque){#endsyntax#} creates a new type with an unknown (but non-zero) size and alignment.
       </p>
       <p>
