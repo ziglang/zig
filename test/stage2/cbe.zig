@@ -9,10 +9,10 @@ const linux_x64 = std.zig.CrossTarget{
 };
 
 pub fn addCases(ctx: *TestContext) !void {
-    //   // These tests should work on every platform
-    //   ctx.c11("empty start function", linux_x64,
-    //       \\export fn start() void {}
-    //   ,
-    //       \\void start(void) {}
-    //   );
+    // These tests should work on every platform
+    ctx.c11("empty start function", linux_x64,
+        \\export fn start() void {}
+    ,
+        \\void start(void) {}
+    );
 }

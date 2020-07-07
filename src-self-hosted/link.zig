@@ -38,7 +38,11 @@ pub fn openBinFilePath(
     errdefer file.close();
 
     if (options.c_standard) |cstd| {
-        return error.Unimplemented;
+        var bin_file = try allocator.create(File.C);
+        errdefer allocator.destroy(bin_file);
+        bin_file.* = try openCFile(allocator, file, options);
+        bin_file.owns_file_handle = true;
+        return &bin_file.base;
     } else {
         var bin_file = try allocator.create(File.Elf);
         errdefer allocator.destroy(bin_file);
@@ -82,6 +86,17 @@ pub fn writeFilePath(
     return result;
 }
 
+pub fn openCFile(allocator: *Allocator, file: fs.File, options: Options) !File.C {
+    var self: File.C = .{
+        .allocator = allocator,
+        .file = file,
+        .options = options,
+        .owns_file_handle = false,
+    };
+    errdefer self.deinit();
+    return self;
+}
+
 /// Attempts incremental linking, if the file already exists.
 /// If incremental linking fails, falls back to truncating the file and rewriting it.
 /// Returns an error if `file` is not already open with +read +write +seek abilities.
@@ -108,6 +123,7 @@ pub const File = struct {
     pub fn makeWritable(base: *File, dir: fs.Dir, sub_path: []const u8) !void {
         try switch (base.tag) {
             .Elf => @fieldParentPtr(Elf, "base", base).makeWritable(dir, sub_path),
+            .C => @fieldParentPtr(C, "base", base).makeWritable(dir, sub_path),
             else => unreachable,
         };
     }
@@ -122,6 +138,7 @@ pub const File = struct {
     pub fn updateDecl(base: *File, module: *Module, decl: *Module.Decl) !void {
         try switch (base.tag) {
             .Elf => @fieldParentPtr(Elf, "base", base).updateDecl(module, decl),
+            .C => @fieldParentPtr(C, "base", base).updateDecl(module, decl),
             else => unreachable,
         };
     }
@@ -129,6 +146,9 @@ pub const File = struct {
     pub fn allocateDeclIndexes(base: *File, decl: *Module.Decl) !void {
         try switch (base.tag) {
             .Elf => @fieldParentPtr(Elf, "base", base).allocateDeclIndexes(decl),
+            .C => {
+                //TODO
+            },
             else => unreachable,
         };
     }
@@ -136,6 +156,7 @@ pub const File = struct {
     pub fn deinit(base: *File) void {
         switch (base.tag) {
             .Elf => @fieldParentPtr(Elf, "base", base).deinit(),
+            .C => @fieldParentPtr(C, "base", base).deinit(),
             else => unreachable,
         }
     }
@@ -143,6 +164,9 @@ pub const File = struct {
     pub fn flush(base: *File) !void {
         try switch (base.tag) {
             .Elf => @fieldParentPtr(Elf, "base", base).flush(),
+            .C => {
+                //TODO
+            },
             else => unreachable,
         };
     }
@@ -157,6 +181,7 @@ pub const File = struct {
     pub fn errorFlags(base: *File) ErrorFlags {
         return switch (base.tag) {
             .Elf => @fieldParentPtr(Elf, "base", base).error_flags,
+            .C => return .{ .no_entry_point_found = false },
             else => unreachable,
         };
     }
@@ -176,6 +201,38 @@ pub const File = struct {
     pub const ErrorFlags = struct {
         no_entry_point_found: bool = false,
     };
+
+    pub const C = struct {
+        pub const base_tag: Tag = .C;
+        base: File = File{ .tag = base_tag },
+
+        allocator: *Allocator,
+        file: ?fs.File,
+        owns_file_handle: bool,
+        options: Options,
+
+        pub fn makeWritable(self: *File.C, dir: fs.Dir, sub_path: []const u8) !void {
+            assert(self.owns_file_handle);
+            if (self.file != null) return;
+            self.file = try dir.createFile(sub_path, .{
+                .truncate = false,
+                .read = true,
+                .mode = determineMode(self.options),
+            });
+        }
+
+        pub fn deinit(self: *File.C) void {
+            if (self.owns_file_handle) {
+                if (self.file) |f|
+                    f.close();
+            }
+        }
+
+        pub fn updateDecl(self: *File.C, module: *Module, decl: *Module.Decl) !void {
+            return error.Unimplemented;
+        }
+    };
+
     pub const Elf = struct {
         pub const base_tag: Tag = .Elf;
         base: File = File{ .tag = base_tag },

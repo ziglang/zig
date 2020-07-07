@@ -464,33 +464,54 @@ pub const TestContext = struct {
 
             switch (update.case) {
                 .Transformation => |expected_output| {
-                    update_node.estimated_total_items = 5;
-                    var emit_node = update_node.start("emit", null);
-                    emit_node.activate();
-                    var new_zir_module = try zir.emit(allocator, module);
-                    defer new_zir_module.deinit(allocator);
-                    emit_node.end();
+                    var label: []const u8 = "ZIR";
+                    if (case.c_standard) |cstd| {
+                        label = @tagName(cstd);
+                        var c: *link.File.C = module.bin_file.cast(link.File.C).?;
+                        var out = c.file.?.reader().readAllAlloc(allocator, 1024 * 1024) catch @panic("Unable to read C output!");
+                        defer allocator.free(out);
 
-                    var write_node = update_node.start("write", null);
-                    write_node.activate();
-                    var out_zir = std.ArrayList(u8).init(allocator);
-                    defer out_zir.deinit();
-                    try new_zir_module.writeToStream(allocator, out_zir.outStream());
-                    write_node.end();
+                        if (expected_output.len != out.len) {
+                            std.debug.warn("{}\nTransformed {} length differs:\n================\nExpected:\n================\n{}\n================\nFound:\n================\n{}\n================\nTest failed.\n", .{ case.name, label, expected_output, out });
+                            std.process.exit(1);
+                        }
+                        for (expected_output) |e, i| {
+                            if (out[i] != e) {
+                                if (expected_output.len != out.len) {
+                                    std.debug.warn("{}\nTransformed {} differs:\n================\nExpected:\n================\n{}\n================\nFound:\n================\n{}\n================\nTest failed.\n", .{ case.name, label, expected_output, out });
+                                    std.process.exit(1);
+                                }
+                            }
+                        }
+                    } else {
+                        update_node.estimated_total_items = 5;
+                        var emit_node = update_node.start("emit", null);
+                        emit_node.activate();
+                        var new_zir_module = try zir.emit(allocator, module);
+                        defer new_zir_module.deinit(allocator);
+                        emit_node.end();
 
-                    var test_node = update_node.start("assert", null);
-                    test_node.activate();
-                    defer test_node.end();
-                    const label = if (case.c_standard) |_| "C" else "ZIR";
-                    if (expected_output.len != out_zir.items.len) {
-                        std.debug.warn("{}\nTransformed {} length differs:\n================\nExpected:\n================\n{}\n================\nFound:\n================\n{}\n================\nTest failed.\n", .{ case.name, label, expected_output, out_zir.items });
-                        std.process.exit(1);
-                    }
-                    for (expected_output) |e, i| {
-                        if (out_zir.items[i] != e) {
-                            if (expected_output.len != out_zir.items.len) {
-                                std.debug.warn("{}\nTransformed {} differs:\n================\nExpected:\n================\n{}\n================\nFound:\n================\n{}\n================\nTest failed.\n", .{ case.name, label, expected_output, out_zir.items });
-                                std.process.exit(1);
+                        var write_node = update_node.start("write", null);
+                        write_node.activate();
+                        var out_zir = std.ArrayList(u8).init(allocator);
+                        defer out_zir.deinit();
+                        try new_zir_module.writeToStream(allocator, out_zir.outStream());
+                        write_node.end();
+
+                        var test_node = update_node.start("assert", null);
+                        test_node.activate();
+                        defer test_node.end();
+
+                        if (expected_output.len != out_zir.items.len) {
+                            std.debug.warn("{}\nTransformed {} length differs:\n================\nExpected:\n================\n{}\n================\nFound:\n================\n{}\n================\nTest failed.\n", .{ case.name, label, expected_output, out_zir.items });
+                            std.process.exit(1);
+                        }
+                        for (expected_output) |e, i| {
+                            if (out_zir.items[i] != e) {
+                                if (expected_output.len != out_zir.items.len) {
+                                    std.debug.warn("{}\nTransformed {} differs:\n================\nExpected:\n================\n{}\n================\nFound:\n================\n{}\n================\nTest failed.\n", .{ case.name, label, expected_output, out_zir.items });
+                                    std.process.exit(1);
+                                }
                             }
                         }
                     }
@@ -527,6 +548,8 @@ pub const TestContext = struct {
                     }
                 },
                 .Execution => |expected_stdout| {
+                    std.debug.assert(case.c_standard == null);
+
                     update_node.estimated_total_items = 4;
                     var exec_result = x: {
                         var exec_node = update_node.start("execute", null);
