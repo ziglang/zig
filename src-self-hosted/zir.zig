@@ -538,6 +538,8 @@ pub const Inst = struct {
         kw_args: struct {},
     };
 
+    /// TODO get rid of the op positional arg and make that data part of
+    /// the base Inst tag.
     pub const Cmp = struct {
         pub const base_tag = Tag.cmp;
         base: Inst,

@@ -1309,6 +1309,33 @@ fn astGenInfixOp(self: *Module, scope: *Scope, infix_node: *ast.Node.InfixOp) In
 
             return self.addZIRInst(scope, src, zir.Inst.Add, .{ .lhs = lhs, .rhs = rhs }, .{});
         },
+        .BangEqual,
+        .EqualEqual,
+        .GreaterThan,
+        .GreaterOrEqual,
+        .LessThan,
+        .LessOrEqual,
+        => {
+            const lhs = try self.astGenExpr(scope, infix_node.lhs);
+            const rhs = try self.astGenExpr(scope, infix_node.rhs);
+
+            const tree = scope.tree();
+            const src = tree.token_locs[infix_node.op_token].start;
+
+            return self.addZIRInst(scope, src, zir.Inst.Cmp, .{
+                .lhs = lhs,
+                .op = @as(std.math.CompareOperator, switch (infix_node.op) {
+                    .BangEqual => .neq,
+                    .EqualEqual => .eq,
+                    .GreaterThan => .gt,
+                    .GreaterOrEqual => .gte,
+                    .LessThan => .lt,
+                    .LessOrEqual => .lte,
+                    else => unreachable,
+                }),
+                .rhs = rhs,
+            }, .{});
+        },
         else => |op| {
             return self.failNode(scope, &infix_node.base, "TODO implement infix operator {}", .{op});
         },
