@@ -97,7 +97,7 @@
         margin: auto;
       }
 
-      #index {
+      #toc {
         padding: 0 1em;
       }
 
@@ -105,7 +105,7 @@
         #main-wrapper {
             flex-direction: row;
         }
-        #contents-wrapper, #index {
+        #contents-wrapper, #toc {
             overflow: auto;
         }
       }
@@ -181,7 +181,7 @@
   </head>
   <body>
     <div id="main-wrapper">
-      <div id="index">
+      <div id="toc">
         <a href="https://ziglang.org/documentation/0.1.1/">0.1.1</a> |
         <a href="https://ziglang.org/documentation/0.2.0/">0.2.0</a> |
         <a href="https://ziglang.org/documentation/0.3.0/">0.3.0</a> |
@@ -189,7 +189,7 @@
         <a href="https://ziglang.org/documentation/0.5.0/">0.5.0</a> |
         <a href="https://ziglang.org/documentation/0.6.0/">0.6.0</a> |
         master
-        <h1>Index</h1>
+        <h1>Contents</h1>
         {#nav#}
       </div>
       <div id="contents-wrapper"><div id="contents">
