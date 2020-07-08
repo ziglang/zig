@@ -1668,12 +1668,23 @@ pub const SplitIterator = struct {
 /// Naively combines a series of slices with a separator.
 /// Allocates memory for the result, which must be freed by the caller.
 pub fn join(allocator: *Allocator, separator: []const u8, slices: []const []const u8) ![]u8 {
+    return joinMaybeZ(allocator, separator, slices, false);
+}
+
+/// Naively combines a series of slices with a separator and null terminator.
+/// Allocates memory for the result, which must be freed by the caller.
+pub fn joinZ(allocator: *Allocator, separator: []const u8, slices: []const []const u8) ![:0]u8 {
+    const out = try joinMaybeZ(allocator, separator, slices, true);
+    return out[0 .. out.len - 1 :0];
+}
+
+fn joinMaybeZ(allocator: *Allocator, separator: []const u8, slices: []const []const u8, zero: bool) ![]u8 {
     if (slices.len == 0) return &[0]u8{};
 
     const total_len = blk: {
         var sum: usize = separator.len * (slices.len - 1);
-        for (slices) |slice|
-            sum += slice.len;
+        for (slices) |slice| sum += slice.len;
+        if (zero) sum += 1;
         break :blk sum;
     };
 
@@ -1688,6 +1699,8 @@ pub fn join(allocator: *Allocator, separator: []const u8, slices: []const []cons
         copy(u8, buf[buf_index..], slice);
         buf_index += slice.len;
     }
+
+    if (zero) buf[buf.len - 1] = 0;
 
     // No need for shrink since buf is exactly the correct size.
     return buf;
@@ -1708,6 +1721,27 @@ test "mem.join" {
         const str = try join(testing.allocator, ",", &[_][]const u8{ "a", "", "b", "", "c" });
         defer testing.allocator.free(str);
         testing.expect(eql(u8, str, "a,,b,,c"));
+    }
+}
+
+test "mem.joinZ" {
+    {
+        const str = try joinZ(testing.allocator, ",", &[_][]const u8{ "a", "b", "c" });
+        defer testing.allocator.free(str);
+        testing.expect(eql(u8, str, "a,b,c"));
+        testing.expectEqual(str[str.len], 0);
+    }
+    {
+        const str = try joinZ(testing.allocator, ",", &[_][]const u8{"a"});
+        defer testing.allocator.free(str);
+        testing.expect(eql(u8, str, "a"));
+        testing.expectEqual(str[str.len], 0);
+    }
+    {
+        const str = try joinZ(testing.allocator, ",", &[_][]const u8{ "a", "", "b", "", "c" });
+        defer testing.allocator.free(str);
+        testing.expect(eql(u8, str, "a,,b,,c"));
+        testing.expectEqual(str[str.len], 0);
     }
 }
 
