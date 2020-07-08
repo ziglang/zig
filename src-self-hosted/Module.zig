@@ -744,7 +744,7 @@ pub fn init(gpa: *Allocator, options: InitOptions) !Module {
         .object_format = options.object_format orelse options.target.getObjectFormat(),
         .cbe = options.cbe,
     });
-    errdefer bin_file.*.deinit();
+    errdefer bin_file.destroy();
 
     const root_scope = blk: {
         if (mem.endsWith(u8, options.root_pkg.root_src_path, ".zig")) {
@@ -793,9 +793,8 @@ pub fn init(gpa: *Allocator, options: InitOptions) !Module {
 }
 
 pub fn deinit(self: *Module) void {
-    self.bin_file.deinit();
+    self.bin_file.destroy();
     const allocator = self.allocator;
-    allocator.destroy(self.bin_file);
     self.deletion_set.deinit(allocator);
     self.work_queue.deinit();
 

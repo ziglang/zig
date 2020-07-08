@@ -159,6 +159,22 @@ pub const File = struct {
         }
     }
 
+    pub fn destroy(base: *File) void {
+        switch (base.tag) {
+            .Elf => {
+                const parent = @fieldParentPtr(Elf, "base", base);
+                parent.deinit();
+                parent.allocator.destroy(parent);
+            },
+            .C => {
+                const parent = @fieldParentPtr(C, "base", base);
+                parent.deinit();
+                parent.allocator.destroy(parent);
+            },
+            else => unreachable,
+        }
+    }
+
     pub fn flush(base: *File) !void {
         try switch (base.tag) {
             .Elf => @fieldParentPtr(Elf, "base", base).flush(),
