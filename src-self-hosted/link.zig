@@ -191,7 +191,7 @@ pub const File = struct {
     pub fn options(base: *File) Options {
         return switch (base.tag) {
             .Elf => @fieldParentPtr(Elf, "base", base).options,
-            else => unreachable,
+            .C => @fieldParentPtr(C, "base", base).options,
         };
     }
 
@@ -215,6 +215,8 @@ pub const File = struct {
         owns_file_handle: bool,
         options: Options,
         called: std.StringHashMap(void),
+        need_stddef: bool = false,
+        need_stdint: bool = false,
 
         pub fn makeWritable(self: *File.C, dir: fs.Dir, sub_path: []const u8) !void {
             assert(self.owns_file_handle);
@@ -242,10 +244,21 @@ pub const File = struct {
 
         pub fn flush(self: *File.C) !void {
             const writer = self.file.?.writer();
-            if (self.header.items.len > 0) {
-                try self.header.append('\n');
+            var includes = false;
+            if (self.need_stddef) {
+                try writer.writeAll("#include <stddef.h>\n");
+                includes = true;
             }
-            try writer.writeAll(self.header.items);
+            if (self.need_stdint) {
+                try writer.writeAll("#include <stdint.h>\n");
+                includes = true;
+            }
+            if (includes) {
+                try writer.writeByte('\n');
+            }
+            if (self.header.items.len > 0) {
+                try writer.print("{}\n", .{self.header.items});
+            }
             if (self.main.items.len > 1) {
                 const last_two = self.main.items[self.main.items.len - 2 ..];
                 if (std.mem.eql(u8, last_two, "\n\n")) {

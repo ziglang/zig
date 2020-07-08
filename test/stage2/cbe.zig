@@ -31,4 +31,55 @@ pub fn addCases(ctx: *TestContext) !void {
         \\_Noreturn void main(void) {}
         \\
     );
+    // TODO: implement return values
+    ctx.c11("inline asm", linux_x64,
+        \\fn exitGood() void {
+        \\	asm volatile ("syscall"
+        \\ 		:
+        \\		: [number] "{rax}" (231),
+        \\		  [arg1] "{rdi}" (0)
+        \\	);
+        \\}
+        \\
+        \\export fn _start() noreturn {
+        \\	exitGood();
+        \\}
+    ,
+        \\#include <stddef.h>
+        \\
+        \\void exitGood(void);
+        \\
+        \\_Noreturn void _start(void) {
+        \\	exitGood();
+        \\}
+        \\
+        \\void exitGood(void) {
+        \\	register size_t rax_constant __asm__("rax") = 231;
+        \\	register size_t rdi_constant __asm__("rdi") = 0;
+        \\	__asm volatile ("syscall" :: ""(rax_constant), ""(rdi_constant));
+        \\}
+        \\
+    );
+    //ctx.c11("basic return", linux_x64,
+    //    \\fn main() u8 {
+    //    \\	return 103;
+    //    \\}
+    //    \\
+    //    \\export fn _start() noreturn {
+    //    \\	_ = main();
+    //    \\}
+    //,
+    //    \\#include <stdint.h>
+    //    \\
+    //    \\uint8_t main(void);
+    //    \\
+    //    \\_Noreturn void _start(void) {
+    //    \\	(void)main();
+    //    \\}
+    //    \\
+    //    \\uint8_t main(void) {
+    //    \\	return 103;
+    //    \\}
+    //    \\
+    //);
 }
