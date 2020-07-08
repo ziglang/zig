@@ -433,7 +433,10 @@ fn buildOutputType(
             std.debug.print("-fno-emit-bin not supported yet", .{});
             process.exit(1);
         },
-        .yes_default_path => try std.fmt.allocPrint(arena, "{}.c", .{root_name}),
+        .yes_default_path => if (cbe)
+            try std.fmt.allocPrint(arena, "{}.c", .{root_name})
+        else
+            try std.zig.binNameAlloc(arena, root_name, target_info.target, output_mode, link_mode),
 
         .yes => |p| p,
     };
