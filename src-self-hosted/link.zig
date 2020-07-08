@@ -86,7 +86,7 @@ pub fn writeFilePath(
     return result;
 }
 
-pub fn openCFile(allocator: *Allocator, file: fs.File, options: Options) !File.C {
+fn openCFile(allocator: *Allocator, file: fs.File, options: Options) !File.C {
     return File.C{
         .allocator = allocator,
         .file = file,
@@ -282,6 +282,8 @@ pub const File = struct {
                 }
             }
             try writer.writeAll(self.main.items);
+            self.file.?.close();
+            self.file = null;
         }
     };
 
