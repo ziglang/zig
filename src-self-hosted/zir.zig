@@ -648,7 +648,7 @@ pub const Module = struct {
 
         for (self.decls) |decl, i| {
             try stream.print("@{} ", .{decl.name});
-            try self.writeInstToStream(stream, decl.inst, &inst_table);
+            try self.writeInstToStream(stream, decl.inst, &inst_table, 2);
             try stream.writeByte('\n');
         }
     }
@@ -658,43 +658,44 @@ pub const Module = struct {
         stream: var,
         inst: *Inst,
         inst_table: *const InstPtrTable,
+        indent: usize,
     ) @TypeOf(stream).Error!void {
         // TODO I tried implementing this with an inline for loop and hit a compiler bug
         switch (inst.tag) {
-            .arg => return self.writeInstToStreamGeneric(stream, .arg, inst, inst_table),
-            .block => return self.writeInstToStreamGeneric(stream, .block, inst, inst_table),
-            .breakpoint => return self.writeInstToStreamGeneric(stream, .breakpoint, inst, inst_table),
-            .breakvoid => return self.writeInstToStreamGeneric(stream, .breakvoid, inst, inst_table),
-            .call => return self.writeInstToStreamGeneric(stream, .call, inst, inst_table),
-            .declref => return self.writeInstToStreamGeneric(stream, .declref, inst, inst_table),
-            .declref_str => return self.writeInstToStreamGeneric(stream, .declref_str, inst, inst_table),
-            .declval => return self.writeInstToStreamGeneric(stream, .declval, inst, inst_table),
-            .declval_in_module => return self.writeInstToStreamGeneric(stream, .declval_in_module, inst, inst_table),
-            .compileerror => return self.writeInstToStreamGeneric(stream, .compileerror, inst, inst_table),
-            .@"const" => return self.writeInstToStreamGeneric(stream, .@"const", inst, inst_table),
-            .str => return self.writeInstToStreamGeneric(stream, .str, inst, inst_table),
-            .int => return self.writeInstToStreamGeneric(stream, .int, inst, inst_table),
-            .ptrtoint => return self.writeInstToStreamGeneric(stream, .ptrtoint, inst, inst_table),
-            .fieldptr => return self.writeInstToStreamGeneric(stream, .fieldptr, inst, inst_table),
-            .deref => return self.writeInstToStreamGeneric(stream, .deref, inst, inst_table),
-            .as => return self.writeInstToStreamGeneric(stream, .as, inst, inst_table),
-            .@"asm" => return self.writeInstToStreamGeneric(stream, .@"asm", inst, inst_table),
-            .@"unreachable" => return self.writeInstToStreamGeneric(stream, .@"unreachable", inst, inst_table),
-            .@"return" => return self.writeInstToStreamGeneric(stream, .@"return", inst, inst_table),
-            .returnvoid => return self.writeInstToStreamGeneric(stream, .returnvoid, inst, inst_table),
-            .@"fn" => return self.writeInstToStreamGeneric(stream, .@"fn", inst, inst_table),
-            .@"export" => return self.writeInstToStreamGeneric(stream, .@"export", inst, inst_table),
-            .primitive => return self.writeInstToStreamGeneric(stream, .primitive, inst, inst_table),
-            .fntype => return self.writeInstToStreamGeneric(stream, .fntype, inst, inst_table),
-            .intcast => return self.writeInstToStreamGeneric(stream, .intcast, inst, inst_table),
-            .bitcast => return self.writeInstToStreamGeneric(stream, .bitcast, inst, inst_table),
-            .elemptr => return self.writeInstToStreamGeneric(stream, .elemptr, inst, inst_table),
-            .add => return self.writeInstToStreamGeneric(stream, .add, inst, inst_table),
-            .sub => return self.writeInstToStreamGeneric(stream, .sub, inst, inst_table),
-            .cmp => return self.writeInstToStreamGeneric(stream, .cmp, inst, inst_table),
-            .condbr => return self.writeInstToStreamGeneric(stream, .condbr, inst, inst_table),
-            .isnull => return self.writeInstToStreamGeneric(stream, .isnull, inst, inst_table),
-            .isnonnull => return self.writeInstToStreamGeneric(stream, .isnonnull, inst, inst_table),
+            .arg => return self.writeInstToStreamGeneric(stream, .arg, inst, inst_table, indent),
+            .block => return self.writeInstToStreamGeneric(stream, .block, inst, inst_table, indent),
+            .breakpoint => return self.writeInstToStreamGeneric(stream, .breakpoint, inst, inst_table, indent),
+            .breakvoid => return self.writeInstToStreamGeneric(stream, .breakvoid, inst, inst_table, indent),
+            .call => return self.writeInstToStreamGeneric(stream, .call, inst, inst_table, indent),
+            .declref => return self.writeInstToStreamGeneric(stream, .declref, inst, inst_table, indent),
+            .declref_str => return self.writeInstToStreamGeneric(stream, .declref_str, inst, inst_table, indent),
+            .declval => return self.writeInstToStreamGeneric(stream, .declval, inst, inst_table, indent),
+            .declval_in_module => return self.writeInstToStreamGeneric(stream, .declval_in_module, inst, inst_table, indent),
+            .compileerror => return self.writeInstToStreamGeneric(stream, .compileerror, inst, inst_table, indent),
+            .@"const" => return self.writeInstToStreamGeneric(stream, .@"const", inst, inst_table, indent),
+            .str => return self.writeInstToStreamGeneric(stream, .str, inst, inst_table, indent),
+            .int => return self.writeInstToStreamGeneric(stream, .int, inst, inst_table, indent),
+            .ptrtoint => return self.writeInstToStreamGeneric(stream, .ptrtoint, inst, inst_table, indent),
+            .fieldptr => return self.writeInstToStreamGeneric(stream, .fieldptr, inst, inst_table, indent),
+            .deref => return self.writeInstToStreamGeneric(stream, .deref, inst, inst_table, indent),
+            .as => return self.writeInstToStreamGeneric(stream, .as, inst, inst_table, indent),
+            .@"asm" => return self.writeInstToStreamGeneric(stream, .@"asm", inst, inst_table, indent),
+            .@"unreachable" => return self.writeInstToStreamGeneric(stream, .@"unreachable", inst, inst_table, indent),
+            .@"return" => return self.writeInstToStreamGeneric(stream, .@"return", inst, inst_table, indent),
+            .returnvoid => return self.writeInstToStreamGeneric(stream, .returnvoid, inst, inst_table, indent),
+            .@"fn" => return self.writeInstToStreamGeneric(stream, .@"fn", inst, inst_table, indent),
+            .@"export" => return self.writeInstToStreamGeneric(stream, .@"export", inst, inst_table, indent),
+            .primitive => return self.writeInstToStreamGeneric(stream, .primitive, inst, inst_table, indent),
+            .fntype => return self.writeInstToStreamGeneric(stream, .fntype, inst, inst_table, indent),
+            .intcast => return self.writeInstToStreamGeneric(stream, .intcast, inst, inst_table, indent),
+            .bitcast => return self.writeInstToStreamGeneric(stream, .bitcast, inst, inst_table, indent),
+            .elemptr => return self.writeInstToStreamGeneric(stream, .elemptr, inst, inst_table, indent),
+            .add => return self.writeInstToStreamGeneric(stream, .add, inst, inst_table, indent),
+            .sub => return self.writeInstToStreamGeneric(stream, .sub, inst, inst_table, indent),
+            .cmp => return self.writeInstToStreamGeneric(stream, .cmp, inst, inst_table, indent),
+            .condbr => return self.writeInstToStreamGeneric(stream, .condbr, inst, inst_table, indent),
+            .isnull => return self.writeInstToStreamGeneric(stream, .isnull, inst, inst_table, indent),
+            .isnonnull => return self.writeInstToStreamGeneric(stream, .isnonnull, inst, inst_table, indent),
         }
     }
 
@@ -704,7 +705,8 @@ pub const Module = struct {
         comptime inst_tag: Inst.Tag,
         base: *Inst,
         inst_table: *const InstPtrTable,
-    ) !void {
+        indent: usize,
+    ) @TypeOf(stream).Error!void {
         const SpecificInst = Inst.TagToType(inst_tag);
         const inst = @fieldParentPtr(SpecificInst, "base", base);
         const Positionals = @TypeOf(inst.positionals);
@@ -714,7 +716,7 @@ pub const Module = struct {
             if (i != 0) {
                 try stream.writeAll(", ");
             }
-            try self.writeParamToStream(stream, @field(inst.positionals, arg_field.name), inst_table);
+            try self.writeParamToStream(stream, @field(inst.positionals, arg_field.name), inst_table, indent);
         }
 
         comptime var need_comma = pos_fields.len != 0;
@@ -724,13 +726,13 @@ pub const Module = struct {
                 if (@field(inst.kw_args, arg_field.name)) |non_optional| {
                     if (need_comma) try stream.writeAll(", ");
                     try stream.print("{}=", .{arg_field.name});
-                    try self.writeParamToStream(stream, non_optional, inst_table);
+                    try self.writeParamToStream(stream, non_optional, inst_table, indent);
                     need_comma = true;
                 }
             } else {
                 if (need_comma) try stream.writeAll(", ");
                 try stream.print("{}=", .{arg_field.name});
-                try self.writeParamToStream(stream, @field(inst.kw_args, arg_field.name), inst_table);
+                try self.writeParamToStream(stream, @field(inst.kw_args, arg_field.name), inst_table, indent);
                 need_comma = true;
             }
         }
@@ -738,7 +740,7 @@ pub const Module = struct {
         try stream.writeByte(')');
     }
 
-    fn writeParamToStream(self: Module, stream: var, param: var, inst_table: *const InstPtrTable) !void {
+    fn writeParamToStream(self: Module, stream: var, param: var, inst_table: *const InstPtrTable, indent: usize) !void {
         if (@typeInfo(@TypeOf(param)) == .Enum) {
             return stream.writeAll(@tagName(param));
         }
@@ -757,10 +759,12 @@ pub const Module = struct {
             Module.Body => {
                 try stream.writeAll("{\n");
                 for (param.instructions) |inst, i| {
-                    try stream.print("  %{} ", .{i});
-                    try self.writeInstToStream(stream, inst, inst_table);
+                    try stream.writeByteNTimes(' ', indent);
+                    try stream.print("%{} ", .{i});
+                    try self.writeInstToStream(stream, inst, inst_table, indent + 2);
                     try stream.writeByte('\n');
                 }
+                try stream.writeByteNTimes(' ', indent - 2);
                 try stream.writeByte('}');
             },
             bool => return stream.writeByte("01"[@boolToInt(param)]),
@@ -1205,6 +1209,7 @@ pub fn emit(allocator: *Allocator, old_module: IrModule) !Module {
         .next_auto_name = 0,
         .names = std.StringHashMap(void).init(allocator),
         .primitive_table = std.AutoHashMap(Inst.Primitive.Builtin, *Decl).init(allocator),
+        .indent = 0,
     };
     defer ctx.decls.deinit(allocator);
     defer ctx.names.deinit();
@@ -1227,6 +1232,7 @@ const EmitZIR = struct {
     names: std.StringHashMap(void),
     next_auto_name: usize,
     primitive_table: std.AutoHashMap(Inst.Primitive.Builtin, *Decl),
+    indent: usize,
 
     fn emit(self: *EmitZIR) !void {
         // Put all the Decls in a list and sort them by name to avoid nondeterminism introduced
