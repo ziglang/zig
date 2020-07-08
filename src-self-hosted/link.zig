@@ -227,6 +227,12 @@ pub const File = struct {
         need_stddef: bool = false,
         need_stdint: bool = false,
         need_noreturn: bool = false,
+        error_msg: *Module.ErrorMsg = undefined,
+
+        pub fn fail(self: *C, src: usize, comptime format: []const u8, args: var) !void {
+            self.error_msg = try Module.ErrorMsg.create(self.allocator, src, format, args);
+            return error.CGenFailure;
+        }
 
         pub fn deinit(self: *File.C) void {
             self.main.deinit();
@@ -237,7 +243,12 @@ pub const File = struct {
         }
 
         pub fn updateDecl(self: *File.C, module: *Module, decl: *Module.Decl) !void {
-            try cgen.generate(self, decl);
+            cgen.generate(self, decl) catch |err| {
+                if (err == error.CGenFailure) {
+                    try module.failed_decls.put(decl, self.error_msg);
+                }
+                return err;
+            };
         }
 
         pub fn flush(self: *File.C) !void {
@@ -1185,7 +1196,7 @@ pub const File = struct {
                 .appended => code_buffer.items,
                 .fail => |em| {
                     decl.analysis = .codegen_failure;
-                    _ = try module.failed_decls.put(decl, em);
+                    try module.failed_decls.put(decl, em);
                     return;
                 },
             };
