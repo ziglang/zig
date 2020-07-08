@@ -71,7 +71,7 @@ pub fn main() !void {
     const args = try process.argsAlloc(arena);
 
     if (args.len <= 1) {
-        std.debug.warn("expected command argument\n\n{}", .{usage});
+        std.debug.print("expected command argument\n\n{}", .{usage});
         process.exit(1);
     }
 
@@ -91,14 +91,14 @@ pub fn main() !void {
         return @import("print_targets.zig").cmdTargets(arena, cmd_args, stdout, info.target);
     } else if (mem.eql(u8, cmd, "version")) {
         // Need to set up the build script to give the version as a comptime value.
-        std.debug.warn("TODO version command not implemented yet\n", .{});
+        std.debug.print("TODO version command not implemented yet\n", .{});
         return error.Unimplemented;
     } else if (mem.eql(u8, cmd, "zen")) {
         try io.getStdOut().writeAll(info_zen);
     } else if (mem.eql(u8, cmd, "help")) {
         try io.getStdOut().writeAll(usage);
     } else {
-        std.debug.warn("unknown command: {}\n\n{}", .{ args[1], usage });
+        std.debug.print("unknown command: {}\n\n{}", .{ args[1], usage });
         process.exit(1);
     }
 }
@@ -191,6 +191,7 @@ fn buildOutputType(
     var emit_zir: Emit = .no;
     var target_arch_os_abi: []const u8 = "native";
     var target_mcpu: ?[]const u8 = null;
+    var cbe: bool = false;
     var target_dynamic_linker: ?[]const u8 = null;
 
     var system_libs = std.ArrayList([]const u8).init(gpa);
@@ -206,7 +207,7 @@ fn buildOutputType(
                     process.exit(0);
                 } else if (mem.eql(u8, arg, "--color")) {
                     if (i + 1 >= args.len) {
-                        std.debug.warn("expected [auto|on|off] after --color\n", .{});
+                        std.debug.print("expected [auto|on|off] after --color\n", .{});
                         process.exit(1);
                     }
                     i += 1;
@@ -218,12 +219,12 @@ fn buildOutputType(
                     } else if (mem.eql(u8, next_arg, "off")) {
                         color = .Off;
                     } else {
-                        std.debug.warn("expected [auto|on|off] after --color, found '{}'\n", .{next_arg});
+                        std.debug.print("expected [auto|on|off] after --color, found '{}'\n", .{next_arg});
                         process.exit(1);
                     }
                 } else if (mem.eql(u8, arg, "--mode")) {
                     if (i + 1 >= args.len) {
-                        std.debug.warn("expected [Debug|ReleaseSafe|ReleaseFast|ReleaseSmall] after --mode\n", .{});
+                        std.debug.print("expected [Debug|ReleaseSafe|ReleaseFast|ReleaseSmall] after --mode\n", .{});
                         process.exit(1);
                     }
                     i += 1;
@@ -237,52 +238,54 @@ fn buildOutputType(
                     } else if (mem.eql(u8, next_arg, "ReleaseSmall")) {
                         build_mode = .ReleaseSmall;
                     } else {
-                        std.debug.warn("expected [Debug|ReleaseSafe|ReleaseFast|ReleaseSmall] after --mode, found '{}'\n", .{next_arg});
+                        std.debug.print("expected [Debug|ReleaseSafe|ReleaseFast|ReleaseSmall] after --mode, found '{}'\n", .{next_arg});
                         process.exit(1);
                     }
                 } else if (mem.eql(u8, arg, "--name")) {
                     if (i + 1 >= args.len) {
-                        std.debug.warn("expected parameter after --name\n", .{});
+                        std.debug.print("expected parameter after --name\n", .{});
                         process.exit(1);
                     }
                     i += 1;
                     provided_name = args[i];
                 } else if (mem.eql(u8, arg, "--library")) {
                     if (i + 1 >= args.len) {
-                        std.debug.warn("expected parameter after --library\n", .{});
+                        std.debug.print("expected parameter after --library\n", .{});
                         process.exit(1);
                     }
                     i += 1;
                     try system_libs.append(args[i]);
                 } else if (mem.eql(u8, arg, "--version")) {
                     if (i + 1 >= args.len) {
-                        std.debug.warn("expected parameter after --version\n", .{});
+                        std.debug.print("expected parameter after --version\n", .{});
                         process.exit(1);
                     }
                     i += 1;
                     version = std.builtin.Version.parse(args[i]) catch |err| {
-                        std.debug.warn("unable to parse --version '{}': {}\n", .{ args[i], @errorName(err) });
+                        std.debug.print("unable to parse --version '{}': {}\n", .{ args[i], @errorName(err) });
                         process.exit(1);
                     };
                 } else if (mem.eql(u8, arg, "-target")) {
                     if (i + 1 >= args.len) {
-                        std.debug.warn("expected parameter after -target\n", .{});
+                        std.debug.print("expected parameter after -target\n", .{});
                         process.exit(1);
                     }
                     i += 1;
                     target_arch_os_abi = args[i];
                 } else if (mem.eql(u8, arg, "-mcpu")) {
                     if (i + 1 >= args.len) {
-                        std.debug.warn("expected parameter after -mcpu\n", .{});
+                        std.debug.print("expected parameter after -mcpu\n", .{});
                         process.exit(1);
                     }
                     i += 1;
                     target_mcpu = args[i];
+                } else if (mem.eql(u8, arg, "--c")) {
+                    cbe = true;
                 } else if (mem.startsWith(u8, arg, "-mcpu=")) {
                     target_mcpu = arg["-mcpu=".len..];
                 } else if (mem.eql(u8, arg, "--dynamic-linker")) {
                     if (i + 1 >= args.len) {
-                        std.debug.warn("expected parameter after --dynamic-linker\n", .{});
+                        std.debug.print("expected parameter after --dynamic-linker\n", .{});
                         process.exit(1);
                     }
                     i += 1;
@@ -324,39 +327,39 @@ fn buildOutputType(
                 } else if (mem.startsWith(u8, arg, "-l")) {
                     try system_libs.append(arg[2..]);
                 } else {
-                    std.debug.warn("unrecognized parameter: '{}'", .{arg});
+                    std.debug.print("unrecognized parameter: '{}'", .{arg});
                     process.exit(1);
                 }
             } else if (mem.endsWith(u8, arg, ".s") or mem.endsWith(u8, arg, ".S")) {
-                std.debug.warn("assembly files not supported yet", .{});
+                std.debug.print("assembly files not supported yet", .{});
                 process.exit(1);
             } else if (mem.endsWith(u8, arg, ".o") or
                 mem.endsWith(u8, arg, ".obj") or
                 mem.endsWith(u8, arg, ".a") or
                 mem.endsWith(u8, arg, ".lib"))
             {
-                std.debug.warn("object files and static libraries not supported yet", .{});
+                std.debug.print("object files and static libraries not supported yet", .{});
                 process.exit(1);
             } else if (mem.endsWith(u8, arg, ".c") or
                 mem.endsWith(u8, arg, ".cpp"))
             {
-                std.debug.warn("compilation of C and C++ source code requires LLVM extensions which are not implemented yet", .{});
+                std.debug.print("compilation of C and C++ source code requires LLVM extensions which are not implemented yet", .{});
                 process.exit(1);
             } else if (mem.endsWith(u8, arg, ".so") or
                 mem.endsWith(u8, arg, ".dylib") or
                 mem.endsWith(u8, arg, ".dll"))
             {
-                std.debug.warn("linking against dynamic libraries not yet supported", .{});
+                std.debug.print("linking against dynamic libraries not yet supported", .{});
                 process.exit(1);
             } else if (mem.endsWith(u8, arg, ".zig") or mem.endsWith(u8, arg, ".zir")) {
                 if (root_src_file) |other| {
-                    std.debug.warn("found another zig file '{}' after root source file '{}'", .{ arg, other });
+                    std.debug.print("found another zig file '{}' after root source file '{}'", .{ arg, other });
                     process.exit(1);
                 } else {
                     root_src_file = arg;
                 }
             } else {
-                std.debug.warn("unrecognized file extension of parameter '{}'", .{arg});
+                std.debug.print("unrecognized file extension of parameter '{}'", .{arg});
             }
         }
     }
@@ -367,13 +370,13 @@ fn buildOutputType(
             var it = mem.split(basename, ".");
             break :blk it.next() orelse basename;
         } else {
-            std.debug.warn("--name [name] not provided and unable to infer\n", .{});
+            std.debug.print("--name [name] not provided and unable to infer\n", .{});
             process.exit(1);
         }
     };
 
     if (system_libs.items.len != 0) {
-        std.debug.warn("linking against system libraries not yet supported", .{});
+        std.debug.print("linking against system libraries not yet supported", .{});
         process.exit(1);
     }
 
@@ -385,17 +388,17 @@ fn buildOutputType(
         .diagnostics = &diags,
     }) catch |err| switch (err) {
         error.UnknownCpuModel => {
-            std.debug.warn("Unknown CPU: '{}'\nAvailable CPUs for architecture '{}':\n", .{
+            std.debug.print("Unknown CPU: '{}'\nAvailable CPUs for architecture '{}':\n", .{
                 diags.cpu_name.?,
                 @tagName(diags.arch.?),
             });
             for (diags.arch.?.allCpuModels()) |cpu| {
-                std.debug.warn(" {}\n", .{cpu.name});
+                std.debug.print(" {}\n", .{cpu.name});
             }
             process.exit(1);
         },
         error.UnknownCpuFeature => {
-            std.debug.warn(
+            std.debug.print(
                 \\Unknown CPU feature: '{}'
                 \\Available CPU features for architecture '{}':
                 \\
@@ -404,7 +407,7 @@ fn buildOutputType(
                 @tagName(diags.arch.?),
             });
             for (diags.arch.?.allFeaturesList()) |feature| {
-                std.debug.warn(" {}: {}\n", .{ feature.name, feature.description });
+                std.debug.print(" {}: {}\n", .{ feature.name, feature.description });
             }
             process.exit(1);
         },
@@ -416,21 +419,22 @@ fn buildOutputType(
     if (target_info.cpu_detection_unimplemented) {
         // TODO We want to just use detected_info.target but implementing
         // CPU model & feature detection is todo so here we rely on LLVM.
-        std.debug.warn("CPU features detection is not yet available for this system without LLVM extensions\n", .{});
+        std.debug.print("CPU features detection is not yet available for this system without LLVM extensions\n", .{});
         process.exit(1);
     }
 
     const src_path = root_src_file orelse {
-        std.debug.warn("expected at least one file argument", .{});
+        std.debug.print("expected at least one file argument", .{});
         process.exit(1);
     };
 
     const bin_path = switch (emit_bin) {
         .no => {
-            std.debug.warn("-fno-emit-bin not supported yet", .{});
+            std.debug.print("-fno-emit-bin not supported yet", .{});
             process.exit(1);
         },
-        .yes_default_path => try std.zig.binNameAlloc(arena, root_name, target_info.target, output_mode, link_mode),
+        .yes_default_path => try std.fmt.allocPrint(arena, "{}.c", .{root_name}),
+
         .yes => |p| p,
     };
 
@@ -460,6 +464,7 @@ fn buildOutputType(
         .object_format = object_format,
         .optimize_mode = build_mode,
         .keep_source_files_loaded = zir_out_path != null,
+        .cbe = cbe,
     });
     defer module.deinit();
 
@@ -506,7 +511,7 @@ fn updateModule(gpa: *Allocator, module: *Module, zir_out_path: ?[]const u8) !vo
 
     if (errors.list.len != 0) {
         for (errors.list) |full_err_msg| {
-            std.debug.warn("{}:{}:{}: error: {}\n", .{
+            std.debug.print("{}:{}:{}: error: {}\n", .{
                 full_err_msg.src_path,
                 full_err_msg.line + 1,
                 full_err_msg.column + 1,
@@ -583,7 +588,7 @@ pub fn cmdFmt(gpa: *Allocator, args: []const []const u8) !void {
                     process.exit(0);
                 } else if (mem.eql(u8, arg, "--color")) {
                     if (i + 1 >= args.len) {
-                        std.debug.warn("expected [auto|on|off] after --color\n", .{});
+                        std.debug.print("expected [auto|on|off] after --color\n", .{});
                         process.exit(1);
                     }
                     i += 1;
@@ -595,7 +600,7 @@ pub fn cmdFmt(gpa: *Allocator, args: []const []const u8) !void {
                     } else if (mem.eql(u8, next_arg, "off")) {
                         color = .Off;
                     } else {
-                        std.debug.warn("expected [auto|on|off] after --color, found '{}'\n", .{next_arg});
+                        std.debug.print("expected [auto|on|off] after --color, found '{}'\n", .{next_arg});
                         process.exit(1);
                     }
                 } else if (mem.eql(u8, arg, "--stdin")) {
@@ -603,7 +608,7 @@ pub fn cmdFmt(gpa: *Allocator, args: []const []const u8) !void {
                 } else if (mem.eql(u8, arg, "--check")) {
                     check_flag = true;
                 } else {
-                    std.debug.warn("unrecognized parameter: '{}'", .{arg});
+                    std.debug.print("unrecognized parameter: '{}'", .{arg});
                     process.exit(1);
                 }
             } else {
@@ -614,7 +619,7 @@ pub fn cmdFmt(gpa: *Allocator, args: []const []const u8) !void {
 
     if (stdin_flag) {
         if (input_files.items.len != 0) {
-            std.debug.warn("cannot use --stdin with positional arguments\n", .{});
+            std.debug.print("cannot use --stdin with positional arguments\n", .{});
             process.exit(1);
         }
 
@@ -624,7 +629,7 @@ pub fn cmdFmt(gpa: *Allocator, args: []const []const u8) !void {
         defer gpa.free(source_code);
 
         const tree = std.zig.parse(gpa, source_code) catch |err| {
-            std.debug.warn("error parsing stdin: {}\n", .{err});
+            std.debug.print("error parsing stdin: {}\n", .{err});
             process.exit(1);
         };
         defer tree.deinit();
@@ -647,7 +652,7 @@ pub fn cmdFmt(gpa: *Allocator, args: []const []const u8) !void {
     }
 
     if (input_files.items.len == 0) {
-        std.debug.warn("expected at least one source file argument\n", .{});
+        std.debug.print("expected at least one source file argument\n", .{});
         process.exit(1);
     }
 
@@ -664,7 +669,7 @@ pub fn cmdFmt(gpa: *Allocator, args: []const []const u8) !void {
     for (input_files.span()) |file_path| {
         // Get the real path here to avoid Windows failing on relative file paths with . or .. in them.
         const real_path = fs.realpathAlloc(gpa, file_path) catch |err| {
-            std.debug.warn("unable to open '{}': {}\n", .{ file_path, err });
+            std.debug.print("unable to open '{}': {}\n", .{ file_path, err });
             process.exit(1);
         };
         defer gpa.free(real_path);
@@ -702,7 +707,7 @@ fn fmtPath(fmt: *Fmt, file_path: []const u8, check_mode: bool, dir: fs.Dir, sub_
     fmtPathFile(fmt, file_path, check_mode, dir, sub_path) catch |err| switch (err) {
         error.IsDir, error.AccessDenied => return fmtPathDir(fmt, file_path, check_mode, dir, sub_path),
         else => {
-            std.debug.warn("unable to format '{}': {}\n", .{ file_path, err });
+            std.debug.print("unable to format '{}': {}\n", .{ file_path, err });
             fmt.any_error = true;
             return;
         },
@@ -733,7 +738,7 @@ fn fmtPathDir(
                 try fmtPathDir(fmt, full_path, check_mode, dir, entry.name);
             } else {
                 fmtPathFile(fmt, full_path, check_mode, dir, entry.name) catch |err| {
-                    std.debug.warn("unable to format '{}': {}\n", .{ full_path, err });
+                    std.debug.print("unable to format '{}': {}\n", .{ full_path, err });
                     fmt.any_error = true;
                     return;
                 };
@@ -784,7 +789,7 @@ fn fmtPathFile(
     if (check_mode) {
         const anything_changed = try std.zig.render(fmt.gpa, io.null_out_stream, tree);
         if (anything_changed) {
-            std.debug.warn("{}\n", .{file_path});
+            std.debug.print("{}\n", .{file_path});
             fmt.any_error = true;
         }
     } else {
@@ -800,7 +805,7 @@ fn fmtPathFile(
 
         try af.file.writeAll(fmt.out_buffer.items);
         try af.finish();
-        std.debug.warn("{}\n", .{file_path});
+        std.debug.print("{}\n", .{file_path});
     }
 }
 

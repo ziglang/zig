@@ -26,7 +26,7 @@ root_pkg: *Package,
 /// Module owns this resource.
 /// The `Scope` is either a `Scope.ZIRModule` or `Scope.File`.
 root_scope: *Scope,
-bin_file: link.ElfFile,
+bin_file: *link.File,
 bin_file_dir: std.fs.Dir,
 bin_file_path: []const u8,
 /// It's rare for a decl to be exported, so we save memory by having a sparse map of
@@ -45,7 +45,7 @@ export_owners: std.AutoHashMap(*Decl, []*Export),
 decl_table: DeclTable,
 
 optimize_mode: std.builtin.Mode,
-link_error_flags: link.ElfFile.ErrorFlags = .{},
+link_error_flags: link.File.ErrorFlags = .{},
 
 work_queue: std.fifo.LinearFifo(WorkItem, .Dynamic),
 
@@ -91,7 +91,7 @@ pub const Export = struct {
     /// Byte offset into the file that contains the export directive.
     src: usize,
     /// Represents the position of the export, if any, in the output file.
-    link: link.ElfFile.Export,
+    link: link.File.Elf.Export,
     /// The Decl that performs the export. Note that this is *not* the Decl being exported.
     owner_decl: *Decl,
     /// The Decl being exported. Note this is *not* the Decl performing the export.
@@ -169,7 +169,7 @@ pub const Decl = struct {
 
     /// Represents the position of the code in the output file.
     /// This is populated regardless of semantic analysis and code generation.
-    link: link.ElfFile.TextBlock = link.ElfFile.TextBlock.empty,
+    link: link.File.Elf.TextBlock = link.File.Elf.TextBlock.empty,
 
     contents_hash: std.zig.SrcHash,
 
@@ -732,17 +732,19 @@ pub const InitOptions = struct {
     object_format: ?std.builtin.ObjectFormat = null,
     optimize_mode: std.builtin.Mode = .Debug,
     keep_source_files_loaded: bool = false,
+    cbe: bool = false,
 };
 
 pub fn init(gpa: *Allocator, options: InitOptions) !Module {
     const bin_file_dir = options.bin_file_dir orelse std.fs.cwd();
-    var bin_file = try link.openBinFilePath(gpa, bin_file_dir, options.bin_file_path, .{
+    const bin_file = try link.openBinFilePath(gpa, bin_file_dir, options.bin_file_path, .{
         .target = options.target,
         .output_mode = options.output_mode,
         .link_mode = options.link_mode orelse .Static,
         .object_format = options.object_format orelse options.target.getObjectFormat(),
+        .cbe = options.cbe,
     });
-    errdefer bin_file.deinit();
+    errdefer bin_file.destroy();
 
     const root_scope = blk: {
         if (mem.endsWith(u8, options.root_pkg.root_src_path, ".zig")) {
@@ -791,7 +793,7 @@ pub fn init(gpa: *Allocator, options: InitOptions) !Module {
 }
 
 pub fn deinit(self: *Module) void {
-    self.bin_file.deinit();
+    self.bin_file.destroy();
     const allocator = self.allocator;
     self.deletion_set.deinit(allocator);
     self.work_queue.deinit();
@@ -840,7 +842,7 @@ fn freeExportList(allocator: *Allocator, export_list: []*Export) void {
 }
 
 pub fn target(self: Module) std.Target {
-    return self.bin_file.options.target;
+    return self.bin_file.options().target;
 }
 
 /// Detect changes to source files, perform semantic analysis, and update the output files.
@@ -882,7 +884,7 @@ pub fn update(self: *Module) !void {
         try self.deleteDecl(decl);
     }
 
-    self.link_error_flags = self.bin_file.error_flags;
+    self.link_error_flags = self.bin_file.errorFlags();
 
     // If there are any errors, we anticipate the source files being loaded
     // to report error messages. Otherwise we unload all source files to save memory.
@@ -1898,8 +1900,9 @@ fn deleteDeclExports(self: *Module, decl: *Decl) void {
                 self.decl_exports.removeAssertDiscard(exp.exported_decl);
             }
         }
-
-        self.bin_file.deleteExport(exp.link);
+        if (self.bin_file.cast(link.File.Elf)) |elf| {
+            elf.deleteExport(exp.link);
+        }
         if (self.failed_exports.remove(exp)) |entry| {
             entry.value.destroy(self.allocator);
         }
@@ -1961,7 +1964,7 @@ fn allocateNewDecl(
         .analysis = .unreferenced,
         .deletion_flag = false,
         .contents_hash = contents_hash,
-        .link = link.ElfFile.TextBlock.empty,
+        .link = link.File.Elf.TextBlock.empty,
         .generation = 0,
     };
     return new_decl;
@@ -2189,19 +2192,21 @@ fn analyzeExport(self: *Module, scope: *Scope, src: usize, symbol_name: []const 
     }
 
     try self.symbol_exports.putNoClobber(symbol_name, new_export);
-    self.bin_file.updateDeclExports(self, exported_decl, de_gop.entry.value) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
-        else => {
-            try self.failed_exports.ensureCapacity(self.failed_exports.items().len + 1);
-            self.failed_exports.putAssumeCapacityNoClobber(new_export, try ErrorMsg.create(
-                self.allocator,
-                src,
-                "unable to export: {}",
-                .{@errorName(err)},
-            ));
-            new_export.status = .failed_retryable;
-        },
-    };
+    if (self.bin_file.cast(link.File.Elf)) |elf| {
+        elf.updateDeclExports(self, exported_decl, de_gop.entry.value) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            else => {
+                try self.failed_exports.ensureCapacity(self.failed_exports.items().len + 1);
+                self.failed_exports.putAssumeCapacityNoClobber(new_export, try ErrorMsg.create(
+                    self.allocator,
+                    src,
+                    "unable to export: {}",
+                    .{@errorName(err)},
+                ));
+                new_export.status = .failed_retryable;
+            },
+        };
+    }
 }
 
 fn addNewInstArgs(
