@@ -35,14 +35,13 @@ pub fn openBinFilePath(
     sub_path: []const u8,
     options: Options,
 ) !*File {
-    const file = try dir.createFile(sub_path, .{ .truncate = false, .read = true, .mode = determineMode(options) });
+    const file = try dir.createFile(sub_path, .{ .truncate = options.cbe, .read = true, .mode = determineMode(options) });
     errdefer file.close();
 
     if (options.cbe) {
         var bin_file = try allocator.create(File.C);
         errdefer allocator.destroy(bin_file);
         bin_file.* = try openCFile(allocator, file, options);
-        bin_file.owns_file_handle = true;
         return &bin_file.base;
     } else {
         var bin_file = try allocator.create(File.Elf);
@@ -88,17 +87,14 @@ pub fn writeFilePath(
 }
 
 pub fn openCFile(allocator: *Allocator, file: fs.File, options: Options) !File.C {
-    var self: File.C = .{
+    return File.C{
         .allocator = allocator,
         .file = file,
         .options = options,
-        .owns_file_handle = false,
         .main = std.ArrayList(u8).init(allocator),
         .header = std.ArrayList(u8).init(allocator),
         .called = std.StringHashMap(void).init(allocator),
     };
-    errdefer self.deinit();
-    return self;
 }
 
 /// Attempts incremental linking, if the file already exists.
@@ -127,7 +123,7 @@ pub const File = struct {
     pub fn makeWritable(base: *File, dir: fs.Dir, sub_path: []const u8) !void {
         switch (base.tag) {
             .Elf => return @fieldParentPtr(Elf, "base", base).makeWritable(dir, sub_path),
-            .C => return @fieldParentPtr(C, "base", base).makeWritable(dir, sub_path),
+            .C => {},
             else => unreachable,
         }
     }
@@ -210,31 +206,18 @@ pub const File = struct {
         header: std.ArrayList(u8),
         main: std.ArrayList(u8),
         file: ?fs.File,
-        owns_file_handle: bool,
         options: Options,
         called: std.StringHashMap(void),
         need_stddef: bool = false,
         need_stdint: bool = false,
         need_noreturn: bool = false,
 
-        pub fn makeWritable(self: *File.C, dir: fs.Dir, sub_path: []const u8) !void {
-            assert(self.owns_file_handle);
-            if (self.file != null) return;
-            self.file = try dir.createFile(sub_path, .{
-                .truncate = false,
-                .read = true,
-                .mode = determineMode(self.options),
-            });
-        }
-
         pub fn deinit(self: *File.C) void {
             self.main.deinit();
             self.header.deinit();
             self.called.deinit();
-            if (self.owns_file_handle) {
-                if (self.file) |f|
-                    f.close();
-            }
+            if (self.file) |f|
+                f.close();
         }
 
         pub fn updateDecl(self: *File.C, module: *Module, decl: *Module.Decl) !void {
