@@ -3886,6 +3886,22 @@ test "if error union with optional" {
     } else |err| {
         assert(err == error.BadValue);
     }
+
+    // Access the value by reference by using a pointer capture each time.
+    var d: anyerror!?u32 = 3;
+    if (d) |*optional_value| {
+        if (optional_value.*) |*value| {
+            value.* = 9;
+        }
+    } else |err| {
+        unreachable;
+    }
+
+    if (d) |optional_value| {
+        assert(optional_value.? == 9);
+    } else |err| {
+        unreachable;
+    }
 }
       {#code_end#}
       {#see_also|Optionals|Errors#}
