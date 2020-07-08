@@ -11,8 +11,8 @@ const mem = std.mem;
 
 /// Maps a name from Zig source to C. This will always give the same output for
 /// any given input.
-fn map(name: []const u8) ![]const u8 {
-    return name;
+fn map(allocator: *std.mem.Allocator, name: []const u8) ![]const u8 {
+    return allocator.dupe(u8, name);
 }
 
 fn renderType(file: *C, writer: std.ArrayList(u8).Writer, T: Type, src: usize) !void {
@@ -34,7 +34,8 @@ fn renderType(file: *C, writer: std.ArrayList(u8).Writer, T: Type, src: usize) !
 fn renderFunctionSignature(file: *C, writer: std.ArrayList(u8).Writer, decl: *Decl) !void {
     const tv = decl.typed_value.most_recent.typed_value;
     try renderType(file, writer, tv.ty.fnReturnType(), decl.src());
-    const name = try map(mem.spanZ(decl.name));
+    const name = try map(file.allocator, mem.spanZ(decl.name));
+    defer file.allocator.free(name);
     try writer.print(" {}(", .{name});
     if (tv.ty.fnParamLen() == 0) {
         try writer.writeAll("void)");
@@ -143,15 +144,21 @@ pub fn generate(file: *C, decl: *Decl) !void {
             try writer.writeAll("}\n\n");
         },
         .Array => {
-            if (mem.indexOf(u8, mem.span(decl.name), "$") == null) {
-                // TODO: prevent inline asm constants from being emitted
-                if (tv.val.cast(Value.Payload.Bytes)) |payload| {
-                    try writer.print("const char *const {} = \"{}\";\n", .{ decl.name, payload.data });
-                    std.debug.warn("\n\nARRAYTRANS\n", .{});
-                    if (tv.ty.arraySentinel()) |sentinel| {}
+            // TODO: prevent inline asm constants from being emitted
+            const name = try map(file.allocator, mem.span(decl.name));
+            defer file.allocator.free(name);
+            if (tv.val.cast(Value.Payload.Bytes)) |payload| {
+                if (tv.ty.arraySentinel()) |sentinel| {
+                    if (sentinel.toUnsignedInt() == 0) {
+                        try file.constants.writer().print("const char *const {} = \"{}\";\n", .{ name, payload.data });
+                    } else {
+                        return file.fail(decl.src(), "TODO byte arrays with non-zero sentinels", .{});
+                    }
                 } else {
-                    return file.fail(decl.src(), "TODO non-byte arrays", .{});
+                    return file.fail(decl.src(), "TODO byte arrays without sentinels", .{});
                 }
+            } else {
+                return file.fail(decl.src(), "TODO non-byte arrays", .{});
             }
         },
         else => |e| {
