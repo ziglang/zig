@@ -3861,6 +3861,32 @@ test "if error union" {
         unreachable;
     }
 }
+
+test "if error union with optional" {
+    // If expressions test for errors before unwrapping optionals.
+    // The |optional_value| capture's type is ?u32.
+
+    const a: anyerror!?u32 = 0;
+    if (a) |optional_value| {
+        assert(optional_value.? == 0);
+    } else |err| {
+        unreachable;
+    }
+
+    const b: anyerror!?u32 = null;
+    if (b) |optional_value| {
+        assert(optional_value == null);
+    } else |err| {
+        unreachable;
+    }
+
+    const c: anyerror!?u32 = error.BadValue;
+    if (c) |optional_value| {
+        unreachable;
+    } else |err| {
+        assert(err == error.BadValue);
+    }
+}
       {#code_end#}
       {#see_also|Optionals|Errors#}
       {#header_close#}
