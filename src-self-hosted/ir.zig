@@ -3,6 +3,7 @@ const Value = @import("value.zig").Value;
 const Type = @import("type.zig").Type;
 const Module = @import("Module.zig");
 const assert = std.debug.assert;
+const codegen = @import("codegen.zig");
 
 /// These are in-memory, analyzed instructions. See `zir.Inst` for the representation
 /// of instructions that correspond to the ZIR text format.
@@ -157,6 +158,8 @@ pub const Inst = struct {
         args: struct {
             body: Body,
         },
+        /// This memory is reserved for codegen code to do whatever it needs to here.
+        codegen: codegen.BlockData = .{},
     };
 
     pub const Breakpoint = struct {

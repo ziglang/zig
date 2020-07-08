@@ -1589,11 +1589,9 @@ const EmitZIR = struct {
                     const old_inst = inst.cast(ir.Inst.Block).?;
                     const new_inst = try self.arena.allocator.create(Inst.Block);
 
-                    var block_body = std.ArrayList(*Inst).init(self.allocator);
-                    defer block_body.deinit();
-
-                    try self.emitBody(old_inst.args.body, inst_table, &block_body);
-
+                    // We do this now so that the break instructions within the block
+                    // can find it.
+                    try inst_table.put(&old_inst.base, &new_inst.base);
                     new_inst.* = .{
                         .base = .{
                             .src = inst.src,
@@ -1601,10 +1599,17 @@ const EmitZIR = struct {
                         },
                         .positionals = .{
                             .label = try self.autoName(),
-                            .body = .{ .instructions = block_body.toOwnedSlice() },
+                            .body = undefined,
                         },
                         .kw_args = .{},
                     };
+
+                    var block_body = std.ArrayList(*Inst).init(self.allocator);
+                    defer block_body.deinit();
+
+                    try self.emitBody(old_inst.args.body, inst_table, &block_body);
+                    new_inst.positionals.body = .{ .instructions = block_body.toOwnedSlice() };
+
                     break :blk &new_inst.base;
                 },
                 .breakpoint => try self.emitTrivial(inst.src, Inst.Breakpoint),
@@ -1811,7 +1816,7 @@ const EmitZIR = struct {
                 },
             };
             try instructions.append(new_inst);
-            try inst_table.putNoClobber(inst, new_inst);
+            try inst_table.put(inst, new_inst);
         }
     }
 

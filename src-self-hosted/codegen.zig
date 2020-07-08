@@ -12,6 +12,18 @@ const Target = std.Target;
 const Allocator = mem.Allocator;
 const trace = @import("tracy.zig").trace;
 
+/// The codegen-related data that is stored in `ir.Inst.Block` instructions.
+pub const BlockData = struct {
+    relocs: std.ArrayListUnmanaged(Reloc) = .{},
+};
+
+pub const Reloc = union(enum) {
+    /// The value is an offset into the `Function` `code` from the beginning.
+    /// To perform the reloc, write 32-bit signed little-endian integer
+    /// which is a relative jump, based on the address following the reloc.
+    rel32: usize,
+};
+
 pub const Result = union(enum) {
     /// The `code` parameter passed to `generateSymbol` has the value appended.
     appended: void,
@@ -290,9 +302,12 @@ const Function = struct {
         memory: u64,
         /// The value is one of the stack variables.
         stack_offset: u64,
-        /// The value is the compare flag, with this operator
-        /// applied on top of it.
-        compare_flag: std.math.CompareOperator,
+        /// The value is in the compare flags assuming an unsigned operation,
+        /// with this operator applied on top of it.
+        compare_flags_unsigned: std.math.CompareOperator,
+        /// The value is in the compare flags assuming a signed operation,
+        /// with this operator applied on top of it.
+        compare_flags_signed: std.math.CompareOperator,
 
         fn isMemory(mcv: MCValue) bool {
             return switch (mcv) {
@@ -317,7 +332,8 @@ const Function = struct {
                 .immediate,
                 .embedded_in_code,
                 .memory,
-                .compare_flag,
+                .compare_flags_unsigned,
+                .compare_flags_signed,
                 => false,
 
                 .register,
@@ -513,7 +529,8 @@ const Function = struct {
         switch (dst_mcv) {
             .none => unreachable,
             .dead, .unreach, .immediate => unreachable,
-            .compare_flag => unreachable,
+            .compare_flags_unsigned => unreachable,
+            .compare_flags_signed => unreachable,
             .register => |dst_reg_usize| {
                 const dst_reg = @intToEnum(Reg(.x86_64), @intCast(u8, dst_reg_usize));
                 switch (src_mcv) {
@@ -546,8 +563,11 @@ const Function = struct {
                     .embedded_in_code, .memory, .stack_offset => {
                         return self.fail(src, "TODO implement x86 ADD/SUB/CMP source memory", .{});
                     },
-                    .compare_flag => {
-                        return self.fail(src, "TODO implement x86 ADD/SUB/CMP source compare flag", .{});
+                    .compare_flags_unsigned => {
+                        return self.fail(src, "TODO implement x86 ADD/SUB/CMP source compare flag (unsigned)", .{});
+                    },
+                    .compare_flags_signed => {
+                        return self.fail(src, "TODO implement x86 ADD/SUB/CMP source compare flag (signed)", .{});
                     },
                 }
             },
@@ -650,7 +670,12 @@ const Function = struct {
                 const src_mcv = try self.limitImmediateType(inst.args.rhs, i32);
 
                 try self.genX8664BinMathCode(inst.base.src, dst_mcv, src_mcv, 7, 0x38);
-                return MCValue{.compare_flag = inst.args.op};
+                const info = inst.args.lhs.ty.intInfo(self.target.*);
+                if (info.signed) {
+                    return MCValue{.compare_flags_signed = inst.args.op};
+                } else {
+                    return MCValue{.compare_flags_unsigned = inst.args.op};
+                }
             },
             else => return self.fail(inst.base.src, "TODO implement cmp for {}", .{self.target.cpu.arch}),
         }
@@ -658,8 +683,34 @@ const Function = struct {
 
     fn genCondBr(self: *Function, inst: *ir.Inst.CondBr, comptime arch: std.Target.Cpu.Arch) !MCValue {
         switch (arch) {
+            .i386, .x86_64 => {
+                try self.code.ensureCapacity(self.code.items.len + 6);
+
+                const cond = try self.resolveInst(inst.args.condition);
+                switch (cond) {
+                    .compare_flags_signed => |cmp_op| {
+                        // Here we map to the opposite opcode because the jump is to the false branch.
+                        const opcode: u8 = switch (cmp_op) {
+                            .gte => 0x8c,
+                            .gt => 0x8e,
+                            .neq => 0x84,
+                            .lt => 0x8d,
+                            .lte => 0x8f,
+                            .eq => 0x85,
+                        };
+                        self.code.appendSliceAssumeCapacity(&[_]u8{0x0f, opcode});
+                        const reloc = Reloc{ .rel32 = self.code.items.len };
+                        self.code.items.len += 4;
+                        try self.genBody(inst.args.true_body, arch);
+                        try self.performReloc(inst.base.src, reloc);
+                        try self.genBody(inst.args.false_body, arch);
+                    },
+                    else => return self.fail(inst.base.src, "TODO implement condbr {} when condition not already in the compare flags", .{self.target.cpu.arch}),
+                }
+            },
             else => return self.fail(inst.base.src, "TODO implement condbr for {}", .{self.target.cpu.arch}),
         }
+        return MCValue.unreach;
     }
 
     fn genIsNull(self: *Function, inst: *ir.Inst.IsNull, comptime arch: std.Target.Cpu.Arch) !MCValue {
@@ -676,33 +727,43 @@ const Function = struct {
         }
     }
 
-    fn genRelativeFwdJump(self: *Function, src: usize, comptime arch: std.Target.Cpu.Arch, amount: u32) !void {
-        switch (arch) {
-            .i386, .x86_64 => {
-                // TODO x86 treats the operands as signed
-                if (amount <= std.math.maxInt(u8)) {
-                    try self.code.resize(self.code.items.len + 2);
-                    self.code.items[self.code.items.len - 2] = 0xeb;
-                    self.code.items[self.code.items.len - 1] = @intCast(u8, amount);
-                } else {
-                    try self.code.resize(self.code.items.len + 5);
-                    self.code.items[self.code.items.len - 5] = 0xe9; // jmp rel32
-                    const imm_ptr = self.code.items[self.code.items.len - 4 ..][0..4];
-                    mem.writeIntLittle(u32, imm_ptr, amount);
-                }
+    fn genBlock(self: *Function, inst: *ir.Inst.Block, comptime arch: std.Target.Cpu.Arch) !MCValue {
+        if (inst.base.ty.hasCodeGenBits()) {
+            return self.fail(inst.base.src, "TODO codegen Block with non-void type", .{});
+        }
+        // A block is nothing but a setup to be able to jump to the end.
+        defer inst.codegen.relocs.deinit(self.gpa);
+        try self.genBody(inst.args.body, arch);
+
+        for (inst.codegen.relocs.items) |reloc| try self.performReloc(inst.base.src, reloc);
+
+        return MCValue.none;
+    }
+
+    fn performReloc(self: *Function, src: usize, reloc: Reloc) !void {
+        switch (reloc) {
+            .rel32 => |pos| {
+                const amt = self.code.items.len - (pos + 4);
+                const s32_amt = std.math.cast(i32, amt) catch
+                    return self.fail(src, "unable to perform relocation: jump too far", .{});
+                mem.writeIntLittle(i32, self.code.items[pos..][0..4], s32_amt);
             },
-            else => return self.fail(src, "TODO implement relative forward jump for {}", .{self.target.cpu.arch}),
         }
     }
 
-    fn genBlock(self: *Function, inst: *ir.Inst.Block, comptime arch: std.Target.Cpu.Arch) !MCValue {
-        // A block is nothing but a setup to be able to jump to the end.
-        try self.genBody(inst.args.body, arch);
-        return self.fail(inst.base.src, "TODO process jump relocs after block end", .{});
-    }
-
     fn genBreakVoid(self: *Function, inst: *ir.Inst.BreakVoid, comptime arch: std.Target.Cpu.Arch) !MCValue {
+        // Emit a jump with a relocation. It will be patched up after the block ends.
+        try inst.args.block.codegen.relocs.ensureCapacity(self.gpa, inst.args.block.codegen.relocs.items.len + 1);
+
         switch (arch) {
+            .i386, .x86_64 => {
+                // TODO optimization opportunity: figure out when we can emit this as a 2 byte instruction
+                // which is available if the jump is 127 bytes or less forward.
+                try self.code.resize(self.code.items.len + 5);
+                self.code.items[self.code.items.len - 5] = 0xe9; // jmp rel32
+                // Leave the jump offset undefined
+                inst.args.block.codegen.relocs.appendAssumeCapacity(.{ .rel32 = self.code.items.len - 4 });
+            },
             else => return self.fail(inst.base.src, "TODO implement breakvoid for {}", .{self.target.cpu.arch}),
         }
         return .none;
@@ -776,8 +837,11 @@ const Function = struct {
                 .dead => unreachable,
                 .none => unreachable,
                 .unreach => unreachable,
-                .compare_flag => |op| {
-                    return self.fail(src, "TODO set register with compare flag value", .{});
+                .compare_flags_unsigned => |op| {
+                    return self.fail(src, "TODO set register with compare flags value (unsigned)", .{});
+                },
+                .compare_flags_signed => |op| {
+                    return self.fail(src, "TODO set register with compare flags value (signed)", .{});
                 },
                 .immediate => |x| {
                     if (reg.size() != 64) {
