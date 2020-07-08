@@ -7,7 +7,6 @@ const std = @import("std");
 
 const C = link.File.C;
 const Decl = Module.Decl;
-const CStandard = Module.CStandard;
 const mem = std.mem;
 
 /// Maps a name from Zig source to C. This will always give the same output for
@@ -22,7 +21,10 @@ fn renderType(file: *C, writer: std.ArrayList(u8).Writer, T: Type) !void {
         try writer.writeAll("size_t");
     } else {
         switch (T.zigTypeTag()) {
-            .NoReturn => try writer.writeAll("_Noreturn void"),
+            .NoReturn => {
+                file.need_noreturn = true;
+                try writer.writeAll("noreturn void");
+            },
             .Void => try writer.writeAll("void"),
             else => return error.Unimplemented,
         }
@@ -41,13 +43,14 @@ fn renderFunctionSignature(file: *C, writer: std.ArrayList(u8).Writer, decl: *De
     }
 }
 
-pub fn generate(file: *C, decl: *Decl, standard: CStandard) !void {
+pub fn generate(file: *C, decl: *Decl) !void {
     const writer = file.main.writer();
     const header = file.header.writer();
     const tv = decl.typed_value.most_recent.typed_value;
     switch (tv.ty.zigTypeTag()) {
         .Fn => {
             try renderFunctionSignature(file, writer, decl);
+
             try writer.writeAll(" {");
 
             const func: *Module.Fn = tv.val.cast(Value.Payload.Function).?.func;

@@ -9,30 +9,30 @@ const linux_x64 = std.zig.CrossTarget{
 };
 
 pub fn addCases(ctx: *TestContext) !void {
-    ctx.c11("empty start function", linux_x64,
+    ctx.c("empty start function", linux_x64,
         \\export fn _start() noreturn {}
     ,
-        \\_Noreturn void _start(void) {}
+        \\noreturn void _start(void) {}
         \\
     );
-    ctx.c11("less empty start function", linux_x64,
+    ctx.c("less empty start function", linux_x64,
         \\fn main() noreturn {}
         \\
         \\export fn _start() noreturn {
         \\	main();
         \\}
     ,
-        \\_Noreturn void main(void);
+        \\noreturn void main(void);
         \\
-        \\_Noreturn void _start(void) {
+        \\noreturn void _start(void) {
         \\	main();
         \\}
         \\
-        \\_Noreturn void main(void) {}
+        \\noreturn void main(void) {}
         \\
     );
     // TODO: implement return values
-    ctx.c11("inline asm", linux_x64,
+    ctx.c("inline asm", linux_x64,
         \\fn exitGood() void {
         \\	asm volatile ("syscall"
         \\ 		:
@@ -49,7 +49,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\
         \\void exitGood(void);
         \\
-        \\_Noreturn void _start(void) {
+        \\noreturn void _start(void) {
         \\	exitGood();
         \\}
         \\
@@ -60,7 +60,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
         \\
     );
-    //ctx.c11("basic return", linux_x64,
+    //ctx.c("basic return", linux_x64,
     //    \\fn main() u8 {
     //    \\	return 103;
     //    \\}
@@ -73,7 +73,7 @@ pub fn addCases(ctx: *TestContext) !void {
     //    \\
     //    \\uint8_t main(void);
     //    \\
-    //    \\_Noreturn void _start(void) {
+    //    \\noreturn void _start(void) {
     //    \\	(void)main();
     //    \\}
     //    \\

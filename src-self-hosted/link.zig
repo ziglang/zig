@@ -22,7 +22,7 @@ pub const Options = struct {
     /// Used for calculating how much space to reserve for executable program code in case
     /// the binary file deos not already have such a section.
     program_code_size_hint: u64 = 256 * 1024,
-    c_standard: ?Module.CStandard = null,
+    cbe: bool = false,
 };
 
 /// Attempts incremental linking, if the file already exists.
@@ -38,7 +38,7 @@ pub fn openBinFilePath(
     const file = try dir.createFile(sub_path, .{ .truncate = false, .read = true, .mode = determineMode(options) });
     errdefer file.close();
 
-    if (options.c_standard) |cstd| {
+    if (options.cbe) {
         var bin_file = try allocator.create(File.C);
         errdefer allocator.destroy(bin_file);
         bin_file.* = try openCFile(allocator, file, options);
@@ -217,6 +217,7 @@ pub const File = struct {
         called: std.StringHashMap(void),
         need_stddef: bool = false,
         need_stdint: bool = false,
+        need_noreturn: bool = false,
 
         pub fn makeWritable(self: *File.C, dir: fs.Dir, sub_path: []const u8) !void {
             assert(self.owns_file_handle);
@@ -239,11 +240,12 @@ pub const File = struct {
         }
 
         pub fn updateDecl(self: *File.C, module: *Module, decl: *Module.Decl) !void {
-            try cgen.generate(self, decl, self.options.c_standard.?);
+            try cgen.generate(self, decl);
         }
 
         pub fn flush(self: *File.C) !void {
             const writer = self.file.?.writer();
+            try writer.writeAll(@embedFile("cbe.h"));
             var includes = false;
             if (self.need_stddef) {
                 try writer.writeAll("#include <stddef.h>\n");

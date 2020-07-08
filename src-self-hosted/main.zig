@@ -191,7 +191,7 @@ fn buildOutputType(
     var emit_zir: Emit = .no;
     var target_arch_os_abi: []const u8 = "native";
     var target_mcpu: ?[]const u8 = null;
-    var target_c_standard: ?Module.CStandard = null;
+    var cbe: bool = false;
     var target_dynamic_linker: ?[]const u8 = null;
 
     var system_libs = std.ArrayList([]const u8).init(gpa);
@@ -279,18 +279,8 @@ fn buildOutputType(
                     }
                     i += 1;
                     target_mcpu = args[i];
-                } else if (mem.eql(u8, arg, "--c-standard")) {
-                    if (i + 1 >= args.len) {
-                        std.debug.print("expected parameter after --c-standard\n", .{});
-                        process.exit(1);
-                    }
-                    i += 1;
-                    if (std.meta.stringToEnum(Module.CStandard, args[i])) |cstd| {
-                        target_c_standard = cstd;
-                    } else {
-                        std.debug.print("Invalid C standard: {}\n", .{args[i]});
-                        process.exit(1);
-                    }
+                } else if (mem.eql(u8, arg, "--c")) {
+                    cbe = true;
                 } else if (mem.startsWith(u8, arg, "-mcpu=")) {
                     target_mcpu = arg["-mcpu=".len..];
                 } else if (mem.eql(u8, arg, "--dynamic-linker")) {
@@ -374,7 +364,7 @@ fn buildOutputType(
         }
     }
 
-    if (target_c_standard != null and output_mode != .Obj) {
+    if (cbe and output_mode != .Obj) {
         std.debug.print("The C backend must be used with build-obj\n", .{});
         process.exit(1);
     }
@@ -479,7 +469,7 @@ fn buildOutputType(
         .object_format = object_format,
         .optimize_mode = build_mode,
         .keep_source_files_loaded = zir_out_path != null,
-        .c_standard = target_c_standard,
+        .cbe = cbe,
     });
     defer module.deinit();
 

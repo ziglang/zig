@@ -722,12 +722,6 @@ pub const AllErrors = struct {
     }
 };
 
-pub const CStandard = enum {
-    C99,
-    GNU99,
-    C11,
-};
-
 pub const InitOptions = struct {
     target: std.Target,
     root_pkg: *Package,
@@ -738,7 +732,7 @@ pub const InitOptions = struct {
     object_format: ?std.builtin.ObjectFormat = null,
     optimize_mode: std.builtin.Mode = .Debug,
     keep_source_files_loaded: bool = false,
-    c_standard: ?CStandard = null,
+    cbe: bool = false,
 };
 
 pub fn init(gpa: *Allocator, options: InitOptions) !Module {
@@ -748,7 +742,7 @@ pub fn init(gpa: *Allocator, options: InitOptions) !Module {
         .output_mode = options.output_mode,
         .link_mode = options.link_mode orelse .Static,
         .object_format = options.object_format orelse options.target.getObjectFormat(),
-        .c_standard = options.c_standard,
+        .cbe = options.cbe,
     });
     errdefer bin_file.*.deinit();
 

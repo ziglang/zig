@@ -5,6 +5,8 @@ const Allocator = std.mem.Allocator;
 const zir = @import("zir.zig");
 const Package = @import("Package.zig");
 
+const cheader = @embedFile("cbe.h");
+
 test "self-hosted" {
     var ctx = TestContext.init();
     defer ctx.deinit();
@@ -68,7 +70,7 @@ pub const TestContext = struct {
         output_mode: std.builtin.OutputMode,
         updates: std.ArrayList(Update),
         extension: TestType,
-        c_standard: ?Module.CStandard = null,
+        cbe: bool = false,
 
         /// Adds a subcase in which the module is updated with `src`, and the
         /// resulting ZIR is validated against `result`.
@@ -188,20 +190,20 @@ pub const TestContext = struct {
         return ctx.addObj(name, target, .ZIR);
     }
 
-    pub fn addC(ctx: *TestContext, name: []const u8, target: std.zig.CrossTarget, T: TestType, standard: Module.CStandard) *Case {
+    pub fn addC(ctx: *TestContext, name: []const u8, target: std.zig.CrossTarget, T: TestType) *Case {
         ctx.cases.append(Case{
             .name = name,
             .target = target,
             .updates = std.ArrayList(Update).init(ctx.cases.allocator),
             .output_mode = .Obj,
             .extension = T,
-            .c_standard = standard,
+            .cbe = true,
         }) catch unreachable;
         return &ctx.cases.items[ctx.cases.items.len - 1];
     }
 
-    pub fn c11(ctx: *TestContext, name: []const u8, target: std.zig.CrossTarget, src: [:0]const u8, c: [:0]const u8) void {
-        ctx.addC(name, target, .Zig, .C11).addTransform(src, c);
+    pub fn c(ctx: *TestContext, name: []const u8, target: std.zig.CrossTarget, src: [:0]const u8, comptime out: [:0]const u8) void {
+        ctx.addC(name, target, .Zig).addTransform(src, cheader ++ out);
     }
 
     pub fn addCompareOutput(
@@ -382,13 +384,13 @@ pub const TestContext = struct {
     }
 
     fn deinit(self: *TestContext) void {
-        for (self.cases.items) |c| {
-            for (c.updates.items) |u| {
+        for (self.cases.items) |case| {
+            for (case.updates.items) |u| {
                 if (u.case == .Error) {
-                    c.updates.allocator.free(u.case.Error);
+                    case.updates.allocator.free(u.case.Error);
                 }
             }
-            c.updates.deinit();
+            case.updates.deinit();
         }
         self.cases.deinit();
         self.* = undefined;
@@ -442,7 +444,7 @@ pub const TestContext = struct {
             .bin_file_path = bin_name,
             .root_pkg = root_pkg,
             .keep_source_files_loaded = true,
-            .c_standard = case.c_standard,
+            .cbe = case.cbe,
         });
         defer module.deinit();
 
@@ -477,24 +479,22 @@ pub const TestContext = struct {
 
             switch (update.case) {
                 .Transformation => |expected_output| {
-                    var label: []const u8 = "ZIR";
-                    if (case.c_standard) |cstd| {
-                        label = @tagName(cstd);
-                        var c: *link.File.C = module.bin_file.cast(link.File.C).?;
-                        c.file.?.close();
-                        c.file = null;
+                    if (case.cbe) {
+                        var cfile: *link.File.C = module.bin_file.cast(link.File.C).?;
+                        cfile.file.?.close();
+                        cfile.file = null;
                         var file = try tmp.dir.openFile(bin_name, .{ .read = true });
                         defer file.close();
                         var out = file.reader().readAllAlloc(allocator, 1024 * 1024) catch @panic("Unable to read C output!");
                         defer allocator.free(out);
 
                         if (expected_output.len != out.len) {
-                            std.debug.warn("\nTransformed {} length differs:\n================\nExpected:\n================\n{}\n================\nFound:\n================\n{}\n================\nTest failed.\n", .{ label, expected_output, out });
+                            std.debug.warn("\nTransformed C length differs:\n================\nExpected:\n================\n{}\n================\nFound:\n================\n{}\n================\nTest failed.\n", .{ expected_output, out });
                             std.process.exit(1);
                         }
                         for (expected_output) |e, i| {
                             if (out[i] != e) {
-                                std.debug.warn("\nTransformed {} differs:\n================\nExpected:\n================\n{}\n================\nFound:\n================\n{}\n================\nTest failed.\n", .{ label, expected_output, out });
+                                std.debug.warn("\nTransformed C differs:\n================\nExpected:\n================\n{}\n================\nFound:\n================\n{}\n================\nTest failed.\n", .{ expected_output, out });
                                 std.process.exit(1);
                             }
                         }
@@ -518,12 +518,12 @@ pub const TestContext = struct {
                         defer test_node.end();
 
                         if (expected_output.len != out_zir.items.len) {
-                            std.debug.warn("{}\nTransformed {} length differs:\n================\nExpected:\n================\n{}\n================\nFound:\n================\n{}\n================\nTest failed.\n", .{ case.name, label, expected_output, out_zir.items });
+                            std.debug.warn("{}\nTransformed ZIR length differs:\n================\nExpected:\n================\n{}\n================\nFound:\n================\n{}\n================\nTest failed.\n", .{ case.name, expected_output, out_zir.items });
                             std.process.exit(1);
                         }
                         for (expected_output) |e, i| {
                             if (out_zir.items[i] != e) {
-                                std.debug.warn("{}\nTransformed {} differs:\n================\nExpected:\n================\n{}\n================\nFound:\n================\n{}\n================\nTest failed.\n", .{ case.name, label, expected_output, out_zir.items });
+                                std.debug.warn("{}\nTransformed ZIR differs:\n================\nExpected:\n================\n{}\n================\nFound:\n================\n{}\n================\nTest failed.\n", .{ case.name, expected_output, out_zir.items });
                                 std.process.exit(1);
                             }
                         }
@@ -561,7 +561,7 @@ pub const TestContext = struct {
                     }
                 },
                 .Execution => |expected_stdout| {
-                    std.debug.assert(case.c_standard == null);
+                    std.debug.assert(!case.cbe);
 
                     update_node.estimated_total_items = 4;
                     var exec_result = x: {
