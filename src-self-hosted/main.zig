@@ -364,11 +364,6 @@ fn buildOutputType(
         }
     }
 
-    if (cbe and output_mode != .Obj) {
-        std.debug.print("The C backend must be used with build-obj\n", .{});
-        process.exit(1);
-    }
-
     const root_name = if (provided_name) |n| n else blk: {
         if (root_src_file) |file| {
             const basename = fs.path.basename(file);

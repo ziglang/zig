@@ -125,36 +125,34 @@ pub const File = struct {
     }
 
     pub fn makeWritable(base: *File, dir: fs.Dir, sub_path: []const u8) !void {
-        try switch (base.tag) {
-            .Elf => @fieldParentPtr(Elf, "base", base).makeWritable(dir, sub_path),
-            .C => @fieldParentPtr(C, "base", base).makeWritable(dir, sub_path),
+        switch (base.tag) {
+            .Elf => return @fieldParentPtr(Elf, "base", base).makeWritable(dir, sub_path),
+            .C => return @fieldParentPtr(C, "base", base).makeWritable(dir, sub_path),
             else => unreachable,
-        };
+        }
     }
 
     pub fn makeExecutable(base: *File) !void {
-        try switch (base.tag) {
-            .Elf => @fieldParentPtr(Elf, "base", base).makeExecutable(),
+        switch (base.tag) {
+            .Elf => return @fieldParentPtr(Elf, "base", base).makeExecutable(),
             else => unreachable,
-        };
+        }
     }
 
     pub fn updateDecl(base: *File, module: *Module, decl: *Module.Decl) !void {
-        try switch (base.tag) {
-            .Elf => @fieldParentPtr(Elf, "base", base).updateDecl(module, decl),
-            .C => @fieldParentPtr(C, "base", base).updateDecl(module, decl),
+        switch (base.tag) {
+            .Elf => return @fieldParentPtr(Elf, "base", base).updateDecl(module, decl),
+            .C => return @fieldParentPtr(C, "base", base).updateDecl(module, decl),
             else => unreachable,
-        };
+        }
     }
 
     pub fn allocateDeclIndexes(base: *File, decl: *Module.Decl) !void {
-        try switch (base.tag) {
-            .Elf => @fieldParentPtr(Elf, "base", base).allocateDeclIndexes(decl),
-            .C => {
-                //TODO
-            },
+        switch (base.tag) {
+            .Elf => return @fieldParentPtr(Elf, "base", base).allocateDeclIndexes(decl),
+            .C => {},
             else => unreachable,
-        };
+        }
     }
 
     pub fn deinit(base: *File) void {
@@ -380,7 +378,7 @@ pub const File = struct {
             /// Returns how much room there is to grow in virtual address space.
             /// File offset relocation happens transparently, so it is not included in
             /// this calculation.
-            fn capacity(self: TextBlock, elf_file: File.Elf) u64 {
+            fn capacity(self: TextBlock, elf_file: Elf) u64 {
                 const self_sym = elf_file.local_symbols.items[self.local_sym_index];
                 if (self.next) |next| {
                     const next_sym = elf_file.local_symbols.items[next.local_sym_index];
@@ -391,7 +389,7 @@ pub const File = struct {
                 }
             }
 
-            fn freeListEligible(self: TextBlock, elf_file: File.Elf) bool {
+            fn freeListEligible(self: TextBlock, elf_file: Elf) bool {
                 // No need to keep a free list node for the last block.
                 const next = self.next orelse return false;
                 const self_sym = elf_file.local_symbols.items[self.local_sym_index];
@@ -408,7 +406,7 @@ pub const File = struct {
             sym_index: ?u32 = null,
         };
 
-        pub fn deinit(self: *File.Elf) void {
+        pub fn deinit(self: *Elf) void {
             self.sections.deinit(self.allocator);
             self.program_headers.deinit(self.allocator);
             self.shstrtab.deinit(self.allocator);
@@ -424,7 +422,7 @@ pub const File = struct {
             }
         }
 
-        pub fn makeExecutable(self: *File.Elf) !void {
+        pub fn makeExecutable(self: *Elf) !void {
             assert(self.owns_file_handle);
             if (self.file) |f| {
                 f.close();
@@ -432,7 +430,7 @@ pub const File = struct {
             }
         }
 
-        pub fn makeWritable(self: *File.Elf, dir: fs.Dir, sub_path: []const u8) !void {
+        pub fn makeWritable(self: *Elf, dir: fs.Dir, sub_path: []const u8) !void {
             assert(self.owns_file_handle);
             if (self.file != null) return;
             self.file = try dir.createFile(sub_path, .{
@@ -443,7 +441,7 @@ pub const File = struct {
         }
 
         /// Returns end pos of collision, if any.
-        fn detectAllocCollision(self: *File.Elf, start: u64, size: u64) ?u64 {
+        fn detectAllocCollision(self: *Elf, start: u64, size: u64) ?u64 {
             const small_ptr = self.options.target.cpu.arch.ptrBitWidth() == 32;
             const ehdr_size: u64 = if (small_ptr) @sizeOf(elf.Elf32_Ehdr) else @sizeOf(elf.Elf64_Ehdr);
             if (start < ehdr_size)
@@ -488,7 +486,7 @@ pub const File = struct {
             return null;
         }
 
-        fn allocatedSize(self: *File.Elf, start: u64) u64 {
+        fn allocatedSize(self: *Elf, start: u64) u64 {
             var min_pos: u64 = std.math.maxInt(u64);
             if (self.shdr_table_offset) |off| {
                 if (off > start and off < min_pos) min_pos = off;
@@ -507,7 +505,7 @@ pub const File = struct {
             return min_pos - start;
         }
 
-        fn findFreeSpace(self: *File.Elf, object_size: u64, min_alignment: u16) u64 {
+        fn findFreeSpace(self: *Elf, object_size: u64, min_alignment: u16) u64 {
             var start: u64 = 0;
             while (self.detectAllocCollision(start, object_size)) |item_end| {
                 start = mem.alignForwardGeneric(u64, item_end, min_alignment);
@@ -515,7 +513,7 @@ pub const File = struct {
             return start;
         }
 
-        fn makeString(self: *File.Elf, bytes: []const u8) !u32 {
+        fn makeString(self: *Elf, bytes: []const u8) !u32 {
             try self.shstrtab.ensureCapacity(self.allocator, self.shstrtab.items.len + bytes.len + 1);
             const result = self.shstrtab.items.len;
             self.shstrtab.appendSliceAssumeCapacity(bytes);
@@ -523,12 +521,12 @@ pub const File = struct {
             return @intCast(u32, result);
         }
 
-        fn getString(self: *File.Elf, str_off: u32) []const u8 {
+        fn getString(self: *Elf, str_off: u32) []const u8 {
             assert(str_off < self.shstrtab.items.len);
             return mem.spanZ(@ptrCast([*:0]const u8, self.shstrtab.items.ptr + str_off));
         }
 
-        fn updateString(self: *File.Elf, old_str_off: u32, new_name: []const u8) !u32 {
+        fn updateString(self: *Elf, old_str_off: u32, new_name: []const u8) !u32 {
             const existing_name = self.getString(old_str_off);
             if (mem.eql(u8, existing_name, new_name)) {
                 return old_str_off;
@@ -536,7 +534,7 @@ pub const File = struct {
             return self.makeString(new_name);
         }
 
-        pub fn populateMissingMetadata(self: *File.Elf) !void {
+        pub fn populateMissingMetadata(self: *Elf) !void {
             const small_ptr = switch (self.ptr_width) {
                 .p32 => true,
                 .p64 => false,
@@ -703,7 +701,7 @@ pub const File = struct {
         }
 
         /// Commit pending changes and write headers.
-        pub fn flush(self: *File.Elf) !void {
+        pub fn flush(self: *Elf) !void {
             const foreign_endian = self.options.target.cpu.arch.endian() != std.Target.current.cpu.arch.endian();
 
             // Unfortunately these have to be buffered and done at the end because ELF does not allow
@@ -839,7 +837,7 @@ pub const File = struct {
             assert(syms_sect.sh_info == self.local_symbols.items.len);
         }
 
-        fn writeElfHeader(self: *File.Elf) !void {
+        fn writeElfHeader(self: *Elf) !void {
             var hdr_buf: [@sizeOf(elf.Elf64_Ehdr)]u8 = undefined;
 
             var index: usize = 0;
@@ -960,7 +958,7 @@ pub const File = struct {
             try self.file.?.pwriteAll(hdr_buf[0..index], 0);
         }
 
-        fn freeTextBlock(self: *File.Elf, text_block: *TextBlock) void {
+        fn freeTextBlock(self: *Elf, text_block: *TextBlock) void {
             var already_have_free_list_node = false;
             {
                 var i: usize = 0;
@@ -1000,12 +998,12 @@ pub const File = struct {
             }
         }
 
-        fn shrinkTextBlock(self: *File.Elf, text_block: *TextBlock, new_block_size: u64) void {
+        fn shrinkTextBlock(self: *Elf, text_block: *TextBlock, new_block_size: u64) void {
             // TODO check the new capacity, and if it crosses the size threshold into a big enough
             // capacity, insert a free list node for it.
         }
 
-        fn growTextBlock(self: *File.Elf, text_block: *TextBlock, new_block_size: u64, alignment: u64) !u64 {
+        fn growTextBlock(self: *Elf, text_block: *TextBlock, new_block_size: u64, alignment: u64) !u64 {
             const sym = self.local_symbols.items[text_block.local_sym_index];
             const align_ok = mem.alignBackwardGeneric(u64, sym.st_value, alignment) == sym.st_value;
             const need_realloc = !align_ok or new_block_size > text_block.capacity(self.*);
@@ -1013,7 +1011,7 @@ pub const File = struct {
             return self.allocateTextBlock(text_block, new_block_size, alignment);
         }
 
-        fn allocateTextBlock(self: *File.Elf, text_block: *TextBlock, new_block_size: u64, alignment: u64) !u64 {
+        fn allocateTextBlock(self: *Elf, text_block: *TextBlock, new_block_size: u64, alignment: u64) !u64 {
             const phdr = &self.program_headers.items[self.phdr_load_re_index.?];
             const shdr = &self.sections.items[self.text_section_index.?];
             const new_block_ideal_capacity = new_block_size * alloc_num / alloc_den;
@@ -1127,7 +1125,7 @@ pub const File = struct {
             return vaddr;
         }
 
-        pub fn allocateDeclIndexes(self: *File.Elf, decl: *Module.Decl) !void {
+        pub fn allocateDeclIndexes(self: *Elf, decl: *Module.Decl) !void {
             if (decl.link.local_sym_index != 0) return;
 
             // Here we also ensure capacity for the free lists so that they can be appended to without fail.
@@ -1166,7 +1164,7 @@ pub const File = struct {
             self.offset_table.items[decl.link.offset_table_index] = 0;
         }
 
-        pub fn freeDecl(self: *File.Elf, decl: *Module.Decl) void {
+        pub fn freeDecl(self: *Elf, decl: *Module.Decl) void {
             self.freeTextBlock(&decl.link);
             if (decl.link.local_sym_index != 0) {
                 self.local_symbol_free_list.appendAssumeCapacity(decl.link.local_sym_index);
@@ -1178,7 +1176,7 @@ pub const File = struct {
             }
         }
 
-        pub fn updateDecl(self: *File.Elf, module: *Module, decl: *Module.Decl) !void {
+        pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
             var code_buffer = std.ArrayList(u8).init(self.allocator);
             defer code_buffer.deinit();
 
@@ -1258,7 +1256,7 @@ pub const File = struct {
 
         /// Must be called only after a successful call to `updateDecl`.
         pub fn updateDeclExports(
-            self: *File.Elf,
+            self: *Elf,
             module: *Module,
             decl: *const Module.Decl,
             exports: []const *Module.Export,
@@ -1331,13 +1329,13 @@ pub const File = struct {
             }
         }
 
-        pub fn deleteExport(self: *File.Elf, exp: Export) void {
+        pub fn deleteExport(self: *Elf, exp: Export) void {
             const sym_index = exp.sym_index orelse return;
             self.global_symbol_free_list.appendAssumeCapacity(sym_index);
             self.global_symbols.items[sym_index].st_info = 0;
         }
 
-        fn writeProgHeader(self: *File.Elf, index: usize) !void {
+        fn writeProgHeader(self: *Elf, index: usize) !void {
             const foreign_endian = self.options.target.cpu.arch.endian() != std.Target.current.cpu.arch.endian();
             const offset = self.program_headers.items[index].p_offset;
             switch (self.options.target.cpu.arch.ptrBitWidth()) {
@@ -1359,7 +1357,7 @@ pub const File = struct {
             }
         }
 
-        fn writeSectHeader(self: *File.Elf, index: usize) !void {
+        fn writeSectHeader(self: *Elf, index: usize) !void {
             const foreign_endian = self.options.target.cpu.arch.endian() != std.Target.current.cpu.arch.endian();
             const offset = self.sections.items[index].sh_offset;
             switch (self.options.target.cpu.arch.ptrBitWidth()) {
@@ -1382,7 +1380,7 @@ pub const File = struct {
             }
         }
 
-        fn writeOffsetTableEntry(self: *File.Elf, index: usize) !void {
+        fn writeOffsetTableEntry(self: *Elf, index: usize) !void {
             const shdr = &self.sections.items[self.got_section_index.?];
             const phdr = &self.program_headers.items[self.phdr_got_index.?];
             const entry_size: u16 = switch (self.ptr_width) {
@@ -1426,7 +1424,7 @@ pub const File = struct {
             }
         }
 
-        fn writeSymbol(self: *File.Elf, index: usize) !void {
+        fn writeSymbol(self: *Elf, index: usize) !void {
             const syms_sect = &self.sections.items[self.symtab_section_index.?];
             // Make sure we are not pointlessly writing symbol data that will have to get relocated
             // due to running out of space.
@@ -1482,7 +1480,7 @@ pub const File = struct {
             }
         }
 
-        fn writeAllGlobalSymbols(self: *File.Elf) !void {
+        fn writeAllGlobalSymbols(self: *Elf) !void {
             const syms_sect = &self.sections.items[self.symtab_section_index.?];
             const sym_size: u64 = switch (self.ptr_width) {
                 .p32 => @sizeOf(elf.Elf32_Sym),

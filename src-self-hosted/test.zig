@@ -66,7 +66,7 @@ pub const TestContext = struct {
         /// such as QEMU is required for tests to complete.
         target: std.zig.CrossTarget,
         /// In order to be able to run e.g. Execution updates, this must be set
-        /// to Executable. This is ignored when generating C output.
+        /// to Executable.
         output_mode: std.builtin.OutputMode,
         updates: std.ArrayList(Update),
         extension: TestType,
