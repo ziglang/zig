@@ -698,18 +698,34 @@ const Function = struct {
                             .lte => 0x8f,
                             .eq => 0x85,
                         };
-                        self.code.appendSliceAssumeCapacity(&[_]u8{0x0f, opcode});
-                        const reloc = Reloc{ .rel32 = self.code.items.len };
-                        self.code.items.len += 4;
-                        try self.genBody(inst.args.true_body, arch);
-                        try self.performReloc(inst.base.src, reloc);
-                        try self.genBody(inst.args.false_body, arch);
+                        return self.genX86CondBr(inst, opcode, arch);
+                    },
+                    .compare_flags_unsigned => |cmp_op| {
+                        // Here we map to the opposite opcode because the jump is to the false branch.
+                        const opcode: u8 = switch (cmp_op) {
+                            .gte => 0x82,
+                            .gt => 0x86,
+                            .neq => 0x84,
+                            .lt => 0x83,
+                            .lte => 0x87,
+                            .eq => 0x85,
+                        };
+                        return self.genX86CondBr(inst, opcode, arch);
                     },
                     else => return self.fail(inst.base.src, "TODO implement condbr {} when condition not already in the compare flags", .{self.target.cpu.arch}),
                 }
             },
             else => return self.fail(inst.base.src, "TODO implement condbr for {}", .{self.target.cpu.arch}),
         }
+    }
+
+    fn genX86CondBr(self: *Function, inst: *ir.Inst.CondBr, opcode: u8, comptime arch: std.Target.Cpu.Arch) !MCValue {
+        self.code.appendSliceAssumeCapacity(&[_]u8{0x0f, opcode});
+        const reloc = Reloc{ .rel32 = self.code.items.len };
+        self.code.items.len += 4;
+        try self.genBody(inst.args.true_body, arch);
+        try self.performReloc(inst.base.src, reloc);
+        try self.genBody(inst.args.false_body, arch);
         return MCValue.unreach;
     }
 
@@ -1028,10 +1044,7 @@ const Function = struct {
             const branch = &self.branch_stack.items[0];
             const gop = try branch.inst_table.getOrPut(self.gpa, inst);
             if (!gop.found_existing) {
-                const mcv = try self.genTypedValue(inst.src, .{ .ty = inst.ty, .val = const_inst.val });
-                try branch.inst_table.putNoClobber(self.gpa, inst, mcv);
-                gop.entry.value = mcv;
-                return mcv;
+                gop.entry.value = try self.genTypedValue(inst.src, .{ .ty = inst.ty, .val = const_inst.val });
             }
             return gop.entry.value;
         }

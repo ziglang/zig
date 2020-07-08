@@ -57,6 +57,7 @@ pub const Inst = struct {
         /// String Literal. Makes an anonymous Decl and then takes a pointer to it.
         str,
         int,
+        inttype,
         ptrtoint,
         fieldptr,
         deref,
@@ -95,6 +96,7 @@ pub const Inst = struct {
             .@"const" => Const,
             .str => Str,
             .int => Int,
+            .inttype => IntType,
             .ptrtoint => PtrToInt,
             .fieldptr => FieldPtr,
             .deref => Deref,
@@ -367,6 +369,17 @@ pub const Inst = struct {
         kw_args: struct {
             cc: std.builtin.CallingConvention = .Unspecified,
         },
+    };
+
+    pub const IntType = struct {
+        pub const base_tag = Tag.inttype;
+        base: Inst,
+
+        positionals: struct {
+            signed: *Inst,
+            bits: *Inst,
+        },
+        kw_args: struct {},
     };
 
     pub const Export = struct {
@@ -675,6 +688,7 @@ pub const Module = struct {
             .@"const" => return self.writeInstToStreamGeneric(stream, .@"const", inst, inst_table, indent),
             .str => return self.writeInstToStreamGeneric(stream, .str, inst, inst_table, indent),
             .int => return self.writeInstToStreamGeneric(stream, .int, inst, inst_table, indent),
+            .inttype => return self.writeInstToStreamGeneric(stream, .inttype, inst, inst_table, indent),
             .ptrtoint => return self.writeInstToStreamGeneric(stream, .ptrtoint, inst, inst_table, indent),
             .fieldptr => return self.writeInstToStreamGeneric(stream, .fieldptr, inst, inst_table, indent),
             .deref => return self.writeInstToStreamGeneric(stream, .deref, inst, inst_table, indent),
@@ -1885,6 +1899,26 @@ const EmitZIR = struct {
                         },
                     };
                     return self.emitUnnamedDecl(&fntype_inst.base);
+                },
+                .Int => {
+                    const info = ty.intInfo(self.old_module.target());
+                    const signed = try self.emitPrimitive(src, if (info.signed) .@"true" else .@"false");
+                    const bits_payload = try self.arena.allocator.create(Value.Payload.Int_u64);
+                    bits_payload.* = .{ .int = info.bits };
+                    const bits = try self.emitComptimeIntVal(src, Value.initPayload(&bits_payload.base));
+                    const inttype_inst = try self.arena.allocator.create(Inst.IntType);
+                    inttype_inst.* = .{
+                        .base = .{
+                            .src = src,
+                            .tag = Inst.IntType.base_tag,
+                        },
+                        .positionals = .{
+                            .signed = signed.inst,
+                            .bits = bits.inst,
+                        },
+                        .kw_args = .{},
+                    };
+                    return self.emitUnnamedDecl(&inttype_inst.base);
                 },
                 else => std.debug.panic("TODO implement emitType for {}", .{ty}),
             },

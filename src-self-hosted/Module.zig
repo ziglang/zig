@@ -867,8 +867,10 @@ pub fn update(self: *Module) !void {
         try self.deleteDecl(decl);
     }
 
-    // This is needed before reading the error flags.
-    try self.bin_file.flush();
+    if (self.totalErrorCount() == 0) {
+        // This is needed before reading the error flags.
+        try self.bin_file.flush();
+    }
 
     self.link_error_flags = self.bin_file.error_flags;
     std.log.debug(.module, "link_error_flags: {}\n", .{self.link_error_flags});
@@ -2388,6 +2390,7 @@ fn analyzeInst(self: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!*In
             const big_int = old_inst.cast(zir.Inst.Int).?.positionals.int;
             return self.constIntBig(scope, old_inst.src, Type.initTag(.comptime_int), big_int);
         },
+        .inttype => return self.analyzeInstIntType(scope, old_inst.cast(zir.Inst.IntType).?),
         .ptrtoint => return self.analyzeInstPtrToInt(scope, old_inst.cast(zir.Inst.PtrToInt).?),
         .fieldptr => return self.analyzeInstFieldPtr(scope, old_inst.cast(zir.Inst.FieldPtr).?),
         .deref => return self.analyzeInstDeref(scope, old_inst.cast(zir.Inst.Deref).?),
@@ -2735,6 +2738,10 @@ fn analyzeInstFn(self: *Module, scope: *Scope, fn_inst: *zir.Inst.Fn) InnerError
         .ty = fn_type,
         .val = Value.initPayload(&fn_payload.base),
     });
+}
+
+fn analyzeInstIntType(self: *Module, scope: *Scope, inttype: *zir.Inst.IntType) InnerError!*Inst {
+    return self.fail(scope, inttype.base.src, "TODO implement inttype", .{});
 }
 
 fn analyzeInstFnType(self: *Module, scope: *Scope, fntype: *zir.Inst.FnType) InnerError!*Inst {
@@ -3333,7 +3340,7 @@ fn cmpNumeric(
         break :blk try self.makeIntType(scope, dest_int_is_signed, casted_bits);
     };
     const casted_lhs = try self.coerce(scope, dest_type, lhs);
-    const casted_rhs = try self.coerce(scope, dest_type, lhs);
+    const casted_rhs = try self.coerce(scope, dest_type, rhs);
 
     return self.addNewInstArgs(b, src, Type.initTag(.bool), Inst.Cmp, .{
         .lhs = casted_lhs,
