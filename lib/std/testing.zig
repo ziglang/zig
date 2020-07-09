@@ -14,6 +14,9 @@ pub var failing_allocator_instance = FailingAllocator.init(&base_allocator_insta
 pub var base_allocator_instance = std.mem.validationWrap(std.heap.ThreadSafeFixedBufferAllocator.init(allocator_mem[0..]));
 var allocator_mem: [2 * 1024 * 1024]u8 = undefined;
 
+/// TODO https://github.com/ziglang/zig/issues/5738
+pub var log_level = std.log.Level.warn;
+
 /// This function is intended to be used only in tests. It prints diagnostics to stderr
 /// and then aborts when actual_error_union is not expected_error.
 pub fn expectError(expected_error: anyerror, actual_error_union: var) void {
