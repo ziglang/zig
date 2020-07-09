@@ -1047,19 +1047,14 @@ pub fn order(a: var, b: var) Order {
 pub const CompareOperator = enum {
     /// Less than (`<`)
     lt,
-
     /// Less than or equal (`<=`)
     lte,
-
     /// Equal (`==`)
     eq,
-
     /// Greater than or equal (`>=`)
     gte,
-
     /// Greater than (`>`)
     gt,
-
     /// Not equal (`!=`)
     neq,
 };

@@ -959,6 +959,8 @@ pub const Node = struct {
     };
 
     /// The params are directly after the FnProto in memory.
+    /// TODO have a flags field for the optional nodes, and have them appended
+    /// before or after the parameters in memory.
     pub const FnProto = struct {
         base: Node = Node{ .id = .FnProto },
         doc_comments: ?*DocComment,

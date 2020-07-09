@@ -206,6 +206,19 @@ pub const File = struct {
         };
     }
 
+    /// Must be called only after a successful call to `updateDecl`.
+    pub fn updateDeclExports(
+        base: *File,
+        module: *Module,
+        decl: *const Module.Decl,
+        exports: []const *Module.Export,
+    ) !void {
+        switch (base.tag) {
+            .Elf => return @fieldParentPtr(Elf, "base", base).updateDeclExports(module, decl, exports),
+            .C => return {},
+        }
+    }
+
     pub const Tag = enum {
         Elf,
         C,
@@ -248,7 +261,7 @@ pub const File = struct {
         pub fn updateDecl(self: *File.C, module: *Module, decl: *Module.Decl) !void {
             cgen.generate(self, decl) catch |err| {
                 if (err == error.CGenFailure) {
-                    try module.failed_decls.put(decl, self.error_msg);
+                    try module.failed_decls.put(module.gpa, decl, self.error_msg);
                 }
                 return err;
             };
@@ -566,7 +579,7 @@ pub const File = struct {
                 const file_size = self.options.program_code_size_hint;
                 const p_align = 0x1000;
                 const off = self.findFreeSpace(file_size, p_align);
-                //std.log.debug(.link, "found PT_LOAD free space 0x{x} to 0x{x}\n", .{ off, off + file_size });
+                std.log.debug(.link, "found PT_LOAD free space 0x{x} to 0x{x}\n", .{ off, off + file_size });
                 try self.program_headers.append(self.allocator, .{
                     .p_type = elf.PT_LOAD,
                     .p_offset = off,
@@ -587,7 +600,7 @@ pub const File = struct {
                 // page align.
                 const p_align = 0x1000;
                 const off = self.findFreeSpace(file_size, p_align);
-                //std.log.debug(.link, "found PT_LOAD free space 0x{x} to 0x{x}\n", .{ off, off + file_size });
+                std.log.debug(.link, "found PT_LOAD free space 0x{x} to 0x{x}\n", .{ off, off + file_size });
                 // TODO instead of hard coding the vaddr, make a function to find a vaddr to put things at.
                 // we'll need to re-use that function anyway, in case the GOT grows and overlaps something
                 // else in virtual memory.
@@ -609,7 +622,7 @@ pub const File = struct {
                 assert(self.shstrtab.items.len == 0);
                 try self.shstrtab.append(self.allocator, 0); // need a 0 at position 0
                 const off = self.findFreeSpace(self.shstrtab.items.len, 1);
-                //std.log.debug(.link, "found shstrtab free space 0x{x} to 0x{x}\n", .{ off, off + self.shstrtab.items.len });
+                std.log.debug(.link, "found shstrtab free space 0x{x} to 0x{x}\n", .{ off, off + self.shstrtab.items.len });
                 try self.sections.append(self.allocator, .{
                     .sh_name = try self.makeString(".shstrtab"),
                     .sh_type = elf.SHT_STRTAB,
@@ -667,7 +680,7 @@ pub const File = struct {
                 const each_size: u64 = if (small_ptr) @sizeOf(elf.Elf32_Sym) else @sizeOf(elf.Elf64_Sym);
                 const file_size = self.options.symbol_count_hint * each_size;
                 const off = self.findFreeSpace(file_size, min_align);
-                //std.log.debug(.link, "found symtab free space 0x{x} to 0x{x}\n", .{ off, off + file_size });
+                std.log.debug(.link, "found symtab free space 0x{x} to 0x{x}\n", .{ off, off + file_size });
 
                 try self.sections.append(self.allocator, .{
                     .sh_name = try self.makeString(".symtab"),
@@ -783,7 +796,7 @@ pub const File = struct {
                         shstrtab_sect.sh_offset = self.findFreeSpace(needed_size, 1);
                     }
                     shstrtab_sect.sh_size = needed_size;
-                    //std.log.debug(.link, "shstrtab start=0x{x} end=0x{x}\n", .{ shstrtab_sect.sh_offset, shstrtab_sect.sh_offset + needed_size });
+                    std.log.debug(.link, "shstrtab start=0x{x} end=0x{x}\n", .{ shstrtab_sect.sh_offset, shstrtab_sect.sh_offset + needed_size });
 
                     try self.file.?.pwriteAll(self.shstrtab.items, shstrtab_sect.sh_offset);
                     if (!self.shdr_table_dirty) {
@@ -829,7 +842,7 @@ pub const File = struct {
 
                         for (buf) |*shdr, i| {
                             shdr.* = self.sections.items[i];
-                            //std.log.debug(.link, "writing section {}\n", .{shdr.*});
+                            std.log.debug(.link, "writing section {}\n", .{shdr.*});
                             if (foreign_endian) {
                                 bswapAllFields(elf.Elf64_Shdr, shdr);
                             }
@@ -840,6 +853,7 @@ pub const File = struct {
                 self.shdr_table_dirty = false;
             }
             if (self.entry_addr == null and self.options.output_mode == .Exe) {
+                std.log.debug(.link, "no_entry_point_found = true\n", .{});
                 self.error_flags.no_entry_point_found = true;
             } else {
                 self.error_flags.no_entry_point_found = false;
@@ -1153,10 +1167,10 @@ pub const File = struct {
             try self.offset_table_free_list.ensureCapacity(self.allocator, self.local_symbols.items.len);
 
             if (self.local_symbol_free_list.popOrNull()) |i| {
-                //std.log.debug(.link, "reusing symbol index {} for {}\n", .{i, decl.name});
+                std.log.debug(.link, "reusing symbol index {} for {}\n", .{i, decl.name});
                 decl.link.local_sym_index = i;
             } else {
-                //std.log.debug(.link, "allocating symbol index {} for {}\n", .{self.local_symbols.items.len, decl.name});
+                std.log.debug(.link, "allocating symbol index {} for {}\n", .{self.local_symbols.items.len, decl.name});
                 decl.link.local_sym_index = @intCast(u32, self.local_symbols.items.len);
                 _ = self.local_symbols.addOneAssumeCapacity();
             }
@@ -1204,7 +1218,7 @@ pub const File = struct {
                 .appended => code_buffer.items,
                 .fail => |em| {
                     decl.analysis = .codegen_failure;
-                    try module.failed_decls.put(decl, em);
+                    try module.failed_decls.put(module.gpa, decl, em);
                     return;
                 },
             };
@@ -1224,11 +1238,11 @@ pub const File = struct {
                     !mem.isAlignedGeneric(u64, local_sym.st_value, required_alignment);
                 if (need_realloc) {
                     const vaddr = try self.growTextBlock(&decl.link, code.len, required_alignment);
-                    //std.log.debug(.link, "growing {} from 0x{x} to 0x{x}\n", .{ decl.name, local_sym.st_value, vaddr });
+                    std.log.debug(.link, "growing {} from 0x{x} to 0x{x}\n", .{ decl.name, local_sym.st_value, vaddr });
                     if (vaddr != local_sym.st_value) {
                         local_sym.st_value = vaddr;
 
-                        //std.log.debug(.link, "  (writing new offset table entry)\n", .{});
+                        std.log.debug(.link, "  (writing new offset table entry)\n", .{});
                         self.offset_table.items[decl.link.offset_table_index] = vaddr;
                         try self.writeOffsetTableEntry(decl.link.offset_table_index);
                     }
@@ -1246,7 +1260,7 @@ pub const File = struct {
                 const decl_name = mem.spanZ(decl.name);
                 const name_str_index = try self.makeString(decl_name);
                 const vaddr = try self.allocateTextBlock(&decl.link, code.len, required_alignment);
-                //std.log.debug(.link, "allocated text block for {} at 0x{x}\n", .{ decl_name, vaddr });
+                std.log.debug(.link, "allocated text block for {} at 0x{x}\n", .{ decl_name, vaddr });
                 errdefer self.freeTextBlock(&decl.link);
 
                 local_sym.* = .{
@@ -1290,7 +1304,7 @@ pub const File = struct {
             for (exports) |exp| {
                 if (exp.options.section) |section_name| {
                     if (!mem.eql(u8, section_name, ".text")) {
-                        try module.failed_exports.ensureCapacity(module.failed_exports.items().len + 1);
+                        try module.failed_exports.ensureCapacity(module.gpa, module.failed_exports.items().len + 1);
                         module.failed_exports.putAssumeCapacityNoClobber(
                             exp,
                             try Module.ErrorMsg.create(self.allocator, 0, "Unimplemented: ExportOptions.section", .{}),
@@ -1308,7 +1322,7 @@ pub const File = struct {
                     },
                     .Weak => elf.STB_WEAK,
                     .LinkOnce => {
-                        try module.failed_exports.ensureCapacity(module.failed_exports.items().len + 1);
+                        try module.failed_exports.ensureCapacity(module.gpa, module.failed_exports.items().len + 1);
                         module.failed_exports.putAssumeCapacityNoClobber(
                             exp,
                             try Module.ErrorMsg.create(self.allocator, 0, "Unimplemented: GlobalLinkage.LinkOnce", .{}),

@@ -2,6 +2,8 @@ const std = @import("std");
 const Value = @import("value.zig").Value;
 const Type = @import("type.zig").Type;
 const Module = @import("Module.zig");
+const assert = std.debug.assert;
+const codegen = @import("codegen.zig");
 
 /// These are in-memory, analyzed instructions. See `zir.Inst` for the representation
 /// of instructions that correspond to the ZIR text format.
@@ -10,9 +12,33 @@ const Module = @import("Module.zig");
 /// a memory location for the value to survive after a const instruction.
 pub const Inst = struct {
     tag: Tag,
+    /// Each bit represents the index of an `Inst` parameter in the `args` field.
+    /// If a bit is set, it marks the end of the lifetime of the corresponding 
+    /// instruction parameter. For example, 0b000_00101 means that the first and
+    /// third `Inst` parameters' lifetimes end after this instruction, and will
+    /// not have any more following references.
+    /// The most significant bit being set means that the instruction itself is
+    /// never referenced, in other words its lifetime ends as soon as it finishes.
+    /// If bit 7 (0b1xxx_xxxx) is set, it means this instruction itself is unreferenced.
+    /// If bit 6 (0bx1xx_xxxx) is set, it means this is a special case and the
+    /// lifetimes of operands are encoded elsewhere.
+    deaths: u8 = undefined,
     ty: Type,
     /// Byte offset into the source.
     src: usize,
+
+    pub fn isUnused(self: Inst) bool {
+        return (self.deaths & 0b1000_0000) != 0;
+    }
+
+    pub fn operandDies(self: Inst, index: u3) bool {
+        assert(index < 6);
+        return @truncate(u1, self.deaths << index) != 0;
+    }
+
+    pub fn specialOperandDeaths(self: Inst) bool {
+        return (self.deaths & 0b1000_0000) != 0;
+    }
 
     pub const Tag = enum {
         add,
@@ -20,7 +46,9 @@ pub const Inst = struct {
         assembly,
         bitcast,
         block,
+        br,
         breakpoint,
+        brvoid,
         call,
         cmp,
         condbr,
@@ -30,6 +58,7 @@ pub const Inst = struct {
         ptrtoint,
         ret,
         retvoid,
+        sub,
         unreach,
 
         /// Returns whether the instruction is one of the control flow "noreturn" types.
@@ -43,14 +72,17 @@ pub const Inst = struct {
                 .bitcast,
                 .block,
                 .breakpoint,
+                .call,
                 .cmp,
                 .constant,
                 .isnonnull,
                 .isnull,
                 .ptrtoint,
-                .call,
+                .sub,
                 => false,
 
+                .br,
+                .brvoid,
                 .condbr,
                 .ret,
                 .retvoid,
@@ -128,12 +160,31 @@ pub const Inst = struct {
         args: struct {
             body: Body,
         },
+        /// This memory is reserved for codegen code to do whatever it needs to here.
+        codegen: codegen.BlockData = .{},
+    };
+
+    pub const Br = struct {
+        pub const base_tag = Tag.br;
+        base: Inst,
+        args: struct {
+            block: *Block,
+            operand: *Inst,
+        },
     };
 
     pub const Breakpoint = struct {
         pub const base_tag = Tag.breakpoint;
         base: Inst,
         args: void,
+    };
+
+    pub const BrVoid = struct {
+        pub const base_tag = Tag.brvoid;
+        base: Inst,
+        args: struct {
+            block: *Block,
+        },
     };
 
     pub const Call = struct {
@@ -165,6 +216,12 @@ pub const Inst = struct {
             true_body: Body,
             false_body: Body,
         },
+        /// Set of instructions whose lifetimes end at the start of one of the branches.
+        /// The `true` branch is first: `deaths[0..true_death_count]`.
+        /// The `false` branch is next: `(deaths + true_death_count)[..false_death_count]`.
+        deaths: [*]*Inst = undefined,
+        true_death_count: u32 = 0,
+        false_death_count: u32 = 0,
     };
 
     pub const Constant = struct {
@@ -213,6 +270,16 @@ pub const Inst = struct {
         pub const base_tag = Tag.retvoid;
         base: Inst,
         args: void,
+    };
+
+    pub const Sub = struct {
+        pub const base_tag = Tag.sub;
+        base: Inst,
+
+        args: struct {
+            lhs: *Inst,
+            rhs: *Inst,
+        },
     };
 
     pub const Unreach = struct {

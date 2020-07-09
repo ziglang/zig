@@ -50,7 +50,10 @@ pub fn log(
     const scope_prefix = "(" ++ switch (scope) {
         // Uncomment to hide logs
         //.compiler,
-        .link => return,
+        .module,
+        .liveness,
+        .link,
+        => return,
 
         else => @tagName(scope),
     } ++ "): ";
@@ -510,7 +513,7 @@ fn updateModule(gpa: *Allocator, module: *Module, zir_out_path: ?[]const u8) !vo
     const update_nanos = timer.read();
 
     var errors = try module.getAllErrorsAlloc();
-    defer errors.deinit(module.allocator);
+    defer errors.deinit(module.gpa);
 
     if (errors.list.len != 0) {
         for (errors.list) |full_err_msg| {
