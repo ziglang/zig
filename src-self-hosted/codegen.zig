@@ -418,8 +418,9 @@ const Function = struct {
             .assembly => return self.genAsm(inst.cast(ir.Inst.Assembly).?, arch),
             .bitcast => return self.genBitCast(inst.cast(ir.Inst.BitCast).?),
             .block => return self.genBlock(inst.cast(ir.Inst.Block).?, arch),
+            .br => return self.genBr(inst.cast(ir.Inst.Br).?, arch),
             .breakpoint => return self.genBreakpoint(inst.src, arch),
-            .breakvoid => return self.genBreakVoid(inst.cast(ir.Inst.BreakVoid).?, arch),
+            .brvoid => return self.genBrVoid(inst.cast(ir.Inst.BrVoid).?, arch),
             .call => return self.genCall(inst.cast(ir.Inst.Call).?, arch),
             .cmp => return self.genCmp(inst.cast(ir.Inst.Cmp).?, arch),
             .condbr => return self.genCondBr(inst.cast(ir.Inst.CondBr).?, arch),
@@ -767,7 +768,13 @@ const Function = struct {
         }
     }
 
-    fn genBreakVoid(self: *Function, inst: *ir.Inst.BreakVoid, comptime arch: std.Target.Cpu.Arch) !MCValue {
+    fn genBr(self: *Function, inst: *ir.Inst.Br, comptime arch: std.Target.Cpu.Arch) !MCValue {
+        switch (arch) {
+            else => return self.fail(inst.base.src, "TODO implement br for {}", .{self.target.cpu.arch}),
+        }
+    }
+
+    fn genBrVoid(self: *Function, inst: *ir.Inst.BrVoid, comptime arch: std.Target.Cpu.Arch) !MCValue {
         // Emit a jump with a relocation. It will be patched up after the block ends.
         try inst.args.block.codegen.relocs.ensureCapacity(self.gpa, inst.args.block.codegen.relocs.items.len + 1);
 
@@ -780,7 +787,7 @@ const Function = struct {
                 // Leave the jump offset undefined
                 inst.args.block.codegen.relocs.appendAssumeCapacity(.{ .rel32 = self.code.items.len - 4 });
             },
-            else => return self.fail(inst.base.src, "TODO implement breakvoid for {}", .{self.target.cpu.arch}),
+            else => return self.fail(inst.base.src, "TODO implement brvoid for {}", .{self.target.cpu.arch}),
         }
         return .none;
     }

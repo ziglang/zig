@@ -303,14 +303,14 @@ pub const Scope = struct {
         switch (self.tag) {
             .block => return self.cast(Block).?.arena,
             .decl => return &self.cast(DeclAnalysis).?.arena.allocator,
-            .gen_zir => return &self.cast(GenZIR).?.arena.allocator,
+            .gen_zir => return self.cast(GenZIR).?.arena,
             .zir_module => return &self.cast(ZIRModule).?.contents.module.arena.allocator,
             .file => unreachable,
         }
     }
 
-    /// Asserts the scope has a parent which is a DeclAnalysis and
-    /// returns the Decl.
+    /// If the scope has a parent which is a `DeclAnalysis`,
+    /// returns the `Decl`, otherwise returns `null`.
     pub fn decl(self: *Scope) ?*Decl {
         return switch (self.tag) {
             .block => self.cast(Block).?.decl,
@@ -653,7 +653,7 @@ pub const Scope = struct {
         label: ?Label = null,
 
         pub const Label = struct {
-            name: []const u8,
+            zir_block: *zir.Inst.Block,
             results: ArrayListUnmanaged(*Inst),
             block_inst: *Inst.Block,
         };
@@ -674,8 +674,8 @@ pub const Scope = struct {
         pub const base_tag: Tag = .gen_zir;
         base: Scope = Scope{ .tag = base_tag },
         decl: *Decl,
-        arena: std.heap.ArenaAllocator,
-        instructions: std.ArrayList(*zir.Inst),
+        arena: *Allocator,
+        instructions: std.ArrayListUnmanaged(*zir.Inst) = .{},
     };
 };
 
@@ -1115,19 +1115,19 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
             // This arena allocator's memory is discarded at the end of this function. It is used
             // to determine the type of the function, and hence the type of the decl, which is needed
             // to complete the Decl analysis.
+            var fn_type_scope_arena = std.heap.ArenaAllocator.init(self.gpa);
+            defer fn_type_scope_arena.deinit();
             var fn_type_scope: Scope.GenZIR = .{
                 .decl = decl,
-                .arena = std.heap.ArenaAllocator.init(self.gpa),
-                .instructions = std.ArrayList(*zir.Inst).init(self.gpa),
+                .arena = &fn_type_scope_arena.allocator,
             };
-            defer fn_type_scope.arena.deinit();
-            defer fn_type_scope.instructions.deinit();
+            defer fn_type_scope.instructions.deinit(self.gpa);
 
             const body_node = fn_proto.body_node orelse
                 return self.failTok(&fn_type_scope.base, fn_proto.fn_token, "TODO implement extern functions", .{});
 
             const param_decls = fn_proto.params();
-            const param_types = try fn_type_scope.arena.allocator.alloc(*zir.Inst, param_decls.len);
+            const param_types = try fn_type_scope.arena.alloc(*zir.Inst, param_decls.len);
             for (param_decls) |param_decl, i| {
                 const param_type_node = switch (param_decl.param_type) {
                     .var_type => |node| return self.failNode(&fn_type_scope.base, node, "TODO implement anytype parameter", .{}),
@@ -1190,24 +1190,24 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
             const fn_zir = blk: {
                 // This scope's arena memory is discarded after the ZIR generation
                 // pass completes, and semantic analysis of it completes.
+                var gen_scope_arena = std.heap.ArenaAllocator.init(self.gpa);
+                errdefer gen_scope_arena.deinit();
                 var gen_scope: Scope.GenZIR = .{
                     .decl = decl,
-                    .arena = std.heap.ArenaAllocator.init(self.gpa),
-                    .instructions = std.ArrayList(*zir.Inst).init(self.gpa),
+                    .arena = &gen_scope_arena.allocator,
                 };
-                errdefer gen_scope.arena.deinit();
-                defer gen_scope.instructions.deinit();
+                defer gen_scope.instructions.deinit(self.gpa);
 
                 const body_block = body_node.cast(ast.Node.Block).?;
 
                 try self.astGenBlock(&gen_scope.base, body_block);
 
-                const fn_zir = try gen_scope.arena.allocator.create(Fn.ZIR);
+                const fn_zir = try gen_scope_arena.allocator.create(Fn.ZIR);
                 fn_zir.* = .{
                     .body = .{
-                        .instructions = try gen_scope.arena.allocator.dupe(*zir.Inst, gen_scope.instructions.items),
+                        .instructions = try gen_scope.arena.dupe(*zir.Inst, gen_scope.instructions.items),
                     },
-                    .arena = gen_scope.arena.state,
+                    .arena = gen_scope_arena.state,
                 };
                 break :blk fn_zir;
             };
@@ -1351,9 +1351,70 @@ fn astGenIf(self: *Module, scope: *Scope, if_node: *ast.Node.If) InnerError!*zir
             return self.failNode(scope, payload, "TODO implement astGenIf for error unions", .{});
         }
     }
-    const cond = try self.astGenExpr(scope, if_node.condition);
-    const body = try self.astGenExpr(scope, if_node.condition);
-    return self.failNode(scope, if_node.condition, "TODO implement astGenIf", .{});
+    var block_scope: Scope.GenZIR = .{
+        .decl = scope.decl().?,
+        .arena = scope.arena(),
+        .instructions = .{},
+    };
+    defer block_scope.instructions.deinit(self.gpa);
+
+    const cond = try self.astGenExpr(&block_scope.base, if_node.condition);
+
+    const tree = scope.tree();
+    const if_src = tree.token_locs[if_node.if_token].start;
+    const condbr = try self.addZIRInstSpecial(&block_scope.base, if_src, zir.Inst.CondBr, .{
+        .condition = cond,
+        .true_body = undefined, // populated below
+        .false_body = undefined, // populated below
+    }, .{});
+
+    const block = try self.addZIRInstBlock(scope, if_src, .{
+        .instructions = try block_scope.arena.dupe(*zir.Inst, block_scope.instructions.items),
+    });
+    var then_scope: Scope.GenZIR = .{
+        .decl = block_scope.decl,
+        .arena = block_scope.arena,
+        .instructions = .{},
+    };
+    defer then_scope.instructions.deinit(self.gpa);
+
+    const then_result = try self.astGenExpr(&then_scope.base, if_node.body);
+    const then_src = tree.token_locs[if_node.body.lastToken()].start;
+    _ = try self.addZIRInst(&then_scope.base, then_src, zir.Inst.Break, .{
+        .block = block,
+        .operand = then_result,
+    }, .{});
+    condbr.positionals.true_body = .{
+        .instructions = try then_scope.arena.dupe(*zir.Inst, then_scope.instructions.items),
+    };
+
+    var else_scope: Scope.GenZIR = .{
+        .decl = block_scope.decl,
+        .arena = block_scope.arena,
+        .instructions = .{},
+    };
+    defer else_scope.instructions.deinit(self.gpa);
+
+    if (if_node.@"else") |else_node| {
+        const else_result = try self.astGenExpr(&else_scope.base, else_node.body);
+        const else_src = tree.token_locs[else_node.body.lastToken()].start;
+        _ = try self.addZIRInst(&else_scope.base, else_src, zir.Inst.Break, .{
+            .block = block,
+            .operand = else_result,
+        }, .{});
+    } else {
+        // TODO Optimization opportunity: we can avoid an allocation and a memcpy here
+        // by directly allocating the body for this one instruction.
+        const else_src = tree.token_locs[if_node.lastToken()].start;
+        _ = try self.addZIRInst(&else_scope.base, else_src, zir.Inst.BreakVoid, .{
+            .block = block,
+        }, .{});
+    }
+    condbr.positionals.false_body = .{
+        .instructions = try else_scope.arena.dupe(*zir.Inst, else_scope.instructions.items),
+    };
+
+    return &block.base;
 }
 
 fn astGenControlFlowExpression(
@@ -1379,12 +1440,12 @@ fn astGenControlFlowExpression(
 fn astGenIdent(self: *Module, scope: *Scope, ident: *ast.Node.Identifier) InnerError!*zir.Inst {
     const tree = scope.tree();
     const ident_name = tree.tokenSlice(ident.token);
+    const src = tree.token_locs[ident.token].start;
     if (mem.eql(u8, ident_name, "_")) {
         return self.failNode(scope, &ident.base, "TODO implement '_' identifier", .{});
     }
 
     if (getSimplePrimitiveValue(ident_name)) |typed_value| {
-        const src = tree.token_locs[ident.token].start;
         return self.addZIRInstConst(scope, src, typed_value);
     }
 
@@ -1408,7 +1469,6 @@ fn astGenIdent(self: *Module, scope: *Scope, ident: *ast.Node.Identifier) InnerE
                 64 => if (is_signed) Value.initTag(.i64_type) else Value.initTag(.u64_type),
                 else => return self.failNode(scope, &ident.base, "TODO implement arbitrary integer bitwidth types", .{}),
             };
-            const src = tree.token_locs[ident.token].start;
             return self.addZIRInstConst(scope, src, .{
                 .ty = Type.initTag(.type),
                 .val = val,
@@ -1417,8 +1477,19 @@ fn astGenIdent(self: *Module, scope: *Scope, ident: *ast.Node.Identifier) InnerE
     }
 
     if (self.lookupDeclName(scope, ident_name)) |decl| {
-        const src = tree.token_locs[ident.token].start;
         return try self.addZIRInst(scope, src, zir.Inst.DeclValInModule, .{ .decl = decl }, .{});
+    }
+
+    // Function parameter
+    if (scope.decl()) |decl| {
+        if (tree.root_node.decls()[decl.src_index].cast(ast.Node.FnProto)) |fn_proto| {
+            for (fn_proto.params()) |param, i| {
+                const param_name = tree.tokenSlice(param.name_token.?);
+                if (mem.eql(u8, param_name, ident_name)) {
+                    return try self.addZIRInst(scope, src, zir.Inst.Arg, .{ .index = i }, .{});
+                }
+            }
+        }
     }
 
     return self.failNode(scope, &ident.base, "TODO implement local variable identifier lookup", .{});
@@ -1563,7 +1634,7 @@ fn astGenCall(self: *Module, scope: *Scope, call: *ast.Node.Call) InnerError!*zi
     const lhs = try self.astGenExpr(scope, call.lhs);
 
     const param_nodes = call.params();
-    const args = try scope.cast(Scope.GenZIR).?.arena.allocator.alloc(*zir.Inst, param_nodes.len);
+    const args = try scope.cast(Scope.GenZIR).?.arena.alloc(*zir.Inst, param_nodes.len);
     for (param_nodes) |param_node, i| {
         args[i] = try self.astGenExpr(scope, param_node);
     }
@@ -2239,7 +2310,7 @@ fn newZIRInst(
     comptime T: type,
     positionals: std.meta.fieldInfo(T, "positionals").field_type,
     kw_args: std.meta.fieldInfo(T, "kw_args").field_type,
-) !*zir.Inst {
+) !*T {
     const inst = try gpa.create(T);
     inst.* = .{
         .base = .{
@@ -2249,7 +2320,22 @@ fn newZIRInst(
         .positionals = positionals,
         .kw_args = kw_args,
     };
-    return &inst.base;
+    return inst;
+}
+
+fn addZIRInstSpecial(
+    self: *Module,
+    scope: *Scope,
+    src: usize,
+    comptime T: type,
+    positionals: std.meta.fieldInfo(T, "positionals").field_type,
+    kw_args: std.meta.fieldInfo(T, "kw_args").field_type,
+) !*T {
+    const gen_zir = scope.cast(Scope.GenZIR).?;
+    try gen_zir.instructions.ensureCapacity(self.gpa, gen_zir.instructions.items.len + 1);
+    const inst = try newZIRInst(gen_zir.arena, src, T, positionals, kw_args);
+    gen_zir.instructions.appendAssumeCapacity(&inst.base);
+    return inst;
 }
 
 fn addZIRInst(
@@ -2260,17 +2346,20 @@ fn addZIRInst(
     positionals: std.meta.fieldInfo(T, "positionals").field_type,
     kw_args: std.meta.fieldInfo(T, "kw_args").field_type,
 ) !*zir.Inst {
-    const gen_zir = scope.cast(Scope.GenZIR).?;
-    try gen_zir.instructions.ensureCapacity(gen_zir.instructions.items.len + 1);
-    const inst = try newZIRInst(&gen_zir.arena.allocator, src, T, positionals, kw_args);
-    gen_zir.instructions.appendAssumeCapacity(inst);
-    return inst;
+    const inst_special = try self.addZIRInstSpecial(scope, src, T, positionals, kw_args);
+    return &inst_special.base;
 }
 
 /// TODO The existence of this function is a workaround for a bug in stage1.
 fn addZIRInstConst(self: *Module, scope: *Scope, src: usize, typed_value: TypedValue) !*zir.Inst {
     const P = std.meta.fieldInfo(zir.Inst.Const, "positionals").field_type;
     return self.addZIRInst(scope, src, zir.Inst.Const, P{ .typed_value = typed_value }, .{});
+}
+
+/// TODO The existence of this function is a workaround for a bug in stage1.
+fn addZIRInstBlock(self: *Module, scope: *Scope, src: usize, body: zir.Module.Body) !*zir.Inst.Block {
+    const P = std.meta.fieldInfo(zir.Inst.Block, "positionals").field_type;
+    return self.addZIRInstSpecial(scope, src, zir.Inst.Block, P{ .body = body }, .{});
 }
 
 fn addNewInst(self: *Module, block: *Scope.Block, src: usize, ty: Type, comptime T: type) !*T {
@@ -2403,6 +2492,7 @@ fn analyzeInst(self: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!*In
     switch (old_inst.tag) {
         .arg => return self.analyzeInstArg(scope, old_inst.cast(zir.Inst.Arg).?),
         .block => return self.analyzeInstBlock(scope, old_inst.cast(zir.Inst.Block).?),
+        .@"break" => return self.analyzeInstBreak(scope, old_inst.cast(zir.Inst.Break).?),
         .breakpoint => return self.analyzeInstBreakpoint(scope, old_inst.cast(zir.Inst.Breakpoint).?),
         .breakvoid => return self.analyzeInstBreakVoid(scope, old_inst.cast(zir.Inst.BreakVoid).?),
         .call => return self.analyzeInstCall(scope, old_inst.cast(zir.Inst.Call).?),
@@ -2559,7 +2649,7 @@ fn analyzeInstBlock(self: *Module, scope: *Scope, inst: *zir.Inst.Block) InnerEr
         .arena = parent_block.arena,
         // TODO @as here is working around a miscompilation compiler bug :(
         .label = @as(?Scope.Block.Label, Scope.Block.Label{
-            .name = inst.positionals.label,
+            .zir_block = inst,
             .results = .{},
             .block_inst = block_inst,
         }),
@@ -2588,25 +2678,39 @@ fn analyzeInstBreakpoint(self: *Module, scope: *Scope, inst: *zir.Inst.Breakpoin
     return self.addNewInstArgs(b, inst.base.src, Type.initTag(.void), Inst.Breakpoint, {});
 }
 
-fn analyzeInstBreakVoid(self: *Module, scope: *Scope, inst: *zir.Inst.BreakVoid) InnerError!*Inst {
-    const label_name = inst.positionals.label;
-    const void_inst = try self.constVoid(scope, inst.base.src);
+fn analyzeInstBreak(self: *Module, scope: *Scope, inst: *zir.Inst.Break) InnerError!*Inst {
+    const operand = try self.resolveInst(scope, inst.positionals.operand);
+    const block = inst.positionals.block;
+    return self.analyzeBreak(scope, inst.base.src, block, operand);
+}
 
+fn analyzeInstBreakVoid(self: *Module, scope: *Scope, inst: *zir.Inst.BreakVoid) InnerError!*Inst {
+    const block = inst.positionals.block;
+    const void_inst = try self.constVoid(scope, inst.base.src);
+    return self.analyzeBreak(scope, inst.base.src, block, void_inst);
+}
+
+fn analyzeBreak(
+    self: *Module,
+    scope: *Scope,
+    src: usize,
+    zir_block: *zir.Inst.Block,
+    operand: *Inst,
+) InnerError!*Inst {
     var opt_block = scope.cast(Scope.Block);
     while (opt_block) |block| {
         if (block.label) |*label| {
-            if (mem.eql(u8, label.name, label_name)) {
-                try label.results.append(self.gpa, void_inst);
-                const b = try self.requireRuntimeBlock(scope, inst.base.src);
-                return self.addNewInstArgs(b, inst.base.src, Type.initTag(.noreturn), Inst.BreakVoid, .{
+            if (label.zir_block == zir_block) {
+                try label.results.append(self.gpa, operand);
+                const b = try self.requireRuntimeBlock(scope, src);
+                return self.addNewInstArgs(b, src, Type.initTag(.noreturn), Inst.Br, .{
                     .block = label.block_inst,
+                    .operand = operand,
                 });
             }
         }
         opt_block = block.parent;
-    } else {
-        return self.fail(scope, inst.base.src, "use of undeclared label '{}'", .{label_name});
-    }
+    } else unreachable;
 }
 
 fn analyzeInstDeclRefStr(self: *Module, scope: *Scope, inst: *zir.Inst.DeclRefStr) InnerError!*Inst {

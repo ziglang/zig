@@ -46,8 +46,9 @@ pub const Inst = struct {
         assembly,
         bitcast,
         block,
+        br,
         breakpoint,
-        breakvoid,
+        brvoid,
         call,
         cmp,
         condbr,
@@ -80,7 +81,8 @@ pub const Inst = struct {
                 .sub,
                 => false,
 
-                .breakvoid,
+                .br,
+                .brvoid,
                 .condbr,
                 .ret,
                 .retvoid,
@@ -162,14 +164,23 @@ pub const Inst = struct {
         codegen: codegen.BlockData = .{},
     };
 
+    pub const Br = struct {
+        pub const base_tag = Tag.br;
+        base: Inst,
+        args: struct {
+            block: *Block,
+            operand: *Inst,
+        },
+    };
+
     pub const Breakpoint = struct {
         pub const base_tag = Tag.breakpoint;
         base: Inst,
         args: void,
     };
 
-    pub const BreakVoid = struct {
-        pub const base_tag = Tag.breakvoid;
+    pub const BrVoid = struct {
+        pub const base_tag = Tag.brvoid;
         base: Inst,
         args: struct {
             block: *Block,
