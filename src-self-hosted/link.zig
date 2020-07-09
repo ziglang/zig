@@ -86,13 +86,14 @@ pub fn writeFilePath(
     return result;
 }
 
-pub fn openCFile(allocator: *Allocator, file: fs.File, options: Options) !File.C {
+fn openCFile(allocator: *Allocator, file: fs.File, options: Options) !File.C {
     return File.C{
         .allocator = allocator,
         .file = file,
         .options = options,
         .main = std.ArrayList(u8).init(allocator),
         .header = std.ArrayList(u8).init(allocator),
+        .constants = std.ArrayList(u8).init(allocator),
         .called = std.StringHashMap(void).init(allocator),
     };
 }
@@ -220,6 +221,7 @@ pub const File = struct {
 
         allocator: *Allocator,
         header: std.ArrayList(u8),
+        constants: std.ArrayList(u8),
         main: std.ArrayList(u8),
         file: ?fs.File,
         options: Options,
@@ -237,6 +239,7 @@ pub const File = struct {
         pub fn deinit(self: *File.C) void {
             self.main.deinit();
             self.header.deinit();
+            self.constants.deinit();
             self.called.deinit();
             if (self.file) |f|
                 f.close();
@@ -269,6 +272,9 @@ pub const File = struct {
             if (self.header.items.len > 0) {
                 try writer.print("{}\n", .{self.header.items});
             }
+            if (self.constants.items.len > 0) {
+                try writer.print("{}\n", .{self.constants.items});
+            }
             if (self.main.items.len > 1) {
                 const last_two = self.main.items[self.main.items.len - 2 ..];
                 if (std.mem.eql(u8, last_two, "\n\n")) {
@@ -276,6 +282,8 @@ pub const File = struct {
                 }
             }
             try writer.writeAll(self.main.items);
+            self.file.?.close();
+            self.file = null;
         }
     };
 

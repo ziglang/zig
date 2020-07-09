@@ -480,9 +480,8 @@ pub const TestContext = struct {
             switch (update.case) {
                 .Transformation => |expected_output| {
                     if (case.cbe) {
-                        var cfile: *link.File.C = module.bin_file.cast(link.File.C).?;
-                        cfile.file.?.close();
-                        cfile.file = null;
+                        // The C file is always closed after an update, because we don't support
+                        // incremental updates
                         var file = try tmp.dir.openFile(bin_name, .{ .read = true });
                         defer file.close();
                         var out = file.reader().readAllAlloc(allocator, 1024 * 1024) catch @panic("Unable to read C output!");

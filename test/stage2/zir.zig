@@ -22,8 +22,8 @@ pub fn addCases(ctx: *TestContext) !void {
     ,
         \\@void = primitive(void)
         \\@fnty = fntype([], @void, cc=C)
-        \\@9 = declref("9$0")
-        \\@9$0 = str("entry")
+        \\@9 = declref("9__anon_0")
+        \\@9__anon_0 = str("entry")
         \\@unnamed$4 = str("entry")
         \\@unnamed$5 = export(@unnamed$4, "entry")
         \\@unnamed$6 = fntype([], @void, cc=C)
@@ -77,9 +77,9 @@ pub fn addCases(ctx: *TestContext) !void {
         \\@entry = fn(@unnamed$6, {
         \\  %0 = returnvoid()
         \\})
-        \\@entry$1 = str("2\x08\x01\n")
-        \\@9 = declref("9$0")
-        \\@9$0 = str("entry")
+        \\@entry__anon_1 = str("2\x08\x01\n")
+        \\@9 = declref("9__anon_0")
+        \\@9__anon_0 = str("entry")
         \\@unnamed$11 = str("entry")
         \\@unnamed$12 = export(@unnamed$11, "entry")
         \\
@@ -111,8 +111,8 @@ pub fn addCases(ctx: *TestContext) !void {
         ,
             \\@void = primitive(void)
             \\@fnty = fntype([], @void, cc=C)
-            \\@9 = declref("9$0")
-            \\@9$0 = str("entry")
+            \\@9 = declref("9__anon_0")
+            \\@9__anon_0 = str("entry")
             \\@unnamed$4 = str("entry")
             \\@unnamed$5 = export(@unnamed$4, "entry")
             \\@unnamed$6 = fntype([], @void, cc=C)
@@ -187,8 +187,8 @@ pub fn addCases(ctx: *TestContext) !void {
         ,
             \\@void = primitive(void)
             \\@fnty = fntype([], @void, cc=C)
-            \\@9 = declref("9$2")
-            \\@9$2 = str("entry")
+            \\@9 = declref("9__anon_2")
+            \\@9__anon_2 = str("entry")
             \\@unnamed$4 = str("entry")
             \\@unnamed$5 = export(@unnamed$4, "entry")
             \\@unnamed$6 = fntype([], @void, cc=C)

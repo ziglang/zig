@@ -32,6 +32,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\
     );
     // TODO: implement return values
+    // TODO: figure out a way to prevent asm constants from being generated
     ctx.c("inline asm", linux_x64,
         \\fn exitGood() void {
         \\	asm volatile ("syscall"
@@ -48,6 +49,10 @@ pub fn addCases(ctx: *TestContext) !void {
         \\#include <stddef.h>
         \\
         \\void exitGood(void);
+        \\
+        \\const char *const exitGood__anon_0 = "{rax}";
+        \\const char *const exitGood__anon_1 = "{rdi}";
+        \\const char *const exitGood__anon_2 = "syscall";
         \\
         \\noreturn void _start(void) {
         \\	exitGood();
