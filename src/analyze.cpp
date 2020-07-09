@@ -4012,6 +4012,10 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var, bool allow_lazy) {
     } else if (!is_extern) {
         add_node_error(g, source_node, buf_sprintf("variables must be initialized"));
         implicit_type = g->builtin_types.entry_invalid;
+    } else if (explicit_type == nullptr) {
+        // extern variable without explicit type
+        add_node_error(g, source_node, buf_sprintf("unable to infer variable type"));
+        implicit_type = g->builtin_types.entry_invalid;
     }
 
     ZigType *type = explicit_type ? explicit_type : implicit_type;

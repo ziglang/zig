@@ -533,12 +533,13 @@ pub fn HashMapUnmanaged(
         }
 
         pub fn clone(self: Self, allocator: *Allocator) !Self {
-            // TODO this can be made more efficient by directly allocating
-            // the memory slices and memcpying the elements.
-            var other = Self.init();
-            try other.initCapacity(allocator, self.entries.len);
-            for (self.entries.items) |entry| {
-                other.putAssumeCapacityNoClobber(entry.key, entry.value);
+            var other: Self = .{};
+            try other.entries.appendSlice(allocator, self.entries.items);
+
+            if (self.index_header) |header| {
+                const new_header = try IndexHeader.alloc(allocator, header.indexes_len);
+                other.insertAllEntriesIntoNewHeader(new_header);
+                other.index_header = new_header;
             }
             return other;
         }
@@ -978,6 +979,25 @@ test "ensure capacity" {
     }
     // shouldn't resize from putAssumeCapacity
     testing.expect(initial_capacity == map.capacity());
+}
+
+test "clone" {
+    var original = AutoHashMap(i32, i32).init(std.testing.allocator);
+    defer original.deinit();
+
+    // put more than `linear_scan_max` so we can test that the index header is properly cloned
+    var i: u8 = 0;
+    while (i < 10) : (i += 1) {
+        try original.putNoClobber(i, i * 10);
+    }
+
+    var copy = try original.clone();
+    defer copy.deinit();
+
+    i = 0;
+    while (i < 10) : (i += 1) {
+        testing.expect(copy.get(i).? == i * 10);
+    }
 }
 
 pub fn getHashPtrAddrFn(comptime K: type) (fn (K) u32) {

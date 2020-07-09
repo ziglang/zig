@@ -33,7 +33,7 @@ pub const Result = union(enum) {
 };
 
 pub fn generateSymbol(
-    bin_file: *link.ElfFile,
+    bin_file: *link.File.Elf,
     src: usize,
     typed_value: TypedValue,
     code: *std.ArrayList(u8),
@@ -237,7 +237,7 @@ const InnerError = error {
 
 const Function = struct {
     gpa: *Allocator,
-    bin_file: *link.ElfFile,
+    bin_file: *link.File.Elf,
     target: *const std.Target,
     mod_fn: *const Module.Fn,
     code: *std.ArrayList(u8),
