@@ -989,14 +989,22 @@ pub fn performAllTheWork(self: *Module) error{OutOfMemory}!void {
                     error.AnalysisFail => {
                         decl.analysis = .dependency_failure;
                     },
+                    error.CGenFailure => {
+                        // Error is handled by CBE, don't try adding it again
+                    },
                     else => {
                         try self.failed_decls.ensureCapacity(self.gpa, self.failed_decls.items().len + 1);
-                        self.failed_decls.putAssumeCapacityNoClobber(decl, try ErrorMsg.create(
-                            self.gpa,
-                            decl.src(),
-                            "unable to codegen: {}",
-                            .{@errorName(err)},
-                        ));
+                        const result = self.failed_decls.getOrPutAssumeCapacity(decl);
+                        if (result.found_existing) {
+                            std.debug.panic("Internal error: attempted to override error '{}' with 'unable to codegen: {}'", .{ result.entry.value.msg, @errorName(err) });
+                        } else {
+                            result.entry.value = try ErrorMsg.create(
+                                self.gpa,
+                                decl.src(),
+                                "unable to codegen: {}",
+                                .{@errorName(err)},
+                            );
+                        }
                         decl.analysis = .codegen_failure_retryable;
                     },
                 };
@@ -1300,6 +1308,20 @@ fn astGenExpr(self: *Module, scope: *Scope, ast_node: *ast.Node) InnerError!*zir
 
 fn astGenInfixOp(self: *Module, scope: *Scope, infix_node: *ast.Node.InfixOp) InnerError!*zir.Inst {
     switch (infix_node.op) {
+        .Assign => {
+            if (infix_node.lhs.id == .Identifier) {
+                const ident = @fieldParentPtr(ast.Node.Identifier, "base", infix_node.lhs);
+                const tree = scope.tree();
+                const ident_name = tree.tokenSlice(ident.token);
+                if (std.mem.eql(u8, ident_name, "_")) {
+                    return self.astGenExpr(scope, infix_node.rhs);
+                } else {
+                    return self.failNode(scope, &infix_node.base, "TODO implement infix operator assign", .{});
+                }
+            } else {
+                return self.failNode(scope, &infix_node.base, "TODO implement infix operator assign", .{});
+            }
+        },
         .Add => {
             const lhs = try self.astGenExpr(scope, infix_node.lhs);
             const rhs = try self.astGenExpr(scope, infix_node.rhs);
