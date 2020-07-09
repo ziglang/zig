@@ -65,26 +65,26 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
         \\
     );
-    //ctx.c("basic return", linux_x64,
-    //    \\fn main() u8 {
-    //    \\	return 103;
-    //    \\}
-    //    \\
-    //    \\export fn _start() noreturn {
-    //    \\	_ = main();
-    //    \\}
-    //,
-    //    \\#include <stdint.h>
-    //    \\
-    //    \\uint8_t main(void);
-    //    \\
-    //    \\noreturn void _start(void) {
-    //    \\	(void)main();
-    //    \\}
-    //    \\
-    //    \\uint8_t main(void) {
-    //    \\	return 103;
-    //    \\}
-    //    \\
-    //);
+    ctx.c("basic return", linux_x64,
+        \\fn main() u8 {
+        \\	return 103;
+        \\}
+        \\
+        \\export fn _start() noreturn {
+        \\	_ = main();
+        \\}
+    ,
+        \\#include <stdint.h>
+        \\
+        \\uint8_t main(void);
+        \\
+        \\noreturn void _start(void) {
+        \\	(void)main();
+        \\}
+        \\
+        \\uint8_t main(void) {
+        \\	return 103;
+        \\}
+        \\
+    );
 }

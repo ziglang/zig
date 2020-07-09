@@ -26,6 +26,14 @@ fn renderType(file: *C, writer: std.ArrayList(u8).Writer, T: Type, src: usize) !
                 try writer.writeAll("noreturn void");
             },
             .Void => try writer.writeAll("void"),
+            .Int => {
+                if (T.tag() == .u8) {
+                    file.need_stdint = true;
+                    try writer.writeAll("uint8_t");
+                } else {
+                    return file.fail(src, "TODO implement int types", .{});
+                }
+            },
             else => |e| return file.fail(src, "TODO implement type {}", .{e}),
         }
     }
@@ -116,6 +124,12 @@ pub fn generate(file: *C, decl: *Decl) !void {
                             if (call.func.cast(ir.Inst.Constant)) |func_inst| {
                                 if (func_inst.val.cast(Value.Payload.Function)) |func_val| {
                                     const target = func_val.func.owner_decl;
+                                    const target_ty = target.typed_value.most_recent.typed_value.ty;
+                                    const ret_ty = target_ty.fnReturnType().tag();
+                                    if (ret_ty != .void and ret_ty != .noreturn) {
+                                        // TODO: don't do this if we're actually using the value
+                                        try writer.print("(void)", .{});
+                                    }
                                     const tname = mem.spanZ(target.name);
                                     if (file.called.get(tname) == null) {
                                         try file.called.put(tname, void{});
@@ -131,6 +145,28 @@ pub fn generate(file: *C, decl: *Decl) !void {
                                 }
                             } else {
                                 return file.fail(decl.src(), "TODO non-constant call inst?", .{});
+                            }
+                        },
+                        .ret => {
+                            const ret_value: *ir.Inst = inst.cast(ir.Inst.Ret).?.args.operand;
+                            const expected_return_type = tv.ty.fnReturnType();
+                            const value = ret_value.value().?;
+                            if (expected_return_type.eql(ret_value.ty)) {
+                                return file.fail(decl.src(), "TODO return {}", .{expected_return_type});
+                            } else {
+                                if (expected_return_type.isInt() and ret_value.ty.tag() == .comptime_int) {
+                                    if (value.intFitsInType(expected_return_type, file.options.target)) {
+                                        if (expected_return_type.intInfo(file.options.target).bits <= 64) {
+                                            try writer.print("return {};", .{value.toUnsignedInt()});
+                                        } else {
+                                            return file.fail(decl.src(), "TODO return ints > 64 bits", .{});
+                                        }
+                                    } else {
+                                        return file.fail(decl.src(), "comptime int {} does not fit in {}", .{ value.toUnsignedInt(), expected_return_type });
+                                    }
+                                } else {
+                                    return file.fail(decl.src(), "return type mismatch: expected {}, found {}", .{ expected_return_type, ret_value.ty });
+                                }
                             }
                         },
                         else => |e| {
