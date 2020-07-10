@@ -96,7 +96,7 @@ pub fn HashMap(
             return self.unmanaged.clearRetainingCapacity();
         }
 
-        pub fn clearAndFree(self: *Self, allocator: *Allocator) void {
+        pub fn clearAndFree(self: *Self) void {
             return self.unmanaged.clearAndFree(self.allocator);
         }
 
