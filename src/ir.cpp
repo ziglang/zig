@@ -26718,7 +26718,7 @@ static IrInstGen *ir_analyze_instruction_float_cast(IrAnalyze *ira, IrInstSrcFlo
     }
 
     if (instr_is_comptime(target) || dest_type->id == ZigTypeIdComptimeFloat) {
-        return ir_analyze_widen_or_shorten(ira, &instruction->target->base, target, dest_type);
+        return ir_implicit_cast2(ira, &instruction->target->base, target, dest_type);
     }
 
     if (target->value->type->id != ZigTypeIdFloat) {
