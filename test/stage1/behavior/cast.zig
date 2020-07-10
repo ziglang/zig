@@ -384,6 +384,19 @@ test "@intCast i32 to u7" {
     expect(z == 0xff);
 }
 
+test "@floatCast cast down" {
+    {
+        var double: f64 = 0.001534;
+        var single = @floatCast(f32, double);
+        expect(single == 0.001534);
+    }
+    {
+        const double: f64 = 0.001534;
+        const single = @floatCast(f32, double);
+        expect(single == 0.001534);
+    }
+}
+
 test "implicit cast undefined to optional" {
     expect(MakeType(void).getNull() == null);
     expect(MakeType(void).getNonNull() != null);

@@ -13020,7 +13020,11 @@ static IrInstGen *ir_resolve_cast(IrAnalyze *ira, IrInst *source_instr, IrInstGe
 {
     if (instr_is_comptime(value) || !type_has_bits(ira->codegen, wanted_type)) {
         IrInstGen *result = ir_const(ira, source_instr, wanted_type);
-        if (!eval_const_expr_implicit_cast(ira, source_instr, cast_op, value->value, value->value->type,
+        ZigValue *val = ir_resolve_const(ira, value, UndefBad);
+        if (val == nullptr)
+            return ira->codegen->invalid_inst_gen;
+
+        if (!eval_const_expr_implicit_cast(ira, source_instr, cast_op, val, val->type,
             result->value, wanted_type))
         {
             return ira->codegen->invalid_inst_gen;
@@ -26680,6 +26684,10 @@ static IrInstGen *ir_analyze_instruction_int_cast(IrAnalyze *ira, IrInstSrcIntCa
     }
 
     if (instr_is_comptime(target) || dest_type->id == ZigTypeIdComptimeInt) {
+        ZigValue *val = ir_resolve_const(ira, target, UndefBad);
+        if (val == nullptr)
+            return ira->codegen->invalid_inst_gen;
+
         return ir_implicit_cast2(ira, &instruction->target->base, target, dest_type);
     }
 
@@ -26718,13 +26726,11 @@ static IrInstGen *ir_analyze_instruction_float_cast(IrAnalyze *ira, IrInstSrcFlo
     }
 
     if (instr_is_comptime(target) || dest_type->id == ZigTypeIdComptimeFloat) {
-        return ir_implicit_cast2(ira, &instruction->target->base, target, dest_type);
-    }
+        ZigValue *val = ir_resolve_const(ira, target, UndefBad);
+        if (val == nullptr)
+            return ira->codegen->invalid_inst_gen;
 
-    if (target->value->type->id != ZigTypeIdFloat) {
-        ir_add_error(ira, &instruction->target->base, buf_sprintf("expected float type, found '%s'",
-                    buf_ptr(&target->value->type->name)));
-        return ira->codegen->invalid_inst_gen;
+        return ir_analyze_widen_or_shorten(ira, &instruction->target->base, target, dest_type);
     }
 
     return ir_analyze_widen_or_shorten(ira, &instruction->base.base, target, dest_type);
