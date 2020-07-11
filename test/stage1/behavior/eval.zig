@@ -758,7 +758,7 @@ test "comptime bitwise operators" {
 test "*align(1) u16 is the same as *align(1:0:2) u16" {
     comptime {
         expect(*align(1:0:2) u16 == *align(1) u16);
-        expect(*align(:0:2) u16 == *u16);
+        expect(*align(2:0:2) u16 == *u16);
     }
 }
 
