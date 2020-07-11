@@ -1129,7 +1129,7 @@ ZigValue *analyze_const_value(CodeGen *g, Scope *scope, AstNode *node, ZigType *
     ZigValue *result = g->pass1_arena->create<ZigValue>();
     ZigValue *result_ptr = g->pass1_arena->create<ZigValue>();
     result->special = ConstValSpecialUndef;
-    result->type = (type_entry == nullptr) ? g->builtin_types.entry_var : type_entry;
+    result->type = (type_entry == nullptr) ? g->builtin_types.entry_anytype : type_entry;
     result_ptr->special = ConstValSpecialStatic;
     result_ptr->type = get_pointer_to_type(g, result->type, false);
     result_ptr->data.x_ptr.mut = ConstPtrMutComptimeVar;
@@ -1230,7 +1230,7 @@ Error type_val_resolve_zero_bits(CodeGen *g, ZigValue *type_val, ZigType *parent
 Error type_val_resolve_is_opaque_type(CodeGen *g, ZigValue *type_val, bool *is_opaque_type) {
     if (type_val->special != ConstValSpecialLazy) {
         assert(type_val->special == ConstValSpecialStatic);
-        if (type_val->data.x_type == g->builtin_types.entry_var) {
+        if (type_val->data.x_type == g->builtin_types.entry_anytype) {
             *is_opaque_type = false;
             return ErrorNone;
         }
@@ -1853,10 +1853,10 @@ static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_sc
                         buf_sprintf("var args only allowed in functions with C calling convention"));
                 return g->builtin_types.entry_invalid;
             }
-        } else if (param_node->data.param_decl.var_token != nullptr) {
+        } else if (param_node->data.param_decl.anytype_token != nullptr) {
             if (!calling_convention_allows_zig_types(fn_type_id.cc)) {
                 add_node_error(g, param_node,
-                        buf_sprintf("parameter of type 'var' not allowed in function with calling convention '%s'",
+                        buf_sprintf("parameter of type 'anytype' not allowed in function with calling convention '%s'",
                             calling_convention_name(fn_type_id.cc)));
                 return g->builtin_types.entry_invalid;
             }
@@ -1942,10 +1942,10 @@ static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_sc
         fn_entry->align_bytes = fn_type_id.alignment;
     }
 
-    if (fn_proto->return_var_token != nullptr) {
+    if (fn_proto->return_anytype_token != nullptr) {
         if (!calling_convention_allows_zig_types(fn_type_id.cc)) {
             add_node_error(g, fn_proto->return_type,
-                buf_sprintf("return type 'var' not allowed in function with calling convention '%s'",
+                buf_sprintf("return type 'anytype' not allowed in function with calling convention '%s'",
                 calling_convention_name(fn_type_id.cc)));
             return g->builtin_types.entry_invalid;
         }
@@ -3802,7 +3802,7 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
         case NodeTypeEnumLiteral:
         case NodeTypeAnyFrameType:
         case NodeTypeErrorSetField:
-        case NodeTypeVarFieldType:
+        case NodeTypeAnyTypeField:
             zig_unreachable();
     }
 }
@@ -5868,7 +5868,7 @@ ZigValue *get_the_one_possible_value(CodeGen *g, ZigType *type_entry) {
 
 ReqCompTime type_requires_comptime(CodeGen *g, ZigType *ty) {
     Error err;
-    if (ty == g->builtin_types.entry_var) {
+    if (ty == g->builtin_types.entry_anytype) {
         return ReqCompTimeYes;
     }
     switch (ty->id) {

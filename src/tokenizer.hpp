@@ -54,6 +54,7 @@ enum TokenId {
     TokenIdKeywordAllowZero,
     TokenIdKeywordAnd,
     TokenIdKeywordAnyFrame,
+    TokenIdKeywordAnyType,
     TokenIdKeywordAsm,
     TokenIdKeywordAsync,
     TokenIdKeywordAwait,

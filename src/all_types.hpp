@@ -692,7 +692,7 @@ enum NodeType {
     NodeTypeSuspend,
     NodeTypeAnyFrameType,
     NodeTypeEnumLiteral,
-    NodeTypeVarFieldType,
+    NodeTypeAnyTypeField,
 };
 
 enum FnInline {
@@ -705,7 +705,7 @@ struct AstNodeFnProto {
     Buf *name;
     ZigList<AstNode *> params;
     AstNode *return_type;
-    Token *return_var_token;
+    Token *return_anytype_token;
     AstNode *fn_def_node;
     // populated if this is an extern declaration
     Buf *lib_name;
@@ -734,7 +734,7 @@ struct AstNodeFnDef {
 struct AstNodeParamDecl {
     Buf *name;
     AstNode *type;
-    Token *var_token;
+    Token *anytype_token;
     Buf doc_comments;
     bool is_noalias;
     bool is_comptime;
@@ -2145,7 +2145,7 @@ struct CodeGen {
         ZigType *entry_num_lit_float;
         ZigType *entry_undef;
         ZigType *entry_null;
-        ZigType *entry_var;
+        ZigType *entry_anytype;
         ZigType *entry_global_error_set;
         ZigType *entry_enum_literal;
         ZigType *entry_any_frame;
