@@ -1511,13 +1511,13 @@ ZigType *get_generic_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
     }
     for (; i < fn_type_id->param_count; i += 1) {
         const char *comma_str = (i == 0) ? "" : ",";
-        buf_appendf(&fn_type->name, "%svar", comma_str);
+        buf_appendf(&fn_type->name, "%sanytype", comma_str);
     }
     buf_append_str(&fn_type->name, ")");
     if (fn_type_id->cc != CallingConventionUnspecified) {
         buf_appendf(&fn_type->name, " callconv(.%s)", calling_convention_name(fn_type_id->cc));
     }
-    buf_append_str(&fn_type->name, " var");
+    buf_append_str(&fn_type->name, " anytype");
 
     fn_type->data.fn.fn_type_id = *fn_type_id;
     fn_type->data.fn.is_generic = true;

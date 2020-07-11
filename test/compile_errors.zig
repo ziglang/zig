@@ -42,7 +42,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\fn foo() Foo {
         \\    return .{ .x = 42 };
         \\}
-        \\fn bar(val: var) Foo {
+        \\fn bar(val: anytype) Foo {
         \\    return .{ .x = val };
         \\}
         \\export fn entry() void {
@@ -1034,7 +1034,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    storev(&v[i], 42);
         \\}
         \\
-        \\fn storev(ptr: var, val: i32) void {
+        \\fn storev(ptr: anytype, val: i32) void {
         \\    ptr.* = val;
         \\}
     , &[_][]const u8{
@@ -1049,7 +1049,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var x = loadv(&v[i]);
         \\}
         \\
-        \\fn loadv(ptr: var) i32 {
+        \\fn loadv(ptr: anytype) i32 {
         \\    return ptr.*;
         \\}
     , &[_][]const u8{
@@ -1832,7 +1832,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    while (true) {}
         \\}
     , &[_][]const u8{
-        "error: expected type 'fn([]const u8, ?*std.builtin.StackTrace) noreturn', found 'fn([]const u8,var) var'",
+        "error: expected type 'fn([]const u8, ?*std.builtin.StackTrace) noreturn', found 'fn([]const u8,anytype) anytype'",
         "note: only one of the functions is generic",
     });
 
@@ -2032,11 +2032,11 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     });
 
     cases.add("export generic function",
-        \\export fn foo(num: var) i32 {
+        \\export fn foo(num: anytype) i32 {
         \\    return 0;
         \\}
     , &[_][]const u8{
-        "tmp.zig:1:15: error: parameter of type 'var' not allowed in function with calling convention 'C'",
+        "tmp.zig:1:15: error: parameter of type 'anytype' not allowed in function with calling convention 'C'",
     });
 
     cases.add("C pointer to c_void",
@@ -2836,7 +2836,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     });
 
     cases.add("missing parameter name of generic function",
-        \\fn dump(var) void {}
+        \\fn dump(anytype) void {}
         \\export fn entry() void {
         \\    var a: u8 = 9;
         \\    dump(a);
@@ -2859,13 +2859,13 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     });
 
     cases.add("generic fn as parameter without comptime keyword",
-        \\fn f(_: fn (var) void) void {}
-        \\fn g(_: var) void {}
+        \\fn f(_: fn (anytype) void) void {}
+        \\fn g(_: anytype) void {}
         \\export fn entry() void {
         \\    f(g);
         \\}
     , &[_][]const u8{
-        "tmp.zig:1:9: error: parameter of type 'fn(var) var' must be declared comptime",
+        "tmp.zig:1:9: error: parameter of type 'fn(anytype) anytype' must be declared comptime",
     });
 
     cases.add("optional pointer to void in extern struct",
@@ -3165,7 +3165,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add("var makes structs required to be comptime known",
         \\export fn entry() void {
-        \\   const S = struct{v: var};
+        \\   const S = struct{v: anytype};
         \\   var s = S{.v=@as(i32, 10)};
         \\}
     , &[_][]const u8{
@@ -6072,10 +6072,10 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     });
 
     cases.add("calling a generic function only known at runtime",
-        \\var foos = [_]fn(var) void { foo1, foo2 };
+        \\var foos = [_]fn(anytype) void { foo1, foo2 };
         \\
-        \\fn foo1(arg: var) void {}
-        \\fn foo2(arg: var) void {}
+        \\fn foo1(arg: anytype) void {}
+        \\fn foo2(arg: anytype) void {}
         \\
         \\pub fn main() !void {
         \\    foos[0](true);
@@ -6920,12 +6920,12 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     });
 
     cases.add("getting return type of generic function",
-        \\fn generic(a: var) void {}
+        \\fn generic(a: anytype) void {}
         \\comptime {
         \\    _ = @TypeOf(generic).ReturnType;
         \\}
     , &[_][]const u8{
-        "tmp.zig:3:25: error: ReturnType has not been resolved because 'fn(var) var' is generic",
+        "tmp.zig:3:25: error: ReturnType has not been resolved because 'fn(anytype) anytype' is generic",
     });
 
     cases.add("unsupported modifier at start of asm output constraint",
@@ -7493,7 +7493,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     });
 
     cases.add("issue #5221: invalid struct init type referenced by @typeInfo and passed into function",
-        \\fn ignore(comptime param: var) void {}
+        \\fn ignore(comptime param: anytype) void {}
         \\
         \\export fn foo() void {
         \\    const MyStruct = struct {

@@ -1052,12 +1052,12 @@ pub const Node = struct {
             const params_len: usize = if (self.params_len == 0)
                 0
             else switch (self.paramsConst()[self.params_len - 1].param_type) {
-                .var_type, .type_expr => self.params_len,
+                .any_type, .type_expr => self.params_len,
                 .var_args => self.params_len - 1,
             };
             if (i < params_len) {
                 switch (self.paramsConst()[i].param_type) {
-                    .var_type => |n| return n,
+                    .any_type => |n| return n,
                     .var_args => unreachable,
                     .type_expr => |n| return n,
                 }

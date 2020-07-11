@@ -1132,7 +1132,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
             const param_types = try fn_type_scope.arena.alloc(*zir.Inst, param_decls.len);
             for (param_decls) |param_decl, i| {
                 const param_type_node = switch (param_decl.param_type) {
-                    .var_type => |node| return self.failNode(&fn_type_scope.base, node, "TODO implement anytype parameter", .{}),
+                    .any_type => |node| return self.failNode(&fn_type_scope.base, node, "TODO implement anytype parameter", .{}),
                     .var_args => |tok| return self.failTok(&fn_type_scope.base, tok, "TODO implement var args", .{}),
                     .type_expr => |node| node,
                 };

@@ -22,7 +22,7 @@ const root = @import("root");
 //!     comptime level: std.log.Level,
 //!     comptime scope: @TypeOf(.EnumLiteral),
 //!     comptime format: []const u8,
-//!     args: var,
+//!     args: anytype,
 //! ) void {
 //!     // Ignore all non-critical logging from sources other than
 //!     // .my_project and .nice_library
