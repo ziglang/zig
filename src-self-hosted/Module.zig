@@ -723,7 +723,6 @@ pub const InitOptions = struct {
     object_format: ?std.builtin.ObjectFormat = null,
     optimize_mode: std.builtin.Mode = .Debug,
     keep_source_files_loaded: bool = false,
-    cbe: bool = false,
 };
 
 pub fn init(gpa: *Allocator, options: InitOptions) !Module {
@@ -733,7 +732,6 @@ pub fn init(gpa: *Allocator, options: InitOptions) !Module {
         .output_mode = options.output_mode,
         .link_mode = options.link_mode orelse .Static,
         .object_format = options.object_format orelse options.target.getObjectFormat(),
-        .cbe = options.cbe,
     });
     errdefer bin_file.destroy();
 
