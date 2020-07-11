@@ -519,7 +519,7 @@ const Parser = struct {
         const callconv_expr = try p.parseCallconv();
         const exclamation_token = p.eatToken(.Bang);
 
-        const return_type_expr = (try p.parseVarType()) orelse
+        const return_type_expr = (try p.parseAnyType()) orelse
             try p.expectNodeRecoverable(parseTypeExpr, .{
             // most likely the user forgot to specify the return type.
             // Mark return type as invalid and try to continue.
@@ -2028,7 +2028,7 @@ const Parser = struct {
     fn parseParamType(p: *Parser) !?Node.FnProto.ParamDecl.ParamType {
         // TODO cast from tuple to error union is broken
         const P = Node.FnProto.ParamDecl.ParamType;
-        if (try p.parseVarType()) |node| return P{ .var_type = node };
+        if (try p.parseAnyType()) |node| return P{ .any_type = node };
         if (p.eatToken(.Ellipsis3)) |token| return P{ .var_args = token };
         if (try p.parseTypeExpr()) |node| return P{ .type_expr = node };
         return null;
@@ -3057,7 +3057,7 @@ const Parser = struct {
         return &node.base;
     }
 
-    fn parseVarType(p: *Parser) !?*Node {
+    fn parseAnyType(p: *Parser) !?*Node {
         const token = p.eatToken(.Keyword_anytype) orelse
             p.eatToken(.Keyword_var) orelse return null; // TODO remove in next release cycle
         const node = try p.arena.allocator.create(Node.AnyType);

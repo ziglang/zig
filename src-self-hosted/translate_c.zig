@@ -5215,10 +5215,9 @@ fn transMacroFnDefine(c: *Context, it: *CTokenList.Iterator, source: []const u8,
         const param_name_tok = try appendIdentifier(c, mangled_name);
         _ = try appendToken(c, .Colon, ":");
 
-        const token_index = try appendToken(c, .Keyword_var, "var");
-        const identifier = try c.arena.create(ast.Node.Identifier);
-        identifier.* = .{
-            .token = token_index,
+        const any_type = try c.arena.create(ast.Node.AnyType);
+        any_type.* = .{
+            .token = try appendToken(c, .Keyword_anytype, "anytype"),
         };
 
         (try fn_params.addOne()).* = .{
@@ -5226,7 +5225,7 @@ fn transMacroFnDefine(c: *Context, it: *CTokenList.Iterator, source: []const u8,
             .comptime_token = null,
             .noalias_token = null,
             .name_token = param_name_tok,
-            .param_type = .{ .type_expr = &identifier.base },
+            .param_type = .{ .any_type = &any_type.base },
         };
 
         if (it.peek().?.id != .Comma)

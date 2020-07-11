@@ -993,7 +993,7 @@ pub const Node = struct {
             param_type: ParamType,
 
             pub const ParamType = union(enum) {
-                var_type: *Node,
+                any_type: *Node,
                 var_args: TokenIndex,
                 type_expr: *Node,
             };
@@ -1004,7 +1004,7 @@ pub const Node = struct {
                 if (i < 1) {
                     switch (self.param_type) {
                         .var_args => return null,
-                        .var_type, .type_expr => |node| return node,
+                        .any_type, .type_expr => |node| return node,
                     }
                 }
                 i -= 1;
@@ -1018,14 +1018,14 @@ pub const Node = struct {
                 if (self.name_token) |name_token| return name_token;
                 switch (self.param_type) {
                     .var_args => |tok| return tok,
-                    .var_type, .type_expr => |node| return node.firstToken(),
+                    .any_type, .type_expr => |node| return node.firstToken(),
                 }
             }
 
             pub fn lastToken(self: *const ParamDecl) TokenIndex {
                 switch (self.param_type) {
                     .var_args => |tok| return tok,
-                    .var_type, .type_expr => |node| return node.lastToken(),
+                    .any_type, .type_expr => |node| return node.lastToken(),
                 }
             }
         };
