@@ -25915,6 +25915,11 @@ static ZigType *type_info_to_type(IrAnalyze *ira, IrInst *source_instr, ZigTypeI
                 {
                     return ira->codegen->invalid_inst_gen->value->type;
                 }
+                if (sentinel != nullptr && (size_enum_index == BuiltinPtrSizeOne || size_enum_index == BuiltinPtrSizeC)) {
+                    ir_add_error(ira, source_instr,
+                        buf_sprintf("sentinels are only allowed on slices and unknown-length pointers"));
+                    return ira->codegen->invalid_inst_gen->value->type;
+                }
                 BigInt *bi = get_const_field_lit_int(ira, source_instr->source_node, payload, "alignment", 3);
                 if (bi == nullptr)
                     return ira->codegen->invalid_inst_gen->value->type;
@@ -25948,7 +25953,7 @@ static ZigType *type_info_to_type(IrAnalyze *ira, IrInst *source_instr, ZigTypeI
                     0, // host_int_bytes
                     is_allowzero,
                     VECTOR_INDEX_NONE, nullptr, sentinel);
-                if (size_enum_index != 2)
+                if (size_enum_index != BuiltinPtrSizeSlice)
                     return ptr_type;
                 return get_slice_type(ira->codegen, ptr_type);
             }
