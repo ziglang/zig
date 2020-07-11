@@ -263,7 +263,7 @@ pub fn main() !void {
         Next, a {#link|public function|Functions#}, {#syntax#}pub fn{#endsyntax#}, named <code>main</code>
         is declared. The <code>main</code> function is necessary because it tells the Zig compiler where the start of
         the program exists. Programs designed to be executed will need a {#syntax#}pub fn main{#endsyntax#} function.
-        For more advanced Zig use cases, Zig offers other features to inform the compiler where the start of
+        For more advanced use cases, Zig offers other features to inform the compiler where the start of
         the program exists. Libraries, on the other hand, do not need a <code>main</code> function because
         library code is usually called by other programs.
       </p>
