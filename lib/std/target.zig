@@ -903,24 +903,33 @@ pub const Target = struct {
             /// All processors Zig is aware of, sorted lexicographically by name.
             pub fn allCpuModels(arch: Arch) []const *const Cpu.Model {
                 return switch (arch) {
-                    .arm, .armeb, .thumb, .thumbeb => arm.all_cpus,
-                    .aarch64, .aarch64_be, .aarch64_32 => aarch64.all_cpus,
-                    .avr => avr.all_cpus,
-                    .bpfel, .bpfeb => bpf.all_cpus,
-                    .hexagon => hexagon.all_cpus,
-                    .mips, .mipsel, .mips64, .mips64el => mips.all_cpus,
-                    .msp430 => msp430.all_cpus,
-                    .powerpc, .powerpc64, .powerpc64le => powerpc.all_cpus,
-                    .amdgcn => amdgpu.all_cpus,
-                    .riscv32, .riscv64 => riscv.all_cpus,
-                    .sparc, .sparcv9, .sparcel => sparc.all_cpus,
-                    .s390x => systemz.all_cpus,
-                    .i386, .x86_64 => x86.all_cpus,
-                    .nvptx, .nvptx64 => nvptx.all_cpus,
-                    .wasm32, .wasm64 => wasm.all_cpus,
+                    .arm, .armeb, .thumb, .thumbeb => comptime allCpusFromDecls(arm.cpu),
+                    .aarch64, .aarch64_be, .aarch64_32 => comptime allCpusFromDecls(aarch64.cpu),
+                    .avr => comptime allCpusFromDecls(avr.cpu),
+                    .bpfel, .bpfeb => comptime allCpusFromDecls(bpf.cpu),
+                    .hexagon => comptime allCpusFromDecls(hexagon.cpu),
+                    .mips, .mipsel, .mips64, .mips64el => comptime allCpusFromDecls(mips.cpu),
+                    .msp430 => comptime allCpusFromDecls(msp430.cpu),
+                    .powerpc, .powerpc64, .powerpc64le => comptime allCpusFromDecls(powerpc.cpu),
+                    .amdgcn => comptime allCpusFromDecls(amdgpu.cpu),
+                    .riscv32, .riscv64 => comptime allCpusFromDecls(riscv.cpu),
+                    .sparc, .sparcv9, .sparcel => comptime allCpusFromDecls(sparc.cpu),
+                    .s390x => comptime allCpusFromDecls(systemz.cpu),
+                    .i386, .x86_64 => comptime allCpusFromDecls(x86.cpu),
+                    .nvptx, .nvptx64 => comptime allCpusFromDecls(nvptx.cpu),
+                    .wasm32, .wasm64 => comptime allCpusFromDecls(wasm.cpu),
 
                     else => &[0]*const Model{},
                 };
+            }
+
+            fn allCpusFromDecls(comptime cpus: type) []const *const Cpu.Model {
+                const decls = std.meta.declarations(cpus);
+                var array: [decls.len]*const Cpu.Model = undefined;
+                for (decls) |decl, i| {
+                    array[i] = &@field(cpus, decl.name);
+                }
+                return &array;
             }
         };
 
