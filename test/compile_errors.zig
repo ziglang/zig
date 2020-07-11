@@ -2,6 +2,22 @@ const tests = @import("tests.zig");
 const std = @import("std");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.addTest("invalid pointer with @Type",
+        \\export fn entry() void {
+        \\    _ = @Type(.{ .Pointer = .{
+        \\        .size = .One,
+        \\        .is_const = false,
+        \\        .is_volatile = false,
+        \\        .alignment = 1,
+        \\        .child = u8,
+        \\        .is_allowzero = false,
+        \\        .sentinel = 0,
+        \\    }});
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:2:16: error: sentinels are only allowed on slices and unknown-length pointers",
+    });
+
     cases.addTest("int/float conversion to comptime_int/float",
         \\export fn foo() void {
         \\    var a: f32 = 2;
