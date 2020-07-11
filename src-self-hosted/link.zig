@@ -2006,7 +2006,7 @@ pub fn createElfFile(allocator: *Allocator, file: fs.File, options: Options) !Fi
         },
         .allocator = allocator,
         .ptr_width = switch (options.target.cpu.arch.ptrBitWidth()) {
-            32 => .p32,
+            16, 32 => .p32,
             64 => .p64,
             else => return error.UnsupportedELFArchitecture,
         },
@@ -2069,7 +2069,7 @@ fn openBinFileInner(allocator: *Allocator, file: fs.File, options: Options) !Fil
         },
         .allocator = allocator,
         .ptr_width = switch (options.target.cpu.arch.ptrBitWidth()) {
-16,            32 => .p32,
+            16, 32 => .p32,
             64 => .p64,
             else => return error.UnsupportedELFArchitecture,
         },

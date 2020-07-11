@@ -631,6 +631,7 @@ pub const Target = struct {
             hsail64,
             spir,
             spir64,
+            spu_2,
             kalimba,
             shave,
             lanai,
