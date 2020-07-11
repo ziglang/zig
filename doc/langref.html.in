@@ -233,7 +233,7 @@
 const std = @import("std");
 
 pub fn main() !void {
-    const stdout = std.io.getStdOut().outStream();
+    const stdout = std.io.getStdOut().writer();
     try stdout.print("Hello, {}!\n", .{"world"});
 }
       {#code_end#}
@@ -269,16 +269,25 @@ pub fn main() !void {
       </p>
       <p>
         A function is a block of any number of statements and expressions that, as a whole, perform a task.
-        Functions may or may not return data after they are done performing their task.
+        Functions may or may not return data after they are done performing their task. If a function
+        cannot perform its task, it might return an error. Zig makes all of this explicit.
       </p>
       <p>
         In the <code>hello.zig</code> code sample, the <code>main</code> function is declared
-        with the {#syntax#}!void{#endsyntax#} return type. This return type tells the Zig compiler
-        and other people reading the code that the function will not return a value and it <i>might</i> fail.
-        The {#syntax#}!{#endsyntax#} (bang, exclamation mark) before the {#syntax#}void{#endsyntax#}
-        {#link|type|Primitive Types#} is what tells the Zig compiler an {#link|error|Errors#} <i>might</i>
-        occur. The {#syntax#}void{#endsyntax#} return type tells the Zig compiler the <code>main</code>
-        function will not return a value.
+        with the {#syntax#}!void{#endsyntax#} return type. This return type is known as an {#link|Error Union Type#}.
+        This syntax tells the Zig compiler that the function will either return an
+        error or a value. An error union type combines an {#link|Error Set Type#} and a {#link|Primitive Type|Primitive Types#}.
+        The full form of an error union type is
+        <code>&lt;error set type&gt;</code>{#syntax#}!{#endsyntax#}<code>&lt;primitive type&gt;</code>. In the code
+        sample, the error set type is not explicitly written on the left side of the {#syntax#}!{#endsyntax#} operator.
+        When written this way, the error set type is a special kind of error union type that has an
+        {#link|inferred error set type|Inferred Error Sets#}. The {#syntax#}void{#endsyntax#} after the {#syntax#}!{#endsyntax#} operator
+        tells the compiler that the function will not return a value under normal circumstances (i.e. no errors occur).
+      </p>
+      <p>
+        Note to experienced programmers: Zig also has the boolean {#link|operator|Operators#} {#syntax#}!a{#endsyntax#}
+        where {#syntax#}a{#endsyntax#} is a value of type {#syntax#}bool{#endsyntax#}. Error union types contain the
+        name of the type in the syntax: {#syntax#}!{#endsyntax#}<code>&lt;primitive type&gt;</code>.
       </p>
       <p>
         In Zig, a function's block of statements and expressions are surrounded by <code>{</code> and
@@ -286,9 +295,9 @@ pub fn main() !void {
         the task of outputting <code>Hello, world!</code> to standard output. 
       </p>
       <p>
-        First, a constant identifier, <code>stdout</code>, is initialized to represent the standard output
-        stream. Then, the program tries to print the <code>Hello, world!</code> message to the standard output
-        stream.
+        First, a constant identifier, <code>stdout</code>, is initialized to represent standard output's
+        writer. Then, the program tries to print the <code>Hello, world!</code>
+        message to standard output.
       </p>
       <p>
         Functions sometimes need information to perform their task. In Zig, information is passed
@@ -310,14 +319,14 @@ pub fn main() !void {
         more statements or expressions left to execute in the <code>main</code> function, so the program exits.
       </p>
       <p>
-        In Zig, the standard output stream's <code>print</code> function is allowed to fail because
-        it is actually a function defined for a generic output stream. Consider a generic output stream that
-        represents writing data to a file. When the disk is full, a write to the file will fail. However,
-        we typically do not expect writing text to the standard output stream to fail. To avoid having
-        to handle the failure case of printing to a standard output, you can use alternate functions: the
+        In Zig, the standard output writer's <code>print</code> function is allowed to fail because
+        it is actually a function defined as part of a generic Writer. Consider a generic Writer that
+        represents writing data to a file. When the disk is full, a write to the file will fail.
+        However, we typically do not expect writing text to the standard output to fail. To avoid having
+        to handle the failure case of printing to standard output, you can use alternate functions: the
         <code>std.log</code> function for proper logging or the <code>std.debug.print</code> function.
-        This documentation will use the latter option to print to standard error (stderr) and silently
-        return on failure. The next code sample, <code>hello_again.zig</code> demonstrates the use of
+        This documentation will use the latter option to print to standard error (stderr) and silently return
+        on failure. The next code sample, <code>hello_again.zig</code> demonstrates the use of
         <code>std.debug.print</code>.
       </p>
       {#code_begin|exe|hello_again#}
