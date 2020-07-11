@@ -293,7 +293,7 @@ pub fn main() !void {
       <p>
         Functions sometimes need information to perform their task. In Zig, information is passed
         to functions between open <code>(</code> and close <code>)</code> parenthesis placed after
-        the function's name. The information passed to functions are its arguments. When there are
+        the function's name. This information is also known as arguments. When there are
         multiple arguments passed to a function, they are separated by commas <code>,</code>.
       </p>
       <p>
