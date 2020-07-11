@@ -4068,7 +4068,7 @@ pub fn nanosleep(seconds: u64, nanoseconds: u64) void {
 }
 
 pub fn dl_iterate_phdr(
-    context: var,
+    context: anytype,
     comptime Error: type,
     comptime callback: fn (info: *dl_phdr_info, size: usize, context: @TypeOf(context)) Error!void,
 ) Error!void {

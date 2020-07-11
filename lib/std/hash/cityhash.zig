@@ -354,7 +354,7 @@ pub const CityHash64 = struct {
     }
 };
 
-fn SMHasherTest(comptime hash_fn: var, comptime hashbits: u32) u32 {
+fn SMHasherTest(comptime hash_fn: anytype, comptime hashbits: u32) u32 {
     const hashbytes = hashbits / 8;
     var key: [256]u8 = undefined;
     var hashes: [hashbytes * 256]u8 = undefined;

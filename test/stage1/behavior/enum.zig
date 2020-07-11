@@ -208,7 +208,7 @@ test "@tagName non-exhaustive enum" {
     comptime expect(mem.eql(u8, testEnumTagNameBare(NonExhaustive.B), "B"));
 }
 
-fn testEnumTagNameBare(n: var) []const u8 {
+fn testEnumTagNameBare(n: anytype) []const u8 {
     return @tagName(n);
 }
 

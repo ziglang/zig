@@ -108,23 +108,16 @@ pub const Target = struct {
                 self: WindowsVersion,
                 comptime fmt: []const u8,
                 options: std.fmt.FormatOptions,
-                out_stream: var,
+                out_stream: anytype,
             ) !void {
-                if (fmt.len > 0 and fmt[0] == 's') { 
-                    if (
-                        @enumToInt(self) >= @enumToInt(WindowsVersion.nt4) and @enumToInt(self) <= @enumToInt(WindowsVersion.win10_19h1)
-                    ) {
+                if (fmt.len > 0 and fmt[0] == 's') {
+                    if (@enumToInt(self) >= @enumToInt(WindowsVersion.nt4) and @enumToInt(self) <= @enumToInt(WindowsVersion.win10_19h1)) {
                         try std.fmt.format(out_stream, ".{}", .{@tagName(self)});
                     } else {
-                        try std.fmt.format(out_stream,
-                            "@intToEnum(Target.Os.WindowsVersion, {})",
-                            .{ @enumToInt(self) }
-                        );
+                        try std.fmt.format(out_stream, "@intToEnum(Target.Os.WindowsVersion, {})", .{@enumToInt(self)});
                     }
                 } else {
-                    if (
-                        @enumToInt(self) >= @enumToInt(WindowsVersion.nt4) and @enumToInt(self) <= @enumToInt(WindowsVersion.win10_19h1)
-                    ) {
+                    if (@enumToInt(self) >= @enumToInt(WindowsVersion.nt4) and @enumToInt(self) <= @enumToInt(WindowsVersion.win10_19h1)) {
                         try std.fmt.format(out_stream, "WindowsVersion.{}", .{@tagName(self)});
                     } else {
                         try std.fmt.format(out_stream, "WindowsVersion(", .{@typeName(@This())});
@@ -1189,7 +1182,7 @@ pub const Target = struct {
     pub fn standardDynamicLinkerPath(self: Target) DynamicLinker {
         var result: DynamicLinker = .{};
         const S = struct {
-            fn print(r: *DynamicLinker, comptime fmt: []const u8, args: var) DynamicLinker {
+            fn print(r: *DynamicLinker, comptime fmt: []const u8, args: anytype) DynamicLinker {
                 r.max_byte = @intCast(u8, (std.fmt.bufPrint(&r.buffer, fmt, args) catch unreachable).len - 1);
                 return r.*;
             }

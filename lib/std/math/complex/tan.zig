@@ -5,7 +5,7 @@ const cmath = math.complex;
 const Complex = cmath.Complex;
 
 /// Returns the tanget of z.
-pub fn tan(z: var) Complex(@TypeOf(z.re)) {
+pub fn tan(z: anytype) Complex(@TypeOf(z.re)) {
     const T = @TypeOf(z.re);
     const q = Complex(T).new(-z.im, z.re);
     const r = cmath.tanh(q);

@@ -11,7 +11,7 @@ const cmath = math.complex;
 const Complex = cmath.Complex;
 
 /// Returns exp(z) scaled to avoid overflow.
-pub fn ldexp_cexp(z: var, expt: i32) @TypeOf(z) {
+pub fn ldexp_cexp(z: anytype, expt: i32) @TypeOf(z) {
     const T = @TypeOf(z.re);
 
     return switch (T) {

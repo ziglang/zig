@@ -385,7 +385,7 @@ test "@typeInfo does not force declarations into existence" {
 }
 
 test "defaut value for a var-typed field" {
-    const S = struct { x: var };
+    const S = struct { x: anytype };
     expect(@typeInfo(S).Struct.fields[0].default_value == null);
 }
 

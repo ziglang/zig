@@ -427,7 +427,7 @@ pub const Address = extern union {
         self: Address,
         comptime fmt: []const u8,
         options: std.fmt.FormatOptions,
-        out_stream: var,
+        out_stream: anytype,
     ) !void {
         switch (self.any.family) {
             os.AF_INET => {
@@ -1404,8 +1404,8 @@ fn resMSendRc(
 
 fn dnsParse(
     r: []const u8,
-    ctx: var,
-    comptime callback: var,
+    ctx: anytype,
+    comptime callback: anytype,
 ) !void {
     // This implementation is ported from musl libc.
     // A more idiomatic "ziggy" implementation would be welcome.

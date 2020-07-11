@@ -15,7 +15,7 @@ const math = std.math;
 ///  - round(+-0)   = +-0
 ///  - round(+-inf) = +-inf
 ///  - round(nan)   = nan
-pub fn round(x: var) @TypeOf(x) {
+pub fn round(x: anytype) @TypeOf(x) {
     const T = @TypeOf(x);
     return switch (T) {
         f32 => round32(x),

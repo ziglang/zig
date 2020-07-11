@@ -277,7 +277,7 @@ pub const Type = extern union {
         self: Type,
         comptime fmt: []const u8,
         options: std.fmt.FormatOptions,
-        out_stream: var,
+        out_stream: anytype,
     ) @TypeOf(out_stream).Error!void {
         comptime assert(fmt.len == 0);
         var ty = self;
@@ -590,7 +590,6 @@ pub const Type = extern union {
             .c_longdouble => return 16,
 
             .anyerror => return 2, // TODO revisit this when we have the concept of the error tag type
-
 
             .int_signed, .int_unsigned => {
                 const bits: u16 = if (self.cast(Payload.IntSigned)) |pl|

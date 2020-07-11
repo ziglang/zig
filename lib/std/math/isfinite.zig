@@ -4,7 +4,7 @@ const expect = std.testing.expect;
 const maxInt = std.math.maxInt;
 
 /// Returns whether x is a finite value.
-pub fn isFinite(x: var) bool {
+pub fn isFinite(x: anytype) bool {
     const T = @TypeOf(x);
     switch (T) {
         f16 => {

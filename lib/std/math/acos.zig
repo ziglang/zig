@@ -12,7 +12,7 @@ const expect = std.testing.expect;
 ///
 /// Special cases:
 ///  - acos(x)   = nan if x < -1 or x > 1
-pub fn acos(x: var) @TypeOf(x) {
+pub fn acos(x: anytype) @TypeOf(x) {
     const T = @TypeOf(x);
     return switch (T) {
         f32 => acos32(x),

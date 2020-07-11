@@ -28,7 +28,7 @@ pub const Guid = extern struct {
         self: @This(),
         comptime f: []const u8,
         options: std.fmt.FormatOptions,
-        out_stream: var,
+        out_stream: anytype,
     ) Errors!void {
         if (f.len == 0) {
             return std.fmt.format(out_stream, "{x:0>8}-{x:0>4}-{x:0>4}-{x:0>2}{x:0>2}-{x:0>12}", .{

@@ -227,7 +227,7 @@ pub const Value = extern union {
         self: Value,
         comptime fmt: []const u8,
         options: std.fmt.FormatOptions,
-        out_stream: var,
+        out_stream: anytype,
     ) !void {
         comptime assert(fmt.len == 0);
         var val = self;

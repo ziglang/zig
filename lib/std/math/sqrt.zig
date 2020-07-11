@@ -13,7 +13,7 @@ const maxInt = std.math.maxInt;
 ///  - sqrt(x)     = nan if x < 0
 ///  - sqrt(nan)   = nan
 /// TODO Decide if all this logic should be implemented directly in the @sqrt bultin function.
-pub fn sqrt(x: var) Sqrt(@TypeOf(x)) {
+pub fn sqrt(x: anytype) Sqrt(@TypeOf(x)) {
     const T = @TypeOf(x);
     switch (@typeInfo(T)) {
         .Float, .ComptimeFloat => return @sqrt(x),

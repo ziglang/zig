@@ -40,7 +40,7 @@ pub fn LoggingAllocator(comptime OutStreamType: type) type {
             if (new_len == 0) {
                 self.out_stream.print("free  : {}\n", .{buf.len}) catch {};
             } else if (new_len <= buf.len) {
-                self.out_stream.print("shrink: {} to {}\n", .{buf.len, new_len}) catch {};
+                self.out_stream.print("shrink: {} to {}\n", .{ buf.len, new_len }) catch {};
             } else {
                 self.out_stream.print("expand: {} to {}", .{ buf.len, new_len }) catch {};
             }
@@ -60,7 +60,7 @@ pub fn LoggingAllocator(comptime OutStreamType: type) type {
 
 pub fn loggingAllocator(
     parent_allocator: *Allocator,
-    out_stream: var,
+    out_stream: anytype,
 ) LoggingAllocator(@TypeOf(out_stream)) {
     return LoggingAllocator(@TypeOf(out_stream)).init(parent_allocator, out_stream);
 }

@@ -9,7 +9,7 @@ const math = std.math;
 const expect = std.testing.expect;
 
 /// Returns x * 2^n.
-pub fn scalbn(x: var, n: i32) @TypeOf(x) {
+pub fn scalbn(x: anytype, n: i32) @TypeOf(x) {
     const T = @TypeOf(x);
     return switch (T) {
         f32 => scalbn32(x, n),

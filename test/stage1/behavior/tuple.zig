@@ -42,7 +42,7 @@ test "tuple multiplication" {
     comptime S.doTheTest();
 
     const T = struct {
-        fn consume_tuple(tuple: var, len: usize) void {
+        fn consume_tuple(tuple: anytype, len: usize) void {
             expect(tuple.len == len);
         }
 
@@ -82,7 +82,7 @@ test "tuple multiplication" {
 
 test "pass tuple to comptime var parameter" {
     const S = struct {
-        fn Foo(comptime args: var) void {
+        fn Foo(comptime args: anytype) void {
             expect(args[0] == 1);
         }
 

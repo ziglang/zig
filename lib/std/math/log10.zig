@@ -16,7 +16,7 @@ const maxInt = std.math.maxInt;
 ///  - log10(0)     = -inf
 ///  - log10(x)     = nan if x < 0
 ///  - log10(nan)   = nan
-pub fn log10(x: var) @TypeOf(x) {
+pub fn log10(x: anytype) @TypeOf(x) {
     const T = @TypeOf(x);
     switch (@typeInfo(T)) {
         .ComptimeFloat => {

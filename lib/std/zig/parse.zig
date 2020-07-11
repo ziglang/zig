@@ -2955,7 +2955,7 @@ const Parser = struct {
 
     const NodeParseFn = fn (p: *Parser) Error!?*Node;
 
-    fn ListParseFn(comptime E: type, comptime nodeParseFn: var) ParseFn([]E) {
+    fn ListParseFn(comptime E: type, comptime nodeParseFn: anytype) ParseFn([]E) {
         return struct {
             pub fn parse(p: *Parser) ![]E {
                 var list = std.ArrayList(E).init(p.gpa);

@@ -9,7 +9,7 @@ const meta = @import("../meta.zig");
 
 pub const TraitFn = fn (type) bool;
 
-pub fn multiTrait(comptime traits: var) TraitFn {
+pub fn multiTrait(comptime traits: anytype) TraitFn {
     const Closure = struct {
         pub fn trait(comptime T: type) bool {
             inline for (traits) |t|
@@ -342,7 +342,7 @@ test "std.meta.trait.isContainer" {
     testing.expect(!isContainer(u8));
 }
 
-pub fn hasDecls(comptime T: type, comptime names: var) bool {
+pub fn hasDecls(comptime T: type, comptime names: anytype) bool {
     inline for (names) |name| {
         if (!@hasDecl(T, name))
             return false;
@@ -368,7 +368,7 @@ test "std.meta.trait.hasDecls" {
     testing.expect(!hasDecls(TestStruct2, tuple));
 }
 
-pub fn hasFields(comptime T: type, comptime names: var) bool {
+pub fn hasFields(comptime T: type, comptime names: anytype) bool {
     inline for (names) |name| {
         if (!@hasField(T, name))
             return false;
@@ -394,7 +394,7 @@ test "std.meta.trait.hasFields" {
     testing.expect(!hasFields(TestStruct2, .{ "a", "b", "useless" }));
 }
 
-pub fn hasFunctions(comptime T: type, comptime names: var) bool {
+pub fn hasFunctions(comptime T: type, comptime names: anytype) bool {
     inline for (names) |name| {
         if (!hasFn(name)(T))
             return false;

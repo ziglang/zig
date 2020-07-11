@@ -65,7 +65,7 @@ pub fn Group(comptime ReturnType: type) type {
         /// allocated by the group and freed by `wait`.
         /// `func` must be async and have return type `ReturnType`.
         /// Thread-safe.
-        pub fn call(self: *Self, comptime func: var, args: var) error{OutOfMemory}!void {
+        pub fn call(self: *Self, comptime func: anytype, args: anytype) error{OutOfMemory}!void {
             var frame = try self.allocator.create(@TypeOf(@call(.{ .modifier = .async_kw }, func, args)));
             errdefer self.allocator.destroy(frame);
             const node = try self.allocator.create(AllocStack.Node);

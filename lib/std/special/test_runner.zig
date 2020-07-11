@@ -79,9 +79,9 @@ pub fn log(
     comptime message_level: std.log.Level,
     comptime scope: @Type(.EnumLiteral),
     comptime format: []const u8,
-    args: var,
+    args: anytype,
 ) void {
     if (@enumToInt(message_level) <= @enumToInt(std.testing.log_level)) {
-        std.debug.print("[{}] ({}): " ++ format, .{@tagName(scope), @tagName(message_level)} ++ args);
+        std.debug.print("[{}] ({}): " ++ format, .{ @tagName(scope), @tagName(message_level) } ++ args);
     }
 }

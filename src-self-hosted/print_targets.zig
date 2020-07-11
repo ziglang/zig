@@ -62,7 +62,7 @@ pub fn cmdTargets(
     allocator: *Allocator,
     args: []const []const u8,
     /// Output stream
-    stdout: var,
+    stdout: anytype,
     native_target: Target,
 ) !void {
     const available_glibcs = blk: {

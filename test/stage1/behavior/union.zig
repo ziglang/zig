@@ -296,7 +296,7 @@ const TaggedUnionWithAVoid = union(enum) {
     B: i32,
 };
 
-fn testTaggedUnionInit(x: var) bool {
+fn testTaggedUnionInit(x: anytype) bool {
     const y = TaggedUnionWithAVoid{ .A = x };
     return @as(@TagType(TaggedUnionWithAVoid), y) == TaggedUnionWithAVoid.A;
 }

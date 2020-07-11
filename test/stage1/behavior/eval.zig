@@ -670,10 +670,10 @@ fn loopNTimes(comptime n: usize) void {
 }
 
 test "variable inside inline loop that has different types on different iterations" {
-    testVarInsideInlineLoop(.{true, @as(u32, 42)});
+    testVarInsideInlineLoop(.{ true, @as(u32, 42) });
 }
 
-fn testVarInsideInlineLoop(args: var) void {
+fn testVarInsideInlineLoop(args: anytype) void {
     comptime var i = 0;
     inline while (i < args.len) : (i += 1) {
         const x = args[i];
@@ -814,17 +814,16 @@ test "two comptime calls with array default initialized to undefined" {
             dynamic_linker: DynamicLinker = DynamicLinker{},
 
             pub fn parse() void {
-                var result: CrossTarget = .{ };
+                var result: CrossTarget = .{};
                 result.getCpuArch();
             }
 
-            pub fn getCpuArch(self: CrossTarget) void { }
+            pub fn getCpuArch(self: CrossTarget) void {}
         };
 
         const DynamicLinker = struct {
             buffer: [255]u8 = undefined,
         };
-
     };
 
     comptime {

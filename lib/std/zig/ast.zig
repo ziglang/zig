@@ -29,7 +29,7 @@ pub const Tree = struct {
         self.arena.promote(self.gpa).deinit();
     }
 
-    pub fn renderError(self: *Tree, parse_error: *const Error, stream: var) !void {
+    pub fn renderError(self: *Tree, parse_error: *const Error, stream: anytype) !void {
         return parse_error.render(self.token_ids, stream);
     }
 
@@ -167,7 +167,7 @@ pub const Error = union(enum) {
     DeclBetweenFields: DeclBetweenFields,
     InvalidAnd: InvalidAnd,
 
-    pub fn render(self: *const Error, tokens: []const Token.Id, stream: var) !void {
+    pub fn render(self: *const Error, tokens: []const Token.Id, stream: anytype) !void {
         switch (self.*) {
             .InvalidToken => |*x| return x.render(tokens, stream),
             .ExpectedContainerMembers => |*x| return x.render(tokens, stream),
@@ -322,7 +322,7 @@ pub const Error = union(enum) {
     pub const ExpectedCall = struct {
         node: *Node,
 
-        pub fn render(self: *const ExpectedCall, tokens: []const Token.Id, stream: var) !void {
+        pub fn render(self: *const ExpectedCall, tokens: []const Token.Id, stream: anytype) !void {
             return stream.print("expected " ++ @tagName(Node.Id.Call) ++ ", found {}", .{
                 @tagName(self.node.id),
             });
@@ -332,7 +332,7 @@ pub const Error = union(enum) {
     pub const ExpectedCallOrFnProto = struct {
         node: *Node,
 
-        pub fn render(self: *const ExpectedCallOrFnProto, tokens: []const Token.Id, stream: var) !void {
+        pub fn render(self: *const ExpectedCallOrFnProto, tokens: []const Token.Id, stream: anytype) !void {
             return stream.print("expected " ++ @tagName(Node.Id.Call) ++ " or " ++
                 @tagName(Node.Id.FnProto) ++ ", found {}", .{@tagName(self.node.id)});
         }
@@ -342,7 +342,7 @@ pub const Error = union(enum) {
         token: TokenIndex,
         expected_id: Token.Id,
 
-        pub fn render(self: *const ExpectedToken, tokens: []const Token.Id, stream: var) !void {
+        pub fn render(self: *const ExpectedToken, tokens: []const Token.Id, stream: anytype) !void {
             const found_token = tokens[self.token];
             switch (found_token) {
                 .Invalid => {
@@ -360,7 +360,7 @@ pub const Error = union(enum) {
         token: TokenIndex,
         end_id: Token.Id,
 
-        pub fn render(self: *const ExpectedCommaOrEnd, tokens: []const Token.Id, stream: var) !void {
+        pub fn render(self: *const ExpectedCommaOrEnd, tokens: []const Token.Id, stream: anytype) !void {
             const actual_token = tokens[self.token];
             return stream.print("expected ',' or '{}', found '{}'", .{
                 self.end_id.symbol(),
@@ -375,7 +375,7 @@ pub const Error = union(enum) {
 
             token: TokenIndex,
 
-            pub fn render(self: *const ThisError, tokens: []const Token.Id, stream: var) !void {
+            pub fn render(self: *const ThisError, tokens: []const Token.Id, stream: anytype) !void {
                 const actual_token = tokens[self.token];
                 return stream.print(msg, .{actual_token.symbol()});
             }
@@ -388,7 +388,7 @@ pub const Error = union(enum) {
 
             token: TokenIndex,
 
-            pub fn render(self: *const ThisError, tokens: []const Token.Id, stream: var) !void {
+            pub fn render(self: *const ThisError, tokens: []const Token.Id, stream: anytype) !void {
                 return stream.writeAll(msg);
             }
         };

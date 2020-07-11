@@ -348,7 +348,7 @@ pub const Headers = struct {
         self: Self,
         comptime fmt: []const u8,
         options: std.fmt.FormatOptions,
-        out_stream: var,
+        out_stream: anytype,
     ) !void {
         for (self.toSlice()) |entry| {
             try out_stream.writeAll(entry.name);

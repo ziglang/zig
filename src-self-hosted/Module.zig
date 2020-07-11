@@ -3575,7 +3575,7 @@ fn coerceArrayPtrToSlice(self: *Module, scope: *Scope, dest_type: Type, inst: *I
     return self.fail(scope, inst.src, "TODO implement coerceArrayPtrToSlice runtime instruction", .{});
 }
 
-fn fail(self: *Module, scope: *Scope, src: usize, comptime format: []const u8, args: var) InnerError {
+fn fail(self: *Module, scope: *Scope, src: usize, comptime format: []const u8, args: anytype) InnerError {
     @setCold(true);
     const err_msg = try ErrorMsg.create(self.gpa, src, format, args);
     return self.failWithOwnedErrorMsg(scope, src, err_msg);
@@ -3586,7 +3586,7 @@ fn failTok(
     scope: *Scope,
     token_index: ast.TokenIndex,
     comptime format: []const u8,
-    args: var,
+    args: anytype,
 ) InnerError {
     @setCold(true);
     const src = scope.tree().token_locs[token_index].start;
@@ -3598,7 +3598,7 @@ fn failNode(
     scope: *Scope,
     ast_node: *ast.Node,
     comptime format: []const u8,
-    args: var,
+    args: anytype,
 ) InnerError {
     @setCold(true);
     const src = scope.tree().token_locs[ast_node.firstToken()].start;
@@ -3662,7 +3662,7 @@ pub const ErrorMsg = struct {
     byte_offset: usize,
     msg: []const u8,
 
-    pub fn create(gpa: *Allocator, byte_offset: usize, comptime format: []const u8, args: var) !*ErrorMsg {
+    pub fn create(gpa: *Allocator, byte_offset: usize, comptime format: []const u8, args: anytype) !*ErrorMsg {
         const self = try gpa.create(ErrorMsg);
         errdefer gpa.destroy(self);
         self.* = try init(gpa, byte_offset, format, args);
@@ -3675,7 +3675,7 @@ pub const ErrorMsg = struct {
         gpa.destroy(self);
     }
 
-    pub fn init(gpa: *Allocator, byte_offset: usize, comptime format: []const u8, args: var) !ErrorMsg {
+    pub fn init(gpa: *Allocator, byte_offset: usize, comptime format: []const u8, args: anytype) !ErrorMsg {
         return ErrorMsg{
             .byte_offset = byte_offset,
             .msg = try std.fmt.allocPrint(gpa, format, args),

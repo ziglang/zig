@@ -42,7 +42,7 @@ pub fn log(
     comptime level: std.log.Level,
     comptime scope: @TypeOf(.EnumLiteral),
     comptime format: []const u8,
-    args: var,
+    args: anytype,
 ) void {
     if (@enumToInt(level) > @enumToInt(std.log.level))
         return;

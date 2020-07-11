@@ -126,7 +126,7 @@ const BinaryElfOutput = struct {
         return segment.p_offset <= section.elfOffset and (segment.p_offset + segment.p_filesz) >= (section.elfOffset + section.fileSize);
     }
 
-    fn sectionValidForOutput(shdr: var) bool {
+    fn sectionValidForOutput(shdr: anytype) bool {
         return shdr.sh_size > 0 and shdr.sh_type != elf.SHT_NOBITS and
             ((shdr.sh_flags & elf.SHF_ALLOC) == elf.SHF_ALLOC);
     }

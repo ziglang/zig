@@ -15,15 +15,20 @@ pub const ArenaAllocator = @import("heap/arena_allocator.zig").ArenaAllocator;
 
 const Allocator = mem.Allocator;
 
-usingnamespace if (comptime @hasDecl(c, "malloc_size")) struct {
-    pub const supports_malloc_size = true;
-    pub const malloc_size = c.malloc_size;
-} else if (comptime @hasDecl(c, "malloc_usable_size")) struct {
-    pub const supports_malloc_size = true;
-    pub const malloc_size = c.malloc_usable_size;
-} else struct {
-    pub const supports_malloc_size = false;
-};
+usingnamespace if (comptime @hasDecl(c, "malloc_size"))
+    struct {
+        pub const supports_malloc_size = true;
+        pub const malloc_size = c.malloc_size;
+    }
+else if (comptime @hasDecl(c, "malloc_usable_size"))
+    struct {
+        pub const supports_malloc_size = true;
+        pub const malloc_size = c.malloc_usable_size;
+    }
+else
+    struct {
+        pub const supports_malloc_size = false;
+    };
 
 pub const c_allocator = &c_allocator_state;
 var c_allocator_state = Allocator{
@@ -151,8 +156,7 @@ const PageAllocator = struct {
         }
 
         const maxDropLen = alignment - std.math.min(alignment, mem.page_size);
-        const allocLen = if (maxDropLen <= alignedLen - n) alignedLen
-            else mem.alignForward(alignedLen + maxDropLen, mem.page_size);
+        const allocLen = if (maxDropLen <= alignedLen - n) alignedLen else mem.alignForward(alignedLen + maxDropLen, mem.page_size);
         const slice = os.mmap(
             null,
             allocLen,
@@ -331,8 +335,7 @@ const WasmPageAllocator = struct {
     fn alloc(allocator: *Allocator, len: usize, alignment: u29, len_align: u29) error{OutOfMemory}![]u8 {
         const page_count = nPages(len);
         const page_idx = try allocPages(page_count, alignment);
-        return @intToPtr([*]u8, page_idx * mem.page_size)
-            [0..alignPageAllocLen(page_count * mem.page_size, len, len_align)];
+        return @intToPtr([*]u8, page_idx * mem.page_size)[0..alignPageAllocLen(page_count * mem.page_size, len, len_align)];
     }
     fn allocPages(page_count: usize, alignment: u29) !usize {
         {
@@ -452,7 +455,7 @@ pub const HeapAllocator = switch (builtin.os.tag) {
         fn resize(allocator: *Allocator, buf: []u8, new_size: usize, len_align: u29) error{OutOfMemory}!usize {
             const self = @fieldParentPtr(HeapAllocator, "allocator", allocator);
             if (new_size == 0) {
-                os.windows.HeapFree(self.heap_handle.?, 0, @intToPtr(*c_void ,getRecordPtr(buf).*));
+                os.windows.HeapFree(self.heap_handle.?, 0, @intToPtr(*c_void, getRecordPtr(buf).*));
                 return 0;
             }
 

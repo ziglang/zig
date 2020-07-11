@@ -67,8 +67,20 @@ fn test_cmp_optional_non_optional() void {
     // test evaluation is always lexical
     // ensure that the optional isn't always computed before the non-optional
     var mutable_state: i32 = 0;
-    _ = blk1: { mutable_state += 1; break :blk1 @as(?f64, 10.0); } != blk2: { expect(mutable_state == 1); break :blk2 @as(f64, 5.0); };
-    _ = blk1: { mutable_state += 1; break :blk1 @as(f64, 10.0); } != blk2: { expect(mutable_state == 2); break :blk2 @as(?f64, 5.0); };
+    _ = blk1: {
+        mutable_state += 1;
+        break :blk1 @as(?f64, 10.0);
+    } != blk2: {
+        expect(mutable_state == 1);
+        break :blk2 @as(f64, 5.0);
+    };
+    _ = blk1: {
+        mutable_state += 1;
+        break :blk1 @as(f64, 10.0);
+    } != blk2: {
+        expect(mutable_state == 2);
+        break :blk2 @as(?f64, 5.0);
+    };
 }
 
 test "passing an optional integer as a parameter" {

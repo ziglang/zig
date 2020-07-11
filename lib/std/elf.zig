@@ -517,7 +517,7 @@ pub fn readAllHeaders(allocator: *mem.Allocator, file: File) !AllHeaders {
     return hdrs;
 }
 
-pub fn int(is_64: bool, need_bswap: bool, int_32: var, int_64: var) @TypeOf(int_64) {
+pub fn int(is_64: bool, need_bswap: bool, int_32: anytype, int_64: anytype) @TypeOf(int_64) {
     if (is_64) {
         if (need_bswap) {
             return @byteSwap(@TypeOf(int_64), int_64);
@@ -529,7 +529,7 @@ pub fn int(is_64: bool, need_bswap: bool, int_32: var, int_64: var) @TypeOf(int_
     }
 }
 
-pub fn int32(need_bswap: bool, int_32: var, comptime Int64: var) Int64 {
+pub fn int32(need_bswap: bool, int_32: anytype, comptime Int64: anytype) Int64 {
     if (need_bswap) {
         return @byteSwap(@TypeOf(int_32), int_32);
     } else {

@@ -27,7 +27,7 @@ pub usingnamespace switch (std.Target.current.os.tag) {
     else => struct {},
 };
 
-pub fn getErrno(rc: var) u16 {
+pub fn getErrno(rc: anytype) u16 {
     if (rc == -1) {
         return @intCast(u16, _errno().*);
     } else {

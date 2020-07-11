@@ -14,7 +14,7 @@ const Complex = cmath.Complex;
 const ldexp_cexp = @import("ldexp.zig").ldexp_cexp;
 
 /// Returns the hyperbolic sine of z.
-pub fn sinh(z: var) @TypeOf(z) {
+pub fn sinh(z: anytype) @TypeOf(z) {
     const T = @TypeOf(z.re);
     return switch (T) {
         f32 => sinh32(z),

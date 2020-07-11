@@ -135,5 +135,5 @@ fn analyzeInst(arena: *std.mem.Allocator, table: *std.AutoHashMap(*ir.Inst, void
         }
     }
 
-    std.log.debug(.liveness, "analyze {}: 0b{b}\n", .{inst.base.tag, inst.base.deaths});
+    std.log.debug(.liveness, "analyze {}: 0b{b}\n", .{ inst.base.tag, inst.base.deaths });
 }

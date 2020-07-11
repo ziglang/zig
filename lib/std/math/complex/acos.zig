@@ -5,7 +5,7 @@ const cmath = math.complex;
 const Complex = cmath.Complex;
 
 /// Returns the arc-cosine of z.
-pub fn acos(z: var) Complex(@TypeOf(z.re)) {
+pub fn acos(z: anytype) Complex(@TypeOf(z.re)) {
     const T = @TypeOf(z.re);
     const q = cmath.asin(z);
     return Complex(T).new(@as(T, math.pi) / 2 - q.re, -q.im);

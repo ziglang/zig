@@ -170,7 +170,7 @@ pub fn BitReader(endian: builtin.Endian, comptime ReaderType: type) type {
 
 pub fn bitReader(
     comptime endian: builtin.Endian,
-    underlying_stream: var,
+    underlying_stream: anytype,
 ) BitReader(endian, @TypeOf(underlying_stream)) {
     return BitReader(endian, @TypeOf(underlying_stream)).init(underlying_stream);
 }

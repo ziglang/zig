@@ -1016,7 +1016,7 @@ test "@asyncCall using the result location inside the frame" {
 
 test "@TypeOf an async function call of generic fn with error union type" {
     const S = struct {
-        fn func(comptime x: var) anyerror!i32 {
+        fn func(comptime x: anytype) anyerror!i32 {
             const T = @TypeOf(async func(x));
             comptime expect(T == @TypeOf(@frame()).Child);
             return undefined;
@@ -1032,7 +1032,7 @@ test "using @TypeOf on a generic function call" {
 
         var buf: [100]u8 align(16) = undefined;
 
-        fn amain(x: var) void {
+        fn amain(x: anytype) void {
             if (x == 0) {
                 global_ok = true;
                 return;
@@ -1057,7 +1057,7 @@ test "recursive call of await @asyncCall with struct return type" {
 
         var buf: [100]u8 align(16) = undefined;
 
-        fn amain(x: var) Foo {
+        fn amain(x: anytype) Foo {
             if (x == 0) {
                 global_ok = true;
                 return Foo{ .x = 1, .y = 2, .z = 3 };
@@ -1336,7 +1336,7 @@ test "async function passed 0-bit arg after non-0-bit arg" {
             bar(1, .{}) catch unreachable;
         }
 
-        fn bar(x: i32, args: var) anyerror!void {
+        fn bar(x: i32, args: anytype) anyerror!void {
             global_frame = @frame();
             suspend;
             global_int = x;
@@ -1357,7 +1357,7 @@ test "async function passed align(16) arg after align(8) arg" {
             bar(10, .{a}) catch unreachable;
         }
 
-        fn bar(x: u64, args: var) anyerror!void {
+        fn bar(x: u64, args: anytype) anyerror!void {
             expect(x == 10);
             global_frame = @frame();
             suspend;
