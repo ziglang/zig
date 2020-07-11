@@ -273,8 +273,8 @@ pub fn main() !void {
       </p>
       <p>
         In the <code>hello.zig</code> code sample, the <code>main</code> function is declared
-        with the {#syntax#}!void{#endsyntax#} return type. This return type tells the Zig compiler,
-        and other people reading the code, the function will not return a value and it <i>might</i> fail.
+        with the {#syntax#}!void{#endsyntax#} return type. This return type tells the Zig compiler
+        and other people reading the code that the function will not return a value and it <i>might</i> fail.
         The {#syntax#}!{#endsyntax#} (bang, exclamation mark) before the {#syntax#}void{#endsyntax#}
         {#link|type|Primitive Types#} is what tells the Zig compiler an {#link|error|Errors#} <i>might</i>
         occur. The {#syntax#}void{#endsyntax#} return type tells the Zig compiler the <code>main</code>
