@@ -2679,7 +2679,7 @@ static AstNode *ast_parse_prefix_type_op(ParseContext *pc) {
 
             if (eat_token_if(pc, TokenIdKeywordAlign) != nullptr) {
                 expect_token(pc, TokenIdLParen);
-                AstNode *align_expr = ast_parse_expr(pc);
+                AstNode *align_expr = ast_expect(pc, ast_parse_expr);
                 child->data.pointer_type.align_expr = align_expr;
                 if (eat_token_if(pc, TokenIdColon) != nullptr) {
                     Token *bit_offset_start = expect_token(pc, TokenIdIntLiteral);
