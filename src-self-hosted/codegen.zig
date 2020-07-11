@@ -1642,6 +1642,29 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             if (!inst.is_volatile and inst.base.isUnused())
                 return MCValue.dead;
             switch (arch) {
+                .spu_2 => {
+                    if (inst.inputs.len > 0 or inst.output != null) {
+                        return self.fail(inst.base.src, "TODO implement inline asm inputs / outputs for SPU Mark II", .{});
+                    }
+                    if (mem.eql(u8, inst.asm_source, "undefined0")) {
+                        // Instructions are 16-bits, plus up to two sixteen bit immediates.
+                        // Upper three bits of first byte are the execution
+                        // condition; for now, only always (0b000) is supported.
+                        // Next, there are two two-bit sequences indicating inputs;
+                        // we only care to use zero (0b00).
+                        // The lowest bit of byte one indicates whether flags
+                        // should be updated; TODO: support that somehow.
+                        // In all, we use a zero byte for the first half of the
+                        // instruction.
+                        // The second byte is 0bOOCCCCCR; OO is output behavior (we
+                        // use zero, which discards the output), CCCCC is the
+                        // command (8 for undefined0), R is reserved.
+                        try self.code.appendSlice(&[_]u8{ 0x00, 0b00010000 });
+                        return MCValue.none;
+                    } else {
+                        return self.fail(inst.base.src, "TODO implement support for more SPU II assembly instructions", .{});
+                    }
+                },
                 .riscv64 => {
                     for (inst.inputs) |input, i| {
                         if (input.len < 3 or input[0] != '{' or input[input.len - 1] != '}') {
