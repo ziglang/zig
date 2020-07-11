@@ -422,10 +422,10 @@ test "zig fmt: asm expression with comptime content" {
     );
 }
 
-test "zig fmt: var struct field" {
+test "zig fmt: anytype struct field" {
     try testCanonical(
         \\pub const Pointer = struct {
-        \\    sentinel: var,
+        \\    sentinel: anytype,
         \\};
         \\
     );
@@ -1932,7 +1932,7 @@ test "zig fmt: preserve spacing" {
 test "zig fmt: return types" {
     try testCanonical(
         \\pub fn main() !void {}
-        \\pub fn main() var {}
+        \\pub fn main() anytype {}
         \\pub fn main() i32 {}
         \\
     );
@@ -2140,9 +2140,9 @@ test "zig fmt: call expression" {
     );
 }
 
-test "zig fmt: var type" {
+test "zig fmt: anytype type" {
     try testCanonical(
-        \\fn print(args: var) var {}
+        \\fn print(args: anytype) anytype {}
         \\
     );
 }
@@ -3176,6 +3176,22 @@ test "zig fmt: convert extern fn proto into callconv(.C)" {
     ,
         \\extern fn foo0() void {}
         \\const foo1 = fn () callconv(.C) void;
+        \\
+    );
+}
+
+test "zig fmt: convert var to anytype" {
+    // TODO remove in next release cycle
+    try testTransform(
+        \\pub fn main(
+        \\    a: var,
+        \\    bar: var,
+        \\) void {}
+    ,
+        \\pub fn main(
+        \\    a: anytype,
+        \\    bar: anytype,
+        \\) void {}
         \\
     );
 }
