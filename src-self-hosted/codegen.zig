@@ -1251,36 +1251,61 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         fn genAsm(self: *Self, inst: *ir.Inst.Assembly) !MCValue {
             if (!inst.is_volatile and inst.base.isUnused())
                 return MCValue.dead;
-            if (arch != .x86_64 and arch != .i386) {
-                return self.fail(inst.base.src, "TODO implement inline asm support for more architectures", .{});
-            }
-            for (inst.inputs) |input, i| {
-                if (input.len < 3 or input[0] != '{' or input[input.len - 1] != '}') {
-                    return self.fail(inst.base.src, "unrecognized asm input constraint: '{}'", .{input});
-                }
-                const reg_name = input[1 .. input.len - 1];
-                const reg = parseRegName(reg_name) orelse
-                    return self.fail(inst.base.src, "unrecognized register: '{}'", .{reg_name});
-                const arg = try self.resolveInst(inst.args[i]);
-                try self.genSetReg(inst.base.src, reg, arg);
-            }
+            switch (arch) {
+                .spu_2 => {
+                    if (inst.inputs.len > 0 or inst.output != null) {
+                        return self.fail(inst.base.src, "TODO implement inline asm inputs / outputs for SPU Mark II", .{});
+                    }
+                    if (mem.eql(u8, inst.asm_source, "undefined0")) {
+                        // Instructions are 16-bits, plus up to two sixteen bit immediates.
+                        // Upper three bits of first byte are the execution
+                        // condition; for now, only always (0b000) is supported.
+                        // Next, there are two two-bit sequences indicating inputs;
+                        // we only care to use zero (0b00).
+                        // The lowest bit of byte one indicates whether flags
+                        // should be updated; TODO: support that somehow.
+                        // In all, we use a zero byte for the first half of the
+                        // instruction.
+                        // The second byte is 0bOOCCCCCR; OO is output behavior (we
+                        // use zero, which discards the output), CCCCC is the
+                        // command (8 for undefined0), R is reserved.
+                        try self.code.appendSlice(&[_]u8{ 0x00, 0b00010000 });
+                        return MCValue.none;
+                    } else {
+                        return self.fail(inst.base.src, "TODO implement support for more SPU II assembly instructions", .{});
+                    }
+                },
+                .x86_64, .i386 => {
+                    for (inst.inputs) |input, i| {
+                        if (input.len < 3 or input[0] != '{' or input[input.len - 1] != '}') {
+                            return self.fail(inst.base.src, "unrecognized asm input constraint: '{}'", .{input});
+                        }
+                        const reg_name = input[1 .. input.len - 1];
+                        const reg = parseRegName(reg_name) orelse
+                            return self.fail(inst.base.src, "unrecognized register: '{}'", .{reg_name});
+                        const arg = try self.resolveInst(inst.args[i]);
+                        try self.genSetReg(inst.base.src, reg, arg);
+                    }
 
-            if (mem.eql(u8, inst.asm_source, "syscall")) {
-                try self.code.appendSlice(&[_]u8{ 0x0f, 0x05 });
-            } else {
-                return self.fail(inst.base.src, "TODO implement support for more x86 assembly instructions", .{});
-            }
+                    if (mem.eql(u8, inst.asm_source, "syscall")) {
+                        try self.code.appendSlice(&[_]u8{ 0x0f, 0x05 });
+                    } else {
+                        return self.fail(inst.base.src, "TODO implement support for more x86 assembly instructions", .{});
+                    }
 
-            if (inst.output) |output| {
-                if (output.len < 4 or output[0] != '=' or output[1] != '{' or output[output.len - 1] != '}') {
-                    return self.fail(inst.base.src, "unrecognized asm output constraint: '{}'", .{output});
-                }
-                const reg_name = output[2 .. output.len - 1];
-                const reg = parseRegName(reg_name) orelse
-                    return self.fail(inst.base.src, "unrecognized register: '{}'", .{reg_name});
-                return MCValue{ .register = reg };
-            } else {
-                return MCValue.none;
+                    if (inst.output) |output| {
+                        if (output.len < 4 or output[0] != '=' or output[1] != '{' or output[output.len - 1] != '}') {
+                            return self.fail(inst.base.src, "unrecognized asm output constraint: '{}'", .{output});
+                        }
+                        const reg_name = output[2 .. output.len - 1];
+                        const reg = parseRegName(reg_name) orelse
+                            return self.fail(inst.base.src, "unrecognized register: '{}'", .{reg_name});
+                        return MCValue{ .register = reg };
+                    } else {
+                        return MCValue.none;
+                    }
+                },
+                else => return self.fail(inst.base.src, "TODO implement inline asm support for more architectures", .{}),
             }
         }
 
