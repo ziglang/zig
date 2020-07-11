@@ -434,7 +434,7 @@ pub const Node = struct {
         Suspend,
 
         // Type expressions
-        VarType,
+        AnyType,
         ErrorType,
         FnProto,
         AnyFrameType,
@@ -2732,19 +2732,19 @@ pub const Node = struct {
         }
     };
 
-    pub const VarType = struct {
-        base: Node = Node{ .id = .VarType },
+    pub const AnyType = struct {
+        base: Node = Node{ .id = .AnyType },
         token: TokenIndex,
 
-        pub fn iterate(self: *const VarType, index: usize) ?*Node {
+        pub fn iterate(self: *const AnyType, index: usize) ?*Node {
             return null;
         }
 
-        pub fn firstToken(self: *const VarType) TokenIndex {
+        pub fn firstToken(self: *const AnyType) TokenIndex {
             return self.token;
         }
 
-        pub fn lastToken(self: *const VarType) TokenIndex {
+        pub fn lastToken(self: *const AnyType) TokenIndex {
             return self.token;
         }
     };

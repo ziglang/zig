@@ -488,7 +488,7 @@ const Parser = struct {
         return p.parseUse();
     }
 
-    /// FnProto <- KEYWORD_fn IDENTIFIER? LPAREN ParamDeclList RPAREN ByteAlign? LinkSection? EXCLAMATIONMARK? (KEYWORD_var / TypeExpr)
+    /// FnProto <- KEYWORD_fn IDENTIFIER? LPAREN ParamDeclList RPAREN ByteAlign? LinkSection? EXCLAMATIONMARK? (Keyword_anytype / TypeExpr)
     fn parseFnProto(p: *Parser) !?*Node {
         // TODO: Remove once extern/async fn rewriting is
         var is_async = false;
@@ -618,9 +618,9 @@ const Parser = struct {
         var align_expr: ?*Node = null;
         var type_expr: ?*Node = null;
         if (p.eatToken(.Colon)) |_| {
-            if (p.eatToken(.Keyword_var)) |var_tok| {
-                const node = try p.arena.allocator.create(Node.VarType);
-                node.* = .{ .token = var_tok };
+            if (p.eatToken(.Keyword_anytype) orelse p.eatToken(.Keyword_var)) |anytype_tok| {
+                const node = try p.arena.allocator.create(Node.AnyType);
+                node.* = .{ .token = anytype_tok };
                 type_expr = &node.base;
             } else {
                 type_expr = try p.expectNode(parseTypeExpr, .{
@@ -2022,7 +2022,7 @@ const Parser = struct {
     }
 
     /// ParamType
-    ///     <- KEYWORD_var
+    ///     <- Keyword_anytype
     ///      / DOT3
     ///      / TypeExpr
     fn parseParamType(p: *Parser) !?Node.FnProto.ParamDecl.ParamType {
@@ -3058,8 +3058,9 @@ const Parser = struct {
     }
 
     fn parseVarType(p: *Parser) !?*Node {
-        const token = p.eatToken(.Keyword_var) orelse return null;
-        const node = try p.arena.allocator.create(Node.VarType);
+        const token = p.eatToken(.Keyword_anytype) orelse
+            p.eatToken(.Keyword_var) orelse return null; // TODO remove in next release cycle
+        const node = try p.arena.allocator.create(Node.AnyType);
         node.* = .{
             .token = token,
         };
