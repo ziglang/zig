@@ -343,16 +343,16 @@ pub fn main() void {
       {#header_close#}
       {#header_open|Comments#}
       {#code_begin|test|comments#}
-const assert = @import("std").debug.assert;
+const expect = @import("std").testing.expect;
 
 test "comments" {
     // Comments in Zig start with "//" and end at the next LF byte (end of line).
     // The below line is a comment, and won't be executed.
 
-    //assert(false);
+    //expect(false);
 
     const x = true;  // another comment
-    assert(x);
+    expect(x);
 }
       {#code_end#}
       <p>
@@ -694,19 +694,19 @@ pub fn main() void {
       and character literals.
       </p>
       {#code_begin|test#}
-const assert = @import("std").debug.assert;
+const expect = @import("std").testing.expect;
 const mem = @import("std").mem;
 
 test "string literals" {
     const bytes = "hello";
-    assert(@TypeOf(bytes) == *const [5:0]u8);
-    assert(bytes.len == 5);
-    assert(bytes[1] == 'e');
-    assert(bytes[5] == 0);
-    assert('e' == '\x65');
-    assert('\u{1f4a9}' == 128169);
-    assert('💯' == 128175);
-    assert(mem.eql(u8, "hello", "h\x65llo"));
+    expect(@TypeOf(bytes) == *const [5:0]u8);
+    expect(bytes.len == 5);
+    expect(bytes[1] == 'e');
+    expect(bytes[5] == 0);
+    expect('e' == '\x65');
+    expect('\u{1f4a9}' == 128169);
+    expect('💯' == 128175);
+    expect(mem.eql(u8, "hello", "h\x65llo"));
 }
       {#code_end#}
       {#see_also|Arrays|Zig Test|Source Encoding#}
@@ -799,14 +799,14 @@ test "assignment" {
       <p>{#syntax#}const{#endsyntax#} applies to all of the bytes that the identifier immediately addresses. {#link|Pointers#} have their own const-ness.</p>
       <p>If you need a variable that you can modify, use the {#syntax#}var{#endsyntax#} keyword:</p>
       {#code_begin|test#}
-const assert = @import("std").debug.assert;
+const expect = @import("std").testing.expect;
 
 test "var" {
     var y: i32 = 5678;
 
     y += 1;
 
-    assert(y == 5679);
+    expect(y == 5679);
 }
       {#code_end#}
       <p>Variables must be initialized:</p>
@@ -820,12 +820,12 @@ test "initialization" {
       {#header_open|undefined#}
       <p>Use {#syntax#}undefined{#endsyntax#} to leave variables uninitialized:</p>
       {#code_begin|test#}
-const assert = @import("std").debug.assert;
+const expect = @import("std").testing.expect;
 
 test "init with undefined" {
     var x: i32 = undefined;
     x = 1;
-    assert(x == 1);
+    expect(x == 1);
 }
       {#code_end#}
       <p>
@@ -867,8 +867,8 @@ var y: i32 = add(10, x);
 const x: i32 = add(12, 34);
 
 test "global variables" {
-    assert(x == 46);
-    assert(y == 56);
+    expect(x == 46);
+    expect(y == 56);
 }
 
 fn add(a: i32, b: i32) i32 {
@@ -876,18 +876,18 @@ fn add(a: i32, b: i32) i32 {
 }
 
 const std = @import("std");
-const assert = std.debug.assert;
+const expect = std.testing.expect;
       {#code_end#}
       <p>
       Global variables may be declared inside a {#link|struct#}, {#link|union#}, or {#link|enum#}:
       </p>
       {#code_begin|test|namespaced_global#}
 const std = @import("std");
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 test "namespaced global variable" {
-    assert(foo() == 1235);
-    assert(foo() == 1236);
+    expect(foo() == 1235);
+    expect(foo() == 1236);
 }
 
 fn foo() i32 {
@@ -956,7 +956,7 @@ fn testTls(context: void) void {
       </p>
       {#code_begin|test|comptime_vars#}
 const std = @import("std");
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 test "comptime vars" {
     var x: i32 = 1;
@@ -965,8 +965,8 @@ test "comptime vars" {
     x += 1;
     y += 1;
 
-    assert(x == 2);
-    assert(y == 2);
+    expect(x == 2);
+    expect(y == 2);
 
     if (y != 2) {
         // This compile error never triggers because y is a comptime variable,
@@ -1755,7 +1755,7 @@ orelse catch
       {#header_close#}
       {#header_open|Arrays#}
       {#code_begin|test|arrays#}
-const assert = @import("std").debug.assert;
+const expect = @import("std").testing.expect;
 const mem = @import("std").mem;
 
 // array literal
@@ -1763,14 +1763,14 @@ const message = [_]u8{ 'h', 'e', 'l', 'l', 'o' };
 
 // get the size of an array
 comptime {
-    assert(message.len == 5);
+    expect(message.len == 5);
 }
 
 // A string literal is a pointer to an array literal.
 const same_message = "hello";
 
 comptime {
-    assert(mem.eql(u8, &message, same_message));
+    expect(mem.eql(u8, &message, same_message));
 }
 
 test "iterate over an array" {
@@ -1778,7 +1778,7 @@ test "iterate over an array" {
     for (message) |byte| {
         sum += byte;
     }
-    assert(sum == 'h' + 'e' + 'l' * 2 + 'o');
+    expect(sum == 'h' + 'e' + 'l' * 2 + 'o');
 }
 
 // modifiable array
@@ -1788,8 +1788,8 @@ test "modify an array" {
     for (some_integers) |*item, i| {
         item.* = @intCast(i32, i);
     }
-    assert(some_integers[10] == 10);
-    assert(some_integers[99] == 99);
+    expect(some_integers[10] == 10);
+    expect(some_integers[99] == 99);
 }
 
 // array concatenation works if the values are known
@@ -1798,7 +1798,7 @@ const part_one = [_]i32{ 1, 2, 3, 4 };
 const part_two = [_]i32{ 5, 6, 7, 8 };
 const all_of_it = part_one ++ part_two;
 comptime {
-    assert(mem.eql(i32, &all_of_it, &[_]i32{ 1, 2, 3, 4, 5, 6, 7, 8 }));
+    expect(mem.eql(i32, &all_of_it, &[_]i32{ 1, 2, 3, 4, 5, 6, 7, 8 }));
 }
 
 // remember that string literals are arrays
@@ -1806,21 +1806,21 @@ const hello = "hello";
 const world = "world";
 const hello_world = hello ++ " " ++ world;
 comptime {
-    assert(mem.eql(u8, hello_world, "hello world"));
+    expect(mem.eql(u8, hello_world, "hello world"));
 }
 
 // ** does repeating patterns
 const pattern = "ab" ** 3;
 comptime {
-    assert(mem.eql(u8, pattern, "ababab"));
+    expect(mem.eql(u8, pattern, "ababab"));
 }
 
 // initialize an array to zero
 const all_zero = [_]u16{0} ** 10;
 
 comptime {
-    assert(all_zero.len == 10);
-    assert(all_zero[5] == 0);
+    expect(all_zero.len == 10);
+    expect(all_zero[5] == 0);
 }
 
 // use compile-time code to initialize an array
@@ -1840,8 +1840,8 @@ const Point = struct {
 };
 
 test "compile-time array initalization" {
-    assert(fancy_array[4].x == 4);
-    assert(fancy_array[4].y == 8);
+    expect(fancy_array[4].x == 4);
+    expect(fancy_array[4].y == 8);
 }
 
 // call a function to initialize an array
@@ -1853,9 +1853,9 @@ fn makePoint(x: i32) Point {
     };
 }
 test "array initialization with function calls" {
-    assert(more_points[4].x == 3);
-    assert(more_points[4].y == 6);
-    assert(more_points.len == 10);
+    expect(more_points[4].x == 3);
+    expect(more_points[4].y == 6);
+    expect(more_points.len == 10);
 }
       {#code_end#}
       {#see_also|for|Slices#}
@@ -1865,14 +1865,14 @@ test "array initialization with function calls" {
       the type can be omitted from array literals:</p>
       {#code_begin|test|anon_list#}
 const std = @import("std");
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 test "anonymous list literal syntax" {
     var array: [4]u8 = .{11, 22, 33, 44};
-    assert(array[0] == 11);
-    assert(array[1] == 22);
-    assert(array[2] == 33);
-    assert(array[3] == 44);
+    expect(array[0] == 11);
+    expect(array[1] == 22);
+    expect(array[2] == 33);
+    expect(array[3] == 44);
 }
       {#code_end#}
       <p>
@@ -1881,18 +1881,18 @@ test "anonymous list literal syntax" {
       </p>
       {#code_begin|test|infer_list_literal#}
 const std = @import("std");
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 test "fully anonymous list literal" {
     dump(.{ @as(u32, 1234), @as(f64, 12.34), true, "hi"});
 }
 
 fn dump(args: anytype) void {
-    assert(args.@"0" == 1234);
-    assert(args.@"1" == 12.34);
-    assert(args.@"2");
-    assert(args.@"3"[0] == 'h');
-    assert(args.@"3"[1] == 'i');
+    expect(args.@"0" == 1234);
+    expect(args.@"1" == 12.34);
+    expect(args.@"2");
+    expect(args.@"3"[0] == 'h');
+    expect(args.@"3"[1] == 'i');
 }
       {#code_end#}
       {#header_close#}
@@ -1903,7 +1903,7 @@ fn dump(args: anytype) void {
       </p>
       {#code_begin|test|multidimensional#}
 const std = @import("std");
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 const mat4x4 = [4][4]f32{
     [_]f32{ 1.0, 0.0, 0.0, 0.0 },
@@ -1913,13 +1913,13 @@ const mat4x4 = [4][4]f32{
 };
 test "multidimensional arrays" {
     // Access the 2D array by indexing the outer array, and then the inner array.
-    assert(mat4x4[1][1] == 1.0);
+    expect(mat4x4[1][1] == 1.0);
 
     // Here we iterate with for loops.
     for (mat4x4) |row, row_index| {
         for (row) |cell, column_index| {
             if (row_index == column_index) {
-                assert(cell == 1.0);
+                expect(cell == 1.0);
             }
         }
     }
@@ -1934,14 +1934,14 @@ test "multidimensional arrays" {
       </p>
       {#code_begin|test|null_terminated_array#}
 const std = @import("std");
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 test "null terminated array" {
     const array = [_:0]u8 {1, 2, 3, 4};
 
-    assert(@TypeOf(array) == [4:0]u8);
-    assert(array.len == 4);
-    assert(array[4] == 0);
+    expect(@TypeOf(array) == [4:0]u8);
+    expect(array.len == 4);
+    expect(array[4] == 0);
 }
       {#code_end#}
       {#see_also|Sentinel-Terminated Pointers|Sentinel-Terminated Slices#}
@@ -2011,7 +2011,7 @@ test "null terminated array" {
         </ul>
         <p>Use {#syntax#}&x{#endsyntax#} to obtain a single-item pointer:</p>
         {#code_begin|test#}
-const assert = @import("std").debug.assert;
+const expect = @import("std").testing.expect;
 
 test "address of syntax" {
     // Get the address of a variable:
@@ -2019,17 +2019,17 @@ test "address of syntax" {
     const x_ptr = &x;
 
     // Dereference a pointer:
-    assert(x_ptr.* == 1234);
+    expect(x_ptr.* == 1234);
 
     // When you get the address of a const variable, you get a const pointer to a single item.
-    assert(@TypeOf(x_ptr) == *const i32);
+    expect(@TypeOf(x_ptr) == *const i32);
 
     // If you want to mutate the value, you'd need an address of a mutable variable:
     var y: i32 = 5678;
     const y_ptr = &y;
-    assert(@TypeOf(y_ptr) == *i32);
+    expect(@TypeOf(y_ptr) == *i32);
     y_ptr.* += 1;
-    assert(y_ptr.* == 5679);
+    expect(y_ptr.* == 5679);
 }
 
 test "pointer array access" {
@@ -2038,11 +2038,11 @@ test "pointer array access" {
     // does not support pointer arithmetic.
     var array = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
     const ptr = &array[2];
-    assert(@TypeOf(ptr) == *u8);
+    expect(@TypeOf(ptr) == *u8);
 
-    assert(array[2] == 3);
+    expect(array[2] == 3);
     ptr.* += 1;
-    assert(array[2] == 4);
+    expect(array[2] == 4);
 }
       {#code_end#}
       <p>
@@ -2055,22 +2055,22 @@ test "pointer array access" {
         we prefer slices to pointers.
       </p>
       {#code_begin|test#}
-const assert = @import("std").debug.assert;
+const expect = @import("std").testing.expect;
 
 test "pointer slicing" {
     var array = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
     const slice = array[2..4];
-    assert(slice.len == 2);
+    expect(slice.len == 2);
 
-    assert(array[3] == 4);
+    expect(array[3] == 4);
     slice[1] += 1;
-    assert(array[3] == 5);
+    expect(array[3] == 5);
 }
       {#code_end#}
       <p>Pointers work at compile-time too, as long as the code does not depend on
       an undefined memory layout:</p>
       {#code_begin|test#}
-const assert = @import("std").debug.assert;
+const expect = @import("std").testing.expect;
 
 test "comptime pointers" {
     comptime {
@@ -2078,26 +2078,26 @@ test "comptime pointers" {
         const ptr = &x;
         ptr.* += 1;
         x += 1;
-        assert(ptr.* == 3);
+        expect(ptr.* == 3);
     }
 }
       {#code_end#}
       <p>To convert an integer address into a pointer, use {#syntax#}@intToPtr{#endsyntax#}.
       To convert a pointer to an integer, use {#syntax#}@ptrToInt{#endsyntax#}:</p>
       {#code_begin|test#}
-const assert = @import("std").debug.assert;
+const expect = @import("std").testing.expect;
 
 test "@ptrToInt and @intToPtr" {
     const ptr = @intToPtr(*i32, 0xdeadbee0);
     const addr = @ptrToInt(ptr);
-    assert(@TypeOf(addr) == usize);
-    assert(addr == 0xdeadbee0);
+    expect(@TypeOf(addr) == usize);
+    expect(addr == 0xdeadbee0);
 }
       {#code_end#}
       <p>Zig is able to preserve memory addresses in comptime code, as long as
       the pointer is never dereferenced:</p>
       {#code_begin|test#}
-const assert = @import("std").debug.assert;
+const expect = @import("std").testing.expect;
 
 test "comptime @intToPtr" {
     comptime {
@@ -2105,8 +2105,8 @@ test "comptime @intToPtr" {
         // ptr is never dereferenced.
         const ptr = @intToPtr(*i32, 0xdeadbee0);
         const addr = @ptrToInt(ptr);
-        assert(@TypeOf(addr) == usize);
-        assert(addr == 0xdeadbee0);
+        expect(@TypeOf(addr) == usize);
+        expect(addr == 0xdeadbee0);
     }
 }
       {#code_end#}
@@ -2117,11 +2117,11 @@ test "comptime @intToPtr" {
       In the following code, loads and stores with {#syntax#}mmio_ptr{#endsyntax#} are guaranteed to all happen
       and in the same order as in source code:</p>
       {#code_begin|test#}
-const assert = @import("std").debug.assert;
+const expect = @import("std").testing.expect;
 
 test "volatile" {
     const mmio_ptr = @intToPtr(*volatile u8, 0x12345678);
-    assert(@TypeOf(mmio_ptr) == *volatile u8);
+    expect(@TypeOf(mmio_ptr) == *volatile u8);
 }
       {#code_end#}
       <p>
@@ -2137,25 +2137,25 @@ test "volatile" {
       </p>
       {#code_begin|test#}
 const std = @import("std");
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 test "pointer casting" {
     const bytes align(@alignOf(u32)) = [_]u8{ 0x12, 0x12, 0x12, 0x12 };
     const u32_ptr = @ptrCast(*const u32, &bytes);
-    assert(u32_ptr.* == 0x12121212);
+    expect(u32_ptr.* == 0x12121212);
 
     // Even this example is contrived - there are better ways to do the above than
     // pointer casting. For example, using a slice narrowing cast:
     const u32_value = std.mem.bytesAsSlice(u32, bytes[0..])[0];
-    assert(u32_value == 0x12121212);
+    expect(u32_value == 0x12121212);
 
     // And even another way, the most straightforward way to do it:
-    assert(@bitCast(u32, bytes) == 0x12121212);
+    expect(@bitCast(u32, bytes) == 0x12121212);
 }
 
 test "pointer child type" {
     // pointer types have a `child` field which tells you the type they point to.
-    assert((*u32).Child == u32);
+    expect((*u32).Child == u32);
 }
       {#code_end#}
       {#header_open|Alignment#}
@@ -2175,15 +2175,15 @@ test "pointer child type" {
       </p>
       {#code_begin|test#}
 const std = @import("std");
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 test "variable alignment" {
     var x: i32 = 1234;
     const align_of_i32 = @alignOf(@TypeOf(x));
-    assert(@TypeOf(&x) == *i32);
-    assert(*i32 == *align(align_of_i32) i32);
+    expect(@TypeOf(&x) == *i32);
+    expect(*i32 == *align(align_of_i32) i32);
     if (std.Target.current.cpu.arch == .x86_64) {
-        assert((*i32).alignment == 4);
+        expect((*i32).alignment == 4);
     }
 }
       {#code_end#}
@@ -2196,16 +2196,16 @@ test "variable alignment" {
       pointers to them get the specified alignment:
       </p>
       {#code_begin|test#}
-const assert = @import("std").debug.assert;
+const expect = @import("std").testing.expect;
 
 var foo: u8 align(4) = 100;
 
 test "global variable alignment" {
-    assert(@TypeOf(&foo).alignment == 4);
-    assert(@TypeOf(&foo) == *align(4) u8);
+    expect(@TypeOf(&foo).alignment == 4);
+    expect(@TypeOf(&foo) == *align(4) u8);
     const as_pointer_to_array: *[1]u8 = &foo;
     const as_slice: []u8 = as_pointer_to_array;
-    assert(@TypeOf(as_slice) == []align(4) u8);
+    expect(@TypeOf(as_slice) == []align(4) u8);
 }
 
 fn derp() align(@sizeOf(usize) * 2) i32 { return 1234; }
@@ -2213,9 +2213,9 @@ fn noop1() align(1) void {}
 fn noop4() align(4) void {}
 
 test "function alignment" {
-    assert(derp() == 1234);
-    assert(@TypeOf(noop1) == fn() align(1) void);
-    assert(@TypeOf(noop4) == fn() align(4) void);
+    expect(derp() == 1234);
+    expect(@TypeOf(noop1) == fn() align(1) void);
+    expect(@TypeOf(noop4) == fn() align(4) void);
     noop1();
     noop4();
 }
@@ -2232,7 +2232,7 @@ const std = @import("std");
 test "pointer alignment safety" {
     var array align(4) = [_]u32{ 0x11111111, 0x11111111 };
     const bytes = std.mem.sliceAsBytes(array[0..]);
-    std.debug.assert(foo(bytes) == 0x11111111);
+    std.testing.expect(foo(bytes) == 0x11111111);
 }
 fn foo(bytes: []u8) u32 {
     const slice4 = bytes[1..5];
@@ -2253,12 +2253,12 @@ fn foo(bytes: []u8) u32 {
       </p>
       {#code_begin|test|allowzero#}
 const std = @import("std");
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 test "allowzero" {
     var zero: usize = 0;
     var ptr = @intToPtr(*allowzero i32, zero);
-    assert(@ptrToInt(ptr) == 0);
+    expect(@ptrToInt(ptr) == 0);
 }
       {#code_end#}
       {#header_close#}
@@ -2290,7 +2290,7 @@ pub fn main() anyerror!void {
 
       {#header_open|Slices#}
       {#code_begin|test_safety|index out of bounds#}
-const assert = @import("std").debug.assert;
+const expect = @import("std").testing.expect;
 
 test "basic slices" {
     var array = [_]i32{ 1, 2, 3, 4 };
@@ -2300,14 +2300,14 @@ test "basic slices" {
     // Both can be accessed with the `len` field.
     var known_at_runtime_zero: usize = 0;
     const slice = array[known_at_runtime_zero..array.len];
-    assert(&slice[0] == &array[0]);
-    assert(slice.len == array.len);
+    expect(&slice[0] == &array[0]);
+    expect(slice.len == array.len);
 
     // Using the address-of operator on a slice gives a pointer to a single
     // item, while using the `ptr` field gives an unknown length pointer.
-    assert(@TypeOf(slice.ptr) == [*]i32);
-    assert(@TypeOf(&slice[0]) == *i32);
-    assert(@ptrToInt(slice.ptr) == @ptrToInt(&slice[0]));
+    expect(@TypeOf(slice.ptr) == [*]i32);
+    expect(@TypeOf(&slice[0]) == *i32);
+    expect(@ptrToInt(slice.ptr) == @ptrToInt(&slice[0]));
 
     // Slices have array bounds checking. If you try to access something out
     // of bounds, you'll get a safety check failure:
@@ -2320,7 +2320,7 @@ test "basic slices" {
       <p>This is one reason we prefer slices to pointers.</p>
       {#code_begin|test|slices#}
 const std = @import("std");
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 const mem = std.mem;
 const fmt = std.fmt;
 
@@ -2341,7 +2341,7 @@ test "using slices for strings" {
     // Generally, you can use UTF-8 and not worry about whether something is a
     // string. If you don't need to deal with individual characters, no need
     // to decode.
-    assert(mem.eql(u8, hello_world, "hello 世界"));
+    expect(mem.eql(u8, hello_world, "hello 世界"));
 }
 
 test "slice pointer" {
@@ -2351,16 +2351,16 @@ test "slice pointer" {
     // You can use slicing syntax to convert a pointer into a slice:
     const slice = ptr[0..5];
     slice[2] = 3;
-    assert(slice[2] == 3);
+    expect(slice[2] == 3);
     // The slice is mutable because we sliced a mutable pointer.
     // Furthermore, it is actually a pointer to an array, since the start
     // and end indexes were both comptime-known.
-    assert(@TypeOf(slice) == *[5]u8);
+    expect(@TypeOf(slice) == *[5]u8);
 
     // You can also slice a slice:
     const slice2 = slice[2..3];
-    assert(slice2.len == 1);
-    assert(slice2[0] == 3);
+    expect(slice2.len == 1);
+    expect(slice2[0] == 3);
 }
       {#code_end#}
       {#see_also|Pointers|for|Arrays#}
@@ -2374,13 +2374,13 @@ test "slice pointer" {
       </p>
       {#code_begin|test|null_terminated_slice#}
 const std = @import("std");
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 test "null terminated slice" {
     const slice: [:0]const u8 = "hello";
 
-    assert(slice.len == 5);
-    assert(slice[5] == 0);
+    expect(slice.len == 5);
+    expect(slice[5] == 0);
 }
       {#code_end#}
       {#see_also|Sentinel-Terminated Pointers|Sentinel-Terminated Arrays#}
@@ -2438,16 +2438,16 @@ const Vec3 = struct {
     }
 };
 
-const assert = @import("std").debug.assert;
+const expect = @import("std").testing.expect;
 test "dot product" {
     const v1 = Vec3.init(1.0, 0.0, 0.0);
     const v2 = Vec3.init(0.0, 1.0, 0.0);
-    assert(v1.dot(v2) == 0.0);
+    expect(v1.dot(v2) == 0.0);
 
     // Other than being available to call with dot syntax, struct methods are
     // not special. You can reference them as any other declaration inside
     // the struct:
-    assert(Vec3.dot(v1, v2) == 0.0);
+    expect(Vec3.dot(v1, v2) == 0.0);
 }
 
 // Structs can have global declarations.
@@ -2456,8 +2456,8 @@ const Empty = struct {
     pub const PI = 3.14;
 };
 test "struct namespaced variable" {
-    assert(Empty.PI == 3.14);
-    assert(@sizeOf(Empty) == 0);
+    expect(Empty.PI == 3.14);
+    expect(@sizeOf(Empty) == 0);
 
     // you can still instantiate an empty struct
     const does_nothing = Empty {};
@@ -2475,7 +2475,7 @@ test "field parent pointer" {
         .y = 0.5678,
     };
     setYBasedOnX(&point.x, 0.9);
-    assert(point.y == 0.9);
+    expect(point.y == 0.9);
 }
 
 // You can return a struct from a function. This is how we do generics
@@ -2497,19 +2497,19 @@ fn LinkedList(comptime T: type) type {
 test "linked list" {
     // Functions called at compile-time are memoized. This means you can
     // do this:
-    assert(LinkedList(i32) == LinkedList(i32));
+    expect(LinkedList(i32) == LinkedList(i32));
 
     var list = LinkedList(i32) {
         .first = null,
         .last = null,
         .len = 0,
     };
-    assert(list.len == 0);
+    expect(list.len == 0);
 
     // Since types are first class values you can instantiate the type
     // by assigning it to a variable:
     const ListOfInts = LinkedList(i32);
-    assert(ListOfInts == LinkedList(i32));
+    expect(ListOfInts == LinkedList(i32));
 
     var node = ListOfInts.Node {
         .prev = null,
@@ -2521,7 +2521,7 @@ test "linked list" {
         .last = &node,
         .len = 1,
     };
-    assert(list2.first.?.data == 1234);
+    expect(list2.first.?.data == 1234);
 }
       {#code_end#}
 
@@ -2582,7 +2582,7 @@ test "default struct initialization fields" {
       {#code_begin|test#}
 const std = @import("std");
 const builtin = std.builtin;
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 const Full = packed struct {
     number: u16,
@@ -2599,20 +2599,20 @@ test "@bitCast between packed structs" {
 }
 
 fn doTheTest() void {
-    assert(@sizeOf(Full) == 2);
-    assert(@sizeOf(Divided) == 2);
+    expect(@sizeOf(Full) == 2);
+    expect(@sizeOf(Divided) == 2);
     var full = Full{ .number = 0x1234 };
     var divided = @bitCast(Divided, full);
     switch (builtin.endian) {
         .Big => {
-            assert(divided.half1 == 0x12);
-            assert(divided.quarter3 == 0x3);
-            assert(divided.quarter4 == 0x4);
+            expect(divided.half1 == 0x12);
+            expect(divided.quarter3 == 0x3);
+            expect(divided.quarter4 == 0x4);
         },
         .Little => {
-            assert(divided.half1 == 0x34);
-            assert(divided.quarter3 == 0x2);
-            assert(divided.quarter4 == 0x1);
+            expect(divided.half1 == 0x34);
+            expect(divided.quarter3 == 0x2);
+            expect(divided.quarter4 == 0x1);
         },
     }
 }
@@ -2622,7 +2622,7 @@ fn doTheTest() void {
       </p>
       {#code_begin|test#}
 const std = @import("std");
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 const BitField = packed struct {
     a: u3,
@@ -2638,7 +2638,7 @@ var foo = BitField{
 
 test "pointer to non-byte-aligned field" {
     const ptr = &foo.b;
-    assert(ptr.* == 2);
+    expect(ptr.* == 2);
 }
       {#code_end#}
       <p>
@@ -2647,7 +2647,7 @@ test "pointer to non-byte-aligned field" {
       </p>
       {#code_begin|test_err|expected type#}
 const std = @import("std");
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 const BitField = packed struct {
     a: u3,
@@ -2662,7 +2662,7 @@ var bit_field = BitField{
 };
 
 test "pointer to non-bit-aligned field" {
-    assert(bar(&bit_field.b) == 2);
+    expect(bar(&bit_field.b) == 2);
 }
 
 fn bar(x: *const u3) u3 {
@@ -2678,7 +2678,7 @@ fn bar(x: *const u3) u3 {
       </p>
       {#code_begin|test#}
 const std = @import("std");
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 const BitField = packed struct {
     a: u3,
@@ -2693,8 +2693,8 @@ var bit_field = BitField{
 };
 
 test "pointer to non-bit-aligned field" {
-    assert(@ptrToInt(&bit_field.a) == @ptrToInt(&bit_field.b));
-    assert(@ptrToInt(&bit_field.a) == @ptrToInt(&bit_field.c));
+    expect(@ptrToInt(&bit_field.a) == @ptrToInt(&bit_field.b));
+    expect(@ptrToInt(&bit_field.a) == @ptrToInt(&bit_field.c));
 }
       {#code_end#}
       <p>
@@ -2702,7 +2702,7 @@ test "pointer to non-bit-aligned field" {
       </p>
       {#code_begin|test#}
 const std = @import("std");
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 const BitField = packed struct {
     a: u3,
@@ -2712,13 +2712,13 @@ const BitField = packed struct {
 
 test "pointer to non-bit-aligned field" {
     comptime {
-        assert(@bitOffsetOf(BitField, "a") == 0);
-        assert(@bitOffsetOf(BitField, "b") == 3);
-        assert(@bitOffsetOf(BitField, "c") == 6);
+        expect(@bitOffsetOf(BitField, "a") == 0);
+        expect(@bitOffsetOf(BitField, "b") == 3);
+        expect(@bitOffsetOf(BitField, "c") == 6);
 
-        assert(@byteOffsetOf(BitField, "a") == 0);
-        assert(@byteOffsetOf(BitField, "b") == 0);
-        assert(@byteOffsetOf(BitField, "c") == 0);
+        expect(@byteOffsetOf(BitField, "a") == 0);
+        expect(@byteOffsetOf(BitField, "b") == 0);
+        expect(@byteOffsetOf(BitField, "c") == 0);
     }
 }
       {#code_end#}
@@ -2789,7 +2789,7 @@ fn List(comptime T: type) type {
       </p>
       {#code_begin|test|struct_result#}
 const std = @import("std");
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 const Point = struct {x: i32, y: i32};
 
@@ -2798,8 +2798,8 @@ test "anonymous struct literal" {
         .x = 13,
         .y = 67,
     };
-    assert(pt.x == 13);
-    assert(pt.y == 67);
+    expect(pt.x == 13);
+    expect(pt.y == 67);
 }
       {#code_end#}
       <p>
@@ -2808,7 +2808,7 @@ test "anonymous struct literal" {
       </p>
       {#code_begin|test|struct_anon#}
 const std = @import("std");
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 test "fully anonymous struct" {
     dump(.{
@@ -2820,11 +2820,11 @@ test "fully anonymous struct" {
 }
 
 fn dump(args: anytype) void {
-    assert(args.int == 1234);
-    assert(args.float == 12.34);
-    assert(args.b);
-    assert(args.s[0] == 'h');
-    assert(args.s[1] == 'i');
+    expect(args.int == 1234);
+    expect(args.float == 12.34);
+    expect(args.b);
+    expect(args.s[0] == 'h');
+    expect(args.s[1] == 'i');
 }
       {#code_end#}
       {#header_close#}
@@ -2832,7 +2832,7 @@ fn dump(args: anytype) void {
       {#header_close#}
       {#header_open|enum#}
       {#code_begin|test|enums#}
-const assert = @import("std").debug.assert;
+const expect = @import("std").testing.expect;
 const mem = @import("std").mem;
 
 // Declare an enum.
@@ -2855,9 +2855,9 @@ const Value = enum(u2) {
 // Now you can cast between u2 and Value.
 // The ordinal value starts from 0, counting up for each member.
 test "enum ordinal value" {
-    assert(@enumToInt(Value.Zero) == 0);
-    assert(@enumToInt(Value.One) == 1);
-    assert(@enumToInt(Value.Two) == 2);
+    expect(@enumToInt(Value.Zero) == 0);
+    expect(@enumToInt(Value.One) == 1);
+    expect(@enumToInt(Value.Two) == 2);
 }
 
 // You can override the ordinal value for an enum.
@@ -2867,9 +2867,9 @@ const Value2 = enum(u32) {
     Million = 1000000,
 };
 test "set enum ordinal value" {
-    assert(@enumToInt(Value2.Hundred) == 100);
-    assert(@enumToInt(Value2.Thousand) == 1000);
-    assert(@enumToInt(Value2.Million) == 1000000);
+    expect(@enumToInt(Value2.Hundred) == 100);
+    expect(@enumToInt(Value2.Thousand) == 1000);
+    expect(@enumToInt(Value2.Million) == 1000000);
 }
 
 // Enums can have methods, the same as structs and unions.
@@ -2887,7 +2887,7 @@ const Suit = enum {
 };
 test "enum method" {
     const p = Suit.Spades;
-    assert(!p.isClubs());
+    expect(!p.isClubs());
 }
 
 // An enum variant of different types can be switched upon.
@@ -2903,7 +2903,7 @@ test "enum variant switch" {
         Foo.Number => "this is a number",
         Foo.None => "this is a none",
     };
-    assert(mem.eql(u8, what_is_it, "this is a number"));
+    expect(mem.eql(u8, what_is_it, "this is a number"));
 }
 
 // @TagType can be used to access the integer tag type of an enum.
@@ -2914,18 +2914,18 @@ const Small = enum {
     Four,
 };
 test "@TagType" {
-    assert(@TagType(Small) == u2);
+    expect(@TagType(Small) == u2);
 }
 
 // @typeInfo tells us the field count and the fields names:
 test "@typeInfo" {
-    assert(@typeInfo(Small).Enum.fields.len == 4);
-    assert(mem.eql(u8, @typeInfo(Small).Enum.fields[1].name, "Two"));
+    expect(@typeInfo(Small).Enum.fields.len == 4);
+    expect(mem.eql(u8, @typeInfo(Small).Enum.fields[1].name, "Two"));
 }
 
 // @tagName gives a []const u8 representation of an enum value:
 test "@tagName" {
-    assert(mem.eql(u8, @tagName(Small.Three), "Three"));
+    expect(mem.eql(u8, @tagName(Small.Three), "Three"));
 }
       {#code_end#}
       {#see_also|@typeInfo|@tagName|@sizeOf#}
@@ -2960,7 +2960,7 @@ test "packed enum" {
         Two,
         Three,
     };
-    std.debug.assert(@sizeOf(Number) == @sizeOf(u8));
+    std.testing.expect(@sizeOf(Number) == @sizeOf(u8));
 }
       {#code_end#}
       <p>This makes the enum eligible to be in a {#link|packed struct#}.</p>
@@ -2972,7 +2972,7 @@ test "packed enum" {
       </p>
       {#code_begin|test#}
 const std = @import("std");
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 const Color = enum {
     Auto,
@@ -2983,7 +2983,7 @@ const Color = enum {
 test "enum literals" {
     const color1: Color = .Auto;
     const color2 = Color.Auto;
-    assert(color1 == color2);
+    expect(color1 == color2);
 }
 
 test "switch using enum literals" {
@@ -2993,7 +2993,7 @@ test "switch using enum literals" {
         .On => true,
         .Off => false,
     };
-    assert(result);
+    expect(result);
 }
       {#code_end#}
       {#header_close#}
@@ -3012,7 +3012,7 @@ test "switch using enum literals" {
       </p>
       {#code_begin|test#}
 const std = @import("std");
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 const Number = enum(u8) {
     One,
@@ -3029,12 +3029,12 @@ test "switch on non-exhaustive enum" {
         .Three => false,
         _ => false,
     };
-    assert(result);
+    expect(result);
     const is_one = switch (number) {
         .One => true,
         else => false,
     };
-    assert(is_one);
+    expect(is_one);
 }
       {#code_end#}
       {#header_close#}
@@ -3065,7 +3065,7 @@ test "simple union" {
       <p>You can activate another field by assigning the entire union:</p>
       {#code_begin|test#}
 const std = @import("std");
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 const Payload = union {
     Int: i64,
@@ -3074,9 +3074,9 @@ const Payload = union {
 };
 test "simple union" {
     var payload = Payload{ .Int = 1234 };
-    assert(payload.Int == 1234);
+    expect(payload.Int == 1234);
     payload = Payload{ .Float = 12.34 };
-    assert(payload.Float == 12.34);
+    expect(payload.Float == 12.34);
 }
       {#code_end#}
       <p>
@@ -3095,7 +3095,7 @@ test "simple union" {
       </p>
       {#code_begin|test#}
 const std = @import("std");
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 const ComplexTypeTag = enum {
     Ok,
@@ -3108,24 +3108,24 @@ const ComplexType = union(ComplexTypeTag) {
 
 test "switch on tagged union" {
     const c = ComplexType{ .Ok = 42 };
-    assert(@as(ComplexTypeTag, c) == ComplexTypeTag.Ok);
+    expect(@as(ComplexTypeTag, c) == ComplexTypeTag.Ok);
 
     switch (c) {
-        ComplexTypeTag.Ok => |value| assert(value == 42),
+        ComplexTypeTag.Ok => |value| expect(value == 42),
         ComplexTypeTag.NotOk => unreachable,
     }
 }
 
 test "@TagType" {
-    assert(@TagType(ComplexType) == ComplexTypeTag);
+    expect(@TagType(ComplexType) == ComplexTypeTag);
 }
 
 test "coerce to enum" {
     const c1 = ComplexType{ .Ok = 42 };
     const c2 = ComplexType.NotOk;
 
-    assert(c1 == .Ok);
-    assert(c2 == .NotOk);
+    expect(c1 == .Ok);
+    expect(c2 == .NotOk);
 }
       {#code_end#}
       <p>In order to modify the payload of a tagged union in a switch expression,
@@ -3133,7 +3133,7 @@ test "coerce to enum" {
       </p>
       {#code_begin|test#}
 const std = @import("std");
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 const ComplexTypeTag = enum {
     Ok,
@@ -3146,14 +3146,14 @@ const ComplexType = union(ComplexTypeTag) {
 
 test "modify tagged union in switch" {
     var c = ComplexType{ .Ok = 42 };
-    assert(@as(ComplexTypeTag, c) == ComplexTypeTag.Ok);
+    expect(@as(ComplexTypeTag, c) == ComplexTypeTag.Ok);
 
     switch (c) {
         ComplexTypeTag.Ok => |*value| value.* += 1,
         ComplexTypeTag.NotOk => unreachable,
     }
 
-    assert(c.Ok == 43);
+    expect(c.Ok == 43);
 }
       {#code_end#}
       <p>
@@ -3162,7 +3162,7 @@ test "modify tagged union in switch" {
       </p>
       {#code_begin|test#}
 const std = @import("std");
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 const Variant = union(enum) {
     Int: i32,
@@ -3184,8 +3184,8 @@ test "union method" {
     var v1 = Variant{ .Int = 1 };
     var v2 = Variant{ .Bool = false };
 
-    assert(v1.truthy());
-    assert(!v2.truthy());
+    expect(v1.truthy());
+    expect(!v2.truthy());
 }
       {#code_end#}
       <p>
@@ -3194,7 +3194,7 @@ test "union method" {
       </p>
       {#code_begin|test#}
 const std = @import("std");
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 const Small2 = union(enum) {
     A: i32,
@@ -3202,7 +3202,7 @@ const Small2 = union(enum) {
     C: u8,
 };
 test "@tagName" {
-    assert(std.mem.eql(u8, @tagName(Small2.C), "C"));
+    expect(std.mem.eql(u8, @tagName(Small2.C), "C"));
 }
       {#code_end#}
       {#header_close#}
@@ -3225,7 +3225,7 @@ test "@tagName" {
       the type:</p>
       {#code_begin|test|anon_union#}
 const std = @import("std");
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 const Number = union {
     int: i32,
@@ -3235,8 +3235,8 @@ const Number = union {
 test "anonymous union literal syntax" {
     var i: Number = .{.int = 42};
     var f = makeNumber();
-    assert(i.int == 42);
-    assert(f.float == 12.34);
+    expect(i.int == 42);
+    expect(f.float == 12.34);
 }
 
 fn makeNumber() Number {
@@ -3264,7 +3264,7 @@ test "access variable after block scope" {
       </p>
       {#code_begin|test#}
 const std = @import("std");
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 test "labeled break from labeled block expression" {
     var y: i32 = 123;
@@ -3273,8 +3273,8 @@ test "labeled break from labeled block expression" {
         y += 1;
         break :blk y;
     };
-    assert(x == 124);
-    assert(y == 124);
+    expect(x == 124);
+    expect(y == 124);
 }
       {#code_end#}
       <p>Here, {#syntax#}blk{#endsyntax#} can be any name.</p>
@@ -3312,7 +3312,7 @@ test "separate scopes" {
       {#header_open|switch#}
       {#code_begin|test|switch#}
 const std = @import("std");
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 test "switch simple" {
     const a: u64 = 10;
@@ -3352,7 +3352,7 @@ test "switch simple" {
         else => 9,
     };
 
-    assert(b == 1);
+    expect(b == 1);
 }
 
 // Switch expressions can be used outside a function:
@@ -3382,7 +3382,7 @@ test "switch inside function" {
       turning it into a pointer.
       </p>
       {#code_begin|test#}
-const assert = @import("std").debug.assert;
+const expect = @import("std").testing.expect;
 
 test "switch on tagged union" {
     const Point = struct {
@@ -3415,8 +3415,8 @@ test "switch on tagged union" {
         Item.D => 8,
     };
 
-    assert(b == 6);
-    assert(a.C.x == 2);
+    expect(b == 6);
+    expect(a.C.x == 2);
 }
       {#code_end#}
       {#see_also|comptime|enum|@compileError|Compile Variables#}
@@ -3450,7 +3450,7 @@ test "exhaustive switching" {
       </p>
       {#code_begin|test#}
 const std = @import("std");
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 const Color = enum {
     Auto,
@@ -3465,7 +3465,7 @@ test "enum literals with switch" {
         .On => false,
         .Off => true,
     };
-    assert(result);
+    expect(result);
 }
       {#code_end#}
       {#header_close#}
@@ -3477,21 +3477,21 @@ test "enum literals with switch" {
       some condition is no longer true.
       </p>
       {#code_begin|test|while#}
-const assert = @import("std").debug.assert;
+const expect = @import("std").testing.expect;
 
 test "while basic" {
     var i: usize = 0;
     while (i < 10) {
         i += 1;
     }
-    assert(i == 10);
+    expect(i == 10);
 }
       {#code_end#}
       <p>
       Use {#syntax#}break{#endsyntax#} to exit a while loop early.
       </p>
       {#code_begin|test|while#}
-const assert = @import("std").debug.assert;
+const expect = @import("std").testing.expect;
 
 test "while break" {
     var i: usize = 0;
@@ -3500,14 +3500,14 @@ test "while break" {
             break;
         i += 1;
     }
-    assert(i == 10);
+    expect(i == 10);
 }
       {#code_end#}
       <p>
       Use {#syntax#}continue{#endsyntax#} to jump back to the beginning of the loop.
       </p>
       {#code_begin|test|while#}
-const assert = @import("std").debug.assert;
+const expect = @import("std").testing.expect;
 
 test "while continue" {
     var i: usize = 0;
@@ -3517,7 +3517,7 @@ test "while continue" {
             continue;
         break;
     }
-    assert(i == 10);
+    expect(i == 10);
 }
       {#code_end#}
       <p>
@@ -3525,12 +3525,12 @@ test "while continue" {
       is continued. The {#syntax#}continue{#endsyntax#} keyword respects this expression.
       </p>
       {#code_begin|test|while#}
-const assert = @import("std").debug.assert;
+const expect = @import("std").testing.expect;
 
 test "while loop continue expression" {
     var i: usize = 0;
     while (i < 10) : (i += 1) {}
-    assert(i == 10);
+    expect(i == 10);
 }
 
 test "while loop continue expression, more complicated" {
@@ -3538,7 +3538,7 @@ test "while loop continue expression, more complicated" {
     var j: usize = 1;
     while (i * j < 2000) : ({ i *= 2; j *= 3; }) {
         const my_ij = i * j;
-        assert(my_ij < 2000);
+        expect(my_ij < 2000);
     }
 }
       {#code_end#}
@@ -3554,11 +3554,11 @@ test "while loop continue expression, more complicated" {
       evaluated.
       </p>
       {#code_begin|test|while#}
-const assert = @import("std").debug.assert;
+const expect = @import("std").testing.expect;
 
 test "while else" {
-    assert(rangeHasNumber(0, 10, 5));
-    assert(!rangeHasNumber(0, 10, 15));
+    expect(rangeHasNumber(0, 10, 5));
+    expect(!rangeHasNumber(0, 10, 15));
 }
 
 fn rangeHasNumber(begin: usize, end: usize, number: usize) bool {
@@ -3607,7 +3607,7 @@ test "nested continue" {
       be executed on the first null value encountered.
       </p>
       {#code_begin|test|while#}
-const assert = @import("std").debug.assert;
+const expect = @import("std").testing.expect;
 
 test "while null capture" {
     var sum1: u32 = 0;
@@ -3615,14 +3615,14 @@ test "while null capture" {
     while (eventuallyNullSequence()) |value| {
         sum1 += value;
     }
-    assert(sum1 == 3);
+    expect(sum1 == 3);
 
     var sum2: u32 = 0;
     numbers_left = 3;
     while (eventuallyNullSequence()) |value| {
         sum2 += value;
     } else {
-        assert(sum2 == 3);
+        expect(sum2 == 3);
     }
 }
 
@@ -3649,7 +3649,7 @@ fn eventuallyNullSequence() ?u32 {
       the while condition must have an {#link|Error Union Type#}.
       </p>
       {#code_begin|test|while#}
-const assert = @import("std").debug.assert;
+const expect = @import("std").testing.expect;
 
 test "while error union capture" {
     var sum1: u32 = 0;
@@ -3657,7 +3657,7 @@ test "while error union capture" {
     while (eventuallyErrorSequence()) |value| {
         sum1 += value;
     } else |err| {
-        assert(err == error.ReachedZero);
+        expect(err == error.ReachedZero);
     }
 }
 
@@ -3679,7 +3679,7 @@ fn eventuallyErrorSequence() anyerror!u32 {
       such as use types as first class values.
       </p>
       {#code_begin|test#}
-const assert = @import("std").debug.assert;
+const expect = @import("std").testing.expect;
 
 test "inline while loop" {
     comptime var i = 0;
@@ -3693,7 +3693,7 @@ test "inline while loop" {
         };
         sum += typeNameLength(T);
     }
-    assert(sum == 9);
+    expect(sum == 9);
 }
 
 fn typeNameLength(comptime T: type) usize {
@@ -3714,7 +3714,7 @@ fn typeNameLength(comptime T: type) usize {
       {#header_close#}
       {#header_open|for#}
       {#code_begin|test|for#}
-const assert = @import("std").debug.assert;
+const expect = @import("std").testing.expect;
 
 test "for basics" {
     const items = [_]i32 { 4, 5, 3, 4, 0 };
@@ -3728,22 +3728,22 @@ test "for basics" {
         }
         sum += value;
     }
-    assert(sum == 16);
+    expect(sum == 16);
 
     // To iterate over a portion of a slice, reslice.
     for (items[0..1]) |value| {
         sum += value;
     }
-    assert(sum == 20);
+    expect(sum == 20);
 
     // To access the index of iteration, specify a second capture value.
     // This is zero-indexed.
     var sum2: i32 = 0;
     for (items) |value, i| {
-        assert(@TypeOf(i) == usize);
+        expect(@TypeOf(i) == usize);
         sum2 += @intCast(i32, i);
     }
-    assert(sum2 == 10);
+    expect(sum2 == 10);
 }
 
 test "for reference" {
@@ -3755,9 +3755,9 @@ test "for reference" {
         value.* += 1;
     }
 
-    assert(items[0] == 4);
-    assert(items[1] == 5);
-    assert(items[2] == 3);
+    expect(items[0] == 4);
+    expect(items[1] == 5);
+    expect(items[2] == 3);
 }
 
 test "for else" {
@@ -3772,10 +3772,10 @@ test "for else" {
             sum += value.?;
         }
     } else blk: {
-        assert(sum == 12);
+        expect(sum == 12);
         break :blk sum;
     };
-    assert(result == 12);
+    expect(result == 12);
 }
       {#code_end#}
       {#header_open|Labeled for#}
@@ -3783,7 +3783,7 @@ test "for else" {
               or {#syntax#}continue{#endsyntax#} from within a nested loop:</p>
       {#code_begin|test#}
 const std = @import("std");
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 test "nested break" {
     var count: usize = 0;
@@ -3793,7 +3793,7 @@ test "nested break" {
             break :outer;
         }
     }
-    assert(count == 1);
+    expect(count == 1);
 }
 
 test "nested continue" {
@@ -3805,7 +3805,7 @@ test "nested continue" {
         }
     }
 
-    assert(count == 8);
+    expect(count == 8);
 }
       {#code_end#}
       {#header_close#}
@@ -3818,7 +3818,7 @@ test "nested continue" {
       compile-time known.
       </p>
       {#code_begin|test#}
-const assert = @import("std").debug.assert;
+const expect = @import("std").testing.expect;
 
 test "inline for loop" {
     const nums = [_]i32{2, 4, 6};
@@ -3832,7 +3832,7 @@ test "inline for loop" {
         };
         sum += typeNameLength(T);
     }
-    assert(sum == 9);
+    expect(sum == 9);
 }
 
 fn typeNameLength(comptime T: type) usize {
@@ -3858,14 +3858,14 @@ fn typeNameLength(comptime T: type) usize {
 // * ?T
 // * anyerror!T
 
-const assert = @import("std").debug.assert;
+const expect = @import("std").testing.expect;
 
 test "if expression" {
     // If expressions are used instead of a ternary expression.
     const a: u32 = 5;
     const b: u32 = 4;
     const result = if (a != b) 47 else 3089;
-    assert(result == 47);
+    expect(result == 47);
 }
 
 test "if boolean" {
@@ -3873,7 +3873,7 @@ test "if boolean" {
     const a: u32 = 5;
     const b: u32 = 4;
     if (a != b) {
-        assert(true);
+        expect(true);
     } else if (a == 9) {
         unreachable;
     } else {
@@ -3886,7 +3886,7 @@ test "if optional" {
 
     const a: ?u32 = 0;
     if (a) |value| {
-        assert(value == 0);
+        expect(value == 0);
     } else {
         unreachable;
     }
@@ -3895,17 +3895,17 @@ test "if optional" {
     if (b) |value| {
         unreachable;
     } else {
-        assert(true);
+        expect(true);
     }
 
     // The else is not required.
     if (a) |value| {
-        assert(value == 0);
+        expect(value == 0);
     }
 
     // To test against null only, use the binary equality operator.
     if (b == null) {
-        assert(true);
+        expect(true);
     }
 
     // Access the value by reference using a pointer capture.
@@ -3915,7 +3915,7 @@ test "if optional" {
     }
 
     if (c) |value| {
-        assert(value == 2);
+        expect(value == 2);
     } else {
         unreachable;
     }
@@ -3927,7 +3927,7 @@ test "if error union" {
 
     const a: anyerror!u32 = 0;
     if (a) |value| {
-        assert(value == 0);
+        expect(value == 0);
     } else |err| {
         unreachable;
     }
@@ -3936,17 +3936,17 @@ test "if error union" {
     if (b) |value| {
         unreachable;
     } else |err| {
-        assert(err == error.BadValue);
+        expect(err == error.BadValue);
     }
 
     // The else and |err| capture is strictly required.
     if (a) |value| {
-        assert(value == 0);
+        expect(value == 0);
     } else |_| {}
 
     // To check only the error value, use an empty block expression.
     if (b) |_| {} else |err| {
-        assert(err == error.BadValue);
+        expect(err == error.BadValue);
     }
 
     // Access the value by reference using a pointer capture.
@@ -3958,7 +3958,7 @@ test "if error union" {
     }
 
     if (c) |value| {
-        assert(value == 9);
+        expect(value == 9);
     } else |err| {
         unreachable;
     }
@@ -3970,14 +3970,14 @@ test "if error union with optional" {
 
     const a: anyerror!?u32 = 0;
     if (a) |optional_value| {
-        assert(optional_value.? == 0);
+        expect(optional_value.? == 0);
     } else |err| {
         unreachable;
     }
 
     const b: anyerror!?u32 = null;
     if (b) |optional_value| {
-        assert(optional_value == null);
+        expect(optional_value == null);
     } else |err| {
         unreachable;
     }
@@ -3986,7 +3986,7 @@ test "if error union with optional" {
     if (c) |optional_value| {
         unreachable;
     } else |err| {
-        assert(err == error.BadValue);
+        expect(err == error.BadValue);
     }
 
     // Access the value by reference by using a pointer capture each time.
@@ -4000,7 +4000,7 @@ test "if error union with optional" {
     }
 
     if (d) |optional_value| {
-        assert(optional_value.? == 9);
+        expect(optional_value.? == 9);
     } else |err| {
         unreachable;
     }
@@ -4011,7 +4011,7 @@ test "if error union with optional" {
       {#header_open|defer#}
       {#code_begin|test|defer#}
 const std = @import("std");
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 const print = std.debug.print;
 
 // defer will execute an expression at the end of the current scope.
@@ -4022,14 +4022,14 @@ fn deferExample() usize {
         defer a = 2;
         a = 1;
     }
-    assert(a == 2);
+    expect(a == 2);
 
     a = 5;
     return a;
 }
 
 test "defer basics" {
-    assert(deferExample() == 5);
+    expect(deferExample() == 5);
 }
 
 // If multiple defer statements are specified, they will be executed in
@@ -4106,8 +4106,9 @@ test "basic math" {
     }
 }
       {#code_end#}
-      <p>In fact, this is how assert is implemented:</p>
+      <p>In fact, this is how {#syntax#}std.debug.assert{#endsyntax#} is implemented:</p>
       {#code_begin|test_err#}
+// This is how std.debug.assert is implemented
 fn assert(ok: bool) void {
     if (!ok) unreachable; // assertion failure
 }
@@ -4166,19 +4167,19 @@ pub extern "kernel32" fn ExitProcess(exit_code: c_uint) callconv(.Stdcall) noret
 
 test "foo" {
     const value = bar() catch ExitProcess(1);
-    assert(value == 1234);
+    expect(value == 1234);
 }
 
 fn bar() anyerror!u32 {
     return 1234;
 }
 
-const assert = @import("std").debug.assert;
+const expect = @import("std").testing.expect;
       {#code_end#}
       {#header_close#}
       {#header_open|Functions#}
       {#code_begin|test|functions#}
-const assert = @import("std").debug.assert;
+const expect = @import("std").testing.expect;
 
 // Functions are declared like this
 fn add(a: i8, b: i8) i8 {
@@ -4229,17 +4230,17 @@ fn do_op(fn_call: call2_op, op1: i8, op2: i8) i8 {
 }
 
 test "function" {
-    assert(do_op(add, 5, 6) == 11);
-    assert(do_op(sub2, 5, 6) == -1);
+    expect(do_op(add, 5, 6) == 11);
+    expect(do_op(sub2, 5, 6) == -1);
 }
       {#code_end#}
       <p>Function values are like pointers:</p>
       {#code_begin|obj#}
-const assert = @import("std").debug.assert;
+const expect = @import("std").testing.expect;
 
 comptime {
-    assert(@TypeOf(foo) == fn()void);
-    assert(@sizeOf(fn()void) == @sizeOf(?fn()void));
+    expect(@TypeOf(foo) == fn()void);
+    expect(@sizeOf(fn()void) == @sizeOf(?fn()void));
 }
 
 fn foo() void { }
@@ -4271,10 +4272,10 @@ fn foo(point: Point) i32 {
     return point.x + point.y;
 }
 
-const assert = @import("std").debug.assert;
+const expect = @import("std").testing.expect;
 
 test "pass struct to function" {
-    assert(foo(Point{ .x = 1, .y = 2 }) == 3);
+    expect(foo(Point{ .x = 1, .y = 2 }) == 3);
 }
       {#code_end#}
       <p>
@@ -4288,29 +4289,29 @@ test "pass struct to function" {
       Use {#link|@TypeOf#} and {#link|@typeInfo#} to get information about the inferred type.
       </p>
       {#code_begin|test#}
-const assert = @import("std").debug.assert;
+const expect = @import("std").testing.expect;
 
 fn addFortyTwo(x: anytype) @TypeOf(x) {
     return x + 42;
 }
 
 test "fn type inference" {
-    assert(addFortyTwo(1) == 43);
-    assert(@TypeOf(addFortyTwo(1)) == comptime_int);
+    expect(addFortyTwo(1) == 43);
+    expect(@TypeOf(addFortyTwo(1)) == comptime_int);
     var y: i64 = 2;
-    assert(addFortyTwo(y) == 44);
-    assert(@TypeOf(addFortyTwo(y)) == i64);
+    expect(addFortyTwo(y) == 44);
+    expect(@TypeOf(addFortyTwo(y)) == i64);
 }
       {#code_end#}
 
       {#header_close#}
       {#header_open|Function Reflection#}
       {#code_begin|test#}
-const assert = @import("std").debug.assert;
+const expect = @import("std").testing.expect;
 
 test "fn reflection" {
-    assert(@TypeOf(assert).ReturnType == void);
-    assert(@TypeOf(assert).is_var_args == false);
+    expect(@TypeOf(expect).ReturnType == void);
+    expect(@TypeOf(expect).is_var_args == false);
 }
       {#code_end#}
       {#header_close#}
@@ -4345,7 +4346,7 @@ const AllocationError = error {
 
 test "coerce subset to superset" {
     const err = foo(AllocationError.OutOfMemory);
-    std.debug.assert(err == FileOpenError.OutOfMemory);
+    std.testing.expect(err == FileOpenError.OutOfMemory);
 }
 
 fn foo(err: AllocationError) FileOpenError {
@@ -4453,7 +4454,7 @@ fn charToDigit(c: u8) u8 {
 
 test "parse u64" {
     const result = try parseU64("1234", 10);
-    std.debug.assert(result == 1234);
+    std.testing.expect(result == 1234);
 }
       {#code_end#}
       <p>
@@ -4598,7 +4599,7 @@ fn createFoo(param: i32) !Foo {
       <p>An error union is created with the {#syntax#}!{#endsyntax#} binary operator.
       You can use compile-time reflection to access the child type of an error union:</p>
       {#code_begin|test#}
-const assert = @import("std").debug.assert;
+const expect = @import("std").testing.expect;
 
 test "error union" {
     var foo: anyerror!i32 = undefined;
@@ -4610,10 +4611,10 @@ test "error union" {
     foo = error.SomeError;
 
     // Use compile-time reflection to access the payload type of an error union:
-    comptime assert(@TypeOf(foo).Payload == i32);
+    comptime expect(@TypeOf(foo).Payload == i32);
 
     // Use compile-time reflection to access the error set type of an error union:
-    comptime assert(@TypeOf(foo).ErrorSet == anyerror);
+    comptime expect(@TypeOf(foo).ErrorSet == anyerror);
 }
       {#code_end#}
       {#header_open|Merging Error Sets#}
@@ -4980,7 +4981,7 @@ fn doAThing(optional_foo: ?*Foo) void {
       <p>An optional is created by putting {#syntax#}?{#endsyntax#} in front of a type. You can use compile-time
       reflection to access the child type of an optional:</p>
       {#code_begin|test#}
-const assert = @import("std").debug.assert;
+const expect = @import("std").testing.expect;
 
 test "optional type" {
     // Declare an optional and coerce from null:
@@ -4990,7 +4991,7 @@ test "optional type" {
     foo = 1234;
 
     // Use compile-time reflection to access the child type of the optional:
-    comptime assert(@TypeOf(foo).Child == i32);
+    comptime expect(@TypeOf(foo).Child == i32);
 }
       {#code_end#}
       {#header_close#}
@@ -5007,7 +5008,7 @@ const optional_value: ?i32 = null;
       <p>An optional pointer is guaranteed to be the same size as a pointer. The {#syntax#}null{#endsyntax#} of
       the optional is guaranteed to be address 0.</p>
       {#code_begin|test#}
-const assert = @import("std").debug.assert;
+const expect = @import("std").testing.expect;
 
 test "optional pointers" {
     // Pointers cannot be null. If you want a null pointer, use the optional
@@ -5017,11 +5018,11 @@ test "optional pointers" {
     var x: i32 = 1;
     ptr = &x;
 
-    assert(ptr.?.* == 1);
+    expect(ptr.?.* == 1);
 
     // Optional pointers are the same size as normal pointers, because pointer
     // value 0 is used as the null value.
-    assert(@sizeOf(?*i32) == @sizeOf(*i32));
+    expect(@sizeOf(?*i32) == @sizeOf(*i32));
 }
       {#code_end#}
       {#header_close#}
@@ -5088,13 +5089,13 @@ fn foo(a: *const i32) void {}
       </p>
       {#code_begin|test#}
 const std = @import("std");
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 const mem = std.mem;
 
 test "cast *[1][*]const u8 to [*]const ?[*]const u8" {
     const window_name = [1][*]const u8{"window name"};
     const x: [*]const ?[*]const u8 = &window_name;
-    assert(mem.eql(u8, std.mem.spanZ(@ptrCast([*:0]const u8, x[0].?)), "window name"));
+    expect(mem.eql(u8, std.mem.spanZ(@ptrCast([*:0]const u8, x[0].?)), "window name"));
 }
       {#code_end#}
       {#header_close#}
@@ -5105,7 +5106,7 @@ test "cast *[1][*]const u8 to [*]const ?[*]const u8" {
       </p>
       {#code_begin|test#}
 const std = @import("std");
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 const mem = std.mem;
 
 test "integer widening" {
@@ -5115,13 +5116,13 @@ test "integer widening" {
     var d: u64 = c;
     var e: u64 = d;
     var f: u128 = e;
-    assert(f == a);
+    expect(f == a);
 }
 
 test "implicit unsigned integer to signed integer" {
     var a: u8 = 250;
     var b: i16 = a;
-    assert(b == 250);
+    expect(b == 250);
 }
 
 test "float widening" {
@@ -5133,14 +5134,14 @@ test "float widening" {
     var b: f32 = a;
     var c: f64 = b;
     var d: f128 = c;
-    assert(d == a);
+    expect(d == a);
 }
       {#code_end#}
       {#header_close#}
       {#header_open|Type Coercion: Arrays and Pointers#}
       {#code_begin|test|coerce_arrays_and_ptrs#}
 const std = @import("std");
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 // This cast exists primarily so that string literals can be
 // passed to functions that accept const slices. However
@@ -5149,41 +5150,41 @@ const assert = std.debug.assert;
 test "[N]T to []const T" {
     var x1: []const u8 = "hello";
     var x2: []const u8 = &[5]u8{ 'h', 'e', 'l', 'l', 111 };
-    assert(std.mem.eql(u8, x1, x2));
+    expect(std.mem.eql(u8, x1, x2));
 
     var y: []const f32 = &[2]f32{ 1.2, 3.4 };
-    assert(y[0] == 1.2);
+    expect(y[0] == 1.2);
 }
 
 // Likewise, it works when the destination type is an error union.
 test "[N]T to E![]const T" {
     var x1: anyerror![]const u8 = "hello";
     var x2: anyerror![]const u8 = &[5]u8{ 'h', 'e', 'l', 'l', 111 };
-    assert(std.mem.eql(u8, try x1, try x2));
+    expect(std.mem.eql(u8, try x1, try x2));
 
     var y: anyerror![]const f32 = &[2]f32{ 1.2, 3.4 };
-    assert((try y)[0] == 1.2);
+    expect((try y)[0] == 1.2);
 }
 
 // Likewise, it works when the destination type is an optional.
 test "[N]T to ?[]const T" {
     var x1: ?[]const u8 = "hello";
     var x2: ?[]const u8 = &[5]u8{ 'h', 'e', 'l', 'l', 111 };
-    assert(std.mem.eql(u8, x1.?, x2.?));
+    expect(std.mem.eql(u8, x1.?, x2.?));
 
     var y: ?[]const f32 = &[2]f32{ 1.2, 3.4 };
-    assert(y.?[0] == 1.2);
+    expect(y.?[0] == 1.2);
 }
 
 // In this cast, the array length becomes the slice length.
 test "*[N]T to []T" {
     var buf: [5]u8 = "hello".*;
     const x: []u8 = &buf;
-    assert(std.mem.eql(u8, x, "hello"));
+    expect(std.mem.eql(u8, x, "hello"));
 
     const buf2 = [2]f32{ 1.2, 3.4 };
     const x2: []const f32 = &buf2;
-    assert(std.mem.eql(f32, x2, &[2]f32{ 1.2, 3.4 }));
+    expect(std.mem.eql(f32, x2, &[2]f32{ 1.2, 3.4 }));
 }
 
 // Single-item pointers to arrays can be coerced to
@@ -5191,7 +5192,7 @@ test "*[N]T to []T" {
 test "*[N]T to [*]T" {
     var buf: [5]u8 = "hello".*;
     const x: [*]u8 = &buf;
-    assert(x[4] == 'o');
+    expect(x[4] == 'o');
     // x[5] would be an uncaught out of bounds pointer dereference!
 }
 
@@ -5199,7 +5200,7 @@ test "*[N]T to [*]T" {
 test "*[N]T to ?[*]T" {
     var buf: [5]u8 = "hello".*;
     const x: ?[*]u8 = &buf;
-    assert(x.?[4] == 'o');
+    expect(x.?[4] == 'o');
 }
 
 // Single-item pointers can be cast to len-1 single-item arrays.
@@ -5207,7 +5208,7 @@ test "*T to *[1]T" {
     var x: i32 = 1234;
     const y: *[1]i32 = &x;
     const z: [*]i32 = y;
-    assert(z[0] == 1234);
+    expect(z[0] == 1234);
 }
       {#code_end#}
       {#see_also|C Pointers#}
@@ -5218,27 +5219,27 @@ test "*T to *[1]T" {
       </p>
       {#code_begin|test#}
 const std = @import("std");
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 test "coerce to optionals" {
     const x: ?i32 = 1234;
     const y: ?i32 = null;
 
-    assert(x.? == 1234);
-    assert(y == null);
+    expect(x.? == 1234);
+    expect(y == null);
 }
       {#code_end#}
       <p>It works nested inside the {#link|Error Union Type#}, too:</p>
       {#code_begin|test#}
 const std = @import("std");
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 test "coerce to optionals wrapped in error union" {
     const x: anyerror!?i32 = 1234;
     const y: anyerror!?i32 = null;
 
-    assert((try x).? == 1234);
-    assert((try y) == null);
+    expect((try x).? == 1234);
+    expect((try y) == null);
 }
       {#code_end#}
       {#header_close#}
@@ -5248,13 +5249,13 @@ test "coerce to optionals wrapped in error union" {
       </p>
       {#code_begin|test#}
 const std = @import("std");
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 test "coercion to error unions" {
     const x: anyerror!i32 = 1234;
     const y: anyerror!i32 = error.Failure;
 
-    assert((try x) == 1234);
+    expect((try x) == 1234);
     std.testing.expectError(error.Failure, y);
 }
       {#code_end#}
@@ -5265,12 +5266,12 @@ test "coercion to error unions" {
       </p>
       {#code_begin|test#}
 const std = @import("std");
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 test "coercing large integer type to smaller one when value is comptime known to fit" {
     const x: u64 = 255;
     const y: u8 = x;
-    assert(y == 255);
+    expect(y == 255);
 }
       {#code_end#}
       {#header_close#}
@@ -5281,7 +5282,7 @@ test "coercing large integer type to smaller one when value is comptime known to
       </p>
       {#code_begin|test#}
 const std = @import("std");
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 const E = enum {
     One,
@@ -5298,11 +5299,11 @@ const U = union(E) {
 test "coercion between unions and enums" {
     var u = U{ .Two = 12.34 };
     var e: E = u;
-    assert(e == E.Two);
+    expect(e == E.Two);
 
     const three = E.Three;
     var another_u: U = three;
-    assert(another_u == E.Three);
+    expect(another_u == E.Three);
 }
       {#code_end#}
       {#see_also|union|enum#}
@@ -5368,22 +5369,22 @@ test "coercion of zero bit types" {
       </p>
       {#code_begin|test|peer_type_resolution#}
 const std = @import("std");
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 const mem = std.mem;
 
 test "peer resolve int widening" {
     var a: i8 = 12;
     var b: i16 = 34;
     var c = a + b;
-    assert(c == 46);
-    assert(@TypeOf(c) == i16);
+    expect(c == 46);
+    expect(@TypeOf(c) == i16);
 }
 
 test "peer resolve arrays of different size to const slice" {
-    assert(mem.eql(u8, boolToStr(true), "true"));
-    assert(mem.eql(u8, boolToStr(false), "false"));
-    comptime assert(mem.eql(u8, boolToStr(true), "true"));
-    comptime assert(mem.eql(u8, boolToStr(false), "false"));
+    expect(mem.eql(u8, boolToStr(true), "true"));
+    expect(mem.eql(u8, boolToStr(false), "false"));
+    comptime expect(mem.eql(u8, boolToStr(true), "true"));
+    comptime expect(mem.eql(u8, boolToStr(false), "false"));
 }
 fn boolToStr(b: bool) []const u8 {
     return if (b) "true" else "false";
@@ -5396,16 +5397,16 @@ test "peer resolve array and const slice" {
 fn testPeerResolveArrayConstSlice(b: bool) void {
     const value1 = if (b) "aoeu" else @as([]const u8, "zz");
     const value2 = if (b) @as([]const u8, "zz") else "aoeu";
-    assert(mem.eql(u8, value1, "aoeu"));
-    assert(mem.eql(u8, value2, "zz"));
+    expect(mem.eql(u8, value1, "aoeu"));
+    expect(mem.eql(u8, value2, "zz"));
 }
 
 test "peer type resolution: ?T and T" {
-    assert(peerTypeTAndOptionalT(true, false).? == 0);
-    assert(peerTypeTAndOptionalT(false, false).? == 3);
+    expect(peerTypeTAndOptionalT(true, false).? == 0);
+    expect(peerTypeTAndOptionalT(false, false).? == 3);
     comptime {
-        assert(peerTypeTAndOptionalT(true, false).? == 0);
-        assert(peerTypeTAndOptionalT(false, false).? == 3);
+        expect(peerTypeTAndOptionalT(true, false).? == 0);
+        expect(peerTypeTAndOptionalT(false, false).? == 3);
     }
 }
 fn peerTypeTAndOptionalT(c: bool, b: bool) ?usize {
@@ -5417,11 +5418,11 @@ fn peerTypeTAndOptionalT(c: bool, b: bool) ?usize {
 }
 
 test "peer type resolution: *[0]u8 and []const u8" {
-    assert(peerTypeEmptyArrayAndSlice(true, "hi").len == 0);
-    assert(peerTypeEmptyArrayAndSlice(false, "hi").len == 1);
+    expect(peerTypeEmptyArrayAndSlice(true, "hi").len == 0);
+    expect(peerTypeEmptyArrayAndSlice(false, "hi").len == 1);
     comptime {
-        assert(peerTypeEmptyArrayAndSlice(true, "hi").len == 0);
-        assert(peerTypeEmptyArrayAndSlice(false, "hi").len == 1);
+        expect(peerTypeEmptyArrayAndSlice(true, "hi").len == 0);
+        expect(peerTypeEmptyArrayAndSlice(false, "hi").len == 1);
     }
 }
 fn peerTypeEmptyArrayAndSlice(a: bool, slice: []const u8) []const u8 {
@@ -5435,14 +5436,14 @@ test "peer type resolution: *[0]u8, []const u8, and anyerror![]u8" {
     {
         var data = "hi".*;
         const slice = data[0..];
-        assert((try peerTypeEmptyArrayAndSliceAndError(true, slice)).len == 0);
-        assert((try peerTypeEmptyArrayAndSliceAndError(false, slice)).len == 1);
+        expect((try peerTypeEmptyArrayAndSliceAndError(true, slice)).len == 0);
+        expect((try peerTypeEmptyArrayAndSliceAndError(false, slice)).len == 1);
     }
     comptime {
         var data = "hi".*;
         const slice = data[0..];
-        assert((try peerTypeEmptyArrayAndSliceAndError(true, slice)).len == 0);
-        assert((try peerTypeEmptyArrayAndSliceAndError(false, slice)).len == 1);
+        expect((try peerTypeEmptyArrayAndSliceAndError(true, slice)).len == 0);
+        expect((try peerTypeEmptyArrayAndSliceAndError(false, slice)).len == 1);
     }
 }
 fn peerTypeEmptyArrayAndSliceAndError(a: bool, slice: []u8) anyerror![]u8 {
@@ -5456,8 +5457,8 @@ fn peerTypeEmptyArrayAndSliceAndError(a: bool, slice: []u8) anyerror![]u8 {
 test "peer type resolution: *const T and ?*T" {
     const a = @intToPtr(*const usize, 0x123456780);
     const b = @intToPtr(?*usize, 0x123456780);
-    assert(a == b);
-    assert(b == a);
+    expect(a == b);
+    expect(b == a);
 }
       {#code_end#}
       {#header_close#}
@@ -5504,7 +5505,7 @@ export fn entry() void {
       </p>
       {#code_begin|test#}
 const std = @import("std");
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 test "turn HashMap into a set with void" {
     var map = std.AutoHashMap(i32, void).init(std.testing.allocator);
@@ -5513,11 +5514,11 @@ test "turn HashMap into a set with void" {
     try map.put(1, {});
     try map.put(2, {});
 
-    assert(map.contains(2));
-    assert(!map.contains(3));
+    expect(map.contains(2));
+    expect(!map.contains(3));
 
     _ = map.remove(2);
-    assert(!map.contains(2));
+    expect(!map.contains(2));
 }
       {#code_end#}
       <p>Note that this is different from using a dummy value for the hash map value.
@@ -5564,7 +5565,7 @@ fn foo() i32 {
       <p>Pointers to zero bit types also have zero bits. They always compare equal to each other:</p>
       {#code_begin|test#}
 const std = @import("std");
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 test "pointer to empty struct" {
     const Empty = struct {};
@@ -5572,7 +5573,7 @@ test "pointer to empty struct" {
     var b = Empty{};
     var ptr_a = &a;
     var ptr_b = &b;
-    comptime assert(ptr_a == ptr_b);
+    comptime expect(ptr_a == ptr_b);
 }
       {#code_end#}
       <p>The type being pointed to can only ever be one value; therefore loads and stores are
@@ -5607,7 +5608,7 @@ test "@intToPtr for pointer to zero bit type" {
 usingnamespace @import("std");
 
 test "using std namespace" {
-    debug.assert(true);
+    testing.expect(true);
 }
       {#code_end#}
       <p>
@@ -5719,7 +5720,7 @@ fn max(comptime T: type, a: T, b: T) T {
     }
 }
 test "try to compare bools" {
-    @import("std").debug.assert(max(bool, false, true) == true);
+    @import("std").testing.expect(max(bool, false, true) == true);
 }
       {#code_end#}
       <p>
@@ -5759,7 +5760,7 @@ fn max(a: bool, b: bool) bool {
       For example:
       </p>
       {#code_begin|test|comptime_vars#}
-const assert = @import("std").debug.assert;
+const expect = @import("std").testing.expect;
 
 const CmdFn = struct {
     name: []const u8,
@@ -5787,9 +5788,9 @@ fn performFn(comptime prefix_char: u8, start_value: i32) i32 {
 }
 
 test "perform fn" {
-    assert(performFn('t', 1) == 6);
-    assert(performFn('o', 0) == 1);
-    assert(performFn('w', 99) == 99);
+    expect(performFn('t', 1) == 6);
+    expect(performFn('o', 0) == 1);
+    expect(performFn('w', 99) == 99);
 }
       {#code_end#}
       <p>
@@ -5800,7 +5801,7 @@ test "perform fn" {
       </p>
       {#code_begin|syntax#}
 // From the line:
-// assert(performFn('t', 1) == 6);
+// expect(performFn('t', 1) == 6);
 fn performFn(start_value: i32) i32 {
     var result: i32 = start_value;
     result = two(result);
@@ -5810,7 +5811,7 @@ fn performFn(start_value: i32) i32 {
       {#code_end#}
       {#code_begin|syntax#}
 // From the line:
-// assert(performFn('o', 0) == 1);
+// expect(performFn('o', 0) == 1);
 fn performFn(start_value: i32) i32 {
     var result: i32 = start_value;
     result = one(result);
@@ -5819,7 +5820,7 @@ fn performFn(start_value: i32) i32 {
       {#code_end#}
       {#code_begin|syntax#}
 // From the line:
-// assert(performFn('w', 99) == 99);
+// expect(performFn('w', 99) == 99);
 fn performFn(start_value: i32) i32 {
     var result: i32 = start_value;
     return result;
@@ -5872,7 +5873,7 @@ test "foo" {
       Let's look at an example:
       </p>
       {#code_begin|test#}
-const assert = @import("std").debug.assert;
+const expect = @import("std").testing.expect;
 
 fn fibonacci(index: u32) u32 {
     if (index < 2) return index;
@@ -5881,11 +5882,11 @@ fn fibonacci(index: u32) u32 {
 
 test "fibonacci" {
     // test fibonacci at run-time
-    assert(fibonacci(7) == 13);
+    expect(fibonacci(7) == 13);
 
     // test fibonacci at compile-time
     comptime {
-        assert(fibonacci(7) == 13);
+        expect(fibonacci(7) == 13);
     }
 }
       {#code_end#}
@@ -5893,7 +5894,7 @@ test "fibonacci" {
       Imagine if we had forgotten the base case of the recursive function and tried to run the tests:
       </p>
       {#code_begin|test_err|operation caused overflow#}
-const assert = @import("std").debug.assert;
+const expect = @import("std").testing.expect;
 
 fn fibonacci(index: u32) u32 {
     //if (index < 2) return index;
@@ -5902,7 +5903,7 @@ fn fibonacci(index: u32) u32 {
 
 test "fibonacci" {
     comptime {
-        assert(fibonacci(7) == 13);
+        expect(fibonacci(7) == 13);
     }
 }
       {#code_end#}
@@ -5916,7 +5917,7 @@ test "fibonacci" {
       But what would have happened if we used a signed integer?
       </p>
       {#code_begin|test_err|evaluation exceeded 1000 backwards branches#}
-const assert = @import("std").debug.assert;
+const expect = @import("std").testing.expect;
 
 fn fibonacci(index: i32) i32 {
     //if (index < 2) return index;
@@ -5925,7 +5926,7 @@ fn fibonacci(index: i32) i32 {
 
 test "fibonacci" {
     comptime {
-        assert(fibonacci(7) == 13);
+        expect(fibonacci(7) == 13);
     }
 }
       {#code_end#}
@@ -5936,10 +5937,10 @@ test "fibonacci" {
       {#link|@setEvalBranchQuota#} to change the default number 1000 to something else.
       </p>
       <p>
-      What if we fix the base case, but put the wrong value in the {#syntax#}assert{#endsyntax#} line?
+      What if we fix the base case, but put the wrong value in the {#syntax#}expect{#endsyntax#} line?
       </p>
-      {#code_begin|test_err|unable to evaluate constant expression#}
-const assert = @import("std").debug.assert;
+      {#code_begin|test_err|encountered @panic at compile-time#}
+const expect = @import("std").testing.expect;
 
 fn fibonacci(index: i32) i32 {
     if (index < 2) return index;
@@ -5948,16 +5949,15 @@ fn fibonacci(index: i32) i32 {
 
 test "fibonacci" {
     comptime {
-        assert(fibonacci(7) == 99999);
+        expect(fibonacci(7) == 99999);
     }
 }
       {#code_end#}
       <p>
-      What happened is Zig started interpreting the {#syntax#}assert{#endsyntax#} function with the
+      What happened is Zig started interpreting the {#syntax#}expect{#endsyntax#} function with the
           parameter {#syntax#}ok{#endsyntax#} set to {#syntax#}false{#endsyntax#}. When the interpreter hit
-                  {#syntax#}unreachable{#endsyntax#} it emitted a compile error, because reaching unreachable
-      code is undefined behavior, and undefined behavior causes a compile error if it is detected
-      at compile-time.
+                  {#syntax#}@panic{#endsyntax#} it emitted a compile error because a panic during compile
+      causes a compile error if it is detected at compile-time.
       </p>
 
       <p>
@@ -5999,7 +5999,7 @@ fn sum(numbers: []const i32) i32 {
 }
 
 test "variable values" {
-    @import("std").debug.assert(sum_of_first_25_primes == 1060);
+    @import("std").testing.expect(sum_of_first_25_primes == 1060);
 }
       {#code_end#}
       <p>
@@ -6392,7 +6392,7 @@ volatile (
       {#code_begin|test|global-asm#}
       {#target_linux_x86_64#}
 const std = @import("std");
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 comptime {
     asm (
@@ -6407,7 +6407,7 @@ comptime {
 extern fn my_func(a: i32, b: i32) i32;
 
 test "global assembly" {
-    assert(my_func(12, 34) == 46);
+    expect(my_func(12, 34) == 46);
 }
       {#code_end#}
       {#header_close#}
@@ -6442,13 +6442,13 @@ test "global assembly" {
       </p>
       {#code_begin|test#}
 const std = @import("std");
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 var x: i32 = 1;
 
 test "suspend with no resume" {
     var frame = async func();
-    assert(x == 2);
+    expect(x == 2);
 }
 
 fn func() void {
@@ -6468,21 +6468,21 @@ fn func() void {
       </p>
       {#code_begin|test#}
 const std = @import("std");
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 var the_frame: anyframe = undefined;
 var result = false;
 
 test "async function suspend with block" {
     _ = async testSuspendBlock();
-    assert(!result);
+    expect(!result);
     resume the_frame;
-    assert(result);
+    expect(result);
 }
 
 fn testSuspendBlock() void {
     suspend {
-        comptime assert(@TypeOf(@frame()) == *@Frame(testSuspendBlock));
+        comptime expect(@TypeOf(@frame()) == *@Frame(testSuspendBlock));
         the_frame = @frame();
     }
     result = true;
@@ -6506,12 +6506,12 @@ fn testSuspendBlock() void {
       </p>
       {#code_begin|test#}
 const std = @import("std");
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 test "resume from suspend" {
     var my_result: i32 = 1;
     _ = async testResumeFromSuspend(&my_result);
-    std.debug.assert(my_result == 2);
+    std.testing.expect(my_result == 2);
 }
 fn testResumeFromSuspend(my_result: *i32) void {
     suspend {
@@ -6535,7 +6535,7 @@ fn testResumeFromSuspend(my_result: *i32) void {
       </p>
       {#code_begin|test#}
 const std = @import("std");
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 test "async and await" {
     // Here we have an exception where we do not match an async
@@ -6549,7 +6549,7 @@ test "async and await" {
 
 fn amain() void {
     var frame = async func();
-    comptime assert(@TypeOf(frame) == @Frame(func));
+    comptime expect(@TypeOf(frame) == @Frame(func));
 
     const ptr: anyframe->void = &frame;
     const any_ptr: anyframe = ptr;
@@ -6579,7 +6579,7 @@ fn func() void {
       </p>
       {#code_begin|test#}
 const std = @import("std");
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 var the_frame: anyframe = undefined;
 var final_result: i32 = 0;
@@ -6590,8 +6590,8 @@ test "async function await" {
     seq('f');
     resume the_frame;
     seq('i');
-    assert(final_result == 1234);
-    assert(std.mem.eql(u8, &seq_points, "abcdefghi"));
+    expect(final_result == 1234);
+    expect(std.mem.eql(u8, &seq_points, "abcdefghi"));
 }
 fn amain() void {
     seq('b');
@@ -6805,9 +6805,9 @@ fn readFile(allocator: *Allocator, filename: []const u8) ![]u8 {
       for the current target to match the C ABI. When the child type of a pointer has
       this alignment, the alignment can be omitted from the type.
       </p>
-      <pre>{#syntax#}const assert = @import("std").debug.assert;
+      <pre>{#syntax#}const expect = @import("std").testing.expect;
 comptime {
-    assert(*u32 == *align(@alignOf(u32)) u32);
+    expect(*u32 == *align(@alignOf(u32)) u32);
 }{#endsyntax#}</pre>
       <p>
       The result is a target-specific compile time constant. It is guaranteed to be
@@ -6843,7 +6843,7 @@ comptime {
       </p>
       {#code_begin|test#}
 const std = @import("std");
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 test "async fn pointer in a struct field" {
     var data: i32 = 1;
@@ -6853,9 +6853,9 @@ test "async fn pointer in a struct field" {
     var foo = Foo{ .bar = func };
     var bytes: [64]u8 align(@alignOf(@Frame(func))) = undefined;
     const f = @asyncCall(&bytes, {}, foo.bar, .{&data});
-    assert(data == 2);
+    expect(data == 2);
     resume f;
-    assert(data == 4);
+    expect(data == 4);
 }
 
 fn func(y: *i32) void {
@@ -7039,10 +7039,10 @@ fn func(y: *i32) void {
       Calls a function, in the same way that invoking an expression with parentheses does:
       </p>
       {#code_begin|test|call#}
-const assert = @import("std").debug.assert;
+const expect = @import("std").testing.expect;
 
 test "noinline function call" {
-    assert(@call(.{}, add, .{3, 9}) == 12);
+    expect(@call(.{}, add, .{3, 9}) == 12);
 }
 
 fn add(a: i32, b: i32) i32 {
@@ -7501,14 +7501,14 @@ const Point = struct {
 };
 
 test "field access by string" {
-    const assert = std.debug.assert;
+    const expect = std.testing.expect;
     var p = Point {.x = 0, .y = 0};
 
     @field(p, "x") = 4;
     @field(p, "y") = @field(p, "x") + 1;
 
-    assert(@field(p, "x") == 4);
-    assert(@field(p, "y") == 5);
+    expect(@field(p, "x") == 4);
+    expect(@field(p, "y") == 5);
 }
       {#code_end#}
 
@@ -7614,7 +7614,7 @@ fn func() void {
       </p>
       {#code_begin|test#}
 const std = @import("std");
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 const Foo = struct {
     nope: i32,
@@ -7624,16 +7624,16 @@ const Foo = struct {
 };
 
 test "@hasDecl" {
-    assert(@hasDecl(Foo, "blah"));
+    expect(@hasDecl(Foo, "blah"));
 
     // Even though `hi` is private, @hasDecl returns true because this test is
     // in the same file scope as Foo. It would return false if Foo was declared
     // in a different file.
-    assert(@hasDecl(Foo, "hi"));
+    expect(@hasDecl(Foo, "hi"));
 
     // @hasDecl is for declarations; not fields.
-    assert(!@hasDecl(Foo, "nope"));
-    assert(!@hasDecl(Foo, "nope1234"));
+    expect(!@hasDecl(Foo, "nope"));
+    expect(!@hasDecl(Foo, "nope1234"));
 }
       {#code_end#}
       {#see_also|@hasField#}
@@ -7808,14 +7808,14 @@ mem.set(u8, dest, c);{#endsyntax#}</pre>
       {#code_begin|test#}
 const std = @import("std");
 const builtin = @import("builtin");
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 test "@wasmMemoryGrow" {
     if (builtin.arch != .wasm32) return error.SkipZigTest;
 
     var prev = @wasmMemorySize(0);
-    assert(prev == @wasmMemoryGrow(0, 1));
-    assert(prev + 1 == @wasmMemorySize(0));
+    expect(prev == @wasmMemoryGrow(0, 1));
+    expect(prev + 1 == @wasmMemorySize(0));
 }
       {#code_end#}
       {#see_also|@wasmMemorySize#}
@@ -8151,13 +8151,13 @@ test "@setRuntimeSafety" {
       </p>
       {#code_begin|test#}
 const std = @import("std");
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 test "vector @splat" {
     const scalar: u32 = 5;
     const result = @splat(4, scalar);
-    comptime assert(@TypeOf(result) == std.meta.Vector(4, u32));
-    assert(std.mem.eql(u32, &@as([4]u32, result), &[_]u32{ 5, 5, 5, 5 }));
+    comptime expect(@TypeOf(result) == std.meta.Vector(4, u32));
+    expect(std.mem.eql(u32, &@as([4]u32, result), &[_]u32{ 5, 5, 5, 5 }));
 }
       {#code_end#}
       <p>
@@ -8367,12 +8367,12 @@ fn doTheTest() void {
       </p>
       {#code_begin|test#}
 const std = @import("std");
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 test "@This()" {
     var items = [_]i32{ 1, 2, 3, 4 };
     const list = List(i32){ .items = items[0..] };
-    assert(list.length() == 4);
+    expect(list.length() == 4);
 }
 
 fn List(comptime T: type) type {
@@ -8413,12 +8413,12 @@ test "integer cast panic" {
       </p>
       {#code_begin|test|truncate#}
 const std = @import("std");
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 test "integer truncation" {
     var a: u16 = 0xabcd;
     var b: u8 = @truncate(u8, a);
-    assert(b == 0xcd);
+    expect(b == 0xcd);
 }
       {#code_end#}
       <p>
@@ -8508,13 +8508,13 @@ test "integer truncation" {
       </p>
       {#code_begin|test#}
 const std = @import("std");
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 test "no runtime side effects" {
     var data: i32 = 0;
     const T = @TypeOf(foo(i32, &data));
-    comptime assert(T == i32);
-    assert(data == 0);
+    comptime expect(T == i32);
+    expect(data == 0);
 }
 
 fn foo(comptime T: type, ptr: *T) T {
@@ -8840,16 +8840,16 @@ pub fn main() void {
       </ul>
       {#code_begin|test#}
 const std = @import("std");
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 const minInt = std.math.minInt;
 const maxInt = std.math.maxInt;
 
 test "wraparound addition and subtraction" {
     const x: i32 = maxInt(i32);
     const min_val = x +% 1;
-    assert(min_val == minInt(i32));
+    expect(min_val == minInt(i32));
     const max_val = min_val -% 1;
-    assert(max_val == maxInt(i32));
+    expect(max_val == maxInt(i32));
 }
       {#code_end#}
       {#header_close#}
@@ -9274,13 +9274,13 @@ pub fn main() void {
       {#code_begin|test|allocator#}
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 test "using an allocator" {
     var buffer: [100]u8 = undefined;
     const allocator = &std.heap.FixedBufferAllocator.init(&buffer).allocator;
     const result = try concat(allocator, "foo", "bar");
-    assert(std.mem.eql(u8, "foobar", result));
+    expect(std.mem.eql(u8, "foobar", result));
 }
 
 fn concat(allocator: *Allocator, a: []const u8, b: []const u8) ![]u8 {
@@ -9541,10 +9541,10 @@ const separator = if (builtin.os == builtin.Os.windows) '\\' else '/';
       {#code_begin|test|detect_test#}
 const std = @import("std");
 const builtin = std.builtin;
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 test "builtin.is_test" {
-    assert(builtin.is_test);
+    expect(builtin.is_test);
 }
       {#code_end#}
       <p>
@@ -9594,7 +9594,7 @@ test "assert in release fast mode" {
 const std = @import("std");
 const expect = std.testing.expect;
 
-test "assert in release fast mode" {
+test "expect in release fast mode" {
     expect(false);
 }
       {#code_end#}
