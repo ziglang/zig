@@ -1348,6 +1348,131 @@ test "Value.jsonStringify" {
     }
 }
 
+pub const ExpectedEndToken = enum { Object, Array };
+
+fn skipValue(tokens: *TokenStream, unknown_field_buffer: []ExpectedEndToken) !void {
+    // Workaround inability to create 0 length slice with correct .ptr
+    var slice = unknown_field_buffer;
+    slice.len = 0;
+    var stack = std.ArrayListUnmanaged(ExpectedEndToken){
+        .items = slice, // unknown_field_buffer[0..0]
+        .capacity = unknown_field_buffer.len,
+    };
+    var state: enum { Value, ObjectKey } = .Value;
+    while (true) {
+        const token = (try tokens.next()) orelse return error.UnexpectedEndOfJson;
+        switch (state) {
+            .Value => switch (token) {
+                .ObjectBegin => {
+                    if (stack.items.len >= stack.capacity) return error.IgnoreFieldTooDeep;
+                    stack.appendAssumeCapacity(.Object);
+
+                    state = .ObjectKey;
+                },
+                .ArrayBegin => {
+                    if (stack.items.len >= stack.capacity) return error.IgnoreFieldTooDeep;
+                    stack.appendAssumeCapacity(.Array);
+
+                    // state = .Value;
+                },
+                .String, .Number, .True, .False, .Null => {
+                    if (stack.items.len == 0) break;
+                    switch (stack.items[stack.items.len - 1]) {
+                        .Array => {
+                            // state = .Value;
+                        },
+                        .Object => {
+                            state = .ObjectKey;
+                        },
+                    }
+                },
+                .ArrayEnd => {
+                    const prev = stack.popOrNull() orelse return error.UnexpectedToken;
+                    if (prev != .Array) return error.UnexpectedToken;
+
+                    if (stack.items.len == 0) break;
+                    switch (stack.items[stack.items.len - 1]) {
+                        .Array => {
+                            // state = .Value;
+                        },
+                        .Object => {
+                            state = .ObjectKey;
+                        },
+                    }
+                },
+                .ObjectEnd => return error.UnexpectedToken,
+            },
+            .ObjectKey => switch (token) {
+                .ObjectEnd => {
+                    const prev = stack.pop();
+                    if (prev != .Object) return error.UnexpectedToken;
+
+                    if (stack.items.len == 0) break;
+                    switch (stack.items[stack.items.len - 1]) {
+                        .Array => {
+                            state = .Value;
+                        },
+                        .Object => {
+                            state = .ObjectKey;
+                        },
+                    }
+                },
+                .String => {
+                    state = .Value;
+                },
+                else => return error.UnexpectedToken,
+            },
+        }
+    }
+    debug.assert(stack.items.len == 0);
+}
+
+test "skipValue" {
+    try skipValue(&TokenStream.init("false"), &[_]ExpectedEndToken{});
+    try skipValue(&TokenStream.init("true"), &[_]ExpectedEndToken{});
+    try skipValue(&TokenStream.init("null"), &[_]ExpectedEndToken{});
+    try skipValue(&TokenStream.init("42"), &[_]ExpectedEndToken{});
+    try skipValue(&TokenStream.init("42.0"), &[_]ExpectedEndToken{});
+    try skipValue(&TokenStream.init("\"foo\""), &[_]ExpectedEndToken{});
+
+    testing.expectError(error.IgnoreFieldTooDeep, skipValue(&TokenStream.init("[102, 111, 111]"), &[_]ExpectedEndToken{}));
+    { // basic array
+        var buf: [1]ExpectedEndToken = undefined;
+        try skipValue(&TokenStream.init("[102, 111, 111]"), &buf);
+    }
+
+    { // basic object
+        var buf: [1]ExpectedEndToken = undefined;
+        try skipValue(&TokenStream.init("{}"), &buf);
+    }
+
+    { // basic object with key/value
+        var buf: [1]ExpectedEndToken = undefined;
+        try skipValue(&TokenStream.init("{\"foo\":42}"), &buf);
+    }
+
+    { // mismatched brace/square bracket
+        var buf: [1]ExpectedEndToken = undefined;
+        testing.expectError(error.UnexpectedToken, skipValue(&TokenStream.init("[102, 111, 111}"), &buf));
+    }
+
+    { // large number of items
+        var buf: [50]ExpectedEndToken = undefined;
+        try skipValue(&TokenStream.init("[" ** 50 ++ "]" ** 50), &buf);
+    }
+
+    { // too many items
+        var buf: [50]ExpectedEndToken = undefined;
+        testing.expectError(error.IgnoreFieldTooDeep, skipValue(&TokenStream.init("[" ** 51 ++ "]" ** 51), &buf));
+    }
+
+    { // should fail if no value found (e.g. immediate close of object)
+        var tokens = TokenStream.init("{}");
+        assert(.ObjectBegin == (try tokens.next()).?);
+        testing.expectError(error.UnexpectedToken, skipValue(&tokens, &[_]ExpectedEndToken{}));
+    }
+}
+
 pub const ParseOptions = struct {
     allocator: ?*Allocator = null,
 
@@ -1357,6 +1482,10 @@ pub const ParseOptions = struct {
         Error,
         UseLast,
     } = .Error,
+
+    /// What is the maximum depth of unknown fields?
+    /// If length 0 (default), unknown fields immediately throw an error
+    unknown_field_buffer: []ExpectedEndToken = &[_]ExpectedEndToken{},
 };
 
 fn parseInternal(comptime T: type, token: Token, tokens: *TokenStream, options: ParseOptions) !T {
@@ -1481,7 +1610,13 @@ fn parseInternal(comptime T: type, token: Token, tokens: *TokenStream, options: 
                                 break;
                             }
                         }
-                        if (!found) return error.UnknownField;
+                        if (!found) {
+                            if (options.unknown_field_buffer.len == 0) {
+                                return error.UnknownField;
+                            } else {
+                                try skipValue(tokens, options.unknown_field_buffer);
+                            }
+                        }
                     },
                     else => return error.UnexpectedToken,
                 }
@@ -1656,6 +1791,16 @@ test "parse" {
 
     testing.expectEqual(@as([3]u8, "foo".*), try parse([3]u8, &TokenStream.init("\"foo\""), ParseOptions{}));
     testing.expectEqual(@as([3]u8, "foo".*), try parse([3]u8, &TokenStream.init("[102, 111, 111]"), ParseOptions{}));
+}
+
+test "parse with ignoring fields" {
+    const T = struct {
+        foo: u32,
+    };
+    var buf: [100]ExpectedEndToken = undefined;
+    testing.expectEqual(@as(T, .{ .foo = 42 }), try parse(T, &TokenStream.init("{\"foo\":42,\"bar\":100}"), ParseOptions{
+        .unknown_field_buffer = &buf,
+    }));
 }
 
 test "parse into enum" {
