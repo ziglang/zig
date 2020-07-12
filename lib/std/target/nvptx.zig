@@ -287,24 +287,3 @@ pub const cpu = struct {
         }),
     };
 };
-
-/// All nvptx CPUs, sorted alphabetically by name.
-/// TODO: Replace this with usage of `std.meta.declList`. It does work, but stage1
-/// compiler has inefficient memory and CPU usage, affecting build times.
-pub const all_cpus = &[_]*const CpuModel{
-    &cpu.sm_20,
-    &cpu.sm_21,
-    &cpu.sm_30,
-    &cpu.sm_32,
-    &cpu.sm_35,
-    &cpu.sm_37,
-    &cpu.sm_50,
-    &cpu.sm_52,
-    &cpu.sm_53,
-    &cpu.sm_60,
-    &cpu.sm_61,
-    &cpu.sm_62,
-    &cpu.sm_70,
-    &cpu.sm_72,
-    &cpu.sm_75,
-};

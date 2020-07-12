@@ -298,16 +298,3 @@ pub const cpu = struct {
         }),
     };
 };
-
-/// All hexagon CPUs, sorted alphabetically by name.
-/// TODO: Replace this with usage of `std.meta.declList`. It does work, but stage1
-/// compiler has inefficient memory and CPU usage, affecting build times.
-pub const all_cpus = &[_]*const CpuModel{
-    &cpu.generic,
-    &cpu.hexagonv5,
-    &cpu.hexagonv55,
-    &cpu.hexagonv60,
-    &cpu.hexagonv62,
-    &cpu.hexagonv65,
-    &cpu.hexagonv66,
-};
