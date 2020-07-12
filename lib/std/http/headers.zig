@@ -27,7 +27,6 @@ fn never_index_default(name: []const u8) bool {
 }
 
 const HeaderEntry = struct {
-    allocator: *Allocator,
     name: []const u8,
     value: []u8,
     never_index: bool,
@@ -36,23 +35,22 @@ const HeaderEntry = struct {
 
     fn init(allocator: *Allocator, name: []const u8, value: []const u8, never_index: ?bool) !Self {
         return Self{
-            .allocator = allocator,
             .name = name, // takes reference
             .value = try allocator.dupe(u8, value),
             .never_index = never_index orelse never_index_default(name),
         };
     }
 
-    fn deinit(self: Self) void {
-        self.allocator.free(self.value);
+    fn deinit(self: Self, allocator: *Allocator) void {
+        allocator.free(self.value);
     }
 
-    pub fn modify(self: *Self, value: []const u8, never_index: ?bool) !void {
+    pub fn modify(self: *Self, allocator: *Allocator, value: []const u8, never_index: ?bool) !void {
         const old_len = self.value.len;
         if (value.len > old_len) {
-            self.value = try self.allocator.realloc(self.value, value.len);
+            self.value = try allocator.realloc(self.value, value.len);
         } else if (value.len < old_len) {
-            self.value = self.allocator.shrink(self.value, value.len);
+            self.value = allocator.shrink(self.value, value.len);
         }
         mem.copy(u8, self.value, value);
         self.never_index = never_index orelse never_index_default(self.name);
@@ -85,16 +83,16 @@ const HeaderEntry = struct {
 
 test "HeaderEntry" {
     var e = try HeaderEntry.init(testing.allocator, "foo", "bar", null);
-    defer e.deinit();
+    defer e.deinit(testing.allocator);
     testing.expectEqualSlices(u8, "foo", e.name);
     testing.expectEqualSlices(u8, "bar", e.value);
     testing.expectEqual(false, e.never_index);
 
-    try e.modify("longer value", null);
+    try e.modify(testing.allocator, "longer value", null);
     testing.expectEqualSlices(u8, "longer value", e.value);
 
     // shorter value
-    try e.modify("x", null);
+    try e.modify(testing.allocator, "x", null);
     testing.expectEqualSlices(u8, "x", e.value);
 }
 
@@ -129,7 +127,7 @@ pub const Headers = struct {
         }
         {
             for (self.data.items) |entry| {
-                entry.deinit();
+                entry.deinit(self.allocator);
             }
             self.data.deinit(self.allocator);
         }
@@ -157,14 +155,14 @@ pub const Headers = struct {
         var entry: HeaderEntry = undefined;
         if (self.index.getEntry(name)) |kv| {
             entry = try HeaderEntry.init(self.allocator, kv.key, value, never_index);
-            errdefer entry.deinit();
+            errdefer entry.deinit(self.allocator);
             const dex = &kv.value;
             try dex.append(self.allocator, n - 1);
         } else {
             const name_dup = try self.allocator.dupe(u8, name);
             errdefer self.allocator.free(name_dup);
             entry = try HeaderEntry.init(self.allocator, name_dup, value, never_index);
-            errdefer entry.deinit();
+            errdefer entry.deinit(self.allocator);
             var dex = HeaderIndexList{};
             try dex.append(self.allocator, n - 1);
             errdefer dex.deinit(self.allocator);
@@ -203,7 +201,7 @@ pub const Headers = struct {
                 const data_index = dex.items[i];
                 const removed = self.data.orderedRemove(data_index);
                 assert(mem.eql(u8, removed.name, name));
-                removed.deinit();
+                removed.deinit(self.allocator);
             }
             dex.deinit(self.allocator);
             self.allocator.free(kv.key);
@@ -226,13 +224,13 @@ pub const Headers = struct {
         if (dex.items.len == 1) {
             // was last item; delete the index
             dex.deinit(self.allocator);
-            removed.deinit();
+            removed.deinit(self.allocator);
             const key = kv.key;
             _ = self.index.remove(key); // invalidates `kv` and `dex`
             self.allocator.free(key);
         } else {
             dex.shrink(self.allocator, dex.items.len - 1);
-            removed.deinit();
+            removed.deinit(self.allocator);
         }
         // if it was the last item; no need to rebuild index
         if (i != self.data.items.len) {
@@ -251,13 +249,13 @@ pub const Headers = struct {
         if (dex.items.len == 1) {
             // was last item; delete the index
             dex.deinit(self.allocator);
-            removed.deinit();
+            removed.deinit(self.allocator);
             const key = kv.key;
             _ = self.index.remove(key); // invalidates `kv` and `dex`
             self.allocator.free(key);
         } else {
             dex.shrink(self.allocator, dex.items.len - 1);
-            removed.deinit();
+            removed.deinit(self.allocator);
         }
         // if it was the last item; no need to rebuild index
         if (i != self.data.items.len) {
