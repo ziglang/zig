@@ -815,7 +815,7 @@ test "ThreadSafeFixedBufferAllocator" {
     try testAllocatorAlignedShrink(&fixed_buffer_allocator.allocator);
 }
 
-fn testAllocator(base_allocator: *mem.Allocator) !void {
+pub fn testAllocator(base_allocator: *mem.Allocator) !void {
     var validationAllocator = mem.validationWrap(base_allocator);
     const allocator = &validationAllocator.allocator;
 
@@ -846,7 +846,7 @@ fn testAllocator(base_allocator: *mem.Allocator) !void {
     allocator.free(slice);
 }
 
-fn testAllocatorAligned(base_allocator: *mem.Allocator, comptime alignment: u29) !void {
+pub fn testAllocatorAligned(base_allocator: *mem.Allocator, comptime alignment: u29) !void {
     var validationAllocator = mem.validationWrap(base_allocator);
     const allocator = &validationAllocator.allocator;
 
@@ -873,7 +873,7 @@ fn testAllocatorAligned(base_allocator: *mem.Allocator, comptime alignment: u29)
     testing.expect(slice.len == 0);
 }
 
-fn testAllocatorLargeAlignment(base_allocator: *mem.Allocator) mem.Allocator.Error!void {
+pub fn testAllocatorLargeAlignment(base_allocator: *mem.Allocator) mem.Allocator.Error!void {
     var validationAllocator = mem.validationWrap(base_allocator);
     const allocator = &validationAllocator.allocator;
 
@@ -905,7 +905,7 @@ fn testAllocatorLargeAlignment(base_allocator: *mem.Allocator) mem.Allocator.Err
     allocator.free(slice);
 }
 
-fn testAllocatorAlignedShrink(base_allocator: *mem.Allocator) mem.Allocator.Error!void {
+pub fn testAllocatorAlignedShrink(base_allocator: *mem.Allocator) mem.Allocator.Error!void {
     var validationAllocator = mem.validationWrap(base_allocator);
     const allocator = &validationAllocator.allocator;
 
