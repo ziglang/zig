@@ -25,6 +25,7 @@ pub const SegmentedList = @import("segmented_list.zig").SegmentedList;
 pub const SinglyLinkedList = @import("linked_list.zig").SinglyLinkedList;
 pub const SpinLock = @import("spinlock.zig").SpinLock;
 pub const StringHashMap = hash_map.StringHashMap;
+pub const StringHashMapUnmanaged = hash_map.StringHashMapUnmanaged;
 pub const TailQueue = @import("linked_list.zig").TailQueue;
 pub const Target = @import("target.zig").Target;
 pub const Thread = @import("thread.zig").Thread;

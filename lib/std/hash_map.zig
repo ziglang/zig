@@ -24,6 +24,10 @@ pub fn StringHashMap(comptime V: type) type {
     return HashMap([]const u8, V, hashString, eqlString, true);
 }
 
+pub fn StringHashMapUnmanaged(comptime V: type) type {
+    return HashMapUnmanaged([]const u8, V, hashString, eqlString, true);
+}
+
 pub fn eqlString(a: []const u8, b: []const u8) bool {
     return mem.eql(u8, a, b);
 }
